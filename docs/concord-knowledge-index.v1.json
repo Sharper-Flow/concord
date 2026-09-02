@@ -3053,9 +3053,9 @@
         "project_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:5fb0bb71ff21863782a45e5baf84cd293e657bcb2a0a83b0f2da50159a6e0542",
+      "sha256": "sha256:338b0cb3d434cc155a8221a73801b698d4383d7fbe3eaeb3a6b501b872ea621a",
       "status": "accepted",
-      "summary": "Amends CD-0096 D6 and CD-0088 D4 at their launch clauses so work start moves the calling session into the claimed worktree instead of launching a new one. The worktree claim is recorded before the move, so a failed move leaves a resumable claim rather than a moved session with no claim. The host move route is required and its absence fails closed with a typed refusal instead of a launch fallback. The default checkout must be clean, the move carries no changes and waits for the turn to end, and the session directory is read back and verified afterward. The session-prepare directory refusal, lane definition check, and read-back assertion are preserved and now guard the destination of a move.",
+      "summary": "Amends CD-0096 D6 and CD-0088 D4 at their launch clauses so work start moves the calling session into the claimed worktree instead of launching a new one. The worktree claim is recorded before the move, so a failed move leaves a resumable claim rather than a moved session with no claim. The host move route is required and its absence fails closed with a typed refusal instead of a launch fallback. The default checkout must be clean, the move carries no changes and takes effect from the next turn, and the session directory is read back and verified afterward. The session-prepare directory refusal, lane definition check, and read-back assertion are preserved and now guard the destination of a move.",
       "tags": [
         "authority",
         "worktree-isolation",
@@ -3086,6 +3086,30 @@
         "dispatch"
       ],
       "title": "Run lane dispatch as a native Task under a one-time authorization"
+    },
+    {
+      "date": "2026-09-02T00:00:00Z",
+      "home_domain_id": "product-root:concord",
+      "id": "CD-0103",
+      "kind": "decision",
+      "path": "docs/decisions/CD-0103-the-move-route-offers-no-turn-boundary.md",
+      "product_wide_rationale": "Corrects the record governing the single route by which any session acquires an implementation surface, so it binds every Domain rather than owning a runtime Domain.",
+      "scopes": {
+        "domain_ids": [],
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:af111d6bd1842e1f208919cc3cf8b7926f1b6bed47e45f20094411ef0a36ae79",
+      "status": "accepted",
+      "summary": "Amends CD-0098 D3 at its turn-end clause. The OpenCode move-session route offers no turn, busy, idle, queue, or lock handling, so the retarget takes effect from the next turn because a running turn resolves its paths before the move lands, not because the route waits for a boundary. The behavior is recorded as an observation of host 1.18.26 rather than a guarantee the host provides, and Concord adds no wait or poll of its own. Every other CD-0098 clause is preserved.",
+      "tags": [
+        "authority",
+        "session-boot",
+        "worktree-isolation"
+      ],
+      "title": "The move route offers no turn boundary, and the record says so"
     },
     {
       "criterion_bindings": [

@@ -1616,7 +1616,7 @@
         },
         {
           "kind": "adapter_test",
-          "value": "adapter/opencode/concord.test.ts#work start refuses before any effect when the host exposed no server URL"
+          "value": "adapter/opencode/concord.test.ts#work start refuses before any effect when the host handed the plugin no client"
         },
         {
           "kind": "adapter_test",
@@ -1654,6 +1654,20 @@
       "id": "CD-0102",
       "issue": 705,
       "state": "outstanding"
+    },
+    {
+      "evidence": [
+        {
+          "kind": "adapter_test",
+          "value": "adapter/opencode/concord-plugin.test.ts#routes the move through the client the host supplied"
+        },
+        {
+          "kind": "adapter_test",
+          "value": "adapter/opencode/concord.test.ts#work start retargets the calling session and records the claim before the move"
+        }
+      ],
+      "id": "CD-0103",
+      "state": "satisfied"
     },
     {
       "evidence": [

@@ -1,0 +1,14 @@
+{
+  "evidence": [
+    {
+      "kind": "adapter_test",
+      "value": "adapter/opencode/concord-plugin.test.ts#routes the move through the client the host supplied"
+    },
+    {
+      "kind": "adapter_test",
+      "value": "adapter/opencode/concord.test.ts#work start retargets the calling session and records the claim before the move"
+    }
+  ],
+  "id": "CD-0103",
+  "state": "satisfied"
+}

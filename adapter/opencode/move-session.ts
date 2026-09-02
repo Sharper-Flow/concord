@@ -3,9 +3,21 @@
 //
 // The route is `POST /experimental/control-plane/move-session` on the host's
 // own server, carrying `{ sessionID, destination: { directory } }` and
-// answering 204 on success. It is experimental and absent from the generated
-// SDK, so the adapter reaches it through the server URL the plugin factory
-// receives rather than through a typed client method.
+// answering 204 on success.
+//
+// The adapter reaches it through the client the plugin factory receives, never
+// through a URL it rebuilds. That client dispatches in process and carries the
+// host's own headers, so it reaches the route on a host that binds no socket
+// and on one that requires credentials. The plugin's `serverUrl` is a fallback
+// placeholder when the host runs no listener, which is why nothing here reads
+// it.
+//
+// The route has a typed method only on the v2 SDK client, and the v1 plugin
+// input supplies a v1 client. Importing the v2 SDK would make this the
+// adapter's first runtime dependency on a host package, resolved from the
+// operator's config directory at whatever version is installed there. The
+// generic request surface underneath the client reaches the same route with no
+// such dependency, so the route path stays a constant here.
 //
 // Concord requires the route. There is no launch fallback: a host without it
 // refuses work start, naming the route and the host version.
@@ -13,6 +25,7 @@
 import { execFileSync } from "node:child_process"
 
 export const MOVE_SESSION_ROUTE = "/experimental/control-plane/move-session"
+export const SESSION_ROUTE = "/session/{id}"
 
 // hostVersion reports the running OpenCode version so an unavailable-route
 // refusal names the host it was refused by. The probe runs only on that path,
@@ -35,24 +48,51 @@ function hostVersion(): string {
 export class MoveSessionUnavailable extends Error {}
 export class MoveSessionRefused extends Error {}
 
-// HostControlPlane holds the server URL and version the plugin factory
-// receives. The tool path and the plugin entry reach the same instance through
-// this module, which the OpenCode instance scopes to one running host.
+// HostControlPlane holds the route client the plugin factory received. The
+// tool path and the plugin entry reach the same instance through this module,
+// which the OpenCode instance scopes to one running host.
 export const hostControlPlane = (): HostControlPlane => shared
 
-export type RouteFetch = (url: URL, init: RequestInit) => Promise<Response>
+export type RouteResult = { data?: unknown; response: Response }
+
+// RouteClient is the request surface the SDK client exposes beneath its
+// generated methods. It takes the route as data, so it reaches routes the
+// generated methods omit while keeping the host's transport and headers.
+export type RouteClient = {
+  get: (options: { url: string; path?: Record<string, unknown>; signal?: AbortSignal }) => Promise<RouteResult>
+  post: (options: { url: string; body?: unknown; signal?: AbortSignal }) => Promise<RouteResult>
+}
+
+// PluginClientHost is the part of the host plugin input this module consumes.
+// The SDK client keeps its configured request surface on a member the
+// generated class does not publish, so the reach is declared here once rather
+// than cast at each call site.
+export type PluginClientHost = { client?: unknown }
+
+function routeClientOf(client: unknown): RouteClient | null {
+  const raw = (client as { _client?: Partial<RouteClient> } | null | undefined)?._client
+  if (!raw || typeof raw.get !== "function" || typeof raw.post !== "function") return null
+  return raw as RouteClient
+}
+
+function isRouteClient(source: PluginClientHost | RouteClient): source is RouteClient {
+  return typeof (source as RouteClient).post === "function" && typeof (source as RouteClient).get === "function"
+}
 
 export class HostControlPlane {
-  #serverUrl: URL | null = null
-  #fetch: RouteFetch = (url, init) => fetch(url, init)
+  #client: RouteClient | null = null
 
-  // bind records the server URL the plugin factory was handed. A tool call
-  // that runs before the factory bound one finds no route, which is the same
-  // fail-closed answer as a host that does not serve one. The transport is
-  // injectable so a test can exercise the route contract without a server.
-  bind(serverUrl: URL | string | undefined, transport?: RouteFetch): void {
-    this.#serverUrl = serverUrl ? new URL(String(serverUrl)) : null
-    this.#fetch = transport ?? ((url, init) => fetch(url, init))
+  // bind records the client the plugin factory was handed. A tool call that
+  // runs before the factory bound one finds no route, which is the same
+  // fail-closed answer as a host that serves none. A route client may be
+  // supplied directly so a test can exercise the route contract without a
+  // server.
+  bind(source: PluginClientHost | RouteClient | undefined): void {
+    if (!source) {
+      this.#client = null
+      return
+    }
+    this.#client = isRouteClient(source) ? source : routeClientOf(source.client)
   }
 
   // moveSession retargets a running session at an absolute directory. It
@@ -60,20 +100,12 @@ export class HostControlPlane {
   // default checkout, so uncommitted work stays where the operator left it
   // rather than travelling with the move.
   async moveSession(sessionID: string, directory: string, signal?: AbortSignal): Promise<void> {
-    if (!this.#serverUrl) {
-      throw new MoveSessionUnavailable(
-        `the OpenCode move-session route ${MOVE_SESSION_ROUTE} is unavailable: this host exposed no server URL (host version ${hostVersion()})`,
-      )
-    }
-    const url = new URL(MOVE_SESSION_ROUTE, this.#serverUrl)
+    const client = this.#require(
+      `the OpenCode move-session route ${MOVE_SESSION_ROUTE} is unavailable: this host handed the plugin no client (host version ${hostVersion()})`,
+    )
     let response: Response
     try {
-      response = await this.#fetch(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sessionID, destination: { directory } }),
-        signal,
-      })
+      response = (await client.post({ url: MOVE_SESSION_ROUTE, body: { sessionID, destination: { directory } }, signal })).response
     } catch (error) {
       throw new MoveSessionUnavailable(
         `the OpenCode move-session route ${MOVE_SESSION_ROUTE} is unreachable (host version ${hostVersion()}): ${error instanceof Error ? error.message : String(error)}`,
@@ -107,30 +139,26 @@ export class HostControlPlane {
     await this.#session(sessionID, "the host control plane is unreachable", signal)
   }
 
+  #require(message: string): RouteClient {
+    if (!this.#client) throw new MoveSessionUnavailable(message)
+    return this.#client
+  }
+
   // session reads one session record. Both callers want the same request and
   // differ only in what a failure means to them, so the wording arrives as a
   // prefix rather than each caller repeating the request.
   async #session(sessionID: string, prefix: string, signal?: AbortSignal): Promise<string> {
-    if (!this.#serverUrl) {
-      throw new MoveSessionUnavailable(`${prefix}: this host exposed no server URL (host version ${hostVersion()})`)
-    }
-    const url = new URL(`/session/${encodeURIComponent(sessionID)}`, this.#serverUrl)
-    let response: Response
+    const client = this.#require(`${prefix}: this host handed the plugin no client (host version ${hostVersion()})`)
+    let result: RouteResult
     try {
-      response = await this.#fetch(url, { method: "GET", headers: { Accept: "application/json" }, signal })
+      result = await client.get({ url: SESSION_ROUTE, path: { id: sessionID }, signal })
     } catch (error) {
       throw new MoveSessionRefused(`${prefix}: ${error instanceof Error ? error.message : String(error)}`)
     }
-    if (!response.ok) {
-      throw new MoveSessionRefused(`${prefix}: the host answered ${response.status}: ${await readRefusal(response)}`)
+    if (!result.response.ok) {
+      throw new MoveSessionRefused(`${prefix}: the host answered ${result.response.status}: ${await readRefusal(result.response)}`)
     }
-    let session: unknown
-    try {
-      session = await response.json()
-    } catch (error) {
-      throw new MoveSessionRefused(`the session readback was not JSON: ${error instanceof Error ? error.message : String(error)}`)
-    }
-    const directory = (session as { directory?: unknown } | null)?.directory
+    const directory = (result.data as { directory?: unknown } | null | undefined)?.directory
     if (typeof directory !== "string" || !directory) {
       throw new MoveSessionRefused("the session readback carried no directory")
     }

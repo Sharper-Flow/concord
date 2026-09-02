@@ -65,12 +65,6 @@ var surfaceRoutes = []SurfaceRoute{
 	},
 }
 
-// SurfaceRoutes returns the closed route table. Callers must not mutate the
-// returned slice.
-func SurfaceRoutes() []SurfaceRoute {
-	return append([]SurfaceRoute(nil), surfaceRoutes...)
-}
-
 // ModeSurfaceNames returns the mode's surface names in route-table order.
 func ModeSurfaceNames() []string {
 	names := make([]string, 0, len(surfaceRoutes))
@@ -78,17 +72,6 @@ func ModeSurfaceNames() []string {
 		names = append(names, route.Surface)
 	}
 	return names
-}
-
-// IsModeSurface reports whether the named surface is inside the accepted
-// parallel migration mode.
-func IsModeSurface(surface string) bool {
-	for _, route := range surfaceRoutes {
-		if route.Surface == surface {
-			return true
-		}
-	}
-	return false
 }
 
 // SurfaceRouteFor returns the route entry for a mode surface. The second

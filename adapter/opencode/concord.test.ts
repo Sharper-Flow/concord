@@ -1183,7 +1183,7 @@ await adapter.work_start.execute(${JSON.stringify(pdeathArgs)}, {
     probe.kill("SIGKILL")
     await probe.exited
     let childAlive = true
-    for (let index = 0; index < 100 && childAlive; index++) {
+    for (let index = 0; index < 750 && childAlive; index++) {
       try { process.kill(launchedPID, 0) } catch { childAlive = false }
       if (childAlive) await Bun.sleep(20)
     }

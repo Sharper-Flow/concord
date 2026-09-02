@@ -282,21 +282,22 @@ func TestSurfaceVocabularyClosedSet(t *testing.T) {
 			t.Fatalf("duplicate surface %q in route table", name)
 		}
 		seen[name] = true
-		if !IsModeSurface(name) {
-			t.Fatalf("IsModeSurface(%q) = false, want true", name)
+		if _, ok := SurfaceRouteFor(name); !ok {
+			t.Fatalf("SurfaceRouteFor(%q) found no route, want one", name)
 		}
 	}
 	for _, outside := range []string{"sessions", "conversations", "", "active-work", "Advance"} {
-		if IsModeSurface(outside) {
-			t.Fatalf("IsModeSurface(%q) = true, want false", outside)
-		}
 		if _, ok := SurfaceRouteFor(outside); ok {
 			t.Fatalf("SurfaceRouteFor(%q) found a route, want none", outside)
 		}
 	}
 	// Exactly one surface is importable: active work.
 	importable := 0
-	for _, route := range SurfaceRoutes() {
+	for _, name := range ModeSurfaceNames() {
+		route, ok := SurfaceRouteFor(name)
+		if !ok {
+			t.Fatalf("SurfaceRouteFor(%q) found no route, want one", name)
+		}
 		if route.Importable {
 			importable++
 		}

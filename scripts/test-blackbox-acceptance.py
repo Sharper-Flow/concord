@@ -345,6 +345,7 @@ def step_b_bootstrap(binary: Path, env: dict, repo: Path, public_key: bytes) -> 
         'capabilities': ['product_read', 'work_define', 'work_transition'],
         'product_scope': ['harness-product'],
         'project_scope': ['harness-project-1', 'harness-project-2', 'harness-project-3'],
+        'agent_scope': ['harness-agent-1'],
     }, env)
     if not register.get('ok'):
         raise HarnessError(f"client register response missing ok: {json.dumps(register)[:300]}")

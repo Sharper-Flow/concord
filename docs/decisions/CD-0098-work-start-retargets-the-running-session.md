@@ -94,6 +94,9 @@ dispatch under CD-0097.
 - Removing the launch path removes child session export and stream recovery, and
   with them the failure class where a launched session is lost after it starts.
 - CD-0088 D5 is untouched. This record claims no replacement readiness.
+- The floor manifest moves with the route. `fc1-session-handoff` is satisfied
+  today by a launch test, so this record rewrites that item instead of leaving a
+  satisfied condition whose evidence the change deletes.
 
 ## Rejected alternatives
 
@@ -122,6 +125,14 @@ starts in one directory and ends in another resolves paths in both.
 - `TestWorkStartRefusesDestinationOtherThanClaimedWorktree` proves D4.
 - A repository check proves D6: no `opencode run` invocation remains in the
   adapter.
+- `docs/floor-readiness.v1.json` states `fc1-session-handoff` as a retarget
+  requirement, and its evidence names the retarget tests. The launch anchor
+  `cmd/concord.TestSessionBootPassesCorePacketToOpenCodeBeforeSessionStarts` is
+  removed with the route it proved, so no satisfied item cites deleted evidence.
+- `python3 scripts/check-floor-readiness.py` passes, which it cannot do while an
+  evidence anchor names a test this record deletes.
+- `docs/law-coverage.v1.json` records CD-0098 as proved once the tests above
+  pass.
 - `python3 scripts/check-doc-contract.py`, `python3 scripts/check-json.py`,
   `python3 scripts/check-doc-links.py`, `python3 scripts/check-knowledge-index.py`,
   and `python3 scripts/check-cd-allocation.py` pass.

@@ -3027,7 +3027,7 @@
         "project_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:9c0dd09dad3d7c775193af68c82c291bdeed334d86364e35f40409d87b43c890",
+      "sha256": "sha256:fdced08f0255ece04b8b02efd225941c137adc7931c109a80cf5e4a2a41684a6",
       "status": "accepted",
       "summary": "Replaces the child-process worker route with the host's native Task tool, so a dispatched lane renders the standard worker card with progress, navigation, and cancellation. Typed dispatch opens one single-use authorization window; the adapter's before-execute hook refuses a Task call with no open window and otherwise overwrites the caller's agent selection and prompt from the recorded packet, so packet provenance is structural rather than composed by the model. The coordinator posture must order its Task ruleset so a lane pattern is last, because a blanket deny removes the tool from the model request and no hook can reach it. Lanes cannot nest workers, the lane report is the final text part of the worker session, the worker runs where the session runs, and the spawn path is removed with no fallback.",
       "tags": [
@@ -3051,7 +3051,7 @@
         "project_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:810cbf76f4dba8b600911ce4bc823a7c4d05cbbd359453b90b20cd2ac8b168a8",
+      "sha256": "sha256:15c186d685b4286ab481dc8dc0a794bffa44a69f4970984b211f215959aa73ee",
       "status": "accepted",
       "summary": "Amends CD-0096 D6 and CD-0088 D4 at their launch clauses so work start moves the calling session into the claimed worktree instead of launching a new one. The worktree claim is recorded before the move, so a failed move leaves a resumable claim rather than a moved session with no claim. The host move route is required and its absence fails closed with a typed refusal instead of a launch fallback. The default checkout must be clean, the move carries no changes and waits for the turn to end, and the session directory is read back and verified afterward. The session-prepare directory refusal, lane definition check, and read-back assertion are preserved and now guard the destination of a move.",
       "tags": [

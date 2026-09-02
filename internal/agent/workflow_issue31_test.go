@@ -22,13 +22,13 @@ func TestCaptureWorkflowTypeInitializesAndDispatchesFirstAction(t *testing.T) {
 	env := mutationEnvelope(grant, scopeVersion)
 	capture := InvokeRequest{Tool: "concord_work_define", Operation: "capture", Input: json.RawMessage(`{"title":"Workflow work","value_statement":"Ship the workflow","kind":"task","project_ids":["project-1"],"workflow_type_ref":"workflow.implementation","idempotency_key":"capture-workflow-31"}`)}
 	captured, err := Dispatch(context.Background(), s, service, capture, env)
-	if err != nil || captured.Outcome != OutcomeOK || len(captured.ChangedRefs) != 1 {
+	if err != nil || captured.Outcome != OutcomeOK || len(*captured.ChangedRefs) != 1 {
 		t.Fatalf("capture response=%+v err=%v", captured, err)
 	}
-	if captured.ChangedRefs[0].Version != "4" {
-		t.Fatalf("captured version=%s, want 4", captured.ChangedRefs[0].Version)
+	if (*captured.ChangedRefs)[0].Version != "4" {
+		t.Fatalf("captured version=%s, want 4", (*captured.ChangedRefs)[0].Version)
 	}
-	workID := captured.ChangedRefs[0].ID
+	workID := (*captured.ChangedRefs)[0].ID
 	var definition string
 	if err := s.DatabaseForTesting().QueryRow(`SELECT definition_ref FROM workflow_instances WHERE work_id=?`, workID).Scan(&definition); err != nil {
 		t.Fatal(err)

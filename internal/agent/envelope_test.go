@@ -60,6 +60,61 @@ func TestEnvelopeGoldenOutcomes(t *testing.T) {
 	}
 }
 
+func TestMutationOKEnvelopeEmitsRequiredMetadataWhenEmpty(t *testing.T) {
+	// The generated envelope contract (contracts/agent-tool-envelope.schema.json,
+	// ok def) requires changed_refs and next_valid_intents on every mutation-tool
+	// ok response. Slice omitempty elides empty values, so a successful mutation
+	// with no follow-up intents serialized without the required keys and failed
+	// adapter contract validation while the effect had applied (#702).
+	e := NewOKMutation(
+		NewBase("req-702", "concord_work_transition", "lifecycle"),
+		json.RawMessage(`{"changed_refs":[],"next_valid_intents":[]}`),
+		nil,
+		nil,
+	)
+	encoded, err := e.Encode()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{"changed_refs", "next_valid_intents"} {
+		raw, ok := decoded[key]
+		if !ok {
+			t.Fatalf("mutation ok envelope missing required key %q: %s", key, encoded)
+		}
+		if !bytes.HasPrefix(bytes.TrimSpace(raw), []byte("[")) {
+			t.Fatalf("mutation ok envelope key %q must be an array, got %s", key, raw)
+		}
+	}
+}
+
+func TestNonMutationEnvelopesOmitMutationMetadata(t *testing.T) {
+	read := newOKReadForTest(NewBase("req-702-r", "concord_product_view", "resolve"), "PM1.Q1", json.RawMessage(`{"product_id":"p-1","projects":[]}`), false)
+	readEncoded, err := read.Encode()
+	if err != nil {
+		t.Fatal(err)
+	}
+	coreError := NewCoreError(NewBase("req-702-e", "concord_work_browse", "list"), TypedError{Kind: "unreachable", RecoveryAction: RecoveryAction{Kind: "contact_operator"}, EffectState: EffectNone})
+	errorEncoded, err := coreError.Encode()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, encoded := range map[string][]byte{"ok read": readEncoded, "core error": errorEncoded} {
+		var decoded map[string]json.RawMessage
+		if err := json.Unmarshal(encoded, &decoded); err != nil {
+			t.Fatal(err)
+		}
+		for _, key := range []string{"changed_refs", "next_valid_intents"} {
+			if _, present := decoded[key]; present {
+				t.Fatalf("%s envelope must omit %q (schema forbids it outside ok): %s", name, key, encoded)
+			}
+		}
+	}
+}
+
 func TestEnvelopeRejectsUnknownVariantsAndFields(t *testing.T) {
 	base := NewBase("req", "concord_product_view", "resolve")
 	base.Outcome = Outcome("surprise")

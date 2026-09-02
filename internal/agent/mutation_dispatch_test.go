@@ -34,10 +34,10 @@ func TestDispatchInitiativeSurfaceUsesInitiativeEventsAndBoundedEntriesRead(t *t
 	if err != nil || created.Outcome != OutcomeOK {
 		t.Fatalf("create response=%+v err=%v", created, err)
 	}
-	if len(created.ChangedRefs) != 1 {
+	if len(*created.ChangedRefs) != 1 {
 		t.Fatalf("create changed refs=%+v", created.ChangedRefs)
 	}
-	initiativeID := created.ChangedRefs[0].ID
+	initiativeID := (*created.ChangedRefs)[0].ID
 	var kind string
 	if err := s.DatabaseForTesting().QueryRow(`SELECT kind FROM work_items WHERE id=?`, initiativeID).Scan(&kind); err != nil || kind != "initiative" {
 		t.Fatalf("created Initiative kind=%q err=%v", kind, err)

@@ -45,10 +45,10 @@ func bindAJ5FrameInitiative(t *testing.T, sc jobScenario) jobObservation {
 		t.Fatal("AJ5-frame-initiative: missing idempotency_seed")
 	}
 	create := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_initiative", Operation: "create", Input: []byte(fmt.Sprintf(`{"title":"Release framing","value_statement":"Coordinate the release","project_ids":["proj-web"],"idempotency_key":"%s-create"}`, seed))}, env)
-	if create.Outcome != OutcomeOK || len(create.ChangedRefs) != 1 {
+	if create.Outcome != OutcomeOK || len(*create.ChangedRefs) != 1 {
 		t.Fatalf("initiative create outcome=%s changed=%+v err=%+v", create.Outcome, create.ChangedRefs, create.Error)
 	}
-	initiativeID := create.ChangedRefs[0].ID
+	initiativeID := (*create.ChangedRefs)[0].ID
 	beforeLifecycle, _ := readWorkFromStore(t, s, "work-ready-low")
 	add := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_initiative", Operation: "add_entry", Input: []byte(fmt.Sprintf(`{"initiative_work_id":"%s","child_work_id":"work-ready-low","expected_version":2,"position":0,"required":true,"idempotency_key":"%s-add"}`, initiativeID, seed))}, env)
 	if add.Outcome != OutcomeOK {
@@ -103,7 +103,7 @@ func bindAJ3CaptureWork(t *testing.T, sc jobScenario) jobObservation {
 		t.Fatalf("capture failed outcome=%s err=%+v", first.Outcome, first.Error)
 	}
 
-	createdWorkID := first.ChangedRefs[0].ID
+	createdWorkID := (*first.ChangedRefs)[0].ID
 	lifecycle, version := readWorkFromStore(t, s, createdWorkID)
 	if lifecycle != "needed" {
 		t.Fatalf("created work lifecycle=%q, want needed", lifecycle)
@@ -1239,10 +1239,10 @@ func TestOperatorApprovedScopeCutProceeds(t *testing.T) {
 	if approved.Outcome != OutcomeOK {
 		t.Fatalf("operator-approved scope cut was refused outcome=%s err=%+v", approved.Outcome, approved.Error)
 	}
-	if len(approved.ChangedRefs) == 0 {
+	if len(*approved.ChangedRefs) == 0 {
 		t.Fatal("approved capture reported no changed refs")
 	}
-	if lifecycle, _ := readWorkFromStore(t, s, approved.ChangedRefs[0].ID); lifecycle != "needed" {
+	if lifecycle, _ := readWorkFromStore(t, s, (*approved.ChangedRefs)[0].ID); lifecycle != "needed" {
 		t.Fatalf("approved capture produced lifecycle %q, want needed", lifecycle)
 	}
 }

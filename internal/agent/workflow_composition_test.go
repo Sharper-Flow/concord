@@ -73,10 +73,10 @@ func captureCompositionWork(t *testing.T, ctx context.Context, s *store.Store, s
 		t.Fatal(err)
 	}
 	response, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_define", Operation: "capture", Input: raw}, env)
-	if err != nil || response.Outcome != OutcomeOK || len(response.ChangedRefs) != 1 {
+	if err != nil || response.Outcome != OutcomeOK || len(*response.ChangedRefs) != 1 {
 		t.Fatalf("capture %q response=%+v err=%v", title, response, err)
 	}
-	return response.ChangedRefs[0].ID
+	return (*response.ChangedRefs)[0].ID
 }
 
 func dispatchCompositionLink(t *testing.T, ctx context.Context, s *store.Store, service *Service, env CallEnvelope, sourceID, successorID string, version int64, idempotencyKey string) Envelope {

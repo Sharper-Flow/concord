@@ -51,18 +51,20 @@ func newAuthorizedService(t *testing.T, db *store.Store, client, principal strin
 // attribution, so it needs the standing the Product and the Project already
 // have: a trusted client names the agents it may present. The scope is
 // fail-closed, so a client that names none authorizes none. That is the state
-// every client registered before the scope existed holds, and re-registration
-// is the only way out of it.
+// every client registered before the scope existed holds, and CD-0097 D6
+// additive expansion is the remedy: it grants the missing agents while every
+// existing grant and the stored principal survive.
 func TestAgentScopeBoundsTheAgentAClientMayPresent(t *testing.T) {
 	for _, testCase := range []struct {
 		name       string
 		scope      []string
 		agent      string
 		authorized bool
+		wants      []string
 	}{
-		{"a named agent is authorized", []string{"agent-1", "agent-2"}, "agent-1", true},
-		{"an unnamed agent is refused", []string{"agent-1"}, "agent-2", false},
-		{"an empty scope authorizes no agent", nil, "agent-1", false},
+		{"a named agent is authorized", []string{"agent-1", "agent-2"}, "agent-1", true, nil},
+		{"an unnamed agent is refused", []string{"agent-1"}, "agent-2", false, []string{`agent "agent-2"`, `trusted client "client-1"`, "client-policy-expand"}},
+		{"an empty scope authorizes no agent", nil, "agent-1", false, []string{`trusted client "client-1"`, "empty agent scope", "client-policy-expand"}},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			db := openAgentDB(t)
@@ -98,8 +100,10 @@ func TestAgentScopeBoundsTheAgentAClientMayPresent(t *testing.T) {
 			if err == nil {
 				t.Fatalf("agent %q outside the scope was authorized", testCase.agent)
 			}
-			if !strings.Contains(err.Error(), "agent outside trusted client policy") {
-				t.Fatalf("refusal = %v, want the agent policy refusal", err)
+			for _, want := range testCase.wants {
+				if !strings.Contains(err.Error(), want) {
+					t.Fatalf("refusal = %v, want it to name %q", err, want)
+				}
 			}
 		})
 	}

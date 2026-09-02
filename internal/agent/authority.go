@@ -351,10 +351,21 @@ func (s *Service) authorizeResolved(ctx context.Context, tx *store.Transaction, 
 	}
 	// The agent reference arrives from the caller and is written into
 	// attribution, so the trusted client must name the agents it may present.
-	// An empty scope authorizes none: a client registered before the agent
-	// scope existed must be re-registered rather than trusted by default.
+	// An empty scope authorizes none, which is the state every client
+	// registered before the scope existed holds. CD-0097 D6 additive expansion
+	// is the remedy, so the refusal names it: re-registration would discard
+	// grants the client already holds.
+	//
+	// The two conditions refuse separately because they are different
+	// situations. A client with no scope was never told which agents it
+	// presents. A client whose scope omits this agent was told about others.
+	// Naming the client in both keeps the operator pointed at the policy, not
+	// at the agent that merely surfaced it.
+	if len(policyAgents) == 0 {
+		return Authority{}, authorityRefusal(fmt.Sprintf("trusted client %q holds an empty agent scope, which authorizes no agent; name the agents it presents with concord client-policy-expand", in.ClientRef))
+	}
 	if !contains(policyAgents, in.AgentRef) {
-		return Authority{}, authorityRefusal("agent outside trusted client policy")
+		return Authority{}, authorityRefusal(fmt.Sprintf("agent %q is outside the agent scope of trusted client %q; add it with concord client-policy-expand", in.AgentRef, in.ClientRef))
 	}
 	resolved, err := s.ProjectResolver(ctx, tx, in.Directory, in.Worktree)
 	if err != nil {

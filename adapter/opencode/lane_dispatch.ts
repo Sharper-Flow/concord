@@ -162,6 +162,6 @@ export async function dispatchLaneWorker(input: LaneDispatchInput, deps: LaneDis
   // the dispatch assertion will quote (D6).
   //
   // The window binds to the calling session, because that is the session whose
-  // next Task call the plugin hook rewrites (CD-0097 D1).
+  // next Task call the plugin hook rewrites (CD-0102 D1).
   return dispatchWorker(packet, { authorize: async () => coreResponse, credentials: deps.credentials, runner: deps.runner, evidenceRunner: deps.evidenceRunner, concordBinary: deps.concordBinary, packetDigest, sessionID: deps.context.sessionID, windows: deps.windows })
 }

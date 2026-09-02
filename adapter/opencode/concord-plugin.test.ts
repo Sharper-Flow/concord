@@ -1,4 +1,4 @@
-// CD-0097 D2: the plugin entry must register the hook that binds an authorized
+// CD-0102 D2: the plugin entry must register the hook that binds an authorized
 // dispatch to the next native Task call. Without the registration the window is
 // unreachable and any Task call the model composes runs unbound.
 import { describe, expect, test } from "bun:test"

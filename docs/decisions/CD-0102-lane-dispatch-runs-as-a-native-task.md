@@ -1,4 +1,4 @@
-# CD-0097: Lane dispatch runs as a native Task under a one-time authorization
+# CD-0102: Lane dispatch runs as a native Task under a one-time authorization
 
 - **Status:** Accepted
 - **Date:** 2026-09-02
@@ -161,7 +161,7 @@ authorization has nothing to bind.
   path, so the floor item `fc2-ts1-corpus-executed` keeps naming the real route.
 - The scenario `WF48-lane-pipeline-typed-evidence` drives the registered lanes
   through this path, so the floor item `fc3-lane-pipeline` keeps its evidence.
-- `docs/law-coverage.v1.json` records CD-0097 as proved once the tests above
+- `docs/law-coverage.v1.json` records CD-0102 as proved once the tests above
   pass.
 - `python3 scripts/check-doc-contract.py`, `python3 scripts/check-json.py`,
   `python3 scripts/check-doc-links.py`, `python3 scripts/check-knowledge-index.py`,

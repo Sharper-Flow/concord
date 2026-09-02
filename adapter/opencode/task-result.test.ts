@@ -1,4 +1,4 @@
-// CD-0097 D5. The host wraps a worker result as
+// CD-0102 D5. The host wraps a worker result as
 // <task id="SESSION" state="STATE"><task_result>BODY</task_result></task>,
 // and that wrapper is the only place the worker session identifier reaches the
 // adapter on the native route. Readback evidence depends on reading it.

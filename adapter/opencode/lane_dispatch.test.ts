@@ -164,7 +164,7 @@ test("happy path: continuity → packet → core ok → spawn with stubbed runne
   expect(packet.attempt_id).toBe(fields.attempt_id)
   expect(validateAgentLanePacket(packet)).toBe(true)
   // The host runs the worker, so dispatch starts no process and records no
-  // evidence. Both belong to completion (CD-0097 D5).
+  // evidence. Both belong to completion (CD-0102 D5).
   expect(evidenceCalls).toBe(0)
   expect(windows.has("session-1")).toBe(true)
 })

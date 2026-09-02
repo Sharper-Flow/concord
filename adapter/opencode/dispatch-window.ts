@@ -1,4 +1,4 @@
-// CD-0097 D1/D2: the single-use authorization window that binds one typed
+// CD-0102 D1/D2: the single-use authorization window that binds one typed
 // dispatch to one native Task call.
 //
 // The model issues the Task call, not Concord, so the arguments it composes

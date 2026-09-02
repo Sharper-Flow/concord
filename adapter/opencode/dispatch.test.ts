@@ -75,7 +75,7 @@ const exportedSession = (model = READBACK_MODEL, agent = "concord-research") => 
   ],
 })
 
-// CD-0097 D5: the host wraps a finished worker's final text in a task element
+// CD-0102 D5: the host wraps a finished worker's final text in a task element
 // that carries the worker session identifier, which is what the completion path
 // exports for readback.
 const taskWrap = (text: string, id = "session-1", state = "completed") =>
@@ -120,7 +120,7 @@ test("unknown lane identity fails closed before a window opens", async () => {
   expect(windows.has(SESSION)).toBe(false)
 })
 
-// CD-0097 D1: an authorized dispatch opens the window and returns before the
+// CD-0102 D1: an authorized dispatch opens the window and returns before the
 // worker runs. The host issues the Task call, so the adapter starts no process
 // and asserts no model here.
 test("an authorized dispatch opens one window and returns a directive", async () => {

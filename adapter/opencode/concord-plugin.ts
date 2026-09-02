@@ -49,7 +49,7 @@ export default async function ConcordAdapterPlugin() {
       concord_work_start: work_start,
     },
     "chat.message": agentSwitch.chatMessage,
-    // CD-0097 D2. The model composes the Task call, so its arguments carry no
+    // CD-0102 D2. The model composes the Task call, so its arguments carry no
     // provenance. This hook overwrites them with the packet an authorized
     // dispatch recorded, and throws when no dispatch authorized the call —
     // which fails that one tool call rather than the session.

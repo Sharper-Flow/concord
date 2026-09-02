@@ -6,7 +6,7 @@
   identity checks that guard a retarget; issue #689
 - **Approval:** The operator approved this replacement in-session on 2026-09-02
   and directed that a worktree never requires a relaunch.
-- **Related:** CD-0059, CD-0088, CD-0092, CD-0093, CD-0096, CD-0097, issue #689
+- **Related:** CD-0059, CD-0088, CD-0092, CD-0093, CD-0096, CD-0102, issue #689
 - **Amends:** CD-0096 D6 and CD-0088 D4 at their launch clauses
 - **Preserves:** The `session-prepare` directory refusal, the lane definition
   check, and the read-back identity assertion
@@ -82,7 +82,7 @@ a second owner cannot arise from a route that no longer exists.
 The `opencode run` invocation, its argument construction, its child session
 export, and its stream recovery are removed with the route they served. CD-0059
 keeps its authorize-before-start rule, which now applies to the move and to lane
-dispatch under CD-0097.
+dispatch under CD-0102.
 
 ## Consequences
 

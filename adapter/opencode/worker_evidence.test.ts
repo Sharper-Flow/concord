@@ -66,7 +66,7 @@ const failingLaneRunner: DispatchRunner = {
   },
 }
 
-// CD-0097 D5: completion admits the host's task result. The runner answers the
+// CD-0102 D5: completion admits the host's task result. The runner answers the
 // session export only, because the host ran the worker.
 const SIGNAL = new AbortController().signal
 const taskBody = (doc: unknown) =>

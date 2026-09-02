@@ -118,7 +118,7 @@ export interface AgentResultEnvelope {
   readback_model: string | null
   session_id: string | null
   output?: string
-  // CD-0097 D1. A dispatch returns before the worker runs, so an authorized
+  // CD-0102 D1. A dispatch returns before the worker runs, so an authorized
   // dispatch reports that the window is open and the host must now issue the
   // Task call. A completed attempt never carries this field.
   dispatch_state?: "awaiting_worker"
@@ -409,7 +409,7 @@ export function resolveWorkerReport(stdout: string, packet: AgentLanePacket): { 
 
 // resolveWorkerReportFromText admits a report from one message body, which is
 // what the native task route carries: the host has already resolved the
-// worker's final text part before it renders the result (CD-0097 D5).
+// worker's final text part before it renders the result (CD-0102 D5).
 export function resolveWorkerReportFromText(text: string, packet: AgentLanePacket): { report: AgentLaneReport } | { detail: string } {
   return admitWorkerReport(scanReportTexts([text]), packet)
 }
@@ -764,7 +764,7 @@ export async function dispatchWorker(packet: unknown, options: { signal?: AbortS
     return errorEnvelope(lane, packet as Partial<AgentLanePacket>, "error", "unauthorized_dispatch", message, "reconcile_operation")
   }
 
-  // CD-0097 D1/D2: the authorized dispatch opens one single-use window on the
+  // CD-0102 D1/D2: the authorized dispatch opens one single-use window on the
   // calling session. The host, not the adapter, starts the worker: the next
   // Task call from this session has its agent and prompt overwritten with this
   // packet by the plugin hook, and the window closes on that call.
@@ -794,7 +794,7 @@ export async function dispatchWorker(packet: unknown, options: { signal?: AbortS
 //
 // It takes the worker session identifier and the result body as parameters
 // because the host, not the adapter, runs the worker between dispatch and
-// completion (CD-0097 D5).
+// completion (CD-0102 D5).
 export async function completeWorkerAttempt(
   lane: AgentLane,
   packet: AgentLanePacket,

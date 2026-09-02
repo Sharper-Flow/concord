@@ -1,4 +1,4 @@
-// CD-0097 D5: reading the host's task result wrapper.
+// CD-0102 D5: reading the host's task result wrapper.
 //
 // The host renders a finished worker as
 // `<task id="SESSION" state="STATE">[<summary>..</summary>]<task_result>BODY</task_result></task>`,

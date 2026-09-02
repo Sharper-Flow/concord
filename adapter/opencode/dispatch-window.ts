@@ -25,6 +25,12 @@ interface MutableToolArgs {
   [key: string]: unknown
 }
 
+// The authorized `dispatch_worker` path opens a window and the plugin's
+// `tool.execute.before` hook consumes it, so both reach the same instance
+// through this module. The plugin module graph is per OpenCode instance, which
+// scopes the windows to one running host.
+export const dispatchWindows = (): DispatchWindows => shared
+
 export class DispatchWindows {
   // One window per session. A session that already holds one cannot open a
   // second, because two open windows would let one authorized dispatch start
@@ -67,3 +73,5 @@ export class DispatchWindows {
     delete args.task_id
   }
 }
+
+const shared = new DispatchWindows()

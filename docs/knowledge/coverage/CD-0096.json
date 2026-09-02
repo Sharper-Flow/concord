@@ -1,5 +1,46 @@
 {
+  "evidence": [
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestRetargetCreatesCanonicalWorktreeAndBindsSession"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/agent.TestWorktreeInspectReadsSameProjectWorktreeWithoutMovingTarget"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestTakeoverRefusesActiveHolderWithoutOverrideNamingOwner"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestTakeoverWithOperatorOverrideTransfersAndForceReleasesHolder"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestDestroyMergedTerminalWorkReclaims"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestDestroyRefusesNonTerminalWithoutApproval"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestContinuityStaleTargetPinFailsClosed"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/agent.TestWorktreeTakeoverDispatchNamesOwnerMintsChallengeAndTransfers"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/agent.TestWorktreeDestroyDispatchDestructiveUnderApproval"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/agent.TestContinuityDispatchRePinsTargetAndFailsClosedOnStalePin"
+    }
+  ],
   "id": "CD-0096",
-  "issue": 689,
-  "state": "outstanding"
+  "state": "satisfied"
 }

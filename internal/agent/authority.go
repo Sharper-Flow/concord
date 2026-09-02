@@ -681,7 +681,7 @@ func validChallengeScope(scope map[string]any) bool {
 	return true
 }
 func validChallengeVersions(versions map[string]any) bool {
-	allowed := map[string]bool{"work": true, "contract": true, "operation": true, "terminal_work": true, "predecessor": true, "successor": true, "from": true, "to": true, "from_contract": true, "to_contract": true}
+	allowed := map[string]bool{"work": true, "contract": true, "operation": true, "terminal_work": true, "predecessor": true, "successor": true, "from": true, "to": true, "from_contract": true, "to_contract": true, "target": true}
 	for key, value := range versions {
 		if !allowed[key] {
 			return false

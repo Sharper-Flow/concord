@@ -510,8 +510,11 @@
                 "lifecycle",
                 "workflow_action",
                 "worktree_claim",
+                "worktree_destroy",
                 "worktree_reclaim",
+                "worktree_release",
                 "worktree_retarget",
+                "worktree_takeover",
                 "worktree_verify"
               ]
             }
@@ -718,65 +721,68 @@
         },
         "operation": {
           "enum": [
-            "resolve",
-            "snapshot",
-            "list",
-            "ready",
-            "blocked",
-            "scope",
-            "history",
-            "continuity",
-            "relations",
-            "research",
-            "resource_claims",
-            "messages",
-            "search",
-            "resolve_note",
-            "detail",
             "active_work",
-            "attachments",
-            "overlaps",
-            "observation_record",
-            "observation_dismiss",
-            "capture",
-            "revise_intent",
-            "lifecycle",
-            "workflow_action",
-            "set_memberships",
-            "link",
-            "unlink",
-            "supersede",
-            "restore_superseded",
-            "resolve_overlap",
-            "publish",
-            "reconcile",
-            "create",
             "add_entry",
-            "remove_entry",
-            "reorder_entry",
-            "change_requiredness",
-            "revise_narrative",
-            "entries",
+            "attachments",
+            "blocked",
             "blocked_sessions",
+            "capture",
+            "change_requiredness",
+            "continuity",
+            "create",
+            "detail",
+            "entries",
             "external_observations",
+            "history",
             "lesson_publish",
+            "lifecycle",
+            "link",
+            "list",
             "message_send",
             "message_withdraw",
+            "messages",
+            "observation_dismiss",
+            "observation_record",
             "observations",
+            "overlaps",
             "portfolio",
+            "publish",
+            "ready",
+            "reconcile",
+            "relations",
+            "remove_entry",
+            "reorder_entry",
+            "research",
             "research_finding_record",
             "research_freshness_set",
             "research_pack_create",
             "research_revision_append",
             "research_source_record",
+            "resolve",
+            "resolve_note",
+            "resolve_overlap",
             "resource_claim",
+            "resource_claims",
             "resource_release",
+            "restore_superseded",
+            "revise_intent",
+            "revise_narrative",
+            "scope",
+            "search",
+            "set_memberships",
+            "snapshot",
+            "supersede",
+            "unlink",
             "unprocessed",
+            "workflow_action",
             "worktree_audit",
             "worktree_claim",
+            "worktree_destroy",
             "worktree_inspect",
             "worktree_reclaim",
+            "worktree_release",
             "worktree_retarget",
+            "worktree_takeover",
             "worktree_verify"
           ]
         },
@@ -1158,65 +1164,68 @@
         },
         "operation": {
           "enum": [
-            "resolve",
-            "snapshot",
-            "list",
-            "ready",
-            "blocked",
-            "scope",
-            "history",
-            "continuity",
-            "relations",
-            "research",
-            "resource_claims",
-            "messages",
-            "search",
-            "resolve_note",
-            "detail",
             "active_work",
-            "attachments",
-            "overlaps",
-            "observation_record",
-            "observation_dismiss",
-            "capture",
-            "revise_intent",
-            "lifecycle",
-            "workflow_action",
-            "set_memberships",
-            "link",
-            "unlink",
-            "supersede",
-            "restore_superseded",
-            "resolve_overlap",
-            "publish",
-            "reconcile",
-            "create",
             "add_entry",
-            "remove_entry",
-            "reorder_entry",
-            "change_requiredness",
-            "revise_narrative",
-            "entries",
+            "attachments",
+            "blocked",
             "blocked_sessions",
+            "capture",
+            "change_requiredness",
+            "continuity",
+            "create",
+            "detail",
+            "entries",
             "external_observations",
+            "history",
             "lesson_publish",
+            "lifecycle",
+            "link",
+            "list",
             "message_send",
             "message_withdraw",
+            "messages",
+            "observation_dismiss",
+            "observation_record",
             "observations",
+            "overlaps",
             "portfolio",
+            "publish",
+            "ready",
+            "reconcile",
+            "relations",
+            "remove_entry",
+            "reorder_entry",
+            "research",
             "research_finding_record",
             "research_freshness_set",
             "research_pack_create",
             "research_revision_append",
             "research_source_record",
+            "resolve",
+            "resolve_note",
+            "resolve_overlap",
             "resource_claim",
+            "resource_claims",
             "resource_release",
+            "restore_superseded",
+            "revise_intent",
+            "revise_narrative",
+            "scope",
+            "search",
+            "set_memberships",
+            "snapshot",
+            "supersede",
+            "unlink",
             "unprocessed",
+            "workflow_action",
             "worktree_audit",
             "worktree_claim",
+            "worktree_destroy",
             "worktree_inspect",
             "worktree_reclaim",
+            "worktree_release",
             "worktree_retarget",
+            "worktree_takeover",
             "worktree_verify"
           ]
         },
@@ -1748,7 +1757,6 @@
           "maximum": 300
         },
         "consequence_summary": {
-          "description": "CD-0037 D1: typed approval affordance derived from the facts bound to a core-minted challenge. Present exactly when the error carries a minted challenge reference.",
           "$ref": "#/$defs/consequenceSummary"
         },
         "details": {
@@ -1826,9 +1834,6 @@
               }
             ]
           }
-        },
-        "consequence_summary": {
-          "$ref": "#/$defs/consequenceSummary"
         }
       },
       "allOf": [
@@ -2222,40 +2227,111 @@
           }
         },
         {
-          "if": { "required": ["consequence_summary"] },
+          "if": {
+            "required": [
+              "consequence_summary"
+            ]
+          },
           "then": {
-            "required": ["details"],
-            "properties": { "details": { "required": ["approval_ref"] } }
+            "required": [
+              "details"
+            ],
+            "properties": {
+              "details": {
+                "required": [
+                  "approval_ref"
+                ]
+              }
+            }
           }
         },
         {
           "if": {
-            "required": ["details"],
+            "required": [
+              "details"
+            ],
             "properties": {
               "details": {
-                "required": ["approval_ref"],
+                "required": [
+                  "approval_ref"
+                ],
                 "properties": {
-                  "approval_ref": { "type": "string", "minLength": 16, "maxLength": 128 }
+                  "approval_ref": {
+                    "type": "string",
+                    "minLength": 16,
+                    "maxLength": 128
+                  }
                 }
               }
             }
           },
-          "then": { "required": ["consequence_summary"] }
+          "then": {
+            "required": [
+              "consequence_summary"
+            ]
+          }
         }
       ]
     },
     "consequenceSummary": {
+      "description": "CD-0037: the typed approval prompt, derived at challenge mint from the exact digest, consequence, scope, versions, and expiry the challenge binds. Required whenever the core minted a challenge; an approval_required refusal that minted nothing carries none. Caller-authored prose may not enter.",
       "type": "object",
       "additionalProperties": false,
-      "required": ["tool", "operation", "consequence", "operation_digest", "scope", "versions", "expires_at"],
+      "required": [
+        "tool",
+        "operation",
+        "consequence",
+        "operation_digest",
+        "scope",
+        "versions",
+        "expires_at"
+      ],
       "properties": {
-        "tool": { "type": "string", "minLength": 1, "maxLength": 128 },
-        "operation": { "type": "string", "minLength": 1, "maxLength": 128 },
-        "consequence": { "type": "string", "minLength": 1, "maxLength": 128 },
-        "operation_digest": { "type": "string", "minLength": 16, "maxLength": 128 },
-        "scope": { "type": "array", "minItems": 1, "maxItems": 32, "items": { "type": "string", "minLength": 2, "maxLength": 128 } },
-        "versions": { "type": "array", "maxItems": 32, "items": { "type": "string", "minLength": 2, "maxLength": 128 } },
-        "expires_at": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T" }
+        "tool": {
+          "type": "string",
+          "pattern": "^concord_[a-z0-9_]+$",
+          "minLength": 8,
+          "maxLength": 64
+        },
+        "operation": {
+          "type": "string",
+          "pattern": "^[a-z0-9_]+$",
+          "minLength": 2,
+          "maxLength": 64
+        },
+        "consequence": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 64
+        },
+        "operation_digest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "scope": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 32,
+          "items": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 256
+          }
+        },
+        "versions": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 32,
+          "items": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 256
+          }
+        },
+        "expires_at": {
+          "type": "string",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?Z$"
+        }
       }
     },
     "ok": {
@@ -2665,67 +2741,6 @@
         }
       ],
       "unevaluatedProperties": false
-    },
-    "consequenceSummary": {
-      "description": "CD-0037: the typed approval prompt, derived at challenge mint from the exact digest, consequence, scope, versions, and expiry the challenge binds. Required whenever the core minted a challenge; an approval_required refusal that minted nothing carries none. Caller-authored prose may not enter.",
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "tool",
-        "operation",
-        "consequence",
-        "operation_digest",
-        "scope",
-        "versions",
-        "expires_at"
-      ],
-      "properties": {
-        "tool": {
-          "type": "string",
-          "pattern": "^concord_[a-z0-9_]+$",
-          "minLength": 8,
-          "maxLength": 64
-        },
-        "operation": {
-          "type": "string",
-          "pattern": "^[a-z0-9_]+$",
-          "minLength": 2,
-          "maxLength": 64
-        },
-        "consequence": {
-          "type": "string",
-          "minLength": 2,
-          "maxLength": 64
-        },
-        "operation_digest": {
-          "type": "string",
-          "pattern": "^sha256:[0-9a-f]{64}$"
-        },
-        "scope": {
-          "type": "array",
-          "minItems": 1,
-          "maxItems": 32,
-          "items": {
-            "type": "string",
-            "minLength": 3,
-            "maxLength": 256
-          }
-        },
-        "versions": {
-          "type": "array",
-          "minItems": 1,
-          "maxItems": 32,
-          "items": {
-            "type": "string",
-            "minLength": 3,
-            "maxLength": 256
-          }
-        },
-        "expires_at": {
-          "type": "string",
-          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?Z$"
-        }
-      }
     }
   }
 }

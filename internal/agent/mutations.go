@@ -124,6 +124,37 @@ type worktreeVerifyInput struct {
 	Command        []string `json:"command"`
 	IdempotencyKey string   `json:"idempotency_key"`
 }
+type worktreeReleaseInput struct {
+	WorkID string `json:"work_id"`
+	// ExpectedTargetVersion is the session's CD-0096 D5 stale-version pin;
+	// a mismatch fails closed.
+	ExpectedTargetVersion int64  `json:"expected_target_version"`
+	IdempotencyKey        string `json:"idempotency_key"`
+}
+type worktreeTakeoverInput struct {
+	WorkID          string `json:"work_id"`
+	ExpectedVersion int64  `json:"expected_version"`
+	// ExpectedTargetVersion is the calling session's own target pin: zero
+	// when it holds none, otherwise the stored version exactly.
+	ExpectedTargetVersion int64 `json:"expected_target_version"`
+	// Approval carries the operator takeover override consumed for an
+	// active holder (CD-0096 D3 Take over).
+	Approval        *approvalInput `json:"approval"`
+	IdempotencyKey  string         `json:"idempotency_key"`
+}
+type worktreeDestroyInput struct {
+	WorkID          string `json:"work_id"`
+	ExpectedVersion int64  `json:"expected_version"`
+	// DefaultRef optionally names the merge target ref; the default branch
+	// of origin resolves when empty.
+	DefaultRef string `json:"default_ref"`
+	// Destructive declares intent to remove without the clean-tree and
+	// merged-branch gates. It requires operator approval (CD-0096 D3
+	// Destroy).
+	Destructive     bool           `json:"destructive"`
+	Approval        *approvalInput `json:"approval"`
+	IdempotencyKey  string         `json:"idempotency_key"`
+}
 type researchRevisionInput struct {
 	Question string `json:"question"`
 	ScopeIn  any    `json:"scope_in"`
@@ -1704,6 +1735,159 @@ func (r runtime) planWorktreeRetarget(ctx context.Context, base Envelope, raw []
 	return Envelope{}, nil, false
 }
 
+// planWorktreeRelease plans concord_work_transition.worktree_release
+// (CD-0096 D3 Take over, owner side): the active owner releases its
+// effective-target binding so another session may take over without an
+// operator override. The version bump makes the session's own stale pins
+// fail closed (CD-0096 D5).
+func (r runtime) planWorktreeRelease(ctx context.Context, base Envelope, raw []byte, digest string, grant Authority, op ContractOperation, plan *mutationPlan) (Envelope, error, bool) {
+	var in worktreeReleaseInput
+	if err := decodeOperationInput(raw, &in); err != nil {
+		return base, err, true
+	}
+	if in.ExpectedTargetVersion > 0 {
+		plan.versions["target"] = in.ExpectedTargetVersion
+	}
+	plan.scope["work_ids"] = []string{in.WorkID}
+	plan.intents = []NextIntent{{Tool: "concord_work_browse", Operation: "scope", QueryID: "PM1.Q6", ReasonCode: "refresh_work_version", RequiredFields: []string{"work_id"}}}
+	plan.effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
+		released, err := store.ReleaseSessionWorktreeTx(ctx, tx, store.WorktreeReleaseRequest{
+			Owner:                  store.SessionWorktreeOwner{ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef},
+			WorkID:                 in.WorkID,
+			ExpectedTargetVersion:  in.ExpectedTargetVersion,
+			PrincipalRef:           grant.PrincipalRef,
+			RequestID:              in.IdempotencyKey,
+			Now:                    r.Authority.now(),
+		})
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		changed := []ChangedRef{{EntityKind: "session_worktree_target", ID: in.WorkID, Version: strconv.FormatInt(released.TargetVersion, 10)}}
+		return mutationPayload(changed, plan.intents), []string{in.WorkID + ":worktree-released"}, changed, nil
+	}
+	return Envelope{}, nil, false
+}
+
+// planWorktreeTakeover plans concord_work_transition.worktree_takeover
+// (CD-0096 D3 Take over): a typed authority transfer that grants the calling
+// session edit, commit, and push on another work item's same-Project
+// worktree by rebinding its effective target. An active holder must have
+// released, or the operator must approve this exact override; a live
+// bootstrap launch yields to no override. The worktree path derives inside
+// the store from identity (CD-0096 D2).
+func (r runtime) planWorktreeTakeover(ctx context.Context, base Envelope, raw []byte, digest string, grant Authority, op ContractOperation, plan *mutationPlan) (Envelope, error, bool) {
+	var in worktreeTakeoverInput
+	if err := decodeOperationInput(raw, &in); err != nil {
+		return base, err, true
+	}
+	if in.Approval != nil {
+		plan.approval = in.Approval.ApprovalRef
+	}
+	owner := store.SessionWorktreeOwner{ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef}
+	// Approval preflight (the capture precedent): a holder that has not
+	// released makes this takeover an operator-approved override. A live
+	// launch is never override-takeable, so it never mints a challenge; the
+	// store's own typed refusal names the launched session.
+	holder, held, _, _, err := r.Store.WorktreeTakeoverBlockers(ctx, in.WorkID, owner)
+	if err != nil {
+		return failureEnvelope(base, err), nil, true
+	}
+	if held {
+		plan.requiresApproval = true
+		plan.scope["takeover_owner"] = holder.ClientRef + "/" + holder.AgentRef + "/" + holder.SessionRef
+	}
+	plan.versions["work"] = in.ExpectedVersion
+	// A zero target pin means the caller holds no binding; version pins in
+	// an approval challenge start at one, so the pin rides only when real.
+	if in.ExpectedTargetVersion > 0 {
+		plan.versions["target"] = in.ExpectedTargetVersion
+	}
+	plan.scope["work_ids"] = []string{in.WorkID}
+	plan.intents = []NextIntent{{Tool: "concord_work_browse", Operation: "scope", QueryID: "PM1.Q6", ReasonCode: "refresh_work_version", RequiredFields: []string{"work_id"}}}
+	worktreeRoot := filepath.Join(filepath.Dir(r.Store.Path()), "worktrees")
+	plan.effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
+		opID := digest + ":worktree-takeover:" + in.WorkID
+		// The mutation tail records the consumed approval reference in the
+		// shared scope map before the effect runs; the store verifies it
+		// authorized exactly this operation's override.
+		override := ""
+		if ref, ok := plan.scope["approval_ref"].(string); ok {
+			override = ref
+		}
+		target, err := store.TakeoverSessionWorktreeTx(ctx, tx, store.WorktreeTakeoverRequest{
+			Owner: owner, WorkID: in.WorkID,
+			ExpectedWorkVersion:   in.ExpectedVersion,
+			ExpectedTargetVersion: in.ExpectedTargetVersion,
+			OperatorOverrideRef:   override,
+			WorktreeRoot:          worktreeRoot,
+			PrincipalRef:          grant.PrincipalRef, RequestID: in.IdempotencyKey, OpID: opID,
+			Now: r.Authority.now(),
+		})
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		changed := []ChangedRef{{EntityKind: "session_worktree_target", ID: in.WorkID, Version: strconv.FormatInt(target.TargetVersion, 10)}}
+		return mutationPayload(changed, plan.intents), []string{opID + ":worktree-taken-over"}, changed, nil
+	}
+	return Envelope{}, nil, false
+}
+
+// planWorktreeDestroy plans concord_work_transition.worktree_destroy
+// (CD-0096 D3 Destroy): merged terminal work reclaims under the unchanged
+// CD-0095 git gates. Non-terminal work and any destructive removal require
+// the operator approval this planner routes through the standard challenge
+// flow. The worktree resolves through the session's Project anchor; no path
+// input exists (CD-0096 D2).
+func (r runtime) planWorktreeDestroy(ctx context.Context, base Envelope, raw []byte, digest string, grant Authority, op ContractOperation, plan *mutationPlan) (Envelope, error, bool) {
+	var in worktreeDestroyInput
+	if err := decodeOperationInput(raw, &in); err != nil {
+		return base, err, true
+	}
+	if in.Approval != nil {
+		plan.approval = in.Approval.ApprovalRef
+	}
+	project := r.Envelope.AmbientProjectID
+	if project == "" {
+		return coreError(base, "unknown_scope", "worktree tiers resolve through the session's Project; this session holds none", "refresh_context", false), nil, true
+	}
+	// Approval preflight (the capture precedent): non-terminal work and a
+	// declared destructive removal are operator-approved consequences. The
+	// store re-checks both inside the transaction, so a changed lifecycle
+	// cannot slip through an unapproved effect.
+	lifecycle, err := r.Store.WorkLifecycle(ctx, in.WorkID)
+	if err != nil {
+		return failureEnvelope(base, err), nil, true
+	}
+	if lifecycle != "completed" && lifecycle != "cancelled" {
+		plan.requiresApproval = true
+	}
+	if in.Destructive {
+		plan.requiresApproval = true
+	}
+	plan.versions["work"] = in.ExpectedVersion
+	plan.scope["work_ids"] = []string{in.WorkID}
+	plan.intents = []NextIntent{{Tool: "concord_work_browse", Operation: "scope", QueryID: "PM1.Q6", ReasonCode: "refresh_work_version", RequiredFields: []string{"work_id"}}}
+	plan.effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
+		// Same hand-off as the takeover planner: the mutation tail records
+		// the consumed approval reference before the effect runs.
+		approvalRef := ""
+		if ref, ok := plan.scope["approval_ref"].(string); ok {
+			approvalRef = ref
+		}
+		if _, err := store.DestroyWorktreeTx(ctx, tx, store.WorktreeReclaimRequest{
+			WorkID: in.WorkID, ProjectID: project, DefaultRef: in.DefaultRef,
+			PrincipalRef: grant.PrincipalRef, RequestID: in.IdempotencyKey,
+			ExpectedVersion: in.ExpectedVersion, Now: r.Authority.now(),
+			RequireTerminal: true, OperatorApprovalRef: approvalRef, Destructive: in.Destructive,
+		}); err != nil {
+			return nil, nil, nil, err
+		}
+		changed := []ChangedRef{{EntityKind: "work_item", ID: in.WorkID, Version: strconv.FormatInt(in.ExpectedVersion+1, 10)}}
+		return mutationPayload(changed, plan.intents), []string{in.WorkID + ":" + project + ":worktree-destroyed"}, changed, nil
+	}
+	return Envelope{}, nil, false
+}
+
 // mutateWorktreeVerify plans concord_work_transition.worktree_verify
 // (CD-0096 D3 Verify tier, part 3a of #689). The requested command runs
 // between the lease transaction and its release, so the effect cannot sit
@@ -2029,6 +2213,12 @@ func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Au
 		answer, err, handled = r.planWorktreeReclaim(ctx, base, raw, digest, grant, op, plan)
 	case "concord_work_transition.worktree_retarget":
 		answer, err, handled = r.planWorktreeRetarget(ctx, base, raw, digest, grant, op, plan)
+	case "concord_work_transition.worktree_release":
+		answer, err, handled = r.planWorktreeRelease(ctx, base, raw, digest, grant, op, plan)
+	case "concord_work_transition.worktree_takeover":
+		answer, err, handled = r.planWorktreeTakeover(ctx, base, raw, digest, grant, op, plan)
+	case "concord_work_transition.worktree_destroy":
+		answer, err, handled = r.planWorktreeDestroy(ctx, base, raw, digest, grant, op, plan)
 	case "concord_work_relate.set_memberships":
 		answer, err, handled = r.planSetMemberships(ctx, base, raw, digest, grant, op, plan)
 	case "concord_work_relate.resolve_overlap":
@@ -2677,7 +2867,7 @@ func (r runtime) executeMutation(ctx context.Context, base Envelope, raw []byte,
 				response = coreError(base, "approval_required", "core approval is required for this mutation", "request_approval", false)
 			}
 			response.Error.ConsequenceSummary = summary
-			for _, key := range []string{"resolution_kind", "from_work_id", "to_work_id"} {
+			for _, key := range []string{"resolution_kind", "from_work_id", "to_work_id", "takeover_owner"} {
 				if value, ok := scope[key]; ok {
 					details[key] = value
 				}

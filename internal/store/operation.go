@@ -432,7 +432,10 @@ func applyOperationTx(ctx context.Context, tx *sql.Tx, operation Operation, ownF
 			if err != nil {
 				return output, err
 			}
-			if (expected == 0 && exists) || (expected > 0 && (!exists || got != expected)) {
+			if expected > 0 && !exists {
+				return output, absentSubject(event.SubjectType, event.SubjectID)
+			}
+			if (expected == 0 && exists) || got != expected {
 				return output, versionConflict(event.SubjectType, event.SubjectID, expected, got, exists)
 			}
 			checked[ref] = true
@@ -538,7 +541,10 @@ func applyOperationObserved(ctx context.Context, s *Store, operation Operation, 
 			if err != nil {
 				return output, rollback(err)
 			}
-			if (expected == 0 && exists) || (expected > 0 && (!exists || got != expected)) {
+			if expected > 0 && !exists {
+				return output, rollback(absentSubject(event.SubjectType, event.SubjectID))
+			}
+			if (expected == 0 && exists) || got != expected {
 				return output, rollback(versionConflict(event.SubjectType, event.SubjectID, expected, got, exists))
 			}
 			checked[ref] = true
@@ -726,6 +732,16 @@ func leaveFold(ctx context.Context, tx *sql.Tx) error {
 func unknownEventKind(kind string) *Failure {
 	return newFailure(KindUnknownEventKind, "fold_event", "no projection mutation is registered for "+kind,
 		false, "install a binary that recognizes the event or repair the log")
+}
+
+// absentSubject refuses an expected version named against a subject that has
+// no current row. No version can satisfy it, so this is not an optimistic
+// concurrency conflict: a version_conflict here would carry no current version
+// for the caller to retry against, and the envelope refuses that pairing.
+func absentSubject(subjectType SubjectType, subjectID string) *Failure {
+	return newFailure(KindProjectionNotFound, "apply_operation",
+		fmt.Sprintf("%s %s has no current row, so no expected version can match", subjectType, subjectID), false,
+		"create the subject, or retry without an expected version")
 }
 
 func versionConflict(subjectType SubjectType, subjectID string, expected, got int64, exists bool) *Failure {

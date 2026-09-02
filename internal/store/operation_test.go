@@ -308,3 +308,49 @@ func assertTableCount(t *testing.T, s *Store, table string, want int) {
 		t.Errorf("%s count = %d, want %d", table, got, want)
 	}
 }
+
+// TestExpectedVersionAgainstAbsentSubjectRefusesAsAbsent covers the second half
+// of issue #725. A version_conflict carries the current version its caller must
+// retry against, and a subject with no row has none. Reporting absence as a
+// version conflict produced a failure whose typed carrier was empty, which the
+// agent envelope refuses and cannot marshal. No version can satisfy a missing
+// subject, so the refusal names the absence instead.
+func TestExpectedVersionAgainstAbsentSubjectRefusesAsAbsent(t *testing.T) {
+	s := openTemp(t)
+	err := ApplyOperation(context.Background(), s, Operation{
+		Events:           []Event{workCreatedEvent("work-absent", "event-absent-1")},
+		ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "work-absent"): 5},
+	})
+	assertFailureKind(t, err, KindProjectionNotFound)
+	var failure *Failure
+	if !errors.As(err, &failure) {
+		t.Fatalf("ApplyOperation() error = %v, want a typed failure", err)
+	}
+	if len(failure.CurrentVersions) != 0 {
+		t.Fatalf("absent subject carries current versions %+v, want none", failure.CurrentVersions)
+	}
+	assertTableCount(t, s, "work_items", 0)
+	assertFoldGuardEmpty(t, s)
+}
+
+// TestExpectedVersionZeroAgainstPresentSubjectStaysAVersionConflict keeps the
+// split honest. Expecting creation of a subject that already exists is a real
+// optimistic-concurrency conflict, it can name the live version, and it must
+// not follow the absent-subject path.
+func TestExpectedVersionZeroAgainstPresentSubjectStaysAVersionConflict(t *testing.T) {
+	s := openTemp(t)
+	ctx := context.Background()
+	seedWork(t, s, "work-present")
+	err := ApplyOperation(ctx, s, Operation{
+		Events:           []Event{workCreatedEvent("work-present", "event-present-2")},
+		ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "work-present"): 0},
+	})
+	assertFailureKind(t, err, KindVersionConflict)
+	var failure *Failure
+	if !errors.As(err, &failure) {
+		t.Fatalf("ApplyOperation() error = %v, want a typed failure", err)
+	}
+	if len(failure.CurrentVersions) != 1 || !failure.CurrentVersions[0].Exists {
+		t.Fatalf("current versions = %+v, want one present carrier", failure.CurrentVersions)
+	}
+}

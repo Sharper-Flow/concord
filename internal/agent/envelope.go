@@ -252,8 +252,8 @@ type Envelope struct {
 	Replayed               bool              `json:"replayed"`
 	Items                  []json.RawMessage `json:"items,omitempty"`
 	Result                 json.RawMessage   `json:"result,omitempty"`
-	ChangedRefs            []ChangedRef      `json:"changed_refs,omitempty"`
-	NextValidIntents       []NextIntent      `json:"next_valid_intents,omitempty"`
+	ChangedRefs            *[]ChangedRef     `json:"changed_refs,omitempty"`
+	NextValidIntents       *[]NextIntent     `json:"next_valid_intents,omitempty"`
 	OperationRef           *OperationRef     `json:"operation_ref,omitempty"`
 	NextAction             *RecoveryAction   `json:"next_action,omitempty"`
 	CompletedSteps         []string          `json:"completed_steps,omitempty"`
@@ -274,14 +274,19 @@ func NewBase(requestID, tool, operation string) Envelope {
 func NewOKMutation(base Envelope, payload json.RawMessage, changed []ChangedRef, intents []NextIntent) Envelope {
 	base.Outcome = OutcomeOK
 	base.Result = payload
-	base.ChangedRefs = changed
-	base.NextValidIntents = intents
-	if base.ChangedRefs == nil {
-		base.ChangedRefs = []ChangedRef{}
+	// The envelope contract requires both mutation-metadata keys on every
+	// mutation ok response, including when empty. Pointer fields plus omitempty
+	// express "emit iff set": nil (reads, other outcomes) omits the key, while
+	// a non-nil pointer to an empty slice emits `[]`. Slice omitempty cannot
+	// express this — it elides empty slices too (#702).
+	if changed == nil {
+		changed = []ChangedRef{}
 	}
-	if base.NextValidIntents == nil {
-		base.NextValidIntents = []NextIntent{}
+	base.ChangedRefs = &changed
+	if intents == nil {
+		intents = []NextIntent{}
 	}
+	base.NextValidIntents = &intents
 	return base
 }
 func NewPending(base Envelope, ref OperationRef, next RecoveryAction) Envelope {
@@ -389,15 +394,17 @@ func (e Envelope) validateOK() error {
 	if hasItems == hasResult {
 		return errors.New("ok envelope requires exactly one payload")
 	}
-	if len(e.Items) > 100 || len(e.ChangedRefs) > 32 || len(e.NextValidIntents) > 16 {
+	if len(e.Items) > 100 || e.changedRefCount() > 32 || e.nextIntentCount() > 16 {
 		return errors.New("ok payload bound exceeded")
 	}
-	for _, intent := range e.NextValidIntents {
-		if err := validateOperation(intent.Tool, intent.Operation, intent.QueryID); err != nil {
-			return fmt.Errorf("invalid next intent: %w", err)
-		}
-		if intent.ReasonCode == "" || len(intent.ReasonCode) > 64 || len(intent.RequiredFields) > 16 || !unique(intent.RequiredFields) || !boundedStrings(intent.RequiredFields, 1, 64) {
-			return errors.New("invalid next intent bounds")
+	if e.NextValidIntents != nil {
+		for _, intent := range *e.NextValidIntents {
+			if err := validateOperation(intent.Tool, intent.Operation, intent.QueryID); err != nil {
+				return fmt.Errorf("invalid next intent: %w", err)
+			}
+			if intent.ReasonCode == "" || len(intent.ReasonCode) > 64 || len(intent.RequiredFields) > 16 || !unique(intent.RequiredFields) || !boundedStrings(intent.RequiredFields, 1, 64) {
+				return errors.New("invalid next intent bounds")
+			}
 		}
 	}
 	if hasResult {
@@ -408,15 +415,31 @@ func (e Envelope) validateOK() error {
 	if isMutation(e.Tool) && (hasItems || e.ChangedRefs == nil || e.NextValidIntents == nil) {
 		return errors.New("mutation ok envelope requires result and mutation metadata")
 	}
-	for _, ref := range e.ChangedRefs {
-		if !bounded(ref.EntityKind, 1, 64) || !bounded(ref.ID, 1, 128) || !bounded(ref.Version, 1, 128) {
-			return errors.New("invalid changed reference")
+	if e.ChangedRefs != nil {
+		for _, ref := range *e.ChangedRefs {
+			if !bounded(ref.EntityKind, 1, 64) || !bounded(ref.ID, 1, 128) || !bounded(ref.Version, 1, 128) {
+				return errors.New("invalid changed reference")
+			}
 		}
 	}
 	if e.Error != nil || e.OperationRef != nil || e.NextAction != nil {
 		return errors.New("ok envelope contains another outcome")
 	}
 	return nil
+}
+
+func (e Envelope) changedRefCount() int {
+	if e.ChangedRefs == nil {
+		return 0
+	}
+	return len(*e.ChangedRefs)
+}
+
+func (e Envelope) nextIntentCount() int {
+	if e.NextValidIntents == nil {
+		return 0
+	}
+	return len(*e.NextValidIntents)
 }
 func (e Envelope) validatePending() error {
 	if (e.Tool != "concord_work_compact" && e.Tool != "concord_work_transition") || e.OperationRef == nil || e.OperationRef.State != OperationPending || e.NextAction == nil || e.Error != nil || len(e.Items) > 0 || len(e.Result) > 0 {

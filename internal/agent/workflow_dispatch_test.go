@@ -72,11 +72,11 @@ func TestWorkflowActionDispatchUsesStrictPreflightAuthApprovalAndReplayPath(t *t
 
 	request := InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: json.RawMessage(`{"work_id":"work-1","expected_version":4,"action_id":"record_proposal","fields":[],"idempotency_key":"wf-record-proposal"}`)}
 	first, err := Dispatch(context.Background(), s, service, request, env)
-	if err != nil || first.Outcome != OutcomeOK || first.Error != nil || len(first.ChangedRefs) != 1 {
+	if err != nil || first.Outcome != OutcomeOK || first.Error != nil || len(*first.ChangedRefs) != 1 {
 		t.Fatalf("workflow action response=%+v err=%v", first, err)
 	}
-	if first.ChangedRefs[0].Version != "5" {
-		t.Fatalf("workflow action changed version=%s, want 5", first.ChangedRefs[0].Version)
+	if (*first.ChangedRefs)[0].Version != "5" {
+		t.Fatalf("workflow action changed version=%s, want 5", (*first.ChangedRefs)[0].Version)
 	}
 	var operations, records int
 	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM durable_operations WHERE op_id LIKE 'workflow-%'`).Scan(&operations); err != nil {
@@ -97,7 +97,7 @@ func TestWorkflowActionDispatchUsesStrictPreflightAuthApprovalAndReplayPath(t *t
 	}
 
 	replay, err := Dispatch(context.Background(), s, service, request, env)
-	if err != nil || replay.Outcome != OutcomeOK || !replay.Replayed || len(replay.ChangedRefs) != 1 {
+	if err != nil || replay.Outcome != OutcomeOK || !replay.Replayed || len(*replay.ChangedRefs) != 1 {
 		if replay.Error != nil {
 			t.Fatalf("workflow replay response=%+v error=%+v err=%v", replay, *replay.Error, err)
 		}

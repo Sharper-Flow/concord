@@ -107,13 +107,6 @@ func ReadWorkflowOperatorQuestion(ctx context.Context, s *Store, workID string) 
 		}
 		return nil, wrapFailure(KindUnavailable, "workflow_operator_question", "cannot read workflow question context", true, "retry once the database is readable", err)
 	}
-	if currentStep == "start" {
-		entry, err := VerifyWorkflowDefinitionPin(BuiltinWorkflowRegistry(), WorkflowDefinitionPin(definition))
-		if err != nil {
-			return nil, err
-		}
-		currentStep = entry.Definition.StepGraph.StartStep
-	}
 	var contract WorkflowReadContract
 	var required, routes, mandates, modifies string
 	if err := s.db.QueryRowContext(ctx, `SELECT contract_version,premise,required_evidence,route_conventions,spec_mandate,law_modifies FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL ORDER BY contract_version DESC LIMIT 1`, workID).Scan(&contract.Version, &contract.Premise, &required, &routes, &mandates, &modifies); err != nil {
@@ -176,9 +169,6 @@ func workflowOperatorQuestionTx(workID, currentStep string, workVersion int64, d
 	entry, err := VerifyWorkflowDefinitionPin(BuiltinWorkflowRegistry(), WorkflowDefinitionPin(definition))
 	if err != nil {
 		return nil, err
-	}
-	if currentStep == "start" {
-		currentStep = entry.Definition.StepGraph.StartStep
 	}
 	step := workflowStep(entry.Definition, currentStep)
 	if step == nil || step.Kind != WorkflowStepHumanCheckpoint {
@@ -266,9 +256,6 @@ func validateWorkflowOperatorSelectionTx(ctx context.Context, tx *sql.Tx, regist
 	entry, err := VerifyWorkflowDefinitionPin(registry, WorkflowDefinitionPin(definition))
 	if err != nil {
 		return err
-	}
-	if currentStep == "start" {
-		currentStep = entry.Definition.StepGraph.StartStep
 	}
 	var contract WorkflowReadContract
 	var required, routes, mandates, modifies string

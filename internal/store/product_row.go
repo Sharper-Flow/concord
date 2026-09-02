@@ -378,9 +378,6 @@ func productRowStepRequiresApprovalCached(registry DefinitionRegistry, ref strin
 			cache[key] = entry
 		}
 	}
-	if currentStep == "start" {
-		currentStep = entry.Definition.StepGraph.StartStep
-	}
 	step := workflowStep(entry.Definition, currentStep)
 	if step == nil || step.Kind != WorkflowStepHumanCheckpoint {
 		return false, currentStep, nil

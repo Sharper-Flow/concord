@@ -3456,6 +3456,32 @@ CREATE TABLE session_worktree_targets (
 CREATE UNIQUE INDEX session_worktree_targets_one_holder ON session_worktree_targets(work_id) WHERE state='active';
 		`,
 	},
+	{
+		Version: 63,
+		Name:    "workflow_instance_step_belongs_to_its_definition",
+		SQL: `
+-- An instance used to be seeded with the placeholder step 'start', which no
+-- registered definition declares. Read and write paths disagreed about it:
+-- the action preflight resolved it to the definition's start step, while the
+-- continuity read reported it verbatim and so reported no available actions.
+-- The placeholder is removed, and initialization now writes the declared
+-- start step. This rewrites the rows that still hold the placeholder.
+--
+-- Migrations are SQL and cannot reach the Go registry, so the mapping below
+-- is the registered start step of each family as of this version.
+UPDATE workflow_instances SET current_step = CASE definition_ref
+    WHEN 'workflow.implementation'     THEN 'proposal'
+    WHEN 'workflow.break_fix'          THEN 'reproduce'
+    WHEN 'workflow.research'           THEN 'frame'
+    WHEN 'workflow.architecture_spike' THEN 'frame'
+    WHEN 'workflow.ops_runbook'        THEN 'plan'
+    WHEN 'workflow.static_analysis'    THEN 'scope'
+    WHEN 'workflow.generic_one_off'    THEN 'define'
+    ELSE current_step
+END
+WHERE current_step = 'start';
+		`,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any

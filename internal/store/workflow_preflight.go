@@ -159,9 +159,6 @@ func WorkflowActionPreflightWithRegistry(ctx context.Context, s *Store, registry
 	if err := s.db.QueryRowContext(ctx, `SELECT current_step,instance_state,(SELECT version FROM work_items WHERE id=workflow_instances.work_id) FROM workflow_instances WHERE work_id=?`, request.WorkID).Scan(&currentStep, &state, &version); err != nil {
 		return wrapFailure(KindUnavailable, "workflow_action_preflight", "cannot read workflow instance state", true, "retry once the database is readable", err)
 	}
-	if currentStep == "start" {
-		currentStep = entry.Definition.StepGraph.StartStep
-	}
 	if request.StepID != "" && request.StepID != currentStep {
 		return workflowPinFailure("workflow action request does not match the current definition step")
 	}
@@ -352,9 +349,6 @@ func workflowActionPreflightTx(ctx context.Context, tx *sql.Tx, registry Definit
 	var version int64
 	if err := tx.QueryRowContext(ctx, `SELECT current_step,instance_state,(SELECT version FROM work_items WHERE id=workflow_instances.work_id) FROM workflow_instances WHERE work_id=?`, request.WorkID).Scan(&currentStep, &state, &version); err != nil {
 		return RegisteredDefinition{}, wrapFailure(KindUnavailable, "workflow_action_preflight", "cannot read workflow instance state", true, "retry once the database is readable", err)
-	}
-	if currentStep == "start" {
-		currentStep = entry.Definition.StepGraph.StartStep
 	}
 	if request.StepID != "" && request.StepID != currentStep {
 		return RegisteredDefinition{}, workflowPinFailure("workflow action request does not match the current definition step")
@@ -600,7 +594,7 @@ func preflightWorkflowClaimTx(ctx context.Context, tx *sql.Tx, req ClaimRequest)
 	if err := tx.QueryRowContext(ctx, `SELECT current_step FROM workflow_instances WHERE work_id=?`, req.WorkID).Scan(&currentStep); err != nil {
 		return workflowPinFailure("workflow instance is unavailable")
 	}
-	if req.StepID != currentStep && !(currentStep == "start" && req.StepID == entry.Definition.StepGraph.StartStep) {
+	if req.StepID != currentStep {
 		return workflowPinFailure("workflow claim does not match the current definition step")
 	}
 	return nil
@@ -626,9 +620,6 @@ func preflightWorkflowOperationTx(ctx context.Context, tx *sql.Tx, opID string) 
 	var currentStep string
 	if err := tx.QueryRowContext(ctx, `SELECT current_step FROM workflow_instances WHERE work_id=?`, workID).Scan(&currentStep); err != nil {
 		return workflowPinFailure("workflow instance is unavailable")
-	}
-	if currentStep == "start" {
-		currentStep = entry.Definition.StepGraph.StartStep
 	}
 	if currentStep != stepID || entry.Definition.Version != int64(workflowVersion) || entry.Definition.Ref != workflowRef {
 		return workflowPinFailure("workflow operation does not match its pinned definition step")

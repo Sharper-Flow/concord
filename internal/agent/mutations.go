@@ -1027,9 +1027,7 @@ func (r runtime) planReviseIntent(ctx context.Context, base Envelope, raw []byte
 		if existingErr != nil {
 			return nil, nil, nil, existingErr
 		}
-		if definitionFound && in.WorkflowTypeRef != "" && definition.DefinitionRef != in.WorkflowTypeRef {
-			return nil, nil, nil, fmt.Errorf("workflow definition cannot be changed after initialization")
-		}
+		repinning := definitionFound && in.WorkflowTypeRef != "" && definition.DefinitionRef != in.WorkflowTypeRef
 		urgency := in.Urgency
 		if urgency == "" {
 			urgency = "standard"
@@ -1039,15 +1037,19 @@ func (r runtime) planReviseIntent(ctx context.Context, base Envelope, raw []byte
 		if err != nil {
 			return nil, nil, nil, err
 		}
-		if in.WorkflowTypeRef != "" && !definitionFound {
-			actor := store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}
+		actor := store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}
+		changedVersion := in.ExpectedVersion + 1
+		switch {
+		case in.WorkflowTypeRef != "" && !definitionFound:
 			if err := store.InitializeWorkflowTx(ctx, tx, store.WorkflowInitializationRequest{WorkID: in.WorkID, Definition: registeredDefinition, Actor: actor, Now: r.Authority.now()}); err != nil {
 				return nil, nil, nil, err
 			}
-		}
-		changedVersion := in.ExpectedVersion + 1
-		if in.WorkflowTypeRef != "" && !definitionFound {
 			changedVersion += 2
+		case repinning:
+			if err := store.RepinWorkflowTx(ctx, tx, store.WorkflowRepinRequest{WorkID: in.WorkID, EventID: digest + ":repin", Definition: registeredDefinition, Actor: actor, Now: r.Authority.now()}); err != nil {
+				return nil, nil, nil, err
+			}
+			changedVersion++
 		}
 		changed := []ChangedRef{{EntityKind: "work_item", ID: in.WorkID, Version: strconv.FormatInt(changedVersion, 10)}}
 		return mutationPayload(changed, plan.intents), result.EventIDs, changed, nil

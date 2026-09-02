@@ -4293,6 +4293,38 @@
         }
       }
     },
+  "work_transition_worktree_verify_input": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "work_id",
+      "command",
+      "idempotency_key"
+    ],
+    "properties": {
+      "work_id": {
+        "description": "CD-0096 D3: the work item whose active same-Project worktree the command runs in. The worktree derives from the session's Project and work identity; no path input exists (CD-0096 D2).",
+        "$ref": "#/$defs/id"
+      },
+      "command": {
+        "description": "The argv that runs inside the derived worktree under the exclusive verify lease. Values run as separate arguments; a shell command string is never accepted.",
+        "type": "array",
+        "minItems": 1,
+        "maxItems": 16,
+        "items": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        }
+      },
+      "idempotency_key": {
+        "$ref": "#/$defs/id"
+      },
+      "requested_budget_seconds": {
+        "$ref": "#/$defs/requested_budget_seconds"
+      }
+    }
+  },
     "research_revision_input": {
       "type": "object",
       "additionalProperties": false,
@@ -5599,6 +5631,203 @@
         }
       }
     },
+  "work_browse_worktree_inspect_input": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "work_id",
+      "mode"
+    ],
+    "properties": {
+      "work_id": {
+        "description": "CD-0096 D3 Inspect: the work item whose active same-Project worktree is read. The worktree derives from the session's Project and work identity; no worktree path input exists (CD-0096 D2).",
+        "$ref": "#/$defs/id"
+      },
+      "mode": {
+        "description": "The inspection kind: porcelain status, the diff against HEAD, or one file's content.",
+        "type": "string",
+        "enum": [
+          "status",
+          "diff",
+          "file"
+        ]
+      },
+      "path": {
+        "description": "The relative file selector for file mode. It selects inside the derived worktree; absolute and parent-traversing selectors refuse.",
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 512
+      },
+      "budget": {
+        "$ref": "#/$defs/budget"
+      },
+      "requested_budget_seconds": {
+        "$ref": "#/$defs/requested_budget_seconds"
+      }
+    }
+  },
+  "worktree_inspect_result": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "work_id",
+      "project_id",
+      "branch",
+      "path",
+      "mode",
+      "content",
+      "truncated"
+    ],
+    "properties": {
+      "work_id": {
+        "$ref": "#/$defs/id"
+      },
+      "project_id": {
+        "$ref": "#/$defs/id"
+      },
+      "branch": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 128
+      },
+      "path": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 4096
+      },
+      "mode": {
+        "type": "string",
+        "enum": [
+          "status",
+          "diff",
+          "file"
+        ]
+      },
+      "content": {
+        "description": "The bounded inspection content: porcelain status lines, the diff text, or the file content.",
+        "type": "string",
+        "maxLength": 16384
+      },
+      "truncated": {
+        "type": "boolean"
+      }
+    }
+  },
+  "worktree_verify_result": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "work_id",
+      "project_id",
+      "branch",
+      "path",
+      "lease_id",
+      "command",
+      "exit_code",
+      "output",
+      "output_truncated",
+      "tracked_files_changed"
+    ],
+    "properties": {
+      "work_id": {
+        "$ref": "#/$defs/id"
+      },
+      "project_id": {
+        "$ref": "#/$defs/id"
+      },
+      "branch": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 128
+      },
+      "path": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 4096
+      },
+      "lease_id": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 512
+      },
+      "command": {
+        "type": "array",
+        "minItems": 1,
+        "maxItems": 16,
+        "items": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        }
+      },
+      "exit_code": {
+        "description": "The command's exit code; -1 reports a command that could not start.",
+        "type": "integer",
+        "minimum": -1,
+        "maximum": 255
+      },
+      "output": {
+        "description": "The bounded combined output of the run. Output beyond the bound is dropped, never dumped.",
+        "type": "string",
+        "maxLength": 16384
+      },
+      "output_truncated": {
+        "type": "boolean"
+      },
+      "tracked_files_changed": {
+        "description": "CD-0096 D3: true when tracked files changed while the lease was held, in which case typed completion refused.",
+        "type": "boolean"
+      },
+      "changed_refs": {
+        "type": "array",
+        "maxItems": 32,
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "entity_kind",
+            "id",
+            "version"
+          ],
+          "properties": {
+            "entity_kind": {
+              "$ref": "#/$defs/short"
+            },
+            "id": {
+              "$ref": "#/$defs/id"
+            },
+            "version": {
+              "$ref": "#/$defs/version"
+            }
+          }
+        }
+      },
+      "next_valid_intents": {
+        "type": "array",
+        "maxItems": 16,
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "tool",
+            "operation",
+            "reason_code"
+          ],
+          "properties": {
+            "tool": {
+              "$ref": "#/$defs/id"
+            },
+            "operation": {
+              "$ref": "#/$defs/short"
+            },
+            "reason_code": {
+              "$ref": "#/$defs/short"
+            }
+          }
+        }
+      }
+    }
+  },
     "work_define_observation_record_input": {
       "type": "object",
       "additionalProperties": false,

@@ -373,6 +373,24 @@
           ],
           "properties": {
             "tool": {
+              "const": "concord_work_browse"
+            },
+            "operation": {
+              "const": "worktree_inspect"
+            },
+            "query_id": {
+              "const": "CD-0096.R1"
+            }
+          }
+        },
+        {
+          "required": [
+            "tool",
+            "operation",
+            "query_id"
+          ],
+          "properties": {
+            "tool": {
               "const": "concord_knowledge"
             },
             "operation": {
@@ -493,7 +511,8 @@
                 "workflow_action",
                 "worktree_claim",
                 "worktree_reclaim",
-                "worktree_retarget"
+                "worktree_retarget",
+                "worktree_verify"
               ]
             }
           }
@@ -755,13 +774,15 @@
             "unprocessed",
             "worktree_audit",
             "worktree_claim",
+            "worktree_inspect",
             "worktree_reclaim",
-            "worktree_retarget"
+            "worktree_retarget",
+            "worktree_verify"
           ]
         },
         "query_id": {
           "type": "string",
-          "pattern": "^(PM1\\.Q(1[0-6]|[1-9])|CD-0030\\.R1|CD-0040\\.R1|C14\\.ProductRows|C19\\.Continuity|C21\\.InitiativeEntries|C22\\.Domain(List|Detail|ActiveWork|Attachments|Overlaps))$"
+          "pattern": "^(PM1\\.Q(1[0-6]|[1-9])|CD-0030\\.R1|CD-0040\\.R1|CD-0096\\.R1|C14\\.ProductRows|C19\\.Continuity|C21\\.InitiativeEntries|C22\\.Domain(List|Detail|ActiveWork|Attachments|Overlaps))$"
         },
         "outcome": {
           "enum": [
@@ -1193,13 +1214,15 @@
             "unprocessed",
             "worktree_audit",
             "worktree_claim",
+            "worktree_inspect",
             "worktree_reclaim",
-            "worktree_retarget"
+            "worktree_retarget",
+            "worktree_verify"
           ]
         },
         "query_id": {
           "type": "string",
-          "pattern": "^(PM1\\.Q(1[0-6]|[1-9])|CD-0030\\.R1|CD-0040\\.R1|C14\\.ProductRows|C19\\.Continuity|C21\\.InitiativeEntries|C22\\.Domain(List|Detail|ActiveWork|Attachments|Overlaps))$"
+          "pattern": "^(PM1\\.Q(1[0-6]|[1-9])|CD-0030\\.R1|CD-0040\\.R1|CD-0096\\.R1|C14\\.ProductRows|C19\\.Continuity|C21\\.InitiativeEntries|C22\\.Domain(List|Detail|ActiveWork|Attachments|Overlaps))$"
         },
         "reason_code": {
           "type": "string",

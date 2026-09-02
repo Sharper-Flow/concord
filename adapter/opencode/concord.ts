@@ -451,7 +451,7 @@ type WorkStartBootstrap = {
   worktree: { set_id: string; path: string; branch: string; base_sha: string; state: "active" }
 }
 
-type WorkStartLaunch = { schema_version: "1.0"; operation_id: string; attempt_id: string; launch_state: string; session_id: string | null; spawn_permitted: boolean; rollback_permitted: boolean; recovery_lookup_permitted: boolean; title: string; agent: string; directory: string; product_id: string; work_id: string; prompt: string }
+type WorkStartLaunch = { schema_version: "1.0"; operation_id: string; attempt_id: string; launch_state: string; session_id: string | null; spawn_permitted: boolean; rollback_permitted: boolean; title: string; agent: string; directory: string; product_id: string; work_id: string; prompt: string }
 
 type WorkStartEnvelope = {
   schema_version: "1.0"
@@ -514,7 +514,7 @@ function validateWorkStartBootstrap(value: unknown): value is WorkStartBootstrap
 }
 
 function validateWorkStartLaunch(value: unknown, bootstrap: WorkStartBootstrap): value is WorkStartLaunch {
-  if (!record(value) || !exactKeys(value, ["schema_version", "operation_id", "attempt_id", "launch_state", "session_id", "spawn_permitted", "rollback_permitted", "recovery_lookup_permitted", "title", "agent", "directory", "product_id", "work_id", "prompt"])) return false
+  if (!record(value) || !exactKeys(value, ["schema_version", "operation_id", "attempt_id", "launch_state", "session_id", "spawn_permitted", "rollback_permitted", "title", "agent", "directory", "product_id", "work_id", "prompt"])) return false
   return value.schema_version === "1.0"
     && nonEmptyString(value.operation_id)
     && nonEmptyString(value.attempt_id)
@@ -522,7 +522,6 @@ function validateWorkStartLaunch(value: unknown, bootstrap: WorkStartBootstrap):
     && (value.session_id === null || (nonEmptyString(value.session_id) && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(value.session_id)))
     && typeof value.spawn_permitted === "boolean"
     && typeof value.rollback_permitted === "boolean"
-    && typeof value.recovery_lookup_permitted === "boolean"
     && nonEmptyString(value.title) && Buffer.byteLength(value.title) <= 256
     && value.directory === bootstrap.worktree.path
     && value.product_id === bootstrap.product_id
@@ -605,9 +604,9 @@ async function executeWorkStart(args: WorkStartArgs, context: ToolContext): Prom
   const opencode = process.env.OPENCODE_BIN ?? "opencode"
   let bootstrap: WorkStartBootstrap | null = null
   let rolledBack = false
-  const rollbackBeforeLaunch = async (reason: string, sessionLookupEmpty = false) => {
+  const rollbackBeforeLaunch = async (reason: string) => {
     if (!bootstrap) return
-    const rollback = await runWorkStartChild([concord, "work-bootstrap-rollback"], JSON.stringify({ product_id: bootstrap.product_id, work_id: bootstrap.work_id, operation_id: bootstrap.operation_id, directory: bootstrap.worktree.path, reason: boundedUTF8(reason, MAX_STDERR), session_lookup_empty: sessionLookupEmpty }), new AbortController().signal, { cwd: bootstrap.worktree.path })
+    const rollback = await runWorkStartChild([concord, "work-bootstrap-rollback"], JSON.stringify({ product_id: bootstrap.product_id, work_id: bootstrap.work_id, operation_id: bootstrap.operation_id, directory: bootstrap.worktree.path, reason: boundedUTF8(reason, MAX_STDERR) }), new AbortController().signal, { cwd: bootstrap.worktree.path })
     if (rollback.exitCode !== 0) throw new AdapterFailure("rollback_failure", "rollback_failed", rollback.stderr.slice(0, MAX_STDERR), "partial", "reconcile_operation")
     rolledBack = true
   }

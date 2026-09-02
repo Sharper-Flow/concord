@@ -675,7 +675,6 @@ const launchContract = (agent = "concord-implement", prompt = "Implement the tas
   session_id: sessionID,
   spawn_permitted: true,
   rollback_permitted: false,
-  recovery_lookup_permitted: false,
   title: "concord-work-start-bootstrap-1",
   directory: "/data/worktrees/project-1/work-1",
   product_id: "product-1",

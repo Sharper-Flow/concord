@@ -133,9 +133,8 @@ var commandSpecs = []commandSpec{
 	{Canonical: "worktree-locate", RequiredFields: requiredFields(field("project_id"), field("work_id")), Optional: "ref (a rev-syntax ref; defaults to HEAD, the default branch under the trunk-stays-on-default rule)", Enums: "none"},
 	{Canonical: "work-bootstrap", RequiredFields: requiredFields(field("product_id"), field("project_id"), field("title"), field("value_statement"), field("kind"), field("task"), field("idempotency_key")), Optional: "priority, urgency, tags, workflow_type_ref, external_ref, governing_requirements, ref (defaults to HEAD)", Enums: "kind: task | bug | decision | research | other; urgency: standard | expedite"},
 	{Canonical: "session-prepare", RequiredFields: requiredFields(field("product_id"), field("work_id"), field("task"), field("owner_pid"), field("owner_start")), Optional: "none", Enums: "none"},
-	{Canonical: "session-exec", RequiredFields: requiredFields(field("operation_id"), field("attempt_id"), field("product_id"), field("work_id"), field("agent"), field("directory"), field("title"), field("prompt"), field("owner_pid"), field("owner_start")), Optional: "session_id", Enums: "none"},
 	{Canonical: "session-record", RequiredFields: requiredFields(field("operation_id"), field("attempt_id"), field("product_id"), field("work_id"), field("agent"), field("directory"), field("state"), field("owner_pid"), field("owner_start")), Optional: "session_id, model, failure_reason", Enums: "state: running | completed | failed"},
-	{Canonical: "work-bootstrap-rollback", RequiredFields: requiredFields(field("product_id"), field("work_id"), field("operation_id"), field("directory"), field("reason")), Optional: "session_lookup_empty", Enums: "none"},
+	{Canonical: "work-bootstrap-rollback", RequiredFields: requiredFields(field("product_id"), field("work_id"), field("operation_id"), field("directory"), field("reason")), Optional: "none", Enums: "none"},
 	{Canonical: "project-resolve", TwoWord: "project resolve", RequiredFields: requiredFields(field("directory")), Optional: "worktree (defaults to directory)", Enums: "none"},
 	{Canonical: "restore", RequiredFields: requiredFields(field("source"), field("destination")), Optional: "none", Enums: "source: existing verified backup snapshot path; destination: absolute clean path that does not yet exist and is not the live database"},
 	{Canonical: "predecessor-inventory", TwoWord: "predecessor inventory", RequiredFields: requiredFields(field("snapshot_path")), Optional: "none", Enums: "snapshot_path: absolute path to a harvest-produced predecessor snapshot file; must exist and be a regular file"},
@@ -254,9 +253,6 @@ func runJSONCommand(command string, args []string, in io.Reader, out, errOut io.
 		return 2
 	}
 	inputLimit := int64(agent.MaxEnvelopeBytes)
-	if command == "session-exec" {
-		inputLimit = 524288
-	}
 	raw, err := io.ReadAll(io.LimitReader(in, inputLimit+1))
 	if err != nil || int64(len(raw)) > inputLimit {
 		writeDiagnostic(errOut, fmt.Sprintf("input exceeds %d bytes", inputLimit))
@@ -307,8 +303,6 @@ func runJSONCommand(command string, args []string, in io.Reader, out, errOut io.
 		return runWorkBootstrap(raw, s, out, errOut)
 	case "session-prepare":
 		return runSessionPrepare(raw, s, out, errOut, hostLaneAgentIdentity, hostOrchestratorIdentity, DeriveSessionBoot)
-	case "session-exec":
-		return runSessionExec(raw, s, errOut)
 	case "session-record":
 		return runSessionRecord(raw, s, out, errOut)
 	case "work-bootstrap-rollback":

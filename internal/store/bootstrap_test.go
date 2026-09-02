@@ -256,37 +256,13 @@ func TestBootstrapLaunchReplayPreservesSessionIdentity(t *testing.T) {
 	if contender.SpawnPermitted {
 		t.Fatalf("concurrent launch was permitted: %+v", contender)
 	}
-	if err := s.RecordBootstrapLaunch(context.Background(), launch.OperationID, launch.AttemptID, result.ProductID, result.WorkID, "session-1", launch.Agent, launch.Directory, "openai/model-1", "completed", "", ownerPID, ownerStart); err == nil {
-		t.Fatal("prepared launch moved directly to completed")
-	}
-	if err := s.StartBootstrapLaunch(context.Background(), launch.OperationID, launch.AttemptID, result.ProductID, result.WorkID, launch.Agent, launch.Directory, launch.Title, ownerPID, ownerStart, int64(os.Getpid())); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.RollbackBootstrapOperation(context.Background(), result.ProductID, result.WorkID, result.OperationID, result.Entry.Path, "child transport failed", true); err == nil {
-		t.Fatal("rollback removed a worktree after the child launch fence")
-	}
-	active, err := s.PrepareBootstrapLaunch(context.Background(), result.ProductID, result.WorkID, launch.Agent, launch.Directory, ownerPID, ownerStart)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if active.SpawnPermitted || active.RollbackPermitted || active.RecoveryLookup {
-		t.Fatalf("running launch allowed another action: %+v", active)
-	}
-	if err := s.RecordBootstrapLaunch(context.Background(), launch.OperationID, launch.AttemptID, result.ProductID, result.WorkID, "session-1", launch.Agent, launch.Directory, "", "running", "", ownerPID, ownerStart); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.RollbackBootstrapOperation(context.Background(), result.ProductID, result.WorkID, result.OperationID, result.Entry.Path, "session preparation failed", false); err == nil {
-		t.Fatal("rollback removed a worktree with a recorded session")
-	}
-	replay, err := s.PrepareBootstrapLaunch(context.Background(), result.ProductID, result.WorkID, launch.Agent, launch.Directory, ownerPID, ownerStart)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if replay.State != "running" || replay.SessionID == nil || *replay.SessionID != "session-1" || replay.SpawnPermitted {
-		t.Fatalf("running replay=%+v", replay)
-	}
+	// A retarget has no child run, so the prepared attempt reaches its terminal
+	// state directly.
 	if err := s.RecordBootstrapLaunch(context.Background(), launch.OperationID, launch.AttemptID, result.ProductID, result.WorkID, "session-1", launch.Agent, launch.Directory, "openai/model-1", "completed", "", ownerPID, ownerStart); err != nil {
 		t.Fatal(err)
+	}
+	if err := s.RollbackBootstrapOperation(context.Background(), result.ProductID, result.WorkID, result.OperationID, result.Entry.Path, "session preparation failed"); err == nil {
+		t.Fatal("rollback removed a worktree with a recorded session")
 	}
 	if err := s.RecordBootstrapLaunch(context.Background(), launch.OperationID, launch.AttemptID, result.ProductID, result.WorkID, "session-1", launch.Agent, launch.Directory, "openai/model-1", "failed", "late failure", ownerPID, ownerStart); err == nil {
 		t.Fatal("completed launch moved to failed")
@@ -332,9 +308,6 @@ func TestBootstrapLaunchFailureWithoutSessionRefusesDuplicateLaunch(t *testing.T
 	if err := s.RecordBootstrapLaunch(context.Background(), launch.OperationID, launch.AttemptID, result.ProductID, result.WorkID, "", launch.Agent, launch.Directory, "", "failed", "child process did not report a session", ownerPID, ownerStart); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.RecordBootstrapLaunch(context.Background(), launch.OperationID, launch.AttemptID, result.ProductID, result.WorkID, "session-new", launch.Agent, launch.Directory, "", "running", "", ownerPID, ownerStart); err == nil {
-		t.Fatal("failed launch without a session accepted a new running session")
-	}
 	if err := s.RecordBootstrapLaunch(context.Background(), launch.OperationID, launch.AttemptID, result.ProductID, result.WorkID, "session-new", launch.Agent, launch.Directory, "openai/model-1", "completed", "", ownerPID, ownerStart); err == nil {
 		t.Fatal("failed launch moved directly to completed")
 	}
@@ -370,7 +343,7 @@ func TestBootstrapLaunchOwnerRecoveryIsExclusive(t *testing.T) {
 		_ = owner.Process.Kill()
 		t.Fatal(err)
 	}
-	if err := s.RecordBootstrapLaunch(context.Background(), launch.OperationID, launch.AttemptID, result.ProductID, result.WorkID, "session-recovery", launch.Agent, launch.Directory, "", "running", "", ownerPID, ownerStart); err != nil {
+	if err := s.RecordBootstrapLaunch(context.Background(), launch.OperationID, launch.AttemptID, result.ProductID, result.WorkID, "session-recovery", launch.Agent, launch.Directory, "openai/model-1", "completed", "", ownerPID, ownerStart); err != nil {
 		_ = owner.Process.Kill()
 		t.Fatal(err)
 	}
@@ -385,7 +358,9 @@ func TestBootstrapLaunchOwnerRecoveryIsExclusive(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if recovery.SpawnPermitted || recovery.RollbackPermitted || recovery.RecoveryLookup || recovery.SessionID == nil || *recovery.SessionID != "session-recovery" {
+	// The recorded session survives the owner's death, and the new owner may
+	// prepare the attempt again.
+	if !recovery.SpawnPermitted || recovery.RollbackPermitted || recovery.SessionID == nil || *recovery.SessionID != "session-recovery" {
 		t.Fatalf("recovery=%+v", recovery)
 	}
 	contender, err := s.PrepareBootstrapLaunch(context.Background(), result.ProductID, result.WorkID, launch.Agent, launch.Directory, currentPID, currentStart)
@@ -445,10 +420,10 @@ func TestRollbackBootstrapOperationRemovesOnlyCleanUnlaunchedState(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := s.RollbackBootstrapOperation(context.Background(), result.ProductID, result.WorkID, result.OperationID, repo, "session preparation failed", false); err == nil {
+	if err := s.RollbackBootstrapOperation(context.Background(), result.ProductID, result.WorkID, result.OperationID, repo, "session preparation failed"); err == nil {
 		t.Fatal("rollback accepted the default checkout")
 	}
-	if err := s.RollbackBootstrapOperation(context.Background(), result.ProductID, result.WorkID, result.OperationID, result.Entry.Path, "session preparation failed", false); err != nil {
+	if err := s.RollbackBootstrapOperation(context.Background(), result.ProductID, result.WorkID, result.OperationID, result.Entry.Path, "session preparation failed"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(result.Entry.Path); !errors.Is(err, os.ErrNotExist) {
@@ -477,7 +452,7 @@ func TestRollbackBootstrapOperationRemovesOnlyCleanUnlaunchedState(t *testing.T)
 	if err := os.WriteFile(filepath.Join(dirty.Entry.Path, "operator.txt"), []byte("preserve\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.RollbackBootstrapOperation(context.Background(), dirty.ProductID, dirty.WorkID, dirty.OperationID, dirty.Entry.Path, "session preparation failed", false); err == nil {
+	if err := s.RollbackBootstrapOperation(context.Background(), dirty.ProductID, dirty.WorkID, dirty.OperationID, dirty.Entry.Path, "session preparation failed"); err == nil {
 		t.Fatal("dirty worktree was removed")
 	}
 	if _, err := os.Stat(filepath.Join(dirty.Entry.Path, "operator.txt")); err != nil {
@@ -485,60 +460,6 @@ func TestRollbackBootstrapOperationRemovesOnlyCleanUnlaunchedState(t *testing.T)
 	}
 	if err := s.db.QueryRow(`SELECT state FROM bootstrap_operations WHERE operation_id=?`, dirty.OperationID).Scan(&operationState); err != nil || operationState != "rolling_back" {
 		t.Fatalf("dirty operation state=%s err=%v", operationState, err)
-	}
-}
-
-func TestBootstrapLaunchRecoversAfterFencedProcessDiesWithoutSession(t *testing.T) {
-	repo := initBootstrapStoreRepo(t)
-	s, err := Open(context.Background(), filepath.Join(t.TempDir(), "concord.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer s.Close()
-	seedBootstrapStoreAuthority(t, s, repo)
-	req := bootstrapStoreRequest()
-	req.IdempotencyKey = "bootstrap-dead-launch-process"
-	result, err := s.BootstrapWorktree(context.Background(), req, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	ownerPID, ownerStart := bootstrapTestOwner(t)
-	launch, err := s.PrepareBootstrapLaunch(context.Background(), result.ProductID, result.WorkID, "concord-implement", result.Entry.Path, ownerPID, ownerStart)
-	if err != nil {
-		t.Fatal(err)
-	}
-	process := exec.Command("sleep", "60")
-	if err := process.Start(); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.StartBootstrapLaunch(context.Background(), launch.OperationID, launch.AttemptID, result.ProductID, result.WorkID, launch.Agent, launch.Directory, launch.Title, ownerPID, ownerStart, int64(process.Process.Pid)); err != nil {
-		_ = process.Process.Kill()
-		t.Fatal(err)
-	}
-	active, err := s.PrepareBootstrapLaunch(context.Background(), result.ProductID, result.WorkID, launch.Agent, launch.Directory, ownerPID, ownerStart)
-	if err != nil {
-		_ = process.Process.Kill()
-		t.Fatal(err)
-	}
-	if active.SpawnPermitted || active.RollbackPermitted || active.RecoveryLookup {
-		_ = process.Process.Kill()
-		t.Fatalf("active process recovery=%+v", active)
-	}
-	if err := process.Process.Kill(); err != nil {
-		t.Fatal(err)
-	}
-	if err := process.Wait(); err == nil {
-		t.Fatal("killed launch process exited successfully")
-	}
-	recovery, err := s.PrepareBootstrapLaunch(context.Background(), result.ProductID, result.WorkID, launch.Agent, launch.Directory, ownerPID, ownerStart)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if recovery.SpawnPermitted || recovery.RollbackPermitted || !recovery.RecoveryLookup || recovery.SessionID != nil {
-		t.Fatalf("dead process recovery=%+v", recovery)
-	}
-	if err := s.RollbackBootstrapOperation(context.Background(), result.ProductID, result.WorkID, result.OperationID, result.Entry.Path, "session lookup found no matching session", true); err != nil {
-		t.Fatal(err)
 	}
 }
 
@@ -576,13 +497,13 @@ func TestMigration59PreservesPopulatedBootstrapOperation(t *testing.T) {
 		t.Fatal(err)
 	}
 	var operationID, state, launchState string
-	var attemptID, sessionID, ownerStart, processStart sql.NullString
-	var ownerPID, processPID sql.NullInt64
-	if err := db.QueryRowContext(ctx, `SELECT operation_id,state,launch_state,launch_attempt_id,launch_session_id,launch_owner_pid,launch_owner_start,launch_process_pid,launch_process_start FROM bootstrap_operations WHERE work_id=?`, result.WorkID).Scan(&operationID, &state, &launchState, &attemptID, &sessionID, &ownerPID, &ownerStart, &processPID, &processStart); err != nil {
+	var attemptID, sessionID, ownerStart sql.NullString
+	var ownerPID sql.NullInt64
+	if err := db.QueryRowContext(ctx, `SELECT operation_id,state,launch_state,launch_attempt_id,launch_session_id,launch_owner_pid,launch_owner_start FROM bootstrap_operations WHERE work_id=?`, result.WorkID).Scan(&operationID, &state, &launchState, &attemptID, &sessionID, &ownerPID, &ownerStart); err != nil {
 		t.Fatal(err)
 	}
-	if operationID != result.OperationID || state != "completed" || launchState != "not_started" || attemptID.Valid || sessionID.Valid || ownerPID.Valid || ownerStart.Valid || processPID.Valid || processStart.Valid {
-		t.Fatalf("operation=%s state=%s launch=%s attempt=%v session=%v owner_pid=%v owner_start=%v process_pid=%v process_start=%v", operationID, state, launchState, attemptID, sessionID, ownerPID, ownerStart, processPID, processStart)
+	if operationID != result.OperationID || state != "completed" || launchState != "not_started" || attemptID.Valid || sessionID.Valid || ownerPID.Valid || ownerStart.Valid {
+		t.Fatalf("operation=%s state=%s launch=%s attempt=%v session=%v owner_pid=%v owner_start=%v", operationID, state, launchState, attemptID, sessionID, ownerPID, ownerStart)
 	}
 }
 
@@ -687,7 +608,7 @@ func TestRollbackBootstrapRecoversItsStaleGitLock(t *testing.T) {
 	if err := os.WriteFile(lockPath, []byte(marker), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.RollbackBootstrapOperation(context.Background(), result.ProductID, result.WorkID, result.OperationID, result.Entry.Path, "session preparation failed", false); err != nil {
+	if err := s.RollbackBootstrapOperation(context.Background(), result.ProductID, result.WorkID, result.OperationID, result.Entry.Path, "session preparation failed"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(lockPath); !errors.Is(err, os.ErrNotExist) {

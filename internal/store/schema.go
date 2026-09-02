@@ -3500,6 +3500,21 @@ ALTER TABLE agent_clients ADD COLUMN agent_scope_json TEXT NOT NULL DEFAULT '[]'
     CHECK(json_valid(agent_scope_json) AND json_type(agent_scope_json)='array' AND json_array_length(agent_scope_json) <= 100);
 		`,
 	},
+	{
+		Version: 65,
+		Name:    "bootstrap_operations_drop_the_child_launch_process",
+		SQL: `
+-- Work start launched a second OpenCode session and fenced its child process,
+-- so a bootstrap operation recorded that child's identity to tell a live child
+-- from a lost one. Work start now moves the calling session into the claimed
+-- worktree, and no child exists to identify.
+--
+-- The columns are dropped rather than left unwritten. A column no writer sets
+-- reads as a fact about a process, and every such fact would now be false.
+ALTER TABLE bootstrap_operations DROP COLUMN launch_process_pid;
+ALTER TABLE bootstrap_operations DROP COLUMN launch_process_start;
+		`,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any

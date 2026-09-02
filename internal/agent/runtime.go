@@ -210,6 +210,9 @@ type continuityInput struct {
 	WorkID string      `json:"work_id"`
 	Page   pageInput   `json:"page"`
 	Budget budgetInput `json:"budget"`
+	// ExpectedTargetVersion is the CD-0096 D5 session-target pin: when set,
+	// the read fails closed on a stored target version that differs.
+	ExpectedTargetVersion *int64 `json:"expected_target_version"`
 }
 type relationInput struct {
 	WorkID        string      `json:"work_id"`
@@ -1231,7 +1234,19 @@ func (r runtime) read(ctx context.Context, base Envelope, input []byte, queryID 
 		if err != nil {
 			return failureEnvelope(base, err), nil
 		}
-		snapshot, err := store.ReadWorkflowContinuity(ctx, r.Store, store.ContinuityRequest{Work: in.WorkID, Limit: r.boundedLimit(in.Page.Limit), Cursor: inner})
+		// CD-0096 D5: a session that signs its identity re-pins its
+		// effective target and held verify leases in the pinned projection.
+		// Envelopes without a session identity keep the work-keyed snapshot
+		// the session-boot path renders.
+		continuityReq := store.ContinuityRequest{Work: in.WorkID, Limit: r.boundedLimit(in.Page.Limit), Cursor: inner}
+		if r.Envelope.ClientRef != "" && r.Envelope.AgentRef != "" && r.Envelope.SessionRef != "" {
+			owner := &store.SessionWorktreeOwner{ClientRef: r.Envelope.ClientRef, AgentRef: r.Envelope.AgentRef, SessionRef: r.Envelope.SessionRef}
+			continuityReq.Owner = owner
+			continuityReq.ExpectedTargetVersion = in.ExpectedTargetVersion
+		} else if in.ExpectedTargetVersion != nil {
+			return coreError(base, "invalid_input", "a target version pin requires the session's identity", "supply_session_identity", false), nil
+		}
+		snapshot, err := store.ReadWorkflowContinuity(ctx, r.Store, continuityReq)
 		if err != nil {
 			return failureEnvelope(base, err), nil
 		}
@@ -1845,9 +1860,19 @@ func ContinuityPayload(snapshot store.ContinuitySnapshot) map[string]any {
 	if stepActions == nil {
 		stepActions = []string{}
 	}
+	pinned := map[string]any{"product_identity": snapshot.ProductIdentity, "workflow_step": snapshot.WorkflowStep, "step_actions": stepActions, "contract": snapshot.Contract, "spec_mandate": snapshot.SpecMandate, "pending_operator_decision": snapshot.PendingOperatorDecision, "latest_checkpoint": snapshot.LatestCheckpoint, "unresolved_failure": snapshot.UnresolvedFailure}
+	// CD-0096 D5: the pinned projection carries the reading session's
+	// effective target and held verify leases. Absent fields keep the
+	// work-keyed boot bytes byte-stable (CD-0090 D3).
+	if snapshot.EffectiveTarget != nil {
+		pinned["effective_target"] = *snapshot.EffectiveTarget
+	}
+	if len(snapshot.ActiveVerifyLeases) > 0 {
+		pinned["active_verify_leases"] = snapshot.ActiveVerifyLeases
+	}
 	return map[string]any{
 		"work_id":            snapshot.WorkID,
-		"pinned":             map[string]any{"product_identity": snapshot.ProductIdentity, "workflow_step": snapshot.WorkflowStep, "step_actions": stepActions, "contract": snapshot.Contract, "spec_mandate": snapshot.SpecMandate, "pending_operator_decision": snapshot.PendingOperatorDecision, "latest_checkpoint": snapshot.LatestCheckpoint, "unresolved_failure": snapshot.UnresolvedFailure},
+		"pinned":             pinned,
 		"latest_checkpoint":  snapshot.LatestCheckpoint,
 		"boundaries":         map[string]any{"count": snapshot.BoundaryCount, "items": snapshot.Boundaries, "next_cursor": snapshot.NextCursor, "watermark": snapshot.Watermark},
 		"typed_availability": map[string]any{"restart": "unavailable", "reason": snapshot.RestartUnavailableReason},

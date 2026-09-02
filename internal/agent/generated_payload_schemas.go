@@ -6347,6 +6347,29 @@ const GeneratedPayloadSchemaDocument = `{
         "idempotency_key": {
           "$ref": "#/$defs/id"
         },
+        "observed_session_directories": {
+          "description": "CD-0096 D3, issue #722: the live host sessions the caller observed, each with the directory it runs in. The removal refuses when one of them is the worktree or sits beneath it, because removing that directory leaves the session unable to send another prompt. The store owns the worktree path and the host owns session liveness, so the caller that sees both supplies the observation and the core decides on it. A caller with no host omits the field and reaches the git gates alone.",
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "directory": {
+                "maxLength": 4096,
+                "minLength": 1,
+                "type": "string"
+              },
+              "session_ref": {
+                "$ref": "#/$defs/id"
+              }
+            },
+            "required": [
+              "session_ref",
+              "directory"
+            ],
+            "type": "object"
+          },
+          "maxItems": 100,
+          "type": "array"
+        },
         "requested_budget_seconds": {
           "$ref": "#/$defs/requested_budget_seconds"
         },
@@ -6373,6 +6396,29 @@ const GeneratedPayloadSchemaDocument = `{
         },
         "idempotency_key": {
           "$ref": "#/$defs/id"
+        },
+        "observed_session_directories": {
+          "description": "CD-0096 D3, issue #722: the live host sessions the caller observed, each with the directory it runs in. The removal refuses when one of them is the worktree or sits beneath it, because removing that directory leaves the session unable to send another prompt. The store owns the worktree path and the host owns session liveness, so the caller that sees both supplies the observation and the core decides on it. A caller with no host omits the field and reaches the git gates alone.",
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "directory": {
+                "maxLength": 4096,
+                "minLength": 1,
+                "type": "string"
+              },
+              "session_ref": {
+                "$ref": "#/$defs/id"
+              }
+            },
+            "required": [
+              "session_ref",
+              "directory"
+            ],
+            "type": "object"
+          },
+          "maxItems": 100,
+          "type": "array"
         },
         "project_id": {
           "$ref": "#/$defs/id"

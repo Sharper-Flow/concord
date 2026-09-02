@@ -2317,7 +2317,8 @@ const GeneratedEnvelopeSchemaDocument = `{
             "cancelled_no_effect",
             "manifest_mismatch",
             "grant_bootstrap_failed",
-            "unknown_effect"
+            "unknown_effect",
+            "session_occupancy_unreadable"
           ]
         },
         "candidates": {

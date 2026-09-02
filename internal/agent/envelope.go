@@ -675,6 +675,36 @@ func sortedBoundedList(values []string, limit int) bool {
 	return true
 }
 
+// enforcedRecoveryCouplings binds an error kind to the one recovery action a
+// caller can act on for that kind. validateError refuses an envelope that
+// breaks a coupling, and publicRecovery derives the action from this same
+// table, so a producer cannot compose a pair the validator will then reject.
+//
+// One table, two consumers. A coupling added here reaches the producer and the
+// validator together. A coupling that lived in the validator alone is the
+// defect this table removes: the store proposes operator prose, publicRecovery
+// fell through to "contact_operator", and the resulting envelope failed to
+// marshal, so the caller received a transport error in place of the typed
+// refusal the core had already decided.
+// A companion-field requirement is not a recovery coupling and does not belong
+// here. `ambiguous_scope` needs candidates, `version_conflict` needs current
+// versions, `budget_refused` needs a supported budget, and cancel and timeout
+// need an empty effect state. Those stay as their own checks, because they
+// constrain the payload rather than the action a caller takes next.
+var enforcedRecoveryCouplings = map[string]string{
+	"ambiguous_scope":    "resolve_ambiguity",
+	"budget_refused":     "adjust_budget",
+	"cancelled":          "retry_same_request",
+	"invalid_cursor":     "restart_query",
+	"limit_exceeded":     "reduce_limit",
+	"missing_evidence":   "provide_evidence",
+	"operation_conflict": "reconcile_operation",
+	"outcome_mismatch":   "contact_operator",
+	"stale_context":      "refresh_context",
+	"timeout":            "retry_same_request",
+	"version_conflict":   "reread_entities",
+}
+
 func validateError(err TypedError) error {
 	if !store.TypedErrorKindAllowed(err.Kind) {
 		return fmt.Errorf("unknown error kind %q", err.Kind)
@@ -729,23 +759,17 @@ func validateError(err TypedError) error {
 			}
 		}
 	}
-	if err.Kind == "ambiguous_scope" && (len(err.Candidates) == 0 || err.RecoveryAction.Kind != "resolve_ambiguity") {
-		return errors.New("ambiguous scope recovery coupling violated")
+	if want, coupled := enforcedRecoveryCouplings[err.Kind]; coupled && err.RecoveryAction.Kind != want {
+		return fmt.Errorf("%s recovery coupling violated: want %s, got %s", err.Kind, want, err.RecoveryAction.Kind)
 	}
-	if err.Kind == "stale_context" && err.RecoveryAction.Kind != "refresh_context" {
-		return errors.New("stale context recovery coupling violated")
+	// Companion-field requirements. These say what payload a kind must carry
+	// for its coupled action to be actionable, so they stay separate from the
+	// action coupling above.
+	if err.Kind == "ambiguous_scope" && len(err.Candidates) == 0 {
+		return errors.New("ambiguous scope must carry candidates")
 	}
-	if err.Kind == "version_conflict" && (len(err.CurrentVersions) == 0 || err.RecoveryAction.Kind != "reread_entities") {
-		return errors.New("version conflict recovery coupling violated")
-	}
-	if err.Kind == "missing_evidence" && err.RecoveryAction.Kind != "provide_evidence" {
-		return errors.New("missing evidence recovery coupling violated")
-	}
-	if err.Kind == "limit_exceeded" && err.RecoveryAction.Kind != "reduce_limit" {
-		return errors.New("limit recovery coupling violated")
-	}
-	if err.Kind == "budget_refused" && err.RecoveryAction.Kind != "adjust_budget" {
-		return errors.New("budget recovery coupling violated")
+	if err.Kind == "version_conflict" && len(err.CurrentVersions) == 0 {
+		return errors.New("version conflict must carry current versions")
 	}
 	// CD-0038 D3: the ceiling is a typed field, required wherever the kind
 	// appears. Byte and item overruns carry it too — the coupling is on the
@@ -770,17 +794,8 @@ func validateError(err TypedError) error {
 			return errors.New("consequence summary scope or versions are not canonical sorted bindings")
 		}
 	}
-	if err.Kind == "invalid_cursor" && err.RecoveryAction.Kind != "restart_query" {
-		return errors.New("cursor recovery coupling violated")
-	}
-	if err.Kind == "operation_conflict" && err.RecoveryAction.Kind != "reconcile_operation" {
-		return errors.New("operation recovery coupling violated")
-	}
-	if err.Kind == "outcome_mismatch" && err.RecoveryAction.Kind != "contact_operator" {
-		return errors.New("outcome mismatch recovery coupling violated")
-	}
-	if (err.Kind == "cancelled" || err.Kind == "timeout") && (err.EffectState != EffectNone || err.RecoveryAction.Kind != "retry_same_request") {
-		return errors.New("cancel/timeout coupling violated")
+	if (err.Kind == "cancelled" || err.Kind == "timeout") && err.EffectState != EffectNone {
+		return errors.New("cancel/timeout must carry effect state none")
 	}
 	if x := validateOptions(err); x != nil {
 		return x

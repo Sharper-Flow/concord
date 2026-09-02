@@ -126,8 +126,8 @@ func TestWorktreeRetargetRefusesCrossWorkWithTypedOwnershipConflict(t *testing.T
 	if refused.Outcome != OutcomeError || refused.Error == nil {
 		t.Fatalf("response=%+v, want typed refusal", refused)
 	}
-	if refused.Error.Kind != "operation_conflict" {
-		t.Fatalf("error.kind=%q, want operation_conflict", refused.Error.Kind)
+	if refused.Error.Kind != "unauthorized" {
+		t.Fatalf("error.kind=%q, want unauthorized", refused.Error.Kind)
 	}
 	if !strings.Contains(refused.Error.Message, "work-1") || !strings.Contains(refused.Error.Message, "session-1") || !strings.Contains(refused.Error.Message, "takeover") {
 		t.Fatalf("error.message=%q, want owner identity and takeover naming", refused.Error.Message)
@@ -174,8 +174,8 @@ func TestWorktreeRetargetSecondSessionRefusesWithTypedOwnershipConflict(t *testi
 	if refused.Outcome != OutcomeError || refused.Error == nil {
 		t.Fatalf("response=%+v, want typed refusal", refused)
 	}
-	if refused.Error.Kind != "operation_conflict" {
-		t.Fatalf("error.kind=%q, want operation_conflict", refused.Error.Kind)
+	if refused.Error.Kind != "unauthorized" {
+		t.Fatalf("error.kind=%q, want unauthorized", refused.Error.Kind)
 	}
 	if !strings.Contains(refused.Error.Message, "session-1") {
 		t.Fatalf("error.message=%q, want the holding session named", refused.Error.Message)

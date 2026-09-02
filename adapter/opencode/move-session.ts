@@ -40,14 +40,19 @@ export class MoveSessionRefused extends Error {}
 // this module, which the OpenCode instance scopes to one running host.
 export const hostControlPlane = (): HostControlPlane => shared
 
+export type RouteFetch = (url: URL, init: RequestInit) => Promise<Response>
+
 export class HostControlPlane {
   #serverUrl: URL | null = null
+  #fetch: RouteFetch = (url, init) => fetch(url, init)
 
   // bind records the server URL the plugin factory was handed. A tool call
   // that runs before the factory bound one finds no route, which is the same
-  // fail-closed answer as a host that does not serve one.
-  bind(serverUrl: URL | string | undefined): void {
+  // fail-closed answer as a host that does not serve one. The transport is
+  // injectable so a test can exercise the route contract without a server.
+  bind(serverUrl: URL | string | undefined, transport?: RouteFetch): void {
     this.#serverUrl = serverUrl ? new URL(String(serverUrl)) : null
+    this.#fetch = transport ?? ((url, init) => fetch(url, init))
   }
 
   // moveSession retargets a running session at an absolute directory. It
@@ -63,7 +68,7 @@ export class HostControlPlane {
     const url = new URL(MOVE_SESSION_ROUTE, this.#serverUrl)
     let response: Response
     try {
-      response = await fetch(url, {
+      response = await this.#fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ sessionID, destination: { directory } }),
@@ -83,6 +88,42 @@ export class HostControlPlane {
     throw new MoveSessionRefused(
       `the OpenCode move-session route refused the retarget with status ${response.status}: ${await readRefusal(response)}`,
     )
+  }
+
+  // sessionDirectory reads back where the host now runs a session. CD-0098 D3
+  // refuses success unless the move landed on the claimed worktree, so the
+  // answer comes from the host rather than from the request that asked for it.
+  async sessionDirectory(sessionID: string, signal?: AbortSignal): Promise<string> {
+    if (!this.#serverUrl) {
+      throw new MoveSessionUnavailable(
+        `cannot read the session directory back: this host exposed no server URL (host version ${hostVersion()})`,
+      )
+    }
+    const url = new URL(`/session/${encodeURIComponent(sessionID)}`, this.#serverUrl)
+    let response: Response
+    try {
+      response = await this.#fetch(url, { method: "GET", headers: { Accept: "application/json" }, signal })
+    } catch (error) {
+      throw new MoveSessionRefused(
+        `cannot read the session directory back: ${error instanceof Error ? error.message : String(error)}`,
+      )
+    }
+    if (!response.ok) {
+      throw new MoveSessionRefused(
+        `cannot read the session directory back: the host answered ${response.status}: ${await readRefusal(response)}`,
+      )
+    }
+    let session: unknown
+    try {
+      session = await response.json()
+    } catch (error) {
+      throw new MoveSessionRefused(`the session readback was not JSON: ${error instanceof Error ? error.message : String(error)}`)
+    }
+    const directory = (session as { directory?: unknown } | null)?.directory
+    if (typeof directory !== "string" || !directory) {
+      throw new MoveSessionRefused("the session readback carried no directory")
+    }
+    return directory
   }
 }
 

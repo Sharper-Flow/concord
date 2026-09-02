@@ -134,13 +134,18 @@ func TestRetargetReassertSucceedsAndStaleTargetVersionFailsClosed(t *testing.T) 
 	}
 }
 
+// A pin against a session that holds no binding fails closed under CD-0096 D5,
+// and it names the absence rather than a version conflict. A version conflict
+// must carry the live version the caller should re-read, and there is none
+// here: the agent envelope refuses such a refusal at marshal time, so the
+// classification would never reach a caller.
 func TestRetargetFirstBindingWithNonzeroVersionRefuses(t *testing.T) {
 	s, git, _ := worktreeFixture(t)
 	owner := retargetOwner("client-1", "agent-1", "session-1")
 
 	_, err := s.RetargetSessionWorktree(context.Background(), retargetRequest(git, owner, "work-w", 2, 3))
-	if err == nil || err.(*Failure).Kind != KindVersionConflict {
-		t.Fatalf("err=%v, want version conflict on pinned version without a binding", err)
+	if err == nil || err.(*Failure).Kind != KindProjectionNotFound {
+		t.Fatalf("err=%v, want projection_not_found on a pinned version without a binding", err)
 	}
 	if _, found, readErr := s.SessionWorktreeTarget(context.Background(), owner); readErr != nil || found {
 		t.Fatalf("found=%v err=%v, want no binding recorded", found, readErr)

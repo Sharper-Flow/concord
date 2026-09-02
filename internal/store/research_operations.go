@@ -199,7 +199,7 @@ func lockResearchPack(ctx context.Context, tx *sql.Tx, id string, expected int64
 		// Research packs do not use SubjectRef; the typed current version is
 		// still surfaced via the generic SubjectCurrentVersion carrier keyed by
 		// subject_type "research_pack" so higher layers do not have to regex.
-		f.CurrentVersions = []SubjectCurrentVersion{{SubjectType: "research_pack", SubjectID: id, Version: p.ExpectedVersion, Exists: true}}
+		f.CurrentVersions = []SubjectCurrentVersion{{SubjectType: "research_pack", SubjectID: id, Version: p.ExpectedVersion}}
 		return p, f
 	}
 	return p, nil
@@ -211,7 +211,19 @@ func bumpResearchPack(ctx context.Context, tx *sql.Tx, id string, expected int64
 	}
 	n, err := res.RowsAffected()
 	if err != nil || n != 1 {
-		return newFailure(KindVersionConflict, "research_mutation", "research pack changed before its write", false, "reload the pack and retry")
+		// The predicate missed. Read the live version inside this transaction
+		// so the refusal names what to reload; a version conflict that cannot
+		// name a current version is one no caller can act on.
+		var live int64
+		switch scanErr := tx.QueryRowContext(ctx, `SELECT expected_version FROM active_research_packs WHERE pack_id=?`, id).Scan(&live); {
+		case scanErr == sql.ErrNoRows:
+			return newFailure(KindProjectionNotFound, "research_mutation", fmt.Sprintf("research pack %s does not exist, so version %d cannot be confirmed", id, expected), false, "reload the pack")
+		case scanErr != nil:
+			return researchUnavailable("cannot read the current research pack version", scanErr)
+		}
+		f := newFailure(KindVersionConflict, "research_mutation", fmt.Sprintf("research pack %s changed before its write and now holds version %d", id, live), false, "reload the pack and retry")
+		f.CurrentVersions = []SubjectCurrentVersion{{SubjectType: "research_pack", SubjectID: id, Version: live}}
+		return f
 	}
 	return nil
 }

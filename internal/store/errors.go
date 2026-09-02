@@ -231,14 +231,13 @@ type Failure struct {
 }
 
 // SubjectCurrentVersion is the typed current-version carrier for an optimistic
-// concurrency refusal. Exists is false for projections the projectionVersion
-// probe reported as missing; in that case Version is zero and callers should
-// interpret the absence as "no projection exists yet".
+// concurrency refusal. It names a subject that exists and the version it holds
+// now, which is what makes the refusal actionable. A refusal about a subject
+// that does not exist carries no version and is not a version conflict.
 type SubjectCurrentVersion struct {
 	SubjectType SubjectType `json:"subject_type"`
 	SubjectID   string      `json:"subject_id"`
 	Version     int64       `json:"version"`
-	Exists      bool        `json:"exists"`
 }
 
 func (f *Failure) Error() string {

@@ -796,7 +796,7 @@ func validateWorkVersion(event Event, current, expected, resulting int64) error 
 		f := newFailure(KindVersionConflict, "fold_event",
 			fmt.Sprintf("work item %s has version %d, want %d", event.SubjectID, current, expected), false,
 			"reload the work item and retry with its current version")
-		f.CurrentVersions = []SubjectCurrentVersion{{SubjectType: SubjectWorkItem, SubjectID: event.SubjectID, Version: current, Exists: true}}
+		f.CurrentVersions = []SubjectCurrentVersion{{SubjectType: SubjectWorkItem, SubjectID: event.SubjectID, Version: current}}
 		return f
 	}
 	if resulting != current+1 {

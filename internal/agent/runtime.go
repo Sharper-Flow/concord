@@ -740,13 +740,8 @@ func failureEnvelope(base Envelope, err error) Envelope {
 		// callers can recover the live projection version structurally without
 		// having to parse the human detail string. Mirrors the same path for
 		// typed violations: see D5.
-		if len(sf.CurrentVersions) > 0 {
-			for _, current := range sf.CurrentVersions {
-				if !current.Exists {
-					continue
-				}
-				out.Error.CurrentVersions = append(out.Error.CurrentVersions, ChangedRef{EntityKind: string(current.SubjectType), ID: current.SubjectID, Version: strconv.FormatInt(current.Version, 10)})
-			}
+		for _, current := range sf.CurrentVersions {
+			out.Error.CurrentVersions = append(out.Error.CurrentVersions, ChangedRef{EntityKind: string(current.SubjectType), ID: current.SubjectID, Version: strconv.FormatInt(current.Version, 10)})
 		}
 		if len(sf.Violations) > 0 {
 			out.Error.Violations = append(out.Error.Violations, sf.Violations...)

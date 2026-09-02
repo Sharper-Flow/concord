@@ -729,16 +729,23 @@ func unknownEventKind(kind string) *Failure {
 }
 
 func versionConflict(subjectType SubjectType, subjectID string, expected, got int64, exists bool) *Failure {
-	actual := "missing"
-	if exists {
-		actual = fmt.Sprintf("%d", got)
+	// A version conflict promises the caller a live version to re-read, and
+	// every layer above depends on that promise: the agent envelope refuses a
+	// version_conflict that names no current version. An absent subject has no
+	// live version to name, so reporting one as a version conflict produces a
+	// refusal that cannot be expressed, and the caller receives a transport
+	// fault in place of the decision the core reached.
+	if !exists {
+		return newFailure(KindProjectionNotFound, "apply_operation",
+			fmt.Sprintf("%s %s does not exist, so its version cannot be compared with %d", subjectType, subjectID, expected), false,
+			"create the subject before pinning its version")
 	}
 	f := newFailure(KindVersionConflict, "apply_operation",
-		fmt.Sprintf("%s %s has version %s, want %d", subjectType, subjectID, actual, expected), false,
+		fmt.Sprintf("%s %s has version %d, want %d", subjectType, subjectID, got, expected), false,
 		"reload the subject and retry with its current version")
 	// Carry the typed current version so higher layers can surface
 	// error.current_version structurally instead of regexing the detail string.
-	f.CurrentVersions = []SubjectCurrentVersion{{SubjectType: subjectType, SubjectID: subjectID, Version: got, Exists: exists}}
+	f.CurrentVersions = []SubjectCurrentVersion{{SubjectType: subjectType, SubjectID: subjectID, Version: got}}
 	return f
 }
 

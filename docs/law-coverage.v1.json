@@ -1604,6 +1604,11 @@
       "state": "satisfied"
     },
     {
+      "id": "CD-0097",
+      "issue": 667,
+      "state": "outstanding"
+    },
+    {
       "evidence": [
         {
           "kind": "go_test",

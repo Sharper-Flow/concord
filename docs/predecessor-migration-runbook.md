@@ -104,7 +104,10 @@ Operation order:
 - **Freeze the predecessor for that Product.** Nothing enforces this — the
   predecessor has no per-Project lock. The operator stops creating work there,
   and in-flight predecessor sessions for that Product finish or are abandoned
-  before the harvest that precedes import.
+  before the harvest that precedes import. A Product declared under the
+  bounded parallel migration mode is exempt from the freeze: CD-0097 keeps the
+  predecessor installed, writable, and usable as the live authority until the
+  operator records cutover.
 - **Fix forward.** A migrated Product does not roll back. Defects become
   Concord work items.
 - **Curate wisdom.** The harvest carries the Product's wisdom entries; the
@@ -112,15 +115,18 @@ Operation order:
   become `lesson` records or are dropped with recorded reasons. An
   unprocessed document is not law regardless of origin.
 - **History stays in the frozen snapshot.** Archived and closed changes are
-  deliberately not imported. The validated snapshot file is the Product's
-  historical record; importing terminal work would be a new demand-driven
-  extension, not a default.
+  deliberately not imported on the default route. The validated snapshot file
+  is the Product's historical record. Under CD-0097's parallel mode,
+  terminal history may import into Concord as a read-only record that carries
+  no workflow authority; that import is the mode's bounded extension, not a
+  default.
 
 ## Related
 
 | Surface | Role |
 |---|---|
 | [`rollout-plan.md`](./rollout-plan.md) §4 | Migration policy (demand-driven, CD-0082). |
+| [`decisions/CD-0097-bounded-parallel-predecessor-migration.md`](./decisions/CD-0097-bounded-parallel-predecessor-migration.md) | The bounded parallel migration mode that exempts a declared Product from the freeze. |
 | [`contracts/predecessor-snapshot.schema.json`](../contracts/predecessor-snapshot.schema.json) | The fail-closed snapshot contract. |
 | `concord predecessor inventory` | Snapshot validation and enumeration. |
 | `concord predecessor import` | The import verb with delivered safeguards. |

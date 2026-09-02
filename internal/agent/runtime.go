@@ -869,10 +869,13 @@ func mapFailureKind(kind store.FailureKind) string {
 	case store.KindUnreachable, store.KindGitUnreachable:
 		return "unreachable"
 	case store.KindWorktreeOwnershipConflict:
-		// CD-0096 D3: a takeover refused for authority. The message names the
-		// owning session and the recovery action; operation_conflict carries
-		// the class until the takeover surface mints its own envelope kind.
-		return "operation_conflict"
+		// CD-0096 D3: a takeover refused for authority the caller does not
+		// hold. The remedy is the owner releasing its binding or the operator
+		// approving an override, so this is an authority refusal and carries
+		// the contact_operator route the store already proposes. It is not an
+		// operation to reconcile, and naming it one told the caller to run a
+		// recovery that does not apply.
+		return "unauthorized"
 	case store.KindWorktreeLeaseHeld:
 		// CD-0096 D3 Verify: exclusivity is coordination, not authority. The
 		// message names the holding session; the refusal recorded nothing,
@@ -901,12 +904,22 @@ func mapFailureKind(kind store.FailureKind) string {
 }
 
 func publicRecovery(kind, proposed string) string {
+	// A coupled kind admits exactly one recovery action, and validateError
+	// refuses every other pairing. The coupling therefore decides before the
+	// proposed value is read: the store proposes free operator prose, and a
+	// proposal that is merely a valid action is still the wrong one here.
+	// Letting either reach the envelope produces a pair that cannot marshal,
+	// which reaches the caller as a transport fault rather than the refusal
+	// the core decided.
+	if coupled, ok := enforcedRecoveryCouplings[kind]; ok {
+		return coupled
+	}
 	allowed := map[string]bool{"none": true, "retry_same_request": true, "refresh_context": true, "reread_entities": true, "request_approval": true, "provide_evidence": true, "reduce_limit": true, "use_next_cursor": true, "restart_query": true, "adjust_budget": true, "reconcile_operation": true, "resolve_ambiguity": true, "contact_operator": true}
 	if allowed[proposed] {
 		return proposed
 	}
 	switch kind {
-	case "unauthorized", "outcome_mismatch", "unreachable", "internal_error":
+	case "unauthorized", "unreachable", "internal_error":
 		return "contact_operator"
 	case "approval_required", "approval_invalid":
 		return "request_approval"
@@ -914,7 +927,7 @@ func publicRecovery(kind, proposed string) string {
 		return "request_approval"
 	case "domain_overlap":
 		return "request_approval"
-	case "version_conflict", "invalid_transition", "invalid_relation", "invariant_violation", "invalid_input":
+	case "invalid_transition", "invalid_relation", "invariant_violation", "invalid_input":
 		return "reread_entities"
 	default:
 		return "contact_operator"

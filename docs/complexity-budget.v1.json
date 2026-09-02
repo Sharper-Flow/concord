@@ -25,9 +25,9 @@
     },
     {
       "function": "internal/agent.(runtime).read",
-      "measured": 208,
+      "measured": 214,
       "state": "unmeasured",
-      "reason": "Flat dispatch over 28 read kinds: arms delegating rather than inlining. This is the shape #406 asks whether mutate should adopt. No decision has assessed the read surface's breadth. Score moved 189 to 208 when concord_knowledge.unprocessed added a repository read arm."
+      "reason": "Flat dispatch over 29 read kinds: arms delegating rather than inlining. This is the shape #406 asks whether mutate should adopt. No decision has assessed the read surface's breadth. Score moved 208 to 214 when concord_work_browse added the worktree audit read arm."
     }
   ]
 }

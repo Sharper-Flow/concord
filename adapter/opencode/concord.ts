@@ -2,6 +2,7 @@ import { clientRef } from "./credentials"
 import { contractOperations, hostToolDescriptions, hostToolSchemas, manifestDigest, maxEnvelopeBytes, payloadSchemas } from "./generated-contracts"
 import { validateGeneratedEnvelope, validateGeneratedPayload } from "./generated-contract-tests"
 import { dispatchLaneWorker, type LaneDispatchInput } from "./lane_dispatch"
+import { hostControlPlane, MoveSessionUnavailable } from "./move-session"
 import { createRunSessionObservation, errorEnvelopeForLane, MAX_OUTPUT_BYTES, observeRunSessionLine, readExportSessionMetadata, readRunSessionMetadata, readRunTextParts, runStreamRefusalMessage, runStreamRefusalRecovery, validateAgainstSchema, type AgentResultEnvelope, type RunLineMetadata, type RunSessionObservation } from "./dispatch"
 
 type ToolContext = {
@@ -450,7 +451,7 @@ type WorkStartBootstrap = {
   worktree: { set_id: string; path: string; branch: string; base_sha: string; state: "active" }
 }
 
-type WorkStartLaunch = { schema_version: "1.0"; operation_id: string; attempt_id: string; launch_state: string; session_id: string | null; spawn_permitted: boolean; rollback_permitted: boolean; recovery_lookup_permitted: boolean; title: string; agent: string; directory: string; product_id: string; work_id: string; prompt: string }
+type WorkStartLaunch = { schema_version: "1.0"; operation_id: string; attempt_id: string; launch_state: string; session_id: string | null; spawn_permitted: boolean; rollback_permitted: boolean; title: string; agent: string; directory: string; product_id: string; work_id: string; prompt: string }
 
 type WorkStartEnvelope = {
   schema_version: "1.0"
@@ -513,7 +514,7 @@ function validateWorkStartBootstrap(value: unknown): value is WorkStartBootstrap
 }
 
 function validateWorkStartLaunch(value: unknown, bootstrap: WorkStartBootstrap): value is WorkStartLaunch {
-  if (!record(value) || !exactKeys(value, ["schema_version", "operation_id", "attempt_id", "launch_state", "session_id", "spawn_permitted", "rollback_permitted", "recovery_lookup_permitted", "title", "agent", "directory", "product_id", "work_id", "prompt"])) return false
+  if (!record(value) || !exactKeys(value, ["schema_version", "operation_id", "attempt_id", "launch_state", "session_id", "spawn_permitted", "rollback_permitted", "title", "agent", "directory", "product_id", "work_id", "prompt"])) return false
   return value.schema_version === "1.0"
     && nonEmptyString(value.operation_id)
     && nonEmptyString(value.attempt_id)
@@ -521,7 +522,6 @@ function validateWorkStartLaunch(value: unknown, bootstrap: WorkStartBootstrap):
     && (value.session_id === null || (nonEmptyString(value.session_id) && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(value.session_id)))
     && typeof value.spawn_permitted === "boolean"
     && typeof value.rollback_permitted === "boolean"
-    && typeof value.recovery_lookup_permitted === "boolean"
     && nonEmptyString(value.title) && Buffer.byteLength(value.title) <= 256
     && value.directory === bootstrap.worktree.path
     && value.product_id === bootstrap.product_id
@@ -533,6 +533,14 @@ function validateWorkStartLaunch(value: unknown, bootstrap: WorkStartBootstrap):
 function boundedUTF8(value: string, maxBytes: number): string {
   if (Buffer.byteLength(value) <= maxBytes) return value
   return new TextDecoder().decode(Buffer.from(value).subarray(0, maxBytes))
+}
+
+// samePath compares an absolute path the host reported with one Concord
+// claimed. Both are absolute and already resolved, so only a trailing
+// separator distinguishes two spellings of one directory.
+function samePath(left: string, right: string): boolean {
+  const trim = (value: string) => (value.length > 1 && value.endsWith("/") ? value.slice(0, -1) : value)
+  return trim(left) === trim(right)
 }
 
 async function currentLaunchOwner(): Promise<{ owner_pid: number; owner_start: string }> {
@@ -596,9 +604,9 @@ async function executeWorkStart(args: WorkStartArgs, context: ToolContext): Prom
   const opencode = process.env.OPENCODE_BIN ?? "opencode"
   let bootstrap: WorkStartBootstrap | null = null
   let rolledBack = false
-  const rollbackBeforeLaunch = async (reason: string, sessionLookupEmpty = false) => {
+  const rollbackBeforeLaunch = async (reason: string) => {
     if (!bootstrap) return
-    const rollback = await runWorkStartChild([concord, "work-bootstrap-rollback"], JSON.stringify({ product_id: bootstrap.product_id, work_id: bootstrap.work_id, operation_id: bootstrap.operation_id, directory: bootstrap.worktree.path, reason: boundedUTF8(reason, MAX_STDERR), session_lookup_empty: sessionLookupEmpty }), new AbortController().signal, { cwd: bootstrap.worktree.path })
+    const rollback = await runWorkStartChild([concord, "work-bootstrap-rollback"], JSON.stringify({ product_id: bootstrap.product_id, work_id: bootstrap.work_id, operation_id: bootstrap.operation_id, directory: bootstrap.worktree.path, reason: boundedUTF8(reason, MAX_STDERR) }), new AbortController().signal, { cwd: bootstrap.worktree.path })
     if (rollback.exitCode !== 0) throw new AdapterFailure("rollback_failure", "rollback_failed", rollback.stderr.slice(0, MAX_STDERR), "partial", "reconcile_operation")
     rolledBack = true
   }
@@ -645,10 +653,8 @@ async function executeWorkStart(args: WorkStartArgs, context: ToolContext): Prom
     }
     const launch = launchValue
     const activeBootstrap = bootstrap
-    if (!activeBootstrap) throw new AdapterFailure("malformed_response", "malformed_bootstrap_response", "bootstrap state was lost before launch")
-    let sessionID = launch.session_id ?? ""
-    let sessionIdentityRecorded = sessionID !== ""
-    const recordLaunch = async (state: "running" | "completed" | "failed", reason: string, model = "", recordedSessionID = sessionID) => {
+    if (!activeBootstrap) throw new AdapterFailure("malformed_response", "malformed_bootstrap_response", "bootstrap state was lost before the retarget")
+    const recordRetarget = async (state: "running" | "completed" | "failed", reason: string) => {
       const record = await runWorkStartChild([concord, "session-record"], JSON.stringify({
         operation_id: launch.operation_id,
         attempt_id: launch.attempt_id,
@@ -656,134 +662,47 @@ async function executeWorkStart(args: WorkStartArgs, context: ToolContext): Prom
         work_id: activeBootstrap.work_id,
         agent: launch.agent,
         directory: activeBootstrap.worktree.path,
-        session_id: recordedSessionID,
-        model,
+        session_id: context.sessionID,
+        model: "",
         state,
         failure_reason: reason,
         ...launchOwner,
       }), context.abort, { cwd: activeBootstrap.worktree.path })
       if (record.exitCode !== 0) throw new AdapterFailure("session_record_failure", "session_record_failed", record.stderr.slice(0, MAX_STDERR), "partial", "reconcile_operation")
     }
-    const findRecoverableSession = async () => {
-      const listed = await runWorkStartChild([opencode, "session", "list", "--format", "json"], "", new AbortController().signal, { cwd: activeBootstrap.worktree.path })
-      if (listed.exitCode !== 0) throw new AdapterFailure("transport_failure", "session_list_failed", listed.stderr.slice(0, MAX_STDERR), "partial", "reconcile_operation")
-      return readRecoveredSessionID(listed.stdout, launch.title, activeBootstrap.worktree.path)
-    }
-    if (!launch.spawn_permitted) {
-      if (launch.recovery_lookup_permitted) {
-        const recovered = await findRecoverableSession()
-        if (recovered) {
-          sessionID = recovered
-          await recordLaunch("running", "", "", recovered)
-          throw new AdapterFailure("operation_conflict", "recovered_session_requires_reconciliation", "the interrupted launch session was recovered and requires reconciliation", "partial", "reconcile_operation")
-        }
-        await rollbackBeforeLaunch("the ended launch process created no OpenCode session", true)
-        throw new AdapterFailure("cancelled", "stale_launch_rolled_back", "the ended launch created no recoverable session identity")
-      }
-      if (launch.rollback_permitted) {
-        await rollbackBeforeLaunch("the prior host process ended before it started a child launch")
-        throw new AdapterFailure("cancelled", "stale_launch_rolled_back", "the stale launch had no child process")
-      }
-      throw new AdapterFailure("operation_conflict", "launch_in_progress", "another host invocation owns this launch", "partial", "reconcile_operation")
-    }
     if (context.abort.aborted) {
-      await rollbackBeforeLaunch("work_start was cancelled before the child launch")
-      throw new AdapterFailure("cancelled", "cancelled_after_prepare", "work_start was cancelled before the child launch")
+      await rollbackBeforeLaunch("work_start was cancelled before the retarget")
+      throw new AdapterFailure("cancelled", "cancelled_after_prepare", "work_start was cancelled before the retarget")
     }
-    const runSessionObservation = createRunSessionObservation()
-    const observeRunLine = async (line: string, metadata?: RunLineMetadata | null) => {
-      const observed = metadata === undefined ? observeRunSessionLine(runSessionObservation, line) : metadata
-      if (!observed) return
-      if (sessionID && observed.session_id !== sessionID) throw new AdapterFailure("malformed_response", "session_identity_mismatch", "OpenCode emitted more than one session identity", "partial", "reconcile_operation")
-      if (!sessionID) {
-        sessionID = observed.session_id
-        await recordLaunch("running", "", "", observed.session_id)
-        sessionIdentityRecorded = true
-      }
-    }
-    const runInput = JSON.stringify({
-      operation_id: launch.operation_id,
-      attempt_id: launch.attempt_id,
-      product_id: activeBootstrap.product_id,
-      work_id: activeBootstrap.work_id,
-      agent: launch.agent,
-      directory: activeBootstrap.worktree.path,
-      session_id: launch.session_id,
-      title: launch.title,
-      prompt: launch.prompt,
-      ...launchOwner,
-    })
-    let run
+    // CD-0098 D2. The move is the only route to the worktree. An absent route
+    // refuses here; no launch runs, and the claim the bootstrap recorded stays
+    // resumable rather than being rolled back for a host-capability gap the
+    // operator can repair.
     try {
-      run = await runWorkStartChild([concord, "session-exec"], runInput, context.abort, {
-        cwd: bootstrap.worktree.path,
-        env: { CONCORD_SELECTED_PRODUCT_ID: bootstrap.product_id, CONCORD_SELECTED_WORK_ID: bootstrap.work_id },
-        onStdoutLine: observeRunLine,
-        runSessionObservation,
-      })
+      await hostControlPlane().moveSession(context.sessionID, activeBootstrap.worktree.path, context.abort)
     } catch (error) {
-      if (!sessionID) {
-        const recovered = await findRecoverableSession()
-        if (recovered) {
-          sessionID = recovered
-          await recordLaunch("running", "", "", recovered)
-          sessionIdentityRecorded = true
-        } else {
-          await rollbackBeforeLaunch(error instanceof Error ? error.message : String(error), true)
-        }
+      const message = error instanceof Error ? error.message : String(error)
+      if (error instanceof MoveSessionUnavailable) {
+        throw new AdapterFailure("unreachable", "move_session_route_unavailable", message)
       }
-      const failure = error instanceof AdapterFailure ? error : new AdapterFailure("transport_failure", "run_unknown_effect", String(error), "possible", "reconcile_operation")
-      if (failure.effect === "none") throw new AdapterFailure(failure.kind, `${failure.reason}_unknown_effect`, failure.message, "possible", "reconcile_operation")
-      throw failure
+      throw new AdapterFailure("transport_failure", "move_session_refused", message)
     }
-    const runRead = readRunSessionMetadata(run.runSessionObservation ?? runSessionObservation)
-    const runMetadata = runRead.ok ? runRead.metadata : null
-    if (runMetadata && sessionID && runMetadata.session_id !== sessionID) throw new AdapterFailure("malformed_response", "session_identity_mismatch", "OpenCode emitted more than one session identity", "partial", "reconcile_operation")
-    if (runMetadata && !sessionID) sessionID = runMetadata.session_id
-    if (run.exitCode !== 0) {
-      if (runMetadata && launch.session_id && runMetadata.session_id !== launch.session_id) {
-        await recordLaunch("failed", "OpenCode resumed a different session", "", launch.session_id)
-        throw new AdapterFailure("malformed_response", "session_identity_mismatch", "OpenCode resumed a different session")
-      }
-      if (!sessionID) sessionID = await findRecoverableSession() ?? ""
-      if (sessionID) await recordLaunch("failed", run.stderr.slice(0, MAX_STDERR))
-      else await rollbackBeforeLaunch(run.stderr.slice(0, MAX_STDERR) || "OpenCode exited before it created a session", true)
-      throw new AdapterFailure("child_spawn_failure", "child_nonzero", run.stderr.slice(0, MAX_STDERR), "partial", sessionID ? "exact_replay" : "contact_operator")
+    // CD-0098 D3. The destination is read back from the host, not assumed from
+    // the request that asked for it, and success is refused unless the session
+    // now runs in the claimed worktree.
+    let landed: string
+    try {
+      landed = await hostControlPlane().sessionDirectory(context.sessionID, context.abort)
+    } catch (error) {
+      await recordRetarget("failed", error instanceof Error ? error.message : String(error))
+      throw new AdapterFailure("malformed_response", "session_directory_unreadable", error instanceof Error ? error.message : String(error), "partial", "reconcile_operation")
     }
-    if (!runRead.ok) {
-      // The refusal names which predicate fired, so an operator can tell an
-      // oversized stream from one that never identified a session. exact_replay
-      // is withheld for a cause a replay reproduces: a recovery that cannot
-      // succeed sends the operator around the same loop.
-      const cause = `OpenCode run output ${runStreamRefusalMessage[runRead.refusal]}`
-      if (!sessionID) sessionID = await findRecoverableSession() ?? ""
-      if (sessionID) await recordLaunch("failed", cause)
-      else await rollbackBeforeLaunch(`OpenCode exited without a typed or recoverable session identity: ${cause}`, true)
-      throw new AdapterFailure("malformed_response", `malformed_run_stream_${runRead.refusal}`, cause, "partial", sessionID ? runStreamRefusalRecovery[runRead.refusal] : "contact_operator")
+    if (!samePath(landed, activeBootstrap.worktree.path)) {
+      const reason = `the session moved to ${JSON.stringify(landed)} rather than the claimed worktree ${JSON.stringify(activeBootstrap.worktree.path)}`
+      await recordRetarget("failed", reason)
+      throw new AdapterFailure("session_directory_mismatch", "retarget_destination_mismatch", reason, "partial", "reconcile_operation")
     }
-    const runSession = runRead.metadata
-    if (launch.session_id && runSession.session_id !== launch.session_id) {
-      await recordLaunch("failed", "OpenCode resumed a different session", "", launch.session_id)
-      throw new AdapterFailure("malformed_response", "session_identity_mismatch", "OpenCode resumed a different session")
-    }
-    if (!sessionIdentityRecorded) await recordLaunch("running", "")
-    const exported = await runWorkStartChild([opencode, "export", runSession.session_id, "--sanitize"], "", context.abort, { cwd: bootstrap.worktree.path })
-    if (exported.exitCode !== 0) {
-      await recordLaunch("failed", exported.stderr.slice(0, MAX_STDERR))
-      throw new AdapterFailure("session_export_failure", "export_failed", exported.stderr.slice(0, MAX_STDERR))
-    }
-    const readback = readExportSessionMetadata(exported.stdout, runSession.session_id)
-    if (!readback) {
-      await recordLaunch("failed", "OpenCode export did not contain one typed session readback")
-      throw new AdapterFailure("malformed_response", "malformed_session_export", "OpenCode export did not contain one typed session readback")
-    }
-    if (readback.readback_agent !== launch.agent) {
-      const reason = `executing agent ${JSON.stringify(readback.readback_agent)} does not match launch agent ${JSON.stringify(launch.agent)}`
-      await recordLaunch("failed", reason)
-      throw new AdapterFailure("agent_identity_mismatch", "executing_agent_mismatch", reason)
-    }
-    await recordLaunch("completed", "", readback.readback_model ?? "unknown/unknown")
-    const output = boundedUTF8(readRunTextParts(run.stdout).join(""), MAX_WORK_START_OUTPUT_BYTES)
+    await recordRetarget("completed", "")
     return {
       schema_version: "1.0",
       outcome: "ok",
@@ -792,10 +711,8 @@ async function executeWorkStart(args: WorkStartArgs, context: ToolContext): Prom
       work_id: bootstrap.work_id,
       worktree_path: bootstrap.worktree.path,
       agent: launch.agent,
-      readback_agent: readback.readback_agent,
-      readback_model: readback.readback_model,
-      session_id: readback.session_id,
-      output,
+      session_id: context.sessionID,
+      output: `This session now runs in ${bootstrap.worktree.path} on work item ${bootstrap.work_id}.`,
     }
   } catch (error) {
     if (rolledBack && bootstrap) {

@@ -5,6 +5,7 @@ import (
 	"crypto/ed25519"
 	cryptorand "crypto/rand"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -12,9 +13,14 @@ import (
 	"github.com/sharper-flow/concord/internal/store/storetest"
 )
 
+// testFixtureAgents is the closed set of agent references this package's
+// fixtures present. The agent scope is fail-closed, so a fixture client must
+// name every agent whose invocations it is expected to authorize.
+var testFixtureAgents = []string{"agent", "agent-1", "agent-engineer", "agent-evaluator", "agent-exec", "agent-other"}
+
 func testClientRegistration(client, principal string, capabilities []Capability, products, projects []string) ClientRegistration {
 	publicKey, _, _ := ed25519.GenerateKey(cryptorand.Reader)
-	return ClientRegistration{ClientRef: client, KeyID: "key-" + client, PublicKey: publicKey, Policy: TrustedClientPolicy{PrincipalRef: principal, Capabilities: capabilities, ProductScope: products, ProjectScope: projects}}
+	return ClientRegistration{ClientRef: client, KeyID: "key-" + client, PublicKey: publicKey, Policy: TrustedClientPolicy{PrincipalRef: principal, Capabilities: capabilities, ProductScope: products, ProjectScope: projects, AgentScope: testFixtureAgents}}
 }
 
 // newAuthorizedService creates a registered client and a fixed project resolver for a fixture.
@@ -39,6 +45,64 @@ func newAuthorizedService(t *testing.T, db *store.Store, client, principal strin
 		t.Fatal(err)
 	}
 	return service, invocation, authority
+}
+
+// The agent reference arrives from the caller and is written straight into
+// attribution, so it needs the standing the Product and the Project already
+// have: a trusted client names the agents it may present. The scope is
+// fail-closed, so a client that names none authorizes none. That is the state
+// every client registered before the scope existed holds, and re-registration
+// is the only way out of it.
+func TestAgentScopeBoundsTheAgentAClientMayPresent(t *testing.T) {
+	for _, testCase := range []struct {
+		name       string
+		scope      []string
+		agent      string
+		authorized bool
+	}{
+		{"a named agent is authorized", []string{"agent-1", "agent-2"}, "agent-1", true},
+		{"an unnamed agent is refused", []string{"agent-1"}, "agent-2", false},
+		{"an empty scope authorizes no agent", nil, "agent-1", false},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			db := openAgentDB(t)
+			seedSimpleAuthorityScope(t, db)
+			service := NewService(db)
+			service.Now = fixedTime
+			service.ProjectResolver = func(context.Context, *store.Transaction, string, string) (store.ProjectResolution, error) {
+				return store.ProjectResolution{ProjectID: "project-1"}, nil
+			}
+			publicKey, _, err := ed25519.GenerateKey(cryptorand.Reader)
+			if err != nil {
+				t.Fatal(err)
+			}
+			ctx := context.Background()
+			registration := ClientRegistration{ClientRef: "client-1", KeyID: "key-1", PublicKey: publicKey, Policy: TrustedClientPolicy{
+				PrincipalRef: "human-1", Capabilities: []Capability{"product_read"},
+				ProductScope: []string{"product-1"}, ProjectScope: []string{"project-1"}, AgentScope: testCase.scope,
+			}}
+			if err := service.RegisterTrustedClient(ctx, registration); err != nil {
+				t.Fatal(err)
+			}
+			_, err = service.Authorize(ctx, Invocation{
+				ClientRef: "client-1", PrincipalRef: "human-1", SessionRef: "session-1", AgentRef: testCase.agent,
+				Directory: "/repo", Worktree: "/repo-wt", ManifestDigest: ManifestDigest,
+				RequiredCapability: "product_read", ProductID: "product-1", ProjectID: "project-1",
+			})
+			if testCase.authorized {
+				if err != nil {
+					t.Fatalf("agent %q named in the scope was refused: %v", testCase.agent, err)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatalf("agent %q outside the scope was authorized", testCase.agent)
+			}
+			if !strings.Contains(err.Error(), "agent outside trusted client policy") {
+				t.Fatalf("refusal = %v, want the agent policy refusal", err)
+			}
+		})
+	}
 }
 
 func TestApprovalConsumptionIsTransactionBoundAndSingleUse(t *testing.T) {

@@ -81,6 +81,26 @@ an operator on an incompletely installed host cannot begin work until the
 install is repaired; that cost is accepted here rather than discovered at the
 point of failure.
 
+### D5. The trusted client policy bounds the agent a caller may present
+
+D2 asserts identity before launch. It says nothing about the agent reference an
+invocation carries afterwards, and that reference was accepted verbatim: a
+registered client could name any agent, and attribution recorded whatever
+string it was handed. Assertion at launch and an unbounded reference at
+invocation are the same silent-substitution failure D2 refuses, moved one
+boundary later.
+
+The agent gains the standing the Product and the Project already have. A
+trusted client policy names the agents it may present, and authorization
+refuses any other. The scope is fail-closed: a client that names no agent
+authorizes none, because a default-open scope on an identity field is
+indistinguishable from having no scope at all.
+
+The reference bounded here is the agent name the host presents, which is not
+necessarily its definition file name. Binding a definition digest instead is
+refused by CD-0061 D4 and D5. Authenticating the invocation itself remains
+unsolved and is not settled here.
+
 ## Invariants
 
 1. A Concord-owned lane definition reaches a host only through a project's
@@ -91,6 +111,8 @@ point of failure.
    asserted, or refuses with a typed failure naming the required and observed
    identity.
 4. Concord holds no durable definition of an orchestrator persona.
+5. An authorized invocation carries an agent reference its trusted client policy
+   names.
 
 ## Consequences
 
@@ -106,6 +128,11 @@ since that decision was accepted.
 
 CD-0031 describes a launcher-started session bootstrap with no identity
 assertion step, and requires amendment to carry one.
+
+D5 gives every client registered before it an empty agent scope, which
+authorizes nothing. Each such client must be re-registered with the agents it
+presents. That interruption is the cost of the fail-closed default, and it is
+accepted here rather than avoided by trusting existing rows.
 
 This decision does not settle how lane methodology reaches a worker. CD-0043 D2
 names a channel that records paths without injecting them, and an inline agent

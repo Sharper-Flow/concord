@@ -35,7 +35,7 @@ func trunkFirewallFixture(t *testing.T, mainWorktree bool) *Service {
 		return store.ProjectResolution{ProjectID: "project-1", MainWorktree: mainWorktree}, nil
 	}
 	publicKey, _, _ := ed25519.GenerateKey(cryptorand.Reader)
-	policy := TrustedClientPolicy{PrincipalRef: "human-1", Capabilities: []Capability{"product_read", "work_define", "work_transition", "cross_scope"}, ProductScope: []string{"product-1"}, ProjectScope: []string{"project-1"}}
+	policy := TrustedClientPolicy{PrincipalRef: "human-1", Capabilities: []Capability{"product_read", "work_define", "work_transition", "cross_scope"}, ProductScope: []string{"product-1"}, ProjectScope: []string{"project-1"}, AgentScope: testFixtureAgents}
 	if err := service.RegisterTrustedClient(ctx, ClientRegistration{ClientRef: "client-1", KeyID: "key-1", PublicKey: publicKey, Policy: policy}); err != nil {
 		t.Fatal(err)
 	}

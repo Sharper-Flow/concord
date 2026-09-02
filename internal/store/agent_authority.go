@@ -13,6 +13,7 @@ type TrustedClientRecord struct {
 	CapabilitiesJSON string
 	ProductScopeJSON string
 	ProjectScopeJSON string
+	AgentScopeJSON   string
 }
 
 type TrustedClientKeyRecord struct {
@@ -74,7 +75,7 @@ func registerTrustedClientTx(ctx context.Context, transaction *Transaction, clie
 	if err != nil {
 		return err
 	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO agent_clients(client_ref,status,principal_ref,capabilities_json,product_scope_json,project_scope_json,created_at) VALUES(?,?,?,?,?,?,?)`, client.ClientRef, client.Status, client.PrincipalRef, client.CapabilitiesJSON, client.ProductScopeJSON, client.ProjectScopeJSON, now); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO agent_clients(client_ref,status,principal_ref,capabilities_json,product_scope_json,project_scope_json,agent_scope_json,created_at) VALUES(?,?,?,?,?,?,?,?)`, client.ClientRef, client.Status, client.PrincipalRef, client.CapabilitiesJSON, client.ProductScopeJSON, client.ProjectScopeJSON, client.AgentScopeJSON, now); err != nil {
 		return wrapFailure(KindProjectionConflict, "agent_register_client", "cannot persist trusted client", false, "choose an unused client reference", err)
 	}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO agent_client_keys(client_ref,key_id,public_key,status,created_at) VALUES(?,?,?,?,?)`, key.ClientRef, key.KeyID, key.PublicKey, key.Status, now); err != nil {
@@ -99,7 +100,7 @@ func updateTrustedClientPolicyTx(ctx context.Context, transaction *Transaction, 
 	if err != nil {
 		return err
 	}
-	result, err := tx.ExecContext(ctx, `UPDATE agent_clients SET principal_ref=?,capabilities_json=?,product_scope_json=?,project_scope_json=? WHERE client_ref=? AND status='active'`, policy.PrincipalRef, policy.CapabilitiesJSON, policy.ProductScopeJSON, policy.ProjectScopeJSON, clientRef)
+	result, err := tx.ExecContext(ctx, `UPDATE agent_clients SET principal_ref=?,capabilities_json=?,product_scope_json=?,project_scope_json=?,agent_scope_json=? WHERE client_ref=? AND status='active'`, policy.PrincipalRef, policy.CapabilitiesJSON, policy.ProductScopeJSON, policy.ProjectScopeJSON, policy.AgentScopeJSON, clientRef)
 	if err != nil {
 		return wrapFailure(KindUnavailable, "agent_update_policy", "cannot update trusted client policy", true, "retry the policy update", err)
 	}
@@ -132,14 +133,14 @@ func mutateTrustedClientPolicyTx(ctx context.Context, transaction *Transaction, 
 		return err
 	}
 	var current TrustedClientRecord
-	if err := tx.QueryRowContext(ctx, `SELECT client_ref,status,principal_ref,capabilities_json,product_scope_json,project_scope_json FROM agent_clients WHERE client_ref=? AND status='active'`, clientRef).Scan(&current.ClientRef, &current.Status, &current.PrincipalRef, &current.CapabilitiesJSON, &current.ProductScopeJSON, &current.ProjectScopeJSON); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT client_ref,status,principal_ref,capabilities_json,product_scope_json,project_scope_json,agent_scope_json FROM agent_clients WHERE client_ref=? AND status='active'`, clientRef).Scan(&current.ClientRef, &current.Status, &current.PrincipalRef, &current.CapabilitiesJSON, &current.ProductScopeJSON, &current.ProjectScopeJSON, &current.AgentScopeJSON); err != nil {
 		return wrapFailure(KindProjectionNotFound, "agent_mutate_policy", "trusted client not found or revoked", false, "reread the trusted client", err)
 	}
 	next, err := mutate(current)
 	if err != nil {
 		return err
 	}
-	result, err := tx.ExecContext(ctx, `UPDATE agent_clients SET principal_ref=?,capabilities_json=?,product_scope_json=?,project_scope_json=? WHERE client_ref=? AND status='active'`, next.PrincipalRef, next.CapabilitiesJSON, next.ProductScopeJSON, next.ProjectScopeJSON, clientRef)
+	result, err := tx.ExecContext(ctx, `UPDATE agent_clients SET principal_ref=?,capabilities_json=?,product_scope_json=?,project_scope_json=?,agent_scope_json=? WHERE client_ref=? AND status='active'`, next.PrincipalRef, next.CapabilitiesJSON, next.ProductScopeJSON, next.ProjectScopeJSON, next.AgentScopeJSON, clientRef)
 	if err != nil {
 		return wrapFailure(KindUnavailable, "agent_mutate_policy", "cannot update trusted client policy", true, "retry the policy update", err)
 	}
@@ -235,7 +236,7 @@ func TrustedClientWithKeyTx(ctx context.Context, transaction *Transaction, clien
 func trustedClientWithKey(ctx context.Context, q queryer, clientRef string) (TrustedClientRecord, TrustedClientKeyRecord, error) {
 	var client TrustedClientRecord
 	var key TrustedClientKeyRecord
-	if err := q.QueryRowContext(ctx, `SELECT c.client_ref,c.status,c.principal_ref,c.capabilities_json,c.product_scope_json,c.project_scope_json,k.key_id,k.public_key,k.status FROM agent_clients c JOIN agent_client_keys k ON k.client_ref=c.client_ref AND k.status='active' WHERE c.client_ref=?`, clientRef).Scan(&client.ClientRef, &client.Status, &client.PrincipalRef, &client.CapabilitiesJSON, &client.ProductScopeJSON, &client.ProjectScopeJSON, &key.KeyID, &key.PublicKey, &key.Status); err != nil {
+	if err := q.QueryRowContext(ctx, `SELECT c.client_ref,c.status,c.principal_ref,c.capabilities_json,c.product_scope_json,c.project_scope_json,c.agent_scope_json,k.key_id,k.public_key,k.status FROM agent_clients c JOIN agent_client_keys k ON k.client_ref=c.client_ref AND k.status='active' WHERE c.client_ref=?`, clientRef).Scan(&client.ClientRef, &client.Status, &client.PrincipalRef, &client.CapabilitiesJSON, &client.ProductScopeJSON, &client.ProjectScopeJSON, &client.AgentScopeJSON, &key.KeyID, &key.PublicKey, &key.Status); err != nil {
 		return client, key, wrapFailure(KindProjectionNotFound, "agent_client_read", "unknown or keyless client", false, "register an active trusted client", err)
 	}
 	key.ClientRef = clientRef

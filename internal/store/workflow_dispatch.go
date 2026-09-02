@@ -129,9 +129,6 @@ func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, registry Definiti
 	if err := tx.QueryRowContext(ctx, `SELECT current_step,instance_state,(SELECT version FROM work_items WHERE id=workflow_instances.work_id) FROM workflow_instances WHERE work_id=?`, request.WorkID).Scan(&currentStep, &state, &version); err != nil {
 		return result, wrapFailure(KindUnavailable, "workflow_action", "cannot read workflow state", true, "retry once the database is readable", err)
 	}
-	if currentStep == "start" {
-		currentStep = entry.Definition.StepGraph.StartStep
-	}
 	if request.ExpectedVersion != version {
 		return result, versionConflict(SubjectWorkItem, request.WorkID, request.ExpectedVersion, version, true)
 	}

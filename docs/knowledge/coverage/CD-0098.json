@@ -1,0 +1,38 @@
+{
+  "evidence": [
+    {
+      "kind": "adapter_test",
+      "value": "adapter/opencode/concord.test.ts#work start retargets the calling session and records the claim before the move"
+    },
+    {
+      "kind": "adapter_test",
+      "value": "adapter/opencode/concord.test.ts#work start refuses when the move route is absent"
+    },
+    {
+      "kind": "adapter_test",
+      "value": "adapter/opencode/concord.test.ts#work start refuses a move the host rejects"
+    },
+    {
+      "kind": "adapter_test",
+      "value": "adapter/opencode/concord.test.ts#work start verifies the session directory after the move"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestBootstrapLaunchReplayPreservesSessionIdentity"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestBootstrapLaunchFailureWithoutSessionRefusesDuplicateLaunch"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestBootstrapLaunchOwnerRecoveryIsExclusive"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestMigration59PreservesPopulatedBootstrapOperation"
+    }
+  ],
+  "id": "CD-0098",
+  "state": "satisfied"
+}

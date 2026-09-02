@@ -3488,6 +3488,73 @@ CREATE TABLE worktree_verify_leases (
 CREATE UNIQUE INDEX worktree_verify_leases_one_held ON worktree_verify_leases(path) WHERE state='held';
 		`,
 	},
+	{
+		Version: 64,
+		Name:    "workflow_instance_step_belongs_to_its_definition",
+		SQL: `
+-- An instance used to be seeded with the placeholder step 'start', which no
+-- registered definition declares. Read and write paths disagreed about it:
+-- the action preflight resolved it to the definition's start step, while the
+-- continuity read reported it verbatim and so reported no available actions.
+-- The placeholder is removed, and initialization now writes the declared
+-- start step. This rewrites the rows that still hold the placeholder.
+--
+-- Migrations are SQL and cannot reach the Go registry, so the mapping below
+-- is the registered start step of each family as of this version.
+--
+-- workflow_instances is fold-only, so the rewrite holds the fold guard open
+-- across it. Without the guard the trigger aborts, and the migration fails on
+-- exactly the populated stores that carry the rows it must repair.
+INSERT INTO fold_guard(active) VALUES(1);
+
+UPDATE workflow_instances SET current_step = CASE definition_ref
+    WHEN 'workflow.implementation'     THEN 'proposal'
+    WHEN 'workflow.break_fix'          THEN 'reproduce'
+    WHEN 'workflow.research'           THEN 'frame'
+    WHEN 'workflow.architecture_spike' THEN 'frame'
+    WHEN 'workflow.ops_runbook'        THEN 'plan'
+    WHEN 'workflow.static_analysis'    THEN 'scope'
+    WHEN 'workflow.generic_one_off'    THEN 'define'
+    ELSE current_step
+END
+WHERE current_step = 'start';
+
+DELETE FROM fold_guard;
+		`,
+	},
+	{
+		Version: 65,
+		Name:    "trusted_client_policy_bounds_the_agent",
+		SQL: `
+-- A trusted client bounded the Products and Projects an invocation could
+-- reach, but not the agents it could claim to be. The agent reference arrived
+-- from the caller and was written into authority verbatim, so one registered
+-- client could assert any agent identity, and attribution recorded whatever
+-- string it was handed.
+--
+-- The agent now has the same policy standing as the Product and the Project.
+-- Existing clients receive an empty scope, which authorizes no agent at all:
+-- the scope is fail-closed, so a client must be re-registered with the agents
+-- it is permitted to present before its invocations are authorized again.
+ALTER TABLE agent_clients ADD COLUMN agent_scope_json TEXT NOT NULL DEFAULT '[]'
+    CHECK(json_valid(agent_scope_json) AND json_type(agent_scope_json)='array' AND json_array_length(agent_scope_json) <= 100);
+		`,
+	},
+	{
+		Version: 66,
+		Name:    "bootstrap_operations_drop_the_child_launch_process",
+		SQL: `
+-- Work start launched a second OpenCode session and fenced its child process,
+-- so a bootstrap operation recorded that child's identity to tell a live child
+-- from a lost one. Work start now moves the calling session into the claimed
+-- worktree, and no child exists to identify.
+--
+-- The columns are dropped rather than left unwritten. A column no writer sets
+-- reads as a fact about a process, and every such fact would now be false.
+ALTER TABLE bootstrap_operations DROP COLUMN launch_process_pid;
+ALTER TABLE bootstrap_operations DROP COLUMN launch_process_start;
+		`,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any

@@ -143,8 +143,15 @@ func hostLaneAgentIdentity(dir string) error {
 // store interaction so a missing definition fails closed without touching
 // the database — the session either records the assertion it required or
 // refuses.
-func hostOrchestratorIdentity(ctx context.Context, dir, productID, workID string) (handleResult string, errResult error) {
-	assertion, handle, err := verifyOrchestratorIdentity(os.Getenv("HOME"), dir)
+func hostOrchestratorIdentity(ctx context.Context, dir, productID, workID string) (string, error) {
+	return recordOrchestratorIdentity(ctx, os.Getenv("HOME"), probeHostAgentRegistry, dir, productID, workID)
+}
+
+// recordOrchestratorIdentity carries the whole assertion. The home directory
+// and the registry probe are parameters so a test drives the real path against
+// a temporary installation instead of restating it.
+func recordOrchestratorIdentity(ctx context.Context, home string, probe hostRegistryProbeFunc, dir, productID, workID string) (handleResult string, errResult error) {
+	assertion, handle, err := verifyOrchestratorIdentity(home, dir)
 	if err != nil {
 		return "", err
 	}
@@ -154,14 +161,18 @@ func hostOrchestratorIdentity(ctx context.Context, dir, productID, workID string
 	// refuses (issue #430). The registry probed is the one the host
 	// resolves in dir, the directory the session itself runs in
 	// (CD-0093 D2).
-	if err := verifyHostRegistersHandle(ctx, probeHostAgentRegistry, dir, handle); err != nil {
+	if err := verifyHostRegistersHandle(ctx, probe, dir, handle); err != nil {
 		return "", err
 	}
 	assertion.ProductID = productID
 	assertion.WorkID = workID
 	assertion.PrincipalRef = "principal/orchestrator"
 	assertion.ClientRef = "client/concord-session"
-	assertion.AgentRef = "agent/" + orchestratorAgentFileName
+	// The handle is the name the host registers the definition under, and the
+	// name the session runs as. The file stem is neither once the definition
+	// carries `name:` frontmatter, so recording it would attribute the session
+	// to an agent that does not exist.
+	assertion.AgentRef = "agent/" + handle
 	assertion.SessionRef = "session/" + productID
 	path, err := databasePath()
 	if err != nil {

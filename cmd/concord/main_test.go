@@ -1118,7 +1118,7 @@ func registerCLIClient(t *testing.T, client string, publicKey ed25519.PublicKey,
 	runCLIJSON(t, []string{"client", "register"}, map[string]any{
 		"client_ref": client, "key_id": "key-1", "principal_ref": "operator-1",
 		"public_key": base64.StdEncoding.EncodeToString(publicKey), "capabilities": []string{"product_read"},
-		"product_scope": []string{productID}, "project_scope": []string{projectID},
+		"product_scope": []string{productID}, "project_scope": []string{projectID}, "agent_scope": []string{"agent-1"},
 	})
 }
 
@@ -2068,6 +2068,7 @@ func TestClientPolicyExpandCLIPreservesEveryExistingGrant(t *testing.T) {
 		"capabilities":  []string{"product_read", "work_define"},
 		"product_scope": []string{"product-1"},
 		"project_scope": []string{"project-1", "project-2"},
+		"agent_scope":   []string{"agent-1"},
 	})
 	runOperatorJSON(t, dbPath, []string{"client-policy-expand"}, map[string]any{
 		"client_ref":    "client-1",
@@ -2079,16 +2080,26 @@ func TestClientPolicyExpandCLIPreservesEveryExistingGrant(t *testing.T) {
 		"client_ref":    "client-1",
 		"product_scope": []string{"pokeedge"},
 	})
+	// The agent scope is a policy dimension like the others, so an expansion
+	// must carry it. A command spec that names the field while the handler
+	// drops it would grant an agent the client still cannot present.
+	runOperatorJSON(t, dbPath, []string{"client-policy-expand"}, map[string]any{
+		"client_ref":  "client-1",
+		"agent_scope": []string{"agent-2"},
+	})
 
 	s, err := store.Open(context.Background(), dbPath)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer s.Close()
-	var capabilitiesJSON, productsJSON, projectsJSON, principal string
-	row := s.DatabaseForTesting().QueryRow(`SELECT capabilities_json,product_scope_json,project_scope_json,principal_ref FROM agent_clients WHERE client_ref=?`, "client-1")
-	if err := row.Scan(&capabilitiesJSON, &productsJSON, &projectsJSON, &principal); err != nil {
+	var capabilitiesJSON, productsJSON, projectsJSON, agentsJSON, principal string
+	row := s.DatabaseForTesting().QueryRow(`SELECT capabilities_json,product_scope_json,project_scope_json,agent_scope_json,principal_ref FROM agent_clients WHERE client_ref=?`, "client-1")
+	if err := row.Scan(&capabilitiesJSON, &productsJSON, &projectsJSON, &agentsJSON, &principal); err != nil {
 		t.Fatal(err)
+	}
+	if agentsJSON != `["agent-1","agent-2"]` {
+		t.Fatalf("agent scope=%s", agentsJSON)
 	}
 	var capabilities, products, projects []string
 	for _, decode := range []struct {

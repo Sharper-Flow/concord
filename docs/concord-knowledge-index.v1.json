@@ -1608,11 +1608,12 @@
       ],
       "date": "2026-08-21T00:00:00Z",
       "evidence": [
+        "adapter/opencode/dispatch.ts",
+        "cmd/concord/session.go",
         "docs/decisions/CD-0016-context-continuity.md",
         "docs/decisions/CD-0017-typed-workers-and-model-routing.md",
         "docs/decisions/CD-0034-host-prompt-provenance.md",
-        "cmd/concord/session.go",
-        "adapter/opencode/dispatch.ts"
+        "internal/agent/authority.go"
       ],
       "home_domain_id": "operator-surface",
       "id": "CD-0049",
@@ -1625,9 +1626,9 @@
         "project_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:749aa4947c2499a99d5db9794f83d3831156a19f8893bb30e93ad2d70743340f",
+      "sha256": "sha256:2426d9fba7bc9de5027c7bd1bebcdc0540354c6a39697bce3c7c8d6d9a9f0fa6",
       "status": "accepted",
-      "summary": "Concord-owned lane definitions reach a host only through a project's .opencode/agents/, because a global agent cannot be scoped and an environment-supplied definition presents no file for CD-0034 provenance to hash; Concord asserts required agent identity before launch rather than relying on --agent, whose unknown-name failure mode is a silent substitution with a success exit code; the orchestrator is constrained and verified rather than authored, since CD-0016 excludes an agent_definitions table; a session with absent required identity refuses to start.",
+      "summary": "Concord-owned lane definitions reach a host only through a project's .opencode/agents/, because a global agent cannot be scoped and an environment-supplied definition presents no file for CD-0034 provenance to hash; Concord asserts required agent identity before launch rather than relying on --agent, whose unknown-name failure mode is a silent substitution with a success exit code; the orchestrator is constrained and verified rather than authored, since CD-0016 excludes an agent_definitions table; a session with absent required identity refuses to start. A trusted client policy names the agents it may present, and authorization refuses any other; the scope is fail-closed, so a client naming no agent authorizes none and must be re-registered.",
       "tags": [
         "agent-surface",
         "installer"
@@ -3037,6 +3038,54 @@
         "cutover"
       ],
       "title": "Allow bounded parallel predecessor migration"
+    },
+    {
+      "date": "2026-09-02T00:00:00Z",
+      "home_domain_id": "product-root:concord",
+      "id": "CD-0098",
+      "kind": "decision",
+      "path": "docs/decisions/CD-0098-work-start-retargets-the-running-session.md",
+      "product_wide_rationale": "Governs the single route by which any session acquires an implementation surface, so it binds every Domain rather than one runtime Domain.",
+      "scopes": {
+        "domain_ids": [],
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:5fb0bb71ff21863782a45e5baf84cd293e657bcb2a0a83b0f2da50159a6e0542",
+      "status": "accepted",
+      "summary": "Amends CD-0096 D6 and CD-0088 D4 at their launch clauses so work start moves the calling session into the claimed worktree instead of launching a new one. The worktree claim is recorded before the move, so a failed move leaves a resumable claim rather than a moved session with no claim. The host move route is required and its absence fails closed with a typed refusal instead of a launch fallback. The default checkout must be clean, the move carries no changes and waits for the turn to end, and the session directory is read back and verified afterward. The session-prepare directory refusal, lane definition check, and read-back assertion are preserved and now guard the destination of a move.",
+      "tags": [
+        "authority",
+        "worktree-isolation",
+        "session-boot"
+      ],
+      "title": "Retarget the running session at work start instead of launching one"
+    },
+    {
+      "date": "2026-09-02T00:00:00Z",
+      "home_domain_id": "product-root:concord",
+      "id": "CD-0102",
+      "kind": "decision",
+      "path": "docs/decisions/CD-0102-lane-dispatch-runs-as-a-native-task.md",
+      "product_wide_rationale": "Governs how every worker lane starts and how its authorization binds, across all Domains that dispatch work. It sets an execution boundary rather than owning a runtime Domain.",
+      "scopes": {
+        "domain_ids": [],
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:b3b00492d126f7f10ba1aedd335aea6983af4dc31be2ad2b6c9197214dbc77d8",
+      "status": "accepted",
+      "summary": "Replaces the child-process worker route with the host's native Task tool, so a dispatched lane renders the standard worker card with progress, navigation, and cancellation. Typed dispatch opens one single-use authorization window; the adapter's before-execute hook refuses a Task call with no open window and otherwise overwrites the caller's agent selection and prompt from the recorded packet, so packet provenance is structural rather than composed by the model. The coordinator posture must order its Task ruleset so a lane pattern is last, because a blanket deny removes the tool from the model request and no hook can reach it. Lanes cannot nest workers, the lane report is the final text part of the worker session, the worker runs where the session runs, and the spawn path is removed with no fallback.",
+      "tags": [
+        "authority",
+        "worker-lanes",
+        "dispatch"
+      ],
+      "title": "Run lane dispatch as a native Task under a one-time authorization"
     },
     {
       "criterion_bindings": [

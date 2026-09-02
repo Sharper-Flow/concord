@@ -20,6 +20,7 @@ mock.module("@opencode-ai/plugin", () => ({ tool: fakeTool }))
 
 const { agentLanes } = await import("./generated-agent-lanes")
 const { validateAgentLanePacket } = await import("./dispatch")
+import { DispatchWindows, TASK_TOOL_ID } from "./dispatch-window"
 import type { DispatchRunner } from "./dispatch"
 import type { CredentialStore } from "./credentials"
 const { dispatchLaneWorker } = await import("./lane_dispatch")
@@ -145,8 +146,10 @@ test("happy path: continuity → packet → core ok → spawn with stubbed runne
   }
   let evidenceCalls = 0
   const evidenceRunner: DispatchRunner = { async run() { evidenceCalls++; return { exitCode: 0, stdout: "", stderr: "" } } }
-  const result = await dispatchLaneWorker({ work_id: WORK_ID, expected_version: 3, idempotency_key: "idemp-1", lane_id: lane.id }, { context: contextFor(), invoke: invoke as any, credentials: testCredentials, runner, evidenceRunner, now: () => NOW })
+  const windows = new DispatchWindows()
+  const result = await dispatchLaneWorker({ work_id: WORK_ID, expected_version: 3, idempotency_key: "idemp-1", lane_id: lane.id }, { context: contextFor(), invoke: invoke as any, credentials: testCredentials, runner, evidenceRunner, windows, now: () => NOW })
   expect(result.outcome).toBe("ok")
+  expect(result.dispatch_state).toBe("awaiting_worker")
   expect(seen).toContain("concord_work_trace.continuity")
   expect(seen).toContain("concord_work_browse.scope")
   expect(seen).toContain("concord_work_transition.workflow_action")
@@ -160,7 +163,10 @@ test("happy path: continuity → packet → core ok → spawn with stubbed runne
   expect(packet.step_id).toBe(WORKFLOW_STEP)
   expect(packet.attempt_id).toBe(fields.attempt_id)
   expect(validateAgentLanePacket(packet)).toBe(true)
-  expect(evidenceCalls).toBeGreaterThan(0)
+  // The host runs the worker, so dispatch starts no process and records no
+  // evidence. Both belong to completion (CD-0102 D5).
+  expect(evidenceCalls).toBe(0)
+  expect(windows.has("session-1")).toBe(true)
 })
 
 test("unregistered lane refuses before any core invoke or spawn", async () => {
@@ -265,29 +271,20 @@ test("dispatch_worker response without worker_packet_digest refuses before spawn
   expect(spawned).toBe(0)
 })
 
-// CD-0067 D6: when the core records the digest, dispatchLaneWorker hands
-// the same digest to dispatchWorker via the packetDigest option, and the
-// signed dispatch assertion quotes it. The runner sees a worker-dispatch
-// evidence write whose assertion carries worker_packet_digest == the core's
-// recorded value.
-test("dispatchLaneWorker hands the core's packet digest to dispatchWorker", async () => {
-  const recorded: Record<string, unknown>[] = []
+test("dispatchLaneWorker retains the core's packet digest for completion", async () => {
   const invoke = async (toolName: string, args: { operation: string; input?: Record<string, unknown> }): Promise<unknown> => {
     if (toolName === "concord_work_trace") return continuityEnvelope()
     if (toolName === "concord_work_browse") return scopeEnvelope()
     if (toolName === "concord_work_transition") return coreOkEnvelope()
     throw new Error(`unscripted ${toolName}.${args.operation}`)
   }
-  const runner: DispatchRunner = {
-    async run(argv) {
-      if (argv[1] === "run") return { exitCode: 0, stdout: runOutput(), stderr: "" }
-      if (argv[1] === "export") return { exitCode: 0, stdout: exportedSession(), stderr: "" }
-      return { exitCode: 0, stdout: "", stderr: "" }
-    },
-  }
-  const result = await dispatchLaneWorker({ work_id: WORK_ID, expected_version: 3, idempotency_key: "idemp-7", lane_id: lane.id }, { context: contextFor(), invoke: invoke as any, credentials: testCredentials, runner, evidenceRunner: { async run(argv, input) { recorded.push({ command: argv[1], request: JSON.parse(input) }); return { exitCode: 0, stdout: "", stderr: "" } } }, now: () => NOW })
+  const windows = new DispatchWindows()
+  const result = await dispatchLaneWorker({ work_id: WORK_ID, expected_version: 3, idempotency_key: "idemp-7", lane_id: lane.id }, { context: contextFor(), invoke: invoke as any, credentials: testCredentials, windows, now: () => NOW })
   expect(result.outcome).toBe("ok")
-  expect(recorded.map((entry) => entry.command)).toEqual(["worker-dispatch", "worker-complete"])
-  const dispatched = (recorded[0].request as any).assertion
-  expect(dispatched.packet_digest).toBe(CORE_PACKET_DIGEST)
+
+  // CD-0067 D6: the adapter never computes the digest. The value the core
+  // recorded is carried across the host's Task call and quoted by the dispatch
+  // assertion at completion.
+  windows.bind(TASK_TOOL_ID, "session-1", { subagent_type: "general", prompt: "x" })
+  expect(windows.takeInFlight("session-1")?.packetDigest).toBe(CORE_PACKET_DIGEST)
 })

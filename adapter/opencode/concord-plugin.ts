@@ -29,8 +29,16 @@ import {
 } from "./concord"
 import { createContinuityTransform } from "./continuity-hook"
 import { createAgentSwitchNotice } from "./agent-switch-hook"
+import { dispatchWindows } from "./dispatch-window"
+import { hostControlPlane } from "./move-session"
 
-export default async function ConcordAdapterPlugin() {
+// The plugin factory is the only place the host hands over its own server URL,
+// and CD-0098 D2 makes the move-session route on that server a requirement of
+// work start. Binding it here is what lets the tool path reach the route.
+type ConcordPluginInput = { serverUrl?: URL | string }
+
+export default async function ConcordAdapterPlugin(input?: ConcordPluginInput) {
+  hostControlPlane().bind(input?.serverUrl)
   const continuityTransform = createContinuityTransform()
   const agentSwitch = createAgentSwitchNotice()
   return {
@@ -48,6 +56,16 @@ export default async function ConcordAdapterPlugin() {
       concord_work_start: work_start,
     },
     "chat.message": agentSwitch.chatMessage,
+    // CD-0102 D2. The model composes the Task call, so its arguments carry no
+    // provenance. This hook overwrites them with the packet an authorized
+    // dispatch recorded, and throws when no dispatch authorized the call —
+    // which fails that one tool call rather than the session.
+    "tool.execute.before": async (
+      input: { tool: string; sessionID: string; callID: string },
+      output: { args: Record<string, unknown> },
+    ) => {
+      dispatchWindows().bind(input.tool, input.sessionID, output.args)
+    },
     "experimental.chat.system.transform": async (input: unknown, output: { system: string[] }) => {
       await continuityTransform(input, output)
       await agentSwitch.transform(input, output)

@@ -46,7 +46,7 @@ func verdictScopeFixture(t *testing.T) (*store.Store, *Service, ed25519.PrivateK
 	keys := []ed25519.PrivateKey{}
 	for _, client := range clients {
 		publicKey, privateKey, _ := ed25519.GenerateKey(cryptorand.Reader)
-		policy := TrustedClientPolicy{PrincipalRef: "human-1", Capabilities: []Capability{"product_read"}, ProductScope: []string{"product-1"}, ProjectScope: []string{"project-1"}}
+		policy := TrustedClientPolicy{PrincipalRef: "human-1", Capabilities: []Capability{"product_read"}, ProductScope: []string{"product-1"}, ProjectScope: []string{"project-1"}, AgentScope: testFixtureAgents}
 		if err := service.RegisterTrustedClient(ctx, ClientRegistration{ClientRef: client, KeyID: "key-" + client, PublicKey: publicKey, Policy: policy}); err != nil {
 			t.Fatal(err)
 		}

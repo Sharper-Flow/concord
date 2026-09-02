@@ -112,9 +112,9 @@ var commandSpecs = []commandSpec{
 	{Canonical: "worker-dispatch", RequiredFields: requiredFields(field("event_id"), field("work_id"), field("attempt_id"), field("lane_id"), field("lane_version"), field("lane_digest"), field("packet_schema_version"), field("report_schema_version"), field("packet_digest")), Optional: "readback_model (host-reported executing model); host_provenance.digest (sha256), host_provenance.sources[] (kind: agent_definition | agents_md | instruction_file | unenumerated; path; sha256) — required for v3 evidence (CD-0034)", Enums: "none"},
 	{Canonical: "worker-complete", RequiredFields: requiredFields(field("event_id"), field("work_id"), field("attempt_id"), field("readback_model"), field("report_schema_version"), field("evidence_origin")), Optional: "evidence[] (obligation; detail 1-512 chars) — required and non-empty when evidence_origin is reported (CD-0056)", Enums: "evidence_origin: reported | legacy_unavailable; evidence[].obligation: bounded_findings | commands | contract_findings | exit_codes | failure_classification | files_touched | severity | source_citations | uncertainties | unresolved_issues | verification_commands | visual_artifacts; reported evidence must discharge every obligation the dispatching lane declares"},
 	{Canonical: "worker-fail", RequiredFields: requiredFields(field("event_id"), field("work_id"), field("attempt_id"), field("readback_model"), field("failure_kind"), field("detail")), Optional: "none", Enums: "failure_kind: fallback_blocked | worker_error | invalid_report"},
-	{Canonical: "client-register", TwoWord: "client register", RequiredFields: requiredFields(field("client_ref"), field("key_id"), field("principal_ref"), field("public_key"), field("capabilities"), field("product_scope"), field("project_scope")), Optional: "none", Enums: "capabilities: product_read | work_define | work_transition | work_relate | work_compact | work_initiative | cross_scope | research | worker_evidence | worker_dispatch; public_key: base64 Ed25519"},
-	{Canonical: "client-policy-update", TwoWord: "client policy-update", RequiredFields: requiredFields(field("client_ref"), field("principal_ref"), field("capabilities"), field("product_scope"), field("project_scope")), Optional: "none", Enums: "capabilities: product_read | work_define | work_transition | work_relate | work_compact | work_initiative | cross_scope | research | worker_evidence | worker_dispatch"},
-	{Canonical: "client-policy-expand", TwoWord: "client policy-expand", RequiredFields: requiredFields(field("client_ref")), Optional: "capabilities, product_scope, project_scope — additive union; every existing grant and the stored principal are preserved (CD-0097 D6)", Enums: "capabilities: product_read | work_define | work_transition | work_relate | work_compact | work_initiative | cross_scope | research | worker_evidence | worker_dispatch"},
+	{Canonical: "client-register", TwoWord: "client register", RequiredFields: requiredFields(field("client_ref"), field("key_id"), field("principal_ref"), field("public_key"), field("capabilities"), field("product_scope"), field("project_scope"), field("agent_scope")), Optional: "none", Enums: "capabilities: product_read | work_define | work_transition | work_relate | work_compact | work_initiative | cross_scope | research | worker_evidence | worker_dispatch; public_key: base64 Ed25519; agent_scope: the agent references this client may present"},
+	{Canonical: "client-policy-update", TwoWord: "client policy-update", RequiredFields: requiredFields(field("client_ref"), field("principal_ref"), field("capabilities"), field("product_scope"), field("project_scope"), field("agent_scope")), Optional: "none", Enums: "capabilities: product_read | work_define | work_transition | work_relate | work_compact | work_initiative | cross_scope | research | worker_evidence | worker_dispatch; agent_scope: the agent references this client may present"},
+	{Canonical: "client-policy-expand", TwoWord: "client policy-expand", RequiredFields: requiredFields(field("client_ref")), Optional: "capabilities, product_scope, project_scope, agent_scope — additive union; every existing grant and the stored principal are preserved (CD-0097 D6)", Enums: "capabilities: product_read | work_define | work_transition | work_relate | work_compact | work_initiative | cross_scope | research | worker_evidence | worker_dispatch"},
 	{Canonical: "client-key-rotate", TwoWord: "client key-rotate", RequiredFields: requiredFields(field("client_ref"), field("key_id"), field("public_key")), Optional: "none", Enums: "public_key: base64 Ed25519"},
 	{Canonical: "client-revoke", TwoWord: "client revoke", RequiredFields: requiredFields(field("client_ref")), Optional: "none", Enums: "none"},
 	{Canonical: "product-create", TwoWord: "product create", RequiredFields: requiredFields(field("product_id"), field("display_name"), field("stage_maturity"), field("stage_audience_commitment"), field("project_id"), field("project_display_name"), field("role")), Optional: "reason", Enums: "stage_maturity: prototype | alpha | beta | production | deprecated; stage_audience_commitment: operator_only | limited | public; role: primary | secondary"},
@@ -134,9 +134,8 @@ var commandSpecs = []commandSpec{
 	{Canonical: "worktree-locate", RequiredFields: requiredFields(field("project_id"), field("work_id")), Optional: "ref (a rev-syntax ref; defaults to HEAD, the default branch under the trunk-stays-on-default rule)", Enums: "none"},
 	{Canonical: "work-bootstrap", RequiredFields: requiredFields(field("product_id"), field("project_id"), field("title"), field("value_statement"), field("kind"), field("task"), field("idempotency_key")), Optional: "priority, urgency, tags, workflow_type_ref, external_ref, governing_requirements, ref (defaults to HEAD)", Enums: "kind: task | bug | decision | research | other; urgency: standard | expedite"},
 	{Canonical: "session-prepare", RequiredFields: requiredFields(field("product_id"), field("work_id"), field("task"), field("owner_pid"), field("owner_start")), Optional: "none", Enums: "none"},
-	{Canonical: "session-exec", RequiredFields: requiredFields(field("operation_id"), field("attempt_id"), field("product_id"), field("work_id"), field("agent"), field("directory"), field("title"), field("prompt"), field("owner_pid"), field("owner_start")), Optional: "session_id", Enums: "none"},
 	{Canonical: "session-record", RequiredFields: requiredFields(field("operation_id"), field("attempt_id"), field("product_id"), field("work_id"), field("agent"), field("directory"), field("state"), field("owner_pid"), field("owner_start")), Optional: "session_id, model, failure_reason", Enums: "state: running | completed | failed"},
-	{Canonical: "work-bootstrap-rollback", RequiredFields: requiredFields(field("product_id"), field("work_id"), field("operation_id"), field("directory"), field("reason")), Optional: "session_lookup_empty", Enums: "none"},
+	{Canonical: "work-bootstrap-rollback", RequiredFields: requiredFields(field("product_id"), field("work_id"), field("operation_id"), field("directory"), field("reason")), Optional: "none", Enums: "none"},
 	{Canonical: "project-resolve", TwoWord: "project resolve", RequiredFields: requiredFields(field("directory")), Optional: "worktree (defaults to directory)", Enums: "none"},
 	{Canonical: "restore", RequiredFields: requiredFields(field("source"), field("destination")), Optional: "none", Enums: "source: existing verified backup snapshot path; destination: absolute clean path that does not yet exist and is not the live database"},
 	{Canonical: "predecessor-inventory", TwoWord: "predecessor inventory", RequiredFields: requiredFields(field("snapshot_path")), Optional: "none", Enums: "snapshot_path: absolute path to a harvest-produced predecessor snapshot file; must exist and be a regular file; the report enumerates the parallel mode's surfaces (CD-0097) with included/excluded classification, counts, and capture gaps"},
@@ -255,9 +254,6 @@ func runJSONCommand(command string, args []string, in io.Reader, out, errOut io.
 		return 2
 	}
 	inputLimit := int64(agent.MaxEnvelopeBytes)
-	if command == "session-exec" {
-		inputLimit = 524288
-	}
 	raw, err := io.ReadAll(io.LimitReader(in, inputLimit+1))
 	if err != nil || int64(len(raw)) > inputLimit {
 		writeDiagnostic(errOut, fmt.Sprintf("input exceeds %d bytes", inputLimit))
@@ -308,8 +304,6 @@ func runJSONCommand(command string, args []string, in io.Reader, out, errOut io.
 		return runWorkBootstrap(raw, s, out, errOut)
 	case "session-prepare":
 		return runSessionPrepare(raw, s, out, errOut, hostLaneAgentIdentity, hostOrchestratorIdentity, DeriveSessionBoot)
-	case "session-exec":
-		return runSessionExec(raw, s, errOut)
 	case "session-record":
 		return runSessionRecord(raw, s, out, errOut)
 	case "work-bootstrap-rollback":
@@ -652,6 +646,7 @@ func runInternal(command string, raw []byte, service *agent.Service, s *store.St
 			Capabilities []string `json:"capabilities"`
 			ProductScope []string `json:"product_scope"`
 			ProjectScope []string `json:"project_scope"`
+			AgentScope   []string `json:"agent_scope"`
 		}
 		if err := decodeObject(raw, &request); err != nil {
 			writeOperatorDiagnostic(errOut, command, err.Error())
@@ -666,7 +661,7 @@ func runInternal(command string, raw []byte, service *agent.Service, s *store.St
 		for i, v := range request.Capabilities {
 			caps[i] = agent.Capability(v)
 		}
-		err = service.RegisterTrustedClient(ctx, agent.ClientRegistration{ClientRef: request.ClientRef, KeyID: request.KeyID, PublicKey: ed25519.PublicKey(key), Policy: agent.TrustedClientPolicy{PrincipalRef: request.PrincipalRef, Capabilities: caps, ProductScope: request.ProductScope, ProjectScope: request.ProjectScope}})
+		err = service.RegisterTrustedClient(ctx, agent.ClientRegistration{ClientRef: request.ClientRef, KeyID: request.KeyID, PublicKey: ed25519.PublicKey(key), Policy: agent.TrustedClientPolicy{PrincipalRef: request.PrincipalRef, Capabilities: caps, ProductScope: request.ProductScope, ProjectScope: request.ProjectScope, AgentScope: request.AgentScope}})
 		if err != nil {
 			writeOperatorDiagnostic(errOut, command, err.Error())
 			return 1
@@ -679,6 +674,7 @@ func runInternal(command string, raw []byte, service *agent.Service, s *store.St
 			Capabilities []string `json:"capabilities"`
 			ProductScope []string `json:"product_scope"`
 			ProjectScope []string `json:"project_scope"`
+			AgentScope   []string `json:"agent_scope"`
 		}
 		if err := decodeObject(raw, &request); err != nil {
 			writeOperatorDiagnostic(errOut, command, err.Error())
@@ -688,7 +684,7 @@ func runInternal(command string, raw []byte, service *agent.Service, s *store.St
 		for i, v := range request.Capabilities {
 			caps[i] = agent.Capability(v)
 		}
-		if err := service.UpdateTrustedClientPolicy(ctx, request.ClientRef, agent.TrustedClientPolicy{PrincipalRef: request.PrincipalRef, Capabilities: caps, ProductScope: request.ProductScope, ProjectScope: request.ProjectScope}); err != nil {
+		if err := service.UpdateTrustedClientPolicy(ctx, request.ClientRef, agent.TrustedClientPolicy{PrincipalRef: request.PrincipalRef, Capabilities: caps, ProductScope: request.ProductScope, ProjectScope: request.ProjectScope, AgentScope: request.AgentScope}); err != nil {
 			writeOperatorDiagnostic(errOut, command, err.Error())
 			return 1
 		}
@@ -699,6 +695,7 @@ func runInternal(command string, raw []byte, service *agent.Service, s *store.St
 			Capabilities []string `json:"capabilities"`
 			ProductScope []string `json:"product_scope"`
 			ProjectScope []string `json:"project_scope"`
+			AgentScope   []string `json:"agent_scope"`
 		}
 		if err := decodeObject(raw, &request); err != nil {
 			writeOperatorDiagnostic(errOut, command, err.Error())
@@ -708,7 +705,7 @@ func runInternal(command string, raw []byte, service *agent.Service, s *store.St
 		for i, v := range request.Capabilities {
 			caps[i] = agent.Capability(v)
 		}
-		if err := service.ExpandTrustedClientPolicy(ctx, request.ClientRef, agent.TrustedClientPolicy{Capabilities: caps, ProductScope: request.ProductScope, ProjectScope: request.ProjectScope}); err != nil {
+		if err := service.ExpandTrustedClientPolicy(ctx, request.ClientRef, agent.TrustedClientPolicy{Capabilities: caps, ProductScope: request.ProductScope, ProjectScope: request.ProjectScope, AgentScope: request.AgentScope}); err != nil {
 			writeOperatorDiagnostic(errOut, command, err.Error())
 			return 1
 		}

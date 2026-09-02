@@ -520,7 +520,8 @@ func foldWorkflowDefinitionSelected(ctx context.Context, tx *sql.Tx, event Event
 	if !workflowString(p.Ref, 128) || p.Version <= 0 || !workflowDigest(p.Digest, "sha256:") || !workflowKinds[p.WorkKind] {
 		return newFailure(KindInvalidPayload, "fold_event", "definition_selected contains an invalid definition pin", false, "supply a closed definition reference, version, digest, and family")
 	}
-	if _, err := VerifyWorkflowDefinitionPin(BuiltinWorkflowRegistry(), WorkflowDefinitionPin{Ref: p.Ref, Version: p.Version, Digest: p.Digest}); err != nil {
+	registered, err := VerifyWorkflowDefinitionPin(BuiltinWorkflowRegistry(), WorkflowDefinitionPin{Ref: p.Ref, Version: p.Version, Digest: p.Digest})
+	if err != nil {
 		return err
 	}
 	if err := advanceWorkflowVersion(ctx, tx, event, p.WorkflowVersionFields); err != nil {
@@ -533,11 +534,7 @@ func foldWorkflowDefinitionSelected(ctx context.Context, tx *sql.Tx, event Event
 	if started > 0 {
 		return newFailure(KindInvalidOperation, "fold_event", "definition cannot change after execution starts", false, "supersede the workflow contract instead")
 	}
-	_, err := tx.ExecContext(ctx, `INSERT INTO workflow_instances(work_id,definition_ref,definition_version,definition_digest,current_step,instance_state) VALUES(?,?,?,?,?,'planned') ON CONFLICT(work_id) DO UPDATE SET definition_ref=excluded.definition_ref,definition_version=excluded.definition_version,definition_digest=excluded.definition_digest`, event.SubjectID, p.Ref, p.Version, p.Digest, "start")
-	if err != nil {
-		return workflowProjectionError(err, "cannot record workflow definition")
-	}
-	return nil
+	return pinWorkflowInstanceTx(ctx, tx, event.SubjectID, registered)
 }
 
 func workflowProjectionError(err error, message string) error {
@@ -797,8 +794,8 @@ func foldWorkflowContractSuperseded(ctx context.Context, tx *sql.Tx, event Event
 		return err
 	}
 	if p.SuccessorContract == nil {
-		if _, err := tx.ExecContext(ctx, `UPDATE workflow_instances SET instance_state='planned',current_step='planning' WHERE work_id=?`, event.SubjectID); err != nil {
-			return workflowProjectionError(err, "cannot return workflow to planning after contract supersession")
+		if err := resetWorkflowInstanceToContractStepTx(ctx, tx, event.SubjectID); err != nil {
+			return err
 		}
 	}
 	if p.SuccessorContract != nil {
@@ -904,9 +901,6 @@ func foldWorkflowActionStarted(ctx context.Context, tx *sql.Tx, event Event) err
 	if err := tx.QueryRowContext(ctx, `SELECT current_step FROM workflow_instances WHERE work_id=?`, event.SubjectID).Scan(&currentStep); err != nil {
 		return workflowProjectionError(err, "cannot read the current workflow step")
 	}
-	if currentStep == "start" {
-		currentStep = entry.Definition.StepGraph.StartStep
-	}
 	if p.ActorRef != event.Actor {
 		return newFailure(KindUnauthorized, "fold_event", "action start actor must match the authenticated event actor", false, "start the workflow action through the authenticated workflow actor")
 	}
@@ -936,18 +930,7 @@ func foldWorkflowActionStarted(ctx context.Context, tx *sql.Tx, event Event) err
 	if err := advanceWorkflowVersion(ctx, tx, event, p.WorkflowVersionFields); err != nil {
 		return err
 	}
-	instanceState := "running"
-	if p.StepID == "planning" {
-		instanceState = "planned"
-	}
-	result, err := tx.ExecContext(ctx, `UPDATE workflow_instances SET current_step=?,instance_state=?,execution_actor_ref=?,execution_model=?,started_at=coalesce(started_at,?) WHERE work_id=?`, p.StepID, instanceState, p.ActorRef, p.ExecutionModel, event.OccurredAt.UTC().Format(time.RFC3339Nano), event.SubjectID)
-	if err != nil {
-		return workflowProjectionError(err, "cannot start workflow action")
-	}
-	if n, _ := result.RowsAffected(); n != 1 {
-		return newFailure(KindProjectionNotFound, "fold_event", "workflow instance does not exist", false, "select a workflow definition before starting an action")
-	}
-	return nil
+	return startWorkflowInstanceStepTx(ctx, tx, event.SubjectID, p.StepID, p.ActorRef, p.ExecutionModel, event.OccurredAt)
 }
 
 func foldWorkflowActionCheckpointed(ctx context.Context, tx *sql.Tx, event Event) error {
@@ -971,9 +954,6 @@ func foldWorkflowActionCheckpointed(ctx context.Context, tx *sql.Tx, event Event
 	var currentStep, executionActor string
 	if err := tx.QueryRowContext(ctx, `SELECT current_step,COALESCE(execution_actor_ref,'') FROM workflow_instances WHERE work_id=?`, event.SubjectID).Scan(&currentStep, &executionActor); err != nil {
 		return workflowProjectionError(err, "cannot read the current workflow checkpoint authority")
-	}
-	if currentStep == "start" {
-		currentStep = entry.Definition.StepGraph.StartStep
 	}
 	step := workflowStep(entry.Definition, currentStep)
 	if p.ActorRef != event.Actor {
@@ -1094,7 +1074,7 @@ func foldWorkflowContextCheckpointed(ctx context.Context, tx *sql.Tx, event Even
 	if err := tx.QueryRowContext(ctx, `SELECT current_step,definition_ref,definition_digest,definition_version FROM workflow_instances WHERE work_id=?`, event.SubjectID).Scan(&currentStep, &workflowRef, &workflowDigestValue, &workflowVersion); err != nil {
 		return workflowProjectionError(err, "cannot read workflow identity for context checkpoint")
 	}
-	if (currentStep != "start" && currentStep != p.StepID) || workflowRef != p.WorkflowRef || workflowDigestValue != p.WorkflowDefinitionDigest || workflowVersion != p.WorkflowDefinitionVersion {
+	if currentStep != p.StepID || workflowRef != p.WorkflowRef || workflowDigestValue != p.WorkflowDefinitionDigest || workflowVersion != p.WorkflowDefinitionVersion {
 		return newFailure(KindStaleAttempt, "fold_event", "context checkpoint does not bind the current workflow step and definition", false, "reread the current workflow context")
 	}
 	var activeAttempt int64
@@ -1156,9 +1136,6 @@ func foldWorkflowContextBoundaryCrossed(ctx context.Context, tx *sql.Tx, event E
 	var currentStep string
 	if err := tx.QueryRowContext(ctx, `SELECT current_step FROM workflow_instances WHERE work_id=?`, event.SubjectID).Scan(&currentStep); err != nil {
 		return workflowProjectionError(err, "cannot read current workflow step for context boundary")
-	}
-	if currentStep == "start" {
-		currentStep = checkpointStep
 	}
 	if checkpointVersion != currentWorkVersion || checkpointStep != currentStep || attemptEpoch != p.AttemptEpoch {
 		return newFailure(KindStaleAttempt, "fold_event", "context boundary references a stale checkpoint or attempt", false, "reread the latest context checkpoint")
@@ -1230,9 +1207,6 @@ func foldWorkflowActionCompleted(ctx context.Context, tx *sql.Tx, event Event) e
 	if err := tx.QueryRowContext(ctx, `SELECT current_step FROM workflow_instances WHERE work_id=?`, event.SubjectID).Scan(&currentStep); err != nil {
 		return wrapFailure(KindUnavailable, "fold_event", "cannot read the current workflow step", true, "retry once the workflow instance is readable", err)
 	}
-	if currentStep == "start" {
-		currentStep = entry.Definition.StepGraph.StartStep
-	}
 	if p.ActorRef != event.Actor {
 		return newFailure(KindUnauthorized, "fold_event", "completed action actor must match the authenticated event actor", false, "complete the workflow action through the authenticated workflow actor")
 	}
@@ -1265,7 +1239,7 @@ func foldWorkflowActionCompleted(ctx context.Context, tx *sql.Tx, event Event) e
 		return err
 	}
 	if next := workflowNextStep(entry.Definition, currentStep); next != "" {
-		_, err = tx.ExecContext(ctx, `UPDATE workflow_instances SET current_step=? WHERE work_id=?`, next, event.SubjectID)
+		return advanceWorkflowInstanceStepTx(ctx, tx, event.SubjectID, next, entry.Definition)
 	}
 	return err
 }
@@ -1410,16 +1384,12 @@ func foldWorkflowActionFailed(ctx context.Context, tx *sql.Tx, event Event) erro
 	if !TypedErrorKindAllowed(p.FailureKind) {
 		return newFailure(KindInvalidPayload, "fold_event", "action_failed failure kind is not closed", false, "use a TS7 typed error kind")
 	}
-	entry, err := VerifyWorkflowInstanceDefinitionTx(ctx, tx, BuiltinWorkflowRegistry(), event.SubjectID)
-	if err != nil {
+	if _, err := VerifyWorkflowInstanceDefinitionTx(ctx, tx, BuiltinWorkflowRegistry(), event.SubjectID); err != nil {
 		return err
 	}
 	var currentStep, executionActor string
 	if err := tx.QueryRowContext(ctx, `SELECT current_step,COALESCE(execution_actor_ref,'') FROM workflow_instances WHERE work_id=?`, event.SubjectID).Scan(&currentStep, &executionActor); err != nil {
 		return workflowProjectionError(err, "cannot read the current workflow failure authority")
-	}
-	if currentStep == "start" {
-		currentStep = entry.Definition.StepGraph.StartStep
 	}
 	if p.ActorRef != event.Actor {
 		return newFailure(KindUnauthorized, "fold_event", "action failure actor must match the authenticated event actor", false, "fail the workflow action through the authenticated workflow actor")

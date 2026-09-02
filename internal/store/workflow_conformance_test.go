@@ -1805,12 +1805,27 @@ func corpusRequestedVerdicts(request workflowCorpusRequest) []corpusRequestedVer
 	return verdicts
 }
 
+// corpusAtStartStep reports whether an instance still occupies its pinned
+// definition's declared start step, which is where a fixture advance begins.
+func corpusAtStartStep(ctx context.Context, s *Store, workID string) (bool, error) {
+	var step, ref, digest string
+	var version int64
+	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT current_step,definition_ref,definition_version,definition_digest FROM workflow_instances WHERE work_id=?`, workID).Scan(&step, &ref, &version, &digest); err != nil {
+		return false, err
+	}
+	registered, err := VerifyWorkflowDefinitionPin(BuiltinWorkflowRegistry(), WorkflowDefinitionPin{Ref: ref, Version: version, Digest: digest})
+	if err != nil {
+		return false, err
+	}
+	return step == registered.Definition.StepGraph.StartStep, nil
+}
+
 func advanceCorpusWorkflowToLink(ctx context.Context, s *Store, workID string, actor WorkflowActor) error {
-	var step string
-	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT current_step FROM workflow_instances WHERE work_id=?`, workID).Scan(&step); err != nil {
+	atStart, err := corpusAtStartStep(ctx, s, workID)
+	if err != nil {
 		return err
 	}
-	if step != "start" {
+	if !atStart {
 		return nil
 	}
 	definitionRef := ""
@@ -1852,11 +1867,11 @@ func advanceCorpusWorkflowToLink(ctx context.Context, s *Store, workID string, a
 }
 
 func advanceCorpusWorkflowToPlanning(ctx context.Context, s *Store, workID string, actor WorkflowActor) error {
-	var step string
-	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT current_step FROM workflow_instances WHERE work_id=?`, workID).Scan(&step); err != nil {
+	atStart, err := corpusAtStartStep(ctx, s, workID)
+	if err != nil {
 		return err
 	}
-	if step != "start" {
+	if !atStart {
 		return nil
 	}
 	for _, action := range []string{"record_proposal", "record_discovery", "record_design"} {
@@ -1914,11 +1929,11 @@ func advanceCorpusWorkflowToAcceptance(ctx context.Context, s *Store, workID str
 }
 
 func advanceCorpusWorkflowToRelease(ctx context.Context, s *Store, workID string, actor WorkflowActor, predicates []map[string]any, request workflowCorpusRequest) error {
-	var step string
-	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT current_step FROM workflow_instances WHERE work_id=?`, workID).Scan(&step); err != nil {
+	atStart, err := corpusAtStartStep(ctx, s, workID)
+	if err != nil {
 		return err
 	}
-	if step != "start" {
+	if !atStart {
 		return nil
 	}
 	// These are retained, typed action-completed boundaries from the owning

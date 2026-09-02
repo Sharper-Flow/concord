@@ -136,9 +136,6 @@ func applyWorkflowTestOperation(ctx context.Context, s *Store, operation Operati
 		if !ok {
 			continue
 		}
-		if currentStep == "start" {
-			currentStep = entry.Definition.StepGraph.StartStep
-		}
 		var payload struct {
 			StepID   string `json:"step_id"`
 			ActionID string `json:"action_id"`
@@ -221,9 +218,6 @@ func advanceWorkflowTestInstanceToStep(ctx context.Context, s *Store, workID, ta
 		if !ok {
 			return fmt.Errorf("workflow fixture definition %s@%d is not registered", definitionRef, definitionVersion)
 		}
-		if currentStep == "start" {
-			currentStep = entry.Definition.StepGraph.StartStep
-		}
 		if currentStep == targetStep {
 			return nil
 		}
@@ -260,11 +254,6 @@ func replayWorkflowAuthority(ctx context.Context, s *Store, opID, workID, princi
 	digest := "sha256:" + strings.Repeat("a", 64)
 	workflowTypeRef, workflowTypeVersion, stepID := "workflow.test", 1, "evidence"
 	_ = s.DatabaseForTesting().QueryRowContext(ctx, `SELECT definition_ref,definition_version,current_step FROM workflow_instances WHERE work_id=?`, workID).Scan(&workflowTypeRef, &workflowTypeVersion, &stepID)
-	if stepID == "start" {
-		if definition, definitionErr := BuiltinWorkflowDefinitionForRef(workflowTypeRef); definitionErr == nil {
-			stepID = definition.Definition.StepGraph.StartStep
-		}
-	}
 	claimed, err := ClaimStep(ctx, s, ClaimRequest{
 		OpID: opID, WorkID: workID, WorkflowTypeRef: workflowTypeRef, WorkflowTypeVersion: workflowTypeVersion,
 		StepID: stepID, StepKind: StepInternalSQLite, AcceptedInputsDigest: digest,

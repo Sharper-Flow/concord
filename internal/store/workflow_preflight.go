@@ -159,9 +159,6 @@ func WorkflowActionPreflightWithRegistry(ctx context.Context, s *Store, registry
 	if err := s.db.QueryRowContext(ctx, `SELECT current_step,instance_state,(SELECT version FROM work_items WHERE id=workflow_instances.work_id) FROM workflow_instances WHERE work_id=?`, request.WorkID).Scan(&currentStep, &state, &version); err != nil {
 		return wrapFailure(KindUnavailable, "workflow_action_preflight", "cannot read workflow instance state", true, "retry once the database is readable", err)
 	}
-	if currentStep == "start" {
-		currentStep = entry.Definition.StepGraph.StartStep
-	}
 	if request.StepID != "" && request.StepID != currentStep {
 		return workflowPinFailure("workflow action request does not match the current definition step")
 	}
@@ -213,19 +210,16 @@ func WorkflowActionPreflightWithRegistry(ctx context.Context, s *Store, registry
 	if err := ValidateWorkflowActor(request.Actor); err != nil {
 		return err
 	}
-	actorRef, err := WorkflowActorRef(request.Actor)
-	if err != nil {
+	// The derivation still runs: an actor tuple that cannot produce a reference
+	// is invalid whoever presents it.
+	if _, err := WorkflowActorRef(request.Actor); err != nil {
 		return err
 	}
-	if actorRef != "" {
-		var recorded int
-		if err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM workflow_actors WHERE actor_ref=?`, actorRef).Scan(&recorded); err != nil {
-			return wrapFailure(KindUnavailable, "workflow_action_preflight", "cannot read workflow actor", true, "retry once the database is readable", err)
-		}
-		if recorded != 1 && request.ActionID != "record_verdict" {
-			return newFailure(KindUnauthorized, "workflow_action_preflight", "workflow actor is not recorded", false, "record the complete actor tuple first")
-		}
-	}
+	// An unrecorded actor is not refused here. guardRecordedActorTuple admits a
+	// new actor inside the action transaction and appends workflow.actor_recorded
+	// with it, so refusing first would make that path unreachable and lock every
+	// work item to the session that captured it. A recorded actor_ref whose tuple
+	// disagrees still fails closed, in the guard that can read both.
 	return nil
 }
 
@@ -353,9 +347,6 @@ func workflowActionPreflightTx(ctx context.Context, tx *sql.Tx, registry Definit
 	if err := tx.QueryRowContext(ctx, `SELECT current_step,instance_state,(SELECT version FROM work_items WHERE id=workflow_instances.work_id) FROM workflow_instances WHERE work_id=?`, request.WorkID).Scan(&currentStep, &state, &version); err != nil {
 		return RegisteredDefinition{}, wrapFailure(KindUnavailable, "workflow_action_preflight", "cannot read workflow instance state", true, "retry once the database is readable", err)
 	}
-	if currentStep == "start" {
-		currentStep = entry.Definition.StepGraph.StartStep
-	}
 	if request.StepID != "" && request.StepID != currentStep {
 		return RegisteredDefinition{}, workflowPinFailure("workflow action request does not match the current definition step")
 	}
@@ -415,17 +406,11 @@ func workflowActionPreflightTx(ctx context.Context, tx *sql.Tx, registry Definit
 	if err := ValidateWorkflowActor(request.Actor); err != nil {
 		return RegisteredDefinition{}, err
 	}
-	actorRef, err := WorkflowActorRef(request.Actor)
-	if err != nil {
+	if _, err := WorkflowActorRef(request.Actor); err != nil {
 		return RegisteredDefinition{}, err
 	}
-	var recorded int
-	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM workflow_actors WHERE actor_ref=?`, actorRef).Scan(&recorded); err != nil {
-		return RegisteredDefinition{}, wrapFailure(KindUnavailable, "workflow_action_preflight", "cannot read workflow actor", true, "retry once the database is readable", err)
-	}
-	if recorded != 1 && request.ActionID != "record_verdict" {
-		return RegisteredDefinition{}, newFailure(KindUnauthorized, "workflow_action_preflight", "workflow actor is not recorded", false, "record the complete actor tuple first")
-	}
+	// See the note in the non-transactional preflight: recording a new actor is
+	// the action guard's job, and refusing here would prevent it.
 	return entry, nil
 }
 
@@ -600,7 +585,7 @@ func preflightWorkflowClaimTx(ctx context.Context, tx *sql.Tx, req ClaimRequest)
 	if err := tx.QueryRowContext(ctx, `SELECT current_step FROM workflow_instances WHERE work_id=?`, req.WorkID).Scan(&currentStep); err != nil {
 		return workflowPinFailure("workflow instance is unavailable")
 	}
-	if req.StepID != currentStep && !(currentStep == "start" && req.StepID == entry.Definition.StepGraph.StartStep) {
+	if req.StepID != currentStep {
 		return workflowPinFailure("workflow claim does not match the current definition step")
 	}
 	return nil
@@ -626,9 +611,6 @@ func preflightWorkflowOperationTx(ctx context.Context, tx *sql.Tx, opID string) 
 	var currentStep string
 	if err := tx.QueryRowContext(ctx, `SELECT current_step FROM workflow_instances WHERE work_id=?`, workID).Scan(&currentStep); err != nil {
 		return workflowPinFailure("workflow instance is unavailable")
-	}
-	if currentStep == "start" {
-		currentStep = entry.Definition.StepGraph.StartStep
 	}
 	if currentStep != stepID || entry.Definition.Version != int64(workflowVersion) || entry.Definition.Ref != workflowRef {
 		return workflowPinFailure("workflow operation does not match its pinned definition step")

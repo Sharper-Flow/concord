@@ -56,7 +56,7 @@ func seedWorkerEvidenceClient(t *testing.T) ed25519.PrivateKey {
 	runCLIJSON(t, []string{"client", "register"}, map[string]any{
 		"client_ref": workerEvidenceClientRef, "key_id": "worker-key-1", "principal_ref": "operator-1",
 		"public_key": base64.StdEncoding.EncodeToString(publicKey), "capabilities": []string{"worker_evidence"},
-		"product_scope": []string{"product-1"}, "project_scope": []string{"project-1"},
+		"product_scope": []string{"product-1"}, "project_scope": []string{"project-1"}, "agent_scope": []string{"agent-worker"},
 	})
 	return privateKey
 }
@@ -622,7 +622,7 @@ func TestWorkerEvidenceRequiresTheWorkerEvidenceCapability(t *testing.T) {
 	runCLIJSON(t, []string{"client", "register"}, map[string]any{
 		"client_ref": workerEvidenceClientRef, "key_id": "worker-key-1", "principal_ref": "operator-1",
 		"public_key": base64.StdEncoding.EncodeToString(publicKey), "capabilities": []string{"product_read"},
-		"product_scope": []string{"product-1"}, "project_scope": []string{"project-1"},
+		"product_scope": []string{"product-1"}, "project_scope": []string{"project-1"}, "agent_scope": []string{"agent-worker"},
 	})
 	lane := store.BuiltinLaneDefinitions()[0]
 	var out, errOut bytes.Buffer

@@ -1,6 +1,7 @@
 import { test, expect } from "bun:test"
 import { agentLanes } from "./generated-agent-lanes"
-import { dispatchWorker, readExportSessionMetadata, readRunSessionMetadata, validateAgentLanePacket, type AgentLanePacket, type DispatchAuthorizer, type DispatchRunner } from "./dispatch"
+import { completeWorkerAttempt, dispatchWorker, readExportSessionMetadata, readRunSessionMetadata, validateAgentLanePacket, type AgentLanePacket, type DispatchAuthorizer, type DispatchRunner } from "./dispatch"
+import { DispatchWindows } from "./dispatch-window"
 import type { CredentialStore } from "./credentials"
 
 const isRecord = (value: unknown): value is Record<string, unknown> => value !== null && typeof value === "object" && !Array.isArray(value)
@@ -74,64 +75,107 @@ const exportedSession = (model = READBACK_MODEL, agent = "concord-research") => 
   ],
 })
 
-const workerRunner = (model = READBACK_MODEL, output = runOutput(), agent = "concord-research"): DispatchRunner => ({
+// CD-0102 D5: the host wraps a finished worker's final text in a task element
+// that carries the worker session identifier, which is what the completion path
+// exports for readback.
+const taskWrap = (text: string, id = "session-1", state = "completed") =>
+  [`<task id="${id}" state="${state}">`, "<task_result>", text, "</task_result>", "</task>"].join("\n")
+
+const workerBody = (carried: unknown = report()) =>
+  taskWrap(carried === null ? "" : typeof carried === "string" ? carried : JSON.stringify(carried))
+
+// The completion path reads the worker session back and records evidence. It
+// never starts a process, so the runner answers `export` and nothing else.
+const readbackRunner = (model = READBACK_MODEL, agent = "concord-research"): DispatchRunner => ({
   async run(argv) {
-    if (argv[1] === "run") return { exitCode: 0, stdout: output, stderr: "" }
     if (argv[1] === "export") return { exitCode: 0, stdout: exportedSession(model, agent), stderr: "" }
     return { exitCode: 0, stdout: "", stderr: "" }
   },
 })
 
+const SIGNAL = new AbortController().signal
+const SESSION = "session-parent"
+
+type CompleteOptions = Parameters<typeof completeWorkerAttempt>[3]
+const acceptingEvidence = (): DispatchRunner => ({ async run() { return { exitCode: 0, stdout: "", stderr: "" } } })
+const complete = (body: string, options: Partial<CompleteOptions> = {}, dispatched: AgentLanePacket = packet()) =>
+  completeWorkerAttempt(lane, dispatched, body, { credentials: testCredentials, readbackRunner: readbackRunner(), evidenceRunner: acceptingEvidence(), packetDigest: PACKET_DIGEST, ...options }, SIGNAL)
+
 test("packet validation is closed before any runner call", async () => {
   let calls = 0
   const invalid = { ...packet(), inputs: { task: "" } }
   expect(validateAgentLanePacket(invalid)).toBe(false)
-  const result = await dispatchWorker(invalid, { credentials: testCredentials, runner: { async run() { calls++; return { exitCode: 0, stdout: runOutput(), stderr: "" } } }, authorize: permissiveAuthorizer(), packetDigest: PACKET_DIGEST })
+  const result = await dispatchWorker(invalid, { credentials: testCredentials, runner: { async run() { calls++; return { exitCode: 0, stdout: runOutput(), stderr: "" } } }, authorize: permissiveAuthorizer(), packetDigest: PACKET_DIGEST, sessionID: SESSION, windows: new DispatchWindows() })
   expect(result.outcome).toBe("error")
   expect(result.error?.kind).toBe("invalid_input")
   expect(calls).toBe(0)
 })
 
-test("unknown lane identity fails closed before spawn", async () => {
+test("unknown lane identity fails closed before a window opens", async () => {
+  const windows = new DispatchWindows()
   const unknown = { ...packet(), lane_id: "unknown" }
-  const result = await dispatchWorker(unknown, { credentials: testCredentials, runner: { async run() { throw new Error("must not spawn") } }, authorize: permissiveAuthorizer(), packetDigest: PACKET_DIGEST })
+  const result = await dispatchWorker(unknown, { credentials: testCredentials, authorize: permissiveAuthorizer(), packetDigest: PACKET_DIGEST, sessionID: SESSION, windows })
   expect(result.outcome).toBe("error")
   expect(result.error?.kind).toBe("invalid_input")
+  expect(windows.has(SESSION)).toBe(false)
 })
 
-test("spawn failure is a typed blocked outcome with bounded diagnostic", async () => {
-  let argv: string[] = []
-  const result = await dispatchWorker(packet(), { credentials: testCredentials, binary: "opencode-test", runner: { async run(args) { argv = args; throw new Error("spawn failed") } }, authorize: permissiveAuthorizer(), packetDigest: PACKET_DIGEST })
-  expect(result.outcome).toBe("blocked")
-  expect(result.error?.kind).toBe("blocked")
-  expect(argv).toEqual(["opencode-test", "run", "--agent", "concord-research", "--format", "json", JSON.stringify(packet())])
+// CD-0102 D1: an authorized dispatch opens the window and returns before the
+// worker runs. The host issues the Task call, so the adapter starts no process
+// and asserts no model here.
+test("an authorized dispatch opens one window and returns a directive", async () => {
+  const windows = new DispatchWindows()
+  const result = await dispatchWorker(packet(), { credentials: testCredentials, authorize: permissiveAuthorizer(), packetDigest: PACKET_DIGEST, sessionID: SESSION, windows })
+  expect(result.outcome).toBe("ok")
+  expect(result.dispatch_state).toBe("awaiting_worker")
+  expect(result.agent).toBe("concord-research")
+  expect(result.readback_model).toBe(null)
+  expect(windows.has(SESSION)).toBe(true)
 })
 
-test("spawn returning a non-zero exit code is typed as an error", async () => {
-  const result = await dispatchWorker(packet(), { credentials: testCredentials, runner: { async run() { return { exitCode: 1, stdout: "", stderr: "provider unavailable" } } }, authorize: permissiveAuthorizer(), packetDigest: PACKET_DIGEST })
+test("a dispatch that cannot name its calling session opens no window", async () => {
+  const windows = new DispatchWindows()
+  const result = await dispatchWorker(packet(), { credentials: testCredentials, authorize: permissiveAuthorizer(), packetDigest: PACKET_DIGEST, windows })
   expect(result.outcome).toBe("error")
-  expect(result.error?.kind).toBe("error")
+  expect(result.error?.kind).toBe("invalid_input")
+  expect(windows.has(SESSION)).toBe(false)
+})
+
+// Two open windows would let one authorized dispatch start whichever worker the
+// next Task call happened to name.
+test("a second dispatch on one session is refused while a window is open", async () => {
+  const windows = new DispatchWindows()
+  const first = await dispatchWorker(packet(), { credentials: testCredentials, authorize: permissiveAuthorizer(), packetDigest: PACKET_DIGEST, sessionID: SESSION, windows })
+  expect(first.outcome).toBe("ok")
+  const second = await dispatchWorker(packet(), { credentials: testCredentials, authorize: permissiveAuthorizer(), packetDigest: PACKET_DIGEST, sessionID: SESSION, windows })
+  expect(second.outcome).toBe("error")
+  expect(second.error?.message).toMatch(/already holds an open dispatch window/)
+})
+
+test("a result that is not a host task result is not a completion", async () => {
+  const result = await complete("the worker said some prose")
+  expect(result.outcome).toBe("error")
+  expect(result.error?.kind).toBe("invalid_report")
 })
 
 test("matching recorded session metadata returns bounded ok envelope", async () => {
-  const result = await dispatchWorker(packet(), { credentials: testCredentials, runner: workerRunner(), authorize: permissiveAuthorizer(), packetDigest: PACKET_DIGEST })
+  const result = await complete(workerBody())
   expect(result.outcome).toBe("ok")
   expect(result.agent).toBe("concord-research")
   expect(result.readback_model).toBe(READBACK_MODEL)
   expect(result.session_id).toBe("session-1")
 })
 
-test("dispatch obtains readback from a sanitized session export", async () => {
+test("completion obtains readback from a sanitized session export", async () => {
   const calls: string[][] = []
-  const base = workerRunner()
-  const result = await dispatchWorker(packet(), { credentials: testCredentials,
-    runner: { async run(argv, input, signal) { calls.push(argv); return base.run(argv, input, signal) } },
+  const base = readbackRunner()
+  const result = await complete(workerBody(), {
+    readbackRunner: { async run(argv, input, signal) { calls.push(argv); return base.run(argv, input, signal) } },
     evidenceRunner: { async run() { return { exitCode: 0, stdout: "", stderr: "" } } },
-    authorize: permissiveAuthorizer(), packetDigest: PACKET_DIGEST,
   })
   expect(result.outcome).toBe("ok")
-  expect(calls.map((argv) => argv.slice(0, 2))).toEqual([["opencode", "run"], ["opencode", "export"]])
-  expect(calls[1]).toEqual(["opencode", "export", "session-1", "--sanitize"])
+  expect(calls.map((argv) => argv.slice(0, 2))).toEqual([["opencode", "export"]])
+  expect(calls[0]).toEqual(["opencode", "export", "session-1", "--sanitize"])
 })
 
 // The sanitized export carries the executing agent on each message info; the
@@ -159,10 +203,9 @@ test("an export whose assistant message carries no agent string is not a readbac
 // so a substituted executor can never drive worker-complete.
 test("a dispatch executed by a substituted agent fails closed with no worker evidence", async () => {
   const evidenceCalls: string[][] = []
-  const result = await dispatchWorker(packet(), { credentials: testCredentials,
-    runner: workerRunner(READBACK_MODEL, runOutput(), "adv"),
+  const result = await complete(workerBody(), {
+    readbackRunner: readbackRunner(READBACK_MODEL, "adv"),
     evidenceRunner: { async run(argv) { evidenceCalls.push(argv); return { exitCode: 0, stdout: "", stderr: "" } } },
-    authorize: permissiveAuthorizer(), packetDigest: PACKET_DIGEST,
   })
   expect(result.outcome).toBe("error")
   expect(result.error?.kind).toBe("agent_identity_mismatch")
@@ -173,11 +216,9 @@ test("a dispatch executed by a substituted agent fails closed with no worker evi
 
 test("a successful run records dispatch evidence before completion evidence", async () => {
   const calls: { argv: string[]; input: string }[] = []
-  const result = await dispatchWorker(packet(), { credentials: testCredentials,
+  const result = await complete(workerBody(), {
     concordBinary: "concord-test",
-    runner: workerRunner(),
     evidenceRunner: { async run(argv, input) { calls.push({ argv, input }); return { exitCode: 0, stdout: "", stderr: "" } } },
-    authorize: permissiveAuthorizer(), packetDigest: PACKET_DIGEST,
   })
   expect(result.outcome).toBe("ok")
   expect(calls.map((call) => call.argv)).toEqual([["concord-test", "worker-dispatch"], ["concord-test", "worker-complete"]])
@@ -203,10 +244,8 @@ test("a successful run records dispatch evidence before completion evidence", as
 
 test("a run whose evidence cannot be recorded is not reported as a success", async () => {
   const refuse = async (argv: string[]) => argv[1] === "worker-dispatch" ? { exitCode: 1, stdout: "", stderr: "evidence write refused" } : { exitCode: 0, stdout: "", stderr: "" }
-  const result = await dispatchWorker(packet(), { credentials: testCredentials,
-    runner: workerRunner(),
+  const result = await complete(workerBody(), {
     evidenceRunner: { async run(argv) { return refuse(argv) } },
-    authorize: permissiveAuthorizer(), packetDigest: PACKET_DIGEST,
   })
   expect(result.outcome).toBe("error")
   expect(result.error?.kind).toBe("error")
@@ -216,10 +255,8 @@ test("a run whose evidence cannot be recorded is not reported as a success", asy
 
 test("a completion that cannot be recorded is not reported as a success", async () => {
   let recorded = 0
-  const result = await dispatchWorker(packet(), { credentials: testCredentials,
-    runner: workerRunner(),
+  const result = await complete(workerBody(), {
     evidenceRunner: { async run(argv) { recorded++; return argv[1] === "worker-complete" ? { exitCode: 1, stdout: "", stderr: "worker attempt belongs to a different work item" } : { exitCode: 0, stdout: "", stderr: "" } } },
-    authorize: permissiveAuthorizer(), packetDigest: PACKET_DIGEST,
   })
   expect(recorded).toBe(2)
   expect(result.outcome).toBe("error")
@@ -255,14 +292,14 @@ test("the adapter does not declare a model — argv carries no --model", async (
 
 test("the readback shape is recorded verbatim regardless of host configuration", async () => {
   const hostExecuted = "zai-coding-plan/glm-5.3"
-  const result = await dispatchWorker(packet(), { credentials: testCredentials, runner: workerRunner(hostExecuted), authorize: permissiveAuthorizer(), packetDigest: PACKET_DIGEST })
+  const result = await complete(workerBody(report({}, hostExecuted)), { readbackRunner: readbackRunner(hostExecuted) })
   expect(result.outcome).toBe("ok")
   expect(result.readback_model).toBe(hostExecuted)
 })
 
 test("an unknown readback is recorded as-is and not refused", async () => {
   const hostExecuted = "openai/not-declared"
-  const result = await dispatchWorker(packet(), { credentials: testCredentials, runner: workerRunner(hostExecuted), authorize: permissiveAuthorizer(), packetDigest: PACKET_DIGEST })
+  const result = await complete(workerBody(report({}, hostExecuted)), { readbackRunner: readbackRunner(hostExecuted) })
   expect(result.outcome).toBe("ok")
   expect(result.readback_model).toBe(hostExecuted)
 })
@@ -420,19 +457,17 @@ test("host prompt provenance names a config it cannot parse", async () => {
 // into a typed worker-fail rather than a completion.
 import { readWorkerReport, resolveWorkerReport, validateAgentLaneReport, validateAgainstSchema } from "./dispatch"
 
-async function terminalEvidence(output: string) {
+async function terminalEvidence(carried: unknown = report()) {
   const calls: { argv: string[]; input: string }[] = []
-  const result = await dispatchWorker(packet(), { credentials: testCredentials,
+  const result = await complete(workerBody(carried), {
     concordBinary: "concord-test",
-    runner: workerRunner(READBACK_MODEL, output),
     evidenceRunner: { async run(argv, input) { calls.push({ argv, input }); return { exitCode: 0, stdout: "", stderr: "" } } },
-    authorize: permissiveAuthorizer(), packetDigest: PACKET_DIGEST,
   })
   return { result, verbs: calls.map((call) => call.argv[1]), payloads: calls.map((call) => JSON.parse(call.input)) }
 }
 
 test("a valid completed report carries its reported evidence into worker-complete", async () => {
-  const { result, verbs, payloads } = await terminalEvidence(runOutput())
+  const { result, verbs, payloads } = await terminalEvidence()
   expect(result.outcome).toBe("ok")
   expect(verbs).toEqual(["worker-dispatch", "worker-complete"])
   expect(payloads[1].evidence_origin).toBe("reported")
@@ -441,7 +476,7 @@ test("a valid completed report carries its reported evidence into worker-complet
 })
 
 test("a missing report is worker-fail with invalid_report, not a completion", async () => {
-  const { result, verbs, payloads } = await terminalEvidence(runOutput("", null))
+  const { result, verbs, payloads } = await terminalEvidence(null)
   expect(verbs).toEqual(["worker-dispatch", "worker-fail"])
   expect(payloads[1].failure_kind).toBe("invalid_report")
   expect(payloads[1].detail).toBe("worker output carried no agent-lane-report.v1 report")
@@ -450,7 +485,7 @@ test("a missing report is worker-fail with invalid_report, not a completion", as
 })
 
 test("an unparseable report is worker-fail with invalid_report", async () => {
-  const { result, verbs, payloads } = await terminalEvidence(runOutput("", '{"schema_version": "1.0", "lane_id":'))
+  const { result, verbs, payloads } = await terminalEvidence('{"schema_version": "1.0", "lane_id":')
   expect(verbs).toEqual(["worker-dispatch", "worker-fail"])
   expect(payloads[1].failure_kind).toBe("invalid_report")
   expect(payloads[1].detail).toContain("malformed JSON document")
@@ -459,7 +494,7 @@ test("an unparseable report is worker-fail with invalid_report", async () => {
 
 test("a report naming an obligation outside the enum is worker-fail with invalid_report", async () => {
   const evidence = [...reportEvidence(), { obligation: "vibes", detail: "felt right" }]
-  const { verbs, payloads } = await terminalEvidence(runOutput("", report({ evidence })))
+  const { verbs, payloads } = await terminalEvidence(report({ evidence }))
   expect(verbs).toEqual(["worker-dispatch", "worker-fail"])
   expect(payloads[1].failure_kind).toBe("invalid_report")
   expect(payloads[1].detail).toContain("evidence[3].obligation")
@@ -467,7 +502,7 @@ test("a report naming an obligation outside the enum is worker-fail with invalid
 })
 
 test("a report that does not echo the dispatched attempt is worker-fail with invalid_report", async () => {
-  const { verbs, payloads } = await terminalEvidence(runOutput("", report({ attempt_id: "attempt-other" })))
+  const { verbs, payloads } = await terminalEvidence(report({ attempt_id: "attempt-other" }))
   expect(verbs).toEqual(["worker-dispatch", "worker-fail"])
   expect(payloads[1].failure_kind).toBe("invalid_report")
   expect(payloads[1].detail).toBe('worker report attempt_id "attempt-other" does not match dispatched packet "attempt-1"')
@@ -475,7 +510,7 @@ test("a report that does not echo the dispatched attempt is worker-fail with inv
 
 test("a reported failure is recorded as the worker's own failure, not an invalid report", async () => {
   const evidence = [{ obligation: "uncertainties", detail: "the cited source was unreachable" }]
-  const { result, verbs, payloads } = await terminalEvidence(runOutput("", report({ status: "failed", evidence })))
+  const { result, verbs, payloads } = await terminalEvidence(report({ status: "failed", evidence }))
   expect(verbs).toEqual(["worker-dispatch", "worker-fail"])
   expect(payloads[1].failure_kind).toBe("worker_error")
   expect(payloads[1].detail).toBe("worker reported failure: uncertainties: the cited source was unreachable")
@@ -510,14 +545,10 @@ const realRunCaptureEnvelope = (text: string) => [
   JSON.stringify({ type: "step_finish", timestamp: 1787375309617, sessionID: "session-1", part: { id: "prt_3", reason: "stop", messageID: "msg_1", sessionID: "session-1", type: "step-finish", tokens: { total: 29608, input: 29531, output: 7, reasoning: 70, cache: { write: 0, read: 0 } }, cost: 0 } }),
 ].join("\n")
 
-test("a real opencode run --format json capture drives worker-complete, plugin log line and all", async () => {
+test("a real opencode run --format json capture parses to session metadata and report", async () => {
   const stdout = realRunCaptureEnvelope(JSON.stringify(report()))
   expect(readRunSessionMetadata(stdout)).toEqual({ ok: true, metadata: { session_id: "session-1" } })
   expect(readWorkerReport(stdout).report).toEqual(report())
-  const { result, verbs, payloads } = await terminalEvidence(stdout)
-  expect(result.outcome).toBe("ok")
-  expect(verbs).toEqual(["worker-dispatch", "worker-complete"])
-  expect(payloads[1].evidence).toEqual(reportEvidence())
 })
 
 test("the last text part wins when an earlier part is working prose", async () => {
@@ -529,32 +560,24 @@ test("the last text part wins when an earlier part is working prose", async () =
     JSON.stringify({ type: "step_finish", timestamp: 2, sessionID: "session-1", part: { type: "step-finish", reason: "stop" } }),
   ].join("\n")
   expect(readWorkerReport(stdout)).toEqual({ report: report(), malformed: false })
-  const { verbs, payloads } = await terminalEvidence(stdout)
-  expect(verbs).toEqual(["worker-dispatch", "worker-complete"])
-  expect(payloads[1].evidence).toEqual(reportEvidence())
 })
 
 test("a fenced report is admitted and a fence around prose is not salvaged", async () => {
   const fenced = "```json\n" + JSON.stringify(report()) + "\n```"
   expect(readWorkerReport(runOutput("", fenced)).report).toEqual(report())
   expect(readWorkerReport(runOutput("", "```\n" + JSON.stringify(report()) + "\n```")).report).toEqual(report())
-  const { verbs } = await terminalEvidence(runOutput("", fenced))
+  const { verbs } = await terminalEvidence(fenced)
   expect(verbs).toEqual(["worker-dispatch", "worker-complete"])
   // Prose around the JSON is not mined for a report; it fails closed.
   expect(readWorkerReport(runOutput("", `Here is the report: ${JSON.stringify(report())} — done.`))).toEqual({ report: null, malformed: false })
 })
 
-test("a run with no text part at all is worker-fail with invalid_report", async () => {
+test("a run with no text part at all carries no report", async () => {
   const stdout = [
     JSON.stringify({ type: "step_start", timestamp: 1, sessionID: "session-1", part: { type: "step-start" } }),
     JSON.stringify({ type: "step_finish", timestamp: 2, sessionID: "session-1", part: { type: "step-finish", reason: "stop" } }),
   ].join("\n")
   expect(readWorkerReport(stdout)).toEqual({ report: null, malformed: false })
-  const { result, verbs, payloads } = await terminalEvidence(stdout)
-  expect(verbs).toEqual(["worker-dispatch", "worker-fail"])
-  expect(payloads[1].failure_kind).toBe("invalid_report")
-  expect(payloads[1].detail).toBe("worker output carried no agent-lane-report.v1 report")
-  expect(result.error?.kind).toBe("invalid_report")
 })
 
 test("report resolution admits only a schema-valid, packet-bound report", () => {

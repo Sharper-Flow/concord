@@ -296,10 +296,11 @@ func TestWorktreeReclaimRefusesOccupiedWorktreeThroughToolSurface(t *testing.T) 
 		t.Fatal("a session inside the worktree must refuse the reclaim")
 	}
 	// The store refuses with worktree_ownership_conflict, which this surface
-	// carries as operation_conflict until the takeover surface mints its own
-	// envelope kind. The message is what names the session to the operator.
-	if occupied.Error == nil || occupied.Error.Kind != "operation_conflict" {
-		t.Fatalf("error=%+v, want operation_conflict", occupied.Error)
+	// carries as unauthorized: the remedy is the occupying session releasing
+	// the directory or the operator ending it, not a reconciliation the caller
+	// can run. The message is what names the session to the operator.
+	if occupied.Error == nil || occupied.Error.Kind != "unauthorized" {
+		t.Fatalf("error=%+v, want unauthorized", occupied.Error)
 	}
 	if !strings.Contains(occupied.Error.Message, "ses_live") || !strings.Contains(occupied.Error.Message, worktreePath) {
 		t.Fatalf("refusal %q must name the occupying session and the worktree", occupied.Error.Message)

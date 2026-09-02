@@ -17,6 +17,7 @@
 import type { ToolContext } from "@opencode-ai/plugin"
 import type { ConcordInvoke } from "./packet"
 import type { CredentialStore } from "./credentials"
+import type { DispatchWindows } from "./dispatch-window"
 import { dispatchWorker, errorEnvelopeForLane, type AgentLanePacket, type AgentResultEnvelope, type DispatchRunner } from "./dispatch"
 import { agentLanes, type AgentLane } from "./generated-agent-lanes"
 import { buildAgentLanePacket, type AgentLanePacketFailureKind } from "./packet"
@@ -35,6 +36,10 @@ export interface LaneDispatchDeps {
   runner?: DispatchRunner
   evidenceRunner?: DispatchRunner
   concordBinary?: string
+  // windows is the authorization-window store. Production callers leave it
+  // unset and the dispatch path uses the per-instance store the plugin hook
+  // reads; tests supply an isolated one.
+  windows?: DispatchWindows
   // now is an injected clock so the attempt id is deterministic in tests;
   // production callers leave it unset and the seam defaults to Date.now.
   now?: () => number
@@ -150,10 +155,13 @@ export async function dispatchLaneWorker(input: LaneDispatchInput, deps: LaneDis
     return errorEnvelopeForLane(laneForId(packet.lane_id), packet as Partial<AgentLanePacket>, "error", "transport_failure", "dispatch_worker response carried no worker_packet_digest", "reconcile_operation")
   }
 
-  // Spawn: the worker authorizer is the core response we just received;
+  // Dispatch: the worker authorizer is the core response we just received;
   // dispatchWorker forwards that envelope to its own authorize() seam and
-  // re-validates it against outcome === "error" before spawning, so the
-  // happy-path ok envelope reaches the runner untouched. packetDigest is
-  // the value the dispatch assertion will quote (D6).
-  return dispatchWorker(packet, { authorize: async () => coreResponse, credentials: deps.credentials, runner: deps.runner, evidenceRunner: deps.evidenceRunner, concordBinary: deps.concordBinary, packetDigest })
+  // re-validates it against outcome === "error" before opening the window, so
+  // the happy-path ok envelope reaches it untouched. packetDigest is the value
+  // the dispatch assertion will quote (D6).
+  //
+  // The window binds to the calling session, because that is the session whose
+  // next Task call the plugin hook rewrites (CD-0097 D1).
+  return dispatchWorker(packet, { authorize: async () => coreResponse, credentials: deps.credentials, runner: deps.runner, evidenceRunner: deps.evidenceRunner, concordBinary: deps.concordBinary, packetDigest, sessionID: deps.context.sessionID, windows: deps.windows })
 }

@@ -74,3 +74,22 @@ describe("dispatch authorization window", () => {
     expect(args.task_id).toBeUndefined()
   })
 })
+
+describe("in-flight retention across the host task call", () => {
+  test("bind moves the record to in flight and completion takes it once", () => {
+    const windows = new DispatchWindows()
+    windows.open("session-a", packet, "sha256:" + "c".repeat(64))
+    windows.bind(TASK_TOOL_ID, "session-a", { subagent_type: "general", prompt: "x" })
+    expect(windows.has("session-a")).toBe(false)
+
+    const record = windows.takeInFlight("session-a")
+    expect(record?.packet.attempt_id).toBe("attempt-1")
+    expect(record?.packetDigest).toBe("sha256:" + "c".repeat(64))
+    // One authorization admits one result.
+    expect(windows.takeInFlight("session-a")).toBeNull()
+  })
+
+  test("a session with no dispatch has nothing in flight", () => {
+    expect(new DispatchWindows().takeInFlight("session-none")).toBeNull()
+  })
+})

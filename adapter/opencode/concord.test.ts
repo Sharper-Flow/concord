@@ -699,6 +699,10 @@ const exportOutput = (sessionID = "session-run-1", agent = "concord-implement") 
 })
 
 test("work_start rejects malformed core contracts and path mismatches before launch", async () => {
+  // The subject is the core contract, so the host answers reachable: work start
+  // probes the control plane before it captures anything, and an unreachable
+  // host would refuse ahead of the contract this test is about.
+  bindRetargetRoute()
   for (const response of [{ work_id: "work-1" }, { ...bootstrapSuccess(), worktree: { ...bootstrapSuccess().worktree, path: "relative" } }]) {
     let calls = 0
     adapter.configureConcordAdapter({ runner: { async run() { calls++; return { exitCode: 0, stdout: JSON.stringify(calls === 1 ? contextResponse() : response), stderr: "" } } } })
@@ -867,16 +871,41 @@ test("work start retargets the calling session and records the claim before the 
   expect(calls.some(({ argv }) => argv[1] === "session-exec" || argv[0] === "opencode")).toBe(false)
 })
 
-test("work start refuses when the move route is absent", async () => {
+// A host that serves no control plane cannot retarget, and CD-0098 D2 leaves
+// no other route into the worktree. The refusal therefore belongs in front of
+// the capture: an operator who cannot start work should not be left holding a
+// work item and a claim to reconcile as well.
+test("work start refuses before any effect when the host exposed no server URL", async () => {
   bindRetargetRoute({ unbound: true })
   const calls: RetargetCall[] = []
   adapter.configureConcordAdapter({ runner: retargetRunner(calls) })
   const result: any = await rawHostResult(adapter.work_start.execute(bootstrapArgs, contextFor()))
   expect(result.outcome).not.toBe("ok")
-  expect(result.error.message).toContain("/experimental/control-plane/move-session")
+  expect(result.error.effect_state).toBe("none")
+  expect(result.error.message).toContain("this host exposed no server URL")
   expect(result.error.message).toContain("host version")
-  // No fallback runs, and the claim survives for a resume.
-  expect(calls.some(({ argv }) => argv[1] === "work-bootstrap-rollback")).toBe(false)
+  // The remedy travels with the refusal, because the condition is one the
+  // operator repairs by starting the session differently.
+  expect(result.error.message).toContain("opencode serve")
+  expect(result.error.message).toContain("opencode attach")
+  // Nothing was captured, so there is nothing to roll back and nothing to
+  // resume: the probe ran before work-bootstrap.
+  expect(calls.map(({ argv }) => argv[1])).toEqual(["project-resolve"])
+  expect(result.work_id).toBeUndefined()
+})
+
+test("work start refuses before any effect when the host control plane cannot be reached", async () => {
+  hostControlPlane().bind("http://host.invalid", async () => {
+    throw new Error("Unable to connect. Is the computer able to access the url?")
+  })
+  const calls: RetargetCall[] = []
+  adapter.configureConcordAdapter({ runner: retargetRunner(calls) })
+  const result: any = await rawHostResult(adapter.work_start.execute(bootstrapArgs, contextFor()))
+  expect(result.outcome).not.toBe("ok")
+  expect(result.error.effect_state).toBe("none")
+  expect(result.error.message).toContain("the host control plane is unreachable")
+  expect(result.error.message).toContain("opencode serve")
+  expect(calls.map(({ argv }) => argv[1])).toEqual(["project-resolve"])
 })
 
 test("work start refuses a move the host rejects", async () => {

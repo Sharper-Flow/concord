@@ -616,6 +616,23 @@ async function executeWorkStart(args: WorkStartArgs, context: ToolContext): Prom
     const ambient = await resolveAmbientContext(context)
     if (!ambient.mainWorktree) throw new AdapterFailure("invalid_input", "requires_main_worktree", "work_start requires a resolved default checkout")
     const productID = deriveWorkStartProduct(ambient)
+    // CD-0098 D2 makes the retarget the only route into the claimed worktree,
+    // so a session that cannot reach its host cannot start work at all. Asking
+    // first keeps that discovery in front of every effect: a host-capability
+    // gap then costs a refusal the operator can act on, instead of a captured
+    // item and a claimed worktree the session was never able to enter.
+    try {
+      await hostControlPlane().probe(context.sessionID, context.abort)
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error)
+      throw new AdapterFailure(
+        "unreachable",
+        "control_plane_unreachable",
+        `${detail}; nothing was captured or claimed. Run this session against a served host: start one with \`opencode serve\` and join it with \`opencode attach\`, or use \`opencode web\``,
+        "none",
+        "contact_operator",
+      )
+    }
     const bootstrapInput = { product_id: productID, project_id: ambient.projectID, ...args }
     const boot = await runWorkStartChild([concord, "work-bootstrap"], JSON.stringify(bootstrapInput), context.abort, { cwd: context.directory })
     if (boot.exitCode !== 0) throw new AdapterFailure("bootstrap_failure", "bootstrap_failed", boot.stderr.slice(0, MAX_STDERR))

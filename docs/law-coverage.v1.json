@@ -1616,7 +1616,11 @@
         },
         {
           "kind": "adapter_test",
-          "value": "adapter/opencode/concord.test.ts#work start refuses when the move route is absent"
+          "value": "adapter/opencode/concord.test.ts#work start refuses before any effect when the host exposed no server URL"
+        },
+        {
+          "kind": "adapter_test",
+          "value": "adapter/opencode/concord.test.ts#work start refuses before any effect when the host control plane cannot be reached"
         },
         {
           "kind": "adapter_test",

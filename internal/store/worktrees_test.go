@@ -20,6 +20,7 @@ type fakeWorktreeGit struct {
 	dirty      map[string]bool   // path -> dirty
 	content    map[string]string // branch -> tree content id; defaults to the head sha
 	defaultRef string
+	headBranch string // the ref HEAD resolves to; the fixture default is main
 	failAdd    bool
 	calls      [][]string
 }
@@ -38,11 +39,12 @@ func (g *fakeWorktreeGit) treeOf(ref string) string {
 
 func newFakeWorktreeGit(repoRoot string) *fakeWorktreeGit {
 	return &fakeWorktreeGit{
-		repoRoot:  repoRoot,
-		branches:  map[string]string{"main": strings.Repeat("a", 40)},
-		worktrees: map[string]string{},
-		dirty:     map[string]bool{},
-		content:   map[string]string{},
+		repoRoot:   repoRoot,
+		branches:   map[string]string{"main": strings.Repeat("a", 40)},
+		worktrees:  map[string]string{},
+		dirty:      map[string]bool{},
+		content:    map[string]string{},
+		headBranch: "main",
 	}
 }
 
@@ -129,6 +131,15 @@ func (g *fakeWorktreeGit) Run(_ context.Context, dir string, args ...string) ([]
 			return nil, fmt.Errorf("no origin HEAD")
 		}
 		return []byte("refs/remotes/" + g.defaultRef + "\n"), nil
+	case strings.HasPrefix(join, "rev-parse --verify ") && strings.HasSuffix(join, "^{commit}"):
+		ref := strings.TrimSuffix(strings.TrimPrefix(join, "rev-parse --verify "), "^{commit}")
+		if ref == "HEAD" {
+			ref = g.headBranch
+		}
+		if sha := g.resolveRef(ref); sha != ref {
+			return []byte(sha + "\n"), nil
+		}
+		return nil, fmt.Errorf("unknown ref")
 	}
 	return nil, fmt.Errorf("unexpected git invocation: %s", join)
 }

@@ -6176,6 +6176,37 @@ const GeneratedPayloadSchemaDocument = `{
       ],
       "type": "object"
     },
+    "work_transition_worktree_retarget_input": {
+      "additionalProperties": false,
+      "properties": {
+        "expected_target_version": {
+          "description": "CD-0096 D5: the session's effective-target version pin. Zero for a first binding; any other value must match the stored version exactly or the retarget fails closed.",
+          "maximum": 2147483647,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "expected_version": {
+          "$ref": "#/$defs/version",
+          "description": "The work item's version pin, consumed when the retarget must create the canonical worktree."
+        },
+        "idempotency_key": {
+          "$ref": "#/$defs/id"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
+        },
+        "work_id": {
+          "$ref": "#/$defs/id",
+          "description": "CD-0096 D2: the current work item whose canonical worktree the session adopts. The target path derives from registered Project and work identity; no path input exists."
+        }
+      },
+      "required": [
+        "work_id",
+        "expected_version",
+        "idempotency_key"
+      ],
+      "type": "object"
+    },
     "worker_packet": {
       "additionalProperties": false,
       "description": "CD-0067 D1: closed lane worker packet bound to dispatch_worker. Mirrors adapter/opencode/dispatch.ts AgentLanePacket; every bound matches contracts/agent-lane-packet.schema.json exactly so no packet the lane contract accepts is refused here.",

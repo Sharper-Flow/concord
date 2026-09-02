@@ -99,7 +99,8 @@
         "concord_work_transition.lifecycle",
         "concord_work_transition.workflow_action",
         "concord_work_transition.worktree_claim",
-        "concord_work_transition.worktree_reclaim"
+        "concord_work_transition.worktree_reclaim",
+        "concord_work_transition.worktree_retarget"
       ]
     },
     {
@@ -963,6 +964,27 @@
       "supported_budget_seconds": 300
     },
     {
+      "id": "concord_work_transition.worktree_retarget",
+      "tool": "concord_work_transition",
+      "kind": "mutation",
+      "query_id": null,
+      "input_schema": "#/schemas/work_transition_worktree_retarget_input",
+      "result_schema": "#/schemas/mutation_result",
+      "capability": "work_transition",
+      "consequence": "lifecycle",
+      "approval": "none",
+      "metadata": {
+        "context": "ambient",
+        "idempotency": "required",
+        "pagination": "none",
+        "output_bytes": 51200,
+        "versions": [
+          "1.0"
+        ]
+      },
+      "supported_budget_seconds": 300
+    },
+    {
       "id": "concord_work_relate.set_memberships",
       "tool": "concord_work_relate",
       "kind": "mutation",
@@ -1600,6 +1622,10 @@
       "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_transition_worktree_reclaim_input",
       "closed": true
     },
+    "work_transition_worktree_retarget_input": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_transition_worktree_retarget_input",
+      "closed": true
+    },
     "work_define_research_pack_create_input": {
       "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_define_research_pack_create_input",
       "closed": true
@@ -1781,6 +1807,6 @@
       "digest"
     ]
   },
-  "payload_digest": "sha256:f23d4463160938665c7b0764bb741a110ca470797a6abf5c856c2d626ebdfef2",
-  "digest": "sha256:c8e9f674b6f3753e5c58a3c5a281e9bf117cb27a419768cb87a4ed815dc7bf9c"
+  "payload_digest": "sha256:93cbca3b0618e7a3f4e2f07efb0b18f0b35990372c8c7797ca5c519e555105aa",
+  "digest": "sha256:0396ed87e404a47d2cbf482bfc21616628bee91326220323f764de7223c14791"
 }

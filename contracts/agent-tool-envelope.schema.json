@@ -492,7 +492,8 @@
                 "lifecycle",
                 "workflow_action",
                 "worktree_claim",
-                "worktree_reclaim"
+                "worktree_reclaim",
+                "worktree_retarget"
               ]
             }
           }
@@ -754,7 +755,8 @@
             "unprocessed",
             "worktree_audit",
             "worktree_claim",
-            "worktree_reclaim"
+            "worktree_reclaim",
+            "worktree_retarget"
           ]
         },
         "query_id": {
@@ -1191,7 +1193,8 @@
             "unprocessed",
             "worktree_audit",
             "worktree_claim",
-            "worktree_reclaim"
+            "worktree_reclaim",
+            "worktree_retarget"
           ]
         },
         "query_id": {

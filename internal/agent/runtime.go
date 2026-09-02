@@ -857,6 +857,16 @@ func mapFailureKind(kind store.FailureKind) string {
 		return "stale_requires_review"
 	case store.KindUnreachable, store.KindGitUnreachable:
 		return "unreachable"
+	case store.KindWorktreeOwnershipConflict:
+		// CD-0096 D3: a takeover refused for authority. The message names the
+		// owning session and the recovery action; operation_conflict carries
+		// the class until the takeover surface mints its own envelope kind.
+		return "operation_conflict"
+	case store.KindProjectionConflict:
+		// A projection identity another row already holds (a second active
+		// worktree claim, a locator-drifted worktree) is a coordination
+		// refusal, not an internal fault.
+		return "operation_conflict"
 	case store.KindIndexDegraded:
 		return "degraded_not_allowed"
 	case store.KindResearchConsumerBlocked:

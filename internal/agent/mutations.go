@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"time"
@@ -107,6 +108,14 @@ type worktreeReclaimInput struct {
 	DefaultRef      string `json:"default_ref"`
 	ExpectedVersion int64  `json:"expected_version"`
 	IdempotencyKey  string `json:"idempotency_key"`
+}
+type worktreeRetargetInput struct {
+	WorkID          string `json:"work_id"`
+	ExpectedVersion int64  `json:"expected_version"`
+	// ExpectedTargetVersion is the CD-0096 D5 stale-version pin: zero for a
+	// first binding, otherwise the stored session target version exactly.
+	ExpectedTargetVersion int64  `json:"expected_target_version"`
+	IdempotencyKey        string `json:"idempotency_key"`
 }
 type researchRevisionInput struct {
 	Question string `json:"question"`
@@ -1653,6 +1662,41 @@ func (r runtime) planWorktreeClaim(ctx context.Context, base Envelope, raw []byt
 	return Envelope{}, nil, false
 }
 
+// planWorktreeRetarget plans concord_work_transition.worktree_retarget
+// (CD-0096 D1/D2). The input names the current work item only; the canonical
+// worktree path derives inside the store from registered Project and work
+// identity, so no path, branch, or base reaches this surface.
+func (r runtime) planWorktreeRetarget(ctx context.Context, base Envelope, raw []byte, digest string, grant Authority, op ContractOperation, plan *mutationPlan) (Envelope, error, bool) {
+	var in worktreeRetargetInput
+	if err := decodeOperationInput(raw, &in); err != nil {
+		return base, err, true
+	}
+	plan.versions["work"] = in.ExpectedVersion
+	plan.versions["target"] = in.ExpectedTargetVersion
+	plan.scope["work_ids"] = []string{in.WorkID}
+	plan.intents = []NextIntent{{Tool: "concord_work_browse", Operation: "scope", QueryID: "PM1.Q6", ReasonCode: "refresh_work_version", RequiredFields: []string{"work_id"}}}
+	// The worktree root is locator policy input, read before the transaction
+	// opens; the tx-scoped store core never touches the store handle.
+	worktreeRoot := filepath.Join(filepath.Dir(r.Store.Path()), "worktrees")
+	plan.effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
+		opID := digest + ":worktree-retarget:" + in.WorkID
+		target, err := store.RetargetSessionWorktreeTx(ctx, tx, store.WorktreeRetargetRequest{
+			Owner:  store.SessionWorktreeOwner{ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef},
+			WorkID: in.WorkID, ExpectedWorkVersion: in.ExpectedVersion,
+			ExpectedTargetVersion: in.ExpectedTargetVersion,
+			WorktreeRoot:          worktreeRoot,
+			PrincipalRef:          grant.PrincipalRef, RequestID: in.IdempotencyKey, OpID: opID,
+			Now: r.Authority.now(),
+		})
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		changed := []ChangedRef{{EntityKind: "session_worktree_target", ID: in.WorkID, Version: strconv.FormatInt(target.TargetVersion, 10)}}
+		return mutationPayload(changed, plan.intents), []string{opID + ":worktree-retargeted"}, changed, nil
+	}
+	return Envelope{}, nil, false
+}
+
 // planWorktreeReclaim plans concord_work_transition.worktree_reclaim.
 func (r runtime) planWorktreeReclaim(ctx context.Context, base Envelope, raw []byte, digest string, grant Authority, op ContractOperation, plan *mutationPlan) (Envelope, error, bool) {
 	var in worktreeReclaimInput
@@ -1897,6 +1941,8 @@ func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Au
 		answer, err, handled = r.planWorktreeClaim(ctx, base, raw, digest, grant, op, plan)
 	case "concord_work_transition.worktree_reclaim":
 		answer, err, handled = r.planWorktreeReclaim(ctx, base, raw, digest, grant, op, plan)
+	case "concord_work_transition.worktree_retarget":
+		answer, err, handled = r.planWorktreeRetarget(ctx, base, raw, digest, grant, op, plan)
 	case "concord_work_relate.set_memberships":
 		answer, err, handled = r.planSetMemberships(ctx, base, raw, digest, grant, op, plan)
 	case "concord_work_relate.resolve_overlap":

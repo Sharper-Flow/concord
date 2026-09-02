@@ -120,7 +120,12 @@ const (
 	KindResearchConsumerBlocked     FailureKind = "research_consumer_blocked"
 	// KindResourceClaimHeld marks a claim on a resource another work item
 	// already holds. The refusal names coordination, not authority.
-	KindResourceClaimHeld           FailureKind = "resource_claim_held"
+	KindResourceClaimHeld FailureKind = "resource_claim_held"
+	// KindWorktreeOwnershipConflict marks a worktree access that needs a
+	// takeover authority the caller does not hold (CD-0096 D3). The refusal
+	// names the owning session and the recovery action, never a write to a
+	// tree someone else holds.
+	KindWorktreeOwnershipConflict   FailureKind = "worktree_ownership_conflict"
 	KindInitiativeScopeViolation    FailureKind = "initiative_scope_violation"
 	KindInitiativeEntryConflict     FailureKind = "initiative_entry_conflict"
 	KindInitiativeCompletionBlocked FailureKind = "initiative_completion_blocked"

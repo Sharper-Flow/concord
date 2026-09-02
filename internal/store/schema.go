@@ -3427,6 +3427,35 @@ DROP TABLE workflow_contract_law_modifications_v61_backup;
 DROP TABLE workflow_overlap_resolutions_v61_backup;
 		`,
 	},
+
+	{
+		Version: 62,
+		Name:    "session_worktree_targets",
+		SQL: `
+-- CD-0096 D1/D5: the persistent effective target of a running agent session.
+-- Operational state like worktree_claims: the retarget operation owns every
+-- write in one transaction, so the table is not fold-guarded. One row per
+-- session identity, and at most one active holder per work item, so the
+-- in-session route and the CD-0088 bootstrap route cannot produce two owners
+-- of one worktree (CD-0096 D6).
+CREATE TABLE session_worktree_targets (
+    client_ref  TEXT NOT NULL CHECK(length(client_ref) BETWEEN 2 AND 128),
+    agent_ref   TEXT NOT NULL CHECK(length(agent_ref) BETWEEN 2 AND 128),
+    session_ref TEXT NOT NULL CHECK(length(session_ref) BETWEEN 2 AND 128),
+    work_id     TEXT NOT NULL REFERENCES work_items(id) ON DELETE RESTRICT,
+    project_id  TEXT NOT NULL,
+    branch      TEXT NOT NULL,
+    path        TEXT NOT NULL,
+    state       TEXT NOT NULL CHECK(state IN ('active','released')),
+    target_version INTEGER NOT NULL CHECK(target_version >= 1),
+    principal_ref TEXT NOT NULL,
+    claimed_at  TEXT NOT NULL,
+    updated_at  TEXT NOT NULL,
+    PRIMARY KEY(client_ref, agent_ref, session_ref)
+);
+CREATE UNIQUE INDEX session_worktree_targets_one_holder ON session_worktree_targets(work_id) WHERE state='active';
+		`,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any

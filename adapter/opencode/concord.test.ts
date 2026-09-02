@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
 import { contractOperations, manifestDigest } from "./generated-contracts"
-import { validateGeneratedEnvelope } from "./generated-contract-tests"
+import { validateGeneratedEnvelope, envelopeFailurePath } from "./generated-contract-tests"
 import type { ChildRunnerOptions } from "./concord"
 import { hostControlPlane } from "./move-session"
 
@@ -227,6 +227,25 @@ test("unknown-effect mutation errors do not expose failed response data", async 
   expect(malformedResponse.error.kind).toBe("malformed_response")
   expect(malformedResponse.error.effect_state).toBe("possible")
   expect(malformedResponse.error.details.reconcile_attempted).toBe(true)
+})
+
+// The #694/#701 drift shape: a member the envelope law does not declare,
+// nested inside a schema branch. The refusal names the member, so the operator
+// reads which field failed instead of bisecting the envelope by hand.
+test("a contract-failing mutation names the offending member", async () => {
+  const drifted = coreEnvelope("concord_work_transition", "lifecycle", "ok", {
+    result: { changed_refs: [], next_valid_intents: [] },
+    changed_refs: [], next_valid_intents: [],
+    resolved_scope: { product_id: "product-1", project_ids: ["project-1"], scope_version: "v1", work_ids: [], product_ids: ["product-1"] },
+  })
+  expect(validateGeneratedEnvelope(drifted)).toBe(false)
+  expect(envelopeFailurePath(drifted)).toBe("resolved_scope.product_ids")
+  const result: any = await runTransition(runnerWithContext(drifted))
+  assertAdapterEnvelope(result)
+  expect(result.error.kind).toBe("operation_conflict")
+  expect(result.error.adapter_reason).toBe("unknown_effect")
+  expect(result.error.effect_state).toBe("possible")
+  expect(result.error.message).toContain("member resolved_scope.product_ids failed the generated envelope contract")
 })
 
 test("strict response failures salvage bounded entity identifiers", async () => {

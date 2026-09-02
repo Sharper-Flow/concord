@@ -1,6 +1,6 @@
 import { clientRef } from "./credentials"
 import { contractOperations, hostToolDescriptions, hostToolSchemas, manifestDigest, maxEnvelopeBytes, payloadSchemas } from "./generated-contracts"
-import { validateGeneratedEnvelope, validateGeneratedPayload } from "./generated-contract-tests"
+import { validateGeneratedEnvelope, validateGeneratedPayload, envelopeFailurePath, payloadFailurePath } from "./generated-contract-tests"
 import { dispatchLaneWorker, type LaneDispatchInput } from "./lane_dispatch"
 import { hostControlPlane, MoveSessionUnavailable } from "./move-session"
 import { createRunSessionObservation, errorEnvelopeForLane, MAX_OUTPUT_BYTES, observeRunSessionLine, readExportSessionMetadata, readRunSessionMetadata, readRunTextParts, runStreamRefusalMessage, runStreamRefusalRecovery, validateAgainstSchema, type AgentResultEnvelope, type RunLineMetadata, type RunSessionObservation } from "./dispatch"
@@ -246,15 +246,26 @@ function salvageDetails(raw: string): Record<string, unknown> | undefined {
 
 const coreErrorKinds = new Set(["unknown_scope", "ambiguous_scope", "stale_context", "unauthorized", "approval_required", "approval_invalid", "version_conflict", "idempotency_conflict", "operation_conflict", "invalid_transition", "invalid_relation", "invariant_violation", "missing_evidence", "not_terminal", "outcome_mismatch", "stale_requires_review", "stale_law_revision", "domain_overlap", "degraded_not_allowed", "unreachable", "invalid_cursor", "limit_exceeded", "budget_refused", "invalid_input", "cancelled", "timeout", "transport_failure", "malformed_response", "internal_error"])
 
-function validateCoreResponse(response: any, toolName: string, operation: string): boolean {
-  if (!response || typeof response !== "object" || response.schema_version !== "1.0" || response.manifest_digest !== manifestDigest || response.origin !== "core" || response.tool !== toolName || response.operation !== operation || !["ok", "pending", "partial", "error"].includes(response.outcome) || !validateGeneratedEnvelope(response)) return false
-  if (response.outcome === "error") return !!response.error && coreErrorKinds.has(response.error.kind)
+// coreResponseFailure names what a contract-failing response broke on, or
+// returns null when the response satisfies the generated contract. The
+// identity stage reports the envelope itself, because a mismatch there
+// describes the whole response rather than one member, and version skew is
+// classified at the call site before this detail reaches an operator.
+function coreResponseFailure(response: any, toolName: string, operation: string): string | null {
+  if (!response || typeof response !== "object" || response.schema_version !== "1.0" || response.manifest_digest !== manifestDigest || response.origin !== "core" || response.tool !== toolName || response.operation !== operation || !["ok", "pending", "partial", "error"].includes(response.outcome)) return "the envelope identity"
+  if (!validateGeneratedEnvelope(response)) return `member ${envelopeFailurePath(response)} failed the generated envelope contract`
+  if (response.outcome === "error") {
+    if (!response.error) return "error is absent"
+    if (!coreErrorKinds.has(response.error.kind)) return `member error.kind failed the generated envelope contract: ${JSON.stringify(response.error.kind)} is not a core error kind`
+    return null
+  }
   if (response.result !== undefined) {
     const meta: any = contractOperations.find((item: any) => item.tool === toolName && item.id.endsWith(`.${operation}`))
     const resultName = meta?.result_schema?.split("/").pop()
-    if (!resultName || !validateGeneratedPayload(resultName, response.result)) return false
+    if (!resultName) return "the operation declares no result schema"
+    if (!validateGeneratedPayload(resultName, response.result)) return `member result.${payloadFailurePath(resultName, response.result)} failed the generated payload contract`
   }
-  return true
+  return null
 }
 
 // A core response shaped like an envelope but stamped with a manifest digest
@@ -316,13 +327,14 @@ async function invokeConcordOperationRaw(toolName: string, args: HostToolArgs, c
   if (result.exitCode !== 0 && !result.stdout.trim()) return adapterError(toolName, operation, requestID, "operation_conflict", "unknown_effect", result.stderr.slice(0, MAX_STDERR), "possible", "reconcile_operation")
   let response: any
   try { response = singleJSON(result.stdout) } catch (error) { return adapterError(toolName, operation, requestID, "malformed_response", "malformed_core_response", String(error), "possible", "reconcile_operation", salvageDetails(result.stdout)) }
-  if (!validateCoreResponse(response, toolName, operation)) {
+  const contractFailure = coreResponseFailure(response, toolName, operation)
+  if (contractFailure) {
     if (isVersionSkew(response)) {
       const skewDetail = `core contract digest ${response.manifest_digest} does not match this adapter's ${manifestDigest}; the adapter files were replaced on disk by a newer release while this session runs; restart the OpenCode session to load them`
       if (!operationIsMutation(toolName, operation)) return adapterError(toolName, operation, requestID, "transport_failure", "manifest_mismatch", skewDetail, "none", "contact_operator")
       return adapterError(toolName, operation, requestID, "operation_conflict", "unknown_effect", `${skewDetail}, then reconcile this operation`, "possible", "reconcile_operation")
     }
-    return adapterError(toolName, operation, requestID, operationIsMutation(toolName, operation) ? "operation_conflict" : "malformed_response", operationIsMutation(toolName, operation) ? "unknown_effect" : "malformed_core_response", "core response failed the generated TS7 contract", "possible", "reconcile_operation", salvageDetails(result.stdout))
+    return adapterError(toolName, operation, requestID, operationIsMutation(toolName, operation) ? "operation_conflict" : "malformed_response", operationIsMutation(toolName, operation) ? "unknown_effect" : "malformed_core_response", `core response failed the generated TS7 contract: ${contractFailure}`, "possible", "reconcile_operation", salvageDetails(result.stdout))
   }
   if (response?.outcome === "error" && response?.error?.kind === "approval_required") {
     const details = response.error.details ?? {}
@@ -365,7 +377,8 @@ async function invokeConcordOperationRaw(toolName: string, args: HostToolArgs, c
     if (!approvedInput) return adapterError(toolName, operation, requestID, "malformed_response", "malformed_core_response", "approval resubmission requires object input")
     try { result = await run(approvedInput) } catch (error) { return failureEnvelope(toolName, operation, requestID, runnerFailure(error, context.abort.aborted), "unknown_effect", "possible", "possible", "reconcile_operation") }
     try { response = singleJSON(result.stdout) } catch (error) { return adapterError(toolName, operation, requestID, "operation_conflict", "unknown_effect", String(error), "possible", "reconcile_operation", salvageDetails(result.stdout)) }
-    if (!validateCoreResponse(response, toolName, operation)) return adapterError(toolName, operation, requestID, "operation_conflict", "unknown_effect", "post-approval response failed the TS7 contract", "possible", "reconcile_operation", salvageDetails(result.stdout))
+    const approvedFailure = coreResponseFailure(response, toolName, operation)
+    if (approvedFailure) return adapterError(toolName, operation, requestID, "operation_conflict", "unknown_effect", `post-approval response failed the TS7 contract: ${approvedFailure}`, "possible", "reconcile_operation", salvageDetails(result.stdout))
   }
   return response as CoreConcordEnvelope;
 }

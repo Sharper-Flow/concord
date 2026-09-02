@@ -1920,18 +1920,29 @@
         },
         {
           "if": {
-            "properties": {
-              "kind": {
-                "enum": [
-                  "invalid_transition",
-                  "invalid_relation",
-                  "invariant_violation",
-                  "not_terminal"
+            "allOf": [
+              {
+                "properties": {
+                  "kind": {
+                    "enum": [
+                      "invalid_transition",
+                      "invalid_relation",
+                      "invariant_violation",
+                      "not_terminal"
+                    ]
+                  }
+                },
+                "required": [
+                  "kind"
                 ]
+              },
+              {
+                "not": {
+                  "required": [
+                    "options"
+                  ]
+                }
               }
-            },
-            "required": [
-              "kind"
             ]
           },
           "then": {
@@ -2448,7 +2459,10 @@
               "const": "pending"
             },
             "tool": {
-              "const": "concord_work_compact"
+              "enum": [
+                "concord_work_compact",
+                "concord_work_transition"
+              ]
             },
             "operation_ref": {
               "allOf": [
@@ -2490,7 +2504,10 @@
               "const": "partial"
             },
             "tool": {
-              "const": "concord_work_compact"
+              "enum": [
+                "concord_work_compact",
+                "concord_work_transition"
+              ]
             },
             "operation_ref": {
               "allOf": [

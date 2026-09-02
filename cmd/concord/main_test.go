@@ -356,6 +356,8 @@ func TestRunHelpListsExactCommandFormsAndStdinShapes(t *testing.T) {
 		"concord --help",
 		"concord client-register < JSON stdin",
 		"concord client register < JSON stdin",
+		"concord client-policy-expand < JSON stdin",
+		"concord client policy-expand < JSON stdin",
 		"concord product-create < JSON stdin",
 		"concord product create < JSON stdin",
 		"concord resource-create < JSON stdin",
@@ -709,6 +711,7 @@ func TestCommandRouterAcceptsCanonicalAndTwoWordFormsWithoutPanicking(t *testing
 		{"invoke"},
 		{"client-register"}, {"client", "register"},
 		{"client-policy-update"}, {"client", "policy-update"},
+		{"client-policy-expand"}, {"client", "policy-expand"},
 		{"client-key-rotate"}, {"client", "key-rotate"},
 		{"client-revoke"}, {"client", "revoke"},
 		{"project-locator-add"}, {"project", "locator-add"},
@@ -1257,6 +1260,12 @@ func TestPredecessorInventoryHappyPath(t *testing.T) {
 			WisdomEntries   int `json:"wisdom_entries"`
 			Reflections     int `json:"reflections"`
 		} `json:"totals"`
+		Surfaces []struct {
+			Surface    string `json:"surface"`
+			Inclusion  string `json:"inclusion"`
+			Count      int    `json:"count"`
+			CaptureGap string `json:"capture_gap"`
+		} `json:"surfaces"`
 		Projects []struct {
 			ProjectID            string   `json:"project_id"`
 			Locator              string   `json:"locator"`
@@ -1287,6 +1296,23 @@ func TestPredecessorInventoryHappyPath(t *testing.T) {
 	beta := report.Projects[1]
 	if beta.ActiveChangesCount != 1 || beta.ActiveChangesListed != 1 || beta.ActiveChangesOmitted != 0 {
 		t.Fatalf("beta bookkeeping = %+v, want listed=1 omitted=0", beta)
+	}
+	// The preflight surfaces block names every mode surface with counts:
+	// active work is included; terminal history counts archived+closed.
+	if len(report.Surfaces) != 5 {
+		t.Fatalf("surfaces length = %d, want 5", len(report.Surfaces))
+	}
+	active := report.Surfaces[1]
+	if active.Surface != "active_work" || active.Inclusion != "included" || active.Count != 3 {
+		t.Fatalf("active_work surface = %+v, want included count=3", active)
+	}
+	history := report.Surfaces[2]
+	if history.Surface != "terminal_history" || history.Inclusion != "excluded" || history.Count != 4 {
+		t.Fatalf("terminal_history surface = %+v, want excluded count=4", history)
+	}
+	specs := report.Surfaces[0]
+	if specs.Surface != "specifications" || specs.CaptureGap == "" {
+		t.Fatalf("specifications surface = %+v, want a named capture gap", specs)
 	}
 }
 
@@ -1677,7 +1703,438 @@ func containsString(values []string, want string) bool {
 	return false
 }
 
+// TestPredecessorImportSurfacesRefusals pins CD-0097's surface contract at the
+// operator boundary: a surface outside the mode's five-surface set refuses
+// before import, and a mode surface that migrates by its own route refuses
+// with that route. Only active_work imports.
+func TestPredecessorImportSurfacesRefusals(t *testing.T) {
+	cases := []struct {
+		name       string
+		surfaces   any
+		wantSubstr string
+	}{
+		{
+			name:       "surface_outside_mode",
+			surfaces:   []string{"sessions"},
+			wantSubstr: "is outside the parallel migration mode",
+		},
+		{
+			name:       "wisdom_routes_to_curation",
+			surfaces:   []string{"active_work", "wisdom"},
+			wantSubstr: "does not import",
+		},
+		{
+			name:       "terminal_history_routes_to_snapshot",
+			surfaces:   []string{"terminal_history"},
+			wantSubstr: "does not import",
+		},
+		{
+			name:       "specifications_route_to_knowledge",
+			surfaces:   []string{"specifications"},
+			wantSubstr: "does not import",
+		},
+		{
+			name:       "reflections_route_to_research",
+			surfaces:   []string{"reflections"},
+			wantSubstr: "does not import",
+		},
+		{
+			name:       "duplicate_surface",
+			surfaces:   []string{"active_work", "active_work"},
+			wantSubstr: "duplicates an earlier entry",
+		},
+		{
+			name:       "empty_surfaces_list",
+			surfaces:   []string{},
+			wantSubstr: "must name at least one surface",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			dbPath := freshMigratedCLIDatabase(t)
+			snapshotPath := writeSyntheticSnapshot(t)
+			payload := predecessorImportRequest(t, snapshotPath)
+			payload["surfaces"] = tc.surfaces
+			code, _, diag := runPredecessorImportRequest(t, dbPath, payload)
+			if code != 1 {
+				t.Fatalf("surfaces refusal exit=%d, want 1; stderr=%q", code, diag)
+			}
+			if !strings.Contains(diag, tc.wantSubstr) {
+				t.Fatalf("surfaces refusal diagnostic = %q, want substring %q", diag, tc.wantSubstr)
+			}
+			if workCount(t, dbPath) != 0 {
+				t.Fatal("refused surfaces request wrote work items")
+			}
+		})
+	}
+}
+
+// TestPredecessorImportAcceptsExplicitActiveWorkSurface pins that the only
+// importable mode surface names explicitly and imports normally.
+func TestPredecessorImportAcceptsExplicitActiveWorkSurface(t *testing.T) {
+	dbPath := freshMigratedCLIDatabase(t)
+	snapshotPath := writeSyntheticSnapshot(t)
+	payload := predecessorImportRequest(t, snapshotPath)
+	payload["surfaces"] = []string{"active_work"}
+	code, raw, diag := runPredecessorImportRequest(t, dbPath, payload)
+	if code != 0 {
+		t.Fatalf("explicit active_work exit=%d, want 0; stderr=%q", code, diag)
+	}
+	var report struct {
+		WorkImported int `json:"work_imported"`
+	}
+	if err := json.Unmarshal(raw, &report); err != nil {
+		t.Fatalf("report is not parseable JSON: %v; raw=%s", err, raw)
+	}
+	if report.WorkImported != 2 {
+		t.Fatalf("work_imported = %d, want 2", report.WorkImported)
+	}
+}
+
+// predecessorWorkReport is the report slice shape the repeated-run tests read.
+type predecessorWorkReport struct {
+	ChangeID         string   `json:"change_id"`
+	WorkID           string   `json:"work_id"`
+	ExternalRef      string   `json:"external_ref"`
+	Status           string   `json:"status"`
+	PredecessorPhase string   `json:"predecessor_phase"`
+	CompletedGates   []string `json:"predecessor_completed_gates"`
+}
+
+// TestPredecessorImportRepeatedRunReturnsTypedNoOp pins the CD-0097 D4 replay
+// contract: a repeated migration run with an unchanged harvest returns a
+// typed no-op report, and provenance and stable identity carry across runs.
+func TestPredecessorImportRepeatedRunReturnsTypedNoOp(t *testing.T) {
+	dbPath := freshMigratedCLIDatabase(t)
+	snapshotPath := writeSyntheticSnapshot(t)
+	payload := predecessorImportRequest(t, snapshotPath)
+
+	firstCode, firstRaw, firstDiag := runPredecessorImportRequest(t, dbPath, payload)
+	if firstCode != 0 {
+		t.Fatalf("first import exit=%d, want 0; stderr=%q", firstCode, firstDiag)
+	}
+	var firstReport struct {
+		NoOp bool                    `json:"no_op"`
+		Work []predecessorWorkReport `json:"work"`
+	}
+	if err := json.Unmarshal(firstRaw, &firstReport); err != nil {
+		t.Fatalf("first report is not parseable JSON: %v; raw=%s", err, firstRaw)
+	}
+	if firstReport.NoOp {
+		t.Fatal("first import reported no_op, want false")
+	}
+	for _, item := range firstReport.Work {
+		if item.Status != "imported" {
+			t.Fatalf("first import status for %s = %q, want imported", item.ChangeID, item.Status)
+		}
+	}
+
+	secondCode, secondRaw, secondDiag := runPredecessorImportRequest(t, dbPath, payload)
+	if secondCode != 0 {
+		t.Fatalf("repeated import exit=%d, want 0; stderr=%q", secondCode, secondDiag)
+	}
+	var secondReport struct {
+		NoOp            bool                    `json:"no_op"`
+		ProductsCreated int                     `json:"products_created"`
+		ProjectsCreated int                     `json:"projects_created"`
+		WorkImported    int                     `json:"work_imported"`
+		AlreadyImported int                     `json:"already_imported"`
+		Work            []predecessorWorkReport `json:"work"`
+	}
+	if err := json.Unmarshal(secondRaw, &secondReport); err != nil {
+		t.Fatalf("second report is not parseable JSON: %v; raw=%s", err, secondRaw)
+	}
+	if !secondReport.NoOp {
+		t.Fatal("repeated import no_op = false, want true")
+	}
+	if secondReport.ProductsCreated != 0 || secondReport.ProjectsCreated != 0 || secondReport.WorkImported != 0 {
+		t.Fatalf("repeated import wrote: products:%d projects:%d work:%d, want 0/0/0",
+			secondReport.ProductsCreated, secondReport.ProjectsCreated, secondReport.WorkImported)
+	}
+	if secondReport.AlreadyImported != 5 {
+		t.Fatalf("repeated import already_imported = %d, want 5", secondReport.AlreadyImported)
+	}
+	if len(secondReport.Work) != 2 {
+		t.Fatalf("repeated import work list = %d, want 2", len(secondReport.Work))
+	}
+	// Stable identity and provenance: the same change ids resolve to the same
+	// work ids and external refs as the first run.
+	for i := range firstReport.Work {
+		first, second := firstReport.Work[i], secondReport.Work[i]
+		if first.ChangeID != second.ChangeID || first.WorkID != second.WorkID || first.ExternalRef != second.ExternalRef {
+			t.Fatalf("identity drifted across runs: first=%+v second=%+v", first, second)
+		}
+		if second.Status != "already_imported" {
+			t.Fatalf("repeated import status for %s = %q, want already_imported", second.ChangeID, second.Status)
+		}
+	}
+}
+
+// TestPredecessorImportHarvestDriftToleratesTerminalAndAbsentChanges pins the
+// parallel mode's repeated-harvest behavior: a selected change the predecessor
+// moved to a terminal phase, or removed from the active set, since the last
+// harvest is an idempotent no-op when its import already exists, while the
+// same drift on a first run keeps the typed refusal.
+func TestPredecessorImportHarvestDriftToleratesTerminalAndAbsentChanges(t *testing.T) {
+	terminalSnapshot := strings.Replace(predecessorSyntheticFixture, `"status": "discovery"`, `"status": "released"`, 1)
+	absentSnapshot := strings.Replace(
+		predecessorSyntheticFixture,
+		`        },
+        {
+          "change_id": "synth-change-alpha-2",
+          "summary": "synthetic active change alpha two",
+          "status": "discovery",
+          "completed_gates": [],
+          "tasks_total": 0,
+          "tasks_done": 0,
+          "updated_at": "2026-08-21T13:30:00Z"
+        }
+      ],
+`,
+		`        }
+      ],
+`, 1)
+
+	for _, tc := range []struct {
+		name     string
+		snapshot string
+		phase    string
+	}{
+		{name: "terminal_since_last_harvest", snapshot: terminalSnapshot, phase: "released"},
+		{name: "absent_since_last_harvest", snapshot: absentSnapshot, phase: ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dbPath := freshMigratedCLIDatabase(t)
+			snapshotPath := writeSyntheticSnapshot(t)
+			payload := predecessorImportRequest(t, snapshotPath)
+			if code, _, diag := runPredecessorImportRequest(t, dbPath, payload); code != 0 {
+				t.Fatalf("baseline import exit=%d, want 0; stderr=%q", code, diag)
+			}
+
+			driftPath := filepath.Join(t.TempDir(), "drift-snapshot.json")
+			if err := os.WriteFile(driftPath, []byte(tc.snapshot), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			driftPayload := predecessorImportRequest(t, driftPath)
+			code, raw, diag := runPredecessorImportRequest(t, dbPath, driftPayload)
+			if code != 0 {
+				t.Fatalf("drifted re-import exit=%d, want 0; stderr=%q", code, diag)
+			}
+			var report struct {
+				NoOp            bool                    `json:"no_op"`
+				WorkImported    int                     `json:"work_imported"`
+				AlreadyImported int                     `json:"already_imported"`
+				Work            []predecessorWorkReport `json:"work"`
+			}
+			if err := json.Unmarshal(raw, &report); err != nil {
+				t.Fatalf("drifted report is not parseable JSON: %v; raw=%s", err, raw)
+			}
+			if !report.NoOp || report.WorkImported != 0 {
+				t.Fatalf("drifted re-import no_op=%v work_imported=%d, want true/0", report.NoOp, report.WorkImported)
+			}
+			// 2 (product bootstrap) + 1 (secondary project) + 1 (alpha-1
+			// unchanged) + 1 (alpha-2 drifted but already imported).
+			if report.AlreadyImported != 5 {
+				t.Fatalf("drifted re-import already_imported = %d, want 5", report.AlreadyImported)
+			}
+			if len(report.Work) != 2 {
+				t.Fatalf("drifted re-import work list = %d, want 2", len(report.Work))
+			}
+			for _, item := range report.Work {
+				if item.Status != "already_imported" {
+					t.Fatalf("drifted re-import status for %s = %q, want already_imported", item.ChangeID, item.Status)
+				}
+				if item.ChangeID == "synth-change-alpha-2" && item.PredecessorPhase != tc.phase {
+					t.Fatalf("alpha-2 phase = %q, want %q", item.PredecessorPhase, tc.phase)
+				}
+			}
+
+			// The same drift against a store without the import keeps the
+			// first-run refusal: terminal and absent changes are not active
+			// work.
+			freshDB := freshMigratedCLIDatabase(t)
+			freshPayload := predecessorImportRequest(t, driftPath)
+			refusalCode, _, refusalDiag := runPredecessorImportRequest(t, freshDB, freshPayload)
+			if refusalCode != 1 {
+				t.Fatalf("first-run drift exit=%d, want 1; stderr=%q", refusalCode, refusalDiag)
+			}
+			if !strings.Contains(refusalDiag, "synth-change-alpha-2") {
+				t.Fatalf("first-run drift diagnostic = %q, want alpha-2 named", refusalDiag)
+			}
+		})
+	}
+}
+
+// TestPredecessorImportConflictRefusalNamesOwningSource pins CD-0097 D4: a
+// Concord-side change to an imported item the predecessor still owns refuses
+// the next migration run before any write, naming the owning source, so no
+// side is silently overwritten.
+func TestPredecessorImportConflictRefusalNamesOwningSource(t *testing.T) {
+	dbPath := freshMigratedCLIDatabase(t)
+	snapshotPath := writeSyntheticSnapshot(t)
+	payload := predecessorImportRequest(t, snapshotPath)
+	if code, _, diag := runPredecessorImportRequest(t, dbPath, payload); code != 0 {
+		t.Fatalf("baseline import exit=%d, want 0; stderr=%q", code, diag)
+	}
+
+	// A Concord-side change: an operator revision of the imported intent.
+	s, err := store.Open(context.Background(), dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	revised, err := json.Marshal(map[string]any{
+		"title": "re-contracted on the Concord side", "value_statement": "re-contracted", "kind": "task",
+		"priority": 3, "tags": []string{"predecessor-migrated"}, "reason": "operator re-contract",
+		"expected_version": 2, "resulting_version": 3,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	txErr := s.Transact(context.Background(), func(tx *store.Transaction) error {
+		_, applyErr := store.ApplyOperationTx(context.Background(), tx, store.Operation{Events: []store.Event{{
+			EventID:        "operator-revision-synth-change-alpha-1",
+			Kind:           "work.intent_revised",
+			SubjectType:    store.SubjectWorkItem,
+			SubjectID:      "import-advance-work-synth-change-alpha-1",
+			Actor:          "operator",
+			OccurredAt:     s.Now(),
+			PayloadVersion: 1,
+			Payload:        revised,
+		}}})
+		return applyErr
+	})
+	if txErr != nil {
+		t.Fatalf("append Concord-side revision: %v", txErr)
+	}
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	code, _, diag := runPredecessorImportRequest(t, dbPath, payload)
+	if code != 1 {
+		t.Fatalf("conflict import exit=%d, want 1; stderr=%q", code, diag)
+	}
+	for _, want := range []string{"conflict", "advance:synth-change-alpha-1", "work.intent_revised", "operator"} {
+		if !strings.Contains(diag, want) {
+			t.Fatalf("conflict diagnostic = %q, want substring %q", diag, want)
+		}
+	}
+
+	// The refusal fired before any write: no third work item, and the
+	// conflict probe is durable across repeated attempts.
+	if got := workCount(t, dbPath); got != 2 {
+		t.Fatalf("work items after conflict refusal = %d, want 2", got)
+	}
+	againCode, _, againDiag := runPredecessorImportRequest(t, dbPath, payload)
+	if againCode != 1 || !strings.Contains(againDiag, "advance:synth-change-alpha-1") {
+		t.Fatalf("repeat conflict exit=%d diag=%q, want refusal naming the owning source", againCode, againDiag)
+	}
+}
+
+// workCount counts imported work items in the store at dbPath.
+func workCount(t *testing.T, dbPath string) int {
+	t.Helper()
+	s, err := store.Open(context.Background(), dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	var count int
+	if err := s.DatabaseForTesting().QueryRowContext(context.Background(),
+		`SELECT count(*) FROM work_items WHERE id LIKE 'import-advance-work-%'`).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	return count
+}
+
 func contains(m map[string]any, key string) bool {
 	_, ok := m[key]
 	return ok
+}
+
+// TestClientPolicyExpandCLIPreservesEveryExistingGrant pins CD-0097 D6 at the
+// operator boundary: the expand verb widens a trusted client policy by union,
+// both accepted command forms work, replay through the two-word form is
+// idempotent, and the stored row keeps every prior grant and the principal.
+func TestClientPolicyExpandCLIPreservesEveryExistingGrant(t *testing.T) {
+	dbPath := freshMigratedCLIDatabase(t)
+	publicKey, _, err := ed25519.GenerateKey(cryptorand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runOperatorJSON(t, dbPath, []string{"client-register"}, map[string]any{
+		"client_ref": "client-1", "key_id": "key-1", "principal_ref": "human-1",
+		"public_key":    base64.StdEncoding.EncodeToString(publicKey),
+		"capabilities":  []string{"product_read", "work_define"},
+		"product_scope": []string{"product-1"},
+		"project_scope": []string{"project-1", "project-2"},
+		"agent_scope":   []string{"agent-1"},
+	})
+	runOperatorJSON(t, dbPath, []string{"client-policy-expand"}, map[string]any{
+		"client_ref":    "client-1",
+		"capabilities":  []string{"cross_scope"},
+		"product_scope": []string{"pokeedge"},
+		"project_scope": []string{"pokeedge-main"},
+	})
+	runOperatorJSON(t, dbPath, []string{"client", "policy-expand"}, map[string]any{
+		"client_ref":    "client-1",
+		"product_scope": []string{"pokeedge"},
+	})
+
+	s, err := store.Open(context.Background(), dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	var capabilitiesJSON, productsJSON, projectsJSON, principal string
+	row := s.DatabaseForTesting().QueryRow(`SELECT capabilities_json,product_scope_json,project_scope_json,principal_ref FROM agent_clients WHERE client_ref=?`, "client-1")
+	if err := row.Scan(&capabilitiesJSON, &productsJSON, &projectsJSON, &principal); err != nil {
+		t.Fatal(err)
+	}
+	var capabilities, products, projects []string
+	for _, decode := range []struct {
+		encoded string
+		target  *[]string
+	}{
+		{capabilitiesJSON, &capabilities},
+		{productsJSON, &products},
+		{projectsJSON, &projects},
+	} {
+		if err := json.Unmarshal([]byte(decode.encoded), decode.target); err != nil {
+			t.Fatalf("decode %q: %v", decode.encoded, err)
+		}
+	}
+	assertCLIStringSet := func(label string, got []string, want ...string) {
+		t.Helper()
+		if len(got) != len(want) {
+			t.Fatalf("%s = %v, want exactly %v", label, got, want)
+		}
+		for _, value := range want {
+			found := false
+			for _, candidate := range got {
+				if candidate == value {
+					found = true
+					break
+				}
+			}
+			if !found {
+				t.Fatalf("%s = %v, want exactly %v", label, got, want)
+			}
+		}
+	}
+	assertCLIStringSet("capabilities", capabilities, "product_read", "work_define", "cross_scope")
+	assertCLIStringSet("product scope", products, "product-1", "pokeedge")
+	assertCLIStringSet("project scope", projects, "project-1", "project-2", "pokeedge-main")
+	if principal != "human-1" {
+		t.Fatalf("principal = %q, want the stored principal human-1", principal)
+	}
+
+	var out, errOut bytes.Buffer
+	t.Setenv(dbOverrideEnv, dbPath)
+	if code := runWithInput([]string{"client-policy-expand"}, strings.NewReader(`{"client_ref":"client-1","capabilities":["root_everything"]}`), &out, &errOut); code == 0 {
+		t.Fatal("unknown capability was accepted")
+	}
+	if !strings.HasPrefix(errOut.String(), "concord client-policy-expand: ") {
+		t.Fatalf("diagnostic = %q, want the command-prefixed refusal", errOut.String())
+	}
 }

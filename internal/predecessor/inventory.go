@@ -13,13 +13,29 @@ const ActiveChangeListCap = 50
 
 // Report is the bounded enumeration summary emitted by the operator verb. The
 // shape is fixed; totals must always equal the sum of the per-project counts.
+// Surfaces is the preflight enumeration CD-0097 D2 requires: every surface
+// the mode covers, included or excluded, with counts and capture gaps, before
+// any import starts. A surface the inventory does not enumerate does not
+// migrate.
 type Report struct {
 	SchemaVersion int             `json:"schema_version"`
 	Producer      string          `json:"producer"`
 	SourceSystem  string          `json:"source_system"`
 	CapturedAt    time.Time       `json:"captured_at"`
 	Totals        Totals          `json:"totals"`
+	Surfaces      []SurfaceReport `json:"surfaces"`
 	Projects      []ProjectReport `json:"projects"`
+}
+
+// SurfaceReport is one mode surface's preflight entry: whether the import
+// includes it, the snapshot count it carries, the route it takes when
+// excluded, and the structural capture gap when one exists.
+type SurfaceReport struct {
+	Surface    string `json:"surface"`
+	Inclusion  string `json:"inclusion"`
+	Count      int    `json:"count"`
+	Route      string `json:"route"`
+	CaptureGap string `json:"capture_gap,omitempty"`
 }
 
 // Totals aggregates the snapshot-wide counts.
@@ -79,7 +95,37 @@ func Inventory(snapshot Snapshot) Report {
 		report.Totals.WisdomEntries += projectReport.WisdomEntriesCount
 		report.Totals.Reflections += projectReport.ReflectionsCount
 	}
+	report.Surfaces = preflightSurfaces(report.Totals)
 	return report
+}
+
+// preflightSurfaces projects the snapshot totals into the mode's surface
+// enumeration. Every surface in the route table appears exactly once, in
+// route-table order, so two runs of the same snapshot produce identical
+// surfaces blocks.
+func preflightSurfaces(totals Totals) []SurfaceReport {
+	counts := map[string]int{
+		SurfaceSpecifications:  0,
+		SurfaceActiveWork:      totals.ActiveChanges,
+		SurfaceTerminalHistory: totals.ArchivedChanges + totals.ClosedChanges,
+		SurfaceWisdom:          totals.WisdomEntries,
+		SurfaceReflections:     totals.Reflections,
+	}
+	surfaces := make([]SurfaceReport, 0, len(surfaceRoutes))
+	for _, route := range surfaceRoutes {
+		inclusion := InclusionExcluded
+		if route.Importable {
+			inclusion = InclusionIncluded
+		}
+		surfaces = append(surfaces, SurfaceReport{
+			Surface:    route.Surface,
+			Inclusion:  inclusion,
+			Count:      counts[route.Surface],
+			Route:      route.Route,
+			CaptureGap: route.CaptureGap,
+		})
+	}
+	return surfaces
 }
 
 // capActiveChanges returns the most recent change IDs, capped at

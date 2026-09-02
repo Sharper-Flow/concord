@@ -3456,8 +3456,40 @@ CREATE TABLE session_worktree_targets (
 CREATE UNIQUE INDEX session_worktree_targets_one_holder ON session_worktree_targets(work_id) WHERE state='active';
 		`,
 	},
+
 	{
 		Version: 63,
+		Name:    "worktree_verify_leases",
+		SQL: `
+-- CD-0096 D3 Verify tier: the exclusive verify lease on one worktree. A
+-- command-bearing operation holds the lease while it runs, so concurrent
+-- verifies on the same worktree refuse typed instead of interleaving.
+-- Operational state like session_worktree_targets: the verify operation owns
+-- every write in its own transactions, so the table is not fold-guarded. The
+-- pinned command keeps an interrupted retry honest: the same lease id can
+-- resume only the command it first pinned.
+CREATE TABLE worktree_verify_leases (
+    lease_id      TEXT PRIMARY KEY,
+    work_id       TEXT NOT NULL REFERENCES work_items(id) ON DELETE RESTRICT,
+    project_id    TEXT NOT NULL,
+    path          TEXT NOT NULL,
+    state         TEXT NOT NULL CHECK(state IN ('held','released')),
+    client_ref    TEXT NOT NULL CHECK(length(client_ref) BETWEEN 2 AND 128),
+    agent_ref     TEXT NOT NULL CHECK(length(agent_ref) BETWEEN 2 AND 128),
+    session_ref   TEXT NOT NULL CHECK(length(session_ref) BETWEEN 2 AND 128),
+    principal_ref TEXT NOT NULL,
+    command_json  TEXT NOT NULL,
+    acquired_at   TEXT NOT NULL,
+    released_at   TEXT,
+    exit_code     INTEGER,
+    outcome       TEXT NOT NULL CHECK(outcome IN ('running','completed','refused_mutated')),
+    result_json   TEXT
+);
+CREATE UNIQUE INDEX worktree_verify_leases_one_held ON worktree_verify_leases(path) WHERE state='held';
+		`,
+	},
+	{
+		Version: 64,
 		Name:    "workflow_instance_step_belongs_to_its_definition",
 		SQL: `
 -- An instance used to be seeded with the placeholder step 'start', which no
@@ -3483,7 +3515,7 @@ WHERE current_step = 'start';
 		`,
 	},
 	{
-		Version: 64,
+		Version: 65,
 		Name:    "trusted_client_policy_bounds_the_agent",
 		SQL: `
 -- A trusted client bounded the Products and Projects an invocation could
@@ -3501,7 +3533,7 @@ ALTER TABLE agent_clients ADD COLUMN agent_scope_json TEXT NOT NULL DEFAULT '[]'
 		`,
 	},
 	{
-		Version: 65,
+		Version: 66,
 		Name:    "bootstrap_operations_drop_the_child_launch_process",
 		SQL: `
 -- Work start launched a second OpenCode session and fenced its child process,

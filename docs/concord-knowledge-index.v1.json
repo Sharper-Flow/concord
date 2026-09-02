@@ -3017,6 +3017,31 @@
     {
       "date": "2026-09-02T00:00:00Z",
       "home_domain_id": "product-root:concord",
+      "id": "CD-0097",
+      "kind": "decision",
+      "path": "docs/decisions/CD-0097-bounded-parallel-predecessor-migration.md",
+      "product_wide_rationale": "Governs cross-system authority, identity, replay, knowledge curation, trusted client policy growth, and cutover for a Product migrating from the predecessor while both systems stay writable. No runtime Domain owns migration authority.",
+      "scopes": {
+        "domain_ids": [],
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:998b635d54e703e0fb8c1d08ba2aaacacfb3a44f654ed0e353e7ae24192d016b",
+      "status": "accepted",
+      "summary": "Accepts a bounded parallel migration mode for one Product: the operator declares it, the predecessor stays installed, writable, and usable, and it remains the live authority for every migrated surface (specifications, active work, terminal history, wisdom, reflections) until the operator records cutover. Items keep predecessor identity as provenance across repeated harvests, replay applies deterministic effects or idempotent no-ops, conflicts refuse typed naming the owning source, and knowledge curation records every drop. Trusted client policy grows by the additive client-policy-expand command that preserves every existing grant and the stored principal. Cutover changes authority, never installation.",
+      "tags": [
+        "migration",
+        "predecessor",
+        "client-policy",
+        "cutover"
+      ],
+      "title": "Allow bounded parallel predecessor migration"
+    },
+    {
+      "date": "2026-09-02T00:00:00Z",
+      "home_domain_id": "product-root:concord",
       "id": "CD-0098",
       "kind": "decision",
       "path": "docs/decisions/CD-0098-work-start-retargets-the-running-session.md",
@@ -3553,7 +3578,7 @@
         "project_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:b0f8c52c68e69478f7a085aba842d955936d7106f121668c3c7010fe8c19854e",
+      "sha256": "sha256:ccc9fbdc989deeb20fe6b833c35c95ed0e37ef94d49f0a0bd236b22f1fa227bb",
       "status": "published",
       "summary": "Navigation entry point for the Concord documentation set. States the reading order, names the companion documents and their roles, and records the current status of the set.",
       "tags": [
@@ -4399,9 +4424,9 @@
         "project_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:3cf73b3b4d69a073d1c134b6e8cf53e441a558a3db77227a0b40dd77ca8b6c19",
+      "sha256": "sha256:b078ae11b09d7d4cc1fe656da38d06aaa24837bedf6ea355a6279b3da84df795",
       "status": "published",
-      "summary": "Operational procedure for migrating one Product from the predecessor through the delivered importer: a per-Product harvest of the sanctioned read surface with pinned derivation rules and fail-closed inventory validation, a rehearsed import with declared Product identity, full project set, and deliberately selected active work, followed by predecessor freeze for that Product, fix-forward, wisdom curation through the formalization procedure, and frozen snapshots as the historical record. Guidance for a correct operation under CD-0082, not a mandated gate.",
+      "summary": "Operational procedure for migrating one Product from the predecessor through the delivered importer: a per-Product harvest of the sanctioned read surface with pinned derivation rules, a preflight inventory that enumerates the CD-0097 mode surfaces with included/excluded classification, counts, and capture gaps, a rehearsed import with declared Product identity, full project set, and deliberately selected active work, idempotent replay with typed no-op reports, harvest-drift tolerance for changes the predecessor moved to a terminal state or out of the active set, typed refusal for surfaces outside the mode and for Concord-side changes to predecessor-owned items naming the owning source, followed by predecessor freeze for that Product (a Product under CD-0097's bounded parallel mode is exempt and keeps the predecessor live until cutover), fix-forward, wisdom curation through the formalization procedure, and validated snapshots as the historical record. Guidance for a correct operation under CD-0082, not a mandated gate.",
       "tags": [
         "migration",
         "predecessor",

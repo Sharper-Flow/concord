@@ -125,7 +125,15 @@ const (
 	// takeover authority the caller does not hold (CD-0096 D3). The refusal
 	// names the owning session and the recovery action, never a write to a
 	// tree someone else holds.
-	KindWorktreeOwnershipConflict   FailureKind = "worktree_ownership_conflict"
+	KindWorktreeOwnershipConflict FailureKind = "worktree_ownership_conflict"
+	// KindWorktreeLeaseHeld marks a verify lease the worktree already holds
+	// (CD-0096 D3 Verify tier). Exclusivity is coordination, not authority:
+	// the refusal names the holding session and the retry route.
+	KindWorktreeLeaseHeld FailureKind = "worktree_lease_held"
+	// KindWorktreeVerifyMutated marks a verify lease whose tracked files
+	// changed while the command ran (CD-0096 D3 Verify tier). A verifier
+	// that edits its subject verifies nothing, so completion refuses typed.
+	KindWorktreeVerifyMutated       FailureKind = "worktree_verify_mutated"
 	KindInitiativeScopeViolation    FailureKind = "initiative_scope_violation"
 	KindInitiativeEntryConflict     FailureKind = "initiative_entry_conflict"
 	KindInitiativeCompletionBlocked FailureKind = "initiative_completion_blocked"

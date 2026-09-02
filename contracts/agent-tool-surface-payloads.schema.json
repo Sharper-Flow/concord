@@ -1257,6 +1257,12 @@
         },
         "requested_budget_seconds": {
           "$ref": "#/$defs/requested_budget_seconds"
+        },
+        "expected_target_version": {
+          "description": "CD-0096 D5: the session's effective-target version pin. When set, the read fails closed on a stored version that differs, because a silently re-derived target is a directory change no one authorized.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2147483647
         }
       }
     },
@@ -1582,6 +1588,25 @@
                   "type": "null"
                 }
               ]
+            },
+            "effective_target": {
+              "description": "CD-0096 D5: the reading session's persistent effective target. Absent when the session named no identity or holds no binding.",
+              "oneOf": [
+                {
+                  "$ref": "#/$defs/session_worktree_target"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "active_verify_leases": {
+              "description": "CD-0096 D5: the reading session's held verify leases, newest first, bounded. Absent when the session named no identity or holds none.",
+              "type": "array",
+              "maxItems": 4,
+              "items": {
+                "$ref": "#/$defs/active_worktree_verify_lease"
+              }
             }
           }
         },
@@ -3289,65 +3314,65 @@
             }
           }
         },
-"else": {
-        "if": {
-          "properties": {
-            "action_id": {
-              "const": "confirm_premise"
-            }
-          }
-        },
-        "then": {
-          "required": [
-            "selected_choice",
-            "decision_context_digest"
-          ],
-          "not": {
-            "required": [
-              "fields"
-            ]
-          }
-        },
         "else": {
           "if": {
             "properties": {
               "action_id": {
-                "const": "dispatch_worker"
+                "const": "confirm_premise"
               }
             }
           },
           "then": {
             "required": [
-              "fields"
+              "selected_choice",
+              "decision_context_digest"
             ],
-            "properties": {
-              "fields": {
-                "type": "object",
-                "required": [
-                  "attempt_id",
-                  "worker_packet"
-                ]
-              }
+            "not": {
+              "required": [
+                "fields"
+              ]
             }
           },
           "else": {
-            "not": {
-              "anyOf": [
-                {
+            "if": {
+              "properties": {
+                "action_id": {
+                  "const": "dispatch_worker"
+                }
+              }
+            },
+            "then": {
+              "required": [
+                "fields"
+              ],
+              "properties": {
+                "fields": {
+                  "type": "object",
                   "required": [
-                    "selected_choice"
-                  ]
-                },
-                {
-                  "required": [
-                    "decision_context_digest"
+                    "attempt_id",
+                    "worker_packet"
                   ]
                 }
-              ]
+              }
+            },
+            "else": {
+              "not": {
+                "anyOf": [
+                  {
+                    "required": [
+                      "selected_choice"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "decision_context_digest"
+                    ]
+                  }
+                ]
+              }
             }
           }
         }
-      }
       }
     },
     "work_relate_memberships_input": {
@@ -4284,6 +4309,38 @@
           "type": "integer",
           "minimum": 0,
           "maximum": 2147483647
+        },
+        "idempotency_key": {
+          "$ref": "#/$defs/id"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
+        }
+      }
+    },
+    "work_transition_worktree_verify_input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "work_id",
+        "command",
+        "idempotency_key"
+      ],
+      "properties": {
+        "work_id": {
+          "description": "CD-0096 D3: the work item whose active same-Project worktree the command runs in. The worktree derives from the session's Project and work identity; no path input exists (CD-0096 D2).",
+          "$ref": "#/$defs/id"
+        },
+        "command": {
+          "description": "The argv that runs inside the derived worktree under the exclusive verify lease. Values run as separate arguments; a shell command string is never accepted.",
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 16,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          }
         },
         "idempotency_key": {
           "$ref": "#/$defs/id"
@@ -5599,6 +5656,203 @@
         }
       }
     },
+    "work_browse_worktree_inspect_input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "work_id",
+        "mode"
+      ],
+      "properties": {
+        "work_id": {
+          "description": "CD-0096 D3 Inspect: the work item whose active same-Project worktree is read. The worktree derives from the session's Project and work identity; no worktree path input exists (CD-0096 D2).",
+          "$ref": "#/$defs/id"
+        },
+        "mode": {
+          "description": "The inspection kind: porcelain status, the diff against HEAD, or one file's content.",
+          "type": "string",
+          "enum": [
+            "status",
+            "diff",
+            "file"
+          ]
+        },
+        "path": {
+          "description": "The relative file selector for file mode. It selects inside the derived worktree; absolute and parent-traversing selectors refuse.",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "budget": {
+          "$ref": "#/$defs/budget"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
+        }
+      }
+    },
+    "worktree_inspect_result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "work_id",
+        "project_id",
+        "branch",
+        "path",
+        "mode",
+        "content",
+        "truncated"
+      ],
+      "properties": {
+        "work_id": {
+          "$ref": "#/$defs/id"
+        },
+        "project_id": {
+          "$ref": "#/$defs/id"
+        },
+        "branch": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "mode": {
+          "type": "string",
+          "enum": [
+            "status",
+            "diff",
+            "file"
+          ]
+        },
+        "content": {
+          "description": "The bounded inspection content: porcelain status lines, the diff text, or the file content.",
+          "type": "string",
+          "maxLength": 16384
+        },
+        "truncated": {
+          "type": "boolean"
+        }
+      }
+    },
+    "worktree_verify_result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "work_id",
+        "project_id",
+        "branch",
+        "path",
+        "lease_id",
+        "command",
+        "exit_code",
+        "output",
+        "output_truncated",
+        "tracked_files_changed"
+      ],
+      "properties": {
+        "work_id": {
+          "$ref": "#/$defs/id"
+        },
+        "project_id": {
+          "$ref": "#/$defs/id"
+        },
+        "branch": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "lease_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "command": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 16,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          }
+        },
+        "exit_code": {
+          "description": "The command's exit code; -1 reports a command that could not start.",
+          "type": "integer",
+          "minimum": -1,
+          "maximum": 255
+        },
+        "output": {
+          "description": "The bounded combined output of the run. Output beyond the bound is dropped, never dumped.",
+          "type": "string",
+          "maxLength": 16384
+        },
+        "output_truncated": {
+          "type": "boolean"
+        },
+        "tracked_files_changed": {
+          "description": "CD-0096 D3: true when tracked files changed while the lease was held, in which case typed completion refused.",
+          "type": "boolean"
+        },
+        "changed_refs": {
+          "type": "array",
+          "maxItems": 32,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "entity_kind",
+              "id",
+              "version"
+            ],
+            "properties": {
+              "entity_kind": {
+                "$ref": "#/$defs/short"
+              },
+              "id": {
+                "$ref": "#/$defs/id"
+              },
+              "version": {
+                "$ref": "#/$defs/version"
+              }
+            }
+          }
+        },
+        "next_valid_intents": {
+          "type": "array",
+          "maxItems": 16,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "tool",
+              "operation",
+              "reason_code"
+            ],
+            "properties": {
+              "tool": {
+                "$ref": "#/$defs/id"
+              },
+              "operation": {
+                "$ref": "#/$defs/short"
+              },
+              "reason_code": {
+                "$ref": "#/$defs/short"
+              }
+            }
+          }
+        }
+      }
+    },
     "work_define_observation_record_input": {
       "type": "object",
       "additionalProperties": false,
@@ -6407,45 +6661,45 @@
                 }
               }
             },
-        "resource_attachments": {
-          "type": "array",
-          "maxItems": 100,
-          "items": {
-            "type": "object",
-            "additionalProperties": false,
-            "required": [
-              "resource_id",
-              "purpose",
-              "environments"
-            ],
-            "properties": {
-              "resource_id": {
-                "$ref": "#/$defs/id"
-              },
-              "purpose": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 512
-              },
-              "environments": {
-                "type": "array",
-                "maxItems": 6,
-                "uniqueItems": true,
-                "items": {
-                  "type": "string",
-                  "enum": [
-                    "development",
-                    "test",
-                    "preview",
-                    "staging",
-                    "production",
-                    "other"
-                  ]
+            "resource_attachments": {
+              "type": "array",
+              "maxItems": 100,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "resource_id",
+                  "purpose",
+                  "environments"
+                ],
+                "properties": {
+                  "resource_id": {
+                    "$ref": "#/$defs/id"
+                  },
+                  "purpose": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 512
+                  },
+                  "environments": {
+                    "type": "array",
+                    "maxItems": 6,
+                    "uniqueItems": true,
+                    "items": {
+                      "type": "string",
+                      "enum": [
+                        "development",
+                        "test",
+                        "preview",
+                        "staging",
+                        "production",
+                        "other"
+                      ]
+                    }
+                  }
                 }
               }
-            }
-          }
-        },
+            },
             "project_set_version": {
               "type": "integer",
               "minimum": 0
@@ -6623,24 +6877,287 @@
       "description": "CD-0067 D1: closed lane worker packet bound to dispatch_worker. Mirrors adapter/opencode/dispatch.ts AgentLanePacket; every bound matches contracts/agent-lane-packet.schema.json exactly so no packet the lane contract accepts is refused here.",
       "type": "object",
       "additionalProperties": false,
-      "required": ["schema_version", "attempt_id", "lane_id", "lane_version", "lane_digest", "work_id", "step_id", "inputs"],
+      "required": [
+        "schema_version",
+        "attempt_id",
+        "lane_id",
+        "lane_version",
+        "lane_digest",
+        "work_id",
+        "step_id",
+        "inputs"
+      ],
       "properties": {
-        "schema_version": {"const": "1.0"},
-        "attempt_id": {"$ref": "#/$defs/id"},
-        "lane_id": {"$ref": "#/$defs/id"},
-        "lane_version": {"type": "integer", "minimum": 1, "maximum": 2147483647},
-        "lane_digest": {"$ref": "#/$defs/digest"},
-        "work_id": {"$ref": "#/$defs/id"},
-        "step_id": {"$ref": "#/$defs/id"},
+        "schema_version": {
+          "const": "1.0"
+        },
+        "attempt_id": {
+          "$ref": "#/$defs/id"
+        },
+        "lane_id": {
+          "$ref": "#/$defs/id"
+        },
+        "lane_version": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2147483647
+        },
+        "lane_digest": {
+          "$ref": "#/$defs/digest"
+        },
+        "work_id": {
+          "$ref": "#/$defs/id"
+        },
+        "step_id": {
+          "$ref": "#/$defs/id"
+        },
         "inputs": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["task"],
+          "required": [
+            "task"
+          ],
           "properties": {
-            "task": {"type": "string", "minLength": 1, "maxLength": 4096},
-            "context": {"type": "string", "minLength": 0, "maxLength": 16384},
-            "constraints": {"type": "array", "minItems": 0, "maxItems": 64, "items": {"type": "string", "minLength": 1, "maxLength": 512}}
+            "task": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096
+            },
+            "context": {
+              "type": "string",
+              "minLength": 0,
+              "maxLength": 16384
+            },
+            "constraints": {
+              "type": "array",
+              "minItems": 0,
+              "maxItems": 64,
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 512
+              }
+            }
           }
+        }
+      }
+    },
+    "work_transition_worktree_release_input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "work_id",
+        "expected_target_version",
+        "idempotency_key"
+      ],
+      "properties": {
+        "work_id": {
+          "description": "CD-0096 D3 Take over: the work item whose binding the session releases. The store verifies it matches the stored binding.",
+          "$ref": "#/$defs/id"
+        },
+        "expected_target_version": {
+          "description": "CD-0096 D5: the session's effective-target version pin. A mismatch fails closed; the release bumps the version.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2147483647
+        },
+        "idempotency_key": {
+          "$ref": "#/$defs/id"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
+        }
+      }
+    },
+    "work_transition_worktree_takeover_input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "work_id",
+        "expected_version",
+        "expected_target_version",
+        "idempotency_key"
+      ],
+      "properties": {
+        "work_id": {
+          "description": "CD-0096 D3 Take over: the work item whose canonical worktree authority transfers to the calling session. The worktree derives from identity; no path input exists (CD-0096 D2).",
+          "$ref": "#/$defs/id"
+        },
+        "expected_version": {
+          "description": "The work item's version pin, consumed when the takeover must create the canonical worktree.",
+          "$ref": "#/$defs/version"
+        },
+        "expected_target_version": {
+          "description": "CD-0096 D5: the calling session's own effective-target version pin. Zero when it holds none; any other value must match the stored version exactly.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2147483647
+        },
+        "approval": {
+          "description": "The operator takeover override, consumed when the worktree has an active holder that has not released.",
+          "$ref": "#/$defs/approval"
+        },
+        "idempotency_key": {
+          "$ref": "#/$defs/id"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
+        }
+      }
+    },
+    "work_transition_worktree_destroy_input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "work_id",
+        "expected_version",
+        "idempotency_key"
+      ],
+      "properties": {
+        "work_id": {
+          "description": "CD-0096 D3 Destroy: the work item whose active same-Project worktree is removed. The worktree resolves through the session's Project anchor; no path input exists (CD-0096 D2).",
+          "$ref": "#/$defs/id"
+        },
+        "expected_version": {
+          "description": "The work item's version pin; the destroy records the reclamation event that bumps it.",
+          "$ref": "#/$defs/version"
+        },
+        "default_ref": {
+          "description": "Optional merge target ref. The default branch of origin resolves when empty.",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "destructive": {
+          "description": "Declares intent to remove without the clean-tree and merged-branch gates. Requires operator approval; the approval this consumes also covers non-terminal removal.",
+          "type": "boolean",
+          "default": false
+        },
+        "approval": {
+          "description": "The operator approval a non-terminal or destructive removal consumes.",
+          "$ref": "#/$defs/approval"
+        },
+        "idempotency_key": {
+          "$ref": "#/$defs/id"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
+        }
+      }
+    },
+    "session_worktree_target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "client_ref",
+        "agent_ref",
+        "session_ref",
+        "work_id",
+        "project_id",
+        "branch",
+        "path",
+        "state",
+        "target_version",
+        "principal_ref",
+        "claimed_at",
+        "updated_at"
+      ],
+      "properties": {
+        "client_ref": {
+          "$ref": "#/$defs/id"
+        },
+        "agent_ref": {
+          "$ref": "#/$defs/id"
+        },
+        "session_ref": {
+          "$ref": "#/$defs/id"
+        },
+        "work_id": {
+          "description": "The work item whose canonical worktree the session targets.",
+          "$ref": "#/$defs/id"
+        },
+        "project_id": {
+          "$ref": "#/$defs/id"
+        },
+        "branch": {
+          "description": "The identity-derived branch work/<work_id>.",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "path": {
+          "description": "The locator-derived canonical worktree path.",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "state": {
+          "description": "CD-0096 D3: active or released.",
+          "enum": [
+            "active",
+            "released"
+          ]
+        },
+        "target_version": {
+          "description": "CD-0096 D5: the optimistic-concurrency pin of this binding.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2147483647
+        },
+        "principal_ref": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "claimed_at": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "updated_at": {
+          "type": "string",
+          "maxLength": 64
+        }
+      }
+    },
+    "active_worktree_verify_lease": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "lease_id",
+        "work_id",
+        "project_id",
+        "path",
+        "command",
+        "acquired_at"
+      ],
+      "properties": {
+        "lease_id": {
+          "$ref": "#/$defs/id"
+        },
+        "work_id": {
+          "$ref": "#/$defs/id"
+        },
+        "project_id": {
+          "$ref": "#/$defs/id"
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "command": {
+          "description": "The pinned argv the lease holds for retry honesty.",
+          "type": "array",
+          "maxItems": 16,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          }
+        },
+        "acquired_at": {
+          "type": "string",
+          "maxLength": 64
         }
       }
     }

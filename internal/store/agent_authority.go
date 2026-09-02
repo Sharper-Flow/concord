@@ -110,6 +110,46 @@ func updateTrustedClientPolicyTx(ctx context.Context, transaction *Transaction, 
 	return nil
 }
 
+// MutateTrustedClientPolicy reads the active client named by clientRef, applies
+// mutate to the current record, and persists the returned record in the same
+// transaction. The read and the write are one step, so a concurrent policy
+// change cannot be lost between them. Policy JSON stays opaque to this layer:
+// mutate interprets it. An error from mutate aborts the transaction with no
+// write, and the caller owns that error's typing.
+func (s *Store) MutateTrustedClientPolicy(ctx context.Context, clientRef string, mutate func(current TrustedClientRecord) (TrustedClientRecord, error)) error {
+	err := s.Transact(ctx, func(transaction *Transaction) error {
+		return mutateTrustedClientPolicyTx(ctx, transaction, clientRef, mutate)
+	})
+	if err != nil {
+		return err
+	}
+	// committed; the durability barrier must hold before acknowledging
+	return s.SyncDurable(ctx)
+}
+
+func mutateTrustedClientPolicyTx(ctx context.Context, transaction *Transaction, clientRef string, mutate func(TrustedClientRecord) (TrustedClientRecord, error)) error {
+	tx, err := transactionSQL(transaction, "agent_mutate_policy")
+	if err != nil {
+		return err
+	}
+	var current TrustedClientRecord
+	if err := tx.QueryRowContext(ctx, `SELECT client_ref,status,principal_ref,capabilities_json,product_scope_json,project_scope_json,agent_scope_json FROM agent_clients WHERE client_ref=? AND status='active'`, clientRef).Scan(&current.ClientRef, &current.Status, &current.PrincipalRef, &current.CapabilitiesJSON, &current.ProductScopeJSON, &current.ProjectScopeJSON, &current.AgentScopeJSON); err != nil {
+		return wrapFailure(KindProjectionNotFound, "agent_mutate_policy", "trusted client not found or revoked", false, "reread the trusted client", err)
+	}
+	next, err := mutate(current)
+	if err != nil {
+		return err
+	}
+	result, err := tx.ExecContext(ctx, `UPDATE agent_clients SET principal_ref=?,capabilities_json=?,product_scope_json=?,project_scope_json=?,agent_scope_json=? WHERE client_ref=? AND status='active'`, next.PrincipalRef, next.CapabilitiesJSON, next.ProductScopeJSON, next.ProjectScopeJSON, next.AgentScopeJSON, clientRef)
+	if err != nil {
+		return wrapFailure(KindUnavailable, "agent_mutate_policy", "cannot update trusted client policy", true, "retry the policy update", err)
+	}
+	if n, _ := result.RowsAffected(); n != 1 {
+		return newFailure(KindProjectionNotFound, "agent_mutate_policy", "trusted client not found or revoked", false, "reread the trusted client")
+	}
+	return nil
+}
+
 func (s *Store) RotateTrustedClientKey(ctx context.Context, clientRef string, key TrustedClientKeyRecord, now string) error {
 	err := s.Transact(ctx, func(transaction *Transaction) error {
 		return rotateTrustedClientKeyTx(ctx, transaction, clientRef, key, now)

@@ -3,6 +3,48 @@ package agent
 
 const GeneratedPayloadSchemaDocument = `{
   "$defs": {
+    "active_worktree_verify_lease": {
+      "additionalProperties": false,
+      "properties": {
+        "acquired_at": {
+          "maxLength": 64,
+          "type": "string"
+        },
+        "command": {
+          "description": "The pinned argv the lease holds for retry honesty.",
+          "items": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 16,
+          "type": "array"
+        },
+        "lease_id": {
+          "$ref": "#/$defs/id"
+        },
+        "path": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "project_id": {
+          "$ref": "#/$defs/id"
+        },
+        "work_id": {
+          "$ref": "#/$defs/id"
+        }
+      },
+      "required": [
+        "lease_id",
+        "work_id",
+        "project_id",
+        "path",
+        "command",
+        "acquired_at"
+      ],
+      "type": "object"
+    },
     "approval": {
       "additionalProperties": false,
       "properties": {
@@ -630,10 +672,29 @@ const GeneratedPayloadSchemaDocument = `{
         "pinned": {
           "additionalProperties": false,
           "properties": {
+            "active_verify_leases": {
+              "description": "CD-0096 D5: the reading session's held verify leases, newest first, bounded. Absent when the session named no identity or holds none.",
+              "items": {
+                "$ref": "#/$defs/active_worktree_verify_lease"
+              },
+              "maxItems": 4,
+              "type": "array"
+            },
             "contract": {
               "oneOf": [
                 {
                   "$ref": "#/$defs/workflow_contract"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "effective_target": {
+              "description": "CD-0096 D5: the reading session's persistent effective target. Absent when the session named no identity or holds no binding.",
+              "oneOf": [
+                {
+                  "$ref": "#/$defs/session_worktree_target"
                 },
                 {
                   "type": "null"
@@ -3717,6 +3778,80 @@ const GeneratedPayloadSchemaDocument = `{
       ],
       "type": "object"
     },
+    "session_worktree_target": {
+      "additionalProperties": false,
+      "properties": {
+        "agent_ref": {
+          "$ref": "#/$defs/id"
+        },
+        "branch": {
+          "description": "The identity-derived branch work/<work_id>.",
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "claimed_at": {
+          "maxLength": 64,
+          "type": "string"
+        },
+        "client_ref": {
+          "$ref": "#/$defs/id"
+        },
+        "path": {
+          "description": "The locator-derived canonical worktree path.",
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "principal_ref": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "project_id": {
+          "$ref": "#/$defs/id"
+        },
+        "session_ref": {
+          "$ref": "#/$defs/id"
+        },
+        "state": {
+          "description": "CD-0096 D3: active or released.",
+          "enum": [
+            "active",
+            "released"
+          ]
+        },
+        "target_version": {
+          "description": "CD-0096 D5: the optimistic-concurrency pin of this binding.",
+          "maximum": 2147483647,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "updated_at": {
+          "maxLength": 64,
+          "type": "string"
+        },
+        "work_id": {
+          "$ref": "#/$defs/id",
+          "description": "The work item whose canonical worktree the session targets."
+        }
+      },
+      "required": [
+        "client_ref",
+        "agent_ref",
+        "session_ref",
+        "work_id",
+        "project_id",
+        "branch",
+        "path",
+        "state",
+        "target_version",
+        "principal_ref",
+        "claimed_at",
+        "updated_at"
+      ],
+      "type": "object"
+    },
     "short": {
       "maxLength": 256,
       "minLength": 1,
@@ -4010,6 +4145,41 @@ const GeneratedPayloadSchemaDocument = `{
       },
       "required": [
         "product_id"
+      ],
+      "type": "object"
+    },
+    "work_browse_worktree_inspect_input": {
+      "additionalProperties": false,
+      "properties": {
+        "budget": {
+          "$ref": "#/$defs/budget"
+        },
+        "mode": {
+          "description": "The inspection kind: porcelain status, the diff against HEAD, or one file's content.",
+          "enum": [
+            "status",
+            "diff",
+            "file"
+          ],
+          "type": "string"
+        },
+        "path": {
+          "description": "The relative file selector for file mode. It selects inside the derived worktree; absolute and parent-traversing selectors refuse.",
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
+        },
+        "work_id": {
+          "$ref": "#/$defs/id",
+          "description": "CD-0096 D3 Inspect: the work item whose active same-Project worktree is read. The worktree derives from the session's Project and work identity; no worktree path input exists (CD-0096 D2)."
+        }
+      },
+      "required": [
+        "work_id",
+        "mode"
       ],
       "type": "object"
     },
@@ -5589,6 +5759,12 @@ const GeneratedPayloadSchemaDocument = `{
         "budget": {
           "$ref": "#/$defs/budget"
         },
+        "expected_target_version": {
+          "description": "CD-0096 D5: the session's effective-target version pin. When set, the read fails closed on a stored version that differs, because a silently re-derived target is a directory change no one authorized.",
+          "maximum": 2147483647,
+          "minimum": 0,
+          "type": "integer"
+        },
         "page": {
           "$ref": "#/$defs/page"
         },
@@ -6146,6 +6322,46 @@ const GeneratedPayloadSchemaDocument = `{
       ],
       "type": "object"
     },
+    "work_transition_worktree_destroy_input": {
+      "additionalProperties": false,
+      "properties": {
+        "approval": {
+          "$ref": "#/$defs/approval",
+          "description": "The operator approval a non-terminal or destructive removal consumes."
+        },
+        "default_ref": {
+          "description": "Optional merge target ref. The default branch of origin resolves when empty.",
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "destructive": {
+          "default": false,
+          "description": "Declares intent to remove without the clean-tree and merged-branch gates. Requires operator approval; the approval this consumes also covers non-terminal removal.",
+          "type": "boolean"
+        },
+        "expected_version": {
+          "$ref": "#/$defs/version",
+          "description": "The work item's version pin; the destroy records the reclamation event that bumps it."
+        },
+        "idempotency_key": {
+          "$ref": "#/$defs/id"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
+        },
+        "work_id": {
+          "$ref": "#/$defs/id",
+          "description": "CD-0096 D3 Destroy: the work item whose active same-Project worktree is removed. The worktree resolves through the session's Project anchor; no path input exists (CD-0096 D2)."
+        }
+      },
+      "required": [
+        "work_id",
+        "expected_version",
+        "idempotency_key"
+      ],
+      "type": "object"
+    },
     "work_transition_worktree_reclaim_input": {
       "additionalProperties": false,
       "properties": {
@@ -6172,6 +6388,33 @@ const GeneratedPayloadSchemaDocument = `{
         "work_id",
         "project_id",
         "expected_version",
+        "idempotency_key"
+      ],
+      "type": "object"
+    },
+    "work_transition_worktree_release_input": {
+      "additionalProperties": false,
+      "properties": {
+        "expected_target_version": {
+          "description": "CD-0096 D5: the session's effective-target version pin. A mismatch fails closed; the release bumps the version.",
+          "maximum": 2147483647,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "idempotency_key": {
+          "$ref": "#/$defs/id"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
+        },
+        "work_id": {
+          "$ref": "#/$defs/id",
+          "description": "CD-0096 D3 Take over: the work item whose binding the session releases. The store verifies it matches the stored binding."
+        }
+      },
+      "required": [
+        "work_id",
+        "expected_target_version",
         "idempotency_key"
       ],
       "type": "object"
@@ -6203,6 +6446,74 @@ const GeneratedPayloadSchemaDocument = `{
       "required": [
         "work_id",
         "expected_version",
+        "idempotency_key"
+      ],
+      "type": "object"
+    },
+    "work_transition_worktree_takeover_input": {
+      "additionalProperties": false,
+      "properties": {
+        "approval": {
+          "$ref": "#/$defs/approval",
+          "description": "The operator takeover override, consumed when the worktree has an active holder that has not released."
+        },
+        "expected_target_version": {
+          "description": "CD-0096 D5: the calling session's own effective-target version pin. Zero when it holds none; any other value must match the stored version exactly.",
+          "maximum": 2147483647,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "expected_version": {
+          "$ref": "#/$defs/version",
+          "description": "The work item's version pin, consumed when the takeover must create the canonical worktree."
+        },
+        "idempotency_key": {
+          "$ref": "#/$defs/id"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
+        },
+        "work_id": {
+          "$ref": "#/$defs/id",
+          "description": "CD-0096 D3 Take over: the work item whose canonical worktree authority transfers to the calling session. The worktree derives from identity; no path input exists (CD-0096 D2)."
+        }
+      },
+      "required": [
+        "work_id",
+        "expected_version",
+        "expected_target_version",
+        "idempotency_key"
+      ],
+      "type": "object"
+    },
+    "work_transition_worktree_verify_input": {
+      "additionalProperties": false,
+      "properties": {
+        "command": {
+          "description": "The argv that runs inside the derived worktree under the exclusive verify lease. Values run as separate arguments; a shell command string is never accepted.",
+          "items": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 16,
+          "minItems": 1,
+          "type": "array"
+        },
+        "idempotency_key": {
+          "$ref": "#/$defs/id"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
+        },
+        "work_id": {
+          "$ref": "#/$defs/id",
+          "description": "CD-0096 D3: the work item whose active same-Project worktree the command runs in. The worktree derives from the session's Project and work identity; no path input exists (CD-0096 D2)."
+        }
+      },
+      "required": [
+        "work_id",
+        "command",
         "idempotency_key"
       ],
       "type": "object"
@@ -6683,6 +6994,168 @@ const GeneratedPayloadSchemaDocument = `{
       "required": [
         "root",
         "drift"
+      ],
+      "type": "object"
+    },
+    "worktree_inspect_result": {
+      "additionalProperties": false,
+      "properties": {
+        "branch": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "content": {
+          "description": "The bounded inspection content: porcelain status lines, the diff text, or the file content.",
+          "maxLength": 16384,
+          "type": "string"
+        },
+        "mode": {
+          "enum": [
+            "status",
+            "diff",
+            "file"
+          ],
+          "type": "string"
+        },
+        "path": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "type": "string"
+        },
+        "project_id": {
+          "$ref": "#/$defs/id"
+        },
+        "truncated": {
+          "type": "boolean"
+        },
+        "work_id": {
+          "$ref": "#/$defs/id"
+        }
+      },
+      "required": [
+        "work_id",
+        "project_id",
+        "branch",
+        "path",
+        "mode",
+        "content",
+        "truncated"
+      ],
+      "type": "object"
+    },
+    "worktree_verify_result": {
+      "additionalProperties": false,
+      "properties": {
+        "branch": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "changed_refs": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "entity_kind": {
+                "$ref": "#/$defs/short"
+              },
+              "id": {
+                "$ref": "#/$defs/id"
+              },
+              "version": {
+                "$ref": "#/$defs/version"
+              }
+            },
+            "required": [
+              "entity_kind",
+              "id",
+              "version"
+            ],
+            "type": "object"
+          },
+          "maxItems": 32,
+          "type": "array"
+        },
+        "command": {
+          "items": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 16,
+          "minItems": 1,
+          "type": "array"
+        },
+        "exit_code": {
+          "description": "The command's exit code; -1 reports a command that could not start.",
+          "maximum": 255,
+          "minimum": -1,
+          "type": "integer"
+        },
+        "lease_id": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "next_valid_intents": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "operation": {
+                "$ref": "#/$defs/short"
+              },
+              "reason_code": {
+                "$ref": "#/$defs/short"
+              },
+              "tool": {
+                "$ref": "#/$defs/id"
+              }
+            },
+            "required": [
+              "tool",
+              "operation",
+              "reason_code"
+            ],
+            "type": "object"
+          },
+          "maxItems": 16,
+          "type": "array"
+        },
+        "output": {
+          "description": "The bounded combined output of the run. Output beyond the bound is dropped, never dumped.",
+          "maxLength": 16384,
+          "type": "string"
+        },
+        "output_truncated": {
+          "type": "boolean"
+        },
+        "path": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "type": "string"
+        },
+        "project_id": {
+          "$ref": "#/$defs/id"
+        },
+        "tracked_files_changed": {
+          "description": "CD-0096 D3: true when tracked files changed while the lease was held, in which case typed completion refused.",
+          "type": "boolean"
+        },
+        "work_id": {
+          "$ref": "#/$defs/id"
+        }
+      },
+      "required": [
+        "work_id",
+        "project_id",
+        "branch",
+        "path",
+        "lease_id",
+        "command",
+        "exit_code",
+        "output",
+        "output_truncated",
+        "tracked_files_changed"
       ],
       "type": "object"
     }

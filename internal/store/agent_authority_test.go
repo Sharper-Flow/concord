@@ -93,3 +93,88 @@ func TestAuthorityTablesCarryNoIntegrityTrigger(t *testing.T) {
 		}
 	}
 }
+
+func TestMutateTrustedClientPolicyReadsCurrentAndWritesResultAtomically(t *testing.T) {
+	ctx := context.Background()
+	s, err := Open(ctx, filepath.Join(t.TempDir(), "concord.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	if err := s.RegisterTrustedClient(ctx, TrustedClientRecord{ClientRef: "client-1", Status: "active", PrincipalRef: "principal-1", CapabilitiesJSON: `["product_read"]`, ProductScopeJSON: `["product-1"]`, ProjectScopeJSON: `["project-1"]`, AgentScopeJSON: `["agent-1"]`}, TrustedClientKeyRecord{ClientRef: "client-1", KeyID: "key-1", PublicKey: make([]byte, 32), Status: "active"}, "2026-01-01T00:00:00Z"); err != nil {
+		t.Fatal(err)
+	}
+	sawCurrent := ""
+	if err := s.MutateTrustedClientPolicy(ctx, "client-1", func(current TrustedClientRecord) (TrustedClientRecord, error) {
+		sawCurrent = current.CapabilitiesJSON
+		next := current
+		next.CapabilitiesJSON = `["cross_scope","product_read"]`
+		return next, nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if sawCurrent != `["product_read"]` {
+		t.Fatalf("mutate saw capabilities %q, want the stored array", sawCurrent)
+	}
+	client, _, err := s.TrustedClientWithKey(ctx, "client-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if client.CapabilitiesJSON != `["cross_scope","product_read"]` || client.ProductScopeJSON != `["product-1"]` || client.PrincipalRef != "principal-1" {
+		t.Fatalf("stored record after mutate = %#v", client)
+	}
+}
+
+func TestMutateTrustedClientPolicyAbortsAndKeepsStoredPolicyOnMutateError(t *testing.T) {
+	ctx := context.Background()
+	s, err := Open(ctx, filepath.Join(t.TempDir(), "concord.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	if err := s.RegisterTrustedClient(ctx, TrustedClientRecord{ClientRef: "client-1", Status: "active", PrincipalRef: "principal-1", CapabilitiesJSON: `["product_read"]`, ProductScopeJSON: `["product-1"]`, ProjectScopeJSON: `["project-1"]`, AgentScopeJSON: `["agent-1"]`}, TrustedClientKeyRecord{ClientRef: "client-1", KeyID: "key-1", PublicKey: make([]byte, 32), Status: "active"}, "2026-01-01T00:00:00Z"); err != nil {
+		t.Fatal(err)
+	}
+	refusal := &Failure{Kind: KindInvalidOperation, Op: "agent_expand_policy", Detail: "stored capabilities policy is unreadable", RecoveryAction: "restate the full policy with client-policy-update"}
+	err = s.MutateTrustedClientPolicy(ctx, "client-1", func(current TrustedClientRecord) (TrustedClientRecord, error) {
+		return TrustedClientRecord{}, refusal
+	})
+	if err == nil {
+		t.Fatal("mutate error was swallowed")
+	}
+	var failure *Failure
+	if !errors.As(err, &failure) || failure != refusal {
+		t.Fatalf("mutate error = %v, want the caller's typed failure", err)
+	}
+	client, _, readErr := s.TrustedClientWithKey(ctx, "client-1")
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if client.CapabilitiesJSON != `["product_read"]` || client.ProductScopeJSON != `["product-1"]` {
+		t.Fatalf("stored record after aborted mutate = %#v", client)
+	}
+}
+
+func TestMutateTrustedClientPolicyRefusesUnknownAndRevokedClientsTyped(t *testing.T) {
+	ctx := context.Background()
+	s, err := Open(ctx, filepath.Join(t.TempDir(), "concord.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	assertFailureKind := func(label string, err error) {
+		t.Helper()
+		var failure *Failure
+		if !errors.As(err, &failure) || failure.Kind != KindProjectionNotFound {
+			t.Fatalf("%s error=%v, want %s", label, err, KindProjectionNotFound)
+		}
+	}
+	assertFailureKind("missing client", s.MutateTrustedClientPolicy(ctx, "missing", func(current TrustedClientRecord) (TrustedClientRecord, error) { return current, nil }))
+	if err := s.RegisterTrustedClient(ctx, TrustedClientRecord{ClientRef: "client-1", Status: "active", PrincipalRef: "principal-1", CapabilitiesJSON: `[]`, ProductScopeJSON: `[]`, ProjectScopeJSON: `[]`, AgentScopeJSON: `[]`}, TrustedClientKeyRecord{ClientRef: "client-1", KeyID: "key-1", PublicKey: make([]byte, 32), Status: "active"}, "2026-01-01T00:00:00Z"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.RevokeTrustedClient(ctx, "client-1", "2026-01-02T00:00:00Z"); err != nil {
+		t.Fatal(err)
+	}
+	assertFailureKind("revoked client", s.MutateTrustedClientPolicy(ctx, "client-1", func(current TrustedClientRecord) (TrustedClientRecord, error) { return current, nil }))
+}

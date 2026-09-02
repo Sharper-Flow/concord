@@ -287,8 +287,22 @@ func WorkLifecycleTx(ctx context.Context, transaction *Transaction, workID strin
 	if err != nil {
 		return "", err
 	}
+	return workLifecycleCore(ctx, tx, workID)
+}
+
+// WorkLifecycle reads one work item's lifecycle state on the store's own
+// connection, for callers that gate a request before opening a write
+// transaction (the destroy approval preflight).
+func (s *Store) WorkLifecycle(ctx context.Context, workID string) (string, error) {
+	if s == nil || s.db == nil {
+		return "", newFailure(KindUnavailable, "work_lifecycle", "store is not open", false, "open the authority database")
+	}
+	return workLifecycleCore(ctx, s.db, workID)
+}
+
+func workLifecycleCore(ctx context.Context, q queryer, workID string) (string, error) {
 	var lifecycle string
-	if err := tx.QueryRowContext(ctx, `SELECT lifecycle FROM work_items WHERE id=?`, workID).Scan(&lifecycle); err != nil {
+	if err := q.QueryRowContext(ctx, `SELECT lifecycle FROM work_items WHERE id=?`, workID).Scan(&lifecycle); err != nil {
 		if err == sql.ErrNoRows {
 			return "", newFailure(KindProjectionNotFound, "work_lifecycle", "work item does not exist", false, "reread the work item")
 		}

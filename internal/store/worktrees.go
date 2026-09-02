@@ -1,11 +1,15 @@
 package store
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -355,8 +359,83 @@ type WorktreeReclaimRequest struct {
 	ExpectedVersion int64
 	Now             time.Time
 	Runner          GitRunner
+	// RequireTerminal gates the request on terminal work (the CD-0096 D3
+	// Destroy tier). The reclaim surface leaves it false.
+	RequireTerminal bool
+	// OperatorApprovalRef names the operator approval consumed for a removal
+	// the terminal gate would otherwise refuse (CD-0096 D3 Destroy). Empty
+	// keeps the gate. The git safety gates are unaffected by this field.
+	OperatorApprovalRef string
+	// Destructive declares that the consumed approval also covers discarding
+	// the git safety gates: the clean-tree and merged-branch checks are
+	// skipped and the native remove is forced. It requires a non-empty
+	// OperatorApprovalRef; the surface guarantees the pairing and the store
+	// refuses the combination that would skip gates unapproved.
+	Destructive bool
 }
 
+// WorktreeDestroyRequest drives the CD-0096 D3 Destroy tier: merged terminal
+// work reclaims under the unchanged CD-0095 git gates; non-terminal work and
+// any destructive removal refuse typed without a consumed operator approval.
+type WorktreeDestroyRequest struct {
+	WorkID          string
+	ProjectID       string
+	DefaultRef      string
+	ExpectedVersion int64
+	// OperatorApprovalRef names the consumed operator approval. Empty means
+	// the safe path only.
+	OperatorApprovalRef string
+	// Destructive declares that the approval also covers discarding the git
+	// safety gates.
+	Destructive  bool
+	PrincipalRef string
+	RequestID    string
+	Now          time.Time
+	Runner       GitRunner
+}
+
+// DestroyWorktree reclaims the work item's worktree under the Destroy tier's
+// authority gates. The write owns its transaction.
+func (s *Store) DestroyWorktree(ctx context.Context, req WorktreeDestroyRequest) (WorktreeEntry, error) {
+	reclaimReq := WorktreeReclaimRequest{
+		WorkID: req.WorkID, ProjectID: req.ProjectID, DefaultRef: req.DefaultRef,
+		PrincipalRef: req.PrincipalRef, RequestID: req.RequestID,
+		ExpectedVersion: req.ExpectedVersion, Now: req.Now, Runner: req.Runner,
+		RequireTerminal: true, OperatorApprovalRef: req.OperatorApprovalRef, Destructive: req.Destructive,
+	}
+	if s == nil || s.db == nil {
+		return WorktreeEntry{}, newFailure(KindUnavailable, "worktree_destroy", "store is not open", false, "open the authority database")
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return WorktreeEntry{}, wrapFailure(KindUnavailable, "worktree_destroy", "cannot begin destroy", true, "retry once the database is writable", err)
+	}
+	defer tx.Rollback()
+	transaction := &Transaction{tx: tx, clock: s.Clock}
+	out, err := DestroyWorktreeTx(ctx, transaction, reclaimReq)
+	if err != nil {
+		return WorktreeEntry{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return WorktreeEntry{}, wrapFailure(KindUnavailable, "worktree_destroy", "cannot commit destroy", true, "retry the same operation", err)
+	}
+	return out, nil
+}
+
+// DestroyWorktreeTx is the destroy on an existing transaction, so the agent
+// tool surface can compose it with its idempotency envelope.
+func DestroyWorktreeTx(ctx context.Context, transaction *Transaction, req WorktreeReclaimRequest) (WorktreeEntry, error) {
+	tx, err := transactionSQL(transaction, "worktree_destroy")
+	if err != nil {
+		return WorktreeEntry{}, err
+	}
+	if req.Now.IsZero() {
+		req.Now = transaction.now()
+	}
+	return reclaimWorktreeRawTx(ctx, tx, req)
+}
+
+// ReclaimWorktree reclaims the worktree on its own transaction (CD-0095).
 func (s *Store) ReclaimWorktree(ctx context.Context, req WorktreeReclaimRequest) (WorktreeEntry, error) {
 	if s == nil || s.db == nil {
 		return WorktreeEntry{}, newFailure(KindUnavailable, "worktree_reclaim", "store is not open", false, "open the authority database")
@@ -404,6 +483,32 @@ func reclaimWorktreeRawTx(ctx context.Context, tx *sql.Tx, req WorktreeReclaimRe
 		now = nowFromClock(nil)
 	}
 	setID := WorktreeSetID(req.WorkID)
+	// The Destroy tier labels its own refusals and keeps its own recovery
+	// actions; the reclaim surface is unchanged beneath it.
+	op := "worktree_reclaim"
+	if req.RequireTerminal {
+		op = "worktree_destroy"
+	}
+
+	// CD-0096 D3 Destroy: merged terminal work reclaims without approval.
+	// Non-terminal work refuses typed unless the operator approved this
+	// exact removal.
+	if req.RequireTerminal {
+		var lifecycle string
+		err := tx.QueryRowContext(ctx, `SELECT lifecycle FROM work_items WHERE id=?`, req.WorkID).Scan(&lifecycle)
+		if err == sql.ErrNoRows {
+			return out, newFailure(KindUnknownScope, op, "work item does not exist", false, "select one existing work item")
+		}
+		if err != nil {
+			return out, wrapFailure(KindUnavailable, op, "cannot read the work item", true, "retry once the database is readable", err)
+		}
+		if lifecycle != "completed" && lifecycle != "cancelled" && req.OperatorApprovalRef == "" {
+			return out, newFailure(KindInvalidTransition, op, "work item is "+lifecycle+", so its worktree is not merged terminal work", false, "complete or cancel the work first, or obtain an operator-approved destroy")
+		}
+		if req.Destructive && req.OperatorApprovalRef == "" {
+			return out, newFailure(KindInvalidOperation, op, "destructive removal requires the operator approval it would consume", false, "obtain an operator-approved destructive destroy")
+		}
+	}
 
 	entries, err := worktreeEntriesTx(ctx, tx, req.WorkID)
 	if err != nil {
@@ -417,7 +522,7 @@ func reclaimWorktreeRawTx(ctx context.Context, tx *sql.Tx, req WorktreeReclaimRe
 		}
 	}
 	if entry.ProjectID == "" || entry.State != worktreeEntryActive {
-		return out, newFailure(KindProjectionNotFound, "worktree_reclaim", "no active worktree for this Project", false, "claim a worktree before reclaiming it")
+		return out, newFailure(KindProjectionNotFound, op, "no active worktree for this Project", false, "claim a worktree before reclaiming it")
 	}
 
 	repoRoot, resErr := worktreeRepoRootTx(ctx, tx, WorktreeClaimRequest{ProjectID: req.ProjectID})
@@ -429,8 +534,26 @@ func reclaimWorktreeRawTx(ctx context.Context, tx *sql.Tx, req WorktreeReclaimRe
 	// worktree is already gone, reclamation records that fact instead of
 	// demanding unreachable probes.
 	if _, probeErr := runner.Run(ctx, entry.Path, "rev-parse", "--abbrev-ref", "HEAD"); probeErr != nil {
-		if err := appendReclaimedTx(ctx, tx, req, setID, now, jsonMustMarshal(map[string]any{"already_absent": true})); err != nil {
+		facts := jsonMustMarshal(map[string]any{"already_absent": true})
+		if req.Destructive {
+			facts = jsonMustMarshal(map[string]any{"already_absent": true, "forced": true, "operator_override": req.OperatorApprovalRef})
+		}
+		if err := appendReclaimedTx(ctx, tx, req, setID, now, facts); err != nil {
 			return out, err
+		}
+		return worktreeEntryAfterReclaimTx(ctx, tx, req.WorkID, req.ProjectID)
+	}
+
+	// A destructive removal runs under its consumed operator approval: the
+	// clean-tree and merged-branch gates are skipped and the native remove
+	// is forced (CD-0096 D3 Destroy).
+	if req.Destructive {
+		facts := jsonMustMarshal(map[string]any{"forced": true, "operator_override": req.OperatorApprovalRef})
+		if err := appendReclaimedTx(ctx, tx, req, setID, now, facts); err != nil {
+			return out, err
+		}
+		if _, err := runner.Run(ctx, repoRoot, "worktree", "remove", "--force", entry.Path); err != nil {
+			return out, wrapFailure(KindGitUnreachable, op, "reclaimed in Concord but native removal failed", true, "remove the worktree manually; the projection already records reclamation", err)
 		}
 		return worktreeEntryAfterReclaimTx(ctx, tx, req.WorkID, req.ProjectID)
 	}
@@ -442,20 +565,24 @@ func reclaimWorktreeRawTx(ctx context.Context, tx *sql.Tx, req WorktreeReclaimRe
 	// active projection would.
 	statusOut, statusErr := runner.Run(ctx, entry.Path, "status", "--porcelain")
 	if statusErr != nil {
-		return out, wrapFailure(KindGitUnreachable, "worktree_reclaim", "cannot read worktree status", true, "retry once the worktree is reachable", statusErr)
+		return out, wrapFailure(KindGitUnreachable, op, "cannot read worktree status", true, "retry once the worktree is reachable", statusErr)
 	}
 	if strings.TrimSpace(string(statusOut)) != "" {
-		return out, newFailure(KindInvalidOperation, "worktree_reclaim", "worktree tree is dirty", false, "commit or discard the changes before reclaiming")
+		recovery := "commit or discard the changes before reclaiming"
+		if req.RequireTerminal {
+			recovery = "commit or discard the changes, or obtain an operator-approved destructive destroy"
+		}
+		return out, newFailure(KindInvalidOperation, op, "worktree tree is dirty", false, recovery)
 	}
 	defaultRef := req.DefaultRef
 	if defaultRef == "" {
 		refOut, refErr := runner.Run(ctx, repoRoot, "symbolic-ref", "refs/remotes/origin/HEAD")
 		if refErr != nil || strings.TrimSpace(string(refOut)) == "" {
-			return out, newFailure(KindGitUnreachable, "worktree_reclaim", "cannot resolve the default branch", false, "set origin/HEAD or supply the merge target ref")
+			return out, newFailure(KindGitUnreachable, op, "cannot resolve the default branch", false, "set origin/HEAD or supply the merge target ref")
 		}
 		defaultRef = strings.TrimPrefix(strings.TrimSpace(string(refOut)), "refs/remotes/")
 	}
-	if err := branchIsMergedInto(ctx, runner, repoRoot, entry.Branch, defaultRef); err != nil {
+	if err := branchIsMergedInto(ctx, runner, repoRoot, entry.Branch, defaultRef, op); err != nil {
 		return out, err
 	}
 
@@ -463,7 +590,7 @@ func reclaimWorktreeRawTx(ctx context.Context, tx *sql.Tx, req WorktreeReclaimRe
 		return out, err
 	}
 	if _, err := runner.Run(ctx, repoRoot, "worktree", "remove", entry.Path); err != nil {
-		return out, wrapFailure(KindGitUnreachable, "worktree_reclaim", "reclaimed in Concord but native removal failed", true, "remove the worktree manually; the projection already records reclamation", err)
+		return out, wrapFailure(KindGitUnreachable, op, "reclaimed in Concord but native removal failed", true, "remove the worktree manually; the projection already records reclamation", err)
 	}
 	return worktreeEntryAfterReclaimTx(ctx, tx, req.WorkID, req.ProjectID)
 }
@@ -585,19 +712,19 @@ func probeWorktree(ctx context.Context, runner GitRunner, repoRoot, path, branch
 // Merging a contained branch adds nothing, so the merged tree equals the default
 // ref's own tree. That equality holds for squash, rebase, and fast-forward alike,
 // because all three land the same content.
-func branchIsMergedInto(ctx context.Context, runner GitRunner, repoRoot, branch, defaultRef string) error {
+func branchIsMergedInto(ctx context.Context, runner GitRunner, repoRoot, branch, defaultRef, op string) error {
 	mergedTree, mergeErr := runner.Run(ctx, repoRoot, "merge-tree", "--write-tree", defaultRef, branch)
 	if mergeErr != nil {
 		// A non-zero exit means the merge conflicts, so the branch carries
 		// content the default ref does not hold. It is not merged.
-		return newFailure(KindInvalidOperation, "worktree_reclaim", "worktree branch does not merge cleanly into "+defaultRef, false, "merge the branch before reclaiming")
+		return newFailure(KindInvalidOperation, op, "worktree branch does not merge cleanly into "+defaultRef, false, "merge the branch before reclaiming")
 	}
 	defaultTree, treeErr := runner.Run(ctx, repoRoot, "rev-parse", defaultRef+"^{tree}")
 	if treeErr != nil {
-		return newFailure(KindGitUnreachable, "worktree_reclaim", "cannot resolve the tree of "+defaultRef, false, "retry once the repository is reachable")
+		return newFailure(KindGitUnreachable, op, "cannot resolve the tree of "+defaultRef, false, "retry once the repository is reachable")
 	}
 	if firstLine(mergedTree) != firstLine(defaultTree) {
-		return newFailure(KindInvalidOperation, "worktree_reclaim", "worktree head is not merged into "+defaultRef, false, "merge the branch before reclaiming")
+		return newFailure(KindInvalidOperation, op, "worktree head is not merged into "+defaultRef, false, "merge the branch before reclaiming")
 	}
 	return nil
 }
@@ -984,7 +1111,21 @@ func RetargetSessionWorktreeTx(ctx context.Context, transaction *Transaction, re
 	return retargetSessionWorktreeRawTx(ctx, transaction, tx, req, runner)
 }
 
+// worktreeBindMode carries the authority semantics one session bind runs
+// under (CD-0096 D3). The zero value is the strict retarget: an active
+// owner anywhere blocks the bind. Transfer mode is the Take over tier: the
+// caller's own binding may move between work items, and an active holder
+// yields only to its own release or to the named operator override.
+type worktreeBindMode struct {
+	transfer            bool
+	operatorOverrideRef string
+}
+
 func retargetSessionWorktreeRawTx(ctx context.Context, transaction *Transaction, tx *sql.Tx, req WorktreeRetargetRequest, runner GitRunner) (SessionWorktreeTarget, error) {
+	return bindSessionWorktreeRawTx(ctx, transaction, tx, req, worktreeBindMode{}, runner)
+}
+
+func bindSessionWorktreeRawTx(ctx context.Context, transaction *Transaction, tx *sql.Tx, req WorktreeRetargetRequest, mode worktreeBindMode, runner GitRunner) (SessionWorktreeTarget, error) {
 	if req.OpID == "" || req.WorkID == "" || req.PrincipalRef == "" || req.RequestID == "" || req.WorktreeRoot == "" {
 		return SessionWorktreeTarget{}, newFailure(KindInvalidOperation, "worktree_retarget", "retarget operation is missing identity fields", false, "supply op, work, principal, and request ids")
 	}
@@ -1018,7 +1159,7 @@ func retargetSessionWorktreeRawTx(ctx context.Context, transaction *Transaction,
 			return SessionWorktreeTarget{}, newFailure(KindVersionConflict, "worktree_retarget",
 				fmt.Sprintf("session target version is %d, request pinned %d", existing.TargetVersion, req.ExpectedTargetVersion), false, "reread the session target and retry with its current version")
 		}
-		if existing.State == sessionTargetActive && existing.WorkID != req.WorkID {
+		if !mode.transfer && existing.State == sessionTargetActive && existing.WorkID != req.WorkID {
 			return SessionWorktreeTarget{}, newFailure(KindWorktreeOwnershipConflict, "worktree_retarget",
 				fmt.Sprintf("session %s is bound to work %s; adopting work %s is a takeover (CD-0096 D3)", sessionOwnerLabel(req.Owner), existing.WorkID, req.WorkID), false, "release the current binding or obtain an operator takeover override")
 		}
@@ -1034,16 +1175,28 @@ func retargetSessionWorktreeRawTx(ctx context.Context, transaction *Transaction,
 		return SessionWorktreeTarget{}, err
 	}
 	if held {
-		return SessionWorktreeTarget{}, newFailure(KindWorktreeOwnershipConflict, "worktree_retarget",
-			fmt.Sprintf("worktree of work %s is held by session %s; adopting it is a takeover (CD-0096 D3)", req.WorkID, sessionOwnerLabel(holder)), false, "contact_operator")
+		if !mode.transfer {
+			return SessionWorktreeTarget{}, newFailure(KindWorktreeOwnershipConflict, "worktree_retarget",
+				fmt.Sprintf("worktree of work %s is held by session %s; adopting it is a takeover (CD-0096 D3)", req.WorkID, sessionOwnerLabel(holder)), false, "contact_operator")
+		}
+		if mode.operatorOverrideRef == "" {
+			return SessionWorktreeTarget{}, newFailure(KindWorktreeOwnershipConflict, "worktree_takeover",
+				fmt.Sprintf("worktree of work %s is held by session %s; the owner must release its binding, or the operator must approve a takeover override (CD-0096 D3)", req.WorkID, sessionOwnerLabel(holder)), false, "the owner releases the binding, or the operator approves this takeover")
+		}
+		if err := releaseWorktreeHolderTx(ctx, tx, holder, req.Now); err != nil {
+			return SessionWorktreeTarget{}, err
+		}
 	}
 	launchSession, launchActive, err := activeBootstrapLaunchTx(ctx, tx, req.WorkID)
 	if err != nil {
 		return SessionWorktreeTarget{}, err
 	}
 	if launchActive && launchSession != req.Owner.SessionRef {
-		return SessionWorktreeTarget{}, newFailure(KindWorktreeOwnershipConflict, "worktree_retarget",
-			fmt.Sprintf("worktree of work %s is held by the launched session %s; adopting it is a takeover (CD-0096 D3)", req.WorkID, launchSession), false, "contact_operator")
+		// A live launch is never override-takeable: the launched child runs
+		// in that worktree and holds no target pin a release could stale, so
+		// an override would leave two writers in one tree (CD-0096 D6).
+		return SessionWorktreeTarget{}, newFailure(KindWorktreeOwnershipConflict, "worktree_takeover",
+			fmt.Sprintf("worktree of work %s is held by the live launched session %s; a live launch yields to no takeover override (CD-0096 D6)", req.WorkID, launchSession), false, "end the launched session before taking over its worktree")
 	}
 
 	// The canonical target comes from identity, never from input: the work's
@@ -1155,9 +1308,9 @@ func sessionWorktreeTargetRowTx(ctx context.Context, q queryer, owner SessionWor
 
 // sessionWorktreeHolderTx reports the session actively targeting workID,
 // excluding the requesting owner (its own binding is handled above).
-func sessionWorktreeHolderTx(ctx context.Context, tx *sql.Tx, workID string, owner SessionWorktreeOwner) (SessionWorktreeOwner, bool, error) {
+func sessionWorktreeHolderTx(ctx context.Context, q queryer, workID string, owner SessionWorktreeOwner) (SessionWorktreeOwner, bool, error) {
 	var holder SessionWorktreeOwner
-	err := tx.QueryRowContext(ctx, `SELECT client_ref,agent_ref,session_ref FROM session_worktree_targets WHERE work_id=? AND state='active' AND NOT (client_ref=? AND agent_ref=? AND session_ref=?)`,
+	err := q.QueryRowContext(ctx, `SELECT client_ref,agent_ref,session_ref FROM session_worktree_targets WHERE work_id=? AND state='active' AND NOT (client_ref=? AND agent_ref=? AND session_ref=?)`,
 		workID, owner.ClientRef, owner.AgentRef, owner.SessionRef).Scan(&holder.ClientRef, &holder.AgentRef, &holder.SessionRef)
 	if err == sql.ErrNoRows {
 		return SessionWorktreeOwner{}, false, nil
@@ -1171,9 +1324,9 @@ func sessionWorktreeHolderTx(ctx context.Context, tx *sql.Tx, workID string, own
 // activeBootstrapLaunchTx reports whether a CD-0088 bootstrap launch is live
 // for the work item, and the launched session's identity when it is. A live
 // child session owns the worktree it runs in.
-func activeBootstrapLaunchTx(ctx context.Context, tx *sql.Tx, workID string) (string, bool, error) {
+func activeBootstrapLaunchTx(ctx context.Context, q queryer, workID string) (string, bool, error) {
 	var sessionID string
-	err := tx.QueryRowContext(ctx, `SELECT COALESCE(launch_session_id,'') FROM bootstrap_operations WHERE work_id=? AND state IN ('pending','creating','native_ready','completed') AND launch_state IN ('prepared','running')`, workID).Scan(&sessionID)
+	err := q.QueryRowContext(ctx, `SELECT COALESCE(launch_session_id,'') FROM bootstrap_operations WHERE work_id=? AND state IN ('pending','creating','native_ready','completed') AND launch_state IN ('prepared','running')`, workID).Scan(&sessionID)
 	if err == sql.ErrNoRows {
 		return "", false, nil
 	}
@@ -1185,4 +1338,737 @@ func activeBootstrapLaunchTx(ctx context.Context, tx *sql.Tx, workID string) (st
 
 func sessionOwnerLabel(owner SessionWorktreeOwner) string {
 	return owner.ClientRef + "/" + owner.AgentRef + "/" + owner.SessionRef
+}
+
+// releaseWorktreeHolderTx force-releases an active holder's binding under an
+// operator-approved takeover override (CD-0096 D3 Take over). The version
+// bump makes the holder's next pinned operation fail closed on its stale
+// target version (CD-0096 D5), so the transfer cannot leave two writers.
+func releaseWorktreeHolderTx(ctx context.Context, tx *sql.Tx, owner SessionWorktreeOwner, now time.Time) error {
+	result, err := tx.ExecContext(ctx, `UPDATE session_worktree_targets SET state='released', target_version=target_version+1, updated_at=? WHERE client_ref=? AND agent_ref=? AND session_ref=? AND state='active'`,
+		now.Format(time.RFC3339Nano), owner.ClientRef, owner.AgentRef, owner.SessionRef)
+	if err != nil {
+		return wrapFailure(KindUnavailable, "worktree_takeover", "cannot release the prior holder", true, "retry the same operation with the same op id", err)
+	}
+	if rows, err := result.RowsAffected(); err != nil || rows != 1 {
+		return newFailure(KindProjectionConflict, "worktree_takeover", "the prior holder's binding changed during the takeover", false, "reread the worktree holders and retry")
+	}
+	return nil
+}
+
+// WorktreeReleaseRequest drives the owner-side release of one session's
+// effective-target binding (CD-0096 D3 Take over: an active owner must
+// release before another session may take over without an override).
+type WorktreeReleaseRequest struct {
+	Owner  SessionWorktreeOwner
+	WorkID string
+	// ExpectedTargetVersion is the session's target pin; a mismatch fails
+	// closed (CD-0096 D5).
+	ExpectedTargetVersion int64
+	PrincipalRef          string
+	RequestID             string
+	Now                   time.Time
+}
+
+// ReleaseSessionWorktree transitions the session's active binding to
+// released. The write owns its transaction.
+func (s *Store) ReleaseSessionWorktree(ctx context.Context, req WorktreeReleaseRequest) (SessionWorktreeTarget, error) {
+	if s == nil || s.db == nil {
+		return SessionWorktreeTarget{}, newFailure(KindUnavailable, "worktree_release", "store is not open", false, "open the authority database")
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return SessionWorktreeTarget{}, wrapFailure(KindUnavailable, "worktree_release", "cannot begin release", true, "retry once the database is writable", err)
+	}
+	defer tx.Rollback()
+	transaction := &Transaction{tx: tx, clock: s.Clock}
+	out, err := ReleaseSessionWorktreeTx(ctx, transaction, req)
+	if err != nil {
+		return SessionWorktreeTarget{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return SessionWorktreeTarget{}, wrapFailure(KindUnavailable, "worktree_release", "cannot commit release", true, "retry the same operation", err)
+	}
+	return out, nil
+}
+
+// ReleaseSessionWorktreeTx is the release on an existing transaction, so the
+// agent tool surface can compose it with its idempotency envelope.
+func ReleaseSessionWorktreeTx(ctx context.Context, transaction *Transaction, req WorktreeReleaseRequest) (SessionWorktreeTarget, error) {
+	tx, err := transactionSQL(transaction, "worktree_release")
+	if err != nil {
+		return SessionWorktreeTarget{}, err
+	}
+	if req.Now.IsZero() {
+		req.Now = transaction.now()
+	}
+	if req.WorkID == "" || req.PrincipalRef == "" || req.RequestID == "" {
+		return SessionWorktreeTarget{}, newFailure(KindInvalidOperation, "worktree_release", "release operation is missing identity fields", false, "supply work, principal, and request ids")
+	}
+	if err := validateSessionWorktreeOwner(req.Owner); err != nil {
+		return SessionWorktreeTarget{}, err
+	}
+	if req.ExpectedTargetVersion < 1 {
+		return SessionWorktreeTarget{}, newFailure(KindInvalidOperation, "worktree_release", "release requires the session's current target version", false, "reread the session target and retry with its version")
+	}
+	existing, found, err := sessionWorktreeTargetRowTx(ctx, tx, req.Owner)
+	if err != nil {
+		return SessionWorktreeTarget{}, err
+	}
+	if !found {
+		return SessionWorktreeTarget{}, newFailure(KindProjectionNotFound, "worktree_release", "session holds no target binding", false, "retarget before releasing")
+	}
+	if existing.WorkID != req.WorkID {
+		return SessionWorktreeTarget{}, newFailure(KindInvalidOperation, "worktree_release",
+			fmt.Sprintf("session binding targets work %s, request named work %s", existing.WorkID, req.WorkID), false, "release the binding's own work item")
+	}
+	if req.ExpectedTargetVersion != existing.TargetVersion {
+		return SessionWorktreeTarget{}, newFailure(KindVersionConflict, "worktree_release",
+			fmt.Sprintf("session target version is %d, request pinned %d", existing.TargetVersion, req.ExpectedTargetVersion), false, "reread the session target and retry with its current version")
+	}
+	if existing.State != sessionTargetActive {
+		return SessionWorktreeTarget{}, newFailure(KindInvalidTransition, "worktree_release", "session target binding is already released", false, "retarget before releasing")
+	}
+	released := existing
+	released.State = sessionTargetReleased
+	released.TargetVersion = existing.TargetVersion + 1
+	released.UpdatedAt = req.Now.Format(time.RFC3339Nano)
+	if _, err := tx.ExecContext(ctx, `UPDATE session_worktree_targets SET state=?,target_version=?,updated_at=? WHERE client_ref=? AND agent_ref=? AND session_ref=?`,
+		released.State, released.TargetVersion, released.UpdatedAt, req.Owner.ClientRef, req.Owner.AgentRef, req.Owner.SessionRef); err != nil {
+		return SessionWorktreeTarget{}, wrapFailure(KindUnavailable, "worktree_release", "cannot update session target", true, "retry the same operation", err)
+	}
+	return released, nil
+}
+
+// WorktreeTakeoverRequest drives the Take over tier (CD-0096 D3): a typed
+// authority transfer that binds the calling session to another work item's
+// canonical worktree. An active holder must have released, or
+// OperatorOverrideRef must name the operator approval consumed for this
+// exact operation; otherwise the takeover refuses typed.
+type WorktreeTakeoverRequest struct {
+	Owner  SessionWorktreeOwner
+	WorkID string
+	// ExpectedWorkVersion is consumed only when the takeover must create the
+	// canonical worktree (the claim bumps the work version).
+	ExpectedWorkVersion int64
+	// ExpectedTargetVersion is the calling session's own target pin: zero
+	// when it holds none, otherwise the stored version exactly.
+	ExpectedTargetVersion int64
+	// OperatorOverrideRef names the consumed operator approval that
+	// authorizes transferring authority from an active holder. Empty means
+	// no override: an active holder blocks.
+	OperatorOverrideRef string
+	WorktreeRoot        string
+	PrincipalRef        string
+	RequestID           string
+	OpID                string
+	Now                 time.Time
+	Runner              GitRunner
+}
+
+// TakeoverSessionWorktree transfers the worktree's authority to the calling
+// session and rebinds its effective target. The write owns its transaction.
+func (s *Store) TakeoverSessionWorktree(ctx context.Context, req WorktreeTakeoverRequest) (SessionWorktreeTarget, error) {
+	if s == nil || s.db == nil {
+		return SessionWorktreeTarget{}, newFailure(KindUnavailable, "worktree_takeover", "store is not open", false, "open the authority database")
+	}
+	if req.WorktreeRoot == "" {
+		req.WorktreeRoot = filepath.Join(filepath.Dir(s.Path()), "worktrees")
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return SessionWorktreeTarget{}, wrapFailure(KindUnavailable, "worktree_takeover", "cannot begin takeover", true, "retry once the database is writable", err)
+	}
+	defer tx.Rollback()
+	transaction := &Transaction{tx: tx, clock: s.Clock}
+	out, err := TakeoverSessionWorktreeTx(ctx, transaction, req)
+	if err != nil {
+		return SessionWorktreeTarget{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return SessionWorktreeTarget{}, wrapFailure(KindUnavailable, "worktree_takeover", "cannot commit takeover", true, "retry the same operation with the same op id", err)
+	}
+	return out, nil
+}
+
+// TakeoverSessionWorktreeTx is the takeover on an existing transaction, so
+// the agent tool surface can compose it with its idempotency envelope.
+func TakeoverSessionWorktreeTx(ctx context.Context, transaction *Transaction, req WorktreeTakeoverRequest) (SessionWorktreeTarget, error) {
+	tx, err := transactionSQL(transaction, "worktree_takeover")
+	if err != nil {
+		return SessionWorktreeTarget{}, err
+	}
+	if req.Now.IsZero() {
+		req.Now = transaction.now()
+	}
+	runner := req.Runner
+	if runner == nil {
+		runner = ExecGitRunner{}
+	}
+	if req.OperatorOverrideRef != "" && (len(req.OperatorOverrideRef) < 8 || len(req.OperatorOverrideRef) > 256) {
+		return SessionWorktreeTarget{}, newFailure(KindInvalidOperation, "worktree_takeover", "operator override reference is out of bounds", false, "supply the consumed operator approval reference")
+	}
+	return bindSessionWorktreeRawTx(ctx, transaction, tx, WorktreeRetargetRequest{
+		Owner: req.Owner, WorkID: req.WorkID,
+		ExpectedWorkVersion:   req.ExpectedWorkVersion,
+		ExpectedTargetVersion: req.ExpectedTargetVersion,
+		WorktreeRoot:          req.WorktreeRoot,
+		PrincipalRef:          req.PrincipalRef, RequestID: req.RequestID, OpID: req.OpID,
+		Now: req.Now, Runner: runner,
+	}, worktreeBindMode{transfer: true, operatorOverrideRef: req.OperatorOverrideRef}, runner)
+}
+
+// WorktreeTakeoverBlockers reports whether another session actively holds
+// the work item's worktree, and whether a live CD-0088 bootstrap launch
+// occupies it. The agent surface uses this as its approval preflight: an
+// active holder is transferable only through operator override, and a live
+// launch is not transferable at all.
+func (s *Store) WorktreeTakeoverBlockers(ctx context.Context, workID string, owner SessionWorktreeOwner) (holder SessionWorktreeOwner, held bool, launchSession string, launchActive bool, err error) {
+	if s == nil || s.db == nil {
+		return SessionWorktreeOwner{}, false, "", false, newFailure(KindUnavailable, "worktree_takeover", "store is not open", false, "open the authority database")
+	}
+	if err := validateSessionWorktreeOwner(owner); err != nil {
+		return SessionWorktreeOwner{}, false, "", false, err
+	}
+	holder, held, err = sessionWorktreeHolderTx(ctx, s.db, workID, owner)
+	if err != nil {
+		return SessionWorktreeOwner{}, false, "", false, err
+	}
+	launchSession, launchActive, err = activeBootstrapLaunchTx(ctx, s.db, workID)
+	if err != nil {
+		return SessionWorktreeOwner{}, false, "", false, err
+	}
+	return holder, held, launchSession, launchActive, nil
+}
+
+// Cross-worktree tiers (CD-0096 D3), part 3a of issue #689: Inspect and
+// Verify. Both tiers resolve their subject through the calling session's
+// Project and the work item's folded worktree entry — never through a caller
+// path (CD-0096 D2) — so a worktree outside the session's Project is not
+// reachable as a target at all. Takeover and destroy are part 3b.
+
+const (
+	// WorktreeInspectModeStatus reads `git status --porcelain`.
+	WorktreeInspectModeStatus = "status"
+	// WorktreeInspectModeDiff reads the worktree's diff against HEAD.
+	WorktreeInspectModeDiff = "diff"
+	// WorktreeInspectModeFile reads one file's content.
+	WorktreeInspectModeFile = "file"
+
+	defaultWorktreeInspectBytes  = 16384
+	defaultWorktreeVerifyBytes   = 16384
+	maxWorktreeVerifyCommandArgs = 16
+	maxWorktreeVerifyCommandPart = 256
+)
+
+// activeWorktreeEntryForProject resolves the work item's active worktree
+// entry inside the calling session's Project. The Project selector is the
+// same-Project tier boundary: an entry in any other Project is invisible.
+func activeWorktreeEntryForProject(ctx context.Context, q queryer, op, workID, projectID string) (WorktreeEntry, error) {
+	if workID == "" || projectID == "" {
+		return WorktreeEntry{}, newFailure(KindUnknownScope, op, "worktree tier access requires the work item and the session's Project", false, "supply the work identity and run from a registered Project")
+	}
+	entries, err := worktreeEntriesCore(ctx, q, workID)
+	if err != nil {
+		return WorktreeEntry{}, err
+	}
+	for _, candidate := range entries {
+		if candidate.ProjectID == projectID && candidate.State == worktreeEntryActive {
+			return candidate, nil
+		}
+	}
+	return WorktreeEntry{}, newFailure(KindProjectionNotFound, op, "work item holds no active worktree in Project "+projectID, false, "claim or retarget the canonical worktree before tiered access")
+}
+
+// probeWorktreeReachable refuses typed when the folded entry points at a
+// tree the host cannot reach, or at a branch the tree no longer checks out.
+// Both are drift, not inspection subjects.
+func probeWorktreeReachable(ctx context.Context, runner GitRunner, op string, entry WorktreeEntry) error {
+	branchOut, err := runner.Run(ctx, entry.Path, "rev-parse", "--abbrev-ref", "HEAD")
+	if err != nil {
+		return wrapFailure(KindGitUnreachable, op, "worktree at "+entry.Path+" is not reachable on disk", true, "reconcile the worktree drift with the audit read before tiered access", err)
+	}
+	if strings.TrimSpace(string(branchOut)) != entry.Branch {
+		return newFailure(KindProjectionConflict, op, "worktree at "+entry.Path+" is on branch "+strings.TrimSpace(string(branchOut))+", the stored claim says "+entry.Branch, false, "reconcile the worktree claim before tiered access")
+	}
+	return nil
+}
+
+// WorktreeInspectRequest drives the CD-0096 Inspect tier: a read-only view
+// of files, Git status, and diffs of one active same-Project worktree. The
+// persistent effective target is never a factor and never changes.
+type WorktreeInspectRequest struct {
+	WorkID    string
+	ProjectID string
+	Mode      string
+	// Path is the relative file selector for file mode. It is a selector
+	// inside the derived worktree, never a worktree path (CD-0096 D2).
+	Path     string
+	Runner   GitRunner
+	MaxBytes int
+}
+
+// WorktreeInspectResult is the bounded content of one inspection.
+type WorktreeInspectResult struct {
+	WorkID    string `json:"work_id"`
+	ProjectID string `json:"project_id"`
+	Branch    string `json:"branch"`
+	Path      string `json:"path"`
+	Mode      string `json:"mode"`
+	Content   string `json:"content"`
+	Truncated bool   `json:"truncated"`
+}
+
+// InspectWorktree reads files, Git status, or a diff from the work item's
+// active worktree in the calling session's Project (CD-0096 D3 Inspect). It
+// is a pure read: no lease is taken and no persistent state changes.
+func (s *Store) InspectWorktree(ctx context.Context, req WorktreeInspectRequest) (WorktreeInspectResult, error) {
+	if s == nil || s.db == nil {
+		return WorktreeInspectResult{}, newFailure(KindUnavailable, "worktree_inspect", "store is not open", false, "open the authority database")
+	}
+	runner := req.Runner
+	if runner == nil {
+		runner = ExecGitRunner{}
+	}
+	maxBytes := req.MaxBytes
+	if maxBytes <= 0 {
+		maxBytes = defaultWorktreeInspectBytes
+	}
+	switch req.Mode {
+	case WorktreeInspectModeStatus, WorktreeInspectModeDiff:
+		if req.Path != "" {
+			return WorktreeInspectResult{}, newFailure(KindInvalidOperation, "worktree_inspect", "path applies to file mode only", false, "omit the path or select file mode")
+		}
+	case WorktreeInspectModeFile:
+		if err := safeWorktreeRelativePath(req.Path); err != nil {
+			return WorktreeInspectResult{}, err
+		}
+	default:
+		return WorktreeInspectResult{}, newFailure(KindInvalidOperation, "worktree_inspect", "mode must be status, diff, or file", false, "select one inspection mode")
+	}
+	entry, err := activeWorktreeEntryForProject(ctx, s.db, "worktree_inspect", req.WorkID, req.ProjectID)
+	if err != nil {
+		return WorktreeInspectResult{}, err
+	}
+	if err := probeWorktreeReachable(ctx, runner, "worktree_inspect", entry); err != nil {
+		return WorktreeInspectResult{}, err
+	}
+	result := WorktreeInspectResult{WorkID: req.WorkID, ProjectID: req.ProjectID, Branch: entry.Branch, Path: entry.Path, Mode: req.Mode}
+	switch req.Mode {
+	case WorktreeInspectModeStatus:
+		out, runErr := runner.Run(ctx, entry.Path, "status", "--porcelain")
+		if runErr != nil {
+			return WorktreeInspectResult{}, wrapFailure(KindGitUnreachable, "worktree_inspect", "cannot read worktree status", true, "retry once the worktree is reachable", runErr)
+		}
+		result.Content, result.Truncated = boundText(string(out), maxBytes)
+	case WorktreeInspectModeDiff:
+		out, runErr := runner.Run(ctx, entry.Path, "diff", "HEAD")
+		if runErr != nil {
+			return WorktreeInspectResult{}, wrapFailure(KindGitUnreachable, "worktree_inspect", "cannot read the worktree diff", true, "retry once the worktree is reachable", runErr)
+		}
+		result.Content, result.Truncated = boundText(string(out), maxBytes)
+	case WorktreeInspectModeFile:
+		content, readErr := readBoundedFile(filepath.Join(entry.Path, filepath.FromSlash(req.Path)), maxBytes)
+		if readErr != nil {
+			return WorktreeInspectResult{}, readErr
+		}
+		result.Content, result.Truncated = content, len(content) > maxBytes
+	}
+	return result, nil
+}
+
+// safeWorktreeRelativePath accepts one bounded relative selector. Absolute
+// paths, parent traversal, and unclean forms refuse typed, because a
+// selector that escapes the derived worktree reads a file no tier granted.
+func safeWorktreeRelativePath(rel string) error {
+	if rel == "" || len(rel) > 512 || strings.ContainsRune(rel, 0) {
+		return newFailure(KindInvalidOperation, "worktree_inspect", "file selector must be a bounded relative path", false, "supply one relative path inside the worktree")
+	}
+	if filepath.IsAbs(rel) || rel != filepath.Clean(filepath.FromSlash(rel)) {
+		return newFailure(KindInvalidOperation, "worktree_inspect", "file selector must be a clean relative path", false, "supply one relative path without absolute or parent segments")
+	}
+	for _, element := range strings.Split(filepath.ToSlash(rel), "/") {
+		if element == ".." {
+			return newFailure(KindInvalidOperation, "worktree_inspect", "file selector must not traverse outside the worktree", false, "supply one relative path without parent segments")
+		}
+	}
+	return nil
+}
+
+// boundText keeps the first maxBytes of text and reports truncation.
+func boundText(text string, maxBytes int) (string, bool) {
+	if len(text) > maxBytes {
+		return text[:maxBytes], true
+	}
+	return text, false
+}
+
+// readBoundedFile reads at most maxBytes plus one byte, so the caller can
+// report truncation without buffering the whole file.
+func readBoundedFile(path string, maxBytes int) (string, error) {
+	file, err := os.Open(path) //nolint:gosec // the path is the derived worktree joined to a validated clean relative selector.
+	if err != nil {
+		if os.IsNotExist(err) {
+			return "", newFailure(KindProjectionNotFound, "worktree_inspect", "file selector does not exist in the worktree", false, "inspect status first and select an existing file")
+		}
+		return "", wrapFailure(KindUnavailable, "worktree_inspect", "cannot read the selected file", true, "retry once the worktree is readable", err)
+	}
+	defer func() { _ = file.Close() }()
+	buffer := make([]byte, maxBytes+1)
+	read, err := io.ReadFull(file, buffer)
+	if err != nil && err != io.ErrUnexpectedEOF && err != io.EOF {
+		return "", wrapFailure(KindUnavailable, "worktree_inspect", "cannot read the selected file", true, "retry once the worktree is readable", err)
+	}
+	return string(buffer[:read]), nil
+}
+
+// WorktreeVerifyRequest drives the CD-0096 Verify tier: the requested
+// command runs in the work item's active worktree in the calling session's
+// Project, under an exclusive lease, and completion refuses when tracked
+// files changed while the lease was held.
+type WorktreeVerifyRequest struct {
+	Owner     SessionWorktreeOwner
+	WorkID    string
+	ProjectID string
+	Command   []string
+	// LeaseID scopes the lease and its pinned command. Retrying an
+	// interrupted verify with the same LeaseID resumes only the command the
+	// lease first pinned.
+	LeaseID        string
+	PrincipalRef   string
+	RequestID      string
+	Now            time.Time
+	Runner         GitRunner
+	RunCommand     func(ctx context.Context, dir string, command []string, maxOutput int) (int, []byte, bool, error)
+	MaxOutputBytes int
+}
+
+// WorktreeVerifyResult is the bounded record of one leased run.
+type WorktreeVerifyResult struct {
+	WorkID              string   `json:"work_id"`
+	ProjectID           string   `json:"project_id"`
+	Branch              string   `json:"branch"`
+	Path                string   `json:"path"`
+	LeaseID             string   `json:"lease_id"`
+	Command             []string `json:"command"`
+	ExitCode            int      `json:"exit_code"`
+	Output              string   `json:"output"`
+	OutputTruncated     bool     `json:"output_truncated"`
+	TrackedFilesChanged bool     `json:"tracked_files_changed"`
+}
+
+// VerifyWorktree acquires the exclusive verify lease, runs the command, and
+// compares tracked-file state across the lease. The lease acquire and its
+// release each own one transaction; the command runs between them, so no
+// transaction spans the external effect.
+func (s *Store) VerifyWorktree(ctx context.Context, req WorktreeVerifyRequest) (WorktreeVerifyResult, error) {
+	if s == nil || s.db == nil {
+		return WorktreeVerifyResult{}, newFailure(KindUnavailable, "worktree_verify", "store is not open", false, "open the authority database")
+	}
+	if req.LeaseID == "" || req.PrincipalRef == "" || req.RequestID == "" {
+		return WorktreeVerifyResult{}, newFailure(KindInvalidOperation, "worktree_verify", "verify operation is missing identity fields", false, "supply lease, principal, and request ids")
+	}
+	if err := validateSessionWorktreeOwner(req.Owner); err != nil {
+		return WorktreeVerifyResult{}, retitleFailure(err, "worktree_verify")
+	}
+	if err := validateWorktreeVerifyCommand(req.Command); err != nil {
+		return WorktreeVerifyResult{}, err
+	}
+	runner := req.Runner
+	if runner == nil {
+		runner = ExecGitRunner{}
+	}
+	runCommand := req.RunCommand
+	if runCommand == nil {
+		runCommand = RunWorktreeVerifyCommand
+	}
+	maxOutput := req.MaxOutputBytes
+	if maxOutput <= 0 {
+		maxOutput = defaultWorktreeVerifyBytes
+	}
+	now := req.Now
+	if now.IsZero() {
+		now = nowFromClock(nil)
+	}
+	commandJSON, _ := json.Marshal(req.Command)
+
+	// Lease phase: resolve the subject, probe it, pin the lease, and
+	// snapshot tracked state before the command runs. Any refusal here
+	// rolls the transaction back, so no lease exists to release.
+	acquireTx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return WorktreeVerifyResult{}, wrapFailure(KindUnavailable, "worktree_verify", "cannot begin verify", true, "retry the same operation with the same lease id", err)
+	}
+	defer acquireTx.Rollback()
+	entry, err := activeWorktreeEntryForProject(ctx, acquireTx, "worktree_verify", req.WorkID, req.ProjectID)
+	if err != nil {
+		return WorktreeVerifyResult{}, err
+	}
+	if err := probeWorktreeReachable(ctx, runner, "worktree_verify", entry); err != nil {
+		return WorktreeVerifyResult{}, err
+	}
+	if err := acquireVerifyLeaseTx(ctx, acquireTx, req, entry, string(commandJSON), now); err != nil {
+		var completed *worktreeVerifyCompleted
+		if errors.As(err, &completed) {
+			// The lease already reached its durable outcome (the crash
+			// window between release and the caller's idempotency record).
+			// Report the recorded result; never run the command twice.
+			return completed.result, completed.failure
+		}
+		return WorktreeVerifyResult{}, err
+	}
+	before, err := snapshotTrackedFiles(ctx, runner, entry.Path)
+	if err != nil {
+		return WorktreeVerifyResult{}, err
+	}
+	if err := acquireTx.Commit(); err != nil {
+		return WorktreeVerifyResult{}, wrapFailure(KindUnavailable, "worktree_verify", "cannot commit the verify lease", true, "retry the same operation with the same lease id", err)
+	}
+
+	exitCode, output, truncated, runErr := runCommand(ctx, entry.Path, req.Command, maxOutput)
+	if runErr != nil {
+		// A command that cannot run is a run outcome, not a store failure:
+		// the release below still records and reports it.
+		exitCode = -1
+		output = append([]byte(runErr.Error()+"\n"), output...)
+	}
+
+	releaseTx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return WorktreeVerifyResult{}, wrapFailure(KindUnavailable, "worktree_verify", "cannot begin verify release", true, "retry the same operation with the same lease id", err)
+	}
+	defer releaseTx.Rollback()
+	after, err := snapshotTrackedFiles(ctx, runner, entry.Path)
+	if err != nil {
+		return WorktreeVerifyResult{}, err
+	}
+	changed := before != after
+	outcome := "completed"
+	if changed {
+		outcome = "refused_mutated"
+	}
+	boundedOutput, outputTruncated := boundText(string(output), maxOutput)
+	if outputTruncated {
+		truncated = true
+	}
+	result := WorktreeVerifyResult{WorkID: req.WorkID, ProjectID: req.ProjectID, Branch: entry.Branch, Path: entry.Path, LeaseID: req.LeaseID, Command: req.Command, ExitCode: exitCode, Output: boundedOutput, OutputTruncated: truncated, TrackedFilesChanged: changed}
+	resultJSON, _ := json.Marshal(result)
+	releasedAt := nowFromClock(nil)
+	if _, err := releaseTx.ExecContext(ctx, `UPDATE worktree_verify_leases SET state='released', released_at=?, exit_code=?, outcome=?, result_json=? WHERE lease_id=? AND state='held'`,
+		releasedAt.Format(time.RFC3339Nano), exitCode, outcome, string(resultJSON), req.LeaseID); err != nil {
+		return WorktreeVerifyResult{}, wrapFailure(KindUnavailable, "worktree_verify", "cannot release the verify lease", true, "retry the same operation with the same lease id", err)
+	}
+	if err := releaseTx.Commit(); err != nil {
+		return WorktreeVerifyResult{}, wrapFailure(KindUnavailable, "worktree_verify", "cannot commit the verify release", true, "retry the same operation with the same lease id", err)
+	}
+	if changed {
+		return result, newFailure(KindWorktreeVerifyMutated, "worktree_verify",
+			"tracked files changed in "+entry.Path+" while the verify command ran; a verifier that edits its subject verifies nothing (CD-0096 D3)", false, "reconcile_operation")
+	}
+	return result, nil
+}
+
+// worktreeVerifyCompleted carries the durable outcome of an already-released
+// lease back through the acquire error path, so a same-lease retry reports
+// the recorded result instead of running the command again.
+type worktreeVerifyCompleted struct {
+	result  WorktreeVerifyResult
+	failure error
+}
+
+func (c *worktreeVerifyCompleted) Error() string {
+	return "verify lease already reached its outcome"
+}
+
+// acquireVerifyLeaseTx pins the exclusive lease. A foreign held lease for the
+// worktree refuses typed, naming the holder. The same lease id resumes only
+// under its original owner and pinned command, so an interrupted retry can
+// never redirect the run, and a released lease reports its recorded outcome.
+func acquireVerifyLeaseTx(ctx context.Context, tx *sql.Tx, req WorktreeVerifyRequest, entry WorktreeEntry, commandJSON string, now time.Time) error {
+	var state, pinnedJSON, clientRef, agentRef, sessionRef, outcome, resultJSON string
+	err := tx.QueryRowContext(ctx, `SELECT state,command_json,client_ref,agent_ref,session_ref,outcome,coalesce(result_json,'') FROM worktree_verify_leases WHERE lease_id=?`, req.LeaseID).
+		Scan(&state, &pinnedJSON, &clientRef, &agentRef, &sessionRef, &outcome, &resultJSON)
+	switch {
+	case err == nil:
+		if state != "held" {
+			var recorded WorktreeVerifyResult
+			var failure error
+			if json.Unmarshal([]byte(resultJSON), &recorded) == nil {
+				if outcome == "refused_mutated" {
+					failure = newFailure(KindWorktreeVerifyMutated, "worktree_verify",
+						"tracked files changed in "+entry.Path+" while the verify command ran; a verifier that edits its subject verifies nothing (CD-0096 D3)", false, "reconcile_operation")
+				}
+				return &worktreeVerifyCompleted{result: recorded, failure: failure}
+			}
+			return newFailure(KindUnavailable, "worktree_verify", "released verify lease carries no readable outcome", true, "retry the read of the lease outcome")
+		}
+		if clientRef != req.Owner.ClientRef || agentRef != req.Owner.AgentRef || sessionRef != req.Owner.SessionRef {
+			return newFailure(KindWorktreeLeaseHeld, "worktree_verify",
+				"verify lease "+req.LeaseID+" is held by session "+clientRef+"/"+agentRef+"/"+sessionRef, true, "retry_same_request")
+		}
+		if pinnedJSON != commandJSON {
+			return newFailure(KindInvalidOperation, "worktree_verify", "retry does not match the pinned command", false, "retry with the same command or a new idempotency key")
+		}
+		return nil
+	case err == sql.ErrNoRows:
+		if _, insertErr := tx.ExecContext(ctx, `INSERT INTO worktree_verify_leases(lease_id,work_id,project_id,path,state,client_ref,agent_ref,session_ref,principal_ref,command_json,acquired_at,outcome) VALUES(?,?,?,?, 'held', ?,?,?,?,?,?, 'running')`,
+			req.LeaseID, req.WorkID, req.ProjectID, entry.Path, req.Owner.ClientRef, req.Owner.AgentRef, req.Owner.SessionRef, req.PrincipalRef, commandJSON, now.Format(time.RFC3339Nano)); insertErr != nil {
+			// The one-held partial index refused: name the actual holder.
+			holder, held, holderErr := heldWorktreeVerifyLeaseTx(ctx, tx, entry.Path)
+			if holderErr != nil {
+				return holderErr
+			}
+			if held {
+				return newFailure(KindWorktreeLeaseHeld, "worktree_verify",
+					"worktree "+entry.Path+" holds an active verify lease held by session "+sessionOwnerLabel(holder), true, "retry_same_request")
+			}
+			return wrapFailure(KindUnavailable, "worktree_verify", "cannot persist the verify lease", true, "retry the same operation with the same lease id", insertErr)
+		}
+		return nil
+	default:
+		return wrapFailure(KindUnavailable, "worktree_verify", "cannot read the verify lease", true, "retry once the database is readable", err)
+	}
+}
+
+// heldWorktreeVerifyLeaseTx reports the session holding the worktree's
+// active verify lease, for the typed contention refusal.
+func heldWorktreeVerifyLeaseTx(ctx context.Context, tx *sql.Tx, path string) (SessionWorktreeOwner, bool, error) {
+	var holder SessionWorktreeOwner
+	err := tx.QueryRowContext(ctx, `SELECT client_ref,agent_ref,session_ref FROM worktree_verify_leases WHERE path=? AND state='held'`, path).
+		Scan(&holder.ClientRef, &holder.AgentRef, &holder.SessionRef)
+	if err == sql.ErrNoRows {
+		return SessionWorktreeOwner{}, false, nil
+	}
+	if err != nil {
+		return SessionWorktreeOwner{}, false, wrapFailure(KindUnavailable, "worktree_verify", "cannot read held verify leases", true, "retry once the database is readable", err)
+	}
+	return holder, true, nil
+}
+
+// ActiveWorktreeVerifyLease is one held verify lease of the reading
+// session, carried by the pinned continuity projection (CD-0096 D5).
+type ActiveWorktreeVerifyLease struct {
+	LeaseID    string   `json:"lease_id"`
+	WorkID     string   `json:"work_id"`
+	ProjectID  string   `json:"project_id"`
+	Path       string   `json:"path"`
+	Command    []string `json:"command"`
+	AcquiredAt string   `json:"acquired_at"`
+}
+
+// heldWorktreeVerifyLeasesByOwnerTx reads the session's held verify leases,
+// newest first, bounded. The continuity re-pin carries them so an
+// interrupted verify stays visible to the session that pinned it.
+func heldWorktreeVerifyLeasesByOwnerTx(ctx context.Context, tx *sql.Tx, owner SessionWorktreeOwner) ([]ActiveWorktreeVerifyLease, error) {
+	rows, err := tx.QueryContext(ctx, `SELECT lease_id,work_id,project_id,path,command_json,acquired_at FROM worktree_verify_leases WHERE client_ref=? AND agent_ref=? AND session_ref=? AND state='held' ORDER BY acquired_at DESC LIMIT 4`,
+		owner.ClientRef, owner.AgentRef, owner.SessionRef)
+	if err != nil {
+		return nil, wrapFailure(KindUnavailable, "worktree_verify", "cannot read held verify leases", true, "retry once the database is readable", err)
+	}
+	defer rows.Close()
+	leases := []ActiveWorktreeVerifyLease{}
+	for rows.Next() {
+		var lease ActiveWorktreeVerifyLease
+		var commandJSON string
+		if err := rows.Scan(&lease.LeaseID, &lease.WorkID, &lease.ProjectID, &lease.Path, &commandJSON, &lease.AcquiredAt); err != nil {
+			return nil, wrapFailure(KindUnavailable, "worktree_verify", "cannot decode held verify lease", true, "retry once the database is readable", err)
+		}
+		lease.Command = []string{}
+		_ = json.Unmarshal([]byte(commandJSON), &lease.Command)
+		leases = append(leases, lease)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, wrapFailure(KindUnavailable, "worktree_verify", "cannot enumerate held verify leases", true, "retry once the database is readable", err)
+	}
+	return leases, nil
+}
+
+// worktreeSnapshot is the tracked-file state of one worktree: the porcelain
+// status (worktree and index) and the head commit. Two equal snapshots mean
+// no tracked file changed between them.
+type worktreeSnapshot struct {
+	status string
+	head   string
+}
+
+func snapshotTrackedFiles(ctx context.Context, runner GitRunner, path string) (worktreeSnapshot, error) {
+	statusOut, err := runner.Run(ctx, path, "status", "--porcelain")
+	if err != nil {
+		return worktreeSnapshot{}, wrapFailure(KindGitUnreachable, "worktree_verify", "cannot read worktree status", true, "retry once the worktree is reachable", err)
+	}
+	headOut, err := runner.Run(ctx, path, "rev-parse", "HEAD")
+	if err != nil {
+		return worktreeSnapshot{}, wrapFailure(KindGitUnreachable, "worktree_verify", "cannot read the worktree head", true, "retry once the worktree is reachable", err)
+	}
+	return worktreeSnapshot{status: string(statusOut), head: strings.TrimSpace(string(headOut))}, nil
+}
+
+// validateWorktreeVerifyCommand accepts a bounded argv. A shell command
+// string is never accepted; the values run as separate arguments.
+func validateWorktreeVerifyCommand(command []string) error {
+	if len(command) < 1 || len(command) > maxWorktreeVerifyCommandArgs {
+		return newFailure(KindInvalidOperation, "worktree_verify", "verify command must be one to sixteen argv values", false, "supply the command and its arguments as separate values")
+	}
+	for _, part := range command {
+		if len(part) < 1 || len(part) > maxWorktreeVerifyCommandPart {
+			return newFailure(KindInvalidOperation, "worktree_verify", "verify command values must be one to 256 bytes", false, "supply bounded command and argument values")
+		}
+	}
+	return nil
+}
+
+// cappedOutput drains a command stream while recording at most limit bytes.
+type cappedOutput struct {
+	buffer    bytes.Buffer
+	limit     int
+	truncated bool
+}
+
+func (w *cappedOutput) Write(p []byte) (int, error) {
+	if w.buffer.Len() >= w.limit {
+		w.truncated = true
+		return len(p), nil
+	}
+	room := w.limit - w.buffer.Len()
+	if len(p) > room {
+		w.buffer.Write(p[:room])
+		w.truncated = true
+	} else {
+		w.buffer.Write(p)
+	}
+	return len(p), nil
+}
+
+// RunWorktreeVerifyCommand executes argv in dir under the caller's context,
+// returning the exit code and bounded combined output. A command that cannot
+// start reports exit code -1 with the start failure as output.
+func RunWorktreeVerifyCommand(ctx context.Context, dir string, command []string, maxOutput int) (int, []byte, bool, error) {
+	cmd := exec.CommandContext(ctx, command[0], command[1:]...) //nolint:gosec // argv values stay separate and no shell is invoked; the tier grants the command.
+	cmd.Dir = dir
+	out := &cappedOutput{limit: maxOutput}
+	cmd.Stdout = out
+	cmd.Stderr = out
+	if err := cmd.Start(); err != nil {
+		return -1, []byte(err.Error()), false, nil
+	}
+	if err := cmd.Wait(); err != nil {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
+			return exitErr.ExitCode(), out.buffer.Bytes(), out.truncated, nil
+		}
+		return -1, append(out.buffer.Bytes(), []byte("\n"+err.Error())...), out.truncated, nil
+	}
+	return 0, out.buffer.Bytes(), out.truncated, nil
+}
+
+// retitleFailure rebrands a typed failure from another operation label so a
+// reused validator reports the operation the caller invoked.
+func retitleFailure(err error, op string) error {
+	var failure *Failure
+	if errors.As(err, &failure) {
+		branded := *failure
+		branded.Op = op
+		return &branded
+	}
+	return err
 }

@@ -20,6 +20,9 @@ derivable fact drifts from its source and no check catches it.
   authority — including this file, which is host instruction, not law.
 - Surface conflicts with accepted decisions. Never silently narrow a contract.
 - One branch and worktree per change. Never implement directly on `main`.
+  `concord_work_start` is the mechanism that captures the work item and claims
+  its canonical worktree; a hand-made worktree is the rejected route in
+  [`CD-0088`](docs/decisions/CD-0088-host-owned-work-bootstrap-preserves-pre-readiness-authority.md).
 - Concord coordinates its own development under CD-0089. Each session has a
   Concord identity and a linked GitHub issue. See
   [`docs/development-authority.md`](docs/development-authority.md).

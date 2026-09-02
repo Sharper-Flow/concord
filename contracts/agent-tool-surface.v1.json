@@ -40,7 +40,8 @@
         "concord_work_browse.blocked",
         "concord_work_browse.scope",
         "concord_work_browse.resource_claims",
-        "concord_work_browse.messages"
+        "concord_work_browse.messages",
+        "concord_work_browse.worktree_audit"
       ]
     },
     {
@@ -344,6 +345,27 @@
         "context": "ambient",
         "idempotency": "request_id",
         "pagination": "cursor",
+        "output_bytes": 51200,
+        "versions": [
+          "1.0"
+        ]
+      },
+      "supported_budget_seconds": 300
+    },
+    {
+      "id": "concord_work_browse.worktree_audit",
+      "tool": "concord_work_browse",
+      "kind": "read",
+      "query_id": "PM1.Q16",
+      "input_schema": "#/schemas/work_browse_worktree_audit_input",
+      "result_schema": "#/schemas/worktree_audit_page",
+      "capability": "product_read",
+      "consequence": "read",
+      "approval": "none",
+      "metadata": {
+        "context": "ambient",
+        "idempotency": "request_id",
+        "pagination": "limit",
         "output_bytes": 51200,
         "versions": [
           "1.0"
@@ -1650,6 +1672,14 @@
       "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_messages_page",
       "closed": true
     },
+    "work_browse_worktree_audit_input": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_browse_worktree_audit_input",
+      "closed": true
+    },
+    "worktree_audit_page": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/worktree_audit_page",
+      "closed": true
+    },
     "work_define_observation_record_input": {
       "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_define_observation_record_input",
       "closed": true
@@ -1751,6 +1781,6 @@
       "digest"
     ]
   },
-  "payload_digest": "sha256:6022ca9887fc58ca8c4dc914f4cb0f771cdad558e9428d1a43f346edea546399",
-  "digest": "sha256:b2bb38b198ef78f3ccc7e2e17d8eb1a854392ff046f654dd5e4013122e6e7648"
+  "payload_digest": "sha256:f23d4463160938665c7b0764bb741a110ca470797a6abf5c856c2d626ebdfef2",
+  "digest": "sha256:c8e9f674b6f3753e5c58a3c5a281e9bf117cb27a419768cb87a4ed815dc7bf9c"
 }

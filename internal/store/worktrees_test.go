@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -389,4 +390,170 @@ func (s *Store) insertPendingClaim(req WorktreeClaimRequest) error {
 	_, err := s.db.Exec(`INSERT INTO worktree_claims(op_id,work_id,project_id,set_id,pinned_branch,pinned_base_sha,pinned_path,state,principal_ref,request_id,observed_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`,
 		req.OpID, req.WorkID, req.ProjectID, WorktreeSetID(req.WorkID), req.Branch, req.BaseSHA, req.Path, worktreeStatePending, req.PrincipalRef, req.RequestID, req.Now.Format(time.RFC3339Nano), req.Now.Format(time.RFC3339Nano))
 	return err
+}
+
+// auditWork seeds one extra work item in the worktree fixture and claims it
+// at the canonical audit path under the store's worktree root. The fake
+// runner registers the worktree without touching the real filesystem, so the
+// test controls presence on disk directly with mkdir.
+func auditWork(t *testing.T, s *Store, git *fakeWorktreeGit, workID string, onDisk bool) string {
+	t.Helper()
+	ctx := context.Background()
+	if err := ApplyOperation(ctx, s, Operation{Events: []Event{
+		{EventID: workID + "-create", Kind: "work.created", SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "operator", OccurredAt: time.Unix(1, 0).UTC(), PayloadVersion: 2, Payload: jsonRaw(`{"work_kind":"task","title":"Audit ` + workID + `","priority":1}`)},
+		{EventID: workID + "-membership", Kind: "work.memberships_replaced", SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "operator", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: 1, Payload: jsonRaw(`{"memberships":[{"project_id":"project-w","role":"primary"}],"expected_version":1,"resulting_version":2}`)},
+	}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 0}}); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(filepath.Dir(s.Path()), "worktrees", "project-w", workID)
+	req := WorktreeClaimRequest{
+		OpID: "wt-" + workID, WorkID: workID, ProjectID: "project-w",
+		Branch: "work/" + workID, BaseSHA: git.branches["main"],
+		Path:         path,
+		PrincipalRef: "principal-1", RequestID: "req-" + workID,
+		ExpectedVersion: 2, Now: time.Unix(10, 0).UTC(), Runner: git,
+	}
+	if _, err := s.ClaimWorktree(ctx, req); err != nil {
+		t.Fatal(err)
+	}
+	if onDisk {
+		if err := os.MkdirAll(path, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return path
+}
+
+func auditRowsByClass(rows []WorktreeDrift) map[string][]WorktreeDrift {
+	byClass := map[string][]WorktreeDrift{}
+	for _, row := range rows {
+		byClass[row.Class] = append(byClass[row.Class], row)
+	}
+	return byClass
+}
+
+func TestWorktreeAuditClassifiesEachDriftClass(t *testing.T) {
+	s, git, _ := worktreeFixture(t)
+	ctx := context.Background()
+	root := filepath.Join(filepath.Dir(s.Path()), "worktrees")
+
+	// Healthy: a verified claim whose worktree exists on disk reports nothing.
+	auditWork(t, s, git, "work-healthy", true)
+	// Stale claim only: the work moved past needed, so its gone worktree is a
+	// claim problem, not a stranded work item.
+	stalePath := auditWork(t, s, git, "work-stale", false)
+	if err := ApplyOperation(ctx, s, Operation{Events: []Event{{EventID: "work-stale-start", Kind: "work.transitioned", SubjectType: SubjectWorkItem, SubjectID: "work-stale", Actor: "operator", OccurredAt: time.Unix(20, 0).UTC(), PayloadVersion: 1, Payload: jsonRaw(`{"from":"needed","to":"in_progress","reason":"started","expected_version":3,"resulting_version":4}`)}}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "work-stale"): 3}}); err != nil {
+		t.Fatal(err)
+	}
+	// Stale claim plus stranded work: still at needed with the worktree gone.
+	gonePath := auditWork(t, s, git, "work-gone", false)
+	// Orphan: a directory with no claim and no entry.
+	orphanPath := filepath.Join(root, "project-w", "work-orphan")
+	if err := os.MkdirAll(orphanPath, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	audit, err := s.WorktreeAudit(ctx, "product-w", 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if audit.Root != root {
+		t.Fatalf("root=%q want %q", audit.Root, root)
+	}
+	byClass := auditRowsByClass(audit.Drift)
+
+	orphans := byClass[WorktreeDriftOrphan]
+	if len(orphans) != 1 || orphans[0].ProjectID != "project-w" || orphans[0].WorkID != "work-orphan" || orphans[0].Path != orphanPath || orphans[0].RecoveryAction != WorktreeRecoveryRemoveOrphan {
+		t.Fatalf("orphan rows=%+v", orphans)
+	}
+	stale := byClass[WorktreeDriftStaleClaim]
+	if len(stale) != 2 {
+		t.Fatalf("stale rows=%+v", stale)
+	}
+	byWork := map[string]WorktreeDrift{}
+	for _, row := range stale {
+		byWork[row.WorkID] = row
+	}
+	for _, workID := range []string{"work-stale", "work-gone"} {
+		row := byWork[workID]
+		if row.ClaimState != worktreeStateVerified || row.RecoveryAction != WorktreeRecoveryReclaim {
+			t.Fatalf("stale row for %s=%+v", workID, row)
+		}
+	}
+	if byWork["work-stale"].Path != stalePath || byWork["work-gone"].Path != gonePath {
+		t.Fatalf("stale paths=%+v", byWork)
+	}
+	stranded := byClass[WorktreeDriftStrandedNeeded]
+	if len(stranded) != 1 || stranded[0].WorkID != "work-gone" || stranded[0].Path != gonePath || stranded[0].Lifecycle != "needed" || stranded[0].RecoveryAction != WorktreeRecoveryClaim {
+		t.Fatalf("stranded rows=%+v", stranded)
+	}
+	for _, row := range audit.Drift {
+		if row.WorkID == "work-healthy" {
+			t.Fatalf("healthy worktree reported as drift: %+v", row)
+		}
+	}
+}
+
+// A pending claim is intent mid-creation, not verified fact: its missing
+// directory is reconciled by retrying the claim, so the audit must not
+// classify it as drift.
+func TestWorktreeAuditIgnoresPendingClaims(t *testing.T) {
+	s, git, _ := worktreeFixture(t)
+	path := filepath.Join(filepath.Dir(s.Path()), "worktrees", "project-w", "work-w")
+	req := baseClaim(git)
+	req.Path = path
+	if err := s.insertPendingClaim(req); err != nil {
+		t.Fatal(err)
+	}
+	audit, err := s.WorktreeAudit(context.Background(), "product-w", 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, row := range audit.Drift {
+		if row.Class == WorktreeDriftStaleClaim || row.Class == WorktreeDriftStrandedNeeded {
+			t.Fatalf("pending claim classified as drift: %+v", row)
+		}
+	}
+}
+
+func TestWorktreeAuditChangesNoDurableState(t *testing.T) {
+	s, git, _ := worktreeFixture(t)
+	ctx := context.Background()
+	auditWork(t, s, git, "work-gone", false)
+	if err := os.MkdirAll(filepath.Join(filepath.Dir(s.Path()), "worktrees", "project-w", "work-orphan"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	var claimsBefore, entriesBefore, eventsBefore int
+	s.db.QueryRow(`SELECT count(*) FROM worktree_claims`).Scan(&claimsBefore)
+	s.db.QueryRow(`SELECT count(*) FROM worktree_entries`).Scan(&entriesBefore)
+	s.db.QueryRow(`SELECT count(*) FROM domain_events`).Scan(&eventsBefore)
+
+	if _, err := s.WorktreeAudit(ctx, "product-w", 100); err != nil {
+		t.Fatal(err)
+	}
+
+	var claimsAfter, entriesAfter, eventsAfter int
+	s.db.QueryRow(`SELECT count(*) FROM worktree_claims`).Scan(&claimsAfter)
+	s.db.QueryRow(`SELECT count(*) FROM worktree_entries`).Scan(&entriesAfter)
+	s.db.QueryRow(`SELECT count(*) FROM domain_events`).Scan(&eventsAfter)
+	if claimsAfter != claimsBefore || entriesAfter != entriesBefore || eventsAfter != eventsBefore {
+		t.Fatalf("audit mutated state: claims %d->%d entries %d->%d events %d->%d", claimsBefore, claimsAfter, entriesBefore, entriesAfter, eventsBefore, eventsAfter)
+	}
+}
+
+func TestWorktreeAuditRequiresProductScopeAndBoundsLimit(t *testing.T) {
+	s, _, _ := worktreeFixture(t)
+	if _, err := s.WorktreeAudit(context.Background(), "", 0); err == nil {
+		t.Fatal("empty Product scope must be refused")
+	}
+	audit, err := s.WorktreeAudit(context.Background(), "product-w", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(audit.Drift) > 1 {
+		t.Fatalf("limit not applied: %d rows", len(audit.Drift))
+	}
+	if audit.Drift == nil {
+		t.Fatal("drift must serialize as an empty array, not null")
+	}
 }

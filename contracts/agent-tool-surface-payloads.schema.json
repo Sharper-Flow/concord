@@ -5477,6 +5477,97 @@
         }
       }
     },
+    "work_browse_worktree_audit_input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "product_id"
+      ],
+      "properties": {
+        "product_id": {
+          "$ref": "#/$defs/id"
+        },
+        "page": {
+          "$ref": "#/$defs/page"
+        },
+        "budget": {
+          "$ref": "#/$defs/budget"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
+        }
+      }
+    },
+    "worktree_audit_page": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "root",
+        "drift"
+      ],
+      "properties": {
+        "root": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "drift": {
+          "type": "array",
+          "maxItems": 100,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "class",
+              "project_id",
+              "path",
+              "recovery_action"
+            ],
+            "properties": {
+              "class": {
+                "type": "string",
+                "enum": [
+                  "orphan",
+                  "stale_claim",
+                  "stranded_needed"
+                ]
+              },
+              "project_id": {
+                "$ref": "#/$defs/id"
+              },
+              "work_id": {
+                "$ref": "#/$defs/id"
+              },
+              "path": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 4096
+              },
+              "claim_state": {
+                "type": "string",
+                "enum": [
+                  "verified"
+                ]
+              },
+              "lifecycle": {
+                "type": "string",
+                "enum": [
+                  "needed"
+                ]
+              },
+              "recovery_action": {
+                "type": "string",
+                "enum": [
+                  "remove_worktree",
+                  "worktree_reclaim",
+                  "worktree_claim"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
     "work_define_observation_record_input": {
       "type": "object",
       "additionalProperties": false,

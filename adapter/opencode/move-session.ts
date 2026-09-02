@@ -94,24 +94,35 @@ export class HostControlPlane {
   // refuses success unless the move landed on the claimed worktree, so the
   // answer comes from the host rather than from the request that asked for it.
   async sessionDirectory(sessionID: string, signal?: AbortSignal): Promise<string> {
+    return this.#session(sessionID, "cannot read the session directory back", signal)
+  }
+
+  // probe answers whether this session can reach its host at all. CD-0098 D2
+  // makes the retarget the only route into a claimed worktree, so a session
+  // that cannot reach the host cannot start work, and the answer is worth
+  // having before anything is captured or claimed. It reads the same session
+  // route the readback uses, so it proves reachability and that the host knows
+  // this session, without a route of its own.
+  async probe(sessionID: string, signal?: AbortSignal): Promise<void> {
+    await this.#session(sessionID, "the host control plane is unreachable", signal)
+  }
+
+  // session reads one session record. Both callers want the same request and
+  // differ only in what a failure means to them, so the wording arrives as a
+  // prefix rather than each caller repeating the request.
+  async #session(sessionID: string, prefix: string, signal?: AbortSignal): Promise<string> {
     if (!this.#serverUrl) {
-      throw new MoveSessionUnavailable(
-        `cannot read the session directory back: this host exposed no server URL (host version ${hostVersion()})`,
-      )
+      throw new MoveSessionUnavailable(`${prefix}: this host exposed no server URL (host version ${hostVersion()})`)
     }
     const url = new URL(`/session/${encodeURIComponent(sessionID)}`, this.#serverUrl)
     let response: Response
     try {
       response = await this.#fetch(url, { method: "GET", headers: { Accept: "application/json" }, signal })
     } catch (error) {
-      throw new MoveSessionRefused(
-        `cannot read the session directory back: ${error instanceof Error ? error.message : String(error)}`,
-      )
+      throw new MoveSessionRefused(`${prefix}: ${error instanceof Error ? error.message : String(error)}`)
     }
     if (!response.ok) {
-      throw new MoveSessionRefused(
-        `cannot read the session directory back: the host answered ${response.status}: ${await readRefusal(response)}`,
-      )
+      throw new MoveSessionRefused(`${prefix}: the host answered ${response.status}: ${await readRefusal(response)}`)
     }
     let session: unknown
     try {

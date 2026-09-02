@@ -30,8 +30,15 @@ import {
 import { createContinuityTransform } from "./continuity-hook"
 import { createAgentSwitchNotice } from "./agent-switch-hook"
 import { dispatchWindows } from "./dispatch-window"
+import { hostControlPlane } from "./move-session"
 
-export default async function ConcordAdapterPlugin() {
+// The plugin factory is the only place the host hands over its own server URL,
+// and CD-0098 D2 makes the move-session route on that server a requirement of
+// work start. Binding it here is what lets the tool path reach the route.
+type ConcordPluginInput = { serverUrl?: URL | string }
+
+export default async function ConcordAdapterPlugin(input?: ConcordPluginInput) {
+  hostControlPlane().bind(input?.serverUrl)
   const continuityTransform = createContinuityTransform()
   const agentSwitch = createAgentSwitchNotice()
   return {

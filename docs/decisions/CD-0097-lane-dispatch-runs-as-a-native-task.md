@@ -84,6 +84,19 @@ A worker that ends without a valid report fails the attempt. A worker whose own
 tool call failed fails the attempt too, because OpenCode reports that failure in
 place of the result.
 
+The host wraps that body as `<task id="SESSION_ID" state="...">`, so the worker
+session identifier arrives with the result. Readback evidence therefore survives
+the native route unchanged: the adapter exports that session and reads the
+executing model and executing agent from it, exactly as the child-process route
+did. CD-0058 D1 and CD-0017 D5 keep their evidence without amendment.
+
+Dispatch and completion are consequently two adapter entry points, not one call.
+Dispatch authorizes the attempt and opens the window, and it returns before the
+worker runs. Completion receives the result body, exports the worker session,
+resolves the report, signs the dispatch and terminal assertions, and records the
+attempt outcome. A single blocking call cannot span the two, because the host
+runs the worker between them.
+
 ### D6. The child-process route is removed
 
 `dispatch_worker` starts a worker one way. The `opencode run` spawn, its

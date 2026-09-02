@@ -1,0 +1,24 @@
+{
+  "date": "2026-09-02T00:00:00Z",
+  "home_domain_id": "product-root:concord",
+  "id": "CD-0097",
+  "kind": "decision",
+  "path": "docs/decisions/CD-0097-lane-dispatch-runs-as-a-native-task.md",
+  "product_wide_rationale": "Governs how every worker lane starts and how its authorization binds, across all Domains that dispatch work. It sets an execution boundary rather than owning a runtime Domain.",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:9c0dd09dad3d7c775193af68c82c291bdeed334d86364e35f40409d87b43c890",
+  "status": "accepted",
+  "summary": "Replaces the child-process worker route with the host's native Task tool, so a dispatched lane renders the standard worker card with progress, navigation, and cancellation. Typed dispatch opens one single-use authorization window; the adapter's before-execute hook refuses a Task call with no open window and otherwise overwrites the caller's agent selection and prompt from the recorded packet, so packet provenance is structural rather than composed by the model. The coordinator posture must order its Task ruleset so a lane pattern is last, because a blanket deny removes the tool from the model request and no hook can reach it. Lanes cannot nest workers, the lane report is the final text part of the worker session, the worker runs where the session runs, and the spawn path is removed with no fallback.",
+  "tags": [
+    "authority",
+    "worker-lanes",
+    "dispatch"
+  ],
+  "title": "Run lane dispatch as a native Task under a one-time authorization"
+}

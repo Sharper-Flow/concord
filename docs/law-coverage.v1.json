@@ -1563,6 +1563,16 @@
       "state": "outstanding"
     },
     {
+      "id": "CD-0097",
+      "issue": 689,
+      "state": "outstanding"
+    },
+    {
+      "id": "CD-0098",
+      "issue": 689,
+      "state": "outstanding"
+    },
+    {
       "evidence": [
         {
           "kind": "go_test",

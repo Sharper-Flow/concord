@@ -1,0 +1,24 @@
+{
+  "date": "2026-09-02T00:00:00Z",
+  "home_domain_id": "product-root:concord",
+  "id": "CD-0098",
+  "kind": "decision",
+  "path": "docs/decisions/CD-0098-work-start-retargets-the-running-session.md",
+  "product_wide_rationale": "Governs the single route by which any session acquires an implementation surface, so it binds every Domain rather than one runtime Domain.",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:810cbf76f4dba8b600911ce4bc823a7c4d05cbbd359453b90b20cd2ac8b168a8",
+  "status": "accepted",
+  "summary": "Amends CD-0096 D6 and CD-0088 D4 at their launch clauses so work start moves the calling session into the claimed worktree instead of launching a new one. The worktree claim is recorded before the move, so a failed move leaves a resumable claim rather than a moved session with no claim. The host move route is required and its absence fails closed with a typed refusal instead of a launch fallback. The default checkout must be clean, the move carries no changes and waits for the turn to end, and the session directory is read back and verified afterward. The session-prepare directory refusal, lane definition check, and read-back assertion are preserved and now guard the destination of a move.",
+  "tags": [
+    "authority",
+    "worktree-isolation",
+    "session-boot"
+  ],
+  "title": "Retarget the running session at work start instead of launching one"
+}

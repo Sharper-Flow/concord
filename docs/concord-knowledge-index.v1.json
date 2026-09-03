@@ -298,7 +298,7 @@
         "project_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:ea55aefbb8d72c2b004cf27357c6c658e2a383a48e9fad9f62bda1df90a0ba39",
+      "sha256": "sha256:5ba71e4864a9579e0566f08389e703eba805339c0c9bbece392ef646929e5ba8",
       "status": "accepted",
       "summary": "Defines the resource-first managed-resource inventory with a singular owner Product, consumer links, and typed locators.",
       "tags": [
@@ -3735,7 +3735,7 @@
         "project_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:b880b72fbfdfe1b2b06262449168df12ee662e64052628aec7b7d72f246e60d1",
+      "sha256": "sha256:a4371fb19bf00e94c18b8972d4bd5beab4e963c5ee42c4d4913715b38d63382e",
       "status": "accepted",
       "summary": "Defines eight canonical agent jobs AJ1-AJ8 and the 23-scenario acceptance corpus that measures them.",
       "tags": [
@@ -3832,7 +3832,7 @@
         "project_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:226c48d58403396cf030d934c456588fb85e60acd1798adff49168f5445dcfa9",
+      "sha256": "sha256:53d76b9622a509c0be2889f7bc3671a88fea72d7b5b397a56e630ac2da76f87b",
       "status": "accepted",
       "summary": "Defines bounded read tools including the durable knowledge surface.",
       "tags": [

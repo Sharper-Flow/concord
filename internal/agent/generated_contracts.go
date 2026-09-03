@@ -6,7 +6,7 @@ import (
 	"fmt"
 )
 
-const ManifestDigest = "sha256:9bba8f37a9dc63901aed3ba40fb929e73640456ca5e97e2139924d975280a835"
+const ManifestDigest = "sha256:6af9547aa71a093d625669dffa9d1dfed17635dbf511389f43cd3c3717ef0be9"
 
 type OperationKind string
 
@@ -42,6 +42,7 @@ var ContractOperations = []ContractOperation{
 	{ID: "concord_product_view.snapshot", Tool: "concord_product_view", Operation: "snapshot", Kind: OperationKind("read"), QueryID: "PM1.Q2", Capability: Capability("product_read"), Consequence: OperationConsequence("read"), Approval: ApprovalClass("none"), Availability: Availability("always"), SupportedBudgetSeconds: 300, InputSchema: "product_view_snapshot_input", ResultSchema: "product_snapshot"},
 	{ID: "concord_product_view.portfolio", Tool: "concord_product_view", Operation: "portfolio", Kind: OperationKind("read"), QueryID: "C14.ProductRows", Capability: Capability("product_read"), Consequence: OperationConsequence("read"), Approval: ApprovalClass("none"), Availability: Availability("always"), SupportedBudgetSeconds: 300, InputSchema: "product_row_portfolio_input", ResultSchema: "product_row_page"},
 	{ID: "concord_product_view.blocked_sessions", Tool: "concord_product_view", Operation: "blocked_sessions", Kind: OperationKind("read"), QueryID: "PM1.Q12", Capability: Capability("product_read"), Consequence: OperationConsequence("read"), Approval: ApprovalClass("none"), Availability: Availability("always"), SupportedBudgetSeconds: 300, InputSchema: "product_view_blocked_sessions_input", ResultSchema: "blocked_sessions_page"},
+	{ID: "concord_product_view.resources", Tool: "concord_product_view", Operation: "resources", Kind: OperationKind("read"), QueryID: "C15.Resources", Capability: Capability("product_read"), Consequence: OperationConsequence("read"), Approval: ApprovalClass("none"), Availability: Availability("always"), SupportedBudgetSeconds: 300, InputSchema: "product_view_resources_input", ResultSchema: "resource_page"},
 	{ID: "concord_work_browse.list", Tool: "concord_work_browse", Operation: "list", Kind: OperationKind("read"), QueryID: "PM1.Q3", Capability: Capability("product_read"), Consequence: OperationConsequence("read"), Approval: ApprovalClass("none"), Availability: Availability("always"), SupportedBudgetSeconds: 300, InputSchema: "work_browse_list_input", ResultSchema: "work_page"},
 	{ID: "concord_work_browse.blocked", Tool: "concord_work_browse", Operation: "blocked", Kind: OperationKind("read"), QueryID: "PM1.Q4", Capability: Capability("product_read"), Consequence: OperationConsequence("read"), Approval: ApprovalClass("none"), Availability: Availability("always"), SupportedBudgetSeconds: 300, InputSchema: "work_browse_blocked_input", ResultSchema: "blocked_work_page"},
 	{ID: "concord_work_browse.ready", Tool: "concord_work_browse", Operation: "ready", Kind: OperationKind("read"), QueryID: "PM1.Q5", Capability: Capability("product_read"), Consequence: OperationConsequence("read"), Approval: ApprovalClass("none"), Availability: Availability("always"), SupportedBudgetSeconds: 300, InputSchema: "work_browse_ready_input", ResultSchema: "work_page"},
@@ -186,6 +187,7 @@ var GeneratedPayloadRules = map[string]GeneratedPayloadRule{
 	"product_snapshot":                             {Required: []string{"counts", "previews"}, Properties: []string{"counts", "previews"}},
 	"product_view_blocked_sessions_input":          {Required: []string{"product_id"}, Properties: []string{"product_id", "page", "budget", "requested_budget_seconds"}},
 	"product_view_resolve_input":                   {Required: []string{}, Properties: []string{"product_id", "project_id", "page", "budget", "requested_budget_seconds"}},
+	"product_view_resources_input":                 {Required: []string{}, Properties: []string{"product_id", "resource_id", "class", "kind", "environment", "page", "budget", "requested_budget_seconds"}},
 	"product_view_snapshot_input":                  {Required: []string{}, Properties: []string{"product_id", "project_ids", "preview_limit", "budget", "requested_budget_seconds"}},
 	"research_finding":                             {Required: []string{"pack_id", "revision", "finding_id", "kind", "statement", "confidence", "freshness", "status"}, Properties: []string{"pack_id", "revision", "finding_id", "kind", "statement", "confidence", "freshness", "status", "source_ids", "scopes"}},
 	"research_finding_input":                       {Required: []string{"finding_id", "kind", "statement", "confidence"}, Properties: []string{"finding_id", "kind", "statement", "confidence", "freshness", "status", "scopes"}},
@@ -197,6 +199,8 @@ var GeneratedPayloadRules = map[string]GeneratedPayloadRule{
 	"research_source":                              {Required: []string{"pack_id", "revision", "source_id", "kind", "locator", "title", "publisher_or_author", "accessed_at"}, Properties: []string{"pack_id", "revision", "source_id", "kind", "locator", "title", "publisher_or_author", "published_at", "accessed_at"}},
 	"research_source_input":                        {Required: []string{"source_id", "kind", "locator", "title", "publisher_or_author", "accessed_at"}, Properties: []string{"source_id", "kind", "locator", "title", "publisher_or_author", "published_at", "accessed_at"}},
 	"resource_claims_page":                         {Required: []string{"claims"}, Properties: []string{"claims"}},
+	"resource_page":                                {Required: []string{"resources"}, Properties: []string{"resources"}},
+	"resource_product_link":                        {Required: []string{"product_id", "role", "purpose", "environments"}, Properties: []string{"product_id", "role", "purpose", "environments"}},
 	"scope":                                        {Required: []string{}, Properties: []string{"product_id", "project_ids", "work_ids", "scope_version"}},
 	"session_boot_packet":                          {Required: []string{"schema_version", "session_type", "session_contract_version", "manifest_digest", "product_id", "work_id", "continuity"}, Properties: []string{"schema_version", "session_type", "session_contract_version", "manifest_digest", "product_id", "work_id", "continuity"}},
 	"unprocessed_page":                             {Required: []string{"paths"}, Properties: []string{"paths"}},

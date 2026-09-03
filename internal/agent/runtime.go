@@ -106,6 +106,15 @@ type productSnapshotInput struct {
 	PreviewLimit int         `json:"preview_limit"`
 	Budget       budgetInput `json:"budget"`
 }
+type resourcesInput struct {
+	ProductID   string      `json:"product_id"`
+	ResourceID  string      `json:"resource_id"`
+	Class       string      `json:"class"`
+	Kind        string      `json:"kind"`
+	Environment string      `json:"environment"`
+	Page        pageInput   `json:"page"`
+	Budget      budgetInput `json:"budget"`
+}
 type blockedSessionsInput struct {
 	ProductID string      `json:"product_id"`
 	Page      pageInput   `json:"page"`
@@ -1066,6 +1075,19 @@ func (r runtime) read(ctx context.Context, base Envelope, input []byte, queryID 
 			return failureEnvelope(base, err), nil
 		}
 		return r.resultEnvelope(base, result.ResultMeta, r.scope(result.ResultMeta), map[string]any{"sessions": result.Sessions})
+	case "concord_product_view.resources":
+		var in resourcesInput
+		if err := decodeOperationInput(input, &in); err != nil {
+			return base, err
+		}
+		if in.ProductID == "" && in.ResourceID == "" {
+			in.ProductID = r.Envelope.SelectedProductID
+		}
+		result, err := r.Store.Resources(ctx, store.ResourcesRequest{ProductID: in.ProductID, ResourceID: in.ResourceID, Class: in.Class, Kind: in.Kind, Environment: in.Environment, Limit: r.boundedLimit(in.Page.Limit)})
+		if err != nil {
+			return failureEnvelope(base, err), nil
+		}
+		return r.resultEnvelope(base, result.ResultMeta, r.scope(result.ResultMeta), map[string]any{"resources": result.Resources})
 	case "concord_work_browse.list":
 		var in workListInput
 		if err := decodeOperationInput(input, &in); err != nil {

@@ -1026,8 +1026,8 @@ func TestAgentJobsCorpus(t *testing.T) {
 
 	// The corpus count is pinned so scenario removal cannot masquerade as a
 	// complete binding run.
-	if len(corpus.Scenarios) != 23 {
-		t.Fatalf("corpus declares %d scenarios, want 23", len(corpus.Scenarios))
+	if len(corpus.Scenarios) != 24 {
+		t.Fatalf("corpus declares %d scenarios, want 24", len(corpus.Scenarios))
 	}
 
 	for _, sc := range corpus.Scenarios {
@@ -1387,6 +1387,7 @@ func init() {
 	jobBindings["AJ6-partial-publication"] = bindAJ6PartialPublication
 	jobBindings["AJ7-search-knowledge"] = bindAJ7SearchKnowledge
 	jobBindings["AJ7-degraded-index"] = bindAJ7DegradedIndex
+	jobBindings["AJ9-product-resources"] = bindAJ9ProductResources
 	jobBindings["AJ4-start-valid-work"] = bindAJ4StartValidWork
 	jobBindings["AJ4-complete-valid-work"] = bindAJ4CompleteValidWork
 	jobBindings["AJ4-completion-missing-evidence"] = bindAJ4CompletionMissingEvidence

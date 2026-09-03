@@ -34,7 +34,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:ea55aefbb8d72c2b004cf27357c6c658e2a383a48e9fad9f62bda1df90a0ba39",
+  "sha256": "sha256:5ba71e4864a9579e0566f08389e703eba805339c0c9bbece392ef646929e5ba8",
   "status": "accepted",
   "summary": "Defines the resource-first managed-resource inventory with a singular owner Product, consumer links, and typed locators.",
   "tags": [

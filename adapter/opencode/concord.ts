@@ -340,8 +340,13 @@ async function invokeConcordOperationRaw(toolName: string, args: HostToolArgs, c
     const details = response.error.details ?? {}
     const requiredChallengeFields = ["approval_ref", "operation_digest"]
     if (toolName === "concord_work_transition" && operation === "workflow_action") {
-      requiredChallengeFields.push("work_id", "action_id", "contract_version", "selected_choice", "premise_summary")
-      if (args.input?.action_id === "confirm_premise") requiredChallengeFields.push("decision_context_digest")
+      requiredChallengeFields.push("work_id", "action_id", "contract_version", "premise_summary")
+      // `selected_choice` and `decision_context_digest` belong to
+      // `confirm_premise` alone. The tool schema forbids both on every other
+      // action, so the core emits `selected_choice` empty for them. Requiring
+      // it unconditionally rejects a correct challenge and makes every
+      // approval-gated action except `confirm_premise` unreachable.
+      if (args.input?.action_id === "confirm_premise") requiredChallengeFields.push("selected_choice", "decision_context_digest")
     }
     if (toolName === "concord_work_relate" && operation === "resolve_overlap") {
       requiredChallengeFields.push("summary", "resolution_kind", "from_work_id", "to_work_id")

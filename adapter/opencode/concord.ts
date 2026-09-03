@@ -353,7 +353,13 @@ async function invokeConcordOperationRaw(toolName: string, args: HostToolArgs, c
     }
     if (requiredChallengeFields.some((key) => typeof details[key] !== "string" || details[key].length === 0)) return adapterError(toolName, operation, requestID, "malformed_response", "malformed_core_response", "core approval challenge lacked exact workflow metadata")
     if (toolName === "concord_work_transition" && operation === "workflow_action" && Array.from(details.premise_summary ?? "").length > 256) return adapterError(toolName, operation, requestID, "malformed_response", "malformed_core_response", "core approval challenge premise summary exceeded the public bound")
-    if (!Array.isArray(details.scope) || !Array.isArray(details.versions) || (toolName === "concord_work_transition" && operation === "workflow_action" && details.selected_choice !== args.input?.selected_choice)) return adapterError(toolName, operation, requestID, "malformed_response", "malformed_core_response", "core approval challenge did not bind the exact workflow selection")
+    // The selection binds only where the surface admits one. `confirm_premise`
+    // is the sole action whose schema carries `selected_choice`, and the core
+    // emits the field as an empty string for every other action, so comparing
+    // it against an absent caller value refuses a correct challenge and takes
+    // every approval-gated action with it.
+    const bindsSelection = toolName === "concord_work_transition" && operation === "workflow_action" && args.input?.action_id === "confirm_premise"
+    if (!Array.isArray(details.scope) || !Array.isArray(details.versions) || (bindsSelection && details.selected_choice !== args.input?.selected_choice)) return adapterError(toolName, operation, requestID, "malformed_response", "malformed_core_response", "core approval challenge did not bind the exact workflow selection")
     // CD-0037 D5: the typed consequence summary rides host permission metadata
     // unchanged. The host renders the operator prompt; this is transport, not
     // adapter-owned domain logic.

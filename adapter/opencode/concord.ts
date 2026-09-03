@@ -809,7 +809,59 @@ export function laneDispatchRequest(args: any): LaneDispatchInput | { error: str
 // falls through to the generic core transport. The dispatch path shares the
 // same transport seam as every other adapter tool, so a host-side caller
 // receives the same envelope shape on either branch.
+// WORKTREE_REMOVAL_OPERATIONS are the two typed operations that delete a
+// worktree directory. Both reach `reclaimWorktreeRawTx`, so both carry the
+// same occupancy observation and both report the same way (issue #722).
+const WORKTREE_REMOVAL_OPERATIONS = new Set(["worktree_reclaim", "worktree_destroy"])
+
+// observeSessionsForRemoval attaches the host's live session directories to a
+// worktree removal. The store owns the worktree path and refuses on it; this
+// side owns the only truthful answer to which sessions are live and where.
+//
+// A host it cannot read refuses the removal rather than reporting an empty
+// list. "No session occupies this worktree" and "I could not look" are
+// different answers, and only one of them makes a removal safe.
+async function observeSessionsForRemoval(args: HostToolArgs, context: ToolContext): Promise<HostToolArgs | CoreConcordEnvelope> {
+  try {
+    const observed = await hostControlPlane().liveSessionDirectories(context.abort)
+    return { ...args, input: { ...args.input, observed_session_directories: observed } }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    return adapterError(
+      "concord_work_transition",
+      args.operation,
+      `${context.sessionID}-${context.messageID}`,
+      "transport_failure",
+      "session_occupancy_unreadable",
+      `${message}; the removal was refused because it cannot be shown safe. Nothing was removed`,
+      "none",
+      "contact_operator",
+    )
+  }
+}
+
+// reportWorktreeRemoval puts the completed removal in front of the operator.
+// The agent that made the call may end its turn without relaying anything, and
+// the session that was running in a neighbouring worktree has no other way to
+// learn the directory is gone. Delivery is best effort: the removal already
+// happened, and a host with no attached TUI must not turn it into a failure.
+async function reportWorktreeRemoval(args: HostToolArgs, context: ToolContext, envelope: HostConcordEnvelope): Promise<void> {
+  if (!record(envelope) || envelope.outcome !== "ok") return
+  const workID = typeof args.input?.work_id === "string" ? args.input.work_id : "unknown work"
+  await hostControlPlane().showToast(`Concord removed the worktree of ${workID}.`, "info", context.abort)
+}
+
 async function executeWorkTransition(args: HostToolArgs, context: ToolContext): Promise<HostConcordEnvelope> {
+  if (WORKTREE_REMOVAL_OPERATIONS.has(args?.operation)) {
+    const observed = await observeSessionsForRemoval(args, context)
+    // An unreadable host answers with the refusal itself, so nothing reaches
+    // the core and nothing is reported.
+    if (!("operation" in observed && "input" in observed)) return observed as CoreConcordEnvelope
+    const request = observed as HostToolArgs
+    const envelope = await invokeConcordOperation("concord_work_transition", request, context)
+    await reportWorktreeRemoval(request, context, envelope)
+    return envelope
+  }
   if (args?.operation === "workflow_action") {
     const request = laneDispatchRequest(args)
     if (request && "error" in request) {

@@ -43,7 +43,7 @@ def enum_at(surface: object, path: list[str], findings: list[str]) -> list[str]:
 
 def migration_block(source: str) -> str | None:
     match = re.search(
-        r'Version: 54,\s+Name:\s+"rigor_class_vocabulary",\s+SQL: `(?P<sql>.*?)`,\s+\},',
+        r'Version:\s+54,\s+Name:\s+"rigor_class_vocabulary",\s+(?:Breaking:\s+true,\s+)?SQL:\s+`(?P<sql>.*?)`,\s+\},',
         source,
         re.S,
     )

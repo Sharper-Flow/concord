@@ -1,5 +1,5 @@
-// CD-0098 D2: the OpenCode move-session route, which retargets the calling
-// session at a claimed worktree.
+// The host control plane: the OpenCode routes the adapter reaches directly,
+// through the server URL the plugin factory receives.
 //
 // The route is `POST /experimental/control-plane/move-session` on the host's
 // own server, carrying `{ sessionID, destination: { directory } }` and
@@ -19,13 +19,22 @@
 // generic request surface underneath the client reaches the same route with no
 // such dependency, so the route path stays a constant here.
 //
-// Concord requires the route. There is no launch fallback: a host without it
-// refuses work start, naming the route and the host version.
+// Issue #722 adds two more. `GET /session` reports every live session and the
+// directory it runs in, which is the fact a worktree removal needs and the
+// store cannot hold. `POST /tui/show-toast` puts one line in front of the
+// operator without an agent relaying it.
 
 import { execFileSync } from "node:child_process"
 
 export const MOVE_SESSION_ROUTE = "/experimental/control-plane/move-session"
 export const SESSION_ROUTE = "/session/{id}"
+export const SESSION_LIST_ROUTE = "/session"
+export const SHOW_TOAST_ROUTE = "/tui/show-toast"
+
+// ObservedSessionDirectory is one live host session and the directory it runs
+// in. It is the wire shape the core's occupancy gate consumes, so the field
+// names match the typed operation input rather than the host's own record.
+export type ObservedSessionDirectory = { session_ref: string; directory: string }
 
 // hostVersion reports the running OpenCode version so an unavailable-route
 // refusal names the host it was refused by. The probe runs only on that path,
@@ -137,6 +146,61 @@ export class HostControlPlane {
   // this session, without a route of its own.
   async probe(sessionID: string, signal?: AbortSignal): Promise<void> {
     await this.#session(sessionID, "the host control plane is unreachable", signal)
+  }
+
+  // liveSessionDirectories reports every session the host currently holds and
+  // the directory each runs in (issue #722). A worktree removal cannot decide
+  // safety without it, and the store cannot hold it: no event records a
+  // session leaving a directory, so a stored answer would go stale silently.
+  // A failure throws rather than answering with an empty list, because "no
+  // session occupies this worktree" and "I could not look" must not read the
+  // same to the caller that is about to delete a directory.
+  async liveSessionDirectories(signal?: AbortSignal): Promise<ObservedSessionDirectory[]> {
+    const prefix = "cannot read the host session list"
+    const client = this.#require(`${prefix}: this host handed the plugin no client (host version ${hostVersion()})`)
+    let result: RouteResult
+    try {
+      result = await client.get({ url: SESSION_LIST_ROUTE, signal })
+    } catch (error) {
+      throw new MoveSessionRefused(`${prefix}: ${error instanceof Error ? error.message : String(error)}`)
+    }
+    if (!result.response.ok) {
+      throw new MoveSessionRefused(`${prefix}: the host answered ${result.response.status}: ${await readRefusal(result.response)}`)
+    }
+    if (!Array.isArray(result.data)) {
+      throw new MoveSessionRefused("the session list was not an array")
+    }
+    const observed: ObservedSessionDirectory[] = []
+    for (const session of result.data) {
+      const id = (session as { id?: unknown } | null)?.id
+      const directory = (session as { directory?: unknown } | null)?.directory
+      // `directory` is required on every session record. A record missing it
+      // is a host contract the adapter does not recognize, and skipping it
+      // would silently narrow the population the gate decides on.
+      if (typeof id !== "string" || !id || typeof directory !== "string" || !directory) {
+        throw new MoveSessionRefused("the session list carried a record without an id and a directory")
+      }
+      observed.push({ session_ref: id, directory })
+    }
+    return observed
+  }
+
+  // showToast puts one line in front of the operator. Delivery is best effort
+  // by construction: every caller reports an effect that already happened, so
+  // a host without an attached TUI must not turn a completed operation into a
+  // failure. The caller keeps the same text in its own result.
+  async showToast(message: string, variant: "info" | "warning", signal?: AbortSignal): Promise<boolean> {
+    if (!this.#client) return false
+    try {
+      const result = await this.#client.post({
+        url: SHOW_TOAST_ROUTE,
+        body: { title: "Concord", message, variant },
+        signal,
+      })
+      return result.response.ok
+    } catch {
+      return false
+    }
   }
 
   #require(message: string): RouteClient {

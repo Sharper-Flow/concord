@@ -108,7 +108,33 @@ type worktreeReclaimInput struct {
 	DefaultRef      string `json:"default_ref"`
 	ExpectedVersion int64  `json:"expected_version"`
 	IdempotencyKey  string `json:"idempotency_key"`
+	// ObservedSessionDirectories carries the caller's live host sessions
+	// (issue #722). The store refuses the removal when one of them occupies
+	// the worktree it is about to delete.
+	ObservedSessionDirectories []observedSessionDirectoryInput `json:"observed_session_directories"`
 }
+
+// observedSessionDirectoryInput is one live host session the caller observed,
+// and the directory it runs in. Session liveness is host truth, so the caller
+// that can reach the host reports it and the core decides on it.
+type observedSessionDirectoryInput struct {
+	SessionRef string `json:"session_ref"`
+	Directory  string `json:"directory"`
+}
+
+// storeSessionDirectories converts the reported observations into the store's
+// shape. It is the only crossing point, so both removal planners share it.
+func storeSessionDirectories(in []observedSessionDirectoryInput) []store.SessionDirectory {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]store.SessionDirectory, 0, len(in))
+	for _, observed := range in {
+		out = append(out, store.SessionDirectory{SessionRef: observed.SessionRef, Directory: observed.Directory})
+	}
+	return out
+}
+
 type worktreeRetargetInput struct {
 	WorkID          string `json:"work_id"`
 	ExpectedVersion int64  `json:"expected_version"`
@@ -154,6 +180,10 @@ type worktreeDestroyInput struct {
 	Destructive    bool           `json:"destructive"`
 	Approval       *approvalInput `json:"approval"`
 	IdempotencyKey string         `json:"idempotency_key"`
+	// ObservedSessionDirectories carries the caller's live host sessions
+	// (issue #722). The destructive approval covers the git gates, never the
+	// occupancy gate.
+	ObservedSessionDirectories []observedSessionDirectoryInput `json:"observed_session_directories"`
 }
 type researchRevisionInput struct {
 	Question string `json:"question"`
@@ -1875,6 +1905,7 @@ func (r runtime) planWorktreeDestroy(ctx context.Context, base Envelope, raw []b
 			PrincipalRef: grant.PrincipalRef, RequestID: in.IdempotencyKey,
 			ExpectedVersion: in.ExpectedVersion, Now: r.Authority.now(),
 			RequireTerminal: true, OperatorApprovalRef: approvalRef, Destructive: in.Destructive,
+			ObservedSessionDirectories: storeSessionDirectories(in.ObservedSessionDirectories),
 		}); err != nil {
 			return nil, nil, nil, err
 		}
@@ -1989,6 +2020,7 @@ func (r runtime) planWorktreeReclaim(ctx context.Context, base Envelope, raw []b
 			WorkID: in.WorkID, ProjectID: in.ProjectID, DefaultRef: in.DefaultRef,
 			PrincipalRef: grant.PrincipalRef, RequestID: in.IdempotencyKey,
 			ExpectedVersion: in.ExpectedVersion, Now: r.Authority.now(),
+			ObservedSessionDirectories: storeSessionDirectories(in.ObservedSessionDirectories),
 		}); err != nil {
 			return nil, nil, nil, err
 		}

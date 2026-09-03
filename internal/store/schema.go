@@ -18,6 +18,21 @@ type migration struct {
 	Version int
 	Name    string
 	SQL     string
+	// Breaking states that a binary predating this migration can no longer
+	// operate the database correctly once it applies. It is true when the
+	// migration removes or renames a schema object an older binary may name,
+	// or constrains an existing one so that an older binary's writes can be
+	// rejected. Creating a table, an index, or a trigger, and adding a
+	// nullable or defaulted column, leave an older binary unaffected: it never
+	// names what it does not know.
+	//
+	// The manifest records this bit per applied migration, and the highest
+	// breaking version applied is the database's compatibility floor. A binary
+	// that defines that version may open the database even when later
+	// migrations have run. scripts/check-migration-compatibility.py classifies
+	// the SQL and refuses a declaration its statements contradict, so the bit
+	// cannot drift from what the migration does.
+	Breaking bool
 	// Applies decides whether this step's SQL runs against the database in
 	// front of it. A repair for a divergence only some histories carry answers
 	// false where the divergence is absent, and the step still records as
@@ -897,8 +912,9 @@ CREATE TABLE product_knowledge_homes (
 `,
 	},
 	{
-		Version: 15,
-		Name:    "workflow_engine_projections",
+		Version:  15,
+		Name:     "workflow_engine_projections",
+		Breaking: true,
 		SQL: `
 -- Forward-linked successors are still ordinary relation edges. Rebuild the
 -- small relation table once so the accepted closed kind is represented in the
@@ -1219,8 +1235,9 @@ END;
 		`,
 	},
 	{
-		Version: 20,
-		Name:    "project_stage_overrides",
+		Version:  20,
+		Name:     "project_stage_overrides",
+		Breaking: true,
 		SQL: `
 ALTER TABLE projects ADD COLUMN stage_maturity_override TEXT
     CHECK(stage_maturity_override IS NULL OR stage_maturity_override IN ('prototype','alpha','beta','production','deprecated'));
@@ -1451,8 +1468,9 @@ ALTER TABLE worker_attempts ADD COLUMN fallback_reason TEXT NOT NULL DEFAULT ''
 		`,
 	},
 	{
-		Version: 26,
-		Name:    "declared_urgency_and_provenance",
+		Version:  26,
+		Name:     "declared_urgency_and_provenance",
+		Breaking: true,
 		SQL: `
 ALTER TABLE work_items ADD COLUMN urgency TEXT NOT NULL DEFAULT 'standard'
     CHECK(urgency IN ('standard', 'expedite'));
@@ -1496,8 +1514,9 @@ ALTER TABLE workflow_instances ADD COLUMN execution_model TEXT NOT NULL DEFAULT 
 		`,
 	},
 	{
-		Version: 28,
-		Name:    "workflow_impact_notice_edge_owner",
+		Version:  28,
+		Name:     "workflow_impact_notice_edge_owner",
+		Breaking: true,
 		SQL: `
 -- Impact edges are declared by the dependent work. Notice source and edge owner
 -- therefore differ when a completed source notifies reverse dependents.
@@ -1539,8 +1558,9 @@ CREATE TRIGGER workflow_impact_notices_guard_delete BEFORE DELETE ON workflow_im
 		`,
 	},
 	{
-		Version: 29,
-		Name:    "research_finding_applies_to_scope",
+		Version:  29,
+		Name:     "research_finding_applies_to_scope",
+		Breaking: true,
 		SQL: `
 -- Durable knowledge declares what it applies to; active research did not, so a
 -- finding could only say which work item produced it. Promotion at archive was
@@ -1701,8 +1721,9 @@ ALTER TABLE workflow_external_conditions ADD COLUMN expected_within_seconds INTE
 	},
 
 	{
-		Version: 35,
-		Name:    "worker_undeclared_resolution_role",
+		Version:  35,
+		Name:     "worker_undeclared_resolution_role",
+		Breaking: true,
 		SQL: `
 -- Issue #106: the undeclared role records terminal evidence for a model that
 -- ran outside the declared resolution set, or an exhausted chain where no
@@ -1813,8 +1834,9 @@ CREATE TRIGGER workflow_contract_law_revisions_guard_delete BEFORE DELETE ON wor
 		`,
 	},
 	{
-		Version: 38,
-		Name:    "domain_law_homes_and_managed_resource_attachments",
+		Version:  38,
+		Name:     "domain_law_homes_and_managed_resource_attachments",
+		Breaking: true,
 		SQL: `
 -- CD-0041: Git-authored Domain identity and law ownership projections. These
 -- tables survive event-log rebuilds and are refreshed only by the knowledge
@@ -2139,8 +2161,9 @@ CREATE TRIGGER workflow_contract_verification_obligations_guard_delete BEFORE DE
 		`,
 	},
 	{
-		Version: 40,
-		Name:    "workflow_domain_overlap_resolutions",
+		Version:  40,
+		Name:     "workflow_domain_overlap_resolutions",
+		Breaking: true,
 		SQL: `
 -- CD-0041 D6-D7: normalized law writes and version-pinned overlap
 -- resolutions. Detected overlap remains derived; this table stores only an
@@ -2294,8 +2317,9 @@ ALTER TABLE workflow_native_runs ADD COLUMN verification_state TEXT NOT NULL DEF
         `,
 	},
 	{
-		Version: 43,
-		Name:    "routing_policy_manifest_digest_default",
+		Version:  43,
+		Name:     "routing_policy_manifest_digest_default",
+		Breaking: true,
 		SQL: `
 -- Keep the applied v35 definition immutable while making the current default
 -- resolve through the generated routing-policy digest at insert time.
@@ -2360,8 +2384,9 @@ CREATE TRIGGER worker_attempts_guard_delete BEFORE DELETE ON worker_attempts FOR
 		`,
 	},
 	{
-		Version: 44,
-		Name:    "drop_worker_routing_evidence",
+		Version:  44,
+		Name:     "drop_worker_routing_evidence",
+		Breaking: true,
 		SQL: `
 -- CD-0058: Concord performs no model resolution. The declared-side attempt
 -- columns (routing_policy_version, routing_policy_digest, resolved_model,
@@ -2426,8 +2451,9 @@ ALTER TABLE law_domain_homes ADD COLUMN product_wide_rationale TEXT NOT NULL DEF
 		`,
 	},
 	{
-		Version: 46,
-		Name:    "drop_orchestrator_reservation",
+		Version:  46,
+		Name:     "drop_orchestrator_reservation",
+		Breaking: true,
 		SQL: `
 -- CD-0061 D3: the typed_agent_type, typed_agent_version, and
 -- typed_agent_ruleset_digest columns on workflow_context_boundaries were
@@ -2517,8 +2543,9 @@ CREATE TRIGGER domain_observations_guard_delete BEFORE DELETE ON domain_observat
 		`,
 	},
 	{
-		Version: 48,
-		Name:    "research_finding_scopes_use_domain",
+		Version:  48,
+		Name:     "research_finding_scopes_use_domain",
+		Breaking: true,
 		SQL: `
 -- CD-0041 retires component as an authority identity; the active research
 -- scope surface therefore renames scope_kind 'component' to 'domain'.
@@ -2571,8 +2598,9 @@ END;
 		`,
 	},
 	{
-		Version: 49,
-		Name:    "work_kind_and_native_run_vocabularies",
+		Version:  49,
+		Name:     "work_kind_and_native_run_vocabularies",
+		Breaking: true,
 		SQL: `
 CREATE TABLE work_kinds (
     kind         TEXT PRIMARY KEY,
@@ -2671,8 +2699,9 @@ DELETE FROM fold_guard;
 		`,
 	},
 	{
-		Version: 50,
-		Name:    "display_name_bounds",
+		Version:  50,
+		Name:     "display_name_bounds",
+		Breaking: true,
 		SQL: `
 -- The agent read surface bounds a Product or Project display name at 256
 -- characters. Without the same bound at capture, a longer name is storable and
@@ -2716,8 +2745,9 @@ DELETE FROM fold_guard;
 		`,
 	},
 	{
-		Version: 51,
-		Name:    "product_knowledge_home_fold_guards",
+		Version:  51,
+		Name:     "product_knowledge_home_fold_guards",
+		Breaking: true,
 		SQL: `
 -- Product knowledge homes are event-folded operator configuration (PM6 §2/§3),
 -- like every other Product projection. The fold guard refuses direct writes
@@ -2743,8 +2773,9 @@ END;
 		`,
 	},
 	{
-		Version: 52,
-		Name:    "home_pair_identity_binding",
+		Version:  52,
+		Name:     "home_pair_identity_binding",
+		Breaking: true,
 		SQL: `
 -- The eleven Git-derived knowledge tables and product_knowledge_homes key
 -- their rows on a (home_project_id, home_locator_id) pair that has no foreign
@@ -2990,8 +3021,9 @@ DELETE FROM fold_guard;
 		`,
 	},
 	{
-		Version: 53,
-		Name:    "native_run_verification_state_check",
+		Version:  53,
+		Name:     "native_run_verification_state_check",
+		Breaking: true,
 		SQL: `
 DROP TRIGGER IF EXISTS workflow_native_runs_guard_insert;
 DROP TRIGGER IF EXISTS workflow_native_runs_guard_update;
@@ -3045,8 +3077,9 @@ END;
 		`,
 	},
 	{
-		Version: 54,
-		Name:    "rigor_class_vocabulary",
+		Version:  54,
+		Name:     "rigor_class_vocabulary",
+		Breaking: true,
 		SQL: `
 CREATE TRIGGER workflow_contracts_rigor_class_insert
 BEFORE INSERT ON workflow_contracts FOR EACH ROW
@@ -3075,8 +3108,9 @@ DELETE FROM fold_guard;
 		`,
 	},
 	{
-		Version: 55,
-		Name:    "approval_consequence_surface_closure",
+		Version:  55,
+		Name:     "approval_consequence_surface_closure",
+		Breaking: true,
 		SQL: `
 DROP INDEX agent_approvals_lookup;
 DROP INDEX agent_approval_challenges_grant;
@@ -3141,8 +3175,9 @@ CREATE INDEX agent_approval_challenges_grant ON agent_approval_challenges(grant_
 		`,
 	},
 	{
-		Version: 56,
-		Name:    "archived_work_kind_vocabulary",
+		Version:  56,
+		Name:     "archived_work_kind_vocabulary",
+		Breaking: true,
 		SQL: `
 CREATE TRIGGER archived_work_kind_insert
 BEFORE INSERT ON archived_work FOR EACH ROW
@@ -3167,8 +3202,9 @@ DELETE FROM fold_guard;
 		`,
 	},
 	{
-		Version: 57,
-		Name:    "capability_scoping_replaces_the_grant_token",
+		Version:  57,
+		Name:     "capability_scoping_replaces_the_grant_token",
+		Breaking: true,
 		SQL: `
 DROP INDEX agent_approval_challenges_grant;
 ALTER TABLE agent_approval_challenges RENAME TO agent_approval_challenges_v57;
@@ -3237,8 +3273,9 @@ CREATE INDEX bootstrap_operations_state ON bootstrap_operations(state, updated_a
 		`,
 	},
 	{
-		Version: 59,
-		Name:    "work_bootstrap_launch_recovery",
+		Version:  59,
+		Name:     "work_bootstrap_launch_recovery",
+		Breaking: true,
 		SQL: `
 DROP INDEX bootstrap_operations_state;
 ALTER TABLE bootstrap_operations RENAME TO bootstrap_operations_v58;
@@ -3337,8 +3374,9 @@ DROP TABLE epic_entries;
 		`,
 	},
 	{
-		Version: 61,
-		Name:    "workflow_contract_predicates",
+		Version:  61,
+		Name:     "workflow_contract_predicates",
+		Breaking: true,
 		SQL: `
 PRAGMA defer_foreign_keys = ON;
 
@@ -3586,8 +3624,9 @@ ALTER TABLE agent_clients ADD COLUMN agent_scope_json TEXT NOT NULL DEFAULT '[]'
 		`,
 	},
 	{
-		Version: 66,
-		Name:    "bootstrap_operations_drop_the_child_launch_process",
+		Version:  66,
+		Name:     "bootstrap_operations_drop_the_child_launch_process",
+		Breaking: true,
 		SQL: `
 -- Work start launched a second OpenCode session and fenced its child process,
 -- so a bootstrap operation recorded that child's identity to tell a live child
@@ -3628,8 +3667,52 @@ CREATE TABLE IF NOT EXISTS schema_migrations (
     version    INTEGER PRIMARY KEY,
     name       TEXT NOT NULL,
     checksum   TEXT NOT NULL,
-    applied_at TEXT NOT NULL
+    applied_at TEXT NOT NULL,
+    breaking   INTEGER NOT NULL DEFAULT 1
 );`
+
+// ensureManifestBreakingColumn adds schema_migrations.breaking to a manifest
+// created before the column existed. The manifest is not part of the versioned
+// sequence, so CREATE TABLE IF NOT EXISTS leaves an existing one untouched and
+// a migration cannot own this column: the column has to exist before any
+// migration is read.
+//
+// The default is 1, breaking. A row an older binary wrote says nothing about
+// its migration's compatibility, and the only safe reading of silence is that
+// the migration may have broken an older reader. Every existing database
+// therefore keeps exactly today's refusal until new migrations record the bit.
+func ensureManifestBreakingColumn(ctx context.Context, tx *sql.Tx) error {
+	rows, err := tx.QueryContext(ctx, `SELECT name FROM pragma_table_info('schema_migrations')`)
+	if err != nil {
+		return wrapFailure(KindUnavailable, "migrate", "cannot read the schema manifest columns", true,
+			"confirm the database is readable", err)
+	}
+	defer func() { _ = rows.Close() }()
+	present := false
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return wrapFailure(KindUnavailable, "migrate", "cannot read a schema manifest column", true,
+				"confirm the database is readable", err)
+		}
+		if name == "breaking" {
+			present = true
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return wrapFailure(KindUnavailable, "migrate", "cannot read the schema manifest columns", true,
+			"confirm the database is readable", err)
+	}
+	if present {
+		return nil
+	}
+	if _, err := tx.ExecContext(ctx,
+		`ALTER TABLE schema_migrations ADD COLUMN breaking INTEGER NOT NULL DEFAULT 1`); err != nil {
+		return wrapFailure(KindUnavailable, "migrate", "cannot add the schema manifest compatibility column", true,
+			"check database permissions", err)
+	}
+	return nil
+}
 
 func (m migration) checksum() string {
 	sum := sha256.Sum256([]byte(m.SQL))
@@ -3764,6 +3847,9 @@ func migrateOnce(ctx context.Context, db *sql.DB, clock ...func() time.Time) err
 		return rollback(wrapFailure(KindUnavailable, "migrate", "cannot create the schema manifest", true,
 			"check database permissions", err))
 	}
+	if err := ensureManifestBreakingColumn(ctx, tx); err != nil {
+		return rollback(err)
+	}
 
 	applied, err := appliedMigrations(ctx, tx)
 	if err != nil {
@@ -3786,8 +3872,8 @@ func migrateOnce(ctx context.Context, db *sql.DB, clock ...func() time.Time) err
 			return rollback(err)
 		}
 		if _, err := tx.ExecContext(ctx,
-			`INSERT INTO schema_migrations (version, name, checksum, applied_at) VALUES (?, ?, ?, ?)`,
-			m.Version, m.Name, m.checksum(), nowFromClock(firstClock(clock)).Format(time.RFC3339Nano)); err != nil {
+			`INSERT INTO schema_migrations (version, name, checksum, applied_at, breaking) VALUES (?, ?, ?, ?, ?)`,
+			m.Version, m.Name, m.checksum(), nowFromClock(firstClock(clock)).Format(time.RFC3339Nano), m.Breaking); err != nil {
 			return rollback(wrapFailure(KindUnavailable, "migrate",
 				fmt.Sprintf("cannot record migration %d (%s)", m.Version, m.Name), true,
 				"retry once the database is writable", err))
@@ -3820,23 +3906,31 @@ func preflightMembershipMigration(ctx context.Context, tx *sql.Tx) error {
 
 // appliedMigrations takes a queryer so the manifest can be read without
 // opening a write transaction.
-func appliedMigrations(ctx context.Context, tx queryer) (map[int]string, error) {
-	rows, err := tx.QueryContext(ctx, `SELECT version, checksum FROM schema_migrations ORDER BY version`)
+// appliedMigration is one manifest row: what was applied, and whether it left
+// an older binary able to operate the database.
+type appliedMigration struct {
+	Checksum string
+	Breaking bool
+}
+
+func appliedMigrations(ctx context.Context, tx queryer) (map[int]appliedMigration, error) {
+	rows, err := tx.QueryContext(ctx, `SELECT version, checksum, breaking FROM schema_migrations ORDER BY version`)
 	if err != nil {
 		return nil, wrapFailure(KindUnavailable, "migrate", "cannot read the schema manifest", true,
 			"confirm the database is readable", err)
 	}
 	defer func() { _ = rows.Close() }()
 
-	applied := make(map[int]string)
+	applied := make(map[int]appliedMigration)
 	for rows.Next() {
 		var version int
 		var checksum string
-		if err := rows.Scan(&version, &checksum); err != nil {
+		var breaking bool
+		if err := rows.Scan(&version, &checksum, &breaking); err != nil {
 			return nil, wrapFailure(KindUnavailable, "migrate", "cannot read a manifest row", true,
 				"confirm the database is readable", err)
 		}
-		applied[version] = checksum
+		applied[version] = appliedMigration{Checksum: checksum, Breaking: breaking}
 	}
 	if err := rows.Err(); err != nil {
 		return nil, wrapFailure(KindUnavailable, "migrate", "cannot read the schema manifest", true,
@@ -3886,24 +3980,45 @@ func shippedVariantAccepted(version int, checksum string) bool {
 // definition. Both directions matter: an edited historical step means the live
 // schema no longer matches the code, and an unknown newer step means the
 // database was written by a binary that knows more than this one.
-func checkManifest(applied map[int]string) error {
+// checkManifest decides whether this binary may operate a database, given what
+// the database records as applied.
+//
+// The rule is the compatibility floor, not version equality. A migration this
+// binary does not define is admitted when the database recorded it as
+// additive, because an additive migration only adds schema objects and this
+// binary never names them. A breaking one is refused: it removed or
+// constrained something this binary still writes.
+//
+// The floor is the highest breaking version applied, so one breaking migration
+// closes the door for every binary older than it, and later additive
+// migrations do not move it further. Nothing here blocks an upgrade; a newer
+// binary defines everything the database records and migrates forward.
+func checkManifest(applied map[int]appliedMigration) error {
 	known := make(map[int]migration, len(migrations))
 	for _, m := range migrations {
 		known[m.Version] = m
 	}
 
-	for version, checksum := range applied {
+	floor := 0
+	for version, row := range applied {
 		m, ok := known[version]
 		if !ok {
-			return newFailure(KindSchemaUnsupported, "migrate",
-				fmt.Sprintf("the database records migration %d, which this binary does not define", version),
-				true, "upgrade to a binary that defines this schema version and retry")
+			if row.Breaking && version > floor {
+				floor = version
+			}
+			continue
 		}
-		if m.checksum() != checksum && !shippedVariantAccepted(version, checksum) {
+		if m.checksum() != row.Checksum && !shippedVariantAccepted(version, row.Checksum) {
 			return newFailure(KindSchemaDrift, "migrate",
 				fmt.Sprintf("migration %d (%s) no longer matches its recorded checksum", version, m.Name),
 				false, "restore the original migration definition; applied migrations are immutable")
 		}
+	}
+	if floor > 0 {
+		return newFailure(KindSchemaUnsupported, "migrate",
+			fmt.Sprintf("the database requires a binary that defines schema version %d; this binary defines %d, and migration %d changed the schema in a way this binary cannot operate",
+				floor, CurrentSchemaVersion(), floor),
+			true, "upgrade to a binary that defines this schema version and retry")
 	}
 	return nil
 }

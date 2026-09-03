@@ -258,3 +258,65 @@ func TestWorktreeReclaimFromMainCheckoutRequiresTerminalWork(t *testing.T) {
 		}
 	})
 }
+
+// TestWorktreeReclaimRefusesOccupiedWorktreeThroughToolSurface pins issue #722
+// end to end at the typed boundary: the adapter's observation of the host's
+// live sessions reaches the store, and the store refuses the removal that
+// would strand one. The observation is an input rather than stored state
+// because no event records a session leaving a directory, so a stored answer
+// would go stale with nothing to clear it.
+func TestWorktreeReclaimRefusesOccupiedWorktreeThroughToolSurface(t *testing.T) {
+	ctx := context.Background()
+	s, service, grant, repoRoot, baseSHA := worktreeDispatchFixture(t)
+	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	worktreePath := filepath.Join(t.TempDir(), "linked-wt")
+	claimLinkedWorktree(t, s, service, grant, worktreePath, baseSHA, "work/dispatch-1", "wt-claim-occupied")
+
+	reclaimWith := func(key string, observed []map[string]any) Envelope {
+		t.Helper()
+		input, _ := json.Marshal(map[string]any{
+			"work_id": "work-1", "project_id": "project-1", "default_ref": "main",
+			"expected_version": 3, "idempotency_key": key,
+			"observed_session_directories": observed,
+		})
+		response, dispatchErr := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "worktree_reclaim", Input: input}, mutationEnvelope(grant, scopeVersion))
+		if dispatchErr != nil {
+			t.Fatalf("dispatch err=%v", dispatchErr)
+		}
+		return response
+	}
+
+	occupied := reclaimWith("wt-reclaim-occupied", []map[string]any{
+		{"session_ref": "ses_live", "directory": filepath.Join(worktreePath, "internal")},
+	})
+	if occupied.Outcome == OutcomeOK {
+		t.Fatal("a session inside the worktree must refuse the reclaim")
+	}
+	// The store refuses with worktree_ownership_conflict, which this surface
+	// carries as unauthorized: the remedy is the occupying session releasing
+	// the directory or the operator ending it, not a reconciliation the caller
+	// can run. The message is what names the session to the operator.
+	if occupied.Error == nil || occupied.Error.Kind != "unauthorized" {
+		t.Fatalf("error=%+v, want unauthorized", occupied.Error)
+	}
+	if !strings.Contains(occupied.Error.Message, "ses_live") || !strings.Contains(occupied.Error.Message, worktreePath) {
+		t.Fatalf("refusal %q must name the occupying session and the worktree", occupied.Error.Message)
+	}
+	if !strings.Contains(gitRun(t, repoRoot, "worktree", "list"), "linked-wt") {
+		t.Fatal("a refused reclaim must leave the native worktree in place")
+	}
+
+	// The same worktree with every live session elsewhere reclaims normally.
+	free := reclaimWith("wt-reclaim-free", []map[string]any{
+		{"session_ref": "ses_live", "directory": filepath.Join(repoRoot)},
+	})
+	if free.Outcome != OutcomeOK {
+		t.Fatalf("response=%+v, want the reclaim to proceed", free)
+	}
+	if strings.Contains(gitRun(t, repoRoot, "worktree", "list"), "linked-wt") {
+		t.Fatal("native worktree still present after reclaim")
+	}
+}

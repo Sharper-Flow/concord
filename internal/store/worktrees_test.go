@@ -351,6 +351,124 @@ func TestReclaimWorktreeDerivesFromGitFacts(t *testing.T) {
 	}
 }
 
+// TestReclaimWorktreeRefusesOccupiedWorktree pins the occupancy gate (issue
+// #722). Removing a directory a live session runs in strands that session:
+// the host resolves the session directory once per prompt, so the session
+// survives until the operator types again and then fails on every prompt. The
+// git gates read git only, so a clean merged worktree passed every one of them
+// while a session was still inside it.
+func TestReclaimWorktreeRefusesOccupiedWorktree(t *testing.T) {
+	s, git, _ := worktreeFixture(t)
+	req := baseClaim(git)
+	if _, err := s.ClaimWorktree(context.Background(), req); err != nil {
+		t.Fatal(err)
+	}
+	reclaim := WorktreeReclaimRequest{
+		WorkID: "work-w", ProjectID: "project-w", DefaultRef: "origin/main",
+		PrincipalRef: "principal-1", RequestID: "req-occupied", ExpectedVersion: 3,
+		Now: time.Unix(20, 0).UTC(), Runner: git,
+	}
+
+	// A session sitting in a subdirectory of the worktree occupies it just as
+	// one sitting at its root does.
+	for _, directory := range []string{req.Path, filepath.Join(req.Path, "internal", "store")} {
+		occupied := reclaim
+		occupied.ObservedSessionDirectories = []SessionDirectory{{SessionRef: "ses_live", Directory: directory}}
+		_, err := s.ReclaimWorktree(context.Background(), occupied)
+		if err == nil {
+			t.Fatalf("a session in %q must refuse the removal", directory)
+		}
+		failure, ok := err.(*Failure)
+		if !ok || failure.Kind != KindWorktreeOwnershipConflict {
+			t.Fatalf("err=%v, want worktree_ownership_conflict", err)
+		}
+		if !strings.Contains(failure.Detail, "ses_live") || !strings.Contains(failure.Detail, req.Path) {
+			t.Fatalf("refusal %q must name the session and the worktree", failure.Detail)
+		}
+		if _, still := git.worktrees[req.Path]; !still {
+			t.Fatal("a refused removal must leave the native worktree in place")
+		}
+		entries, entriesErr := s.WorktreeEntries(context.Background(), "work-w")
+		if entriesErr != nil || len(entries) != 1 || entries[0].State != worktreeEntryActive {
+			t.Fatalf("entries=%+v err=%v, want the claim untouched", entries, entriesErr)
+		}
+	}
+
+	// A session elsewhere, and a path that merely shares a prefix with the
+	// worktree name, leave the removal alone.
+	unoccupied := reclaim
+	unoccupied.ObservedSessionDirectories = []SessionDirectory{
+		{SessionRef: "ses_other", Directory: filepath.Join(git.repoRoot, "..", "w-2")},
+		{SessionRef: "ses_sibling", Directory: req.Path + "-sibling"},
+	}
+	entry, err := s.ReclaimWorktree(context.Background(), unoccupied)
+	if err != nil {
+		t.Fatalf("no session occupies the worktree, got %v", err)
+	}
+	if entry.State != worktreeEntryReclaimed {
+		t.Fatalf("entry=%+v", entry)
+	}
+	if _, still := git.worktrees[req.Path]; still {
+		t.Fatal("native worktree was not removed")
+	}
+}
+
+// TestDestroyRefusesOccupiedWorktreeDespiteApproval pins that the destructive
+// tier's operator approval does not reach the occupancy gate. The approval
+// covers discarding the clean-tree and merged-branch gates, which protect
+// committed and uncommitted work. It does not authorize stranding a session.
+func TestDestroyRefusesOccupiedWorktreeDespiteApproval(t *testing.T) {
+	s, git, _ := worktreeFixture(t)
+	req := baseClaim(git)
+	if _, err := s.ClaimWorktree(context.Background(), req); err != nil {
+		t.Fatal(err)
+	}
+	seedRetargetLifecycle(t, s, "work-w", "completed", 3)
+	_, err := s.DestroyWorktree(context.Background(), WorktreeDestroyRequest{
+		WorkID: "work-w", ProjectID: "project-w", DefaultRef: "origin/main",
+		ExpectedVersion: 4, PrincipalRef: "principal-1", RequestID: "destroy-occupied",
+		Now: time.Unix(30, 0).UTC(), Runner: git,
+		OperatorApprovalRef:        "approval:destroy-forced",
+		Destructive:                true,
+		ObservedSessionDirectories: []SessionDirectory{{SessionRef: "ses_live", Directory: req.Path}},
+	})
+	if err == nil {
+		t.Fatal("a destructive destroy must still refuse an occupied worktree")
+	}
+	failure, ok := err.(*Failure)
+	if !ok || failure.Kind != KindWorktreeOwnershipConflict {
+		t.Fatalf("err=%v, want worktree_ownership_conflict", err)
+	}
+	if _, still := git.worktrees[req.Path]; !still {
+		t.Fatal("a refused destroy must leave the native worktree in place")
+	}
+}
+
+// TestReclaimAbsentWorktreeIgnoresOccupancy pins that the occupancy gate never
+// blocks stale-claim recovery. When the native worktree is already gone, the
+// reclamation only reconciles the projection: there is no directory left to
+// remove and no session left to strand.
+func TestReclaimAbsentWorktreeIgnoresOccupancy(t *testing.T) {
+	s, git, _ := worktreeFixture(t)
+	req := baseClaim(git)
+	if _, err := s.ClaimWorktree(context.Background(), req); err != nil {
+		t.Fatal(err)
+	}
+	delete(git.worktrees, req.Path)
+	entry, err := s.ReclaimWorktree(context.Background(), WorktreeReclaimRequest{
+		WorkID: "work-w", ProjectID: "project-w", DefaultRef: "origin/main",
+		PrincipalRef: "principal-1", RequestID: "req-absent", ExpectedVersion: 3,
+		Now: time.Unix(20, 0).UTC(), Runner: git,
+		ObservedSessionDirectories: []SessionDirectory{{SessionRef: "ses_live", Directory: req.Path}},
+	})
+	if err != nil {
+		t.Fatalf("an absent worktree must reconcile, got %v", err)
+	}
+	if entry.State != worktreeEntryReclaimed {
+		t.Fatalf("entry=%+v", entry)
+	}
+}
+
 // TestReclaimWorktreeAcceptsSquashMergedBranch pins the merged-ness test to
 // content rather than commit reachability. A squash merge rewrites the branch's
 // commits into one new commit on the default ref, so the branch tip never

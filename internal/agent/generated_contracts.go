@@ -6,7 +6,7 @@ import (
 	"fmt"
 )
 
-const ManifestDigest = "sha256:d852ad5fe232214297132249d8fdc66de346a96ed519a671b7bc175969e4e440"
+const ManifestDigest = "sha256:1083bd2aed4eae533263f152ea46b7f9177cddd5853a8978faad4c34b2b99508"
 
 type OperationKind string
 
@@ -247,8 +247,8 @@ var GeneratedPayloadRules = map[string]GeneratedPayloadRule{
 	"work_transition_action_input":               {Required: []string{"work_id", "expected_version", "action_id", "idempotency_key"}, Properties: []string{"work_id", "expected_version", "action_id", "selected_choice", "decision_context_digest", "fields", "idempotency_key", "evidence", "approval", "research_bindings", "requested_budget_seconds"}},
 	"work_transition_lifecycle_input":            {Required: []string{"work_id", "expected_version", "target", "reason", "idempotency_key"}, Properties: []string{"work_id", "expected_version", "target", "reason", "idempotency_key", "evidence", "approval", "requested_budget_seconds"}},
 	"work_transition_worktree_claim_input":       {Required: []string{"work_id", "project_id", "branch", "base_sha", "path", "expected_version", "idempotency_key"}, Properties: []string{"work_id", "project_id", "branch", "base_sha", "path", "expected_version", "idempotency_key", "requested_budget_seconds"}},
-	"work_transition_worktree_destroy_input":     {Required: []string{"work_id", "expected_version", "idempotency_key"}, Properties: []string{"work_id", "expected_version", "default_ref", "destructive", "approval", "idempotency_key", "requested_budget_seconds"}},
-	"work_transition_worktree_reclaim_input":     {Required: []string{"work_id", "project_id", "expected_version", "idempotency_key"}, Properties: []string{"work_id", "project_id", "default_ref", "expected_version", "idempotency_key", "requested_budget_seconds"}},
+	"work_transition_worktree_destroy_input":     {Required: []string{"work_id", "expected_version", "idempotency_key"}, Properties: []string{"work_id", "expected_version", "default_ref", "destructive", "approval", "idempotency_key", "observed_session_directories", "requested_budget_seconds"}},
+	"work_transition_worktree_reclaim_input":     {Required: []string{"work_id", "project_id", "expected_version", "idempotency_key"}, Properties: []string{"work_id", "project_id", "default_ref", "expected_version", "idempotency_key", "observed_session_directories", "requested_budget_seconds"}},
 	"work_transition_worktree_release_input":     {Required: []string{"work_id", "expected_target_version", "idempotency_key"}, Properties: []string{"work_id", "expected_target_version", "idempotency_key", "requested_budget_seconds"}},
 	"work_transition_worktree_retarget_input":    {Required: []string{"work_id", "expected_version", "idempotency_key"}, Properties: []string{"work_id", "expected_version", "expected_target_version", "idempotency_key", "requested_budget_seconds"}},
 	"work_transition_worktree_takeover_input":    {Required: []string{"work_id", "expected_version", "expected_target_version", "idempotency_key"}, Properties: []string{"work_id", "expected_version", "expected_target_version", "approval", "idempotency_key", "requested_budget_seconds"}},

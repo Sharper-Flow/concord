@@ -13,7 +13,7 @@ func TestCheckManifestAcceptsEveryShippedMigrationVariant(t *testing.T) {
 	}
 	for version, variants := range migrationShippedVariantChecksums {
 		for _, checksum := range variants {
-			if err := checkManifest(map[int]string{version: checksum}); err != nil {
+			if err := checkManifest(map[int]appliedMigration{version: {Checksum: checksum}}); err != nil {
 				t.Fatalf("shipped variant for migration %d rejected: %v", version, err)
 			}
 		}
@@ -30,7 +30,7 @@ func TestCheckManifestRejectsUnknownMigrationChecksum(t *testing.T) {
 		if forged == variants[0] {
 			continue
 		}
-		err := checkManifest(map[int]string{version: forged})
+		err := checkManifest(map[int]appliedMigration{version: {Checksum: forged}})
 		if err == nil || !hasFailureKind(err, KindSchemaDrift) {
 			t.Fatalf("unknown checksum for migration %d accepted: %v", version, err)
 		}

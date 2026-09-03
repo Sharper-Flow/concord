@@ -372,6 +372,22 @@ type WorktreeReclaimRequest struct {
 	// OperatorApprovalRef; the surface guarantees the pairing and the store
 	// refuses the combination that would skip gates unapproved.
 	Destructive bool
+	// ObservedSessionDirectories carries the working directories the calling
+	// host reported for its live sessions (issue #722). The store owns the
+	// worktree path and the host owns session liveness, so the caller that
+	// can see both supplies the observation and the removal decides on it.
+	// A caller with no host, such as the CLI, supplies none and reaches the
+	// git gates alone.
+	ObservedSessionDirectories []SessionDirectory
+}
+
+// SessionDirectory is one live host session and the directory it runs in, as
+// the caller observed it. The store never resolves it against a session
+// registry: the observation is the caller's, and the removal only asks whether
+// the directory it is about to delete is one of them.
+type SessionDirectory struct {
+	SessionRef string
+	Directory  string
 }
 
 // WorktreeDestroyRequest drives the CD-0096 D3 Destroy tier: merged terminal
@@ -392,6 +408,9 @@ type WorktreeDestroyRequest struct {
 	RequestID    string
 	Now          time.Time
 	Runner       GitRunner
+	// ObservedSessionDirectories carries the caller's live host sessions. The
+	// destructive approval covers the git gates, never the occupancy gate.
+	ObservedSessionDirectories []SessionDirectory
 }
 
 // DestroyWorktree reclaims the work item's worktree under the Destroy tier's
@@ -402,6 +421,7 @@ func (s *Store) DestroyWorktree(ctx context.Context, req WorktreeDestroyRequest)
 		PrincipalRef: req.PrincipalRef, RequestID: req.RequestID,
 		ExpectedVersion: req.ExpectedVersion, Now: req.Now, Runner: req.Runner,
 		RequireTerminal: true, OperatorApprovalRef: req.OperatorApprovalRef, Destructive: req.Destructive,
+		ObservedSessionDirectories: req.ObservedSessionDirectories,
 	}
 	if s == nil || s.db == nil {
 		return WorktreeEntry{}, newFailure(KindUnavailable, "worktree_destroy", "store is not open", false, "open the authority database")
@@ -544,6 +564,20 @@ func reclaimWorktreeRawTx(ctx context.Context, tx *sql.Tx, req WorktreeReclaimRe
 		return worktreeEntryAfterReclaimTx(ctx, tx, req.WorkID, req.ProjectID)
 	}
 
+	// Issue #722: a worktree a live session runs in is not safe to remove.
+	// The host resolves a session's directory once per prompt, so removing it
+	// leaves that session alive but unable to answer another prompt. This gate
+	// sits above the tier split because the destructive approval covers the
+	// git gates, which protect committed and uncommitted work, and never
+	// authorizes stranding a session. It sits below the already-absent branch
+	// because a directory that is already gone strands nobody, and stale-claim
+	// recovery must stay reachable.
+	if occupant, occupied := occupyingSession(entry.Path, req.ObservedSessionDirectories); occupied {
+		return out, newFailure(KindWorktreeOwnershipConflict, op,
+			fmt.Sprintf("session %s runs in worktree %s; removing it would leave that session unable to send another prompt", occupant.SessionRef, entry.Path),
+			false, "end that session, or move it out of the worktree, then remove it")
+	}
+
 	// A destructive removal runs under its consumed operator approval: the
 	// clean-tree and merged-branch gates are skipped and the native remove
 	// is forced (CD-0096 D3 Destroy).
@@ -593,6 +627,29 @@ func reclaimWorktreeRawTx(ctx context.Context, tx *sql.Tx, req WorktreeReclaimRe
 		return out, wrapFailure(KindGitUnreachable, op, "reclaimed in Concord but native removal failed", true, "remove the worktree manually; the projection already records reclamation", err)
 	}
 	return worktreeEntryAfterReclaimTx(ctx, tx, req.WorkID, req.ProjectID)
+}
+
+// occupyingSession reports the first observed session whose directory is the
+// worktree or sits beneath it. The comparison is lexical on cleaned absolute
+// paths: the worktree directory still exists at this point, but an observed
+// session directory need not, so resolving symlinks here would refuse on the
+// filesystem rather than on the question asked. The separator test keeps a
+// sibling that merely shares a name prefix out of the match.
+func occupyingSession(worktreePath string, observed []SessionDirectory) (SessionDirectory, bool) {
+	if worktreePath == "" || len(observed) == 0 {
+		return SessionDirectory{}, false
+	}
+	root := filepath.Clean(worktreePath)
+	for _, candidate := range observed {
+		if candidate.Directory == "" {
+			continue
+		}
+		directory := filepath.Clean(candidate.Directory)
+		if directory == root || strings.HasPrefix(directory, root+string(filepath.Separator)) {
+			return candidate, true
+		}
+	}
+	return SessionDirectory{}, false
 }
 
 // worktreeRepoRootTx resolves the repository to create from: the explicit

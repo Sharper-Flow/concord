@@ -25,11 +25,11 @@ def load_json(root: Path, relative: Path, findings: list[str]) -> object:
 
 def migration_match(source: str, version: int, name: str) -> re.Match[str] | None:
     return re.search(
-        r'Version: '
+        r'Version:\s+'
         + str(version)
         + r',\s+Name:\s+"'
         + re.escape(name)
-        + r'",\s+SQL: `(?P<sql>.*?)`,\s+\},',
+        + r'",\s+(?:Breaking:\s+true,\s+)?SQL:\s+`(?P<sql>.*?)`,\s+\},',
         source,
         re.S,
     )

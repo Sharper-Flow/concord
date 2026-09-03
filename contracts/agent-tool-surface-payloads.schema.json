@@ -7291,6 +7291,220 @@
           }
         }
       }
+    },
+    "product_view_resources_input": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "product_id": {
+          "$ref": "#/$defs/id"
+        },
+        "resource_id": {
+          "$ref": "#/$defs/id"
+        },
+        "class": {
+          "type": "string",
+          "enum": [
+            "infrastructure",
+            "saas"
+          ]
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "service",
+            "database",
+            "queue",
+            "job",
+            "schedule",
+            "runner_pool",
+            "storage",
+            "observability",
+            "identity",
+            "saas_account",
+            "saas_project",
+            "other"
+          ]
+        },
+        "environment": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "page": {
+          "$ref": "#/$defs/page"
+        },
+        "budget": {
+          "$ref": "#/$defs/budget"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
+        }
+      }
+    },
+    "resource_page": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "resources"
+      ],
+      "properties": {
+        "resources": {
+          "type": "array",
+          "maxItems": 100,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "resource_id",
+              "display_name",
+              "class",
+              "kind",
+              "purpose",
+              "stage_maturity",
+              "stage_audience_commitment",
+              "environments",
+              "metadata_schema_version",
+              "metadata_json",
+              "version",
+              "owner",
+              "consumers"
+            ],
+            "properties": {
+              "resource_id": {
+                "$ref": "#/$defs/id"
+              },
+              "display_name": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256
+              },
+              "class": {
+                "type": "string",
+                "enum": [
+                  "infrastructure",
+                  "saas"
+                ]
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "service",
+                  "database",
+                  "queue",
+                  "job",
+                  "schedule",
+                  "runner_pool",
+                  "storage",
+                  "observability",
+                  "identity",
+                  "saas_account",
+                  "saas_project",
+                  "other"
+                ]
+              },
+              "purpose": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 4096
+              },
+              "stage_maturity": {
+                "type": "string",
+                "enum": [
+                  "prototype",
+                  "alpha",
+                  "beta",
+                  "production",
+                  "deprecated"
+                ]
+              },
+              "stage_audience_commitment": {
+                "type": "string",
+                "enum": [
+                  "operator_only",
+                  "limited",
+                  "public"
+                ]
+              },
+              "environments": {
+                "type": "array",
+                "maxItems": 16,
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 64
+                }
+              },
+              "locator_absence_reason": {
+                "type": "string",
+                "enum": [
+                  "planned",
+                  "not_addressable"
+                ]
+              },
+              "metadata_schema_version": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64
+              },
+              "metadata_json": {
+                "type": "string",
+                "minLength": 2,
+                "maxLength": 16384
+              },
+              "version": {
+                "$ref": "#/$defs/version"
+              },
+              "owner": {
+                "$ref": "#/$defs/resource_product_link"
+              },
+              "consumers": {
+                "type": "array",
+                "maxItems": 100,
+                "items": {
+                  "$ref": "#/$defs/resource_product_link"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "resource_product_link": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "product_id",
+        "role",
+        "purpose",
+        "environments"
+      ],
+      "properties": {
+        "product_id": {
+          "$ref": "#/$defs/id"
+        },
+        "role": {
+          "type": "string",
+          "enum": [
+            "owner",
+            "consumer"
+          ]
+        },
+        "purpose": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "environments": {
+          "type": "array",
+          "maxItems": 16,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          }
+        }
+      }
     }
   }
 }

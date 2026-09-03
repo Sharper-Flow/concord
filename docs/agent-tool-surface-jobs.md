@@ -17,7 +17,7 @@ Concord's agent surface must serve the Product-memory jobs the operator and
 its agents repeatedly perform. The binding inputs are the accepted PM1 query
 contract and corpus, PM2 through PM10, Concord priorities, workflows, design
 constraints, and the Advance postmortem. This record defines the smallest
-evidenced set of end-to-end agent jobs AJ1 through AJ8 and the tool-neutral
+evidenced set of end-to-end agent jobs AJ1 through AJ9 and the tool-neutral
 scenario corpus that judges every later surface candidate.
 ## Contract
 
@@ -51,6 +51,7 @@ by Concord. No Q-number implies a separate tool.
 | **AJ6** | **Compact and reconcile terminal work.** Publish the one canonical durable note required for terminal work and reconcile its Product-memory locator. | Git publication is proven before the SQLite locator is recorded; an interruption leaves an explicit, recoverable partial outcome; retries do not create duplicate notes or competing authority. |
 | **AJ7** | **Retrieve durable Product knowledge.** Find prior work, decisions, lessons, specs, and canonical completed-work notes. | One bounded query returns canonical locators and index watermark; missing, ambiguous, degraded, and unreachable are distinct; no repeated list→show→search choreography is required. |
 | **AJ8** | **Execute operational work with consequence controls.** Carry an ops item through plan, required approval, execution, health verification, rollback when needed, and cleanup—including ground-truth reclamation of derived resources. | Native authority executes the operation; Concord preserves intent, approval, status, and evidence. Missing approval blocks consequences, health failure triggers the declared recovery path, cleanup uses native facts rather than stale bookkeeping, and partial completion is explicit. |
+| **AJ9** | **Read the managed-resource inventory.** Learn which external systems the Product owns or consumes, who owns each, who else consumes it, and where the vendor's documentation lives. | One bounded read returns each canonical resource once with its singular owner, bounded consumers, and a documentation locator; the read inlines no vendor content and appends nothing to the authoritative log. |
 
 These eight jobs are intentionally broader than storage queries and narrower than
 "do anything." They are the evidenced intent families repeatedly present in
@@ -170,7 +171,7 @@ surface expansion or pruning. No universal numeric tool ceiling is assumed.
 
 Amend TS1 only when one of these occurs:
 
-- a repeated real agent intent cannot be completed by any AJ1–AJ8 composition;
+- a repeated real agent intent cannot be completed by any AJ1–AJ9 composition;
 - two jobs are always chained and merging them measurably improves success without
   crossing a consequence or authority boundary;
 - one job mixes unrelated intents and causes measured selection or recovery errors;
@@ -200,6 +201,16 @@ unprobed `absent` assertion, which is what keeps this property from silently
 regressing.
 
 ### Approved amendments
+
+**2026-09-03, CD-0106 — `AJ9-product-resources` binds the resource inventory read.**
+CD-0106 D4 makes the managed-resource inventory the identity half of
+external-system knowledge, and C15 §6 named one closed read on
+`concord_product_view` as its agent surface. The scenario seeds one resource
+with an owner and a consumer, dispatches `resources` from the owner's ambient
+scope, and asserts the resource set, the owner, the consumers, the
+documentation locator, authoritative authority, and two probed absences: no
+vendor content in the response and no event appended to the log. AJ9 is the
+ninth job. The corpus grows to 24 scenarios.
 
 **2026-08-16, issue #156 — `AJ1-ambient-ready-work` gains an authority assertion.**
 Building the corpus runner surfaced that this scenario asserted only `result` and

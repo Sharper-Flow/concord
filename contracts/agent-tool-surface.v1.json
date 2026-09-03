@@ -28,7 +28,8 @@
         "concord_product_view.resolve",
         "concord_product_view.snapshot",
         "concord_product_view.portfolio",
-        "concord_product_view.blocked_sessions"
+        "concord_product_view.blocked_sessions",
+        "concord_product_view.resources"
       ]
     },
     {
@@ -216,6 +217,27 @@
       "query_id": "PM1.Q12",
       "input_schema": "#/schemas/product_view_blocked_sessions_input",
       "result_schema": "#/schemas/blocked_sessions_page",
+      "capability": "product_read",
+      "consequence": "read",
+      "approval": "none",
+      "metadata": {
+        "context": "ambient",
+        "idempotency": "request_id",
+        "pagination": "none",
+        "output_bytes": 51200,
+        "versions": [
+          "1.0"
+        ]
+      },
+      "supported_budget_seconds": 300
+    },
+    {
+      "id": "concord_product_view.resources",
+      "tool": "concord_product_view",
+      "kind": "read",
+      "query_id": "C15.Resources",
+      "input_schema": "#/schemas/product_view_resources_input",
+      "result_schema": "#/schemas/resource_page",
       "capability": "product_read",
       "consequence": "read",
       "approval": "none",
@@ -1847,6 +1869,14 @@
     "work_transition_worktree_destroy_input": {
       "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_transition_worktree_destroy_input",
       "closed": true
+    },
+    "product_view_resources_input": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/product_view_resources_input",
+      "closed": true
+    },
+    "resource_page": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/resource_page",
+      "closed": true
     }
   },
   "capabilities": [
@@ -1897,6 +1927,6 @@
       "digest"
     ]
   },
-  "payload_digest": "sha256:20ea20339b8e86e898b4a8c02833532751a4c6e0c41c9fbe424e7738e634ef59",
-  "digest": "sha256:9e123fee8c66b7aab8c487688432ad11e32755f604a3a079ea6a028ee270d456"
+  "payload_digest": "sha256:7f1934a377e5488e782162d7f7081ede821a1bd03731e7dd5636034faa13cca4",
+  "digest": "sha256:2bc5d89238ccd536158103e32a44556531e299f9e16a2672e4d7f359616b788d"
 }

@@ -247,6 +247,7 @@ const GeneratedEnvelopeSchemaDocument = `{
             "resource_claim",
             "resource_claims",
             "resource_release",
+            "resources",
             "restore_superseded",
             "revise_intent",
             "revise_narrative",
@@ -259,11 +260,11 @@ const GeneratedEnvelopeSchemaDocument = `{
             "unprocessed",
             "workflow_action",
             "worktree_audit",
+            "worktree_audit_reclaim",
             "worktree_claim",
             "worktree_destroy",
             "worktree_inspect",
             "worktree_reclaim",
-            "worktree_audit_reclaim",
             "worktree_verify"
           ]
         },
@@ -291,7 +292,7 @@ const GeneratedEnvelopeSchemaDocument = `{
           ]
         },
         "query_id": {
-          "pattern": "^(PM1\\.Q(1[0-6]|[1-9])|CD-0030\\.R1|CD-0040\\.R1|CD-0096\\.R1|C14\\.ProductRows|C19\\.Continuity|C21\\.InitiativeEntries|C22\\.Domain(List|Detail|ActiveWork|Attachments|Overlaps))$",
+          "pattern": "^(PM1\\.Q(1[0-6]|[1-9])|CD-0030\\.R1|CD-0040\\.R1|CD-0096\\.R1|C14\\.ProductRows|C15\\.Resources|C19\\.Continuity|C21\\.InitiativeEntries|C22\\.Domain(List|Detail|ActiveWork|Attachments|Overlaps))$",
           "type": "string"
         },
         "replayed": {
@@ -806,6 +807,7 @@ const GeneratedEnvelopeSchemaDocument = `{
             "resource_claim",
             "resource_claims",
             "resource_release",
+            "resources",
             "restore_superseded",
             "revise_intent",
             "revise_narrative",
@@ -818,16 +820,16 @@ const GeneratedEnvelopeSchemaDocument = `{
             "unprocessed",
             "workflow_action",
             "worktree_audit",
+            "worktree_audit_reclaim",
             "worktree_claim",
             "worktree_destroy",
             "worktree_inspect",
             "worktree_reclaim",
-            "worktree_audit_reclaim",
             "worktree_verify"
           ]
         },
         "query_id": {
-          "pattern": "^(PM1\\.Q(1[0-6]|[1-9])|CD-0030\\.R1|CD-0040\\.R1|CD-0096\\.R1|C14\\.ProductRows|C19\\.Continuity|C21\\.InitiativeEntries|C22\\.Domain(List|Detail|ActiveWork|Attachments|Overlaps))$",
+          "pattern": "^(PM1\\.Q(1[0-6]|[1-9])|CD-0030\\.R1|CD-0040\\.R1|CD-0096\\.R1|C14\\.ProductRows|C15\\.Resources|C19\\.Continuity|C21\\.InitiativeEntries|C22\\.Domain(List|Detail|ActiveWork|Attachments|Overlaps))$",
           "type": "string"
         },
         "reason_code": {
@@ -1784,6 +1786,24 @@ const GeneratedEnvelopeSchemaDocument = `{
             },
             "query_id": {
               "const": "PM1.Q12"
+            },
+            "tool": {
+              "const": "concord_product_view"
+            }
+          },
+          "required": [
+            "tool",
+            "operation",
+            "query_id"
+          ]
+        },
+        {
+          "properties": {
+            "operation": {
+              "const": "resources"
+            },
+            "query_id": {
+              "const": "C15.Resources"
             },
             "tool": {
               "const": "concord_product_view"

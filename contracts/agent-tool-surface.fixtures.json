@@ -151,6 +151,26 @@
     {
       "input_invalid_cases": [
         {
+          "unknown": true
+        }
+      ],
+      "input_schema": "product_view_resources_input",
+      "input_valid": {},
+      "operation": "concord_product_view.resources",
+      "result_invalid_cases": [
+        {
+          "resources": [],
+          "unknown": true
+        }
+      ],
+      "result_schema": "resource_page",
+      "result_valid": {
+        "resources": []
+      }
+    },
+    {
+      "input_invalid_cases": [
+        {
           "page": {
             "cursor": "id-1",
             "limit": 1
@@ -3207,5 +3227,5 @@
       }
     }
   ],
-  "manifest_digest": "sha256:9e123fee8c66b7aab8c487688432ad11e32755f604a3a079ea6a028ee270d456"
+  "manifest_digest": "sha256:2bc5d89238ccd536158103e32a44556531e299f9e16a2672e4d7f359616b788d"
 }

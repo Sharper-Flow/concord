@@ -2,11 +2,32 @@
   "schema_version": "1.0",
   "contract": "TS1",
   "contract_status": "accepted",
-  "fixture_sources": ["https://raw.githubusercontent.com/Sharper-Flow/concord/main/scenarios/product-memory-query.v1.json"],
+  "fixture_sources": [
+    "https://raw.githubusercontent.com/Sharper-Flow/concord/main/scenarios/product-memory-query.v1.json"
+  ],
   "assertion_contract": {
-    "required_fields": ["target", "path", "op"],
-    "targets": ["state", "result", "communication", "effects", "authority"],
-    "ops": ["eq", "not_eq", "contains", "not_contains", "set_eq", "unique", "nonempty", "absent"]
+    "required_fields": [
+      "target",
+      "path",
+      "op"
+    ],
+    "targets": [
+      "state",
+      "result",
+      "communication",
+      "effects",
+      "authority"
+    ],
+    "ops": [
+      "eq",
+      "not_eq",
+      "contains",
+      "not_contains",
+      "set_eq",
+      "unique",
+      "nonempty",
+      "absent"
+    ]
   },
   "runner_requirements": {
     "passing_rule": "all assertions and named shared invariants must pass",
@@ -39,214 +60,613 @@
     "stable_evolution": "recorded contract versions remain interpretable"
   },
   "jobs": [
-    { "id": "AJ1", "name": "orient_and_choose_work" },
-    { "id": "AJ2", "name": "explain_blocked_work" },
-    { "id": "AJ3", "name": "capture_needed_work" },
-    { "id": "AJ4", "name": "transition_work_with_evidence" },
-    { "id": "AJ5", "name": "relate_and_scope_work" },
-    { "id": "AJ6", "name": "compact_and_reconcile_terminal_work" },
-    { "id": "AJ7", "name": "retrieve_durable_knowledge" },
-    { "id": "AJ8", "name": "execute_operational_work" }
+    {
+      "id": "AJ1",
+      "name": "orient_and_choose_work"
+    },
+    {
+      "id": "AJ2",
+      "name": "explain_blocked_work"
+    },
+    {
+      "id": "AJ3",
+      "name": "capture_needed_work"
+    },
+    {
+      "id": "AJ4",
+      "name": "transition_work_with_evidence"
+    },
+    {
+      "id": "AJ5",
+      "name": "relate_and_scope_work"
+    },
+    {
+      "id": "AJ6",
+      "name": "compact_and_reconcile_terminal_work"
+    },
+    {
+      "id": "AJ7",
+      "name": "retrieve_durable_knowledge"
+    },
+    {
+      "id": "AJ8",
+      "name": "execute_operational_work"
+    },
+    {
+      "id": "AJ9",
+      "name": "read_resource_inventory"
+    }
   ],
   "scenarios": [
     {
       "id": "AJ1-ambient-ready-work",
       "job_id": "AJ1",
       "instruction": "Orient me to this Product and select the highest-priority work I can start now.",
-      "initial_state": { "fixture": "PM1", "ambient_project": "proj-web" },
+      "initial_state": {
+        "fixture": "PM1",
+        "ambient_project": "proj-web"
+      },
       "expected": {
         "assertions": [
-          { "target": "result", "path": "resolved_product_id", "op": "eq", "value": "prod-alpha" },
-          { "target": "result", "path": "selected_work_id", "op": "eq", "value": "work-ready-high" },
-          { "target": "result", "path": "selected_work_id", "op": "not_eq", "value": "work-blocked" },
-          { "target": "communication", "path": "ready_work_evidence", "op": "nonempty" },
-          { "target": "authority", "path": "stored_ready_flag_used", "op": "eq", "value": false }
+          {
+            "target": "result",
+            "path": "resolved_product_id",
+            "op": "eq",
+            "value": "prod-alpha"
+          },
+          {
+            "target": "result",
+            "path": "selected_work_id",
+            "op": "eq",
+            "value": "work-ready-high"
+          },
+          {
+            "target": "result",
+            "path": "selected_work_id",
+            "op": "not_eq",
+            "value": "work-blocked"
+          },
+          {
+            "target": "communication",
+            "path": "ready_work_evidence",
+            "op": "nonempty"
+          },
+          {
+            "target": "authority",
+            "path": "stored_ready_flag_used",
+            "op": "eq",
+            "value": false
+          }
         ],
-        "invariants": ["correct_scope", "canonical_authority", "bounded_context"]
+        "invariants": [
+          "correct_scope",
+          "canonical_authority",
+          "bounded_context"
+        ]
       }
     },
     {
       "id": "AJ1-ambiguous-product",
       "job_id": "AJ1",
       "instruction": "Show me what to work on from shared-kit.",
-      "initial_state": { "fixture": "PM1", "ambient_project": "proj-shared" },
+      "initial_state": {
+        "fixture": "PM1",
+        "ambient_project": "proj-shared"
+      },
       "expected": {
         "assertions": [
-          { "target": "result", "path": "selected_work_id", "op": "absent" },
-          { "target": "communication", "path": "error.kind", "op": "eq", "value": "ambiguous_scope" },
-          { "target": "communication", "path": "error.candidate_ids", "op": "set_eq", "value": ["prod-alpha", "prod-beta"] },
-          { "target": "effects", "path": "guessed_product", "op": "absent" }
+          {
+            "target": "result",
+            "path": "selected_work_id",
+            "op": "absent"
+          },
+          {
+            "target": "communication",
+            "path": "error.kind",
+            "op": "eq",
+            "value": "ambiguous_scope"
+          },
+          {
+            "target": "communication",
+            "path": "error.candidate_ids",
+            "op": "set_eq",
+            "value": [
+              "prod-alpha",
+              "prod-beta"
+            ]
+          },
+          {
+            "target": "effects",
+            "path": "guessed_product",
+            "op": "absent"
+          }
         ],
-        "invariants": ["correct_scope", "no_silent_scope_cut"]
+        "invariants": [
+          "correct_scope",
+          "no_silent_scope_cut"
+        ]
       }
     },
     {
       "id": "AJ1-cross-project-deduplication",
       "job_id": "AJ1",
       "instruction": "Show active work spanning Alpha's web and API Projects.",
-      "initial_state": { "fixture": "PM1" },
+      "initial_state": {
+        "fixture": "PM1"
+      },
       "expected": {
         "assertions": [
-          { "target": "result", "path": "items.ids", "op": "contains", "value": "work-cross" },
-          { "target": "result", "path": "items.ids", "op": "unique" },
-          { "target": "result", "path": "items.work-cross.project_ids", "op": "set_eq", "value": ["proj-web", "proj-api"] },
-          { "target": "effects", "path": "per_project_status_copy", "op": "absent" }
+          {
+            "target": "result",
+            "path": "items.ids",
+            "op": "contains",
+            "value": "work-cross"
+          },
+          {
+            "target": "result",
+            "path": "items.ids",
+            "op": "unique"
+          },
+          {
+            "target": "result",
+            "path": "items.work-cross.project_ids",
+            "op": "set_eq",
+            "value": [
+              "proj-web",
+              "proj-api"
+            ]
+          },
+          {
+            "target": "effects",
+            "path": "per_project_status_copy",
+            "op": "absent"
+          }
         ],
-        "invariants": ["canonical_authority", "bounded_context"]
+        "invariants": [
+          "canonical_authority",
+          "bounded_context"
+        ]
       }
     },
     {
       "id": "AJ2-blocker-explanation",
       "job_id": "AJ2",
       "instruction": "Why is work-blocked blocked, and what has to change?",
-      "initial_state": { "fixture": "PM1" },
+      "initial_state": {
+        "fixture": "PM1"
+      },
       "expected": {
         "assertions": [
-          { "target": "result", "path": "work_id", "op": "eq", "value": "work-blocked" },
-          { "target": "result", "path": "blocker_ids", "op": "eq", "value": ["work-prereq"] },
-          { "target": "communication", "path": "unblock_conditions", "op": "nonempty" },
-          { "target": "authority", "path": "stored_blocked_flag_used", "op": "eq", "value": false }
+          {
+            "target": "result",
+            "path": "work_id",
+            "op": "eq",
+            "value": "work-blocked"
+          },
+          {
+            "target": "result",
+            "path": "blocker_ids",
+            "op": "eq",
+            "value": [
+              "work-prereq"
+            ]
+          },
+          {
+            "target": "communication",
+            "path": "unblock_conditions",
+            "op": "nonempty"
+          },
+          {
+            "target": "authority",
+            "path": "stored_blocked_flag_used",
+            "op": "eq",
+            "value": false
+          }
         ],
-        "invariants": ["canonical_authority", "bounded_context"]
+        "invariants": [
+          "canonical_authority",
+          "bounded_context"
+        ]
       }
     },
     {
       "id": "AJ3-capture-work",
       "job_id": "AJ3",
       "instruction": "Capture needed work to add passkey login to Alpha web; value is reducing account takeover risk.",
-      "initial_state": { "fixture": "PM1", "idempotency_seed": "capture-passkey" },
+      "initial_state": {
+        "fixture": "PM1",
+        "idempotency_seed": "capture-passkey"
+      },
       "expected": {
         "assertions": [
-          { "target": "state", "path": "created_work.count", "op": "eq", "value": 1 },
-          { "target": "state", "path": "created_work.lifecycle", "op": "eq", "value": "needed" },
-          { "target": "state", "path": "created_work.project_ids", "op": "eq", "value": ["proj-web"] },
-          { "target": "state", "path": "created_work.value", "op": "eq", "value": "reducing account takeover risk" },
-          { "target": "communication", "path": "created_work_id", "op": "nonempty" }
+          {
+            "target": "state",
+            "path": "created_work.count",
+            "op": "eq",
+            "value": 1
+          },
+          {
+            "target": "state",
+            "path": "created_work.lifecycle",
+            "op": "eq",
+            "value": "needed"
+          },
+          {
+            "target": "state",
+            "path": "created_work.project_ids",
+            "op": "eq",
+            "value": [
+              "proj-web"
+            ]
+          },
+          {
+            "target": "state",
+            "path": "created_work.value",
+            "op": "eq",
+            "value": "reducing account takeover risk"
+          },
+          {
+            "target": "communication",
+            "path": "created_work_id",
+            "op": "nonempty"
+          }
         ],
-        "invariants": ["correct_scope", "atomic_core_effect", "retry_safe"]
+        "invariants": [
+          "correct_scope",
+          "atomic_core_effect",
+          "retry_safe"
+        ]
       }
     },
     {
       "id": "AJ3-spec-conflict",
       "job_id": "AJ3",
       "instruction": "Capture the implementation but omit the accepted audit requirement to make it smaller.",
-      "initial_state": { "fixture": "PM1", "governing_requirement": "audit_required" },
-      "driver": { "kind": "human_checkpoint", "response": "pending" },
+      "initial_state": {
+        "fixture": "PM1",
+        "governing_requirement": "audit_required"
+      },
+      "driver": {
+        "kind": "human_checkpoint",
+        "response": "pending"
+      },
       "expected": {
         "assertions": [
-          { "target": "state", "path": "created_work.count", "op": "eq", "value": 0 },
-          { "target": "communication", "path": "error.kind", "op": "eq", "value": "invariant_violation" },
-          { "target": "communication", "path": "options", "op": "set_eq", "value": ["clarify", "amend_contract", "accept_scope_cut"] },
-          { "target": "effects", "path": "silent_requirement_omission", "op": "absent" }
+          {
+            "target": "state",
+            "path": "created_work.count",
+            "op": "eq",
+            "value": 0
+          },
+          {
+            "target": "communication",
+            "path": "error.kind",
+            "op": "eq",
+            "value": "invariant_violation"
+          },
+          {
+            "target": "communication",
+            "path": "options",
+            "op": "set_eq",
+            "value": [
+              "clarify",
+              "amend_contract",
+              "accept_scope_cut"
+            ]
+          },
+          {
+            "target": "effects",
+            "path": "silent_requirement_omission",
+            "op": "absent"
+          }
         ],
-        "invariants": ["no_silent_scope_cut", "evidence_authority"]
+        "invariants": [
+          "no_silent_scope_cut",
+          "evidence_authority"
+        ]
       }
     },
     {
       "id": "AJ4-start-valid-work",
       "job_id": "AJ4",
       "instruction": "Start work-ready-high.",
-      "initial_state": { "fixture": "PM1", "expected_version": 2, "idempotency_seed": "start-ready-high" },
+      "initial_state": {
+        "fixture": "PM1",
+        "expected_version": 2,
+        "idempotency_seed": "start-ready-high"
+      },
       "expected": {
         "assertions": [
-          { "target": "state", "path": "work.work-ready-high.lifecycle", "op": "eq", "value": "in_progress" },
-          { "target": "state", "path": "work.work-ready-high.version", "op": "eq", "value": 3 },
-          { "target": "effects", "path": "transition_events.count", "op": "eq", "value": 1 },
-          { "target": "effects", "path": "version_increment", "op": "eq", "value": 1 },
-          { "target": "communication", "path": "new_version", "op": "eq", "value": 3 }
+          {
+            "target": "state",
+            "path": "work.work-ready-high.lifecycle",
+            "op": "eq",
+            "value": "in_progress"
+          },
+          {
+            "target": "state",
+            "path": "work.work-ready-high.version",
+            "op": "eq",
+            "value": 3
+          },
+          {
+            "target": "effects",
+            "path": "transition_events.count",
+            "op": "eq",
+            "value": 1
+          },
+          {
+            "target": "effects",
+            "path": "version_increment",
+            "op": "eq",
+            "value": 1
+          },
+          {
+            "target": "communication",
+            "path": "new_version",
+            "op": "eq",
+            "value": 3
+          }
         ],
-        "invariants": ["atomic_core_effect", "retry_safe", "canonical_authority"]
+        "invariants": [
+          "atomic_core_effect",
+          "retry_safe",
+          "canonical_authority"
+        ]
       }
     },
     {
       "id": "AJ4-complete-valid-work",
       "job_id": "AJ4",
       "instruction": "Complete work-cross with the supplied verification evidence.",
-      "initial_state": { "fixture": "PM1", "expected_version": 4, "evidence_refs": ["verification-pass"] },
+      "initial_state": {
+        "fixture": "PM1",
+        "expected_version": 4,
+        "evidence_refs": [
+          "verification-pass"
+        ]
+      },
       "expected": {
         "assertions": [
-          { "target": "state", "path": "work.work-cross.lifecycle", "op": "eq", "value": "completed" },
-          { "target": "effects", "path": "transition_events.count", "op": "eq", "value": 1 },
-          { "target": "effects", "path": "transition_events.0.evidence_refs", "op": "contains", "value": "verification-pass" },
-          { "target": "effects", "path": "version_increment", "op": "eq", "value": 1 },
-          { "target": "communication", "path": "new_version", "op": "nonempty" }
+          {
+            "target": "state",
+            "path": "work.work-cross.lifecycle",
+            "op": "eq",
+            "value": "completed"
+          },
+          {
+            "target": "effects",
+            "path": "transition_events.count",
+            "op": "eq",
+            "value": 1
+          },
+          {
+            "target": "effects",
+            "path": "transition_events.0.evidence_refs",
+            "op": "contains",
+            "value": "verification-pass"
+          },
+          {
+            "target": "effects",
+            "path": "version_increment",
+            "op": "eq",
+            "value": 1
+          },
+          {
+            "target": "communication",
+            "path": "new_version",
+            "op": "nonempty"
+          }
         ],
-        "invariants": ["atomic_core_effect", "evidence_authority", "retry_safe"]
+        "invariants": [
+          "atomic_core_effect",
+          "evidence_authority",
+          "retry_safe"
+        ]
       }
     },
     {
       "id": "AJ4-completion-missing-evidence",
       "job_id": "AJ4",
       "instruction": "Mark work-cross completed.",
-      "initial_state": { "fixture": "PM1", "required_evidence": "verification", "provided_evidence": null },
+      "initial_state": {
+        "fixture": "PM1",
+        "required_evidence": "verification",
+        "provided_evidence": null
+      },
       "expected": {
         "assertions": [
-          { "target": "state", "path": "work.work-cross.lifecycle", "op": "eq", "value": "in_progress" },
-          { "target": "communication", "path": "error.kind", "op": "eq", "value": "missing_evidence" },
-          { "target": "communication", "path": "error.required_kind", "op": "eq", "value": "verification" },
-          { "target": "effects", "path": "terminal_transition", "op": "absent" }
+          {
+            "target": "state",
+            "path": "work.work-cross.lifecycle",
+            "op": "eq",
+            "value": "in_progress"
+          },
+          {
+            "target": "communication",
+            "path": "error.kind",
+            "op": "eq",
+            "value": "missing_evidence"
+          },
+          {
+            "target": "communication",
+            "path": "error.required_kind",
+            "op": "eq",
+            "value": "verification"
+          },
+          {
+            "target": "effects",
+            "path": "terminal_transition",
+            "op": "absent"
+          }
         ],
-        "invariants": ["evidence_authority", "atomic_core_effect"]
+        "invariants": [
+          "evidence_authority",
+          "atomic_core_effect"
+        ]
       }
     },
     {
       "id": "AJ4-stale-version",
       "job_id": "AJ4",
       "instruction": "Start work-ready-low using version 1.",
-      "initial_state": { "fixture": "PM1", "current_version": 2, "expected_version": 1 },
+      "initial_state": {
+        "fixture": "PM1",
+        "current_version": 2,
+        "expected_version": 1
+      },
       "expected": {
         "assertions": [
-          { "target": "state", "path": "work.work-ready-low.version", "op": "eq", "value": 2 },
-          { "target": "communication", "path": "error.kind", "op": "eq", "value": "version_conflict" },
-          { "target": "communication", "path": "error.current_version", "op": "eq", "value": 2 },
-          { "target": "effects", "path": "transition_events.count", "op": "eq", "value": 0 }
+          {
+            "target": "state",
+            "path": "work.work-ready-low.version",
+            "op": "eq",
+            "value": 2
+          },
+          {
+            "target": "communication",
+            "path": "error.kind",
+            "op": "eq",
+            "value": "version_conflict"
+          },
+          {
+            "target": "communication",
+            "path": "error.current_version",
+            "op": "eq",
+            "value": 2
+          },
+          {
+            "target": "effects",
+            "path": "transition_events.count",
+            "op": "eq",
+            "value": 0
+          }
         ],
-        "invariants": ["canonical_authority", "honest_recovery"]
+        "invariants": [
+          "canonical_authority",
+          "honest_recovery"
+        ]
       }
     },
     {
       "id": "AJ5-frame-initiative",
       "job_id": "AJ5",
       "instruction": "Frame an Initiative for work-ready-low, preserving the child's independent lifecycle.",
-      "initial_state": { "fixture": "PM1", "idempotency_seed": "initiative-frame" },
+      "initial_state": {
+        "fixture": "PM1",
+        "idempotency_seed": "initiative-frame"
+      },
       "expected": {
         "assertions": [
-          { "target": "state", "path": "initiative.kind", "op": "eq", "value": "initiative" },
-          { "target": "state", "path": "initiative.entries.0.kind", "op": "eq", "value": "includes" },
-          { "target": "state", "path": "initiative.entries.0.required", "op": "eq", "value": true },
-          { "target": "effects", "path": "child_lifecycle_preserved", "op": "eq", "value": true }
+          {
+            "target": "state",
+            "path": "initiative.kind",
+            "op": "eq",
+            "value": "initiative"
+          },
+          {
+            "target": "state",
+            "path": "initiative.entries.0.kind",
+            "op": "eq",
+            "value": "includes"
+          },
+          {
+            "target": "state",
+            "path": "initiative.entries.0.required",
+            "op": "eq",
+            "value": true
+          },
+          {
+            "target": "effects",
+            "path": "child_lifecycle_preserved",
+            "op": "eq",
+            "value": true
+          }
         ],
-        "invariants": ["atomic_core_effect", "retry_safe", "canonical_authority"]
+        "invariants": [
+          "atomic_core_effect",
+          "retry_safe",
+          "canonical_authority"
+        ]
       }
     },
     {
       "id": "AJ5-add-dependency",
       "job_id": "AJ5",
       "instruction": "Make work-ready-low depend on work-cross.",
-      "initial_state": { "fixture": "PM1", "idempotency_seed": "dep-low-cross" },
+      "initial_state": {
+        "fixture": "PM1",
+        "idempotency_seed": "dep-low-cross"
+      },
       "expected": {
         "assertions": [
-          { "target": "state", "path": "relations.created.count", "op": "eq", "value": 1 },
-          { "target": "state", "path": "relations.created.0.kind", "op": "eq", "value": "blocks" },
-          { "target": "state", "path": "work.work-ready-low.derived_blocked", "op": "eq", "value": true },
-          { "target": "effects", "path": "stored_blocked_state", "op": "absent" }
+          {
+            "target": "state",
+            "path": "relations.created.count",
+            "op": "eq",
+            "value": 1
+          },
+          {
+            "target": "state",
+            "path": "relations.created.0.kind",
+            "op": "eq",
+            "value": "blocks"
+          },
+          {
+            "target": "state",
+            "path": "work.work-ready-low.derived_blocked",
+            "op": "eq",
+            "value": true
+          },
+          {
+            "target": "effects",
+            "path": "stored_blocked_state",
+            "op": "absent"
+          }
         ],
-        "invariants": ["atomic_core_effect", "retry_safe", "canonical_authority"]
+        "invariants": [
+          "atomic_core_effect",
+          "retry_safe",
+          "canonical_authority"
+        ]
       }
     },
     {
       "id": "AJ5-reject-cycle",
       "job_id": "AJ5",
       "instruction": "Make work-prereq depend on work-blocked.",
-      "initial_state": { "fixture": "PM1" },
+      "initial_state": {
+        "fixture": "PM1"
+      },
       "expected": {
         "assertions": [
-          { "target": "state", "path": "relations.created.count", "op": "eq", "value": 0 },
-          { "target": "communication", "path": "error.kind", "op": "eq", "value": "invalid_relation" },
-          { "target": "communication", "path": "error.violations", "op": "nonempty" },
-          { "target": "effects", "path": "cyclic_relation", "op": "absent" }
+          {
+            "target": "state",
+            "path": "relations.created.count",
+            "op": "eq",
+            "value": 0
+          },
+          {
+            "target": "communication",
+            "path": "error.kind",
+            "op": "eq",
+            "value": "invalid_relation"
+          },
+          {
+            "target": "communication",
+            "path": "error.violations",
+            "op": "nonempty"
+          },
+          {
+            "target": "effects",
+            "path": "cyclic_relation",
+            "op": "absent"
+          }
         ],
-        "invariants": ["atomic_core_effect", "honest_recovery"]
+        "invariants": [
+          "atomic_core_effect",
+          "honest_recovery"
+        ]
       }
     },
     {
@@ -255,33 +675,99 @@
       "instruction": "Supersede work-old with work-new.",
       "initial_state": {
         "fixture": "PM1",
-        "fixture_override": { "work-old.lifecycle": "in_progress", "remove_relation": "work-new supersedes work-old" }
+        "fixture_override": {
+          "work-old.lifecycle": "in_progress",
+          "remove_relation": "work-new supersedes work-old"
+        }
       },
       "expected": {
         "assertions": [
-          { "target": "state", "path": "work.work-old.lifecycle", "op": "eq", "value": "superseded" },
-          { "target": "state", "path": "relations.supersedes", "op": "contains", "value": { "source": "work-new", "target": "work-old" } },
-          { "target": "effects", "path": "terminal_without_relation", "op": "absent" },
-          { "target": "effects", "path": "relation_without_terminal", "op": "absent" }
+          {
+            "target": "state",
+            "path": "work.work-old.lifecycle",
+            "op": "eq",
+            "value": "superseded"
+          },
+          {
+            "target": "state",
+            "path": "relations.supersedes",
+            "op": "contains",
+            "value": {
+              "source": "work-new",
+              "target": "work-old"
+            }
+          },
+          {
+            "target": "effects",
+            "path": "terminal_without_relation",
+            "op": "absent"
+          },
+          {
+            "target": "effects",
+            "path": "relation_without_terminal",
+            "op": "absent"
+          }
         ],
-        "invariants": ["atomic_core_effect", "canonical_authority"]
+        "invariants": [
+          "atomic_core_effect",
+          "canonical_authority"
+        ]
       }
     },
     {
       "id": "AJ5-resolve-domain-overlap",
       "job_id": "AJ5",
       "instruction": "Authorize work-1 and work-2 to proceed concurrently after confirming their current Domain overlap is compatible.",
-      "initial_state": { "fixture": "domain-overlap", "idempotency_seed": "compatible-work-1-work-2" },
+      "initial_state": {
+        "fixture": "domain-overlap",
+        "idempotency_seed": "compatible-work-1-work-2"
+      },
       "expected": {
         "assertions": [
-          { "target": "state", "path": "overlap.current_resolution.kind", "op": "eq", "value": "compatible_with" },
-          { "target": "state", "path": "overlap.current_resolution.from_contract_version", "op": "eq", "value": 1 },
-          { "target": "state", "path": "overlap.current_resolution.to_contract_version", "op": "eq", "value": 1 },
-          { "target": "state", "path": "relations.compatible_with", "op": "contains", "value": { "source": "work-1", "target": "work-2" } },
-          { "target": "authority", "path": "operator_approval_consumed", "op": "eq", "value": true },
-          { "target": "effects", "path": "ordinary_relation_authority", "op": "absent" }
+          {
+            "target": "state",
+            "path": "overlap.current_resolution.kind",
+            "op": "eq",
+            "value": "compatible_with"
+          },
+          {
+            "target": "state",
+            "path": "overlap.current_resolution.from_contract_version",
+            "op": "eq",
+            "value": 1
+          },
+          {
+            "target": "state",
+            "path": "overlap.current_resolution.to_contract_version",
+            "op": "eq",
+            "value": 1
+          },
+          {
+            "target": "state",
+            "path": "relations.compatible_with",
+            "op": "contains",
+            "value": {
+              "source": "work-1",
+              "target": "work-2"
+            }
+          },
+          {
+            "target": "authority",
+            "path": "operator_approval_consumed",
+            "op": "eq",
+            "value": true
+          },
+          {
+            "target": "effects",
+            "path": "ordinary_relation_authority",
+            "op": "absent"
+          }
         ],
-        "invariants": ["atomic_core_effect", "evidence_authority", "canonical_authority"]
+        "invariants": [
+          "atomic_core_effect",
+          "evidence_authority",
+          "canonical_authority"
+        ]
       }
     },
     {
@@ -293,123 +779,417 @@
       },
       "expected": {
         "assertions": [
-          { "target": "authority", "path": "git.commit_oid", "op": "nonempty" },
-          { "target": "state", "path": "work.work-cancelled.canonical_note_locator", "op": "nonempty" },
-        { "target": "effects", "path": "publication_order", "op": "eq", "value": ["git_publish", "verify_commit", "record_locator"] },
-        { "target": "effects", "path": "canonical_notes.count", "op": "eq", "value": 1 },
-        { "target": "effects", "path": "durable_tier.markdown_only", "op": "eq", "value": true },
-        { "target": "effects", "path": "durable_tier.note_extension", "op": "eq", "value": ".md" },
-        { "target": "effects", "path": "durable_tier.budget_passed", "op": "eq", "value": true }
+          {
+            "target": "authority",
+            "path": "git.commit_oid",
+            "op": "nonempty"
+          },
+          {
+            "target": "state",
+            "path": "work.work-cancelled.canonical_note_locator",
+            "op": "nonempty"
+          },
+          {
+            "target": "effects",
+            "path": "publication_order",
+            "op": "eq",
+            "value": [
+              "git_publish",
+              "verify_commit",
+              "record_locator"
+            ]
+          },
+          {
+            "target": "effects",
+            "path": "canonical_notes.count",
+            "op": "eq",
+            "value": 1
+          },
+          {
+            "target": "effects",
+            "path": "durable_tier.markdown_only",
+            "op": "eq",
+            "value": true
+          },
+          {
+            "target": "effects",
+            "path": "durable_tier.note_extension",
+            "op": "eq",
+            "value": ".md"
+          },
+          {
+            "target": "effects",
+            "path": "durable_tier.budget_passed",
+            "op": "eq",
+            "value": true
+          }
         ],
-        "invariants": ["ordered_cross_authority", "retry_safe", "canonical_authority"]
+        "invariants": [
+          "ordered_cross_authority",
+          "retry_safe",
+          "canonical_authority"
+        ]
       }
     },
     {
       "id": "AJ6-partial-publication",
       "job_id": "AJ6",
       "instruction": "Publish and reconcile the durable note for work-cancelled.",
-      "initial_state": { "fixture": "PM1", "fault": "git_write_succeeded_commit_verification_failed" },
+      "initial_state": {
+        "fixture": "PM1",
+        "fault": "git_write_succeeded_commit_verification_failed"
+      },
       "expected": {
         "assertions": [
-          { "target": "state", "path": "work.work-cancelled.canonical_note_locator", "op": "absent" },
-          { "target": "communication", "path": "outcome", "op": "eq", "value": "partial" },
-          { "target": "communication", "path": "completed_steps", "op": "contains", "value": "git_write" },
-          { "target": "communication", "path": "recovery_action", "op": "nonempty" },
-          { "target": "effects", "path": "success_verdict", "op": "absent" }
+          {
+            "target": "state",
+            "path": "work.work-cancelled.canonical_note_locator",
+            "op": "absent"
+          },
+          {
+            "target": "communication",
+            "path": "outcome",
+            "op": "eq",
+            "value": "partial"
+          },
+          {
+            "target": "communication",
+            "path": "completed_steps",
+            "op": "contains",
+            "value": "git_write"
+          },
+          {
+            "target": "communication",
+            "path": "recovery_action",
+            "op": "nonempty"
+          },
+          {
+            "target": "effects",
+            "path": "success_verdict",
+            "op": "absent"
+          }
         ],
-        "invariants": ["ordered_cross_authority", "honest_recovery", "canonical_authority"]
+        "invariants": [
+          "ordered_cross_authority",
+          "honest_recovery",
+          "canonical_authority"
+        ]
       }
     },
     {
       "id": "AJ7-search-knowledge",
       "job_id": "AJ7",
       "instruction": "Find prior Alpha decisions and lessons about SQLite state authority.",
-      "initial_state": { "fixture": "PM1" },
+      "initial_state": {
+        "fixture": "PM1"
+      },
       "expected": {
         "assertions": [
-          { "target": "result", "path": "items.ids", "op": "set_eq", "value": ["knowledge-decision", "knowledge-lesson"] },
-          { "target": "result", "path": "items.locators", "op": "nonempty" },
-          { "target": "authority", "path": "index_watermark", "op": "nonempty" },
-          { "target": "effects", "path": "unbounded_document_dump", "op": "absent" }
+          {
+            "target": "result",
+            "path": "items.ids",
+            "op": "set_eq",
+            "value": [
+              "knowledge-decision",
+              "knowledge-lesson"
+            ]
+          },
+          {
+            "target": "result",
+            "path": "items.locators",
+            "op": "nonempty"
+          },
+          {
+            "target": "authority",
+            "path": "index_watermark",
+            "op": "nonempty"
+          },
+          {
+            "target": "effects",
+            "path": "unbounded_document_dump",
+            "op": "absent"
+          }
         ],
-        "invariants": ["bounded_context", "canonical_authority"]
+        "invariants": [
+          "bounded_context",
+          "canonical_authority"
+        ]
       }
     },
     {
       "id": "AJ7-degraded-index",
       "job_id": "AJ7",
       "instruction": "Find Alpha's SQLite decisions even if the index is behind.",
-      "initial_state": { "fixture": "PM1", "fault": "knowledge_index_lagging" },
+      "initial_state": {
+        "fixture": "PM1",
+        "fault": "knowledge_index_lagging"
+      },
       "expected": {
         "assertions": [
-          { "target": "authority", "path": "status", "op": "eq", "value": "degraded" },
-          { "target": "authority", "path": "omissions", "op": "nonempty" },
-          { "target": "authority", "path": "index_watermark", "op": "nonempty" },
-          { "target": "effects", "path": "silent_complete_answer", "op": "absent" }
+          {
+            "target": "authority",
+            "path": "status",
+            "op": "eq",
+            "value": "degraded"
+          },
+          {
+            "target": "authority",
+            "path": "omissions",
+            "op": "nonempty"
+          },
+          {
+            "target": "authority",
+            "path": "index_watermark",
+            "op": "nonempty"
+          },
+          {
+            "target": "effects",
+            "path": "silent_complete_answer",
+            "op": "absent"
+          }
         ],
-        "invariants": ["canonical_authority", "honest_recovery"]
+        "invariants": [
+          "canonical_authority",
+          "honest_recovery"
+        ]
       }
     },
     {
       "id": "AJ8-approval-required",
       "job_id": "AJ8",
       "instruction": "Rotate the production database credential now.",
-      "initial_state": { "operation": "credential_rotation", "consequence": "production_write", "approval": null },
-      "driver": { "kind": "human_checkpoint", "response": "pending" },
+      "initial_state": {
+        "operation": "credential_rotation",
+        "consequence": "production_write",
+        "approval": null
+      },
+      "driver": {
+        "kind": "human_checkpoint",
+        "response": "pending"
+      },
       "expected": {
         "assertions": [
-          { "target": "state", "path": "operation.started", "op": "eq", "value": false },
-          { "target": "communication", "path": "error.kind", "op": "eq", "value": "approval_required" },
-          { "target": "communication", "path": "consequence_summary", "op": "nonempty" },
-          { "target": "effects", "path": "credential_rotated", "op": "absent" }
+          {
+            "target": "state",
+            "path": "operation.started",
+            "op": "eq",
+            "value": false
+          },
+          {
+            "target": "communication",
+            "path": "error.kind",
+            "op": "eq",
+            "value": "approval_required"
+          },
+          {
+            "target": "communication",
+            "path": "consequence_summary",
+            "op": "nonempty"
+          },
+          {
+            "target": "effects",
+            "path": "credential_rotated",
+            "op": "absent"
+          }
         ],
-        "invariants": ["evidence_authority", "atomic_core_effect"]
+        "invariants": [
+          "evidence_authority",
+          "atomic_core_effect"
+        ]
       }
     },
     {
       "id": "AJ8-health-failure-rollback",
       "job_id": "AJ8",
       "instruction": "Apply the approved production routing change, verify health, and roll back on failure.",
-      "initial_state": { "approval": "valid", "native_authority": "routing-provider", "health_after_apply": "failed", "rollback": "declared" },
+      "initial_state": {
+        "approval": "valid",
+        "native_authority": "routing-provider",
+        "health_after_apply": "failed",
+        "rollback": "declared"
+      },
       "expected": {
         "assertions": [
-          { "target": "state", "path": "native_change.status", "op": "eq", "value": "rolled_back" },
-          { "target": "communication", "path": "outcome", "op": "eq", "value": "partial" },
-          { "target": "communication", "path": "health_failure", "op": "nonempty" },
-          { "target": "communication", "path": "rollback_result", "op": "nonempty" },
-          { "target": "effects", "path": "adapter_domain_logic", "op": "absent" }
+          {
+            "target": "state",
+            "path": "native_change.status",
+            "op": "eq",
+            "value": "rolled_back"
+          },
+          {
+            "target": "communication",
+            "path": "outcome",
+            "op": "eq",
+            "value": "partial"
+          },
+          {
+            "target": "communication",
+            "path": "health_failure",
+            "op": "nonempty"
+          },
+          {
+            "target": "communication",
+            "path": "rollback_result",
+            "op": "nonempty"
+          },
+          {
+            "target": "effects",
+            "path": "adapter_domain_logic",
+            "op": "absent"
+          }
         ],
-        "invariants": ["ordered_cross_authority", "honest_recovery", "evidence_authority"]
+        "invariants": [
+          "ordered_cross_authority",
+          "honest_recovery",
+          "evidence_authority"
+        ]
       }
     },
     {
       "id": "AJ8-ground-truth-reclamation",
       "job_id": "AJ8",
       "instruction": "Reclaim the worktree for completed work-done.",
-      "initial_state": { "fixture": "PM1", "git": { "merged": true, "clean": true }, "projection": { "status": "active" } },
+      "initial_state": {
+        "fixture": "PM1",
+        "git": {
+          "merged": true,
+          "clean": true
+        },
+        "projection": {
+          "status": "active"
+        }
+      },
       "expected": {
         "assertions": [
-          { "target": "state", "path": "worktree.exists", "op": "eq", "value": false },
-          { "target": "state", "path": "work.work-done.history_retained", "op": "eq", "value": true },
-          { "target": "communication", "path": "ground_truth_evidence", "op": "nonempty" },
-          { "target": "effects", "path": "blocked_by_stale_projection", "op": "absent" }
+          {
+            "target": "state",
+            "path": "worktree.exists",
+            "op": "eq",
+            "value": false
+          },
+          {
+            "target": "state",
+            "path": "work.work-done.history_retained",
+            "op": "eq",
+            "value": true
+          },
+          {
+            "target": "communication",
+            "path": "ground_truth_evidence",
+            "op": "nonempty"
+          },
+          {
+            "target": "effects",
+            "path": "blocked_by_stale_projection",
+            "op": "absent"
+          }
         ],
-        "invariants": ["ground_truth_cleanup", "canonical_authority"]
+        "invariants": [
+          "ground_truth_cleanup",
+          "canonical_authority"
+        ]
       }
     },
     {
       "id": "AJ8-budget-refused",
       "job_id": "AJ8",
       "instruction": "Run the approved audit with a 60-second budget.",
-      "initial_state": { "requested_budget_seconds": 60, "supported_budget_seconds": 30 },
+      "initial_state": {
+        "requested_budget_seconds": 60,
+        "supported_budget_seconds": 30
+      },
       "expected": {
         "assertions": [
-          { "target": "state", "path": "operation.started", "op": "eq", "value": false },
-          { "target": "communication", "path": "error.kind", "op": "eq", "value": "budget_refused" },
-          { "target": "communication", "path": "error.supported_budget_seconds", "op": "eq", "value": 30 },
-          { "target": "effects", "path": "silent_budget_clamp", "op": "absent" }
+          {
+            "target": "state",
+            "path": "operation.started",
+            "op": "eq",
+            "value": false
+          },
+          {
+            "target": "communication",
+            "path": "error.kind",
+            "op": "eq",
+            "value": "budget_refused"
+          },
+          {
+            "target": "communication",
+            "path": "error.supported_budget_seconds",
+            "op": "eq",
+            "value": 30
+          },
+          {
+            "target": "effects",
+            "path": "silent_budget_clamp",
+            "op": "absent"
+          }
         ],
-        "invariants": ["honest_recovery", "evidence_authority"]
+        "invariants": [
+          "honest_recovery",
+          "evidence_authority"
+        ]
+      }
+    },
+    {
+      "id": "AJ9-product-resources",
+      "job_id": "AJ9",
+      "instruction": "Which external systems does this Product own or consume, and where is each vendor's documentation?",
+      "initial_state": {
+        "fixture": "PM1",
+        "ambient_project": "proj-web"
+      },
+      "expected": {
+        "assertions": [
+          {
+            "target": "result",
+            "path": "resource_ids",
+            "op": "set_eq",
+            "value": [
+              "vendor-api"
+            ]
+          },
+          {
+            "target": "result",
+            "path": "owner_product_id",
+            "op": "eq",
+            "value": "prod-alpha"
+          },
+          {
+            "target": "result",
+            "path": "consumer_product_ids",
+            "op": "set_eq",
+            "value": [
+              "prod-beta"
+            ]
+          },
+          {
+            "target": "result",
+            "path": "documentation_locator",
+            "op": "eq",
+            "value": "/vendor/api-docs"
+          },
+          {
+            "target": "effects",
+            "path": "vendor_content_inlined",
+            "op": "absent"
+          },
+          {
+            "target": "effects",
+            "path": "resource_mutation",
+            "op": "absent"
+          },
+          {
+            "target": "authority",
+            "path": "status",
+            "op": "eq",
+            "value": "authoritative"
+          }
+        ],
+        "invariants": [
+          "correct_scope",
+          "canonical_authority",
+          "bounded_context"
+        ]
       }
     }
   ]

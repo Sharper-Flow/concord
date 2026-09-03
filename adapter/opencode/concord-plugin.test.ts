@@ -79,3 +79,54 @@ describe("plugin entry binds the control plane to the host client", () => {
     await expect(hostControlPlane().moveSession("session-1", "/w")).rejects.toThrow(/handed the plugin no client/)
   })
 })
+
+// The client parses the refusal body before it returns, so the parsed value on
+// the result is the only readable copy. A refusal that reads the response a
+// second time reports that the host said nothing, and the operator loses the
+// one sentence that says why the move failed.
+describe("a refusal carries the host's own words", () => {
+  // A body the client already consumed. Reading it again throws, which is what
+  // a real host response does once the SDK client has parsed it.
+  const consumed = (status: number, payload: unknown): Response => {
+    const response = new Response(JSON.stringify(payload), { status })
+    void response.text()
+    return response
+  }
+
+  test("reports the host message when the move is refused", async () => {
+    const raw = {
+      get: async () => ({ data: { directory: "/w" }, response: new Response(null, { status: 200 }) }),
+      post: async () => ({
+        data: { data: { message: "worktree /w is held by another session" } },
+        response: consumed(409, { data: { message: "worktree /w is held by another session" } }),
+      }),
+    }
+    await ConcordAdapterPlugin({ client: { _client: raw } as never, serverUrl: new URL("http://127.0.0.1:4096") })
+    await expect(hostControlPlane().moveSession("session-1", "/w")).rejects.toThrow(
+      /worktree \/w is held by another session/,
+    )
+  })
+
+  test("reports the host message when the session readback is refused", async () => {
+    const raw = {
+      get: async () => ({
+        data: { message: "session-1 is unknown to this host" },
+        response: consumed(404, { message: "session-1 is unknown to this host" }),
+      }),
+      post: async () => ({ response: new Response(null, { status: 204 }) }),
+    }
+    await ConcordAdapterPlugin({ client: { _client: raw } as never, serverUrl: new URL("http://127.0.0.1:4096") })
+    await expect(hostControlPlane().sessionDirectory("session-1")).rejects.toThrow(
+      /session-1 is unknown to this host/,
+    )
+  })
+
+  test("says so plainly when the host supplied no refusal at all", async () => {
+    const raw = {
+      get: async () => ({ response: new Response(null, { status: 500 }) }),
+      post: async () => ({ response: new Response(null, { status: 204 }) }),
+    }
+    await ConcordAdapterPlugin({ client: { _client: raw } as never, serverUrl: new URL("http://127.0.0.1:4096") })
+    await expect(hostControlPlane().sessionDirectory("session-1")).rejects.toThrow(/no readable refusal/)
+  })
+})

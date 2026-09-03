@@ -112,14 +112,15 @@ export class HostControlPlane {
     const client = this.#require(
       `the OpenCode move-session route ${MOVE_SESSION_ROUTE} is unavailable: this host handed the plugin no client (host version ${hostVersion()})`,
     )
-    let response: Response
+    let result: RouteResult
     try {
-      response = (await client.post({ url: MOVE_SESSION_ROUTE, body: { sessionID, destination: { directory } }, signal })).response
+      result = await client.post({ url: MOVE_SESSION_ROUTE, body: { sessionID, destination: { directory } }, signal })
     } catch (error) {
       throw new MoveSessionUnavailable(
         `the OpenCode move-session route ${MOVE_SESSION_ROUTE} is unreachable (host version ${hostVersion()}): ${error instanceof Error ? error.message : String(error)}`,
       )
     }
+    const response = result.response
     if (response.status === 404 || response.status === 405) {
       throw new MoveSessionUnavailable(
         `the OpenCode move-session route ${MOVE_SESSION_ROUTE} is absent from this host (host version ${hostVersion()}); Concord requires it and runs no launch fallback`,
@@ -127,7 +128,7 @@ export class HostControlPlane {
     }
     if (response.status === 204 || response.status === 200) return
     throw new MoveSessionRefused(
-      `the OpenCode move-session route refused the retarget with status ${response.status}: ${await readRefusal(response)}`,
+      `the OpenCode move-session route refused the retarget with status ${response.status}: ${await refusalText(result)}`,
     )
   }
 
@@ -165,7 +166,7 @@ export class HostControlPlane {
       throw new MoveSessionRefused(`${prefix}: ${error instanceof Error ? error.message : String(error)}`)
     }
     if (!result.response.ok) {
-      throw new MoveSessionRefused(`${prefix}: the host answered ${result.response.status}: ${await readRefusal(result.response)}`)
+      throw new MoveSessionRefused(`${prefix}: the host answered ${result.response.status}: ${await refusalText(result)}`)
     }
     if (!Array.isArray(result.data)) {
       throw new MoveSessionRefused("the session list was not an array")
@@ -220,7 +221,7 @@ export class HostControlPlane {
       throw new MoveSessionRefused(`${prefix}: ${error instanceof Error ? error.message : String(error)}`)
     }
     if (!result.response.ok) {
-      throw new MoveSessionRefused(`${prefix}: the host answered ${result.response.status}: ${await readRefusal(result.response)}`)
+      throw new MoveSessionRefused(`${prefix}: the host answered ${result.response.status}: ${await refusalText(result)}`)
     }
     const directory = (result.data as { directory?: unknown } | null | undefined)?.directory
     if (typeof directory !== "string" || !directory) {
@@ -230,13 +231,32 @@ export class HostControlPlane {
   }
 }
 
-async function readRefusal(response: Response): Promise<string> {
+const NO_REFUSAL = "the host returned no readable refusal"
+
+// refusalText reports why the host refused, in the host's own words.
+//
+// The route client parses the body when it can, and `result.data` is then the
+// only readable copy: the response is already consumed, so reading it again
+// reports that the host said nothing when it said exactly why. When the client
+// carried no parsed value the body is still unread, and it holds the answer.
+async function refusalText(result: RouteResult): Promise<string> {
+  const carried = result.data
+  if (typeof carried === "string") return messageFrom(carried)
+  if (carried !== null && carried !== undefined) {
+    const envelope = carried as { data?: { message?: unknown }; message?: unknown }
+    const message = envelope.data?.message ?? envelope.message
+    return typeof message === "string" && message ? message : NO_REFUSAL
+  }
   let body: string
   try {
-    body = await response.text()
+    body = await result.response.text()
   } catch {
-    return "the host returned no readable refusal"
+    return NO_REFUSAL
   }
+  return messageFrom(body)
+}
+
+function messageFrom(body: string): string {
   try {
     const parsed = JSON.parse(body) as { data?: { message?: unknown }; message?: unknown }
     const message = parsed?.data?.message ?? parsed?.message
@@ -244,7 +264,7 @@ async function readRefusal(response: Response): Promise<string> {
   } catch {
     // A non-JSON body is reported as the host wrote it.
   }
-  return body.slice(0, 512) || "the host returned no readable refusal"
+  return body.slice(0, 512) || NO_REFUSAL
 }
 
 const shared = new HostControlPlane()

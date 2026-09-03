@@ -644,7 +644,11 @@ async function executeWorkStart(args: WorkStartArgs, context: ToolContext): Prom
       throw new AdapterFailure(
         "unreachable",
         "control_plane_unreachable",
-        `${detail}; nothing was captured or claimed. Run this session against a served host: start one with \`opencode serve\` and join it with \`opencode attach\`, or use \`opencode web\``,
+        // CD-0098 D2 reaches the host through the client the plugin factory
+        // hands the adapter, never through a URL it rebuilds, so a separate
+        // server supplies nothing this probe needs. The remedy names what the
+        // operator can actually change: the build this session runs on.
+        `${detail}; nothing was captured or claimed. Concord reaches the host through the client the plugin factory hands it, so running a separate server does not supply one: restart this session on an OpenCode build that hands plugins a client and serves the session routes`,
         "none",
         "contact_operator",
       )

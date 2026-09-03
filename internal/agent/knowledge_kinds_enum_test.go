@@ -2,17 +2,47 @@ package agent
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"sort"
 	"testing"
-
-	"github.com/sharper-flow/concord/internal/store"
 )
+
+// closedKnowledgeKinds reads the manifest schema's supported_kinds enum, the
+// one authority for the knowledge vocabulary. The store binds its own closed
+// set to the same enum, so the agent enum, the store filter, and the schema
+// cannot drift apart.
+func closedKnowledgeKinds(t *testing.T) []string {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join("..", "..", "contracts", "concord-knowledge-index.v1.schema.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var schema struct {
+		Properties struct {
+			SupportedKinds struct {
+				Items struct {
+					Enum []string `json:"enum"`
+				} `json:"items"`
+			} `json:"supported_kinds"`
+		} `json:"properties"`
+	}
+	if err := json.Unmarshal(raw, &schema); err != nil {
+		t.Fatal(err)
+	}
+	kinds := append([]string(nil), schema.Properties.SupportedKinds.Items.Enum...)
+	if len(kinds) == 0 {
+		t.Fatal("manifest schema declares no supported_kinds enum")
+	}
+	sort.Strings(kinds)
+	return kinds
+}
 
 // The search kinds filter on the agent surface, translated through the
 // agent-side aliases, must name exactly the closed knowledge vocabulary the
-// store indexes. A manifest kind the enum omits is indexed but unreachable by
-// name, which is how reference and constitution records hid from every
-// targeted search.
+// manifest schema declares. A manifest kind the enum omits is indexed but
+// unreachable by name, which is how reference and constitution records hid
+// from every targeted search.
 func TestKnowledgeSearchKindsEnumSpansTheClosedVocabulary(t *testing.T) {
 	var document struct {
 		Defs map[string]struct {
@@ -36,7 +66,7 @@ func TestKnowledgeSearchKindsEnumSpansTheClosedVocabulary(t *testing.T) {
 	}
 	got := knowledgeKinds(enum)
 	sort.Strings(got)
-	want := store.KnowledgeKinds()
+	want := closedKnowledgeKinds(t)
 	if len(got) != len(want) {
 		t.Fatalf("search kinds enum maps to %v, want %v", got, want)
 	}

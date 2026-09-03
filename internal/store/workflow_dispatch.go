@@ -168,7 +168,7 @@ func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, registry Definiti
 	}
 	guards.actorRef = actorRef
 	guards.eventActor = actorRef
-	if err := runWorkflowActionGuard(guards, guardPhaseActor); err != nil {
+	if err := guardRecordedActorTuple(guards); err != nil {
 		return result, err
 	}
 	if err := guardOperatorPremiseActor(guards); err != nil {

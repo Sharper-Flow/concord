@@ -615,6 +615,24 @@
           ],
           "properties": {
             "tool": {
+              "const": "concord_product_view"
+            },
+            "operation": {
+              "const": "resources"
+            },
+            "query_id": {
+              "const": "C15.Resources"
+            }
+          }
+        },
+        {
+          "required": [
+            "tool",
+            "operation",
+            "query_id"
+          ],
+          "properties": {
+            "tool": {
               "const": "concord_work_trace"
             },
             "operation": {
@@ -762,6 +780,7 @@
             "resource_claim",
             "resource_claims",
             "resource_release",
+            "resources",
             "restore_superseded",
             "revise_intent",
             "revise_narrative",
@@ -774,17 +793,17 @@
             "unprocessed",
             "workflow_action",
             "worktree_audit",
+            "worktree_audit_reclaim",
             "worktree_claim",
             "worktree_destroy",
             "worktree_inspect",
             "worktree_reclaim",
-            "worktree_audit_reclaim",
             "worktree_verify"
           ]
         },
         "query_id": {
           "type": "string",
-          "pattern": "^(PM1\\.Q(1[0-6]|[1-9])|CD-0030\\.R1|CD-0040\\.R1|CD-0096\\.R1|C14\\.ProductRows|C19\\.Continuity|C21\\.InitiativeEntries|C22\\.Domain(List|Detail|ActiveWork|Attachments|Overlaps))$"
+          "pattern": "^(PM1\\.Q(1[0-6]|[1-9])|CD-0030\\.R1|CD-0040\\.R1|CD-0096\\.R1|C14\\.ProductRows|C15\\.Resources|C19\\.Continuity|C21\\.InitiativeEntries|C22\\.Domain(List|Detail|ActiveWork|Attachments|Overlaps))$"
         },
         "outcome": {
           "enum": [
@@ -1203,6 +1222,7 @@
             "resource_claim",
             "resource_claims",
             "resource_release",
+            "resources",
             "restore_superseded",
             "revise_intent",
             "revise_narrative",
@@ -1215,17 +1235,17 @@
             "unprocessed",
             "workflow_action",
             "worktree_audit",
+            "worktree_audit_reclaim",
             "worktree_claim",
             "worktree_destroy",
             "worktree_inspect",
             "worktree_reclaim",
-            "worktree_audit_reclaim",
             "worktree_verify"
           ]
         },
         "query_id": {
           "type": "string",
-          "pattern": "^(PM1\\.Q(1[0-6]|[1-9])|CD-0030\\.R1|CD-0040\\.R1|CD-0096\\.R1|C14\\.ProductRows|C19\\.Continuity|C21\\.InitiativeEntries|C22\\.Domain(List|Detail|ActiveWork|Attachments|Overlaps))$"
+          "pattern": "^(PM1\\.Q(1[0-6]|[1-9])|CD-0030\\.R1|CD-0040\\.R1|CD-0096\\.R1|C14\\.ProductRows|C15\\.Resources|C19\\.Continuity|C21\\.InitiativeEntries|C22\\.Domain(List|Detail|ActiveWork|Attachments|Overlaps))$"
         },
         "reason_code": {
           "type": "string",

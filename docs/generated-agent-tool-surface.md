@@ -1,7 +1,7 @@
 # Generated Concord agent tool surface
 
-Manifest digest: `sha256:9bba8f37a9dc63901aed3ba40fb929e73640456ca5e97e2139924d975280a835`
-Payload schema digest: `sha256:6ca132f05e54e4a7ece1427e06cc197bae8760241d2c7e5f4234d600476a8bde`
+Manifest digest: `sha256:6af9547aa71a093d625669dffa9d1dfed17635dbf511389f43cd3c3717ef0be9`
+Payload schema digest: `sha256:4b029580c8680ab2d64c4f58702207045f2ffa3ab02023b003dcbc0dbeee6a60`
 Envelope schema: `1.0`
 
 | Operation | Kind | Query | Capability | Consequence | Availability |
@@ -10,6 +10,7 @@ Envelope schema: `1.0`
 | `concord_product_view.snapshot` | `read` | `PM1.Q2` | `product_read` | `read` | `always` |
 | `concord_product_view.portfolio` | `read` | `C14.ProductRows` | `product_read` | `read` | `always` |
 | `concord_product_view.blocked_sessions` | `read` | `PM1.Q12` | `product_read` | `read` | `always` |
+| `concord_product_view.resources` | `read` | `C15.Resources` | `product_read` | `read` | `always` |
 | `concord_work_browse.list` | `read` | `PM1.Q3` | `product_read` | `read` | `always` |
 | `concord_work_browse.blocked` | `read` | `PM1.Q4` | `product_read` | `read` | `always` |
 | `concord_work_browse.ready` | `read` | `PM1.Q5` | `product_read` | `read` | `always` |

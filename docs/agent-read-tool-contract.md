@@ -61,11 +61,20 @@ scope, or what is happening across that Product now.
 |---|---|---|---|
 | `resolve` | Q1 | optional `product_id` or `project_id`; optional cursor/limit when listing Products | `product_context`: Product identity/stage, ordered Project summaries, resolved scope or ambiguity candidates |
 | `snapshot` | Q2 | resolved/ambient Product; optional `project_ids`; optional `preview_limit` | `product_snapshot`: lifecycle counts, derived counts, unique bounded preview items, authority/freshness watermark |
+| `resources` | C15 | exactly one of resolved/ambient Product or `resource_id`; optional `class`, `kind`, `environment`; cursor/limit | `resource_page`: canonical resources once each, singular owner, bounded consumers, stage, versioned metadata as bounded JSON text; no live provider inference |
 
 `resolve` may use ambient context under TS5, but never guesses when a Project maps
 to multiple Products. `snapshot` is an aggregate orientation view—not an unbounded
 work listing and not a launcher-row contract. C14 separately chooses human glance
 fields.
+
+`resources` is the read half of the managed-resource inventory (C15 §5
+directions 1 and 2) and the identity half of external-system knowledge under
+CD-0106 D4. Identity stays operator-declared; no agent operation creates or
+revises a resource. A consumer Product reads the owner Product from the
+resource, then searches that Product's knowledge with the `resource:<id>` tag
+for learned usage. The `metadata_json` field carries the vendor documentation
+locator; it never carries vendor content.
 
 ### 2.2 `concord_work_browse`
 

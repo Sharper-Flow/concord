@@ -186,26 +186,23 @@ Owner/consumer and Product→resource/resource→Product directions must agree.
 
 ## 6. Agent-surface placement
 
-C15 does not add a ninth tool or pre-authorize an operation. If independent TS9
-unmet-intent evidence later passes its trigger, the preferred candidate to compare is
-one new closed operation on existing `concord_product_view`:
+C15 does not add a ninth tool. The one closed read it named on the existing
+`concord_product_view` tool ships under CD-0106, whose D4 makes the inventory
+the identity half of external-system knowledge:
 
 ```text
-resources(product_id | resource_id | work_id,
-          class?, kind?, environment?, detail?, cursor?, limit?)
+resources(product_id | resource_id, class?, kind?, environment?, cursor?, limit?)
 ```
 
-It returns the bounded directions in §5. This operation fits Product ownership/
-context intent and does not belong in work CRUD or knowledge search.
+It returns §5 directions 1 and 2. Directions 3 and 4 (work ↔ resource) and
+locator resolution stay unshipped until their own unmet-intent evidence. The
+change evidence TS9 §3 requires is the unmet intent (CD-0106 context), the
+deterministic scenario `AJ9-product-resources` bound by `TestAgentJobsCorpus`,
+the read-only authority boundary, the regenerated manifest digest, the
+closed-schema fixtures, and the operator acceptance recorded in CD-0106.
 
-Database, queue, observability-account, and runner-pool examples are illustrative
-requirements evidence, not independent TS9 occurrences. They do not enroll scenarios
-or satisfy the expansion gate by themselves. The operation may ship only after TS9's
-independent unmet-intent occurrences, failing/passing scenario, paired comparison,
-TS8 major-version handling, and operator approval all pass.
-
-Resource mutations remain operator/core CLI or future admin-detail actions in v1.
-An agent mutation operation requires its own TS9 unmet-intent evidence and cannot be
+Resource mutations remain operator/core CLI or future admin-detail actions. An
+agent mutation operation requires its own unmet-intent evidence and cannot be
 smuggled into `concord_work_define`.
 
 ## 7. Product-row and live-signal boundary

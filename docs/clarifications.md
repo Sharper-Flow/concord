@@ -136,23 +136,23 @@ re-litigate them silently.
 - **Effect:** recorded in `core-architecture.md` §1,
   `design-constraints.md` §7, and `priorities.md` (open questions table).
 
-### R7. episode remains external and optional
+### R7. episode is removed; lesson owns the knowledge ladder
 
-- **Decision (2026-08-30):** CD-0086 resolves C20 under issue #46. episode
-  remains an independent authority for durable agent-decision memory. Concord
-  does not own or absorb it.
-- **Optionality:** Concord is complete without episode. No Concord build,
-  installation, startup, storage, authority, or core workflow requires it.
-  Operators who configure episode add its memory capability. Other operators
-  retain all Concord capabilities.
-- **Integration boundary:** when configured, episode memory is Product-scoped.
-  Concord owns Product law and the formalized promotion target. episode owns
-  recall, memory storage, and promotion state. Automatic Product derivation and
-  its multi-project probe remain episode-side follow-up work.
-- **Reopen trigger:** revisit ownership only if a real multi-project probe shows
-  that the external boundary cannot resolve Product and work identity, or if the
-  bridge costs more than ownership.
-- **Effect:** recorded in [`vertical-integration.md`](./vertical-integration.md).
+- **Decision (2026-09-03):** CD-0106 supersedes CD-0086 in full. Concord does
+  not integrate, configure, or promote from episode. The tool count falls by
+  one.
+- **Ladder:** an observation (CD-0030, CD-0068) holds an unproven notice. A
+  `lesson` (CD-0026) holds a proven Product-scoped learning, published at work
+  completion. A `decision` or `spec` holds accepted law. No new kind, store, or
+  global home is added. A procedure that applies to every Product belongs to
+  host instructions or a skill.
+- **External systems:** identity lives in `managed_resources`, declared by the
+  operator. Learned usage is a `lesson` tagged `resource:<resource_id>`. A
+  record stores a vendor documentation locator, never vendor content.
+- **Evidence:** the episode store held 7 predecessor-import rows, an empty
+  `global` namespace, and no manual or ingested memory.
+- **Effect:** recorded in [`vertical-integration.md`](./vertical-integration.md),
+  which now covers lgrep and vision only.
 
 ---
 
@@ -381,7 +381,7 @@ re-litigate them silently.
   the resolved launcher/interface boundary.
 - **Scope (2026-08-14):** narrowed to lgrep and vision. Both are general-purpose
   beyond Concord and neither has a recorded integration pain that orchestration
-  cannot resolve, so they share one decision trigger. R7 resolves episode on its
+  cannot resolve, so they share one decision trigger. R7 removes episode on its
   separate evidence and does not move C8.
 
 ### C9. Capability-placement rubric enforcement

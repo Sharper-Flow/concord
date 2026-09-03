@@ -16,8 +16,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:03aa7aab8b2d35b5bc38d4bc7f825875258c196005ab50178abb55dfa6b39a07",
-  "status": "accepted",
+  "sha256": "sha256:053f98867b22bf32595afb2eeb2609f562ad9a97366b2ee662b4d260380d4a43",
+  "status": "superseded",
+  "successor": "CD-0106",
   "summary": "episode remains an optional external authority. Configured integrations are Product-scoped, Concord owns only the formalized promotion destination, and the automatic-scoping probe is a future ownership reopen trigger.",
   "tags": [
     "episode",

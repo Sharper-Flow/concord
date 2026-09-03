@@ -14,9 +14,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:f6579a3d78bd0efd41a39963abc39f14bacc330f852cad9b992bf4c4e2b1f8d7",
+  "sha256": "sha256:9f92a016a5761ee25e4d4509057471135855da00c12630b11533de906e70fccd",
   "status": "published",
-  "summary": "Resolves episode as an optional external authority and tracks the ownership lean for lgrep and vision.",
+  "summary": "Tracks the ownership lean for lgrep and vision under C8; episode is removed by CD-0106.",
   "tags": [
     "vertical-integration",
     "research"

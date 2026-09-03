@@ -1,6 +1,6 @@
 # CD-0086: episode is an optional external authority
 
-- **Status:** Accepted
+- **Status:** Superseded by CD-0106
 - **Date:** 2026-08-30
 - **Scope:** episode ownership, optionality, Product-scoped integration, the
   promotion-receiving seam, C20, and issue #46

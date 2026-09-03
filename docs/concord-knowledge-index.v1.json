@@ -2723,8 +2723,9 @@
         "project_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:03aa7aab8b2d35b5bc38d4bc7f825875258c196005ab50178abb55dfa6b39a07",
-      "status": "accepted",
+      "sha256": "sha256:053f98867b22bf32595afb2eeb2609f562ad9a97366b2ee662b4d260380d4a43",
+      "status": "superseded",
+      "successor": "CD-0106",
       "summary": "episode remains an optional external authority. Configured integrations are Product-scoped, Concord owns only the formalized promotion destination, and the automatic-scoping probe is a future ownership reopen trigger.",
       "tags": [
         "episode",
@@ -3158,6 +3159,41 @@
         "recovery"
       ],
       "title": "The worktree audit reclaims merged terminal worktrees"
+    },
+    {
+      "date": "2026-09-03T00:00:00Z",
+      "evidence": [
+        "docs/clarifications.md",
+        "docs/vertical-integration.md"
+      ],
+      "home_domain_id": "product-root:concord",
+      "id": "CD-0106",
+      "kind": "decision",
+      "law_relations": [
+        {
+          "kind": "supersedes",
+          "target_id": "CD-0086"
+        }
+      ],
+      "path": "docs/decisions/CD-0106-lesson-owns-the-knowledge-ladder.md",
+      "product_wide_rationale": "Removes one tool from every session and fixes the three-rung knowledge ladder that every Domain's lessons and decisions climb, so it binds Product-wide rather than owning a runtime Domain.",
+      "scopes": {
+        "domain_ids": [],
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:6f26703e34642d879eccab9f515f19a550a9cebf2799f3cf69caa70256a704fe",
+      "status": "accepted",
+      "summary": "episode is removed as an external authority and CD-0086 is superseded in full. The knowledge ladder is observation, lesson, decision, and every rung exists today. lesson graduation replaces the episode promotion seam. External-system identity lives in managed_resources and learned usage is a lesson tagged resource:<id>; a record stores a vendor documentation locator, never vendor content. The seven episode rows are exported and migrate to lesson records in their own Product homes.",
+      "tags": [
+        "knowledge",
+        "lesson",
+        "episode",
+        "product-law"
+      ],
+      "title": "lesson owns the knowledge ladder"
     },
     {
       "criterion_bindings": [
@@ -3650,7 +3686,7 @@
         "project_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:ccc9fbdc989deeb20fe6b833c35c95ed0e37ef94d49f0a0bd236b22f1fa227bb",
+      "sha256": "sha256:adc54410c479b66c1a59c2d0724c7f3de058938ec72f194f630c014fb163bbe1",
       "status": "published",
       "summary": "Navigation entry point for the Concord documentation set. States the reading order, names the companion documents and their roles, and records the current status of the set.",
       "tags": [
@@ -4215,7 +4251,7 @@
         "project_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:362ae27b07db6eeea2614dd1fa046218ddc46454a995842bad3991827dce6e0f",
+      "sha256": "sha256:16a6126d643d9ddc0929a570ae3d28f44628e1003445a5bff96a76158b2cd3a8",
       "status": "published",
       "summary": "Living index of resolved directions and the open questions still needing operator direction.",
       "tags": [
@@ -4377,7 +4413,7 @@
         "project_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:ce06047a2b1510d12e91c778463b21a52195c055f2d0611df79bb015eeaedc5f",
+      "sha256": "sha256:cb176d992a8f0e4fafb578eb8b131321a58a2812ac03b15a08d1cc8c08f4abfa",
       "status": "published",
       "summary": "Predecessor capability inventory marked non-authorizing in its own header: every capability categorized as transfer, refactor, or new, aligned to priorities without restating them. It is snapshot evidence about the predecessor, not current operational truth, and establishes no transfer plan.",
       "tags": [
@@ -4546,7 +4582,7 @@
         "project_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:634fd941e1e0b5d87dad71c9d07d75b84fcc2a9e8b693e7ddc15b53eac20d45f",
+      "sha256": "sha256:f87821f7618ff377b3912ef83441bd5d23a23196cd99effd0316c8ea733e25cc",
       "status": "accepted",
       "summary": "Sole canonical source for the six ranked priorities, the one-operator operating envelope, and the Advance predecessor relationship. Companion documents link here and do not redefine the order; where a companion document contradicts this file, this file wins.",
       "tags": [
@@ -4572,7 +4608,7 @@
         "project_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:e3a6095a3641c25ff2f7dbd56a1be295f3ca93787da993e886e3e9e06b68193e",
+      "sha256": "sha256:139439d26cace5a495970cc7e4b23f1fd5cd42d8ad39e1aaee8f3bb7f6a7a161",
       "status": "published",
       "summary": "Canonical Product data model with Domains and Initiative, aligned v4 under CD-0041.",
       "tags": [
@@ -4779,9 +4815,9 @@
         "project_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:f6579a3d78bd0efd41a39963abc39f14bacc330f852cad9b992bf4c4e2b1f8d7",
+      "sha256": "sha256:9f92a016a5761ee25e4d4509057471135855da00c12630b11533de906e70fccd",
       "status": "published",
-      "summary": "Resolves episode as an optional external authority and tracks the ownership lean for lgrep and vision.",
+      "summary": "Tracks the ownership lean for lgrep and vision under C8; episode is removed by CD-0106.",
       "tags": [
         "vertical-integration",
         "research"

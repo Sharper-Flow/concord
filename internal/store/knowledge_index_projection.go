@@ -588,14 +588,17 @@ func rebuildKnowledgeIndexTx(ctx context.Context, tx *sql.Tx, home KnowledgeHome
 			return wrapFailure(KindUnavailable, "rebuild_knowledge_index", "cannot clear git-derived "+table, true, "retry once the database is writable", err)
 		}
 	}
-	for _, table := range []string{"law_relations", "law_subjects"} {
-		if _, err := tx.ExecContext(ctx, "DELETE FROM "+table+" WHERE home_project_id=? AND home_locator_id=?", home.HomeProjectID, home.HomeLocatorID); err != nil { //nolint:gosec // table comes from the closed law table list and all values stay parameter-bound.
-			return wrapFailure(KindUnavailable, "rebuild_knowledge_index", "cannot clear git-derived "+table, true, "retry once the database is writable", err)
-		}
-	}
+	// The Domain projection clears before the law tables: its governing-law
+	// rows reference law_subjects ON DELETE RESTRICT, which SQLite checks at
+	// the statement even when the constraint is deferred.
 	for _, table := range []string{"domain_relation_governing_laws", "law_domain_applicability", "law_domain_homes", "domain_architecture_relations", "domains", "domain_registries"} {
 		if _, err := tx.ExecContext(ctx, "DELETE FROM "+table+" WHERE home_project_id=? AND home_locator_id=?", home.HomeProjectID, home.HomeLocatorID); err != nil { //nolint:gosec // table comes from the closed Domain table list and all values stay parameter-bound.
 			return wrapFailure(KindUnavailable, "rebuild_knowledge_index", "cannot clear Domain projection "+table, true, "retry once the database is writable", err)
+		}
+	}
+	for _, table := range []string{"law_relations", "law_subjects"} {
+		if _, err := tx.ExecContext(ctx, "DELETE FROM "+table+" WHERE home_project_id=? AND home_locator_id=?", home.HomeProjectID, home.HomeLocatorID); err != nil { //nolint:gosec // table comes from the closed law table list and all values stay parameter-bound.
+			return wrapFailure(KindUnavailable, "rebuild_knowledge_index", "cannot clear git-derived "+table, true, "retry once the database is writable", err)
 		}
 	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM knowledge_index_watermark WHERE home_project_id = ? AND home_locator_id = ? AND head_ref = ?`, home.HomeProjectID, home.HomeLocatorID, home.HeadRef); err != nil {

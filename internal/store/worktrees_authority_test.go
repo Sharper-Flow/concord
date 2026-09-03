@@ -171,6 +171,19 @@ func TestTakeoverMovesCallersOwnBinding(t *testing.T) {
 	}
 }
 
+// A bootstrap launch that never recorded a result leaves launch_state at
+// 'prepared' with no session identity. That record states an intent, never a
+// fact, so it must not answer a takeover (issue #737).
+func TestTakeoverIgnoresStalePreparedBootstrapLaunch(t *testing.T) {
+	s, git, _ := worktreeFixture(t)
+	second := retargetOwner("client-2", "agent-2", "session-2")
+	seedBootstrapLaunch(t, s, "work-w", "", "prepared")
+
+	if _, err := s.TakeoverSessionWorktree(context.Background(), takeoverRequest(git, second, "work-w", 2, 0, "")); err != nil {
+		t.Fatalf("takeover err=%v, want a stale prepared launch to block nothing", err)
+	}
+}
+
 func TestTakeoverRefusesLiveForeignLaunchEvenWithOverride(t *testing.T) {
 	s, git, _ := worktreeFixture(t)
 	second := retargetOwner("client-2", "agent-2", "session-2")

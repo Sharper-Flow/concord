@@ -63,8 +63,14 @@ func seedBootstrapLaunch(t *testing.T, s *Store, workID, sessionID, launchState 
 	t.Helper()
 	digest := "sha256:" + strings.Repeat("b", 64)
 	stamp := time.Unix(1, 0).UTC().Format(time.RFC3339Nano)
+	// An unrecorded launch stores no session identity at all, so an empty
+	// argument seeds SQL NULL rather than the empty string.
+	var session any
+	if sessionID != "" {
+		session = sessionID
+	}
 	_, err := s.db.Exec(`INSERT INTO bootstrap_operations(idempotency_key,operation_id,request_digest,request_json,product_id,project_id,work_id,repo_path,expected_version,state,launch_state,launch_session_id,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-		"boot-"+workID, "op-"+workID, digest, "{}", "product-w", "project-w", workID, "/repo", 2, "completed", launchState, sessionID, stamp, stamp)
+		"boot-"+workID, "op-"+workID, digest, "{}", "product-w", "project-w", workID, "/repo", 2, "completed", launchState, session, stamp, stamp)
 	if err != nil {
 		t.Fatal(err)
 	}

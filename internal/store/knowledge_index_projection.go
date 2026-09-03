@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"sort"
@@ -502,6 +503,10 @@ func (s *Store) RebuildKnowledgeIndex(ctx context.Context, home KnowledgeHome) e
 	if err != nil {
 		return err
 	}
+	digest, err := knowledgeContentDigest(ctx, home, commit)
+	if err != nil {
+		return err
+	}
 	paths, err := scanKnowledgeTree(ctx, home, commit)
 	if err != nil {
 		return err
@@ -561,7 +566,7 @@ func (s *Store) RebuildKnowledgeIndex(ctx context.Context, home KnowledgeHome) e
 	if err != nil {
 		return wrapFailure(KindUnavailable, "rebuild_knowledge_index", "cannot begin knowledge index rebuild", true, "retry once the database is writable", err)
 	}
-	if err := rebuildKnowledgeIndexTx(ctx, tx, home, commit, notes, laws, manifestMissing, manifest, domainProjectionData); err != nil {
+	if err := rebuildKnowledgeIndexTx(ctx, tx, home, commit, digest, notes, laws, manifestMissing, manifest, domainProjectionData); err != nil {
 		_ = tx.Rollback()
 		return err
 	}
@@ -571,7 +576,7 @@ func (s *Store) RebuildKnowledgeIndex(ctx context.Context, home KnowledgeHome) e
 	return nil
 }
 
-func rebuildKnowledgeIndexTx(ctx context.Context, tx *sql.Tx, home KnowledgeHome, commit string, notes []VerifiedNote, laws []KnowledgeRecord, manifestMissing bool, manifest KnowledgeManifest, domainProjectionData domainProjection) error {
+func rebuildKnowledgeIndexTx(ctx context.Context, tx *sql.Tx, home KnowledgeHome, commit, digest string, notes []VerifiedNote, laws []KnowledgeRecord, manifestMissing bool, manifest KnowledgeManifest, domainProjectionData domainProjection) error {
 	if err := enterFold(ctx, tx); err != nil {
 		return err
 	}
@@ -667,8 +672,10 @@ func rebuildKnowledgeIndexTx(ctx context.Context, tx *sql.Tx, home KnowledgeHome
 	}
 	// The commit identity is the deterministic observation value. It avoids
 	// rebuild-only wall-clock churn while the query result still exposes the
-	// current observation time in its transient envelope.
-	if _, err := tx.ExecContext(ctx, `INSERT INTO knowledge_index_watermark (home_project_id,home_locator_id,head_ref,scanned_commit_oid,scanned_at,complete) VALUES (?,?,?,?,?,1)`, home.HomeProjectID, home.HomeLocatorID, home.HeadRef, commit, commit); err != nil {
+	// current observation time in its transient envelope. The content digest
+	// is what freshness compares: it names the projected objects, so a later
+	// commit that changes none of them leaves this row authoritative.
+	if _, err := tx.ExecContext(ctx, `INSERT INTO knowledge_index_watermark (home_project_id,home_locator_id,head_ref,scanned_commit_oid,scanned_content_digest,scanned_at,complete) VALUES (?,?,?,?,?,?,1)`, home.HomeProjectID, home.HomeLocatorID, home.HeadRef, commit, digest, commit); err != nil {
 		return wrapFailure(KindUnavailable, "rebuild_knowledge_index", "cannot write the knowledge watermark", true, "retry once the database is writable", err)
 	}
 	if err := leaveFold(ctx, tx); err != nil {
@@ -751,38 +758,108 @@ func verifyManifestBlob(ctx context.Context, repo, commit string, record Knowled
 	return nil
 }
 
-func readWatermark(ctx context.Context, db *sql.DB, home KnowledgeHome, current string) (string, bool, error) {
-	var scanned string
+// knowledgeWatermark is the freshness verdict for one home. Scanned is the
+// commit the index was built from, or empty when no index exists. Fresh holds
+// when the index is complete and the projected content at the current head
+// matches what was scanned; the commit itself may have moved since.
+type knowledgeWatermark struct {
+	Scanned string
+	Fresh   bool
+}
+
+// readKnowledgeWatermark is the one freshness predicate. It is queryer-scoped
+// so the same rule serves a plain store read and a read inside an open
+// transaction, which under the single-connection pool must not reach back
+// through the store. An index built before the digest column exists carries
+// an empty digest and reads as stale, so it rebuilds once.
+func readKnowledgeWatermark(ctx context.Context, q queryer, home KnowledgeHome, current string) (knowledgeWatermark, error) {
+	currentDigest, err := knowledgeContentDigest(ctx, home, current)
+	if err != nil {
+		return knowledgeWatermark{}, err
+	}
+	var scanned, scannedDigest string
 	var complete bool
-	err := db.QueryRowContext(ctx, `SELECT scanned_commit_oid, complete FROM knowledge_index_watermark WHERE home_project_id = ? AND home_locator_id = ? AND head_ref = ?`, home.HomeProjectID, home.HomeLocatorID, home.HeadRef).Scan(&scanned, &complete)
+	err = q.QueryRowContext(ctx, `SELECT scanned_commit_oid, scanned_content_digest, complete FROM knowledge_index_watermark WHERE home_project_id = ? AND home_locator_id = ? AND head_ref = ?`, home.HomeProjectID, home.HomeLocatorID, home.HeadRef).Scan(&scanned, &scannedDigest, &complete)
 	if err == sql.ErrNoRows {
-		return scanned, false, nil
+		return knowledgeWatermark{}, nil
 	}
 	if err != nil {
-		return "", false, wrapFailure(KindUnavailable, "knowledge_index", "cannot read the knowledge watermark", true, "retry once the database is readable", err)
+		return knowledgeWatermark{}, wrapFailure(KindUnavailable, "knowledge_index", "cannot read the knowledge watermark", true, "retry once the database is readable", err)
 	}
-	return scanned, complete && scanned == current, nil
+	return knowledgeWatermark{Scanned: scanned, Fresh: complete && scannedDigest != "" && scannedDigest == currentDigest}, nil
 }
 
 func validateKnowledgeHomeForQuery(ctx context.Context, s *Store, home KnowledgeHome, allowDegraded bool, op string) (string, string, error) {
+	return validateKnowledgeHomeForQueryCore(ctx, s.db, home, allowDegraded, op)
+}
+
+// EnsureWorkProductKnowledgeFresh freshens the index behind the Product a
+// work item belongs to, ahead of an operation that verifies a derived
+// projection of that Product in its own transaction. The architecture
+// binding an approval carries is verified against the derived Domain
+// registry, so this runs before the approval transaction opens: an
+// approval must never refuse for an index nobody has read yet. Work that
+// resolves to no unique Product, or a Product with no unique designated
+// home, is left to the operation's own refusal.
+func (s *Store) EnsureWorkProductKnowledgeFresh(ctx context.Context, workID string) error {
+	if s == nil || s.db == nil {
+		return newFailure(KindUnavailable, "knowledge_index", "store is not open", false, "open a store before reading the knowledge index")
+	}
+	products, err := workProductIDs(ctx, s.db, workID)
+	if err != nil {
+		return err
+	}
+	if len(products) != 1 {
+		return nil
+	}
+	home, err := resolveKnowledgeQueryHome(ctx, s.db, products[0], "", KnowledgeHome{}, "knowledge_index")
+	if err != nil {
+		var failure *Failure
+		if errors.As(err, &failure) && (failure.Kind == KindUnknownScope || failure.Kind == KindAmbiguousScope) {
+			return nil
+		}
+		return err
+	}
+	return s.EnsureKnowledgeIndexFresh(ctx, home)
+}
+
+// EnsureKnowledgeIndexFresh brings the index for one home up to the content
+// at its current head, rebuilding only when the projected content moved. It
+// is the demand-driven path CD-0082 D1 prescribes and Store.Open already
+// applies to the schema: the demand is a read or a binding that needs the
+// index, the operation is bounded to one home, and no operator step exists
+// between the demand and the answer.
+//
+// It must run with no transaction open. A rebuild opens its own transaction
+// on the pool's only connection, so a caller holding one would park forever.
+// The fresh check costs two tree reads and one row; a rebuild costs the scan.
+//
+// An unreachable git home is not an error here. The index cannot be brought
+// up to content that cannot be read, and the projection that exists keeps
+// whatever authority its own reader assigns: a strict knowledge read refuses
+// or degrades by its rule, and a Product projection read answers from what
+// was scanned. Making reachability fatal at this point would give every
+// derived read a git dependency it never had.
+func (s *Store) EnsureKnowledgeIndexFresh(ctx context.Context, home KnowledgeHome) error {
+	if s == nil || s.db == nil {
+		return newFailure(KindUnavailable, "knowledge_index", "store is not open", false, "open a store before reading the knowledge index")
+	}
 	current, err := resolveKnowledgeHead(ctx, home)
 	if err != nil {
-		if allowDegraded {
-			return "unreachable", "degraded", nil
-		}
-		return "", "", newFailure(KindUnreachable, op, "git knowledge authority is unreachable", true, "restore the git home and retry")
+		return nil
 	}
-	watermark, complete, err := readWatermark(ctx, s.db, home, current)
+	watermark, err := readKnowledgeWatermark(ctx, s.db, home, current)
 	if err != nil {
-		return "", "", err
-	}
-	if !complete {
-		if allowDegraded {
-			return watermark, "degraded", nil
+		var failure *Failure
+		if errors.As(err, &failure) && failure.Kind == KindGitUnreachable {
+			return nil
 		}
-		return "", "", newFailure(KindIndexDegraded, op, "knowledge index watermark is stale or incomplete", true, "rebuild the git-derived knowledge index")
+		return err
 	}
-	return watermark, "authoritative", nil
+	if watermark.Fresh {
+		return nil
+	}
+	return s.RebuildKnowledgeIndex(ctx, home)
 }
 
 func validateKnowledgeCoverage(ctx context.Context, s *Store, home KnowledgeHome, commit string, kinds []string) error {

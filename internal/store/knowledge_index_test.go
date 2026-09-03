@@ -297,8 +297,20 @@ func TestKnowledgeWatermarkControlsAuthoritativeEmptyAndDegradedResults(t *testi
 	if err != nil || empty.Authority != "authoritative" || len(empty.Items) != 0 {
 		t.Fatalf("authoritative empty = %#v, err %v", empty, err)
 	}
+	// A lesson the manifest does not list is content the projection never
+	// reads, so committing it moves HEAD without changing the index. The
+	// index stays authoritative: freshness follows projected content, not
+	// the commit.
 	writeKnowledgeFile(t, repo, "docs/lessons/two.md", canonicalKnowledgeNote("two", "lesson", "2026-08-07T01:00:00Z", []string{"sqlite"}))
-	commitKnowledgeRepo(t, repo, "second")
+	commitKnowledgeRepo(t, repo, "second, unprojected")
+	still, err := s.QueryQ9(context.Background(), Q9Request{Product: "prod-alpha", Home: home})
+	if err != nil || still.Authority != "authoritative" {
+		t.Fatalf("unprojected commit: want authoritative, got %#v, err %v", still, err)
+	}
+	// A canonical work note is projected content: committing one turns the
+	// index stale, and the strict read refuses.
+	writeKnowledgeFile(t, repo, "docs/work/work-two.md", canonicalWorkNote("work-two", "2026-08-07T02:00:00Z"))
+	commitKnowledgeRepo(t, repo, "third, projected")
 	_, err = s.QueryQ9(context.Background(), Q9Request{Home: home})
 	assertFailureKind(t, err, KindIndexDegraded)
 	degraded, err := s.QueryQ9(context.Background(), Q9Request{Home: home, AllowDegraded: true})

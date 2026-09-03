@@ -1344,6 +1344,12 @@ func (r runtime) read(ctx context.Context, base Envelope, input []byte, queryID 
 		if err != nil {
 			return failureEnvelope(base, err), nil
 		}
+		// The read is the demand (CD-0082 D1): a stale index rebuilds here,
+		// before the query and outside any transaction. A home git cannot
+		// reach is left for the query itself to refuse or degrade by rule.
+		if err := r.Store.EnsureKnowledgeIndexFresh(ctx, home); err != nil && !in.AllowDegraded {
+			return failureEnvelope(base, err), nil
+		}
 		q, err := r.Store.QueryQ9(ctx, store.Q9Request{Product: in.ProductID, Project: in.ProjectID, Domain: in.DomainID, Kinds: knowledgeKinds(in.Kinds), Tags: in.Tags, Text: in.Text, Since: deref(in.Since), Until: deref(in.Until), Limit: r.boundedLimit(in.Page.Limit), Cursor: inner, Home: home, AllowDegraded: in.AllowDegraded})
 		if err != nil {
 			return failureEnvelope(base, err), nil
@@ -1416,6 +1422,15 @@ func (r runtime) read(ctx context.Context, base Envelope, input []byte, queryID 
 		}
 		if product == "" {
 			return coreError(base, "unknown_scope", "Domain reads require a resolved Product", "reread_entities", false), nil
+		}
+		// The Domain registry is derived from the Product's knowledge home,
+		// and these reads are where an agent learns the registry hash it pins
+		// in an architecture binding. The read is the demand (CD-0082 D1):
+		// a stale registry rebuilds here, outside any transaction, so an
+		// approval never refuses for an index nobody has read yet. A Product
+		// with no designated home keeps the domain read's own refusal.
+		if err := r.freshenProductKnowledge(ctx, product); err != nil {
+			return failureEnvelope(base, err), nil
 		}
 		switch r.Operation {
 		case "list":
@@ -1518,6 +1533,23 @@ func knowledgeKinds(values []string) []string {
 		}
 	}
 	return out
+}
+
+// freshenProductKnowledge brings the index behind a Product's derived
+// projections up to its knowledge home's current content. It runs with no
+// transaction open. A Product without a unique designated home is not an
+// error here: the caller's read owns that refusal, and an index cannot be
+// built for a home that does not exist.
+func (r runtime) freshenProductKnowledge(ctx context.Context, product string) error {
+	home, err := r.Store.ResolveKnowledgeQueryHome(ctx, product, "", store.KnowledgeHome{}, r.Tool+"."+r.Operation)
+	if err != nil {
+		var failure *store.Failure
+		if errors.As(err, &failure) && (failure.Kind == store.KindUnknownScope || failure.Kind == store.KindAmbiguousScope) {
+			return nil
+		}
+		return err
+	}
+	return r.Store.EnsureKnowledgeIndexFresh(ctx, home)
 }
 
 func (r runtime) knowledgeHome(ctx context.Context) (store.KnowledgeHome, error) {

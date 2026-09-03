@@ -308,8 +308,8 @@ func validateInitiativeEntryScope(ctx context.Context, tx *sql.Tx, initiative, c
 	}
 	return nil
 }
-func workProductIDs(ctx context.Context, tx *sql.Tx, id string) ([]string, error) {
-	rows, err := tx.QueryContext(ctx, `SELECT DISTINCT pp.product_id FROM work_projects wp JOIN product_projects pp ON pp.project_id=wp.project_id WHERE wp.work_id=? ORDER BY pp.product_id`, id)
+func workProductIDs(ctx context.Context, q queryer, id string) ([]string, error) {
+	rows, err := q.QueryContext(ctx, `SELECT DISTINCT pp.product_id FROM work_projects wp JOIN product_projects pp ON pp.project_id=wp.project_id WHERE wp.work_id=? ORDER BY pp.product_id`, id)
 	if err != nil {
 		return nil, wrapFailure(KindUnavailable, "fold_event", "cannot derive Product scope", true, "retry once the database is readable", err)
 	}

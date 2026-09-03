@@ -22,9 +22,11 @@ import (
 // SQLite projection rather than a stub.
 //
 // When lagging is true it commits one further accepted decision without
-// rebuilding the index, leaving the projection deterministically behind the git
-// head. The returned id is the record the index cannot yet see; it is empty when
-// the index is current.
+// rebuilding the index, then makes the git home unreachable. A strict read
+// rebuilds a stale index on demand (CD-0082 D1), so a commit alone no longer
+// leaves the projection behind at read time; the state that does is content
+// the index cannot reach. The returned id is the record the index cannot see;
+// it is empty when the index is current.
 func agentJobsKnowledgeFixture(t *testing.T, lagging bool) (*store.Store, *Service, Authority, store.KnowledgeHome, string) {
 	t.Helper()
 	s, service, grant, corpus := agentJobsPM1Fixture(t)
@@ -37,8 +39,20 @@ func agentJobsKnowledgeFixture(t *testing.T, lagging bool) (*store.Store, *Servi
 		if unscanned, err = pm1fixture.SeedLaggingKnowledge(knowledge.Home); err != nil {
 			t.Fatalf("pm1fixture.SeedLaggingKnowledge: %v", err)
 		}
+		makeGitHomeUnreachable(t, knowledge.Home.RepoPath)
 	}
 	return s, service, grant, knowledge.Home, unscanned
+}
+
+// makeGitHomeUnreachable leaves the working tree in place and removes the
+// repository's object database, the shape of a clone whose .git was lost.
+// Every git read of the home then fails, which is the one lagging state a
+// demand-driven rebuild cannot repair.
+func makeGitHomeUnreachable(t *testing.T, repoPath string) {
+	t.Helper()
+	if err := os.RemoveAll(filepath.Join(repoPath, ".git")); err != nil {
+		t.Fatalf("remove git home: %v", err)
+	}
 }
 
 // knowledgeItemFields is the closed set of per-item fields the knowledge page
@@ -186,6 +200,44 @@ func bindAJ7DegradedIndex(t *testing.T, sc jobScenario) jobObservation {
 		obs.Effects["silent_complete_answer"] = probedAbsent{}
 	}
 	return obs
+}
+
+// TestKnowledgeSearchRebuildsAStaleIndexOnDemand is the demand-driven half
+// (CD-0082 D1). A commit past the watermark used to refuse every strict read
+// until an operator rebuilt by hand, and no production path existed to do so.
+// The read is the demand: the same strict query now answers authoritative and
+// returns the record the index had not yet scanned.
+func TestKnowledgeSearchRebuildsAStaleIndexOnDemand(t *testing.T) {
+	s, service, grant, corpus := agentJobsPM1Fixture(t)
+	knowledge, err := pm1fixture.SeedKnowledge(context.Background(), s, corpus, t.TempDir())
+	if err != nil {
+		t.Fatalf("pm1fixture.SeedKnowledge: %v", err)
+	}
+	unscanned, err := pm1fixture.SeedLaggingKnowledge(knowledge.Home)
+	if err != nil {
+		t.Fatalf("pm1fixture.SeedLaggingKnowledge: %v", err)
+	}
+	if unscanned == "" {
+		t.Fatal("lagging fixture produced no unscanned record")
+	}
+	obs, resp, _ := knowledgeSearchObservation(t, s, service, grant,
+		`{"product_id":"prod-alpha","kinds":["decision","lesson"],"page":{"cursor":null,"limit":50}}`)
+	if resp.Authority != AuthorityAuthoritative {
+		t.Fatalf("strict read after a reachable commit: want authoritative, got %s (omissions %v)", resp.Authority, resp.Omissions)
+	}
+	returned := map[string]bool{}
+	if items, ok := obs.Result["items"].(map[string]any); ok {
+		if ids, ok := items["ids"].([]any); ok {
+			for _, id := range ids {
+				if s, ok := id.(string); ok {
+					returned[s] = true
+				}
+			}
+		}
+	}
+	if !returned[unscanned] {
+		t.Fatalf("rebuilt index did not return the newly committed decision %q; returned %v", unscanned, returned)
+	}
 }
 
 // TestKnowledgeSearchFailsClosedWithoutDegradedOptIn is the other half of

@@ -185,22 +185,20 @@ func validateKnowledgeHomeForQueryCore(ctx context.Context, q queryer, home Know
 		}
 		return "", "", newFailure(KindUnreachable, op, "git knowledge authority is unreachable", true, "restore the git home and retry")
 	}
-	var scanned string
-	var complete bool
-	err = q.QueryRowContext(ctx, `SELECT scanned_commit_oid, complete FROM knowledge_index_watermark WHERE home_project_id = ? AND home_locator_id = ? AND head_ref = ?`, home.HomeProjectID, home.HomeLocatorID, home.HeadRef).Scan(&scanned, &complete)
-	if err == sql.ErrNoRows {
-		scanned = ""
-	} else if err != nil {
-		return "", "", wrapFailure(KindUnavailable, "knowledge_index", "cannot read the knowledge watermark", true, "retry once the database is readable", err)
-	}
-	authority := "authoritative"
-	if scanned == "" || !complete || scanned != current {
+	watermark, err := readKnowledgeWatermark(ctx, q, home, current)
+	if err != nil {
 		if allowDegraded {
-			return scanned, "degraded", nil
+			return "unreachable", "degraded", nil
+		}
+		return "", "", err
+	}
+	if !watermark.Fresh {
+		if allowDegraded {
+			return watermark.Scanned, "degraded", nil
 		}
 		return "", "", newFailure(KindIndexDegraded, op, "knowledge index watermark is stale or incomplete", true, "rebuild the git-derived knowledge index")
 	}
-	return scanned, authority, nil
+	return watermark.Scanned, "authoritative", nil
 }
 
 func validateKnowledgeCoverageCore(ctx context.Context, q queryer, home KnowledgeHome, commit string, kinds []string) error {

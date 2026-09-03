@@ -144,6 +144,38 @@ func SeedCurrentProductDomain(ctx context.Context, s *store.Store, productID, ho
 	return nil
 }
 
+// SeedCommittedProductDomain designates a real git knowledge home for a
+// Product and commits a manifest that carries a Domain registry, without
+// building any projection. The Domain registry then exists only as committed
+// content, which is the state a fresh operator store is in: the production
+// path must derive it on demand, or a Product-changing approval refuses for
+// a registry nobody has read. It returns the home so a test can move its
+// head or inspect the derived hash.
+func SeedCommittedProductDomain(ctx context.Context, s *store.Store, productID, homeProjectID, dir string) (store.KnowledgeHome, error) {
+	repo, err := initKnowledgeRepo(dir)
+	if err != nil {
+		return store.KnowledgeHome{}, err
+	}
+	const decisionPath = "docs/decisions/CD-0001-fixture-law.md"
+	decision := canonicalKnowledgeNote("CD-0001", "decision", "2026-08-04T12:00:00Z", []string{"governance"})
+	if err := writeKnowledgeFile(repo, decisionPath, decision); err != nil {
+		return store.KnowledgeHome{}, fmt.Errorf("pm1fixture: write fixture decision: %w", err)
+	}
+	records := make([]store.KnowledgeRecord, 0, 1)
+	records = append(records, manifestRecordFromFile("CD-0001", "decision", decisionPath, "accepted", "2026-08-04T12:00:00Z", "Fixture law", "Fixture summary", []string{"governance"}, store.KnowledgeRecordScopes{Mode: "home"}, []byte(decision)))
+	if err := writeKnowledgeManifest(repo, records); err != nil {
+		return store.KnowledgeHome{}, fmt.Errorf("pm1fixture: write knowledge manifest: %w", err)
+	}
+	if _, err := commitKnowledgeRepo(repo, "committed Product Domain registry"); err != nil {
+		return store.KnowledgeHome{}, fmt.Errorf("pm1fixture: commit knowledge repo: %w", err)
+	}
+	home := store.KnowledgeHome{HomeProjectID: homeProjectID, HomeLocatorID: "domain-locator-" + productID, RepoPath: repo, HeadRef: "HEAD"}
+	if err := authorizeKnowledgeProductHome(ctx, s, productID, home); err != nil {
+		return store.KnowledgeHome{}, fmt.Errorf("pm1fixture: authorize product home: %w", err)
+	}
+	return home, nil
+}
+
 // Load reads scenarios/product-memory-query.v1.json from the repository root
 // and decodes it into a Corpus. The lookup is anchored to this file's source
 // location so the package can move without breaking the relative path.

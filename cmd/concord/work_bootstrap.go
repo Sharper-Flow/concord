@@ -218,7 +218,6 @@ type sessionRecordInput struct {
 	Agent         string `json:"agent"`
 	Directory     string `json:"directory"`
 	SessionID     string `json:"session_id"`
-	Model         string `json:"model"`
 	State         string `json:"state"`
 	FailureReason string `json:"failure_reason"`
 	OwnerPID      int64  `json:"owner_pid"`
@@ -266,7 +265,7 @@ func runSessionRecord(raw []byte, s *store.Store, out, errOut io.Writer) int {
 		writeOperatorDiagnostic(errOut, "session-record", err.Error())
 		return 1
 	}
-	if !sessionPrepareID.MatchString(input.OperationID) || !sessionPrepareID.MatchString(input.AttemptID) || !sessionPrepareID.MatchString(input.ProductID) || !sessionPrepareID.MatchString(input.WorkID) || !sessionPrepareID.MatchString(input.Agent) || input.Directory == "" || len(input.Directory) > 4096 || len(input.SessionID) > 128 || len(input.Model) > 256 || len(input.FailureReason) > 8192 || (input.SessionID != "" && !sessionPrepareID.MatchString(input.SessionID)) || (input.State != "completed" && input.State != "failed" && input.State != "running") || input.OwnerPID <= 1 || input.OwnerStart == "" || len(input.OwnerStart) > 32 {
+	if !sessionPrepareID.MatchString(input.OperationID) || !sessionPrepareID.MatchString(input.AttemptID) || !sessionPrepareID.MatchString(input.ProductID) || !sessionPrepareID.MatchString(input.WorkID) || !sessionPrepareID.MatchString(input.Agent) || input.Directory == "" || len(input.Directory) > 4096 || len(input.SessionID) > 128 || len(input.FailureReason) > 8192 || (input.SessionID != "" && !sessionPrepareID.MatchString(input.SessionID)) || (input.State != "completed" && input.State != "failed" && input.State != "running") || input.OwnerPID <= 1 || input.OwnerStart == "" || len(input.OwnerStart) > 32 {
 		writeOperatorDiagnostic(errOut, "session-record", "launch record fields are invalid")
 		return 1
 	}
@@ -280,7 +279,7 @@ func runSessionRecord(raw []byte, s *store.Store, out, errOut io.Writer) int {
 		writeOperatorDiagnostic(errOut, "session-record", "invocation directory is not a registered linked worktree")
 		return 1
 	}
-	if err := s.RecordBootstrapLaunch(context.Background(), input.OperationID, input.AttemptID, input.ProductID, input.WorkID, input.SessionID, input.Agent, input.Directory, input.Model, input.State, input.FailureReason, input.OwnerPID, input.OwnerStart); err != nil {
+	if err := s.RecordBootstrapLaunch(context.Background(), input.OperationID, input.AttemptID, input.ProductID, input.WorkID, input.SessionID, input.Agent, input.Directory, input.State, input.FailureReason, input.OwnerPID, input.OwnerStart); err != nil {
 		writeOperatorDiagnostic(errOut, "session-record", err.Error())
 		return 1
 	}

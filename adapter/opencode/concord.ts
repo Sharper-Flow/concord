@@ -479,8 +479,6 @@ type WorkStartEnvelope = {
   work_id?: string
   worktree_path?: string
   agent?: string
-  readback_agent?: string
-  readback_model?: string | null
   session_id?: string | null
   output?: string
   error?: { kind: string; retry_safe: boolean; recovery_action: { kind: string }; effect_state: "none" | "partial"; message: string }
@@ -698,12 +696,15 @@ async function executeWorkStart(args: WorkStartArgs, context: ToolContext): Prom
         agent: launch.agent,
         directory: activeBootstrap.worktree.path,
         session_id: context.sessionID,
-        model: "",
         state,
         failure_reason: reason,
         ...launchOwner,
       }), context.abort, { cwd: activeBootstrap.worktree.path })
-      if (record.exitCode !== 0) throw new AdapterFailure("session_record_failure", "session_record_failed", record.stderr.slice(0, MAX_STDERR), "partial", "reconcile_operation")
+      // The capture and the claim survive a record failure, and reconcile
+      // reads only terminal work, so it can never serve this state. An exact
+      // replay under the same idempotency_key resumes the same operation and
+      // records the launch it left unrecorded.
+      if (record.exitCode !== 0) throw new AdapterFailure("session_record_failure", "session_record_failed", `${record.stderr.slice(0, MAX_STDERR)}; replay work_start with the same idempotency_key to record the launch`, "partial", "exact_replay")
     }
     if (context.abort.aborted) {
       await rollbackBeforeLaunch("work_start was cancelled before the retarget")

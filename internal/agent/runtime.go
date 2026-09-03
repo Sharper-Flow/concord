@@ -1620,7 +1620,13 @@ func applyMeta(base Envelope, meta store.ResultMeta, scope *Scope) Envelope {
 	base.QueryID = meta.QueryID
 	base.Authority = AuthorityLevel(meta.Authority)
 	base.ResolvedScope = scope
-	base.Freshness = &Freshness{ObservedAt: parseTime(meta.Freshness.ObservedAt), Age: meta.Freshness.Age, Stale: meta.Freshness.Stale}
+	// A read that carries no observation time carries no freshness: the
+	// envelope admits null there, and a fabricated zero instant fails the
+	// marshal bound on every real call.
+	base.Freshness = nil
+	if observed := parseTime(meta.Freshness.ObservedAt); !observed.IsZero() {
+		base.Freshness = &Freshness{ObservedAt: observed, Age: meta.Freshness.Age, Stale: meta.Freshness.Stale}
+	}
 	base.OrderingKeys = meta.OrderingKeys
 	base.NextCursor = meta.NextCursor
 	base.Omissions = notices(meta.Omissions)

@@ -101,6 +101,7 @@
         "concord_work_transition.workflow_action",
         "concord_work_transition.worktree_claim",
         "concord_work_transition.worktree_reclaim",
+        "concord_work_transition.worktree_audit_reclaim",
         "concord_work_transition.worktree_verify",
         "concord_work_transition.worktree_destroy"
       ]
@@ -987,6 +988,27 @@
       "supported_budget_seconds": 300
     },
     {
+      "id": "concord_work_transition.worktree_audit_reclaim",
+      "tool": "concord_work_transition",
+      "kind": "mutation",
+      "query_id": null,
+      "input_schema": "#/schemas/work_transition_worktree_audit_reclaim_input",
+      "result_schema": "#/schemas/worktree_audit_reclaim_result",
+      "capability": "work_transition",
+      "consequence": "lifecycle",
+      "approval": "none",
+      "metadata": {
+        "context": "ambient",
+        "idempotency": "required",
+        "pagination": "none",
+        "output_bytes": 51200,
+        "versions": [
+          "1.0"
+        ]
+      },
+      "supported_budget_seconds": 300
+    },
+    {
       "id": "concord_work_transition.worktree_verify",
       "tool": "concord_work_transition",
       "kind": "mutation",
@@ -1666,6 +1688,10 @@
       "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_transition_worktree_reclaim_input",
       "closed": true
     },
+    "work_transition_worktree_audit_reclaim_input": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_transition_worktree_audit_reclaim_input",
+      "closed": true
+    },
     "work_transition_worktree_verify_input": {
       "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_transition_worktree_verify_input",
       "closed": true
@@ -1752,6 +1778,10 @@
     },
     "worktree_audit_page": {
       "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/worktree_audit_page",
+      "closed": true
+    },
+    "worktree_audit_reclaim_result": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/worktree_audit_reclaim_result",
       "closed": true
     },
     "worktree_inspect_result": {
@@ -1867,6 +1897,6 @@
       "digest"
     ]
   },
-  "payload_digest": "sha256:6a8345658feb0ddd5fbfa69c19a5cb7fdb39e9cfef6c8b68604d45a4349e2c8b",
-  "digest": "sha256:2a44b5104f484e0fd5f0c7c32f401245ed427c64c940da5e1736a59422f0585e"
+  "payload_digest": "sha256:f62ad2477778377c3e898421286c6567d0ee41f3c60bc92a8d5c35891a2c987c",
+  "digest": "sha256:6da9a2813d5cb61ad50c08f4739845a2c282e2098c0f85fd53e3c295af90add6"
 }

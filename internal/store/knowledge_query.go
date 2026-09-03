@@ -164,7 +164,7 @@ func queryQ9(ctx context.Context, q queryer, req Q9Request, observedAt time.Time
 		}
 		cursor = &encoded
 	}
-	meta := knowledgeWatermarkMeta("PM1.Q9", req.Home, watermark, authority, observedAt)
+	meta := knowledgeWatermarkMeta("PM1.Q9", watermark, authority, observedAt)
 	meta.ResolvedScope = ResolvedScope{ProductID: req.Product, ProjectID: req.Project}
 	if authority == "authoritative" {
 		meta.Omissions = append(meta.Omissions, knowledgeCoverageOmissions(ctx, q, req.Home, watermark)...)

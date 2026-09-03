@@ -7,7 +7,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"sort"
 	"strings"
@@ -926,6 +925,6 @@ func orderedStrings(values []string) []string {
 	return result
 }
 
-func knowledgeWatermarkMeta(queryID string, home KnowledgeHome, watermark, authority string, observedAt time.Time) ResultMeta {
-	return ResultMeta{QueryID: queryID, ContractVersion: queryContractVersion, ResolvedScope: ResolvedScope{ProductID: ""}, SourceVersionWatermark: 0, Authority: authority, Freshness: Freshness{ObservedAt: observedAt.UTC().Format(time.RFC3339Nano), Age: 0, Stale: authority != "authoritative"}, OrderingKeys: []string{"structured_match", "completed_at_desc", "id"}, NextCursor: nil, Omissions: []string{}, Warnings: []string{fmt.Sprintf("index_watermark:%s/%s/%s=%s", home.HomeProjectID, home.HomeLocatorID, home.HeadRef, watermark)}}
+func knowledgeWatermarkMeta(queryID, watermark, authority string, observedAt time.Time) ResultMeta {
+	return ResultMeta{QueryID: queryID, ContractVersion: queryContractVersion, ResolvedScope: ResolvedScope{ProductID: ""}, SourceVersionWatermark: 0, Authority: authority, Freshness: Freshness{ObservedAt: observedAt.UTC().Format(time.RFC3339Nano), Age: 0, Stale: authority != "authoritative"}, OrderingKeys: []string{"structured_match", "completed_at_desc", "id"}, NextCursor: nil, Omissions: []string{}, Warnings: []string{}}
 }

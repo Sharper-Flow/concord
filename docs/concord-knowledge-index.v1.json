@@ -3004,7 +3004,7 @@
         "project_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:05380afd97b9217418084db25570d3451804ce6a925b6d265a4d9c45a109b8ab",
+      "sha256": "sha256:2ff5927d4effdf469a6c9c5ae7f100131607e8b3c65cd527c881dfd390e04012",
       "status": "accepted",
       "summary": "Amends CD-0093 D2 so a running session may create or claim its current work item's canonical worktree and persistently retarget later Concord operations to it while the host process directory stays unchanged. Same-Project cross-worktree access is tiered: read-only Inspect, exclusive-lease Verify with unchanged tracked files, typed-transfer Take over, and Destroy limited to merged terminal work or operator approval. Targets derive from registered Project and work identity, possession grants no Product authority, and continuity re-pins the target and lease each turn with stale versions failing closed.",
       "tags": [
@@ -3134,6 +3134,30 @@
         "session-boot"
       ],
       "title": "A session's worktree is its actual directory, and Concord stores no session binding"
+    },
+    {
+      "date": "2026-09-03T00:00:00Z",
+      "home_domain_id": "product-root:concord",
+      "id": "CD-0105",
+      "kind": "decision",
+      "path": "docs/decisions/CD-0105-the-audit-reclaims-merged-terminal-worktrees.md",
+      "product_wide_rationale": "Names the trigger that reclaims a finished worktree, which every Domain that claims a worktree relies on, so it binds Product-wide rather than owning a runtime Domain.",
+      "scopes": {
+        "domain_ids": [],
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:a944f3cf6254559e29707edef6bc219f672a67b3eca3e6b0a9aa57d035d6a92e",
+      "status": "accepted",
+      "summary": "The worktree audit reports a fourth drift class, terminal_present: a worktree on disk, still claimed, whose work is completed or cancelled. A typed operation, worktree_audit_reclaim, performs the one safe action the audit names, reclaiming each such row through the direct reclaim's own gates in its own transaction, so one refusal never rolls back another reclamation and a replay returns the recorded pass. Every other class stays report-only. Amends CD-0096 D3 Destroy at the trigger it left unnamed.",
+      "tags": [
+        "worktree-isolation",
+        "authority",
+        "recovery"
+      ],
+      "title": "The worktree audit reclaims merged terminal worktrees"
     },
     {
       "criterion_bindings": [

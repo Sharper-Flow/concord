@@ -836,6 +836,12 @@ const (
 	// WorktreeDriftStrandedNeeded: a work item at needed holds an active
 	// worktree entry whose path no longer exists, so no driver will notice.
 	WorktreeDriftStrandedNeeded = "stranded_needed"
+	// WorktreeDriftTerminalPresent: the worktree is on disk and still
+	// claimed, and its work item is terminal. Nothing is wrong with it and
+	// nothing will ever use it again. It is the shape a merged branch leaves
+	// behind, and the one class whose named action the audit can perform
+	// itself, because reclaiming it is a store decision under store gates.
+	WorktreeDriftTerminalPresent = "terminal_present"
 )
 
 // Typed recovery actions. Where a Concord operation owns the recovery, the
@@ -979,6 +985,24 @@ func worktreeAudit(ctx context.Context, q queryer, root string, productID string
 	if err := strandedRows.Err(); err != nil {
 		return WorktreeAudit{}, err
 	}
+	// Terminal work with an active entry: the same join, the other side of
+	// the lifecycle. The lifecycle rides along so the row can say which.
+	terminalLifecycle := map[string]string{}
+	terminalRows, err := q.QueryContext(ctx, `SELECT w.id, w.lifecycle FROM work_items w JOIN worktree_entries e ON e.set_id=?||w.id JOIN product_projects pp ON pp.project_id=e.project_id WHERE pp.product_id=? AND e.state='active' AND w.lifecycle IN ('completed','cancelled')`, worktreeSetPrefix, productID)
+	if err != nil {
+		return WorktreeAudit{}, wrapFailure(KindUnavailable, "worktree_audit", "cannot read terminal work", true, "retry once the database is readable", err)
+	}
+	defer terminalRows.Close()
+	for terminalRows.Next() {
+		var id, lifecycle string
+		if err := terminalRows.Scan(&id, &lifecycle); err != nil {
+			return WorktreeAudit{}, err
+		}
+		terminalLifecycle[id] = lifecycle
+	}
+	if err := terminalRows.Err(); err != nil {
+		return WorktreeAudit{}, err
+	}
 
 	claimedPaths := map[string]bool{}
 	for _, c := range claims {
@@ -1056,10 +1080,130 @@ func worktreeAudit(ctx context.Context, q queryer, root string, productID string
 		}
 		drift = append(drift, WorktreeDrift{Class: WorktreeDriftStrandedNeeded, ProjectID: e.projectID, WorkID: e.workID, Path: e.path, Lifecycle: "needed", RecoveryAction: WorktreeRecoveryClaim})
 	}
+	// Terminal present: the entry is active, the disk agrees, and the work
+	// is finished. Reclaim is the named action, and the only safe one.
+	for _, e := range entries {
+		lifecycle, terminal := terminalLifecycle[e.workID]
+		if !terminal {
+			continue
+		}
+		present, err := exists(e.path)
+		if err != nil {
+			return WorktreeAudit{}, err
+		}
+		if !present {
+			continue
+		}
+		drift = append(drift, WorktreeDrift{Class: WorktreeDriftTerminalPresent, ProjectID: e.projectID, WorkID: e.workID, Path: e.path, Lifecycle: lifecycle, RecoveryAction: WorktreeRecoveryReclaim})
+	}
 	if len(drift) > limit {
 		drift = drift[:limit]
 	}
 	return WorktreeAudit{Root: root, Drift: drift}, nil
+}
+
+// Outcomes of one row in a reclaim pass.
+const (
+	WorktreeAuditReclaimed = "reclaimed"
+	WorktreeAuditRefused   = "refused"
+)
+
+// WorktreeAuditReclaimRequest drives one reclaim pass over a Product's
+// terminal-present worktrees. The observations and runner are the same
+// inputs a direct reclaim takes, because each row runs the direct reclaim.
+type WorktreeAuditReclaimRequest struct {
+	ProductID                  string
+	DefaultRef                 string
+	PrincipalRef               string
+	RequestID                  string
+	Now                        time.Time
+	Runner                     GitRunner
+	Limit                      int
+	ObservedSessionDirectories []SessionDirectory
+}
+
+// WorktreeAuditReclaimRow is the outcome of one terminal-present worktree.
+// A refusal carries the typed kind and detail the reclaim gate produced, so
+// the caller can tell a dirty tree from an occupied one from an unmerged
+// head without parsing prose.
+type WorktreeAuditReclaimRow struct {
+	ProjectID string `json:"project_id"`
+	WorkID    string `json:"work_id"`
+	Path      string `json:"path"`
+	Lifecycle string `json:"lifecycle"`
+	Outcome   string `json:"outcome"`
+	// Version is the work item's version after a reclamation, the same bump
+	// a direct reclaim returns; zero on a refused row.
+	Version     int64  `json:"version,omitempty"`
+	RefusalKind string `json:"refusal_kind,omitempty"`
+	Detail      string `json:"detail,omitempty"`
+}
+
+// WorktreeAuditReclaimResult is one pass: what the audit reported for the
+// classes it can only report, and what happened to each row it could act on.
+type WorktreeAuditReclaimResult struct {
+	Root       string                    `json:"root"`
+	ReportOnly []WorktreeDrift           `json:"report_only"`
+	Rows       []WorktreeAuditReclaimRow `json:"rows"`
+}
+
+// WorktreeAuditReclaim performs the one safe action the audit names. It runs
+// the audit, then reclaims each terminal-present worktree through the same
+// gates a direct reclaim runs: clean tree, head merged by tree identity, no
+// observed session inside. Every other class is returned as report-only,
+// because its named action is not a store decision.
+//
+// Each row reclaims in its own transaction. Rows are independent, and one
+// refusal must not roll back another row's reclamation; the pass is a loop
+// over direct reclaims, not one large write. A refused row is reported with
+// its typed kind and left on disk. The pass is idempotent: a second run over
+// the same state reclaims nothing and reports the same refusals.
+func (s *Store) WorktreeAuditReclaim(ctx context.Context, req WorktreeAuditReclaimRequest) (WorktreeAuditReclaimResult, error) {
+	if s == nil || s.db == nil {
+		return WorktreeAuditReclaimResult{}, newFailure(KindUnavailable, "worktree_audit_reclaim", "store is not open", false, "open the authority database")
+	}
+	audit, err := s.WorktreeAudit(ctx, req.ProductID, req.Limit)
+	if err != nil {
+		return WorktreeAuditReclaimResult{}, err
+	}
+	out := WorktreeAuditReclaimResult{Root: audit.Root, ReportOnly: []WorktreeDrift{}, Rows: []WorktreeAuditReclaimRow{}}
+	for _, drift := range audit.Drift {
+		if drift.Class != WorktreeDriftTerminalPresent {
+			out.ReportOnly = append(out.ReportOnly, drift)
+			continue
+		}
+		row := WorktreeAuditReclaimRow{ProjectID: drift.ProjectID, WorkID: drift.WorkID, Path: drift.Path, Lifecycle: drift.Lifecycle}
+		version, err := currentWorkVersion(ctx, s.db, drift.WorkID)
+		if err != nil {
+			return WorktreeAuditReclaimResult{}, err
+		}
+		_, reclaimErr := s.ReclaimWorktree(ctx, WorktreeReclaimRequest{
+			WorkID: drift.WorkID, ProjectID: drift.ProjectID, DefaultRef: req.DefaultRef,
+			PrincipalRef: req.PrincipalRef, RequestID: req.RequestID + ":" + drift.WorkID,
+			ExpectedVersion: version, Now: req.Now, Runner: req.Runner, RequireTerminal: true,
+			ObservedSessionDirectories: req.ObservedSessionDirectories,
+		})
+		if reclaimErr == nil {
+			row.Outcome, row.Version = WorktreeAuditReclaimed, version+1
+			out.Rows = append(out.Rows, row)
+			continue
+		}
+		var failure *Failure
+		if !errors.As(reclaimErr, &failure) {
+			return WorktreeAuditReclaimResult{}, reclaimErr
+		}
+		row.Outcome, row.RefusalKind, row.Detail = WorktreeAuditRefused, string(failure.Kind), failure.Detail
+		out.Rows = append(out.Rows, row)
+	}
+	return out, nil
+}
+
+func currentWorkVersion(ctx context.Context, q queryer, workID string) (int64, error) {
+	var version int64
+	if err := q.QueryRowContext(ctx, `SELECT version FROM work_items WHERE id=?`, workID).Scan(&version); err != nil {
+		return 0, wrapFailure(KindUnavailable, "worktree_audit_reclaim", "cannot read work version", true, "retry once the database is readable", err)
+	}
+	return version, nil
 }
 
 // SessionWorktreeOwner identifies the agent session that holds a verify

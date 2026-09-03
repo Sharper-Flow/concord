@@ -116,6 +116,14 @@ type worktreeReclaimInput struct {
 // observedSessionDirectoryInput is one live host session the caller observed,
 // and the directory it runs in. Session liveness is host truth, so the caller
 // that can reach the host reports it and the core decides on it.
+type worktreeAuditReclaimInput struct {
+	ProductID                  string                          `json:"product_id"`
+	DefaultRef                 string                          `json:"default_ref"`
+	Limit                      int                             `json:"limit"`
+	IdempotencyKey             string                          `json:"idempotency_key"`
+	ObservedSessionDirectories []observedSessionDirectoryInput `json:"observed_session_directories"`
+}
+
 type observedSessionDirectoryInput struct {
 	SessionRef string `json:"session_ref"`
 	Directory  string `json:"directory"`
@@ -1842,6 +1850,82 @@ func (r runtime) mutateWorktreeVerify(ctx context.Context, base Envelope, raw []
 	return response, nil
 }
 
+// mutateWorktreeAuditReclaim plans concord_work_transition.worktree_audit_reclaim.
+// The audit performs the one safe action it names: each terminal-present
+// worktree reclaims through the direct reclaim's own gates, in its own
+// transaction, so one refused row never rolls back another's reclamation.
+// That is why the effect cannot sit inside executeMutation's single
+// transaction, and why this planner takes the shape mutateWorktreeVerify
+// established: the store owns the row transactions, and this planner owns
+// the envelope and the idempotency record. A replay under the same key
+// returns the recorded pass and does not run the audit again.
+//
+// The pass reclaims only terminal work, which #674 already opened to a
+// main-checkout grant, so no worktree anchor is required to run it.
+func (r runtime) mutateWorktreeAuditReclaim(ctx context.Context, base Envelope, raw []byte, grant Authority, op ContractOperation) (Envelope, error) {
+	var in worktreeAuditReclaimInput
+	if err := decodeOperationInput(raw, &in); err != nil {
+		return base, err
+	}
+	if r.Budget.CeilingRefused {
+		return r.budgetRefusal(base, fmt.Sprintf("requested_budget_seconds %d exceeds supported %d", r.Budget.RequestedSeconds, r.Budget.SupportedSeconds)), nil
+	}
+	product := in.ProductID
+	if product == "" {
+		product = r.Envelope.SelectedProductID
+	}
+	if product == "" {
+		return coreError(base, "unknown_scope", "worktree audit reclaim requires a resolved Product", "reread_entities", false), nil
+	}
+	digest := mutationDigest(r.Tool, r.Operation, r.Envelope, raw)
+	scope := map[string]any{"product_ids": []string{product}}
+	intents := []NextIntent{{Tool: "concord_work_browse", Operation: "worktree_audit", QueryID: "PM1.Q16", ReasonCode: "audit_after_reclaim", RequiredFields: []string{"product_id"}}}
+	result, err := r.Store.WorktreeAuditReclaim(ctx, store.WorktreeAuditReclaimRequest{
+		ProductID:                  product,
+		DefaultRef:                 in.DefaultRef,
+		PrincipalRef:               grant.PrincipalRef,
+		RequestID:                  in.IdempotencyKey,
+		Now:                        r.Authority.now(),
+		Limit:                      r.boundedLimit(in.Limit),
+		ObservedSessionDirectories: storeSessionDirectories(in.ObservedSessionDirectories),
+	})
+	if err != nil {
+		return failureEnvelope(base, err), nil
+	}
+	changed := make([]ChangedRef, 0, len(result.Rows))
+	for _, row := range result.Rows {
+		if row.Outcome == store.WorktreeAuditReclaimed {
+			changed = append(changed, ChangedRef{EntityKind: "work_item", ID: row.WorkID, Version: strconv.FormatInt(row.Version, 10)})
+		}
+	}
+	payload, _ := json.Marshal(map[string]any{
+		"root": result.Root, "rows": result.Rows, "report_only": result.ReportOnly,
+		"changed_refs":       mutationResultChangedRefs(changed),
+		"next_valid_intents": mutationResultIntents(intents),
+	})
+	base.ResolvedScope = scopeFromMap(scope)
+	response := r.mutationResult(base, payload, changed, intents)
+	if response.Outcome == OutcomeError {
+		return response, nil
+	}
+	changedJSON, _ := json.Marshal(changed)
+	authorizedScope, _ := json.Marshal(boundedApprovalScope(scope))
+	if err := r.Store.Transact(ctx, func(tx *store.Transaction) error {
+		return store.InsertMutationIdempotencyTx(ctx, tx, store.MutationIdempotencyInsert{
+			Key:                     store.MutationIdempotencyKey{PrincipalRef: grant.PrincipalRef, Tool: r.Tool, OperationKind: r.Operation, IdempotencyKey: in.IdempotencyKey},
+			CanonicalDigest:         digest,
+			OperationID:             "mutation-" + digest[7:31],
+			ResultPayload:           string(payload),
+			ChangedRefs:             string(changedJSON),
+			AuthorizedScopeSnapshot: string(authorizedScope),
+			ObservedAt:              r.Authority.now(),
+		})
+	}); err != nil {
+		return failureEnvelope(base, err), nil
+	}
+	return response, nil
+}
+
 // planWorktreeReclaim plans concord_work_transition.worktree_reclaim.
 func (r runtime) planWorktreeReclaim(ctx context.Context, base Envelope, raw []byte, digest string, grant Authority, op ContractOperation, plan *mutationPlan) (Envelope, error, bool) {
 	var in worktreeReclaimInput
@@ -2036,6 +2120,9 @@ func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Au
 	}
 	if op.ID == "concord_work_transition.worktree_verify" {
 		return r.mutateWorktreeVerify(ctx, base, raw, grant, op)
+	}
+	if op.ID == "concord_work_transition.worktree_audit_reclaim" {
+		return r.mutateWorktreeAuditReclaim(ctx, base, raw, grant, op)
 	}
 	digest := mutationDigest(r.Tool, r.Operation, r.Envelope, raw)
 	if r.Tool == "concord_work_compact" && op.ID != "concord_work_compact.lesson_publish" {

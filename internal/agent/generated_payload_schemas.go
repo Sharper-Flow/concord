@@ -2696,7 +2696,7 @@ const GeneratedPayloadSchemaDocument = `{
           "$ref": "#/$defs/id"
         },
         "work_kind": {
-          "$ref": "#/$defs/work_kind"
+          "$ref": "#/$defs/stored_work_kind"
         },
         "workflow_step_label": {
           "$ref": "#/$defs/short"
@@ -3770,6 +3770,18 @@ const GeneratedPayloadSchemaDocument = `{
     "short": {
       "maxLength": 256,
       "minLength": 1,
+      "type": "string"
+    },
+    "stored_work_kind": {
+      "description": "Every kind a stored work item may carry, as contracts/work-kinds.v1.json declares stored=true. Wider than work_kind: initiative is stored but never agent-captured, so a result surface admits it while a capture input refuses it.",
+      "enum": [
+        "task",
+        "bug",
+        "decision",
+        "research",
+        "other",
+        "initiative"
+      ],
       "type": "string"
     },
     "unprocessed_page": {
@@ -5617,7 +5629,7 @@ const GeneratedPayloadSchemaDocument = `{
           "$ref": "#/$defs/id"
         },
         "kind": {
-          "$ref": "#/$defs/work_kind"
+          "$ref": "#/$defs/stored_work_kind"
         },
         "lifecycle": {
           "$ref": "#/$defs/lifecycle"
@@ -6180,6 +6192,55 @@ const GeneratedPayloadSchemaDocument = `{
         "expected_version",
         "target",
         "reason",
+        "idempotency_key"
+      ],
+      "type": "object"
+    },
+    "work_transition_worktree_audit_reclaim_input": {
+      "additionalProperties": false,
+      "properties": {
+        "default_ref": {
+          "$ref": "#/$defs/short"
+        },
+        "idempotency_key": {
+          "$ref": "#/$defs/id"
+        },
+        "limit": {
+          "maximum": 100,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "observed_session_directories": {
+          "description": "CD-0096 D3, issue #722: the live host sessions the caller observed, each with the directory it runs in. The removal refuses when one of them is the worktree or sits beneath it, because removing that directory leaves the session unable to send another prompt. The store owns the worktree path and the host owns session liveness, so the caller that sees both supplies the observation and the core decides on it. A caller with no host omits the field and reaches the git gates alone.",
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "directory": {
+                "maxLength": 4096,
+                "minLength": 1,
+                "type": "string"
+              },
+              "session_ref": {
+                "$ref": "#/$defs/id"
+              }
+            },
+            "required": [
+              "session_ref",
+              "directory"
+            ],
+            "type": "object"
+          },
+          "maxItems": 100,
+          "type": "array"
+        },
+        "product_id": {
+          "$ref": "#/$defs/id"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
+        }
+      },
+      "required": [
         "idempotency_key"
       ],
       "type": "object"
@@ -6805,13 +6866,16 @@ const GeneratedPayloadSchemaDocument = `{
                 "enum": [
                   "orphan",
                   "stale_claim",
-                  "stranded_needed"
+                  "stranded_needed",
+                  "terminal_present"
                 ],
                 "type": "string"
               },
               "lifecycle": {
                 "enum": [
-                  "needed"
+                  "needed",
+                  "completed",
+                  "cancelled"
                 ],
                 "type": "string"
               },
@@ -6855,6 +6919,185 @@ const GeneratedPayloadSchemaDocument = `{
       "required": [
         "root",
         "drift"
+      ],
+      "type": "object"
+    },
+    "worktree_audit_reclaim_result": {
+      "additionalProperties": false,
+      "properties": {
+        "changed_refs": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "entity_kind": {
+                "$ref": "#/$defs/short"
+              },
+              "id": {
+                "$ref": "#/$defs/id"
+              },
+              "version": {
+                "$ref": "#/$defs/version"
+              }
+            },
+            "required": [
+              "entity_kind",
+              "id",
+              "version"
+            ],
+            "type": "object"
+          },
+          "maxItems": 32,
+          "type": "array"
+        },
+        "next_valid_intents": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "operation": {
+                "$ref": "#/$defs/short"
+              },
+              "reason_code": {
+                "$ref": "#/$defs/short"
+              },
+              "tool": {
+                "$ref": "#/$defs/id"
+              }
+            },
+            "required": [
+              "tool",
+              "operation",
+              "reason_code"
+            ],
+            "type": "object"
+          },
+          "maxItems": 16,
+          "type": "array"
+        },
+        "report_only": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "claim_state": {
+                "enum": [
+                  "verified"
+                ],
+                "type": "string"
+              },
+              "class": {
+                "enum": [
+                  "orphan",
+                  "stale_claim",
+                  "stranded_needed",
+                  "terminal_present"
+                ],
+                "type": "string"
+              },
+              "lifecycle": {
+                "enum": [
+                  "needed",
+                  "completed",
+                  "cancelled"
+                ],
+                "type": "string"
+              },
+              "path": {
+                "maxLength": 4096,
+                "minLength": 1,
+                "type": "string"
+              },
+              "project_id": {
+                "$ref": "#/$defs/id"
+              },
+              "recovery_action": {
+                "enum": [
+                  "remove_worktree",
+                  "worktree_reclaim",
+                  "worktree_claim"
+                ],
+                "type": "string"
+              },
+              "work_id": {
+                "$ref": "#/$defs/id"
+              }
+            },
+            "required": [
+              "class",
+              "project_id",
+              "path",
+              "recovery_action"
+            ],
+            "type": "object"
+          },
+          "maxItems": 100,
+          "type": "array"
+        },
+        "root": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "type": "string"
+        },
+        "rows": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "detail": {
+                "maxLength": 512,
+                "minLength": 1,
+                "type": "string"
+              },
+              "lifecycle": {
+                "enum": [
+                  "completed",
+                  "cancelled"
+                ],
+                "type": "string"
+              },
+              "outcome": {
+                "enum": [
+                  "reclaimed",
+                  "refused"
+                ],
+                "type": "string"
+              },
+              "path": {
+                "maxLength": 4096,
+                "minLength": 1,
+                "type": "string"
+              },
+              "project_id": {
+                "$ref": "#/$defs/id"
+              },
+              "refusal_kind": {
+                "maxLength": 64,
+                "minLength": 1,
+                "type": "string"
+              },
+              "version": {
+                "$ref": "#/$defs/version"
+              },
+              "work_id": {
+                "$ref": "#/$defs/id"
+              }
+            },
+            "required": [
+              "project_id",
+              "work_id",
+              "path",
+              "lifecycle",
+              "outcome"
+            ],
+            "type": "object"
+          },
+          "maxItems": 100,
+          "type": "array"
+        }
+      },
+      "required": [
+        "root",
+        "rows",
+        "report_only",
+        "changed_refs",
+        "next_valid_intents"
       ],
       "type": "object"
     },

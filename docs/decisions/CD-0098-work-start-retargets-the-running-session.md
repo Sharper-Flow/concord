@@ -6,8 +6,10 @@
   identity checks that guard a retarget; issue #689
 - **Approval:** The operator approved this replacement in-session on 2026-09-02
   and directed that a worktree never requires a relaunch.
-- **Related:** CD-0059, CD-0088, CD-0092, CD-0093, CD-0096, CD-0102, CD-0103, issue #689
-- **Amended by:** CD-0103 at the D3 turn-end clause
+- **Related:** CD-0059, CD-0088, CD-0092, CD-0093, CD-0096, CD-0102, CD-0103,
+  CD-0104, issue #689
+- **Amended by:** CD-0103 at the D3 turn-end clause; CD-0104 D3 at the failure
+  contract, which removes the `partial` outcome and the launch record
 - **Amends:** CD-0096 D6 and CD-0088 D4 at their launch clauses
 - **Preserves:** The `session-prepare` directory refusal, the lane definition
   check, and the read-back identity assertion

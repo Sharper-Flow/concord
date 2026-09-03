@@ -153,7 +153,7 @@ Closed error kinds:
 | Family | Kinds |
 |---|---|
 | Scope/auth | `unknown_scope`, `ambiguous_scope`, `stale_context`, `unauthorized`, `approval_required`, `approval_invalid` |
-| Concurrency/retry | `version_conflict`, `idempotency_conflict`, `operation_conflict` |
+| Concurrency/retry | `version_conflict`, `idempotency_conflict`, `operation_conflict`, `resource_busy` |
 | Domain | `invalid_transition`, `invalid_relation`, `invariant_violation`, `missing_evidence`, `not_terminal`, `outcome_mismatch` |
 | Authority/freshness | `stale_requires_review`, `degraded_not_allowed`, `unreachable` |
 | Bounds/input | `invalid_cursor`, `limit_exceeded`, `budget_refused`, `invalid_input` |

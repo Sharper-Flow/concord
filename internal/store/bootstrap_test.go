@@ -229,240 +229,6 @@ func TestBootstrapBranchProbeFailureCreatesNoReplayAuthority(t *testing.T) {
 	}
 }
 
-func TestBootstrapLaunchReplayPreservesSessionIdentity(t *testing.T) {
-	repo := initBootstrapStoreRepo(t)
-	s, err := Open(context.Background(), filepath.Join(t.TempDir(), "concord.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer s.Close()
-	seedBootstrapStoreAuthority(t, s, repo)
-	result, err := s.BootstrapWorktree(context.Background(), bootstrapStoreRequest(), nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	ownerPID, ownerStart := bootstrapTestOwner(t)
-	launch, err := s.PrepareBootstrapLaunch(context.Background(), result.ProductID, result.WorkID, "concord-implement", result.Entry.Path, ownerPID, ownerStart)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if launch.State != "prepared" || launch.SessionID != nil || !launch.SpawnPermitted {
-		t.Fatalf("initial launch=%+v", launch)
-	}
-	contender, err := s.PrepareBootstrapLaunch(context.Background(), result.ProductID, result.WorkID, "concord-implement", result.Entry.Path, ownerPID, ownerStart)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if contender.SpawnPermitted {
-		t.Fatalf("concurrent launch was permitted: %+v", contender)
-	}
-	// A retarget has no child run, so the prepared attempt reaches its terminal
-	// state directly.
-	if err := s.RecordBootstrapLaunch(context.Background(), launch.OperationID, launch.AttemptID, result.ProductID, result.WorkID, "session-1", launch.Agent, launch.Directory, "completed", "", ownerPID, ownerStart); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.RollbackBootstrapOperation(context.Background(), result.ProductID, result.WorkID, result.OperationID, result.Entry.Path, "session preparation failed"); err == nil {
-		t.Fatal("rollback removed a worktree with a recorded session")
-	}
-	if err := s.RecordBootstrapLaunch(context.Background(), launch.OperationID, launch.AttemptID, result.ProductID, result.WorkID, "session-1", launch.Agent, launch.Directory, "failed", "late failure", ownerPID, ownerStart); err == nil {
-		t.Fatal("completed launch moved to failed")
-	}
-	completed, err := s.PrepareBootstrapLaunch(context.Background(), result.ProductID, result.WorkID, launch.Agent, launch.Directory, ownerPID, ownerStart)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if completed.State != "prepared" || completed.SessionID == nil || *completed.SessionID != "session-1" || !completed.SpawnPermitted {
-		t.Fatalf("completed replay=%+v", completed)
-	}
-	terminalContender, err := s.PrepareBootstrapLaunch(context.Background(), result.ProductID, result.WorkID, launch.Agent, launch.Directory, ownerPID, ownerStart)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if terminalContender.SpawnPermitted {
-		t.Fatalf("concurrent terminal replay was permitted: %+v", terminalContender)
-	}
-	if err := s.RecordBootstrapLaunch(context.Background(), launch.OperationID, launch.AttemptID, result.ProductID, result.WorkID, "session-2", launch.Agent, launch.Directory, "running", "", ownerPID, ownerStart); err == nil {
-		t.Fatal("launch accepted a different session identity")
-	}
-}
-
-func TestBootstrapLaunchFailureWithoutSessionRefusesDuplicateLaunch(t *testing.T) {
-	repo := initBootstrapStoreRepo(t)
-	s, err := Open(context.Background(), filepath.Join(t.TempDir(), "concord.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer s.Close()
-	seedBootstrapStoreAuthority(t, s, repo)
-	req := bootstrapStoreRequest()
-	req.IdempotencyKey = "bootstrap-launch-failure"
-	result, err := s.BootstrapWorktree(context.Background(), req, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	ownerPID, ownerStart := bootstrapTestOwner(t)
-	launch, err := s.PrepareBootstrapLaunch(context.Background(), result.ProductID, result.WorkID, "concord-implement", result.Entry.Path, ownerPID, ownerStart)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := s.RecordBootstrapLaunch(context.Background(), launch.OperationID, launch.AttemptID, result.ProductID, result.WorkID, "", launch.Agent, launch.Directory, "failed", "child process did not report a session", ownerPID, ownerStart); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.RecordBootstrapLaunch(context.Background(), launch.OperationID, launch.AttemptID, result.ProductID, result.WorkID, "session-new", launch.Agent, launch.Directory, "completed", "", ownerPID, ownerStart); err == nil {
-		t.Fatal("failed launch moved directly to completed")
-	}
-	if _, err := s.PrepareBootstrapLaunch(context.Background(), result.ProductID, result.WorkID, launch.Agent, launch.Directory, ownerPID, ownerStart); err == nil {
-		t.Fatal("failed launch without a session allowed a duplicate launch")
-	}
-}
-
-func TestBootstrapLaunchOwnerRecoveryIsExclusive(t *testing.T) {
-	repo := initBootstrapStoreRepo(t)
-	s, err := Open(context.Background(), filepath.Join(t.TempDir(), "concord.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer s.Close()
-	seedBootstrapStoreAuthority(t, s, repo)
-	result, err := s.BootstrapWorktree(context.Background(), bootstrapStoreRequest(), nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	owner := exec.Command("sleep", "60")
-	if err := owner.Start(); err != nil {
-		t.Fatal(err)
-	}
-	ownerPID := int64(owner.Process.Pid)
-	ownerStart, err := processStartIdentity(ownerPID)
-	if err != nil {
-		_ = owner.Process.Kill()
-		t.Fatal(err)
-	}
-	launch, err := s.PrepareBootstrapLaunch(context.Background(), result.ProductID, result.WorkID, "concord-implement", result.Entry.Path, ownerPID, ownerStart)
-	if err != nil {
-		_ = owner.Process.Kill()
-		t.Fatal(err)
-	}
-	if err := s.RecordBootstrapLaunch(context.Background(), launch.OperationID, launch.AttemptID, result.ProductID, result.WorkID, "session-recovery", launch.Agent, launch.Directory, "completed", "", ownerPID, ownerStart); err != nil {
-		_ = owner.Process.Kill()
-		t.Fatal(err)
-	}
-	if err := owner.Process.Kill(); err != nil {
-		t.Fatal(err)
-	}
-	if err := owner.Wait(); err == nil {
-		t.Fatal("killed launch owner exited successfully")
-	}
-	currentPID, currentStart := bootstrapTestOwner(t)
-	recovery, err := s.PrepareBootstrapLaunch(context.Background(), result.ProductID, result.WorkID, launch.Agent, launch.Directory, currentPID, currentStart)
-	if err != nil {
-		t.Fatal(err)
-	}
-	// The recorded session survives the owner's death, and the new owner may
-	// prepare the attempt again.
-	if !recovery.SpawnPermitted || recovery.RollbackPermitted || recovery.SessionID == nil || *recovery.SessionID != "session-recovery" {
-		t.Fatalf("recovery=%+v", recovery)
-	}
-	contender, err := s.PrepareBootstrapLaunch(context.Background(), result.ProductID, result.WorkID, launch.Agent, launch.Directory, currentPID, currentStart)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if contender.SpawnPermitted || contender.RollbackPermitted {
-		t.Fatalf("recovery contender=%+v", contender)
-	}
-
-	staleReq := bootstrapStoreRequest()
-	staleReq.IdempotencyKey = "bootstrap-stale-owner"
-	stale, err := s.BootstrapWorktree(context.Background(), staleReq, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	staleOwner := exec.Command("sleep", "60")
-	if err := staleOwner.Start(); err != nil {
-		t.Fatal(err)
-	}
-	stalePID := int64(staleOwner.Process.Pid)
-	staleStart, err := processStartIdentity(stalePID)
-	if err != nil {
-		_ = staleOwner.Process.Kill()
-		t.Fatal(err)
-	}
-	if _, err := s.PrepareBootstrapLaunch(context.Background(), stale.ProductID, stale.WorkID, "concord-implement", stale.Entry.Path, stalePID, staleStart); err != nil {
-		_ = staleOwner.Process.Kill()
-		t.Fatal(err)
-	}
-	if err := staleOwner.Process.Kill(); err != nil {
-		t.Fatal(err)
-	}
-	if err := staleOwner.Wait(); err == nil {
-		t.Fatal("killed stale owner exited successfully")
-	}
-	staleRecovery, err := s.PrepareBootstrapLaunch(context.Background(), stale.ProductID, stale.WorkID, "concord-implement", stale.Entry.Path, currentPID, currentStart)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if staleRecovery.SpawnPermitted || !staleRecovery.RollbackPermitted || staleRecovery.SessionID != nil {
-		t.Fatalf("stale recovery=%+v", staleRecovery)
-	}
-}
-
-func TestRollbackBootstrapOperationRemovesOnlyCleanUnlaunchedState(t *testing.T) {
-	repo := initBootstrapStoreRepo(t)
-	s, err := Open(context.Background(), filepath.Join(t.TempDir(), "concord.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer s.Close()
-	seedBootstrapStoreAuthority(t, s, repo)
-	req := bootstrapStoreRequest()
-	req.IdempotencyKey = "bootstrap-clean-rollback"
-	result, err := s.BootstrapWorktree(context.Background(), req, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := s.RollbackBootstrapOperation(context.Background(), result.ProductID, result.WorkID, result.OperationID, repo, "session preparation failed"); err == nil {
-		t.Fatal("rollback accepted the default checkout")
-	}
-	if err := s.RollbackBootstrapOperation(context.Background(), result.ProductID, result.WorkID, result.OperationID, result.Entry.Path, "session preparation failed"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := os.Stat(result.Entry.Path); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("rolled-back worktree still exists: %v", err)
-	}
-	if _, exists, err := bootstrapBranchHead(context.Background(), ExecGitRunner{}, repo, result.Entry.Branch); err != nil || exists {
-		t.Fatalf("rolled-back branch exists=%v err=%v", exists, err)
-	}
-	var operationState, claimState, lifecycle string
-	if err := s.db.QueryRow(`SELECT b.state,c.state,w.lifecycle FROM bootstrap_operations b JOIN worktree_claims c ON c.op_id=b.operation_id JOIN work_items w ON w.id=b.work_id WHERE b.operation_id=?`, result.OperationID).Scan(&operationState, &claimState, &lifecycle); err != nil {
-		t.Fatal(err)
-	}
-	if operationState != "rolled_back" || claimState != "reclaimed" || lifecycle != "cancelled" {
-		t.Fatalf("operation=%s claim=%s lifecycle=%s", operationState, claimState, lifecycle)
-	}
-	if _, err := s.BootstrapWorktree(context.Background(), req, nil); err == nil {
-		t.Fatal("rolled-back idempotency key was replayed")
-	}
-
-	dirtyReq := bootstrapStoreRequest()
-	dirtyReq.IdempotencyKey = "bootstrap-dirty-rollback"
-	dirty, err := s.BootstrapWorktree(context.Background(), dirtyReq, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(dirty.Entry.Path, "operator.txt"), []byte("preserve\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.RollbackBootstrapOperation(context.Background(), dirty.ProductID, dirty.WorkID, dirty.OperationID, dirty.Entry.Path, "session preparation failed"); err == nil {
-		t.Fatal("dirty worktree was removed")
-	}
-	if _, err := os.Stat(filepath.Join(dirty.Entry.Path, "operator.txt")); err != nil {
-		t.Fatalf("dirty worktree was not preserved: %v", err)
-	}
-	if err := s.db.QueryRow(`SELECT state FROM bootstrap_operations WHERE operation_id=?`, dirty.OperationID).Scan(&operationState); err != nil || operationState != "rolling_back" {
-		t.Fatalf("dirty operation state=%s err=%v", operationState, err)
-	}
-}
-
 func TestMigration59PreservesPopulatedBootstrapOperation(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "concord-v58.db")
@@ -496,14 +262,12 @@ func TestMigration59PreservesPopulatedBootstrapOperation(t *testing.T) {
 	if err := Migrate(ctx, db); err != nil {
 		t.Fatal(err)
 	}
-	var operationID, state, launchState string
-	var attemptID, sessionID, ownerStart sql.NullString
-	var ownerPID sql.NullInt64
-	if err := db.QueryRowContext(ctx, `SELECT operation_id,state,launch_state,launch_attempt_id,launch_session_id,launch_owner_pid,launch_owner_start FROM bootstrap_operations WHERE work_id=?`, result.WorkID).Scan(&operationID, &state, &launchState, &attemptID, &sessionID, &ownerPID, &ownerStart); err != nil {
+	var operationID, state string
+	if err := db.QueryRowContext(ctx, `SELECT operation_id,state FROM bootstrap_operations WHERE work_id=?`, result.WorkID).Scan(&operationID, &state); err != nil {
 		t.Fatal(err)
 	}
-	if operationID != result.OperationID || state != "completed" || launchState != "not_started" || attemptID.Valid || sessionID.Valid || ownerPID.Valid || ownerStart.Valid {
-		t.Fatalf("operation=%s state=%s launch=%s attempt=%v session=%v owner_pid=%v owner_start=%v", operationID, state, launchState, attemptID, sessionID, ownerPID, ownerStart)
+	if operationID != result.OperationID || state != "completed" {
+		t.Fatalf("operation=%s state=%s", operationID, state)
 	}
 }
 
@@ -608,46 +372,12 @@ func TestRollbackBootstrapRecoversItsStaleGitLock(t *testing.T) {
 	if err := os.WriteFile(lockPath, []byte(marker), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.RollbackBootstrapOperation(context.Background(), result.ProductID, result.WorkID, result.OperationID, result.Entry.Path, "session preparation failed"); err != nil {
+	location := WorktreeLocation{Repo: repo, Path: result.Entry.Path, Branch: result.Entry.Branch, BaseSHA: result.Entry.BaseSHA}
+	if err := s.rollbackBootstrap(context.Background(), result.OperationID, result.WorkID, location, ExecGitRunner{}, true, errors.New("bootstrap interrupted")); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(lockPath); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("stale Git lock still exists: %v", err)
-	}
-}
-
-func TestRollbackBootstrapExcludesConcurrentSessionRecord(t *testing.T) {
-	repo := initBootstrapStoreRepo(t)
-	s, err := Open(context.Background(), filepath.Join(t.TempDir(), "concord.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer s.Close()
-	seedBootstrapStoreAuthority(t, s, repo)
-	req := bootstrapStoreRequest()
-	req.IdempotencyKey = "bootstrap-rollback-session-race"
-	result, err := s.BootstrapWorktree(context.Background(), req, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	ownerPID, ownerStart := bootstrapTestOwner(t)
-	launch, err := s.PrepareBootstrapLaunch(context.Background(), result.ProductID, result.WorkID, "concord-implement", result.Entry.Path, ownerPID, ownerStart)
-	if err != nil {
-		t.Fatal(err)
-	}
-	now := s.now()
-	if err := s.Transact(context.Background(), func(transaction *Transaction) error {
-		done := false
-		return beginBootstrapRollbackTx(context.Background(), transaction, result.OperationID, result.WorkID, now, "session preparation failed", &done)
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.RecordBootstrapLaunch(context.Background(), launch.OperationID, launch.AttemptID, result.ProductID, result.WorkID, "session-race", launch.Agent, launch.Directory, "running", "", ownerPID, ownerStart); err == nil {
-		t.Fatal("session record entered a rollback-owned operation")
-	}
-	location := WorktreeLocation{Repo: repo, Path: result.Entry.Path, Branch: result.Entry.Branch, BaseSHA: result.Entry.BaseSHA}
-	if err := s.rollbackBootstrap(context.Background(), result.OperationID, result.WorkID, location, ExecGitRunner{}, true, errors.New("session preparation failed")); err != nil {
-		t.Fatal(err)
 	}
 }
 

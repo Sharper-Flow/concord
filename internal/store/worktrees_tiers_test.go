@@ -56,16 +56,13 @@ func TestInspectWorktreeReadsStatusDiffWithoutLeaseOrTarget(t *testing.T) {
 	if diff.Content != "M file\n" {
 		t.Fatalf("dirty diff=%q", diff.Content)
 	}
-	// The Inspect tier takes no lease and writes no persistent binding.
-	var leases, targets int
+	// The Inspect tier takes no lease.
+	var leases int
 	if err := s.db.QueryRow(`SELECT count(*) FROM worktree_verify_leases`).Scan(&leases); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.db.QueryRow(`SELECT count(*) FROM session_worktree_targets`).Scan(&targets); err != nil {
-		t.Fatal(err)
-	}
-	if leases != 0 || targets != 0 {
-		t.Fatalf("leases=%d targets=%d, want a pure read", leases, targets)
+	if leases != 0 {
+		t.Fatalf("leases=%d, want a pure read", leases)
 	}
 }
 
@@ -108,7 +105,7 @@ func TestInspectWorktreeValidatesModeAndSelector(t *testing.T) {
 
 func verifyRequest(git *fakeWorktreeGit, leaseID string, command []string, run func(ctx context.Context, dir string, command []string, maxOutput int) (int, []byte, bool, error)) WorktreeVerifyRequest {
 	return WorktreeVerifyRequest{
-		Owner: retargetOwner("client-1", "agent-1", "session-1"), WorkID: "work-w", ProjectID: "project-w",
+		Owner: SessionWorktreeOwner{ClientRef: "client-1", AgentRef: "agent-1", SessionRef: "session-1"}, WorkID: "work-w", ProjectID: "project-w",
 		Command: command, LeaseID: leaseID, PrincipalRef: "principal-1", RequestID: "req-v-" + leaseID,
 		Now: time.Unix(20, 0).UTC(), Runner: git, RunCommand: run,
 	}
@@ -355,7 +352,7 @@ func TestTiersAgainstRealGitInspectFileAndVerifyCommand(t *testing.T) {
 	}
 
 	verify := WorktreeVerifyRequest{
-		Owner: retargetOwner("client-1", "agent-1", "session-1"), WorkID: "work-w", ProjectID: "project-w",
+		Owner: SessionWorktreeOwner{ClientRef: "client-1", AgentRef: "agent-1", SessionRef: "session-1"}, WorkID: "work-w", ProjectID: "project-w",
 		Command: []string{"true"}, LeaseID: "tiers-lease-1", PrincipalRef: "principal-1", RequestID: "req-tiers-1",
 		Now: time.Unix(20, 0).UTC(),
 	}

@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"encoding/base64"
 	"encoding/json"
-	"fmt"
 	"strconv"
 )
 
@@ -74,10 +73,6 @@ type ContinuitySnapshot struct {
 	StaleLawRevision    *StaleLawRevision            `json:"stale_law_revision,omitempty"`
 	ChangesProductTruth bool                         `json:"changes_product_truth"`
 	ArchitectureBinding *WorkflowArchitectureBinding `json:"architecture_binding,omitempty"`
-	// EffectiveTarget re-pins the reading session's persistent worktree
-	// target (CD-0096 D5). Nil when the reading session holds no binding or
-	// named no session identity.
-	EffectiveTarget *SessionWorktreeTarget `json:"effective_target,omitempty"`
 	// ActiveVerifyLeases re-pins the reading session's held verify leases
 	// (CD-0096 D5), newest first, bounded. Empty when the session named no
 	// identity or holds none.
@@ -89,13 +84,9 @@ type ContinuityRequest struct {
 	Limit  int
 	Cursor string
 	// Owner names the reading session, so the pinned projection re-pins its
-	// effective target and held verify leases (CD-0096 D5). Nil keeps the
-	// work-keyed projection the session-boot path renders.
+	// held verify leases (CD-0096 D5). Nil keeps the work-keyed projection
+	// the session-boot path renders.
 	Owner *SessionWorktreeOwner
-	// ExpectedTargetVersion is the session's target pin. When set, a stored
-	// version that differs fails closed: a silently re-derived target is a
-	// directory change no one authorized (CD-0096 D5).
-	ExpectedTargetVersion *int64
 }
 
 func ReadWorkflowContinuity(ctx context.Context, s *Store, req ContinuityRequest) (ContinuitySnapshot, error) {
@@ -121,45 +112,9 @@ func ReadWorkflowContinuity(ctx context.Context, s *Store, req ContinuityRequest
 		return out, wrapFailure(KindUnavailable, "C19.Continuity", "cannot open a consistent continuity snapshot", true, "retry once the database is readable", err)
 	}
 	defer tx.Rollback()
-	// CD-0096 D5: the re-pin fails closed on a stale target version before
-	// any projection is derived. The pin names the reading session, so a
-	// takeover or release under this session surfaces here as a typed
-	// refusal instead of silently re-derived bytes.
-	if req.ExpectedTargetVersion != nil {
-		if req.Owner == nil {
-			return out, newFailure(KindInvalidOperation, "C19.Continuity", "a target version pin requires the reading session's identity", false, "supply the session identity with the pin")
-		}
-		if err := validateSessionWorktreeOwner(*req.Owner); err != nil {
-			return out, err
-		}
-		binding, found, err := sessionWorktreeTargetRowTx(ctx, tx, *req.Owner)
-		if err != nil {
-			return out, err
-		}
-		pinned := *req.ExpectedTargetVersion
-		if found {
-			if binding.TargetVersion != pinned {
-				f := newFailure(KindVersionConflict, "C19.Continuity",
-					fmt.Sprintf("pinned session target version %d is stale, the store holds %d", pinned, binding.TargetVersion), false, "reread the session target and retry with its current version")
-				f.CurrentVersions = []SubjectCurrentVersion{{SubjectType: SubjectSession, SubjectID: sessionOwnerLabel(*req.Owner), Version: binding.TargetVersion}}
-				return out, f
-			}
-		} else if pinned != 0 {
-			// The session holds no binding at all, so there is no live target
-			// version to re-read. Naming the absence is the answer a caller can
-			// act on; a version conflict here could name nothing.
-			return out, newFailure(KindProjectionNotFound, "C19.Continuity",
-				fmt.Sprintf("the session holds no target, so pinned version %d cannot be confirmed", pinned), false, "retry with expected_target_version 0, or retarget first")
-		}
-	}
 	if req.Owner != nil {
 		if err := validateSessionWorktreeOwner(*req.Owner); err != nil {
 			return out, err
-		}
-		if binding, found, err := sessionWorktreeTargetRowTx(ctx, tx, *req.Owner); err != nil {
-			return out, err
-		} else if found {
-			out.EffectiveTarget = &binding
 		}
 		leases, err := heldWorktreeVerifyLeasesByOwnerTx(ctx, tx, *req.Owner)
 		if err != nil {

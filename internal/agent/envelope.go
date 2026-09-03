@@ -699,6 +699,7 @@ var enforcedRecoveryCouplings = map[string]string{
 	"limit_exceeded":     "reduce_limit",
 	"missing_evidence":   "provide_evidence",
 	"operation_conflict": "reconcile_operation",
+	"resource_busy":      "retry_same_request",
 	"outcome_mismatch":   "contact_operator",
 	"stale_context":      "refresh_context",
 	"timeout":            "retry_same_request",

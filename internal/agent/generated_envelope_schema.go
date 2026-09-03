@@ -263,9 +263,6 @@ const GeneratedEnvelopeSchemaDocument = `{
             "worktree_destroy",
             "worktree_inspect",
             "worktree_reclaim",
-            "worktree_release",
-            "worktree_retarget",
-            "worktree_takeover",
             "worktree_verify"
           ]
         },
@@ -824,9 +821,6 @@ const GeneratedEnvelopeSchemaDocument = `{
             "worktree_destroy",
             "worktree_inspect",
             "worktree_reclaim",
-            "worktree_release",
-            "worktree_retarget",
-            "worktree_takeover",
             "worktree_verify"
           ]
         },
@@ -1697,9 +1691,6 @@ const GeneratedEnvelopeSchemaDocument = `{
                 "worktree_claim",
                 "worktree_destroy",
                 "worktree_reclaim",
-                "worktree_release",
-                "worktree_retarget",
-                "worktree_takeover",
                 "worktree_verify"
               ]
             },
@@ -2641,6 +2632,7 @@ const GeneratedEnvelopeSchemaDocument = `{
             "version_conflict",
             "idempotency_conflict",
             "operation_conflict",
+            "resource_busy",
             "invalid_transition",
             "invalid_relation",
             "invariant_violation",

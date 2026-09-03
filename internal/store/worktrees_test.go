@@ -423,7 +423,7 @@ func TestDestroyRefusesOccupiedWorktreeDespiteApproval(t *testing.T) {
 	if _, err := s.ClaimWorktree(context.Background(), req); err != nil {
 		t.Fatal(err)
 	}
-	seedRetargetLifecycle(t, s, "work-w", "completed", 3)
+	seedWorktreeLifecycle(t, s, "work-w", "completed", 3)
 	_, err := s.DestroyWorktree(context.Background(), WorktreeDestroyRequest{
 		WorkID: "work-w", ProjectID: "project-w", DefaultRef: "origin/main",
 		ExpectedVersion: 4, PrincipalRef: "principal-1", RequestID: "destroy-occupied",

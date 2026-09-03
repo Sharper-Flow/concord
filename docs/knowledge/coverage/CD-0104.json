@@ -1,0 +1,34 @@
+{
+  "evidence": [
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestMigration59PreservesPopulatedBootstrapOperation"
+    },
+    {
+      "kind": "adapter_test",
+      "value": "adapter/opencode/concord.test.ts#work start replays to convergence after an interrupted step"
+    },
+    {
+      "kind": "adapter_test",
+      "value": "adapter/opencode/concord.test.ts#work start leaves a resumable claim when the move is refused"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/agent.TestRetrySafeStoreKindsNeverCoupleToReconcile"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/agent.TestWorktreeVerifyConcurrentLeaseRefusesTyped"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestContinuityRePinsHeldLease"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/agent.TestContinuityDispatchRePinsHeldLease"
+    }
+  ],
+  "id": "CD-0104",
+  "state": "satisfied"
+}

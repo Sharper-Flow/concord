@@ -19,7 +19,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:94ad66d6a048df5c4ef4197231f68e1f6067d85a7a8832a7f9a0c0ac30d41711",
+  "sha256": "sha256:08551ff64bf4d449d90aafec289c9964e38458cb180ef272f35a0ae45ede1ed5",
   "status": "accepted",
   "summary": "One host-owned operation captures or resumes work, reconciles its canonical linked worktree from durable intent, and launches the verified agent there without granting ordinary default-checkout mutation authority. The generic capability does not activate Concord self-hosting before a separate replacement-readiness claim and accepted authority change.",
   "tags": [

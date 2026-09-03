@@ -14,6 +14,7 @@ var typedErrorKinds = map[string]bool{
 	"version_conflict":      true,
 	"idempotency_conflict":  true,
 	"operation_conflict":    true,
+	"resource_busy":         true,
 	"invalid_transition":    true,
 	"invalid_relation":      true,
 	"invariant_violation":   true,
@@ -42,5 +43,5 @@ func TypedErrorKindAllowed(kind string) bool { return typedErrorKinds[kind] }
 
 // TypedErrorKinds returns the closed TS7 error vocabulary in schema order.
 func TypedErrorKinds() []string {
-	return []string{"unknown_scope", "ambiguous_scope", "stale_context", "unauthorized", "approval_required", "approval_invalid", "version_conflict", "idempotency_conflict", "operation_conflict", "invalid_transition", "invalid_relation", "invariant_violation", "missing_evidence", "not_terminal", "outcome_mismatch", "stale_requires_review", "stale_law_revision", "domain_overlap", "degraded_not_allowed", "unreachable", "invalid_cursor", "limit_exceeded", "budget_refused", "invalid_input", "cancelled", "timeout", "transport_failure", "malformed_response", "internal_error"}
+	return []string{"unknown_scope", "ambiguous_scope", "stale_context", "unauthorized", "approval_required", "approval_invalid", "version_conflict", "idempotency_conflict", "operation_conflict", "resource_busy", "invalid_transition", "invalid_relation", "invariant_violation", "missing_evidence", "not_terminal", "outcome_mismatch", "stale_requires_review", "stale_law_revision", "domain_overlap", "degraded_not_allowed", "unreachable", "invalid_cursor", "limit_exceeded", "budget_refused", "invalid_input", "cancelled", "timeout", "transport_failure", "malformed_response", "internal_error"}
 }

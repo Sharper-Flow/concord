@@ -2784,7 +2784,7 @@
         "project_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:94ad66d6a048df5c4ef4197231f68e1f6067d85a7a8832a7f9a0c0ac30d41711",
+      "sha256": "sha256:08551ff64bf4d449d90aafec289c9964e38458cb180ef272f35a0ae45ede1ed5",
       "status": "accepted",
       "summary": "One host-owned operation captures or resumes work, reconciles its canonical linked worktree from durable intent, and launches the verified agent there without granting ordinary default-checkout mutation authority. The generic capability does not activate Concord self-hosting before a separate replacement-readiness claim and accepted authority change.",
       "tags": [
@@ -3004,7 +3004,7 @@
         "project_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:f398ff26e6b42d1c29c0d9c539158cad7a80bab017d96a18e47fbaf8f9ab193a",
+      "sha256": "sha256:05380afd97b9217418084db25570d3451804ce6a925b6d265a4d9c45a109b8ab",
       "status": "accepted",
       "summary": "Amends CD-0093 D2 so a running session may create or claim its current work item's canonical worktree and persistently retarget later Concord operations to it while the host process directory stays unchanged. Same-Project cross-worktree access is tiered: read-only Inspect, exclusive-lease Verify with unchanged tracked files, typed-transfer Take over, and Destroy limited to merged terminal work or operator approval. Targets derive from registered Project and work identity, possession grants no Product authority, and continuity re-pins the target and lease each turn with stale versions failing closed.",
       "tags": [
@@ -3053,7 +3053,7 @@
         "project_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:338b0cb3d434cc155a8221a73801b698d4383d7fbe3eaeb3a6b501b872ea621a",
+      "sha256": "sha256:8d5057788c38752a2b9dc67d0b94c3d2a155c000b58a2f6c783f7b626d0e885c",
       "status": "accepted",
       "summary": "Amends CD-0096 D6 and CD-0088 D4 at their launch clauses so work start moves the calling session into the claimed worktree instead of launching a new one. The worktree claim is recorded before the move, so a failed move leaves a resumable claim rather than a moved session with no claim. The host move route is required and its absence fails closed with a typed refusal instead of a launch fallback. The default checkout must be clean, the move carries no changes and takes effect from the next turn, and the session directory is read back and verified afterward. The session-prepare directory refusal, lane definition check, and read-back assertion are preserved and now guard the destination of a move.",
       "tags": [
@@ -3110,6 +3110,30 @@
         "worktree-isolation"
       ],
       "title": "The move route offers no turn boundary, and the record says so"
+    },
+    {
+      "date": "2026-09-03T00:00:00Z",
+      "home_domain_id": "product-root:concord",
+      "id": "CD-0104",
+      "kind": "decision",
+      "path": "docs/decisions/CD-0104-a-session-worktree-is-its-actual-directory.md",
+      "product_wide_rationale": "Governs which facts Concord may store about a session and its worktree, so it binds every Domain that resolves a tree rather than owning a runtime Domain.",
+      "scopes": {
+        "domain_ids": [],
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:61eb917a6d09b9913cfbb6f09138a97485a9dca87daa28de7048911178b22812",
+      "status": "accepted",
+      "summary": "A session's worktree is the directory the host reports for it, and Concord stores no copy. The bootstrap launch record and session_worktree_targets are dropped with the retarget, release, and takeover operations, because each was a stored copy of a host fact with no reader outside its own maintenance, and each drifted. work_start replays to convergence on its derived key, so no partial outcome exists. Transient exclusion is resource_busy, coupled to retry_same_request. Amends CD-0096 at Context, D1, D3 Take over, D5, and D6; CD-0088 D4 at the launch record; CD-0098 at the failure contract.",
+      "tags": [
+        "authority",
+        "worktree-isolation",
+        "session-boot"
+      ],
+      "title": "A session's worktree is its actual directory, and Concord stores no session binding"
     },
     {
       "criterion_bindings": [
@@ -3955,7 +3979,7 @@
         "project_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:ee6093e2d3940356358724adb25bebd2488b90de5817d354415d03b3c5dce59d",
+      "sha256": "sha256:622ccac451fc300f9518094293605c5a32021037d53fce4bc691d2257e60a012",
       "status": "accepted",
       "summary": "Defines typed results, recovery, pagination, and bounded omissions.",
       "tags": [

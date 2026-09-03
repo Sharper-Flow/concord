@@ -244,7 +244,7 @@ function salvageDetails(raw: string): Record<string, unknown> | undefined {
   return salvaged ? { salvaged } : undefined
 }
 
-const coreErrorKinds = new Set(["unknown_scope", "ambiguous_scope", "stale_context", "unauthorized", "approval_required", "approval_invalid", "version_conflict", "idempotency_conflict", "operation_conflict", "invalid_transition", "invalid_relation", "invariant_violation", "missing_evidence", "not_terminal", "outcome_mismatch", "stale_requires_review", "stale_law_revision", "domain_overlap", "degraded_not_allowed", "unreachable", "invalid_cursor", "limit_exceeded", "budget_refused", "invalid_input", "cancelled", "timeout", "transport_failure", "malformed_response", "internal_error"])
+const coreErrorKinds = new Set(["unknown_scope", "ambiguous_scope", "stale_context", "unauthorized", "approval_required", "approval_invalid", "version_conflict", "idempotency_conflict", "operation_conflict", "resource_busy", "invalid_transition", "invalid_relation", "invariant_violation", "missing_evidence", "not_terminal", "outcome_mismatch", "stale_requires_review", "stale_law_revision", "domain_overlap", "degraded_not_allowed", "unreachable", "invalid_cursor", "limit_exceeded", "budget_refused", "invalid_input", "cancelled", "timeout", "transport_failure", "malformed_response", "internal_error"])
 
 // coreResponseFailure names what a contract-failing response broke on, or
 // returns null when the response satisfies the generated contract. The
@@ -475,11 +475,14 @@ type WorkStartBootstrap = {
   worktree: { set_id: string; path: string; branch: string; base_sha: string; state: "active" }
 }
 
-type WorkStartLaunch = { schema_version: "1.0"; operation_id: string; attempt_id: string; launch_state: string; session_id: string | null; spawn_permitted: boolean; rollback_permitted: boolean; title: string; agent: string; directory: string; product_id: string; work_id: string; prompt: string }
+type WorkStartPrepared = { schema_version: "1.0"; agent: string; directory: string; product_id: string; work_id: string; prompt: string }
 
+// WorkStartEnvelope is the host-tool result. There is no partial outcome:
+// every step of work_start is idempotent on the derived key, so a failure
+// leaves nothing a replay cannot adopt, and the answer is ok or a refusal.
 type WorkStartEnvelope = {
   schema_version: "1.0"
-  outcome: "ok" | "partial" | "error"
+  outcome: "ok" | "error"
   product_id?: string
   project_id?: string
   work_id?: string
@@ -487,7 +490,7 @@ type WorkStartEnvelope = {
   agent?: string
   session_id?: string | null
   output?: string
-  error?: { kind: string; retry_safe: boolean; recovery_action: { kind: string }; effect_state: "none" | "partial"; message: string }
+  error?: { kind: string; retry_safe: boolean; recovery_action: { kind: string }; effect_state: "none"; message: string }
 }
 
 function record(value: unknown): value is Record<string, unknown> {
@@ -535,16 +538,9 @@ function validateWorkStartBootstrap(value: unknown): value is WorkStartBootstrap
     && nonEmptyString(worktree.branch) && /^[0-9a-f]{40}$/.test(String(worktree.base_sha)) && worktree.state === "active"
 }
 
-function validateWorkStartLaunch(value: unknown, bootstrap: WorkStartBootstrap): value is WorkStartLaunch {
-  if (!record(value) || !exactKeys(value, ["schema_version", "operation_id", "attempt_id", "launch_state", "session_id", "spawn_permitted", "rollback_permitted", "title", "agent", "directory", "product_id", "work_id", "prompt"])) return false
+function validateWorkStartPrepared(value: unknown, bootstrap: WorkStartBootstrap): value is WorkStartPrepared {
+  if (!record(value) || !exactKeys(value, ["schema_version", "agent", "directory", "product_id", "work_id", "prompt"])) return false
   return value.schema_version === "1.0"
-    && nonEmptyString(value.operation_id)
-    && nonEmptyString(value.attempt_id)
-    && ["prepared", "running", "failed", "completed"].includes(String(value.launch_state))
-    && (value.session_id === null || (nonEmptyString(value.session_id) && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(value.session_id)))
-    && typeof value.spawn_permitted === "boolean"
-    && typeof value.rollback_permitted === "boolean"
-    && nonEmptyString(value.title) && Buffer.byteLength(value.title) <= 256
     && value.directory === bootstrap.worktree.path
     && value.product_id === bootstrap.product_id
     && value.work_id === bootstrap.work_id
@@ -565,84 +561,65 @@ function samePath(left: string, right: string): boolean {
   return trim(left) === trim(right)
 }
 
-async function currentLaunchOwner(): Promise<{ owner_pid: number; owner_start: string }> {
-  const stat = await Bun.file("/proc/self/stat").text()
-  const closeParen = stat.lastIndexOf(")")
-  if (closeParen < 0) throw new AdapterFailure("unreachable", "process_identity_unavailable", "host process stat has no command boundary")
-  const fields = stat.slice(closeParen + 1).trim().split(/\s+/)
-  const ownerStart = fields[19]
-  if (!ownerStart || !/^\d+$/.test(ownerStart)) throw new AdapterFailure("unreachable", "process_identity_unavailable", "host process stat has no start identity")
-  return { owner_pid: process.pid, owner_start: ownerStart }
-}
-
-function readRecoveredSessionID(stdout: string, title: string, directory: string): string | null {
-  if (Buffer.byteLength(stdout) > 1_048_576) throw new AdapterFailure("malformed_response", "session_list_too_large", "OpenCode session list exceeded its byte limit", "partial", "reconcile_operation")
-  if (!stdout.trim()) return null
-  let value: unknown
-  try { value = JSON.parse(stdout) } catch (error) { throw new AdapterFailure("malformed_response", "malformed_session_list", String(error), "partial", "reconcile_operation") }
-  if (!Array.isArray(value)) throw new AdapterFailure("malformed_response", "malformed_session_list", "OpenCode session list was not an array", "partial", "reconcile_operation")
-  const matches: Record<string, unknown>[] = []
-  for (const candidate of value) {
-    if (!record(candidate) || !nonEmptyString(candidate.id) || typeof candidate.title !== "string" || typeof candidate.directory !== "string") {
-      throw new AdapterFailure("malformed_response", "malformed_session_list", "OpenCode session list contained an invalid session entry", "partial", "reconcile_operation")
-    }
-    if (candidate.title === title && candidate.directory === directory) matches.push(candidate)
-  }
-  if (matches.length > 1) throw new AdapterFailure("operation_conflict", "ambiguous_session_recovery", "more than one OpenCode session has the durable launch title", "partial", "reconcile_operation")
-  if (matches.length === 0) return null
-  const sessionID = matches[0].id
-  if (!nonEmptyString(sessionID) || !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(sessionID)) throw new AdapterFailure("malformed_response", "malformed_session_list", "the recovered OpenCode session identity is invalid", "partial", "reconcile_operation")
-  return sessionID
-}
-
-function workStartError(kind: string, message: string, effect_state: "none" | "partial", identity: Partial<WorkStartEnvelope> = {}, recovery = effect_state === "partial" ? "exact_replay" : "retry_same_request", retrySafe = effect_state === "none"): WorkStartEnvelope {
+function workStartError(kind: string, message: string, identity: Partial<WorkStartEnvelope> = {}, recovery = "retry_same_request", retrySafe = true): WorkStartEnvelope {
   return {
     schema_version: "1.0",
-    outcome: effect_state === "partial" ? "partial" : "error",
+    outcome: "error",
     ...identity,
     error: {
       kind,
       retry_safe: retrySafe,
       recovery_action: { kind: recovery },
-      effect_state,
+      effect_state: "none",
       message: boundedUTF8(message, MAX_STDERR),
     },
   }
 }
 
+// workStartFailure shapes a refusal. The identity of what exists rides along
+// when bootstrap ran, so the caller can see the work item and worktree a
+// replay will adopt. effect_state is none because nothing here is an effect
+// a replay cannot reproduce or reuse; the durable state is the work item and
+// the claim, both keyed on the request digest.
 function workStartFailure(error: unknown, bootstrap: WorkStartBootstrap | null, fallbackKind: string): WorkStartEnvelope {
   const failure = error instanceof AdapterFailure ? error : new AdapterFailure("transport_failure", fallbackKind, String(error))
   const identity = bootstrap ? { product_id: bootstrap.product_id, project_id: bootstrap.project_id, work_id: bootstrap.work_id, worktree_path: bootstrap.worktree.path } : {}
-  const effect = bootstrap || failure.effect === "partial" || failure.effect === "possible" ? "partial" : "none"
-  return workStartError(failure.kind, failure.message, effect, identity, failure.recovery, effect === "none")
+  const retrySafe = failure.recovery === "retry_same_request"
+  return workStartError(failure.kind, failure.message, identity, failure.recovery, retrySafe)
 }
 
 async function runWorkStartChild(argv: string[], input: string, signal: AbortSignal, options?: ChildRunnerOptions) {
   try { return await runner.run(argv, input, signal, options) } catch (error) { throw runnerFailure(error, signal.aborted) }
 }
 
+// executeWorkStart replays to convergence. Each step is idempotent on the
+// request's derived identity, so a replay under the same idempotency_key
+// adopts whatever an earlier attempt left and runs only what is missing:
+//
+//   1. work-bootstrap derives the work item and the worktree from the request
+//      digest, and replays the same operation on the same key.
+//   2. session-prepare verifies that worktree and derives the boot packet. It
+//      records nothing.
+//   3. moveSession moves the calling session, and is a no-op when the session
+//      already runs there.
+//   4. The host reports the directory the session runs in. Success is refused
+//      unless it is the claimed worktree.
+//
+// No step records intent ahead of its effect, so there is no partial state.
+// The session's worktree is the directory it runs in, and the host owns that
+// answer (CD-0098 D3).
 async function executeWorkStart(args: WorkStartArgs, context: ToolContext): Promise<WorkStartEnvelope> {
   const concord = process.env.CONCORD_BIN ?? "concord"
-  const opencode = process.env.OPENCODE_BIN ?? "opencode"
   let bootstrap: WorkStartBootstrap | null = null
-  let rolledBack = false
-  const rollbackBeforeLaunch = async (reason: string) => {
-    if (!bootstrap) return
-    const rollback = await runWorkStartChild([concord, "work-bootstrap-rollback"], JSON.stringify({ product_id: bootstrap.product_id, work_id: bootstrap.work_id, operation_id: bootstrap.operation_id, directory: bootstrap.worktree.path, reason: boundedUTF8(reason, MAX_STDERR) }), new AbortController().signal, { cwd: bootstrap.worktree.path })
-    if (rollback.exitCode !== 0) throw new AdapterFailure("rollback_failure", "rollback_failed", rollback.stderr.slice(0, MAX_STDERR), "partial", "reconcile_operation")
-    rolledBack = true
-  }
   try {
-    if (!validateWorkStartArgs(args)) throw new AdapterFailure("invalid_input", "invalid_work_start_input", "work_start arguments failed the host-tool contract")
+    if (!validateWorkStartArgs(args)) throw new AdapterFailure("invalid_input", "invalid_work_start_input", "work_start arguments failed the host-tool contract", "none", "contact_operator")
     if (context.abort.aborted) throw new AdapterFailure("cancelled", "cancelled_no_effect", "work_start was cancelled before bootstrap")
     const ambient = await resolveAmbientContext(context)
-    if (!ambient.mainWorktree) throw new AdapterFailure("invalid_input", "requires_main_worktree", "work_start requires a resolved default checkout")
+    if (!ambient.mainWorktree) throw new AdapterFailure("invalid_input", "requires_main_worktree", "work_start requires a resolved default checkout", "none", "contact_operator")
     const productID = deriveWorkStartProduct(ambient)
-    // CD-0098 D2 makes the retarget the only route into the claimed worktree,
-    // so a session that cannot reach its host cannot start work at all. Asking
-    // first keeps that discovery in front of every effect: a host-capability
-    // gap then costs a refusal the operator can act on, instead of a captured
-    // item and a claimed worktree the session was never able to enter.
+    // CD-0098 D2 makes the move the only route into the claimed worktree, so
+    // a session that cannot reach its host cannot start work at all. Asking
+    // first keeps that discovery in front of every effect.
     try {
       await hostControlPlane().probe(context.sessionID, context.abort)
     } catch (error) {
@@ -661,77 +638,32 @@ async function executeWorkStart(args: WorkStartArgs, context: ToolContext): Prom
     }
     const bootstrapInput = { product_id: productID, project_id: ambient.projectID, ...args }
     const boot = await runWorkStartChild([concord, "work-bootstrap"], JSON.stringify(bootstrapInput), context.abort, { cwd: context.directory })
-    if (boot.exitCode !== 0) throw new AdapterFailure("bootstrap_failure", "bootstrap_failed", boot.stderr.slice(0, MAX_STDERR))
+    if (boot.exitCode !== 0) throw new AdapterFailure("bootstrap_failure", "bootstrap_failed", boot.stderr.slice(0, MAX_STDERR), "none", "retry_same_request")
     let bootValue: unknown
-    try { bootValue = singleJSON(boot.stdout) } catch (error) { throw new AdapterFailure("malformed_response", "malformed_bootstrap_response", String(error)) }
-    if (!validateWorkStartBootstrap(bootValue) || bootValue.product_id !== productID || bootValue.project_id !== ambient.projectID) throw new AdapterFailure("malformed_response", "malformed_bootstrap_response", "work-bootstrap response failed the strict bootstrap contract")
+    try { bootValue = singleJSON(boot.stdout) } catch (error) { throw new AdapterFailure("malformed_response", "malformed_bootstrap_response", String(error), "none", "retry_same_request") }
+    if (!validateWorkStartBootstrap(bootValue) || bootValue.product_id !== productID || bootValue.project_id !== ambient.projectID) throw new AdapterFailure("malformed_response", "malformed_bootstrap_response", "work-bootstrap response failed the strict bootstrap contract", "none", "retry_same_request")
     bootstrap = bootValue
 
-    if (context.abort.aborted) {
-      await rollbackBeforeLaunch("work_start was cancelled before the child launch")
-      throw new AdapterFailure("cancelled", "cancelled_after_bootstrap", "work_start was cancelled after bootstrap")
-    }
-    let launchOwner
-    try {
-      launchOwner = await currentLaunchOwner()
-    } catch (error) {
-      await rollbackBeforeLaunch(error instanceof Error ? error.message : String(error))
-      throw error
-    }
-    const prepared = await runWorkStartChild([concord, "session-prepare"], JSON.stringify({ product_id: bootstrap.product_id, work_id: bootstrap.work_id, task: args.task, ...launchOwner }), context.abort, { cwd: bootstrap.worktree.path })
-    if (prepared.exitCode !== 0) {
-      await rollbackBeforeLaunch(prepared.stderr.slice(0, MAX_STDERR) || "session preparation failed")
-      throw new AdapterFailure("session_prepare_failure", "session_prepare_failed", prepared.stderr.slice(0, MAX_STDERR))
-    }
-    let launchValue: unknown
-    try {
-      launchValue = singleJSON(prepared.stdout)
-    } catch (error) {
-      await rollbackBeforeLaunch("session preparation returned malformed output")
-      throw new AdapterFailure("malformed_response", "malformed_launch_contract", String(error))
-    }
-    if (!validateWorkStartLaunch(launchValue, bootstrap)) {
-      await rollbackBeforeLaunch("session preparation returned a malformed launch contract")
-      throw new AdapterFailure("malformed_response", "malformed_launch_contract", "session-prepare response failed the strict launch contract")
-    }
-    const launch = launchValue
-    const activeBootstrap = bootstrap
-    if (!activeBootstrap) throw new AdapterFailure("malformed_response", "malformed_bootstrap_response", "bootstrap state was lost before the retarget")
-    const recordRetarget = async (state: "running" | "completed" | "failed", reason: string) => {
-      const record = await runWorkStartChild([concord, "session-record"], JSON.stringify({
-        operation_id: launch.operation_id,
-        attempt_id: launch.attempt_id,
-        product_id: activeBootstrap.product_id,
-        work_id: activeBootstrap.work_id,
-        agent: launch.agent,
-        directory: activeBootstrap.worktree.path,
-        session_id: context.sessionID,
-        state,
-        failure_reason: reason,
-        ...launchOwner,
-      }), context.abort, { cwd: activeBootstrap.worktree.path })
-      // The capture and the claim survive a record failure, and reconcile
-      // reads only terminal work, so it can never serve this state. An exact
-      // replay under the same idempotency_key resumes the same operation and
-      // records the launch it left unrecorded.
-      if (record.exitCode !== 0) throw new AdapterFailure("session_record_failure", "session_record_failed", `${record.stderr.slice(0, MAX_STDERR)}; replay work_start with the same idempotency_key to record the launch`, "partial", "exact_replay")
-    }
-    if (context.abort.aborted) {
-      await rollbackBeforeLaunch("work_start was cancelled before the retarget")
-      throw new AdapterFailure("cancelled", "cancelled_after_prepare", "work_start was cancelled before the retarget")
-    }
+    if (context.abort.aborted) throw new AdapterFailure("cancelled", "cancelled_after_bootstrap", "work_start was cancelled after bootstrap; replay the same idempotency_key to resume", "none", "retry_same_request")
+    const prepared = await runWorkStartChild([concord, "session-prepare"], JSON.stringify({ product_id: bootstrap.product_id, work_id: bootstrap.work_id, task: args.task }), context.abort, { cwd: bootstrap.worktree.path })
+    if (prepared.exitCode !== 0) throw new AdapterFailure("session_prepare_failure", "session_prepare_failed", prepared.stderr.slice(0, MAX_STDERR), "none", "retry_same_request")
+    let preparedValue: unknown
+    try { preparedValue = singleJSON(prepared.stdout) } catch (error) { throw new AdapterFailure("malformed_response", "malformed_prepare_response", String(error), "none", "retry_same_request") }
+    if (!validateWorkStartPrepared(preparedValue, bootstrap)) throw new AdapterFailure("malformed_response", "malformed_prepare_response", "session-prepare response failed the strict prepare contract", "none", "retry_same_request")
+    const agent = preparedValue.agent
+
+    if (context.abort.aborted) throw new AdapterFailure("cancelled", "cancelled_before_move", "work_start was cancelled before the move; replay the same idempotency_key to resume", "none", "retry_same_request")
     // CD-0098 D2. The move is the only route to the worktree. An absent route
-    // refuses here; no launch runs, and the claim the bootstrap recorded stays
-    // resumable rather than being rolled back for a host-capability gap the
-    // operator can repair.
+    // refuses here; the claim the bootstrap recorded stays resumable rather
+    // than being rolled back for a host-capability gap the operator can repair.
     try {
-      await hostControlPlane().moveSession(context.sessionID, activeBootstrap.worktree.path, context.abort)
+      await hostControlPlane().moveSession(context.sessionID, bootstrap.worktree.path, context.abort)
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       if (error instanceof MoveSessionUnavailable) {
-        throw new AdapterFailure("unreachable", "move_session_route_unavailable", message)
+        throw new AdapterFailure("unreachable", "move_session_route_unavailable", message, "none", "contact_operator")
       }
-      throw new AdapterFailure("transport_failure", "move_session_refused", message)
+      throw new AdapterFailure("transport_failure", "move_session_refused", message, "none", "retry_same_request")
     }
     // CD-0098 D3. The destination is read back from the host, not assumed from
     // the request that asked for it, and success is refused unless the session
@@ -740,15 +672,11 @@ async function executeWorkStart(args: WorkStartArgs, context: ToolContext): Prom
     try {
       landed = await hostControlPlane().sessionDirectory(context.sessionID, context.abort)
     } catch (error) {
-      await recordRetarget("failed", error instanceof Error ? error.message : String(error))
-      throw new AdapterFailure("malformed_response", "session_directory_unreadable", error instanceof Error ? error.message : String(error), "partial", "reconcile_operation")
+      throw new AdapterFailure("malformed_response", "session_directory_unreadable", error instanceof Error ? error.message : String(error), "none", "retry_same_request")
     }
-    if (!samePath(landed, activeBootstrap.worktree.path)) {
-      const reason = `the session moved to ${JSON.stringify(landed)} rather than the claimed worktree ${JSON.stringify(activeBootstrap.worktree.path)}`
-      await recordRetarget("failed", reason)
-      throw new AdapterFailure("session_directory_mismatch", "retarget_destination_mismatch", reason, "partial", "reconcile_operation")
+    if (!samePath(landed, bootstrap.worktree.path)) {
+      throw new AdapterFailure("session_directory_mismatch", "move_destination_mismatch", `the session moved to ${JSON.stringify(landed)} rather than the claimed worktree ${JSON.stringify(bootstrap.worktree.path)}`, "none", "retry_same_request")
     }
-    await recordRetarget("completed", "")
     return {
       schema_version: "1.0",
       outcome: "ok",
@@ -756,15 +684,11 @@ async function executeWorkStart(args: WorkStartArgs, context: ToolContext): Prom
       project_id: bootstrap.project_id,
       work_id: bootstrap.work_id,
       worktree_path: bootstrap.worktree.path,
-      agent: launch.agent,
+      agent,
       session_id: context.sessionID,
       output: `This session now runs in ${bootstrap.worktree.path} on work item ${bootstrap.work_id}.`,
     }
   } catch (error) {
-    if (rolledBack && bootstrap) {
-      const failure = error instanceof AdapterFailure ? error : new AdapterFailure("transport_failure", "work_start_failed", String(error))
-      return workStartError(failure.kind, `${failure.message}; bootstrap state was rolled back, so use a new idempotency_key`, "partial", { product_id: bootstrap.product_id, project_id: bootstrap.project_id, work_id: bootstrap.work_id, worktree_path: bootstrap.worktree.path }, "contact_operator", false)
-    }
     return workStartFailure(error, bootstrap, "work_start_failed")
   }
 }
@@ -782,7 +706,7 @@ export const work_compact = tool({ description: "Concord work compact", args: ar
 export const work_start = tool({ description: hostToolDescriptions.concord_work_start, args: workStartArgsSchema(), execute: async (args: any, context: ToolContext): Promise<ToolResult> => {
   const envelope = await executeWorkStart(args as WorkStartArgs, context)
   let output = JSON.stringify(envelope)
-  if (Buffer.byteLength(output) > maxEnvelopeBytes) output = JSON.stringify(workStartError("output_exceeded", `work_start result exceeds ${maxEnvelopeBytes} bytes`, envelope.outcome === "partial" ? "partial" : "none", { product_id: envelope.product_id, project_id: envelope.project_id, work_id: envelope.work_id, worktree_path: envelope.worktree_path }))
+  if (Buffer.byteLength(output) > maxEnvelopeBytes) output = JSON.stringify(workStartError("output_exceeded", `work_start result exceeds ${maxEnvelopeBytes} bytes`, { product_id: envelope.product_id, project_id: envelope.project_id, work_id: envelope.work_id, worktree_path: envelope.worktree_path }))
   return { title: "concord_work_start", output, metadata: {} }
 } })
 

@@ -5,7 +5,6 @@ import { join } from "node:path"
 import { tmpdir } from "node:os"
 import { contractOperations, manifestDigest } from "./generated-contracts"
 import { validateGeneratedEnvelope, envelopeFailurePath } from "./generated-contract-tests"
-import type { ChildRunnerOptions } from "./concord"
 import { hostControlPlane, SESSION_LIST_ROUTE, SHOW_TOAST_ROUTE } from "./move-session"
 
 function schemaBuilder(kind: string, ...args: unknown[]) {
@@ -755,35 +754,13 @@ const bootstrapSuccess = (path = "/data/worktrees/project-1/work-1") => ({
   worktree: { set_id: "worktree-set-1", path, branch: "work/work-1", base_sha: "a".repeat(40), state: "active" },
 })
 
-const launchContract = (agent = "concord-implement", prompt = "Implement the task.", sessionID: string | null = null) => ({
+const preparedContract = (agent = "concord-implement", prompt = "Implement the task.") => ({
   schema_version: "1.0",
-  operation_id: "bootstrap-1",
-  attempt_id: "bootstrap-1:launch",
-  launch_state: "prepared",
-  session_id: sessionID,
-  spawn_permitted: true,
-  rollback_permitted: false,
-  title: "concord-work-start-bootstrap-1",
   directory: "/data/worktrees/project-1/work-1",
   product_id: "product-1",
   work_id: "work-1",
   agent,
   prompt,
-})
-
-const runOutput = (sessionID = "session-run-1", text = "done") => [
-  JSON.stringify({ type: "step_start", timestamp: 1, sessionID }),
-  JSON.stringify({ type: "text", timestamp: 2, sessionID, part: { type: "text", text } }),
-  JSON.stringify({ type: "step_finish", timestamp: 3, sessionID, part: { type: "step-finish", reason: "stop" } }),
-].join("\n")
-
-const emitRunOutput = async (options: ChildRunnerOptions | undefined, output: string) => {
-  for (const line of output.split("\n")) await options?.onStdoutLine?.(line)
-}
-
-const exportOutput = (sessionID = "session-run-1", agent = "concord-implement") => JSON.stringify({
-  info: { id: sessionID },
-  messages: [{ info: { id: "message-1", sessionID, role: "assistant", agent, providerID: "openai", modelID: "gpt-5.6-luna", time: { created: 1 } }, parts: [] }],
 })
 
 test("work_start rejects malformed core contracts and path mismatches before launch", async () => {
@@ -805,13 +782,17 @@ test("work_start rejects malformed core contracts and path mismatches before lau
     if (calls === 1) return { exitCode: 0, stdout: JSON.stringify(contextResponse()), stderr: "" }
     return calls === 2
       ? { exitCode: 0, stdout: JSON.stringify(bootstrapSuccess()), stderr: "" }
-      : { exitCode: 0, stdout: JSON.stringify({ ...launchContract(), directory: "/other-worktree" }), stderr: "" }
+      : { exitCode: 0, stdout: JSON.stringify({ ...preparedContract(), directory: "/other-worktree" }), stderr: "" }
   } } })
   const mismatch: any = await rawHostResult(adapter.work_start.execute(bootstrapArgs, contextFor()))
-  expect(mismatch.outcome).toBe("partial")
+  expect(mismatch.outcome).toBe("error")
   expect(mismatch.error.kind).toBe("malformed_response")
-  expect(mismatch.error.recovery_action.kind).toBe("contact_operator")
-   expect(calls).toBe(4)
+  expect(mismatch.error.effect_state).toBe("none")
+  expect(mismatch.error.recovery_action.kind).toBe("retry_same_request")
+  // The work item and worktree that exist ride along so the replay's target is visible.
+  expect(mismatch.work_id).toBe("work-1")
+  // No rollback ran: nothing recorded intent, so nothing needs compensating.
+  expect(calls).toBe(3)
 })
 
 test("child stdout keeps a bounded tail while retaining run decisions", async () => {
@@ -881,17 +862,6 @@ test("work_start enforces UTF-8 byte limits for short fields and task input", as
     expect(calls).toBe(0)
   }
   const validTask = { ...bootstrapArgs, task: "🙂".repeat(2048) }
-  let calls = 0
-  adapter.configureConcordAdapter({ runner: { async run(argv: string[], _input: string, _signal: AbortSignal, options?: ChildRunnerOptions) {
-    calls++
-    if (calls === 1) return { exitCode: 0, stdout: JSON.stringify(contextResponse()), stderr: "" }
-    if (calls === 2) return { exitCode: 0, stdout: JSON.stringify(bootstrapSuccess()), stderr: "" }
-    if (calls === 3) return { exitCode: 0, stdout: JSON.stringify(launchContract()), stderr: "" }
-    if (argv[1] === "session-record") return { exitCode: 0, stdout: JSON.stringify({ schema_version: "1.0" }), stderr: "" }
-    if (argv[1] === "session-exec") { await emitRunOutput(options, runOutput()); return { exitCode: 0, stdout: runOutput(), stderr: "" } }
-    if (argv[1] === "export") return { exitCode: 0, stdout: exportOutput(), stderr: "" }
-    throw new Error(`unexpected command ${argv.join(" ")}`)
-  } } })
   bindRetargetRoute()
   const calls2: RetargetCall[] = []
   adapter.configureConcordAdapter({ runner: retargetRunner(calls2) })
@@ -901,9 +871,10 @@ test("work_start enforces UTF-8 byte limits for short fields and task input", as
 
 // CD-0098 D1/D2/D3/D4. Work start moves the calling session to the worktree it
 // claimed. These tests pin the route's contract rather than a launch's: the
-// claim is recorded before the move, an absent route refuses with no fallback,
-// and success is refused unless the host reports the session in the claimed
-// worktree.
+// claim exists before the move, an absent route refuses with no fallback, and
+// success is refused unless the host reports the session in the claimed
+// worktree. No step records intent ahead of its effect, so there is no
+// partial outcome and no rollback: a replay under the same key converges.
 const WORKTREE = "/data/worktrees/project-1/work-1"
 
 type RetargetCall = { argv: string[]; input: string; options?: any }
@@ -915,9 +886,7 @@ const retargetRunner = (calls: RetargetCall[], overrides: Record<string, () => {
     if (overrides[command]) return overrides[command]()
     if (command === "project-resolve") return { exitCode: 0, stdout: JSON.stringify(contextResponse()), stderr: "" }
     if (command === "work-bootstrap") return { exitCode: 0, stdout: JSON.stringify(bootstrapSuccess()), stderr: "" }
-    if (command === "session-prepare") return { exitCode: 0, stdout: JSON.stringify(launchContract()), stderr: "" }
-    if (command === "session-record") return { exitCode: 0, stdout: JSON.stringify({ schema_version: "1.0" }), stderr: "" }
-    if (command === "work-bootstrap-rollback") return { exitCode: 0, stdout: JSON.stringify({ schema_version: "1.0" }), stderr: "" }
+    if (command === "session-prepare") return { exitCode: 0, stdout: JSON.stringify(preparedContract()), stderr: "" }
     throw new Error(`unexpected command ${argv.join(" ")}`)
   },
 })
@@ -944,17 +913,18 @@ const bindRetargetRoute = (options: { moveStatus?: number; moveBody?: string; la
   return moved
 }
 
-test("work start retargets the calling session and records the claim before the move", async () => {
+test("work start moves the calling session into the claimed worktree", async () => {
   const moved = bindRetargetRoute()
   const calls: RetargetCall[] = []
   adapter.configureConcordAdapter({ runner: retargetRunner(calls) })
   const result: any = await rawHostResult(adapter.work_start.execute(bootstrapArgs, contextFor()))
   expect(result).toMatchObject({ outcome: "ok", work_id: "work-1", worktree_path: WORKTREE, session_id: "session-1", agent: "concord-implement" })
-  // The claim is recorded before the session moves, so a failed move leaves a
+  // The claim exists before the session moves, so a failed move leaves a
   // resumable claim rather than a moved session with none.
-  expect(calls.map(({ argv }) => argv[1])).toEqual(["project-resolve", "work-bootstrap", "session-prepare", "session-record"])
+  expect(calls.map(({ argv }) => argv[1])).toEqual(["project-resolve", "work-bootstrap", "session-prepare"])
   expect(moved).toEqual([{ sessionID: "session-1", destination: { directory: WORKTREE } }])
-  expect(JSON.parse(calls[3].input)).toMatchObject({ session_id: "session-1", state: "completed" })
+  // session-prepare verifies and derives; it carries no process identity and records nothing.
+  expect(JSON.parse(calls[2].input)).toEqual({ product_id: "product-1", work_id: "work-1", task: bootstrapArgs.task })
   // No launch: the adapter never spawns a host session for the work.
   expect(calls.some(({ argv }) => argv[1] === "session-exec" || argv[0] === "opencode")).toBe(false)
 })
@@ -1015,31 +985,65 @@ test("work start verifies the session directory after the move", async () => {
   const calls: RetargetCall[] = []
   adapter.configureConcordAdapter({ runner: retargetRunner(calls) })
   const result: any = await rawHostResult(adapter.work_start.execute(bootstrapArgs, contextFor()))
-  expect(result.outcome).not.toBe("ok")
+  expect(result.outcome).toBe("error")
   expect(result.error.message).toContain("/somewhere/else")
-  // The refused retarget is recorded as a failure rather than left silent.
-  expect(JSON.parse(calls[3].input)).toMatchObject({ state: "failed" })
+  // Nothing is recorded: the host's answer is the fact, and a replay asks again.
+  expect(result.error.effect_state).toBe("none")
+  expect(result.error.recovery_action.kind).toBe("retry_same_request")
+  expect(calls.map(({ argv }) => argv[1])).toEqual(["project-resolve", "work-bootstrap", "session-prepare"])
 })
 
-// Issue #741. A record failure leaves the capture and the claim behind, and
-// reconcile reads only terminal work, so naming it stranded the operator with
-// a partial no typed operation could clear. The replay resumes the same
-// operation under the same key.
-test("work start sends no model and offers exact replay when the record fails", async () => {
+// Issues #742 and #749. A failure after the work item and worktree exist
+// used to leave a partial state no typed operation could clear. There is no
+// such state now: every step is idempotent on the derived key, so a replay
+// under the same idempotency_key adopts what exists and runs the rest.
+test("work start replays to convergence after an interrupted step", async () => {
+  // First attempt: session-prepare fails after bootstrap created the work item.
   bindRetargetRoute()
-  const calls: RetargetCall[] = []
+  const first: RetargetCall[] = []
   adapter.configureConcordAdapter({
-    runner: retargetRunner(calls, {
-      "session-record": () => ({ exitCode: 1, stdout: "", stderr: "concord session-record: store is not open" }),
+    runner: retargetRunner(first, {
+      "session-prepare": () => ({ exitCode: 1, stdout: "", stderr: "concord session-prepare: lane identity refused" }),
     }),
   })
+  const interrupted: any = await rawHostResult(adapter.work_start.execute(bootstrapArgs, contextFor()))
+  expect(interrupted.outcome).toBe("error")
+  expect(interrupted.error.effect_state).toBe("none")
+  expect(interrupted.error.retry_safe).toBe(true)
+  expect(interrupted.error.recovery_action.kind).toBe("retry_same_request")
+  expect(interrupted.work_id).toBe("work-1")
+  expect(interrupted.worktree_path).toBe(WORKTREE)
+  // No rollback and no record: nothing compensates because nothing recorded intent.
+  expect(first.map(({ argv }) => argv[1])).toEqual(["project-resolve", "work-bootstrap", "session-prepare"])
+
+  // Second attempt, same key: bootstrap replays (the core reports replayed:
+  // true), prepare succeeds, the move lands, and the answer is ok.
+  const moved = bindRetargetRoute()
+  const second: RetargetCall[] = []
+  adapter.configureConcordAdapter({
+    runner: retargetRunner(second, {
+      "work-bootstrap": () => ({ exitCode: 0, stdout: JSON.stringify({ ...bootstrapSuccess(), replayed: true }), stderr: "" }),
+    }),
+  })
+  const converged: any = await rawHostResult(adapter.work_start.execute(bootstrapArgs, contextFor()))
+  expect(converged).toMatchObject({ outcome: "ok", work_id: "work-1", worktree_path: WORKTREE, session_id: "session-1" })
+  expect(second.map(({ argv }) => argv[1])).toEqual(["project-resolve", "work-bootstrap", "session-prepare"])
+  expect(JSON.parse(second[1].input).idempotency_key).toBe(bootstrapArgs.idempotency_key)
+  expect(moved).toEqual([{ sessionID: "session-1", destination: { directory: WORKTREE } }])
+})
+
+// A move the host refuses leaves the claim where it was: the next replay
+// asks the host again, and no compensation runs in between.
+test("work start leaves a resumable claim when the move is refused", async () => {
+  bindRetargetRoute({ moveStatus: 400, moveBody: JSON.stringify({ name: "MoveSessionError", data: { message: "destination project mismatch" } }) })
+  const calls: RetargetCall[] = []
+  adapter.configureConcordAdapter({ runner: retargetRunner(calls) })
   const result: any = await rawHostResult(adapter.work_start.execute(bootstrapArgs, contextFor()))
-  expect(result.outcome).toBe("partial")
-  expect(result.error.recovery_action.kind).toBe("exact_replay")
-  expect(result.error.message).toContain("idempotency_key")
-  // CD-0098 retargets this session, so no child reports a model and none is
-  // claimed. A model the adapter cannot observe is not sent.
-  expect(JSON.parse(calls[3].input)).not.toHaveProperty("model")
+  expect(result.outcome).toBe("error")
+  expect(result.error.effect_state).toBe("none")
+  expect(result.error.recovery_action.kind).toBe("retry_same_request")
+  expect(result.work_id).toBe("work-1")
+  expect(calls.map(({ argv }) => argv[1])).toEqual(["project-resolve", "work-bootstrap", "session-prepare"])
 })
 
 // Issue #722: a worktree removal is safe only when no live session runs in the

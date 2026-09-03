@@ -3845,6 +3845,12 @@
         },
         "operation_id": {
           "$ref": "#/$defs/id"
+        },
+        "worker_packet_digest": {
+          "type": "string",
+          "minLength": 71,
+          "maxLength": 71,
+          "pattern": "^sha256:[0-9a-f]{64}$"
         }
       }
     },

@@ -2302,6 +2302,12 @@ const GeneratedPayloadSchemaDocument = `{
         },
         "operation_id": {
           "$ref": "#/$defs/id"
+        },
+        "worker_packet_digest": {
+          "maxLength": 71,
+          "minLength": 71,
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "type": "string"
         }
       },
       "required": [

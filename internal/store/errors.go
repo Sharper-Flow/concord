@@ -121,10 +121,11 @@ const (
 	// KindResourceClaimHeld marks a claim on a resource another work item
 	// already holds. The refusal names coordination, not authority.
 	KindResourceClaimHeld FailureKind = "resource_claim_held"
-	// KindWorktreeOwnershipConflict marks a worktree access that needs a
-	// takeover authority the caller does not hold (CD-0096 D3). The refusal
-	// names the owning session and the recovery action, never a write to a
-	// tree someone else holds.
+	// KindWorktreeOwnershipConflict marks a worktree removal that would strand
+	// a live session the host reports running there (CD-0096 D3 Destroy,
+	// CD-0104 D1). The occupancy is read from the host at the moment of
+	// refusal, never from a stored binding. The refusal names the session and
+	// the recovery action.
 	KindWorktreeOwnershipConflict FailureKind = "worktree_ownership_conflict"
 	// KindWorktreeLeaseHeld marks a verify lease the worktree already holds
 	// (CD-0096 D3 Verify tier). Exclusivity is coordination, not authority:
@@ -159,6 +160,10 @@ const (
 	KindApprovalRequired  FailureKind = "approval_required"
 	KindOutcomeMismatch   FailureKind = "outcome_mismatch"
 	KindOperationConflict FailureKind = "operation_conflict"
+	// KindResourceBusy is transient exclusion that recorded nothing: a lease
+	// another session holds. The retry is safe and there is nothing to
+	// reconcile, which is what separates it from KindOperationConflict.
+	KindResourceBusy FailureKind = "resource_busy"
 	// Definition failures are closed registry errors. They are deliberately
 	// distinct from workflow action refusals so callers cannot mistake a binary
 	// definition drift for a retryable action failure.

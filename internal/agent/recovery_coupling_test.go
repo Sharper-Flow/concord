@@ -3,6 +3,8 @@ package agent
 import (
 	"strings"
 	"testing"
+
+	"github.com/sharper-flow/concord/internal/store"
 )
 
 // companionFields supplies the payload a coupled kind must carry for reasons
@@ -81,6 +83,25 @@ func TestPublicRecoveryHonorsEnforcedCouplings(t *testing.T) {
 		// not pass through. The coupling is the contract, not a fallback.
 		if got := publicRecovery(kind, "reread_entities"); got != want {
 			t.Errorf("publicRecovery(%q, %q) = %q, want %q", kind, "reread_entities", got, want)
+		}
+	}
+}
+
+// TestRetrySafeStoreKindsNeverCoupleToReconcile is the reproduction for issue
+// #736. A store refusal that proposes retry_same_request recorded nothing, so
+// the public kind it maps to must not be coupled to reconcile_operation: that
+// advice names an operation that does not exist. The lease-held refusal was
+// mapped to operation_conflict, and the coupling overrode the store's own
+// retry proposal with reconcile advice the caller could not follow.
+func TestRetrySafeStoreKindsNeverCoupleToReconcile(t *testing.T) {
+	retrySafe := []store.FailureKind{store.KindWorktreeLeaseHeld}
+	for _, kind := range retrySafe {
+		public := mapFailureKind(kind)
+		if coupled, ok := enforcedRecoveryCouplings[public]; ok && coupled == "reconcile_operation" {
+			t.Errorf("store kind %q maps to %q, which is coupled to reconcile_operation; a retry-safe refusal has nothing to reconcile", kind, public)
+		}
+		if got := publicRecovery(public, "retry_same_request"); got != "retry_same_request" {
+			t.Errorf("publicRecovery(%q, retry_same_request) = %q, want the store's retry proposal to survive", public, got)
 		}
 	}
 }

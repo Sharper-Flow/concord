@@ -10,13 +10,51 @@ import (
 	"time"
 
 	"github.com/sharper-flow/concord/internal/store"
+	"github.com/sharper-flow/concord/internal/store/storetest"
 )
 
-// CD-0096 part 3a (#689): the Inspect and Verify tiers through the agent
-// surface against real git. A session reads and verifies another work item's
-// active worktree in the same Project: inspection is read-only and never
-// moves the persistent target; verification holds the exclusive lease and
-// refuses typed completion when tracked files changed.
+// CD-0096 D3: the Inspect and Verify tiers through the agent surface against
+// real git. A session reads and verifies another work item's active worktree
+// in the same Project: inspection is read-only, and verification holds the
+// exclusive lease and refuses typed completion when tracked files changed.
+
+func tiersRepoFixture(t *testing.T) (*store.Store, *Service, Authority, string) {
+	t.Helper()
+	ctx := context.Background()
+	s, err := storetest.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = s.Close() })
+	events := []store.Event{
+		{EventID: "wt-tiers-product", Kind: "product.created", SubjectType: store.SubjectProduct, SubjectID: "product-1", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"display_name":"WT Tiers","stage_maturity":"prototype","stage_audience_commitment":"operator_only"}`)},
+		{EventID: "wt-tiers-project", Kind: "project.created", SubjectType: store.SubjectProject, SubjectID: "project-1", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"display_name":"WT Tiers Project"}`)},
+		{EventID: "wt-tiers-membership", Kind: "product_project.added", SubjectType: store.SubjectProduct, SubjectID: "product-1", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"product_id":"product-1","project_id":"project-1","role":"primary","reason":"tiers fixture","expected_version":1,"resulting_version":2}`)},
+		{EventID: "wt-tiers-work", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: "work-1", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 2, Payload: json.RawMessage(`{"work_kind":"task","title":"Tiers One","priority":1}`)},
+		{EventID: "wt-tiers-work-membership", Kind: "work.memberships_replaced", SubjectType: store.SubjectWorkItem, SubjectID: "work-1", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"memberships":[{"project_id":"project-1","role":"primary"}],"expected_version":1,"resulting_version":2}`)},
+		{EventID: "wt-tiers-work-2", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: "work-2", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 2, Payload: json.RawMessage(`{"work_kind":"task","title":"Tiers Two","priority":1}`)},
+		{EventID: "wt-tiers-work-2-membership", Kind: "work.memberships_replaced", SubjectType: store.SubjectWorkItem, SubjectID: "work-2", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"memberships":[{"project_id":"project-1","role":"primary"}],"expected_version":1,"resulting_version":2}`)},
+	}
+	if err := store.ApplyOperation(ctx, s, store.Operation{Events: events, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectProduct, "product-1"): 0, store.VersionRef(store.SubjectProject, "project-1"): 0, store.VersionRef(store.SubjectWorkItem, "work-1"): 0, store.VersionRef(store.SubjectWorkItem, "work-2"): 0}}); err != nil {
+		t.Fatal(err)
+	}
+
+	repoRoot := t.TempDir()
+	gitRun(t, repoRoot, "init", "-b", "main")
+	gitRun(t, repoRoot, "config", "user.email", "concord@example.invalid")
+	gitRun(t, repoRoot, "config", "user.name", "Concord Tiers Test")
+	if err := os.WriteFile(filepath.Join(repoRoot, "README.md"), []byte("# fixture\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitRun(t, repoRoot, "add", "README.md")
+	gitRun(t, repoRoot, "commit", "-m", "fixture base")
+	if err := s.AddProjectLocator(ctx, "project-1", store.ProjectLocator{ID: "path-1", Kind: store.LocatorCanonicalPath, Value: repoRoot}, 1); err != nil {
+		t.Fatal(err)
+	}
+
+	service, _, grant := newAuthorizedService(t, s, "client-1", "human-1", []Capability{"work_transition", "product_read"}, []string{"product-1"}, []string{"project-1"}, store.ProjectResolution{ProjectID: "project-1"})
+	return s, service, grant, repoRoot
+}
 
 func tiersInvoke(t *testing.T, s *store.Store, service *Service, grant Authority, tool, operation string, input map[string]any) Envelope {
 	t.Helper()
@@ -33,22 +71,24 @@ func tiersInvoke(t *testing.T, s *store.Store, service *Service, grant Authority
 	return response
 }
 
-// tiersFixture binds session-1 to work-1's canonical worktree and session-2
-// to work-2's, both inside project-1, so session-1 exercises cross-worktree
-// tiers against work-2's tree.
+// tiersFixture claims work-1's canonical worktree under session-1 and
+// work-2's under session-2, both inside project-1, so session-1 exercises
+// cross-worktree tiers against work-2's tree.
 func tiersFixture(t *testing.T) (*store.Store, *Service, Authority, *Service, Authority, string) {
 	t.Helper()
-	s, service, grant, repoRoot := retargetDispatchFixture(t)
-	if response := retargetInvoke(t, s, service, grant, map[string]any{
-		"work_id": "work-1", "expected_version": 2, "expected_target_version": 0, "idempotency_key": "tiers-rt-1",
+	s, service, grant, repoRoot := tiersRepoFixture(t)
+	baseSHA := gitRun(t, repoRoot, "rev-parse", "HEAD")
+	worktreeRoot := filepath.Join(filepath.Dir(s.Path()), "worktrees", "project-1")
+	if response := tiersInvoke(t, s, service, grant, "concord_work_transition", "worktree_claim", map[string]any{
+		"work_id": "work-1", "project_id": "project-1", "branch": "work/work-1", "base_sha": baseSHA, "path": filepath.Join(worktreeRoot, "work-1"), "expected_version": 2, "idempotency_key": "tiers-claim-1",
 	}); response.Outcome != OutcomeOK {
-		t.Fatalf("bind work-1 response=%+v err=%+v", response, response.Error)
+		t.Fatalf("claim work-1 response=%+v err=%+v", response, response.Error)
 	}
 	second, _, secondGrant := newAuthorizedService(t, s, "client-2", "human-2", []Capability{"work_transition", "product_read"}, []string{"product-1"}, []string{"project-1"}, store.ProjectResolution{ProjectID: "project-1"})
-	if response := retargetInvoke(t, s, second, secondGrant, map[string]any{
-		"work_id": "work-2", "expected_version": 2, "expected_target_version": 0, "idempotency_key": "tiers-rt-2",
+	if response := tiersInvoke(t, s, second, secondGrant, "concord_work_transition", "worktree_claim", map[string]any{
+		"work_id": "work-2", "project_id": "project-1", "branch": "work/work-2", "base_sha": baseSHA, "path": filepath.Join(worktreeRoot, "work-2"), "expected_version": 2, "idempotency_key": "tiers-claim-2",
 	}); response.Outcome != OutcomeOK {
-		t.Fatalf("bind work-2 response=%+v err=%+v", response, response.Error)
+		t.Fatalf("claim work-2 response=%+v err=%+v", response, response.Error)
 	}
 	return s, service, grant, second, secondGrant, repoRoot
 }
@@ -69,8 +109,8 @@ func tiersInspect(t *testing.T, s *store.Store, service *Service, grant Authorit
 	return response, payload
 }
 
-func TestWorktreeInspectReadsSameProjectWorktreeWithoutMovingTarget(t *testing.T) {
-	s, service, grant, _, secondGrant, _ := tiersFixture(t)
+func TestWorktreeInspectReadsSameProjectWorktree(t *testing.T) {
+	s, service, grant, _, _, _ := tiersFixture(t)
 	worktreePath := filepath.Join(filepath.Dir(s.Path()), "worktrees", "project-1", "work-2")
 
 	// Tracked change in the other session's worktree, made directly on disk.
@@ -101,15 +141,7 @@ func TestWorktreeInspectReadsSameProjectWorktreeWithoutMovingTarget(t *testing.T
 		t.Fatalf("file response=%+v payload=%+v", file, filePayload)
 	}
 
-	// The persistent effective target of neither session moved.
-	target, found, err := s.SessionWorktreeTarget(context.Background(), store.SessionWorktreeOwner{ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef})
-	if err != nil || !found || target.WorkID != "work-1" {
-		t.Fatalf("session-1 target=%+v found=%v err=%v, want its own binding unchanged", target, found, err)
-	}
-	secondTarget, found, err := s.SessionWorktreeTarget(context.Background(), store.SessionWorktreeOwner{ClientRef: secondGrant.ClientRef, AgentRef: secondGrant.AgentRef, SessionRef: secondGrant.SessionRef})
-	if err != nil || !found || secondTarget.WorkID != "work-2" {
-		t.Fatalf("session-2 target=%+v found=%v err=%v, want its own binding unchanged", secondTarget, found, err)
-	}
+	// The Inspect tier takes no lease.
 	var leases int
 	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM worktree_verify_leases`).Scan(&leases); err != nil {
 		t.Fatal(err)
@@ -203,15 +235,10 @@ func TestWorktreeVerifyRefusesTrackedFileMutation(t *testing.T) {
 }
 
 func TestWorktreeVerifyConcurrentLeaseRefusesTyped(t *testing.T) {
-	s, service, grant, second, secondGrant, _ := tiersFixture(t)
+	s, service, grant, _, secondGrant, _ := tiersFixture(t)
 	worktreePath := filepath.Join(filepath.Dir(s.Path()), "worktrees", "project-1", "work-2")
 
 	// A held lease from session-2's in-flight verify of the same worktree.
-	if response := retargetInvoke(t, s, second, secondGrant, map[string]any{
-		"work_id": "work-2", "expected_version": 3, "expected_target_version": 1, "idempotency_key": "tiers-rt-2b",
-	}); response.Outcome != OutcomeOK {
-		t.Fatalf("re-assert response=%+v err=%+v", response, response.Error)
-	}
 	commandJSON, _ := json.Marshal([]string{"go", "test", "./..."})
 	stamp := fixedTime().UTC().Format(time.RFC3339Nano)
 	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO worktree_verify_leases(lease_id,work_id,project_id,path,state,client_ref,agent_ref,session_ref,principal_ref,command_json,acquired_at,outcome) VALUES('foreign-lease','work-2','project-1',?, 'held',?,?,?,?,?,?, 'running')`,
@@ -225,8 +252,8 @@ func TestWorktreeVerifyConcurrentLeaseRefusesTyped(t *testing.T) {
 	if refused.Outcome != OutcomeError || refused.Error == nil {
 		t.Fatalf("response=%+v, want typed refusal", refused)
 	}
-	if refused.Error.Kind != "operation_conflict" || refused.Error.RetrySafe != true {
-		t.Fatalf("error=%+v, want retry-safe operation_conflict", refused.Error)
+	if refused.Error.Kind != "resource_busy" || refused.Error.RetrySafe != true || refused.Error.RecoveryAction.Kind != "retry_same_request" {
+		t.Fatalf("error=%+v, want retry-safe resource_busy with retry_same_request (#736)", refused.Error)
 	}
 	if !strings.Contains(refused.Error.Message, secondGrant.SessionRef) {
 		t.Fatalf("error.message=%q, want the holding session named", refused.Error.Message)

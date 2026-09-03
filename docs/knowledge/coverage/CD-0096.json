@@ -2,19 +2,11 @@
   "evidence": [
     {
       "kind": "go_test",
-      "value": "internal/store.TestRetargetCreatesCanonicalWorktreeAndBindsSession"
+      "value": "internal/agent.TestWorktreeInspectReadsSameProjectWorktree"
     },
     {
       "kind": "go_test",
-      "value": "internal/agent.TestWorktreeInspectReadsSameProjectWorktreeWithoutMovingTarget"
-    },
-    {
-      "kind": "go_test",
-      "value": "internal/store.TestTakeoverRefusesActiveHolderWithoutOverrideNamingOwner"
-    },
-    {
-      "kind": "go_test",
-      "value": "internal/store.TestTakeoverWithOperatorOverrideTransfersAndForceReleasesHolder"
+      "value": "internal/agent.TestWorktreeVerifyRunsUnderLeaseThroughToolSurface"
     },
     {
       "kind": "go_test",
@@ -26,19 +18,15 @@
     },
     {
       "kind": "go_test",
-      "value": "internal/store.TestContinuityStaleTargetPinFailsClosed"
-    },
-    {
-      "kind": "go_test",
-      "value": "internal/agent.TestWorktreeTakeoverDispatchNamesOwnerMintsChallengeAndTransfers"
-    },
-    {
-      "kind": "go_test",
       "value": "internal/agent.TestWorktreeDestroyDispatchDestructiveUnderApproval"
     },
     {
       "kind": "go_test",
-      "value": "internal/agent.TestContinuityDispatchRePinsTargetAndFailsClosedOnStalePin"
+      "value": "internal/store.TestContinuityRePinsHeldLease"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/agent.TestContinuityDispatchRePinsHeldLease"
     }
   ],
   "id": "CD-0096",

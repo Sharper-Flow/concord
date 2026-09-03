@@ -1,0 +1,24 @@
+{
+  "date": "2026-09-03T00:00:00Z",
+  "home_domain_id": "product-root:concord",
+  "id": "CD-0104",
+  "kind": "decision",
+  "path": "docs/decisions/CD-0104-a-session-worktree-is-its-actual-directory.md",
+  "product_wide_rationale": "Governs which facts Concord may store about a session and its worktree, so it binds every Domain that resolves a tree rather than owning a runtime Domain.",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:61eb917a6d09b9913cfbb6f09138a97485a9dca87daa28de7048911178b22812",
+  "status": "accepted",
+  "summary": "A session's worktree is the directory the host reports for it, and Concord stores no copy. The bootstrap launch record and session_worktree_targets are dropped with the retarget, release, and takeover operations, because each was a stored copy of a host fact with no reader outside its own maintenance, and each drifted. work_start replays to convergence on its derived key, so no partial outcome exists. Transient exclusion is resource_busy, coupled to retry_same_request. Amends CD-0096 at Context, D1, D3 Take over, D5, and D6; CD-0088 D4 at the launch record; CD-0098 at the failure contract.",
+  "tags": [
+    "authority",
+    "worktree-isolation",
+    "session-boot"
+  ],
+  "title": "A session's worktree is its actual directory, and Concord stores no session binding"
+}

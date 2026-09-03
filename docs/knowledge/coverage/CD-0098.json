@@ -2,7 +2,7 @@
   "evidence": [
     {
       "kind": "adapter_test",
-      "value": "adapter/opencode/concord.test.ts#work start retargets the calling session and records the claim before the move"
+      "value": "adapter/opencode/concord.test.ts#work start moves the calling session into the claimed worktree"
     },
     {
       "kind": "adapter_test",
@@ -19,18 +19,6 @@
     {
       "kind": "adapter_test",
       "value": "adapter/opencode/concord.test.ts#work start verifies the session directory after the move"
-    },
-    {
-      "kind": "go_test",
-      "value": "internal/store.TestBootstrapLaunchReplayPreservesSessionIdentity"
-    },
-    {
-      "kind": "go_test",
-      "value": "internal/store.TestBootstrapLaunchFailureWithoutSessionRefusesDuplicateLaunch"
-    },
-    {
-      "kind": "go_test",
-      "value": "internal/store.TestBootstrapLaunchOwnerRecoveryIsExclusive"
     },
     {
       "kind": "go_test",

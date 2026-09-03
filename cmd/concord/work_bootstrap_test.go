@@ -24,34 +24,9 @@ func bootstrapRequest() store.BootstrapRequest {
 	}
 }
 
-// launchOwner is the live host process identity both session-prepare and
-// session-record must present.
-type launchOwner struct {
-	pid   int64
-	start string
-}
-
-func ownerIdentity(t *testing.T) launchOwner {
-	t.Helper()
-	stat, err := os.ReadFile("/proc/self/stat")
-	if err != nil {
-		t.Fatal(err)
-	}
-	closeParen := strings.LastIndex(string(stat), ")")
-	if closeParen < 0 {
-		t.Fatal("process stat has no command boundary")
-	}
-	fields := strings.Fields(string(stat)[closeParen+1:])
-	if len(fields) < 20 {
-		t.Fatal("process stat lacks a start identity")
-	}
-	return launchOwner{pid: int64(os.Getpid()), start: fields[19]}
-}
-
 func commandSessionPrepareInput(t *testing.T, workID, task string) []byte {
 	t.Helper()
-	owner := ownerIdentity(t)
-	raw, err := json.Marshal(sessionPrepareInput{ProductID: "product-wl", WorkID: workID, Task: task, OwnerPID: owner.pid, OwnerStart: owner.start})
+	raw, err := json.Marshal(sessionPrepareInput{ProductID: "product-wl", WorkID: workID, Task: task})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -431,40 +406,6 @@ func TestSessionPrepareRefusesWrongDirectoryBeforeIdentity(t *testing.T) {
 	}
 }
 
-func TestBootstrapRollbackRequiresTheRecordedLinkedWorktree(t *testing.T) {
-	repo := initLocatorRepo(t)
-	dbPath := filepath.Join(t.TempDir(), "concord.db")
-	s := mustOpenStore(t, dbPath)
-	seedLocatorAuthority(t, s, repo)
-	result, err := s.BootstrapWorktree(context.Background(), bootstrapRequest(), nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	raw, err := json.Marshal(map[string]string{"product_id": result.ProductID, "work_id": result.WorkID, "operation_id": result.OperationID, "directory": result.Entry.Path, "reason": "session preparation failed"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Chdir(repo)
-	var out, errOut bytes.Buffer
-	if code := runBootstrapRollback(raw, s, &out, &errOut); code == 0 {
-		t.Fatal("rollback accepted the default checkout")
-	}
-	var state string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT state FROM bootstrap_operations WHERE operation_id=?`, result.OperationID).Scan(&state); err != nil || state != "completed" {
-		t.Fatalf("wrong-directory state=%s err=%v", state, err)
-	}
-	t.Chdir(result.Entry.Path)
-	out.Reset()
-	errOut.Reset()
-	if code := runBootstrapRollback(raw, s, &out, &errOut); code != 0 {
-		t.Fatalf("rollback code=%d stderr=%q", code, errOut.String())
-	}
-	t.Chdir(repo)
-	if err := s.DatabaseForTesting().QueryRow(`SELECT state FROM bootstrap_operations WHERE operation_id=?`, result.OperationID).Scan(&state); err != nil || state != "rolled_back" {
-		t.Fatalf("linked-worktree state=%s err=%v", state, err)
-	}
-}
-
 func TestSessionPrepareRunsLaneIdentityBeforeOrchestratorAndBoot(t *testing.T) {
 	repo := initLocatorRepo(t)
 	dbPath := filepath.Join(t.TempDir(), "concord.db")
@@ -548,58 +489,3 @@ func mustOpenStore(t *testing.T, path string) *store.Store {
 // this session rather than spawning a child that could report one. The store
 // must accept exactly that payload, or work_start can never leave outcome
 // partial.
-func TestSessionRecordAcceptsTheAdapterRetargetPayload(t *testing.T) {
-	repo := initLocatorRepo(t)
-	dbPath := filepath.Join(t.TempDir(), "concord.db")
-	s := mustOpenStore(t, dbPath)
-	seedLocatorAuthority(t, s, repo)
-	result, err := s.BootstrapWorktree(context.Background(), bootstrapRequest(), nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv(dbOverrideEnv, dbPath)
-	t.Chdir(result.Entry.Path)
-	var out, errOut bytes.Buffer
-	code := runSessionPrepare(commandSessionPrepareInput(t, result.WorkID, "run the task"), s, &out, &errOut,
-		func(string) error { return nil },
-		func(context.Context, string, string, string) (string, error) { return "orchestrator", nil },
-		func(context.Context, string, string, string) ([]byte, error) {
-			return json.RawMessage(`{"watermark":"test"}`), nil
-		})
-	if code != 0 {
-		t.Fatalf("session-prepare code=%d stderr=%q", code, errOut.String())
-	}
-	var prepared sessionPrepareOutput
-	if err := json.Unmarshal(out.Bytes(), &prepared); err != nil {
-		t.Fatal(err)
-	}
-	owner := ownerIdentity(t)
-	record, err := json.Marshal(map[string]any{
-		"operation_id":   prepared.OperationID,
-		"attempt_id":     prepared.AttemptID,
-		"product_id":     result.ProductID,
-		"work_id":        result.WorkID,
-		"agent":          prepared.Agent,
-		"directory":      result.Entry.Path,
-		"session_id":     "ses-adapter-retarget",
-		"state":          "completed",
-		"failure_reason": "",
-		"owner_pid":      owner.pid,
-		"owner_start":    owner.start,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	out.Reset()
-	errOut.Reset()
-	if code := runSessionRecord(record, s, &out, &errOut); code != 0 {
-		t.Fatalf("session-record refused the adapter payload: code=%d stderr=%q", code, errOut.String())
-	}
-	var launchState, sessionID string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT launch_state,COALESCE(launch_session_id,'') FROM bootstrap_operations WHERE operation_id=?`, prepared.OperationID).Scan(&launchState, &sessionID); err != nil {
-		t.Fatal(err)
-	}
-	if launchState != "completed" || sessionID != "ses-adapter-retarget" {
-		t.Fatalf("launch_state=%q session=%q", launchState, sessionID)
-	}
-}

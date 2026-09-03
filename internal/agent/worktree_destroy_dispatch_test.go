@@ -6,17 +6,16 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
-	"strings"
 	"testing"
+	"time"
 
 	"github.com/sharper-flow/concord/internal/store"
 )
 
-// CD-0096 part 3b (#689): the Take over and Destroy tiers and the session
-// continuity re-pin through the agent tool surface, against real git. An
-// active owner blocks a takeover until it releases or the operator approves
-// the override; destroy reclaims merged terminal work under the unchanged
-// git gates and routes every other removal through operator approval.
+// CD-0096 D3 Destroy and D5 continuity through the agent tool surface,
+// against real git. Destroy reclaims merged terminal work under the unchanged
+// git gates and routes every other removal through operator approval; the
+// continuity read re-pins the reading session's held verify leases.
 
 func authorityInvoke(t *testing.T, s *store.Store, service *Service, grant Authority, tool, operation string, input map[string]any) Envelope {
 	t.Helper()
@@ -32,23 +31,6 @@ func authorityInvoke(t *testing.T, s *store.Store, service *Service, grant Autho
 	return response
 }
 
-func takeoverInput(workID string, work, target int64, key string) map[string]any {
-	return map[string]any{"work_id": workID, "expected_version": work, "expected_target_version": target, "idempotency_key": key}
-}
-
-func sessionOwnerOf(grant Authority) store.SessionWorktreeOwner {
-	return store.SessionWorktreeOwner{ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef}
-}
-
-func countActiveHolders(t *testing.T, s *store.Store, workID string) int64 {
-	t.Helper()
-	var count int64
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM session_worktree_targets WHERE work_id=? AND state='active'`, workID).Scan(&count); err != nil {
-		t.Fatal(err)
-	}
-	return count
-}
-
 func completeWork(t *testing.T, s *store.Store, workID string, version int64) {
 	t.Helper()
 	payload := `{"from":"needed","to":"completed","reason":"fixture terminal","evidence_refs":["fixture"],"expected_version":` + strconv.FormatInt(version, 10) + `,"resulting_version":` + strconv.FormatInt(version+1, 10) + `}`
@@ -57,108 +39,6 @@ func completeWork(t *testing.T, s *store.Store, workID string, version int64) {
 	}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, workID): version}})
 	if err != nil {
 		t.Fatal(err)
-	}
-}
-
-func TestWorktreeReleaseDispatchReleasesBinding(t *testing.T) {
-	s, _, _, second, secondGrant, _ := tiersFixture(t)
-	owner := sessionOwnerOf(secondGrant)
-
-	response := authorityInvoke(t, s, second, secondGrant, "concord_work_transition", "worktree_release", map[string]any{
-		"work_id": "work-2", "expected_target_version": 1, "idempotency_key": "rel-2",
-	})
-	if response.Outcome != OutcomeOK {
-		t.Fatalf("release response=%+v err=%+v", response, response.Error)
-	}
-	target, found, err := s.SessionWorktreeTarget(context.Background(), owner)
-	if err != nil || !found {
-		t.Fatalf("target=%+v found=%v err=%v", target, found, err)
-	}
-	if target.State != "released" || target.TargetVersion != 2 {
-		t.Fatalf("target=%+v, want released at version 2", target)
-	}
-	if count := countActiveHolders(t, s, "work-2"); count != 0 {
-		t.Fatalf("work-2 active holders=%d, want none", count)
-	}
-}
-
-func TestWorktreeTakeoverDispatchNamesOwnerMintsChallengeAndTransfers(t *testing.T) {
-	s, _, firstGrant, second, secondGrant, _ := tiersFixture(t)
-	secondOwner := sessionOwnerOf(secondGrant)
-
-	// Refused without release or operator approval: the challenge names the
-	// owner identity and the recovery action (CD-0096 D3 Take over).
-	refused := authorityInvoke(t, s, second, secondGrant, "concord_work_transition", "worktree_takeover", takeoverInput("work-1", 3, 1, "tk-1"))
-	if refused.Outcome != OutcomeError || refused.Error == nil || refused.Error.Kind != "approval_required" {
-		t.Fatalf("refused response=%+v err=%+v, want approval_required", refused, refused.Error)
-	}
-	ownerLabel, _ := refused.Error.Details["takeover_owner"].(string)
-	if !strings.Contains(ownerLabel, firstGrant.ClientRef) {
-		t.Fatalf("takeover_owner=%q, want the active holder's identity", ownerLabel)
-	}
-	challengeRef, ok := refused.Error.Details["approval_ref"].(string)
-	if !ok || len(challengeRef) != 64 {
-		t.Fatalf("approval_ref=%v, want a minted challenge", refused.Error.Details["approval_ref"])
-	}
-	if count := countActiveHolders(t, s, "work-1"); count != 1 {
-		t.Fatalf("refusal changed holders=%d", count)
-	}
-
-	// The operator approves the exact override; the transfer lands.
-	scopeVersion, _, err := s.ScopeVersion(context.Background(), "project-1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	env := mutationEnvelope(secondGrant, scopeVersion)
-	raw, _ := json.Marshal(takeoverInput("work-1", 3, 1, "tk-1"))
-	digest := mutationDigest("concord_work_transition", "worktree_takeover", env, raw)
-	scope := map[string]any{"product_id": "product-1", "product_ids": []string{"product-1"}, "project_ids": []string{"project-1"}, "work_ids": []string{"work-1"}, "scope_version": scopeVersion}
-	versions := map[string]any{"work": 3, "target": 1}
-	env.HostApproval = signedHostApproval(mustKey(t), challengeRef, digest, scope, versions, secondGrant.SessionRef, secondGrant.AgentRef, secondGrant.Worktree, fixedTime(), "takeover-override-1")
-
-	approvedRaw, _ := json.Marshal(map[string]any{"work_id": "work-1", "expected_version": 3, "expected_target_version": 1, "idempotency_key": "tk-1", "approval": map[string]any{"approval_ref": challengeRef}})
-	approved, err := Dispatch(context.Background(), s, second, InvokeRequest{Tool: "concord_work_transition", Operation: "worktree_takeover", Input: approvedRaw}, env)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if approved.Outcome != OutcomeOK {
-		t.Fatalf("approved response=%+v err=%+v", approved, approved.Error)
-	}
-
-	target, found, err := s.SessionWorktreeTarget(context.Background(), secondOwner)
-	if err != nil || !found {
-		t.Fatalf("taker target=%+v found=%v err=%v", target, found, err)
-	}
-	if target.WorkID != "work-1" || target.State != "active" {
-		t.Fatalf("taker target=%+v, want active on work-1", target)
-	}
-	firstTarget, _, err := s.SessionWorktreeTarget(context.Background(), sessionOwnerOf(firstGrant))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if firstTarget.State != "released" {
-		t.Fatalf("prior holder target=%+v, want released", firstTarget)
-	}
-	if count := countActiveHolders(t, s, "work-1"); count != 1 {
-		t.Fatalf("work-1 active holders=%d, want exactly one", count)
-	}
-}
-
-func TestWorktreeTakeoverAfterReleaseNeedsNoApproval(t *testing.T) {
-	s, _, _, second, secondGrant, _ := tiersFixture(t)
-	if response := authorityInvoke(t, s, second, secondGrant, "concord_work_transition", "worktree_release", map[string]any{
-		"work_id": "work-2", "expected_target_version": 1, "idempotency_key": "rel-2",
-	}); response.Outcome != OutcomeOK {
-		t.Fatalf("release response=%+v err=%+v", response, response.Error)
-	}
-
-	response := authorityInvoke(t, s, second, secondGrant, "concord_work_transition", "worktree_takeover", takeoverInput("work-2", 3, 2, "tk-after-release"))
-	if response.Outcome != OutcomeOK {
-		t.Fatalf("takeover response=%+v err=%+v", response, response.Error)
-	}
-	target, _, err := s.SessionWorktreeTarget(context.Background(), sessionOwnerOf(secondGrant))
-	if err != nil || target.WorkID != "work-2" || target.TargetVersion != 3 {
-		t.Fatalf("target=%+v err=%v, want the released worktree re-bound at version 3", target, err)
 	}
 }
 
@@ -288,32 +168,32 @@ func seedContinuityWorkflow(t *testing.T, s *store.Store, workID string) {
 	}
 }
 
-func TestContinuityDispatchRePinsTargetAndFailsClosedOnStalePin(t *testing.T) {
+func TestContinuityDispatchRePinsHeldLease(t *testing.T) {
 	s, service, grant, _, _, _ := tiersFixture(t)
 	seedContinuityWorkflow(t, s, "work-1")
+	worktreePath := filepath.Join(filepath.Dir(s.Path()), "worktrees", "project-1", "work-1")
+	commandJSON, _ := json.Marshal([]string{"go", "test", "./..."})
+	stamp := fixedTime().UTC().Format(time.RFC3339Nano)
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO worktree_verify_leases(lease_id,work_id,project_id,path,state,client_ref,agent_ref,session_ref,principal_ref,command_json,acquired_at,outcome) VALUES('own-lease','work-1','project-1',?, 'held',?,?,?,?,?,?, 'running')`,
+		worktreePath, grant.ClientRef, grant.AgentRef, grant.SessionRef, grant.PrincipalRef, string(commandJSON), stamp); err != nil {
+		t.Fatal(err)
+	}
 
 	response := authorityInvoke(t, s, service, grant, "concord_work_trace", "continuity", map[string]any{
-		"work_id": "work-1", "page": map[string]any{"limit": 5, "cursor": nil}, "expected_target_version": 1,
+		"work_id": "work-1", "page": map[string]any{"limit": 5, "cursor": nil},
 	})
 	if response.Outcome != OutcomeOK {
 		t.Fatalf("continuity response=%+v err=%+v", response, response.Error)
 	}
 	var payload struct {
 		Pinned struct {
-			EffectiveTarget *store.SessionWorktreeTarget `json:"effective_target"`
+			ActiveVerifyLeases []store.ActiveWorktreeVerifyLease `json:"active_verify_leases"`
 		} `json:"pinned"`
 	}
 	if err := json.Unmarshal(response.Result, &payload); err != nil {
 		t.Fatal(err)
 	}
-	if payload.Pinned.EffectiveTarget == nil || payload.Pinned.EffectiveTarget.WorkID != "work-1" || payload.Pinned.EffectiveTarget.TargetVersion != 1 {
-		t.Fatalf("pinned.effective_target=%+v, want the session binding re-pinned", payload.Pinned.EffectiveTarget)
-	}
-
-	stale := authorityInvoke(t, s, service, grant, "concord_work_trace", "continuity", map[string]any{
-		"work_id": "work-1", "page": map[string]any{"limit": 5, "cursor": nil}, "expected_target_version": 5,
-	})
-	if stale.Outcome != OutcomeError || stale.Error == nil || stale.Error.Kind != "version_conflict" {
-		t.Fatalf("stale response=%+v err=%+v, want version_conflict", stale, stale.Error)
+	if len(payload.Pinned.ActiveVerifyLeases) != 1 || payload.Pinned.ActiveVerifyLeases[0].LeaseID != "own-lease" {
+		t.Fatalf("pinned.active_verify_leases=%+v, want the session's held lease re-pinned", payload.Pinned.ActiveVerifyLeases)
 	}
 }

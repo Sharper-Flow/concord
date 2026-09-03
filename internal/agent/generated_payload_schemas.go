@@ -690,17 +690,6 @@ const GeneratedPayloadSchemaDocument = `{
                 }
               ]
             },
-            "effective_target": {
-              "description": "CD-0096 D5: the reading session's persistent effective target. Absent when the session named no identity or holds no binding.",
-              "oneOf": [
-                {
-                  "$ref": "#/$defs/session_worktree_target"
-                },
-                {
-                  "type": "null"
-                }
-              ]
-            },
             "latest_checkpoint": {
               "oneOf": [
                 {
@@ -3778,80 +3767,6 @@ const GeneratedPayloadSchemaDocument = `{
       ],
       "type": "object"
     },
-    "session_worktree_target": {
-      "additionalProperties": false,
-      "properties": {
-        "agent_ref": {
-          "$ref": "#/$defs/id"
-        },
-        "branch": {
-          "description": "The identity-derived branch work/<work_id>.",
-          "maxLength": 128,
-          "minLength": 1,
-          "type": "string"
-        },
-        "claimed_at": {
-          "maxLength": 64,
-          "type": "string"
-        },
-        "client_ref": {
-          "$ref": "#/$defs/id"
-        },
-        "path": {
-          "description": "The locator-derived canonical worktree path.",
-          "maxLength": 512,
-          "minLength": 1,
-          "type": "string"
-        },
-        "principal_ref": {
-          "maxLength": 256,
-          "minLength": 1,
-          "type": "string"
-        },
-        "project_id": {
-          "$ref": "#/$defs/id"
-        },
-        "session_ref": {
-          "$ref": "#/$defs/id"
-        },
-        "state": {
-          "description": "CD-0096 D3: active or released.",
-          "enum": [
-            "active",
-            "released"
-          ]
-        },
-        "target_version": {
-          "description": "CD-0096 D5: the optimistic-concurrency pin of this binding.",
-          "maximum": 2147483647,
-          "minimum": 1,
-          "type": "integer"
-        },
-        "updated_at": {
-          "maxLength": 64,
-          "type": "string"
-        },
-        "work_id": {
-          "$ref": "#/$defs/id",
-          "description": "The work item whose canonical worktree the session targets."
-        }
-      },
-      "required": [
-        "client_ref",
-        "agent_ref",
-        "session_ref",
-        "work_id",
-        "project_id",
-        "branch",
-        "path",
-        "state",
-        "target_version",
-        "principal_ref",
-        "claimed_at",
-        "updated_at"
-      ],
-      "type": "object"
-    },
     "short": {
       "maxLength": 256,
       "minLength": 1,
@@ -5759,12 +5674,6 @@ const GeneratedPayloadSchemaDocument = `{
         "budget": {
           "$ref": "#/$defs/budget"
         },
-        "expected_target_version": {
-          "description": "CD-0096 D5: the session's effective-target version pin. When set, the read fails closed on a stored version that differs, because a silently re-derived target is a directory change no one authorized.",
-          "maximum": 2147483647,
-          "minimum": 0,
-          "type": "integer"
-        },
         "page": {
           "$ref": "#/$defs/page"
         },
@@ -6434,100 +6343,6 @@ const GeneratedPayloadSchemaDocument = `{
         "work_id",
         "project_id",
         "expected_version",
-        "idempotency_key"
-      ],
-      "type": "object"
-    },
-    "work_transition_worktree_release_input": {
-      "additionalProperties": false,
-      "properties": {
-        "expected_target_version": {
-          "description": "CD-0096 D5: the session's effective-target version pin. A mismatch fails closed; the release bumps the version.",
-          "maximum": 2147483647,
-          "minimum": 1,
-          "type": "integer"
-        },
-        "idempotency_key": {
-          "$ref": "#/$defs/id"
-        },
-        "requested_budget_seconds": {
-          "$ref": "#/$defs/requested_budget_seconds"
-        },
-        "work_id": {
-          "$ref": "#/$defs/id",
-          "description": "CD-0096 D3 Take over: the work item whose binding the session releases. The store verifies it matches the stored binding."
-        }
-      },
-      "required": [
-        "work_id",
-        "expected_target_version",
-        "idempotency_key"
-      ],
-      "type": "object"
-    },
-    "work_transition_worktree_retarget_input": {
-      "additionalProperties": false,
-      "properties": {
-        "expected_target_version": {
-          "description": "CD-0096 D5: the session's effective-target version pin. Zero for a first binding; any other value must match the stored version exactly or the retarget fails closed.",
-          "maximum": 2147483647,
-          "minimum": 0,
-          "type": "integer"
-        },
-        "expected_version": {
-          "$ref": "#/$defs/version",
-          "description": "The work item's version pin, consumed when the retarget must create the canonical worktree."
-        },
-        "idempotency_key": {
-          "$ref": "#/$defs/id"
-        },
-        "requested_budget_seconds": {
-          "$ref": "#/$defs/requested_budget_seconds"
-        },
-        "work_id": {
-          "$ref": "#/$defs/id",
-          "description": "CD-0096 D2: the current work item whose canonical worktree the session adopts. The target path derives from registered Project and work identity; no path input exists."
-        }
-      },
-      "required": [
-        "work_id",
-        "expected_version",
-        "idempotency_key"
-      ],
-      "type": "object"
-    },
-    "work_transition_worktree_takeover_input": {
-      "additionalProperties": false,
-      "properties": {
-        "approval": {
-          "$ref": "#/$defs/approval",
-          "description": "The operator takeover override, consumed when the worktree has an active holder that has not released."
-        },
-        "expected_target_version": {
-          "description": "CD-0096 D5: the calling session's own effective-target version pin. Zero when it holds none; any other value must match the stored version exactly.",
-          "maximum": 2147483647,
-          "minimum": 0,
-          "type": "integer"
-        },
-        "expected_version": {
-          "$ref": "#/$defs/version",
-          "description": "The work item's version pin, consumed when the takeover must create the canonical worktree."
-        },
-        "idempotency_key": {
-          "$ref": "#/$defs/id"
-        },
-        "requested_budget_seconds": {
-          "$ref": "#/$defs/requested_budget_seconds"
-        },
-        "work_id": {
-          "$ref": "#/$defs/id",
-          "description": "CD-0096 D3 Take over: the work item whose canonical worktree authority transfers to the calling session. The worktree derives from identity; no path input exists (CD-0096 D2)."
-        }
-      },
-      "required": [
-        "work_id",
-        "expected_version",
-        "expected_target_version",
         "idempotency_key"
       ],
       "type": "object"

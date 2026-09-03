@@ -3675,6 +3675,55 @@ ALTER TABLE durable_operations ADD COLUMN contract_digest TEXT NOT NULL DEFAULT 
 ALTER TABLE bootstrap_operations DROP COLUMN launch_model;
 		`,
 	},
+	{
+		Version:  69,
+		Name:     "drop_the_session_worktree_bindings",
+		Breaking: true,
+		SQL: `
+-- Concord held two stored copies of one fact: which session holds which
+-- worktree. The bootstrap launch columns described a spawned child process
+-- that work start no longer spawns (CD-0098), and session_worktree_targets
+-- described a host session directory the host reports live. Neither copy
+-- had a consumer outside its own maintenance: authorization resolves the
+-- Project and the main-worktree flag from the calling directory through git
+-- at every call, and never read either table.
+--
+-- A stored copy of a host fact drifts. A launch row left at prepared made a
+-- takeover unreachable, and a replay that met that row could neither spawn
+-- nor roll back. The copies are removed rather than repaired: the session's
+-- worktree is the directory it runs in, and the host owns that answer.
+--
+-- Bootstrap keeps its own state, which Concord does own: the derived work
+-- item, the operation journal, and the claim. Two launch columns carried
+-- UNIQUE, which SQLite will not drop in place, so the table is rebuilt in
+-- the shape migration 59 used.
+DROP INDEX bootstrap_operations_state;
+DROP INDEX bootstrap_operations_launch_state;
+ALTER TABLE bootstrap_operations RENAME TO bootstrap_operations_v68;
+CREATE TABLE bootstrap_operations (
+    idempotency_key TEXT PRIMARY KEY,
+    operation_id TEXT NOT NULL UNIQUE,
+    request_digest TEXT NOT NULL CHECK(length(request_digest) = 71),
+    request_json TEXT NOT NULL CHECK(json_valid(request_json) AND json_type(request_json)='object'),
+    product_id TEXT NOT NULL REFERENCES products(id) ON DELETE RESTRICT,
+    project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE RESTRICT,
+    work_id TEXT NOT NULL UNIQUE REFERENCES work_items(id) ON DELETE RESTRICT,
+    repo_path TEXT NOT NULL,
+    expected_version INTEGER NOT NULL CHECK(expected_version > 0),
+    state TEXT NOT NULL CHECK(state IN ('pending','creating','native_ready','completed','rolling_back','rolled_back')),
+    failure_reason TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+INSERT INTO bootstrap_operations
+    (idempotency_key,operation_id,request_digest,request_json,product_id,project_id,work_id,repo_path,expected_version,state,failure_reason,created_at,updated_at)
+    SELECT idempotency_key,operation_id,request_digest,request_json,product_id,project_id,work_id,repo_path,expected_version,state,failure_reason,created_at,updated_at
+    FROM bootstrap_operations_v68;
+DROP TABLE bootstrap_operations_v68;
+CREATE INDEX bootstrap_operations_state ON bootstrap_operations(state, updated_at);
+DROP TABLE session_worktree_targets;
+		`,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any

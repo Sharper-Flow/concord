@@ -1561,19 +1561,11 @@
       "evidence": [
         {
           "kind": "go_test",
-          "value": "internal/store.TestRetargetCreatesCanonicalWorktreeAndBindsSession"
+          "value": "internal/agent.TestWorktreeInspectReadsSameProjectWorktree"
         },
         {
           "kind": "go_test",
-          "value": "internal/agent.TestWorktreeInspectReadsSameProjectWorktreeWithoutMovingTarget"
-        },
-        {
-          "kind": "go_test",
-          "value": "internal/store.TestTakeoverRefusesActiveHolderWithoutOverrideNamingOwner"
-        },
-        {
-          "kind": "go_test",
-          "value": "internal/store.TestTakeoverWithOperatorOverrideTransfersAndForceReleasesHolder"
+          "value": "internal/agent.TestWorktreeVerifyRunsUnderLeaseThroughToolSurface"
         },
         {
           "kind": "go_test",
@@ -1585,19 +1577,15 @@
         },
         {
           "kind": "go_test",
-          "value": "internal/store.TestContinuityStaleTargetPinFailsClosed"
-        },
-        {
-          "kind": "go_test",
-          "value": "internal/agent.TestWorktreeTakeoverDispatchNamesOwnerMintsChallengeAndTransfers"
-        },
-        {
-          "kind": "go_test",
           "value": "internal/agent.TestWorktreeDestroyDispatchDestructiveUnderApproval"
         },
         {
           "kind": "go_test",
-          "value": "internal/agent.TestContinuityDispatchRePinsTargetAndFailsClosedOnStalePin"
+          "value": "internal/store.TestContinuityRePinsHeldLease"
+        },
+        {
+          "kind": "go_test",
+          "value": "internal/agent.TestContinuityDispatchRePinsHeldLease"
         }
       ],
       "id": "CD-0096",
@@ -1612,7 +1600,7 @@
       "evidence": [
         {
           "kind": "adapter_test",
-          "value": "adapter/opencode/concord.test.ts#work start retargets the calling session and records the claim before the move"
+          "value": "adapter/opencode/concord.test.ts#work start moves the calling session into the claimed worktree"
         },
         {
           "kind": "adapter_test",
@@ -1629,18 +1617,6 @@
         {
           "kind": "adapter_test",
           "value": "adapter/opencode/concord.test.ts#work start verifies the session directory after the move"
-        },
-        {
-          "kind": "go_test",
-          "value": "internal/store.TestBootstrapLaunchReplayPreservesSessionIdentity"
-        },
-        {
-          "kind": "go_test",
-          "value": "internal/store.TestBootstrapLaunchFailureWithoutSessionRefusesDuplicateLaunch"
-        },
-        {
-          "kind": "go_test",
-          "value": "internal/store.TestBootstrapLaunchOwnerRecoveryIsExclusive"
         },
         {
           "kind": "go_test",
@@ -1663,10 +1639,44 @@
         },
         {
           "kind": "adapter_test",
-          "value": "adapter/opencode/concord.test.ts#work start retargets the calling session and records the claim before the move"
+          "value": "adapter/opencode/concord.test.ts#work start moves the calling session into the claimed worktree"
         }
       ],
       "id": "CD-0103",
+      "state": "satisfied"
+    },
+    {
+      "evidence": [
+        {
+          "kind": "go_test",
+          "value": "internal/store.TestMigration59PreservesPopulatedBootstrapOperation"
+        },
+        {
+          "kind": "adapter_test",
+          "value": "adapter/opencode/concord.test.ts#work start replays to convergence after an interrupted step"
+        },
+        {
+          "kind": "adapter_test",
+          "value": "adapter/opencode/concord.test.ts#work start leaves a resumable claim when the move is refused"
+        },
+        {
+          "kind": "go_test",
+          "value": "internal/agent.TestRetrySafeStoreKindsNeverCoupleToReconcile"
+        },
+        {
+          "kind": "go_test",
+          "value": "internal/agent.TestWorktreeVerifyConcurrentLeaseRefusesTyped"
+        },
+        {
+          "kind": "go_test",
+          "value": "internal/store.TestContinuityRePinsHeldLease"
+        },
+        {
+          "kind": "go_test",
+          "value": "internal/agent.TestContinuityDispatchRePinsHeldLease"
+        }
+      ],
+      "id": "CD-0104",
       "state": "satisfied"
     },
     {

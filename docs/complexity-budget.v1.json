@@ -25,9 +25,9 @@
     },
   {
    "function": "internal/agent.(runtime).read",
-   "measured": 224,
+   "measured": 223,
    "state": "unmeasured",
-   "reason": "Flat dispatch over 31 read kinds: arms delegating rather than inlining. This is the shape #406 asks whether mutate should adopt. No decision has assessed the read surface's breadth. Score moved 220 to 224 when the CD-0096 takeover authority state read joined the dispatch."
+   "reason": "Flat dispatch over 31 read kinds: arms delegating rather than inlining. This is the shape #406 asks whether mutate should adopt. No decision has assessed the read surface's breadth. Score moved 220 to 224 when the CD-0096 takeover authority state read joined the dispatch, and 224 to 223 when CD-0104 removed the continuity target pin."
   }
   ]
 }

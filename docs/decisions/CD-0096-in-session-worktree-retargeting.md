@@ -7,8 +7,13 @@
   session-directory clause of CD-0093 D2; issue #689
 - **Approval:** The operator approved the tiered authority model in session on
   2026-09-01 (issue #689).
-- **Related:** CD-0088, CD-0090, CD-0092, CD-0093, CD-0094, CD-0095, issue #689
+- **Related:** CD-0088, CD-0090, CD-0092, CD-0093, CD-0094, CD-0095, CD-0104,
+  issue #689
 - **Amends:** CD-0093 D2 at the session-directory clause only
+- **Amended by:** CD-0104 at Context, D1, D3 Take over, D5, and D6. The
+  effective target was a stored copy of the session directory, kept because
+  the session could not move. CD-0098 moved the session, and CD-0104 removed
+  the copy. D2, D3 Inspect, Verify, and Destroy, and D4 stand.
 
 ## Context
 
@@ -39,9 +44,20 @@ resolve. This record names that binding the effective target, makes it
 retargetable along one typed route, and tiers the authority for touching any
 other worktree in the same Project.
 
+*Amended by CD-0104.* The first property did not survive CD-0098, which moves
+the host session. Once the directory can change, the effective target is a
+stored copy of a fact the host reports, and CD-0104 D1 removes it. The second
+property stands, and the tiers in D3 stand with it.
+
 ## Decision
 
 ### D1. A session may adopt its current work item's canonical worktree as the effective target
+
+*Amended by CD-0104 D1.* There is no stored effective target and no retarget
+operation. A session enters its work item's canonical worktree through
+`concord_work_start`, which moves the session (CD-0098), and later Concord
+operations resolve the tree from the directory the host reports per call. The
+original clause follows for the record.
 
 A running session bound to a current work item may create or claim that item's
 canonical worktree and retarget the session's effective target to it. The
@@ -75,11 +91,16 @@ same-Project worktree under an exclusive lease. Tracked files must remain
 unchanged. Completion refuses when they changed, because a verifier that edits
 its subject verifies nothing.
 
-**Take over.** Editing, committing, pushing, and retargeting to another work
-item's worktree require a typed authority transfer. An active owner must
-release its authority, or the operator must approve an override. A takeover
-refused for authority fails typed, naming the owner identity and the recovery
-action.
+**Take over.** *Amended by CD-0104 D5.* There is no typed transfer, because
+there is no stored holder to transfer from. A session that needs to edit
+another work item's worktree starts that work item. Two sessions in one
+worktree are refused only at the command level, by the Verify lease. The
+original clause follows for the record.
+
+Editing, committing, pushing, and retargeting to another work item's worktree
+require a typed authority transfer. An active owner must release its
+authority, or the operator must approve an override. A takeover refused for
+authority fails typed, naming the owner identity and the recovery action.
 
 **Destroy.** Removing a worktree reclaims merged terminal work under the
 CD-0095 store gates. A dirty tree refuses, and an unmerged branch refuses.
@@ -95,6 +116,10 @@ it held before the retarget.
 
 ### D5. Continuity re-pins the target and the lease
 
+*Amended by CD-0104 D1.* The pinned continuity projection carries the reading
+session's active verify leases and no target. There is no target version to
+pin. The original clause follows for the record.
+
 The pinned continuity projection carries the effective target and any active
 lease. The CD-0090 per-turn re-pin re-asserts both each turn. A Concord
 operation whose pinned target version is stale fails closed with a typed
@@ -102,6 +127,11 @@ refusal, because a silently re-derived target is a directory change no one
 authorized.
 
 ### D6. The bootstrap route and its identity guarantees are unchanged
+
+*Amended by CD-0104 D3.* `concord_work_start` is the one route, and it replays
+to convergence on its derived key. `session-prepare` still refuses a directory
+other than the active claimed worktree and records nothing. There is no
+in-session route to converge with. The original clause follows for the record.
 
 CD-0088 keeps its whole authority envelope. `concord_work_start` remains the
 pre-launch route, `session-prepare` still refuses a directory other than the
@@ -153,20 +183,12 @@ retargeted tree is an identity no one verified.
 
 ## Verification
 
-- A retarget to the current work item's canonical worktree makes later
-  tree-resolving Concord operations resolve through that worktree, and the host
-  process directory stays unchanged (issue #689 acceptance).
-- A retarget addressed at another work item's worktree without takeover
-  authority refuses with a typed ownership conflict.
-- Inspection of any active same-Project worktree succeeds read-only and leaves
-  the persistent target unchanged.
+- Inspection of any active same-Project worktree succeeds read-only.
 - Verification under an exclusive lease refuses completion when tracked files
   changed.
-- A takeover refusal names the owner identity and the recovery action.
 - Destroy obeys the CD-0095 store gates for terminal work, and operator
   approval gates every other removal.
-- The continuity projection re-pins the effective target and the active lease
-  each turn, and a stale target version fails closed.
+- The continuity projection re-pins the active lease each turn.
 - `python3 scripts/check-doc-contract.py`, `python3 scripts/check-json.py`,
   `python3 scripts/check-doc-links.py`, `python3 scripts/check-knowledge-closure.py`,
   and `python3 scripts/check-knowledge-index.py` pass on this record.

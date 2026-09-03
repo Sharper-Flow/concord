@@ -761,7 +761,16 @@ func failureEnvelope(base Envelope, err error) Envelope {
 	return coreError(base, "internal_error", err.Error(), "contact_operator", false)
 }
 func coreError(base Envelope, kind, message, recovery string, retry bool) Envelope {
-	base.Authority = AuthorityAuthoritative
+	// An unreachable refusal says the core could not answer, so the envelope
+	// carries no authoritative claim, freshness, or watermark; the contract
+	// pairs the kind with that authority and refuses any other pairing.
+	authority := AuthorityAuthoritative
+	if kind == "unreachable" {
+		authority = AuthorityUnreachable
+		base.Freshness = nil
+		base.SourceVersionWatermark = []Watermark{}
+	}
+	base.Authority = authority
 	base.Outcome = OutcomeError
 	base.Error = &TypedError{Kind: kind, RetrySafe: retry, RecoveryAction: RecoveryAction{Kind: recovery}, EffectState: EffectNone, Message: message}
 	if _, err := base.Encode(); err == nil {
@@ -773,7 +782,7 @@ func coreError(base Envelope, kind, message, recovery string, retry bool) Envelo
 	// The typed error is the only authoritative response to a rejected result.
 	errorBase := NewBase(base.RequestID, base.Tool, base.Operation)
 	errorBase.ResolvedScope = base.ResolvedScope
-	errorBase.Authority = AuthorityAuthoritative
+	errorBase.Authority = authority
 	errorBase.Outcome = OutcomeError
 	errorBase.Error = &TypedError{Kind: kind, RetrySafe: retry, RecoveryAction: RecoveryAction{Kind: recovery}, EffectState: EffectNone, Message: message}
 	if _, err := errorBase.Encode(); err != nil {

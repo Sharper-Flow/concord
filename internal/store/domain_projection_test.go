@@ -114,6 +114,50 @@ func TestDomainProjectionSeparatesGitProductKeyFromLocalProductID(t *testing.T) 
 	}
 }
 
+// TestRebuildKnowledgeIndexClearsGoverningLawsBeforeLawSubjects proves a
+// second rebuild succeeds when the first projected a governing law.
+// domain_relation_governing_laws references law_subjects ON DELETE RESTRICT,
+// which SQLite checks immediately, so the Domain projection must be cleared
+// before the law tables (issue #767).
+func TestRebuildKnowledgeIndexClearsGoverningLawsBeforeLawSubjects(t *testing.T) {
+	ctx := context.Background()
+	repo := initKnowledgeRepo(t)
+	path := "docs/decisions/CD-0001.md"
+	content := "domain law\n"
+	writeKnowledgeFile(t, repo, path, content)
+	sum := sha256.Sum256([]byte(content))
+	manifest := KnowledgeManifest{SchemaVersion: "1.2", SupportedKinds: []string{"decision"}, IndexedKinds: []string{"decision"}, DomainRegistry: KnowledgeDomainRegistry{SchemaVersion: "1.0", ProductKey: "concord", RootDomainID: "product-root:concord", Domains: []KnowledgeDomain{{DomainID: "product-root:concord", Name: "Root", Purpose: "Root", Status: "current", ArchitectureRelations: []KnowledgeArchitectureRelation{}}, {DomainID: "child", Name: "Child", Purpose: "Child", Status: "current", ParentDomainID: "product-root:concord", ArchitectureRelations: []KnowledgeArchitectureRelation{{Kind: "depends_on", TargetDomainID: "product-root:concord", GoverningLawIDs: []string{"CD-0001"}}}}}}, Records: []KnowledgeRecord{{ID: "CD-0001", Kind: "decision", Path: path, Status: "accepted", Date: "2026-08-18T00:00:00Z", Title: "Domain law", Summary: "A domain law", Tags: []string{}, Scopes: KnowledgeRecordScopes{Mode: "explicit", ProductIDs: []string{}, ProjectIDs: []string{}, DomainIDs: []string{}, TagIDs: []string{}}, HomeDomainID: "child", AppliesToDomainIDs: []string{"product-root:concord"}, SHA256: "sha256:" + hex.EncodeToString(sum[:])}}}
+	manifestBytes, err := json.Marshal(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeKnowledgeFile(t, repo, knowledgeManifestPath, string(manifestBytes)+"\n")
+	commitKnowledgeRepo(t, repo, "governing law")
+
+	s := openTemp(t)
+	home := KnowledgeHome{HomeProjectID: "project", HomeLocatorID: "locator", RepoPath: repo, HeadRef: "HEAD"}
+	authorizeKnowledgeProductHome(t, s, "concord", home)
+	if err := s.RebuildKnowledgeIndex(ctx, home); err != nil {
+		t.Fatalf("first rebuild: %v", err)
+	}
+	var governing int
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_relation_governing_laws WHERE law_id='CD-0001'`).Scan(&governing); err != nil {
+		t.Fatal(err)
+	}
+	if governing != 1 {
+		t.Fatalf("governing law rows after first rebuild = %d, want 1", governing)
+	}
+	if err := s.RebuildKnowledgeIndex(ctx, home); err != nil {
+		t.Fatalf("second rebuild with a projected governing law: %v", err)
+	}
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_relation_governing_laws WHERE law_id='CD-0001'`).Scan(&governing); err != nil {
+		t.Fatal(err)
+	}
+	if governing != 1 {
+		t.Fatalf("governing law rows after second rebuild = %d, want 1", governing)
+	}
+}
+
 func domainProjectionIdentitySnapshot(t *testing.T, s *Store) string {
 	t.Helper()
 	queries := []string{

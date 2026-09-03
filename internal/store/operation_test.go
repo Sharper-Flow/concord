@@ -350,7 +350,10 @@ func TestExpectedVersionZeroAgainstPresentSubjectStaysAVersionConflict(t *testin
 	if !errors.As(err, &failure) {
 		t.Fatalf("ApplyOperation() error = %v, want a typed failure", err)
 	}
-	if len(failure.CurrentVersions) != 1 || !failure.CurrentVersions[0].Exists {
-		t.Fatalf("current versions = %+v, want one present carrier", failure.CurrentVersions)
+	// A present subject carries its current version so the caller can retry
+	// against it; that carrier, not a flag, is what distinguishes this from
+	// the absent-subject refusal.
+	if len(failure.CurrentVersions) != 1 || failure.CurrentVersions[0].Version == 0 {
+		t.Fatalf("current versions = %+v, want one carrier with the present version", failure.CurrentVersions)
 	}
 }

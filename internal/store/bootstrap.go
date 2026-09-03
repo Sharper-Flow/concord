@@ -64,7 +64,6 @@ type BootstrapLaunch struct {
 	Title             string
 	Agent             string
 	Directory         string
-	Model             string
 	State             string
 }
 
@@ -1014,10 +1013,10 @@ func prepareBootstrapLaunchTx(ctx context.Context, transaction *Transaction, pro
 	if err != nil {
 		return err
 	}
-	var state, launchState, attemptID, sessionID, storedAgent, storedDirectory, model, launchError, storedOwnerStart string
+	var state, launchState, attemptID, sessionID, storedAgent, storedDirectory, launchError, storedOwnerStart string
 	var storedOwnerPID int64
 	var operationID string
-	if err := tx.QueryRowContext(ctx, `SELECT operation_id,state,launch_state,COALESCE(launch_attempt_id,''),COALESCE(launch_session_id,''),COALESCE(launch_owner_pid,0),COALESCE(launch_owner_start,''),COALESCE(launch_agent,''),COALESCE(launch_directory,''),COALESCE(launch_model,''),COALESCE(launch_error,'') FROM bootstrap_operations WHERE product_id=? AND work_id=?`, productID, workID).Scan(&operationID, &state, &launchState, &attemptID, &sessionID, &storedOwnerPID, &storedOwnerStart, &storedAgent, &storedDirectory, &model, &launchError); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT operation_id,state,launch_state,COALESCE(launch_attempt_id,''),COALESCE(launch_session_id,''),COALESCE(launch_owner_pid,0),COALESCE(launch_owner_start,''),COALESCE(launch_agent,''),COALESCE(launch_directory,''),COALESCE(launch_error,'') FROM bootstrap_operations WHERE product_id=? AND work_id=?`, productID, workID).Scan(&operationID, &state, &launchState, &attemptID, &sessionID, &storedOwnerPID, &storedOwnerStart, &storedAgent, &storedDirectory, &launchError); err != nil {
 		if err == sql.ErrNoRows {
 			return newFailure(KindProjectionNotFound, "session_prepare", "work has no bootstrap operation", false, "run work-bootstrap before session-prepare")
 		}
@@ -1057,7 +1056,7 @@ func prepareBootstrapLaunchTx(ctx context.Context, transaction *Transaction, pro
 		}
 		rollbackPermitted = true
 	}
-	*launch = BootstrapLaunch{OperationID: operationID, AttemptID: attemptID, SpawnPermitted: spawnPermitted, RollbackPermitted: rollbackPermitted, Title: bootstrapLaunchTitle(operationID), Agent: agent, Directory: directory, Model: model, State: launchState}
+	*launch = BootstrapLaunch{OperationID: operationID, AttemptID: attemptID, SpawnPermitted: spawnPermitted, RollbackPermitted: rollbackPermitted, Title: bootstrapLaunchTitle(operationID), Agent: agent, Directory: directory, State: launchState}
 	if sessionID != "" {
 		launch.SessionID = &sessionID
 	}
@@ -1066,25 +1065,25 @@ func prepareBootstrapLaunchTx(ctx context.Context, transaction *Transaction, pro
 
 // RecordBootstrapLaunch stores the session identity and child result. The
 // attempt and session identities are immutable on replay.
-func (s *Store) RecordBootstrapLaunch(ctx context.Context, operationID, attemptID, productID, workID, sessionID, agent, directory, model, state, failureReason string, ownerPID int64, ownerStart string) error {
+func (s *Store) RecordBootstrapLaunch(ctx context.Context, operationID, attemptID, productID, workID, sessionID, agent, directory, state, failureReason string, ownerPID int64, ownerStart string) error {
 	if s == nil || s.db == nil {
 		return newFailure(KindUnavailable, "session_record", "store is not open", false, "open the authority database")
 	}
 	if operationID == "" || attemptID == "" || productID == "" || workID == "" || agent == "" || directory == "" || ownerPID <= 1 || ownerStart == "" || (state != "completed" && state != "failed") {
 		return newFailure(KindInvalidOperation, "session_record", "launch record fields are invalid", false, "supply the prepared attempt and a declared state")
 	}
-	if len(sessionID) > 128 || (sessionID != "" && !bootstrapIDPattern.MatchString(sessionID)) || len(model) > 256 || len(failureReason) > 8192 {
+	if len(sessionID) > 128 || (sessionID != "" && !bootstrapIDPattern.MatchString(sessionID)) || len(failureReason) > 8192 {
 		return newFailure(KindInvalidOperation, "session_record", "launch record exceeds its bounds", false, "supply bounded launch result fields")
 	}
-	if state == "completed" && sessionID == "" || state == "completed" && model == "" || state == "failed" && failureReason == "" || state != "failed" && failureReason != "" {
-		return newFailure(KindInvalidOperation, "session_record", "launch state lacks its required session, model, or failure evidence", false, "supply the evidence required by the declared launch state")
+	if state == "completed" && sessionID == "" || state == "failed" && failureReason == "" || state != "failed" && failureReason != "" {
+		return newFailure(KindInvalidOperation, "session_record", "launch state lacks its required session or failure evidence", false, "supply the evidence required by the declared launch state")
 	}
 	if !launchOwnerAlive(ownerPID, ownerStart) {
 		return newFailure(KindInvalidOperation, "session_record", "launch owner process identity is not live", false, "record from the host process that owns the launch")
 	}
 	now := s.now()
 	err := s.Transact(ctx, func(transaction *Transaction) error {
-		return recordBootstrapLaunchTx(ctx, transaction, operationID, attemptID, productID, workID, sessionID, agent, directory, model, state, failureReason, ownerPID, ownerStart, now)
+		return recordBootstrapLaunchTx(ctx, transaction, operationID, attemptID, productID, workID, sessionID, agent, directory, state, failureReason, ownerPID, ownerStart, now)
 	})
 	if err != nil {
 		return err
@@ -1135,17 +1134,17 @@ func (s *Store) RollbackBootstrapOperation(ctx context.Context, productID, workI
 	return nil
 }
 
-func recordBootstrapLaunchTx(ctx context.Context, transaction *Transaction, operationID, attemptID, productID, workID, sessionID, agent, directory, model, state, failureReason string, ownerPID int64, ownerStart string, nowValue time.Time) error {
+func recordBootstrapLaunchTx(ctx context.Context, transaction *Transaction, operationID, attemptID, productID, workID, sessionID, agent, directory, state, failureReason string, ownerPID int64, ownerStart string, nowValue time.Time) error {
 	tx, err := transactionSQL(transaction, "session_record")
 	if err != nil {
 		return err
 	}
-	var storedAttempt, storedSession, storedAgent, storedDirectory, storedModel string
+	var storedAttempt, storedSession, storedAgent, storedDirectory string
 	var storedOwnerStart string
 	var storedOwnerPID int64
 	var storedState, bootstrapState string
 	var storedProduct, storedWork string
-	if err := tx.QueryRowContext(ctx, `SELECT product_id,work_id,COALESCE(launch_attempt_id,''),COALESCE(launch_session_id,''),COALESCE(launch_owner_pid,0),COALESCE(launch_owner_start,''),COALESCE(launch_agent,''),COALESCE(launch_directory,''),COALESCE(launch_model,''),launch_state,state FROM bootstrap_operations WHERE operation_id=?`, operationID).Scan(&storedProduct, &storedWork, &storedAttempt, &storedSession, &storedOwnerPID, &storedOwnerStart, &storedAgent, &storedDirectory, &storedModel, &storedState, &bootstrapState); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT product_id,work_id,COALESCE(launch_attempt_id,''),COALESCE(launch_session_id,''),COALESCE(launch_owner_pid,0),COALESCE(launch_owner_start,''),COALESCE(launch_agent,''),COALESCE(launch_directory,''),launch_state,state FROM bootstrap_operations WHERE operation_id=?`, operationID).Scan(&storedProduct, &storedWork, &storedAttempt, &storedSession, &storedOwnerPID, &storedOwnerStart, &storedAgent, &storedDirectory, &storedState, &bootstrapState); err != nil {
 		return wrapFailure(KindProjectionNotFound, "session_record", "bootstrap operation does not exist", false, "run session-prepare before session-record", err)
 	}
 	if storedProduct != productID || storedWork != workID || storedAttempt != attemptID || storedOwnerPID != ownerPID || storedOwnerStart != ownerStart || storedAgent != agent || storedDirectory != directory || storedState == "not_started" || bootstrapState != "completed" {
@@ -1153,9 +1152,6 @@ func recordBootstrapLaunchTx(ctx context.Context, transaction *Transaction, oper
 	}
 	if storedSession != "" && sessionID != storedSession {
 		return newFailure(KindInvalidOperation, "session_record", "launch attempt is bound to a different session", false, "resume the recorded session")
-	}
-	if storedModel != "" && model != "" && model != storedModel {
-		return newFailure(KindInvalidOperation, "session_record", "launch attempt is bound to a different model", false, "record the model read back from the existing session")
 	}
 	// A retarget has no child run to observe, so a prepared attempt reaches a
 	// terminal state directly. Re-preparing an attempt is how a recorded
@@ -1178,7 +1174,7 @@ func recordBootstrapLaunchTx(ctx context.Context, transaction *Transaction, oper
 		sessionID = storedSession
 	}
 	now := nowValue.Format(time.RFC3339Nano)
-	_, err = tx.ExecContext(ctx, `UPDATE bootstrap_operations SET launch_state=?,launch_session_id=COALESCE(NULLIF(?,''),launch_session_id),launch_model=COALESCE(NULLIF(?,''),launch_model),launch_error=CASE WHEN ?='failed' THEN ? ELSE NULL END,launch_finished_at=CASE WHEN ? IN ('completed','failed') THEN ? ELSE NULL END,updated_at=? WHERE operation_id=?`, state, sessionID, model, state, failureReason, state, now, now, operationID)
+	_, err = tx.ExecContext(ctx, `UPDATE bootstrap_operations SET launch_state=?,launch_session_id=COALESCE(NULLIF(?,''),launch_session_id),launch_error=CASE WHEN ?='failed' THEN ? ELSE NULL END,launch_finished_at=CASE WHEN ? IN ('completed','failed') THEN ? ELSE NULL END,updated_at=? WHERE operation_id=?`, state, sessionID, state, failureReason, state, now, now, operationID)
 	return err
 }
 

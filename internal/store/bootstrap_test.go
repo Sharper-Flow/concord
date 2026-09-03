@@ -258,20 +258,20 @@ func TestBootstrapLaunchReplayPreservesSessionIdentity(t *testing.T) {
 	}
 	// A retarget has no child run, so the prepared attempt reaches its terminal
 	// state directly.
-	if err := s.RecordBootstrapLaunch(context.Background(), launch.OperationID, launch.AttemptID, result.ProductID, result.WorkID, "session-1", launch.Agent, launch.Directory, "openai/model-1", "completed", "", ownerPID, ownerStart); err != nil {
+	if err := s.RecordBootstrapLaunch(context.Background(), launch.OperationID, launch.AttemptID, result.ProductID, result.WorkID, "session-1", launch.Agent, launch.Directory, "completed", "", ownerPID, ownerStart); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.RollbackBootstrapOperation(context.Background(), result.ProductID, result.WorkID, result.OperationID, result.Entry.Path, "session preparation failed"); err == nil {
 		t.Fatal("rollback removed a worktree with a recorded session")
 	}
-	if err := s.RecordBootstrapLaunch(context.Background(), launch.OperationID, launch.AttemptID, result.ProductID, result.WorkID, "session-1", launch.Agent, launch.Directory, "openai/model-1", "failed", "late failure", ownerPID, ownerStart); err == nil {
+	if err := s.RecordBootstrapLaunch(context.Background(), launch.OperationID, launch.AttemptID, result.ProductID, result.WorkID, "session-1", launch.Agent, launch.Directory, "failed", "late failure", ownerPID, ownerStart); err == nil {
 		t.Fatal("completed launch moved to failed")
 	}
 	completed, err := s.PrepareBootstrapLaunch(context.Background(), result.ProductID, result.WorkID, launch.Agent, launch.Directory, ownerPID, ownerStart)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if completed.State != "prepared" || completed.SessionID == nil || *completed.SessionID != "session-1" || completed.Model != "openai/model-1" || !completed.SpawnPermitted {
+	if completed.State != "prepared" || completed.SessionID == nil || *completed.SessionID != "session-1" || !completed.SpawnPermitted {
 		t.Fatalf("completed replay=%+v", completed)
 	}
 	terminalContender, err := s.PrepareBootstrapLaunch(context.Background(), result.ProductID, result.WorkID, launch.Agent, launch.Directory, ownerPID, ownerStart)
@@ -281,7 +281,7 @@ func TestBootstrapLaunchReplayPreservesSessionIdentity(t *testing.T) {
 	if terminalContender.SpawnPermitted {
 		t.Fatalf("concurrent terminal replay was permitted: %+v", terminalContender)
 	}
-	if err := s.RecordBootstrapLaunch(context.Background(), launch.OperationID, launch.AttemptID, result.ProductID, result.WorkID, "session-2", launch.Agent, launch.Directory, "openai/model-1", "running", "", ownerPID, ownerStart); err == nil {
+	if err := s.RecordBootstrapLaunch(context.Background(), launch.OperationID, launch.AttemptID, result.ProductID, result.WorkID, "session-2", launch.Agent, launch.Directory, "running", "", ownerPID, ownerStart); err == nil {
 		t.Fatal("launch accepted a different session identity")
 	}
 }
@@ -305,10 +305,10 @@ func TestBootstrapLaunchFailureWithoutSessionRefusesDuplicateLaunch(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := s.RecordBootstrapLaunch(context.Background(), launch.OperationID, launch.AttemptID, result.ProductID, result.WorkID, "", launch.Agent, launch.Directory, "", "failed", "child process did not report a session", ownerPID, ownerStart); err != nil {
+	if err := s.RecordBootstrapLaunch(context.Background(), launch.OperationID, launch.AttemptID, result.ProductID, result.WorkID, "", launch.Agent, launch.Directory, "failed", "child process did not report a session", ownerPID, ownerStart); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.RecordBootstrapLaunch(context.Background(), launch.OperationID, launch.AttemptID, result.ProductID, result.WorkID, "session-new", launch.Agent, launch.Directory, "openai/model-1", "completed", "", ownerPID, ownerStart); err == nil {
+	if err := s.RecordBootstrapLaunch(context.Background(), launch.OperationID, launch.AttemptID, result.ProductID, result.WorkID, "session-new", launch.Agent, launch.Directory, "completed", "", ownerPID, ownerStart); err == nil {
 		t.Fatal("failed launch moved directly to completed")
 	}
 	if _, err := s.PrepareBootstrapLaunch(context.Background(), result.ProductID, result.WorkID, launch.Agent, launch.Directory, ownerPID, ownerStart); err == nil {
@@ -343,7 +343,7 @@ func TestBootstrapLaunchOwnerRecoveryIsExclusive(t *testing.T) {
 		_ = owner.Process.Kill()
 		t.Fatal(err)
 	}
-	if err := s.RecordBootstrapLaunch(context.Background(), launch.OperationID, launch.AttemptID, result.ProductID, result.WorkID, "session-recovery", launch.Agent, launch.Directory, "openai/model-1", "completed", "", ownerPID, ownerStart); err != nil {
+	if err := s.RecordBootstrapLaunch(context.Background(), launch.OperationID, launch.AttemptID, result.ProductID, result.WorkID, "session-recovery", launch.Agent, launch.Directory, "completed", "", ownerPID, ownerStart); err != nil {
 		_ = owner.Process.Kill()
 		t.Fatal(err)
 	}
@@ -642,7 +642,7 @@ func TestRollbackBootstrapExcludesConcurrentSessionRecord(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.RecordBootstrapLaunch(context.Background(), launch.OperationID, launch.AttemptID, result.ProductID, result.WorkID, "session-race", launch.Agent, launch.Directory, "", "running", "", ownerPID, ownerStart); err == nil {
+	if err := s.RecordBootstrapLaunch(context.Background(), launch.OperationID, launch.AttemptID, result.ProductID, result.WorkID, "session-race", launch.Agent, launch.Directory, "running", "", ownerPID, ownerStart); err == nil {
 		t.Fatal("session record entered a rollback-owned operation")
 	}
 	location := WorktreeLocation{Repo: repo, Path: result.Entry.Path, Branch: result.Entry.Branch, BaseSHA: result.Entry.BaseSHA}

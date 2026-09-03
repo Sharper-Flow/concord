@@ -948,6 +948,27 @@ test("work start verifies the session directory after the move", async () => {
   expect(JSON.parse(calls[3].input)).toMatchObject({ state: "failed" })
 })
 
+// Issue #741. A record failure leaves the capture and the claim behind, and
+// reconcile reads only terminal work, so naming it stranded the operator with
+// a partial no typed operation could clear. The replay resumes the same
+// operation under the same key.
+test("work start sends no model and offers exact replay when the record fails", async () => {
+  bindRetargetRoute()
+  const calls: RetargetCall[] = []
+  adapter.configureConcordAdapter({
+    runner: retargetRunner(calls, {
+      "session-record": () => ({ exitCode: 1, stdout: "", stderr: "concord session-record: store is not open" }),
+    }),
+  })
+  const result: any = await rawHostResult(adapter.work_start.execute(bootstrapArgs, contextFor()))
+  expect(result.outcome).toBe("partial")
+  expect(result.error.recovery_action.kind).toBe("exact_replay")
+  expect(result.error.message).toContain("idempotency_key")
+  // CD-0098 retargets this session, so no child reports a model and none is
+  // claimed. A model the adapter cannot observe is not sent.
+  expect(JSON.parse(calls[3].input)).not.toHaveProperty("model")
+})
+
 // Issue #722: a worktree removal is safe only when no live session runs in the
 // directory it deletes. The store owns the worktree path and refuses on it;
 // the adapter owns the only truthful answer to which sessions are live and

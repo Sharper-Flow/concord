@@ -3658,6 +3658,23 @@ ALTER TABLE durable_operations ADD COLUMN contract_digest TEXT NOT NULL DEFAULT 
 			return !present, err
 		},
 	},
+	{
+		Version:  68,
+		Name:     "bootstrap_operations_drop_the_child_launch_model",
+		Breaking: true,
+		SQL: `
+-- Migration 66 dropped the child launch process columns when work start
+-- stopped spawning a session, and left this one. The model was the child's:
+-- the host read back which model executed the session it launched, and the
+-- record proved it. A retarget moves the calling session, so nothing reports a
+-- model and no reader ever consumed the column.
+--
+-- Leaving it was not free. session_record required a model on a completed
+-- launch, and the retarget could not supply one, so every work start recorded
+-- its success as invalid and returned a partial capture instead.
+ALTER TABLE bootstrap_operations DROP COLUMN launch_model;
+		`,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any

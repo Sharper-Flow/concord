@@ -13,15 +13,13 @@ import (
 // workflowActionGuardPhase names the point in the dispatcher's sequence where
 // a guard runs. The phases are separate because the guards are not
 // independent: stale recovery selects payload validation and lifecycle
-// legality, the actor guards produce state the event assembly reads, and the
-// claim guard runs after the durable operation is claimed.
+// legality, and the claim guard runs after the durable operation is claimed.
 type workflowActionGuardPhase int
 
 const (
 	guardPhaseRecovery workflowActionGuardPhase = iota
 	guardPhaseBoundary
 	guardPhasePostValidation
-	guardPhaseActor
 	guardPhaseClaim
 )
 
@@ -56,7 +54,6 @@ var workflowActionGuards = map[string]workflowActionGuard{
 	"supersede_contract":     {guardPhaseRecovery, guardSupersedeContractRecovery},
 	"complete":               {guardPhaseBoundary, guardCompleteBoundary},
 	"link_successor":         {guardPhasePostValidation, guardForwardLinkOnly},
-	"record_verdict":         {guardPhaseActor, guardRecordedActorTuple},
 	"cross_context_boundary": {guardPhaseClaim, guardNoRestartDispatch},
 }
 
@@ -116,6 +113,11 @@ func guardForwardLinkOnly(g *workflowActionGuardContext) error {
 
 // guardRecordedActorTuple verifies the authenticated actor against the durable
 // workflow actor record, or marks the actor for recording when no row exists.
+// It applies to every action rather than to one action ID, so the dispatcher
+// calls it directly instead of through the per-action table, as it does for
+// guardOperatorPremiseActor. Any action the current step declares is some
+// session's possible first action, and the folds that call requireActor refuse
+// until the row exists (issue #740).
 func guardRecordedActorTuple(g *workflowActionGuardContext) error {
 	var recordedPrincipal, recordedClient, recordedAgent, recordedSession string
 	recordErr := g.tx.QueryRowContext(g.ctx, `SELECT principal_ref,client_ref,agent_ref,session_ref FROM workflow_actors WHERE actor_ref=?`, g.actorRef).Scan(&recordedPrincipal, &recordedClient, &recordedAgent, &recordedSession)

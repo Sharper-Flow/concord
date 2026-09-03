@@ -12,15 +12,15 @@ import (
 // extending the inventory without a guard, fails here first.
 
 // guardedActions is the closed set of actions that carry an action-specific
-// guard in applyWorkflowActionRawTx. confirm_premise's operator-actor
-// constraint is deliberately absent: it applies to every action (an operator
-// actor is valid nowhere except premise confirmation), so it lives in
-// guardOperatorPremiseActor rather than the per-action table.
+// guard in applyWorkflowActionRawTx. Two guards are deliberately absent,
+// because each applies to every action and the dispatcher therefore calls it
+// directly: guardOperatorPremiseActor, since an operator actor is valid nowhere
+// except premise confirmation, and guardRecordedActorTuple, since any declared
+// action is some session's possible first action (issue #740).
 var guardedActions = map[string]workflowActionGuardPhase{
 	"supersede_contract":     guardPhaseRecovery,
 	"complete":               guardPhaseBoundary,
 	"link_successor":         guardPhasePostValidation,
-	"record_verdict":         guardPhaseActor,
 	"cross_context_boundary": guardPhaseClaim,
 }
 

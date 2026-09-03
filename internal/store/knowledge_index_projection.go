@@ -128,7 +128,7 @@ func PublishCompactionLink(ctx context.Context, s *Store, req CompactionLinkRequ
 		}
 		return wrapFailure(KindUnavailable, "publish_compaction_link", "cannot inspect work lifecycle", true, "retry once the database is readable", err)
 	}
-	if lifecycle != "completed" && lifecycle != "cancelled" && lifecycle != "superseded" {
+	if !isTerminalLifecycle(lifecycle) {
 		return newFailure(KindInvalidOperation, "publish_compaction_link", "work item is not terminal", false, "transition the work to a terminal state before linking its note")
 	}
 	if note.TerminalState != lifecycle {
@@ -575,6 +575,21 @@ func (s *Store) RebuildKnowledgeIndex(ctx context.Context, home KnowledgeHome) e
 	return nil
 }
 
+// derivedKnowledgeClearOrder lists every git-derived law and Domain table in
+// an order that clears each referencing table before the table it references.
+// TestDerivedKnowledgeClearOrderRespectsForeignKeys derives the same order
+// from the schema and refuses a drift.
+var derivedKnowledgeClearOrder = []string{
+	"law_relations",
+	"domain_relation_governing_laws",
+	"law_domain_applicability",
+	"law_domain_homes",
+	"law_subjects",
+	"domain_architecture_relations",
+	"domains",
+	"domain_registries",
+}
+
 func rebuildKnowledgeIndexTx(ctx context.Context, tx *sql.Tx, home KnowledgeHome, commit, digest string, notes []VerifiedNote, laws []KnowledgeRecord, manifestMissing bool, manifest KnowledgeManifest, domainProjectionData domainProjection) error {
 	if err := enterFold(ctx, tx); err != nil {
 		return err
@@ -588,16 +603,17 @@ func rebuildKnowledgeIndexTx(ctx context.Context, tx *sql.Tx, home KnowledgeHome
 			return wrapFailure(KindUnavailable, "rebuild_knowledge_index", "cannot clear git-derived "+table, true, "retry once the database is writable", err)
 		}
 	}
-	// The Domain projection clears before the law tables: its governing-law
-	// rows reference law_subjects ON DELETE RESTRICT, which SQLite checks at
-	// the statement even when the constraint is deferred.
-	for _, table := range []string{"domain_relation_governing_laws", "law_domain_applicability", "law_domain_homes", "domain_architecture_relations", "domains", "domain_registries"} {
-		if _, err := tx.ExecContext(ctx, "DELETE FROM "+table+" WHERE home_project_id=? AND home_locator_id=?", home.HomeProjectID, home.HomeLocatorID); err != nil { //nolint:gosec // table comes from the closed Domain table list and all values stay parameter-bound.
-			return wrapFailure(KindUnavailable, "rebuild_knowledge_index", "cannot clear Domain projection "+table, true, "retry once the database is writable", err)
-		}
-	}
-	for _, table := range []string{"law_relations", "law_subjects"} {
-		if _, err := tx.ExecContext(ctx, "DELETE FROM "+table+" WHERE home_project_id=? AND home_locator_id=?", home.HomeProjectID, home.HomeLocatorID); err != nil { //nolint:gosec // table comes from the closed law table list and all values stay parameter-bound.
+	// One clear, in dependency order: every table that references another
+	// derived table is cleared before its referent. law_subjects is referenced
+	// by law_relations, domain_relation_governing_laws, law_domain_homes, and
+	// law_domain_applicability; domains by domain_relation_governing_laws,
+	// law_domain_homes, law_domain_applicability, and
+	// domain_architecture_relations; domain_registries by domains. Two lists
+	// that each looked ordered once cleared law_subjects ahead of three of
+	// its referents, which no fixture noticed because none named a governing
+	// law; a populated home then refused every second rebuild.
+	for _, table := range derivedKnowledgeClearOrder {
+		if _, err := tx.ExecContext(ctx, "DELETE FROM "+table+" WHERE home_project_id=? AND home_locator_id=?", home.HomeProjectID, home.HomeLocatorID); err != nil { //nolint:gosec // table comes from the closed derived-table list and all values stay parameter-bound.
 			return wrapFailure(KindUnavailable, "rebuild_knowledge_index", "cannot clear git-derived "+table, true, "retry once the database is writable", err)
 		}
 	}

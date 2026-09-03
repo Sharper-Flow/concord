@@ -826,9 +826,7 @@ func scanWorkItems(ctx context.Context, tx *sql.Tx, query string, args ...any) (
 	return attachWorkMemberships(ctx, tx, out, ids)
 }
 
-func terminalState(lifecycle string) bool {
-	return lifecycle == "completed" || lifecycle == "cancelled" || lifecycle == "superseded"
-}
+func terminalState(lifecycle string) bool { return isTerminalLifecycle(lifecycle) }
 
 func attachDerivedFlags(ctx context.Context, tx *sql.Tx, items []WorkItem) ([]WorkItem, error) {
 	if len(items) == 0 {

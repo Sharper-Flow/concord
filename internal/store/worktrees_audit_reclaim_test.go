@@ -100,6 +100,59 @@ func TestWorktreeAuditReclaimsMergedTerminalWork(t *testing.T) {
 	}
 }
 
+// The store defines terminal once, in isTerminalLifecycle, and superseded is
+// in it. Every worktree gate that spelled terminal by hand as completed or
+// cancelled left a superseded item's worktree invisible to the audit and
+// refused by destroy without approval. This enumerates the store's own
+// terminal set: for each, a present, clean, merged worktree is classified
+// terminal_present and reclaims under the pass with no approval.
+func TestWorktreeAuditTreatsEveryStoreTerminalLifecycleAsTerminal(t *testing.T) {
+	for _, lifecycle := range []string{"completed", "cancelled", "superseded"} {
+		t.Run(lifecycle, func(t *testing.T) {
+			if !isTerminalLifecycle(lifecycle) {
+				t.Fatalf("fixture premise: %q is not terminal to the store", lifecycle)
+			}
+			s, git, _ := worktreeFixture(t)
+			ctx := context.Background()
+			auditWork(t, s, git, "work-done", true)
+			switch lifecycle {
+			case "superseded":
+				auditWork(t, s, git, "work-next", true)
+				if err := ApplyOperation(ctx, s, Operation{Events: []Event{workSupersededEvent("done-superseded", "work-next", "work-done", 3, 4)}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "work-done"): 3}}); err != nil {
+					t.Fatal(err)
+				}
+			default:
+				payload := `{"from":"needed","to":"` + lifecycle + `","reason":"fixture","expected_version":3,"resulting_version":4}`
+				if err := ApplyOperation(ctx, s, Operation{Events: []Event{{EventID: "done-" + lifecycle, Kind: "work.transitioned", SubjectType: SubjectWorkItem, SubjectID: "work-done", Actor: "operator", OccurredAt: time.Unix(30, 0).UTC(), PayloadVersion: 1, Payload: jsonRaw(payload)}}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "work-done"): 3}}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			audit, err := s.WorktreeAudit(ctx, "product-w", 100)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var classified bool
+			for _, row := range audit.Drift {
+				if row.WorkID == "work-done" && row.Class == WorktreeDriftTerminalPresent && row.Lifecycle == lifecycle {
+					classified = true
+				}
+			}
+			if !classified {
+				t.Fatalf("%s worktree not classified terminal_present: %+v", lifecycle, audit.Drift)
+			}
+			result, err := s.WorktreeAuditReclaim(ctx, WorktreeAuditReclaimRequest{ProductID: "product-w", DefaultRef: "origin/main", PrincipalRef: "principal-1", RequestID: "audit-" + lifecycle, Now: time.Unix(40, 0).UTC(), Runner: git, Limit: 100})
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, row := range result.Rows {
+				if row.WorkID == "work-done" && row.Outcome != WorktreeAuditReclaimed {
+					t.Fatalf("%s worktree not reclaimed: %+v", lifecycle, row)
+				}
+			}
+		})
+	}
+}
+
 // A session observed inside a terminal worktree keeps the stranding gate:
 // the audit must not remove the directory a live session runs in.
 func TestWorktreeAuditReclaimRefusesOccupiedWorktree(t *testing.T) {

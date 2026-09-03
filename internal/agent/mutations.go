@@ -1743,7 +1743,7 @@ func (r runtime) planWorktreeDestroy(ctx context.Context, base Envelope, raw []b
 	if err != nil {
 		return failureEnvelope(base, err), nil, true
 	}
-	if lifecycle != "completed" && lifecycle != "cancelled" {
+	if !store.IsTerminalLifecycle(lifecycle) {
 		plan.requiresApproval = true
 	}
 	if in.Destructive {
@@ -1947,7 +1947,7 @@ func (r runtime) planWorktreeReclaim(ctx context.Context, base Envelope, raw []b
 			if err != nil {
 				return nil, nil, nil, err
 			}
-			if lifecycle != "completed" && lifecycle != "cancelled" {
+			if !store.IsTerminalLifecycle(lifecycle) {
 				return nil, nil, nil, newRuntimeFailure("unauthorized", "implementation-bearing authority requires a linked worktree; the main checkout refuses it (CD-0092 D2)", "contact_operator", false)
 			}
 		}

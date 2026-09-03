@@ -522,7 +522,7 @@ func reclaimWorktreeRawTx(ctx context.Context, tx *sql.Tx, req WorktreeReclaimRe
 		if err != nil {
 			return out, wrapFailure(KindUnavailable, op, "cannot read the work item", true, "retry once the database is readable", err)
 		}
-		if lifecycle != "completed" && lifecycle != "cancelled" && req.OperatorApprovalRef == "" {
+		if !isTerminalLifecycle(lifecycle) && req.OperatorApprovalRef == "" {
 			return out, newFailure(KindInvalidTransition, op, "work item is "+lifecycle+", so its worktree is not merged terminal work", false, "complete or cancel the work first, or obtain an operator-approved destroy")
 		}
 		if req.Destructive && req.OperatorApprovalRef == "" {
@@ -988,7 +988,7 @@ func worktreeAudit(ctx context.Context, q queryer, root string, productID string
 	// Terminal work with an active entry: the same join, the other side of
 	// the lifecycle. The lifecycle rides along so the row can say which.
 	terminalLifecycle := map[string]string{}
-	terminalRows, err := q.QueryContext(ctx, `SELECT w.id, w.lifecycle FROM work_items w JOIN worktree_entries e ON e.set_id=?||w.id JOIN product_projects pp ON pp.project_id=e.project_id WHERE pp.product_id=? AND e.state='active' AND w.lifecycle IN ('completed','cancelled')`, worktreeSetPrefix, productID)
+	terminalRows, err := q.QueryContext(ctx, `SELECT w.id, w.lifecycle FROM work_items w JOIN worktree_entries e ON e.set_id=?||w.id JOIN product_projects pp ON pp.project_id=e.project_id WHERE pp.product_id=? AND e.state='active' AND w.lifecycle IN `+terminalLifecycleSQLList(), worktreeSetPrefix, productID) //nolint:gosec // the IN list is the closed terminal set, never caller input
 	if err != nil {
 		return WorktreeAudit{}, wrapFailure(KindUnavailable, "worktree_audit", "cannot read terminal work", true, "retry once the database is readable", err)
 	}

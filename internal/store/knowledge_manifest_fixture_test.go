@@ -115,6 +115,38 @@ func writeManifestFixture(t *testing.T, repo string, fixtures ...manifestFixture
 	writeKnowledgeFile(t, repo, knowledgeManifestPath, string(content)+"\n")
 }
 
+// setManifestGoverningLaw rewrites the committed fixture manifest so the
+// source Domain declares a depends_on relation on the target, governed by
+// lawID. It edits the file writeManifestFixture wrote, so the registry keeps
+// every Domain that fixture derived from record scopes.
+func setManifestGoverningLaw(t *testing.T, repo, source, target, lawID string) {
+	t.Helper()
+	path := filepath.Join(repo, filepath.FromSlash(knowledgeManifestPath))
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var manifest KnowledgeManifest
+	if err := json.Unmarshal(content, &manifest); err != nil {
+		t.Fatal(err)
+	}
+	var found bool
+	for i := range manifest.DomainRegistry.Domains {
+		if manifest.DomainRegistry.Domains[i].DomainID == source {
+			manifest.DomainRegistry.Domains[i].ArchitectureRelations = append(manifest.DomainRegistry.Domains[i].ArchitectureRelations, KnowledgeArchitectureRelation{Kind: "depends_on", TargetDomainID: target, GoverningLawIDs: []string{lawID}})
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("fixture manifest declares no Domain %q", source)
+	}
+	out, err := json.MarshalIndent(manifest, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeKnowledgeFile(t, repo, knowledgeManifestPath, string(out)+"\n")
+}
+
 func manifestFixtureFromFile(t *testing.T, repo string, id, kind, path, status, date, title, summary string, tags []string, scopes KnowledgeRecordScopes) manifestFixture {
 	t.Helper()
 	content, err := os.ReadFile(filepath.Join(repo, filepath.FromSlash(path)))

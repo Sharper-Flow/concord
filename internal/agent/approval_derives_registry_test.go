@@ -80,6 +80,11 @@ func TestProductChangingApprovalDerivesTheRegistryItPins(t *testing.T) {
 	if resp.Outcome != OutcomeOK {
 		t.Fatalf("approve_contract against a derived registry: %+v", resp.Error)
 	}
+	// The envelope is validated only at marshal, which in-process dispatch
+	// never reaches. Marshal what the CLI would send.
+	if _, err := json.Marshal(resp); err != nil {
+		t.Fatalf("approve_contract ok envelope does not marshal: %v", err)
+	}
 }
 
 // The approval owns its own demand. A registry an agent read earlier can be

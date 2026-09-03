@@ -898,9 +898,20 @@ func mapFailureKind(kind store.FailureKind) string {
 		return "stale_law_revision"
 	case store.KindDomainOverlap:
 		return "domain_overlap"
-	default:
-		return "internal_error"
 	}
+	// A store kind whose value is already a public kind passes through. The
+	// cases above are the genuine renames, where the store's name and the
+	// public name differ by intent. Everything else that names a public kind
+	// is that kind; collapsing it to internal_error told the caller a fault
+	// occurred and to contact the operator for a refusal it could have
+	// answered itself, and publicRecovery then discarded the store's remedy.
+	if store.TypedErrorKindAllowed(string(kind)) {
+		return string(kind)
+	}
+	// A store kind that names no public kind is an internal fault to the
+	// caller: the store raised something the contract cannot carry, which
+	// is a defect to fix at the store, never a refusal to act on.
+	return "internal_error"
 }
 
 func publicRecovery(kind, proposed string) string {
@@ -929,7 +940,17 @@ func publicRecovery(kind, proposed string) string {
 		return "request_approval"
 	case "invalid_transition", "invalid_relation", "invariant_violation", "invalid_input":
 		return "reread_entities"
+	case "not_terminal", "stale_requires_review", "idempotency_conflict", "degraded_not_allowed":
+		// The caller acts on state it can reread: a lifecycle, a review
+		// pin, a conflicting key, an index it may opt into degraded for.
+		return "reread_entities"
+	case "unknown_scope", "malformed_response", "transport_failure":
+		return "contact_operator"
 	default:
+		// Every public kind is named above or coupled; reaching here means
+		// a kind the vocabulary added without a recovery decision. That is
+		// a contract defect, and contact_operator is the honest answer for
+		// it, not a default any ordinary refusal should fall into.
 		return "contact_operator"
 	}
 }

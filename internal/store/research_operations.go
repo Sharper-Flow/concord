@@ -308,9 +308,6 @@ func boolInt(v bool) int {
 	}
 	return 0
 }
-func isTerminalLifecycle(v string) bool {
-	return v == "completed" || v == "cancelled" || v == "superseded"
-}
 func newResearchID(prefix string) string {
 	var b [12]byte
 	if _, err := rand.Read(b[:]); err != nil {

@@ -149,6 +149,39 @@ var lifecycleStates = map[string]bool{
 	"needed": true, "in_progress": true, "completed": true, "cancelled": true, "superseded": true,
 }
 
+// terminalLifecycles is the one definition of terminal work. A terminal item
+// holds no live implementation surface: its worktree may be reclaimed, its
+// observations are closed, and its completion cannot be re-entered. Every
+// gate that asks "is this terminal" consumes this set; a hand-spelled
+// completed-or-cancelled at a gate omitted superseded and left a superseded
+// item's worktree invisible to the audit and refused by destroy.
+var terminalLifecycles = []string{"completed", "cancelled", "superseded"}
+
+// IsTerminalLifecycle reports whether a lifecycle is terminal by the store's
+// one definition. Consumers outside the package use it so no gate re-spells
+// the set.
+func IsTerminalLifecycle(v string) bool { return isTerminalLifecycle(v) }
+
+func isTerminalLifecycle(v string) bool {
+	for _, terminal := range terminalLifecycles {
+		if v == terminal {
+			return true
+		}
+	}
+	return false
+}
+
+// terminalLifecycleSQLList renders the terminal set as a parenthesised SQL
+// list of quoted literals for an IN clause. The values are the closed set
+// above, never caller input.
+func terminalLifecycleSQLList() string {
+	quoted := make([]string, len(terminalLifecycles))
+	for i, v := range terminalLifecycles {
+		quoted[i] = "'" + v + "'"
+	}
+	return "(" + strings.Join(quoted, ",") + ")"
+}
+
 // The ordinary transition table deliberately excludes supersession and reopen.
 // Those composite operations have extra relation and terminality invariants.
 var ordinaryTransitions = map[string]map[string]bool{
@@ -809,7 +842,7 @@ func validateWorkVersion(event Event, current, expected, resulting int64) error 
 func updateWorkLifecycle(ctx context.Context, tx *sql.Tx, event Event, lifecycle string, current, resulting int64) error {
 	now := event.OccurredAt.UTC().Format(time.RFC3339Nano)
 	var terminalTime any
-	if lifecycle == "completed" || lifecycle == "cancelled" || lifecycle == "superseded" {
+	if isTerminalLifecycle(lifecycle) {
 		terminalTime = now
 	}
 	result, err := tx.ExecContext(ctx, `

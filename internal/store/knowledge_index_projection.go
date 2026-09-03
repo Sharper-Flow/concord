@@ -663,19 +663,17 @@ func rebuildKnowledgeIndexTx(ctx context.Context, tx *sql.Tx, home KnowledgeHome
 	if _, err := tx.ExecContext(ctx, `DELETE FROM knowledge_kind_coverage WHERE home_project_id=? AND home_locator_id=? AND head_ref=?`, home.HomeProjectID, home.HomeLocatorID, home.HeadRef); err != nil {
 		return wrapFailure(KindUnavailable, "rebuild_knowledge_index", "cannot clear knowledge kind coverage", true, "retry once the database is writable", err)
 	}
-	coverage := map[string]string{
-		"work_note": "indexed",
-		"lesson":    "supported_not_indexed",
-		"decision":  "supported_not_indexed",
-		"spec":      "supported_not_indexed",
-		"research":  "supported_not_indexed",
+	coverage := map[string]string{}
+	for kind := range knowledgeKindsClosed {
+		coverage[kind] = "supported_not_indexed"
 	}
+	coverage["work_note"] = "indexed"
 	if !manifestMissing {
 		for _, kind := range manifest.IndexedKinds {
 			coverage[kind] = "indexed"
 		}
 	}
-	for _, kind := range []string{"work_note", "lesson", "decision", "spec", "research"} {
+	for _, kind := range sortedKnowledgeKinds() {
 		reason := "manifest absent at scanned commit"
 		if kind == "work_note" {
 			reason = "canonical docs/work directory scanned"

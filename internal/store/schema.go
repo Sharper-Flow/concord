@@ -3746,6 +3746,67 @@ DROP TABLE session_worktree_targets;
 ALTER TABLE knowledge_index_watermark ADD COLUMN scanned_content_digest TEXT NOT NULL DEFAULT '';
 		`,
 	},
+	{
+		Version:  71,
+		Name:     "knowledge_kind_coverage_spans_the_closed_vocabulary",
+		Breaking: true,
+		SQL: `
+-- The manifest vocabulary closes over seven kinds, and the manifest indexes
+-- constitution and reference records, but the coverage table admitted five.
+-- A search filtered to either indexed kind refused as unavailable, so the
+-- largest non-decision kind was unreachable by name. Coverage rows are
+-- derived from the scanned commit, so the table is recreated rather than
+-- copied, and the watermark digest is blanked so the next read rebuilds the
+-- index and writes a row for every closed kind.
+DROP TABLE knowledge_kind_coverage;
+CREATE TABLE knowledge_kind_coverage (
+    home_project_id     TEXT NOT NULL,
+    home_locator_id     TEXT NOT NULL,
+    head_ref            TEXT NOT NULL,
+    kind                TEXT NOT NULL CHECK(kind IN ('work_note','constitution','decision','spec','lesson','reference','research')),
+    coverage            TEXT NOT NULL CHECK(coverage IN ('indexed','supported_not_indexed')),
+    reason              TEXT NOT NULL,
+    scanned_commit_oid  TEXT NOT NULL,
+    PRIMARY KEY(home_project_id, home_locator_id, head_ref, kind)
+);
+CREATE INDEX knowledge_kind_coverage_lookup ON knowledge_kind_coverage(home_project_id, home_locator_id, head_ref, kind);
+CREATE TRIGGER knowledge_kind_coverage_guard_insert
+BEFORE INSERT ON knowledge_kind_coverage FOR EACH ROW
+BEGIN
+    SELECT RAISE(ABORT, 'knowledge_kind_coverage is fold-only')
+    WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1);
+END;
+CREATE TRIGGER knowledge_kind_coverage_guard_update
+BEFORE UPDATE ON knowledge_kind_coverage FOR EACH ROW
+BEGIN
+    SELECT RAISE(ABORT, 'knowledge_kind_coverage is fold-only')
+    WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1);
+END;
+CREATE TRIGGER knowledge_kind_coverage_guard_delete
+BEFORE DELETE ON knowledge_kind_coverage FOR EACH ROW
+BEGIN
+    SELECT RAISE(ABORT, 'knowledge_kind_coverage is fold-only')
+    WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1);
+END;
+CREATE TRIGGER knowledge_kind_coverage_home_pair_bound_insert
+BEFORE INSERT ON knowledge_kind_coverage FOR EACH ROW
+WHEN NOT EXISTS (SELECT 1 FROM project_locators pl
+                 WHERE pl.project_id = NEW.home_project_id AND pl.locator_id = NEW.home_locator_id)
+BEGIN
+    SELECT RAISE(ABORT, 'knowledge_kind_coverage home pair does not reference a Project locator');
+END;
+CREATE TRIGGER knowledge_kind_coverage_home_pair_bound_update
+BEFORE UPDATE OF home_project_id, home_locator_id ON knowledge_kind_coverage FOR EACH ROW
+WHEN NOT EXISTS (SELECT 1 FROM project_locators pl
+                 WHERE pl.project_id = NEW.home_project_id AND pl.locator_id = NEW.home_locator_id)
+BEGIN
+    SELECT RAISE(ABORT, 'knowledge_kind_coverage home pair does not reference a Project locator');
+END;
+INSERT OR IGNORE INTO fold_guard(active) VALUES (1);
+UPDATE knowledge_index_watermark SET scanned_content_digest = '';
+DELETE FROM fold_guard;
+		`,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any

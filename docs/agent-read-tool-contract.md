@@ -106,7 +106,7 @@ the one canonical locator for a known terminal work/knowledge item.
 
 | Operation | PM1 | Required/optional inputs | Typed payload |
 |---|---|---|---|
-| `search` | Q9 | Product scope; optional Project/domain; closed knowledge kinds; tags; bounded text; time window; cursor/limit | `knowledge_page`: summaries, canonical locators, commit/content identity, and index watermark |
+| `search` | Q9 | Product scope; optional Project/domain; closed knowledge kinds (every manifest kind, with `specification` and `note` as aliases for `spec` and `work_note`); tags; bounded text; time window; cursor/limit | `knowledge_page`: summaries, canonical locators, commit/content identity, and index watermark |
 | `resolve_note` | Q10 | exactly one work or knowledge reference | `canonical_note_result`: one locator or typed not-compacted/missing/ambiguous outcome |
 
 Search never returns an unbounded artifact body. A canonical locator identifies the

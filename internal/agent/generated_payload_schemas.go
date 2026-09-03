@@ -2007,11 +2007,13 @@ const GeneratedPayloadSchemaDocument = `{
               },
               "kind": {
                 "enum": [
+                  "constitution",
                   "decision",
                   "lesson",
-                  "specification",
                   "note",
-                  "research"
+                  "reference",
+                  "research",
+                  "specification"
                 ],
                 "type": "string"
               },
@@ -2136,11 +2138,13 @@ const GeneratedPayloadSchemaDocument = `{
         "kinds": {
           "items": {
             "enum": [
+              "constitution",
               "decision",
               "lesson",
-              "specification",
               "note",
-              "research"
+              "reference",
+              "research",
+              "specification"
             ],
             "type": "string"
           },

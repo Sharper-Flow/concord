@@ -367,7 +367,7 @@ question is:
 | `design-constraints.md` §4 | The ownership record is Concord-owned state → lock-free, append-only, no repair. Stage transitions are appends (§8.5). |
 | `self-documentation.md` §1 | The browse surface uses Product → Domain navigation. |
 | `workflows.md` §2.5 | Workflows are reached from Product → Domain. |
-| `vertical-integration.md` | Whether lgrep/vision/episode become Product-scoped touches this model. |
+| `vertical-integration.md` | Whether lgrep/vision become Product-scoped touches this model. |
 
 ---
 

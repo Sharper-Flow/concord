@@ -1,0 +1,35 @@
+{
+  "date": "2026-09-03T00:00:00Z",
+  "evidence": [
+    "docs/clarifications.md",
+    "docs/vertical-integration.md"
+  ],
+  "home_domain_id": "product-root:concord",
+  "id": "CD-0106",
+  "kind": "decision",
+  "law_relations": [
+    {
+      "kind": "supersedes",
+      "target_id": "CD-0086"
+    }
+  ],
+  "path": "docs/decisions/CD-0106-lesson-owns-the-knowledge-ladder.md",
+  "product_wide_rationale": "Removes one tool from every session and fixes the three-rung knowledge ladder that every Domain's lessons and decisions climb, so it binds Product-wide rather than owning a runtime Domain.",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:6f26703e34642d879eccab9f515f19a550a9cebf2799f3cf69caa70256a704fe",
+  "status": "accepted",
+  "summary": "episode is removed as an external authority and CD-0086 is superseded in full. The knowledge ladder is observation, lesson, decision, and every rung exists today. lesson graduation replaces the episode promotion seam. External-system identity lives in managed_resources and learned usage is a lesson tagged resource:<id>; a record stores a vendor documentation locator, never vendor content. The seven episode rows are exported and migrate to lesson records in their own Product homes.",
+  "tags": [
+    "knowledge",
+    "lesson",
+    "episode",
+    "product-law"
+  ],
+  "title": "lesson owns the knowledge ladder"
+}

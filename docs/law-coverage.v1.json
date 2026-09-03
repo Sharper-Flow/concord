@@ -1702,6 +1702,11 @@
       "state": "satisfied"
     },
     {
+      "id": "CD-0106",
+      "reason": "This decision removes an external integration, fixes the knowledge ladder over existing rungs, and changes no runtime behavior. The follow-up items that add runtime surfaces carry their own coverage.",
+      "state": "out_of_scope"
+    },
+    {
       "evidence": [
         {
           "kind": "go_test",

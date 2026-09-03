@@ -140,7 +140,7 @@ priorities, and quality governance are defined in [`priorities.md`](./priorities
 | [`feature-inventory.md`](./feature-inventory.md) | Capability inventory and placement rubric. |
 | [`capability-placement.md`](./capability-placement.md) | Where each capability belongs by shape, including external/native ownership. |
 | [`market-landscape.md`](./market-landscape.md) | Competitor and adjacent-tool research. |
-| [`vertical-integration.md`](./vertical-integration.md) | Product-scoping for lgrep / vision / episode / ZLauncher. |
+| [`vertical-integration.md`](./vertical-integration.md) | Product-scoping for lgrep / vision / ZLauncher. |
 
 ---
 

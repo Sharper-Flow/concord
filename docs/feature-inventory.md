@@ -421,7 +421,7 @@ once [`priorities.md`](./priorities.md) is stable.
 | `design-constraints.md` | Hard constraints on storage, UI, workflow evolution. |
 | `specs-as-laws.md` | Spec-conflict HITL evolution flow. |
 | `clarifications.md` | Open questions and resolved directions. |
-| `vertical-integration.md` | Product-scoping of lgrep/vision/episode. |
+| `vertical-integration.md` | Product-scoping of lgrep/vision. |
 
 ---
 

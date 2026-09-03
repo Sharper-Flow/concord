@@ -904,9 +904,12 @@ test("work start refuses before any effect when the host handed the plugin no cl
   expect(result.error.message).toContain("this host handed the plugin no client")
   expect(result.error.message).toContain("host version")
   // The remedy travels with the refusal, because the condition is one the
-  // operator repairs by starting the session differently.
-  expect(result.error.message).toContain("opencode serve")
-  expect(result.error.message).toContain("opencode attach")
+  // operator repairs by starting the session differently. It must not name a
+  // separate server: CD-0098 D2 takes the transport from the client the plugin
+  // factory hands the adapter, so `opencode serve` repairs nothing here.
+  expect(result.error.message).toContain("restart this session on an OpenCode build")
+  expect(result.error.message).not.toContain("opencode serve")
+  expect(result.error.message).not.toContain("opencode attach")
   // Nothing was captured, so there is nothing to roll back and nothing to
   // resume: the probe ran before work-bootstrap.
   expect(calls.map(({ argv }) => argv[1])).toEqual(["project-resolve"])
@@ -924,7 +927,8 @@ test("work start refuses before any effect when the host control plane cannot be
   expect(result.outcome).not.toBe("ok")
   expect(result.error.effect_state).toBe("none")
   expect(result.error.message).toContain("the host control plane is unreachable")
-  expect(result.error.message).toContain("opencode serve")
+  expect(result.error.message).toContain("restart this session on an OpenCode build")
+  expect(result.error.message).not.toContain("opencode serve")
   expect(calls.map(({ argv }) => argv[1])).toEqual(["project-resolve"])
 })
 

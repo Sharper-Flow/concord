@@ -10,6 +10,8 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -118,6 +120,61 @@ func TestDispatchFoldOpensAFencedWindowAgainstTheStepEpoch(t *testing.T) {
 	}
 	if attemptEpoch < 1 {
 		t.Fatalf("attempt_epoch = %d, want >=1", attemptEpoch)
+	}
+}
+
+// TestDispatchWorkerResultKeysAreDeclaredByTheMutationResultSchema binds
+// the store's dispatch_worker result to the closed mutation_result schema
+// the agent boundary validates against. The store emits worker_packet_digest
+// on that result (CD-0067 D6); a key the schema does not name refuses every
+// dispatch before a worker starts (issue #771).
+func TestDispatchWorkerResultKeysAreDeclaredByTheMutationResultSchema(t *testing.T) {
+	ctx := context.Background()
+	s := openTemp(t)
+	seed := seedDispatchFixture(t, s, "work-dispatch-shape")
+	packetPayload, err := json.Marshal(dispatchWorkerPacket(seed.workID, "execution", "attempt-shape"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	fieldsPayload, err := json.Marshal(map[string]any{"attempt_id": "attempt-shape", "worker_packet": json.RawMessage(packetPayload)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := invokeWorkflowActionForCD0059(ctx, t, s, WorkflowActionExecutionRequest{
+		WorkID: seed.workID, ExpectedVersion: readWorkVersion(t, s, seed.workID), ActionID: "dispatch_worker",
+		Payload: fieldsPayload,
+		Actor:   seed.ownerActor, AcceptedInputsDigest: cd0059TestDigest(t, "shape-inputs"),
+		IdempotencyIdentity: "shape-op", OperationID: "op-shape", PrincipalRef: seed.ownerActor.PrincipalRef,
+		Tool: "concord_work_transition", IdempotencyKey: "shape-key", RequestID: "req-shape",
+		AcceptedScope: `{}`, ContractDigest: testManifestDigest,
+	})
+	if err != nil {
+		t.Fatalf("dispatch_worker invocation failed: %v", err)
+	}
+	var emitted map[string]json.RawMessage
+	if err := json.Unmarshal(result.Result, &emitted); err != nil {
+		t.Fatalf("decode dispatch result: %v", err)
+	}
+	if _, ok := emitted["worker_packet_digest"]; !ok {
+		t.Fatalf("dispatch_worker result carries no worker_packet_digest: %s", result.Result)
+	}
+	raw, err := os.ReadFile(filepath.Join("..", "..", "contracts", "agent-tool-surface-payloads.schema.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var schema struct {
+		Defs map[string]struct {
+			Properties map[string]json.RawMessage `json:"properties"`
+		} `json:"$defs"`
+	}
+	if err := json.Unmarshal(raw, &schema); err != nil {
+		t.Fatal(err)
+	}
+	declared := schema.Defs["mutation_result"].Properties
+	for key := range emitted {
+		if _, ok := declared[key]; !ok {
+			t.Fatalf("dispatch_worker result key %q is not declared by $defs.mutation_result; the agent boundary refuses it", key)
+		}
 	}
 }
 

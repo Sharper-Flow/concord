@@ -6,7 +6,7 @@ import (
 	"fmt"
 )
 
-const ManifestDigest = "sha256:6da9a2813d5cb61ad50c08f4739845a2c282e2098c0f85fd53e3c295af90add6"
+const ManifestDigest = "sha256:5ef439697ce137797f83f07f5a13b44eabf8e5d5ca02500a42e6ee41d429ef9f"
 
 type OperationKind string
 
@@ -166,7 +166,7 @@ var GeneratedPayloadRules = map[string]GeneratedPayloadRule{
 	"knowledge_scopes_input":                       {Required: []string{"mode"}, Properties: []string{"mode", "product_ids", "project_ids", "tag_ids"}},
 	"knowledge_search_input":                       {Required: []string{"page"}, Properties: []string{"product_id", "project_id", "kinds", "tags", "text", "since", "until", "allow_degraded", "page", "budget", "domain_id", "requested_budget_seconds"}},
 	"knowledge_unprocessed_input":                  {Required: []string{}, Properties: []string{"product_id", "project_id", "page", "limit"}},
-	"mutation_result":                              {Required: []string{"changed_refs", "next_valid_intents"}, Properties: []string{"changed_refs", "next_valid_intents", "operation_id"}},
+	"mutation_result":                              {Required: []string{"changed_refs", "next_valid_intents"}, Properties: []string{"changed_refs", "next_valid_intents", "operation_id", "worker_packet_digest"}},
 	"observed_universe":                            {Required: []string{"shape", "applied_scope", "coverage", "total_kind", "canonical_identity_key"}, Properties: []string{"shape", "applied_scope", "anchor_token", "structure_digest", "coverage", "observed_count", "observed_refs", "total_kind", "total_value", "completion_evidence", "canonical_identity_key", "omissions"}},
 	"operator_choice":                              {Required: []string{"id", "label", "description", "action_id"}, Properties: []string{"id", "label", "description", "action_id"}},
 	"operator_question":                            {Required: []string{"action_id", "prompt", "header", "choices", "allow_multiple", "allow_custom", "premise_summary", "contract_summary", "decision_context_digest"}, Properties: []string{"action_id", "prompt", "header", "choices", "allow_multiple", "allow_custom", "premise_summary", "contract_summary", "decision_context_digest"}},

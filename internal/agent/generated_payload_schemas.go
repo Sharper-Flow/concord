@@ -2302,6 +2302,10 @@ const GeneratedPayloadSchemaDocument = `{
         },
         "operation_id": {
           "$ref": "#/$defs/id"
+        },
+        "worker_packet_digest": {
+          "$ref": "#/$defs/digest",
+          "description": "CD-0067 D6: the canonical lane-packet digest a dispatch_worker action recorded. Present on that action's result only; the adapter binds the worker start to it."
         }
       },
       "required": [

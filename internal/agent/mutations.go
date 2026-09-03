@@ -676,6 +676,16 @@ func preflightWorkflowActionRequestWithRegistry(ctx context.Context, s *store.St
 	if err := store.ValidateWorkflowOperatorSelection(ctx, s, in.WorkID, in.ExpectedVersion, in.ActionID, in.SelectedChoice, in.DecisionContextDigest); err != nil {
 		return err
 	}
+	// An approval carries an architecture binding that the mutation verifies
+	// against the derived Domain registry inside its transaction. The demand
+	// for a fresh registry is therefore here, before that transaction opens
+	// (CD-0082 D1, and the single-connection rule: a rebuild needs the
+	// connection the transaction would hold).
+	if in.ActionID == "approve_contract" || in.ActionID == "supersede_contract" {
+		if err := s.EnsureWorkProductKnowledgeFresh(ctx, in.WorkID); err != nil {
+			return err
+		}
+	}
 	return store.WorkflowActionPreflightWithRegistry(ctx, s, registry, store.WorkflowActionPreflightRequest{
 		WorkID:                in.WorkID,
 		ExpectedVersion:       in.ExpectedVersion,

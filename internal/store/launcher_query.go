@@ -109,6 +109,12 @@ func (s *Store) QueryLauncherSearch(ctx context.Context, req LauncherSearchReque
 	knowledgeWatermark, knowledgeAuthority := "unavailable", "unavailable"
 	knowledgeAvailable := homeErr == nil
 	if knowledgeAvailable {
+		// The launcher read is a demand too (CD-0082 D1). It runs with no
+		// transaction open, so a stale index rebuilds here; an unreachable
+		// home is left to the degraded verdict below.
+		if err := s.EnsureKnowledgeIndexFresh(ctx, home); err != nil {
+			return out, err
+		}
 		knowledgeWatermark, knowledgeAuthority, err = validateKnowledgeHomeForQuery(ctx, s, home, true, "launcher.search")
 		if err != nil {
 			return out, err

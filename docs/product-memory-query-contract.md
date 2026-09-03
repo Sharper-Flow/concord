@@ -106,6 +106,12 @@ errors or explicitly degraded results.
 - Q9–Q10 may use a rebuildable knowledge index, but return the canonical git
   commit/hash and index watermark. Lag or omissions are typed `degraded`, never
   silently complete.
+- The index is fresh when the content it projects is unchanged at the current
+  head, not when the head itself is unchanged. A commit that touches no
+  projected content leaves the index authoritative. A read is the demand that
+  rebuilds a stale index (CD-0082 D1); no operator step sits between the demand
+  and the answer. Lag therefore means content the index cannot reach, and it
+  stays typed `degraded`.
 - Partial results are allowed only when the caller permits degradation and the
   response identifies omitted records and why. No natural-language guessing.
 
@@ -288,8 +294,9 @@ The JSON corpus is executable through a candidate adapter implementing
 - **Oracle:** knowledge is found through one bounded domain query, not repeated
   list→show→search choreography; index lag is explicit.
 - **Authority note:** an indexed answer is `authoritative` only when its watermark
-  proves completeness against every applicable canonical git authority head;
-  otherwise it is `degraded`. Accepted PM6 supplies canonical home/locator semantics.
+  proves completeness against the projected content at every applicable canonical
+  git authority head; otherwise it is `degraded`. Accepted PM6 supplies canonical
+  home/locator semantics.
 
 ### Q10. Resolve canonical durable note
 

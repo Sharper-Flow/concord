@@ -3724,6 +3724,28 @@ CREATE INDEX bootstrap_operations_state ON bootstrap_operations(state, updated_a
 DROP TABLE session_worktree_targets;
 		`,
 	},
+	{
+		Version: 70,
+		Name:    "knowledge_index_watermark_carries_a_content_digest",
+		SQL: `
+-- The knowledge index derives from two committed objects: the manifest blob
+-- at docs/concord-knowledge-index.v1.json, which embeds every record's
+-- sha256, and the canonical work-note tree at docs/work/. Freshness was
+-- decided by commit identity, so any commit to the home, including one that
+-- touched no knowledge content, turned the index stale and every strict
+-- knowledge read refused. On a repository whose knowledge home is its own
+-- source tree that is every merge.
+--
+-- The watermark now records a digest of the two object IDs the projection
+-- read. Freshness compares that digest with the same two objects at the
+-- current head: unchanged content stays authoritative across any number of
+-- commits, and a changed record or note turns it stale. The commit OID
+-- remains as provenance. An empty digest on an existing row reads as stale,
+-- so an index built before this migration rebuilds once and then carries
+-- its digest.
+ALTER TABLE knowledge_index_watermark ADD COLUMN scanned_content_digest TEXT NOT NULL DEFAULT '';
+		`,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any

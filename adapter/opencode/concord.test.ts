@@ -432,6 +432,75 @@ const runTransition = (runner: any, ask?: () => Promise<void>) => {
   return rawHostResult(adapter.work_transition.execute(hostCall("lifecycle", { work_id: "work-1", expected_version: 2, target: "completed", reason: "done", idempotency_key: "idem-1" }), contextFor(ask)))
 }
 
+// mutations.go builds every workflow_action challenge with
+// `"selected_choice": in.SelectedChoice`. That field is a Go string, so an
+// action carrying no selection serializes it as "" rather than omitting it.
+// The tool surface admits the field only on confirm_premise, so a correct
+// caller sends nothing at all. A challenge check that compares the two values
+// refuses every approval-gated action except confirm_premise, and
+// approve_contract is the planning checkpoint in all seven workflows.
+//
+// These tests drive the whole challenge rather than asserting on the field
+// list, because the field list passed while the comparison still refused.
+const workflowActionChallenge = (actionID: string, selectedChoice = "") => ({
+  ...approvalChallenge(), operation: "workflow_action",
+  error: {
+    kind: "approval_required", retry_safe: false, recovery_action: { kind: "request_approval" }, effect_state: "none",
+    details: {
+      approval_ref: "challenge-1", operation_digest: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      scope: ["product:product-1", "project:project-1", "work:work-1"], versions: ["work:2"],
+      work_id: "work-1", action_id: actionID, contract_version: "3",
+      selected_choice: selectedChoice, premise_summary: "approve the exact workflow action",
+      decision_context_digest: "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    },
+  },
+})
+const runWorkflowAction = (runner: any, input: Record<string, unknown>, ask?: () => Promise<void>) => {
+  adapter.configureConcordAdapter({ runner })
+  return rawHostResult(adapter.work_transition.execute(hostCall("workflow_action", input), contextFor(ask)))
+}
+const challengeRunner = (challenge: unknown) => {
+  let calls = 0
+  return { async run() {
+    calls++
+    if (calls === 1) return { exitCode: 0, stdout: JSON.stringify(contextResponse()), stderr: "" }
+    if (calls === 2) return { exitCode: 0, stdout: JSON.stringify(challenge), stderr: "" }
+    return { exitCode: 0, stdout: JSON.stringify({ ...approvalSuccess(), operation: "workflow_action" }), stderr: "" }
+  } }
+}
+
+test("approve_contract clears the approval challenge the core actually builds", async () => {
+  let approvals = 0
+  const result: any = await runWorkflowAction(
+    challengeRunner(workflowActionChallenge("approve_contract")),
+    { work_id: "work-1", expected_version: 2, action_id: "approve_contract", idempotency_key: "idem-1" },
+    async () => { approvals++ },
+  )
+  expect(result.outcome).toBe("ok")
+  expect(approvals).toBe(1)
+})
+
+test("confirm_premise still binds the selection it carries", async () => {
+  // The one action whose schema admits a selection must still agree with the
+  // core, or an operator could approve a choice they did not make.
+  const mismatched: any = await runWorkflowAction(
+    challengeRunner(workflowActionChallenge("confirm_premise", "revise")),
+    { work_id: "work-1", expected_version: 2, action_id: "confirm_premise", selected_choice: "confirm", decision_context_digest: "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", idempotency_key: "idem-2" },
+    async () => {},
+  )
+  expect(mismatched.outcome).not.toBe("ok")
+  expect(mismatched.error.adapter_reason).toBe("malformed_core_response")
+
+  let approvals = 0
+  const agreed: any = await runWorkflowAction(
+    challengeRunner(workflowActionChallenge("confirm_premise", "confirm")),
+    { work_id: "work-1", expected_version: 2, action_id: "confirm_premise", selected_choice: "confirm", decision_context_digest: "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", idempotency_key: "idem-3" },
+    async () => { approvals++ },
+  )
+  expect(agreed.outcome).toBe("ok")
+  expect(approvals).toBe(1)
+})
+
 const coreEnvelope = (tool: string, operation: string, outcome: string, fields: Record<string, unknown> = {}) => ({
   schema_version: "1.0", manifest_digest: manifestDigest, request_id: "session-1-message-1", origin: "core", tool, operation, ...((contractOperations.find((candidate: any) => candidate.tool === tool && candidate.id.endsWith(`.${operation}`)) as any)?.query_id ? { query_id: (contractOperations.find((candidate: any) => candidate.tool === tool && candidate.id.endsWith(`.${operation}`)) as any).query_id } : {}), outcome, resolved_scope: null, authority: "authoritative", freshness: null, source_version_watermark: [], ordering_keys: [], next_cursor: null, omissions: [], warnings: [], evidence_refs: [], replayed: false, ...fields,
 })

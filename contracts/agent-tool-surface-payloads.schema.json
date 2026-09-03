@@ -1770,11 +1770,13 @@
           "items": {
             "type": "string",
             "enum": [
+              "constitution",
               "decision",
               "lesson",
-              "specification",
               "note",
-              "research"
+              "reference",
+              "research",
+              "specification"
             ]
           }
         },
@@ -2480,11 +2482,13 @@
               "kind": {
                 "type": "string",
                 "enum": [
+                  "constitution",
                   "decision",
                   "lesson",
-                  "specification",
                   "note",
-                  "research"
+                  "reference",
+                  "research",
+                  "specification"
                 ]
               },
               "locator": {

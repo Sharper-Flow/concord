@@ -47,6 +47,24 @@ var knowledgeKindsClosed = map[string]bool{
 	"research":     true,
 }
 
+// sortedKnowledgeKinds returns the closed knowledge vocabulary in a stable
+// order for filters, coverage rows, and refusal text.
+func sortedKnowledgeKinds() []string {
+	kinds := make([]string, 0, len(knowledgeKindsClosed))
+	for kind := range knowledgeKindsClosed {
+		kinds = append(kinds, kind)
+	}
+	sort.Strings(kinds)
+	return kinds
+}
+
+// KnowledgeKinds is the closed knowledge vocabulary in stable order. The
+// agent surface binds its kind filter to this set so a kind the manifest can
+// index is never unreachable by name.
+func KnowledgeKinds() []string {
+	return sortedKnowledgeKinds()
+}
+
 // manifestRecordKinds is every kind a manifest record may declare. work_note is
 // a supported knowledge kind that no record carries, so it is absent here.
 var manifestRecordKinds = map[string]bool{

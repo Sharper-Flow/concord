@@ -53,6 +53,18 @@ type manifestFixture struct {
 // fixtureRootHomeRationale is the claim a RootHomed fixture states.
 const fixtureRootHomeRationale = "Fixture law binds every child Domain."
 
+// fixtureIndexedKinds declares every closed kind indexed except research, so
+// a test can tell an indexed-empty kind from a supported-not-indexed one.
+func fixtureIndexedKinds() []string {
+	kinds := make([]string, 0, len(knowledgeKindsClosed))
+	for _, kind := range sortedKnowledgeKinds() {
+		if kind != "research" {
+			kinds = append(kinds, kind)
+		}
+	}
+	return kinds
+}
+
 func writeManifestFixture(t *testing.T, repo string, fixtures ...manifestFixture) {
 	t.Helper()
 	digestRoot := sha256.Sum256([]byte(repo))
@@ -90,7 +102,7 @@ func writeManifestFixture(t *testing.T, repo string, fixtures ...manifestFixture
 		}
 		records = append(records, record)
 	}
-	manifest := KnowledgeManifest{SchemaVersion: "1.2", SupportedKinds: []string{"work_note", "decision", "spec", "lesson", "research"}, IndexedKinds: []string{"work_note", "decision", "spec", "lesson"}, Records: records}
+	manifest := KnowledgeManifest{SchemaVersion: "1.2", SupportedKinds: sortedKnowledgeKinds(), IndexedKinds: fixtureIndexedKinds(), Records: records}
 	registryDomains := []KnowledgeDomain{
 		{DomainID: fixtureRootDomain, Name: fixtureProductKey, Purpose: "fixture registry", Status: "current", ArchitectureRelations: []KnowledgeArchitectureRelation{}},
 		{DomainID: fixtureLawDomain, Name: fixtureLawDomain, Purpose: "fixture law home", ParentDomainID: fixtureRootDomain, Status: "current", ArchitectureRelations: []KnowledgeArchitectureRelation{}},

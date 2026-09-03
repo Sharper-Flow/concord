@@ -495,11 +495,10 @@ func knowledgeLimit(limit int) (int, error) {
 }
 
 func knowledgeKinds(values []string) ([]string, error) {
-	allowed := map[string]bool{"work_note": true, "lesson": true, "decision": true, "spec": true, "research": true}
 	values = orderedStrings(nonEmptyStrings(values))
 	for _, value := range values {
-		if !allowed[value] {
-			return nil, newFailure(KindInvalidFilter, "PM1.Q9", "unknown knowledge kind "+value, false, "use work_note, lesson, decision, spec, or research")
+		if !knowledgeKindsClosed[value] {
+			return nil, newFailure(KindInvalidFilter, "PM1.Q9", "unknown knowledge kind "+value, false, "use one of "+strings.Join(sortedKnowledgeKinds(), ", "))
 		}
 	}
 	return values, nil

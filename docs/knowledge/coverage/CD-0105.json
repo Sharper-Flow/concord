@@ -1,0 +1,22 @@
+{
+  "evidence": [
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestWorktreeAuditClassifiesTerminalPresentWorktrees"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestWorktreeAuditReclaimsMergedTerminalWork"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestWorktreeAuditReclaimRefusesOccupiedWorktree"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/agent.TestWorktreeAuditReclaimDispatchReclaimsTerminalWorkOnly"
+    }
+  ],
+  "id": "CD-0105",
+  "state": "satisfied"
+}

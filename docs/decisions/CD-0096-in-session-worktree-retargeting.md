@@ -13,7 +13,8 @@
 - **Amended by:** CD-0104 at Context, D1, D3 Take over, D5, and D6. The
   effective target was a stored copy of the session directory, kept because
   the session could not move. CD-0098 moved the session, and CD-0104 removed
-  the copy. D2, D3 Inspect, Verify, and Destroy, and D4 stand.
+  the copy. D2, D3 Inspect, Verify, and Destroy, and D4 stand. CD-0105 at D3
+  Destroy names the trigger this tier left unnamed.
 
 ## Context
 
@@ -105,7 +106,8 @@ authority fails typed, naming the owner identity and the recovery action.
 **Destroy.** Removing a worktree reclaims merged terminal work under the
 CD-0095 store gates. A dirty tree refuses, and an unmerged branch refuses.
 Removal of non-terminal work, and any destructive removal, requires operator
-approval.
+approval. The trigger for merged terminal work is the audit pass (CD-0105);
+this tier defines the gates, not the trigger.
 
 ### D4. Possession grants no Product authority
 

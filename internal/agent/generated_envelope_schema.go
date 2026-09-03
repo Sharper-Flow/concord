@@ -263,6 +263,7 @@ const GeneratedEnvelopeSchemaDocument = `{
             "worktree_destroy",
             "worktree_inspect",
             "worktree_reclaim",
+            "worktree_audit_reclaim",
             "worktree_verify"
           ]
         },
@@ -821,6 +822,7 @@ const GeneratedEnvelopeSchemaDocument = `{
             "worktree_destroy",
             "worktree_inspect",
             "worktree_reclaim",
+            "worktree_audit_reclaim",
             "worktree_verify"
           ]
         },
@@ -1691,6 +1693,7 @@ const GeneratedEnvelopeSchemaDocument = `{
                 "worktree_claim",
                 "worktree_destroy",
                 "worktree_reclaim",
+                "worktree_audit_reclaim",
                 "worktree_verify"
               ]
             },

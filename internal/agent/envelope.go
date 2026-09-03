@@ -430,7 +430,7 @@ func (e Envelope) validateOK() error {
 			return fmt.Errorf("invalid result payload: %w", err)
 		}
 	}
-	if isMutation(e.Tool) && (hasItems || e.ChangedRefs == nil || e.NextValidIntents == nil) {
+	if isMutation(e.Tool, e.Operation) && (hasItems || e.ChangedRefs == nil || e.NextValidIntents == nil) {
 		return errors.New("mutation ok envelope requires result and mutation metadata")
 	}
 	if e.ChangedRefs != nil {
@@ -602,10 +602,14 @@ func validateOperation(tool, operation, query string) error {
 	}
 	return fmt.Errorf("unknown tool operation %s.%s", tool, operation)
 }
-func isMutation(tool string) bool {
+
+// isMutation answers per operation. A tool may carry both kinds, and a read
+// on such a tool must be validated as a read: it has no mutation metadata to
+// carry, and demanding it refuses every ok answer the read can produce.
+func isMutation(tool, operation string) bool {
 	for _, op := range ContractOperations {
-		if op.Tool == tool && op.Kind == OperationMutation {
-			return true
+		if op.Tool == tool && op.Operation == operation {
+			return op.Kind == OperationMutation
 		}
 	}
 	return false

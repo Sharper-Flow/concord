@@ -24,6 +24,14 @@ existing corpus can dogfood the rule before it blocks CI.
                 there are criteria, so no criterion is left unproven
   ste subset    sentence length ≤ 40 words, banned phrases absent,
                 abbreviation discipline on first use
+  vendor content
+                a record tagged `resource:<id>` describes how this Product
+                uses an external system. It stores a locator to the vendor's
+                documentation, never the vendor's schema or documentation
+                content, because a stored copy ages and no rule marks it
+                stale (CD-0106 D4). A fenced block in a data or schema
+                language is the channel that would carry such a copy, so it
+                is refused in a resource-tagged record.
 
 A doc's failure to satisfy these layers is a *finding*; the policy decision
 of whether a finding is a hard fail is the `doc_contract.enforced` manifest
@@ -135,6 +143,14 @@ HEADING_RE = re.compile(r"^\s{0,3}(#{1,6})\s+(.+?)\s*#*\s*$")
 LIST_ITEM_RE = re.compile(r"^\s*(?:[-*]|\d+\.)\s+(.*)")
 TABLE_ROW_RE = re.compile(r"^\s*\|")
 CODE_FENCE_RE = re.compile(r"^\s{0,3}```")
+RESOURCE_TAG_PREFIX = "resource:"
+# Fence languages that carry a schema or a document body rather than a
+# command or a code sample. A resource-tagged record may not open one.
+VENDOR_CONTENT_FENCE_LANGUAGES = frozenset({
+    "json", "jsonc", "json5", "yaml", "yml", "xml", "toml", "csv", "graphql",
+    "proto", "protobuf", "openapi", "swagger", "avro", "wsdl", "xsd",
+})
+FENCE_LANGUAGE_RE = re.compile(r"^\s{0,3}```\s*([A-Za-z0-9_+-]*)")
 INLINE_CODE_RE = re.compile(r"``[^`]+``|`[^`]+`")
 HTML_COMMENT_RE = re.compile(r"<!--.*?-->", re.DOTALL)
 ABBR_RE = re.compile(r"\b([A-Z]{2,})\b")
@@ -751,6 +767,33 @@ def has_expansion(line: str, abbr: str) -> bool:
     return pattern.search(line) is not None
 
 
+def check_vendor_content(
+    record: dict,
+    lines: list[str],
+    path: Path,
+    findings: list[str],
+) -> None:
+    tags = record.get("tags")
+    if not isinstance(tags, list) or not any(
+        isinstance(tag, str) and tag.startswith(RESOURCE_TAG_PREFIX) for tag in tags
+    ):
+        return
+    inside = False
+    for line_no, line in enumerate(lines, start=1):
+        match = FENCE_LANGUAGE_RE.match(line)
+        if match is None:
+            continue
+        if inside:
+            inside = False
+            continue
+        inside = True
+        language = match.group(1).lower()
+        if language in VENDOR_CONTENT_FENCE_LANGUAGES:
+            findings.append(
+                f"vendor-content: {path.relative_to(ROOT)}:{line_no} ({language})"
+            )
+
+
 def check_record(
     record: dict,
     contract: dict,
@@ -794,6 +837,7 @@ def check_record(
     check_sentence_length(segments, scrubbed_lines, absolute, findings)
     check_banned_phrases(segments, scrubbed_lines, absolute, findings, banned)
     check_abbreviations(segments, scrubbed_lines, absolute, findings, abbreviations)
+    check_vendor_content(record, lines, absolute, findings)
 
 
 def report(findings: list[str], noun: str) -> int:

@@ -720,6 +720,64 @@ Body.
     assert any("ac-forbidden: docs/reference.md#5" in line for line in stdout.splitlines()), stdout
 
 
+def resource_lesson(path: str, body: str, root: Path) -> dict:
+    write_spec(root, path, body)
+    entry = non_spec_record("lesson", path, "d")
+    entry["tags"] = ["resource:vendor-api"]
+    return entry
+
+
+def test_resource_lesson_with_data_fence_is_vendor_content() -> None:
+    """A resource-tagged record carries a locator, never a vendor schema."""
+    root = sandbox()
+    body = """# Vendor API usage
+
+Vendor documentation: /vendor/api-docs
+
+```json
+{"openapi": "3.1.0", "paths": {}}
+```
+"""
+    path = "docs/lessons/vendor.md"
+    manifest = manifest_with(root, [resource_lesson(path, body, root)], kind_contract("lesson", []))
+    exit_code, stdout, stderr = run_checker(root, manifest)
+    assert exit_code == 1, (exit_code, stdout, stderr)
+    assert any("vendor-content: docs/lessons/vendor.md:5 (json)" in line for line in stdout.splitlines()), stdout
+
+
+def test_resource_lesson_with_prose_and_shell_fence_passes() -> None:
+    root = sandbox()
+    body = """# Vendor API usage
+
+Vendor documentation: https://example.invalid/docs
+
+The Product authenticates with a bearer token and calls one endpoint.
+
+```sh
+curl -H "Authorization: Bearer token" https://example.invalid/v1/items
+```
+"""
+    path = "docs/lessons/vendor.md"
+    manifest = manifest_with(root, [resource_lesson(path, body, root)], kind_contract("lesson", []))
+    exit_code, stdout, stderr = run_checker(root, manifest)
+    assert exit_code == 0, (exit_code, stdout, stderr)
+
+
+def test_untagged_lesson_may_carry_a_data_fence() -> None:
+    root = sandbox()
+    body = """# Store shape
+
+```json
+{"kind": "outcome", "allowed": ["completed"]}
+```
+"""
+    path = "docs/lessons/store.md"
+    write_spec(root, path, body)
+    manifest = manifest_with(root, [non_spec_record("lesson", path, "e")], kind_contract("lesson", []))
+    exit_code, stdout, stderr = run_checker(root, manifest)
+    assert exit_code == 0, (exit_code, stdout, stderr)
+
+
 def test_prose_that_says_when_and_then_is_not_an_acceptance_section() -> None:
     """The boundary is the heading scan, not the presence of Gherkin words."""
     root = sandbox()

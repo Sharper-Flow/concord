@@ -137,6 +137,55 @@ func TestWorkflowActionSemanticEventsAreFollowedByUniversalCompletion(t *testing
 	}
 }
 
+func TestApproveContractPersistsEvidenceAndRigor(t *testing.T) {
+	for _, testCase := range []struct {
+		name             string
+		extraFields      string
+		requiredEvidence string
+		rigorClass       string
+	}{
+		{name: "explicit", extraFields: `"required_evidence":["artifact"],"rigor_class":"critical_public",`, requiredEvidence: `["artifact"]`, rigorClass: "critical_public"},
+		{name: "defaults", requiredEvidence: `["verification","review"]`, rigorClass: "prototype_internal"},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			s := openTemp(t)
+			workID := "workflow-contract-fields-" + testCase.name
+			seedWork(t, s, workID)
+			seedWorkflowLaw(t, s)
+			seedIssue31DomainRegistry(t, s)
+			actor := WorkflowActor{PrincipalRef: "principal:contract-fields", ClientRef: "client:contract-fields", AgentRef: "agent:contract-fields", SessionRef: "session:contract-fields", ActorClass: ActorAgent}
+			registered, err := BuiltinWorkflowDefinitionForRef("workflow.implementation")
+			if err != nil {
+				t.Fatal(err)
+			}
+			tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := initializeWorkflowRawTx(context.Background(), tx, WorkflowInitializationRequest{WorkID: workID, Definition: registered, Actor: actor, Now: time.Date(2026, 8, 9, 0, 0, 0, 0, time.UTC)}); err != nil {
+				tx.Rollback()
+				t.Fatal(err)
+			}
+			if err := tx.Commit(); err != nil {
+				t.Fatal(err)
+			}
+			version := int64(4)
+			for _, action := range []string{"record_proposal", "record_discovery", "record_design"} {
+				version = issue31WorkflowAction(t, s, workID, version, action, "contract-fields-"+testCase.name+"-"+action, actor)
+			}
+			approval := json.RawMessage(`{` + testCase.extraFields + `"spec_mandate":[],"law_modifies":[],"architecture_binding":{"domain_registry_content_hash":"sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","home_domain_id":"root","affected_domain_ids":["root"],"domain_modifies":[],"domain_relation_modifies":[],"law_additions":[],"verification_obligations":[]}}`)
+			issue31WorkflowActionWithPayload(t, s, workID, version, "approve_contract", "contract-fields-"+testCase.name+"-approve", actor, approval)
+			var requiredEvidence, rigorClass string
+			if err := s.DatabaseForTesting().QueryRow(`SELECT required_evidence,rigor_class FROM workflow_contracts WHERE work_id=? AND contract_version=1`, workID).Scan(&requiredEvidence, &rigorClass); err != nil {
+				t.Fatal(err)
+			}
+			if requiredEvidence != testCase.requiredEvidence || rigorClass != testCase.rigorClass {
+				t.Fatalf("stored contract fields=(%s,%s), want (%s,%s)", requiredEvidence, rigorClass, testCase.requiredEvidence, testCase.rigorClass)
+			}
+		})
+	}
+}
+
 func seedIssue31DomainRegistry(t *testing.T, s *Store) {
 	t.Helper()
 	ctx := context.Background()

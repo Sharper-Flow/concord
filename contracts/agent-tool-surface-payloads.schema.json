@@ -203,6 +203,18 @@
         }
       }
     },
+    "evidence_kind": {
+      "type": "string",
+      "enum": [
+        "verification",
+        "review",
+        "approval",
+        "commit",
+        "durable_note",
+        "native_run",
+        "artifact"
+      ]
+    },
     "evidence": {
       "type": "object",
       "additionalProperties": false,
@@ -214,16 +226,7 @@
       ],
       "properties": {
         "kind": {
-          "type": "string",
-          "enum": [
-            "verification",
-            "review",
-            "approval",
-            "commit",
-            "durable_note",
-            "native_run",
-            "artifact"
-          ]
+          "$ref": "#/$defs/evidence_kind"
         },
         "authority": {
           "$ref": "#/$defs/short"
@@ -542,6 +545,23 @@
         }
       }
     },
+    "rigor_class": {
+      "type": "string",
+      "enum": [
+        "prototype_internal",
+        "prototype_trusted",
+        "prototype_public",
+        "prototype_safety_critical",
+        "production_internal",
+        "production_trusted",
+        "production_public",
+        "production_safety_critical",
+        "critical_internal",
+        "critical_trusted",
+        "critical_public",
+        "critical_safety_critical"
+      ]
+    },
     "workflow_contract": {
       "type": "object",
       "additionalProperties": false,
@@ -598,7 +618,7 @@
           "maxItems": 7,
           "uniqueItems": true,
           "items": {
-            "$ref": "#/$defs/id"
+            "$ref": "#/$defs/evidence_kind"
           }
         },
         "route_conventions": {
@@ -647,21 +667,7 @@
           }
         },
         "rigor_class": {
-          "type": "string",
-          "enum": [
-            "prototype_internal",
-            "prototype_trusted",
-            "prototype_public",
-            "prototype_safety_critical",
-            "production_internal",
-            "production_trusted",
-            "production_public",
-            "production_safety_critical",
-            "critical_internal",
-            "critical_trusted",
-            "critical_public",
-            "critical_safety_critical"
-          ]
+          "$ref": "#/$defs/rigor_class"
         },
         "changes_product_truth": {
           "type": "boolean"
@@ -3122,10 +3128,21 @@
                 "relation_data": {},
                 "restart": {},
                 "removed": {},
+                "required_evidence": {
+                  "type": "array",
+                  "maxItems": 7,
+                  "uniqueItems": true,
+                  "items": {
+                    "$ref": "#/$defs/evidence_kind"
+                  }
+                },
                 "required_route_conventions": {},
                 "resolution_evidence": {},
                 "resolver_authority": {},
                 "resolver_result": {},
+                "rigor_class": {
+                  "$ref": "#/$defs/rigor_class"
+                },
                 "route_conventions": {},
                 "severity": {},
                 "spec_mandate": {

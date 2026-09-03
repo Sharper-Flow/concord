@@ -63,7 +63,7 @@ func TestBuildAcceptsFullyPinnedContract(t *testing.T) {
 	snapshot := testSnapshot()
 	snapshot.Contract = &store.WorkflowReadContract{
 		Version: 2, Premise: "the premise", OutcomePredicates: []store.WorkflowReadPredicate{{PredicateID: "predicate:primary", Ordinal: 0, OutcomeKind: "artifact", OutcomePayload: "the outcome"}},
-		RequiredEvidence: []string{"evidence-1"}, RouteConventions: []string{"route-1"},
+		RequiredEvidence: []string{"verification"}, RouteConventions: []string{"route-1"},
 		SpecMandate: []string{"law-1"}, LawModifies: []string{"law-1"},
 		LawRevisions: []store.WorkflowLawRevision{{LawID: "law-1", ContentHash: "sha256:" + strings.Repeat("a", 64)}},
 		RigorClass:   "prototype_internal", ChangesProductTruth: true,

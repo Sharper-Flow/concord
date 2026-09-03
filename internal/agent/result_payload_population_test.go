@@ -35,7 +35,7 @@ func fullyPopulatedContinuitySnapshot() store.ContinuitySnapshot {
 			Version:             2,
 			Premise:             "the premise",
 			OutcomePredicates:   []store.WorkflowReadPredicate{{PredicateID: "predicate:primary", Ordinal: 0, OutcomeKind: "artifact", OutcomePayload: "the outcome"}},
-			RequiredEvidence:    []string{"evidence-1"},
+			RequiredEvidence:    []string{"verification"},
 			RouteConventions:    []string{"route-1"},
 			SpecMandate:         []string{"spec-1"},
 			LawModifies:         []string{"spec-1"},

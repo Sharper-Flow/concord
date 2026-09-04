@@ -194,7 +194,20 @@ func TestManifestQ10VerifiesThePersistedProjectionOfRichRecords(t *testing.T) {
 		Title: "Decision", Summary: "Decision summary", Tags: []string{"sqlite"}, Scopes: KnowledgeRecordScopes{Mode: "home"},
 		Evidence: []string{decision},
 	})
-	commitKnowledgeRepo(t, repo, "rich manifest knowledge")
+	commit := commitKnowledgeRepo(t, repo, "rich manifest knowledge")
+	manifest, missing, err := readKnowledgeManifest(ctx, repo, commit)
+	if err != nil || missing || len(manifest.Records) != 1 {
+		t.Fatalf("read rich manifest=%#v missing=%v err=%v", manifest, missing, err)
+	}
+	driftedProjection := manifest.Records[0]
+	driftedProjection.Title = "Drifted"
+	driftedProjection.Evidence = nil
+	err = verifyManifestRecord(ctx, repo, commit, driftedProjection)
+	assertFailureKind(t, err, KindInvalidNoteProof)
+	if !strings.Contains(err.Error(), "title") {
+		t.Fatalf("invalid_note_proof did not name title: %v", err)
+	}
+
 	s := openTemp(t)
 	home := KnowledgeHome{HomeProjectID: "project", HomeLocatorID: "locator", RepoPath: repo, HeadRef: "HEAD"}
 	authorizeKnowledgeProductHome(t, s, "product", home)
@@ -208,7 +221,7 @@ func TestManifestQ10VerifiesThePersistedProjectionOfRichRecords(t *testing.T) {
 	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE archived_work SET title='Drifted' WHERE id='decision-rich'; DELETE FROM fold_guard`); err != nil {
 		t.Fatal(err)
 	}
-	_, err := s.QueryQ10(ctx, Q10Request{KnowledgeID: "decision-rich"})
+	_, err = s.QueryQ10(ctx, Q10Request{KnowledgeID: "decision-rich"})
 	assertFailureKind(t, err, KindKnowledgeMissing)
 	if !strings.Contains(err.Error(), "title") {
 		t.Fatalf("projection mismatch did not name title: %v", err)

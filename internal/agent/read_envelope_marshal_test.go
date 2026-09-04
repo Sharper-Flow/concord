@@ -12,7 +12,7 @@ import (
 // Every ok envelope is validated in MarshalJSON, and only there. The
 // in-process dispatch helpers return the struct and never marshal it, so a
 // read can pass every test and fail on every real call. Two did: the
-// knowledge search emitted a notice kind built from a 40-hex commit and
+// knowledge resolution read emitted a notice kind built from a 40-hex commit and
 // realistic home identifiers, 92 bytes against a 64-byte bound, and the
 // Domain reads carried a fabricated zero freshness. This test dispatches
 // each read against a real fixture and marshals what it would send.
@@ -27,6 +27,7 @@ func TestKnowledgeReadEnvelopeMarshalsWithRealisticIdentifiers(t *testing.T) {
 		tool, op, input string
 	}{
 		{"concord_knowledge", "search", `{"product_id":"prod-alpha","kinds":["decision","lesson"],"page":{"cursor":null,"limit":10}}`},
+		{"concord_knowledge", "resolve_note", `{"knowledge_id":"knowledge-decision"}`},
 		{"concord_knowledge", "unprocessed", `{"product_id":"prod-alpha"}`},
 	} {
 		resp := dispatchRead(t, s, service, InvokeRequest{Tool: tc.tool, Operation: tc.op, Input: json.RawMessage(tc.input)}, env)

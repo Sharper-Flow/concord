@@ -452,6 +452,42 @@ test("host prompt provenance names a config it cannot parse", async () => {
   }
 })
 
+test("host prompt provenance emits unique source identities", async () => {
+  const configDir = await mkdtemp(path.join(os.tmpdir(), "provenance-config-"))
+  const dir = await mkdtemp(path.join(os.tmpdir(), "provenance-cwd-"))
+  const previous = process.env.OPENCODE_CONFIG_DIR
+  process.env.OPENCODE_CONFIG_DIR = configDir
+  try {
+    const result = await computeHostPromptProvenance("research", dir)
+    const identities = result.sources.map(source => `${source.kind}:${source.path ?? ""}`)
+    expect(new Set(identities).size).toBe(identities.length)
+    expect(result.sources.filter(source => source.kind === "unenumerated").map(source => source.path)).toEqual(expect.arrayContaining([
+      "provider_behavioral_hints",
+      "output_voice_overlays",
+      "mcp_tool_definition_prompt",
+    ]))
+  } finally {
+    if (previous === undefined) delete process.env.OPENCODE_CONFIG_DIR
+    else process.env.OPENCODE_CONFIG_DIR = previous
+  }
+})
+
+test("the AGENTS.md walk names the global file once when the spawn directory is the config directory", async () => {
+  const configDir = await mkdtemp(path.join(os.tmpdir(), "provenance-config-"))
+  const previous = process.env.OPENCODE_CONFIG_DIR
+  process.env.OPENCODE_CONFIG_DIR = configDir
+  try {
+    await Bun.write(`${configDir}/AGENTS.md`, "# shared instructions\n")
+    const result = await computeHostPromptProvenance("research", configDir)
+    const identities = result.sources.map(source => `${source.kind}:${source.path ?? ""}`)
+    expect(new Set(identities).size).toBe(identities.length)
+    expect(identities.filter(identity => identity === `agents_md:${configDir}/AGENTS.md`)).toHaveLength(1)
+  } finally {
+    if (previous === undefined) delete process.env.OPENCODE_CONFIG_DIR
+    else process.env.OPENCODE_CONFIG_DIR = previous
+  }
+})
+
 // CD-0056 D7 / issue #333: the adapter parses the report it already receives,
 // carries its evidence into worker-complete, and turns anything it cannot admit
 // into a typed worker-fail rather than a completion.
@@ -675,4 +711,3 @@ test("a transport fault is not reported as an authorization refusal", async () =
     expect(spawned).toBe(0)
   }
 })
-

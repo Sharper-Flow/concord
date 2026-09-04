@@ -71,7 +71,8 @@ permitted only when recorded, and the emitter gate is the enforcement point.
 
 - `internal/store/worker_undeclared_test.go`: provenance validation
   (digest shape, closed kinds, bounded sources, unenumerated carries no
-  path/hash, enumerated must carry a hash, no duplicates); v3 dispatch with
+  hash and its path is its name, enumerated must carry a hash, no
+  duplicates); v3 dispatch with
   provenance folds and the evidence bytes persist.
 - `adapter/opencode/dispatch.test.ts`: provenance is deterministic for the
   same inputs and changes when an enumerated source's content changes

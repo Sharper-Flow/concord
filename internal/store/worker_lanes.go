@@ -121,8 +121,8 @@ type WorkerHostProvenance struct {
 
 // WorkerHostProvenanceSource names one enumerated injection surface. Kind is
 // closed; Path is host-relative or absolute; SHA256 is the file's content
-// hash. Unenumerable surfaces (provider hints, voice overlays) are recorded
-// as kind "unenumerated" with an empty path and no hash — visible by name.
+// hash. Unenumerated surfaces may carry a descriptive path or name, but no
+// content hash.
 type WorkerHostProvenanceSource struct {
 	Kind   string `json:"kind"`
 	Path   string `json:"path,omitempty"`
@@ -404,8 +404,8 @@ func ValidateWorkerHostProvenance(p *WorkerHostProvenance) error {
 		if source.SHA256 != "" && !workerProvenancePattern.MatchString(source.SHA256) {
 			return invalidWorkerPayload("worker host provenance source hash is not a sha256 digest")
 		}
-		if source.Kind == "unenumerated" && (source.Path != "" || source.SHA256 != "") {
-			return invalidWorkerPayload("unenumerated provenance sources carry no path or hash")
+		if source.Kind == "unenumerated" && source.SHA256 != "" {
+			return invalidWorkerPayload("unenumerated provenance sources carry no content hash")
 		}
 		if source.Kind != "unenumerated" && source.SHA256 == "" {
 			return invalidWorkerPayload("enumerated provenance sources must carry their content hash")

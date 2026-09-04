@@ -3224,6 +3224,33 @@
       "title": "the launcher is the ZLauncher replacement"
     },
     {
+      "date": "2026-09-04T00:00:00Z",
+      "evidence": [
+        "internal/store/worker_lanes.go",
+        "internal/store/workflow.go"
+      ],
+      "home_domain_id": "workflow-engine",
+      "id": "CD-0109",
+      "kind": "decision",
+      "path": "docs/decisions/CD-0109-the-dispatched-lane-is-the-step-s-executing-actor.md",
+      "scopes": {
+        "domain_ids": [],
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:7a360e550e6525b2a751d5f03b81a363a3f4929d1a8c59b0cadaad875b22a7c3",
+      "status": "accepted",
+      "summary": "A dispatched lane executes its step as a derived workflow actor, recorded by the dispatch operation from the lane identity, the attempt, and the authenticated host, and pinned by the worker.dispatched fold as the instance's executing actor. accept_worker_result keeps its CD-0013 D5 comparison and now compares the owner against the party that executed, so a completed lane result is acceptable by the owner and by no one the lane identity itself covers. Pre-v4 dispatches replay unchanged and pin no actor.",
+      "tags": [
+        "workflow",
+        "typed-workers",
+        "evidence"
+      ],
+      "title": "the dispatched lane is the step's executing actor"
+    },
+    {
       "criterion_bindings": [
         {
           "criterion": 1,

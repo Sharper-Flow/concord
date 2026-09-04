@@ -223,7 +223,7 @@ var eventKindRegistry = map[string]EventKindRegistration{
 	"initiative_entry.reordered":              registerEventKind[initiativeEntryPayload](1, 1, nil, EventAppendAuthorityGeneric, foldInitiativeEntryReordered, nil),
 	"initiative_entry.requiredness_changed":   registerEventKind[initiativeEntryPayload](1, 1, nil, EventAppendAuthorityGeneric, foldInitiativeEntryRequirednessChanged, nil),
 	"initiative.narrative_revised":            registerEventKind[initiativeNarrativePayload](1, 1, nil, EventAppendAuthorityGeneric, foldInitiativeNarrativeRevised, nil),
-	WorkerDispatched:                          registerEventKind[WorkerDispatchedPayload](3, 1, map[int]Upcaster{1: upcastWorkerDispatchedV1, 2: upcastWorkerDispatchedV2}, EventAppendAuthorityGeneric, foldWorkerDispatched, validateWorkerDispatchedPayload),
+	WorkerDispatched:                          registerEventKind[WorkerDispatchedPayload](4, 1, map[int]Upcaster{1: upcastWorkerDispatchedV1, 2: upcastWorkerDispatchedV2, 3: upcastWorkerDispatchedV3}, EventAppendAuthorityGeneric, foldWorkerDispatched, validateWorkerDispatchedPayload),
 	WorkerCompleted:                           registerEventKind[WorkerCompletedPayload](2, 1, map[int]Upcaster{1: upcastWorkerCompletedV1}, EventAppendAuthorityGeneric, foldWorkerCompleted, validateWorkerCompletedPayload),
 	WorkerFailed:                              registerEventKind[WorkerFailedPayload](1, 1, nil, EventAppendAuthorityGeneric, foldWorkerFailed, validateWorkerFailedPayload),
 	WorkflowDefinitionSelected:                workflowRegistration[workflowDefinitionSelectedPayload](1, nil, foldWorkflowDefinitionSelected),

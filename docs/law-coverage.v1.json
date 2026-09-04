@@ -1712,6 +1712,11 @@
       "state": "outstanding"
     },
     {
+      "id": "CD-0109",
+      "reason": "The decision is proved by the store fold and the two new tests: the production-topology acceptance test and the CLI dispatch test that asserts the recorded lane actor and the pinned executing actor. Runtime behavior they exercise is the law itself, so no separate reachability surface applies.",
+      "state": "out_of_scope"
+    },
+    {
       "evidence": [
         {
           "kind": "go_test",

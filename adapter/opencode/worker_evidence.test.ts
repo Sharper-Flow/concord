@@ -3,6 +3,7 @@ import { agentLanes } from "./generated-agent-lanes"
 import { canonicalWorkerEvidence, completeWorkerAttempt, type AgentLanePacket, type DispatchRunner } from "./dispatch"
 import type { CredentialStore } from "./credentials"
 import workerEvidenceVector from "./worker-evidence-vector.json"
+import workerCLIRequiredFields from "./worker-cli-required-fields.json"
 
 const isRecord = (value: unknown): value is Record<string, unknown> => value !== null && typeof value === "object" && !Array.isArray(value)
 
@@ -116,6 +117,28 @@ test("dispatch and completion evidence each carry a bound assertion", async () =
     expect(assertion.readback_model).toBe(READBACK_MODEL)
     expect(assertion.nonce.length).toBeGreaterThanOrEqual(16)
   }
+})
+
+// The CLI refuses a request that omits a required top-level field, and the
+// stubbed evidence runner cannot see that refusal. The shared file names the
+// fields each verb requires, cmd/concord holds it to commandSpecs, and this
+// test holds every request the adapter builds to it (issue #789).
+const requiredFieldsFor = (verb: string): string[] => (workerCLIRequiredFields.verbs as Record<string, string[]>)[verb]
+
+test("every worker evidence request carries the fields its CLI verb requires", async () => {
+  const recorded: Record<string, unknown>[] = []
+  await completeWorkerAttempt(lane, packet(), completedBody(), { credentials: testCredentials, readbackRunner: laneRunner, evidenceRunner: evidenceCollector(recorded), packetDigest: PACKET_DIGEST }, SIGNAL)
+  const failed: Record<string, unknown>[] = []
+  await completeWorkerAttempt(lane, packet(), failedBody(), { credentials: testCredentials, readbackRunner: laneRunner, evidenceRunner: evidenceCollector(failed), packetDigest: PACKET_DIGEST }, SIGNAL)
+  const all = [...recorded, ...failed]
+  expect(all.map((entry) => entry.command)).toEqual(["worker-dispatch", "worker-complete", "worker-dispatch", "worker-fail"])
+  for (const entry of all) {
+    const request = entry.request as Record<string, unknown>
+    for (const field of requiredFieldsFor(entry.command as string)) {
+      expect(request, `${entry.command} request lacks ${field}`).toHaveProperty(field)
+    }
+  }
+  expect((recorded[0].request as any).packet_digest).toBe(PACKET_DIGEST)
 })
 
 test("each evidence write carries its own nonce", async () => {

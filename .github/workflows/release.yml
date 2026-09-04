@@ -94,7 +94,7 @@ jobs:
           tar --sort=name --mtime='UTC 1970-01-01' --owner=0 --group=0 --numeric-owner \
             -C release/package -cf - bin adapter skills instructions agents | gzip -n > "release/concord-$VERSION.tar.gz"
       - name: Generate SBOM
-        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610
+        uses: anchore/sbom-action@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26
         with:
           file: release/concord-${{ steps.release.outputs.version }}.tar.gz
           format: spdx-json

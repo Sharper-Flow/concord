@@ -178,7 +178,7 @@ func lockResearchPack(ctx context.Context, tx *sql.Tx, id string, expected int64
 	var lifecycle string
 	if err := tx.QueryRowContext(ctx, `SELECT lifecycle FROM work_items WHERE id=?`, p.OwnerWorkID).Scan(&lifecycle); err == nil && isTerminalLifecycle(lifecycle) {
 		var linked int
-		if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM archived_work WHERE id=?)`, p.OwnerWorkID).Scan(&linked); err != nil {
+		if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM archived_work a WHERE a.id=? AND a.type='work_note')`, p.OwnerWorkID).Scan(&linked); err != nil {
 			return p, researchUnavailable("cannot inspect research compaction linkage", err)
 		}
 		if linked != 0 {

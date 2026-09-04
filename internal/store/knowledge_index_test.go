@@ -526,3 +526,48 @@ func canonicalKnowledgeNote(id, kind, completed string, tags []string) string {
 		"tag_ids: [" + strings.Join(tags, ", ") + "]\n" +
 		"---\n\nDurable knowledge.\n"
 }
+
+func TestArchivedNoteIDsAreHomeScopedAcrossKnowledgeHomes(t *testing.T) {
+	ctx := context.Background()
+	s := openTemp(t)
+
+	build := func(project, locator, product string) KnowledgeHome {
+		repo := initKnowledgeRepo(t)
+		path := "docs/lessons/2026-09-04-shared-numbering.md"
+		writeKnowledgeFile(t, repo, path, canonicalKnowledgeNote("CD-0009", "lesson", "2026-09-04T00:00:00Z", []string{"identity"}))
+		writeManifestFixture(t, repo, manifestFixtureFromFile(t, repo, "CD-0009", "lesson", path, "published", "2026-09-04T00:00:00Z", "Shared lesson", "Shared summary", []string{"identity"}, KnowledgeRecordScopes{Mode: "home"}))
+		commitKnowledgeRepo(t, repo, "shared stable id")
+		home := KnowledgeHome{HomeProjectID: project, HomeLocatorID: locator, RepoPath: repo, HeadRef: "HEAD"}
+		authorizeKnowledgeProductHome(t, s, product, home)
+		return home
+	}
+
+	first := build("project-concord", "locator-concord", "product-concord")
+	second := build("project-pokeedge", "locator-pokeedge", "product-pokeedge")
+
+	// The second home reuses the first home's stable id. Before note identity
+	// was home scoped this rebuild failed its INSERT on the archived_work
+	// primary key, refusing every knowledge write for that home.
+	if err := s.RebuildKnowledgeIndex(ctx, first); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.RebuildKnowledgeIndex(ctx, second); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, home := range []KnowledgeHome{first, second} {
+		result, err := s.QueryQ10(ctx, Q10Request{KnowledgeID: "CD-0009", Home: home})
+		if err != nil || result.Status != "canonical" || result.Note == nil {
+			t.Fatalf("Q10 with %s home = %#v, err %v", home.HomeProjectID, result, err)
+		}
+		if result.Note.HomeProjectID != home.HomeProjectID || result.Note.HomeLocatorID != home.HomeLocatorID {
+			t.Fatalf("Q10 with %s home resolved the other home's note: %#v", home.HomeProjectID, result.Note)
+		}
+	}
+
+	// Without a home, an id held by two homes is ambiguous, not an arbitrary pick.
+	ambiguous, err := s.QueryQ10(ctx, Q10Request{KnowledgeID: "CD-0009"})
+	if err != nil || ambiguous.Status != "ambiguous" {
+		t.Fatalf("Q10 without home = %#v, err %v", ambiguous, err)
+	}
+}

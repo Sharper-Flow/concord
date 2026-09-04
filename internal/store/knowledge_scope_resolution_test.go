@@ -184,7 +184,7 @@ func TestQ10WorkNoteProductScopeRemainsFrozenAfterMembershipMove(t *testing.T) {
 	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO archived_work(id,type,title,completed_at,outcome_tag,lesson_tags,terminal_state,priority,summary,home_project_id,home_locator_id,note_path,commit_oid,content_hash,scope_mode) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, "frozen-work", "work_note", "Frozen work", "2026-08-10T00:00:00Z", "completed", "[]", "completed", 1, "summary", home.HomeProjectID, home.HomeLocatorID, path, commit, "sha256:"+hex.EncodeToString(hash[:]), "home"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO archived_work_products(work_id,product_id) VALUES('frozen-work','product-a')`); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO archived_work_products(home_project_id,home_locator_id,work_id,product_id) VALUES(?,?,?,?)`, home.HomeProjectID, home.HomeLocatorID, "frozen-work", "product-a"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.DatabaseForTesting().Exec(`DELETE FROM fold_guard`); err != nil {

@@ -396,7 +396,7 @@ func TestKnowledgeReferenceHonorsSelectedProductContainment(t *testing.T) {
 		INSERT INTO products(id,display_name,stage_maturity,stage_audience_commitment,version,created_at,updated_at) VALUES ('anchor-home','anchor-home','prototype','operator_only',1,'t','t');
 		INSERT INTO product_projects(product_id,project_id,role) VALUES ('anchor-home','home','primary');
 		INSERT INTO project_locators(locator_id,project_id,kind,locator_value,normalized_value,created_at,updated_at) VALUES ('locator','home','canonical_path','/test/locator','/test/locator','t','t');
-		INSERT INTO archived_work (id,type,title,completed_at,outcome_tag,lesson_tags,terminal_state,priority,summary,home_project_id,home_locator_id,note_path,commit_oid,content_hash) VALUES ('knowledge-b','lesson','B','2026-08-07T00:00:00Z','published','[]','completed',1,'summary','home','locator','note.md','commit','hash'); INSERT INTO archived_work_products(work_id,product_id) VALUES ('knowledge-b','product-b'); DELETE FROM fold_guard`); err != nil {
+		INSERT INTO archived_work (id,type,title,completed_at,outcome_tag,lesson_tags,terminal_state,priority,summary,home_project_id,home_locator_id,note_path,commit_oid,content_hash) VALUES ('knowledge-b','lesson','B','2026-08-07T00:00:00Z','published','[]','completed',1,'summary','home','locator','note.md','commit','hash'); INSERT INTO archived_work_products(home_project_id,home_locator_id,work_id,product_id) VALUES ('home','locator','knowledge-b','product-b'); DELETE FROM fold_guard`); err != nil {
 		t.Fatal(err)
 	}
 	request := InvokeRequest{Input: json.RawMessage(`{"knowledge_id":"knowledge-b"}`)}
@@ -590,7 +590,7 @@ func runtimeKnowledgeStore(t *testing.T, id, kind, scopeMode string, frozenProdu
 		t.Fatal(err)
 	}
 	for _, product := range frozenProducts {
-		if _, err := s.DatabaseForTesting().Exec(`INSERT INTO archived_work_products(work_id,product_id) VALUES(?,?)`, id, product); err != nil {
+		if _, err := s.DatabaseForTesting().Exec(`INSERT INTO archived_work_products(home_project_id,home_locator_id,work_id,product_id) VALUES (?,?,?,?)`, "stored-project", "stored-locator", id, product); err != nil {
 			s.Close()
 			t.Fatal(err)
 		}

@@ -9,6 +9,9 @@ import (
 // cleanupTerminalResearch is the archive reconciliation step. It is separate
 // from the compaction event fold because active research is direct-table
 // authority; repeating it is safe after a crash between the two local commits.
+// The archived-work existence join matches work_note rows only: note ids are
+// home scoped, and a foreign home may reuse this owner's id for a decision or
+// lesson without this work being archived.
 func cleanupTerminalResearch(ctx context.Context, s *Store, ownerWorkID string) error {
 	if s == nil || s.db == nil {
 		return researchUnavailable("store is not open", nil)
@@ -20,7 +23,7 @@ func cleanupTerminalResearch(ctx context.Context, s *Store, ownerWorkID string) 
 	if err != nil {
 		return researchUnavailable("cannot begin terminal research cleanup", err)
 	}
-	rows, err := tx.QueryContext(ctx, `SELECT p.pack_id FROM active_research_packs p JOIN work_items w ON w.id=p.owner_work_id JOIN archived_work a ON a.id=p.owner_work_id WHERE p.owner_work_id=? AND w.lifecycle IN ('completed','cancelled','superseded') ORDER BY p.pack_id`, ownerWorkID)
+	rows, err := tx.QueryContext(ctx, `SELECT p.pack_id FROM active_research_packs p JOIN work_items w ON w.id=p.owner_work_id JOIN archived_work a ON a.id=p.owner_work_id AND a.type='work_note' WHERE p.owner_work_id=? AND w.lifecycle IN ('completed','cancelled','superseded') ORDER BY p.pack_id`, ownerWorkID)
 	if err != nil {
 		_ = tx.Rollback()
 		return researchUnavailable("cannot find terminal research packs", err)
@@ -69,7 +72,7 @@ func cleanupTerminalResearch(ctx context.Context, s *Store, ownerWorkID string) 
 }
 
 func reconcileTerminalResearchOwners(ctx context.Context, s *Store) error {
-	rows, err := s.db.QueryContext(ctx, `SELECT DISTINCT p.owner_work_id FROM active_research_packs p JOIN work_items w ON w.id=p.owner_work_id JOIN archived_work a ON a.id=p.owner_work_id WHERE w.lifecycle IN ('completed','cancelled','superseded') ORDER BY p.owner_work_id`)
+	rows, err := s.db.QueryContext(ctx, `SELECT DISTINCT p.owner_work_id FROM active_research_packs p JOIN work_items w ON w.id=p.owner_work_id JOIN archived_work a ON a.id=p.owner_work_id AND a.type='work_note' WHERE w.lifecycle IN ('completed','cancelled','superseded') ORDER BY p.owner_work_id`)
 	if err != nil {
 		return researchUnavailable("cannot find terminal research owners", err)
 	}

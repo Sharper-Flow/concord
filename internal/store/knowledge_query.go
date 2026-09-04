@@ -289,7 +289,36 @@ func queryQ10(ctx context.Context, q queryer, req Q10Request) (Q10Result, error)
 	if lookupID == "" {
 		lookupID = req.KnowledgeID
 	}
-	err := q.QueryRowContext(ctx, `SELECT home_project_id,home_locator_id,note_path,commit_oid,content_hash,type,title,completed_at,outcome_tag,lesson_tags,summary,COALESCE(successor_work_id,''),scope_mode,manifest_schema_version FROM archived_work WHERE id = ?`, lookupID).Scan(&homeProject, &homeLocator, &path, &commit, &hash, &kind, &title, &date, &status, &lessonTagsJSON, &summary, &successor, &scopeMode, &manifestSchemaVersion)
+	// Note identity is scoped to the knowledge home: the same stable id can
+	// exist in two homes (concord and pokeedge both number decisions CD-####).
+	// A caller-supplied Home selects its own row; when that row is absent the
+	// bare-id retry lets the historical-home comparison report a mismatched
+	// caller home instead of a missing note. Without a Home, an id held by more
+	// than one home is ambiguous rather than an arbitrary pick.
+	homeSupplied := req.Home.HomeProjectID != "" || req.Home.HomeLocatorID != ""
+	scanNote := func(homeScoped bool) error {
+		query := `SELECT home_project_id,home_locator_id,note_path,commit_oid,content_hash,type,title,completed_at,outcome_tag,lesson_tags,summary,COALESCE(successor_work_id,''),scope_mode,manifest_schema_version FROM archived_work WHERE id = ?`
+		scanArgs := []any{lookupID}
+		if homeScoped {
+			query += ` AND home_project_id = ? AND home_locator_id = ?`
+			scanArgs = append(scanArgs, req.Home.HomeProjectID, req.Home.HomeLocatorID)
+		}
+		return q.QueryRowContext(ctx, query, scanArgs...).Scan(&homeProject, &homeLocator, &path, &commit, &hash, &kind, &title, &date, &status, &lessonTagsJSON, &summary, &successor, &scopeMode, &manifestSchemaVersion)
+	}
+	err := scanNote(homeSupplied)
+	if err == sql.ErrNoRows && homeSupplied {
+		err = scanNote(false)
+	}
+	if !homeSupplied {
+		var homes int
+		if scanErr := q.QueryRowContext(ctx, `SELECT COUNT(DISTINCT home_project_id || ':' || home_locator_id) FROM archived_work WHERE id = ?`, lookupID).Scan(&homes); scanErr != nil {
+			return out, wrapFailure(KindUnavailable, "PM1.Q10", "cannot inspect note home multiplicity", true, "retry once the database is readable", scanErr)
+		}
+		if homes > 1 {
+			out.Status, out.Result = "ambiguous", &Q10Payload{Status: "ambiguous"}
+			return out, nil
+		}
+	}
 	if err == sql.ErrNoRows {
 		if req.Work != "" {
 			var exists bool
@@ -310,7 +339,7 @@ func queryQ10(ctx context.Context, q queryer, req Q10Request) (Q10Result, error)
 	if req.Product != "" {
 		var inScope bool
 		if kind == "work_note" || scopeMode == "explicit" {
-			if err := q.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM archived_work_products WHERE work_id=? AND product_id=?)`, lookupID, req.Product).Scan(&inScope); err != nil {
+			if err := q.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM archived_work_products WHERE work_id=? AND product_id=? AND home_project_id=? AND home_locator_id=?)`, lookupID, req.Product, homeProject, homeLocator).Scan(&inScope); err != nil {
 				return out, wrapFailure(KindUnavailable, "PM1.Q10", "cannot validate knowledge Product scope", true, "retry once the database is readable", err)
 			}
 		} else if scopeMode == "home" {
@@ -361,13 +390,13 @@ func queryQ10(ctx context.Context, q queryer, req Q10Request) (Q10Result, error)
 			table, column string
 			target        *[]string
 		}{{"archived_work_products", "product_id", &record.Scopes.ProductIDs}, {"archived_work_projects", "project_id", &record.Scopes.ProjectIDs}, {"archived_work_tags", "tag_id", &record.Scopes.TagIDs}} {
-			values, queryErr := archivedScopeIDs(ctx, q, scope.table, scope.column, lookupID)
+			values, queryErr := archivedScopeIDs(ctx, q, scope.table, scope.column, lookupID, homeProject, homeLocator)
 			if queryErr != nil {
 				return out, queryErr
 			}
 			*scope.target = values
 		}
-		values, queryErr := archivedScopeIDs(ctx, q, "archived_work_domains", "domain_id", lookupID)
+		values, queryErr := archivedScopeIDs(ctx, q, "archived_work_domains", "domain_id", lookupID, homeProject, homeLocator)
 		if queryErr != nil {
 			return out, queryErr
 		}
@@ -392,8 +421,8 @@ func queryQ10(ctx context.Context, q queryer, req Q10Request) (Q10Result, error)
 	return out, nil
 }
 
-func archivedScopeIDs(ctx context.Context, q queryer, table, column, workID string) ([]string, error) {
-	rows, err := q.QueryContext(ctx, "SELECT "+column+" FROM "+table+" WHERE work_id=? ORDER BY "+column, workID)
+func archivedScopeIDs(ctx context.Context, q queryer, table, column, workID, homeProject, homeLocator string) ([]string, error) {
+	rows, err := q.QueryContext(ctx, "SELECT "+column+" FROM "+table+" WHERE work_id=? AND home_project_id=? AND home_locator_id=? ORDER BY "+column, workID, homeProject, homeLocator)
 	if err != nil {
 		return nil, wrapFailure(KindUnavailable, "PM1.Q10", "cannot read manifest record scope", true, "retry once the database is readable", err)
 	}
@@ -539,15 +568,15 @@ func buildKnowledgeQueryForScope(req Q9Request, kinds, tags []string, limit int)
 	where := []string{"aw.home_project_id = ?", "aw.home_locator_id = ?"}
 	args := []any{req.Text, req.Home.HomeProjectID, req.Home.HomeLocatorID}
 	if req.Product != "" {
-		where = append(where, "(aw.scope_mode = 'home' OR EXISTS (SELECT 1 FROM archived_work_products p WHERE p.work_id = aw.id AND p.product_id = ?))")
+		where = append(where, "(aw.scope_mode = 'home' OR EXISTS (SELECT 1 FROM archived_work_products p WHERE p.work_id = aw.id AND p.home_project_id = aw.home_project_id AND p.home_locator_id = aw.home_locator_id AND p.product_id = ?))")
 		args = append(args, req.Product)
 	}
 	if req.Project != "" {
-		where = append(where, "(aw.scope_mode = 'home' OR EXISTS (SELECT 1 FROM archived_work_projects p WHERE p.work_id = aw.id AND p.project_id = ?))")
+		where = append(where, "(aw.scope_mode = 'home' OR EXISTS (SELECT 1 FROM archived_work_projects p WHERE p.work_id = aw.id AND p.home_project_id = aw.home_project_id AND p.home_locator_id = aw.home_locator_id AND p.project_id = ?))")
 		args = append(args, req.Project)
 	}
 	if req.Domain != "" {
-		where = append(where, "EXISTS (SELECT 1 FROM archived_work_domains d WHERE d.work_id = aw.id AND d.domain_id = ?)")
+		where = append(where, "EXISTS (SELECT 1 FROM archived_work_domains d WHERE d.work_id = aw.id AND d.home_project_id = aw.home_project_id AND d.home_locator_id = aw.home_locator_id AND d.domain_id = ?)")
 		args = append(args, req.Domain)
 	}
 	if len(kinds) > 0 {
@@ -558,13 +587,13 @@ func buildKnowledgeQueryForScope(req Q9Request, kinds, tags []string, limit int)
 		where = append(where, "aw.type IN ("+strings.Join(placeholders, ",")+")")
 	}
 	for _, tag := range tags {
-		where = append(where, "(EXISTS (SELECT 1 FROM archived_work_tags t WHERE t.work_id = aw.id AND t.tag_id = ?) OR (aw.type <> 'work_note' AND EXISTS (SELECT 1 FROM json_each(aw.lesson_tags) WHERE value = ?)))")
+		where = append(where, "(EXISTS (SELECT 1 FROM archived_work_tags t WHERE t.work_id = aw.id AND t.home_project_id = aw.home_project_id AND t.home_locator_id = aw.home_locator_id AND t.tag_id = ?) OR (aw.type <> 'work_note' AND EXISTS (SELECT 1 FROM json_each(aw.lesson_tags) WHERE value = ?)))")
 		args = append(args, tag, tag)
 	}
-	exactScopeMatch := `EXISTS (SELECT 1 FROM archived_work_domains exact_domain WHERE exact_domain.work_id = aw.id AND lower(exact_domain.domain_id) = lower(input.text))`
+	exactScopeMatch := `EXISTS (SELECT 1 FROM archived_work_domains exact_domain WHERE exact_domain.work_id = aw.id AND exact_domain.home_project_id = aw.home_project_id AND exact_domain.home_locator_id = aw.home_locator_id AND lower(exact_domain.domain_id) = lower(input.text))`
 	exactMatch := `(lower(aw.id) = lower(input.text)
 		OR lower(aw.title) = lower(input.text)
-		OR EXISTS (SELECT 1 FROM archived_work_tags exact_tag WHERE exact_tag.work_id = aw.id AND lower(exact_tag.tag_id) = lower(input.text))
+		OR EXISTS (SELECT 1 FROM archived_work_tags exact_tag WHERE exact_tag.work_id = aw.id AND exact_tag.home_project_id = aw.home_project_id AND exact_tag.home_locator_id = aw.home_locator_id AND lower(exact_tag.tag_id) = lower(input.text))
 		OR EXISTS (SELECT 1 FROM json_each(aw.lesson_tags) exact_lesson_tag WHERE lower(exact_lesson_tag.value) = lower(input.text))
 		OR (` + exactScopeMatch + `))`
 	boundedTextMatch := `(instr(lower(aw.title), lower(input.text)) > 0 OR instr(lower(aw.summary), lower(input.text)) > 0)`
@@ -584,14 +613,14 @@ func buildKnowledgeQueryForScope(req Q9Request, kinds, tags []string, limit int)
 		args = append(args, cursor.MatchClass, cursor.MatchClass, cursor.CompletedAt, cursor.CompletedAt, cursor.ID)
 	}
 	args = append(args, limit)
-	scopeSelect := `COALESCE((SELECT json_group_array(domain_id) FROM (SELECT domain_id FROM archived_work_domains WHERE work_id=aw.id ORDER BY domain_id)), '[]'),`
+	scopeSelect := `COALESCE((SELECT json_group_array(domain_id) FROM (SELECT domain_id FROM archived_work_domains WHERE work_id=aw.id AND home_project_id=aw.home_project_id AND home_locator_id=aw.home_locator_id ORDER BY domain_id)), '[]'),`
 	return `WITH input(text) AS (VALUES (?)), ranked AS (` +
 		`SELECT aw.*, CASE WHEN input.text = '' OR ` + exactMatch + ` THEN 0 ELSE 1 END AS match_class ` +
 		`FROM archived_work aw CROSS JOIN input WHERE ` + strings.Join(where, " AND ") + `) ` +
 		`SELECT aw.id,aw.type,aw.title,aw.completed_at,aw.outcome_tag,aw.lesson_tags,aw.summary,aw.home_project_id,aw.home_locator_id,aw.note_path,aw.commit_oid,aw.content_hash,aw.scope_mode,` +
-		`COALESCE((SELECT json_group_array(product_id) FROM (SELECT product_id FROM archived_work_products WHERE work_id=aw.id ORDER BY product_id)), '[]'),` +
-		`COALESCE((SELECT json_group_array(project_id) FROM (SELECT project_id FROM archived_work_projects WHERE work_id=aw.id ORDER BY project_id)), '[]'),` +
+		`COALESCE((SELECT json_group_array(product_id) FROM (SELECT product_id FROM archived_work_products WHERE work_id=aw.id AND home_project_id=aw.home_project_id AND home_locator_id=aw.home_locator_id ORDER BY product_id)), '[]'),` +
+		`COALESCE((SELECT json_group_array(project_id) FROM (SELECT project_id FROM archived_work_projects WHERE work_id=aw.id AND home_project_id=aw.home_project_id AND home_locator_id=aw.home_locator_id ORDER BY project_id)), '[]'),` +
 		scopeSelect +
-		`COALESCE((SELECT json_group_array(tag_id) FROM (SELECT tag_id FROM archived_work_tags WHERE work_id=aw.id ORDER BY tag_id)), '[]'),aw.match_class ` +
+		`COALESCE((SELECT json_group_array(tag_id) FROM (SELECT tag_id FROM archived_work_tags WHERE work_id=aw.id AND home_project_id=aw.home_project_id AND home_locator_id=aw.home_locator_id ORDER BY tag_id)), '[]'),aw.match_class ` +
 		`FROM ranked aw` + cursorWhere + ` ORDER BY aw.match_class ASC, aw.completed_at DESC, aw.id ASC LIMIT ?`, args
 }

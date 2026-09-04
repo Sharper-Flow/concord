@@ -3807,6 +3807,333 @@ UPDATE knowledge_index_watermark SET scanned_content_digest = '';
 DELETE FROM fold_guard;
 		`,
 	},
+	{
+		Version:  72,
+		Name:     "archived_work_identity_is_home_scoped",
+		Breaking: true,
+		SQL: `
+-- archived_work keyed its identity on the bare note id, so the note-ID space
+-- of every registered knowledge home shared one keyspace. Two homes that
+-- number their decisions the same way (concord and pokeedge both use CD-####)
+-- collide on the first shared id: the lazy rebuild of the second home fails
+-- its INSERT with a UNIQUE violation surfaced only as "cannot insert an
+-- indexed note", and every knowledge or workflow-note write for that home
+-- refuses. The sibling projections already key on the home pair; this moves
+-- archived_work and its scope children onto the same identity.
+--
+-- Rows are copied, not re-derived: existing ids were globally unique by the
+-- old constraint, so the copy cannot create a within-home duplicate. Child
+-- rows gain their home columns from the archived parent they reference.
+--
+-- The migration-52 locator delete guard names archived_work in its body, and
+-- RENAME TABLE rewrites that reference toward the renamed table; it is dropped
+-- before the rename and recreated unchanged after the swap.
+DROP TRIGGER IF EXISTS project_locators_referenced_by_knowledge_no_delete;
+ALTER TABLE archived_work RENAME TO archived_work_v71;
+ALTER TABLE archived_work_products RENAME TO archived_work_products_v71;
+ALTER TABLE archived_work_projects RENAME TO archived_work_projects_v71;
+ALTER TABLE archived_work_components RENAME TO archived_work_components_v71;
+ALTER TABLE archived_work_domains RENAME TO archived_work_domains_v71;
+ALTER TABLE archived_work_tags RENAME TO archived_work_tags_v71;
+-- Renamed tables keep their indexes and triggers under the original names;
+-- release them before the replacement tables claim the same names.
+DROP INDEX archived_work_completed_order;
+DROP INDEX archived_work_products_lookup;
+DROP INDEX archived_work_projects_lookup;
+DROP INDEX archived_work_components_lookup;
+DROP INDEX archived_work_domains_lookup;
+DROP INDEX archived_work_tags_lookup;
+DROP TRIGGER IF EXISTS archived_work_guard_insert;
+DROP TRIGGER IF EXISTS archived_work_guard_update;
+DROP TRIGGER IF EXISTS archived_work_guard_delete;
+DROP TRIGGER IF EXISTS archived_work_products_guard_insert;
+DROP TRIGGER IF EXISTS archived_work_products_guard_update;
+DROP TRIGGER IF EXISTS archived_work_products_guard_delete;
+DROP TRIGGER IF EXISTS archived_work_projects_guard_insert;
+DROP TRIGGER IF EXISTS archived_work_projects_guard_update;
+DROP TRIGGER IF EXISTS archived_work_projects_guard_delete;
+DROP TRIGGER IF EXISTS archived_work_components_guard_insert;
+DROP TRIGGER IF EXISTS archived_work_components_guard_update;
+DROP TRIGGER IF EXISTS archived_work_components_guard_delete;
+DROP TRIGGER IF EXISTS archived_work_domains_guard_insert;
+DROP TRIGGER IF EXISTS archived_work_domains_guard_update;
+DROP TRIGGER IF EXISTS archived_work_domains_guard_delete;
+DROP TRIGGER IF EXISTS archived_work_tags_guard_insert;
+DROP TRIGGER IF EXISTS archived_work_tags_guard_update;
+DROP TRIGGER IF EXISTS archived_work_tags_guard_delete;
+DROP TRIGGER IF EXISTS archived_work_home_pair_bound_insert;
+DROP TRIGGER IF EXISTS archived_work_home_pair_bound_update;
+DROP TRIGGER IF EXISTS archived_work_kind_insert;
+DROP TRIGGER IF EXISTS archived_work_kind_update;
+
+CREATE TABLE archived_work (
+    id              TEXT NOT NULL,
+    type            TEXT NOT NULL,
+    title           TEXT NOT NULL,
+    completed_at    TEXT NOT NULL,
+    outcome_tag     TEXT NOT NULL,
+    lesson_tags     TEXT NOT NULL,
+    terminal_state  TEXT NOT NULL CHECK(terminal_state IN ('completed','cancelled','superseded')),
+    priority        INTEGER NOT NULL,
+    summary         TEXT NOT NULL,
+    successor_work_id TEXT,
+    home_project_id TEXT NOT NULL,
+    home_locator_id TEXT NOT NULL,
+    note_path       TEXT NOT NULL,
+    commit_oid      TEXT NOT NULL,
+    content_hash    TEXT NOT NULL,
+    scope_mode      TEXT NOT NULL DEFAULT 'explicit' CHECK(scope_mode IN ('home','explicit')),
+    manifest_schema_version TEXT NOT NULL DEFAULT '',
+    PRIMARY KEY(home_project_id, home_locator_id, id)
+);
+
+CREATE TABLE archived_work_products (
+    home_project_id TEXT NOT NULL,
+    home_locator_id TEXT NOT NULL,
+    work_id TEXT NOT NULL,
+    product_id TEXT NOT NULL,
+    PRIMARY KEY(home_project_id, home_locator_id, work_id, product_id),
+    FOREIGN KEY(home_project_id, home_locator_id, work_id) REFERENCES archived_work(home_project_id, home_locator_id, id) ON DELETE RESTRICT
+);
+CREATE TABLE archived_work_projects (
+    home_project_id TEXT NOT NULL,
+    home_locator_id TEXT NOT NULL,
+    work_id TEXT NOT NULL,
+    project_id TEXT NOT NULL,
+    PRIMARY KEY(home_project_id, home_locator_id, work_id, project_id),
+    FOREIGN KEY(home_project_id, home_locator_id, work_id) REFERENCES archived_work(home_project_id, home_locator_id, id) ON DELETE RESTRICT
+);
+CREATE TABLE archived_work_components (
+    home_project_id TEXT NOT NULL,
+    home_locator_id TEXT NOT NULL,
+    work_id TEXT NOT NULL,
+    component_id TEXT NOT NULL,
+    PRIMARY KEY(home_project_id, home_locator_id, work_id, component_id),
+    FOREIGN KEY(home_project_id, home_locator_id, work_id) REFERENCES archived_work(home_project_id, home_locator_id, id) ON DELETE RESTRICT
+);
+CREATE TABLE archived_work_domains (
+    home_project_id TEXT NOT NULL,
+    home_locator_id TEXT NOT NULL,
+    work_id TEXT NOT NULL,
+    domain_id TEXT NOT NULL CHECK(length(domain_id) BETWEEN 1 AND 256),
+    PRIMARY KEY(home_project_id, home_locator_id, work_id, domain_id),
+    FOREIGN KEY(home_project_id, home_locator_id, work_id) REFERENCES archived_work(home_project_id, home_locator_id, id) ON DELETE RESTRICT
+);
+CREATE TABLE archived_work_tags (
+    home_project_id TEXT NOT NULL,
+    home_locator_id TEXT NOT NULL,
+    work_id TEXT NOT NULL,
+    tag_id TEXT NOT NULL,
+    PRIMARY KEY(home_project_id, home_locator_id, work_id, tag_id),
+    FOREIGN KEY(home_project_id, home_locator_id, work_id) REFERENCES archived_work(home_project_id, home_locator_id, id) ON DELETE RESTRICT
+);
+
+CREATE INDEX archived_work_completed_order ON archived_work(completed_at DESC, id);
+CREATE INDEX archived_work_products_lookup ON archived_work_products(product_id, work_id);
+CREATE INDEX archived_work_projects_lookup ON archived_work_projects(project_id, work_id);
+CREATE INDEX archived_work_components_lookup ON archived_work_components(component_id, work_id);
+CREATE INDEX archived_work_domains_lookup ON archived_work_domains(domain_id, work_id);
+CREATE INDEX archived_work_tags_lookup ON archived_work_tags(tag_id, work_id);
+
+CREATE TRIGGER archived_work_guard_insert
+BEFORE INSERT ON archived_work FOR EACH ROW
+BEGIN
+    SELECT RAISE(ABORT, 'archived_work is fold-only')
+    WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active = 1);
+END;
+CREATE TRIGGER archived_work_guard_update
+BEFORE UPDATE ON archived_work FOR EACH ROW
+BEGIN
+    SELECT RAISE(ABORT, 'archived_work is fold-only')
+    WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active = 1);
+END;
+CREATE TRIGGER archived_work_guard_delete
+BEFORE DELETE ON archived_work FOR EACH ROW
+BEGIN
+    SELECT RAISE(ABORT, 'archived_work is fold-only')
+    WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active = 1);
+END;
+CREATE TRIGGER archived_work_products_guard_insert
+BEFORE INSERT ON archived_work_products FOR EACH ROW
+BEGIN
+    SELECT RAISE(ABORT, 'archived_work_products is fold-only')
+    WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active = 1);
+END;
+CREATE TRIGGER archived_work_products_guard_update
+BEFORE UPDATE ON archived_work_products FOR EACH ROW
+BEGIN
+    SELECT RAISE(ABORT, 'archived_work_products is fold-only')
+    WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active = 1);
+END;
+CREATE TRIGGER archived_work_products_guard_delete
+BEFORE DELETE ON archived_work_products FOR EACH ROW
+BEGIN
+    SELECT RAISE(ABORT, 'archived_work_products is fold-only')
+    WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active = 1);
+END;
+CREATE TRIGGER archived_work_projects_guard_insert
+BEFORE INSERT ON archived_work_projects FOR EACH ROW
+BEGIN
+    SELECT RAISE(ABORT, 'archived_work_projects is fold-only')
+    WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active = 1);
+END;
+CREATE TRIGGER archived_work_projects_guard_update
+BEFORE UPDATE ON archived_work_projects FOR EACH ROW
+BEGIN
+    SELECT RAISE(ABORT, 'archived_work_projects is fold-only')
+    WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active = 1);
+END;
+CREATE TRIGGER archived_work_projects_guard_delete
+BEFORE DELETE ON archived_work_projects FOR EACH ROW
+BEGIN
+    SELECT RAISE(ABORT, 'archived_work_projects is fold-only')
+    WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active = 1);
+END;
+CREATE TRIGGER archived_work_components_guard_insert
+BEFORE INSERT ON archived_work_components FOR EACH ROW
+BEGIN
+    SELECT RAISE(ABORT, 'archived_work_components is fold-only')
+    WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active = 1);
+END;
+CREATE TRIGGER archived_work_components_guard_update
+BEFORE UPDATE ON archived_work_components FOR EACH ROW
+BEGIN
+    SELECT RAISE(ABORT, 'archived_work_components is fold-only')
+    WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active = 1);
+END;
+CREATE TRIGGER archived_work_components_guard_delete
+BEFORE DELETE ON archived_work_components FOR EACH ROW
+BEGIN
+    SELECT RAISE(ABORT, 'archived_work_components is fold-only')
+    WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active = 1);
+END;
+CREATE TRIGGER archived_work_domains_guard_insert
+BEFORE INSERT ON archived_work_domains FOR EACH ROW
+BEGIN
+    SELECT RAISE(ABORT, 'archived_work_domains is fold-only')
+    WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active = 1);
+END;
+CREATE TRIGGER archived_work_domains_guard_update
+BEFORE UPDATE ON archived_work_domains FOR EACH ROW
+BEGIN
+    SELECT RAISE(ABORT, 'archived_work_domains is fold-only')
+    WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active = 1);
+END;
+CREATE TRIGGER archived_work_domains_guard_delete
+BEFORE DELETE ON archived_work_domains FOR EACH ROW
+BEGIN
+    SELECT RAISE(ABORT, 'archived_work_domains is fold-only')
+    WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active = 1);
+END;
+CREATE TRIGGER archived_work_tags_guard_insert
+BEFORE INSERT ON archived_work_tags FOR EACH ROW
+BEGIN
+    SELECT RAISE(ABORT, 'archived_work_tags is fold-only')
+    WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active = 1);
+END;
+CREATE TRIGGER archived_work_tags_guard_update
+BEFORE UPDATE ON archived_work_tags FOR EACH ROW
+BEGIN
+    SELECT RAISE(ABORT, 'archived_work_tags is fold-only')
+    WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active = 1);
+END;
+CREATE TRIGGER archived_work_tags_guard_delete
+BEFORE DELETE ON archived_work_tags FOR EACH ROW
+BEGIN
+    SELECT RAISE(ABORT, 'archived_work_tags is fold-only')
+    WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active = 1);
+END;
+CREATE TRIGGER archived_work_home_pair_bound_insert
+BEFORE INSERT ON archived_work FOR EACH ROW
+WHEN NOT EXISTS (SELECT 1 FROM project_locators pl
+                 WHERE pl.project_id = NEW.home_project_id AND pl.locator_id = NEW.home_locator_id)
+BEGIN
+    SELECT RAISE(ABORT, 'archived_work home pair does not reference a Project locator');
+END;
+CREATE TRIGGER archived_work_home_pair_bound_update
+BEFORE UPDATE OF home_project_id, home_locator_id ON archived_work FOR EACH ROW
+WHEN NOT EXISTS (SELECT 1 FROM project_locators pl
+                 WHERE pl.project_id = NEW.home_project_id AND pl.locator_id = NEW.home_locator_id)
+BEGIN
+    SELECT RAISE(ABORT, 'archived_work home pair does not reference a Project locator');
+END;
+CREATE TRIGGER archived_work_kind_insert
+BEFORE INSERT ON archived_work FOR EACH ROW
+WHEN NEW.type NOT IN (
+    'work_note', 'constitution', 'decision', 'spec', 'lesson', 'reference', 'research'
+)
+BEGIN
+    SELECT RAISE(ABORT, 'archived work type is not a declared knowledge kind');
+END;
+CREATE TRIGGER archived_work_kind_update
+BEFORE UPDATE OF type ON archived_work FOR EACH ROW
+WHEN NEW.type NOT IN (
+    'work_note', 'constitution', 'decision', 'spec', 'lesson', 'reference', 'research'
+)
+BEGIN
+    SELECT RAISE(ABORT, 'archived work type is not a declared knowledge kind');
+END;
+
+CREATE TRIGGER project_locators_referenced_by_knowledge_no_delete
+BEFORE DELETE ON project_locators FOR EACH ROW
+WHEN     EXISTS (SELECT 1 FROM archived_work k
+            WHERE k.home_project_id = OLD.project_id AND k.home_locator_id = OLD.locator_id)
+ OR
+    EXISTS (SELECT 1 FROM knowledge_index_watermark k
+            WHERE k.home_project_id = OLD.project_id AND k.home_locator_id = OLD.locator_id)
+ OR
+    EXISTS (SELECT 1 FROM knowledge_kind_coverage k
+            WHERE k.home_project_id = OLD.project_id AND k.home_locator_id = OLD.locator_id)
+ OR
+    EXISTS (SELECT 1 FROM law_subjects k
+            WHERE k.home_project_id = OLD.project_id AND k.home_locator_id = OLD.locator_id)
+ OR
+    EXISTS (SELECT 1 FROM law_relations k
+            WHERE k.home_project_id = OLD.project_id AND k.home_locator_id = OLD.locator_id)
+ OR
+    EXISTS (SELECT 1 FROM domains k
+            WHERE k.home_project_id = OLD.project_id AND k.home_locator_id = OLD.locator_id)
+ OR
+    EXISTS (SELECT 1 FROM domain_registries k
+            WHERE k.home_project_id = OLD.project_id AND k.home_locator_id = OLD.locator_id)
+ OR
+    EXISTS (SELECT 1 FROM domain_architecture_relations k
+            WHERE k.home_project_id = OLD.project_id AND k.home_locator_id = OLD.locator_id)
+ OR
+    EXISTS (SELECT 1 FROM domain_relation_governing_laws k
+            WHERE k.home_project_id = OLD.project_id AND k.home_locator_id = OLD.locator_id)
+ OR
+    EXISTS (SELECT 1 FROM law_domain_homes k
+            WHERE k.home_project_id = OLD.project_id AND k.home_locator_id = OLD.locator_id)
+ OR
+    EXISTS (SELECT 1 FROM law_domain_applicability k
+            WHERE k.home_project_id = OLD.project_id AND k.home_locator_id = OLD.locator_id)
+BEGIN
+    SELECT RAISE(ABORT, 'Project locator is referenced by Git-derived knowledge');
+END;
+
+INSERT OR IGNORE INTO fold_guard(active) VALUES (1);
+INSERT INTO archived_work (id,type,title,completed_at,outcome_tag,lesson_tags,terminal_state,priority,summary,successor_work_id,home_project_id,home_locator_id,note_path,commit_oid,content_hash,scope_mode,manifest_schema_version)
+SELECT id,type,title,completed_at,outcome_tag,lesson_tags,terminal_state,priority,summary,successor_work_id,home_project_id,home_locator_id,note_path,commit_oid,content_hash,scope_mode,manifest_schema_version FROM archived_work_v71;
+INSERT INTO archived_work_products (home_project_id,home_locator_id,work_id,product_id)
+SELECT p.home_project_id,p.home_locator_id,c.work_id,c.product_id FROM archived_work_products_v71 c JOIN archived_work_v71 p ON p.id = c.work_id;
+INSERT INTO archived_work_projects (home_project_id,home_locator_id,work_id,project_id)
+SELECT p.home_project_id,p.home_locator_id,c.work_id,c.project_id FROM archived_work_projects_v71 c JOIN archived_work_v71 p ON p.id = c.work_id;
+INSERT INTO archived_work_components (home_project_id,home_locator_id,work_id,component_id)
+SELECT p.home_project_id,p.home_locator_id,c.work_id,c.component_id FROM archived_work_components_v71 c JOIN archived_work_v71 p ON p.id = c.work_id;
+INSERT INTO archived_work_domains (home_project_id,home_locator_id,work_id,domain_id)
+SELECT p.home_project_id,p.home_locator_id,c.work_id,c.domain_id FROM archived_work_domains_v71 c JOIN archived_work_v71 p ON p.id = c.work_id;
+INSERT INTO archived_work_tags (home_project_id,home_locator_id,work_id,tag_id)
+SELECT p.home_project_id,p.home_locator_id,c.work_id,c.tag_id FROM archived_work_tags_v71 c JOIN archived_work_v71 p ON p.id = c.work_id;
+DROP TABLE archived_work_v71;
+DROP TABLE archived_work_products_v71;
+DROP TABLE archived_work_projects_v71;
+DROP TABLE archived_work_components_v71;
+DROP TABLE archived_work_domains_v71;
+DROP TABLE archived_work_tags_v71;
+DELETE FROM fold_guard;
+		`,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any

@@ -381,7 +381,7 @@ func insertArchivedKnowledge(t *testing.T, s *Store, id, homeProject, homeLocato
 		t.Fatal(err)
 	}
 	for _, product := range products {
-		if _, err := s.DatabaseForTesting().ExecContext(ctx, `INSERT INTO archived_work_products(work_id,product_id) VALUES (?,?)`, id, product); err != nil {
+		if _, err := s.DatabaseForTesting().ExecContext(ctx, `INSERT INTO archived_work_products(home_project_id,home_locator_id,work_id,product_id) VALUES (?,?,?,?)`, homeProject, homeLocator, id, product); err != nil {
 			t.Fatal(err)
 		}
 	}

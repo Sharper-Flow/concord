@@ -241,7 +241,7 @@ func foldCompactionLinkPublished(ctx context.Context, tx *sql.Tx, event Event) e
 		CommitOID     string
 		ContentHash   string
 	}
-	err = tx.QueryRowContext(ctx, `SELECT home_project_id,home_locator_id,note_path,commit_oid,content_hash FROM archived_work WHERE id = ?`, payload.ID).Scan(
+	err = tx.QueryRowContext(ctx, `SELECT home_project_id,home_locator_id,note_path,commit_oid,content_hash FROM archived_work WHERE id = ? AND home_project_id = ? AND home_locator_id = ?`, payload.ID, payload.HomeProjectID, payload.HomeLocatorID).Scan(
 		&existing.HomeProjectID, &existing.HomeLocatorID, &existing.NotePath, &existing.CommitOID, &existing.ContentHash)
 	if err == nil {
 		if existing.HomeProjectID != payload.HomeProjectID || existing.HomeLocatorID != payload.HomeLocatorID || existing.NotePath != payload.NotePath || existing.CommitOID != payload.CommitOID || existing.ContentHash != payload.ContentHash {
@@ -261,7 +261,7 @@ func foldCompactionLinkPublished(ctx context.Context, tx *sql.Tx, event Event) e
 			if value == "" {
 				return newFailure(KindInvalidPayload, "fold_event", "compaction scope contains an empty ID", false, "supply non-empty frozen scope IDs")
 			}
-			if _, err := tx.ExecContext(ctx, "INSERT INTO "+table+" (work_id, "+column+") VALUES (?, ?)", payload.ID, value); err != nil { //nolint:gosec // table and column come from the closed maps above and both values stay parameter-bound.
+			if _, err := tx.ExecContext(ctx, "INSERT INTO "+table+" (home_project_id, home_locator_id, work_id, "+column+") VALUES (?, ?, ?, ?)", payload.HomeProjectID, payload.HomeLocatorID, payload.ID, value); err != nil { //nolint:gosec // table and column come from the closed maps above and both values stay parameter-bound.
 				return wrapFailure(KindUnavailable, "fold_event", "cannot write archived scope projection", true, "retry once the database is writable", err)
 			}
 		}
@@ -735,7 +735,7 @@ func insertKnowledgeNote(ctx context.Context, tx *sql.Tx, home KnowledgeHome, no
 	for table, values := range map[string][]string{"archived_work_products": note.ProductIDs, "archived_work_projects": note.ProjectIDs, scopeTable: scopeIDs, "archived_work_tags": note.TagIDs} {
 		column := map[string]string{"archived_work_products": "product_id", "archived_work_projects": "project_id", "archived_work_tags": "tag_id", scopeTable: scopeColumn}[table]
 		for _, value := range values {
-			if _, err := tx.ExecContext(ctx, "INSERT INTO "+table+" (work_id, "+column+") VALUES (?, ?)", note.ID, value); err != nil { //nolint:gosec // table and column come from closed scope maps and both values stay parameter-bound.
+			if _, err := tx.ExecContext(ctx, "INSERT INTO "+table+" (home_project_id, home_locator_id, work_id, "+column+") VALUES (?, ?, ?, ?)", home.HomeProjectID, home.HomeLocatorID, note.ID, value); err != nil { //nolint:gosec // table and column come from closed scope maps and all values stay parameter-bound.
 				return wrapFailure(KindUnavailable, "rebuild_knowledge_index", "cannot insert indexed note scope", true, "retry once the database is writable", err)
 			}
 		}

@@ -1,0 +1,34 @@
+{
+  "date": "2026-09-04T00:00:00Z",
+  "evidence": [
+    "docs/decisions/CD-0108-the-launcher-is-the-zlauncher-replacement.md",
+    "docs/terminal-launcher-contract.md",
+    "scenarios/launcher-portfolio.v1.json"
+  ],
+  "home_domain_id": "operator-surface",
+  "id": "terminal-launcher-replacement-contract",
+  "kind": "spec",
+  "law_relations": [
+    {
+      "kind": "supersedes",
+      "target_id": "terminal-launcher-contract"
+    }
+  ],
+  "path": "docs/terminal-launcher-replacement-contract.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:fb71d00080fc65ed531042f2c95aa4d93eff0e58d980427452e09b24bdd5c5d6",
+  "status": "accepted",
+  "summary": "Defines the launcher remake CD-0108 mandates: Concord-first browse with launch actions through Concord's session bootstrap, resume, and prompt pass-through; dense panes on arrow, Enter, and Tab; store-write-free; the accepted feature set with removed and deferred items; and the ZLauncher retirement acceptance test.",
+  "tags": [
+    "launcher",
+    "remake",
+    "rendering"
+  ],
+  "title": "terminal launcher replacement contract"
+}

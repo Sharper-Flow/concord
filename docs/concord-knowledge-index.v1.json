@@ -4845,14 +4845,49 @@
         "project_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:e56eac5c307143b340fc20e7052ffbb70e0d86da6c73051d986da5ddc4c46f5f",
-      "status": "accepted",
-      "summary": "Defines the read-only Product launcher: three screens, identity-only handoff, no-poll refresh, and bounded Product-scoped reads. Scope superseded by CD-0108; the successor contract registers during its build.",
+      "sha256": "sha256:33d47d0c8c0c355e2e3d07ca5ce1362d82e52d946212704866731e1e35b8021c",
+      "status": "superseded",
+      "successor": "terminal-launcher-replacement-contract",
+      "summary": "Defines the read-only Product launcher: three screens, identity-only handoff, no-poll refresh, and bounded Product-scoped reads. Superseded by the terminal launcher replacement contract under CD-0108.",
       "tags": [
         "launcher",
         "rendering"
       ],
       "title": "terminal launcher contract"
+    },
+    {
+      "date": "2026-09-04T00:00:00Z",
+      "evidence": [
+        "docs/decisions/CD-0108-the-launcher-is-the-zlauncher-replacement.md",
+        "docs/terminal-launcher-contract.md",
+        "scenarios/launcher-portfolio.v1.json"
+      ],
+      "home_domain_id": "operator-surface",
+      "id": "terminal-launcher-replacement-contract",
+      "kind": "spec",
+      "law_relations": [
+        {
+          "kind": "supersedes",
+          "target_id": "terminal-launcher-contract"
+        }
+      ],
+      "path": "docs/terminal-launcher-replacement-contract.md",
+      "scopes": {
+        "domain_ids": [],
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:fb71d00080fc65ed531042f2c95aa4d93eff0e58d980427452e09b24bdd5c5d6",
+      "status": "accepted",
+      "summary": "Defines the launcher remake CD-0108 mandates: Concord-first browse with launch actions through Concord's session bootstrap, resume, and prompt pass-through; dense panes on arrow, Enter, and Tab; store-write-free; the accepted feature set with removed and deferred items; and the ZLauncher retirement acceptance test.",
+      "tags": [
+        "launcher",
+        "remake",
+        "rendering"
+      ],
+      "title": "terminal launcher replacement contract"
     },
     {
       "date": "2026-08-07T00:00:00Z",

@@ -2211,6 +2211,11 @@
       "state": "satisfied"
     },
     {
+      "id": "terminal-launcher-replacement-contract",
+      "issue": 803,
+      "state": "outstanding"
+    },
+    {
       "id": "vertical-integration",
       "reason": "Investigation findings on adjacent tooling. It reports options and tradeoffs and reaches no accepted position, so it claims nothing about this Product's behaviour.",
       "state": "out_of_scope"

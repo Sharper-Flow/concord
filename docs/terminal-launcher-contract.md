@@ -1,9 +1,8 @@
 # Terminal launcher — accepted contract
 
-**Status:** Accepted under [`CD-0014`](./decisions/CD-0014-terminal-launcher-rendering.md),
-amended by CD-0041. Scope superseded by
-[`CD-0108`](./decisions/CD-0108-the-launcher-is-the-zlauncher-replacement.md);
-the successor contract registers during its build.
+**Status:** Superseded by
+[`terminal-launcher-replacement-contract.md`](./terminal-launcher-replacement-contract.md)
+under [`CD-0108`](./decisions/CD-0108-the-launcher-is-the-zlauncher-replacement.md).
 **Implementation status:** S1 portfolio wiring shipped through issue #45 and PR #48.
 S2 Product coordination view, S3 Work detail, scoped knowledge/search, explicit
 refresh, and identity-only OpenCode handoff shipped through issue #51; the S2

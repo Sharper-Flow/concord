@@ -233,6 +233,13 @@ test("a successful run records dispatch evidence before completion evidence", as
   expect(dispatched.packet_schema_version).toBe("1.0")
   expect(dispatched.report_schema_version).toBe("1.0")
   expect(typeof dispatched.event_id).toBe("string")
+  // CD-0067 D6: the CLI has required packet_digest as a top-level field of
+  // worker-dispatch since #470. The adapter signed it inside the assertion
+  // and omitted it from the request, and no live completion ran this path
+  // until the after-hook landed, so the first real completion refused with
+  // "missing required field packet_digest". The value is the digest the
+  // core recorded at dispatch, never re-derived here.
+  expect(dispatched.packet_digest).toBe(PACKET_DIGEST)
 
   const completed = JSON.parse(calls[1].input)
   expect(completed.work_id).toBe("work-1")

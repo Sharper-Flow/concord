@@ -87,6 +87,33 @@ type LauncherSearchResult struct {
 	KnowledgeOmissions []string
 }
 
+// ResolveLauncherWorkProduct selects the stable Product scope for direct work
+// forwarding. The launcher does not write a remembered Product to the store.
+func (s *Store) ResolveLauncherWorkProduct(ctx context.Context, workID string) (string, error) {
+	if workID == "" {
+		return "", unknownScope("launcher.forward", "work forwarding requires a work")
+	}
+	tx, err := beginRead(ctx, s, "launcher.forward")
+	if err != nil {
+		return "", err
+	}
+	defer tx.Rollback()
+	var productID string
+	err = tx.QueryRowContext(ctx, `SELECT pp.product_id
+		FROM work_projects wp
+		JOIN product_projects pp ON pp.project_id=wp.project_id
+		WHERE wp.work_id=?
+		ORDER BY pp.product_id
+		LIMIT 1`, workID).Scan(&productID)
+	if err == sql.ErrNoRows {
+		return "", unknownScope("launcher.forward", "work is not in a Product")
+	}
+	if err != nil {
+		return "", wrapFailure(KindUnavailable, "launcher.forward", "cannot resolve work Product", true, "retry once the database is readable", err)
+	}
+	return productID, nil
+}
+
 func (s *Store) QueryLauncherSearch(ctx context.Context, req LauncherSearchRequest) (LauncherSearchResult, error) {
 	var out LauncherSearchResult
 	if s == nil || s.db == nil {

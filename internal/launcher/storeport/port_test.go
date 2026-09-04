@@ -2,6 +2,7 @@ package storeport
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -32,6 +33,24 @@ func TestProbeFailureIsTypedPreviewState(t *testing.T) {
 	got := port.Probe(context.Background())
 	if len(got) != 2 || got[0].Available || got[1].Available || got[0].Reason == "" || got[1].Reason == "" {
 		t.Fatalf("probe state = %#v", got)
+	}
+}
+
+func TestCandidatesWithoutStoreStayBoundedToScanRoots(t *testing.T) {
+	root := t.TempDir()
+	for i := 0; i < 101; i++ {
+		project := filepath.Join(root, fmt.Sprintf("project-%03d", i))
+		if err := os.MkdirAll(filepath.Join(project, ".git"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("CONCORD_LAUNCHER_SCAN_ROOTS", root)
+	got, err := (&Port{}).Candidates(context.Background(), 20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 20 {
+		t.Fatalf("bounded candidates = %d, want 20", len(got))
 	}
 }
 

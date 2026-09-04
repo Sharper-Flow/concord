@@ -63,3 +63,14 @@ func TestReplacementProbeFailureStaysInPreview(t *testing.T) {
 		t.Fatalf("failed probes were not degraded: %#v", snapshot.Probes)
 	}
 }
+
+func TestReplacementCandidatePreviewCarriesLaunchContext(t *testing.T) {
+	model := New(nil)
+	model.RestoreSnapshot(Snapshot{Screen: ScreenPortfolio, Coverage: "authoritative", Candidates: []Candidate{{
+		ID: "work-1", Kind: CandidateWork, Name: "Fix launcher", State: "in_progress", Blocked: true,
+		Worktree: "/worktrees/work-1", Live: 2, Available: true,
+	}}})
+	if got := model.Snapshot().Candidates[0]; got.Worktree != "/worktrees/work-1" || got.Live != 2 || !got.Blocked {
+		t.Fatalf("candidate context = %#v", got)
+	}
+}

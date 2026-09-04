@@ -311,10 +311,33 @@ func runZLForwarding(args []string, in io.Reader, out, errOut io.Writer) int {
 		product = os.Getenv("CONCORD_PRODUCT_ID")
 	}
 	if product == "" {
-		writeDiagnostic(errOut, "concord zl: CONCORD_SELECTED_PRODUCT_ID is required")
-		return 2
+		resolved, err := resolveForwardedProduct(work)
+		if err != nil {
+			writeDiagnostic(errOut, "concord zl: "+err.Error())
+			return 1
+		}
+		product = resolved
 	}
 	return launchForwardedSession(product, work, prompt, in, out, errOut)
+}
+
+func resolveForwardedProduct(work string) (string, error) {
+	path, err := databasePath()
+	if err != nil {
+		return "", err
+	}
+	if _, statErr := os.Stat(path); statErr != nil {
+		if os.IsNotExist(statErr) {
+			return "", errors.New("no authority database is available")
+		}
+		return "", fmt.Errorf("database path is unavailable: %w", statErr)
+	}
+	s, err := store.Open(context.Background(), path)
+	if err != nil {
+		return "", err
+	}
+	defer s.Close()
+	return s.ResolveLauncherWorkProduct(context.Background(), work)
 }
 
 func launchForwardedSession(product, work, prompt string, in io.Reader, out, errOut io.Writer) int {

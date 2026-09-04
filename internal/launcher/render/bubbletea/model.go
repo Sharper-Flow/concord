@@ -1153,6 +1153,9 @@ func (m *Model) renderCandidates(snapshot launcher.Snapshot) string {
 	}
 	lines = append(lines, probeLines(snapshot.Probes)...)
 	values := launcher.FilterCandidates(snapshot.Candidates, m.filterValue)
+	if m.cursor >= 0 && m.cursor < len(values) {
+		lines = append(lines, candidatePreviewLines(values[m.cursor])...)
+	}
 	for i, candidate := range values {
 		marker := " "
 		if candidate.Pinned {
@@ -1166,7 +1169,15 @@ func (m *Model) renderCandidates(snapshot launcher.Snapshot) string {
 		if candidate.Path != "" {
 			name += " " + candidate.Path
 		}
-		lines = append(lines, fmtInt(i+1)+" "+marker+" "+string(candidate.Kind)+" "+name+" state="+available+" live="+fmtInt(candidate.Live))
+		state := candidate.State
+		if state == "" {
+			state = available
+		}
+		blocked := ""
+		if candidate.Blocked {
+			blocked = " blocked=true"
+		}
+		lines = append(lines, fmtInt(i+1)+" "+marker+" "+string(candidate.Kind)+" "+name+" state="+state+blocked+" live="+fmtInt(candidate.Live))
 	}
 	if len(values) == 0 {
 		lines = append(lines, "CANDIDATES: authoritative-empty")
@@ -1180,4 +1191,30 @@ func (m *Model) renderCandidates(snapshot launcher.Snapshot) string {
 		lines = append(lines, helpLines(m.help.View(m.keys), m.width)...)
 	}
 	return strings.Join(wrapHeaders(lines, m.width), "\n")
+}
+
+func candidatePreviewLines(candidate launcher.Candidate) []string {
+	lines := []string{"PREVIEW: " + string(candidate.Kind) + " " + candidate.Name}
+	if candidate.Path != "" {
+		lines = append(lines, "PATH: "+candidate.Path)
+	}
+	if candidate.Worktree != "" {
+		lines = append(lines, "WORKTREE: "+candidate.Worktree)
+	}
+	state := candidate.State
+	if state == "" {
+		state = "unavailable"
+		if candidate.Available {
+			state = "available"
+		}
+	}
+	lines = append(lines, "STATE: "+state, "BLOCKED: "+fmtBool(candidate.Blocked), "LIVE SESSIONS: "+fmtInt(candidate.Live))
+	return lines
+}
+
+func fmtBool(value bool) string {
+	if value {
+		return "true"
+	}
+	return "false"
 }

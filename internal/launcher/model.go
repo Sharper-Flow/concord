@@ -247,6 +247,8 @@ type Candidate struct {
 	ID        string        `json:"id"`
 	Kind      CandidateKind `json:"kind"`
 	Name      string        `json:"name"`
+	State     string        `json:"state,omitempty"`
+	Blocked   bool          `json:"blocked"`
 	Path      string        `json:"path,omitempty"`
 	ProductID string        `json:"product_id,omitempty"`
 	WorkID    string        `json:"work_id,omitempty"`

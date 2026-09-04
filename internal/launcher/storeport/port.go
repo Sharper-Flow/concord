@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -24,11 +25,32 @@ type Port struct {
 
 type ProbeFunc func(context.Context) (bool, string)
 
-func New(s *store.Store) *Port { return &Port{Store: s} }
+func New(s *store.Store) *Port {
+	return &Port{
+		Store:       s,
+		VisionProbe: commandProbe("vision", "daemon", "status"),
+		LgrepProbe:  commandProbe("lgrep", "--version"),
+	}
+}
+
+func commandProbe(name string, args ...string) ProbeFunc {
+	return func(ctx context.Context) (bool, string) {
+		if _, err := exec.LookPath(name); err != nil {
+			return false, name + " is not installed"
+		}
+		if err := exec.CommandContext(ctx, name, args...).Run(); err != nil { //nolint:gosec // name and args are fixed by the launcher.
+			return false, err.Error()
+		}
+		return true, ""
+	}
+}
 
 // Probe reads optional local status. A missing probe is unavailable preview
 // data, not an error that can stop the launcher.
 func (p *Port) Probe(ctx context.Context) []launcher.ProbeStatus {
+	if p == nil {
+		return []launcher.ProbeStatus{{Name: "vision", Reason: "probe not configured"}, {Name: "lgrep", Reason: "probe not configured"}}
+	}
 	return []launcher.ProbeStatus{probeStatus(ctx, "vision", p.VisionProbe), probeStatus(ctx, "lgrep", p.LgrepProbe)}
 }
 
@@ -49,19 +71,30 @@ func (p *Port) Candidates(ctx context.Context, limit int) ([]launcher.Candidate,
 	if limit < 1 || limit > 100 {
 		return nil, errors.New("launcher candidate limit must be between 1 and 100")
 	}
+	if p == nil || p.Store == nil {
+		candidates := scanRootCandidates()
+		if len(candidates) > limit {
+			candidates = candidates[:limit]
+		}
+		return candidates, nil
+	}
 	result, err := portfolio.Read(ctx, p.Store, store.ProductRowRequest{Limit: limit})
 	if err != nil {
 		return nil, err
 	}
 	candidates := make([]launcher.Candidate, 0, len(result.Rows)*2)
 	for rank, row := range result.Rows {
-		candidates = append(candidates, launcher.Candidate{ID: row.ProductID, Kind: launcher.CandidateProduct, Name: row.DisplayName + row.DisplayNameSuffix, ProductID: row.ProductID, Rank: rank, Available: true})
+		candidates = append(candidates, launcher.Candidate{ID: row.ProductID, Kind: launcher.CandidateProduct, Name: row.DisplayName + row.DisplayNameSuffix, ProductID: row.ProductID, Rank: rank, State: "available", Available: true})
 		product, productErr := p.Store.QueryLauncherProduct(ctx, store.LauncherProductRequest{Product: row.ProductID, Limit: limit, Depth: 3})
 		if productErr != nil {
 			continue
 		}
 		for workRank, item := range append(product.Works, product.TerminalWorks...) {
-			candidate := launcher.Candidate{ID: item.ID, Kind: launcher.CandidateWork, Name: item.Title, ProductID: row.ProductID, WorkID: item.ID, Rank: workRank, Available: false}
+			state := item.Lifecycle
+			if state == "" {
+				state = "unavailable"
+			}
+			candidate := launcher.Candidate{ID: item.ID, Kind: launcher.CandidateWork, Name: item.Title, ProductID: row.ProductID, WorkID: item.ID, Rank: workRank, State: state, Blocked: item.Blocked, Available: false}
 			worktrees, treeErr := p.Store.WorktreeEntries(ctx, item.ID)
 			if treeErr != nil {
 				candidates = append(candidates, candidate)
@@ -79,7 +112,11 @@ func (p *Port) Candidates(ctx context.Context, limit int) ([]launcher.Candidate,
 		}
 	}
 	candidates = append(candidates, scanRootCandidates()...)
-	return launcher.OrderCandidates(candidates), nil
+	candidates = launcher.OrderCandidates(candidates)
+	if len(candidates) > limit {
+		candidates = candidates[:limit]
+	}
+	return candidates, nil
 }
 
 func scanRootCandidates() []launcher.Candidate {
@@ -112,6 +149,9 @@ func scanRootCandidates() []launcher.Candidate {
 		}
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Path < out[j].Path })
+	if len(out) > 100 {
+		out = out[:100]
+	}
 	return out
 }
 

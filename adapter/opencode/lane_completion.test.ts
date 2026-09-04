@@ -103,6 +103,51 @@ describe("completeDispatchedWorker", () => {
     expect(output.output).toContain("agent_identity_mismatch")
   })
 
+  // The packet pins lane_version and lane_digest so completion binds to the
+  // definition the dispatch authorized. An installed registry that drifts from
+  // it — an upgrade between dispatch and completion — must refuse, because
+  // signing the installed lane's version and digest onto the attempt records
+  // the worker as having run a contract it never received.
+  test("a lane that drifted from the dispatched version is refused", async () => {
+    const windows = new DispatchWindows()
+    const drifted = { ...packet(), lane_version: lane.version + 1 }
+    windows.open(SESSION, drifted, PACKET_DIGEST)
+    windows.bind(TASK_TOOL_ID, SESSION, {})
+    const verbs: string[] = []
+    const output = { title: "verify lane", output: taskWrap(JSON.stringify(report())), metadata: {} }
+    await completeDispatchedWorker({ tool: TASK_TOOL_ID, sessionID: SESSION, callID: "call-1", args: {} }, output, deps(verbs, windows))
+    expect(verbs).toEqual([])
+    expect(output.output).toContain("concord_attempt")
+    expect(output.output).toContain("does not carry")
+  })
+
+  test("a lane whose digest drifted from the dispatched packet is refused", async () => {
+    const windows = new DispatchWindows()
+    const drifted = { ...packet(), lane_digest: "sha256:" + "e".repeat(64) }
+    windows.open(SESSION, drifted, PACKET_DIGEST)
+    windows.bind(TASK_TOOL_ID, SESSION, {})
+    const verbs: string[] = []
+    const output = { title: "verify lane", output: taskWrap(JSON.stringify(report())), metadata: {} }
+    await completeDispatchedWorker({ tool: TASK_TOOL_ID, sessionID: SESSION, callID: "call-1", args: {} }, output, deps(verbs, windows))
+    expect(verbs).toEqual([])
+    expect(output.output).toContain("does not carry")
+  })
+
+  // One authorization admits one result. A second call for the same session
+  // finds nothing in flight, so a single dispatch cannot record two attempts.
+  test("one authorization admits one result", async () => {
+    const windows = new DispatchWindows()
+    windows.open(SESSION, packet(), PACKET_DIGEST)
+    windows.bind(TASK_TOOL_ID, SESSION, {})
+    const verbs: string[] = []
+    const first = { title: "verify lane", output: taskWrap(JSON.stringify(report())), metadata: {} }
+    const second = { title: "verify lane", output: taskWrap(JSON.stringify(report())), metadata: {} }
+    await completeDispatchedWorker({ tool: TASK_TOOL_ID, sessionID: SESSION, callID: "call-1", args: {} }, first, deps(verbs, windows))
+    await completeDispatchedWorker({ tool: TASK_TOOL_ID, sessionID: SESSION, callID: "call-2", args: {} }, second, deps(verbs, windows))
+    expect(verbs).toEqual(["worker-dispatch", "worker-complete"])
+    expect(second.output).toBe(taskWrap(JSON.stringify(report())))
+  })
+
   test("ignores tools that are not the task tool and sessions with no in-flight attempt", async () => {
     const windows = new DispatchWindows()
     const verbs: string[] = []

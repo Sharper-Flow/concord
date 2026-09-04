@@ -56,9 +56,16 @@ export async function completeDispatchedWorker(input: LaneCompletionInput, outpu
   const windows = deps.windows ?? dispatchWindows()
   const record = windows.takeInFlight(input.sessionID)
   if (!record) return
-  const lane = agentLanes.find((candidate) => candidate.id === record.packet.lane_id)
+  // The packet pins the lane's version and digest, so completion binds to the
+  // definition the dispatch authorized rather than to whatever the registry
+  // carries now. A registry that drifted between dispatch and completion — an
+  // upgrade mid-flight — would otherwise sign its own version and digest onto
+  // the attempt, recording the worker as having run a contract it never
+  // received. The attempt row is written from those same values, so nothing
+  // downstream can catch the substitution.
+  const lane = agentLanes.find((candidate) => candidate.id === record.packet.lane_id && candidate.version === record.packet.lane_version && candidate.digest === record.packet.lane_digest)
   if (!lane) {
-    output.output += renderAttempt({ schema_version: "1.0", outcome: "error", lane: { id: record.packet.lane_id, version: record.packet.lane_version, digest: record.packet.lane_digest }, agent: `concord-${record.packet.lane_id}`, readback_model: null, session_id: null, error: { kind: "invalid_input", retry_safe: false, recovery_action: "contact_operator", message: "in-flight attempt names a lane the registry does not carry" } })
+    output.output += renderAttempt({ schema_version: "1.0", outcome: "error", lane: { id: record.packet.lane_id, version: record.packet.lane_version, digest: record.packet.lane_digest }, agent: `concord-${record.packet.lane_id}`, readback_model: null, session_id: null, error: { kind: "invalid_input", retry_safe: false, recovery_action: "contact_operator", message: "in-flight attempt names a lane at a version and digest the registry does not carry" } })
     return
   }
   const signal = deps.signal ?? new AbortController().signal

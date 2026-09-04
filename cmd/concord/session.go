@@ -303,6 +303,8 @@ func runSessionCommand(args []string, in io.Reader, out, errOut io.Writer, termi
 			writeDiagnostic(errOut, "concord session: project path is not canonical: "+projectPath)
 			return 2
 		}
+		// #nosec G703 -- projectPath passed the absolute and canonical
+		// checks above, so the stat target is the validated path itself.
 		info, statErr := os.Stat(projectPath)
 		if statErr != nil || !info.IsDir() {
 			writeDiagnostic(errOut, "concord session: project path is not a usable directory: "+projectPath)

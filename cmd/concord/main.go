@@ -206,9 +206,14 @@ func terminalStreams(in io.Reader, out io.Writer) bool {
 }
 
 func runLauncherCommand(args []string, in io.Reader, out, errOut io.Writer, terminal bool) int {
-	list := len(args) == 1 && args[0] == "--list"
-	if len(args) == 1 && args[0] == "--resume-last" {
-		return runZLForwarding(args, in, out, errOut)
+	list := false
+	if len(args) == 1 {
+		switch {
+		case args[0] == "--list": // #nosec G602 -- args has length 1, checked by this branch.
+			list = true
+		case args[0] == "--resume-last": // #nosec G602 -- args has length 1, checked by this branch.
+			return runZLForwarding(args, in, out, errOut)
+		}
 	}
 	if len(args) != 0 && !list {
 		writeDiagnostic(errOut, "concord launcher: unsupported arguments; launcher accepts no JSON stdin arguments")
@@ -274,7 +279,7 @@ func runLauncherList(out, errOut io.Writer) int {
 		writeDiagnostic(errOut, err.Error())
 		return 1
 	}
-	defer s.Close()
+	defer func() { _ = s.Close() }()
 	candidates, err := storeport.New(s).Candidates(context.Background(), 100)
 	if err != nil {
 		writeDiagnostic(errOut, "concord launcher --list: "+err.Error())
@@ -284,16 +289,18 @@ func runLauncherList(out, errOut io.Writer) int {
 }
 
 func runZLForwarding(args []string, in io.Reader, out, errOut io.Writer) int {
-	if len(args) == 1 && args[0] == "--resume-last" {
-		work := os.Getenv("CONCORD_LAST_WORK_ID")
-		product := os.Getenv(selectedProductEnv)
-		if work == "" || product == "" {
-			writeDiagnostic(errOut, "concord --resume-last: no workspace is recorded")
-			return 1
+	if len(args) == 1 {
+		if args[0] == "--resume-last" { // #nosec G602 -- args has length 1, checked by this branch.
+			work := os.Getenv("CONCORD_LAST_WORK_ID")
+			product := os.Getenv(selectedProductEnv)
+			if work == "" || product == "" {
+				writeDiagnostic(errOut, "concord --resume-last: no workspace is recorded")
+				return 1
+			}
+			return launchForwardedSession(product, work, "", in, out, errOut)
 		}
-		return launchForwardedSession(product, work, "", in, out, errOut)
 	}
-	if len(args) < 1 || args[0] == "--" {
+	if len(args) < 1 || args[0] == "--" { // #nosec G602 -- args non-empty, checked by this branch.
 		writeDiagnostic(errOut, "concord zl: work ID is required")
 		return 2
 	}
@@ -336,7 +343,7 @@ func resolveForwardedProduct(work string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer s.Close()
+	defer func() { _ = s.Close() }()
 	return s.ResolveLauncherWorkProduct(context.Background(), work)
 }
 

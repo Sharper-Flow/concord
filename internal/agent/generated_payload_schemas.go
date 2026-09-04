@@ -6258,8 +6258,19 @@ const GeneratedPayloadSchemaDocument = `{
                 "edge_kind": {},
                 "entity_kind": {},
                 "entity_ref": {},
+                "evaluation_evidence": {
+                  "items": {
+                    "$ref": "#/$defs/id"
+                  },
+                  "maxItems": 32,
+                  "minItems": 1,
+                  "type": "array"
+                },
                 "evidence_digest": {
                   "$ref": "#/$defs/digest"
+                },
+                "evidence_kind": {
+                  "$ref": "#/$defs/evidence_kind"
                 },
                 "evidence_ref": {
                   "maxLength": 2048,
@@ -6279,6 +6290,9 @@ const GeneratedPayloadSchemaDocument = `{
                     "non-breaking"
                   ],
                   "type": "string"
+                },
+                "incomparable_with_approved": {
+                  "type": "boolean"
                 },
                 "lane_id": {
                   "$ref": "#/$defs/id"
@@ -6368,6 +6382,13 @@ const GeneratedPayloadSchemaDocument = `{
                 "touched_refs": {},
                 "transaction": {},
                 "value_statement": {},
+                "verdict_kind": {
+                  "enum": [
+                    "ok",
+                    "outcome_mismatch",
+                    "insufficient_evidence"
+                  ]
+                },
                 "worker_packet": {
                   "$ref": "#/$defs/worker_packet"
                 }

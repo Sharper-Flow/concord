@@ -31,6 +31,7 @@ import type { PluginInput } from "@opencode-ai/plugin"
 import { createContinuityTransform } from "./continuity-hook"
 import { createAgentSwitchNotice } from "./agent-switch-hook"
 import { dispatchWindows } from "./dispatch-window"
+import { completeDispatchedWorker } from "./lane_completion"
 import { hostControlPlane } from "./move-session"
 
 // The plugin factory is the only place the host hands over its own client, and
@@ -67,6 +68,18 @@ export default async function ConcordAdapterPlugin(input?: Partial<PluginInput>)
       output: { args: Record<string, unknown> },
     ) => {
       dispatchWindows().bind(input.tool, input.sessionID, output.args)
+    },
+    // CD-0102 D5. The host ran the worker between the two hooks. This one
+    // drains the in-flight attempt and admits the result: session export,
+    // readback, report resolution, signing, and the worker-dispatch and
+    // terminal evidence records. It never throws; a refusal is appended to
+    // the tool output so the worker's result and the refusal both reach the
+    // coordinator.
+    "tool.execute.after": async (
+      input: { tool: string; sessionID: string; callID: string; args: unknown },
+      output: { title: string; output: string; metadata: unknown },
+    ) => {
+      await completeDispatchedWorker(input, output)
     },
     "experimental.chat.system.transform": async (input: unknown, output: { system: string[] }) => {
       await continuityTransform(input, output)

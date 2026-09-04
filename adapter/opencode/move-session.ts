@@ -104,6 +104,10 @@ export class HostControlPlane {
     this.#client = isRouteClient(source) ? source : routeClientOf(source.client)
   }
 
+  available(): boolean {
+    return this.#client !== null
+  }
+
   // moveSession retargets a running session at an absolute directory. It
   // never asks the host to carry local changes: CD-0098 D3 requires a clean
   // default checkout, so uncommitted work stays where the operator left it

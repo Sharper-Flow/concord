@@ -921,7 +921,7 @@ test("work start moves the calling session into the claimed worktree", async () 
   expect(result).toMatchObject({ outcome: "ok", work_id: "work-1", worktree_path: WORKTREE, session_id: "session-1", agent: "concord-implement" })
   // The claim exists before the session moves, so a failed move leaves a
   // resumable claim rather than a moved session with none.
-  expect(calls.map(({ argv }) => argv[1])).toEqual(["project-resolve", "work-bootstrap", "session-prepare"])
+  expect(calls.map(({ argv }) => argv[1])).toEqual(["project-resolve", "work-bootstrap", "session-prepare", "project-resolve", "invoke"])
   expect(moved).toEqual([{ sessionID: "session-1", destination: { directory: WORKTREE } }])
   // session-prepare verifies and derives; it carries no process identity and records nothing.
   expect(JSON.parse(calls[2].input)).toEqual({ product_id: "product-1", work_id: "work-1", task: bootstrapArgs.task })
@@ -1027,7 +1027,7 @@ test("work start replays to convergence after an interrupted step", async () => 
   })
   const converged: any = await rawHostResult(adapter.work_start.execute(bootstrapArgs, contextFor()))
   expect(converged).toMatchObject({ outcome: "ok", work_id: "work-1", worktree_path: WORKTREE, session_id: "session-1" })
-  expect(second.map(({ argv }) => argv[1])).toEqual(["project-resolve", "work-bootstrap", "session-prepare"])
+  expect(second.map(({ argv }) => argv[1])).toEqual(["project-resolve", "work-bootstrap", "session-prepare", "project-resolve", "invoke"])
   expect(JSON.parse(second[1].input).idempotency_key).toBe(bootstrapArgs.idempotency_key)
   expect(moved).toEqual([{ sessionID: "session-1", destination: { directory: WORKTREE } }])
 })

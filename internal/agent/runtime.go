@@ -1967,7 +1967,7 @@ func ContinuityPayload(snapshot store.ContinuitySnapshot) map[string]any {
 	if len(snapshot.ActiveVerifyLeases) > 0 {
 		pinned["active_verify_leases"] = snapshot.ActiveVerifyLeases
 	}
-	return map[string]any{
+	payload := map[string]any{
 		"work_id":            snapshot.WorkID,
 		"pinned":             pinned,
 		"latest_checkpoint":  snapshot.LatestCheckpoint,
@@ -1976,6 +1976,10 @@ func ContinuityPayload(snapshot store.ContinuitySnapshot) map[string]any {
 		"pending_messages":   snapshot.PendingMessages,
 		"observations":       observations,
 	}
+	if snapshot.WorkflowStatus != nil {
+		payload["workflow_status"] = snapshot.WorkflowStatus
+	}
+	return payload
 }
 
 func (r runtime) continuity(base Envelope, snapshot store.ContinuitySnapshot) (Envelope, error) {

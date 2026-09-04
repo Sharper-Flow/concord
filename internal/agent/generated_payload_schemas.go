@@ -778,6 +778,61 @@ const GeneratedPayloadSchemaDocument = `{
         },
         "work_id": {
           "$ref": "#/$defs/id"
+        },
+        "workflow_status": {
+          "additionalProperties": false,
+          "properties": {
+            "actor": {
+              "$ref": "#/$defs/short"
+            },
+            "last_event_kind": {
+              "$ref": "#/$defs/short"
+            },
+            "occurred_at": {
+              "$ref": "#/$defs/short"
+            },
+            "sequence": {
+              "minimum": 1,
+              "type": "integer"
+            },
+            "step_name": {
+              "$ref": "#/$defs/short"
+            },
+            "step_ordinal": {
+              "minimum": 1,
+              "type": "integer"
+            },
+            "step_total": {
+              "minimum": 1,
+              "type": "integer"
+            },
+            "transition_from": {
+              "$ref": "#/$defs/short"
+            },
+            "transition_to": {
+              "$ref": "#/$defs/short"
+            },
+            "work_id": {
+              "$ref": "#/$defs/id"
+            },
+            "workflow_type": {
+              "$ref": "#/$defs/id"
+            }
+          },
+          "required": [
+            "work_id",
+            "workflow_type",
+            "step_ordinal",
+            "step_total",
+            "step_name",
+            "transition_from",
+            "transition_to",
+            "last_event_kind",
+            "actor",
+            "occurred_at",
+            "sequence"
+          ],
+          "type": "object"
         }
       },
       "required": [

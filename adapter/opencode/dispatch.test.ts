@@ -1,6 +1,6 @@
 import { test, expect } from "bun:test"
 import { agentLanes } from "./generated-agent-lanes"
-import { completeWorkerAttempt, dispatchWorker, readExportSessionMetadata, readRunSessionMetadata, validateAgentLanePacket, type AgentLanePacket, type DispatchAuthorizer, type DispatchRunner } from "./dispatch"
+import { completeWorkerAttempt, dispatchWorker, MAX_EXPORT_BYTES, readExportSessionMetadata, readRunSessionMetadata, validateAgentLanePacket, type AgentLanePacket, type DispatchAuthorizer, type DispatchRunner } from "./dispatch"
 import { DispatchWindows } from "./dispatch-window"
 import type { CredentialStore } from "./credentials"
 
@@ -176,6 +176,29 @@ test("completion obtains readback from a sanitized session export", async () => 
   expect(result.outcome).toBe("ok")
   expect(calls.map((argv) => argv.slice(0, 2))).toEqual([["opencode", "export"]])
   expect(calls[0]).toEqual(["opencode", "export", "session-1", "--sanitize"])
+})
+
+test("readback accepts a large sanitized session export", () => {
+  const largeExport = JSON.stringify({
+    info: { id: "session-1" },
+    messages: [
+      { info: { id: "message-0", sessionID: "session-1", role: "user", agent: "concord-research", time: { created: 0 } }, parts: [{ type: "text", text: "x".repeat(70_000) }] },
+      { info: { id: "message-1", sessionID: "session-1", role: "assistant", agent: "concord-research", providerID: "openai", modelID: "gpt-5.6-luna", time: { created: 1 } }, parts: [] },
+    ],
+  })
+  expect(Buffer.byteLength(largeExport)).toBeGreaterThan(65_536)
+  expect(readExportSessionMetadata(largeExport, "session-1")).toEqual({ readback_model: "openai/gpt-5.6-luna", readback_agent: "concord-research", session_id: "session-1" })
+})
+
+test("readback refuses an export above its own ceiling", () => {
+  const runaway = JSON.stringify({
+    info: { id: "session-1" },
+    messages: [
+      { info: { id: "message-0", sessionID: "session-1", role: "user", agent: "concord-research", time: { created: 0 } }, parts: [{ type: "text", text: "x".repeat(MAX_EXPORT_BYTES) }] },
+      { info: { id: "message-1", sessionID: "session-1", role: "assistant", agent: "concord-research", providerID: "openai", modelID: "gpt-5.6-luna", time: { created: 1 } }, parts: [] },
+    ],
+  })
+  expect(readExportSessionMetadata(runaway, "session-1")).toBe(null)
 })
 
 // The sanitized export carries the executing agent on each message info; the

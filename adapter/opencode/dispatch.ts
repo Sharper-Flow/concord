@@ -6,6 +6,11 @@ import { dispatchWindows, DispatchWindowError, type DispatchWindows } from "./di
 import { readTaskResult } from "./task-result"
 
 export const MAX_OUTPUT_BYTES = 65_536
+// MAX_OUTPUT_BYTES bounds the worker result body the adapter keeps as
+// evidence. The session export readback parses is the whole transcript, which
+// grows with the lane's work, and readback keeps three fields from it. This
+// bound guards a runaway export, not a working lane.
+export const MAX_EXPORT_BYTES = 8_388_608
 const MAX_ERROR_BYTES = 8_192
 const MAX_CLI_INPUT_BYTES = 65_536
 // worker.failed detail is bounded at 1..4096 by validateWorkerFailedPayload in
@@ -313,7 +318,7 @@ export function readRunSessionMetadata(input: string | RunSessionObservation): R
 }
 
 export function readExportSessionMetadata(stdout: string, expectedSessionID: string): Pick<SessionMetadata, "readback_model" | "readback_agent" | "session_id"> | null {
-  if (Buffer.byteLength(stdout) > MAX_OUTPUT_BYTES) return null
+  if (Buffer.byteLength(stdout) > MAX_EXPORT_BYTES) return null
   let value: unknown
   try { value = JSON.parse(stdout) } catch { return null }
   if (!isRecord(value) || !isRecord(value.info) || value.info.id !== expectedSessionID || !Array.isArray(value.messages)) return null

@@ -126,6 +126,28 @@ func TestNoColorOutputIsPlainTextAndKeepsAllSemanticMarkers(t *testing.T) {
 	}
 }
 
+func TestPortfolioRendersDegradedProbesWithoutCandidates(t *testing.T) {
+	core := launcher.New(nil)
+	core.RestoreSnapshot(launcher.Snapshot{
+		Screen: launcher.ScreenPortfolio, Coverage: "authoritative",
+		Probes: []launcher.ProbeStatus{
+			{Name: "vision", Reason: "daemon unavailable"},
+			{Name: "lgrep", Reason: "index unavailable"},
+		},
+	})
+	m := New(core, context.Background(), Profile{})
+	m.Sync()
+	rendered := m.Render()
+	for _, want := range []string{"VISION: unavailable: daemon unavailable", "LGREP: unavailable: index unavailable"} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("degraded probe marker %q missing: %q", want, rendered)
+		}
+	}
+	if _, cmd := m.Update(keyPress('q', "q", 0)); cmd == nil {
+		t.Fatal("degraded probe state made the launcher unusable")
+	}
+}
+
 func rejectTerminalControls(value string) error {
 	for i, b := range []byte(value) {
 		switch {
@@ -746,6 +768,37 @@ func TestDefaultSessionLauncherHandsOnlyIdentityToCoreBootstrap(t *testing.T) {
 	}
 	if selected["product"] != "product-1" || selected["work"] != "work-1" {
 		t.Fatalf("session env identity=%v", selected)
+	}
+}
+
+func TestSessionCommandPassesPromptThroughEnvironment(t *testing.T) {
+	cmd, err := sessionProcess(launcher.SessionHandoff{ProductID: "product-1", WorkID: "work-1", Prompt: "inspect the failing test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, value := range cmd.Env {
+		if value == "CONCORD_SELECTED_PROMPT=inspect the failing test" {
+			return
+		}
+	}
+	t.Fatalf("prompt was not passed through session environment: %v", cmd.Env)
+}
+
+func TestProjectCandidateStartsAPlainSession(t *testing.T) {
+	project := "/projects/plain"
+	core := launcher.New(nil)
+	core.RestoreSnapshot(launcher.Snapshot{Screen: launcher.ScreenPortfolio, Coverage: "authoritative", Candidates: []launcher.Candidate{{
+		ID: project, Kind: launcher.CandidateProject, Name: "plain", Path: project, Available: true,
+	}}})
+	m := New(core, context.Background(), Profile{})
+	var got launcher.SessionHandoff
+	m.SetSessionLauncher(func(handoff launcher.SessionHandoff) tea.Cmd {
+		got = handoff
+		return nil
+	})
+	m.UpdateKey("enter")
+	if got.ProjectPath != project || got.ProductID != "" || got.WorkID != "" {
+		t.Fatalf("project handoff = %#v", got)
 	}
 }
 

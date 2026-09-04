@@ -2,6 +2,7 @@ package storeport
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,6 +11,48 @@ import (
 	"github.com/sharper-flow/concord/internal/launcher"
 	"github.com/sharper-flow/concord/internal/store"
 )
+
+func TestScanRootCandidatesIncludesGitProjectsAndPins(t *testing.T) {
+	root := t.TempDir()
+	project := filepath.Join(root, "project")
+	if err := os.MkdirAll(filepath.Join(project, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("CONCORD_LAUNCHER_SCAN_ROOTS", root)
+	t.Setenv("CONCORD_LAUNCHER_PINS", project)
+	got := ScanRootCandidates()
+	if len(got) != 1 || got[0].Path != project || !got[0].Pinned || !got[0].Available {
+		t.Fatalf("scan candidates = %#v", got)
+	}
+}
+
+func TestProbeFailureIsTypedPreviewState(t *testing.T) {
+	port := New(nil)
+	port.VisionProbe = func(context.Context) (bool, string) { return false, "daemon unavailable" }
+	port.LgrepProbe = func(context.Context) (bool, string) { return false, "index unavailable" }
+	got := port.Probe(context.Background())
+	if len(got) != 2 || got[0].Available || got[1].Available || got[0].Reason == "" || got[1].Reason == "" {
+		t.Fatalf("probe state = %#v", got)
+	}
+}
+
+func TestCandidatesWithoutStoreStayBoundedToScanRoots(t *testing.T) {
+	root := t.TempDir()
+	for i := 0; i < 101; i++ {
+		project := filepath.Join(root, fmt.Sprintf("project-%03d", i))
+		if err := os.MkdirAll(filepath.Join(project, ".git"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("CONCORD_LAUNCHER_SCAN_ROOTS", root)
+	got, err := (&Port{}).Candidates(context.Background(), 20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 20 {
+		t.Fatalf("bounded candidates = %d, want 20", len(got))
+	}
+}
 
 func TestRelationTreeKeepsStructuralComponentAndInverseOutOfCycleOracle(t *testing.T) {
 	tree := relationTree([]store.RelationEdge{

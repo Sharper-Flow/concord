@@ -18,6 +18,8 @@ import (
 const (
 	selectedProductEnv = "CONCORD_SELECTED_PRODUCT_ID"
 	selectedWorkEnv    = "CONCORD_SELECTED_WORK_ID"
+	selectedPromptEnv  = "CONCORD_SELECTED_PROMPT"
+	selectedProjectEnv = "CONCORD_SELECTED_PROJECT_PATH"
 )
 
 var sessionIdentity = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]{1,127}$`)
@@ -291,6 +293,34 @@ func runSessionCommand(args []string, in io.Reader, out, errOut io.Writer, termi
 		return 2
 	}
 	productID, workID := os.Getenv(selectedProductEnv), os.Getenv(selectedWorkEnv)
+	projectPath := os.Getenv(selectedProjectEnv)
+	if projectPath != "" {
+		if productID != "" || workID != "" {
+			writeDiagnostic(errOut, "concord session: project launch cannot carry Concord identity")
+			return 2
+		}
+		if !filepath.IsAbs(projectPath) || filepath.Clean(projectPath) != projectPath {
+			writeDiagnostic(errOut, "concord session: project path is not canonical: "+projectPath)
+			return 2
+		}
+		// #nosec G703 -- projectPath passed the absolute and canonical
+		// checks above, so the stat target is the validated path itself.
+		info, statErr := os.Stat(projectPath)
+		if statErr != nil || !info.IsDir() {
+			writeDiagnostic(errOut, "concord session: project path is not a usable directory: "+projectPath)
+			return 2
+		}
+		prompt := os.Getenv(selectedPromptEnv)
+		if prompt == "" {
+			prompt = "OpenCode project session"
+		}
+		argv := []string{"opencode", "--prompt", prompt}
+		if err := runner(context.Background(), projectPath, argv, os.Environ(), in, out, errOut); err != nil {
+			writeDiagnostic(errOut, fmt.Sprintf("concord session: opencode: %v", err))
+			return 1
+		}
+		return 0
+	}
 	if !sessionIdentity.MatchString(productID) || (workID != "" && !sessionIdentity.MatchString(workID)) {
 		writeDiagnostic(errOut, "concord session: launcher identity is missing or invalid")
 		return 2
@@ -330,7 +360,10 @@ func runSessionCommand(args []string, in io.Reader, out, errOut io.Writer, termi
 	// A Product-only session carries identity and no continuity packet:
 	// CD-0031 derives continuity from a selected work item, and there is
 	// none to derive from.
-	prompt := "Concord identity: product_id=" + productID
+	prompt := os.Getenv(selectedPromptEnv)
+	if prompt == "" {
+		prompt = "Concord identity: product_id=" + productID
+	}
 	if workID != "" {
 		path, err := databasePath()
 		if err != nil {
@@ -342,7 +375,7 @@ func runSessionCommand(args []string, in io.Reader, out, errOut io.Writer, termi
 			writeDiagnostic(errOut, "concord session: "+err.Error())
 			return 1
 		}
-		prompt = "Concord session boot packet (core-derived authority at its watermark; reread concord_work_trace.continuity before consequential action):\n" + string(packet)
+		prompt = prompt + "\n\nConcord session boot packet (core-derived authority at its watermark; reread concord_work_trace.continuity before consequential action):\n" + string(packet)
 	}
 	// The session starts the host as the agent whose identity it just
 	// asserted and recorded, selecting it by the handle the host registers

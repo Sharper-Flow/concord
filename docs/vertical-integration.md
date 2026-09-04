@@ -45,7 +45,7 @@ integration?
 |---|---|
 | **lgrep** | Local code intelligence (semantic + symbol search). The code index. |
 | **vision** | MCP daemon that hosts/proxies MCP servers. The MCP infrastructure layer. |
-| **Project launcher** | Session/project bootstrap layer. The implementation and packaging choice remain open; no private deployment path is part of this public snapshot. |
+| **Terminal launcher** | Product browse and session bootstrap layer under CD-0108. lgrep and vision remain independent integrations. |
 
 ## Why the question arises
 
@@ -129,7 +129,7 @@ tool does not move the boundary for the other.
 |---|---|
 | [`clarifications.md`](./clarifications.md) C8 | Open question about lgrep / vision ownership, scoped separately from the launcher/interface decision (R1). |
 | [`clarifications.md`](./clarifications.md) R7 | episode is removed under CD-0106; the knowledge ladder is observation, lesson, decision. |
-| `clarifications.md` R1 | Resolved launcher/interface direction: terminal launcher primary; ZLauncher is bootstrap only. |
+| [`decisions/CD-0108-the-launcher-is-the-zlauncher-replacement.md`](./decisions/CD-0108-the-launcher-is-the-zlauncher-replacement.md) | The terminal launcher is primary and owns the session bootstrap role; ZLauncher retirement awaits operator acceptance. |
 | `product-data-model.md` §3 | Product-scoped instances are a locality mechanism. |
 | [`priorities.md`](./priorities.md) Operating envelope | The guardrail against premature swallowing. |
 

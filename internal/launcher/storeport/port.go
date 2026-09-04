@@ -5,6 +5,9 @@ package storeport
 import (
 	"context"
 	"errors"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -14,9 +17,146 @@ import (
 	"github.com/sharper-flow/concord/internal/store"
 )
 
-type Port struct{ Store *store.Store }
+type Port struct {
+	Store       *store.Store
+	VisionProbe ProbeFunc
+	LgrepProbe  ProbeFunc
+}
 
-func New(s *store.Store) *Port { return &Port{Store: s} }
+type ProbeFunc func(context.Context) (bool, string)
+
+func New(s *store.Store) *Port {
+	return &Port{
+		Store:       s,
+		VisionProbe: commandProbe("vision", "daemon", "status"),
+		LgrepProbe:  commandProbe("lgrep", "--version"),
+	}
+}
+
+func commandProbe(name string, args ...string) ProbeFunc {
+	return func(ctx context.Context) (bool, string) {
+		if _, err := exec.LookPath(name); err != nil {
+			return false, name + " is not installed"
+		}
+		if err := exec.CommandContext(ctx, name, args...).Run(); err != nil { //nolint:gosec // name and args are fixed by the launcher.
+			return false, err.Error()
+		}
+		return true, ""
+	}
+}
+
+// Probe reads optional local status. A missing probe is unavailable preview
+// data, not an error that can stop the launcher.
+func (p *Port) Probe(ctx context.Context) []launcher.ProbeStatus {
+	if p == nil {
+		return []launcher.ProbeStatus{{Name: "vision", Reason: "probe not configured"}, {Name: "lgrep", Reason: "probe not configured"}}
+	}
+	return []launcher.ProbeStatus{probeStatus(ctx, "vision", p.VisionProbe), probeStatus(ctx, "lgrep", p.LgrepProbe)}
+}
+
+func probeStatus(ctx context.Context, name string, probe ProbeFunc) launcher.ProbeStatus {
+	if probe == nil {
+		return launcher.ProbeStatus{Name: name, Reason: "probe not configured"}
+	}
+	available, reason := probe(ctx)
+	return launcher.ProbeStatus{Name: name, Available: available, Reason: reason}
+}
+
+// Candidates returns the bounded Concord-first candidate list. It reads
+// Products and their active worktrees, then adds configured filesystem roots.
+func (p *Port) Candidates(ctx context.Context, limit int) ([]launcher.Candidate, error) {
+	if limit == 0 {
+		limit = 20
+	}
+	if limit < 1 || limit > 100 {
+		return nil, errors.New("launcher candidate limit must be between 1 and 100")
+	}
+	if p == nil || p.Store == nil {
+		candidates := scanRootCandidates()
+		if len(candidates) > limit {
+			candidates = candidates[:limit]
+		}
+		return candidates, nil
+	}
+	result, err := portfolio.Read(ctx, p.Store, store.ProductRowRequest{Limit: limit})
+	if err != nil {
+		return nil, err
+	}
+	candidates := make([]launcher.Candidate, 0, len(result.Rows)*2)
+	for rank, row := range result.Rows {
+		candidates = append(candidates, launcher.Candidate{ID: row.ProductID, Kind: launcher.CandidateProduct, Name: row.DisplayName + row.DisplayNameSuffix, ProductID: row.ProductID, Rank: rank, State: "available", Available: true})
+		product, productErr := p.Store.QueryLauncherProduct(ctx, store.LauncherProductRequest{Product: row.ProductID, Limit: limit, Depth: 3})
+		if productErr != nil {
+			continue
+		}
+		for workRank, item := range append(product.Works, product.TerminalWorks...) {
+			state := item.Lifecycle
+			if state == "" {
+				state = "unavailable"
+			}
+			candidate := launcher.Candidate{ID: item.ID, Kind: launcher.CandidateWork, Name: item.Title, ProductID: row.ProductID, WorkID: item.ID, Rank: workRank, State: state, Blocked: item.Blocked, Available: false}
+			worktrees, treeErr := p.Store.WorktreeEntries(ctx, item.ID)
+			if treeErr != nil {
+				candidates = append(candidates, candidate)
+				continue
+			}
+			for _, worktree := range worktrees {
+				if worktree.State != "active" {
+					continue
+				}
+				candidate.Worktree = worktree.Path
+				candidate.Available = true
+				break
+			}
+			candidates = append(candidates, candidate)
+		}
+	}
+	candidates = append(candidates, scanRootCandidates()...)
+	candidates = launcher.OrderCandidates(candidates)
+	if len(candidates) > limit {
+		candidates = candidates[:limit]
+	}
+	return candidates, nil
+}
+
+func scanRootCandidates() []launcher.Candidate {
+	pins := map[string]bool{}
+	for _, value := range filepath.SplitList(os.Getenv("CONCORD_LAUNCHER_PINS")) {
+		if value != "" {
+			pins[filepath.Clean(value)] = true
+		}
+	}
+	var out []launcher.Candidate
+	for _, root := range filepath.SplitList(os.Getenv("CONCORD_LAUNCHER_SCAN_ROOTS")) {
+		root = filepath.Clean(root)
+		if _, err := os.Stat(filepath.Join(root, ".git")); err == nil {
+			out = append(out, launcher.Candidate{ID: root, Kind: launcher.CandidateProject, Name: filepath.Base(root), Path: root, Pinned: pins[root], Available: true})
+			continue
+		}
+		entries, err := os.ReadDir(root)
+		if err != nil {
+			continue
+		}
+		for _, entry := range entries {
+			if !entry.IsDir() {
+				continue
+			}
+			path := filepath.Join(root, entry.Name())
+			if _, err := os.Stat(filepath.Join(path, ".git")); err != nil {
+				continue
+			}
+			out = append(out, launcher.Candidate{ID: path, Kind: launcher.CandidateProject, Name: entry.Name(), Path: path, Pinned: pins[path], Available: true})
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Path < out[j].Path })
+	if len(out) > 100 {
+		out = out[:100]
+	}
+	return out
+}
+
+// ScanRootCandidates returns filesystem candidates without opening a store.
+func ScanRootCandidates() []launcher.Candidate { return scanRootCandidates() }
 
 func (p *Port) Read(ctx context.Context, request launcher.ReadRequest) (launcher.Snapshot, error) {
 	switch request.Kind {
@@ -58,6 +198,12 @@ func (p *Port) Read(ctx context.Context, request launcher.ReadRequest) (launcher
 		return p.readKnowledge(ctx, request)
 	case launcher.ReadSearch:
 		return p.readSearch(ctx, request)
+	case launcher.ReadCandidates:
+		candidates, err := p.Candidates(ctx, request.Limit)
+		if err != nil {
+			return launcher.Snapshot{Screen: launcher.ScreenPortfolio, Coverage: "unreachable", StatusMessage: err.Error()}, err
+		}
+		return launcher.Snapshot{Screen: launcher.ScreenPortfolio, Coverage: "authoritative", Candidates: candidates}, nil
 	default:
 		return launcher.Snapshot{Screen: launcher.ScreenPortfolio, Coverage: "unavailable", StatusMessage: "unsupported_read"}, nil
 	}

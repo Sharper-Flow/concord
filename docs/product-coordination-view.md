@@ -115,7 +115,7 @@ The view inherits the reliance discipline C14 already established:
 
 | Accepted item | Status under this contract |
 |---|---|
-| R1 in [`clarifications.md`](./clarifications.md) — the launcher is the primary operator surface and the predecessor session bootstrap layer is not a candidate for it | Unchanged. This is a view inside the accepted launcher. |
+| CD-0108 in [`decisions/CD-0108-the-launcher-is-the-zlauncher-replacement.md`](./decisions/CD-0108-the-launcher-is-the-zlauncher-replacement.md) — the launcher is the primary operator surface and owns session bootstrap | Unchanged. This is a view inside the accepted launcher. |
 | C14 default Product row fields and exclusions | Unchanged. No field is added to the row. |
 | C14 exclusion of the raw blocker graph from the row | Honored. The graph appears only after selection. |
 | C14 finding that activity is not value or priority | Honored. Activity time is not a ranking input and is not a default column. |

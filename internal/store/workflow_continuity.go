@@ -93,8 +93,10 @@ type ContinuitySnapshot struct {
 	// ActiveVerifyLeases re-pins the reading session's held verify leases
 	// (CD-0096 D5), newest first, bounded. Empty when the session named no
 	// identity or holds none.
-	ActiveVerifyLeases []ActiveWorktreeVerifyLease `json:"active_verify_leases,omitempty"`
-	WorkflowStatus     *WorkflowStatus             `json:"workflow_status,omitempty"`
+	UnresolvedOverlaps      []WorkflowDomainOverlap     `json:"unresolved_overlaps"`
+	CompatibleLawAmendments []CompatibleLawAmendment    `json:"compatible_law_amendments"`
+	ActiveVerifyLeases      []ActiveWorktreeVerifyLease `json:"active_verify_leases,omitempty"`
+	WorkflowStatus          *WorkflowStatus             `json:"workflow_status,omitempty"`
 }
 
 type ContinuityRequest struct {
@@ -145,6 +147,8 @@ func ReadWorkflowContinuity(ctx context.Context, s *Store, req ContinuityRequest
 	out.ProductIdentity = []string{}
 	out.SpecMandate = []string{}
 	out.StepActions = []string{}
+	out.UnresolvedOverlaps = []WorkflowDomainOverlap{}
+	out.CompatibleLawAmendments = []CompatibleLawAmendment{}
 	var currentStep string
 	var definition WorkflowReadDefinition
 	var workVersion int64
@@ -255,6 +259,12 @@ func ReadWorkflowContinuity(ctx context.Context, s *Store, req ContinuityRequest
 			if err != nil {
 				return out, err
 			}
+			if out.StaleLawRevision == nil {
+				out.CompatibleLawAmendments, err = findCompatibleWorkflowLawAmendments(ctx, tx, homeProjectID, homeLocatorID, req.Work, contract.Version, currentMandate)
+				if err != nil {
+					return out, err
+				}
+			}
 		}
 		out.SpecMandate = nonNilStrings(append([]string(nil), contract.SpecMandate...))
 		out.PendingOperatorDecision, err = workflowOperatorQuestionTx(req.Work, currentStep, workVersion, definition, contract)
@@ -263,6 +273,10 @@ func ReadWorkflowContinuity(ctx context.Context, s *Store, req ContinuityRequest
 		}
 	} else if err != sql.ErrNoRows {
 		return out, wrapFailure(KindUnavailable, "C19.Continuity", "cannot read workflow contract", true, "retry once the database is readable", err)
+	}
+	out.UnresolvedOverlaps, err = readWorkflowUnresolvedDomainOverlapsTx(ctx, tx, req.Work)
+	if err != nil {
+		return out, err
 	}
 	var checkpoint ContextCheckpoint
 	var touched, evidence, questions, decisions string

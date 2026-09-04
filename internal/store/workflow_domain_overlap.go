@@ -182,6 +182,61 @@ func readWorkflowOverlapFootprintTx(ctx context.Context, tx *sql.Tx, workID stri
 	return footprint, nil
 }
 
+func readWorkflowDomainOverlapCandidatesTx(ctx context.Context, tx *sql.Tx, workID string) (workflowOverlapFootprint, []workflowOverlapFootprint, error) {
+	self, err := readWorkflowOverlapFootprintTx(ctx, tx, workID)
+	if err != nil || self.ProductID == "" {
+		return self, []workflowOverlapFootprint{}, err
+	}
+	rows, err := tx.QueryContext(ctx, `SELECT DISTINCT c.work_id FROM workflow_contracts c JOIN workflow_architecture_bindings b ON b.work_id=c.work_id AND b.contract_version=c.contract_version JOIN work_items w ON w.id=c.work_id WHERE c.superseded_by IS NULL AND w.lifecycle NOT IN ('completed','cancelled','superseded') AND b.product_id=? AND c.work_id<>? ORDER BY c.work_id`, self.ProductID, workID)
+	if err != nil {
+		return self, nil, wrapFailure(KindUnavailable, "workflow_domain_overlap", "cannot enumerate active Product-changing workflows", true, "retry once the workflow projection is readable", err)
+	}
+	defer rows.Close()
+	others := []workflowOverlapFootprint{}
+	for rows.Next() {
+		var otherID string
+		if err := rows.Scan(&otherID); err != nil {
+			return self, nil, wrapFailure(KindUnavailable, "workflow_domain_overlap", "cannot decode active workflow identity", true, "retry once the workflow projection is readable", err)
+		}
+		other, err := readWorkflowOverlapFootprintTx(ctx, tx, otherID)
+		if err != nil {
+			return self, nil, err
+		}
+		others = append(others, other)
+	}
+	if err := rows.Err(); err != nil {
+		return self, nil, wrapFailure(KindUnavailable, "workflow_domain_overlap", "cannot enumerate active workflow overlap", true, "retry once the workflow projection is readable", err)
+	}
+	return self, others, nil
+}
+
+func readWorkflowUnresolvedDomainOverlapsTx(ctx context.Context, tx *sql.Tx, workID string) ([]WorkflowDomainOverlap, error) {
+	self, others, err := readWorkflowDomainOverlapCandidatesTx(ctx, tx, workID)
+	if err != nil || self.ProductID == "" {
+		return []WorkflowDomainOverlap{}, err
+	}
+	overlaps := []WorkflowDomainOverlap{}
+	for _, other := range others {
+		overlap, ok := workflowDomainOverlapPair(self, other)
+		if !ok {
+			continue
+		}
+		overlap.ResolutionState, overlap.ResolutionKind, err = currentWorkflowOverlapResolutionTx(ctx, tx, overlap)
+		if err != nil {
+			return nil, err
+		}
+		if overlap.ResolutionState != "current" && overlap.ResolutionState != "sequenced" {
+			overlaps = append(overlaps, overlap)
+		}
+	}
+	failure := &DomainOverlapFailure{Overlaps: overlaps}
+	boundWorkflowDomainOverlapFailure(failure)
+	if len(failure.Overlaps) > maxWorkflowOverlapDetailItems {
+		failure.Overlaps = failure.Overlaps[:maxWorkflowOverlapDetailItems]
+	}
+	return failure.Overlaps, nil
+}
+
 func readOverlapStringListTx(ctx context.Context, tx *sql.Tx, query string, target *[]string, args ...any) error {
 	rows, err := tx.QueryContext(ctx, query, args...)
 	if err != nil {
@@ -293,28 +348,15 @@ func CheckWorkflowDomainOverlapTx(ctx context.Context, tx *sql.Tx, workID string
 	if tx == nil {
 		return newFailure(KindUnavailable, "workflow_domain_overlap", "transaction is not open", false, "open a mutation transaction")
 	}
-	self, err := readWorkflowOverlapFootprintTx(ctx, tx, workID)
+	self, others, err := readWorkflowDomainOverlapCandidatesTx(ctx, tx, workID)
 	if err != nil || self.WorkID == "" || self.ProductID == "" {
 		return err
 	}
 	if err := currentWorkflowDomainRegistryCheckTx(ctx, tx, self); err != nil {
 		return err
 	}
-	rows, err := tx.QueryContext(ctx, `SELECT DISTINCT c.work_id FROM workflow_contracts c JOIN workflow_architecture_bindings b ON b.work_id=c.work_id AND b.contract_version=c.contract_version JOIN work_items w ON w.id=c.work_id WHERE c.superseded_by IS NULL AND w.lifecycle NOT IN ('completed','cancelled','superseded') AND b.product_id=? AND c.work_id<>? ORDER BY c.work_id`, self.ProductID, workID)
-	if err != nil {
-		return wrapFailure(KindUnavailable, "workflow_domain_overlap", "cannot enumerate active Product-changing workflows", true, "retry once the workflow projection is readable", err)
-	}
-	defer rows.Close()
 	failures := []WorkflowDomainOverlap{}
-	for rows.Next() {
-		var otherID string
-		if err := rows.Scan(&otherID); err != nil {
-			return wrapFailure(KindUnavailable, "workflow_domain_overlap", "cannot decode active workflow identity", true, "retry once the workflow projection is readable", err)
-		}
-		other, err := readWorkflowOverlapFootprintTx(ctx, tx, otherID)
-		if err != nil {
-			return err
-		}
+	for _, other := range others {
 		overlap, ok := workflowDomainOverlapPair(self, other)
 		if !ok {
 			continue
@@ -330,9 +372,6 @@ func CheckWorkflowDomainOverlapTx(ctx context.Context, tx *sql.Tx, workID string
 		if !allowed {
 			failures = append(failures, overlap)
 		}
-	}
-	if err := rows.Err(); err != nil {
-		return wrapFailure(KindUnavailable, "workflow_domain_overlap", "cannot enumerate active workflow overlap", true, "retry once the workflow projection is readable", err)
 	}
 	if len(failures) == 0 {
 		return nil

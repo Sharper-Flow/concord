@@ -53,6 +53,14 @@ type WorkflowLawRevision struct {
 	ContentHash string `json:"content_hash"`
 }
 
+// CompatibleLawAmendment reports a same-ID accepted law change that does not
+// block the workflow, but needs a fresh read before consequential work.
+type CompatibleLawAmendment struct {
+	LawID       string `json:"law_id"`
+	PinnedHash  string `json:"pinned_hash"`
+	CurrentHash string `json:"current_hash"`
+}
+
 // StaleLawRevision is the structured recovery diagnosis for a consumer whose
 // mandated law ID has been superseded. Same-ID content amendments do not
 // produce this value.
@@ -247,6 +255,32 @@ func findStaleWorkflowLawRevision(ctx context.Context, q queryer, homeProjectID,
 		}, nil
 	}
 	return nil, nil
+}
+
+func findCompatibleWorkflowLawAmendments(ctx context.Context, q queryer, homeProjectID, homeLocatorID, workID string, contractVersion int64, mandated []string) ([]CompatibleLawAmendment, error) {
+	amendments := []CompatibleLawAmendment{}
+	for _, lawID := range mandated {
+		var pinnedHash string
+		err := q.QueryRowContext(ctx, `SELECT content_hash FROM workflow_contract_law_revisions WHERE work_id=? AND contract_version=? AND law_id=?`, workID, contractVersion, lawID).Scan(&pinnedHash)
+		if err == sql.ErrNoRows {
+			continue
+		}
+		if err != nil {
+			return nil, wrapFailure(KindUnavailable, "check_workflow_law_revision", "cannot read workflow law revision pins", true, "retry once the workflow projection is readable", err)
+		}
+		var status, currentHash string
+		if err := q.QueryRowContext(ctx, `SELECT status,content_hash FROM law_subjects WHERE home_project_id=? AND home_locator_id=? AND law_id=?`, homeProjectID, homeLocatorID, lawID).Scan(&status, &currentHash); err == sql.ErrNoRows {
+			failure := newFailure(KindProjectionNotFound, "check_workflow_law_revision", "mandated law is missing from the current Git-derived projection", false, "rebuild the accepted Git law projection")
+			failure.CandidateIDs = []string{lawID}
+			return nil, failure
+		} else if err != nil {
+			return nil, wrapFailure(KindUnavailable, "check_workflow_law_revision", "cannot read current law revision", true, "retry once the law projection is readable", err)
+		}
+		if status == "accepted" && pinnedHash != currentHash {
+			amendments = append(amendments, CompatibleLawAmendment{LawID: lawID, PinnedHash: pinnedHash, CurrentHash: currentHash})
+		}
+	}
+	return amendments, nil
 }
 
 func validateWorkflowLawMandate(mandated []string) error {

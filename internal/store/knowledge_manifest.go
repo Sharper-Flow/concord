@@ -10,6 +10,7 @@ import (
 	"io"
 	"path"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -1286,8 +1287,11 @@ func verifyManifestRecord(ctx context.Context, repo, commit string, record Knowl
 			break
 		}
 	}
-	if declared == nil || !sameKnowledgeRecord(*declared, record) {
-		return newFailure(KindInvalidNoteProof, "verify_manifest_record", "recorded projection does not match the exact manifest declaration", false, "rebuild from the manifest commit and preserve its metadata")
+	if declared == nil {
+		return newFailure(KindInvalidNoteProof, "verify_manifest_record", "recorded projection has no manifest declaration", false, "rebuild from the manifest commit and preserve its metadata")
+	}
+	if differences := knowledgeProjectionDifferences(*declared, record); len(differences) > 0 {
+		return newFailure(KindInvalidNoteProof, "verify_manifest_record", "recorded projection differs from manifest fields: "+strings.Join(differences, ", "), false, "rebuild from the manifest commit and preserve its metadata")
 	}
 	entry, err := gitTreeEntry(ctx, repo, commit, record.Path)
 	if err != nil || entry.kind != "blob" || entry.mode != "100644" {
@@ -1304,33 +1308,54 @@ func verifyManifestRecord(ctx context.Context, repo, commit string, record Knowl
 	return nil
 }
 
-func sameKnowledgeRecord(a, b KnowledgeRecord) bool {
-	normalize := func(record KnowledgeRecord) KnowledgeRecord {
-		record.Tags = append([]string{}, record.Tags...)
-		record.Scopes.ProductIDs = append([]string{}, record.Scopes.ProductIDs...)
-		record.Scopes.ProjectIDs = append([]string{}, record.Scopes.ProjectIDs...)
-		record.Scopes.DomainIDs = append([]string{}, record.Scopes.DomainIDs...)
-		record.Scopes.TagIDs = append([]string{}, record.Scopes.TagIDs...)
-		record.AppliesToDomainIDs = append([]string{}, record.AppliesToDomainIDs...)
-		record.LawRelations = append([]KnowledgeRelation{}, record.LawRelations...)
-		sort.Strings(record.Tags)
-		sort.Strings(record.Scopes.ProductIDs)
-		sort.Strings(record.Scopes.ProjectIDs)
-		sort.Strings(record.Scopes.DomainIDs)
-		sort.Strings(record.Scopes.TagIDs)
-		sort.Strings(record.AppliesToDomainIDs)
-		sort.Slice(record.LawRelations, func(i, j int) bool {
-			if record.LawRelations[i].Kind == record.LawRelations[j].Kind {
-				return record.LawRelations[i].TargetID < record.LawRelations[j].TargetID
-			}
-			return record.LawRelations[i].Kind < record.LawRelations[j].Kind
-		})
-		return record
+// knowledgeProjectionDifferences compares the manifest fields that Q10 stores
+// and reconstructs. Other metadata remains protected by manifest parsing,
+// blob verification, and its owning projection readers.
+func knowledgeProjectionDifferences(declared, projected KnowledgeRecord) []string {
+	differences := []string{}
+	for _, field := range []struct {
+		name                string
+		declared, projected string
+	}{
+		{"id", declared.ID, projected.ID},
+		{"kind", declared.Kind, projected.Kind},
+		{"path", declared.Path, projected.Path},
+		{"status", declared.Status, projected.Status},
+		{"date", declared.Date, projected.Date},
+		{"title", declared.Title, projected.Title},
+		{"summary", declared.Summary, projected.Summary},
+		{"scopes.mode", declared.Scopes.Mode, projected.Scopes.Mode},
+		{"successor", declared.Successor, projected.Successor},
+		{"sha256", declared.SHA256, projected.SHA256},
+		{"home_domain_id", declared.HomeDomainID, projected.HomeDomainID},
+		{"product_wide_rationale", declared.ProductWideRationale, projected.ProductWideRationale},
+	} {
+		if field.declared != field.projected {
+			differences = append(differences, field.name)
+		}
 	}
-	a, b = normalize(a), normalize(b)
-	aa, _ := json.Marshal(a)
-	bb, _ := json.Marshal(b)
-	return bytes.Equal(aa, bb)
+	for _, field := range []struct {
+		name                string
+		declared, projected []string
+	}{
+		{"tags", declared.Tags, projected.Tags},
+		{"scopes.product_ids", declared.Scopes.ProductIDs, projected.Scopes.ProductIDs},
+		{"scopes.project_ids", declared.Scopes.ProjectIDs, projected.Scopes.ProjectIDs},
+		{"scopes.domain_ids", declared.Scopes.DomainIDs, projected.Scopes.DomainIDs},
+		{"scopes.tag_ids", declared.Scopes.TagIDs, projected.Scopes.TagIDs},
+		{"applies_to_domain_ids", declared.AppliesToDomainIDs, projected.AppliesToDomainIDs},
+	} {
+		if !slices.Equal(sortedKnowledgeProjectionValues(field.declared), sortedKnowledgeProjectionValues(field.projected)) {
+			differences = append(differences, field.name)
+		}
+	}
+	return differences
+}
+
+func sortedKnowledgeProjectionValues(values []string) []string {
+	out := append([]string{}, values...)
+	sort.Strings(out)
+	return out
 }
 
 func rejectDuplicateJSONKeys(data []byte) error {

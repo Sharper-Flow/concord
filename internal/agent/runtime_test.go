@@ -423,6 +423,9 @@ func TestKnowledgeResolveNoteUnscopedUsesRecordedLocator(t *testing.T) {
 	defer s.Close()
 	response := runtimeResolveNote(t, s, "", json.RawMessage(`{"knowledge_id":"unscoped-knowledge"}`))
 	assertRuntimeKnowledgeState(t, response, "canonical")
+	if _, err := json.Marshal(response); err != nil {
+		t.Fatalf("historical knowledge response is not a valid envelope: %v", err)
+	}
 }
 
 func TestKnowledgeResolveNotePreservesFrozenWorkNoteScope(t *testing.T) {

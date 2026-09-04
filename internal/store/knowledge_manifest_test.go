@@ -185,6 +185,36 @@ func TestManifestRebuildIndexesDecisionSpecLessonAndQ10Proof(t *testing.T) {
 	}
 }
 
+func TestManifestQ10VerifiesThePersistedProjectionOfRichRecords(t *testing.T) {
+	ctx := context.Background()
+	repo := initKnowledgeRepo(t)
+	decision := "docs/decisions/CD-0001.md"
+	writeManifestFixture(t, repo, manifestFixture{
+		ID: "decision-rich", Kind: "decision", Path: decision, Status: "accepted", Date: "2026-08-10T00:00:00Z",
+		Title: "Decision", Summary: "Decision summary", Tags: []string{"sqlite"}, Scopes: KnowledgeRecordScopes{Mode: "home"},
+		Evidence: []string{decision},
+	})
+	commitKnowledgeRepo(t, repo, "rich manifest knowledge")
+	s := openTemp(t)
+	home := KnowledgeHome{HomeProjectID: "project", HomeLocatorID: "locator", RepoPath: repo, HeadRef: "HEAD"}
+	authorizeKnowledgeProductHome(t, s, "product", home)
+	if err := s.RebuildKnowledgeIndex(ctx, home); err != nil {
+		t.Fatal(err)
+	}
+	if result, err := s.QueryQ10(ctx, Q10Request{KnowledgeID: "decision-rich"}); err != nil || result.Status != "canonical" {
+		t.Fatalf("rich manifest Q10=%#v err=%v", result, err)
+	}
+
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE archived_work SET title='Drifted' WHERE id='decision-rich'; DELETE FROM fold_guard`); err != nil {
+		t.Fatal(err)
+	}
+	_, err := s.QueryQ10(ctx, Q10Request{KnowledgeID: "decision-rich"})
+	assertFailureKind(t, err, KindKnowledgeMissing)
+	if !strings.Contains(err.Error(), "title") {
+		t.Fatalf("projection mismatch did not name title: %v", err)
+	}
+}
+
 func TestQueryQ9StructuredTextRankingIsCursorSafe(t *testing.T) {
 	ctx := context.Background()
 	repo := initKnowledgeRepo(t)

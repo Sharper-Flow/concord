@@ -43,6 +43,7 @@ type manifestFixture struct {
 	Tags      []string
 	Scopes    KnowledgeRecordScopes
 	Successor string
+	Evidence  []string
 	Content   string
 	// RootHomed opts a law fixture into the Product root rather than the
 	// fixture child Domain, so a test can exercise the root-home claim and the
@@ -90,7 +91,7 @@ func writeManifestFixture(t *testing.T, repo string, fixtures ...manifestFixture
 		record := KnowledgeRecord{
 			ID: fixture.ID, Kind: fixture.Kind, Path: fixture.Path, Status: fixture.Status,
 			Date: fixture.Date, Title: fixture.Title, Summary: fixture.Summary, Tags: append([]string{}, fixture.Tags...),
-			Scopes: scopes, Successor: fixture.Successor, SHA256: "sha256:" + hex.EncodeToString(sum[:]),
+			Scopes: scopes, Successor: fixture.Successor, Evidence: append([]string{}, fixture.Evidence...), SHA256: "sha256:" + hex.EncodeToString(sum[:]),
 		}
 		if manifestLawBearingKinds[record.Kind] && record.Status == "accepted" && record.HomeDomainID == "" {
 			if fixture.RootHomed {

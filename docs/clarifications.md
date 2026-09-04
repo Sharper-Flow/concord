@@ -78,6 +78,11 @@ re-litigate them silently.
 - **Clarified by C14/CD-0006:** the launcher is a context-rich navigator with narrow
   open/start/resume/launch actions. Product-row fields are accepted; substantive
   decisions happen inside the selected Product/workflow.
+- **Decision (2026-09-03):** CD-0108 supersedes the R1 split. The launcher is
+  remade from zero as the ZLauncher replacement and absorbs the session
+  bootstrap role. ZLauncher is retired when the remake's acceptance holds.
+  The launcher stays store-write-free; launch actions run through Concord's
+  session bootstrap.
 
 ### R2. Cross-workflow impact propagation / freshness
 - **Problem:** one workflow may change shared law, a Domain relation, dependency, or

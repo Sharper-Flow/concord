@@ -3196,6 +3196,34 @@
       "title": "lesson owns the knowledge ladder"
     },
     {
+      "date": "2026-09-03T00:00:00Z",
+      "evidence": [
+        "docs/clarifications.md",
+        "docs/vertical-integration.md",
+        "docs/terminal-launcher-contract.md"
+      ],
+      "home_domain_id": "operator-surface",
+      "id": "CD-0108",
+      "kind": "decision",
+      "path": "docs/decisions/CD-0108-the-launcher-is-the-zlauncher-replacement.md",
+      "scopes": {
+        "domain_ids": [],
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:42f97bcfa0144e5de3d2307ed18179fa6b9ab2113eff7b1bcd34ce98711a3b3e",
+      "status": "accepted",
+      "summary": "The launcher is remade from zero as the ZLauncher replacement. The core loop is Concord-first browsing with launch actions: a zellij tab on the work's Concord worktree, the OpenCode session started through Concord's session bootstrap, resume, and prompt pass-through as the work directive. The interface is dense panes on arrow, Enter, and Tab keys, still rendered by Bubble Tea v2. The launcher stays store-write-free. ZLauncher is retired when the core loop and the accepted daily extras work on the real store.",
+      "tags": [
+        "launcher",
+        "remake",
+        "operator-surface"
+      ],
+      "title": "the launcher is the ZLauncher replacement"
+    },
+    {
       "criterion_bindings": [
         {
           "criterion": 1,
@@ -4251,7 +4279,7 @@
         "project_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:16a6126d643d9ddc0929a570ae3d28f44628e1003445a5bff96a76158b2cd3a8",
+      "sha256": "sha256:7eaed17f5adad0a40123373e54f1924dff456480d0b0c8aacfbe67613d5718da",
       "status": "published",
       "summary": "Living index of resolved directions and the open questions still needing operator direction.",
       "tags": [
@@ -4790,9 +4818,9 @@
         "project_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:831bc0e26b033fac1980c548a1aecde691458339b72843a11cf6284eb9a06a41",
+      "sha256": "sha256:e56eac5c307143b340fc20e7052ffbb70e0d86da6c73051d986da5ddc4c46f5f",
       "status": "accepted",
-      "summary": "Defines the read-only Product launcher: three screens, identity-only handoff, no-poll refresh, and bounded Product-scoped reads.",
+      "summary": "Defines the read-only Product launcher: three screens, identity-only handoff, no-poll refresh, and bounded Product-scoped reads. Scope superseded by CD-0108; the successor contract registers during its build.",
       "tags": [
         "launcher",
         "rendering"
@@ -4815,7 +4843,7 @@
         "project_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:9f92a016a5761ee25e4d4509057471135855da00c12630b11533de906e70fccd",
+      "sha256": "sha256:021a65ceee7578510490524ad7d8cb9262c3e2112836a7f3d0de2cd56c478541",
       "status": "published",
       "summary": "Tracks the ownership lean for lgrep and vision under C8; episode is removed by CD-0106.",
       "tags": [

@@ -15,8 +15,9 @@ product-scope lgrep and vision. The terminal-launcher / admin-panel question
 is resolved in [`clarifications.md`](./clarifications.md) R1:
 
 - The **Product-first terminal launcher** is the primary operator surface.
-- **ZLauncher** remains the session/project bootstrap layer; it is **not** a
-  candidate for Concord's primary interface.
+- Per CD-0108 (2026-09-03), the launcher is remade as the **ZLauncher
+  replacement** and absorbs the session bootstrap role. The R1 bootstrap
+  split is superseded; see [`clarifications.md`](./clarifications.md) R1.
 - Any **admin panel** or web UI is an optional projection, not the operating center.
 
 The canonical Concord priorities are maintained in [`priorities.md`](./priorities.md); this document

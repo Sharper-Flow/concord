@@ -55,9 +55,15 @@ class RigorClassFixture(unittest.TestCase):
 
     def test_extra_payload_enum_member_is_reported(self) -> None:
         surface = self.read_json("contracts/agent-tool-surface-payloads.schema.json")
-        surface["$defs"]["workflow_contract"]["properties"]["rigor_class"]["enum"].append("extra_rigor")
+        surface["$defs"]["rigor_class"]["enum"].append("extra_rigor")
         self.write_json("contracts/agent-tool-surface-payloads.schema.json", surface)
         self.assertTrue(any(item.startswith("agent-rigor-class-closure:") for item in self.findings()))
+
+    def test_workflow_contract_rigor_class_reference_is_required(self) -> None:
+        surface = self.read_json("contracts/agent-tool-surface-payloads.schema.json")
+        surface["$defs"]["workflow_contract"]["properties"]["rigor_class"] = {"type": "string"}
+        self.write_json("contracts/agent-tool-surface-payloads.schema.json", surface)
+        self.assertTrue(any(item.startswith("agent-rigor-class-reference:") for item in self.findings()))
 
     def test_changed_maturity_member_is_reported(self) -> None:
         definition = self.read_json("contracts/workflow-definition.schema.json")

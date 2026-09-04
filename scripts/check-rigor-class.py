@@ -95,13 +95,16 @@ def check(root: Path) -> list[str]:
     if len(expected) != 12:
         findings.append(f"definition-vocabulary: expected 12 compositions, got {len(expected)}")
 
-    actual_surface = enum_at(
-        surface,
-        ["$defs", "workflow_contract", "properties", "rigor_class", "enum"],
-        findings,
-    )
+    actual_surface = enum_at(surface, ["$defs", "rigor_class", "enum"], findings)
     if sorted(actual_surface) != expected:
         findings.append(f"agent-rigor-class-closure: expected {expected}, got {sorted(actual_surface)}")
+
+    surface_defs = surface.get("$defs")
+    workflow_contract = surface_defs.get("workflow_contract") if isinstance(surface_defs, dict) else None
+    workflow_properties = workflow_contract.get("properties") if isinstance(workflow_contract, dict) else None
+    rigor_property = workflow_properties.get("rigor_class") if isinstance(workflow_properties, dict) else None
+    if not isinstance(rigor_property, dict) or rigor_property.get("$ref") != "#/$defs/rigor_class":
+        findings.append("agent-rigor-class-reference: workflow_contract.rigor_class must reference #/$defs/rigor_class")
 
     actual_scenario = enum_at(
         scenario,

@@ -3196,6 +3196,41 @@
       "title": "lesson owns the knowledge ladder"
     },
     {
+      "date": "2026-09-04T00:00:00Z",
+      "evidence": [
+        "internal/store/workflow.go",
+        "internal/store/workflow_dispatch.go",
+        "internal/agent/mutations.go"
+      ],
+      "home_domain_id": "workflow-engine",
+      "id": "CD-0107",
+      "kind": "decision",
+      "law_relations": [
+        {
+          "kind": "refines",
+          "target_id": "CD-0013"
+        }
+      ],
+      "path": "docs/decisions/CD-0107-the-outcome-is-the-operators-the-lane-report-is-the-orchestrators.md",
+      "scopes": {
+        "domain_ids": [],
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:a304dbbc0d7e3fdc6e2117a6c180abfc66b55c9553ab84f7050a69428e391298",
+      "status": "accepted",
+      "summary": "accept_worker_result is the dispatching session's act and carries no D5 distinctness check. record_verdict requires operator approval and stamps the operator as the verdict actor, so D5 holds by construction. complete compares against the operator's verdict. The second-agent evaluator stays opt-in through the CD-0017 D6 readback dimension.",
+      "tags": [
+        "workflow",
+        "actor-distinctness",
+        "verdict",
+        "dispatch"
+      ],
+      "title": "the outcome is the operator's, the lane report is the orchestrator's"
+    },
+    {
       "criterion_bindings": [
         {
           "criterion": 1,

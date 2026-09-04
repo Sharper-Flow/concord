@@ -924,6 +924,11 @@ export async function completeWorkerAttempt(
     readback_model: readback.readback_model,
     packet_schema_version: PACKET_SCHEMA_VERSION,
     report_schema_version: REPORT_SCHEMA_VERSION,
+    // The CLI requires the digest as its own field, not only inside the signed
+    // assertion: it binds the recorded attempt to the packet the core
+    // authorized. Signing it alone left the required field empty and refused
+    // every completion after the worker had already run.
+    packet_digest: options.packetDigest,
     host_provenance: provenance,
     assertion: dispatchAssertion,
   }, signal)

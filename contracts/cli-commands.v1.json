@@ -1,0 +1,582 @@
+{
+  "schema_version": "1.0",
+  "commands": [
+    {
+      "canonical": "invoke",
+      "required_fields": [
+        {
+          "name": "call_envelope",
+          "nested": [
+            "schema_version",
+            "request_id",
+            "client_ref",
+            "principal_ref",
+            "session_ref",
+            "agent_ref",
+            "directory",
+            "worktree",
+            "ambient_project_id",
+            "scope_version",
+            "manifest_digest"
+          ]
+        },
+        {
+          "name": "tool"
+        },
+        {
+          "name": "operation"
+        },
+        {
+          "name": "input"
+        }
+      ]
+    },
+    {
+      "canonical": "worker-dispatch",
+      "required_fields": [
+        {
+          "name": "event_id"
+        },
+        {
+          "name": "work_id"
+        },
+        {
+          "name": "attempt_id"
+        },
+        {
+          "name": "lane_id"
+        },
+        {
+          "name": "lane_version"
+        },
+        {
+          "name": "lane_digest"
+        },
+        {
+          "name": "packet_schema_version"
+        },
+        {
+          "name": "report_schema_version"
+        },
+        {
+          "name": "packet_digest"
+        }
+      ]
+    },
+    {
+      "canonical": "worker-complete",
+      "required_fields": [
+        {
+          "name": "event_id"
+        },
+        {
+          "name": "work_id"
+        },
+        {
+          "name": "attempt_id"
+        },
+        {
+          "name": "readback_model"
+        },
+        {
+          "name": "report_schema_version"
+        },
+        {
+          "name": "evidence_origin"
+        }
+      ]
+    },
+    {
+      "canonical": "worker-fail",
+      "required_fields": [
+        {
+          "name": "event_id"
+        },
+        {
+          "name": "work_id"
+        },
+        {
+          "name": "attempt_id"
+        },
+        {
+          "name": "readback_model"
+        },
+        {
+          "name": "failure_kind"
+        },
+        {
+          "name": "detail"
+        }
+      ]
+    },
+    {
+      "canonical": "client-register",
+      "two_word": "client register",
+      "required_fields": [
+        {
+          "name": "client_ref"
+        },
+        {
+          "name": "key_id"
+        },
+        {
+          "name": "principal_ref"
+        },
+        {
+          "name": "public_key"
+        },
+        {
+          "name": "capabilities"
+        },
+        {
+          "name": "product_scope"
+        },
+        {
+          "name": "project_scope"
+        },
+        {
+          "name": "agent_scope"
+        }
+      ]
+    },
+    {
+      "canonical": "client-policy-update",
+      "two_word": "client policy-update",
+      "required_fields": [
+        {
+          "name": "client_ref"
+        },
+        {
+          "name": "principal_ref"
+        },
+        {
+          "name": "capabilities"
+        },
+        {
+          "name": "product_scope"
+        },
+        {
+          "name": "project_scope"
+        },
+        {
+          "name": "agent_scope"
+        }
+      ]
+    },
+    {
+      "canonical": "client-policy-expand",
+      "two_word": "client policy-expand",
+      "required_fields": [
+        {
+          "name": "client_ref"
+        }
+      ]
+    },
+    {
+      "canonical": "client-key-rotate",
+      "two_word": "client key-rotate",
+      "required_fields": [
+        {
+          "name": "client_ref"
+        },
+        {
+          "name": "key_id"
+        },
+        {
+          "name": "public_key"
+        }
+      ]
+    },
+    {
+      "canonical": "client-revoke",
+      "two_word": "client revoke",
+      "required_fields": [
+        {
+          "name": "client_ref"
+        }
+      ]
+    },
+    {
+      "canonical": "product-create",
+      "two_word": "product create",
+      "required_fields": [
+        {
+          "name": "product_id"
+        },
+        {
+          "name": "display_name"
+        },
+        {
+          "name": "stage_maturity"
+        },
+        {
+          "name": "stage_audience_commitment"
+        },
+        {
+          "name": "project_id"
+        },
+        {
+          "name": "project_display_name"
+        },
+        {
+          "name": "role"
+        }
+      ]
+    },
+    {
+      "canonical": "resource-create",
+      "two_word": "resource create",
+      "required_fields": [
+        {
+          "name": "event_id"
+        },
+        {
+          "name": "resource_id"
+        },
+        {
+          "name": "product_id"
+        },
+        {
+          "name": "display_name"
+        },
+        {
+          "name": "class"
+        },
+        {
+          "name": "kind"
+        },
+        {
+          "name": "purpose"
+        },
+        {
+          "name": "stage_maturity"
+        },
+        {
+          "name": "stage_audience_commitment"
+        },
+        {
+          "name": "environments"
+        },
+        {
+          "name": "expected_product_version"
+        }
+      ]
+    },
+    {
+      "canonical": "resource-share",
+      "two_word": "resource share",
+      "required_fields": [
+        {
+          "name": "event_id"
+        },
+        {
+          "name": "resource_id"
+        },
+        {
+          "name": "product_id"
+        },
+        {
+          "name": "expected_resource_version"
+        }
+      ]
+    },
+    {
+      "canonical": "domain-project-attachments-replace",
+      "two_word": "domain project-attachments-replace",
+      "required_fields": [
+        {
+          "name": "event_id"
+        },
+        {
+          "name": "product_id"
+        },
+        {
+          "name": "domain_id"
+        },
+        {
+          "name": "expected_version"
+        },
+        {
+          "name": "attachments"
+        }
+      ]
+    },
+    {
+      "canonical": "domain-resource-attachments-replace",
+      "two_word": "domain resource-attachments-replace",
+      "required_fields": [
+        {
+          "name": "event_id"
+        },
+        {
+          "name": "product_id"
+        },
+        {
+          "name": "domain_id"
+        },
+        {
+          "name": "expected_version"
+        },
+        {
+          "name": "attachments"
+        }
+      ]
+    },
+    {
+      "canonical": "project-create",
+      "two_word": "project create",
+      "required_fields": [
+        {
+          "name": "project_id"
+        },
+        {
+          "name": "display_name"
+        },
+        {
+          "name": "product_id"
+        },
+        {
+          "name": "role"
+        },
+        {
+          "name": "expected_product_version"
+        }
+      ]
+    },
+    {
+      "canonical": "product-project-add",
+      "two_word": "product project-add",
+      "required_fields": [
+        {
+          "name": "product_id"
+        },
+        {
+          "name": "project_id"
+        },
+        {
+          "name": "role"
+        },
+        {
+          "name": "expected_version"
+        }
+      ]
+    },
+    {
+      "canonical": "product-stage-update",
+      "two_word": "product stage-update",
+      "required_fields": [
+        {
+          "name": "product_id"
+        },
+        {
+          "name": "stage_maturity"
+        },
+        {
+          "name": "stage_audience_commitment"
+        },
+        {
+          "name": "expected_version"
+        }
+      ]
+    },
+    {
+      "canonical": "product-knowledge-home-designate",
+      "two_word": "product knowledge-home-designate",
+      "required_fields": [
+        {
+          "name": "product_id"
+        },
+        {
+          "name": "project_id"
+        },
+        {
+          "name": "locator_id"
+        },
+        {
+          "name": "expected_version"
+        }
+      ]
+    },
+    {
+      "canonical": "product-knowledge-home-clear",
+      "two_word": "product knowledge-home-clear",
+      "required_fields": [
+        {
+          "name": "product_id"
+        },
+        {
+          "name": "expected_version"
+        }
+      ]
+    },
+    {
+      "canonical": "project-locator-add",
+      "two_word": "project locator-add",
+      "required_fields": [
+        {
+          "name": "project_id"
+        },
+        {
+          "name": "locator_id"
+        },
+        {
+          "name": "kind"
+        },
+        {
+          "name": "value"
+        },
+        {
+          "name": "expected_version"
+        }
+      ]
+    },
+    {
+      "canonical": "project-locator-update",
+      "two_word": "project locator-update",
+      "required_fields": [
+        {
+          "name": "project_id"
+        },
+        {
+          "name": "locator_id"
+        },
+        {
+          "name": "kind"
+        },
+        {
+          "name": "value"
+        },
+        {
+          "name": "expected_version"
+        }
+      ]
+    },
+    {
+      "canonical": "project-locator-remove",
+      "two_word": "project locator-remove",
+      "required_fields": [
+        {
+          "name": "project_id"
+        },
+        {
+          "name": "locator_id"
+        },
+        {
+          "name": "expected_version"
+        }
+      ]
+    },
+    {
+      "canonical": "backup",
+      "required_fields": [
+        {
+          "name": "destination"
+        }
+      ]
+    },
+    {
+      "canonical": "worktree-locate",
+      "required_fields": [
+        {
+          "name": "project_id"
+        },
+        {
+          "name": "work_id"
+        }
+      ]
+    },
+    {
+      "canonical": "work-bootstrap",
+      "required_fields": [
+        {
+          "name": "product_id"
+        },
+        {
+          "name": "project_id"
+        },
+        {
+          "name": "title"
+        },
+        {
+          "name": "value_statement"
+        },
+        {
+          "name": "kind"
+        },
+        {
+          "name": "task"
+        },
+        {
+          "name": "idempotency_key"
+        }
+      ]
+    },
+    {
+      "canonical": "session-prepare",
+      "required_fields": [
+        {
+          "name": "product_id"
+        },
+        {
+          "name": "work_id"
+        },
+        {
+          "name": "task"
+        }
+      ]
+    },
+    {
+      "canonical": "project-resolve",
+      "two_word": "project resolve",
+      "required_fields": [
+        {
+          "name": "directory"
+        }
+      ]
+    },
+    {
+      "canonical": "restore",
+      "required_fields": [
+        {
+          "name": "source"
+        },
+        {
+          "name": "destination"
+        }
+      ]
+    },
+    {
+      "canonical": "predecessor-inventory",
+      "two_word": "predecessor inventory",
+      "required_fields": [
+        {
+          "name": "snapshot_path"
+        }
+      ]
+    },
+    {
+      "canonical": "predecessor-import",
+      "two_word": "predecessor import",
+      "required_fields": [
+        {
+          "name": "snapshot_path"
+        },
+        {
+          "name": "product",
+          "nested": [
+            "product_id",
+            "display_name",
+            "stage_maturity",
+            "stage_audience_commitment"
+          ]
+        },
+        {
+          "name": "projects"
+        },
+        {
+          "name": "select_change_ids"
+        }
+      ]
+    }
+  ]
+}

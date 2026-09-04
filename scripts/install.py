@@ -99,6 +99,7 @@ ADAPTER_FILES = (
     "generated-agent-lanes.ts",
     "generated-contract-tests.ts",
     "generated-contracts.ts",
+    "lane_completion.ts",
     "lane_dispatch.ts",
     "move-session.ts",
     "packet.ts",

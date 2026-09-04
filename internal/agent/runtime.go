@@ -758,7 +758,11 @@ func failureEnvelope(base Envelope, err error) Envelope {
 		if sf.DomainOverlap != nil {
 			out.Error.DomainOverlap = &DomainOverlap{TotalOverlaps: sf.DomainOverlap.TotalOverlaps, ReturnedOverlaps: sf.DomainOverlap.ReturnedOverlaps, Truncated: sf.DomainOverlap.Truncated}
 			for _, overlap := range sf.DomainOverlap.Overlaps {
-				converted := DomainOverlapDetail{ProductID: overlap.ProductID, FromWorkID: overlap.FromWorkID, ToWorkID: overlap.ToWorkID, FromContractVersion: overlap.FromContractVersion, ToContractVersion: overlap.ToContractVersion, SharedAffectedDomainIDs: append([]string(nil), overlap.SharedAffectedDomainIDs...), SharedLawIDs: append([]string(nil), overlap.SharedLawIDs...), SharedDomainModifications: append([]string(nil), overlap.SharedDomainModifications...), OverlapClasses: append([]string(nil), overlap.OverlapClasses...), ResolutionState: overlap.ResolutionState, ResolutionKind: overlap.ResolutionKind, RecoveryActions: append([]string(nil), overlap.RecoveryActions...), SharedAffectedDomainCount: overlap.SharedAffectedDomainCount, SharedLawCount: overlap.SharedLawCount, SharedDomainModificationCount: overlap.SharedDomainModificationCount, SharedRelationTupleCount: overlap.SharedRelationTupleCount, DetailTruncated: overlap.DetailTruncated}
+				// The envelope contract requires an array for every shared list.
+				// An architecture-only overlap carries empty law, modification,
+				// and relation lists; a nil slice marshals as null and makes the
+				// refusal undeliverable.
+				converted := DomainOverlapDetail{ProductID: overlap.ProductID, FromWorkID: overlap.FromWorkID, ToWorkID: overlap.ToWorkID, FromContractVersion: overlap.FromContractVersion, ToContractVersion: overlap.ToContractVersion, SharedAffectedDomainIDs: nonNilStrings(overlap.SharedAffectedDomainIDs), SharedLawIDs: nonNilStrings(overlap.SharedLawIDs), SharedDomainModifications: nonNilStrings(overlap.SharedDomainModifications), SharedRelationTuples: []DomainOverlapRelationTuple{}, OverlapClasses: nonNilStrings(overlap.OverlapClasses), ResolutionState: overlap.ResolutionState, ResolutionKind: overlap.ResolutionKind, RecoveryActions: nonNilStrings(overlap.RecoveryActions), SharedAffectedDomainCount: overlap.SharedAffectedDomainCount, SharedLawCount: overlap.SharedLawCount, SharedDomainModificationCount: overlap.SharedDomainModificationCount, SharedRelationTupleCount: overlap.SharedRelationTupleCount, DetailTruncated: overlap.DetailTruncated}
 				for _, tuple := range overlap.SharedRelationTuples {
 					converted.SharedRelationTuples = append(converted.SharedRelationTuples, DomainOverlapRelationTuple{SourceDomainID: tuple.SourceDomainID, Kind: tuple.Kind, TargetDomainID: tuple.TargetDomainID})
 				}
@@ -769,6 +773,13 @@ func failureEnvelope(base Envelope, err error) Envelope {
 	}
 	return coreError(base, "internal_error", err.Error(), "contact_operator", false)
 }
+
+// nonNilStrings copies a string list so an empty input marshals as an empty
+// array rather than null.
+func nonNilStrings(values []string) []string {
+	return append(make([]string, 0, len(values)), values...)
+}
+
 func coreError(base Envelope, kind, message, recovery string, retry bool) Envelope {
 	// An unreachable refusal says the core could not answer, so the envelope
 	// carries no authoritative claim, freshness, or watermark; the contract

@@ -105,3 +105,41 @@ func TestArchitectureBindingSchemaPreservesCurrentIdentifierBounds(t *testing.T)
 		}
 	}
 }
+
+func TestApproveContractSchemaAcceptsExplicitEvidenceAndRigor(t *testing.T) {
+	fields := workflowContractFieldsFixture()
+	fields["required_evidence"] = []string{"verification", "review"}
+	fields["rigor_class"] = "prototype_internal"
+	payload := func(key string) []byte {
+		t.Helper()
+		raw, err := json.Marshal(map[string]any{
+			"work_id":          "work-1",
+			"expected_version": 7,
+			"action_id":        "approve_contract",
+			"fields":           fields,
+			"idempotency_key":  key,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return raw
+	}
+	if err := ValidatePayloadSchema("work_transition_action_input", payload("complete-approve-contract-fields")); err != nil {
+		t.Fatalf("approve_contract evidence or rigor rejected: %v", err)
+	}
+
+	fields["required_evidence"] = []string{"unknown"}
+	if err := ValidatePayloadSchema("work_transition_action_input", payload("unknown-evidence-kind")); err == nil {
+		t.Fatal("approve_contract schema accepted an unknown evidence kind")
+	}
+	fields["required_evidence"] = []string{"verification", "review"}
+	fields["rigor_class"] = "unknown"
+	if err := ValidatePayloadSchema("work_transition_action_input", payload("unknown-rigor-class")); err == nil {
+		t.Fatal("approve_contract schema accepted an unknown rigor class")
+	}
+	fields["rigor_class"] = "prototype_internal"
+	fields["unknown_contract_field"] = true
+	if err := ValidatePayloadSchema("work_transition_action_input", payload("unknown-approve-contract-field")); err == nil {
+		t.Fatal("approve_contract schema accepted an unknown field")
+	}
+}

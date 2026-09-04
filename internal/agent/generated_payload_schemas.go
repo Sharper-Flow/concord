@@ -1517,16 +1517,7 @@ const GeneratedPayloadSchemaDocument = `{
           "$ref": "#/$defs/digest"
         },
         "kind": {
-          "enum": [
-            "verification",
-            "review",
-            "approval",
-            "commit",
-            "durable_note",
-            "native_run",
-            "artifact"
-          ],
-          "type": "string"
+          "$ref": "#/$defs/evidence_kind"
         },
         "locator": {
           "maxLength": 2048,
@@ -1548,6 +1539,18 @@ const GeneratedPayloadSchemaDocument = `{
         "locator"
       ],
       "type": "object"
+    },
+    "evidence_kind": {
+      "enum": [
+        "verification",
+        "review",
+        "approval",
+        "commit",
+        "durable_note",
+        "native_run",
+        "artifact"
+      ],
+      "type": "string"
     },
     "external_observation_input": {
       "additionalProperties": false,
@@ -3927,6 +3930,23 @@ const GeneratedPayloadSchemaDocument = `{
       ],
       "type": "object"
     },
+    "rigor_class": {
+      "enum": [
+        "prototype_internal",
+        "prototype_trusted",
+        "prototype_public",
+        "prototype_safety_critical",
+        "production_internal",
+        "production_trusted",
+        "production_public",
+        "production_safety_critical",
+        "critical_internal",
+        "critical_trusted",
+        "critical_public",
+        "critical_safety_critical"
+      ],
+      "type": "string"
+    },
     "scope": {
       "additionalProperties": false,
       "properties": {
@@ -6238,11 +6258,22 @@ const GeneratedPayloadSchemaDocument = `{
                 "relation": {},
                 "relation_data": {},
                 "removed": {},
+                "required_evidence": {
+                  "items": {
+                    "$ref": "#/$defs/evidence_kind"
+                  },
+                  "maxItems": 7,
+                  "type": "array",
+                  "uniqueItems": true
+                },
                 "required_route_conventions": {},
                 "resolution_evidence": {},
                 "resolver_authority": {},
                 "resolver_result": {},
                 "restart": {},
+                "rigor_class": {
+                  "$ref": "#/$defs/rigor_class"
+                },
                 "route_conventions": {},
                 "run_id": {
                   "$ref": "#/$defs/id"
@@ -6808,28 +6839,14 @@ const GeneratedPayloadSchemaDocument = `{
         },
         "required_evidence": {
           "items": {
-            "$ref": "#/$defs/id"
+            "$ref": "#/$defs/evidence_kind"
           },
           "maxItems": 7,
           "type": "array",
           "uniqueItems": true
         },
         "rigor_class": {
-          "enum": [
-            "prototype_internal",
-            "prototype_trusted",
-            "prototype_public",
-            "prototype_safety_critical",
-            "production_internal",
-            "production_trusted",
-            "production_public",
-            "production_safety_critical",
-            "critical_internal",
-            "critical_trusted",
-            "critical_public",
-            "critical_safety_critical"
-          ],
-          "type": "string"
+          "$ref": "#/$defs/rigor_class"
         },
         "route_conventions": {
           "items": {

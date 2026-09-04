@@ -317,11 +317,27 @@ export function readRunSessionMetadata(input: string | RunSessionObservation): R
   return { ok: true, metadata: { session_id: [...input.sessions][0] } }
 }
 
+function readExportSessionIdentity(info: Record<string, unknown>): { model: string | null; agent: string | null } | null {
+  let model: string | null = null
+  if ("model" in info) {
+    if (!isRecord(info.model) || typeof info.model.providerID !== "string" || typeof info.model.id !== "string") return null
+    model = `${info.model.providerID}/${info.model.id}`
+  }
+  let agent: string | null = null
+  if ("agent" in info) {
+    if (typeof info.agent !== "string") return null
+    agent = info.agent
+  }
+  return { model, agent }
+}
+
 export function readExportSessionMetadata(stdout: string, expectedSessionID: string): Pick<SessionMetadata, "readback_model" | "readback_agent" | "session_id"> | null {
   if (Buffer.byteLength(stdout) > MAX_EXPORT_BYTES) return null
   let value: unknown
   try { value = JSON.parse(stdout) } catch { return null }
   if (!isRecord(value) || !isRecord(value.info) || value.info.id !== expectedSessionID || !Array.isArray(value.messages)) return null
+  const sessionIdentity = readExportSessionIdentity(value.info)
+  if (!sessionIdentity) return null
   const seen = new Set<string>()
   const assistants: { id: string; created: number; model: string; agent: string }[] = []
   for (const message of value.messages) {
@@ -330,8 +346,14 @@ export function readExportSessionMetadata(stdout: string, expectedSessionID: str
     if (typeof info.id !== "string" || typeof info.sessionID !== "string" || info.sessionID !== expectedSessionID || !isRecord(info.time) || typeof info.time.created !== "number" || seen.has(info.id)) return null
     seen.add(info.id)
     if (info.role === "user") continue
-    if (info.role !== "assistant" || typeof info.providerID !== "string" || typeof info.modelID !== "string" || typeof info.agent !== "string") return null
-    assistants.push({ id: info.id, created: info.time.created, model: `${info.providerID}/${info.modelID}`, agent: info.agent })
+    if (info.role !== "assistant") return null
+    const hasProvider = "providerID" in info
+    const hasModel = "modelID" in info
+    if (hasProvider !== hasModel || hasProvider && (typeof info.providerID !== "string" || typeof info.modelID !== "string")) return null
+    const model = hasProvider ? `${info.providerID}/${info.modelID}` : sessionIdentity.model
+    const agent = "agent" in info ? info.agent : sessionIdentity.agent
+    if (typeof agent !== "string" || model === null) return null
+    assistants.push({ id: info.id, created: info.time.created, model, agent })
   }
   assistants.sort((left, right) => left.created - right.created || left.id.localeCompare(right.id))
   const latest = assistants.at(-1)

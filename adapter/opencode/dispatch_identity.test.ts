@@ -92,6 +92,17 @@ test("export metadata reads the latest typed assistant and ignores nested model-
   expect(readExportSessionMetadata(exported, "different-session")).toBeNull()
 })
 
+test("export metadata reads session model and agent when sanitized messages omit them", () => {
+  const exported = JSON.stringify({
+    info: { id: "session-1", agent: "concord-implement", model: { id: "gpt-5.6-luna", providerID: "openai" } },
+    messages: [
+      { info: { id: "message-user", sessionID: "session-1", role: "user", time: { created: 10 } }, parts: [] },
+      { info: { id: "message-assistant", sessionID: "session-1", role: "assistant", time: { created: 20 } }, parts: [] },
+    ],
+  })
+  expect(readExportSessionMetadata(exported, "session-1")).toEqual({ readback_model: "openai/gpt-5.6-luna", readback_agent: "concord-implement", session_id: "session-1" })
+})
+
 test("export metadata rejects ambiguous duplicate assistant identity", () => {
   const exported = JSON.stringify({
     info: { id: "session-1" },

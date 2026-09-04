@@ -835,15 +835,14 @@ test("work_start derives one Project and Product from project-resolve before mut
     else process.env.CONCORD_SELECTED_PRODUCT_ID = previous
   }
 
-  const linkedCalls: string[][] = []
-  adapter.configureConcordAdapter({ runner: { async run(argv: string[]) {
-    linkedCalls.push(argv)
-    return { exitCode: 0, stdout: JSON.stringify(contextResponse(false)), stderr: "" }
-  } } })
+  const linkedCalls: RetargetCall[] = []
+  bindRetargetRoute()
+  adapter.configureConcordAdapter({ runner: retargetRunner(linkedCalls, {
+    "project-resolve": () => ({ exitCode: 0, stdout: JSON.stringify(contextResponse(false)), stderr: "" }),
+  }) })
   const linked: any = await rawHostResult(adapter.work_start.execute(bootstrapArgs, contextFor()))
-  expect(linked.error.kind).toBe("invalid_input")
-  expect(linked.error.message).toContain("default checkout")
-  expect(linkedCalls).toEqual([["concord", "project-resolve"]])
+  expect(linked.outcome).toBe("ok")
+  expect(linkedCalls.map(({ argv }) => argv[1])).toContain("work-bootstrap")
 
   const explicitTarget = { ...bootstrapArgs, project_id: "other-project" }
   const targetCalls: string[][] = []
@@ -927,6 +926,20 @@ test("work start moves the calling session into the claimed worktree", async () 
   expect(JSON.parse(calls[2].input)).toEqual({ product_id: "product-1", work_id: "work-1", task: bootstrapArgs.task })
   // No launch: the adapter never spawns a host session for the work.
   expect(calls.some(({ argv }) => argv[1] === "session-exec" || argv[0] === "opencode")).toBe(false)
+})
+
+test("work start forwards a core terminal-origin refusal", async () => {
+  bindRetargetRoute()
+  const calls: RetargetCall[] = []
+  adapter.configureConcordAdapter({ runner: retargetRunner(calls, {
+    "project-resolve": () => ({ exitCode: 0, stdout: JSON.stringify(contextResponse(false)), stderr: "" }),
+    "work-bootstrap": () => ({ exitCode: 1, stdout: "", stderr: "concord work-bootstrap: invalid_operation: cannot chain work_start from live work item work-origin" }),
+  }) })
+  const result: any = await rawHostResult(adapter.work_start.execute(bootstrapArgs, contextFor()))
+  expect(result.outcome).toBe("error")
+  expect(result.error.kind).toBe("bootstrap_failure")
+  expect(result.error.message).toContain("live work item work-origin")
+  expect(calls.map(({ argv }) => argv[1])).toEqual(["project-resolve", "work-bootstrap"])
 })
 
 // A host that serves no control plane cannot retarget, and CD-0098 D2 leaves

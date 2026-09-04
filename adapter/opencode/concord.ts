@@ -625,7 +625,6 @@ async function executeWorkStart(args: WorkStartArgs, context: ToolContext): Prom
     if (!validateWorkStartArgs(args)) throw new AdapterFailure("invalid_input", "invalid_work_start_input", "work_start arguments failed the host-tool contract", "none", "contact_operator")
     if (context.abort.aborted) throw new AdapterFailure("cancelled", "cancelled_no_effect", "work_start was cancelled before bootstrap")
     const ambient = await resolveAmbientContext(context)
-    if (!ambient.mainWorktree) throw new AdapterFailure("invalid_input", "requires_main_worktree", "work_start requires a resolved default checkout", "none", "contact_operator")
     const productID = deriveWorkStartProduct(ambient)
     // CD-0098 D2 makes the move the only route into the claimed worktree, so
     // a session that cannot reach its host cannot start work at all. Asking

@@ -3251,6 +3251,35 @@
       "title": "the dispatched lane is the step's executing actor"
     },
     {
+      "date": "2026-09-04T00:00:00Z",
+      "evidence": [
+        "cmd/concord/work_bootstrap.go",
+        "internal/store/bootstrap.go",
+        "adapter/opencode/concord.ts"
+      ],
+      "home_domain_id": "product-root:concord",
+      "id": "CD-0110",
+      "kind": "decision",
+      "path": "docs/decisions/CD-0110-work-start-chains-from-a-terminal-worktree.md",
+      "product_wide_rationale": "Governs the one session route that acquires an implementation worktree, so the origin boundary binds every Domain rather than one runtime Domain.",
+      "scopes": {
+        "domain_ids": [],
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:bc7617959434befd14575233bfed95167cb7a4c59755cb107c5c9eea165e47ee",
+      "status": "accepted",
+      "summary": "Amends CD-0098 so work_start admits a clean terminal Concord worktree as well as the Project default checkout. The core refuses live, dirty, leased, or dispatched origins before capture, the adapter forwards that refusal, and an empty ref in a linked origin resolves from origin/HEAD. The vacated origin remains for audit reclamation.",
+      "tags": [
+        "authority",
+        "worktree-isolation",
+        "session-boot"
+      ],
+      "title": "Work start chains from a terminal worktree"
+    },
+    {
       "criterion_bindings": [
         {
           "criterion": 1,

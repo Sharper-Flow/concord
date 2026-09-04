@@ -52,6 +52,96 @@ type BootstrapResult struct {
 	Entry       WorktreeEntry
 }
 
+// BootstrapOrigin is the verified linked worktree that a work_start call is
+// leaving. The origin is read-only input to bootstrap and is never reclaimed
+// by the chained start.
+type BootstrapOrigin struct {
+	ProjectID string
+	WorkID    string
+	Branch    string
+	Path      string
+	Lifecycle string
+}
+
+// ValidateBootstrapOrigin validates a clean, terminal Concord worktree with no
+// active verify lease or worker attempt. It runs before bootstrap records new
+// work, so every refusal has no effect.
+func (s *Store) ValidateBootstrapOrigin(ctx context.Context, projectID, path string, runner GitRunner) (BootstrapOrigin, error) {
+	var origin BootstrapOrigin
+	if s == nil || s.db == nil {
+		return origin, newFailure(KindUnavailable, "work_bootstrap", "store is not open", false, "open the authority database")
+	}
+	if projectID == "" || path == "" {
+		return origin, newFailure(KindInvalidOperation, "work_bootstrap", "linked bootstrap origin is missing Project or path identity", false, "run work_start from a Project worktree")
+	}
+	if runner == nil {
+		runner = ExecGitRunner{}
+	}
+	path, err := filepath.Abs(path)
+	if err != nil {
+		return origin, wrapFailure(KindInvalidOperation, "work_bootstrap", "cannot resolve the linked bootstrap origin path", false, "run work_start from a reachable worktree", err)
+	}
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return origin, wrapFailure(KindUnavailable, "work_bootstrap", "cannot read the linked bootstrap origin", true, "retry the same operation", err)
+	}
+	defer tx.Rollback()
+	err = tx.QueryRowContext(ctx, `SELECT e.project_id,e.branch,e.path,w.id,w.lifecycle FROM worktree_entries e JOIN worktree_claims c ON c.op_id=e.claim_op_id JOIN work_items w ON w.id=c.work_id WHERE e.project_id=? AND e.path=? AND e.state='active'`, projectID, filepath.Clean(path)).Scan(&origin.ProjectID, &origin.Branch, &origin.Path, &origin.WorkID, &origin.Lifecycle)
+	if err == sql.ErrNoRows {
+		return origin, newFailure(KindInvalidOperation, "work_bootstrap", "linked bootstrap origin is not an active Concord worktree", false, "run work_start from the active worktree of a terminal item")
+	}
+	if err != nil {
+		return origin, wrapFailure(KindUnavailable, "work_bootstrap", "cannot read the linked bootstrap origin", true, "retry once the database is readable", err)
+	}
+	if !isTerminalLifecycle(origin.Lifecycle) {
+		return origin, newFailure(KindInvalidOperation, "work_bootstrap", "cannot chain work_start from live work item "+origin.WorkID+" ("+origin.Lifecycle+")", false, "complete, cancel, or supersede the origin work item first")
+	}
+	status, err := runner.Run(ctx, filepath.Clean(path), "status", "--porcelain")
+	if err != nil {
+		return origin, wrapFailure(KindGitUnreachable, "work_bootstrap", "cannot inspect linked bootstrap origin "+origin.WorkID, true, "restore access to the origin worktree and retry", err)
+	}
+	if strings.TrimSpace(string(status)) != "" {
+		return origin, newFailure(KindInvalidOperation, "work_bootstrap", "cannot chain from dirty terminal worktree of "+origin.WorkID, false, "commit or discard the origin changes before starting new work")
+	}
+	var leased bool
+	if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM worktree_verify_leases WHERE path=? AND state='held')`, filepath.Clean(path)).Scan(&leased); err != nil {
+		return origin, wrapFailure(KindUnavailable, "work_bootstrap", "cannot inspect origin verify leases", true, "retry once the database is readable", err)
+	}
+	if leased {
+		return origin, newFailure(KindResourceBusy, "work_bootstrap", "cannot chain from terminal worktree "+origin.WorkID+" while a verify lease is active", true, "release the origin verify lease and retry")
+	}
+	var dispatched bool
+	if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM worker_attempts WHERE work_id=? AND lifecycle_state='dispatched')`, origin.WorkID).Scan(&dispatched); err != nil {
+		return origin, wrapFailure(KindUnavailable, "work_bootstrap", "cannot inspect origin worker attempts", true, "retry once the database is readable", err)
+	}
+	openWindow, err := bootstrapOriginHasOpenDispatchWindow(ctx, tx, origin.WorkID)
+	if err != nil {
+		return origin, err
+	}
+	if dispatched || openWindow {
+		return origin, newFailure(KindResourceBusy, "work_bootstrap", "cannot chain from terminal worktree "+origin.WorkID+" while a worker attempt is dispatched or open", true, "complete or close the origin worker attempt and retry")
+	}
+	if err := tx.Commit(); err != nil {
+		return origin, wrapFailure(KindUnavailable, "work_bootstrap", "cannot finish reading the linked bootstrap origin", true, "retry the same operation", err)
+	}
+	return origin, nil
+}
+
+func bootstrapOriginHasOpenDispatchWindow(ctx context.Context, tx *sql.Tx, workID string) (bool, error) {
+	var open bool
+	err := tx.QueryRowContext(ctx, `SELECT EXISTS(
+		SELECT 1 FROM domain_events started
+		JOIN domain_events completed ON completed.subject_type=started.subject_type AND completed.subject_id=started.subject_id AND completed.kind=? AND json_extract(completed.payload,'$.action_id')='dispatch_worker' AND completed.seq>started.seq
+		WHERE started.subject_type=? AND started.subject_id=? AND started.kind=? AND json_extract(started.payload,'$.action_id')='dispatch_worker'
+		AND NOT EXISTS (SELECT 1 FROM domain_events dispatched WHERE dispatched.subject_type=started.subject_type AND dispatched.subject_id=started.subject_id AND dispatched.kind=? AND dispatched.seq>completed.seq AND json_extract(dispatched.payload,'$.attempt_id')=json_extract(completed.payload,'$.worker_attempt_id'))
+	)`, WorkerDispatched, string(SubjectWorkItem), workID, WorkflowActionStarted, WorkerDispatched).Scan(&open)
+	if err != nil {
+		return false, wrapFailure(KindUnavailable, "work_bootstrap", "cannot inspect origin worker attempt windows", true, "retry once the database is readable", err)
+	}
+	return open, nil
+}
+
 func processStartIdentity(pid int64) (string, error) {
 	data, err := os.ReadFile("/proc/" + strconv.FormatInt(pid, 10) + "/stat")
 	if err != nil {
@@ -797,17 +887,35 @@ func verifyBootstrapNative(ctx context.Context, runner GitRunner, repo string, l
 
 func validateBootstrapDefaultBranch(ctx context.Context, runner GitRunner, repo string) error {
 	headOut, headErr := runner.Run(ctx, repo, "symbolic-ref", "--quiet", "HEAD")
-	defaultOut, defaultErr := runner.Run(ctx, repo, "symbolic-ref", "--quiet", "refs/remotes/origin/HEAD")
+	defaultRef, defaultErr := bootstrapDefaultBranchRef(ctx, runner, repo)
 	if headErr != nil || defaultErr != nil {
 		return newFailure(KindGitUnreachable, "work_bootstrap", "cannot prove the Project default branch checkout", false, "check out the default branch and set origin/HEAD")
 	}
 	head := strings.TrimSpace(string(headOut))
-	defaultRef := strings.TrimSpace(string(defaultOut))
-	const remotePrefix = "refs/remotes/origin/"
-	if !strings.HasPrefix(defaultRef, remotePrefix) || head != "refs/heads/"+strings.TrimPrefix(defaultRef, remotePrefix) {
+	if head != "refs/heads/"+strings.TrimPrefix(defaultRef, "origin/") {
 		return newFailure(KindInvalidOperation, "work_bootstrap", "Project main worktree is not on its default branch", false, "check out the branch named by origin/HEAD")
 	}
 	return nil
+}
+
+// DefaultBranchRef returns the Project default branch ref from origin/HEAD.
+// A linked worktree uses this ref instead of its own terminal branch as the
+// base for the next claimed worktree.
+func DefaultBranchRef(ctx context.Context, repo string) (string, error) {
+	return bootstrapDefaultBranchRef(ctx, ExecGitRunner{}, repo)
+}
+
+func bootstrapDefaultBranchRef(ctx context.Context, runner GitRunner, repo string) (string, error) {
+	defaultOut, err := runner.Run(ctx, repo, "symbolic-ref", "--quiet", "refs/remotes/origin/HEAD")
+	if err != nil {
+		return "", newFailure(KindGitUnreachable, "work_bootstrap", "cannot resolve the Project default branch", false, "set origin/HEAD")
+	}
+	const remotePrefix = "refs/remotes/origin/"
+	value := strings.TrimSpace(string(defaultOut))
+	if !strings.HasPrefix(value, remotePrefix) || len(strings.TrimPrefix(value, remotePrefix)) == 0 {
+		return "", newFailure(KindGitUnreachable, "work_bootstrap", "origin/HEAD does not name a default branch", false, "set origin/HEAD")
+	}
+	return "origin/" + strings.TrimPrefix(value, remotePrefix), nil
 }
 
 func validateBootstrapNativeAbsent(ctx context.Context, runner GitRunner, location WorktreeLocation) error {

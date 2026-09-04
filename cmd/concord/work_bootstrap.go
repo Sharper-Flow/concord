@@ -60,12 +60,26 @@ func runWorkBootstrap(raw []byte, s *store.Store, out, errOut io.Writer) int {
 		writeOperatorDiagnostic(errOut, "work-bootstrap", "cannot read invocation directory")
 		return 1
 	}
-	resolution, err := s.ResolveProject(context.Background(), cwd, cwd)
-	if err != nil || resolution.ProjectID != input.ProjectID || !resolution.MainWorktree {
-		writeOperatorDiagnostic(errOut, "work-bootstrap", "invocation must be the requested Project main checkout")
+	ctx := context.Background()
+	resolution, err := s.ResolveProject(ctx, cwd, cwd)
+	if err != nil || resolution.ProjectID != input.ProjectID {
+		writeOperatorDiagnostic(errOut, "work-bootstrap", "invocation must resolve to the requested Project")
 		return 1
 	}
-	result, err := s.BootstrapWorktree(context.Background(), store.BootstrapRequest{
+	if !resolution.MainWorktree {
+		if _, err := s.ValidateBootstrapOrigin(ctx, input.ProjectID, resolution.Repository.WorktreePath, store.ExecGitRunner{}); err != nil {
+			writeOperatorDiagnostic(errOut, "work-bootstrap", err.Error())
+			return 1
+		}
+		if input.Ref == "" {
+			input.Ref, err = store.DefaultBranchRef(ctx, resolution.Repository.CanonicalPath)
+			if err != nil {
+				writeOperatorDiagnostic(errOut, "work-bootstrap", err.Error())
+				return 1
+			}
+		}
+	}
+	result, err := s.BootstrapWorktree(ctx, store.BootstrapRequest{
 		ProductID: input.ProductID, ProjectID: input.ProjectID, Title: input.Title,
 		ValueStatement: input.ValueStatement, Kind: input.Kind, Task: input.Task,
 		IdempotencyKey: input.IdempotencyKey, Priority: input.Priority, Urgency: input.Urgency,

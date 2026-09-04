@@ -2,7 +2,7 @@ import { sign as signBytes } from "node:crypto"
 import { agentLanePacketSchema, agentLaneReportSchema, agentLanes, type AgentLane } from "./generated-agent-lanes"
 import { maxEnvelopeBytes } from "./generated-contracts"
 import { SecretToolCredentialStore, b64, clientRef, privateKeyObject, randomNonce, type CredentialStore } from "./credentials"
-import { dispatchWindows, DispatchWindowError, type DispatchWindows } from "./dispatch-window"
+import { dispatchWindows, DispatchWindowError, type DispatchRecord, type DispatchWindows } from "./dispatch-window"
 import { readTaskResult } from "./task-result"
 
 export const MAX_OUTPUT_BYTES = 65_536
@@ -795,6 +795,28 @@ export async function dispatchWorker(packet: unknown, options: { signal?: AbortS
 // It takes the worker session identifier and the result body as parameters
 // because the host, not the adapter, runs the worker between dispatch and
 // completion (CD-0102 D5).
+// recordDispatchCompletion is the production DispatchCompletion the plugin
+// entry installs. It is the second entry point CD-0102 D5 names: the host's
+// `tool.execute.after` hands over the finished task's output, the window
+// hands over the record it held, and completeWorkerAttempt does the rest with
+// its production defaults. The hook returns nothing, so the envelope's only
+// consumer is the store: on every path completeWorkerAttempt has already
+// appended worker.dispatched and either worker.complete or worker.fail before
+// it returns, and the coordinator reads the attempt through the typed
+// surface. A lane whose packet names no registered lane cannot be completed
+// and is reported as such through the same evidence path.
+export async function recordDispatchCompletion(sessionID: string, record: DispatchRecord, output: string): Promise<void> {
+  const lane = laneForPacket(record.packet)
+  if (!lane) {
+    // The window holds only packets the core authorized against a registered
+    // lane, so this cannot happen through the dispatch path. It is an
+    // invariant failure, and throwing fails this one hook call loudly rather
+    // than recording an attempt against a lane the adapter does not know.
+    throw new Error(`in-flight attempt ${record.packet.attempt_id} for session ${sessionID} names lane ${record.packet.lane_id}@${record.packet.lane_version} which this adapter does not register`)
+  }
+  await completeWorkerAttempt(lane, record.packet, output, { packetDigest: record.packetDigest }, new AbortController().signal)
+}
+
 export async function completeWorkerAttempt(
   lane: AgentLane,
   packet: AgentLanePacket,

@@ -75,6 +75,20 @@ export class DispatchWindows {
     return record
   }
 
+  // complete is the `tool.execute.after` body: the second entry point CD-0102
+  // D5 names. The host hands over the finished task's output, which carries
+  // the worker session in its wrapper; the in-flight record carries the
+  // packet and the digest the core recorded. Both reach the completion
+  // handler together, and the record is consumed on the way, so one
+  // authorization admits one result. A Task call this instance never bound
+  // has no record and is not Concord's; it passes through untouched.
+  async complete(tool: string, sessionID: string, output: string): Promise<void> {
+    if (tool !== TASK_TOOL_ID) return
+    const record = this.takeInFlight(sessionID)
+    if (!record) return
+    await completion(sessionID, record, output)
+  }
+
   // bind is the `tool.execute.before` body. It mutates the caller's arguments in
   // place, which is the only channel the host hook contract offers.
   bind(tool: string, sessionID: string, args: MutableToolArgs): void {
@@ -98,3 +112,20 @@ export class DispatchWindows {
 }
 
 const shared = new DispatchWindows()
+
+// DispatchCompletion receives a finished attempt: the session that dispatched
+// it, the record the window held, and the host's task output. The production
+// handler lives in dispatch.ts and records the attempt; this module holds only
+// the seam, so the window can be exercised without a store.
+export type DispatchCompletion = (sessionID: string, record: DispatchRecord, output: string) => Promise<void>
+
+let completion: DispatchCompletion = async () => {
+  throw new DispatchWindowError("no dispatch completion handler is registered; a finished attempt cannot be recorded")
+}
+
+// setDispatchCompletion installs the handler the plugin entry wires at load.
+// It is a module-level seam for the same reason dispatchWindows is: the host
+// hook and the tool path must meet on one instance.
+export function setDispatchCompletion(handler: DispatchCompletion): void {
+  completion = handler
+}

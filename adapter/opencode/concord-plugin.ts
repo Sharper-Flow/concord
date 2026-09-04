@@ -30,7 +30,8 @@ import {
 import type { PluginInput } from "@opencode-ai/plugin"
 import { createContinuityTransform } from "./continuity-hook"
 import { createAgentSwitchNotice } from "./agent-switch-hook"
-import { dispatchWindows } from "./dispatch-window"
+import { dispatchWindows, setDispatchCompletion } from "./dispatch-window"
+import { recordDispatchCompletion } from "./dispatch"
 import { hostControlPlane } from "./move-session"
 
 // The plugin factory is the only place the host hands over its own client, and
@@ -41,6 +42,7 @@ import { hostControlPlane } from "./move-session"
 // which keeps the adapter free of a runtime dependency on a host package.
 export default async function ConcordAdapterPlugin(input?: Partial<PluginInput>) {
   hostControlPlane().bind(input)
+  setDispatchCompletion(recordDispatchCompletion)
   const continuityTransform = createContinuityTransform()
   const agentSwitch = createAgentSwitchNotice()
   return {
@@ -67,6 +69,16 @@ export default async function ConcordAdapterPlugin(input?: Partial<PluginInput>)
       output: { args: Record<string, unknown> },
     ) => {
       dispatchWindows().bind(input.tool, input.sessionID, output.args)
+    },
+    // CD-0102 D5. Dispatch and completion are two entry points. The Task call
+    // above consumed the window; this hook receives its result and records
+    // the attempt. Without it the lane's report reaches the coordinator as
+    // text and the store never learns the attempt ran.
+    "tool.execute.after": async (
+      input: { tool: string; sessionID: string; callID: string; args: unknown },
+      output: { title: string; output: string; metadata: unknown },
+    ) => {
+      await dispatchWindows().complete(input.tool, input.sessionID, output.output)
     },
     "experimental.chat.system.transform": async (input: unknown, output: { system: string[] }) => {
       await continuityTransform(input, output)

@@ -3,7 +3,7 @@
 // unreachable and any Task call the model composes runs unbound.
 import { describe, expect, test } from "bun:test"
 import ConcordAdapterPlugin from "./concord-plugin"
-import { dispatchWindows, TASK_TOOL_ID } from "./dispatch-window"
+import { dispatchWindows, setDispatchCompletion, TASK_TOOL_ID } from "./dispatch-window"
 import { hostControlPlane, MOVE_SESSION_ROUTE, MoveSessionUnavailable } from "./move-session"
 
 const packet = {
@@ -46,6 +46,46 @@ describe("plugin entry registers the dispatch window hook", () => {
     const other = { args: { filePath: "/x" } }
     await plugin["tool.execute.before"]({ tool: "read", sessionID: "session-none", callID: "call-3" }, other)
     expect(other.args.filePath).toBe("/x")
+  })
+})
+
+// CD-0102 D5 names two adapter entry points: dispatch opens the window and
+// returns before the worker runs; completion receives the result body. The
+// second entry point is the `tool.execute.after` hook on the Task tool. Without
+// it a finished lane's report reaches the coordinator as text and nowhere
+// else: no worker.dispatched event, no attempt row, and accept_worker_result
+// refuses with "worker attempt does not exist". That is the live failure on
+// the operator store the day the dispatch route first ran end to end.
+describe("plugin entry registers the completion hook", () => {
+  test("a finished task hands its result to the in-flight attempt", async () => {
+    const seen: string[] = []
+    const plugin = (await ConcordAdapterPlugin()) as {
+      "tool.execute.before": (i: { tool: string; sessionID: string; callID: string }, o: { args: any }) => Promise<void>
+      "tool.execute.after": (i: { tool: string; sessionID: string; callID: string; args: any }, o: { title: string; output: string; metadata: any }) => Promise<void>
+    }
+    expect(typeof plugin["tool.execute.after"]).toBe("function")
+    // The factory installs the production handler; the test replaces it after,
+    // so the window is exercised without a store or a host export.
+    setDispatchCompletion(async (sessionID, record, result) => { seen.push(sessionID + ":" + record.packet.attempt_id + ":" + result.slice(0, 20)) })
+
+    dispatchWindows().open("session-after", packet)
+    const args = { args: { subagent_type: "general", prompt: "x" } }
+    await plugin["tool.execute.before"]({ tool: TASK_TOOL_ID, sessionID: "session-after", callID: "call-a" }, args)
+    await plugin["tool.execute.after"]({ tool: TASK_TOOL_ID, sessionID: "session-after", callID: "call-a", args: args.args }, { title: "t", output: '<task id="ses-w" state="completed">\n<task_result>\n{}\n</task_result>\n</task>', metadata: {} })
+    expect(seen).toEqual(["session-after:attempt-plugin:<task id=\"ses-w\" sta"])
+    // The completion consumed the in-flight record: a second result finds nothing.
+    expect(dispatchWindows().takeInFlight("session-after")).toBeNull()
+  })
+
+  test("a non-task tool and a session with no attempt are left alone", async () => {
+    const seen: string[] = []
+    const plugin = (await ConcordAdapterPlugin()) as {
+      "tool.execute.after": (i: { tool: string; sessionID: string; callID: string; args: any }, o: { title: string; output: string; metadata: any }) => Promise<void>
+    }
+    setDispatchCompletion(async (sessionID) => { seen.push(sessionID) })
+    await plugin["tool.execute.after"]({ tool: "read", sessionID: "session-x", callID: "c", args: {} }, { title: "", output: "file", metadata: {} })
+    await plugin["tool.execute.after"]({ tool: TASK_TOOL_ID, sessionID: "session-no-attempt", callID: "c", args: {} }, { title: "", output: "stray", metadata: {} })
+    expect(seen).toEqual([])
   })
 })
 

@@ -1181,7 +1181,7 @@
         "project_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:bfcbd7779f456c9c2b17b6443d4ccfe601787be0c84b8b8afc0d2339000fa1c4",
+      "sha256": "sha256:507c07383e3cc7c778af04fb55f644d7c8113c5f6774cfd8433a2db6820a936f",
       "status": "accepted",
       "summary": "Host injection is permitted only when recorded: dispatch evidence v3 carries a provenance digest over enumerable prompt surfaces, unenumerable ones are named, and D7 evals are reproducible only when lane and provenance digests both match.",
       "tags": [

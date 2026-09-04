@@ -530,9 +530,12 @@ export type HostProvenanceSource = { kind: "agent_definition" | "agents_md" | "i
 export type HostProvenance = { digest: string; sources: HostProvenanceSource[] }
 
 const UNENUMERATED_SURFACES: HostProvenanceSource[] = [
-  { kind: "unenumerated" }, // provider behavioral hints injected per model family
-  { kind: "unenumerated" }, // output-voice overlays applied per call
-  { kind: "unenumerated" }, // MCP tool-definition prompt content
+  // CD-0034: a surface the adapter cannot read is recorded by name and no
+  // hash, so it is visible as present-but-unbound. The store keys duplicate
+  // sources on kind and path, so each name is distinct.
+  { kind: "unenumerated", path: "provider_behavioral_hints" }, // injected per model family
+  { kind: "unenumerated", path: "output_voice_overlays" }, // applied per call
+  { kind: "unenumerated", path: "mcp_tool_definition_prompt" },
 ]
 
 async function fileProvenance(kind: HostProvenanceSource["kind"], path: string): Promise<HostProvenanceSource | null> {
@@ -707,11 +710,15 @@ export async function computeHostPromptProvenance(laneId: string, cwd = process.
   }
   // The global AGENTS.md is injected into every session but sits outside the
   // spawn directory's ancestry, so the upward walk below can never reach it.
-  const globalAgents = await fileProvenance("agents_md", `${configDir}/AGENTS.md`)
+  const globalAgentsPath = `${configDir}/AGENTS.md`
+  const globalAgents = await fileProvenance("agents_md", globalAgentsPath)
   if (globalAgents) sources.push(globalAgents)
   let dir = cwd
   for (let depth = 0; depth < 8 && sources.filter(s => s.kind === "agents_md").length < 5; depth++) {
-    const source = await fileProvenance("agents_md", `${dir}/AGENTS.md`)
+    // A spawn directory at or under the config directory would meet the
+    // global file again on the walk; one surface is named once.
+    const candidate = `${dir}/AGENTS.md`
+    const source = candidate === globalAgentsPath ? null : await fileProvenance("agents_md", candidate)
     if (source) sources.push(source)
     const parent = dir.slice(0, dir.lastIndexOf("/"))
     if (!parent || parent === dir) break

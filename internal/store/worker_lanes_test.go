@@ -387,14 +387,26 @@ func TestWorkerHostProvenanceValidation(t *testing.T) {
 		{"bad digest", &WorkerHostProvenance{Digest: "sha256:short", Sources: valid.Sources}},
 		{"no sources", &WorkerHostProvenance{Digest: valid.Digest, Sources: nil}},
 		{"unknown kind", &WorkerHostProvenance{Digest: valid.Digest, Sources: []WorkerHostProvenanceSource{{Kind: "mystery", Path: "/x", SHA256: valid.Digest}}}},
-		{"unenumerated with path", &WorkerHostProvenance{Digest: valid.Digest, Sources: []WorkerHostProvenanceSource{{Kind: "unenumerated", Path: "/x"}}}},
+		{"unenumerated with hash", &WorkerHostProvenance{Digest: valid.Digest, Sources: []WorkerHostProvenanceSource{{Kind: "unenumerated", Path: "/x", SHA256: valid.Digest}}}},
 		{"enumerated without hash", &WorkerHostProvenance{Digest: valid.Digest, Sources: []WorkerHostProvenanceSource{{Kind: "agents_md", Path: "/x"}}}},
 		{"duplicate source", &WorkerHostProvenance{Digest: valid.Digest, Sources: []WorkerHostProvenanceSource{{Kind: "agents_md", Path: "/x", SHA256: valid.Digest}, {Kind: "agents_md", Path: "/x", SHA256: valid.Digest}}}},
+		// Two unenumerated surfaces with one name are one source named twice.
+		// Three distinct names are three sources; that distinction is what
+		// the name exists to carry (CD-0034 "recorded by name").
+		{"duplicate unenumerated name", &WorkerHostProvenance{Digest: valid.Digest, Sources: []WorkerHostProvenanceSource{{Kind: "unenumerated", Path: "provider_behavioral_hints"}, {Kind: "unenumerated", Path: "provider_behavioral_hints"}}}},
 	}
 	for _, tc := range bad {
 		if err := ValidateWorkerHostProvenance(tc.p); err == nil {
 			t.Fatalf("%s must refuse", tc.name)
 		}
+	}
+	named := &WorkerHostProvenance{Digest: valid.Digest, Sources: []WorkerHostProvenanceSource{
+		{Kind: "unenumerated", Path: "provider_behavioral_hints"},
+		{Kind: "unenumerated", Path: "output_voice_overlays"},
+		{Kind: "unenumerated", Path: "mcp_tool_definition_prompt"},
+	}}
+	if err := ValidateWorkerHostProvenance(named); err != nil {
+		t.Fatalf("three distinctly named unenumerated sources refused: %v", err)
 	}
 }
 

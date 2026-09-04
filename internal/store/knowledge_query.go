@@ -330,7 +330,7 @@ func queryQ10(ctx context.Context, q queryer, req Q10Request) (Q10Result, error)
 		return out, err
 	}
 	note = CanonicalNote{HomeProjectID: homeProject, HomeLocatorID: homeLocator, NotePath: path, NotePathRef: path, Commit: commit, CommitOID: commit, ContentHash: hash}
-	out.ResultMeta = q10HistoricalMeta(req, commit)
+	out.ResultMeta = q10HistoricalMeta(req)
 	if kind == "work_note" {
 		verified, verifyErr := VerifyCommittedNote(ctx, storedHome.RepoPath, commit, path, hash)
 		if verifyErr != nil {
@@ -440,9 +440,9 @@ func compareQ10HistoricalHome(supplied, stored KnowledgeHome) error {
 	return nil
 }
 
-func q10HistoricalMeta(req Q10Request, commit string) ResultMeta {
+func q10HistoricalMeta(req Q10Request) ResultMeta {
 	now := time.Now().UTC()
-	return ResultMeta{QueryID: "PM1.Q10", ContractVersion: queryContractVersion, ResolvedScope: ResolvedScope{ProductID: req.Product, WorkID: req.Work}, Authority: "authoritative", Freshness: Freshness{ObservedAt: now.Format(time.RFC3339Nano), Age: 0, Stale: false}, OrderingKeys: []string{"canonical_locator"}, Omissions: []string{}, Warnings: []string{"historical_locator_commit:" + commit, "current_head_not_used_for_proof"}}
+	return ResultMeta{QueryID: "PM1.Q10", ContractVersion: queryContractVersion, ResolvedScope: ResolvedScope{ProductID: req.Product, WorkID: req.Work}, Authority: "authoritative", Freshness: Freshness{ObservedAt: now.Format(time.RFC3339Nano), Age: 0, Stale: false}, OrderingKeys: []string{"canonical_locator"}, Omissions: []string{}, Warnings: []string{"historical_locator_commit", "current_head_not_used_for_proof"}}
 }
 
 func q10EmptyMeta(req Q10Request) ResultMeta {

@@ -425,6 +425,40 @@ func TestKnowledgeResolveNoteUnscopedUsesRecordedLocator(t *testing.T) {
 	assertRuntimeKnowledgeState(t, response, "canonical")
 }
 
+func TestConcurrentKnowledgeResolveNoteFailuresStayTyped(t *testing.T) {
+	s := runtimeKnowledgeStore(t, "drifted-knowledge", "lesson", "home", nil, nil)
+	defer s.Close()
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE archived_work SET title='Drifted' WHERE id='drifted-knowledge'; DELETE FROM fold_guard`); err != nil {
+		t.Fatal(err)
+	}
+
+	const calls = 8
+	type result struct {
+		response Envelope
+		err      error
+	}
+	results := make(chan result, calls)
+	for i := range calls {
+		go func() {
+			r := runtime{Store: s, Tool: "concord_knowledge", Operation: "resolve_note", Envelope: CallEnvelope{}}
+			response, err := r.read(context.Background(), NewBase(fmt.Sprintf("runtime-q10-%d", i), r.Tool, r.Operation), json.RawMessage(`{"knowledge_id":"drifted-knowledge"}`), "PM1.Q10")
+			results <- result{response: response, err: err}
+		}()
+	}
+	for range calls {
+		got := <-results
+		if got.err != nil {
+			t.Fatalf("concurrent read returned an adapter error: %v", got.err)
+		}
+		if got.response.Outcome != OutcomeError || got.response.Error == nil || got.response.Error.Kind != "invalid_input" {
+			t.Fatalf("concurrent read lost the typed core failure: %+v", got.response)
+		}
+		if _, err := json.Marshal(got.response); err != nil {
+			t.Fatalf("concurrent failure response is not a valid envelope: %v", err)
+		}
+	}
+}
+
 func TestKnowledgeResolveNotePreservesFrozenWorkNoteScope(t *testing.T) {
 	s := runtimeKnowledgeStore(t, "frozen-work", "work_note", "home", []string{"product-a"}, map[string]string{"product-b": "member"})
 	defer s.Close()

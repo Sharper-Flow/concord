@@ -43,9 +43,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:831bc0e26b033fac1980c548a1aecde691458339b72843a11cf6284eb9a06a41",
+  "sha256": "sha256:e56eac5c307143b340fc20e7052ffbb70e0d86da6c73051d986da5ddc4c46f5f",
   "status": "accepted",
-  "summary": "Defines the read-only Product launcher: three screens, identity-only handoff, no-poll refresh, and bounded Product-scoped reads.",
+  "summary": "Defines the read-only Product launcher: three screens, identity-only handoff, no-poll refresh, and bounded Product-scoped reads. Scope superseded by CD-0108; the successor contract registers during its build.",
   "tags": [
     "launcher",
     "rendering"

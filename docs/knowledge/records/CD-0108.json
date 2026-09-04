@@ -1,0 +1,28 @@
+{
+  "date": "2026-09-03T00:00:00Z",
+  "evidence": [
+    "docs/clarifications.md",
+    "docs/vertical-integration.md",
+    "docs/terminal-launcher-contract.md"
+  ],
+  "home_domain_id": "operator-surface",
+  "id": "CD-0108",
+  "kind": "decision",
+  "path": "docs/decisions/CD-0108-the-launcher-is-the-zlauncher-replacement.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:42f97bcfa0144e5de3d2307ed18179fa6b9ab2113eff7b1bcd34ce98711a3b3e",
+  "status": "accepted",
+  "summary": "The launcher is remade from zero as the ZLauncher replacement. The core loop is Concord-first browsing with launch actions: a zellij tab on the work's Concord worktree, the OpenCode session started through Concord's session bootstrap, resume, and prompt pass-through as the work directive. The interface is dense panes on arrow, Enter, and Tab keys, still rendered by Bubble Tea v2. The launcher stays store-write-free. ZLauncher is retired when the core loop and the accepted daily extras work on the real store.",
+  "tags": [
+    "launcher",
+    "remake",
+    "operator-surface"
+  ],
+  "title": "the launcher is the ZLauncher replacement"
+}

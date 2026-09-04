@@ -520,6 +520,11 @@ func (s *Store) QueryProductRows(ctx context.Context, req ProductRowRequest) (Pr
 		row   ProductRow
 		works []productRowWork
 	}
+	// queryLimit already bounds limit to queryMaxLimit; the clamp keeps the
+	// capacity expression provably bounded at the allocation site.
+	if limit > queryMaxLimit {
+		limit = queryMaxLimit
+	}
 	products := make([]rawProductRow, 0, limit+1)
 	productIndex := make(map[string]int)
 	registry := productRowWorkflowRegistry

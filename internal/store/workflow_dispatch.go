@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"time"
 )
@@ -174,15 +175,20 @@ func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, registry Definiti
 	if err := guardOperatorPremiseActor(guards); err != nil {
 		return result, err
 	}
+	payload := guards.defaultedPayload()
 	if err := normalizeWorkflowActionRequest(&request); err != nil {
 		return result, err
 	}
+	evidenceRefs, defaultVerdictEvidence, err := workflowActionEvidenceRefs(request, payload)
+	if err != nil {
+		return result, err
+	}
+	request.EvidenceRefs = evidenceRefs
 	guards.request = request
 	step, evidenceRefs, err := claimDurableWorkflowOperationTx(ctx, tx, entry, request, currentStep)
 	if err != nil {
 		return result, err
 	}
-	payload := guards.defaultedPayload()
 	if err := runWorkflowActionGuard(guards, guardPhaseClaim); err != nil {
 		return result, err
 	}
@@ -190,6 +196,7 @@ func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, registry Definiti
 		entry: entry, request: request, currentStep: currentStep, step: step, payload: payload, evidenceRefs: evidenceRefs,
 		actorRef: guards.actorRef, eventActor: guards.eventActor, operatorRef: guards.operatorRef,
 		actorNeedsRecord: guards.actorNeedsRecord, operatorNeedsRecord: guards.operatorNeedsRecord,
+		defaultVerdictEvidence: defaultVerdictEvidence,
 	}
 	assembly, err := assembleWorkflowActionEventsTx(ctx, tx, assemblyInput)
 	if err != nil {
@@ -287,9 +294,52 @@ func workflowSuccessorFamily(ctx context.Context, tx *sql.Tx, source WorkflowDef
 	return successorKind, pin.Ref, nil
 }
 
+func workflowActionEvidenceRefs(request WorkflowActionExecutionRequest, payload json.RawMessage) ([]string, bool, error) {
+	if request.ActionID == "complete" {
+		fields, err := workflowActionObject(payload)
+		if err != nil {
+			return nil, false, err
+		}
+		refs := append([]string(nil), request.EvidenceRefs...)
+		if len(refs) == 0 {
+			refs = workflowFieldStrings(fields, "evidence_refs")
+		}
+		return refs, false, nil
+	}
+	if request.ActionID != "record_verdict" {
+		return append([]string(nil), request.EvidenceRefs...), false, nil
+	}
+	fields, err := workflowActionObject(payload)
+	if err != nil {
+		return nil, false, err
+	}
+	if raw, present := fields["evaluation_evidence"]; present {
+		refs := workflowFieldStrings(fields, "evaluation_evidence")
+		if len(refs) == 0 {
+			return nil, false, newFailure(KindInvalidPayload, "workflow_action", "evaluation_evidence must contain at least one evidence reference", false, "supply the bound evaluation evidence")
+		}
+		if string(raw) == "null" {
+			return nil, false, newFailure(KindInvalidPayload, "workflow_action", "evaluation_evidence must be an array", false, "supply the bound evaluation evidence")
+		}
+		allRefs := append([]string(nil), request.EvidenceRefs...)
+		for _, ref := range refs {
+			if !contains(allRefs, ref) {
+				allRefs = append(allRefs, ref)
+			}
+		}
+		return allRefs, false, nil
+	}
+	if len(request.EvidenceRefs) != 0 {
+		return append([]string(nil), request.EvidenceRefs...), false, nil
+	}
+	return []string{"evidence:" + request.OperationID}, true, nil
+}
+
 // workflowSemanticActionEvents constructs only typed, foldable events. Empty
 // return means the action uses the ordinary action_completed event.
-func workflowSemanticActionEvents(ctx context.Context, tx *sql.Tx, definition WorkflowDefinition, request WorkflowActionExecutionRequest, stepID, actor string, raw json.RawMessage, expected int64) ([]Event, error) {
+// defaultVerdictEvidence marks a record_verdict whose evaluation evidence the
+// caller minted (issue #816): its refs are bound in this same event list.
+func workflowSemanticActionEvents(ctx context.Context, tx *sql.Tx, definition WorkflowDefinition, request WorkflowActionExecutionRequest, stepID, actor string, raw json.RawMessage, expected int64, defaultVerdictEvidence bool) ([]Event, error) {
 	fields, err := workflowActionObject(raw)
 	if err != nil {
 		return nil, err
@@ -542,13 +592,38 @@ func workflowSemanticActionEvents(ctx context.Context, tx *sql.Tx, definition Wo
 		}
 		evidence := workflowFieldStrings(fields, "evaluation_evidence")
 		if len(evidence) == 0 {
-			evidence = []string{"evidence:" + request.OperationID}
+			evidence = append([]string(nil), request.EvidenceRefs...)
+		}
+		if len(evidence) == 0 {
+			return nil, newFailure(KindMissingEvidence, "workflow_action", "record_verdict requires durably bound evaluation evidence", false, "provide_evidence")
+		}
+		if !defaultVerdictEvidence {
+			if err := verifyVerdictEvidence(ctx, tx, request.WorkID, evidence); err != nil {
+				return nil, err
+			}
 		}
 		predicateID, predicatePresent := workflowFieldString(fields, "predicate_id")
 		if !predicatePresent || predicateID == "" {
 			return nil, newFailure(KindInvalidPayload, "workflow_action", "record_verdict requires predicate_id", false, "name an approved contract predicate")
 		}
-		return []Event{workflowTypedEvent(eventID, WorkflowVerdictRecorded, request.WorkID, actor, request.Now, expected, map[string]any{"contract_version": workflowFieldInt(fields, "contract_version", 1), "predicate_id": predicateID, "verdict_kind": workflowFieldStringDefault(fields, "verdict_kind", "ok"), "verdict_actor_ref": verdictActor, "evaluation_evidence": evidence, "incomparable_with_approved": workflowFieldBool(fields, "incomparable_with_approved")})}, nil
+		// The envelope bounds evaluation_evidence at 32 entries; the guard
+		// keeps the allocation below it even for direct store callers.
+		if len(evidence) > 32 {
+			return nil, newFailure(KindInvalidPayload, "workflow_action", "record_verdict evaluation_evidence exceeds 32 references", false, "supply a bounded evidence list")
+		}
+		events := make([]Event, 0, len(evidence)+1)
+		if defaultVerdictEvidence {
+			for index, ref := range evidence {
+				events = append(events, workflowTypedEvent(eventID+":evidence:"+fmt.Sprint(index), WorkflowEvidenceBound, request.WorkID, actor, request.Now, expected+int64(index), map[string]any{
+					"evidence_kind": "review", "immutable_subject_ref": ref, "producer_id": request.PrincipalRef,
+					"producer_run_ref": request.OperationID, "producer_watermark": request.RequestID,
+					"observed_at": request.Now.UTC().Format(time.RFC3339Nano),
+				}))
+			}
+		}
+		verdictExpected := expected + int64(len(events))
+		events = append(events, workflowTypedEvent(eventID, WorkflowVerdictRecorded, request.WorkID, actor, request.Now, verdictExpected, map[string]any{"contract_version": workflowFieldInt(fields, "contract_version", 1), "predicate_id": predicateID, "verdict_kind": workflowFieldStringDefault(fields, "verdict_kind", "ok"), "verdict_actor_ref": verdictActor, "evaluation_evidence": evidence, "incomparable_with_approved": workflowFieldBool(fields, "incomparable_with_approved")}))
+		return events, nil
 	case "confirm_premise":
 		if request.OperatorActor == nil || request.OperatorActor.ActorClass != ActorOperator {
 			return nil, newFailure(KindApprovalRequired, "workflow_action", "premise confirmation requires the verified operator approval identity", false, "request_approval")

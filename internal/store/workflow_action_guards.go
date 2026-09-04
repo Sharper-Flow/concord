@@ -277,11 +277,12 @@ type workflowActionAssemblyInput struct {
 	payload      json.RawMessage
 	evidenceRefs []string
 
-	actorRef            string
-	eventActor          string
-	operatorRef         string
-	actorNeedsRecord    bool
-	operatorNeedsRecord bool
+	actorRef               string
+	eventActor             string
+	operatorRef            string
+	actorNeedsRecord       bool
+	operatorNeedsRecord    bool
+	defaultVerdictEvidence bool
 }
 
 type workflowActionEventAssembly struct {
@@ -336,7 +337,7 @@ func assembleWorkflowActionEventsTx(ctx context.Context, tx *sql.Tx, in workflow
 		})
 		events = append(events, Event{EventID: in.request.OperationID + ":checkpoint", Kind: WorkflowActionCheckpointed, SubjectType: SubjectWorkItem, SubjectID: in.request.WorkID, Actor: actor, OccurredAt: in.request.Now, PayloadVersion: 1, Payload: checkpoint})
 	} else if in.request.ActionID != "complete" {
-		semantic, semanticErr := workflowSemanticActionEvents(ctx, tx, in.entry.Definition, in.request, in.currentStep, actor, in.payload, versionCursor+int64(len(events)-int(versionCursor-in.request.ExpectedVersion)))
+		semantic, semanticErr := workflowSemanticActionEvents(ctx, tx, in.entry.Definition, in.request, in.currentStep, actor, in.payload, versionCursor+int64(len(events)-int(versionCursor-in.request.ExpectedVersion)), in.defaultVerdictEvidence)
 		if semanticErr != nil {
 			return out, semanticErr
 		}
@@ -428,6 +429,61 @@ func appendGenericWorkflowCompletion(in workflowActionAssemblyInput, attemptEpoc
 	return events, workerPacketDigest, nil
 }
 
+func lateBindWorkflowEvidenceTx(ctx context.Context, tx *sql.Tx, request WorkflowActionExecutionRequest, actor string, payload json.RawMessage) ([]Event, error) {
+	fields, err := workflowActionObject(payload)
+	if err != nil {
+		return nil, err
+	}
+	refs := append([]string(nil), request.EvidenceRefs...)
+	var contractVersion int64
+	if err := tx.QueryRowContext(ctx, `SELECT contract_version FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL ORDER BY contract_version DESC LIMIT 1`, request.WorkID).Scan(&contractVersion); err == nil {
+		verdicts, verdictErr := latestWorkflowVerdicts(ctx, tx, request.WorkID, contractVersion)
+		if verdictErr != nil {
+			return nil, verdictErr
+		}
+		for _, verdict := range verdicts {
+			for _, ref := range verdict.EvaluationEvidence {
+				if !contains(refs, ref) {
+					refs = append(refs, ref)
+				}
+			}
+		}
+	} else if err != sql.ErrNoRows {
+		return nil, wrapFailure(KindUnavailable, "complete_workflow", "cannot read active workflow contract", true, "retry once the database is readable", err)
+	}
+	if len(refs) == 0 {
+		return nil, nil
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE durable_operations SET evidence_refs=? WHERE op_id=? AND attempt_epoch=?`, workflowJSON(refs), request.OperationID, 1); err != nil {
+		return nil, wrapFailure(KindUnavailable, "complete_workflow", "cannot extend completion evidence authority", true, "retry once the database is writable", err)
+	}
+	evidenceKind := workflowFieldStringDefault(fields, "evidence_kind", "review")
+	events := make([]Event, 0, len(refs))
+	for index, ref := range refs {
+		var bound int
+		if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.immutable_subject_ref')=?`, SubjectWorkItem, request.WorkID, WorkflowEvidenceBound, ref).Scan(&bound); err != nil {
+			return nil, wrapFailure(KindUnavailable, "complete_workflow", "cannot inspect completion evidence", true, "retry once the database is readable", err)
+		}
+		if bound != 0 {
+			continue
+		}
+		events = append(events, workflowTypedEvent(request.OperationID+":evidence:"+fmt.Sprint(index), WorkflowEvidenceBound, request.WorkID, actor, request.Now, request.ExpectedVersion+int64(len(events)), map[string]any{
+			"evidence_kind": evidenceKind, "immutable_subject_ref": ref, "producer_id": request.PrincipalRef,
+			"producer_run_ref": request.OperationID, "producer_watermark": request.RequestID,
+			"observed_at": request.Now.UTC().Format(time.RFC3339Nano),
+		}))
+	}
+	for _, event := range events {
+		if _, err := appendEvent(ctx, tx, event, true); err != nil {
+			return nil, err
+		}
+		if err := foldRegisteredEvent(ctx, tx, event); err != nil {
+			return nil, err
+		}
+	}
+	return events, nil
+}
+
 // nativeRunFromSemanticEvents lifts the native-run report the semantic events
 // carry into the action result. The last report wins, matching the order the
 // events were appended in.
@@ -449,6 +505,11 @@ func nativeRunFromSemanticEvents(semantic []Event) *NativeRunReport {
 // the ordered completion gate runs and workflow.completed is appended here.
 func applyCompleteWorkflowActionTx(ctx context.Context, tx *sql.Tx, registry DefinitionRegistry, entry RegisteredDefinition, request WorkflowActionExecutionRequest, currentStep, actor string, payload json.RawMessage) (WorkflowActionExecutionResult, error) {
 	var result WorkflowActionExecutionResult
+	bindingEvents, bindingErr := lateBindWorkflowEvidenceTx(ctx, tx, request, actor, payload)
+	if bindingErr != nil {
+		return result, bindingErr
+	}
+	request.ExpectedVersion += int64(len(bindingEvents))
 	completion, completionErr := workflowCompletionEvent(ctx, tx, request, entry.Definition, currentStep, actor, payload)
 	if completionErr != nil {
 		return result, completionErr
@@ -456,7 +517,11 @@ func applyCompleteWorkflowActionTx(ctx context.Context, tx *sql.Tx, registry Def
 	if err := CompleteWorkflowTxWithRegistry(ctx, tx, registry, completion); err != nil {
 		return result, err
 	}
-	result.EventIDs = []string{completion.EventID}
+	result.EventIDs = make([]string, 0, len(bindingEvents)+1)
+	for _, binding := range bindingEvents {
+		result.EventIDs = append(result.EventIDs, binding.EventID)
+	}
+	result.EventIDs = append(result.EventIDs, completion.EventID)
 	result.ChangedRefs = []string{request.WorkID}
 	result.OperationID = request.OperationID
 	_ = tx.QueryRowContext(ctx, `SELECT version FROM work_items WHERE id=?`, request.WorkID).Scan(&result.ResultingVersion)

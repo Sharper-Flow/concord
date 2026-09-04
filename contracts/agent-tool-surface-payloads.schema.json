@@ -3152,7 +3152,28 @@
                 "edge_kind": {},
                 "entity_kind": {},
                 "entity_ref": {},
+                "evidence_kind": {
+                  "$ref": "#/$defs/evidence_kind"
+                },
                 "evidence_refs": {},
+                "evaluation_evidence": {
+                  "type": "array",
+                  "minItems": 1,
+                  "maxItems": 32,
+                  "items": {
+                    "$ref": "#/$defs/id"
+                  }
+                },
+                "verdict_kind": {
+                  "enum": [
+                    "ok",
+                    "outcome_mismatch",
+                    "insufficient_evidence"
+                  ]
+                },
+                "incomparable_with_approved": {
+                  "type": "boolean"
+                },
                 "hypothesis": {},
                 "impact_verdict": {
                   "type": "string",

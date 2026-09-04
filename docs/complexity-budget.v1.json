@@ -25,9 +25,9 @@
     },
     {
       "function": "internal/store.workflowSemanticActionEvents",
-      "measured": 175,
+      "measured": 177,
       "state": "unmeasured",
-      "reason": "The dispatch remains a flat action vocabulary; the score grew from 163 when record_verdict began folding its born-bound evidence events (issue #816) and when the default-evidence flag joined the signature. No action arm moved."
+      "reason": "The dispatch remains a flat action vocabulary; the score grew from 163 when record_verdict began folding its born-bound evidence events (issue #816) and again when the evidence list gained its explicit 32-entry bound for the allocation guard. No action arm moved."
     }
   ]
 }

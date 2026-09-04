@@ -606,6 +606,11 @@ func workflowSemanticActionEvents(ctx context.Context, tx *sql.Tx, definition Wo
 		if !predicatePresent || predicateID == "" {
 			return nil, newFailure(KindInvalidPayload, "workflow_action", "record_verdict requires predicate_id", false, "name an approved contract predicate")
 		}
+		// The envelope bounds evaluation_evidence at 32 entries; the guard
+		// keeps the allocation below it even for direct store callers.
+		if len(evidence) > 32 {
+			return nil, newFailure(KindInvalidPayload, "workflow_action", "record_verdict evaluation_evidence exceeds 32 references", false, "supply a bounded evidence list")
+		}
 		events := make([]Event, 0, len(evidence)+1)
 		if defaultVerdictEvidence {
 			for index, ref := range evidence {

@@ -92,6 +92,9 @@ func TestContinuityStepActions(t *testing.T) {
 	if !reflect.DeepEqual(snapshot.StepActions, want) {
 		t.Fatalf("step actions=%v, want %v", snapshot.StepActions, want)
 	}
+	if snapshot.WorkflowStatus == nil || snapshot.WorkflowStatus.WorkID != "continuity-actions" || snapshot.WorkflowStatus.WorkflowType == "" || snapshot.WorkflowStatus.StepOrdinal != 1 || snapshot.WorkflowStatus.StepTotal == 0 || snapshot.WorkflowStatus.StepName != "proposal" || snapshot.WorkflowStatus.LastEventKind == "" || snapshot.WorkflowStatus.Actor == "" || snapshot.WorkflowStatus.OccurredAt == "" || snapshot.WorkflowStatus.Sequence == 0 {
+		t.Fatalf("workflow status=%+v", snapshot.WorkflowStatus)
+	}
 
 	seedWork(t, s, "continuity-no-workflow")
 	empty, err := ReadWorkflowContinuity(context.Background(), s, ContinuityRequest{Work: "continuity-no-workflow", Limit: 20})

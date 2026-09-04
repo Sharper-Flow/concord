@@ -1719,6 +1719,61 @@
         "pending_messages": {
           "type": "integer",
           "minimum": 0
+        },
+        "workflow_status": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "work_id",
+            "workflow_type",
+            "step_ordinal",
+            "step_total",
+            "step_name",
+            "transition_from",
+            "transition_to",
+            "last_event_kind",
+            "actor",
+            "occurred_at",
+            "sequence"
+          ],
+          "properties": {
+            "work_id": {
+              "$ref": "#/$defs/id"
+            },
+            "workflow_type": {
+              "$ref": "#/$defs/id"
+            },
+            "step_ordinal": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "step_total": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "step_name": {
+              "$ref": "#/$defs/short"
+            },
+            "transition_from": {
+              "$ref": "#/$defs/short"
+            },
+            "transition_to": {
+              "$ref": "#/$defs/short"
+            },
+            "last_event_kind": {
+              "$ref": "#/$defs/short"
+            },
+            "actor": {
+              "$ref": "#/$defs/short"
+            },
+            "occurred_at": {
+              "$ref": "#/$defs/short"
+            },
+            "sequence": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
         }
       }
     },

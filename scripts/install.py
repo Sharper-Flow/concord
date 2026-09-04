@@ -104,6 +104,7 @@ ADAPTER_FILES = (
     "move-session.ts",
     "packet.ts",
     "task-result.ts",
+    "workflow-status.ts",
 )
 INSTRUCTION_FILES = (
     "README.md",

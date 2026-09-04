@@ -43,6 +43,23 @@ type ContextFailure struct {
 	AttemptEpoch int64  `json:"attempt_epoch"`
 }
 
+// WorkflowStatus is the core-derived status record that the host can render
+// after a workflow operation. It keeps workflow position and the latest event
+// together so the host does not infer either fact from a mutation request.
+type WorkflowStatus struct {
+	WorkID         string `json:"work_id"`
+	WorkflowType   string `json:"workflow_type"`
+	StepOrdinal    int    `json:"step_ordinal"`
+	StepTotal      int    `json:"step_total"`
+	StepName       string `json:"step_name"`
+	TransitionFrom string `json:"transition_from"`
+	TransitionTo   string `json:"transition_to"`
+	LastEventKind  string `json:"last_event_kind"`
+	Actor          string `json:"actor"`
+	OccurredAt     string `json:"occurred_at"`
+	Sequence       int64  `json:"sequence"`
+}
+
 type ContinuitySnapshot struct {
 	WorkID                  string                    `json:"work_id"`
 	ProductIdentity         []string                  `json:"product_identity"`
@@ -77,6 +94,7 @@ type ContinuitySnapshot struct {
 	// (CD-0096 D5), newest first, bounded. Empty when the session named no
 	// identity or holds none.
 	ActiveVerifyLeases []ActiveWorktreeVerifyLease `json:"active_verify_leases,omitempty"`
+	WorkflowStatus     *WorkflowStatus             `json:"workflow_status,omitempty"`
 }
 
 type ContinuityRequest struct {
@@ -144,6 +162,38 @@ func ReadWorkflowContinuity(ctx context.Context, s *Store, req ContinuityRequest
 	out.ChangesProductTruth = registered.Definition.ChangesProductTruth != nil && *registered.Definition.ChangesProductTruth
 	if step := workflowStep(registered.Definition, currentStep); step != nil {
 		out.StepActions = append(out.StepActions, step.Actions...)
+	}
+	status := &WorkflowStatus{
+		WorkID:         req.Work,
+		WorkflowType:   definition.Ref,
+		StepName:       currentStep,
+		TransitionFrom: currentStep,
+		TransitionTo:   currentStep,
+		Actor:          "unknown",
+	}
+	status.StepTotal = len(registered.Definition.StepGraph.Steps)
+	for i, step := range registered.Definition.StepGraph.Steps {
+		if step.ID == currentStep {
+			status.StepOrdinal = i + 1
+			break
+		}
+	}
+	var eventPayload string
+	eventErr := tx.QueryRowContext(ctx, `SELECT seq,kind,actor,occurred_at,payload FROM domain_events WHERE subject_type='work_item' AND subject_id=? ORDER BY seq DESC LIMIT 1`, req.Work).Scan(&status.Sequence, &status.LastEventKind, &status.Actor, &status.OccurredAt, &eventPayload)
+	if eventErr != nil && eventErr != sql.ErrNoRows {
+		return out, wrapFailure(KindUnavailable, "C19.Continuity", "cannot read latest workflow event", true, "retry once the event log is readable", eventErr)
+	}
+	if eventErr == nil {
+		if status.Actor == "" {
+			status.Actor = "unknown"
+		}
+		var latestPayload struct {
+			StepID string `json:"step_id"`
+		}
+		if json.Unmarshal([]byte(eventPayload), &latestPayload) == nil && latestPayload.StepID != "" {
+			status.TransitionFrom = latestPayload.StepID
+		}
+		out.WorkflowStatus = status
 	}
 	rows, err := tx.QueryContext(ctx, `SELECT DISTINCT pp.product_id FROM work_projects wp JOIN product_projects pp ON pp.project_id=wp.project_id WHERE wp.work_id=? ORDER BY pp.product_id LIMIT 65`, req.Work)
 	if err != nil {

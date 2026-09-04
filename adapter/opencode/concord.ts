@@ -4,6 +4,7 @@ import { validateGeneratedEnvelope, validateGeneratedPayload, envelopeFailurePat
 import { dispatchLaneWorker, type LaneDispatchInput } from "./lane_dispatch"
 import { hostControlPlane, MoveSessionUnavailable } from "./move-session"
 import { createRunSessionObservation, errorEnvelopeForLane, MAX_OUTPUT_BYTES, observeRunSessionLine, readExportSessionMetadata, readRunSessionMetadata, readRunTextParts, runStreamRefusalMessage, runStreamRefusalRecovery, validateAgainstSchema, type AgentResultEnvelope, type RunLineMetadata, type RunSessionObservation } from "./dispatch"
+import { createWorkflowStatusReporter, formatGateBrief } from "./workflow-status"
 
 type ToolContext = {
   sessionID: string
@@ -425,6 +426,11 @@ export async function invokeConcordOperation(toolName: string, args: HostToolArg
   return reconcileUnknownEffect(toolName, args, context, await invokeConcordOperationRaw(toolName, args, context))
 }
 
+const workflowStatusReporter = createWorkflowStatusReporter(
+  (workID, context) => invokeConcordOperation("concord_work_trace", { operation: "continuity", input: { work_id: workID, page: { cursor: null, limit: 1 } } }, context as ToolContext),
+  (message, context) => hostControlPlane().showToast(message, "info", context.abort),
+)
+
 function encodeHostResult(toolName: string, operation: string, requestID: string, envelope: HostConcordEnvelope): ToolResult {
   let output = JSON.stringify(envelope)
   if (Buffer.byteLength(output) > maxEnvelopeBytes) {
@@ -442,7 +448,11 @@ async function encodeHostToolResult(toolName: string, args: HostToolArgs, contex
 }
 
 async function executeHostTool(toolName: string, args: HostToolArgs, context: ToolContext): Promise<ToolResult> {
-  return encodeHostToolResult(toolName, args, context, await invokeConcordOperation(toolName, args, context))
+  const envelope = await invokeConcordOperation(toolName, args, context)
+  if (operationIsMutation(toolName, args.operation) && hostControlPlane().available()) {
+    await workflowStatusReporter.report(toolName, args.operation, args.input, envelope, context)
+  }
+  return encodeHostToolResult(toolName, args, context, envelope)
 }
 
 async function executeHostTransition(args: HostToolArgs, context: ToolContext): Promise<ToolResult> {
@@ -693,6 +703,18 @@ async function executeWorkStart(args: WorkStartArgs, context: ToolContext): Prom
   }
 }
 
+async function reportGateBrief(envelope: WorkStartEnvelope, context: ToolContext): Promise<void> {
+  if (envelope.outcome !== "ok" || typeof envelope.product_id !== "string") return
+  try {
+    const portfolio = await invokeConcordOperation("concord_product_view", { operation: "portfolio", input: { product_id: envelope.product_id, page: { cursor: null, limit: 20 } } }, context)
+    if (portfolio.outcome !== "ok" || !record(portfolio.result)) return
+    const message = formatGateBrief(envelope.product_id, portfolio.result.rows)
+    if (message) await hostControlPlane().showToast(message, "info", context.abort)
+  } catch {
+    // A gate brief is an operator aid. It cannot change a completed start.
+  }
+}
+
 export const product_view = tool({ description: "Concord product view", args: argsSchema("concord_product_view"), execute: (args: HostToolCall, context: ToolContext): Promise<ToolResult> => executeHostTool("concord_product_view", args.request, context) })
 export const work_browse = tool({ description: "Concord work browse", args: argsSchema("concord_work_browse"), execute: (args: HostToolCall, context: ToolContext): Promise<ToolResult> => executeHostTool("concord_work_browse", args.request, context) })
 export const work_trace = tool({ description: "Concord work trace", args: argsSchema("concord_work_trace"), execute: (args: HostToolCall, context: ToolContext): Promise<ToolResult> => executeHostTool("concord_work_trace", args.request, context) })
@@ -705,6 +727,7 @@ export const work_relate = tool({ description: "Concord work relate", args: args
 export const work_compact = tool({ description: "Concord work compact", args: argsSchema("concord_work_compact"), execute: (args: HostToolCall, context: ToolContext): Promise<ToolResult> => executeHostTool("concord_work_compact", args.request, context) })
 export const work_start = tool({ description: hostToolDescriptions.concord_work_start, args: workStartArgsSchema(), execute: async (args: any, context: ToolContext): Promise<ToolResult> => {
   const envelope = await executeWorkStart(args as WorkStartArgs, context)
+  await reportGateBrief(envelope, context)
   let output = JSON.stringify(envelope)
   if (Buffer.byteLength(output) > maxEnvelopeBytes) output = JSON.stringify(workStartError("output_exceeded", `work_start result exceeds ${maxEnvelopeBytes} bytes`, { product_id: envelope.product_id, project_id: envelope.project_id, work_id: envelope.work_id, worktree_path: envelope.worktree_path }))
   return { title: "concord_work_start", output, metadata: {} }
@@ -817,5 +840,9 @@ async function executeWorkTransition(args: HostToolArgs, context: ToolContext): 
       return dispatchLaneWorker(request, { context, invoke: invokeConcordOperation })
     }
   }
-  return invokeConcordOperation("concord_work_transition", args, context)
+  const envelope = await invokeConcordOperation("concord_work_transition", args, context)
+  if (hostControlPlane().available()) {
+    await workflowStatusReporter.report("concord_work_transition", args.operation, args.input, envelope, context)
+  }
+  return envelope
 }

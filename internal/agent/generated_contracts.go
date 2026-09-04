@@ -6,7 +6,7 @@ import (
 	"fmt"
 )
 
-const ManifestDigest = "sha256:2bc5d89238ccd536158103e32a44556531e299f9e16a2672e4d7f359616b788d"
+const ManifestDigest = "sha256:4ef638afe4d0bcee5454f753b3914f3d3f725a73b5b454c2e735607048678612"
 
 type OperationKind string
 
@@ -130,7 +130,7 @@ var GeneratedPayloadRules = map[string]GeneratedPayloadRule{
 	"continuity_checkpoint":                        {Required: []string{"checkpoint_id", "work_version", "sequence", "step_id", "attempt_epoch", "active_unit", "hypothesis", "diagnosis", "strategy", "touched_refs", "evidence_refs", "pending_questions", "pending_decisions"}, Properties: []string{"checkpoint_id", "work_version", "sequence", "step_id", "attempt_epoch", "active_unit", "hypothesis", "diagnosis", "strategy", "touched_refs", "evidence_refs", "pending_questions", "pending_decisions"}},
 	"continuity_failure":                           {Required: []string{"kind", "recoverable", "step_id", "attempt_epoch"}, Properties: []string{"kind", "recoverable", "step_id", "attempt_epoch"}},
 	"continuity_operator_decision":                 {Required: []string{"action_id", "prompt", "header", "choices", "allow_multiple", "allow_custom", "premise_summary", "contract_summary", "decision_context_digest"}, Properties: []string{"action_id", "prompt", "header", "choices", "allow_multiple", "allow_custom", "premise_summary", "contract_summary", "decision_context_digest"}},
-	"continuity_snapshot":                          {Required: []string{"work_id", "pinned", "latest_checkpoint", "boundaries", "typed_availability", "pending_messages"}, Properties: []string{"work_id", "pinned", "latest_checkpoint", "boundaries", "typed_availability", "observations", "pending_messages"}},
+	"continuity_snapshot":                          {Required: []string{"work_id", "pinned", "latest_checkpoint", "boundaries", "typed_availability", "pending_messages"}, Properties: []string{"work_id", "pinned", "latest_checkpoint", "boundaries", "typed_availability", "observations", "pending_messages", "workflow_status"}},
 	"domain_active_work_input":                     {Required: []string{"product_id", "domain_id"}, Properties: []string{"product_id", "domain_id", "page", "requested_budget_seconds"}},
 	"domain_active_work_item":                      {Required: []string{"work_id", "kind", "title", "lifecycle", "priority", "contract_version", "home_domain"}, Properties: []string{"work_id", "kind", "title", "lifecycle", "priority", "contract_version", "home_domain"}},
 	"domain_active_work_result":                    {Required: []string{"registry", "work"}, Properties: []string{"registry", "work"}},

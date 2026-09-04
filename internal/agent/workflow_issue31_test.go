@@ -217,6 +217,71 @@ func TestConfirmPremiseInvokeDerivesOperatorFromSignedApproval(t *testing.T) {
 	}
 }
 
+// Issue #808: the production adapter sends an empty envelope principal by
+// design — no host assertion can name a human (CD-0013 D5) — while every
+// fixture envelope carried the grant principal. The relabel guard read the
+// principal from the raw invocation, so production confirm_premise failed
+// where every test passed.
+func TestConfirmPremiseInvokeToleratesEmptyHostPrincipal(t *testing.T) {
+	s, service, grant, privateKey := mutationDispatchFixture(t, []Capability{"work_transition"})
+	if got := seedAgentWorkflow(t, s, grant); got != 4 {
+		t.Fatalf("workflow seed version=%d, want 4", got)
+	}
+	scopeVersion, _, err := s.ScopeVersion(context.Background(), "project-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := mutationEnvelope(grant, scopeVersion)
+	evaluatorEnv := mutationEnvelope(issue31EvaluatorGrant(t, service, privateKey), scopeVersion)
+	for _, actionID := range []string{"record_proposal", "record_discovery", "record_design"} {
+		invokeWorkflowIssue31Action(t, s, service, env, "work-1", actionID, workflowIssue31Version(t, s), "empty-principal-"+actionID)
+	}
+	approve := workflowContractActionInput(t, "work-1", 7, "empty-principal-approve", "")
+	challenge := invokeWorkflowIssue31(t, s, service, env, "concord_work_transition", "workflow_action", approve)
+	if challenge.Outcome != OutcomeError || challenge.Error == nil || challenge.Error.Kind != "approval_required" {
+		t.Fatalf("approval challenge=%+v", challenge)
+	}
+	challengeRef, _ := challenge.Error.Details["approval_ref"].(string)
+	digest := mutationDigest("concord_work_transition", "workflow_action", env, approve)
+	scope := map[string]any{"product_id": "product-1", "project_ids": []string{"project-1"}, "work_ids": []string{"work-1"}, "scope_version": scopeVersion}
+	versions := map[string]any{"work": 7}
+	env.HostApproval = signedHostApproval(privateKey, challengeRef, digest, scope, versions, grant.SessionRef, grant.AgentRef, grant.Worktree, fixedTime(), "empty-principal-approve-nonce")
+	approved := workflowContractActionInput(t, "work-1", 7, "empty-principal-approve", challengeRef)
+	if response := invokeWorkflowIssue31(t, s, service, env, "concord_work_transition", "workflow_action", approved); response.Outcome != OutcomeOK {
+		t.Fatalf("approved contract=%+v", response)
+	}
+	invokeWorkflowIssue31Action(t, s, service, env, "work-1", "start_execution", workflowIssue31Version(t, s), "empty-principal-start")
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE workflow_instances SET current_step='acceptance' WHERE work_id='work-1'; DELETE FROM fold_guard WHERE active=1`); err != nil {
+		t.Fatal(err)
+	}
+	invokeWorkflowIssue31Action(t, s, service, evaluatorEnv, "work-1", "record_verdict", workflowIssue31Version(t, s), "empty-principal-verdict")
+
+	confirm := issue31ConfirmInput(t, s, workflowIssue31Version(t, s), "empty-principal-confirm")
+	challenge = invokeWorkflowIssue31(t, s, service, env, "concord_work_transition", "workflow_action", confirm)
+	if challenge.Outcome != OutcomeError || challenge.Error == nil || challenge.Error.Kind != "approval_required" {
+		t.Fatalf("premise challenge=%+v", challenge)
+	}
+	challengeRef, _ = challenge.Error.Details["approval_ref"].(string)
+	digest = mutationDigest("concord_work_transition", "workflow_action", env, confirm)
+	versions = map[string]any{"work": workflowIssue31Version(t, s), "contract": 1}
+	env.HostApproval = signedHostApproval(privateKey, challengeRef, digest, scope, versions, grant.SessionRef, grant.AgentRef, grant.Worktree, fixedTime(), "empty-principal-confirm-nonce")
+	// The production shape: the confirming envelope carries no host-named
+	// principal. The registry, not the host, owns that field.
+	env.PrincipalRef = ""
+	confirmApproved := json.RawMessage(`{"work_id":"work-1","expected_version":` + strconv.FormatInt(workflowIssue31Version(t, s), 10) + `,"action_id":"confirm_premise","selected_choice":"confirm","decision_context_digest":"` + extractDecisionDigest(t, confirm) + `","idempotency_key":"empty-principal-confirm","approval":{"approval_ref":"` + challengeRef + `"}}`)
+	response := invokeWorkflowIssue31(t, s, service, env, "concord_work_transition", "workflow_action", confirmApproved)
+	if response.Outcome != OutcomeOK {
+		t.Fatalf("confirmed premise with empty host principal=%+v error=%+v", response, response.Error)
+	}
+	var actorClass string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT a.actor_class FROM workflow_premise_confirmations pc JOIN workflow_actors a ON a.actor_ref=pc.confirmed_by`).Scan(&actorClass); err != nil {
+		t.Fatal(err)
+	}
+	if actorClass != string(store.ActorOperator) {
+		t.Fatalf("confirmation actor_class=%q, want operator", actorClass)
+	}
+}
+
 func invokeWorkflowIssue31Action(t *testing.T, s *store.Store, service *Service, env CallEnvelope, workID, actionID string, version int64, key string) {
 	t.Helper()
 	fields := ""

@@ -873,7 +873,12 @@ func (s *Service) ApprovalAuthorityActorTx(ctx context.Context, tx *store.Transa
 	if err != nil {
 		return store.WorkflowActor{}, err
 	}
-	executing := store.WorkflowActor{PrincipalRef: in.PrincipalRef, ClientRef: in.ClientRef, AgentRef: in.AgentRef, SessionRef: in.SessionRef, ActorClass: store.ActorAgent}
+	// The invoking agent's principal is registry-owned, not host-owned: the
+	// adapter envelope deliberately carries no principal (issue #808 /
+	// CD-0013 D5 — no host assertion can name a human). Building the
+	// comparison from the raw invocation made every production confirmation
+	// fail on an empty principal while hand-built fixtures passed.
+	executing := store.WorkflowActor{PrincipalRef: authority.PrincipalRef, ClientRef: in.ClientRef, AgentRef: in.AgentRef, SessionRef: in.SessionRef, ActorClass: store.ActorAgent}
 	executingRef, err := store.WorkflowActorRef(executing)
 	if err != nil || actorRef == executingRef {
 		return store.WorkflowActor{}, errors.New("approval authority actor relabels the invoking agent")

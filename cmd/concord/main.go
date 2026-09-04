@@ -37,6 +37,9 @@ func run(args []string, out, errOut io.Writer) int {
 }
 
 func runWithInput(args []string, in io.Reader, out, errOut io.Writer) int {
+	if filepath.Base(os.Args[0]) == "zl" {
+		return runZLForwarding(args, in, out, errOut)
+	}
 	if len(args) == 1 && args[0] == "--version" {
 		_, _ = fmt.Fprintln(out, version.Value)
 		return 0
@@ -49,6 +52,9 @@ func runWithInput(args []string, in io.Reader, out, errOut io.Writer) int {
 	// any stdin read so bytes intended for the TUI can never be parsed as JSON.
 	if len(args) > 0 && args[0] == "launcher" {
 		return runLauncherCommand(args[1:], in, out, errOut, terminalStreams(in, out))
+	}
+	if len(args) > 0 && args[0] == "zl" {
+		return runZLForwarding(args[1:], in, out, errOut)
 	}
 	// Session boot is a TTY command invoked by the identity-only launcher.
 	// It derives continuity in the core before OpenCode receives any prompt.
@@ -160,6 +166,9 @@ func writeUsage(out io.Writer) {
 	_, _ = fmt.Fprintln(out, "  concord --help")
 	_, _ = fmt.Fprintln(out, "  concord --version")
 	_, _ = fmt.Fprintln(out, "  concord launcher   # interactive TTY; does not read JSON stdin")
+	_, _ = fmt.Fprintln(out, "  concord launcher --list   # bounded candidate JSON")
+	_, _ = fmt.Fprintln(out, "  concord zl <work> -- <prompt>   # start or resume without the UI")
+	_, _ = fmt.Fprintln(out, "  concord zl --resume-last   # resume the last workspace")
 	_, _ = fmt.Fprintln(out, "  concord session    # internal TTY bootstrap; launcher identity env required")
 	_, _ = fmt.Fprintln(out, "  concord continuity-block             # read-only continuity packet; launcher identity env required")
 	_, _ = fmt.Fprintln(out, "")
@@ -181,6 +190,10 @@ func (firstRunPort) Read(context.Context, launcher.ReadRequest) (launcher.Snapsh
 	return launcher.Snapshot{Screen: launcher.ScreenPortfolio, Coverage: "first_run", FirstRun: true, StatusMessage: "initialize the Concord authority database through operator setup"}, nil
 }
 
+func (firstRunPort) Candidates(context.Context, int) ([]launcher.Candidate, error) {
+	return storeport.ScanRootCandidates(), nil
+}
+
 func terminalStreams(in io.Reader, out io.Writer) bool {
 	input, inOK := in.(*os.File)
 	output, outOK := out.(*os.File)
@@ -193,9 +206,16 @@ func terminalStreams(in io.Reader, out io.Writer) bool {
 }
 
 func runLauncherCommand(args []string, in io.Reader, out, errOut io.Writer, terminal bool) int {
-	if len(args) != 0 {
+	list := len(args) == 1 && args[0] == "--list"
+	if len(args) == 1 && args[0] == "--resume-last" {
+		return runZLForwarding(args, in, out, errOut)
+	}
+	if len(args) != 0 && !list {
 		writeDiagnostic(errOut, "concord launcher: unsupported arguments; launcher accepts no JSON stdin arguments")
 		return 2
+	}
+	if list {
+		return runLauncherList(out, errOut)
 	}
 	if !terminal {
 		writeDiagnostic(errOut, "concord launcher requires an interactive TTY (use an internal terminal harness for tests)")
@@ -232,6 +252,80 @@ func runLauncherCommand(args []string, in io.Reader, out, errOut io.Writer, term
 	program := tea.NewProgram(model, tea.WithInput(in), tea.WithOutput(out))
 	if _, err := program.Run(); err != nil {
 		writeDiagnostic(errOut, "concord launcher: "+err.Error())
+		return 1
+	}
+	return 0
+}
+
+func runLauncherList(out, errOut io.Writer) int {
+	path, err := databasePath()
+	if err != nil {
+		writeDiagnostic(errOut, err.Error())
+		return 1
+	}
+	if _, statErr := os.Stat(path); os.IsNotExist(statErr) {
+		return writeJSON(out, storeport.ScanRootCandidates(), errOut)
+	} else if statErr != nil {
+		writeDiagnostic(errOut, "concord launcher: database path is unavailable: "+statErr.Error())
+		return 1
+	}
+	s, err := store.Open(context.Background(), path)
+	if err != nil {
+		writeDiagnostic(errOut, err.Error())
+		return 1
+	}
+	defer s.Close()
+	candidates, err := storeport.New(s).Candidates(context.Background(), 100)
+	if err != nil {
+		writeDiagnostic(errOut, "concord launcher --list: "+err.Error())
+		return 1
+	}
+	return writeJSON(out, candidates, errOut)
+}
+
+func runZLForwarding(args []string, in io.Reader, out, errOut io.Writer) int {
+	if len(args) == 1 && args[0] == "--resume-last" {
+		work := os.Getenv("CONCORD_LAST_WORK_ID")
+		product := os.Getenv(selectedProductEnv)
+		if work == "" || product == "" {
+			writeDiagnostic(errOut, "concord --resume-last: no workspace is recorded")
+			return 1
+		}
+		return launchForwardedSession(product, work, "", in, out, errOut)
+	}
+	if len(args) < 1 || args[0] == "--" {
+		writeDiagnostic(errOut, "concord zl: work ID is required")
+		return 2
+	}
+	work := args[0]
+	prompt := ""
+	if len(args) > 1 {
+		if args[1] != "--" {
+			writeDiagnostic(errOut, "concord zl: prompt must follow --")
+			return 2
+		}
+		prompt = strings.Join(args[2:], " ")
+	}
+	product := os.Getenv(selectedProductEnv)
+	if product == "" {
+		product = os.Getenv("CONCORD_PRODUCT_ID")
+	}
+	if product == "" {
+		writeDiagnostic(errOut, "concord zl: CONCORD_SELECTED_PRODUCT_ID is required")
+		return 2
+	}
+	return launchForwardedSession(product, work, prompt, in, out, errOut)
+}
+
+func launchForwardedSession(product, work, prompt string, in io.Reader, out, errOut io.Writer) int {
+	cmd, err := bubbletea.SessionCommand(launcher.SessionHandoff{ProductID: product, WorkID: work, Prompt: prompt})
+	if err != nil {
+		writeDiagnostic(errOut, "concord zl: "+err.Error())
+		return 1
+	}
+	cmd.Stdin, cmd.Stdout, cmd.Stderr = in, out, errOut
+	if err := cmd.Run(); err != nil {
+		writeDiagnostic(errOut, "concord zl: "+err.Error())
 		return 1
 	}
 	return 0

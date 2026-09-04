@@ -18,6 +18,7 @@ import (
 const (
 	selectedProductEnv = "CONCORD_SELECTED_PRODUCT_ID"
 	selectedWorkEnv    = "CONCORD_SELECTED_WORK_ID"
+	selectedPromptEnv  = "CONCORD_SELECTED_PROMPT"
 )
 
 var sessionIdentity = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]{1,127}$`)
@@ -330,7 +331,10 @@ func runSessionCommand(args []string, in io.Reader, out, errOut io.Writer, termi
 	// A Product-only session carries identity and no continuity packet:
 	// CD-0031 derives continuity from a selected work item, and there is
 	// none to derive from.
-	prompt := "Concord identity: product_id=" + productID
+	prompt := os.Getenv(selectedPromptEnv)
+	if prompt == "" {
+		prompt = "Concord identity: product_id=" + productID
+	}
 	if workID != "" {
 		path, err := databasePath()
 		if err != nil {
@@ -342,7 +346,7 @@ func runSessionCommand(args []string, in io.Reader, out, errOut io.Writer, termi
 			writeDiagnostic(errOut, "concord session: "+err.Error())
 			return 1
 		}
-		prompt = "Concord session boot packet (core-derived authority at its watermark; reread concord_work_trace.continuity before consequential action):\n" + string(packet)
+		prompt = prompt + "\n\nConcord session boot packet (core-derived authority at its watermark; reread concord_work_trace.continuity before consequential action):\n" + string(packet)
 	}
 	// The session starts the host as the agent whose identity it just
 	// asserted and recorded, selecting it by the handle the host registers

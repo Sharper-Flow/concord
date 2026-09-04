@@ -1,7 +1,11 @@
 // Package launcher owns the framework-independent launcher state and read port.
 package launcher
 
-import "context"
+import (
+	"context"
+	"sort"
+	"strings"
+)
 
 type Screen string
 
@@ -14,12 +18,13 @@ const (
 type ReadKind string
 
 const (
-	ReadPortfolio ReadKind = "portfolio"
-	ReadProduct   ReadKind = "product"
-	ReadDomains   ReadKind = "domains"
-	ReadWork      ReadKind = "work"
-	ReadKnowledge ReadKind = "knowledge"
-	ReadSearch    ReadKind = "search"
+	ReadPortfolio  ReadKind = "portfolio"
+	ReadProduct    ReadKind = "product"
+	ReadDomains    ReadKind = "domains"
+	ReadWork       ReadKind = "work"
+	ReadKnowledge  ReadKind = "knowledge"
+	ReadSearch     ReadKind = "search"
+	ReadCandidates ReadKind = "candidates"
 )
 
 type Section string
@@ -225,6 +230,56 @@ type WorkDetail struct {
 type SessionHandoff struct {
 	ProductID string
 	WorkID    string
+	Prompt    string
+}
+
+type CandidateKind string
+
+const (
+	CandidateProduct CandidateKind = "product"
+	CandidateWork    CandidateKind = "work"
+	CandidateProject CandidateKind = "project"
+)
+
+// Candidate is one launcher entry. It contains display data only. The launcher
+// never treats a candidate as a second store authority.
+type Candidate struct {
+	ID        string        `json:"id"`
+	Kind      CandidateKind `json:"kind"`
+	Name      string        `json:"name"`
+	Path      string        `json:"path,omitempty"`
+	ProductID string        `json:"product_id,omitempty"`
+	WorkID    string        `json:"work_id,omitempty"`
+	Worktree  string        `json:"worktree,omitempty"`
+	Pinned    bool          `json:"pinned"`
+	LastUsed  string        `json:"last_used,omitempty"`
+	Rank      int           `json:"rank"`
+	Live      int           `json:"live_sessions"`
+	Available bool          `json:"available"`
+}
+
+type ProbeStatus struct {
+	Name      string `json:"name"`
+	Available bool   `json:"available"`
+	Reason    string `json:"reason,omitempty"`
+}
+
+// ProbePort supplies optional local status. Probe failure is preview data, not
+// a launcher read failure.
+type ProbePort interface {
+	Probe(context.Context) []ProbeStatus
+}
+
+// CandidatePort supplies the replacement launcher's bounded candidate read.
+type CandidatePort interface {
+	Candidates(context.Context, int) ([]Candidate, error)
+}
+
+type CandidatePreview struct {
+	Worktree string
+	State    string
+	Blocked  bool
+	Sessions []string
 }
 
 type Snapshot struct {
@@ -240,6 +295,9 @@ type Snapshot struct {
 	OrderingKeys           []string
 	NextCursor             *string
 	Rows                   []ProductRow
+	Candidates             []Candidate
+	Preview                CandidatePreview
+	Probes                 []ProbeStatus
 	StatusMessage          string
 	FirstRun               bool
 	Section                Section
@@ -429,6 +487,9 @@ func (m *Model) Section() Section { return m.section }
 
 func (m *Model) Handoff() SessionHandoff { return m.snapshot.Session }
 
+// Candidates returns the current bounded candidate projection.
+func (m *Model) Candidates() []Candidate { return append([]Candidate(nil), m.snapshot.Candidates...) }
+
 func (m *Model) RestoreSnapshot(snapshot Snapshot) {
 	if snapshot.Screen == ScreenProduct {
 		if snapshot.Section == "" {
@@ -539,6 +600,9 @@ func cloneSnapshot(snapshot Snapshot) Snapshot {
 		cursor := *snapshot.NextCursor
 		cloned.NextCursor = &cursor
 	}
+	cloned.Candidates = append([]Candidate(nil), snapshot.Candidates...)
+	cloned.Probes = append([]ProbeStatus(nil), snapshot.Probes...)
+	cloned.Preview.Sessions = cloneStrings(snapshot.Preview.Sessions)
 	return cloned
 }
 
@@ -580,6 +644,39 @@ func cloneRanked(values []RankedWork) []RankedWork {
 	return out
 }
 
+// OrderCandidates applies the contract order: pins first, then most-recently
+// used values, then the stored rank and stable identity.
+func OrderCandidates(values []Candidate) []Candidate {
+	out := append([]Candidate(nil), values...)
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].Pinned != out[j].Pinned {
+			return out[i].Pinned
+		}
+		if out[i].LastUsed != out[j].LastUsed {
+			return out[i].LastUsed > out[j].LastUsed
+		}
+		if out[i].Rank != out[j].Rank {
+			return out[i].Rank < out[j].Rank
+		}
+		return out[i].ID < out[j].ID
+	})
+	return out
+}
+
+func FilterCandidates(values []Candidate, query string) []Candidate {
+	needle := strings.ToLower(strings.TrimSpace(query))
+	if needle == "" {
+		return append([]Candidate(nil), values...)
+	}
+	out := make([]Candidate, 0, len(values))
+	for _, candidate := range values {
+		if strings.Contains(strings.ToLower(candidate.ID), needle) || strings.Contains(strings.ToLower(candidate.Name), needle) || strings.Contains(strings.ToLower(candidate.Path), needle) {
+			out = append(out, candidate)
+		}
+	}
+	return out
+}
+
 func (m *Model) read(ctx context.Context, request ReadRequest) error {
 	previous := m.snapshot
 	snapshot, err := m.port.Read(ctx, request)
@@ -588,6 +685,7 @@ func (m *Model) read(ctx context.Context, request ReadRequest) error {
 		// current. Read ports may return typed unavailable state alongside the
 		// error; retain that state, clear rows, and let the caller render it.
 		snapshot.Rows = nil
+		snapshot.Candidates = nil
 		if snapshot.Screen == "" {
 			snapshot.Screen = ScreenPortfolio
 		}
@@ -602,6 +700,9 @@ func (m *Model) read(ctx context.Context, request ReadRequest) error {
 		}
 		if request.Kind == ReadKnowledge {
 			snapshot = mergeKnowledgeSnapshot(previous, snapshot)
+		}
+		if probes, ok := m.port.(ProbePort); ok {
+			snapshot.Probes = append([]ProbeStatus(nil), probes.Probe(ctx)...)
 		}
 		m.snapshot = snapshot
 		return err
@@ -635,6 +736,19 @@ func (m *Model) read(ctx context.Context, request ReadRequest) error {
 	if snapshot.Coverage == "" {
 		snapshot.Coverage = "authoritative"
 	}
+	if request.Kind == ReadPortfolio {
+		if candidates, ok := m.port.(CandidatePort); ok {
+			values, candidateErr := candidates.Candidates(ctx, request.Limit)
+			if candidateErr == nil {
+				snapshot.Candidates = OrderCandidates(values)
+			} else if snapshot.StatusMessage == "" {
+				snapshot.StatusMessage = "candidate preview unavailable: " + candidateErr.Error()
+			}
+		}
+	}
+	if probes, ok := m.port.(ProbePort); ok {
+		snapshot.Probes = append([]ProbeStatus(nil), probes.Probe(ctx)...)
+	}
 	m.snapshot = snapshot
 	if snapshot.Screen == ScreenProduct || snapshot.Screen == ScreenWork {
 		m.section = snapshot.Section
@@ -647,6 +761,9 @@ func mergeKnowledgeSnapshot(previous, knowledge Snapshot) Snapshot {
 	knowledge.AmbientProduct = previous.AmbientProduct
 	knowledge.SelectedWorkID = previous.SelectedWorkID
 	knowledge.Rows = previous.Rows
+	knowledge.Candidates = previous.Candidates
+	knowledge.Preview = previous.Preview
+	knowledge.Probes = previous.Probes
 	knowledge.Domains = previous.Domains
 	knowledge.Ranked = previous.Ranked
 	knowledge.Relations = previous.Relations

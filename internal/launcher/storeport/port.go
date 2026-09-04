@@ -5,6 +5,8 @@ package storeport
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -14,9 +16,107 @@ import (
 	"github.com/sharper-flow/concord/internal/store"
 )
 
-type Port struct{ Store *store.Store }
+type Port struct {
+	Store       *store.Store
+	VisionProbe ProbeFunc
+	LgrepProbe  ProbeFunc
+}
+
+type ProbeFunc func(context.Context) (bool, string)
 
 func New(s *store.Store) *Port { return &Port{Store: s} }
+
+// Probe reads optional local status. A missing probe is unavailable preview
+// data, not an error that can stop the launcher.
+func (p *Port) Probe(ctx context.Context) []launcher.ProbeStatus {
+	return []launcher.ProbeStatus{probeStatus(ctx, "vision", p.VisionProbe), probeStatus(ctx, "lgrep", p.LgrepProbe)}
+}
+
+func probeStatus(ctx context.Context, name string, probe ProbeFunc) launcher.ProbeStatus {
+	if probe == nil {
+		return launcher.ProbeStatus{Name: name, Reason: "probe not configured"}
+	}
+	available, reason := probe(ctx)
+	return launcher.ProbeStatus{Name: name, Available: available, Reason: reason}
+}
+
+// Candidates returns the bounded Concord-first candidate list. It reads
+// Products and their active worktrees, then adds configured filesystem roots.
+func (p *Port) Candidates(ctx context.Context, limit int) ([]launcher.Candidate, error) {
+	if limit == 0 {
+		limit = 20
+	}
+	if limit < 1 || limit > 100 {
+		return nil, errors.New("launcher candidate limit must be between 1 and 100")
+	}
+	result, err := portfolio.Read(ctx, p.Store, store.ProductRowRequest{Limit: limit})
+	if err != nil {
+		return nil, err
+	}
+	candidates := make([]launcher.Candidate, 0, len(result.Rows)*2)
+	for rank, row := range result.Rows {
+		candidates = append(candidates, launcher.Candidate{ID: row.ProductID, Kind: launcher.CandidateProduct, Name: row.DisplayName + row.DisplayNameSuffix, ProductID: row.ProductID, Rank: rank, Available: true})
+		product, productErr := p.Store.QueryLauncherProduct(ctx, store.LauncherProductRequest{Product: row.ProductID, Limit: limit, Depth: 3})
+		if productErr != nil {
+			continue
+		}
+		for workRank, item := range append(product.Works, product.TerminalWorks...) {
+			candidate := launcher.Candidate{ID: item.ID, Kind: launcher.CandidateWork, Name: item.Title, ProductID: row.ProductID, WorkID: item.ID, Rank: workRank, Available: false}
+			worktrees, treeErr := p.Store.WorktreeEntries(ctx, item.ID)
+			if treeErr != nil {
+				candidates = append(candidates, candidate)
+				continue
+			}
+			for _, worktree := range worktrees {
+				if worktree.State != "active" {
+					continue
+				}
+				candidate.Worktree = worktree.Path
+				candidate.Available = true
+				break
+			}
+			candidates = append(candidates, candidate)
+		}
+	}
+	candidates = append(candidates, scanRootCandidates()...)
+	return launcher.OrderCandidates(candidates), nil
+}
+
+func scanRootCandidates() []launcher.Candidate {
+	pins := map[string]bool{}
+	for _, value := range filepath.SplitList(os.Getenv("CONCORD_LAUNCHER_PINS")) {
+		if value != "" {
+			pins[filepath.Clean(value)] = true
+		}
+	}
+	var out []launcher.Candidate
+	for _, root := range filepath.SplitList(os.Getenv("CONCORD_LAUNCHER_SCAN_ROOTS")) {
+		root = filepath.Clean(root)
+		if _, err := os.Stat(filepath.Join(root, ".git")); err == nil {
+			out = append(out, launcher.Candidate{ID: root, Kind: launcher.CandidateProject, Name: filepath.Base(root), Path: root, Pinned: pins[root], Available: true})
+			continue
+		}
+		entries, err := os.ReadDir(root)
+		if err != nil {
+			continue
+		}
+		for _, entry := range entries {
+			if !entry.IsDir() {
+				continue
+			}
+			path := filepath.Join(root, entry.Name())
+			if _, err := os.Stat(filepath.Join(path, ".git")); err != nil {
+				continue
+			}
+			out = append(out, launcher.Candidate{ID: path, Kind: launcher.CandidateProject, Name: entry.Name(), Path: path, Pinned: pins[path], Available: true})
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Path < out[j].Path })
+	return out
+}
+
+// ScanRootCandidates returns filesystem candidates without opening a store.
+func ScanRootCandidates() []launcher.Candidate { return scanRootCandidates() }
 
 func (p *Port) Read(ctx context.Context, request launcher.ReadRequest) (launcher.Snapshot, error) {
 	switch request.Kind {
@@ -58,6 +158,12 @@ func (p *Port) Read(ctx context.Context, request launcher.ReadRequest) (launcher
 		return p.readKnowledge(ctx, request)
 	case launcher.ReadSearch:
 		return p.readSearch(ctx, request)
+	case launcher.ReadCandidates:
+		candidates, err := p.Candidates(ctx, request.Limit)
+		if err != nil {
+			return launcher.Snapshot{Screen: launcher.ScreenPortfolio, Coverage: "unreachable", StatusMessage: err.Error()}, err
+		}
+		return launcher.Snapshot{Screen: launcher.ScreenPortfolio, Coverage: "authoritative", Candidates: candidates}, nil
 	default:
 		return launcher.Snapshot{Screen: launcher.ScreenPortfolio, Coverage: "unavailable", StatusMessage: "unsupported_read"}, nil
 	}

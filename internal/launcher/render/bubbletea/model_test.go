@@ -749,6 +749,19 @@ func TestDefaultSessionLauncherHandsOnlyIdentityToCoreBootstrap(t *testing.T) {
 	}
 }
 
+func TestSessionCommandPassesPromptThroughEnvironment(t *testing.T) {
+	cmd, err := sessionProcess(launcher.SessionHandoff{ProductID: "product-1", WorkID: "work-1", Prompt: "inspect the failing test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, value := range cmd.Env {
+		if value == "CONCORD_SELECTED_PROMPT=inspect the failing test" {
+			return
+		}
+	}
+	t.Fatalf("prompt was not passed through session environment: %v", cmd.Env)
+}
+
 func TestSessionLauncherFailsClosedWithoutRunningBinaryIdentity(t *testing.T) {
 	original := executablePath
 	executablePath = func() (string, error) { return "", errors.New("unavailable") }

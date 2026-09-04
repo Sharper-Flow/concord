@@ -38,14 +38,16 @@ type keyMap struct {
 	Search  key.Binding
 	Section key.Binding
 	Launch  key.Binding
+	Pin     key.Binding
+	Unpin   key.Binding
 }
 
 func (k keyMap) ShortHelp() []key.Binding {
-	return []key.Binding{k.Move, k.Filter, k.Search, k.Section, k.Refresh, k.Open, k.Launch, k.Help, k.Quit}
+	return []key.Binding{k.Move, k.Filter, k.Search, k.Section, k.Refresh, k.Open, k.Launch, k.Pin, k.Unpin, k.Help, k.Quit}
 }
 
 func (k keyMap) FullHelp() [][]key.Binding {
-	return [][]key.Binding{{k.Move, k.Page, k.Filter, k.Search, k.Refresh}, {k.Open, k.Back, k.Section, k.Launch, k.Help, k.Quit, k.Clear}}
+	return [][]key.Binding{{k.Move, k.Page, k.Filter, k.Search, k.Refresh}, {k.Open, k.Back, k.Section, k.Launch, k.Pin, k.Unpin, k.Help, k.Quit, k.Clear}}
 }
 
 type Model struct {
@@ -80,7 +82,7 @@ func New(core *launcher.Model, ctx context.Context, profile Profile) *Model {
 		core: core, ctx: ctx, input: input, table: table.New(), help: help.New(),
 		profile: profile, width: 80, height: 24,
 		keys: keyMap{
-			Move:    key.NewBinding(key.WithKeys("j", "k", "↑", "↓"), key.WithHelp("j/k", "move")),
+			Move:    key.NewBinding(key.WithKeys("↑", "↓"), key.WithHelp("arrows", "move")),
 			Filter:  key.NewBinding(key.WithKeys("/"), key.WithHelp("/", "filter")),
 			Refresh: key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "refresh")),
 			Open:    key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "open")),
@@ -92,6 +94,8 @@ func New(core *launcher.Model, ctx context.Context, profile Profile) *Model {
 			Search:  key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "search")),
 			Section: key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "panel/section")),
 			Launch:  key.NewBinding(key.WithKeys("l"), key.WithHelp("l", "launch")),
+			Pin:     key.NewBinding(key.WithKeys("ctrl+p"), key.WithHelp("ctrl-p", "pin")),
+			Unpin:   key.NewBinding(key.WithKeys("ctrl+u"), key.WithHelp("ctrl-u", "unpin")),
 		},
 	}
 	model.launch = defaultSessionLauncher
@@ -182,6 +186,8 @@ func (m *Model) UpdateKey(value string) tea.Cmd {
 		key = tea.Key{Code: 'u', Mod: tea.ModCtrl, Text: "u"}
 	case "ctrl+c":
 		key = tea.Key{Code: 'c', Mod: tea.ModCtrl, Text: "c"}
+	case "ctrl+p":
+		key = tea.Key{Code: 'p', Mod: tea.ModCtrl, Text: "p"}
 	}
 	_, cmd := m.Update(tea.KeyPressMsg(key))
 	return cmd
@@ -306,6 +312,10 @@ func (m *Model) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 		m.Sync()
 		return m, nil
+	case "ctrl+p", "ctrl+u":
+		m.togglePin(key == "ctrl+p")
+		m.Sync()
+		return m, nil
 	case "l":
 		if m.core.Snapshot().Screen == launcher.ScreenProduct || m.core.Snapshot().Screen == launcher.ScreenWork {
 			return m, m.launch(m.core.Handoff())
@@ -321,16 +331,37 @@ func (m *Model) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.adjustScroll()
 	case "ctrl+d":
 		m.move(m.pageSize() / 2)
-	case "ctrl+u":
-		m.move(-m.pageSize() / 2)
 	case "n":
 		m.move(m.pageSize())
 	case "p":
 		m.move(-m.pageSize())
 	case "enter":
 		if m.core.Snapshot().Screen == launcher.ScreenPortfolio {
+			candidates := m.filteredCandidates()
+			if len(candidates) > 0 {
+				candidate := candidates[m.cursor]
+				if candidate.Kind == launcher.CandidateProduct {
+					previousScreen := m.core.Snapshot().Screen
+					if err := m.core.SelectProduct(m.ctx, candidate.ProductID); err != nil {
+						m.setError(err)
+					} else if m.core.Snapshot().Screen != previousScreen {
+						m.navigation = append(m.navigation, navigationPosition{cursor: m.cursor, scroll: m.scroll})
+					}
+					m.Sync()
+					return m, nil
+				}
+				if candidate.Kind == launcher.CandidateWork {
+					if !candidate.Available {
+						m.setError(fmt.Errorf("work item %s has no claimed worktree", candidate.ID))
+						m.Sync()
+						return m, nil
+					}
+					m.core.RestoreSnapshot(launcher.Snapshot{Screen: launcher.ScreenProduct, AmbientProduct: candidate.ProductID, SelectedWorkID: candidate.WorkID, Session: launcher.SessionHandoff{ProductID: candidate.ProductID, WorkID: candidate.WorkID}, Coverage: "authoritative", Section: launcher.SectionRanked})
+					return m, m.launch(m.core.Handoff())
+				}
+			}
 			rows := m.filteredRows()
-			if len(rows) > 0 {
+			if len(rows) > 0 && m.cursor < len(rows) {
 				previousScreen := m.core.Snapshot().Screen
 				if err := m.core.SelectProduct(m.ctx, rows[m.cursor].ID); err != nil {
 					m.setError(err)
@@ -345,14 +376,18 @@ func (m *Model) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			rows := m.filteredRanked()
 			if len(rows) > 0 && m.cursor < len(rows) {
 				previousScreen := m.core.Snapshot().Screen
-				if err := m.core.SelectWork(m.ctx, rows[m.cursor].ID); err != nil {
-					m.setError(err)
+				selectionErr := m.core.SelectWork(m.ctx, rows[m.cursor].ID)
+				if selectionErr != nil {
+					m.setError(selectionErr)
 				} else if m.core.Snapshot().Screen != previousScreen {
 					m.navigation = append(m.navigation, navigationPosition{cursor: m.cursor, scroll: m.scroll})
 				}
 				m.filterValue = ""
 				m.input.Reset()
 				m.Sync()
+				if selectionErr == nil {
+					return m, m.launch(m.core.Handoff())
+				}
 			}
 		}
 	case "esc", "h", "left":
@@ -496,7 +531,31 @@ func (m *Model) rowCount() int {
 	if s.Screen == launcher.ScreenWork {
 		return len(s.Detail.History)
 	}
+	if len(s.Candidates) > 0 {
+		return len(m.filteredCandidates())
+	}
 	return len(m.filteredRows())
+}
+
+func (m *Model) filteredCandidates() []launcher.Candidate {
+	return launcher.FilterCandidates(m.core.Snapshot().Candidates, m.filterValue)
+}
+
+func (m *Model) togglePin(pin bool) {
+	snapshot := m.core.Snapshot()
+	if len(snapshot.Candidates) == 0 || m.cursor < 0 || m.cursor >= len(m.filteredCandidates()) {
+		return
+	}
+	selected := m.filteredCandidates()[m.cursor]
+	for i := range snapshot.Candidates {
+		if snapshot.Candidates[i].ID == selected.ID && snapshot.Candidates[i].Kind == selected.Kind && snapshot.Candidates[i].Path == selected.Path {
+			snapshot.Candidates[i].Pinned = pin
+			break
+		}
+	}
+	snapshot.Candidates = launcher.OrderCandidates(snapshot.Candidates)
+	m.core.RestoreSnapshot(snapshot)
+	m.clampCursor()
 }
 
 func (m *Model) Init() tea.Cmd  { return nil }
@@ -507,16 +566,20 @@ func (m *Model) View() tea.View { return tea.NewView(m.Render()) }
 func (m *Model) Render() string {
 	projection := m.projection
 	rows := m.filteredRows()
-	screen := m.core.Snapshot().Screen
+	snapshot := m.core.Snapshot()
+	screen := snapshot.Screen
 	m.keys.Search.SetEnabled(screen != launcher.ScreenPortfolio)
 	m.keys.Filter.SetEnabled(screen != launcher.ScreenWork)
 	m.keys.Section.SetEnabled(screen != launcher.ScreenPortfolio)
 	m.keys.Launch.SetEnabled(screen != launcher.ScreenPortfolio)
-	if m.core.Snapshot().Screen == launcher.ScreenProduct {
+	if screen == launcher.ScreenProduct {
 		return m.renderS2(projection.Header)
 	}
-	if m.core.Snapshot().Screen == launcher.ScreenWork {
+	if screen == launcher.ScreenWork {
 		return m.renderS3(projection.Header)
+	}
+	if len(snapshot.Candidates) > 0 {
+		return m.renderCandidates(snapshot)
 	}
 	widths := columnWidths(m.width)
 	columns := make([]table.Column, len(projection.Columns))
@@ -551,7 +614,6 @@ func (m *Model) Render() string {
 		hidden := len(m.core.Snapshot().Rows) - len(rows)
 		lines = append(lines, "FILTERED: "+m.filterValue+" (hidden: "+fmtInt(hidden)+")")
 	}
-	snapshot := m.core.Snapshot()
 	if len(snapshot.Rows) == 0 && snapshot.Coverage == "first_run" {
 		lines = append(lines, "FIRST RUN: no database; initialize through the operator setup")
 	} else if len(snapshot.Rows) == 0 && snapshot.Coverage == "authoritative" {
@@ -571,6 +633,7 @@ func (m *Model) Render() string {
 func (m *Model) renderS2(headers []string) string {
 	lines := append([]string{}, headers...)
 	s := m.core.Snapshot()
+	lines = append(lines, probeLines(s.Probes)...)
 	stack := s.S2AnswerStack()
 	lines = append(lines, "S2 PRODUCT COORDINATION")
 	if s.StatusMessage != "" {
@@ -752,6 +815,7 @@ func rankedLines(ranked []launcher.RankedWork, snapshot launcher.Snapshot) []str
 func (m *Model) renderS3(headers []string) string {
 	lines := append([]string{}, headers...)
 	s := m.core.Snapshot()
+	lines = append(lines, probeLines(s.Probes)...)
 	if s.QueryResult {
 		lines = append(lines, "S3 WORK SEARCH", "QUERY RESULT: "+s.QuerySubmitted+" (Esc restores prior view)")
 		for _, item := range s.Ranked {
@@ -867,6 +931,22 @@ func knowledgeLines(section launcher.KnowledgeSection) []string {
 	return out
 }
 
+func probeLines(probes []launcher.ProbeStatus) []string {
+	lines := make([]string, 0, len(probes))
+	for _, probe := range probes {
+		state := "unavailable"
+		if probe.Available {
+			state = "available"
+		}
+		reason := ""
+		if probe.Reason != "" {
+			reason = ": " + probe.Reason
+		}
+		lines = append(lines, strings.ToUpper(probe.Name)+": "+state+reason)
+	}
+	return lines
+}
+
 func helpLines(value string, width int) []string { return splitDisplay(value, width) }
 
 func actionText(row launcher.ProductRow) string {
@@ -946,10 +1026,16 @@ func sessionProcess(handoff launcher.SessionHandoff) (*exec.Cmd, error) {
 	return cmd, nil
 }
 
+// SessionCommand returns the fixed Concord session bootstrap command for
+// non-interactive forwarding. It does not construct a host command directly.
+func SessionCommand(handoff launcher.SessionHandoff) (*exec.Cmd, error) {
+	return sessionProcess(handoff)
+}
+
 func handoffEnv(handoff launcher.SessionHandoff) []string {
-	env := make([]string, 0, len(os.Environ())+2)
+	env := make([]string, 0, len(os.Environ())+3)
 	for _, value := range os.Environ() {
-		if strings.HasPrefix(value, "CONCORD_SELECTED_PRODUCT_ID=") || strings.HasPrefix(value, "CONCORD_SELECTED_WORK_ID=") {
+		if strings.HasPrefix(value, "CONCORD_SELECTED_PRODUCT_ID=") || strings.HasPrefix(value, "CONCORD_SELECTED_WORK_ID=") || strings.HasPrefix(value, "CONCORD_SELECTED_PROMPT=") {
 			continue
 		}
 		env = append(env, value)
@@ -957,6 +1043,9 @@ func handoffEnv(handoff launcher.SessionHandoff) []string {
 	env = append(env, "CONCORD_SELECTED_PRODUCT_ID="+handoff.ProductID)
 	if handoff.WorkID != "" {
 		env = append(env, "CONCORD_SELECTED_WORK_ID="+handoff.WorkID)
+	}
+	if handoff.Prompt != "" {
+		env = append(env, "CONCORD_SELECTED_PROMPT="+handoff.Prompt)
 	}
 	return env
 }
@@ -1055,4 +1144,40 @@ func min(a, b int) int {
 		return a
 	}
 	return b
+}
+
+func (m *Model) renderCandidates(snapshot launcher.Snapshot) string {
+	lines := []string{"CONCORD LAUNCHER", "CANDIDATES", "STATUS: " + snapshot.Coverage}
+	if snapshot.StatusMessage != "" {
+		lines = append(lines, "MESSAGE: "+snapshot.StatusMessage)
+	}
+	lines = append(lines, probeLines(snapshot.Probes)...)
+	values := launcher.FilterCandidates(snapshot.Candidates, m.filterValue)
+	for i, candidate := range values {
+		marker := " "
+		if candidate.Pinned {
+			marker = "*"
+		}
+		available := "unavailable"
+		if candidate.Available {
+			available = "available"
+		}
+		name := candidate.Name
+		if candidate.Path != "" {
+			name += " " + candidate.Path
+		}
+		lines = append(lines, fmtInt(i+1)+" "+marker+" "+string(candidate.Kind)+" "+name+" state="+available+" live="+fmtInt(candidate.Live))
+	}
+	if len(values) == 0 {
+		lines = append(lines, "CANDIDATES: authoritative-empty")
+	}
+	if m.filterMode {
+		lines = append(lines, m.input.View())
+	}
+	if m.showHelp {
+		lines = append(lines, helpLines("HELP: "+m.help.View(m.keys), m.width)...)
+	} else {
+		lines = append(lines, helpLines(m.help.View(m.keys), m.width)...)
+	}
+	return strings.Join(wrapHeaders(lines, m.width), "\n")
 }

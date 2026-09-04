@@ -137,6 +137,98 @@ func TestWorkerCannotRecordItsOwnVerdict(t *testing.T) {
 	}
 }
 
+func TestRecordVerdictRequiresOperatorIdentity(t *testing.T) {
+	const operationID = "record-verdict-operator"
+	seedAtAcceptance := func(t *testing.T) (*Store, WorkflowActor) {
+		t.Helper()
+		s, _, owner, attemptID := seedCompletedWorkerAtExecution(t, "record-verdict-operator")
+		owner.ActorRef = DeriveWorkflowActorRef("principal/operator", "client/concord-1", "agent/owner", "session/record-verdict-operator")
+		accepted := workflowEventWithActor("accept-record-verdict-operator", WorkflowActionCompleted, "record-verdict-operator", owner.ActorRef, map[string]any{
+			"work_id": "record-verdict-operator", "expected_version": 10, "resulting_version": 11,
+			"step_id": "execution", "action_id": "accept_worker_result", "attempt_epoch": 1,
+			"result_evidence_refs": []string{}, "changed_refs": []string{"record-verdict-operator"}, "actor_ref": owner.ActorRef,
+			"worker_attempt_id": attemptID,
+		})
+		accepted.PayloadVersion = 2
+		if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{accepted}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "record-verdict-operator"): 10}}); err != nil {
+			t.Fatal(err)
+		}
+		operatorRef := DeriveWorkflowActorRef("principal/operator", "client/concord-1", "agent/reviewer", "session/record-verdict-operator")
+		operator := workflowEvent("record-verdict-operator-actor", WorkflowActorRecorded, "record-verdict-operator", map[string]any{
+			"work_id": "record-verdict-operator", "expected_version": 11, "resulting_version": 12, "actor_ref": operatorRef,
+			"principal_ref": "principal/operator", "client_ref": "client/concord-1", "agent_ref": "agent/reviewer", "session_ref": "session/record-verdict-operator", "actor_class": "operator",
+		})
+		if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{operator}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "record-verdict-operator"): 11}}); err != nil {
+			t.Fatal(err)
+		}
+		return s, owner
+	}
+	newRequest := func(actor WorkflowActor, operator *WorkflowActor) WorkflowActionExecutionRequest {
+		return WorkflowActionExecutionRequest{
+			WorkID: "record-verdict-operator", ExpectedVersion: 12, ActionID: "record_verdict",
+			Payload: mustJSONValue(map[string]any{"predicate_id": "predicate:gate"}), Actor: actor, OperatorActor: operator,
+			AcceptedInputsDigest: "sha256:" + strings.Repeat("a", 64), IdempotencyIdentity: operationID,
+			OperationID: operationID, PrincipalRef: actor.PrincipalRef, Tool: "concord_work_transition",
+			IdempotencyKey: operationID, RequestID: "request:" + operationID, ContractDigest: testManifestDigest, Now: time.Unix(4, 0).UTC(),
+		}
+	}
+	run := func(t *testing.T, s *Store, request WorkflowActionExecutionRequest) error {
+		t.Helper()
+		tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
+		if err != nil {
+			return err
+		}
+		if err := enterFold(context.Background(), tx); err != nil {
+			_ = tx.Rollback()
+			return err
+		}
+		result, err := applyWorkflowActionRawTx(context.Background(), tx, BuiltinWorkflowRegistry(), request)
+		_ = leaveFold(context.Background(), tx)
+		if err != nil {
+			_ = tx.Rollback()
+			return err
+		}
+		if err := tx.Commit(); err != nil {
+			return err
+		}
+		if result.ResultingVersion == 0 {
+			t.Fatal("record_verdict returned no resulting version")
+		}
+		return nil
+	}
+
+	t.Run("missing operator", func(t *testing.T) {
+		s, owner := seedAtAcceptance(t)
+		err := run(t, s, newRequest(owner, nil))
+		var failure *Failure
+		if !errors.As(err, &failure) || failure.Kind != KindApprovalRequired {
+			t.Fatalf("record_verdict without operator failure = %v, want %s", err, KindApprovalRequired)
+		}
+	})
+
+	t.Run("verified operator", func(t *testing.T) {
+		s, owner := seedAtAcceptance(t)
+		operator := workflowActorForRef(t, s, DeriveWorkflowActorRef("principal/operator", "client/concord-1", "agent/reviewer", "session/record-verdict-operator"))
+		if err := run(t, s, newRequest(owner, &operator)); err != nil {
+			t.Fatalf("record_verdict with operator failed: %v", err)
+		}
+		var verdicts int
+		if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE kind=?`, WorkflowVerdictRecorded).Scan(&verdicts); err != nil {
+			t.Fatal(err)
+		}
+		if verdicts != 1 {
+			t.Fatalf("recorded verdict events=%d, want 1", verdicts)
+		}
+		var eventActor string
+		if err := s.DatabaseForTesting().QueryRow(`SELECT actor FROM domain_events WHERE kind=? ORDER BY seq DESC LIMIT 1`, WorkflowVerdictRecorded).Scan(&eventActor); err != nil {
+			t.Fatal(err)
+		}
+		if eventActor != operator.ActorRef {
+			t.Fatalf("verdict event actor=%q, want operator %q", eventActor, operator.ActorRef)
+		}
+	})
+}
+
 func TestWorkflowActionStartedV2AuthorizesActorStepAndEpoch(t *testing.T) {
 	s, workerRef, owner, _ := seedWorkerAtExecution(t, "authority-start-guards")
 	currentVersion := int64(10)
@@ -806,7 +898,14 @@ func seedCompletedWorkerAtExecution(t *testing.T, workID string) (*Store, string
 	t.Helper()
 	s, workerRef, owner, attemptID := seedWorkerAtExecution(t, workID)
 	lane := BuiltinLaneDefinitions()[0]
+	// CD-0107 D1: the dispatching session accepts. The dispatch event is
+	// authored by the owner, and the worker completes the run.
+	ownerRef, err := WorkflowActorRef(owner)
+	if err != nil {
+		t.Fatal(err)
+	}
 	completed := Event{EventID: "completed-" + workID, Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(3, 0).UTC(), PayloadVersion: 1, Payload: mustJSONValue(WorkerCompletedPayload{AttemptID: attemptID, ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion})}
+	_ = ownerRef
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{completed}}); err != nil {
 		t.Fatal(err)
 	}
@@ -845,7 +944,10 @@ func seedWorkerAtExecution(t *testing.T, workID string) (*Store, string, Workflo
 		t.Fatal(err)
 	}
 	attemptID := "attempt:" + workID
-	dispatch := Event{EventID: "dispatch-" + workID, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: 2, Payload: mustJSONValue(WorkerDispatchedPayload{AttemptID: attemptID, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, ReadbackModel: preferredModelForLane(lane), PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion})}
+	// CD-0107 D1: the dispatch is the coordinator's act; the worker runs the
+	// attempt and completes it, and the dispatching session accepts.
+	dispatchingRef := ownerRef
+	dispatch := Event{EventID: "dispatch-" + workID, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: dispatchingRef, OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: 2, Payload: mustJSONValue(WorkerDispatchedPayload{AttemptID: attemptID, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, ReadbackModel: preferredModelForLane(lane), PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion})}
 	if err := ApplyOperation(ctx, s, Operation{Events: []Event{dispatch}}); err != nil {
 		t.Fatal(err)
 	}

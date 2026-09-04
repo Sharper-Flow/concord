@@ -532,13 +532,19 @@ func workflowSemanticActionEvents(ctx context.Context, tx *sql.Tx, definition Wo
 		}
 		return []Event{workflowTypedEvent(eventID, WorkflowEvidenceBound, request.WorkID, actor, request.Now, expected, map[string]any{"evidence_kind": workflowFieldStringDefault(fields, "evidence_kind", "verification"), "immutable_subject_ref": workflowFieldStringDefault(fields, "immutable_subject_ref", evidenceRef), "producer_id": workflowFieldStringDefault(fields, "producer_id", request.PrincipalRef), "producer_run_ref": workflowFieldStringDefault(fields, "producer_run_ref", request.OperationID), "producer_watermark": workflowFieldStringDefault(fields, "producer_watermark", request.RequestID), "observed_at": request.Now.UTC().Format(time.RFC3339Nano)})}, nil
 	case "record_verdict":
-		verdictActor, actorErr := workflowAuthenticatedActorField(fields, "verdict_actor_ref", actor)
+		// CD-0107 D2: the verdict is the operator's. The verified operator
+		// tuple is the verdict actor, so CD-0013 D5 distinctness holds by
+		// construction; a session-recorded verdict actor is refused.
+		if request.OperatorActor == nil || request.OperatorActor.ActorClass != ActorOperator {
+			return nil, newFailure(KindApprovalRequired, "workflow_action", "verdict recording requires the verified operator approval identity", false, "request_operator_approval")
+		}
+		verdictActor, actorErr := WorkflowActorRef(*request.OperatorActor)
 		if actorErr != nil {
 			return nil, actorErr
 		}
-		var executingActor string
-		if err := tx.QueryRowContext(ctx, `SELECT execution_actor_ref FROM workflow_instances WHERE work_id=?`, request.WorkID).Scan(&executingActor); err == nil && executingActor != "" && executingActor == verdictActor {
-			return nil, newFailure(KindUnauthorized, "workflow_action", "executing actor cannot evaluate its own delivery", false, "contact_operator")
+		verdictActor, actorErr = workflowAuthenticatedActorField(fields, "verdict_actor_ref", verdictActor)
+		if actorErr != nil {
+			return nil, actorErr
 		}
 		evidence := workflowFieldStrings(fields, "evaluation_evidence")
 		if len(evidence) == 0 {

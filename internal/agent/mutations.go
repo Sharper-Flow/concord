@@ -868,11 +868,11 @@ func (r runtime) mutateWorkflowAction(ctx context.Context, base Envelope, raw []
 			return err
 		}
 		if requiresApproval {
-			verifiedOperator, _, err := r.consumeApprovalTx(ctx, tx, inv, grant, ApprovalCheck{ApprovalRef: approval, OperationDigest: digest, Scope: boundedApprovalScope(scope), Versions: versions, Consequence: approvalConsequence, ClientRef: grant.ClientRef, SessionRef: grant.SessionRef, RequireOperatorIdentity: in.ActionID == "confirm_premise"})
+			verifiedOperator, _, err := r.consumeApprovalTx(ctx, tx, inv, grant, ApprovalCheck{ApprovalRef: approval, OperationDigest: digest, Scope: boundedApprovalScope(scope), Versions: versions, Consequence: approvalConsequence, ClientRef: grant.ClientRef, SessionRef: grant.SessionRef, RequireOperatorIdentity: in.ActionID == "confirm_premise" || in.ActionID == "record_verdict"})
 			if err != nil {
 				return err
 			}
-			if in.ActionID == "confirm_premise" {
+			if in.ActionID == "confirm_premise" || in.ActionID == "record_verdict" {
 				operatorActor = &verifiedOperator
 			}
 		}

@@ -850,7 +850,7 @@ var builtinActionPolicies = map[string]builtinActionPolicy{
 	"bind_evidence":          actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionHold, ActionEventTyped),
 	"declare_impact":         actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionHold, ActionEventTyped),
 	"link_successor":         actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionHold, ActionEventTyped),
-	"record_verdict":         actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionHold, ActionEventTyped),
+	"record_verdict":         actionPolicy(ActionInternalSQLite, ActionApprovalRequired, ActionHold, ActionEventTyped),
 	"confirm_premise":        actionPolicy(ActionInternalSQLite, ActionApprovalRequired, ActionAdvance, ActionEventTyped),
 	"complete":               actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionHold, ActionEventCompletion),
 	"record_reproduction":    actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance, ActionEventGeneric),

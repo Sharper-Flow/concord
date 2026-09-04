@@ -134,16 +134,18 @@ func guardRecordedActorTuple(g *workflowActionGuardContext) error {
 	return nil
 }
 
-// guardOperatorPremiseActor applies to every action, not only premise
-// confirmation: an operator actor is valid nowhere else, so the action check
-// lives inside the guard rather than in the phase table. A nil operator actor
-// is the common case and passes.
+// guardOperatorPremiseActor applies to operator-authorized actions. The
+// operator actor is valid for verdict recording and premise confirmation only,
+// so the action check lives inside the guard rather than in the phase table.
 func guardOperatorPremiseActor(g *workflowActionGuardContext) error {
 	if g.request.OperatorActor == nil {
+		if g.request.ActionID == "record_verdict" {
+			return newFailure(KindApprovalRequired, "workflow_action", "record_verdict requires the verified operator identity", false, "request_operator_approval")
+		}
 		return nil
 	}
-	if g.request.ActionID != "confirm_premise" || g.request.OperatorActor.ActorClass != ActorOperator {
-		return newFailure(KindUnauthorized, "workflow_action", "operator actor is only valid for signed premise confirmation", false, "use the verified approval identity")
+	if (g.request.ActionID != "confirm_premise" && g.request.ActionID != "record_verdict") || g.request.OperatorActor.ActorClass != ActorOperator {
+		return newFailure(KindUnauthorized, "workflow_action", "operator actor is only valid for verdict recording or signed premise confirmation", false, "use the verified approval identity")
 	}
 	ref, err := WorkflowActorRef(*g.request.OperatorActor)
 	if err != nil {

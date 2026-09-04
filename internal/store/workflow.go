@@ -1347,7 +1347,8 @@ func validateAcceptedWorkerResult(ctx context.Context, tx *sql.Tx, event Event, 
 		return newFailure(KindIllegalLifecycleTransition, "fold_event", "worker attempt belongs to another work item", false, "accept the exact worker attempt for this work item")
 	}
 	var dispatchedSeq int64
-	if err := tx.QueryRowContext(ctx, `SELECT seq FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.attempt_id')=? ORDER BY seq DESC LIMIT 1`, string(SubjectWorkItem), event.SubjectID, WorkerDispatched, payload.WorkerAttemptID).Scan(&dispatchedSeq); err != nil {
+	var dispatchingActor string
+	if err := tx.QueryRowContext(ctx, `SELECT seq,actor FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.attempt_id')=? ORDER BY seq DESC LIMIT 1`, string(SubjectWorkItem), event.SubjectID, WorkerDispatched, payload.WorkerAttemptID).Scan(&dispatchedSeq, &dispatchingActor); err != nil {
 		if err == sql.ErrNoRows {
 			return newFailure(KindProjectionNotFound, "fold_event", "worker attempt dispatch event does not exist", false, "dispatch the worker attempt before accepting its result")
 		}
@@ -1365,8 +1366,13 @@ func validateAcceptedWorkerResult(ctx context.Context, tx *sql.Tx, event Event, 
 	if payload.ActorRef != event.Actor {
 		return newFailure(KindUnauthorized, "fold_event", "accepting actor must match the authenticated event actor", false, "accept the worker result through the authenticated workflow owner")
 	}
-	if err := workflowActorsDistinct(ctx, tx, event.SubjectID, payload.ActorRef, "", false, "fold_event"); err != nil {
-		return err
+	// CD-0107 D1: the dispatching session accepts its lane's report; the
+	// attempt carries its own readback identity, so CD-0013 D5 distinctness
+	// does not apply. The session that recorded the dispatch is the accepting
+	// actor: a worker that was handed the attempt holds no authority to fold
+	// its own result (#98).
+	if event.Actor != dispatchingActor {
+		return newFailure(KindUnauthorized, "fold_event", "worker result is accepted by the dispatching actor, not the worker", false, "accept the worker result through the session that dispatched it")
 	}
 	return nil
 }

@@ -133,7 +133,7 @@ func ReadWorkflowOperatorQuestion(ctx context.Context, s *Store, workID string) 
 	}
 	for _, candidate := range step.Actions {
 		for _, action := range entry.Definition.ActionDefinitions {
-			if action.ID != candidate || action.Approval != ActionApprovalRequired {
+			if action.ID != candidate || action.ID == "record_verdict" || action.Approval != ActionApprovalRequired {
 				continue
 			}
 			return workflowOperatorQuestion(workID, workVersion, definition, contract, action.ID), nil
@@ -176,7 +176,7 @@ func workflowOperatorQuestionTx(workID, currentStep string, workVersion int64, d
 	}
 	for _, candidate := range step.Actions {
 		for _, action := range entry.Definition.ActionDefinitions {
-			if action.ID == candidate && action.Approval == ActionApprovalRequired {
+			if action.ID == candidate && action.ID != "record_verdict" && action.Approval == ActionApprovalRequired {
 				return workflowOperatorQuestion(workID, workVersion, definition, contract, action.ID), nil
 			}
 		}
@@ -276,7 +276,7 @@ func validateWorkflowOperatorSelectionTx(ctx context.Context, tx *sql.Tx, regist
 	question := (*WorkflowOperatorQuestion)(nil)
 	for _, candidate := range step.Actions {
 		for _, action := range entry.Definition.ActionDefinitions {
-			if action.ID == candidate && action.Approval == ActionApprovalRequired {
+			if action.ID == candidate && action.ID != "record_verdict" && action.Approval == ActionApprovalRequired {
 				question = workflowOperatorQuestion(request.WorkID, workVersion, definition, contract, action.ID)
 				break
 			}

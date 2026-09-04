@@ -974,10 +974,18 @@ func executeStructuredWorkflowAction(t *testing.T, name string, initial map[stri
 	ctx := context.Background()
 	actor := WorkflowActor{PrincipalRef: request.Grant.PrincipalRef, ClientRef: request.Grant.ClientRef, AgentRef: request.Grant.AgentRef, SessionRef: request.Grant.SessionRef, ActorClass: ActorAgent}
 	fixtureActor := actor
-	if (action == string(corpusActionComplete) || (action == string(corpusActionRecordVerdict) && request.Fields["record_verdict_prerequisites"] == true)) && len(setup.FixtureRefs.Actors) > 1 {
+	if action == string(corpusActionComplete) && len(setup.FixtureRefs.Actors) > 1 {
 		actor.AgentRef = "agent-reviewer"
 		actor.SessionRef = "session-reviewer"
 		actor.ActorClass = ActorOperator
+	}
+	var operatorActor *WorkflowActor
+	if (action == string(corpusActionRecordVerdict) || action == string(corpusActionReplaceCheck)) && len(setup.FixtureRefs.Actors) > 1 {
+		operator := actor
+		operator.AgentRef = "agent-reviewer"
+		operator.SessionRef = "session-reviewer"
+		operator.ActorClass = ActorOperator
+		operatorActor = &operator
 	}
 	if actor.PrincipalRef == "" {
 		return workflowObservation{}, workflowScenarioGap{"request grant does not contain an authenticated workflow actor"}
@@ -986,7 +994,7 @@ func executeStructuredWorkflowAction(t *testing.T, name string, initial map[stri
 	if err != nil {
 		return workflowObservation{}, err
 	}
-	if request.ActorRef != "" && request.ActorRef != actorRef && !(action == string(corpusActionComplete) && len(setup.FixtureRefs.Actors) > 0 && request.ActorRef == setup.FixtureRefs.Actors[0]) && !(action == string(corpusActionRecordVerdict) && request.Fields["record_verdict_prerequisites"] == true && len(setup.FixtureRefs.Actors) > 0 && request.ActorRef == setup.FixtureRefs.Actors[0]) {
+	if request.ActorRef != "" && request.ActorRef != actorRef && !(action == string(corpusActionComplete) && len(setup.FixtureRefs.Actors) > 0 && request.ActorRef == setup.FixtureRefs.Actors[0]) {
 		return workflowObservation{}, fmt.Errorf("%s actor_ref does not match authenticated fixture actor", name)
 	}
 	registry := BuiltinWorkflowRegistry()
@@ -1006,9 +1014,19 @@ func executeStructuredWorkflowAction(t *testing.T, name string, initial map[stri
 	if err := replayWorkflowCorpusSetup(ctx, s, setup, registered, actorRef, action != string(corpusActionCapture)); err != nil {
 		return workflowObservation{}, err
 	}
-	if actor.ActorClass == ActorOperator && (request.Fields["complete_gate_prerequisites"] != nil || request.Fields["record_verdict_prerequisites"] == true) {
+	if operatorActor != nil {
+		if err := recordCorpusActor(ctx, s, workID, *operatorActor); err != nil {
+			return workflowObservation{}, err
+		}
+	}
+	if actor.ActorClass == ActorOperator && request.Fields["complete_gate_prerequisites"] != nil {
 		if err := recordCorpusActor(ctx, s, workID, actor); err != nil {
 			return workflowObservation{}, err
+		}
+	}
+	if operatorActor != nil && request.Fields["record_verdict_prerequisites"] != true {
+		if version, versionErr := workflowCurrentVersion(ctx, s, workID); versionErr == nil {
+			request.ExpectedVersion = version
 		}
 	}
 	if definition.ChangesProductTruth != nil && *definition.ChangesProductTruth && (action == string(corpusActionApproveContract) || request.Fields["architecture_binding"] != nil) {
@@ -1249,6 +1267,16 @@ func executeStructuredWorkflowAction(t *testing.T, name string, initial map[stri
 	if action == string(corpusActionLinkAndComplete) {
 		return executeCorpusLinkAndComplete(ctx, s, workID, beforeSeq, request, actor, setup, fixtures)
 	}
+	if action == string(corpusActionRecordVerdict) || action == string(corpusActionReplaceCheck) {
+		if nested, ok := request.Fields["payload"].(map[string]any); ok {
+			for _, name := range []string{"verdict_actor", "requested_check_author"} {
+				if value, valueOK := nested[name].(string); valueOK {
+					request.Fields["verdict_actor_ref"] = value
+					break
+				}
+			}
+		}
+	}
 
 	payload := json.RawMessage(`{}`)
 	if len(request.Fields) != 0 {
@@ -1312,7 +1340,11 @@ func executeStructuredWorkflowAction(t *testing.T, name string, initial map[stri
 		_ = tx.Rollback()
 		return observeWorkflowStore(ctx, s, workID, beforeSeq, err, nil)
 	}
-	workflowRequest := WorkflowActionExecutionRequest{WorkID: workID, ExpectedVersion: request.ExpectedVersion, ActionID: action, Payload: payload, Actor: actor, AcceptedInputsDigest: request.Idempotency.AcceptedInputsDigest, IdempotencyIdentity: request.Idempotency.Key, OperationID: request.Operation.OpID, PrincipalRef: actor.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: request.Idempotency.Key, RequestID: request.Idempotency.RequestID, AcceptedScope: `{"project":"project-1"}`, ContractDigest: testManifestDigest, Now: time.Date(2026, 8, 9, 0, 0, 0, 0, time.UTC)}
+	workflowActionID := action
+	if action == string(corpusActionReplaceCheck) {
+		workflowActionID = string(corpusActionRecordVerdict)
+	}
+	workflowRequest := WorkflowActionExecutionRequest{WorkID: workID, ExpectedVersion: request.ExpectedVersion, ActionID: workflowActionID, Payload: payload, Actor: actor, OperatorActor: operatorActor, AcceptedInputsDigest: request.Idempotency.AcceptedInputsDigest, IdempotencyIdentity: request.Idempotency.Key, OperationID: request.Operation.OpID, PrincipalRef: actor.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: request.Idempotency.Key, RequestID: request.Idempotency.RequestID, AcceptedScope: `{"project":"project-1"}`, ContractDigest: testManifestDigest, Now: time.Date(2026, 8, 9, 0, 0, 0, 0, time.UTC)}
 	var result WorkflowActionExecutionResult
 	var actionErr error
 	if action == string(corpusActionReplaceCheck) {

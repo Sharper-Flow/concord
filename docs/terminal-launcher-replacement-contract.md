@@ -3,7 +3,8 @@
 **Status:** Accepted under [`CD-0108`](./decisions/CD-0108-the-launcher-is-the-zlauncher-replacement.md).
 **Supersedes:** the terminal launcher contract (C18,
 [`terminal-launcher-contract.md`](./terminal-launcher-contract.md)) in full.
-**Implementation status:** not started; tracked by
+**Implementation status:** The replacement build is implemented. Operator
+verification of ZLauncher retirement remains tracked by
 [issue #803](https://github.com/Sharper-Flow/concord/issues/803).
 
 ## Context

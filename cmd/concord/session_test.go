@@ -82,6 +82,29 @@ func TestSessionBootFailsClosedBeforeOpenCodeOnPacketFailure(t *testing.T) {
 	}
 }
 
+func TestProjectSessionStartsWithoutConcordIdentity(t *testing.T) {
+	t.Setenv(selectedProductEnv, "")
+	t.Setenv(selectedWorkEnv, "")
+	project := t.TempDir()
+	t.Setenv(selectedProjectEnv, project)
+	var runnerDir string
+	var argv []string
+	runner := func(_ context.Context, dir string, got []string, _ []string, _ io.Reader, _, _ io.Writer) error {
+		runnerDir = dir
+		argv = append([]string(nil), got...)
+		return nil
+	}
+	var out, errOut bytes.Buffer
+	if code := runSessionCommand(nil, strings.NewReader(""), &out, &errOut, true, directoryAt("/unused"), nil, runner, func(string) error { return errors.New("identity must not run") }, func(context.Context, string, string, string) (string, error) {
+		return "", errors.New("orchestrator must not run")
+	}); code != 0 {
+		t.Fatalf("project session exit=%d stderr=%q", code, errOut.String())
+	}
+	if runnerDir != project || len(argv) != 3 || argv[0] != "opencode" || argv[1] != "--prompt" {
+		t.Fatalf("project runner dir=%q argv=%q", runnerDir, argv)
+	}
+}
+
 func TestSessionRoutesBeforeJSONAndRejectsNonTTY(t *testing.T) {
 	t.Setenv("CONCORD_SELECTED_PRODUCT_ID", "product-1")
 	var out, errOut bytes.Buffer

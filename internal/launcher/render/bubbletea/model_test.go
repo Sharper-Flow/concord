@@ -126,6 +126,28 @@ func TestNoColorOutputIsPlainTextAndKeepsAllSemanticMarkers(t *testing.T) {
 	}
 }
 
+func TestPortfolioRendersDegradedProbesWithoutCandidates(t *testing.T) {
+	core := launcher.New(nil)
+	core.RestoreSnapshot(launcher.Snapshot{
+		Screen: launcher.ScreenPortfolio, Coverage: "authoritative",
+		Probes: []launcher.ProbeStatus{
+			{Name: "vision", Reason: "daemon unavailable"},
+			{Name: "lgrep", Reason: "index unavailable"},
+		},
+	})
+	m := New(core, context.Background(), Profile{})
+	m.Sync()
+	rendered := m.Render()
+	for _, want := range []string{"VISION: unavailable: daemon unavailable", "LGREP: unavailable: index unavailable"} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("degraded probe marker %q missing: %q", want, rendered)
+		}
+	}
+	if _, cmd := m.Update(keyPress('q', "q", 0)); cmd == nil {
+		t.Fatal("degraded probe state made the launcher unusable")
+	}
+}
+
 func rejectTerminalControls(value string) error {
 	for i, b := range []byte(value) {
 		switch {
@@ -760,6 +782,24 @@ func TestSessionCommandPassesPromptThroughEnvironment(t *testing.T) {
 		}
 	}
 	t.Fatalf("prompt was not passed through session environment: %v", cmd.Env)
+}
+
+func TestProjectCandidateStartsAPlainSession(t *testing.T) {
+	project := "/projects/plain"
+	core := launcher.New(nil)
+	core.RestoreSnapshot(launcher.Snapshot{Screen: launcher.ScreenPortfolio, Coverage: "authoritative", Candidates: []launcher.Candidate{{
+		ID: project, Kind: launcher.CandidateProject, Name: "plain", Path: project, Available: true,
+	}}})
+	m := New(core, context.Background(), Profile{})
+	var got launcher.SessionHandoff
+	m.SetSessionLauncher(func(handoff launcher.SessionHandoff) tea.Cmd {
+		got = handoff
+		return nil
+	})
+	m.UpdateKey("enter")
+	if got.ProjectPath != project || got.ProductID != "" || got.WorkID != "" {
+		t.Fatalf("project handoff = %#v", got)
+	}
 }
 
 func TestSessionLauncherFailsClosedWithoutRunningBinaryIdentity(t *testing.T) {

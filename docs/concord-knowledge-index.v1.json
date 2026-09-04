@@ -348,7 +348,7 @@
         "project_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:88a59717c511600cbb5d9b0caff9d66da72433098d4fa15dfae880ac20cc3acf",
+      "sha256": "sha256:29ce1b76c3a7f7987d6113d46b11e0d44df2dc29ee23e47fb5168a8871eef423",
       "status": "accepted",
       "summary": "Defines the Product coordination drill-down: a structural relation tree and a ranked work table under typed truncation.",
       "tags": [
@@ -3741,7 +3741,7 @@
         "project_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:adc54410c479b66c1a59c2d0724c7f3de058938ec72f194f630c014fb163bbe1",
+      "sha256": "sha256:85ddb43451db5c32156182143f42ffc75893d7172411d57a19cd172ffe2f1206",
       "status": "published",
       "summary": "Navigation entry point for the Concord documentation set. States the reading order, names the companion documents and their roles, and records the current status of the set.",
       "tags": [
@@ -4468,7 +4468,7 @@
         "project_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:cb176d992a8f0e4fafb578eb8b131321a58a2812ac03b15a08d1cc8c08f4abfa",
+      "sha256": "sha256:a09e7ad7c6e9615acbacd93dfe80534219105c7e813f0f7476751ded47f253ff",
       "status": "published",
       "summary": "Predecessor capability inventory marked non-authorizing in its own header: every capability categorized as transfer, refactor, or new, aligned to priorities without restating them. It is snapshot evidence about the predecessor, not current operational truth, and establishes no transfer plan.",
       "tags": [
@@ -4879,7 +4879,7 @@
         "project_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:fb71d00080fc65ed531042f2c95aa4d93eff0e58d980427452e09b24bdd5c5d6",
+      "sha256": "sha256:fdafeb8ccb085b0c82eacd0affc83d34d0898b8d5a54197c7296ce26feead003",
       "status": "accepted",
       "summary": "Defines the launcher remake CD-0108 mandates: Concord-first browse with launch actions through Concord's session bootstrap, resume, and prompt pass-through; dense panes on arrow, Enter, and Tab; store-write-free; the accepted feature set with removed and deferred items; and the ZLauncher retirement acceptance test.",
       "tags": [
@@ -4905,7 +4905,7 @@
         "project_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:021a65ceee7578510490524ad7d8cb9262c3e2112836a7f3d0de2cd56c478541",
+      "sha256": "sha256:2ce0daa1652f4f9056a0f8dcc75eed4f4a1a092f6a86d3fa5a72845b88599194",
       "status": "published",
       "summary": "Tracks the ownership lean for lgrep and vision under C8; episode is removed by CD-0106.",
       "tags": [
@@ -4978,7 +4978,7 @@
         "project_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:41a6d2dc48805aaed67052858f35b66aa0efa818418526be3de03dc896a8a1ba",
+      "sha256": "sha256:d355c2ca09cd409d248a27168f5a1ff00403c84fd8f92c08830e12c6b7fc79a7",
       "status": "published",
       "summary": "Describes the plurality of purpose-built workflow types and their taxonomy, aligned v5.",
       "tags": [

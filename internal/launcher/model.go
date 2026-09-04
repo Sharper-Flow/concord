@@ -228,9 +228,10 @@ type WorkDetail struct {
 }
 
 type SessionHandoff struct {
-	ProductID string
-	WorkID    string
-	Prompt    string
+	ProductID   string
+	WorkID      string
+	Prompt      string
+	ProjectPath string
 }
 
 type CandidateKind string

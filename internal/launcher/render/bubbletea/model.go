@@ -359,6 +359,10 @@ func (m *Model) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 					m.core.RestoreSnapshot(launcher.Snapshot{Screen: launcher.ScreenProduct, AmbientProduct: candidate.ProductID, SelectedWorkID: candidate.WorkID, Session: launcher.SessionHandoff{ProductID: candidate.ProductID, WorkID: candidate.WorkID}, Coverage: "authoritative", Section: launcher.SectionRanked})
 					return m, m.launch(m.core.Handoff())
 				}
+				if candidate.Kind == launcher.CandidateProject {
+					m.core.RestoreSnapshot(launcher.Snapshot{Screen: launcher.ScreenPortfolio, Session: launcher.SessionHandoff{ProjectPath: candidate.Path}, Coverage: "authoritative"})
+					return m, m.launch(m.core.Handoff())
+				}
 			}
 			rows := m.filteredRows()
 			if len(rows) > 0 && m.cursor < len(rows) {
@@ -608,6 +612,7 @@ func (m *Model) Render() string {
 	m.table.SetStyles(styles)
 	lines := append([]string{}, projection.Header...)
 	lines = wrapHeaders(lines, m.width)
+	lines = append(lines, probeLines(snapshot.Probes)...)
 	if m.filterMode {
 		lines = append(lines, m.input.View())
 	} else if m.filterValue != "" {
@@ -1033,14 +1038,18 @@ func SessionCommand(handoff launcher.SessionHandoff) (*exec.Cmd, error) {
 }
 
 func handoffEnv(handoff launcher.SessionHandoff) []string {
-	env := make([]string, 0, len(os.Environ())+3)
+	env := make([]string, 0, len(os.Environ())+4)
 	for _, value := range os.Environ() {
-		if strings.HasPrefix(value, "CONCORD_SELECTED_PRODUCT_ID=") || strings.HasPrefix(value, "CONCORD_SELECTED_WORK_ID=") || strings.HasPrefix(value, "CONCORD_SELECTED_PROMPT=") {
+		if strings.HasPrefix(value, "CONCORD_SELECTED_PRODUCT_ID=") || strings.HasPrefix(value, "CONCORD_SELECTED_WORK_ID=") || strings.HasPrefix(value, "CONCORD_SELECTED_PROMPT=") || strings.HasPrefix(value, "CONCORD_SELECTED_PROJECT_PATH=") {
 			continue
 		}
 		env = append(env, value)
 	}
-	env = append(env, "CONCORD_SELECTED_PRODUCT_ID="+handoff.ProductID)
+	if handoff.ProjectPath != "" {
+		env = append(env, "CONCORD_SELECTED_PROJECT_PATH="+handoff.ProjectPath)
+	} else {
+		env = append(env, "CONCORD_SELECTED_PRODUCT_ID="+handoff.ProductID)
+	}
 	if handoff.WorkID != "" {
 		env = append(env, "CONCORD_SELECTED_WORK_ID="+handoff.WorkID)
 	}

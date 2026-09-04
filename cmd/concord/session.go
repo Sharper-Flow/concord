@@ -19,6 +19,7 @@ const (
 	selectedProductEnv = "CONCORD_SELECTED_PRODUCT_ID"
 	selectedWorkEnv    = "CONCORD_SELECTED_WORK_ID"
 	selectedPromptEnv  = "CONCORD_SELECTED_PROMPT"
+	selectedProjectEnv = "CONCORD_SELECTED_PROJECT_PATH"
 )
 
 var sessionIdentity = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]{1,127}$`)
@@ -292,6 +293,32 @@ func runSessionCommand(args []string, in io.Reader, out, errOut io.Writer, termi
 		return 2
 	}
 	productID, workID := os.Getenv(selectedProductEnv), os.Getenv(selectedWorkEnv)
+	projectPath := os.Getenv(selectedProjectEnv)
+	if projectPath != "" {
+		if productID != "" || workID != "" {
+			writeDiagnostic(errOut, "concord session: project launch cannot carry Concord identity")
+			return 2
+		}
+		if !filepath.IsAbs(projectPath) || filepath.Clean(projectPath) != projectPath {
+			writeDiagnostic(errOut, "concord session: project path is not canonical: "+projectPath)
+			return 2
+		}
+		info, statErr := os.Stat(projectPath)
+		if statErr != nil || !info.IsDir() {
+			writeDiagnostic(errOut, "concord session: project path is not a usable directory: "+projectPath)
+			return 2
+		}
+		prompt := os.Getenv(selectedPromptEnv)
+		if prompt == "" {
+			prompt = "OpenCode project session"
+		}
+		argv := []string{"opencode", "--prompt", prompt}
+		if err := runner(context.Background(), projectPath, argv, os.Environ(), in, out, errOut); err != nil {
+			writeDiagnostic(errOut, fmt.Sprintf("concord session: opencode: %v", err))
+			return 1
+		}
+		return 0
+	}
 	if !sessionIdentity.MatchString(productID) || (workID != "" && !sessionIdentity.MatchString(workID)) {
 		writeDiagnostic(errOut, "concord session: launcher identity is missing or invalid")
 		return 2

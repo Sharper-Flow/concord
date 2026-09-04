@@ -924,6 +924,10 @@ export async function completeWorkerAttempt(
     readback_model: readback.readback_model,
     packet_schema_version: PACKET_SCHEMA_VERSION,
     report_schema_version: REPORT_SCHEMA_VERSION,
+    // The CLI requires the digest on the request as well as inside the
+    // signed assertion: it is the seam that checks the value the assertion
+    // claims is the value the core recorded (CD-0067 D6).
+    packet_digest: options.packetDigest,
     host_provenance: provenance,
     assertion: dispatchAssertion,
   }, signal)

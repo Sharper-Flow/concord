@@ -1,0 +1,8 @@
+{
+  "purpose": "The top-level fields each worker evidence CLI verb requires. cmd/concord commandSpecs is the authority; the Go test asserts equality with this file, and the adapter test asserts every request it builds carries each field, so the two cannot drift apart.",
+  "verbs": {
+    "worker-dispatch": ["event_id", "work_id", "attempt_id", "lane_id", "lane_version", "lane_digest", "packet_schema_version", "report_schema_version", "packet_digest"],
+    "worker-complete": ["event_id", "work_id", "attempt_id", "readback_model", "report_schema_version", "evidence_origin"],
+    "worker-fail": ["event_id", "work_id", "attempt_id", "readback_model", "failure_kind", "detail"]
+  }
+}

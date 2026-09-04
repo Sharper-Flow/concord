@@ -768,6 +768,20 @@ func TestWorkerEvidenceRecordsTheVerifiedClientAsActor(t *testing.T) {
 	if actor == "worker:cli" || !strings.Contains(actor, workerEvidenceClientRef) {
 		t.Fatalf("actor = %q, want the verified client identity", actor)
 	}
+	// Issue #800 / CD-0017 D4: the dispatch records the lane as a workflow
+	// actor and pins it as the instance's executing actor, so the owner's
+	// later accept_worker_result is distinct from the party that executed.
+	var laneActorRef string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT actor_ref FROM workflow_actors WHERE agent_ref=?`, "agent/lane:"+lane.ID).Scan(&laneActorRef); err != nil {
+		t.Fatalf("lane actor row missing: %v", err)
+	}
+	var executing string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT execution_actor_ref FROM workflow_instances WHERE work_id=?`, "work-1").Scan(&executing); err != nil {
+		t.Fatal(err)
+	}
+	if executing != laneActorRef {
+		t.Fatalf("execution_actor_ref = %q, want the dispatched lane actor %q", executing, laneActorRef)
+	}
 }
 
 func assertNoWorkerEvents(t *testing.T, dbPath string) {

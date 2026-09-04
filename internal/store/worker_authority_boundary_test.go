@@ -118,6 +118,91 @@ func TestWorkerCannotAdvanceItsStepWithAnUndeclaredCompletionAction(t *testing.T
 	}
 }
 
+// Production topology: the orchestrator starts the external-effect step,
+// dispatches a lane through the signed worker boundary, and then accepts the
+// lane's result. CD-0017 D4 makes the dispatched lane the executing actor of
+// the step, recorded as a workflow actor at dispatch, so the owner's
+// accept_worker_result satisfies CD-0013 D5 against the actor that actually
+// executed.
+func TestAcceptWorkerResultSucceedsWhenLaneIsExecutingActor(t *testing.T) {
+	ctx := context.Background()
+	workID := "authority-lane-executing"
+	s := openTemp(t)
+	seedWork(t, s, workID)
+	seedWorkflowLaw(t, s)
+	owner := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/owner", SessionRef: "session/" + workID, ActorClass: ActorAgent}
+	ownerRef, err := WorkflowActorRef(owner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lane := BuiltinLaneDefinitions()[0]
+	attemptID := "attempt:" + workID
+	laneActor := WorkflowActor{PrincipalRef: "principal:operator", ClientRef: "client:concord", AgentRef: "agent/lane:" + lane.ID, SessionRef: "session/" + attemptID, ActorClass: ActorAgent}
+	laneRef, err := WorkflowActorRef(laneActor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest := workflowFixtureDefinition(t, 2).Digest
+	setup := []Event{
+		workflowEvent("lane-owner-actor", WorkflowActorRecorded, workID, map[string]any{"work_id": workID, "expected_version": 2, "resulting_version": 3, "actor_ref": ownerRef, "principal_ref": owner.PrincipalRef, "client_ref": owner.ClientRef, "agent_ref": owner.AgentRef, "session_ref": owner.SessionRef, "actor_class": "agent"}),
+		workflowEvent("lane-definition", WorkflowDefinitionSelected, workID, map[string]any{"work_id": workID, "expected_version": 3, "resulting_version": 4, "ref": workflowFixtureRef, "version": 2, "digest": digest, "work_kind": workflowFixtureWorkKind}),
+		workflowActionCompletedFixture("lane-proposal", workID, ownerRef, 4, "proposal", "record_proposal"),
+		workflowActionCompletedFixture("lane-discovery", workID, ownerRef, 5, "discovery", "record_discovery"),
+		workflowActionCompletedFixture("lane-design", workID, ownerRef, 6, "design", "record_design"),
+		workflowActionCompletedFixture("lane-planning", workID, ownerRef, 7, "planning", "approve_contract"),
+		workflowEventWithActor("lane-start", WorkflowActionStarted, workID, ownerRef, map[string]any{"work_id": workID, "expected_version": 8, "resulting_version": 9, "step_id": "execution", "action_id": "start_execution", "attempt_epoch": 1, "accepted_inputs_digest": "sha256:" + strings.Repeat("a", 64), "idempotency_identity": "lane:start", "actor_ref": ownerRef, "execution_model": preferredModelForLane(lane)}),
+		workflowEvent("lane-actor", WorkflowActorRecorded, workID, map[string]any{"work_id": workID, "expected_version": 9, "resulting_version": 10, "actor_ref": laneRef, "principal_ref": laneActor.PrincipalRef, "client_ref": laneActor.ClientRef, "agent_ref": laneActor.AgentRef, "session_ref": laneActor.SessionRef, "actor_class": "agent"}),
+	}
+	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: setup, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 2}}); err != nil {
+		t.Fatal(err)
+	}
+	dispatch := Event{EventID: "lane-dispatch", Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:host", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: 4, Payload: mustJSONValue(map[string]any{
+		"attempt_id": attemptID, "lane_id": lane.ID, "lane_version": lane.Version, "lane_digest": lane.Digest,
+		"capability_class": lane.CapabilityClass, "packet_schema_version": WorkerPacketSchemaVersion, "report_schema_version": WorkerReportSchemaVersion,
+		"packet_digest": "sha256:" + strings.Repeat("b", 64), "readback_model": preferredModelForLane(lane), "lane_actor_ref": laneRef,
+	})}
+	completed := Event{EventID: "lane-completed", Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:host", OccurredAt: time.Unix(3, 0).UTC(), PayloadVersion: 1, Payload: mustJSONValue(WorkerCompletedPayload{AttemptID: attemptID, ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion})}
+	if err := ApplyOperation(ctx, s, Operation{Events: []Event{dispatch, completed}}); err != nil {
+		t.Fatalf("recording the dispatched lane attempt: %v", err)
+	}
+	var executing string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT execution_actor_ref FROM workflow_instances WHERE work_id=?`, workID).Scan(&executing); err != nil {
+		t.Fatal(err)
+	}
+	if executing != laneRef {
+		t.Fatalf("dispatch must pin the lane as executing actor: got %q, want %q", executing, laneRef)
+	}
+
+	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := enterFold(ctx, tx); err != nil {
+		tx.Rollback()
+		t.Fatal(err)
+	}
+	_, err = applyWorkflowActionRawTx(ctx, tx, BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
+		WorkID: workID, ExpectedVersion: 10, ActionID: "accept_worker_result", Payload: mustJSONValue(map[string]any{"attempt_id": attemptID, "attempt_epoch": 1}), Actor: owner,
+		AcceptedInputsDigest: "sha256:" + strings.Repeat("f", 64), IdempotencyIdentity: "lane:accept", OperationID: "lane:accept",
+		PrincipalRef: owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "lane:accept", RequestID: "request:lane:accept", ContractDigest: testManifestDigest, Now: time.Unix(4, 0).UTC(),
+	})
+	if err != nil {
+		_ = leaveFold(ctx, tx)
+		_ = tx.Rollback()
+		t.Fatalf("owner accepting the lane result was refused: %v", err)
+	}
+	if err := leaveFold(ctx, tx); err != nil {
+		tx.Rollback()
+		t.Fatal(err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	if got := currentStep(t, s, workID); got != "acceptance" {
+		t.Fatalf("accepted lane result advanced to %q, want acceptance", got)
+	}
+}
+
 func TestWorkerCannotRecordItsOwnVerdict(t *testing.T) {
 	ctx := context.Background()
 	s, workerRef := seedDispatchedWorkerAtExecution(t, "authority-self-verdict")

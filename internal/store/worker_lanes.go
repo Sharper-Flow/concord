@@ -79,6 +79,14 @@ type WorkerDispatchedPayload struct {
 	// Terminal is set.
 	TerminalFailureKind string `json:"terminal_failure_kind,omitempty"`
 	TerminalDetail      string `json:"terminal_detail,omitempty"`
+	// LaneActorRef names the workflow actor the dispatched lane executes as
+	// (issue #800 / CD-0017 D4): the lane is the bounded execution attempt
+	// of the external-effect step, recorded as a workflow actor whose tuple
+	// is derived from the lane identity and the attempt. Empty only on
+	// payloads that predate v4; the dispatch fold pins it as the workflow
+	// instance's executing actor so the owner's accept_worker_result is
+	// distinct from the party that executed.
+	LaneActorRef string `json:"lane_actor_ref,omitempty"`
 }
 
 // WorkerReportEvidence is one discharged lane evidence obligation as the
@@ -224,6 +232,12 @@ func validateWorkerDispatched(event Event, payload WorkerDispatchedPayload) erro
 	}
 	if payload.ReadbackModel != "" && !workerModelPattern.MatchString(payload.ReadbackModel) {
 		return invalidWorkerPayload("worker.dispatched readback_model has invalid shape")
+	}
+	// Issue #800 / CD-0017 D4: when the dispatch names the lane's executing
+	// actor it must name a well-formed actor ref. Empty is the pre-v4
+	// legacy shape and stays legal so replayed history folds unchanged.
+	if payload.LaneActorRef != "" && !workflowActorRefPattern.MatchString(payload.LaneActorRef) {
+		return invalidWorkerPayload("worker.dispatched lane_actor_ref must be an actor ref")
 	}
 	lane, err := LookupLane(payload.LaneID, payload.LaneVersion, payload.LaneDigest)
 	if err != nil {
@@ -500,7 +514,125 @@ func foldWorkerDispatched(ctx context.Context, tx *sql.Tx, event Event) error {
 		}
 		return wrapFailure(KindUnavailable, "fold_event", "cannot create worker attempt projection", true, "retry once the database is writable", err)
 	}
+	// Issue #800 / CD-0017 D4: a dispatched lane is the executing actor of
+	// the external-effect step its window opened on. The actor row itself
+	// is recorded by the workflow.actor_recorded event the dispatch
+	// operation prepends; this fold only refuses an unrecorded ref and pins
+	// the instance's executing actor, so accept_worker_result compares the
+	// owner against the party that actually executed. A work item without a
+	// running workflow instance keeps its projection untouched.
+	if payload.LaneActorRef != "" {
+		var exists int
+		if err := tx.QueryRowContext(ctx, `SELECT 1 FROM workflow_actors WHERE actor_ref=?`, payload.LaneActorRef).Scan(&exists); err != nil {
+			if err == sql.ErrNoRows {
+				return newFailure(KindInvalidPayload, "fold_event", "worker.dispatched lane_actor_ref is not a recorded workflow actor", false, "prepend the lane actor event to the dispatch operation")
+			}
+			return wrapFailure(KindUnavailable, "fold_event", "cannot read lane workflow actor", true, "retry once the database is readable", err)
+		}
+		if _, err := tx.ExecContext(ctx, `UPDATE workflow_instances SET execution_actor_ref=? WHERE work_id=?`, payload.LaneActorRef, event.SubjectID); err != nil {
+			return wrapFailure(KindUnavailable, "fold_event", "cannot pin lane executing actor", true, "retry once the database is writable", err)
+		}
+	}
 	return nil
+}
+
+// PrepareLaneActorDispatch turns one worker.dispatched event into the pair the
+// v4 evidence boundary requires (issue #800 / CD-0017 D4): a
+// workflow.actor_recorded event for the lane's executing identity, followed by
+// the dispatch event carrying the recorded actor ref. The lane actor's tuple is
+// derived, not supplied: the agent is the lane, the session is the attempt,
+// and the principal and client come from the host identity that authenticated
+// the dispatch. Callers run this inside the dispatch transaction so the actor
+// row and the attempt projection commit atomically. An already-enriched event
+// is returned unchanged, which makes the helper idempotent.
+func PrepareLaneActorDispatch(ctx context.Context, transaction *Transaction, dispatch Event, principalRef, clientRef string) ([]Event, error) {
+	tx, err := transactionSQL(transaction, "worker_lane_actor_prepare")
+	if err != nil {
+		return nil, err
+	}
+	var payload WorkerDispatchedPayload
+	if err := decodeClosedWorkerPayload(dispatch, &payload); err != nil {
+		return nil, err
+	}
+	if payload.LaneActorRef != "" {
+		return []Event{dispatch}, nil
+	}
+	if payload.AttemptID == "" || payload.LaneID == "" {
+		return nil, invalidWorkerPayload("worker.dispatched payload has invalid identity")
+	}
+	laneActor := WorkflowActor{
+		PrincipalRef: principalRef,
+		ClientRef:    clientRef,
+		AgentRef:     "agent/lane:" + payload.LaneID,
+		SessionRef:   "session/" + payload.AttemptID,
+		ActorClass:   ActorAgent,
+	}
+	laneRef, err := WorkflowActorRef(laneActor)
+	if err != nil {
+		return nil, err
+	}
+	version, exists, err := projectionVersion(ctx, tx, SubjectWorkItem, dispatch.SubjectID)
+	if err != nil {
+		return nil, err
+	}
+	if !exists {
+		return nil, newFailure(KindProjectionNotFound, "worker_lane_actor_prepare", "work item does not exist", false, "dispatch against an existing work item")
+	}
+	resulting := version + 1
+	actorPayload := workflowActorRecordedPayload{
+		WorkflowVersionFields: WorkflowVersionFields{WorkID: dispatch.SubjectID, ExpectedVersion: &version, ResultingVersion: &resulting},
+		ActorRef:              laneRef,
+		PrincipalRef:          laneActor.PrincipalRef,
+		ClientRef:             laneActor.ClientRef,
+		AgentRef:              laneActor.AgentRef,
+		SessionRef:            laneActor.SessionRef,
+		ActorClass:            string(ActorAgent),
+	}
+	actorRaw, err := json.Marshal(actorPayload)
+	if err != nil {
+		return nil, wrapFailure(KindInvalidPayload, "worker_lane_actor_prepare", "cannot encode lane actor payload", false, "report the encoding failure", err)
+	}
+	payload.LaneActorRef = laneRef
+	dispatchRaw, err := json.Marshal(payload)
+	if err != nil {
+		return nil, wrapFailure(KindInvalidPayload, "worker_lane_actor_prepare", "cannot encode enriched dispatch payload", false, "report the encoding failure", err)
+	}
+	actorEvent := Event{
+		EventID: dispatch.EventID + ":lane-actor", Kind: WorkflowActorRecorded,
+		SubjectType: dispatch.SubjectType, SubjectID: dispatch.SubjectID, Actor: dispatch.Actor,
+		OccurredAt: dispatch.OccurredAt, PayloadVersion: 1, Payload: actorRaw,
+	}
+	dispatch.Payload = dispatchRaw
+	dispatch.PayloadVersion = 4
+	return []Event{actorEvent, dispatch}, nil
+}
+
+// AppendLaneActorDispatchTx appends the enriched dispatch pair through the
+// authoritative workflow route (issue #800 / CD-0017 D4). The worker-dispatch
+// evidence boundary is an authoritative route — it validated a signed
+// assertion before reaching here — but only for this closed shape: one lane
+// actor event whose identity is derived from the dispatch it precedes, and
+// the dispatch event itself. The grant does not extend to any other workflow
+// event and cannot be reached through the generic append APIs.
+func AppendLaneActorDispatchTx(ctx context.Context, transaction *Transaction, events []Event) (ApplyOperationResult, error) {
+	if len(events) != 2 || events[0].Kind != WorkflowActorRecorded || events[1].Kind != WorkerDispatched {
+		return ApplyOperationResult{}, newFailure(KindInvalidOperation, "worker_lane_actor_append", "lane actor dispatch pair has an unexpected shape", false, "build the pair with PrepareLaneActorDispatch")
+	}
+	if events[0].SubjectType != events[1].SubjectType || events[0].SubjectID != events[1].SubjectID || events[0].EventID != events[1].EventID+":lane-actor" {
+		return ApplyOperationResult{}, newFailure(KindInvalidOperation, "worker_lane_actor_append", "lane actor event does not derive from its dispatch", false, "build the pair with PrepareLaneActorDispatch")
+	}
+	tx, err := transactionSQL(transaction, "worker_lane_actor_append")
+	if err != nil {
+		return ApplyOperationResult{}, err
+	}
+	if err := enterFold(ctx, tx); err != nil {
+		return ApplyOperationResult{}, err
+	}
+	result, err := applyWorkflowOperationTx(ctx, tx, Operation{Events: events})
+	if leaveErr := leaveFold(ctx, tx); err == nil && leaveErr != nil {
+		return ApplyOperationResult{}, leaveErr
+	}
+	return result, err
 }
 
 func foldWorkerCompleted(ctx context.Context, tx *sql.Tx, event Event) error {
@@ -722,5 +854,14 @@ func upcastWorkerDispatchedV2(event Event) (Event, error) {
 	}
 	event.PayloadVersion = 3
 	event.Payload = raw
+	return event, nil
+}
+
+// upcastWorkerDispatchedV3 carries a v3 dispatch into v4. The only v4
+// addition is lane_actor_ref, which v3 payloads never carried: a replayed
+// dispatch stays a legacy dispatch and pins no executing actor, matching the
+// behavior of the store that originally recorded it.
+func upcastWorkerDispatchedV3(event Event) (Event, error) {
+	event.PayloadVersion = 4
 	return event, nil
 }

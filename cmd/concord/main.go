@@ -511,6 +511,22 @@ func applyWorkerEvidence(ctx context.Context, command string, s *store.Store, se
 			return err
 		}
 		event.Actor = "client:" + assertion.ClientRef + ":" + principal
+		if binding.Verb == agent.WorkerEvidenceVerbDispatch {
+			// Issue #800 / CD-0017 D4: the dispatched lane is the step's
+			// executing actor. The actor is recorded and pinned in the same
+			// transaction as the attempt, from the host identity that
+			// authenticated the dispatch.
+			prepared, prepareErr := store.PrepareLaneActorDispatch(ctx, tx, event, "principal:"+principal, "client:"+assertion.ClientRef)
+			if prepareErr != nil {
+				return prepareErr
+			}
+			result, applyErr := store.AppendLaneActorDispatchTx(ctx, tx, prepared)
+			if applyErr != nil {
+				return applyErr
+			}
+			eventIDs = result.EventIDs
+			return nil
+		}
 		result, err := store.ApplyOperationTx(ctx, tx, store.Operation{Events: []store.Event{event}})
 		if err != nil {
 			return err

@@ -47,6 +47,22 @@ describe("plugin entry registers the dispatch window hook", () => {
     await plugin["tool.execute.before"]({ tool: "read", sessionID: "session-none", callID: "call-3" }, other)
     expect(other.args.filePath).toBe("/x")
   })
+
+  // CD-0102 D5: the completion entry point is reachable only if the entry module
+  // registers it. A dispatch with no registered completion records no attempt.
+  test("registers the completion hook and leaves an unbound call untouched", async () => {
+    const plugin = (await ConcordAdapterPlugin()) as {
+      "tool.execute.after": (
+        i: { tool: string; sessionID: string; callID: string; args: unknown },
+        o: { title: string; output: string; metadata: unknown },
+      ) => Promise<void>
+    }
+    expect(typeof plugin["tool.execute.after"]).toBe("function")
+
+    const output = { title: "read", output: "file contents", metadata: {} }
+    await plugin["tool.execute.after"]({ tool: "read", sessionID: "session-none", callID: "call-4", args: {} }, output)
+    expect(output.output).toBe("file contents")
+  })
 })
 
 // CD-0098 D2. The control plane takes its transport from the client the host

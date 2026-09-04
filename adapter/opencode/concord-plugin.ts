@@ -31,6 +31,7 @@ import type { PluginInput } from "@opencode-ai/plugin"
 import { createContinuityTransform } from "./continuity-hook"
 import { createAgentSwitchNotice } from "./agent-switch-hook"
 import { dispatchWindows } from "./dispatch-window"
+import { completeDispatchedTaskCall } from "./dispatch"
 import { hostControlPlane } from "./move-session"
 
 // The plugin factory is the only place the host hands over its own client, and
@@ -67,6 +68,16 @@ export default async function ConcordAdapterPlugin(input?: Partial<PluginInput>)
       output: { args: Record<string, unknown> },
     ) => {
       dispatchWindows().bind(input.tool, input.sessionID, output.args)
+    },
+    // CD-0102 D5. Dispatch and completion are two entry points because the host
+    // runs the worker between them. This hook is the second: it admits the
+    // finished attempt as durable evidence. Without it a lane returns a clean
+    // report that nothing records, and the dispatching step cannot advance.
+    "tool.execute.after": async (
+      input: { tool: string; sessionID: string; callID: string; args: unknown },
+      output: { title: string; output: string; metadata: unknown },
+    ) => {
+      await completeDispatchedTaskCall(input.tool, input.sessionID, output)
     },
     "experimental.chat.system.transform": async (input: unknown, output: { system: string[] }) => {
       await continuityTransform(input, output)

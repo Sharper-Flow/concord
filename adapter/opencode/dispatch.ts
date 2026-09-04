@@ -2,7 +2,7 @@ import { sign as signBytes } from "node:crypto"
 import { agentLanePacketSchema, agentLaneReportSchema, agentLanes, type AgentLane } from "./generated-agent-lanes"
 import { maxEnvelopeBytes } from "./generated-contracts"
 import { SecretToolCredentialStore, b64, clientRef, privateKeyObject, randomNonce, type CredentialStore } from "./credentials"
-import { dispatchWindows, DispatchWindowError, type DispatchWindows } from "./dispatch-window"
+import { dispatchWindows, DispatchWindowError, TASK_TOOL_ID, type DispatchWindows } from "./dispatch-window"
 import { readTaskResult } from "./task-result"
 
 export const MAX_OUTPUT_BYTES = 65_536
@@ -786,6 +786,37 @@ export async function dispatchWorker(packet: unknown, options: { signal?: AbortS
   const directive = baseEnvelope(lane, packet, "ok")
   directive.dispatch_state = "awaiting_worker"
   return directive
+}
+
+// completeDispatchedTaskCall is the `tool.execute.after` body. The host runs the
+// worker between dispatch and completion (CD-0102 D5), so this is where the
+// adapter regains control: it takes the attempt the window put in flight and
+// admits the host's rendered task output as that attempt's result.
+//
+// A call the window never bound is not a worker result, and neither is a call to
+// another tool. Both leave the output untouched, because this hook observes every
+// tool call in the session.
+export async function completeDispatchedTaskCall(
+  tool: string,
+  sessionID: string,
+  output: { output: string },
+  options: { windows?: DispatchWindows; signal?: AbortSignal; runner?: DispatchRunner; readbackRunner?: DispatchRunner; evidenceRunner?: DispatchRunner; binary?: string; concordBinary?: string; credentials?: CredentialStore } = {},
+): Promise<void> {
+  if (tool !== TASK_TOOL_ID) return
+  const record = (options.windows ?? dispatchWindows()).takeInFlight(sessionID)
+  if (!record) return
+  const lane = laneForPacket(record.packet)
+  const signal = options.signal ?? new AbortController().signal
+  // A packet whose lane no longer resolves cannot be completed, and silence
+  // would report the run as if it had been recorded.
+  const envelope = lane
+    ? await completeWorkerAttempt(lane, record.packet, output.output, { ...options, packetDigest: record.packetDigest }, signal)
+    : errorEnvelopeForLane(null, record.packet, "error", "invalid_input", `dispatched lane ${JSON.stringify(record.packet.lane_id)} is not installed at the dispatched version and digest`, "contact_operator")
+  if (envelope.outcome === "ok") return
+  // The coordinator reads the tool result, not the adapter's return value. A
+  // refusal that stayed here would leave a clean-looking lane report beside a
+  // store that recorded nothing — the failure this whole route exists to end.
+  output.output = `${output.output}\n${JSON.stringify(envelope)}`
 }
 
 // completeWorkerAttempt admits a finished worker: it reads executing-model and

@@ -2,7 +2,9 @@
 """Integration tests for the Concord installer using temporary roots."""
 from __future__ import annotations
 
+import contextlib
 import hashlib
+import io
 import json
 import os
 import subprocess
@@ -645,17 +647,20 @@ esac''',
 
     # --- #648: per-project session shards are not durable data homes ----
 
-    def test_paths_for_refuses_opencode_projects_shard(self) -> None:
+    def test_paths_for_redirects_opencode_projects_shard_to_the_durable_root(self) -> None:
         shard = self.root / ".local" / "share" / "opencode-projects" / "abc123"
+        durable = self.root / ".local" / "share" / "concord"
+        stderr = io.StringIO()
         with mock.patch.dict(installer.os.environ, {"XDG_DATA_HOME": str(shard)}, clear=False), mock.patch.object(
             installer.Path, "home", return_value=self.root
-        ):
-            with self.assertRaises(installer.InstallerError) as raised:
-                installer.paths_for(None)
-        message = str(raised.exception)
+        ), contextlib.redirect_stderr(stderr):
+            paths = installer.paths_for(None)
+        self.assertEqual(paths.data_root, durable)
+        self.assertEqual(paths.stable_root, durable / installer.STABLE_ROOT_NAME)
+        message = stderr.getvalue()
         self.assertIn("per-project session shard", message)
-        self.assertIn(str(shard / "concord"), message)
-        self.assertIn("env -u XDG_DATA_HOME", message)
+        self.assertIn(str(shard), message)
+        self.assertIn(str(durable), message)
 
     def test_paths_for_honors_a_durable_xdg_override(self) -> None:
         durable = self.root / "data"

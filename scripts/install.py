@@ -161,19 +161,22 @@ def paths_for(root: Path | None) -> Paths:
         bin_dir = home / "bin"
     else:
         home = Path.home()
-        data_home = Path(os.environ.get("XDG_DATA_HOME", home / ".local" / "share"))
+        durable_data_home = home / ".local" / "share"
+        data_home = Path(os.environ.get("XDG_DATA_HOME", durable_data_home))
         # A per-project session shard (the `oc` wrapper sets XDG_DATA_HOME to
         # one) is not a durable data home: an install there scatters versioned
         # assets and the install manifest where no later run looks, and the
         # next install outside the session then classifies every installed
-        # file as user-authored. Refuse by name instead (#648).
+        # file as user-authored. The durable default is the only root a later
+        # run consults, so resolve it and say so (#648).
         if "/opencode-projects/" in str(data_home):
-            raise InstallerError(
-                "refusing installer data root under a per-project session shard: "
-                f"XDG_DATA_HOME={data_home} would install under {data_home / 'concord'} "
-                f"instead of the durable {home / '.local' / 'share' / 'concord'}; "
-                "rerun with `env -u XDG_DATA_HOME` or a durable XDG_DATA_HOME"
+            print(
+                "installer data root: XDG_DATA_HOME="
+                f"{data_home} is a per-project session shard; using the durable "
+                f"{durable_data_home / 'concord'} instead",
+                file=sys.stderr,
             )
+            data_home = durable_data_home
         config_home = Path(os.environ.get("XDG_CONFIG_HOME", home / ".config"))
         bin_dir = home / ".local" / "bin"
     return Paths(

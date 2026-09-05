@@ -429,7 +429,7 @@ const GeneratedPayloadSchemaDocument = `{
         },
         "evidence_refs": {
           "items": {
-            "$ref": "#/$defs/id"
+            "$ref": "#/$defs/reference"
           },
           "maxItems": 64,
           "minItems": 1,
@@ -443,7 +443,7 @@ const GeneratedPayloadSchemaDocument = `{
         },
         "pending_decisions": {
           "items": {
-            "$ref": "#/$defs/id"
+            "$ref": "#/$defs/reference"
           },
           "maxItems": 16,
           "type": "array",
@@ -451,7 +451,7 @@ const GeneratedPayloadSchemaDocument = `{
         },
         "pending_questions": {
           "items": {
-            "$ref": "#/$defs/id"
+            "$ref": "#/$defs/reference"
           },
           "maxItems": 16,
           "type": "array",
@@ -471,7 +471,7 @@ const GeneratedPayloadSchemaDocument = `{
         },
         "touched_refs": {
           "items": {
-            "$ref": "#/$defs/id"
+            "$ref": "#/$defs/reference"
           },
           "maxItems": 64,
           "minItems": 1,
@@ -3378,6 +3378,13 @@ const GeneratedPayloadSchemaDocument = `{
         }
       },
       "type": "object"
+    },
+    "reference": {
+      "description": "One whitespace-free reference the workflow payload validator admits: a path, a URL, a commit, or an id.",
+      "maxLength": 128,
+      "minLength": 2,
+      "pattern": "^\\S+$",
+      "type": "string"
     },
     "relation_link_kind": {
       "description": "Stored relation kinds an ordinary relate.link request may name. Derived from contracts/relation-vocabulary.v1.json: every kind whose link is allowed or refused. A refused kind is admitted here so the runtime can answer with the composite operation that owns it, rather than a bare enum mismatch.",

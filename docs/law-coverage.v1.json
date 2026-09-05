@@ -1720,6 +1720,24 @@
       "evidence": [
         {
           "kind": "go_test",
+          "value": "cmd/concord.TestWorkBootstrapChainsFromCleanTerminalWorktreeAtDefaultBranch"
+        },
+        {
+          "kind": "go_test",
+          "value": "cmd/concord.TestWorkBootstrapRequiresRequestedProjectMainCheckout"
+        },
+        {
+          "kind": "adapter_test",
+          "value": "adapter/opencode/concord.test.ts#work_start derives one Project and Product from project-resolve before mutation"
+        }
+      ],
+      "id": "CD-0110",
+      "state": "satisfied"
+    },
+    {
+      "evidence": [
+        {
+          "kind": "go_test",
           "value": "internal/store.TestAcceptedQ1ToQ10Corpus"
         }
       ],

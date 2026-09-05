@@ -268,7 +268,7 @@ func TestWorkBootstrapRequiresRequestedProjectMainCheckout(t *testing.T) {
 	}
 	t.Chdir(repoA)
 	var out, errOut bytes.Buffer
-	if code := runWorkBootstrap(input, s, &out, &errOut); code == 0 || !strings.Contains(errOut.String(), "requested Project main checkout") {
+	if code := runWorkBootstrap(input, s, &out, &errOut); code == 0 || !strings.Contains(errOut.String(), "requested Project") {
 		t.Fatalf("two-Project mismatch code=%d stderr=%q", code, errOut.String())
 	}
 	var journalCount int
@@ -287,8 +287,76 @@ func TestWorkBootstrapRequiresRequestedProjectMainCheckout(t *testing.T) {
 		t.Fatal(err)
 	}
 	out, errOut = bytes.Buffer{}, bytes.Buffer{}
-	if code := runWorkBootstrap(raw, s, &out, &errOut); code == 0 || !strings.Contains(errOut.String(), "requested Project main checkout") {
+	if code := runWorkBootstrap(raw, s, &out, &errOut); code == 0 || !strings.Contains(errOut.String(), "live work item") {
 		t.Fatalf("linked-worktree invocation code=%d stderr=%q", code, errOut.String())
+	}
+}
+
+func TestWorkBootstrapChainsFromCleanTerminalWorktreeAtDefaultBranch(t *testing.T) {
+	repo := initLocatorRepo(t)
+	s := mustOpenStore(t, filepath.Join(t.TempDir(), "concord.db"))
+	seedLocatorAuthority(t, s, repo)
+	originRequest := bootstrapRequest()
+	originRequest.IdempotencyKey = "bootstrap-terminal-origin"
+	origin, err := s.BootstrapWorktree(context.Background(), originRequest, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defaultSHA := strings.TrimSpace(gitOutput(t, repo, "rev-parse", "origin/main"))
+	if err := os.WriteFile(filepath.Join(origin.Entry.Path, "origin.txt"), []byte("terminal origin\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	command := exec.Command("git", "-C", origin.Entry.Path, "add", "origin.txt")
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("git add: %v\n%s", err, output)
+	}
+	command = exec.Command("git", "-C", origin.Entry.Path, "commit", "-q", "-m", "origin change")
+	command.Env = append(os.Environ(), "GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t")
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("git commit: %v\n%s", err, output)
+	}
+	originSHA := strings.TrimSpace(gitOutput(t, origin.Entry.Path, "rev-parse", "HEAD"))
+	if originSHA == defaultSHA {
+		t.Fatal("terminal origin did not advance beyond the default branch")
+	}
+	terminalPayload, err := json.Marshal(map[string]any{"from": "needed", "to": "completed", "reason": "fixture terminal", "expected_version": origin.WorkVersion, "resulting_version": origin.WorkVersion + 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.ApplyOperation(context.Background(), s, store.Operation{Events: []store.Event{{EventID: "terminal-origin-complete", Kind: "work.transitioned", SubjectType: store.SubjectWorkItem, SubjectID: origin.WorkID, Actor: "operator", OccurredAt: time.Unix(10, 0).UTC(), PayloadVersion: 1, Payload: terminalPayload}}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, origin.WorkID): origin.WorkVersion}}); err != nil {
+		t.Fatal(err)
+	}
+
+	request := bootstrapRequest()
+	request.IdempotencyKey = "bootstrap-chained"
+	raw, err := json.Marshal(workBootstrapInput{ProductID: request.ProductID, ProjectID: request.ProjectID, Title: request.Title, ValueStatement: request.ValueStatement, Kind: request.Kind, Task: request.Task, IdempotencyKey: request.IdempotencyKey})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(origin.Entry.Path)
+	var out, errOut bytes.Buffer
+	if err := os.WriteFile("dirty.txt", []byte("keep here\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if code := runWorkBootstrap(raw, s, &out, &errOut); code == 0 || !strings.Contains(errOut.String(), "dirty terminal worktree") {
+		t.Fatalf("dirty chained bootstrap code=%d stdout=%q stderr=%q", code, out.String(), errOut.String())
+	}
+	if err := os.Remove("dirty.txt"); err != nil {
+		t.Fatal(err)
+	}
+	out, errOut = bytes.Buffer{}, bytes.Buffer{}
+	if code := runWorkBootstrap(raw, s, &out, &errOut); code != 0 {
+		t.Fatalf("chained bootstrap code=%d stdout=%q stderr=%q", code, out.String(), errOut.String())
+	}
+	var chained workBootstrapOutput
+	if err := json.Unmarshal(out.Bytes(), &chained); err != nil {
+		t.Fatal(err)
+	}
+	if chained.WorkID == origin.WorkID || chained.Worktree.BaseSHA != defaultSHA {
+		t.Fatalf("chained work=%+v default=%s origin=%s", chained, defaultSHA, originSHA)
+	}
+	if _, err := os.Stat(origin.Entry.Path); err != nil {
+		t.Fatalf("origin worktree was removed: %v", err)
 	}
 }
 

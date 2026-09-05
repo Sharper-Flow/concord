@@ -398,7 +398,7 @@ func ValidateWorkflowDefinition(definition WorkflowDefinition) error {
 		return definitionFailure(KindInvalidDefinition, "definition evidence, outcome, rigor, staleness, or composition rules are invalid")
 	}
 	for _, rule := range definition.StalenessRules {
-		if !validWorkflowID(rule.ID) || !validWorkflowRef(rule.InputRef) && !validReference(rule.InputRef) || (rule.Severity != "warning" && rule.Severity != "block") {
+		if !validWorkflowID(rule.ID) || !validWorkflowRef(rule.InputRef) && !ValidReference(rule.InputRef) || (rule.Severity != "warning" && rule.Severity != "block") {
 			return definitionFailure(KindInvalidDefinition, "staleness rule is invalid")
 		}
 	}
@@ -640,7 +640,18 @@ func validActionApproval(value ActionApproval) bool {
 func validActionExecutionMode(value ActionExecutionMode) bool {
 	return value == ActionAdvance || value == ActionHold || value == ActionFenced || value == ActionCheckpoint
 }
-func validReference(value string) bool {
+
+// WorkflowPremiseMaxLength is the single bound for a workflow contract
+// premise. The generated continuity read schema carries the same number in
+// $defs/workflow_premise; internal/agent's round-trip test fails when the two
+// drift apart.
+const WorkflowPremiseMaxLength = 4096
+
+// ValidReference reports whether a workflow reference list item is storable.
+// The generated continuity read schema carries the same rule in
+// $defs/reference; internal/agent's round-trip test fails when the two drift
+// apart.
+func ValidReference(value string) bool {
 	return len(value) >= 2 && len(value) <= 128 && !strings.ContainsAny(value, " \t\r\n")
 }
 func containsString(values []string, want string) bool {

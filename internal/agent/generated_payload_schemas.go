@@ -429,7 +429,7 @@ const GeneratedPayloadSchemaDocument = `{
         },
         "evidence_refs": {
           "items": {
-            "$ref": "#/$defs/id"
+            "$ref": "#/$defs/reference"
           },
           "maxItems": 64,
           "minItems": 1,
@@ -443,7 +443,7 @@ const GeneratedPayloadSchemaDocument = `{
         },
         "pending_decisions": {
           "items": {
-            "$ref": "#/$defs/id"
+            "$ref": "#/$defs/reference"
           },
           "maxItems": 16,
           "type": "array",
@@ -451,7 +451,7 @@ const GeneratedPayloadSchemaDocument = `{
         },
         "pending_questions": {
           "items": {
-            "$ref": "#/$defs/id"
+            "$ref": "#/$defs/reference"
           },
           "maxItems": 16,
           "type": "array",
@@ -471,7 +471,7 @@ const GeneratedPayloadSchemaDocument = `{
         },
         "touched_refs": {
           "items": {
-            "$ref": "#/$defs/id"
+            "$ref": "#/$defs/reference"
           },
           "maxItems": 64,
           "minItems": 1,
@@ -3378,6 +3378,13 @@ const GeneratedPayloadSchemaDocument = `{
         }
       },
       "type": "object"
+    },
+    "reference": {
+      "description": "A workflow reference list item: whitespace-free, 2-128 chars, matching the store's ValidReference. Slashes are allowed because touched refs name repository paths.",
+      "maxLength": 128,
+      "minLength": 2,
+      "pattern": "^\\S+$",
+      "type": "string"
     },
     "relation_link_kind": {
       "description": "Stored relation kinds an ordinary relate.link request may name. Derived from contracts/relation-vocabulary.v1.json: every kind whose link is allowed or refused. A refused kind is admitted here so the runtime can answer with the composite operation that owns it, rather than a bare enum mismatch.",
@@ -7108,7 +7115,7 @@ const GeneratedPayloadSchemaDocument = `{
           "type": "array"
         },
         "premise": {
-          "$ref": "#/$defs/short"
+          "$ref": "#/$defs/workflow_premise"
         },
         "required_evidence": {
           "items": {
@@ -7151,6 +7158,12 @@ const GeneratedPayloadSchemaDocument = `{
         "changes_product_truth"
       ],
       "type": "object"
+    },
+    "workflow_premise": {
+      "description": "Bound matches the store's contract premise write validation (WorkflowPremiseMaxLength).",
+      "maxLength": 4096,
+      "minLength": 1,
+      "type": "string"
     },
     "workflow_read": {
       "additionalProperties": false,

@@ -476,7 +476,7 @@ func validateWorkflowPayloadValue(field WorkflowPayloadField, raw json.RawMessag
 		if !ok {
 			return false
 		}
-		if field.ValueType == PayloadRef && !validReference(text) {
+		if field.ValueType == PayloadRef && !ValidReference(text) {
 			return false
 		}
 		if field.ValueType == PayloadDigest && !workflowDigestPattern.MatchString(text) {
@@ -497,7 +497,7 @@ func validateWorkflowPayloadValue(field WorkflowPayloadField, raw json.RawMessag
 		seen := make(map[string]struct{}, len(values))
 		for _, item := range values {
 			text, ok := item.(string)
-			if !ok || !validReference(text) {
+			if !ok || !ValidReference(text) {
 				return false
 			}
 			if _, exists := seen[text]; exists {

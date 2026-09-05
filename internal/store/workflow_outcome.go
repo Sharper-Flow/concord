@@ -657,7 +657,7 @@ func ValidateWorkflowActorModel(model string) error {
 }
 
 func ValidateWorkflowActor(actor WorkflowActor) error {
-	if !validReference(actor.PrincipalRef) || !validReference(actor.ClientRef) || !validReference(actor.AgentRef) || !validReference(actor.SessionRef) || (actor.ActorClass != ActorAgent && actor.ActorClass != ActorOperator) {
+	if !ValidReference(actor.PrincipalRef) || !ValidReference(actor.ClientRef) || !ValidReference(actor.AgentRef) || !ValidReference(actor.SessionRef) || (actor.ActorClass != ActorAgent && actor.ActorClass != ActorOperator) {
 		return newFailure(KindUnauthorized, "workflow_actor", "actor tuple is incomplete or has an unknown actor class", false, "supply all four authenticated actor references")
 	}
 	if actor.ActorRef != "" && actor.ActorRef != DeriveWorkflowActorRef(actor.PrincipalRef, actor.ClientRef, actor.AgentRef, actor.SessionRef) {

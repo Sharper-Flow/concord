@@ -6,7 +6,7 @@ import (
 	"fmt"
 )
 
-const ManifestDigest = "sha256:2d7e8940de775fb32e5395d3123606a612c031bdb5c3f3928f38ec66b895441b"
+const ManifestDigest = "sha256:47ac8bd758ee011863058189a437e6328a3448ec6459c9f0d389739d5901b47e"
 
 type OperationKind string
 
@@ -126,8 +126,10 @@ var GeneratedPayloadRules = map[string]GeneratedPayloadRule{
 	"blocked_work_page":                            {Required: []string{"items", "nodes", "edges"}, Properties: []string{"items", "nodes", "edges", "next_cursor"}},
 	"budget":                                       {Required: []string{"max_bytes", "max_items"}, Properties: []string{"max_bytes", "max_items", "max_millis"}},
 	"canonical_note_result":                        {Required: []string{"state"}, Properties: []string{"state", "locator", "candidates"}},
+	"compatible_law_amendment":                     {Required: []string{"law_id", "pinned_hash", "current_hash"}, Properties: []string{"law_id", "pinned_hash", "current_hash"}},
 	"continuity_boundary":                          {Required: []string{"boundary_id", "sequence", "kind", "checkpoint_id", "checkpoint_sequence", "summary", "recorded_at"}, Properties: []string{"boundary_id", "sequence", "kind", "checkpoint_id", "checkpoint_sequence", "summary", "recorded_at"}},
 	"continuity_checkpoint":                        {Required: []string{"checkpoint_id", "work_version", "sequence", "step_id", "attempt_epoch", "active_unit", "hypothesis", "diagnosis", "strategy", "touched_refs", "evidence_refs", "pending_questions", "pending_decisions"}, Properties: []string{"checkpoint_id", "work_version", "sequence", "step_id", "attempt_epoch", "active_unit", "hypothesis", "diagnosis", "strategy", "touched_refs", "evidence_refs", "pending_questions", "pending_decisions"}},
+	"continuity_domain_overlap":                    {Required: []string{"product_id", "from_work_id", "to_work_id", "from_contract_version", "to_contract_version", "shared_affected_domain_ids", "shared_law_ids", "shared_domain_modifications", "shared_relation_tuples", "overlap_classes", "resolution_state", "recovery_actions", "shared_affected_domain_count", "shared_law_count", "shared_domain_modification_count", "shared_relation_tuple_count", "detail_truncated"}, Properties: []string{"product_id", "from_work_id", "to_work_id", "from_contract_version", "to_contract_version", "shared_affected_domain_ids", "shared_law_ids", "shared_domain_modifications", "shared_relation_tuples", "overlap_classes", "resolution_state", "resolution_kind", "recovery_actions", "shared_affected_domain_count", "shared_law_count", "shared_domain_modification_count", "shared_relation_tuple_count", "detail_truncated"}},
 	"continuity_failure":                           {Required: []string{"kind", "recoverable", "step_id", "attempt_epoch"}, Properties: []string{"kind", "recoverable", "step_id", "attempt_epoch"}},
 	"continuity_operator_decision":                 {Required: []string{"action_id", "prompt", "header", "choices", "allow_multiple", "allow_custom", "premise_summary", "contract_summary", "decision_context_digest"}, Properties: []string{"action_id", "prompt", "header", "choices", "allow_multiple", "allow_custom", "premise_summary", "contract_summary", "decision_context_digest"}},
 	"continuity_snapshot":                          {Required: []string{"work_id", "pinned", "latest_checkpoint", "boundaries", "typed_availability", "pending_messages"}, Properties: []string{"work_id", "pinned", "latest_checkpoint", "boundaries", "typed_availability", "observations", "pending_messages", "workflow_status"}},

@@ -1961,6 +1961,17 @@ func ContinuityPayload(snapshot store.ContinuitySnapshot) map[string]any {
 		stepActions = []string{}
 	}
 	pinned := map[string]any{"product_identity": snapshot.ProductIdentity, "workflow_step": snapshot.WorkflowStep, "step_actions": stepActions, "contract": snapshot.Contract, "spec_mandate": snapshot.SpecMandate, "pending_operator_decision": snapshot.PendingOperatorDecision, "latest_checkpoint": snapshot.LatestCheckpoint, "unresolved_failure": snapshot.UnresolvedFailure}
+	// Empty peer signals stay out of the prompt. This keeps the unchanged
+	// projection's bytes stable while non-empty signals remain visible.
+	if len(snapshot.UnresolvedOverlaps) > 0 {
+		pinned["unresolved_overlaps"] = snapshot.UnresolvedOverlaps
+	}
+	if len(snapshot.CompatibleLawAmendments) > 0 {
+		pinned["compatible_law_amendments"] = snapshot.CompatibleLawAmendments
+	}
+	if snapshot.StaleLawRevision != nil {
+		pinned["stale_law_revision"] = snapshot.StaleLawRevision
+	}
 	// CD-0096 D5: the pinned projection carries the reading session's held
 	// verify leases. The absent field keeps the work-keyed boot bytes
 	// byte-stable (CD-0090 D3).

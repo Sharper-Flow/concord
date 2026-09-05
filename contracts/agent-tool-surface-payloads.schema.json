@@ -1480,6 +1480,188 @@
         }
       }
     },
+    "compatible_law_amendment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "law_id",
+        "pinned_hash",
+        "current_hash"
+      ],
+      "properties": {
+        "law_id": {
+          "$ref": "#/$defs/law_id"
+        },
+        "pinned_hash": {
+          "$ref": "#/$defs/digest"
+        },
+        "current_hash": {
+          "$ref": "#/$defs/digest"
+        }
+      }
+    },
+    "continuity_domain_overlap": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "product_id",
+        "from_work_id",
+        "to_work_id",
+        "from_contract_version",
+        "to_contract_version",
+        "shared_affected_domain_ids",
+        "shared_law_ids",
+        "shared_domain_modifications",
+        "shared_relation_tuples",
+        "overlap_classes",
+        "resolution_state",
+        "recovery_actions",
+        "shared_affected_domain_count",
+        "shared_law_count",
+        "shared_domain_modification_count",
+        "shared_relation_tuple_count",
+        "detail_truncated"
+      ],
+      "properties": {
+        "product_id": {
+          "$ref": "#/$defs/id"
+        },
+        "from_work_id": {
+          "$ref": "#/$defs/id"
+        },
+        "to_work_id": {
+          "$ref": "#/$defs/id"
+        },
+        "from_contract_version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "to_contract_version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "shared_affected_domain_ids": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 20,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/domain_id"
+          }
+        },
+        "shared_law_ids": {
+          "type": "array",
+          "maxItems": 20,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/law_id"
+          }
+        },
+        "shared_domain_modifications": {
+          "type": "array",
+          "maxItems": 20,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/domain_id"
+          }
+        },
+        "shared_relation_tuples": {
+          "type": "array",
+          "maxItems": 20,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "source_domain_id",
+              "kind",
+              "target_domain_id"
+            ],
+            "properties": {
+              "source_domain_id": {
+                "$ref": "#/$defs/domain_id"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "depends_on",
+                  "shares_contract_with",
+                  "replaces"
+                ]
+              },
+              "target_domain_id": {
+                "$ref": "#/$defs/domain_id"
+              }
+            }
+          }
+        },
+        "overlap_classes": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 4,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "enum": [
+              "architecture",
+              "law_write",
+              "domain_write",
+              "domain_relation_write"
+            ]
+          }
+        },
+        "resolution_state": {
+          "type": "string",
+          "enum": [
+            "unresolved",
+            "stale"
+          ]
+        },
+        "resolution_kind": {
+          "type": "string",
+          "enum": [
+            "compatible_with",
+            "depends_on",
+            "blocks",
+            "merged_into",
+            "supersedes"
+          ]
+        },
+        "recovery_actions": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 4,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "enum": [
+              "wait",
+              "resolve_overlap",
+              "terminal_work",
+              "supersede_contract"
+            ]
+          }
+        },
+        "shared_affected_domain_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "shared_law_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "shared_domain_modification_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "shared_relation_tuple_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "detail_truncated": {
+          "type": "boolean"
+        }
+      }
+    },
     "continuity_failure": {
       "type": "object",
       "additionalProperties": false,
@@ -1600,6 +1782,21 @@
                   "type": "null"
                 }
               ]
+            },
+            "unresolved_overlaps": {
+              "type": "array",
+              "maxItems": 20,
+              "items": {
+                "$ref": "#/$defs/continuity_domain_overlap"
+              }
+            },
+            "compatible_law_amendments": {
+              "type": "array",
+              "maxItems": 32,
+              "uniqueItems": true,
+              "items": {
+                "$ref": "#/$defs/compatible_law_amendment"
+              }
             },
             "active_verify_leases": {
               "description": "CD-0096 D5: the reading session's held verify leases, newest first, bounded. Absent when the session named no identity or holds none.",

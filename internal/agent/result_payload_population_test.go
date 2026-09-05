@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/sharper-flow/concord/internal/pm1fixture"
@@ -104,6 +105,14 @@ func fullyPopulatedContinuitySnapshot() store.ContinuitySnapshot {
 			RecordedAt:    "2026-01-01T00:00:00Z",
 		}},
 		ChangesProductTruth: true,
+		UnresolvedOverlaps: []store.WorkflowDomainOverlap{{
+			ProductID: "product-1", FromWorkID: "work-1", ToWorkID: "work-2", FromContractVersion: 1, ToContractVersion: 1,
+			SharedAffectedDomainIDs: []string{"domain-1"}, SharedLawIDs: []string{"spec-1"}, SharedDomainModifications: []string{"domain-1"},
+			SharedRelationTuples: []store.WorkflowDomainRelationTuple{{SourceDomainID: "domain-1", Kind: "depends_on", TargetDomainID: "domain-2"}},
+			OverlapClasses:       []string{"architecture"}, ResolutionState: "unresolved", RecoveryActions: []string{"wait"},
+			SharedAffectedDomainCount: 1, SharedLawCount: 1, SharedDomainModificationCount: 1, SharedRelationTupleCount: 1,
+		}},
+		CompatibleLawAmendments: []store.CompatibleLawAmendment{{LawID: "spec-1", PinnedHash: "sha256:" + repeatHex(64), CurrentHash: "sha256:" + strings.Repeat("b", 64)}},
 	}
 }
 

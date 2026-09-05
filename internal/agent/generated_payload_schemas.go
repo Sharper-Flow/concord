@@ -346,6 +346,26 @@ const GeneratedPayloadSchemaDocument = `{
       ],
       "type": "object"
     },
+    "compatible_law_amendment": {
+      "additionalProperties": false,
+      "properties": {
+        "current_hash": {
+          "$ref": "#/$defs/digest"
+        },
+        "law_id": {
+          "$ref": "#/$defs/law_id"
+        },
+        "pinned_hash": {
+          "$ref": "#/$defs/digest"
+        }
+      },
+      "required": [
+        "law_id",
+        "pinned_hash",
+        "current_hash"
+      ],
+      "type": "object"
+    },
     "continuity_boundary": {
       "additionalProperties": false,
       "properties": {
@@ -476,6 +496,168 @@ const GeneratedPayloadSchemaDocument = `{
         "evidence_refs",
         "pending_questions",
         "pending_decisions"
+      ],
+      "type": "object"
+    },
+    "continuity_domain_overlap": {
+      "additionalProperties": false,
+      "properties": {
+        "detail_truncated": {
+          "type": "boolean"
+        },
+        "from_contract_version": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "from_work_id": {
+          "$ref": "#/$defs/id"
+        },
+        "overlap_classes": {
+          "items": {
+            "enum": [
+              "architecture",
+              "law_write",
+              "domain_write",
+              "domain_relation_write"
+            ],
+            "type": "string"
+          },
+          "maxItems": 4,
+          "minItems": 1,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "product_id": {
+          "$ref": "#/$defs/id"
+        },
+        "recovery_actions": {
+          "items": {
+            "enum": [
+              "wait",
+              "resolve_overlap",
+              "terminal_work",
+              "supersede_contract"
+            ],
+            "type": "string"
+          },
+          "maxItems": 4,
+          "minItems": 1,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "resolution_kind": {
+          "enum": [
+            "compatible_with",
+            "depends_on",
+            "blocks",
+            "merged_into",
+            "supersedes"
+          ],
+          "type": "string"
+        },
+        "resolution_state": {
+          "enum": [
+            "unresolved",
+            "stale"
+          ],
+          "type": "string"
+        },
+        "shared_affected_domain_count": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "shared_affected_domain_ids": {
+          "items": {
+            "$ref": "#/$defs/domain_id"
+          },
+          "maxItems": 20,
+          "minItems": 1,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "shared_domain_modification_count": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "shared_domain_modifications": {
+          "items": {
+            "$ref": "#/$defs/domain_id"
+          },
+          "maxItems": 20,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "shared_law_count": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "shared_law_ids": {
+          "items": {
+            "$ref": "#/$defs/law_id"
+          },
+          "maxItems": 20,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "shared_relation_tuple_count": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "shared_relation_tuples": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "kind": {
+                "enum": [
+                  "depends_on",
+                  "shares_contract_with",
+                  "replaces"
+                ],
+                "type": "string"
+              },
+              "source_domain_id": {
+                "$ref": "#/$defs/domain_id"
+              },
+              "target_domain_id": {
+                "$ref": "#/$defs/domain_id"
+              }
+            },
+            "required": [
+              "source_domain_id",
+              "kind",
+              "target_domain_id"
+            ],
+            "type": "object"
+          },
+          "maxItems": 20,
+          "type": "array"
+        },
+        "to_contract_version": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "to_work_id": {
+          "$ref": "#/$defs/id"
+        }
+      },
+      "required": [
+        "product_id",
+        "from_work_id",
+        "to_work_id",
+        "from_contract_version",
+        "to_contract_version",
+        "shared_affected_domain_ids",
+        "shared_law_ids",
+        "shared_domain_modifications",
+        "shared_relation_tuples",
+        "overlap_classes",
+        "resolution_state",
+        "recovery_actions",
+        "shared_affected_domain_count",
+        "shared_law_count",
+        "shared_domain_modification_count",
+        "shared_relation_tuple_count",
+        "detail_truncated"
       ],
       "type": "object"
     },
@@ -680,6 +862,14 @@ const GeneratedPayloadSchemaDocument = `{
               "maxItems": 4,
               "type": "array"
             },
+            "compatible_law_amendments": {
+              "items": {
+                "$ref": "#/$defs/compatible_law_amendment"
+              },
+              "maxItems": 32,
+              "type": "array",
+              "uniqueItems": true
+            },
             "contract": {
               "oneOf": [
                 {
@@ -743,6 +933,13 @@ const GeneratedPayloadSchemaDocument = `{
                   "type": "null"
                 }
               ]
+            },
+            "unresolved_overlaps": {
+              "items": {
+                "$ref": "#/$defs/continuity_domain_overlap"
+              },
+              "maxItems": 20,
+              "type": "array"
             },
             "workflow_step": {
               "$ref": "#/$defs/short"

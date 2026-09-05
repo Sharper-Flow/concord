@@ -705,6 +705,39 @@ func preflightWorkflowActionRequestWithRegistry(ctx context.Context, s *store.St
 	})
 }
 
+// withEvidenceKindDefault carries the caller-supplied evidence kind into the
+// payload of the evidence-binding action family when the fields omit it. The
+// store derives the durable event's evidence_kind from the payload alone, so
+// without this mapping a commit-kind evidence array silently records as
+// verification and the completion gate reads the kind as unbound.
+func withEvidenceKindDefault(actionID string, payload json.RawMessage, evidence []EvidenceRef) json.RawMessage {
+	switch actionID {
+	case "bind_evidence", "record_research", "record_report", "accept_decision", "approve_operation":
+	default:
+		return payload
+	}
+	if len(evidence) == 0 || evidence[0].Kind == "" || len(payload) == 0 {
+		return payload
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(payload, &fields); err != nil || fields == nil {
+		return payload
+	}
+	if _, present := fields["evidence_kind"]; present {
+		return payload
+	}
+	kind, err := json.Marshal(evidence[0].Kind)
+	if err != nil {
+		return payload
+	}
+	fields["evidence_kind"] = kind
+	encoded, err := json.Marshal(fields)
+	if err != nil {
+		return payload
+	}
+	return encoded
+}
+
 func workflowActionFields(raw json.RawMessage) (json.RawMessage, error) {
 	if len(raw) == 0 || string(raw) == "null" {
 		return json.RawMessage(`{}`), nil
@@ -759,6 +792,7 @@ func (r runtime) mutateWorkflowAction(ctx context.Context, base Envelope, raw []
 	if err != nil {
 		return coreError(base, "invalid_input", err.Error(), "reread_entities", false), nil
 	}
+	payload = withEvidenceKindDefault(in.ActionID, payload, in.Evidence)
 	registry := r.Registry
 	if registry == nil {
 		registry = store.BuiltinWorkflowRegistry()

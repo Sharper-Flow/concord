@@ -579,7 +579,7 @@
           "$ref": "#/$defs/version"
         },
         "premise": {
-          "$ref": "#/$defs/short"
+          "$ref": "#/$defs/workflow_premise"
         },
         "outcome_predicates": {
           "type": "array",
@@ -1340,7 +1340,7 @@
           "maxItems": 64,
           "uniqueItems": true,
           "items": {
-            "$ref": "#/$defs/id"
+            "$ref": "#/$defs/reference"
           }
         },
         "evidence_refs": {
@@ -1349,7 +1349,7 @@
           "maxItems": 64,
           "uniqueItems": true,
           "items": {
-            "$ref": "#/$defs/id"
+            "$ref": "#/$defs/reference"
           }
         },
         "pending_questions": {
@@ -1357,7 +1357,7 @@
           "maxItems": 16,
           "uniqueItems": true,
           "items": {
-            "$ref": "#/$defs/id"
+            "$ref": "#/$defs/reference"
           }
         },
         "pending_decisions": {
@@ -1365,7 +1365,7 @@
           "maxItems": 16,
           "uniqueItems": true,
           "items": {
-            "$ref": "#/$defs/id"
+            "$ref": "#/$defs/reference"
           }
         }
       }
@@ -7778,6 +7778,19 @@
           }
         }
       }
+    },
+    "workflow_premise": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096,
+      "description": "Bound matches the store's contract premise write validation (WorkflowPremiseMaxLength)."
+    },
+    "reference": {
+      "type": "string",
+      "minLength": 2,
+      "maxLength": 128,
+      "pattern": "^\\S+$",
+      "description": "A workflow reference list item: whitespace-free, 2-128 chars, matching the store's ValidReference. Slashes are allowed because touched refs name repository paths."
     }
   }
 }

@@ -6,6 +6,7 @@ import (
 	cryptorand "crypto/rand"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -17,6 +18,18 @@ import (
 // readable by every authority except the actor recorded as executing it.
 
 func verdictScopeFixture(t *testing.T) (*store.Store, *Service, ed25519.PrivateKey, ed25519.PrivateKey) {
+	t.Helper()
+	s, service, execKey, otherKey, _ := workflowEngineFixture(t, "")
+	execRef := store.DeriveWorkflowActorRef("human-1", "client-session-exec-aaaa", "agent-exec", "session-exec-aaaa")
+	seedVerdictEvent(t, s.DatabaseForTesting(), execRef)
+	return s, service, execKey, otherKey
+}
+
+// workflowEngineFixture seeds the verdict-scope workflow with an optional
+// contract premise override and returns an engine closure that applies
+// further workflow actions at the work item's current version. The premise
+// override exists so the bound round-trip test can approve the legal maximum.
+func workflowEngineFixture(t *testing.T, premise string) (*store.Store, *Service, ed25519.PrivateKey, ed25519.PrivateKey, func(string, map[string]any)) {
 	t.Helper()
 	ctx := context.Background()
 	s, err := storetest.Open(t.TempDir())
@@ -68,15 +81,19 @@ func verdictScopeFixture(t *testing.T) (*store.Store, *Service, ed25519.PrivateK
 	}
 	// Drive the real engine through the Product-changing planning contract and
 	// into repair, whose action_started fold records the executing actor.
-	execRef := store.DeriveWorkflowActorRef("human-1", "client-session-exec-aaaa", "agent-exec", "session-exec-aaaa")
+	// Distinct invocations of the same action kind need distinct durable
+	// identities, so every applied action claims the next sequence number.
+	engineSequence := 0
 	engineAction := func(version int64, actionID string, payload map[string]any) {
 		t.Helper()
+		engineSequence++
+		identity := fmt.Sprintf("verdict-seed-%s-%d", actionID, engineSequence)
 		raw, _ := json.Marshal(payload)
 		request := store.WorkflowActionExecutionRequest{
 			WorkID: "work-1", ExpectedVersion: version, ActionID: actionID, Payload: raw,
-			Actor: execActor, AcceptedInputsDigest: "sha256:" + strings.Repeat("2", 64), IdempotencyIdentity: "verdict-seed-" + actionID,
-			OperationID: "verdict-seed-op-" + actionID, PrincipalRef: "human-1", Tool: "concord-test", IdempotencyKey: "verdict-seed-key-" + actionID,
-			RequestID: "verdict-seed-request-" + actionID, AcceptedScope: `{"project":"project-1"}`, ContractDigest: ManifestDigest, Now: fixedTime(),
+			Actor: execActor, AcceptedInputsDigest: "sha256:" + strings.Repeat("2", 64), IdempotencyIdentity: identity,
+			OperationID: "verdict-seed-op-" + identity, PrincipalRef: "human-1", Tool: "concord-test", IdempotencyKey: "verdict-seed-key-" + identity,
+			RequestID: "verdict-seed-request-" + identity, AcceptedScope: `{"project":"project-1"}`, ContractDigest: ManifestDigest, Now: fixedTime(),
 		}
 		preflight := store.WorkflowActionPreflightRequest{WorkID: "work-1", ExpectedVersion: version, ActionID: actionID, Payload: raw, Actor: execActor}
 		if err := store.AuthorizeWorkflowActionAtBoundaryTx(ctx, s, store.BuiltinWorkflowRegistry(), preflight, nil, fixedTime(), nil, func(tx *store.Transaction) error {
@@ -97,10 +114,20 @@ func verdictScopeFixture(t *testing.T) (*store.Store, *Service, ed25519.PrivateK
 	contractFields["outcome_predicates"] = []map[string]any{{"predicate_id": "predicate:primary", "ordinal": 0, "outcome_kind": "absent", "outcome_payload": map[string]any{
 		"kind": "absent", "surface": "behavior:defect", "subjects": []string{"work-1"}, "distinguish_from": []string{"disabled"},
 	}}}
+	if premise != "" {
+		contractFields["premise"] = premise
+	}
 	engineAction(6, "approve_contract", contractFields)
 	engineAction(8, "start_repair", map[string]any{"payload": map[string]any{"work": "work-1", "outcome": nil}})
-	seedVerdictEvent(t, s.DatabaseForTesting(), execRef)
-	return s, service, keys[0], keys[1]
+	engine := func(actionID string, payload map[string]any) {
+		t.Helper()
+		var version int64
+		if err := s.DatabaseForTesting().QueryRowContext(context.Background(), `SELECT version FROM work_items WHERE id=?`, "work-1").Scan(&version); err != nil {
+			t.Fatalf("cannot read work version for %s: %v", actionID, err)
+		}
+		engineAction(version, actionID, payload)
+	}
+	return s, service, keys[0], keys[1], engine
 }
 
 // seedVerdictEvent records the terminal verdict event. domain_events is

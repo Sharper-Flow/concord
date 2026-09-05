@@ -77,12 +77,12 @@
       {
         "ref": "workflow.research",
         "version": 1,
-        "digest": "sha256:adeb334ee4eb08e1907b2f36c618d809675a81f325266733142e697a90c108b9"
+        "digest": "sha256:46dfee4b0da57d1d835fb094f64bf6ebf45e72d003461945795f6dada4f5388f"
       },
       {
         "ref": "workflow.architecture_spike",
         "version": 1,
-        "digest": "sha256:b74a215f966765d0ebe17e366f2d56eaf451a6ab0d85b8c6b7648828fc432ece"
+        "digest": "sha256:0de0f3007629a509f8d6e289ce424f33aaaa9c160693a530898f6c039149a3fa"
       },
       {
         "ref": "workflow.ops_runbook",
@@ -2325,7 +2325,7 @@
             "payload": {
               "ref": "workflow.research",
               "version": 1,
-              "digest": "sha256:adeb334ee4eb08e1907b2f36c618d809675a81f325266733142e697a90c108b9",
+              "digest": "sha256:46dfee4b0da57d1d835fb094f64bf6ebf45e72d003461945795f6dada4f5388f",
               "work_kind": "research",
               "work_id": "work-beta",
               "expected_version": 3,
@@ -2351,6 +2351,27 @@
               "work_id": "work-beta",
               "expected_version": 4,
               "resulting_version": 5
+            }
+          },
+          {
+            "event_id": "WF07-candidate-revision-work-beta-walk-frame-approve-contract",
+            "kind": "workflow.action_completed",
+            "work_id": "work-beta",
+            "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
+            "occurred_at": "2026-08-09T00:00:00Z",
+            "payload_version": 1,
+            "payload": {
+              "step_id": "frame",
+              "action_id": "approve_contract",
+              "attempt_epoch": 1,
+              "result_evidence_refs": [],
+              "changed_refs": [
+                "work-beta"
+              ],
+              "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
+              "work_id": "work-beta",
+              "expected_version": 5,
+              "resulting_version": 6
             }
           },
           {
@@ -2380,8 +2401,8 @@
               "rigor_class": "prototype_internal",
               "consequence_class": "internal_sqlite",
               "work_id": "work-beta",
-              "expected_version": 5,
-              "resulting_version": 6,
+              "expected_version": 6,
+              "resulting_version": 7,
               "premise_hash": "premise-1",
               "outcome_hash": "outcome-1"
             }
@@ -2402,8 +2423,8 @@
               ],
               "removed": [],
               "work_id": "work-beta",
-              "expected_version": 6,
-              "resulting_version": 7
+              "expected_version": 7,
+              "resulting_version": 8
             }
           },
           {
@@ -2421,13 +2442,13 @@
               "idempotency_identity": "wf07-candidate-revision-key",
               "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
               "work_id": "work-beta",
-              "expected_version": 7,
-              "resulting_version": 8
+              "expected_version": 8,
+              "resulting_version": 9
             }
           }
         ],
         "projection": {
-          "version": 8,
+          "version": 9,
           "state": "running",
           "current_step": "planning",
           "lifecycle": "running"
@@ -2439,9 +2460,9 @@
         "definition_pin": {
           "ref": "workflow.research",
           "version": 1,
-          "digest": "sha256:adeb334ee4eb08e1907b2f36c618d809675a81f325266733142e697a90c108b9"
+          "digest": "sha256:46dfee4b0da57d1d835fb094f64bf6ebf45e72d003461945795f6dada4f5388f"
         },
-        "expected_version": 8,
+        "expected_version": 9,
         "action_id": "revise_candidates",
         "fields": {
           "payload": {
@@ -2597,7 +2618,7 @@
             "payload": {
               "ref": "workflow.research",
               "version": 1,
-              "digest": "sha256:adeb334ee4eb08e1907b2f36c618d809675a81f325266733142e697a90c108b9",
+              "digest": "sha256:46dfee4b0da57d1d835fb094f64bf6ebf45e72d003461945795f6dada4f5388f",
               "work_kind": "research",
               "work_id": "work-beta",
               "expected_version": 3,
@@ -2668,7 +2689,7 @@
         "definition_pin": {
           "ref": "workflow.research",
           "version": 1,
-          "digest": "sha256:adeb334ee4eb08e1907b2f36c618d809675a81f325266733142e697a90c108b9"
+          "digest": "sha256:46dfee4b0da57d1d835fb094f64bf6ebf45e72d003461945795f6dada4f5388f"
         },
         "expected_version": 6,
         "action_id": "supersede_contract",
@@ -3179,7 +3200,7 @@
             "payload": {
               "ref": "workflow.research",
               "version": 1,
-              "digest": "sha256:adeb334ee4eb08e1907b2f36c618d809675a81f325266733142e697a90c108b9",
+              "digest": "sha256:46dfee4b0da57d1d835fb094f64bf6ebf45e72d003461945795f6dada4f5388f",
               "work_kind": "research",
               "work_id": "work-beta",
               "expected_version": 3,
@@ -3208,6 +3229,27 @@
             }
           },
           {
+            "event_id": "WF10-forward-link-discovery-work-beta-walk-frame-approve-contract",
+            "kind": "workflow.action_completed",
+            "work_id": "work-beta",
+            "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
+            "occurred_at": "2026-08-09T00:00:00Z",
+            "payload_version": 1,
+            "payload": {
+              "step_id": "frame",
+              "action_id": "approve_contract",
+              "attempt_epoch": 1,
+              "result_evidence_refs": [],
+              "changed_refs": [
+                "work-beta"
+              ],
+              "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
+              "work_id": "work-beta",
+              "expected_version": 5,
+              "resulting_version": 6
+            }
+          },
+          {
             "event_id": "WF10-forward-link-discovery-work-beta-walk-investigate",
             "kind": "workflow.action_completed",
             "work_id": "work-beta",
@@ -3224,8 +3266,8 @@
               ],
               "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
               "work_id": "work-beta",
-              "expected_version": 5,
-              "resulting_version": 6
+              "expected_version": 6,
+              "resulting_version": 7
             }
           },
           {
@@ -3243,13 +3285,13 @@
               "idempotency_identity": "wf10-forward-link-discovery-key",
               "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
               "work_id": "work-beta",
-              "expected_version": 6,
-              "resulting_version": 7
+              "expected_version": 7,
+              "resulting_version": 8
             }
           }
         ],
         "projection": {
-          "version": 7,
+          "version": 8,
           "state": "running",
           "current_step": "complete",
           "lifecycle": "running"
@@ -3261,9 +3303,9 @@
         "definition_pin": {
           "ref": "workflow.research",
           "version": 1,
-          "digest": "sha256:adeb334ee4eb08e1907b2f36c618d809675a81f325266733142e697a90c108b9"
+          "digest": "sha256:46dfee4b0da57d1d835fb094f64bf6ebf45e72d003461945795f6dada4f5388f"
         },
-        "expected_version": 7,
+        "expected_version": 8,
         "action_id": "link_successor",
         "fields": {
           "payload": {
@@ -5641,7 +5683,7 @@
             "payload": {
               "ref": "workflow.research",
               "version": 1,
-              "digest": "sha256:adeb334ee4eb08e1907b2f36c618d809675a81f325266733142e697a90c108b9",
+              "digest": "sha256:46dfee4b0da57d1d835fb094f64bf6ebf45e72d003461945795f6dada4f5388f",
               "work_kind": "research",
               "work_id": "work-beta",
               "expected_version": 3,
@@ -5670,6 +5712,27 @@
             }
           },
           {
+            "event_id": "WF16-research-no-change-work-beta-walk-frame-approve-contract",
+            "kind": "workflow.action_completed",
+            "work_id": "work-beta",
+            "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
+            "occurred_at": "2026-08-09T00:00:00Z",
+            "payload_version": 1,
+            "payload": {
+              "step_id": "frame",
+              "action_id": "approve_contract",
+              "attempt_epoch": 1,
+              "result_evidence_refs": [],
+              "changed_refs": [
+                "work-beta"
+              ],
+              "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
+              "work_id": "work-beta",
+              "expected_version": 5,
+              "resulting_version": 6
+            }
+          },
+          {
             "event_id": "WF16-research-no-change-work-beta-walk-investigate",
             "kind": "workflow.action_completed",
             "work_id": "work-beta",
@@ -5686,8 +5749,8 @@
               ],
               "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
               "work_id": "work-beta",
-              "expected_version": 5,
-              "resulting_version": 6
+              "expected_version": 6,
+              "resulting_version": 7
             }
           },
           {
@@ -5707,8 +5770,8 @@
               ],
               "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
               "work_id": "work-beta",
-              "expected_version": 6,
-              "resulting_version": 7
+              "expected_version": 7,
+              "resulting_version": 8
             }
           },
           {
@@ -5728,8 +5791,29 @@
               ],
               "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
               "work_id": "work-beta",
-              "expected_version": 7,
-              "resulting_version": 8
+              "expected_version": 8,
+              "resulting_version": 9
+            }
+          },
+          {
+            "event_id": "WF16-research-no-change-work-beta-walk-conclude-confirm-premise",
+            "kind": "workflow.action_completed",
+            "work_id": "work-beta",
+            "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
+            "occurred_at": "2026-08-09T00:00:00Z",
+            "payload_version": 1,
+            "payload": {
+              "step_id": "conclude",
+              "action_id": "confirm_premise",
+              "attempt_epoch": 1,
+              "result_evidence_refs": [],
+              "changed_refs": [
+                "work-beta"
+              ],
+              "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
+              "work_id": "work-beta",
+              "expected_version": 9,
+              "resulting_version": 10
             }
           },
           {
@@ -5747,8 +5831,8 @@
               "idempotency_identity": "wf16-research-no-change-key",
               "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
               "work_id": "work-beta",
-              "expected_version": 8,
-              "resulting_version": 9
+              "expected_version": 10,
+              "resulting_version": 11
             }
           },
           {
@@ -5778,8 +5862,8 @@
               "rigor_class": "prototype_internal",
               "consequence_class": "internal_sqlite",
               "work_id": "work-beta",
-              "expected_version": 9,
-              "resulting_version": 10
+              "expected_version": 11,
+              "resulting_version": 12
             }
           },
           {
@@ -5797,8 +5881,8 @@
               "producer_watermark": "WF16-research-no-change-artifact-request",
               "observed_at": "2026-08-09T00:00:00Z",
               "work_id": "work-beta",
-              "expected_version": 10,
-              "resulting_version": 11
+              "expected_version": 12,
+              "resulting_version": 13
             }
           },
           {
@@ -5816,8 +5900,8 @@
               "session_ref": "session-reviewer",
               "actor_class": "operator",
               "work_id": "work-beta",
-              "expected_version": 11,
-              "resulting_version": 12
+              "expected_version": 13,
+              "resulting_version": 14
             }
           },
           {
@@ -5837,8 +5921,8 @@
               ],
               "incomparable_with_approved": false,
               "work_id": "work-beta",
-              "expected_version": 12,
-              "resulting_version": 13
+              "expected_version": 14,
+              "resulting_version": 15
             }
           },
           {
@@ -5852,13 +5936,13 @@
               "contract_version": 1,
               "confirming_actor_ref": "actor:017389e1649c56f00f9265c121eed78cb73aca12052cefae3df35d9036a029bc",
               "work_id": "work-beta",
-              "expected_version": 13,
-              "resulting_version": 14
+              "expected_version": 15,
+              "resulting_version": 16
             }
           }
         ],
         "projection": {
-          "version": 14,
+          "version": 16,
           "state": "running",
           "current_step": "complete",
           "lifecycle": "running"
@@ -5870,9 +5954,9 @@
         "definition_pin": {
           "ref": "workflow.research",
           "version": 1,
-          "digest": "sha256:adeb334ee4eb08e1907b2f36c618d809675a81f325266733142e697a90c108b9"
+          "digest": "sha256:46dfee4b0da57d1d835fb094f64bf6ebf45e72d003461945795f6dada4f5388f"
         },
-        "expected_version": 14,
+        "expected_version": 16,
         "action_id": "complete",
         "fields": {
           "payload": {
@@ -6022,7 +6106,7 @@
             "payload": {
               "ref": "workflow.architecture_spike",
               "version": 1,
-              "digest": "sha256:b74a215f966765d0ebe17e366f2d56eaf451a6ab0d85b8c6b7648828fc432ece",
+              "digest": "sha256:0de0f3007629a509f8d6e289ce424f33aaaa9c160693a530898f6c039149a3fa",
               "work_kind": "architecture_spike",
               "work_id": "work-spike",
               "expected_version": 3,
@@ -6051,6 +6135,27 @@
             }
           },
           {
+            "event_id": "WF17-spike-insufficient-evidence-work-spike-walk-frame-approve-contract",
+            "kind": "workflow.action_completed",
+            "work_id": "work-spike",
+            "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
+            "occurred_at": "2026-08-09T00:00:00Z",
+            "payload_version": 1,
+            "payload": {
+              "step_id": "frame",
+              "action_id": "approve_contract",
+              "attempt_epoch": 1,
+              "result_evidence_refs": [],
+              "changed_refs": [
+                "work-spike"
+              ],
+              "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
+              "work_id": "work-spike",
+              "expected_version": 5,
+              "resulting_version": 6
+            }
+          },
+          {
             "event_id": "WF17-spike-insufficient-evidence-work-spike-walk-research",
             "kind": "workflow.action_completed",
             "work_id": "work-spike",
@@ -6067,8 +6172,8 @@
               ],
               "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
               "work_id": "work-spike",
-              "expected_version": 5,
-              "resulting_version": 6
+              "expected_version": 6,
+              "resulting_version": 7
             }
           },
           {
@@ -6088,8 +6193,8 @@
               ],
               "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
               "work_id": "work-spike",
-              "expected_version": 6,
-              "resulting_version": 7
+              "expected_version": 7,
+              "resulting_version": 8
             }
           },
           {
@@ -6109,8 +6214,8 @@
               ],
               "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
               "work_id": "work-spike",
-              "expected_version": 7,
-              "resulting_version": 8
+              "expected_version": 8,
+              "resulting_version": 9
             }
           },
           {
@@ -6130,8 +6235,8 @@
               ],
               "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
               "work_id": "work-spike",
-              "expected_version": 8,
-              "resulting_version": 9
+              "expected_version": 9,
+              "resulting_version": 10
             }
           },
           {
@@ -6151,8 +6256,8 @@
               ],
               "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
               "work_id": "work-spike",
-              "expected_version": 9,
-              "resulting_version": 10
+              "expected_version": 10,
+              "resulting_version": 11
             }
           },
           {
@@ -6172,8 +6277,8 @@
               ],
               "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
               "work_id": "work-spike",
-              "expected_version": 10,
-              "resulting_version": 11
+              "expected_version": 11,
+              "resulting_version": 12
             }
           },
           {
@@ -6191,8 +6296,8 @@
               "idempotency_identity": "work-spike-setup",
               "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
               "work_id": "work-spike",
-              "expected_version": 11,
-              "resulting_version": 12
+              "expected_version": 12,
+              "resulting_version": 13
             }
           },
           {
@@ -6247,8 +6352,8 @@
               "rigor_class": "prototype_internal",
               "consequence_class": "internal_sqlite",
               "work_id": "work-spike",
-              "expected_version": 12,
-              "resulting_version": 13
+              "expected_version": 13,
+              "resulting_version": 14
             }
           },
           {
@@ -6266,8 +6371,8 @@
               "producer_watermark": "work-spike-evidence-1-request",
               "observed_at": "2026-08-09T00:00:00Z",
               "work_id": "work-spike",
-              "expected_version": 13,
-              "resulting_version": 14
+              "expected_version": 14,
+              "resulting_version": 15
             }
           },
           {
@@ -6285,8 +6390,8 @@
               "producer_watermark": "work-spike-evidence-2-request",
               "observed_at": "2026-08-09T00:00:00Z",
               "work_id": "work-spike",
-              "expected_version": 14,
-              "resulting_version": 15
+              "expected_version": 15,
+              "resulting_version": 16
             }
           },
           {
@@ -6304,8 +6409,8 @@
               "producer_watermark": "work-spike-evidence-3-request",
               "observed_at": "2026-08-09T00:00:00Z",
               "work_id": "work-spike",
-              "expected_version": 15,
-              "resulting_version": 16
+              "expected_version": 16,
+              "resulting_version": 17
             }
           },
           {
@@ -6323,8 +6428,8 @@
               "session_ref": "session-reviewer",
               "actor_class": "operator",
               "work_id": "work-spike",
-              "expected_version": 16,
-              "resulting_version": 17
+              "expected_version": 17,
+              "resulting_version": 18
             }
           },
           {
@@ -6363,8 +6468,8 @@
               "accepted_inputs_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
               "idempotency_identity": "wf17-decision",
               "work_id": "work-spike",
-              "expected_version": 17,
-              "resulting_version": 18
+              "expected_version": 18,
+              "resulting_version": 19
             }
           },
           {
@@ -6384,8 +6489,8 @@
               ],
               "incomparable_with_approved": false,
               "work_id": "work-spike",
-              "expected_version": 18,
-              "resulting_version": 19
+              "expected_version": 19,
+              "resulting_version": 20
             }
           },
           {
@@ -6399,13 +6504,13 @@
               "contract_version": 1,
               "confirming_actor_ref": "actor:017389e1649c56f00f9265c121eed78cb73aca12052cefae3df35d9036a029bc",
               "work_id": "work-spike",
-              "expected_version": 19,
-              "resulting_version": 20
+              "expected_version": 20,
+              "resulting_version": 21
             }
           }
         ],
         "projection": {
-          "version": 20,
+          "version": 21,
           "state": "running",
           "current_step": "complete",
           "lifecycle": "running"
@@ -6417,9 +6522,9 @@
         "definition_pin": {
           "ref": "workflow.architecture_spike",
           "version": 1,
-          "digest": "sha256:b74a215f966765d0ebe17e366f2d56eaf451a6ab0d85b8c6b7648828fc432ece"
+          "digest": "sha256:0de0f3007629a509f8d6e289ce424f33aaaa9c160693a530898f6c039149a3fa"
         },
-        "expected_version": 20,
+        "expected_version": 21,
         "action_id": "complete",
         "fields": {
           "payload": {
@@ -15300,7 +15405,7 @@
             "payload": {
               "ref": "workflow.research",
               "version": 1,
-              "digest": "sha256:adeb334ee4eb08e1907b2f36c618d809675a81f325266733142e697a90c108b9",
+              "digest": "sha256:46dfee4b0da57d1d835fb094f64bf6ebf45e72d003461945795f6dada4f5388f",
               "work_kind": "research",
               "work_id": "work-beta",
               "expected_version": 3,
@@ -15329,6 +15434,27 @@
             }
           },
           {
+            "event_id": "WF32-forward-successor-completes-work-beta-walk-frame-approve-contract",
+            "kind": "workflow.action_completed",
+            "work_id": "work-beta",
+            "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
+            "occurred_at": "2026-08-09T00:00:00Z",
+            "payload_version": 1,
+            "payload": {
+              "step_id": "frame",
+              "action_id": "approve_contract",
+              "attempt_epoch": 1,
+              "result_evidence_refs": [],
+              "changed_refs": [
+                "work-beta"
+              ],
+              "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
+              "work_id": "work-beta",
+              "expected_version": 5,
+              "resulting_version": 6
+            }
+          },
+          {
             "event_id": "WF32-forward-successor-completes-work-beta-walk-investigate",
             "kind": "workflow.action_completed",
             "work_id": "work-beta",
@@ -15345,8 +15471,8 @@
               ],
               "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
               "work_id": "work-beta",
-              "expected_version": 5,
-              "resulting_version": 6
+              "expected_version": 6,
+              "resulting_version": 7
             }
           },
           {
@@ -15364,8 +15490,8 @@
               "idempotency_identity": "work-beta-setup",
               "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
               "work_id": "work-beta",
-              "expected_version": 6,
-              "resulting_version": 7
+              "expected_version": 7,
+              "resulting_version": 8
             }
           },
           {
@@ -15395,8 +15521,8 @@
               "rigor_class": "prototype_internal",
               "consequence_class": "internal_sqlite",
               "work_id": "work-beta",
-              "expected_version": 7,
-              "resulting_version": 8
+              "expected_version": 8,
+              "resulting_version": 9
             }
           },
           {
@@ -15414,8 +15540,8 @@
               "producer_watermark": "work-beta-evidence-1-request",
               "observed_at": "2026-08-09T00:00:00Z",
               "work_id": "work-beta",
-              "expected_version": 8,
-              "resulting_version": 9
+              "expected_version": 9,
+              "resulting_version": 10
             }
           },
           {
@@ -15433,8 +15559,8 @@
               "session_ref": "session-reviewer",
               "actor_class": "operator",
               "work_id": "work-beta",
-              "expected_version": 9,
-              "resulting_version": 10
+              "expected_version": 10,
+              "resulting_version": 11
             }
           },
           {
@@ -15454,8 +15580,8 @@
               ],
               "incomparable_with_approved": false,
               "work_id": "work-beta",
-              "expected_version": 10,
-              "resulting_version": 11
+              "expected_version": 11,
+              "resulting_version": 12
             }
           },
           {
@@ -15469,13 +15595,13 @@
               "contract_version": 1,
               "confirming_actor_ref": "actor:017389e1649c56f00f9265c121eed78cb73aca12052cefae3df35d9036a029bc",
               "work_id": "work-beta",
-              "expected_version": 11,
-              "resulting_version": 12
+              "expected_version": 12,
+              "resulting_version": 13
             }
           }
         ],
         "projection": {
-          "version": 12,
+          "version": 13,
           "state": "running",
           "current_step": "complete",
           "lifecycle": "running"
@@ -15487,9 +15613,9 @@
         "definition_pin": {
           "ref": "workflow.research",
           "version": 1,
-          "digest": "sha256:adeb334ee4eb08e1907b2f36c618d809675a81f325266733142e697a90c108b9"
+          "digest": "sha256:46dfee4b0da57d1d835fb094f64bf6ebf45e72d003461945795f6dada4f5388f"
         },
-        "expected_version": 12,
+        "expected_version": 13,
         "action_id": "link_and_complete",
         "fields": {
           "payload": {
@@ -15636,7 +15762,7 @@
         "definition_pin": {
           "ref": "workflow.architecture_spike",
           "version": 1,
-          "digest": "sha256:b74a215f966765d0ebe17e366f2d56eaf451a6ab0d85b8c6b7648828fc432ece"
+          "digest": "sha256:0de0f3007629a509f8d6e289ce424f33aaaa9c160693a530898f6c039149a3fa"
         },
         "expected_version": 4,
         "action_id": "link_successor",

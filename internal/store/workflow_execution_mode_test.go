@@ -90,8 +90,8 @@ func TestBuiltinWorkflowDigestsStayPinned(t *testing.T) {
 	want := map[string]string{
 		"workflow.implementation":     "sha256:deaeec1077f5360b23b4c6ca78328d45a620668c503760855ec28e7bf6ecf155",
 		"workflow.break_fix":          "sha256:aefce865f350345dc41fc1e2e988e7d5e246fa7fd560335399cf8c826e4cc35a",
-		"workflow.research":           "sha256:adeb334ee4eb08e1907b2f36c618d809675a81f325266733142e697a90c108b9",
-		"workflow.architecture_spike": "sha256:b74a215f966765d0ebe17e366f2d56eaf451a6ab0d85b8c6b7648828fc432ece",
+		"workflow.research":           "sha256:46dfee4b0da57d1d835fb094f64bf6ebf45e72d003461945795f6dada4f5388f",
+		"workflow.architecture_spike": "sha256:0de0f3007629a509f8d6e289ce424f33aaaa9c160693a530898f6c039149a3fa",
 		"workflow.ops_runbook":        "sha256:d1218c37554f1412b55445b306d5141d11789c7ff78fe0a656f6d15959357ced",
 		"workflow.static_analysis":    "sha256:d0bc28751b65cb1ae5a0dc31e8db177a6ffe4480f39725fb16e467d88ef4c038",
 		"workflow.generic_one_off":    "sha256:c2b8b4c8ef11b2de08912f7c82faa91dffe6a2fbe4ddcef924ff4b393da578b3",

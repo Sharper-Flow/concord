@@ -1106,7 +1106,7 @@ const GeneratedPayloadSchemaDocument = `{
           "type": "string"
         },
         "lifecycle": {
-          "type": "string"
+          "$ref": "#/$defs/lifecycle"
         },
         "priority": {
           "type": "integer"
@@ -7399,12 +7399,7 @@ const GeneratedPayloadSchemaDocument = `{
                 "type": "string"
               },
               "lifecycle": {
-                "enum": [
-                  "needed",
-                  "completed",
-                  "cancelled"
-                ],
-                "type": "string"
+                "$ref": "#/$defs/lifecycle"
               },
               "path": {
                 "maxLength": 4096,
@@ -7520,12 +7515,7 @@ const GeneratedPayloadSchemaDocument = `{
                 "type": "string"
               },
               "lifecycle": {
-                "enum": [
-                  "needed",
-                  "completed",
-                  "cancelled"
-                ],
-                "type": "string"
+                "$ref": "#/$defs/lifecycle"
               },
               "path": {
                 "maxLength": 4096,
@@ -7573,11 +7563,7 @@ const GeneratedPayloadSchemaDocument = `{
                 "type": "string"
               },
               "lifecycle": {
-                "enum": [
-                  "completed",
-                  "cancelled"
-                ],
-                "type": "string"
+                "$ref": "#/$defs/lifecycle"
               },
               "outcome": {
                 "enum": [

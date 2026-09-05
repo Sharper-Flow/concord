@@ -5926,12 +5926,7 @@
                 ]
               },
               "lifecycle": {
-                "type": "string",
-                "enum": [
-                  "needed",
-                  "completed",
-                  "cancelled"
-                ]
+                "$ref": "#/$defs/lifecycle"
               },
               "recovery_action": {
                 "type": "string",
@@ -6868,7 +6863,7 @@
           "type": "string"
         },
         "lifecycle": {
-          "type": "string"
+          "$ref": "#/$defs/lifecycle"
         },
         "priority": {
           "type": "integer"
@@ -7428,11 +7423,7 @@
                 "maxLength": 4096
               },
               "lifecycle": {
-                "type": "string",
-                "enum": [
-                  "completed",
-                  "cancelled"
-                ]
+                "$ref": "#/$defs/lifecycle"
               },
               "outcome": {
                 "type": "string",
@@ -7497,12 +7488,7 @@
                 ]
               },
               "lifecycle": {
-                "type": "string",
-                "enum": [
-                  "needed",
-                  "completed",
-                  "cancelled"
-                ]
+                "$ref": "#/$defs/lifecycle"
               },
               "recovery_action": {
                 "type": "string",

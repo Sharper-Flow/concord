@@ -1745,6 +1745,11 @@
       "state": "out_of_scope"
     },
     {
+      "id": "CD-0113",
+      "issue": 857,
+      "state": "outstanding"
+    },
+    {
       "evidence": [
         {
           "kind": "go_test",

@@ -1,4 +1,7 @@
 import { createHash, sign as signBytes } from "node:crypto"
+import fs from "node:fs"
+import os from "node:os"
+import path from "node:path"
 import { agentLanePacketSchema, agentLaneReportSchema, agentLanes, type AgentLane } from "./generated-agent-lanes"
 import { maxEnvelopeBytes } from "./generated-contracts"
 import { SecretToolCredentialStore, b64, clientRef, privateKeyObject, randomNonce, type CredentialStore } from "./credentials"
@@ -178,6 +181,43 @@ export const defaultRunner: DispatchRunner = {
     const [stdout, stderr, exitCode] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited])
     signal.removeEventListener("abort", abort)
     return { exitCode, stdout, stderr }
+  },
+}
+
+// The host `opencode export` CLI truncates its output to one stdio buffer
+// when stdout is a pipe (8192 bytes raw, 16384 sanitized) while writing the
+// complete export to a file. The lane readback parses the whole session, so
+// reading the export through a pipe silently loses the tail and every lane
+// completion refused with a missing model readback. The export therefore runs
+// with stdout bound to a temporary file, which the host writes completely,
+// and the file is read back and removed. The same runner seam shape is kept
+// so a test can still supply its own export runner.
+export const defaultExportRunner: DispatchRunner = {
+  async run(argv, input, signal) {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), "concord-export-"))
+    const target = path.join(directory, "export.json")
+    let exitCode: number
+    let stderr: string
+    try {
+      const fd = fs.openSync(target, "w")
+      // The child holds its own duplicate of the descriptor, so closing this
+      // side's copy after the spawn releases it without touching the child's.
+      const child = Bun.spawn(argv, { stdin: "ignore", stdout: fd, stderr: "pipe" })
+      fs.closeSync(fd)
+      const abort = () => child.kill()
+      if (signal.aborted) abort()
+      signal.addEventListener("abort", abort, { once: true })
+      try {
+        stderr = await new Response(child.stderr).text()
+        exitCode = await child.exited
+      } finally {
+        signal.removeEventListener("abort", abort)
+      }
+      const stdout = await fs.promises.readFile(target, "utf8")
+      return { exitCode, stdout, stderr }
+    } finally {
+      fs.rmSync(directory, { recursive: true, force: true })
+    }
   },
 }
 
@@ -894,7 +934,7 @@ export async function completeWorkerAttempt(
   const workerSessionID = read.sessionID
   const resultBody = read.text
   const binary = options.binary ?? "opencode"
-  const readbackRunner = options.readbackRunner ?? options.runner ?? defaultRunner
+  const readbackRunner = options.readbackRunner ?? options.runner ?? defaultExportRunner
   let exported: { exitCode: number; stdout: string; stderr: string }
   try { exported = await readbackRunner.run([binary, "export", workerSessionID, "--sanitize"], "", signal) } catch (error) {
     return errorEnvelope(lane, packet, "error", "error", String(error), "reconcile_operation")

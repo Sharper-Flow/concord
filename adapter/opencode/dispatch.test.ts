@@ -1,7 +1,7 @@
 import { test, expect } from "bun:test"
 import { createHash } from "node:crypto"
 import { agentLanes } from "./generated-agent-lanes"
-import { completeWorkerAttempt, dispatchWorker, MAX_EXPORT_BYTES, readExportSession, readExportSessionMetadata, readRunSessionMetadata, validateAgentLanePacket, type AgentLanePacket, type DispatchAuthorizer, type DispatchRunner } from "./dispatch"
+import { completeWorkerAttempt, defaultExportRunner, dispatchWorker, MAX_EXPORT_BYTES, readExportSession, readExportSessionMetadata, readRunSessionMetadata, validateAgentLanePacket, type AgentLanePacket, type DispatchAuthorizer, type DispatchRunner } from "./dispatch"
 import { DispatchWindows } from "./dispatch-window"
 import type { CredentialStore } from "./credentials"
 
@@ -406,6 +406,7 @@ import { computeHostPromptProvenance } from "./dispatch"
 import { mkdtemp } from "node:fs/promises"
 import * as path from "node:path"
 import * as os from "node:os"
+import * as fs from "node:fs"
 
 test("host prompt provenance is deterministic and content-bound", async () => {
   const dir = await mkdtemp(path.join(os.tmpdir(), "provenance-"))
@@ -763,4 +764,57 @@ test("a transport fault is not reported as an authorization refusal", async () =
     expect(result.error?.kind).toBe("transport_failure")
     expect(spawned).toBe(0)
   }
+})
+
+// The host `opencode export` CLI truncates its stdout to one stdio buffer on
+// a pipe, so the export readback runs file-backed: the child writes the
+// export to a temporary file and the adapter reads the file whole.
+const largeSanitizedExport = () => JSON.stringify({
+  info: { id: "session-1" },
+  messages: [
+    { info: { id: "message-0", sessionID: "session-1", role: "user", agent: "concord-research", time: { created: 0 } }, parts: [{ type: "text", text: "x".repeat(70_000) }] },
+    { info: { id: "message-1", sessionID: "session-1", role: "assistant", agent: "concord-research", providerID: "openai", modelID: "gpt-5.6-luna", time: { created: 1 } }, parts: [] },
+  ],
+})
+
+const writeExportFixture = (): { binary: string; body: string; cleanup: () => void } => {
+  const body = largeSanitizedExport()
+  expect(Buffer.byteLength(body)).toBeGreaterThan(16_384)
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "concord-fixture-export-"))
+  fs.writeFileSync(path.join(directory, "export.json"), body)
+  const script = path.join(directory, "opencode-export")
+  fs.writeFileSync(script, `#!/bin/sh\ncat "$(dirname "$0")/export.json"\n`, { mode: 0o755 })
+  return { binary: script, body, cleanup: () => fs.rmSync(directory, { recursive: true, force: true }) }
+}
+
+test("TestExportReadbackRunnerReadsFullExportThroughFile", async () => {
+  const { binary, body, cleanup } = writeExportFixture()
+  try {
+    const result = await defaultExportRunner.run([binary, "export", "session-1", "--sanitize"], "", SIGNAL)
+    expect(result.exitCode).toBe(0)
+    expect(result.stderr).toBe("")
+    expect(result.stdout).toBe(body)
+  } finally {
+    cleanup()
+  }
+  const leftover = fs.readdirSync(os.tmpdir()).filter((entry) => entry.startsWith("concord-export-"))
+  expect(leftover).toEqual([])
+})
+
+test("TestDispatchWorkerCompletesWithExportLargerThanPipeBuffer", async () => {
+  const { binary, cleanup } = writeExportFixture()
+  let result: Awaited<ReturnType<typeof completeWorkerAttempt>>
+  try {
+    result = await completeWorkerAttempt(lane, packet(), workerBody(), {
+      credentials: testCredentials,
+      evidenceRunner: acceptingEvidence(),
+      packetDigest: PACKET_DIGEST,
+      binary,
+    }, SIGNAL)
+  } finally {
+    cleanup()
+  }
+  expect(result.outcome).toBe("ok")
+  expect(result.readback_model).toBe("openai/gpt-5.6-luna")
+  expect(result.session_id).toBe("session-1")
 })

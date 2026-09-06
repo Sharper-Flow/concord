@@ -450,57 +450,43 @@ func TestKnowledgeManifestVocabularyBindingDetectsDivergence(t *testing.T) {
 	}
 }
 
-// The repository's own manifest is the artifact this package must be able to
-// read. Fixtures model only the keys the package projects onto struct fields,
-// so a top-level key added to the real file is invisible to them: knowledge
-// closure policy landed in the manifest and lesson publication failed at parse
-// with invalid_note_proof, undetected, because no test ever opened it.
-func TestParseLiveKnowledgeManifest(t *testing.T) {
-	const livePath = "../../docs/concord-knowledge-index.v1.json"
-	data, err := os.ReadFile(livePath)
+// Parsing the live shards is necessary but not sufficient: every head key the
+// store projects must reach the composed struct. A key the store leaves to
+// repository policy (manifestRootKeys false) stays in the head shard, which
+// the store never rewrites.
+func TestLiveKnowledgeManifestHeadKeysSurviveComposition(t *testing.T) {
+	root := repositoryRootForTest(t)
+	shards, err := readKnowledgeShardsWorkingTree(root)
 	if err != nil {
-		t.Fatalf("read live knowledge manifest: %v", err)
+		t.Fatal(err)
 	}
-	manifest, err := parseKnowledgeManifest(data)
+	var head map[string]json.RawMessage
+	if err := json.Unmarshal(shards.head, &head); err != nil {
+		t.Fatalf("decode manifest head: %v", err)
+	}
+	manifest, err := composeKnowledgeManifest(shards)
 	if err != nil {
-		t.Fatalf("parse live knowledge manifest %s: %v", livePath, err)
+		t.Fatalf("compose live knowledge manifest: %v", err)
 	}
-	if len(manifest.Records) == 0 {
-		t.Fatal("live knowledge manifest parsed with no records")
+	projected := map[string]bool{
+		"schema_version":  manifest.SchemaVersion != "",
+		"supported_kinds": manifest.SupportedKinds != nil,
+		"indexed_kinds":   manifest.IndexedKinds != nil,
+		"knowledge_roots": manifest.KnowledgeRoots != nil,
+		"exclusions":      manifest.Exclusions != nil,
+		"dispositions":    manifest.Dispositions != nil,
 	}
-}
-
-// Parsing the live manifest is necessary but not sufficient: a key the package
-// does not model must survive a publish round trip rather than be dropped.
-func TestLiveKnowledgeManifestSurvivesRoundTrip(t *testing.T) {
-	const livePath = "../../docs/concord-knowledge-index.v1.json"
-	data, err := os.ReadFile(livePath)
-	if err != nil {
-		t.Fatalf("read live knowledge manifest: %v", err)
-	}
-	manifest, err := parseKnowledgeManifest(data)
-	if err != nil {
-		t.Fatalf("parse live knowledge manifest: %v", err)
-	}
-	encoded, err := marshalKnowledgeManifest(manifest)
-	if err != nil {
-		t.Fatalf("marshal live knowledge manifest: %v", err)
-	}
-	var before, after map[string]json.RawMessage
-	if err := json.Unmarshal(data, &before); err != nil {
-		t.Fatalf("decode source manifest: %v", err)
-	}
-	if err := json.Unmarshal(encoded, &after); err != nil {
-		t.Fatalf("decode round-tripped manifest: %v", err)
-	}
-	for key := range before {
-		if _, ok := after[key]; !ok {
-			t.Errorf("round trip dropped top-level key %q", key)
+	for key := range head {
+		declared, known := manifestRootKeys[key]
+		if !known {
+			t.Errorf("head carries a key the store does not declare: %q", key)
+			continue
+		}
+		if declared && !projected[key] {
+			t.Errorf("composition dropped head key %q", key)
 		}
 	}
-	for key := range after {
-		if _, ok := before[key]; !ok {
-			t.Errorf("round trip invented top-level key %q", key)
-		}
+	if len(manifest.Records) == 0 || knowledgeDomainRegistryZero(manifest.DomainRegistry) {
+		t.Fatal("composition lacks records or the domain registry")
 	}
 }

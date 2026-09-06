@@ -181,12 +181,8 @@ func domainPayloadRepo(dir string) (string, error) {
 			},
 		},
 	}
-	encoded, err := encodeDomainManifest(manifest)
-	if err != nil {
+	if err := writeKnowledgeShards(repo, manifest); err != nil {
 		return "", err
-	}
-	if err := writeKnowledgeFile(repo, "docs/concord-knowledge-index.v1.json", encoded); err != nil {
-		return "", fmt.Errorf("pm1fixture: write populated Domain manifest: %w", err)
 	}
 	if _, err := commitKnowledgeRepo(repo, "populated domain payload knowledge"); err != nil {
 		return "", fmt.Errorf("pm1fixture: commit populated Domain repo: %w", err)

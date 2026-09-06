@@ -29,7 +29,8 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-MANIFEST = ROOT / "docs/concord-knowledge-index.v1.json"
+sys.path.insert(0, str(ROOT / "scripts"))
+import knowledge_index  # noqa: E402
 DEFAULT_KNOWLEDGE_ROOTS = ("docs/",)
 
 ROOT_RE = re.compile(r"^[a-zA-Z0-9._-]+(?:/[a-zA-Z0-9._-]+)*/$")
@@ -60,10 +61,13 @@ def reject_duplicate_pairs(pairs: list[tuple[str, object]]) -> dict[str, object]
 def load_manifest(findings: list[str]) -> object:
     try:
         return json.loads(
-            MANIFEST.read_text(encoding="utf-8"), object_pairs_hook=reject_duplicate_pairs
+            knowledge_index.compose_manifest_bytes(ROOT), object_pairs_hook=reject_duplicate_pairs
         )
+    except knowledge_index.ComposeError as exc:
+        findings.extend(exc.findings)
+        return None
     except (OSError, UnicodeDecodeError, json.JSONDecodeError, DuplicateKeyError) as exc:
-        findings.append(f"{MANIFEST.name}: invalid JSON: {exc}")
+        findings.append(f"{knowledge_index.KNOWLEDGE_ROOT}: invalid JSON: {exc}")
         return None
 
 

@@ -125,7 +125,7 @@ inference. Conventional Commit titles are load-bearing for release semver.
 |---|---|
 | What the CLI accepts, and its JSON-stdin rules | `commandSpecs` in [`cmd/concord/main.go`](cmd/concord/main.go); `concord --help` |
 | The verification contract a branch must satisfy | [`.github/workflows/ci.yml`](.github/workflows/ci.yml) |
-| Knowledge manifest, unprocessed enumeration, and doc contract | [`docs/concord-knowledge-index.v1.json`](docs/concord-knowledge-index.v1.json); [`contracts/concord-knowledge-index.v1.schema.json`](contracts/concord-knowledge-index.v1.schema.json); [`scripts/check-knowledge-closure.py`](scripts/check-knowledge-closure.py); [`scripts/check-doc-contract.py`](scripts/check-doc-contract.py) |
+| Knowledge manifest, unprocessed enumeration, and doc contract | [`docs/knowledge/`](docs/knowledge/) composed by [`scripts/knowledge_index.py`](scripts/knowledge_index.py); [`contracts/concord-knowledge-index.v1.schema.json`](contracts/concord-knowledge-index.v1.schema.json); [`scripts/check-knowledge-closure.py`](scripts/check-knowledge-closure.py); [`scripts/check-doc-contract.py`](scripts/check-doc-contract.py) |
 | Local verification tiers and their throttling | header comment in [`bin/oc-test`](bin/oc-test) |
 | Which quality tools and check commands are declared ready | [`.concord/tooling.v1.json`](.concord/tooling.v1.json) |
 | Adapter layout, tests, and the `worker-*` boundary | [`adapter/opencode/README.md`](adapter/opencode/README.md) |
@@ -134,7 +134,7 @@ inference. Conventional Commit titles are load-bearing for release semver.
 | How to move a CD number that collided with another branch | [`scripts/renumber-cd.py`](scripts/renumber-cd.py) `--dry-run` |
 | How a release is built and published | [`.github/workflows/release.yml`](.github/workflows/release.yml) |
 | Distance from the first-usable floor | [`docs/floor-readiness.md`](docs/floor-readiness.md) |
-| What is proved versus merely present | [`docs/law-coverage.v1.json`](docs/law-coverage.v1.json); [`docs/reachability-exceptions.v1.json`](docs/reachability-exceptions.v1.json) |
+| What is proved versus merely present | [`docs/knowledge/coverage/`](docs/knowledge/coverage/) composed by [`scripts/knowledge_index.py`](scripts/knowledge_index.py); [`docs/reachability-exceptions.v1.json`](docs/reachability-exceptions.v1.json) |
 | Predecessor operational coverage state | [`docs/predecessor-operational-coverage.md`](docs/predecessor-operational-coverage.md) |
 | Product law, priorities, and documentation rules | [`docs/README.md`](docs/README.md); [`docs/priorities.md`](docs/priorities.md) |
 | Repository layout and component roles | [`docs/core-architecture.md`](docs/core-architecture.md) |

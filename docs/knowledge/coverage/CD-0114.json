@@ -1,0 +1,5 @@
+{
+  "id": "CD-0114",
+  "reason": "The decision is proved by the store tests that compose the live shard tree, read a sharded and a pre-shard commit, and diff a lesson publication to exactly one shard, and by the script tests that compose through knowledge_index. Runtime behavior they exercise is the law itself, so no separate reachability surface applies.",
+  "state": "out_of_scope"
+}

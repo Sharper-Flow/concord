@@ -28,8 +28,10 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "scripts"))
+import knowledge_index  # noqa: E402
+
 CD_ID_RE = re.compile(r"^CD-[0-9]{4}$")
-MANIFEST = "docs/concord-knowledge-index.v1.json"
 DECISIONS = Path("docs/decisions")
 RECORDS = Path("docs/knowledge/records")
 COVERAGE = Path("docs/knowledge/coverage")
@@ -39,12 +41,10 @@ COVERAGE = Path("docs/knowledge/coverage")
 # outputs only through a source this tool edits directly, so regeneration
 # carries the rename forward without a hand edit.
 #
-# Order is load-bearing, and the knowledge index appears twice on purpose.
-# Renaming the shards makes the aggregate stale, and `check-knowledge-index.py
-# --update` refuses to run against a stale aggregate, so the aggregate is built
-# first. Recomputing the sha256 then changes the shards again, so the aggregate
-# is rebuilt after it. The lane generator cascades into knowledge-index
-# validation, so it runs last, once the hashes are settled.
+# Order matters. The renamed shards are normalised first, then the sha256
+# proofs are recomputed, then the shards are normalised again with the new
+# hashes. The lane generator cascades into knowledge-index validation, so it
+# runs last, once the hashes are settled.
 GENERATORS: tuple[tuple[str, ...], ...] = (
     ("scripts/generate-knowledge-index.py", "--update"),
     ("scripts/check-knowledge-index.py", "--update"),
@@ -64,8 +64,6 @@ GENERATED = frozenset(
         "adapter/opencode/generated-contracts.ts",
         "contracts/agent-lanes.digest",
         "docs/agent-lanes-contract.md",
-        "docs/concord-knowledge-index.v1.json",
-        "docs/law-coverage.v1.json",
         "internal/agent/generated_contracts.go",
         "internal/agent/generated_payload_schemas.go",
         "internal/store/generated_agent_lanes.go",
@@ -112,12 +110,9 @@ def read_text(path: Path) -> str | None:
 
 def landed_ids(root: Path, ref: str) -> set[str] | None:
     """CD ids present in the manifest at ``ref``, or None when it is unreachable."""
-    result = git(root, "show", f"{ref}:{MANIFEST}")
-    if result.returncode != 0:
-        return None
     try:
-        data = json.loads(result.stdout.decode("utf-8"))
-    except (UnicodeDecodeError, json.JSONDecodeError):
+        data = knowledge_index.raw_manifest_at(root, ref)
+    except (subprocess.CalledProcessError, knowledge_index.ComposeError, knowledge_index.DuplicateKeyError, UnicodeDecodeError, json.JSONDecodeError):
         return None
     records = data.get("records")
     if not isinstance(records, list):

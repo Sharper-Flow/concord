@@ -171,7 +171,7 @@ def validate_generator(schema: object, generator: object, findings: list[str]) -
     """Bind the aggregate generator's vocabulary to the same schema.
 
     scripts/generate-knowledge-index.py validates every shard before it derives
-    docs/concord-knowledge-index.v1.json, so it is a second enforcement point
+    the composed knowledge manifest, so it is a second enforcement point
     for the same contract, not a formatter. A kind the schema declares and the
     generator rejects makes that kind unauthorable no matter what the checker
     allows, and a kind the generator accepts and the schema forbids reaches the

@@ -1,8 +1,11 @@
 # Concord durable knowledge index
 
-The tracked [`concord-knowledge-index.v1.json`](./concord-knowledge-index.v1.json)
-is the manifest-primary registry for durable `decision`, `spec`, and `lesson`
-records in a repository home. Schema `1.1` is backward-compatible with `1.0`
+The shard tree under [`docs/knowledge/`](./knowledge/) is the registry for
+durable `decision`, `spec`, and `lesson` records in a repository home. The
+head shard [`knowledge/manifest.json`](./knowledge/manifest.json), the domain
+registry [`knowledge/domain-registry.json`](./knowledge/domain-registry.json),
+and one record shard per record under `knowledge/records/` compose the
+manifest document (CD-0114); no committed file lists every record. Schema `1.1` is backward-compatible with `1.0`
 and optionally adds authored typed law relations to decision/spec records. The companion
 [`concord-knowledge-index.v1.schema.json`](../contracts/concord-knowledge-index.v1.schema.json)
 is the closed JSON Schema contract.
@@ -63,15 +66,17 @@ updates hashes only; it never authors inclusion, metadata, or status.
 
 Before pushing a new CD, run `python3 scripts/check-cd-allocation.py` locally; CI repeats this preflight against `origin/main`.
 
-Coverage records for indexed law are authored as shards under `docs/knowledge/coverage/<id>.json`. After adding or editing a shard, run `python3 scripts/generate-law-coverage.py --update` to regenerate `docs/law-coverage.v1.json`; CI validates aggregate freshness through `scripts/check-json.py`.
+Coverage records for indexed law are authored as shards under `docs/knowledge/coverage/<id>.json`. After adding or editing a shard, run `python3 scripts/generate-law-coverage.py --update` to normalise it; `--check` proves every shard composes and is canonical.
 
 Knowledge records are authored as one sorted-key JSON object per file under
-`docs/knowledge/records/<id>.json`; the domain registry is authored at
-`docs/knowledge/domain-registry.json`. The tracked
-`docs/concord-knowledge-index.v1.json` is generated from those sources with
-`python3 scripts/generate-knowledge-index.py --update`. Use `--check` to prove
-the aggregate is current. `check-knowledge-index.py --update` refreshes only
-`sha256` values in record shards, then regenerates the aggregate.
+`docs/knowledge/records/<id>.json`; the head fields are authored at
+`docs/knowledge/manifest.json` and the domain registry at
+`docs/knowledge/domain-registry.json`. `python3 scripts/generate-knowledge-index.py --update`
+normalises the shards, and `--check` proves they compose. Every reader,
+Python or Go, composes the manifest document in memory:
+`scripts/knowledge_index.py` for the validators and the store's
+`readKnowledgeManifest` for a commit. `check-knowledge-index.py --update`
+refreshes only `sha256` values in record shards.
 
 SQLite's `law_subjects` and `law_relations` tables are derived only by
 `RebuildKnowledgeIndex` for one home, inside the same transactional fold guard.

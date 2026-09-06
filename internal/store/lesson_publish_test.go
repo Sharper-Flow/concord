@@ -1,7 +1,6 @@
 package store
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"os"
@@ -72,9 +71,7 @@ func lessonRepoFixture(t *testing.T) string {
   ]
 }
 `
-	if err := os.WriteFile(filepath.Join(repo, lessonManifestPath), []byte(manifest), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	writeAggregateAsShards(t, repo, []byte(manifest))
 	if err := os.MkdirAll(filepath.Join(repo, "docs/lessons"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -116,13 +113,7 @@ func TestPublishLessonRecordCommitsManifestAndNoteIdempotently(t *testing.T) {
 	if err := json.Unmarshal(shardBytes, &shard); err != nil || shard.ID != req.LessonID {
 		t.Fatalf("invalid lesson record shard: %v", err)
 	}
-	manifestBytes, _ := os.ReadFile(filepath.Join(repo, lessonManifestPath))
-	var manifest struct {
-		Records []KnowledgeRecord `json:"records"`
-	}
-	if err := json.Unmarshal(manifestBytes, &manifest); err != nil {
-		t.Fatal(err)
-	}
+	manifest := composeWorkingTreeManifest(t, repo)
 	found := false
 	for _, record := range manifest.Records {
 		if record.ID == req.LessonID {
@@ -203,7 +194,6 @@ func TestPublishLessonRecordValidatesScopesAndBounds(t *testing.T) {
 
 func TestPublishLessonRecordPreservesV12DomainManifest(t *testing.T) {
 	repo := lessonRepoFixture(t)
-	manifestPath := filepath.Join(repo, lessonManifestPath)
 
 	req := LessonPublication{
 		LessonID: "lesson-v12-domain", Title: "Domain lessons", Summary: "A version 1.2 manifest keeps its domain registry and domain-only scopes.",
@@ -214,27 +204,30 @@ func TestPublishLessonRecordPreservesV12DomainManifest(t *testing.T) {
 	if _, err := PublishLessonRecord(context.Background(), KnowledgeHome{RepoPath: repo}, req); err != nil {
 		t.Fatal(err)
 	}
-	written, err := os.ReadFile(manifestPath)
+	composed := composeWorkingTreeManifest(t, repo)
+	if knowledgeDomainRegistryZero(composed.DomainRegistry) {
+		t.Fatal("published v1.2 manifest lost its domain registry")
+	}
+	shard, err := os.ReadFile(filepath.Join(repo, filepath.FromSlash(knowledgeRecordTree), "lesson-v12-domain.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := parseKnowledgeManifest(written); err != nil {
-		t.Fatalf("published v1.2 manifest is invalid: %v", err)
+	if strings.Contains(string(shard), `"component_ids"`) || !strings.Contains(string(shard), `"domain_ids"`) {
+		t.Fatalf("published record shard lost Domain-only shape:\n%s", shard)
 	}
-	if strings.Contains(string(written), `"component_ids"`) || !strings.Contains(string(written), `"domain_registry"`) {
-		t.Fatalf("published v1.2 manifest lost Domain-only shape:\n%s", written)
-	}
-
 }
 
-func TestMarshalKnowledgeManifestPreservesV12LawHomes(t *testing.T) {
+// TestShardRoundTripPreservesV12LawHomes proves a law record written as a
+// shard composes back with its Domain home intact.
+func TestShardRoundTripPreservesV12LawHomes(t *testing.T) {
+	repo := t.TempDir()
 	manifest := KnowledgeManifest{
-		SchemaVersion: "1.2", SupportedKinds: []string{"decision"}, IndexedKinds: []string{"decision"},
+		SchemaVersion: "1.2", SupportedKinds: []string{"decision", "lesson"}, IndexedKinds: []string{"decision", "lesson"},
 		DomainRegistry: KnowledgeDomainRegistry{
 			SchemaVersion: "1.0", ProductKey: "concord", RootDomainID: "product-root:concord",
 			Domains: []KnowledgeDomain{
 				{DomainID: "product-root:concord", Name: "Concord", Purpose: "Product-wide law", Status: "current", ArchitectureRelations: []KnowledgeArchitectureRelation{}},
-				{DomainID: "store", Name: "Store", Purpose: "Durable Product authority", Status: "current", ArchitectureRelations: []KnowledgeArchitectureRelation{}},
+				{DomainID: "store", Name: "Store", Purpose: "Storage", ParentDomainID: "product-root:concord", Status: "current", ArchitectureRelations: []KnowledgeArchitectureRelation{}},
 			},
 		},
 		Records: []KnowledgeRecord{{
@@ -245,80 +238,38 @@ func TestMarshalKnowledgeManifestPreservesV12LawHomes(t *testing.T) {
 			ProductWideRationale: "Ownership survives lesson publication across every child Domain.",
 		}},
 	}
-	written, err := marshalKnowledgeManifest(manifest)
-	if err != nil {
-		t.Fatal(err)
-	}
-	parsed, err := parseKnowledgeManifest(written)
-	if err != nil {
-		t.Fatalf("serialized v1.2 law manifest is invalid: %v", err)
-	}
+	writeManifestShards(t, repo, manifest)
+	parsed := composeWorkingTreeManifest(t, repo)
 	if got := parsed.Records[0]; got.HomeDomainID != "product-root:concord" || len(got.AppliesToDomainIDs) != 1 || got.AppliesToDomainIDs[0] != "store" {
-		t.Fatalf("law homes lost during serialization: %+v", got)
+		t.Fatalf("law homes lost during the shard round trip: %+v", got)
 	}
 }
 
-func TestMarshalKnowledgeManifestMatchesKnowledgeIndexGenerator(t *testing.T) {
-	root := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(root, "docs/knowledge/records"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	manifest := KnowledgeManifest{
-		SchemaVersion: "1.2", SupportedKinds: []string{"lesson", "research"}, IndexedKinds: []string{"lesson"},
-		DomainRegistry: KnowledgeDomainRegistry{
-			SchemaVersion: "1.0", ProductKey: "concord", RootDomainID: "product-root:concord",
-			Domains: []KnowledgeDomain{{DomainID: "product-root:concord", Name: "Concord", Purpose: "Product-wide law", Status: "current", ArchitectureRelations: []KnowledgeArchitectureRelation{}}},
-		},
-		Records: []KnowledgeRecord{{
-			ID: "lesson-round-trip", Kind: "lesson", Path: "docs/lesson-round-trip.md", Status: "published", Date: "2026-08-20T00:00:00Z",
-			Title: "Round trip", Summary: "Python and Go use one aggregate byte format.", Tags: []string{"proof"},
-			Scopes: KnowledgeRecordScopes{Mode: "home", ProductIDs: []string{}, ProjectIDs: []string{}, DomainIDs: []string{}, TagIDs: []string{}},
-			SHA256: "sha256:" + strings.Repeat("a", 64),
-		}},
-	}
-	aggregate, err := marshalKnowledgeManifest(manifest)
+// TestShardTreeComposesIdenticallyInGoAndPython proves the store and
+// scripts/knowledge_index.py compose the same manifest from the same shards.
+func TestShardTreeComposesIdenticallyInGoAndPython(t *testing.T) {
+	repoRoot := repositoryRootForTest(t)
+	goManifest := composeWorkingTreeManifest(t, repoRoot)
+	cmd := exec.Command("python3", "-c", "import sys, json; sys.path.insert(0, 'scripts'); import knowledge_index; sys.stdout.write(knowledge_index.compose_manifest_bytes().decode('utf-8'))")
+	cmd.Dir = repoRoot
+	output, err := cmd.Output()
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("python composition failed: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(root, lessonManifestPath), aggregate, 0o644); err != nil {
-		t.Fatal(err)
-	}
-	shard, err := marshalKnowledgeRecord(manifest.Records[0])
+	pyManifest, err := parseKnowledgeManifest(output)
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("python composition is not runtime-readable: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(root, lessonRecordDir, "lesson-round-trip.json"), shard, 0o644); err != nil {
-		t.Fatal(err)
+	if len(pyManifest.Records) != len(goManifest.Records) {
+		t.Fatalf("python composed %d records, Go composed %d", len(pyManifest.Records), len(goManifest.Records))
 	}
-	registry, err := json.MarshalIndent(manifest.DomainRegistry, "", "  ")
-	if err != nil {
-		t.Fatal(err)
+	for i := range goManifest.Records {
+		if goManifest.Records[i].ID != pyManifest.Records[i].ID || goManifest.Records[i].SHA256 != pyManifest.Records[i].SHA256 {
+			t.Fatalf("record %d differs: go=%s/%s python=%s/%s", i, goManifest.Records[i].ID, goManifest.Records[i].SHA256, pyManifest.Records[i].ID, pyManifest.Records[i].SHA256)
+		}
 	}
-	if err := os.WriteFile(filepath.Join(root, lessonRecordDir, "../domain-registry.json"), append(registry, '\n'), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	repoRoot := "."
-	if _, err := os.Stat(filepath.Join(repoRoot, "scripts/generate-knowledge-index.py")); err != nil {
-		repoRoot = filepath.Join("..", "..")
-	}
-	currentBytes, err := os.ReadFile(filepath.Join(repoRoot, lessonManifestPath))
-	if err != nil {
-		t.Fatal(err)
-	}
-	currentManifest, err := parseKnowledgeManifest(currentBytes)
-	if err != nil {
-		t.Fatalf("current generated aggregate is not runtime-readable: %v", err)
-	}
-	currentRendered, err := marshalKnowledgeManifest(currentManifest)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !bytes.Equal(currentBytes, currentRendered) {
-		t.Fatal("Go manifest serialization diverges from the generated aggregate")
-	}
-	cmd := exec.Command("python3", filepath.Join(repoRoot, "scripts/generate-knowledge-index.py"), "--check", "--root", root)
-	if output, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("generator rejected Go serialization: %v\n%s", err, output)
+	if !reflect.DeepEqual(goManifest.KnowledgeRoots, pyManifest.KnowledgeRoots) || !reflect.DeepEqual(goManifest.Exclusions, pyManifest.Exclusions) {
+		t.Fatal("head fields differ between the Go and Python compositions")
 	}
 }
 
@@ -377,9 +328,7 @@ func eightKeyLessonRepoFixture(t *testing.T) string {
   ]
 }
 `
-	if err := os.WriteFile(filepath.Join(repo, lessonManifestPath), []byte(manifest), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	writeAggregateAsShards(t, repo, []byte(manifest))
 	if err := os.WriteFile(filepath.Join(repo, "docs/lessons/2026-08-01-seed.md"), []byte("seed\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -390,17 +339,19 @@ func eightKeyLessonRepoFixture(t *testing.T) string {
 
 func TestPublishLessonRecordPreservesEveryTopLevelManifestKey(t *testing.T) {
 	repo := eightKeyLessonRepoFixture(t)
-	manifestFile := filepath.Join(repo, lessonManifestPath)
+	headFile := filepath.Join(repo, filepath.FromSlash(knowledgeHeadPath))
 	before := map[string]json.RawMessage{}
-	raw, err := os.ReadFile(manifestFile)
+	raw, err := os.ReadFile(headFile)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := json.Unmarshal(raw, &before); err != nil {
 		t.Fatal(err)
 	}
-	if len(before) != 8 {
-		t.Fatalf("fixture must carry all eight top-level keys, got %d: %v", len(before), sortedKeys(before))
+	// Six head keys: the aggregate's eight less domain_registry and records,
+	// which live in their own shards.
+	if len(before) != 6 {
+		t.Fatalf("fixture head must carry six top-level keys, got %d: %v", len(before), sortedKeys(before))
 	}
 
 	published, err := PublishLessonRecord(context.Background(), KnowledgeHome{RepoPath: repo}, LessonPublication{
@@ -419,7 +370,7 @@ func TestPublishLessonRecordPreservesEveryTopLevelManifestKey(t *testing.T) {
 	}
 
 	after := map[string]json.RawMessage{}
-	raw, err = os.ReadFile(manifestFile)
+	raw, err = os.ReadFile(headFile)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -121,11 +120,7 @@ func writeManifestFixture(t *testing.T, repo string, fixtures ...manifestFixture
 		SchemaVersion: "1.0", ProductKey: fixtureProductKey, RootDomainID: fixtureRootDomain,
 		Domains: registryDomains,
 	}
-	content, err := json.MarshalIndent(manifest, "", "  ")
-	if err != nil {
-		t.Fatal(err)
-	}
-	writeKnowledgeFile(t, repo, knowledgeManifestPath, string(content)+"\n")
+	writeManifestShards(t, repo, manifest)
 }
 
 // setManifestGoverningLaw rewrites the committed fixture manifest so the
@@ -134,15 +129,7 @@ func writeManifestFixture(t *testing.T, repo string, fixtures ...manifestFixture
 // every Domain that fixture derived from record scopes.
 func setManifestGoverningLaw(t *testing.T, repo, source, target, lawID string) {
 	t.Helper()
-	path := filepath.Join(repo, filepath.FromSlash(knowledgeManifestPath))
-	content, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var manifest KnowledgeManifest
-	if err := json.Unmarshal(content, &manifest); err != nil {
-		t.Fatal(err)
-	}
+	manifest := composeWorkingTreeManifest(t, repo)
 	var found bool
 	for i := range manifest.DomainRegistry.Domains {
 		if manifest.DomainRegistry.Domains[i].DomainID == source {
@@ -153,11 +140,7 @@ func setManifestGoverningLaw(t *testing.T, repo, source, target, lawID string) {
 	if !found {
 		t.Fatalf("fixture manifest declares no Domain %q", source)
 	}
-	out, err := json.MarshalIndent(manifest, "", "  ")
-	if err != nil {
-		t.Fatal(err)
-	}
-	writeKnowledgeFile(t, repo, knowledgeManifestPath, string(out)+"\n")
+	writeManifestShards(t, repo, manifest)
 }
 
 func manifestFixtureFromFile(t *testing.T, repo string, id, kind, path, status, date, title, summary string, tags []string, scopes KnowledgeRecordScopes) manifestFixture {

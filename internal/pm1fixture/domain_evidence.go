@@ -213,25 +213,13 @@ func DomainEvidenceRepo(dir string) (string, error) {
 			},
 		},
 	}
-	encoded, err := encodeDomainManifest(manifest)
-	if err != nil {
+	if err := writeKnowledgeShards(repo, manifest); err != nil {
 		return "", err
-	}
-	if err := writeKnowledgeFile(repo, "docs/concord-knowledge-index.v1.json", encoded); err != nil {
-		return "", fmt.Errorf("pm1fixture: write Domain manifest: %w", err)
 	}
 	if _, err := commitKnowledgeRepo(repo, "domain evidence knowledge"); err != nil {
 		return "", fmt.Errorf("pm1fixture: commit Domain evidence repo: %w", err)
 	}
 	return repo, nil
-}
-
-func encodeDomainManifest(manifest store.KnowledgeManifest) (string, error) {
-	raw, err := json.Marshal(manifest)
-	if err != nil {
-		return "", fmt.Errorf("pm1fixture: marshal Domain manifest: %w", err)
-	}
-	return string(raw) + "\n", nil
 }
 
 type domainStatement struct {

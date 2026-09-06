@@ -110,6 +110,15 @@ session retargeted under CD-0096 therefore dispatches its lanes into the claimed
 worktree, and a session in a default checkout cannot dispatch an
 implementation-bearing lane at all.
 
+*(Amended 2026-09-06, issue #826 — the core checks this, the host does not
+promise it.)* *Before `dispatch_worker` opens a window, the core resolves the
+target work item's active worktree claims and compares them with the session's
+worktree (CD-0104) by filesystem identity: absolute, symlink-resolved, cleaned.
+No active claim, an unresolvable session path, or a mismatch refuses with
+`unauthorized_dispatch`. The refusal names the sha256 identity of each path,
+never the path. The same check runs in preflight and in lane registration, so a
+worker cannot run in a worktree the work item does not own.*
+
 ## Consequences
 
 - The operator sees the standard worker card, opens the worker session, and

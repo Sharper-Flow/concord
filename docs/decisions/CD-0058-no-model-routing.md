@@ -69,6 +69,13 @@ That value remains the input to CD-0017 D6 distinctness, unchanged. Concord
 asserts nothing about which model *should* have run, so it detects no
 substitution and claims none.
 
+*(Amended 2026-09-06, issue #826.)* *Because `readback_model` is the sole
+evidence, its absence is itself recorded. A host export that carries no model
+identity, or more than one, produces one attempt born `failed` with kind
+`model_readback_missing` or `model_readback_ambiguous` (CD-0017 D5). The
+adapter never retries the export and never leaves a dispatch with no attempt
+row.*
+
 ### D3. The routing-policy record and its load path are removed
 
 `contracts/routing-policy.v1.json`, the `CONCORD_ROUTING_POLICY` environment

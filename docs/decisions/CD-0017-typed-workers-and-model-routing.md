@@ -134,6 +134,21 @@ clause on the single-shot path. If a session-attached dispatch
 this clause should be revisited; until then no reader may infer a
 substitution guarantee.*
 
+*(Amended 2026-09-06, issue #826 — a lost readback is terminal evidence, and
+the dispatch event binds the admitted worktree.)*
+
+*A readback that yields no executing-model identity, or more than one, is not
+an adapter error to discard. The adapter records exactly one failed attempt:
+one dispatch event with an empty `readback_model`, then one `worker.failed`
+whose kind is `model_readback_missing` or `model_readback_ambiguous`, carrying
+the refusing predicate, the export digest, and the export byte count. The
+schema admits an empty `readback_model` only under those two failed kinds. The
+attempt is never retried; a new attempt is a new decision.*
+
+*The dispatch event also records `worker_worktree_identity`, the sha256 of the
+canonical session worktree path the core admitted under CD-0102 D7. Later
+worker evidence binds to that claim without a machine path in a public event.*
+
 `worker.completed` and `worker.failed` bind to the dispatched attempt's exact work
 item and make one transition from `dispatched`. Both terminal states are immutable;
 a later terminal event cannot replace failure with success or success with failure.

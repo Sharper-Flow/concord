@@ -1,6 +1,7 @@
 import { test, expect } from "bun:test"
+import { createHash } from "node:crypto"
 import { agentLanes } from "./generated-agent-lanes"
-import { completeWorkerAttempt, dispatchWorker, MAX_EXPORT_BYTES, readExportSessionMetadata, readRunSessionMetadata, validateAgentLanePacket, type AgentLanePacket, type DispatchAuthorizer, type DispatchRunner } from "./dispatch"
+import { completeWorkerAttempt, dispatchWorker, MAX_EXPORT_BYTES, readExportSession, readExportSessionMetadata, readRunSessionMetadata, validateAgentLanePacket, type AgentLanePacket, type DispatchAuthorizer, type DispatchRunner } from "./dispatch"
 import { DispatchWindows } from "./dispatch-window"
 import type { CredentialStore } from "./credentials"
 
@@ -199,6 +200,35 @@ test("readback refuses an export above its own ceiling", () => {
     ],
   })
   expect(readExportSessionMetadata(runaway, "session-1")).toBe(null)
+})
+
+test("readback refusal names its predicate and preserves the export digest", () => {
+  const malformed = "not-json"
+  const expectedDigest = `sha256:${createHash("sha256").update(malformed, "utf8").digest("hex")}`
+  const result = readExportSession(malformed, "session-1")
+  expect(result.ok).toBe(false)
+  if (result.ok) return
+  expect(result.predicate).toBe("export_json")
+  expect(result.export_digest).toBe(expectedDigest)
+  expect(result.export_bytes).toBe(Buffer.byteLength(malformed))
+  expect(result.message).toContain("valid JSON")
+})
+
+test("readback refusal is typed and does not change valid completion", async () => {
+  const result = await complete(workerBody(), {
+    readbackRunner: { async run() { return { exitCode: 0, stdout: "not-json", stderr: "" } } },
+  })
+  expect(result.outcome).toBe("error")
+  expect(result.error?.kind).toBe("readback_refusal")
+  expect(result.error?.predicate).toBe("export_json")
+  expect(result.error?.export_digest).toBe(`sha256:${createHash("sha256").update("not-json", "utf8").digest("hex")}`)
+  expect(result.error?.export_bytes).toBe(Buffer.byteLength("not-json"))
+  expect(result.error?.message).toContain("readback predicate export_json refused")
+  expect(result.error?.message).not.toContain("not-json")
+
+  const accepted = await complete(workerBody())
+  expect(accepted.outcome).toBe("ok")
+  expect(accepted.readback_model).toBe(READBACK_MODEL)
 })
 
 // The sanitized export carries the executing agent on each message info; the

@@ -663,7 +663,22 @@ func workflowSemanticActionEvents(ctx context.Context, tx *sql.Tx, definition Wo
 		}
 		return []Event{workflowTypedEvent(eventID, WorkflowSuccessorLinked, request.WorkID, actor, request.Now, expected, map[string]any{"successor_work_id": successorID, "relation_kind": "forward_link", "successor_kind": successorKind, "definition_ref": definitionRef})}, nil
 	case "declare_impact":
-		return []Event{workflowTypedEvent(eventID, WorkflowImpactDeclared, request.WorkID, actor, request.Now, expected, map[string]any{"edge_id": workflowFieldStringDefault(fields, "edge_id", "edge:"+request.OperationID), "edge_kind": workflowFieldStringDefault(fields, "edge_kind", "modifies"), "edge_class": workflowFieldStringDefault(fields, "edge_class", "hard"), "target_work_id": workflowFieldStringDefault(fields, "target_work_id", request.WorkID+"-target"), "target_kind": "work_item", "severity": workflowFieldStringDefault(fields, "severity", "non-breaking")})}, nil
+		// The impact edge carries a foreign key to work_items, so a target
+		// the caller never named cannot default into existence: a phantom
+		// "<work>-target" id only moves the failure to fold time. The target
+		// is required and must name a real work item, refused here at the
+		// boundary with a typed payload error (issue #823).
+		targetID, targetOK := workflowFieldString(fields, "target_work_id")
+		if !targetOK || targetID == "" {
+			return nil, newFailure(KindInvalidPayload, "workflow_action", "declare_impact requires target_work_id naming the impacted work item", false, "supply a real target work item id")
+		}
+		var targetExists int
+		if err := tx.QueryRowContext(ctx, `SELECT 1 FROM work_items WHERE id=?`, targetID).Scan(&targetExists); err == sql.ErrNoRows {
+			return nil, newFailure(KindInvalidPayload, "workflow_action", "declare_impact target_work_id does not name a work item", false, "supply a real target work item id")
+		} else if err != nil {
+			return nil, workflowProjectionError(err, "cannot read the impact target")
+		}
+		return []Event{workflowTypedEvent(eventID, WorkflowImpactDeclared, request.WorkID, actor, request.Now, expected, map[string]any{"edge_id": workflowFieldStringDefault(fields, "edge_id", "edge:"+request.OperationID), "edge_kind": workflowFieldStringDefault(fields, "edge_kind", "modifies"), "edge_class": workflowFieldStringDefault(fields, "edge_class", "hard"), "target_work_id": targetID, "target_kind": "work_item", "severity": workflowFieldStringDefault(fields, "severity", "non-breaking")})}, nil
 	case "add_condition":
 		values := map[string]any{"condition_id": workflowFieldStringDefault(fields, "condition_id", "condition:"+request.OperationID), "await_type": workflowFieldStringDefault(fields, "await_type", "timer"), "await_ref": workflowFieldStringDefault(fields, "await_ref", "await:"+request.OperationID), "resolution_authority": workflowFieldStringDefault(fields, "resolution_authority", "durable_operation:"+request.OperationID)}
 		// Issue #87: a step delegating completion to an external actor may

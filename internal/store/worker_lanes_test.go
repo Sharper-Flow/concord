@@ -108,10 +108,8 @@ func TestWorkerCompletionMismatchIsDurableTypedFailureAndRebuildDeterministic(t 
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{mismatch}}); err != nil {
 		t.Fatal(err)
 	}
-	// CD-0058: Concord records the host readback verbatim. A completion that
-	// names a different readback than the dispatch is accepted as a normal
-	// completion; the dispatch and terminal readback are both recorded. The
-	// store no longer asserts a model_identity_mismatch.
+	// Concord records the host readback verbatim. A completion can report a
+	// different readback than the dispatch, and both values remain recorded.
 	var state, readback string
 	if err := s.DatabaseForTesting().QueryRow(`SELECT lifecycle_state,readback_model FROM worker_attempts WHERE attempt_id=?`, "dispatch-mismatch").Scan(&state, &readback); err != nil {
 		t.Fatal(err)
@@ -189,12 +187,9 @@ func TestWorkerTerminalTransitionsAreSingleUseAndSubjectBound(t *testing.T) {
 		beforeEvents := countRows(t, s, "domain_events")
 		assertRejectedWorkerTerminal(t, s, workerFailedEvent("terminal-foreign-failed-subject", "terminal-foreign-failed-event", "terminal-foreign-failed-attempt", preferredModelForLane(lane)), KindInvalidOperation, before, beforeEvents)
 	})
-	t.Run("model mismatch is no longer a terminal kind", func(t *testing.T) {
-		// CD-0058: the readback mismatch no longer records a typed failure. A
-		// completion that names a different readback than the dispatch
-		// succeeds as a normal completion; the readback column records what
-		// the host reported. A second completion is still rejected because
-		// the attempt is already terminal.
+	t.Run("model mismatch records the host readback", func(t *testing.T) {
+		// A completion can report a different readback than the dispatch. The
+		// attempt remains completed, and a second completion is rejected.
 		s := openTemp(t)
 		lane := BuiltinLaneDefinitions()[1]
 		attemptID := "terminal-model-mismatch-attempt"
@@ -258,6 +253,26 @@ func TestWorkerCompletedAndFailedEventsRetainD5Evidence(t *testing.T) {
 	}
 	if count != 2 {
 		t.Fatalf("D5 evidence rows = %d, want 2", count)
+	}
+}
+
+func TestWorkerModelReadbackFailureIsDurableWithoutModelValue(t *testing.T) {
+	s := openTemp(t)
+	lane := BuiltinLaneDefinitions()[0]
+	attemptID := "model-readback-missing-attempt"
+	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent("model-readback-missing", attemptID, lane, map[string]any{"readback_model": ""})}}); err != nil {
+		t.Fatal(err)
+	}
+	event := Event{EventID: "model-readback-missing-failed", Kind: WorkerFailed, SubjectType: SubjectWorkItem, SubjectID: "model-readback-missing", Actor: "worker:test", OccurredAt: time.Unix(3, 0).UTC(), PayloadVersion: 1, Payload: mustJSONValue(WorkerFailedPayload{AttemptID: attemptID, FailureKind: WorkerFailureModelReadbackMissing, Detail: "host session export did not provide one model identity"})}
+	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{event}}); err != nil {
+		t.Fatalf("model readback failure: %v", err)
+	}
+	var state, model, failure string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT lifecycle_state,readback_model,failure_kind FROM worker_attempts WHERE attempt_id=?`, attemptID).Scan(&state, &model, &failure); err != nil {
+		t.Fatal(err)
+	}
+	if state != "failed" || model != "" || failure != WorkerFailureModelReadbackMissing {
+		t.Fatalf("model readback failure projection = %q/%q/%q", state, model, failure)
 	}
 }
 

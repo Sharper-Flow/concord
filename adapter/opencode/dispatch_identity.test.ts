@@ -79,7 +79,7 @@ test("run line metadata exposes the session before run completion", () => {
   expect(() => readRunLineMetadata(JSON.stringify({ type: "text", timestamp: 1 }))).toThrow()
 })
 
-test("export metadata reads the latest typed assistant and ignores nested model-shaped content", () => {
+test("export metadata refuses multiple typed model identities", () => {
   const exported = JSON.stringify({
     info: { id: "session-1" },
     messages: [
@@ -88,7 +88,7 @@ test("export metadata reads the latest typed assistant and ignores nested model-
       { info: { id: "message-2", sessionID: "session-1", role: "assistant", agent: "concord-research", providerID: "zai-coding-plan", modelID: "glm-5.2", time: { created: 20 } }, parts: [{ type: "tool", state: { output: { model: "hostile/not-readback" } } }] },
     ],
   })
-  expect(readExportSessionMetadata(exported, "session-1")).toEqual({ readback_model: "zai-coding-plan/glm-5.2", readback_agent: "concord-research", session_id: "session-1" })
+  expect(readExportSessionMetadata(exported, "session-1")).toBeNull()
   expect(readExportSessionMetadata(exported, "different-session")).toBeNull()
 })
 

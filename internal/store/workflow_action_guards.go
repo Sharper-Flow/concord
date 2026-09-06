@@ -519,6 +519,9 @@ func appendGenericWorkflowCompletion(in workflowActionAssemblyInput, attemptEpoc
 		sum := sha256.Sum256(canonical)
 		workerPacketDigest = "sha256:" + hex.EncodeToString(sum[:])
 		completionValues["worker_packet_digest"] = workerPacketDigest
+		if in.request.SessionWorktreeIdentity != "" {
+			completionValues["worker_worktree_identity"] = in.request.SessionWorktreeIdentity
+		}
 	}
 	events = append(events, workflowTypedEvent(in.request.OperationID+":completed", WorkflowActionCompleted, in.request.WorkID, in.eventActor, in.request.Now, resultVersion-1, completionValues))
 	return events, workerPacketDigest, nil

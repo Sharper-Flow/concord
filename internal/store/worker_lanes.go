@@ -20,10 +20,12 @@ const (
 )
 
 const (
-	WorkerFailureFallbackBlocked = "fallback_blocked"
-	WorkerFailureWorkerError     = "worker_error"
-	WorkerFailureInvalidReport   = "invalid_report"
-	WorkerFailureModelIdentity   = "model_identity_mismatch"
+	WorkerFailureFallbackBlocked        = "fallback_blocked"
+	WorkerFailureWorkerError            = "worker_error"
+	WorkerFailureInvalidReport          = "invalid_report"
+	WorkerFailureModelIdentity          = "model_identity_mismatch"
+	WorkerFailureModelReadbackMissing   = "model_readback_missing"
+	WorkerFailureModelReadbackAmbiguous = "model_readback_ambiguous"
 )
 
 // Evidence origin is closed (CD-0056 D6). WorkerEvidenceReported means the
@@ -208,7 +210,8 @@ func validateWorkerReportEvidence(origin string, evidence []WorkerReportEvidence
 }
 
 func validateWorkerFailedPayload(_ Event, payload WorkerFailedPayload) error {
-	if payload.AttemptID == "" || !workerModelPattern.MatchString(payload.ReadbackModel) || !validWorkerFailureKind(payload.FailureKind) || len(payload.Detail) < 1 || len(payload.Detail) > 4096 {
+	readbackValid := workerModelPattern.MatchString(payload.ReadbackModel) || payload.ReadbackModel == "" && modelReadbackFailureKind(payload.FailureKind)
+	if payload.AttemptID == "" || !readbackValid || !validWorkerFailureKind(payload.FailureKind) || len(payload.Detail) < 1 || len(payload.Detail) > 4096 {
 		return invalidWorkerPayload("worker.failed payload has invalid identity or failure")
 	}
 	return nil
@@ -264,12 +267,13 @@ func validateWorkerDispatched(event Event, payload WorkerDispatchedPayload) erro
 // whose recorded digest is empty predates the boundary and refuses with a typed
 // cutover failure so the operator opens a fresh authorization.
 type WorkerDispatchWindow struct {
-	WorkID       string
-	StepID       string
-	AttemptID    string
-	AttemptEpoch int64
-	StartSeq     int64
-	PacketDigest string
+	WorkID           string
+	StepID           string
+	AttemptID        string
+	AttemptEpoch     int64
+	StartSeq         int64
+	PacketDigest     string
+	WorktreeIdentity string
 }
 
 // FindAuthorizedDispatchWindowTx reads the most recent dispatch_worker
@@ -300,7 +304,7 @@ func FindAuthorizedDispatchWindowTx(ctx context.Context, tx *sql.Tx, workID, ste
 	// packet. Empty digest is the pre-CD-0067 case the gate refuses
 	// with a typed cutover failure (D6); the read still surfaces it as
 	// an empty string.
-	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(json_extract(payload,'$.worker_attempt_id'),''), COALESCE(json_extract(payload,'$.worker_packet_digest'),'') FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')=? AND json_extract(payload,'$.step_id')=? AND seq > ? ORDER BY seq ASC LIMIT 1`, string(SubjectWorkItem), workID, WorkflowActionCompleted, "dispatch_worker", stepID, window.StartSeq).Scan(&window.AttemptID, &window.PacketDigest); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(json_extract(payload,'$.worker_attempt_id'),''), COALESCE(json_extract(payload,'$.worker_packet_digest'),''), COALESCE(json_extract(payload,'$.worker_worktree_identity'),'') FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')=? AND json_extract(payload,'$.step_id')=? AND seq > ? ORDER BY seq ASC LIMIT 1`, string(SubjectWorkItem), workID, WorkflowActionCompleted, "dispatch_worker", stepID, window.StartSeq).Scan(&window.AttemptID, &window.PacketDigest, &window.WorktreeIdentity); err != nil {
 		if err == sql.ErrNoRows {
 			return window, newFailure(KindInvariantViolation, "worker_dispatch_window", "dispatch_worker started without a completing authorization event", false, "reopen the workflow action against a fresh step epoch")
 		}
@@ -381,6 +385,11 @@ func ValidateWorkerDispatchWindow(ctx context.Context, transaction *Transaction,
 	}
 	if window.PacketDigest != packetDigest {
 		return newFailure(KindUnauthorizedDispatch, "worker_dispatch_window", "worker packet digest does not match the authorized dispatch window", false, "open a dispatch_worker authorization for this packet or dispatch the bound packet")
+	}
+	if window.WorktreeIdentity != "" {
+		if err := validateWorkerDispatchWorktreeIdentity(ctx, tx, workID, window.WorktreeIdentity); err != nil {
+			return err
+		}
 	}
 	open, err := WorkerDispatchWindowIsOpenTx(ctx, tx, window)
 	if err != nil {
@@ -478,11 +487,15 @@ func invalidWorkerPayload(detail string) error {
 
 func validWorkerFailureKind(value string) bool {
 	switch value {
-	case WorkerFailureFallbackBlocked, WorkerFailureWorkerError, WorkerFailureInvalidReport, WorkerFailureModelIdentity:
+	case WorkerFailureFallbackBlocked, WorkerFailureWorkerError, WorkerFailureInvalidReport, WorkerFailureModelIdentity, WorkerFailureModelReadbackMissing, WorkerFailureModelReadbackAmbiguous:
 		return true
 	default:
 		return false
 	}
+}
+
+func modelReadbackFailureKind(value string) bool {
+	return value == WorkerFailureModelReadbackMissing || value == WorkerFailureModelReadbackAmbiguous
 }
 
 func foldWorkerDispatched(ctx context.Context, tx *sql.Tx, event Event) error {

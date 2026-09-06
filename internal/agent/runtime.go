@@ -895,6 +895,13 @@ func mapFailureKind(kind store.FailureKind) string {
 		// is an authority refusal and carries the contact_operator route the
 		// store already proposes. It is not an operation to reconcile.
 		return "unauthorized"
+	case store.KindUnauthorizedDispatch:
+		// A worker dispatch refused at the admission boundary: no active
+		// worktree claim, a session outside the claimed worktree, or no
+		// authorized window. unauthorized_dispatch is the adapter's name for
+		// the same refusal; the core envelope carries it as the authority
+		// refusal it is, never as an internal fault.
+		return "unauthorized"
 	case store.KindWorktreeLeaseHeld:
 		// CD-0096 D3 Verify: exclusivity is coordination, not authority. The
 		// message names the holding session; the refusal recorded nothing,

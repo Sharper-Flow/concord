@@ -121,6 +121,86 @@ func TestDispatchFoldOpensAFencedWindowAgainstTheStepEpoch(t *testing.T) {
 	}
 }
 
+func TestDispatchWorkerRefusesMismatchedSessionWorktreeBeforeWindow(t *testing.T) {
+	ctx := context.Background()
+	s := openTemp(t)
+	seed := seedDispatchFixture(t, s, "work-dispatch-worktree-mismatch")
+	claimed := t.TempDir()
+	session := t.TempDir()
+	insertWorkerWorktreeEntry(t, s, seed.workID, claimed)
+	packetPayload, err := json.Marshal(dispatchWorkerPacket(seed.workID, "execution", "attempt-worktree-mismatch"))
+	if err != nil {
+		t.Fatalf("marshal dispatch packet: %v", err)
+	}
+	fieldsPayload, err := json.Marshal(map[string]any{"attempt_id": "attempt-worktree-mismatch", "worker_packet": json.RawMessage(packetPayload)})
+	if err != nil {
+		t.Fatalf("marshal dispatch fields: %v", err)
+	}
+	_, err = invokeWorkflowActionForCD0059(ctx, t, s, WorkflowActionExecutionRequest{
+		WorkID: seed.workID, ExpectedVersion: readWorkVersion(t, s, seed.workID), ActionID: "dispatch_worker",
+		Payload: fieldsPayload, SessionWorktree: session,
+		Actor: seed.ownerActor, AcceptedInputsDigest: cd0059TestDigest(t, "worktree-mismatch-inputs"),
+		IdempotencyIdentity: "worktree-mismatch-op", OperationID: "op-worktree-mismatch", PrincipalRef: seed.ownerActor.PrincipalRef,
+		Tool: "concord_work_transition", IdempotencyKey: "worktree-mismatch-key", RequestID: "req-worktree-mismatch",
+		AcceptedScope: `{}`, ContractDigest: testManifestDigest,
+	})
+	if !hasFailureKind(err, KindUnauthorizedDispatch) {
+		t.Fatalf("mismatched worktree error = %v, want unauthorized_dispatch", err)
+	}
+	var failure *Failure
+	if !errors.As(err, &failure) {
+		t.Fatalf("mismatched worktree error = %v, want typed failure", err)
+	}
+	if strings.Contains(failure.Detail, claimed) || strings.Contains(failure.Detail, session) {
+		t.Fatalf("mismatched worktree failure leaked a machine path: %q", failure.Detail)
+	}
+	var started int
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE kind=? AND subject_id=? AND json_extract(payload,'$.action_id')=?`, WorkflowActionStarted, seed.workID, "dispatch_worker").Scan(&started); err != nil {
+		t.Fatal(err)
+	}
+	if started != 0 {
+		t.Fatalf("mismatched worktree opened %d dispatch windows", started)
+	}
+}
+
+func TestDispatchWorkerBindsCanonicalWorktreeIdentityToWindow(t *testing.T) {
+	ctx := context.Background()
+	s := openTemp(t)
+	seed := seedDispatchFixture(t, s, "work-dispatch-worktree-identity")
+	claimed := t.TempDir()
+	insertWorkerWorktreeEntry(t, s, seed.workID, claimed)
+	attemptID := "attempt-worktree-identity"
+	packetPayload, err := json.Marshal(dispatchWorkerPacket(seed.workID, "execution", attemptID))
+	if err != nil {
+		t.Fatalf("marshal dispatch packet: %v", err)
+	}
+	fieldsPayload, err := json.Marshal(map[string]any{"attempt_id": attemptID, "worker_packet": json.RawMessage(packetPayload)})
+	if err != nil {
+		t.Fatalf("marshal dispatch fields: %v", err)
+	}
+	if _, err := invokeWorkflowActionForCD0059(ctx, t, s, WorkflowActionExecutionRequest{
+		WorkID: seed.workID, ExpectedVersion: readWorkVersion(t, s, seed.workID), ActionID: "dispatch_worker",
+		Payload: fieldsPayload, SessionWorktree: claimed,
+		Actor: seed.ownerActor, AcceptedInputsDigest: cd0059TestDigest(t, "worktree-identity-inputs"),
+		IdempotencyIdentity: "worktree-identity-op", OperationID: "op-worktree-identity", PrincipalRef: seed.ownerActor.PrincipalRef,
+		Tool: "concord_work_transition", IdempotencyKey: "worktree-identity-key", RequestID: "req-worktree-identity",
+		AcceptedScope: `{}`, ContractDigest: testManifestDigest,
+	}); err != nil {
+		t.Fatalf("dispatch_worker invocation failed: %v", err)
+	}
+	var identity string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.worker_worktree_identity') FROM domain_events WHERE kind=? AND subject_id=? AND json_extract(payload,'$.action_id')=?`, WorkflowActionCompleted, seed.workID, "dispatch_worker").Scan(&identity); err != nil {
+		t.Fatal(err)
+	}
+	canonical, err := canonicalWorkerWorktreePath(claimed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if identity != workerWorktreeIdentity(canonical) {
+		t.Fatalf("recorded worktree identity = %q, want %q", identity, workerWorktreeIdentity(canonical))
+	}
+}
+
 // TestDispatchWorkerAppearsOnExternalEffectWorkflows proves the brief's
 // instruction to append dispatch_worker to AvailableActions on workflows
 // whose external_effect step is where workers run. Research workflows have

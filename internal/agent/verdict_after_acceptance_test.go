@@ -26,6 +26,25 @@ func TestVerdictAfterAcceptanceCitesTheAttempt(t *testing.T) {
 	env := mutationEnvelope(grant, scopeVersion)
 	workID := captureCompositionWork(t, ctx, s, service, env, "Verdict after acceptance", "task", "workflow.generic_one_off", "accept-e2e-capture")
 
+	// Dispatch admission requires the host session to sit inside the work
+	// item's active worktree claim, compared by filesystem identity, so the
+	// dispatching session runs in a real directory that an active claim names.
+	sessionWorktree := t.TempDir()
+	db := s.DatabaseForTesting()
+	for _, statement := range []struct {
+		sql  string
+		args []any
+	}{
+		{`INSERT INTO fold_guard(active) VALUES(1)`, nil},
+		{`INSERT INTO worktree_entries(set_id,project_id,claim_op_id,branch,base_sha,path,repository_id,state,verified_at,git_facts) VALUES(?,?,?,?,?,?,?,'active',?,'{}')`, []any{store.WorktreeSetID(workID), "project-1", "accept-e2e-claim", "work/accept-e2e", strings.Repeat("a", 40), sessionWorktree, "repo-1", "2026-09-05T00:00:00Z"}},
+		{`DELETE FROM fold_guard`, nil},
+	} {
+		if _, err := db.ExecContext(ctx, statement.sql, statement.args...); err != nil {
+			t.Fatalf("seed active worktree claim: %v", err)
+		}
+	}
+	env.Worktree = sessionWorktree
+
 	signedAction := func(actionID string, fields map[string]any, key string) Envelope {
 		t.Helper()
 		var version int64
@@ -49,7 +68,7 @@ func TestVerdictAfterAcceptanceCitesTheAttempt(t *testing.T) {
 			scope := map[string]any{"product_id": "product-1", "project_ids": []string{"project-1"}, "work_ids": []string{workID}, "scope_version": env.ScopeVersion}
 			versions := map[string]any{"work": version}
 			approvalEnv := env
-			approvalEnv.HostApproval = signedHostApproval(privateKey, challengeRef, mutationDigest("concord_work_transition", "workflow_action", env, approvedRaw), scope, versions, grant.SessionRef, grant.AgentRef, grant.Worktree, fixedTime(), nonceForChallenge(challengeRef))
+			approvalEnv.HostApproval = signedHostApproval(privateKey, challengeRef, mutationDigest("concord_work_transition", "workflow_action", env, approvedRaw), scope, versions, grant.SessionRef, grant.AgentRef, env.Worktree, fixedTime(), nonceForChallenge(challengeRef))
 			response = dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: approvedRaw}, approvalEnv)
 		}
 		return response

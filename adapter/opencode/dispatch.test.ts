@@ -231,6 +231,52 @@ test("readback refusal is typed and does not change valid completion", async () 
   expect(accepted.readback_model).toBe(READBACK_MODEL)
 })
 
+test("ambiguous model readback records one durable failed attempt", async () => {
+  const calls: { argv: string[]; input: string }[] = []
+  const exportRunner: DispatchRunner = { async run(argv) {
+    if (argv[1] === "export") return { exitCode: 0, stdout: JSON.stringify({
+      info: { id: "session-1" },
+      messages: [
+        { info: { id: "message-1", sessionID: "session-1", role: "assistant", agent: "concord-research", providerID: "openai", modelID: "first", time: { created: 1 } }, parts: [] },
+        { info: { id: "message-2", sessionID: "session-1", role: "assistant", agent: "concord-research", providerID: "openai", modelID: "second", time: { created: 2 } }, parts: [] },
+      ],
+    }), stderr: "" }
+    return { exitCode: 0, stdout: "", stderr: "" }
+  } }
+  const result = await complete(workerBody(), {
+    readbackRunner: exportRunner,
+    evidenceRunner: { async run(argv, input) { calls.push({ argv, input }); return { exitCode: 0, stdout: "", stderr: "" } } },
+  })
+  expect(result.outcome).toBe("error")
+  expect(calls.map((call) => call.argv[1])).toEqual(["worker-dispatch", "worker-fail"])
+  expect(JSON.parse(calls[1].input).failure_kind).toBe("model_readback_ambiguous")
+  expect(JSON.parse(calls[1].input).readback_model).toBe("")
+  expect(JSON.parse(calls[1].input).detail).toContain("readback predicate export_model_ambiguous refused")
+  expect(JSON.parse(calls[1].input).detail).toContain("export_digest sha256:")
+  expect(result.error?.kind).toBe("readback_refusal")
+  expect(result.error?.predicate).toBe("export_model_ambiguous")
+  expect(result.session_id).toBe("session-1")
+})
+
+test("missing model readback records one durable failed attempt", async () => {
+  const calls: { argv: string[]; input: string }[] = []
+  const exportRunner: DispatchRunner = { async run(argv) {
+    if (argv[1] === "export") return { exitCode: 0, stdout: JSON.stringify({ info: { id: "session-1" }, messages: [] }), stderr: "" }
+    return { exitCode: 0, stdout: "", stderr: "" }
+  } }
+  const result = await complete(workerBody(), {
+    readbackRunner: exportRunner,
+    evidenceRunner: { async run(argv, input) { calls.push({ argv, input }); return { exitCode: 0, stdout: "", stderr: "" } } },
+  })
+  expect(result.outcome).toBe("error")
+  expect(calls.map((call) => call.argv[1])).toEqual(["worker-dispatch", "worker-fail"])
+  expect(JSON.parse(calls[1].input).failure_kind).toBe("model_readback_missing")
+  expect(JSON.parse(calls[1].input).readback_model).toBe("")
+  expect(JSON.parse(calls[1].input).detail).toContain("readback predicate export_assistant_message refused")
+  expect(result.error?.kind).toBe("readback_refusal")
+  expect(result.error?.predicate).toBe("export_assistant_message")
+})
+
 // The sanitized export carries the executing agent on each message info; the
 // readback takes executor identity from the latest assistant message, exactly
 // where it takes model identity from.

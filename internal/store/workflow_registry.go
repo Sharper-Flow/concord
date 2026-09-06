@@ -436,6 +436,8 @@ func graphHasCycle(adjacency map[string][]string, steps map[string]WorkflowStep)
 // It is the schema_version enumerated by contracts/workflow-definition.schema.json.
 const workflowDefinitionSchemaVersion = "1.3"
 
+const authoredWorkflowDefinitionVersion int64 = 2
+
 func CanonicalWorkflowDefinition(definition WorkflowDefinition) ([]byte, error) {
 	if err := ValidateWorkflowDefinition(definition); err != nil {
 		return nil, err
@@ -528,10 +530,8 @@ func normalizeWorkflowDefinition(definition WorkflowDefinition) WorkflowDefiniti
 	return definition
 }
 
-// BuiltinWorkflowDefinitions authors the seven shipped workflow families at
-// version 1. Concord ships exactly one built-in definition version: every
-// family is written here in the shape it runs in, not derived by patching an
-// earlier shape.
+// BuiltinWorkflowDefinitions authors the seven current workflow families.
+// Released definitions remain available through historicalWorkflowDefinitions.
 func BuiltinWorkflowDefinitions() []WorkflowDefinition {
 	return []WorkflowDefinition{
 		withWorkerActions(builtinImplementation()), withWorkerActions(builtinBreakFix()), withWorkerActions(builtinResearch()), withWorkerActions(builtinArchitectureSpike()), withWorkerActions(builtinOpsRunbook()), withWorkerActions(builtinStaticAnalysis()), withWorkerActions(builtinGenericOneOff()),
@@ -540,6 +540,11 @@ func BuiltinWorkflowDefinitions() []WorkflowDefinition {
 
 func NewBuiltinWorkflowRegistry() DefinitionRegistry {
 	registry := NewWorkflowDefinitionRegistry()
+	for _, definition := range historicalWorkflowDefinitions() {
+		if _, err := registry.Register(definition); err != nil {
+			panic(err)
+		}
+	}
 	for _, definition := range BuiltinWorkflowDefinitions() {
 		if _, err := registry.Register(definition); err != nil {
 			panic(err)
@@ -985,7 +990,7 @@ func addEdge(edges []WorkflowEdge, from, to string, kind WorkflowEdgeKind) []Wor
 }
 func baseDefinition(ref string, kind WorkKind, g WorkflowStepGraph, actions []string, evidence []EvidenceKind, outcome WorkflowOutcomeSchema, successors []WorkKind) WorkflowDefinition {
 	changesProductTruth := workKindMayChangeProductTruth(kind)
-	return WorkflowDefinition{Ref: ref, Version: 1, WorkKind: kind, ChangesProductTruth: &changesProductTruth, StepGraph: g, AvailableActions: actions, ActionDefinitions: actionDefinitions(actions), RequiredEvidenceKinds: evidence, OutcomeSchema: outcome, RigorRules: []WorkflowRigorRule{{Maturity: "prototype", AudienceBand: "internal", RequiredEvidenceKinds: []EvidenceKind{EvidenceVerification}}}, StalenessRules: []WorkflowStalenessRule{}, CompositionRules: WorkflowCompositionRules{ForwardLinkOnly: true, AllowedSuccessorWorkKinds: successors, ForbiddenCompositions: []WorkflowForbiddenComposition{}}}
+	return WorkflowDefinition{Ref: ref, Version: authoredWorkflowDefinitionVersion, WorkKind: kind, ChangesProductTruth: &changesProductTruth, StepGraph: g, AvailableActions: actions, ActionDefinitions: actionDefinitions(actions), RequiredEvidenceKinds: evidence, OutcomeSchema: outcome, RigorRules: []WorkflowRigorRule{{Maturity: "prototype", AudienceBand: "internal", RequiredEvidenceKinds: []EvidenceKind{EvidenceVerification}}}, StalenessRules: []WorkflowStalenessRule{}, CompositionRules: WorkflowCompositionRules{ForwardLinkOnly: true, AllowedSuccessorWorkKinds: successors, ForbiddenCompositions: []WorkflowForbiddenComposition{}}}
 }
 
 func builtinImplementation() WorkflowDefinition {

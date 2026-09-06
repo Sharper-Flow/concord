@@ -47,6 +47,15 @@ func TestWorkflowDefinitionValidationEnforcesProductTruthMatrix(t *testing.T) {
 	}
 }
 
+func TestVerifyAcceptsEveryShippedDefinitionVersion(t *testing.T) {
+	registry := NewBuiltinWorkflowRegistry()
+	for _, fixture := range shippedDefinitionDigestFixture {
+		if err := registry.Verify(fixture.ref, fixture.version, fixture.digest); err != nil {
+			t.Fatalf("%s v%d does not verify: %v", fixture.ref, fixture.version, err)
+		}
+	}
+}
+
 func TestBuiltinWorkflowProductTruthClassification(t *testing.T) {
 	want := map[WorkKind]bool{
 		WorkKindImplementation:    true,
@@ -59,27 +68,31 @@ func TestBuiltinWorkflowProductTruthClassification(t *testing.T) {
 	}
 	registry := NewBuiltinWorkflowRegistry()
 	for _, definition := range BuiltinWorkflowDefinitions() {
-		if definition.Version != 1 {
-			t.Fatalf("built-in %s version=%d, want 1", definition.Ref, definition.Version)
+		if definition.Version != authoredWorkflowDefinitionVersion {
+			t.Fatalf("built-in %s version=%d, want %d", definition.Ref, definition.Version, authoredWorkflowDefinitionVersion)
 		}
 		if definition.ChangesProductTruth == nil || *definition.ChangesProductTruth != want[definition.WorkKind] {
 			t.Fatalf("built-in %s product truth=%v, want %t", definition.Ref, definition.ChangesProductTruth, want[definition.WorkKind])
 		}
-		registered, ok := registry.Lookup(definition.Ref, 1)
+		registered, ok := registry.Lookup(definition.Ref, definition.Version)
 		if !ok || registered.Definition.ChangesProductTruth == nil || *registered.Definition.ChangesProductTruth != want[definition.WorkKind] {
 			t.Fatalf("registered %s product truth=%v, want %t", definition.Ref, registered.Definition.ChangesProductTruth, want[definition.WorkKind])
 		}
 	}
 }
 
-// The built-in registry holds exactly one version of each family. Concord is
-// pre-release, so no persisted work pins a superseded built-in definition.
+// The built-in registry holds the authored and retained historical versions.
 func TestBuiltinWorkflowRegistryHoldsOneVersionPerFamily(t *testing.T) {
 	registry := NewBuiltinWorkflowRegistry()
+	for _, definition := range historicalWorkflowDefinitions() {
+		if _, ok := registry.Lookup(definition.Ref, definition.Version); !ok {
+			t.Fatalf("%s v%d is not registered", definition.Ref, definition.Version)
+		}
+	}
 	for _, definition := range BuiltinWorkflowDefinitions() {
-		for _, version := range []int64{0, 2, 3, 4} {
+		for _, version := range []int64{0, authoredWorkflowDefinitionVersion + 1, authoredWorkflowDefinitionVersion + 2} {
 			if _, ok := registry.Lookup(definition.Ref, version); ok {
-				t.Fatalf("%s v%d is registered, want version 1 only", definition.Ref, version)
+				t.Fatalf("%s v%d is registered, want declared versions only", definition.Ref, version)
 			}
 		}
 	}
@@ -91,7 +104,7 @@ func TestProductChangingDefinitionsHaveApprovalRoute(t *testing.T) {
 		if definition.ChangesProductTruth == nil || !*definition.ChangesProductTruth {
 			continue
 		}
-		registered, ok := registry.Lookup(definition.Ref, 1)
+		registered, ok := registry.Lookup(definition.Ref, definition.Version)
 		if !ok {
 			t.Fatalf("%s is not registered", definition.Ref)
 		}

@@ -8,15 +8,15 @@ import (
 func TestBuiltinWorkflowDefinitionsCarryTypedExecutionModes(t *testing.T) {
 	registry := NewBuiltinWorkflowRegistry()
 	for _, definition := range BuiltinWorkflowDefinitions() {
-		if definition.Version != 1 {
-			t.Fatalf("built-in %s version=%d, want 1", definition.Ref, definition.Version)
+		if definition.Version != authoredWorkflowDefinitionVersion {
+			t.Fatalf("built-in %s version=%d, want %d", definition.Ref, definition.Version, authoredWorkflowDefinitionVersion)
 		}
 		for _, action := range definition.ActionDefinitions {
 			if !validActionExecutionMode(action.ExecutionMode) {
 				t.Fatalf("%s action %s has invalid execution mode %q", definition.Ref, action.ID, action.ExecutionMode)
 			}
 		}
-		if _, ok := registry.Lookup(definition.Ref, 1); !ok {
+		if _, ok := registry.Lookup(definition.Ref, definition.Version); !ok {
 			t.Fatalf("%s is not registered", definition.Ref)
 		}
 	}
@@ -24,7 +24,7 @@ func TestBuiltinWorkflowDefinitionsCarryTypedExecutionModes(t *testing.T) {
 
 func TestWorkflowDefinitionEncodingCarriesModesAndProductTruth(t *testing.T) {
 	registry := NewBuiltinWorkflowRegistry()
-	registered, ok := registry.Lookup("workflow.implementation", 1)
+	registered, ok := registry.Lookup("workflow.implementation", authoredWorkflowDefinitionVersion)
 	if !ok {
 		t.Fatal("implementation definition is not registered")
 	}
@@ -84,26 +84,30 @@ func TestDefinitionRejectsMissingExecutionMode(t *testing.T) {
 	}
 }
 
-// The shipped definition digests are the identity the conformance corpus pins.
-// A change here is a change to every pinned scenario.
+// Every registered definition version has a fixed digest.
 func TestBuiltinWorkflowDigestsStayPinned(t *testing.T) {
 	registry := NewBuiltinWorkflowRegistry()
-	want := map[string]string{
-		"workflow.implementation":     "sha256:90fed5c22d8493fd4b4d20ecdd28fd4dbccfb8f0aaef4645b8990a704b12ab50",
-		"workflow.break_fix":          "sha256:8abed1bdb47f7cac3b6229a5a72fa6afb9cdd2011d7c42da586b6ccd148cec83",
-		"workflow.research":           "sha256:63f50830a7fe0d5d6dbf2c801c2f04f5b324ed0c5241292d58cfc0ef4ddddab8",
-		"workflow.architecture_spike": "sha256:97d09dd24f80750dfa403ac2ccb9bf17b046cbd04981358b7ebaf1b1076aef5e",
-		"workflow.ops_runbook":        "sha256:f101183b9b44a7f6a9f04bde3894892c043df67194987ab4fa09e201c41566de",
-		"workflow.static_analysis":    "sha256:a7e8fac850328d03d46eaa0479f0875727d93e385229fc9ed34aafbc9c951f34",
-		"workflow.generic_one_off":    "sha256:8e59cbbe8f20589064a975d8b3935c20edd573d6f6f4f9858dabea96bce6ba80",
+	want := map[string]map[int64]string{
+		"workflow.implementation":     {1: "sha256:deaeec1077f5360b23b4c6ca78328d45a620668c503760855ec28e7bf6ecf155", 2: "sha256:e16dfed665a50ece82f33040d2cb0e4a6abfd72dbc5b4743098eab22f0faab89"},
+		"workflow.break_fix":          {1: "sha256:aefce865f350345dc41fc1e2e988e7d5e246fa7fd560335399cf8c826e4cc35a", 2: "sha256:d7f8d8cc8b951e74751ddafe95c7b9c9d65e606cd73c41b2ceadd5fa2cdf29cb"},
+		"workflow.research":           {1: "sha256:adeb334ee4eb08e1907b2f36c618d809675a81f325266733142e697a90c108b9", 2: "sha256:7a987b5e2cbc9bafd7a80e92345efa35b331ccaa533aefe4722024485be57e4a"},
+		"workflow.architecture_spike": {1: "sha256:0de0f3007629a509f8d6e289ce424f33aaaa9c160693a530898f6c039149a3fa", 2: "sha256:7f7a7c0802daf0bed8e65744ef12480f14045f1d8c4048b80d35021448b83c07"},
+		"workflow.ops_runbook":        {1: "sha256:d1218c37554f1412b55445b306d5141d11789c7ff78fe0a656f6d15959357ced", 2: "sha256:4b19ba4c81ffcb1fef8f2da8b45c47c9a0121f9531dcffabdd15af25c5b82dab"},
+		"workflow.static_analysis":    {1: "sha256:d0bc28751b65cb1ae5a0dc31e8db177a6ffe4480f39725fb16e467d88ef4c038", 2: "sha256:161b3b2b85d075b069cb6b9a9dda26cf226c82ba4e7ee5e7946a2792cd76ecac"},
+		"workflow.generic_one_off":    {1: "sha256:c2b8b4c8ef11b2de08912f7c82faa91dffe6a2fbe4ddcef924ff4b393da578b3", 2: "sha256:273c82c0a0cf6c17d231f1be898ff74c6158f8036985cb3e1666b8f12c1b7895"},
 	}
-	for ref, expected := range want {
-		definition, ok := registry.Lookup(ref, 1)
-		if !ok {
-			t.Fatalf("%s is not registered", ref)
-		}
-		if definition.Digest != expected {
-			t.Fatalf("%s digest=%s, want %s", ref, definition.Digest, expected)
+	for ref, versions := range want {
+		for version, expected := range versions {
+			definition, ok := registry.Lookup(ref, version)
+			if !ok {
+				t.Fatalf("%s v%d is not registered", ref, version)
+			}
+			if definition.Digest != expected {
+				t.Fatalf("%s v%d digest=%s, want %s", ref, version, definition.Digest, expected)
+			}
+			if err := registry.Verify(ref, version, expected); err != nil {
+				t.Fatalf("%s v%d does not verify: %v", ref, version, err)
+			}
 		}
 	}
 }

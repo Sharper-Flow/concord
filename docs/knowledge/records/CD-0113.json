@@ -1,0 +1,30 @@
+{
+  "date": "2026-09-06T00:00:00Z",
+  "evidence": [
+    "internal/store/workflow_registry.go",
+    "internal/store/workflow_history.go",
+    "internal/store/schema.go",
+    "internal/store/workflow_registry_digest_test.go",
+    "internal/store/workflow_pin_migration_test.go"
+  ],
+  "home_domain_id": "workflow-engine",
+  "id": "CD-0113",
+  "kind": "decision",
+  "path": "docs/decisions/CD-0113-workflow-definitions-version-and-repin.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:5b40b752a0aaa7773d0154d24ccfd05b481807fd1faef12b55e79271636348b3",
+  "status": "accepted",
+  "summary": "Builtin workflow definition content changes carry a new version: the authored definitions are Version 2 and the registry compiles the released Version-1 definitions, so a pin on any shipped version verifies forever. The pins CD-0112 orphaned re-pin once through a fold-guard migration that moves a row to its ref's Version-2 digest only when the row matches no shipped population and its current step is a Version-2 step; an unplaceable row stays refused by name. A shipped digest fixture pins every registry digest to the migration's literals, so content changing without a version bump fails the test.",
+  "tags": [
+    "workflow",
+    "registry",
+    "migration"
+  ],
+  "title": "Workflow definitions carry shipped versions and orphaned pins re-pin"
+}

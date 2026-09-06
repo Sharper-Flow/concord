@@ -216,15 +216,16 @@ func guardRecordedActorTuple(g *workflowActionGuardContext) error {
 // guardOperatorPremiseActor applies to every action, not only the gated
 // ones: an operator actor is valid nowhere else, so the action check lives
 // inside the guard rather than in the phase table. The gated actions are
-// confirm_premise and, under CD-0116, record_verdict — where the operator
-// identity is the one evaluator that exists when the session delivered the
-// step itself. A nil operator actor is the common case and passes.
+// confirm_premise and, under CD-0116, record_verdict and complete — where
+// the operator identity is the one evaluator that exists when the session
+// delivered the step itself. A nil operator actor is the common case and
+// passes.
 func guardOperatorPremiseActor(g *workflowActionGuardContext) error {
 	if g.request.OperatorActor == nil {
 		return nil
 	}
-	if (g.request.ActionID != "confirm_premise" && g.request.ActionID != "record_verdict") || g.request.OperatorActor.ActorClass != ActorOperator {
-		return newFailure(KindUnauthorized, "workflow_action", "operator actor is only valid for signed premise confirmation and the conditioned verdict", false, "use the verified approval identity")
+	if (g.request.ActionID != "confirm_premise" && g.request.ActionID != "record_verdict" && g.request.ActionID != "complete") || g.request.OperatorActor.ActorClass != ActorOperator {
+		return newFailure(KindUnauthorized, "workflow_action", "operator actor is only valid for signed premise confirmation and the conditioned verdict and completion", false, "use the verified approval identity")
 	}
 	ref, err := WorkflowActorRef(*g.request.OperatorActor)
 	if err != nil {

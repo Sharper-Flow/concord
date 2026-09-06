@@ -843,6 +843,16 @@ func workflowCompletionEvent(ctx context.Context, tx *sql.Tx, request WorkflowAc
 	if err != nil {
 		return Event{}, err
 	}
+	// CD-0116: completion is the verdict's terminal act, and the completion
+	// fold compares the completing event actor against the executing lease.
+	// After an in-session delivery the lease is the session, so completion
+	// takes the operator identity under the same delivery-exit condition as
+	// the verdict it seals.
+	if request.OperatorActor != nil {
+		if err := requireOperatorVerdictDeliveryExit(ctx, tx, request.WorkID); err != nil {
+			return Event{}, err
+		}
+	}
 	if evidenceCommit, ok := workflowFieldString(fields, "evidence_commit"); ok {
 		if currentCommit, currentOK := workflowFieldString(fields, "current_commit"); currentOK && evidenceCommit != currentCommit {
 			return Event{}, newFailure(KindMissingEvidence, "complete_workflow", "immutable evidence commit does not match the current commit", false, "rebind_evidence")

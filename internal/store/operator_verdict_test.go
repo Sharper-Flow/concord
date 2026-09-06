@@ -41,6 +41,9 @@ func seedDeliveredItemAtAcceptance(t *testing.T, workID string) (*Store, Workflo
 	if err := runVerdictAction(t, s, workID, "bind_evidence", json.RawMessage(`{"evidence_kind":"verification","immutable_subject_ref":"evidence:operator-verdict"}`), 0); err != nil {
 		t.Fatalf("bind verification evidence: %v", err)
 	}
+	if err := runVerdictAction(t, s, workID, "bind_evidence", json.RawMessage(`{"evidence_kind":"review","immutable_subject_ref":"evidence:operator-review"}`), 0); err != nil {
+		t.Fatalf("bind review evidence: %v", err)
+	}
 	// The in-session delivery exit (CD-0112): no lane, no attempt window.
 	delivery := workflowActionCompletedFixture("delivery-"+workID, workID, ownerRef, verdictItemVersion(t, s, workID), "execution", "record_delivery")
 	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{delivery}}); err != nil {
@@ -130,5 +133,101 @@ func TestOperatorVerdictConditionBinds(t *testing.T) {
 	err := runOperatorVerdict(t, s, workID, owner, operator)
 	if err == nil || !strings.Contains(err.Error(), "only after an in-session record_delivery exit") {
 		t.Fatalf("operator verdict without a delivery exit err=%v, want the condition refusal", err)
+	}
+}
+
+// Completion is the verdict's terminal act: after an in-session delivery the
+// lease-holding session cannot submit complete, and the operator identity
+// completes under the same delivery-exit condition (CD-0116 D1).
+func TestOperatorCompleteAfterDeliveryPassesDistinctness(t *testing.T) {
+	const workID = "operator-complete-delivery"
+	s, owner := seedDeliveredItemAtAcceptance(t, workID)
+	operator := operatorVerdictActor(t, workID)
+
+	if err := runOperatorVerdict(t, s, workID, owner, operator); err != nil {
+		t.Fatalf("operator verdict after delivery refused: %v", err)
+	}
+	operatorRef, _ := WorkflowActorRef(operator)
+	premiseVersion := verdictItemVersion(t, s, workID)
+	operatorRecorded := workflowEvent("operator-complete-actor-"+workID, WorkflowActorRecorded, workID, map[string]any{"work_id": workID, "expected_version": premiseVersion, "resulting_version": premiseVersion + 1, "actor_ref": operatorRef, "principal_ref": operator.PrincipalRef, "client_ref": operator.ClientRef, "agent_ref": operator.AgentRef, "session_ref": operator.SessionRef, "actor_class": "operator"})
+	premise := workflowEventWithActor("operator-complete-premise-"+workID, WorkflowPremiseConfirmed, workID, operatorRef, map[string]any{"work_id": workID, "expected_version": premiseVersion + 1, "resulting_version": premiseVersion + 2, "contract_version": 1, "confirming_actor_ref": operatorRef})
+	premiseCompleted := workflowActionCompletedFixture("operator-complete-premise-done-"+workID, workID, operatorRef, premiseVersion+2, "acceptance", "confirm_premise")
+	if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{operatorRecorded, premise, premiseCompleted}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): premiseVersion}}); err != nil {
+		t.Fatalf("premise confirmation: %v", err)
+	}
+
+	completeVersion := verdictItemVersion(t, s, workID)
+	tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback()
+	if err := enterFold(context.Background(), tx); err != nil {
+		t.Fatal(err)
+	}
+	payload, _ := json.Marshal(map[string]any{"impact_verdict": "non-breaking"})
+	_, err = applyWorkflowActionRawTx(context.Background(), tx, BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
+		WorkID: workID, ExpectedVersion: completeVersion, ActionID: "complete", Payload: payload, Actor: owner, OperatorActor: &operator,
+		AcceptedInputsDigest: "sha256:" + strings.Repeat("d", 64) + workID, IdempotencyIdentity: "operator-complete-" + workID, OperationID: "operator-complete-" + workID,
+		PrincipalRef: owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "operator-complete-" + workID, RequestID: "request:operator-complete-" + workID, ContractDigest: testManifestDigest, Now: time.Unix(11, 0).UTC(),
+	})
+	if err != nil {
+		_ = leaveFold(context.Background(), tx)
+		t.Fatalf("operator complete after delivery refused: %v", err)
+	}
+	_ = leaveFold(context.Background(), tx)
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	var state string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT instance_state FROM workflow_instances WHERE work_id=?`, workID).Scan(&state); err != nil {
+		t.Fatal(err)
+	}
+	if state != "completed" {
+		t.Fatalf("instance_state=%s, want completed", state)
+	}
+}
+
+// The condition binds for completion too: a lane-executed exit refuses the
+// operator identity on complete.
+func TestOperatorCompleteConditionBinds(t *testing.T) {
+	const workID = "operator-complete-lane"
+	s, owner := seedItemAtAcceptance(t, workID, true)
+	operator := operatorVerdictActor(t, workID)
+
+	// Advance past acceptance so complete is the declared action, then the
+	// condition refuses the operator identity on the lane-executed item.
+	reviewer := verdictReviewers[workID]
+	reviewerRef, rerr := WorkflowActorRef(reviewer)
+	if rerr != nil {
+		t.Fatal(rerr)
+	}
+	premiseVersion := verdictItemVersion(t, s, workID)
+	operatorRef, _ := WorkflowActorRef(operator)
+	operatorRecorded := workflowEvent("operator-cond-actor-"+workID, WorkflowActorRecorded, workID, map[string]any{"work_id": workID, "expected_version": premiseVersion, "resulting_version": premiseVersion + 1, "actor_ref": operatorRef, "principal_ref": operator.PrincipalRef, "client_ref": operator.ClientRef, "agent_ref": operator.AgentRef, "session_ref": operator.SessionRef, "actor_class": "operator"})
+	premise := workflowEventWithActor("operator-cond-premise-"+workID, WorkflowPremiseConfirmed, workID, operatorRef, map[string]any{"work_id": workID, "expected_version": premiseVersion + 1, "resulting_version": premiseVersion + 2, "contract_version": 1, "confirming_actor_ref": operatorRef})
+	premiseCompleted := workflowActionCompletedFixture("operator-cond-premise-done-"+workID, workID, operatorRef, premiseVersion+2, "acceptance", "confirm_premise")
+	_ = reviewerRef
+	if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{operatorRecorded, premise, premiseCompleted}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): premiseVersion}}); err != nil {
+		t.Fatalf("premise confirmation: %v", err)
+	}
+	version := verdictItemVersion(t, s, workID)
+	tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback()
+	if err := enterFold(context.Background(), tx); err != nil {
+		t.Fatal(err)
+	}
+	payload, _ := json.Marshal(map[string]any{"impact_verdict": "non-breaking"})
+	_, err = applyWorkflowActionRawTx(context.Background(), tx, BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
+		WorkID: workID, ExpectedVersion: version, ActionID: "complete", Payload: payload, Actor: owner, OperatorActor: &operator,
+		AcceptedInputsDigest: "sha256:" + strings.Repeat("e", 64) + workID, IdempotencyIdentity: "operator-complete-cond-" + workID, OperationID: "operator-complete-cond-" + workID,
+		PrincipalRef: owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "operator-complete-cond-" + workID, RequestID: "request:operator-complete-cond-" + workID, ContractDigest: testManifestDigest, Now: time.Unix(11, 0).UTC(),
+	})
+	_ = leaveFold(context.Background(), tx)
+	if err == nil || !strings.Contains(err.Error(), "only after an in-session record_delivery exit") {
+		t.Fatalf("operator complete without a delivery exit err=%v, want the condition refusal", err)
 	}
 }

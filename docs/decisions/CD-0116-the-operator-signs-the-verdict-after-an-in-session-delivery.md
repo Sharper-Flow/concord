@@ -36,14 +36,16 @@ exists.
 
 ### D1. The operator's signed identity is the evaluator after an in-session delivery
 
-`record_verdict` accepts the operator identity — the `confirm_premise`
-mechanism: a host approval assertion consumed with
-`RequireOperatorIdentity`, the operator stamped as `verdict_actor_ref` and
-the verdict event's actor, the operator row recorded by the guard. D5 holds
-by construction because the operator cannot hold a delivery lease or author
-a delivery action; `ValidateDistinctWorkflowActors` already treats an
-agent executor with an operator verdict as distinct (the `confirm_premise`
-precedent).
+`record_verdict` and its terminal act `complete` accept the operator
+identity — the `confirm_premise` mechanism: a host approval assertion
+consumed with `RequireOperatorIdentity`, the operator stamped as
+`verdict_actor_ref` and the events' actor, the operator row recorded by the
+guard. D5 holds by construction because the operator cannot hold a delivery
+lease or author a delivery action; `ValidateDistinctWorkflowActors` already
+treats an agent executor with an operator verdict as distinct (the
+`confirm_premise` precedent). Completion needs the same identity because the
+completion fold compares the completing event actor against the executing
+lease, which after an in-session delivery is the session itself.
 
 ### D2. The path is conditioned on the delivery exit
 

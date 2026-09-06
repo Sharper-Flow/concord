@@ -851,7 +851,9 @@ func (r runtime) mutateWorkflowAction(ctx context.Context, base Envelope, raw []
 	// lease is the self-evaluation wedge — no distinct evaluator exists after
 	// an in-session delivery. Mint the operator challenge so the host can
 	// attach the signed identity the store's conditioned path accepts.
-	operatorVerdict := in.ActionID == "record_verdict"
+	// CD-0116: the verdict and its terminal act both take the operator
+	// identity after an in-session delivery.
+	operatorVerdict := in.ActionID == "record_verdict" || in.ActionID == "complete"
 	if operatorVerdict && approval == "" && r.sessionHoldsExecutingLease(ctx, in.WorkID, grant) {
 		requiresApproval = true
 	}

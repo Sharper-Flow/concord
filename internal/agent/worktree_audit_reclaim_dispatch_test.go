@@ -15,6 +15,15 @@ func TestWorktreeAuditReclaimDispatchReclaimsTerminalWorkOnly(t *testing.T) {
 	s, _, _, second, secondGrant, _ := tiersFixture(t)
 	root := filepath.Join(filepath.Dir(s.Path()), "worktrees", "project-1")
 	completeWork(t, s, "work-2", 3)
+	// work-1 stays needed, so it is live only while its branch holds work:
+	// a commit beyond the default ref keeps it out of the unstarted class
+	// the same pass reclaims (CD-0118).
+	livePath := filepath.Join(root, "work-1")
+	if err := os.WriteFile(filepath.Join(livePath, "live-work.md"), []byte("# in flight\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitRun(t, livePath, "add", "live-work.md")
+	gitRun(t, livePath, "-c", "user.email=fixture@example.com", "-c", "user.name=fixture", "commit", "-m", "work in flight")
 
 	response := authorityInvoke(t, s, second, secondGrant, "concord_work_transition", "worktree_audit_reclaim", map[string]any{
 		"product_id": "product-1", "default_ref": "main", "idempotency_key": "audit-reclaim-1",
@@ -60,5 +69,57 @@ func TestWorktreeAuditReclaimDispatchReclaimsTerminalWorkOnly(t *testing.T) {
 	}
 	if version := workVersion(t, s, "work-2"); version != 5 {
 		t.Fatalf("replay moved work-2 to version %d", version)
+	}
+}
+
+// The CD-0118 route end to end: a needed work item whose claimed worktree
+// is clean and holds no commit beyond the default ref reclaims through the
+// agent surface, the work item stays at needed, and the schema accepts the
+// row the pass returns.
+func TestWorktreeAuditReclaimDispatchReclaimsUnstartedWork(t *testing.T) {
+	s, _, _, second, secondGrant, _ := tiersFixture(t)
+	root := filepath.Join(filepath.Dir(s.Path()), "worktrees", "project-1")
+	completeWork(t, s, "work-2", 3)
+
+	response := authorityInvoke(t, s, second, secondGrant, "concord_work_transition", "worktree_audit_reclaim", map[string]any{
+		"product_id": "product-1", "default_ref": "main", "idempotency_key": "unstarted-reclaim-1",
+	})
+	if response.Outcome != OutcomeOK {
+		t.Fatalf("audit reclaim response=%+v err=%+v", response, response.Error)
+	}
+	if _, err := json.Marshal(response); err != nil {
+		t.Fatalf("audit reclaim result does not marshal: %v", err)
+	}
+	var result struct {
+		Rows []struct {
+			WorkID    string `json:"work_id"`
+			Outcome   string `json:"outcome"`
+			Lifecycle string `json:"lifecycle"`
+		} `json:"rows"`
+	}
+	if err := json.Unmarshal(response.Result, &result); err != nil {
+		t.Fatalf("decode result: %v: %s", err, string(response.Result))
+	}
+	unstarted := 0
+	for _, row := range result.Rows {
+		if row.WorkID == "work-1" {
+			unstarted++
+			if row.Outcome != "reclaimed" || row.Lifecycle != "needed" {
+				t.Fatalf("unstarted row=%+v", row)
+			}
+		}
+	}
+	if unstarted != 1 {
+		t.Fatalf("work-1 must reclaim once as needed, rows=%+v", result.Rows)
+	}
+	if _, err := os.Stat(filepath.Join(root, "work-1")); !os.IsNotExist(err) {
+		t.Fatal("unstarted worktree still present")
+	}
+	if _, err := os.Stat(filepath.Join(root, "work-2")); !os.IsNotExist(err) {
+		t.Fatal("terminal worktree still present")
+	}
+	var lifecycle string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT lifecycle FROM work_items WHERE id='work-1'`).Scan(&lifecycle); err != nil || lifecycle != "needed" {
+		t.Fatalf("work-1 lifecycle=%q err=%v; the reclaim must not change it", lifecycle, err)
 	}
 }

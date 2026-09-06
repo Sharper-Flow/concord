@@ -362,6 +362,10 @@ type WorktreeReclaimRequest struct {
 	// RequireTerminal gates the request on terminal work (the CD-0096 D3
 	// Destroy tier). The reclaim surface leaves it false.
 	RequireTerminal bool
+	// RequireUnstarted gates the request on unstarted work (CD-0118): the
+	// item stays at needed and the worktree branch holds no commit beyond
+	// the Project's default ref. The reclaim surface leaves it false.
+	RequireUnstarted bool
 	// OperatorApprovalRef names the operator approval consumed for a removal
 	// the terminal gate would otherwise refuse (CD-0096 D3 Destroy). Empty
 	// keeps the gate. The git safety gates are unaffected by this field.
@@ -529,6 +533,22 @@ func reclaimWorktreeRawTx(ctx context.Context, tx *sql.Tx, req WorktreeReclaimRe
 			return out, newFailure(KindInvalidOperation, op, "destructive removal requires the operator approval it would consume", false, "obtain an operator-approved destructive destroy")
 		}
 	}
+	// CD-0118: unstarted work reclaims without approval when the worktree
+	// holds nothing a merge could lose. Work that has moved past needed, or
+	// an operator-approved removal, are the only ways past this gate.
+	if req.RequireUnstarted {
+		var lifecycle string
+		err := tx.QueryRowContext(ctx, `SELECT lifecycle FROM work_items WHERE id=?`, req.WorkID).Scan(&lifecycle)
+		if err == sql.ErrNoRows {
+			return out, newFailure(KindUnknownScope, op, "work item does not exist", false, "select one existing work item")
+		}
+		if err != nil {
+			return out, wrapFailure(KindUnavailable, op, "cannot read the work item", true, "retry once the database is readable", err)
+		}
+		if lifecycle != "needed" && req.OperatorApprovalRef == "" {
+			return out, newFailure(KindInvalidTransition, op, "work item is "+lifecycle+", so its worktree is not unstarted work", false, "start, complete, or cancel the work first, or obtain an operator-approved destroy")
+		}
+	}
 
 	entries, err := worktreeEntriesTx(ctx, tx, req.WorkID)
 	if err != nil {
@@ -616,11 +636,21 @@ func reclaimWorktreeRawTx(ctx context.Context, tx *sql.Tx, req WorktreeReclaimRe
 		}
 		defaultRef = strings.TrimPrefix(strings.TrimSpace(string(refOut)), "refs/remotes/")
 	}
-	if err := branchIsMergedInto(ctx, runner, repoRoot, entry.Branch, defaultRef, op); err != nil {
+	if req.RequireUnstarted {
+		if err := branchHasNoCommitsBeyond(ctx, runner, repoRoot, entry.Branch, defaultRef, op); err != nil {
+			return out, err
+		}
+	} else if err := branchIsMergedInto(ctx, runner, repoRoot, entry.Branch, defaultRef, op); err != nil {
 		return out, err
 	}
 
-	if err := appendReclaimedTx(ctx, tx, req, setID, now, jsonMustMarshal(map[string]any{"clean_tree": true, "head_reachable": true, "default_ref": defaultRef})); err != nil {
+	reclaimFacts := map[string]any{"clean_tree": true, "default_ref": defaultRef}
+	if req.RequireUnstarted {
+		reclaimFacts["commits_beyond"] = 0
+	} else {
+		reclaimFacts["head_reachable"] = true
+	}
+	if err := appendReclaimedTx(ctx, tx, req, setID, now, jsonMustMarshal(reclaimFacts)); err != nil {
 		return out, err
 	}
 	if _, err := runner.Run(ctx, repoRoot, "worktree", "remove", entry.Path); err != nil {
@@ -656,7 +686,7 @@ func occupyingSession(worktreePath string, observed []SessionDirectory) (Session
 // override or the Project's canonical_path locator. It reads through the
 // claim's own transaction; the outer write lock makes a second connection's
 // read deadlock on SQLite's single writer.
-func worktreeRepoRootTx(ctx context.Context, tx *sql.Tx, req WorktreeClaimRequest) (string, error) {
+func worktreeRepoRootTx(ctx context.Context, tx queryer, req WorktreeClaimRequest) (string, error) {
 	if req.RepoRoot != "" {
 		return req.RepoRoot, nil
 	}
@@ -786,6 +816,23 @@ func branchIsMergedInto(ctx context.Context, runner GitRunner, repoRoot, branch,
 	return nil
 }
 
+// branchHasNoCommitsBeyond reports whether the branch holds no commit the
+// default ref does not already hold. The unstarted tier's safety question is
+// narrower than the merged question: nothing may exist to lose, so tree
+// identity — which a branch of commit-and-revert pairs can satisfy while
+// still holding commits — cannot answer it.
+func branchHasNoCommitsBeyond(ctx context.Context, runner GitRunner, repoRoot, branch, defaultRef, op string) error {
+	countOut, err := runner.Run(ctx, repoRoot, "rev-list", "--count", defaultRef+".."+branch)
+	if err != nil {
+		return wrapFailure(KindGitUnreachable, op, "cannot count commits beyond "+defaultRef, true, "retry once the repository is reachable", err)
+	}
+	count := strings.TrimSpace(string(countOut))
+	if count != "0" {
+		return newFailure(KindInvalidOperation, op, "worktree branch holds "+count+" commit(s) beyond "+defaultRef, false, "merge or remove the commits before reclaiming, or obtain an operator-approved destroy")
+	}
+	return nil
+}
+
 // firstLine returns the first line of git output with surrounding space removed.
 // `merge-tree --write-tree` prints the tree object id on its own first line and
 // may print more after it.
@@ -842,6 +889,12 @@ const (
 	// behind, and the one class whose named action the audit can perform
 	// itself, because reclaiming it is a store decision under store gates.
 	WorktreeDriftTerminalPresent = "terminal_present"
+	// WorktreeDriftUnstartedPresent: a work item at needed holds an active,
+	// verified worktree that holds nothing a merge could lose — a clean tree
+	// with no commit beyond the Project's default ref (CD-0118). The checkout
+	// cost is real and the work has not started, so the audit names the same
+	// reclaim the terminal class names, under its own narrower gate.
+	WorktreeDriftUnstartedPresent = "unstarted_present"
 )
 
 // Typed recovery actions. Where a Concord operation owns the recovery, the
@@ -868,6 +921,13 @@ type WorktreeDrift struct {
 	ClaimState     string `json:"claim_state,omitempty"`
 	Lifecycle      string `json:"lifecycle,omitempty"`
 	RecoveryAction string `json:"recovery_action"`
+	// CommitsAhead is the commit count the branch holds beyond the
+	// Project's default ref. It is the unstarted class's gate input and is
+	// set only on rows whose classification derived it.
+	CommitsAhead int `json:"commits_ahead,omitempty"`
+	// ClaimAgeSeconds is the age of the claim at audit time. It is an
+	// operator display fact; no gate reads it.
+	ClaimAgeSeconds int64 `json:"claim_age_seconds,omitempty"`
 }
 
 // WorktreeAudit is the bounded result of one audit pass.
@@ -876,11 +936,23 @@ type WorktreeAudit struct {
 	Drift []WorktreeDrift `json:"drift"`
 }
 
+// WorktreeAuditRequest drives one audit pass. The Runner, Now, and DefaultRef
+// inputs exist for the same reason the reclaim request carries them: the
+// unstarted class derives its gate facts from git, and a pass that will act on
+// those facts must derive them through the same runner it will reclaim with.
+type WorktreeAuditRequest struct {
+	ProductID  string
+	Limit      int
+	Runner     GitRunner
+	Now        time.Time
+	DefaultRef string
+}
+
 // WorktreeAudit enumerates on-disk worktrees under the Concord worktree root
 // (the database directory's worktrees/<project_id>/<work_id> convention owned
 // by LocateWorktree) against active claims, folded entries, and work
-// lifecycle, classifying every divergence (issue #675). It is a pure read:
-// it names the typed recovery action for each drift row and repairs nothing.
+// lifecycle, classifying every divergence (issue #675). It names the typed
+// recovery action for each drift row and repairs nothing.
 //
 // A pending claim is intent, not verified fact — its worktree may simply not
 // be created yet, and retrying the claim reconciles it — so only verified
@@ -888,16 +960,33 @@ type WorktreeAudit struct {
 // its stale_claim row by design: the claim and the work item are different
 // subjects, and recovering the work requires both actions in order.
 //
+// The unstarted class derives its facts from git: a clean tree and a branch
+// with no commit beyond the Project's default ref. Git is probed only for
+// candidate rows (needed work, active entry, path present). A project whose
+// default ref cannot be resolved contributes no unstarted rows to a read —
+// the class cannot be evaluated there — while a pass that would act on the
+// class refuses typed instead, because a mutation cannot silently skip its
+// own gate. An unreachable repository refuses the pass typed rather than
+// degrading to an unclassified row.
+//
 // Output is bounded by limit and ordered deterministically (class, project,
 // path), so a truncated pass is stable for the caller.
-func (s *Store) WorktreeAudit(ctx context.Context, productID string, limit int) (WorktreeAudit, error) {
+func (s *Store) WorktreeAudit(ctx context.Context, req WorktreeAuditRequest) (WorktreeAudit, error) {
 	if s == nil || s.db == nil {
 		return WorktreeAudit{}, newFailure(KindUnavailable, "worktree_audit", "store is not open", false, "open the authority database")
 	}
-	return worktreeAudit(ctx, s.db, filepath.Join(filepath.Dir(s.Path()), "worktrees"), productID, limit)
+	runner := req.Runner
+	if runner == nil {
+		runner = ExecGitRunner{}
+	}
+	now := req.Now
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	return worktreeAudit(ctx, s.db, filepath.Join(filepath.Dir(s.Path()), "worktrees"), req.ProductID, req.Limit, runner, now, req.DefaultRef, false)
 }
 
-func worktreeAudit(ctx context.Context, q queryer, root string, productID string, limit int) (WorktreeAudit, error) {
+func worktreeAudit(ctx context.Context, q queryer, root string, productID string, limit int, runner GitRunner, now time.Time, defaultRefOverride string, refRequired bool) (WorktreeAudit, error) {
 	if productID == "" {
 		return WorktreeAudit{}, newFailure(KindUnknownScope, "worktree_audit", "worktree audit requires one Product scope", false, "select one Product before auditing worktrees")
 	}
@@ -926,17 +1015,17 @@ func worktreeAudit(ctx context.Context, q queryer, root string, productID string
 	}
 
 	type auditClaim struct {
-		workID, projectID, path, state string
+		workID, projectID, path, state, observedAt string
 	}
 	claims := []auditClaim{}
-	claimRows, err := q.QueryContext(ctx, `SELECT c.work_id,c.project_id,c.pinned_path,c.state FROM worktree_claims c JOIN product_projects pp ON pp.project_id=c.project_id WHERE pp.product_id=? AND c.state IN ('pending','verified') ORDER BY c.pinned_path`, productID)
+	claimRows, err := q.QueryContext(ctx, `SELECT c.work_id,c.project_id,c.pinned_path,c.state,c.observed_at FROM worktree_claims c JOIN product_projects pp ON pp.project_id=c.project_id WHERE pp.product_id=? AND c.state IN ('pending','verified') ORDER BY c.pinned_path`, productID)
 	if err != nil {
 		return WorktreeAudit{}, wrapFailure(KindUnavailable, "worktree_audit", "cannot read worktree claims", true, "retry once the database is readable", err)
 	}
 	defer claimRows.Close()
 	for claimRows.Next() {
 		var c auditClaim
-		if err := claimRows.Scan(&c.workID, &c.projectID, &c.path, &c.state); err != nil {
+		if err := claimRows.Scan(&c.workID, &c.projectID, &c.path, &c.state, &c.observedAt); err != nil {
 			return WorktreeAudit{}, err
 		}
 		claims = append(claims, c)
@@ -945,19 +1034,16 @@ func worktreeAudit(ctx context.Context, q queryer, root string, productID string
 		return WorktreeAudit{}, err
 	}
 
-	type auditEntry struct {
-		workID, projectID, path string
-	}
-	entries := []auditEntry{}
-	entryRows, err := q.QueryContext(ctx, `SELECT e.set_id,e.project_id,e.path FROM worktree_entries e JOIN product_projects pp ON pp.project_id=e.project_id WHERE pp.product_id=? AND e.state='active' ORDER BY e.path`, productID)
+	entries := []worktreeAuditEntry{}
+	entryRows, err := q.QueryContext(ctx, `SELECT e.set_id,e.project_id,e.path,e.branch FROM worktree_entries e JOIN product_projects pp ON pp.project_id=e.project_id WHERE pp.product_id=? AND e.state='active' ORDER BY e.path`, productID)
 	if err != nil {
 		return WorktreeAudit{}, wrapFailure(KindUnavailable, "worktree_audit", "cannot read worktree entries", true, "retry once the database is readable", err)
 	}
 	defer entryRows.Close()
 	for entryRows.Next() {
 		var setID string
-		var e auditEntry
-		if err := entryRows.Scan(&setID, &e.projectID, &e.path); err != nil {
+		var e worktreeAuditEntry
+		if err := entryRows.Scan(&setID, &e.projectID, &e.path, &e.branch); err != nil {
 			return WorktreeAudit{}, err
 		}
 		e.workID = strings.TrimPrefix(setID, worktreeSetPrefix)
@@ -1096,6 +1182,21 @@ func worktreeAudit(ctx context.Context, q queryer, root string, productID string
 		}
 		drift = append(drift, WorktreeDrift{Class: WorktreeDriftTerminalPresent, ProjectID: e.projectID, WorkID: e.workID, Path: e.path, Lifecycle: lifecycle, RecoveryAction: WorktreeRecoveryReclaim})
 	}
+	// Unstarted present: needed work whose active worktree holds nothing a
+	// merge could lose (CD-0118). The gate facts come from git, probed only
+	// for candidates: a dirty tree or a branch with commits beyond the
+	// default ref is work in flight, not drift, and stays unclassified.
+	claimObservedAt := map[string]string{}
+	for _, c := range claims {
+		if c.state == worktreeStateVerified {
+			claimObservedAt[c.workID] = c.observedAt
+		}
+	}
+	unstarted, err := classifyUnstartedWorktrees(ctx, q, runner, now, defaultRefOverride, refRequired, entries, strandedIDs, claimObservedAt)
+	if err != nil {
+		return WorktreeAudit{}, err
+	}
+	drift = append(drift, unstarted...)
 	if len(drift) > limit {
 		drift = drift[:limit]
 	}
@@ -1149,9 +1250,11 @@ type WorktreeAuditReclaimResult struct {
 
 // WorktreeAuditReclaim performs the one safe action the audit names. It runs
 // the audit, then reclaims each terminal-present worktree through the same
-// gates a direct reclaim runs: clean tree, head merged by tree identity, no
-// observed session inside. Every other class is returned as report-only,
-// because its named action is not a store decision.
+// gates a direct reclaim runs (clean tree, head merged by tree identity, no
+// observed session inside) and each unstarted-present worktree through the
+// CD-0118 gate (clean tree, no commit beyond the default ref, no observed
+// session inside). Every other class is returned as report-only, because its
+// named action is not a store decision.
 //
 // Each row reclaims in its own transaction. Rows are independent, and one
 // refusal must not roll back another row's reclamation; the pass is a loop
@@ -1162,13 +1265,18 @@ func (s *Store) WorktreeAuditReclaim(ctx context.Context, req WorktreeAuditRecla
 	if s == nil || s.db == nil {
 		return WorktreeAuditReclaimResult{}, newFailure(KindUnavailable, "worktree_audit_reclaim", "store is not open", false, "open the authority database")
 	}
-	audit, err := s.WorktreeAudit(ctx, req.ProductID, req.Limit)
+	runner := req.Runner
+	if runner == nil {
+		runner = ExecGitRunner{}
+	}
+	audit, err := worktreeAudit(ctx, s.db, filepath.Join(filepath.Dir(s.Path()), "worktrees"), req.ProductID, req.Limit, runner, req.Now, req.DefaultRef, true)
 	if err != nil {
 		return WorktreeAuditReclaimResult{}, err
 	}
 	out := WorktreeAuditReclaimResult{Root: audit.Root, ReportOnly: []WorktreeDrift{}, Rows: []WorktreeAuditReclaimRow{}}
 	for _, drift := range audit.Drift {
-		if drift.Class != WorktreeDriftTerminalPresent {
+		requireTerminal, requireUnstarted := drift.Class == WorktreeDriftTerminalPresent, drift.Class == WorktreeDriftUnstartedPresent
+		if !requireTerminal && !requireUnstarted {
 			out.ReportOnly = append(out.ReportOnly, drift)
 			continue
 		}
@@ -1180,7 +1288,7 @@ func (s *Store) WorktreeAuditReclaim(ctx context.Context, req WorktreeAuditRecla
 		_, reclaimErr := s.ReclaimWorktree(ctx, WorktreeReclaimRequest{
 			WorkID: drift.WorkID, ProjectID: drift.ProjectID, DefaultRef: req.DefaultRef,
 			PrincipalRef: req.PrincipalRef, RequestID: req.RequestID + ":" + drift.WorkID,
-			ExpectedVersion: version, Now: req.Now, Runner: req.Runner, RequireTerminal: true,
+			ExpectedVersion: version, Now: req.Now, Runner: runner, RequireTerminal: requireTerminal, RequireUnstarted: requireUnstarted,
 			ObservedSessionDirectories: req.ObservedSessionDirectories,
 		})
 		if reclaimErr == nil {
@@ -1196,6 +1304,119 @@ func (s *Store) WorktreeAuditReclaim(ctx context.Context, req WorktreeAuditRecla
 		out.Rows = append(out.Rows, row)
 	}
 	return out, nil
+}
+
+// worktreeAuditRepoRoot resolves one Project's repository root for the
+// unstarted classification's git probes, through the same locator the claim
+// and reclaim paths use.
+// classifyUnstartedWorktrees derives the unstarted_present rows for one
+// audit pass (CD-0118). Git is probed only for candidates: needed work with
+// an active entry whose path exists. A dirty tree or a branch with commits
+// beyond the default ref is work in flight and stays unclassified. A read
+// whose default ref is underivable skips the project's candidates; a pass
+// that will act on the class refuses typed instead (refRequired).
+func classifyUnstartedWorktrees(ctx context.Context, q queryer, runner GitRunner, now time.Time, defaultRefOverride string, refRequired bool, entries []worktreeAuditEntry, strandedIDs map[string]bool, claimObservedAt map[string]string) ([]WorktreeDrift, error) {
+	repoRoots := map[string]string{}
+	defaultRefs := map[string]string{}
+	var rows []WorktreeDrift
+	for _, e := range entries {
+		if !strandedIDs[e.workID] {
+			continue
+		}
+		present, err := pathExistsForAudit(e.path)
+		if err != nil {
+			return nil, err
+		}
+		if !present {
+			continue
+		}
+		repoRoot, ok := repoRoots[e.projectID]
+		if !ok {
+			repoRoot, err = worktreeAuditRepoRoot(ctx, q, e.projectID)
+			if err != nil {
+				return nil, err
+			}
+			repoRoots[e.projectID] = repoRoot
+		}
+		defaultRef, ok := defaultRefs[e.projectID]
+		if !ok {
+			resolved, resErr := worktreeAuditDefaultRef(ctx, runner, repoRoot, defaultRefOverride)
+			if resErr != nil {
+				if !refRequired {
+					// A read cannot evaluate the class without the
+					// ref and must not refuse the whole page (issue
+					// #831): the project contributes no rows.
+					defaultRefs[e.projectID] = ""
+					continue
+				}
+				return nil, resErr
+			}
+			defaultRef = resolved
+			defaultRefs[e.projectID] = defaultRef
+		}
+		if defaultRef == "" {
+			continue
+		}
+		statusOut, statusErr := runner.Run(ctx, e.path, "status", "--porcelain")
+		if statusErr != nil {
+			return nil, wrapFailure(KindGitUnreachable, "worktree_audit", "cannot read worktree status at "+e.path, true, "retry once the worktree is reachable", statusErr)
+		}
+		if strings.TrimSpace(string(statusOut)) != "" {
+			continue
+		}
+		countOut, countErr := runner.Run(ctx, repoRoot, "rev-list", "--count", defaultRef+".."+e.branch)
+		if countErr != nil {
+			return nil, wrapFailure(KindGitUnreachable, "worktree_audit", "cannot count commits beyond "+defaultRef+" for "+e.branch, true, "retry once the repository is reachable", countErr)
+		}
+		if strings.TrimSpace(string(countOut)) != "0" {
+			continue
+		}
+		row := WorktreeDrift{Class: WorktreeDriftUnstartedPresent, ProjectID: e.projectID, WorkID: e.workID, Path: e.path, ClaimState: worktreeStateVerified, Lifecycle: "needed", CommitsAhead: 0, RecoveryAction: WorktreeRecoveryReclaim}
+		if observed := claimObservedAt[e.workID]; observed != "" {
+			if claimed, parseErr := time.Parse(time.RFC3339Nano, observed); parseErr == nil {
+				if age := int64(now.Sub(claimed).Seconds()); age > 0 {
+					row.ClaimAgeSeconds = age
+				}
+			}
+		}
+		rows = append(rows, row)
+	}
+	return rows, nil
+}
+
+type worktreeAuditEntry struct {
+	workID, projectID, path, branch string
+}
+
+func pathExistsForAudit(path string) (bool, error) {
+	if _, err := os.Stat(path); err != nil {
+		if os.IsNotExist(err) {
+			return false, nil
+		}
+		return false, wrapFailure(KindUnavailable, "worktree_audit", "cannot inspect worktree path "+path, true, "retry once the worktree root is readable", err)
+	}
+	return true, nil
+}
+
+func worktreeAuditRepoRoot(ctx context.Context, q queryer, projectID string) (string, error) {
+	root, err := worktreeRepoRootTx(ctx, q, WorktreeClaimRequest{ProjectID: projectID})
+	if err != nil {
+		return "", err
+	}
+	return root, nil
+}
+
+// worktreeAuditDefaultRef resolves the ref the unstarted class counts
+// commits against: the caller's override, else the repository's origin HEAD.
+func worktreeAuditDefaultRef(ctx context.Context, runner GitRunner, repoRoot, override string) (string, error) {
+	if override != "" {
+		return override, nil
+	}
+	refOut, refErr := runner.Run(ctx, repoRoot, "symbolic-ref", "refs/remotes/origin/HEAD")
+	if refErr != nil || strings.TrimSpace(string(refOut)) == "" {
+		return "", newFailure(KindGitUnreachable, "worktree_audit", "cannot resolve the default branch", false, "set origin/HEAD or supply the merge target ref")
+	}
+	return strings.TrimPrefix(strings.TrimSpace(string(refOut)), "refs/remotes/"), nil
 }
 
 func currentWorkVersion(ctx context.Context, q queryer, workID string) (int64, error) {

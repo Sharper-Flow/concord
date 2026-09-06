@@ -1227,7 +1227,7 @@ func (r runtime) read(ctx context.Context, base Envelope, input []byte, queryID 
 		if in.ProductID == "" {
 			in.ProductID = r.Envelope.SelectedProductID
 		}
-		audit, err := r.Store.WorktreeAudit(ctx, in.ProductID, r.boundedLimit(in.Page.Limit))
+		audit, err := r.Store.WorktreeAudit(ctx, store.WorktreeAuditRequest{ProductID: in.ProductID, Limit: r.boundedLimit(in.Page.Limit)})
 		if err != nil {
 			return failureEnvelope(base, err), nil
 		}

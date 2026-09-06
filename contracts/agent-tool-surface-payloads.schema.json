@@ -6031,7 +6031,8 @@
                   "orphan",
                   "stale_claim",
                   "stranded_needed",
-                  "terminal_present"
+                  "terminal_present",
+                  "unstarted_present"
                 ]
               },
               "project_id": {
@@ -6061,6 +6062,14 @@
                   "worktree_reclaim",
                   "worktree_claim"
                 ]
+              },
+              "commits_ahead": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "claim_age_seconds": {
+                "type": "integer",
+                "minimum": 0
               }
             }
           }
@@ -7607,7 +7616,8 @@
                   "orphan",
                   "stale_claim",
                   "stranded_needed",
-                  "terminal_present"
+                  "terminal_present",
+                  "unstarted_present"
                 ]
               },
               "project_id": {
@@ -7637,6 +7647,14 @@
                   "worktree_reclaim",
                   "worktree_claim"
                 ]
+              },
+              "commits_ahead": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "claim_age_seconds": {
+                "type": "integer",
+                "minimum": 0
               }
             }
           }

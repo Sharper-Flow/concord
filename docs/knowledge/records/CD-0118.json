@@ -1,0 +1,24 @@
+{
+  "date": "2026-09-06T00:00:00Z",
+  "home_domain_id": "product-root:concord",
+  "id": "CD-0118",
+  "kind": "decision",
+  "path": "docs/decisions/CD-0118-the-audit-reclaims-unstarted-worktrees.md",
+  "product_wide_rationale": "Names when a claimed worktree that holds no work may be removed, which every Domain that claims a worktree relies on, so it binds Product-wide rather than owning a runtime Domain.",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:ffea2142a1392f5789f1dea876a229056d9ea36d5baf21c258746e0db7be89fd",
+  "status": "accepted",
+  "summary": "The worktree audit reports a fifth drift class, unstarted_present: a needed work item whose active, verified worktree has a clean tree and a branch holding no commit beyond the Project's default ref. The audit pass reclaims such rows without operator approval through a commit-count gate in place of the merged-head gate, the work item stays at needed, and the drift row carries commits_ahead as the gate input and claim_age_seconds as a display fact no gate reads. A read whose default ref is underivable skips the class rather than refusing the page. Amends CD-0096 D3 Destroy at the approval sentence and CD-0105 D1 and D2.",
+  "tags": [
+    "worktree-isolation",
+    "authority",
+    "recovery"
+  ],
+  "title": "The worktree audit reclaims unstarted worktrees"
+}

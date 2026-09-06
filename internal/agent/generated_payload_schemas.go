@@ -7509,6 +7509,10 @@ const GeneratedPayloadSchemaDocument = `{
           "items": {
             "additionalProperties": false,
             "properties": {
+              "claim_age_seconds": {
+                "minimum": 0,
+                "type": "integer"
+              },
               "claim_state": {
                 "enum": [
                   "verified"
@@ -7520,9 +7524,14 @@ const GeneratedPayloadSchemaDocument = `{
                   "orphan",
                   "stale_claim",
                   "stranded_needed",
-                  "terminal_present"
+                  "terminal_present",
+                  "unstarted_present"
                 ],
                 "type": "string"
+              },
+              "commits_ahead": {
+                "minimum": 0,
+                "type": "integer"
               },
               "lifecycle": {
                 "$ref": "#/$defs/lifecycle"
@@ -7639,6 +7648,10 @@ const GeneratedPayloadSchemaDocument = `{
           "items": {
             "additionalProperties": false,
             "properties": {
+              "claim_age_seconds": {
+                "minimum": 0,
+                "type": "integer"
+              },
               "claim_state": {
                 "enum": [
                   "verified"
@@ -7650,9 +7663,14 @@ const GeneratedPayloadSchemaDocument = `{
                   "orphan",
                   "stale_claim",
                   "stranded_needed",
-                  "terminal_present"
+                  "terminal_present",
+                  "unstarted_present"
                 ],
                 "type": "string"
+              },
+              "commits_ahead": {
+                "minimum": 0,
+                "type": "integer"
               },
               "lifecycle": {
                 "$ref": "#/$defs/lifecycle"

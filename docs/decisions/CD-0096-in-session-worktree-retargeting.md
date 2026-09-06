@@ -14,7 +14,7 @@
   effective target was a stored copy of the session directory, kept because
   the session could not move. CD-0098 moved the session, and CD-0104 removed
   the copy. D2, D3 Inspect, Verify, and Destroy, and D4 stand. CD-0105 at D3
-  Destroy names the trigger this tier left unnamed.
+  Destroy names the trigger this tier left unnamed. CD-0118 at D3 Destroy widens approval-free removal to unstarted work under its own gate.
 
 ## Context
 
@@ -106,7 +106,10 @@ authority fails typed, naming the owner identity and the recovery action.
 **Destroy.** Removing a worktree reclaims merged terminal work under the
 CD-0095 store gates. A dirty tree refuses, and an unmerged branch refuses.
 Removal of non-terminal work, and any destructive removal, requires operator
-approval. The trigger for merged terminal work is the audit pass (CD-0105);
+approval, except unstarted work, which CD-0118 admits under its own gate: a
+work item at `needed` whose worktree tree is clean and whose branch holds no
+commit beyond the Project's default ref. The trigger for merged terminal
+work is the audit pass (CD-0105), which CD-0118 extends to unstarted work;
 this tier defines the gates, not the trigger.
 
 ### D4. Possession grants no Product authority
@@ -189,7 +192,8 @@ retargeted tree is an identity no one verified.
 - Verification under an exclusive lease refuses completion when tracked files
   changed.
 - Destroy obeys the CD-0095 store gates for terminal work, and operator
-  approval gates every other removal.
+  approval gates every other removal except the unstarted gate CD-0118
+  defines.
 - The continuity projection re-pins the active lease each turn.
 - `python3 scripts/check-doc-contract.py`, `python3 scripts/check-json.py`,
   `python3 scripts/check-doc-links.py`, `python3 scripts/check-knowledge-closure.py`,

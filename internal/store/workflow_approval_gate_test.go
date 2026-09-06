@@ -6,31 +6,31 @@ import (
 	"testing"
 )
 
-// An approval gate only gates when the framing action beside it holds the
-// step. A framing action that advances lets the first call leave the step
-// with a null contract, so approve_contract never runs.
+// An approval gate only gates when it is the step's only exit. A step that
+// holds an approval-required advancing action beside a second advancing action
+// lets the first call leave the step before the gate runs, so the gate never
+// runs. This holds for every built-in definition and every step.
 func TestApprovalGateStepHasNoOtherAdvancingAction(t *testing.T) {
-	gated := map[string]map[string][]string{
-		"workflow.research":           {"frame": {"frame_research"}, "conclude": {"record_conclusion"}},
-		"workflow.architecture_spike": {"frame": {"frame_question"}},
-	}
 	for _, definition := range BuiltinWorkflowDefinitions() {
-		steps, ok := gated[definition.Ref]
-		if !ok {
-			continue
-		}
 		modes := make(map[string]ActionExecutionMode, len(definition.ActionDefinitions))
+		approvals := make(map[string]ActionApproval, len(definition.ActionDefinitions))
 		for _, action := range definition.ActionDefinitions {
 			modes[action.ID] = action.ExecutionMode
+			approvals[action.ID] = action.Approval
 		}
-		for stepID, held := range steps {
-			for _, action := range held {
-				if !definitionStepAllows(definition, stepID, action) {
-					t.Fatalf("%s step %s does not declare %s", definition.Ref, stepID, action)
+		for _, step := range definition.StepGraph.Steps {
+			var gates, advancing []string
+			for _, action := range step.Actions {
+				if modes[action] != ActionAdvance {
+					continue
 				}
-				if modes[action] != ActionHold {
-					t.Fatalf("%s step %s action %s mode=%s, want %s", definition.Ref, stepID, action, modes[action], ActionHold)
+				advancing = append(advancing, action)
+				if approvals[action] == ActionApprovalRequired {
+					gates = append(gates, action)
 				}
+			}
+			if len(gates) != 0 && len(advancing) > len(gates) {
+				t.Errorf("%s step %s gates on %v but also advances on %v", definition.Ref, step.ID, gates, advancing)
 			}
 		}
 	}

@@ -41,7 +41,11 @@ func TestOpsRunbookConditionResolutionAcrossHealthDispatch(t *testing.T) {
 	version := int64(4)
 	version = dispatchOpsRunbookAction(t, s, workID, version, "approve_contract", "ops-approve-contract", actor, json.RawMessage(`{"spec_mandate":[],"law_modifies":[],"architecture_binding":{"domain_registry_content_hash":"sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","home_domain_id":"root","affected_domain_ids":["root"],"domain_modifies":[],"domain_relation_modifies":[],"law_additions":[],"verification_obligations":[]}}`))
 	version = dispatchOpsRunbookAction(t, s, workID, version, "approve_operation", "ops-approve-operation", actor, json.RawMessage(`{"step_id":"approval"}`))
+	version = dispatchOpsRunbookAction(t, s, workID, version, "start_run", "ops-start-run", actor, json.RawMessage(`{"step_id":"execute","run_id":"run:ops","native_subject_ref":"route:ops","status":"started","evidence_ref":"evidence:run-start","evidence_digest":"sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"}`))
 	version = dispatchOpsRunbookAction(t, s, workID, version, "add_condition", "ops-add-condition", actor, json.RawMessage(`{"step_id":"execute","condition_id":"condition:health","await_type":"ci_result","await_ref":"health:ops","resolution_authority":"durable_operation:ops-add-condition"}`))
+	// Adding a condition holds the step; delivery is the exit.
+	assertOpsRunbookStep(t, s, workID, "execute")
+	version = dispatchOpsRunbookAction(t, s, workID, version, "record_delivery", "ops-record-delivery", actor, json.RawMessage(`{"step_id":"execute","summary":"run delivered"}`))
 	assertOpsRunbookStep(t, s, workID, "health")
 
 	healthPayload := json.RawMessage(`{"step_id":"health","run_id":"run:ops","native_subject_ref":"route:ops","status":"healthy","evidence_ref":"evidence:health","evidence_digest":"sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"}`)
@@ -54,6 +58,9 @@ func TestOpsRunbookConditionResolutionAcrossHealthDispatch(t *testing.T) {
 	if version <= 4 {
 		t.Fatalf("resolve_condition resulting version=%d, want an advanced version", version)
 	}
+	// Resolving a condition holds the step; the health record is the exit.
+	assertOpsRunbookStep(t, s, workID, "health")
+	dispatchOpsRunbookAction(t, s, workID, version, "record_health", "ops-record-health", actor, healthPayload)
 	assertOpsRunbookStep(t, s, workID, "rollback_optional")
 	var state string
 	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT condition_state FROM workflow_external_conditions WHERE work_id=? AND condition_id=?`, workID, "condition:health").Scan(&state); err != nil {

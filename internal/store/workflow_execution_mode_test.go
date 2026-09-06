@@ -93,8 +93,8 @@ func TestBuiltinWorkflowDigestsStayPinned(t *testing.T) {
 		"workflow.break_fix":          "sha256:8abed1bdb47f7cac3b6229a5a72fa6afb9cdd2011d7c42da586b6ccd148cec83",
 		"workflow.research":           "sha256:63f50830a7fe0d5d6dbf2c801c2f04f5b324ed0c5241292d58cfc0ef4ddddab8",
 		"workflow.architecture_spike": "sha256:97d09dd24f80750dfa403ac2ccb9bf17b046cbd04981358b7ebaf1b1076aef5e",
-		"workflow.ops_runbook":        "sha256:f101183b9b44a7f6a9f04bde3894892c043df67194987ab4fa09e201c41566de",
-		"workflow.static_analysis":    "sha256:a7e8fac850328d03d46eaa0479f0875727d93e385229fc9ed34aafbc9c951f34",
+		"workflow.ops_runbook":        "sha256:2e681414f079418a9aa2c7260832837d7ecde0e3974fdd602749d8125072dba6",
+		"workflow.static_analysis":    "sha256:dcd49187f4c5f3f3a54aa3a54cf28ce1eae5a4e093203ec761cf314b2b1bdd91",
 		"workflow.generic_one_off":    "sha256:8e59cbbe8f20589064a975d8b3935c20edd573d6f6f4f9858dabea96bce6ba80",
 	}
 	for ref, expected := range want {

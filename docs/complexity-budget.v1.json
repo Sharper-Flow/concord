@@ -25,9 +25,9 @@
     },
     {
       "function": "internal/store.workflowSemanticActionEvents",
-      "measured": 193,
+      "measured": 198,
       "state": "unmeasured",
-      "reason": "The dispatch remains a flat action vocabulary; the score grew from 163 when record_verdict began folding its born-bound evidence events (issue #816) and again when the evidence list gained its explicit 32-entry bound for the allocation guard. Score moved 177 to 183 when declare_impact began requiring and verifying its target work item at the boundary (issue #823); the arm guards a foreign-keyed edge that previously failed at fold time. Score moved 185 to 188 when accept_worker_result began binding the accepted attempt as evidence (#865); the arm maps the lane's capability class onto the closed evidence kind and emits one typed event. Score moved again when bind_evidence joined the declared evidence_ref and record_verdict gained the step-executor refusal (#856, #801)."
+      "reason": "The dispatch remains a flat action vocabulary; the score grew from 163 when record_verdict began folding its born-bound evidence events (issue #816) and again when the evidence list gained its explicit 32-entry bound for the allocation guard. Score moved 177 to 183 when declare_impact began requiring and verifying its target work item at the boundary (issue #823); the arm guards a foreign-keyed edge that previously failed at fold time. Score moved 185 to 188 when accept_worker_result began binding the accepted attempt as evidence (#865); the arm maps the lane's capability class onto the closed evidence kind and emits one typed event. Score moved again when bind_evidence joined the declared evidence_ref and record_verdict gained the step-executor refusal (#856, #801). Score moved 193 to 198 when record_verdict gained the conditioned operator-verdict path (CD-0116): one delivery-exit query gates the signed operator identity after an in-session record_delivery."
     }
   ]
 }

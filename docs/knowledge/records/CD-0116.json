@@ -1,0 +1,34 @@
+{
+  "date": "2026-09-06T00:00:00Z",
+  "evidence": [
+    "internal/store/workflow_dispatch.go",
+    "internal/agent/mutations.go",
+    "internal/store/operator_verdict_test.go"
+  ],
+  "home_domain_id": "workflow-engine",
+  "id": "CD-0116",
+  "kind": "decision",
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "CD-0013"
+    }
+  ],
+  "path": "docs/decisions/CD-0116-the-operator-signs-the-verdict-after-an-in-session-delivery.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:306eec30a1ef6358414b302a9d99d4fe273d620274c7941bb73c61d9ad01c859",
+  "status": "accepted",
+  "summary": "After an in-session record_delivery exit the capturing session is the pinned executing actor, so CD-0013 D5 refuses its verdict and no distinct evaluator exists. record_verdict then accepts the operator's signed identity (the confirm_premise mechanism), stamped as the verdict actor, strictly conditioned on a record_delivery completion; lane-executed exits keep CD-0109's distinct-actor rule, and the agent surface mints the operator challenge exactly for the lease-holding session.",
+  "tags": [
+    "workflow",
+    "evidence",
+    "law"
+  ],
+  "title": "the operator signs the verdict after an in-session delivery"
+}

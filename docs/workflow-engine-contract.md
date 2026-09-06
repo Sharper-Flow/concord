@@ -612,7 +612,7 @@ a fenced action first emits `workflow.action_started` and may emit
 | `revise_candidates` | `workflow.candidate_set_revised` |
 | `declare_impact` | `workflow.impact_declared` |
 | `link_successor` | `workflow.successor_linked` and the existing forward-link relation event |
-| `record_verdict` | `workflow.verdict_recorded` |
+| `record_verdict` | `workflow.verdict_recorded`; the verdict actor is the submitting session, distinct from every executor (CD-0013 D5, CD-0109), or the operator's signed identity strictly when the item exited an external-effect step through `record_delivery` (CD-0116) |
 | `confirm_premise` | `workflow.premise_confirmed` |
 | `complete` | `workflow.completed`, only after the ordered gate in §7 |
 | `frame_question` | `workflow.action_completed`; the framed question is part of the action result and later decision-record evidence |

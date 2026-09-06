@@ -844,6 +844,14 @@ func (r runtime) mutateWorkflowAction(ctx context.Context, base Envelope, raw []
 		approval = in.Approval.ApprovalRef
 	}
 	requiresApproval := action.Approval == store.ActionApprovalRequired
+	// CD-0116: a record_verdict from the session that holds the executing
+	// lease is the self-evaluation wedge — no distinct evaluator exists after
+	// an in-session delivery. Mint the operator challenge so the host can
+	// attach the signed identity the store's conditioned path accepts.
+	operatorVerdict := in.ActionID == "record_verdict"
+	if operatorVerdict && approval == "" && r.sessionHoldsExecutingLease(ctx, in.WorkID, grant) {
+		requiresApproval = true
+	}
 	if replay, handled, replayErr := r.replayMutationBeforeScope(ctx, base, raw, grant, op); replayErr != nil || handled {
 		if replayErr != nil {
 			return failureEnvelope(base, replayErr), nil
@@ -914,12 +922,12 @@ func (r runtime) mutateWorkflowAction(ctx context.Context, base Envelope, raw []
 		if _, err := r.Authority.AuthorizeTx(ctx, tx, inv); err != nil {
 			return err
 		}
-		if requiresApproval {
-			verifiedOperator, _, err := r.consumeApprovalTx(ctx, tx, inv, grant, ApprovalCheck{ApprovalRef: approval, OperationDigest: digest, Scope: boundedApprovalScope(scope), Versions: versions, Consequence: approvalConsequence, ClientRef: grant.ClientRef, SessionRef: grant.SessionRef, RequireOperatorIdentity: in.ActionID == "confirm_premise"})
+		if requiresApproval || (operatorVerdict && approval != "") {
+			verifiedOperator, _, err := r.consumeApprovalTx(ctx, tx, inv, grant, ApprovalCheck{ApprovalRef: approval, OperationDigest: digest, Scope: boundedApprovalScope(scope), Versions: versions, Consequence: approvalConsequence, ClientRef: grant.ClientRef, SessionRef: grant.SessionRef, RequireOperatorIdentity: in.ActionID == "confirm_premise" || operatorVerdict})
 			if err != nil {
 				return err
 			}
-			if in.ActionID == "confirm_premise" {
+			if in.ActionID == "confirm_premise" || operatorVerdict {
 				operatorActor = &verifiedOperator
 			}
 		}
@@ -3287,4 +3295,17 @@ func messageIDFor(digest, recipient string) string {
 
 func activeWorkIDsTx(ctx context.Context, tx *store.Transaction, productID string) ([]string, error) {
 	return store.ActiveWorkIDsTx(ctx, tx, productID)
+}
+
+// sessionHoldsExecutingLease reports whether the calling session's derived
+// workflow actor is the item's pinned executing actor. Only that session's
+// record_verdict is the CD-0116 self-evaluation wedge; a distinct session
+// keeps the ordinary verdict route and is never asked for an approval.
+func (r runtime) sessionHoldsExecutingLease(ctx context.Context, workID string, grant Authority) bool {
+	sessionRef := store.DeriveWorkflowActorRef(grant.PrincipalRef, grant.ClientRef, grant.AgentRef, grant.SessionRef)
+	executing, err := r.Store.WorkflowExecutingActor(ctx, workID)
+	if err != nil || executing == "" {
+		return false
+	}
+	return executing == sessionRef
 }

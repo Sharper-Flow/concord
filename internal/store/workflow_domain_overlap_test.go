@@ -641,8 +641,8 @@ func TestWorkflowDomainOverlapResolutionCommitsBeforeCrossProcessResultAcceptanc
 	if err := acceptance.Wait(); err != nil {
 		t.Fatal(err)
 	}
-	if got := readWorkVersion(t, s, workID); got != version+2 {
-		t.Fatalf("result acceptance version=%d, want %d", got, version+2)
+	if got := readWorkVersion(t, s, workID); got != version+3 {
+		t.Fatalf("result acceptance version=%d, want %d", got, version+3)
 	}
 }
 

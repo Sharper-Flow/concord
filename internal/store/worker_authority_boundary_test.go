@@ -696,14 +696,14 @@ func TestDistinctWorkflowOwnerAcceptsCompletedWorkerResult(t *testing.T) {
 	if err := tx.Commit(); err != nil {
 		t.Fatal(err)
 	}
-	if result.ResultingVersion != 11 {
-		t.Fatalf("accept result version=%d, want 11", result.ResultingVersion)
+	if result.ResultingVersion != 12 {
+		t.Fatalf("accept result version=%d, want 12", result.ResultingVersion)
 	}
 	if got := currentStep(t, s, "authority-accept"); got != "acceptance" {
 		t.Fatalf("accepted worker result current_step=%q, want acceptance", got)
 	}
-	if got := readWorkVersion(t, s, "authority-accept"); got != 11 {
-		t.Fatalf("accepted worker result version=%d, want 7", got)
+	if got := readWorkVersion(t, s, "authority-accept"); got != 12 {
+		t.Fatalf("accepted worker result version=%d, want 12", got)
 	}
 	var executionActor string
 	if err := s.DatabaseForTesting().QueryRow(`SELECT execution_actor_ref FROM workflow_instances WHERE work_id=?`, "authority-accept").Scan(&executionActor); err != nil {
@@ -1060,5 +1060,55 @@ func TestWorkerAttemptProjectionHasNoWorkflowAuthorityColumns(t *testing.T) {
 		if columns[forbidden] {
 			t.Fatalf("worker_attempts carries workflow authority column %q", forbidden)
 		}
+	}
+}
+
+// TestAcceptWorkerResultBindsTheAttemptAsEvidence: acceptance binds the
+// attempt it certifies (#865). The binding names the attempt id, carries the
+// lane's evidence kind, and is backed by the acceptance operation, so a later
+// verdict can cite the attempt and the completion gate's requirement is met
+// by the lane that produced it.
+func TestAcceptWorkerResultBindsTheAttemptAsEvidence(t *testing.T) {
+	ctx := context.Background()
+	s, _, owner, attemptID := seedCompletedWorkerAtExecution(t, "authority-bind")
+	request := WorkflowActionExecutionRequest{
+		WorkID: "authority-bind", ExpectedVersion: 10, ActionID: "accept_worker_result",
+		Payload: mustJSONValue(map[string]any{"attempt_id": attemptID, "attempt_epoch": 1}), Actor: owner,
+		AcceptedInputsDigest: "sha256:" + strings.Repeat("a", 64), IdempotencyIdentity: "accept-bind", OperationID: "accept-bind",
+		PrincipalRef: owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "accept-bind", RequestID: "request:accept-bind", ContractDigest: testManifestDigest, Now: time.Unix(3, 0).UTC(),
+	}
+	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := enterFold(ctx, tx); err != nil {
+		tx.Rollback()
+		t.Fatal(err)
+	}
+	if _, err := applyWorkflowActionRawTx(ctx, tx, BuiltinWorkflowRegistry(), request); err != nil {
+		tx.Rollback()
+		t.Fatalf("accept: %v", err)
+	}
+	_ = leaveFold(ctx, tx)
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	var kind, subject, producerRun string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.evidence_kind'),json_extract(payload,'$.immutable_subject_ref'),json_extract(payload,'$.producer_run_ref') FROM domain_events WHERE subject_id=? AND kind=? ORDER BY seq DESC LIMIT 1`, "authority-bind", WorkflowEvidenceBound).Scan(&kind, &subject, &producerRun); err != nil {
+		t.Fatalf("acceptance bound no evidence: %v", err)
+	}
+	if subject != attemptID || producerRun != "accept-bind" {
+		t.Fatalf("bound evidence subject=%q producer_run=%q, want the attempt and the acceptance operation", subject, producerRun)
+	}
+	if kind == "" {
+		t.Fatal("bound evidence has no kind")
+	}
+	verifyTx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer verifyTx.Rollback()
+	if err := verifyVerdictEvidence(ctx, verifyTx, "authority-bind", []string{attemptID}); err != nil {
+		t.Fatalf("a verdict citing the accepted attempt is refused: %v", err)
 	}
 }

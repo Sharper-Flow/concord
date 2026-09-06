@@ -629,7 +629,7 @@ a fenced action first emits `workflow.action_started` and may emit
 | `cleanup_run` | `workflow.action_completed` with cleanup evidence |
 | `run_analysis` | fenced `workflow.action_started` → `workflow.action_completed`/`workflow.action_failed`; report evidence follows in `record_report` |
 | `record_report` | `workflow.action_completed` plus `workflow.evidence_bound` for the report's immutable subject |
-| `accept_worker_result` | `workflow.action_completed` v2 bound to the exact completed attempt and current step epoch; the fold rechecks dispatch order, work ownership, lifecycle, model readback, and actor distinctness before advancing |
+| `accept_worker_result` | `workflow.evidence_bound` naming the accepted attempt as its `immutable_subject_ref`, with the lane's capability class as the evidence kind, then `workflow.action_completed` v2 bound to the exact completed attempt and current step epoch; the fold rechecks dispatch order, work ownership, lifecycle, model readback, and actor distinctness before advancing. The verdict on the next step cites the attempt id. |
 
 `action_definitions` carry closed payload field definitions and execution modes
 for each ID. Every registered definition declares an explicit `execution_mode`

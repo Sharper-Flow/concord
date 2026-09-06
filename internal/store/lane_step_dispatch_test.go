@@ -104,6 +104,7 @@ func dispatchJoinAttempt(ctx context.Context, t *testing.T, s *Store, workID str
 	return invokeWorkflowActionForCD0059(ctx, t, s, WorkflowActionExecutionRequest{
 		WorkID: workID, ExpectedVersion: expectedVersion, ActionID: "dispatch_worker",
 		Payload: fieldsPayload, Actor: actor, AcceptedInputsDigest: cd0059TestDigest(t, "join-inputs"), ContractDigest: testManifestDigest,
+		SessionWorktree: dispatchSessionWorktree(t, s, workID),
 		Tool: "concord_work_transition", IdempotencyKey: "join-key-" + attemptID, RequestID: "join-req-" + attemptID, IdempotencyIdentity: "join-" + attemptID, OperationID: "join-op-" + attemptID, PrincipalRef: actor.PrincipalRef,
 		Now: time.Now().UTC(),
 	})

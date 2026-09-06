@@ -717,6 +717,7 @@ func preflightWorkflowActionRequestWithRegistry(ctx context.Context, s *store.St
 		DecisionContextDigest: in.DecisionContextDigest,
 		Payload:               payload,
 		Actor:                 store.WorkflowActor{PrincipalRef: actor.PrincipalRef, ClientRef: actor.ClientRef, AgentRef: actor.AgentRef, SessionRef: actor.SessionRef, ActorClass: store.ActorAgent},
+		SessionWorktree:       env.Worktree,
 	})
 }
 

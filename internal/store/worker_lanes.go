@@ -252,8 +252,11 @@ func validateWorkerDispatched(event Event, payload WorkerDispatchedPayload) erro
 	if payload.Terminal != "" && payload.Terminal != "failed" {
 		return invalidWorkerPayload("worker.dispatched terminal value must be empty or 'failed'")
 	}
-	if payload.Terminal == "failed" && payload.TerminalFailureKind == "" {
+	if payload.Terminal == "failed" && !validWorkerFailureKind(payload.TerminalFailureKind) {
 		return invalidWorkerPayload("worker.dispatched terminal failure requires a typed kind")
+	}
+	if payload.Terminal == "failed" && modelReadbackFailureKind(payload.TerminalFailureKind) && payload.ReadbackModel != "" {
+		return invalidWorkerPayload("worker.dispatched readback failure cannot carry a readback_model")
 	}
 	return ValidateWorkerHostProvenance(payload.HostProvenance)
 }
@@ -386,10 +389,11 @@ func ValidateWorkerDispatchWindow(ctx context.Context, transaction *Transaction,
 	if window.PacketDigest != packetDigest {
 		return newFailure(KindUnauthorizedDispatch, "worker_dispatch_window", "worker packet digest does not match the authorized dispatch window", false, "open a dispatch_worker authorization for this packet or dispatch the bound packet")
 	}
-	if window.WorktreeIdentity != "" {
-		if err := validateWorkerDispatchWorktreeIdentity(ctx, tx, workID, window.WorktreeIdentity); err != nil {
-			return err
-		}
+	if window.WorktreeIdentity == "" {
+		return newFailure(KindUnauthorizedDispatch, "worker_dispatch_window", "dispatch window predates worktree binding", false, "open a fresh dispatch_worker authorization from the claimed worktree")
+	}
+	if err := validateWorkerDispatchWorktreeIdentity(ctx, tx, workID, window.WorktreeIdentity); err != nil {
+		return err
 	}
 	open, err := WorkerDispatchWindowIsOpenTx(ctx, tx, window)
 	if err != nil {

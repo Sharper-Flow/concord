@@ -71,10 +71,10 @@ substitution and claims none.
 
 *(Amended 2026-09-06, issue #826.)* *Because `readback_model` is the sole
 evidence, its absence is itself recorded. A host export that carries no model
-identity, or more than one, produces one attempt born `failed` with kind
-`model_readback_missing` or `model_readback_ambiguous` (CD-0017 D5). The
-adapter never retries the export and never leaves a dispatch with no attempt
-row.*
+identity, or more than one, produces one attempt born `failed` in one event,
+with kind `model_readback_missing` or `model_readback_ambiguous` (CD-0017 D5).
+The adapter never retries the export and never leaves a dispatch with no
+attempt row.*
 
 ### D3. The routing-policy record and its load path are removed
 

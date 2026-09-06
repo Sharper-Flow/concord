@@ -130,7 +130,7 @@ func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, registry Definiti
 	if err != nil {
 		return result, err
 	}
-	if request.ActionID == "dispatch_worker" && request.SessionWorktree != "" {
+	if request.ActionID == "dispatch_worker" {
 		if err := validateWorkerDispatchWorktree(ctx, tx, request.WorkID, request.SessionWorktree); err != nil {
 			return result, err
 		}

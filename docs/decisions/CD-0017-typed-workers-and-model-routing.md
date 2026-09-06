@@ -138,10 +138,11 @@ substitution guarantee.*
 the dispatch event binds the admitted worktree.)*
 
 *A readback that yields no executing-model identity, or more than one, is not
-an adapter error to discard. The adapter records exactly one failed attempt:
-one dispatch event with an empty `readback_model`, then one `worker.failed`
-whose kind is `model_readback_missing` or `model_readback_ambiguous`, carrying
-the refusing predicate, the export digest, and the export byte count. The
+an adapter error to discard. The adapter records exactly one failed attempt in
+one event: a dispatch born `failed`, with an empty `readback_model` and a kind
+of `model_readback_missing` or `model_readback_ambiguous`, carrying the
+refusing predicate, the export digest, and the export byte count. One event is
+one transaction, so no `dispatched` attempt can outlive a stopped process. The
 schema admits an empty `readback_model` only under those two failed kinds. The
 attempt is never retried; a new attempt is a new decision.*
 

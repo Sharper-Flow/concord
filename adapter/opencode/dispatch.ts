@@ -632,10 +632,12 @@ async function recordWorkerEvent(childRunner: DispatchRunner, binary: string, co
 
 // recordModelReadbackFailure makes a refused readback a durable, typed,
 // terminal worker failure instead of an attempt that was never recorded: one
-// worker-dispatch event with an empty readback_model, then one worker-fail
-// whose kind says whether the identity was missing or ambiguous. The detail
-// names the refusing predicate and the export digest so the failure is
-// diagnosable from the store alone.
+// worker-dispatch event born failed, with an empty readback_model and a kind
+// that says whether the identity was missing or ambiguous. One event means
+// one transaction, so a stopped process can never leave a dispatched attempt
+// waiting for a failure that was not written. The detail names the refusing
+// predicate and the export digest so the failure is diagnosable from the
+// store alone.
 async function recordModelReadbackFailure(lane: AgentLane, packet: AgentLanePacket, refusal: { predicate: ReadbackRefusal; export_digest: string; export_bytes: number; message: string }, options: { runner?: DispatchRunner; evidenceRunner?: DispatchRunner; concordBinary?: string; credentials?: CredentialStore; packetDigest?: string }, signal: AbortSignal): Promise<string | null> {
   if (!options.packetDigest) return "model readback failure cannot be recorded without the dispatch packet digest"
   const cliRunner = options.evidenceRunner ?? options.runner ?? defaultRunner
@@ -644,33 +646,23 @@ async function recordModelReadbackFailure(lane: AgentLane, packet: AgentLanePack
   const failureKind = refusal.predicate === "export_model_ambiguous" ? "model_readback_ambiguous" : "model_readback_missing"
   const detail = `readback predicate ${refusal.predicate} refused: ${refusal.message} (export_digest ${refusal.export_digest}, export_bytes ${refusal.export_bytes})`.slice(0, MAX_FAILURE_DETAIL_BYTES)
   const provenance = await computeHostPromptProvenance(lane.id)
-  let dispatchAssertion: Record<string, unknown>
-  let failureAssertion: Record<string, unknown>
+  let assertion: Record<string, unknown>
   try {
-    dispatchAssertion = await signWorkerEvidence(credentials, {
+    assertion = await signWorkerEvidence(credentials, {
       verb: "worker-dispatch", work_id: packet.work_id, attempt_id: packet.attempt_id,
       lane_id: lane.id, lane_version: lane.version, lane_digest: lane.digest,
-      readback_model: "", host_provenance_digest: provenance.digest, packet_digest: options.packetDigest,
-    })
-    failureAssertion = await signWorkerEvidence(credentials, {
-      verb: "worker-fail", work_id: packet.work_id, attempt_id: packet.attempt_id,
-      lane_id: lane.id, lane_version: lane.version, lane_digest: lane.digest,
-      readback_model: "", failure_kind: failureKind,
+      readback_model: "", failure_kind: failureKind, host_provenance_digest: provenance.digest, packet_digest: options.packetDigest,
     })
   } catch (error) {
     return String(error).slice(0, MAX_ERROR_BYTES)
   }
-  const dispatchFailure = await recordWorkerEvent(cliRunner, binary, "worker-dispatch", {
+  return recordWorkerEvent(cliRunner, binary, "worker-dispatch", {
     event_id: crypto.randomUUID(), work_id: packet.work_id, attempt_id: packet.attempt_id,
     lane_id: lane.id, lane_version: lane.version, lane_digest: lane.digest,
     readback_model: "", packet_schema_version: PACKET_SCHEMA_VERSION,
     report_schema_version: REPORT_SCHEMA_VERSION, packet_digest: options.packetDigest,
-    host_provenance: provenance, assertion: dispatchAssertion,
-  }, signal)
-  if (dispatchFailure) return dispatchFailure
-  return recordWorkerEvent(cliRunner, binary, "worker-fail", {
-    event_id: crypto.randomUUID(), work_id: packet.work_id, attempt_id: packet.attempt_id,
-    readback_model: "", failure_kind: failureKind, detail, assertion: failureAssertion,
+    terminal: "failed", terminal_failure_kind: failureKind, terminal_detail: detail,
+    host_provenance: provenance, assertion,
   }, signal)
 }
 

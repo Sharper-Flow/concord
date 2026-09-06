@@ -204,7 +204,7 @@ func WorkflowActionPreflightWithRegistry(ctx context.Context, s *Store, registry
 	if !definitionStepAllows(entry.Definition, currentStep, request.ActionID) {
 		return newFailure(KindIllegalLifecycleTransition, "workflow_action_preflight", "workflow action is not declared on the current step", false, "reread_entities")
 	}
-	if request.ActionID == "dispatch_worker" && request.SessionWorktree != "" {
+	if request.ActionID == "dispatch_worker" {
 		if err := validateWorkerDispatchWorktree(ctx, s.db, request.WorkID, request.SessionWorktree); err != nil {
 			return err
 		}
@@ -404,7 +404,7 @@ func workflowActionPreflightTx(ctx context.Context, tx *sql.Tx, registry Definit
 	if !staleRecovery && !definitionStepAllows(entry.Definition, currentStep, request.ActionID) {
 		return RegisteredDefinition{}, newFailure(KindIllegalLifecycleTransition, "workflow_action_preflight", "workflow action is not declared on the current step", false, "reread_entities")
 	}
-	if request.ActionID == "dispatch_worker" && request.SessionWorktree != "" {
+	if request.ActionID == "dispatch_worker" {
 		if err := validateWorkerDispatchWorktree(ctx, tx, request.WorkID, request.SessionWorktree); err != nil {
 			return RegisteredDefinition{}, err
 		}

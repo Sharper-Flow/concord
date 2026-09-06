@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"context"
 	"crypto/ed25519"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -838,6 +840,18 @@ func seedAuthorizedDispatchWindow(t *testing.T, dbPath, workID, attemptID string
 	}
 	expected := int64(2)
 	resulting := expected + 1
+	// The dispatch window binds the worktree identity the core admitted:
+	// the sha256 of the canonical path of the work item's active claim.
+	worktreeDir := filepath.Join(filepath.Dir(dbPath), "worktree-"+workID)
+	if err := os.MkdirAll(worktreeDir, 0o755); err != nil {
+		t.Fatalf("create worktree: %v", err)
+	}
+	worktreePath, err := filepath.EvalSymlinks(worktreeDir)
+	if err != nil {
+		t.Fatalf("resolve worktree: %v", err)
+	}
+	worktreeSum := sha256.Sum256([]byte(filepath.Clean(worktreePath)))
+	worktreeIdentity := "sha256:" + hex.EncodeToString(worktreeSum[:])
 	startPayload := mustJSON(t, map[string]any{
 		"work_id":                workID,
 		"expected_version":       expected,
@@ -864,7 +878,8 @@ func seedAuthorizedDispatchWindow(t *testing.T, dbPath, workID, attemptID string
 		// digest the worker-evidence assertion claims, so the gate
 		// accepts the dispatched record rather than refusing it for
 		// the empty-digest cutover case.
-		"worker_packet_digest": "sha256:" + strings.Repeat("c", 64),
+		"worker_packet_digest":     "sha256:" + strings.Repeat("c", 64),
+		"worker_worktree_identity": worktreeIdentity,
 	})
 	// work_items, workflow_actors, workflow_instances, products, projects,
 	// product_projects, work_projects, and the workflow event families are
@@ -896,6 +911,9 @@ func seedAuthorizedDispatchWindow(t *testing.T, dbPath, workID, attemptID string
 		t.Fatalf("seed dispatch window: %v", err)
 	}
 	if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO workflow_actors(actor_ref,principal_ref,client_ref,agent_ref,session_ref,actor_class,first_seen_at) VALUES(?, ?, ?, ?, ?, 'agent', '2026-08-22T00:00:00Z')`, actorRef, actor.PrincipalRef, actor.ClientRef, actor.AgentRef, actor.SessionRef); err != nil {
+		t.Fatalf("seed dispatch window: %v", err)
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO worktree_entries(set_id,project_id,claim_op_id,branch,base_sha,path,repository_id,state,verified_at,git_facts) VALUES(?, 'project-1', ?, 'work/dispatch', ?, ?, 'repo-1', 'active', '2026-08-22T00:00:00Z', '{}')`, store.WorktreeSetID(workID), "claim-"+attemptID, strings.Repeat("a", 40), worktreePath); err != nil {
 		t.Fatalf("seed dispatch window: %v", err)
 	}
 	if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO workflow_instances(work_id,definition_ref,definition_version,definition_digest,current_step,instance_state,execution_actor_ref,started_at) VALUES(?, 'workflow.implementation', 4, ?, 'execution', 'running', ?, '2026-08-22T00:00:00Z')`, workID, entry.Digest, actorRef); err != nil {

@@ -76,7 +76,7 @@ func WriteKnowledgeShards(repo string, manifest store.KnowledgeManifest) error {
 // it, and the store validates the result when it reads the commit.
 func readKnowledgeShards(repo string) (store.KnowledgeManifest, error) {
 	var manifest store.KnowledgeManifest
-	head, err := os.ReadFile(filepath.Join(repo, filepath.FromSlash(knowledgeHeadPath)))
+	head, err := os.ReadFile(filepath.Join(repo, filepath.FromSlash(knowledgeHeadPath))) //nolint:gosec // knowledgeHeadPath is fixed and repo is a fixture repository this package created.
 	if err != nil {
 		return manifest, fmt.Errorf("pm1fixture: read knowledge manifest head: %w", err)
 	}
@@ -84,7 +84,7 @@ func readKnowledgeShards(repo string) (store.KnowledgeManifest, error) {
 	if err := json.Unmarshal(head, &document); err != nil {
 		return manifest, fmt.Errorf("pm1fixture: decode knowledge manifest head: %w", err)
 	}
-	if registry, err := os.ReadFile(filepath.Join(repo, filepath.FromSlash(knowledgeRegistryPath))); err == nil {
+	if registry, err := os.ReadFile(filepath.Join(repo, filepath.FromSlash(knowledgeRegistryPath))); err == nil { //nolint:gosec // knowledgeRegistryPath is fixed and repo is a fixture repository this package created.
 		document["domain_registry"] = registry
 	}
 	entries, err := os.ReadDir(filepath.Join(repo, filepath.FromSlash(knowledgeRecordTree)))
@@ -96,7 +96,7 @@ func readKnowledgeShards(repo string) (store.KnowledgeManifest, error) {
 		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
 			continue
 		}
-		shard, err := os.ReadFile(filepath.Join(repo, filepath.FromSlash(knowledgeRecordTree), entry.Name()))
+		shard, err := os.ReadFile(filepath.Join(repo, filepath.FromSlash(knowledgeRecordTree), entry.Name())) //nolint:gosec // the record tree is fixed and repo is a fixture repository this package created.
 		if err != nil {
 			return manifest, fmt.Errorf("pm1fixture: read record shard %s: %w", entry.Name(), err)
 		}

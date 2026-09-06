@@ -1,0 +1,30 @@
+{
+  "evidence": [
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestWorktreeAuditClassifiesUnstartedPresentWorktrees"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestWorktreeAuditReclaimsUnstartedPresentWorktrees"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestWorktreeAuditReclaimRefusesUnstartedWorktreeWithEquivalentTree"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestWorktreeAuditReclaimRefusesOccupiedUnstartedWorktree"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestReclaimWorktreeUnstartedTierRefusesStartedWork"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/agent.TestWorktreeAuditReclaimDispatchReclaimsUnstartedWork"
+    }
+  ],
+  "id": "CD-0118",
+  "state": "satisfied"
+}

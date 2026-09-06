@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -20,7 +21,8 @@ type fakeWorktreeGit struct {
 	dirty      map[string]bool   // path -> dirty
 	content    map[string]string // branch -> tree content id; defaults to the head sha
 	defaultRef string
-	headBranch string // the ref HEAD resolves to; the fixture default is main
+	headBranch string         // the ref HEAD resolves to; the fixture default is main
+	ahead      map[string]int // branch -> commit count beyond the default ref
 	failAdd    bool
 	calls      [][]string
 }
@@ -44,6 +46,7 @@ func newFakeWorktreeGit(repoRoot string) *fakeWorktreeGit {
 		worktrees:  map[string]string{},
 		dirty:      map[string]bool{},
 		content:    map[string]string{},
+		ahead:      map[string]int{},
 		headBranch: "main",
 	}
 }
@@ -102,6 +105,14 @@ func (g *fakeWorktreeGit) Run(_ context.Context, dir string, args ...string) ([]
 			return nil, nil
 		}
 		return nil, fmt.Errorf("not an ancestor")
+	case strings.HasPrefix(join, "rev-list --count "):
+		refs := strings.TrimPrefix(join, "rev-list --count ")
+		dotdot := strings.Index(refs, "..")
+		if dotdot < 0 {
+			return nil, fmt.Errorf("malformed revision range")
+		}
+		branch := strings.TrimPrefix(refs[dotdot+2:], "origin/")
+		return []byte(strconv.Itoa(g.ahead[branch]) + "\n"), nil
 	case strings.HasPrefix(join, "worktree add"):
 		if g.failAdd {
 			return nil, fmt.Errorf("native add failed")
@@ -571,8 +582,10 @@ func TestWorktreeAuditClassifiesEachDriftClass(t *testing.T) {
 	ctx := context.Background()
 	root := filepath.Join(filepath.Dir(s.Path()), "worktrees")
 
-	// Healthy: a verified claim whose worktree exists on disk reports nothing.
+	// Healthy: a verified claim whose worktree exists on disk reports
+	// nothing, because the branch holds commits beyond the default ref.
 	auditWork(t, s, git, "work-healthy", true)
+	git.ahead["work/work-healthy"] = 1
 	// Stale claim only: the work moved past needed, so its gone worktree is a
 	// claim problem, not a stranded work item.
 	stalePath := auditWork(t, s, git, "work-stale", false)
@@ -587,7 +600,7 @@ func TestWorktreeAuditClassifiesEachDriftClass(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	audit, err := s.WorktreeAudit(ctx, "product-w", 100)
+	audit, err := s.WorktreeAudit(ctx, WorktreeAuditRequest{ProductID: "product-w", Limit: 100, Runner: git, DefaultRef: "origin/main"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -639,7 +652,7 @@ func TestWorktreeAuditIgnoresPendingClaims(t *testing.T) {
 	if err := s.insertPendingClaim(req); err != nil {
 		t.Fatal(err)
 	}
-	audit, err := s.WorktreeAudit(context.Background(), "product-w", 100)
+	audit, err := s.WorktreeAudit(context.Background(), WorktreeAuditRequest{ProductID: "product-w", Limit: 100, Runner: git, DefaultRef: "origin/main"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -668,7 +681,7 @@ func TestWorktreeAuditChangesNoDurableState(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := s.WorktreeAudit(ctx, "product-w", 100); err != nil {
+	if _, err := s.WorktreeAudit(ctx, WorktreeAuditRequest{ProductID: "product-w", Limit: 100, Runner: git, DefaultRef: "origin/main"}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -689,10 +702,10 @@ func TestWorktreeAuditChangesNoDurableState(t *testing.T) {
 
 func TestWorktreeAuditRequiresProductScopeAndBoundsLimit(t *testing.T) {
 	s, _, _ := worktreeFixture(t)
-	if _, err := s.WorktreeAudit(context.Background(), "", 0); err == nil {
+	if _, err := s.WorktreeAudit(context.Background(), WorktreeAuditRequest{}); err == nil {
 		t.Fatal("empty Product scope must be refused")
 	}
-	audit, err := s.WorktreeAudit(context.Background(), "product-w", 1)
+	audit, err := s.WorktreeAudit(context.Background(), WorktreeAuditRequest{ProductID: "product-w", Limit: 1})
 	if err != nil {
 		t.Fatal(err)
 	}

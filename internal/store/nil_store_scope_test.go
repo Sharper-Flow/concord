@@ -14,7 +14,7 @@ func TestUnopenedStoreScopeMethods(t *testing.T) {
 			return err
 		}},
 		{"WorktreeAudit", func(s *Store) error {
-			_, err := s.WorktreeAudit(ctx, "prod-1", 10)
+			_, err := s.WorktreeAudit(ctx, WorktreeAuditRequest{ProductID: "prod-1", Limit: 10})
 			return err
 		}},
 		{"BlockedSessions", func(s *Store) error {

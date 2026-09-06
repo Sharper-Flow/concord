@@ -156,13 +156,13 @@ func TestBuiltinWorkflowDefinitionsMatchExactPhaseBContractMetadata(t *testing.T
 	}
 }
 
-func TestBuiltinWorkflowResolvesVersionOneWithWorkerAcceptance(t *testing.T) {
+func TestBuiltinWorkflowResolvesAuthoredVersionWithWorkerAcceptance(t *testing.T) {
 	registry := NewBuiltinWorkflowRegistry()
 	for _, latest := range BuiltinWorkflowDefinitions() {
-		if latest.Version != 1 {
-			t.Fatalf("built-in %s version=%d, want 1", latest.Ref, latest.Version)
+		if latest.Version != authoredWorkflowDefinitionVersion {
+			t.Fatalf("built-in %s version=%d, want %d", latest.Ref, latest.Version, authoredWorkflowDefinitionVersion)
 		}
-		registered, ok := registry.Lookup(latest.Ref, 1)
+		registered, ok := registry.Lookup(latest.Ref, latest.Version)
 		if !ok {
 			t.Fatalf("%s definition is not registered", latest.Ref)
 		}
@@ -170,8 +170,8 @@ func TestBuiltinWorkflowResolvesVersionOneWithWorkerAcceptance(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if resolved.Definition.Version != 1 || resolved.Digest != registered.Digest {
-			t.Fatalf("resolver for %s = v%d %s, want v1 %s", latest.Ref, resolved.Definition.Version, resolved.Digest, registered.Digest)
+		if resolved.Definition.Version != latest.Version || resolved.Digest != registered.Digest {
+			t.Fatalf("resolver for %s = v%d %s, want v%d %s", latest.Ref, resolved.Definition.Version, resolved.Digest, latest.Version, registered.Digest)
 		}
 		// Research delegates no external effect, so it declares no worker
 		// acceptance route.

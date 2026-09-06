@@ -138,7 +138,7 @@ func TestDispatchWorkerAppearsOnExternalEffectWorkflows(t *testing.T) {
 	}
 	wantLacksDispatch := []string{"workflow.research"}
 	for _, ref := range wantHasDispatch {
-		entry, ok := registry.Lookup(ref, 1)
+		entry, ok := registry.Lookup(ref, authoredWorkflowDefinitionVersion)
 		if !ok {
 			t.Fatalf("%s is not registered", ref)
 		}
@@ -154,7 +154,7 @@ func TestDispatchWorkerAppearsOnExternalEffectWorkflows(t *testing.T) {
 		}
 	}
 	for _, ref := range wantLacksDispatch {
-		entry, ok := registry.Lookup(ref, 1)
+		entry, ok := registry.Lookup(ref, authoredWorkflowDefinitionVersion)
 		if !ok {
 			t.Fatalf("%s is not registered", ref)
 		}

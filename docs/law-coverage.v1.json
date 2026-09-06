@@ -121,7 +121,7 @@
       "evidence": [
         {
           "kind": "go_test",
-          "value": "internal/store.TestBuiltinWorkflowRegistryHoldsOneVersionPerFamily"
+          "value": "internal/store.TestBuiltinWorkflowRegistryHoldsDeclaredVersionsPerFamily"
         },
         {
           "kind": "go_test",

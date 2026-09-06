@@ -384,6 +384,55 @@ func VerifyWorkflowInstanceDefinitionTx(ctx context.Context, tx *sql.Tx, registr
 	return VerifyWorkflowDefinitionPin(registry, pin)
 }
 
+// missingCompletionEvidenceKinds lists the contract- and definition-required
+// evidence kinds that are not yet durably bound to the work item.
+func missingCompletionEvidenceKinds(ctx context.Context, tx *sql.Tx, workID string) ([]string, error) {
+	contract, definition, err := workflowCompletionContract(ctx, tx, BuiltinWorkflowRegistry(), workID)
+	if err != nil {
+		return nil, err
+	}
+	needed := append([]string(nil), contract.RequiredEvidence...)
+	for _, kind := range definition.RequiredEvidenceKinds {
+		if !contains(needed, string(kind)) {
+			needed = append(needed, string(kind))
+		}
+	}
+	var missing []string
+	for _, kind := range needed {
+		found, err := workflowEvidenceKindBound(ctx, tx, workID, kind)
+		if err != nil {
+			return nil, err
+		}
+		if !found {
+			missing = append(missing, kind)
+		}
+	}
+	return missing, nil
+}
+
+// requireAcceptanceDeliverables refuses the acceptance-step transition while
+// the deliverables completion depends on are absent: a recorded workflow
+// verdict and every required evidence kind durably bound. Once the step
+// advances, no declared action can produce them, so the confirmation is the
+// last point the requirement can be enforced.
+func requireAcceptanceDeliverables(ctx context.Context, tx *sql.Tx, workID string) error {
+	verdict, err := latestWorkflowVerdict(ctx, tx, workID)
+	if err != nil {
+		return err
+	}
+	if verdict == nil {
+		return newFailure(KindMissingEvidence, "workflow_action", "premise confirmation requires a recorded workflow verdict", false, "record_verdict before confirming the premise")
+	}
+	missing, err := missingCompletionEvidenceKinds(ctx, tx, workID)
+	if err != nil {
+		return err
+	}
+	if len(missing) != 0 {
+		return newFailure(KindMissingEvidence, "workflow_action", "premise confirmation requires every contract-required evidence kind bound: missing "+strings.Join(missing, ", "), false, "bind_evidence for each required kind before confirming the premise")
+	}
+	return nil
+}
+
 func verifyCompletionEvidence(ctx context.Context, tx *sql.Tx, workID string, required []string, definitionRequired []EvidenceKind) error {
 	needed := append([]string(nil), required...)
 	for _, kind := range definitionRequired {

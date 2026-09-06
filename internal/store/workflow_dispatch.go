@@ -638,6 +638,16 @@ func workflowSemanticActionEvents(ctx context.Context, tx *sql.Tx, definition Wo
 				return nil, wrapFailure(KindUnavailable, "workflow_action", "cannot read the approved workflow contract", true, "retry once the workflow contract is readable", err)
 			}
 		}
+		// The acceptance step's deliverables are prerequisites of completion:
+		// the recorded verdict and every contract-required evidence kind.
+		// Confirming the premise advances the step, and once past acceptance
+		// no declared action can bind them — so the confirmation refuses here
+		// instead of letting the workflow walk itself into an uncompletable
+		// state. The verdict check mirrors foldWorkflowCompleted's actor
+		// comparison requirement.
+		if err := requireAcceptanceDeliverables(ctx, tx, request.WorkID); err != nil {
+			return nil, err
+		}
 		return []Event{workflowTypedEvent(eventID, WorkflowPremiseConfirmed, request.WorkID, actor, request.Now, expected, map[string]any{"contract_version": contractVersion, "confirming_actor_ref": operatorRef})}, nil
 	case "link_successor":
 		relation := workflowFieldStringDefault(fields, "relation", "forward_link")

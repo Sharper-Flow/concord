@@ -124,7 +124,7 @@ func TestOperatorVerdictAfterDeliveryPassesDistinctness(t *testing.T) {
 // refused, so the lane route's distinct evaluator stays the only verdict path.
 func TestOperatorVerdictConditionBinds(t *testing.T) {
 	const workID = "operator-verdict-lane"
-	s, owner := seedItemAtAcceptance(t, workID)
+	s, owner := seedItemAtAcceptance(t, workID, true)
 	operator := operatorVerdictActor(t, workID)
 
 	err := runOperatorVerdict(t, s, workID, owner, operator)

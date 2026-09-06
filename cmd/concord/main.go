@@ -66,6 +66,19 @@ func runWithInput(args []string, in io.Reader, out, errOut io.Writer) int {
 	if len(args) > 0 && args[0] == "continuity-block" {
 		return runContinuityBlockCommand(args[1:], out, errOut)
 	}
+	// The release verbs route around the store open: host-lease and
+	// host-leases touch only the lease directory, and upgrade must be the one
+	// command that applies a pending breaking migration an open refuses
+	// (CD-0111 D3).
+	if len(args) > 0 && args[0] == "host-lease" {
+		return runHostLeaseCommand(args[1:], in, out, errOut)
+	}
+	if len(args) > 0 && args[0] == "host-leases" {
+		return runHostLeasesCommand(args[1:], in, out, errOut)
+	}
+	if len(args) > 0 && args[0] == "upgrade" {
+		return runUpgradeCommand(args[1:], in, out, errOut)
+	}
 	command, commandArgs, ok := routeCommand(args)
 	if ok {
 		return runJSONCommand(command, commandArgs, in, out, errOut)
@@ -145,6 +158,9 @@ var commandSpecs = []commandSpec{
 	{Canonical: "restore", RequiredFields: requiredFields(field("source"), field("destination")), Optional: "none", Enums: "source: existing verified backup snapshot path; destination: absolute clean path that does not yet exist and is not the live database"},
 	{Canonical: "predecessor-inventory", TwoWord: "predecessor inventory", RequiredFields: requiredFields(field("snapshot_path")), Optional: "none", Enums: "snapshot_path: absolute path to a harvest-produced predecessor snapshot file; must exist and be a regular file; the report enumerates the parallel mode's surfaces (CD-0097) with included/excluded classification, counts, and capture gaps"},
 	{Canonical: "predecessor-import", TwoWord: "predecessor import", RequiredFields: requiredFields(field("snapshot_path"), nestedField("product", "product_id", "display_name", "stage_maturity", "stage_audience_commitment"), field("projects"), field("select_change_ids")), Optional: "dry_run, surfaces", Enums: "stage_maturity: prototype | alpha | beta | production | deprecated; stage_audience_commitment: operator_only | limited | public; projects[].role: primary | secondary; select_change_ids: change ids the snapshot enumerates as active and that belong to a declared snapshot_project_id, or already-imported ids that turned terminal or left the active set since the previous harvest; surfaces: specifications | active_work | terminal_history | wisdom | reflections; only active_work imports, a surface outside this set refuses before import (CD-0097)"},
+	{Canonical: "host-lease", RequiredFields: requiredFields(field("pid")), Optional: "none", Enums: "pid: the host process that holds this release; the core writes the lease under the data root"},
+	{Canonical: "host-leases", RequiredFields: requiredFields(), Optional: "none", Enums: "prints the live host leases and prunes stale ones (CD-0111 D2)"},
+	{Canonical: "upgrade", RequiredFields: requiredFields(), Optional: "none", Enums: "applies pending store migrations, breaking steps included; refuses while a live session holds a release that predates one (CD-0111 D3)"},
 }
 
 func routeCommand(args []string) (string, []string, bool) {
@@ -172,6 +188,9 @@ func writeUsage(out io.Writer) {
 	_, _ = fmt.Fprintln(out, "  concord zl --resume-last   # resume the last workspace")
 	_, _ = fmt.Fprintln(out, "  concord session    # internal TTY bootstrap; launcher identity env required")
 	_, _ = fmt.Fprintln(out, "  concord continuity-block             # read-only continuity packet; launcher identity env required")
+	_, _ = fmt.Fprintln(out, "  concord host-lease < JSON stdin      # record this host session's release lease (adapter-invoked)")
+	_, _ = fmt.Fprintln(out, "  concord host-leases                  # print live release leases; prunes stale ones")
+	_, _ = fmt.Fprintln(out, "  concord upgrade                      # apply pending migrations; refuses under an older live session")
 	_, _ = fmt.Fprintln(out, "")
 	_, _ = fmt.Fprintln(out, "Commands read one strict JSON object from stdin:")
 	for _, spec := range commandSpecs {

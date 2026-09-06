@@ -1,7 +1,7 @@
 import { test, expect, mock } from "bun:test"
 import { manifestDigest } from "./generated-contracts"
 import { validateGeneratedEnvelope, validateGeneratedPayload } from "./generated-contract-tests"
-import { validateAgentLanePacket } from "./dispatch"
+import { configureCoreBinary, validateAgentLanePacket } from "./dispatch"
 import { agentLanes } from "./generated-agent-lanes"
 
 // The builder reaches core through the adapter transport in concord.ts, which
@@ -20,6 +20,10 @@ const fakeTool = Object.assign((config: any) => config, {
   },
 })
 mock.module("@opencode-ai/plugin", () => ({ tool: fakeTool }))
+
+// Fake-runner suite: bind the transport to a nominal core path instead of
+// the unstamped repository placeholder (CD-0111 D1).
+configureCoreBinary("concord")
 
 const adapter = await import("./concord")
 const { buildAgentLanePacket } = await import("./packet")

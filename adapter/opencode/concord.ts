@@ -5,7 +5,9 @@ import { validateGeneratedEnvelope, validateGeneratedPayload, envelopeFailurePat
 import { dispatchLaneWorker, type LaneDispatchInput } from "./lane_dispatch"
 import { hostControlPlane, MoveSessionUnavailable } from "./move-session"
 import { createRunSessionObservation, errorEnvelopeForLane, MAX_OUTPUT_BYTES, observeRunSessionLine, readExportSessionMetadata, readRunSessionMetadata, readRunTextParts, runStreamRefusalMessage, runStreamRefusalRecovery, validateAgainstSchema, type AgentResultEnvelope, type RunLineMetadata, type RunSessionObservation } from "./dispatch"
+import { concordBinaryPath, CoreBinaryUnavailable } from "./dispatch"
 import { createWorkflowStatusReporter, formatGateBrief } from "./workflow-status"
+import { hostLeaseFault } from "./host-lease"
 
 type ToolContext = {
   sessionID: string
@@ -205,6 +207,7 @@ function failureEnvelope(toolName: string, operation: string, requestID: string,
 
 function runnerFailure(error: unknown, aborted: boolean) {
   if (error instanceof AdapterFailure) return error
+  if (error instanceof CoreBinaryUnavailable) return new AdapterFailure("transport_failure", "missing_binary", error.message)
   const name = error instanceof Error ? error.name : ""
   const code = typeof error === "object" && error !== null && "code" in error ? String((error as any).code) : ""
   if (aborted || name === "AbortError") return new AdapterFailure("cancelled", "cancelled_no_effect", String(error), "none", "retry_same_request")
@@ -302,7 +305,7 @@ type AmbientContext = { projectID: string; productIDs: string[]; scopeVersion: s
 async function resolveAmbientContext(context: ToolContext): Promise<AmbientContext> {
   let result
   try {
-    result = await runner.run([process.env.CONCORD_BIN ?? "concord", "project-resolve"], JSON.stringify({ directory: context.directory, worktree: context.worktree }), context.abort)
+    result = await runner.run([concordBinaryPath(), "project-resolve"], JSON.stringify({ directory: context.directory, worktree: context.worktree }), context.abort)
   } catch (error) {
     throw runnerFailure(error, context.abort.aborted)
   }
@@ -322,6 +325,11 @@ async function resolveAmbientContext(context: ToolContext): Promise<AmbientConte
 async function invokeConcordOperationRaw(toolName: string, args: HostToolArgs, context: ToolContext): Promise<CoreConcordEnvelope> {
   const operation = args.operation
   const requestID = `${context.sessionID}-${context.messageID}`
+  // CD-0111 D2: a session that could not claim its host lease runs closed.
+  // The installer would treat it as absent and could remove the release it
+  // runs, so no core call leaves before the lease exists.
+  const leaseFault = hostLeaseFault()
+  if (leaseFault) return adapterError(toolName, operation, requestID, "transport_failure", "host_lease_missing", `${leaseFault}; no operation ran`, "none", "contact_operator")
   if (toolName === "concord_work_transition" && operation === "workflow_action" && args.input?.action_id === "confirm_premise") {
     if (args.input.selected_choice !== "confirm" || typeof args.input.decision_context_digest !== "string" || !/^sha256:[0-9a-f]{64}$/.test(args.input.decision_context_digest)) {
       return adapterError(toolName, operation, requestID, "invalid_input", "missing_question_selection", "confirm_premise requires the closed confirm choice and a decision context digest", "none", "reread_entities")
@@ -331,7 +339,7 @@ async function invokeConcordOperationRaw(toolName: string, args: HostToolArgs, c
   try { ambient = await resolveAmbientContext(context) } catch (error) { return failureEnvelope(toolName, operation, requestID, error, "context_resolution_failed") }
   const selectedProduct = selectedProductID() || (ambient.productIDs.length === 1 ? ambient.productIDs[0] : "")
   const envelope: any = { schema_version: "1.0", request_id: requestID, client_ref: clientRef(), principal_ref: "", session_ref: context.sessionID, agent_ref: context.agent, directory: context.directory, worktree: context.worktree, ambient_project_id: ambient.projectID, selected_product_id: selectedProduct, scope_version: ambient.scopeVersion, manifest_digest: activeManifestDigest() }
-  const run = async (input: any) => runner.run([process.env.CONCORD_BIN ?? "concord", "invoke"], JSON.stringify({ call_envelope: envelope, tool: toolName, operation, input }), context.abort)
+  const run = async (input: any) => runner.run([concordBinaryPath(), "invoke"], JSON.stringify({ call_envelope: envelope, tool: toolName, operation, input }), context.abort)
   let result: any
   try { result = await run(args.input) } catch (error) { return failureEnvelope(toolName, operation, requestID, runnerFailure(error, context.abort.aborted), "spawn_failure") }
   if (result.exitCode !== 0 && !result.stdout.trim()) return adapterError(toolName, operation, requestID, "operation_conflict", "unknown_effect", result.stderr.slice(0, MAX_STDERR), "possible", "reconcile_operation")
@@ -340,7 +348,10 @@ async function invokeConcordOperationRaw(toolName: string, args: HostToolArgs, c
   const skewRefusal = () => {
     const disk = resolveDiskManifestDigest()
     const diskDetail = disk === null ? "the digest on disk could not be read" : `the adapter files on disk stamp ${disk}`
-    const skewDetail = `core contract digest ${response.manifest_digest} does not match this adapter's ${activeManifestDigest()}; ${diskDetail}; this pin survives a session restart and even a process restart of a resumed session, so start a new OpenCode session (a fresh session id) or install a core matching the disk files`
+    // CD-0111 D4: no refusal names a session restart. The session's core and
+    // contract pin to one release (D1), so a digest the retry could not heal
+    // is a defect; the operator gets both digests.
+    const skewDetail = `core contract digest ${response.manifest_digest} does not match this adapter's ${activeManifestDigest()}; ${diskDetail}; under the pinned release pair this mismatch is a defect, so contact the operator with both digests`
     if (!operationIsMutation(toolName, operation)) return adapterError(toolName, operation, requestID, "transport_failure", "manifest_mismatch", skewDetail, "none", "contact_operator")
     return adapterError(toolName, operation, requestID, "operation_conflict", "unknown_effect", `${skewDetail}, then reconcile this operation`, "possible", "reconcile_operation")
   }
@@ -700,7 +711,6 @@ async function runWorkStartChild(argv: string[], input: string, signal: AbortSig
 // The session's worktree is the directory it runs in, and the host owns that
 // answer (CD-0098 D3).
 async function executeWorkStart(args: WorkStartArgs, context: ToolContext): Promise<WorkStartEnvelope> {
-  const concord = process.env.CONCORD_BIN ?? "concord"
   let target: { product_id: string; project_id: string; work_id: string; worktree: { path: string } } | null = null
   const resume = record(args) && isWorkStartResumeArgs(args)
   try {
@@ -730,7 +740,7 @@ async function executeWorkStart(args: WorkStartArgs, context: ToolContext): Prom
     let prepareTask: string
     if (resume) {
       const workID = (args as { work_id: string }).work_id
-      const resumed = await runWorkStartChild([concord, "work-resume"], JSON.stringify({ product_id: productID, project_id: ambient.projectID, work_id: workID }), context.abort, { cwd: context.directory })
+      const resumed = await runWorkStartChild([concordBinaryPath(), "work-resume"], JSON.stringify({ product_id: productID, project_id: ambient.projectID, work_id: workID }), context.abort, { cwd: context.directory })
       if (resumed.exitCode !== 0) throw new AdapterFailure("resume_failure", "resume_refused", resumed.stderr.slice(0, MAX_STDERR), "none", "retry_same_request")
       let resumedValue: unknown
       try { resumedValue = singleJSON(resumed.stdout) } catch (error) { throw new AdapterFailure("malformed_response", "malformed_resume_response", String(error), "none", "retry_same_request") }
@@ -740,7 +750,7 @@ async function executeWorkStart(args: WorkStartArgs, context: ToolContext): Prom
     } else {
       const capture = args as WorkStartCaptureArgs
       const bootstrapInput = { product_id: productID, project_id: ambient.projectID, ...capture }
-      const boot = await runWorkStartChild([concord, "work-bootstrap"], JSON.stringify(bootstrapInput), context.abort, { cwd: context.directory })
+      const boot = await runWorkStartChild([concordBinaryPath(), "work-bootstrap"], JSON.stringify(bootstrapInput), context.abort, { cwd: context.directory })
       if (boot.exitCode !== 0) throw new AdapterFailure("bootstrap_failure", "bootstrap_failed", boot.stderr.slice(0, MAX_STDERR), "none", "retry_same_request")
       let bootValue: unknown
       try { bootValue = singleJSON(boot.stdout) } catch (error) { throw new AdapterFailure("malformed_response", "malformed_bootstrap_response", String(error), "none", "retry_same_request") }
@@ -750,7 +760,7 @@ async function executeWorkStart(args: WorkStartArgs, context: ToolContext): Prom
     }
 
     if (context.abort.aborted) throw new AdapterFailure("cancelled", "cancelled_after_bootstrap", `work_start was cancelled after ${resume ? "the resume read" : "bootstrap"}; replay the same idempotency_key to resume`, "none", "retry_same_request")
-    const prepared = await runWorkStartChild([concord, "session-prepare"], JSON.stringify({ product_id: target.product_id, work_id: target.work_id, task: prepareTask }), context.abort, { cwd: target.worktree.path })
+    const prepared = await runWorkStartChild([concordBinaryPath(), "session-prepare"], JSON.stringify({ product_id: target.product_id, work_id: target.work_id, task: prepareTask }), context.abort, { cwd: target.worktree.path })
     if (prepared.exitCode !== 0) throw new AdapterFailure("session_prepare_failure", "session_prepare_failed", prepared.stderr.slice(0, MAX_STDERR), "none", "retry_same_request")
     let preparedValue: unknown
     try { preparedValue = singleJSON(prepared.stdout) } catch (error) { throw new AdapterFailure("malformed_response", "malformed_prepare_response", String(error), "none", "retry_same_request") }

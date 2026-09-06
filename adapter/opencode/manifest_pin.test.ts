@@ -82,7 +82,10 @@ describe("version-skew self-heal", () => {
     expect(result.error.kind).toBe("transport_failure")
     expect(result.error.adapter_reason).toBe("manifest_mismatch")
     expect(result.error.message).toContain(otherDigest)
-    expect(result.error.message).toContain("new OpenCode session")
+    // CD-0111 D4: the refusal names the operator and both digests, never a
+    // session restart.
+    expect(result.error.message).toContain("contact the operator with both digests")
+    expect(result.error.message).not.toContain("restart")
   })
 
   test("a healed retry that skews again refuses rather than looping", async () => {

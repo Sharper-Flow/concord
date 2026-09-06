@@ -4318,9 +4318,25 @@ const (
 	migrationRetryMaxDelay     = 500 * time.Millisecond
 )
 
-// Migrate brings the database up to this binary's schema version. It is
-// idempotent, applies the manifest and all pending steps in one transaction,
-// and fails closed on drift or on a database written by a newer binary.
+// migrationScope selects which pending steps one migration pass may apply.
+type migrationScope int
+
+const (
+	// migrateForOpen applies pending additive steps and stops before the
+	// first pending breaking step (CD-0111 D3). A database with no applied
+	// migration has no older release to protect and applies every step.
+	migrateForOpen migrationScope = iota
+	// migrateForUpgrade applies every pending step, breaking ones included.
+	// Only concord upgrade reaches it, after the live-session check.
+	migrateForUpgrade
+)
+
+// Migrate brings the database up to this binary's schema version, breaking
+// steps included. It is idempotent, applies the manifest and all pending
+// steps in one transaction, and fails closed on drift or on a database
+// written by a newer binary. Open never calls it: an open applies additive
+// steps only, through migrateAtOpen, and a breaking step waits for concord
+// upgrade.
 //
 // Concurrent openers of one database are serialized by SQLite. The first
 // caller applies the manifest; the rest observe a busy database. Because the
@@ -4329,17 +4345,29 @@ const (
 // budget, and each retry re-checks the read-only fast path so a waiter returns
 // as soon as the winner commits.
 func Migrate(ctx context.Context, db *sql.DB, clock ...func() time.Time) error {
+	return migrate(ctx, db, migrateForUpgrade, clock...)
+}
+
+// migrateAtOpen applies the pending additive steps and refuses with
+// KindUpgradeRequired when the next pending step is breaking. The additive
+// steps it applied stay committed; the refusal names the step and the
+// command that applies it.
+func migrateAtOpen(ctx context.Context, db *sql.DB, clock ...func() time.Time) error {
+	return migrate(ctx, db, migrateForOpen, clock...)
+}
+
+func migrate(ctx context.Context, db *sql.DB, scope migrationScope, clock ...func() time.Time) error {
 	deadline := time.Now().Add(migrationLockBudget)
 	delay := migrationRetryInitialDelay
 	for {
-		current, err := migrationManifestCurrent(ctx, db)
+		current, err := migrationManifestCurrent(ctx, db, scope)
 		if err != nil {
 			return err
 		}
 		if current {
 			return nil
 		}
-		err = migrateOnce(ctx, db, clock...)
+		err = migrateOnce(ctx, db, scope, clock...)
 		if err == nil {
 			return nil
 		}
@@ -4367,8 +4395,10 @@ func Migrate(ctx context.Context, db *sql.DB, clock ...func() time.Time) error {
 // binary's schema version. It reads without opening a write transaction, so a
 // routine open of an up-to-date database never contends for the write lock.
 // Drift and newer-binary detection still run here: skipping the write
-// transaction must never skip the manifest check.
-func migrationManifestCurrent(ctx context.Context, db *sql.DB) (bool, error) {
+// transaction must never skip the manifest check. An open-scoped pass also
+// refuses here when the next pending step is breaking, so a database that
+// waits for concord upgrade is refused without a write transaction.
+func migrationManifestCurrent(ctx context.Context, db *sql.DB, scope migrationScope) (bool, error) {
 	var present string
 	err := db.QueryRowContext(ctx, `SELECT name FROM sqlite_schema WHERE type='table' AND name='schema_migrations'`).Scan(&present)
 	if err == sql.ErrNoRows {
@@ -4388,12 +4418,55 @@ func migrationManifestCurrent(ctx context.Context, db *sql.DB) (bool, error) {
 	if err := checkManifest(applied); err != nil {
 		return false, err
 	}
+	if scope == migrateForOpen {
+		if blocked := openStopsBefore(applied); blocked != nil {
+			return false, upgradeRequired(*blocked)
+		}
+	}
 	for _, m := range migrations {
 		if _, done := applied[m.Version]; !done {
 			return false, nil
 		}
 	}
 	return true, nil
+}
+
+// openStopsBefore reports the breaking step an open-scoped pass may not
+// apply: the first pending step, when it is breaking and the database already
+// carries applied migrations. A fresh database applies every step.
+func openStopsBefore(applied map[int]appliedMigration) *migration {
+	if len(applied) == 0 {
+		return nil
+	}
+	for i := range migrations {
+		if _, done := applied[migrations[i].Version]; done {
+			continue
+		}
+		if migrations[i].Breaking {
+			return &migrations[i]
+		}
+		return nil
+	}
+	return nil
+}
+
+// pendingBreaking lists, in order, the breaking steps the database has not
+// applied, whatever additive steps sit between them. Upgrade gates on them; a
+// fresh database has none to gate.
+func pendingBreaking(applied map[int]appliedMigration) []migration {
+	if len(applied) == 0 {
+		return nil
+	}
+	var pending []migration
+	for _, m := range migrations {
+		if _, done := applied[m.Version]; done {
+			continue
+		}
+		if m.Breaking {
+			pending = append(pending, m)
+		}
+	}
+	return pending
 }
 
 // migrationLockContended reports whether a failure means another process holds
@@ -4413,7 +4486,16 @@ func migrationLockContended(err error) bool {
 	return strings.Contains(err.Error(), "database is locked") || strings.Contains(err.Error(), "database table is locked")
 }
 
-func migrateOnce(ctx context.Context, db *sql.DB, clock ...func() time.Time) error {
+// upgradeRequired is the open-time refusal for a pending breaking step. It
+// writes nothing and names the command that applies the step.
+func upgradeRequired(m migration) *Failure {
+	return newFailure(KindUpgradeRequired, "open",
+		fmt.Sprintf("the database stops before breaking migration %d (%s); this binary defines schema version %d and never applies a breaking migration at open",
+			m.Version, m.Name, CurrentSchemaVersion()),
+		true, fmt.Sprintf("run concord upgrade; it refuses while a live session holds a release that predates migration %d", m.Version))
+}
+
+func migrateOnce(ctx context.Context, db *sql.DB, scope migrationScope, clock ...func() time.Time) error {
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return wrapFailure(KindUnavailable, "migrate", "cannot begin schema migration", true,
@@ -4440,9 +4522,15 @@ func migrateOnce(ctx context.Context, db *sql.DB, clock ...func() time.Time) err
 		return rollback(err)
 	}
 
-	for _, m := range migrations {
+	var stopped *migration
+	for i := range migrations {
+		m := migrations[i]
 		if _, done := applied[m.Version]; done {
 			continue
+		}
+		if scope == migrateForOpen && m.Breaking && len(applied) > 0 {
+			stopped = &migrations[i]
+			break
 		}
 		if m.Version == 4 {
 			if err := preflightMembershipMigration(ctx, tx); err != nil {
@@ -4463,6 +4551,9 @@ func migrateOnce(ctx context.Context, db *sql.DB, clock ...func() time.Time) err
 	if err := tx.Commit(); err != nil {
 		return rollback(wrapFailure(KindUnavailable, "migrate", "cannot commit schema migration", true,
 			"retry once the database is writable", err))
+	}
+	if stopped != nil {
+		return upgradeRequired(*stopped)
 	}
 	return nil
 }

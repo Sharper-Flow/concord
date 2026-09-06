@@ -4,6 +4,7 @@ import os from "node:os"
 import path from "node:path"
 import { agentLanePacketSchema, agentLaneReportSchema, agentLanes, type AgentLane } from "./generated-agent-lanes"
 import { maxEnvelopeBytes } from "./generated-contracts"
+import { coreBinary } from "./generated-release"
 import { SecretToolCredentialStore, b64, clientRef, privateKeyObject, randomNonce, type CredentialStore } from "./credentials"
 import { dispatchWindows, DispatchWindowError, type DispatchWindows } from "./dispatch-window"
 import { readTaskResult } from "./task-result"
@@ -585,8 +586,28 @@ export function errorEnvelopeForLane(lane: AgentLane | null, packet: Partial<Age
 }
 
 export function concordBinaryPath(override?: string): string {
-  return override ?? process.env.CONCORD_BIN ?? "concord"
+  // CD-0111 D1: the core runs at its own release path, never through PATH.
+  // The stamped release constants carry that path; the repository placeholder
+  // is empty and refuses here rather than resolving `concord` ambiently. The
+  // override is the test seam: production callers pass nothing.
+  const path = override ?? coreBinaryOverride ?? coreBinary
+  if (!path) throw new CoreBinaryUnavailable("this adapter copy is not bound to a release: generated-release.ts carries no core path, so no core call can run (CD-0111 D1)")
+  return path
 }
+
+// coreBinaryOverride is the injected test binary. configureCoreBinary sets
+// it; no production path reads or sets it.
+let coreBinaryOverride = ""
+
+/** Test seam: bind the transport to an explicit core binary, or reset it. */
+export function configureCoreBinary(path: string | null) {
+  coreBinaryOverride = path ?? ""
+}
+
+// CoreBinaryUnavailable is the typed refusal for an adapter that has no
+// release to call. runnerFailure maps it to the transport failure every
+// caller already understands.
+export class CoreBinaryUnavailable extends Error {}
 
 // canonicalWorkerEvidence mirrors CanonicalWorkerEvidenceAssertion in
 // internal/agent/worker_evidence.go. The byte sequence is pinned by the shared

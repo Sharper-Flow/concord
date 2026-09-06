@@ -306,6 +306,20 @@ func workflowActionEvidenceRefs(request WorkflowActionExecutionRequest, payload 
 		}
 		return refs, false, nil
 	}
+	if request.ActionID == "accept_worker_result" {
+		// The accepted attempt is the evidence the acceptance certifies. Its id
+		// joins the operation's evidence refs so the evidence_bound fold finds
+		// the acceptance as the binding's durable authority (#865).
+		fields, err := workflowActionObject(payload)
+		if err != nil {
+			return nil, false, err
+		}
+		refs := append([]string(nil), request.EvidenceRefs...)
+		if attemptID := workflowFieldStringDefault(fields, "attempt_id", ""); attemptID != "" && !contains(refs, attemptID) {
+			refs = append(refs, attemptID)
+		}
+		return refs, false, nil
+	}
 	if request.ActionID != "record_verdict" {
 		return append([]string(nil), request.EvidenceRefs...), false, nil
 	}
@@ -575,6 +589,25 @@ func workflowSemanticActionEvents(ctx context.Context, tx *sql.Tx, definition Wo
 			delete(successor, "law_modifies")
 		}
 		return []Event{workflowTypedEvent(eventID, WorkflowContractSuperseded, request.WorkID, actor, request.Now, expected, map[string]any{"previous_contract_version": previous, "new_contract_version": next, "supersede_reason": workflowFieldStringDefault(fields, "supersede_reason", "contract revision"), "audit_evidence": audit, "successor_contract": successor})}, nil
+	case "accept_worker_result":
+		// Acceptance binds the attempt it certifies (#865). The evidence kind
+		// is the lane's capability class, so a verify lane's report is
+		// verification evidence and the completion gate's requirement is met
+		// by the lane that verified. The verdict on the next step cites the
+		// attempt id.
+		attemptID := workflowFieldStringDefault(fields, "attempt_id", "")
+		// The fold owns every refusal about the attempt itself: missing,
+		// foreign, incomplete, or without readback. This arm reads only the
+		// capability class and lets an absent row fall through to the fold.
+		var capability string
+		if err := tx.QueryRowContext(ctx, `SELECT capability_class FROM worker_attempts WHERE attempt_id=?`, attemptID).Scan(&capability); err != nil && err != sql.ErrNoRows {
+			return nil, workflowProjectionError(err, "cannot read the accepted worker attempt")
+		}
+		return []Event{workflowTypedEvent(eventID+":evidence", WorkflowEvidenceBound, request.WorkID, actor, request.Now, expected, map[string]any{
+			"evidence_kind": workerAttemptEvidenceKind(capability), "immutable_subject_ref": attemptID,
+			"producer_id": request.PrincipalRef, "producer_run_ref": request.OperationID, "producer_watermark": request.RequestID,
+			"observed_at": request.Now.UTC().Format(time.RFC3339Nano),
+		})}, nil
 	case "bind_evidence", "record_research", "record_report", "accept_decision", "approve_operation":
 		evidenceRef := "evidence:" + request.OperationID
 		if len(request.EvidenceRefs) != 0 {
@@ -950,4 +983,17 @@ func nullableWorkflowText(value string) any {
 		return "{}"
 	}
 	return value
+}
+
+// workerAttemptEvidenceKind maps a lane's capability class onto the closed
+// evidence kind its accepted report binds as.
+func workerAttemptEvidenceKind(capability string) string {
+	switch capability {
+	case "verification":
+		return "verification"
+	case "review":
+		return "review"
+	default:
+		return "artifact"
+	}
 }

@@ -182,7 +182,16 @@ func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, registry Definiti
 	if err := guardWorkflowActionStepMatch(request.Payload, currentStep); err != nil {
 		return result, err
 	}
-	if !guards.staleRecovery && !definitionStepAllows(entry.Definition, currentStep, request.ActionID) {
+	stepAllowed := guards.staleRecovery || definitionStepAllows(entry.Definition, currentStep, request.ActionID)
+	if !stepAllowed && request.ActionID == "bind_evidence" {
+		var recoveryErr error
+		guards.recoveryBind, recoveryErr = guardRecoveryEvidenceBind(ctx, tx, request.WorkID, entry.Definition, currentStep, request.Payload, subject)
+		if recoveryErr != nil {
+			return result, recoveryErr
+		}
+		stepAllowed = guards.recoveryBind
+	}
+	if !stepAllowed {
 		return result, newFailure(KindIllegalLifecycleTransition, "workflow_action", "workflow action is not declared on the current step", false, "reread_entities")
 	}
 	actorRef, err := WorkflowActorRef(request.Actor)
@@ -348,10 +357,12 @@ func workflowActionEvidenceRefs(request WorkflowActionExecutionRequest, payload 
 			return nil, false, err
 		}
 		refs := append([]string(nil), request.EvidenceRefs...)
-		// The declared fields.evidence_ref joins the operation's evidence
-		// refs so the durable-operation authority backs the binding it names.
-		if declared, ok := workflowFieldString(fields, "evidence_ref"); ok && declared != "" && !contains(refs, declared) {
-			refs = append(refs, declared)
+		// fields.evidence_ref is the declared route for naming the immutable
+		// subject. An explicit immutable_subject_ref overrides that fallback.
+		reference := workflowFieldStringDefault(fields, "evidence_ref", "")
+		reference = workflowFieldStringDefault(fields, "immutable_subject_ref", reference)
+		if reference != "" && !contains(refs, reference) {
+			refs = append(refs, reference)
 		}
 		return refs, false, nil
 	}

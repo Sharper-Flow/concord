@@ -101,6 +101,7 @@ ADAPTER_FILES = (
     "generated-contracts.ts",
     "lane_completion.ts",
     "lane_dispatch.ts",
+    "manifest-pin.ts",
     "move-session.ts",
     "packet.ts",
     "task-result.ts",

@@ -166,6 +166,21 @@ func TestMandatedContractGuardWalksEveryBuiltinDefinition(t *testing.T) {
 			if err := guardMandatedWorkflowLawBound(context.Background(), s.db, workID, definition, bindingStep, "bind_evidence", "workflow_action"); err != nil {
 				t.Fatalf("%s bind_evidence must stay available while the mandate is unbound: %v", definition.Ref, err)
 			}
+			// An advance from any step before the binding step must pass, or a
+			// definition whose bind_evidence sits on a later step could never
+			// reach it (ops_runbook binds at execute, static_analysis at report).
+			for _, step := range definition.StepGraph.Steps {
+				if step.ID == bindingStep {
+					break
+				}
+				for _, actionID := range step.Actions {
+					if mode, ok := workflowActionExecutionMode(definition, actionID); ok && mode == ActionAdvance {
+						if err := guardMandatedWorkflowLawBound(context.Background(), s.db, workID, definition, step.ID, actionID, "workflow_action"); err != nil {
+							t.Fatalf("%s %s on pre-binding step %q must pass while unbound, got %v", definition.Ref, actionID, step.ID, err)
+						}
+					}
+				}
+			}
 
 			if _, err := db.Exec(`INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES(?,?,?,?,?,?,1,?)`, "walk-bound-"+workID, WorkflowEvidenceBound, string(SubjectWorkItem), workID, actorRef, "now", `{"immutable_subject_ref":"`+lawID+`"}`); err != nil {
 				t.Fatal(err)

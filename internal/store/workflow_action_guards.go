@@ -69,20 +69,24 @@ func runWorkflowActionGuard(g *workflowActionGuardContext, phase workflowActionG
 }
 
 // guardMandatedWorkflowLawBound refuses actions that could strand a contract
-// whose spec mandate still lacks its immutable evidence binding. The binding
-// action itself remains available so the workflow has a recovery route.
+// whose spec mandate still lacks its immutable evidence binding. An ordinary
+// advance is refused only when it leaves a step that declares bind_evidence,
+// because that step is the last place on the path where the mandate can be
+// bound; an advance from an earlier step must pass or the workflow could never
+// reach its binding step. record_verdict, confirm_premise, and complete are
+// refused wherever they run. The binding action itself remains available so
+// the workflow has a recovery route.
 func guardMandatedWorkflowLawBound(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, currentStep, actionID, subject string) error {
 	if actionID == "supersede_contract" || actionID == "bind_evidence" {
 		return nil
 	}
-	mode, declared := workflowActionExecutionMode(definition, actionID)
-	if !declared && actionID != "record_verdict" && actionID != "confirm_premise" && actionID != "complete" {
-		return nil
+	terminalGate := actionID == "record_verdict" || actionID == "confirm_premise" || actionID == "complete"
+	if !terminalGate {
+		mode, declared := workflowActionExecutionMode(definition, actionID)
+		if !declared || mode != ActionAdvance || !stepDeclaresAction(definition, currentStep, "bind_evidence") {
+			return nil
+		}
 	}
-	if actionID != "record_verdict" && actionID != "confirm_premise" && actionID != "complete" && mode != ActionAdvance {
-		return nil
-	}
-
 	var mandateJSON string
 	if err := q.QueryRowContext(ctx, `SELECT spec_mandate FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL ORDER BY contract_version DESC LIMIT 1`, workID).Scan(&mandateJSON); err != nil {
 		if err == sql.ErrNoRows {
@@ -117,19 +121,26 @@ func guardMandatedWorkflowLawBound(ctx context.Context, q queryer, workID string
 	return nil
 }
 
-func workflowEvidenceBindingStep(definition WorkflowDefinition, currentStep string) string {
-	if step := workflowStep(definition, currentStep); step != nil {
-		for _, actionID := range step.Actions {
-			if actionID == "bind_evidence" {
-				return currentStep
-			}
+func stepDeclaresAction(definition WorkflowDefinition, stepID, actionID string) bool {
+	step := workflowStep(definition, stepID)
+	if step == nil {
+		return false
+	}
+	for _, declared := range step.Actions {
+		if declared == actionID {
+			return true
 		}
 	}
+	return false
+}
+
+func workflowEvidenceBindingStep(definition WorkflowDefinition, currentStep string) string {
+	if stepDeclaresAction(definition, currentStep, "bind_evidence") {
+		return currentStep
+	}
 	for _, step := range definition.StepGraph.Steps {
-		for _, actionID := range step.Actions {
-			if actionID == "bind_evidence" {
-				return step.ID
-			}
+		if stepDeclaresAction(definition, step.ID, "bind_evidence") {
+			return step.ID
 		}
 	}
 	return ""

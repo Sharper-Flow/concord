@@ -25,9 +25,9 @@
     },
     {
       "function": "internal/store.workflowSemanticActionEvents",
-      "measured": 183,
+      "measured": 185,
       "state": "unmeasured",
-      "reason": "The dispatch remains a flat action vocabulary; the score grew from 163 when record_verdict began folding its born-bound evidence events (issue #816) and again when the evidence list gained its explicit 32-entry bound for the allocation guard. Score moved 177 to 183 when declare_impact began requiring and verifying its target work item at the boundary (issue #823); the arm guards a foreign-keyed edge that previously failed at fold time."
+      "reason": "The dispatch remains a flat action vocabulary; the score grew from 163 when record_verdict began folding its born-bound evidence events (issue #816) and again when the evidence list gained its explicit 32-entry bound for the allocation guard. Score moved 177 to 183 when declare_impact began requiring and verifying its target work item at the boundary (issue #823); the arm guards a foreign-keyed edge that previously failed at fold time. Score moved 183 to 185 when confirm_premise began carrying its acceptance deliverables through the boundary gate (PR #849)."
     }
   ]
 }

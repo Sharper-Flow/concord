@@ -1,0 +1,5 @@
+{
+  "id": "CD-0116",
+  "reason": "The decision is proved by the store tests that pin the operator verdict after a delivery exit and the condition refusal without one, and by the agent test that drives the challenge mint and the signed approval end to end. Runtime behavior they exercise is the law itself, so no separate reachability surface applies.",
+  "state": "out_of_scope"
+}

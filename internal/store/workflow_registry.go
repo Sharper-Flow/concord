@@ -528,19 +528,30 @@ func normalizeWorkflowDefinition(definition WorkflowDefinition) WorkflowDefiniti
 	return definition
 }
 
-// BuiltinWorkflowDefinitions authors the seven shipped workflow families at
-// version 1. Concord ships exactly one built-in definition version: every
-// family is written here in the shape it runs in, not derived by patching an
-// earlier shape.
+// BuiltinWorkflowDefinitions authors the seven shipped workflow families in
+// the shape they run in. The four families that carry a frozen version 1
+// (workflow_registry_versions.go, issue #861) author their current shape at
+// version 2 here; the rest stay at version 1.
 func BuiltinWorkflowDefinitions() []WorkflowDefinition {
 	return []WorkflowDefinition{
 		withWorkerActions(builtinImplementation()), withWorkerActions(builtinBreakFix()), withWorkerActions(builtinResearch()), withWorkerActions(builtinArchitectureSpike()), withWorkerActions(builtinOpsRunbook()), withWorkerActions(builtinStaticAnalysis()), withWorkerActions(builtinGenericOneOff()),
 	}
 }
 
+// builtinWorkflowDefinitionsWithHistory returns every registered built-in
+// definition: the frozen version-1 shapes first, then the shipped shapes.
+// Registration enforces ascending versions per reference, so the order is
+// load-bearing (#861).
+func builtinWorkflowDefinitionsWithHistory() []WorkflowDefinition {
+	return append(
+		[]WorkflowDefinition{withWorkerActions(legacyImplementationV1()), withWorkerActions(legacyBreakFixV1()), withWorkerActions(legacyResearchV1()), withWorkerActions(legacyGenericOneOffV1())},
+		BuiltinWorkflowDefinitions()...,
+	)
+}
+
 func NewBuiltinWorkflowRegistry() DefinitionRegistry {
 	registry := NewWorkflowDefinitionRegistry()
-	for _, definition := range BuiltinWorkflowDefinitions() {
+	for _, definition := range builtinWorkflowDefinitionsWithHistory() {
 		if _, err := registry.Register(definition); err != nil {
 			panic(err)
 		}
@@ -559,14 +570,18 @@ func BuiltinWorkflowDefinitionForRef(ref string) (RegisteredDefinition, error) {
 	if !validWorkflowRef(ref) {
 		return RegisteredDefinition{}, definitionFailure(KindInvalidDefinition, "workflow type reference is invalid")
 	}
+	var latest RegisteredDefinition
 	for _, definition := range BuiltinWorkflowDefinitions() {
-		if definition.Ref == ref {
+		if definition.Ref == ref && definition.Version > latest.Definition.Version {
 			registered, ok := BuiltinWorkflowRegistry().Lookup(ref, definition.Version)
 			if !ok {
 				return RegisteredDefinition{}, definitionFailure(KindDefinitionDigestMismatch, "workflow type reference is not registered")
 			}
-			return registered, nil
+			latest = registered
 		}
+	}
+	if latest.Definition.Ref != "" {
+		return latest, nil
 	}
 	return RegisteredDefinition{}, definitionFailure(KindDefinitionDigestMismatch, "workflow type reference is not registered")
 }
@@ -995,6 +1010,7 @@ func builtinImplementation() WorkflowDefinition {
 	edges = addEdge(edges, "execution", "execution", WorkflowEdgeRetry)
 	actions := []string{"record_proposal", "record_discovery", "record_design", "approve_contract", "start_execution", "checkpoint_execution", "bind_evidence", "declare_impact", "link_successor", "record_delivery", "record_verdict", "confirm_premise", "complete"}
 	d := baseDefinition("workflow.implementation", WorkKindImplementation, graph(steps, edges, "release"), actions, []EvidenceKind{EvidenceVerification, EvidenceReview}, WorkflowOutcomeSchema{DefaultKind: PredicateCheck, AllowedKinds: []PredicateKind{PredicateExists, PredicateAbsent, PredicateCheck}, AllowedOutcomeTokens: []string{}, DecisionRecordRequired: false}, []WorkKind{WorkKindBreakFix, WorkKindResearch})
+	d.Version = 2 // CD-0112 content; version 1 is frozen in workflow_registry_versions.go (#861)
 	return withContinuityActions(d)
 }
 func builtinBreakFix() WorkflowDefinition {
@@ -1006,6 +1022,7 @@ func builtinBreakFix() WorkflowDefinition {
 	edges = addEdge(edges, "repair", "repair", WorkflowEdgeRetry)
 	actions := []string{"record_reproduction", "record_root_cause", "approve_contract", "start_repair", "checkpoint_repair", "bind_evidence", "link_successor", "record_delivery", "record_verdict", "confirm_premise", "complete"}
 	d := baseDefinition("workflow.break_fix", WorkKindBreakFix, graph(steps, edges, "complete"), actions, []EvidenceKind{EvidenceVerification}, WorkflowOutcomeSchema{DefaultKind: PredicateAbsent, AllowedKinds: []PredicateKind{PredicateExists, PredicateAbsent, PredicateCheck}, AllowedOutcomeTokens: []string{}, DecisionRecordRequired: false}, []WorkKind{WorkKindImplementation, WorkKindResearch})
+	d.Version = 2 // CD-0112 content; version 1 is frozen in workflow_registry_versions.go (#861)
 	return withContinuityActions(d)
 }
 func builtinResearch() WorkflowDefinition {
@@ -1013,6 +1030,7 @@ func builtinResearch() WorkflowDefinition {
 	steps := []WorkflowStep{step("frame", WorkflowStepHumanCheckpoint, "frame_research", "approve_contract"), step("investigate", WorkflowStepCrossAuthority, "record_finding", "revise_candidates", "bind_evidence"), step("findings", WorkflowStepInternalSQLite, "record_report", "link_successor"), step("conclude", WorkflowStepHumanCheckpoint, "record_conclusion", "record_verdict", "confirm_premise"), step("complete", WorkflowStepInternalSQLite, "complete")}
 	actions := []string{"frame_research", "approve_contract", "record_finding", "revise_candidates", "bind_evidence", "record_report", "link_successor", "record_conclusion", "record_verdict", "confirm_premise", "complete"}
 	d := baseDefinition("workflow.research", WorkKindResearch, graph(steps, forward(ids...), "complete"), actions, []EvidenceKind{EvidenceArtifact}, WorkflowOutcomeSchema{DefaultKind: PredicateOutcome, AllowedKinds: []PredicateKind{PredicateOutcome}, AllowedOutcomeTokens: []string{"no_change", "resolved", "report_recorded"}, DecisionRecordRequired: false}, []WorkKind{WorkKindBreakFix, WorkKindArchitectureSpike, WorkKindStaticAnalysis})
+	d.Version = 2 // CD-0112 content; version 1 is frozen in workflow_registry_versions.go (#861)
 	return withContinuityActions(d)
 }
 func builtinArchitectureSpike() WorkflowDefinition {
@@ -1051,5 +1069,6 @@ func builtinGenericOneOff() WorkflowDefinition {
 	edges = addEdge(edges, "execute", "execute", WorkflowEdgeRetry)
 	actions := []string{"approve_contract", "start_action", "checkpoint_action", "bind_evidence", "link_successor", "record_delivery", "record_verdict", "confirm_premise", "complete"}
 	d := baseDefinition("workflow.generic_one_off", WorkKindGenericOneOff, graph(steps, edges, "complete"), actions, []EvidenceKind{EvidenceArtifact}, WorkflowOutcomeSchema{DefaultKind: PredicateOutcome, AllowedKinds: []PredicateKind{PredicateExists, PredicateAbsent, PredicateOutcome, PredicateCheck}, AllowedOutcomeTokens: []string{"no_change", "accepted_decision", "insufficient_evidence", "resolved", "remediated", "report_recorded", "completed", "operator_defined"}, DecisionRecordRequired: false}, []WorkKind{WorkKindImplementation, WorkKindBreakFix, WorkKindResearch, WorkKindArchitectureSpike, WorkKindOpsRunbook, WorkKindStaticAnalysis, WorkKindGenericOneOff})
+	d.Version = 2 // CD-0112 content; version 1 is frozen in workflow_registry_versions.go (#861)
 	return withContinuityActions(d)
 }

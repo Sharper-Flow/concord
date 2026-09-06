@@ -2,7 +2,11 @@
   "evidence": [
     {
       "kind": "go_test",
-      "value": "internal/store.TestBuiltinWorkflowRegistryHoldsOneVersionPerFamily"
+      "value": "internal/store.TestBuiltinWorkflowRegistryHoldsNoVersionBeyondThePins"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestWorkflowDefinitionVersionPinsHold"
     },
     {
       "kind": "go_test",

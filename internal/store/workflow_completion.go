@@ -501,6 +501,9 @@ func verifyCompletionScopeAndMandates(ctx context.Context, tx *sql.Tx, workID st
 // run, not of the actor identity; the verdict model travels on the verdict
 // event for the same reason.
 func workflowCompletionActorDistinct(ctx context.Context, tx *sql.Tx, workID, verdictActor, verdictModel string, requireModelDistinct bool) error {
+	if err := workflowStepExecutorRefusal(ctx, tx, workID, verdictActor, "complete_workflow"); err != nil {
+		return err
+	}
 	return workflowActorsDistinct(ctx, tx, workID, verdictActor, verdictModel, requireModelDistinct, "complete_workflow")
 }
 

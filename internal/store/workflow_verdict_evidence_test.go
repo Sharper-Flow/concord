@@ -38,6 +38,13 @@ func seedItemAtAcceptance(t *testing.T, workID string) (*Store, WorkflowActor) {
 		workflowEventWithActor("contract-"+workID, WorkflowContractApproved, workID, ownerRef, map[string]any{"work_id": workID, "expected_version": 7, "resulting_version": 8, "contract_version": 1, "premise": "deliver the checked change", "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:workflow", "immutable_subject_ref": "commit:" + workID, "expected_result": "pass"}, "required_evidence": []string{"verification"}, "route_conventions": []string{}, "spec_mandate": []string{}, "rigor_class": "prototype_internal", "consequence_class": "internal_sqlite"}),
 		workflowEventWithActor("start-"+workID, WorkflowActionStarted, workID, ownerRef, map[string]any{"work_id": workID, "expected_version": 8, "resulting_version": 9, "step_id": "execution", "action_id": "start_execution", "attempt_epoch": 1, "accepted_inputs_digest": "sha256:" + strings.Repeat("a", 64), "idempotency_identity": "start:" + workID, "actor_ref": ownerRef, "execution_model": preferredModelForLane(lane)}),
 	}
+	reviewer := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/reviewer", SessionRef: "session/" + workID + "-reviewer", ActorClass: ActorAgent}
+	reviewerRef, err := WorkflowActorRef(reviewer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reviewActor := workflowEvent("reviewer-actor-"+workID, WorkflowActorRecorded, workID, map[string]any{"work_id": workID, "expected_version": 9, "resulting_version": 10, "actor_ref": reviewerRef, "principal_ref": reviewer.PrincipalRef, "client_ref": reviewer.ClientRef, "agent_ref": reviewer.AgentRef, "session_ref": reviewer.SessionRef, "actor_class": "agent"})
+	setup = append(setup, reviewActor)
 	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: setup, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 2}}); err != nil {
 		t.Fatal(err)
 	}
@@ -68,7 +75,21 @@ func seedItemAtAcceptance(t *testing.T, workID string) (*Store, WorkflowActor) {
 	if err := runVerdictAction(t, s, workID, "accept_worker_result", json.RawMessage(mustJSON(map[string]any{"attempt_id": attemptID, "attempt_epoch": 1})), 0); err != nil {
 		t.Fatalf("accept worker result: %v", err)
 	}
+	verdictReviewers[workID] = reviewer
 	return s, owner
+}
+
+// verdictReviewers holds the non-executing reviewer actor each seeded item
+// records, so verdict actions can be run by an agent that executed nothing.
+var verdictReviewers = map[string]WorkflowActor{}
+
+func verdictReviewer(t *testing.T, workID string) WorkflowActor {
+	t.Helper()
+	reviewer, ok := verdictReviewers[workID]
+	if !ok {
+		t.Fatalf("no reviewer recorded for %s", workID)
+	}
+	return reviewer
 }
 
 // actionEvidenceRefs supplies the refs the evidence-authority fold requires:
@@ -88,11 +109,17 @@ func actionEvidenceRefs(action string, payload json.RawMessage) []string {
 }
 
 func runVerdictAction(t *testing.T, s *Store, workID, action string, payload json.RawMessage, version int64) error {
+	return runVerdictActionAs(t, s, workID, action, payload, version, WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/owner", SessionRef: "session/" + workID, ActorClass: ActorAgent})
+}
+
+// runVerdictActionAs runs one action as a chosen actor. Verdict actions pass
+// the reviewer: the owner executed the delivery step and the corrected
+// independence law refuses a self-evaluation (#801).
+func runVerdictActionAs(t *testing.T, s *Store, workID, action string, payload json.RawMessage, version int64, owner WorkflowActor) error {
 	t.Helper()
 	if version == 0 {
 		version = verdictItemVersion(t, s, workID)
 	}
-	owner := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/owner", SessionRef: "session/" + workID, ActorClass: ActorAgent}
 	tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
 	if err != nil {
 		return err
@@ -128,7 +155,7 @@ func verdictItemVersion(t *testing.T, s *Store, workID string) int64 {
 func TestRecordVerdictDefaultEvidenceIsBornBound(t *testing.T) {
 	const workID = "verdict-born-bound"
 	s, _ := seedItemAtAcceptance(t, workID)
-	if err := runVerdictAction(t, s, workID, "record_verdict", json.RawMessage(`{"contract_version":1,"predicate_id":"predicate:primary"}`), verdictItemVersion(t, s, workID)); err != nil {
+	if err := runVerdictActionAs(t, s, workID, "record_verdict", json.RawMessage(`{"contract_version":1,"predicate_id":"predicate:primary"}`), verdictItemVersion(t, s, workID), verdictReviewer(t, workID)); err != nil {
 		t.Fatalf("record_verdict with default evidence refused: %v", err)
 	}
 	var bound int
@@ -145,14 +172,16 @@ func TestRecordVerdictDefaultEvidenceIsBornBound(t *testing.T) {
 // stranding the item (the live state of work-0ce535bc9d03c043ef8dddb1).
 func TestLateBindEvidenceAtCompleteStepUnblocksClauseFour(t *testing.T) {
 	const workID = "verdict-late-bind"
-	s, owner := seedItemAtAcceptance(t, workID)
-	ownerRef, err := WorkflowActorRef(owner)
+	s, _ := seedItemAtAcceptance(t, workID)
+	// The pre-fix fold: a verdict pinned to a minted, never-bound ref. The
+	// verdict actor is the reviewer, an agent that executed no step, as the
+	// corrected independence law requires (#801).
+	reviewerRef, err := WorkflowActorRef(verdictReviewer(t, workID))
 	if err != nil {
 		t.Fatal(err)
 	}
-	// The pre-fix fold: a verdict pinned to a minted, never-bound ref.
 	seedVersion := verdictItemVersion(t, s, workID)
-	verdict := workflowEventWithActor("verdict-pre-fix-"+workID, WorkflowVerdictRecorded, workID, ownerRef, map[string]any{"work_id": workID, "expected_version": seedVersion, "resulting_version": seedVersion + 1, "contract_version": 1, "predicate_id": "predicate:primary", "verdict_kind": "ok", "verdict_actor_ref": ownerRef, "evaluation_evidence": []string{"evidence:workflow-pre-fix-unbound"}, "incomparable_with_approved": false})
+	verdict := workflowEventWithActor("verdict-pre-fix-"+workID, WorkflowVerdictRecorded, workID, reviewerRef, map[string]any{"work_id": workID, "expected_version": seedVersion, "resulting_version": seedVersion + 1, "contract_version": 1, "predicate_id": "predicate:primary", "verdict_kind": "ok", "verdict_actor_ref": reviewerRef, "evaluation_evidence": []string{"evidence:workflow-pre-fix-unbound"}, "incomparable_with_approved": false})
 	if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{verdict}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): seedVersion}}); err != nil {
 		t.Fatal(err)
 	}
@@ -188,7 +217,7 @@ func TestLateBindEvidenceAtCompleteStepUnblocksClauseFour(t *testing.T) {
 func TestRecordVerdictExplicitEvidenceMustBePreBound(t *testing.T) {
 	const workID = "verdict-explicit-unbound"
 	s, _ := seedItemAtAcceptance(t, workID)
-	err := runVerdictAction(t, s, workID, "record_verdict", json.RawMessage(`{"contract_version":1,"predicate_id":"predicate:primary","evaluation_evidence":["evidence:never-bound"]}`), verdictItemVersion(t, s, workID))
+	err := runVerdictActionAs(t, s, workID, "record_verdict", json.RawMessage(`{"contract_version":1,"predicate_id":"predicate:primary","evaluation_evidence":["evidence:never-bound"]}`), verdictItemVersion(t, s, workID), verdictReviewer(t, workID))
 	if err == nil {
 		t.Fatal("a verdict naming unbound explicit evidence must be refused")
 	}

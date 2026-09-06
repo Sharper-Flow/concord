@@ -68,6 +68,73 @@ func runWorkflowActionGuard(g *workflowActionGuardContext, phase workflowActionG
 	return guard.run(g)
 }
 
+// guardMandatedWorkflowLawBound refuses actions that could strand a contract
+// whose spec mandate still lacks its immutable evidence binding. The binding
+// action itself remains available so the workflow has a recovery route.
+func guardMandatedWorkflowLawBound(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, currentStep, actionID, subject string) error {
+	if actionID == "supersede_contract" || actionID == "bind_evidence" {
+		return nil
+	}
+	mode, declared := workflowActionExecutionMode(definition, actionID)
+	if !declared && actionID != "record_verdict" && actionID != "confirm_premise" && actionID != "complete" {
+		return nil
+	}
+	if actionID != "record_verdict" && actionID != "confirm_premise" && actionID != "complete" && mode != ActionAdvance {
+		return nil
+	}
+
+	var mandateJSON string
+	if err := q.QueryRowContext(ctx, `SELECT spec_mandate FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL ORDER BY contract_version DESC LIMIT 1`, workID).Scan(&mandateJSON); err != nil {
+		if err == sql.ErrNoRows {
+			return nil
+		}
+		return wrapFailure(KindUnavailable, subject, "cannot read the workflow spec mandate", true, "retry once the workflow contract is readable", err)
+	}
+	var mandate []string
+	if err := json.Unmarshal([]byte(mandateJSON), &mandate); err != nil {
+		return newFailure(KindInvariantViolation, subject, "workflow spec mandate is malformed", false, "rebuild projections from the event log")
+	}
+	if len(mandate) == 0 {
+		return nil
+	}
+	bindingStep := workflowEvidenceBindingStep(definition, currentStep)
+	if bindingStep == "" {
+		return newFailure(KindInvariantViolation, subject, "workflow spec mandate has no bind_evidence step", false, "repair the pinned workflow definition")
+	}
+	for _, lawID := range mandate {
+		var count int
+		if err := q.QueryRowContext(ctx, `SELECT count(*) FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND json_extract(payload,'$.immutable_subject_ref')=?`, workID, WorkflowEvidenceBound, lawID).Scan(&count); err != nil {
+			return wrapFailure(KindUnavailable, subject, "cannot inspect spec-mandate evidence", true, "retry once the workflow evidence projection is readable", err)
+		}
+		if count == 0 {
+			kind := KindMissingEvidence
+			if actionID == "complete" {
+				kind = KindInvariantViolation
+			}
+			return newFailure(kind, subject, fmt.Sprintf("spec mandate law %q is not bound", lawID), false, fmt.Sprintf("run bind_evidence on step %q before %s", bindingStep, actionID))
+		}
+	}
+	return nil
+}
+
+func workflowEvidenceBindingStep(definition WorkflowDefinition, currentStep string) string {
+	if step := workflowStep(definition, currentStep); step != nil {
+		for _, actionID := range step.Actions {
+			if actionID == "bind_evidence" {
+				return currentStep
+			}
+		}
+	}
+	for _, step := range definition.StepGraph.Steps {
+		for _, actionID := range step.Actions {
+			if actionID == "bind_evidence" {
+				return step.ID
+			}
+		}
+	}
+	return ""
+}
+
 // guardSupersedeContractRecovery admits contract recovery only for a workflow
 // contract whose law revision is stale or domain-overlapped, and records that
 // recovery for the later validation stages.

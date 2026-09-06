@@ -1,6 +1,8 @@
 package store
 
 import (
+	"context"
+	"strings"
 	"testing"
 )
 
@@ -12,11 +14,10 @@ import (
 // extending the inventory without a guard, fails here first.
 
 // guardedActions is the closed set of actions that carry an action-specific
-// guard in applyWorkflowActionRawTx. Two guards are deliberately absent,
-// because each applies to every action and the dispatcher therefore calls it
-// directly: guardOperatorPremiseActor, since an operator actor is valid nowhere
-// except premise confirmation, and guardRecordedActorTuple, since any declared
-// action is some session's possible first action (issue #740).
+// guard in applyWorkflowActionRawTx. Three guards are deliberately absent,
+// because each applies to every action and the dispatcher therefore calls them
+// directly: guardOperatorPremiseActor, guardRecordedActorTuple, and the
+// spec-mandate guard.
 var guardedActions = map[string]workflowActionGuardPhase{
 	"supersede_contract":     guardPhaseRecovery,
 	"complete":               guardPhaseBoundary,
@@ -73,5 +74,107 @@ func TestOperatorActorIsRejectedOutsidePremiseConfirmation(t *testing.T) {
 	var failure *Failure
 	if !failureAs(err, &failure) || failure.Kind != KindUnauthorized {
 		t.Fatalf("operator actor outside premise confirmation returned %v, want KindUnauthorized", err)
+	}
+}
+
+func TestMandatedLawGuardNamesBindingRecoveryAndLeavesBindingAvailable(t *testing.T) {
+	s := openTemp(t)
+	workID := "mandate-guard-work"
+	seedWork(t, s, workID)
+	db := s.DatabaseForTesting()
+	actorRef := DeriveWorkflowActorRef("principal/guard", "client/guard", "agent/guard", "session/guard")
+	if _, err := db.Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO workflow_actors(actor_ref,principal_ref,client_ref,agent_ref,session_ref,actor_class,first_seen_at) VALUES(?,?,?,?,?,?,?)`, actorRef, "principal/guard", "client/guard", "agent/guard", "session/guard", "agent", "now"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO workflow_instances(work_id,definition_ref,definition_version,definition_digest,current_step,instance_state,execution_actor_ref) VALUES(?, 'workflow.test', 1, ?, 'verify', 'running', ?)`, workID, testManifestDigest, actorRef); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class) VALUES(?,1,'guard mandate','internal_sqlite','[]','[]','now',?,'["law:required"]','[]',1,'prototype_internal')`, workID, actorRef); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`DELETE FROM fold_guard`); err != nil {
+		t.Fatal(err)
+	}
+	definition := WorkflowDefinition{StepGraph: WorkflowStepGraph{Steps: []WorkflowStep{
+		{ID: "repair", Actions: []string{"bind_evidence"}},
+		{ID: "verify", Actions: []string{"record_verdict", "confirm_premise"}},
+	}}}
+	err := guardMandatedWorkflowLawBound(context.Background(), s.db, workID, definition, "verify", "record_verdict", "workflow_action")
+	var failure *Failure
+	if err == nil || !failureAs(err, &failure) || !strings.Contains(failure.Detail, `spec mandate law "law:required" is not bound`) || !strings.Contains(failure.RecoveryAction, `bind_evidence on step "repair"`) {
+		t.Fatalf("mandate guard error=%v, want law and binding-step recovery", err)
+	}
+	if err := guardMandatedWorkflowLawBound(context.Background(), s.db, workID, definition, "repair", "bind_evidence", "workflow_action"); err != nil {
+		t.Fatalf("binding action refused recovery: %v", err)
+	}
+}
+
+// Every builtin definition that declares bind_evidence must hold a contract
+// with an unbound spec mandate at its binding step: no advancing action may
+// leave that step, and no verdict, premise confirmation, or completion may run,
+// until the mandate is bound. Once one evidence_bound event names the law, the
+// same actions pass the guard. The walk pins the guard to every shipped
+// definition rather than to one hand-built graph.
+func TestMandatedContractGuardWalksEveryBuiltinDefinition(t *testing.T) {
+	const lawID = "CD-0013"
+	for _, definition := range BuiltinWorkflowDefinitions() {
+		bindingStep := workflowEvidenceBindingStep(definition, "")
+		if bindingStep == "" {
+			continue
+		}
+		t.Run(definition.Ref, func(t *testing.T) {
+			s := openTemp(t)
+			workID := "mandate-walk-" + strings.ReplaceAll(definition.Ref, ".", "-")
+			seedWork(t, s, workID)
+			db := s.DatabaseForTesting()
+			actorRef := DeriveWorkflowActorRef("principal/walk", "client/walk", "agent/walk", "session/walk")
+			if _, err := db.Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := db.Exec(`INSERT INTO workflow_actors(actor_ref,principal_ref,client_ref,agent_ref,session_ref,actor_class,first_seen_at) VALUES(?,?,?,?,?,?,?)`, actorRef, "principal/walk", "client/walk", "agent/walk", "session/walk", "agent", "now"); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := db.Exec(`INSERT INTO workflow_instances(work_id,definition_ref,definition_version,definition_digest,current_step,instance_state,execution_actor_ref) VALUES(?,?,?,?,?,'running',?)`, workID, definition.Ref, definition.Version, testManifestDigest, bindingStep, actorRef); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := db.Exec(`INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class) VALUES(?,1,'walk mandate','internal_sqlite','[]','[]','now',?,?,'[]',1,'prototype_internal')`, workID, actorRef, `["`+lawID+`"]`); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := db.Exec(`DELETE FROM fold_guard`); err != nil {
+				t.Fatal(err)
+			}
+
+			gated := []string{"record_verdict", "confirm_premise", "complete"}
+			for _, actionID := range workflowStep(definition, bindingStep).Actions {
+				if mode, ok := workflowActionExecutionMode(definition, actionID); ok && mode == ActionAdvance {
+					gated = append(gated, actionID)
+				}
+			}
+			if len(gated) == 3 {
+				t.Fatalf("%s binding step %q declares no advancing action; the walk cannot prove the trap is closed", definition.Ref, bindingStep)
+			}
+			for _, actionID := range gated {
+				err := guardMandatedWorkflowLawBound(context.Background(), s.db, workID, definition, bindingStep, actionID, "workflow_action")
+				var failure *Failure
+				if err == nil || !failureAs(err, &failure) || !strings.Contains(failure.Detail, `spec mandate law "`+lawID+`" is not bound`) || !strings.Contains(failure.RecoveryAction, `bind_evidence on step "`+bindingStep+`"`) {
+					t.Fatalf("%s %s with unbound mandate: err=%v, want refusal naming %s and step %s", definition.Ref, actionID, err, lawID, bindingStep)
+				}
+			}
+			if err := guardMandatedWorkflowLawBound(context.Background(), s.db, workID, definition, bindingStep, "bind_evidence", "workflow_action"); err != nil {
+				t.Fatalf("%s bind_evidence must stay available while the mandate is unbound: %v", definition.Ref, err)
+			}
+
+			if _, err := db.Exec(`INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES(?,?,?,?,?,?,1,?)`, "walk-bound-"+workID, WorkflowEvidenceBound, string(SubjectWorkItem), workID, actorRef, "now", `{"immutable_subject_ref":"`+lawID+`"}`); err != nil {
+				t.Fatal(err)
+			}
+			for _, actionID := range gated {
+				if err := guardMandatedWorkflowLawBound(context.Background(), s.db, workID, definition, bindingStep, actionID, "workflow_action"); err != nil {
+					t.Fatalf("%s %s after binding %s: %v, want pass", definition.Ref, actionID, lawID, err)
+				}
+			}
+		})
 	}
 }

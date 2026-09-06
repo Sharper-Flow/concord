@@ -282,13 +282,14 @@ func TestWorkBootstrapRequiresRequestedProjectMainCheckout(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Chdir(result.Entry.Path)
+	req.IdempotencyKey = "live-origin-admitted"
 	raw, err := json.Marshal(req)
 	if err != nil {
 		t.Fatal(err)
 	}
 	out, errOut = bytes.Buffer{}, bytes.Buffer{}
-	if code := runWorkBootstrap(raw, s, &out, &errOut); code == 0 || !strings.Contains(errOut.String(), "live work item") {
-		t.Fatalf("linked-worktree invocation code=%d stderr=%q", code, errOut.String())
+	if code := runWorkBootstrap(raw, s, &out, &errOut); code != 0 {
+		t.Fatalf("linked-worktree invocation code=%d stdout=%q stderr=%q", code, out.String(), errOut.String())
 	}
 }
 
@@ -338,7 +339,7 @@ func TestWorkBootstrapChainsFromCleanTerminalWorktreeAtDefaultBranch(t *testing.
 	if err := os.WriteFile("dirty.txt", []byte("keep here\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if code := runWorkBootstrap(raw, s, &out, &errOut); code == 0 || !strings.Contains(errOut.String(), "dirty terminal worktree") {
+	if code := runWorkBootstrap(raw, s, &out, &errOut); code == 0 || !strings.Contains(errOut.String(), "dirty worktree") {
 		t.Fatalf("dirty chained bootstrap code=%d stdout=%q stderr=%q", code, out.String(), errOut.String())
 	}
 	if err := os.Remove("dirty.txt"); err != nil {

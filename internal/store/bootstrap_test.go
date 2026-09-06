@@ -23,6 +23,12 @@ func (branchProbeFailureRunner) Run(ctx context.Context, dir string, args ...str
 	return (ExecGitRunner{}).Run(ctx, dir, args...)
 }
 
+type dirtyBootstrapOriginRunner struct{}
+
+func (dirtyBootstrapOriginRunner) Run(context.Context, string, ...string) ([]byte, error) {
+	return []byte(" M README.md\n"), nil
+}
+
 type branchMoveBeforeDeleteRunner struct {
 	branch string
 	sha    string
@@ -491,9 +497,7 @@ func TestBootstrapWithoutWorkflowTypeRefStillInitializesContinuity(t *testing.T)
 	}
 }
 
-// terminalBootstrapOrigin bootstraps one worktree and moves its item to
-// completed, so a chained start may leave it.
-func terminalBootstrapOrigin(t *testing.T, s *Store, key string) BootstrapResult {
+func liveBootstrapOrigin(t *testing.T, s *Store, key string) BootstrapResult {
 	t.Helper()
 	req := bootstrapStoreRequest()
 	req.IdempotencyKey = key
@@ -501,6 +505,14 @@ func terminalBootstrapOrigin(t *testing.T, s *Store, key string) BootstrapResult
 	if err != nil {
 		t.Fatal(err)
 	}
+	return origin
+}
+
+// terminalBootstrapOrigin bootstraps one worktree and moves its item to
+// completed, so a chained start may leave it.
+func terminalBootstrapOrigin(t *testing.T, s *Store, key string) BootstrapResult {
+	t.Helper()
+	origin := liveBootstrapOrigin(t, s, key)
 	payload, err := json.Marshal(map[string]any{"from": "needed", "to": "completed", "reason": "fixture terminal", "expected_version": origin.WorkVersion, "resulting_version": origin.WorkVersion + 1})
 	if err != nil {
 		t.Fatal(err)
@@ -509,6 +521,81 @@ func terminalBootstrapOrigin(t *testing.T, s *Store, key string) BootstrapResult
 		t.Fatal(err)
 	}
 	return origin
+}
+
+func TestValidateBootstrapOriginAdmitsLiveOrigin(t *testing.T) {
+	repo := initBootstrapStoreRepo(t)
+	s, err := Open(context.Background(), filepath.Join(t.TempDir(), "concord.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	seedBootstrapStoreAuthority(t, s, repo)
+	req := bootstrapStoreRequest()
+	req.IdempotencyKey = "bootstrap-origin-live"
+	origin, err := s.BootstrapWorktree(context.Background(), req, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.ValidateBootstrapOrigin(context.Background(), origin.Entry.ProjectID, origin.Entry.Path, nil); err != nil {
+		t.Fatalf("live origin refused: %v", err)
+	}
+}
+
+func TestValidateBootstrapOriginRefusesDirtyLeasedOrDispatchedOrigin(t *testing.T) {
+	t.Run("dirty", func(t *testing.T) {
+		repo := initBootstrapStoreRepo(t)
+		s, err := Open(context.Background(), filepath.Join(t.TempDir(), "concord.db"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer s.Close()
+		seedBootstrapStoreAuthority(t, s, repo)
+		origin := liveBootstrapOrigin(t, s, "bootstrap-origin-dirty")
+		_, err = s.ValidateBootstrapOrigin(context.Background(), origin.Entry.ProjectID, origin.Entry.Path, dirtyBootstrapOriginRunner{})
+		var failure *Failure
+		if !errors.As(err, &failure) || failure.Kind != KindInvalidOperation || !strings.Contains(failure.Detail, "dirty") {
+			t.Fatalf("dirty origin was not refused: %v", err)
+		}
+	})
+
+	t.Run("leased", func(t *testing.T) {
+		repo := initBootstrapStoreRepo(t)
+		s, err := Open(context.Background(), filepath.Join(t.TempDir(), "concord.db"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer s.Close()
+		seedBootstrapStoreAuthority(t, s, repo)
+		origin := liveBootstrapOrigin(t, s, "bootstrap-origin-leased-combined")
+		if _, err := s.DatabaseForTesting().Exec(`INSERT INTO worktree_verify_leases(lease_id,work_id,project_id,path,state,client_ref,agent_ref,session_ref,principal_ref,command_json,acquired_at,outcome) VALUES('lease-held-combined',?,?,?,'held','client-a','agent-a','session-a','principal-a','["true"]','2026-01-01T00:00:00Z','running')`, origin.WorkID, origin.Entry.ProjectID, origin.Entry.Path); err != nil {
+			t.Fatal(err)
+		}
+		_, err = s.ValidateBootstrapOrigin(context.Background(), origin.Entry.ProjectID, origin.Entry.Path, nil)
+		var failure *Failure
+		if !errors.As(err, &failure) || failure.Kind != KindResourceBusy || !strings.Contains(failure.Detail, "verify lease") {
+			t.Fatalf("leased origin was not refused: %v", err)
+		}
+	})
+
+	t.Run("dispatched", func(t *testing.T) {
+		repo := initBootstrapStoreRepo(t)
+		s, err := Open(context.Background(), filepath.Join(t.TempDir(), "concord.db"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer s.Close()
+		seedBootstrapStoreAuthority(t, s, repo)
+		origin := liveBootstrapOrigin(t, s, "bootstrap-origin-dispatched-combined")
+		if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT INTO worker_attempts(work_id,attempt_id,lane_id,lane_version,lane_digest,capability_class,readback_model,packet_schema_version,report_schema_version,lifecycle_state,dispatched_at) VALUES(?, 'attempt-open-combined','implement',1,?,'implementation','','1.0','1.0','dispatched','2026-01-01T00:00:00Z'); DELETE FROM fold_guard`, origin.WorkID, "sha256:"+strings.Repeat("a", 64)); err != nil {
+			t.Fatal(err)
+		}
+		_, err = s.ValidateBootstrapOrigin(context.Background(), origin.Entry.ProjectID, origin.Entry.Path, nil)
+		var failure *Failure
+		if !errors.As(err, &failure) || failure.Kind != KindResourceBusy || !strings.Contains(failure.Detail, "worker attempt") {
+			t.Fatalf("dispatched origin was not refused: %v", err)
+		}
+	})
 }
 
 func TestValidateBootstrapOriginRefusesHeldVerifyLease(t *testing.T) {

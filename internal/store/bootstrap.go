@@ -63,7 +63,7 @@ type BootstrapOrigin struct {
 	Lifecycle string
 }
 
-// ValidateBootstrapOrigin validates a clean, terminal Concord worktree with no
+// ValidateBootstrapOrigin validates a clean Concord worktree with no
 // active verify lease or worker attempt. It runs before bootstrap records new
 // work, so every refusal has no effect.
 func (s *Store) ValidateBootstrapOrigin(ctx context.Context, projectID, path string, runner GitRunner) (BootstrapOrigin, error) {
@@ -89,27 +89,24 @@ func (s *Store) ValidateBootstrapOrigin(ctx context.Context, projectID, path str
 	defer tx.Rollback()
 	err = tx.QueryRowContext(ctx, `SELECT e.project_id,e.branch,e.path,w.id,w.lifecycle FROM worktree_entries e JOIN worktree_claims c ON c.op_id=e.claim_op_id JOIN work_items w ON w.id=c.work_id WHERE e.project_id=? AND e.path=? AND e.state='active'`, projectID, filepath.Clean(path)).Scan(&origin.ProjectID, &origin.Branch, &origin.Path, &origin.WorkID, &origin.Lifecycle)
 	if err == sql.ErrNoRows {
-		return origin, newFailure(KindInvalidOperation, "work_bootstrap", "linked bootstrap origin is not an active Concord worktree", false, "run work_start from the active worktree of a terminal item")
+		return origin, newFailure(KindInvalidOperation, "work_bootstrap", "linked bootstrap origin is not an active Concord worktree", false, "run work_start from the active worktree")
 	}
 	if err != nil {
 		return origin, wrapFailure(KindUnavailable, "work_bootstrap", "cannot read the linked bootstrap origin", true, "retry once the database is readable", err)
-	}
-	if !isTerminalLifecycle(origin.Lifecycle) {
-		return origin, newFailure(KindInvalidOperation, "work_bootstrap", "cannot chain work_start from live work item "+origin.WorkID+" ("+origin.Lifecycle+")", false, "complete, cancel, or supersede the origin work item first")
 	}
 	status, err := runner.Run(ctx, filepath.Clean(path), "status", "--porcelain")
 	if err != nil {
 		return origin, wrapFailure(KindGitUnreachable, "work_bootstrap", "cannot inspect linked bootstrap origin "+origin.WorkID, true, "restore access to the origin worktree and retry", err)
 	}
 	if strings.TrimSpace(string(status)) != "" {
-		return origin, newFailure(KindInvalidOperation, "work_bootstrap", "cannot chain from dirty terminal worktree of "+origin.WorkID, false, "commit or discard the origin changes before starting new work")
+		return origin, newFailure(KindInvalidOperation, "work_bootstrap", "cannot chain from dirty worktree of "+origin.WorkID, false, "commit or discard the origin changes before starting new work")
 	}
 	var leased bool
 	if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM worktree_verify_leases WHERE path=? AND state='held')`, filepath.Clean(path)).Scan(&leased); err != nil {
 		return origin, wrapFailure(KindUnavailable, "work_bootstrap", "cannot inspect origin verify leases", true, "retry once the database is readable", err)
 	}
 	if leased {
-		return origin, newFailure(KindResourceBusy, "work_bootstrap", "cannot chain from terminal worktree "+origin.WorkID+" while a verify lease is active", true, "release the origin verify lease and retry")
+		return origin, newFailure(KindResourceBusy, "work_bootstrap", "cannot chain from worktree "+origin.WorkID+" while a verify lease is active", true, "release the origin verify lease and retry")
 	}
 	var dispatched bool
 	if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM worker_attempts WHERE work_id=? AND lifecycle_state='dispatched')`, origin.WorkID).Scan(&dispatched); err != nil {
@@ -120,7 +117,7 @@ func (s *Store) ValidateBootstrapOrigin(ctx context.Context, projectID, path str
 		return origin, err
 	}
 	if dispatched || openWindow {
-		return origin, newFailure(KindResourceBusy, "work_bootstrap", "cannot chain from terminal worktree "+origin.WorkID+" while a worker attempt is dispatched or open", true, "complete or close the origin worker attempt and retry")
+		return origin, newFailure(KindResourceBusy, "work_bootstrap", "cannot chain from worktree "+origin.WorkID+" while a worker attempt is dispatched or open", true, "complete or close the origin worker attempt and retry")
 	}
 	if err := tx.Commit(); err != nil {
 		return origin, wrapFailure(KindUnavailable, "work_bootstrap", "cannot finish reading the linked bootstrap origin", true, "retry the same operation", err)

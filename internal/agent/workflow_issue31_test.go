@@ -161,6 +161,8 @@ func TestConfirmPremiseInvokeDerivesOperatorFromSignedApproval(t *testing.T) {
 		t.Fatalf("approved contract=%+v", response)
 	}
 	invokeWorkflowIssue31Action(t, s, service, env, "work-1", "start_execution", workflowIssue31Version(t, s), "issue31-start")
+	// The premise gate refuses while contract-required evidence is unbound.
+	invokeWorkflowIssue31Action(t, s, service, env, "work-1", "bind_evidence", workflowIssue31Version(t, s), "issue31-bind-verification")
 	// The identity boundary is the subject of this test; place the fixture at
 	// its accepted checkpoint without bypassing the fold-only trigger policy.
 	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE workflow_instances SET current_step='acceptance' WHERE work_id='work-1'; DELETE FROM fold_guard WHERE active=1`); err != nil {
@@ -251,6 +253,7 @@ func TestConfirmPremiseInvokeToleratesEmptyHostPrincipal(t *testing.T) {
 		t.Fatalf("approved contract=%+v", response)
 	}
 	invokeWorkflowIssue31Action(t, s, service, env, "work-1", "start_execution", workflowIssue31Version(t, s), "empty-principal-start")
+	invokeWorkflowIssue31Action(t, s, service, env, "work-1", "bind_evidence", workflowIssue31Version(t, s), "empty-principal-bind-verification")
 	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE workflow_instances SET current_step='acceptance' WHERE work_id='work-1'; DELETE FROM fold_guard WHERE active=1`); err != nil {
 		t.Fatal(err)
 	}

@@ -243,7 +243,7 @@ func TestWorkBootstrapRefusesPlantedCanonicalWorktreeWithCommits(t *testing.T) {
 	}
 }
 
-func TestWorkBootstrapRequiresRequestedProject(t *testing.T) {
+func TestWorkBootstrapRequiresRequestedProjectMainCheckout(t *testing.T) {
 	repoA := initLocatorRepo(t)
 	repoB := initLocatorRepo(t)
 	s, err := store.Open(context.Background(), filepath.Join(t.TempDir(), "concord.db"))

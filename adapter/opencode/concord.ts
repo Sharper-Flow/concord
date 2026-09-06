@@ -1,5 +1,6 @@
 import { clientRef } from "./credentials"
-import { contractOperations, hostToolDescriptions, hostToolSchemas, manifestDigest, maxEnvelopeBytes, payloadSchemas } from "./generated-contracts"
+import { contractOperations, hostToolDescriptions, hostToolSchemas, maxEnvelopeBytes, payloadSchemas } from "./generated-contracts"
+import { activeManifestDigest, adoptManifestDigest, resolveDiskManifestDigest } from "./manifest-pin"
 import { validateGeneratedEnvelope, validateGeneratedPayload, envelopeFailurePath, payloadFailurePath } from "./generated-contract-tests"
 import { dispatchLaneWorker, type LaneDispatchInput } from "./lane_dispatch"
 import { hostControlPlane, MoveSessionUnavailable } from "./move-session"
@@ -178,7 +179,7 @@ function workStartArgsSchema() {
 
 function baseEnvelope(toolName: string, operation: string, requestID: string) {
   const queryID = (contractOperations.find((candidate: any) => candidate.tool === toolName && candidate.id.endsWith(`.${operation}`)) as any)?.query_id
-  return { schema_version: "1.0", manifest_digest: manifestDigest, request_id: requestID, origin: "adapter", tool: toolName, operation, ...(queryID ? { query_id: queryID } : {}), outcome: "error", resolved_scope: null, authority: "unreachable", freshness: null, source_version_watermark: [], ordering_keys: [], next_cursor: null, omissions: [], warnings: [], evidence_refs: [], replayed: false }
+  return { schema_version: "1.0", manifest_digest: activeManifestDigest(), request_id: requestID, origin: "adapter", tool: toolName, operation, ...(queryID ? { query_id: queryID } : {}), outcome: "error", resolved_scope: null, authority: "unreachable", freshness: null, source_version_watermark: [], ordering_keys: [], next_cursor: null, omissions: [], warnings: [], evidence_refs: [], replayed: false }
 }
 
 function adapterError(toolName: string, operation: string, requestID: string, kind: string, reason: string, message: string, effect: "none" | "possible" | "partial" = "none", recovery = effect === "none" ? "retry_same_request" : "reconcile_operation", details?: Record<string, unknown>) {
@@ -253,7 +254,7 @@ const coreErrorKinds = new Set(["unknown_scope", "ambiguous_scope", "stale_conte
 // describes the whole response rather than one member, and version skew is
 // classified at the call site before this detail reaches an operator.
 function coreResponseFailure(response: any, toolName: string, operation: string): string | null {
-  if (!response || typeof response !== "object" || response.schema_version !== "1.0" || response.manifest_digest !== manifestDigest || response.origin !== "core" || response.tool !== toolName || response.operation !== operation || !["ok", "pending", "partial", "error"].includes(response.outcome)) return "the envelope identity"
+  if (!response || typeof response !== "object" || response.schema_version !== "1.0" || response.manifest_digest !== activeManifestDigest() || response.origin !== "core" || response.tool !== toolName || response.operation !== operation || !["ok", "pending", "partial", "error"].includes(response.outcome)) return "the envelope identity"
   if (!validateGeneratedEnvelope(response)) return `member ${envelopeFailurePath(response)} failed the generated envelope contract`
   if (response.outcome === "error") {
     if (!response.error) return "error is absent"
@@ -275,7 +276,7 @@ function coreResponseFailure(response: any, toolName: string, operation: string)
 // module. The condition is deterministic, so it is classified instead of
 // folded into malformed_core_response.
 function isVersionSkew(response: any): boolean {
-  return !!response && typeof response === "object" && response.schema_version === "1.0" && response.origin === "core" && typeof response.manifest_digest === "string" && response.manifest_digest !== manifestDigest
+  return !!response && typeof response === "object" && response.schema_version === "1.0" && response.origin === "core" && typeof response.manifest_digest === "string" && response.manifest_digest !== activeManifestDigest()
 }
 
 function operationIsMutation(toolName: string, operation: string): boolean {
@@ -321,20 +322,47 @@ async function invokeConcordOperationRaw(toolName: string, args: HostToolArgs, c
   let ambient: AmbientContext
   try { ambient = await resolveAmbientContext(context) } catch (error) { return failureEnvelope(toolName, operation, requestID, error, "context_resolution_failed") }
   const selectedProduct = selectedProductID() || (ambient.productIDs.length === 1 ? ambient.productIDs[0] : "")
-  const envelope: any = { schema_version: "1.0", request_id: requestID, client_ref: clientRef(), principal_ref: "", session_ref: context.sessionID, agent_ref: context.agent, directory: context.directory, worktree: context.worktree, ambient_project_id: ambient.projectID, selected_product_id: selectedProduct, scope_version: ambient.scopeVersion, manifest_digest: manifestDigest }
+  const envelope: any = { schema_version: "1.0", request_id: requestID, client_ref: clientRef(), principal_ref: "", session_ref: context.sessionID, agent_ref: context.agent, directory: context.directory, worktree: context.worktree, ambient_project_id: ambient.projectID, selected_product_id: selectedProduct, scope_version: ambient.scopeVersion, manifest_digest: activeManifestDigest() }
   const run = async (input: any) => runner.run([process.env.CONCORD_BIN ?? "concord", "invoke"], JSON.stringify({ call_envelope: envelope, tool: toolName, operation, input }), context.abort)
   let result: any
   try { result = await run(args.input) } catch (error) { return failureEnvelope(toolName, operation, requestID, runnerFailure(error, context.abort.aborted), "spawn_failure") }
   if (result.exitCode !== 0 && !result.stdout.trim()) return adapterError(toolName, operation, requestID, "operation_conflict", "unknown_effect", result.stderr.slice(0, MAX_STDERR), "possible", "reconcile_operation")
   let response: any
   try { response = singleJSON(result.stdout) } catch (error) { return adapterError(toolName, operation, requestID, "malformed_response", "malformed_core_response", String(error), "possible", "reconcile_operation", salvageDetails(result.stdout)) }
+  const skewRefusal = () => {
+    const disk = resolveDiskManifestDigest()
+    const diskDetail = disk === null ? "the digest on disk could not be read" : `the adapter files on disk stamp ${disk}`
+    const skewDetail = `core contract digest ${response.manifest_digest} does not match this adapter's ${activeManifestDigest()}; ${diskDetail}; this pin survives a session restart and even a process restart of a resumed session, so start a new OpenCode session (a fresh session id) or install a core matching the disk files`
+    if (!operationIsMutation(toolName, operation)) return adapterError(toolName, operation, requestID, "transport_failure", "manifest_mismatch", skewDetail, "none", "contact_operator")
+    return adapterError(toolName, operation, requestID, "operation_conflict", "unknown_effect", `${skewDetail}, then reconcile this operation`, "possible", "reconcile_operation")
+  }
   const contractFailure = coreResponseFailure(response, toolName, operation)
-  if (contractFailure) {
-    if (isVersionSkew(response)) {
-      const skewDetail = `core contract digest ${response.manifest_digest} does not match this adapter's ${manifestDigest}; the adapter files were replaced on disk by a newer release while this session runs; restart the OpenCode session to load them`
-      if (!operationIsMutation(toolName, operation)) return adapterError(toolName, operation, requestID, "transport_failure", "manifest_mismatch", skewDetail, "none", "contact_operator")
-      return adapterError(toolName, operation, requestID, "operation_conflict", "unknown_effect", `${skewDetail}, then reconcile this operation`, "possible", "reconcile_operation")
+  if (contractFailure && isVersionSkew(response)) {
+    // Version skew self-heal (issue #885). A release that lands mid-session
+    // leaves this process pinning the previous contract digest, and a session
+    // resumed by id restores that pin even across a process restart. When the
+    // files on disk stamp exactly the digest the core answered with, only the
+    // pin is stale: adopt the disk digest and retry the same request once.
+    // Reads retry freely; a mutation's replay is absorbed by the core's
+    // idempotency, so the retry cannot double-apply.
+    const disk = resolveDiskManifestDigest()
+    if (disk !== null && disk === response.manifest_digest && adoptManifestDigest(disk)) {
+      envelope.manifest_digest = activeManifestDigest()
+      let retryResult: any
+      try { retryResult = await run(args.input) } catch (error) { return failureEnvelope(toolName, operation, requestID, runnerFailure(error, context.abort.aborted), "spawn_failure") }
+      if (retryResult.exitCode !== 0 && !retryResult.stdout.trim()) return adapterError(toolName, operation, requestID, "operation_conflict", "unknown_effect", retryResult.stderr.slice(0, MAX_STDERR), "possible", "reconcile_operation")
+      let retryResponse: any
+      try { retryResponse = singleJSON(retryResult.stdout) } catch (error) { return adapterError(toolName, operation, requestID, "malformed_response", "malformed_core_response", String(error), "possible", "reconcile_operation", salvageDetails(retryResult.stdout)) }
+      if (!coreResponseFailure(retryResponse, toolName, operation)) {
+        response = retryResponse
+      } else {
+        response = retryResponse
+        return skewRefusal()
+      }
+    } else {
+      return skewRefusal()
     }
+  } else if (contractFailure) {
     return adapterError(toolName, operation, requestID, operationIsMutation(toolName, operation) ? "operation_conflict" : "malformed_response", operationIsMutation(toolName, operation) ? "unknown_effect" : "malformed_core_response", `core response failed the generated TS7 contract: ${contractFailure}`, "possible", "reconcile_operation", salvageDetails(result.stdout))
   }
   if (response?.outcome === "error" && response?.error?.kind === "approval_required") {

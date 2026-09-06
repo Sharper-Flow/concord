@@ -50,9 +50,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from evidence_anchors import scenario_exists  # noqa: E402
+import knowledge_index  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
-MANIFEST = ROOT / "docs/concord-knowledge-index.v1.json"
 MAX_FINDINGS = 1000
 MAX_SENTENCE_WORDS = 40
 MIN_CRITERION_EXEMPTION = 12
@@ -193,11 +193,14 @@ def reject_duplicate_pairs(pairs: list[tuple[str, object]]) -> dict[str, object]
 def load_manifest(findings: list[str]) -> object:
     try:
         return json.loads(
-            MANIFEST.read_text(encoding="utf-8"),
+            knowledge_index.compose_manifest_bytes(ROOT),
             object_pairs_hook=reject_duplicate_pairs,
         )
+    except knowledge_index.ComposeError as exc:
+        findings.extend(exc.findings)
+        return None
     except (OSError, UnicodeDecodeError, json.JSONDecodeError, DuplicateKeyError) as exc:
-        findings.append(f"{MANIFEST.name}: invalid JSON: {exc}")
+        findings.append(f"{knowledge_index.KNOWLEDGE_ROOT}: invalid JSON: {exc}")
         return None
 
 
@@ -911,20 +914,17 @@ def _parent_manifest_activation() -> object:
     # The manifest may be dirty in a working tree; the sequence check reads
     # committed state only. Find the last commit that changed the manifest's
     # enforced flag, then read the manifest as its parent had it.
-    log = git("log", "-1", "--format=%H", "-S", '"enforced": true', "--", str(MANIFEST.relative_to(ROOT)))
+    log = git("log", "-1", "--format=%H", "-S", '"enforced": true', "--", knowledge_index.HEAD_PATH, knowledge_index.LEGACY_MANIFEST_PATH)
     if not log:
         return _NO_HISTORY
     parent = git("rev-parse", log.strip() + "~1")
     if parent is None:
         return _NO_HISTORY
-    blob = git("show", parent.strip() + ":" + str(MANIFEST.relative_to(ROOT)))
-    if blob is None:
-        # The parent commit exists but carries no manifest: no activation
-        # object could have been recorded there.
-        return None
     try:
-        document = json.loads(blob)
-    except json.JSONDecodeError:
+        document = knowledge_index.compose_manifest_at(ROOT, parent.strip())
+    except (subprocess.CalledProcessError, knowledge_index.ComposeError, json.JSONDecodeError):
+        # The parent commit carries no readable manifest: no activation
+        # object could have been recorded there.
         return None
     return document.get("doc_contract", {}).get("activation")
 

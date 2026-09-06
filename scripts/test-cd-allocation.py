@@ -32,7 +32,11 @@ class RepoFixture(unittest.TestCase):
     def setUp(self) -> None:
         self.tempdir = tempfile.TemporaryDirectory()
         self.root = Path(self.tempdir.name)
-        (self.root / "docs").mkdir()
+        (self.root / "docs/knowledge/records").mkdir(parents=True)
+        (self.root / "docs/knowledge/manifest.json").write_text(
+            json.dumps({"schema_version": "1.2", "supported_kinds": [], "indexed_kinds": []}) + "\n",
+            encoding="utf-8",
+        )
         git(self.root, "init", "--quiet", "--initial-branch=main")
         git(self.root, "config", "user.name", "CD allocation tests")
         git(self.root, "config", "user.email", "cd-allocation-tests@example.invalid")
@@ -45,19 +49,17 @@ class RepoFixture(unittest.TestCase):
     def write_manifest(
         self, identifiers: list[str], paths: dict[str, str] | None = None
     ) -> None:
-        records: list[dict[str, str]] = []
+        shard_dir = self.root / "docs/knowledge/records"
+        for stale in shard_dir.glob("*.json"):
+            stale.unlink()
         for identifier in identifiers:
             record = {"id": identifier}
             if paths is not None and identifier in paths:
                 record["path"] = paths[identifier]
-            records.append(record)
-        (self.root / "docs/concord-knowledge-index.v1.json").write_text(
-            json.dumps({"records": records}) + "\n",
-            encoding="utf-8",
-        )
+            (shard_dir / f"{identifier}.json").write_text(json.dumps(record) + "\n", encoding="utf-8")
 
     def commit(self, message: str, when: str | None = None) -> None:
-        git(self.root, "add", "docs/concord-knowledge-index.v1.json")
+        git(self.root, "add", "-A", "docs/knowledge")
         git(self.root, "commit", "--quiet", "-m", message, when=when)
 
     def seed_peer(
@@ -122,7 +124,11 @@ class CDAllocationTests(RepoFixture):
         )
 
     def test_duplicate_new_id_is_reported(self) -> None:
-        self.write_manifest(["CD-0001", "CD-0002", "CD-0002"])
+        self.write_manifest(["CD-0001", "CD-0002"])
+        # A second shard whose id repeats CD-0002 under another filename.
+        (self.root / "docs/knowledge/records/CD-0002-copy.json").write_text(
+            json.dumps({"id": "CD-0002"}) + "\n", encoding="utf-8"
+        )
 
         findings = checker.check(root=self.root, against="main", no_fetch=True)
 
@@ -180,14 +186,14 @@ class CDAllocationTests(RepoFixture):
 
     def test_duplicate_json_keys_are_rejected(self) -> None:
         self.write_manifest(["CD-0001"])
-        (self.root / "docs/concord-knowledge-index.v1.json").write_text(
-            '{"records": [], "records": []}\n', encoding="utf-8"
+        (self.root / "docs/knowledge/records/CD-0001.json").write_text(
+            '{"id": "CD-0001", "id": "CD-0001"}\n', encoding="utf-8"
         )
 
         findings = checker.check(root=self.root, against="main", no_fetch=True)
 
         self.assertEqual(len(findings), 1)
-        self.assertIn("duplicate JSON key: records", findings[0])
+        self.assertIn("duplicate JSON key: id", findings[0])
 
 
 class ConcurrentClaimTests(RepoFixture):

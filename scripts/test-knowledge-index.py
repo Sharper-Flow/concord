@@ -51,6 +51,20 @@ def fixture(path: str = "docs/lesson.md", digest: str = "a" * 64) -> dict:
     }
 
 
+def write_shard_tree(root: Path, value: dict) -> None:
+    """Lay the fixture out as the shard tree the composer reads."""
+    (root / "docs/knowledge/records").mkdir(parents=True, exist_ok=True)
+    head = {key: value[key] for key in ("schema_version", "supported_kinds", "indexed_kinds") if key in value}
+    (root / "docs/knowledge/manifest.json").write_text(json.dumps(head, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    (root / "docs/knowledge/domain-registry.json").write_text(
+        json.dumps(value["domain_registry"], indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
+    for record in value["records"]:
+        (root / "docs/knowledge/records" / f"{record['id']}.json").write_text(
+            json.dumps(record, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+        )
+
+
 def v12_fixture() -> dict:
     return {
         "schema_version": "1.2",
@@ -99,15 +113,15 @@ def test_invalid_update_is_byte_identical() -> None:
         (root / "docs").mkdir()
         document = root / "docs/lesson.md"
         document.write_text("lesson\n", encoding="utf-8")
-        target = root / "manifest.json"
         value = fixture(digest="b" * 64)
+        write_shard_tree(root, value)
+        shard = root / "docs/knowledge/records/lesson-1.json"
+        original = shard.read_text(encoding="utf-8")
         value["unknown"] = True
-        original = json.dumps(value, indent=2) + "\n"
-        target.write_text(original, encoding="utf-8")
-        with mock.patch.object(checker, "ROOT", root), mock.patch.object(checker, "MANIFEST", target):
+        with mock.patch.object(checker, "ROOT", root):
             findings = checker.update_manifest(value)
         assert findings
-        assert target.read_text(encoding="utf-8") == original
+        assert shard.read_text(encoding="utf-8") == original
 
 
 def test_atomic_replacement_failure_preserves_original_and_cleans_temp() -> None:
@@ -137,22 +151,18 @@ def test_successful_update_changes_hashes_only() -> None:
     with tempfile.TemporaryDirectory(dir=checker.ROOT) as directory:
         root = Path(directory)
         (root / "docs").mkdir()
-        (root / "docs/knowledge/records").mkdir(parents=True)
         document = root / "docs/lesson.md"
         document.write_text("lesson\n", encoding="utf-8")
-        target = root / "manifest.json"
         value = fixture(digest="b" * 64)
-        (root / "docs/knowledge/records/lesson-1.json").write_text(
-            json.dumps(value["records"][0], indent=2, sort_keys=True) + "\n", encoding="utf-8"
-        )
+        write_shard_tree(root, value)
         before = copy.deepcopy(value)
-        with mock.patch.object(checker, "ROOT", root), mock.patch.object(checker, "MANIFEST", target):
+        with mock.patch.object(checker, "ROOT", root):
             findings = checker.update_manifest(value)
         assert not findings
-        after = json.loads(target.read_text(encoding="utf-8"))
+        after = json.loads((root / "docs/knowledge/records/lesson-1.json").read_text(encoding="utf-8"))
         before_hash = before["records"][0].pop("sha256")
-        after_hash = after["records"][0].pop("sha256")
-        assert before["records"] == after["records"]
+        after_hash = after.pop("sha256")
+        assert before["records"] == [after]
         assert before_hash != after_hash
         assert after_hash == "sha256:" + checker.hashlib.sha256(b"lesson\n").hexdigest()
 

@@ -90,9 +90,8 @@ var manifestLawRelationSubjects = map[string]bool{"decision": true, "spec": true
 // manifestRootKeys is the declared top-level vocabulary of the knowledge
 // manifest contract. The value records whether this package projects the key
 // onto a KnowledgeManifest field. A false value marks repository policy the
-// store does not interpret — the prose contract — which must survive a parse
-// and re-marshal verbatim, because
-// rewriting the manifest to append a record must never silently repeal it.
+// store does not interpret, such as the prose doc contract; the head shard
+// carries it and the store never rewrites that shard (CD-0114).
 // TestKnowledgeManifestVocabularyMatchesSchema binds this set to
 // contracts/concord-knowledge-index.v1.schema.json.
 var manifestRootKeys = map[string]bool{
@@ -105,26 +104,6 @@ var manifestRootKeys = map[string]bool{
 	"knowledge_roots": true,
 	"exclusions":      true,
 	"doc_contract":    false,
-}
-
-// canonicalManifestRootOrder is the root key order of the knowledge manifest:
-// the property order declared by contracts/concord-knowledge-index.v1.schema.json,
-// which is also the order scripts/generate-knowledge-index.py carries forward
-// from its aggregate template. Go's map order is lexical and would regroup the
-// root keys, so the emitter places them from this list.
-// TestKnowledgeManifestKeyOrderMatchesSchema binds it to the schema. Record
-// keys need no such list: the generator emits them sorted, which is what
-// encoding/json already does for a map.
-var canonicalManifestRootOrder = []string{
-	"schema_version",
-	"supported_kinds",
-	"indexed_kinds",
-	"domain_registry",
-	"knowledge_roots",
-	"exclusions",
-	"dispositions",
-	"doc_contract",
-	"records",
 }
 
 var lawRelationKinds = map[string]bool{
@@ -147,10 +126,6 @@ type KnowledgeManifest struct {
 	Records               []KnowledgeRecord       `json:"records"`
 	Dispositions          []KnowledgeDisposition  `json:"dispositions"`
 	domainRegistryPresent bool
-	dispositionsPresent   bool
-	// uninterpreted holds every declared top-level key this package does not
-	// model, verbatim, so marshalKnowledgeManifest can put it back.
-	uninterpreted map[string]json.RawMessage
 }
 
 type KnowledgeDocContract struct {
@@ -263,7 +238,6 @@ func (manifest *KnowledgeManifest) UnmarshalJSON(data []byte) error {
 		return err
 	}
 	modeled := make(map[string]json.RawMessage, len(fields))
-	uninterpreted := map[string]json.RawMessage{}
 	for key, value := range fields {
 		projected, declared := manifestRootKeys[key]
 		if !declared {
@@ -271,9 +245,7 @@ func (manifest *KnowledgeManifest) UnmarshalJSON(data []byte) error {
 		}
 		if projected {
 			modeled[key] = value
-			continue
 		}
-		uninterpreted[key] = value
 	}
 	body, err := json.Marshal(modeled)
 	if err != nil {
@@ -287,9 +259,7 @@ func (manifest *KnowledgeManifest) UnmarshalJSON(data []byte) error {
 		return err
 	}
 	*manifest = KnowledgeManifest(parsed)
-	manifest.uninterpreted = uninterpreted
 	_, manifest.domainRegistryPresent = fields["domain_registry"]
-	_, manifest.dispositionsPresent = fields["dispositions"]
 	return nil
 }
 
@@ -387,78 +357,6 @@ func (record *KnowledgeRecord) UnmarshalJSON(data []byte) error {
 		record.productWideRationalePresent = true
 	}
 	return nil
-}
-
-// orderManifestFields emits the canonical order, then any key this package has
-// not placed yet, sorted, so the output stays deterministic for a key the
-// contract gains later.
-func orderManifestFields(values map[string]any, canonical []string) orderedObject {
-	ordered := make(orderedObject, 0, len(values))
-	remaining := make(map[string]any, len(values))
-	for key, value := range values {
-		remaining[key] = value
-	}
-	for _, key := range canonical {
-		if value, ok := remaining[key]; ok {
-			ordered = append(ordered, orderedMember{key: key, value: value})
-			delete(remaining, key)
-		}
-	}
-	unplaced := make([]string, 0, len(remaining))
-	for key := range remaining {
-		unplaced = append(unplaced, key)
-	}
-	sort.Strings(unplaced)
-	for _, key := range unplaced {
-		ordered = append(ordered, orderedMember{key: key, value: remaining[key]})
-	}
-	return ordered
-}
-
-// orderedObject is a JSON object that emits its members in slice order.
-// encoding/json sorts map keys, so an object whose authored order carries
-// meaning cannot round-trip through map[string]any.
-type orderedObject []orderedMember
-
-type orderedMember struct {
-	key   string
-	value any
-}
-
-func (object orderedObject) MarshalJSON() ([]byte, error) {
-	buffer := bytes.Buffer{}
-	buffer.WriteByte('{')
-	for index, member := range object {
-		if index > 0 {
-			buffer.WriteByte(',')
-		}
-		key, err := marshalManifestValue(member.key)
-		if err != nil {
-			return nil, err
-		}
-		value, err := marshalManifestValue(member.value)
-		if err != nil {
-			return nil, err
-		}
-		buffer.Write(key)
-		buffer.WriteByte(':')
-		buffer.Write(value)
-	}
-	buffer.WriteByte('}')
-	return buffer.Bytes(), nil
-}
-
-// marshalManifestValue encodes without HTML escaping, matching the Python
-// updater's json.dumps. Escaping "&" as "\u0026" in a lesson title would make
-// the two writers disagree on a byte the reader never typed.
-func marshalManifestValue(value any) ([]byte, error) {
-	buffer := &bytes.Buffer{}
-	encoder := json.NewEncoder(buffer)
-	encoder.SetEscapeHTML(false)
-	if err := encoder.Encode(value); err != nil {
-		return nil, err
-	}
-	return bytes.TrimRight(buffer.Bytes(), "\n"), nil
 }
 
 func (manifest KnowledgeManifest) MarshalJSON() ([]byte, error) {
@@ -1244,7 +1142,20 @@ func domainRegistryContentHash(registry KnowledgeDomainRegistry) string {
 	return "sha256:" + hex.EncodeToString(sum[:])
 }
 
+// readKnowledgeManifest reads the manifest at a commit. A commit that carries
+// the shard head composes the manifest from its shards (CD-0114). A commit
+// that predates the shards carries the aggregate file, and that is the shape
+// it is read in; a commit with neither is the legacy, explicitly-supported
+// state with no manifest.
 func readKnowledgeManifest(ctx context.Context, repo, commit string) (KnowledgeManifest, bool, error) {
+	shards, sharded, err := readKnowledgeShardsAtCommit(ctx, repo, commit)
+	if err != nil {
+		return KnowledgeManifest{}, false, err
+	}
+	if sharded {
+		manifest, err := composeKnowledgeManifest(shards)
+		return manifest, false, err
+	}
 	entry, err := gitTreeEntry(ctx, repo, commit, knowledgeManifestPath)
 	if err != nil {
 		// A missing manifest is the legacy, explicitly-supported state.

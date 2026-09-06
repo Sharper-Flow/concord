@@ -3,10 +3,11 @@
 
 The validator runs against a real manifest under ROOT. To exercise its
 behavior without perturbing the live manifest, each test invokes main() with
-synthetic knowledge roots and a sandbox copy of the manifest under
-tempfile.TemporaryDirectory(). check-knowledge-closure.py reads
-`docs/concord-knowledge-index.v1.json` relative to its own ROOT; the tests
-patch both `ROOT` and `MANIFEST` onto the sandbox.
+synthetic knowledge roots and a sandbox manifest document under
+tempfile.TemporaryDirectory(). check-knowledge-closure.py composes the
+manifest through knowledge_index relative to its own ROOT; the tests patch
+`ROOT` onto the sandbox and the composer onto the sandbox document, so each
+test can shape the head fields the closure rules read.
 """
 from __future__ import annotations
 
@@ -83,7 +84,9 @@ def run_with_sandbox(root: Path, argv: list[str] | None = None) -> tuple[int, st
     captured_out = StringIO()
     captured_err = StringIO()
     manifest = root / "manifest.json"
-    with mock.patch.object(checker, "ROOT", root), mock.patch.object(checker, "MANIFEST", manifest):
+    with mock.patch.object(checker, "ROOT", root), mock.patch.object(
+        checker.knowledge_index, "compose_manifest_bytes", lambda _root=None: manifest.read_bytes()
+    ):
         old_out, old_err = sys.stdout, sys.stderr
         sys.stdout, sys.stderr = captured_out, captured_err
         try:

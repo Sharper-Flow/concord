@@ -465,13 +465,9 @@ func SeedKnowledge(ctx context.Context, s *store.Store, c Corpus, dir string) (G
 func SeedLaggingKnowledge(home store.KnowledgeHome) (string, error) {
 	const id = "knowledge-decision-lagging"
 	const path = "docs/decisions/CD-0003-lagging-authority.md"
-	manifestBody, err := os.ReadFile(filepath.Join(home.RepoPath, filepath.FromSlash("docs/concord-knowledge-index.v1.json")))
+	manifest, err := readKnowledgeShards(home.RepoPath)
 	if err != nil {
-		return "", fmt.Errorf("pm1fixture: read knowledge manifest: %w", err)
-	}
-	var manifest store.KnowledgeManifest
-	if err := json.Unmarshal(manifestBody, &manifest); err != nil {
-		return "", fmt.Errorf("pm1fixture: parse knowledge manifest: %w", err)
+		return "", err
 	}
 	if err := writeKnowledgeFile(home.RepoPath, path, canonicalKnowledgeNote(id, "decision", "2026-08-06T12:00:00Z", []string{"sqlite", "governance"})); err != nil {
 		return "", fmt.Errorf("pm1fixture: write lagging decision: %w", err)
@@ -706,11 +702,7 @@ func writeKnowledgeManifest(repo string, records []store.KnowledgeRecord) error 
 		DomainRegistry: store.KnowledgeDomainRegistry{SchemaVersion: "1.0", ProductKey: productKey, RootDomainID: rootDomainID, Domains: domains},
 		Records:        records,
 	}
-	body, err := json.MarshalIndent(manifest, "", "  ")
-	if err != nil {
-		return err
-	}
-	return writeKnowledgeFile(repo, "docs/concord-knowledge-index.v1.json", string(body)+"\n")
+	return writeKnowledgeShards(repo, manifest)
 }
 
 func nonNil(values []string) []string {

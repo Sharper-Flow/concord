@@ -23,7 +23,10 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-MANIFEST = Path("docs/concord-knowledge-index.v1.json")
+sys.path.insert(0, str(ROOT / "scripts"))
+import knowledge_index  # noqa: E402
+
+MANIFEST = Path(knowledge_index.KNOWLEDGE_ROOT)
 CD_ID_RE = re.compile(r"^CD-[0-9]{4}$")
 HEADING_CD_RE = re.compile(r"^#\s+(CD-[0-9]{4})\b")
 PEER_NAMESPACE = "refs/remotes/origin"
@@ -59,11 +62,11 @@ def load_manifest(raw: bytes, source: str, findings: list[str]) -> dict[str, obj
 
 def load_tree_manifest(root: Path, findings: list[str]) -> dict[str, object] | None:
     try:
-        raw = (root / MANIFEST).read_bytes()
-    except OSError as exc:
-        findings.append(f"{MANIFEST}: could not read manifest: {exc}")
+        data = knowledge_index.raw_manifest(root)
+    except knowledge_index.ComposeError as exc:
+        findings.extend(exc.findings)
         return None
-    return load_manifest(raw, MANIFEST.as_posix(), findings)
+    return load_manifest(json.dumps(data).encode("utf-8"), MANIFEST.as_posix(), findings)
 
 
 def git_text(root: Path, *arguments: str) -> str | None:
@@ -74,13 +77,14 @@ def git_text(root: Path, *arguments: str) -> str | None:
 
 
 def git_show(root: Path, ref: str) -> bytes | None:
-    result = subprocess.run(
-        ["git", "show", f"{ref}:{MANIFEST.as_posix()}"],
-        cwd=root,
-        capture_output=True,
-        check=False,
-    )
-    return result.stdout if result.returncode == 0 else None
+    """The manifest at a ref as canonical bytes, or None when the ref is
+    unavailable. A ref that predates the shards carries the aggregate file."""
+    if subprocess.run(["git", "rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}"], cwd=root, capture_output=True, check=False).returncode != 0:
+        return None
+    try:
+        return json.dumps(knowledge_index.raw_manifest_at(root, ref), ensure_ascii=False).encode("utf-8")
+    except (subprocess.CalledProcessError, knowledge_index.ComposeError, knowledge_index.DuplicateKeyError, json.JSONDecodeError):
+        return None
 
 
 def load_comparison_manifest(
@@ -191,14 +195,14 @@ def peer_refs(root: Path, namespace: str, against: str) -> list[str]:
 
 
 def claim_time(root: Path, ref: str) -> int:
-    stamp = git_text(root, "log", "-1", "--format=%ct", ref, "--", MANIFEST.as_posix())
+    stamp = git_text(root, "log", "-1", "--format=%ct", ref, "--", *knowledge_index.manifest_paths_at(root, ref))
     if stamp is None or not stamp.strip():
         return 0
     return int(stamp.strip())
 
 
 def local_claim_time(root: Path) -> int:
-    dirty = git_text(root, "status", "--porcelain", "--", MANIFEST.as_posix())
+    dirty = git_text(root, "status", "--porcelain", "--", knowledge_index.KNOWLEDGE_ROOT)
     if dirty is None or dirty.strip():
         return sys.maxsize
     return claim_time(root, "HEAD") or sys.maxsize

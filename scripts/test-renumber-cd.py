@@ -32,9 +32,16 @@ class RenumberTests(unittest.TestCase):
         self.root = Path(self.tempdir.name)
         for directory in ("docs/decisions", "docs/knowledge/records", "docs/knowledge/coverage"):
             (self.root / directory).mkdir(parents=True)
+        self.write(
+            "docs/knowledge/manifest.json",
+            json.dumps({"schema_version": "1.2", "supported_kinds": [], "indexed_kinds": []}) + "\n",
+        )
         git(self.root, "init", "--quiet", "--initial-branch=main")
         git(self.root, "config", "user.name", "renumber tests")
         git(self.root, "config", "user.email", "renumber-tests@example.invalid")
+        self.commit()
+        # A ref taken here holds no CD at all: the seeded CD-0061 is branch-local.
+        git(self.root, "branch", "before-seed")
         self.seed("CD-0061", "root-home-states-its-claim")
         self.commit()
 
@@ -69,11 +76,8 @@ class RenumberTests(unittest.TestCase):
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(text, encoding="utf-8")
 
-    def write_manifest(self, identifiers: list[str]) -> None:
-        self.write(
-            "docs/concord-knowledge-index.v1.json",
-            json.dumps({"records": [{"id": identifier} for identifier in identifiers]}) + "\n",
-        )
+    def write_record(self, identifier: str) -> None:
+        self.write(f"docs/knowledge/records/{identifier}.json", json.dumps({"id": identifier}) + "\n")
 
     def commit(self) -> None:
         git(self.root, "add", "-A")
@@ -192,7 +196,7 @@ class RenumberTests(unittest.TestCase):
         self.assertTrue(any("generated_mystery.go" in finding for finding in findings))
 
     def test_known_generated_output_is_left_to_its_generator(self) -> None:
-        self.write("docs/law-coverage.v1.json", '{"note": "CD-0061"}\n')
+        self.write("contracts/agent-lanes.digest", "CD-0061\n")
         self.commit()
 
         findings, prepared = renumber.plan(
@@ -201,7 +205,7 @@ class RenumberTests(unittest.TestCase):
 
         self.assertEqual(findings, [])
         assert prepared is not None
-        self.assertNotIn(Path("docs/law-coverage.v1.json"), prepared.edits)
+        self.assertNotIn(Path("contracts/agent-lanes.digest"), prepared.edits)
 
     def test_longer_number_is_not_matched(self) -> None:
         self.write("docs/priorities.md", "CD-0061 differs from CD-00610.\n")
@@ -213,8 +217,6 @@ class RenumberTests(unittest.TestCase):
         self.assertIn("CD-0062 differs", (self.root / "docs/priorities.md").read_text())
 
     def test_refuses_to_move_a_landed_cd(self) -> None:
-        self.write_manifest(["CD-0061"])
-        self.commit()
         git(self.root, "branch", "landed")
 
         findings = self.move(against="landed")
@@ -223,20 +225,19 @@ class RenumberTests(unittest.TestCase):
         self.assertTrue(any("has not landed" in finding for finding in findings))
 
     def test_refuses_a_target_that_landed(self) -> None:
-        self.write_manifest(["CD-0062"])
+        git(self.root, "checkout", "--quiet", "before-seed")
+        self.write_record("CD-0062")
         self.commit()
         git(self.root, "branch", "landed")
+        git(self.root, "checkout", "--quiet", "main")
+        (self.root / "docs/knowledge/records/CD-0062.json").unlink(missing_ok=True)
 
         findings = self.move(against="landed")
 
         self.assertTrue(any("already on landed" in finding for finding in findings))
 
     def test_branch_local_cd_moves_against_a_landed_ref(self) -> None:
-        self.write_manifest(["CD-0060"])
-        self.commit()
-        git(self.root, "branch", "landed")
-
-        self.assertEqual(self.move(against="landed"), [])
+        self.assertEqual(self.move(against="before-seed"), [])
         self.assertTrue((self.root / "docs/knowledge/records/CD-0062.json").exists())
 
     def test_unreachable_ref_does_not_block(self) -> None:

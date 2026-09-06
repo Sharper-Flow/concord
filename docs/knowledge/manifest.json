@@ -1,0 +1,80 @@
+{
+  "dispositions": [],
+  "doc_contract": {
+    "activation": {
+      "evidence": "Flip doc_contract.enforced to true only when all three hold: scripts/check-doc-contract.py reports zero findings over registered records; zero acceptance criteria are unbound or mis-bound; scripts/test-doc-contract.py is green and every then-current report-mode finding has been individually reviewed as a true positive, with that review recorded on the flipping change. Criterion recorded 2026-08-24 before any activation.",
+      "max_false_positives": 0,
+      "max_registered_findings": 0,
+      "max_unresolved_criteria": 0
+    },
+    "banned_phrases": [
+      "in order to",
+      "utilize",
+      "leverage",
+      "it is important to note",
+      "needless to say",
+      "at the end of the day"
+    ],
+    "constitution": {
+      "ac_required": false,
+      "required_sections": [
+        "Purpose"
+      ]
+    },
+    "decision": {
+      "ac_required": false,
+      "required_sections": []
+    },
+    "enforced": true,
+    "lesson": {
+      "ac_required": false,
+      "required_sections": []
+    },
+    "reference": {
+      "ac_required": false,
+      "required_sections": []
+    },
+    "research": {
+      "ac_required": false,
+      "required_sections": [
+        "Findings"
+      ]
+    },
+    "spec": {
+      "ac_required": true,
+      "required_sections": [
+        "Context",
+        "Contract",
+        "Acceptance criteria",
+        "Verification"
+      ]
+    }
+  },
+  "exclusions": [
+    "docs/agent-lanes-contract.md",
+    "docs/generated-agent-tool-surface.md",
+    "docs/research/"
+  ],
+  "indexed_kinds": [
+    "work_note",
+    "constitution",
+    "decision",
+    "spec",
+    "lesson",
+    "reference",
+    "research"
+  ],
+  "knowledge_roots": [
+    "docs/"
+  ],
+  "schema_version": "1.2",
+  "supported_kinds": [
+    "work_note",
+    "constitution",
+    "decision",
+    "spec",
+    "lesson",
+    "reference",
+    "research"
+  ]
+}

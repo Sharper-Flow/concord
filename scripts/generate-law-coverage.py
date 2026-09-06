@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Deterministically generate docs/law-coverage.v1.json from per-record shards.
+"""Compose the law-coverage record from its shards and keep them canonical.
+
+The shards under docs/knowledge/coverage/ are the committed authority
+(CD-0114). No aggregate file is written; readers compose the record through
+scripts/knowledge_index.py.
 
 Every coverage record is authored as a single JSON object under
 docs/knowledge/coverage/<id>.json. This script globs those shards, validates
@@ -7,9 +11,6 @@ their closed field set and state obligations, sorts the resulting records by
 id, and emits the aggregate manifest that check-law-coverage.py continues to
 read. The aggregate shape is unchanged: {schema_version, source, records}.
 
-Run without flags to regenerate docs/law-coverage.v1.json in place. Run with
---check to fail when the aggregate differs from the derived bytes. Run with
---update as an explicit alias for the default regenerate behaviour.
 """
 from __future__ import annotations
 
@@ -23,10 +24,9 @@ import shard_format  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 SHARD_DIR = ROOT / "docs/knowledge/coverage"
-AGGREGATE = ROOT / "docs/law-coverage.v1.json"
 
 SOURCE = {
-    "path": "docs/concord-knowledge-index.v1.json",
+    "path": "docs/knowledge",
     "description": (
         "Every record indexed as Concord law is a subject here. This manifest "
         "never decides what counts as law; check-law-coverage.py derives the "
@@ -149,22 +149,9 @@ def derive_aggregate(root: Path, findings: list[str]) -> bytes | None:
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "--check",
-        action="store_true",
-        help="verify the aggregate matches the derived bytes and exit non-zero on drift",
-    )
-    parser.add_argument(
-        "--update",
-        action="store_true",
-        help="write the derived aggregate to docs/law-coverage.v1.json (default behaviour)",
-    )
-    parser.add_argument(
-        "--root",
-        type=Path,
-        default=ROOT,
-        help="repository root (default: the generator's repository)",
-    )
+    parser.add_argument("--check", action="store_true", help="fail when the shards do not compose or are not canonical")
+    parser.add_argument("--update", action="store_true", help="normalise the shards to their canonical encoding")
+    parser.add_argument("--root", type=Path, default=ROOT, help="repository root (default: the generator's repository)")
     args = parser.parse_args()
 
     findings: list[str] = []
@@ -172,32 +159,23 @@ def main() -> int:
     if derived is None:
         for finding in findings:
             print(finding)
-        print(f"law coverage generation failed: {len(findings)} finding(s)", file=sys.stderr)
+        print(f"law coverage composition failed: {len(findings)} finding(s)", file=sys.stderr)
         return 1
 
-    aggregate_path = args.root / "docs/law-coverage.v1.json"
     shards = sorted((args.root / "docs/knowledge/coverage").glob("*.json"))
     if args.check:
-        if not aggregate_path.is_file():
-            print(f"aggregate missing: {aggregate_path.relative_to(args.root)}", file=sys.stderr)
-            return 1
         unformatted = shard_format.drifted(shards)
         if unformatted:
-            print("coverage shard format drift: regenerate to normalise", file=sys.stderr)
+            print("coverage shard format drift: run --update to normalise", file=sys.stderr)
             for path in unformatted[:20]:
                 print(f"  {path.relative_to(args.root)}", file=sys.stderr)
             return 1
-        actual = aggregate_path.read_bytes()
-        if actual != derived:
-            print("law coverage aggregate drift: shards and aggregate disagree", file=sys.stderr)
-            return 1
-        print("law coverage aggregate is up to date")
+        print(f"law coverage composes from {len(shards)} shard(s)")
         return 0
 
     for path in shard_format.normalise(shards):
         print(f"normalised {path.relative_to(args.root)}")
-    aggregate_path.write_bytes(derived)
-    print(f"wrote {aggregate_path.relative_to(args.root)}")
+    print(f"law coverage composes from {len(shards)} shard(s)")
     return 0
 
 

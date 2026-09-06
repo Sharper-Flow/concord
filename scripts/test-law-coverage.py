@@ -33,7 +33,10 @@ def test_repository_manifest_passes() -> None:
 
 def test_every_anchor_kind_is_exercised_by_the_manifest() -> None:
     """A resolver nothing uses is a resolver nothing proves."""
-    manifest = json.loads((ROOT / "docs/law-coverage.v1.json").read_text(encoding="utf-8"))
+    sys.path.insert(0, str(ROOT / "scripts"))
+    import knowledge_index
+
+    manifest = knowledge_index.compose_law_coverage(ROOT)
     used = {
         anchor["kind"]
         for record in manifest["records"]
@@ -183,30 +186,24 @@ def test_state_obligations_are_exclusive_in_both_directions() -> None:
 
 def test_outstanding_issue_pointer_must_be_live() -> None:
     """An outstanding record dies with its issue: closed and absent pointers fail (issue #324)."""
-    manifest = ROOT / "docs/law-coverage.v1.json"
     shard = ROOT / "docs/knowledge/coverage/CD-0006.json"
     snapshot = ROOT / "docs/issue-state.v1.json"
     originals = (
-        manifest.read_text(encoding="utf-8"),
         shard.read_text(encoding="utf-8"),
         snapshot.read_text(encoding="utf-8"),
     )
     try:
-        snapshot_document = json.loads(originals[2])
+        snapshot_document = json.loads(originals[1])
         snapshot_document["issues"]["219"] = "closed"
         snapshot.write_text(json.dumps(snapshot_document, indent=2) + "\n", encoding="utf-8")
 
         def run_with_issue(number: int) -> subprocess.CompletedProcess:
-            for target in (manifest, shard):
-                document = json.loads(target.read_text(encoding="utf-8"))
-                pool = document["records"] if "records" in document else [document]
-                for record in pool:
-                    if record.get("id") == "CD-0006":
-                        record["state"] = "outstanding"
-                        record["issue"] = number
-                        record.pop("evidence", None)
-                        record.pop("reason", None)
-                target.write_text(json.dumps(document, indent=2) + "\n", encoding="utf-8")
+            record = json.loads(shard.read_text(encoding="utf-8"))
+            record["state"] = "outstanding"
+            record["issue"] = number
+            record.pop("evidence", None)
+            record.pop("reason", None)
+            shard.write_text(json.dumps(record, indent=2, sort_keys=True) + "\n", encoding="utf-8")
             return subprocess.run(
                 [sys.executable, str(ROOT / "scripts/check-law-coverage.py")],
                 capture_output=True,
@@ -221,7 +218,7 @@ def test_outstanding_issue_pointer_must_be_live() -> None:
         assert absent.returncode == 1, absent.stdout
         assert "absent from the issue-state snapshot" in absent.stdout
     finally:
-        for target, content in zip((manifest, shard, snapshot), originals):
+        for target, content in zip((shard, snapshot), originals):
             target.write_text(content, encoding="utf-8")
 
 
@@ -262,13 +259,11 @@ def test_green_repository_passes_offline_pointer_validation() -> None:
     assert result.returncode == 0, result.stdout
 
 
-def test_cli_exits_nonzero_on_a_broken_manifest() -> None:
-    manifest = ROOT / "docs/law-coverage.v1.json"
-    original = manifest.read_text(encoding="utf-8")
-    document = json.loads(original)
-    document["records"] = document["records"][:-1]
+def test_cli_exits_nonzero_on_a_missing_coverage_shard() -> None:
+    shard = ROOT / "docs/knowledge/coverage/CD-0006.json"
+    original = shard.read_text(encoding="utf-8")
     try:
-        manifest.write_text(json.dumps(document, indent=2) + "\n", encoding="utf-8")
+        shard.unlink()
         result = subprocess.run(
             [sys.executable, str(ROOT / "scripts/check-law-coverage.py")],
             capture_output=True,
@@ -277,7 +272,7 @@ def test_cli_exits_nonzero_on_a_broken_manifest() -> None:
         assert result.returncode == 1, result.stdout
         assert "undeclared law record" in result.stdout
     finally:
-        manifest.write_text(original, encoding="utf-8")
+        shard.write_text(original, encoding="utf-8")
 
 
 if __name__ == "__main__":

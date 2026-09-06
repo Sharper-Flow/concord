@@ -138,8 +138,8 @@ rule, not a preference: without it, the two readers disagree again.
 
 ## Record identity and paths
 
-Record identifier conventions below are read from the live manifest,
-[`docs/concord-knowledge-index.v1.json`](./concord-knowledge-index.v1.json).
+Record identifier conventions below are read from the live record shards
+under [`docs/knowledge/records/`](./knowledge/records/).
 
 | Kind | Identifier convention | Basis |
 |---|---|---|
@@ -204,7 +204,7 @@ language list and refuses such a block as `vendor-content`.
 
 `doc_contract.enforced` starts false and flips only on a numerical criterion
 recorded in the manifest before any activation: the `doc_contract.activation`
-object in [`concord-knowledge-index.v1.json`](./concord-knowledge-index.v1.json)
+object in [`knowledge/manifest.json`](./knowledge/manifest.json)
 names three zero-valued conditions — zero report-mode findings over registered
 records, zero unresolved acceptance criteria, and zero known false positives
 (the checker's test corpus green, plus an individual review of every

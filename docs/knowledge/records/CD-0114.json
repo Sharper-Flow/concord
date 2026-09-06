@@ -1,0 +1,34 @@
+{
+  "date": "2026-09-06T00:00:00Z",
+  "evidence": [
+    "internal/store/knowledge_shards.go",
+    "scripts/knowledge_index.py",
+    "scripts/generate-knowledge-index.py"
+  ],
+  "home_domain_id": "product-memory",
+  "id": "CD-0114",
+  "kind": "decision",
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "CD-0020"
+    }
+  ],
+  "path": "docs/decisions/CD-0114-the-knowledge-manifest-is-composed-from-shards.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:c069e1c4571c5a60c9c0741164d08fe969da0f74b3ac234c20c940d3661f6dd6",
+  "status": "accepted",
+  "summary": "The knowledge manifest and the law-coverage record are committed as shards under docs/knowledge and composed on read: the store composes the manifest from the shard tree at a commit, the scripts compose it through scripts/knowledge_index.py, lesson publication writes one record shard, and a commit that predates the shards is read from its aggregate file. Neither aggregate is committed, so two additions never touch the same line.",
+  "tags": [
+    "knowledge",
+    "docs",
+    "git"
+  ],
+  "title": "the knowledge manifest is composed from shards"
+}

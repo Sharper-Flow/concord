@@ -1,10 +1,14 @@
 #!/usr/bin/env python3
-"""Generate the durable knowledge index from per-record source shards."""
+"""Compose the durable knowledge index from its shards and keep them canonical.
+
+The shards under docs/knowledge/ are the committed authority (CD-0114). No
+aggregate file is written; readers compose the index through
+scripts/knowledge_index.py.
+"""
 
 from __future__ import annotations
 
 import argparse
-import difflib
 import json
 import re
 import sys
@@ -17,7 +21,7 @@ import shard_format  # noqa: E402
 ROOT = Path(__file__).resolve().parents[1]
 SHARD_DIR = Path("docs/knowledge/records")
 DOMAIN_REGISTRY = Path("docs/knowledge/domain-registry.json")
-AGGREGATE = Path("docs/concord-knowledge-index.v1.json")
+HEAD = Path("docs/knowledge/manifest.json")
 
 ALLOWED_ROOT = {
     "schema_version",
@@ -303,25 +307,21 @@ def load_records(root: Path, schema_version: str, domain_ids: set[str], findings
 
 def template_for(root: Path, findings: list[str], template: dict[str, object] | None) -> dict[str, object] | None:
     if template is None:
-        aggregate = root / AGGREGATE
-        if aggregate.is_file():
-            loaded = load_json(aggregate, findings)
-            if not isinstance(loaded, dict):
-                return None
-            template = loaded
-        else:
-            template = {
-                "schema_version": "1.2",
-                "supported_kinds": sorted(SUPPORTED_KINDS),
-                "indexed_kinds": sorted(SUPPORTED_KINDS),
-            }
-    unknown = set(template) - ALLOWED_ROOT
+        head = root / HEAD
+        if not head.is_file():
+            findings.append(f"manifest head missing: {HEAD}")
+            return None
+        loaded = load_json(head, findings)
+        if not isinstance(loaded, dict):
+            return None
+        template = loaded
+    unknown = set(template) - (ALLOWED_ROOT - {"domain_registry", "records"})
     if unknown:
-        findings.append(f"aggregate template has unknown keys: {sorted(unknown)}")
+        findings.append(f"manifest head has unknown keys: {sorted(unknown)}")
     if template.get("schema_version") != "1.2":
-        findings.append("aggregate template schema_version must be 1.2")
+        findings.append("manifest head schema_version must be 1.2")
     if not isinstance(template.get("supported_kinds"), list) or not isinstance(template.get("indexed_kinds"), list):
-        findings.append("aggregate template is missing kind arrays")
+        findings.append("manifest head is missing kind arrays")
     return dict(template)
 
 
@@ -354,55 +354,32 @@ def derive_aggregate(root: Path, findings: list[str], template: dict[str, object
     return (json.dumps(aggregate, ensure_ascii=False, sort_keys=False, indent=2) + "\n").encode("utf-8")
 
 
-def bounded_diff(actual: bytes, derived: bytes) -> list[str]:
-    lines = list(difflib.unified_diff(
-        actual.decode("utf-8", errors="replace").splitlines(),
-        derived.decode("utf-8", errors="replace").splitlines(),
-        fromfile=str(AGGREGATE),
-        tofile="derived",
-        lineterm="",
-    ))
-    return lines[:80]
-
-
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--check", action="store_true", help="fail when the aggregate differs from shards")
-    parser.add_argument("--update", action="store_true", help="write the aggregate derived from shards")
+    parser.add_argument("--check", action="store_true", help="fail when the shards do not compose or are not canonical")
+    parser.add_argument("--update", action="store_true", help="normalise the shards to their canonical encoding")
     parser.add_argument("--root", type=Path, default=ROOT, help="repository root")
     args = parser.parse_args()
     findings: list[str] = []
-    aggregate_path = args.root / AGGREGATE
     derived = derive_aggregate(args.root, findings)
     if derived is None:
         for finding in findings[:80]:
             print(finding)
-        print(f"knowledge index generation failed: {len(findings)} finding(s)", file=sys.stderr)
+        print(f"knowledge index composition failed: {len(findings)} finding(s)", file=sys.stderr)
         return 1
-    shards = sorted((args.root / SHARD_DIR).glob("*.json"))
+    shards = sorted((args.root / SHARD_DIR).glob("*.json")) + [args.root / HEAD]
     if args.check:
-        if not aggregate_path.is_file():
-            print(f"aggregate missing: {AGGREGATE}", file=sys.stderr)
-            return 1
         unformatted = shard_format.drifted(shards)
         if unformatted:
-            print("knowledge shard format drift: regenerate to normalise", file=sys.stderr)
+            print("knowledge shard format drift: run --update to normalise", file=sys.stderr)
             for path in unformatted[:20]:
                 print(f"  {path.relative_to(args.root)}", file=sys.stderr)
             return 1
-        actual = aggregate_path.read_bytes()
-        if actual != derived:
-            print("knowledge index aggregate drift: shards and aggregate disagree", file=sys.stderr)
-            for line in bounded_diff(actual, derived):
-                print(line, file=sys.stderr)
-            return 1
-        print("knowledge index aggregate is up to date")
+        print(f"knowledge index composes from {len(shards) - 1} record shard(s)")
         return 0
     for path in shard_format.normalise(shards):
         print(f"normalised {path.relative_to(args.root)}")
-    aggregate_path.parent.mkdir(parents=True, exist_ok=True)
-    aggregate_path.write_bytes(derived)
-    print(f"wrote {AGGREGATE}")
+    print(f"knowledge index composes from {len(shards) - 1} record shard(s)")
     return 0
 
 

@@ -66,9 +66,19 @@ REFRESH_COMMAND = "scripts/update-issue-state.py"
 # would let a plane be added without its pointers being covered, which is the
 # absence this registry exists to make impossible.
 ISSUE_STATE_MANIFESTS = (
-    (ROOT / "docs/law-coverage.v1.json", "records"),
+    (ROOT / "docs/knowledge/coverage", "records"),
     (ROOT / "docs/reachability-exceptions.v1.json", "exceptions"),
 )
+
+
+def load_plane(path: Path) -> dict:
+    """The document a registered plane composes. A directory plane is a shard
+    tree composed through knowledge_index; a file plane is read as JSON."""
+    if path.is_dir():
+        import knowledge_index
+
+        return knowledge_index.compose_law_coverage(ROOT)
+    return json.loads(path.read_text(encoding="utf-8"))
 
 
 class DuplicateKeyError(ValueError):
@@ -200,7 +210,7 @@ def collect_outstanding_issues() -> list[int]:
     """Every issue an outstanding record points at, across every declared plane."""
     numbers: set[int] = set()
     for path, key in ISSUE_STATE_MANIFESTS:
-        document = json.loads(path.read_text(encoding="utf-8"))
+        document = load_plane(path)
         for record in document.get(key, []):
             if (
                 isinstance(record, dict)

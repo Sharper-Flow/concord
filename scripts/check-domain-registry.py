@@ -37,7 +37,8 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-AGGREGATE = ROOT / "docs/concord-knowledge-index.v1.json"
+sys.path.insert(0, str(ROOT / "scripts"))
+import knowledge_index  # noqa: E402
 
 def report(findings: list[str], subject: str) -> int:
     if findings:
@@ -51,10 +52,13 @@ def report(findings: list[str], subject: str) -> int:
 
 def main() -> int:
     findings: list[str] = []
-    manifest = json.loads(AGGREGATE.read_text(encoding="utf-8"))
+    try:
+        manifest = knowledge_index.compose_manifest(ROOT)
+    except knowledge_index.ComposeError as exc:
+        return report(list(exc.findings), "domain registry")
     registry = manifest.get("domain_registry")
     if not isinstance(registry, dict):
-        return report(["docs/concord-knowledge-index.v1.json: no domain_registry"], "domain registry")
+        return report(["docs/knowledge: no domain_registry"], "domain registry")
 
     root_id = registry.get("root_domain_id")
     domains = registry.get("domains", [])

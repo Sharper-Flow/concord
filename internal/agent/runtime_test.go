@@ -18,6 +18,7 @@ import (
 
 	"github.com/sharper-flow/concord/internal/launcher"
 	"github.com/sharper-flow/concord/internal/launcher/storeport"
+	"github.com/sharper-flow/concord/internal/pm1fixture"
 	"github.com/sharper-flow/concord/internal/portfolio"
 	"github.com/sharper-flow/concord/internal/store"
 	"github.com/sharper-flow/concord/internal/store/storetest"
@@ -556,7 +557,11 @@ func runtimeKnowledgeStore(t *testing.T, id, kind, scopeMode string, frozenProdu
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(filepath.Join(repo, "docs/concord-knowledge-index.v1.json"), append(manifestBytes, '\n'), 0o644); err != nil {
+		var seed store.KnowledgeManifest
+		if err := json.Unmarshal(manifestBytes, &seed); err != nil {
+			t.Fatal(err)
+		}
+		if err := pm1fixture.WriteKnowledgeShards(repo, seed); err != nil {
 			t.Fatal(err)
 		}
 	}

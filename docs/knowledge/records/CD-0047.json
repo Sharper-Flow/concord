@@ -7,7 +7,7 @@
   "evidence": [
     "scripts/check-law-coverage.py",
     "scripts/check-reachability.py",
-    "docs/law-coverage.v1.json",
+    "scripts/knowledge_index.py",
     "docs/reachability-exceptions.v1.json"
   ],
   "home_domain_id": "product-memory",

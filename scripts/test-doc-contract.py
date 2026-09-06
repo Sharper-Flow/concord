@@ -100,7 +100,9 @@ def run_checker(root: Path, manifest: dict, argv: list[str] | None = None) -> tu
     manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
     captured_out = StringIO()
     captured_err = StringIO()
-    with mock.patch.object(checker, "ROOT", root), mock.patch.object(checker, "MANIFEST", manifest_path):
+    with mock.patch.object(checker, "ROOT", root), mock.patch.object(
+        checker.knowledge_index, "compose_manifest_bytes", lambda _root=None: manifest_path.read_bytes()
+    ):
         old_out, old_err = sys.stdout, sys.stderr
         sys.stdout, sys.stderr = captured_out, captured_err
         try:
@@ -824,9 +826,7 @@ def test_empty_section_name_is_rejected_for_a_kind_whose_list_may_be_empty() -> 
 
 def test_live_manifest_declares_a_contract_for_every_new_kind() -> None:
     """The taxonomy's non-law kinds must forbid acceptance criteria, not ignore them."""
-    live = json.loads(
-        (Path(checker.ROOT) / "docs/concord-knowledge-index.v1.json").read_text(encoding="utf-8")
-    )
+    live = checker.knowledge_index.compose_manifest(Path(checker.ROOT))
     contract = live["doc_contract"]
     for kind in ("constitution", "reference", "research"):
         assert kind in contract, kind
@@ -1449,7 +1449,7 @@ def test_activation_sequence_requires_a_prior_committed_criterion() -> None:
     git("add", "-A")
     git("commit", "-qm", "one-change flip")
     findings: list[str] = []
-    with mock.patch.object(checker, "ROOT", root), mock.patch.object(checker, "MANIFEST", manifest):
+    with mock.patch.object(checker, "ROOT", root):
         checker.check_activation_sequence(True, activation, findings)
     assert any("no parent manifest carrying the activation object" in f for f in findings), findings
 
@@ -1462,7 +1462,7 @@ def test_activation_sequence_requires_a_prior_committed_criterion() -> None:
     git("add", "-A")
     git("commit", "-qm", "flip")
     findings = []
-    with mock.patch.object(checker, "ROOT", root), mock.patch.object(checker, "MANIFEST", manifest):
+    with mock.patch.object(checker, "ROOT", root):
         checker.check_activation_sequence(True, activation, findings)
     assert not findings, findings
 
@@ -1473,7 +1473,7 @@ def test_activation_sequence_requires_a_prior_committed_criterion() -> None:
     git("add", "-A")
     git("commit", "-qm", "drift with flip")
     findings = []
-    with mock.patch.object(checker, "ROOT", root), mock.patch.object(checker, "MANIFEST", manifest):
+    with mock.patch.object(checker, "ROOT", root):
         checker.check_activation_sequence(True, drifted, findings)
     assert any("changed together with" in f for f in findings), findings
 

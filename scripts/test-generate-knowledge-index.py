@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Focused tests for the knowledge-index shard generator."""
+"""Focused tests for the knowledge-index shard composer."""
 
 from __future__ import annotations
 
@@ -22,6 +22,14 @@ SPEC.loader.exec_module(generator)
 def build_root(directory: str) -> Path:
     root = Path(directory)
     (root / "docs/knowledge/records").mkdir(parents=True)
+    (root / "docs/knowledge/manifest.json").write_text(
+        json.dumps({
+            "schema_version": "1.2",
+            "supported_kinds": ["lesson"],
+            "indexed_kinds": ["lesson"],
+        }, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
     (root / "docs/knowledge/domain-registry.json").write_text(
         json.dumps({
             "schema_version": "1.0",
@@ -70,29 +78,41 @@ def run(*args: str) -> subprocess.CompletedProcess[str]:
     )
 
 
-def test_clean_generation_and_id_order() -> None:
+def test_clean_composition_and_id_order() -> None:
     with tempfile.TemporaryDirectory() as directory:
         root = build_root(directory)
         write_shard(root, record("ZZ-0001"))
         write_shard(root, record("AA-0001"))
         result = run("--update", "--root", str(root))
         assert result.returncode == 0, result.stderr
-        aggregate = json.loads((root / generator.AGGREGATE).read_text(encoding="utf-8"))
-        assert [item["id"] for item in aggregate["records"]] == ["AA-0001", "ZZ-0001"]
+        assert not (root / "docs/concord-knowledge-index.v1.json").exists()
+        composed = json.loads(generator.derive_aggregate(root, []))
+        assert [item["id"] for item in composed["records"]] == ["AA-0001", "ZZ-0001"]
+        assert composed["schema_version"] == "1.2"
+        assert composed["domain_registry"]["product_key"] == "concord"
         assert run("--check", "--root", str(root)).returncode == 0
 
 
-def test_stale_aggregate_has_bounded_finding() -> None:
+def test_unformatted_shard_has_bounded_finding() -> None:
     with tempfile.TemporaryDirectory() as directory:
         root = build_root(directory)
         write_shard(root, record("AA-0001"))
-        assert run("--update", "--root", str(root)).returncode == 0
-        aggregate = root / generator.AGGREGATE
-        aggregate.write_bytes(aggregate.read_bytes().replace(b"AA-0001", b"ZZ-0001", 1))
+        shard = root / "docs/knowledge/records/AA-0001.json"
+        shard.write_text(json.dumps(json.loads(shard.read_text(encoding="utf-8"))) + "\n", encoding="utf-8")
         result = run("--check", "--root", str(root))
         assert result.returncode == 1
-        assert "aggregate drift" in result.stderr
+        assert "format drift" in result.stderr
         assert len(result.stderr.splitlines()) <= 85
+
+
+def test_missing_head_is_rejected() -> None:
+    with tempfile.TemporaryDirectory() as directory:
+        root = build_root(directory)
+        write_shard(root, record("AA-0001"))
+        (root / "docs/knowledge/manifest.json").unlink()
+        result = run("--check", "--root", str(root))
+        assert result.returncode == 1
+        assert "manifest head missing" in result.stdout
 
 
 def test_malformed_shard_is_rejected() -> None:
@@ -117,7 +137,7 @@ def test_legacy_aggregate_template_is_rejected() -> None:
         }
         findings: list[str] = []
         assert generator.derive_aggregate(root, findings, template) is None
-        assert findings == ["aggregate template schema_version must be 1.2"]
+        assert findings == ["manifest head schema_version must be 1.2"]
 
 
 def test_generation_is_deterministic() -> None:
@@ -126,12 +146,12 @@ def test_generation_is_deterministic() -> None:
         write_shard(root, record("BB-0001"))
         write_shard(root, record("AA-0001"))
         assert run("--update", "--root", str(root)).returncode == 0
-        first = (root / generator.AGGREGATE).read_bytes()
+        first = generator.derive_aggregate(root, [])
         assert run("--update", "--root", str(root)).returncode == 0
-        assert (root / generator.AGGREGATE).read_bytes() == first
+        assert generator.derive_aggregate(root, []) == first
 
 
-def test_repository_shards_match_aggregate() -> None:
+def test_repository_shards_compose() -> None:
     result = run("--check")
     assert result.returncode == 0, result.stderr
 

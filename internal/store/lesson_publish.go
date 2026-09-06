@@ -1,14 +1,12 @@
 package store
 
 import (
-	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"os"
 	"path"
-	"sort"
 	"strings"
 	"time"
 )
@@ -22,11 +20,10 @@ import (
 // record up for search.
 
 const (
-	lessonManifestPath = "docs/concord-knowledge-index.v1.json"
-	lessonRecordDir    = "docs/knowledge/records"
-	maxLessonContent   = 32768
-	maxLessonTags      = 8
-	maxLessonEvidence  = 32
+	lessonRecordDir   = knowledgeRecordTree
+	maxLessonContent  = 32768
+	maxLessonTags     = 8
+	maxLessonEvidence = 32
 )
 
 // LessonPublication is one separately accepted durable lesson (CD-0009 D7).
@@ -150,16 +147,16 @@ func PublishLessonRecord(ctx context.Context, home KnowledgeHome, req LessonPubl
 
 	notePath := "docs/lessons/" + now.UTC().Format("2006-01-02") + "-" + slugifyKnowledgeTitle(req.Title) + ".md"
 	fullNotePath := path.Join(home.RepoPath, notePath)
-	manifestFullPath := path.Join(home.RepoPath, lessonManifestPath)
 	recordShardPath := path.Join(lessonRecordDir, req.LessonID+".json")
 	recordShardFullPath := path.Join(home.RepoPath, recordShardPath)
 
-	// Existing manifest governs idempotency and conflicts.
-	manifestBytes, readErr := os.ReadFile(manifestFullPath) //nolint:gosec // lessonManifestPath is fixed and home.RepoPath is the operator-selected Git authority.
+	// The manifest the working-tree shards compose governs idempotency and
+	// conflicts (CD-0114).
+	shards, readErr := readKnowledgeShardsWorkingTree(home.RepoPath)
 	if readErr != nil {
-		return out, wrapFailure(KindGitUnreachable, "publish_lesson", "cannot read the knowledge manifest", true, "restore the git knowledge home", readErr)
+		return out, readErr
 	}
-	manifest, parseErr := parseKnowledgeManifest(manifestBytes)
+	manifest, parseErr := composeKnowledgeManifest(shards)
 	if parseErr != nil {
 		return out, parseErr
 	}
@@ -203,26 +200,18 @@ func PublishLessonRecord(ctx context.Context, home KnowledgeHome, req LessonPubl
 		return out, wrapFailure(KindGitUnreachable, "publish_lesson", "cannot write the lesson record shard", true, "restore write access to the git home", err)
 	}
 
-	// Append the record and rewrite the manifest preserving the generator's
-	// canonical formatting: root order as authored, records sorted by ID,
-	// record keys sorted, indent two.
-	manifest.Records = append(manifest.Records, record)
-	sort.SliceStable(manifest.Records, func(i, j int) bool { return manifest.Records[i].ID < manifest.Records[j].ID })
-	if err := validateKnowledgeManifest(manifest); err != nil {
+	// The new shard joins the manifest the shards compose. The composed
+	// manifest is validated whole, so a record that collides or breaks a
+	// manifest rule is refused before anything is staged.
+	shards.records[req.LessonID+".json"] = shard
+	if _, err := composeKnowledgeManifest(shards); err != nil {
 		return out, err
-	}
-	updated, err := marshalKnowledgeManifest(manifest)
-	if err != nil {
-		return out, err
-	}
-	if err := os.WriteFile(manifestFullPath, updated, 0o644); err != nil { //nolint:gosec // the knowledge manifest is public repository content and requires normal Git file permissions.
-		return out, wrapFailure(KindGitUnreachable, "publish_lesson", "cannot write the knowledge manifest", true, "restore write access to the git home", err)
 	}
 
-	if _, err := runGit(ctx, home.RepoPath, "add", "--", notePath, recordShardPath, lessonManifestPath); err != nil {
+	if _, err := runGit(ctx, home.RepoPath, "add", "--", notePath, recordShardPath); err != nil {
 		return out, wrapFailure(KindGitUnreachable, "publish_lesson", "cannot stage the lesson", true, "restore git write access and retry", err)
 	}
-	if _, err := runGit(ctx, home.RepoPath, "commit", "--quiet", "-m", "docs: publish Concord lesson "+req.LessonID, "--", notePath, recordShardPath, lessonManifestPath); err != nil {
+	if _, err := runGit(ctx, home.RepoPath, "commit", "--quiet", "-m", "docs: publish Concord lesson "+req.LessonID, "--", notePath, recordShardPath); err != nil {
 		return out, wrapFailure(KindGitUnreachable, "publish_lesson", "cannot commit the lesson", true, "complete the native git commit and reconcile", err)
 	}
 	commit, err := runGit(ctx, home.RepoPath, "rev-parse", "HEAD")
@@ -234,50 +223,6 @@ func PublishLessonRecord(ctx context.Context, home KnowledgeHome, req LessonPubl
 	out.Note = manifestRecordNote(record, oid, manifest.SchemaVersion)
 	out.CommitOID = oid
 	return out, nil
-}
-
-// marshalKnowledgeManifest renders the manifest with two-space indent, root
-// keys in the authored order, canonical record key order, and one trailing
-// newline — the same bytes scripts/generate-knowledge-index.py derives from the
-// record shards. It is lossless: every top-level key the parsed manifest
-// carried is present in the output, whether or not this package models it.
-func marshalKnowledgeManifest(manifest KnowledgeManifest) ([]byte, error) {
-	// Start from the keys this package does not interpret so they survive the
-	// rewrite, then overwrite the ones it owns. A top-level key added to the
-	// contract later is carried here, not enumerated; only its position comes
-	// from canonicalManifestRootOrder.
-	values := make(map[string]any, len(manifest.uninterpreted)+len(manifestRootKeys))
-	for key, value := range manifest.uninterpreted {
-		values[key] = value
-	}
-	values["schema_version"] = manifest.SchemaVersion
-	values["supported_kinds"] = manifest.SupportedKinds
-	values["indexed_kinds"] = manifest.IndexedKinds
-	if len(manifest.KnowledgeRoots) > 0 {
-		values["knowledge_roots"] = manifest.KnowledgeRoots
-	}
-	if len(manifest.Exclusions) > 0 {
-		values["exclusions"] = manifest.Exclusions
-	}
-	values["domain_registry"] = manifest.DomainRegistry
-	records := make([]any, 0, len(manifest.Records))
-	for _, record := range manifest.Records {
-		records = append(records, manifestRecordEntry(record))
-	}
-	values["records"] = records
-	if manifest.dispositionsPresent || len(manifest.Dispositions) > 0 {
-		values["dispositions"] = manifest.Dispositions
-	}
-	root := orderManifestFields(values, canonicalManifestRootOrder)
-	compact, err := marshalManifestValue(root)
-	if err != nil {
-		return nil, wrapFailure(KindInvalidNoteProof, "publish_lesson", "cannot encode the knowledge manifest", false, "repair the manifest record", err)
-	}
-	indented := bytes.Buffer{}
-	if err := json.Indent(&indented, compact, "", "  "); err != nil {
-		return nil, wrapFailure(KindInvalidNoteProof, "publish_lesson", "cannot encode the knowledge manifest", false, "repair the manifest record", err)
-	}
-	return append(indented.Bytes(), '\n'), nil
 }
 
 func marshalKnowledgeRecord(record KnowledgeRecord) ([]byte, error) {

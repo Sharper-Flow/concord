@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/sharper-flow/concord/internal/pm1fixture"
 	"github.com/sharper-flow/concord/internal/store"
 	"github.com/sharper-flow/concord/internal/store/storetest"
 )
@@ -41,7 +42,11 @@ func lessonDispatchFixture(t *testing.T) (*store.Store, *Service, Authority, ed2
 		t.Fatal(err)
 	}
 	manifest := "{\n  \"schema_version\": \"1.2\",\n  \"supported_kinds\": [\"work_note\", \"decision\", \"spec\", \"lesson\", \"research\"],\n  \"indexed_kinds\": [\"work_note\", \"decision\", \"spec\", \"lesson\"],\n  \"domain_registry\": {\"schema_version\": \"1.0\", \"product_key\": \"lesson-product\", \"root_domain_id\": \"product-root:lesson-product\", \"domains\": [{\"domain_id\": \"product-root:lesson-product\", \"name\": \"Lesson product\", \"purpose\": \"Product-wide lesson fixture law\", \"status\": \"current\", \"architecture_relations\": []}]},\n  \"records\": []\n}\n"
-	if err := os.WriteFile(filepath.Join(repo, "docs/concord-knowledge-index.v1.json"), []byte(manifest), 0o644); err != nil {
+	var seed store.KnowledgeManifest
+	if err := json.Unmarshal([]byte(manifest), &seed); err != nil {
+		t.Fatal(err)
+	}
+	if err := pm1fixture.WriteKnowledgeShards(repo, seed); err != nil {
 		t.Fatal(err)
 	}
 	run("add", ".")
@@ -115,9 +120,9 @@ func TestDispatchLessonPublishApprovalRoundTripAndReplay(t *testing.T) {
 	if approved.Error != nil {
 		t.Fatalf("approved error=%+v", approved.Error)
 	}
-	manifestBytes, _ := os.ReadFile(filepath.Join(repo, "docs/concord-knowledge-index.v1.json"))
-	if !strings.Contains(string(manifestBytes), "lesson-dispatch-probe") {
-		t.Fatalf("manifest lacks the lesson:\n%s", manifestBytes)
+	shardBytes, err := os.ReadFile(filepath.Join(repo, "docs/knowledge/records/lesson-dispatch-probe.json"))
+	if err != nil || !strings.Contains(string(shardBytes), "lesson-dispatch-probe") {
+		t.Fatalf("record shard lacks the lesson (err=%v):\n%s", err, shardBytes)
 	}
 	commits := strings.TrimSpace(gitOut(t, repo, "rev-list", "--count", "HEAD"))
 

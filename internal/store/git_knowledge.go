@@ -339,14 +339,15 @@ func resolveKnowledgeHead(ctx context.Context, home KnowledgeHome) (string, erro
 const knowledgeWorkNoteTree = "docs/work/"
 
 // knowledgeContentDigest identifies the content the knowledge index projects
-// at a commit: the manifest blob and the canonical work-note tree. Git names
-// each by an object ID that changes exactly when its content does, and the
-// manifest embeds every record's sha256, so a record edit moves the manifest
-// OID. The digest is therefore a function of projected content alone: a
-// commit that touches neither object leaves it unchanged. An absent object
-// contributes its absence, so a manifest added or removed changes the digest.
+// at a commit: the knowledge shard tree, the legacy manifest blob, and the
+// canonical work-note tree. Git names each by an object ID that changes
+// exactly when its content does, and every record shard embeds its sha256, so
+// a record edit moves the shard tree OID. The digest is therefore a function
+// of projected content alone: a commit that touches none of the objects
+// leaves it unchanged. An absent object contributes its absence, so a
+// manifest added or removed changes the digest.
 func knowledgeContentDigest(ctx context.Context, home KnowledgeHome, commitOID string) (string, error) {
-	out, err := runGit(ctx, home.RepoPath, "ls-tree", "-z", commitOID, "--", knowledgeManifestPath, strings.TrimSuffix(knowledgeWorkNoteTree, "/"))
+	out, err := runGit(ctx, home.RepoPath, "ls-tree", "-z", commitOID, "--", knowledgeShardRoot, knowledgeManifestPath, strings.TrimSuffix(knowledgeWorkNoteTree, "/"))
 	if err != nil {
 		return "", wrapFailure(KindGitUnreachable, "knowledge_index", "cannot read the knowledge content identity", true, "restore access to the git home and retry", err)
 	}
@@ -354,16 +355,18 @@ func knowledgeContentDigest(ctx context.Context, home KnowledgeHome, commitOID s
 	if err != nil {
 		return "", wrapFailure(KindInvalidNoteProof, "knowledge_index", "git returned malformed tree entries", false, "repair the canonical git tree", err)
 	}
-	manifest, notes := "absent", "absent"
+	shards, manifest, notes := "absent", "absent", "absent"
 	for _, entry := range entries {
 		switch entry.path {
+		case knowledgeShardRoot:
+			shards = entry.kind + ":" + entry.oid
 		case knowledgeManifestPath:
 			manifest = entry.kind + ":" + entry.oid
 		case strings.TrimSuffix(knowledgeWorkNoteTree, "/"):
 			notes = entry.kind + ":" + entry.oid
 		}
 	}
-	sum := sha256.Sum256([]byte("manifest=" + manifest + "\nnotes=" + notes + "\n"))
+	sum := sha256.Sum256([]byte("shards=" + shards + "\nmanifest=" + manifest + "\nnotes=" + notes + "\n"))
 	return "sha256:" + hex.EncodeToString(sum[:]), nil
 }
 

@@ -1,11 +1,9 @@
 #!/usr/bin/env python3
 """Tests for scripts/generate-law-coverage.py.
 
-The generator owns the shard-to-aggregate pipeline: it validates each shard,
-sorts records by id deterministically, writes the aggregate, and can check
-whether the aggregate is stale. These tests exercise the public functions so
-the repository can catch generator regressions without relying on the on-disk
-aggregate.
+The composer validates each shard, sorts records by id deterministically, and
+keeps the shards canonical. No aggregate file exists; readers compose the
+record in memory. These tests exercise the public functions and the CLI.
 """
 from __future__ import annotations
 
@@ -49,7 +47,7 @@ def test_empty_shard_directory_is_rejected() -> None:
         assert any("no shards found" in finding for finding in findings)
 
 
-def test_aggregate_sorted_by_id_and_rejects_stale() -> None:
+def test_composition_sorted_by_id_and_rejects_unformatted_shard() -> None:
     with tempfile.TemporaryDirectory() as directory:
         root = build_root(directory)
         write_shard(root, {"id": "ZZ-0001", "state": "outstanding", "issue": 1})
@@ -66,31 +64,26 @@ def test_aggregate_sorted_by_id_and_rejects_stale() -> None:
             "ZZ-0001",
         ]
 
-        aggregate_path = root / "docs/law-coverage.v1.json"
-        aggregate_path.write_bytes(derived)
-
-        # --check passes on the freshly written aggregate.
+        # --check passes on canonical shards and writes no aggregate.
         result = subprocess.run(
             [sys.executable, str(ROOT / "scripts/generate-law-coverage.py"), "--check", "--root", str(root)],
             capture_output=True,
             text=True,
         )
         assert result.returncode == 0, result.stderr
+        assert not (root / "docs/law-coverage.v1.json").exists()
 
-        # Hand-edit the aggregate and --check fails.
-        broken = json.loads(aggregate_path.read_text(encoding="utf-8"))
-        broken["records"].pop()
-        aggregate_path.write_text(
-            json.dumps(broken, ensure_ascii=False, sort_keys=False, indent=2) + "\n",
-            encoding="utf-8",
-        )
+        # A shard that is not canonical fails --check and names itself.
+        shard = root / "docs/knowledge/coverage/AA-0001.json"
+        shard.write_text(json.dumps(json.loads(shard.read_text(encoding="utf-8"))) + "\n", encoding="utf-8")
         result = subprocess.run(
             [sys.executable, str(ROOT / "scripts/generate-law-coverage.py"), "--check", "--root", str(root)],
             capture_output=True,
             text=True,
         )
         assert result.returncode == 1
-        assert "aggregate drift" in result.stderr.lower()
+        assert "format drift" in result.stderr.lower()
+        assert "AA-0001.json" in result.stderr
 
 
 def test_malformed_shard_is_rejected() -> None:
@@ -107,8 +100,8 @@ def test_malformed_shard_is_rejected() -> None:
         assert "evidence must be a non-empty array" in output
 
 
-def test_repository_shards_generate_up_to_date_aggregate() -> None:
-    """The on-disk aggregate matches a fresh derivation from the shards."""
+def test_repository_shards_compose() -> None:
+    """The committed shards compose and are canonical."""
     result = subprocess.run(
         [sys.executable, str(ROOT / "scripts/generate-law-coverage.py"), "--check"],
         capture_output=True,

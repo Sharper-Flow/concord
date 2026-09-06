@@ -14,10 +14,10 @@ from datetime import datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import knowledge_index  # noqa: E402
 import shard_format  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
-MANIFEST = ROOT / "docs/concord-knowledge-index.v1.json"
 MAX_MANIFEST_PATH = 512  # JSON Schema maxLength and Python Unicode scalar count.
 ALLOWED_ROOT = {"schema_version", "supported_kinds", "indexed_kinds", "domain_registry", "knowledge_roots", "exclusions", "dispositions", "doc_contract", "records"}
 ALLOWED_DISPOSITION = {"path", "disposition", "reason"}
@@ -75,6 +75,18 @@ def load(path: Path, findings: list[str]) -> object:
         return json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=reject_duplicate_pairs)
     except (OSError, UnicodeDecodeError, json.JSONDecodeError, DuplicateKeyError) as exc:
         fail(findings, f"{path.relative_to(ROOT)}: invalid JSON: {exc}")
+        return None
+
+
+def load_composed_manifest(findings: list[str]) -> object:
+    try:
+        return json.loads(knowledge_index.compose_manifest_bytes(ROOT), object_pairs_hook=reject_duplicate_pairs)
+    except knowledge_index.ComposeError as exc:
+        for finding in exc.findings:
+            fail(findings, finding)
+        return None
+    except (UnicodeDecodeError, json.JSONDecodeError, DuplicateKeyError) as exc:
+        fail(findings, f"{knowledge_index.KNOWLEDGE_ROOT}: invalid JSON: {exc}")
         return None
 
 
@@ -356,7 +368,7 @@ def validate(data: object, *, check_hashes: bool = True) -> list[str]:
             not isinstance(path, str)
             or len(path) > MAX_MANIFEST_PATH
             or (isinstance(path, str) and "\x00" in path)
-            or path in {"docs/concord-knowledge-index.v1.json"}
+            or path.startswith(knowledge_index.KNOWLEDGE_ROOT + "/")
             or not RECORD_PATH_RE.fullmatch(path)
         ):
             fail(findings, f"{prefix}: forbidden or unsafe path: {path}")
@@ -671,32 +683,6 @@ def check_shard_encoding(findings: list[str]) -> None:
                 )
 
 
-def check_aggregate_freshness(findings: list[str]) -> None:
-    shard_dir = ROOT / "docs/knowledge/records"
-    if not shard_dir.is_dir():
-        return
-    try:
-        generator = _load_generator()
-        derived = generator.derive_aggregate(ROOT, [])
-    except (OSError, ValueError, RuntimeError) as exc:
-        findings.append(f"knowledge index aggregate freshness: {exc}")
-        return
-    if derived is None:
-        findings.append(
-            "knowledge index aggregate freshness: generator rejected shards; see above"
-        )
-        return
-    if not MANIFEST.is_file():
-        findings.append("knowledge index aggregate freshness: aggregate is missing")
-        return
-    actual = MANIFEST.read_bytes()
-    if derived != actual:
-        findings.append(
-            "knowledge index aggregate is stale relative to shards; "
-            "run python3 scripts/generate-knowledge-index.py --update"
-        )
-
-
 def update_manifest(data: object) -> list[str]:
     findings = validate(data, check_hashes=False)
     if findings:
@@ -735,10 +721,8 @@ def update_manifest(data: object) -> list[str]:
         for identifier, shard in shards.items():
             shard_path = shard_dir / f"{identifier}.json"
             atomic_write(shard_path, shard_format.canonical_bytes(shard).decode("utf-8"))
-        derived = generator.derive_aggregate(ROOT, [], template=data)
-        if derived is None:
+        if generator.derive_aggregate(ROOT, []) is None:
             return ["manifest: knowledge record shards failed generator validation"]
-        atomic_write(MANIFEST, derived.decode("utf-8"))
     except OSError as exc:
         return [f"manifest: atomic update failed: {exc}"]
     return []
@@ -749,13 +733,12 @@ def main() -> int:
     parser.add_argument("--update", action="store_true", help="recompute hashes for an already-valid authored manifest")
     args = parser.parse_args()
     findings: list[str] = []
-    data = load(MANIFEST, findings)
+    data = load_composed_manifest(findings)
     if data is not None and args.update and not findings:
         findings = update_manifest(data)
     elif data is not None:
         findings = validate(data)
         check_shard_encoding(findings)
-        check_aggregate_freshness(findings)
     for finding in findings:
         print(finding)
     if findings:

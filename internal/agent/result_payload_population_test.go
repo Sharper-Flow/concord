@@ -331,3 +331,20 @@ func TestFullyPopulatedResultPayloadsValidate(t *testing.T) {
 		})
 	}
 }
+
+// A checkpoint the store commits must be one the continuity read serves. The
+// refs here are the shapes agents write first: repository paths, observation
+// ids, and URLs; every one satisfies the store's continuity-ref bound.
+func TestContinuityPayloadServesStoreAcceptedCheckpointRefs(t *testing.T) {
+	snapshot := fullyPopulatedContinuitySnapshot()
+	refs := []string{"internal/store/workflow.go", "docs/decisions/CD-0110.md", "obs:957af6476dc490d6", "https://github.com/x/y/pull/1", strings.Repeat("x", 128)}
+	snapshot.LatestCheckpoint.TouchedRefs = refs
+	snapshot.LatestCheckpoint.EvidenceRefs = refs
+	raw, err := json.Marshal(ContinuityPayload(snapshot))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ValidateOperationPayload("concord_work_trace", "continuity", raw, true); err != nil {
+		t.Fatalf("continuity read refuses a checkpoint the store accepts: %v", err)
+	}
+}

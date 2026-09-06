@@ -429,7 +429,7 @@ const GeneratedPayloadSchemaDocument = `{
         },
         "evidence_refs": {
           "items": {
-            "$ref": "#/$defs/id"
+            "$ref": "#/$defs/continuity_ref"
           },
           "maxItems": 64,
           "minItems": 1,
@@ -443,7 +443,7 @@ const GeneratedPayloadSchemaDocument = `{
         },
         "pending_decisions": {
           "items": {
-            "$ref": "#/$defs/id"
+            "$ref": "#/$defs/continuity_ref"
           },
           "maxItems": 16,
           "type": "array",
@@ -451,7 +451,7 @@ const GeneratedPayloadSchemaDocument = `{
         },
         "pending_questions": {
           "items": {
-            "$ref": "#/$defs/id"
+            "$ref": "#/$defs/continuity_ref"
           },
           "maxItems": 16,
           "type": "array",
@@ -471,7 +471,7 @@ const GeneratedPayloadSchemaDocument = `{
         },
         "touched_refs": {
           "items": {
-            "$ref": "#/$defs/id"
+            "$ref": "#/$defs/continuity_ref"
           },
           "maxItems": 64,
           "minItems": 1,
@@ -754,6 +754,12 @@ const GeneratedPayloadSchemaDocument = `{
         "decision_context_digest"
       ],
       "type": "object"
+    },
+    "continuity_ref": {
+      "maxLength": 128,
+      "minLength": 2,
+      "pattern": "^[^\\s]+$",
+      "type": "string"
     },
     "continuity_snapshot": {
       "additionalProperties": false,

@@ -4,7 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
 	"reflect"
+	"regexp"
+	"strings"
 	"testing"
 	"time"
 )
@@ -315,5 +319,75 @@ func TestV22ContinuityTablesAreFoldOnlyAndImmutable(t *testing.T) {
 	}
 	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO workflow_context_boundaries(work_id,work_version,boundary_sequence,boundary_count,boundary_id,boundary_kind,checkpoint_id,checkpoint_sequence,attempt_epoch,summary,workflow_ref,workflow_definition_version,workflow_definition_digest,actor_ref,request_id,recorded_at) VALUES('continuity-v22-guards',5,1,1,'v22-forged','summary','v22-checkpoint:context-checkpoint',1,1,'forged','workflow.implementation',1,?,?, 'request:v22','2026-08-11T00:00:00Z')`, definition.Digest, actorRef); err == nil {
 		t.Fatal("context boundary insert bypassed fold guard")
+	}
+}
+
+// continuityRefCorpus is the shared input for the write-read bound equality.
+// Every value the store accepts, the surface schema must accept, and the
+// reverse; a drift on either side fails TestContinuityRefBoundMatchesSurface.
+var continuityRefCorpus = []string{
+	"ref:file", "a", "ab", "internal/store/workflow.go", "docs/decisions/CD-0110.md", "/abs/path", "-leading-dash",
+	"has space", "tab\there", "line\nbreak", "", "é", "ünïcode/path", "sha256:" + strings.Repeat("a", 64),
+	strings.Repeat("x", 128), strings.Repeat("x", 129), "trailing/", "obs:957af6476dc490d6", "https://github.com/x/y/issues/1",
+}
+
+func TestContinuityRefBoundMatchesSurface(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("..", "..", "contracts", "agent-tool-surface-payloads.schema.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var schema struct {
+		Defs map[string]struct {
+			MinLength int    `json:"minLength"`
+			MaxLength int    `json:"maxLength"`
+			Pattern   string `json:"pattern"`
+		} `json:"$defs"`
+	}
+	if err := json.Unmarshal(raw, &schema); err != nil {
+		t.Fatal(err)
+	}
+	def, ok := schema.Defs["continuity_ref"]
+	if !ok {
+		t.Fatal("surface schema declares no $defs/continuity_ref")
+	}
+	pattern := regexp.MustCompile(def.Pattern)
+	surface := func(value string) bool {
+		return len(value) >= def.MinLength && len(value) <= def.MaxLength && pattern.MatchString(value)
+	}
+	for _, value := range continuityRefCorpus {
+		if got, want := validContinuityRef(value), surface(value); got != want {
+			t.Errorf("continuity ref %q: store=%v surface=%v", value, got, want)
+		}
+	}
+}
+
+func TestCheckpointContextWritesOnlyWhatContinuityServes(t *testing.T) {
+	s := openTemp(t)
+	actor, version := continuityTestWorkflow(t, s, "continuity-bounds")
+	base := map[string]any{"active_unit": "unit:bounds", "hypothesis": "hypothesis:one", "diagnosis": "diagnosis:one", "strategy": "strategy:one", "pending_questions": []string{}, "pending_decisions": []string{}}
+	refused := map[string]any{"touched_refs": []string{"internal/store/workflow.go", "has space"}, "evidence_refs": []string{"evidence:one"}}
+	for k, v := range base {
+		refused[k] = v
+	}
+	if _, err := continuityAction(t, s, "continuity-bounds", version, "checkpoint_context", "bounds-refused", refused, actor); err == nil {
+		t.Fatal("checkpoint with a whitespace ref was accepted")
+	}
+	var count int
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM workflow_context_checkpoints WHERE work_id=?`, "continuity-bounds").Scan(&count); err != nil || count != 0 {
+		t.Fatalf("refused checkpoint left %d rows err=%v", count, err)
+	}
+	accepted := map[string]any{"touched_refs": []string{"internal/store/workflow.go", "docs/decisions/CD-0110.md", strings.Repeat("x", 128)}, "evidence_refs": []string{"obs:957af6476dc490d6", "https://github.com/x/y/pull/1"}}
+	for k, v := range base {
+		accepted[k] = v
+	}
+	if _, err := continuityAction(t, s, "continuity-bounds", version, "checkpoint_context", "bounds-accepted", accepted, actor); err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := ReadWorkflowContinuity(context.Background(), s, ContinuityRequest{Work: "continuity-bounds", Limit: 20})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snapshot.LatestCheckpoint == nil || !reflect.DeepEqual(snapshot.LatestCheckpoint.TouchedRefs, accepted["touched_refs"]) {
+		t.Fatalf("continuity did not return the accepted checkpoint: %+v", snapshot.LatestCheckpoint)
 	}
 }

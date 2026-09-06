@@ -11,6 +11,12 @@
       "maxLength": 128,
       "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
     },
+    "continuity_ref": {
+      "type": "string",
+      "minLength": 2,
+      "maxLength": 128,
+      "pattern": "^[^\\s]+$"
+    },
     "domain_id": {
       "type": "string",
       "minLength": 1,
@@ -1340,7 +1346,7 @@
           "maxItems": 64,
           "uniqueItems": true,
           "items": {
-            "$ref": "#/$defs/id"
+            "$ref": "#/$defs/continuity_ref"
           }
         },
         "evidence_refs": {
@@ -1349,7 +1355,7 @@
           "maxItems": 64,
           "uniqueItems": true,
           "items": {
-            "$ref": "#/$defs/id"
+            "$ref": "#/$defs/continuity_ref"
           }
         },
         "pending_questions": {
@@ -1357,7 +1363,7 @@
           "maxItems": 16,
           "uniqueItems": true,
           "items": {
-            "$ref": "#/$defs/id"
+            "$ref": "#/$defs/continuity_ref"
           }
         },
         "pending_decisions": {
@@ -1365,7 +1371,7 @@
           "maxItems": 16,
           "uniqueItems": true,
           "items": {
-            "$ref": "#/$defs/id"
+            "$ref": "#/$defs/continuity_ref"
           }
         }
       }

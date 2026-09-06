@@ -408,13 +408,20 @@ func workflowBase(event Event, fields WorkflowVersionFields) error {
 }
 
 func workflowString(value string, max int) bool { return len(value) >= 2 && len(value) <= max }
+
+// validContinuityRef is the one bound on a workflow reference list item. The
+// action preflight, the checkpoint fold, and the agent surface's
+// $defs/continuity_ref admit the same set; TestContinuityRefBoundMatchesSurface
+// holds the schema to it.
+func validContinuityRef(value string) bool { return validReference(value) }
+
 func workflowList(values []string, max, min int) bool {
 	if len(values) < min || len(values) > max {
 		return false
 	}
 	seen := make(map[string]bool, len(values))
 	for _, value := range values {
-		if !workflowString(value, 128) || seen[value] {
+		if !validContinuityRef(value) || seen[value] {
 			return false
 		}
 		seen[value] = true

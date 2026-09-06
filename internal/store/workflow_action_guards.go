@@ -580,6 +580,24 @@ func appendGenericWorkflowCompletion(in workflowActionAssemblyInput, attemptEpoc
 		if packetAttemptID != attemptID {
 			return events, "", newFailure(KindInvalidPayload, "workflow_action", "dispatch_worker worker_packet.attempt_id does not match fields.attempt_id", false, "supply the lane packet bound to this work item and attempt")
 		}
+		// The lane-step dispatch join (#892): the pair is composed onto every
+		// step kind some lane may dispatch, so the step admitting the action
+		// does not by itself admit the lane. Resolve the packet's lane
+		// identity and refuse when that lane's capability class is not
+		// dispatchable at the current step's kind.
+		packetLaneID, laneIDOK := workflowFieldString(packetFields, "lane_id")
+		packetLaneDigest, laneDigestOK := workflowFieldString(packetFields, "lane_digest")
+		packetLaneVersion := workflowFieldInt(packetFields, "lane_version", 0)
+		if !laneIDOK || !laneDigestOK || packetLaneVersion < 1 {
+			return events, "", newFailure(KindInvalidPayload, "workflow_action", "dispatch_worker worker_packet is missing a complete lane identity", false, "supply the lane packet bound to this work item and attempt")
+		}
+		lane, laneErr := LookupLane(packetLaneID, packetLaneVersion, packetLaneDigest)
+		if laneErr != nil {
+			return events, "", laneErr
+		}
+		if in.step != nil && !LaneStepDispatchAllowed(lane.CapabilityClass, in.step.Kind) {
+			return events, "", newFailure(KindUnauthorizedDispatch, "workflow_action", "lane capability class "+lane.CapabilityClass+" is not dispatchable at a "+string(in.step.Kind)+" step", false, "dispatch the lane at a step kind the lane-step dispatch join admits")
+		}
 		canonical, err := canonicalJSON(packetRaw)
 		if err != nil {
 			return events, "", newFailure(KindInvalidPayload, "workflow_action", "dispatch_worker worker_packet does not decode as canonical JSON", false, "supply the lane packet bound to this work item and attempt")

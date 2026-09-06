@@ -28,7 +28,7 @@ func TestBuiltinWorkflowRegistryHasTheSevenContractFamilies(t *testing.T) {
 	wantActions := map[string][]string{
 		"workflow.implementation":     {"record_proposal", "record_discovery", "record_design", "approve_contract", "start_execution", "checkpoint_execution", "bind_evidence", "declare_impact", "link_successor", "record_delivery", "record_verdict", "confirm_premise", "complete", "checkpoint_context", "cross_context_boundary", "accept_worker_result", "dispatch_worker"},
 		"workflow.break_fix":          {"record_reproduction", "record_root_cause", "approve_contract", "start_repair", "checkpoint_repair", "bind_evidence", "link_successor", "record_delivery", "record_verdict", "confirm_premise", "complete", "checkpoint_context", "cross_context_boundary", "accept_worker_result", "dispatch_worker"},
-		"workflow.research":           {"frame_research", "approve_contract", "record_finding", "revise_candidates", "bind_evidence", "record_report", "link_successor", "record_conclusion", "record_verdict", "confirm_premise", "complete", "checkpoint_context", "cross_context_boundary"},
+		"workflow.research":           {"frame_research", "approve_contract", "record_finding", "revise_candidates", "bind_evidence", "record_report", "link_successor", "record_conclusion", "record_verdict", "confirm_premise", "complete", "checkpoint_context", "cross_context_boundary", "accept_worker_result", "dispatch_worker"},
 		"workflow.architecture_spike": {"frame_question", "approve_contract", "record_research", "bind_evidence", "record_option", "start_poc", "checkpoint_poc", "discard_poc", "record_delivery", "record_decision", "record_verdict", "accept_decision", "confirm_premise", "complete", "checkpoint_context", "cross_context_boundary", "accept_worker_result", "dispatch_worker"},
 		"workflow.ops_runbook":        {"approve_contract", "approve_operation", "start_run", "checkpoint_run", "bind_evidence", "add_condition", "resolve_condition", "cancel_condition", "record_delivery", "record_health", "record_verdict", "rollback_run", "cleanup_run", "confirm_premise", "complete", "checkpoint_context", "cross_context_boundary", "accept_worker_result", "dispatch_worker"},
 		"workflow.static_analysis":    {"approve_contract", "declare_scope", "run_analysis", "checkpoint_analysis", "record_delivery", "record_report", "bind_evidence", "record_verdict", "confirm_premise", "complete", "checkpoint_context", "cross_context_boundary", "accept_worker_result", "dispatch_worker"},
@@ -170,13 +170,24 @@ func TestBuiltinWorkflowResolverReturnsTheShippedDefinition(t *testing.T) {
 		if resolved.Definition.Version != registered.Definition.Version || resolved.Digest != registered.Digest {
 			t.Fatalf("resolver for %s = v%d %s, want v%d %s", latest.Ref, resolved.Definition.Version, resolved.Digest, registered.Definition.Version, registered.Digest)
 		}
-		// Research delegates no external effect, so it declares no worker
-		// acceptance route.
-		wantAcceptance := latest.WorkKind != WorkKindResearch
+		// The lane-step dispatch join (#892) composes the worker pair onto
+		// every non-terminal step whose kind a binding admits, except
+		// approval-gated steps, whose only advancing exit is the operator
+		// action.
 		for _, step := range latest.StepGraph.Steps {
-			hasAcceptance := containsString(step.Actions, "accept_worker_result")
-			if (wantAcceptance && step.Kind == WorkflowStepExternalEffect) != hasAcceptance {
-				t.Fatalf("%s step %s acceptance declaration=%t for kind %s", latest.Ref, step.ID, hasAcceptance, step.Kind)
+			admitted := containsString(step.Actions, "accept_worker_result")
+			terminalStep := containsString(latest.StepGraph.TerminalSteps, step.ID)
+			gated := false
+			for _, actionID := range step.Actions {
+				for _, action := range latest.ActionDefinitions {
+					if action.ID == actionID && action.Approval == ActionApprovalRequired {
+						gated = true
+					}
+				}
+			}
+			kindAdmits := step.Kind == WorkflowStepInternalSQLite || step.Kind == WorkflowStepCrossAuthority || step.Kind == WorkflowStepExternalEffect
+			if admitted != (kindAdmits && !terminalStep && !gated) {
+				t.Fatalf("%s step %s acceptance declaration=%t for kind %s", latest.Ref, step.ID, admitted, step.Kind)
 			}
 		}
 		for _, action := range latest.ActionDefinitions {

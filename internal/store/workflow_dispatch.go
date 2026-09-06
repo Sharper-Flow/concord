@@ -408,7 +408,7 @@ func bornBoundEvidenceEvents(ctx context.Context, tx *sql.Tx, workID string, def
 	if err != nil {
 		return nil, err
 	}
-	events := make([]Event, 0, len(evidence)*len(kinds))
+	events := make([]Event, 0, len(evidence))
 	for _, ref := range evidence {
 		for _, kind := range kinds {
 			events = append(events, workflowTypedEvent(eventID+":evidence:"+fmt.Sprint(len(events)), WorkflowEvidenceBound, workID, actor, request.Now, expected+int64(len(events)), map[string]any{

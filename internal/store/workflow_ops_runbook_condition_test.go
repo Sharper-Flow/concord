@@ -60,7 +60,7 @@ func TestOpsRunbookConditionResolutionAcrossHealthDispatch(t *testing.T) {
 	}
 	// Resolving a condition holds the step; the health record is the exit.
 	assertOpsRunbookStep(t, s, workID, "health")
-	version = dispatchOpsRunbookAction(t, s, workID, version, "record_health", "ops-record-health", actor, healthPayload)
+	dispatchOpsRunbookAction(t, s, workID, version, "record_health", "ops-record-health", actor, healthPayload)
 	assertOpsRunbookStep(t, s, workID, "rollback_optional")
 	var state string
 	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT condition_state FROM workflow_external_conditions WHERE work_id=? AND condition_id=?`, workID, "condition:health").Scan(&state); err != nil {

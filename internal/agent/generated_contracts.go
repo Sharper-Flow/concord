@@ -6,7 +6,7 @@ import (
 	"fmt"
 )
 
-const ManifestDigest = "sha256:77f69b7b2d4be0fbe7f3338a3346ec9ab60d247daad4e276682b428690dcc4c1"
+const ManifestDigest = "sha256:c127c38b5ccc309d46a2fbfa38e4f18ef13f54ce480a1f3a48c3395ce16337d6"
 
 type OperationKind string
 
@@ -132,7 +132,7 @@ var GeneratedPayloadRules = map[string]GeneratedPayloadRule{
 	"continuity_domain_overlap":                    {Required: []string{"product_id", "from_work_id", "to_work_id", "from_contract_version", "to_contract_version", "shared_affected_domain_ids", "shared_law_ids", "shared_domain_modifications", "shared_relation_tuples", "overlap_classes", "resolution_state", "recovery_actions", "shared_affected_domain_count", "shared_law_count", "shared_domain_modification_count", "shared_relation_tuple_count", "detail_truncated"}, Properties: []string{"product_id", "from_work_id", "to_work_id", "from_contract_version", "to_contract_version", "shared_affected_domain_ids", "shared_law_ids", "shared_domain_modifications", "shared_relation_tuples", "overlap_classes", "resolution_state", "resolution_kind", "recovery_actions", "shared_affected_domain_count", "shared_law_count", "shared_domain_modification_count", "shared_relation_tuple_count", "detail_truncated"}},
 	"continuity_failure":                           {Required: []string{"kind", "recoverable", "step_id", "attempt_epoch"}, Properties: []string{"kind", "recoverable", "step_id", "attempt_epoch"}},
 	"continuity_operator_decision":                 {Required: []string{"action_id", "prompt", "header", "choices", "allow_multiple", "allow_custom", "premise_summary", "contract_summary", "decision_context_digest"}, Properties: []string{"action_id", "prompt", "header", "choices", "allow_multiple", "allow_custom", "premise_summary", "contract_summary", "decision_context_digest"}},
-	"continuity_snapshot":                          {Required: []string{"work_id", "pinned", "latest_checkpoint", "boundaries", "typed_availability", "pending_messages"}, Properties: []string{"work_id", "pinned", "latest_checkpoint", "boundaries", "typed_availability", "observations", "pending_messages", "workflow_status"}},
+	"continuity_snapshot":                          {Required: []string{"work_id", "pinned", "latest_checkpoint", "boundaries", "typed_availability", "pending_messages"}, Properties: []string{"work_id", "pinned", "latest_checkpoint", "boundaries", "typed_availability", "observations", "pending_messages"}},
 	"domain_active_work_input":                     {Required: []string{"product_id", "domain_id"}, Properties: []string{"product_id", "domain_id", "page", "requested_budget_seconds"}},
 	"domain_active_work_item":                      {Required: []string{"work_id", "kind", "title", "lifecycle", "priority", "contract_version", "home_domain"}, Properties: []string{"work_id", "kind", "title", "lifecycle", "priority", "contract_version", "home_domain"}},
 	"domain_active_work_result":                    {Required: []string{"registry", "work"}, Properties: []string{"registry", "work"}},
@@ -169,7 +169,7 @@ var GeneratedPayloadRules = map[string]GeneratedPayloadRule{
 	"knowledge_scopes_input":                       {Required: []string{"mode"}, Properties: []string{"mode", "product_ids", "project_ids", "tag_ids"}},
 	"knowledge_search_input":                       {Required: []string{"page"}, Properties: []string{"product_id", "project_id", "kinds", "tags", "text", "since", "until", "allow_degraded", "page", "budget", "domain_id", "requested_budget_seconds"}},
 	"knowledge_unprocessed_input":                  {Required: []string{}, Properties: []string{"product_id", "project_id", "page", "limit"}},
-	"mutation_result":                              {Required: []string{"changed_refs", "next_valid_intents"}, Properties: []string{"changed_refs", "next_valid_intents", "operation_id", "worker_packet_digest"}},
+	"mutation_result":                              {Required: []string{"changed_refs", "next_valid_intents"}, Properties: []string{"changed_refs", "next_valid_intents", "work_pins", "operation_id", "worker_packet_digest"}},
 	"observed_universe":                            {Required: []string{"shape", "applied_scope", "coverage", "total_kind", "canonical_identity_key"}, Properties: []string{"shape", "applied_scope", "anchor_token", "structure_digest", "coverage", "observed_count", "observed_refs", "total_kind", "total_value", "completion_evidence", "canonical_identity_key", "omissions"}},
 	"operator_choice":                              {Required: []string{"id", "label", "description", "action_id"}, Properties: []string{"id", "label", "description", "action_id"}},
 	"operator_question":                            {Required: []string{"action_id", "prompt", "header", "choices", "allow_multiple", "allow_custom", "premise_summary", "contract_summary", "decision_context_digest"}, Properties: []string{"action_id", "prompt", "header", "choices", "allow_multiple", "allow_custom", "premise_summary", "contract_summary", "decision_context_digest"}},
@@ -230,6 +230,9 @@ var GeneratedPayloadRules = map[string]GeneratedPayloadRule{
 	"work_observation_input":                       {Required: []string{"work_id"}, Properties: []string{"work_id", "page"}},
 	"work_observation_page":                        {Required: []string{"observations"}, Properties: []string{"observations"}},
 	"work_page":                                    {Required: []string{"items"}, Properties: []string{"items", "next_cursor", "readiness_evidence"}},
+	"work_pin":                                     {Required: []string{"work_id", "version", "lifecycle", "workflow_type", "step", "attempt", "pending_operator_decision", "watermark", "next_valid_intents"}, Properties: []string{"work_id", "version", "lifecycle", "workflow_type", "step", "attempt", "pending_operator_decision", "watermark", "next_valid_intents"}},
+	"work_pin_attempt":                             {Required: []string{"id", "epoch", "lane", "state"}, Properties: []string{"id", "epoch", "lane", "state"}},
+	"work_pin_intent":                              {Required: []string{"tool", "operation", "reason_code", "action_id", "required_fields", "expected_version"}, Properties: []string{"tool", "operation", "reason_code", "action_id", "required_fields", "expected_version"}},
 	"work_relate_link_input":                       {Required: []string{"from_work_id", "to_work_id", "from_expected_version", "to_expected_version", "kind", "reason", "idempotency_key"}, Properties: []string{"from_work_id", "to_work_id", "from_expected_version", "to_expected_version", "kind", "reason", "idempotency_key", "approval", "requested_budget_seconds"}},
 	"work_relate_memberships_input":                {Required: []string{"work_id", "expected_version", "memberships", "idempotency_key"}, Properties: []string{"work_id", "expected_version", "memberships", "idempotency_key", "approval", "requested_budget_seconds"}},
 	"work_relate_message_send_input":               {Required: []string{"work_id", "body", "expected_version", "idempotency_key"}, Properties: []string{"work_id", "recipient_work_id", "broadcast", "body", "expected_version", "idempotency_key", "requested_budget_seconds"}},
@@ -242,7 +245,7 @@ var GeneratedPayloadRules = map[string]GeneratedPayloadRule{
 	"work_relate_unlink_input":                     {Required: []string{"relation_id", "expected_versions", "reason", "idempotency_key"}, Properties: []string{"relation_id", "expected_versions", "reason", "idempotency_key", "approval", "requested_budget_seconds"}},
 	"work_relation_graph":                          {Required: []string{"nodes", "edges"}, Properties: []string{"nodes", "edges", "replacement_state"}},
 	"work_scope":                                   {Required: []string{"items"}, Properties: []string{"work", "memberships", "items", "next_cursor", "verdict"}},
-	"work_summary":                                 {Required: []string{"id", "kind", "title", "lifecycle", "version"}, Properties: []string{"id", "kind", "title", "lifecycle", "version", "priority", "urgency", "project_ids", "ready", "narrative", "terminal_at"}},
+	"work_summary":                                 {Required: []string{"id", "kind", "title", "lifecycle", "version"}, Properties: []string{"id", "kind", "title", "lifecycle", "version", "priority", "urgency", "project_ids", "ready", "narrative", "terminal_at", "work_pin"}},
 	"work_trace_continuity_input":                  {Required: []string{"work_id", "page"}, Properties: []string{"work_id", "page", "budget", "requested_budget_seconds"}},
 	"work_trace_history_input":                     {Required: []string{"work_id", "page"}, Properties: []string{"work_id", "direction", "event_kinds", "page", "budget", "requested_budget_seconds"}},
 	"work_trace_relations_input":                   {Required: []string{"work_id"}, Properties: []string{"work_id", "relation_kinds", "direction", "depth", "budget", "requested_budget_seconds"}},

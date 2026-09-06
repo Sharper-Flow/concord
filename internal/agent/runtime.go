@@ -1773,16 +1773,17 @@ func maxArrayLength(raw []byte) int {
 }
 
 type workSummary struct {
-	ID         string   `json:"id"`
-	Kind       string   `json:"kind"`
-	Title      string   `json:"title"`
-	Lifecycle  string   `json:"lifecycle"`
-	Version    int64    `json:"version"`
-	Priority   int64    `json:"priority,omitempty"`
-	ProjectIDs []string `json:"project_ids,omitempty"`
-	Ready      bool     `json:"ready,omitempty"`
-	Narrative  string   `json:"narrative,omitempty"`
-	TerminalAt *string  `json:"terminal_at"`
+	ID         string         `json:"id"`
+	Kind       string         `json:"kind"`
+	Title      string         `json:"title"`
+	Lifecycle  string         `json:"lifecycle"`
+	Version    int64          `json:"version"`
+	Priority   int64          `json:"priority,omitempty"`
+	ProjectIDs []string       `json:"project_ids,omitempty"`
+	Ready      bool           `json:"ready,omitempty"`
+	Narrative  string         `json:"narrative,omitempty"`
+	TerminalAt *string        `json:"terminal_at"`
+	WorkPin    *store.WorkPin `json:"work_pin,omitempty"`
 }
 
 func summary(w store.WorkItem) workSummary {
@@ -1798,7 +1799,7 @@ func summary(w store.WorkItem) workSummary {
 	if w.TerminalAt != "" {
 		terminal = &w.TerminalAt
 	}
-	return workSummary{ID: w.ID, Kind: kind, Title: w.Title, Lifecycle: w.Lifecycle, Version: w.Version, Priority: w.Priority, ProjectIDs: ids, Ready: w.Ready, Narrative: w.Narrative, TerminalAt: terminal}
+	return workSummary{ID: w.ID, Kind: kind, Title: w.Title, Lifecycle: w.Lifecycle, Version: w.Version, Priority: w.Priority, ProjectIDs: ids, Ready: w.Ready, Narrative: w.Narrative, TerminalAt: terminal, WorkPin: w.WorkPin}
 }
 func (r runtime) q1(base Envelope, q store.Q1Result) (Envelope, error) {
 	projects := []map[string]any{}
@@ -1961,6 +1962,9 @@ func ContinuityPayload(snapshot store.ContinuitySnapshot) map[string]any {
 		stepActions = []string{}
 	}
 	pinned := map[string]any{"product_identity": snapshot.ProductIdentity, "workflow_step": snapshot.WorkflowStep, "step_actions": stepActions, "contract": snapshot.Contract, "spec_mandate": snapshot.SpecMandate, "pending_operator_decision": snapshot.PendingOperatorDecision, "latest_checkpoint": snapshot.LatestCheckpoint, "unresolved_failure": snapshot.UnresolvedFailure}
+	if snapshot.WorkPin != nil {
+		pinned["work_pin"] = snapshot.WorkPin
+	}
 	// Empty peer signals stay out of the prompt. This keeps the unchanged
 	// projection's bytes stable while non-empty signals remain visible.
 	if len(snapshot.UnresolvedOverlaps) > 0 {
@@ -1986,9 +1990,6 @@ func ContinuityPayload(snapshot store.ContinuitySnapshot) map[string]any {
 		"typed_availability": map[string]any{"restart": "unavailable", "reason": snapshot.RestartUnavailableReason},
 		"pending_messages":   snapshot.PendingMessages,
 		"observations":       observations,
-	}
-	if snapshot.WorkflowStatus != nil {
-		payload["workflow_status"] = snapshot.WorkflowStatus
 	}
 	return payload
 }

@@ -93,6 +93,160 @@
         "cancelled"
       ]
     },
+    "work_pin_attempt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "epoch",
+        "lane",
+        "state"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "epoch": {
+          "$ref": "#/$defs/version"
+        },
+        "lane": {
+          "$ref": "#/$defs/id"
+        },
+        "state": {
+          "$ref": "#/$defs/short"
+        }
+      }
+    },
+    "work_pin_intent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "tool",
+        "operation",
+        "reason_code",
+        "action_id",
+        "required_fields",
+        "expected_version"
+      ],
+      "properties": {
+        "tool": {
+          "$ref": "#/$defs/id"
+        },
+        "operation": {
+          "$ref": "#/$defs/short"
+        },
+        "reason_code": {
+          "$ref": "#/$defs/short"
+        },
+        "action_id": {
+          "$ref": "#/$defs/id"
+        },
+        "required_fields": {
+          "type": "array",
+          "maxItems": 32,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/short"
+          }
+        },
+        "expected_version": {
+          "$ref": "#/$defs/version"
+        }
+      }
+    },
+    "work_pin": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "work_id",
+        "version",
+        "lifecycle",
+        "workflow_type",
+        "step",
+        "attempt",
+        "pending_operator_decision",
+        "watermark",
+        "next_valid_intents"
+      ],
+      "properties": {
+        "work_id": {
+          "$ref": "#/$defs/id"
+        },
+        "version": {
+          "$ref": "#/$defs/version"
+        },
+        "lifecycle": {
+          "$ref": "#/$defs/lifecycle"
+        },
+        "workflow_type": {
+          "$ref": "#/$defs/id"
+        },
+        "step": {
+          "$ref": "#/$defs/short"
+        },
+        "attempt": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/work_pin_attempt"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "pending_operator_decision": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/continuity_operator_decision"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "watermark": {
+          "$ref": "#/$defs/id"
+        },
+        "next_valid_intents": {
+          "type": "array",
+          "maxItems": 16,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "tool",
+              "operation",
+              "reason_code"
+            ],
+            "properties": {
+              "tool": {
+                "$ref": "#/$defs/id"
+              },
+              "operation": {
+                "$ref": "#/$defs/short"
+              },
+              "reason_code": {
+                "$ref": "#/$defs/short"
+              },
+              "action_id": {
+                "$ref": "#/$defs/id"
+              },
+              "required_fields": {
+                "type": "array",
+                "maxItems": 32,
+                "uniqueItems": true,
+                "items": {
+                  "$ref": "#/$defs/short"
+                }
+              },
+              "expected_version": {
+                "$ref": "#/$defs/version"
+              }
+            }
+          }
+        }
+      }
+    },
     "work_kind": {
       "type": "string",
       "enum": [
@@ -468,6 +622,9 @@
             "null"
           ],
           "maxLength": 64
+        },
+        "work_pin": {
+          "$ref": "#/$defs/work_pin"
         }
       }
     },
@@ -1783,6 +1940,9 @@
                 }
               ]
             },
+            "work_pin": {
+              "$ref": "#/$defs/work_pin"
+            },
             "unresolved_overlaps": {
               "type": "array",
               "maxItems": 20,
@@ -1916,61 +2076,6 @@
         "pending_messages": {
           "type": "integer",
           "minimum": 0
-        },
-        "workflow_status": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": [
-            "work_id",
-            "workflow_type",
-            "step_ordinal",
-            "step_total",
-            "step_name",
-            "transition_from",
-            "transition_to",
-            "last_event_kind",
-            "actor",
-            "occurred_at",
-            "sequence"
-          ],
-          "properties": {
-            "work_id": {
-              "$ref": "#/$defs/id"
-            },
-            "workflow_type": {
-              "$ref": "#/$defs/id"
-            },
-            "step_ordinal": {
-              "type": "integer",
-              "minimum": 1
-            },
-            "step_total": {
-              "type": "integer",
-              "minimum": 1
-            },
-            "step_name": {
-              "$ref": "#/$defs/short"
-            },
-            "transition_from": {
-              "$ref": "#/$defs/short"
-            },
-            "transition_to": {
-              "$ref": "#/$defs/short"
-            },
-            "last_event_kind": {
-              "$ref": "#/$defs/short"
-            },
-            "actor": {
-              "$ref": "#/$defs/short"
-            },
-            "occurred_at": {
-              "$ref": "#/$defs/short"
-            },
-            "sequence": {
-              "type": "integer",
-              "minimum": 1
-            }
-          }
         }
       }
     },
@@ -4133,8 +4238,29 @@
               },
               "reason_code": {
                 "$ref": "#/$defs/short"
+              },
+              "action_id": {
+                "$ref": "#/$defs/id"
+              },
+              "required_fields": {
+                "type": "array",
+                "maxItems": 32,
+                "uniqueItems": true,
+                "items": {
+                  "$ref": "#/$defs/short"
+                }
+              },
+              "expected_version": {
+                "$ref": "#/$defs/version"
               }
             }
+          }
+        },
+        "work_pins": {
+          "type": "array",
+          "maxItems": 32,
+          "items": {
+            "$ref": "#/$defs/work_pin"
           }
         },
         "operation_id": {
@@ -6132,6 +6258,20 @@
               },
               "reason_code": {
                 "$ref": "#/$defs/short"
+              },
+              "action_id": {
+                "$ref": "#/$defs/id"
+              },
+              "required_fields": {
+                "type": "array",
+                "maxItems": 32,
+                "uniqueItems": true,
+                "items": {
+                  "$ref": "#/$defs/short"
+                }
+              },
+              "expected_version": {
+                "$ref": "#/$defs/version"
               }
             }
           }
@@ -7545,6 +7685,20 @@
               },
               "reason_code": {
                 "$ref": "#/$defs/short"
+              },
+              "action_id": {
+                "$ref": "#/$defs/id"
+              },
+              "required_fields": {
+                "type": "array",
+                "maxItems": 32,
+                "uniqueItems": true,
+                "items": {
+                  "$ref": "#/$defs/short"
+                }
+              },
+              "expected_version": {
+                "$ref": "#/$defs/version"
               }
             }
           }

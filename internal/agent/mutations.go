@@ -440,7 +440,7 @@ func (r runtime) replayMutationBeforeScope(ctx context.Context, base Envelope, r
 		}
 		base.Replayed = true
 		base.ResolvedScope = scopeFromMap(authorizedScope)
-		replay, replayErr := r.replayWorkflowAction(base, step)
+		replay, replayErr := r.replayWorkflowAction(ctx, base, step)
 		if replayErr != nil {
 			return Envelope{}, false, replayErr
 		}
@@ -457,7 +457,11 @@ func (r runtime) replayMutationBeforeScope(ctx context.Context, base Envelope, r
 	if r.Tool != "concord_work_compact" {
 		var refs []ChangedRef
 		_ = json.Unmarshal([]byte(changed), &refs)
-		response := r.mutationResult(base, json.RawMessage(payload), refs, nil)
+		replayedPayload, intents, enrichErr := r.enrichMutationPayloadRead(ctx, json.RawMessage(payload), refs)
+		if enrichErr != nil {
+			return Envelope{}, false, enrichErr
+		}
+		response := r.mutationResult(base, replayedPayload, refs, intents)
 		if response.Outcome == OutcomeError {
 			return response, true, nil
 		}
@@ -472,7 +476,11 @@ func (r runtime) replayMutationBeforeScope(ctx context.Context, base Envelope, r
 	}
 	if step.ResultKind == store.ResultCompleted {
 		refs := decodeChangedRefs(step.ChangedRefs)
-		response := r.mutationResult(base, json.RawMessage(step.ResultPayload), refs, nil)
+		replayedPayload, intents, enrichErr := r.enrichMutationPayloadRead(ctx, json.RawMessage(step.ResultPayload), refs)
+		if enrichErr != nil {
+			return Envelope{}, false, enrichErr
+		}
+		response := r.mutationResult(base, replayedPayload, refs, intents)
 		if response.Outcome == OutcomeError {
 			return response, true, nil
 		}
@@ -488,7 +496,7 @@ func (r runtime) replayMutationBeforeScope(ctx context.Context, base Envelope, r
 	return NewPending(base, ref, RecoveryAction{Kind: "reconcile_operation", RequiredRefs: []string{"operation_id"}}), true, nil
 }
 
-func (r runtime) replayWorkflowAction(base Envelope, step store.FenceResult) (Envelope, error) {
+func (r runtime) replayWorkflowAction(ctx context.Context, base Envelope, step store.FenceResult) (Envelope, error) {
 	state := OperationState(step.ResultKind)
 	if step.ResultKind == store.ResultFailedStale {
 		// failed_stale is a durable store classification, not a TS7 state.
@@ -504,7 +512,12 @@ func (r runtime) replayWorkflowAction(base Envelope, step store.FenceResult) (En
 		if err := ValidateOperationPayload(base.Tool, base.Operation, payload, true); err != nil {
 			return coreError(base, "malformed_response", fmt.Sprintf("durable workflow result is not a valid current result: %v", err), "contact_operator", false), nil
 		}
-		return r.mutationResult(base, payload, decodeWorkflowChangedRefs(step.ChangedRefs), nil), nil
+		refs := decodeWorkflowChangedRefs(step.ChangedRefs)
+		payload, intents, err := r.enrichMutationPayloadRead(ctx, payload, refs)
+		if err != nil {
+			return Envelope{}, err
+		}
+		return r.mutationResult(base, payload, refs, intents), nil
 	case store.ResultPending:
 		return NewPending(base, ref, RecoveryAction{Kind: "reconcile_operation", RequiredRefs: []string{"operation_id"}}), nil
 	case store.ResultPartial:
@@ -944,13 +957,17 @@ func (r runtime) mutateWorkflowAction(ctx context.Context, base Envelope, raw []
 			changedJSON, _ := json.Marshal(changed)
 			return store.UpdateMutationResultTx(ctx, tx, store.MutationResultUpdate{Key: store.MutationIdempotencyKey{PrincipalRef: grant.PrincipalRef, Tool: r.Tool, OperationKind: "workflow_action", IdempotencyKey: in.IdempotencyKey}, ResultEventIDs: marshalEventIDs(execution.EventIDs), ResultPayload: "{}", ChangedRefs: string(changedJSON), ObservedAt: r.Authority.now()})
 		}
-		result = r.mutationResult(base, execution.Result, changed, nil)
+		resultPayload, derivedIntents, enrichErr := r.enrichMutationPayloadTx(ctx, tx, execution.Result, changed)
+		if enrichErr != nil {
+			return enrichErr
+		}
+		result = r.mutationResult(base, resultPayload, changed, derivedIntents)
 		if result.Outcome == OutcomeError {
 			resultRejected = true
 			return errors.New("mutation result rejected")
 		}
 		changedJSON, _ := json.Marshal(changed)
-		return store.UpdateMutationResultTx(ctx, tx, store.MutationResultUpdate{Key: store.MutationIdempotencyKey{PrincipalRef: grant.PrincipalRef, Tool: r.Tool, OperationKind: "workflow_action", IdempotencyKey: in.IdempotencyKey}, ResultEventIDs: marshalEventIDs(execution.EventIDs), ResultPayload: string(execution.Result), ChangedRefs: string(changedJSON), ObservedAt: r.Authority.now()})
+		return store.UpdateMutationResultTx(ctx, tx, store.MutationResultUpdate{Key: store.MutationIdempotencyKey{PrincipalRef: grant.PrincipalRef, Tool: r.Tool, OperationKind: "workflow_action", IdempotencyKey: in.IdempotencyKey}, ResultEventIDs: marshalEventIDs(execution.EventIDs), ResultPayload: string(resultPayload), ChangedRefs: string(changedJSON), ObservedAt: r.Authority.now()})
 	})
 	if err != nil {
 		if resultRejected {
@@ -1108,7 +1125,6 @@ func (r runtime) planReviseIntent(ctx context.Context, base Envelope, raw []byte
 			return failureEnvelope(base, definitionErr), nil, true
 		}
 	}
-	plan.intents = []NextIntent{{Tool: "concord_work_transition", Operation: "lifecycle", ReasonCode: "continue_work", RequiredFields: []string{"work_id", "expected_version"}}}
 	plan.effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
 		definition, definitionFound, existingErr := store.WorkflowInstanceDefinitionTx(ctx, tx, in.WorkID)
 		if existingErr != nil {
@@ -1937,6 +1953,13 @@ func (r runtime) mutateWorktreeAuditReclaim(ctx context.Context, base Envelope, 
 		"changed_refs":       mutationResultChangedRefs(changed),
 		"next_valid_intents": mutationResultIntents(intents),
 	})
+	payload, derivedIntents, err := r.enrichMutationPayloadRead(ctx, payload, changed)
+	if err != nil {
+		return failureEnvelope(base, err), nil
+	}
+	if derivedIntents != nil {
+		intents = derivedIntents
+	}
 	base.ResolvedScope = scopeFromMap(scope)
 	response := r.mutationResult(base, payload, changed, intents)
 	if response.Outcome == OutcomeError {
@@ -2075,7 +2098,6 @@ func (r runtime) planLink(ctx context.Context, base Envelope, raw []byte, digest
 	plan.versions["from"] = in.FromExpectedVersion
 	plan.versions["to"] = in.ToExpectedVersion
 	plan.scope["work_ids"] = []string{in.FromWorkID, in.ToWorkID}
-	plan.intents = []NextIntent{{Tool: "concord_work_relate", Operation: "unlink", ReasonCode: "remove_relation"}}
 	plan.effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
 		payload, _ := json.Marshal(map[string]any{"from": in.FromWorkID, "to": in.ToWorkID, "kind": in.Kind, "reason": in.Reason, "expected_version": in.FromExpectedVersion, "resulting_version": in.FromExpectedVersion + 1, "to_expected_version": in.ToExpectedVersion, "to_resulting_version": in.ToExpectedVersion + 1})
 		result, err := store.ApplyOperationTx(ctx, tx, store.Operation{Events: []store.Event{{EventID: digest + ":link", Kind: "relation.added", SubjectType: store.SubjectWorkItem, SubjectID: in.FromWorkID, Actor: grant.PrincipalRef, OccurredAt: r.Authority.now(), PayloadVersion: 1, Payload: payload}}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, in.FromWorkID): in.FromExpectedVersion, store.VersionRef(store.SubjectWorkItem, in.ToWorkID): in.ToExpectedVersion}})
@@ -2254,7 +2276,6 @@ func (r runtime) planSupersede(ctx context.Context, base Envelope, raw []byte, d
 	plan.versions["predecessor"] = in.PredecessorExpected
 	plan.versions["successor"] = in.SuccessorExpected
 	plan.scope["work_ids"] = []string{in.PredecessorID, in.SuccessorID}
-	plan.intents = []NextIntent{{Tool: "concord_work_relate", Operation: "restore_superseded", ReasonCode: "restore_or_replace_successor"}}
 	plan.effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
 		payload, _ := json.Marshal(map[string]any{"successor": in.SuccessorID, "superseded": in.PredecessorID, "reason": in.Reason, "expected_version": in.PredecessorExpected, "resulting_version": in.PredecessorExpected + 1, "successor_expected_version": in.SuccessorExpected, "successor_resulting_version": in.SuccessorExpected + 1})
 		result, err := store.ApplyOperationTx(ctx, tx, store.Operation{Events: []store.Event{{EventID: digest + ":supersede", Kind: "work.superseded", SubjectType: store.SubjectWorkItem, SubjectID: in.PredecessorID, Actor: grant.PrincipalRef, OccurredAt: r.Authority.now(), PayloadVersion: 1, Payload: payload}}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, in.PredecessorID): in.PredecessorExpected, store.VersionRef(store.SubjectWorkItem, in.SuccessorID): in.SuccessorExpected}})
@@ -2439,7 +2460,11 @@ func (r runtime) mutateCompaction(ctx context.Context, base Envelope, raw []byte
 			changed := decodeChangedRefs(claim.ChangedRefs)
 			base.Replayed = claim.Replayed
 			base.ResolvedScope = &Scope{ProductID: r.Envelope.SelectedProductID, ProjectIDs: []string{r.Envelope.AmbientProjectID}, WorkIDs: []string{workID}, ScopeVersion: r.Envelope.ScopeVersion}
-			return r.mutationResult(base, mutationPayload(changed, []NextIntent{{Tool: "concord_knowledge", Operation: "resolve_note", QueryID: "PM1.Q10", ReasonCode: "verify_canonical_note"}}), changed, nil), nil
+			resultPayload, derivedIntents, enrichErr := r.enrichMutationPayloadRead(ctx, mutationPayload(changed, nil), changed)
+			if enrichErr != nil {
+				return failureEnvelope(base, enrichErr), nil
+			}
+			return r.mutationResult(base, resultPayload, changed, derivedIntents), nil
 		}
 		var committed store.CommittedNote
 		var verified store.VerifiedNote
@@ -2459,8 +2484,19 @@ func (r runtime) mutateCompaction(ctx context.Context, base Envelope, raw []byte
 		if publishErr != nil {
 			return pendingCompaction(base, workID, claim, failedStep, completed, publishErr), nil
 		}
+		resultPayload, derivedIntents, enrichErr := r.enrichMutationPayloadRead(ctx, payload, changed)
+		if enrichErr != nil {
+			return failureEnvelope(base, enrichErr), nil
+		}
+		if derivedIntents == nil {
+			derivedIntents = []NextIntent{}
+		}
+		result = r.mutationResult(base, resultPayload, changed, derivedIntents)
+		if result.Outcome == OutcomeError {
+			return result, nil
+		}
 		changedJSON, _ := json.Marshal(changed[0])
-		complete, completeErr := store.CompleteStep(ctx, r.Store, store.CompleteRequest{OpID: opID, AttemptEpoch: claim.AttemptEpoch, ResultKind: store.ResultCompleted, ResultPayload: string(payload), ChangedRefs: []string{string(changedJSON)}, PrincipalRef: grant.PrincipalRef, Tool: r.Tool, IdempotencyKey: key + ":complete", RequestID: r.Envelope.RequestID, ObservedAt: r.Authority.now(), CompletedAt: timePtr(r.Authority.now())})
+		complete, completeErr := store.CompleteStep(ctx, r.Store, store.CompleteRequest{OpID: opID, AttemptEpoch: claim.AttemptEpoch, ResultKind: store.ResultCompleted, ResultPayload: string(resultPayload), ChangedRefs: []string{string(changedJSON)}, PrincipalRef: grant.PrincipalRef, Tool: r.Tool, IdempotencyKey: key + ":complete", RequestID: r.Envelope.RequestID, ObservedAt: r.Authority.now(), CompletedAt: timePtr(r.Authority.now())})
 		if completeErr != nil {
 			return pendingCompaction(base, workID, claim, "operation_complete", completed, completeErr), nil
 		}
@@ -2510,7 +2546,11 @@ func (r runtime) mutateCompaction(ctx context.Context, base Envelope, raw []byte
 				changed = append(changed, ref)
 			}
 		}
-		return r.mutationResult(base, mutationPayload(changed, []NextIntent{{Tool: "concord_knowledge", Operation: "resolve_note", QueryID: "PM1.Q10", ReasonCode: "verify_canonical_note"}}), changed, nil), nil
+		resultPayload, derivedIntents, enrichErr := r.enrichMutationPayloadRead(ctx, mutationPayload(changed, nil), changed)
+		if enrichErr != nil {
+			return failureEnvelope(base, enrichErr), nil
+		}
+		return r.mutationResult(base, resultPayload, changed, derivedIntents), nil
 	}
 	claimScope = map[string]any{}
 	_ = json.Unmarshal([]byte(step.AcceptedScopeSnapshot), &claimScope)
@@ -2545,20 +2585,27 @@ func (r runtime) mutateCompaction(ctx context.Context, base Envelope, raw []byte
 		return pendingCompaction(base, reconcile.WorkID, step, "resolve_work_version", nil, fmt.Errorf("durable publication did not retain terminal work version")), nil
 	}
 	changed := []ChangedRef{{EntityKind: "work_item", ID: reconcile.WorkID, Version: strconv.FormatInt(workVersion+1, 10)}}
-	payload := mutationPayload(changed, []NextIntent{{Tool: "concord_knowledge", Operation: "resolve_note", QueryID: "PM1.Q10", ReasonCode: "verify_canonical_note"}})
+	payload := mutationPayload(changed, nil)
 	base.ResolvedScope = &Scope{ProductID: r.Envelope.SelectedProductID, ProjectIDs: []string{r.Envelope.AmbientProjectID}, WorkIDs: []string{reconcile.WorkID}, ScopeVersion: r.Envelope.ScopeVersion}
-	result := r.mutationResult(base, payload, changed, []NextIntent{{Tool: "concord_knowledge", Operation: "resolve_note", QueryID: "PM1.Q10", ReasonCode: "verify_canonical_note"}})
-	if result.Outcome == OutcomeError {
-		return result, nil
-	}
 	// Reconcile is the closed recovery choice for an orphaned note, so its link
 	// is exempt from the CD-0041 D7 boundary check. Guarding it would refuse the
 	// only way out of a pending compaction.
 	if linkErr := store.PublishCompactionLink(ctx, r.Store, store.CompactionLinkRequest{EventID: reconcile.OperationID + ":reconcile-link", WorkID: reconcile.WorkID, ExpectedVersion: workVersion, Actor: grant.PrincipalRef, OccurredAt: r.Authority.now(), Home: home, CommitOID: note.CommitOID, NotePath: note.NotePath, ExpectedHash: proofDigest, Reason: "reconcile verified orphan note", Boundary: store.CompactionBoundaryRecoveryExempt}); linkErr != nil {
 		return pendingCompaction(base, reconcile.WorkID, step, "sqlite_link", []string{"operation_claimed", "git_proof"}, linkErr), nil
 	}
+	resultPayload, derivedIntents, enrichErr := r.enrichMutationPayloadRead(ctx, payload, changed)
+	if enrichErr != nil {
+		return failureEnvelope(base, enrichErr), nil
+	}
+	if derivedIntents == nil {
+		derivedIntents = []NextIntent{}
+	}
+	result := r.mutationResult(base, resultPayload, changed, derivedIntents)
+	if result.Outcome == OutcomeError {
+		return result, nil
+	}
 	changedJSON, _ := json.Marshal(changed[0])
-	complete, completeErr := store.CompleteStep(ctx, r.Store, store.CompleteRequest{OpID: reconcile.OperationID, AttemptEpoch: step.AttemptEpoch, ResultKind: store.ResultCompleted, ResultPayload: string(payload), ChangedRefs: []string{string(changedJSON)}, PrincipalRef: grant.PrincipalRef, Tool: r.Tool, IdempotencyKey: idempotencyKey(raw) + ":complete", RequestID: r.Envelope.RequestID, ObservedAt: r.Authority.now(), CompletedAt: timePtr(r.Authority.now())})
+	complete, completeErr := store.CompleteStep(ctx, r.Store, store.CompleteRequest{OpID: reconcile.OperationID, AttemptEpoch: step.AttemptEpoch, ResultKind: store.ResultCompleted, ResultPayload: string(resultPayload), ChangedRefs: []string{string(changedJSON)}, PrincipalRef: grant.PrincipalRef, Tool: r.Tool, IdempotencyKey: idempotencyKey(raw) + ":complete", RequestID: r.Envelope.RequestID, ObservedAt: r.Authority.now(), CompletedAt: timePtr(r.Authority.now())})
 	if completeErr != nil {
 		return pendingCompaction(base, reconcile.WorkID, step, "operation_complete", []string{"operation_claimed", "git_proof", "sqlite_link"}, completeErr), nil
 	}
@@ -2688,6 +2735,116 @@ func mutationPayload(changed []ChangedRef, intents []NextIntent) json.RawMessage
 	return b
 }
 
+func nextIntentsFromPin(pin store.WorkPin) []NextIntent {
+	intents := make([]NextIntent, 0, len(pin.NextValidIntents))
+	for _, intent := range pin.NextValidIntents {
+		intents = append(intents, NextIntent{Tool: intent.Tool, Operation: intent.Operation, ActionID: intent.ActionID, ReasonCode: "declared_step_action", RequiredFields: append([]string(nil), intent.RequiredFields...), ExpectedVersion: intent.ExpectedVersion})
+	}
+	return intents
+}
+
+func workItemRefs(changed []ChangedRef) []ChangedRef {
+	refs := make([]ChangedRef, 0, len(changed))
+	seen := make(map[string]struct{}, len(changed))
+	for _, ref := range changed {
+		if ref.EntityKind != "work_item" || ref.ID == "" {
+			continue
+		}
+		if _, ok := seen[ref.ID]; ok {
+			continue
+		}
+		seen[ref.ID] = struct{}{}
+		refs = append(refs, ref)
+	}
+	return refs
+}
+
+func enrichMutationPayload(payload json.RawMessage, pins []store.WorkPin) (json.RawMessage, []NextIntent, error) {
+	if len(pins) == 0 {
+		return payload, nil, nil
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(payload, &object); err != nil || object == nil {
+		return nil, nil, fmt.Errorf("mutation result is not an object: %w", err)
+	}
+	encodedPins, err := json.Marshal(pins)
+	if err != nil {
+		return nil, nil, err
+	}
+	object["work_pins"] = encodedPins
+	intents := nextIntentsFromPin(pins[0])
+	encodedIntents, err := json.Marshal(mutationResultIntents(intents))
+	if err != nil {
+		return nil, nil, err
+	}
+	object["next_valid_intents"] = encodedIntents
+	enriched, err := json.Marshal(object)
+	return enriched, intents, err
+}
+
+func (r runtime) enrichMutationPayloadTx(ctx context.Context, tx *store.Transaction, payload json.RawMessage, changed []ChangedRef) (json.RawMessage, []NextIntent, error) {
+	refs := workItemRefs(changed)
+	if len(refs) == 0 {
+		return payload, nil, nil
+	}
+	pins := make([]store.WorkPin, 0, len(refs))
+	for _, ref := range refs {
+		pin, err := store.ReadWorkPinTransactionTx(ctx, tx, ref.ID)
+		if err != nil {
+			var failure *store.Failure
+			if errors.As(err, &failure) && failure.Kind == store.KindProjectionNotFound {
+				return payload, nil, nil
+			}
+			return nil, nil, err
+		}
+		version, _ := strconv.ParseInt(ref.Version, 10, 64)
+		if pin.Version != version {
+			return nil, nil, fmt.Errorf("work pin version %d does not match changed ref %s", pin.Version, ref.Version)
+		}
+		pins = append(pins, pin)
+	}
+	return enrichMutationPayload(payload, pins)
+}
+
+func (r runtime) enrichMutationPayloadRead(ctx context.Context, payload json.RawMessage, changed []ChangedRef) (json.RawMessage, []NextIntent, error) {
+	refs := workItemRefs(changed)
+	if len(refs) == 0 {
+		return payload, nil, nil
+	}
+	pins := make([]store.WorkPin, 0, len(refs))
+	for i := range refs {
+		pin, err := store.ReadWorkPin(ctx, r.Store, refs[i].ID)
+		if err != nil {
+			var failure *store.Failure
+			if errors.As(err, &failure) && failure.Kind == store.KindProjectionNotFound {
+				return payload, nil, nil
+			}
+			return nil, nil, err
+		}
+		refs[i].Version = strconv.FormatInt(pin.Version, 10)
+		for changedIndex := range changed {
+			if changed[changedIndex].EntityKind == "work_item" && changed[changedIndex].ID == refs[i].ID {
+				changed[changedIndex].Version = refs[i].Version
+			}
+		}
+		pins = append(pins, pin)
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(payload, &object); err != nil || object == nil {
+		return nil, nil, fmt.Errorf("mutation result is not an object: %w", err)
+	}
+	encodedRefs, err := json.Marshal(mutationResultChangedRefs(changed))
+	if err != nil {
+		return nil, nil, err
+	}
+	object["changed_refs"] = encodedRefs
+	payload, err = json.Marshal(object)
+	if err != nil {
+		return nil, nil, err
+	}
+	return enrichMutationPayload(payload, pins)
+}
+
 type mutationResultChangedRef struct {
 	EntityKind string `json:"entity_kind"`
 	ID         string `json:"id"`
@@ -2704,15 +2861,18 @@ func mutationResultChangedRefs(changed []ChangedRef) []mutationResultChangedRef 
 }
 
 type mutationResultIntent struct {
-	Tool       string `json:"tool"`
-	Operation  string `json:"operation"`
-	ReasonCode string `json:"reason_code"`
+	Tool            string   `json:"tool"`
+	Operation       string   `json:"operation"`
+	ReasonCode      string   `json:"reason_code"`
+	ActionID        string   `json:"action_id,omitempty"`
+	RequiredFields  []string `json:"required_fields,omitempty"`
+	ExpectedVersion int64    `json:"expected_version,omitempty"`
 }
 
 func mutationResultIntents(intents []NextIntent) []mutationResultIntent {
 	result := make([]mutationResultIntent, 0, len(intents))
 	for _, intent := range intents {
-		result = append(result, mutationResultIntent{Tool: intent.Tool, Operation: intent.Operation, ReasonCode: intent.ReasonCode})
+		result = append(result, mutationResultIntent{Tool: intent.Tool, Operation: intent.Operation, ReasonCode: intent.ReasonCode, ActionID: intent.ActionID, RequiredFields: intent.RequiredFields, ExpectedVersion: intent.ExpectedVersion})
 	}
 	return result
 }
@@ -2817,7 +2977,14 @@ func (r runtime) executeMutation(ctx context.Context, base Envelope, raw []byte,
 			_ = json.Unmarshal([]byte(prior.ChangedRefs), &changed)
 			base.Replayed = true
 			base.ResolvedScope = &Scope{ProductID: r.Envelope.SelectedProductID, ProjectIDs: []string{r.Envelope.AmbientProjectID}, ScopeVersion: r.Envelope.ScopeVersion}
-			response = r.mutationResult(base, json.RawMessage(prior.ResultPayload), changed, intents)
+			replayedPayload, derivedIntents, enrichErr := r.enrichMutationPayloadTx(ctx, tx, json.RawMessage(prior.ResultPayload), changed)
+			if enrichErr != nil {
+				return enrichErr
+			}
+			if derivedIntents != nil {
+				intents = derivedIntents
+			}
+			response = r.mutationResult(base, replayedPayload, changed, intents)
 			if response.Outcome == OutcomeError {
 				resultRejected = true
 				return errors.New("mutation result rejected")
@@ -2887,6 +3054,13 @@ func (r runtime) executeMutation(ctx context.Context, base Envelope, raw []byte,
 		payload, eventIDs, changed, err := effect(ctx, tx, grant)
 		if err != nil {
 			return err
+		}
+		payload, derivedIntents, err := r.enrichMutationPayloadTx(ctx, tx, payload, changed)
+		if err != nil {
+			return err
+		}
+		if derivedIntents != nil {
+			intents = derivedIntents
 		}
 		base.ResolvedScope = scopeFromMap(scope)
 		if base.ResolvedScope == nil {

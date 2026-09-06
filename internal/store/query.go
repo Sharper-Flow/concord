@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"sort"
 	"strconv"
 	"strings"
@@ -172,6 +173,7 @@ type WorkItem struct {
 	Active     bool                `json:"active"`
 	Terminal   bool                `json:"terminal"`
 	Blockers   []WorkItem          `json:"blockers,omitempty"`
+	WorkPin    *WorkPin            `json:"work_pin,omitempty"`
 }
 
 type Q4Result struct {
@@ -750,6 +752,19 @@ func (s *Store) QueryQ3(ctx context.Context, req Q3Request) (Q3Result, error) {
 	items, err = attachDerivedFlags(ctx, tx, items)
 	if err != nil {
 		return out, err
+	}
+	if req.Detail == "full" {
+		for i := range items {
+			pin, pinErr := ReadWorkPinTx(ctx, tx, items[i].ID)
+			if pinErr != nil {
+				var failure *Failure
+				if errors.As(pinErr, &failure) && failure.Kind == KindProjectionNotFound {
+					continue
+				}
+				return out, pinErr
+			}
+			items[i].WorkPin = &pin
+		}
 	}
 	var nextCursor *string
 	if len(items) > limit {

@@ -98,11 +98,13 @@ type ChangedRef struct {
 	Version    string `json:"version"`
 }
 type NextIntent struct {
-	Tool           string   `json:"tool"`
-	Operation      string   `json:"operation"`
-	QueryID        string   `json:"query_id,omitempty"`
-	ReasonCode     string   `json:"reason_code"`
-	RequiredFields []string `json:"required_fields,omitempty"`
+	Tool            string   `json:"tool"`
+	Operation       string   `json:"operation"`
+	QueryID         string   `json:"query_id,omitempty"`
+	ReasonCode      string   `json:"reason_code"`
+	ActionID        string   `json:"action_id,omitempty"`
+	RequiredFields  []string `json:"required_fields,omitempty"`
+	ExpectedVersion int64    `json:"expected_version,omitempty"`
 }
 type RecoveryAction struct {
 	Kind         string   `json:"kind"`

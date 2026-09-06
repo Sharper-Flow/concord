@@ -941,6 +941,9 @@ const GeneratedPayloadSchemaDocument = `{
               "maxItems": 20,
               "type": "array"
             },
+            "work_pin": {
+              "$ref": "#/$defs/work_pin"
+            },
             "workflow_step": {
               "$ref": "#/$defs/short"
             }
@@ -975,61 +978,6 @@ const GeneratedPayloadSchemaDocument = `{
         },
         "work_id": {
           "$ref": "#/$defs/id"
-        },
-        "workflow_status": {
-          "additionalProperties": false,
-          "properties": {
-            "actor": {
-              "$ref": "#/$defs/short"
-            },
-            "last_event_kind": {
-              "$ref": "#/$defs/short"
-            },
-            "occurred_at": {
-              "$ref": "#/$defs/short"
-            },
-            "sequence": {
-              "minimum": 1,
-              "type": "integer"
-            },
-            "step_name": {
-              "$ref": "#/$defs/short"
-            },
-            "step_ordinal": {
-              "minimum": 1,
-              "type": "integer"
-            },
-            "step_total": {
-              "minimum": 1,
-              "type": "integer"
-            },
-            "transition_from": {
-              "$ref": "#/$defs/short"
-            },
-            "transition_to": {
-              "$ref": "#/$defs/short"
-            },
-            "work_id": {
-              "$ref": "#/$defs/id"
-            },
-            "workflow_type": {
-              "$ref": "#/$defs/id"
-            }
-          },
-          "required": [
-            "work_id",
-            "workflow_type",
-            "step_ordinal",
-            "step_total",
-            "step_name",
-            "transition_from",
-            "transition_to",
-            "last_event_kind",
-            "actor",
-            "occurred_at",
-            "sequence"
-          ],
-          "type": "object"
         }
       },
       "required": [
@@ -2539,11 +2487,25 @@ const GeneratedPayloadSchemaDocument = `{
           "items": {
             "additionalProperties": false,
             "properties": {
+              "action_id": {
+                "$ref": "#/$defs/id"
+              },
+              "expected_version": {
+                "$ref": "#/$defs/version"
+              },
               "operation": {
                 "$ref": "#/$defs/short"
               },
               "reason_code": {
                 "$ref": "#/$defs/short"
+              },
+              "required_fields": {
+                "items": {
+                  "$ref": "#/$defs/short"
+                },
+                "maxItems": 32,
+                "type": "array",
+                "uniqueItems": true
               },
               "tool": {
                 "$ref": "#/$defs/id"
@@ -2561,6 +2523,13 @@ const GeneratedPayloadSchemaDocument = `{
         },
         "operation_id": {
           "$ref": "#/$defs/id"
+        },
+        "work_pins": {
+          "items": {
+            "$ref": "#/$defs/work_pin"
+          },
+          "maxItems": 32,
+          "type": "array"
         },
         "worker_packet_digest": {
           "maxLength": 71,
@@ -5526,6 +5495,160 @@ const GeneratedPayloadSchemaDocument = `{
       ],
       "type": "object"
     },
+    "work_pin": {
+      "additionalProperties": false,
+      "properties": {
+        "attempt": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/work_pin_attempt"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "lifecycle": {
+          "$ref": "#/$defs/lifecycle"
+        },
+        "next_valid_intents": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "action_id": {
+                "$ref": "#/$defs/id"
+              },
+              "expected_version": {
+                "$ref": "#/$defs/version"
+              },
+              "operation": {
+                "$ref": "#/$defs/short"
+              },
+              "reason_code": {
+                "$ref": "#/$defs/short"
+              },
+              "required_fields": {
+                "items": {
+                  "$ref": "#/$defs/short"
+                },
+                "maxItems": 32,
+                "type": "array",
+                "uniqueItems": true
+              },
+              "tool": {
+                "$ref": "#/$defs/id"
+              }
+            },
+            "required": [
+              "tool",
+              "operation",
+              "reason_code"
+            ],
+            "type": "object"
+          },
+          "maxItems": 16,
+          "type": "array"
+        },
+        "pending_operator_decision": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/continuity_operator_decision"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "step": {
+          "$ref": "#/$defs/short"
+        },
+        "version": {
+          "$ref": "#/$defs/version"
+        },
+        "watermark": {
+          "$ref": "#/$defs/id"
+        },
+        "work_id": {
+          "$ref": "#/$defs/id"
+        },
+        "workflow_type": {
+          "$ref": "#/$defs/id"
+        }
+      },
+      "required": [
+        "work_id",
+        "version",
+        "lifecycle",
+        "workflow_type",
+        "step",
+        "attempt",
+        "pending_operator_decision",
+        "watermark",
+        "next_valid_intents"
+      ],
+      "type": "object"
+    },
+    "work_pin_attempt": {
+      "additionalProperties": false,
+      "properties": {
+        "epoch": {
+          "$ref": "#/$defs/version"
+        },
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "lane": {
+          "$ref": "#/$defs/id"
+        },
+        "state": {
+          "$ref": "#/$defs/short"
+        }
+      },
+      "required": [
+        "id",
+        "epoch",
+        "lane",
+        "state"
+      ],
+      "type": "object"
+    },
+    "work_pin_intent": {
+      "additionalProperties": false,
+      "properties": {
+        "action_id": {
+          "$ref": "#/$defs/id"
+        },
+        "expected_version": {
+          "$ref": "#/$defs/version"
+        },
+        "operation": {
+          "$ref": "#/$defs/short"
+        },
+        "reason_code": {
+          "$ref": "#/$defs/short"
+        },
+        "required_fields": {
+          "items": {
+            "$ref": "#/$defs/short"
+          },
+          "maxItems": 32,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "tool": {
+          "$ref": "#/$defs/id"
+        }
+      },
+      "required": [
+        "tool",
+        "operation",
+        "reason_code",
+        "action_id",
+        "required_fields",
+        "expected_version"
+      ],
+      "type": "object"
+    },
     "work_relate_link_input": {
       "additionalProperties": false,
       "properties": {
@@ -6172,6 +6295,9 @@ const GeneratedPayloadSchemaDocument = `{
         },
         "version": {
           "$ref": "#/$defs/version"
+        },
+        "work_pin": {
+          "$ref": "#/$defs/work_pin"
         }
       },
       "required": [
@@ -7475,11 +7601,25 @@ const GeneratedPayloadSchemaDocument = `{
           "items": {
             "additionalProperties": false,
             "properties": {
+              "action_id": {
+                "$ref": "#/$defs/id"
+              },
+              "expected_version": {
+                "$ref": "#/$defs/version"
+              },
               "operation": {
                 "$ref": "#/$defs/short"
               },
               "reason_code": {
                 "$ref": "#/$defs/short"
+              },
+              "required_fields": {
+                "items": {
+                  "$ref": "#/$defs/short"
+                },
+                "maxItems": 32,
+                "type": "array",
+                "uniqueItems": true
               },
               "tool": {
                 "$ref": "#/$defs/id"
@@ -7718,11 +7858,25 @@ const GeneratedPayloadSchemaDocument = `{
           "items": {
             "additionalProperties": false,
             "properties": {
+              "action_id": {
+                "$ref": "#/$defs/id"
+              },
+              "expected_version": {
+                "$ref": "#/$defs/version"
+              },
               "operation": {
                 "$ref": "#/$defs/short"
               },
               "reason_code": {
                 "$ref": "#/$defs/short"
+              },
+              "required_fields": {
+                "items": {
+                  "$ref": "#/$defs/short"
+                },
+                "maxItems": 32,
+                "type": "array",
+                "uniqueItems": true
               },
               "tool": {
                 "$ref": "#/$defs/id"

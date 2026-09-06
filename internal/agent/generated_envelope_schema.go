@@ -762,6 +762,15 @@ const GeneratedEnvelopeSchemaDocument = `{
         }
       ],
       "properties": {
+        "action_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "expected_version": {
+          "minimum": 1,
+          "type": "integer"
+        },
         "operation": {
           "enum": [
             "active_work",

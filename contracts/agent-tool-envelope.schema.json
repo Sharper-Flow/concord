@@ -1261,6 +1261,15 @@
             "minLength": 1,
             "maxLength": 64
           }
+        },
+        "action_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "expected_version": {
+          "type": "integer",
+          "minimum": 1
         }
       },
       "allOf": [

@@ -78,6 +78,18 @@ func TestWorkflowActionDispatchUsesStrictPreflightAuthApprovalAndReplayPath(t *t
 	if (*first.ChangedRefs)[0].Version != "5" {
 		t.Fatalf("workflow action changed version=%s, want 5", (*first.ChangedRefs)[0].Version)
 	}
+	var mutationPayload struct {
+		WorkPins []store.WorkPin `json:"work_pins"`
+	}
+	if err := json.Unmarshal(first.Result, &mutationPayload); err != nil {
+		t.Fatal(err)
+	}
+	if len(mutationPayload.WorkPins) != 1 || mutationPayload.WorkPins[0].Version != 5 || mutationPayload.WorkPins[0].WorkID != "work-1" {
+		t.Fatalf("mutation work pins=%+v, want post-state pin", mutationPayload.WorkPins)
+	}
+	if len(*first.NextValidIntents) == 0 || (*first.NextValidIntents)[0].ActionID == "" || (*first.NextValidIntents)[0].ExpectedVersion != 5 {
+		t.Fatalf("mutation intents=%+v, want derived action intents", *first.NextValidIntents)
+	}
 	var operations, records int
 	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM durable_operations WHERE op_id LIKE 'workflow-%'`).Scan(&operations); err != nil {
 		t.Fatal(err)

@@ -59,27 +59,32 @@ func TestBuiltinWorkflowProductTruthClassification(t *testing.T) {
 	}
 	registry := NewBuiltinWorkflowRegistry()
 	for _, definition := range BuiltinWorkflowDefinitions() {
-		if definition.Version != 1 {
-			t.Fatalf("built-in %s version=%d, want 1", definition.Ref, definition.Version)
-		}
 		if definition.ChangesProductTruth == nil || *definition.ChangesProductTruth != want[definition.WorkKind] {
 			t.Fatalf("built-in %s product truth=%v, want %t", definition.Ref, definition.ChangesProductTruth, want[definition.WorkKind])
 		}
-		registered, ok := registry.Lookup(definition.Ref, 1)
+		registered, ok := registry.Lookup(definition.Ref, definition.Version)
 		if !ok || registered.Definition.ChangesProductTruth == nil || *registered.Definition.ChangesProductTruth != want[definition.WorkKind] {
 			t.Fatalf("registered %s product truth=%v, want %t", definition.Ref, registered.Definition.ChangesProductTruth, want[definition.WorkKind])
 		}
 	}
 }
 
-// The built-in registry holds exactly one version of each family. Concord is
-// pre-release, so no persisted work pins a superseded built-in definition.
-func TestBuiltinWorkflowRegistryHoldsOneVersionPerFamily(t *testing.T) {
+// A family holds exactly the versions the digest pins declare: the frozen
+// version-1 shapes where persisted instances pin them (#861), the shipped
+// shape, and nothing beyond. workflow_definition_version_pins_test.go holds
+// the pins; this guards the ceiling.
+func TestBuiltinWorkflowRegistryHoldsNoVersionBeyondThePins(t *testing.T) {
 	registry := NewBuiltinWorkflowRegistry()
-	for _, definition := range BuiltinWorkflowDefinitions() {
-		for _, version := range []int64{0, 2, 3, 4} {
-			if _, ok := registry.Lookup(definition.Ref, version); ok {
-				t.Fatalf("%s v%d is registered, want version 1 only", definition.Ref, version)
+	highest := map[string]int64{}
+	for _, definition := range builtinWorkflowDefinitionsWithHistory() {
+		if definition.Version > highest[definition.Ref] {
+			highest[definition.Ref] = definition.Version
+		}
+	}
+	for ref, top := range highest {
+		for version := top + 1; version <= top+3; version++ {
+			if _, ok := registry.Lookup(ref, version); ok {
+				t.Fatalf("%s v%d is registered, want nothing above v%d", ref, version, top)
 			}
 		}
 	}

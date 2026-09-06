@@ -4134,6 +4134,36 @@ DROP TABLE archived_work_tags_v71;
 DELETE FROM fold_guard;
 		`,
 	},
+
+	{
+		Version: 73,
+		Name:    "renumber_cd0112_transition_definition_pins",
+		SQL: `
+-- CD-0112 registered its graphs at version 1, so instances created while that
+-- release ran pinned CD-0112 content under version 1. The registry now holds
+-- that content at version 2 (#861); renumber those pins to the version their
+-- digest belongs to. The digests are the version-2 digests of the four
+-- re-versioned families; every other version-1 pin keeps its number.
+-- The version number is part of the digest, so renumbering rewrites the
+-- digest to the one the version-2 content registers with.
+INSERT OR IGNORE INTO fold_guard(active) VALUES (1);
+UPDATE workflow_instances
+SET definition_version=2,
+    definition_digest=CASE definition_digest
+        WHEN 'sha256:8abed1bdb47f7cac3b6229a5a72fa6afb9cdd2011d7c42da586b6ccd148cec83' THEN 'sha256:d7f8d8cc8b951e74751ddafe95c7b9c9d65e606cd73c41b2ceadd5fa2cdf29cb'
+        WHEN 'sha256:90fed5c22d8493fd4b4d20ecdd28fd4dbccfb8f0aaef4645b8990a704b12ab50' THEN 'sha256:e16dfed665a50ece82f33040d2cb0e4a6abfd72dbc5b4743098eab22f0faab89'
+        WHEN 'sha256:8e59cbbe8f20589064a975d8b3935c20edd573d6f6f4f9858dabea96bce6ba80' THEN 'sha256:273c82c0a0cf6c17d231f1be898ff74c6158f8036985cb3e1666b8f12c1b7895'
+        WHEN 'sha256:63f50830a7fe0d5d6dbf2c801c2f04f5b324ed0c5241292d58cfc0ef4ddddab8' THEN 'sha256:7a987b5e2cbc9bafd7a80e92345efa35b331ccaa533aefe4722024485be57e4a'
+    END
+WHERE definition_version=1 AND definition_digest IN (
+    'sha256:8abed1bdb47f7cac3b6229a5a72fa6afb9cdd2011d7c42da586b6ccd148cec83',
+    'sha256:90fed5c22d8493fd4b4d20ecdd28fd4dbccfb8f0aaef4645b8990a704b12ab50',
+    'sha256:8e59cbbe8f20589064a975d8b3935c20edd573d6f6f4f9858dabea96bce6ba80',
+    'sha256:63f50830a7fe0d5d6dbf2c801c2f04f5b324ed0c5241292d58cfc0ef4ddddab8'
+);
+DELETE FROM fold_guard;
+`,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any

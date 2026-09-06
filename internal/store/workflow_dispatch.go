@@ -400,6 +400,27 @@ func bornBoundEvidenceKinds(ctx context.Context, tx *sql.Tx, workID string, defi
 	return kinds, nil
 }
 
+// bornBoundEvidenceEvents mints the evidence rows a defaulted verdict is
+// born bound under: one row per (evaluation ref, required kind), each
+// consuming one expected sequence number starting at expected.
+func bornBoundEvidenceEvents(ctx context.Context, tx *sql.Tx, workID string, definition WorkflowDefinition, request WorkflowActionExecutionRequest, actor, eventID string, evidence []string, expected int64) ([]Event, error) {
+	kinds, err := bornBoundEvidenceKinds(ctx, tx, workID, definition)
+	if err != nil {
+		return nil, err
+	}
+	events := make([]Event, 0, len(evidence)*len(kinds))
+	for _, ref := range evidence {
+		for _, kind := range kinds {
+			events = append(events, workflowTypedEvent(eventID+":evidence:"+fmt.Sprint(len(events)), WorkflowEvidenceBound, workID, actor, request.Now, expected+int64(len(events)), map[string]any{
+				"evidence_kind": kind, "immutable_subject_ref": ref, "producer_id": request.PrincipalRef,
+				"producer_run_ref": request.OperationID, "producer_watermark": request.RequestID,
+				"observed_at": request.Now.UTC().Format(time.RFC3339Nano),
+			}))
+		}
+	}
+	return events, nil
+}
+
 func workflowSemanticActionEvents(ctx context.Context, tx *sql.Tx, definition WorkflowDefinition, request WorkflowActionExecutionRequest, stepID, actor string, raw json.RawMessage, expected int64, defaultVerdictEvidence bool) ([]Event, error) {
 	fields, err := workflowActionObject(raw)
 	if err != nil {
@@ -704,26 +725,16 @@ func workflowSemanticActionEvents(ctx context.Context, tx *sql.Tx, definition Wo
 		if len(evidence) > 32 {
 			return nil, newFailure(KindInvalidPayload, "workflow_action", "record_verdict evaluation_evidence exceeds 32 references", false, "supply a bounded evidence list")
 		}
-		var bornKinds []string
+		var mintedEvents []Event
 		if defaultVerdictEvidence {
-			var kindErr error
-			bornKinds, kindErr = bornBoundEvidenceKinds(ctx, tx, request.WorkID, definition)
-			if kindErr != nil {
-				return nil, kindErr
+			var mintErr error
+			mintedEvents, mintErr = bornBoundEvidenceEvents(ctx, tx, request.WorkID, definition, request, actor, eventID, evidence, expected)
+			if mintErr != nil {
+				return nil, mintErr
 			}
 		}
-		events := make([]Event, 0, len(evidence)*len(bornKinds)+1)
-		minted := 0
-		for _, ref := range evidence {
-			for _, kind := range bornKinds {
-				events = append(events, workflowTypedEvent(eventID+":evidence:"+fmt.Sprint(minted), WorkflowEvidenceBound, request.WorkID, actor, request.Now, expected+int64(minted), map[string]any{
-					"evidence_kind": kind, "immutable_subject_ref": ref, "producer_id": request.PrincipalRef,
-					"producer_run_ref": request.OperationID, "producer_watermark": request.RequestID,
-					"observed_at": request.Now.UTC().Format(time.RFC3339Nano),
-				}))
-				minted++
-			}
-		}
+		events := make([]Event, 0, len(mintedEvents)+1)
+		events = append(events, mintedEvents...)
 		verdictExpected := expected + int64(len(events))
 		events = append(events, workflowTypedEvent(eventID, WorkflowVerdictRecorded, request.WorkID, actor, request.Now, verdictExpected, map[string]any{"contract_version": workflowFieldInt(fields, "contract_version", 1), "predicate_id": predicateID, "verdict_kind": workflowFieldStringDefault(fields, "verdict_kind", "ok"), "verdict_actor_ref": verdictActor, "evaluation_evidence": evidence, "incomparable_with_approved": workflowFieldBool(fields, "incomparable_with_approved")}))
 		return events, nil

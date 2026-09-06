@@ -1,0 +1,29 @@
+{
+  "date": "2026-09-06T00:00:00Z",
+  "evidence": [
+    "internal/agent/mutations.go",
+    "internal/agent/generated_contracts.go",
+    "internal/store/workflow_continuity.go",
+    "internal/store/workflow.go"
+  ],
+  "home_domain_id": "agent-surface",
+  "id": "CD-0113",
+  "kind": "decision",
+  "path": "docs/decisions/CD-0113-mutation-results-carry-a-workpin.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:4d79f2890164098c36fcce31b9ae54a3d198057538ec770f4792cfd4bbd359c8",
+  "status": "accepted",
+  "summary": "Every mutation result that touches a work item carries a WorkPin computed in its own transaction: version, lifecycle, workflow type, step, live attempt, pending operator decision, and watermark. next_valid_intents is derived from the pin and the step definition instead of hand-written literals, and continuity and the full list detail embed the same pin, so a session never reads the store around the typed surface.",
+  "tags": [
+    "agent-surface",
+    "workflow",
+    "contract"
+  ],
+  "title": "Mutation results carry a WorkPin"
+}

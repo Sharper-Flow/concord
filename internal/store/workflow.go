@@ -1242,8 +1242,37 @@ func foldWorkflowActionCompleted(ctx context.Context, tx *sql.Tx, event Event) e
 	if p.ActorRef != event.Actor {
 		return newFailure(KindUnauthorized, "fold_event", "completed action actor must match the authenticated event actor", false, "complete the workflow action through the authenticated workflow actor")
 	}
-	if p.ActionID == "" || p.StepID != currentStep || !definitionStepAllows(entry.Definition, currentStep, p.ActionID) {
+	if p.ActionID == "" || p.StepID != currentStep {
 		return newFailure(KindIllegalLifecycleTransition, "fold_event", "completed action is not declared on the pinned current step", false, "reread_entities")
+	}
+	if !definitionStepAllows(entry.Definition, currentStep, p.ActionID) {
+		if p.ActionID != "bind_evidence" || stepDeclaresAction(entry.Definition, currentStep, "bind_evidence") {
+			return newFailure(KindIllegalLifecycleTransition, "fold_event", "completed action is not declared on the pinned current step", false, "reread_entities")
+		}
+		bindingStep := workflowEvidenceBindingStep(entry.Definition, currentStep)
+		if bindingStep == "" || !workflowStepFollows(entry.Definition, bindingStep, currentStep) {
+			return newFailure(KindIllegalLifecycleTransition, "fold_event", "recovery evidence binding is not past its declared binding step", false, "reread_entities")
+		}
+		mandate, mandateErr := workflowSpecMandate(ctx, tx, event.SubjectID, "fold_event")
+		if mandateErr != nil {
+			return mandateErr
+		}
+		mandateBound := false
+		for _, lawID := range mandate {
+			if contains(p.ResultEvidenceRefs, lawID) {
+				bound, boundErr := workflowEvidenceReferenceBound(ctx, tx, event.SubjectID, lawID, "fold_event")
+				if boundErr != nil {
+					return boundErr
+				}
+				if bound {
+					mandateBound = true
+					break
+				}
+			}
+		}
+		if !mandateBound {
+			return newFailure(KindMissingEvidence, "fold_event", "recovery evidence binding does not bind an active spec mandate", false, "bind the unbound spec mandate law reference")
+		}
 	}
 	advancesStep := false
 	if p.ActionID != "" {

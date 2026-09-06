@@ -4217,6 +4217,28 @@ CREATE TRIGGER worker_attempts_guard_update BEFORE UPDATE ON worker_attempts FOR
 CREATE TRIGGER worker_attempts_guard_delete BEFORE DELETE ON worker_attempts FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'worker_attempts is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
 		`,
 	},
+
+	{
+		Version: 75,
+		Name:    "close_workflow_instances_of_terminal_work_items",
+		SQL: `
+-- A terminal lifecycle fold now closes the work item's workflow instance in
+-- the same transaction. Instances left live by earlier terminal transitions
+-- take the state that fold would have recorded: superseded mirrors the
+-- lifecycle, and cancelled or completed-by-lifecycle both record the
+-- abandoned workflow as cancelled. The stamp is the item's terminal time.
+INSERT OR IGNORE INTO fold_guard(active) VALUES (1);
+UPDATE workflow_instances
+SET instance_state=CASE (SELECT lifecycle FROM work_items WHERE work_items.id=workflow_instances.work_id)
+        WHEN 'superseded' THEN 'superseded'
+        ELSE 'cancelled'
+    END,
+    completed_at=(SELECT coalesce(terminal_time, updated_at) FROM work_items WHERE work_items.id=workflow_instances.work_id)
+WHERE instance_state NOT IN ('completed','cancelled','superseded')
+  AND work_id IN (SELECT id FROM work_items WHERE lifecycle IN ('completed','cancelled','superseded'));
+DELETE FROM fold_guard;
+`,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any

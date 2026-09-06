@@ -862,6 +862,28 @@ func updateWorkLifecycle(ctx context.Context, tx *sql.Tx, event Event, lifecycle
 		return newFailure(KindProjectionNotFound, "fold_event", "work item does not exist at expected version", false,
 			"reload the work item before applying the lifecycle event")
 	}
+	if isTerminalLifecycle(lifecycle) {
+		return closeWorkflowInstanceForTerminalLifecycle(ctx, tx, event.SubjectID, lifecycle, now)
+	}
+	return nil
+}
+
+// closeWorkflowInstanceForTerminalLifecycle closes a live workflow instance in
+// the same fold that ends its work item. Cancelled and superseded mirror the
+// lifecycle. An item completed by lifecycle never ran its completion gate, so
+// the instance records the abandoned workflow as cancelled while the item's
+// lifecycle carries the outcome and its evidence. An instance that already
+// reached a terminal state keeps that record: workflow.completed is the only
+// fold that may mark an instance completed.
+func closeWorkflowInstanceForTerminalLifecycle(ctx context.Context, tx *sql.Tx, workID, lifecycle, at string) error {
+	state := "cancelled"
+	if lifecycle == "superseded" {
+		state = "superseded"
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE workflow_instances SET instance_state=?, completed_at=? WHERE work_id=? AND instance_state NOT IN ('completed','cancelled','superseded')`, state, at, workID); err != nil {
+		return wrapFailure(KindUnavailable, "fold_event", "cannot close the workflow instance of a terminal work item", true,
+			"retry once the database is writable", err)
+	}
 	return nil
 }
 

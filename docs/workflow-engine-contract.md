@@ -305,6 +305,7 @@ workflow-only metadata or an operation from another work item.
 | condition resolved | transition `open → resolved`; require a work-item-bound durable operation authority and verify every evidence ref belongs to its completed authoritative result before filling resolution fields |
 | condition cancelled | transition `open → cancelled`; require the event-envelope actor to resolve to an operator actor tuple, not merely a payload string, and verify every cancellation evidence ref against the stored durable authority operation; a resolved or cancelled condition cannot transition again |
 | completed | set terminal state and completed timestamp only after the completion transaction's prior clauses pass |
+| work item terminal (`work.transitioned` to `completed` or `cancelled`, `work.superseded`) | close a live instance in the same fold: `superseded` mirrors the lifecycle, `cancelled` and completed-by-lifecycle both record `cancelled` because the completion gate never ran; an instance already terminal keeps its record |
 
 `RebuildFromLog` clears, in one transaction, all ten tables in dependency order:
 `workflow_contract_law_revisions`, `workflow_premise_confirmations`, `workflow_impact_notices`,

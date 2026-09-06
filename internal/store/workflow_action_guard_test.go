@@ -22,6 +22,7 @@ var guardedActions = map[string]workflowActionGuardPhase{
 	"complete":               guardPhaseBoundary,
 	"link_successor":         guardPhasePostValidation,
 	"cross_context_boundary": guardPhaseClaim,
+	"record_delivery":        guardPhaseClaim,
 }
 
 func TestEveryGuardTableEntryIsARegisteredAction(t *testing.T) {

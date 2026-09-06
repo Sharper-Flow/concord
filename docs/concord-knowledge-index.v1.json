@@ -3309,6 +3309,34 @@
       "title": "A release never requires a session restart"
     },
     {
+      "date": "2026-09-05T00:00:00Z",
+      "evidence": [
+        "internal/store/workflow_registry.go",
+        "internal/store/workflow_action_guards.go",
+        "scenarios/workflow-engine.v1.json"
+      ],
+      "home_domain_id": "workflow-engine",
+      "id": "CD-0112",
+      "kind": "decision",
+      "path": "docs/decisions/CD-0112-record-delivery-exits-the-step-a-session-executed.md",
+      "scopes": {
+        "domain_ids": [],
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:17feff7c99d9293d570976b697794285da1923c44668a68871d27723d268587d",
+      "status": "accepted",
+      "summary": "checkpoint_context and cross_context_boundary hold every step, because a session hand-off is not progress. Every external-effect step declares record_delivery, an advancing action admitted only after the step's fenced start and refused by the fold once a lane attempt was dispatched, so a step the session executed exits through delivery and a dispatched step exits through accept_worker_result. record_decision keeps its typed checkpoint and advances, and accept_decision moves to the spike's review step and advances, so the spike reaches acceptance.",
+      "tags": [
+        "workflow",
+        "continuity",
+        "evidence"
+      ],
+      "title": "record_delivery exits the step a session executed"
+    },
+    {
       "criterion_bindings": [
         {
           "criterion": 1,
@@ -5011,7 +5039,7 @@
         "project_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:48e12b04fca85cb25dd74b78ecdc8fcf1a85d82a4fe9c2c48483ccc474861e08",
+      "sha256": "sha256:2639ba1b8b8e27b8e7fadad5c6a9500ecbc3e8b7a2b2201905d00c9137163286",
       "status": "accepted",
       "summary": "Defines the machine-readable workflow engine implementation contract.",
       "tags": [

@@ -55,6 +55,7 @@ var workflowActionGuards = map[string]workflowActionGuard{
 	"complete":               {guardPhaseBoundary, guardCompleteBoundary},
 	"link_successor":         {guardPhasePostValidation, guardForwardLinkOnly},
 	"cross_context_boundary": {guardPhaseClaim, guardNoRestartDispatch},
+	"record_delivery":        {guardPhaseClaim, guardDeliveryFollowsStart},
 }
 
 // runWorkflowActionGuard runs the request's guard when one is declared for
@@ -179,6 +180,22 @@ func guardNoRestartDispatch(g *workflowActionGuardContext) error {
 	}
 	if workflowFieldStringDefault(fields, "mode", "summary") == "restart" || workflowFieldStringDefault(fields, "boundary_kind", "summary") == "restart" || fields["restart"] != nil {
 		return newFailure(KindUnavailable, "workflow_action", "restart dispatch is not implemented and fails closed pending Concord issue #120", false, "contact_operator")
+	}
+	return nil
+}
+
+// guardDeliveryFollowsStart admits record_delivery only on a step whose fenced
+// start action has run in the current attempt. Delivery states that the step's
+// own work finished, so a step that never started has nothing to deliver. The
+// fold separately refuses delivery once a lane attempt was dispatched in the
+// same attempt, because that step exits through accept_worker_result.
+func guardDeliveryFollowsStart(g *workflowActionGuardContext) error {
+	_, _, found, err := latestWorkflowActionStart(g.ctx, g.tx, g.request.WorkID, g.currentStep)
+	if err != nil {
+		return err
+	}
+	if !found {
+		return newFailure(KindInvalidOperation, "workflow_action", "record_delivery requires the step's fenced start action in this attempt", false, "start the step, do its work, then record delivery")
 	}
 	return nil
 }
@@ -325,7 +342,7 @@ func assembleWorkflowActionEventsTx(ctx context.Context, tx *sql.Tx, in workflow
 		})
 		events = append(events, Event{EventID: in.request.OperationID + ":started", Kind: WorkflowActionStarted, SubjectType: SubjectWorkItem, SubjectID: in.request.WorkID, Actor: actor, OccurredAt: in.request.Now, PayloadVersion: 1, Payload: startPayload})
 	}
-	if executionMode == ActionCheckpoint {
+	if builtinActionPolicies[in.request.ActionID].EventShape == ActionEventCheckpoint {
 		resultVersion := versionCursor + int64(len(events)-int(versionCursor-in.request.ExpectedVersion)) + 1
 		checkpointPayload, _ := json.Marshal(map[string]any{"action_id": in.request.ActionID, "fields": in.payload})
 		checkpoint, _ := json.Marshal(map[string]any{

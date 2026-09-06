@@ -1740,6 +1740,11 @@
       "state": "outstanding"
     },
     {
+      "id": "CD-0112",
+      "reason": "The decision is proved by the store tests that pin the held continuity modes and the record_delivery guard, and by the conformance corpus that replays every external-effect exit through record_delivery. Runtime behavior they exercise is the law itself, so no separate reachability surface applies.",
+      "state": "out_of_scope"
+    },
+    {
       "evidence": [
         {
           "kind": "go_test",

@@ -1,9 +1,11 @@
 package store
 
 import (
+	"bytes"
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"os"
 	"regexp"
 	"sort"
 	"strconv"
@@ -109,19 +111,29 @@ func TestTypedEventShapeMatchesTheSemanticDispatcher(t *testing.T) {
 	}
 }
 
-func TestCheckpointEventShapeMatchesExecutionMode(t *testing.T) {
+// The checkpoint branch of assembleWorkflowActionEventsTx keys on the declared
+// EventShape, so an action may append a typed checkpoint and still advance
+// (record_decision). What must still agree: every ActionCheckpoint-mode action
+// declares the checkpoint shape, since a checkpoint that appends no checkpoint
+// event records nothing, and no checkpoint-shape action has a semantic case arm,
+// since the checkpoint branch runs before the semantic switch.
+func TestCheckpointEventShapeGovernsTheCheckpointBranch(t *testing.T) {
+	source, err := os.ReadFile("workflow_action_guards.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(source, []byte("builtinActionPolicies[in.request.ActionID].EventShape == ActionEventCheckpoint {")) {
+		t.Fatal("assembleWorkflowActionEventsTx does not key its checkpoint branch on the declared EventShape")
+	}
 	cases := semanticCaseActions(t)
 	for action, policy := range builtinActionPolicies {
 		checkpointShape := policy.EventShape == ActionEventCheckpoint
-		checkpointMode := policy.ExecutionMode == ActionCheckpoint
-		if checkpointShape != checkpointMode {
-			t.Errorf("%s declares EventShape %q with ExecutionMode %q; applyWorkflowActionRawTx appends "+
-				"WorkflowActionCheckpointed for exactly the ActionCheckpoint actions, so the two must agree",
-				action, policy.EventShape, policy.ExecutionMode)
+		if policy.ExecutionMode == ActionCheckpoint && !checkpointShape {
+			t.Errorf("%s runs in ActionCheckpoint mode but declares EventShape %q; a checkpoint action must append WorkflowActionCheckpointed", action, policy.EventShape)
 		}
-		if checkpointMode && cases[action] {
-			t.Errorf("%s runs in ActionCheckpoint mode and also has a case arm in workflowSemanticActionEvents; "+
-				"the checkpoint branch returns before the semantic switch, so that arm is unreachable", action)
+		if checkpointShape && cases[action] {
+			t.Errorf("%s declares the checkpoint EventShape and also has a case arm in workflowSemanticActionEvents; "+
+				"the checkpoint branch runs before the semantic switch, so that arm is unreachable", action)
 		}
 	}
 }

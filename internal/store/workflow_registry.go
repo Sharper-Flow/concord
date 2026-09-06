@@ -879,8 +879,8 @@ var builtinActionPolicies = map[string]builtinActionPolicy{
 	"start_poc":              actionPolicy(ActionExternalEffect, ActionApprovalNone, ActionFenced, ActionEventGeneric),
 	"checkpoint_poc":         actionPolicy(ActionExternalEffect, ActionApprovalNone, ActionCheckpoint, ActionEventCheckpoint),
 	"discard_poc":            actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance, ActionEventGeneric),
-	"record_decision":        actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionCheckpoint, ActionEventCheckpoint),
-	"accept_decision":        actionPolicy(ActionInternalSQLite, ActionApprovalRequired, ActionHold, ActionEventTyped),
+	"record_decision":        actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance, ActionEventCheckpoint),
+	"accept_decision":        actionPolicy(ActionInternalSQLite, ActionApprovalRequired, ActionAdvance, ActionEventTyped),
 	"approve_operation":      actionPolicy(ActionInternalSQLite, ActionApprovalRequired, ActionAdvance, ActionEventTyped),
 	"start_run":              actionPolicy(ActionExternalEffect, ActionApprovalNone, ActionFenced, ActionEventTyped),
 	"checkpoint_run":         actionPolicy(ActionExternalEffect, ActionApprovalNone, ActionCheckpoint, ActionEventCheckpoint),
@@ -896,7 +896,8 @@ var builtinActionPolicies = map[string]builtinActionPolicy{
 	"start_action":           actionPolicy(ActionExternalEffect, ActionApprovalNone, ActionFenced, ActionEventGeneric),
 	"checkpoint_action":      actionPolicy(ActionExternalEffect, ActionApprovalNone, ActionCheckpoint, ActionEventCheckpoint),
 	"checkpoint_context":     actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionHold, ActionEventTyped),
-	"cross_context_boundary": actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance, ActionEventTyped),
+	"cross_context_boundary": actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionHold, ActionEventTyped),
+	"record_delivery":        actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance, ActionEventGeneric),
 	"accept_worker_result":   actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance, ActionEventGeneric),
 	"dispatch_worker":        actionPolicy(ActionExternalEffect, ActionApprovalNone, ActionFenced, ActionEventGeneric),
 	"supersede_contract":     actionPolicy(ActionInternalSQLite, ActionApprovalRequired, ActionAdvance, ActionEventTyped),
@@ -956,7 +957,7 @@ func withContinuityActions(definition WorkflowDefinition) WorkflowDefinition {
 	}
 	continuity := []WorkflowActionDefinition{
 		{ID: "checkpoint_context", Consequence: ActionInternalSQLite, Approval: ActionApprovalNone, ExecutionMode: ActionHold, Payload: WorkflowPayloadDefinition{Fields: checkpointFields}},
-		{ID: "cross_context_boundary", Consequence: ActionInternalSQLite, Approval: ActionApprovalNone, ExecutionMode: ActionAdvance, Payload: WorkflowPayloadDefinition{Fields: boundaryFields}},
+		{ID: "cross_context_boundary", Consequence: ActionInternalSQLite, Approval: ActionApprovalNone, ExecutionMode: ActionHold, Payload: WorkflowPayloadDefinition{Fields: boundaryFields}},
 	}
 	definition.AvailableActions = append(definition.AvailableActions, "checkpoint_context", "cross_context_boundary")
 	definition.ActionDefinitions = append(definition.ActionDefinitions, continuity...)
@@ -989,10 +990,10 @@ func baseDefinition(ref string, kind WorkKind, g WorkflowStepGraph, actions []st
 
 func builtinImplementation() WorkflowDefinition {
 	ids := []string{"proposal", "discovery", "design", "planning", "execution", "acceptance", "release"}
-	steps := []WorkflowStep{step("proposal", WorkflowStepInternalSQLite, "record_proposal"), step("discovery", WorkflowStepInternalSQLite, "record_discovery"), step("design", WorkflowStepInternalSQLite, "record_design"), step("planning", WorkflowStepHumanCheckpoint, "approve_contract"), step("execution", WorkflowStepExternalEffect, "start_execution", "checkpoint_execution", "bind_evidence", "declare_impact", "link_successor"), step("acceptance", WorkflowStepHumanCheckpoint, "record_verdict", "confirm_premise"), step("release", WorkflowStepInternalSQLite, "complete")}
+	steps := []WorkflowStep{step("proposal", WorkflowStepInternalSQLite, "record_proposal"), step("discovery", WorkflowStepInternalSQLite, "record_discovery"), step("design", WorkflowStepInternalSQLite, "record_design"), step("planning", WorkflowStepHumanCheckpoint, "approve_contract"), step("execution", WorkflowStepExternalEffect, "start_execution", "checkpoint_execution", "bind_evidence", "declare_impact", "link_successor", "record_delivery"), step("acceptance", WorkflowStepHumanCheckpoint, "record_verdict", "confirm_premise"), step("release", WorkflowStepInternalSQLite, "complete")}
 	edges := forward(ids...)
 	edges = addEdge(edges, "execution", "execution", WorkflowEdgeRetry)
-	actions := []string{"record_proposal", "record_discovery", "record_design", "approve_contract", "start_execution", "checkpoint_execution", "bind_evidence", "declare_impact", "link_successor", "record_verdict", "confirm_premise", "complete"}
+	actions := []string{"record_proposal", "record_discovery", "record_design", "approve_contract", "start_execution", "checkpoint_execution", "bind_evidence", "declare_impact", "link_successor", "record_delivery", "record_verdict", "confirm_premise", "complete"}
 	d := baseDefinition("workflow.implementation", WorkKindImplementation, graph(steps, edges, "release"), actions, []EvidenceKind{EvidenceVerification, EvidenceReview}, WorkflowOutcomeSchema{DefaultKind: PredicateCheck, AllowedKinds: []PredicateKind{PredicateExists, PredicateAbsent, PredicateCheck}, AllowedOutcomeTokens: []string{}, DecisionRecordRequired: false}, []WorkKind{WorkKindBreakFix, WorkKindResearch})
 	return withContinuityActions(d)
 }
@@ -1000,10 +1001,10 @@ func builtinBreakFix() WorkflowDefinition {
 	// Break-fix changes Product truth, so the repair route passes through a
 	// human approval checkpoint between diagnosis and repair.
 	ids := []string{"reproduce", "diagnose", "planning", "repair", "verify", "complete"}
-	steps := []WorkflowStep{step("reproduce", WorkflowStepInternalSQLite, "record_reproduction"), step("diagnose", WorkflowStepInternalSQLite, "record_root_cause"), step("planning", WorkflowStepHumanCheckpoint, "approve_contract"), step("repair", WorkflowStepExternalEffect, "start_repair", "checkpoint_repair", "bind_evidence", "link_successor"), step("verify", WorkflowStepHumanCheckpoint, "record_verdict", "confirm_premise"), step("complete", WorkflowStepInternalSQLite, "complete")}
+	steps := []WorkflowStep{step("reproduce", WorkflowStepInternalSQLite, "record_reproduction"), step("diagnose", WorkflowStepInternalSQLite, "record_root_cause"), step("planning", WorkflowStepHumanCheckpoint, "approve_contract"), step("repair", WorkflowStepExternalEffect, "start_repair", "checkpoint_repair", "bind_evidence", "link_successor", "record_delivery"), step("verify", WorkflowStepHumanCheckpoint, "record_verdict", "confirm_premise"), step("complete", WorkflowStepInternalSQLite, "complete")}
 	edges := forward(ids...)
 	edges = addEdge(edges, "repair", "repair", WorkflowEdgeRetry)
-	actions := []string{"record_reproduction", "record_root_cause", "approve_contract", "start_repair", "checkpoint_repair", "bind_evidence", "link_successor", "record_verdict", "confirm_premise", "complete"}
+	actions := []string{"record_reproduction", "record_root_cause", "approve_contract", "start_repair", "checkpoint_repair", "bind_evidence", "link_successor", "record_delivery", "record_verdict", "confirm_premise", "complete"}
 	d := baseDefinition("workflow.break_fix", WorkKindBreakFix, graph(steps, edges, "complete"), actions, []EvidenceKind{EvidenceVerification}, WorkflowOutcomeSchema{DefaultKind: PredicateAbsent, AllowedKinds: []PredicateKind{PredicateExists, PredicateAbsent, PredicateCheck}, AllowedOutcomeTokens: []string{}, DecisionRecordRequired: false}, []WorkKind{WorkKindImplementation, WorkKindResearch})
 	return withContinuityActions(d)
 }
@@ -1016,39 +1017,39 @@ func builtinResearch() WorkflowDefinition {
 }
 func builtinArchitectureSpike() WorkflowDefinition {
 	ids := []string{"frame", "research", "options", "poc_optional", "decision_record", "review", "acceptance", "complete"}
-	steps := []WorkflowStep{step("frame", WorkflowStepHumanCheckpoint, "frame_question", "approve_contract"), step("research", WorkflowStepCrossAuthority, "record_research", "bind_evidence"), step("options", WorkflowStepInternalSQLite, "record_option"), step("poc_optional", WorkflowStepExternalEffect, "start_poc", "checkpoint_poc", "discard_poc"), step("decision_record", WorkflowStepHumanCheckpoint, "record_decision"), step("review", WorkflowStepHumanCheckpoint, "record_verdict"), step("acceptance", WorkflowStepHumanCheckpoint, "accept_decision", "confirm_premise"), step("complete", WorkflowStepInternalSQLite, "complete")}
+	steps := []WorkflowStep{step("frame", WorkflowStepHumanCheckpoint, "frame_question", "approve_contract"), step("research", WorkflowStepCrossAuthority, "record_research", "bind_evidence"), step("options", WorkflowStepInternalSQLite, "record_option"), step("poc_optional", WorkflowStepExternalEffect, "start_poc", "checkpoint_poc", "discard_poc", "record_delivery"), step("decision_record", WorkflowStepHumanCheckpoint, "record_decision"), step("review", WorkflowStepHumanCheckpoint, "record_verdict", "accept_decision"), step("acceptance", WorkflowStepHumanCheckpoint, "confirm_premise"), step("complete", WorkflowStepInternalSQLite, "complete")}
 	edges := forward(ids...)
 	edges = addEdge(edges, "options", "decision_record", WorkflowEdgeOptional)
 	edges = addEdge(edges, "poc_optional", "poc_optional", WorkflowEdgeRetry)
-	actions := []string{"frame_question", "approve_contract", "record_research", "bind_evidence", "record_option", "start_poc", "checkpoint_poc", "discard_poc", "record_decision", "record_verdict", "accept_decision", "confirm_premise", "complete"}
+	actions := []string{"frame_question", "approve_contract", "record_research", "bind_evidence", "record_option", "start_poc", "checkpoint_poc", "discard_poc", "record_delivery", "record_decision", "record_verdict", "accept_decision", "confirm_premise", "complete"}
 	d := baseDefinition("workflow.architecture_spike", WorkKindArchitectureSpike, graph(steps, edges, "complete"), actions, []EvidenceKind{EvidenceReview, EvidenceApproval, EvidenceArtifact}, WorkflowOutcomeSchema{DefaultKind: PredicateOutcome, AllowedKinds: []PredicateKind{PredicateOutcome}, AllowedOutcomeTokens: []string{"accepted_decision", "insufficient_evidence"}, DecisionRecordRequired: true}, []WorkKind{WorkKindImplementation, WorkKindResearch, WorkKindStaticAnalysis})
 	return withContinuityActions(d)
 }
 func builtinOpsRunbook() WorkflowDefinition {
 	ids := []string{"plan", "approval", "execute", "health", "rollback_optional", "cleanup", "complete"}
-	steps := []WorkflowStep{step("plan", WorkflowStepHumanCheckpoint, "approve_contract", "resolve_condition", "cancel_condition"), step("approval", WorkflowStepHumanCheckpoint, "approve_operation", "resolve_condition", "cancel_condition"), step("execute", WorkflowStepExternalEffect, "start_run", "checkpoint_run", "bind_evidence", "add_condition", "resolve_condition", "cancel_condition"), step("health", WorkflowStepCrossAuthority, "record_health", "record_verdict", "resolve_condition", "cancel_condition"), step("rollback_optional", WorkflowStepExternalEffect, "rollback_run", "resolve_condition", "cancel_condition"), step("cleanup", WorkflowStepInternalSQLite, "cleanup_run", "confirm_premise", "resolve_condition", "cancel_condition"), step("complete", WorkflowStepInternalSQLite, "complete", "resolve_condition", "cancel_condition")}
+	steps := []WorkflowStep{step("plan", WorkflowStepHumanCheckpoint, "approve_contract", "resolve_condition", "cancel_condition"), step("approval", WorkflowStepHumanCheckpoint, "approve_operation", "resolve_condition", "cancel_condition"), step("execute", WorkflowStepExternalEffect, "start_run", "checkpoint_run", "bind_evidence", "add_condition", "resolve_condition", "cancel_condition", "record_delivery"), step("health", WorkflowStepCrossAuthority, "record_health", "record_verdict", "resolve_condition", "cancel_condition"), step("rollback_optional", WorkflowStepExternalEffect, "rollback_run", "resolve_condition", "cancel_condition", "record_delivery"), step("cleanup", WorkflowStepInternalSQLite, "cleanup_run", "confirm_premise", "resolve_condition", "cancel_condition"), step("complete", WorkflowStepInternalSQLite, "complete", "resolve_condition", "cancel_condition")}
 	edges := forward(ids...)
 	edges = addEdge(edges, "health", "cleanup", WorkflowEdgeOptional)
 	edges = addEdge(edges, "execute", "execute", WorkflowEdgeRetry)
-	actions := []string{"approve_contract", "approve_operation", "start_run", "checkpoint_run", "bind_evidence", "add_condition", "resolve_condition", "cancel_condition", "record_health", "record_verdict", "rollback_run", "cleanup_run", "confirm_premise", "complete"}
+	actions := []string{"approve_contract", "approve_operation", "start_run", "checkpoint_run", "bind_evidence", "add_condition", "resolve_condition", "cancel_condition", "record_delivery", "record_health", "record_verdict", "rollback_run", "cleanup_run", "confirm_premise", "complete"}
 	d := baseDefinition("workflow.ops_runbook", WorkKindOpsRunbook, graph(steps, edges, "complete"), actions, []EvidenceKind{EvidenceApproval, EvidenceNativeRun}, WorkflowOutcomeSchema{DefaultKind: PredicateCheck, AllowedKinds: []PredicateKind{PredicateExists, PredicateAbsent, PredicateCheck}, AllowedOutcomeTokens: []string{}, DecisionRecordRequired: false}, []WorkKind{WorkKindImplementation, WorkKindBreakFix, WorkKindResearch})
 	return withContinuityActions(d)
 }
 func builtinStaticAnalysis() WorkflowDefinition {
 	ids := []string{"scope", "analyze", "report", "review", "complete"}
-	steps := []WorkflowStep{step("scope", WorkflowStepHumanCheckpoint, "approve_contract", "declare_scope"), step("analyze", WorkflowStepExternalEffect, "run_analysis", "checkpoint_analysis"), step("report", WorkflowStepInternalSQLite, "record_report", "bind_evidence"), step("review", WorkflowStepHumanCheckpoint, "record_verdict", "confirm_premise"), step("complete", WorkflowStepInternalSQLite, "complete")}
+	steps := []WorkflowStep{step("scope", WorkflowStepHumanCheckpoint, "approve_contract", "declare_scope"), step("analyze", WorkflowStepExternalEffect, "run_analysis", "checkpoint_analysis", "record_delivery"), step("report", WorkflowStepInternalSQLite, "record_report", "bind_evidence"), step("review", WorkflowStepHumanCheckpoint, "record_verdict", "confirm_premise"), step("complete", WorkflowStepInternalSQLite, "complete")}
 	edges := forward(ids...)
 	edges = addEdge(edges, "analyze", "analyze", WorkflowEdgeRetry)
-	actions := []string{"approve_contract", "declare_scope", "run_analysis", "checkpoint_analysis", "record_report", "bind_evidence", "record_verdict", "confirm_premise", "complete"}
+	actions := []string{"approve_contract", "declare_scope", "run_analysis", "checkpoint_analysis", "record_delivery", "record_report", "bind_evidence", "record_verdict", "confirm_premise", "complete"}
 	d := baseDefinition("workflow.static_analysis", WorkKindStaticAnalysis, graph(steps, edges, "complete"), actions, []EvidenceKind{EvidenceArtifact, EvidenceReview}, WorkflowOutcomeSchema{DefaultKind: PredicateCheck, AllowedKinds: []PredicateKind{PredicateExists, PredicateAbsent, PredicateCheck}, AllowedOutcomeTokens: []string{}, DecisionRecordRequired: false}, []WorkKind{WorkKindImplementation, WorkKindBreakFix, WorkKindResearch})
 	return withContinuityActions(d)
 }
 func builtinGenericOneOff() WorkflowDefinition {
 	ids := []string{"define", "execute", "verify", "complete"}
-	steps := []WorkflowStep{step("define", WorkflowStepHumanCheckpoint, "approve_contract"), step("execute", WorkflowStepExternalEffect, "start_action", "checkpoint_action", "bind_evidence", "link_successor"), step("verify", WorkflowStepHumanCheckpoint, "record_verdict", "confirm_premise"), step("complete", WorkflowStepInternalSQLite, "complete")}
+	steps := []WorkflowStep{step("define", WorkflowStepHumanCheckpoint, "approve_contract"), step("execute", WorkflowStepExternalEffect, "start_action", "checkpoint_action", "bind_evidence", "link_successor", "record_delivery"), step("verify", WorkflowStepHumanCheckpoint, "record_verdict", "confirm_premise"), step("complete", WorkflowStepInternalSQLite, "complete")}
 	edges := forward(ids...)
 	edges = addEdge(edges, "execute", "execute", WorkflowEdgeRetry)
-	actions := []string{"approve_contract", "start_action", "checkpoint_action", "bind_evidence", "link_successor", "record_verdict", "confirm_premise", "complete"}
+	actions := []string{"approve_contract", "start_action", "checkpoint_action", "bind_evidence", "link_successor", "record_delivery", "record_verdict", "confirm_premise", "complete"}
 	d := baseDefinition("workflow.generic_one_off", WorkKindGenericOneOff, graph(steps, edges, "complete"), actions, []EvidenceKind{EvidenceArtifact}, WorkflowOutcomeSchema{DefaultKind: PredicateOutcome, AllowedKinds: []PredicateKind{PredicateExists, PredicateAbsent, PredicateOutcome, PredicateCheck}, AllowedOutcomeTokens: []string{"no_change", "accepted_decision", "insufficient_evidence", "resolved", "remediated", "report_recorded", "completed", "operator_defined"}, DecisionRecordRequired: false}, []WorkKind{WorkKindImplementation, WorkKindBreakFix, WorkKindResearch, WorkKindArchitectureSpike, WorkKindOpsRunbook, WorkKindStaticAnalysis, WorkKindGenericOneOff})
 	return withContinuityActions(d)
 }

@@ -52,7 +52,8 @@ func TestWorkflowExecutionModesPreserveCurrentTransitionSemantics(t *testing.T) 
 		"confirm_premise":        ActionAdvance,
 		"complete":               ActionHold,
 		"checkpoint_context":     ActionHold,
-		"cross_context_boundary": ActionAdvance,
+		"cross_context_boundary": ActionHold,
+		"record_delivery":        ActionAdvance,
 		"accept_worker_result":   ActionAdvance,
 	}
 	for actionID, expected := range want {
@@ -88,13 +89,13 @@ func TestDefinitionRejectsMissingExecutionMode(t *testing.T) {
 func TestBuiltinWorkflowDigestsStayPinned(t *testing.T) {
 	registry := NewBuiltinWorkflowRegistry()
 	want := map[string]string{
-		"workflow.implementation":     "sha256:deaeec1077f5360b23b4c6ca78328d45a620668c503760855ec28e7bf6ecf155",
-		"workflow.break_fix":          "sha256:aefce865f350345dc41fc1e2e988e7d5e246fa7fd560335399cf8c826e4cc35a",
-		"workflow.research":           "sha256:46dfee4b0da57d1d835fb094f64bf6ebf45e72d003461945795f6dada4f5388f",
-		"workflow.architecture_spike": "sha256:0de0f3007629a509f8d6e289ce424f33aaaa9c160693a530898f6c039149a3fa",
-		"workflow.ops_runbook":        "sha256:d1218c37554f1412b55445b306d5141d11789c7ff78fe0a656f6d15959357ced",
-		"workflow.static_analysis":    "sha256:d0bc28751b65cb1ae5a0dc31e8db177a6ffe4480f39725fb16e467d88ef4c038",
-		"workflow.generic_one_off":    "sha256:c2b8b4c8ef11b2de08912f7c82faa91dffe6a2fbe4ddcef924ff4b393da578b3",
+		"workflow.implementation":     "sha256:90fed5c22d8493fd4b4d20ecdd28fd4dbccfb8f0aaef4645b8990a704b12ab50",
+		"workflow.break_fix":          "sha256:8abed1bdb47f7cac3b6229a5a72fa6afb9cdd2011d7c42da586b6ccd148cec83",
+		"workflow.research":           "sha256:63f50830a7fe0d5d6dbf2c801c2f04f5b324ed0c5241292d58cfc0ef4ddddab8",
+		"workflow.architecture_spike": "sha256:97d09dd24f80750dfa403ac2ccb9bf17b046cbd04981358b7ebaf1b1076aef5e",
+		"workflow.ops_runbook":        "sha256:f101183b9b44a7f6a9f04bde3894892c043df67194987ab4fa09e201c41566de",
+		"workflow.static_analysis":    "sha256:a7e8fac850328d03d46eaa0479f0875727d93e385229fc9ed34aafbc9c951f34",
+		"workflow.generic_one_off":    "sha256:8e59cbbe8f20589064a975d8b3935c20edd573d6f6f4f9858dabea96bce6ba80",
 	}
 	for ref, expected := range want {
 		definition, ok := registry.Lookup(ref, 1)

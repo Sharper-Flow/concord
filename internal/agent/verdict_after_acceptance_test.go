@@ -56,6 +56,34 @@ func TestVerdictAfterAcceptanceCitesTheAttempt(t *testing.T) {
 	}
 	action := signedAction
 
+	// Evaluator independence (#801): the session that executed the step
+	// cannot record its verdict, so the verdict arrives through the
+	// agent-evaluator identity, which executed nothing on this work item.
+	reviewInvocation := Invocation{
+		ClientRef: grant.ClientRef, PrincipalRef: grant.PrincipalRef, SessionRef: "session-evaluator", AgentRef: "agent-evaluator",
+		Directory: grant.Directory, Worktree: grant.Worktree, ManifestDigest: ManifestDigest,
+		RequiredCapability: "work_transition", ProductID: "product-1", ProjectID: "project-1",
+	}
+	reviewAuthority, err := service.Authorize(ctx, reviewInvocation)
+	if err != nil {
+		t.Fatalf("evaluator authorization refused: %v", err)
+	}
+	reviewEnv := mutationEnvelope(reviewAuthority, scopeVersion)
+	signedReviewAction := func(actionID string, fields map[string]any, key string) Envelope {
+		t.Helper()
+		var version int64
+		if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT version FROM work_items WHERE id=?`, workID).Scan(&version); err != nil {
+			t.Fatal(err)
+		}
+		input := map[string]any{"work_id": workID, "expected_version": version, "action_id": actionID, "fields": fields, "idempotency_key": key}
+		raw, err := json.Marshal(input)
+		if err != nil {
+			t.Fatal(err)
+		}
+		reviewEnv.RequestID = "request:" + key + ":" + strconv.FormatInt(version, 10)
+		return dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: raw}, reviewEnv)
+	}
+
 	contract := action("approve_contract", map[string]any{
 		"premise": "A verdict after acceptance cites the accepted attempt.", "contract_version": 1,
 		"required_evidence": []string{"verification"}, "route_conventions": []string{},
@@ -131,7 +159,7 @@ func TestVerdictAfterAcceptanceCitesTheAttempt(t *testing.T) {
 	if step != "verify" {
 		t.Fatalf("current_step=%q, want verify", step)
 	}
-	verdict := action("record_verdict", map[string]any{
+	verdict := signedReviewAction("record_verdict", map[string]any{
 		"predicate_id": "predicate:primary", "verdict_kind": "ok", "evaluation_evidence": []string{attemptID},
 	}, "accept-e2e-verdict")
 	if verdict.Outcome != OutcomeOK {

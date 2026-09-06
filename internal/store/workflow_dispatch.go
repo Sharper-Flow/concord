@@ -320,6 +320,19 @@ func workflowActionEvidenceRefs(request WorkflowActionExecutionRequest, payload 
 		}
 		return refs, false, nil
 	}
+	if request.ActionID == "bind_evidence" {
+		fields, err := workflowActionObject(payload)
+		if err != nil {
+			return nil, false, err
+		}
+		refs := append([]string(nil), request.EvidenceRefs...)
+		// The declared fields.evidence_ref joins the operation's evidence
+		// refs so the durable-operation authority backs the binding it names.
+		if declared, ok := workflowFieldString(fields, "evidence_ref"); ok && declared != "" && !contains(refs, declared) {
+			refs = append(refs, declared)
+		}
+		return refs, false, nil
+	}
 	if request.ActionID != "record_verdict" {
 		return append([]string(nil), request.EvidenceRefs...), false, nil
 	}
@@ -613,6 +626,12 @@ func workflowSemanticActionEvents(ctx context.Context, tx *sql.Tx, definition Wo
 		if len(request.EvidenceRefs) != 0 {
 			evidenceRef = request.EvidenceRefs[0]
 		}
+		// fields.evidence_ref is the declared route for naming the immutable
+		// subject; the top-level evidence array remains the alternative.
+		// Without this the declared key is accepted and silently discarded.
+		if declared, ok := workflowFieldString(fields, "evidence_ref"); ok && declared != "" {
+			evidenceRef = declared
+		}
 		return []Event{workflowTypedEvent(eventID, WorkflowEvidenceBound, request.WorkID, actor, request.Now, expected, map[string]any{"evidence_kind": workflowFieldStringDefault(fields, "evidence_kind", "verification"), "immutable_subject_ref": workflowFieldStringDefault(fields, "immutable_subject_ref", evidenceRef), "producer_id": workflowFieldStringDefault(fields, "producer_id", request.PrincipalRef), "producer_run_ref": workflowFieldStringDefault(fields, "producer_run_ref", request.OperationID), "producer_watermark": workflowFieldStringDefault(fields, "producer_watermark", request.RequestID), "observed_at": request.Now.UTC().Format(time.RFC3339Nano)})}, nil
 	case "record_verdict":
 		verdictActor, actorErr := workflowAuthenticatedActorField(fields, "verdict_actor_ref", actor)
@@ -622,6 +641,13 @@ func workflowSemanticActionEvents(ctx context.Context, tx *sql.Tx, definition Wo
 		var executingActor string
 		if err := tx.QueryRowContext(ctx, `SELECT execution_actor_ref FROM workflow_instances WHERE work_id=?`, request.WorkID).Scan(&executingActor); err == nil && executingActor != "" && executingActor == verdictActor {
 			return nil, newFailure(KindUnauthorized, "workflow_action", "executing actor cannot evaluate its own delivery", false, "contact_operator")
+		}
+		// The lease comparison above only catches the current holder. The
+		// authorship set catches everyone who executed a step, including the
+		// session that authored the delivery before a lane dispatch rotated
+		// the lease (#801).
+		if err := workflowStepExecutorRefusal(ctx, tx, request.WorkID, verdictActor, "workflow_action"); err != nil {
+			return nil, err
 		}
 		evidence := workflowFieldStrings(fields, "evaluation_evidence")
 		if len(evidence) == 0 {
@@ -792,7 +818,35 @@ func workflowCompletionEvent(ctx context.Context, tx *sql.Tx, request WorkflowAc
 	if impactVerdict != "breaking" && impactVerdict != "non-breaking" {
 		return Event{}, newFailure(KindInvalidPayload, "complete_workflow", "completion requires impact_verdict breaking or non-breaking", false, "supply the delivered change impact verdict")
 	}
-	payload := map[string]any{"terminal_state": "completed", "final_verdict_kind": workflowFieldStringDefault(fields, "final_verdict_kind", "ok"), "verdict_actor_ref": verdictActor, "premise_confirmed": workflowFieldBool(fields, "premise_confirmed"), "evidence_count": int64(0), "changed_refs_digest": WorkflowChangedRefsDigest([]string{request.WorkID}), "impact_verdict": impactVerdict}
+	// The completion record is derived from the log the completion gate
+	// verifies, never from caller fields or literals (#856): the recorded
+	// verdict kinds, the count of bound evidence events, and the premise
+	// confirmation the gate itself reads.
+	contractData, _, contractErr := workflowCompletionContract(ctx, tx, BuiltinWorkflowRegistry(), request.WorkID)
+	if contractErr != nil {
+		return Event{}, contractErr
+	}
+	verdicts, verdictsErr := latestWorkflowVerdicts(ctx, tx, request.WorkID, contractData.Version)
+	if verdictsErr != nil {
+		return Event{}, verdictsErr
+	}
+	finalVerdictKind := "ok"
+	for _, verdict := range verdicts {
+		if verdict.VerdictKind != "ok" {
+			finalVerdictKind = verdict.VerdictKind
+			break
+		}
+	}
+	var boundEvidence int64
+	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=?`, request.WorkID, WorkflowEvidenceBound).Scan(&boundEvidence); err != nil {
+		return Event{}, wrapFailure(KindUnavailable, "complete_workflow", "cannot count the bound workflow evidence", true, "retry once the database is readable", err)
+	}
+	premiseConfirmed := false
+	var premiseRow int
+	if err := tx.QueryRowContext(ctx, `SELECT 1 FROM workflow_premise_confirmations WHERE work_id=? AND contract_version=?`, request.WorkID, contractData.Version).Scan(&premiseRow); err == nil {
+		premiseConfirmed = true
+	}
+	payload := map[string]any{"terminal_state": "completed", "final_verdict_kind": finalVerdictKind, "verdict_actor_ref": verdictActor, "premise_confirmed": premiseConfirmed, "evidence_count": boundEvidence, "changed_refs_digest": WorkflowChangedRefsDigest([]string{request.WorkID}), "impact_verdict": impactVerdict}
 	if payloadFields, ok := fields["payload"]; ok {
 		var nested map[string]json.RawMessage
 		if json.Unmarshal(payloadFields, &nested) == nil {

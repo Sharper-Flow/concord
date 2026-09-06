@@ -813,6 +813,40 @@ async function reportWorktreeRemoval(args: HostToolArgs, context: ToolContext, e
   await hostControlPlane().showToast(`Concord removed the worktree of ${workID}.`, "info", context.abort)
 }
 
+// A claimed worktree is only the session's worktree when the session runs in
+// it. work_start moves the session through the same route; worktree_claim
+// recorded the claim durably but never moved the session, so a later lane
+// dispatch inherited the session's original directory and wrote its delivery
+// into the wrong tree (issue #822). The move runs after the claim succeeds,
+// the landing is read back from the host rather than assumed, and a miss is
+// reported as a typed refusal whose remedy is a replay: the claim is
+// idempotent, so retrying worktree_claim adopts the durable claim and retries
+// only the move.
+export async function moveSessionToClaimedWorktree(args: HostToolArgs, context: ToolContext, envelope: HostConcordEnvelope): Promise<HostConcordEnvelope> {
+  if (args?.operation !== "worktree_claim") return envelope
+  if (!record(envelope) || envelope.outcome !== "ok") return envelope
+  const path = args?.input?.path
+  if (typeof path !== "string" || path.length === 0) return envelope
+  const requestID = `${context.sessionID}-${context.messageID}`
+  try {
+    await hostControlPlane().moveSession(context.sessionID, path, context.abort)
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    return adapterError("concord_work_transition", "worktree_claim", requestID, "transport_failure", "claim_move_refused", `${message}; the claim is durable, replay worktree_claim to retry the move`, "none", "retry_same_request")
+  }
+  let landed: string
+  try {
+    landed = await hostControlPlane().sessionDirectory(context.sessionID, context.abort)
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    return adapterError("concord_work_transition", "worktree_claim", requestID, "malformed_response", "claim_move_destination_unreadable", message, "none", "retry_same_request")
+  }
+  if (!samePath(landed, path)) {
+    return adapterError("concord_work_transition", "worktree_claim", requestID, "session_directory_mismatch", "claim_move_destination_mismatch", `the claim recorded ${JSON.stringify(path)} but the session runs in ${JSON.stringify(landed)}`, "none", "retry_same_request")
+  }
+  return envelope
+}
+
 async function executeWorkTransition(args: HostToolArgs, context: ToolContext): Promise<HostConcordEnvelope> {
   if (WORKTREE_REMOVAL_OPERATIONS.has(args?.operation)) {
     const observed = await observeSessionsForRemoval(args, context)
@@ -840,8 +874,9 @@ async function executeWorkTransition(args: HostToolArgs, context: ToolContext): 
     }
   }
   const envelope = await invokeConcordOperation("concord_work_transition", args, context)
+  const landed = await moveSessionToClaimedWorktree(args, context, envelope)
   if (hostControlPlane().available()) {
-    await workflowStatusReporter.report("concord_work_transition", args.operation, args.input, envelope, context)
+    await workflowStatusReporter.report("concord_work_transition", args.operation, args.input, landed, context)
   }
-  return envelope
+  return landed
 }

@@ -1,0 +1,5 @@
+{
+  "id": "CD-0115",
+  "reason": "The decision is proved by workflow_definition_version_pins_test.go, which pins the digest of every registered definition version and fails when content changes without a version bump, and by the registry history tests that keep every released version verifiable. Runtime behavior they exercise is the law itself, so no separate reachability surface applies.",
+  "state": "out_of_scope"
+}

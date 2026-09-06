@@ -204,6 +204,9 @@ func WorkflowActionPreflightWithRegistry(ctx context.Context, s *Store, registry
 	if err := validateWorkflowActionPayload(entry.Definition, request.ActionID, request.Payload); err != nil {
 		return newFailure(KindIllegalLifecycleTransition, "workflow_action_preflight", err.Error(), false, "reread_entities")
 	}
+	if err := guardMandatedWorkflowLawBound(ctx, s.db, request.WorkID, entry.Definition, currentStep, request.ActionID, "workflow_action_preflight"); err != nil {
+		return err
+	}
 	if err := ValidateWorkflowOperatorSelection(ctx, s, request.WorkID, request.ExpectedVersion, request.ActionID, request.SelectedChoice, request.DecisionContextDigest); err != nil {
 		return err
 	}
@@ -399,6 +402,9 @@ func workflowActionPreflightTx(ctx context.Context, tx *sql.Tx, registry Definit
 		}
 	} else if err := validateWorkflowActionPayload(entry.Definition, request.ActionID, request.Payload); err != nil {
 		return RegisteredDefinition{}, newFailure(KindIllegalLifecycleTransition, "workflow_action_preflight", err.Error(), false, "reread_entities")
+	}
+	if err := guardMandatedWorkflowLawBound(ctx, tx, request.WorkID, entry.Definition, currentStep, request.ActionID, "workflow_action_preflight"); err != nil {
+		return RegisteredDefinition{}, err
 	}
 	if err := validateWorkflowOperatorSelectionTx(ctx, tx, registry, request); err != nil {
 		return RegisteredDefinition{}, err

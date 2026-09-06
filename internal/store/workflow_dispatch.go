@@ -154,6 +154,13 @@ func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, registry Definiti
 	} else if err := validateWorkflowActionPayload(entry.Definition, request.ActionID, request.Payload); err != nil {
 		return result, err
 	}
+	subject := "workflow_action"
+	if request.ActionID == "complete" {
+		subject = "complete_workflow"
+	}
+	if err := guardMandatedWorkflowLawBound(ctx, tx, request.WorkID, entry.Definition, currentStep, request.ActionID, subject); err != nil {
+		return result, err
+	}
 	if err := runWorkflowActionGuard(guards, guardPhasePostValidation); err != nil {
 		return result, err
 	}

@@ -122,8 +122,8 @@ fail-closed authority.
 - Given an adapter digest that does not match the core's current manifest
   When a call arrives
   Then the core fails closed with the typed `manifest_mismatch` before any
-  domain call, and recovery is regeneration and session restart, never
-  parsing unknown variants.
+  domain call, and recovery is `contact_operator` with both digests, never
+  parsing unknown variants and never a session restart (CD-0111).
 
 - Given a domain-overlap resolution request through an ordinary relation
   When the agent attempts it

@@ -3280,6 +3280,35 @@
       "title": "Work start chains from a terminal worktree"
     },
     {
+      "date": "2026-09-05T00:00:00Z",
+      "evidence": [
+        "adapter/opencode/concord.ts",
+        "adapter/opencode/generated-contracts.ts",
+        "scripts/install.py",
+        "internal/store/schema.go"
+      ],
+      "home_domain_id": "operator-surface",
+      "id": "CD-0111",
+      "kind": "decision",
+      "path": "docs/decisions/CD-0111-a-release-never-requires-a-session-restart.md",
+      "scopes": {
+        "domain_ids": [],
+        "mode": "home",
+        "product_ids": [],
+        "project_ids": [],
+        "tag_ids": []
+      },
+      "sha256": "sha256:c2f68638845f64c6f23ed5b2ea3ac667514dbf15bcf7f79a170b3fc5a77e8482",
+      "status": "accepted",
+      "summary": "A running session keeps the adapter and core pair it started with: the adapter invokes the core at its own release path, the installer retains a release while a live session references it, and a breaking store migration applies only through an explicit operator upgrade that refuses under a live older session. No refusal names a session restart as its recovery.",
+      "tags": [
+        "release",
+        "session-boot",
+        "authority"
+      ],
+      "title": "A release never requires a session restart"
+    },
+    {
       "criterion_bindings": [
         {
           "criterion": 1,
@@ -4171,7 +4200,7 @@
         "project_ids": [],
         "tag_ids": []
       },
-      "sha256": "sha256:f0155a079c7e590390926b99654e19b45e96610778f30ea0d7887723b82ccb85",
+      "sha256": "sha256:c732fa0067b70870ab124f31bcde5b262ffbbd7cecdd4f010e698ae9fb74e866",
       "status": "accepted",
       "summary": "Identifies the surface by generated manifest digest and fails closed on mismatch.",
       "tags": [

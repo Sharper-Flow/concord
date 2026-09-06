@@ -180,11 +180,12 @@ type workflowActionCompletedPayload struct {
 	// next action that opens or accepts against this step epoch. CD-0067
 	// D2 additionally binds the canonical digest of the lane packet so
 	// the durable record names what the window was opened for.
-	WorkerLaneID       string   `json:"worker_lane_id,omitempty"`
-	WorkerPacketDigest string   `json:"worker_packet_digest,omitempty"`
-	ResultEvidenceRefs []string `json:"result_evidence_refs"`
-	ChangedRefs        []string `json:"changed_refs"`
-	ActorRef           string   `json:"actor_ref"`
+	WorkerLaneID           string   `json:"worker_lane_id,omitempty"`
+	WorkerPacketDigest     string   `json:"worker_packet_digest,omitempty"`
+	WorkerWorktreeIdentity string   `json:"worker_worktree_identity,omitempty"`
+	ResultEvidenceRefs     []string `json:"result_evidence_refs"`
+	ChangedRefs            []string `json:"changed_refs"`
+	ActorRef               string   `json:"actor_ref"`
 }
 
 type workflowActionFailedPayload struct {

@@ -21,6 +21,11 @@ type WorkflowActionExecutionRequest struct {
 	Payload               json.RawMessage
 	EvidenceRefs          []string
 	Actor                 WorkflowActor
+	SessionWorktree       string
+	// SessionWorktreeIdentity is computed by the core after the session
+	// worktree matches its active claim. It binds later worker evidence to that
+	// claim without placing a machine path in a public event.
+	SessionWorktreeIdentity string
 	// OperatorActor is populated only after the signed approval for
 	// confirm_premise has been verified and consumed by the agent boundary.
 	// It is never decoded from workflow action payload.
@@ -124,6 +129,16 @@ func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, registry Definiti
 	entry, err := VerifyWorkflowInstanceDefinitionTx(ctx, tx, registry, request.WorkID)
 	if err != nil {
 		return result, err
+	}
+	if request.ActionID == "dispatch_worker" {
+		if err := validateWorkerDispatchWorktree(ctx, tx, request.WorkID, request.SessionWorktree); err != nil {
+			return result, err
+		}
+		canonical, canonicalErr := canonicalWorkerWorktreePath(request.SessionWorktree)
+		if canonicalErr != nil {
+			return result, newFailure(KindUnauthorizedDispatch, "worker_dispatch", "host session worktree identity cannot be resolved", false, "refresh the host session boundary")
+		}
+		request.SessionWorktreeIdentity = workerWorktreeIdentity(canonical)
 	}
 	var currentStep, state string
 	var version int64

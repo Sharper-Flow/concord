@@ -16,7 +16,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:acedd2df4603878d4a4729f473c2784cc453720c00db0160082e28b8f8c50a61",
+  "sha256": "sha256:61e49ff9291585cc1e76282647c6ebb76f13da6e7bdba2dbfd71a9657eca886b",
   "status": "accepted",
   "summary": "Defines the Concord-owned lane registry, host-loaded capability-class model routing, readback identity evidence, typed fallback outcomes, and the worker authority boundary.",
   "tags": [

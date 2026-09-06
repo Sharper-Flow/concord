@@ -7,6 +7,7 @@ package store
 import (
 	"context"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -95,8 +96,8 @@ func TestDispatchFoldOpensAFencedWindowAgainstTheStepEpoch(t *testing.T) {
 	}
 	result, err := invokeWorkflowActionForCD0059(ctx, t, s, WorkflowActionExecutionRequest{
 		WorkID: seed.workID, ExpectedVersion: readWorkVersion(t, s, seed.workID), ActionID: "dispatch_worker",
-		Payload: fieldsPayload,
-		Actor:   actor, AcceptedInputsDigest: cd0059TestDigest(t, "fence-inputs"),
+		Payload: fieldsPayload, SessionWorktree: dispatchSessionWorktree(t, s, seed.workID),
+		Actor: actor, AcceptedInputsDigest: cd0059TestDigest(t, "fence-inputs"),
 		IdempotencyIdentity: "fence-open-op", OperationID: "op-fence-open", PrincipalRef: actor.PrincipalRef,
 		Tool: "concord_work_transition", IdempotencyKey: "fence-open-key", RequestID: "req-fence-open",
 		AcceptedScope: `{}`, ContractDigest: testManifestDigest,
@@ -118,6 +119,86 @@ func TestDispatchFoldOpensAFencedWindowAgainstTheStepEpoch(t *testing.T) {
 	}
 	if attemptEpoch < 1 {
 		t.Fatalf("attempt_epoch = %d, want >=1", attemptEpoch)
+	}
+}
+
+func TestDispatchWorkerRefusesMismatchedSessionWorktreeBeforeWindow(t *testing.T) {
+	ctx := context.Background()
+	s := openTemp(t)
+	seed := seedDispatchFixture(t, s, "work-dispatch-worktree-mismatch")
+	claimed := t.TempDir()
+	session := t.TempDir()
+	insertWorkerWorktreeEntry(t, s, seed.workID, claimed)
+	packetPayload, err := json.Marshal(dispatchWorkerPacket(seed.workID, "execution", "attempt-worktree-mismatch"))
+	if err != nil {
+		t.Fatalf("marshal dispatch packet: %v", err)
+	}
+	fieldsPayload, err := json.Marshal(map[string]any{"attempt_id": "attempt-worktree-mismatch", "worker_packet": json.RawMessage(packetPayload)})
+	if err != nil {
+		t.Fatalf("marshal dispatch fields: %v", err)
+	}
+	_, err = invokeWorkflowActionForCD0059(ctx, t, s, WorkflowActionExecutionRequest{
+		WorkID: seed.workID, ExpectedVersion: readWorkVersion(t, s, seed.workID), ActionID: "dispatch_worker",
+		Payload: fieldsPayload, SessionWorktree: session,
+		Actor: seed.ownerActor, AcceptedInputsDigest: cd0059TestDigest(t, "worktree-mismatch-inputs"),
+		IdempotencyIdentity: "worktree-mismatch-op", OperationID: "op-worktree-mismatch", PrincipalRef: seed.ownerActor.PrincipalRef,
+		Tool: "concord_work_transition", IdempotencyKey: "worktree-mismatch-key", RequestID: "req-worktree-mismatch",
+		AcceptedScope: `{}`, ContractDigest: testManifestDigest,
+	})
+	if !hasFailureKind(err, KindUnauthorizedDispatch) {
+		t.Fatalf("mismatched worktree error = %v, want unauthorized_dispatch", err)
+	}
+	var failure *Failure
+	if !errors.As(err, &failure) {
+		t.Fatalf("mismatched worktree error = %v, want typed failure", err)
+	}
+	if strings.Contains(failure.Detail, claimed) || strings.Contains(failure.Detail, session) {
+		t.Fatalf("mismatched worktree failure leaked a machine path: %q", failure.Detail)
+	}
+	var started int
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE kind=? AND subject_id=? AND json_extract(payload,'$.action_id')=?`, WorkflowActionStarted, seed.workID, "dispatch_worker").Scan(&started); err != nil {
+		t.Fatal(err)
+	}
+	if started != 0 {
+		t.Fatalf("mismatched worktree opened %d dispatch windows", started)
+	}
+}
+
+func TestDispatchWorkerBindsCanonicalWorktreeIdentityToWindow(t *testing.T) {
+	ctx := context.Background()
+	s := openTemp(t)
+	seed := seedDispatchFixture(t, s, "work-dispatch-worktree-identity")
+	claimed := t.TempDir()
+	insertWorkerWorktreeEntry(t, s, seed.workID, claimed)
+	attemptID := "attempt-worktree-identity"
+	packetPayload, err := json.Marshal(dispatchWorkerPacket(seed.workID, "execution", attemptID))
+	if err != nil {
+		t.Fatalf("marshal dispatch packet: %v", err)
+	}
+	fieldsPayload, err := json.Marshal(map[string]any{"attempt_id": attemptID, "worker_packet": json.RawMessage(packetPayload)})
+	if err != nil {
+		t.Fatalf("marshal dispatch fields: %v", err)
+	}
+	if _, err := invokeWorkflowActionForCD0059(ctx, t, s, WorkflowActionExecutionRequest{
+		WorkID: seed.workID, ExpectedVersion: readWorkVersion(t, s, seed.workID), ActionID: "dispatch_worker",
+		Payload: fieldsPayload, SessionWorktree: claimed,
+		Actor: seed.ownerActor, AcceptedInputsDigest: cd0059TestDigest(t, "worktree-identity-inputs"),
+		IdempotencyIdentity: "worktree-identity-op", OperationID: "op-worktree-identity", PrincipalRef: seed.ownerActor.PrincipalRef,
+		Tool: "concord_work_transition", IdempotencyKey: "worktree-identity-key", RequestID: "req-worktree-identity",
+		AcceptedScope: `{}`, ContractDigest: testManifestDigest,
+	}); err != nil {
+		t.Fatalf("dispatch_worker invocation failed: %v", err)
+	}
+	var identity string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.worker_worktree_identity') FROM domain_events WHERE kind=? AND subject_id=? AND json_extract(payload,'$.action_id')=?`, WorkflowActionCompleted, seed.workID, "dispatch_worker").Scan(&identity); err != nil {
+		t.Fatal(err)
+	}
+	canonical, err := canonicalWorkerWorktreePath(claimed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if identity != workerWorktreeIdentity(canonical) {
+		t.Fatalf("recorded worktree identity = %q, want %q", identity, workerWorktreeIdentity(canonical))
 	}
 }
 
@@ -280,8 +361,8 @@ func TestWorkerDispatchRejectsReuseOfAConsumedWindow(t *testing.T) {
 	}
 	if _, err := invokeWorkflowActionForCD0059(ctx, t, s, WorkflowActionExecutionRequest{
 		WorkID: seed.workID, ExpectedVersion: readWorkVersion(t, s, seed.workID), ActionID: "dispatch_worker",
-		Payload: fieldsPayload,
-		Actor:   actor, AcceptedInputsDigest: cd0059TestDigest(t, "reuse-open-op"),
+		Payload: fieldsPayload, SessionWorktree: dispatchSessionWorktree(t, s, seed.workID),
+		Actor: actor, AcceptedInputsDigest: cd0059TestDigest(t, "reuse-open-op"),
 		IdempotencyIdentity: "reuse-open-op", OperationID: "op-reuse-open", PrincipalRef: actor.PrincipalRef,
 		Tool: "concord_work_transition", IdempotencyKey: "reuse-open-key", RequestID: "req-reuse-open",
 		AcceptedScope: `{}`, ContractDigest: testManifestDigest,
@@ -345,8 +426,8 @@ func TestDispatchFoldRecordsTheCanonicalPacketDigest(t *testing.T) {
 	}
 	result, err := invokeWorkflowActionForCD0059(ctx, t, s, WorkflowActionExecutionRequest{
 		WorkID: seed.workID, ExpectedVersion: readWorkVersion(t, s, seed.workID), ActionID: "dispatch_worker",
-		Payload: fieldsPayload,
-		Actor:   actor, AcceptedInputsDigest: cd0059TestDigest(t, "digest-inputs"),
+		Payload: fieldsPayload, SessionWorktree: dispatchSessionWorktree(t, s, seed.workID),
+		Actor: actor, AcceptedInputsDigest: cd0059TestDigest(t, "digest-inputs"),
 		IdempotencyIdentity: "digest-open-op", OperationID: "op-digest-open", PrincipalRef: actor.PrincipalRef,
 		Tool: "concord_work_transition", IdempotencyKey: "digest-open-key", RequestID: "req-digest-open",
 		AcceptedScope: `{}`, ContractDigest: testManifestDigest,
@@ -398,8 +479,8 @@ func TestDispatchFoldRefusesPacketWorkIDMismatch(t *testing.T) {
 	actor := seed.ownerActor
 	_, err = invokeWorkflowActionForCD0059(ctx, t, s, WorkflowActionExecutionRequest{
 		WorkID: seed.workID, ExpectedVersion: readWorkVersion(t, s, seed.workID), ActionID: "dispatch_worker",
-		Payload: fieldsPayload,
-		Actor:   actor, AcceptedInputsDigest: cd0059TestDigest(t, "mismatch-inputs"),
+		Payload: fieldsPayload, SessionWorktree: dispatchSessionWorktree(t, s, seed.workID),
+		Actor: actor, AcceptedInputsDigest: cd0059TestDigest(t, "mismatch-inputs"),
 		IdempotencyIdentity: "mismatch-op", OperationID: "op-mismatch", PrincipalRef: actor.PrincipalRef,
 		Tool: "concord_work_transition", IdempotencyKey: "mismatch-key", RequestID: "req-mismatch",
 		AcceptedScope: `{}`, ContractDigest: testManifestDigest,
@@ -443,8 +524,8 @@ func TestDispatchFoldRefusesPacketAttemptIDMismatch(t *testing.T) {
 	actor := seed.ownerActor
 	_, err = invokeWorkflowActionForCD0059(ctx, t, s, WorkflowActionExecutionRequest{
 		WorkID: seed.workID, ExpectedVersion: readWorkVersion(t, s, seed.workID), ActionID: "dispatch_worker",
-		Payload: fieldsPayload,
-		Actor:   actor, AcceptedInputsDigest: cd0059TestDigest(t, "attempt-mismatch-inputs"),
+		Payload: fieldsPayload, SessionWorktree: dispatchSessionWorktree(t, s, seed.workID),
+		Actor: actor, AcceptedInputsDigest: cd0059TestDigest(t, "attempt-mismatch-inputs"),
 		IdempotencyIdentity: "attempt-mismatch-op", OperationID: "op-attempt-mismatch", PrincipalRef: actor.PrincipalRef,
 		Tool: "concord_work_transition", IdempotencyKey: "attempt-mismatch-key", RequestID: "req-attempt-mismatch",
 		AcceptedScope: `{}`, ContractDigest: testManifestDigest,
@@ -487,8 +568,8 @@ func TestDispatchPreflightRejectsNonObjectWorkerPacket(t *testing.T) {
 	actor := seed.ownerActor
 	_, err = invokeWorkflowActionForCD0059(ctx, t, s, WorkflowActionExecutionRequest{
 		WorkID: seed.workID, ExpectedVersion: readWorkVersion(t, s, seed.workID), ActionID: "dispatch_worker",
-		Payload: fieldsPayload,
-		Actor:   actor, AcceptedInputsDigest: cd0059TestDigest(t, "non-object-inputs"),
+		Payload: fieldsPayload, SessionWorktree: dispatchSessionWorktree(t, s, seed.workID),
+		Actor: actor, AcceptedInputsDigest: cd0059TestDigest(t, "non-object-inputs"),
 		IdempotencyIdentity: "non-object-op", OperationID: "op-non-object", PrincipalRef: actor.PrincipalRef,
 		Tool: "concord_work_transition", IdempotencyKey: "non-object-key", RequestID: "req-non-object",
 		AcceptedScope: `{}`, ContractDigest: testManifestDigest,
@@ -590,7 +671,7 @@ func invokeWorkflowActionForCD0059(ctx context.Context, t *testing.T, s *Store, 
 	preflight := WorkflowActionPreflightRequest{
 		WorkID: request.WorkID, ExpectedVersion: request.ExpectedVersion, ActionID: request.ActionID,
 		SelectedChoice: request.SelectedChoice, DecisionContextDigest: request.DecisionContextDigest,
-		Payload: request.Payload, Actor: request.Actor,
+		Payload: request.Payload, Actor: request.Actor, SessionWorktree: request.SessionWorktree,
 	}
 	var result WorkflowActionExecutionResult
 	err := AuthorizeWorkflowActionAtBoundaryTx(ctx, s, BuiltinWorkflowRegistry(), preflight, nil, time.Time{}, nil, func(tx *Transaction) error {
@@ -695,8 +776,8 @@ func TestFindAuthorizedDispatchWindowSurfacesThePacketDigest(t *testing.T) {
 	// recorded by production code (not seeded into a domain_events row).
 	if _, err := invokeWorkflowActionForCD0059(ctx, t, s, WorkflowActionExecutionRequest{
 		WorkID: seed.workID, ExpectedVersion: readWorkVersion(t, s, seed.workID), ActionID: "dispatch_worker",
-		Payload: fieldsPayload,
-		Actor:   actor, AcceptedInputsDigest: cd0059TestDigest(t, "window-digest-inputs"),
+		Payload: fieldsPayload, SessionWorktree: dispatchSessionWorktree(t, s, seed.workID),
+		Actor: actor, AcceptedInputsDigest: cd0059TestDigest(t, "window-digest-inputs"),
 		IdempotencyIdentity: "window-digest-op", OperationID: "op-window-digest", PrincipalRef: actor.PrincipalRef,
 		Tool: "concord_work_transition", IdempotencyKey: "window-digest-key", RequestID: "req-window-digest",
 		AcceptedScope: `{}`, ContractDigest: testManifestDigest,
@@ -764,8 +845,8 @@ func TestValidateWorkerDispatchWindowAcceptsMatchingPacketDigest(t *testing.T) {
 	}
 	if _, err := invokeWorkflowActionForCD0059(ctx, t, s, WorkflowActionExecutionRequest{
 		WorkID: seed.workID, ExpectedVersion: readWorkVersion(t, s, seed.workID), ActionID: "dispatch_worker",
-		Payload: fieldsPayload,
-		Actor:   actor, AcceptedInputsDigest: cd0059TestDigest(t, "enforce-inputs"),
+		Payload: fieldsPayload, SessionWorktree: dispatchSessionWorktree(t, s, seed.workID),
+		Actor: actor, AcceptedInputsDigest: cd0059TestDigest(t, "enforce-inputs"),
 		IdempotencyIdentity: "enforce-op", OperationID: "op-enforce", PrincipalRef: actor.PrincipalRef,
 		Tool: "concord_work_transition", IdempotencyKey: "enforce-key", RequestID: "req-enforce",
 		AcceptedScope: `{}`, ContractDigest: testManifestDigest,
@@ -1035,4 +1116,24 @@ func assertDispatchFoldRefuses(t *testing.T, label string, payload json.RawMessa
 	if digest != "" {
 		t.Fatalf("%s: digest = %q, want empty on refusal", label, digest)
 	}
+}
+
+// dispatchSessionWorktree returns a host session worktree the dispatch
+// admission boundary accepts for workID: one real directory that an active
+// worktree claim names. Repeated calls for the same work item return the
+// same directory, so a second dispatch in one test admits against the claim
+// the first one created.
+func dispatchSessionWorktree(t *testing.T, s *Store, workID string) string {
+	t.Helper()
+	var existing string
+	err := s.DatabaseForTesting().QueryRow(`SELECT path FROM worktree_entries WHERE set_id=? AND state='active' LIMIT 1`, WorktreeSetID(workID)).Scan(&existing)
+	if err == nil {
+		return existing
+	}
+	if err != sql.ErrNoRows {
+		t.Fatalf("read worktree claim: %v", err)
+	}
+	path := t.TempDir()
+	insertWorkerWorktreeEntry(t, s, workID, path)
+	return path
 }

@@ -4164,6 +4164,59 @@ WHERE definition_version=1 AND definition_digest IN (
 DELETE FROM fold_guard;
 `,
 	},
+	{
+		Version:  74,
+		Name:     "worker_model_readback_failures",
+		Breaking: true,
+		SQL: `
+-- A missing or ambiguous host model readback is a durable worker failure, not
+-- an absent attempt. These two typed failures are the only failed rows allowed
+-- to carry an empty readback_model.
+DROP TRIGGER IF EXISTS worker_attempts_guard_insert;
+DROP TRIGGER IF EXISTS worker_attempts_guard_update;
+DROP TRIGGER IF EXISTS worker_attempts_guard_delete;
+ALTER TABLE worker_attempts RENAME TO worker_attempts_v73;
+CREATE TABLE worker_attempts (
+    work_id TEXT NOT NULL,
+    attempt_id TEXT PRIMARY KEY,
+    lane_id TEXT NOT NULL,
+    lane_version INTEGER NOT NULL,
+    lane_digest TEXT NOT NULL,
+    capability_class TEXT NOT NULL,
+    readback_model TEXT NOT NULL,
+    packet_schema_version TEXT NOT NULL,
+    report_schema_version TEXT NOT NULL,
+    lifecycle_state TEXT NOT NULL CHECK(lifecycle_state IN ('dispatched','completed','failed')),
+    failure_kind TEXT NOT NULL DEFAULT '',
+    failure_detail TEXT NOT NULL DEFAULT '',
+    dispatched_at TEXT NOT NULL,
+    completed_at TEXT,
+    failed_at TEXT,
+    CHECK(length(work_id) > 0),
+    CHECK(length(attempt_id) BETWEEN 2 AND 128),
+    CHECK(length(lane_id) BETWEEN 2 AND 32),
+    CHECK(lane_version > 0),
+    CHECK(length(lane_digest) = 71 AND substr(lane_digest,1,7)='sha256:'),
+    CHECK(length(capability_class) BETWEEN 2 AND 64),
+    CHECK(length(readback_model) <= 128),
+    CHECK(packet_schema_version = '1.0'),
+    CHECK(report_schema_version = '1.0'),
+    CHECK((lifecycle_state='dispatched' AND completed_at IS NULL AND failed_at IS NULL) OR
+          (lifecycle_state='completed' AND completed_at IS NOT NULL AND failed_at IS NULL AND length(readback_model) >= 3 AND failure_kind='') OR
+          (lifecycle_state='failed' AND failed_at IS NOT NULL AND completed_at IS NULL AND length(failure_kind) > 0 AND
+            (length(readback_model) >= 3 OR failure_kind IN ('model_readback_missing','model_readback_ambiguous'))))
+);
+INSERT INTO worker_attempts
+    (work_id, attempt_id, lane_id, lane_version, lane_digest, capability_class, readback_model, packet_schema_version, report_schema_version, lifecycle_state, failure_kind, failure_detail, dispatched_at, completed_at, failed_at)
+    SELECT work_id, attempt_id, lane_id, lane_version, lane_digest, capability_class, readback_model, packet_schema_version, report_schema_version, lifecycle_state, failure_kind, failure_detail, dispatched_at, completed_at, failed_at
+    FROM worker_attempts_v73;
+DROP TABLE worker_attempts_v73;
+CREATE INDEX worker_attempts_work ON worker_attempts(work_id, dispatched_at, attempt_id);
+CREATE TRIGGER worker_attempts_guard_insert BEFORE INSERT ON worker_attempts FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'worker_attempts is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER worker_attempts_guard_update BEFORE UPDATE ON worker_attempts FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'worker_attempts is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER worker_attempts_guard_delete BEFORE DELETE ON worker_attempts FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'worker_attempts is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+		`,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any

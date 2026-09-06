@@ -634,6 +634,7 @@ func (r runtime) preflightWorkflowAction(ctx context.Context, raw []byte, grant 
 			SessionRef:   grant.SessionRef,
 			ActorClass:   store.ActorAgent,
 		},
+		SessionWorktree: r.Envelope.Worktree,
 	}, nil)
 }
 
@@ -660,6 +661,7 @@ func (r runtime) authorizeWorkflowAction(ctx context.Context, raw []byte, grant 
 			SessionRef:   grant.SessionRef,
 			ActorClass:   store.ActorAgent,
 		},
+		SessionWorktree: r.Envelope.Worktree,
 	}, authorize)
 }
 
@@ -715,6 +717,7 @@ func preflightWorkflowActionRequestWithRegistry(ctx context.Context, s *store.St
 		DecisionContextDigest: in.DecisionContextDigest,
 		Payload:               payload,
 		Actor:                 store.WorkflowActor{PrincipalRef: actor.PrincipalRef, ClientRef: actor.ClientRef, AgentRef: actor.AgentRef, SessionRef: actor.SessionRef, ActorClass: store.ActorAgent},
+		SessionWorktree:       env.Worktree,
 	})
 }
 
@@ -917,8 +920,8 @@ func (r runtime) mutateWorkflowAction(ctx context.Context, base Envelope, raw []
 	var result Envelope
 	var resultRejected bool
 	scopeJSON, _ := json.Marshal(scope)
-	actionRequest := store.WorkflowActionExecutionRequest{WorkID: in.WorkID, ExpectedVersion: in.ExpectedVersion, ActionID: in.ActionID, SelectedChoice: in.SelectedChoice, DecisionContextDigest: in.DecisionContextDigest, Payload: payload, EvidenceRefs: evidenceLocators(in.Evidence), Actor: store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}, ResearchBindings: researchBindingDeclarations(in.ResearchBindings), AcceptedInputsDigest: digest, IdempotencyIdentity: in.IdempotencyKey, OperationID: operationID, PrincipalRef: grant.PrincipalRef, Tool: r.Tool, IdempotencyKey: in.IdempotencyKey, RequestID: r.Envelope.RequestID, AcceptedScope: string(scopeJSON), ContractDigest: ManifestDigest, Now: r.Authority.now()}
-	err = store.AuthorizeWorkflowActionAtBoundaryTx(ctx, r.Store, registry, store.WorkflowActionPreflightRequest{WorkID: in.WorkID, ExpectedVersion: in.ExpectedVersion, ActionID: in.ActionID, SelectedChoice: in.SelectedChoice, DecisionContextDigest: in.DecisionContextDigest, Payload: payload, Actor: actionRequest.Actor}, nil, time.Time{}, func(tx *store.Transaction) error {
+	actionRequest := store.WorkflowActionExecutionRequest{WorkID: in.WorkID, ExpectedVersion: in.ExpectedVersion, ActionID: in.ActionID, SelectedChoice: in.SelectedChoice, DecisionContextDigest: in.DecisionContextDigest, Payload: payload, EvidenceRefs: evidenceLocators(in.Evidence), Actor: store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}, SessionWorktree: r.Envelope.Worktree, ResearchBindings: researchBindingDeclarations(in.ResearchBindings), AcceptedInputsDigest: digest, IdempotencyIdentity: in.IdempotencyKey, OperationID: operationID, PrincipalRef: grant.PrincipalRef, Tool: r.Tool, IdempotencyKey: in.IdempotencyKey, RequestID: r.Envelope.RequestID, AcceptedScope: string(scopeJSON), ContractDigest: ManifestDigest, Now: r.Authority.now()}
+	err = store.AuthorizeWorkflowActionAtBoundaryTx(ctx, r.Store, registry, store.WorkflowActionPreflightRequest{WorkID: in.WorkID, ExpectedVersion: in.ExpectedVersion, ActionID: in.ActionID, SelectedChoice: in.SelectedChoice, DecisionContextDigest: in.DecisionContextDigest, Payload: payload, Actor: actionRequest.Actor, SessionWorktree: r.Envelope.Worktree}, nil, time.Time{}, func(tx *store.Transaction) error {
 		if _, err := r.Authority.AuthorizeTx(ctx, tx, inv); err != nil {
 			return err
 		}

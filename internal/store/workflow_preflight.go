@@ -34,6 +34,9 @@ type WorkflowActionPreflightRequest struct {
 	DecisionContextDigest string
 	Payload               json.RawMessage
 	Actor                 WorkflowActor
+	// SessionWorktree is the host worktree boundary. It is checked only for
+	// dispatch_worker, whose worker must run in the active claimed worktree.
+	SessionWorktree string
 	// Consequential boundaries may supply the same explicit resolver used by
 	// ResolveWorkflowCondition. A zero time disables boundary resolution rather
 	// than inventing a clock observation.
@@ -200,6 +203,11 @@ func WorkflowActionPreflightWithRegistry(ctx context.Context, s *Store, registry
 	}
 	if !definitionStepAllows(entry.Definition, currentStep, request.ActionID) {
 		return newFailure(KindIllegalLifecycleTransition, "workflow_action_preflight", "workflow action is not declared on the current step", false, "reread_entities")
+	}
+	if request.ActionID == "dispatch_worker" {
+		if err := validateWorkerDispatchWorktree(ctx, s.db, request.WorkID, request.SessionWorktree); err != nil {
+			return err
+		}
 	}
 	if err := validateWorkflowActionPayload(entry.Definition, request.ActionID, request.Payload); err != nil {
 		return newFailure(KindIllegalLifecycleTransition, "workflow_action_preflight", err.Error(), false, "reread_entities")
@@ -395,6 +403,11 @@ func workflowActionPreflightTx(ctx context.Context, tx *sql.Tx, registry Definit
 	}
 	if !staleRecovery && !definitionStepAllows(entry.Definition, currentStep, request.ActionID) {
 		return RegisteredDefinition{}, newFailure(KindIllegalLifecycleTransition, "workflow_action_preflight", "workflow action is not declared on the current step", false, "reread_entities")
+	}
+	if request.ActionID == "dispatch_worker" {
+		if err := validateWorkerDispatchWorktree(ctx, tx, request.WorkID, request.SessionWorktree); err != nil {
+			return RegisteredDefinition{}, err
+		}
 	}
 	if staleRecovery {
 		if err := validateWorkflowContractRecoveryPayload(request.Payload); err != nil {

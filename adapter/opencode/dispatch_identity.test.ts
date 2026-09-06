@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test"
-import { readExportSessionMetadata, readRunLineMetadata, readRunSessionMetadata, runStreamRefusalMessage } from "./dispatch"
+import { readExportSession, readExportSessionMetadata, readRunLineMetadata, readRunSessionMetadata, runStreamRefusalMessage } from "./dispatch"
 
 const runEvent = (type: string, sessionID: string, extra: Record<string, unknown> = {}) => JSON.stringify({
   type,
@@ -112,4 +112,34 @@ test("export metadata rejects ambiguous duplicate assistant identity", () => {
     ],
   })
   expect(readExportSessionMetadata(exported, "session-1")).toBeNull()
+})
+
+// The host's own export shape: a session-level model object and agent, assistant
+// messages that each carry providerID, modelID, agent, and time.created, and a
+// turn the host ran as agent "compaction" inside the same session. The reader
+// must keep accepting this shape unchanged, and the compaction turn must not
+// displace the lane agent when it is not the latest assistant message.
+test("export in the host's real shape is accepted with one model and the lane agent", () => {
+  const sessionID = "ses_real_shape"
+  const assistant = (id: string, created: number, agent: string) => ({
+    info: { id, sessionID, role: "assistant", agent, providerID: "openai", modelID: "gpt-5.6-luna", time: { created, completed: created + 10 } },
+    parts: [{ type: "text", text: "ok" }],
+  })
+  const exported = JSON.stringify({
+    info: { id: sessionID, model: { providerID: "openai", id: "gpt-5.6-luna", variant: "default" }, agent: "concord-implement" },
+    messages: [
+      { info: { id: "u-1", sessionID, role: "user", time: { created: 1 } }, parts: [{ type: "text", text: "go" }] },
+      assistant("a-1", 10, "concord-implement"),
+      assistant("a-2", 20, "compaction"),
+      assistant("a-3", 30, "concord-implement"),
+      assistant("a-4", 40, "concord-implement"),
+    ],
+  })
+  const result = readExportSession(exported, sessionID)
+  expect(result.ok).toBe(true)
+  if (!result.ok) return
+  expect(result.metadata).toEqual({ readback_model: "openai/gpt-5.6-luna", readback_agent: "concord-implement", session_id: sessionID })
+  expect(result.export_bytes).toBe(Buffer.byteLength(exported))
+  expect(result.export_digest).toMatch(/^sha256:[0-9a-f]{64}$/)
+  expect(readExportSessionMetadata(exported, sessionID)).toEqual(result.metadata)
 })

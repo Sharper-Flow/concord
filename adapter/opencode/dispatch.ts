@@ -1,4 +1,4 @@
-import { sign as signBytes } from "node:crypto"
+import { createHash, sign as signBytes } from "node:crypto"
 import { agentLanePacketSchema, agentLaneReportSchema, agentLanes, type AgentLane } from "./generated-agent-lanes"
 import { maxEnvelopeBytes } from "./generated-contracts"
 import { SecretToolCredentialStore, b64, clientRef, privateKeyObject, randomNonce, type CredentialStore } from "./credentials"
@@ -58,6 +58,25 @@ export interface SessionMetadata {
   readback_agent: string
   session_id: string | null
 }
+
+// ReadbackRefusal identifies the first export predicate that refused the
+// sanitized session body. The digest binds the refusal to the exact body read.
+export type ReadbackRefusal =
+  | "export_command"
+  | "export_size_bound"
+  | "export_json"
+  | "export_shape"
+  | "export_session_identity"
+  | "export_message_shape"
+  | "export_message_identity"
+  | "export_message_role"
+  | "export_message_model"
+  | "export_assistant_message"
+  | "dispatched_agent_identity"
+
+export type SessionMetadataRead =
+  | { ok: true; metadata: Pick<SessionMetadata, "readback_model" | "readback_agent" | "session_id">; export_digest: string; export_bytes: number }
+  | { ok: false; predicate: ReadbackRefusal; export_digest: string; export_bytes: number; message: string }
 
 export interface RunSessionMetadata {
   session_id: string
@@ -133,10 +152,13 @@ export interface AgentResultEnvelope {
     // separate members because a refusal is the authorization boundary working
     // and a transport fault is the adapter being misconfigured; collapsing
     // them tells an operator to seek permission for a wiring defect.
-    kind: "invalid_input" | "blocked" | "error" | "invalid_report" | "agent_identity_mismatch" | "unauthorized_dispatch" | "transport_failure"
+    kind: "invalid_input" | "blocked" | "error" | "invalid_report" | "agent_identity_mismatch" | "readback_refusal" | "unauthorized_dispatch" | "transport_failure"
     retry_safe: boolean
     recovery_action: "retry_same_request" | "adjust_budget" | "contact_operator" | "reconcile_operation"
     message: string
+    predicate?: ReadbackRefusal
+    export_digest?: string
+    export_bytes?: number
   }
 }
 
@@ -331,33 +353,53 @@ function readExportSessionIdentity(info: Record<string, unknown>): { model: stri
   return { model, agent }
 }
 
-export function readExportSessionMetadata(stdout: string, expectedSessionID: string): Pick<SessionMetadata, "readback_model" | "readback_agent" | "session_id"> | null {
-  if (Buffer.byteLength(stdout) > MAX_EXPORT_BYTES) return null
+function sha256Digest(value: string): string {
+  return `sha256:${createHash("sha256").update(value, "utf8").digest("hex")}`
+}
+
+export function readExportSession(stdout: string, expectedSessionID: string): SessionMetadataRead {
+  const exportDigest = sha256Digest(stdout)
+  const exportBytes = Buffer.byteLength(stdout)
+  const refuse = (predicate: ReadbackRefusal, message: string): SessionMetadataRead => ({
+    ok: false,
+    predicate,
+    export_digest: exportDigest,
+    export_bytes: exportBytes,
+    message,
+  })
+  if (exportBytes > MAX_EXPORT_BYTES) return refuse("export_size_bound", `export body exceeded ${MAX_EXPORT_BYTES} bytes`)
   let value: unknown
-  try { value = JSON.parse(stdout) } catch { return null }
-  if (!isRecord(value) || !isRecord(value.info) || value.info.id !== expectedSessionID || !Array.isArray(value.messages)) return null
+  try { value = JSON.parse(stdout) } catch { return refuse("export_json", "export body was not valid JSON") }
+  if (!isRecord(value) || !isRecord(value.info) || value.info.id !== expectedSessionID || !Array.isArray(value.messages)) return refuse("export_shape", "export body did not match the session shape")
   const sessionIdentity = readExportSessionIdentity(value.info)
-  if (!sessionIdentity) return null
+  if (!sessionIdentity) return refuse("export_session_identity", "export session identity was not typed")
   const seen = new Set<string>()
   const assistants: { id: string; created: number; model: string; agent: string }[] = []
   for (const message of value.messages) {
-    if (!isRecord(message) || !isRecord(message.info) || !Array.isArray(message.parts)) return null
+    if (!isRecord(message) || !isRecord(message.info) || !Array.isArray(message.parts)) return refuse("export_message_shape", "export message did not match the message shape")
     const info = message.info
-    if (typeof info.id !== "string" || typeof info.sessionID !== "string" || info.sessionID !== expectedSessionID || !isRecord(info.time) || typeof info.time.created !== "number" || seen.has(info.id)) return null
+    if (typeof info.id !== "string" || typeof info.sessionID !== "string" || info.sessionID !== expectedSessionID || !isRecord(info.time) || typeof info.time.created !== "number" || seen.has(info.id)) return refuse("export_message_identity", "export message identity was missing, mismatched, or duplicated")
     seen.add(info.id)
     if (info.role === "user") continue
-    if (info.role !== "assistant") return null
+    if (info.role !== "assistant") return refuse("export_message_role", "export message role was not user or assistant")
     const hasProvider = "providerID" in info
     const hasModel = "modelID" in info
-    if (hasProvider !== hasModel || hasProvider && (typeof info.providerID !== "string" || typeof info.modelID !== "string")) return null
+    if (hasProvider !== hasModel || hasProvider && (typeof info.providerID !== "string" || typeof info.modelID !== "string")) return refuse("export_message_model", "export assistant model fields were incomplete or invalid")
     const model = hasProvider ? `${info.providerID}/${info.modelID}` : sessionIdentity.model
     const agent = "agent" in info ? info.agent : sessionIdentity.agent
-    if (typeof agent !== "string" || model === null) return null
+    if (typeof agent !== "string" || model === null) return refuse("export_message_identity", "export assistant readback identity was incomplete")
     assistants.push({ id: info.id, created: info.time.created, model, agent })
   }
   assistants.sort((left, right) => left.created - right.created || left.id.localeCompare(right.id))
   const latest = assistants.at(-1)
-  return latest ? { readback_model: latest.model, readback_agent: latest.agent, session_id: expectedSessionID } : null
+  return latest
+    ? { ok: true, metadata: { readback_model: latest.model, readback_agent: latest.agent, session_id: expectedSessionID }, export_digest: exportDigest, export_bytes: exportBytes }
+    : refuse("export_assistant_message", "export session contained no assistant readback")
+}
+
+export function readExportSessionMetadata(stdout: string, expectedSessionID: string): Pick<SessionMetadata, "readback_model" | "readback_agent" | "session_id"> | null {
+  const result = readExportSession(stdout, expectedSessionID)
+  return result.ok ? result.metadata : null
 }
 
 // readRunTextParts returns the model's message text in emission order. The host
@@ -476,8 +518,16 @@ function baseEnvelope(lane: AgentLane | null, packet: Partial<AgentLanePacket>, 
   return { schema_version: "1.0", outcome, lane: { id, version: lane?.version ?? Number(packet.lane_version ?? 0), digest: lane?.digest ?? String(packet.lane_digest ?? "") }, agent: lane ? `concord-${lane.id}` : `concord-${id}`, readback_model: null, session_id: null }
 }
 
-function errorEnvelope(lane: AgentLane | null, packet: Partial<AgentLanePacket>, outcome: "blocked" | "error", kind: NonNullable<AgentResultEnvelope["error"]>["kind"], message: string, recovery_action: NonNullable<AgentResultEnvelope["error"]>["recovery_action"] = "contact_operator"): AgentResultEnvelope {
-  return { ...baseEnvelope(lane, packet, outcome), error: { kind, retry_safe: outcome !== "blocked", recovery_action, message: message.slice(0, MAX_ERROR_BYTES) } }
+function errorEnvelope(lane: AgentLane | null, packet: Partial<AgentLanePacket>, outcome: "blocked" | "error", kind: NonNullable<AgentResultEnvelope["error"]>["kind"], message: string, recovery_action: NonNullable<AgentResultEnvelope["error"]>["recovery_action"] = "contact_operator", details: Pick<NonNullable<AgentResultEnvelope["error"]>, "predicate" | "export_digest" | "export_bytes"> = {}): AgentResultEnvelope {
+  return { ...baseEnvelope(lane, packet, outcome), error: { kind, retry_safe: outcome !== "blocked", recovery_action, message: message.slice(0, MAX_ERROR_BYTES), ...details } }
+}
+
+function readbackRefusalEnvelope(lane: AgentLane, packet: AgentLanePacket, refusal: { predicate: ReadbackRefusal; export_digest: string; export_bytes: number; message: string }): AgentResultEnvelope {
+  return errorEnvelope(lane, packet, "error", "readback_refusal", `readback predicate ${refusal.predicate} refused: ${refusal.message}`, "reconcile_operation", {
+    predicate: refusal.predicate,
+    export_digest: refusal.export_digest,
+    export_bytes: refusal.export_bytes,
+  })
 }
 
 // errorEnvelopeForLane is the public re-export of the private errorEnvelope
@@ -849,9 +899,15 @@ export async function completeWorkerAttempt(
   try { exported = await readbackRunner.run([binary, "export", workerSessionID, "--sanitize"], "", signal) } catch (error) {
     return errorEnvelope(lane, packet, "error", "error", String(error), "reconcile_operation")
   }
-  if (exported.exitCode !== 0) return errorEnvelope(lane, packet, "error", "error", exported.stderr.slice(0, MAX_ERROR_BYTES) || "OpenCode session export failed without diagnostic output", "reconcile_operation")
-  const readback = readExportSessionMetadata(exported.stdout, workerSessionID)
-  if (!readback) return errorEnvelope(lane, packet, "error", "error", "OpenCode session export did not contain one typed executing-model readback", "reconcile_operation")
+  if (exported.exitCode !== 0) return readbackRefusalEnvelope(lane, packet, {
+    predicate: "export_command",
+    export_digest: sha256Digest(exported.stdout),
+    export_bytes: Buffer.byteLength(exported.stdout),
+    message: exported.stderr.slice(0, MAX_ERROR_BYTES) || "OpenCode session export failed without diagnostic output",
+  })
+  const readbackResult = readExportSession(exported.stdout, workerSessionID)
+  if (!readbackResult.ok) return readbackRefusalEnvelope(lane, packet, readbackResult)
+  const readback = readbackResult.metadata
   // The adapter names the lane executor; the host owns which model executes
   // it (CD-0058 D1). Because the host may also substitute the agent itself —
   // run mode falls back to the default agent when an agent definition is not
@@ -860,7 +916,11 @@ export async function completeWorkerAttempt(
   // the lane contract, so its output is admitted as no worker's evidence.
   const expectedAgent = `concord-${lane.id}`
   if (readback.readback_agent !== expectedAgent) {
-    return errorEnvelope(lane, packet, "error", "agent_identity_mismatch", `executed agent ${JSON.stringify(readback.readback_agent)} does not match the dispatched lane agent ${JSON.stringify(expectedAgent)}`, "contact_operator")
+    return errorEnvelope(lane, packet, "error", "agent_identity_mismatch", `executed agent ${JSON.stringify(readback.readback_agent)} does not match the dispatched lane agent ${JSON.stringify(expectedAgent)}`, "contact_operator", {
+      predicate: "dispatched_agent_identity",
+      export_digest: readbackResult.export_digest,
+      export_bytes: readbackResult.export_bytes,
+    })
   }
   const base = baseEnvelope(lane, packet, "ok")
   base.readback_model = readback.readback_model

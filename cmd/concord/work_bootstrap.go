@@ -125,8 +125,8 @@ func runSessionPrepare(raw []byte, s *store.Store, out, errOut io.Writer, laneId
 		writeOperatorDiagnostic(errOut, "session-prepare", err.Error())
 		return 1
 	}
-	if !sessionPrepareID.MatchString(input.ProductID) || !sessionPrepareID.MatchString(input.WorkID) || input.Task == "" || len(input.Task) > 8192 || strings.ContainsRune(input.Task, '\x00') || !utf8.ValidString(input.Task) {
-		writeOperatorDiagnostic(errOut, "session-prepare", "product_id, work_id, and bounded task are required")
+	if !sessionPrepareID.MatchString(input.ProductID) || !sessionPrepareID.MatchString(input.WorkID) || len(input.Task) > 8192 || strings.ContainsRune(input.Task, '\x00') || !utf8.ValidString(input.Task) {
+		writeOperatorDiagnostic(errOut, "session-prepare", "product_id and work_id are required, and task must be bounded valid UTF-8")
 		return 1
 	}
 	cwd, err := os.Getwd()
@@ -205,7 +205,10 @@ func runSessionPrepare(raw []byte, s *store.Store, out, errOut io.Writer, laneId
 		writeOperatorDiagnostic(errOut, "session-prepare", err.Error())
 		return 1
 	}
-	prompt := "Concord session boot packet (core-derived authority at its watermark; reread concord_work_trace.continuity before consequential action):\n" + string(packet) + "\nTask: " + input.Task
+	prompt := "Concord session boot packet (core-derived authority at its watermark; reread concord_work_trace.continuity before consequential action):\n" + string(packet)
+	if input.Task != "" {
+		prompt += "\nTask: " + input.Task
+	}
 	if len(prompt) > agent.MaxEnvelopeBytes {
 		writeOperatorDiagnostic(errOut, "session-prepare", "launch prompt exceeds 65536 bytes")
 		return 1

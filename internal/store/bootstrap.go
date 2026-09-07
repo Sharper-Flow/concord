@@ -125,6 +125,52 @@ func (s *Store) ValidateBootstrapOrigin(ctx context.Context, projectID, path str
 	return origin, nil
 }
 
+// ResumeWorktreeLocation resolves the active worktree a running session
+// enters when it resumes an existing work item by work identity (issue #891).
+// The read refuses typed before any effect: unknown work, terminal work, a
+// Project the item does not hold, a Project outside the requested Product
+// scope, and an item with no active worktree in the Project each refuse. The
+// read records nothing (CD-0104 D1); the origin gate stays with the caller,
+// exactly as work-bootstrap runs it for a capture.
+func (s *Store) ResumeWorktreeLocation(ctx context.Context, productID, projectID, workID string) (WorktreeEntry, error) {
+	var entry WorktreeEntry
+	if s == nil || s.db == nil {
+		return entry, newFailure(KindUnavailable, "work_resume", "store is not open", false, "open the authority database")
+	}
+	if productID == "" || projectID == "" || workID == "" {
+		return entry, newFailure(KindInvalidOperation, "work_resume", "resume requires the Product, Project, and work identity", false, "supply all three identities")
+	}
+	var lifecycle string
+	if err := s.db.QueryRowContext(ctx, `SELECT lifecycle FROM work_items WHERE id=?`, workID).Scan(&lifecycle); err != nil {
+		if err == sql.ErrNoRows {
+			return entry, newFailure(KindUnknownScope, "work_resume", "work item does not exist", false, "check the work identity before resuming")
+		}
+		return entry, wrapFailure(KindUnavailable, "work_resume", "cannot read the work item", true, "retry once the database is readable", err)
+	}
+	if isTerminalLifecycle(lifecycle) {
+		return entry, newFailure(KindInvalidOperation, "work_resume", "cannot resume terminal work item "+workID+" ("+lifecycle+")", false, "resume live work or capture new work instead")
+	}
+	projects, err := s.ProjectsForWork(ctx, workID)
+	if err != nil {
+		return entry, err
+	}
+	member := false
+	for _, project := range projects {
+		if project.ID == projectID {
+			member = true
+			break
+		}
+	}
+	if !member {
+		return entry, newFailure(KindUnknownScope, "work_resume", "work item "+workID+" does not hold Project "+projectID, false, "resume from a Project the work item belongs to")
+	}
+	_, products, err := s.ScopeVersion(ctx, projectID)
+	if err != nil || len(products) != 1 || products[0] != productID {
+		return entry, newFailure(KindUnknownScope, "work_resume", "claimed Project is not in the requested Product scope", false, "resume from the Project's own Product")
+	}
+	return activeWorktreeEntryForProject(ctx, s.db, "work_resume", workID, projectID)
+}
+
 func bootstrapOriginHasOpenDispatchWindow(ctx context.Context, tx *sql.Tx, workID string) (bool, error) {
 	var open bool
 	err := tx.QueryRowContext(ctx, `SELECT EXISTS(

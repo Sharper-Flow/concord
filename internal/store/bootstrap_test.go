@@ -638,3 +638,48 @@ func TestValidateBootstrapOriginRefusesDispatchedWorkerAttempt(t *testing.T) {
 		t.Fatalf("dispatched attempt was not refused as resource_busy: %v", err)
 	}
 }
+
+func TestResumeWorktreeLocationRefusals(t *testing.T) {
+	repo := initBootstrapStoreRepo(t)
+	s, err := Open(context.Background(), filepath.Join(t.TempDir(), "concord.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	seedBootstrapStoreAuthority(t, s, repo)
+	request := bootstrapStoreRequest()
+	first, err := s.BootstrapWorktree(context.Background(), request, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	entry, err := s.ResumeWorktreeLocation(context.Background(), request.ProductID, request.ProjectID, first.WorkID)
+	if err != nil {
+		t.Fatalf("resume read failed: %v", err)
+	}
+	if entry.Path != first.Entry.Path || entry.State != "active" {
+		t.Fatalf("resume entry=%+v want=%+v", entry, first.Entry)
+	}
+
+	var failure *Failure
+	if _, err := s.ResumeWorktreeLocation(context.Background(), request.ProductID, request.ProjectID, "work-missing"); !errors.As(err, &failure) || failure.Kind != KindUnknownScope {
+		t.Fatalf("unknown work refusal=%v", err)
+	}
+	if _, err := s.ResumeWorktreeLocation(context.Background(), "product-other", request.ProjectID, first.WorkID); !errors.As(err, &failure) || failure.Kind != KindUnknownScope || !strings.Contains(failure.Detail, "Product scope") {
+		t.Fatalf("scope refusal=%v", err)
+	}
+	if _, err := s.ResumeWorktreeLocation(context.Background(), request.ProductID, "project-other", first.WorkID); !errors.As(err, &failure) || failure.Kind != KindUnknownScope || !strings.Contains(failure.Detail, "does not hold Project") {
+		t.Fatalf("membership refusal=%v", err)
+	}
+
+	terminalPayload, err := json.Marshal(map[string]any{"from": "needed", "to": "cancelled", "reason": "fixture terminal", "expected_version": first.WorkVersion, "resulting_version": first.WorkVersion + 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{{EventID: "resume-terminal-cancel", Kind: "work.transitioned", SubjectType: SubjectWorkItem, SubjectID: first.WorkID, Actor: "operator", OccurredAt: time.Unix(10, 0).UTC(), PayloadVersion: 1, Payload: terminalPayload}}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, first.WorkID): first.WorkVersion}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.ResumeWorktreeLocation(context.Background(), request.ProductID, request.ProjectID, first.WorkID); !errors.As(err, &failure) || failure.Kind != KindInvalidOperation || !strings.Contains(failure.Detail, "terminal work item") {
+		t.Fatalf("terminal refusal=%v", err)
+	}
+}

@@ -67,7 +67,12 @@ test("published tool arguments expose one generated request union", () => {
   const inputRef = capture.properties.input.$ref.replace("#/properties/request/definitions/", "")
   const urgencyRef = published.definitions[inputRef].properties.urgency.$ref.replace("#/properties/request/definitions/", "")
   expect(published.definitions[urgencyRef].enum).toEqual(["standard", "expedite"])
-  expect(Object.keys((adapter.work_start as any).args).sort()).toEqual(["title", "value_statement", "kind", "task", "idempotency_key", "priority", "urgency", "tags", "workflow_type_ref", "external_ref", "governing_requirements", "ref"].sort())
+  // The published per-field view is the flattened union of the manifest's
+  // oneOf branches: every field optional, no field schema, because the flat
+  // host shape cannot express the oneOf. The adapter enforces exactly one of
+  // the two shapes; the manifest stays the closed contract.
+  expect(Object.keys((adapter.work_start as any).args).sort()).toEqual(["title", "value_statement", "kind", "task", "idempotency_key", "priority", "urgency", "tags", "workflow_type_ref", "external_ref", "governing_requirements", "ref", "work_id"].sort())
+  for (const value of Object.values((adapter.work_start as any).args)) expect(value).toBeUndefined()
   expect((adapter.work_start as any).args.product_id).toBeUndefined()
   expect((adapter.work_start as any).args.project_id).toBeUndefined()
 })
@@ -946,6 +951,87 @@ test("work start forwards a core terminal-origin refusal", async () => {
 // no other route into the worktree. The refusal therefore belongs in front of
 // the capture: an operator who cannot start work should not be left holding a
 // work item and a claim to reconcile as well.
+const resumeSuccess = () => ({
+  schema_version: "1.0",
+  product_id: "product-1",
+  project_id: "project-1",
+  work_id: "work-1",
+  worktree: { set_id: "worktree-set-1", path: WORKTREE, branch: "work/work-1", base_sha: "a".repeat(40), state: "active" },
+})
+
+const resumeRunner = (calls: RetargetCall[], overrides: Record<string, () => { exitCode: number; stdout: string; stderr: string }> = {}) => ({
+  async run(argv: string[], input: string, _signal: AbortSignal, options?: any) {
+    calls.push({ argv, input, options })
+    const command = argv[1]
+    if (overrides[command]) return overrides[command]()
+    if (command === "project-resolve") return { exitCode: 0, stdout: JSON.stringify(contextResponse()), stderr: "" }
+    if (command === "work-resume") return { exitCode: 0, stdout: JSON.stringify(resumeSuccess()), stderr: "" }
+    if (command === "session-prepare") return { exitCode: 0, stdout: JSON.stringify(preparedContract()), stderr: "" }
+    throw new Error(`unexpected command ${argv.join(" ")}`)
+  },
+})
+
+test("work start resume derives the entry by work_id and moves the session", async () => {
+  const moved = bindRetargetRoute()
+  const calls: RetargetCall[] = []
+  adapter.configureConcordAdapter({ runner: resumeRunner(calls) })
+  const result: any = await rawHostResult(adapter.work_start.execute({ work_id: "work-1" }, contextFor()))
+  expect(result).toMatchObject({ outcome: "ok", product_id: "product-1", project_id: "project-1", work_id: "work-1", worktree_path: WORKTREE, agent: "concord-implement", session_id: "session-1" })
+  // A resume never captures: work-resume replaces work-bootstrap and records
+  // nothing, so the child sequence has no journal step.
+  expect(calls.map(({ argv }) => argv[1])).toEqual(["project-resolve", "work-resume", "session-prepare", "project-resolve", "invoke"])
+  expect(JSON.parse(calls[1].input)).toEqual({ product_id: "product-1", project_id: "project-1", work_id: "work-1" })
+  // A resume carries no task; session-prepare still verifies the worktree.
+  expect(JSON.parse(calls[2].input)).toEqual({ product_id: "product-1", work_id: "work-1", task: "" })
+  expect(moved).toEqual([{ sessionID: "session-1", destination: { directory: WORKTREE } }])
+})
+
+test("work start resume forwards the typed core refusal and reads the landing back", async () => {
+  const moved = bindRetargetRoute()
+  const calls: RetargetCall[] = []
+  adapter.configureConcordAdapter({ runner: resumeRunner(calls, {
+    "work-resume": () => ({ exitCode: 1, stdout: "", stderr: "concord work-resume: invalid_operation: cannot resume terminal work item work-1 (completed)" }),
+  }) })
+  const refused: any = await rawHostResult(adapter.work_start.execute({ work_id: "work-1" }, contextFor()))
+  expect(refused.outcome).toBe("error")
+  expect(refused.error.kind).toBe("resume_failure")
+  expect(refused.error.message).toContain("terminal work item work-1")
+  expect(refused.error.effect_state).toBe("none")
+  expect(refused.error.recovery_action.kind).toBe("retry_same_request")
+  expect(calls.map(({ argv }) => argv[1])).toEqual(["project-resolve", "work-resume"])
+  expect(moved).toEqual([])
+
+  const offTarget = bindRetargetRoute({ landedDirectory: "/somewhere-else" })
+  adapter.configureConcordAdapter({ runner: resumeRunner(calls) })
+  const mismatch: any = await rawHostResult(adapter.work_start.execute({ work_id: "work-1" }, contextFor()))
+  expect(mismatch.outcome).toBe("error")
+  expect(mismatch.error.kind).toBe("session_directory_mismatch")
+  expect(mismatch.work_id).toBe("work-1")
+  expect(mismatch.worktree_path).toBe(WORKTREE)
+})
+
+test("work start resume rejects mixed and malformed argument shapes", async () => {
+  bindRetargetRoute({ unbound: true })
+  const calls: RetargetCall[] = []
+  adapter.configureConcordAdapter({ runner: resumeRunner(calls) })
+  for (const args of [
+    {},
+    { work_id: "work-1", title: "Both shapes at once" },
+    { work_id: "" },
+    { work_id: "work-1", idempotency_key: "capture-field-in-resume" },
+    { title: "Capture fields without the required set" },
+    { work_id: "work-1", product_id: "product-1" },
+  ]) {
+    const result: any = await rawHostResult(adapter.work_start.execute(args, contextFor()))
+    expect(result.outcome, JSON.stringify(args)).toBe("error")
+    expect(result.error.kind, JSON.stringify(args)).toBe("invalid_input")
+    expect(result.error.message, JSON.stringify(args)).toContain("host-tool contract")
+  }
+  // Nothing ran: the shape refusal is in front of every effect, host probe
+  // included, so a malformed call costs no child and no move.
+  expect(calls).toEqual([])
+})
+
 test("work start refuses before any effect when the host handed the plugin no client", async () => {
   bindRetargetRoute({ unbound: true })
   const calls: RetargetCall[] = []

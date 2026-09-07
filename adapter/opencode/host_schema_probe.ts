@@ -14,15 +14,21 @@ const tools: Record<string, any> = {
   concord_work_compact: work_compact,
 }
 
+// The generated work start schema is a oneOf of the capture and resume
+// shapes. The published per-field view is its flattened union with no
+// required field: the flat host shape cannot express the oneOf, so the probe
+// reconstructs the union and asserts the published fields match it exactly.
 const expectedWorkStart = object(hostToolSchemas.concord_work_start, "generated work start schema")
-const expectedWorkStartProperties = object(expectedWorkStart.properties, "generated work start properties")
+const expectedWorkStartBranches = (expectedWorkStart.oneOf as any[]).filter((branch) => object(branch, "generated work start branch"))
+if (expectedWorkStartBranches.length !== 2) fail("generated work start schema must carry the capture and resume branches")
+const expectedWorkStartProperties = Object.assign({}, ...expectedWorkStartBranches.map((branch) => object(branch.properties, "generated work start branch properties")))
 const workStartArgs = Object.fromEntries(Object.keys(work_start.args).map((key) => [key, work_start.args[key] ?? expectedWorkStartProperties[key]]))
-const workStartRoot = publishedArgsSchema(workStartArgs, "work start schema", expectedWorkStart.required)
+const workStartRoot = publishedArgsSchema(workStartArgs, "work start schema", [])
 const workStartProperties = object(workStartRoot.properties, "work start properties")
 if (JSON.stringify(Object.keys(workStartProperties).sort()) !== JSON.stringify(Object.keys(expectedWorkStartProperties).sort())) {
   fail("concord_work_start does not publish the generated argument set")
 }
-if (JSON.stringify([...workStartRoot.required].sort()) !== JSON.stringify([...expectedWorkStart.required].sort())) fail("concord_work_start required arguments differ from the generated contract")
+if (workStartRoot.required.length !== 0) fail("concord_work_start published view must keep every argument optional")
 for (const [name, expected] of Object.entries(expectedWorkStartProperties)) {
   const actual = object(workStartProperties[name], `published work start property ${name}`)
   for (const [keyword, value] of Object.entries(object(expected, `generated work start property ${name}`))) {

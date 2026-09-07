@@ -171,10 +171,18 @@ function argsSchema(toolName: string): any {
   return { request: publishedRequestSchema(toolName) }
 }
 
+// The host publishes work_start arguments as a flat per-field shape where a
+// schema marks a required field, so the manifest's oneOf of capture and
+// resume cannot publish directly. The published view therefore flattens to
+// every field optional; the manifest stays the closed contract, and
+// validateWorkStartArgs enforces exactly one of the two shapes.
 function workStartArgsSchema() {
   const schema = (hostToolSchemas as Record<string, any>).concord_work_start
-  const required = new Set(schema.required ?? [])
-  return Object.fromEntries(Object.entries(schema.properties ?? {}).map(([key, value]) => [key, required.has(key) ? value : undefined]))
+  const fields = new Set<string>()
+  for (const branch of (schema.oneOf ?? []) as Record<string, any>[]) {
+    for (const key of Object.keys(branch.properties ?? {})) fields.add(key)
+  }
+  return Object.fromEntries([...fields].sort().map((key) => [key, undefined]))
 }
 
 function baseEnvelope(toolName: string, operation: string, requestID: string) {
@@ -487,7 +495,7 @@ async function executeHostTransition(args: HostToolArgs, context: ToolContext): 
   return encodeHostToolResult("concord_work_transition", args, context, await executeWorkTransition(args, context))
 }
 
-type WorkStartArgs = {
+type WorkStartCaptureArgs = {
   title: string
   value_statement: string
   kind: string
@@ -500,6 +508,19 @@ type WorkStartArgs = {
   external_ref?: string
   governing_requirements?: string[]
   ref?: string
+}
+
+// WorkStartArgs is one of two shapes (issue #891): the capture shape above, or
+// the resume shape naming an existing work item by work identity. Resume
+// records nothing, so it carries no idempotency_key and no capture fields.
+type WorkStartArgs = WorkStartCaptureArgs | { work_id: string }
+
+type WorkStartResume = {
+  schema_version: "1.0"
+  product_id: string
+  project_id: string
+  work_id: string
+  worktree: { set_id: string; path: string; branch: string; base_sha: string; state: "active" }
 }
 
 type WorkStartBootstrap = {
@@ -544,11 +565,27 @@ function nonEmptyString(value: unknown): value is string {
 }
 
 const workStartSchema = (hostToolSchemas as Record<string, any>).concord_work_start
-const workStartFields = new Set(Object.keys(workStartSchema.properties ?? {}))
+const workStartCaptureBranch = ((workStartSchema.oneOf ?? []) as Record<string, any>[]).find((branch) => "title" in (branch.properties ?? {}))
+const workStartCaptureFields = new Set(Object.keys(workStartCaptureBranch?.properties ?? {}))
+const workStartResumeField = new Set(["work_id"])
 
+function isWorkStartResumeArgs(value: Record<string, unknown>): value is { work_id: string } {
+  return saneWorkID(value.work_id)
+}
+
+// validateWorkStartArgs enforces the manifest's oneOf at the boundary the
+// published per-field view cannot: a call is the capture shape (its required
+// fields, its closed surface) or the resume shape (work_id alone), never both
+// and never neither.
 function validateWorkStartArgs(value: unknown): value is WorkStartArgs {
-  if (!record(value) || !validateAgainstSchema(workStartSchema, value)) return false
-  if (Object.keys(value).some((key) => !workStartFields.has(key))) return false
+  if (!record(value)) return false
+  const keys = Object.keys(value)
+  if (keys.some((key) => !workStartCaptureFields.has(key) && !workStartResumeField.has(key))) return false
+  if ("work_id" in value) {
+    if (keys.some((key) => workStartCaptureFields.has(key))) return false
+    return isWorkStartResumeArgs(value)
+  }
+  if (!validateAgainstSchema(workStartCaptureBranch, value)) return false
   for (const field of ["title", "value_statement", "external_ref"] as const) {
     const candidate = value[field]
     if (candidate !== undefined && Buffer.byteLength(String(candidate)) > 256) return false
@@ -576,7 +613,7 @@ function validateWorkStartBootstrap(value: unknown): value is WorkStartBootstrap
     && nonEmptyString(worktree.branch) && /^[0-9a-f]{40}$/.test(String(worktree.base_sha)) && worktree.state === "active"
 }
 
-function validateWorkStartPrepared(value: unknown, bootstrap: WorkStartBootstrap): value is WorkStartPrepared {
+function validateWorkStartPrepared(value: unknown, bootstrap: { product_id: string; work_id: string; worktree: { path: string } }): value is WorkStartPrepared {
   if (!record(value) || !exactKeys(value, ["schema_version", "agent", "directory", "product_id", "work_id", "prompt"])) return false
   return value.schema_version === "1.0"
     && value.directory === bootstrap.worktree.path
@@ -584,6 +621,20 @@ function validateWorkStartPrepared(value: unknown, bootstrap: WorkStartBootstrap
     && value.work_id === bootstrap.work_id
     && nonEmptyString(value.agent) && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(value.agent)
     && typeof value.prompt === "string" && value.prompt.length > 0 && Buffer.byteLength(value.prompt) <= 65_536
+}
+
+// validateWorkStartResume is the strict read-back contract for the work-resume
+// child. It mirrors validateWorkStartBootstrap minus the capture-only fields
+// (operation id, replay flag, work version): a resume records nothing, so the
+// read carries only identity and the derived worktree.
+function validateWorkStartResume(value: unknown): value is WorkStartResume {
+  if (!record(value) || !exactKeys(value, ["schema_version", "product_id", "project_id", "work_id", "worktree"])) return false
+  if (value.schema_version !== "1.0" || !nonEmptyString(value.product_id) || !nonEmptyString(value.project_id) || !nonEmptyString(value.work_id) || !record(value.worktree)) return false
+  const worktree = value.worktree
+  return exactKeys(worktree, ["set_id", "path", "branch", "base_sha", "state"])
+    && nonEmptyString(worktree.set_id)
+    && typeof worktree.path === "string" && worktree.path.startsWith("/")
+    && nonEmptyString(worktree.branch) && /^[0-9a-f]{40}$/.test(String(worktree.base_sha)) && worktree.state === "active"
 }
 
 function boundedUTF8(value: string, maxBytes: number): string {
@@ -615,13 +666,13 @@ function workStartError(kind: string, message: string, identity: Partial<WorkSta
 }
 
 // workStartFailure shapes a refusal. The identity of what exists rides along
-// when bootstrap ran, so the caller can see the work item and worktree a
-// replay will adopt. effect_state is none because nothing here is an effect
-// a replay cannot reproduce or reuse; the durable state is the work item and
-// the claim, both keyed on the request digest.
-function workStartFailure(error: unknown, bootstrap: WorkStartBootstrap | null, fallbackKind: string): WorkStartEnvelope {
+// when a capture bootstrap or a resume read ran, so the caller can see the
+// work item and worktree a replay will adopt. effect_state is none because
+// nothing here is an effect a replay cannot reproduce or reuse; the durable
+// state is the work item and the claim, both keyed on the request digest.
+function workStartFailure(error: unknown, target: { product_id: string; project_id: string; work_id: string; worktree: { path: string } } | null, fallbackKind: string): WorkStartEnvelope {
   const failure = error instanceof AdapterFailure ? error : new AdapterFailure("transport_failure", fallbackKind, String(error))
-  const identity = bootstrap ? { product_id: bootstrap.product_id, project_id: bootstrap.project_id, work_id: bootstrap.work_id, worktree_path: bootstrap.worktree.path } : {}
+  const identity = target ? { product_id: target.product_id, project_id: target.project_id, work_id: target.work_id, worktree_path: target.worktree.path } : {}
   const retrySafe = failure.recovery === "retry_same_request"
   return workStartError(failure.kind, failure.message, identity, failure.recovery, retrySafe)
 }
@@ -635,7 +686,9 @@ async function runWorkStartChild(argv: string[], input: string, signal: AbortSig
 // adopts whatever an earlier attempt left and runs only what is missing:
 //
 //   1. work-bootstrap derives the work item and the worktree from the request
-//      digest, and replays the same operation on the same key.
+//      digest, and replays the same operation on the same key. A resume
+//      request skips it: work-resume derives the existing item's active
+//      worktree from the work identity and records nothing (issue #891).
 //   2. session-prepare verifies that worktree and derives the boot packet. It
 //      records nothing.
 //   3. moveSession moves the calling session, and is a no-op when the session
@@ -648,10 +701,11 @@ async function runWorkStartChild(argv: string[], input: string, signal: AbortSig
 // answer (CD-0098 D3).
 async function executeWorkStart(args: WorkStartArgs, context: ToolContext): Promise<WorkStartEnvelope> {
   const concord = process.env.CONCORD_BIN ?? "concord"
-  let bootstrap: WorkStartBootstrap | null = null
+  let target: { product_id: string; project_id: string; work_id: string; worktree: { path: string } } | null = null
+  const resume = record(args) && isWorkStartResumeArgs(args)
   try {
     if (!validateWorkStartArgs(args)) throw new AdapterFailure("invalid_input", "invalid_work_start_input", "work_start arguments failed the host-tool contract", "none", "contact_operator")
-    if (context.abort.aborted) throw new AdapterFailure("cancelled", "cancelled_no_effect", "work_start was cancelled before bootstrap")
+    if (context.abort.aborted) throw new AdapterFailure("cancelled", "cancelled_no_effect", `work_start was cancelled before ${resume ? "the resume read" : "bootstrap"}`)
     const ambient = await resolveAmbientContext(context)
     const productID = deriveWorkStartProduct(ambient)
     // CD-0098 D2 makes the move the only route into the claimed worktree, so
@@ -673,28 +727,43 @@ async function executeWorkStart(args: WorkStartArgs, context: ToolContext): Prom
         "contact_operator",
       )
     }
-    const bootstrapInput = { product_id: productID, project_id: ambient.projectID, ...args }
-    const boot = await runWorkStartChild([concord, "work-bootstrap"], JSON.stringify(bootstrapInput), context.abort, { cwd: context.directory })
-    if (boot.exitCode !== 0) throw new AdapterFailure("bootstrap_failure", "bootstrap_failed", boot.stderr.slice(0, MAX_STDERR), "none", "retry_same_request")
-    let bootValue: unknown
-    try { bootValue = singleJSON(boot.stdout) } catch (error) { throw new AdapterFailure("malformed_response", "malformed_bootstrap_response", String(error), "none", "retry_same_request") }
-    if (!validateWorkStartBootstrap(bootValue) || bootValue.product_id !== productID || bootValue.project_id !== ambient.projectID) throw new AdapterFailure("malformed_response", "malformed_bootstrap_response", "work-bootstrap response failed the strict bootstrap contract", "none", "retry_same_request")
-    bootstrap = bootValue
+    let prepareTask: string
+    if (resume) {
+      const workID = (args as { work_id: string }).work_id
+      const resumed = await runWorkStartChild([concord, "work-resume"], JSON.stringify({ product_id: productID, project_id: ambient.projectID, work_id: workID }), context.abort, { cwd: context.directory })
+      if (resumed.exitCode !== 0) throw new AdapterFailure("resume_failure", "resume_refused", resumed.stderr.slice(0, MAX_STDERR), "none", "retry_same_request")
+      let resumedValue: unknown
+      try { resumedValue = singleJSON(resumed.stdout) } catch (error) { throw new AdapterFailure("malformed_response", "malformed_resume_response", String(error), "none", "retry_same_request") }
+      if (!validateWorkStartResume(resumedValue) || resumedValue.product_id !== productID || resumedValue.project_id !== ambient.projectID || resumedValue.work_id !== workID) throw new AdapterFailure("malformed_response", "malformed_resume_response", "work-resume response failed the strict resume contract", "none", "retry_same_request")
+      target = resumedValue
+      prepareTask = ""
+    } else {
+      const capture = args as WorkStartCaptureArgs
+      const bootstrapInput = { product_id: productID, project_id: ambient.projectID, ...capture }
+      const boot = await runWorkStartChild([concord, "work-bootstrap"], JSON.stringify(bootstrapInput), context.abort, { cwd: context.directory })
+      if (boot.exitCode !== 0) throw new AdapterFailure("bootstrap_failure", "bootstrap_failed", boot.stderr.slice(0, MAX_STDERR), "none", "retry_same_request")
+      let bootValue: unknown
+      try { bootValue = singleJSON(boot.stdout) } catch (error) { throw new AdapterFailure("malformed_response", "malformed_bootstrap_response", String(error), "none", "retry_same_request") }
+      if (!validateWorkStartBootstrap(bootValue) || bootValue.product_id !== productID || bootValue.project_id !== ambient.projectID) throw new AdapterFailure("malformed_response", "malformed_bootstrap_response", "work-bootstrap response failed the strict bootstrap contract", "none", "retry_same_request")
+      target = bootValue
+      prepareTask = capture.task
+    }
 
-    if (context.abort.aborted) throw new AdapterFailure("cancelled", "cancelled_after_bootstrap", "work_start was cancelled after bootstrap; replay the same idempotency_key to resume", "none", "retry_same_request")
-    const prepared = await runWorkStartChild([concord, "session-prepare"], JSON.stringify({ product_id: bootstrap.product_id, work_id: bootstrap.work_id, task: args.task }), context.abort, { cwd: bootstrap.worktree.path })
+    if (context.abort.aborted) throw new AdapterFailure("cancelled", "cancelled_after_bootstrap", `work_start was cancelled after ${resume ? "the resume read" : "bootstrap"}; replay the same idempotency_key to resume`, "none", "retry_same_request")
+    const prepared = await runWorkStartChild([concord, "session-prepare"], JSON.stringify({ product_id: target.product_id, work_id: target.work_id, task: prepareTask }), context.abort, { cwd: target.worktree.path })
     if (prepared.exitCode !== 0) throw new AdapterFailure("session_prepare_failure", "session_prepare_failed", prepared.stderr.slice(0, MAX_STDERR), "none", "retry_same_request")
     let preparedValue: unknown
     try { preparedValue = singleJSON(prepared.stdout) } catch (error) { throw new AdapterFailure("malformed_response", "malformed_prepare_response", String(error), "none", "retry_same_request") }
-    if (!validateWorkStartPrepared(preparedValue, bootstrap)) throw new AdapterFailure("malformed_response", "malformed_prepare_response", "session-prepare response failed the strict prepare contract", "none", "retry_same_request")
+    if (!validateWorkStartPrepared(preparedValue, target)) throw new AdapterFailure("malformed_response", "malformed_prepare_response", "session-prepare response failed the strict prepare contract", "none", "retry_same_request")
     const agent = preparedValue.agent
 
     if (context.abort.aborted) throw new AdapterFailure("cancelled", "cancelled_before_move", "work_start was cancelled before the move; replay the same idempotency_key to resume", "none", "retry_same_request")
     // CD-0098 D2. The move is the only route to the worktree. An absent route
-    // refuses here; the claim the bootstrap recorded stays resumable rather
-    // than being rolled back for a host-capability gap the operator can repair.
+    // refuses here; what the capture recorded (or the resume read) stays
+    // adoptable rather than being rolled back for a host-capability gap the
+    // operator can repair.
     try {
-      await hostControlPlane().moveSession(context.sessionID, bootstrap.worktree.path, context.abort)
+      await hostControlPlane().moveSession(context.sessionID, target.worktree.path, context.abort)
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       if (error instanceof MoveSessionUnavailable) {
@@ -711,22 +780,22 @@ async function executeWorkStart(args: WorkStartArgs, context: ToolContext): Prom
     } catch (error) {
       throw new AdapterFailure("malformed_response", "session_directory_unreadable", error instanceof Error ? error.message : String(error), "none", "retry_same_request")
     }
-    if (!samePath(landed, bootstrap.worktree.path)) {
-      throw new AdapterFailure("session_directory_mismatch", "move_destination_mismatch", `the session moved to ${JSON.stringify(landed)} rather than the claimed worktree ${JSON.stringify(bootstrap.worktree.path)}`, "none", "retry_same_request")
+    if (!samePath(landed, target.worktree.path)) {
+      throw new AdapterFailure("session_directory_mismatch", "move_destination_mismatch", `the session moved to ${JSON.stringify(landed)} rather than the claimed worktree ${JSON.stringify(target.worktree.path)}`, "none", "retry_same_request")
     }
     return {
       schema_version: "1.0",
       outcome: "ok",
-      product_id: bootstrap.product_id,
-      project_id: bootstrap.project_id,
-      work_id: bootstrap.work_id,
-      worktree_path: bootstrap.worktree.path,
+      product_id: target.product_id,
+      project_id: target.project_id,
+      work_id: target.work_id,
+      worktree_path: target.worktree.path,
       agent,
       session_id: context.sessionID,
-      output: `This session now runs in ${bootstrap.worktree.path} on work item ${bootstrap.work_id}.`,
+      output: `This session now runs in ${target.worktree.path} on work item ${target.work_id}.`,
     }
   } catch (error) {
-    return workStartFailure(error, bootstrap, "work_start_failed")
+    return workStartFailure(error, target, "work_start_failed")
   }
 }
 

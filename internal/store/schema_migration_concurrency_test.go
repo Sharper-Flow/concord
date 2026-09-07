@@ -159,7 +159,7 @@ func TestMigrationManifestCurrentStillFailsClosedOnAnUnknownMigration(t *testing
 		t.Fatal(err)
 	}
 
-	current, err := migrationManifestCurrent(ctx, s.DatabaseForTesting())
+	current, err := migrationManifestCurrent(ctx, s.DatabaseForTesting(), migrateForUpgrade)
 	if err == nil {
 		t.Fatal("the fast path accepted a manifest this binary does not define")
 	}

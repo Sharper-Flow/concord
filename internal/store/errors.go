@@ -37,6 +37,12 @@ const (
 	KindSchemaDrift FailureKind = "schema_drift"
 	// KindSchemaUnsupported marks a database written by a newer binary.
 	KindSchemaUnsupported FailureKind = "schema_unsupported"
+	// KindUpgradeRequired marks a database whose next pending migration is
+	// breaking. Open never applies it; concord upgrade does (CD-0111 D3).
+	KindUpgradeRequired FailureKind = "upgrade_required"
+	// KindUpgradeBlocked marks an upgrade refused because a live host session
+	// holds a release that predates the pending breaking migration.
+	KindUpgradeBlocked FailureKind = "upgrade_blocked"
 	// KindUnavailable marks a database that cannot be opened or prepared.
 	KindUnavailable FailureKind = "unavailable"
 	// KindInvalidOperation marks an operation that cannot be applied as a unit.

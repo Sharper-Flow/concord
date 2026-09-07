@@ -1,7 +1,11 @@
 import { test, expect } from "bun:test"
 import { createHash } from "node:crypto"
 import { agentLanes } from "./generated-agent-lanes"
-import { completeWorkerAttempt, defaultExportRunner, dispatchWorker, MAX_EXPORT_BYTES, readExportSession, readExportSessionMetadata, readRunSessionMetadata, validateAgentLanePacket, type AgentLanePacket, type DispatchAuthorizer, type DispatchRunner } from "./dispatch"
+import { completeWorkerAttempt, configureCoreBinary, defaultExportRunner, dispatchWorker, MAX_EXPORT_BYTES, readExportSession, readExportSessionMetadata, readRunSessionMetadata, validateAgentLanePacket, type AgentLanePacket, type DispatchAuthorizer, type DispatchRunner } from "./dispatch"
+
+// Fake-runner suite: bind worker-evidence CLI calls to a nominal core path
+// instead of the unstamped repository placeholder (CD-0111 D1).
+configureCoreBinary("concord-test")
 import { DispatchWindows } from "./dispatch-window"
 import type { CredentialStore } from "./credentials"
 

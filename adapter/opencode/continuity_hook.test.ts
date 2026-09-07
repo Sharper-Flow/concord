@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test"
 import { createContinuityTransform } from "./continuity-hook"
+import { configureCoreBinary } from "./dispatch"
 
 const PRODUCT_ENV = "CONCORD_SELECTED_PRODUCT_ID"
 const WORK_ENV = "CONCORD_SELECTED_WORK_ID"
@@ -154,3 +155,7 @@ test("continuity transform gates spawns by identity for ten seconds", async () =
     expect(calls).toBe(1)
   })
 })
+
+// Fake-runner suite: bind the continuity hook transport to a nominal core
+// path instead of the unstamped repository placeholder (CD-0111 D1).
+configureCoreBinary("concord")

@@ -5,6 +5,12 @@ import { mkdir, mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { configureConcordAdapter, invokeConcordOperation, laneDispatchRequest } from "./concord"
+import { configureCoreBinary } from "./dispatch"
+
+// The route test drives the real core through its own runner, so argv[0] is
+// replaced there. Bind the nominal path the transport resolves instead of the
+// unstamped repository placeholder (CD-0111 D1).
+configureCoreBinary("concord")
 import { completeDispatchedWorker } from "./lane_completion"
 import { dispatchLaneWorker } from "./lane_dispatch"
 import { DispatchWindows, TASK_TOOL_ID } from "./dispatch-window"

@@ -727,8 +727,12 @@ def _upgrade_probe(binary: Path, env: dict, work: Path, subdir: str, tag: str | 
         print(f"SKIP-UPGRADE[{tag or 'latest'}]: release binary rejected the bootstrap payload (CLI drift): {reason}", flush=True)
         return
 
-    # The NEW binary reads the entire database through the backup verb —
-    # a schema it cannot open fails here with schema_unsupported, not later.
+    # The NEW binary applies pending migrations through the explicit upgrade
+    # verb (CD-0111 D3): open alone refuses a pending breaking migration with
+    # upgrade_required rather than applying it. Only then does it read the
+    # entire database through the backup verb — a schema it still cannot open
+    # fails there with schema_unsupported, not later.
+    _run(binary, ['upgrade'], {}, old_env)
     _run(binary, ['backup'], {'destination': str(work / f'{subdir}-after-backup')}, old_env)
     # And it writes to the upgraded home.
     _run(binary, ['product', 'create'], {

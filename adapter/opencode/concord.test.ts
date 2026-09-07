@@ -4,6 +4,8 @@ import { fileURLToPath } from "node:url"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
 import { contractOperations, manifestDigest } from "./generated-contracts"
+import { configureCoreBinary } from "./dispatch"
+import { claimHostLease, configureHostLease } from "./host-lease"
 import { validateGeneratedEnvelope, envelopeFailurePath } from "./generated-contract-tests"
 import { hostControlPlane, SESSION_LIST_ROUTE, SHOW_TOAST_ROUTE } from "./move-session"
 
@@ -31,6 +33,10 @@ mock.module("@opencode-ai/plugin", () => ({ tool: fakeTool }))
 
 const source = await Bun.file(new URL("./concord.ts", import.meta.url)).text()
 const credentialSource = await Bun.file(new URL("./credentials.ts", import.meta.url)).text()
+// The tests run against a fake runner, so bind the transport to a nominal
+// core path instead of the unstamped repository placeholder (CD-0111 D1).
+configureCoreBinary("concord")
+
 const adapter = await import("./concord")
 const hostCall = (operation: string, input: Record<string, unknown>) => ({ request: { operation, input } })
 
@@ -140,7 +146,7 @@ test("work transition keeps lane dispatch behind the host result encoder", async
 })
 
 test("transport and approval boundaries stay fail-closed", () => {
-  expect(source).toContain('"concord", "invoke"')
+  expect(source).toContain("concordBinaryPath(), \"invoke\"")
   expect(source).toContain('always: []')
   expect(source).toContain("malformed_core_response")
   expect(source).toContain("operation_conflict")
@@ -195,7 +201,12 @@ test("a read answered by a newer core contract is typed as version skew", async 
   expect(result.error.adapter_reason).toBe("manifest_mismatch")
   expect(result.error.effect_state).toBe("none")
   expect(result.error.recovery_action.kind).toBe("contact_operator")
-  expect(result.error.message).toContain("restart")
+  // CD-0111 D4: the remedy names the operator and both digests, never a
+  // session restart.
+  expect(result.error.message).toContain("contact the operator with both digests")
+  expect(result.error.message).toContain("sha256:" + "0".repeat(63) + "1")
+  expect(result.error.message).toContain(manifestDigest)
+  expect(result.error.message).not.toContain("restart")
 })
 
 test("a mutation answered by a newer core contract reports unknown effect and names the remedy", async () => {
@@ -206,7 +217,8 @@ test("a mutation answered by a newer core contract reports unknown effect and na
   expect(result.error.adapter_reason).toBe("unknown_effect")
   expect(result.error.effect_state).toBe("possible")
   expect(result.error.recovery_action.kind).toBe("reconcile_operation")
-  expect(result.error.message).toContain("restart")
+  expect(result.error.message).toContain("contact the operator with both digests")
+  expect(result.error.message).not.toContain("restart")
 })
 
 test("a same-generation malformed response is still malformed_core_response", async () => {
@@ -1254,4 +1266,39 @@ test("a refused worktree removal reports nothing, and a failed toast does not fa
   adapter.configureConcordAdapter({ runner: runnerWithContext(removalOk("worktree_reclaim")) })
   const delivered: any = await rawHostResult(adapter.work_transition.execute(removalRequest("worktree_reclaim"), contextFor()))
   expect(delivered.outcome).toBe("ok")
+})
+
+// CD-0111 D1: the core path is the stamped release constant, never a PATH
+// lookup. The transport must contain no ambient `concord` resolution, and an
+// unstamped adapter copy must refuse with missing_binary instead of spawning.
+test("core_binary_is_the_stamped_release_constant", async () => {
+  expect(source).toContain('runner.run([concordBinaryPath(), "invoke"]')
+  expect(source).toContain('runner.run([concordBinaryPath(), "project-resolve"]')
+  expect(source).toContain("[concordBinaryPath(), \"work-bootstrap\"]")
+  expect(source).toContain("[concordBinaryPath(), \"session-prepare\"]")
+  expect(source).not.toContain('CONCORD_BIN ?? "concord"')
+  expect(source).not.toContain('"concord", "invoke"')
+
+  configureCoreBinary(null)
+  const envelope: any = await rawHostResult(adapter.product_view.execute(hostCall("resolve", {}), contextFor()))
+  expect(envelope.error.kind).toBe("transport_failure")
+  expect(envelope.error.adapter_reason).toBe("missing_binary")
+  expect(envelope.error.message).toContain("not bound to a release")
+  configureCoreBinary("concord")
+})
+
+// CD-0111 D2: a session that could not claim its host lease keeps the tools
+// closed, so the installer can never mistake it for an ended session.
+test("a session without a host lease refuses every core operation", async () => {
+  configureHostLease({ reset: true })
+  // The repository placeholder carries no release, so the claim fails the way
+  // any failed claim does: the fault is recorded and the tools stay closed.
+  await claimHostLease(process.pid)
+  adapter.configureConcordAdapter({ runner: runnerWithContext(coreEnvelope("concord_product_view", "resolve", "ok", { result: { product_id: "product-1", projects: [], stage: "prototype" } })) })
+  const envelope: any = await rawHostResult(adapter.product_view.execute(hostCall("resolve", {}), contextFor()))
+  expect(envelope.outcome).toBe("error")
+  expect(envelope.error.kind).toBe("transport_failure")
+  expect(envelope.error.adapter_reason).toBe("host_lease_missing")
+  expect(envelope.error.recovery_action.kind).toBe("contact_operator")
+  configureHostLease({ reset: true })
 })

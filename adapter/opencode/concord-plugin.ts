@@ -33,6 +33,7 @@ import { createAgentSwitchNotice } from "./agent-switch-hook"
 import { dispatchWindows } from "./dispatch-window"
 import { completeDispatchedWorker } from "./lane_completion"
 import { hostControlPlane } from "./move-session"
+import { claimHostLease } from "./host-lease"
 
 // The plugin factory is the only place the host hands over its own client, and
 // CD-0098 D2 makes the move-session route a requirement of work start. Binding
@@ -42,6 +43,11 @@ import { hostControlPlane } from "./move-session"
 // which keeps the adapter free of a runtime dependency on a host package.
 export default async function ConcordAdapterPlugin(input?: Partial<PluginInput>) {
   hostControlPlane().bind(input)
+  // CD-0111 D1/D2: claim the session's release lease before any tool can
+  // run. The claim fails closed: a session that cannot claim a lease keeps
+  // the release it runs visible to the installer, so the tools refuse rather
+  // than run unprotected.
+  await claimHostLease(process.pid)
   const continuityTransform = createContinuityTransform()
   const agentSwitch = createAgentSwitchNotice()
   return {

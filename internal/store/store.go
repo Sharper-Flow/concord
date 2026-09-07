@@ -99,8 +99,169 @@ func DefaultPath() (string, error) {
 }
 
 // Open prepares the authority at path, creating the file and its parent
-// directory when absent, and brings the schema up to date.
+// directory when absent, and brings the schema up to date. It applies additive
+// migrations only: when the next pending migration is breaking it refuses with
+// KindUpgradeRequired, and Upgrade applies that step (CD-0111 D3).
 func Open(ctx context.Context, path string) (*Store, error) {
+	s, err := openUnmigrated(ctx, path)
+	if err != nil {
+		return nil, err
+	}
+	if err := migrateAtOpen(ctx, s.db, s.Clock); err != nil {
+		_ = s.db.Close()
+		return nil, err
+	}
+	if err := s.finishOpen(ctx); err != nil {
+		_ = s.db.Close()
+		return nil, err
+	}
+	return s, nil
+}
+
+// HeldSchema is one live host session's claim on the schema its release
+// defines. The caller observes sessions; the store only compares versions.
+type HeldSchema struct {
+	PID           int    `json:"pid"`
+	ReleaseRoot   string `json:"release_root"`
+	SchemaVersion int    `json:"schema_version"`
+}
+
+// UpgradeReport states what one Upgrade call applied.
+type UpgradeReport struct {
+	// Applied lists the migration versions this call applied, in order.
+	Applied []int `json:"applied"`
+	// SchemaVersion is the highest applied migration after the call.
+	SchemaVersion int `json:"schema_version"`
+}
+
+// Upgrade applies every pending migration, breaking steps included. It refuses
+// with KindUpgradeBlocked while any held schema predates the first pending
+// breaking step, naming each session and the release it holds, and writes
+// nothing in that case. With no pending breaking step it applies the pending
+// additive steps, which Open would also apply.
+func Upgrade(ctx context.Context, path string, held []HeldSchema) (UpgradeReport, error) {
+	s, err := openUnmigrated(ctx, path)
+	if err != nil {
+		return UpgradeReport{}, err
+	}
+	defer func() { _ = s.db.Close() }()
+
+	before, err := manifestVersions(ctx, s.db)
+	if err != nil {
+		return UpgradeReport{}, err
+	}
+	if pending := pendingBreaking(before); len(pending) > 0 {
+		if err := refuseHeldOlderSchemas(pending, held); err != nil {
+			return UpgradeReport{}, err
+		}
+	}
+	if err := Migrate(ctx, s.db, s.Clock); err != nil {
+		return UpgradeReport{}, err
+	}
+	if err := s.finishOpen(ctx); err != nil {
+		return UpgradeReport{}, err
+	}
+	after, err := manifestVersions(ctx, s.db)
+	if err != nil {
+		return UpgradeReport{}, err
+	}
+	report := UpgradeReport{Applied: []int{}}
+	for _, m := range migrations {
+		if _, was := before[m.Version]; was {
+			continue
+		}
+		if _, is := after[m.Version]; is {
+			report.Applied = append(report.Applied, m.Version)
+		}
+	}
+	for version := range after {
+		if version > report.SchemaVersion {
+			report.SchemaVersion = version
+		}
+	}
+	return report, nil
+}
+
+// refuseHeldOlderSchemas is the CD-0111 D3 gate: a breaking step never applies
+// under a live session whose release predates it. Each refused session is
+// named with the first pending breaking step it predates.
+func refuseHeldOlderSchemas(pending []migration, held []HeldSchema) error {
+	var older []string
+	for _, h := range held {
+		for _, m := range pending {
+			if h.SchemaVersion < m.Version {
+				older = append(older, fmt.Sprintf("pid %d holds %s at schema version %d, before migration %d (%s)",
+					h.PID, h.ReleaseRoot, h.SchemaVersion, m.Version, m.Name))
+				break
+			}
+		}
+	}
+	if len(older) == 0 {
+		return nil
+	}
+	return newFailure(KindUpgradeBlocked, "upgrade",
+		fmt.Sprintf("a pending breaking migration waits for %d live session(s) that predate it: %s",
+			len(older), strings.Join(older, "; ")),
+		true, "end or move those sessions to the installed release, then run concord upgrade again")
+}
+
+// manifestVersions reads the applied manifest; a database with no manifest
+// table reads as empty. A manifest that predates the breaking column cannot
+// be read at all, so the additive repair runs first — the same one every
+// migration pass applies — never a migration step.
+func manifestVersions(ctx context.Context, db *sql.DB) (map[int]appliedMigration, error) {
+	var present string
+	err := db.QueryRowContext(ctx, `SELECT name FROM sqlite_schema WHERE type='table' AND name='schema_migrations'`).Scan(&present)
+	if err == sql.ErrNoRows {
+		return map[int]appliedMigration{}, nil
+	}
+	if err != nil {
+		return nil, wrapFailure(KindUnavailable, "upgrade", "cannot inspect the schema manifest", true,
+			"confirm the database is readable", err)
+	}
+	applied, err := appliedMigrations(ctx, db)
+	if err == nil {
+		return applied, nil
+	}
+	if !strings.Contains(err.Error(), "no such column: breaking") {
+		return nil, err
+	}
+	if err := repairManifestBreakingColumn(ctx, db); err != nil {
+		return nil, err
+	}
+	return appliedMigrations(ctx, db)
+}
+
+// repairManifestBreakingColumn re-adds the compatibility column an older
+// binary's manifest lacks. It is additive and idempotent: no migration step
+// applies, and the column's default marks every recorded row breaking, which
+// is the conservative read the manifest check expects.
+func repairManifestBreakingColumn(ctx context.Context, db *sql.DB) error {
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return wrapFailure(KindUnavailable, "upgrade", "cannot begin the manifest repair", true,
+			"retry once the database is writable", err)
+	}
+	if _, err := tx.ExecContext(ctx, schemaManifestDDL); err != nil {
+		_ = tx.Rollback()
+		return wrapFailure(KindUnavailable, "upgrade", "cannot create the schema manifest", true,
+			"check database permissions", err)
+	}
+	if err := ensureManifestBreakingColumn(ctx, tx); err != nil {
+		_ = tx.Rollback()
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return wrapFailure(KindUnavailable, "upgrade", "cannot commit the manifest repair", true,
+			"retry once the database is writable", err)
+	}
+	return nil
+}
+
+// openUnmigrated prepares the file, the directory, and the connection without
+// touching the schema. Open and Upgrade share it and differ only in the
+// migration scope they apply next.
+func openUnmigrated(ctx context.Context, path string) (*Store, error) {
 	if path == "" {
 		return nil, newFailure(KindUnavailable, "open", "empty database path", false,
 			"pass a database path or use DefaultPath")
@@ -130,24 +291,20 @@ func Open(ctx context.Context, path string) (*Store, error) {
 		_ = db.Close()
 		return nil, err
 	}
-	if err := Migrate(ctx, db, s.Clock); err != nil {
-		_ = db.Close()
-		return nil, err
-	}
-	if err := os.Chmod(path, 0o600); err != nil { //nolint:gosec // the explicit authority file is forced to private file permissions after migration.
-		_ = db.Close()
-		return nil, wrapFailure(KindUnavailable, "open", "cannot secure the database file", true,
+	return s, nil
+}
+
+// finishOpen runs the post-migration steps every opener shares: private file
+// permissions, the installation key, and the membership invariants.
+func (s *Store) finishOpen(ctx context.Context) error {
+	if err := os.Chmod(s.path, 0o600); err != nil { //nolint:gosec // the explicit authority file is forced to private file permissions after migration.
+		return wrapFailure(KindUnavailable, "open", "cannot secure the database file", true,
 			"check database file permissions", err)
 	}
-	if err := ensureInstallationKey(ctx, db, s.now()); err != nil {
-		_ = db.Close()
-		return nil, err
+	if err := ensureInstallationKey(ctx, s.db, s.now()); err != nil {
+		return err
 	}
-	if err := validateMembershipInvariants(ctx, db); err != nil {
-		_ = db.Close()
-		return nil, err
-	}
-	return s, nil
+	return validateMembershipInvariants(ctx, s.db)
 }
 
 // ensureInstallationKey creates the one authority-owned cursor signing key.

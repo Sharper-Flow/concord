@@ -3,7 +3,8 @@
 // hook is where a finished lane's result reaches completeWorkerAttempt. Without
 // that wire the window opens, the worker runs, and no attempt is recorded, so
 // accept_worker_result refuses with "worker attempt does not exist" (issue #781).
-import { describe, expect, test } from "bun:test"
+import { afterAll, describe, expect, test } from "bun:test"
+import { configureHostLease } from "./host-lease"
 import ConcordAdapterPlugin from "./concord-plugin"
 import { type AgentLanePacket, type DispatchRunner } from "./dispatch"
 import { DispatchWindows, TASK_TOOL_ID } from "./dispatch-window"
@@ -172,3 +173,8 @@ describe("plugin entry registers the completion hook", () => {
     expect(output.output).toBe(taskWrap("prose"))
   })
 })
+
+// The factory's host-lease claim fails against the unstamped repository
+// placeholder; the suite's files share one process in an order no file
+// controls, so this file leaves the lease state clean.
+afterAll(() => configureHostLease({ reset: true }))

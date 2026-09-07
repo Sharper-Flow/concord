@@ -88,7 +88,22 @@ esac''',
         for name in agent_names if agent_names is not None else installer.AGENT_FILES:
             (source / "agents" / name).write_text(f"agent:{name}:{marker or version}\n", encoding="utf-8")
         binary = (source / "bin" / "concord")
-        binary.write_bytes((marker or version).encode("utf-8"))
+        # The staged core is a shell script so the installer can ask it which
+        # releases live sessions hold (CD-0111 D2). A test controls the answer
+        # through CONCORD_TEST_HOST_LEASES (a file holding the JSON report) or
+        # CONCORD_TEST_HOST_LEASES_FAIL (a failed observation).
+        binary.write_text(
+            "#!/bin/sh\n"
+            f"# marker:{marker or version}\n"
+            'case "$1" in\n'
+            "  host-leases)\n"
+            '    if [ -n "$CONCORD_TEST_HOST_LEASES_FAIL" ]; then echo "leases unavailable" >&2; exit 1; fi\n'
+            '    if [ -n "$CONCORD_TEST_HOST_LEASES" ] && [ -f "$CONCORD_TEST_HOST_LEASES" ]; then cat "$CONCORD_TEST_HOST_LEASES"; else printf \'{"leases":[]}\\n\'; fi ;;\n'
+            "  *) exit 2 ;;\n"
+            "esac\n",
+            encoding="utf-8",
+        )
+        binary.chmod(0o755)
         for name in installer.ADAPTER_FILES:
             (source / "adapter" / "opencode" / name).write_text(f"{name}:{marker or version}\n", encoding="utf-8")
         archive = self.artifacts / f"{prefix}.tar.gz"
@@ -262,14 +277,94 @@ esac''',
         second = self.run_installer("install", "--version", "v1.1.0", "--artifact-dir", str(self.artifacts))
         self.assertEqual(second.returncode, 0, second.stderr)
         self.assertFalse((self.root / "data" / "concord" / "v1.0.0").exists())
-        self.assertEqual(
-            (self.root / "data" / "concord" / "v1.1.0" / "bin" / "concord").read_text(), "new"
+        self.assertIn(
+            "marker:new", (self.root / "data" / "concord" / "v1.1.0" / "bin" / "concord").read_text()
         )
         adapter = self.root / "config" / "opencode" / "tools" / "concord.ts"
         self.assertIn("new", adapter.read_text(encoding="utf-8"))
         config = self.config.read_text(encoding="utf-8")
         self.assertIn("v1.1.0/skills", config)
         self.assertNotIn("v1.0.0/skills", config)
+
+    def retention_report(self, *release_roots: str) -> Path:
+        report = self.root / "host-leases.json"
+        payload = {"leases": [
+            {"pid": 4242 + index, "release_root": root, "schema_version": 1}
+            for index, root in enumerate(release_roots)
+        ]}
+        report.write_text(json.dumps(payload), encoding="utf-8")
+        return report
+
+    def test_retention_keeps_a_release_a_live_lease_holds(self) -> None:
+        """CD-0111 D2: a held release stays, and the next install retries it.
+
+        A live session holds the replaced release, so the upgrade keeps it and
+        records it as retained. The next upgrade sees no lease, removes it,
+        and keeps its own replaced release only while a lease holds that one.
+        """
+        self.make_release("v1.0.0", "old")
+        self.make_release("v1.1.0", "new")
+        self.make_release("v1.2.0", "newer")
+        first = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
+        self.assertEqual(first.returncode, 0, first.stderr)
+        held = str(self.root / "data" / "concord" / "v1.0.0")
+        self.env["CONCORD_TEST_HOST_LEASES"] = str(self.retention_report(held))
+        second = self.run_installer("install", "--version", "v1.1.0", "--artifact-dir", str(self.artifacts))
+        self.assertEqual(second.returncode, 0, second.stderr)
+        self.assertTrue((self.root / "data" / "concord" / "v1.0.0").exists(), "a held release was removed")
+        manifest = json.loads((self.root / "data" / "concord" / installer.MANIFEST_NAME).read_text(encoding="utf-8"))
+        self.assertIn("v1.0.0", manifest["retained_releases"])
+
+        # No lease holds v1.0.0 anymore; one holds the replaced v1.1.0.
+        held = str(self.root / "data" / "concord" / "v1.1.0")
+        self.env["CONCORD_TEST_HOST_LEASES"] = str(self.retention_report(held))
+        third = self.run_installer("install", "--version", "v1.2.0", "--artifact-dir", str(self.artifacts))
+        self.assertEqual(third.returncode, 0, third.stderr)
+        self.assertFalse((self.root / "data" / "concord" / "v1.0.0").exists(), "an unheld retained release was kept")
+        self.assertTrue((self.root / "data" / "concord" / "v1.1.0").exists(), "a held release was removed")
+        # The manifest is written before cleanup runs, so it still names the
+        # just-removed v1.0.0; the next install drops entries whose directory
+        # is gone. With no lease anywhere, both old releases disappear.
+        manifest = json.loads((self.root / "data" / "concord" / installer.MANIFEST_NAME).read_text(encoding="utf-8"))
+        self.assertIn("v1.1.0", manifest["retained_releases"])
+        self.env["CONCORD_TEST_HOST_LEASES"] = str(self.retention_report())
+        fourth = self.run_installer("install", "--version", "v1.2.0", "--artifact-dir", str(self.artifacts))
+        self.assertEqual(fourth.returncode, 0, fourth.stderr)
+        self.assertFalse((self.root / "data" / "concord" / "v1.0.0").exists())
+        self.assertFalse((self.root / "data" / "concord" / "v1.1.0").exists())
+        manifest = json.loads((self.root / "data" / "concord" / installer.MANIFEST_NAME).read_text(encoding="utf-8"))
+        self.assertEqual(manifest["retained_releases"], {})
+
+    def test_a_failed_observation_keeps_the_replaced_release_only(self) -> None:
+        """CD-0111 D2 bounded fallback: with no host observation the replaced
+        release stays, because a session that started before the launcher
+        moved may still hold it, and older candidates are removed."""
+        self.make_release("v1.0.0", "old")
+        self.make_release("v1.1.0", "new")
+        self.make_release("v1.2.0", "newer")
+        self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
+        self.env["CONCORD_TEST_HOST_LEASES"] = str(self.retention_report(str(self.root / "data" / "concord" / "v1.0.0")))
+        self.run_installer("install", "--version", "v1.1.0", "--artifact-dir", str(self.artifacts))
+        self.assertTrue((self.root / "data" / "concord" / "v1.0.0").exists())
+
+        self.env["CONCORD_TEST_HOST_LEASES"] = ""
+        self.env["CONCORD_TEST_HOST_LEASES_FAIL"] = "1"
+        third = self.run_installer("install", "--version", "v1.2.0", "--artifact-dir", str(self.artifacts))
+        self.assertEqual(third.returncode, 0, third.stderr)
+        self.assertTrue((self.root / "data" / "concord" / "v1.1.0").exists(), "the replaced release was removed without an observation")
+        self.assertFalse((self.root / "data" / "concord" / "v1.0.0").exists(), "an older candidate was kept without an observation")
+        self.assertIn("no host observation", third.stderr)
+
+    def test_the_stamped_release_constants_bind_the_adapter_to_its_release(self) -> None:
+        self.make_release("v1.0.0")
+        result = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        stamped = (self.root / "config" / "opencode" / "tools" / installer.RELEASE_CONSTANTS_FILE).read_text(encoding="utf-8")
+        release_root = str((self.root / "data" / "concord" / "v1.0.0").resolve())
+        self.assertIn(f'export const coreBinary: string = "{release_root}/bin/concord"', stamped)
+        self.assertIn(f'export const releaseRoot: string = "{release_root}"', stamped)
+        archive_copy = (self.root / "data" / "concord" / "v1.0.0" / "adapter" / "opencode" / installer.RELEASE_CONSTANTS_FILE).read_text(encoding="utf-8")
+        self.assertEqual(archive_copy, stamped)
 
     def test_upgrade_from_a_manifest_recording_fewer_adapter_files(self) -> None:
         """An installation predating an added adapter file upgrades cleanly.
@@ -308,7 +403,8 @@ esac''',
         for name in installer.ADAPTER_FILES:
             placed = self.root / "config" / "opencode" / "tools" / name
             self.assertTrue(placed.is_file(), f"{name} was not placed by the upgrade")
-            self.assertIn("new", placed.read_text(encoding="utf-8"))
+            expected = "new" if name != installer.RELEASE_CONSTANTS_FILE else str(self.root / "data" / "concord" / "v1.1.0")
+            self.assertIn(expected, placed.read_text(encoding="utf-8"))
 
     def test_upgrade_from_a_pre_plugin_entry_manifest(self) -> None:
         """An installation before the plugin entry module upgrades cleanly."""

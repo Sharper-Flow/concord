@@ -99,6 +99,8 @@ ADAPTER_FILES = (
     "generated-agent-lanes.ts",
     "generated-contract-tests.ts",
     "generated-contracts.ts",
+    "generated-release.ts",
+    "host-lease.ts",
     "lane_completion.ts",
     "lane_dispatch.ts",
     "manifest-pin.ts",
@@ -202,6 +204,99 @@ def sha256(path: Path) -> str:
         for chunk in iter(lambda: stream.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+# CD-0111 D1: the adapter calls the core at its own release path, never
+# through PATH. The repository ships this file as an unstamped placeholder and
+# the installer stamps the absolute release paths into the staged copy before
+# any hash is recorded, so the version records, the adapter records, and the
+# tools-dir copy all describe the stamped bytes.
+RELEASE_CONSTANTS_FILE = "generated-release.ts"
+
+
+def release_constants_source(version_root: Path) -> str:
+    core = version_root / "bin" / "concord"
+    return (
+        "// Code stamped by scripts/install.py at install time; DO NOT EDIT.\n"
+        "// CD-0111 D1: a session runs every core call against the release it\n"
+        "// started on. These constants are absolute paths into that release.\n"
+        f"export const releaseRoot: string = {json.dumps(str(version_root))}\n"
+        f"export const coreBinary: string = {json.dumps(str(core))}\n"
+    )
+
+
+def stamp_release_constants(adapter_dir: Path, version_root: Path) -> None:
+    target = adapter_dir / RELEASE_CONSTANTS_FILE
+    if not target.is_file():
+        raise InstallerError(f"release archive omits {RELEASE_CONSTANTS_FILE}; the adapter cannot bind to its release")
+    target.write_text(release_constants_source(version_root), encoding="utf-8")
+
+
+# CD-0111 D2: the host owns session liveness. The installer asks the core of
+# the release it just installed which releases live sessions hold, and keeps
+# every one of them. A failed observation is not an empty one: the caller
+# falls back to the bounded removal the decision names.
+HOST_LEASE_TIMEOUT_SECONDS = 30
+
+
+def observe_held_releases(paths: Paths, version: str) -> set[str] | None:
+    """Return the resolved release roots live host sessions hold, or None when
+    the observation failed."""
+    binary = paths.data_root / version / "bin" / "concord"
+    environment = {key: value for key, value in os.environ.items() if key != "CONCORD_DB_PATH"}
+    environment["XDG_DATA_HOME"] = str(paths.data_home)
+    try:
+        completed = subprocess.run(
+            [str(binary), "host-leases"],
+            input=b"{}",
+            capture_output=True,
+            env=environment,
+            timeout=HOST_LEASE_TIMEOUT_SECONDS,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired) as error:
+        print(f"host lease observation failed: {error}", file=sys.stderr)
+        return None
+    if completed.returncode != 0:
+        print(f"host lease observation failed: exit {completed.returncode}: {completed.stderr.decode('utf-8', 'replace').strip()[:400]}", file=sys.stderr)
+        return None
+    try:
+        report = json.loads(completed.stdout.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        print(f"host lease observation failed: {error}", file=sys.stderr)
+        return None
+    leases = report.get("leases") if isinstance(report, dict) else None
+    if not isinstance(leases, list):
+        print("host lease observation failed: response carries no lease list", file=sys.stderr)
+        return None
+    held: set[str] = set()
+    for lease in leases:
+        root = lease.get("release_root") if isinstance(lease, dict) else None
+        if not isinstance(root, str) or not root:
+            print("host lease observation failed: a lease names no release root", file=sys.stderr)
+            return None
+        held.add(str(Path(root).resolve()))
+    return held
+
+
+def retained_release_records(manifest: dict[str, object] | None) -> dict[str, dict[str, str]]:
+    value = manifest.get("retained_releases") if manifest else None
+    return dict(value) if isinstance(value, dict) else {}
+
+
+def validate_release_records(records: object, paths: Paths, what: str) -> None:
+    if not isinstance(records, dict):
+        raise InstallerError(f"{what} has invalid retained release records")
+    for version, files in records.items():
+        if not isinstance(version, str) or not VERSION_RE.fullmatch(version):
+            raise InstallerError(f"{what} has an invalid retained release version")
+        if not isinstance(files, dict) or not files or len(files) > MAX_TRANSACTION_FILES:
+            raise InstallerError(f"{what} has invalid retained release file records")
+        root = safe_relative_target(paths.data_root, version, "retained release")
+        for relative, digest in files.items():
+            if not isinstance(relative, str) or not isinstance(digest, str) or not SHA256_RE.fullmatch(digest):
+                raise InstallerError(f"{what} has invalid retained release file records")
+            safe_relative_target(root, relative, "retained release file")
 
 
 def parse_version(value: str) -> str:
@@ -510,7 +605,10 @@ def validate_manifest(paths: Paths, manifest: dict[str, object]) -> None:
         "launcher_target",
         "config_path",
     }
-    if set(manifest) != required or manifest.get("managed_by") != "concord-installer-v1":
+    # A manifest written before CD-0111 retained no release, so the field is
+    # optional on read and always written on install.
+    optional = {"retained_releases"}
+    if not required <= set(manifest) <= required | optional or manifest.get("managed_by") != "concord-installer-v1":
         missing = required - set(manifest)
         if manifest.get("managed_by") == "concord-installer-v1" and missing and missing <= {"agent_files", "stable_root"}:
             raise InstallerError(
@@ -526,6 +624,10 @@ def validate_manifest(paths: Paths, manifest: dict[str, object]) -> None:
     version_root = safe_relative_target(paths.data_root, version, "version")
     if version_root.is_symlink():
         raise InstallerError(f"refusing installer version root {version_root}: it is a symlink")
+    if "retained_releases" in manifest:
+        validate_release_records(manifest["retained_releases"], paths, "installer manifest")
+        if version in manifest["retained_releases"]:
+            raise InstallerError("installer manifest retains the installed version")
 
     version_files = manifest.get("version_files")
     if not isinstance(version_files, dict) or not version_files:
@@ -1261,6 +1363,7 @@ def validate_transaction(journal: dict[str, object], transaction_root: Path, pat
         "activation_version",
         "cleanup_version",
         "cleanup_records",
+        "cleanup_candidates",
         "old_version_records",
         "new_version_records",
         "old_adapter",
@@ -1295,6 +1398,8 @@ def validate_transaction(journal: dict[str, object], transaction_root: Path, pat
         raise InstallerError(f"refusing malformed uninstall transaction {journal_path(transaction_root)}")
     if journal.get("backup_dir") != "backup" or journal.get("stage_dir") != "stage" or journal.get("version_backup") != "backup/version" or journal.get("live_version_backup") != "backup/live-version":
         raise InstallerError(f"refusing redirected transaction backup locator {journal_path(transaction_root)}")
+    if journal.get("cleanup_candidates") is not None:
+        validate_release_records(journal.get("cleanup_candidates"), paths, "transaction journal")
     for field in ("old_version_records", "new_version_records", "cleanup_records"):
         records = journal.get(field)
         if records is None:
@@ -1390,6 +1495,8 @@ def make_transaction(
     new_agents: dict[str, str] | None,
     new_config: str | None,
     new_manifest_bytes: bytes | None,
+    cleanup_candidates: dict[str, dict[str, str]] | None = None,
+    reinstalled_records: dict[str, str] | None = None,
 ) -> tuple[Path, dict[str, object]]:
     ensure_directory(paths.data_root)
     parent = paths.data_root / TRANSACTION_PARENT
@@ -1417,7 +1524,10 @@ def make_transaction(
     old_version = old_manifest.get("version") if old_manifest else None
     old_records = old_manifest.get("version_files") if old_manifest else None
     activation_version = new_version if operation == "install" else old_version
-    activation_old_records = old_records if activation_version == old_version else None
+    # A retained release that this install reinstalls is owned by the records
+    # the manifest kept for it, so the transaction backs it up like any other
+    # activation root it replaces.
+    activation_old_records = old_records if activation_version == old_version else reinstalled_records
     activation_root = paths.data_root / str(activation_version) if activation_version else paths.data_root / "unused"
     version_backup = backup / "version"
     if activation_old_records is not None:
@@ -1481,6 +1591,7 @@ def make_transaction(
         "activation_version": activation_version,
         "cleanup_version": old_version if operation == "install" and old_version != new_version else None,
         "cleanup_records": old_records if operation == "install" and old_version != new_version else None,
+        "cleanup_candidates": cleanup_candidates,
         "old_version_records": activation_old_records,
         "new_version_records": new_version_records,
         "old_adapter": old_adapter,
@@ -1856,15 +1967,11 @@ def ensure_rollback_safe(journal: dict[str, object], paths: Paths) -> None:
 
 
 def cleanup_transaction(transaction_root: Path, journal: dict[str, object], paths: Paths, remove_old_version: bool = True) -> None:
-    cleanup_version = journal.get("cleanup_version") if remove_old_version else None
-    if isinstance(cleanup_version, str):
-        root = paths.data_root / cleanup_version
-        records = journal.get("cleanup_records")
-        if root.exists():
-            if not isinstance(records, dict) or not version_matches(root, records):
-                raise InstallerError(f"transaction conflict at old version cleanup target {root}")
-            shutil.rmtree(root)
-            fsync_directory(paths.data_root)
+    # The replaced release and every retained one leave through the one
+    # lease-aware path (CD-0111 D2); nothing here removes a version root by
+    # itself anymore.
+    if remove_old_version:
+        remove_unheld_releases(journal, paths)
     live = transaction_root / "backup" / "live-version"
     if live.exists() or live.is_symlink():
         live.unlink() if live.is_symlink() else shutil.rmtree(live)
@@ -1881,6 +1988,51 @@ def cleanup_transaction(transaction_root: Path, journal: dict[str, object], path
             directory.rmdir()
         except OSError:
             pass
+
+
+def remove_unheld_releases(journal: dict[str, object], paths: Paths) -> None:
+    """CD-0111 D2: remove every candidate release no live session holds.
+
+    An install observes the live session set through the core it just
+    installed. When the observation fails, the bounded rule applies: the
+    release this transaction replaced stays, because a session that started
+    before the launcher moved may still hold it, and every older candidate is
+    removed. An uninstall removes every candidate. A release that is retained
+    stays a candidate in the manifest, so the next install retries the removal.
+    """
+    candidates = journal.get("cleanup_candidates")
+    if not isinstance(candidates, dict) or not candidates:
+        return
+    replaced = journal.get("cleanup_version")
+    held: set[str] | None = set()
+    if journal.get("operation") == "install":
+        held = observe_held_releases(paths, str(journal["new_version"]))
+    removed = False
+    for version in sorted(candidates, key=version_sort_key):
+        root = paths.data_root / version
+        if not root.exists() and not root.is_symlink():
+            continue
+        if held is None:
+            if version == replaced:
+                print(f"keeping release {version}: no host observation; a live session may still hold it", file=sys.stderr)
+                continue
+        elif str(root.resolve()) in held:
+            print(f"keeping release {version}: a live session holds it", file=sys.stderr)
+            continue
+        records = candidates[version]
+        if not isinstance(records, dict) or not version_matches(root, records):
+            raise InstallerError(f"transaction conflict at old version cleanup target {root}")
+        shutil.rmtree(root)
+        removed = True
+    if removed:
+        fsync_directory(paths.data_root)
+
+
+def version_sort_key(version: str) -> tuple[int, int, int]:
+    match = VERSION_RE.fullmatch(version)
+    if not match:
+        raise InstallerError(f"invalid release version {version!r}")
+    return int(match.group(1)), int(match.group(2)), int(match.group(3))
 
 
 def recover_transaction(transaction_root: Path, paths: Paths) -> None:
@@ -1989,6 +2141,30 @@ def install(args: argparse.Namespace) -> int:
         if config_plan.changed or manifest.get("skill_path") != skill_path:
             raise InstallerError("existing installation registration is incomplete; refusing an unsafe repair")
         ensure_secret_service_ready(paths)
+        # An unchanged install still retries the release cleanup a previous
+        # install skipped: a held release stays a candidate, so the removal
+        # is retried at the next install (CD-0111 D2). The manifest keeps the
+        # entries whose directory survives.
+        retained = retained_release_records(manifest)
+        if retained:
+            held = observe_held_releases(paths, version)
+            survivors = {}
+            for candidate, records in sorted(retained.items(), key=lambda item: version_sort_key(item[0])):
+                root = paths.data_root / candidate
+                if not root.exists() and not root.is_symlink():
+                    continue
+                if held is None or str(root.resolve()) in held:
+                    if root.exists() and not version_matches(root, records):
+                        raise InstallerError(f"transaction conflict at retained release cleanup target {root}")
+                    survivors[candidate] = records
+                    continue
+                if not version_matches(root, records):
+                    raise InstallerError(f"transaction conflict at retained release cleanup target {root}")
+                shutil.rmtree(root)
+                fsync_directory(paths.data_root)
+            manifest["retained_releases"] = survivors
+            manifest_bytes = json.dumps(manifest, indent=2, sort_keys=True) + "\n"
+            write_atomic(paths.data_root / MANIFEST_NAME, manifest_bytes.encode("utf-8"))
         print(f"Concord {version} is already installed; no changes made.")
         return 0
 
@@ -2007,6 +2183,8 @@ def install(args: argparse.Namespace) -> int:
         os.chmod(source_stage / "bin" / "concord", 0o755)
         for name in ADAPTER_FILES:
             shutil.copy2(extracted / "adapter" / "opencode" / name, source_stage / "adapter" / "opencode" / name)
+        version_root = paths.data_root / version
+        stamp_release_constants(source_stage / "adapter" / "opencode", version_root.resolve())
         # skills, instructions, and agents are copied only when the archive
         # carries them. The three branches share the helper so a future
         # required surface cannot drift from the others.
@@ -2023,13 +2201,25 @@ def install(args: argparse.Namespace) -> int:
         }
         old_version = manifest.get("version") if manifest else None
         old_records = manifest.get("version_files", {}) if manifest else None
-        version_root = paths.data_root / version
+        # CD-0111 D2: every release the installer still owns besides the new
+        # one is a cleanup candidate. Candidates already gone leave the set;
+        # the replaced release joins it; a candidate this install reinstalls
+        # is owned by its recorded files and leaves the set.
+        retained = {
+            candidate: records
+            for candidate, records in retained_release_records(manifest).items()
+            if (paths.data_root / candidate).exists()
+        }
+        reinstalled_records = retained.pop(version, None)
         if version_root.exists() and (not manifest or old_version != version):
-            raise InstallerError(f"refusing to overwrite existing unmanaged path {version_root}")
+            if reinstalled_records is None:
+                raise InstallerError(f"refusing to overwrite existing unmanaged path {version_root}")
+            validate_owned_tree(version_root, reinstalled_records)
         if manifest and old_version != version and old_version and not isinstance(old_records, dict):
             raise InstallerError("existing installer manifest has invalid version records")
         if manifest and old_version != version and isinstance(old_version, str) and isinstance(old_records, dict):
             validate_owned_tree(paths.data_root / old_version, old_records)
+            retained[old_version] = old_records
         new_manifest = {
             "managed_by": "concord-installer-v1",
             "version": version,
@@ -2040,6 +2230,7 @@ def install(args: argparse.Namespace) -> int:
             "stable_root": str(paths.stable_root),
             "launcher_target": str((version_root / "bin" / "concord").resolve()),
             "config_path": str(paths.config_file.resolve()),
+            "retained_releases": retained,
         }
         new_manifest_bytes = (json.dumps(new_manifest, indent=2, sort_keys=True) + "\n").encode("utf-8")
         ensure_secret_service_ready(paths)
@@ -2054,6 +2245,8 @@ def install(args: argparse.Namespace) -> int:
             agent_stage_records,
             config_plan.text,
             new_manifest_bytes,
+            retained,
+            reinstalled_records,
         )
         apply_version(transaction_root, journal, paths)
         advance_phase(transaction_root, journal, "version_activated")
@@ -2114,6 +2307,7 @@ def uninstall(args: argparse.Namespace) -> int:
         new_config = remove_plugin_entry(remove_path_from_config(config_path, skill_path), plugin_entry_path(paths))
     else:
         new_config = None
+    retained = retained_release_records(manifest)
     transaction_root, journal = make_transaction(
         paths,
         "uninstall",
@@ -2125,6 +2319,7 @@ def uninstall(args: argparse.Namespace) -> int:
         None,
         new_config,
         None,
+        retained,
     )
     apply_version(transaction_root, journal, paths)
     advance_phase(transaction_root, journal, "version_activated")

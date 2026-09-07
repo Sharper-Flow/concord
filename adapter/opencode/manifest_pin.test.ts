@@ -6,6 +6,13 @@ import { join } from "node:path"
 import * as adapter from "./concord"
 import { contractOperations, manifestDigest } from "./generated-contracts"
 import { activeManifestDigest, adoptManifestDigest, resetManifestPinForTesting, resolveDiskManifestDigest, setManifestSourceForTesting } from "./manifest-pin"
+import { configureCoreBinary } from "./dispatch"
+
+// Fake-runner suite: bind the transport to a nominal core path instead of the
+// unstamped repository placeholder (CD-0111 D1). Each file sets this itself,
+// because bun runs the suite's files in one process in an order no file
+// controls.
+configureCoreBinary("concord")
 
 const hostCall = (operation: string, input: Record<string, unknown>) => ({ request: { operation, input } })
 const contextFor = (): any => ({ sessionID: "session-1", messageID: "message-1", agent: "agent-1", worktree: "/worktree", directory: "/worktree", abort: new AbortController().signal, ask: async () => {} })
@@ -82,7 +89,10 @@ describe("version-skew self-heal", () => {
     expect(result.error.kind).toBe("transport_failure")
     expect(result.error.adapter_reason).toBe("manifest_mismatch")
     expect(result.error.message).toContain(otherDigest)
-    expect(result.error.message).toContain("new OpenCode session")
+    // CD-0111 D4: the refusal names the operator and both digests, never a
+    // session restart.
+    expect(result.error.message).toContain("contact the operator with both digests")
+    expect(result.error.message).not.toContain("restart")
   })
 
   test("a healed retry that skews again refuses rather than looping", async () => {

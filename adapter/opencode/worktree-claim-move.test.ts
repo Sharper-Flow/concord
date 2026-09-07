@@ -2,7 +2,8 @@
 // it. These tests hold the claim hook to that contract: the move runs after a
 // successful claim, the landing is read back from the host, and every failure
 // mode is a typed refusal whose remedy is an idempotent replay (issue #822).
-import { afterEach, describe, expect, test } from "bun:test"
+import { afterEach, afterAll, describe, expect, test } from "bun:test"
+import { configureHostLease } from "./host-lease"
 import ConcordAdapterPlugin from "./concord-plugin"
 import { hostControlPlane } from "./move-session"
 import { moveSessionToClaimedWorktree } from "./concord"
@@ -71,3 +72,8 @@ describe("worktree_claim moves the session into the claimed worktree", () => {
     expect(await moveSessionToClaimedWorktree(claimArgs("/claimed"), context(), refused)).toEqual(refused)
   })
 })
+
+// The factory's host-lease claim fails against the unstamped repository
+// placeholder; the suite's files share one process in an order no file
+// controls, so this file leaves the lease state clean.
+afterAll(() => configureHostLease({ reset: true }))

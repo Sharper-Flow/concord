@@ -5,6 +5,7 @@ import { join } from "node:path"
 import { tmpdir } from "node:os"
 import { contractOperations, manifestDigest } from "./generated-contracts"
 import { configureCoreBinary } from "./dispatch"
+import { claimHostLease, configureHostLease } from "./host-lease"
 import { validateGeneratedEnvelope, envelopeFailurePath } from "./generated-contract-tests"
 import { hostControlPlane, SESSION_LIST_ROUTE, SHOW_TOAST_ROUTE } from "./move-session"
 
@@ -1289,7 +1290,6 @@ test("core_binary_is_the_stamped_release_constant", async () => {
 // CD-0111 D2: a session that could not claim its host lease keeps the tools
 // closed, so the installer can never mistake it for an ended session.
 test("a session without a host lease refuses every core operation", async () => {
-  const { claimHostLease, configureHostLease } = await import("./host-lease")
   configureHostLease({ reset: true })
   // The repository placeholder carries no release, so the claim fails the way
   // any failed claim does: the fault is recorded and the tools stay closed.

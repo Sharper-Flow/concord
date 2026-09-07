@@ -206,7 +206,9 @@ func refuseHeldOlderSchemas(pending []migration, held []HeldSchema) error {
 }
 
 // manifestVersions reads the applied manifest; a database with no manifest
-// table reads as empty.
+// table reads as empty. A manifest that predates the breaking column cannot
+// be read at all, so the additive repair runs first — the same one every
+// migration pass applies — never a migration step.
 func manifestVersions(ctx context.Context, db *sql.DB) (map[int]appliedMigration, error) {
 	var present string
 	err := db.QueryRowContext(ctx, `SELECT name FROM sqlite_schema WHERE type='table' AND name='schema_migrations'`).Scan(&present)
@@ -217,7 +219,43 @@ func manifestVersions(ctx context.Context, db *sql.DB) (map[int]appliedMigration
 		return nil, wrapFailure(KindUnavailable, "upgrade", "cannot inspect the schema manifest", true,
 			"confirm the database is readable", err)
 	}
+	applied, err := appliedMigrations(ctx, db)
+	if err == nil {
+		return applied, nil
+	}
+	if !strings.Contains(err.Error(), "no such column: breaking") {
+		return nil, err
+	}
+	if err := repairManifestBreakingColumn(ctx, db); err != nil {
+		return nil, err
+	}
 	return appliedMigrations(ctx, db)
+}
+
+// repairManifestBreakingColumn re-adds the compatibility column an older
+// binary's manifest lacks. It is additive and idempotent: no migration step
+// applies, and the column's default marks every recorded row breaking, which
+// is the conservative read the manifest check expects.
+func repairManifestBreakingColumn(ctx context.Context, db *sql.DB) error {
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return wrapFailure(KindUnavailable, "upgrade", "cannot begin the manifest repair", true,
+			"retry once the database is writable", err)
+	}
+	if _, err := tx.ExecContext(ctx, schemaManifestDDL); err != nil {
+		_ = tx.Rollback()
+		return wrapFailure(KindUnavailable, "upgrade", "cannot create the schema manifest", true,
+			"check database permissions", err)
+	}
+	if err := ensureManifestBreakingColumn(ctx, tx); err != nil {
+		_ = tx.Rollback()
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return wrapFailure(KindUnavailable, "upgrade", "cannot commit the manifest repair", true,
+			"retry once the database is writable", err)
+	}
+	return nil
 }
 
 // openUnmigrated prepares the file, the directory, and the connection without

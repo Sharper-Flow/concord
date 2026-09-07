@@ -149,3 +149,33 @@ func TestUpgradeRefusesWhileALiveLeaseHoldsAnOlderSchema(t *testing.T) {
 		t.Fatalf("a current database applied %v, want nothing", again.Applied)
 	}
 }
+
+func TestUpgradeRepairsAManifestPredatingTheBreakingColumn(t *testing.T) {
+	_, applied := breakingWindow(t)
+	path := filepath.Join(t.TempDir(), "pre-column.db")
+	db := openMigratedTo(t, path, applied)
+	if _, err := db.ExecContext(context.Background(), `ALTER TABLE schema_migrations DROP COLUMN breaking`); err != nil {
+		t.Fatalf("stage a pre-column manifest: %v", err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	// The gate still holds: the repaired manifest admits a refused upgrade
+	// under an older live session before anything applies.
+	older := HeldSchema{PID: 4747, ReleaseRoot: "/releases/v0.13.0", SchemaVersion: applied - 1}
+	if _, err := Upgrade(context.Background(), path, []HeldSchema{older}); err == nil {
+		t.Fatal("upgrade applied a pending breaking step under a session that predates it")
+	}
+
+	report, err := Upgrade(context.Background(), path, nil)
+	if err != nil {
+		t.Fatalf("Upgrade() after the column repair error = %v", err)
+	}
+	if report.SchemaVersion != CurrentSchemaVersion() {
+		t.Fatalf("report.SchemaVersion = %d, want %d", report.SchemaVersion, CurrentSchemaVersion())
+	}
+	if got := manifestMax(t, path); got != CurrentSchemaVersion() {
+		t.Fatalf("schema version after upgrade = %d, want %d", got, CurrentSchemaVersion())
+	}
+}

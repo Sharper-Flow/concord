@@ -6,6 +6,13 @@ import { join } from "node:path"
 import * as adapter from "./concord"
 import { contractOperations, manifestDigest } from "./generated-contracts"
 import { activeManifestDigest, adoptManifestDigest, resetManifestPinForTesting, resolveDiskManifestDigest, setManifestSourceForTesting } from "./manifest-pin"
+import { configureCoreBinary } from "./dispatch"
+
+// Fake-runner suite: bind the transport to a nominal core path instead of the
+// unstamped repository placeholder (CD-0111 D1). Each file sets this itself,
+// because bun runs the suite's files in one process in an order no file
+// controls.
+configureCoreBinary("concord")
 
 const hostCall = (operation: string, input: Record<string, unknown>) => ({ request: { operation, input } })
 const contextFor = (): any => ({ sessionID: "session-1", messageID: "message-1", agent: "agent-1", worktree: "/worktree", directory: "/worktree", abort: new AbortController().signal, ask: async () => {} })

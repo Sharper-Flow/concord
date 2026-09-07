@@ -1,7 +1,8 @@
 // CD-0102 D2: the plugin entry must register the hook that binds an authorized
 // dispatch to the next native Task call. Without the registration the window is
 // unreachable and any Task call the model composes runs unbound.
-import { describe, expect, test } from "bun:test"
+import { afterAll, describe, expect, test } from "bun:test"
+import { configureHostLease } from "./host-lease"
 import ConcordAdapterPlugin from "./concord-plugin"
 import { dispatchWindows, TASK_TOOL_ID } from "./dispatch-window"
 import { hostControlPlane, MOVE_SESSION_ROUTE, MoveSessionUnavailable } from "./move-session"
@@ -130,3 +131,8 @@ describe("a refusal carries the host's own words", () => {
     await expect(hostControlPlane().sessionDirectory("session-1")).rejects.toThrow(/no readable refusal/)
   })
 })
+
+// The factory claims a host lease at load, which fails against the unstamped
+// repository placeholder and closes the adapter transport. Later test files
+// share this process, so the factory tests leave the lease state clean.
+afterAll(() => configureHostLease({ reset: true }))

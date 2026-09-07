@@ -59,7 +59,7 @@ func Write(dataRoot string, lease Lease) error {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return fmt.Errorf("hostlease: cannot create %s: %w", dir, err)
 	}
-	if err := os.Chmod(dir, 0o700); err != nil {
+	if err := os.Chmod(dir, 0o700); err != nil { //nolint:gosec // the lease directory is forced to private directory permissions; 0700 is the minimum a directory admits.
 		return fmt.Errorf("hostlease: cannot secure %s: %w", dir, err)
 	}
 	encoded, err := json.Marshal(lease)
@@ -98,9 +98,10 @@ func List(dataRoot string) ([]Lease, error) {
 		if entry.IsDir() || !strings.HasSuffix(name, ".json") {
 			return nil, fmt.Errorf("hostlease: refusing unrecognized entry %s", filepath.Join(dir, name))
 		}
-		encoded, err := os.ReadFile(filepath.Join(dir, name))
+		path := filepath.Join(dir, name)
+		encoded, err := os.ReadFile(path) //nolint:gosec // the path is a directory entry this function just classified, inside the caller's data root.
 		if err != nil {
-			return nil, fmt.Errorf("hostlease: cannot read %s: %w", filepath.Join(dir, name), err)
+			return nil, fmt.Errorf("hostlease: cannot read %s: %w", path, err)
 		}
 		var lease Lease
 		if err := json.Unmarshal(encoded, &lease); err != nil {
@@ -108,8 +109,8 @@ func List(dataRoot string) ([]Lease, error) {
 		}
 		start, err := ProcessStart(lease.PID)
 		if err != nil || start != lease.PidStart {
-			if err := os.Remove(filepath.Join(dir, name)); err != nil {
-				return nil, fmt.Errorf("hostlease: cannot prune %s: %w", filepath.Join(dir, name), err)
+			if err := os.Remove(path); err != nil {
+				return nil, fmt.Errorf("hostlease: cannot prune %s: %w", path, err)
 			}
 			continue
 		}

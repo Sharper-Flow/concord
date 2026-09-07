@@ -295,3 +295,49 @@ func TestCompleteRecordsAFirstSeenActorTuple(t *testing.T) {
 		t.Fatalf("restarted actor recordings=%d, want 1", recorded)
 	}
 }
+
+// #911: the premise confirmation is the last step where record_verdict is
+// declared, so it refuses while any approved predicate lacks a verdict
+// instead of letting the item wedge at complete.
+func TestConfirmPremiseRequiresEveryPredicateVerdict(t *testing.T) {
+	const workID = "confirm-all-predicates"
+	s := openTemp(t)
+	seedWork(t, s, workID)
+	seedWorkflowLaw(t, s)
+	executor := DeriveWorkflowActorRef("principal/operator", "client/concord-1", "agent/executor", "session/"+workID)
+	operator := DeriveWorkflowActorRef("principal/operator", "client/concord-1", "agent/reviewer", "session/"+workID+"-operator")
+	version := int64(2)
+	events := []Event{
+		workflowEvent("confirm-all-executor", WorkflowActorRecorded, workID, map[string]any{"work_id": workID, "expected_version": version, "resulting_version": version + 1, "actor_ref": executor, "principal_ref": "principal/operator", "client_ref": "client/concord-1", "agent_ref": "agent/executor", "session_ref": "session/" + workID, "actor_class": "agent"}),
+		workflowEvent("confirm-all-operator", WorkflowActorRecorded, workID, map[string]any{"work_id": workID, "expected_version": version + 1, "resulting_version": version + 2, "actor_ref": operator, "principal_ref": "principal/operator", "client_ref": "client/concord-1", "agent_ref": "agent/reviewer", "session_ref": "session/" + workID + "-operator", "actor_class": "operator"}),
+		workflowEvent("confirm-all-definition", WorkflowDefinitionSelected, workID, map[string]any{"work_id": workID, "expected_version": version + 2, "resulting_version": version + 3, "ref": workflowFixtureRef, "version": 1, "digest": workflowFixtureDigest(t), "work_kind": workflowFixtureWorkKind}),
+		workflowEventWithActor("confirm-all-contract", WorkflowContractApproved, workID, executor, map[string]any{"work_id": workID, "expected_version": version + 3, "resulting_version": version + 4, "contract_version": 1, "premise": "deliver both required end states", "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:confirm-all", "immutable_subject_ref": "commit:" + workID, "expected_result": "pass"}, "outcome_predicates": []map[string]any{{"predicate_id": "predicate:present", "ordinal": 0, "outcome_kind": "exists", "outcome_payload": map[string]any{"kind": "exists", "surface": "surface:one", "subjects": []string{"subject:one"}}}, {"predicate_id": "predicate:absent", "ordinal": 1, "outcome_kind": "absent", "outcome_payload": map[string]any{"kind": "absent", "surface": "surface:two", "subjects": []string{"subject:two"}, "distinguish_from": []string{"archived"}}}}, "required_evidence": []string{"verification", "review"}, "route_conventions": []string{}, "spec_mandate": []string{}, "rigor_class": "prototype_internal", "consequence_class": "internal_sqlite"}),
+		workflowEventWithActor("confirm-all-start", WorkflowActionStarted, workID, executor, map[string]any{"work_id": workID, "expected_version": version + 4, "resulting_version": version + 5, "step_id": "execution", "action_id": "start_execution", "attempt_epoch": 1, "accepted_inputs_digest": "sha256:" + strings.Repeat("b", 64), "idempotency_identity": "confirm-all-operation", "actor_ref": executor}),
+		workflowEvent("confirm-all-verification", WorkflowEvidenceBound, workID, map[string]any{"work_id": workID, "expected_version": version + 5, "resulting_version": version + 6, "evidence_kind": "verification", "immutable_subject_ref": "evidence:confirm-all-verification", "producer_id": "principal/verify", "producer_run_ref": "confirm-all-verification", "producer_watermark": "request/confirm-all-verification", "observed_at": "2026-09-07T00:00:00Z"}),
+		workflowEvent("confirm-all-review", WorkflowEvidenceBound, workID, map[string]any{"work_id": workID, "expected_version": version + 6, "resulting_version": version + 7, "evidence_kind": "review", "immutable_subject_ref": "evidence:confirm-all-review", "producer_id": "principal/review", "producer_run_ref": "confirm-all-review", "producer_watermark": "request/confirm-all-review", "observed_at": "2026-09-07T00:00:00Z"}),
+		workflowEventWithActor("confirm-all-one-verdict", WorkflowVerdictRecorded, workID, operator, map[string]any{"work_id": workID, "expected_version": version + 7, "resulting_version": version + 8, "contract_version": 1, "predicate_id": "predicate:present", "verdict_kind": "ok", "verdict_actor_ref": operator, "evaluation_evidence": []string{"evidence:confirm-all-verification"}, "incomparable_with_approved": false}),
+	}
+	seedWorkflowAuthority(t, s, "confirm-all-verification", workID, "principal/verify", "request/confirm-all-verification", []string{"evidence:confirm-all-verification"})
+	seedWorkflowAuthority(t, s, "confirm-all-review", workID, "principal/review", "request/confirm-all-review", []string{"evidence:confirm-all-review"})
+	events[3].PayloadVersion = 3
+	events[7].PayloadVersion = 2
+	if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: events, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}}); err != nil {
+		t.Fatal(err)
+	}
+	tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback()
+	if err := enterFold(context.Background(), tx); err != nil {
+		t.Fatal(err)
+	}
+	missing, err := missingPredicateVerdicts(context.Background(), tx, workID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(missing) != 1 || missing[0] != "predicate:absent" {
+		t.Fatalf("missing predicates=%v, want [predicate:absent]", missing)
+	}
+	_ = leaveFold(context.Background(), tx)
+}

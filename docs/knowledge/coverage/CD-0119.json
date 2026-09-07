@@ -1,0 +1,5 @@
+{
+  "id": "CD-0119",
+  "reason": "The decision is proved by the CLI and store tests that pin the resume read and its typed refusals, and by the adapter tests that drive the resume tail end to end. Runtime behavior they exercise is the law itself, so no separate reachability surface applies.",
+  "state": "out_of_scope"
+}

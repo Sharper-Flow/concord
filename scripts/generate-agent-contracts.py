@@ -253,15 +253,23 @@ def validate_host_manifest(manifest: dict, schema: dict) -> str:
     if [tool.get("name") for tool in tools] != ["concord_work_start"]:
         fail("host tool manifest must declare concord_work_start once")
     args = tools[0].get("args", {})
-    required = ["title", "value_statement", "kind", "task", "idempotency_key"]
-    fields = ["title", "value_statement", "kind", "task", "idempotency_key", "priority", "urgency", "tags", "workflow_type_ref", "external_ref", "governing_requirements", "ref"]
-    if args.get("type") != "object" or args.get("additionalProperties") is not False or args.get("required") != required or list(args.get("properties", {})) != fields:
-        fail("concord_work_start host schema has an unexpected argument surface")
+    capture = ["title", "value_statement", "kind", "task", "idempotency_key", "priority", "urgency", "tags", "workflow_type_ref", "external_ref", "governing_requirements", "ref"]
+    resume = ["work_id"]
+    branches = args.get("oneOf")
+    if args.get("type") != "object" or not isinstance(branches, list) or len(branches) != 2:
+        fail("concord_work_start host schema must be a oneOf of the capture and resume shapes")
+    if branches[0].get("required") != ["title", "value_statement", "kind", "task", "idempotency_key"] or list(branches[0].get("properties", {})) != capture:
+        fail("concord_work_start capture branch has an unexpected argument surface")
+    if branches[0].get("additionalProperties") is not False or branches[1].get("additionalProperties") is not False:
+        fail("concord_work_start branches must close their argument surface")
+    if branches[1].get("required") != resume or list(branches[1].get("properties", {})) != resume:
+        fail("concord_work_start resume branch must carry only work_id")
     for name, maximum in (("title", 256), ("value_statement", 256), ("external_ref", 256), ("task", 8192)):
-        if args["properties"].get(name, {}).get("x-maxBytes") != maximum:
+        if branches[0]["properties"].get(name, {}).get("x-maxBytes") != maximum:
             fail(f"concord_work_start {name} must pin x-maxBytes={maximum}")
-    if "product_id" in args["properties"] or "project_id" in args["properties"]:
-        fail("concord_work_start must derive Product and Project identity")
+    for branch in branches:
+        if "product_id" in branch.get("properties", {}) or "project_id" in branch.get("properties", {}):
+            fail("concord_work_start must derive Product and Project identity")
     return "sha256:" + hashlib.sha256(canonical(manifest)).hexdigest()
 
 

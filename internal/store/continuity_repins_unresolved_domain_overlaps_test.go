@@ -2,6 +2,8 @@ package store
 
 import (
 	"context"
+	"encoding/json"
+	"strings"
 	"testing"
 )
 
@@ -33,5 +35,21 @@ func TestContinuityRepinsUnresolvedDomainOverlaps(t *testing.T) {
 	overlap := snapshot.UnresolvedOverlaps[0]
 	if overlap.FromWorkID != "continuity-overlap-left" || overlap.ToWorkID != "continuity-overlap-right" || overlap.ResolutionState != "unresolved" || len(overlap.RecoveryActions) == 0 {
 		t.Fatalf("overlap=%+v", overlap)
+	}
+	// An architecture-only overlap shares no laws or relations. Those lists
+	// must marshal as empty arrays, not null: the generated envelope schema
+	// types each one as an array, and a nil slice fails that validation at
+	// the continuity read.
+	encoded, err := json.Marshal(overlap)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, field := range []string{"shared_law_ids", "shared_domain_modifications", "shared_relation_tuples", "shared_affected_domain_ids"} {
+		if strings.Contains(string(encoded), `"`+field+`":null`) {
+			t.Fatalf("overlap %s marshals a null list: %s", field, encoded)
+		}
+	}
+	if overlap.SharedLawIDs == nil || overlap.SharedRelationTuples == nil {
+		t.Fatalf("overlap carries nil lists: %s", encoded)
 	}
 }

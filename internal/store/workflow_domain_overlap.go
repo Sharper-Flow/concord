@@ -312,6 +312,19 @@ func workflowDomainOverlapPair(left, right workflowOverlapFootprint) (WorkflowDo
 	if len(sharedRelations) > 0 {
 		classes = append(classes, "domain_relation_write")
 	}
+	// The pinned continuity projection validates against the generated
+	// envelope schema, which types every shared-item list as an array. A nil
+	// slice marshals as null and fails that validation, so an overlap that
+	// shares no laws, modifications, or relations carries empty arrays.
+	if sharedLaw == nil {
+		sharedLaw = []string{}
+	}
+	if sharedDomainModifications == nil {
+		sharedDomainModifications = []string{}
+	}
+	if sharedRelations == nil {
+		sharedRelations = []WorkflowDomainRelationTuple{}
+	}
 	return WorkflowDomainOverlap{ProductID: from.ProductID, FromWorkID: from.WorkID, ToWorkID: to.WorkID, FromContractVersion: from.ContractVersion, ToContractVersion: to.ContractVersion, SharedAffectedDomainIDs: sharedDomains, SharedLawIDs: sharedLaw, SharedDomainModifications: sharedDomainModifications, SharedRelationTuples: sharedRelations, OverlapClasses: classes, RecoveryActions: append([]string(nil), workflowOverlapRecoveryActions...)}, true
 }
 

@@ -208,7 +208,53 @@ func guardRecoveryEvidenceBind(ctx context.Context, q queryer, workID string, de
 		}
 		break
 	}
-	return false, newFailure(KindIllegalLifecycleTransition, subject, "recovery bind_evidence is only available for an unbound spec mandate", false, fmt.Sprintf("use bind_evidence on step %q before advancing", bindingStep))
+	// A declared verification obligation admits a late bind of its exact
+	// (evidence kind, law reference) tuple while that obligation is
+	// unsatisfied (#905). The completion gate reads the same tuple, so a
+	// mandate already bound under another kind must not lock the obligation
+	// out of recovery.
+	if kind := workflowFieldStringDefault(fields, "evidence_kind", ""); kind != "" {
+		admitted, admitErr := workflowObligationAwaitingEvidence(ctx, q, workID, reference, kind, subject)
+		if admitErr != nil {
+			return false, admitErr
+		}
+		if admitted {
+			return true, nil
+		}
+	}
+	return false, newFailure(KindIllegalLifecycleTransition, subject, "recovery bind_evidence is only available for an unbound spec mandate or an unsatisfied declared obligation", false, fmt.Sprintf("use bind_evidence on step %q before advancing", bindingStep))
+}
+
+// workflowObligationAwaitingEvidence reports whether the current contract
+// declares a verification obligation whose law reference and evidence kind
+// match the late bind and whose evidence is not yet bound.
+func workflowObligationAwaitingEvidence(ctx context.Context, q queryer, workID, reference, kind, subject string) (bool, error) {
+	rows, err := q.QueryContext(ctx, `SELECT o.law_id, o.obligation_id FROM workflow_contract_verification_obligations o WHERE o.work_id=? AND o.contract_version=(SELECT MAX(contract_version) FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL)`, workID, workID)
+	if err != nil {
+		return false, wrapFailure(KindUnavailable, subject, "cannot read the workflow verification obligations", true, "retry once the workflow contract is readable", err)
+	}
+	defer rows.Close()
+	awaiting := false
+	for rows.Next() {
+		var lawID, obligationID string
+		if err := rows.Scan(&lawID, &obligationID); err != nil {
+			return false, wrapFailure(KindUnavailable, subject, "cannot read the workflow verification obligations", true, "retry once the workflow contract is readable", err)
+		}
+		if lawID != reference || obligationID != kind {
+			continue
+		}
+		var count int
+		if err := q.QueryRowContext(ctx, `SELECT count(*) FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND json_extract(payload,'$.evidence_kind')=? AND json_extract(payload,'$.immutable_subject_ref')=?`, workID, WorkflowEvidenceBound, obligationID, lawID).Scan(&count); err != nil {
+			return false, wrapFailure(KindUnavailable, subject, "cannot inspect obligation evidence", true, "retry once the workflow evidence projection is readable", err)
+		}
+		if count == 0 {
+			awaiting = true
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return false, wrapFailure(KindUnavailable, subject, "cannot read the workflow verification obligations", true, "retry once the workflow contract is readable", err)
+	}
+	return awaiting, nil
 }
 
 // guardSupersedeContractRecovery admits contract recovery only for a workflow

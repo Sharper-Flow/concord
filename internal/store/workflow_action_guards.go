@@ -234,27 +234,36 @@ func workflowObligationAwaitingEvidence(ctx context.Context, q queryer, workID, 
 		return false, wrapFailure(KindUnavailable, subject, "cannot read the workflow verification obligations", true, "retry once the workflow contract is readable", err)
 	}
 	defer rows.Close()
-	awaiting := false
+	var tuples []WorkflowVerificationObligation
 	for rows.Next() {
 		var lawID, obligationID string
 		if err := rows.Scan(&lawID, &obligationID); err != nil {
 			return false, wrapFailure(KindUnavailable, subject, "cannot read the workflow verification obligations", true, "retry once the workflow contract is readable", err)
 		}
-		if lawID != reference || obligationID != kind {
-			continue
-		}
-		var count int
-		if err := q.QueryRowContext(ctx, `SELECT count(*) FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND json_extract(payload,'$.evidence_kind')=? AND json_extract(payload,'$.immutable_subject_ref')=?`, workID, WorkflowEvidenceBound, obligationID, lawID).Scan(&count); err != nil {
-			return false, wrapFailure(KindUnavailable, subject, "cannot inspect obligation evidence", true, "retry once the workflow evidence projection is readable", err)
-		}
-		if count == 0 {
-			awaiting = true
-		}
+		tuples = append(tuples, WorkflowVerificationObligation{LawID: lawID, ObligationID: obligationID})
 	}
 	if err := rows.Err(); err != nil {
 		return false, wrapFailure(KindUnavailable, subject, "cannot read the workflow verification obligations", true, "retry once the workflow contract is readable", err)
 	}
-	return awaiting, nil
+	if err := rows.Close(); err != nil {
+		return false, wrapFailure(KindUnavailable, subject, "cannot read the workflow verification obligations", true, "retry once the workflow contract is readable", err)
+	}
+	// The evidence count runs only after the rows are closed: the guard can
+	// be reached through the single pooled connection, where a query inside
+	// an open rows iteration parks forever.
+	for _, tuple := range tuples {
+		if tuple.LawID != reference || tuple.ObligationID != kind {
+			continue
+		}
+		var count int
+		if err := q.QueryRowContext(ctx, `SELECT count(*) FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND json_extract(payload,'$.evidence_kind')=? AND json_extract(payload,'$.immutable_subject_ref')=?`, workID, WorkflowEvidenceBound, tuple.ObligationID, tuple.LawID).Scan(&count); err != nil {
+			return false, wrapFailure(KindUnavailable, subject, "cannot inspect obligation evidence", true, "retry once the workflow evidence projection is readable", err)
+		}
+		if count == 0 {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 // guardSupersedeContractRecovery admits contract recovery only for a workflow

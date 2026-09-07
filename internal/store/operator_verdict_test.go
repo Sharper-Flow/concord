@@ -231,3 +231,67 @@ func TestOperatorCompleteConditionBinds(t *testing.T) {
 		t.Fatalf("operator complete without a delivery exit err=%v, want the condition refusal", err)
 	}
 }
+
+// #909: a host restart mints a new session identity, so the completing
+// action can be the first place that tuple appears. The complete path must
+// land the guard's actor-recording events instead of dropping them; before
+// the fix this refused with "workflow actor reference is not recorded".
+func TestCompleteRecordsAFirstSeenActorTuple(t *testing.T) {
+	const workID = "complete-first-seen-actor"
+	s, owner := seedDeliveredItemAtAcceptance(t, workID)
+	operator := operatorVerdictActor(t, workID)
+
+	if err := runOperatorVerdict(t, s, workID, owner, operator); err != nil {
+		t.Fatalf("operator verdict after delivery refused: %v", err)
+	}
+	operatorRef, _ := WorkflowActorRef(operator)
+	premiseVersion := verdictItemVersion(t, s, workID)
+	operatorRecorded := workflowEvent("first-seen-actor-"+workID, WorkflowActorRecorded, workID, map[string]any{"work_id": workID, "expected_version": premiseVersion, "resulting_version": premiseVersion + 1, "actor_ref": operatorRef, "principal_ref": operator.PrincipalRef, "client_ref": operator.ClientRef, "agent_ref": operator.AgentRef, "session_ref": operator.SessionRef, "actor_class": "operator"})
+	premise := workflowEventWithActor("first-seen-premise-"+workID, WorkflowPremiseConfirmed, workID, operatorRef, map[string]any{"work_id": workID, "expected_version": premiseVersion + 1, "resulting_version": premiseVersion + 2, "contract_version": 1, "confirming_actor_ref": operatorRef})
+	premiseCompleted := workflowActionCompletedFixture("first-seen-premise-done-"+workID, workID, operatorRef, premiseVersion+2, "acceptance", "confirm_premise")
+	if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{operatorRecorded, premise, premiseCompleted}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): premiseVersion}}); err != nil {
+		t.Fatalf("premise confirmation: %v", err)
+	}
+
+	// The restarted session: same principal and client, new agent and
+	// session identity, never recorded on this work item before.
+	restarted := WorkflowActor{PrincipalRef: owner.PrincipalRef, ClientRef: owner.ClientRef, AgentRef: "agent/owner-restarted", SessionRef: "session/" + workID + "-restarted", ActorClass: ActorAgent}
+	completeVersion := verdictItemVersion(t, s, workID)
+	tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback()
+	if err := enterFold(context.Background(), tx); err != nil {
+		t.Fatal(err)
+	}
+	payload, _ := json.Marshal(map[string]any{"impact_verdict": "non-breaking"})
+	_, err = applyWorkflowActionRawTx(context.Background(), tx, BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
+		WorkID: workID, ExpectedVersion: completeVersion, ActionID: "complete", Payload: payload, Actor: restarted,
+		AcceptedInputsDigest: "sha256:" + strings.Repeat("f", 64) + workID, IdempotencyIdentity: "first-seen-complete-" + workID, OperationID: "first-seen-complete-" + workID,
+		PrincipalRef: restarted.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "first-seen-complete-" + workID, RequestID: "request:first-seen-complete-" + workID, ContractDigest: testManifestDigest, Now: time.Unix(13, 0).UTC(),
+	})
+	if err != nil {
+		_ = leaveFold(context.Background(), tx)
+		t.Fatalf("complete from a first-seen actor tuple refused: %v", err)
+	}
+	_ = leaveFold(context.Background(), tx)
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	var state string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT instance_state FROM workflow_instances WHERE work_id=?`, workID).Scan(&state); err != nil {
+		t.Fatal(err)
+	}
+	if state != "completed" {
+		t.Fatalf("instance_state=%s, want completed", state)
+	}
+	restartedRef, _ := WorkflowActorRef(restarted)
+	var recorded int
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM workflow_actors WHERE actor_ref=?`, restartedRef).Scan(&recorded); err != nil {
+		t.Fatal(err)
+	}
+	if recorded != 1 {
+		t.Fatalf("restarted actor recordings=%d, want 1", recorded)
+	}
+}

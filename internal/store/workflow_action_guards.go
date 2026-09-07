@@ -756,8 +756,22 @@ func nativeRunFromSemanticEvents(semantic []Event) *NativeRunReport {
 
 // applyCompleteWorkflowActionTx completes the workflow in this transaction:
 // the ordered completion gate runs and workflow.completed is appended here.
-func applyCompleteWorkflowActionTx(ctx context.Context, tx *sql.Tx, registry DefinitionRegistry, entry RegisteredDefinition, request WorkflowActionExecutionRequest, currentStep, actor string, payload json.RawMessage) (WorkflowActionExecutionResult, error) {
+func applyCompleteWorkflowActionTx(ctx context.Context, tx *sql.Tx, registry DefinitionRegistry, entry RegisteredDefinition, request WorkflowActionExecutionRequest, currentStep, actor string, payload json.RawMessage, prefixEvents []Event) (WorkflowActionExecutionResult, error) {
 	var result WorkflowActionExecutionResult
+	// The completion fold's requireActor refuses an event actor whose tuple
+	// is not recorded, and the actor-recording events the guard minted are
+	// the only writer that can land them (#909). Append and fold them first,
+	// consuming one expected version each, so the completion event that
+	// follows sequences on top of a recorded actor.
+	for _, event := range prefixEvents {
+		if _, err := appendEvent(ctx, tx, event, true); err != nil {
+			return result, err
+		}
+		if err := foldRegisteredEvent(ctx, tx, event); err != nil {
+			return result, err
+		}
+	}
+	request.ExpectedVersion += int64(len(prefixEvents))
 	bindingEvents, bindingErr := lateBindWorkflowEvidenceTx(ctx, tx, request, actor, payload, entry.Definition)
 	if bindingErr != nil {
 		return result, bindingErr
@@ -770,7 +784,10 @@ func applyCompleteWorkflowActionTx(ctx context.Context, tx *sql.Tx, registry Def
 	if err := CompleteWorkflowTxWithRegistry(ctx, tx, registry, completion); err != nil {
 		return result, err
 	}
-	result.EventIDs = make([]string, 0, len(bindingEvents)+1)
+	result.EventIDs = make([]string, 0, len(prefixEvents)+len(bindingEvents)+1)
+	for _, prefix := range prefixEvents {
+		result.EventIDs = append(result.EventIDs, prefix.EventID)
+	}
 	for _, binding := range bindingEvents {
 		result.EventIDs = append(result.EventIDs, binding.EventID)
 	}

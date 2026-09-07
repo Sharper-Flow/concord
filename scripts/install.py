@@ -210,6 +210,37 @@ def parse_version(value: str) -> str:
     return value
 
 
+def resolve_latest_version(artifact_dir: Path | None, base_url: str) -> str:
+    """Resolve the latest release the configured source can serve.
+
+    With a local artifact directory the answer is the highest release whose
+    checksum file is present. With the download base the answer follows the
+    releases/latest redirect to its tag; a custom base that is not a latest
+    endpoint has no latest to resolve and must be pinned with --version.
+    """
+    if artifact_dir:
+        releases = sorted(
+            (int(match.group(1)), int(match.group(2)), int(match.group(3)))
+            for path in artifact_dir.glob("concord-*.sha256")
+            if (match := VERSION_RE.fullmatch(path.name.removeprefix("concord-").removesuffix(".sha256")))
+        )
+        if not releases:
+            raise InstallerError(f"no release checksum found under {artifact_dir}; pass --version")
+        return "v%d.%d.%d" % releases[-1]
+    latest_page = base_url.rstrip("/").removesuffix("/download")
+    if not latest_page.endswith("/releases/latest"):
+        raise InstallerError(f"cannot resolve a latest release from {base_url}; pass --version")
+    try:
+        with urllib.request.urlopen(latest_page, timeout=30) as response:
+            final_url = response.geturl()
+    except Exception as error:
+        raise InstallerError(f"could not resolve the latest release at {latest_page}: {error}") from error
+    tag = final_url.rstrip("/").rsplit("/", 1)[-1]
+    if not VERSION_RE.fullmatch(tag):
+        raise InstallerError(f"the latest release redirected to {final_url!r}, which is not a release tag; pass --version")
+    return tag
+
+
 def jsonc_data(text: str) -> object:
     without_comments: list[str] = []
     index = 0
@@ -975,7 +1006,7 @@ def extract_verified_artifact(version: str, artifact_dir: Path | None, base_url:
                     raise InstallerError(f"release archive contains unsafe path {member.name!r}")
                 if member.issym() or member.islnk():
                     raise InstallerError(f"release archive contains unsafe link {member.name!r}")
-            bundle.extractall(extracted)
+            bundle.extractall(extracted, filter="data")
     except tarfile.TarError as error:
         raise InstallerError(f"release archive is invalid: {error}") from error
     binary = extracted / "bin" / "concord"
@@ -1930,7 +1961,7 @@ def recover_transactions(paths: Paths) -> None:
 
 
 def install(args: argparse.Namespace) -> int:
-    version = parse_version(args.version)
+    version = parse_version(args.version) if args.version else resolve_latest_version(Path(args.artifact_dir).resolve() if args.artifact_dir else None, args.base_url)
     paths = paths_for(args.root)
     recover_transactions(paths)
     manifest = load_manifest(paths)
@@ -2266,7 +2297,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     subparsers = parser.add_subparsers(dest="command", required=True)
     install_parser = subparsers.add_parser("install", help="install or upgrade a release")
-    install_parser.add_argument("--version", required=True)
+    install_parser.add_argument("--version", help="release tag; defaults to the latest the source serves")
     install_parser.add_argument("--artifact-dir", help="use local published assets instead of downloading")
     install_parser.add_argument(
         "--base-url",

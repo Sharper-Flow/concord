@@ -21,6 +21,7 @@ import install as installer
 SCRIPT = Path(__file__).with_name("install.py")
 
 
+
 class InstallerTests(unittest.TestCase):
     def setUp(self) -> None:
         self.tempdir = tempfile.TemporaryDirectory()
@@ -966,6 +967,29 @@ esac''',
         self.assertEqual(target.read_text(encoding="utf-8"), "operator-tampered\n")
 
 
+    def test_install_without_version_picks_highest_artifact_dir_release(self) -> None:
+        self.make_release("v7.10.1")
+        self.make_release("v7.10.2")
+        self.make_release("v7.9.0")
+        result = self.run_installer("install", "--artifact-dir", str(self.artifacts))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("Installed Concord v7.10.2", result.stdout)
+
+    def test_install_without_version_refuses_when_no_release_resolves(self) -> None:
+        result = self.run_installer("install", "--artifact-dir", str(self.artifacts))
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("--version", result.stderr)
+
+    def test_install_extracts_without_deprecation_warning(self) -> None:
+        self.make_release("v7.10.2")
+        environment = self.env.copy()
+        environment["PYTHONWARNINGS"] = "error::DeprecationWarning"
+        result = self.run_installer(
+            "install", "--version", "v7.10.2", "--artifact-dir", str(self.artifacts), env=environment
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+
 class DeriveAdapterFilesTest(unittest.TestCase):
     def test_shipped_set_follows_the_entry_import_graph(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -1051,6 +1075,48 @@ class StandaloneInstallerTest(unittest.TestCase):
         """
         result = self.run_standalone("--help")
         self.assertNotIn("NameError", result.stderr)
+
+
+class ResolveLatestVersionTest(unittest.TestCase):
+    def test_download_base_follows_the_latest_redirect_to_its_tag(self) -> None:
+        class Response:
+            def geturl(self):
+                return "https://github.com/Sharper-Flow/concord/releases/tag/v9.9.9"
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+        with mock.patch.object(installer.urllib.request, "urlopen", return_value=Response()):
+            resolved = installer.resolve_latest_version(
+                None, "https://github.com/Sharper-Flow/concord/releases/latest/download"
+            )
+        self.assertEqual(resolved, "v9.9.9")
+
+    def test_download_base_refuses_a_redirect_without_a_release_tag(self) -> None:
+        class Response:
+            def geturl(self):
+                return "https://github.com/Sharper-Flow/concord/releases"
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+        with mock.patch.object(installer.urllib.request, "urlopen", return_value=Response()):
+            with self.assertRaises(installer.InstallerError) as raised:
+                installer.resolve_latest_version(
+                    None, "https://github.com/Sharper-Flow/concord/releases/latest/download"
+                )
+        self.assertIn("--version", str(raised.exception))
+
+    def test_custom_base_without_a_latest_endpoint_refuses(self) -> None:
+        with self.assertRaises(installer.InstallerError) as raised:
+            installer.resolve_latest_version(None, "https://example.invalid/concord/download")
+        self.assertIn("--version", str(raised.exception))
 
 
 if __name__ == "__main__":

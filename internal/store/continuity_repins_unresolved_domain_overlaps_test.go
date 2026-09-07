@@ -2,11 +2,12 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 )
 
-// Issue #765: the pinned projection re-pins the Domain overlaps that will
-// refuse this work's next consequential mutation.
+// The pinned projection includes the Domain overlaps that refuse the next
+// consequential mutation, with empty intersections encoded as arrays.
 func TestContinuityRepinsUnresolvedDomainOverlaps(t *testing.T) {
 
 	ctx := context.Background()
@@ -33,5 +34,18 @@ func TestContinuityRepinsUnresolvedDomainOverlaps(t *testing.T) {
 	overlap := snapshot.UnresolvedOverlaps[0]
 	if overlap.FromWorkID != "continuity-overlap-left" || overlap.ToWorkID != "continuity-overlap-right" || overlap.ResolutionState != "unresolved" || len(overlap.RecoveryActions) == 0 {
 		t.Fatalf("overlap=%+v", overlap)
+	}
+	raw, err := json.Marshal(overlap)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &fields); err != nil {
+		t.Fatal(err)
+	}
+	for _, field := range []string{"shared_law_ids", "shared_relation_tuples"} {
+		if string(fields[field]) != "[]" {
+			t.Errorf("%s = %s, want []", field, fields[field])
+		}
 	}
 }

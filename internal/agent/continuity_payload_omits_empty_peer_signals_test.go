@@ -8,8 +8,7 @@ import (
 	"github.com/sharper-flow/concord/internal/store"
 )
 
-// Issue #765, CD-0090 D3: empty peer signals stay out of the pinned
-// projection, and an unchanged snapshot renders identical bytes.
+// Empty peer signals stay out of the pinned projection.
 func TestContinuityPayloadOmitsEmptyPeerSignals(t *testing.T) {
 	payload := ContinuityPayload(store.ContinuitySnapshot{})
 	pinned, ok := payload["pinned"].(map[string]any)
@@ -38,5 +37,23 @@ func TestContinuityRepinBytesAreStableAcrossRenders(t *testing.T) {
 	}
 	if bytes.Contains(first, []byte("unresolved_overlaps")) || bytes.Contains(first, []byte("compatible_law_amendments")) {
 		t.Fatalf("empty peer signals leaked into the payload: %s", first)
+	}
+}
+
+func TestContinuityPayloadValidatesEmptyOverlapIntersections(t *testing.T) {
+	snapshot := fullyPopulatedContinuitySnapshot()
+	overlap := &snapshot.UnresolvedOverlaps[0]
+	overlap.SharedLawIDs = []string{}
+	overlap.SharedDomainModifications = []string{}
+	overlap.SharedRelationTuples = []store.WorkflowDomainRelationTuple{}
+	overlap.SharedLawCount = 0
+	overlap.SharedDomainModificationCount = 0
+	overlap.SharedRelationTupleCount = 0
+	raw, err := json.Marshal(ContinuityPayload(snapshot))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ValidateOperationPayload("concord_work_trace", "continuity", raw, true); err != nil {
+		t.Fatalf("empty overlap intersections rejected: %v", err)
 	}
 }

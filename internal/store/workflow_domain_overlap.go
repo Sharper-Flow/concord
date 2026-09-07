@@ -81,7 +81,7 @@ type workflowOverlapFootprint struct {
 }
 
 func sortedStrings(values []string) []string {
-	result := append([]string(nil), values...)
+	result := append([]string{}, values...)
 	sort.Strings(result)
 	return result
 }

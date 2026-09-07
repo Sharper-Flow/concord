@@ -1,5 +1,5 @@
 import { contractOperations, hostToolSchemas, payloadSchemas } from "./generated-contracts"
-import { domain, knowledge, product_view, work_browse, work_compact, work_define, work_initiative, work_relate, work_start, work_trace, work_transition } from "./concord"
+import { domain, knowledge, product_view, publishWorkStartDefinition, work_browse, work_compact, work_define, work_initiative, work_relate, work_start, work_trace, work_transition } from "./concord"
 
 const tools: Record<string, any> = {
   concord_product_view: product_view,
@@ -14,16 +14,19 @@ const tools: Record<string, any> = {
   concord_work_compact: work_compact,
 }
 
-// The generated work start schema is a oneOf of the capture and resume
-// shapes. The published per-field view is its flattened union with no
-// required field: the flat host shape cannot express the oneOf, so the probe
-// reconstructs the union and asserts the published fields match it exactly.
+// Apply the production hook to the host's per-field schema. The expected
+// contract is used for comparison only, never to repair the observed schema.
 const expectedWorkStart = object(hostToolSchemas.concord_work_start, "generated work start schema")
 const expectedWorkStartBranches = (expectedWorkStart.oneOf as any[]).filter((branch) => object(branch, "generated work start branch"))
 if (expectedWorkStartBranches.length !== 2) fail("generated work start schema must carry the capture and resume branches")
 const expectedWorkStartProperties = Object.assign({}, ...expectedWorkStartBranches.map((branch) => object(branch.properties, "generated work start branch properties")))
-const workStartArgs = Object.fromEntries(Object.keys(work_start.args).map((key) => [key, work_start.args[key] ?? expectedWorkStartProperties[key]]))
-const workStartRoot = publishedArgsSchema(workStartArgs, "work start schema", [])
+const workStartDefinition = {
+  description: work_start.description,
+  parameters: {},
+  jsonSchema: publishedArgsSchema(work_start.args, "work start schema"),
+}
+await publishWorkStartDefinition({ toolID: "concord_work_start" }, workStartDefinition)
+const workStartRoot = object(workStartDefinition.jsonSchema, "published work start schema")
 const workStartProperties = object(workStartRoot.properties, "work start properties")
 if (JSON.stringify(Object.keys(workStartProperties).sort()) !== JSON.stringify(Object.keys(expectedWorkStartProperties).sort())) {
   fail("concord_work_start does not publish the generated argument set")

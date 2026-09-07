@@ -173,18 +173,22 @@ function argsSchema(toolName: string): any {
   return { request: publishedRequestSchema(toolName) }
 }
 
-// The host publishes work_start arguments as a flat per-field shape where a
-// schema marks a required field, so the manifest's oneOf of capture and
-// resume cannot publish directly. The published view therefore flattens to
-// every field optional; the manifest stays the closed contract, and
-// validateWorkStartArgs enforces exactly one of the two shapes.
+// The host definition hook publishes the flattened view with optional fields.
+// The generated manifest and validateWorkStartArgs enforce the closed modes.
 function workStartArgsSchema() {
-  const schema = (hostToolSchemas as Record<string, any>).concord_work_start
-  const fields = new Set<string>()
-  for (const branch of (schema.oneOf ?? []) as Record<string, any>[]) {
-    for (const key of Object.keys(branch.properties ?? {})) fields.add(key)
-  }
-  return Object.fromEntries([...fields].sort().map((key) => [key, undefined]))
+  const properties = Object.assign({}, ...hostToolSchemas.concord_work_start.oneOf.map((branch) => branch.properties))
+  // Host hooks can mutate published schemas, but never the runtime contract.
+  return JSON.parse(JSON.stringify(properties))
+}
+
+export async function publishWorkStartDefinition(
+  input: { toolID: string },
+  output: { description: string; parameters: unknown; jsonSchema?: unknown },
+): Promise<void> {
+  if (input.toolID !== "concord_work_start") return
+  // The host registry consumes jsonSchema independently of its runtime decoder.
+  // Keep parameters unchanged so publication does not alter execution admission.
+  output.jsonSchema = { type: "object", properties: workStartArgsSchema(), required: [], additionalProperties: false }
 }
 
 function baseEnvelope(toolName: string, operation: string, requestID: string) {

@@ -73,12 +73,10 @@ test("published tool arguments expose one generated request union", () => {
   const inputRef = capture.properties.input.$ref.replace("#/properties/request/definitions/", "")
   const urgencyRef = published.definitions[inputRef].properties.urgency.$ref.replace("#/properties/request/definitions/", "")
   expect(published.definitions[urgencyRef].enum).toEqual(["standard", "expedite"])
-  // The published per-field view is the flattened union of the manifest's
-  // oneOf branches: every field optional, no field schema, because the flat
-  // host shape cannot express the oneOf. The adapter enforces exactly one of
-  // the two shapes; the manifest stays the closed contract.
+  // Every generated field reaches the host. The definition hook makes the
+  // published fields optional; the adapter enforces the closed modes.
   expect(Object.keys((adapter.work_start as any).args).sort()).toEqual(["title", "value_statement", "kind", "task", "idempotency_key", "priority", "urgency", "tags", "workflow_type_ref", "external_ref", "governing_requirements", "ref", "work_id"].sort())
-  for (const value of Object.values((adapter.work_start as any).args)) expect(value).toBeUndefined()
+  for (const value of Object.values((adapter.work_start as any).args)) expect(value).toBeObject()
   expect((adapter.work_start as any).args.product_id).toBeUndefined()
   expect((adapter.work_start as any).args.project_id).toBeUndefined()
 })

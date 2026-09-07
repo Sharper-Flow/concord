@@ -96,3 +96,54 @@ func legacyResearchV1() WorkflowDefinition {
 	d := legacyV1BaseDefinition("workflow.research", WorkKindResearch, graph(steps, forward(ids...), "complete"), actions, []EvidenceKind{EvidenceArtifact}, WorkflowOutcomeSchema{DefaultKind: PredicateOutcome, AllowedKinds: []PredicateKind{PredicateOutcome}, AllowedOutcomeTokens: []string{"no_change", "resolved", "report_recorded"}, DecisionRecordRequired: false}, []WorkKind{WorkKindBreakFix, WorkKindArchitectureSpike, WorkKindStaticAnalysis})
 	return withContinuityActionsV1(d)
 }
+
+// The pre-join definitions below freeze, byte for byte, the content each
+// family carried before the lane-step dispatch join (#892): the four families
+// at version 2 (CD-0112 content) and the three no instance pinned at their
+// pre-join content at version 1. They reuse the shipped builders' base
+// content and compose it with the legacy worker-action rule the join
+// replaced, except research, which carried no worker actions at all. Their
+// digests are pinned in workflow_definition_version_pins_test.go; edit
+// nothing here without a new version (CD-0115).
+
+func preJoinImplementationV2() WorkflowDefinition {
+	d := builtinImplementation()
+	d.Version = 2
+	return withLegacyWorkerActions(d)
+}
+
+func preJoinBreakFixV2() WorkflowDefinition {
+	d := builtinBreakFix()
+	d.Version = 2
+	return withLegacyWorkerActions(d)
+}
+
+func preJoinGenericOneOffV2() WorkflowDefinition {
+	d := builtinGenericOneOff()
+	d.Version = 2
+	return withLegacyWorkerActions(d)
+}
+
+func preJoinResearchV2() WorkflowDefinition {
+	d := builtinResearch()
+	d.Version = 2
+	return d
+}
+
+func preJoinArchitectureSpikeV1() WorkflowDefinition {
+	d := builtinArchitectureSpike()
+	d.Version = 1
+	return withLegacyWorkerActions(d)
+}
+
+func preJoinOpsRunbookV1() WorkflowDefinition {
+	d := builtinOpsRunbook()
+	d.Version = 1
+	return withLegacyWorkerActions(d)
+}
+
+func preJoinStaticAnalysisV1() WorkflowDefinition {
+	d := builtinStaticAnalysis()
+	d.Version = 1
+	return withLegacyWorkerActions(d)
+}

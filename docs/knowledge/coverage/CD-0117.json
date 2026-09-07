@@ -1,0 +1,5 @@
+{
+  "id": "CD-0117",
+  "reason": "The decision is proved by lane_step_dispatch_test.go, which drives the dispatch fold through admitted and refused lane-and-step pairs, and by the generator check in CI, which refuses a lane class the join does not name. The composed definitions' digests are pinned by workflow_definition_version_pins_test.go.",
+  "state": "out_of_scope"
+}

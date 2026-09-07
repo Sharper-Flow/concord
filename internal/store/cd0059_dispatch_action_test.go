@@ -600,12 +600,13 @@ type cd0059DispatchSeed struct {
 // equalities from its arguments so callers cannot ship a packet the fold
 // refuses on identity grounds.
 func dispatchWorkerPacket(workID, stepID, attemptID string) map[string]any {
+	laneVersion, laneDigest := mustLaneIdentity("implement")
 	return map[string]any{
 		"schema_version": "1.0",
 		"attempt_id":     attemptID,
 		"lane_id":        "implement",
-		"lane_version":   int64(1),
-		"lane_digest":    "sha256:" + strings.Repeat("a", 64),
+		"lane_version":   laneVersion,
+		"lane_digest":    laneDigest,
 		"work_id":        workID,
 		"step_id":        stepID,
 		"inputs": map[string]any{

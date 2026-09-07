@@ -544,7 +544,10 @@ func BuiltinWorkflowDefinitions() []WorkflowDefinition {
 // load-bearing (#861).
 func builtinWorkflowDefinitionsWithHistory() []WorkflowDefinition {
 	return append(
-		[]WorkflowDefinition{withWorkerActions(legacyImplementationV1()), withWorkerActions(legacyBreakFixV1()), withWorkerActions(legacyResearchV1()), withWorkerActions(legacyGenericOneOffV1())},
+		[]WorkflowDefinition{
+			withLegacyWorkerActions(legacyImplementationV1()), withLegacyWorkerActions(legacyBreakFixV1()), withLegacyWorkerActions(legacyResearchV1()), withLegacyWorkerActions(legacyGenericOneOffV1()),
+			preJoinImplementationV2(), preJoinBreakFixV2(), preJoinGenericOneOffV2(), preJoinResearchV2(), preJoinArchitectureSpikeV1(), preJoinOpsRunbookV1(), preJoinStaticAnalysisV1(),
+		},
 		BuiltinWorkflowDefinitions()...,
 	)
 }
@@ -586,15 +589,43 @@ func BuiltinWorkflowDefinitionForRef(ref string) (RegisteredDefinition, error) {
 	return RegisteredDefinition{}, definitionFailure(KindDefinitionDigestMismatch, "workflow type reference is not registered")
 }
 
-// withWorkerActions composes the worker-dispatch action pair onto a family and
-// onto each of its external-effect steps. Research is excluded by authoring
-// decision: its investigation steps are cross-authority reads that record
-// findings, so it delegates no external effect to a worker lane.
+// dispatchableStepKinds derives the workflow step kinds that may carry the
+// worker-dispatch action pair: the union of the bindings the generated
+// lane-step dispatch join names (#892). A step kind outside the union hosts
+// no lane at all, so the pair is not composed onto it.
+func dispatchableStepKinds() map[string]bool {
+	kinds := make(map[string]bool)
+	for _, bindings := range laneStepDispatchKinds {
+		for _, kind := range bindings {
+			kinds[kind] = true
+		}
+	}
+	return kinds
+}
+
+// LaneStepDispatchAllowed reports whether a lane of the given capability
+// class may be dispatched at a step of the given kind. It is the dispatch-time
+// half of the join: definition composition attaches the action pair wherever
+// some lane may dispatch, and this gate refuses the specific lane whose class
+// the step kind does not admit.
+func LaneStepDispatchAllowed(capabilityClass string, kind WorkflowStepKind) bool {
+	for _, allowed := range laneStepDispatchKinds[capabilityClass] {
+		if WorkflowStepKind(allowed) == kind {
+			return true
+		}
+	}
+	return false
+}
+
+// withWorkerActions composes the worker-dispatch action pair onto a shipped
+// definition. The pair lands on every non-terminal step whose kind the
+// lane-step dispatch join admits (#892); terminal steps never dispatch, and
+// human_checkpoint steps record operator decisions rather than worker
+// attempts, so no binding names them. Which lane may actually be dispatched
+// at a given step is decided at dispatch time by LaneStepDispatchAllowed,
+// because the action pair is per-step while the join is per-lane.
 func withWorkerActions(definition WorkflowDefinition) WorkflowDefinition {
 	definition = cloneWorkflowDefinition(definition)
-	if definition.WorkKind == WorkKindResearch {
-		return definition
-	}
 	acceptance := WorkflowActionDefinition{
 		ID: "accept_worker_result", Consequence: ActionInternalSQLite, Approval: ActionApprovalNone, ExecutionMode: ActionAdvance, RequiredCapability: "work_transition",
 		Payload: WorkflowPayloadDefinition{Fields: []WorkflowPayloadField{
@@ -611,6 +642,68 @@ func withWorkerActions(definition WorkflowDefinition) WorkflowDefinition {
 	// the authorization itself only needs to bind the attempt_id. CD-0067
 	// D2 requires the lane packet itself as a structural payload field so
 	// the fold can record its canonical digest alongside worker_attempt_id.
+	dispatch := WorkflowActionDefinition{
+		ID: "dispatch_worker", Consequence: ActionExternalEffect, Approval: ActionApprovalNone, ExecutionMode: ActionFenced, RequiredCapability: "worker_dispatch",
+		Payload: WorkflowPayloadDefinition{Fields: []WorkflowPayloadField{
+			{Name: "attempt_id", ValueType: PayloadRef, Required: true, MinLength: workflowInt(2), MaxLength: workflowInt(128)},
+			{Name: "worker_packet", ValueType: PayloadObject, Required: true},
+		}},
+	}
+	definition.AvailableActions = append(definition.AvailableActions, acceptance.ID, dispatch.ID)
+	definition.ActionDefinitions = append(definition.ActionDefinitions, acceptance, dispatch)
+	terminal := make(map[string]bool, len(definition.StepGraph.TerminalSteps))
+	for _, id := range definition.StepGraph.TerminalSteps {
+		terminal[id] = true
+	}
+	policies := make(map[string]WorkflowActionDefinition, len(definition.ActionDefinitions))
+	for _, action := range definition.ActionDefinitions {
+		policies[action.ID] = action
+	}
+	admitted := dispatchableStepKinds()
+	for i := range definition.StepGraph.Steps {
+		if terminal[definition.StepGraph.Steps[i].ID] || !admitted[string(definition.StepGraph.Steps[i].Kind)] {
+			continue
+		}
+		// An approval-gated step exits only through its operator action: an
+		// ungated advancing action beside the gate would let a worker
+		// acceptance leave the step without the operator (the invariant
+		// TestApprovalGateStepHasNoOtherAdvancingAction holds). Steps whose
+		// kind is human_checkpoint never reach here; this guards the
+		// internal_sqlite steps that carry an approval-required action.
+		gated := false
+		for _, actionID := range definition.StepGraph.Steps[i].Actions {
+			if policy, ok := policies[actionID]; ok && policy.Approval == ActionApprovalRequired {
+				gated = true
+				break
+			}
+		}
+		if gated {
+			continue
+		}
+		definition.StepGraph.Steps[i].Actions = append(definition.StepGraph.Steps[i].Actions, acceptance.ID, dispatch.ID)
+	}
+	return definition
+}
+
+// withLegacyWorkerActions reproduces, byte for byte, the worker-action
+// composition the frozen version-1 definitions were pinned under (#861):
+// the pair on external_effect steps only, and the research family excluded
+// by the CD-0059 authoring decision the lane-step dispatch join replaced
+// for shipped versions. Editing this rule moves the version-1 digests and
+// wedges every instance that pinned them (CD-0115); it is frozen history,
+// not living law.
+func withLegacyWorkerActions(definition WorkflowDefinition) WorkflowDefinition {
+	definition = cloneWorkflowDefinition(definition)
+	if definition.WorkKind == WorkKindResearch {
+		return definition
+	}
+	acceptance := WorkflowActionDefinition{
+		ID: "accept_worker_result", Consequence: ActionInternalSQLite, Approval: ActionApprovalNone, ExecutionMode: ActionAdvance, RequiredCapability: "work_transition",
+		Payload: WorkflowPayloadDefinition{Fields: []WorkflowPayloadField{
+			{Name: "attempt_id", ValueType: PayloadRef, Required: true, MinLength: workflowInt(2), MaxLength: workflowInt(128)},
+			{Name: "attempt_epoch", ValueType: PayloadInteger, Required: true, Minimum: workflowInt(1), Maximum: workflowInt(2147483647)},
+		}},
+	}
 	dispatch := WorkflowActionDefinition{
 		ID: "dispatch_worker", Consequence: ActionExternalEffect, Approval: ActionApprovalNone, ExecutionMode: ActionFenced, RequiredCapability: "worker_dispatch",
 		Payload: WorkflowPayloadDefinition{Fields: []WorkflowPayloadField{
@@ -1010,7 +1103,7 @@ func builtinImplementation() WorkflowDefinition {
 	edges = addEdge(edges, "execution", "execution", WorkflowEdgeRetry)
 	actions := []string{"record_proposal", "record_discovery", "record_design", "approve_contract", "start_execution", "checkpoint_execution", "bind_evidence", "declare_impact", "link_successor", "record_delivery", "record_verdict", "confirm_premise", "complete"}
 	d := baseDefinition("workflow.implementation", WorkKindImplementation, graph(steps, edges, "release"), actions, []EvidenceKind{EvidenceVerification, EvidenceReview}, WorkflowOutcomeSchema{DefaultKind: PredicateCheck, AllowedKinds: []PredicateKind{PredicateExists, PredicateAbsent, PredicateCheck}, AllowedOutcomeTokens: []string{}, DecisionRecordRequired: false}, []WorkKind{WorkKindBreakFix, WorkKindResearch})
-	d.Version = 2 // CD-0112 content; version 1 is frozen in workflow_registry_versions.go (#861)
+	d.Version = 3 // version 2 is the CD-0112 content; version 3 carries the lane-step dispatch join (#892)
 	return withContinuityActions(d)
 }
 func builtinBreakFix() WorkflowDefinition {
@@ -1022,7 +1115,7 @@ func builtinBreakFix() WorkflowDefinition {
 	edges = addEdge(edges, "repair", "repair", WorkflowEdgeRetry)
 	actions := []string{"record_reproduction", "record_root_cause", "approve_contract", "start_repair", "checkpoint_repair", "bind_evidence", "link_successor", "record_delivery", "record_verdict", "confirm_premise", "complete"}
 	d := baseDefinition("workflow.break_fix", WorkKindBreakFix, graph(steps, edges, "complete"), actions, []EvidenceKind{EvidenceVerification}, WorkflowOutcomeSchema{DefaultKind: PredicateAbsent, AllowedKinds: []PredicateKind{PredicateExists, PredicateAbsent, PredicateCheck}, AllowedOutcomeTokens: []string{}, DecisionRecordRequired: false}, []WorkKind{WorkKindImplementation, WorkKindResearch})
-	d.Version = 2 // CD-0112 content; version 1 is frozen in workflow_registry_versions.go (#861)
+	d.Version = 3 // version 2 is the CD-0112 content; version 3 carries the lane-step dispatch join (#892)
 	return withContinuityActions(d)
 }
 func builtinResearch() WorkflowDefinition {
@@ -1030,7 +1123,7 @@ func builtinResearch() WorkflowDefinition {
 	steps := []WorkflowStep{step("frame", WorkflowStepHumanCheckpoint, "frame_research", "approve_contract"), step("investigate", WorkflowStepCrossAuthority, "record_finding", "revise_candidates", "bind_evidence"), step("findings", WorkflowStepInternalSQLite, "record_report", "link_successor"), step("conclude", WorkflowStepHumanCheckpoint, "record_conclusion", "record_verdict", "confirm_premise"), step("complete", WorkflowStepInternalSQLite, "complete")}
 	actions := []string{"frame_research", "approve_contract", "record_finding", "revise_candidates", "bind_evidence", "record_report", "link_successor", "record_conclusion", "record_verdict", "confirm_premise", "complete"}
 	d := baseDefinition("workflow.research", WorkKindResearch, graph(steps, forward(ids...), "complete"), actions, []EvidenceKind{EvidenceArtifact}, WorkflowOutcomeSchema{DefaultKind: PredicateOutcome, AllowedKinds: []PredicateKind{PredicateOutcome}, AllowedOutcomeTokens: []string{"no_change", "resolved", "report_recorded"}, DecisionRecordRequired: false}, []WorkKind{WorkKindBreakFix, WorkKindArchitectureSpike, WorkKindStaticAnalysis})
-	d.Version = 2 // CD-0112 content; version 1 is frozen in workflow_registry_versions.go (#861)
+	d.Version = 3 // version 2 is the CD-0112 content; version 3 carries the lane-step dispatch join (#892)
 	return withContinuityActions(d)
 }
 func builtinArchitectureSpike() WorkflowDefinition {
@@ -1041,6 +1134,7 @@ func builtinArchitectureSpike() WorkflowDefinition {
 	edges = addEdge(edges, "poc_optional", "poc_optional", WorkflowEdgeRetry)
 	actions := []string{"frame_question", "approve_contract", "record_research", "bind_evidence", "record_option", "start_poc", "checkpoint_poc", "discard_poc", "record_delivery", "record_decision", "record_verdict", "accept_decision", "confirm_premise", "complete"}
 	d := baseDefinition("workflow.architecture_spike", WorkKindArchitectureSpike, graph(steps, edges, "complete"), actions, []EvidenceKind{EvidenceReview, EvidenceApproval, EvidenceArtifact}, WorkflowOutcomeSchema{DefaultKind: PredicateOutcome, AllowedKinds: []PredicateKind{PredicateOutcome}, AllowedOutcomeTokens: []string{"accepted_decision", "insufficient_evidence"}, DecisionRecordRequired: true}, []WorkKind{WorkKindImplementation, WorkKindResearch, WorkKindStaticAnalysis})
+	d.Version = 2 // version 1 carried no lane-step dispatch join; version 2 composes it (#892)
 	return withContinuityActions(d)
 }
 func builtinOpsRunbook() WorkflowDefinition {
@@ -1051,6 +1145,7 @@ func builtinOpsRunbook() WorkflowDefinition {
 	edges = addEdge(edges, "execute", "execute", WorkflowEdgeRetry)
 	actions := []string{"approve_contract", "approve_operation", "start_run", "checkpoint_run", "bind_evidence", "add_condition", "resolve_condition", "cancel_condition", "record_delivery", "record_health", "record_verdict", "rollback_run", "cleanup_run", "confirm_premise", "complete"}
 	d := baseDefinition("workflow.ops_runbook", WorkKindOpsRunbook, graph(steps, edges, "complete"), actions, []EvidenceKind{EvidenceApproval, EvidenceNativeRun}, WorkflowOutcomeSchema{DefaultKind: PredicateCheck, AllowedKinds: []PredicateKind{PredicateExists, PredicateAbsent, PredicateCheck}, AllowedOutcomeTokens: []string{}, DecisionRecordRequired: false}, []WorkKind{WorkKindImplementation, WorkKindBreakFix, WorkKindResearch})
+	d.Version = 2 // version 1 carried no lane-step dispatch join; version 2 composes it (#892)
 	return withContinuityActions(d)
 }
 func builtinStaticAnalysis() WorkflowDefinition {
@@ -1060,6 +1155,7 @@ func builtinStaticAnalysis() WorkflowDefinition {
 	edges = addEdge(edges, "analyze", "analyze", WorkflowEdgeRetry)
 	actions := []string{"approve_contract", "declare_scope", "run_analysis", "checkpoint_analysis", "record_delivery", "record_report", "bind_evidence", "record_verdict", "confirm_premise", "complete"}
 	d := baseDefinition("workflow.static_analysis", WorkKindStaticAnalysis, graph(steps, edges, "complete"), actions, []EvidenceKind{EvidenceArtifact, EvidenceReview}, WorkflowOutcomeSchema{DefaultKind: PredicateCheck, AllowedKinds: []PredicateKind{PredicateExists, PredicateAbsent, PredicateCheck}, AllowedOutcomeTokens: []string{}, DecisionRecordRequired: false}, []WorkKind{WorkKindImplementation, WorkKindBreakFix, WorkKindResearch})
+	d.Version = 2 // version 1 carried no lane-step dispatch join; version 2 composes it (#892)
 	return withContinuityActions(d)
 }
 func builtinGenericOneOff() WorkflowDefinition {
@@ -1069,6 +1165,6 @@ func builtinGenericOneOff() WorkflowDefinition {
 	edges = addEdge(edges, "execute", "execute", WorkflowEdgeRetry)
 	actions := []string{"approve_contract", "start_action", "checkpoint_action", "bind_evidence", "link_successor", "record_delivery", "record_verdict", "confirm_premise", "complete"}
 	d := baseDefinition("workflow.generic_one_off", WorkKindGenericOneOff, graph(steps, edges, "complete"), actions, []EvidenceKind{EvidenceArtifact}, WorkflowOutcomeSchema{DefaultKind: PredicateOutcome, AllowedKinds: []PredicateKind{PredicateExists, PredicateAbsent, PredicateOutcome, PredicateCheck}, AllowedOutcomeTokens: []string{"no_change", "accepted_decision", "insufficient_evidence", "resolved", "remediated", "report_recorded", "completed", "operator_defined"}, DecisionRecordRequired: false}, []WorkKind{WorkKindImplementation, WorkKindBreakFix, WorkKindResearch, WorkKindArchitectureSpike, WorkKindOpsRunbook, WorkKindStaticAnalysis, WorkKindGenericOneOff})
-	d.Version = 2 // CD-0112 content; version 1 is frozen in workflow_registry_versions.go (#861)
+	d.Version = 3 // version 2 is the CD-0112 content; version 3 carries the lane-step dispatch join (#892)
 	return withContinuityActions(d)
 }

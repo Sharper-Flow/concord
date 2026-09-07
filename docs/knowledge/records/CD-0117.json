@@ -1,0 +1,31 @@
+{
+  "date": "2026-09-06T00:00:00Z",
+  "evidence": [
+    "contracts/lane-step-dispatch.v1.json",
+    "internal/store/workflow_registry.go",
+    "internal/store/workflow_action_guards.go",
+    "internal/store/generated_lane_step_dispatch.go",
+    "internal/store/lane_step_dispatch_test.go",
+    "scripts/generate-lane-step-dispatch.py"
+  ],
+  "home_domain_id": "workflow-engine",
+  "id": "CD-0117",
+  "kind": "decision",
+  "path": "docs/decisions/CD-0117-a-lane-dispatches-at-the-step-kinds-its-capability-class-admits.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:b2449e9204f3ad2552f2fc83afe7e0f117cdc4c04a49e1031c5373dac72354b5",
+  "status": "accepted",
+  "summary": "A lane dispatches at a step only when the lane-step dispatch join admits the lane's capability class at that step's kind: read-only classes reach internal_sqlite and cross_authority steps, editing classes stay on external_effect steps, definition composition derives the action pair placement from the generated join, dispatch time refuses a lane the step kind does not admit, and the generator refuses a lane class the join does not name. Repeals the CD-0059 research-family exclusion (#892).",
+  "tags": [
+    "workflow",
+    "lanes",
+    "law"
+  ],
+  "title": "A lane dispatches at the step kinds its capability class admits"
+}

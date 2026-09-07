@@ -234,7 +234,12 @@ func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, registry Definiti
 		return result, err
 	}
 	if request.ActionID == "complete" {
-		return applyCompleteWorkflowActionTx(ctx, tx, registry, entry, request, currentStep, guards.eventActor, payload)
+		// The assembly's event list holds the actor- and operator-recording
+		// events for a tuple first seen on this action (a host restart mints
+		// a new session identity). Complete is the one action that does not
+		// consume the assembly's events, so they travel as a prefix here;
+		// dropping them left a restarted session unable to complete (#909).
+		return applyCompleteWorkflowActionTx(ctx, tx, registry, entry, request, currentStep, guards.eventActor, payload, assembly.events)
 	}
 	var workerPacketDigest string
 	assembly.events, workerPacketDigest, err = appendGenericWorkflowCompletion(assemblyInput, assembly.attemptEpoch, assembly.events)

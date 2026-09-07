@@ -384,6 +384,69 @@ func VerifyWorkflowInstanceDefinitionTx(ctx context.Context, tx *sql.Tx, registr
 	return VerifyWorkflowDefinitionPin(registry, pin)
 }
 
+// missingPredicateVerdicts lists the approved contract predicates that have
+// no recorded verdict. The verdict join mirrors the completion clause: one
+// verdict per predicate id, latest per predicate.
+func missingPredicateVerdicts(ctx context.Context, tx *sql.Tx, workID string) ([]string, error) {
+	contract, _, err := workflowCompletionContract(ctx, tx, BuiltinWorkflowRegistry(), workID)
+	if err != nil {
+		return nil, err
+	}
+	// The predicate table is the authority the verdict fold enforces against,
+	// so the gate reads the same rows. A contract whose fold wrote no
+	// predicate rows falls back to the read model's predicate set.
+	approved := map[string]bool{}
+	predicateRows, err := tx.QueryContext(ctx, `SELECT predicate_id FROM workflow_contract_predicates WHERE work_id=? AND contract_version=?`, workID, contract.Version)
+	if err != nil {
+		return nil, wrapFailure(KindUnavailable, "workflow_action", "cannot inspect approved predicates", true, "retry once the workflow verdicts are readable", err)
+	}
+	for predicateRows.Next() {
+		var predicateID string
+		if err := predicateRows.Scan(&predicateID); err != nil {
+			predicateRows.Close()
+			return nil, wrapFailure(KindUnavailable, "workflow_action", "cannot read approved predicate", true, "retry once the workflow verdicts are readable", err)
+		}
+		approved[predicateID] = true
+	}
+	if err := predicateRows.Err(); err != nil {
+		predicateRows.Close()
+		return nil, wrapFailure(KindUnavailable, "workflow_action", "cannot enumerate approved predicates", true, "retry once the workflow verdicts are readable", err)
+	}
+	predicateRows.Close()
+	if len(approved) == 0 {
+		for _, predicate := range contract.Predicates {
+			approved[predicate.PredicateID] = true
+		}
+	}
+	// The verdict identity mirrors the completion clause: a payload-version-1
+	// verdict is the legacy single-predicate verdict and counts as
+	// predicate:primary whatever id its payload restates.
+	verdictRows, err := tx.QueryContext(ctx, `SELECT DISTINCT (CASE WHEN payload_version=1 THEN 'predicate:primary' ELSE json_extract(payload,'$.predicate_id') END) FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND json_extract(payload,'$.contract_version')=?`, workID, WorkflowVerdictRecorded, contract.Version)
+	if err != nil {
+		return nil, wrapFailure(KindUnavailable, "workflow_action", "cannot inspect predicate verdicts", true, "retry once the workflow verdicts are readable", err)
+	}
+	defer verdictRows.Close()
+	verdicted := map[string]bool{}
+	for verdictRows.Next() {
+		var predicateID string
+		if err := verdictRows.Scan(&predicateID); err != nil {
+			return nil, wrapFailure(KindUnavailable, "workflow_action", "cannot read predicate verdict", true, "retry once the workflow verdicts are readable", err)
+		}
+		verdicted[predicateID] = true
+	}
+	if err := verdictRows.Err(); err != nil {
+		return nil, wrapFailure(KindUnavailable, "workflow_action", "cannot enumerate predicate verdicts", true, "retry once the workflow verdicts are readable", err)
+	}
+	var missing []string
+	for predicateID := range approved {
+		if !verdicted[predicateID] {
+			missing = append(missing, predicateID)
+		}
+	}
+	sort.Strings(missing)
+	return missing, nil
+}
+
 // missingCompletionEvidenceKinds lists the contract- and definition-required
 // evidence kinds that are not yet durably bound to the work item.
 func missingCompletionEvidenceKinds(ctx context.Context, tx *sql.Tx, workID string) ([]string, error) {
@@ -423,12 +486,24 @@ func requireAcceptanceDeliverables(ctx context.Context, tx *sql.Tx, workID strin
 	if verdict == nil {
 		return newFailure(KindMissingEvidence, "workflow_action", "premise confirmation requires a recorded workflow verdict", false, "record_verdict before confirming the premise")
 	}
-	missing, err := missingCompletionEvidenceKinds(ctx, tx, workID)
+	// The completion clause demands a verdict for every approved predicate,
+	// and confirm_premise is the last step where record_verdict is declared.
+	// Leaving verify with a predicate unverdicted wedges the item at
+	// complete with no declared recovery action (#911), so the confirmation
+	// refuses here and names what is missing.
+	missing, missingErr := missingPredicateVerdicts(ctx, tx, workID)
+	if missingErr != nil {
+		return missingErr
+	}
+	if len(missing) != 0 {
+		return newFailure(KindMissingEvidence, "workflow_action", "premise confirmation requires a verdict for every approved predicate: missing "+strings.Join(missing, ", "), false, "record_verdict for each approved predicate before confirming the premise")
+	}
+	missingKinds, err := missingCompletionEvidenceKinds(ctx, tx, workID)
 	if err != nil {
 		return err
 	}
-	if len(missing) != 0 {
-		return newFailure(KindMissingEvidence, "workflow_action", "premise confirmation requires every contract-required evidence kind bound: missing "+strings.Join(missing, ", "), false, "bind_evidence for each required kind before confirming the premise")
+	if len(missingKinds) != 0 {
+		return newFailure(KindMissingEvidence, "workflow_action", "premise confirmation requires every contract-required evidence kind bound: missing "+strings.Join(missingKinds, ", "), false, "bind_evidence for each required kind before confirming the premise")
 	}
 	return nil
 }

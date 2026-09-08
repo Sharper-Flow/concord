@@ -7761,6 +7761,13 @@ const GeneratedPayloadSchemaDocument = `{
           },
           "maxItems": 100,
           "type": "array"
+        },
+        "work_pins": {
+          "items": {
+            "$ref": "#/$defs/work_pin"
+          },
+          "maxItems": 32,
+          "type": "array"
         }
       },
       "required": [

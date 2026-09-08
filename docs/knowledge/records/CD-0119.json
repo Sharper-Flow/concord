@@ -28,9 +28,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:27da119f4633a411fed23e137d1c0fbc4033701e3ef89a48a7da8422a79ddf90",
+  "sha256": "sha256:1a67518527a0f0e793ba8f8492dd79c1c28d14a9c32e4f2694501b4badbc38bb",
   "status": "accepted",
-  "summary": "concord_work_start accepts a resume shape naming an existing item by work identity. The work-resume read derives the item's active worktree entry from the Product, Project, and work identity, applies the bootstrap origin gate, and refuses unknown, terminal, unclaimed, or out-of-scope work typed. The adapter runs the same session-prepare, move, and read-back tail as a capture and records nothing.",
+  "summary": "concord_work_start accepts a resume shape naming an existing item by work identity. The work-resume read derives the item's active worktree entry from the Product, Project, and work identity, applies the bootstrap origin gate only when the session leaves a different worktree, and refuses unknown, terminal, unclaimed, or out-of-scope work typed. The adapter runs the same session-prepare, move, and read-back tail as a capture and records nothing.",
   "tags": [
     "workflow",
     "law"

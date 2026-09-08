@@ -6,7 +6,10 @@
   derives an existing item's active worktree; issue #891
 - **Approval:** The operator approved the contract in session on 2026-09-06
   (Concord work `work-daa4c53e214c07b611364073`), choosing the
-  `concord_work_start` resume shape over a `worktree_enter` operation.
+  `concord_work_start` resume shape over a `worktree_enter` operation. The
+  operator amended D3 in session on 2026-09-08 (observation
+  `obs:a61be78c4a8ddee1`): the read derives the target before the origin
+  gate, so a dirty same-target resume converges instead of refusing.
 - **Related:** CD-0096, CD-0098, CD-0104, CD-0110, issues #891, #822
 - **Amends:** CD-0098 D1 at its capture-only clause; CD-0104 D3 at its
   digest-keyed clause
@@ -47,9 +50,12 @@ worktree path from a caller (CD-0096 D2).
 The adapter runs `session-prepare` in the entry directory, moves the session
 through the host route, reads the landing back, and refuses on mismatch
 (CD-0098 D3). The move is a no-op when the session already runs there, so a
-replay converges. `session-prepare` takes an optional task: a capture sends
-its task, a resume sends none, and the derived prompt carries a task line
-only when a task exists.
+replay converges. The read derives the entry before it applies the origin
+gate: a session that already runs in the target chains from no origin, so a
+dirty target does not refuse — the dirty, lease, and worker guards bind only
+a resume that leaves a different worktree. `session-prepare` takes an
+optional task: a capture sends its task, a resume sends none, and the derived
+prompt carries a task line only when a task exists.
 
 ### D4. The published tool view is flattened, the contract is not
 
@@ -73,6 +79,12 @@ Scenario: A session resumes from a live item's clean worktree
   When the session calls concord_work_start with the target work_id
   Then the origin gate admits the clean origin
   And the session moves to the target entry
+
+Scenario: A session resumes its own worktree while it is dirty
+  Given a session that runs in the target item's worktree with uncommitted changes
+  When the session calls concord_work_start with that work_id
+  Then the read derives the entry and applies no origin gate
+  And the move is the convergent no-op and the resume succeeds
 
 Scenario: The resume read refuses what it cannot derive
   Given a work item that is terminal, unknown, unclaimed, or outside the scope
@@ -102,6 +114,9 @@ Scenario: Occupancy never refuses the move
 - `cmd/concord.TestWorkResumeDerivesActiveEntryFromDefaultCheckout`,
   `TestWorkResumeRefusesTerminalUnknownAndUnclaimedWork`, and
   `TestWorkResumeAppliesTheBootstrapOriginGate` prove D2.
+- `cmd/concord.TestWorkResumeSameTargetSkipsTheOriginGate` proves D3's
+  same-target clause: a dirty target resumes, and the gate still refuses a
+  dirty different-target move inside `TestWorkResumeAppliesTheBootstrapOriginGate`.
 - `internal/store.TestResumeWorktreeLocationRefusals` proves the typed store
   refusals.
 - `cmd/concord.TestSessionPrepareAcceptsEmptyTask` proves D3's optional task.

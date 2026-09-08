@@ -33,6 +33,7 @@ mock.module("@opencode-ai/plugin", () => ({ tool: fakeTool }))
 
 const source = await Bun.file(new URL("./concord.ts", import.meta.url)).text()
 const credentialSource = await Bun.file(new URL("./credentials.ts", import.meta.url)).text()
+const continuationSource = await Bun.file(new URL("../../instructions/continuation.md", import.meta.url)).text()
 // The tests run against a fake runner, so bind the transport to a nominal
 // core path instead of the unstamped repository placeholder (CD-0111 D1).
 configureCoreBinary("concord")
@@ -1564,4 +1565,34 @@ test("a session without a host lease refuses every core operation", async () => 
   expect(envelope.error.adapter_reason).toBe("host_lease_missing")
   expect(envelope.error.recovery_action.kind).toBe("contact_operator")
   configureHostLease({ reset: true })
+})
+
+test("native workflow-action dispatch is discoverable without MCP catalog results", () => {
+  expect(source).toContain("operation workflow_action")
+  expect(source).toContain("action_id dispatch_worker")
+  expect(source).toContain("fields.lane_id")
+  expect(source).toContain("Route discovery does not prove admission at the current workflow step")
+  expect(contractOperations.some((operation: any) => operation.id === "concord_work_transition.workflow_action")).toBe(true)
+})
+
+test("continuation posture keeps refusal classes and recovery handoffs distinct", () => {
+  for (const clause of [
+    "missing capability",
+    "workflow-step restriction",
+    "missing approval",
+    "missing credential",
+    "authorization denial",
+    "unverified diagnosis",
+    "Do not retry an identical refused request",
+    "Do not\nrequest approval again because a bookkeeping or checkpoint write failed",
+    "the failed action, the verified",
+    "the effect state",
+    "the exact operator action",
+    "the recovery owner",
+    "A changed host directory or status message is",
+    "verify the relevant authoritative state by",
+    "Do not create a second policy, mutation route, approval record, or evidence path",
+  ]) {
+    expect(continuationSource).toContain(clause)
+  }
 })

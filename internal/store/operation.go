@@ -197,6 +197,7 @@ var eventKindRegistry = map[string]EventKindRegistration{
 	"work.message_withdrawn":                  registerEventKind[messageWithdrawnPayload](1, 1, nil, EventAppendAuthorityGeneric, foldMessageWithdrawn, nil),
 	"work.resource_claim_released":            registerEventKind[resourceClaimReleasedPayload](1, 1, nil, EventAppendAuthorityGeneric, foldResourceClaimReleased, nil),
 	"work.worktree_reclaimed":                 registerEventKind[worktreeReclaimedPayload](1, 1, nil, EventAppendAuthorityGeneric, foldWorktreeReclaimed, nil),
+	"work.session_vacated":                    registerEventKind[sessionVacatedPayload](1, 1, nil, EventAppendAuthorityGeneric, foldSessionVacated, nil),
 	"work.transitioned":                       registerEventKind[workTransitionPayload](1, 1, nil, EventAppendAuthorityGeneric, foldWorkTransitioned, nil),
 	"work.superseded":                         registerEventKind[workSupersededPayload](1, 1, nil, EventAppendAuthorityGeneric, foldWorkSuperseded, nil),
 	"work.reopened":                           registerEventKind[workReopenedPayload](1, 1, nil, EventAppendAuthorityGeneric, foldWorkReopened, nil),

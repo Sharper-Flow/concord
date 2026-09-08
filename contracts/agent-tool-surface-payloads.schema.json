@@ -5,6 +5,65 @@
   "type": "object",
   "additionalProperties": false,
   "$defs": {
+    "absolute_path": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096
+    },
+    "mutation_changed_ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "entity_kind",
+        "id",
+        "version"
+      ],
+      "properties": {
+        "entity_kind": {
+          "$ref": "#/$defs/short"
+        },
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "version": {
+          "$ref": "#/$defs/version"
+        }
+      }
+    },
+    "next_valid_intent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "tool",
+        "operation",
+        "reason_code"
+      ],
+      "properties": {
+        "tool": {
+          "$ref": "#/$defs/id"
+        },
+        "operation": {
+          "$ref": "#/$defs/short"
+        },
+        "reason_code": {
+          "$ref": "#/$defs/short"
+        },
+        "action_id": {
+          "$ref": "#/$defs/id"
+        },
+        "required_fields": {
+          "type": "array",
+          "maxItems": 32,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/short"
+          }
+        },
+        "expected_version": {
+          "$ref": "#/$defs/version"
+        }
+      }
+    },
     "id": {
       "type": "string",
       "minLength": 1,
@@ -4425,6 +4484,21 @@
         }
       }
     },
+    "work_transition_session_vacate_input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "idempotency_key"
+      ],
+      "properties": {
+        "idempotency_key": {
+          "$ref": "#/$defs/id"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
+        }
+      }
+    },
     "work_transition_worktree_reclaim_input": {
       "type": "object",
       "additionalProperties": false,
@@ -4475,6 +4549,46 @@
         },
         "requested_budget_seconds": {
           "$ref": "#/$defs/requested_budget_seconds"
+        }
+      }
+    },
+    "session_vacate_result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "changed_refs",
+        "next_valid_intents",
+        "work_id",
+        "project_id",
+        "source_directory",
+        "destination_directory"
+      ],
+      "properties": {
+        "changed_refs": {
+          "type": "array",
+          "maxItems": 32,
+          "items": {
+            "$ref": "#/$defs/mutation_changed_ref"
+          }
+        },
+        "next_valid_intents": {
+          "type": "array",
+          "maxItems": 16,
+          "items": {
+            "$ref": "#/$defs/next_valid_intent"
+          }
+        },
+        "work_id": {
+          "$ref": "#/$defs/id"
+        },
+        "project_id": {
+          "$ref": "#/$defs/id"
+        },
+        "source_directory": {
+          "$ref": "#/$defs/absolute_path"
+        },
+        "destination_directory": {
+          "$ref": "#/$defs/absolute_path"
         }
       }
     },

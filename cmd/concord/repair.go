@@ -167,7 +167,7 @@ func backupBeforeRepair(out, errOut io.Writer, dataRoot, version string) int {
 	defer func() { _ = s.Close() }()
 	// The backup API requires an existing destination parent; the repair
 	// tree under the data root is created on first use.
-	if err := os.MkdirAll(filepath.Join(dataRoot, "backups"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(dataRoot, "backups"), 0o750); err != nil {
 		writeOperatorDiagnostic(errOut, "repair", "cannot create the backup directory: "+err.Error())
 		return 1
 	}

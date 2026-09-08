@@ -24,6 +24,64 @@ import (
 	"github.com/sharper-flow/concord/internal/store/storetest"
 )
 
+func TestAuditReclaimResponseFailureReportsCommittedEffect(t *testing.T) {
+	s, _, _, service, grant, _ := tiersFixture(t)
+	completeWork(t, s, "work-2", 3)
+	livePath := filepath.Join(filepath.Dir(s.Path()), "worktrees", "project-1", "work-1")
+	if err := os.WriteFile(filepath.Join(livePath, "in-flight.md"), []byte("# in flight\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitRun(t, livePath, "add", "in-flight.md")
+	gitRun(t, livePath, "-c", "user.email=fixture@example.com", "-c", "user.name=fixture", "commit", "-m", "in-flight work")
+
+	scopeVersion, _, err := s.ScopeVersion(context.Background(), "project-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	op, ok := ValidateContractOperation("concord_work_transition", "worktree_audit_reclaim")
+	if !ok {
+		t.Fatal("worktree_audit_reclaim is not registered")
+	}
+	raw, _ := json.Marshal(map[string]any{"product_id": "product-1", "default_ref": "main", "idempotency_key": "post-commit-budget"})
+	r := runtime{Store: s, Authority: service, Envelope: mutationEnvelope(grant, scopeVersion), Tool: "concord_work_transition", Operation: "worktree_audit_reclaim", Budget: budgetInput{MaxBytes: 1}}
+	response, err := r.mutateWorktreeAuditReclaim(context.Background(), NewBase("post-commit", r.Tool, r.Operation), raw, grant, op)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if response.Outcome != OutcomeError || response.Error == nil {
+		t.Fatalf("response=%+v", response)
+	}
+	if response.Error.EffectState == EffectNone || response.Error.RetrySafe {
+		t.Fatalf("post-commit error lost effect classification: %+v", response.Error)
+	}
+	if response.ChangedRefs == nil || len(*response.ChangedRefs) != 1 || (*response.ChangedRefs)[0].ID != "work-2" {
+		t.Fatalf("post-commit changed refs=%+v", response.ChangedRefs)
+	}
+	if _, err := os.Stat(filepath.Join(filepath.Dir(s.Path()), "worktrees", "project-1", "work-2")); !os.IsNotExist(err) {
+		t.Fatalf("reclaim effect was not committed before response failure: %v", err)
+	}
+	if err := response.Validate(); err != nil {
+		t.Fatalf("post-commit response is not contract-valid: %v", err)
+	}
+}
+
+func TestSupersedeContractPayloadIsRepresentableAtAgentBoundary(t *testing.T) {
+	payload, err := json.Marshal(map[string]any{
+		"work_id": "work-stale", "expected_version": 7, "action_id": "supersede_contract", "idempotency_key": "supersede-contract",
+		"fields": map[string]any{
+			"contract_version": 2, "premise": "continue under the accepted successor law", "outcome_kind": "check",
+			"outcome_payload":   map[string]any{"kind": "check", "check_ref": "check:successor", "immutable_subject_ref": "commit:successor", "expected_result": "pass"},
+			"required_evidence": []string{"verification"}, "route_conventions": []string{}, "spec_mandate": []string{"spec:successor"}, "law_modifies": []string{}, "rigor_class": "prototype_internal",
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ValidateOperationPayload("concord_work_transition", "workflow_action", payload, false); err != nil {
+		t.Fatalf("supersede_contract payload is not representable at the agent boundary: %v", err)
+	}
+}
+
 func TestSeededProductPortfolioParityAcrossEnvelopeAndLauncher(t *testing.T) {
 	s, err := storetest.OpenNamed(t.TempDir(), "portfolio.db")
 	if err != nil {

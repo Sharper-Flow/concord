@@ -376,6 +376,16 @@ func (e Envelope) validateInvariants() error {
 	if err := validateEnvelopeCollections(e); err != nil {
 		return err
 	}
+	if e.ChangedRefs != nil {
+		if len(*e.ChangedRefs) > 32 {
+			return errors.New("changed reference bound exceeded")
+		}
+		for _, ref := range *e.ChangedRefs {
+			if !bounded(ref.EntityKind, 1, 64) || !bounded(ref.ID, 1, 128) || !bounded(ref.Version, 1, 128) {
+				return errors.New("invalid changed reference")
+			}
+		}
+	}
 	if err := validateScope(e.ResolvedScope); err != nil {
 		return err
 	}
@@ -434,13 +444,6 @@ func (e Envelope) validateOK() error {
 	}
 	if isMutation(e.Tool, e.Operation) && (hasItems || e.ChangedRefs == nil || e.NextValidIntents == nil) {
 		return errors.New("mutation ok envelope requires result and mutation metadata")
-	}
-	if e.ChangedRefs != nil {
-		for _, ref := range *e.ChangedRefs {
-			if !bounded(ref.EntityKind, 1, 64) || !bounded(ref.ID, 1, 128) || !bounded(ref.Version, 1, 128) {
-				return errors.New("invalid changed reference")
-			}
-		}
 	}
 	if e.Error != nil || e.OperationRef != nil || e.NextAction != nil {
 		return errors.New("ok envelope contains another outcome")

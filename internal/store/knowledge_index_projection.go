@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"sort"
 	"strings"
@@ -726,6 +727,9 @@ func linkedCompactionWorkIDs(ctx context.Context, db *sql.DB) (map[string]bool, 
 
 func insertKnowledgeNote(ctx context.Context, tx *sql.Tx, home KnowledgeHome, note VerifiedNote) error {
 	if _, err := tx.ExecContext(ctx, `INSERT INTO archived_work (id,type,title,completed_at,outcome_tag,lesson_tags,terminal_state,priority,summary,successor_work_id,home_project_id,home_locator_id,note_path,commit_oid,content_hash,scope_mode,manifest_schema_version) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, note.ID, note.Kind, note.Title, note.CompletedAt, note.OutcomeTag, marshalStrings(note.LessonTags), note.TerminalState, note.Priority, note.Summary, nullString(note.SuccessorID), home.HomeProjectID, home.HomeLocatorID, note.NotePath, note.CommitOID, note.ContentHash, note.ScopeMode, note.ManifestSchemaVersion); err != nil {
+		if failure := indexedNoteConstraintFailure(home, note, err); failure != nil {
+			return failure
+		}
 		return wrapFailure(KindUnavailable, "rebuild_knowledge_index", "cannot insert an indexed note", true, "retry once the database is writable", err)
 	}
 	scopeTable, scopeColumn, scopeIDs := "archived_work_components", "component_id", note.ComponentIDs
@@ -736,11 +740,29 @@ func insertKnowledgeNote(ctx context.Context, tx *sql.Tx, home KnowledgeHome, no
 		column := map[string]string{"archived_work_products": "product_id", "archived_work_projects": "project_id", "archived_work_tags": "tag_id", scopeTable: scopeColumn}[table]
 		for _, value := range values {
 			if _, err := tx.ExecContext(ctx, "INSERT INTO "+table+" (home_project_id, home_locator_id, work_id, "+column+") VALUES (?, ?, ?, ?)", home.HomeProjectID, home.HomeLocatorID, note.ID, value); err != nil { //nolint:gosec // table and column come from closed scope maps and all values stay parameter-bound.
+				if failure := indexedNoteConstraintFailure(home, note, err); failure != nil {
+					return failure
+				}
 				return wrapFailure(KindUnavailable, "rebuild_knowledge_index", "cannot insert indexed note scope", true, "retry once the database is writable", err)
 			}
 		}
 	}
 	return nil
+}
+
+func indexedNoteConstraintFailure(home KnowledgeHome, note VerifiedNote, err error) error {
+	if !isConstraintViolation(err) {
+		return nil
+	}
+	constraint := "database"
+	if isIdentityConflict(err) {
+		constraint = "note identity"
+	} else if isForeignKeyViolation(err) {
+		constraint = "knowledge-home scope"
+	} else if isCheckViolation(err) {
+		constraint = "indexed note field"
+	}
+	return newFailure(KindInvalidInput, "rebuild_knowledge_index", fmt.Sprintf("indexed note %q violates the %s constraint in knowledge home %q", note.ID, constraint, home.HomeLocatorID), false, "repair the indexed note identity or scope before rebuilding")
 }
 
 func manifestRecordNote(record KnowledgeRecord, commit, schemaVersion string) VerifiedNote {

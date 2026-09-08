@@ -1980,7 +1980,11 @@ func (r runtime) mutateWorktreeVerify(ctx context.Context, base Envelope, raw []
 		Now:          r.Authority.now(),
 	})
 	if err != nil {
-		return failureEnvelope(base, err), nil
+		failure := failureEnvelope(base, err)
+		if result.LeaseID != "" {
+			return worktreeVerifyPostLeaseFailure(failure, []ChangedRef{{EntityKind: "worktree_verify_lease", ID: leaseID, Version: "1"}}), nil
+		}
+		return failure, nil
 	}
 	payload, _ := json.Marshal(map[string]any{
 		"work_id": result.WorkID, "project_id": result.ProjectID, "branch": result.Branch, "path": result.Path,
@@ -1993,7 +1997,7 @@ func (r runtime) mutateWorktreeVerify(ctx context.Context, base Envelope, raw []
 	base.ResolvedScope = scopeFromMap(scope)
 	response := r.mutationResult(base, payload, changed, intents)
 	if response.Outcome == OutcomeError {
-		return response, nil
+		return worktreeVerifyPostLeaseFailure(response, changed), nil
 	}
 	changedJSON, _ := json.Marshal(changed)
 	authorizedScope, _ := json.Marshal(boundedApprovalScope(scope))
@@ -2008,9 +2012,24 @@ func (r runtime) mutateWorktreeVerify(ctx context.Context, base Envelope, raw []
 			ObservedAt:              r.Authority.now(),
 		})
 	}); err != nil {
-		return failureEnvelope(base, err), nil
+		return worktreeVerifyPostLeaseFailure(failureEnvelope(base, err), changed), nil
 	}
 	return response, nil
+}
+
+// worktreeVerifyPostLeaseFailure keeps the result truthful after the verify
+// lease and command have crossed their effect boundary. The committed lease
+// reference lets the caller reconcile without rerunning the command blindly.
+func worktreeVerifyPostLeaseFailure(failure Envelope, changed []ChangedRef) Envelope {
+	if failure.Outcome != OutcomeError || failure.Error == nil {
+		return failure
+	}
+	failure.Error.EffectState = EffectPossible
+	refs := append([]ChangedRef(nil), changed...)
+	if len(refs) > 0 {
+		failure.ChangedRefs = &refs
+	}
+	return failure
 }
 
 // mutateWorktreeAuditReclaim plans concord_work_transition.worktree_audit_reclaim.
@@ -2060,14 +2079,9 @@ func (r runtime) mutateWorktreeAuditReclaim(ctx context.Context, base Envelope, 
 		ObservedSessionDirectories: storeSessionDirectories(in.ObservedSessionDirectories),
 	})
 	if err != nil {
-		return failureEnvelope(base, err), nil
+		return auditReclaimPostCommitFailure(base, auditReclaimChangedRefs(result.Rows), failureEnvelope(base, err)), nil
 	}
-	changed := make([]ChangedRef, 0, len(result.Rows))
-	for _, row := range result.Rows {
-		if row.Outcome == store.WorktreeAuditReclaimed {
-			changed = append(changed, ChangedRef{EntityKind: "work_item", ID: row.WorkID, Version: strconv.FormatInt(row.Version, 10)})
-		}
-	}
+	changed := auditReclaimChangedRefs(result.Rows)
 	payload, _ := json.Marshal(map[string]any{
 		"root": result.Root, "rows": result.Rows, "report_only": result.ReportOnly,
 		"changed_refs":       mutationResultChangedRefs(changed),
@@ -2117,6 +2131,16 @@ func auditReclaimPostCommitFailure(base Envelope, changed []ChangedRef, failure 
 	refs := append([]ChangedRef(nil), changed...)
 	failure.ChangedRefs = &refs
 	return failure
+}
+
+func auditReclaimChangedRefs(rows []store.WorktreeAuditReclaimRow) []ChangedRef {
+	changed := make([]ChangedRef, 0, len(rows))
+	for _, row := range rows {
+		if row.Outcome == store.WorktreeAuditReclaimed {
+			changed = append(changed, ChangedRef{EntityKind: "work_item", ID: row.WorkID, Version: strconv.FormatInt(row.Version, 10)})
+		}
+	}
+	return changed
 }
 
 // planWorktreeReclaim plans concord_work_transition.worktree_reclaim.

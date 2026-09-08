@@ -6,7 +6,7 @@ import (
 	"fmt"
 )
 
-const ManifestDigest = "sha256:d4454837c256c9f0cc77d5e2ec218bc23eb16eed979384dd208d10b637af9954"
+const ManifestDigest = "sha256:4d2b1ee889c7efef8836b8be889435f47820f1209382623ab83f2dd95af6f823"
 
 type OperationKind string
 
@@ -262,7 +262,6 @@ var GeneratedPayloadRules = map[string]GeneratedPayloadRule{
 	"worker_packet":                                {Required: []string{"schema_version", "attempt_id", "lane_id", "lane_version", "lane_digest", "work_id", "step_id", "inputs"}, Properties: []string{"schema_version", "attempt_id", "lane_id", "lane_version", "lane_digest", "work_id", "step_id", "inputs"}},
 	"workflow_completion_payload":                  {Required: []string{}, Properties: []string{"evidence_commit", "current_commit", "staleness"}},
 	"workflow_contract":                            {Required: []string{"version", "premise", "outcome_predicates", "required_evidence", "route_conventions", "spec_mandate", "changes_product_truth"}, Properties: []string{"version", "premise", "outcome_predicates", "required_evidence", "route_conventions", "spec_mandate", "law_revisions", "law_modifies", "rigor_class", "changes_product_truth", "architecture_binding"}},
-	"workflow_decision_record":                     {Required: []string{"question", "options_considered", "decision", "rationale", "consequences", "inputs", "poc_findings", "reviewer_actor_ref", "operator_approval_ref"}, Properties: []string{"question", "options_considered", "decision", "rationale", "consequences", "inputs", "poc_findings", "supersedes", "superseded_by", "unknowns", "required_to_decide", "reviewer_actor_ref", "operator_approval_ref"}},
 	"workflow_forward_relation":                    {Required: []string{"kind"}, Properties: []string{"kind", "class", "severity"}},
 	"workflow_outcome_absent":                      {Required: []string{"kind", "surface", "subjects", "distinguish_from"}, Properties: []string{"kind", "surface", "subjects", "distinguish_from"}},
 	"workflow_outcome_check":                       {Required: []string{"kind", "check_ref", "immutable_subject_ref", "expected_result"}, Properties: []string{"kind", "check_ref", "immutable_subject_ref", "expected_result"}},

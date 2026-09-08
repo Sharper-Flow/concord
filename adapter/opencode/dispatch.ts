@@ -569,11 +569,13 @@ function errorEnvelope(lane: AgentLane | null, packet: Partial<AgentLanePacket>,
 }
 
 function readbackRefusalEnvelope(lane: AgentLane, packet: AgentLanePacket, refusal: { predicate: ReadbackRefusal; export_digest: string; export_bytes: number; message: string }): AgentResultEnvelope {
-  return errorEnvelope(lane, packet, "error", "readback_refusal", `readback predicate ${refusal.predicate} refused: ${refusal.message}`, "reconcile_operation", {
+  const failure = errorEnvelope(lane, packet, "error", "readback_refusal", `readback predicate ${refusal.predicate} refused: ${refusal.message}`, "reconcile_operation", {
     predicate: refusal.predicate,
     export_digest: refusal.export_digest,
     export_bytes: refusal.export_bytes,
   })
+  failure.error!.retry_safe = false
+  return failure
 }
 
 // errorEnvelopeForLane is the public re-export of the private errorEnvelope

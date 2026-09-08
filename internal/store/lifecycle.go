@@ -74,6 +74,7 @@ type workIntentPayload struct {
 	ComponentID      string   `json:"component_id,omitempty"`
 	WorkflowTypeRef  string   `json:"workflow_type_ref,omitempty"`
 	Reason           string   `json:"reason,omitempty"`
+	EvidenceRefs     []string `json:"evidence_refs,omitempty"`
 	ExpectedVersion  int64    `json:"expected_version"`
 	ResultingVersion int64    `json:"resulting_version"`
 }

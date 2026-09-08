@@ -3,11 +3,15 @@
 - **Status:** Accepted
 - **Date:** 2026-09-06
 - **Scope:** the evaluator identity for `record_verdict` on an item whose
-  external-effect work exited through `record_delivery`
+  external-effect work exited through `record_delivery` or
+  `accept_worker_result`
 - **Approval:** The operator selected this amendment on 2026-09-06 in Concord
   work-670e07fe80d7b4b2d67811c7, choosing it over closing the live item by
   hand-recorded verdicts from a second session identity (#888).
-- **Related:** CD-0013, CD-0109, CD-0112, and issues #801, #865, #888
+- **Amendment:** The operator selected the lane-exit extension on 2026-09-08
+  in Concord work-2304a1e490993be0752cc908 (#890): D2 and D3 admit the
+  accepted lane exit.
+- **Related:** CD-0013, CD-0109, CD-0112, and issues #801, #865, #888, #890
 - **Amends:** CD-0013 D5 (evaluator-actor distinctness) by adding one
   conditioned operator-identity path; CD-0109's distinct-actor rule is
   unchanged everywhere else
@@ -32,9 +36,15 @@ That decision stands: wherever a lane executed, a distinct evaluator exists
 and the ordinary rule applies. This record covers only the shape where none
 exists.
 
+The lane-exit amendment came from the same wedge one step later. After
+`accept_worker_result`, the accepting session authored the acceptance, so
+CD-0109's authorship set refuses its verdict while no in-session distinct
+evaluator exists. `work-456c7660f51529851977488d` wedged at `verify` on
+2026-09-07 (#890), which produced the D2-D3 extension.
+
 ## Decision
 
-### D1. The operator's signed identity is the evaluator after an in-session delivery
+### D1. The operator's signed identity is the evaluator after an in-session exit
 
 `record_verdict` and its terminal act `complete` accept the operator
 identity — the `confirm_premise` mechanism: a host approval assertion
@@ -47,19 +57,22 @@ treats an agent executor with an operator verdict as distinct (the
 completion fold compares the completing event actor against the executing
 lease, which after an in-session delivery is the session itself.
 
-### D2. The path is conditioned on the delivery exit
+### D2. The path is conditioned on an in-session exit
 
 The operator identity is admitted only when the item carries a
-`workflow.action_completed` with `action_id` `record_delivery`. A lane-executed
-exit — or no exit at all — refuses with a typed `invalid_operation`. This
-keeps the amendment to the one shape that has no other evaluator.
+`workflow.action_completed` with `action_id` `record_delivery` or
+`accept_worker_result`. Both exits leave the submitting session inside the
+authorship set and offer no in-session distinct evaluator. Any other state —
+no exit at all, or an exit still in flight — refuses with a typed
+`invalid_operation`.
 
 ### D3. The agent surface mints the challenge at the wedge
 
 When the session submitting `record_verdict` holds the item's executing
-lease, the surface mints the operator approval challenge instead of letting
-the store refuse blind, exactly as approval-required actions do. A distinct
-session keeps the ordinary verdict route and is never asked for an approval.
+lease after either admitted exit, the surface mints the operator approval
+challenge instead of letting the store refuse blind, exactly as
+approval-required actions do. A distinct session keeps the ordinary verdict
+route and is never asked for an approval.
 
 ## Acceptance Criteria
 
@@ -71,16 +84,23 @@ Scenario: The operator signs the verdict after an in-session delivery
   Then the verdict is recorded with the operator as the verdict actor
   And the completion gate accepts it
 
-Scenario: The delivering session is still refused
-  Given the same item
+Scenario: The operator signs the verdict after an accepted lane
+  Given a workflow whose external-effect step exited through accept_worker_result
+  And the submitting session is the pinned executing actor
+  When the session submits record_verdict with the operator's signed approval
+  Then the verdict is recorded with the operator as the verdict actor
+  And the completion gate accepts it
+
+Scenario: The exiting session is still refused
+  Given the same item after either admitted exit
   When the session submits record_verdict without the operator identity
   Then the submission is refused as self-evaluation
 
 Scenario: The condition binds
-  Given a workflow whose external-effect step exited through accept_worker_result
+  Given a workflow with neither a record_delivery nor an accept_worker_result exit
   When any caller submits record_verdict with the operator identity
   Then the submission is refused
-  And the refusal names the in-session delivery condition
+  And the refusal names the in-session exit condition
 
 Scenario: The lane route is unchanged
   Given a workflow whose external-effect step exited through accept_worker_result
@@ -94,4 +114,5 @@ Scenario: The lane route is unchanged
 besides `confirm_premise`. The verdict arm maps the operator ref explicitly,
 mirroring the premise arm. The store exposes `WorkflowExecutingActor` so the
 agent surface can mint the challenge only for the lease-holding session.
-The complexity budget records the verdict arm's growth.
+`requireOperatorVerdictExit` admits both in-session exits. The complexity
+budget records the verdict arm's growth.

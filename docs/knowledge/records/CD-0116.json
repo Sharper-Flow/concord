@@ -4,7 +4,8 @@
     "internal/store/workflow_dispatch.go",
     "internal/agent/mutations.go",
     "internal/store/operator_verdict_test.go",
-    "internal/store/operator_verdict_test.go"
+    "internal/agent/operator_verdict_test.go",
+    "adapter/opencode/dispatch_route_end_to_end.test.ts"
   ],
   "home_domain_id": "workflow-engine",
   "id": "CD-0116",
@@ -23,9 +24,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:b9ef5ee1020fe7bfc3dca3f9a6ea35a606d78c3bd9eaf682a953ddcb965ab962",
+  "sha256": "sha256:a0a83be0c96d37cb6238fcb5c205b062da21bf4e678016dbf26aefb239eed1d0",
   "status": "accepted",
-  "summary": "After an in-session record_delivery exit the capturing session is the pinned executing actor, so CD-0013 D5 refuses its verdict and no distinct evaluator exists. record_verdict and complete then accept the operator's signed identity (the confirm_premise mechanism), stamped as the verdict actor, strictly conditioned on a record_delivery completion; lane-executed exits keep CD-0109's distinct-actor rule, and the agent surface mints the operator challenge exactly for the lease-holding session.",
+  "summary": "After an in-session record_delivery or accept_worker_result exit the submitting session sits inside the authorship set, so CD-0013 D5 refuses its verdict and no in-session distinct evaluator exists. record_verdict and complete then accept the operator's signed identity (the confirm_premise mechanism), stamped as the verdict actor, conditioned on either exit completion; every other state keeps CD-0109's distinct-actor rule, and the agent surface mints the operator challenge exactly for the lease-holding session.",
   "tags": [
     "workflow",
     "evidence",

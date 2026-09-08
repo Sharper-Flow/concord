@@ -316,12 +316,15 @@ routeDeclaration("dispatches a real store route through Task completion and work
     response = await transition(currentVersion, "accept_worker_result", "e2e-accept-worker", { attempt_id: packet.attempt_id, attempt_epoch: 1 })
     expect(response.outcome).toBe("ok")
     const verifyVersion = dbValue(dbPath, `SELECT version FROM work_items WHERE id='${workID}'`).version as number
-    // Evaluator independence (#801): the session that executed the step
-    // cannot record its verdict, so the verdict arrives through a distinct
-    // agent session that executed nothing on this work item.
-    const reviewerContext = { ...context, sessionID: "e2e-review-session", agent: "concord-review" }
-    response = await invoke("concord_work_transition", { operation: "workflow_action", input: { work_id: workID, expected_version: verifyVersion, action_id: "record_verdict", idempotency_key: "e2e-record-verdict", fields: { contract_version: 1, predicate_id: WORKFLOW_PREDICATE.predicate_id } } }, reviewerContext)
+    // CD-0116 after a lane exit: the session that accepted the worker result
+    // submits its own verdict, the adapter mints the operator challenge, the
+    // host approval signs it, and the verdict records under the operator
+    // identity rather than a distinct agent session.
+    response = await invoke("concord_work_transition", { operation: "workflow_action", input: { work_id: workID, expected_version: verifyVersion, action_id: "record_verdict", idempotency_key: "e2e-record-verdict", fields: { contract_version: 1, predicate_id: WORKFLOW_PREDICATE.predicate_id, evaluation_evidence: [packet.attempt_id] } } }, context)
     expect(response.outcome, JSON.stringify(response)).toBe("ok")
+    const verdictActor = dbValue(dbPath, `SELECT json_extract(payload,'$.verdict_actor_ref') AS actor FROM domain_events WHERE subject_id='${workID}' AND kind='workflow.verdict_recorded' ORDER BY seq DESC LIMIT 1`).actor as string
+    const verdictActorClass = dbValue(dbPath, `SELECT actor_class FROM workflow_actors WHERE actor_ref='${verdictActor}'`).actor_class as string
+    expect(verdictActorClass).toBe("operator")
     const verdictVersion = dbValue(dbPath, `SELECT version FROM work_items WHERE id='${workID}'`).version as number
     const continuity = await invoke("concord_work_trace", { operation: "continuity", input: { work_id: workID, page: { cursor: null, limit: 1 } } }, context)
     const continuityResult = continuity.result as JSONRecord

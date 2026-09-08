@@ -2,12 +2,15 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/sharper-flow/concord/internal/store"
 )
 
 // repairFixture builds the offline layout the repair verb consumes: an
@@ -95,6 +98,34 @@ func TestRepairRunsTheVerifiedInstallerWithTheInstalledRelease(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "no work database found") {
 		t.Fatalf("the missing database was not reported: %q", out.String())
+	}
+}
+
+func TestRepairBacksUpTheWorkDatabaseBeforeRepair(t *testing.T) {
+	version := "v9.9.9"
+	installer := "#!/bin/sh\nexit 0\n"
+	fixture := newRepairFixture(t, version, installer)
+	// A live work database turns on the pre-repair snapshot path, including
+	// the backup parent the verb must create on first use.
+	database, err := store.Open(context.Background(), filepath.Join(fixture.dataRoot, "store.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := database.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	code, out, errOut := runRepairStdin(t, `{"artifact_dir":"`+filepath.ToSlash(fixture.artifactDir)+`"}`)
+
+	if code != 0 {
+		t.Fatalf("repair refused: %s", errOut.String())
+	}
+	if !strings.Contains(out.String(), "database backup at") {
+		t.Fatalf("the backup location was not reported: %q", out.String())
+	}
+	entries, err := os.ReadDir(filepath.Join(fixture.dataRoot, "backups"))
+	if err != nil || len(entries) == 0 {
+		t.Fatalf("no pre-repair backup was written under the data root: %v", err)
 	}
 }
 

@@ -5,9 +5,9 @@
 // `lastUser.agent`, and SessionTools.resolve merges `agent.permission` with
 // `session.permission`). The model is never told the agent changed, so it
 // keeps reasoning from the previous agent's limits and refuses work the new
-// agent allows. The Concord posture agents deliberately carry different
-// permission sets, so a posture switch the model cannot see defeats that
-// separation (issue #677).
+// agent allows. The Concord intake posture deliberately carries a restricted
+// permission set that the shaping and driving postures share, so a posture
+// switch the model cannot see defeats that separation (issue #677).
 //
 // `experimental.chat.system.transform` carries only `sessionID` and `model`,
 // so the agent name comes from `chat.message` and is correlated by session.

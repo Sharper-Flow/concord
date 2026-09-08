@@ -90,6 +90,7 @@ const (
 	PayloadDigest     PayloadValueType = "digest"
 	PayloadStringList PayloadValueType = "string_list"
 	PayloadObject     PayloadValueType = "object"
+	PayloadArray      PayloadValueType = "array"
 )
 
 type WorkflowPayloadField struct {
@@ -102,9 +103,15 @@ type WorkflowPayloadField struct {
 	MaxItems  *int64           `json:"max_items,omitempty"`
 	Minimum   *int64           `json:"minimum,omitempty"`
 	Maximum   *int64           `json:"maximum,omitempty"`
+	Enum      []string         `json:"enum,omitempty"`
+	SchemaRef string           `json:"schema_ref,omitempty"`
+	ItemRef   string           `json:"item_ref,omitempty"`
 }
 
 type WorkflowPayloadDefinition struct {
+	// Closed distinguishes the current fail-closed contract from released
+	// definitions whose empty field list meant the legacy open payload.
+	Closed bool                   `json:"closed,omitempty"`
 	Fields []WorkflowPayloadField `json:"fields"`
 }
 
@@ -120,6 +127,10 @@ type WorkflowActionDefinition struct {
 	// surface for legacy actions and tests that do not assert a capability.
 	RequiredCapability string                    `json:"required_capability,omitempty"`
 	Payload            WorkflowPayloadDefinition `json:"payload"`
+	// PublicPayload replaces Payload only at the agent boundary. The adapter
+	// uses it for dispatch_worker, where callers supply lane_id and the adapter
+	// authors the core attempt identity and worker packet.
+	PublicPayload *WorkflowPayloadDefinition `json:"public_payload,omitempty"`
 }
 
 type WorkflowStep struct {
@@ -356,6 +367,9 @@ func ValidateWorkflowDefinition(definition WorkflowDefinition) error {
 		if !validatePayloadFields(action.Payload.Fields) {
 			return definitionFailure(KindInvalidDefinition, "action payload fields are invalid")
 		}
+		if action.PublicPayload != nil && (!action.PublicPayload.Closed || len(action.PublicPayload.Fields) > 32 || !validatePayloadFields(action.PublicPayload.Fields)) {
+			return definitionFailure(KindInvalidDefinition, "public action payload fields are invalid")
+		}
 		actions[action.ID] = action
 	}
 	if len(actions) != len(definition.AvailableActions) {
@@ -524,17 +538,19 @@ func normalizeWorkflowDefinition(definition WorkflowDefinition) WorkflowDefiniti
 		if definition.ActionDefinitions[i].Payload.Fields == nil {
 			definition.ActionDefinitions[i].Payload.Fields = []WorkflowPayloadField{}
 		}
+		if definition.ActionDefinitions[i].PublicPayload != nil && definition.ActionDefinitions[i].PublicPayload.Fields == nil {
+			definition.ActionDefinitions[i].PublicPayload.Fields = []WorkflowPayloadField{}
+		}
 	}
 	return definition
 }
 
 // BuiltinWorkflowDefinitions authors the seven shipped workflow families in
-// the shape they run in. The four families that carry a frozen version 1
-// (workflow_registry_versions.go, issue #861) author their current shape at
-// version 2 here; the rest stay at version 1.
+// the shape they run in. Frozen prior versions live in
+// workflow_registry_versions.go and never acquire current payload contracts.
 func BuiltinWorkflowDefinitions() []WorkflowDefinition {
 	return []WorkflowDefinition{
-		withWorkerActions(builtinImplementation()), withWorkerActions(builtinBreakFix()), withWorkerActions(builtinResearch()), withWorkerActions(builtinArchitectureSpike()), withWorkerActions(builtinOpsRunbook()), withWorkerActions(builtinStaticAnalysis()), withWorkerActions(builtinGenericOneOff()),
+		withWorkerActions(builtinImplementation(true), true), withWorkerActions(builtinBreakFix(true), true), withWorkerActions(builtinResearch(true), true), withWorkerActions(builtinArchitectureSpike(true), true), withWorkerActions(builtinOpsRunbook(true), true), withWorkerActions(builtinStaticAnalysis(true), true), withWorkerActions(builtinGenericOneOff(true), true),
 	}
 }
 
@@ -547,6 +563,7 @@ func builtinWorkflowDefinitionsWithHistory() []WorkflowDefinition {
 		[]WorkflowDefinition{
 			withLegacyWorkerActions(legacyImplementationV1()), withLegacyWorkerActions(legacyBreakFixV1()), withLegacyWorkerActions(legacyResearchV1()), withLegacyWorkerActions(legacyGenericOneOffV1()),
 			preJoinImplementationV2(), preJoinBreakFixV2(), preJoinGenericOneOffV2(), preJoinResearchV2(), preJoinArchitectureSpikeV1(), preJoinOpsRunbookV1(), preJoinStaticAnalysisV1(),
+			prePayloadImplementationV3(), prePayloadBreakFixV3(), prePayloadGenericOneOffV3(), prePayloadResearchV3(), prePayloadArchitectureSpikeV2(), prePayloadOpsRunbookV2(), prePayloadStaticAnalysisV2(),
 		},
 		BuiltinWorkflowDefinitions()...,
 	)
@@ -624,7 +641,7 @@ func LaneStepDispatchAllowed(capabilityClass string, kind WorkflowStepKind) bool
 // attempts, so no binding names them. Which lane may actually be dispatched
 // at a given step is decided at dispatch time by LaneStepDispatchAllowed,
 // because the action pair is per-step while the join is per-lane.
-func withWorkerActions(definition WorkflowDefinition) WorkflowDefinition {
+func withWorkerActions(definition WorkflowDefinition, payloadContracts bool) WorkflowDefinition {
 	definition = cloneWorkflowDefinition(definition)
 	acceptance := WorkflowActionDefinition{
 		ID: "accept_worker_result", Consequence: ActionInternalSQLite, Approval: ActionApprovalNone, ExecutionMode: ActionAdvance, RequiredCapability: "work_transition",
@@ -632,6 +649,10 @@ func withWorkerActions(definition WorkflowDefinition) WorkflowDefinition {
 			{Name: "attempt_id", ValueType: PayloadRef, Required: true, MinLength: workflowInt(2), MaxLength: workflowInt(128)},
 			{Name: "attempt_epoch", ValueType: PayloadInteger, Required: true, Minimum: workflowInt(1), Maximum: workflowInt(2147483647)},
 		}},
+	}
+	if payloadContracts {
+		acceptance = currentActionDefinition("accept_worker_result", true)
+		acceptance.RequiredCapability = "work_transition"
 	}
 	// CD-0059 D1/D2/D3: dispatch_worker is the registered action that opens
 	// the worker attempt window against the current step epoch. The
@@ -648,6 +669,10 @@ func withWorkerActions(definition WorkflowDefinition) WorkflowDefinition {
 			{Name: "attempt_id", ValueType: PayloadRef, Required: true, MinLength: workflowInt(2), MaxLength: workflowInt(128)},
 			{Name: "worker_packet", ValueType: PayloadObject, Required: true},
 		}},
+	}
+	if payloadContracts {
+		dispatch = currentActionDefinition("dispatch_worker", true)
+		dispatch.RequiredCapability = "worker_dispatch"
 	}
 	definition.AvailableActions = append(definition.AvailableActions, acceptance.ID, dispatch.ID)
 	definition.ActionDefinitions = append(definition.ActionDefinitions, acceptance, dispatch)
@@ -812,7 +837,7 @@ func validPredicateKind(value PredicateKind) bool {
 func validatePayloadFields(fields []WorkflowPayloadField) bool {
 	seen := map[string]bool{}
 	for _, field := range fields {
-		if !validWorkflowID(field.Name) || seen[field.Name] || !containsString([]string{"string", "integer", "boolean", "ref", "digest", "string_list", "object"}, string(field.ValueType)) {
+		if !validWorkflowID(field.Name) || seen[field.Name] || !containsString([]string{"string", "integer", "boolean", "ref", "digest", "string_list", "object", "array"}, string(field.ValueType)) {
 			return false
 		}
 		seen[field.Name] = true
@@ -820,6 +845,9 @@ func validatePayloadFields(fields []WorkflowPayloadField) bool {
 			return false
 		}
 		if field.MinLength != nil && field.MaxLength != nil && *field.MinLength > *field.MaxLength || field.MinItems != nil && field.MaxItems != nil && *field.MinItems > *field.MaxItems || field.Minimum != nil && field.Maximum != nil && *field.Minimum > *field.Maximum {
+			return false
+		}
+		if len(field.Enum) > 32 || !uniqueStrings(field.Enum) || len(field.Enum) != 0 && field.ValueType != PayloadString && field.ValueType != PayloadRef && field.ValueType != PayloadStringList || field.SchemaRef != "" && !validWorkflowID(field.SchemaRef) || field.ItemRef != "" && (field.ValueType != PayloadStringList || !validWorkflowID(field.ItemRef)) {
 			return false
 		}
 	}
@@ -953,72 +981,205 @@ type builtinActionPolicy struct {
 	Approval      ActionApproval
 	ExecutionMode ActionExecutionMode
 	EventShape    ActionEventShape
+	Payload       WorkflowPayloadDefinition
+	PublicPayload *WorkflowPayloadDefinition
 }
 
-func actionPolicy(consequence ActionConsequence, approval ActionApproval, mode ActionExecutionMode, shape ActionEventShape) builtinActionPolicy {
-	return builtinActionPolicy{Consequence: consequence, Approval: approval, ExecutionMode: mode, EventShape: shape}
+func actionPolicy(consequence ActionConsequence, approval ActionApproval, mode ActionExecutionMode, shape ActionEventShape, fields ...WorkflowPayloadField) builtinActionPolicy {
+	if fields == nil {
+		fields = []WorkflowPayloadField{}
+	}
+	return builtinActionPolicy{Consequence: consequence, Approval: approval, ExecutionMode: mode, EventShape: shape, Payload: WorkflowPayloadDefinition{Closed: true, Fields: fields}}
+}
+
+func publicActionPolicy(policy builtinActionPolicy, fields ...WorkflowPayloadField) builtinActionPolicy {
+	policy.PublicPayload = &WorkflowPayloadDefinition{Closed: true, Fields: fields}
+	return policy
+}
+
+func actionStringField(name string, required bool, max int64) WorkflowPayloadField {
+	return WorkflowPayloadField{Name: name, ValueType: PayloadString, Required: required, MinLength: workflowInt(1), MaxLength: workflowInt(max)}
+}
+
+func actionRefField(name string, required bool) WorkflowPayloadField {
+	return WorkflowPayloadField{Name: name, ValueType: PayloadRef, Required: required, MinLength: workflowInt(2), MaxLength: workflowInt(128)}
+}
+
+func actionListField(name string, required bool, min, max int64) WorkflowPayloadField {
+	return WorkflowPayloadField{Name: name, ValueType: PayloadStringList, Required: required, MinItems: workflowInt(min), MaxItems: workflowInt(max), ItemRef: "reference"}
+}
+
+func actionEnumListField(name string, required bool, min, max int64, values ...string) WorkflowPayloadField {
+	return WorkflowPayloadField{Name: name, ValueType: PayloadStringList, Required: required, MinItems: workflowInt(min), MaxItems: workflowInt(max), Enum: values}
+}
+
+func actionLawListField(name string, required bool, min, max int64) WorkflowPayloadField {
+	return WorkflowPayloadField{Name: name, ValueType: PayloadStringList, Required: required, MinItems: workflowInt(min), MaxItems: workflowInt(max), ItemRef: "law_id"}
+}
+
+func actionIntegerField(name string, required bool, min, max int64) WorkflowPayloadField {
+	return WorkflowPayloadField{Name: name, ValueType: PayloadInteger, Required: required, Minimum: workflowInt(min), Maximum: workflowInt(max)}
+}
+
+func actionEnumField(name string, required bool, values ...string) WorkflowPayloadField {
+	return WorkflowPayloadField{Name: name, ValueType: PayloadString, Required: required, Enum: values}
+}
+
+func actionObjectField(name string, required bool, schemaRef string) WorkflowPayloadField {
+	return WorkflowPayloadField{Name: name, ValueType: PayloadObject, Required: required, SchemaRef: schemaRef}
+}
+
+func actionArrayField(name string, required bool, min, max int64, schemaRef string) WorkflowPayloadField {
+	return WorkflowPayloadField{Name: name, ValueType: PayloadArray, Required: required, MinItems: workflowInt(min), MaxItems: workflowInt(max), SchemaRef: schemaRef}
+}
+
+func evidenceBindingActionFields() []WorkflowPayloadField {
+	return []WorkflowPayloadField{
+		actionStringField("evidence_ref", false, 2048),
+		actionEnumField("evidence_kind", false, "verification", "review", "approval", "commit", "durable_note", "native_run", "artifact"),
+		actionStringField("immutable_subject_ref", false, 2048),
+		actionRefField("producer_id", false),
+		actionRefField("producer_run_ref", false),
+		actionRefField("producer_watermark", false),
+	}
+}
+
+func nativeRunActionFields(statuses ...string) []WorkflowPayloadField {
+	return []WorkflowPayloadField{
+		actionRefField("run_id", true),
+		actionStringField("native_subject_ref", true, 2048),
+		actionEnumField("status", true, statuses...),
+		actionStringField("evidence_ref", true, 2048),
+		{Name: "evidence_digest", ValueType: PayloadDigest, Required: true},
+		actionStringField("asserted_at", false, 64),
+	}
 }
 
 var builtinActionPolicies = map[string]builtinActionPolicy{
-	"record_proposal":        actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance, ActionEventGeneric),
-	"record_discovery":       actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance, ActionEventGeneric),
-	"record_design":          actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance, ActionEventGeneric),
-	"approve_contract":       actionPolicy(ActionInternalSQLite, ActionApprovalRequired, ActionAdvance, ActionEventTyped),
-	"start_execution":        actionPolicy(ActionExternalEffect, ActionApprovalNone, ActionFenced, ActionEventGeneric),
-	"checkpoint_execution":   actionPolicy(ActionExternalEffect, ActionApprovalNone, ActionCheckpoint, ActionEventCheckpoint),
-	"bind_evidence":          actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionHold, ActionEventTyped),
-	"declare_impact":         actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionHold, ActionEventTyped),
-	"link_successor":         actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionHold, ActionEventTyped),
-	"record_verdict":         actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionHold, ActionEventTyped),
-	"confirm_premise":        actionPolicy(ActionInternalSQLite, ActionApprovalRequired, ActionAdvance, ActionEventTyped),
-	"complete":               actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionHold, ActionEventCompletion),
-	"record_reproduction":    actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance, ActionEventGeneric),
-	"record_root_cause":      actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance, ActionEventGeneric),
-	"start_repair":           actionPolicy(ActionExternalEffect, ActionApprovalNone, ActionFenced, ActionEventGeneric),
-	"checkpoint_repair":      actionPolicy(ActionExternalEffect, ActionApprovalNone, ActionCheckpoint, ActionEventCheckpoint),
-	"frame_research":         actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionHold, ActionEventGeneric),
-	"record_finding":         actionPolicy(ActionCrossAuthority, ActionApprovalNone, ActionAdvance, ActionEventGeneric),
-	"revise_candidates":      actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance, ActionEventTyped),
-	"record_report":          actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance, ActionEventTyped),
-	"record_conclusion":      actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionHold, ActionEventGeneric),
-	"frame_question":         actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionHold, ActionEventGeneric),
-	"record_research":        actionPolicy(ActionCrossAuthority, ActionApprovalNone, ActionAdvance, ActionEventTyped),
-	"record_option":          actionPolicy(ActionCrossAuthority, ActionApprovalNone, ActionAdvance, ActionEventGeneric),
-	"start_poc":              actionPolicy(ActionExternalEffect, ActionApprovalNone, ActionFenced, ActionEventGeneric),
-	"checkpoint_poc":         actionPolicy(ActionExternalEffect, ActionApprovalNone, ActionCheckpoint, ActionEventCheckpoint),
-	"discard_poc":            actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance, ActionEventGeneric),
-	"record_decision":        actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance, ActionEventCheckpoint),
-	"accept_decision":        actionPolicy(ActionInternalSQLite, ActionApprovalRequired, ActionAdvance, ActionEventTyped),
-	"approve_operation":      actionPolicy(ActionInternalSQLite, ActionApprovalRequired, ActionAdvance, ActionEventTyped),
-	"start_run":              actionPolicy(ActionExternalEffect, ActionApprovalNone, ActionFenced, ActionEventTyped),
-	"checkpoint_run":         actionPolicy(ActionExternalEffect, ActionApprovalNone, ActionCheckpoint, ActionEventCheckpoint),
-	"add_condition":          actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionHold, ActionEventTyped),
-	"resolve_condition":      actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionHold, ActionEventTyped),
-	"cancel_condition":       actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionHold, ActionEventTyped),
-	"record_health":          actionPolicy(ActionCrossAuthority, ActionApprovalNone, ActionAdvance, ActionEventTyped),
-	"rollback_run":           actionPolicy(ActionExternalEffect, ActionApprovalNone, ActionFenced, ActionEventTyped),
-	"cleanup_run":            actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionHold, ActionEventTyped),
-	"declare_scope":          actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionHold, ActionEventGeneric),
-	"run_analysis":           actionPolicy(ActionExternalEffect, ActionApprovalNone, ActionFenced, ActionEventGeneric),
-	"checkpoint_analysis":    actionPolicy(ActionExternalEffect, ActionApprovalNone, ActionCheckpoint, ActionEventCheckpoint),
-	"start_action":           actionPolicy(ActionExternalEffect, ActionApprovalNone, ActionFenced, ActionEventGeneric),
-	"checkpoint_action":      actionPolicy(ActionExternalEffect, ActionApprovalNone, ActionCheckpoint, ActionEventCheckpoint),
-	"checkpoint_context":     actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionHold, ActionEventTyped),
-	"cross_context_boundary": actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionHold, ActionEventTyped),
-	"record_delivery":        actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance, ActionEventGeneric),
-	"accept_worker_result":   actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance, ActionEventTyped),
-	"dispatch_worker":        actionPolicy(ActionExternalEffect, ActionApprovalNone, ActionFenced, ActionEventGeneric),
-	"supersede_contract":     actionPolicy(ActionInternalSQLite, ActionApprovalRequired, ActionAdvance, ActionEventTyped),
+	"record_proposal":  actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance, ActionEventGeneric),
+	"record_discovery": actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance, ActionEventGeneric),
+	"record_design":    actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance, ActionEventGeneric),
+	"approve_contract": actionPolicy(ActionInternalSQLite, ActionApprovalRequired, ActionAdvance, ActionEventTyped,
+		actionEnumField("route_convention", false, "workflow_action"),
+		actionListField("route_conventions", false, 0, 16),
+		actionListField("proposed_route_conventions", false, 0, 16),
+		actionListField("required_route_conventions", false, 0, 16),
+		actionIntegerField("contract_version", false, 1, 2147483647),
+		actionStringField("premise", false, WorkflowPremiseMaxLength),
+		actionArrayField("outcome_predicates", true, 1, 8, "workflow_action_outcome_predicates"),
+		actionEnumListField("required_evidence", false, 0, 7, "verification", "review", "approval", "commit", "durable_note", "native_run", "artifact"),
+		actionLawListField("spec_mandate", false, 0, 32),
+		actionLawListField("law_modifies", false, 0, 32),
+		actionEnumField("rigor_class", false, "prototype_internal", "prototype_trusted", "prototype_public", "prototype_safety_critical", "production_internal", "production_trusted", "production_public", "production_safety_critical", "critical_internal", "critical_trusted", "critical_public", "critical_safety_critical"),
+		actionObjectField("architecture_binding", false, "architecture_binding"),
+	),
+	"start_execution":      actionPolicy(ActionExternalEffect, ActionApprovalNone, ActionFenced, ActionEventGeneric),
+	"checkpoint_execution": actionPolicy(ActionExternalEffect, ActionApprovalNone, ActionCheckpoint, ActionEventCheckpoint),
+	"bind_evidence":        actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionHold, ActionEventTyped, evidenceBindingActionFields()...),
+	"declare_impact": actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionHold, ActionEventTyped,
+		actionRefField("target_work_id", true), actionRefField("edge_id", false),
+		actionEnumField("edge_kind", false, "modifies", "depends_on", "forward_link"),
+		actionEnumField("edge_class", false, "hard", "soft", "none"),
+		actionEnumField("severity", false, "breaking", "non-breaking", "informational"),
+	),
+	"link_successor": actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionHold, ActionEventTyped,
+		actionEnumField("relation", false, "forward_link"), actionObjectField("relation_data", false, "workflow_forward_relation"), actionRefField("successor_work_id", true),
+	),
+	"record_verdict": actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionHold, ActionEventTyped,
+		actionIntegerField("contract_version", false, 1, 2147483647), actionRefField("predicate_id", true),
+		actionEnumField("verdict_kind", false, "ok", "outcome_mismatch", "insufficient_evidence"),
+		actionStringField("verdict_actor_ref", false, 70), actionListField("evaluation_evidence", false, 1, 32),
+		WorkflowPayloadField{Name: "incomparable_with_approved", ValueType: PayloadBoolean},
+	),
+	"confirm_premise": actionPolicy(ActionInternalSQLite, ActionApprovalRequired, ActionAdvance, ActionEventTyped,
+		actionIntegerField("contract_version", false, 1, 2147483647),
+	),
+	"complete": actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionHold, ActionEventCompletion,
+		actionStringField("evidence_commit", false, 128), actionStringField("current_commit", false, 128),
+		actionObjectField("payload", false, "workflow_completion_payload"), actionStringField("verdict_actor_ref", false, 70),
+		actionEnumField("impact_verdict", true, "breaking", "non-breaking"), actionListField("evidence_refs", false, 1, 32),
+		actionEnumField("evidence_kind", false, "verification", "review", "approval", "commit", "durable_note", "native_run", "artifact"),
+	),
+	"record_reproduction": actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance, ActionEventGeneric),
+	"record_root_cause":   actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance, ActionEventGeneric),
+	"start_repair":        actionPolicy(ActionExternalEffect, ActionApprovalNone, ActionFenced, ActionEventGeneric),
+	"checkpoint_repair":   actionPolicy(ActionExternalEffect, ActionApprovalNone, ActionCheckpoint, ActionEventCheckpoint),
+	"frame_research":      actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionHold, ActionEventGeneric),
+	"record_finding":      actionPolicy(ActionCrossAuthority, ActionApprovalNone, ActionAdvance, ActionEventGeneric),
+	"revise_candidates": actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance, ActionEventTyped,
+		actionIntegerField("contract_version", false, 1, 2147483647),
+		actionEnumField("candidate_kind", false, "work_item", "product", "project"), actionRefField("candidate_ref", false),
+		actionListField("added", false, 1, 64), actionListField("candidate_ids", false, 1, 64), actionListField("removed", false, 1, 64),
+	),
+	"record_report":     actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance, ActionEventTyped, evidenceBindingActionFields()...),
+	"record_conclusion": actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionHold, ActionEventGeneric),
+	"frame_question":    actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionHold, ActionEventGeneric),
+	"record_research":   actionPolicy(ActionCrossAuthority, ActionApprovalNone, ActionAdvance, ActionEventTyped, evidenceBindingActionFields()...),
+	"record_option":     actionPolicy(ActionCrossAuthority, ActionApprovalNone, ActionAdvance, ActionEventGeneric),
+	"start_poc":         actionPolicy(ActionExternalEffect, ActionApprovalNone, ActionFenced, ActionEventGeneric),
+	"checkpoint_poc":    actionPolicy(ActionExternalEffect, ActionApprovalNone, ActionCheckpoint, ActionEventCheckpoint),
+	"discard_poc":       actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance, ActionEventGeneric),
+	"record_decision":   actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance, ActionEventCheckpoint),
+	"accept_decision":   actionPolicy(ActionInternalSQLite, ActionApprovalRequired, ActionAdvance, ActionEventTyped, evidenceBindingActionFields()...),
+	"approve_operation": actionPolicy(ActionInternalSQLite, ActionApprovalRequired, ActionAdvance, ActionEventTyped, evidenceBindingActionFields()...),
+	"start_run":         actionPolicy(ActionExternalEffect, ActionApprovalNone, ActionFenced, ActionEventTyped, nativeRunActionFields("started", "failed_to_start")...),
+	"checkpoint_run":    actionPolicy(ActionExternalEffect, ActionApprovalNone, ActionCheckpoint, ActionEventCheckpoint),
+	"add_condition": actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionHold, ActionEventTyped,
+		actionRefField("condition_id", false), actionEnumField("await_type", false, "pr_merge", "ci_result", "timer", "human_approval", "remote_work_state"),
+		actionRefField("await_ref", false), actionRefField("resolution_authority", false), actionIntegerField("expected_within_seconds", false, 1, 31536000),
+	),
+	"resolve_condition": actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionHold, ActionEventTyped,
+		actionRefField("condition_id", false), actionListField("resolution_evidence", false, 1, 32), actionRefField("resolved_by_event", false),
+	),
+	"cancel_condition": actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionHold, ActionEventTyped,
+		actionRefField("condition_id", false), actionRefField("cancellation_authority", false), actionListField("cancellation_evidence", false, 1, 32), actionRefField("cancelled_by_event", false),
+	),
+	"record_health":       actionPolicy(ActionCrossAuthority, ActionApprovalNone, ActionAdvance, ActionEventTyped, nativeRunActionFields("healthy", "degraded", "failed")...),
+	"rollback_run":        actionPolicy(ActionExternalEffect, ActionApprovalNone, ActionFenced, ActionEventTyped, nativeRunActionFields("rolled_back", "partially_rolled_back", "rollback_failed")...),
+	"cleanup_run":         actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionHold, ActionEventTyped, nativeRunActionFields("cleaned", "cleanup_failed")...),
+	"declare_scope":       actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionHold, ActionEventGeneric),
+	"run_analysis":        actionPolicy(ActionExternalEffect, ActionApprovalNone, ActionFenced, ActionEventGeneric),
+	"checkpoint_analysis": actionPolicy(ActionExternalEffect, ActionApprovalNone, ActionCheckpoint, ActionEventCheckpoint),
+	"start_action":        actionPolicy(ActionExternalEffect, ActionApprovalNone, ActionFenced, ActionEventGeneric),
+	"checkpoint_action":   actionPolicy(ActionExternalEffect, ActionApprovalNone, ActionCheckpoint, ActionEventCheckpoint),
+	"checkpoint_context": actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionHold, ActionEventTyped,
+		actionRefField("checkpoint_id", false), actionIntegerField("checkpoint_sequence", false, 1, 2147483647),
+		actionStringField("active_unit", true, 256), actionStringField("hypothesis", true, 4096), actionStringField("diagnosis", true, 4096), actionStringField("strategy", true, 4096),
+		actionListField("touched_refs", true, 1, 64), actionListField("evidence_refs", true, 1, 64), actionListField("pending_questions", true, 0, 16), actionListField("pending_decisions", true, 0, 16),
+	),
+	"cross_context_boundary": actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionHold, ActionEventTyped,
+		actionEnumField("boundary_kind", true, "summary", "restart"), actionEnumField("mode", true, "summary", "restart"), actionRefField("checkpoint_id", true),
+		actionIntegerField("boundary_sequence", false, 1, 2147483647), actionIntegerField("checkpoint_sequence", false, 1, 2147483647), actionStringField("summary", true, 16384),
+		WorkflowPayloadField{Name: "restart", ValueType: PayloadBoolean},
+	),
+	"record_delivery": actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance, ActionEventGeneric),
+	"accept_worker_result": actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance, ActionEventTyped,
+		actionRefField("attempt_id", true), actionIntegerField("attempt_epoch", true, 1, 2147483647),
+	),
+	"dispatch_worker": publicActionPolicy(actionPolicy(ActionExternalEffect, ActionApprovalNone, ActionFenced, ActionEventGeneric,
+		actionRefField("attempt_id", true), actionObjectField("worker_packet", true, "worker_packet"),
+	), actionRefField("lane_id", true)),
+	"supersede_contract": actionPolicy(ActionInternalSQLite, ActionApprovalRequired, ActionAdvance, ActionEventTyped),
 }
 
-func actionDefinitions(ids []string) []WorkflowActionDefinition {
+func currentActionDefinition(id string, payloadContracts bool) WorkflowActionDefinition {
+	policy, ok := builtinActionPolicies[id]
+	if !ok {
+		panic("built-in workflow action policy is not declared: " + id)
+	}
+	payload := WorkflowPayloadDefinition{Fields: []WorkflowPayloadField{}}
+	var publicPayload *WorkflowPayloadDefinition
+	if payloadContracts {
+		payload = policy.Payload
+		publicPayload = policy.PublicPayload
+	}
+	return WorkflowActionDefinition{ID: id, Consequence: policy.Consequence, Approval: policy.Approval, ExecutionMode: policy.ExecutionMode, Payload: payload, PublicPayload: publicPayload}
+}
+
+func actionDefinitions(ids []string, payloadContracts bool) []WorkflowActionDefinition {
 	result := make([]WorkflowActionDefinition, 0, len(ids))
 	for _, id := range ids {
-		policy, ok := builtinActionPolicies[id]
-		if !ok {
-			panic("built-in workflow action policy is not declared: " + id)
-		}
-		result = append(result, WorkflowActionDefinition{ID: id, Consequence: policy.Consequence, Approval: policy.Approval, ExecutionMode: policy.ExecutionMode, Payload: WorkflowPayloadDefinition{Fields: []WorkflowPayloadField{}}})
+		result = append(result, currentActionDefinition(id, payloadContracts))
 	}
 	return result
 }
@@ -1043,7 +1204,7 @@ func workflowActionExecutionMode(definition WorkflowDefinition, actionID string)
 
 func workflowInt(value int64) *int64 { return &value }
 
-func withContinuityActions(definition WorkflowDefinition) WorkflowDefinition {
+func withContinuityActions(definition WorkflowDefinition, payloadContracts bool) WorkflowDefinition {
 	checkpointFields := []WorkflowPayloadField{
 		{Name: "checkpoint_id", ValueType: PayloadRef},
 		{Name: "checkpoint_sequence", ValueType: PayloadInteger, Minimum: workflowInt(1), Maximum: workflowInt(2147483647)},
@@ -1066,6 +1227,9 @@ func withContinuityActions(definition WorkflowDefinition) WorkflowDefinition {
 	continuity := []WorkflowActionDefinition{
 		{ID: "checkpoint_context", Consequence: ActionInternalSQLite, Approval: ActionApprovalNone, ExecutionMode: ActionHold, Payload: WorkflowPayloadDefinition{Fields: checkpointFields}},
 		{ID: "cross_context_boundary", Consequence: ActionInternalSQLite, Approval: ActionApprovalNone, ExecutionMode: ActionHold, Payload: WorkflowPayloadDefinition{Fields: boundaryFields}},
+	}
+	if payloadContracts {
+		continuity = []WorkflowActionDefinition{currentActionDefinition("checkpoint_context", true), currentActionDefinition("cross_context_boundary", true)}
 	}
 	definition.AvailableActions = append(definition.AvailableActions, "checkpoint_context", "cross_context_boundary")
 	definition.ActionDefinitions = append(definition.ActionDefinitions, continuity...)
@@ -1091,22 +1255,22 @@ func forward(ids ...string) []WorkflowEdge {
 func addEdge(edges []WorkflowEdge, from, to string, kind WorkflowEdgeKind) []WorkflowEdge {
 	return append(edges, WorkflowEdge{From: from, To: to, Kind: kind})
 }
-func baseDefinition(ref string, kind WorkKind, g WorkflowStepGraph, actions []string, evidence []EvidenceKind, outcome WorkflowOutcomeSchema, successors []WorkKind) WorkflowDefinition {
+func baseDefinition(ref string, kind WorkKind, g WorkflowStepGraph, actions []string, evidence []EvidenceKind, outcome WorkflowOutcomeSchema, successors []WorkKind, payloadContracts bool) WorkflowDefinition {
 	changesProductTruth := workKindMayChangeProductTruth(kind)
-	return WorkflowDefinition{Ref: ref, Version: 1, WorkKind: kind, ChangesProductTruth: &changesProductTruth, StepGraph: g, AvailableActions: actions, ActionDefinitions: actionDefinitions(actions), RequiredEvidenceKinds: evidence, OutcomeSchema: outcome, RigorRules: []WorkflowRigorRule{{Maturity: "prototype", AudienceBand: "internal", RequiredEvidenceKinds: []EvidenceKind{EvidenceVerification}}}, StalenessRules: []WorkflowStalenessRule{}, CompositionRules: WorkflowCompositionRules{ForwardLinkOnly: true, AllowedSuccessorWorkKinds: successors, ForbiddenCompositions: []WorkflowForbiddenComposition{}}}
+	return WorkflowDefinition{Ref: ref, Version: 1, WorkKind: kind, ChangesProductTruth: &changesProductTruth, StepGraph: g, AvailableActions: actions, ActionDefinitions: actionDefinitions(actions, payloadContracts), RequiredEvidenceKinds: evidence, OutcomeSchema: outcome, RigorRules: []WorkflowRigorRule{{Maturity: "prototype", AudienceBand: "internal", RequiredEvidenceKinds: []EvidenceKind{EvidenceVerification}}}, StalenessRules: []WorkflowStalenessRule{}, CompositionRules: WorkflowCompositionRules{ForwardLinkOnly: true, AllowedSuccessorWorkKinds: successors, ForbiddenCompositions: []WorkflowForbiddenComposition{}}}
 }
 
-func builtinImplementation() WorkflowDefinition {
+func builtinImplementation(payloadContracts bool) WorkflowDefinition {
 	ids := []string{"proposal", "discovery", "design", "planning", "execution", "acceptance", "release"}
 	steps := []WorkflowStep{step("proposal", WorkflowStepInternalSQLite, "record_proposal"), step("discovery", WorkflowStepInternalSQLite, "record_discovery"), step("design", WorkflowStepInternalSQLite, "record_design"), step("planning", WorkflowStepHumanCheckpoint, "approve_contract"), step("execution", WorkflowStepExternalEffect, "start_execution", "checkpoint_execution", "bind_evidence", "declare_impact", "link_successor", "record_delivery"), step("acceptance", WorkflowStepHumanCheckpoint, "record_verdict", "confirm_premise"), step("release", WorkflowStepInternalSQLite, "complete")}
 	edges := forward(ids...)
 	edges = addEdge(edges, "execution", "execution", WorkflowEdgeRetry)
 	actions := []string{"record_proposal", "record_discovery", "record_design", "approve_contract", "start_execution", "checkpoint_execution", "bind_evidence", "declare_impact", "link_successor", "record_delivery", "record_verdict", "confirm_premise", "complete"}
-	d := baseDefinition("workflow.implementation", WorkKindImplementation, graph(steps, edges, "release"), actions, []EvidenceKind{EvidenceVerification, EvidenceReview}, WorkflowOutcomeSchema{DefaultKind: PredicateCheck, AllowedKinds: []PredicateKind{PredicateExists, PredicateAbsent, PredicateCheck}, AllowedOutcomeTokens: []string{}, DecisionRecordRequired: false}, []WorkKind{WorkKindBreakFix, WorkKindResearch})
-	d.Version = 3 // version 2 is the CD-0112 content; version 3 carries the lane-step dispatch join (#892)
-	return withContinuityActions(d)
+	d := baseDefinition("workflow.implementation", WorkKindImplementation, graph(steps, edges, "release"), actions, []EvidenceKind{EvidenceVerification, EvidenceReview}, WorkflowOutcomeSchema{DefaultKind: PredicateCheck, AllowedKinds: []PredicateKind{PredicateExists, PredicateAbsent, PredicateCheck}, AllowedOutcomeTokens: []string{}, DecisionRecordRequired: false}, []WorkKind{WorkKindBreakFix, WorkKindResearch}, payloadContracts)
+	d.Version = 4
+	return withContinuityActions(d, payloadContracts)
 }
-func builtinBreakFix() WorkflowDefinition {
+func builtinBreakFix(payloadContracts bool) WorkflowDefinition {
 	// Break-fix changes Product truth, so the repair route passes through a
 	// human approval checkpoint between diagnosis and repair.
 	ids := []string{"reproduce", "diagnose", "planning", "repair", "verify", "complete"}
@@ -1114,57 +1278,57 @@ func builtinBreakFix() WorkflowDefinition {
 	edges := forward(ids...)
 	edges = addEdge(edges, "repair", "repair", WorkflowEdgeRetry)
 	actions := []string{"record_reproduction", "record_root_cause", "approve_contract", "start_repair", "checkpoint_repair", "bind_evidence", "link_successor", "record_delivery", "record_verdict", "confirm_premise", "complete"}
-	d := baseDefinition("workflow.break_fix", WorkKindBreakFix, graph(steps, edges, "complete"), actions, []EvidenceKind{EvidenceVerification}, WorkflowOutcomeSchema{DefaultKind: PredicateAbsent, AllowedKinds: []PredicateKind{PredicateExists, PredicateAbsent, PredicateCheck}, AllowedOutcomeTokens: []string{}, DecisionRecordRequired: false}, []WorkKind{WorkKindImplementation, WorkKindResearch})
-	d.Version = 3 // version 2 is the CD-0112 content; version 3 carries the lane-step dispatch join (#892)
-	return withContinuityActions(d)
+	d := baseDefinition("workflow.break_fix", WorkKindBreakFix, graph(steps, edges, "complete"), actions, []EvidenceKind{EvidenceVerification}, WorkflowOutcomeSchema{DefaultKind: PredicateAbsent, AllowedKinds: []PredicateKind{PredicateExists, PredicateAbsent, PredicateCheck}, AllowedOutcomeTokens: []string{}, DecisionRecordRequired: false}, []WorkKind{WorkKindImplementation, WorkKindResearch}, payloadContracts)
+	d.Version = 4
+	return withContinuityActions(d, payloadContracts)
 }
-func builtinResearch() WorkflowDefinition {
+func builtinResearch(payloadContracts bool) WorkflowDefinition {
 	ids := []string{"frame", "investigate", "findings", "conclude", "complete"}
 	steps := []WorkflowStep{step("frame", WorkflowStepHumanCheckpoint, "frame_research", "approve_contract"), step("investigate", WorkflowStepCrossAuthority, "record_finding", "revise_candidates", "bind_evidence"), step("findings", WorkflowStepInternalSQLite, "record_report", "link_successor"), step("conclude", WorkflowStepHumanCheckpoint, "record_conclusion", "record_verdict", "confirm_premise"), step("complete", WorkflowStepInternalSQLite, "complete")}
 	actions := []string{"frame_research", "approve_contract", "record_finding", "revise_candidates", "bind_evidence", "record_report", "link_successor", "record_conclusion", "record_verdict", "confirm_premise", "complete"}
-	d := baseDefinition("workflow.research", WorkKindResearch, graph(steps, forward(ids...), "complete"), actions, []EvidenceKind{EvidenceArtifact}, WorkflowOutcomeSchema{DefaultKind: PredicateOutcome, AllowedKinds: []PredicateKind{PredicateOutcome}, AllowedOutcomeTokens: []string{"no_change", "resolved", "report_recorded"}, DecisionRecordRequired: false}, []WorkKind{WorkKindBreakFix, WorkKindArchitectureSpike, WorkKindStaticAnalysis})
-	d.Version = 3 // version 2 is the CD-0112 content; version 3 carries the lane-step dispatch join (#892)
-	return withContinuityActions(d)
+	d := baseDefinition("workflow.research", WorkKindResearch, graph(steps, forward(ids...), "complete"), actions, []EvidenceKind{EvidenceArtifact}, WorkflowOutcomeSchema{DefaultKind: PredicateOutcome, AllowedKinds: []PredicateKind{PredicateOutcome}, AllowedOutcomeTokens: []string{"no_change", "resolved", "report_recorded"}, DecisionRecordRequired: false}, []WorkKind{WorkKindBreakFix, WorkKindArchitectureSpike, WorkKindStaticAnalysis}, payloadContracts)
+	d.Version = 4
+	return withContinuityActions(d, payloadContracts)
 }
-func builtinArchitectureSpike() WorkflowDefinition {
+func builtinArchitectureSpike(payloadContracts bool) WorkflowDefinition {
 	ids := []string{"frame", "research", "options", "poc_optional", "decision_record", "review", "acceptance", "complete"}
 	steps := []WorkflowStep{step("frame", WorkflowStepHumanCheckpoint, "frame_question", "approve_contract"), step("research", WorkflowStepCrossAuthority, "record_research", "bind_evidence"), step("options", WorkflowStepInternalSQLite, "record_option"), step("poc_optional", WorkflowStepExternalEffect, "start_poc", "checkpoint_poc", "discard_poc", "record_delivery"), step("decision_record", WorkflowStepHumanCheckpoint, "record_decision"), step("review", WorkflowStepHumanCheckpoint, "record_verdict", "accept_decision"), step("acceptance", WorkflowStepHumanCheckpoint, "confirm_premise"), step("complete", WorkflowStepInternalSQLite, "complete")}
 	edges := forward(ids...)
 	edges = addEdge(edges, "options", "decision_record", WorkflowEdgeOptional)
 	edges = addEdge(edges, "poc_optional", "poc_optional", WorkflowEdgeRetry)
 	actions := []string{"frame_question", "approve_contract", "record_research", "bind_evidence", "record_option", "start_poc", "checkpoint_poc", "discard_poc", "record_delivery", "record_decision", "record_verdict", "accept_decision", "confirm_premise", "complete"}
-	d := baseDefinition("workflow.architecture_spike", WorkKindArchitectureSpike, graph(steps, edges, "complete"), actions, []EvidenceKind{EvidenceReview, EvidenceApproval, EvidenceArtifact}, WorkflowOutcomeSchema{DefaultKind: PredicateOutcome, AllowedKinds: []PredicateKind{PredicateOutcome}, AllowedOutcomeTokens: []string{"accepted_decision", "insufficient_evidence"}, DecisionRecordRequired: true}, []WorkKind{WorkKindImplementation, WorkKindResearch, WorkKindStaticAnalysis})
-	d.Version = 2 // version 1 carried no lane-step dispatch join; version 2 composes it (#892)
-	return withContinuityActions(d)
+	d := baseDefinition("workflow.architecture_spike", WorkKindArchitectureSpike, graph(steps, edges, "complete"), actions, []EvidenceKind{EvidenceReview, EvidenceApproval, EvidenceArtifact}, WorkflowOutcomeSchema{DefaultKind: PredicateOutcome, AllowedKinds: []PredicateKind{PredicateOutcome}, AllowedOutcomeTokens: []string{"accepted_decision", "insufficient_evidence"}, DecisionRecordRequired: true}, []WorkKind{WorkKindImplementation, WorkKindResearch, WorkKindStaticAnalysis}, payloadContracts)
+	d.Version = 3
+	return withContinuityActions(d, payloadContracts)
 }
-func builtinOpsRunbook() WorkflowDefinition {
+func builtinOpsRunbook(payloadContracts bool) WorkflowDefinition {
 	ids := []string{"plan", "approval", "execute", "health", "rollback_optional", "cleanup", "complete"}
 	steps := []WorkflowStep{step("plan", WorkflowStepHumanCheckpoint, "approve_contract", "resolve_condition", "cancel_condition"), step("approval", WorkflowStepHumanCheckpoint, "approve_operation", "resolve_condition", "cancel_condition"), step("execute", WorkflowStepExternalEffect, "start_run", "checkpoint_run", "bind_evidence", "add_condition", "resolve_condition", "cancel_condition", "record_delivery"), step("health", WorkflowStepCrossAuthority, "record_health", "record_verdict", "resolve_condition", "cancel_condition"), step("rollback_optional", WorkflowStepExternalEffect, "rollback_run", "resolve_condition", "cancel_condition", "record_delivery"), step("cleanup", WorkflowStepInternalSQLite, "cleanup_run", "confirm_premise", "resolve_condition", "cancel_condition"), step("complete", WorkflowStepInternalSQLite, "complete", "resolve_condition", "cancel_condition")}
 	edges := forward(ids...)
 	edges = addEdge(edges, "health", "cleanup", WorkflowEdgeOptional)
 	edges = addEdge(edges, "execute", "execute", WorkflowEdgeRetry)
 	actions := []string{"approve_contract", "approve_operation", "start_run", "checkpoint_run", "bind_evidence", "add_condition", "resolve_condition", "cancel_condition", "record_delivery", "record_health", "record_verdict", "rollback_run", "cleanup_run", "confirm_premise", "complete"}
-	d := baseDefinition("workflow.ops_runbook", WorkKindOpsRunbook, graph(steps, edges, "complete"), actions, []EvidenceKind{EvidenceApproval, EvidenceNativeRun}, WorkflowOutcomeSchema{DefaultKind: PredicateCheck, AllowedKinds: []PredicateKind{PredicateExists, PredicateAbsent, PredicateCheck}, AllowedOutcomeTokens: []string{}, DecisionRecordRequired: false}, []WorkKind{WorkKindImplementation, WorkKindBreakFix, WorkKindResearch})
-	d.Version = 2 // version 1 carried no lane-step dispatch join; version 2 composes it (#892)
-	return withContinuityActions(d)
+	d := baseDefinition("workflow.ops_runbook", WorkKindOpsRunbook, graph(steps, edges, "complete"), actions, []EvidenceKind{EvidenceApproval, EvidenceNativeRun}, WorkflowOutcomeSchema{DefaultKind: PredicateCheck, AllowedKinds: []PredicateKind{PredicateExists, PredicateAbsent, PredicateCheck}, AllowedOutcomeTokens: []string{}, DecisionRecordRequired: false}, []WorkKind{WorkKindImplementation, WorkKindBreakFix, WorkKindResearch}, payloadContracts)
+	d.Version = 3
+	return withContinuityActions(d, payloadContracts)
 }
-func builtinStaticAnalysis() WorkflowDefinition {
+func builtinStaticAnalysis(payloadContracts bool) WorkflowDefinition {
 	ids := []string{"scope", "analyze", "report", "review", "complete"}
 	steps := []WorkflowStep{step("scope", WorkflowStepHumanCheckpoint, "approve_contract", "declare_scope"), step("analyze", WorkflowStepExternalEffect, "run_analysis", "checkpoint_analysis", "record_delivery"), step("report", WorkflowStepInternalSQLite, "record_report", "bind_evidence"), step("review", WorkflowStepHumanCheckpoint, "record_verdict", "confirm_premise"), step("complete", WorkflowStepInternalSQLite, "complete")}
 	edges := forward(ids...)
 	edges = addEdge(edges, "analyze", "analyze", WorkflowEdgeRetry)
 	actions := []string{"approve_contract", "declare_scope", "run_analysis", "checkpoint_analysis", "record_delivery", "record_report", "bind_evidence", "record_verdict", "confirm_premise", "complete"}
-	d := baseDefinition("workflow.static_analysis", WorkKindStaticAnalysis, graph(steps, edges, "complete"), actions, []EvidenceKind{EvidenceArtifact, EvidenceReview}, WorkflowOutcomeSchema{DefaultKind: PredicateCheck, AllowedKinds: []PredicateKind{PredicateExists, PredicateAbsent, PredicateCheck}, AllowedOutcomeTokens: []string{}, DecisionRecordRequired: false}, []WorkKind{WorkKindImplementation, WorkKindBreakFix, WorkKindResearch})
-	d.Version = 2 // version 1 carried no lane-step dispatch join; version 2 composes it (#892)
-	return withContinuityActions(d)
+	d := baseDefinition("workflow.static_analysis", WorkKindStaticAnalysis, graph(steps, edges, "complete"), actions, []EvidenceKind{EvidenceArtifact, EvidenceReview}, WorkflowOutcomeSchema{DefaultKind: PredicateCheck, AllowedKinds: []PredicateKind{PredicateExists, PredicateAbsent, PredicateCheck}, AllowedOutcomeTokens: []string{}, DecisionRecordRequired: false}, []WorkKind{WorkKindImplementation, WorkKindBreakFix, WorkKindResearch}, payloadContracts)
+	d.Version = 3
+	return withContinuityActions(d, payloadContracts)
 }
-func builtinGenericOneOff() WorkflowDefinition {
+func builtinGenericOneOff(payloadContracts bool) WorkflowDefinition {
 	ids := []string{"define", "execute", "verify", "complete"}
 	steps := []WorkflowStep{step("define", WorkflowStepHumanCheckpoint, "approve_contract"), step("execute", WorkflowStepExternalEffect, "start_action", "checkpoint_action", "bind_evidence", "link_successor", "record_delivery"), step("verify", WorkflowStepHumanCheckpoint, "record_verdict", "confirm_premise"), step("complete", WorkflowStepInternalSQLite, "complete")}
 	edges := forward(ids...)
 	edges = addEdge(edges, "execute", "execute", WorkflowEdgeRetry)
 	actions := []string{"approve_contract", "start_action", "checkpoint_action", "bind_evidence", "link_successor", "record_delivery", "record_verdict", "confirm_premise", "complete"}
-	d := baseDefinition("workflow.generic_one_off", WorkKindGenericOneOff, graph(steps, edges, "complete"), actions, []EvidenceKind{EvidenceArtifact}, WorkflowOutcomeSchema{DefaultKind: PredicateOutcome, AllowedKinds: []PredicateKind{PredicateExists, PredicateAbsent, PredicateOutcome, PredicateCheck}, AllowedOutcomeTokens: []string{"no_change", "accepted_decision", "insufficient_evidence", "resolved", "remediated", "report_recorded", "completed", "operator_defined"}, DecisionRecordRequired: false}, []WorkKind{WorkKindImplementation, WorkKindBreakFix, WorkKindResearch, WorkKindArchitectureSpike, WorkKindOpsRunbook, WorkKindStaticAnalysis, WorkKindGenericOneOff})
-	d.Version = 3 // version 2 is the CD-0112 content; version 3 carries the lane-step dispatch join (#892)
-	return withContinuityActions(d)
+	d := baseDefinition("workflow.generic_one_off", WorkKindGenericOneOff, graph(steps, edges, "complete"), actions, []EvidenceKind{EvidenceArtifact}, WorkflowOutcomeSchema{DefaultKind: PredicateOutcome, AllowedKinds: []PredicateKind{PredicateExists, PredicateAbsent, PredicateOutcome, PredicateCheck}, AllowedOutcomeTokens: []string{"no_change", "accepted_decision", "insufficient_evidence", "resolved", "remediated", "report_recorded", "completed", "operator_defined"}, DecisionRecordRequired: false}, []WorkKind{WorkKindImplementation, WorkKindBreakFix, WorkKindResearch, WorkKindArchitectureSpike, WorkKindOpsRunbook, WorkKindStaticAnalysis, WorkKindGenericOneOff}, payloadContracts)
+	d.Version = 4
+	return withContinuityActions(d, payloadContracts)
 }

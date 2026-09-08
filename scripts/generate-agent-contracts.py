@@ -8,6 +8,7 @@ ROOT = Path(__file__).resolve().parents[1]
 MANIFEST = ROOT / "contracts/agent-tool-surface.v1.json"
 IR = ROOT / "contracts/agent-tool-surface.schema.json"
 PAYLOAD = ROOT / "contracts/agent-tool-surface-payloads.schema.json"
+WORKFLOW_OUTCOME = ROOT / "contracts/workflow-outcome.schema.json"
 HOST_MANIFEST = ROOT / "contracts/host-tool-surface.v1.json"
 HOST_SCHEMA = ROOT / "contracts/host-tool-surface.schema.json"
 
@@ -128,6 +129,165 @@ def _valid(value, schema, root, path):
 def validate_persisted_manifest(manifest, ir):
     schema_validate(manifest, ir, ir, "manifest")
 
+
+def load_workflow_action_contracts() -> list[dict]:
+    result = subprocess.run(
+        ["go", "run", "./scripts/workflow-action-contracts"],
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+        timeout=300,
+        check=True,
+    )
+    projection = json.loads(result.stdout)
+    if set(projection) != {"schema_version", "actions"} or projection["schema_version"] != "1.0":
+        fail("workflow action contract projection is invalid")
+    actions = projection["actions"]
+    if not actions or len({action.get("id") for action in actions}) != len(actions):
+        fail("workflow action contract projection has no unique actions")
+    for action in actions:
+        if set(action) != {"id", "payload", "public_payload"}:
+            fail("workflow action contract projection contains an open record")
+        for payload_key in ("payload", "public_payload"):
+            if set(action[payload_key]) - {"closed", "fields"}:
+                fail("workflow action contract projection contains an open payload")
+            if action[payload_key].get("closed") is not True:
+                fail(f"current workflow action {payload_key} is not closed: {action.get('id')}")
+    return actions
+
+
+def workflow_payload_field_schema(field: dict) -> dict:
+    value_type = field["value_type"]
+    schema_ref = field.get("schema_ref")
+    if schema_ref:
+        schema = {"$ref": f"#/$defs/{schema_ref}"}
+    elif value_type == "string":
+        schema = {"type": "string"}
+    elif value_type == "integer":
+        schema = {"type": "integer"}
+    elif value_type == "boolean":
+        schema = {"type": "boolean"}
+    elif value_type == "ref":
+        schema = {"$ref": "#/$defs/reference"}
+    elif value_type == "digest":
+        schema = {"$ref": "#/$defs/digest"}
+    elif value_type == "string_list":
+        if field.get("enum"):
+            items = {"enum": field["enum"]}
+        else:
+            items = {"$ref": f"#/$defs/{field.get('item_ref', 'reference')}"}
+        schema = {"type": "array", "uniqueItems": True, "items": items}
+    else:
+        fail(f"workflow action field {field.get('name')} has unsupported type {value_type}")
+    for source, target in (("min_length", "minLength"), ("max_length", "maxLength"), ("min_items", "minItems"), ("max_items", "maxItems"), ("minimum", "minimum"), ("maximum", "maximum"), ("enum", "enum")):
+        if source == "enum" and value_type == "string_list":
+            continue
+        if source in field and "$ref" not in schema:
+            schema[target] = field[source]
+    return schema
+
+
+def install_workflow_outcome_schema(defs: dict) -> None:
+    document = json.loads(WORKFLOW_OUTCOME.read_text())
+    names = {name: "workflow_outcome_" + re.sub(r"(?<!^)(?=[A-Z])", "_", name).lower() for name in document["$defs"]}
+
+    def rewrite(node):
+        if isinstance(node, list):
+            return [rewrite(value) for value in node]
+        if not isinstance(node, dict):
+            return node
+        result = {key: rewrite(value) for key, value in node.items()}
+        if isinstance(result.get("$ref"), str) and result["$ref"].startswith("#/$defs/"):
+            result["$ref"] = "#/$defs/" + names[result["$ref"].removeprefix("#/$defs/")]
+        return result
+
+    for name, schema in document["$defs"].items():
+        defs[names[name]] = rewrite(schema)
+    defs["workflow_outcome_payload"] = {"oneOf": [rewrite(branch) for branch in document["oneOf"]]}
+
+
+def workflow_supersede_fields_schema() -> dict:
+    string_list = {"type": "array", "maxItems": 32, "uniqueItems": True, "items": {"$ref": "#/$defs/id"}}
+    return {
+        "type": "object", "additionalProperties": False,
+        "required": ["contract_version", "premise", "outcome_kind", "outcome_payload", "required_evidence", "route_conventions", "spec_mandate", "law_modifies", "rigor_class"],
+        "properties": {
+            "contract_version": {"$ref": "#/$defs/version"}, "premise": {"type": "string", "minLength": 1, "maxLength": 4096},
+            "outcome_kind": {"enum": ["exists", "absent", "outcome", "check"]}, "outcome_payload": {"$ref": "#/$defs/workflow_outcome_payload"},
+            "required_evidence": copy.deepcopy(string_list), "route_conventions": copy.deepcopy(string_list),
+            "spec_mandate": copy.deepcopy(string_list), "law_modifies": copy.deepcopy(string_list),
+            "rigor_class": {"$ref": "#/$defs/rigor_class"}, "architecture_binding": {"$ref": "#/$defs/architecture_binding"},
+            "supersede_reason": {"type": "string", "minLength": 1, "maxLength": 4096}, "audit_evidence": copy.deepcopy(string_list),
+        },
+    }
+
+
+def project_workflow_action_schema(document: dict, actions: list[dict]) -> dict:
+    projected = copy.deepcopy(document)
+    defs = projected["$defs"]
+    common = {
+        "work_id": {"$ref": "#/$defs/id"},
+        "expected_version": {"$ref": "#/$defs/version"},
+        "action_id": {"$ref": "#/$defs/id"},
+        "idempotency_key": {"$ref": "#/$defs/id"},
+        "evidence": {"type": "array", "maxItems": 32, "items": {"$ref": "#/$defs/evidence"}},
+        "approval": {"$ref": "#/$defs/approval"},
+        "research_bindings": {
+            "type": "array", "minItems": 1, "maxItems": 16,
+            "items": {"type": "object", "additionalProperties": False, "required": ["pack_id", "revision", "use_role", "required"], "properties": {
+                "pack_id": {"$ref": "#/$defs/id"}, "revision": {"type": "integer", "minimum": 1},
+                "use_role": {"enum": ["context", "design_input", "verification_basis", "decision_basis"]}, "required": {"type": "boolean"},
+            }},
+        },
+        "requested_budget_seconds": {"$ref": "#/$defs/requested_budget_seconds"},
+    }
+    common_required = ["work_id", "expected_version", "action_id", "idempotency_key"]
+
+    install_workflow_outcome_schema(defs)
+    defs["workflow_action_outcome_predicates"] = {
+        "type": "array", "minItems": 1, "maxItems": 8,
+        "items": {"type": "object", "additionalProperties": False, "required": ["predicate_id", "ordinal", "outcome_kind", "outcome_payload"], "properties": {
+            "predicate_id": {"$ref": "#/$defs/id"}, "ordinal": {"type": "integer", "minimum": 0, "maximum": 7},
+            "outcome_kind": {"enum": ["exists", "absent", "outcome", "check"]}, "outcome_payload": {"$ref": "#/$defs/workflow_outcome_payload"},
+        }},
+    }
+    defs["workflow_forward_relation"] = {"type": "object", "additionalProperties": False, "required": ["kind"], "properties": {"kind": {"const": "forward_link"}, "class": {"enum": ["hard", "soft", "none"]}, "severity": {"enum": ["breaking", "non-breaking", "informational"]}}}
+    defs["workflow_completion_payload"] = {"type": "object", "additionalProperties": False, "properties": {"evidence_commit": {"type": "string", "minLength": 1, "maxLength": 128}, "current_commit": {"type": "string", "minLength": 1, "maxLength": 128}, "staleness": {"type": "object", "additionalProperties": False, "required": ["drifted"], "properties": {"drifted": {"type": "boolean"}, "severity": {"enum": ["block", "warning"]}}}}}
+
+    outer_properties = copy.deepcopy(common)
+    outer_properties["selected_choice"] = {"enum": ["confirm", "revise", "stop"]}
+    outer_properties["decision_context_digest"] = {"$ref": "#/$defs/digest"}
+    outer_properties["fields"] = {}
+
+    def action_condition(action: dict, payload_key: str) -> dict:
+        action_id = action["id"]
+        if action_id == "confirm_premise":
+            then = {"required": ["selected_choice", "decision_context_digest"], "not": {"required": ["fields"]}}
+        else:
+            field_properties = {}
+            field_required = []
+            for field in action[payload_key]["fields"]:
+                field_properties[field["name"]] = workflow_payload_field_schema(field)
+                if field.get("required"):
+                    field_required.append(field["name"])
+            field_object = {"type": "object", "additionalProperties": False, "maxProperties": 32, "properties": field_properties}
+            then = {"properties": {"fields": field_object}, "not": {"anyOf": [{"required": ["selected_choice"]}, {"required": ["decision_context_digest"]}]}}
+            if field_required:
+                field_object["required"] = field_required
+                then["required"] = ["fields"]
+        return {"if": {"properties": {"action_id": {"const": action_id}}, "required": ["action_id"]}, "then": then}
+
+    shared_actions = [action for action in actions if action["payload"] == action["public_payload"]]
+    divergent_actions = [action for action in actions if action["payload"] != action["public_payload"]]
+    shared_conditions = [action_condition(action, "payload") for action in shared_actions]
+    shared_conditions.append({"if": {"properties": {"action_id": {"const": "supersede_contract"}}, "required": ["action_id"]}, "then": {"required": ["fields"], "properties": {"fields": workflow_supersede_fields_schema()}, "not": {"anyOf": [{"required": ["selected_choice"]}, {"required": ["decision_context_digest"]}]}}})
+    defs["work_transition_action_shared_input"] = {"type": "object", "additionalProperties": False, "required": common_required, "properties": copy.deepcopy(outer_properties), "allOf": shared_conditions}
+    wrapper = {"type": "object", "additionalProperties": False, "required": common_required, "properties": copy.deepcopy(outer_properties)}
+    defs["work_transition_action_input"] = copy.deepcopy(wrapper) | {"allOf": [{"$ref": "#/$defs/work_transition_action_shared_input"}] + [action_condition(action, "payload") for action in divergent_actions]}
+    defs["work_transition_action_public_input"] = copy.deepcopy(wrapper) | {"allOf": [{"$ref": "#/$defs/work_transition_action_shared_input"}] + [action_condition(action, "public_payload") for action in divergent_actions]}
+    return projected
+
+
 def check_schema_keywords(node, path="schema"):
     if not isinstance(node, dict): return
     unsupported=set(node)-SCHEMA_KEYWORDS
@@ -138,6 +298,7 @@ def check_schema_keywords(node, path="schema"):
         elif isinstance(value, dict): check_schema_keywords(value, f"{path}.{key}")
         elif isinstance(value, list):
             for index, child in enumerate(value): check_schema_keywords(child, f"{path}.{key}[{index}]")
+
 
 def check_payload_closed(node, path="payload"):
     if not isinstance(node, dict): return
@@ -296,7 +457,7 @@ def fixtures_projection(manifest: dict) -> str:
             if isinstance(branch,dict): base.update({key:sample(schema.get("properties",{}).get(key,{})) for key in branch.get("required",[])}); return base
             return result
         if "allOf" in schema:
-            result={}
+            result=sample({key: value for key, value in schema.items() if key != "allOf"}) or {}
             for branch in schema["allOf"]: result.update(sample(branch) or {})
             return result
         if "enum" in schema: return schema["enum"][0]
@@ -479,9 +640,16 @@ def go_typed_error_kind_projection(envelope: dict) -> str:
 
 def main() -> int:
     try:
+        check = "--check" in sys.argv[1:]
         manifest = json.loads(MANIFEST.read_text())
         ir = json.loads(IR.read_text())
         payload = json.loads(PAYLOAD.read_text())
+        projected_payload = project_workflow_action_schema(payload, load_workflow_action_contracts())
+        if payload != projected_payload:
+            if check:
+                fail("generated workflow action payload contract drift: contracts/agent-tool-surface-payloads.schema.json")
+            PAYLOAD.write_text(json.dumps(projected_payload, ensure_ascii=False, indent=2) + "\n")
+            payload = projected_payload
         envelope = json.loads((ROOT / "contracts/agent-tool-envelope.schema.json").read_text())
         host_manifest = json.loads(HOST_MANIFEST.read_text())
         host_schema = json.loads(HOST_SCHEMA.read_text())
@@ -494,7 +662,6 @@ def main() -> int:
         payload_digest = "sha256:" + hashlib.sha256(canonical(payload)).hexdigest()
         manifest["payload_digest"] = payload_digest
         digest = validate(manifest)
-        check = "--check" in sys.argv[1:]
         if manifest.get("digest") != digest or manifest.get("payload_digest") != payload_digest:
             if check:
                 fail(f"manifest digest is {manifest.get('digest')}, expected {digest}")

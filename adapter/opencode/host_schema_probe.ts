@@ -93,7 +93,9 @@ for (const [toolName, exportedTool] of Object.entries(tools)) {
     if (variant.additionalProperties !== false) fail(`${operation.id} request is not closed`)
     if (JSON.stringify(variant.required) !== JSON.stringify(["operation", "input"])) fail(`${operation.id} request fields are not required`)
     const input = resolvePointer(root, variant.properties.input.$ref)
-    const schemaName = operation.input_schema.slice(operation.input_schema.lastIndexOf("/") + 1)
+    const schemaName = operation.id === "concord_work_transition.workflow_action"
+      ? "work_transition_action_public_input"
+      : operation.input_schema.slice(operation.input_schema.lastIndexOf("/") + 1)
     if (JSON.stringify(input) !== JSON.stringify((payloadSchemas as Record<string, unknown>)[schemaName]).replaceAll("#/$defs/", "#/properties/request/definitions/")) {
       fail(`${operation.id} input differs from generated schema ${schemaName}`)
     }

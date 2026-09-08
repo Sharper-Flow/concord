@@ -94,7 +94,7 @@ func TestRecordDeliveryRequiresTheFencedStart(t *testing.T) {
 		t.Fatal(err)
 	}
 	version := agentCompositionWorkVersion(t, s, workID)
-	raw, _ := json.Marshal(map[string]any{"work_id": workID, "expected_version": version, "action_id": "record_delivery", "fields": map[string]any{"summary": "nothing started"}, "idempotency_key": "delivery-no-start-action"})
+	raw, _ := json.Marshal(map[string]any{"work_id": workID, "expected_version": version, "action_id": "record_delivery", "fields": map[string]any{}, "idempotency_key": "delivery-no-start-action"})
 	env.RequestID = "request:delivery-no-start"
 	response, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: raw}, env)
 	if err != nil {

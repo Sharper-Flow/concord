@@ -310,9 +310,6 @@ func DispatchWithRegistry(ctx context.Context, s *store.Store, authority *Servic
 		if len(strictAction.WorkID) < 2 || len(strictAction.WorkID) > 128 {
 			return coreError(base, "invalid_input", "workflow action work_id is malformed", "reread_entities", false), nil
 		}
-		if len(strictAction.Fields) != 0 && bytes.Equal(bytes.TrimSpace(strictAction.Fields), []byte(`{}`)) {
-			return coreError(base, "invalid_input", "workflow action fields cannot be empty", "reread_entities", false), nil
-		}
 		if s == nil || authority == nil {
 			return coreError(base, "unreachable", "workflow authority is not available", "contact_operator", true), nil
 		}

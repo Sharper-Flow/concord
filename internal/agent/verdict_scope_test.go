@@ -104,9 +104,7 @@ func workflowEngineFixture(t *testing.T, premise string) (*store.Store, *Service
 		}
 	}
 	record := func(actionID string) {
-		engineAction(map[string]int64{"record_reproduction": 4, "record_root_cause": 5}[actionID], actionID, map[string]any{
-			"payload": map[string]any{"work": "work-1", "outcome": nil}, "title": "Verdict Scope Work", "value_statement": "the verdict scope fixture value statement",
-		})
+		engineAction(map[string]int64{"record_reproduction": 4, "record_root_cause": 5}[actionID], actionID, map[string]any{})
 	}
 	record("record_reproduction")
 	record("record_root_cause")
@@ -118,7 +116,7 @@ func workflowEngineFixture(t *testing.T, premise string) (*store.Store, *Service
 		contractFields["premise"] = premise
 	}
 	engineAction(6, "approve_contract", contractFields)
-	engineAction(8, "start_repair", map[string]any{"payload": map[string]any{"work": "work-1", "outcome": nil}})
+	engineAction(8, "start_repair", map[string]any{})
 	engine := func(actionID string, payload map[string]any) {
 		t.Helper()
 		var version int64

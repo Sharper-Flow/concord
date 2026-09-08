@@ -118,7 +118,7 @@ func TestResearchAuthorBindProveAndRead(t *testing.T) {
 	// succeeds and the consumer binding lands in the same transaction.
 	action := invoke("workflow_action", map[string]any{
 		"work_id": "work-1", "expected_version": 4, "action_id": "record_reproduction", "idempotency_key": "rs-action-1",
-		"fields":            map[string]any{"payload": map[string]any{"work": "work-1"}, "title": "Research Surface Work", "value_statement": "fixture value statement"},
+		"fields":            map[string]any{},
 		"research_bindings": []map[string]any{{"pack_id": packID, "revision": 1, "use_role": "context", "required": true}},
 	})
 	if action.Outcome != OutcomeOK {
@@ -138,7 +138,7 @@ func TestResearchAuthorBindProveAndRead(t *testing.T) {
 	}
 	refused := invoke("workflow_action", map[string]any{
 		"work_id": "work-1", "expected_version": 5, "action_id": "record_root_cause", "idempotency_key": "rs-action-2",
-		"fields":            map[string]any{"payload": map[string]any{"work": "work-1"}, "title": "Research Surface Work", "value_statement": "fixture value statement"},
+		"fields":            map[string]any{},
 		"research_bindings": []map[string]any{{"pack_id": packID, "revision": 1, "use_role": "context", "required": true}},
 	})
 	if refused.Outcome == OutcomeOK {

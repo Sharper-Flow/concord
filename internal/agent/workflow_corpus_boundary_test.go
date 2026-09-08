@@ -63,7 +63,7 @@ func TestWorkflowCorpusWF37UsesAgentAvailabilityBeforePayloadOrAuth(t *testing.T
 		t.Fatal(err)
 	}
 	env := mutationEnvelope(grant, scopeVersion)
-	input := map[string]any{"work_id": "work-1", "expected_version": scenario.Request.ExpectedVersion, "action_id": scenario.Request.ActionID, "fields": []any{}, "idempotency_key": scenario.Request.Idempotency.Key}
+	input := map[string]any{"work_id": "work-1", "expected_version": scenario.Request.ExpectedVersion, "action_id": scenario.Request.ActionID, "fields": map[string]any{}, "idempotency_key": scenario.Request.Idempotency.Key}
 	response := invokeWorkflowBoundary(t, s, service, env, input, store.NewWorkflowDefinitionRegistry())
 	if response.Outcome != OutcomeError || response.Error == nil || response.Error.Kind != "invalid_transition" {
 		t.Fatalf("WF37 response outcome=%s error=%+v", response.Outcome, response.Error)
@@ -80,13 +80,13 @@ func TestWorkflowCorpusWF37UsesAgentAvailabilityBeforePayloadOrAuth(t *testing.T
 func advanceWorkflowBoundaryToExecution(t *testing.T, s *store.Store, service *Service, grant Authority, privateKey ed25519.PrivateKey, env CallEnvelope) (CallEnvelope, int64) {
 	t.Helper()
 	for index, action := range []string{"record_proposal", "record_discovery", "record_design"} {
-		input := map[string]any{"work_id": "work-1", "expected_version": int64(4 + index), "action_id": action, "fields": []any{}, "idempotency_key": "boundary-" + action}
+		input := map[string]any{"work_id": "work-1", "expected_version": int64(4 + index), "action_id": action, "fields": map[string]any{}, "idempotency_key": "boundary-" + action}
 		response := invokeWorkflowBoundary(t, s, service, env, input, store.BuiltinWorkflowRegistry())
 		if response.Outcome != OutcomeOK {
 			t.Fatalf("advance action=%s response=%+v", action, response)
 		}
 	}
-	challengeInput := map[string]any{"work_id": "work-1", "expected_version": int64(7), "action_id": "approve_contract", "fields": []any{}, "idempotency_key": "boundary-approve"}
+	challengeInput := map[string]any{"work_id": "work-1", "expected_version": int64(7), "action_id": "approve_contract", "fields": map[string]any{}, "idempotency_key": "boundary-approve"}
 	addWorkflowContractApprovalFields(challengeInput)
 	challenge := invokeWorkflowBoundary(t, s, service, env, challengeInput, store.BuiltinWorkflowRegistry())
 	if challenge.Error == nil || challenge.Error.Kind != "approval_required" {
@@ -121,13 +121,13 @@ func TestWorkflowCorpusWF38UsesStrictInvokeBoundaryForStepActorAndPayload(t *tes
 	}
 	env := mutationEnvelope(grant, scopeVersion)
 	env, version := advanceWorkflowBoundaryToExecution(t, s, service, grant, privateKey, env)
-	input := map[string]any{"work_id": "work-1", "expected_version": version, "action_id": scenario.Request.ActionID, "fields": []any{map[string]any{"name": "payload", "value": `{"current_step":"plan"}`}}, "idempotency_key": scenario.Request.Idempotency.Key}
+	input := map[string]any{"work_id": "work-1", "expected_version": version, "action_id": scenario.Request.ActionID, "fields": map[string]any{"payload": map[string]any{"current_step": "plan"}}, "idempotency_key": scenario.Request.Idempotency.Key}
 	var before int
 	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE kind=?`, store.WorkflowActionCompleted).Scan(&before); err != nil {
 		t.Fatal(err)
 	}
 	response := invokeWorkflowBoundary(t, s, service, env, input, store.BuiltinWorkflowRegistry())
-	if response.Outcome != OutcomeError || response.Error == nil || response.Error.Kind != "invariant_violation" {
+	if response.Outcome != OutcomeError || response.Error == nil || response.Error.Kind != "invalid_input" {
 		t.Fatalf("WF38 malformed step/payload response=%+v", response)
 	}
 	var after int
@@ -140,8 +140,7 @@ func TestWorkflowCorpusWF38UsesStrictInvokeBoundaryForStepActorAndPayload(t *tes
 
 	actorEnv := env
 	actorEnv.AgentRef = "agent:malformed"
-	actorInput := input
-	actorInput["idempotency_key"] = "wf38-malformed-actor"
+	actorInput := map[string]any{"work_id": "work-1", "expected_version": version, "action_id": scenario.Request.ActionID, "fields": map[string]any{}, "idempotency_key": "wf38-malformed-actor"}
 	actorResponse := invokeWorkflowBoundary(t, s, service, actorEnv, actorInput, store.BuiltinWorkflowRegistry())
 	if actorResponse.Outcome != OutcomeError || actorResponse.Error == nil || actorResponse.Error.Kind != "unauthorized" {
 		t.Fatalf("WF38 malformed actor response outcome=%s error=%+v", actorResponse.Outcome, actorResponse.Error)
@@ -173,7 +172,7 @@ func TestWorkflowCorpusWF46RejectsRemovedAgentReplayShape(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if response.Outcome != OutcomeError || response.Error == nil || response.Error.Kind != "invalid_input" {
+	if response.Outcome != OutcomeError || response.Error == nil || response.Error.Kind != "invalid_transition" {
 		if response.Error == nil {
 			t.Fatalf("WF46 removed replay response=%+v", response)
 		}

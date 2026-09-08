@@ -15,7 +15,7 @@ func TestWorkflowDefinitionValidationRequiresProductTruthClassification(t *testi
 		}
 	}
 
-	generic := builtinGenericOneOff()
+	generic := builtinGenericOneOff(true)
 	generic.ChangesProductTruth = workflowProductTruth(true)
 	if err := ValidateWorkflowDefinition(generic); err == nil {
 		t.Fatal("generic definition with product-truth authority passed validation")

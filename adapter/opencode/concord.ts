@@ -549,7 +549,7 @@ type WorkStartBootstrap = {
   worktree: { set_id: string; path: string; branch: string; base_sha: string; state: "active" }
 }
 
-type WorkStartPrepared = { schema_version: "1.0"; agent: string; directory: string; product_id: string; work_id: string; prompt: string }
+type WorkStartPrepared = { schema_version: "1.0"; agent: string; directory: string; product_id: string; work_id: string; title: string; prompt: string }
 
 // WorkStartEnvelope is the host-tool result. There is no partial outcome:
 // every step of work_start is idempotent on the derived key, so a failure
@@ -629,12 +629,13 @@ function validateWorkStartBootstrap(value: unknown): value is WorkStartBootstrap
 }
 
 function validateWorkStartPrepared(value: unknown, bootstrap: { product_id: string; work_id: string; worktree: { path: string } }): value is WorkStartPrepared {
-  if (!record(value) || !exactKeys(value, ["schema_version", "agent", "directory", "product_id", "work_id", "prompt"])) return false
+  if (!record(value) || !exactKeys(value, ["schema_version", "agent", "directory", "product_id", "work_id", "title", "prompt"])) return false
   return value.schema_version === "1.0"
     && value.directory === bootstrap.worktree.path
     && value.product_id === bootstrap.product_id
     && value.work_id === bootstrap.work_id
     && nonEmptyString(value.agent) && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(value.agent)
+    && nonEmptyString(value.title) && Buffer.byteLength(value.title) <= 256
     && typeof value.prompt === "string" && value.prompt.length > 0 && Buffer.byteLength(value.prompt) <= 65_536
 }
 
@@ -694,6 +695,43 @@ function workStartFailure(error: unknown, target: { product_id: string; project_
 
 async function runWorkStartChild(argv: string[], input: string, signal: AbortSignal, options?: ChildRunnerOptions) {
   try { return await runner.run(argv, input, signal, options) } catch (error) { throw runnerFailure(error, signal.aborted) }
+}
+
+// sanitizePaneTitle strips the C0, C1, and DEL control characters and cuts the
+// text at 64 code points, so a pane name stays one line of readable text
+// (issue #917).
+function sanitizePaneTitle(title: string): string {
+  const kept = [...title].filter((character) => {
+    const code = character.codePointAt(0) ?? 0
+    return code > 0x1f && !(code >= 0x7f && code <= 0x9f)
+  })
+  return kept.slice(0, 64).join("")
+}
+
+// renameZellijPaneFrame names the zellij pane after the work a successful
+// work_start just entered (issue #917). One bounded fork per success; the pane
+// belongs to the host, so no ZELLIJ_PANE_ID, a sanitized-empty name, or a
+// failed fork is a warning that never changes the completed start.
+async function renameZellijPaneFrame(title: string, context: ToolContext): Promise<void> {
+  const paneID = process.env.ZELLIJ_PANE_ID
+  if (paneID === undefined || paneID === "") return
+  const name = sanitizePaneTitle(title)
+  if (name === "") return
+  try {
+    const result = await runner.run(["zellij", "action", "rename-pane", "-p", paneID, name], "", context.abort)
+    if (result.exitCode !== 0) await warnPaneRename(context, `exit ${result.exitCode}`)
+  } catch {
+    await warnPaneRename(context, "the fork failed")
+  }
+}
+
+async function warnPaneRename(context: ToolContext, detail: string): Promise<void> {
+  try {
+    await hostControlPlane().showToast(`Concord could not rename the pane frame to the work title: ${detail}.`, "warning", context.abort)
+  } catch {
+    // The pane name is an operator aid; a warning that cannot be shown
+    // still cannot fail the completed start.
+  }
 }
 
 // executeWorkStart replays to convergence. Each step is idempotent on the
@@ -797,6 +835,10 @@ async function executeWorkStart(args: WorkStartArgs, context: ToolContext): Prom
     if (!samePath(landed, target.worktree.path)) {
       throw new AdapterFailure("session_directory_mismatch", "move_destination_mismatch", `the session moved to ${JSON.stringify(landed)} rather than the claimed worktree ${JSON.stringify(target.worktree.path)}`, "none", "retry_same_request")
     }
+    // Issue #917: the pane frame now names the work this session runs. The
+    // rename sits after every refusal point, so it fires once per success and
+    // never changes the outcome the envelope reports.
+    await renameZellijPaneFrame(preparedValue.title, context)
     return {
       schema_version: "1.0",
       outcome: "ok",

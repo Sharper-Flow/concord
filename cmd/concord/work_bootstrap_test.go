@@ -510,6 +510,15 @@ func TestSessionPrepareRunsLaneIdentityBeforeOrchestratorAndBoot(t *testing.T) {
 	if code != 0 || laneCalls != 1 || identityCalls != 1 || bootCalls != 1 || !strings.Contains(out.String(), "use UTF-8 ✓") {
 		t.Fatalf("prepare code=%d lane=%d identity=%d boot=%d stdout=%q stderr=%q", code, laneCalls, identityCalls, bootCalls, out.String(), errOut.String())
 	}
+	var prepared struct {
+		Title string `json:"title"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &prepared); err != nil {
+		t.Fatalf("unmarshal prepare output: %v", err)
+	}
+	if prepared.Title != "Bootstrap work" {
+		t.Fatalf("prepare title=%q", prepared.Title)
+	}
 	var after int
 	if err := s.DatabaseForTesting().QueryRow("SELECT count(*) FROM domain_events").Scan(&after); err != nil {
 		t.Fatal(err)

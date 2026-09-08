@@ -110,6 +110,7 @@ type sessionPrepareOutput struct {
 	Directory     string `json:"directory"`
 	ProductID     string `json:"product_id"`
 	WorkID        string `json:"work_id"`
+	Title         string `json:"title"`
 	Prompt        string `json:"prompt"`
 }
 
@@ -213,7 +214,15 @@ func runSessionPrepare(raw []byte, s *store.Store, out, errOut io.Writer, laneId
 		writeOperatorDiagnostic(errOut, "session-prepare", "launch prompt exceeds 65536 bytes")
 		return 1
 	}
-	return writeJSON(out, sessionPrepareOutput{SchemaVersion: "1.0", Agent: handle, Directory: cwd, ProductID: input.ProductID, WorkID: input.WorkID, Prompt: prompt}, errOut)
+	// The work title rides the response so a successful work_start can name
+	// the work in host surfaces (issue #917) on both the capture and resume
+	// paths; the read records nothing.
+	summary, err := s.ReadWorkItemSummary(context.Background(), input.WorkID)
+	if err != nil {
+		writeOperatorDiagnostic(errOut, "session-prepare", err.Error())
+		return 1
+	}
+	return writeJSON(out, sessionPrepareOutput{SchemaVersion: "1.0", Agent: handle, Directory: cwd, ProductID: input.ProductID, WorkID: input.WorkID, Title: summary.Title, Prompt: prompt}, errOut)
 }
 
 func samePath(left, right string) bool {

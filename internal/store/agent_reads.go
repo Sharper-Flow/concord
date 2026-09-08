@@ -9,11 +9,13 @@ import (
 // read target and render its coordination narrative.
 type WorkItemSummary struct {
 	Kind      string
+	Title     string
 	Narrative string
 }
 
-// ReadWorkItemSummary reads one work item's kind and narrative in one bounded
-// query. Missing projections remain typed so callers do not inspect SQL errors.
+// ReadWorkItemSummary reads one work item's kind, title, and narrative in one
+// bounded query. Missing projections remain typed so callers do not inspect
+// SQL errors.
 func (s *Store) ReadWorkItemSummary(ctx context.Context, workID string) (WorkItemSummary, error) {
 	if s == nil || s.db == nil {
 		return WorkItemSummary{}, newFailure(KindUnavailable, "read_work_item_summary", "database is not open", true, "open the authority database")
@@ -23,7 +25,7 @@ func (s *Store) ReadWorkItemSummary(ctx context.Context, workID string) (WorkIte
 
 func readWorkItemSummary(ctx context.Context, q queryer, workID string) (WorkItemSummary, error) {
 	var summary WorkItemSummary
-	err := q.QueryRowContext(ctx, `SELECT kind, narrative FROM work_items WHERE id=?`, workID).Scan(&summary.Kind, &summary.Narrative)
+	err := q.QueryRowContext(ctx, `SELECT kind, title, narrative FROM work_items WHERE id=?`, workID).Scan(&summary.Kind, &summary.Title, &summary.Narrative)
 	if err == sql.ErrNoRows {
 		return WorkItemSummary{}, newFailure(KindProjectionNotFound, "read_work_item_summary", "work item does not exist", false, "reread_entities")
 	}

@@ -1,4 +1,4 @@
-import { test, expect, mock } from "bun:test"
+import { test, expect, mock, beforeEach, afterEach } from "bun:test"
 import { chmod, mkdir, mkdtemp, rm } from "node:fs/promises"
 import { fileURLToPath } from "node:url"
 import { join } from "node:path"
@@ -38,6 +38,16 @@ const credentialSource = await Bun.file(new URL("./credentials.ts", import.meta.
 configureCoreBinary("concord")
 
 const adapter = await import("./concord")
+
+// A work_start success renames the zellij pane frame when the host exports
+// ZELLIJ_PANE_ID (issue #917). The suite stays hermetic against the operator's
+// own zellij session: no test sees a pane id unless it sets one.
+const outerPaneID = process.env.ZELLIJ_PANE_ID
+beforeEach(() => { delete process.env.ZELLIJ_PANE_ID })
+afterEach(() => {
+  if (outerPaneID === undefined) delete process.env.ZELLIJ_PANE_ID
+  else process.env.ZELLIJ_PANE_ID = outerPaneID
+})
 const hostCall = (operation: string, input: Record<string, unknown>) => ({ request: { operation, input } })
 
 test("exports exactly the generated tool names", () => {
@@ -769,12 +779,13 @@ const bootstrapSuccess = (path = "/data/worktrees/project-1/work-1") => ({
   worktree: { set_id: "worktree-set-1", path, branch: "work/work-1", base_sha: "a".repeat(40), state: "active" },
 })
 
-const preparedContract = (agent = "concord-implement", prompt = "Implement the task.") => ({
+const preparedContract = (agent = "concord-implement", prompt = "Implement the task.", title = "Add atomic start") => ({
   schema_version: "1.0",
   directory: "/data/worktrees/project-1/work-1",
   product_id: "product-1",
   work_id: "work-1",
   agent,
+  title,
   prompt,
 })
 
@@ -896,6 +907,7 @@ type RetargetCall = { argv: string[]; input: string; options?: any }
 const retargetRunner = (calls: RetargetCall[], overrides: Record<string, () => { exitCode: number; stdout: string; stderr: string }> = {}) => ({
   async run(argv: string[], input: string, _signal: AbortSignal, options?: any) {
     calls.push({ argv, input, options })
+    if (argv[0] === "zellij") return { exitCode: 0, stdout: "", stderr: "" }
     const command = argv[1]
     if (overrides[command]) return overrides[command]()
     if (command === "project-resolve") return { exitCode: 0, stdout: JSON.stringify(contextResponse()), stderr: "" }
@@ -943,6 +955,81 @@ test("work start moves the calling session into the claimed worktree", async () 
   expect(calls.some(({ argv }) => argv[1] === "session-exec" || argv[0] === "opencode")).toBe(false)
 })
 
+// Issue #917: a successful work_start names the zellij pane frame after the
+// work title. The fork sits after every refusal point, so a success without
+// ZELLIJ_PANE_ID stays fork-free and a failed fork stays a warning.
+test("work start renames the zellij pane frame to the work title on success", async () => {
+  process.env.ZELLIJ_PANE_ID = "402"
+  bindRetargetRoute()
+  const calls: RetargetCall[] = []
+  adapter.configureConcordAdapter({ runner: retargetRunner(calls) })
+  const result: any = await rawHostResult(adapter.work_start.execute(bootstrapArgs, contextFor()))
+  expect(result.outcome).toBe("ok")
+  // One rename fork, after session-prepare supplied the title and before the
+  // gate brief's reads: exactly one per success.
+  const renames = calls.filter(({ argv }) => argv[0] === "zellij")
+  expect(renames).toHaveLength(1)
+  expect(renames[0].argv).toEqual(["zellij", "action", "rename-pane", "-p", "402", "Add atomic start"])
+
+  const resumeCalls: RetargetCall[] = []
+  adapter.configureConcordAdapter({ runner: resumeRunner(resumeCalls) })
+  const resumed: any = await rawHostResult(adapter.work_start.execute({ work_id: "work-1" }, contextFor()))
+  expect(resumed.outcome).toBe("ok")
+  const resumeRenames = resumeCalls.filter(({ argv }) => argv[0] === "zellij")
+  expect(resumeRenames).toHaveLength(1)
+  expect(resumeRenames[0].argv).toEqual(["zellij", "action", "rename-pane", "-p", "402", "Add atomic start"])
+})
+
+test("the pane name strips control characters and is cut at 64 code points", async () => {
+  process.env.ZELLIJ_PANE_ID = "7"
+  bindRetargetRoute()
+  const calls: RetargetCall[] = []
+  adapter.configureConcordAdapter({ runner: retargetRunner(calls, {
+    "session-prepare": () => ({ exitCode: 0, stdout: JSON.stringify(preparedContract("concord-implement", "Implement the task.", `ab\u0001cd\u009Fef${"g".repeat(70)}`)), stderr: "" }),
+  }) })
+  const result: any = await rawHostResult(adapter.work_start.execute(bootstrapArgs, contextFor()))
+  expect(result.outcome).toBe("ok")
+  const renames = calls.filter(({ argv }) => argv[0] === "zellij")
+  expect(renames).toHaveLength(1)
+  const name = renames[0].argv[5]
+  expect(name).toBe(`abcdefg${"g".repeat(57)}`)
+  expect([...name]).toHaveLength(64)
+})
+
+test("work start without ZELLIJ_PANE_ID renames nothing", async () => {
+  bindRetargetRoute()
+  const calls: RetargetCall[] = []
+  adapter.configureConcordAdapter({ runner: retargetRunner(calls) })
+  const result: any = await rawHostResult(adapter.work_start.execute(bootstrapArgs, contextFor()))
+  expect(result.outcome).toBe("ok")
+  expect(calls.some(({ argv }) => argv[0] === "zellij")).toBe(false)
+})
+
+test("a failed pane rename is a warning and never fails work_start", async () => {
+  process.env.ZELLIJ_PANE_ID = "9"
+  bindRetargetRoute()
+  const calls: RetargetCall[] = []
+  // The exitCode-1 fork and the throwing fork are both warnings: the envelope
+  // reports the completed start unchanged in either mode.
+  const failing = { async run(argv: string[], input: string, signal: AbortSignal, options?: any) {
+    if (argv[0] === "zellij") return { exitCode: 1, stdout: "", stderr: "no such pane" }
+    return retargetRunner(calls).run(argv, input, signal, options)
+  } }
+  adapter.configureConcordAdapter({ runner: failing })
+  const refused: any = await rawHostResult(adapter.work_start.execute(bootstrapArgs, contextFor()))
+  expect(refused.outcome).toBe("ok")
+  expect(refused.work_id).toBe("work-1")
+
+  const throwing = { async run(argv: string[], input: string, signal: AbortSignal, options?: any) {
+    if (argv[0] === "zellij") throw new Error("zellij is absent")
+    return retargetRunner(calls).run(argv, input, signal, options)
+  } }
+  adapter.configureConcordAdapter({ runner: throwing })
+  const thrown: any = await rawHostResult(adapter.work_start.execute(bootstrapArgs, contextFor()))
+  expect(thrown.outcome).toBe("ok")
+  expect(thrown.work_id).toBe("work-1")
+})
+
 test("work start forwards a core terminal-origin refusal", async () => {
   bindRetargetRoute()
   const calls: RetargetCall[] = []
@@ -972,6 +1059,7 @@ const resumeSuccess = () => ({
 const resumeRunner = (calls: RetargetCall[], overrides: Record<string, () => { exitCode: number; stdout: string; stderr: string }> = {}) => ({
   async run(argv: string[], input: string, _signal: AbortSignal, options?: any) {
     calls.push({ argv, input, options })
+    if (argv[0] === "zellij") return { exitCode: 0, stdout: "", stderr: "" }
     const command = argv[1]
     if (overrides[command]) return overrides[command]()
     if (command === "project-resolve") return { exitCode: 0, stdout: JSON.stringify(contextResponse()), stderr: "" }

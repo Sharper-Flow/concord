@@ -71,6 +71,27 @@ type initiativeEntryMutationInput struct {
 	Required         *bool  `json:"required"`
 	IdempotencyKey   string `json:"idempotency_key"`
 }
+
+// initiativeReorderEntryInput and initiativeRequirednessInput decode exactly
+// what their per-operation schemas allow. The shared struct above carries the
+// union for add_entry only; reordering carries no requiredness and a
+// requiredness change carries no position, so a shared decoder would accept
+// input the contract refuses.
+type initiativeReorderEntryInput struct {
+	InitiativeWorkID string `json:"initiative_work_id"`
+	ChildWorkID      string `json:"child_work_id"`
+	ExpectedVersion  int64  `json:"expected_version"`
+	Position         int64  `json:"position"`
+	IdempotencyKey   string `json:"idempotency_key"`
+}
+
+type initiativeRequirednessInput struct {
+	InitiativeWorkID string `json:"initiative_work_id"`
+	ChildWorkID      string `json:"child_work_id"`
+	ExpectedVersion  int64  `json:"expected_version"`
+	Required         *bool  `json:"required"`
+	IdempotencyKey   string `json:"idempotency_key"`
+}
 type initiativeRemoveEntryMutationInput struct {
 	InitiativeWorkID string `json:"initiative_work_id"`
 	ChildWorkID      string `json:"child_work_id"`
@@ -1230,8 +1251,23 @@ func (r runtime) planInitiativeCreate(ctx context.Context, base Envelope, raw []
 // planInitiativeEntry plans concord_work_initiative.add_entry, concord_work_initiative.reorder_entry, concord_work_initiative.change_requiredness.
 func (r runtime) planInitiativeEntry(ctx context.Context, base Envelope, raw []byte, digest string, grant Authority, op ContractOperation, plan *mutationPlan) (Envelope, error, bool) {
 	var in initiativeEntryMutationInput
-	if err := decodeOperationInput(raw, &in); err != nil {
-		return base, err, true
+	switch op.ID {
+	case "concord_work_initiative.reorder_entry":
+		var reorder initiativeReorderEntryInput
+		if err := decodeOperationInput(raw, &reorder); err != nil {
+			return base, err, true
+		}
+		in = initiativeEntryMutationInput{InitiativeWorkID: reorder.InitiativeWorkID, ChildWorkID: reorder.ChildWorkID, ExpectedVersion: reorder.ExpectedVersion, Position: reorder.Position, IdempotencyKey: reorder.IdempotencyKey}
+	case "concord_work_initiative.change_requiredness":
+		var requiredness initiativeRequirednessInput
+		if err := decodeOperationInput(raw, &requiredness); err != nil {
+			return base, err, true
+		}
+		in = initiativeEntryMutationInput{InitiativeWorkID: requiredness.InitiativeWorkID, ChildWorkID: requiredness.ChildWorkID, ExpectedVersion: requiredness.ExpectedVersion, Required: requiredness.Required, IdempotencyKey: requiredness.IdempotencyKey}
+	default:
+		if err := decodeOperationInput(raw, &in); err != nil {
+			return base, err, true
+		}
 	}
 	plan.versions["initiative"] = in.ExpectedVersion
 	plan.scope["work_ids"] = []string{in.InitiativeWorkID, in.ChildWorkID}

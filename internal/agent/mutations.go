@@ -718,6 +718,12 @@ func preflightWorkflowActionRequestWithRegistry(ctx context.Context, s *store.St
 		}
 		return nil
 	}
+	// One bind-family action records one durable evidence_kind. The refusal
+	// sits after the replay window so an exact replay of a request recorded
+	// before this rule keeps answering with its stored result (#945).
+	if err := validateEvidenceKindBinding(in.ActionID, payload, in.Evidence); err != nil {
+		return newRuntimeFailure("invalid_input", err.Error(), "reread_entities", false)
+	}
 	if err := store.ValidateWorkflowOperatorSelection(ctx, s, in.WorkID, in.ExpectedVersion, in.ActionID, in.SelectedChoice, in.DecisionContextDigest); err != nil {
 		return err
 	}
@@ -743,15 +749,26 @@ func preflightWorkflowActionRequestWithRegistry(ctx context.Context, s *store.St
 	})
 }
 
+// evidenceBindingFamily names the actions whose caller-supplied evidence
+// array one durable event records under a single evidence_kind. The default
+// fill and the consistency refusal both read this one list, so the two can
+// never disagree about which actions they govern.
+func evidenceBindingFamily(actionID string) bool {
+	switch actionID {
+	case "bind_evidence", "record_research", "record_report", "accept_decision", "approve_operation":
+		return true
+	default:
+		return false
+	}
+}
+
 // withEvidenceKindDefault carries the caller-supplied evidence kind into the
 // payload of the evidence-binding action family when the fields omit it. The
 // store derives the durable event's evidence_kind from the payload alone, so
 // without this mapping a commit-kind evidence array silently records as
 // verification and the completion gate reads the kind as unbound.
 func withEvidenceKindDefault(actionID string, payload json.RawMessage, evidence []EvidenceRef) json.RawMessage {
-	switch actionID {
-	case "bind_evidence", "record_research", "record_report", "accept_decision", "approve_operation":
-	default:
+	if !evidenceBindingFamily(actionID) {
 		return payload
 	}
 	if len(evidence) == 0 || evidence[0].Kind == "" || len(payload) == 0 {
@@ -774,6 +791,43 @@ func withEvidenceKindDefault(actionID string, payload json.RawMessage, evidence 
 		return payload
 	}
 	return encoded
+}
+
+// validateEvidenceKindBinding refuses an evidence array that carries more
+// than one kind, and an explicit fields.evidence_kind that contradicts the
+// array. One bind-family action records one durable evidence_kind, so a
+// mixed array would silently drop every kind but the first and could wedge
+// a later step that declares no bind_evidence (#945).
+func validateEvidenceKindBinding(actionID string, payload json.RawMessage, evidence []EvidenceRef) error {
+	if !evidenceBindingFamily(actionID) || len(evidence) == 0 {
+		return nil
+	}
+	kind := ""
+	for _, entry := range evidence {
+		if entry.Kind == "" {
+			continue
+		}
+		if kind == "" {
+			kind = entry.Kind
+			continue
+		}
+		if entry.Kind != kind {
+			return fmt.Errorf("evidence array carries more than one kind (%s, %s); issue one bind per evidence kind", kind, entry.Kind)
+		}
+	}
+	if kind == "" || len(payload) == 0 {
+		return nil
+	}
+	var fields struct {
+		EvidenceKind string `json:"evidence_kind"`
+	}
+	if err := json.Unmarshal(payload, &fields); err != nil || fields.EvidenceKind == "" {
+		return nil
+	}
+	if fields.EvidenceKind != kind {
+		return fmt.Errorf("fields.evidence_kind %q contradicts evidence array kind %q; issue one bind per evidence kind", fields.EvidenceKind, kind)
+	}
+	return nil
 }
 
 func workflowActionFields(raw json.RawMessage) (json.RawMessage, error) {
@@ -831,6 +885,9 @@ func (r runtime) mutateWorkflowAction(ctx context.Context, base Envelope, raw []
 		return coreError(base, "invalid_input", err.Error(), "reread_entities", false), nil
 	}
 	payload = withEvidenceKindDefault(in.ActionID, payload, in.Evidence)
+	if err := validateEvidenceKindBinding(in.ActionID, payload, in.Evidence); err != nil {
+		return coreError(base, "invalid_input", err.Error(), "reread_entities", false), nil
+	}
 	registry := r.Registry
 	if registry == nil {
 		registry = store.BuiltinWorkflowRegistry()

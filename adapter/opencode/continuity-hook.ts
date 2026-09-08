@@ -1,4 +1,5 @@
 import { concordBinaryPath, defaultRunner, type DispatchRunner } from "./dispatch"
+import { formatWorkStateLine } from "./workflow-status"
 
 const CONTINUITY_TTL_MS = 10_000
 const START_SENTINEL = "<!-- concord:continuity:v1 -->"
@@ -20,7 +21,17 @@ function selectedIdentityValue(name: string): string {
 }
 
 function renderBlock(stdout: string): string {
-  return `${START_SENTINEL}\n${stdout}\n${END_SENTINEL}`
+  let stateLine = ""
+  try {
+    const packet = JSON.parse(stdout)
+    const continuity = packet && typeof packet === "object" && !Array.isArray(packet) ? packet.continuity : undefined
+    const pinned = continuity && typeof continuity === "object" && !Array.isArray(continuity) ? continuity.pinned : undefined
+    const pin = pinned && typeof pinned === "object" && !Array.isArray(pinned) ? pinned.work_pin : undefined
+    stateLine = formatWorkStateLine(pin) ?? ""
+  } catch {
+    stateLine = ""
+  }
+  return `${START_SENTINEL}\n${stateLine ? `${stateLine}\n` : ""}${stdout}\n${END_SENTINEL}`
 }
 
 function applyBlock(output: ContinuityOutput, block: string): void {

@@ -30,6 +30,15 @@ const packet = (): AgentLanePacket => ({
   inputs: { task: "Verify the bounded fixture." },
 })
 
+const workPin = {
+  work_id: "work-1",
+  version: 4,
+  lifecycle: "in_progress",
+  workflow_type: "workflow.break_fix",
+  step: "repair",
+  pending_operator_decision: null,
+}
+
 const report = (status = "completed") => ({
   schema_version: "1.0",
   attempt_id: "attempt-complete",
@@ -79,6 +88,16 @@ describe("completeDispatchedWorker", () => {
     expect(verbs).toEqual(["worker-dispatch", "worker-complete"])
     expect(windows.takeInFlight(SESSION)).toBeNull()
     expect(output.output).toContain("<task_result>")
+  })
+
+  test("adds the dispatch WorkPin state line to the lane report", async () => {
+    const windows = new DispatchWindows()
+    windows.open(SESSION, packet(), PACKET_DIGEST, [workPin])
+    windows.bind(TASK_TOOL_ID, SESSION, {})
+    const verbs: string[] = []
+    const output = { title: "verify lane", output: taskWrap(JSON.stringify(report())), metadata: {} }
+    await completeDispatchedWorker({ tool: TASK_TOOL_ID, sessionID: SESSION, callID: "call-1", args: {} }, output, deps(verbs, windows))
+    expect(output.output).toContain("◆ CONCORD WORK STATE | work=work-1 | version=4 | lifecycle=in_progress | workflow=workflow.break_fix | step=repair | decision=none")
   })
 
   test("a failed report records worker-fail and surfaces the refusal on the tool output", async () => {

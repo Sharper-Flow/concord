@@ -147,6 +147,7 @@ export interface AgentResultEnvelope {
   readback_model: string | null
   session_id: string | null
   output?: string
+  work_pins?: unknown[]
   // CD-0102 D1. A dispatch returns before the worker runs, so an authorized
   // dispatch reports that the window is open and the host must now issue the
   // Task call. A completed attempt never carries this field.
@@ -921,7 +922,7 @@ export async function computeHostPromptProvenance(laneId: string, cwd = process.
   return { digest: "sha256:" + Bun.SHA256.hash(manifest, "hex"), sources: sources.slice(0, 64) }
 }
 
-export async function dispatchWorker(packet: unknown, options: { signal?: AbortSignal; runner?: DispatchRunner; readbackRunner?: DispatchRunner; evidenceRunner?: DispatchRunner; binary?: string; concordBinary?: string; credentials?: CredentialStore; authorize?: DispatchAuthorizer; packetDigest?: string; sessionID?: string; windows?: DispatchWindows } = {}): Promise<AgentResultEnvelope> {
+export async function dispatchWorker(packet: unknown, options: { signal?: AbortSignal; runner?: DispatchRunner; readbackRunner?: DispatchRunner; evidenceRunner?: DispatchRunner; binary?: string; concordBinary?: string; credentials?: CredentialStore; authorize?: DispatchAuthorizer; packetDigest?: string; sessionID?: string; windows?: DispatchWindows; workPins?: unknown[] } = {}): Promise<AgentResultEnvelope> {
   if (!validateAgentLanePacket(packet)) return errorEnvelope(null, isRecord(packet) ? packet as Partial<AgentLanePacket> : {}, "error", "invalid_input", "agent lane packet failed the closed packet schema", "retry_same_request")
   const lane = laneForPacket(packet)
   if (!lane) return errorEnvelope(null, packet, "error", "invalid_input", "lane identity or digest is not registered", "retry_same_request")
@@ -970,13 +971,14 @@ export async function dispatchWorker(packet: unknown, options: { signal?: AbortS
   }
   const windows = options.windows ?? dispatchWindows()
   try {
-    windows.open(sessionID, packet, options.packetDigest ?? "")
+    windows.open(sessionID, packet, options.packetDigest ?? "", options.workPins)
   } catch (error) {
     const detail = error instanceof DispatchWindowError ? error.message : String(error)
     return errorEnvelope(lane, packet as Partial<AgentLanePacket>, "error", "error", detail.slice(0, MAX_ERROR_BYTES), "reconcile_operation")
   }
   const directive = baseEnvelope(lane, packet, "ok")
   directive.dispatch_state = "awaiting_worker"
+  if (options.workPins) directive.work_pins = options.workPins
   return directive
 }
 

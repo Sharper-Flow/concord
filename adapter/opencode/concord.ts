@@ -6,7 +6,7 @@ import { dispatchLaneWorker, type LaneDispatchInput } from "./lane_dispatch"
 import { hostControlPlane, MoveSessionUnavailable } from "./move-session"
 import { createRunSessionObservation, errorEnvelopeForLane, MAX_OUTPUT_BYTES, observeRunSessionLine, readExportSessionMetadata, readRunSessionMetadata, readRunTextParts, runStreamRefusalMessage, runStreamRefusalRecovery, validateAgainstSchema, type AgentResultEnvelope, type RunLineMetadata, type RunSessionObservation } from "./dispatch"
 import { concordBinaryPath, CoreBinaryUnavailable } from "./dispatch"
-import { createWorkflowStatusReporter, formatGateBrief } from "./workflow-status"
+import { createWorkStateReporter, formatGateBrief } from "./workflow-status"
 import { hostLeaseFault } from "./host-lease"
 
 type ToolContext = {
@@ -477,8 +477,7 @@ export async function invokeConcordOperation(toolName: string, args: HostToolArg
   return reconcileUnknownEffect(toolName, args, context, await invokeConcordOperationRaw(toolName, args, context))
 }
 
-const workflowStatusReporter = createWorkflowStatusReporter(
-  (workID, context) => invokeConcordOperation("concord_work_trace", { operation: "continuity", input: { work_id: workID, page: { cursor: null, limit: 1 } } }, context as ToolContext),
+const workStateReporter = createWorkStateReporter(
   (message, context) => hostControlPlane().showToast(message, "info", context.abort),
 )
 
@@ -500,14 +499,14 @@ async function encodeHostToolResult(toolName: string, args: HostToolArgs, contex
 
 async function executeHostTool(toolName: string, args: HostToolArgs, context: ToolContext): Promise<ToolResult> {
   const envelope = await invokeConcordOperation(toolName, args, context)
-  if (operationIsMutation(toolName, args.operation) && hostControlPlane().available()) {
-    await workflowStatusReporter.report(toolName, args.operation, args.input, envelope, context)
-  }
+  if (operationIsMutation(toolName, args.operation) && hostControlPlane().available()) await workStateReporter.report(envelope, context)
   return encodeHostToolResult(toolName, args, context, envelope)
 }
 
 async function executeHostTransition(args: HostToolArgs, context: ToolContext): Promise<ToolResult> {
-  return encodeHostToolResult("concord_work_transition", args, context, await executeWorkTransition(args, context))
+  const envelope = await executeWorkTransition(args, context)
+  if (hostControlPlane().available()) await workStateReporter.report(envelope, context)
+  return encodeHostToolResult("concord_work_transition", args, context, envelope)
 }
 
 type WorkStartCaptureArgs = {
@@ -986,8 +985,5 @@ async function executeWorkTransition(args: HostToolArgs, context: ToolContext): 
   }
   const envelope = await invokeConcordOperation("concord_work_transition", args, context)
   const landed = await moveSessionToClaimedWorktree(args, context, envelope)
-  if (hostControlPlane().available()) {
-    await workflowStatusReporter.report("concord_work_transition", args.operation, args.input, landed, context)
-  }
   return landed
 }

@@ -3,7 +3,7 @@ import { chmod, mkdir, mkdtemp, rm } from "node:fs/promises"
 import { fileURLToPath } from "node:url"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
-import { contractOperations, manifestDigest } from "./generated-contracts"
+import { contractOperations, hostToolSchemas, manifestDigest } from "./generated-contracts"
 import { configureCoreBinary } from "./dispatch"
 import { claimHostLease, configureHostLease } from "./host-lease"
 import { validateGeneratedEnvelope, envelopeFailurePath } from "./generated-contract-tests"
@@ -1142,14 +1142,13 @@ test("work start resume rejects mixed and malformed argument shapes", async () =
   expect(calls).toEqual([])
 })
 
-// Issue #928: an incomplete capture named no field and assigned the operator
-// an undefined recovery task. The refusal must name the missing fields and
-// admit a corrected request without demanding operator intervention.
+// Missing capture fields must name the caller's correction without host effects.
 test("work start names the missing capture fields and admits a corrected request", async () => {
   bindRetargetRoute({ unbound: true })
   const calls: RetargetCall[] = []
   adapter.configureConcordAdapter({ runner: { async run(argv: string[]) { calls.push({ argv, input: "", options: undefined }); throw new Error("argument refusal must precede every effect") } } })
-  const result: any = await rawHostResult(adapter.work_start.execute({ title: "Correct confirmed usage-reporting defects", kind: "bug", task: "Validate the reported defects and shape a bounded repair contract." } as any, contextFor()))
+  const incomplete = { title: "Correct confirmed usage-reporting defects", kind: "bug", task: "Validate the reported defects and shape a bounded repair contract." }
+  const result: any = await rawHostResult(adapter.work_start.execute(incomplete, contextFor()))
   expect(result.outcome).toBe("error")
   expect(result.error.kind).toBe("invalid_input")
   expect(result.error.effect_state).toBe("none")
@@ -1161,6 +1160,14 @@ test("work start names the missing capture fields and admits a corrected request
   expect(result.error.retry_safe).toBe(false)
   expect(result.error.recovery_action.kind).toBe("correct_request")
   expect(calls).toEqual([])
+  const repeated = await rawHostResult(adapter.work_start.execute(incomplete, contextFor()))
+  expect(repeated.error).toEqual(result.error)
+  expect(calls).toEqual([])
+  bindRetargetRoute()
+  adapter.configureConcordAdapter({ runner: retargetRunner(calls) })
+  const corrected = await rawHostResult(adapter.work_start.execute({ ...incomplete, value_statement: "Start valid work without operator repair.", idempotency_key: "corrected-start-1" }, contextFor()))
+  expect(corrected.outcome).toBe("ok")
+  expect(calls.filter(({ argv }) => argv[1] === "work-bootstrap")).toHaveLength(1)
 })
 
 test("capture and resume refuse before core effects when managed participation cannot be persisted", async () => {
@@ -1200,6 +1207,103 @@ test("invalid work start input cannot enroll a host session", async () => {
   expect(result.error.kind).toBe("invalid_input")
   expect(hostCalls).toBe(0)
   expect(calls).toEqual([])
+})
+
+const workStartDiagnosticCases: Array<{ name: string; args: unknown; fragments: string[] }> = [
+  { name: "null arguments", args: null, fragments: ["object"] },
+  { name: "array arguments", args: [], fragments: ["object"] },
+  { name: "missing capture fields", args: {}, fragments: ["missing", "title", "value_statement", "kind", "task", "idempotency_key"] },
+  { name: "unknown capture field", args: { ...bootstrapArgs, project_id: "sensitive-input-value" }, fragments: ["undeclared", "project_id"] },
+  { name: "unknown resume field", args: { work_id: "work-1", extra: "sensitive-input-value" }, fragments: ["undeclared", "extra"] },
+  { name: "invalid kind", args: { ...bootstrapArgs, kind: "sensitive-input-value" }, fragments: ["kind", "enum"] },
+  { name: "invalid urgency", args: { ...bootstrapArgs, urgency: "sensitive-input-value" }, fragments: ["urgency", "enum"] },
+  { name: "string priority", args: { ...bootstrapArgs, priority: "sensitive-input-value" }, fragments: ["priority", "integer"] },
+  { name: "fractional priority", args: { ...bootstrapArgs, priority: 0.5 }, fragments: ["priority", "integer"] },
+  { name: "priority below minimum", args: { ...bootstrapArgs, priority: -101 }, fragments: ["priority", "minimum", "-100"] },
+  { name: "priority above maximum", args: { ...bootstrapArgs, priority: 101 }, fragments: ["priority", "maximum", "100"] },
+  { name: "bad idempotency key", args: { ...bootstrapArgs, idempotency_key: "sensitive-input-value bad" }, fragments: ["idempotency_key", "match"] },
+  { name: "bad workflow reference", args: { ...bootstrapArgs, workflow_type_ref: "sensitive-input-value bad" }, fragments: ["workflow_type_ref", "match"] },
+  { name: "empty title", args: { ...bootstrapArgs, title: "" }, fragments: ["title", "shorter", "1"] },
+  { name: "title character limit", args: { ...bootstrapArgs, title: "x".repeat(257) }, fragments: ["title", "256"] },
+  { name: "title byte limit", args: { ...bootstrapArgs, title: "é".repeat(129) }, fragments: ["title", "256", "UTF-8 bytes"] },
+  { name: "value statement byte limit", args: { ...bootstrapArgs, value_statement: "é".repeat(129) }, fragments: ["value_statement", "256", "UTF-8 bytes"] },
+  { name: "external reference byte limit", args: { ...bootstrapArgs, external_ref: "é".repeat(129) }, fragments: ["external_ref", "256", "UTF-8 bytes"] },
+  { name: "task byte limit", args: { ...bootstrapArgs, task: "🙂".repeat(2049) }, fragments: ["task", "8192", "UTF-8 bytes"] },
+  { name: "empty resume identity", args: { work_id: "" }, fragments: ["work_id", "shorter", "1"] },
+  { name: "invalid resume identity", args: { work_id: "sensitive-input-value bad" }, fragments: ["work_id", "match"] },
+  { name: "oversize resume identity", args: { work_id: "w".repeat(129) }, fragments: ["work_id", "128"] },
+  { name: "null resume identity", args: { work_id: null }, fragments: ["work_id", "string"] },
+  { name: "duplicate tags", args: { ...bootstrapArgs, tags: ["sensitive-input-value", "sensitive-input-value"] }, fragments: ["tags", "duplicate"] },
+  { name: "invalid tag item", args: { ...bootstrapArgs, tags: ["valid", "sensitive-input-value bad"] }, fragments: ["tags[1]", "match"] },
+  { name: "too many tags", args: { ...bootstrapArgs, tags: Array.from({ length: 33 }, (_, index) => `tag-${index}`) }, fragments: ["tags", "32"] },
+  { name: "invalid requirement item", args: { ...bootstrapArgs, governing_requirements: ["valid", 1] }, fragments: ["governing_requirements[1]", "string"] },
+]
+for (const field of hostToolSchemas.concord_work_start.oneOf[0].required) {
+  const args: Record<string, unknown> = { ...bootstrapArgs }
+  delete args[field]
+  workStartDiagnosticCases.push({ name: `missing ${field}`, args, fragments: ["missing", field] })
+}
+for (const field of Object.keys(hostToolSchemas.concord_work_start.oneOf[0].properties)) {
+  workStartDiagnosticCases.push({ name: `resume mixed with ${field}`, args: { work_id: "work-1", [field]: "sensitive-input-value" }, fragments: ["undeclared", field] })
+}
+for (const field of ["constructor", "toString", "__proto__"]) {
+  for (const mode of ["capture", "resume"]) {
+    const base = mode === "capture" ? bootstrapArgs : { work_id: "work-1" }
+    workStartDiagnosticCases.push({ name: `${mode} with ${field}`, args: { ...base, [field]: "sensitive-input-value" }, fragments: ["undeclared", field] })
+  }
+}
+for (const { name, args, fragments } of workStartDiagnosticCases) {
+  test(`work start diagnostic: ${name}`, async () => {
+    let hostCalls = 0
+    hostControlPlane().bind({
+      get: async () => { hostCalls++; throw new Error("invalid input reached the host") },
+      post: async () => { hostCalls++; throw new Error("invalid input reached the host") },
+      patch: async () => { hostCalls++; throw new Error("invalid input reached the host") },
+    })
+    let coreCalls = 0
+    adapter.configureConcordAdapter({ runner: { async run() { coreCalls++; throw new Error("invalid input reached the core") } } })
+    const result = await rawHostResult(adapter.work_start.execute(args, contextFor()))
+    expect(result).toMatchObject({ outcome: "error", error: { kind: "invalid_input", effect_state: "none", retry_safe: false, recovery_action: { kind: "correct_request" } } })
+    for (const fragment of fragments) expect(result.error.message).toContain(fragment)
+    expect(result.error.message).toContain("Capture requires")
+    expect(result.error.message).toContain("Resume requires only work_id")
+    expect(result.error.message).not.toContain("sensitive-input-value")
+    expect(result.work_id).toBeUndefined()
+    expect(hostCalls).toBe(0)
+    expect(coreCalls).toBe(0)
+  })
+}
+
+test("work start description explains the generated capture and resume requirements", async () => {
+  const definition = { description: adapter.work_start.description, parameters: {}, jsonSchema: {} }
+  await adapter.publishWorkStartDefinition({ toolID: "concord_work_start" }, definition)
+  const [capture, resume] = hostToolSchemas.concord_work_start.oneOf
+  expect(definition.description).toContain(`Capture requires ${capture.required.join(", ")}`)
+  expect(definition.description).toContain(`Resume requires only ${resume.required.join(", ")}`)
+  expect(definition.description).toContain("Do not combine capture and resume fields")
+  expect(definition.description.match(/Capture requires/g)).toHaveLength(1)
+})
+
+test("work start accepts minimal capture and exact declared bounds in a resolved project", async () => {
+  const minimal = Object.fromEntries(hostToolSchemas.concord_work_start.oneOf[0].required.map((field) => [field, bootstrapArgs[field]]))
+  const bounded = {
+    ...bootstrapArgs,
+    title: "é".repeat(128), value_statement: "é".repeat(128), external_ref: "é".repeat(128), task: "🙂".repeat(2048),
+    idempotency_key: "i".repeat(128), workflow_type_ref: "w".repeat(128), ref: "r".repeat(128),
+    tags: Array.from({ length: 32 }, (_, index) => `tag-${index}`),
+    governing_requirements: Array.from({ length: 32 }, (_, index) => `law-${index}`),
+    urgency: "expedite",
+  }
+  for (const args of [minimal, { ...bounded, priority: -100 }, { ...bounded, priority: 100 }]) {
+    const moved = bindRetargetRoute()
+    const calls: RetargetCall[] = []
+    adapter.configureConcordAdapter({ runner: retargetRunner(calls) })
+    const result = await rawHostResult(adapter.work_start.execute(args, contextFor()))
+    expect(result).toMatchObject({ outcome: "ok", product_id: "product-1", project_id: "project-1", work_id: "work-1" })
+    expect(JSON.parse(calls[1].input)).toEqual({ product_id: "product-1", project_id: "project-1", ...args })
+    expect(calls.filter(({ argv }) => argv[1] === "work-bootstrap")).toHaveLength(1)
+    expect(moved).toEqual([{ sessionID: "session-1", destination: { directory: WORKTREE } }])
+  }
 })
 
 test("work start refuses before any effect when the host handed the plugin no client", async () => {

@@ -177,7 +177,7 @@ function argsSchema(toolName: string): any {
 }
 
 // The host definition hook publishes the flattened view with optional fields.
-// The generated manifest and diagnoseWorkStartArgs enforce the closed modes.
+// The generated manifest and validateWorkStartArgs enforce the closed modes.
 function workStartArgsSchema() {
   const properties = Object.assign({}, ...hostToolSchemas.concord_work_start.oneOf.map((branch) => branch.properties))
   // Host hooks can mutate published schemas, but never the runtime contract.
@@ -581,51 +581,22 @@ function nonEmptyString(value: unknown): value is string {
   return typeof value === "string" && value.length > 0
 }
 
-const workStartSchema = (hostToolSchemas as Record<string, any>).concord_work_start
-const workStartCaptureBranch = ((workStartSchema.oneOf ?? []) as Record<string, any>[]).find((branch) => "title" in (branch.properties ?? {}))
-const workStartCaptureFields = new Set(Object.keys(workStartCaptureBranch?.properties ?? {}))
-const workStartResumeField = new Set(["work_id"])
+const [workStartCaptureBranch, workStartResumeBranch] = hostToolSchemas.concord_work_start.oneOf
+const workStartUsage = `Capture requires ${workStartCaptureBranch.required.join(", ")}. Resume requires only ${workStartResumeBranch.required.join(", ")}. Do not combine capture and resume fields.`
 
 function isWorkStartResumeArgs(value: Record<string, unknown>): value is { work_id: string } {
   return saneWorkID(value.work_id)
 }
 
-// The capture branch owns the required-field list. Derive it from the
-// manifest-owned branch so the refusal names the same fields validation
-// enforces, without a second hand-kept copy (issue #928).
-const workStartCaptureRequired = ((workStartCaptureBranch?.required ?? []) as unknown[]).filter((key): key is string => typeof key === "string")
-
-// diagnoseWorkStartArgs enforces the manifest's oneOf at the boundary the
-// published per-field view cannot: a call is the capture shape (its required
-// fields, its closed surface) or the resume shape (work_id alone), never both
-// and never neither. A null result means the closed shape holds; otherwise
-// the result names the offending field paths only, never submitted values, so
-// task text and secrets cannot ride along in a refusal (issue #928).
-function diagnoseWorkStartArgs(value: unknown): string | null {
-  if (!record(value)) return "arguments must be a single object carrying a capture or a resume"
-  const keys = Object.keys(value)
-  const undeclared = keys.filter((key) => !workStartCaptureFields.has(key) && !workStartResumeField.has(key)).sort()
-  if (undeclared.length > 0) return `arguments carry undeclared fields: ${undeclared.join(", ")}`
-  if ("work_id" in value) {
-    const mixed = keys.filter((key) => workStartCaptureFields.has(key)).sort()
-    if (mixed.length > 0) return `arguments mix the resume shape (work_id) with capture fields: ${mixed.join(", ")}; resume takes work_id alone`
-    if (!isWorkStartResumeArgs(value)) return "work_id fails the work identity pattern; resume takes work_id alone"
-    return null
+// The published per-field view cannot enforce the closed capture/resume modes.
+// Select one generated branch so its diagnostics name the applicable fields.
+function validateWorkStartArgs(value: unknown, failures: string[]): value is WorkStartArgs {
+  if (!record(value)) {
+    failures.push("arguments: is not of type object")
+    return false
   }
-  const missing = workStartCaptureRequired.filter((key) => !(key in value))
-  if (missing.length > 0) return `capture is missing required fields: ${missing.join(", ")}; capture requires ${workStartCaptureRequired.join(", ")}`
-  const failures: string[] = []
-  if (!validateAgainstSchema(workStartCaptureBranch, value, failures)) {
-    const fields = [...new Set(failures.map((failure) => failure.split(":")[0]).filter((field) => field.length > 0))].sort()
-    if (fields.length > 0) return `capture fields fail the host-tool contract: ${fields.join(", ")}`
-    return "capture fields fail the host-tool contract"
-  }
-  for (const field of ["title", "value_statement", "external_ref"] as const) {
-    const candidate = value[field]
-    if (candidate !== undefined && Buffer.byteLength(String(candidate)) > 256) return `capture field exceeds the 256-byte limit: ${field}`
-  }
-  if (Buffer.byteLength(String(value.task)) > 8192) return "capture field exceeds the 8192-byte limit: task"
-  return null
+  const branch = "work_id" in value ? workStartResumeBranch : workStartCaptureBranch
+  return validateAgainstSchema(branch, value, failures)
 }
 
 function deriveWorkStartProduct(context: AmbientContext): string {
@@ -776,12 +747,9 @@ async function executeWorkStart(args: WorkStartArgs, context: ToolContext): Prom
   let target: { product_id: string; project_id: string; work_id: string; worktree: { path: string } } | null = null
   const resume = record(args) && isWorkStartResumeArgs(args)
   try {
-    // A malformed capture or resume is a caller-side input error with no
-    // effect: the owner is the caller with a corrected request, not the
-    // operator with an unspecified repair. An identical resubmission refuses
-    // again, so retry stays unsafe while correction is admitted (issue #928).
-    const diagnosis = diagnoseWorkStartArgs(args)
-    if (diagnosis !== null) throw new AdapterFailure("invalid_input", "invalid_work_start_input", `work_start arguments failed the host-tool contract: ${diagnosis}; submit a new request carrying the corrected fields, resubmitting these arguments unchanged refuses again`, "none", "correct_request")
+    // Input refusals have no effect; correction belongs to the caller.
+    const failures: string[] = []
+    if (!validateWorkStartArgs(args, failures)) throw new AdapterFailure("invalid_input", "invalid_work_start_input", `work_start arguments failed the host-tool contract: ${failures.join("; ")}. ${workStartUsage} Submit a corrected request; resubmitting unchanged arguments will fail again.`, "none", "correct_request")
     if (context.abort.aborted) throw new AdapterFailure("cancelled", "cancelled_no_effect", `work_start was cancelled before ${resume ? "the resume read" : "bootstrap"}`)
     const ambient = await resolveAmbientContext(context)
     const productID = deriveWorkStartProduct(ambient)
@@ -907,7 +875,7 @@ export const work_initiative = tool({ description: "Concord work initiative", ar
 export const work_transition = tool({ description: "Concord work transition", args: argsSchema("concord_work_transition"), execute: (args: HostToolCall, context: ToolContext): Promise<ToolResult> => executeHostTransition(args.request, context) })
 export const work_relate = tool({ description: "Concord work relate", args: argsSchema("concord_work_relate"), execute: (args: HostToolCall, context: ToolContext): Promise<ToolResult> => executeHostTool("concord_work_relate", args.request, context) })
 export const work_compact = tool({ description: "Concord work compact", args: argsSchema("concord_work_compact"), execute: (args: HostToolCall, context: ToolContext): Promise<ToolResult> => executeHostTool("concord_work_compact", args.request, context) })
-export const work_start = tool({ description: hostToolDescriptions.concord_work_start, args: workStartArgsSchema(), execute: async (args: any, context: ToolContext): Promise<ToolResult> => {
+export const work_start = tool({ description: `${hostToolDescriptions.concord_work_start} ${workStartUsage}`, args: workStartArgsSchema(), execute: async (args: any, context: ToolContext): Promise<ToolResult> => {
   const envelope = await executeWorkStart(args as WorkStartArgs, context)
   await reportGateBrief(envelope, context)
   let output = JSON.stringify(envelope)

@@ -17,6 +17,7 @@ import { DispatchWindows, TASK_TOOL_ID } from "./dispatch-window"
 import type { CredentialStore } from "./credentials"
 import type { DispatchRunner } from "./dispatch"
 import { agentLanes } from "./generated-agent-lanes"
+import { hostControlPlane, MANAGED_TASK_SCOPE_KEY, SESSION_ROUTE } from "./move-session"
 
 const PRODUCT_ID = "product-e2e"
 const PROJECT_ID = "project-e2e"
@@ -216,6 +217,23 @@ routeDeclaration("dispatches a real store route through Task completion and work
 
     process.env.OPENCODE_CONFIG = configPath
     const context = contextFor(worktree)
+    let sessionMetadata: Record<string, unknown> = {}
+    hostControlPlane().bind({
+      get: async ({ url, path }) => {
+        expect(url).toBe(SESSION_ROUTE)
+        const id = path?.id
+        expect(id === SESSION_ID || id === "worker-session").toBe(true)
+        return { data: { id, directory: worktree, metadata: id === SESSION_ID ? sessionMetadata : {}, ...(id === "worker-session" ? { parentID: SESSION_ID } : {}) }, response: new Response(null, { status: 200 }) }
+      },
+      patch: async ({ url, path, body }) => {
+        expect(url).toBe(SESSION_ROUTE)
+        expect(path).toEqual({ id: SESSION_ID })
+        expect(body).toEqual({ metadata: { [MANAGED_TASK_SCOPE_KEY]: "managed" } })
+        sessionMetadata = { [MANAGED_TASK_SCOPE_KEY]: "managed" }
+        return { response: new Response(null, { status: 200 }) }
+      },
+      post: async () => { throw new Error("dispatch scope must not change host permissions or directory") },
+    })
     const realCalls: Array<{ argv: string[]; input: JSONRecord }> = []
     const realRunner: DispatchRunner = {
       async run(argv, input, signal) {
@@ -272,6 +290,9 @@ routeDeclaration("dispatches a real store route through Task completion and work
     const dispatchResult = await dispatchLaneWorker(routed as any, {
       context,
       invoke: async (toolName, args, callContext) => {
+        if (toolName === "concord_work_transition" && args.input.action_id === "dispatch_worker") {
+          expect(sessionMetadata).toEqual({ [MANAGED_TASK_SCOPE_KEY]: "managed" })
+        }
         const result = await invoke(toolName, args, callContext)
         if (toolName === "concord_work_transition" && args.input.action_id === "dispatch_worker") dispatchResponse = result
         return result
@@ -282,6 +303,8 @@ routeDeclaration("dispatches a real store route through Task completion and work
     })
     expect(dispatchResult.outcome).toBe("ok")
     expect(dispatchResult.dispatch_state).toBe("awaiting_worker")
+    expect(await hostControlPlane().taskScope(SESSION_ID)).toBe("managed")
+    expect(await hostControlPlane().taskScope("worker-session")).toBe("managed")
     expect(windows.has(SESSION_ID)).toBe(true)
     const taskArgs: Record<string, unknown> = { subagent_type: "general", prompt: "model input", description: "model task" }
     windows.bind(TASK_TOOL_ID, SESSION_ID, taskArgs)
@@ -345,6 +368,7 @@ routeDeclaration("dispatches a real store route through Task completion and work
     for (const call of invokeCalls) requiredFields(call.input.call_envelope, ["schema_version", "request_id", "client_ref", "principal_ref", "session_ref", "agent_ref", "directory", "worktree", "ambient_project_id", "scope_version", "manifest_digest"])
   } finally {
     configureConcordAdapter({ reset: true })
+    hostControlPlane().bind(undefined)
     if (previousConfig === undefined) delete process.env.OPENCODE_CONFIG
     else process.env.OPENCODE_CONFIG = previousConfig
     await rm(root, { recursive: true, force: true })

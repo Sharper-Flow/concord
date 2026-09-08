@@ -921,6 +921,7 @@ const retargetRunner = (calls: RetargetCall[], overrides: Record<string, () => {
 // route's answers directly, so the contract is exercised without a server.
 const bindRetargetRoute = (options: { moveStatus?: number; moveBody?: string; landedDirectory?: string; unbound?: boolean } = {}) => {
   const moved: Array<Record<string, unknown>> = []
+  let metadata: Record<string, unknown> = {}
   if (options.unbound) {
     hostControlPlane().bind(undefined)
     return moved
@@ -932,9 +933,15 @@ const bindRetargetRoute = (options: { moveStatus?: number; moveBody?: string; la
       return { response: new Response(status === 204 ? null : (options.moveBody ?? ""), { status }) }
     },
     get: async () => ({
-      data: { id: "session-1", directory: options.landedDirectory ?? WORKTREE },
+      data: { id: "session-1", directory: options.landedDirectory ?? WORKTREE, metadata },
       response: new Response(null, { status: 200 }),
     }),
+    patch: async ({ url, path, body }) => {
+      expect(url).toBe("/session/{id}")
+      expect(path).toEqual({ id: "session-1" })
+      metadata = (body as { metadata: Record<string, unknown> }).metadata
+      return { response: new Response(null, { status: 200 }) }
+    },
   })
   return moved
 }
@@ -945,6 +952,7 @@ test("work start moves the calling session into the claimed worktree", async () 
   adapter.configureConcordAdapter({ runner: retargetRunner(calls) })
   const result: any = await rawHostResult(adapter.work_start.execute(bootstrapArgs, contextFor()))
   expect(result).toMatchObject({ outcome: "ok", work_id: "work-1", worktree_path: WORKTREE, session_id: "session-1", agent: "concord-implement" })
+  expect(await hostControlPlane().taskScope("session-1")).toBe("managed")
   // The claim exists before the session moves, so a failed move leaves a
   // resumable claim rather than a moved session with none.
   expect(calls.map(({ argv }) => argv[1])).toEqual(["project-resolve", "work-bootstrap", "session-prepare", "project-resolve", "invoke"])
@@ -1074,6 +1082,7 @@ test("work start resume derives the entry by work_id and moves the session", asy
   const calls: RetargetCall[] = []
   adapter.configureConcordAdapter({ runner: resumeRunner(calls) })
   const result: any = await rawHostResult(adapter.work_start.execute({ work_id: "work-1" }, contextFor()))
+  expect(await hostControlPlane().taskScope("session-1")).toBe("managed")
   expect(result).toMatchObject({ outcome: "ok", product_id: "product-1", project_id: "project-1", work_id: "work-1", worktree_path: WORKTREE, agent: "concord-implement", session_id: "session-1" })
   // A resume never captures: work-resume replaces work-bootstrap and records
   // nothing, so the child sequence has no journal step.
@@ -1127,6 +1136,45 @@ test("work start resume rejects mixed and malformed argument shapes", async () =
   }
   // Nothing ran: the shape refusal is in front of every effect, host probe
   // included, so a malformed call costs no child and no move.
+  expect(calls).toEqual([])
+})
+
+test("capture and resume refuse before core effects when managed participation cannot be persisted", async () => {
+  for (const args of [bootstrapArgs, { work_id: "work-1" }]) {
+    for (const supportsPatch of [false, true]) {
+      let updates = 0
+      const client = {
+        get: async () => ({ data: { id: "session-1", directory: WORKTREE, metadata: {} }, response: new Response(null, { status: 200 }) }),
+        post: async () => { throw new Error("a refused enrollment cannot move the session") },
+        ...(supportsPatch ? { patch: async () => { updates++; return { response: new Response(null, { status: 200 }) } } } : {}),
+      }
+      hostControlPlane().bind(client)
+      const calls: RetargetCall[] = []
+      adapter.configureConcordAdapter({ runner: retargetRunner(calls) })
+      const result: any = await rawHostResult(adapter.work_start.execute(args, contextFor()))
+      expect(result.outcome).toBe("error")
+      expect(result.error.kind).toBe("unreachable")
+      expect(result.error.message).toContain("managed Task scope")
+      expect(result.work_id).toBeUndefined()
+      expect(calls.map(({ argv }) => argv[1])).toEqual(["project-resolve"])
+      expect(updates).toBe(supportsPatch ? 1 : 0)
+    }
+  }
+})
+
+test("invalid work start input cannot enroll a host session", async () => {
+  let hostCalls = 0
+  hostControlPlane().bind({
+    get: async () => { hostCalls++; throw new Error("invalid input must not reach the host") },
+    post: async () => { hostCalls++; throw new Error("invalid input must not reach the host") },
+    patch: async () => { hostCalls++; throw new Error("invalid input must not reach the host") },
+  })
+  const calls: RetargetCall[] = []
+  adapter.configureConcordAdapter({ runner: retargetRunner(calls) })
+  const { idempotency_key: _key, ...invalid } = bootstrapArgs
+  const result: any = await rawHostResult(adapter.work_start.execute(invalid, contextFor()))
+  expect(result.error.kind).toBe("invalid_input")
+  expect(hostCalls).toBe(0)
   expect(calls).toEqual([])
 })
 
@@ -1210,7 +1258,8 @@ test("work start replays to convergence after an interrupted step", async () => 
   expect(interrupted.error.recovery_action.kind).toBe("retry_same_request")
   expect(interrupted.work_id).toBe("work-1")
   expect(interrupted.worktree_path).toBe(WORKTREE)
-  // No rollback and no record: nothing compensates because nothing recorded intent.
+  expect(await hostControlPlane().taskScope("session-1")).toBe("managed")
+  // The failed prepare retains the claim and participation without compensation.
   expect(first.map(({ argv }) => argv[1])).toEqual(["project-resolve", "work-bootstrap", "session-prepare"])
 
   // Second attempt, same key: bootstrap replays (the core reports replayed:

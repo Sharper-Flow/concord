@@ -1,0 +1,37 @@
+{
+  "date": "2026-09-08T00:00:00Z",
+  "evidence": [
+    "cmd/concord/main.go",
+    "internal/store/session_vacate.go",
+    "internal/agent/mutations.go",
+    "adapter/opencode/concord.ts",
+    "scenarios/workflow-engine.v1.json"
+  ],
+  "home_domain_id": "product-root:concord",
+  "id": "CD-0120",
+  "kind": "decision",
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "CD-0098"
+    }
+  ],
+  "path": "docs/decisions/CD-0120-session-vacate-to-registered-main-checkout.md",
+  "product_wide_rationale": "Governs session movement out of implementation worktrees, which every Domain uses when it reclaims worktree storage.",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:6d8c5827a7a29eacd346fe1d2f0e29e9b39c37b839039ec04a67c2879a416a7f",
+  "status": "accepted",
+  "summary": "session_vacate derives the registered Project main checkout, refuses agent-named destinations, moves through the host control plane, verifies the landing, and composes with worktree reclaim occupancy checks.",
+  "tags": [
+    "workflow",
+    "worktree-isolation",
+    "authority"
+  ],
+  "title": "A session can vacate its worktree to the registered main checkout"
+}

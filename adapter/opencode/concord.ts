@@ -998,6 +998,42 @@ export async function moveSessionToClaimedWorktree(args: HostToolArgs, context: 
   return envelope
 }
 
+// moveSessionToRegisteredMainCheckout applies the core-derived vacate target.
+// The agent can request the operation but cannot name or replace its destination.
+export async function moveSessionToRegisteredMainCheckout(args: HostToolArgs, context: ToolContext, envelope: HostConcordEnvelope): Promise<HostConcordEnvelope> {
+  if (args?.operation !== "session_vacate") return envelope
+  const requestID = `${context.sessionID}-${context.messageID}`
+  const input = args.input
+  if (!record(input) || Object.keys(input).some((key) => key === "destination" || key === "destination_directory" || key === "path")) {
+    return adapterError("concord_work_transition", "session_vacate", requestID, "invalid_input", "agent_named_destination", "session_vacate derives the registered main checkout and refuses an agent-named destination", "none", "correct_request")
+  }
+  if (!record(envelope) || envelope.outcome !== "ok") return envelope
+  const result = envelope.result
+  const destination = record(result) ? result.destination_directory : undefined
+  if (typeof destination !== "string" || !destination.startsWith("/")) {
+    return adapterError("concord_work_transition", "session_vacate", requestID, "malformed_response", "vacate_destination_unreadable", "core session_vacate response did not carry an absolute derived destination", "none", "retry_same_request")
+  }
+  try {
+    await hostControlPlane().moveSession(context.sessionID, destination, context.abort)
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    const kind = error instanceof MoveSessionUnavailable ? "unreachable" : "transport_failure"
+    const reason = error instanceof MoveSessionUnavailable ? "move_session_route_unavailable" : "vacate_move_refused"
+    const recovery = error instanceof MoveSessionUnavailable ? "contact_operator" : "retry_same_request"
+    return adapterError("concord_work_transition", "session_vacate", requestID, kind, reason, message, "none", recovery)
+  }
+  let landed: string
+  try {
+    landed = await hostControlPlane().sessionDirectory(context.sessionID, context.abort)
+  } catch (error) {
+    return adapterError("concord_work_transition", "session_vacate", requestID, "malformed_response", "vacate_destination_unreadable", error instanceof Error ? error.message : String(error), "none", "retry_same_request")
+  }
+  if (!samePath(landed, destination)) {
+    return adapterError("concord_work_transition", "session_vacate", requestID, "session_directory_mismatch", "vacate_destination_mismatch", `the session landed in ${JSON.stringify(landed)} rather than the registered main checkout ${JSON.stringify(destination)}`, "none", "retry_same_request")
+  }
+  return envelope
+}
+
 async function executeWorkTransition(args: HostToolArgs, context: ToolContext): Promise<HostConcordEnvelope> {
   if (WORKTREE_REMOVAL_OPERATIONS.has(args?.operation)) {
     const observed = await observeSessionsForRemoval(args, context)
@@ -1023,6 +1059,14 @@ async function executeWorkTransition(args: HostToolArgs, context: ToolContext): 
     if (request) {
       return dispatchLaneWorker(request, { context, invoke: invokeConcordOperation })
     }
+  }
+  if (args?.operation === "session_vacate") {
+    const input = args.input
+    if (!record(input) || Object.keys(input).some((key) => key === "destination" || key === "destination_directory" || key === "path")) {
+      return adapterError("concord_work_transition", "session_vacate", `${context.sessionID}-${context.messageID}`, "invalid_input", "agent_named_destination", "session_vacate derives the registered main checkout and refuses an agent-named destination", "none", "correct_request")
+    }
+    const envelope = await invokeConcordOperation("concord_work_transition", args, context)
+    return moveSessionToRegisteredMainCheckout(args, context, envelope)
   }
   const envelope = await invokeConcordOperation("concord_work_transition", args, context)
   const landed = await moveSessionToClaimedWorktree(args, context, envelope)

@@ -3,6 +3,11 @@ package agent
 
 const GeneratedPayloadSchemaDocument = `{
   "$defs": {
+    "absolute_path": {
+      "maxLength": 4096,
+      "minLength": 1,
+      "type": "string"
+    },
     "active_worktree_verify_lease": {
       "additionalProperties": false,
       "properties": {
@@ -2456,6 +2461,26 @@ const GeneratedPayloadSchemaDocument = `{
       "minimum": 1,
       "type": "integer"
     },
+    "mutation_changed_ref": {
+      "additionalProperties": false,
+      "properties": {
+        "entity_kind": {
+          "$ref": "#/$defs/short"
+        },
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "version": {
+          "$ref": "#/$defs/version"
+        }
+      },
+      "required": [
+        "entity_kind",
+        "id",
+        "version"
+      ],
+      "type": "object"
+    },
     "mutation_result": {
       "additionalProperties": false,
       "properties": {
@@ -2541,6 +2566,40 @@ const GeneratedPayloadSchemaDocument = `{
       "required": [
         "changed_refs",
         "next_valid_intents"
+      ],
+      "type": "object"
+    },
+    "next_valid_intent": {
+      "additionalProperties": false,
+      "properties": {
+        "action_id": {
+          "$ref": "#/$defs/id"
+        },
+        "expected_version": {
+          "$ref": "#/$defs/version"
+        },
+        "operation": {
+          "$ref": "#/$defs/short"
+        },
+        "reason_code": {
+          "$ref": "#/$defs/short"
+        },
+        "required_fields": {
+          "items": {
+            "$ref": "#/$defs/short"
+          },
+          "maxItems": 32,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "tool": {
+          "$ref": "#/$defs/id"
+        }
+      },
+      "required": [
+        "tool",
+        "operation",
+        "reason_code"
       ],
       "type": "object"
     },
@@ -4236,6 +4295,46 @@ const GeneratedPayloadSchemaDocument = `{
         "product_id",
         "work_id",
         "continuity"
+      ],
+      "type": "object"
+    },
+    "session_vacate_result": {
+      "additionalProperties": false,
+      "properties": {
+        "changed_refs": {
+          "items": {
+            "$ref": "#/$defs/mutation_changed_ref"
+          },
+          "maxItems": 32,
+          "type": "array"
+        },
+        "destination_directory": {
+          "$ref": "#/$defs/absolute_path"
+        },
+        "next_valid_intents": {
+          "items": {
+            "$ref": "#/$defs/next_valid_intent"
+          },
+          "maxItems": 16,
+          "type": "array"
+        },
+        "project_id": {
+          "$ref": "#/$defs/id"
+        },
+        "source_directory": {
+          "$ref": "#/$defs/absolute_path"
+        },
+        "work_id": {
+          "$ref": "#/$defs/id"
+        }
+      },
+      "required": [
+        "changed_refs",
+        "next_valid_intents",
+        "work_id",
+        "project_id",
+        "source_directory",
+        "destination_directory"
       ],
       "type": "object"
     },
@@ -9436,6 +9535,21 @@ const GeneratedPayloadSchemaDocument = `{
         "expected_version",
         "target",
         "reason",
+        "idempotency_key"
+      ],
+      "type": "object"
+    },
+    "work_transition_session_vacate_input": {
+      "additionalProperties": false,
+      "properties": {
+        "idempotency_key": {
+          "$ref": "#/$defs/id"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
+        }
+      },
+      "required": [
         "idempotency_key"
       ],
       "type": "object"

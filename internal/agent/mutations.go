@@ -123,6 +123,11 @@ type worktreeClaimInput struct {
 	ExpectedVersion int64  `json:"expected_version"`
 	IdempotencyKey  string `json:"idempotency_key"`
 }
+
+type sessionVacateInput struct {
+	IdempotencyKey string `json:"idempotency_key"`
+}
+
 type worktreeReclaimInput struct {
 	WorkID          string `json:"work_id"`
 	ProjectID       string `json:"project_id"`
@@ -1880,6 +1885,60 @@ func (r runtime) planWorktreeClaim(ctx context.Context, base Envelope, raw []byt
 	return Envelope{}, nil, false
 }
 
+// planSessionVacate derives the registered main checkout for the session's
+// linked worktree and records the relocation before the adapter moves it.
+func (r runtime) planSessionVacate(ctx context.Context, base Envelope, raw []byte, digest string, grant Authority, op ContractOperation, plan *mutationPlan) (Envelope, error, bool) {
+	var in sessionVacateInput
+	if err := decodeOperationInput(raw, &in); err != nil {
+		return base, err, true
+	}
+	project := r.Envelope.AmbientProjectID
+	if project == "" {
+		return coreError(base, "unknown_scope", "session vacate requires a resolved Project", "refresh_context", false), nil, true
+	}
+	plan.scope["project_ids"] = []string{project}
+	plan.intents = []NextIntent{{Tool: "concord_work_trace", Operation: "history", QueryID: "C19.Continuity", ReasonCode: "verify_session_vacated", RequiredFields: []string{"work_id"}}}
+	plan.effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
+		target, err := store.ResolveSessionVacateTargetTx(ctx, tx, project, grant.Worktree)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		payload, err := json.Marshal(map[string]any{
+			"work_id":               target.WorkID,
+			"project_id":            target.ProjectID,
+			"session_ref":           grant.SessionRef,
+			"source_directory":      target.SourceDirectory,
+			"destination_directory": target.DestinationDirectory,
+			"landed_directory":      target.DestinationDirectory,
+		})
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		if _, err := store.ApplyOperationTx(ctx, tx, store.Operation{Events: []store.Event{{
+			EventID:        digest + ":session-vacated",
+			Kind:           "work.session_vacated",
+			SubjectType:    store.SubjectWorkItem,
+			SubjectID:      target.WorkID,
+			Actor:          grant.PrincipalRef,
+			OccurredAt:     r.Authority.now(),
+			PayloadVersion: 1,
+			Payload:        payload,
+		}}}); err != nil {
+			return nil, nil, nil, err
+		}
+		result, err := json.Marshal(map[string]any{
+			"changed_refs":          mutationResultChangedRefs([]ChangedRef{}),
+			"next_valid_intents":    mutationResultIntents(plan.intents),
+			"work_id":               target.WorkID,
+			"project_id":            target.ProjectID,
+			"source_directory":      target.SourceDirectory,
+			"destination_directory": target.DestinationDirectory,
+		})
+		return result, []string{digest + ":session-vacated"}, []ChangedRef{}, err
+	}
+	return Envelope{}, nil, false
+}
+
 // planWorktreeDestroy plans concord_work_transition.worktree_destroy
 // (CD-0096 D3 Destroy): merged terminal work reclaims under the unchanged
 // CD-0095 git gates. Non-terminal work and any destructive removal require
@@ -2391,6 +2450,8 @@ func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Au
 		answer, err, handled = r.planDomainObservationDismiss(ctx, base, raw, digest, grant, op, plan)
 	case "concord_work_transition.worktree_claim":
 		answer, err, handled = r.planWorktreeClaim(ctx, base, raw, digest, grant, op, plan)
+	case "concord_work_transition.session_vacate":
+		answer, err, handled = r.planSessionVacate(ctx, base, raw, digest, grant, op, plan)
 	case "concord_work_transition.worktree_reclaim":
 		answer, err, handled = r.planWorktreeReclaim(ctx, base, raw, digest, grant, op, plan)
 	case "concord_work_transition.worktree_destroy":

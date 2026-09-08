@@ -19309,6 +19309,129 @@
           }
         ]
       }
+    },
+    {
+      "id": "WF56-session-vacate-then-reclaim-passes-gate",
+      "scenario_number": 56,
+      "mechanism": "session vacate derives the registered main checkout before reclaim evaluates occupancy",
+      "initial_state": {
+        "session_directory": "/worktree",
+        "linked_worktree": "work-alpha",
+        "registered_main_checkout": "/main"
+      },
+      "action": "session_vacate",
+      "expected": {
+        "assertions": [
+          {
+            "target": "state",
+            "path": "session.directory",
+            "op": "eq",
+            "value": "/main"
+          },
+          {
+            "target": "communication",
+            "path": "outcome",
+            "op": "eq",
+            "value": "ok"
+          },
+          {
+            "target": "effects",
+            "path": "worktree.reclaim.occupancy",
+            "op": "eq",
+            "value": "pass"
+          }
+        ]
+      },
+      "setup": {
+        "fixture_refs": {
+          "work_item": "work-alpha",
+          "actors": [
+            "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
+            "actor:017389e1649c56f00f9265c121eed78cb73aca12052cefae3df35d9036a029bc"
+          ],
+          "definitions": [
+            "workflow.implementation"
+          ],
+          "evidence": [],
+          "relations": []
+        },
+        "event_history": [
+          {
+            "event_id": "wf56-created",
+            "kind": "work.created",
+            "work_id": "work-alpha",
+            "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
+            "occurred_at": "2026-09-08T00:00:00Z",
+            "payload_version": 2,
+            "payload": {
+              "work_kind": "task",
+              "title": "WF56 session vacate",
+              "priority": 1
+            }
+          }
+        ],
+        "projection": {
+          "version": 1,
+          "state": "planned",
+          "current_step": "proposal",
+          "lifecycle": "planned"
+        },
+        "faults": []
+      },
+      "request": {
+        "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
+        "definition_pin": {
+          "ref": "workflow.implementation",
+          "version": 2,
+          "digest": "sha256:e16dfed665a50ece82f33040d2cb0e4a6abfd72dbc5b4743098eab22f0faab89"
+        },
+        "expected_version": 1,
+        "action_id": "session_vacate",
+        "fields": {
+          "payload": {}
+        },
+        "idempotency": {
+          "key": "wf56-key",
+          "request_id": "wf56-request",
+          "operation_id": "wf56-operation",
+          "accepted_inputs_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        "grant": {
+          "principal_ref": "principal:operator",
+          "client_ref": "client:concord-1",
+          "agent_ref": "agent-engineer",
+          "session_ref": "session-executor",
+          "capability": "work_transition",
+          "scope": "project-1"
+        },
+        "approval": {
+          "required": false,
+          "approval_ref": null
+        },
+        "operation": {
+          "op_id": "wf56-operation",
+          "attempt_epoch": 1,
+          "step_id": "session_vacate",
+          "step_kind": "internal_sqlite",
+          "state": "pending"
+        }
+      },
+      "observations": {
+        "expected_reads": [
+          {
+            "target": "communication",
+            "path": "outcome",
+            "op": "eq",
+            "value": "ok"
+          },
+          {
+            "target": "effects",
+            "path": "worktree.reclaim.occupancy",
+            "op": "eq",
+            "value": "pass"
+          }
+        ]
+      }
     }
   ]
 }

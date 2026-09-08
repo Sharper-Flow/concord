@@ -39,6 +39,16 @@ func readWorkflowBoundaryScenario(t *testing.T, id string) workflowBoundaryScena
 	return workflowBoundaryScenario{}
 }
 
+func TestWorkflowCorpusWF56CarriesVacateReclaimBoundary(t *testing.T) {
+	scenario := readWorkflowBoundaryScenario(t, "WF56-session-vacate-then-reclaim-passes-gate")
+	if scenario.Action != "session_vacate" {
+		t.Fatalf("WF56 action=%q, want session_vacate", scenario.Action)
+	}
+	if len(scenario.Expected.Assertions) < 2 {
+		t.Fatalf("WF56 has too few boundary assertions: %d", len(scenario.Expected.Assertions))
+	}
+}
+
 func invokeWorkflowBoundary(t *testing.T, s *store.Store, service *Service, env CallEnvelope, input map[string]any, registry store.DefinitionRegistry) Envelope {
 	t.Helper()
 	raw, err := json.Marshal(input)

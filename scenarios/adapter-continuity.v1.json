@@ -51,6 +51,16 @@
       "then": [
         {"assertion": "pinned_block_present_without_tool_call"}
       ]
+    },
+    {
+      "id": "adapter-session-vacate-then-reclaim-passes-occupancy-gate",
+      "given": "a terminal work item whose session runs in its linked worktree",
+      "when": "session_vacate moves the session to the registered main checkout and reclaim receives the honest directory observation",
+      "then": [
+        {"assertion": "destination_is_core_derived"},
+        {"assertion": "landing_is_read_back"},
+        {"assertion": "reclaim_occupancy_gate_passes"}
+      ]
     }
   ]
 }

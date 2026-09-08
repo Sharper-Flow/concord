@@ -26,6 +26,7 @@ import {
   work_relate,
   work_compact,
   work_start,
+  publishWorkStartDefinition,
 } from "./concord"
 import type { PluginInput } from "@opencode-ai/plugin"
 import { createContinuityTransform } from "./continuity-hook"
@@ -65,6 +66,7 @@ export default async function ConcordAdapterPlugin(input?: Partial<PluginInput>)
       concord_work_start: work_start,
     },
     "chat.message": agentSwitch.chatMessage,
+    "tool.definition": publishWorkStartDefinition,
     // CD-0102 D2. The model composes the Task call, so its arguments carry no
     // provenance. This hook overwrites them with the packet an authorized
     // dispatch recorded, and throws when no dispatch authorized the call —

@@ -173,7 +173,7 @@ func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, registry Definiti
 	if request.ActionID == "complete" {
 		subject = "complete_workflow"
 	}
-	if err := guardMandatedWorkflowLawBound(ctx, tx, request.WorkID, entry.Definition, currentStep, request.ActionID, subject); err != nil {
+	if err := guardMandatedWorkflowLawBoundWithEvidence(ctx, tx, request.WorkID, entry.Definition, currentStep, request.ActionID, subject, request.Payload, request.EvidenceRefs); err != nil {
 		return result, err
 	}
 	if err := runWorkflowActionGuard(guards, guardPhasePostValidation); err != nil {
@@ -747,8 +747,20 @@ func workflowSemanticActionEvents(ctx context.Context, tx *sql.Tx, definition Wo
 		if len(evidence) == 0 {
 			return nil, newFailure(KindMissingEvidence, "workflow_action", "record_verdict requires durably bound evaluation evidence", false, "provide_evidence")
 		}
+		var mandateEvidence []string
 		if !defaultVerdictEvidence {
-			if err := verifyVerdictEvidence(ctx, tx, request.WorkID, evidence); err != nil {
+			var mandateErr error
+			mandateEvidence, mandateErr = terminalMandateEvidenceRefs(ctx, tx, request.WorkID, definition, stepID, request.ActionID, raw, request.EvidenceRefs)
+			if mandateErr != nil {
+				return nil, mandateErr
+			}
+			verifiable := make([]string, 0, len(evidence))
+			for _, ref := range evidence {
+				if !contains(mandateEvidence, ref) {
+					verifiable = append(verifiable, ref)
+				}
+			}
+			if err := verifyVerdictEvidence(ctx, tx, request.WorkID, verifiable); err != nil {
 				return nil, err
 			}
 		}
@@ -767,6 +779,11 @@ func workflowSemanticActionEvents(ctx context.Context, tx *sql.Tx, definition Wo
 			mintedEvents, mintErr = bornBoundEvidenceEvents(ctx, tx, request.WorkID, definition, request, actor, eventID, evidence, expected)
 			if mintErr != nil {
 				return nil, mintErr
+			}
+		} else if len(mandateEvidence) != 0 {
+			mintedEvents, err = bornBoundEvidenceEvents(ctx, tx, request.WorkID, definition, request, actor, eventID, mandateEvidence, expected)
+			if err != nil {
+				return nil, err
 			}
 		}
 		events := make([]Event, 0, len(mintedEvents)+1)

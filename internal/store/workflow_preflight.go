@@ -33,6 +33,7 @@ type WorkflowActionPreflightRequest struct {
 	SelectedChoice        string
 	DecisionContextDigest string
 	Payload               json.RawMessage
+	EvidenceRefs          []string
 	Actor                 WorkflowActor
 	// SessionWorktree is the host worktree boundary. It is checked only for
 	// dispatch_worker, whose worker must run in the active claimed worktree.
@@ -204,7 +205,7 @@ func WorkflowActionPreflightWithRegistry(ctx context.Context, s *Store, registry
 	if err := validateWorkflowActionPayload(entry.Definition, request.ActionID, request.Payload); err != nil {
 		return newFailure(KindIllegalLifecycleTransition, "workflow_action_preflight", err.Error(), false, "reread_entities")
 	}
-	if err := guardMandatedWorkflowLawBound(ctx, s.db, request.WorkID, entry.Definition, currentStep, request.ActionID, "workflow_action_preflight"); err != nil {
+	if err := guardMandatedWorkflowLawBoundWithEvidence(ctx, s.db, request.WorkID, entry.Definition, currentStep, request.ActionID, "workflow_action_preflight", request.Payload, request.EvidenceRefs); err != nil {
 		return err
 	}
 	if !definitionStepAllows(entry.Definition, currentStep, request.ActionID) {
@@ -417,7 +418,7 @@ func workflowActionPreflightTx(ctx context.Context, tx *sql.Tx, registry Definit
 	} else if err := validateWorkflowActionPayload(entry.Definition, request.ActionID, request.Payload); err != nil {
 		return RegisteredDefinition{}, newFailure(KindIllegalLifecycleTransition, "workflow_action_preflight", err.Error(), false, "reread_entities")
 	}
-	if err := guardMandatedWorkflowLawBound(ctx, tx, request.WorkID, entry.Definition, currentStep, request.ActionID, "workflow_action_preflight"); err != nil {
+	if err := guardMandatedWorkflowLawBoundWithEvidence(ctx, tx, request.WorkID, entry.Definition, currentStep, request.ActionID, "workflow_action_preflight", request.Payload, request.EvidenceRefs); err != nil {
 		return RegisteredDefinition{}, err
 	}
 	if !staleRecovery && !definitionStepAllows(entry.Definition, currentStep, request.ActionID) {

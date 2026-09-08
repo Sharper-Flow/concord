@@ -71,11 +71,19 @@ func runWorkflowActionGuard(g *workflowActionGuardContext, phase workflowActionG
 
 // guardMandatedWorkflowLawBound refuses actions that could strand a contract
 // whose spec mandate still lacks its immutable evidence binding. An ordinary
-// advance is refused only when it leaves a step that declares bind_evidence,
-// because that step is the last place on the path where the mandate can be
-// bound. Terminal acceptance actions are refused wherever they run. A late
-// bind_evidence action remains available as the recovery route.
-func guardMandatedWorkflowLawBound(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, currentStep, actionID, subject string) error {
+// advance is refused only when it leaves a reachable step that declares
+// bind_evidence. A terminal action may carry the mandate refs itself when no
+// binding step remains reachable. A late bind_evidence action remains available
+// as the recovery route.
+func guardMandatedWorkflowLawBound(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, currentStep, actionID, subject string, payload ...json.RawMessage) error {
+	var actionPayload json.RawMessage
+	if len(payload) != 0 {
+		actionPayload = payload[0]
+	}
+	return guardMandatedWorkflowLawBoundWithEvidence(ctx, q, workID, definition, currentStep, actionID, subject, actionPayload, nil)
+}
+
+func guardMandatedWorkflowLawBoundWithEvidence(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, currentStep, actionID, subject string, payload json.RawMessage, evidenceRefs []string) error {
 	if actionID == "supersede_contract" || actionID == "bind_evidence" {
 		return nil
 	}
@@ -91,23 +99,93 @@ func guardMandatedWorkflowLawBound(ctx context.Context, q queryer, workID string
 		return err
 	}
 	bindingStep := workflowEvidenceBindingStep(definition, currentStep)
-	if bindingStep == "" {
-		return newFailure(KindInvariantViolation, subject, "workflow spec mandate has no bind_evidence step", false, "repair the pinned workflow definition")
-	}
+	reachableBindingStep := workflowReachableEvidenceBindingStep(definition, currentStep)
 	for _, lawID := range mandate {
 		bound, boundErr := workflowEvidenceReferenceBound(ctx, q, workID, lawID, subject)
 		if boundErr != nil {
 			return boundErr
 		}
 		if !bound {
+			if terminalGate && reachableBindingStep == "" && terminalEvidenceContains(payload, actionID, lawID, evidenceRefs) {
+				continue
+			}
 			kind := KindMissingEvidence
 			if actionID == "complete" {
 				kind = KindInvariantViolation
+			}
+			if bindingStep == "" || (terminalGate && reachableBindingStep == "") {
+				return newFailure(kind, subject, fmt.Sprintf("spec mandate law %q is not bound", lawID), false, fmt.Sprintf("present the law reference in the terminal action evidence before %s", actionID))
 			}
 			return newFailure(kind, subject, fmt.Sprintf("spec mandate law %q is not bound", lawID), false, fmt.Sprintf("run bind_evidence on step %q before %s", bindingStep, actionID))
 		}
 	}
 	return nil
+}
+
+func terminalEvidenceContains(payload json.RawMessage, actionID, reference string, evidenceRefs []string) bool {
+	fields, err := workflowActionObject(payload)
+	if err != nil {
+		return false
+	}
+	field := "evidence_refs"
+	if actionID == "record_verdict" {
+		field = "evaluation_evidence"
+	}
+	return contains(workflowFieldStrings(fields, field), reference) || contains(evidenceRefs, reference)
+}
+
+func terminalMandateEvidenceRefs(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, currentStep, actionID string, payload json.RawMessage, requestEvidenceRefs []string) ([]string, error) {
+	if actionID != "record_verdict" || workflowReachableEvidenceBindingStep(definition, currentStep) != "" {
+		return nil, nil
+	}
+	fields, err := workflowActionObject(payload)
+	if err != nil {
+		return nil, err
+	}
+	evidence := workflowFieldStrings(fields, "evaluation_evidence")
+	if len(evidence) == 0 {
+		evidence = append([]string(nil), requestEvidenceRefs...)
+	}
+	mandate, err := workflowSpecMandate(ctx, q, workID, "workflow_action")
+	if err != nil {
+		return nil, err
+	}
+	refs := make([]string, 0, len(mandate))
+	for _, lawID := range mandate {
+		if !contains(evidence, lawID) {
+			continue
+		}
+		bound, boundErr := workflowEvidenceReferenceBound(ctx, q, workID, lawID, "workflow_action")
+		if boundErr != nil {
+			return nil, boundErr
+		}
+		if !bound {
+			refs = append(refs, lawID)
+		}
+	}
+	return refs, nil
+}
+
+func workflowReachableEvidenceBindingStep(definition WorkflowDefinition, currentStep string) string {
+	seen := map[string]bool{}
+	queue := []string{currentStep}
+	for len(queue) > 0 {
+		stepID := queue[0]
+		queue = queue[1:]
+		if seen[stepID] {
+			continue
+		}
+		seen[stepID] = true
+		if stepDeclaresAction(definition, stepID, "bind_evidence") {
+			return stepID
+		}
+		for _, edge := range definition.StepGraph.Edges {
+			if edge.From == stepID && edge.Kind != WorkflowEdgeRetry && !seen[edge.To] {
+				queue = append(queue, edge.To)
+			}
+		}
+	}
+	return ""
 }
 
 func workflowSpecMandate(ctx context.Context, q queryer, workID, subject string) ([]string, error) {

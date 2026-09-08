@@ -2,8 +2,10 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 )
 
 // The guard table is the declared inventory of action-specific guards in the
@@ -104,8 +106,8 @@ func TestMandatedLawGuardNamesBindingRecoveryAndLeavesBindingAvailable(t *testin
 	}}}
 	err := guardMandatedWorkflowLawBound(context.Background(), s.db, workID, definition, "verify", "record_verdict", "workflow_action")
 	var failure *Failure
-	if err == nil || !failureAs(err, &failure) || !strings.Contains(failure.Detail, `spec mandate law "law:required" is not bound`) || !strings.Contains(failure.RecoveryAction, `bind_evidence on step "repair"`) {
-		t.Fatalf("mandate guard error=%v, want law and binding-step recovery", err)
+	if err == nil || !failureAs(err, &failure) || !strings.Contains(failure.Detail, `spec mandate law "law:required" is not bound`) || !strings.Contains(failure.RecoveryAction, "present the law reference in the terminal action evidence") {
+		t.Fatalf("mandate guard error=%v, want law and terminal-evidence recovery", err)
 	}
 	if err := guardMandatedWorkflowLawBound(context.Background(), s.db, workID, definition, "repair", "bind_evidence", "workflow_action"); err != nil {
 		t.Fatalf("binding action refused recovery: %v", err)
@@ -191,5 +193,81 @@ func TestMandatedContractGuardWalksEveryBuiltinDefinition(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestMandatedLawGuardAcceptsTerminalEvidenceWithoutReachableBindingStep(t *testing.T) {
+	const workID = "mandate-terminal-evidence"
+	s := openTemp(t)
+	seedWork(t, s, workID)
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+		t.Fatal(err)
+	}
+	actorRef := DeriveWorkflowActorRef("principal/terminal", "client/terminal", "agent/terminal", "session/terminal")
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO workflow_actors(actor_ref,principal_ref,client_ref,agent_ref,session_ref,actor_class,first_seen_at) VALUES(?,?,?,?,?,?,?)`, actorRef, "principal/terminal", "client/terminal", "agent/terminal", "session/terminal", "agent", "now"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class) VALUES(?,1,'terminal mandate','internal_sqlite','[]','[]','now',?,'["law:terminal"]','[]',1,'prototype_internal')`, workID, actorRef); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.DatabaseForTesting().Exec(`DELETE FROM fold_guard`); err != nil {
+		t.Fatal(err)
+	}
+	definition := WorkflowDefinition{StepGraph: WorkflowStepGraph{
+		Steps: []WorkflowStep{{ID: "binding", Actions: []string{"bind_evidence"}}, {ID: "terminal", Actions: []string{"complete", "record_verdict"}}},
+		Edges: []WorkflowEdge{{From: "binding", To: "terminal", Kind: WorkflowEdgeForward}},
+	}}
+	if err := guardMandatedWorkflowLawBound(context.Background(), s.db, workID, definition, "terminal", "complete", "complete_workflow", json.RawMessage(`{"evidence_refs":["law:terminal"]}`)); err != nil {
+		t.Fatalf("terminal evidence did not satisfy the mandate guard: %v", err)
+	}
+	if err := guardMandatedWorkflowLawBoundWithEvidence(context.Background(), s.db, workID, definition, "terminal", "complete", "complete_workflow", nil, []string{"law:terminal"}); err != nil {
+		t.Fatalf("top-level terminal evidence did not satisfy the mandate guard: %v", err)
+	}
+	wrongEvidenceErr := guardMandatedWorkflowLawBound(context.Background(), s.db, workID, definition, "terminal", "complete", "complete_workflow", json.RawMessage(`{"evidence_refs":["law:other"]}`))
+	var wrongEvidenceFailure *Failure
+	if wrongEvidenceErr == nil || !failureAs(wrongEvidenceErr, &wrongEvidenceFailure) || !strings.Contains(wrongEvidenceFailure.RecoveryAction, "present the law reference in the terminal action evidence") {
+		t.Fatal("terminal evidence with the wrong law reference passed the mandate guard")
+	}
+	tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback()
+	events, err := workflowSemanticActionEvents(context.Background(), tx, definition, WorkflowActionExecutionRequest{
+		WorkID: workID, ActionID: "record_verdict", OperationID: "terminal-verdict", PrincipalRef: actorRef, RequestID: "terminal-request", Now: time.Unix(1, 0).UTC(),
+	}, "terminal", actorRef, json.RawMessage(`{"predicate_id":"predicate:terminal","evaluation_evidence":["law:terminal"]}`), 1, false)
+	if err != nil {
+		t.Fatalf("terminal verdict did not bind its mandate evidence: %v", err)
+	}
+	if len(events) != 2 || events[0].Kind != WorkflowEvidenceBound {
+		t.Fatalf("terminal verdict events=%v, want evidence binding and verdict", events)
+	}
+}
+
+func TestMandatedLawGuardRefusesTerminalEvidenceWhileBindingStepIsReachable(t *testing.T) {
+	const workID = "mandate-reachable-binding"
+	s := openTemp(t)
+	seedWork(t, s, workID)
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+		t.Fatal(err)
+	}
+	actorRef := DeriveWorkflowActorRef("principal/reachable", "client/reachable", "agent/reachable", "session/reachable")
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO workflow_actors(actor_ref,principal_ref,client_ref,agent_ref,session_ref,actor_class,first_seen_at) VALUES(?,?,?,?,?,?,?)`, actorRef, "principal/reachable", "client/reachable", "agent/reachable", "session/reachable", "agent", "now"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class) VALUES(?,1,'reachable mandate','internal_sqlite','[]','[]','now',?,'["law:reachable"]','[]',1,'prototype_internal')`, workID, actorRef); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.DatabaseForTesting().Exec(`DELETE FROM fold_guard`); err != nil {
+		t.Fatal(err)
+	}
+	definition := WorkflowDefinition{StepGraph: WorkflowStepGraph{
+		Steps: []WorkflowStep{{ID: "before", Actions: []string{"complete"}}, {ID: "binding", Actions: []string{"bind_evidence"}}, {ID: "terminal", Actions: []string{"complete"}}},
+		Edges: []WorkflowEdge{{From: "before", To: "binding", Kind: WorkflowEdgeForward}, {From: "binding", To: "terminal", Kind: WorkflowEdgeForward}},
+	}}
+	err := guardMandatedWorkflowLawBound(context.Background(), s.db, workID, definition, "before", "complete", "complete_workflow", json.RawMessage(`{"evidence_refs":["law:reachable"]}`))
+	var failure *Failure
+	if err == nil || !failureAs(err, &failure) || !strings.Contains(failure.Detail, `spec mandate law "law:reachable" is not bound`) {
+		t.Fatalf("terminal evidence passed while binding step was reachable: %v", err)
 	}
 }

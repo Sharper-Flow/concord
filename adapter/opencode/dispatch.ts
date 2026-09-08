@@ -264,7 +264,7 @@ function validateSchema(schema: any, value: unknown, root: any, path = "", failu
   if (schema.enum !== undefined) {
     if (!Array.isArray(schema.enum)) return fail("enum keyword is not a list")
     const encoded = JSON.stringify(value)
-    if (!schema.enum.some((member: unknown) => JSON.stringify(member) === encoded)) return fail(`${encoded} is outside the closed enum`)
+    if (!schema.enum.some((member: unknown) => JSON.stringify(member) === encoded)) return fail(`is outside the closed enum; expected one of ${JSON.stringify(schema.enum)}`)
   }
   if (schema.type) {
     const types = Array.isArray(schema.type) ? schema.type : [schema.type]
@@ -274,6 +274,7 @@ function validateSchema(schema: any, value: unknown, root: any, path = "", failu
   if (typeof value === "string") {
     if (schema.minLength !== undefined && value.length < schema.minLength) return fail(`is shorter than ${schema.minLength} characters`)
     if (schema.maxLength !== undefined && value.length > schema.maxLength) return fail(`is longer than ${schema.maxLength} characters`)
+    if (schema["x-maxBytes"] !== undefined && Buffer.byteLength(value) > schema["x-maxBytes"]) return fail(`exceeds ${schema["x-maxBytes"]} UTF-8 bytes`)
     if (schema.pattern && !new RegExp(schema.pattern).test(value)) return fail(`does not match ${schema.pattern}`)
   }
   if (typeof value === "number") {
@@ -282,11 +283,11 @@ function validateSchema(schema: any, value: unknown, root: any, path = "", failu
   }
   if (isRecord(value)) {
     const properties = schema.properties ?? {}
-    const missing = (schema.required ?? []).filter((key: string) => !(key in value))
+    const missing = (schema.required ?? []).filter((key: string) => !Object.hasOwn(value, key))
     if (missing.length > 0) return fail(`is missing required propert${missing.length === 1 ? "y" : "ies"} ${missing.join(", ")}`)
-    for (const [key, child] of Object.entries(properties)) if (key in value && !validateSchema(child, value[key], root, path ? `${path}.${key}` : key, failures)) return false
+    for (const [key, child] of Object.entries(properties)) if (Object.hasOwn(value, key) && !validateSchema(child, value[key], root, path ? `${path}.${key}` : key, failures)) return false
     if (schema.additionalProperties === false) {
-      const extra = Object.keys(value).filter((key) => !(key in properties))
+      const extra = Object.keys(value).filter((key) => !Object.hasOwn(properties, key))
       if (extra.length > 0) return fail(`carries undeclared propert${extra.length === 1 ? "y" : "ies"} ${extra.join(", ")}`)
     }
   }

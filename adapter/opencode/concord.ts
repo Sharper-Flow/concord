@@ -581,33 +581,22 @@ function nonEmptyString(value: unknown): value is string {
   return typeof value === "string" && value.length > 0
 }
 
-const workStartSchema = (hostToolSchemas as Record<string, any>).concord_work_start
-const workStartCaptureBranch = ((workStartSchema.oneOf ?? []) as Record<string, any>[]).find((branch) => "title" in (branch.properties ?? {}))
-const workStartCaptureFields = new Set(Object.keys(workStartCaptureBranch?.properties ?? {}))
-const workStartResumeField = new Set(["work_id"])
+const [workStartCaptureBranch, workStartResumeBranch] = hostToolSchemas.concord_work_start.oneOf
+const workStartUsage = `Capture requires ${workStartCaptureBranch.required.join(", ")}. Resume requires only ${workStartResumeBranch.required.join(", ")}. Do not combine capture and resume fields.`
 
 function isWorkStartResumeArgs(value: Record<string, unknown>): value is { work_id: string } {
   return saneWorkID(value.work_id)
 }
 
-// validateWorkStartArgs enforces the manifest's oneOf at the boundary the
-// published per-field view cannot: a call is the capture shape (its required
-// fields, its closed surface) or the resume shape (work_id alone), never both
-// and never neither.
-function validateWorkStartArgs(value: unknown): value is WorkStartArgs {
-  if (!record(value)) return false
-  const keys = Object.keys(value)
-  if (keys.some((key) => !workStartCaptureFields.has(key) && !workStartResumeField.has(key))) return false
-  if ("work_id" in value) {
-    if (keys.some((key) => workStartCaptureFields.has(key))) return false
-    return isWorkStartResumeArgs(value)
+// The published per-field view cannot enforce the closed capture/resume modes.
+// Select one generated branch so its diagnostics name the applicable fields.
+function validateWorkStartArgs(value: unknown, failures: string[]): value is WorkStartArgs {
+  if (!record(value)) {
+    failures.push("arguments: is not of type object")
+    return false
   }
-  if (!validateAgainstSchema(workStartCaptureBranch, value)) return false
-  for (const field of ["title", "value_statement", "external_ref"] as const) {
-    const candidate = value[field]
-    if (candidate !== undefined && Buffer.byteLength(String(candidate)) > 256) return false
-  }
-  return Buffer.byteLength(String(value.task)) <= 8192
+  const branch = "work_id" in value ? workStartResumeBranch : workStartCaptureBranch
+  return validateAgainstSchema(branch, value, failures)
 }
 
 function deriveWorkStartProduct(context: AmbientContext): string {
@@ -758,7 +747,8 @@ async function executeWorkStart(args: WorkStartArgs, context: ToolContext): Prom
   let target: { product_id: string; project_id: string; work_id: string; worktree: { path: string } } | null = null
   const resume = record(args) && isWorkStartResumeArgs(args)
   try {
-    if (!validateWorkStartArgs(args)) throw new AdapterFailure("invalid_input", "invalid_work_start_input", "work_start arguments failed the host-tool contract", "none", "contact_operator")
+    const failures: string[] = []
+    if (!validateWorkStartArgs(args, failures)) throw new AdapterFailure("invalid_input", "invalid_work_start_input", `work_start arguments failed the host-tool contract: ${failures.join("; ")}. ${workStartUsage}`, "none", "contact_operator")
     if (context.abort.aborted) throw new AdapterFailure("cancelled", "cancelled_no_effect", `work_start was cancelled before ${resume ? "the resume read" : "bootstrap"}`)
     const ambient = await resolveAmbientContext(context)
     const productID = deriveWorkStartProduct(ambient)
@@ -884,7 +874,7 @@ export const work_initiative = tool({ description: "Concord work initiative", ar
 export const work_transition = tool({ description: "Concord work transition", args: argsSchema("concord_work_transition"), execute: (args: HostToolCall, context: ToolContext): Promise<ToolResult> => executeHostTransition(args.request, context) })
 export const work_relate = tool({ description: "Concord work relate", args: argsSchema("concord_work_relate"), execute: (args: HostToolCall, context: ToolContext): Promise<ToolResult> => executeHostTool("concord_work_relate", args.request, context) })
 export const work_compact = tool({ description: "Concord work compact", args: argsSchema("concord_work_compact"), execute: (args: HostToolCall, context: ToolContext): Promise<ToolResult> => executeHostTool("concord_work_compact", args.request, context) })
-export const work_start = tool({ description: hostToolDescriptions.concord_work_start, args: workStartArgsSchema(), execute: async (args: any, context: ToolContext): Promise<ToolResult> => {
+export const work_start = tool({ description: `${hostToolDescriptions.concord_work_start} ${workStartUsage}`, args: workStartArgsSchema(), execute: async (args: any, context: ToolContext): Promise<ToolResult> => {
   const envelope = await executeWorkStart(args as WorkStartArgs, context)
   await reportGateBrief(envelope, context)
   let output = JSON.stringify(envelope)

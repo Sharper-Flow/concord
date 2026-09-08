@@ -754,7 +754,8 @@ test("validateSchema enforces enum membership and names the failing path", () =>
   expect(validateAgainstSchema(schema, { status: "completed" })).toBe(true)
   const failures: string[] = []
   expect(validateAgainstSchema(schema, { status: "done" }, failures)).toBe(false)
-  expect(failures[0]).toBe('status: "done" is outside the closed enum')
+  expect(failures[0]).toBe('status: is outside the closed enum; expected one of ["completed","failed"]')
+  expect(failures[0]).not.toContain('"done"')
   expect(validateAgainstSchema({ enum: [1, 2] }, 3)).toBe(false)
   expect(validateAgainstSchema({ enum: [{ a: 1 }] }, { a: 1 })).toBe(true)
   expect(validateAgainstSchema({ enum: "completed" }, "completed")).toBe(false)
@@ -766,6 +767,26 @@ test("validateSchema names the failing array item and the undeclared property", 
   expect(validateAgainstSchema(schema, [{ id: "a" }, { id: "b", extra: true }], failures)).toBe(false)
   expect(failures[0]).toBe("[1]: carries undeclared property extra")
   expect(validateAgainstSchema(schema, [{ id: "a" }])).toBe(true)
+})
+
+test("validateSchema enforces declared UTF-8 byte bounds without echoing values", () => {
+  const schema = { type: "object", properties: { text: { type: "string", "x-maxBytes": 4 } } }
+  for (const text of ["1234", "éé", "🙂"]) expect(validateAgainstSchema(schema, { text })).toBe(true)
+  for (const text of ["12345", "ééa", "🙂a"]) {
+    const failures: string[] = []
+    expect(validateAgainstSchema(schema, { text }, failures)).toBe(false)
+    expect(failures).toEqual(["text: exceeds 4 UTF-8 bytes"])
+  }
+})
+
+test("validateSchema closed properties require own declarations and own required fields", () => {
+  const schema = { type: "object", properties: { id: { type: "string" } }, required: ["id"], additionalProperties: false }
+  for (const name of ["constructor", "toString", "__proto__"]) {
+    const failures: string[] = []
+    expect(validateAgainstSchema(schema, { id: "valid", [name]: "private-value" }, failures)).toBe(false)
+    expect(failures).toEqual([`carries undeclared property ${name}`])
+  }
+  expect(validateAgainstSchema(schema, Object.create({ id: "inherited" }))).toBe(false)
 })
 
 // CD-0059 D1: the adapter authorizes dispatch_worker before spawning the

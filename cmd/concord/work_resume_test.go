@@ -121,6 +121,30 @@ func TestWorkResumeAppliesTheBootstrapOriginGate(t *testing.T) {
 	}
 }
 
+// TestWorkResumeSameTargetSkipsTheOriginGate proves the convergent
+// same-target move: a session that already runs in the item's own worktree
+// resumes even when that worktree is dirty, because it chains from no origin.
+func TestWorkResumeSameTargetSkipsTheOriginGate(t *testing.T) {
+	repo := initLocatorRepo(t)
+	s := mustOpenStore(t, filepath.Join(t.TempDir(), "concord.db"))
+	seedLocatorAuthority(t, s, repo)
+	origin, err := s.BootstrapWorktree(context.Background(), bootstrapRequest(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(origin.Entry.Path, "dirty.txt"), []byte("in-progress\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = os.Remove(filepath.Join(origin.Entry.Path, "dirty.txt")) }()
+	code, output, stderr := resumeCLI(t, s, origin.Entry.Path, origin.WorkID)
+	if code != 0 {
+		t.Fatalf("dirty same-target resume code=%d stderr=%q", code, stderr)
+	}
+	if output.Worktree.Path != origin.Entry.Path {
+		t.Fatalf("same-target resume worktree=%+v want %s", output.Worktree, origin.Entry.Path)
+	}
+}
+
 func TestSessionPrepareAcceptsEmptyTask(t *testing.T) {
 	repo := initLocatorRepo(t)
 	dbPath := filepath.Join(t.TempDir(), "concord.db")

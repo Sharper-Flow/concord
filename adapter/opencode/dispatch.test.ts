@@ -229,6 +229,7 @@ test("readback refusal is typed and does not change valid completion", async () 
   expect(result.error?.export_bytes).toBe(Buffer.byteLength("not-json"))
   expect(result.error?.message).toContain("readback predicate export_json refused")
   expect(result.error?.message).not.toContain("not-json")
+  expect(result.error?.retry_safe).toBe(false)
 
   const accepted = await complete(workerBody())
   expect(accepted.outcome).toBe("ok")

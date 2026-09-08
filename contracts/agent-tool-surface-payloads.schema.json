@@ -7704,363 +7704,6 @@
       "pattern": "^\\S+$",
       "description": "A workflow reference list item: whitespace-free, 2-128 chars, matching the store's ValidReference. Slashes are allowed because touched refs name repository paths."
     },
-    "workflow_decision_record": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "question",
-        "options_considered",
-        "decision",
-        "rationale",
-        "consequences",
-        "inputs",
-        "poc_findings",
-        "reviewer_actor_ref",
-        "operator_approval_ref"
-      ],
-      "properties": {
-        "question": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 4096
-        },
-        "options_considered": {
-          "type": "array",
-          "minItems": 1,
-          "maxItems": 16,
-          "uniqueItems": true,
-          "items": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 4096
-          }
-        },
-        "decision": {
-          "enum": [
-            "accepted_decision",
-            "insufficient_evidence"
-          ]
-        },
-        "rationale": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 4096
-        },
-        "consequences": {
-          "type": "array",
-          "minItems": 1,
-          "maxItems": 16,
-          "uniqueItems": true,
-          "items": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 4096
-          }
-        },
-        "inputs": {
-          "type": "array",
-          "minItems": 1,
-          "maxItems": 32,
-          "uniqueItems": true,
-          "items": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 4096
-          }
-        },
-        "poc_findings": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 4096
-        },
-        "supersedes": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "maxLength": 128
-        },
-        "superseded_by": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "maxLength": 128
-        },
-        "unknowns": {
-          "type": "array",
-          "maxItems": 16,
-          "uniqueItems": true,
-          "items": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 4096
-          }
-        },
-        "required_to_decide": {
-          "type": "array",
-          "maxItems": 16,
-          "uniqueItems": true,
-          "items": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 4096
-          }
-        },
-        "reviewer_actor_ref": {
-          "$ref": "#/$defs/id"
-        },
-        "operator_approval_ref": {
-          "$ref": "#/$defs/id"
-        }
-      }
-    },
-    "workflow_outcome_payload": {
-      "oneOf": [
-        {
-          "$ref": "#/$defs/workflow_outcome_exists"
-        },
-        {
-          "$ref": "#/$defs/workflow_outcome_absent"
-        },
-        {
-          "$ref": "#/$defs/workflow_outcome_outcome"
-        },
-        {
-          "$ref": "#/$defs/workflow_outcome_check"
-        }
-      ]
-    },
-    "workflow_action_outcome_predicates": {
-      "type": "array",
-      "minItems": 1,
-      "maxItems": 8,
-      "items": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "predicate_id",
-          "ordinal",
-          "outcome_kind",
-          "outcome_payload"
-        ],
-        "properties": {
-          "predicate_id": {
-            "$ref": "#/$defs/id"
-          },
-          "ordinal": {
-            "type": "integer",
-            "minimum": 0,
-            "maximum": 7
-          },
-          "outcome_kind": {
-            "enum": [
-              "exists",
-              "absent",
-              "outcome",
-              "check"
-            ]
-          },
-          "outcome_payload": {
-            "$ref": "#/$defs/workflow_outcome_payload"
-          }
-        }
-      }
-    },
-    "workflow_forward_relation": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "kind"
-      ],
-      "properties": {
-        "kind": {
-          "const": "forward_link"
-        },
-        "class": {
-          "enum": [
-            "hard",
-            "soft",
-            "none"
-          ]
-        },
-        "severity": {
-          "enum": [
-            "breaking",
-            "non-breaking",
-            "informational"
-          ]
-        }
-      }
-    },
-    "workflow_completion_payload": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "evidence_commit": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 128
-        },
-        "current_commit": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 128
-        },
-        "staleness": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": [
-            "drifted"
-          ],
-          "properties": {
-            "drifted": {
-              "type": "boolean"
-            },
-            "severity": {
-              "enum": [
-                "block",
-                "warning"
-              ]
-            }
-          }
-        }
-      }
-    },
-    "work_transition_action_public_input": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "work_id",
-        "expected_version",
-        "action_id",
-        "idempotency_key"
-      ],
-      "properties": {
-        "work_id": {
-          "$ref": "#/$defs/id"
-        },
-        "expected_version": {
-          "$ref": "#/$defs/version"
-        },
-        "action_id": {
-          "$ref": "#/$defs/id"
-        },
-        "idempotency_key": {
-          "$ref": "#/$defs/id"
-        },
-        "evidence": {
-          "type": "array",
-          "maxItems": 32,
-          "items": {
-            "$ref": "#/$defs/evidence"
-          }
-        },
-        "approval": {
-          "$ref": "#/$defs/approval"
-        },
-        "research_bindings": {
-          "type": "array",
-          "minItems": 1,
-          "maxItems": 16,
-          "items": {
-            "type": "object",
-            "additionalProperties": false,
-            "required": [
-              "pack_id",
-              "revision",
-              "use_role",
-              "required"
-            ],
-            "properties": {
-              "pack_id": {
-                "$ref": "#/$defs/id"
-              },
-              "revision": {
-                "type": "integer",
-                "minimum": 1
-              },
-              "use_role": {
-                "enum": [
-                  "context",
-                  "design_input",
-                  "verification_basis",
-                  "decision_basis"
-                ]
-              },
-              "required": {
-                "type": "boolean"
-              }
-            }
-          }
-        },
-        "requested_budget_seconds": {
-          "$ref": "#/$defs/requested_budget_seconds"
-        },
-        "selected_choice": {
-          "enum": [
-            "confirm",
-            "revise",
-            "stop"
-          ]
-        },
-        "decision_context_digest": {
-          "$ref": "#/$defs/digest"
-        },
-        "fields": {}
-      },
-      "allOf": [
-        {
-          "$ref": "#/$defs/work_transition_action_shared_input"
-        },
-        {
-          "if": {
-            "properties": {
-              "action_id": {
-                "const": "dispatch_worker"
-              }
-            },
-            "required": [
-              "action_id"
-            ]
-          },
-          "then": {
-            "properties": {
-              "fields": {
-                "type": "object",
-                "additionalProperties": false,
-                "maxProperties": 32,
-                "properties": {
-                  "lane_id": {
-                    "$ref": "#/$defs/reference"
-                  }
-                },
-                "required": [
-                  "lane_id"
-                ]
-              }
-            },
-            "not": {
-              "anyOf": [
-                {
-                  "required": [
-                    "selected_choice"
-                  ]
-                },
-                {
-                  "required": [
-                    "decision_context_digest"
-                  ]
-                }
-              ]
-            },
-            "required": [
-              "fields"
-            ]
-          }
-        }
-      ]
-    },
     "workflow_outcome_surface": {
       "type": "string",
       "pattern": "^[a-z][a-z0-9_.:/-]{1,127}$",
@@ -8334,6 +7977,118 @@
             "accepted",
             "rejected"
           ]
+        }
+      }
+    },
+    "workflow_outcome_payload": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/workflow_outcome_exists"
+        },
+        {
+          "$ref": "#/$defs/workflow_outcome_absent"
+        },
+        {
+          "$ref": "#/$defs/workflow_outcome_outcome"
+        },
+        {
+          "$ref": "#/$defs/workflow_outcome_check"
+        }
+      ]
+    },
+    "workflow_action_outcome_predicates": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 8,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "predicate_id",
+          "ordinal",
+          "outcome_kind",
+          "outcome_payload"
+        ],
+        "properties": {
+          "predicate_id": {
+            "$ref": "#/$defs/id"
+          },
+          "ordinal": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 7
+          },
+          "outcome_kind": {
+            "enum": [
+              "exists",
+              "absent",
+              "outcome",
+              "check"
+            ]
+          },
+          "outcome_payload": {
+            "$ref": "#/$defs/workflow_outcome_payload"
+          }
+        }
+      }
+    },
+    "workflow_forward_relation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind"
+      ],
+      "properties": {
+        "kind": {
+          "const": "forward_link"
+        },
+        "class": {
+          "enum": [
+            "hard",
+            "soft",
+            "none"
+          ]
+        },
+        "severity": {
+          "enum": [
+            "breaking",
+            "non-breaking",
+            "informational"
+          ]
+        }
+      }
+    },
+    "workflow_completion_payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "evidence_commit": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "current_commit": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "staleness": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "drifted"
+          ],
+          "properties": {
+            "drifted": {
+              "type": "boolean"
+            },
+            "severity": {
+              "enum": [
+                "block",
+                "warning"
+              ]
+            }
+          }
         }
       }
     },
@@ -11035,6 +10790,140 @@
                 }
               ]
             }
+          }
+        }
+      ]
+    },
+    "work_transition_action_public_input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "work_id",
+        "expected_version",
+        "action_id",
+        "idempotency_key"
+      ],
+      "properties": {
+        "work_id": {
+          "$ref": "#/$defs/id"
+        },
+        "expected_version": {
+          "$ref": "#/$defs/version"
+        },
+        "action_id": {
+          "$ref": "#/$defs/id"
+        },
+        "idempotency_key": {
+          "$ref": "#/$defs/id"
+        },
+        "evidence": {
+          "type": "array",
+          "maxItems": 32,
+          "items": {
+            "$ref": "#/$defs/evidence"
+          }
+        },
+        "approval": {
+          "$ref": "#/$defs/approval"
+        },
+        "research_bindings": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 16,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "pack_id",
+              "revision",
+              "use_role",
+              "required"
+            ],
+            "properties": {
+              "pack_id": {
+                "$ref": "#/$defs/id"
+              },
+              "revision": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "use_role": {
+                "enum": [
+                  "context",
+                  "design_input",
+                  "verification_basis",
+                  "decision_basis"
+                ]
+              },
+              "required": {
+                "type": "boolean"
+              }
+            }
+          }
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
+        },
+        "selected_choice": {
+          "enum": [
+            "confirm",
+            "revise",
+            "stop"
+          ]
+        },
+        "decision_context_digest": {
+          "$ref": "#/$defs/digest"
+        },
+        "fields": {}
+      },
+      "allOf": [
+        {
+          "$ref": "#/$defs/work_transition_action_shared_input"
+        },
+        {
+          "if": {
+            "properties": {
+              "action_id": {
+                "const": "dispatch_worker"
+              }
+            },
+            "required": [
+              "action_id"
+            ]
+          },
+          "then": {
+            "properties": {
+              "fields": {
+                "type": "object",
+                "additionalProperties": false,
+                "maxProperties": 32,
+                "properties": {
+                  "lane_id": {
+                    "$ref": "#/$defs/reference"
+                  }
+                },
+                "required": [
+                  "lane_id"
+                ]
+              }
+            },
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "selected_choice"
+                  ]
+                },
+                {
+                  "required": [
+                    "decision_context_digest"
+                  ]
+                }
+              ]
+            },
+            "required": [
+              "fields"
+            ]
           }
         }
       ]

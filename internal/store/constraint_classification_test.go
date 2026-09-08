@@ -2,6 +2,8 @@ package store
 
 import (
 	"database/sql"
+	"errors"
+	"strings"
 	"testing"
 )
 
@@ -94,5 +96,30 @@ func TestConstraintClassificationByKindIsTyped(t *testing.T) {
 	}
 	if isConstraintViolation(sql.ErrConnDone) || isConstraintViolation(nil) {
 		t.Fatal("unrelated errors must not classify as constraint violations")
+	}
+}
+
+func TestIndexedNoteConstraintFailureIsDeterministicAndScoped(t *testing.T) {
+	db := constraintProbeDB(t)
+	_, err := db.Exec(`INSERT INTO probe_unique VALUES('x')`)
+	if err == nil {
+		t.Fatal("expected a unique violation from the driver")
+	}
+	failure := indexedNoteConstraintFailure(KnowledgeHome{HomeLocatorID: "locator-one"}, VerifiedNote{ID: "note-one", Content: []byte("private note content")}, err)
+	if failure == nil {
+		t.Fatal("constraint violation was not classified")
+	}
+	var typed *Failure
+	if !errors.As(failure, &typed) {
+		t.Fatalf("failure is not typed: %v", failure)
+	}
+	if typed.Kind != KindInvalidInput || typed.RetrySafe || typed.RecoveryAction != "repair the indexed note identity or scope before rebuilding" {
+		t.Fatalf("constraint failure=%+v", typed)
+	}
+	if !strings.Contains(typed.Detail, `note-one`) || !strings.Contains(typed.Detail, `note identity`) || !strings.Contains(typed.Detail, `locator-one`) {
+		t.Fatalf("constraint detail lacks scoped identity: %q", typed.Detail)
+	}
+	if strings.Contains(typed.Detail, "private note content") {
+		t.Fatal("constraint detail exposed note content")
 	}
 }

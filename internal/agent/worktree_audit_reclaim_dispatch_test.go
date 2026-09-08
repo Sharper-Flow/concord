@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/sharper-flow/concord/internal/store"
 )
 
 // The audit performs the one safe action it names, through the agent
@@ -69,6 +71,43 @@ func TestWorktreeAuditReclaimDispatchReclaimsTerminalWorkOnly(t *testing.T) {
 	}
 	if version := workVersion(t, s, "work-2"); version != 5 {
 		t.Fatalf("replay moved work-2 to version %d", version)
+	}
+}
+
+func TestWorktreeAuditReclaimDispatchReportsMixedEffects(t *testing.T) {
+	s, _, _, second, secondGrant, _ := tiersFixture(t)
+	completeWork(t, s, "work-2", 3)
+	workOnePath := filepath.Join(filepath.Dir(s.Path()), "worktrees", "project-1", "work-1")
+
+	response := authorityInvoke(t, s, second, secondGrant, "concord_work_transition", "worktree_audit_reclaim", map[string]any{
+		"product_id": "product-1", "default_ref": "main", "idempotency_key": "audit-reclaim-mixed",
+		"observed_session_directories": []map[string]any{{"session_ref": "session-1", "directory": workOnePath}},
+	})
+	if response.Outcome != OutcomeOK || response.Error != nil {
+		t.Fatalf("mixed audit reclaim response=%+v", response)
+	}
+	var result struct {
+		Rows []struct {
+			WorkID      string `json:"work_id"`
+			Outcome     string `json:"outcome"`
+			RefusalKind string `json:"refusal_kind"`
+		} `json:"rows"`
+	}
+	if err := json.Unmarshal(response.Result, &result); err != nil {
+		t.Fatal(err)
+	}
+	byWork := map[string]struct{ outcome, refusal string }{}
+	for _, row := range result.Rows {
+		byWork[row.WorkID] = struct{ outcome, refusal string }{row.Outcome, row.RefusalKind}
+	}
+	if byWork["work-2"].outcome != "reclaimed" {
+		t.Fatalf("successful sweep row was lost: %+v", byWork)
+	}
+	if byWork["work-1"].outcome != "refused" || byWork["work-1"].refusal != string(store.KindWorktreeOwnershipConflict) {
+		t.Fatalf("refused sweep row was lost: %+v", byWork)
+	}
+	if response.ChangedRefs == nil || len(*response.ChangedRefs) != 1 || (*response.ChangedRefs)[0].ID != "work-2" {
+		t.Fatalf("mixed sweep changed refs=%+v", response.ChangedRefs)
 	}
 }
 

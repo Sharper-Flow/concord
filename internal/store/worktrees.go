@@ -1283,7 +1283,7 @@ func (s *Store) WorktreeAuditReclaim(ctx context.Context, req WorktreeAuditRecla
 		row := WorktreeAuditReclaimRow{ProjectID: drift.ProjectID, WorkID: drift.WorkID, Path: drift.Path, Lifecycle: drift.Lifecycle}
 		version, err := currentWorkVersion(ctx, s.db, drift.WorkID)
 		if err != nil {
-			return WorktreeAuditReclaimResult{}, err
+			return out, err
 		}
 		_, reclaimErr := s.ReclaimWorktree(ctx, WorktreeReclaimRequest{
 			WorkID: drift.WorkID, ProjectID: drift.ProjectID, DefaultRef: req.DefaultRef,
@@ -1298,7 +1298,7 @@ func (s *Store) WorktreeAuditReclaim(ctx context.Context, req WorktreeAuditRecla
 		}
 		var failure *Failure
 		if !errors.As(reclaimErr, &failure) {
-			return WorktreeAuditReclaimResult{}, reclaimErr
+			return out, reclaimErr
 		}
 		row.Outcome, row.RefusalKind, row.Detail = WorktreeAuditRefused, string(failure.Kind), failure.Detail
 		out.Rows = append(out.Rows, row)

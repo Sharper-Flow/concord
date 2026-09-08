@@ -1,5 +1,4 @@
-// The host control plane: the OpenCode routes the adapter reaches directly,
-// through the server URL the plugin factory receives.
+// The host control plane uses the client the plugin factory supplies.
 //
 // The route is `POST /experimental/control-plane/move-session` on the host's
 // own server, carrying `{ sessionID, destination: { directory } }` and
@@ -19,10 +18,9 @@
 // generic request surface underneath the client reaches the same route with no
 // such dependency, so the route path stays a constant here.
 //
-// Issue #722 adds two more. `GET /session` reports every live session and the
-// directory it runs in, which is the fact a worktree removal needs and the
-// store cannot hold. `POST /tui/show-toast` puts one line in front of the
-// operator without an agent relaying it.
+// `GET /session` reports live session directories for worktree occupancy.
+// `GET/PATCH /session/{id}` owns persistent Task participation metadata.
+// `POST /tui/show-toast` delivers operator text without an agent relay.
 
 import { execFileSync } from "node:child_process"
 
@@ -30,6 +28,7 @@ export const MOVE_SESSION_ROUTE = "/experimental/control-plane/move-session"
 export const SESSION_ROUTE = "/session/{id}"
 export const SESSION_LIST_ROUTE = "/session"
 export const SHOW_TOAST_ROUTE = "/tui/show-toast"
+export const MANAGED_TASK_SCOPE_KEY = "concord.task_scope"
 
 // ObservedSessionDirectory is one live host session and the directory it runs
 // in. It is the wire shape the core's occupancy gate consumes, so the field
@@ -56,6 +55,8 @@ function hostVersion(): string {
 
 export class MoveSessionUnavailable extends Error {}
 export class MoveSessionRefused extends Error {}
+export class SessionScopeUnavailable extends Error {}
+class HostSessionMissing extends MoveSessionRefused {}
 
 // HostControlPlane holds the route client the plugin factory received. The
 // tool path and the plugin entry reach the same instance through this module,
@@ -70,6 +71,7 @@ export type RouteResult = { data?: unknown; response: Response }
 export type RouteClient = {
   get: (options: { url: string; path?: Record<string, unknown>; signal?: AbortSignal }) => Promise<RouteResult>
   post: (options: { url: string; body?: unknown; signal?: AbortSignal }) => Promise<RouteResult>
+  patch?: (options: { url: string; path?: Record<string, unknown>; body?: unknown; signal?: AbortSignal }) => Promise<RouteResult>
 }
 
 // PluginClientHost is the part of the host plugin input this module consumes.
@@ -114,7 +116,7 @@ export class HostControlPlane {
   // rather than travelling with the move.
   async moveSession(sessionID: string, directory: string, signal?: AbortSignal): Promise<void> {
     const client = this.#require(
-      `the OpenCode move-session route ${MOVE_SESSION_ROUTE} is unavailable: this host handed the plugin no client (host version ${hostVersion()})`,
+      `the OpenCode move-session route ${MOVE_SESSION_ROUTE} is unavailable: this host handed the plugin no client`,
     )
     let result: RouteResult
     try {
@@ -153,8 +155,61 @@ export class HostControlPlane {
     await this.#session(sessionID, "the host control plane is unreachable", signal)
   }
 
-  // liveSessionDirectories reports every session the host currently holds and
-  // the directory each runs in (issue #722). A worktree removal cannot decide
+  // Participation is a host session policy, not a stored copy of a worktree or
+  // workflow. Parent traversal keeps a managed worker inside the same boundary.
+  // Reads are not cached: an agent switch or plugin reload cannot change scope.
+  async taskScope(sessionID: string, signal: AbortSignal = AbortSignal.timeout(5_000)): Promise<"managed" | "unmanaged" | null> {
+    const visited = new Set<string>()
+    let current = sessionID
+    for (;;) {
+      signal.throwIfAborted()
+      if (visited.has(current)) throw new SessionScopeUnavailable("cannot resolve managed Task scope: the host session ancestry contains a cycle")
+      visited.add(current)
+      let session: { metadata: Record<string, unknown>; parentID?: string }
+      try {
+        session = await this.#scopeSession(current, signal)
+      } catch (error) {
+        if (error instanceof HostSessionMissing && current === sessionID) return null
+        throw error
+      }
+      if (session.metadata[MANAGED_TASK_SCOPE_KEY] === "managed") return "managed"
+      if (session.parentID === undefined) return "unmanaged"
+      current = session.parentID
+    }
+  }
+
+  // The host PATCH replaces metadata. Preserve the other namespaces and read
+  // the saved session back before admitting any Concord operation that starts
+  // managed work. Repeating enrollment does not write a second policy record.
+  async manageSession(sessionID: string, signal: AbortSignal = AbortSignal.timeout(5_000)): Promise<void> {
+    signal.throwIfAborted()
+    const session = await this.#scopeSession(sessionID, signal)
+    if (session.metadata[MANAGED_TASK_SCOPE_KEY] === "managed") return
+    const client = this.#require("managed Task scope metadata update is unavailable: this host handed the plugin no client")
+    if (typeof client.patch !== "function") throw new SessionScopeUnavailable("managed Task scope metadata update is unavailable on this host client")
+    let result: RouteResult
+    try {
+      result = await client.patch({ url: SESSION_ROUTE, path: { id: sessionID }, body: { metadata: { ...session.metadata, [MANAGED_TASK_SCOPE_KEY]: "managed" } }, signal })
+    } catch {
+      throw new SessionScopeUnavailable("the host managed Task scope metadata update failed; participation may have been recorded, so verify the host session before retrying")
+    }
+    if (!result.response.ok) throw new SessionScopeUnavailable(`the host refused the managed Task scope metadata update with status ${result.response.status}`)
+    const saved = await this.#scopeSession(sessionID, signal)
+    if (saved.metadata[MANAGED_TASK_SCOPE_KEY] !== "managed") throw new SessionScopeUnavailable("the host did not persist the managed Task scope")
+  }
+
+  async #scopeSession(sessionID: string, signal: AbortSignal): Promise<{ metadata: Record<string, unknown>; parentID?: string }> {
+    const value = await this.#sessionRecord(sessionID, "cannot read managed Task scope", signal)
+    if (!isRecord(value) || value.id !== sessionID) throw new SessionScopeUnavailable("cannot resolve managed Task scope: the host returned a different session identity")
+    const metadata = value.metadata === undefined ? {} : value.metadata
+    if (!isRecord(metadata)) throw new SessionScopeUnavailable("cannot resolve managed Task scope: session metadata is not an object")
+    if (Object.hasOwn(metadata, MANAGED_TASK_SCOPE_KEY) && metadata[MANAGED_TASK_SCOPE_KEY] !== "managed") throw new SessionScopeUnavailable("cannot resolve managed Task scope: the participation value is not declared")
+    if (value.parentID !== undefined && (typeof value.parentID !== "string" || value.parentID.length === 0)) throw new SessionScopeUnavailable("cannot resolve managed Task scope: the parent session identity is invalid")
+    return { metadata, ...(typeof value.parentID === "string" ? { parentID: value.parentID } : {}) }
+  }
+
+  // liveSessionDirectories reports every session the host holds and the
+  // directory each runs in. A worktree removal cannot decide
   // safety without it, and the store cannot hold it: no event records a
   // session leaving a directory, so a stored answer would go stale silently.
   // A failure throws rather than answering with an empty list, because "no
@@ -162,7 +217,7 @@ export class HostControlPlane {
   // same to the caller that is about to delete a directory.
   async liveSessionDirectories(signal?: AbortSignal): Promise<ObservedSessionDirectory[]> {
     const prefix = "cannot read the host session list"
-    const client = this.#require(`${prefix}: this host handed the plugin no client (host version ${hostVersion()})`)
+    const client = this.#require(`${prefix}: this host handed the plugin no client`)
     let result: RouteResult
     try {
       result = await client.get({ url: SESSION_LIST_ROUTE, signal })
@@ -209,7 +264,7 @@ export class HostControlPlane {
   }
 
   #require(message: string): RouteClient {
-    if (!this.#client) throw new MoveSessionUnavailable(message)
+    if (!this.#client) throw new MoveSessionUnavailable(`${message} (host version ${hostVersion()})`)
     return this.#client
   }
 
@@ -217,7 +272,16 @@ export class HostControlPlane {
   // differ only in what a failure means to them, so the wording arrives as a
   // prefix rather than each caller repeating the request.
   async #session(sessionID: string, prefix: string, signal?: AbortSignal): Promise<string> {
-    const client = this.#require(`${prefix}: this host handed the plugin no client (host version ${hostVersion()})`)
+    const session = await this.#sessionRecord(sessionID, prefix, signal)
+    const directory = (session as { directory?: unknown } | null | undefined)?.directory
+    if (typeof directory !== "string" || !directory) {
+      throw new MoveSessionRefused("the session readback carried no directory")
+    }
+    return directory
+  }
+
+  async #sessionRecord(sessionID: string, prefix: string, signal?: AbortSignal): Promise<unknown> {
+    const client = this.#require(`${prefix}: this host handed the plugin no client`)
     let result: RouteResult
     try {
       result = await client.get({ url: SESSION_ROUTE, path: { id: sessionID }, signal })
@@ -225,14 +289,16 @@ export class HostControlPlane {
       throw new MoveSessionRefused(`${prefix}: ${error instanceof Error ? error.message : String(error)}`)
     }
     if (!result.response.ok) {
-      throw new MoveSessionRefused(`${prefix}: the host answered ${result.response.status}: ${await refusalText(result)}`)
+      const message = `${prefix}: the host answered ${result.response.status}: ${await refusalText(result)}`
+      if (result.response.status === 404) throw new HostSessionMissing(message)
+      throw new MoveSessionRefused(message)
     }
-    const directory = (result.data as { directory?: unknown } | null | undefined)?.directory
-    if (typeof directory !== "string" || !directory) {
-      throw new MoveSessionRefused("the session readback carried no directory")
-    }
-    return directory
+    return result.data
   }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value)
 }
 
 const NO_REFUSAL = "the host returned no readable refusal"

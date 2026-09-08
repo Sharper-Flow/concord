@@ -804,6 +804,11 @@ async function executeWorkStart(args: WorkStartArgs, context: ToolContext): Prom
         "contact_operator",
       )
     }
+    try {
+      await hostControlPlane().manageSession(context.sessionID, context.abort)
+    } catch (error) {
+      throw new AdapterFailure("unreachable", "managed_scope_unavailable", error instanceof Error ? error.message : String(error), "none", "contact_operator")
+    }
     let prepareTask: string
     if (resume) {
       const workID = (args as { work_id: string }).work_id

@@ -5,7 +5,9 @@
 - **Scope:** Worker lane execution, the dispatch authorization window, the
   coordinator posture tool ruleset; issue #689
 - **Approval:** The operator approved this execution model in-session on
-  2026-09-02 and rejected a worker that renders no Task card.
+  2026-09-02 and rejected a worker that renders no Task card. On 2026-09-08,
+  the operator selected explicit managed-session scope for D2 in
+  [issue #938](https://github.com/Sharper-Flow/concord/issues/938).
 - **Related:** CD-0059, CD-0088, CD-0092, CD-0093, CD-0096, issue #689
 - **Amends:** CD-0059 D1 for the worker execution route, not for its
   authorize-before-start rule
@@ -50,13 +52,46 @@ The adapter plugin observes tool execution before the tool runs. The hook
 receives the tool name, the session, the call identity, and the arguments. The
 arguments are mutable.
 
-The hook refuses a `task` call when no window is open for that session. When a
-window is open, the hook overwrites the agent selection and the prompt from the
-recorded packet, then closes the window. The model cannot widen, rename, or
-re-aim the work, because the call it issues is replaced by the recorded packet.
+A valid `work_start` capture or resume enrolls the calling session in managed
+Task scope before the core bootstrap or resume operation. A public
+`dispatch_worker` request enrolls after its packet validates and before core
+dispatch authorization. Reads and ordinary host tasks do not enroll a session.
 
-A refused call fails the tool. The attempt stays recorded and unstarted, and the
-coordinator reports the refusal.
+The host owns durable participation in its session metadata. The
+`MANAGED_TASK_SCOPE_KEY` declaration in `adapter/opencode/move-session.ts` names
+the metadata entry. Its only recorded value is `managed`; absence means no
+local enrollment. A child inherits managed scope through the host's parent
+identity. An agent change, plugin reload, or host restart does not clear scope.
+An operator owns the host policy. The adapter exposes enrollment, not a route
+for an agent to clear participation and escape its work boundary.
+
+Participation records no worktree path, workflow state, or copy of a Concord
+claim. [CD-0104](./CD-0104-a-session-worktree-is-its-actual-directory.md)
+continues to derive directories from the host and claims from Concord.
+Enrollment preserves unrelated metadata and must pass persisted
+readback before the Concord operation proceeds. A failed enrollment refuses
+that operation. A later bootstrap or dispatch refusal does not clear recorded
+participation.
+
+The hook refuses any `task` call from a managed session without an authorized
+window. With a window, it overwrites the agent selection and prompt from the
+recorded packet, removes a worker-resume target, and consumes the window once.
+The caller cannot widen, rename, or re-aim the authorized work.
+
+An ordinary Task from an unmanaged session retains its arguments and host
+permission checks. It creates no Concord attempt or evidence. Unmanaged calls
+cannot start a registered Concord lane without a window or resume a managed
+session. A missing unmanaged resume target keeps the native host behavior.
+
+The scope decision uses host session identity and recorded participation, not
+agent names, prompts, repository names, or path conventions. Invalid metadata,
+broken ancestry, or unavailable scope refuses the Task call rather than
+guessing that the caller is unmanaged. Other host tools remain outside this
+Task hook. The refusal fails one tool call, not the whole session.
+
+An existing unmarked session enters managed scope through `work_start` before
+it resumes managed work, or through an admitted public dispatch. Installing the
+adapter alone does not enroll every host session.
 
 ### D3. The coordinator ruleset keeps the tool visible and lane-scoped
 
@@ -130,6 +165,10 @@ worker cannot run in a worktree the work item does not own.*
   worker, is removed with the route that produced it.
 - A lane start now depends on the coordinator issuing the call the hook expects.
   The window makes that dependency explicit and single-use.
+- Unmanaged host sessions retain native Task behavior without Concord workflow
+  authority. Managed participation survives changes to the selected agent.
+- The host must persist session metadata and expose parent identity. Enrollment
+  refuses when that supported host surface cannot record and return the policy.
 - Background workers stay unused. They require an experimental flag and detach
   the result from the attempt window.
 
@@ -162,6 +201,14 @@ authorization has nothing to bind.
 - The adapter test `dispatch hook replaces caller arguments with the packet`
   proves D2 for the open-window case, including a caller that names another
   agent.
+- `adapter/opencode/session-scope.test.ts` exercises D2 through the plugin hook:
+  unmanaged Tasks, managed refusals, parent inheritance, agent changes, plugin
+  recreation, resume-target admission, enrollment readback, and invalid scope.
+- `adapter/opencode/concord.test.ts` verifies capture and resume enrollment and
+  refusal before core effects when the host cannot persist participation.
+- `adapter/opencode/lane_dispatch.test.ts` verifies that failed enrollment cannot
+  authorize dispatch. `adapter/opencode/dispatch_route_end_to_end.test.ts` checks
+  enrollment before real core dispatch and preserves the completion route.
 - The adapter test `lane report resolves from the worker result body` proves D5,
   including the missing-report failure.
 - `TestDispatchRefusesImplementationLaneFromDefaultCheckout` proves D7.

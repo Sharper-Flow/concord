@@ -31,9 +31,10 @@ import {
 import type { PluginInput } from "@opencode-ai/plugin"
 import { createContinuityTransform } from "./continuity-hook"
 import { createAgentSwitchNotice } from "./agent-switch-hook"
-import { dispatchWindows } from "./dispatch-window"
+import { dispatchWindows, DispatchWindowError, TASK_TOOL_ID } from "./dispatch-window"
+import { agentLanes } from "./generated-agent-lanes"
 import { completeDispatchedWorker } from "./lane_completion"
-import { hostControlPlane } from "./move-session"
+import { hostControlPlane, SessionScopeUnavailable } from "./move-session"
 import { claimHostLease } from "./host-lease"
 
 // The plugin factory is the only place the host hands over its own client, and
@@ -67,15 +68,31 @@ export default async function ConcordAdapterPlugin(input?: Partial<PluginInput>)
     },
     "chat.message": agentSwitch.chatMessage,
     "tool.definition": publishWorkStartDefinition,
-    // CD-0102 D2. The model composes the Task call, so its arguments carry no
-    // provenance. This hook overwrites them with the packet an authorized
-    // dispatch recorded, and throws when no dispatch authorized the call —
-    // which fails that one tool call rather than the session.
+    // Managed sessions and Concord lanes require one authorized packet.
+    // Ordinary unmanaged Tasks remain entirely subject to host permissions.
     "tool.execute.before": async (
       input: { tool: string; sessionID: string; callID: string },
       output: { args: Record<string, unknown> },
     ) => {
-      dispatchWindows().bind(input.tool, input.sessionID, output.args)
+      if (input.tool !== TASK_TOOL_ID) return
+      const windows = dispatchWindows()
+      const concordLane = agentLanes.some((lane) => output.args.subagent_type === `concord-${lane.id}`)
+      if (windows.has(input.sessionID) || concordLane) {
+        windows.bind(input.tool, input.sessionID, output.args)
+        return
+      }
+      const scope = await hostControlPlane().taskScope(input.sessionID)
+      if (scope === null) throw new SessionScopeUnavailable("cannot resolve managed Task scope: the calling host session does not exist")
+      if (scope === "managed") {
+        windows.bind(input.tool, input.sessionID, output.args)
+        return
+      }
+      // A native Task may resume a session that belongs to another parent.
+      // Caller participation alone cannot authorize a managed resume target.
+      const target = output.args.task_id
+      if (typeof target === "string" && target.length > 0 && await hostControlPlane().taskScope(target) === "managed") {
+        throw new DispatchWindowError("an unmanaged Task cannot resume a managed Concord session; use a fresh authorized dispatch")
+      }
     },
     // CD-0102 D5. The host ran the worker between the two hooks. This one
     // drains the in-flight attempt and admits the result: session export,

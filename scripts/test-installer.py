@@ -406,6 +406,117 @@ esac''',
             expected = "new" if name != installer.RELEASE_CONSTANTS_FILE else str(self.root / "data" / "concord" / "v1.1.0")
             self.assertIn(expected, placed.read_text(encoding="utf-8"))
 
+    def _shrink_installation_to(self, names: tuple[str, ...]) -> None:
+        """Rewrite the installed manifest and delete files, as an older
+        installer with a shorter adapter list leaves behind: the manifest
+        records only the files it deployed, and no more exist on disk."""
+        manifest_path = self.root / "data" / "concord" / installer.MANIFEST_NAME
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        for name in names:
+            del manifest["adapter_files"][name]
+            del manifest["version_files"][f"adapter/opencode/{name}"]
+        manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+        version_tree = self.root / "data" / "concord" / "v1.0.0" / "adapter" / "opencode"
+        for name in names:
+            (version_tree / name).unlink()
+            (self.root / "config" / "opencode" / "tools" / name).unlink()
+
+    def test_repair_restores_an_incomplete_deployment(self) -> None:
+        missing = ("host-lease.ts", installer.RELEASE_CONSTANTS_FILE)
+        self.make_release("v1.0.0")
+        first = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
+        self.assertEqual(first.returncode, 0, first.stderr)
+        self._shrink_installation_to(missing)
+
+        result = self.run_installer("repair", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        manifest = json.loads((self.root / "data" / "concord" / installer.MANIFEST_NAME).read_text(encoding="utf-8"))
+        for name in missing:
+            placed = self.root / "config" / "opencode" / "tools" / name
+            self.assertTrue(placed.is_file(), f"{name} was not restored to the tools directory")
+            self.assertIn(name, manifest["adapter_files"], f"{name} missing from repaired manifest adapter_files")
+            self.assertIn(f"adapter/opencode/{name}", manifest["version_files"])
+        stamped = (self.root / "config" / "opencode" / "tools" / installer.RELEASE_CONSTANTS_FILE).read_text(encoding="utf-8")
+        self.assertIn(str(self.root / "data" / "concord" / "v1.0.0"), stamped)
+        again = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
+        self.assertEqual(again.returncode, 0, again.stderr)
+        self.assertIn("already installed", again.stdout)
+
+    def test_repair_reports_nothing_to_do_when_complete(self) -> None:
+        self.make_release("v1.0.0")
+        first = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
+        self.assertEqual(first.returncode, 0, first.stderr)
+        manifest_path = self.root / "data" / "concord" / installer.MANIFEST_NAME
+        before = manifest_path.read_bytes()
+
+        result = self.run_installer("repair", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("no repair needed", result.stdout)
+        self.assertEqual(manifest_path.read_bytes(), before)
+
+    def test_repair_refuses_a_checksum_mismatch_before_changing_anything(self) -> None:
+        self.make_release("v1.0.0")
+        first = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
+        self.assertEqual(first.returncode, 0, first.stderr)
+        archive = self.artifacts / "concord-v1.0.0.tar.gz"
+        archive.write_bytes(archive.read_bytes() + b"tampered")
+
+        result = self.run_installer("repair", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("checksum mismatch", result.stderr)
+
+    def test_repair_refuses_a_modified_managed_file_and_names_it(self) -> None:
+        self.make_release("v1.0.0")
+        first = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
+        self.assertEqual(first.returncode, 0, first.stderr)
+        target = self.root / "config" / "opencode" / "tools" / "concord.ts"
+        target.write_text("operator edited this file\n", encoding="utf-8")
+
+        result = self.run_installer("repair", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("modified managed file", result.stderr)
+        self.assertIn("concord.ts", result.stderr)
+        self.assertEqual(target.read_text(encoding="utf-8"), "operator edited this file\n")
+
+    def test_repair_preserves_unmanaged_state_and_user_configuration(self) -> None:
+        self.make_release("v1.0.0")
+        first = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
+        self.assertEqual(first.returncode, 0, first.stderr)
+        user_agent = self.root / "config" / "opencode" / "agents" / "concord-operator-notes.md"
+        user_agent.write_text("operator authored\n", encoding="utf-8")
+        database = self.root / "data" / "concord" / "store.db"
+        database.write_bytes(b"work database bytes")
+        worktree = self.root / "data" / "concord" / "worktrees" / "concord" / "work-x"
+        worktree.mkdir(parents=True)
+        (worktree / "note.txt").write_text("session artifact\n", encoding="utf-8")
+        self._shrink_installation_to((installer.RELEASE_CONSTANTS_FILE,))
+
+        result = self.run_installer("repair", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(user_agent.read_text(encoding="utf-8"), "operator authored\n")
+        self.assertEqual(database.read_bytes(), b"work database bytes")
+        self.assertEqual((worktree / "note.txt").read_text(encoding="utf-8"), "session artifact\n")
+        self.assertIn("keep", self.config.read_text(encoding="utf-8"))
+
+    def test_repair_process_death_at_every_phase_recovers(self) -> None:
+        self.make_release("v1.0.0")
+        first = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
+        self.assertEqual(first.returncode, 0, first.stderr)
+        for phase in ("staged", "version_activated", "agents_swapped", "adapter_swapped", "launcher_swapped", "config_swapped", "manifest_committed"):
+            with self.subTest(phase=phase):
+                self._shrink_installation_to((installer.RELEASE_CONSTANTS_FILE,))
+                died = self.run_after_phase(phase, "repair", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
+                self.assertEqual(died.returncode, 97, died.stderr)
+                recovered = self.run_installer("repair", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
+                self.assertEqual(recovered.returncode, 0, recovered.stderr)
+                placed = self.root / "config" / "opencode" / "tools" / installer.RELEASE_CONSTANTS_FILE
+                self.assertTrue(placed.is_file(), f"{phase}: stamped constants were not restored after recovery")
+
     def test_upgrade_from_a_pre_plugin_entry_manifest(self) -> None:
         """An installation before the plugin entry module upgrades cleanly."""
         added = "concord-plugin.ts"

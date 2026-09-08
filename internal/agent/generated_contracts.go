@@ -6,7 +6,7 @@ import (
 	"fmt"
 )
 
-const ManifestDigest = "sha256:8bb72c2d62cd70fcf3ac18bb0fa7578f82e671aae852e0bc6963764c568a225a"
+const ManifestDigest = "sha256:08649fd84f150a2d5c09f311a0df79091ee1c0a5e6194563e48f3bbd314a42d2"
 
 type OperationKind string
 
@@ -261,7 +261,7 @@ var GeneratedPayloadRules = map[string]GeneratedPayloadRule{
 	"workflow_contract":                            {Required: []string{"version", "premise", "outcome_predicates", "required_evidence", "route_conventions", "spec_mandate", "changes_product_truth"}, Properties: []string{"version", "premise", "outcome_predicates", "required_evidence", "route_conventions", "spec_mandate", "law_revisions", "law_modifies", "rigor_class", "changes_product_truth", "architecture_binding"}},
 	"workflow_read":                                {Required: []string{"work_id", "state", "current_step", "definition", "conditions", "unresolved_conditions", "unreadable_conditions", "ready", "blocking_conditions", "impact_notices", "completion_warnings"}, Properties: []string{"work_id", "state", "current_step", "definition", "contract", "operator_question", "candidate_ids", "conditions", "unresolved_conditions", "unreadable_conditions", "ready", "blocking_conditions", "impact_notices", "completion_warnings", "stale_law_revision"}},
 	"worktree_audit_page":                          {Required: []string{"root", "drift"}, Properties: []string{"root", "drift"}},
-	"worktree_audit_reclaim_result":                {Required: []string{"root", "rows", "report_only", "changed_refs", "next_valid_intents"}, Properties: []string{"root", "rows", "report_only", "changed_refs", "next_valid_intents"}},
+	"worktree_audit_reclaim_result":                {Required: []string{"root", "rows", "report_only", "changed_refs", "next_valid_intents"}, Properties: []string{"root", "rows", "report_only", "changed_refs", "next_valid_intents", "work_pins"}},
 	"worktree_inspect_result":                      {Required: []string{"work_id", "project_id", "branch", "path", "mode", "content", "truncated"}, Properties: []string{"work_id", "project_id", "branch", "path", "mode", "content", "truncated"}},
 	"worktree_verify_result":                       {Required: []string{"work_id", "project_id", "branch", "path", "lease_id", "command", "exit_code", "output", "output_truncated", "tracked_files_changed"}, Properties: []string{"work_id", "project_id", "branch", "path", "lease_id", "command", "exit_code", "output", "output_truncated", "tracked_files_changed", "changed_refs", "next_valid_intents"}},
 }

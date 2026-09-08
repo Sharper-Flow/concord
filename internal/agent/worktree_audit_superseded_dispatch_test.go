@@ -108,3 +108,60 @@ func TestWorktreeAuditReclaimReturnsSupersededRowsAndReportOnly(t *testing.T) {
 		t.Fatal("superseded worktree still present")
 	}
 }
+
+// A reclaimed work item that carries a workflow instance has a readable work
+// pin, so the CD-0113 enrichment stamps work_pins onto the audit-reclaim
+// result. The closed result schema must declare that member, or every sweep
+// that reclaims one such item refuses its own answer after the core commits.
+func TestWorktreeAuditReclaimResultCarriesWorkPins(t *testing.T) {
+	s, _, _, second, secondGrant, _ := tiersFixture(t)
+	root := filepath.Join(filepath.Dir(s.Path()), "worktrees", "project-1")
+	// work-1 stays needed with in-flight work on its branch, so the same
+	// sweep never probes it as drift.
+	livePath := filepath.Join(root, "work-1")
+	if err := os.WriteFile(filepath.Join(livePath, "live-work.md"), []byte("# in flight\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitRun(t, livePath, "add", "live-work.md")
+	gitRun(t, livePath, "-c", "user.email=fixture@example.com", "-c", "user.name=fixture", "commit", "-m", "work in flight")
+	definition := store.BuiltinWorkflowDefinitions()[0]
+	registered, err := store.BuiltinWorkflowRegistry().Register(definition)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var version int64
+	if err := s.DatabaseForTesting().QueryRow(`SELECT version FROM work_items WHERE id='work-2'`).Scan(&version); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Transact(context.Background(), func(tx *store.Transaction) error {
+		return store.InitializeWorkflowTx(context.Background(), tx, store.WorkflowInitializationRequest{WorkID: "work-2", Definition: registered, Actor: store.WorkflowActor{PrincipalRef: "principal/fixture", ClientRef: "client/fixture", AgentRef: "agent/fixture", SessionRef: "session/fixture", ActorClass: store.ActorAgent}, Now: fixedTime()})
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.DatabaseForTesting().QueryRow(`SELECT version FROM work_items WHERE id='work-2'`).Scan(&version); err != nil {
+		t.Fatal(err)
+	}
+	supersedeWork(t, s, "work-2", "work-1", version)
+
+	response := tiersInvoke(t, s, second, secondGrant, "concord_work_transition", "worktree_audit_reclaim", map[string]any{
+		"product_id": "product-1", "default_ref": "main", "idempotency_key": "audit-reclaim-work-pins",
+	})
+	if response.Outcome != OutcomeOK {
+		t.Fatalf("audit reclaim response=%+v err=%+v", response, response.Error)
+	}
+	var result struct {
+		Rows []struct {
+			WorkID string `json:"work_id"`
+		} `json:"rows"`
+		WorkPins []store.WorkPin `json:"work_pins"`
+	}
+	if err := json.Unmarshal(response.Result, &result); err != nil {
+		t.Fatalf("decode result: %v: %s", err, string(response.Result))
+	}
+	if len(result.Rows) != 1 || result.Rows[0].WorkID != "work-2" {
+		t.Fatalf("rows=%+v, want the superseded worktree reclaimed", result.Rows)
+	}
+	if len(result.WorkPins) != 1 || result.WorkPins[0].WorkID != "work-2" || result.WorkPins[0].Lifecycle != "superseded" {
+		t.Fatalf("work pins=%+v, want the reclaimed item's superseded pin", result.WorkPins)
+	}
+}

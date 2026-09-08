@@ -119,6 +119,49 @@ versioned `skills.paths` entry and the plugin entry module at startup. The
 installer manages only those two registrations; it does not modify unrelated
 configuration keys.
 
+## Repair
+
+An incomplete deployment of the installed release — missing runtime modules, a
+stale manifest that records fewer files than the release ships, or a missing
+registration — is repaired from an ordinary shell:
+
+```sh
+concord repair
+```
+
+The command reads the installed manifest, resolves the installer that the
+installed release published, and verifies that installer against the release's
+published checksums before running it. It then snapshots the work database
+under `${XDG_DATA_HOME:-$HOME/.local/share}/concord/backups/` and hands the
+mutation to the installer's `repair` subcommand. Repair keeps the installed
+release: it never upgrades or downgrades. Pass `{"installer_version": "vX.Y.Z"}`
+on JSON stdin to run another release's verified installer instead, for example
+when the release-matched installer itself is defective. The report names the
+selected release, the installer's release, the backup path, the repaired
+files, and the verification result.
+
+Offline repair uses locally published assets:
+
+```sh
+echo '{"artifact_dir": "/path/to/assets"}' | concord repair
+```
+
+The directory must hold the release archive, its checksum file, and
+`concord-installer.py`.
+
+If the `concord` executable itself is missing, the supported entry is the
+published installer run directly:
+
+```sh
+python3 concord-installer.py repair
+```
+
+Repair refuses before changing anything when an asset fails its checksum, when
+the release archive is incomplete, or when a managed file was modified so that
+it matches neither the installed manifest nor the release. The refusal names
+the offending artifact or path. The work database, worktrees, credentials, and
+unrelated configuration are outside the managed paths and are never touched.
+
 ## Uninstall
 
 Remove only files recorded as Concord-managed:

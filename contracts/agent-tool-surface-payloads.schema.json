@@ -7720,6 +7720,13 @@
               }
             }
           }
+        },
+        "work_pins": {
+          "type": "array",
+          "maxItems": 32,
+          "items": {
+            "$ref": "#/$defs/work_pin"
+          }
         }
       }
     },

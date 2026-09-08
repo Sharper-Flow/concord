@@ -131,6 +131,16 @@ SECRET_SERVICE_DESTINATION = "org.freedesktop.secrets"
 SECRET_SERVICE_PATH = "/org/freedesktop/secrets"
 SECRET_SERVICE_INTERFACE = "org.freedesktop.Secret.Service"
 
+# An activating operation places a release; uninstall removes one. Repair
+# activates the installed release again from verified assets, so every
+# activation-site branch that names "install" accepts it through this
+# predicate instead of an equality test.
+ACTIVATING_OPERATIONS = ("install", "repair")
+
+
+def activating(operation: str) -> bool:
+    return operation in ACTIVATING_OPERATIONS
+
 
 @dataclass(frozen=True)
 class Paths:
@@ -963,7 +973,7 @@ def unmanaged_manifest_note(old_manifest: dict[str, object] | None, paths: Paths
         return ""
     return f" (no install manifest at {paths.data_root / MANIFEST_NAME})"
 
-def preflight(paths: Paths, version: str, old_manifest: dict[str, object] | None) -> ConfigPlan:
+def preflight(paths: Paths, version: str, old_manifest: dict[str, object] | None, staged_adapters: dict[str, str] | None = None) -> ConfigPlan:
     failures: list[str] = []
     for managed_parent in (
         paths.data_root,
@@ -1024,6 +1034,16 @@ def preflight(paths: Paths, version: str, old_manifest: dict[str, object] | None
         destination = paths.tools_dir / name
         if destination.exists() or destination.is_symlink():
             if not old_manifest or name not in adapter_records:
+                # Repair accepts a file an incomplete deployment placed that
+                # the stale manifest never recorded, when its content is the
+                # release's own.
+                if (
+                    staged_adapters is not None
+                    and destination.is_file()
+                    and not destination.is_symlink()
+                    and sha256(destination) == staged_adapters.get(name)
+                ):
+                    continue
                 failures.append(f"refusing to overwrite user-authored adapter file {destination}{manifest_note}")
     agent_records = managed_agent_records(old_manifest)
     for name in agent_records:
@@ -1129,8 +1149,16 @@ def file_records(root: Path, paths: list[str]) -> dict[str, str]:
     return {relative: sha256(root / relative) for relative in paths}
 
 
-def validate_owned_tree(root: Path, records: dict[str, str]) -> None:
+def validate_owned_tree(root: Path, records: dict[str, str], *, allow_missing: bool = False) -> None:
+    """Validate a tree the installer owns against recorded file hashes.
+
+    allow_missing serves repair: an incomplete deployment may lack recorded
+    files, because restoring them is repair's purpose. Everything else —
+    symlinks, unknown files, modified content — refuses as before.
+    """
     if not root.exists():
+        if allow_missing:
+            return
         raise InstallerError(f"managed installation path is missing: {root}")
     if root.is_symlink():
         raise InstallerError(f"refusing managed path {root}: it is a symlink")
@@ -1153,11 +1181,15 @@ def validate_owned_tree(root: Path, records: dict[str, str]) -> None:
         detail = []
         if extra:
             detail.append("user-authored or unknown files: " + ", ".join(extra))
-        if missing:
+        if missing and not allow_missing:
             detail.append("missing managed files: " + ", ".join(missing))
-        raise InstallerError(f"refusing to replace managed path {root}; " + "; ".join(detail))
+        if detail:
+            raise InstallerError(f"refusing to replace managed path {root}; " + "; ".join(detail))
     for relative, expected_hash in records.items():
-        actual_hash = sha256(root / relative)
+        target = root / relative
+        if allow_missing and not target.exists():
+            continue
+        actual_hash = sha256(target)
         if actual_hash != expected_hash:
             raise InstallerError(f"refusing to replace modified managed file {root / relative}")
 
@@ -1323,13 +1355,13 @@ def current_manifest_state(paths: Paths) -> dict[str, object]:
     return file_state(paths.data_root / MANIFEST_NAME)
 
 
-def version_matches(root: Path, records: dict[str, str] | None) -> bool:
+def version_matches(root: Path, records: dict[str, str] | None, *, allow_missing: bool = False) -> bool:
     if records is None:
         return not root.exists() and not root.is_symlink()
     if not root.exists() or root.is_symlink():
         return False
     try:
-        validate_owned_tree(root, records)
+        validate_owned_tree(root, records, allow_missing=allow_missing)
     except InstallerError:
         return False
     return True
@@ -1386,13 +1418,13 @@ def validate_transaction(journal: dict[str, object], transaction_root: Path, pat
     }
     if set(journal) != required or journal.get("schema") != 1:
         raise InstallerError(f"refusing malformed transaction journal {journal_path(transaction_root)}")
-    if journal.get("operation") not in {"install", "uninstall"} or journal.get("phase") not in TRANSACTION_PHASES:
+    if journal.get("operation") not in ACTIVATING_OPERATIONS and journal.get("operation") != "uninstall" or journal.get("phase") not in TRANSACTION_PHASES:
         raise InstallerError(f"refusing malformed transaction journal {journal_path(transaction_root)}")
     for key in ("old_version", "new_version", "activation_version", "cleanup_version"):
         value = journal.get(key)
         if value is not None and (not isinstance(value, str) or not VERSION_RE.fullmatch(value)):
             raise InstallerError(f"refusing malformed transaction version in {journal_path(transaction_root)}")
-    if journal.get("operation") == "install" and not isinstance(journal.get("new_version_records"), dict):
+    if activating(str(journal.get("operation", ""))) and not isinstance(journal.get("new_version_records"), dict):
         raise InstallerError(f"refusing malformed transaction records {journal_path(transaction_root)}")
     if journal.get("operation") == "uninstall" and journal.get("new_version_records") is not None:
         raise InstallerError(f"refusing malformed uninstall transaction {journal_path(transaction_root)}")
@@ -1522,15 +1554,23 @@ def make_transaction(
         write_atomic(stage / "manifest", new_manifest_bytes)
 
     old_version = old_manifest.get("version") if old_manifest else None
-    old_records = old_manifest.get("version_files") if old_manifest else None
-    activation_version = new_version if operation == "install" else old_version
+    old_records = old_manifest.get("version_files", {}) if old_manifest else None
+    activation_version = new_version if activating(operation) else old_version
     # A retained release that this install reinstalls is owned by the records
     # the manifest kept for it, so the transaction backs it up like any other
     # activation root it replaces.
     activation_old_records = old_records if activation_version == old_version else reinstalled_records
     activation_root = paths.data_root / str(activation_version) if activation_version else paths.data_root / "unused"
     version_backup = backup / "version"
-    if activation_old_records is not None:
+    if operation == "repair":
+        # The deployment converges to the staged release, so the activation
+        # check names the staged records: known files may be absent (that is
+        # what repair restores) while unknown or modified files still refuse.
+        if not isinstance(new_version_records, dict):
+            raise InstallerError("repair requires staged version records")
+        validate_owned_tree(activation_root, new_version_records, allow_missing=True)
+        durable_copy_tree(activation_root, version_backup)
+    elif activation_old_records is not None:
         if not isinstance(activation_old_records, dict):
             raise InstallerError("existing manifest has invalid version records")
         validate_owned_tree(activation_root, activation_old_records)
@@ -1553,8 +1593,15 @@ def make_transaction(
         if target.exists() or target.is_symlink():
             expected = managed_agents.get(name)
             if expected is None:
-                raise InstallerError(f"refusing to overwrite user-authored agent file {target}")
-            if not target.is_file() or sha256(target) != expected:
+                staged_agents = new_agents if isinstance(new_agents, dict) else {}
+                if operation == "repair" and target.is_file() and staged_agents.get(name) == sha256(target):
+                    # An incomplete deployment placed the file; the stale
+                    # manifest predates it. Content matching the release owns
+                    # the slot, so the transaction adopts rather than refuses.
+                    pass
+                else:
+                    raise InstallerError(f"refusing to overwrite user-authored agent file {target}")
+            if expected is not None and (not target.is_file() or sha256(target) != expected):
                 raise InstallerError(f"refusing to overwrite modified managed agent file {target}")
         old_agents[name] = capture_file(
             target,
@@ -1571,12 +1618,12 @@ def make_transaction(
         raise InstallerError(f"refusing transaction over unmanaged stable root {paths.stable_root}")
     new_config_state = {"exists": new_config is not None, "kind": "file", "sha256": sha256(stage / "config")} if new_config is not None else {"exists": False}
     new_manifest_state = {"exists": new_manifest_bytes is not None, "kind": "file", "sha256": sha256(stage / "manifest")} if new_manifest_bytes is not None else {"exists": False}
-    new_launcher_state = {"exists": operation == "install", "kind": "symlink", "target": str((paths.data_root / str(new_version) / "bin" / "concord").resolve())} if operation == "install" else {"exists": False}
+    new_launcher_state = {"exists": True, "kind": "symlink", "target": str((paths.data_root / str(new_version) / "bin" / "concord").resolve())} if activating(operation) else {"exists": False}
     # The uninstall branch records what apply_stable_root will produce: a
     # removal when the current symlink points inside the data root, a no-op
     # otherwise. verify_states compares the journal entry against the on-disk
     # state, so the recorded target must match what apply actually leaves.
-    if operation == "install":
+    if activating(operation):
         new_stable_root_state = {"exists": True, "kind": "symlink", "target": str((paths.data_root / str(new_version)).resolve())}
     elif old_stable_root.get("exists") and _stable_root_targets_inside_data_root(paths.stable_root, paths.data_root):
         new_stable_root_state = {"exists": False}
@@ -1589,8 +1636,8 @@ def make_transaction(
         "old_version": old_version,
         "new_version": new_version,
         "activation_version": activation_version,
-        "cleanup_version": old_version if operation == "install" and old_version != new_version else None,
-        "cleanup_records": old_records if operation == "install" and old_version != new_version else None,
+        "cleanup_version": old_version if activating(operation) and old_version != new_version else None,
+        "cleanup_records": old_records if activating(operation) and old_version != new_version else None,
         "cleanup_candidates": cleanup_candidates,
         "old_version_records": activation_old_records,
         "new_version_records": new_version_records,
@@ -1637,7 +1684,7 @@ def apply_version(transaction_root: Path, journal: dict[str, object], paths: Pat
         if live.exists() or live.is_symlink():
             raise InstallerError("transaction live version backup already exists")
         replace_durable(target, live)
-    if journal["operation"] == "install":
+    if activating(journal["operation"]):
         replace_durable(transaction_root / "stage" / "version", target)
     apply_stable_root(transaction_root, journal, paths)
 
@@ -1664,7 +1711,7 @@ def apply_stable_root(transaction_root: Path, journal: dict[str, object], paths:
     fires when the existing symlink targets inside the data root.
     """
     target = paths.stable_root
-    if journal["operation"] == "install":
+    if activating(journal["operation"]):
         new_version = journal["new_version"]
         if not isinstance(new_version, str):
             raise InstallerError("transaction has no new version")
@@ -1696,7 +1743,7 @@ def apply_agents(transaction_root: Path, journal: dict[str, object], paths: Path
     old_agents (the snapshot the transaction captured).
     """
     touched = False
-    if journal["operation"] == "install":
+    if activating(journal["operation"]):
         new_agents = journal.get("new_agents") or {}
         if not isinstance(new_agents, dict):
             raise InstallerError("transaction has malformed agent targets")
@@ -1743,7 +1790,7 @@ def apply_agents(transaction_root: Path, journal: dict[str, object], paths: Path
 def apply_adapters(transaction_root: Path, journal: dict[str, object], paths: Paths) -> None:
     for name in ADAPTER_FILES:
         target = paths.tools_dir / name
-        if journal["operation"] == "install":
+        if activating(journal["operation"]):
             version = journal["new_version"]
             source = paths.data_root / str(version) / "adapter" / "opencode" / name
             write_atomic(target, source.read_bytes())
@@ -1754,7 +1801,7 @@ def apply_adapters(transaction_root: Path, journal: dict[str, object], paths: Pa
 
 def apply_launcher(transaction_root: Path, journal: dict[str, object], paths: Paths) -> None:
     target = paths.launcher
-    if journal["operation"] == "install":
+    if activating(journal["operation"]):
         version = journal["new_version"]
         temporary = paths.bin_dir / f".concord-link-{transaction_root.name}"
         if temporary.exists() or temporary.is_symlink():
@@ -1839,11 +1886,11 @@ def rollback_version(transaction_root: Path, journal: dict[str, object], paths: 
     new_records = journal["new_version_records"]
     if live.exists():
         if target.exists():
-            if not version_matches(target, new_records if journal["operation"] == "install" else None):
+            if not version_matches(target, new_records if activating(journal["operation"]) else None, allow_missing=journal["operation"] == "repair"):
                 raise InstallerError(f"transaction conflict at {target}; refusing rollback")
             shutil.rmtree(target)
         replace_durable(live, target)
-    elif journal["operation"] == "install":
+    elif activating(journal["operation"]):
         if target.exists() and not version_matches(target, old_records) and not version_matches(target, new_records):
             raise InstallerError(f"transaction conflict at {target}; refusing rollback")
         if version_matches(target, new_records) and not version_matches(target, old_records):
@@ -1860,7 +1907,7 @@ def verify_states(journal: dict[str, object], paths: Paths, committed: bool) -> 
     if committed:
         version = journal["new_version"]
         records = journal["new_version_records"]
-        if operation == "install" and not version_matches(paths.data_root / str(version), records):
+        if activating(operation) and not version_matches(paths.data_root / str(version), records):
             raise InstallerError("transaction conflict: new version data is not intact")
         if operation == "uninstall" and journal["activation_version"] and (paths.data_root / str(journal["activation_version"])).exists():
             raise InstallerError("transaction conflict: uninstalled version data reappeared")
@@ -1873,7 +1920,9 @@ def verify_states(journal: dict[str, object], paths: Paths, committed: bool) -> 
     else:
         version = journal["activation_version"]
         records = journal["old_version_records"]
-        if records is not None and not version_matches(paths.data_root / str(version), records):
+        # Repair starts from an incomplete deployment, so the pre-state it
+        # rolls back to may itself lack recorded files.
+        if records is not None and not version_matches(paths.data_root / str(version), records, allow_missing=operation == "repair"):
             raise InstallerError("transaction conflict: old version data is not intact")
         cleanup_version = journal.get("cleanup_version")
         cleanup_records = journal.get("cleanup_records")
@@ -2005,7 +2054,7 @@ def remove_unheld_releases(journal: dict[str, object], paths: Paths) -> None:
         return
     replaced = journal.get("cleanup_version")
     held: set[str] | None = set()
-    if journal.get("operation") == "install":
+    if activating(str(journal.get("operation", ""))):
         held = observe_held_releases(paths, str(journal["new_version"]))
     removed = False
     for version in sorted(candidates, key=version_sort_key):
@@ -2270,6 +2319,205 @@ def install(args: argparse.Namespace) -> int:
     return 0
 
 
+def plan_repair(
+    paths: Paths,
+    manifest: dict[str, object],
+    config_plan: ConfigPlan,
+    version_records: dict[str, str],
+    adapter_records: dict[str, str],
+    agent_records: dict[str, str],
+) -> set[str]:
+    """Diff the deployment against the verified release and list repairs.
+
+    A managed file is restorable when it is absent, or when its content is
+    what the installed manifest recorded and the release ships something
+    else. It is modified when it differs from both the manifest and the
+    release, and repair refuses rather than overwrite an operator change.
+    Unknown files refuse for the same reason install refuses them.
+    """
+    installed = manifest.get("version")
+    if not isinstance(installed, str):
+        raise InstallerError("existing installer manifest has no version to repair")
+    version_root = paths.data_root / installed
+    manifest_version_files = manifest.get("version_files")
+    if not isinstance(manifest_version_files, dict):
+        manifest_version_files = {}
+    manifest_adapter = managed_adapter_records(manifest)
+    manifest_agents = managed_agent_records(manifest)
+    present = {str(path.relative_to(version_root)) for path in version_root.rglob("*") if path.is_file()}
+    for relative in sorted(present):
+        if relative not in version_records:
+            raise InstallerError(
+                f"refusing to replace managed path {version_root / relative}; "
+                "unknown file outside the release's module graph"
+            )
+    repairs: set[str] = set()
+    for relative, expected in version_records.items():
+        target = version_root / relative
+        if not target.exists():
+            repairs.add(f"restored {relative}")
+            continue
+        digest = sha256(target)
+        if digest == expected:
+            continue
+        if digest == manifest_version_files.get(relative):
+            repairs.add(f"restored {relative}")
+            continue
+        raise InstallerError(f"refusing to repair modified managed file {target}")
+    for name, expected in adapter_records.items():
+        target = paths.tools_dir / name
+        if not target.exists():
+            repairs.add(f"restored adapter {name}")
+            continue
+        if not target.is_file() or target.is_symlink():
+            raise InstallerError(f"refusing to repair managed adapter path {target}: it is not a regular file")
+        digest = sha256(target)
+        if digest == expected:
+            continue
+        if digest == manifest_adapter.get(name):
+            repairs.add(f"restored adapter {name}")
+            continue
+        raise InstallerError(f"refusing to repair modified managed file {target}")
+    agent_names = set(manifest_agents) | set(agent_records)
+    for name in sorted(agent_names):
+        expected = agent_records.get(name)
+        target = paths.agents_dir / name
+        if expected is None:
+            if target.exists() or target.is_symlink():
+                raise InstallerError(f"refusing to remove managed agent file {target}; the release no longer ships it")
+            continue
+        if not target.exists():
+            repairs.add(f"restored agent {name}")
+            continue
+        if not target.is_file() or target.is_symlink():
+            raise InstallerError(f"refusing to repair managed agent path {target}: it is not a regular file")
+        digest = sha256(target)
+        if digest == expected:
+            continue
+        if digest == manifest_agents.get(name):
+            repairs.add(f"restored agent {name}")
+            continue
+        raise InstallerError(f"refusing to repair modified managed file {target}")
+    if not paths.launcher.exists() and not paths.launcher.is_symlink():
+        repairs.add("restored the launcher")
+    if not paths.stable_root.exists() and not paths.stable_root.is_symlink():
+        repairs.add("restored the stable root")
+    if config_plan.changed:
+        repairs.add("restored the OpenCode registration")
+    return repairs
+
+
+def repair(args: argparse.Namespace) -> int:
+    """Complete an incomplete installation of the installed release.
+
+    The installed manifest says which release owns the deployment; the
+    verified release archive says which files that release requires. Repair
+    converges the deployment to the archive through the same journaled
+    transaction install uses. It never upgrades or downgrades: a --version
+    that disagrees with the installed release refuses. The work database,
+    worktrees, credentials, and user configuration are outside the managed
+    paths and are never touched.
+    """
+    paths = paths_for(args.root)
+    recover_transactions(paths)
+    manifest = load_manifest(paths)
+    if manifest is None:
+        raise InstallerError(f"no installer manifest at {paths.data_root / MANIFEST_NAME}; run install")
+    installed = manifest.get("version")
+    if not isinstance(installed, str):
+        raise InstallerError("existing installer manifest has no version to repair; run install")
+    requested = parse_version(args.version) if args.version else installed
+    if requested != installed:
+        raise InstallerError(
+            f"repair keeps the installed release {installed}; "
+            f"install --version {requested} changes releases"
+        )
+    version_root = paths.data_root / installed
+    if not version_root.exists() or version_root.is_symlink():
+        raise InstallerError(f"installed release directory is missing: {version_root}; run install")
+    with tempfile.TemporaryDirectory(prefix="concord-repair-") as temporary:
+        workspace = Path(temporary)
+        extracted, _checksums = extract_verified_artifact(
+            installed,
+            Path(args.artifact_dir).resolve() if args.artifact_dir else None,
+            args.base_url,
+            workspace,
+        )
+        source_stage = workspace / "version"
+        (source_stage / "bin").mkdir(parents=True)
+        (source_stage / "adapter" / "opencode").mkdir(parents=True)
+        shutil.copy2(extracted / "bin" / "concord", source_stage / "bin" / "concord")
+        os.chmod(source_stage / "bin" / "concord", 0o755)
+        for name in ADAPTER_FILES:
+            shutil.copy2(extracted / "adapter" / "opencode" / name, source_stage / "adapter" / "opencode" / name)
+        stamp_release_constants(source_stage / "adapter" / "opencode", version_root.resolve())
+        copy_tree_if_present(extracted / "skills", source_stage / "skills")
+        copy_tree_if_present(extracted / "instructions", source_stage / "instructions")
+        copy_tree_if_present(extracted / "agents", source_stage / "agents")
+        fsync_tree(source_stage)
+        managed_version_paths = [str(path.relative_to(source_stage)) for path in source_stage.rglob("*") if path.is_file()]
+        version_records = file_records(source_stage, managed_version_paths)
+        adapter_stage_records = {name: sha256(source_stage / "adapter" / "opencode" / name) for name in ADAPTER_FILES}
+        agent_stage_records = {
+            path.name: sha256(path)
+            for path in sorted((source_stage / "agents").glob(AGENT_GLOB))
+        }
+        config_plan = preflight(paths, installed, manifest, staged_adapters=adapter_stage_records)
+        repairs = plan_repair(paths, manifest, config_plan, version_records, adapter_stage_records, agent_stage_records)
+        new_manifest = {
+            "managed_by": "concord-installer-v1",
+            "version": installed,
+            "version_files": version_records,
+            "adapter_files": adapter_stage_records,
+            "agent_files": agent_stage_records,
+            "skill_path": str((version_root / "skills").resolve()),
+            "stable_root": str(paths.stable_root),
+            "launcher_target": str((version_root / "bin" / "concord").resolve()),
+            "config_path": str(paths.config_file.resolve()),
+            "retained_releases": retained_release_records(manifest),
+        }
+        new_manifest_bytes = (json.dumps(new_manifest, indent=2, sort_keys=True) + "\n").encode("utf-8")
+        manifest_target = paths.data_root / MANIFEST_NAME
+        if not repairs and manifest_target.is_file() and manifest_target.read_bytes() == new_manifest_bytes:
+            print(f"Concord {installed} is complete; no repair needed.")
+            return 0
+        if not repairs:
+            repairs.add("refreshed the installer manifest")
+        ensure_secret_service_ready(paths)
+        transaction_root, journal = make_transaction(
+            paths,
+            "repair",
+            manifest,
+            installed,
+            source_stage,
+            version_records,
+            adapter_stage_records,
+            agent_stage_records,
+            config_plan.text,
+            new_manifest_bytes,
+            retained_release_records(manifest),
+            manifest.get("version_files"),
+        )
+        apply_version(transaction_root, journal, paths)
+        advance_phase(transaction_root, journal, "version_activated")
+        apply_agents(transaction_root, journal, paths)
+        advance_phase(transaction_root, journal, "agents_swapped")
+        apply_adapters(transaction_root, journal, paths)
+        advance_phase(transaction_root, journal, "adapter_swapped")
+        apply_launcher(transaction_root, journal, paths)
+        advance_phase(transaction_root, journal, "launcher_swapped")
+        apply_config(transaction_root, journal, paths)
+        advance_phase(transaction_root, journal, "config_swapped")
+        apply_manifest(transaction_root, journal, paths)
+        advance_phase(transaction_root, journal, "manifest_committed")
+        advance_phase(transaction_root, journal, "cleanup")
+        verify_states(journal, paths, committed=True)
+        cleanup_transaction(transaction_root, journal, paths)
+    print(f"Repaired Concord {installed}: {', '.join(sorted(repairs))}.")
+    print("Verified the deployment against the release archive; the manifest matches the deployed files.")
+    return 0
+
+
 def uninstall(args: argparse.Namespace) -> int:
     paths = paths_for(args.root)
     recover_transactions(paths)
@@ -2500,6 +2748,14 @@ def main() -> int:
         help="release asset base URL when --artifact-dir is absent",
     )
     uninstall_parser = subparsers.add_parser("uninstall", help="remove the managed release")
+    repair_parser = subparsers.add_parser("repair", help="complete an incomplete installation of the installed release")
+    repair_parser.add_argument("--version", help="confirm the installed release tag; a different tag refuses")
+    repair_parser.add_argument("--artifact-dir", help="use local published assets instead of downloading")
+    repair_parser.add_argument(
+        "--base-url",
+        default="https://github.com/Sharper-Flow/concord/releases/latest/download",
+        help="release asset base URL when --artifact-dir is absent",
+    )
     status_parser = subparsers.add_parser("status", help="recover and report installation state")
     link_parser = subparsers.add_parser(
         "link", help="register the conduct corpus for a project (per-project, not global)"
@@ -2507,12 +2763,14 @@ def main() -> int:
     link_parser.add_argument("--project", type=Path, required=True, help="project directory to update")
     unlink_parser = subparsers.add_parser("unlink", help="remove the conduct corpus entry from a project")
     unlink_parser.add_argument("--project", type=Path, required=True, help="project directory to update")
-    for command_parser in (install_parser, uninstall_parser, status_parser, link_parser, unlink_parser):
+    for command_parser in (install_parser, uninstall_parser, repair_parser, status_parser, link_parser, unlink_parser):
         command_parser.add_argument("--root", type=Path, help="test root; maps home/data/config/bin under it")
     args = parser.parse_args()
     try:
         if args.command == "install":
             return install(args)
+        if args.command == "repair":
+            return repair(args)
         if args.command == "uninstall":
             return uninstall(args)
         if args.command == "link":

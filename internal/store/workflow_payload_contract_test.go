@@ -117,7 +117,7 @@ func TestMissingRequiredActionFieldHasNoDurableEffect(t *testing.T) {
 	})
 	_ = leaveFold(context.Background(), tx)
 	_ = tx.Rollback()
-	requirePayloadFailure(t, actionErr, "outcome_predicates", "required")
+	_ = requirePayloadFailure(t, actionErr, "outcome_predicates", "required")
 
 	var afterVersion, afterEvents int64
 	if err := s.db.QueryRow(`SELECT version FROM work_items WHERE id=?`, workID).Scan(&afterVersion); err != nil {
@@ -157,5 +157,5 @@ func TestActionPayloadListItemSchemasMatchPreflight(t *testing.T) {
 		t.Fatalf("bounded law ID accepted by the generated law schema was refused: %v", err)
 	}
 	invalid := json.RawMessage(`{"outcome_predicates":[{"predicate_id":"predicate:one","ordinal":0,"outcome_kind":"check","outcome_payload":{"kind":"check","check_ref":"check:test","immutable_subject_ref":"commit:test","expected_result":"pass"}}],"spec_mandate":[" spec:one"]}`)
-	requirePayloadFailure(t, validateWorkflowActionPayload(definition, "approve_contract", invalid), "spec_mandate", "item_ref=law_id")
+	_ = requirePayloadFailure(t, validateWorkflowActionPayload(definition, "approve_contract", invalid), "spec_mandate", "item_ref=law_id")
 }

@@ -747,8 +747,9 @@ async function executeWorkStart(args: WorkStartArgs, context: ToolContext): Prom
   let target: { product_id: string; project_id: string; work_id: string; worktree: { path: string } } | null = null
   const resume = record(args) && isWorkStartResumeArgs(args)
   try {
+    // Input refusals have no effect; correction belongs to the caller.
     const failures: string[] = []
-    if (!validateWorkStartArgs(args, failures)) throw new AdapterFailure("invalid_input", "invalid_work_start_input", `work_start arguments failed the host-tool contract: ${failures.join("; ")}. ${workStartUsage}`, "none", "contact_operator")
+    if (!validateWorkStartArgs(args, failures)) throw new AdapterFailure("invalid_input", "invalid_work_start_input", `work_start arguments failed the host-tool contract: ${failures.join("; ")}. ${workStartUsage} Submit a corrected request; resubmitting unchanged arguments will fail again.`, "none", "correct_request")
     if (context.abort.aborted) throw new AdapterFailure("cancelled", "cancelled_no_effect", `work_start was cancelled before ${resume ? "the resume read" : "bootstrap"}`)
     const ambient = await resolveAmbientContext(context)
     const productID = deriveWorkStartProduct(ambient)

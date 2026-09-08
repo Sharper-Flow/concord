@@ -1142,6 +1142,34 @@ test("work start resume rejects mixed and malformed argument shapes", async () =
   expect(calls).toEqual([])
 })
 
+// Missing capture fields must name the caller's correction without host effects.
+test("work start names the missing capture fields and admits a corrected request", async () => {
+  bindRetargetRoute({ unbound: true })
+  const calls: RetargetCall[] = []
+  adapter.configureConcordAdapter({ runner: { async run(argv: string[]) { calls.push({ argv, input: "", options: undefined }); throw new Error("argument refusal must precede every effect") } } })
+  const incomplete = { title: "Correct confirmed usage-reporting defects", kind: "bug", task: "Validate the reported defects and shape a bounded repair contract." }
+  const result: any = await rawHostResult(adapter.work_start.execute(incomplete, contextFor()))
+  expect(result.outcome).toBe("error")
+  expect(result.error.kind).toBe("invalid_input")
+  expect(result.error.effect_state).toBe("none")
+  expect(result.error.message).toContain("host-tool contract")
+  expect(result.error.message).toContain("value_statement")
+  expect(result.error.message).toContain("idempotency_key")
+  // An identical resubmission refuses again, but the owner is the caller with
+  // a corrected request, not the operator with an unspecified repair.
+  expect(result.error.retry_safe).toBe(false)
+  expect(result.error.recovery_action.kind).toBe("correct_request")
+  expect(calls).toEqual([])
+  const repeated = await rawHostResult(adapter.work_start.execute(incomplete, contextFor()))
+  expect(repeated.error).toEqual(result.error)
+  expect(calls).toEqual([])
+  bindRetargetRoute()
+  adapter.configureConcordAdapter({ runner: retargetRunner(calls) })
+  const corrected = await rawHostResult(adapter.work_start.execute({ ...incomplete, value_statement: "Start valid work without operator repair.", idempotency_key: "corrected-start-1" }, contextFor()))
+  expect(corrected.outcome).toBe("ok")
+  expect(calls.filter(({ argv }) => argv[1] === "work-bootstrap")).toHaveLength(1)
+})
+
 test("capture and resume refuse before core effects when managed participation cannot be persisted", async () => {
   for (const args of [bootstrapArgs, { work_id: "work-1" }]) {
     for (const supportsPatch of [false, true]) {
@@ -1235,7 +1263,7 @@ for (const { name, args, fragments } of workStartDiagnosticCases) {
     let coreCalls = 0
     adapter.configureConcordAdapter({ runner: { async run() { coreCalls++; throw new Error("invalid input reached the core") } } })
     const result = await rawHostResult(adapter.work_start.execute(args, contextFor()))
-    expect(result).toMatchObject({ outcome: "error", error: { kind: "invalid_input", effect_state: "none", retry_safe: false } })
+    expect(result).toMatchObject({ outcome: "error", error: { kind: "invalid_input", effect_state: "none", retry_safe: false, recovery_action: { kind: "correct_request" } } })
     for (const fragment of fragments) expect(result.error.message).toContain(fragment)
     expect(result.error.message).toContain("Capture requires")
     expect(result.error.message).toContain("Resume requires only work_id")
@@ -1253,6 +1281,7 @@ test("work start description explains the generated capture and resume requireme
   expect(definition.description).toContain(`Capture requires ${capture.required.join(", ")}`)
   expect(definition.description).toContain(`Resume requires only ${resume.required.join(", ")}`)
   expect(definition.description).toContain("Do not combine capture and resume fields")
+  expect(definition.description.match(/Capture requires/g)).toHaveLength(1)
 })
 
 test("work start accepts minimal capture and exact declared bounds in a resolved project", async () => {

@@ -62,6 +62,10 @@ func operatorVerdictActor(t *testing.T, workID string) WorkflowActor {
 }
 
 func runOperatorVerdict(t *testing.T, s *Store, workID string, owner, operator WorkflowActor) error {
+	return runOperatorVerdictWithEvidence(t, s, workID, owner, operator, "evidence:operator-verdict")
+}
+
+func runOperatorVerdictWithEvidence(t *testing.T, s *Store, workID string, owner, operator WorkflowActor, evidenceRef string) error {
 	t.Helper()
 	version := verdictItemVersion(t, s, workID)
 	tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
@@ -72,7 +76,7 @@ func runOperatorVerdict(t *testing.T, s *Store, workID string, owner, operator W
 	if err := enterFold(context.Background(), tx); err != nil {
 		return err
 	}
-	payload, _ := json.Marshal(map[string]any{"predicate_id": "predicate:primary", "verdict_kind": "ok", "evaluation_evidence": []string{"evidence:operator-verdict"}})
+	payload, _ := json.Marshal(map[string]any{"predicate_id": "predicate:primary", "verdict_kind": "ok", "evaluation_evidence": []string{evidenceRef}})
 	_, err = applyWorkflowActionRawTx(context.Background(), tx, BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
 		WorkID: workID, ExpectedVersion: version, ActionID: "record_verdict", Payload: payload, Actor: owner, OperatorActor: &operator,
 		AcceptedInputsDigest: "sha256:" + strings.Repeat("c", 64) + workID, IdempotencyIdentity: "operator-verdict-" + workID, OperationID: "operator-verdict-" + workID,
@@ -84,6 +88,72 @@ func runOperatorVerdict(t *testing.T, s *Store, workID string, owner, operator W
 	}
 	_ = leaveFold(context.Background(), tx)
 	return tx.Commit()
+}
+
+func operatorVerdictExitCheck(t *testing.T, s *Store, workID string) error {
+	t.Helper()
+	tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	return requireOperatorVerdictExit(context.Background(), tx, workID)
+}
+
+func TestOperatorVerdictAfterAcceptedWorkerResultPassesDistinctness(t *testing.T) {
+	const workID = "operator-verdict-accepted-worker"
+	s, owner := seedItemAtAcceptance(t, workID, true)
+	operator := operatorVerdictActor(t, workID)
+
+	if err := runOperatorVerdictWithEvidence(t, s, workID, owner, operator, "attempt:"+workID); err != nil {
+		t.Fatalf("operator verdict after accepted worker result refused: %v", err)
+	}
+	operatorRef, _ := WorkflowActorRef(operator)
+	tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback()
+	if err := workflowCompletionActorDistinct(context.Background(), tx, workID, operatorRef, "", false); err != nil {
+		t.Fatalf("completion distinctness refused the operator verdict: %v", err)
+	}
+}
+
+func TestOperatorVerdictConditionAcceptsOnlyDeliveryOrAcceptedWorkerResult(t *testing.T) {
+	noExit := openTemp(t)
+	seedWork(t, noExit, "operator-verdict-no-exit")
+	seedWorkflowLaw(t, noExit)
+	if err := operatorVerdictExitCheck(t, noExit, "operator-verdict-no-exit"); err == nil {
+		t.Fatal("operator verdict condition accepted a workflow without an allowed exit")
+	}
+
+	accepted, _ := seedItemAtAcceptance(t, "operator-verdict-accepted-exit", true)
+	if err := operatorVerdictExitCheck(t, accepted, "operator-verdict-accepted-exit"); err != nil {
+		t.Fatalf("operator verdict condition refused an accepted worker result: %v", err)
+	}
+
+	delivered, _ := seedDeliveredItemAtAcceptance(t, "operator-verdict-delivery-exit")
+	if err := operatorVerdictExitCheck(t, delivered, "operator-verdict-delivery-exit"); err != nil {
+		t.Fatalf("operator verdict condition refused a delivery exit: %v", err)
+	}
+}
+
+func TestAgentVerdictAfterAcceptedWorkerResultStillRequiresDistinctActor(t *testing.T) {
+	const workID = "agent-verdict-accepted-worker"
+	s, _ := seedItemAtAcceptance(t, workID, true)
+
+	var laneRef string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT execution_actor_ref FROM workflow_instances WHERE work_id=?`, workID).Scan(&laneRef); err != nil {
+		t.Fatal(err)
+	}
+	var lane WorkflowActor
+	if err := s.DatabaseForTesting().QueryRow(`SELECT principal_ref,client_ref,agent_ref,session_ref,actor_class FROM workflow_actors WHERE actor_ref=?`, laneRef).Scan(&lane.PrincipalRef, &lane.ClientRef, &lane.AgentRef, &lane.SessionRef, &lane.ActorClass); err != nil {
+		t.Fatal(err)
+	}
+	payload := json.RawMessage(`{"predicate_id":"predicate:primary","verdict_kind":"ok","evaluation_evidence":["attempt:` + workID + `"]}`)
+	if err := runVerdictActionAs(t, s, workID, "record_verdict", payload, 0, lane); err == nil || !strings.Contains(err.Error(), "evaluate") {
+		t.Fatalf("worker agent verdict err=%v, want the distinct-actor refusal", err)
+	}
 }
 
 // The wedge, pinned: the delivering session cannot evaluate itself, and the
@@ -120,19 +190,6 @@ func TestOperatorVerdictAfterDeliveryPassesDistinctness(t *testing.T) {
 	defer tx.Rollback()
 	if err := workflowCompletionActorDistinct(context.Background(), tx, workID, operatorRef, "", false); err != nil {
 		t.Fatalf("completion distinctness refused the operator verdict: %v", err)
-	}
-}
-
-// The condition binds: without a record_delivery exit the operator identity is
-// refused, so the lane route's distinct evaluator stays the only verdict path.
-func TestOperatorVerdictConditionBinds(t *testing.T) {
-	const workID = "operator-verdict-lane"
-	s, owner := seedItemAtAcceptance(t, workID, true)
-	operator := operatorVerdictActor(t, workID)
-
-	err := runOperatorVerdict(t, s, workID, owner, operator)
-	if err == nil || !strings.Contains(err.Error(), "only after an in-session record_delivery exit") {
-		t.Fatalf("operator verdict without a delivery exit err=%v, want the condition refusal", err)
 	}
 }
 
@@ -188,26 +245,19 @@ func TestOperatorCompleteAfterDeliveryPassesDistinctness(t *testing.T) {
 	}
 }
 
-// The condition binds for completion too: a lane-executed exit refuses the
-// operator identity on complete.
+// Completion still requires a recorded verdict after an accepted worker
+// result, even though the operator identity is an allowed verdict actor.
 func TestOperatorCompleteConditionBinds(t *testing.T) {
 	const workID = "operator-complete-lane"
 	s, owner := seedItemAtAcceptance(t, workID, true)
 	operator := operatorVerdictActor(t, workID)
 
-	// Advance past acceptance so complete is the declared action, then the
-	// condition refuses the operator identity on the lane-executed item.
-	reviewer := verdictReviewers[workID]
-	reviewerRef, rerr := WorkflowActorRef(reviewer)
-	if rerr != nil {
-		t.Fatal(rerr)
-	}
+	// Advance past acceptance so complete is the declared action.
 	premiseVersion := verdictItemVersion(t, s, workID)
 	operatorRef, _ := WorkflowActorRef(operator)
 	operatorRecorded := workflowEvent("operator-cond-actor-"+workID, WorkflowActorRecorded, workID, map[string]any{"work_id": workID, "expected_version": premiseVersion, "resulting_version": premiseVersion + 1, "actor_ref": operatorRef, "principal_ref": operator.PrincipalRef, "client_ref": operator.ClientRef, "agent_ref": operator.AgentRef, "session_ref": operator.SessionRef, "actor_class": "operator"})
 	premise := workflowEventWithActor("operator-cond-premise-"+workID, WorkflowPremiseConfirmed, workID, operatorRef, map[string]any{"work_id": workID, "expected_version": premiseVersion + 1, "resulting_version": premiseVersion + 2, "contract_version": 1, "confirming_actor_ref": operatorRef})
 	premiseCompleted := workflowActionCompletedFixture("operator-cond-premise-done-"+workID, workID, operatorRef, premiseVersion+2, "acceptance", "confirm_premise")
-	_ = reviewerRef
 	if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{operatorRecorded, premise, premiseCompleted}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): premiseVersion}}); err != nil {
 		t.Fatalf("premise confirmation: %v", err)
 	}
@@ -227,8 +277,8 @@ func TestOperatorCompleteConditionBinds(t *testing.T) {
 		PrincipalRef: owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "operator-complete-cond-" + workID, RequestID: "request:operator-complete-cond-" + workID, ContractDigest: testManifestDigest, Now: time.Unix(11, 0).UTC(),
 	})
 	_ = leaveFold(context.Background(), tx)
-	if err == nil || !strings.Contains(err.Error(), "only after an in-session record_delivery exit") {
-		t.Fatalf("operator complete without a delivery exit err=%v, want the condition refusal", err)
+	if err == nil || !strings.Contains(err.Error(), "workflow verdict is missing") {
+		t.Fatalf("operator complete without a verdict err=%v, want the verdict refusal", err)
 	}
 }
 

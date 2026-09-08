@@ -849,13 +849,13 @@ func (r runtime) mutateWorkflowAction(ctx context.Context, base Envelope, raw []
 	}
 	requiresApproval := action.Approval == store.ActionApprovalRequired
 	// CD-0116: a record_verdict from the session that holds the executing
-	// lease is the self-evaluation wedge — no distinct evaluator exists after
-	// an in-session delivery. Mint the operator challenge so the host can
-	// attach the signed identity the store's conditioned path accepts.
-	// CD-0116: the verdict and its terminal act both take the operator
-	// identity after an in-session delivery.
+	// lease, or accepted the worker result, is the self-evaluation wedge. Mint
+	// the operator challenge so the host can attach the signed identity the
+	// store's conditioned path accepts.
+	// CD-0116: the verdict and its terminal act both take the operator identity
+	// after an in-session delivery or accepted worker result.
 	operatorVerdict := in.ActionID == "record_verdict" || in.ActionID == "complete"
-	if operatorVerdict && approval == "" && r.sessionHoldsExecutingLease(ctx, in.WorkID, grant) {
+	if operatorVerdict && approval == "" && r.sessionRequiresOperatorVerdict(ctx, in.WorkID, grant) {
 		requiresApproval = true
 	}
 	if replay, handled, replayErr := r.replayMutationBeforeScope(ctx, base, raw, grant, op); replayErr != nil || handled {
@@ -3304,9 +3304,7 @@ func activeWorkIDsTx(ctx context.Context, tx *store.Transaction, productID strin
 }
 
 // sessionHoldsExecutingLease reports whether the calling session's derived
-// workflow actor is the item's pinned executing actor. Only that session's
-// record_verdict is the CD-0116 self-evaluation wedge; a distinct session
-// keeps the ordinary verdict route and is never asked for an approval.
+// workflow actor is the item's pinned executing actor.
 func (r runtime) sessionHoldsExecutingLease(ctx context.Context, workID string, grant Authority) bool {
 	sessionRef := store.DeriveWorkflowActorRef(grant.PrincipalRef, grant.ClientRef, grant.AgentRef, grant.SessionRef)
 	executing, err := r.Store.WorkflowExecutingActor(ctx, workID)
@@ -3314,4 +3312,15 @@ func (r runtime) sessionHoldsExecutingLease(ctx context.Context, workID string, 
 		return false
 	}
 	return executing == sessionRef
+}
+
+// sessionRequiresOperatorVerdict reports whether the calling session holds
+// the delivery lease or accepted the worker result it is about to evaluate.
+func (r runtime) sessionRequiresOperatorVerdict(ctx context.Context, workID string, grant Authority) bool {
+	if r.sessionHoldsExecutingLease(ctx, workID, grant) {
+		return true
+	}
+	actorRef := store.DeriveWorkflowActorRef(grant.PrincipalRef, grant.ClientRef, grant.AgentRef, grant.SessionRef)
+	accepted, err := r.Store.WorkflowAcceptedWorkerResultByActor(ctx, workID, actorRef)
+	return err == nil && accepted
 }

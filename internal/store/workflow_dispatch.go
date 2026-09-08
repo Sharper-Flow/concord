@@ -731,7 +731,7 @@ func workflowSemanticActionEvents(ctx context.Context, tx *sql.Tx, definition Wo
 			// operator cannot hold a delivery lease or author a delivery
 			// action. The path is conditioned on the delivery exit: without a
 			// record_delivery completion the ordinary CD-0109 rule stands.
-			if err := requireOperatorVerdictDeliveryExit(ctx, tx, request.WorkID); err != nil {
+			if err := requireOperatorVerdictExit(ctx, tx, request.WorkID); err != nil {
 				return nil, err
 			}
 			operatorRef, refErr := WorkflowActorRef(*request.OperatorActor)
@@ -880,7 +880,7 @@ func workflowCompletionEvent(ctx context.Context, tx *sql.Tx, request WorkflowAc
 	// takes the operator identity under the same delivery-exit condition as
 	// the verdict it seals.
 	if request.OperatorActor != nil {
-		if err := requireOperatorVerdictDeliveryExit(ctx, tx, request.WorkID); err != nil {
+		if err := requireOperatorVerdictExit(ctx, tx, request.WorkID); err != nil {
 			return Event{}, err
 		}
 	}
@@ -1165,17 +1165,16 @@ func workerAttemptEvidenceKind(capability string) string {
 	}
 }
 
-// requireOperatorVerdictDeliveryExit admits the operator verdict identity
-// only on an item whose external-effect work exited through record_delivery,
-// the in-session delivery CD-0112 added. Lane-executed exits keep CD-0109's
-// rule: a distinct evaluator exists there and the operator path stays closed.
-func requireOperatorVerdictDeliveryExit(ctx context.Context, tx *sql.Tx, workID string) error {
+// requireOperatorVerdictExit admits the operator verdict identity
+// only on an item whose external-effect work exited through record_delivery or
+// accept_worker_result. Other exits keep CD-0109's distinct-evaluator rule.
+func requireOperatorVerdictExit(ctx context.Context, tx *sql.Tx, workID string) error {
 	var delivered int
-	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='record_delivery'`, SubjectWorkItem, workID, WorkflowActionCompleted).Scan(&delivered); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id') IN ('record_delivery','accept_worker_result')`, SubjectWorkItem, workID, WorkflowActionCompleted).Scan(&delivered); err != nil {
 		return wrapFailure(KindUnavailable, "workflow_action", "cannot inspect the delivery exits", true, "retry once the database is readable", err)
 	}
 	if delivered == 0 {
-		return newFailure(KindInvalidOperation, "workflow_action", "operator verdict identity is available only after an in-session record_delivery exit", false, "record the verdict through the distinct evaluator the lane route already provides")
+		return newFailure(KindInvalidOperation, "workflow_action", "operator verdict identity is available only after an in-session record_delivery exit or an accepted worker result", false, "record the verdict through the distinct evaluator the lane route already provides")
 	}
 	return nil
 }

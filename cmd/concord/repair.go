@@ -187,7 +187,7 @@ func gatherRepairAsset(name, tag, baseURL, artifactDir, workspace string) error 
 	destination := filepath.Join(workspace, name)
 	if artifactDir != "" {
 		source := filepath.Join(artifactDir, name)
-		content, err := os.ReadFile(source)
+		content, err := os.ReadFile(source) //nolint:gosec // source is a member of the operator-named artifact directory, checksum-verified before use.
 		if err != nil {
 			return fmt.Errorf("artifact directory is missing %s", source)
 		}
@@ -211,7 +211,7 @@ func gatherRepairAsset(name, tag, baseURL, artifactDir, workspace string) error 
 
 // parseChecksumFile reads a sha256sum-format file into name → digest.
 func parseChecksumFile(path string) (map[string]string, error) {
-	content, err := os.ReadFile(path)
+	content, err := os.ReadFile(path) //nolint:gosec // the checksum file is a release asset this command downloaded into its own workspace.
 	if err != nil {
 		return nil, fmt.Errorf("cannot read %s", path)
 	}
@@ -228,7 +228,7 @@ func parseChecksumFile(path string) (map[string]string, error) {
 
 // verifyFileSHA256 refuses unless the file's digest equals the expected one.
 func verifyFileSHA256(path, expected string) error {
-	content, err := os.ReadFile(path)
+	content, err := os.ReadFile(path) //nolint:gosec // the digest is computed from a workspace asset whose checksum file already verified.
 	if err != nil {
 		return fmt.Errorf("cannot read %s", path)
 	}

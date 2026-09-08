@@ -1,7 +1,7 @@
 import { test, expect } from "bun:test"
 import { createHash } from "node:crypto"
 import { agentLanes } from "./generated-agent-lanes"
-import { completeWorkerAttempt, configureCoreBinary, defaultExportRunner, dispatchWorker, MAX_EXPORT_BYTES, readExportSession, readExportSessionMetadata, readRunSessionMetadata, validateAgentLanePacket, type AgentLanePacket, type DispatchAuthorizer, type DispatchRunner } from "./dispatch"
+import { completeWorkerAttempt, concordBinaryPath, configureCoreBinary, defaultExportRunner, dispatchWorker, MAX_EXPORT_BYTES, readExportSession, readExportSessionMetadata, readRunSessionMetadata, resolveCoreBinary, validateAgentLanePacket, type AgentLanePacket, type DispatchAuthorizer, type DispatchRunner } from "./dispatch"
 
 // Fake-runner suite: bind worker-evidence CLI calls to a nominal core path
 // instead of the unstamped repository placeholder (CD-0111 D1).
@@ -869,4 +869,23 @@ test("TestDispatchWorkerCompletesWithExportLargerThanPipeBuffer", async () => {
   expect(result.outcome).toBe("ok")
   expect(result.readback_model).toBe("openai/gpt-5.6-luna")
   expect(result.session_id).toBe("session-1")
+})
+
+// The repository placeholder stays unstamped, so an adapter copy without a
+// release binding still refuses instead of resolving `concord` ambiently.
+test("concordBinaryPath refuses the unstamped placeholder when no override is bound", () => {
+  configureCoreBinary(null)
+  expect(() => concordBinaryPath()).toThrow("not bound to a release")
+  configureCoreBinary("concord-test")
+})
+
+// CD-0111 D1 regression (#914): with no override bound, the resolution must
+// reach the stamped release constant. An empty-string bound override would
+// shadow it, so `null` is the unbound state and the per-call override wins
+// over both.
+test("resolveCoreBinary falls through an unbound override to the stamped constant", () => {
+  expect(resolveCoreBinary(undefined, null, "/release/bin/concord")).toBe("/release/bin/concord")
+  expect(resolveCoreBinary(undefined, "/test-bin/concord", "/release/bin/concord")).toBe("/test-bin/concord")
+  expect(resolveCoreBinary("/call-override/concord", "/test-bin/concord", "/release/bin/concord")).toBe("/call-override/concord")
+  expect(resolveCoreBinary(undefined, null, "")).toBe("")
 })

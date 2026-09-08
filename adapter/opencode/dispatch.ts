@@ -585,23 +585,31 @@ export function errorEnvelopeForLane(lane: AgentLane | null, packet: Partial<Age
   return errorEnvelope(lane, packet, outcome, kind, message, recovery_action)
 }
 
+// resolveCoreBinary is the pure resolution the transport runs: an explicit
+// per-call override wins, then the bound test binary, then the stamped
+// release constant. A `null` bound override means no override is bound; an
+// empty string would shadow the stamped constant (issue #914).
+export function resolveCoreBinary(override: string | undefined, bound: string | null, stamped: string): string {
+  return override ?? bound ?? stamped
+}
+
 export function concordBinaryPath(override?: string): string {
   // CD-0111 D1: the core runs at its own release path, never through PATH.
   // The stamped release constants carry that path; the repository placeholder
   // is empty and refuses here rather than resolving `concord` ambiently. The
   // override is the test seam: production callers pass nothing.
-  const path = override ?? coreBinaryOverride ?? coreBinary
+  const path = resolveCoreBinary(override, coreBinaryOverride, coreBinary)
   if (!path) throw new CoreBinaryUnavailable("this adapter copy is not bound to a release: generated-release.ts carries no core path, so no core call can run (CD-0111 D1)")
   return path
 }
 
 // coreBinaryOverride is the injected test binary. configureCoreBinary sets
 // it; no production path reads or sets it.
-let coreBinaryOverride = ""
+let coreBinaryOverride: string | null = null
 
 /** Test seam: bind the transport to an explicit core binary, or reset it. */
 export function configureCoreBinary(path: string | null) {
-  coreBinaryOverride = path ?? ""
+  coreBinaryOverride = path
 }
 
 // CoreBinaryUnavailable is the typed refusal for an adapter that has no

@@ -6,6 +6,7 @@ package workflowcorpus
 var AgentBoundaryScenarioIDs = []string{
 	"WF39-action-error-envelope",
 	"WF46-event-version-fail-closed",
+	"WF56-session-vacate-then-reclaim-passes-gate",
 }
 
 func AgentBoundaryOwns(id string) bool {

@@ -59,13 +59,13 @@ describe("session_vacate moves only to the core-derived checkout", () => {
     const envelope = await moveSessionToRegisteredMainCheckout(args({ idempotency_key: "vacate-2", destination: "/other" }), context(), okEnvelope())
     expect(envelope.outcome).toBe("error")
     expect(calls).toBe(0)
-    if (envelope.outcome === "error") expect(envelope.error.adapter_reason).toBe("agent_named_destination")
+    if (envelope.outcome === "error") expect((envelope.error as { adapter_reason?: string }).adapter_reason).toBe("agent_named_destination")
   })
 
   test("refuses a landing mismatch", async () => {
     await fakeHost(() => ({ status: 204, body: null }), () => ({ status: 200, body: { directory: "/other" } }))
     const envelope = await moveSessionToRegisteredMainCheckout(args({ idempotency_key: "vacate-3" }), context(), okEnvelope())
     expect(envelope.outcome).toBe("error")
-    if (envelope.outcome === "error") expect(envelope.error.adapter_reason).toBe("vacate_destination_mismatch")
+    if (envelope.outcome === "error") expect((envelope.error as { adapter_reason?: string }).adapter_reason).toBe("vacate_destination_mismatch")
   })
 })

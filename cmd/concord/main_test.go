@@ -118,6 +118,16 @@ func TestHelpListsHostBootstrapCommands(t *testing.T) {
 	}
 }
 
+func TestHelpListsSessionVacateOperation(t *testing.T) {
+	var out, errOut bytes.Buffer
+	if code := run([]string{"--help"}, &out, &errOut); code != 0 {
+		t.Fatalf("help exit code=%d stderr=%q", code, errOut.String())
+	}
+	if !strings.Contains(out.String(), "concord_work_transition.session_vacate") {
+		t.Fatalf("help does not list the session vacate operation")
+	}
+}
+
 func TestLauncherRoutesBeforeJSONAndRejectsNonTTY(t *testing.T) {
 	var out, errOut bytes.Buffer
 	if code := runWithInput([]string{"launcher"}, strings.NewReader("not json"), &out, &errOut); code != 2 {

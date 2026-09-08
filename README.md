@@ -155,6 +155,12 @@ python3 concord-installer.py status
 python3 concord-installer.py uninstall
 ```
 
+Complete an incomplete installation of the installed release with `concord
+repair`, or with `python3 concord-installer.py repair` when the executable
+itself is missing. See [Installing Concord](docs/installation.md) for the
+repair contract: verified assets, a database backup, and a refusal that names
+any artifact it cannot safely reconcile.
+
 See [Installing Concord](docs/installation.md) for artifact verification,
 managed paths, recovery behavior, and first-use requirements.
 

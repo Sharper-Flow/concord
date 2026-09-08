@@ -46,7 +46,7 @@ func runRepairCommand(args []string, in io.Reader, out, errOut io.Writer) int {
 		return 1
 	}
 	manifestPath := filepath.Join(dataRoot, "install-manifest.json")
-	rawManifest, err := os.ReadFile(manifestPath)
+	rawManifest, err := os.ReadFile(manifestPath) //nolint:gosec // manifestPath is the installer's own durable state under the leased data root, not agent input.
 	if err != nil {
 		writeOperatorDiagnostic(errOut, "repair", fmt.Sprintf("no installer manifest at %s; run install", manifestPath))
 		return 1
@@ -124,7 +124,7 @@ func runRepairCommand(args []string, in io.Reader, out, errOut io.Writer) int {
 	if code := backupBeforeRepair(out, errOut, dataRoot, manifest.Version); code != 0 {
 		return code
 	}
-	fmt.Fprintf(out, "repair: release %s, installer from %s\n", manifest.Version, installerTag)
+	_, _ = fmt.Fprintf(out, "repair: release %s, installer from %s\n", manifest.Version, installerTag)
 	var command *exec.Cmd
 	installerArgs := []string{"repair", "--version", manifest.Version, "--artifact-dir", workspace}
 	if repairInterpreter == "" {
@@ -156,7 +156,7 @@ func backupBeforeRepair(out, errOut io.Writer, dataRoot, version string) int {
 	}
 	info, statErr := os.Stat(path)
 	if statErr != nil || info.IsDir() {
-		fmt.Fprintln(out, "repair: no work database found; skipped the backup")
+		_, _ = fmt.Fprintln(out, "repair: no work database found; skipped the backup")
 		return 0
 	}
 	s, err := store.Open(context.Background(), path)
@@ -177,7 +177,7 @@ func backupBeforeRepair(out, errOut io.Writer, dataRoot, version string) int {
 		writeOperatorDiagnostic(errOut, "repair", "database backup verification failed; nothing was repaired: "+err.Error())
 		return 1
 	}
-	fmt.Fprintf(out, "repair: database backup at %s\n", destination)
+	_, _ = fmt.Fprintf(out, "repair: database backup at %s\n", destination)
 	return 0
 }
 

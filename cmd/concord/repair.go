@@ -114,7 +114,7 @@ func runRepairCommand(args []string, in io.Reader, out, errOut io.Writer) int {
 	}
 	// The direct-exec entry documented for a missing executable needs the
 	// executable bit; the gathered copy carries data permissions only.
-	if err := os.Chmod(installerPath, 0o755); err != nil {
+	if err := os.Chmod(installerPath, 0o755); err != nil { //nolint:gosec // the executable bit is the documented direct-exec entry contract for the checksum-verified installer copy.
 		writeOperatorDiagnostic(errOut, "repair", "cannot prepare the verified installer: "+err.Error())
 		return 1
 	}
@@ -128,9 +128,9 @@ func runRepairCommand(args []string, in io.Reader, out, errOut io.Writer) int {
 	var command *exec.Cmd
 	installerArgs := []string{"repair", "--version", manifest.Version, "--artifact-dir", workspace}
 	if repairInterpreter == "" {
-		command = exec.Command(installerPath, installerArgs...)
+		command = exec.Command(installerPath, installerArgs...) //nolint:gosec // installerPath is the checksum-verified installer copy this command materialized.
 	} else {
-		command = exec.Command(repairInterpreter, append([]string{installerPath}, installerArgs...)...)
+		command = exec.Command(repairInterpreter, append([]string{installerPath}, installerArgs...)...) //nolint:gosec // the interpreter is an explicit operator flag and the installer copy is checksum-verified.
 	}
 	command.Stdout = out
 	command.Stderr = errOut
@@ -191,10 +191,10 @@ func gatherRepairAsset(name, tag, baseURL, artifactDir, workspace string) error 
 		if err != nil {
 			return fmt.Errorf("artifact directory is missing %s", source)
 		}
-		return os.WriteFile(destination, content, 0o600)
+		return os.WriteFile(destination, content, 0o600) //nolint:gosec // destination joins the command workspace with a release asset name the checksum file governs.
 	}
 	url := strings.TrimSuffix(baseURL, "/") + "/download/" + tag + "/" + name
-	response, err := http.Get(url)
+	response, err := http.Get(url) //nolint:gosec // url derives from the release base URL, and the downloaded asset is checksum-verified before any use.
 	if err != nil {
 		return fmt.Errorf("could not download %s: %s", url, err.Error())
 	}

@@ -199,43 +199,6 @@ func (s *Store) ActiveWorkflowContract(ctx context.Context, workID string) (Work
 	return activeWorkflowContract(ctx, s.db, workID)
 }
 
-// WorkflowExecutingActor returns the workflow instance's pinned executing
-// actor reference, or an empty string when the item has no running instance.
-// CD-0116: the agent surface consults it to mint an operator verdict
-// challenge for the session that holds the delivery lease.
-func (s *Store) WorkflowExecutingActor(ctx context.Context, workID string) (string, error) {
-	if s == nil || s.db == nil {
-		return "", newFailure(KindUnavailable, "workflow_instance", "store is not open", false, "open the authority database")
-	}
-	var executing string
-	err := s.db.QueryRowContext(ctx, `SELECT execution_actor_ref FROM workflow_instances WHERE work_id=?`, workID).Scan(&executing)
-	if err == sql.ErrNoRows {
-		return "", nil
-	}
-	if err != nil {
-		return "", wrapFailure(KindUnavailable, "workflow_instance", "cannot read the executing actor", true, "retry once the database is readable", err)
-	}
-	return executing, nil
-}
-
-// WorkflowAcceptedWorkerResultByActor reports whether an actor accepted a
-// worker result for the work item. CD-0116 uses this fact to challenge the
-// accepting session before it records a verdict on the accepted result.
-func (s *Store) WorkflowAcceptedWorkerResultByActor(ctx context.Context, workID, actorRef string) (bool, error) {
-	if s == nil || s.db == nil {
-		return false, newFailure(KindUnavailable, "workflow_instance", "store is not open", false, "open the authority database")
-	}
-	var found int
-	err := s.db.QueryRowContext(ctx, `SELECT 1 FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND actor=? AND json_extract(payload,'$.action_id')='accept_worker_result' LIMIT 1`, SubjectWorkItem, workID, WorkflowActionCompleted, actorRef).Scan(&found)
-	if err == sql.ErrNoRows {
-		return false, nil
-	}
-	if err != nil {
-		return false, wrapFailure(KindUnavailable, "workflow_instance", "cannot read the accepted worker result actor", true, "retry once the workflow projection is readable", err)
-	}
-	return found == 1, nil
-}
-
 func activeWorkflowContract(ctx context.Context, q queryer, workID string) (WorkflowContractSnapshot, error) {
 	var contract WorkflowContractSnapshot
 	err := q.QueryRowContext(ctx, `SELECT contract_version,premise FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL ORDER BY contract_version DESC LIMIT 1`, workID).Scan(&contract.Version, &contract.Premise)

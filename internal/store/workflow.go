@@ -944,23 +944,17 @@ func foldWorkflowActionStarted(ctx context.Context, tx *sql.Tx, event Event) err
 	return startWorkflowInstanceStepTx(ctx, tx, event.SubjectID, p.StepID, p.ActorRef, p.ExecutionModel, event.OccurredAt)
 }
 
-// workflowStepExecutorRefusal reports whether the verdict actor executed any
-// step of this work item, read from the append-only event log: every
-// workflow.action_started records its executing actor and every
-// worker.dispatched records the lane that took over the step. Executing and
-// evaluating are different roles; one actor holding both is self-evaluation
-// regardless of who holds the executing lease (#801).
+// Execution history and the current lease both prohibit self-evaluation.
 func workflowStepExecutorRefusal(ctx context.Context, tx *sql.Tx, workID, verdictActor, operation string) error {
 	if verdictActor == "" {
 		return nil
 	}
-	var executed int
-	err := tx.QueryRowContext(ctx, `SELECT 1 FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND ((kind='workflow.action_started' AND json_extract(payload,'$.actor_ref')=?) OR (kind='worker.dispatched' AND json_extract(payload,'$.lane_actor_ref')=?)) LIMIT 1`, workID, verdictActor, verdictActor).Scan(&executed)
-	if err == sql.ErrNoRows {
-		return nil
-	}
+	authority, err := workflowEvaluationAuthority(ctx, tx, workID, verdictActor)
 	if err != nil {
-		return wrapFailure(KindUnavailable, operation, "cannot read the workflow step executors", true, "retry once the database is readable", err)
+		return err
+	}
+	if authority == WorkflowIndependentEvaluator {
+		return nil
 	}
 	return newFailure(KindUnauthorized, operation, "executing actor cannot evaluate its own delivery", false, "record the verdict through an agent that executed no step of this work item")
 }

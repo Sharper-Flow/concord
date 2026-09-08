@@ -11,12 +11,22 @@ import (
 	"github.com/sharper-flow/concord/internal/store"
 )
 
-// The end-to-end agent path #865 fixes: a lane dispatches, completes with a
-// readback model, the owner accepts the result, and the verdict on the next
-// step cites the accepted attempt id. Before the fix the verdict was refused
-// with missing_evidence, because acceptance bound nothing and bind_evidence
-// is not declared on the verify step.
+// Acceptance binds the attempt so a verdict can cite it after the external
+// step exits, where bind_evidence is not a declared action.
 func TestVerdictAfterAcceptanceCitesTheAttempt(t *testing.T) {
+	testVerdictAfterAcceptance(t, false, false)
+}
+
+func TestOperatorVerdictAfterLaneAcceptanceFromCoordinator(t *testing.T) {
+	testVerdictAfterAcceptance(t, true, false)
+}
+
+func TestOperatorVerdictAfterLaneAcceptanceFromHistoricalExecutor(t *testing.T) {
+	testVerdictAfterAcceptance(t, true, true)
+}
+
+func testVerdictAfterAcceptance(t *testing.T, operatorApproval, otherAcceptor bool) {
+	t.Helper()
 	ctx := context.Background()
 	s, service, grant, privateKey := mutationDispatchFixture(t, []Capability{"product_read", "work_define", "work_transition", "worker_dispatch"})
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
@@ -52,12 +62,30 @@ func TestVerdictAfterAcceptanceCitesTheAttempt(t *testing.T) {
 			t.Fatal(err)
 		}
 		input := map[string]any{"work_id": workID, "expected_version": version, "action_id": actionID, "fields": fields, "idempotency_key": key}
+		if actionID == "confirm_premise" {
+			delete(input, "fields")
+			question, err := store.ReadWorkflowOperatorQuestion(ctx, s, workID)
+			if err != nil || question == nil {
+				t.Fatalf("operator question=%+v err=%v", question, err)
+			}
+			input["selected_choice"] = "confirm"
+			input["decision_context_digest"] = question.DecisionContextDigest
+		}
 		raw, err := json.Marshal(input)
 		if err != nil {
 			t.Fatal(err)
 		}
 		env.RequestID = "request:" + key + ":" + strconv.FormatInt(version, 10)
 		response := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: raw}, env)
+		if operatorApproval && (actionID == "record_verdict" || actionID == "complete") {
+			if response.Error == nil || response.Error.Kind != "approval_required" {
+				t.Fatalf("%s without signed approval=%+v, want approval_required", actionID, response)
+			}
+			var unchanged int64
+			if err := db.QueryRowContext(ctx, `SELECT version FROM work_items WHERE id=?`, workID).Scan(&unchanged); err != nil || unchanged != version {
+				t.Fatalf("unsigned %s changed version from %d to %d: %v", actionID, version, unchanged, err)
+			}
+		}
 		if response.Error != nil && response.Error.Kind == "approval_required" {
 			challengeRef, _ := response.Error.Details["approval_ref"].(string)
 			if challengeRef == "" {
@@ -67,8 +95,40 @@ func TestVerdictAfterAcceptanceCitesTheAttempt(t *testing.T) {
 			approvedRaw, _ := json.Marshal(input)
 			scope := map[string]any{"product_id": "product-1", "project_ids": []string{"project-1"}, "work_ids": []string{workID}, "scope_version": env.ScopeVersion}
 			versions := map[string]any{"work": version}
+			if actionID == "confirm_premise" {
+				versions["contract"] = int64(1)
+			}
 			approvalEnv := env
 			approvalEnv.HostApproval = signedHostApproval(privateKey, challengeRef, mutationDigest("concord_work_transition", "workflow_action", env, approvedRaw), scope, versions, grant.SessionRef, grant.AgentRef, env.Worktree, fixedTime(), nonceForChallenge(challengeRef))
+			if operatorApproval && actionID == "record_verdict" {
+				for _, fault := range []string{"missing_signature", "changed_version", "changed_verdict"} {
+					var changed map[string]any
+					if err := json.Unmarshal(approvedRaw, &changed); err != nil {
+						t.Fatal(err)
+					}
+					badEnv := approvalEnv
+					switch fault {
+					case "missing_signature":
+						badEnv = env
+					case "changed_version":
+						changed["expected_version"] = version + 1
+					case "changed_verdict":
+						changed["fields"].(map[string]any)["verdict_kind"] = "outcome_mismatch"
+					}
+					badRaw, err := json.Marshal(changed)
+					if err != nil {
+						t.Fatal(err)
+					}
+					refused := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: badRaw}, badEnv)
+					if refused.Outcome != OutcomeError {
+						t.Fatalf("%s accepted: %+v", fault, refused)
+					}
+					var unchanged int64
+					if err := db.QueryRowContext(ctx, `SELECT version FROM work_items WHERE id=?`, workID).Scan(&unchanged); err != nil || unchanged != version {
+						t.Fatalf("%s changed version from %d to %d: %v", fault, version, unchanged, err)
+					}
+				}
+			}
 			response = dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: approvedRaw}, approvalEnv)
 		}
 		return response
@@ -113,6 +173,9 @@ func TestVerdictAfterAcceptanceCitesTheAttempt(t *testing.T) {
 	}
 	if started := action("start_action", map[string]any{"summary": "lane-run step"}, "accept-e2e-start"); started.Outcome != OutcomeOK {
 		t.Fatalf("start_action refused: %+v", started.Error)
+	}
+	if bound := action("bind_evidence", map[string]any{"evidence_kind": "artifact", "evidence_ref": "artifact:checked-delivery"}, "accept-e2e-artifact"); bound.Outcome != OutcomeOK {
+		t.Fatalf("bind delivered artifact refused: %+v", bound.Error)
 	}
 
 	var lane store.LaneDefinition
@@ -166,7 +229,11 @@ func TestVerdictAfterAcceptanceCitesTheAttempt(t *testing.T) {
 		t.Fatalf("worker completion folded: %v", err)
 	}
 
-	accepted := action("accept_worker_result", map[string]any{"attempt_id": attemptID, "attempt_epoch": 2}, "accept-e2e-accept")
+	acceptAction := action
+	if otherAcceptor {
+		acceptAction = signedReviewAction
+	}
+	accepted := acceptAction("accept_worker_result", map[string]any{"attempt_id": attemptID, "attempt_epoch": 2}, "accept-e2e-accept")
 	if accepted.Outcome != OutcomeOK {
 		t.Fatalf("accept_worker_result refused: %+v", accepted.Error)
 	}
@@ -178,7 +245,11 @@ func TestVerdictAfterAcceptanceCitesTheAttempt(t *testing.T) {
 	if step != "verify" {
 		t.Fatalf("current_step=%q, want verify", step)
 	}
-	verdict := signedReviewAction("record_verdict", map[string]any{
+	verdictAction := signedReviewAction
+	if operatorApproval {
+		verdictAction = signedAction
+	}
+	verdict := verdictAction("record_verdict", map[string]any{
 		"predicate_id": "predicate:primary", "verdict_kind": "ok", "evaluation_evidence": []string{attemptID},
 	}, "accept-e2e-verdict")
 	if verdict.Outcome != OutcomeOK {
@@ -193,5 +264,27 @@ func TestVerdictAfterAcceptanceCitesTheAttempt(t *testing.T) {
 	}
 	if !strings.Contains(string(verdict.Result), workID) {
 		t.Fatalf("verdict result carried no work reference: %s", verdict.Result)
+	}
+	if operatorApproval {
+		var actorClass string
+		if err := db.QueryRowContext(ctx, `SELECT a.actor_class FROM domain_events e JOIN workflow_actors a ON a.actor_ref=json_extract(e.payload,'$.verdict_actor_ref') WHERE e.subject_id=? AND e.kind=? ORDER BY e.seq DESC LIMIT 1`, workID, store.WorkflowVerdictRecorded).Scan(&actorClass); err != nil {
+			t.Fatal(err)
+		}
+		if actorClass != "operator" {
+			t.Fatalf("verdict actor class=%q, want operator", actorClass)
+		}
+		if confirmed := signedAction("confirm_premise", map[string]any{}, "accept-e2e-confirm"); confirmed.Outcome != OutcomeOK {
+			t.Fatalf("operator premise confirmation refused: %+v", confirmed.Error)
+		}
+		if completed := signedAction("complete", map[string]any{"impact_verdict": "non-breaking"}, "accept-e2e-complete"); completed.Outcome != OutcomeOK {
+			t.Fatalf("operator completion refused: %+v", completed.Error)
+		}
+		var state string
+		if err := db.QueryRowContext(ctx, `SELECT instance_state FROM workflow_instances WHERE work_id=?`, workID).Scan(&state); err != nil || state != "completed" {
+			t.Fatalf("workflow state=%q err=%v", state, err)
+		}
+		if err := db.QueryRowContext(ctx, `SELECT a.actor_class FROM domain_events e JOIN workflow_actors a ON a.actor_ref=e.actor WHERE e.subject_id=? AND e.kind=? ORDER BY e.seq DESC LIMIT 1`, workID, store.WorkflowCompleted).Scan(&actorClass); err != nil || actorClass != "operator" {
+			t.Fatalf("completion actor class=%q err=%v", actorClass, err)
+		}
 	}
 }

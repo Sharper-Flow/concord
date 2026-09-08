@@ -725,12 +725,8 @@ func workflowSemanticActionEvents(ctx context.Context, tx *sql.Tx, definition Wo
 			return nil, actorErr
 		}
 		if request.OperatorActor != nil {
-			// CD-0116: when the session delivered the step itself, it is the
-			// pinned executing actor and no distinct evaluator exists. The
-			// operator's signed identity is that evaluator, because the
-			// operator cannot hold a delivery lease or author a delivery
-			// action. The path is conditioned on the delivery exit: without a
-			// record_delivery completion the ordinary CD-0109 rule stands.
+			// Operator approval supplies evaluator authority without relabeling
+			// the coordinator or the worker that performed the delivery.
 			if err := requireOperatorVerdictExit(ctx, tx, request.WorkID); err != nil {
 				return nil, err
 			}
@@ -740,14 +736,6 @@ func workflowSemanticActionEvents(ctx context.Context, tx *sql.Tx, definition Wo
 			}
 			verdictActor = operatorRef
 		} else {
-			var executingActor string
-			if err := tx.QueryRowContext(ctx, `SELECT execution_actor_ref FROM workflow_instances WHERE work_id=?`, request.WorkID).Scan(&executingActor); err == nil && executingActor != "" && executingActor == verdictActor {
-				return nil, newFailure(KindUnauthorized, "workflow_action", "executing actor cannot evaluate its own delivery", false, "contact_operator")
-			}
-			// The lease comparison above only catches the current holder. The
-			// authorship set catches everyone who executed a step, including the
-			// session that authored the delivery before a lane dispatch rotated
-			// the lease (#801).
 			if err := workflowStepExecutorRefusal(ctx, tx, request.WorkID, verdictActor, "workflow_action"); err != nil {
 				return nil, err
 			}
@@ -874,11 +862,8 @@ func workflowCompletionEvent(ctx context.Context, tx *sql.Tx, request WorkflowAc
 	if err != nil {
 		return Event{}, err
 	}
-	// CD-0116: completion is the verdict's terminal act, and the completion
-	// fold compares the completing event actor against the executing lease.
-	// After an in-session delivery the lease is the session, so completion
-	// takes the operator identity under the same delivery-exit condition as
-	// the verdict it seals.
+	// Completion takes operator authority under the same recorded-delivery
+	// condition as the verdict. Evidence and outcome gates still apply.
 	if request.OperatorActor != nil {
 		if err := requireOperatorVerdictExit(ctx, tx, request.WorkID); err != nil {
 			return Event{}, err
@@ -1165,16 +1150,15 @@ func workerAttemptEvidenceKind(capability string) string {
 	}
 }
 
-// requireOperatorVerdictExit admits the operator verdict identity
-// only on an item whose external-effect work exited through record_delivery or
-// accept_worker_result. Other exits keep CD-0109's distinct-evaluator rule.
+// Operator evaluation requires a recorded delivery, not merely a completed
+// worker attempt. The coordinator must first accept the worker's result.
 func requireOperatorVerdictExit(ctx context.Context, tx *sql.Tx, workID string) error {
 	var delivered int
 	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id') IN ('record_delivery','accept_worker_result')`, SubjectWorkItem, workID, WorkflowActionCompleted).Scan(&delivered); err != nil {
 		return wrapFailure(KindUnavailable, "workflow_action", "cannot inspect the delivery exits", true, "retry once the database is readable", err)
 	}
 	if delivered == 0 {
-		return newFailure(KindInvalidOperation, "workflow_action", "operator verdict identity is available only after an in-session record_delivery exit or an accepted worker result", false, "record the verdict through the distinct evaluator the lane route already provides")
+		return newFailure(KindInvalidOperation, "workflow_action", "operator verdict identity requires a record_delivery or accept_worker_result exit", false, "record or accept the delivery before requesting operator evaluation")
 	}
 	return nil
 }

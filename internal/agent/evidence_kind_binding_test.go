@@ -88,6 +88,9 @@ func ekbEvidenceBoundEvents(t *testing.T, s *store.Store, workID string) []strin
 		}
 		kinds = append(kinds, kind)
 	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("read evidence_bound events: %v", err)
+	}
 	return kinds
 }
 

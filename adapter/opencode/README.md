@@ -111,43 +111,50 @@ JSON-stdin boundary but are not capability-gated agent tools and do not expand T
 
 ## Typed worker lane dispatch
 
-CD-0017 lane workers are dispatched by the hand-written `dispatch.ts` module,
-not by the TS8 tool surface. It resolves a packet's registered lane to the
-generated `concord-<lane>` agent and validates the closed `agent-lane-packet.v1`
-shape before spawning, then invokes:
+The public `concord_work_transition.workflow_action` route accepts
+`action_id: dispatch_worker` with `fields.lane_id`. The adapter builds the
+closed lane packet from recorded state, obtains core authorization, and opens
+one window for the next native Task call. The plugin replaces that call's
+agent and prompt with the authorized packet. OpenCode owns the native worker
+card, child session, progress, and cancellation. See
+[CD-0102](../../docs/decisions/CD-0102-lane-dispatch-runs-as-a-native-task.md).
 
-```text
-opencode run --agent concord-<lane> --format json <packet>
-```
+The adapter selects the registered `concord-<lane>` agent, not a model.
+OpenCode resolves the model from host configuration. The worker ends with its
+closed `agent-lane-report.v1` report as its final text part. The host's Task
+result supplies the child session identity. The completion hook exports that
+session with `opencode export <session> --sanitize`, verifies the executing
+agent, and records host-derived model readback. Worker-supplied identity is not
+a substitute for that readback.
 
-The adapter asserts no model identifier. OpenCode resolves the executing model
-from host configuration (`agent.<name>.model`, an OMR plugin entry, or an
-inheritance rule) — Concord does not read, validate, or carry that decision.
-The adapter does assert the executor identity: lane agents generate with
-`mode: all` so run mode resolves the named agent rather than falling back to
-the default agent (CD-0064), and the sanitized session export readback must
-report an executing agent equal to `concord-<lane>`. A substituted executor
-returns a typed `agent_identity_mismatch` failure and records no worker
-evidence. The adapter reads one consistent session identity from the closed
-JSON event stream, then runs `opencode export <session> --sanitize` and reads
-the latest typed assistant `providerID`/`modelID` as `readback_model`
-evidence. Whatever the host reports is what Concord records; an undeclared
-model, an ambiguous/malformed event, or an ambiguous/malformed export shape
-fails closed. Worker lifecycle evidence is recorded by the internal
-`worker-dispatch`, `worker-complete`, and `worker-fail` CLI verbs; workers
-never record workflow transitions, verdicts, or completion.
+The report must echo the dispatched `attempt_id`, `lane_id`, `lane_version`,
+and `lane_digest`. An admitted completed report becomes `worker-complete`
+evidence. A missing, invalid, or failed report follows the typed worker-failure
+route. Workers return reports; they do not own workflow transitions, verdicts,
+operator approvals, or completion.
 
-The adapter also admits the worker's `agent-lane-report.v1` report from that
-event stream (CD-0056 D7). The report is read from the text of a `text` event, at
-`part.text`, which is the only place the host carries model text; the last text
-part that parses as a JSON object is the report, optionally inside one Markdown
-fence. The report must satisfy the closed report schema and
-echo the dispatched `attempt_id`, `lane_id`, `lane_version`, and `lane_digest`.
-An admitted `completed` report becomes a `worker-complete` carrying
-`evidence_origin: reported` and the reported evidence. A report that is absent,
-malformed, schema-invalid, or bound to another packet becomes a `worker-fail`
-with the `invalid_report` kind, and a `failed` report becomes a `worker-fail`
-carrying the worker's own failure.
+### Managed Task scope
+
+`concord_work_start` enrolls its calling session before capture or resume. A
+valid public dispatch also enrolls before core authorization. The host persists
+participation in session metadata, and the adapter verifies readback before
+work proceeds. Enrollment changes no host permission rules and stores no
+copy of a session directory or workflow state.
+
+Managed sessions require an authorized window for every Task. Children inherit
+participation from their host parent. An agent switch or host restart does not
+remove participation, and an unmanaged caller cannot resume a managed worker.
+An ordinary unmanaged Task retains its arguments and native permissions and
+produces no Concord evidence. Direct calls to registered Concord lanes still
+require authorization.
+
+Unmarked sessions remain unmanaged until they enter through work start or
+public dispatch. Use `concord_work_start` with the existing `work_id` when a
+session must resume managed work. Read-only Concord calls do not enroll it.
+If a later bootstrap step fails, recorded participation remains. If the host
+cannot persist or read scope, the affected operation refuses instead of
+starting unmanaged work. The host must support session metadata through its
+documented session API.
 
 ### Operator work-state line
 
@@ -168,8 +175,8 @@ the continuity block that supplies agent chat context.
 
 ### Recommended host permission and fallback configuration
 
-Keep Concord lane dispatch closed to generic host agents. In the OpenCode
-configuration that owns the `task` permission, use an explicit map like this:
+Apply Concord-only Task permissions to each coordinator's agent definition,
+not to the global host Task permission. A coordinator definition can use:
 
 ```yaml
 permission:

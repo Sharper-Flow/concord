@@ -89,10 +89,14 @@ describe("plugin entry registers the dispatch window hook", () => {
     expect(dispatchWindows().has("session-plugin")).toBe(false)
   })
 
-  test("refuses an unauthorized task call and leaves other tools untouched", async () => {
+  test("refuses an unauthorized managed task call and leaves other tools untouched", async () => {
     const plugin = (await ConcordAdapterPlugin()) as {
       "tool.execute.before": (i: { tool: string; sessionID: string; callID: string }, o: { args: any }) => Promise<void>
     }
+    hostControlPlane().bind({
+      get: async () => ({ data: { id: "session-none", metadata: { "concord.task_scope": "managed" } }, response: new Response(null, { status: 200 }) }),
+      post: async () => { throw new Error("Task admission cannot write host state") },
+    })
     const output = { args: { subagent_type: "general", prompt: "unbound" } }
     await expect(
       plugin["tool.execute.before"]({ tool: TASK_TOOL_ID, sessionID: "session-none", callID: "call-2" }, output),

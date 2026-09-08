@@ -1,4 +1,13 @@
-import { test, expect, mock } from "bun:test"
+import { test, expect, mock, beforeEach, afterEach } from "bun:test"
+import { hostControlPlane, MANAGED_TASK_SCOPE_KEY } from "./move-session"
+
+beforeEach(() => {
+  hostControlPlane().bind({
+    get: async ({ path }) => ({ data: { id: path?.id, metadata: { [MANAGED_TASK_SCOPE_KEY]: "managed" } }, response: new Response(null, { status: 200 }) }),
+    post: async () => { throw new Error("dispatch does not move the host session") },
+  })
+})
+afterEach(() => hostControlPlane().bind(undefined))
 
 // The lane dispatcher reaches the Opencode plugin through ToolContext (typed
 // only) and the dispatch worker through dispatchWorker, but the test never
@@ -107,6 +116,29 @@ const exportedSession = () => JSON.stringify({
 })
 
 const contextFor = () => ({ sessionID: "session-1", messageID: "message-1", agent: "agent-1", worktree: "/worktree", directory: "/worktree", abort: new AbortController().signal, ask: async () => {} }) as any
+
+test("failed scope enrollment cannot authorize a core dispatch or open a window", async () => {
+  hostControlPlane().bind({
+    get: async () => ({ data: { id: "session-1", metadata: {} }, response: new Response(null, { status: 200 }) }),
+    post: async () => { throw new Error("dispatch must not move the session") },
+  })
+  const seen: string[] = []
+  const invoke = async (toolName: string, args: { operation: string }) => {
+    const key = `${toolName}.${args.operation}`
+    seen.push(key)
+    if (key === "concord_work_trace.continuity") return continuityEnvelope()
+    if (key === "concord_work_browse.scope") return scopeEnvelope()
+    throw new Error("failed enrollment must not authorize dispatch")
+  }
+  const windows = new DispatchWindows()
+  const result = await dispatchLaneWorker({ work_id: WORK_ID, expected_version: 3, idempotency_key: "scope-refusal", lane_id: lane.id }, { context: contextFor(), invoke: invoke as any, windows })
+  expect(result.outcome).toBe("blocked")
+  expect(result.error?.message).toContain("managed Task scope")
+  expect(result.error?.retry_safe).toBe(false)
+  expect(result.error?.recovery_action).toBe("contact_operator")
+  expect(seen).not.toContain("concord_work_transition.workflow_action")
+  expect(windows.has("session-1")).toBe(false)
+})
 
 test("routing selects the lane dispatcher for dispatch_worker with object-form fields and a string lane_id", () => {
   const request = laneDispatchRequest({ operation: "workflow_action", input: { work_id: WORK_ID, expected_version: 3, action_id: "dispatch_worker", idempotency_key: "idemp-1", fields: { lane_id: "research" } } })

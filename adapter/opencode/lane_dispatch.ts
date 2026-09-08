@@ -21,6 +21,7 @@ import type { DispatchWindows } from "./dispatch-window"
 import { dispatchWorker, errorEnvelopeForLane, type AgentLanePacket, type AgentResultEnvelope, type DispatchRunner } from "./dispatch"
 import { agentLanes, type AgentLane } from "./generated-agent-lanes"
 import { buildAgentLanePacket, type AgentLanePacketFailureKind } from "./packet"
+import { hostControlPlane } from "./move-session"
 
 export interface LaneDispatchInput {
   work_id: string
@@ -122,6 +123,12 @@ export async function dispatchLaneWorker(input: LaneDispatchInput, deps: LaneDis
   const built = await buildAgentLanePacket({ workId: input.work_id, productId: productIdentity[0], laneId: input.lane_id, attemptId: attempt, stepId: workflowStep }, { context: deps.context, invoke: deps.invoke })
   if (built.failure) return mapPacketFailure(built.failure, { work_id: input.work_id, lane_id: input.lane_id })
   const packet = built.packet
+
+  try {
+    await hostControlPlane().manageSession(deps.context.sessionID, deps.context.abort)
+  } catch (error) {
+    return errorEnvelopeForLane(laneForId(packet.lane_id), packet, "blocked", "transport_failure", error instanceof Error ? error.message : String(error), "contact_operator")
+  }
 
   // Core invoke: the dispatch_worker action with the enriched fields. The
   // core records the packet digest (CD-0067 D2) and returns a typed

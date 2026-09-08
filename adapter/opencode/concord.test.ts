@@ -1133,6 +1133,27 @@ test("work start resume rejects mixed and malformed argument shapes", async () =
   expect(calls).toEqual([])
 })
 
+// Issue #928: an incomplete capture named no field and assigned the operator
+// an undefined recovery task. The refusal must name the missing fields and
+// admit a corrected request without demanding operator intervention.
+test("work start names the missing capture fields and admits a corrected request", async () => {
+  bindRetargetRoute({ unbound: true })
+  const calls: RetargetCall[] = []
+  adapter.configureConcordAdapter({ runner: { async run(argv: string[]) { calls.push({ argv, input: "", options: undefined }); throw new Error("argument refusal must precede every effect") } } })
+  const result: any = await rawHostResult(adapter.work_start.execute({ title: "Correct confirmed usage-reporting defects", kind: "bug", task: "Validate the reported defects and shape a bounded repair contract." } as any, contextFor()))
+  expect(result.outcome).toBe("error")
+  expect(result.error.kind).toBe("invalid_input")
+  expect(result.error.effect_state).toBe("none")
+  expect(result.error.message).toContain("host-tool contract")
+  expect(result.error.message).toContain("value_statement")
+  expect(result.error.message).toContain("idempotency_key")
+  // An identical resubmission refuses again, but the owner is the caller with
+  // a corrected request, not the operator with an unspecified repair.
+  expect(result.error.retry_safe).toBe(false)
+  expect(result.error.recovery_action.kind).toBe("correct_request")
+  expect(calls).toEqual([])
+})
+
 test("work start refuses before any effect when the host handed the plugin no client", async () => {
   bindRetargetRoute({ unbound: true })
   const calls: RetargetCall[] = []

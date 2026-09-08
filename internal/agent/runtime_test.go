@@ -284,11 +284,25 @@ func TestDispatchCaptureCreatesWorkAndMembershipsAtomically(t *testing.T) {
 	if err != nil || replay.Outcome != OutcomeOK || !replay.Replayed {
 		t.Fatalf("capture replay=%+v err=%v", replay, err)
 	}
-	revise := InvokeRequest{Tool: "concord_work_define", Operation: "revise_intent", Input: json.RawMessage(`{"work_id":"work-` + (*replay.ChangedRefs)[0].ID[len("work-"):] + `","expected_version":4,"title":"Need revised","value_statement":"Revised value","kind":"task","priority":3,"tags":[],"reason":"clarified","idempotency_key":"revise-idem-1"}`)}
+	revise := InvokeRequest{Tool: "concord_work_define", Operation: "revise_intent", Input: json.RawMessage(`{"work_id":"work-` + (*replay.ChangedRefs)[0].ID[len("work-"):] + `","expected_version":4,"title":"Need revised","value_statement":"Revised value","kind":"task","priority":3,"tags":[],"reason":"clarified","evidence":[{"kind":"commit","authority":"git","locator_kind":"commit","locator":"commit:7b83cbf41af2f9fa7990294a41a50cb75a1d6d1e"}],"idempotency_key":"revise-idem-1"}`)}
 	env.RequestID = "revise-request-1"
 	revised, err := Dispatch(ctx, s, service, revise, env)
 	if err != nil || revised.Outcome != OutcomeOK {
-		t.Fatalf("revise response=%+v err=%v", revised, err)
+		errorJSON, _ := json.Marshal(revised.Error)
+		t.Fatalf("revise response=%+v error=%s err=%v", revised, errorJSON, err)
+	}
+	var revisedPayload string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT payload FROM domain_events WHERE kind='work.intent_revised' AND subject_id=?`, (*replay.ChangedRefs)[0].ID).Scan(&revisedPayload); err != nil {
+		t.Fatal(err)
+	}
+	var eventFields struct {
+		EvidenceRefs []string `json:"evidence_refs"`
+	}
+	if err := json.Unmarshal([]byte(revisedPayload), &eventFields); err != nil {
+		t.Fatal(err)
+	}
+	if len(eventFields.EvidenceRefs) != 1 || eventFields.EvidenceRefs[0] != "commit:7b83cbf41af2f9fa7990294a41a50cb75a1d6d1e" {
+		t.Fatalf("revised evidence refs=%v", eventFields.EvidenceRefs)
 	}
 	request.Input = json.RawMessage(`{"title":"Changed","value_statement":"Need value","kind":"task","project_ids":["project-1"],"idempotency_key":"capture-idem-1"}`)
 	conflict, err := Dispatch(ctx, s, service, request, env)

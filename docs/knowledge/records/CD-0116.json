@@ -1,11 +1,14 @@
 {
-  "date": "2026-09-06T00:00:00Z",
+  "date": "2026-09-08T00:00:00Z",
   "evidence": [
     "internal/store/workflow_dispatch.go",
     "internal/agent/mutations.go",
     "internal/store/operator_verdict_test.go",
     "internal/agent/operator_verdict_test.go",
-    "adapter/opencode/dispatch_route_end_to_end.test.ts"
+    "adapter/opencode/dispatch_route_end_to_end.test.ts",
+    "internal/agent/verdict_after_acceptance_test.go",
+    "internal/store/workflow_evaluation.go",
+    "internal/store/workflow_evaluation_test.go"
   ],
   "home_domain_id": "workflow-engine",
   "id": "CD-0116",
@@ -24,13 +27,13 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:a0a83be0c96d37cb6238fcb5c205b062da21bf4e678016dbf26aefb239eed1d0",
+  "sha256": "sha256:16367e13e1b601c96c7ea2d079e1440d4b2be69303e162b628328c8407cf79a5",
   "status": "accepted",
-  "summary": "After an in-session record_delivery or accept_worker_result exit the submitting session sits inside the authorship set, so CD-0013 D5 refuses its verdict and no in-session distinct evaluator exists. record_verdict and complete then accept the operator's signed identity (the confirm_premise mechanism), stamped as the verdict actor, conditioned on either exit completion; every other state keeps CD-0109's distinct-actor rule, and the agent surface mints the operator challenge exactly for the lease-holding session.",
+  "summary": "Verified operator identity permits verdicts and completion after record_delivery or accept_worker_result. Approval admission and self-evaluation refusal share the current lease and recorded execution history. Workers cannot submit operator decisions. Existing evidence, predicate, premise, version, and independent-evaluator gates remain in force.",
   "tags": [
     "workflow",
     "evidence",
     "law"
   ],
-  "title": "the operator signs the verdict after an in-session delivery"
+  "title": "the operator signs the verdict after either delivery route"
 }

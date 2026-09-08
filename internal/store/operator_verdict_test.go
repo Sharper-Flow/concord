@@ -8,10 +8,7 @@ import (
 	"time"
 )
 
-// CD-0116: after an in-session record_delivery the session is the pinned
-// executing actor, so CD-0013 D5 refuses its verdict and no distinct evaluator
-// exists. The operator's signed identity is that evaluator, and the path is
-// conditioned on the delivery exit.
+// The session remains the executing actor after an in-session delivery.
 func seedDeliveredItemAtAcceptance(t *testing.T, workID string) (*Store, WorkflowActor) {
 	t.Helper()
 	ctx := context.Background()
@@ -44,7 +41,7 @@ func seedDeliveredItemAtAcceptance(t *testing.T, workID string) (*Store, Workflo
 	if err := runVerdictAction(t, s, workID, "bind_evidence", json.RawMessage(`{"evidence_kind":"review","immutable_subject_ref":"evidence:operator-review"}`), 0); err != nil {
 		t.Fatalf("bind review evidence: %v", err)
 	}
-	// The in-session delivery exit (CD-0112): no lane, no attempt window.
+	// No lane or attempt window exists for this delivery.
 	delivery := workflowActionCompletedFixture("delivery-"+workID, workID, ownerRef, verdictItemVersion(t, s, workID), "execution", "record_delivery")
 	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{delivery}}); err != nil {
 		t.Fatalf("record delivery exit: %v", err)
@@ -62,7 +59,12 @@ func operatorVerdictActor(t *testing.T, workID string) WorkflowActor {
 }
 
 func runOperatorVerdict(t *testing.T, s *Store, workID string, owner, operator WorkflowActor) error {
-	return runOperatorVerdictWithEvidence(t, s, workID, owner, operator, "evidence:operator-verdict")
+	t.Helper()
+	var evidenceRef string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.immutable_subject_ref') FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.evidence_kind')='verification' ORDER BY seq DESC LIMIT 1`, workID, WorkflowEvidenceBound).Scan(&evidenceRef); err != nil {
+		return err
+	}
+	return runOperatorVerdictWithEvidence(t, s, workID, owner, operator, evidenceRef)
 }
 
 func runOperatorVerdictWithEvidence(t *testing.T, s *Store, workID string, owner, operator WorkflowActor, evidenceRef string) error {
@@ -156,11 +158,20 @@ func TestAgentVerdictAfterAcceptedWorkerResultStillRequiresDistinctActor(t *test
 	}
 }
 
-// The wedge, pinned: the delivering session cannot evaluate itself, and the
-// operator identity passes D5 by construction after a record_delivery exit.
 func TestOperatorVerdictAfterDeliveryPassesDistinctness(t *testing.T) {
+	testOperatorVerdictAfterDelivery(t, seedDeliveredItemAtAcceptance)
+}
+
+func TestOperatorVerdictAfterLanePassesDistinctness(t *testing.T) {
+	testOperatorVerdictAfterDelivery(t, func(t *testing.T, id string) (*Store, WorkflowActor) {
+		return seedItemAtAcceptance(t, id, true)
+	})
+}
+
+func testOperatorVerdictAfterDelivery(t *testing.T, seed func(*testing.T, string) (*Store, WorkflowActor)) {
+	t.Helper()
 	const workID = "operator-verdict-delivery"
-	s, owner := seedDeliveredItemAtAcceptance(t, workID)
+	s, owner := seed(t, workID)
 	operator := operatorVerdictActor(t, workID)
 
 	// The delivering session is still refused.
@@ -193,12 +204,20 @@ func TestOperatorVerdictAfterDeliveryPassesDistinctness(t *testing.T) {
 	}
 }
 
-// Completion is the verdict's terminal act: after an in-session delivery the
-// lease-holding session cannot submit complete, and the operator identity
-// completes under the same delivery-exit condition (CD-0116 D1).
 func TestOperatorCompleteAfterDeliveryPassesDistinctness(t *testing.T) {
+	testOperatorCompleteAfterDelivery(t, seedDeliveredItemAtAcceptance)
+}
+
+func TestOperatorCompleteAfterLanePassesDistinctness(t *testing.T) {
+	testOperatorCompleteAfterDelivery(t, func(t *testing.T, id string) (*Store, WorkflowActor) {
+		return seedItemAtAcceptance(t, id, true)
+	})
+}
+
+func testOperatorCompleteAfterDelivery(t *testing.T, seed func(*testing.T, string) (*Store, WorkflowActor)) {
+	t.Helper()
 	const workID = "operator-complete-delivery"
-	s, owner := seedDeliveredItemAtAcceptance(t, workID)
+	s, owner := seed(t, workID)
 	operator := operatorVerdictActor(t, workID)
 
 	if err := runOperatorVerdict(t, s, workID, owner, operator); err != nil {
@@ -279,6 +298,33 @@ func TestOperatorCompleteConditionBinds(t *testing.T) {
 	_ = leaveFold(context.Background(), tx)
 	if err == nil || !strings.Contains(err.Error(), "workflow verdict is missing") {
 		t.Fatalf("operator complete without a verdict err=%v, want the verdict refusal", err)
+	}
+}
+
+func TestOperatorEvaluationRequiresDeliveryExit(t *testing.T) {
+	for _, completedWorker := range []bool{false, true} {
+		name := "no_delivery"
+		if completedWorker {
+			name = "completed_worker_not_accepted"
+		}
+		t.Run(name, func(t *testing.T) {
+			const workID = "operator-undelivered"
+			var s *Store
+			if completedWorker {
+				s, _, _, _ = seedCompletedWorkerAtExecution(t, workID)
+			} else {
+				s = openTemp(t)
+				seedWork(t, s, workID)
+			}
+			tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer tx.Rollback()
+			if err := requireOperatorVerdictExit(context.Background(), tx, workID); err == nil || !strings.Contains(err.Error(), "requires a record_delivery or accept_worker_result exit") {
+				t.Fatalf("operator evaluation without a delivery exit err=%v", err)
+			}
+		})
 	}
 }
 

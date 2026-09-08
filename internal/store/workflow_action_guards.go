@@ -333,13 +333,8 @@ func guardRecordedActorTuple(g *workflowActionGuardContext) error {
 	return nil
 }
 
-// guardOperatorPremiseActor applies to every action, not only the gated
-// ones: an operator actor is valid nowhere else, so the action check lives
-// inside the guard rather than in the phase table. The gated actions are
-// confirm_premise and, under CD-0116, record_verdict and complete — where
-// the operator identity is the one evaluator that exists when the session
-// delivered the step itself. A nil operator actor is the common case and
-// passes.
+// The operator identity belongs only to approval-gated evaluation and premise
+// confirmation. A worker cannot acquire this authority through its report.
 func guardOperatorPremiseActor(g *workflowActionGuardContext) error {
 	if g.request.OperatorActor == nil {
 		return nil
@@ -353,6 +348,13 @@ func guardOperatorPremiseActor(g *workflowActionGuardContext) error {
 	}
 	if ref == g.actorRef {
 		return newFailure(KindUnauthorized, "workflow_action", "operator actor cannot relabel the invoking agent", false, "approve from an independent operator identity")
+	}
+	authority, err := workflowEvaluationAuthority(g.ctx, g.tx, g.request.WorkID, g.actorRef)
+	if err != nil {
+		return err
+	}
+	if authority == WorkflowWorkerEvaluator {
+		return newFailure(KindUnauthorized, "workflow_action", "worker actors cannot submit operator decisions", false, "return the worker report to the coordinator")
 	}
 	var recordedPrincipal, recordedClient, recordedAgent, recordedSession string
 	var recordedClass ActorClass

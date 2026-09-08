@@ -749,6 +749,10 @@ func failureEnvelope(base Envelope, err error) Envelope {
 		if len(sf.Violations) > 0 {
 			out.Error.Violations = append(out.Error.Violations, sf.Violations...)
 		}
+		if sf.EffectPossible || len(sf.CommittedRefs) > 0 {
+			out.Error.EffectState = EffectPossible
+			out.ChangedRefs = committedChangedRefs(sf.CommittedRefs)
+		}
 		if sf.StaleLawRevision != nil {
 			out.Error.StaleLawRevision = &StaleLawRevision{OldLawID: sf.StaleLawRevision.OldLawID, OldContentHash: sf.StaleLawRevision.OldContentHash, AcceptedSuccessorLawID: sf.StaleLawRevision.AcceptedSuccessorLawID, AcceptedSuccessorContentHash: sf.StaleLawRevision.AcceptedSuccessorContentHash, RecoveryActions: append([]string(nil), sf.StaleLawRevision.RecoveryActions...)}
 		}
@@ -769,6 +773,17 @@ func failureEnvelope(base Envelope, err error) Envelope {
 		return out
 	}
 	return coreError(base, "internal_error", err.Error(), "contact_operator", false)
+}
+
+func committedChangedRefs(refs []store.SubjectCurrentVersion) *[]ChangedRef {
+	if len(refs) == 0 {
+		return nil
+	}
+	changed := make([]ChangedRef, 0, len(refs))
+	for _, ref := range refs {
+		changed = append(changed, ChangedRef{EntityKind: string(ref.SubjectType), ID: ref.SubjectID, Version: strconv.FormatInt(ref.Version, 10)})
+	}
+	return &changed
 }
 
 // nonNilStrings copies a string list so an empty input marshals as an empty

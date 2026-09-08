@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -151,6 +152,10 @@ func TestVerifyWorktreeRefusesWhenTrackedFilesChange(t *testing.T) {
 	}))
 	if failureKind(err) != KindWorktreeVerifyMutated {
 		t.Fatalf("err=%v, want worktree_verify_mutated", err)
+	}
+	var failure *Failure
+	if !errors.As(err, &failure) || !failure.EffectPossible || len(failure.CommittedRefs) != 1 || failure.CommittedRefs[0].SubjectID != "lease-1" {
+		t.Fatalf("failure=%+v, want one typed committed lease ref and possible effect", failure)
 	}
 	if !result.TrackedFilesChanged || result.ExitCode != 1 {
 		t.Fatalf("result=%+v, want the recorded refused outcome", result)

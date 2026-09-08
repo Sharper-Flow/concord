@@ -225,6 +225,12 @@ func TestWorktreeVerifyRefusesTrackedFileMutation(t *testing.T) {
 	if refused.Error.RecoveryAction.Kind != "reconcile_operation" {
 		t.Fatalf("recovery=%q, want reconcile_operation", refused.Error.RecoveryAction.Kind)
 	}
+	if refused.Error.EffectState != EffectPossible {
+		t.Fatalf("effect_state=%q, want possible after the lease released", refused.Error.EffectState)
+	}
+	if refused.ChangedRefs == nil || len(*refused.ChangedRefs) != 1 || (*refused.ChangedRefs)[0].ID == "" {
+		t.Fatalf("changed_refs=%+v, want the committed verify lease", refused.ChangedRefs)
+	}
 	var held int
 	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM worktree_verify_leases WHERE state='held'`).Scan(&held); err != nil {
 		t.Fatal(err)

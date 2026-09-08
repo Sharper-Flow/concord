@@ -1731,8 +1731,9 @@ func (s *Store) VerifyWorktree(ctx context.Context, req WorktreeVerifyRequest) (
 		return WorktreeVerifyResult{}, err
 	}
 	if err := acquireTx.Commit(); err != nil {
-		return WorktreeVerifyResult{}, wrapFailure(KindUnavailable, "worktree_verify", "cannot commit the verify lease", true, "retry the same operation with the same lease id", err)
+		return WorktreeVerifyResult{}, annotateCommittedEffect(wrapFailure(KindUnavailable, "worktree_verify", "cannot commit the verify lease", true, "retry the same operation with the same lease id", err), SubjectCurrentVersion{SubjectType: "worktree_verify_lease", SubjectID: req.LeaseID, Version: 1})
 	}
+	leaseRef := SubjectCurrentVersion{SubjectType: "worktree_verify_lease", SubjectID: req.LeaseID, Version: 1}
 
 	exitCode, output, truncated, runErr := runCommand(ctx, entry.Path, req.Command, maxOutput)
 	if runErr != nil {
@@ -1744,12 +1745,12 @@ func (s *Store) VerifyWorktree(ctx context.Context, req WorktreeVerifyRequest) (
 
 	releaseTx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return WorktreeVerifyResult{}, wrapFailure(KindUnavailable, "worktree_verify", "cannot begin verify release", true, "retry the same operation with the same lease id", err)
+		return WorktreeVerifyResult{}, annotateCommittedEffect(wrapFailure(KindUnavailable, "worktree_verify", "cannot begin verify release", true, "retry the same operation with the same lease id", err), leaseRef)
 	}
 	defer releaseTx.Rollback()
 	after, err := snapshotTrackedFiles(ctx, runner, entry.Path)
 	if err != nil {
-		return WorktreeVerifyResult{}, err
+		return WorktreeVerifyResult{}, annotateCommittedEffect(err, leaseRef)
 	}
 	changed := before != after
 	outcome := "completed"
@@ -1765,14 +1766,14 @@ func (s *Store) VerifyWorktree(ctx context.Context, req WorktreeVerifyRequest) (
 	releasedAt := nowFromClock(nil)
 	if _, err := releaseTx.ExecContext(ctx, `UPDATE worktree_verify_leases SET state='released', released_at=?, exit_code=?, outcome=?, result_json=? WHERE lease_id=? AND state='held'`,
 		releasedAt.Format(time.RFC3339Nano), exitCode, outcome, string(resultJSON), req.LeaseID); err != nil {
-		return WorktreeVerifyResult{}, wrapFailure(KindUnavailable, "worktree_verify", "cannot release the verify lease", true, "retry the same operation with the same lease id", err)
+		return WorktreeVerifyResult{}, annotateCommittedEffect(wrapFailure(KindUnavailable, "worktree_verify", "cannot release the verify lease", true, "retry the same operation with the same lease id", err), leaseRef)
 	}
 	if err := releaseTx.Commit(); err != nil {
-		return WorktreeVerifyResult{}, wrapFailure(KindUnavailable, "worktree_verify", "cannot commit the verify release", true, "retry the same operation with the same lease id", err)
+		return WorktreeVerifyResult{}, annotateCommittedEffect(wrapFailure(KindUnavailable, "worktree_verify", "cannot commit the verify release", true, "retry the same operation with the same lease id", err), leaseRef)
 	}
 	if changed {
-		return result, newFailure(KindWorktreeVerifyMutated, "worktree_verify",
-			"tracked files changed in "+entry.Path+" while the verify command ran; a verifier that edits its subject verifies nothing (CD-0096 D3)", false, "reconcile_operation")
+		return result, annotateCommittedEffect(newFailure(KindWorktreeVerifyMutated, "worktree_verify",
+			"tracked files changed in "+entry.Path+" while the verify command ran; a verifier that edits its subject verifies nothing (CD-0096 D3)", false, "reconcile_operation"), leaseRef)
 	}
 	return result, nil
 }
@@ -1783,6 +1784,19 @@ func (s *Store) VerifyWorktree(ctx context.Context, req WorktreeVerifyRequest) (
 type worktreeVerifyCompleted struct {
 	result  WorktreeVerifyResult
 	failure error
+}
+
+// annotateCommittedEffect preserves the typed effect boundary when a lease
+// transaction or the external command crossed the point where no effect is
+// still provable. Pre-effect failures pass through unchanged.
+func annotateCommittedEffect(err error, ref SubjectCurrentVersion) error {
+	var failure *Failure
+	if !errors.As(err, &failure) {
+		return err
+	}
+	failure.EffectPossible = true
+	failure.CommittedRefs = append(failure.CommittedRefs, ref)
+	return failure
 }
 
 func (c *worktreeVerifyCompleted) Error() string {
@@ -1804,8 +1818,8 @@ func acquireVerifyLeaseTx(ctx context.Context, tx *sql.Tx, req WorktreeVerifyReq
 			var failure error
 			if json.Unmarshal([]byte(resultJSON), &recorded) == nil {
 				if outcome == "refused_mutated" {
-					failure = newFailure(KindWorktreeVerifyMutated, "worktree_verify",
-						"tracked files changed in "+entry.Path+" while the verify command ran; a verifier that edits its subject verifies nothing (CD-0096 D3)", false, "reconcile_operation")
+					failure = annotateCommittedEffect(newFailure(KindWorktreeVerifyMutated, "worktree_verify",
+						"tracked files changed in "+entry.Path+" while the verify command ran; a verifier that edits its subject verifies nothing (CD-0096 D3)", false, "reconcile_operation"), SubjectCurrentVersion{SubjectType: "worktree_verify_lease", SubjectID: req.LeaseID, Version: 1})
 				}
 				return &worktreeVerifyCompleted{result: recorded, failure: failure}
 			}

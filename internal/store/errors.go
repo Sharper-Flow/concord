@@ -214,6 +214,13 @@ type Failure struct {
 	// version conflict produced this failure. Higher layers surface this
 	// structurally so callers do not have to regex the human detail string.
 	CurrentVersions []SubjectCurrentVersion `json:"current_versions,omitempty"`
+	// CommittedRefs carries subjects whose effects committed before a later
+	// failure. Higher layers use it to report possible effects without
+	// confusing them with current-version conflicts.
+	CommittedRefs []SubjectCurrentVersion `json:"committed_refs,omitempty"`
+	// EffectPossible marks an external or post-commit failure whose effect
+	// cannot be proved absent. It remains false for pre-effect refusals.
+	EffectPossible bool `json:"effect_possible,omitempty"`
 	// Violations carries the typed offending relation/edge identities for
 	// failures that refuse a relation because of a structural violation
 	// (cycle, supersession target already taken, etc.).

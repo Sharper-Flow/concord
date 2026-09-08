@@ -114,6 +114,7 @@ INSTRUCTION_FILES = (
     "asking.md",
     "change.md",
     "completion.md",
+    "continuation.md",
     "evidence.md",
     "voice.md",
 )

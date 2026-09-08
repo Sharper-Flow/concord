@@ -149,6 +149,23 @@ malformed, schema-invalid, or bound to another packet becomes a `worker-fail`
 with the `invalid_report` kind, and a `failed` report becomes a `worker-fail`
 carrying the worker's own failure.
 
+### Operator work-state line
+
+The adapter uses one glyph-signed line for every successful mutation result that
+carries a `WorkPin`. The line is rendered from the returned post-state pin, not
+from request fields or a second database read:
+
+```text
+◆ CONCORD WORK STATE | work=work-1 | version=4 | lifecycle=in_progress | workflow=workflow.break_fix | step=repair | decision=none
+```
+
+When `pending_operator_decision` is present, `decision` is
+`pending:<action_id>`. The fixed field order is `work`, `version`, `lifecycle`,
+`workflow`, `step`, and `decision`; the renderer emits no control bytes.
+The session-start gate brief uses the same `◆ CONCORD` prefix and fixed field
+separators. The adapter uses the same line in mutation toasts, lane reports, and
+the continuity block that supplies agent chat context.
+
 ### Recommended host permission and fallback configuration
 
 Keep Concord lane dispatch closed to generic host agents. In the OpenCode

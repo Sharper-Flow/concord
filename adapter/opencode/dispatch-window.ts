@@ -23,6 +23,7 @@ export class DispatchWindowError extends Error {}
 export interface DispatchRecord {
   packet: AgentLanePacket
   packetDigest: string
+  workPins?: unknown[]
 }
 
 interface MutableToolArgs {
@@ -48,11 +49,11 @@ export class DispatchWindows {
   // completion still needs the packet and the digest the core recorded.
   readonly #inFlight = new Map<string, DispatchRecord>()
 
-  open(sessionID: string, packet: AgentLanePacket, packetDigest = ""): void {
+  open(sessionID: string, packet: AgentLanePacket, packetDigest = "", workPins?: unknown[]): void {
     if (this.#open.has(sessionID)) {
       throw new DispatchWindowError(`session ${sessionID} already holds an open dispatch window`)
     }
-    this.#open.set(sessionID, { packet, packetDigest })
+    this.#open.set(sessionID, { packet, packetDigest, workPins })
   }
 
   // close discards a window whose dispatch failed before the worker started, so

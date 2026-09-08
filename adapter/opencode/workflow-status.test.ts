@@ -1,45 +1,48 @@
 import { expect, test } from "bun:test"
-import { createWorkflowStatusReporter, formatGateBrief, formatWorkflowStatus } from "./workflow-status"
+import { createWorkStateReporter, formatGateBrief, formatWorkStateLine, workStateLines } from "./workflow-status"
 
-const status = {
+const pin = {
   work_id: "work-1",
-  workflow_type: "workflow.implementation",
-  step_ordinal: 4,
-  step_total: 7,
-  step_name: "execution",
-  transition_from: "planning",
-  transition_to: "execution",
-  last_event_kind: "workflow.action_completed",
-  actor: "principal:operator",
-  occurred_at: "2026-09-04T00:00:00Z",
-  sequence: 12,
+  version: 4,
+  lifecycle: "in_progress",
+  workflow_type: "workflow.break_fix",
+  step: "repair",
+  pending_operator_decision: null,
 }
 
-test("formats the fixed workflow status field set", () => {
-  expect(formatWorkflowStatus(status)).toBe("WORKFLOW STATUS | work=work-1 | workflow=workflow.implementation | step=4/7 execution | transition=planning -> execution | event=workflow.action_completed | actor=principal:operator | time=2026-09-04T00:00:00Z")
+test("formats the fixed WorkPin state line", () => {
+  expect(formatWorkStateLine(pin)).toBe("◆ CONCORD WORK STATE | work=work-1 | version=4 | lifecycle=in_progress | workflow=workflow.break_fix | step=repair | decision=none")
+  expect(formatWorkStateLine({ ...pin, pending_operator_decision: { action_id: "approve-repair" } })).toContain("decision=pending:approve-repair")
 })
 
-test("rejects an incomplete workflow status", () => {
-  expect(formatWorkflowStatus({ ...status, step_total: 3 })).toBeNull()
-  expect(formatWorkflowStatus({ ...status, actor: "" })).toBeNull()
+test("rejects an incomplete or unsafe WorkPin", () => {
+  expect(formatWorkStateLine({ ...pin, version: 0 })).toBeNull()
+  expect(formatWorkStateLine({ ...pin, step: "repair|unsafe" })).toBeNull()
+  expect(formatWorkStateLine({ ...pin, pending_operator_decision: {} })).toBeNull()
 })
 
-test("reports one toast for each new event sequence", async () => {
+test("renders every mutation WorkPin in stable order", () => {
+  const second = { ...pin, work_id: "work-2", version: 5, step: "verify" }
+  expect(workStateLines({ outcome: "ok", result: { work_pins: [second, pin] } })).toEqual([
+    "◆ CONCORD WORK STATE | work=work-1 | version=4 | lifecycle=in_progress | workflow=workflow.break_fix | step=repair | decision=none",
+    "◆ CONCORD WORK STATE | work=work-2 | version=5 | lifecycle=in_progress | workflow=workflow.break_fix | step=verify | decision=none",
+  ])
+  expect(workStateLines({ outcome: "ok", result: { work_pins: [pin, { ...pin, step: "unsafe|step" }] } })).toEqual([])
+})
+
+test("reports one toast for each mutation result", async () => {
   const messages: string[] = []
   const context = { sessionID: "session-1", abort: new AbortController().signal }
-  const reporter = createWorkflowStatusReporter(
-    async () => ({ outcome: "ok", result: { workflow_status: status } }),
-    async (message) => { messages.push(message); return true },
-  )
-  await reporter.report("concord_work_transition", "workflow_action", { work_id: "work-1" }, { outcome: "ok" }, context)
-  await reporter.report("concord_work_transition", "workflow_action", { work_id: "work-1" }, { outcome: "ok" }, context)
-  expect(messages).toHaveLength(1)
-  expect(messages[0]).toContain("step=4/7 execution")
+  const reporter = createWorkStateReporter(async (message) => { messages.push(message); return true })
+  await reporter.report({ outcome: "ok", result: { work_pins: [pin] } }, context)
+  await reporter.report({ outcome: "ok", result: { work_pins: [pin] } }, context)
+  expect(messages).toHaveLength(2)
+  expect(messages[0]).toContain("◆ CONCORD WORK STATE")
 })
 
 test("formats the gate brief from focused portfolio rows", () => {
   expect(formatGateBrief("product-1", [
     { focus: { work_id: "work-1", workflow_step_label: "planning", attention_kind: "approval_required" } },
     { focus: { work_id: "work-2", workflow_step_label: "execution", attention_kind: "in_progress" } },
-  ])).toBe("GATE BRIEF | product=product-1 | work=work-1 | step=planning | decision=pending || work=work-2 | step=execution | decision=none")
+  ])).toBe("◆ CONCORD GATE BRIEF | product=product-1 | work=work-1 | step=planning | decision=pending || work=work-2 | step=execution | decision=none")
 })

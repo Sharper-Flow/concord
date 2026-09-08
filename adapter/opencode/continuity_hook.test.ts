@@ -66,6 +66,23 @@ test("continuity transform carries pending messages from core output", async () 
   })
 })
 
+test("continuity transform uses the shared WorkPin state line", async () => {
+  await withIdentity(async () => {
+    const packet = JSON.stringify({ continuity: { pinned: { work_pin: {
+      work_id: "work-1", version: 4, lifecycle: "in_progress", workflow_type: "workflow.break_fix",
+      step: "repair", pending_operator_decision: null,
+    } } } })
+    const transformed = output("system prefix")
+    const transform = createContinuityTransform({
+      runner: { run: async () => ({ exitCode: 0, stdout: packet, stderr: "" }) },
+    }) as Transform
+
+    await transform({}, transformed)
+
+    expect(transformed.system[0]).toContain("◆ CONCORD WORK STATE | work=work-1 | version=4 | lifecycle=in_progress | workflow=workflow.break_fix | step=repair | decision=none")
+  })
+})
+
 test("continuity transform replaces a sentinel block instead of appending", async () => {
   await withIdentity(async () => {
     let now = 1_000

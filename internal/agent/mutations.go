@@ -1968,6 +1968,13 @@ func (r runtime) mutateWorktreeVerify(ctx context.Context, base Envelope, raw []
 //
 // The pass reclaims only terminal work, which #674 already opened to a
 // main-checkout grant, so no worktree anchor is required to run it.
+//
+// A failure after the audit ran must not claim no effect: the reclaimed rows
+// in changed already committed, and a replay converges without re-executing
+// them (the recorded pass returns, or a re-audit finds the rows gone). Every
+// post-commit exit below routes through auditReclaimPostCommitFailure, which
+// keeps the failure's kind and coupled recovery, marks effects possible, and
+// carries exactly the committed refs (issue #757).
 func (r runtime) mutateWorktreeAuditReclaim(ctx context.Context, base Envelope, raw []byte, grant Authority, op ContractOperation) (Envelope, error) {
 	var in worktreeAuditReclaimInput
 	if err := decodeOperationInput(raw, &in); err != nil {
@@ -2011,7 +2018,7 @@ func (r runtime) mutateWorktreeAuditReclaim(ctx context.Context, base Envelope, 
 	})
 	payload, derivedIntents, err := r.enrichMutationPayloadRead(ctx, payload, changed)
 	if err != nil {
-		return failureEnvelope(base, err), nil
+		return auditReclaimPostCommitFailure(base, changed, failureEnvelope(base, err)), nil
 	}
 	if derivedIntents != nil {
 		intents = derivedIntents
@@ -2019,7 +2026,7 @@ func (r runtime) mutateWorktreeAuditReclaim(ctx context.Context, base Envelope, 
 	base.ResolvedScope = scopeFromMap(scope)
 	response := r.mutationResult(base, payload, changed, intents)
 	if response.Outcome == OutcomeError {
-		return response, nil
+		return auditReclaimPostCommitFailure(base, changed, response), nil
 	}
 	changedJSON, _ := json.Marshal(changed)
 	authorizedScope, _ := json.Marshal(boundedApprovalScope(scope))
@@ -2034,9 +2041,25 @@ func (r runtime) mutateWorktreeAuditReclaim(ctx context.Context, base Envelope, 
 			ObservedAt:              r.Authority.now(),
 		})
 	}); err != nil {
-		return failureEnvelope(base, err), nil
+		return auditReclaimPostCommitFailure(base, changed, failureEnvelope(base, err)), nil
 	}
 	return response, nil
+}
+
+// auditReclaimPostCommitFailure classifies a failure that fired after the
+// audit's row transactions committed. The reclaimed rows in changed already
+// applied, so the envelope keeps the failure's kind and coupled recovery,
+// marks effects possible, and carries exactly the committed refs — refused
+// rows never ride along. An empty commit set leaves the refusal untouched:
+// nothing applied, so no effect stays truthful.
+func auditReclaimPostCommitFailure(base Envelope, changed []ChangedRef, failure Envelope) Envelope {
+	if len(changed) == 0 || failure.Outcome != OutcomeError || failure.Error == nil {
+		return failure
+	}
+	failure.Error.EffectState = EffectPossible
+	refs := append([]ChangedRef(nil), changed...)
+	failure.ChangedRefs = &refs
+	return failure
 }
 
 // planWorktreeReclaim plans concord_work_transition.worktree_reclaim.

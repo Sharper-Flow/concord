@@ -144,7 +144,10 @@ function rewriteSchemaRefs(value: unknown): unknown {
 export function publishedRequestSchema(toolName: string): JSONSchema {
   const operations = contractOperations.filter((operation: any) => operation.tool === toolName)
   if (operations.length === 0) throw new Error(`tool ${toolName} has no generated operations`)
-  const needed = new Set<string>(operations.map((operation: any) => schemaName(operation.input_schema)))
+  const publicInputSchema = (operation: any): string => operation.id === "concord_work_transition.workflow_action"
+    ? "work_transition_action_public_input"
+    : schemaName(operation.input_schema)
+  const needed = new Set<string>(operations.map(publicInputSchema))
   const definitions: Record<string, unknown> = {}
   while (true) {
     const pending = [...needed].filter((name) => !Object.hasOwn(definitions, name)).sort()
@@ -162,7 +165,7 @@ export function publishedRequestSchema(toolName: string): JSONSchema {
       required: ["operation", "input"],
       properties: {
         operation: { type: "string", const: operation.id.slice(operation.id.indexOf(".") + 1) },
-        input: { $ref: `#/properties/request/definitions/${schemaName(operation.input_schema)}` },
+        input: { $ref: `#/properties/request/definitions/${publicInputSchema(operation)}` },
       },
     })),
     definitions,

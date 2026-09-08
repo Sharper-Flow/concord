@@ -56,8 +56,17 @@ class NativeRunStatusesFixture(unittest.TestCase):
 
     def test_status_union_drift_is_reported(self) -> None:
         surface = self.read_json("contracts/agent-tool-surface-payloads.schema.json")
-        enum = surface["$defs"]["work_transition_action_input"]["properties"]["fields"]["oneOf"][1]["properties"]["status"]["enum"]
-        enum.remove("degraded")
+        def remove_degraded(node: object) -> bool:
+            if isinstance(node, list):
+                return any(remove_degraded(child) for child in node)
+            if not isinstance(node, dict):
+                return False
+            enum = node.get("enum")
+            if isinstance(enum, list) and "degraded" in enum:
+                enum.remove("degraded")
+                return True
+            return any(remove_degraded(child) for child in node.values())
+        self.assertTrue(remove_degraded(surface["$defs"]["work_transition_action_shared_input"]))
         self.write_json("contracts/agent-tool-surface-payloads.schema.json", surface)
         self.assertTrue(any(item.startswith("status-union-closure:") for item in self.findings()))
 

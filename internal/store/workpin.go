@@ -155,8 +155,9 @@ func workPinIntents(definition WorkflowDefinition, stepID string, version int64)
 		if !ok {
 			continue
 		}
-		fields := make([]string, 0, len(action.Payload.Fields))
-		for _, field := range action.Payload.Fields {
+		payload := publicWorkflowActionPayload(action)
+		fields := make([]string, 0, len(payload.Fields))
+		for _, field := range payload.Fields {
 			if field.Required {
 				fields = append(fields, field.Name)
 			}
@@ -164,4 +165,14 @@ func workPinIntents(definition WorkflowDefinition, stepID string, version int64)
 		intents = append(intents, WorkPinIntent{Tool: "concord_work_transition", Operation: "workflow_action", ReasonCode: "declared_step_action", ActionID: action.ID, RequiredFields: fields, ExpectedVersion: version})
 	}
 	return intents
+}
+
+func publicWorkflowActionPayload(action WorkflowActionDefinition) WorkflowPayloadDefinition {
+	if action.PublicPayload != nil {
+		return *action.PublicPayload
+	}
+	if policy, ok := builtinActionPolicies[action.ID]; ok && policy.PublicPayload != nil {
+		return *policy.PublicPayload
+	}
+	return action.Payload
 }

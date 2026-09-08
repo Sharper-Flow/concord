@@ -171,7 +171,7 @@ func testVerdictAfterAcceptance(t *testing.T, operatorApproval, otherAcceptor bo
 	if contract.Outcome != OutcomeOK {
 		t.Fatalf("approve_contract refused: %+v", contract.Error)
 	}
-	if started := action("start_action", map[string]any{"summary": "lane-run step"}, "accept-e2e-start"); started.Outcome != OutcomeOK {
+	if started := action("start_action", map[string]any{}, "accept-e2e-start"); started.Outcome != OutcomeOK {
 		t.Fatalf("start_action refused: %+v", started.Error)
 	}
 	if bound := action("bind_evidence", map[string]any{"evidence_kind": "artifact", "evidence_ref": "artifact:checked-delivery"}, "accept-e2e-artifact"); bound.Outcome != OutcomeOK {
@@ -194,6 +194,22 @@ func testVerdictAfterAcceptance(t *testing.T, operatorApproval, otherAcceptor bo
 	}, "accept-e2e-dispatch")
 	if dispatched.Outcome != OutcomeOK {
 		t.Fatalf("dispatch_worker refused: %+v", dispatched.Error)
+	}
+	if dispatched.NextValidIntents == nil {
+		t.Fatal("dispatch_worker mutation result has no next intents")
+	}
+	publicDispatchIntent := false
+	for _, intent := range *dispatched.NextValidIntents {
+		if intent.ActionID != "dispatch_worker" {
+			continue
+		}
+		publicDispatchIntent = true
+		if len(intent.RequiredFields) != 1 || intent.RequiredFields[0] != "lane_id" {
+			t.Fatalf("mutation dispatch_worker required fields = %v, want [lane_id]", intent.RequiredFields)
+		}
+	}
+	if !publicDispatchIntent {
+		t.Fatal("dispatch_worker mutation result has no dispatch_worker intent")
 	}
 
 	// CD-0109: the dispatch route derives the lane actor and appends the

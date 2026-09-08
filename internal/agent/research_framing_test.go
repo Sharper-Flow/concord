@@ -56,7 +56,7 @@ func TestResearchFramingRequiresContractApprovalBeforeInvestigate(t *testing.T) 
 	if step := currentStep(); step != "frame" {
 		t.Fatalf("captured research step=%q, want frame", step)
 	}
-	framed := action("frame_research", map[string]any{"premise": "Which surface owns the framing gate?"}, "framing-gate-frame")
+	framed := action("frame_research", map[string]any{}, "framing-gate-frame")
 	if framed.Outcome != OutcomeOK {
 		t.Fatalf("frame_research refused: %+v", framed.Error)
 	}
@@ -67,7 +67,7 @@ func TestResearchFramingRequiresContractApprovalBeforeInvestigate(t *testing.T) 
 		t.Fatalf("contract approvals after framing=%d, want 0", approvals)
 	}
 
-	investigated := action("record_finding", map[string]any{"summary": "premature finding"}, "framing-gate-finding")
+	investigated := action("record_finding", map[string]any{}, "framing-gate-finding")
 	if investigated.Outcome != OutcomeError || investigated.Error == nil {
 		t.Fatalf("record_finding before approval outcome=%q error=%+v, want refusal", investigated.Outcome, investigated.Error)
 	}

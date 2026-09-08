@@ -16,8 +16,7 @@ const testManifestDigest = "sha256:000000000000000000000000000000000000000000000
 // step IDs stay familiar, and a work kind without Product-truth authority so a
 // contract fixture stays about the mechanism under test rather than about
 // architecture binding. Version 2 adds the worker action pair, which gives the
-// registry a real supersession to prove against; the shipped built-ins carry
-// exactly one version each.
+// registry a real supersession to prove against.
 const workflowFixtureRef = "workflow.test_fixture"
 
 // workflowFixtureWorkKind is the payload spelling of the fixture family's work
@@ -33,8 +32,8 @@ func registerWorkflowFixtureFamily() []RegisteredDefinition {
 	registry := BuiltinWorkflowRegistry()
 	registered := make([]RegisteredDefinition, 0, 2)
 	for _, definition := range []WorkflowDefinition{
-		workflowFixtureShape(builtinImplementation(), 1),
-		workflowFixtureShape(withWorkerActions(builtinImplementation()), 2),
+		workflowFixtureShape(builtinImplementation(false), 1),
+		workflowFixtureShape(withWorkerActions(builtinImplementation(false), false), 2),
 	} {
 		entry, err := registry.Register(definition)
 		if err != nil {

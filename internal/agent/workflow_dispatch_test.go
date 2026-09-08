@@ -70,7 +70,7 @@ func TestWorkflowActionDispatchUsesStrictPreflightAuthApprovalAndReplayPath(t *t
 		t.Fatalf("duplicate JSON response=%+v err=%v", duplicateResponse, err)
 	}
 
-	request := InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: json.RawMessage(`{"work_id":"work-1","expected_version":4,"action_id":"record_proposal","fields":[],"idempotency_key":"wf-record-proposal"}`)}
+	request := InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: json.RawMessage(`{"work_id":"work-1","expected_version":4,"action_id":"record_proposal","fields":{},"idempotency_key":"wf-record-proposal"}`)}
 	first, err := Dispatch(context.Background(), s, service, request, env)
 	if err != nil || first.Outcome != OutcomeOK || first.Error != nil || len(*first.ChangedRefs) != 1 {
 		t.Fatalf("workflow action response=%+v err=%v", first, err)
@@ -135,7 +135,7 @@ func TestWorkflowActionAvailabilityPrecedesPayloadAndAuthorityValidation(t *test
 		Operation: "workflow_action",
 		// The payload is intentionally incomplete. Strict boundary validation
 		// must be reported before pinned-instance or grant validation.
-		Input: json.RawMessage(`{"work_id":"missing-work","fields":[]}`),
+		Input: json.RawMessage(`{"work_id":"missing-work","fields":{}}`),
 	}
 	response, dispatchErr := Dispatch(context.Background(), s, service, request, env)
 	if dispatchErr != nil || response.Outcome != OutcomeError || response.Error == nil || response.Error.Kind != "invalid_input" {
@@ -167,7 +167,7 @@ func TestWorkflowActionReplayVectorsUseInvokeAndAuthoritativeDurableResults(t *t
 				t.Fatal(err)
 			}
 			env := mutationEnvelope(grant, scopeVersion)
-			input := json.RawMessage(`{"work_id":"work-1","expected_version":4,"action_id":"record_proposal","fields":[],"idempotency_key":"legacy-replay-` + strings.ReplaceAll(vector.name, " ", "-") + `"}`)
+			input := json.RawMessage(`{"work_id":"work-1","expected_version":4,"action_id":"record_proposal","fields":{},"idempotency_key":"legacy-replay-` + strings.ReplaceAll(vector.name, " ", "-") + `"}`)
 			opID := seedCurrentWorkflowActionReplay(t, s, env, input, vector.resultKind)
 			beforeEvents := countWorkflowEvents(t, s)
 			beforeVersion := workflowReplayWorkVersion(t, s)
@@ -236,7 +236,7 @@ func TestWorkflowActionRejectsLegacyEventReplay(t *testing.T) {
 	}
 	response, err := Dispatch(context.Background(), s, service, InvokeRequest{
 		Tool: "concord_work_transition", Operation: "workflow_action",
-		Input: json.RawMessage(`{"work_id":"work-1","expected_version":4,"action_id":"replay","fields":[],"idempotency_key":"legacy-event-replay"}`),
+		Input: json.RawMessage(`{"work_id":"work-1","expected_version":4,"action_id":"replay","fields":{},"idempotency_key":"legacy-event-replay"}`),
 	}, mutationEnvelope(grant, scopeVersion))
 	if err != nil {
 		t.Fatal(err)
@@ -256,7 +256,7 @@ func TestWorkflowActionReplayRejectsOldSurfaceResultShapeAndDigest(t *testing.T)
 		t.Fatal(err)
 	}
 	env := mutationEnvelope(grant, scopeVersion)
-	input := json.RawMessage(`{"work_id":"work-1","expected_version":4,"action_id":"record_proposal","fields":[],"idempotency_key":"current-replay-shape"}`)
+	input := json.RawMessage(`{"work_id":"work-1","expected_version":4,"action_id":"record_proposal","fields":{},"idempotency_key":"current-replay-shape"}`)
 	opID := seedCurrentWorkflowActionReplay(t, s, env, input, "completed")
 	if _, err := s.DatabaseForTesting().Exec(`UPDATE durable_operations SET result_payload=? WHERE op_id=?`, `{"changed_refs":["work-1"],"next_valid_intents":[],"operation_id":"`+opID+`"}`, opID); err != nil {
 		t.Fatal(err)

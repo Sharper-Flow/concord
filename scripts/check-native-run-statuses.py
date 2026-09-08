@@ -45,15 +45,41 @@ def trigger_block(sql: str, name: str) -> str | None:
 
 
 def status_enum(surface: object, findings: list[str]) -> list[str]:
-    try:
-        value = surface["$defs"]["work_transition_action_input"]["properties"]["fields"]["oneOf"][1]["properties"]["status"]["enum"]
-    except (KeyError, IndexError, TypeError):
+    if not isinstance(surface, dict) or not isinstance(surface.get("$defs"), dict):
+        findings.append("schema-enum: workflow action schema definitions are missing")
+        return []
+    definitions = surface["$defs"]
+    statuses: set[str] = set()
+    seen_refs: set[str] = set()
+
+    def collect(node: object) -> None:
+        if isinstance(node, list):
+            for child in node:
+                collect(child)
+            return
+        if not isinstance(node, dict):
+            return
+        reference = node.get("$ref")
+        if isinstance(reference, str) and reference.startswith("#/$defs/"):
+            name = reference.removeprefix("#/$defs/")
+            if name not in seen_refs:
+                seen_refs.add(name)
+                collect(definitions.get(name))
+        properties = node.get("properties")
+        if isinstance(properties, dict):
+            fields = properties.get("fields")
+            if isinstance(fields, dict) and isinstance(fields.get("properties"), dict):
+                status = fields["properties"].get("status")
+                if isinstance(status, dict) and isinstance(status.get("enum"), list) and all(isinstance(item, str) for item in status["enum"]):
+                    statuses.update(status["enum"])
+            collect(properties)
+        for key in ("allOf", "anyOf", "oneOf", "if", "then", "else"):
+            collect(node.get(key))
+
+    collect(definitions.get("work_transition_action_input"))
+    if not statuses:
         findings.append("schema-enum: workflow action status property is missing")
-        return []
-    if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
-        findings.append("schema-enum: workflow action status enum is not a string array")
-        return []
-    return value
+    return sorted(statuses)
 
 
 def check(root: Path) -> list[str]:

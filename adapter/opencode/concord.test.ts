@@ -83,6 +83,9 @@ test("published tool arguments expose one generated request union", () => {
   const inputRef = capture.properties.input.$ref.replace("#/properties/request/definitions/", "")
   const urgencyRef = published.definitions[inputRef].properties.urgency.$ref.replace("#/properties/request/definitions/", "")
   expect(published.definitions[urgencyRef].enum).toEqual(["standard", "expedite"])
+  const transition = adapter.publishedRequestSchema("concord_work_transition") as any
+  const workflowAction = transition.oneOf.find((variant: any) => variant.properties.operation.const === "workflow_action")
+  expect(workflowAction.properties.input.$ref).toContain("work_transition_action_public_input")
   // Every generated field reaches the host. The definition hook makes the
   // published fields optional; the adapter enforces the closed modes.
   expect(Object.keys((adapter.work_start as any).args).sort()).toEqual(["title", "value_statement", "kind", "task", "idempotency_key", "priority", "urgency", "tags", "workflow_type_ref", "external_ref", "governing_requirements", "ref", "work_id"].sort())

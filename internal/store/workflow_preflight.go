@@ -9,6 +9,7 @@ import (
 	"io"
 	"strings"
 	"time"
+	"unicode"
 )
 
 type WorkflowDefinitionPin struct {
@@ -202,7 +203,7 @@ func WorkflowActionPreflightWithRegistry(ctx context.Context, s *Store, registry
 		}
 	}
 	if err := validateWorkflowActionPayload(entry.Definition, request.ActionID, request.Payload); err != nil {
-		return newFailure(KindIllegalLifecycleTransition, "workflow_action_preflight", err.Error(), false, "reread_entities")
+		return err
 	}
 	if err := guardMandatedWorkflowLawBound(ctx, s.db, request.WorkID, entry.Definition, currentStep, request.ActionID, "workflow_action_preflight"); err != nil {
 		return err
@@ -415,7 +416,7 @@ func workflowActionPreflightTx(ctx context.Context, tx *sql.Tx, registry Definit
 			return RegisteredDefinition{}, err
 		}
 	} else if err := validateWorkflowActionPayload(entry.Definition, request.ActionID, request.Payload); err != nil {
-		return RegisteredDefinition{}, newFailure(KindIllegalLifecycleTransition, "workflow_action_preflight", err.Error(), false, "reread_entities")
+		return RegisteredDefinition{}, err
 	}
 	if err := guardMandatedWorkflowLawBound(ctx, tx, request.WorkID, entry.Definition, currentStep, request.ActionID, "workflow_action_preflight"); err != nil {
 		return RegisteredDefinition{}, err
@@ -459,12 +460,21 @@ func validateWorkflowActionPayload(definition WorkflowDefinition, actionID strin
 	if err := decodePredicateStrict(payload, &fields); err != nil {
 		return newFailure(KindInvalidPayload, "workflow_action_preflight", "workflow action payload is not one strict JSON object", false, "supply the registered action payload")
 	}
-	var definitionFields []WorkflowPayloadField
+	var payloadDefinition WorkflowPayloadDefinition
+	found := false
 	for _, action := range definition.ActionDefinitions {
 		if action.ID == actionID {
-			definitionFields = action.Payload.Fields
+			payloadDefinition = action.Payload
+			found = true
 			break
 		}
+	}
+	if !found {
+		return nil
+	}
+	definitionFields := payloadDefinition.Fields
+	if !payloadDefinition.Closed && len(definitionFields) == 0 {
+		return nil
 	}
 	allowed := make(map[string]WorkflowPayloadField, len(definitionFields))
 	for _, field := range definitionFields {
@@ -473,27 +483,52 @@ func validateWorkflowActionPayload(definition WorkflowDefinition, actionID strin
 	for name := range fields {
 		field, ok := allowed[name]
 		if !ok {
-			// Built-in semantic actions currently carry their closed request union
-			// through the workflow envelope rather than duplicating every field in
-			// each family definition. The boundary still requires one strict JSON
-			// object; family-specific semantic validation owns its fields below.
-			if len(definitionFields) == 0 {
-				continue
-			}
-			return newFailure(KindInvalidPayload, "workflow_action_preflight", "workflow action payload contains an undeclared field", false, "use only fields declared by the pinned definition")
+			return newFailure(KindInvalidPayload, "workflow_action_preflight", fmt.Sprintf("workflow action payload field %q is not declared for action %q", name, actionID), false, "use only fields declared by the pinned definition")
 		}
 		if !validateWorkflowPayloadValue(field, fields[name]) {
-			return newFailure(KindInvalidPayload, "workflow_action_preflight", "workflow action payload field has the wrong registered type or bounds", false, "supply the declared action field type")
+			return newFailure(KindInvalidPayload, "workflow_action_preflight", fmt.Sprintf("workflow action payload field %q has the wrong registered type or bounds for rule %s", name, workflowPayloadFieldRule(field)), false, "supply the declared action field type and bounds")
 		}
 	}
 	for name, field := range allowed {
 		if field.Required {
 			if _, ok := fields[name]; !ok {
-				return newFailure(KindInvalidPayload, "workflow_action_preflight", "workflow action payload omits a required field", false, "supply every required registered action field")
+				return newFailure(KindInvalidPayload, "workflow_action_preflight", fmt.Sprintf("workflow action payload field %q is required for action %q", name, actionID), false, "supply every required registered action field")
 			}
 		}
 	}
 	return nil
+}
+
+func workflowPayloadFieldRule(field WorkflowPayloadField) string {
+	parts := []string{string(field.ValueType)}
+	if field.MinLength != nil {
+		parts = append(parts, fmt.Sprintf("min_length=%d", *field.MinLength))
+	}
+	if field.MaxLength != nil {
+		parts = append(parts, fmt.Sprintf("max_length=%d", *field.MaxLength))
+	}
+	if field.MinItems != nil {
+		parts = append(parts, fmt.Sprintf("min_items=%d", *field.MinItems))
+	}
+	if field.MaxItems != nil {
+		parts = append(parts, fmt.Sprintf("max_items=%d", *field.MaxItems))
+	}
+	if field.Minimum != nil {
+		parts = append(parts, fmt.Sprintf("minimum=%d", *field.Minimum))
+	}
+	if field.Maximum != nil {
+		parts = append(parts, fmt.Sprintf("maximum=%d", *field.Maximum))
+	}
+	if len(field.Enum) != 0 {
+		parts = append(parts, "enum="+strings.Join(field.Enum, ","))
+	}
+	if field.SchemaRef != "" {
+		parts = append(parts, "schema_ref="+field.SchemaRef)
+	}
+	if field.ItemRef != "" {
+		parts = append(parts, "item_ref="+field.ItemRef)
+	}
+	return strings.Join(parts, ",")
 }
 
 func validateWorkflowPayloadValue(field WorkflowPayloadField, raw json.RawMessage) bool {
@@ -519,6 +554,9 @@ func validateWorkflowPayloadValue(field WorkflowPayloadField, raw json.RawMessag
 		if field.ValueType == PayloadDigest && !workflowDigestPattern.MatchString(text) {
 			return false
 		}
+		if len(field.Enum) != 0 && !containsString(field.Enum, text) {
+			return false
+		}
 		if field.MinLength != nil && int64(len([]rune(text))) < *field.MinLength || field.MaxLength != nil && int64(len([]rune(text))) > *field.MaxLength {
 			return false
 		}
@@ -534,7 +572,7 @@ func validateWorkflowPayloadValue(field WorkflowPayloadField, raw json.RawMessag
 		seen := make(map[string]struct{}, len(values))
 		for _, item := range values {
 			text, ok := item.(string)
-			if !ok || !ValidReference(text) {
+			if !ok || !validWorkflowPayloadListItem(field.ItemRef, text) || len(field.Enum) != 0 && !containsString(field.Enum, text) {
 				return false
 			}
 			if _, exists := seen[text]; exists {
@@ -569,6 +607,24 @@ func validateWorkflowPayloadValue(field WorkflowPayloadField, raw json.RawMessag
 		// declaration that the value is one object.
 		_, ok := value.(map[string]any)
 		return ok
+	case PayloadArray:
+		values, ok := value.([]any)
+		if !ok {
+			return false
+		}
+		return (field.MinItems == nil || int64(len(values)) >= *field.MinItems) && (field.MaxItems == nil || int64(len(values)) <= *field.MaxItems)
+	default:
+		return false
+	}
+}
+
+func validWorkflowPayloadListItem(itemRef, value string) bool {
+	switch itemRef {
+	case "law_id":
+		runes := []rune(value)
+		return len(runes) >= 2 && len(runes) <= 256 && !unicode.IsSpace(runes[0]) && !unicode.IsSpace(runes[len(runes)-1])
+	case "", "reference":
+		return ValidReference(value)
 	default:
 		return false
 	}

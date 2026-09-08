@@ -188,7 +188,7 @@ func approvedOpsAction(t *testing.T, s *store.Store, service *Service, grant Aut
 	if fields != nil {
 		input["fields"] = fields
 	} else {
-		input["fields"] = []any{}
+		input["fields"] = map[string]any{}
 	}
 	raw, err := json.Marshal(input)
 	if err != nil {

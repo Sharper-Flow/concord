@@ -77,6 +77,7 @@ func TestArchitectureBindingSchemaPreservesCurrentIdentifierBounds(t *testing.T)
 		"action_id":        "approve_contract",
 		"fields": map[string]any{
 			"architecture_binding": binding,
+			"outcome_predicates":   workflowContractFieldsFixture()["outcome_predicates"],
 			"spec_mandate":         []string{lawID},
 			"law_modifies":         []string{lawID},
 		},
@@ -94,7 +95,7 @@ func TestArchitectureBindingSchemaPreservesCurrentIdentifierBounds(t *testing.T)
 		invalid["affected_domain_ids"] = []string{invalidDomainID}
 		payload, err := json.Marshal(map[string]any{
 			"work_id": "work-1", "expected_version": 7, "action_id": "approve_contract",
-			"fields":          map[string]any{"architecture_binding": invalid, "spec_mandate": []string{}, "law_modifies": []string{}},
+			"fields":          map[string]any{"architecture_binding": invalid, "outcome_predicates": workflowContractFieldsFixture()["outcome_predicates"], "spec_mandate": []string{}, "law_modifies": []string{}},
 			"idempotency_key": "invalid-domain-id",
 		})
 		if err != nil {

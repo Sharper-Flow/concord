@@ -70,4 +70,21 @@ func TestReadWorkPinIncludesTheCurrentWorkerAttemptEpoch(t *testing.T) {
 	if pin.Attempt == nil || pin.Attempt.ID != attemptID || pin.Attempt.Epoch != 1 || pin.Attempt.Lane == "" || pin.Attempt.State != "dispatched" {
 		t.Fatalf("attempt=%+v, want the dispatched worker attempt at epoch 1", pin.Attempt)
 	}
+	snapshot, err := ReadWorkflowContinuity(context.Background(), s, ContinuityRequest{Work: "workpin-attempt", Limit: 20})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snapshot.WorkPin == nil {
+		t.Fatal("continuity result has no work pin")
+	}
+	for _, intent := range snapshot.WorkPin.NextValidIntents {
+		if intent.ActionID != "dispatch_worker" {
+			continue
+		}
+		if len(intent.RequiredFields) != 1 || intent.RequiredFields[0] != "lane_id" {
+			t.Fatalf("continuity dispatch_worker required fields = %v, want [lane_id]", intent.RequiredFields)
+		}
+		return
+	}
+	t.Fatal("continuity result has no dispatch_worker intent")
 }

@@ -119,9 +119,8 @@ func TestWorkflowActionMalformedBoundaryPrecedesPinAndAuthorityChecks(t *testing
 		`{"work_id":"work-1","expected_version":1,"action_id":"record_proposal","idempotency_key":"bad-1","unknown":true}`,
 		`{"work_id":"work-1","expected_version":1,"action_id":"record_proposal","action_id":"record_design","idempotency_key":"bad-2"}`,
 		`{"work_id":7,"expected_version":1,"action_id":"record_proposal","idempotency_key":"bad-3"}`,
-		`{"work_id":"work-1","expected_version":1,"action_id":"record_proposal","fields":{},"idempotency_key":"bad-4"}`,
-		`{"work_id":"work-1","expected_version":1,"action_id":"record_proposal","idempotency_key":"bad-5"} trailing`,
-		`{"work_id":"","expected_version":1,"action_id":"record_proposal","idempotency_key":"bad-6"}`,
+		`{"work_id":"work-1","expected_version":1,"action_id":"record_proposal","idempotency_key":"bad-4"} trailing`,
+		`{"work_id":"","expected_version":1,"action_id":"record_proposal","idempotency_key":"bad-5"}`,
 	}
 	for _, raw := range malformed {
 		response, dispatchErr := Dispatch(context.Background(), s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: json.RawMessage(raw)}, env)

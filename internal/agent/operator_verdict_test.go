@@ -62,13 +62,13 @@ func TestOperatorVerdictChallengeAfterInSessionDelivery(t *testing.T) {
 	if contract.Outcome != OutcomeOK {
 		t.Fatalf("approve_contract refused: %+v", contract.Error)
 	}
-	if started := signedAction("start_action", map[string]any{"summary": "in-session step"}, "operator-verdict-start"); started.Outcome != OutcomeOK {
+	if started := signedAction("start_action", map[string]any{}, "operator-verdict-start"); started.Outcome != OutcomeOK {
 		t.Fatalf("start_action refused: %+v", started.Error)
 	}
 	if bound := signedAction("bind_evidence", map[string]any{"evidence_kind": "verification", "evidence_ref": "evidence:operator-challenge"}, "operator-verdict-bind"); bound.Outcome != OutcomeOK {
 		t.Fatalf("bind_evidence refused: %+v", bound.Error)
 	}
-	if delivered := signedAction("record_delivery", map[string]any{"summary": "delivered in-session"}, "operator-verdict-delivery"); delivered.Outcome != OutcomeOK {
+	if delivered := signedAction("record_delivery", map[string]any{}, "operator-verdict-delivery"); delivered.Outcome != OutcomeOK {
 		t.Fatalf("record_delivery refused: %+v", delivered.Error)
 	}
 
@@ -194,7 +194,7 @@ func TestOperatorVerdictChallengeAfterAcceptedWorkerResult(t *testing.T) {
 	if contract.Outcome != OutcomeOK {
 		t.Fatalf("approve_contract refused: %+v", contract.Error)
 	}
-	if started := signedAction("start_action", map[string]any{"summary": "lane-run step"}, "accept-e2e-start"); started.Outcome != OutcomeOK {
+	if started := signedAction("start_action", map[string]any{}, "accept-e2e-start"); started.Outcome != OutcomeOK {
 		t.Fatalf("start_action refused: %+v", started.Error)
 	}
 

@@ -48,7 +48,7 @@ func legacyV1BaseDefinition(ref string, kind WorkKind, g WorkflowStepGraph, acti
 // withContinuityActionsV1 composes the continuity pair as version 1 did:
 // cross_context_boundary in advance mode.
 func withContinuityActionsV1(definition WorkflowDefinition) WorkflowDefinition {
-	clone := withContinuityActions(definition)
+	clone := withContinuityActions(definition, false)
 	for i := range clone.ActionDefinitions {
 		if clone.ActionDefinitions[i].ID == "cross_context_boundary" {
 			clone.ActionDefinitions[i].ExecutionMode = ActionAdvance
@@ -107,43 +107,87 @@ func legacyResearchV1() WorkflowDefinition {
 // nothing here without a new version (CD-0115).
 
 func preJoinImplementationV2() WorkflowDefinition {
-	d := builtinImplementation()
+	d := builtinImplementation(false)
 	d.Version = 2
 	return withLegacyWorkerActions(d)
 }
 
 func preJoinBreakFixV2() WorkflowDefinition {
-	d := builtinBreakFix()
+	d := builtinBreakFix(false)
 	d.Version = 2
 	return withLegacyWorkerActions(d)
 }
 
 func preJoinGenericOneOffV2() WorkflowDefinition {
-	d := builtinGenericOneOff()
+	d := builtinGenericOneOff(false)
 	d.Version = 2
 	return withLegacyWorkerActions(d)
 }
 
 func preJoinResearchV2() WorkflowDefinition {
-	d := builtinResearch()
+	d := builtinResearch(false)
 	d.Version = 2
 	return d
 }
 
 func preJoinArchitectureSpikeV1() WorkflowDefinition {
-	d := builtinArchitectureSpike()
+	d := builtinArchitectureSpike(false)
 	d.Version = 1
 	return withLegacyWorkerActions(d)
 }
 
 func preJoinOpsRunbookV1() WorkflowDefinition {
-	d := builtinOpsRunbook()
+	d := builtinOpsRunbook(false)
 	d.Version = 1
 	return withLegacyWorkerActions(d)
 }
 
 func preJoinStaticAnalysisV1() WorkflowDefinition {
-	d := builtinStaticAnalysis()
+	d := builtinStaticAnalysis(false)
 	d.Version = 1
 	return withLegacyWorkerActions(d)
+}
+
+// These definitions freeze the released lane-step join versions immediately
+// before current action payload contracts became fail-closed.
+func prePayloadImplementationV3() WorkflowDefinition {
+	d := builtinImplementation(false)
+	d.Version = 3
+	return withWorkerActions(d, false)
+}
+
+func prePayloadBreakFixV3() WorkflowDefinition {
+	d := builtinBreakFix(false)
+	d.Version = 3
+	return withWorkerActions(d, false)
+}
+
+func prePayloadGenericOneOffV3() WorkflowDefinition {
+	d := builtinGenericOneOff(false)
+	d.Version = 3
+	return withWorkerActions(d, false)
+}
+
+func prePayloadResearchV3() WorkflowDefinition {
+	d := builtinResearch(false)
+	d.Version = 3
+	return withWorkerActions(d, false)
+}
+
+func prePayloadArchitectureSpikeV2() WorkflowDefinition {
+	d := builtinArchitectureSpike(false)
+	d.Version = 2
+	return withWorkerActions(d, false)
+}
+
+func prePayloadOpsRunbookV2() WorkflowDefinition {
+	d := builtinOpsRunbook(false)
+	d.Version = 2
+	return withWorkerActions(d, false)
+}
+
+func prePayloadStaticAnalysisV2() WorkflowDefinition {
+	d := builtinStaticAnalysis(false)
+	d.Version = 2
+	return withWorkerActions(d, false)
 }

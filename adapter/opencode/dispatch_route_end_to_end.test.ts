@@ -236,9 +236,9 @@ routeDeclaration("dispatches a real store route through Task completion and work
     const invoke = (toolName: string, args: { operation: string; input: Record<string, unknown> }, callContext: any) => invokeConcordOperation(toolName, args as any, callContext)
     const transition = (version: number, actionID: string, idempotencyKey: string, fields: Record<string, unknown>) => invoke("concord_work_transition", { operation: "workflow_action", input: { work_id: workID, expected_version: version, action_id: actionID, idempotency_key: idempotencyKey, fields } }, context)
 
-    let response = await transition(5, "record_reproduction", "e2e-reproduction", { payload: { work: workID }, title: "Synthetic dispatch route", value_statement: "The route completes a real worker attempt." })
+    let response = await transition(5, "record_reproduction", "e2e-reproduction", {})
     expect(response.outcome).toBe("ok")
-    response = await transition(7, "record_root_cause", "e2e-root-cause", { payload: { work: workID }, title: "Synthetic dispatch route", value_statement: "The route completes a real worker attempt." })
+    response = await transition(7, "record_root_cause", "e2e-root-cause", {})
     expect(response.outcome).toBe("ok")
     const domainList = await invoke("concord_domain", { operation: "list", input: { product_id: PRODUCT_ID, page: { cursor: null, limit: 10 } } }, context)
     expect(domainList.outcome).toBe("ok")

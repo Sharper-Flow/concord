@@ -7,6 +7,7 @@ import hashlib
 import io
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tarfile
@@ -130,6 +131,27 @@ esac''',
             '{\n  "$schema": "https://opencode.ai/config.json",\n  "keep": true\n}\n',
             encoding="utf-8",
         )
+
+    def test_fresh_home_without_a_launcher_bin_dir_installs(self) -> None:
+        # A PATH entry can name a directory that does not exist yet: a fresh
+        # HOME has exactly that shape. The install must create the bin dir
+        # itself instead of dying at the launcher symlink (#936).
+        self.make_release("v1.0.0")
+        stubs = self.root / "stubs"
+        stubs.mkdir()
+        for name in os.listdir(self.commands):
+            (stubs / name).write_bytes((self.commands / name).read_bytes())
+            os.chmod(stubs / name, 0o755)
+        shutil.rmtree(self.commands)
+        environment = self.env.copy()
+        environment["PATH"] = str(self.commands) + os.pathsep + str(stubs) + os.pathsep + os.defpath
+        result = self.run_installer(
+            "install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts), env=environment
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        launcher = self.root / "bin" / "concord"
+        self.assertTrue(launcher.is_symlink(), "launcher symlink was not placed into the created bin dir")
+        self.assertIn("concord", os.listdir(self.root / "bin"))
 
     def test_checksum_mismatch_refuses_without_installing(self) -> None:
         self.make_release("v1.0.0")

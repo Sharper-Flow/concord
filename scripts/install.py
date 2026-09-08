@@ -1802,6 +1802,10 @@ def apply_adapters(transaction_root: Path, journal: dict[str, object], paths: Pa
 def apply_launcher(transaction_root: Path, journal: dict[str, object], paths: Paths) -> None:
     target = paths.launcher
     if activating(journal["operation"]):
+        # Preflight only proves the bin dir is on PATH; a PATH entry can name
+        # a directory that does not exist yet, and a fresh HOME has exactly
+        # that shape. Create it before the symlink needs a parent (#936).
+        ensure_directory(paths.bin_dir)
         version = journal["new_version"]
         temporary = paths.bin_dir / f".concord-link-{transaction_root.name}"
         if temporary.exists() or temporary.is_symlink():

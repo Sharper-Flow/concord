@@ -1,6 +1,6 @@
 import type { ToolContext } from "@opencode-ai/plugin"
 import { validateAgentLanePacket, type AgentLanePacket } from "./dispatch"
-import { agentLanePacketSchema, agentLanes, type AgentLane } from "./generated-agent-lanes"
+import { agentLanePacketSchema, agentLaneReportConstraints, agentLanes, type AgentLane } from "./generated-agent-lanes"
 
 // The packet bounds are read off the generated contract rather than restated,
 // so a contract move cannot leave the builder enforcing a stale limit.
@@ -9,7 +9,7 @@ const TASK_MAX_LENGTH: number = INPUT_BOUNDS.task.maxLength
 const CONTEXT_MAX_LENGTH: number = INPUT_BOUNDS.context.maxLength
 const CONSTRAINT_MAX_LENGTH: number = INPUT_BOUNDS.constraints.items.maxLength
 const CONSTRAINTS_MAX_ITEMS: number = INPUT_BOUNDS.constraints.maxItems
-const PACKET_SCHEMA_VERSION = "1.0"
+const PACKET_SCHEMA_VERSION = agentLanePacketSchema.properties.schema_version.const
 
 export type AgentLanePacketFailureKind =
   | "unregistered_lane"
@@ -154,9 +154,12 @@ export async function buildAgentLanePacket(request: AgentLanePacketRequest, deps
 
   // CD-0056: the fold refuses a report that leaves a declared obligation
   // undischarged, so the obligation set travels with the packet by name.
-  const constraints = lane.evidence_obligations.map(
-    (obligation) => `Evidence obligation "${obligation}": your agent-lane-report.v1 report must carry an evidence entry whose obligation is "${obligation}". An undischarged obligation is refused.`,
-  )
+  const constraints = [
+    ...lane.evidence_obligations.map(
+      (obligation) => `Evidence obligation "${obligation}": your agent-lane-report.v1 report must carry an evidence entry whose obligation is "${obligation}". An undischarged obligation is refused.`,
+    ),
+    ...agentLaneReportConstraints,
+  ]
   if (constraints.length > CONSTRAINTS_MAX_ITEMS) {
     return failure("projection_overflow", `lane ${lane.id} declares ${constraints.length} evidence obligations, above the inputs.constraints limit of ${CONSTRAINTS_MAX_ITEMS}`, { field: "constraints", limit: CONSTRAINTS_MAX_ITEMS, actual: constraints.length })
   }

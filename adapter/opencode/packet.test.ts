@@ -2,7 +2,7 @@ import { test, expect, mock } from "bun:test"
 import { manifestDigest } from "./generated-contracts"
 import { validateGeneratedEnvelope, validateGeneratedPayload } from "./generated-contract-tests"
 import { configureCoreBinary, validateAgentLanePacket } from "./dispatch"
-import { agentLanes } from "./generated-agent-lanes"
+import { agentLaneReportSchema, agentLanes } from "./generated-agent-lanes"
 
 // The builder reaches core through the adapter transport in concord.ts, which
 // imports the host plugin surface. The stub mirrors concord.test.ts so the
@@ -137,6 +137,22 @@ test("a well-formed build projects mandate, narrative, and obligations into a va
   }
 })
 
+test("a packet projects the report schema bounds into worker constraints", async () => {
+  const built = await build(defaultScript())
+  expect(built.failure).toBeUndefined()
+  const constraints = built.packet!.inputs.constraints!
+  const reportProperties = agentLaneReportSchema.properties
+  const reportEntry = agentLaneReportSchema.$defs.evidence_entry
+  expect(constraints.some((entry) => entry.includes(`additionalProperties=${agentLaneReportSchema.additionalProperties}`))).toBe(true)
+  expect(constraints.some((entry) => entry.includes(`maxItems=${reportProperties.evidence.maxItems}`))).toBe(true)
+  expect(constraints.some((entry) => entry.includes(`maxLength=${reportEntry.properties.detail.maxLength}`))).toBe(true)
+  expect(constraints.some((entry) => entry.includes(`maxLength=${reportProperties.readback_model.maxLength}`))).toBe(true)
+  expect(constraints.some((entry) => entry.includes(reportProperties.readback_model.pattern))).toBe(true)
+  const statusConstraint = constraints.find((entry) => entry.startsWith("status: enum="))
+  expect(statusConstraint).toBeDefined()
+  for (const status of reportProperties.status.enum) expect(statusConstraint).toContain(JSON.stringify(status))
+})
+
 // #903: the approved premise is the objective a dispatched worker must
 // deliver, and the packet names the exact recorded state it projected. A
 // worker that only satisfies the predicates without delivering the premise
@@ -223,14 +239,15 @@ test("every registered lane projects its own obligation set and nothing else", a
     expect(packet.lane_id).toBe(lane.id)
     expect(packet.lane_version).toBe(lane.version)
     expect(packet.lane_digest).toBe(lane.digest)
-    expect(packet.inputs.constraints!.length).toBe(lane.evidence_obligations.length)
+    expect(packet.inputs.constraints!.length).toBeGreaterThan(lane.evidence_obligations.length)
+    const laneConstraints = packet.inputs.constraints!.slice(0, lane.evidence_obligations.length)
     for (const obligation of lane.evidence_obligations) {
-      expect(packet.inputs.constraints!.some((entry) => entry.includes(`"${obligation}"`)), `${lane.id} omitted ${obligation}`).toBe(true)
+      expect(laneConstraints.some((entry) => entry.includes(`"${obligation}"`)), `${lane.id} omitted ${obligation}`).toBe(true)
     }
     const own = new Set<string>(lane.evidence_obligations)
     const foreign = [...new Set(agentLanes.flatMap((other) => other.evidence_obligations as readonly string[]))].filter((obligation) => !own.has(obligation))
     for (const obligation of foreign) {
-      expect(packet.inputs.constraints!.some((entry) => entry.includes(`"${obligation}"`)), `${lane.id} leaked ${obligation}`).toBe(false)
+      expect(laneConstraints.some((entry) => entry.includes(`"${obligation}"`)), `${lane.id} leaked ${obligation}`).toBe(false)
     }
   }
 })

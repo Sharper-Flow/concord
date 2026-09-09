@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import copy
 import importlib.util
 import json
 import tempfile
@@ -34,6 +35,17 @@ class AgentProjectionTests(unittest.TestCase):
     def test_projection_denies_task_dispatch(self):
         # CD-0070 Invariant 3, carrying CD-0064 Invariant 3 forward.
         self.assertIn('"*": deny', generator.agent_projection(self.LANE))
+
+    def test_projection_reads_report_bounds_from_schema(self):
+        report_schema = json.loads((ROOT / "contracts/agent-lane-report.schema.json").read_text(encoding="utf-8"))
+        changed = copy.deepcopy(report_schema)
+        changed["properties"]["readback_model"]["maxLength"] = 77
+        changed["properties"]["evidence"]["maxItems"] = 11
+        changed["$defs"]["evidence_entry"]["properties"]["detail"]["maxLength"] = 23
+        projection = generator.agent_projection(self.LANE, changed)
+        self.assertIn("maxLength=77", projection)
+        self.assertIn("maxItems=11", projection)
+        self.assertIn("maxLength=23", projection)
 
 
 class EvalPacketProjectionTests(unittest.TestCase):

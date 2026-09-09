@@ -20,15 +20,18 @@ const MAX_CLI_INPUT_BYTES = 65_536
 // worker.failed detail is bounded at 1..4096 by validateWorkerFailedPayload in
 // internal/store/worker_lanes.go; a longer detail would be refused at the fold.
 const MAX_FAILURE_DETAIL_BYTES = 4_096
-const PACKET_SCHEMA_VERSION = "1.0"
-const REPORT_SCHEMA_VERSION = "1.0"
+type AgentLanePacketSchemaVersion = typeof agentLanePacketSchema.properties.schema_version.const
+type AgentLaneReportSchemaVersion = typeof agentLaneReportSchema.properties.schema_version.const
+type AgentLaneReportStatus = (typeof agentLaneReportSchema.properties.status.enum)[number]
+const PACKET_SCHEMA_VERSION: AgentLanePacketSchemaVersion = agentLanePacketSchema.properties.schema_version.const
+const REPORT_SCHEMA_VERSION: AgentLaneReportSchemaVersion = agentLaneReportSchema.properties.schema_version.const
 
 export interface DispatchRunner {
   run(argv: string[], input: string, signal: AbortSignal): Promise<{ exitCode: number; stdout: string; stderr: string }>
 }
 
 export interface AgentLanePacket {
-  schema_version: "1.0"
+  schema_version: AgentLanePacketSchemaVersion
   attempt_id: string
   lane_id: string
   lane_version: number
@@ -49,9 +52,9 @@ export interface AgentLaneReportEvidence {
 }
 
 export interface AgentLaneReport {
-  schema_version: "1.0"
+  schema_version: AgentLaneReportSchemaVersion
   readback_model: string
-  status: "completed" | "failed"
+  status: AgentLaneReportStatus
   evidence: AgentLaneReportEvidence[]
 }
 

@@ -75,6 +75,25 @@ func TestDispatchWorkerCapabilityMatchesTheRegistryEntry(t *testing.T) {
 	}
 }
 
+func TestCurrentWorkerResultActionsRequireWorkTransition(t *testing.T) {
+	entry, err := BuiltinWorkflowDefinitionForRef("workflow.implementation")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, actionID := range []string{"accept_worker_result", "record_worker_failure"} {
+		var capability string
+		for _, action := range entry.Definition.ActionDefinitions {
+			if action.ID == actionID {
+				capability = action.RequiredCapability
+				break
+			}
+		}
+		if capability != "work_transition" {
+			t.Errorf("action %q required_capability = %q, want work_transition", actionID, capability)
+		}
+	}
+}
+
 // TestDispatchFoldOpensAFencedWindowAgainstTheStepEpoch proves the brief's
 // window mechanism: invoking dispatch_worker emits a WorkflowActionStarted
 // event whose attempt_epoch is the next step epoch, so the worker-dispatch

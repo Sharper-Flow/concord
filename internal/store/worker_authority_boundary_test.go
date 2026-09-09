@@ -722,6 +722,80 @@ func TestDistinctWorkflowOwnerAcceptsCompletedWorkerResult(t *testing.T) {
 	}
 }
 
+func TestAcceptWorkerResultAdvancesCurrentNonExternalDispatchStep(t *testing.T) {
+	const workID = "authority-accept-internal-step"
+	ctx := context.Background()
+	s := openTemp(t)
+	defer s.Close()
+	seedWork(t, s, workID)
+	worker := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/worker", SessionRef: "session/" + workID, ActorClass: ActorAgent}
+	owner := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/owner", SessionRef: "session/" + workID, ActorClass: ActorAgent}
+	workerRef, err := WorkflowActorRef(worker)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ownerRef, err := WorkflowActorRef(owner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	definition, err := BuiltinWorkflowDefinitionForRef("workflow.break_fix")
+	if err != nil {
+		t.Fatal(err)
+	}
+	setup := []Event{
+		workflowEvent("internal-worker-actor", WorkflowActorRecorded, workID, map[string]any{"work_id": workID, "expected_version": 2, "resulting_version": 3, "actor_ref": workerRef, "principal_ref": worker.PrincipalRef, "client_ref": worker.ClientRef, "agent_ref": worker.AgentRef, "session_ref": worker.SessionRef, "actor_class": "agent"}),
+		workflowEvent("internal-owner-actor", WorkflowActorRecorded, workID, map[string]any{"work_id": workID, "expected_version": 3, "resulting_version": 4, "actor_ref": ownerRef, "principal_ref": owner.PrincipalRef, "client_ref": owner.ClientRef, "agent_ref": owner.AgentRef, "session_ref": owner.SessionRef, "actor_class": "agent"}),
+		workflowEvent("internal-definition", WorkflowDefinitionSelected, workID, map[string]any{"work_id": workID, "expected_version": 4, "resulting_version": 5, "ref": definition.Definition.Ref, "version": definition.Definition.Version, "digest": definition.Digest, "work_kind": "break_fix"}),
+		workflowEventWithActor("internal-start", WorkflowActionStarted, workID, workerRef, map[string]any{"work_id": workID, "expected_version": 5, "resulting_version": 6, "step_id": "reproduce", "action_id": "dispatch_worker", "attempt_epoch": 1, "accepted_inputs_digest": "sha256:" + strings.Repeat("i", 64), "idempotency_identity": "internal-start", "actor_ref": workerRef}),
+	}
+	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: setup, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 2}}); err != nil {
+		t.Fatal(err)
+	}
+	var lane LaneDefinition
+	for _, candidate := range BuiltinLaneDefinitions() {
+		if candidate.CapabilityClass == "research" {
+			lane = candidate
+			break
+		}
+	}
+	if lane.ID == "" {
+		t.Fatal("research lane is not registered")
+	}
+	attemptID := "attempt:" + workID
+	dispatch := Event{EventID: "internal-dispatch", Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: 2, Payload: mustJSONValue(WorkerDispatchedPayload{AttemptID: attemptID, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, ReadbackModel: preferredModelForLane(lane), PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion})}
+	completed := Event{EventID: "internal-completed", Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(3, 0).UTC(), PayloadVersion: 1, Payload: mustJSONValue(WorkerCompletedPayload{AttemptID: attemptID, ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion})}
+	if err := ApplyOperation(ctx, s, Operation{Events: []Event{dispatch, completed}}); err != nil {
+		t.Fatal(err)
+	}
+	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := enterFold(ctx, tx); err != nil {
+		_ = tx.Rollback()
+		t.Fatal(err)
+	}
+	result, err := applyWorkflowActionRawTx(ctx, tx, BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
+		WorkID: workID, ExpectedVersion: 6, ActionID: "accept_worker_result", Payload: mustJSONValue(map[string]any{"attempt_id": attemptID, "attempt_epoch": 1}), Actor: owner,
+		AcceptedInputsDigest: "sha256:" + strings.Repeat("a", 64), IdempotencyIdentity: "internal-accept", OperationID: "internal-accept",
+		PrincipalRef: owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "internal-accept", RequestID: "request:internal-accept", ContractDigest: testManifestDigest, Now: time.Unix(4, 0).UTC(),
+	})
+	_ = leaveFold(ctx, tx)
+	if err != nil {
+		_ = tx.Rollback()
+		t.Fatalf("accept_worker_result on internal_sqlite step: %v", err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	if result.ResultingVersion != 8 {
+		t.Fatalf("accept result version=%d, want 8", result.ResultingVersion)
+	}
+	if got := currentStep(t, s, workID); got != "diagnose" {
+		t.Fatalf("accepted worker result current_step=%q, want diagnose", got)
+	}
+}
+
 func TestWorkerCannotInvokeAcceptWorkerResultAsItsOwnOwner(t *testing.T) {
 	ctx := context.Background()
 	s, worker, _, attemptID := seedCompletedWorkerAtExecution(t, "authority-worker-accept")
@@ -773,17 +847,7 @@ func TestAcceptWorkerResultRejectsWithoutMutation(t *testing.T) {
 	})
 	t.Run("failed attempt", func(t *testing.T) {
 		s, _, owner, attemptID := seedWorkerAtExecution(t, "authority-failed-attempt")
-		fail := Event{EventID: "failed-authority-failed-attempt", Kind: WorkerFailed, SubjectType: SubjectWorkItem, SubjectID: "authority-failed-attempt", Actor: "worker:test", OccurredAt: time.Unix(3, 0).UTC(), PayloadVersion: 1, Payload: mustJSONValue(WorkerFailedPayload{AttemptID: attemptID, ReadbackModel: preferredModelForLane(BuiltinLaneDefinitions()[0]), FailureKind: WorkerFailureWorkerError, Detail: "worker failed"})}
-		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{fail}}); err != nil {
-			t.Fatal(err)
-		}
-		var lifecycle string
-		if err := s.DatabaseForTesting().QueryRow(`SELECT lifecycle_state FROM worker_attempts WHERE attempt_id=?`, attemptID).Scan(&lifecycle); err != nil {
-			t.Fatal(err)
-		}
-		if lifecycle != "failed" {
-			t.Fatalf("failed worker lifecycle=%q, want failed", lifecycle)
-		}
+		failWorkerAttempt(t, s, "authority-failed-attempt", attemptID)
 		assertRejectedWorkerAcceptance(t, s, "authority-failed-attempt", owner, wantVersion, map[string]any{"attempt_id": attemptID, "attempt_epoch": 1}, KindIllegalLifecycleTransition, wantStep, wantVersion)
 	})
 	t.Run("foreign work attempt", func(t *testing.T) {
@@ -877,6 +941,224 @@ func assertRejectedWorkerAcceptance(t *testing.T, s *Store, workID string, owner
 	if completed != completedBefore {
 		t.Fatalf("rejected acceptance persisted a new workflow.action_completed event: before=%d after=%d", completedBefore, completed)
 	}
+}
+
+func TestRecordWorkerFailureHoldsStepAndAllowsFreshStart(t *testing.T) {
+	const workID = "authority-record-failed-worker"
+	s, _, owner, attemptID := seedWorkerAtExecution(t, workID)
+	failWorkerAttempt(t, s, workID, attemptID)
+
+	result := applyRecordWorkerFailureForTest(t, s, workID, owner, attemptID, 1, 10, "record-failed-worker")
+	if result.ResultingVersion != 11 {
+		t.Fatalf("failure record version=%d, want 11", result.ResultingVersion)
+	}
+	if got := currentStep(t, s, workID); got != "execution" {
+		t.Fatalf("failure record current_step=%q, want execution", got)
+	}
+	var payloadVersion int
+	var recordedAttempt string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT payload_version,json_extract(payload,'$.worker_attempt_id') FROM domain_events WHERE event_id=?`, "record-failed-worker:completed").Scan(&payloadVersion, &recordedAttempt); err != nil {
+		t.Fatal(err)
+	}
+	if payloadVersion != 2 || recordedAttempt != attemptID {
+		t.Fatalf("failure completion record = version %d attempt %q, want v2 %q", payloadVersion, recordedAttempt, attemptID)
+	}
+
+	start := applyStartForTest(t, s, workID, owner, 11, "failed-worker-fresh-start")
+	if start.ResultingVersion != 13 {
+		t.Fatalf("fresh start version=%d, want 13", start.ResultingVersion)
+	}
+	delivery := applyDeliveryForTest(t, s, workID, owner, 13, "failed-worker-fresh-delivery")
+	if delivery.ResultingVersion != 14 {
+		t.Fatalf("fresh delivery version=%d, want 14", delivery.ResultingVersion)
+	}
+	if got := currentStep(t, s, workID); got != "acceptance" {
+		t.Fatalf("fresh delivery current_step=%q, want acceptance", got)
+	}
+}
+
+func TestRecordWorkerFailureRejectsInvalidAttemptsWithoutMutation(t *testing.T) {
+	const (
+		wantStep    = "execution"
+		wantVersion = int64(10)
+	)
+	t.Run("missing attempt id", func(t *testing.T) {
+		s, _, owner, _ := seedWorkerAtExecution(t, "failure-record-missing")
+		assertRejectedWorkerFailureRecord(t, s, "failure-record-missing", owner, wantVersion, map[string]any{"attempt_epoch": 1}, KindInvalidPayload, wantStep, wantVersion)
+	})
+	t.Run("active attempt", func(t *testing.T) {
+		s, _, owner, attemptID := seedWorkerAtExecution(t, "failure-record-active")
+		assertRejectedWorkerFailureRecord(t, s, "failure-record-active", owner, wantVersion, map[string]any{"attempt_id": attemptID, "attempt_epoch": 1}, KindIllegalLifecycleTransition, wantStep, wantVersion)
+	})
+	t.Run("completed attempt", func(t *testing.T) {
+		s, _, owner, attemptID := seedCompletedWorkerAtExecution(t, "failure-record-completed")
+		assertRejectedWorkerFailureRecord(t, s, "failure-record-completed", owner, wantVersion, map[string]any{"attempt_id": attemptID, "attempt_epoch": 1}, KindIllegalLifecycleTransition, wantStep, wantVersion)
+	})
+	t.Run("executing worker", func(t *testing.T) {
+		s, workerRef, _, attemptID := seedWorkerAtExecution(t, "failure-record-worker")
+		failWorkerAttempt(t, s, "failure-record-worker", attemptID)
+		worker := workflowActorForRef(t, s, workerRef)
+		assertRejectedWorkerFailureRecord(t, s, "failure-record-worker", worker, wantVersion, map[string]any{"attempt_id": attemptID, "attempt_epoch": 1}, KindUnauthorized, wantStep, wantVersion)
+	})
+	t.Run("foreign work attempt", func(t *testing.T) {
+		s, _, owner, _ := seedWorkerAtExecution(t, "failure-record-foreign-target")
+		seedWork(t, s, "failure-record-foreign-work")
+		attemptID := "attempt:failure-record-foreign-work"
+		lane := BuiltinLaneDefinitions()[0]
+		dispatch := Event{EventID: "dispatch-failure-record-foreign-work", Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: "failure-record-foreign-work", Actor: "worker:test", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: 2, Payload: mustJSONValue(WorkerDispatchedPayload{AttemptID: attemptID, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, ReadbackModel: preferredModelForLane(lane), PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion})}
+		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{dispatch}}); err != nil {
+			t.Fatal(err)
+		}
+		failWorkerAttempt(t, s, "failure-record-foreign-work", attemptID)
+		assertRejectedWorkerFailureRecord(t, s, "failure-record-foreign-target", owner, wantVersion, map[string]any{"attempt_id": attemptID, "attempt_epoch": 1}, KindIllegalLifecycleTransition, wantStep, wantVersion)
+	})
+	t.Run("stale dispatch", func(t *testing.T) {
+		s, workerRef, owner, attemptID := seedWorkerAtExecution(t, "failure-record-stale")
+		failWorkerAttempt(t, s, "failure-record-stale", attemptID)
+		retryStart := workflowEventWithActor("retry-start-failure-record-stale", WorkflowActionStarted, "failure-record-stale", workerRef, map[string]any{"work_id": "failure-record-stale", "expected_version": 10, "resulting_version": 11, "step_id": "execution", "action_id": "start_execution", "attempt_epoch": 2, "accepted_inputs_digest": "sha256:" + strings.Repeat("d", 64), "idempotency_identity": "retry:failure-record-stale", "actor_ref": workerRef, "execution_model": preferredModelForLane(BuiltinLaneDefinitions()[0])})
+		if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{retryStart}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "failure-record-stale"): 10}}); err != nil {
+			t.Fatal(err)
+		}
+		assertRejectedWorkerFailureRecord(t, s, "failure-record-stale", owner, 11, map[string]any{"attempt_id": attemptID, "attempt_epoch": 2}, KindIllegalLifecycleTransition, wantStep, 11)
+	})
+	t.Run("already recorded", func(t *testing.T) {
+		s, _, owner, attemptID := seedWorkerAtExecution(t, "failure-record-duplicate")
+		failWorkerAttempt(t, s, "failure-record-duplicate", attemptID)
+		applyRecordWorkerFailureForTest(t, s, "failure-record-duplicate", owner, attemptID, 1, 10, "failure-record-first")
+		assertRejectedWorkerFailureRecord(t, s, "failure-record-duplicate", owner, 11, map[string]any{"attempt_id": attemptID, "attempt_epoch": 1}, KindIllegalLifecycleTransition, wantStep, 11)
+	})
+}
+
+func failWorkerAttempt(t *testing.T, s *Store, workID, attemptID string) {
+	t.Helper()
+	fail := Event{EventID: "failed-" + workID, Kind: WorkerFailed, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(3, 0).UTC(), PayloadVersion: 1, Payload: mustJSONValue(WorkerFailedPayload{AttemptID: attemptID, ReadbackModel: preferredModelForLane(BuiltinLaneDefinitions()[0]), FailureKind: WorkerFailureWorkerError, Detail: "worker failed"})}
+	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{fail}}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func applyRecordWorkerFailureForTest(t *testing.T, s *Store, workID string, owner WorkflowActor, attemptID string, attemptEpoch, expectedVersion int64, operationID string) WorkflowActionExecutionResult {
+	t.Helper()
+	ctx := context.Background()
+	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := enterFold(ctx, tx); err != nil {
+		tx.Rollback()
+		t.Fatal(err)
+	}
+	result, err := applyWorkflowActionRawTx(ctx, tx, BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
+		WorkID: workID, ExpectedVersion: expectedVersion, ActionID: "record_worker_failure", Payload: mustJSONValue(map[string]any{"attempt_id": attemptID, "attempt_epoch": attemptEpoch}), Actor: owner,
+		AcceptedInputsDigest: "sha256:" + strings.Repeat("f", 64), IdempotencyIdentity: operationID, OperationID: operationID,
+		PrincipalRef: owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: operationID, RequestID: "request:" + operationID, ContractDigest: testManifestDigest, Now: time.Unix(4, 0).UTC(),
+	})
+	_ = leaveFold(ctx, tx)
+	if err != nil {
+		tx.Rollback()
+		t.Fatalf("record_worker_failure: %v", err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	return result
+}
+
+func assertRejectedWorkerFailureRecord(t *testing.T, s *Store, workID string, owner WorkflowActor, expectedVersion int64, payload map[string]any, wantKind FailureKind, wantStep string, wantVersion int64) {
+	t.Helper()
+	var completedBefore int
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=?`, workID, WorkflowActionCompleted).Scan(&completedBefore); err != nil {
+		t.Fatal(err)
+	}
+	tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := enterFold(context.Background(), tx); err != nil {
+		tx.Rollback()
+		t.Fatal(err)
+	}
+	_, err = applyWorkflowActionRawTx(context.Background(), tx, BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
+		WorkID: workID, ExpectedVersion: expectedVersion, ActionID: "record_worker_failure", Payload: mustJSONValue(payload), Actor: owner,
+		AcceptedInputsDigest: "sha256:" + strings.Repeat("r", 64), IdempotencyIdentity: "reject-failure:" + workID, OperationID: "reject-failure:" + workID,
+		PrincipalRef: owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "reject-failure:" + workID, RequestID: "request:reject-failure:" + workID, ContractDigest: testManifestDigest, Now: time.Unix(4, 0).UTC(),
+	})
+	_ = leaveFold(context.Background(), tx)
+	_ = tx.Rollback()
+	if err == nil {
+		t.Fatal("record_worker_failure unexpectedly succeeded")
+	}
+	var failure *Failure
+	if !errors.As(err, &failure) || failure.Kind != wantKind {
+		t.Fatalf("record_worker_failure failure=%v, want %s", err, wantKind)
+	}
+	if got := currentStep(t, s, workID); got != wantStep {
+		t.Fatalf("rejected failure record current_step=%q, want %q", got, wantStep)
+	}
+	if got := readWorkVersion(t, s, workID); got != wantVersion {
+		t.Fatalf("rejected failure record version=%d, want %d", got, wantVersion)
+	}
+	var completed int
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=?`, workID, WorkflowActionCompleted).Scan(&completed); err != nil {
+		t.Fatal(err)
+	}
+	if completed != completedBefore {
+		t.Fatalf("rejected failure record persisted a new workflow.action_completed event: before=%d after=%d", completedBefore, completed)
+	}
+}
+
+func applyStartForTest(t *testing.T, s *Store, workID string, owner WorkflowActor, expectedVersion int64, operationID string) WorkflowActionExecutionResult {
+	t.Helper()
+	ctx := context.Background()
+	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := enterFold(ctx, tx); err != nil {
+		tx.Rollback()
+		t.Fatal(err)
+	}
+	result, err := applyWorkflowActionRawTx(ctx, tx, BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
+		WorkID: workID, ExpectedVersion: expectedVersion, ActionID: "start_execution", Payload: mustJSONValue(map[string]any{}), Actor: owner,
+		AcceptedInputsDigest: "sha256:" + strings.Repeat("s", 64), IdempotencyIdentity: operationID, OperationID: operationID,
+		PrincipalRef: owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: operationID, RequestID: "request:" + operationID, ContractDigest: testManifestDigest, Now: time.Unix(4, 0).UTC(),
+	})
+	_ = leaveFold(ctx, tx)
+	if err != nil {
+		tx.Rollback()
+		t.Fatalf("start_execution: %v", err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	return result
+}
+
+func applyDeliveryForTest(t *testing.T, s *Store, workID string, owner WorkflowActor, expectedVersion int64, operationID string) WorkflowActionExecutionResult {
+	t.Helper()
+	ctx := context.Background()
+	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := enterFold(ctx, tx); err != nil {
+		tx.Rollback()
+		t.Fatal(err)
+	}
+	result, err := applyWorkflowActionRawTx(ctx, tx, BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
+		WorkID: workID, ExpectedVersion: expectedVersion, ActionID: "record_delivery", Payload: mustJSONValue(map[string]any{}), Actor: owner,
+		AcceptedInputsDigest: "sha256:" + strings.Repeat("d", 64), IdempotencyIdentity: operationID, OperationID: operationID,
+		PrincipalRef: owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: operationID, RequestID: "request:" + operationID, ContractDigest: testManifestDigest, Now: time.Unix(5, 0).UTC(),
+	})
+	_ = leaveFold(ctx, tx)
+	if err != nil {
+		tx.Rollback()
+		t.Fatalf("record_delivery: %v", err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	return result
 }
 
 func workflowActionCompletedFixture(eventID, workID, actor string, expected int64, stepID, actionID string) Event {

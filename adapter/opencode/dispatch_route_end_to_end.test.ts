@@ -38,6 +38,11 @@ const WORKFLOW_PREDICATE = {
     immutable_subject_ref: "commit:f076cef390c13944b831b9024334b291a435588b",
   },
 }
+// #903/#904 shared regression: the approved objective is a concrete requested
+// change, while the predicate above already passes on the unmodified baseline.
+// A worker that satisfies only the predicate has not delivered the objective,
+// so the packet must carry both and keep them distinct.
+const APPROVED_OBJECTIVE = "Add the session marker docs/dispatch-marker.txt describing the shipped route."
 
 type JSONRecord = Record<string, any>
 
@@ -263,7 +268,7 @@ routeDeclaration("dispatches a real store route through Task completion and work
     const registry = domainList.result as JSONRecord
     const registryHash = (registry.registry as JSONRecord).content_hash as string
     response = await transition(8, "approve_contract", "e2e-approve-contract", {
-      premise: "Exercise the route.",
+      premise: APPROVED_OBJECTIVE,
       outcome_predicates: [WORKFLOW_PREDICATE],
       required_evidence: [],
       route_conventions: [],
@@ -311,6 +316,16 @@ routeDeclaration("dispatches a real store route through Task completion and work
     const packet = JSON.parse(taskArgs.prompt as string) as JSONRecord
     expect(taskArgs.subagent_type).toBe("concord-implement")
     expect(packet.step_id).toBe("repair")
+    // #903: this fixture is a non-Initiative work item, so no narrative
+    // context exists. The missing narrative must not erase the approved
+    // objective: the real builder and dispatch route must land the objective,
+    // its recorded version binding, and the predicates in inputs.task.
+    expect(packet.inputs).not.toHaveProperty("context")
+    expect(packet.inputs.task).toContain("Approved objective:")
+    expect(packet.inputs.task).toContain(APPROVED_OBJECTIVE)
+    expect(packet.inputs.task).toContain("(work v10, contract v1)")
+    expect(packet.inputs.task).toContain(WORKFLOW_PREDICATE.predicate_id)
+    expect(packet.inputs.task).toContain(WORKFLOW_PREDICATE.outcome_payload.check_ref)
     expect(dispatchResponse?.result?.worker_packet_digest).toMatch(/^sha256:[0-9a-f]{64}$/)
     const report = {
       schema_version: "1.0",

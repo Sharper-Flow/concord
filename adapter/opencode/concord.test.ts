@@ -150,6 +150,28 @@ test("all exported tools return one serialized Concord envelope", async () => {
   }
 })
 
+test("request-wrapped tools accept the Code Mode double-wrapped argument shape", async () => {
+  let invokeStdin = ""
+  const core = coreEnvelope("concord_work_browse", "list", "error", {
+    error: { kind: "internal_error", retry_safe: false, recovery_action: { kind: "contact_operator" }, effect_state: "none" },
+  })
+  adapter.configureConcordAdapter({ runner: runnerWithContext((_argv: string[], input: string) => {
+    invokeStdin = input
+    return core
+  }) })
+  // opencode 1.18.30's Code Mode bridge delivers the published arguments to
+  // plugin tool execute wrapped one extra time under the schema's own
+  // `request` property. Flat-schema work_start is unaffected.
+  const hostResult: any = await adapter.work_browse.execute({ request: { request: { operation: "list", input: {} } } }, contextFor())
+  const envelope = JSON.parse(hostResult.output)
+  expect(envelope.origin).toBe("core")
+  expect(envelope.outcome).toBe("error")
+  const sent = JSON.parse(invokeStdin)
+  expect(sent.operation).toBe("list")
+  expect(sent.input).toEqual({})
+  expect(sent.tool).toBe("concord_work_browse")
+})
+
 test("oversize core results become bounded ToolResult error envelopes", async () => {
   const oversized = coreEnvelope("concord_product_view", "resolve", "error", {
     evidence_refs: Array.from({ length: 32 }, (_, index) => ({

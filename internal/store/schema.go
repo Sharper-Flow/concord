@@ -4239,6 +4239,58 @@ WHERE instance_state NOT IN ('completed','cancelled','superseded')
 DELETE FROM fold_guard;
 `,
 	},
+
+	{
+		Version: 76,
+		Name:    "linear_integration_phase0",
+		SQL: `
+-- Linear integration Phase 0 (issue #971, CD-0121). The planning mode is a
+-- defaulted column, so an older binary that never names it is unaffected.
+ALTER TABLE products ADD COLUMN planning_mode TEXT NOT NULL DEFAULT 'local_only'
+    CHECK (planning_mode IN ('local_only','linear_enabled'));
+
+-- Durable local mapping from a work item to its Linear issue identity. Phase 0
+-- owns the shape and the typed failure surface; later phases write it.
+CREATE TABLE linear_issue_links (
+    work_id            TEXT PRIMARY KEY CHECK(length(work_id) BETWEEN 2 AND 128),
+    remote_issue_uuid  TEXT NOT NULL CHECK(length(remote_issue_uuid) BETWEEN 2 AND 128),
+    human_key          TEXT NOT NULL DEFAULT '' CHECK(length(human_key) <= 64),
+    url                TEXT NOT NULL DEFAULT '' CHECK(length(url) <= 2048),
+    remote_updated_at  TEXT NOT NULL DEFAULT '',
+    content_hash       TEXT NOT NULL DEFAULT '' CHECK(content_hash = '' OR (length(content_hash) = 71 AND substr(content_hash,1,7) = 'sha256:')),
+    link_state         TEXT NOT NULL DEFAULT 'unpublished' CHECK(link_state IN ('unpublished','pending','confirmed','degraded')),
+    created_at         TEXT NOT NULL,
+    updated_at         TEXT NOT NULL
+);
+CREATE INDEX linear_issue_links_state ON linear_issue_links(link_state);
+
+-- Durable queue of intended outbound Linear operations. Nothing enqueues
+-- automatically in Phase 0; the drain arrives with Phase 1.
+CREATE TABLE linear_outbox (
+    operation_id     TEXT PRIMARY KEY CHECK(length(operation_id) BETWEEN 2 AND 128),
+    work_id          TEXT NOT NULL CHECK(length(work_id) BETWEEN 2 AND 128),
+    op_kind          TEXT NOT NULL CHECK(op_kind IN ('issue_create','issue_update')),
+    idempotency_key  TEXT NOT NULL UNIQUE CHECK(length(idempotency_key) BETWEEN 2 AND 128),
+    payload          TEXT NOT NULL CHECK(json_valid(payload) AND json_type(payload) = 'object'),
+    state            TEXT NOT NULL DEFAULT 'queued' CHECK(state IN ('queued','in_flight','done','failed')),
+    attempts         INTEGER NOT NULL DEFAULT 0 CHECK(attempts >= 0),
+    last_error       TEXT NOT NULL DEFAULT '',
+    created_at       TEXT NOT NULL,
+    updated_at       TEXT NOT NULL,
+    CHECK((state = 'queued' AND attempts = 0) OR attempts > 0)
+);
+CREATE INDEX linear_outbox_state ON linear_outbox(state, created_at);
+
+-- Both tables record integration runtime state that later phases mutate inside
+-- fold-guarded operations, matching the worker_attempts pattern.
+CREATE TRIGGER linear_issue_links_guard_insert BEFORE INSERT ON linear_issue_links FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'linear_issue_links is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER linear_issue_links_guard_update BEFORE UPDATE ON linear_issue_links FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'linear_issue_links is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER linear_issue_links_guard_delete BEFORE DELETE ON linear_issue_links FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'linear_issue_links is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER linear_outbox_guard_insert BEFORE INSERT ON linear_outbox FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'linear_outbox is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER linear_outbox_guard_update BEFORE UPDATE ON linear_outbox FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'linear_outbox is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER linear_outbox_guard_delete BEFORE DELETE ON linear_outbox FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'linear_outbox is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+`,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any

@@ -121,7 +121,12 @@ func TestMigrationClosesInstancesOfTerminalWorkItems(t *testing.T) {
 	if _, err := db.ExecContext(ctx, schemaManifestDDL); err != nil {
 		t.Fatal(err)
 	}
-	for _, migration := range migrations[:len(migrations)-1] {
+	// The backfill under test is version 75; later migrations are irrelevant
+	// to it, so the seeded database stops just before 75.
+	for _, migration := range migrations {
+		if migration.Version >= 75 {
+			break
+		}
 		if err := applyMigration(ctx, db, migration); err != nil {
 			t.Fatalf("migration %d: %v", migration.Version, err)
 		}

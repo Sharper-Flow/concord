@@ -144,6 +144,8 @@ var commandSpecs = []commandSpec{
 	{Canonical: "client-key-rotate", TwoWord: "client key-rotate", RequiredFields: requiredFields(field("client_ref"), field("key_id"), field("public_key")), Optional: "none", Enums: "public_key: base64 Ed25519"},
 	{Canonical: "client-revoke", TwoWord: "client revoke", RequiredFields: requiredFields(field("client_ref")), Optional: "none", Enums: "none"},
 	{Canonical: "product-create", TwoWord: "product create", RequiredFields: requiredFields(field("product_id"), field("display_name"), field("stage_maturity"), field("stage_audience_commitment"), field("project_id"), field("project_display_name"), field("role")), Optional: "reason", Enums: "stage_maturity: prototype | alpha | beta | production | deprecated; stage_audience_commitment: operator_only | limited | public; role: primary | secondary"},
+	{Canonical: "product-mode-set", TwoWord: "product mode-set", RequiredFields: requiredFields(field("product_id"), field("planning_mode"), field("expected_version"), field("reason")), Optional: "none", Enums: "planning_mode: local_only | linear_enabled"},
+	{Canonical: "linear-health", TwoWord: "linear health", RequiredFields: requiredFields(field("product_id")), Optional: "none", Enums: "none"},
 	{Canonical: "resource-create", TwoWord: "resource create", RequiredFields: requiredFields(field("event_id"), field("resource_id"), field("product_id"), field("display_name"), field("class"), field("kind"), field("purpose"), field("stage_maturity"), field("stage_audience_commitment"), field("environments"), field("expected_product_version")), Optional: "locator_absence_reason, metadata_schema_version, metadata, owner_purpose, owner_environments", Enums: "stage_maturity: prototype | alpha | beta | production | deprecated; stage_audience_commitment: operator_only | limited | public"},
 	{Canonical: "resource-share", TwoWord: "resource share", RequiredFields: requiredFields(field("event_id"), field("resource_id"), field("product_id"), field("expected_resource_version")), Optional: "purpose, environments", Enums: "none"},
 	{Canonical: "domain-project-attachments-replace", TwoWord: "domain project-attachments-replace", RequiredFields: requiredFields(field("event_id"), field("product_id"), field("domain_id"), field("expected_version"), field("attachments")), Optional: "attachments replaces the complete Domain-to-Project edge set; it does not append", Enums: "attachments[].role: primary | secondary"},
@@ -207,8 +209,12 @@ func writeUsage(out io.Writer) {
 			_, _ = fmt.Fprintf(out, "  concord %s < JSON stdin\n", spec.TwoWord)
 		}
 		_, _ = fmt.Fprintf(out, "    required: %s\n", formatRequiredFields(spec.RequiredFields))
-		_, _ = fmt.Fprintf(out, "    optional: %s\n", spec.Optional)
-		_, _ = fmt.Fprintf(out, "    accepted values: %s\n", spec.Enums)
+		if spec.Optional != "" && spec.Optional != "none" {
+			_, _ = fmt.Fprintf(out, "    optional: %s\n", spec.Optional)
+		}
+		if spec.Enums != "" && spec.Enums != "none" {
+			_, _ = fmt.Fprintf(out, "    accepted values: %s\n", spec.Enums)
+		}
 	}
 }
 
@@ -816,6 +822,45 @@ func runInvoke(raw []byte, s *store.Store, service *agent.Service, out, errOut i
 	return writeJSON(out, response, errOut)
 }
 
+// runProductModeSet handles the Linear Phase 0 operator verb that records a
+// Product's CD-0121 planning-mode selection.
+func runProductModeSet(ctx context.Context, s *store.Store, raw []byte, command string, out, errOut io.Writer) int {
+	var request struct {
+		ProductID       string `json:"product_id"`
+		PlanningMode    string `json:"planning_mode"`
+		ExpectedVersion int64  `json:"expected_version"`
+		Reason          string `json:"reason"`
+	}
+	if err := decodeObject(raw, &request); err != nil {
+		writeOperatorDiagnostic(errOut, command, err.Error())
+		return 1
+	}
+	result, err := s.SetProductPlanningMode(ctx, request.ProductID, request.PlanningMode, request.Reason, "operator", request.ExpectedVersion)
+	if err != nil {
+		writeOperatorDiagnostic(errOut, command, err.Error())
+		return 1
+	}
+	return writeOperatorResult(command, s, result.EventIDs, []operatorRef{{EntityKind: store.SubjectProduct, ID: request.ProductID}}, out, errOut)
+}
+
+// runLinearHealth handles the Linear Phase 0 operator verb that reads one
+// Product's bounded integration health.
+func runLinearHealth(ctx context.Context, s *store.Store, raw []byte, command string, out, errOut io.Writer) int {
+	var request struct {
+		ProductID string `json:"product_id"`
+	}
+	if err := decodeObject(raw, &request); err != nil {
+		writeOperatorDiagnostic(errOut, command, err.Error())
+		return 1
+	}
+	health, err := s.ReadLinearIntegrationHealth(ctx, request.ProductID)
+	if err != nil {
+		writeOperatorDiagnostic(errOut, command, err.Error())
+		return 1
+	}
+	return writeJSON(out, map[string]any{"ok": true, "health": health}, errOut)
+}
+
 func runInternal(command string, raw []byte, service *agent.Service, s *store.Store, clock func() time.Time, out, errOut io.Writer) int {
 	ctx := context.Background()
 	switch command {
@@ -986,6 +1031,10 @@ func runInternal(command string, raw []byte, service *agent.Service, s *store.St
 			return 1
 		}
 		return writeOperatorResult(command, s, result.EventIDs, []operatorRef{{EntityKind: store.SubjectProduct, ID: request.ProductID}, {EntityKind: store.SubjectProject, ID: request.ProjectID}}, out, errOut)
+	case "product-mode-set":
+		return runProductModeSet(ctx, s, raw, command, out, errOut)
+	case "linear-health":
+		return runLinearHealth(ctx, s, raw, command, out, errOut)
 	case "resource-create":
 		var request struct {
 			EventID                 string          `json:"event_id"`

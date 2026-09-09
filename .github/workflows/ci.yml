@@ -35,6 +35,8 @@ jobs:
         run: python3 scripts/check-public-content.py
       - name: Test the adapter suite
         run: bun test adapter/opencode/
+      - name: Coordinator observation evaluator tests (no model calls)
+        run: python3 -m unittest discover -s adapter/opencode/evals/coordinator -p 'test_*.py'
       - name: Validate documentation links
         run: python3 scripts/check-doc-links.py
       - name: Validate agent instructions

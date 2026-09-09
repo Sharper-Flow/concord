@@ -33,6 +33,7 @@ mock.module("@opencode-ai/plugin", () => ({ tool: fakeTool }))
 
 const source = await Bun.file(new URL("./concord.ts", import.meta.url)).text()
 const credentialSource = await Bun.file(new URL("./credentials.ts", import.meta.url)).text()
+const askingSource = await Bun.file(new URL("../../instructions/asking.md", import.meta.url)).text()
 const continuationSource = await Bun.file(new URL("../../instructions/continuation.md", import.meta.url)).text()
 // The tests run against a fake runner, so bind the transport to a nominal
 // core path instead of the unstamped repository placeholder (CD-0111 D1).
@@ -1567,32 +1568,29 @@ test("a session without a host lease refuses every core operation", async () => 
   configureHostLease({ reset: true })
 })
 
-test("native workflow-action dispatch is discoverable without MCP catalog results", () => {
-  expect(source).toContain("operation workflow_action")
-  expect(source).toContain("action_id dispatch_worker")
-  expect(source).toContain("fields.lane_id")
-  expect(source).toContain("Route discovery does not prove admission at the current workflow step")
+test("the host-owned tool description publishes the native dispatch route", () => {
+  const description = (adapter.work_transition as any).description
+  expect(description).toContain("operation workflow_action")
+  expect(description).toContain("action_id dispatch_worker")
+  expect(description).toContain("fields.lane_id")
+  expect(description).toContain("Route discovery does not prove admission at the current workflow step")
   expect(contractOperations.some((operation: any) => operation.id === "concord_work_transition.workflow_action")).toBe(true)
 })
 
-test("continuation posture keeps refusal classes and recovery handoffs distinct", () => {
-  for (const clause of [
-    "missing capability",
-    "workflow-step restriction",
-    "missing approval",
-    "missing credential",
-    "authorization denial",
-    "unverified diagnosis",
-    "Do not retry an identical refused request",
-    "Do not\nrequest approval again because a bookkeeping or checkpoint write failed",
-    "the failed action, the verified",
-    "the effect state",
-    "the exact operator action",
-    "the recovery owner",
-    "A changed host directory or status message is",
-    "verify the relevant authoritative state by",
-    "Do not create a second policy, mutation route, approval record, or evidence path",
+test("portable continuation posture leaves host protocol names to the host surface", () => {
+  for (const hostTerm of [
+    "Concord",
+    "concord_work_transition",
+    "workflow_action",
+    "action_id",
+    "fields.lane_id",
+    "contact_operator",
+    "host",
+    "native",
   ]) {
-    expect(continuationSource).toContain(clause)
+    expect(continuationSource).not.toContain(hostTerm)
   }
+  expect(askingSource).toContain("Do not ask for permission to continue work already agreed")
+  expect(continuationSource).not.toContain("Do not ask for general permission to continue")
+  expect(continuationSource.match(/When you stop,/g)?.length).toBe(1)
 })

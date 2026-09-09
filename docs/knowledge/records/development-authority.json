@@ -51,9 +51,21 @@
     {
       "criterion": 13,
       "exemption": "Normative cutover and identity-preservation requirement. Any migration requires explicit approval and executable evidence under its own contract; this policy does not migrate existing records."
+    },
+    {
+      "criterion": 14,
+      "exemption": "Policy-only outside-work boundary under CD-0122 D1. Host permissions remain authoritative, and outside work creates no Concord workflow evidence."
+    },
+    {
+      "criterion": 15,
+      "exemption": "Policy-only defect-repair application under CD-0122 D2. Repository isolation and public review evidence remain required; no runtime repair route is added here."
+    },
+    {
+      "criterion": 16,
+      "exemption": "Policy-only host-role preservation under CD-0122 D3. This amendment changes no host-owned permission, session, directory, or participation rule."
     }
   ],
-  "date": "2026-09-08T00:00:00Z",
+  "date": "2026-09-09T00:00:00Z",
   "evidence": [
     "scripts/check-public-content.py",
     "scripts/check-doc-contract.py",
@@ -64,6 +76,7 @@
     "scripts/check-agent-contracts.py",
     "scripts/check-floor-readiness.py",
     "scripts/check-predecessor-independence.py",
+    "docs/decisions/CD-0122-concord-workflow-scope-and-defect-repair.md",
     ".github/workflows/ci.yml"
   ],
   "home_domain_id": "repository-verification",
@@ -73,6 +86,10 @@
     {
       "kind": "subordinate_to",
       "target_id": "CD-0121"
+    },
+    {
+      "kind": "subordinate_to",
+      "target_id": "CD-0122"
     }
   ],
   "path": "docs/development-authority.md",
@@ -83,16 +100,18 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:5a5005698518a01c7a87bb9d7addc25d6a840051992c3766062adf1c14784644",
+  "sha256": "sha256:98634bbe19b860013d1f98556fdd3962c4559f4dd68d489e41d38ccb6e28c350",
   "status": "accepted",
-  "summary": "Defines Product-scoped planning for Linear-enabled and local-only operation, truthful activation and cutover, and the separate authority of Concord workflow, Product law, and repository review and merge evidence.",
+  "summary": "Defines Product-scoped planning, explicit Concord workflow participation, authorized outside-work defect repair, truthful activation and cutover, and separate repository and host authority.",
   "tags": [
     "authority",
     "process",
     "cd-0089",
     "cd-0121",
+    "cd-0122",
     "linear",
     "local-only",
+    "defect-repair",
     "coordination"
   ],
   "title": "development authority"

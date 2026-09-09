@@ -1,18 +1,24 @@
 # Concord development authority
 
-**Status:** Accepted under CD-0089, amended by CD-0121.
-**Approval date:** 2026-09-08.
-**Approval:** Operator approval for [issue #955](https://github.com/Sharper-Flow/concord/issues/955).
+**Status:** Accepted under CD-0089, amended by CD-0121 and CD-0122.
+**Approval date:** 2026-09-09.
+**Approval:** Operator approval for the Product-scoped development policy.
 
 ## Context
 
-Concord owns its development workflow. Planning authority follows the Product's
-selected mode, not a global issue-provider requirement. A local-only Product can
-use a private Git repository without Linear or GitHub Issues.
+Concord owns its development workflow for explicitly managed work. Planning
+authority follows the Product's selected mode, not a global issue-provider
+requirement. A local-only Product can use a private Git repository without
+Linear or GitHub Issues.
 
 [CD-0121](decisions/CD-0121-product-scoped-planning-authority.md) amends the
 planning and issue-linkage clauses of CD-0010 and CD-0089. Their repository
 review, merge, isolation, and Product-law boundaries remain in force.
+
+[CD-0122](decisions/CD-0122-concord-workflow-scope-and-defect-repair.md)
+clarifies that project work may proceed outside Concord workflow. It also
+defines a defect-repair application when the workflow blocks safe repair.
+Repository evidence and host-role boundaries remain unchanged.
 
 ## Contract
 
@@ -24,6 +30,19 @@ an agent creates planned work.
 
 This contract defines policy. It does not claim that Product-mode configuration,
 Linear setup, or synchronization is implemented by the installed software.
+
+Concord workflow governs only explicitly managed participation. Project work is
+permitted outside the workflow under host permissions and repository rules. Work
+outside the workflow creates no Concord workflow authority, evidence, verdict, or
+completion claim.
+
+An authorized defect repair may proceed outside Concord workflow when a Concord
+defect blocks safe normal recording or execution. The repair uses an isolated
+branch and worktree and preserves public pull-request and required-check
+evidence. It does not fabricate, rewrite, or infer Concord workflow records.
+
+Host permissions, session identity, session directories, and managed
+participation remain host-owned. This contract does not change host roles.
 
 ### Authority by fact type
 
@@ -94,6 +113,10 @@ not a live-file patch or an agent bypass.
 7. Public repository content excludes private Product data, credentials, and
    inaccessible private-source citations. Public review describes the change
    without copying private planning records.
+8. Concord workflow authority applies only to explicitly managed participation.
+   Outside project work receives no Concord workflow evidence.
+9. A defect repair outside workflow retains repository isolation and public
+   review evidence without changing host roles or Product law.
 
 Document placement, synchronization protocols, and credential mechanisms require
 their own approved contracts. Choosing Linear does not transfer workflow or
@@ -153,12 +176,24 @@ Product-law authority to it, or require every document to live there.
   When records migrate
   Then explicit identity mappings preserve existing links without automatic duplicates.
 
+- Given project work without explicit managed participation
+  When the work is performed
+  Then host permissions and repository rules govern it without Concord workflow evidence.
+
+- Given a Concord defect blocks safe normal recording or execution
+  When an authorized repair occurs outside workflow
+  Then it uses an isolated branch and worktree and preserves public review evidence.
+
+- Given outside-work repair
+  When host roles are checked
+  Then host permissions, session directories, and managed participation remain unchanged.
+
 ## Verification
 
 These are process-authority requirements, not evidence of implemented Linear
 behavior. Knowledge, document, link, and public-content checks validate the
 policy artifacts. Review checks the authority table, mode boundaries, and
-cutover requirements against CD-0121.
+cutover requirements against CD-0121 and CD-0122.
 
 Runtime activation requires separate evidence for Product configuration, access,
 creation, identity mapping, and isolation. A passing document validator does not
@@ -191,3 +226,9 @@ mechanisms retain their own verification contracts.
   Policy adoption and document checks do not supply that evidence.
 - Criterion 13: a migration requires its own approved contract and verified
   identity mapping. This amendment executes no migration.
+- Criterion 14: review the outside-work boundary against CD-0122 D1. Host
+  permissions remain authoritative, and no Concord evidence is created.
+- Criterion 15: review the defect-repair application against CD-0122 D2.
+  Repository isolation and public review evidence remain required.
+- Criterion 16: review host-role preservation against CD-0122 D3. This policy
+  changes no host-owned permission, session, directory, or participation rule.

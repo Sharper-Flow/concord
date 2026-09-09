@@ -24,8 +24,8 @@ derivable fact drifts from its source and no check catches it.
   `concord_work_start` captures the item, claims its canonical worktree, and moves
   the session; the shell reports the pre-move directory until the next turn.
   A hand-made worktree is the route rejected in [`CD-0088`](docs/decisions/CD-0088-host-owned-work-bootstrap-preserves-pre-readiness-authority.md).
-- Concord coordinates its own development. Each session has a Concord identity
-  and the planning reference required by its Product mode.
+- Concord coordinates explicitly managed development. Other project work and
+  defect repair may proceed outside the workflow under host permissions and repository rules; they receive no Concord workflow authority or evidence.
 - Advance is public predecessor evidence only. Do not create or dual-write
   Advance state, and do not route Concord work through ADV. A local
   `project.json` may appear; it is ignored by git and must never be committed.

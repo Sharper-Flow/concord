@@ -43,7 +43,7 @@ priorities, and quality governance are defined in [`priorities.md`](./priorities
 | [`advance-postmortem.md`](./advance-postmortem.md) | Evidence record of Advance's state-model and coordination failures; source for constraints §14–§19 and Research Backlog items 6–7. |
 | [`advance-predecessor-lessons.md`](./advance-predecessor-lessons.md) | Public, issue-linked lessons from the predecessor; non-authorizing design input. |
 | [`provenance.md`](./provenance.md) | Public-safety boundary, preserved identifiers, and authority transition. |
-| [`development-authority.md`](./development-authority.md) | Accepted Concord development workflow with GitHub planning and merge authority. |
+| [`development-authority.md`](./development-authority.md) | Accepted development authority, explicit workflow participation, outside-work defect repair, and repository evidence. |
 | [`installation.md`](./installation.md) | Release installation, Secret Service prerequisites, OpenCode registration, upgrade, and uninstall. |
 | [`clarifications.md`](./clarifications.md) | Accepted clarification history plus explicitly deferred later-phase questions. |
 | [`product-memory-query-contract.md`](./product-memory-query-contract.md) + [`product-memory-query.v1.json`](../scenarios/product-memory-query.v1.json) | **Accepted PM1** canonical query contract and golden corpus; binding input to PM2/PM3 and TS1/TS3 evaluation. |
@@ -68,6 +68,7 @@ priorities, and quality governance are defined in [`priorities.md`](./priorities
 | [`decisions/CD-0010-pre-readiness-development-authority.md`](./decisions/CD-0010-pre-readiness-development-authority.md) | **Accepted CD-0010:** pre-readiness authority, amended by CD-0089 for self-hosting and CD-0121 for planning and issue linkage. |
 | [`decisions/CD-0089-concord-development-coordination.md`](./decisions/CD-0089-concord-development-coordination.md) | **Accepted CD-0089:** Concord owns its development workflow; CD-0121 governs Product-scoped planning while repository review and merge authority remain intact. |
 | [`decisions/CD-0121-product-scoped-planning-authority.md`](./decisions/CD-0121-product-scoped-planning-authority.md) | **Accepted CD-0121:** Linear is optional per Product, local-only work requires no external issue provider, and verified activation remains separate from policy. |
+| [`decisions/CD-0122-concord-workflow-scope-and-defect-repair.md`](./decisions/CD-0122-concord-workflow-scope-and-defect-repair.md) | **Accepted CD-0122:** Concord workflow applies to explicitly managed work, outside project work and authorized defect repair remain permitted, and host roles do not change. |
 | [`decisions/CD-0011-retain-sqlite-after-conformance.md`](./decisions/CD-0011-retain-sqlite-after-conformance.md) | **Accepted CD-0011:** retain direct local SQLite after reviewing environment-sensitive ten-process latency evidence; correctness and recovery remain clean, with explicit future reopen conditions. |
 | [`decisions/CD-0008-concord-mechanism-hardening.md`](./decisions/CD-0008-concord-mechanism-hardening.md) | **Accepted CD-0008:** one shared Product authority with isolated worktree sets, immutable-subject evidence binding, dependency-aware unreadable-record policy, workflow checkpoints/attempt fencing, typed external conditions, event upcasters/history reads, and confirmed SQLite authority with alternative comparison only after a falsifier. |
 | [`decisions/CD-0009-active-research-context.md`](./decisions/CD-0009-active-research-context.md) | **Accepted CD-0009, amended by CD-0041:** Initiative and research are ordinary work-item kinds; Initiative is secondary business/outcome context, while active research packs remain versioned SQLite working context and are deleted after proof-backed archive compaction. |
@@ -194,7 +195,8 @@ CD-0007 fixes the public repository bootstrap, governance, release/install,
 platform/privacy, workflow/conformance, and skill boundaries. CD-0089 supersedes
 CD-0010's self-hosting prohibition: Concord owns its development workflow.
 CD-0121 makes planning authority Product-scoped without changing repository
-review, merge, or workflow authority.
+review, merge, or workflow authority. CD-0122 limits Concord workflow authority
+to explicit participation and preserves outside-work repair and host roles.
 CD-0012 gives Priority 3's *intent fidelity* and *no silent drift* attributes a mechanism,
 extending CD-0006 D10's approved-mandate pattern from specs authorized for modification to
 end-state required for delivery: a delivered outcome weaker than the approved one fails,

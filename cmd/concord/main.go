@@ -3,7 +3,9 @@ package main
 import (
 	"context"
 	"crypto/ed25519"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -22,6 +24,7 @@ import (
 	"github.com/sharper-flow/concord/internal/launcher"
 	"github.com/sharper-flow/concord/internal/launcher/render/bubbletea"
 	"github.com/sharper-flow/concord/internal/launcher/storeport"
+	"github.com/sharper-flow/concord/internal/linearclient"
 	"github.com/sharper-flow/concord/internal/predecessor"
 	"github.com/sharper-flow/concord/internal/store"
 	"github.com/sharper-flow/concord/internal/version"
@@ -146,13 +149,15 @@ var commandSpecs = []commandSpec{
 	{Canonical: "product-create", TwoWord: "product create", RequiredFields: requiredFields(field("product_id"), field("display_name"), field("stage_maturity"), field("stage_audience_commitment"), field("project_id"), field("project_display_name"), field("role")), Optional: "reason", Enums: "stage_maturity: prototype | alpha | beta | production | deprecated; stage_audience_commitment: operator_only | limited | public; role: primary | secondary"},
 	{Canonical: "product-mode-set", TwoWord: "product mode-set", RequiredFields: requiredFields(field("product_id"), field("planning_mode"), field("expected_version"), field("reason")), Optional: "none", Enums: "planning_mode: local_only | linear_enabled"},
 	{Canonical: "linear-health", TwoWord: "linear health", RequiredFields: requiredFields(field("product_id")), Optional: "none", Enums: "none"},
+	{Canonical: "linear-issue-enqueue", TwoWord: "linear issue-enqueue", RequiredFields: requiredFields(field("product_id"), field("work_id"), field("op_kind")), Optional: "none", Enums: "op_kind: issue_create | issue_update"},
+	{Canonical: "linear-outbox-drain", TwoWord: "linear outbox-drain", RequiredFields: requiredFields(field("product_id")), Optional: "max_operations", Enums: "none"},
 	{Canonical: "resource-create", TwoWord: "resource create", RequiredFields: requiredFields(field("event_id"), field("resource_id"), field("product_id"), field("display_name"), field("class"), field("kind"), field("purpose"), field("stage_maturity"), field("stage_audience_commitment"), field("environments"), field("expected_product_version")), Optional: "locator_absence_reason, metadata_schema_version, metadata, owner_purpose, owner_environments", Enums: "stage_maturity: prototype | alpha | beta | production | deprecated; stage_audience_commitment: operator_only | limited | public"},
 	{Canonical: "resource-share", TwoWord: "resource share", RequiredFields: requiredFields(field("event_id"), field("resource_id"), field("product_id"), field("expected_resource_version")), Optional: "purpose, environments", Enums: "none"},
-	{Canonical: "domain-project-attachments-replace", TwoWord: "domain project-attachments-replace", RequiredFields: requiredFields(field("event_id"), field("product_id"), field("domain_id"), field("expected_version"), field("attachments")), Optional: "attachments replaces the complete Domain-to-Project edge set; it does not append", Enums: "attachments[].role: primary | secondary"},
-	{Canonical: "domain-resource-attachments-replace", TwoWord: "domain resource-attachments-replace", RequiredFields: requiredFields(field("event_id"), field("product_id"), field("domain_id"), field("expected_version"), field("attachments")), Optional: "attachments replaces the complete Domain-to-resource edge set; it does not append", Enums: "none"},
+	{Canonical: "domain-project-attachments-replace", TwoWord: "domain project-attachments-replace", RequiredFields: requiredFields(field("event_id"), field("product_id"), field("domain_id"), field("expected_version"), field("attachments")), Optional: "attachments (replaces the full edge set)", Enums: "attachments[].role: primary | secondary"},
+	{Canonical: "domain-resource-attachments-replace", TwoWord: "domain resource-attachments-replace", RequiredFields: requiredFields(field("event_id"), field("product_id"), field("domain_id"), field("expected_version"), field("attachments")), Optional: "attachments (replaces the full edge set)", Enums: "none"},
 	{Canonical: "project-create", TwoWord: "project create", RequiredFields: requiredFields(field("project_id"), field("display_name"), field("product_id"), field("role"), field("expected_product_version")), Optional: "reason", Enums: "role: primary | secondary"},
 	{Canonical: "product-project-add", TwoWord: "product project-add", RequiredFields: requiredFields(field("product_id"), field("project_id"), field("role"), field("expected_version")), Optional: "reason", Enums: "role: primary | secondary"},
-	{Canonical: "product-stage-update", TwoWord: "product stage-update", RequiredFields: requiredFields(field("product_id"), field("stage_maturity"), field("stage_audience_commitment"), field("expected_version")), Optional: "reason; cite the satisfied rung manifest (CD-0091) when raising maturity", Enums: "stage_maturity: prototype | alpha | beta | production | deprecated; stage_audience_commitment: operator_only | limited | public"},
+	{Canonical: "product-stage-update", TwoWord: "product stage-update", RequiredFields: requiredFields(field("product_id"), field("stage_maturity"), field("stage_audience_commitment"), field("expected_version")), Optional: "reason (cite the CD-0091 rung manifest when raising maturity)", Enums: "stage_maturity: prototype | alpha | beta | production | deprecated; stage_audience_commitment: operator_only | limited | public"},
 	{Canonical: "product-knowledge-home-designate", TwoWord: "product knowledge-home-designate", RequiredFields: requiredFields(field("product_id"), field("project_id"), field("locator_id"), field("expected_version")), Optional: "reason", Enums: "locator_id: a canonical_path locator of the member Project"},
 	{Canonical: "product-knowledge-home-clear", TwoWord: "product knowledge-home-clear", RequiredFields: requiredFields(field("product_id"), field("expected_version")), Optional: "reason", Enums: "none"},
 	{Canonical: "project-locator-add", TwoWord: "project locator-add", RequiredFields: requiredFields(field("project_id"), field("locator_id"), field("kind"), field("value"), field("expected_version")), Optional: "none", Enums: "kind: canonical_path | git_remote"},
@@ -861,6 +866,161 @@ func runLinearHealth(ctx context.Context, s *store.Store, raw []byte, command st
 	return writeJSON(out, map[string]any{"ok": true, "health": health}, errOut)
 }
 
+// runLinearIssueEnqueue handles the Phase 1 verb that queues one outbound
+// issue operation for a work item under the Product's planning authority.
+func runLinearIssueEnqueue(ctx context.Context, s *store.Store, raw []byte, command string, out, errOut io.Writer) int {
+	var request struct {
+		ProductID string `json:"product_id"`
+		WorkID    string `json:"work_id"`
+		OpKind    string `json:"op_kind"`
+	}
+	if err := decodeObject(raw, &request); err != nil {
+		writeOperatorDiagnostic(errOut, command, err.Error())
+		return 1
+	}
+	if request.OpKind != store.LinearOpIssueCreate && request.OpKind != store.LinearOpIssueUpdate {
+		writeOperatorDiagnostic(errOut, command, "accepted values: op_kind: issue_create | issue_update")
+		return 1
+	}
+	if _, err := s.ResolveLinearPlanningTarget(ctx, request.ProductID); err != nil {
+		writeOperatorDiagnostic(errOut, command, err.Error())
+		return 1
+	}
+	entry, err := s.EnqueueLinearIssueForWork(ctx, request.WorkID, request.OpKind)
+	if err != nil {
+		writeOperatorDiagnostic(errOut, command, err.Error())
+		return 1
+	}
+	return writeJSON(out, map[string]any{"ok": true, "operation": map[string]any{
+		"operation_id": entry.OperationID, "work_id": entry.WorkID, "op_kind": entry.OpKind, "state": "queued",
+	}}, errOut)
+}
+
+// runLinearOutboxDrain handles the Phase 1 verb that drains claimed outbox
+// operations to Linear. Credential custody (CD-0121 D3): the key comes from
+// CONCORD_LINEAR_API_KEY and never reaches the database, an event, or output.
+func runLinearOutboxDrain(ctx context.Context, s *store.Store, raw []byte, command string, out, errOut io.Writer) int {
+	var request struct {
+		ProductID     string `json:"product_id"`
+		MaxOperations int64  `json:"max_operations"`
+	}
+	if err := decodeObject(raw, &request); err != nil {
+		writeOperatorDiagnostic(errOut, command, err.Error())
+		return 1
+	}
+	if request.MaxOperations == 0 {
+		request.MaxOperations = 10
+	}
+	if _, err := s.ResolveLinearPlanningTarget(ctx, request.ProductID); err != nil {
+		writeOperatorDiagnostic(errOut, command, err.Error())
+		return 1
+	}
+	mode, err := s.ReadProductPlanningMode(ctx, request.ProductID)
+	if err != nil {
+		writeOperatorDiagnostic(errOut, command, err.Error())
+		return 1
+	}
+	if mode.PlanningMode == store.PlanningModeLocalOnly {
+		writeOperatorDiagnostic(errOut, command, "planning mode is local_only; set planning_mode to linear_enabled before draining")
+		return 1
+	}
+	client, err := linearclient.FromEnv()
+	if err != nil {
+		writeOperatorDiagnostic(errOut, command, err.Error()+"; set CONCORD_LINEAR_API_KEY in the process environment")
+		return 1
+	}
+	connection, err := s.ReadLinearConnection(ctx, request.ProductID)
+	if err != nil {
+		writeOperatorDiagnostic(errOut, command, err.Error())
+		return 1
+	}
+	claimed, err := s.ClaimLinearOperations(ctx, request.MaxOperations)
+	if err != nil {
+		writeOperatorDiagnostic(errOut, command, err.Error())
+		return 1
+	}
+	type drained struct {
+		OperationID string `json:"operation_id"`
+		Outcome     string `json:"outcome"`
+		Identifier  string `json:"identifier,omitempty"`
+		Detail      string `json:"detail,omitempty"`
+	}
+	results := make([]drained, 0, len(claimed))
+	for _, op := range claimed {
+		var payload linearDrainPayload
+		if err := json.Unmarshal(op.Payload, &payload); err != nil {
+			_ = s.FailLinearOperation(ctx, op.OperationID, "permanent", "payload does not decode")
+			results = append(results, drained{OperationID: op.OperationID, Outcome: "failed", Detail: "payload does not decode"})
+			continue
+		}
+		teamID := payload.TeamID
+		if teamID == "" {
+			teamID = connection.TeamID
+		}
+		var (
+			issue linearclient.Issue
+			derr  error
+		)
+		if op.OpKind == store.LinearOpIssueUpdate {
+			issue, derr = drainUpdate(ctx, s, client, op, payload)
+		} else {
+			issue, derr = client.CreateIssue(ctx, linearclient.CreateIssueInput{
+				ID: payload.ClientUUID, TeamID: teamID, Title: payload.Title, Description: payload.Description,
+			})
+		}
+		if derr != nil {
+			class := "permanent"
+			if linearclient.IsRetryable(derr) {
+				class = "retryable"
+			}
+			_ = s.FailLinearOperation(ctx, op.OperationID, class, derr.Error())
+			results = append(results, drained{OperationID: op.OperationID, Outcome: class, Detail: derr.Error()})
+			continue
+		}
+		identity := store.LinearRemoteIdentity{
+			RemoteUUID:      issue.ID,
+			HumanKey:        issue.Identifier,
+			URL:             issue.URL,
+			RemoteUpdatedAt: issue.UpdatedAt.UTC().Format(time.RFC3339Nano),
+			ContentHash:     linearContentHash(payload.Title, payload.Description),
+		}
+		if err := s.CompleteLinearOperation(ctx, op.OperationID, identity); err != nil {
+			_ = s.FailLinearOperation(ctx, op.OperationID, "retryable", err.Error())
+			results = append(results, drained{OperationID: op.OperationID, Outcome: "retryable", Detail: err.Error()})
+			continue
+		}
+		results = append(results, drained{OperationID: op.OperationID, Outcome: "done", Identifier: issue.Identifier})
+	}
+	return writeJSON(out, map[string]any{"ok": true, "drained": len(results), "operations": results}, errOut)
+}
+
+// linearDrainPayload is the JSON convention every outbox payload carries.
+type linearDrainPayload struct {
+	ClientUUID  string `json:"client_uuid"`
+	Title       string `json:"title"`
+	Description string `json:"description"`
+	TeamID      string `json:"team_id"`
+}
+
+// drainUpdate resolves the linked remote identity and executes issueUpdate.
+func drainUpdate(ctx context.Context, s *store.Store, client *linearclient.Client, op store.ClaimedLinearOperation, payload linearDrainPayload) (linearclient.Issue, error) {
+	link, err := s.ReadLinearLink(ctx, op.WorkID)
+	if err != nil {
+		return linearclient.Issue{}, err
+	}
+	if link.RemoteIssueUUID == "" || link.RemoteIssueUUID == payload.ClientUUID {
+		return linearclient.Issue{}, fmt.Errorf("link has no confirmed remote issue to update")
+	}
+	return client.UpdateIssue(ctx, link.RemoteIssueUUID, linearclient.UpdateIssueInput{Title: payload.Title, Description: payload.Description})
+}
+
+// linearContentHash digests the synchronized content so a later reconciliation
+// pass can detect divergence.
+func linearContentHash(title, description string) string {
+	sum := sha256.Sum256([]byte(title + "\n" + description))
+	return "sha256:" + hex.EncodeToString(sum[:])
+}
+
 func runInternal(command string, raw []byte, service *agent.Service, s *store.Store, clock func() time.Time, out, errOut io.Writer) int {
 	ctx := context.Background()
 	switch command {
@@ -1035,6 +1195,10 @@ func runInternal(command string, raw []byte, service *agent.Service, s *store.St
 		return runProductModeSet(ctx, s, raw, command, out, errOut)
 	case "linear-health":
 		return runLinearHealth(ctx, s, raw, command, out, errOut)
+	case "linear-issue-enqueue":
+		return runLinearIssueEnqueue(ctx, s, raw, command, out, errOut)
+	case "linear-outbox-drain":
+		return runLinearOutboxDrain(ctx, s, raw, command, out, errOut)
 	case "resource-create":
 		var request struct {
 			EventID                 string          `json:"event_id"`

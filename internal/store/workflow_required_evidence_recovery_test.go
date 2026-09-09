@@ -188,7 +188,10 @@ func (f acceptanceRecoveryFixture) authority(t *testing.T) (step string, contrac
 	return step, contractVersion, verdicts
 }
 
-func requireRecoveryFailure(t *testing.T, err error, want FailureKind, context string) *Failure {
+// requireRecoveryFailure asserts the refusal kind and returns its detail. It
+// returns the detail rather than the failure so that callers never hold an
+// error value they do not check.
+func requireRecoveryFailure(t *testing.T, err error, want FailureKind, context string) string {
 	t.Helper()
 	if err == nil {
 		t.Fatalf("%s passed, want %s", context, want)
@@ -197,7 +200,7 @@ func requireRecoveryFailure(t *testing.T, err error, want FailureKind, context s
 	if !failureAs(err, &failure) || failure.Kind != want {
 		t.Fatalf("%s error = %v, want %s", context, err, want)
 	}
-	return failure
+	return failure.Detail
 }
 
 // The whole typed path: an accepted delivery whose contract-required kind was
@@ -209,9 +212,10 @@ func TestAcceptanceRecoversMissingRequiredEvidenceKind(t *testing.T) {
 	f := newAcceptanceRecoveryFixture(ctx, t, wf04OutstandingKind)
 
 	beforeStep, beforeContract, beforeVerdicts := f.authority(t)
-	failure := requireRecoveryFailure(t, f.run(ctx, "confirm_premise", "confirm-missing", f.version(ctx, t), nil, nil), KindMissingEvidence, "confirmation with an unbound required kind")
-	if !strings.Contains(failure.Detail, wf04OutstandingKind) {
-		t.Fatalf("confirmation refusal = %q, want it to name the missing %s kind", failure.Detail, wf04OutstandingKind)
+	confirmErr := f.run(ctx, "confirm_premise", "confirm-missing", f.version(ctx, t), nil, nil)
+	detail := requireRecoveryFailure(t, confirmErr, KindMissingEvidence, "confirmation with an unbound required kind")
+	if !strings.Contains(detail, wf04OutstandingKind) {
+		t.Fatalf("confirmation refusal = %q, want it to name the missing %s kind", detail, wf04OutstandingKind)
 	}
 
 	if err := f.bind(ctx, "recover-outstanding", f.version(ctx, t), wf04OutstandingKind, wf04RecoveryRef); err != nil {
@@ -252,12 +256,14 @@ func TestAcceptanceRecoveryRefusesOutsideOutstandingRequirements(t *testing.T) {
 	f := newAcceptanceRecoveryFixture(ctx, t, wf04OutstandingKind)
 
 	const unrelated = "artifact:unrelated-recovery-subject"
-	requireRecoveryFailure(t, f.bind(ctx, "unrelated-kind", f.version(ctx, t), "artifact", unrelated), KindIllegalLifecycleTransition, "recovery binding for an unrequired kind")
+	unrelatedErr := f.bind(ctx, "unrelated-kind", f.version(ctx, t), "artifact", unrelated)
+	requireRecoveryFailure(t, unrelatedErr, KindIllegalLifecycleTransition, "recovery binding for an unrequired kind")
 	if got := f.boundCount(t, "artifact", unrelated); got != 0 {
 		t.Fatalf("refused unrelated binding count = %d, want 0", got)
 	}
 
-	requireRecoveryFailure(t, f.bind(ctx, "stale-version", f.version(ctx, t)-1, wf04OutstandingKind, wf04RecoveryRef), KindVersionConflict, "recovery binding at a stale version")
+	staleErr := f.bind(ctx, "stale-version", f.version(ctx, t)-1, wf04OutstandingKind, wf04RecoveryRef)
+	requireRecoveryFailure(t, staleErr, KindVersionConflict, "recovery binding at a stale version")
 	if got := f.boundCount(t, wf04OutstandingKind, wf04RecoveryRef); got != 0 {
 		t.Fatalf("stale-version binding count = %d, want 0", got)
 	}
@@ -265,7 +271,8 @@ func TestAcceptanceRecoveryRefusesOutsideOutstandingRequirements(t *testing.T) {
 	if err := f.bind(ctx, "recover-outstanding", f.version(ctx, t), wf04OutstandingKind, wf04RecoveryRef); err != nil {
 		t.Fatalf("recovery binding for the outstanding kind refused: %v", err)
 	}
-	requireRecoveryFailure(t, f.bind(ctx, "recover-again", f.version(ctx, t), wf04OutstandingKind, wf04RecoveryRef), KindIllegalLifecycleTransition, "second recovery binding of a satisfied kind")
+	repeatErr := f.bind(ctx, "recover-again", f.version(ctx, t), wf04OutstandingKind, wf04RecoveryRef)
+	requireRecoveryFailure(t, repeatErr, KindIllegalLifecycleTransition, "second recovery binding of a satisfied kind")
 	if got := f.boundCount(t, wf04OutstandingKind, wf04RecoveryRef); got != 1 {
 		t.Fatalf("binding count after the refused repeat = %d, want 1", got)
 	}
@@ -276,7 +283,8 @@ func TestAcceptanceRecoveryRefusesOutsideOutstandingRequirements(t *testing.T) {
 func TestAcceptanceRecoveryClosedWhenNoRequirementOutstanding(t *testing.T) {
 	ctx := context.Background()
 	f := newAcceptanceRecoveryFixture(ctx, t)
-	requireRecoveryFailure(t, f.bind(ctx, "extra-binding", f.version(ctx, t), "review", wf04RecoveryRef), KindIllegalLifecycleTransition, "recovery binding with no outstanding requirement")
+	extraErr := f.bind(ctx, "extra-binding", f.version(ctx, t), "review", wf04RecoveryRef)
+	requireRecoveryFailure(t, extraErr, KindIllegalLifecycleTransition, "recovery binding with no outstanding requirement")
 	if err := f.run(ctx, "confirm_premise", "confirm-satisfied", f.version(ctx, t), nil, nil); err != nil {
 		t.Fatalf("confirmation with every required kind bound refused: %v", err)
 	}

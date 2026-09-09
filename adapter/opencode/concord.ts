@@ -38,11 +38,12 @@ type HostToolCall = { request: HostToolArgs | { request: HostToolArgs } }
 // normalize here, at the single boundary between host delivery and the
 // shared transport.
 function hostRequest(args: HostToolCall): HostToolArgs {
-  const request = args["request"]
-  if (request !== null && typeof request === "object" && "request" in request && request.request !== null && typeof request.request === "object") {
-    return request.request
+  const outer: unknown = args["request"]
+  if (outer !== null && typeof outer === "object" && "request" in outer) {
+    const inner: unknown = (outer as { request: unknown }).request
+    if (inner !== null && typeof inner === "object" && "operation" in inner && "input" in inner) return inner as HostToolArgs
   }
-  return request
+  return outer as HostToolArgs
 }
 type JSONSchema = Record<string, unknown>
 type CoreConcordEnvelope = Record<string, unknown>

@@ -73,9 +73,22 @@ func WorkflowActionDefinitionFor(ctx context.Context, s *Store, registry Definit
 	if err != nil {
 		return RegisteredDefinition{}, WorkflowActionDefinition{}, err
 	}
+	if actionID == "record_verdict" {
+		var currentStep, state string
+		if err := s.db.QueryRowContext(ctx, `SELECT current_step,instance_state FROM workflow_instances WHERE work_id=?`, workID).Scan(&currentStep, &state); err != nil {
+			return RegisteredDefinition{}, WorkflowActionDefinition{}, wrapFailure(KindUnavailable, "workflow_action", "cannot inspect workflow lifecycle", true, "retry once the workflow projection is readable", err)
+		}
+		lateVerdictRecovery, recoveryErr := workflowLateVerdictRecoveryAvailable(ctx, s.db, workID, entry.Definition, currentStep)
+		if recoveryErr != nil {
+			return RegisteredDefinition{}, WorkflowActionDefinition{}, recoveryErr
+		}
+		if state != "completed" && state != "cancelled" && state != "superseded" && lateVerdictRecovery {
+			return entry, currentActionDefinition("record_verdict", true), nil
+		}
+	}
 	if actionID == "supersede_contract" {
-		var state string
-		if err := s.db.QueryRowContext(ctx, `SELECT instance_state FROM workflow_instances WHERE work_id=?`, workID).Scan(&state); err != nil {
+		var currentStep, state string
+		if err := s.db.QueryRowContext(ctx, `SELECT current_step,instance_state FROM workflow_instances WHERE work_id=?`, workID).Scan(&currentStep, &state); err != nil {
 			return RegisteredDefinition{}, WorkflowActionDefinition{}, wrapFailure(KindUnavailable, "workflow_action", "cannot inspect workflow lifecycle", true, "retry once the workflow projection is readable", err)
 		}
 		if state == "completed" || state == "cancelled" || state == "superseded" {
@@ -94,6 +107,9 @@ func WorkflowActionDefinitionFor(ctx context.Context, s *Store, registry Definit
 				return entry, workflowContractRecoveryActionDefinition(), nil
 			}
 			return RegisteredDefinition{}, WorkflowActionDefinition{}, err
+		}
+		if workflowContractCorrectionCheckpoint(entry.Definition, currentStep) {
+			return entry, workflowContractRecoveryActionDefinition(), nil
 		}
 		return RegisteredDefinition{}, WorkflowActionDefinition{}, newFailure(KindInvalidOperation, "workflow_action", "contract recovery is available only for a stale workflow contract", false, "continue the current contract or request terminal work")
 	}
@@ -154,6 +170,10 @@ func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, registry Definiti
 	guards := &workflowActionGuardContext{ctx: ctx, tx: tx, request: request, entry: entry, currentStep: currentStep}
 	if err := runWorkflowActionGuard(guards, guardPhaseRecovery); err != nil {
 		return result, err
+	} else if request.ActionID == "record_verdict" && !definitionStepAllows(entry.Definition, currentStep, request.ActionID) {
+		if err := guardLateVerdictRecovery(guards); err != nil {
+			return result, err
+		}
 	} else if !guards.staleRecovery && !workflowExecutionAllowsStaleRecovery(request.ActionID, request.Payload) {
 		if err := checkWorkflowLawRevisionStalenessTx(ctx, tx, request.WorkID); err != nil {
 			return result, err
@@ -182,7 +202,7 @@ func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, registry Definiti
 	if err := guardWorkflowActionStepMatch(request.Payload, currentStep); err != nil {
 		return result, err
 	}
-	stepAllowed := guards.staleRecovery || definitionStepAllows(entry.Definition, currentStep, request.ActionID)
+	stepAllowed := guards.staleRecovery || guards.lateVerdictRecovery || definitionStepAllows(entry.Definition, currentStep, request.ActionID)
 	if !stepAllowed && request.ActionID == "bind_evidence" {
 		var recoveryErr error
 		guards.recoveryBind, recoveryErr = guardRecoveryEvidenceBind(ctx, tx, request.WorkID, entry.Definition, currentStep, request.Payload, subject)
@@ -227,7 +247,7 @@ func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, registry Definiti
 		entry: entry, request: request, currentStep: currentStep, step: step, payload: payload, evidenceRefs: evidenceRefs,
 		actorRef: guards.actorRef, eventActor: guards.eventActor, operatorRef: guards.operatorRef,
 		actorNeedsRecord: guards.actorNeedsRecord, operatorNeedsRecord: guards.operatorNeedsRecord,
-		defaultVerdictEvidence: defaultVerdictEvidence,
+		defaultVerdictEvidence: defaultVerdictEvidence, lateVerdictRecovery: guards.lateVerdictRecovery,
 	}
 	assembly, err := assembleWorkflowActionEventsTx(ctx, tx, assemblyInput)
 	if err != nil {

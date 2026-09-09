@@ -343,7 +343,7 @@ func AuthorizeWorkflowActionAtBoundaryTx(ctx context.Context, s *Store, registry
 }
 
 func workflowActionConsequence(definition WorkflowDefinition, actionID string) ActionConsequence {
-	if actionID == "supersede_contract" {
+	if actionID == "supersede_contract" || actionID == "record_verdict" {
 		return ActionInternalSQLite
 	}
 	for _, action := range definition.ActionDefinitions {
@@ -378,6 +378,13 @@ func workflowActionPreflightTx(ctx context.Context, tx *sql.Tx, registry Definit
 		return RegisteredDefinition{}, newFailure(KindInvalidOperation, "workflow_action_preflight", "terminal workflow instance is immutable", false, "start a successor workflow")
 	}
 	staleRecovery := false
+	lateVerdictRecovery := false
+	if request.ActionID == "record_verdict" {
+		lateVerdictRecovery, err = workflowLateVerdictRecoveryForActionPayload(ctx, tx, request.WorkID, entry.Definition, currentStep, request.Payload)
+		if err != nil {
+			return RegisteredDefinition{}, err
+		}
+	}
 	if request.ActionID == "supersede_contract" {
 		if err := checkWorkflowLawRevisionStalenessTx(ctx, tx, request.WorkID); err != nil {
 			var failure *Failure
@@ -385,10 +392,12 @@ func workflowActionPreflightTx(ctx context.Context, tx *sql.Tx, registry Definit
 				return RegisteredDefinition{}, err
 			}
 			staleRecovery = true
+		} else if workflowContractCorrectionCheckpoint(entry.Definition, currentStep) {
+			staleRecovery = true
 		} else {
 			return RegisteredDefinition{}, newFailure(KindInvalidOperation, "workflow_action_preflight", "contract recovery is available only for a stale workflow contract", false, "continue the current contract or request terminal work")
 		}
-	} else if !workflowActionAllowsTerminalRecovery(request) {
+	} else if !workflowActionAllowsTerminalRecovery(request) && !lateVerdictRecovery {
 		if err := checkWorkflowLawRevisionStalenessTx(ctx, tx, request.WorkID); err != nil {
 			return RegisteredDefinition{}, err
 		}
@@ -421,7 +430,7 @@ func workflowActionPreflightTx(ctx context.Context, tx *sql.Tx, registry Definit
 	if err := guardMandatedWorkflowLawBound(ctx, tx, request.WorkID, entry.Definition, currentStep, request.ActionID, "workflow_action_preflight"); err != nil {
 		return RegisteredDefinition{}, err
 	}
-	if !staleRecovery && !definitionStepAllows(entry.Definition, currentStep, request.ActionID) {
+	if !staleRecovery && !lateVerdictRecovery && !definitionStepAllows(entry.Definition, currentStep, request.ActionID) {
 		if request.ActionID != "bind_evidence" {
 			return RegisteredDefinition{}, newFailure(KindIllegalLifecycleTransition, "workflow_action_preflight", "workflow action is not declared on the current step", false, "reread_entities")
 		}

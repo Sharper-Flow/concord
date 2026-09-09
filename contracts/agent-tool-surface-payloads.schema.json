@@ -10894,13 +10894,13 @@
                 "required": [
                   "contract_version",
                   "premise",
-                  "outcome_kind",
-                  "outcome_payload",
                   "required_evidence",
                   "route_conventions",
                   "spec_mandate",
                   "law_modifies",
-                  "rigor_class"
+                  "rigor_class",
+                  "supersede_reason",
+                  "audit_evidence"
                 ],
                 "properties": {
                   "contract_version": {
@@ -10935,6 +10935,9 @@
                         "$ref": "#/$defs/workflow_outcome_check"
                       }
                     ]
+                  },
+                  "outcome_predicates": {
+                    "$ref": "#/$defs/workflow_action_outcome_predicates"
                   },
                   "required_evidence": {
                     "type": "array",
@@ -10987,7 +10990,20 @@
                       "$ref": "#/$defs/id"
                     }
                   }
-                }
+                },
+                "oneOf": [
+                  {
+                    "required": [
+                      "outcome_predicates"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "outcome_kind",
+                      "outcome_payload"
+                    ]
+                  }
+                ]
               }
             },
             "not": {

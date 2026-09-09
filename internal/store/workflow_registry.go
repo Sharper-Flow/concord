@@ -1222,8 +1222,8 @@ func workflowActionExecutionMode(definition WorkflowDefinition, actionID string)
 		}
 		break
 	}
-	// supersede_contract is a recovery-only action outside the pinned root list.
-	if actionID == "supersede_contract" {
+	// Recovery actions can be outside the pinned root list.
+	if actionID == "supersede_contract" || actionID == "record_verdict" {
 		policy, ok := builtinActionPolicies[actionID]
 		return policy.ExecutionMode, ok
 	}

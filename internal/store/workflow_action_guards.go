@@ -33,6 +33,7 @@ type workflowActionGuardContext struct {
 	currentStep string
 
 	staleRecovery       bool
+	lateVerdictRecovery bool
 	recoveryBind        bool
 	actorRef            string
 	eventActor          string
@@ -227,7 +228,54 @@ func guardSupersedeContractRecovery(g *workflowActionGuardContext) error {
 		g.staleRecovery = true
 		return nil
 	}
+	if workflowContractCorrectionCheckpoint(g.entry.Definition, g.currentStep) {
+		g.staleRecovery = true
+		return nil
+	}
 	return newFailure(KindInvalidOperation, "workflow_action", "contract recovery is available only for a stale workflow contract", false, "continue the current contract or request terminal work")
+}
+
+func workflowContractCorrectionCheckpoint(definition WorkflowDefinition, currentStep string) bool {
+	step := workflowStep(definition, currentStep)
+	if step == nil || step.Kind != WorkflowStepHumanCheckpoint || containsString(definition.StepGraph.TerminalSteps, currentStep) {
+		return false
+	}
+	return containsString(step.Actions, "confirm_premise")
+}
+
+func guardLateVerdictRecovery(g *workflowActionGuardContext) error {
+	available, err := workflowLateVerdictRecoveryForActionPayload(g.ctx, g.tx, g.request.WorkID, g.entry.Definition, g.currentStep, g.defaultedPayload())
+	if err != nil {
+		return err
+	}
+	if !available {
+		fields, fieldsErr := workflowActionObject(g.defaultedPayload())
+		if fieldsErr != nil {
+			return fieldsErr
+		}
+		if _, present := workflowFieldString(fields, "predicate_id"); !present {
+			return nil
+		}
+		return newFailure(KindInvalidOperation, "workflow_action", "late verdict recovery requires a missing, non-ok, or incomparable verdict for an active predicate", false, "record the verdict at its normal verification step or refresh the active contract")
+	}
+	g.lateVerdictRecovery = true
+	return nil
+}
+
+func workflowLateVerdictRecoveryForActionPayload(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, currentStep string, payload json.RawMessage) (bool, error) {
+	fields, err := workflowActionObject(payload)
+	if err != nil {
+		return false, err
+	}
+	predicateID, present := workflowFieldString(fields, "predicate_id")
+	if !present || predicateID == "" {
+		return false, nil
+	}
+	contractVersion, present := workflowFieldIntOK(fields, "contract_version")
+	if !present {
+		contractVersion = 1
+	}
+	return workflowLateVerdictRecoveryForPredicate(ctx, q, workID, definition, currentStep, predicateID, contractVersion)
 }
 
 func guardCompleteBoundary(g *workflowActionGuardContext) error {
@@ -286,10 +334,13 @@ func guardRecordedActorTuple(g *workflowActionGuardContext) error {
 // confirmation. A worker cannot acquire this authority through its report.
 func guardOperatorPremiseActor(g *workflowActionGuardContext) error {
 	if g.request.OperatorActor == nil {
+		if g.request.ActionID == "supersede_contract" && workflowContractCorrectionCheckpoint(g.entry.Definition, g.currentStep) {
+			return newFailure(KindApprovalRequired, "workflow_action", "contract correction requires the verified operator approval identity", false, "request_approval")
+		}
 		return nil
 	}
-	if (g.request.ActionID != "confirm_premise" && g.request.ActionID != "record_verdict" && g.request.ActionID != "complete") || g.request.OperatorActor.ActorClass != ActorOperator {
-		return newFailure(KindUnauthorized, "workflow_action", "operator actor is only valid for signed premise confirmation and the conditioned verdict and completion", false, "use the verified approval identity")
+	if (g.request.ActionID != "confirm_premise" && g.request.ActionID != "record_verdict" && g.request.ActionID != "complete" && g.request.ActionID != "supersede_contract") || g.request.OperatorActor.ActorClass != ActorOperator {
+		return newFailure(KindUnauthorized, "workflow_action", "operator actor is only valid for signed premise confirmation, contract correction, conditioned verdict, and completion", false, "use the verified approval identity")
 	}
 	ref, err := WorkflowActorRef(*g.request.OperatorActor)
 	if err != nil {
@@ -451,6 +502,7 @@ type workflowActionAssemblyInput struct {
 	actorNeedsRecord       bool
 	operatorNeedsRecord    bool
 	defaultVerdictEvidence bool
+	lateVerdictRecovery    bool
 }
 
 type workflowActionEventAssembly struct {
@@ -531,7 +583,7 @@ func assembleWorkflowActionEventsTx(ctx context.Context, tx *sql.Tx, in workflow
 // boundary quotes on its signed assertion, so the core returns it to the
 // adapter rather than letting the adapter compute it.
 func appendGenericWorkflowCompletion(in workflowActionAssemblyInput, attemptEpoch int64, events []Event) ([]Event, string, error) {
-	if in.request.ActionID == "checkpoint_context" || in.request.ActionID == "cross_context_boundary" || in.request.ActionID == "supersede_contract" {
+	if in.request.ActionID == "checkpoint_context" || in.request.ActionID == "cross_context_boundary" || in.request.ActionID == "supersede_contract" || in.lateVerdictRecovery {
 		return events, "", nil
 	}
 	resultVersion := in.request.ExpectedVersion + int64(len(events)) + 1

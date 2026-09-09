@@ -154,7 +154,7 @@ func workflowOperatorQuestion(workID string, workVersion int64, definition Workf
 		Header:   "Operator checkpoint",
 		Choices: []WorkflowOperatorChoice{
 			{ID: "confirm", Label: "Confirm", Description: "Confirm the exact approved premise and continue.", ActionID: actionID},
-			{ID: "revise", Label: "Revise", Description: "Route to the declared revision action before continuing.", ActionID: "concord_work_define.revise_intent"},
+			{ID: "revise", Label: "Revise", Description: "Route to operator-approved contract supersession before continuing.", ActionID: "supersede_contract"},
 			{ID: "stop", Label: "Stop", Description: "Route to the declared cancellation action without applying this checkpoint.", ActionID: "concord_work_transition.lifecycle"},
 		},
 		AllowMultiple:         false,

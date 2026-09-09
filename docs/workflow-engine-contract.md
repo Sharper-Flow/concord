@@ -392,6 +392,22 @@ The shipped engine evaluates clause 6 from the pinned definition and folded
 verdict authority. It never appends `workflow.completed` on a weaker,
 incomparable, stale, or otherwise refused outcome.
 
+### 7.1 Acceptance recovery
+
+The engine admits `record_verdict` on the terminal workflow step before the
+instance reaches a terminal state. The route exists only after a definition-backed
+verification step and only for an active-contract predicate whose latest eligible
+verdict is missing, non-`ok`, or incomparable. An `ok` comparable verdict cannot
+be replaced. The action holds the current step and preserves attempts and evidence.
+
+At a nonterminal human checkpoint that declares `confirm_premise`, the operator
+question maps `Revise` to `supersede_contract`. The action requires a complete
+consecutive successor contract. It appends the successor and keeps the current
+checkpoint. Prior verdicts remain eligible only across every consecutive contract
+version where predicate identity, kind, and canonical payload are unchanged.
+Prior premise confirmations and verdicts for changed or removed predicates do not
+satisfy the successor contract.
+
 ## 8. Actor tuple and evaluator distinctness
 
 The authenticated mutation context supplies `(principal_ref, client_ref, agent_ref,

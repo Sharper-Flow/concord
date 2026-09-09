@@ -530,6 +530,26 @@ func workflowSemanticActionEvents(ctx context.Context, tx *sql.Tx, definition Wo
 		return []Event{workflowTypedEvent(eventID, WorkflowContextBoundaryCrossed, request.WorkID, actor, request.Now, expected, map[string]any{
 			"boundary_id": request.OperationID + ":context-boundary", "boundary_sequence": workflowFieldInt(fields, "boundary_sequence", 0), "boundary_kind": "summary", "checkpoint_id": checkpointID, "checkpoint_sequence": workflowFieldInt(fields, "checkpoint_sequence", 0), "summary": workflowFieldStringDefault(fields, "summary", ""), "workflow_ref": workflowRef, "workflow_definition_version": workflowDefinitionVersion, "workflow_definition_digest": workflowDigestValue, "attempt_epoch": attemptEpoch, "actor_ref": actor, "request_id": request.RequestID,
 		})}, nil
+	case "record_design":
+		if definition.Version < 6 {
+			return nil, nil
+		}
+		approach := workflowFieldStringDefault(fields, "approach", "")
+		rawDecisions := workflowFieldRaw(fields, "decisions")
+		var decisions []workflowDesignDecisionPayload
+		decoder := json.NewDecoder(strings.NewReader(string(rawDecisions)))
+		decoder.DisallowUnknownFields()
+		if len(rawDecisions) == 0 || decoder.Decode(&decisions) != nil || len(decisions) < 1 || len(decisions) > 16 {
+			return nil, newFailure(KindInvalidPayload, "workflow_action", "record_design requires a bounded decisions array", false, "supply one to sixteen typed design decisions")
+		}
+		for _, decision := range decisions {
+			if decision.Choice == "" {
+				return nil, newFailure(KindInvalidPayload, "workflow_action", "record_design refuses a decision with an empty choice", false, "supply the selected design choice")
+			}
+		}
+		return []Event{workflowTypedEvent(eventID, WorkflowDesignRecorded, request.WorkID, actor, request.Now, expected, map[string]any{
+			"approach": approach, "decisions": decisions, "touched_refs": workflowFieldStrings(fields, "touched_refs"),
+		})}, nil
 	case "approve_contract":
 		outcomePredicates, err := workflowContractOutcomePredicates(definition, fields)
 		if err != nil {

@@ -60,6 +60,26 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value)
 }
 
+function renderDesignRecord(value: unknown): string {
+  if (!isRecord(value)) return ""
+  const approach = typeof value.approach === "string" ? value.approach : ""
+  const decisions = Array.isArray(value.decisions) ? value.decisions : []
+  const touchedRefs = Array.isArray(value.touched_refs) ? value.touched_refs.filter((ref): ref is string => typeof ref === "string") : []
+  if (approach.length === 0 && decisions.length === 0 && touchedRefs.length === 0) return ""
+  const lines = ["Approved design record:", `Approach: ${approach}`, "Decisions:"]
+  for (const decision of decisions) {
+    if (!isRecord(decision)) continue
+    const id = typeof decision.id === "string" ? decision.id : ""
+    const question = typeof decision.question === "string" ? decision.question : ""
+    const choice = typeof decision.choice === "string" ? decision.choice : ""
+    const rationale = typeof decision.rationale === "string" ? decision.rationale : ""
+    const rejected = Array.isArray(decision.rejected) ? decision.rejected.filter((item): item is string => typeof item === "string") : []
+    lines.push(`- ${id}: ${question} Choice: ${choice}. Rationale: ${rationale}${rejected.length > 0 ? ` Rejected: ${rejected.join(", ")}.` : ""}`)
+  }
+  lines.push(`Touched refs: ${touchedRefs.join(", ")}`, "")
+  return lines.join("\n")
+}
+
 // readOperation refuses anything that is not an ok core read with an object
 // result. A degraded, pending, partial, or error-enveloped response carries no
 // approved state, so projecting from it would produce a packet that asserts
@@ -148,8 +168,10 @@ export async function buildAgentLanePacket(request: AgentLanePacketRequest, deps
     return failure("projection_overflow", `the approved end-state mandate does not fit inputs.task: ${task.length} characters against a limit of ${TASK_MAX_LENGTH}`, { field: "task", limit: TASK_MAX_LENGTH, actual: task.length })
   }
 
-  if (narrative.length > CONTEXT_MAX_LENGTH) {
-    return failure("projection_overflow", `the work item narrative does not fit inputs.context: ${narrative.length} characters against a limit of ${CONTEXT_MAX_LENGTH}`, { field: "context", limit: CONTEXT_MAX_LENGTH, actual: narrative.length })
+  const design = renderDesignRecord(pinned.design_record)
+  const context = design + narrative
+  if (context.length > CONTEXT_MAX_LENGTH) {
+    return failure("projection_overflow", `the pinned design and work item narrative do not fit inputs.context: ${context.length} characters against a limit of ${CONTEXT_MAX_LENGTH}`, { field: "context", limit: CONTEXT_MAX_LENGTH, actual: context.length })
   }
 
   // CD-0056: the fold refuses a report that leaves a declared obligation
@@ -173,7 +195,7 @@ export async function buildAgentLanePacket(request: AgentLanePacketRequest, deps
     lane_digest: lane.digest,
     work_id: request.workId,
     step_id: request.stepId,
-    inputs: { task, ...(narrative.length > 0 ? { context: narrative } : {}), constraints },
+    inputs: { task, ...(context.length > 0 ? { context } : {}), constraints },
   }
 
   if (!validateAgentLanePacket(packet)) {

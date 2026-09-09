@@ -885,6 +885,16 @@ const GeneratedPayloadSchemaDocument = `{
                 }
               ]
             },
+            "design_record": {
+              "oneOf": [
+                {
+                  "$ref": "#/$defs/workflow_design_record"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
             "latest_checkpoint": {
               "oneOf": [
                 {
@@ -961,6 +971,7 @@ const GeneratedPayloadSchemaDocument = `{
             "spec_mandate",
             "pending_operator_decision",
             "latest_checkpoint",
+            "design_record",
             "unresolved_failure"
           ],
           "type": "object"
@@ -8323,10 +8334,41 @@ const GeneratedPayloadSchemaDocument = `{
               "fields": {
                 "additionalProperties": false,
                 "maxProperties": 32,
-                "properties": {},
+                "properties": {
+                  "approach": {
+                    "maxLength": 4096,
+                    "minLength": 2,
+                    "type": "string"
+                  },
+                  "decisions": {
+                    "items": {
+                      "$ref": "#/$defs/workflow_design_decision"
+                    },
+                    "maxItems": 16,
+                    "minItems": 1,
+                    "type": "array"
+                  },
+                  "touched_refs": {
+                    "items": {
+                      "$ref": "#/$defs/reference"
+                    },
+                    "maxItems": 64,
+                    "minItems": 1,
+                    "type": "array",
+                    "uniqueItems": true
+                  }
+                },
+                "required": [
+                  "approach",
+                  "decisions",
+                  "touched_refs"
+                ],
                 "type": "object"
               }
-            }
+            },
+            "required": [
+              "fields"
+            ]
           }
         },
         {
@@ -10101,6 +10143,88 @@ const GeneratedPayloadSchemaDocument = `{
         "route_conventions",
         "spec_mandate",
         "changes_product_truth"
+      ],
+      "type": "object"
+    },
+    "workflow_design_decision": {
+      "additionalProperties": false,
+      "properties": {
+        "choice": {
+          "maxLength": 1024,
+          "minLength": 1,
+          "type": "string"
+        },
+        "id": {
+          "$ref": "#/$defs/reference"
+        },
+        "question": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "rationale": {
+          "maxLength": 1024,
+          "minLength": 1,
+          "type": "string"
+        },
+        "rejected": {
+          "items": {
+            "maxLength": 1024,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 8,
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "question",
+        "choice",
+        "rationale",
+        "rejected"
+      ],
+      "type": "object"
+    },
+    "workflow_design_record": {
+      "additionalProperties": false,
+      "properties": {
+        "approach": {
+          "maxLength": 4096,
+          "minLength": 2,
+          "type": "string"
+        },
+        "decisions": {
+          "items": {
+            "$ref": "#/$defs/workflow_design_decision"
+          },
+          "maxItems": 16,
+          "minItems": 1,
+          "type": "array"
+        },
+        "recorded_at": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "touched_refs": {
+          "items": {
+            "$ref": "#/$defs/reference"
+          },
+          "maxItems": 64,
+          "minItems": 1,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "work_version": {
+          "$ref": "#/$defs/version"
+        }
+      },
+      "required": [
+        "work_version",
+        "approach",
+        "decisions",
+        "touched_refs",
+        "recorded_at"
       ],
       "type": "object"
     },

@@ -197,7 +197,8 @@ func prePayloadStaticAnalysisV2() WorkflowDefinition {
 func preFailureImplementationV4() WorkflowDefinition {
 	d := builtinImplementation(true)
 	d.Version = 4
-	return withWorkerActionsBeforeFailure(d, true)
+	d = withWorkerActionsBeforeFailure(d, true)
+	return withLegacyRecordDesign(d)
 }
 
 func preFailureBreakFixV4() WorkflowDefinition {
@@ -234,4 +235,22 @@ func preFailureStaticAnalysisV3() WorkflowDefinition {
 	d := builtinStaticAnalysis(true)
 	d.Version = 3
 	return withWorkerActionsBeforeFailure(d, true)
+}
+
+// preDesignImplementationV5 freezes the implementation definition immediately
+// before record_design became a typed event with a durable design projection.
+func preDesignImplementationV5() WorkflowDefinition {
+	d := builtinImplementation(true)
+	d.Version = 5
+	d = withWorkerActions(d, true)
+	return withLegacyRecordDesign(d)
+}
+
+func withLegacyRecordDesign(definition WorkflowDefinition) WorkflowDefinition {
+	for i := range definition.ActionDefinitions {
+		if definition.ActionDefinitions[i].ID == "record_design" {
+			definition.ActionDefinitions[i].Payload = WorkflowPayloadDefinition{Closed: true, Fields: []WorkflowPayloadField{}}
+		}
+	}
+	return definition
 }

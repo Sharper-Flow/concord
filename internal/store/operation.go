@@ -249,6 +249,7 @@ var eventKindRegistry = map[string]EventKindRegistration{
 	WorkflowConditionCancelled:                workflowRegistration[workflowConditionCancelledPayload](1, nil, foldWorkflowConditionCancelled),
 	WorkflowContextCheckpointed:               workflowRegistration[workflowContextCheckpointedPayload](1, nil, foldWorkflowContextCheckpointed),
 	WorkflowContextBoundaryCrossed:            workflowRegistration[workflowContextBoundaryCrossedPayload](1, nil, foldWorkflowContextBoundaryCrossed),
+	WorkflowDesignRecorded:                    workflowRegistration[workflowDesignRecordedPayload](1, nil, foldWorkflowDesignRecorded),
 	WorkflowCompleted:                         workflowRegistration[workflowCompletedPayload](2, map[int]Upcaster{1: upcastWorkflowCompletedV1}, foldWorkflowCompleted),
 	EventSessionOrchestratorIdentityAsserted:  registerEventKind[orchestratorIdentityAssertedPayload](1, 1, nil, EventAppendAuthorityGeneric, foldSessionOrchestratorIdentityAsserted, validateSessionOrchestratorIdentityAssertedPayload),
 }
@@ -657,7 +658,7 @@ func RebuildFromLog(ctx context.Context, s *Store) error {
 		"workflow_contract_verification_obligations", "workflow_contract_law_additions", "workflow_contract_domain_relation_modifications", "workflow_contract_domain_modifications", "workflow_contract_affected_domains", "workflow_law_addition_reservations", "workflow_architecture_bindings",
 		"workflow_premise_confirmations", "workflow_context_boundaries", "workflow_context_checkpoints", "workflow_impact_notices", "workflow_impact_edges",
 		"workflow_external_conditions", "workflow_checkpoints", "workflow_candidate_sets",
-		"workflow_contracts", "workflow_decision_records", "workflow_instances", "workflow_actors",
+		"workflow_contracts", "workflow_decision_records", "workflow_design_records", "workflow_instances", "workflow_actors",
 		"initiative_entries", "relations", "work_projects", "work_items", "product_projects",
 		"project_governing_requirements", "product_knowledge_homes", "project_locators", "products", "projects",
 	} {

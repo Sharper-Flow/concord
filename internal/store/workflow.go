@@ -35,6 +35,7 @@ const (
 	WorkflowConditionCancelled     = "workflow.condition_cancelled"
 	WorkflowContextCheckpointed    = "workflow.context_checkpointed"
 	WorkflowContextBoundaryCrossed = "workflow.context_boundary_crossed"
+	WorkflowDesignRecorded         = "workflow.design_recorded"
 	WorkflowCompleted              = "workflow.completed"
 )
 
@@ -232,6 +233,21 @@ type workflowContextBoundaryCrossedPayload struct {
 	AttemptEpoch              int64  `json:"attempt_epoch"`
 	ActorRef                  string `json:"actor_ref"`
 	RequestID                 string `json:"request_id"`
+}
+
+type workflowDesignDecisionPayload struct {
+	ID        string   `json:"id"`
+	Question  string   `json:"question"`
+	Choice    string   `json:"choice"`
+	Rationale string   `json:"rationale"`
+	Rejected  []string `json:"rejected"`
+}
+
+type workflowDesignRecordedPayload struct {
+	WorkflowVersionFields
+	Approach    string                          `json:"approach"`
+	Decisions   []workflowDesignDecisionPayload `json:"decisions"`
+	TouchedRefs []string                        `json:"touched_refs"`
 }
 
 type workflowEvidenceBoundPayload struct {
@@ -1122,6 +1138,34 @@ func foldWorkflowContextCheckpointed(ctx context.Context, tx *sql.Tx, event Even
 	}
 	_, err := tx.ExecContext(ctx, `INSERT INTO workflow_context_checkpoints(work_id,work_version,checkpoint_sequence,checkpoint_id,step_id,attempt_epoch,active_unit,hypothesis,diagnosis,strategy,touched_refs,evidence_refs,pending_questions,pending_decisions,workflow_ref,workflow_definition_version,workflow_definition_digest,actor_ref,request_id,recorded_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, event.SubjectID, *p.ResultingVersion, sequence, p.CheckpointID, p.StepID, p.AttemptEpoch, p.ActiveUnit, p.Hypothesis, p.Diagnosis, p.Strategy, workflowJSON(p.TouchedRefs), workflowJSON(p.EvidenceRefs), workflowJSON(p.PendingQuestions), workflowJSON(p.PendingDecisions), p.WorkflowRef, p.WorkflowDefinitionVersion, p.WorkflowDefinitionDigest, p.ActorRef, p.RequestID, event.OccurredAt.UTC().Format(time.RFC3339Nano))
 	return workflowProjectionError(err, "cannot record context checkpoint")
+}
+
+func foldWorkflowDesignRecorded(ctx context.Context, tx *sql.Tx, event Event) error {
+	var p workflowDesignRecordedPayload
+	if err := decodeWorkflowPayload(event, &p); err != nil {
+		return err
+	}
+	if err := workflowBase(event, p.WorkflowVersionFields); err != nil {
+		return err
+	}
+	if len(p.Approach) < 2 || len(p.Approach) > 4096 || len(p.Decisions) < 1 || len(p.Decisions) > 16 || !workflowList(p.TouchedRefs, 64, 1) {
+		return newFailure(KindInvalidPayload, "fold_event", "design record is incomplete or outside its bounds", false, "supply the bounded design approach, decisions, and touched references")
+	}
+	for _, decision := range p.Decisions {
+		if !ValidReference(decision.ID) || len(decision.Question) < 1 || len(decision.Question) > 512 || len(decision.Choice) < 1 || len(decision.Choice) > 1024 || len(decision.Rationale) < 1 || len(decision.Rationale) > 1024 || len(decision.Rejected) > 8 {
+			return newFailure(KindInvalidPayload, "fold_event", "design decision is incomplete or outside its bounds", false, "supply each bounded design decision with a non-empty choice")
+		}
+		for _, rejected := range decision.Rejected {
+			if len(rejected) < 1 || len(rejected) > 1024 {
+				return newFailure(KindInvalidPayload, "fold_event", "design decision rejected choice is outside its bounds", false, "supply bounded rejected choices")
+			}
+		}
+	}
+	if err := advanceWorkflowVersion(ctx, tx, event, p.WorkflowVersionFields); err != nil {
+		return err
+	}
+	_, err := tx.ExecContext(ctx, `INSERT INTO workflow_design_records(work_id,work_version,approach,decisions,touched_refs,recorded_at) VALUES(?,?,?,?,?,?)`, event.SubjectID, *p.ResultingVersion, p.Approach, workflowJSON(p.Decisions), workflowJSON(p.TouchedRefs), event.OccurredAt.UTC().Format(time.RFC3339Nano))
+	return workflowProjectionError(err, "cannot record workflow design")
 }
 
 func foldWorkflowContextBoundaryCrossed(ctx context.Context, tx *sql.Tx, event Event) error {

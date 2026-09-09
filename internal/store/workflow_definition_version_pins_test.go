@@ -34,6 +34,7 @@ var workflowDefinitionVersionPins = map[[2]string]string{
 	{"workflow.implementation", "3"}:     "sha256:12ecaeb8b7947387905b0354f131308586635e61a553eba25deb1564179cbcd4",
 	{"workflow.implementation", "4"}:     "sha256:454a0d11d32f0ca415a42306da65e0696b5884ee56a6ecbfba7771e5a8dc96ff",
 	{"workflow.implementation", "5"}:     "sha256:64714294b727772997db3eb96e696b7c2b9cae64a01edc840e4fd9a9d5226661",
+	{"workflow.implementation", "6"}:     "sha256:6f512e8f25772ef071d00f1378a8f675cac2624fe230c7c75a1e82635e2de785",
 	{"workflow.generic_one_off", "1"}:    "sha256:c2b8b4c8ef11b2de08912f7c82faa91dffe6a2fbe4ddcef924ff4b393da578b3",
 	{"workflow.generic_one_off", "2"}:    "sha256:273c82c0a0cf6c17d231f1be898ff74c6158f8036985cb3e1666b8f12c1b7895",
 	{"workflow.generic_one_off", "3"}:    "sha256:a639d5a41e09ed2b2f1543912c4dc8686fb6d5cc97d945d4c3f6705df4f1165f",
@@ -102,7 +103,7 @@ func TestBuiltinDefinitionsCoverExactlyThePinnedVersions(t *testing.T) {
 func TestBuiltinDefinitionForRefResolvesTheLatestVersion(t *testing.T) {
 	cases := map[string]int64{
 		"workflow.break_fix":          5,
-		"workflow.implementation":     5,
+		"workflow.implementation":     6,
 		"workflow.generic_one_off":    5,
 		"workflow.research":           5,
 		"workflow.architecture_spike": 4,

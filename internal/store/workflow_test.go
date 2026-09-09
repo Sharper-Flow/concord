@@ -929,26 +929,27 @@ func TestWorkflowProjectionSchemaHasClosedChecksForeignKeysAndFoldGuards(t *test
 		"workflow_impact_edges":          {"work_id", "edge_id", "edge_kind", "edge_class", "target_work_id", "target_kind", "severity", "recorded_at"},
 		"workflow_impact_notices":        {"notice_id", "source_work_id", "source_contract_version", "entity_kind", "entity_ref", "target_work_id", "edge_owner_work_id", "edge_id", "old_hash", "new_hash", "severity", "recorded_at"},
 		"workflow_decision_records":      {"work_id", "question", "options_considered", "decision", "rationale", "consequences", "inputs", "poc_findings", "supersedes", "superseded_by", "recorded_at"},
+		"workflow_design_records":        {"work_id", "work_version", "approach", "decisions", "touched_refs", "recorded_at"},
 		"workflow_premise_confirmations": {"work_id", "contract_version", "confirmed_by", "confirmed_at"},
 	}
 	expectedForeignKeys := map[string][]string{
 		"workflow_instances": {"work_items", "workflow_actors"}, "workflow_contracts": {"work_items", "workflow_actors", "workflow_contracts", "workflow_contracts"},
 		"workflow_candidate_sets": {"workflow_contracts", "workflow_contracts", "workflow_actors"}, "workflow_contract_predicates": {"workflow_contracts", "workflow_contracts"}, "workflow_actors": {}, "workflow_checkpoints": {"work_items", "workflow_actors"},
 		"workflow_external_conditions": {"work_items"}, "workflow_impact_edges": {"work_items", "work_items"}, "workflow_impact_notices": {"work_items", "work_items", "work_items", "workflow_impact_edges", "workflow_impact_edges"},
-		"workflow_decision_records": {"work_items"}, "workflow_premise_confirmations": {"workflow_contracts", "workflow_contracts", "workflow_actors"},
+		"workflow_decision_records": {"work_items"}, "workflow_design_records": {"work_items"}, "workflow_premise_confirmations": {"workflow_contracts", "workflow_contracts", "workflow_actors"},
 	}
 	expectedUniqueKeys := map[string][][]string{
 		"workflow_instances": {{"work_id"}}, "workflow_contracts": {{"work_id", "contract_version"}}, "workflow_contract_predicates": {{"work_id", "contract_version", "predicate_id"}, {"work_id", "contract_version", "ordinal"}}, "workflow_candidate_sets": {{"work_id", "contract_version", "candidate_kind", "candidate_ref"}},
 		"workflow_actors": {{"actor_ref"}, {"principal_ref", "client_ref", "agent_ref", "session_ref"}}, "workflow_checkpoints": {{"work_id", "checkpoint_id"}, {"work_id", "step_id", "attempt_epoch"}, {"work_id", "idempotency_identity"}},
 		"workflow_external_conditions": {{"work_id", "condition_id"}}, "workflow_impact_edges": {{"work_id", "edge_id"}}, "workflow_impact_notices": {{"notice_id"}, {"source_work_id", "source_contract_version", "entity_kind", "entity_ref", "target_work_id", "severity"}},
-		"workflow_decision_records": {{"work_id", "question"}}, "workflow_premise_confirmations": {{"work_id", "contract_version"}},
+		"workflow_decision_records": {{"work_id", "question"}}, "workflow_design_records": {{"work_id", "work_version"}}, "workflow_premise_confirmations": {{"work_id", "contract_version"}},
 	}
 	enumFragments := map[string][]string{
 		"workflow_instances": {"'planned'", "'superseded'"}, "workflow_contracts": {}, "workflow_contract_predicates": {"'exists'", "'check'"},
 		"workflow_candidate_sets": {"'work_item'", "candidate_role IN ('include')"}, "workflow_actors": {"'agent'", "'operator'"},
 		"workflow_checkpoints": {"'human_checkpoint'"}, "workflow_external_conditions": {"'pr_merge'", "'cancelled'"},
 		"workflow_impact_edges": {"'depends_on'", "'work_item'"}, "workflow_impact_notices": {"'breaking'"},
-		"workflow_decision_records": {"'accepted_decision'", "'insufficient_evidence'"}, "workflow_premise_confirmations": {},
+		"workflow_decision_records": {"'accepted_decision'", "'insufficient_evidence'"}, "workflow_design_records": {}, "workflow_premise_confirmations": {},
 	}
 	for table, columns := range expectedColumns {
 		t.Run(table, func(t *testing.T) {
@@ -1197,7 +1198,7 @@ func fullWorkflowProjectionSnapshot(t *testing.T, s *Store) string {
 	tables := []string{
 		"work_items", "relations", "workflow_instances", "workflow_contracts", "workflow_candidate_sets", "workflow_actors",
 		"workflow_checkpoints", "workflow_external_conditions", "workflow_impact_edges", "workflow_impact_notices",
-		"workflow_decision_records", "workflow_premise_confirmations",
+		"workflow_decision_records", "workflow_design_records", "workflow_premise_confirmations",
 	}
 	var snapshot strings.Builder
 	for _, table := range tables {

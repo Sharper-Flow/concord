@@ -121,7 +121,10 @@ func TestMigrationClosesInstancesOfTerminalWorkItems(t *testing.T) {
 	if _, err := db.ExecContext(ctx, schemaManifestDDL); err != nil {
 		t.Fatal(err)
 	}
-	for _, migration := range migrations[:len(migrations)-1] {
+	for _, migration := range migrations {
+		if migration.Version >= 75 {
+			break
+		}
 		if err := applyMigration(ctx, db, migration); err != nil {
 			t.Fatalf("migration %d: %v", migration.Version, err)
 		}

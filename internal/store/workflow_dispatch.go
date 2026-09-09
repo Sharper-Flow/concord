@@ -1047,39 +1047,90 @@ func workflowFieldStringsDefault(fields map[string]json.RawMessage, name string,
 	return fallback
 }
 
+// requireRecordedInvestigationArtifact admits contract approval only when the
+// work item carries an observation that names both a current Domain of its
+// Product and a different work item. A Domain id is the bare registry id, and a
+// work ref must resolve in the work item projection, so a ref that names nothing
+// cannot satisfy the obligation. The observation query is already keyed by
+// work_id, so the artifact's own item is never the work ref it needs.
 func requireRecordedInvestigationArtifact(ctx context.Context, q queryer, workID string) error {
 	rows, err := q.QueryContext(ctx, `SELECT refs FROM work_observations WHERE work_id=? ORDER BY recorded_at DESC, observation_id`, workID)
 	if err != nil {
 		return wrapFailure(KindUnavailable, "workflow_action", "cannot inspect recorded investigation artifacts", true, "retry once the workflow evidence is readable", err)
 	}
-	defer rows.Close()
+	var candidates [][]string
 	for rows.Next() {
 		var refsJSON string
 		if err := rows.Scan(&refsJSON); err != nil {
+			rows.Close()
 			return wrapFailure(KindUnavailable, "workflow_action", "cannot read recorded investigation artifact refs", true, "retry once the workflow evidence is readable", err)
 		}
 		var refs []string
 		if json.Unmarshal([]byte(refsJSON), &refs) != nil {
+			rows.Close()
 			return newFailure(KindInvariantViolation, "workflow_action", "recorded investigation artifact refs are malformed", false, "rebuild the work observation projection")
 		}
-		hasWorkRef := false
-		hasDomainRef := false
-		for _, ref := range refs {
-			if ref == workID || ref == "work:"+workID {
-				hasWorkRef = true
-			}
-			if strings.HasPrefix(ref, "domain:") || strings.HasPrefix(ref, "domain-") {
-				hasDomainRef = true
-			}
-		}
-		if hasWorkRef && hasDomainRef {
-			return nil
-		}
+		candidates = append(candidates, refs)
 	}
 	if err := rows.Err(); err != nil {
+		rows.Close()
 		return wrapFailure(KindUnavailable, "workflow_action", "cannot inspect recorded investigation artifacts", true, "retry once the workflow evidence is readable", err)
 	}
-	return newFailure(KindMissingEvidence, "workflow_action", "contract approval requires a recorded investigation artifact with work and Domain refs", false, "record an investigation artifact before approving the contract")
+	if err := rows.Close(); err != nil {
+		return wrapFailure(KindUnavailable, "workflow_action", "cannot inspect recorded investigation artifacts", true, "retry once the workflow evidence is readable", err)
+	}
+	for _, refs := range candidates {
+		namesDomain := false
+		namesWork := false
+		for _, ref := range refs {
+			if !namesDomain {
+				current, err := investigationRefIsCurrentDomain(ctx, q, workID, ref)
+				if err != nil {
+					return err
+				}
+				namesDomain = current
+			}
+			if !namesWork && ref != workID {
+				known, err := investigationRefIsKnownWork(ctx, q, ref)
+				if err != nil {
+					return err
+				}
+				namesWork = known
+			}
+			if namesDomain && namesWork {
+				return nil
+			}
+		}
+	}
+	return newFailure(KindMissingEvidence, "workflow_action", "contract approval requires a recorded investigation artifact naming a current Domain of the Product and another work item", false, "record an observation whose refs carry a Domain id from the Product registry and the id of a work item the investigation compared against")
+}
+
+// investigationRefIsCurrentDomain reports whether ref is the bare id of a
+// current Domain in the Product that owns workID.
+func investigationRefIsCurrentDomain(ctx context.Context, q queryer, workID, ref string) (bool, error) {
+	var status string
+	err := q.QueryRowContext(ctx, `SELECT d.status FROM domains d JOIN product_projects pp ON pp.product_id=d.product_id JOIN work_projects wp ON wp.project_id=pp.project_id WHERE wp.work_id=? AND d.domain_id=? LIMIT 1`, workID, ref).Scan(&status)
+	if err == sql.ErrNoRows {
+		return false, nil
+	}
+	if err != nil {
+		return false, wrapFailure(KindUnavailable, "workflow_action", "cannot resolve investigation artifact Domain ref", true, "retry once the Domain projection is readable", err)
+	}
+	return status == "current", nil
+}
+
+// investigationRefIsKnownWork reports whether ref resolves in the work item
+// projection.
+func investigationRefIsKnownWork(ctx context.Context, q queryer, ref string) (bool, error) {
+	var found string
+	err := q.QueryRowContext(ctx, `SELECT id FROM work_items WHERE id=?`, ref).Scan(&found)
+	if err == sql.ErrNoRows {
+		return false, nil
+	}
+	if err != nil {
+		return false, wrapFailure(KindUnavailable, "workflow_action", "cannot resolve investigation artifact work ref", true, "retry once the work item projection is readable", err)
+	}
+	return true, nil
 }
 
 func workflowFieldStringDefaultMap(fields map[string]any, name, fallback string) string {

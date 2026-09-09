@@ -3,10 +3,15 @@ package store
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
 )
+
+// investigationArtifactSeq gives each seeded investigation artifact a distinct
+// observation id, so one test can seed several and compare their verdicts.
+var investigationArtifactSeq int
 
 func issue31WorkflowAction(t *testing.T, s *Store, workID string, version int64, actionID, operationID string, actor WorkflowActor) int64 {
 	return issue31WorkflowActionWithPayload(t, s, workID, version, actionID, operationID, actor, json.RawMessage(`{}`))
@@ -69,8 +74,11 @@ func TestGenericApplyOperationRejectsEveryReservedWorkflowEvent(t *testing.T) {
 func TestApproveContractRequiresInvestigationArtifactRefs(t *testing.T) {
 	s := openTemp(t)
 	workID := "workflow-investigation-gate"
+	comparedWorkID := "workflow-investigation-compared"
 	seedWork(t, s, workID)
+	seedWork(t, s, comparedWorkID)
 	ctx := context.Background()
+	seedTestInvestigationDomain(t, s)
 	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -95,11 +103,63 @@ func TestApproveContractRequiresInvestigationArtifactRefs(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "recorded investigation artifact") {
 		t.Fatalf("missing investigation artifact error=%v", err)
 	}
+	// Issue #1010: a "domain:"-prefixed ref names no Domain in any Product, and
+	// the artifact's own work id is already the query key. Neither may admit.
 	if err := seedTestInvestigationArtifact(t, s, workID, `["work:`+workID+`","domain:store"]`); err != nil {
+		t.Fatal(err)
+	}
+	if err := requireRecordedInvestigationArtifact(ctx, s.DatabaseForTesting(), workID); err == nil {
+		t.Fatal("investigation artifact with unresolvable refs admitted contract approval")
+	}
+	// A Domain ref alone does not evidence a comparison against existing work.
+	if err := seedTestInvestigationArtifact(t, s, workID, `["child"]`); err != nil {
+		t.Fatal(err)
+	}
+	if err := requireRecordedInvestigationArtifact(ctx, s.DatabaseForTesting(), workID); err == nil {
+		t.Fatal("investigation artifact naming no other work item admitted contract approval")
+	}
+	// A current Domain id plus another work item satisfies the obligation.
+	if err := seedTestInvestigationArtifact(t, s, workID, `["child","`+comparedWorkID+`"]`); err != nil {
 		t.Fatal(err)
 	}
 	if err := requireRecordedInvestigationArtifact(ctx, s.DatabaseForTesting(), workID); err != nil {
 		t.Fatalf("valid investigation artifact refused: %v", err)
+	}
+}
+
+// seedTestInvestigationDomain projects a minimal current Domain registry for the
+// test Product so an investigation ref can resolve against it.
+func seedTestInvestigationDomain(t *testing.T, s *Store) {
+	t.Helper()
+	ctx := context.Background()
+	seedWorkflowLaw(t, s)
+	hash := "sha256:" + strings.Repeat("a", 64)
+	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := enterFold(ctx, tx); err != nil {
+		tx.Rollback()
+		t.Fatal(err)
+	}
+	statements := []string{
+		`INSERT INTO domain_registries(product_id,home_project_id,home_locator_id,product_key,root_domain_id,schema_version,content_hash,scanned_commit_oid) VALUES('product','project','workflow-law-locator','product','root','1.0','` + hash + `','test')`,
+		`INSERT INTO domains(home_project_id,home_locator_id,product_id,domain_id,name,purpose,status,registry_content_hash,scanned_commit_oid) VALUES('project','workflow-law-locator','product','root','Root','Product law','current','` + hash + `','test')`,
+		`INSERT INTO domains(home_project_id,home_locator_id,product_id,domain_id,name,purpose,parent_domain_id,status,registry_content_hash,scanned_commit_oid) VALUES('project','workflow-law-locator','product','child','Child','Child law','root','current','` + hash + `','test')`,
+	}
+	for _, statement := range statements {
+		if _, err := tx.ExecContext(ctx, statement); err != nil {
+			_ = leaveFold(ctx, tx)
+			tx.Rollback()
+			t.Fatal(err)
+		}
+	}
+	if err := leaveFold(ctx, tx); err != nil {
+		tx.Rollback()
+		t.Fatal(err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -113,7 +173,9 @@ func seedTestInvestigationArtifact(t *testing.T, s *Store, workID, refs string) 
 		_ = tx.Rollback()
 		return err
 	}
-	_, err = tx.Exec(`INSERT INTO work_observations(observation_id,work_id,statement,refs,tags,recorded_at) VALUES(?,?,?,?,?,?)`, "obs:"+strings.Repeat("b", 16), workID, "recorded investigation artifact", refs, `[]`, time.Now().UTC().Format(time.RFC3339Nano))
+	investigationArtifactSeq++
+	observationID := fmt.Sprintf("obs:%016x", investigationArtifactSeq)
+	_, err = tx.Exec(`INSERT INTO work_observations(observation_id,work_id,statement,refs,tags,recorded_at) VALUES(?,?,?,?,?,?)`, observationID, workID, "recorded investigation artifact", refs, `[]`, time.Now().UTC().Format(time.RFC3339Nano))
 	if leaveErr := leaveFold(context.Background(), tx); err == nil {
 		err = leaveErr
 	}

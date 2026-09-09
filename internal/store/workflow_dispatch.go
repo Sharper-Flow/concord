@@ -1150,15 +1150,89 @@ func workerAttemptEvidenceKind(capability string) string {
 	}
 }
 
-// Operator evaluation requires a recorded delivery, not merely a completed
-// worker attempt. The coordinator must first accept the worker's result.
+// Operator evaluation requires an advancing action from the pinned workflow's
+// preceding step, not merely a completed worker attempt.
 func requireOperatorVerdictExit(ctx context.Context, tx *sql.Tx, workID string) error {
-	var delivered int
-	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id') IN ('record_delivery','accept_worker_result')`, SubjectWorkItem, workID, WorkflowActionCompleted).Scan(&delivered); err != nil {
-		return wrapFailure(KindUnavailable, "workflow_action", "cannot inspect the delivery exits", true, "retry once the database is readable", err)
+	registered, err := VerifyWorkflowInstanceDefinitionTx(ctx, tx, BuiltinWorkflowRegistry(), workID)
+	if err != nil {
+		return err
 	}
-	if delivered == 0 {
-		return newFailure(KindInvalidOperation, "workflow_action", "operator verdict identity requires a record_delivery or accept_worker_result exit", false, "record or accept the delivery before requesting operator evaluation")
+	var currentStep string
+	if err := tx.QueryRowContext(ctx, `SELECT current_step FROM workflow_instances WHERE work_id=?`, workID).Scan(&currentStep); err != nil {
+		if err == sql.ErrNoRows {
+			return newFailure(KindProjectionNotFound, "workflow_action", "workflow instance does not exist", false, "initialize the workflow before requesting operator evaluation")
+		}
+		return wrapFailure(KindUnavailable, "workflow_action", "cannot inspect the current workflow step", true, "retry once the database is readable", err)
 	}
-	return nil
+	if workflowStep(registered.Definition, currentStep) == nil {
+		return newFailure(KindInvariantViolation, "workflow_action", "current workflow step is outside the pinned definition", false, "reread the workflow definition pin")
+	}
+	verdictStep := currentStep
+	if !containsString(workflowStep(registered.Definition, verdictStep).Actions, "record_verdict") {
+		visited := map[string]bool{currentStep: true}
+		queue := []string{currentStep}
+		verdictStep = ""
+		for len(queue) != 0 && verdictStep == "" {
+			stepID := queue[0]
+			queue = queue[1:]
+			for _, edge := range registered.Definition.StepGraph.Edges {
+				if edge.To != stepID || edge.Kind != WorkflowEdgeForward || visited[edge.From] {
+					continue
+				}
+				visited[edge.From] = true
+				step := workflowStep(registered.Definition, edge.From)
+				if step != nil && containsString(step.Actions, "record_verdict") {
+					verdictStep = step.ID
+					break
+				}
+				queue = append(queue, edge.From)
+			}
+		}
+		if verdictStep == "" {
+			return newFailure(KindInvalidOperation, "workflow_action", "operator verdict identity requires a record_delivery or accept_worker_result exit or another definition-backed advancing exit", false, "request operator evaluation from the pinned verdict step")
+		}
+	}
+	preceding := make(map[string]bool)
+	for _, edge := range registered.Definition.StepGraph.Edges {
+		if edge.To == verdictStep && edge.Kind == WorkflowEdgeForward {
+			preceding[edge.From] = true
+		}
+	}
+	advancingActions := make(map[string]map[string]bool)
+	for stepID := range preceding {
+		step := workflowStep(registered.Definition, stepID)
+		if step == nil {
+			continue
+		}
+		for _, actionID := range step.Actions {
+			mode, ok := workflowActionExecutionMode(registered.Definition, actionID)
+			if ok && mode == ActionAdvance {
+				if advancingActions[stepID] == nil {
+					advancingActions[stepID] = make(map[string]bool)
+				}
+				advancingActions[stepID][actionID] = true
+			}
+		}
+	}
+	if len(advancingActions) == 0 {
+		return newFailure(KindInvalidOperation, "workflow_action", "operator verdict identity requires a record_delivery or accept_worker_result exit or another definition-backed advancing exit", false, "complete the pinned workflow step before requesting operator evaluation")
+	}
+	rows, err := tx.QueryContext(ctx, `SELECT json_extract(payload,'$.step_id'),json_extract(payload,'$.action_id') FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? ORDER BY seq DESC`, SubjectWorkItem, workID, WorkflowActionCompleted)
+	if err != nil {
+		return wrapFailure(KindUnavailable, "workflow_action", "cannot inspect the workflow exits", true, "retry once the database is readable", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var stepID, actionID string
+		if err := rows.Scan(&stepID, &actionID); err != nil {
+			return wrapFailure(KindUnavailable, "workflow_action", "cannot scan the workflow exits", true, "retry once the database is readable", err)
+		}
+		if advancingActions[stepID][actionID] {
+			return nil
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return wrapFailure(KindUnavailable, "workflow_action", "cannot read the workflow exits", true, "retry once the database is readable", err)
+	}
+	return newFailure(KindInvalidOperation, "workflow_action", "operator verdict identity requires a record_delivery or accept_worker_result exit or another definition-backed advancing exit", false, "complete the pinned workflow step before requesting operator evaluation")
 }

@@ -386,7 +386,7 @@ func TestRunHelpListsExactCommandFormsAndStdinShapes(t *testing.T) {
 		"stage_maturity: prototype | alpha | beta | production | deprecated",
 		"stage_audience_commitment: operator_only | limited | public",
 		"kind: canonical_path | git_remote",
-		"attachments replaces the complete Domain-to-Project edge set; it does not append",
+		"attachments (replaces the full edge set)",
 		"attachments[].role: primary | secondary",
 		"capabilities: product_read | work_define | work_transition | work_relate | work_compact | work_initiative | cross_scope",
 	} {
@@ -782,6 +782,8 @@ func TestCommandRouterAcceptsCanonicalAndTwoWordFormsWithoutPanicking(t *testing
 		{"project-locator-remove"}, {"project", "locator-remove"},
 		{"project-resolve"}, {"project", "resolve"},
 		{"product-create"}, {"product", "create"},
+		{"linear-issue-enqueue"}, {"linear", "issue-enqueue"},
+		{"linear-outbox-drain"}, {"linear", "outbox-drain"},
 		{"resource-create"}, {"resource", "create"},
 		{"resource-share"}, {"resource", "share"},
 		{"domain-project-attachments-replace"}, {"domain", "project-attachments-replace"},

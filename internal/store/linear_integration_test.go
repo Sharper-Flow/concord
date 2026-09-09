@@ -103,6 +103,10 @@ func failureKindIs(err error, kind FailureKind) bool {
 }
 
 func setupLinearConnectionResource(t *testing.T, s *Store, productID string, metadata map[string]any) {
+	setupLinearConnectionResourceAtVersion(t, s, productID, metadata, 2)
+}
+
+func setupLinearConnectionResourceAtVersion(t *testing.T, s *Store, productID string, metadata map[string]any, expectedVersion int64) {
 	t.Helper()
 	ctx := context.Background()
 	now := time.Date(2026, 9, 9, 0, 0, 0, 0, time.UTC)
@@ -112,7 +116,7 @@ func setupLinearConnectionResource(t *testing.T, s *Store, productID string, met
 		DisplayName: "Linear connection", Class: "saas", Kind: "saas_account", Purpose: "Linear planning connection",
 		StageMaturity: "prototype", StageAudienceCommitment: "operator_only", Environments: []string{"production"},
 		MetadataSchemaVersion: "linear-connection-v1", Metadata: raw, OwnerPurpose: "planning", OwnerEnvironments: []string{"production"},
-		ExpectedProductVersion: 2, Actor: "operator", OccurredAt: now,
+		ExpectedProductVersion: expectedVersion, Actor: "operator", OccurredAt: now,
 	}); err != nil {
 		t.Fatalf("CreateManagedResource() error = %v", err)
 	}
@@ -173,13 +177,13 @@ func TestLinearOutboxTypedSurface(t *testing.T) {
 	}
 
 	// Transitions walk queued -> in_flight -> done and refuse jumps.
-	if err := s.CompleteLinearOperation(ctx, "op-1"); err == nil || !failureKindIs(err, KindInvalidTransition) {
+	if err := s.CompleteLinearOperation(ctx, "op-1", LinearRemoteIdentity{RemoteUUID: "uuid-1"}); err == nil || !failureKindIs(err, KindInvalidTransition) {
 		t.Fatalf("queued->done error = %v, want invalid_transition", err)
 	}
 	if err := s.ClaimLinearOperation(ctx, "op-1"); err != nil {
 		t.Fatalf("ClaimLinearOperation() error = %v", err)
 	}
-	if err := s.FailLinearOperation(ctx, "op-1", "rate limited"); err != nil {
+	if err := s.FailLinearOperation(ctx, "op-1", "permanent", "auth refused"); err != nil {
 		t.Fatalf("FailLinearOperation() error = %v", err)
 	}
 	// in_flight moved to failed; requeue then complete.
@@ -189,7 +193,7 @@ func TestLinearOutboxTypedSurface(t *testing.T) {
 	if err := s.ClaimLinearOperation(ctx, "op-1"); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.CompleteLinearOperation(ctx, "op-1"); err != nil {
+	if err := s.CompleteLinearOperation(ctx, "op-1", LinearRemoteIdentity{RemoteUUID: "uuid-1"}); err != nil {
 		t.Fatalf("CompleteLinearOperation() error = %v", err)
 	}
 	var state string

@@ -28,7 +28,23 @@ const MAX_WORK_START_OUTPUT_BYTES = 16_384
 const MAX_SALVAGE_BYTES = 16_384
 
 type HostToolArgs = Record<string, unknown> & { operation: string; input: Record<string, unknown> }
-type HostToolCall = { request: HostToolArgs }
+type HostToolCall = { request: HostToolArgs | { request: HostToolArgs } }
+
+// opencode 1.18.30's Code Mode bridge delivers the published arguments to
+// plugin tool execute wrapped one extra time under the schema's own
+// `request` property: {request: {request: {operation, input}}}. The flat
+// work_start schema is unaffected, and no legitimate HostToolArgs carries a
+// `request` property, so that key is the discriminator. Both host shapes
+// normalize here, at the single boundary between host delivery and the
+// shared transport.
+function hostRequest(args: HostToolCall): HostToolArgs {
+  const outer: unknown = args["request"]
+  if (outer !== null && typeof outer === "object" && "request" in outer) {
+    const inner: unknown = (outer as { request: unknown }).request
+    if (inner !== null && typeof inner === "object" && "operation" in inner && "input" in inner) return inner as HostToolArgs
+  }
+  return outer as HostToolArgs
+}
 type JSONSchema = Record<string, unknown>
 type CoreConcordEnvelope = Record<string, unknown>
 type HostConcordEnvelope = CoreConcordEnvelope | AgentResultEnvelope
@@ -873,16 +889,16 @@ async function reportGateBrief(envelope: WorkStartEnvelope, context: ToolContext
   }
 }
 
-export const product_view = tool({ description: "Concord product view", args: argsSchema("concord_product_view"), execute: (args: HostToolCall, context: ToolContext): Promise<ToolResult> => executeHostTool("concord_product_view", args.request, context) })
-export const work_browse = tool({ description: "Concord work browse", args: argsSchema("concord_work_browse"), execute: (args: HostToolCall, context: ToolContext): Promise<ToolResult> => executeHostTool("concord_work_browse", args.request, context) })
-export const work_trace = tool({ description: "Concord work trace", args: argsSchema("concord_work_trace"), execute: (args: HostToolCall, context: ToolContext): Promise<ToolResult> => executeHostTool("concord_work_trace", args.request, context) })
-export const knowledge = tool({ description: "Concord knowledge", args: argsSchema("concord_knowledge"), execute: (args: HostToolCall, context: ToolContext): Promise<ToolResult> => executeHostTool("concord_knowledge", args.request, context) })
-export const work_define = tool({ description: "Concord work define", args: argsSchema("concord_work_define"), execute: (args: HostToolCall, context: ToolContext): Promise<ToolResult> => executeHostTool("concord_work_define", args.request, context) })
-export const domain = tool({ description: "Concord domain", args: argsSchema("concord_domain"), execute: (args: HostToolCall, context: ToolContext): Promise<ToolResult> => executeHostTool("concord_domain", args.request, context) })
-export const work_initiative = tool({ description: "Concord work initiative", args: argsSchema("concord_work_initiative"), execute: (args: HostToolCall, context: ToolContext): Promise<ToolResult> => executeHostTool("concord_work_initiative", args.request, context) })
-export const work_transition = tool({ description: "Concord work transition. Use operation workflow_action for declared workflow actions. Use action_id dispatch_worker with fields.lane_id for the native worker route. Route discovery does not prove admission at the current workflow step.", args: argsSchema("concord_work_transition"), execute: (args: HostToolCall, context: ToolContext): Promise<ToolResult> => executeHostTransition(args.request, context) })
-export const work_relate = tool({ description: "Concord work relate", args: argsSchema("concord_work_relate"), execute: (args: HostToolCall, context: ToolContext): Promise<ToolResult> => executeHostTool("concord_work_relate", args.request, context) })
-export const work_compact = tool({ description: "Concord work compact", args: argsSchema("concord_work_compact"), execute: (args: HostToolCall, context: ToolContext): Promise<ToolResult> => executeHostTool("concord_work_compact", args.request, context) })
+export const product_view = tool({ description: "Concord product view", args: argsSchema("concord_product_view"), execute: (args: HostToolCall, context: ToolContext): Promise<ToolResult> => executeHostTool("concord_product_view", hostRequest(args), context) })
+export const work_browse = tool({ description: "Concord work browse", args: argsSchema("concord_work_browse"), execute: (args: HostToolCall, context: ToolContext): Promise<ToolResult> => executeHostTool("concord_work_browse", hostRequest(args), context) })
+export const work_trace = tool({ description: "Concord work trace", args: argsSchema("concord_work_trace"), execute: (args: HostToolCall, context: ToolContext): Promise<ToolResult> => executeHostTool("concord_work_trace", hostRequest(args), context) })
+export const knowledge = tool({ description: "Concord knowledge", args: argsSchema("concord_knowledge"), execute: (args: HostToolCall, context: ToolContext): Promise<ToolResult> => executeHostTool("concord_knowledge", hostRequest(args), context) })
+export const work_define = tool({ description: "Concord work define", args: argsSchema("concord_work_define"), execute: (args: HostToolCall, context: ToolContext): Promise<ToolResult> => executeHostTool("concord_work_define", hostRequest(args), context) })
+export const domain = tool({ description: "Concord domain", args: argsSchema("concord_domain"), execute: (args: HostToolCall, context: ToolContext): Promise<ToolResult> => executeHostTool("concord_domain", hostRequest(args), context) })
+export const work_initiative = tool({ description: "Concord work initiative", args: argsSchema("concord_work_initiative"), execute: (args: HostToolCall, context: ToolContext): Promise<ToolResult> => executeHostTool("concord_work_initiative", hostRequest(args), context) })
+export const work_transition = tool({ description: "Concord work transition. Use operation workflow_action for declared workflow actions. Use action_id dispatch_worker with fields.lane_id for the native worker route. Route discovery does not prove admission at the current workflow step.", args: argsSchema("concord_work_transition"), execute: (args: HostToolCall, context: ToolContext): Promise<ToolResult> => executeHostTransition(hostRequest(args), context) })
+export const work_relate = tool({ description: "Concord work relate", args: argsSchema("concord_work_relate"), execute: (args: HostToolCall, context: ToolContext): Promise<ToolResult> => executeHostTool("concord_work_relate", hostRequest(args), context) })
+export const work_compact = tool({ description: "Concord work compact", args: argsSchema("concord_work_compact"), execute: (args: HostToolCall, context: ToolContext): Promise<ToolResult> => executeHostTool("concord_work_compact", hostRequest(args), context) })
 export const work_start = tool({ description: `${hostToolDescriptions.concord_work_start} ${workStartUsage}`, args: workStartArgsSchema(), execute: async (args: any, context: ToolContext): Promise<ToolResult> => {
   const envelope = await executeWorkStart(args as WorkStartArgs, context)
   await reportGateBrief(envelope, context)

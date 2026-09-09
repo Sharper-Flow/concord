@@ -47,11 +47,47 @@ func testVerdictAfterAcceptance(t *testing.T, operatorApproval, otherAcceptor bo
 	}{
 		{`INSERT INTO fold_guard(active) VALUES(1)`, nil},
 		{`INSERT INTO worktree_entries(set_id,project_id,claim_op_id,branch,base_sha,path,repository_id,state,verified_at,git_facts) VALUES(?,?,?,?,?,?,?,'active',?,'{}')`, []any{store.WorktreeSetID(workID), "project-1", "accept-e2e-claim", "work/accept-e2e", strings.Repeat("a", 40), sessionWorktree, "repo-1", "2026-09-05T00:00:00Z"}},
+
 		{`DELETE FROM fold_guard`, nil},
 	} {
 		if _, err := db.ExecContext(ctx, statement.sql, statement.args...); err != nil {
-			t.Fatalf("seed active worktree claim: %v", err)
+			t.Fatalf("seed fixture statement %q: %v", statement.sql, err)
 		}
+	}
+	// The operator question gate requires an investigation observation naming
+	// a current Domain of the fixture Product and another work item. This
+	// fixture folds no knowledge index, so seed the registry too; the registry
+	// and its root Domain reference each other, so one transaction holds both.
+	seedTx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := seedTx.ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+		seedTx.Rollback()
+		t.Fatal(err)
+	}
+	registryHash := "sha256:" + strings.Repeat("d", 64)
+	registryStatements := []struct {
+		sql  string
+		args []any
+	}{
+		{`INSERT INTO project_locators(locator_id,project_id,kind,locator_value,normalized_value,created_at,updated_at) VALUES('accept-locator','project-1','canonical_path','/fixture','/fixture','2026-09-05T00:00:00Z','2026-09-05T00:00:00Z')`, nil},
+		{`INSERT INTO domain_registries(product_id,home_project_id,home_locator_id,product_key,root_domain_id,schema_version,content_hash,scanned_commit_oid) VALUES('product-1','project-1','accept-locator','product-1','root','1.0',?,'test')`, []any{registryHash}},
+		{`INSERT INTO domains(home_project_id,home_locator_id,product_id,domain_id,name,purpose,status,registry_content_hash,scanned_commit_oid) VALUES('project-1','accept-locator','product-1','root','Root','Fixture Domain','current',?,'test')`, []any{registryHash}},
+		{`INSERT INTO work_observations(observation_id,work_id,statement,refs,tags,recorded_at) VALUES('obs:verdictaccepta01',?,'verdict acceptance investigation','["root","work-1"]','[]','2026-09-09T00:00:00Z')`, []any{workID}},
+	}
+	for _, statement := range registryStatements {
+		if _, err := seedTx.ExecContext(ctx, statement.sql, statement.args...); err != nil {
+			seedTx.Rollback()
+			t.Fatalf("seed registry statement %q: %v", statement.sql, err)
+		}
+	}
+	if _, err := seedTx.ExecContext(ctx, `DELETE FROM fold_guard`); err != nil {
+		seedTx.Rollback()
+		t.Fatal(err)
+	}
+	if err := seedTx.Commit(); err != nil {
+		t.Fatal(err)
 	}
 	env.Worktree = sessionWorktree
 

@@ -330,8 +330,46 @@ func workflowIssue31Version(t *testing.T, s *store.Store) int64 {
 	return version
 }
 
+// ensureIssue31InvestigationArtifact seeds the investigation observation the
+// operator question gate requires: a current Domain of the fixture Product and
+// a second work item to compare against.
+func ensureIssue31InvestigationArtifact(t *testing.T, s *store.Store) {
+	t.Helper()
+	tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.ExecContext(context.Background(), `INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+		tx.Rollback()
+		t.Fatal(err)
+	}
+	// The fixture store already projects a Domain registry for product-1 whose
+	// root Domain id is "root"; the observation names that Domain and a second
+	// work item so both refs resolve.
+	statements := []string{
+		`INSERT INTO work_items(id,kind,title,lifecycle,priority,version,created_at,updated_at) SELECT 'work-issue31-compared','task','Investigation comparison','needed',0,1,'2026-09-09T00:00:00Z','2026-09-09T00:00:00Z' WHERE NOT EXISTS(SELECT 1 FROM work_items WHERE id='work-issue31-compared')`,
+		`INSERT INTO work_projects(work_id,project_id,role) SELECT 'work-issue31-compared','project-1','secondary' WHERE NOT EXISTS(SELECT 1 FROM work_projects WHERE work_id='work-issue31-compared')`,
+		`INSERT INTO work_observations(observation_id,work_id,statement,refs,tags,recorded_at) SELECT 'obs:issue31investig0','work-1','issue31 investigation','["root","work-issue31-compared"]','[]','2026-09-09T00:00:00Z' WHERE NOT EXISTS(SELECT 1 FROM work_observations WHERE work_id='work-1')`,
+	}
+	for _, statement := range statements {
+		if _, err := tx.ExecContext(context.Background(), statement); err != nil {
+			_, _ = tx.ExecContext(context.Background(), `DELETE FROM fold_guard WHERE active=1`)
+			tx.Rollback()
+			t.Fatal(err)
+		}
+	}
+	if _, err := tx.ExecContext(context.Background(), `DELETE FROM fold_guard WHERE active=1`); err != nil {
+		tx.Rollback()
+		t.Fatal(err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func issue31ConfirmInput(t *testing.T, s *store.Store, version int64, key string) json.RawMessage {
 	t.Helper()
+	ensureIssue31InvestigationArtifact(t, s)
 	question, err := store.ReadWorkflowOperatorQuestion(context.Background(), s, "work-1")
 	if err != nil {
 		t.Fatal(err)

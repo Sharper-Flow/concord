@@ -434,7 +434,7 @@ func readWorkflowSummaryTx(ctx context.Context, tx *sql.Tx, workID string) (*Wor
 		if err := tx.QueryRowContext(ctx, `SELECT version FROM work_items WHERE id=?`, workID).Scan(&workVersion); err != nil {
 			return nil, wrapFailure(KindUnavailable, "workflow_read", "cannot read workflow history version", true, "retry once the database is readable", err)
 		}
-		out.OperatorQuestion, err = workflowOperatorQuestionTx(workID, out.CurrentStep, workVersion, out.Definition, contract)
+		out.OperatorQuestion, err = workflowOperatorQuestionTx(ctx, tx, workID, out.CurrentStep, workVersion, out.Definition, contract)
 		if err != nil {
 			return nil, err
 		}

@@ -240,7 +240,7 @@ func ReadWorkflowContinuity(ctx context.Context, s *Store, req ContinuityRequest
 			}
 		}
 		out.SpecMandate = nonNilStrings(append([]string(nil), contract.SpecMandate...))
-		out.PendingOperatorDecision, err = workflowOperatorQuestionTx(req.Work, currentStep, workVersion, definition, contract)
+		out.PendingOperatorDecision, err = workflowOperatorQuestionTx(ctx, tx, req.Work, currentStep, workVersion, definition, contract)
 		if err != nil {
 			return out, err
 		}

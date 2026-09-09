@@ -19,12 +19,55 @@ import (
 // executing actor (CD-0109). Verdicts are then recordable. When prebind is
 // false the seeded evidence binds are skipped, so the verdict's own mint is
 // the only bound evidence.
+
+// seedComparisonObservation records the investigation artifact the operator
+// question gate requires: a current Domain ref and a different work item. When
+// the fixture Product holds no Domain registry yet, one is folded in first.
+func seedComparisonObservation(t *testing.T, s *Store, workID string) {
+	t.Helper()
+	var domainRef string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT d.domain_id FROM domains d JOIN product_projects pp ON pp.product_id=d.product_id JOIN work_projects wp ON wp.project_id=pp.project_id WHERE wp.work_id=? AND d.status='current' LIMIT 1`, workID).Scan(&domainRef); err != nil {
+		seedIssue31DomainRegistry(t, s)
+		domainRef = "root"
+	}
+	tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := enterFold(context.Background(), tx); err != nil {
+		tx.Rollback()
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec(`INSERT INTO work_items(id,kind,title,lifecycle,priority,version,created_at,updated_at) VALUES(?,?,?,?,?,1,?,?)`, workID+"-compared", "task", "Investigation comparison", "needed", 0, "2026-09-09T00:00:00Z", "2026-09-09T00:00:00Z"); err != nil {
+		_ = leaveFold(context.Background(), tx)
+		tx.Rollback()
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec(`INSERT INTO work_projects(work_id,project_id,role) VALUES(?,?,'secondary')`, workID+"-compared", "project"); err != nil {
+		_ = leaveFold(context.Background(), tx)
+		tx.Rollback()
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec(`INSERT INTO work_observations(observation_id,work_id,statement,refs,tags,recorded_at) VALUES(?,?,?,?,?,?)`, "obs:"+workID[len(workID)-12:]+"cmp0", workID, "investigation before question", `["`+domainRef+`","`+workID+`-compared"]`, `[]`, "2026-09-09T00:00:00Z"); err != nil {
+		_ = leaveFold(context.Background(), tx)
+		tx.Rollback()
+		t.Fatal(err)
+	}
+	if err := leaveFold(context.Background(), tx); err != nil {
+		tx.Rollback()
+		t.Fatal(err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+}
 func seedItemAtAcceptance(t *testing.T, workID string, prebind bool) (*Store, WorkflowActor) {
 	t.Helper()
 	ctx := context.Background()
 	s := openTemp(t)
 	seedWork(t, s, workID)
 	seedWorkflowLaw(t, s)
+
 	owner := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/owner", SessionRef: "session/" + workID, ActorClass: ActorAgent}
 	ownerRef, err := WorkflowActorRef(owner)
 	if err != nil {

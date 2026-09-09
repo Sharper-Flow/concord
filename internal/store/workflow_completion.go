@@ -522,7 +522,7 @@ func workflowEvidenceRequirementDefinitions(required, mandates []string, definit
 			needed = append(needed, string(kind))
 		}
 	}
-	requirements := make([]workflowEvidenceRequirement, 0, len(needed)+len(mandates)+len(obligations))
+	var requirements []workflowEvidenceRequirement
 	for _, kind := range needed {
 		requirements = append(requirements, workflowEvidenceRequirement{Kind: kind})
 	}

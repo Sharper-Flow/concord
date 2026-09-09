@@ -1897,7 +1897,7 @@ func (r runtime) planSessionVacate(ctx context.Context, base Envelope, raw []byt
 		return coreError(base, "unknown_scope", "session vacate requires a resolved Project", "refresh_context", false), nil, true
 	}
 	plan.scope["project_ids"] = []string{project}
-	plan.intents = []NextIntent{{Tool: "concord_work_trace", Operation: "history", QueryID: "C19.Continuity", ReasonCode: "verify_session_vacated", RequiredFields: []string{"work_id"}}}
+	plan.intents = []NextIntent{{Tool: "concord_work_trace", Operation: "history", QueryID: "PM1.Q7", ReasonCode: "verify_session_vacated", RequiredFields: []string{"work_id"}}}
 	plan.effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
 		target, err := store.ResolveSessionVacateTargetTx(ctx, tx, project, grant.Worktree)
 		if err != nil {
@@ -3131,9 +3131,7 @@ func (r runtime) mutationResult(base Envelope, payload json.RawMessage, changed 
 	}
 	response := NewOKMutation(base, payload, changed, intents)
 	if err := response.Validate(); err != nil {
-		type envelopeWire Envelope
-		dbg, _ := json.Marshal(envelopeWire(response))
-		return coreError(base, "malformed_response", fmt.Sprintf("mutation result envelope is invalid: %v; envelope=%s", err, dbg), "contact_operator", false)
+		return coreError(base, "malformed_response", fmt.Sprintf("mutation result envelope is invalid: %v", err), "contact_operator", false)
 	}
 	type envelopeWire Envelope
 	encoded, err := json.Marshal(envelopeWire(response))

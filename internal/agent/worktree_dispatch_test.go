@@ -320,3 +320,52 @@ func TestWorktreeReclaimRefusesOccupiedWorktreeThroughToolSurface(t *testing.T) 
 		t.Fatal("native worktree still present after reclaim")
 	}
 }
+
+func TestSessionVacateSucceedsFromLinkedWorktreeMutation(t *testing.T) {
+	ctx := context.Background()
+	s, service, grant, repoRoot, baseSHA := worktreeDispatchFixture(t)
+	worktreePath := filepath.Join(t.TempDir(), "linked-wt")
+	claimLinkedWorktree(t, s, service, grant, worktreePath, baseSHA, "work/vacate", "claim-vacate")
+
+	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := mutationEnvelope(grant, scopeVersion)
+	env.Worktree = worktreePath
+	env.Directory = worktreePath
+	request := InvokeRequest{
+		Tool:      "concord_work_transition",
+		Operation: "session_vacate",
+		Input:     json.RawMessage(`{"idempotency_key":"vacate-1"}`),
+	}
+	response, err := Dispatch(ctx, s, service, request, env)
+	if err != nil || response.Outcome != OutcomeOK {
+		t.Fatalf("vacate response=%+v error=%+v err=%v", response, response.Error, err)
+	}
+	var result struct {
+		WorkID               string `json:"work_id"`
+		ProjectID            string `json:"project_id"`
+		SourceDirectory      string `json:"source_directory"`
+		DestinationDirectory string `json:"destination_directory"`
+	}
+	if err := json.Unmarshal(response.Result, &result); err != nil {
+		t.Fatal(err)
+	}
+	if result.WorkID != "work-1" || result.ProjectID != "project-1" {
+		t.Fatalf("vacate result=%+v", result)
+	}
+	if result.SourceDirectory != worktreePath {
+		t.Fatalf("source_directory=%q, want %q", result.SourceDirectory, worktreePath)
+	}
+	if result.DestinationDirectory != repoRoot {
+		t.Fatalf("destination_directory=%q, want registered main checkout %q", result.DestinationDirectory, repoRoot)
+	}
+	var eventCount int
+	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=?`, "work-1", "work.session_vacated").Scan(&eventCount); err != nil {
+		t.Fatal(err)
+	}
+	if eventCount != 1 {
+		t.Fatalf("session_vacated event count=%d, want 1", eventCount)
+	}
+}

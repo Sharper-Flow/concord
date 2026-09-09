@@ -793,6 +793,7 @@ func nonNilStrings(values []string) []string {
 }
 
 func coreError(base Envelope, kind, message, recovery string, retry bool) Envelope {
+	message = boundedErrorMessage(message)
 	// An unreachable refusal says the core could not answer, so the envelope
 	// carries no authoritative claim, freshness, or watermark; the contract
 	// pairs the kind with that authority and refuses any other pairing.
@@ -823,6 +824,14 @@ func coreError(base Envelope, kind, message, recovery string, retry bool) Envelo
 		errorBase.ResolvedScope = nil
 	}
 	return errorBase
+}
+
+func boundedErrorMessage(message string) string {
+	const maxBytes = 1000
+	if len(message) <= maxBytes {
+		return message
+	}
+	return strings.ToValidUTF8(message[:maxBytes], "")
 }
 
 // governingConflictEnvelope refuses a capture that does not cover the governing

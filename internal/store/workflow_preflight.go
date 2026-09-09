@@ -172,18 +172,12 @@ func WorkflowActionPreflightWithRegistry(ctx context.Context, s *Store, registry
 	if state == "completed" || state == "cancelled" || state == "superseded" {
 		return newFailure(KindInvalidOperation, "workflow_action_preflight", "terminal workflow instance is immutable", false, "start a successor workflow")
 	}
-	var consequence ActionConsequence
-	declaredAction := false
-	for _, action := range entry.Definition.ActionDefinitions {
-		if action.ID == request.ActionID {
-			declaredAction = true
-			consequence = action.Consequence
-			break
-		}
+	_, action, err := WorkflowActionDefinitionFor(ctx, s, registry, request.WorkID, request.ActionID)
+	if err != nil {
+		return err
 	}
-	if !declaredAction {
-		return newFailure(KindIllegalLifecycleTransition, "workflow_action_preflight", "workflow action is not declared by the pinned definition", false, "reread_entities")
-	}
+	consequence := action.Consequence
+	staleRecovery := request.ActionID == "supersede_contract"
 	if workflowImpactBoundary(request.ActionID, consequence) {
 		var breakingNotices int
 		if err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM workflow_impact_notices n JOIN workflow_impact_edges e ON e.work_id=n.edge_owner_work_id AND e.edge_id=n.edge_id WHERE n.target_work_id=? AND n.severity='breaking' AND e.edge_class='hard'`, request.WorkID).Scan(&breakingNotices); err != nil {
@@ -202,13 +196,17 @@ func WorkflowActionPreflightWithRegistry(ctx context.Context, s *Store, registry
 			return newFailure(KindNotTerminal, "workflow_action_preflight", "consequential action has unresolved external conditions", false, "reread_entities")
 		}
 	}
-	if err := validateWorkflowActionPayload(entry.Definition, request.ActionID, request.Payload); err != nil {
+	if staleRecovery {
+		if err := validateWorkflowContractRecoveryPayload(request.Payload); err != nil {
+			return err
+		}
+	} else if err := validateWorkflowActionPayload(entry.Definition, request.ActionID, request.Payload); err != nil {
 		return err
 	}
 	if err := guardMandatedWorkflowLawBound(ctx, s.db, request.WorkID, entry.Definition, currentStep, request.ActionID, "workflow_action_preflight"); err != nil {
 		return err
 	}
-	if !definitionStepAllows(entry.Definition, currentStep, request.ActionID) {
+	if !staleRecovery && !definitionStepAllows(entry.Definition, currentStep, request.ActionID) {
 		if request.ActionID != "bind_evidence" {
 			return newFailure(KindIllegalLifecycleTransition, "workflow_action_preflight", "workflow action is not declared on the current step", false, "reread_entities")
 		}

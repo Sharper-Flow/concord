@@ -392,55 +392,18 @@ func missingPredicateVerdicts(ctx context.Context, tx *sql.Tx, workID string) ([
 	if err != nil {
 		return nil, err
 	}
-	// The predicate table is the authority the verdict fold enforces against,
-	// so the gate reads the same rows. A contract whose fold wrote no
-	// predicate rows falls back to the read model's predicate set.
-	approved := map[string]bool{}
-	predicateRows, err := tx.QueryContext(ctx, `SELECT predicate_id FROM workflow_contract_predicates WHERE work_id=? AND contract_version=?`, workID, contract.Version)
+	verdicts, err := latestWorkflowVerdicts(ctx, tx, workID, contract.Version)
 	if err != nil {
-		return nil, wrapFailure(KindUnavailable, "workflow_action", "cannot inspect approved predicates", true, "retry once the workflow verdicts are readable", err)
+		return nil, err
 	}
-	for predicateRows.Next() {
-		var predicateID string
-		if err := predicateRows.Scan(&predicateID); err != nil {
-			predicateRows.Close()
-			return nil, wrapFailure(KindUnavailable, "workflow_action", "cannot read approved predicate", true, "retry once the workflow verdicts are readable", err)
-		}
-		approved[predicateID] = true
-	}
-	if err := predicateRows.Err(); err != nil {
-		predicateRows.Close()
-		return nil, wrapFailure(KindUnavailable, "workflow_action", "cannot enumerate approved predicates", true, "retry once the workflow verdicts are readable", err)
-	}
-	predicateRows.Close()
-	if len(approved) == 0 {
-		for _, predicate := range contract.Predicates {
-			approved[predicate.PredicateID] = true
-		}
-	}
-	// The verdict identity mirrors the completion clause: a payload-version-1
-	// verdict is the legacy single-predicate verdict and counts as
-	// predicate:primary whatever id its payload restates.
-	verdictRows, err := tx.QueryContext(ctx, `SELECT DISTINCT (CASE WHEN payload_version=1 THEN 'predicate:primary' ELSE json_extract(payload,'$.predicate_id') END) FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND json_extract(payload,'$.contract_version')=?`, workID, WorkflowVerdictRecorded, contract.Version)
-	if err != nil {
-		return nil, wrapFailure(KindUnavailable, "workflow_action", "cannot inspect predicate verdicts", true, "retry once the workflow verdicts are readable", err)
-	}
-	defer verdictRows.Close()
-	verdicted := map[string]bool{}
-	for verdictRows.Next() {
-		var predicateID string
-		if err := verdictRows.Scan(&predicateID); err != nil {
-			return nil, wrapFailure(KindUnavailable, "workflow_action", "cannot read predicate verdict", true, "retry once the workflow verdicts are readable", err)
-		}
-		verdicted[predicateID] = true
-	}
-	if err := verdictRows.Err(); err != nil {
-		return nil, wrapFailure(KindUnavailable, "workflow_action", "cannot enumerate predicate verdicts", true, "retry once the workflow verdicts are readable", err)
+	verdicted := make(map[string]bool, len(verdicts))
+	for _, verdict := range verdicts {
+		verdicted[verdict.PredicateID] = true
 	}
 	var missing []string
-	for predicateID := range approved {
-		if !verdicted[predicateID] {
-			missing = append(missing, predicateID)
+	for _, predicate := range contract.Predicates {
+		if !verdicted[predicate.PredicateID] {
+			missing = append(missing, predicate.PredicateID)
 		}
 	}
 	sort.Strings(missing)
@@ -855,13 +818,21 @@ func latestWorkflowVerdict(ctx context.Context, tx *sql.Tx, workID string) (*wor
 	return &verdict, nil
 }
 
-func latestWorkflowVerdicts(ctx context.Context, tx *sql.Tx, workID string, contractVersion int64) ([]workflowVerdictRecordedPayload, error) {
-	rows, err := tx.QueryContext(ctx, `SELECT payload,payload_version FROM domain_events v WHERE v.subject_type='work_item' AND v.subject_id=? AND v.kind=? AND json_extract(v.payload,'$.contract_version')=? AND NOT EXISTS (SELECT 1 FROM domain_events newer WHERE newer.subject_type=v.subject_type AND newer.subject_id=v.subject_id AND newer.kind=v.kind AND json_extract(newer.payload,'$.contract_version')=json_extract(v.payload,'$.contract_version') AND (CASE WHEN newer.payload_version=1 THEN 'predicate:primary' ELSE json_extract(newer.payload,'$.predicate_id') END)=(CASE WHEN v.payload_version=1 THEN 'predicate:primary' ELSE json_extract(v.payload,'$.predicate_id') END) AND newer.seq>v.seq) ORDER BY v.seq`, workID, WorkflowVerdictRecorded, contractVersion)
+func latestWorkflowVerdicts(ctx context.Context, q queryer, workID string, contractVersion int64) ([]workflowVerdictRecordedPayload, error) {
+	if contractVersion <= 0 {
+		return nil, newFailure(KindInvariantViolation, "complete_workflow", "active workflow contract version is invalid", false, "rebuild the workflow contract projection")
+	}
+	contracts, err := workflowContractPredicateHistory(ctx, q, workID, contractVersion)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := q.QueryContext(ctx, `SELECT payload,payload_version FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? ORDER BY seq DESC`, workID, WorkflowVerdictRecorded)
 	if err != nil {
 		return nil, wrapFailure(KindUnavailable, "complete_workflow", "cannot read workflow verdicts", true, "retry once the database is readable", err)
 	}
 	defer rows.Close()
-	result := []workflowVerdictRecordedPayload{}
+	result := make([]workflowVerdictRecordedPayload, 0)
+	seen := make(map[string]bool)
 	for rows.Next() {
 		var raw []byte
 		var payloadVersion int
@@ -875,12 +846,132 @@ func latestWorkflowVerdicts(ctx context.Context, tx *sql.Tx, workID string, cont
 		if payloadVersion == 1 {
 			verdict.PredicateID = "predicate:primary"
 		}
+		if verdict.ContractVersion <= 0 || verdict.ContractVersion > contractVersion || seen[verdict.PredicateID] {
+			continue
+		}
+		if verdict.ContractVersion < contractVersion && !workflowPredicateHistoryCompatible(contracts, verdict.ContractVersion, contractVersion, verdict.PredicateID, verdict) {
+			continue
+		}
+		seen[verdict.PredicateID] = true
 		result = append(result, verdict)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, wrapFailure(KindUnavailable, "complete_workflow", "cannot scan workflow verdicts", true, "retry once the database is readable", err)
 	}
 	return result, nil
+}
+
+func workflowLateVerdictRecoveryAvailable(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, currentStep string) (bool, error) {
+	if !containsString(definition.StepGraph.TerminalSteps, currentStep) {
+		return false, nil
+	}
+	verified := false
+	for _, step := range definition.StepGraph.Steps {
+		if containsString(step.Actions, "record_verdict") && workflowStepFollows(definition, step.ID, currentStep) {
+			verified = true
+			break
+		}
+	}
+	if !verified {
+		return false, nil
+	}
+	var contractVersion int64
+	if err := q.QueryRowContext(ctx, `SELECT contract_version FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL ORDER BY contract_version DESC LIMIT 1`, workID).Scan(&contractVersion); err != nil {
+		if err == sql.ErrNoRows {
+			return false, nil
+		}
+		return false, wrapFailure(KindUnavailable, "workflow_action", "cannot read the active workflow contract", true, "retry once the workflow contract is readable", err)
+	}
+	verdicts, err := latestWorkflowVerdicts(ctx, q, workID, contractVersion)
+	if err != nil {
+		return false, err
+	}
+	latest := make(map[string]workflowVerdictRecordedPayload, len(verdicts))
+	for _, verdict := range verdicts {
+		latest[verdict.PredicateID] = verdict
+	}
+	rows, err := q.QueryContext(ctx, `SELECT predicate_id FROM workflow_contract_predicates WHERE work_id=? AND contract_version=?`, workID, contractVersion)
+	if err != nil {
+		return false, wrapFailure(KindUnavailable, "workflow_action", "cannot read active workflow predicates", true, "retry once the workflow contract is readable", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var predicateID string
+		if err := rows.Scan(&predicateID); err != nil {
+			return false, wrapFailure(KindUnavailable, "workflow_action", "cannot read active workflow predicate", true, "retry once the workflow contract is readable", err)
+		}
+		verdict, found := latest[predicateID]
+		if !found || verdict.VerdictKind != "ok" || verdict.IncomparableWithApproved {
+			return true, nil
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return false, wrapFailure(KindUnavailable, "workflow_action", "cannot enumerate active workflow predicates", true, "retry once the workflow contract is readable", err)
+	}
+	return false, nil
+}
+
+type workflowContractPredicateHistoryData map[int64]map[string]WorkflowReadPredicate
+
+func workflowContractPredicateHistory(ctx context.Context, q queryer, workID string, currentVersion int64) (workflowContractPredicateHistoryData, error) {
+	rows, err := q.QueryContext(ctx, `SELECT contract_version FROM workflow_contracts WHERE work_id=? AND contract_version<=? ORDER BY contract_version`, workID, currentVersion)
+	if err != nil {
+		return nil, wrapFailure(KindUnavailable, "complete_workflow", "cannot read workflow contract history", true, "retry once the database is readable", err)
+	}
+	versions := make(map[int64]bool)
+	for rows.Next() {
+		var version int64
+		if err := rows.Scan(&version); err != nil {
+			rows.Close()
+			return nil, wrapFailure(KindUnavailable, "complete_workflow", "cannot scan workflow contract history", true, "retry once the database is readable", err)
+		}
+		versions[version] = true
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return nil, wrapFailure(KindUnavailable, "complete_workflow", "cannot enumerate workflow contract history", true, "retry once the database is readable", err)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, wrapFailure(KindUnavailable, "complete_workflow", "cannot close workflow contract history", true, "retry once the database is readable", err)
+	}
+	history := make(workflowContractPredicateHistoryData, len(versions))
+	for version := range versions {
+		predicates, err := readWorkflowContractPredicates(ctx, q, workID, version)
+		if err != nil {
+			return nil, err
+		}
+		history[version] = make(map[string]WorkflowReadPredicate, len(predicates))
+		for _, predicate := range predicates {
+			history[version][predicate.PredicateID] = predicate
+		}
+	}
+	return history, nil
+}
+
+func workflowPredicateHistoryCompatible(history workflowContractPredicateHistoryData, from, to int64, predicateID string, verdict workflowVerdictRecordedPayload) bool {
+	for version := from; version <= to; version++ {
+		if _, ok := history[version]; !ok {
+			return false
+		}
+		if version == from && verdict.PredicateID != predicateID {
+			return false
+		}
+		if version == to {
+			break
+		}
+		left, leftOK := history[version][predicateID]
+		right, rightOK := history[version+1][predicateID]
+		if !leftOK || !rightOK || left.OutcomeKind != right.OutcomeKind {
+			return false
+		}
+		leftPayload, leftErr := canonicalJSON(json.RawMessage(left.OutcomePayload))
+		rightPayload, rightErr := canonicalJSON(json.RawMessage(right.OutcomePayload))
+		if leftErr != nil || rightErr != nil || string(leftPayload) != string(rightPayload) {
+			return false
+		}
+	}
+	approved := history[to][predicateID]
+	return approved.PredicateID == predicateID && approved.OutcomeKind != "" && verdict.PredicateID == predicateID
 }
 
 func containsPredicateID(predicates []WorkflowReadPredicate, predicateID string) bool {

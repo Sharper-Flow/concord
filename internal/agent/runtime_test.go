@@ -71,7 +71,7 @@ func TestSupersedeContractPayloadIsRepresentableAtAgentBoundary(t *testing.T) {
 		"fields": map[string]any{
 			"contract_version": 2, "premise": "continue under the accepted successor law", "outcome_kind": "check",
 			"outcome_payload":   map[string]any{"kind": "check", "check_ref": "check:successor", "immutable_subject_ref": "commit:successor", "expected_result": "pass"},
-			"required_evidence": []string{"verification"}, "route_conventions": []string{}, "spec_mandate": []string{"spec:successor"}, "law_modifies": []string{}, "rigor_class": "prototype_internal",
+			"required_evidence": []string{"verification"}, "route_conventions": []string{}, "spec_mandate": []string{"spec:successor"}, "law_modifies": []string{}, "rigor_class": "prototype_internal", "supersede_reason": "replace the stale contract", "audit_evidence": []string{"evidence:audit"},
 		},
 	})
 	if err != nil {

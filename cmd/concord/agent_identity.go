@@ -20,35 +20,29 @@ func laneAgentFileName(laneID string) string {
 	return "concord-" + laneID + ".md"
 }
 
-// orchestratorAgentFileName is the host-side definition Concord requires to
-// start an orchestrator session. CD-0061 D5 fixes the name and the searched
-// directories so the provenance record and the assertion agree.
-const orchestratorAgentFileName = "concord-orchestrator.md"
-
-// orchestratorAgentName is the fallback name the session selects when the
-// definition carries no `name:` frontmatter. The host takes an agent's
-// invocation handle from its frontmatter `name:` when present and from the
-// definition file stem otherwise: a session that selects any other string
-// resolves to the operator's default agent and starts anyway, which is the
-// substitution CD-0049 D2 names.
-var orchestratorAgentName = strings.TrimSuffix(orchestratorAgentFileName, ".md")
+// agentDefinitionFileName names the definition file an agent resolves to:
+// the agent's invocation handle plus the host definition extension.
+func agentDefinitionFileName(agent string) string {
+	return agent + ".md"
+}
 
 // orchestratorInvocationHandle returns the name the host registers the
 // resolved definition under: the frontmatter `name:` value when the
-// definition carries one, else the file stem. Renaming via `name:` is not an
-// alias — the stem stops resolving — so selection by stem alone silently
+// definition carries one, else the file stem. Renaming via `name:` is not
+// an alias — the stem stops resolving — so selection by stem alone silently
 // falls back to the operator's default agent on a renamed definition.
 // The scan is a conservative subset of the host's YAML: a `name:` line at
 // column 0 inside the leading frontmatter block, value trimmed, symmetric
 // quotes stripped. Anything else reads as the stem.
 func orchestratorInvocationHandle(resolved string) string {
+	stem := strings.TrimSuffix(filepath.Base(resolved), ".md")
 	data, err := os.ReadFile(resolved) //nolint:gosec // resolved is an operator-owned host agent definition selected from the fixed search roots.
 	if err != nil {
-		return orchestratorAgentName
+		return stem
 	}
 	lines := strings.Split(string(data), "\n")
 	if len(lines) == 0 || strings.TrimRight(lines[0], "\r") != "---" {
-		return orchestratorAgentName
+		return stem
 	}
 	for _, line := range lines[1:] {
 		trimmed := strings.TrimRight(line, "\r")
@@ -67,7 +61,24 @@ func orchestratorInvocationHandle(resolved string) string {
 			return name
 		}
 	}
-	return orchestratorAgentName
+	return stem
+}
+
+// agentIdentityMismatchError reports a definition that resolves for the
+// requested agent but registers under a different invocation handle. The
+// session runs as the requested agent, so asserting the derived handle would
+// record evidence for an agent the session is not (CD-0049 D2).
+type agentIdentityMismatchError struct {
+	Requested  string
+	Handle     string
+	Definition string
+}
+
+func (e *agentIdentityMismatchError) Error() string {
+	return fmt.Sprintf(
+		"agent definition registers a different handle: definition %s registers %q, but the session runs as %q",
+		e.Definition, e.Handle, e.Requested,
+	)
 }
 
 // OrchestratorIdentityType is the Concord-owned role constant the assertion
@@ -160,24 +171,34 @@ func resolvesToDefinition(dirs []string, name string) bool {
 // computeHostPromptProvenance so the two sides agree on concatenation.
 const manifestSeparator = "\n---\n"
 
-// verifyOrchestratorIdentity asserts the orchestrator definition file
-// resolves in the searched directories and returns the assertion it would
-// record. The ruleset digest derives ONLY from artifacts actually resolved —
-// the orchestrator definition file and the instruction chain the host loads —
-// never from a declared or expected value (CD-0061 Invariant 4).
+// verifyOrchestratorIdentity asserts that the active host agent's definition
+// resolves in the searched directories, that the host registers it under the
+// same name the session runs as, and returns the assertion it would record.
+// The ruleset digest derives ONLY from artifacts actually resolved — the
+// agent definition file and the instruction chain the host loads — never
+// from a declared or expected value (CD-0061 Invariant 4).
 //
 // An absent or unresolvable definition is a typed failure naming the
 // required identity, the observed absence, and the paths searched, because
-// CD-0049 D4 admits no degraded start. The returned handle is the name the
-// host registers the resolved definition under; the session must select
-// exactly it (CD-0049 D2).
-func verifyOrchestratorIdentity(home, dir string) (store.OrchestratorIdentityAssertion, string, error) {
+// CD-0049 D4 admits no degraded start. A definition whose frontmatter
+// `name:` differs from the requested agent is a typed mismatch for the same
+// reason: the host would substitute the operator's default agent
+// (CD-0049 D2). The returned handle equals agent on success.
+func verifyOrchestratorIdentity(home, dir, agent string) (store.OrchestratorIdentityAssertion, string, error) {
 	dirs := agentSearchDirectories(home, dir)
-	resolved, err := firstOrchestratorDefinition(dirs)
+	fileName := agentDefinitionFileName(agent)
+	resolved, err := firstAgentDefinition(dirs, fileName)
 	if err != nil {
 		return store.OrchestratorIdentityAssertion{}, "", err
 	}
 	handle := orchestratorInvocationHandle(resolved)
+	if handle != agent {
+		return store.OrchestratorIdentityAssertion{}, "", &agentIdentityMismatchError{
+			Requested:  agent,
+			Handle:     handle,
+			Definition: resolved,
+		}
+	}
 	sources := collectOrchestratorArtifactSources(resolved, dir)
 	digest := computeOrchestratorRulesetDigest(sources)
 	return store.OrchestratorIdentityAssertion{
@@ -188,15 +209,20 @@ func verifyOrchestratorIdentity(home, dir string) (store.OrchestratorIdentityAss
 	}, handle, nil
 }
 
-// firstOrchestratorDefinition returns the first searched directory that
-// contains a regular file named orchestratorAgentFileName. When no directory
-// supplies the file, the returned error is the typed agentIdentityAbsentError
-// the session command surfaces unchanged.
-func firstOrchestratorDefinition(dirs []string) (string, error) {
+// firstAgentDefinition returns the first searched directory that contains a
+// regular file named fileName. When no directory supplies the file, the
+// returned error is the typed agentIdentityAbsentError the session command
+// surfaces unchanged.
+//
+// fileName derives from the caller-validated agent name: both entry points
+// (session-prepare's request field and the launcher's CONCORD_SELECTED_AGENT)
+// match it against ^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$ before this runs, so
+// it cannot carry a path separator or traversal.
+func firstAgentDefinition(dirs []string, fileName string) (string, error) {
 	resolved := ""
 	for _, dir := range dirs {
-		candidate := filepath.Join(dir, orchestratorAgentFileName)
-		info, err := os.Stat(candidate)
+		candidate := filepath.Join(dir, fileName)
+		info, err := os.Stat(candidate) //nolint:gosec // candidate joins a fixed search root with a caller-validated agent name (see above); no traversal is reachable.
 		if err == nil && info.Mode().IsRegular() {
 			resolved = candidate
 			break
@@ -204,8 +230,8 @@ func firstOrchestratorDefinition(dirs []string) (string, error) {
 	}
 	if resolved == "" {
 		return "", &agentIdentityAbsentError{
-			Required: []string{orchestratorAgentFileName},
-			Missing:  []string{orchestratorAgentFileName},
+			Required: []string{fileName},
+			Missing:  []string{fileName},
 			Searched: dirs,
 		}
 	}

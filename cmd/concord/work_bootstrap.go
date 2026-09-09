@@ -102,6 +102,7 @@ type sessionPrepareInput struct {
 	ProductID string `json:"product_id"`
 	WorkID    string `json:"work_id"`
 	Task      string `json:"task"`
+	Agent     string `json:"agent"`
 }
 
 type sessionPrepareOutput struct {
@@ -117,17 +118,18 @@ type sessionPrepareOutput struct {
 var sessionPrepareID = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$`)
 
 // runSessionPrepare verifies that the current directory is the claimed
-// worktree, resolves the agent and lane identity that directory defines, and
-// derives the session boot packet. It records nothing: the session's worktree
-// is the directory it runs in, and the host owns that fact.
+// worktree, verifies the active host agent and the lane identity that
+// directory defines, and derives the session boot packet. It records
+// nothing: the session's worktree is the directory it runs in, and the host
+// owns that fact.
 func runSessionPrepare(raw []byte, s *store.Store, out, errOut io.Writer, laneIdentity sessionAgentIdentityFunc, identity sessionOrchestratorFunc, bootstrap sessionBootstrapFunc) int {
 	var input sessionPrepareInput
 	if err := decodeObject(raw, &input); err != nil {
 		writeOperatorDiagnostic(errOut, "session-prepare", err.Error())
 		return 1
 	}
-	if !sessionPrepareID.MatchString(input.ProductID) || !sessionPrepareID.MatchString(input.WorkID) || len(input.Task) > 8192 || strings.ContainsRune(input.Task, '\x00') || !utf8.ValidString(input.Task) {
-		writeOperatorDiagnostic(errOut, "session-prepare", "product_id and work_id are required, and task must be bounded valid UTF-8")
+	if !sessionPrepareID.MatchString(input.ProductID) || !sessionPrepareID.MatchString(input.WorkID) || !sessionPrepareID.MatchString(input.Agent) || len(input.Task) > 8192 || strings.ContainsRune(input.Task, '\x00') || !utf8.ValidString(input.Task) {
+		writeOperatorDiagnostic(errOut, "session-prepare", "product_id, work_id, and agent are required, and task must be bounded valid UTF-8")
 		return 1
 	}
 	cwd, err := os.Getwd()
@@ -191,7 +193,7 @@ func runSessionPrepare(raw []byte, s *store.Store, out, errOut io.Writer, laneId
 		writeOperatorDiagnostic(errOut, "session-prepare", err.Error())
 		return 1
 	}
-	handle, err := identity(context.Background(), cwd, input.ProductID, input.WorkID)
+	handle, err := identity(context.Background(), cwd, input.ProductID, input.WorkID, input.Agent)
 	if err != nil {
 		writeOperatorDiagnostic(errOut, "session-prepare", err.Error())
 		return 1

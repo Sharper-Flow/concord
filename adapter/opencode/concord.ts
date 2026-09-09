@@ -619,12 +619,13 @@ function validateWorkStartBootstrap(value: unknown): value is WorkStartBootstrap
     && nonEmptyString(worktree.branch) && /^[0-9a-f]{40}$/.test(String(worktree.base_sha)) && worktree.state === "active"
 }
 
-function validateWorkStartPrepared(value: unknown, bootstrap: { product_id: string; work_id: string; worktree: { path: string } }): value is WorkStartPrepared {
+function validateWorkStartPrepared(value: unknown, bootstrap: { product_id: string; work_id: string; worktree: { path: string } }, agent: string): value is WorkStartPrepared {
   if (!record(value) || !exactKeys(value, ["schema_version", "agent", "directory", "product_id", "work_id", "title", "prompt"])) return false
   return value.schema_version === "1.0"
     && value.directory === bootstrap.worktree.path
     && value.product_id === bootstrap.product_id
     && value.work_id === bootstrap.work_id
+    && value.agent === agent
     && nonEmptyString(value.agent) && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(value.agent)
     && nonEmptyString(value.title) && Buffer.byteLength(value.title) <= 256
     && typeof value.prompt === "string" && value.prompt.length > 0 && Buffer.byteLength(value.prompt) <= 65_536
@@ -800,11 +801,16 @@ async function executeWorkStart(args: WorkStartArgs, context: ToolContext): Prom
     }
 
     if (context.abort.aborted) throw new AdapterFailure("cancelled", "cancelled_after_bootstrap", `work_start was cancelled after ${resume ? "the resume read" : "bootstrap"}; replay the same idempotency_key to resume`, "none", "retry_same_request")
-    const prepared = await runWorkStartChild([concordBinaryPath(), "session-prepare"], JSON.stringify({ product_id: target.product_id, work_id: target.work_id, task: prepareTask }), context.abort, { cwd: target.worktree.path })
+    // session-prepare verifies the ACTIVE host agent: the request carries the
+    // agent this session runs as (context.agent), the core resolves that
+    // agent's definition and registry entry, and the read-back must name the
+    // same agent. A core that answers with any other agent fails the strict
+    // contract below.
+    const prepared = await runWorkStartChild([concordBinaryPath(), "session-prepare"], JSON.stringify({ product_id: target.product_id, work_id: target.work_id, task: prepareTask, agent: context.agent }), context.abort, { cwd: target.worktree.path })
     if (prepared.exitCode !== 0) throw new AdapterFailure("session_prepare_failure", "session_prepare_failed", prepared.stderr.slice(0, MAX_STDERR), "none", "retry_same_request")
     let preparedValue: unknown
     try { preparedValue = singleJSON(prepared.stdout) } catch (error) { throw new AdapterFailure("malformed_response", "malformed_prepare_response", String(error), "none", "retry_same_request") }
-    if (!validateWorkStartPrepared(preparedValue, target)) throw new AdapterFailure("malformed_response", "malformed_prepare_response", "session-prepare response failed the strict prepare contract", "none", "retry_same_request")
+    if (!validateWorkStartPrepared(preparedValue, target, context.agent)) throw new AdapterFailure("malformed_response", "malformed_prepare_response", "session-prepare response failed the strict prepare contract", "none", "retry_same_request")
     const agent = preparedValue.agent
 
     if (context.abort.aborted) throw new AdapterFailure("cancelled", "cancelled_before_move", "work_start was cancelled before the move; replay the same idempotency_key to resume", "none", "retry_same_request")

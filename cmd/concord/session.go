@@ -20,6 +20,7 @@ const (
 	selectedWorkEnv    = "CONCORD_SELECTED_WORK_ID"
 	selectedPromptEnv  = "CONCORD_SELECTED_PROMPT"
 	selectedProjectEnv = "CONCORD_SELECTED_PROJECT_PATH"
+	selectedAgentEnv   = "CONCORD_SELECTED_AGENT"
 )
 
 var sessionIdentity = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]{1,127}$`)
@@ -41,20 +42,25 @@ type sessionRunnerFunc func(context.Context, string, []string, []string, io.Read
 // session will start on, in the resolved session directory.
 type sessionAgentIdentityFunc func(dir string) error
 
-// sessionOrchestratorFunc verifies the orchestrator identity the session
-// requires in dir and records the assertion as a domain event. CD-0061 D4 and D5
-// bind the two steps: the verification proves the host has the required
+// sessionOrchestratorFunc verifies the identity of the agent the session
+// runs as in dir and records the assertion as a domain event. CD-0061 D4
+// binds the two steps: the verification proves the host has the required
 // definition; the record is the evidence Concord later has if anyone asks
 // what the session asserted. Both run inside the session command so a
 // launcher-started session either has the recorded event or refuses with a
 // typed absence diagnostic. On success it returns the invocation handle the
-// host registers the resolved definition under; the session must select that
-// name when it starts the host, so the agent that runs is the agent the
-// assertion recorded.
+// host registers the resolved definition under, which equals agent.
+//
+// agent is the active host agent the session runs as: the launcher's
+// CONCORD_SELECTED_AGENT selection for `concord session`, or the request's
+// agent field for session-prepare. The host answers an unselected name with
+// the operator's default agent and exits zero (CD-0049 D2), so the
+// verification proves the named agent resolves, registers, and is the one
+// the session selected.
 //
 // The function is a parameter so tests can inject an isolated temp store;
 // production wiring is hostOrchestratorIdentity below.
-type sessionOrchestratorFunc func(ctx context.Context, dir, productID, workID string) (string, error)
+type sessionOrchestratorFunc func(ctx context.Context, dir, productID, workID, agent string) (string, error)
 
 // sessionDirectoryUnresolvedError reports a canonical path that does not
 // resolve to a directory on this machine. CD-0093 D3 admits no fallback
@@ -139,21 +145,21 @@ func hostLaneAgentIdentity(dir string) error {
 }
 
 // hostOrchestratorIdentity is the production wiring for the session's
-// orchestrator assertion. It runs the file/digest verification in the
-// directory the session resolved, opens the authority store, and records
-// the assertion in a single transaction. The verification runs before any
-// store interaction so a missing definition fails closed without touching
-// the database — the session either records the assertion it required or
-// refuses.
-func hostOrchestratorIdentity(ctx context.Context, dir, productID, workID string) (string, error) {
-	return recordOrchestratorIdentity(ctx, os.Getenv("HOME"), probeHostAgentRegistry, dir, productID, workID)
+// orchestrator assertion. It runs the file/digest verification for the
+// active agent in the directory the session resolved, opens the authority
+// store, and records the assertion in a single transaction. The verification
+// runs before any store interaction so a missing definition fails closed
+// without touching the database — the session either records the assertion
+// it required or refuses.
+func hostOrchestratorIdentity(ctx context.Context, dir, productID, workID, agent string) (string, error) {
+	return recordOrchestratorIdentity(ctx, os.Getenv("HOME"), probeHostAgentRegistry, dir, productID, workID, agent)
 }
 
 // recordOrchestratorIdentity carries the whole assertion. The home directory
 // and the registry probe are parameters so a test drives the real path against
 // a temporary installation instead of restating it.
-func recordOrchestratorIdentity(ctx context.Context, home string, probe hostRegistryProbeFunc, dir, productID, workID string) (handleResult string, errResult error) {
-	assertion, handle, err := verifyOrchestratorIdentity(home, dir)
+func recordOrchestratorIdentity(ctx context.Context, home string, probe hostRegistryProbeFunc, dir, productID, workID, agent string) (handleResult string, errResult error) {
+	assertion, handle, err := verifyOrchestratorIdentity(home, dir, agent)
 	if err != nil {
 		return "", err
 	}
@@ -344,7 +350,17 @@ func runSessionCommand(args []string, in io.Reader, out, errOut io.Writer, termi
 		writeDiagnostic(errOut, "concord session: "+err.Error())
 		return 2
 	}
-	handle, err := orchestrator(context.Background(), dir, productID, workID)
+	// The launcher names the agent this session runs as. The verification
+	// below resolves that agent's definition and requires the host to
+	// register exactly it; an unselected or renamed agent resolves to the
+	// operator's default agent and exits zero (CD-0049 D2), so an empty or
+	// invalid selection refuses rather than verifying some other agent.
+	agent := os.Getenv(selectedAgentEnv)
+	if !sessionIdentity.MatchString(agent) {
+		writeDiagnostic(errOut, "concord session: launcher agent selection is missing or invalid")
+		return 2
+	}
+	handle, err := orchestrator(context.Background(), dir, productID, workID, agent)
 	if err != nil {
 		writeDiagnostic(errOut, "concord session: "+err.Error())
 		return 2
@@ -378,14 +394,14 @@ func runSessionCommand(args []string, in io.Reader, out, errOut io.Writer, termi
 		prompt = prompt + "\n\nConcord session boot packet (core-derived authority at its watermark; reread concord_work_trace.continuity before consequential action):\n" + string(packet)
 	}
 	// The session starts the host as the agent whose identity it just
-	// asserted and recorded, selecting it by the handle the host registers
-	// the resolved definition under. Omitting the selection — or selecting
-	// any other string — records evidence for an agent that never ran,
-	// because the host answers an unselected name with the operator's
-	// default agent and exits zero (CD-0049 D2). The child working
-	// directory is the resolved Project directory: the host defaults its
-	// project to it and every relative path the session resolves starts
-	// there (CD-0093 D1).
+	// asserted and recorded. The handle is the registered name of the agent
+	// the launcher selected, and the verification proved the host registers
+	// it. Omitting the selection — or selecting any other string — records
+	// evidence for an agent that never ran, because the host answers an
+	// unselected name with the operator's default agent and exits zero
+	// (CD-0049 D2). The child working directory is the resolved Project
+	// directory: the host defaults its project to it and every relative
+	// path the session resolves starts there (CD-0093 D1).
 	argv := []string{"opencode", "--agent", handle, "--prompt", prompt}
 	if err := runner(context.Background(), dir, argv, os.Environ(), in, out, errOut); err != nil {
 		writeDiagnostic(errOut, fmt.Sprintf("concord session: opencode: %v", err))

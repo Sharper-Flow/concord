@@ -19,6 +19,7 @@ import (
 func TestSessionBootPassesCorePacketToOpenCodeBeforeSessionStarts(t *testing.T) {
 	t.Setenv("CONCORD_SELECTED_PRODUCT_ID", "product-1")
 	t.Setenv("CONCORD_SELECTED_WORK_ID", "work-1")
+	t.Setenv(selectedAgentEnv, "concord-1")
 	const sessionDir = "/resolved/project-directory"
 	var argv []string
 	var runnerDir string
@@ -37,7 +38,7 @@ func TestSessionBootPassesCorePacketToOpenCodeBeforeSessionStarts(t *testing.T) 
 		return nil
 	}
 	var out, errOut bytes.Buffer
-	if code := runSessionCommand(nil, strings.NewReader(""), &out, &errOut, true, directoryAt(sessionDir), bootstrap, runner, func(string) error { return nil }, func(context.Context, string, string, string) (string, error) { return orchestratorAgentName, nil }); code != 0 {
+	if code := runSessionCommand(nil, strings.NewReader(""), &out, &errOut, true, directoryAt(sessionDir), bootstrap, runner, func(string) error { return nil }, func(context.Context, string, string, string, string) (string, error) { return "concord-1", nil }); code != 0 {
 		t.Fatalf("session exit=%d stderr=%q", code, errOut.String())
 	}
 	if bootstrapCalls != 1 {
@@ -49,8 +50,8 @@ func TestSessionBootPassesCorePacketToOpenCodeBeforeSessionStarts(t *testing.T) 
 	if len(argv) != 5 || argv[0] != "opencode" {
 		t.Fatalf("argv=%q", argv)
 	}
-	if selected := selectedAgentName(t, argv); selected != orchestratorAgentName {
-		t.Fatalf("session selected agent %q, want %q", selected, orchestratorAgentName)
+	if selected := selectedAgentName(t, argv); selected != "concord-1" {
+		t.Fatalf("session selected agent %q, want %q", selected, "concord-1")
 	}
 	prompt := hostPrompt(t, argv)
 	start := strings.IndexByte(prompt, '{')
@@ -65,6 +66,7 @@ func TestSessionBootPassesCorePacketToOpenCodeBeforeSessionStarts(t *testing.T) 
 func TestSessionBootFailsClosedBeforeOpenCodeOnPacketFailure(t *testing.T) {
 	t.Setenv("CONCORD_SELECTED_PRODUCT_ID", "product-1")
 	t.Setenv("CONCORD_SELECTED_WORK_ID", "work-1")
+	t.Setenv(selectedAgentEnv, "concord-1")
 	runs := 0
 	bootstrap := func(context.Context, string, string, string) ([]byte, error) {
 		return nil, errors.New("manifest digest mismatch")
@@ -74,7 +76,7 @@ func TestSessionBootFailsClosedBeforeOpenCodeOnPacketFailure(t *testing.T) {
 		return nil
 	}
 	var out, errOut bytes.Buffer
-	if code := runSessionCommand(nil, strings.NewReader(""), &out, &errOut, true, directoryAt("/resolved/project-directory"), bootstrap, runner, func(string) error { return nil }, func(context.Context, string, string, string) (string, error) { return orchestratorAgentName, nil }); code == 0 {
+	if code := runSessionCommand(nil, strings.NewReader(""), &out, &errOut, true, directoryAt("/resolved/project-directory"), bootstrap, runner, func(string) error { return nil }, func(context.Context, string, string, string, string) (string, error) { return "concord-1", nil }); code == 0 {
 		t.Fatal("packet failure started session")
 	}
 	if runs != 0 || !strings.Contains(errOut.String(), "manifest digest mismatch") {
@@ -95,7 +97,7 @@ func TestProjectSessionStartsWithoutConcordIdentity(t *testing.T) {
 		return nil
 	}
 	var out, errOut bytes.Buffer
-	if code := runSessionCommand(nil, strings.NewReader(""), &out, &errOut, true, directoryAt("/unused"), nil, runner, func(string) error { return errors.New("identity must not run") }, func(context.Context, string, string, string) (string, error) {
+	if code := runSessionCommand(nil, strings.NewReader(""), &out, &errOut, true, directoryAt("/unused"), nil, runner, func(string) error { return errors.New("identity must not run") }, func(context.Context, string, string, string, string) (string, error) {
 		return "", errors.New("orchestrator must not run")
 	}); code != 0 {
 		t.Fatalf("project session exit=%d stderr=%q", code, errOut.String())
@@ -192,7 +194,7 @@ func TestSessionRefusesToStartWhenRequiredAgentIdentityIsAbsent(t *testing.T) {
 	identity := func(string) error { return verifyLaneAgentIdentity("", "", store.BuiltinLaneDefinitions()) }
 	var out, errOut bytes.Buffer
 
-	code := runSessionCommand(nil, strings.NewReader(""), &out, &errOut, true, directoryAt(t.TempDir()), bootstrap, runner, identity, func(context.Context, string, string, string) (string, error) { return orchestratorAgentName, nil })
+	code := runSessionCommand(nil, strings.NewReader(""), &out, &errOut, true, directoryAt(t.TempDir()), bootstrap, runner, identity, func(context.Context, string, string, string, string) (string, error) { return "concord-1", nil })
 	if code != 2 {
 		t.Fatalf("exit=%d, want 2", code)
 	}
@@ -214,26 +216,27 @@ func TestSessionRefusesToStartWhenRequiredAgentIdentityIsAbsent(t *testing.T) {
 
 // TestSessionRefusesWhenOrchestratorIdentityIsAbsent covers CD-0061 D4 and
 // the typed-absence contract CD-0049 D4 admits: a launcher-started session
-// that cannot resolve concord-orchestrator.md exits with a diagnostic
+// whose active agent's definition cannot resolve exits with a diagnostic
 // naming required identity, observed absence, and searched paths, and
 // writes NO event — verification fails before any store interaction.
 func TestSessionRefusesWhenOrchestratorIdentityIsAbsent(t *testing.T) {
 	home, cwd := t.TempDir(), t.TempDir()
-	// Lane definitions resolve, but the orchestrator definition does not.
+	// Lane definitions resolve, but the active agent's definition does not.
 	for _, lane := range store.BuiltinLaneDefinitions() {
 		writeAgentDefinition(t, filepath.Join(cwd, ".opencode", "agents"), laneAgentFileName(lane.ID))
 	}
 	t.Setenv("HOME", home)
 	t.Setenv("CONCORD_SELECTED_PRODUCT_ID", "product-1")
 	t.Setenv("CONCORD_SELECTED_WORK_ID", "work-1")
+	t.Setenv(selectedAgentEnv, "concord-1")
 	dbPath := filepath.Join(t.TempDir(), "concord-absent.db")
 	t.Setenv("CONCORD_DB_PATH", dbPath)
 	identity := func(dir string) error { return verifyLaneAgentIdentity(home, dir, store.BuiltinLaneDefinitions()) }
 	// The orchestrator callback runs the real verification + recording
-	// path against temp dirs. With no concord-orchestrator.md on disk, the
+	// path against temp dirs. With no concord-1.md on disk, the
 	// verification fails before the store is opened, so the recorded
 	// database file must not exist.
-	orchestrator := recordOrchestratorIdentityAt(home, registryProbeFor(orchestratorAgentName))
+	orchestrator := recordOrchestratorIdentityAt(home, registryProbeFor("concord-1"))
 	bootstrapCalls, runs := 0, 0
 	bootstrap := func(context.Context, string, string, string) ([]byte, error) { bootstrapCalls++; return nil, nil }
 	runner := func(context.Context, string, []string, []string, io.Reader, io.Writer, io.Writer) error {
@@ -250,7 +253,7 @@ func TestSessionRefusesWhenOrchestratorIdentityIsAbsent(t *testing.T) {
 	stderr := errOut.String()
 	for _, fragment := range []string{
 		"required agent identity is absent",
-		orchestratorAgentFileName,
+		agentDefinitionFileName("concord-1"),
 		filepath.Join(cwd, ".opencode", "agents"),
 		filepath.Join(home, ".config", "opencode", "agents"),
 	} {
@@ -266,7 +269,7 @@ func TestSessionRefusesWhenOrchestratorIdentityIsAbsent(t *testing.T) {
 }
 
 // TestSessionRecordsExactlyOneOrchestratorIdentityEvent covers CD-0061 D4:
-// a launcher-started session with a resolvable concord-orchestrator.md
+// a launcher-started session with a resolvable active-agent definition
 // records exactly one subject_type='session' domain event carrying the
 // asserted type, version, and ruleset digest.
 func TestSessionRecordsExactlyOneOrchestratorIdentityEvent(t *testing.T) {
@@ -274,14 +277,15 @@ func TestSessionRecordsExactlyOneOrchestratorIdentityEvent(t *testing.T) {
 	for _, lane := range store.BuiltinLaneDefinitions() {
 		writeAgentDefinition(t, filepath.Join(cwd, ".opencode", "agents"), laneAgentFileName(lane.ID))
 	}
-	writeAgentDefinition(t, filepath.Join(cwd, ".opencode", "agents"), orchestratorAgentFileName)
+	writeAgentDefinition(t, filepath.Join(cwd, ".opencode", "agents"), agentDefinitionFileName("concord-1"))
 	t.Setenv("HOME", home)
 	t.Setenv("CONCORD_SELECTED_PRODUCT_ID", "product-1")
 	t.Setenv("CONCORD_SELECTED_WORK_ID", "work-1")
+	t.Setenv(selectedAgentEnv, "concord-1")
 	dbPath := filepath.Join(t.TempDir(), "concord-assertion.db")
 	t.Setenv("CONCORD_DB_PATH", dbPath)
 	identity := func(dir string) error { return verifyLaneAgentIdentity(home, dir, store.BuiltinLaneDefinitions()) }
-	orchestrator := recordOrchestratorIdentityAt(home, registryProbeFor(orchestratorAgentName))
+	orchestrator := recordOrchestratorIdentityAt(home, registryProbeFor("concord-1"))
 	bootstrapCalls, runs := 0, 0
 	bootstrap := func(context.Context, string, string, string) ([]byte, error) { bootstrapCalls++; return nil, nil }
 	runner := func(context.Context, string, []string, []string, io.Reader, io.Writer, io.Writer) error {
@@ -361,10 +365,11 @@ func TestSessionStartsTheOrchestratorAgentItAsserted(t *testing.T) {
 	for _, lane := range store.BuiltinLaneDefinitions() {
 		writeAgentDefinition(t, filepath.Join(cwd, ".opencode", "agents"), laneAgentFileName(lane.ID))
 	}
-	writeAgentDefinition(t, filepath.Join(cwd, ".opencode", "agents"), orchestratorAgentFileName)
+	writeAgentDefinition(t, filepath.Join(cwd, ".opencode", "agents"), agentDefinitionFileName("concord-1"))
 	t.Setenv("HOME", home)
 	t.Setenv("CONCORD_SELECTED_PRODUCT_ID", "product-1")
 	t.Setenv("CONCORD_SELECTED_WORK_ID", "work-1")
+	t.Setenv(selectedAgentEnv, "concord-1")
 	dbPath := filepath.Join(t.TempDir(), "concord-selection.db")
 	t.Setenv("CONCORD_DB_PATH", dbPath)
 	var argv []string
@@ -380,7 +385,7 @@ func TestSessionStartsTheOrchestratorAgentItAsserted(t *testing.T) {
 		func(context.Context, string, string, string) ([]byte, error) { return nil, nil },
 		runner,
 		func(dir string) error { return verifyLaneAgentIdentity(home, dir, store.BuiltinLaneDefinitions()) },
-		recordOrchestratorIdentityAt(home, registryProbeFor(orchestratorAgentName)),
+		recordOrchestratorIdentityAt(home, registryProbeFor("concord-1")),
 	); code != 0 {
 		t.Fatalf("session exit=%d stderr=%q", code, errOut.String())
 	}
@@ -449,7 +454,7 @@ func TestOrchestratorIdentityDigestRecomputesAndChangesWithArtifact(t *testing.T
 	for _, lane := range store.BuiltinLaneDefinitions() {
 		writeAgentDefinition(t, filepath.Join(cwd, ".opencode", "agents"), laneAgentFileName(lane.ID))
 	}
-	writeAgentDefinition(t, filepath.Join(cwd, ".opencode", "agents"), orchestratorAgentFileName)
+	writeAgentDefinition(t, filepath.Join(cwd, ".opencode", "agents"), agentDefinitionFileName("concord-1"))
 	agentsPath := filepath.Join(cwd, "AGENTS.md")
 	if err := os.WriteFile(agentsPath, []byte("# instructions v1\n"), 0o644); err != nil {
 		t.Fatal(err)
@@ -457,10 +462,11 @@ func TestOrchestratorIdentityDigestRecomputesAndChangesWithArtifact(t *testing.T
 	t.Setenv("HOME", home)
 	t.Setenv("CONCORD_SELECTED_PRODUCT_ID", "product-1")
 	t.Setenv("CONCORD_SELECTED_WORK_ID", "work-1")
+	t.Setenv(selectedAgentEnv, "concord-1")
 	dbPath := filepath.Join(t.TempDir(), "concord-digest.db")
 	t.Setenv("CONCORD_DB_PATH", dbPath)
 	identity := func(dir string) error { return verifyLaneAgentIdentity(home, dir, store.BuiltinLaneDefinitions()) }
-	orchestrator := recordOrchestratorIdentityAt(home, registryProbeFor(orchestratorAgentName))
+	orchestrator := recordOrchestratorIdentityAt(home, registryProbeFor("concord-1"))
 
 	// First session — record an assertion against the current files.
 	if code := runSessionCommand(nil, strings.NewReader(""), &bytes.Buffer{}, &bytes.Buffer{}, true,
@@ -491,7 +497,7 @@ func TestOrchestratorIdentityDigestRecomputesAndChangesWithArtifact(t *testing.T
 	// Recompute the digest from the *current* filesystem (the verification
 	// step re-reads and re-hashes every resolved artifact). The current
 	// digest must differ from the recorded first one.
-	currentAssertion, _, err := verifyOrchestratorIdentity(home, cwd)
+	currentAssertion, _, err := verifyOrchestratorIdentity(home, cwd, "concord-1")
 	if err != nil {
 		t.Fatalf("verify after mutation: %v", err)
 	}
@@ -524,8 +530,8 @@ func TestOrchestratorIdentityDigestRecomputesAndChangesWithArtifact(t *testing.T
 // installation, so a test verifies production behavior rather than a copy of
 // it.
 func recordOrchestratorIdentityAt(home string, probe hostRegistryProbeFunc) sessionOrchestratorFunc {
-	return func(ctx context.Context, dir, productID, workID string) (string, error) {
-		return recordOrchestratorIdentity(ctx, home, probe, dir, productID, workID)
+	return func(ctx context.Context, dir, productID, workID, agent string) (string, error) {
+		return recordOrchestratorIdentity(ctx, home, probe, dir, productID, workID, agent)
 	}
 }
 
@@ -539,10 +545,11 @@ func TestSessionRefusesWhenTheHostDoesNotRegisterTheHandle(t *testing.T) {
 	for _, lane := range store.BuiltinLaneDefinitions() {
 		writeAgentDefinition(t, filepath.Join(cwd, ".opencode", "agents"), laneAgentFileName(lane.ID))
 	}
-	writeAgentDefinition(t, filepath.Join(cwd, ".opencode", "agents"), orchestratorAgentFileName)
+	writeAgentDefinition(t, filepath.Join(cwd, ".opencode", "agents"), agentDefinitionFileName("concord-1"))
 	t.Setenv("HOME", home)
 	t.Setenv("CONCORD_SELECTED_PRODUCT_ID", "product-1")
 	t.Setenv("CONCORD_SELECTED_WORK_ID", "work-1")
+	t.Setenv(selectedAgentEnv, "concord-1")
 	dbPath := filepath.Join(t.TempDir(), "concord-unregistered.db")
 	t.Setenv("CONCORD_DB_PATH", dbPath)
 	runs := 0
@@ -566,7 +573,7 @@ func TestSessionRefusesWhenTheHostDoesNotRegisterTheHandle(t *testing.T) {
 	if runs != 0 {
 		t.Fatalf("host started %d times on a refused session", runs)
 	}
-	for _, fragment := range []string{orchestratorAgentName, "not registered"} {
+	for _, fragment := range []string{"concord-1", "not registered"} {
 		if !strings.Contains(errOut.String(), fragment) {
 			t.Fatalf("diagnostic %q omits %q", errOut.String(), fragment)
 		}
@@ -627,20 +634,22 @@ func readRecordedAssertion(t *testing.T, dbPath string) (recordedAssertion, erro
 // direct time mention in this file; it keeps the import set honest.
 var _ = time.RFC3339Nano
 
-// A definition that renames itself via frontmatter `name:` registers under
-// that name, not its file stem. The session must select the registered name:
-// selecting the stem would start the operator's default agent while the
-// assertion described the renamed definition (issue #428's probe).
+// The active agent may be a definition whose frontmatter `name:` restates
+// its file stem. The host registers the definition under that name, and the
+// session must select it: selecting any other string starts the operator's
+// default agent while the assertion described the named definition
+// (issue #428's probe).
 func TestSessionSelectsTheFrontmatterNameARenamedDefinitionRegisters(t *testing.T) {
 	home, cwd := t.TempDir(), t.TempDir()
 	for _, lane := range store.BuiltinLaneDefinitions() {
 		writeAgentDefinition(t, filepath.Join(cwd, ".opencode", "agents"), laneAgentFileName(lane.ID))
 	}
-	writeAgentDefinitionBody(t, filepath.Join(cwd, ".opencode", "agents"), orchestratorAgentFileName,
+	writeAgentDefinitionBody(t, filepath.Join(cwd, ".opencode", "agents"), agentDefinitionFileName("op-session-renamed"),
 		[]byte("---\nname: op-session-renamed\nmode: all\n---\norchestrator body\n"))
 	t.Setenv("HOME", home)
 	t.Setenv("CONCORD_SELECTED_PRODUCT_ID", "product-1")
 	t.Setenv("CONCORD_SELECTED_WORK_ID", "work-1")
+	t.Setenv(selectedAgentEnv, "op-session-renamed")
 	t.Setenv("CONCORD_DB_PATH", filepath.Join(t.TempDir(), "concord-renamed.db"))
 	var argv []string
 	var runnerDir string
@@ -669,19 +678,19 @@ func TestSessionSelectsTheFrontmatterNameARenamedDefinitionRegisters(t *testing.
 
 // The recorded agent reference is the handle the host runs the session as.
 //
-// The definition below carries `name: concord-1`, so the host registers it
-// under that name and the file stem stops resolving. Recording the stem, or
-// the file name, would attribute every session to an agent the host does not
+// The active agent below is concord-1, so the host registers it under that
+// name and the assertion must record it. Recording the file name, or any
+// other string, would attribute every session to an agent the host does not
 // have — and under a fail-closed agent scope, to one no client can present.
 func TestOrchestratorAssertionRecordsTheRegisteredHandle(t *testing.T) {
 	home := t.TempDir()
 	cwd := t.TempDir()
-	writeAgentDefinitionBody(t, filepath.Join(cwd, ".opencode", "agents"), orchestratorAgentFileName,
-		[]byte("---\nname: concord-1\nmode: primary\n---\n"))
+	writeAgentDefinitionBody(t, filepath.Join(cwd, ".opencode", "agents"), agentDefinitionFileName("concord-1"),
+		[]byte("---\nmode: primary\n---\n"))
 	dbPath := filepath.Join(t.TempDir(), "concord-handle.db")
 	t.Setenv("CONCORD_DB_PATH", dbPath)
 
-	handle, err := recordOrchestratorIdentity(context.Background(), home, registryProbeFor("concord-1"), cwd, "product-1", "")
+	handle, err := recordOrchestratorIdentity(context.Background(), home, registryProbeFor("concord-1"), cwd, "product-1", "", "concord-1")
 	if err != nil {
 		t.Fatalf("record assertion: %v", err)
 	}
@@ -702,7 +711,7 @@ func TestOrchestratorAssertionRecordsTheRegisteredHandle(t *testing.T) {
 	// The agent reference is hashed into the actor rather than stored beside
 	// it, so the derived reference is what proves which agent was recorded.
 	want := store.DeriveWorkflowActorRef("principal/orchestrator", "client/concord-session", "agent/concord-1", "session/product-1")
-	stem := store.DeriveWorkflowActorRef("principal/orchestrator", "client/concord-session", "agent/"+orchestratorAgentFileName, "session/product-1")
+	stem := store.DeriveWorkflowActorRef("principal/orchestrator", "client/concord-session", "agent/concord-1.md", "session/product-1")
 	if actor == stem {
 		t.Fatal("the assertion recorded the definition file name, not the handle the host runs")
 	}

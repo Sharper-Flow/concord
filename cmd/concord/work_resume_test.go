@@ -159,7 +159,7 @@ func TestSessionPrepareAcceptsEmptyTask(t *testing.T) {
 	var out, errOut bytes.Buffer
 	code := runSessionPrepare(commandSessionPrepareInput(t, origin.WorkID, ""), s, &out, &errOut,
 		func(string) error { return nil },
-		func(context.Context, string, string, string) (string, error) { return "agent", nil },
+		func(context.Context, string, string, string, string) (string, error) { return "agent", nil },
 		func(context.Context, string, string, string) ([]byte, error) {
 			return []byte(`{"watermark":"test"}`), nil
 		})

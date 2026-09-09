@@ -178,6 +178,18 @@ func WorkflowActionPreflightWithRegistry(ctx context.Context, s *Store, registry
 	}
 	consequence := action.Consequence
 	staleRecovery := request.ActionID == "supersede_contract"
+	// The resolver admits record_verdict past its verification step, but
+	// the admission is bounded by the same shared availability the owning
+	// transaction checks (#1013): only a missing, non-ok, or incomparable
+	// verdict for an active-contract predicate may recover late, and the
+	// step-declaration check below must skip exactly those requests.
+	lateVerdictRecovery := false
+	if request.ActionID == "record_verdict" {
+		lateVerdictRecovery, err = workflowLateVerdictRecoveryForActionPayload(ctx, s.db, request.WorkID, entry.Definition, currentStep, request.Payload)
+		if err != nil {
+			return err
+		}
+	}
 	if workflowImpactBoundary(request.ActionID, consequence) {
 		var breakingNotices int
 		if err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM workflow_impact_notices n JOIN workflow_impact_edges e ON e.work_id=n.edge_owner_work_id AND e.edge_id=n.edge_id WHERE n.target_work_id=? AND n.severity='breaking' AND e.edge_class='hard'`, request.WorkID).Scan(&breakingNotices); err != nil {
@@ -206,7 +218,7 @@ func WorkflowActionPreflightWithRegistry(ctx context.Context, s *Store, registry
 	if err := guardMandatedWorkflowLawBound(ctx, s.db, request.WorkID, entry.Definition, currentStep, request.ActionID, "workflow_action_preflight"); err != nil {
 		return err
 	}
-	if !staleRecovery && !definitionStepAllows(entry.Definition, currentStep, request.ActionID) {
+	if !staleRecovery && !lateVerdictRecovery && !definitionStepAllows(entry.Definition, currentStep, request.ActionID) {
 		if request.ActionID != "bind_evidence" {
 			return newFailure(KindIllegalLifecycleTransition, "workflow_action_preflight", "workflow action is not declared on the current step", false, "reread_entities")
 		}

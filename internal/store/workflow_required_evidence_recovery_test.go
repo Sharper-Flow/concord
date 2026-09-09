@@ -185,7 +185,10 @@ func (f acceptanceRecoveryFixture) authority(t *testing.T) (step string, contrac
 	return step, contractVersion, verdicts
 }
 
-func requireRecoveryFailure(t *testing.T, err error, want FailureKind, context string) *Failure {
+// requireRecoveryFailure asserts the refusal kind and answers the failure
+// detail, so a caller can assert on the wording without holding an error value
+// it never inspects.
+func requireRecoveryFailure(t *testing.T, err error, want FailureKind, context string) string {
 	t.Helper()
 	if err == nil {
 		t.Fatalf("%s passed, want %s", context, want)
@@ -194,7 +197,7 @@ func requireRecoveryFailure(t *testing.T, err error, want FailureKind, context s
 	if !failureAs(err, &failure) || failure.Kind != want {
 		t.Fatalf("%s error = %v, want %s", context, err, want)
 	}
-	return failure
+	return failure.Detail
 }
 
 // The whole typed path: an accepted delivery whose contract-required kind was
@@ -206,9 +209,9 @@ func TestAcceptanceRecoversMissingRequiredEvidenceKind(t *testing.T) {
 	f := newAcceptanceRecoveryFixture(ctx, t, wf04OutstandingKind)
 
 	beforeStep, beforeContract, beforeVerdicts := f.authority(t)
-	failure := requireRecoveryFailure(t, f.run(ctx, "confirm_premise", "confirm-missing", f.version(ctx, t), nil, nil), KindMissingEvidence, "confirmation with an unbound required kind")
-	if !strings.Contains(failure.Detail, wf04OutstandingKind) {
-		t.Fatalf("confirmation refusal = %q, want it to name the missing %s kind", failure.Detail, wf04OutstandingKind)
+	detail := requireRecoveryFailure(t, f.run(ctx, "confirm_premise", "confirm-missing", f.version(ctx, t), nil, nil), KindMissingEvidence, "confirmation with an unbound required kind")
+	if !strings.Contains(detail, wf04OutstandingKind) {
+		t.Fatalf("confirmation refusal = %q, want it to name the missing %s kind", detail, wf04OutstandingKind)
 	}
 
 	if err := f.bind(ctx, "recover-outstanding", f.version(ctx, t), wf04OutstandingKind, wf04RecoveryRef); err != nil {

@@ -186,7 +186,7 @@ func (c *Client) call(ctx context.Context, query string, variables map[string]an
 	if err != nil {
 		return &Failure{Kind: KindTransport, Detail: "request did not complete"}
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	switch {
 	case response.StatusCode == http.StatusUnauthorized:
 		return &Failure{Kind: KindAuthRefused, Detail: "linear rejected the credential"}

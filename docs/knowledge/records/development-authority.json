@@ -2,41 +2,64 @@
   "criterion_bindings": [
     {
       "criterion": 1,
-      "exemption": "Process authority is enforced by repository validators, not executed scenarios: GitHub Issues are the planning surface by rule 1, and repository content is bounded by scripts/check-public-content.py."
+      "exemption": "Policy-only planning authority under CD-0121. Document and knowledge checks validate the authored contract; runtime Product-mode routing requires separate implementation and activation evidence."
     },
     {
       "criterion": 2,
-      "exemption": "Merge evidence authority is enforced structurally by scripts/check-commit-title.py and the required checks of .github/workflows/ci.yml."
+      "exemption": "Process-authority assignment for public merge evidence. Repository review and CI retain their existing verification contracts; a document check alone does not prove a particular merge."
     },
     {
       "criterion": 3,
-      "exemption": "Default-branch implementation is rejected by test_default_branch_history_is_clean (scripts/test-commit-title.py) over the accepted history."
+      "exemption": "Policy-only preservation of branch and worktree isolation. Existing worktree authority contracts and tests own runtime verification; this amendment does not alter that mechanism."
     },
     {
       "criterion": 4,
-      "exemption": "Law-conflict surfacing is enforced by scripts/check-knowledge-closure.py --strict, which requires every document to carry an accepted record or explicit disposition."
+      "exemption": "Policy-only requirement for explicit law amendment. Knowledge closure and law-relation checks validate declared records, while review must establish that the change addresses its substantive law conflicts."
     },
     {
       "criterion": 5,
-      "exemption": "Session identity and authoritative issue linkage are enforced by the concord session boot contract, the capture external_ref contract, and their CLI and agent contract tests."
+      "exemption": "Policy-only mode-appropriate planning linkage. Existing session identity verification remains in force; implementation must separately prove local work linkage and configured Linear linkage without a universal GitHub prerequisite."
     },
     {
       "criterion": 6,
-      "exemption": "Durable transition, evidence, and completion records are enforced by the generated agent contracts and store workflow tests."
+      "exemption": "This amendment preserves the existing durable workflow authority. Generated agent contracts and store workflow tests own its runtime evidence; no workflow implementation changes in this policy work."
     },
     {
       "criterion": 7,
-      "exemption": "Replacement readiness is checked by scripts/check-floor-readiness.py against the accepted floor manifest and executable evidence anchors."
+      "exemption": "This policy separates replacement-readiness claims from integration activation. The accepted floor manifest and scripts/check-floor-readiness.py retain their own evidence contract."
     },
     {
       "criterion": 8,
-      "exemption": "The no-predecessor-write boundary is enforced by scripts/check-predecessor-independence.py."
+      "exemption": "The predecessor-independence boundary is unchanged. scripts/check-predecessor-independence.py checks declared repository-owned surfaces; this policy does not introduce an external write route."
+    },
+    {
+      "criterion": 9,
+      "exemption": "Normative Product-isolation and local-only scenario. No Linear runtime is introduced here; credential independence and cross-Product isolation need executable evidence in the integration implementation."
+    },
+    {
+      "criterion": 10,
+      "exemption": "Normative remote-creation identity requirement. A confirmed Linear issue must be proved by the later integration route, not by these document or knowledge checks."
+    },
+    {
+      "criterion": 11,
+      "exemption": "Normative outage and planning-authority requirement. Failure and queue semantics need separately scoped runtime tests; this amendment does not claim a synchronization mechanism exists."
+    },
+    {
+      "criterion": 12,
+      "exemption": "Normative distinction between selected mode and verified activation. The supported setup route must supply activation evidence; policy adoption and structural document checks do not supply it."
+    },
+    {
+      "criterion": 13,
+      "exemption": "Normative cutover and identity-preservation requirement. Any migration requires explicit approval and executable evidence under its own contract; this policy does not migrate existing records."
     }
   ],
-  "date": "2026-08-30T00:00:00Z",
+  "date": "2026-09-08T00:00:00Z",
   "evidence": [
     "scripts/check-public-content.py",
-    "scripts/check-commit-title.py",
+    "scripts/check-doc-contract.py",
+    "scripts/check-doc-links.py",
+    "scripts/check-agents-md.py",
+    "scripts/check-knowledge-index.py",
     "scripts/check-knowledge-closure.py",
     "scripts/check-agent-contracts.py",
     "scripts/check-floor-readiness.py",
@@ -46,6 +69,12 @@
   "home_domain_id": "repository-verification",
   "id": "development-authority",
   "kind": "spec",
+  "law_relations": [
+    {
+      "kind": "subordinate_to",
+      "target_id": "CD-0121"
+    }
+  ],
   "path": "docs/development-authority.md",
   "scopes": {
     "domain_ids": [],
@@ -54,14 +83,16 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:ea78d34a4d74d84c5d51c98788484b28c92ce70121b1538cdea3bdf147da6109",
+  "sha256": "sha256:5a5005698518a01c7a87bb9d7addc25d6a840051992c3766062adf1c14784644",
   "status": "accepted",
-  "summary": "Defines Concord's development workflow after issue #600 while GitHub retains planning, review, and merge authority under CD-0089.",
+  "summary": "Defines Product-scoped planning for Linear-enabled and local-only operation, truthful activation and cutover, and the separate authority of Concord workflow, Product law, and repository review and merge evidence.",
   "tags": [
     "authority",
     "process",
-    "cd-0088",
     "cd-0089",
+    "cd-0121",
+    "linear",
+    "local-only",
     "coordination"
   ],
   "title": "development authority"

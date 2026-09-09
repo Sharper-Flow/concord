@@ -4,7 +4,7 @@
   "id": "CD-0010",
   "kind": "decision",
   "path": "docs/decisions/CD-0010-pre-readiness-development-authority.md",
-  "product_wide_rationale": "Assigns pre-readiness development authority to GitHub. It governs how this Product is built, not how it behaves, so no runtime Domain owns it.",
+  "product_wide_rationale": "Defines pre-readiness development authority, amended by CD-0089 for self-hosting and CD-0121 for planning and issue linkage. It governs how the Product is built rather than one runtime Domain.",
   "scopes": {
     "domain_ids": [],
     "mode": "home",
@@ -12,9 +12,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:cfe0263aae4a1253c7187109d20c8b6d1034ea6eabac543022c08067f7f23730",
+  "sha256": "sha256:433b332aa8ffec45e23ab247de94fdbca02d2e5f882e11b8d80e5b24679dd9e9",
   "status": "accepted",
-  "summary": "Defines GitHub planning, review, and isolation authority. CD-0089 supersedes only its self-hosting prohibition.",
+  "summary": "Defines development authority with CD-0089 governing self-hosting and CD-0121 governing Product-scoped planning and issue linkage. Its other authority boundaries remain in force.",
   "tags": [
     "authority",
     "github"

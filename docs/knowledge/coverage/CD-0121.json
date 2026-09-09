@@ -1,0 +1,5 @@
+{
+  "id": "CD-0121",
+  "reason": "This is a process-authority amendment, not an implementation of Product-mode configuration or Linear integration. Document and knowledge checks verify its artifacts; runtime activation and routing require separately scoped capability evidence.",
+  "state": "out_of_scope"
+}

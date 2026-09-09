@@ -65,8 +65,9 @@ priorities, and quality governance are defined in [`priorities.md`](./priorities
 | [`decisions/CD-0005-concord-agent-tool-surface.md`](./decisions/CD-0005-concord-agent-tool-surface.md) | **Accepted CD-0005:** consolidated TS1–TS9 agent-surface architecture and invariants. |
 | [`decisions/CD-0006-concord-root-product-policy.md`](./decisions/CD-0006-concord-root-product-policy.md) | **Accepted CD-0006, amended by CD-0082:** full-successor intent, replacement-readiness evidence, workflow constitution, rigor/governance policy, permanent single-operator scope, and synthetic release evidence. |
 | [`decisions/CD-0007-concord-repository-bootstrap.md`](./decisions/CD-0007-concord-repository-bootstrap.md) | **Accepted CD-0007:** `Sharper-Flow/concord`, Go module identity, audited public-doc migration, MIT/public governance, one-version release/install, Linux amd64, privacy, workflow/conformance floor, and selective skills. |
-| [`decisions/CD-0010-pre-readiness-development-authority.md`](./decisions/CD-0010-pre-readiness-development-authority.md) | **Accepted CD-0010:** historical pre-readiness authority, superseded only by CD-0089 at its self-hosting boundary. |
-| [`decisions/CD-0089-concord-development-coordination.md`](./decisions/CD-0089-concord-development-coordination.md) | **Accepted CD-0089:** Concord owns its development workflow after issue #600 while GitHub retains planning and merge authority. |
+| [`decisions/CD-0010-pre-readiness-development-authority.md`](./decisions/CD-0010-pre-readiness-development-authority.md) | **Accepted CD-0010:** pre-readiness authority, amended by CD-0089 for self-hosting and CD-0121 for planning and issue linkage. |
+| [`decisions/CD-0089-concord-development-coordination.md`](./decisions/CD-0089-concord-development-coordination.md) | **Accepted CD-0089:** Concord owns its development workflow; CD-0121 governs Product-scoped planning while repository review and merge authority remain intact. |
+| [`decisions/CD-0121-product-scoped-planning-authority.md`](./decisions/CD-0121-product-scoped-planning-authority.md) | **Accepted CD-0121:** Linear is optional per Product, local-only work requires no external issue provider, and verified activation remains separate from policy. |
 | [`decisions/CD-0011-retain-sqlite-after-conformance.md`](./decisions/CD-0011-retain-sqlite-after-conformance.md) | **Accepted CD-0011:** retain direct local SQLite after reviewing environment-sensitive ten-process latency evidence; correctness and recovery remain clean, with explicit future reopen conditions. |
 | [`decisions/CD-0008-concord-mechanism-hardening.md`](./decisions/CD-0008-concord-mechanism-hardening.md) | **Accepted CD-0008:** one shared Product authority with isolated worktree sets, immutable-subject evidence binding, dependency-aware unreadable-record policy, workflow checkpoints/attempt fencing, typed external conditions, event upcasters/history reads, and confirmed SQLite authority with alternative comparison only after a falsifier. |
 | [`decisions/CD-0009-active-research-context.md`](./decisions/CD-0009-active-research-context.md) | **Accepted CD-0009, amended by CD-0041:** Initiative and research are ordinary work-item kinds; Initiative is secondary business/outcome context, while active research packs remain versioned SQLite working context and are deleted after proof-backed archive compaction. |
@@ -191,8 +192,9 @@ CD-0006 fixes Concord's root Product policy and accepts workflow composition,
 concrete C16 obligations, and structural cross-workflow impact propagation.
 CD-0007 fixes the public repository bootstrap, governance, release/install,
 platform/privacy, workflow/conformance, and skill boundaries. CD-0089 supersedes
-only CD-0010's self-hosting prohibition: Concord owns its development workflow
-after issue #600, while GitHub retains planning, review, and merge authority.
+CD-0010's self-hosting prohibition: Concord owns its development workflow.
+CD-0121 makes planning authority Product-scoped without changing repository
+review, merge, or workflow authority.
 CD-0012 gives Priority 3's *intent fidelity* and *no silent drift* attributes a mechanism,
 extending CD-0006 D10's approved-mandate pattern from specs authorized for modification to
 end-state required for delivery: a delivered outcome weaker than the approved one fails,

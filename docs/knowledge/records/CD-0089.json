@@ -22,7 +22,7 @@
     }
   ],
   "path": "docs/decisions/CD-0089-concord-development-coordination.md",
-  "product_wide_rationale": "Moves Concord development coordination into Concord after the issue #600 bootstrap release while preserving GitHub planning and merge authority, replacement-readiness evidence, and Advance reference-only status.",
+  "product_wide_rationale": "Owns Concord development coordination and its separation from planning, repository review, merge, and predecessor evidence. CD-0121 amends planning and issue linkage without changing those other boundaries.",
   "scopes": {
     "domain_ids": [],
     "mode": "home",
@@ -30,9 +30,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:a451754f63170cc2b7b0340c386105b45dd99b2699feb35e07296e26ff93ddc1",
+  "sha256": "sha256:5149a8793527ac8882001e3c3ef0c337fa1cef5057623a9a0d710ff6ea75ec2c",
   "status": "accepted",
-  "summary": "Concord owns its development workflow after issue #600 while GitHub retains planning, review, and merge authority. It supersedes CD-0010's self-hosting prohibition and the equivalent CD-0088 D5 restatement.",
+  "summary": "Concord owns its development workflow and supersedes the self-hosting prohibition. CD-0121 amends its planning and issue-linkage clauses; repository review and merge evidence retain their authority.",
   "tags": [
     "authority",
     "coordination",

@@ -7,6 +7,8 @@
 - **Approval:** The operator approved the decision contract in issue #602 on
   2026-08-30.
 - **Related:** CD-0007, CD-0010, CD-0017, CD-0082, CD-0088, issue #600, and pull request #605
+- **Amended by:** [CD-0121](CD-0121-product-scoped-planning-authority.md) at
+  planning authority and development-session issue linkage only
 - **Supersedes:** CD-0010's prohibition on Concord coordinating its own
   development before replacement readiness, and only that prohibition
 - **Preserves:** GitHub Issues as planning authority; pull requests and required

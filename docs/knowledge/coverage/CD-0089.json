@@ -1,5 +1,5 @@
 {
   "id": "CD-0089",
-  "reason": "Concord development coordination is process law about which authority owns planning, merge, and session evidence. Like CD-0010, it governs how humans and agents work rather than runtime behaviour, so no executable surface exists to bind. Issue #611 closed with the worktree bootstrap it tracked; the decision is declared prose-only rather than left outstanding.",
+  "reason": "Concord development coordination assigns planning, repository review, merge, and workflow authority. It is process law rather than an executable runtime contract; CD-0121 governs Product-scoped planning and issue linkage.",
   "state": "out_of_scope"
 }

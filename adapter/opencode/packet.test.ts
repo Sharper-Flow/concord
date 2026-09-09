@@ -38,6 +38,13 @@ const WORKFLOW_STEP = "implement"
 // RestartUnavailableReason. A fixture that invents its own value would let the
 // builder be proved against a response the core never emits.
 const RESTART_UNAVAILABLE_REASON = "typed restart is deliberately excluded (CD-0027); pinned continuity is re-derived per call"
+const DESIGN_RECORD = {
+  work_version: 2,
+  approach: "Use the recorded design as the implementation boundary.",
+  decisions: [{ id: "decision:boundary", question: "What crosses into execution?", choice: "The typed design record.", rationale: "The implement lane must not select architecture.", rejected: ["Lane-authored methodology"] }],
+  touched_refs: ["path:adapter/opencode/packet.ts"],
+  recorded_at: "2026-09-09T00:00:00Z",
+}
 
 const contextResponse = () => ({ project_id: "project-1", product_ids: ["product-1"], scope_version: "1" })
 
@@ -71,7 +78,7 @@ function pinnedContract(outcomePayload: string = OUTCOME_PAYLOAD) {
   }
 }
 
-const continuityEnvelope = (contract: unknown = pinnedContract()) => coreEnvelope("concord_work_trace", "continuity", "C19.Continuity", "ok", {
+const continuityEnvelope = (contract: unknown = pinnedContract(), designRecord: unknown = null) => coreEnvelope("concord_work_trace", "continuity", "C19.Continuity", "ok", {
   result: {
     work_id: WORK_ID,
     pinned: {
@@ -82,6 +89,7 @@ const continuityEnvelope = (contract: unknown = pinnedContract()) => coreEnvelop
       spec_mandate: [],
       pending_operator_decision: null,
       latest_checkpoint: null,
+      design_record: designRecord,
       unresolved_failure: null,
     },
     latest_checkpoint: null,
@@ -164,6 +172,15 @@ test("the task carries the approved objective and binds to the work and contract
   expect(task).toContain("Approved objective:")
   expect(task).toContain("Dispatch inputs are retyped rather than projected.")
   expect(task).toContain(`(work v1, contract v1)`)
+})
+
+test("the context carries the pinned design before the work narrative", async () => {
+  const built = await build({ ...defaultScript(), "concord_work_trace.continuity": continuityEnvelope(pinnedContract(), DESIGN_RECORD) })
+  expect(built.failure).toBeUndefined()
+  const context = built.packet!.inputs.context!
+  expect(context.indexOf("Approved design record:")).toBe(0)
+  expect(context.indexOf("The dispatched worker goal")).toBeGreaterThan(context.indexOf("Touched refs:"))
+  expect(context).toContain("The typed design record.")
 })
 
 // #903: non-Initiative work items carry no narrative, and a missing
@@ -268,6 +285,15 @@ test("an oversized narrative is a typed context overflow, not a truncated packet
   expect(built.failure!.limit).toBe(16_384)
   expect(built.failure!.actual).toBe(16_385)
   expect(built.failure!.message).toContain("inputs.context")
+})
+
+test("an oversized pinned design and narrative are a typed context overflow", async () => {
+  const design = { ...DESIGN_RECORD, approach: "d".repeat(4_096) }
+  const built = await build({ ...defaultScript(), "concord_work_browse.scope": scopeEnvelope("n".repeat(12_289)), "concord_work_trace.continuity": continuityEnvelope(pinnedContract(), design) })
+  expect(built.packet).toBeUndefined()
+  expect(built.failure!.kind).toBe("projection_overflow")
+  expect(built.failure!.field).toBe("context")
+  expect(built.failure!.limit).toBe(16_384)
 })
 
 test("an oversized mandate is a typed task overflow", async () => {

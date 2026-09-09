@@ -6,7 +6,7 @@ import (
 	"fmt"
 )
 
-const ManifestDigest = "sha256:df03217928885f1ad4fee092013bb631819d27a7ac8aa821b00b0b34507a424d"
+const ManifestDigest = "sha256:6b566c63b7b2d9b454cf8ca36a7a716d01d37a7aa7b4b157418f2b1e7d6fa29a"
 
 type OperationKind string
 
@@ -267,6 +267,8 @@ var GeneratedPayloadRules = map[string]GeneratedPayloadRule{
 	"worker_packet":                                {Required: []string{"schema_version", "attempt_id", "lane_id", "lane_version", "lane_digest", "work_id", "step_id", "inputs"}, Properties: []string{"schema_version", "attempt_id", "lane_id", "lane_version", "lane_digest", "work_id", "step_id", "inputs"}},
 	"workflow_completion_payload":                  {Required: []string{}, Properties: []string{"evidence_commit", "current_commit", "staleness"}},
 	"workflow_contract":                            {Required: []string{"version", "premise", "outcome_predicates", "required_evidence", "route_conventions", "spec_mandate", "changes_product_truth"}, Properties: []string{"version", "premise", "outcome_predicates", "required_evidence", "route_conventions", "spec_mandate", "law_revisions", "law_modifies", "rigor_class", "changes_product_truth", "architecture_binding"}},
+	"workflow_design_decision":                     {Required: []string{"id", "question", "choice", "rationale", "rejected"}, Properties: []string{"id", "question", "choice", "rationale", "rejected"}},
+	"workflow_design_record":                       {Required: []string{"work_version", "approach", "decisions", "touched_refs", "recorded_at"}, Properties: []string{"work_version", "approach", "decisions", "touched_refs", "recorded_at"}},
 	"workflow_forward_relation":                    {Required: []string{"kind"}, Properties: []string{"kind", "class", "severity"}},
 	"workflow_outcome_absent":                      {Required: []string{"kind", "surface", "subjects", "distinguish_from"}, Properties: []string{"kind", "surface", "subjects", "distinguish_from"}},
 	"workflow_outcome_check":                       {Required: []string{"kind", "check_ref", "immutable_subject_ref", "expected_result"}, Properties: []string{"kind", "check_ref", "immutable_subject_ref", "expected_result"}},

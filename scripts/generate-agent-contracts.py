@@ -159,7 +159,9 @@ def load_workflow_action_contracts() -> list[dict]:
 def workflow_payload_field_schema(field: dict) -> dict:
     value_type = field["value_type"]
     schema_ref = field.get("schema_ref")
-    if schema_ref:
+    if value_type == "array" and schema_ref != "workflow_action_outcome_predicates":
+        schema = {"type": "array", "items": {"$ref": f"#/$defs/{schema_ref}"}}
+    elif schema_ref:
         schema = {"$ref": f"#/$defs/{schema_ref}"}
     elif value_type == "string":
         schema = {"type": "string"}

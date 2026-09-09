@@ -651,6 +651,29 @@ test("a report naming an obligation outside the enum is worker-fail with invalid
   expect(payloads[1].detail).toContain("outside the closed enum")
 })
 
+test("an oversized evidence array is worker-fail with invalid_report", async () => {
+  const evidence = Array.from({ length: 65 }, (_, index) => ({ obligation: "uncertainties", detail: `item ${index}` }))
+  const { verbs, payloads } = await terminalEvidence(report({ evidence }))
+  expect(verbs).toEqual(["worker-dispatch", "worker-fail"])
+  expect(payloads[1].failure_kind).toBe("invalid_report")
+  expect(payloads[1].detail).toContain("evidence: carries more than 64 item(s)")
+})
+
+test("an oversized evidence detail is worker-fail with invalid_report", async () => {
+  const evidence = [{ obligation: "uncertainties", detail: "x".repeat(513) }]
+  const { verbs, payloads } = await terminalEvidence(report({ evidence }))
+  expect(verbs).toEqual(["worker-dispatch", "worker-fail"])
+  expect(payloads[1].failure_kind).toBe("invalid_report")
+  expect(payloads[1].detail).toContain("evidence[0].detail: is longer than 512 characters")
+})
+
+test("an unknown report top-level field is worker-fail with invalid_report", async () => {
+  const { verbs, payloads } = await terminalEvidence(report({ unexpected: true }))
+  expect(verbs).toEqual(["worker-dispatch", "worker-fail"])
+  expect(payloads[1].failure_kind).toBe("invalid_report")
+  expect(payloads[1].detail).toContain("carries undeclared property unexpected")
+})
+
 test("model-supplied identity is refused, however near-identical", () => {
   const cases = [
     {
@@ -799,6 +822,12 @@ test("the report schema validator resolves $defs through $ref", () => {
   expect(validateAgentLaneReport(report({ evidence: [{ obligation: "source_citations", detail: "x", extra: 1 }] }))).toBe(false)
   expect(validateAgentLaneReport(report({ evidence: [{ obligation: "source_citations" }] }))).toBe(false)
   expect(validateAgentLaneReport(report({ evidence: [] }))).toBe(false)
+})
+
+test("the report schema refuses oversized evidence arrays and details", () => {
+  const oversizedEvidence = Array.from({ length: 65 }, (_, index) => ({ obligation: "source_citations", detail: String(index + 1) }))
+  expect(validateAgentLaneReport(report({ evidence: oversizedEvidence }))).toBe(false)
+  expect(validateAgentLaneReport(report({ evidence: [{ obligation: "source_citations", detail: "x".repeat(513) }] }))).toBe(false)
 })
 
 test("validateSchema resolves a local $ref and fails closed on an unresolvable one", () => {

@@ -1,0 +1,5 @@
+{
+  "id": "CD-0128",
+  "reason": "The decision is proved by the internal store tests for the typed record_design payload, its fold, and the continuity projection, by the adapter packet tests for design presence, absence, and context overflow, and by the workflow definition version pins that freeze every prior implementation version. Runtime behavior they exercise is the law itself, so no separate reachability surface applies.",
+  "state": "out_of_scope"
+}

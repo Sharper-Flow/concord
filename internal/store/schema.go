@@ -2696,7 +2696,7 @@ INSERT OR IGNORE INTO fold_guard(active) VALUES (1);
 UPDATE work_items SET kind=kind;
 UPDATE workflow_native_runs SET phase=phase,status=status;
 DELETE FROM fold_guard;
-		`,
+`,
 	},
 	{
 		Version:  50,
@@ -4237,9 +4237,8 @@ SET instance_state=CASE (SELECT lifecycle FROM work_items WHERE work_items.id=wo
 WHERE instance_state NOT IN ('completed','cancelled','superseded')
   AND work_id IN (SELECT id FROM work_items WHERE lifecycle IN ('completed','cancelled','superseded'));
 DELETE FROM fold_guard;
-`,
+		`,
 	},
-
 	{
 		Version: 76,
 		Name:    "linear_integration_phase0",
@@ -4289,6 +4288,29 @@ CREATE TRIGGER linear_issue_links_guard_delete BEFORE DELETE ON linear_issue_lin
 CREATE TRIGGER linear_outbox_guard_insert BEFORE INSERT ON linear_outbox FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'linear_outbox is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
 CREATE TRIGGER linear_outbox_guard_update BEFORE UPDATE ON linear_outbox FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'linear_outbox is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
 CREATE TRIGGER linear_outbox_guard_delete BEFORE DELETE ON linear_outbox FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'linear_outbox is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+`,
+	},
+	{
+		Version: 77,
+		Name:    "workflow_design_records",
+		SQL: `
+CREATE TABLE workflow_design_records (
+    work_id       TEXT NOT NULL REFERENCES work_items(id) ON DELETE RESTRICT,
+    work_version  INTEGER NOT NULL,
+    approach      TEXT NOT NULL,
+    decisions     TEXT NOT NULL CHECK(json_valid(decisions) AND json_type(decisions)='array'),
+    touched_refs  TEXT NOT NULL CHECK(json_valid(touched_refs) AND json_type(touched_refs)='array'),
+    recorded_at   TEXT NOT NULL,
+    PRIMARY KEY(work_id, work_version),
+    CHECK(work_version > 0),
+    CHECK(length(approach) BETWEEN 2 AND 4096),
+    CHECK(json_array_length(decisions) BETWEEN 1 AND 16),
+    CHECK(json_array_length(touched_refs) BETWEEN 1 AND 64)
+);
+CREATE INDEX workflow_design_records_latest ON workflow_design_records(work_id, work_version DESC);
+CREATE TRIGGER workflow_design_records_guard_insert BEFORE INSERT ON workflow_design_records FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_design_records is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER workflow_design_records_guard_update BEFORE UPDATE ON workflow_design_records FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_design_records is immutable'); END;
+CREATE TRIGGER workflow_design_records_guard_delete BEFORE DELETE ON workflow_design_records FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_design_records is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
 `,
 	},
 }

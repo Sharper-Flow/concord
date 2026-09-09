@@ -52,6 +52,7 @@ func TestWorkflowExecutionModesPreserveCurrentTransitionSemantics(t *testing.T) 
 		"cross_context_boundary": ActionHold,
 		"record_delivery":        ActionAdvance,
 		"accept_worker_result":   ActionAdvance,
+		"record_worker_failure":  ActionHold,
 	}
 	for actionID, expected := range want {
 		mode, ok := workflowActionExecutionMode(definition, actionID)

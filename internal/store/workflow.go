@@ -1218,8 +1218,8 @@ func foldWorkflowActionCompleted(ctx context.Context, tx *sql.Tx, event Event) e
 	if (p.ActionID != "" && !workflowString(p.ActionID, 128)) || !workflowString(p.StepID, 128) || p.AttemptEpoch <= 0 || p.AttemptEpoch > 2147483647 || (p.WorkerAttemptID != "" && !workflowString(p.WorkerAttemptID, 128)) || !workflowList(p.ResultEvidenceRefs, 32, 0) || !workflowList(p.ChangedRefs, 32, 0) {
 		return newFailure(KindInvalidPayload, "fold_event", "action_completed has invalid result fields", false, "supply bounded action result references")
 	}
-	if p.ActionID != "accept_worker_result" && p.ActionID != "dispatch_worker" && p.WorkerAttemptID != "" {
-		return newFailure(KindInvalidPayload, "fold_event", "worker_attempt_id is reserved for accept_worker_result and dispatch_worker", false, "omit worker_attempt_id for ordinary action completion")
+	if p.ActionID != "accept_worker_result" && p.ActionID != "record_worker_failure" && p.ActionID != "dispatch_worker" && p.WorkerAttemptID != "" {
+		return newFailure(KindInvalidPayload, "fold_event", "worker_attempt_id is reserved for worker result actions and dispatch_worker", false, "omit worker_attempt_id for ordinary action completion")
 	}
 	if err := requireActor(ctx, tx, p.ActorRef); err != nil {
 		return err
@@ -1281,8 +1281,20 @@ func foldWorkflowActionCompleted(ctx context.Context, tx *sql.Tx, event Event) e
 			}
 		}
 		if p.ActionID == "accept_worker_result" {
-			if err := validateAcceptedWorkerResult(ctx, tx, event, p, entry.Definition, currentStep); err != nil {
+			if err := validateWorkerAttemptAction(ctx, tx, event, p, entry.Definition, currentStep, "completed"); err != nil {
 				return err
+			}
+		}
+		if p.ActionID == "record_worker_failure" {
+			if err := validateWorkerAttemptAction(ctx, tx, event, p, entry.Definition, currentStep, "failed"); err != nil {
+				return err
+			}
+			var recorded int
+			if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='record_worker_failure' AND json_extract(payload,'$.worker_attempt_id')=? AND seq<?`, string(SubjectWorkItem), event.SubjectID, WorkflowActionCompleted, p.WorkerAttemptID, event.Seq).Scan(&recorded); err != nil {
+				return workflowProjectionError(err, "cannot inspect recorded worker failures")
+			}
+			if recorded != 0 {
+				return newFailure(KindIllegalLifecycleTransition, "fold_event", "worker failure is already recorded", false, "start a fresh workflow attempt")
 			}
 		}
 	}
@@ -1366,49 +1378,49 @@ func latestWorkflowActionStartAt(ctx context.Context, tx *sql.Tx, workID, stepID
 	return seq, payload.AttemptEpoch, true, nil
 }
 
-func validateAcceptedWorkerResult(ctx context.Context, tx *sql.Tx, event Event, payload workflowActionCompletedPayload, definition WorkflowDefinition, currentStep string) error {
+func validateWorkerAttemptAction(ctx context.Context, tx *sql.Tx, event Event, payload workflowActionCompletedPayload, definition WorkflowDefinition, currentStep, requiredLifecycle string) error {
 	step := workflowStep(definition, currentStep)
-	if step == nil || step.Kind != WorkflowStepExternalEffect {
-		return newFailure(KindIllegalLifecycleTransition, "fold_event", "accept_worker_result is only valid on an external-effect step", false, "accept a worker result on the pinned external-effect step")
+	if step == nil || !definitionStepAllows(definition, currentStep, payload.ActionID) {
+		return newFailure(KindIllegalLifecycleTransition, "fold_event", payload.ActionID+" is only valid on a worker-dispatch step", false, "record the worker attempt on its pinned step")
 	}
 	if payload.WorkerAttemptID == "" {
-		return newFailure(KindInvalidPayload, "fold_event", "accept_worker_result requires worker_attempt_id", false, "supply the completed worker attempt identity")
+		return newFailure(KindInvalidPayload, "fold_event", payload.ActionID+" requires worker_attempt_id", false, "supply the exact worker attempt identity")
 	}
 	startSeq, startEpoch, found, err := latestWorkflowActionStart(ctx, tx, event.SubjectID, currentStep)
 	if err != nil {
 		return err
 	}
 	if !found || payload.AttemptEpoch != startEpoch {
-		return newFailure(KindIllegalLifecycleTransition, "fold_event", "worker result attempt epoch does not match the latest workflow action start", false, "accept the current workflow attempt")
+		return newFailure(KindIllegalLifecycleTransition, "fold_event", "worker attempt epoch does not match the latest workflow action start", false, "record the current workflow attempt")
 	}
 	var attemptWorkID, lifecycle, readback string
 	if err := tx.QueryRowContext(ctx, `SELECT work_id,lifecycle_state,readback_model FROM worker_attempts WHERE attempt_id=?`, payload.WorkerAttemptID).Scan(&attemptWorkID, &lifecycle, &readback); err != nil {
 		if err == sql.ErrNoRows {
-			return newFailure(KindProjectionNotFound, "fold_event", "worker attempt does not exist", false, "dispatch the worker attempt before accepting its result")
+			return newFailure(KindProjectionNotFound, "fold_event", "worker attempt does not exist", false, "dispatch the worker attempt before recording its result")
 		}
 		return workflowProjectionError(err, "cannot read worker attempt projection")
 	}
 	if attemptWorkID != event.SubjectID {
-		return newFailure(KindIllegalLifecycleTransition, "fold_event", "worker attempt belongs to another work item", false, "accept the exact worker attempt for this work item")
+		return newFailure(KindIllegalLifecycleTransition, "fold_event", "worker attempt belongs to another work item", false, "record the exact worker attempt for this work item")
 	}
 	var dispatchedSeq int64
 	if err := tx.QueryRowContext(ctx, `SELECT seq FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.attempt_id')=? ORDER BY seq DESC LIMIT 1`, string(SubjectWorkItem), event.SubjectID, WorkerDispatched, payload.WorkerAttemptID).Scan(&dispatchedSeq); err != nil {
 		if err == sql.ErrNoRows {
-			return newFailure(KindProjectionNotFound, "fold_event", "worker attempt dispatch event does not exist", false, "dispatch the worker attempt before accepting its result")
+			return newFailure(KindProjectionNotFound, "fold_event", "worker attempt dispatch event does not exist", false, "dispatch the worker attempt before recording its result")
 		}
 		return workflowProjectionError(err, "cannot read worker attempt dispatch")
 	}
 	if dispatchedSeq <= startSeq {
-		return newFailure(KindIllegalLifecycleTransition, "fold_event", "worker attempt dispatch is stale", false, "accept a worker attempt dispatched after the current action start")
+		return newFailure(KindIllegalLifecycleTransition, "fold_event", "worker attempt dispatch is stale", false, "record a worker attempt dispatched after the current action start")
 	}
-	if lifecycle != "completed" {
-		return newFailure(KindIllegalLifecycleTransition, "fold_event", "worker attempt is not completed", false, "accept only a completed worker attempt")
+	if lifecycle != requiredLifecycle {
+		return newFailure(KindIllegalLifecycleTransition, "fold_event", "worker attempt is not "+requiredLifecycle, false, "record only a "+requiredLifecycle+" worker attempt")
 	}
-	if readback == "" {
+	if requiredLifecycle == "completed" && readback == "" {
 		return newFailure(KindIllegalLifecycleTransition, "fold_event", "worker readback model is empty", false, "accept only a worker attempt that reported a readback model")
 	}
 	if payload.ActorRef != event.Actor {
-		return newFailure(KindUnauthorized, "fold_event", "accepting actor must match the authenticated event actor", false, "accept the worker result through the authenticated workflow owner")
+		return newFailure(KindUnauthorized, "fold_event", "worker result actor must match the authenticated event actor", false, "record the worker result through the authenticated workflow owner")
 	}
 	if err := workflowActorsDistinct(ctx, tx, event.SubjectID, payload.ActorRef, "", false, "fold_event"); err != nil {
 		return err

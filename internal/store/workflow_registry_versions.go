@@ -153,41 +153,85 @@ func preJoinStaticAnalysisV1() WorkflowDefinition {
 func prePayloadImplementationV3() WorkflowDefinition {
 	d := builtinImplementation(false)
 	d.Version = 3
-	return withWorkerActions(d, false)
+	return withWorkerActionsBeforeFailure(d, false)
 }
 
 func prePayloadBreakFixV3() WorkflowDefinition {
 	d := builtinBreakFix(false)
 	d.Version = 3
-	return withWorkerActions(d, false)
+	return withWorkerActionsBeforeFailure(d, false)
 }
 
 func prePayloadGenericOneOffV3() WorkflowDefinition {
 	d := builtinGenericOneOff(false)
 	d.Version = 3
-	return withWorkerActions(d, false)
+	return withWorkerActionsBeforeFailure(d, false)
 }
 
 func prePayloadResearchV3() WorkflowDefinition {
 	d := builtinResearch(false)
 	d.Version = 3
-	return withWorkerActions(d, false)
+	return withWorkerActionsBeforeFailure(d, false)
 }
 
 func prePayloadArchitectureSpikeV2() WorkflowDefinition {
 	d := builtinArchitectureSpike(false)
 	d.Version = 2
-	return withWorkerActions(d, false)
+	return withWorkerActionsBeforeFailure(d, false)
 }
 
 func prePayloadOpsRunbookV2() WorkflowDefinition {
 	d := builtinOpsRunbook(false)
 	d.Version = 2
-	return withWorkerActions(d, false)
+	return withWorkerActionsBeforeFailure(d, false)
 }
 
 func prePayloadStaticAnalysisV2() WorkflowDefinition {
 	d := builtinStaticAnalysis(false)
 	d.Version = 2
-	return withWorkerActions(d, false)
+	return withWorkerActionsBeforeFailure(d, false)
+}
+
+// These definitions freeze the closed-payload worker action pair immediately
+// before record_worker_failure joined the current worker action set.
+func preFailureImplementationV4() WorkflowDefinition {
+	d := builtinImplementation(true)
+	d.Version = 4
+	return withWorkerActionsBeforeFailure(d, true)
+}
+
+func preFailureBreakFixV4() WorkflowDefinition {
+	d := builtinBreakFix(true)
+	d.Version = 4
+	return withWorkerActionsBeforeFailure(d, true)
+}
+
+func preFailureGenericOneOffV4() WorkflowDefinition {
+	d := builtinGenericOneOff(true)
+	d.Version = 4
+	return withWorkerActionsBeforeFailure(d, true)
+}
+
+func preFailureResearchV4() WorkflowDefinition {
+	d := builtinResearch(true)
+	d.Version = 4
+	return withWorkerActionsBeforeFailure(d, true)
+}
+
+func preFailureArchitectureSpikeV3() WorkflowDefinition {
+	d := builtinArchitectureSpike(true)
+	d.Version = 3
+	return withWorkerActionsBeforeFailure(d, true)
+}
+
+func preFailureOpsRunbookV3() WorkflowDefinition {
+	d := builtinOpsRunbook(true)
+	d.Version = 3
+	return withWorkerActionsBeforeFailure(d, true)
+}
+
+func preFailureStaticAnalysisV3() WorkflowDefinition {
+	d := builtinStaticAnalysis(true)
+	d.Version = 3
+	return withWorkerActionsBeforeFailure(d, true)
 }

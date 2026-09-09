@@ -15,7 +15,7 @@ const testManifestDigest = "sha256:000000000000000000000000000000000000000000000
 // and supersession fixtures pin. It carries the implementation step graph so
 // step IDs stay familiar, and a work kind without Product-truth authority so a
 // contract fixture stays about the mechanism under test rather than about
-// architecture binding. Version 2 adds the worker action pair, which gives the
+// architecture binding. Version 2 adds the current worker actions, which give the
 // registry a real supersession to prove against.
 const workflowFixtureRef = "workflow.test_fixture"
 

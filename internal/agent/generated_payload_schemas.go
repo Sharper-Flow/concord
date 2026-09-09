@@ -8837,6 +8837,58 @@ const GeneratedPayloadSchemaDocument = `{
           "if": {
             "properties": {
               "action_id": {
+                "const": "record_worker_failure"
+              }
+            },
+            "required": [
+              "action_id"
+            ]
+          },
+          "then": {
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "selected_choice"
+                  ]
+                },
+                {
+                  "required": [
+                    "decision_context_digest"
+                  ]
+                }
+              ]
+            },
+            "properties": {
+              "fields": {
+                "additionalProperties": false,
+                "maxProperties": 32,
+                "properties": {
+                  "attempt_epoch": {
+                    "maximum": 2147483647,
+                    "minimum": 1,
+                    "type": "integer"
+                  },
+                  "attempt_id": {
+                    "$ref": "#/$defs/reference"
+                  }
+                },
+                "required": [
+                  "attempt_id",
+                  "attempt_epoch"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "fields"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "action_id": {
                 "const": "resolve_condition"
               }
             },

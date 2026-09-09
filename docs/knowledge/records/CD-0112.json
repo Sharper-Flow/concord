@@ -1,9 +1,10 @@
 {
   "date": "2026-09-05T00:00:00Z",
   "evidence": [
+    "internal/store/workflow.go",
     "internal/store/workflow_registry.go",
     "internal/store/workflow_action_guards.go",
-    "scenarios/workflow-engine.v1.json"
+    "internal/store/worker_authority_boundary_test.go"
   ],
   "home_domain_id": "workflow-engine",
   "id": "CD-0112",
@@ -16,9 +17,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:17feff7c99d9293d570976b697794285da1923c44668a68871d27723d268587d",
+  "sha256": "sha256:5903022426b288c36047a1b8d53fb0e5411bdbbe2ba7aef3a161244153dfb599",
   "status": "accepted",
-  "summary": "checkpoint_context and cross_context_boundary hold every step, because a session hand-off is not progress. Every external-effect step declares record_delivery, an advancing action admitted only after the step's fenced start and refused by the fold once a lane attempt was dispatched, so a step the session executed exits through delivery and a dispatched step exits through accept_worker_result. record_decision keeps its typed checkpoint and advances, and accept_decision moves to the spike's review step and advances, so the spike reaches acceptance.",
+  "summary": "checkpoint_context and cross_context_boundary hold every step. record_delivery advances an external-effect step only after a fenced start with no later dispatch. accept_worker_result advances only for the exact completed attempt. record_worker_failure records the exact failed attempt without advancing, after which a fresh fenced start can lead to record_delivery or a successful lane acceptance. record_decision and accept_decision advance the architecture-spike path to premise confirmation.",
   "tags": [
     "workflow",
     "continuity",

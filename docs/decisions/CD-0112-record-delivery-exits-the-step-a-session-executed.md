@@ -3,36 +3,32 @@
 - **Status:** Accepted
 - **Date:** 2026-09-05
 - **Scope:** the exit from an external-effect step with no dispatched lane
-  attempt, the execution mode of the two context-continuity actions, and the
-  exits from the architecture-spike `decision_record` and `review` steps
+  attempt, failed lane-result recording and retry, the execution mode of the
+  two context-continuity actions, and the architecture-spike exits
 - **Approval:** The operator selected the explicit delivery action over an
   advancing hand-off summary on 2026-09-05 in Concord
-  work-cabca4e5913be1f9519322f0, after issue #833 established that no
-  external-effect step could exit without a completed lane attempt.
-- **Related:** CD-0013, CD-0016, CD-0027, CD-0109, and issues #801, #833, #837
+  work-cabca4e5913be1f9519322f0. The operator selected a dedicated
+  `record_worker_failure` action over widening `accept_worker_result` on
+  2026-09-08 in Concord work-8bc9259e3a54d5db68e3a60e.
+- **Related:** CD-0013, CD-0016, CD-0027, CD-0109, and issues #801, #833, #837,
+  and #869
 - **Amends:** CD-0016 (context continuity) by fixing the execution mode of
   `checkpoint_context` and `cross_context_boundary` to hold; extends CD-0013
-  §12 with the `record_delivery` action
+  §12 with `record_delivery`; extends CD-0059 with failed-result recording
 
 ## Context
 
-An external-effect step declares one advancing action, `accept_worker_result`,
-and that action requires a completed row in `worker_attempts`. When a session
-executes the step itself, or when a dispatched lane fails before
-`worker.dispatched` folds, no such row exists. The step then has no exit.
+A worker-dispatch step can receive a completed or failed lane result.
+`accept_worker_result` requires a completed attempt with a readback model.
+Before this amendment, no workflow action could record a failed attempt.
+`record_delivery` also refused every post-dispatch advance, so the step had no
+recorded recovery route after `worker.failed`.
 
-`cross_context_boundary` looked like the exit. `builtinActionPolicies`
-declared it `advance`, and twenty-eight conformance walks left external-effect
-steps through a `workflow.action_completed` event that named it. The runtime
-never emits that event: `appendGenericWorkflowCompletion` skips the generic
-completion for both continuity actions, so the fold that moves `current_step`
-never ran for them. The declared mode and the recorded effect disagreed, and
-the corpus proved paths the engine could not take.
-
-The architecture-spike family had a second gap of the same kind. Its
-`decision_record` step held only `record_decision` in checkpoint mode, and its
-`review` step held only `record_verdict` in hold mode. Neither step had a live
-exit, so no spike could reach `acceptance`.
+`cross_context_boundary` also appeared to advance a step, but its runtime event
+never moved `current_step`. The declared mode and the recorded effect differed.
+The architecture-spike `decision_record` and `review` steps had no live exits.
+The original decision repaired those two gaps with hold and advance modes that
+match the events the runtime records.
 
 ## Decision
 
@@ -49,10 +45,9 @@ Every external-effect step declares `record_delivery`: `internal_sqlite`
 consequence, no approval, `advance` mode, generic completion event. The
 dispatcher admits it only when the step's fenced start action ran in the
 current attempt, since delivery states that the step's own work finished. The
-completion fold keeps refusing any advance other than `accept_worker_result`
-once a lane attempt was dispatched in that attempt, so a step with a lane
-exits through acceptance and a step without one exits through delivery. The
-two routes never overlap.
+completion fold refuses `record_delivery` after a lane dispatch in that
+attempt. A completed lane exits through `accept_worker_result`. A failed lane
+holds the step until the owner records the failure and starts a fresh attempt.
 
 ### D3. The decision record advances, and acceptance of it lives on review
 
@@ -63,6 +58,23 @@ a typed checkpoint and still advance. `accept_decision` moves from
 `acceptance` to `review` and advances, so verdicts are recorded and the
 operator accepts the decision on one step, and `acceptance` holds premise
 confirmation alone.
+
+### D4. record_worker_failure holds the step for a fresh start
+
+Every current worker-dispatch step declares `record_worker_failure` with an
+`internal_sqlite` consequence, no approval, and `hold` mode. Its payload names
+the attempt ID and the current step epoch.
+
+The fold requires an exact failed attempt from this work item. It also checks
+the dispatch order, step epoch, authenticated actor, and evaluator
+distinctness. It refuses active, completed, foreign, stale, and previously
+recorded attempts without mutation.
+
+The failure record does not satisfy delivery and does not advance the step. A
+new fenced start increments the step epoch. The old failed dispatch then sits
+before that start, so `record_delivery` can exit only if the session performs
+the fresh attempt itself. A newly dispatched successful lane still exits only
+through `accept_worker_result`.
 
 ## Acceptance Criteria
 
@@ -85,19 +97,29 @@ Scenario: A dispatched step does not exit through delivery
   Then the fold refuses the advance
   And the step exits only through accept_worker_result
 
-Scenario: A hand-off holds the step
-  Given a workflow on any step
-  When the session submits cross_context_boundary in summary mode
-  Then the boundary is recorded
+Scenario: A failed lane result is recorded without progress
+  Given a workflow on an external-effect step with a failed lane attempt
+  When the owner submits record_worker_failure for that attempt and step epoch
+  Then the completion names the exact failed attempt
   And current_step is unchanged
+
+Scenario: Invalid failed lane results do not mutate the workflow
+  Given a failed lane result is foreign, stale, active, completed, or recorded
+  When the owner submits record_worker_failure for that result
+  Then the action is refused
+  And the work version is unchanged
+
+Scenario: A fresh attempt exits after a recorded lane failure
+  Given the owner recorded the failed lane attempt
+  When the owner starts and delivers a fresh external-effect attempt
+  Then record_delivery advances the step
+  And the old failed dispatch cannot block that advance
 ```
 
 ## Consequences
 
-All seven built-in definition digests change, and the conformance corpus
-re-pins them. The corpus walks that left an external-effect step through
-`cross_context_boundary` now leave through `record_delivery`, and the spike
-walk leaves `decision_record` through `record_decision` and `review` through
-`accept_decision`. The definition-wide gate invariant in issue #837 passes for
-every `cross_context_boundary` row; the three ops and static-analysis rows it
-names remain open there.
+All seven current built-in definition digests change and receive new version
+numbers. Prior definitions keep their existing bytes and digest pins.
+`record_worker_failure` joins the worker-action set in current definitions and
+the generated agent payload contract. The conformance corpus keeps successful
+lane exits on `accept_worker_result` and session exits on `record_delivery`.

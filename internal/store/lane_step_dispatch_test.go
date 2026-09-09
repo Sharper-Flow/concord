@@ -9,7 +9,7 @@ import (
 )
 
 // The lane-step dispatch join (#892) tests: definition composition derives
-// the steps that carry the worker-dispatch pair from the generated join, and
+// the steps that carry the worker-action set from the generated join, and
 // dispatch-time validation refuses a lane whose capability class the current
 // step kind does not admit.
 
@@ -158,6 +158,30 @@ func TestJoinComposesWorkerActionsOnAdmittedStepKinds(t *testing.T) {
 	}
 	if researchCarries["frame"] || researchCarries["conclude"] || researchCarries["complete"] {
 		t.Errorf("research checkpoint or terminal steps carry dispatch_worker: %v", researchCarries)
+	}
+}
+
+func TestCurrentJoinComposesTheWorkerFailureRecordWithTheDispatchPair(t *testing.T) {
+	for _, definition := range BuiltinWorkflowDefinitions() {
+		if !containsString(definition.AvailableActions, "record_worker_failure") {
+			t.Errorf("%s current definition does not declare record_worker_failure", definition.Ref)
+		}
+		for _, step := range definition.StepGraph.Steps {
+			dispatch := containsString(step.Actions, "dispatch_worker")
+			accept := containsString(step.Actions, "accept_worker_result")
+			recordFailure := containsString(step.Actions, "record_worker_failure")
+			if dispatch != accept || dispatch != recordFailure {
+				t.Errorf("%s step %s worker actions: dispatch=%t accept=%t record_failure=%t", definition.Ref, step.ID, dispatch, accept, recordFailure)
+			}
+		}
+	}
+
+	prior, ok := BuiltinWorkflowRegistry().Lookup("workflow.break_fix", 4)
+	if !ok {
+		t.Fatal("workflow.break_fix v4 is not registered")
+	}
+	if containsString(prior.Definition.AvailableActions, "record_worker_failure") {
+		t.Fatal("workflow.break_fix v4 changed after record_worker_failure shipped in v5")
 	}
 }
 

@@ -390,8 +390,7 @@ func guardNoRestartDispatch(g *workflowActionGuardContext) error {
 // guardDeliveryFollowsStart admits record_delivery only on a step whose fenced
 // start action has run in the current attempt. Delivery states that the step's
 // own work finished, so a step that never started has nothing to deliver. The
-// fold separately refuses delivery once a lane attempt was dispatched in the
-// same attempt, because that step exits through accept_worker_result.
+// fold refuses delivery after a worker dispatch in the current attempt.
 func guardDeliveryFollowsStart(g *workflowActionGuardContext) error {
 	_, _, found, err := latestWorkflowActionStart(g.ctx, g.tx, g.request.WorkID, g.currentStep)
 	if err != nil {
@@ -596,7 +595,7 @@ func appendGenericWorkflowCompletion(in workflowActionAssemblyInput, attemptEpoc
 		"changed_refs": []string{in.request.WorkID}, "actor_ref": in.eventActor,
 	}
 	var workerPacketDigest string
-	if in.request.ActionID == "accept_worker_result" {
+	if in.request.ActionID == "accept_worker_result" || in.request.ActionID == "record_worker_failure" {
 		completionValues["attempt_epoch"] = workflowFieldInt(fields, "attempt_epoch", 0)
 		completionValues["worker_attempt_id"] = workflowFieldStringDefault(fields, "attempt_id", "")
 	}

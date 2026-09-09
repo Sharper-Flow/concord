@@ -1,0 +1,5 @@
+{
+  "id": "CD-0129",
+  "reason": "The decision is proved by the investigation-gate tests over the operator question path, the research refusal at approve_contract, and the adapter end-to-end route that reaches a withheld and an admitted question. The runtime route and its refusals are the law's reachability evidence, so no separate coverage surface applies.",
+  "state": "out_of_scope"
+}

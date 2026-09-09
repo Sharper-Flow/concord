@@ -46,11 +46,11 @@ func TestGetInitiativeReadsThroughHandshake(t *testing.T) {
 				return
 			}
 			if strings.Contains(body, "get_initiative") {
-				if strings.Contains(body, `"initiativeId":"ini-1"`) {
+				if strings.Contains(body, `"query":"ini-1"`) {
 					sawInitiativeID = true
 				}
 				w.Header().Set("Content-Type", "text/event-stream")
-				_, _ = w.Write([]byte("event: message\ndata: {\"jsonrpc\":\"2.0\",\"id\":2,\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"{\\\"initiative\\\":{\\\"id\\\":\\\"ini-1\\\",\\\"name\\\":\\\"Example initiative\\\",\\\"description\\\":\\\"Example description\\\"}}\"}],\"isError\":false}}\n\n"))
+				_, _ = w.Write([]byte("event: message\ndata: {\"jsonrpc\":\"2.0\",\"id\":2,\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"{\\\"id\\\":\\\"ini-1\\\",\\\"name\\\":\\\"Example initiative\\\",\\\"summary\\\":\\\"Example description\\\"}\"}],\"isError\":false}}\n\n"))
 				return
 			}
 			w.WriteHeader(400)

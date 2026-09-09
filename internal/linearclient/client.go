@@ -181,7 +181,10 @@ func (c *Client) call(ctx context.Context, query string, variables map[string]an
 		return &Failure{Kind: KindMalformedResponse, Detail: "cannot build request"}
 	}
 	request.Header.Set("Content-Type", "application/json")
-	request.Header.Set("Authorization", "Bearer "+c.apiKey)
+	// Linear API keys ride the Authorization header without the Bearer prefix;
+	// OAuth tokens use Bearer. Sending Bearer with an API key answers HTTP 400
+	// with an explicit message (verified against the live API, 2026-09-09).
+	request.Header.Set("Authorization", c.apiKey)
 	response, err := c.http.Do(request)
 	if err != nil {
 		return &Failure{Kind: KindTransport, Detail: "request did not complete"}
@@ -193,14 +196,31 @@ func (c *Client) call(ctx context.Context, query string, variables map[string]an
 	case response.StatusCode == http.StatusTooManyRequests:
 		retryAfter, parseErr := time.ParseDuration(response.Header.Get("Retry-After") + "s")
 		if parseErr != nil {
-			seconds, convErr := time.ParseDuration(response.Header.Get("Retry-After") + "s")
-			if convErr != nil {
-				seconds = 0
-			}
-			retryAfter = seconds
+			retryAfter = 0
 		}
 		return &Failure{Kind: KindRateLimited, Detail: "linear deferred the request", RetryAfter: retryAfter}
 	case response.StatusCode >= 400:
+		// Linear reports rate limiting as HTTP 400 with a RATELIMITED extension
+		// code, and every other 4xx carries a JSON error body that names the
+		// cause. The body is evidence: surface it instead of the bare status.
+		raw, readErr := io.ReadAll(io.LimitReader(response.Body, 1<<16))
+		if readErr != nil {
+			return &Failure{Kind: KindGraphqlError, Detail: fmt.Sprintf("linear answered HTTP %d", response.StatusCode)}
+		}
+		var envelope graphResponse
+		if json.Unmarshal(raw, &envelope) == nil && len(envelope.Errors) > 0 {
+			messages := make([]string, 0, len(envelope.Errors))
+			for _, item := range envelope.Errors {
+				messages = append(messages, item.Message)
+			}
+			detail := strings.Join(messages, "; ")
+			for _, item := range envelope.Errors {
+				if strings.Contains(strings.ToUpper(item.Message), "RATELIMITED") {
+					return &Failure{Kind: KindRateLimited, Detail: detail}
+				}
+			}
+			return &Failure{Kind: KindGraphqlError, Detail: detail}
+		}
 		return &Failure{Kind: KindGraphqlError, Detail: fmt.Sprintf("linear answered HTTP %d", response.StatusCode)}
 	}
 	raw, err := io.ReadAll(io.LimitReader(response.Body, 1<<20))

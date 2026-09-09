@@ -6,7 +6,7 @@ import (
 	"fmt"
 )
 
-const ManifestDigest = "sha256:6b566c63b7b2d9b454cf8ca36a7a716d01d37a7aa7b4b157418f2b1e7d6fa29a"
+const ManifestDigest = "sha256:a62abff3c89f82a1addf7ee16dd6cf903630e208e3e0004d13c4efaebf6ba0a3"
 
 type OperationKind string
 
@@ -234,8 +234,9 @@ var GeneratedPayloadRules = map[string]GeneratedPayloadRule{
 	"work_observation_input":                       {Required: []string{"work_id"}, Properties: []string{"work_id", "page"}},
 	"work_observation_page":                        {Required: []string{"observations"}, Properties: []string{"observations"}},
 	"work_page":                                    {Required: []string{"items"}, Properties: []string{"items", "next_cursor", "readiness_evidence"}},
-	"work_pin":                                     {Required: []string{"work_id", "version", "lifecycle", "workflow_type", "step", "attempt", "pending_operator_decision", "watermark", "next_valid_intents"}, Properties: []string{"work_id", "version", "lifecycle", "workflow_type", "step", "attempt", "pending_operator_decision", "watermark", "next_valid_intents"}},
+	"work_pin":                                     {Required: []string{"work_id", "version", "lifecycle", "workflow_type", "step", "attempt", "pending_operator_decision", "watermark", "next_valid_intents"}, Properties: []string{"work_id", "version", "lifecycle", "workflow_type", "step", "attempt", "pending_operator_decision", "watermark", "next_valid_intents", "verdict_evidence"}},
 	"work_pin_attempt":                             {Required: []string{"id", "epoch", "lane", "state"}, Properties: []string{"id", "epoch", "lane", "state"}},
+	"work_pin_evidence":                            {Required: []string{"evidence_kind", "immutable_subject_ref"}, Properties: []string{"evidence_kind", "immutable_subject_ref"}},
 	"work_pin_intent":                              {Required: []string{"tool", "operation", "reason_code", "action_id", "required_fields", "expected_version"}, Properties: []string{"tool", "operation", "reason_code", "action_id", "required_fields", "expected_version"}},
 	"work_relate_link_input":                       {Required: []string{"from_work_id", "to_work_id", "from_expected_version", "to_expected_version", "kind", "reason", "idempotency_key"}, Properties: []string{"from_work_id", "to_work_id", "from_expected_version", "to_expected_version", "kind", "reason", "idempotency_key", "approval", "requested_budget_seconds"}},
 	"work_relate_memberships_input":                {Required: []string{"work_id", "expected_version", "memberships", "idempotency_key"}, Properties: []string{"work_id", "expected_version", "memberships", "idempotency_key", "approval", "requested_budget_seconds"}},

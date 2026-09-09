@@ -682,14 +682,21 @@ func workflowActorsDistinct(ctx context.Context, tx *sql.Tx, workID, verdictActo
 }
 
 func verifyVerdictEvidence(ctx context.Context, tx *sql.Tx, workID string, refs []string) error {
+	var unbound []string
 	for _, ref := range refs {
 		var count int
 		if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND json_extract(payload,'$.immutable_subject_ref')=?`, workID, WorkflowEvidenceBound, ref).Scan(&count); err != nil {
 			return wrapFailure(KindUnavailable, "complete_workflow", "cannot inspect verdict evidence", true, "retry once the database is readable", err)
 		}
 		if count == 0 {
-			return newFailure(KindMissingEvidence, "complete_workflow", "verdict evidence is not durably bound", false, "provide_evidence")
+			unbound = append(unbound, ref)
 		}
+	}
+	if len(unbound) != 0 {
+		// The refusal names every unbound ref: a caller that cited a locator
+		// or another non-bound form learns which refs failed and what form
+		// qualifies (#974).
+		return newFailure(KindMissingEvidence, "complete_workflow", "verdict evidence is not durably bound: "+strings.Join(unbound, ", ")+"; verdict refs must equal a bound immutable_subject_ref", false, "provide_evidence")
 	}
 	return nil
 }

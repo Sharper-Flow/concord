@@ -203,13 +203,13 @@ func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, registry Definiti
 		return result, err
 	}
 	stepAllowed := guards.staleRecovery || guards.lateVerdictRecovery || definitionStepAllows(entry.Definition, currentStep, request.ActionID)
-	if !stepAllowed && request.ActionID == "bind_evidence" {
+	if request.ActionID == "bind_evidence" {
 		var recoveryErr error
 		guards.recoveryBind, recoveryErr = guardRecoveryEvidenceBind(ctx, tx, request.WorkID, entry.Definition, currentStep, request.Payload, subject)
 		if recoveryErr != nil {
 			return result, recoveryErr
 		}
-		stepAllowed = guards.recoveryBind
+		stepAllowed = stepAllowed || guards.recoveryBind
 	}
 	if !stepAllowed {
 		return result, newFailure(KindIllegalLifecycleTransition, "workflow_action", "workflow action is not declared on the current step", false, "reread_entities")

@@ -1,0 +1,43 @@
+{
+  "date": "2026-09-09T00:00:00Z",
+  "evidence": [
+    "internal/store/workflow_registry.go",
+    "internal/store/workflow_registry_versions.go",
+    "internal/store/workflow_completion.go",
+    "internal/store/workflow_action_guards.go",
+    "internal/store/workflow_definition_version_pins_test.go",
+    "internal/store/workflow_required_evidence_recovery_test.go"
+  ],
+  "home_domain_id": "workflow-engine",
+  "id": "CD-0124",
+  "kind": "decision",
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "CD-0013"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0115"
+    }
+  ],
+  "path": "docs/decisions/CD-0124-workflow-verify-evidence-recovery.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:3137efbd021a475987fee980e71591faa84f2dd0b46a45477b26e35a3f90a968",
+  "status": "accepted",
+  "summary": "Adds a hold-only bind_evidence route to break-fix verify for one outstanding contract requirement, keeps confirm_premise as the advancing gate, preserves released definition pins, and separates source, deployment, and stranded-work recovery evidence.",
+  "tags": [
+    "workflow",
+    "evidence",
+    "recovery",
+    "definition",
+    "law"
+  ],
+  "title": "Workflow verify evidence recovery"
+}

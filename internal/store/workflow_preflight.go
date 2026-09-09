@@ -219,6 +219,10 @@ func WorkflowActionPreflightWithRegistry(ctx context.Context, s *Store, registry
 		if !recoveryBind {
 			return newFailure(KindIllegalLifecycleTransition, "workflow_action_preflight", "workflow action is not declared on the current step", false, "reread_entities")
 		}
+	} else if request.ActionID == "bind_evidence" {
+		if _, err := guardRecoveryEvidenceBind(ctx, s.db, request.WorkID, entry.Definition, currentStep, request.Payload, "workflow_action_preflight"); err != nil {
+			return err
+		}
 	}
 	if request.ActionID == "dispatch_worker" {
 		if err := validateWorkerDispatchWorktree(ctx, s.db, request.WorkID, request.SessionWorktree); err != nil {
@@ -440,6 +444,10 @@ func workflowActionPreflightTx(ctx context.Context, tx *sql.Tx, registry Definit
 		}
 		if !recoveryBind {
 			return RegisteredDefinition{}, newFailure(KindIllegalLifecycleTransition, "workflow_action_preflight", "workflow action is not declared on the current step", false, "reread_entities")
+		}
+	} else if request.ActionID == "bind_evidence" {
+		if _, err := guardRecoveryEvidenceBind(ctx, tx, request.WorkID, entry.Definition, currentStep, request.Payload, "workflow_action_preflight"); err != nil {
+			return RegisteredDefinition{}, err
 		}
 	}
 	if request.ActionID == "dispatch_worker" {

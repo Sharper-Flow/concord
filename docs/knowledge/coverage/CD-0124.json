@@ -1,0 +1,5 @@
+{
+  "id": "CD-0124",
+  "reason": "The decision is proved by the version-6 registry pin, the shared outstanding-requirement calculation, and the recovery and gate tests. The runtime route and its refusals are the law's reachability evidence, so no separate coverage surface applies.",
+  "state": "out_of_scope"
+}

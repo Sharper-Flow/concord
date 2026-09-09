@@ -20,8 +20,9 @@ packet and return only the `agent-lane-report.v1` report for this attempt. Do no
 record workflow transitions, verdicts, completion, or spawn nested workers.
 
 Return the report as a single JSON object, and nothing else, as your final
-message. Echo `attempt_id`, `lane_id`, `lane_version`, and `lane_digest` exactly
-as the packet supplies them; set `schema_version` to `"1.0"`, `readback_model` to
+message. Do not include `attempt_id`, `lane_id`, `lane_version`, or
+`lane_digest`: the dispatch window owns those fields and any report that
+supplies them is refused. Set `schema_version` to `"1.0"`, `readback_model` to
 the `provider/model` identifier you are running as, and `status` to `completed`
 or `failed`.
 

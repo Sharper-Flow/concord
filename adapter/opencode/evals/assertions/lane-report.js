@@ -25,7 +25,11 @@ const CONTRACT = JSON.parse(
 
 const REPORT_REQUIRED = CONTRACT.required;
 const STATUSES = CONTRACT.properties.status.enum;
-const DIGEST = new RegExp(CONTRACT.properties.lane_digest.pattern);
+// The worker-authored surface is closed: identity is transport-owned, so any
+// field outside CONTRACT.properties — including attempt_id, lane_id,
+// lane_version, and lane_digest — is refused here exactly as the adapter
+// refuses it at the admission boundary (CD-0056 D7).
+const CLOSED_FIELDS = new Set(Object.keys(CONTRACT.properties));
 const MODEL = new RegExp(CONTRACT.properties.readback_model.pattern);
 const EVIDENCE_MIN = CONTRACT.properties.evidence.minItems;
 const EVIDENCE_MAX = CONTRACT.properties.evidence.maxItems;
@@ -154,9 +158,6 @@ export default function (output, context) {
   if (!STATUSES.includes(report.status)) {
     return { pass: false, score: 0, reason: `report status ${JSON.stringify(report.status)} is outside the declared lifecycle` };
   }
-  if (typeof report.lane_digest !== "string" || !DIGEST.test(report.lane_digest)) {
-    return { pass: false, score: 0, reason: "report lane_digest is not a sha256 digest" };
-  }
   if (typeof report.readback_model !== "string" || !MODEL.test(report.readback_model)) {
     return { pass: false, score: 0, reason: `report readback_model ${JSON.stringify(report.readback_model)} is not a provider/model identifier` };
   }
@@ -178,24 +179,27 @@ export default function (output, context) {
     }
   }
 
-  // The report must answer the packet it was dispatched for. promptfoo hands
-  // the rendered prompt back as the raw packet document.
+  // The worker-authored surface carries no identity: the dispatch window owns
+  // attempt and lane identity, and the adapter composes it at the admission
+  // boundary (CD-0056 D7). A report that supplies any dispatch-owned field is
+  // refused; the packet binding itself is verified structurally by the
+  // adapter, not re-judged here.
+  const supplied = Object.keys(report).filter((field) => !CLOSED_FIELDS.has(field));
+  if (supplied.length > 0) {
+    return {
+      pass: false,
+      score: 0,
+      reason: `report carries dispatch-owned or unknown field(s): ${supplied.join(", ")}`,
+    };
+  }
+
+  // promptfoo hands the rendered prompt back as the raw packet document; the
+  // seeded-defect markers below key on its attempt identity.
   let packet;
   try {
     packet = JSON.parse(context.prompt);
   } catch {
     packet = null;
-  }
-  if (packet) {
-    for (const field of ["attempt_id", "lane_id", "lane_version", "lane_digest"]) {
-      if (report[field] !== packet[field]) {
-        return {
-          pass: false,
-          score: 0,
-          reason: `report ${field} ${JSON.stringify(report[field])} does not match dispatched packet ${JSON.stringify(packet[field])}`,
-        };
-      }
-    }
   }
 
   if (delegatesWork(output)) {
@@ -215,5 +219,5 @@ export default function (output, context) {
     }
   }
 
-  return { pass: true, score: 1, reason: "report satisfies agent-lane-report.v1, binds to its packet, and stays inside worker authority" };
+  return { pass: true, score: 1, reason: "report satisfies the closed agent-lane-report.v1 surface and stays inside worker authority" };
 }

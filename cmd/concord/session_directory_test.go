@@ -103,9 +103,9 @@ func writeProjectHostArtifacts(t *testing.T, projectDir string) {
 	for _, lane := range store.BuiltinLaneDefinitions() {
 		writeAgentDefinition(t, agents, laneAgentFileName(lane.ID))
 	}
-	writeAgentDefinitionBody(t, agents, orchestratorAgentFileName, []byte("---\nmode: all\n---\norchestrator\n"))
+	writeAgentDefinitionBody(t, agents, agentDefinitionFileName("concord-1"), []byte("---\nmode: all\n---\norchestrator\n"))
 	registry, err := json.Marshal(hostConfigDocument{Agent: map[string]hostAgentEntry{
-		orchestratorAgentName: {Mode: "primary"},
+		"concord-1": {Mode: "primary"},
 	}})
 	if err != nil {
 		t.Fatal(err)
@@ -136,6 +136,7 @@ func TestSessionRunsInTheResolvedProjectDirectory(t *testing.T) {
 	t.Chdir(launcherDir)
 	t.Setenv("CONCORD_SELECTED_PRODUCT_ID", "product-1")
 	t.Setenv("CONCORD_SELECTED_WORK_ID", "work-1")
+	t.Setenv(selectedAgentEnv, "concord-1")
 
 	var out, errOut bytes.Buffer
 	code := runSessionCommand(nil, strings.NewReader(""), &out, &errOut, true,
@@ -153,8 +154,8 @@ func TestSessionRunsInTheResolvedProjectDirectory(t *testing.T) {
 	if len(argvLines) != 4 || argvLines[0] != "4" {
 		t.Fatalf("host argument vector shape=%q, want the fixed 4-argument vector", argvLines)
 	}
-	if argvLines[1] != "--agent" || argvLines[2] != orchestratorAgentName || argvLines[3] != "--prompt" {
-		t.Fatalf("host argument vector=%q, want --agent %s --prompt", argvLines, orchestratorAgentName)
+	if argvLines[1] != "--agent" || argvLines[2] != "concord-1" || argvLines[3] != "--prompt" {
+		t.Fatalf("host argument vector=%q, want --agent %s --prompt", argvLines, "concord-1")
 	}
 }
 
@@ -177,7 +178,7 @@ func TestSessionRefusesWhenTheProjectDirectoryDoesNotResolve(t *testing.T) {
 			return nil
 		},
 		func(string) error { identityCalls++; return nil },
-		func(context.Context, string, string, string) (string, error) { return orchestratorAgentName, nil })
+		func(context.Context, string, string, string, string) (string, error) { return "concord-1", nil })
 	if code != 2 {
 		t.Fatalf("exit=%d, want 2; stderr=%q", code, errOut.String())
 	}
@@ -218,7 +219,7 @@ func TestSessionRefusesWithoutAResolvableProject(t *testing.T) {
 				return nil
 			},
 			func(string) error { identityCalls++; return nil },
-			func(context.Context, string, string, string) (string, error) { return orchestratorAgentName, nil })
+			func(context.Context, string, string, string, string) (string, error) { return "concord-1", nil })
 		if code != 2 || identityCalls != 0 || runs != 0 {
 			t.Fatalf("exit=%d identity=%d runs=%d stderr=%q", code, identityCalls, runs, errOut.String())
 		}
@@ -240,7 +241,7 @@ func TestSessionRefusesWithoutAResolvableProject(t *testing.T) {
 				return nil
 			},
 			func(string) error { identityCalls++; return nil },
-			func(context.Context, string, string, string) (string, error) { return orchestratorAgentName, nil })
+			func(context.Context, string, string, string, string) (string, error) { return "concord-1", nil })
 		if code != 2 || identityCalls != 0 || runs != 0 {
 			t.Fatalf("exit=%d identity=%d runs=%d stderr=%q", code, identityCalls, runs, errOut.String())
 		}
@@ -259,6 +260,7 @@ func TestSessionRefusesWithoutAResolvableProject(t *testing.T) {
 func TestProductOnlySessionRemainsIdentityOnly(t *testing.T) {
 	t.Setenv("CONCORD_SELECTED_PRODUCT_ID", "product-1")
 	t.Setenv("CONCORD_SELECTED_WORK_ID", "")
+	t.Setenv(selectedAgentEnv, "concord-1")
 	launcherDir := t.TempDir()
 	t.Chdir(launcherDir)
 	bootstrapCalls, directoryCalls := 0, 0
@@ -273,7 +275,7 @@ func TestProductOnlySessionRemainsIdentityOnly(t *testing.T) {
 			return nil
 		},
 		func(string) error { return nil },
-		func(context.Context, string, string, string) (string, error) { return orchestratorAgentName, nil })
+		func(context.Context, string, string, string, string) (string, error) { return "concord-1", nil })
 	if code != 0 {
 		t.Fatalf("exit=%d, want 0", code)
 	}

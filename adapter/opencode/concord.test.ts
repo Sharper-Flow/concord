@@ -783,7 +783,10 @@ const bootstrapSuccess = (path = "/data/worktrees/project-1/work-1") => ({
   worktree: { set_id: "worktree-set-1", path, branch: "work/work-1", base_sha: "a".repeat(40), state: "active" },
 })
 
-const preparedContract = (agent = "concord-implement", prompt = "Implement the task.", title = "Add atomic start") => ({
+// The default agent matches the fake ToolContext's agent ("agent-1"):
+// session-prepare now receives the active session agent and its read-back
+// must name the same agent.
+const preparedContract = (agent = "agent-1", prompt = "Implement the task.", title = "Add atomic start") => ({
   schema_version: "1.0",
   directory: "/data/worktrees/project-1/work-1",
   product_id: "product-1",
@@ -955,16 +958,33 @@ test("work start moves the calling session into the claimed worktree", async () 
   const calls: RetargetCall[] = []
   adapter.configureConcordAdapter({ runner: retargetRunner(calls) })
   const result: any = await rawHostResult(adapter.work_start.execute(bootstrapArgs, contextFor()))
-  expect(result).toMatchObject({ outcome: "ok", work_id: "work-1", worktree_path: WORKTREE, session_id: "session-1", agent: "concord-implement" })
+  expect(result).toMatchObject({ outcome: "ok", work_id: "work-1", worktree_path: WORKTREE, session_id: "session-1", agent: "agent-1" })
   expect(await hostControlPlane().taskScope("session-1")).toBe("managed")
   // The claim exists before the session moves, so a failed move leaves a
   // resumable claim rather than a moved session with none.
   expect(calls.map(({ argv }) => argv[1])).toEqual(["project-resolve", "work-bootstrap", "session-prepare", "project-resolve", "invoke"])
   expect(moved).toEqual([{ sessionID: "session-1", destination: { directory: WORKTREE } }])
-  // session-prepare verifies and derives; it carries no process identity and records nothing.
-  expect(JSON.parse(calls[2].input)).toEqual({ product_id: "product-1", work_id: "work-1", task: bootstrapArgs.task })
+  // session-prepare verifies the ACTIVE host agent and derives; it carries
+  // no process identity and records nothing.
+  expect(JSON.parse(calls[2].input)).toEqual({ product_id: "product-1", work_id: "work-1", task: bootstrapArgs.task, agent: "agent-1" })
   // No launch: the adapter never spawns a host session for the work.
   expect(calls.some(({ argv }) => argv[1] === "session-exec" || argv[0] === "opencode")).toBe(false)
+})
+
+// A core that answers session-prepare with any agent other than the one this
+// session runs as fails the strict read-back: the move must not happen on an
+// agent identity the session does not hold.
+test("work start refuses a session-prepare read-back that names another agent", async () => {
+  const moved = bindRetargetRoute()
+  const calls: RetargetCall[] = []
+  adapter.configureConcordAdapter({ runner: retargetRunner(calls, {
+      "session-prepare": () => ({ exitCode: 0, stdout: JSON.stringify(preparedContract("concord-orchestrator")), stderr: "" }),
+  }) })
+  const result: any = await rawHostResult(adapter.work_start.execute(bootstrapArgs, contextFor()))
+  expect(result.outcome).toBe("error")
+  expect(result.error.kind).toBe("malformed_response")
+  expect(result.error.message).toContain("session-prepare response failed the strict prepare contract")
+  expect(moved).toEqual([])
 })
 
 // Issue #917: a successful work_start names the zellij pane frame after the
@@ -997,7 +1017,7 @@ test("the pane name strips control characters and is cut at 64 code points", asy
   bindRetargetRoute()
   const calls: RetargetCall[] = []
   adapter.configureConcordAdapter({ runner: retargetRunner(calls, {
-    "session-prepare": () => ({ exitCode: 0, stdout: JSON.stringify(preparedContract("concord-implement", "Implement the task.", `ab\u0001cd\u009Fef${"g".repeat(70)}`)), stderr: "" }),
+      "session-prepare": () => ({ exitCode: 0, stdout: JSON.stringify(preparedContract("agent-1", "Implement the task.", `ab\u0001cd\u009Fef${"g".repeat(70)}`)), stderr: "" }),
   }) })
   const result: any = await rawHostResult(adapter.work_start.execute(bootstrapArgs, contextFor()))
   expect(result.outcome).toBe("ok")
@@ -1087,13 +1107,14 @@ test("work start resume derives the entry by work_id and moves the session", asy
   adapter.configureConcordAdapter({ runner: resumeRunner(calls) })
   const result: any = await rawHostResult(adapter.work_start.execute({ work_id: "work-1" }, contextFor()))
   expect(await hostControlPlane().taskScope("session-1")).toBe("managed")
-  expect(result).toMatchObject({ outcome: "ok", product_id: "product-1", project_id: "project-1", work_id: "work-1", worktree_path: WORKTREE, agent: "concord-implement", session_id: "session-1" })
+  expect(result).toMatchObject({ outcome: "ok", product_id: "product-1", project_id: "project-1", work_id: "work-1", worktree_path: WORKTREE, agent: "agent-1", session_id: "session-1" })
   // A resume never captures: work-resume replaces work-bootstrap and records
   // nothing, so the child sequence has no journal step.
   expect(calls.map(({ argv }) => argv[1])).toEqual(["project-resolve", "work-resume", "session-prepare", "project-resolve", "invoke"])
   expect(JSON.parse(calls[1].input)).toEqual({ product_id: "product-1", project_id: "project-1", work_id: "work-1" })
-  // A resume carries no task; session-prepare still verifies the worktree.
-  expect(JSON.parse(calls[2].input)).toEqual({ product_id: "product-1", work_id: "work-1", task: "" })
+  // A resume carries no task; session-prepare still verifies the active
+  // agent and the worktree.
+  expect(JSON.parse(calls[2].input)).toEqual({ product_id: "product-1", work_id: "work-1", task: "", agent: "agent-1" })
   expect(moved).toEqual([{ sessionID: "session-1", destination: { directory: WORKTREE } }])
 })
 

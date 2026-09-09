@@ -26,7 +26,7 @@ func bootstrapRequest() store.BootstrapRequest {
 
 func commandSessionPrepareInput(t *testing.T, workID, task string) []byte {
 	t.Helper()
-	raw, err := json.Marshal(sessionPrepareInput{ProductID: "product-wl", WorkID: workID, Task: task})
+	raw, err := json.Marshal(sessionPrepareInput{ProductID: "product-wl", WorkID: workID, Task: task, Agent: "concord-1"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -466,7 +466,10 @@ func TestSessionPrepareRefusesWrongDirectoryBeforeIdentity(t *testing.T) {
 	var out, errOut bytes.Buffer
 	code := runSessionPrepare(commandSessionPrepareInput(t, result.WorkID, "run the task"), mustOpenStore(t, dbPath), &out, &errOut,
 		func(string) error { return nil },
-		func(context.Context, string, string, string) (string, error) { identityCalls++; return "agent", nil },
+		func(context.Context, string, string, string, string) (string, error) {
+			identityCalls++
+			return "agent", nil
+		},
 		func(context.Context, string, string, string) ([]byte, error) {
 			return json.RawMessage(`{"watermark":"test"}`), nil
 		})
@@ -494,8 +497,11 @@ func TestSessionPrepareRunsLaneIdentityBeforeOrchestratorAndBoot(t *testing.T) {
 	var out, errOut bytes.Buffer
 	code := runSessionPrepare(commandSessionPrepareInput(t, result.WorkID, "use UTF-8 ✓"), s, &out, &errOut,
 		func(string) error { laneCalls++; return nil },
-		func(ctx context.Context, dir, productID, workID string) (string, error) {
+		func(ctx context.Context, dir, productID, workID, agent string) (string, error) {
 			identityCalls++
+			if agent != "concord-1" {
+				return "", errors.New("session-prepare must pass the active agent through to identity verification")
+			}
 			_, err := s.RecordOrchestratorIdentityAssertion(ctx, "prepare-success-identity", s.Now(), store.OrchestratorIdentityAssertion{
 				Type: "orchestrator", Version: "1", RulesetDigest: "sha256:" + strings.Repeat("a", 64),
 				Sources:   []store.OrchestratorArtifactSource{{Kind: "orchestrator_definition", Path: "/tmp/orchestrator.md", SHA256: strings.Repeat("b", 64)}},
@@ -532,7 +538,7 @@ func TestSessionPrepareRunsLaneIdentityBeforeOrchestratorAndBoot(t *testing.T) {
 	out, errOut = bytes.Buffer{}, bytes.Buffer{}
 	code = runSessionPrepare(commandSessionPrepareInput(t, result.WorkID, "run"), s, &out, &errOut,
 		func(string) error { laneCalls++; return errors.New("lane definition is missing") },
-		func(context.Context, string, string, string) (string, error) {
+		func(context.Context, string, string, string, string) (string, error) {
 			identityCalls++
 			return "orchestrator", nil
 		},

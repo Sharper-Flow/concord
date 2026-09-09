@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -118,10 +119,13 @@ func TestOrchestratorIdentityResolvesFromEitherSearchedDirectory(t *testing.T) {
 			if location == "global" {
 				dir = filepath.Join(home, ".config", "opencode", "agents")
 			}
-			writeAgentDefinition(t, dir, orchestratorAgentFileName)
-			assertion, _, err := verifyOrchestratorIdentity(home, cwd)
+			writeAgentDefinition(t, dir, agentDefinitionFileName("concord-1"))
+			assertion, handle, err := verifyOrchestratorIdentity(home, cwd, "concord-1")
 			if err != nil {
 				t.Fatalf("identity = %v, want nil", err)
+			}
+			if handle != "concord-1" {
+				t.Errorf("handle = %q, want concord-1", handle)
 			}
 			if assertion.Type != OrchestratorIdentityType {
 				t.Errorf("type = %q, want %q", assertion.Type, OrchestratorIdentityType)
@@ -141,13 +145,13 @@ func TestOrchestratorIdentityResolvesFromEitherSearchedDirectory(t *testing.T) {
 
 func TestOrchestratorIdentityNamesAbsentDefinitionAndSearchedDirectories(t *testing.T) {
 	home, cwd := t.TempDir(), t.TempDir()
-	_, _, err := verifyOrchestratorIdentity(home, cwd)
+	_, _, err := verifyOrchestratorIdentity(home, cwd, "concord-1")
 	if err == nil {
 		t.Fatal("identity = nil, want absent-identity failure")
 	}
 	message := err.Error()
 	for _, fragment := range []string{
-		orchestratorAgentFileName,
+		agentDefinitionFileName("concord-1"),
 		filepath.Join(home, ".config", "opencode", "agents"),
 		filepath.Join(cwd, ".opencode", "agents"),
 	} {
@@ -157,18 +161,39 @@ func TestOrchestratorIdentityNamesAbsentDefinitionAndSearchedDirectories(t *test
 	}
 }
 
+// A definition whose frontmatter `name:` differs from the requested agent
+// registers under a different handle. The session runs as the requested
+// agent, so the verification must refuse instead of asserting an agent the
+// session is not (CD-0049 D2).
+func TestOrchestratorIdentityRefusesADefinitionThatRegistersADifferentHandle(t *testing.T) {
+	home, cwd := t.TempDir(), t.TempDir()
+	writeAgentDefinitionBody(t, filepath.Join(cwd, ".opencode", "agents"), agentDefinitionFileName("concord-1"),
+		[]byte("---\nname: op-renamed\nmode: all\n---\nbody\n"))
+	_, _, err := verifyOrchestratorIdentity(home, cwd, "concord-1")
+	if err == nil {
+		t.Fatal("identity = nil, want handle-mismatch failure")
+	}
+	var mismatch *agentIdentityMismatchError
+	if !errors.As(err, &mismatch) {
+		t.Fatalf("err = %T (%v), want *agentIdentityMismatchError", err, err)
+	}
+	if mismatch.Handle != "op-renamed" || mismatch.Requested != "concord-1" {
+		t.Fatalf("mismatch = %+v, want handle op-renamed for requested concord-1", mismatch)
+	}
+}
+
 func TestOrchestratorIdentityDigestIsStableAcrossInvocations(t *testing.T) {
 	home, cwd := t.TempDir(), t.TempDir()
 	dir := filepath.Join(cwd, ".opencode", "agents")
-	writeAgentDefinition(t, dir, orchestratorAgentFileName)
+	writeAgentDefinition(t, dir, agentDefinitionFileName("concord-1"))
 	if err := os.WriteFile(filepath.Join(cwd, "AGENTS.md"), []byte("# project instructions\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	first, _, err := verifyOrchestratorIdentity(home, cwd)
+	first, _, err := verifyOrchestratorIdentity(home, cwd, "concord-1")
 	if err != nil {
 		t.Fatalf("first verify: %v", err)
 	}
-	second, _, err := verifyOrchestratorIdentity(home, cwd)
+	second, _, err := verifyOrchestratorIdentity(home, cwd, "concord-1")
 	if err != nil {
 		t.Fatalf("second verify: %v", err)
 	}
@@ -183,19 +208,19 @@ func TestOrchestratorIdentityDigestIsStableAcrossInvocations(t *testing.T) {
 func TestOrchestratorIdentityDigestChangesWhenArtifactChanges(t *testing.T) {
 	home, cwd := t.TempDir(), t.TempDir()
 	dir := filepath.Join(cwd, ".opencode", "agents")
-	writeAgentDefinition(t, dir, orchestratorAgentFileName)
+	writeAgentDefinition(t, dir, agentDefinitionFileName("concord-1"))
 	agentsPath := filepath.Join(cwd, "AGENTS.md")
 	if err := os.WriteFile(agentsPath, []byte("# instructions v1\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	first, _, err := verifyOrchestratorIdentity(home, cwd)
+	first, _, err := verifyOrchestratorIdentity(home, cwd, "concord-1")
 	if err != nil {
 		t.Fatalf("first verify: %v", err)
 	}
 	if err := os.WriteFile(agentsPath, []byte("# instructions v2 — silently changed\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	second, _, err := verifyOrchestratorIdentity(home, cwd)
+	second, _, err := verifyOrchestratorIdentity(home, cwd, "concord-1")
 	if err != nil {
 		t.Fatalf("second verify: %v", err)
 	}
@@ -210,28 +235,26 @@ func TestOrchestratorIdentityDigestChangesWhenArtifactChanges(t *testing.T) {
 // the stem of a renamed definition silently starts the operator's default
 // agent (issue #428's probe).
 func TestOrchestratorInvocationHandleFollowsFrontmatterName(t *testing.T) {
+	const stem = "concord-1"
 	cases := []struct {
 		name string
 		body string
 		want string
 	}{
-		{"no frontmatter name uses the stem", "---\nmode: all\n---\nbody\n", orchestratorAgentName},
+		{"no frontmatter name uses the stem", "---\nmode: all\n---\nbody\n", stem},
 		{"frontmatter name overrides the stem", "---\nname: op-renamed\nmode: all\n---\nbody\n", "op-renamed"},
 		{"quoted frontmatter name is unquoted", "---\nname: \"quoted name\"\n---\nbody\n", "quoted name"},
-		{"name after the frontmatter block is body text", "---\nmode: all\n---\nname: body-name\n", orchestratorAgentName},
-		{"no frontmatter block at all", "name: body-name\n", orchestratorAgentName},
-		{"empty name value falls back to the stem", "---\nname:\n---\nbody\n", orchestratorAgentName},
+		{"name after the frontmatter block is body text", "---\nmode: all\n---\nname: body-name\n", stem},
+		{"no frontmatter block at all", "name: body-name\n", stem},
+		{"empty name value falls back to the stem", "---\nname:\n---\nbody\n", stem},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			home, cwd := t.TempDir(), t.TempDir()
+			cwd := t.TempDir()
 			dir := filepath.Join(cwd, ".opencode", "agents")
-			writeAgentDefinitionBody(t, dir, orchestratorAgentFileName, []byte(tc.body))
-			_, handle, err := verifyOrchestratorIdentity(home, cwd)
-			if err != nil {
-				t.Fatalf("verify: %v", err)
-			}
-			if handle != tc.want {
+			writeAgentDefinitionBody(t, dir, agentDefinitionFileName(stem), []byte(tc.body))
+			resolved := filepath.Join(dir, agentDefinitionFileName(stem))
+			if handle := orchestratorInvocationHandle(resolved); handle != tc.want {
 				t.Fatalf("handle = %q, want %q", handle, tc.want)
 			}
 		})

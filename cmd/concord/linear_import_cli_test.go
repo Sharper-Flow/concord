@@ -40,7 +40,7 @@ func TestLinearInitiativeImportCLI(t *testing.T) {
 	seedCLIProduct(t, dbPath, "import-product", "import-product-project")
 	enableLinearProduct(t, dbPath, "import-product")
 
-	initiativeJSON := `{\"initiative\":{\"id\":\"ini-uuid-1\",\"name\":\"Example initiative\",\"description\":\"Imported drafting pad\"}}`
+	initiativeJSON := `{\"id\":\"ini-uuid-1\",\"name\":\"Example initiative\",\"summary\":\"Imported drafting pad\"}`
 	server := linearMCPStub(t, initiativeJSON)
 	defer server.Close()
 	t.Setenv("CONCORD_LINEAR_MCP_URL", server.URL)

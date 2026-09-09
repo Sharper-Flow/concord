@@ -143,7 +143,9 @@ func GetInitiative(ctx context.Context, endpoint, initiativeID string) (Initiati
 	}
 	body, _ := json.Marshal(map[string]any{
 		"jsonrpc": "2.0", "id": 2, "method": "tools/call",
-		"params": map[string]any{"name": "get_initiative", "arguments": map[string]any{"initiativeId": initiativeID}},
+		// The Linear MCP get_initiative tool accepts a query: initiative name,
+		// ID, identifier, or slug (verified against the live tool schema).
+		"params": map[string]any{"name": "get_initiative", "arguments": map[string]any{"query": initiativeID}},
 	})
 	status, _, raw, err := caller.post(ctx, body, true)
 	if err != nil {
@@ -180,11 +182,24 @@ func GetInitiative(ctx context.Context, endpoint, initiativeID string) (Initiati
 		}
 		return Initiative{}, &Failure{Kind: KindToolError, Detail: detail}
 	}
+	// The live tool returns the initiative object at the top level of the
+	// text payload, with the human text in summary; description may be null.
+	// A nested initiative key is accepted for forward compatibility.
 	var payload struct {
 		Initiative Initiative `json:"initiative"`
+		ID         string     `json:"id"`
+		Name       string     `json:"name"`
+		Summary    string     `json:"summary"`
 	}
-	if err := json.Unmarshal([]byte(text), &payload); err != nil || payload.Initiative.ID == "" {
+	if err := json.Unmarshal([]byte(text), &payload); err != nil {
+		return Initiative{}, &Failure{Kind: KindMalformedResponse, Detail: "the tool payload did not decode"}
+	}
+	result := payload.Initiative
+	if result.ID == "" {
+		result = Initiative{ID: payload.ID, Name: payload.Name, Description: payload.Summary}
+	}
+	if result.ID == "" {
 		return Initiative{}, &Failure{Kind: KindNotFound, Detail: "the initiative does not exist"}
 	}
-	return payload.Initiative, nil
+	return result, nil
 }

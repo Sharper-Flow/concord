@@ -137,6 +137,53 @@ test("a well-formed build projects mandate, narrative, and obligations into a va
   }
 })
 
+// #903: the approved premise is the objective a dispatched worker must
+// deliver, and the packet names the exact recorded state it projected. A
+// worker that only satisfies the predicates without delivering the premise
+// has not delivered the requested change.
+test("the task carries the approved objective and binds to the work and contract versions", async () => {
+  const built = await build(defaultScript())
+  expect(built.failure).toBeUndefined()
+  const task = built.packet!.inputs.task
+  expect(task).toContain("Approved objective:")
+  expect(task).toContain("Dispatch inputs are retyped rather than projected.")
+  expect(task).toContain(`(work v1, contract v1)`)
+})
+
+// #903: non-Initiative work items carry no narrative, and a missing
+// narrative must not erase the objective from the packet.
+test("a non-Initiative work item with no narrative still carries the approved objective", async () => {
+  const built = await build({ ...defaultScript(), "concord_work_browse.scope": scopeEnvelope("") })
+  expect(built.failure, JSON.stringify(built.failure)).toBeUndefined()
+  const packet = built.packet!
+  expect(validateAgentLanePacket(packet)).toBe(true)
+  expect(packet.inputs.context).toBeUndefined()
+  expect(packet.inputs.task).toContain("Approved objective:")
+  expect(packet.inputs.task).toContain("Dispatch inputs are retyped rather than projected.")
+  expect(packet.inputs.task).toContain(OUTCOME_PAYLOAD)
+})
+
+// #903/#904 boundary: a pinned contract whose premise carries no objective
+// has nothing to deliver, so the builder refuses rather than projecting a
+// predicate-only mandate that baseline checks could satisfy.
+test("a pinned contract with a contentless premise is a typed unapproved-mandate failure", async () => {
+  const contentless = pinnedContract()
+  contentless.premise = "   "
+  const built = await build({ ...defaultScript(), "concord_work_trace.continuity": continuityEnvelope(contentless) })
+  expect(built.packet).toBeUndefined()
+  expect(built.failure!.kind).toBe("mandate_unapproved")
+  expect(built.failure!.message).toContain("no approved objective")
+})
+
+test("a pinned contract without a typed version is a typed transport failure", async () => {
+  const unversioned = pinnedContract()
+  delete (unversioned as Record<string, unknown>).version
+  const built = await build({ ...defaultScript(), "concord_work_trace.continuity": continuityEnvelope(unversioned) })
+  expect(built.packet).toBeUndefined()
+  expect(built.failure!.kind).toBe("transport_failure")
+  expect(built.failure!.message).toContain("versions")
+})
+
 // Every fixture below is a hand-written response shape. contractProofs binds
 // each one to the generated contract by tool.operation: the envelope schema for
 // the whole response and the operation's declared result schema for its payload.

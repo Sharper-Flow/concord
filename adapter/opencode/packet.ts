@@ -88,6 +88,13 @@ async function readOperation(
 // the generated lane registry. Nothing here is authored: every field is derived
 // from recorded state, which is the point — a dispatched worker's goal must not
 // be retyped prose.
+//
+// The pinned contract is the mandate's authority (#903): its premise is the
+// approved objective the worker must deliver, and its version plus the work
+// item version bind the packet to the exact recorded state it projected. A
+// packet built from a contract with no objective would let baseline-passing
+// predicates masquerade as delivery, so a contentless premise is a typed
+// refusal, never an omitted field.
 export async function buildAgentLanePacket(request: AgentLanePacketRequest, deps: AgentLanePacketDeps): Promise<AgentLanePacketBuild> {
   const lane: AgentLane | undefined = agentLanes.find((candidate) => candidate.id === request.laneId)
   if (!lane) {
@@ -101,6 +108,7 @@ export async function buildAgentLanePacket(request: AgentLanePacketRequest, deps
     return failure("missing_work_item", `concord_work_browse.scope returned no work item for ${request.workId}`)
   }
   const narrative = typeof work.narrative === "string" ? work.narrative : ""
+  const workVersion = typeof work.version === "number" ? work.version : null
 
   const continuity = await readOperation("concord_work_trace", "continuity", { work_id: request.workId, page: { cursor: null, limit: 1 } }, deps)
   if (continuity.failure) return continuity
@@ -112,15 +120,26 @@ export async function buildAgentLanePacket(request: AgentLanePacketRequest, deps
   if (!isRecord(contract)) {
     return failure("mandate_unapproved", `work ${request.workId} has no pinned workflow contract, so no required end-state has been approved to dispatch against`)
   }
+  const premise = typeof contract.premise === "string" ? contract.premise : ""
+  const contractVersion = typeof contract.version === "number" ? contract.version : null
   const outcomePredicates = contract.outcome_predicates
   const workflowStep = pinned.workflow_step
   if (!Array.isArray(outcomePredicates) || outcomePredicates.length === 0 || typeof workflowStep !== "string") {
     return failure("transport_failure", `work ${request.workId} pinned contract did not carry typed outcome_predicates and workflow_step`)
   }
+  if (premise.trim().length === 0) {
+    return failure("mandate_unapproved", `work ${request.workId} pinned contract carries no approved objective, so there is no recorded change to dispatch against`)
+  }
+  if (workVersion === null || contractVersion === null) {
+    return failure("transport_failure", `work ${request.workId} pinned state did not carry the typed work and contract versions the packet must bind to`)
+  }
   const outcomePayload = JSON.stringify(outcomePredicates)
 
   const task = [
-    `Deliver the approved required end-state predicates for work ${request.workId}, at workflow step "${workflowStep}".`,
+    `Deliver the approved objective for work ${request.workId}, at workflow step "${workflowStep}" (work v${workVersion}, contract v${contractVersion}).`,
+    "",
+    "Approved objective:",
+    premise,
     "",
     "Approved end-state mandate:",
     outcomePayload,

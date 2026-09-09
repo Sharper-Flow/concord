@@ -25,6 +25,7 @@ import (
 	"github.com/sharper-flow/concord/internal/launcher/render/bubbletea"
 	"github.com/sharper-flow/concord/internal/launcher/storeport"
 	"github.com/sharper-flow/concord/internal/linearclient"
+	"github.com/sharper-flow/concord/internal/linearmcp"
 	"github.com/sharper-flow/concord/internal/predecessor"
 	"github.com/sharper-flow/concord/internal/store"
 	"github.com/sharper-flow/concord/internal/version"
@@ -151,6 +152,7 @@ var commandSpecs = []commandSpec{
 	{Canonical: "linear-health", TwoWord: "linear health", RequiredFields: requiredFields(field("product_id")), Optional: "none", Enums: "none"},
 	{Canonical: "linear-issue-enqueue", TwoWord: "linear issue-enqueue", RequiredFields: requiredFields(field("product_id"), field("work_id"), field("op_kind")), Optional: "none", Enums: "op_kind: issue_create | issue_update"},
 	{Canonical: "linear-outbox-drain", TwoWord: "linear outbox-drain", RequiredFields: requiredFields(field("product_id")), Optional: "max_operations", Enums: "none"},
+	{Canonical: "linear-initiative-import", TwoWord: "linear initiative-import", RequiredFields: requiredFields(field("product_id"), field("initiative_id")), Optional: "none", Enums: "none"},
 	{Canonical: "resource-create", TwoWord: "resource create", RequiredFields: requiredFields(field("event_id"), field("resource_id"), field("product_id"), field("display_name"), field("class"), field("kind"), field("purpose"), field("stage_maturity"), field("stage_audience_commitment"), field("environments"), field("expected_product_version")), Optional: "locator_absence_reason, metadata_schema_version, metadata, owner_purpose, owner_environments", Enums: "stage_maturity: prototype | alpha | beta | production | deprecated; stage_audience_commitment: operator_only | limited | public"},
 	{Canonical: "resource-share", TwoWord: "resource share", RequiredFields: requiredFields(field("event_id"), field("resource_id"), field("product_id"), field("expected_resource_version")), Optional: "purpose, environments", Enums: "none"},
 	{Canonical: "domain-project-attachments-replace", TwoWord: "domain project-attachments-replace", RequiredFields: requiredFields(field("event_id"), field("product_id"), field("domain_id"), field("expected_version"), field("attachments")), Optional: "attachments (replaces the full edge set)", Enums: "attachments[].role: primary | secondary"},
@@ -170,7 +172,7 @@ var commandSpecs = []commandSpec{
 	{Canonical: "session-prepare", RequiredFields: requiredFields(field("product_id"), field("work_id"), field("agent")), Optional: "task (bounded to 8192 bytes; a resume supplies none); agent is the active agent", Enums: "none"},
 	{Canonical: "project-resolve", TwoWord: "project resolve", RequiredFields: requiredFields(field("directory")), Optional: "worktree (defaults to directory)", Enums: "none"},
 	{Canonical: "restore", RequiredFields: requiredFields(field("source"), field("destination")), Optional: "none", Enums: "source: existing verified backup snapshot path; destination: absolute clean path that does not yet exist and is not the live database"},
-	{Canonical: "predecessor-inventory", TwoWord: "predecessor inventory", RequiredFields: requiredFields(field("snapshot_path")), Optional: "none", Enums: "snapshot_path: absolute path to a harvest-produced predecessor snapshot file; must exist and be a regular file; the report enumerates the parallel mode's surfaces (CD-0097) with included/excluded classification, counts, and capture gaps"},
+	{Canonical: "predecessor-inventory", TwoWord: "predecessor inventory", RequiredFields: requiredFields(field("snapshot_path")), Optional: "none", Enums: "snapshot_path: absolute path to a predecessor snapshot file (CD-0097)"},
 	{Canonical: "predecessor-import", TwoWord: "predecessor import", RequiredFields: requiredFields(field("snapshot_path"), nestedField("product", "product_id", "display_name", "stage_maturity", "stage_audience_commitment"), field("projects"), field("select_change_ids")), Optional: "dry_run, surfaces", Enums: "stage_maturity: prototype | alpha | beta | production | deprecated; stage_audience_commitment: operator_only | limited | public; projects[].role: primary | secondary; select_change_ids: change ids the snapshot enumerates as active and that belong to a declared snapshot_project_id, or already-imported ids that turned terminal or left the active set since the previous harvest; surfaces: specifications | active_work | terminal_history | wisdom | reflections; only active_work imports, a surface outside this set refuses before import (CD-0097)"},
 	{Canonical: "host-lease", RequiredFields: requiredFields(field("pid")), Optional: "none", Enums: "pid: the host process that holds this release; the core writes the lease under the data root"},
 	{Canonical: "host-leases", RequiredFields: requiredFields(), Optional: "none", Enums: "prints the live host leases and prunes stale ones (CD-0111 D2)"},
@@ -1021,6 +1023,44 @@ func linearContentHash(title, description string) string {
 	return "sha256:" + hex.EncodeToString(sum[:])
 }
 
+// runLinearInitiativeImport handles the drafting-pad verb: one-way import of a
+// Linear initiative as a Concord initiative, read through the host's MCP
+// server. The process holds no Linear credential; the MCP endpoint owns it.
+func runLinearInitiativeImport(ctx context.Context, s *store.Store, raw []byte, command string, out, errOut io.Writer) int {
+	var request struct {
+		ProductID    string `json:"product_id"`
+		InitiativeID string `json:"initiative_id"`
+	}
+	if err := decodeObject(raw, &request); err != nil {
+		writeOperatorDiagnostic(errOut, command, err.Error())
+		return 1
+	}
+	if request.InitiativeID == "" {
+		writeOperatorDiagnostic(errOut, command, "initiative_id is required (a Linear initiative uuid)")
+		return 1
+	}
+	if _, err := s.ResolveLinearPlanningTarget(ctx, request.ProductID); err != nil {
+		writeOperatorDiagnostic(errOut, command, err.Error())
+		return 1
+	}
+	endpoint := os.Getenv("CONCORD_LINEAR_MCP_URL")
+	if endpoint == "" {
+		writeOperatorDiagnostic(errOut, command, "no MCP endpoint configured; set CONCORD_LINEAR_MCP_URL to the host's Linear MCP server")
+		return 1
+	}
+	initiative, err := linearmcp.GetInitiative(ctx, endpoint, request.InitiativeID)
+	if err != nil {
+		writeOperatorDiagnostic(errOut, command, err.Error())
+		return 1
+	}
+	imported, err := s.ImportLinearInitiative(ctx, request.ProductID, initiative.ID, initiative.Name, initiative.Description)
+	if err != nil {
+		writeOperatorDiagnostic(errOut, command, err.Error())
+		return 1
+	}
+	return writeJSON(out, map[string]any{"ok": true, "initiative": imported}, errOut)
+}
+
 func runInternal(command string, raw []byte, service *agent.Service, s *store.Store, clock func() time.Time, out, errOut io.Writer) int {
 	ctx := context.Background()
 	switch command {
@@ -1199,6 +1239,8 @@ func runInternal(command string, raw []byte, service *agent.Service, s *store.St
 		return runLinearIssueEnqueue(ctx, s, raw, command, out, errOut)
 	case "linear-outbox-drain":
 		return runLinearOutboxDrain(ctx, s, raw, command, out, errOut)
+	case "linear-initiative-import":
+		return runLinearInitiativeImport(ctx, s, raw, command, out, errOut)
 	case "resource-create":
 		var request struct {
 			EventID                 string          `json:"event_id"`

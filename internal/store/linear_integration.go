@@ -3,7 +3,9 @@ package store
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"time"
@@ -750,4 +752,71 @@ func (s *Store) FailLinearOperation(ctx context.Context, operationID, class, det
 		target = LinearOutboxQueued
 	}
 	return s.linearOutboxTransition(ctx, operationID, LinearOutboxInFlight, target, detail)
+}
+
+// ImportedLinearInitiative is the result of a one-way drafting-pad import.
+type ImportedLinearInitiative struct {
+	WorkID      string `json:"work_id"`
+	ExternalRef string `json:"external_ref"`
+	Title       string `json:"title"`
+}
+
+// ImportLinearInitiative imports one Linear initiative as a Concord initiative
+// work item with external_ref linear:<uuid>. The import is one-way and once:
+// a repeated import of the same remote identity refuses with a typed
+// duplicate, and nothing here ever writes back to Linear.
+func (s *Store) ImportLinearInitiative(ctx context.Context, productID, remoteUUID, name, description string) (ImportedLinearInitiative, error) {
+	if len(remoteUUID) < 2 || len(remoteUUID) > 128 {
+		return ImportedLinearInitiative{}, newFailure(KindInvalidPayload, "linear_initiative_import", "remote initiative uuid must be 2 to 128 characters", false, "supply the Linear initiative uuid")
+	}
+	if name == "" || len(name) > 256 {
+		return ImportedLinearInitiative{}, newFailure(KindInvalidPayload, "linear_initiative_import", "initiative name must be 1 to 256 characters", false, "supply the Linear initiative name")
+	}
+	mode, err := s.ResolveLinearPlanningTarget(ctx, productID)
+	if err != nil {
+		return ImportedLinearInitiative{}, err
+	}
+	if mode.PlanningMode == PlanningModeLocalOnly {
+		return ImportedLinearInitiative{}, newFailure(KindInvalidOperation, "linear_initiative_import", "planning mode is local_only", false, "set planning_mode to linear_enabled before importing Linear initiatives")
+	}
+	externalRef := "linear:" + remoteUUID
+	var existing string
+	err = s.db.QueryRowContext(ctx, `SELECT id FROM work_items WHERE json_extract(intent_json, '$.external_ref')=? LIMIT 1`, externalRef).Scan(&existing)
+	if err == nil {
+		return ImportedLinearInitiative{}, newFailure(KindIdempotencyConflict, "linear_initiative_import", "initiative is already imported", false, "reuse the imported work item "+existing)
+	} else if err != sql.ErrNoRows {
+		return ImportedLinearInitiative{}, wrapFailure(KindUnavailable, "linear_initiative_import", "cannot read existing imports", true, "retry once the database is readable", err)
+	}
+	var projectID string
+	err = s.db.QueryRowContext(ctx, `SELECT project_id FROM product_projects WHERE product_id=? AND role='primary'`, productID).Scan(&projectID)
+	if err == sql.ErrNoRows {
+		return ImportedLinearInitiative{}, newFailure(KindAmbiguousScope, "linear_initiative_import", "Product has no primary Project", false, "give the Product a primary Project before importing")
+	} else if err != nil {
+		return ImportedLinearInitiative{}, wrapFailure(KindUnavailable, "linear_initiative_import", "cannot read the primary Project", true, "retry once the database is readable", err)
+	}
+	valueStatement := description
+	if valueStatement == "" {
+		valueStatement = "Imported one-way from Linear initiative " + name + "; no outbound sync."
+	}
+	if len(valueStatement) > 256 {
+		valueStatement = valueStatement[:253] + "..."
+	}
+	digest := sha256.Sum256([]byte("linear-initiative-import:" + externalRef))
+	workID := "initiative-" + hex.EncodeToString(digest[:])[7:31]
+	payload, err := json.Marshal(map[string]any{"work_kind": "initiative", "title": name, "value_statement": valueStatement, "priority": 0, "urgency": "standard", "tags": []string{"linear-import"}, "external_ref": externalRef})
+	if err != nil {
+		return ImportedLinearInitiative{}, wrapFailure(KindUnavailable, "linear_initiative_import", "cannot encode payload", true, "retry the import", err)
+	}
+	membershipPayload, err := json.Marshal(map[string]any{"memberships": []map[string]any{{"project_id": projectID, "role": "primary"}}, "expected_version": 1, "resulting_version": 2})
+	if err != nil {
+		return ImportedLinearInitiative{}, wrapFailure(KindUnavailable, "linear_initiative_import", "cannot encode membership payload", true, "retry the import", err)
+	}
+	now := s.now().UTC()
+	if err := ApplyOperation(ctx, s, Operation{Events: []Event{
+		{EventID: "linear-initiative-import:" + externalRef + ":create", Kind: "work.created", SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "operator", OccurredAt: now, PayloadVersion: 2, Payload: payload},
+		{EventID: "linear-initiative-import:" + externalRef + ":memberships", Kind: "work.memberships_replaced", SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "operator", OccurredAt: now, PayloadVersion: 1, Payload: membershipPayload},
+	}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 0}}); err != nil {
+		return ImportedLinearInitiative{}, err
+	}
+	return ImportedLinearInitiative{WorkID: workID, ExternalRef: externalRef, Title: name}, nil
 }

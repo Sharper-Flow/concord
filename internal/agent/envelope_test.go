@@ -386,6 +386,36 @@ func TestMutationResultProducerRejectsMalformedAndOverBudgetResults(t *testing.T
 	}
 }
 
+func TestMutationResultMalformedEnvelopeReturnsBoundedError(t *testing.T) {
+	base := NewBase("bounded-error", "concord_work_define", "capture")
+	base.EvidenceRefs = make([]EvidenceRef, 32)
+	for i := range base.EvidenceRefs {
+		base.EvidenceRefs[i] = EvidenceRef{Kind: "artifact", Authority: "test", LocatorKind: "file", Locator: strings.Repeat("x", 2048)}
+	}
+	r := runtime{Tool: base.Tool, Operation: base.Operation}
+	response := r.mutationResult(base, mutationPayload(nil, nil), nil, []NextIntent{{Tool: "concord_work_trace", Operation: "history", QueryID: "C19.Continuity", ReasonCode: "invalid-query"}})
+	if response.Outcome != OutcomeError || response.Error == nil || response.Error.Kind != "malformed_response" {
+		t.Fatalf("response=%+v error=%+v, want malformed_response", response, response.Error)
+	}
+	encoded, err := response.Encode()
+	if err != nil {
+		t.Fatalf("malformed result must return a bounded error envelope: %v", err)
+	}
+	if len(encoded) > MaxResultEnvelopeBytes {
+		t.Fatalf("error envelope size=%d, want <= %d", len(encoded), MaxResultEnvelopeBytes)
+	}
+}
+
+func TestCoreErrorBoundsLongMessage(t *testing.T) {
+	response := coreError(NewBase("long-error", "concord_work_define", "capture"), "invalid_input", strings.Repeat("x", 2000), "reread_entities", false)
+	if response.Error == nil || len(response.Error.Message) > 1000 {
+		t.Fatalf("error message length=%d, want <= 1000", len(response.Error.Message))
+	}
+	if _, err := response.Encode(); err != nil {
+		t.Fatalf("bounded error must encode: %v", err)
+	}
+}
+
 func TestStrictOperationUnions(t *testing.T) {
 	for _, input := range []string{`{}`, `{"product_id":"p-1"}`, `{"project_id":"pr-1"}`} {
 		if err := ValidateOperationPayload("concord_product_view", "resolve", []byte(input), false); err != nil {

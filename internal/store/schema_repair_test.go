@@ -121,11 +121,21 @@ func TestRepairMigrationIsIdempotentOnAFreshDatabase(t *testing.T) {
 // database in the field whose schema silently differs from the code. Adding
 // another entry is how this defect class recurs, so the table is pinned: an
 // in-place edit must land as a new repair migration instead.
+//
+// The v8.4.0–v8.5.2 entries for migrations 49 and 75 are the one shape a
+// repair migration cannot serve: the manifest check compares recorded
+// checksums before any migration may run, so stores pinned below the drift
+// can never reach a repair step. The whitespace edit shipped in five
+// releases before it was caught; the variants record exactly what those
+// releases wrote while the canonical text keeps the bytes every earlier
+// release recorded. TestMigrationChecksumPinsMatchDefinitions now fails on
+// any edit to a migration's SQL, so a future entry again requires both this
+// pin and the checksum pin to move together, in the open.
 func TestShippedVariantTableIsFrozen(t *testing.T) {
 	t.Parallel()
 	frozen := map[int]int{
 		3: 1, 7: 1, 8: 1, 9: 2, 15: 1, 16: 1, 18: 1, 20: 1, 22: 1,
-		25: 1, 26: 1, 35: 1, 36: 1, 37: 1, 39: 1, 40: 2,
+		25: 1, 26: 1, 35: 1, 36: 1, 37: 1, 39: 1, 40: 2, 49: 1, 75: 1,
 	}
 	if len(migrationShippedVariantChecksums) != len(frozen) {
 		t.Fatalf("shipped variant table has %d migrations, frozen at %d; an in-place edit must ship a repair migration",

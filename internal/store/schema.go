@@ -2696,7 +2696,7 @@ INSERT OR IGNORE INTO fold_guard(active) VALUES (1);
 UPDATE work_items SET kind=kind;
 UPDATE workflow_native_runs SET phase=phase,status=status;
 DELETE FROM fold_guard;
-`,
+		`,
 	},
 	{
 		Version:  50,
@@ -4237,7 +4237,7 @@ SET instance_state=CASE (SELECT lifecycle FROM work_items WHERE work_items.id=wo
 WHERE instance_state NOT IN ('completed','cancelled','superseded')
   AND work_id IN (SELECT id FROM work_items WHERE lifecycle IN ('completed','cancelled','superseded'));
 DELETE FROM fold_guard;
-		`,
+`,
 	},
 	{
 		Version: 76,
@@ -4687,13 +4687,15 @@ func appliedMigrations(ctx context.Context, tx queryer) (map[int]appliedMigratio
 
 // migrationShippedVariantChecksums lists, per migration version, the SHA-256
 // checksums of SQL texts that differ from this binary's definition but shipped
-// in published releases. Thirteen migrations had their text edited after
-// first release (digest corrections, reformatting, comment edits), so
-// databases created by those releases recorded checksums no later binary
-// reproduced. The manifest check accepts exactly these recorded variants and
-// no others: a fresh edit to an applied migration still fails, and the table
-// is closed — extending it requires naming the release range that shipped
-// the new variant.
+// in published releases. Databases created by those releases recorded
+// checksums no later binary reproduced. The manifest check accepts exactly
+// these recorded variants and no others: a fresh edit to an applied migration
+// still fails, and the table is closed — extending it requires naming the
+// release range that shipped the new variant, and the frozen pin in
+// schema_repair_test.go must move with it. Migrations 49 and 75 carry the
+// variants v8.4.0–v8.5.2 shipped after an edit swapped their closing
+// indentation; the canonical text keeps the indentation every earlier
+// release recorded.
 var migrationShippedVariantChecksums = map[int][]string{
 	3:  {"c8ca3aa3d712044cab66d22184c20cae39472401fd2ea778f29b3c50dee94b90"},
 	7:  {"5c5d5aa28ef3d5bac4a345a860d700410c81821dc7a68ddb6930205f99c1b60d"},
@@ -4703,7 +4705,7 @@ var migrationShippedVariantChecksums = map[int][]string{
 	16: {"0a2320b819cb1ddde64959f35706626585d886814362f211890017231c798824"},
 	18: {"e9c11ac13ccec24c316cb4f1c01424e6a41532dcc7cdb016f15abe7e87aed844"},
 	20: {"8b7c75bf900d33d78877080b5072460bffd52038101881757ffb6144d4e498cc"},
-	22: {"25ad36500176b287b84f68452da329835b9e813b9357a424e9f2ece6b79fe8c1"},
+	22: {"25ad36500176b287b84f68452da329835b9e813b9357a424f9f2ece6b79fe8c1"},
 	25: {"d9aa7f0af4181da194cc2628f811efb89291c1e44039a420efa06fbec4e04f95"},
 	26: {"d67c0de98eb09bd893c4eaaa09ddb6457ddfaef39834dca138eed2a95f5c99e4"},
 	35: {"d56ac4ee075336870ce89a117d23fda2b5252dfb561362f293730d243fc1c154"},
@@ -4711,6 +4713,8 @@ var migrationShippedVariantChecksums = map[int][]string{
 	37: {"680277cff79364bdfcaae1cf518a3939079cfc9154b8a338a41d6f6237ecdbec"},
 	39: {"51a509c1cda0d1d992b205944c2758eac0aef5c87ca88f15df9b19f8b0d3060a"},
 	40: {"95793496a0186de993c15950c3209cada38fe6d5e00985e53edab54d0a75519d", "c0da41426b30025a1e2c2ec3e1d6276b6964e074a39fba1678ac8f8b59bf89ff"},
+	49: {"3b6c137b687ec12b634b38ff45a614ffd4b4c5dfda79ab706f3c242c167a4d83"},
+	75: {"a964f034d80d8011e54ee04cd0d32d206094401cf73e9602ed3ff5c1ac3808c2"},
 }
 
 func shippedVariantAccepted(version int, checksum string) bool {

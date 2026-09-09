@@ -235,3 +235,25 @@ func preFailureStaticAnalysisV3() WorkflowDefinition {
 	d.Version = 3
 	return withWorkerActionsBeforeFailure(d, true)
 }
+
+// releasedBreakFixV5 keeps the released version-5 break-fix content available
+// after version 6 becomes the latest definition.
+func releasedBreakFixV5() WorkflowDefinition {
+	d := builtinBreakFix(true)
+	d.Version = 5
+	return withWorkerActions(d, true)
+}
+
+// breakFixEvidenceRecoveryV6 adds the CD-0124 hold route without changing the
+// released version-5 definition or any definition content that it reuses.
+func breakFixEvidenceRecoveryV6() WorkflowDefinition {
+	d := builtinBreakFix(true)
+	d.Version = 6
+	for i := range d.StepGraph.Steps {
+		if d.StepGraph.Steps[i].ID == "verify" {
+			d.StepGraph.Steps[i].Actions = append([]string{"bind_evidence"}, d.StepGraph.Steps[i].Actions...)
+			break
+		}
+	}
+	return withWorkerActions(d, true)
+}

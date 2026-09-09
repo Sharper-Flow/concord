@@ -511,36 +511,20 @@ func workflowEvidenceRequirementDeclared(kind, reference string, required, manda
 	return false
 }
 
+func outstandingWorkflowEvidenceRequirementsForWork(ctx context.Context, q queryer, workID string, definition WorkflowDefinition) ([]workflowEvidenceRequirement, error) {
+	required, mandates, obligations, err := workflowEvidenceRequirementInputs(ctx, q, workID)
+	if err != nil {
+		return nil, err
+	}
+	return outstandingWorkflowEvidenceRequirements(ctx, q, workID, required, mandates, definition, obligations)
+}
+
 func workflowEvidenceTupleBound(ctx context.Context, q queryer, workID, kind, reference string) (bool, error) {
 	var count int
 	if err := q.QueryRowContext(ctx, `SELECT count(*) FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND json_extract(payload,'$.evidence_kind')=? AND json_extract(payload,'$.immutable_subject_ref')=?`, workID, WorkflowEvidenceBound, kind, reference).Scan(&count); err != nil {
 		return false, wrapFailure(KindUnavailable, "complete_workflow", "cannot inspect workflow evidence requirement", true, "retry once the database is readable", err)
 	}
 	return count != 0, nil
-}
-
-func missingCompletionEvidenceKinds(ctx context.Context, tx *sql.Tx, workID string) ([]string, error) {
-	contract, definition, err := workflowCompletionContract(ctx, tx, BuiltinWorkflowRegistry(), workID)
-	if err != nil {
-		return nil, err
-	}
-	requirements, err := outstandingWorkflowEvidenceRequirements(ctx, tx, workID, contract.RequiredEvidence, contract.SpecMandate, definition, contract.VerificationObligations)
-	if err != nil {
-		return nil, err
-	}
-	missing := make([]string, 0, len(requirements))
-	for _, requirement := range requirements {
-		if requirement.Kind != "" {
-			if !contains(missing, requirement.Kind) {
-				missing = append(missing, requirement.Kind)
-			}
-			continue
-		}
-		if !contains(missing, requirement.Reference) {
-			missing = append(missing, requirement.Reference)
-		}
-	}
-	return missing, nil
 }
 
 // requireAcceptanceDeliverables refuses the acceptance-step transition while
@@ -568,12 +552,27 @@ func requireAcceptanceDeliverables(ctx context.Context, tx *sql.Tx, workID strin
 	if len(missing) != 0 {
 		return newFailure(KindMissingEvidence, "workflow_action", "premise confirmation requires a verdict for every approved predicate: missing "+strings.Join(missing, ", "), false, "record_verdict for each approved predicate before confirming the premise")
 	}
-	missingKinds, err := missingCompletionEvidenceKinds(ctx, tx, workID)
+	contract, definition, err := workflowCompletionContract(ctx, tx, BuiltinWorkflowRegistry(), workID)
 	if err != nil {
 		return err
 	}
-	if len(missingKinds) != 0 {
-		return newFailure(KindMissingEvidence, "workflow_action", "premise confirmation requires every contract-required evidence kind bound: missing "+strings.Join(missingKinds, ", "), false, "bind_evidence for each required kind before confirming the premise")
+	requirements, err := outstandingWorkflowEvidenceRequirements(ctx, tx, workID, contract.RequiredEvidence, contract.SpecMandate, definition, contract.VerificationObligations)
+	if err != nil {
+		return err
+	}
+	if len(requirements) != 0 {
+		var missing strings.Builder
+		for i, requirement := range requirements {
+			if i != 0 {
+				missing.WriteString(", ")
+			}
+			if requirement.Kind != "" {
+				missing.WriteString(requirement.Kind)
+			} else {
+				missing.WriteString(requirement.Reference)
+			}
+		}
+		return newFailure(KindMissingEvidence, "workflow_action", "premise confirmation requires every contract-required evidence kind bound: missing "+missing.String(), false, "bind_evidence for each required kind before confirming the premise")
 	}
 	return nil
 }

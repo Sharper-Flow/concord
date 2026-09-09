@@ -159,6 +159,18 @@ func workflowEvidenceBindingStep(definition WorkflowDefinition, currentStep stri
 	return ""
 }
 
+func workflowEvidenceRecoveryBindingStep(definition WorkflowDefinition, currentStep string) string {
+	for _, step := range definition.StepGraph.Steps {
+		if step.ID == currentStep {
+			return ""
+		}
+		if stepDeclaresAction(definition, step.ID, "bind_evidence") {
+			return step.ID
+		}
+	}
+	return ""
+}
+
 func workflowStepFollows(definition WorkflowDefinition, earlierStep, currentStep string) bool {
 	seen := map[string]bool{}
 	for step := earlierStep; step != "" && !seen[step]; step = workflowNextStep(definition, step) {
@@ -170,19 +182,13 @@ func workflowStepFollows(definition WorkflowDefinition, earlierStep, currentStep
 	return false
 }
 
-// guardRecoveryEvidenceBind admits one outstanding evidence requirement late
-// in the graph. It does not reopen evidence binding after recovery.
+// guardRecoveryEvidenceBind admits one outstanding evidence requirement after
+// the definition's evidence-binding step. It also guards the typed recovery
+// action declared by definition version 6.
 func guardRecoveryEvidenceBind(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, currentStep string, payload json.RawMessage, subject string) (bool, error) {
-	if stepDeclaresAction(definition, currentStep, "bind_evidence") {
-		return false, nil
-	}
-	bindingStep := workflowEvidenceBindingStep(definition, currentStep)
+	bindingStep := workflowEvidenceRecoveryBindingStep(definition, currentStep)
 	if bindingStep == "" || !workflowStepFollows(definition, bindingStep, currentStep) {
 		return false, nil
-	}
-	required, mandates, obligations, inputsErr := workflowEvidenceRequirementInputs(ctx, q, workID)
-	if inputsErr != nil {
-		return false, inputsErr
 	}
 	fields, err := workflowActionObject(payload)
 	if err != nil {
@@ -200,7 +206,7 @@ func guardRecoveryEvidenceBind(ctx context.Context, q queryer, workID string, de
 			return false, newFailure(KindIllegalLifecycleTransition, subject, "recovery bind_evidence cannot reopen an already bound evidence tuple", false, fmt.Sprintf("use bind_evidence on step %q before advancing", bindingStep))
 		}
 	}
-	requirements, requirementsErr := outstandingWorkflowEvidenceRequirements(ctx, q, workID, required, mandates, definition, obligations)
+	requirements, requirementsErr := outstandingWorkflowEvidenceRequirementsForWork(ctx, q, workID, definition)
 	if requirementsErr != nil {
 		return false, requirementsErr
 	}

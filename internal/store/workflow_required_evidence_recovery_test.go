@@ -26,6 +26,36 @@ const (
 	wf04RecoveryRef     = "commit:3333333333333333333333333333333333333333333333333333333333333333"
 )
 
+func TestBreakFixV6VerifyEvidenceRouteIsHoldOnly(t *testing.T) {
+	registered, ok := BuiltinWorkflowRegistry().Lookup("workflow.break_fix", 6)
+	if !ok {
+		t.Fatal("break-fix version 6 is not registered")
+	}
+	var verify WorkflowStep
+	for _, candidate := range registered.Definition.StepGraph.Steps {
+		if candidate.ID == "verify" {
+			verify = candidate
+			break
+		}
+	}
+	if !containsString(verify.Actions, "bind_evidence") {
+		t.Fatalf("verify actions = %v, want bind_evidence", verify.Actions)
+	}
+	policies := map[string]WorkflowActionDefinition{}
+	for _, action := range registered.Definition.ActionDefinitions {
+		policies[action.ID] = action
+	}
+	if policies["bind_evidence"].ExecutionMode != ActionHold {
+		t.Fatalf("bind_evidence execution mode = %q, want %q", policies["bind_evidence"].ExecutionMode, ActionHold)
+	}
+	if policies["confirm_premise"].ExecutionMode != ActionAdvance {
+		t.Fatalf("confirm_premise execution mode = %q, want %q", policies["confirm_premise"].ExecutionMode, ActionAdvance)
+	}
+	if policies["record_verdict"].ExecutionMode != ActionHold {
+		t.Fatalf("record_verdict execution mode = %q, want %q", policies["record_verdict"].ExecutionMode, ActionHold)
+	}
+}
+
 type acceptanceRecoveryFixture struct {
 	store    *Store
 	workID   string

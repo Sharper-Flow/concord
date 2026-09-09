@@ -1,14 +1,14 @@
-# CD-0116: the operator signs the verdict after either delivery route
+# CD-0116: the operator signs the verdict after a definition-backed exit
 
 - **Status:** Accepted
 - **Date:** 2026-09-08
-- **Scope:** operator authority for verdicts and completion after recorded delivery
+- **Scope:** operator authority for verdicts and completion after a recorded workflow exit
 - **Approval:** The operator approved the same-session amendment on 2026-09-08
   in work-14241c17803dadaa82a498c5, recorded in
   [issue #923](https://github.com/Sharper-Flow/concord/issues/923).
 - **Related:** CD-0013, CD-0109, CD-0112, and issues #801, #881, #888, #923
 - **Amends:** CD-0013 D5 and CD-0109's evaluator rule by admitting verified
-  operator authority after either delivery route
+  operator authority after a definition-backed advancing exit
 
 ## Context
 
@@ -31,12 +31,17 @@ different facts.
 
 ## Decision
 
-### D1. Verified operator authority is available after either recorded delivery
+### D1. Verified operator authority is available after a definition-backed exit
 
-`record_verdict` and `complete` accept the verified operator identity after
-`record_delivery` or `accept_worker_result`. A completed worker attempt alone
-is not an accepted delivery. Without a recorded delivery exit, the operator
-evaluation route refuses.
+`record_verdict` and `complete` accept the verified operator identity after an
+advancing action exits the pinned workflow step before the verdict step. This
+includes `record_delivery`, `accept_worker_result`, research `record_report`,
+and architecture `record_decision` when the pinned definition declares the
+action and its forward edge.
+
+A completed worker attempt alone is not an accepted delivery. An action with a
+matching name in another workflow family does not satisfy the exit. Without a
+definition-backed exit, the operator evaluation route refuses.
 
 The existing host approval mechanism binds the operation digest, expected
 versions, scope, session, and worktree. The operator is the verdict actor and
@@ -102,10 +107,20 @@ Scenario: Worker authority does not expand
   Then the operation refuses
   And the work version remains unchanged
 
-Scenario: A delivery exit is required
-  Given a work item without a recorded delivery exit
+Scenario: A definition-backed exit is required
+  Given a work item without an advancing exit into its pinned verdict step
   When operator evaluation admission runs
   Then the operation refuses
+
+Scenario: A research report permits operator evaluation
+  Given a pinned research workflow recorded its report action
+  When the coordinator submits a verdict with verified operator approval
+  Then the verdict records the operator as its actor
+
+Scenario: An architecture decision permits operator evaluation
+  Given a pinned architecture workflow recorded its decision action
+  When the coordinator submits a verdict with verified operator approval
+  Then the verdict records the operator as its actor
 
 Scenario: Independent evaluation remains available
   Given an accepted lane result with bound evidence

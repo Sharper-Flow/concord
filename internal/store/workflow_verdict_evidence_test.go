@@ -96,11 +96,10 @@ func verdictReviewer(t *testing.T, workID string) WorkflowActor {
 	return reviewer
 }
 
-// actionEvidenceRefs supplies the refs the evidence-authority fold requires:
-// a bind_evidence event's immutable_subject_ref must be carried by the
-// durable operation that produced it.
+// actionEvidenceRefs supplies the immutable subject refs that the
+// evidence-authority fold requires for evidence-producing actions.
 func actionEvidenceRefs(action string, payload json.RawMessage) []string {
-	if action != "bind_evidence" {
+	if action != "bind_evidence" && action != "record_report" {
 		return nil
 	}
 	var fields struct {

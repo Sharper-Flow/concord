@@ -68,6 +68,10 @@ func runOperatorVerdict(t *testing.T, s *Store, workID string, owner, operator W
 }
 
 func runOperatorVerdictWithEvidence(t *testing.T, s *Store, workID string, owner, operator WorkflowActor, evidenceRef string) error {
+	return runOperatorVerdictForPredicate(t, s, workID, owner, operator, "predicate:primary", evidenceRef)
+}
+
+func runOperatorVerdictForPredicate(t *testing.T, s *Store, workID string, owner, operator WorkflowActor, predicateID, evidenceRef string) error {
 	t.Helper()
 	version := verdictItemVersion(t, s, workID)
 	tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
@@ -78,7 +82,7 @@ func runOperatorVerdictWithEvidence(t *testing.T, s *Store, workID string, owner
 	if err := enterFold(context.Background(), tx); err != nil {
 		return err
 	}
-	payload, _ := json.Marshal(map[string]any{"predicate_id": "predicate:primary", "verdict_kind": "ok", "evaluation_evidence": []string{evidenceRef}})
+	payload, _ := json.Marshal(map[string]any{"predicate_id": predicateID, "verdict_kind": "ok", "evaluation_evidence": []string{evidenceRef}})
 	_, err = applyWorkflowActionRawTx(context.Background(), tx, BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
 		WorkID: workID, ExpectedVersion: version, ActionID: "record_verdict", Payload: payload, Actor: owner, OperatorActor: &operator,
 		AcceptedInputsDigest: "sha256:" + strings.Repeat("c", 64) + workID, IdempotencyIdentity: "operator-verdict-" + workID, OperationID: "operator-verdict-" + workID,
@@ -92,6 +96,98 @@ func runOperatorVerdictWithEvidence(t *testing.T, s *Store, workID string, owner
 	return tx.Commit()
 }
 
+func seedResearchItemAtConclusion(t *testing.T, workID string, recordReport bool) (*Store, WorkflowActor) {
+	t.Helper()
+	ctx := context.Background()
+	s := openTemp(t)
+	seedWork(t, s, workID)
+	seedWorkflowLaw(t, s)
+	owner := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/researcher", SessionRef: "session/" + workID, ActorClass: ActorAgent}
+	ownerRef, err := WorkflowActorRef(owner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	definition, ok := BuiltinWorkflowRegistry().Lookup("workflow.research", 4)
+	if !ok {
+		t.Fatal("workflow.research v4 is not registered")
+	}
+	setup := []Event{
+		workflowEvent("research-actor-"+workID, WorkflowActorRecorded, workID, map[string]any{"work_id": workID, "expected_version": 2, "resulting_version": 3, "actor_ref": ownerRef, "principal_ref": owner.PrincipalRef, "client_ref": owner.ClientRef, "agent_ref": owner.AgentRef, "session_ref": owner.SessionRef, "actor_class": "agent"}),
+		workflowEvent("research-definition-"+workID, WorkflowDefinitionSelected, workID, map[string]any{"work_id": workID, "expected_version": 3, "resulting_version": 4, "ref": definition.Definition.Ref, "version": definition.Definition.Version, "digest": definition.Digest, "work_kind": string(definition.Definition.WorkKind)}),
+		workflowActionCompletedFixture("research-frame-"+workID, workID, ownerRef, 4, "frame", "frame_research"),
+		workflowEventWithActor("research-contract-"+workID, WorkflowContractApproved, workID, ownerRef, map[string]any{"work_id": workID, "expected_version": 5, "resulting_version": 6, "contract_version": 1, "premise": "record the research report", "outcome_kind": "outcome", "outcome_payload": map[string]any{"kind": "outcome", "allowed": []string{"report_recorded"}}, "outcome_predicates": []map[string]any{{"predicate_id": "predicate:research-report-exit", "ordinal": 0, "outcome_kind": "outcome", "outcome_payload": map[string]any{"kind": "outcome", "allowed": []string{"report_recorded"}}}}, "required_evidence": []string{"artifact"}, "route_conventions": []string{}, "spec_mandate": []string{}, "rigor_class": "prototype_internal", "consequence_class": "internal_sqlite"}),
+		workflowActionCompletedFixture("research-approval-"+workID, workID, ownerRef, 6, "frame", "approve_contract"),
+		workflowActionCompletedFixture("research-finding-"+workID, workID, ownerRef, 7, "investigate", "record_finding"),
+	}
+	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: setup, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 2}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE workflow_instances SET execution_actor_ref=? WHERE work_id=?; DELETE FROM fold_guard`, ownerRef, workID); err != nil {
+		t.Fatal(err)
+	}
+	if !recordReport {
+		setWorkflowStepForOperatorVerdictTest(t, s, workID, "conclude")
+		return s, owner
+	}
+	if err := runVerdictAction(t, s, workID, "record_report", json.RawMessage(`{"evidence_kind":"artifact","immutable_subject_ref":"evidence:research-report"}`), 0); err != nil {
+		t.Fatalf("record research report: %v", err)
+	}
+	return s, owner
+}
+
+func TestOperatorVerdictAfterResearchReportPassesDefinitionBackedExit(t *testing.T) {
+	const workID = "operator-verdict-research-report"
+	s, owner := seedResearchItemAtConclusion(t, workID, true)
+	operator := operatorVerdictActor(t, workID)
+	if err := runOperatorVerdictForPredicate(t, s, workID, owner, operator, "predicate:research-report-exit", "evidence:research-report"); err != nil {
+		t.Fatalf("operator verdict after research report refused: %v", err)
+	}
+}
+
+func TestOperatorVerdictExitAdmitsPinnedArchitectureDecision(t *testing.T) {
+	const workID = "operator-verdict-architecture-decision"
+	s := openTemp(t)
+	seedWork(t, s, workID)
+	seedWorkflowLaw(t, s)
+	owner := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/architect", SessionRef: "session/" + workID, ActorClass: ActorAgent}
+	ownerRef, err := WorkflowActorRef(owner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	definition, ok := BuiltinWorkflowRegistry().Lookup("workflow.architecture_spike", 3)
+	if !ok {
+		t.Fatal("workflow.architecture_spike v3 is not registered")
+	}
+	if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{
+		workflowEvent("architecture-actor-"+workID, WorkflowActorRecorded, workID, map[string]any{"work_id": workID, "expected_version": 2, "resulting_version": 3, "actor_ref": ownerRef, "principal_ref": owner.PrincipalRef, "client_ref": owner.ClientRef, "agent_ref": owner.AgentRef, "session_ref": owner.SessionRef, "actor_class": "agent"}),
+		workflowEvent("architecture-definition-"+workID, WorkflowDefinitionSelected, workID, map[string]any{"work_id": workID, "expected_version": 3, "resulting_version": 4, "ref": definition.Definition.Ref, "version": definition.Definition.Version, "digest": definition.Digest, "work_kind": string(definition.Definition.WorkKind)}),
+	}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 2}}); err != nil {
+		t.Fatal(err)
+	}
+	payload := `{"work_id":"` + workID + `","expected_version":4,"resulting_version":5,"step_id":"decision_record","action_id":"record_decision","attempt_epoch":1,"result_evidence_refs":[],"changed_refs":[],"actor_ref":"` + ownerRef + `"}`
+	setWorkflowStepForOperatorVerdictTest(t, s, workID, "review")
+	tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback()
+	if err := enterFold(context.Background(), tx); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec(`INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES(?,?,?,?,?,?,?,?)`, workID+":decision", WorkflowActionCompleted, SubjectWorkItem, workID, ownerRef, "2026-01-01T00:00:00Z", 1, payload); err != nil {
+		t.Fatal(err)
+	}
+	if err := leaveFold(context.Background(), tx); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	if err := operatorVerdictExitCheck(t, s, workID); err != nil {
+		t.Fatalf("operator verdict after architecture decision refused: %v", err)
+	}
+}
+
 func operatorVerdictExitCheck(t *testing.T, s *Store, workID string) error {
 	t.Helper()
 	tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
@@ -100,6 +196,27 @@ func operatorVerdictExitCheck(t *testing.T, s *Store, workID string) error {
 	}
 	defer tx.Rollback()
 	return requireOperatorVerdictExit(context.Background(), tx, workID)
+}
+
+func setWorkflowStepForOperatorVerdictTest(t *testing.T, s *Store, workID, stepID string) {
+	t.Helper()
+	tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback()
+	if err := enterFold(context.Background(), tx); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec(`UPDATE workflow_instances SET current_step=? WHERE work_id=?`, stepID, workID); err != nil {
+		t.Fatal(err)
+	}
+	if err := leaveFold(context.Background(), tx); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestOperatorVerdictAfterAcceptedWorkerResultPassesDistinctness(t *testing.T) {
@@ -121,10 +238,8 @@ func TestOperatorVerdictAfterAcceptedWorkerResultPassesDistinctness(t *testing.T
 	}
 }
 
-func TestOperatorVerdictConditionAcceptsOnlyDeliveryOrAcceptedWorkerResult(t *testing.T) {
-	noExit := openTemp(t)
-	seedWork(t, noExit, "operator-verdict-no-exit")
-	seedWorkflowLaw(t, noExit)
+func TestOperatorVerdictConditionAcceptsDefinitionBackedExits(t *testing.T) {
+	noExit, _ := seedResearchItemAtConclusion(t, "operator-verdict-no-exit", false)
 	if err := operatorVerdictExitCheck(t, noExit, "operator-verdict-no-exit"); err == nil {
 		t.Fatal("operator verdict condition accepted a workflow without an allowed exit")
 	}
@@ -301,7 +416,7 @@ func TestOperatorCompleteConditionBinds(t *testing.T) {
 	}
 }
 
-func TestOperatorEvaluationRequiresDeliveryExit(t *testing.T) {
+func TestOperatorEvaluationRequiresDefinitionBackedExit(t *testing.T) {
 	for _, completedWorker := range []bool{false, true} {
 		name := "no_delivery"
 		if completedWorker {
@@ -313,15 +428,15 @@ func TestOperatorEvaluationRequiresDeliveryExit(t *testing.T) {
 			if completedWorker {
 				s, _, _, _ = seedCompletedWorkerAtExecution(t, workID)
 			} else {
-				s = openTemp(t)
-				seedWork(t, s, workID)
+				s, _ = seedResearchItemAtConclusion(t, workID, false)
 			}
 			tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
 			if err != nil {
 				t.Fatal(err)
 			}
 			defer tx.Rollback()
-			if err := requireOperatorVerdictExit(context.Background(), tx, workID); err == nil || !strings.Contains(err.Error(), "requires a record_delivery or accept_worker_result exit") {
+			err = requireOperatorVerdictExit(context.Background(), tx, workID)
+			if err == nil || !strings.Contains(err.Error(), "definition-backed advancing exit") {
 				t.Fatalf("operator evaluation without a delivery exit err=%v", err)
 			}
 		})

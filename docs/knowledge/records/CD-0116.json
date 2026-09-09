@@ -27,13 +27,13 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:16367e13e1b601c96c7ea2d079e1440d4b2be69303e162b628328c8407cf79a5",
+  "sha256": "sha256:28778b2ea7352068252845ec4c36ce6d733d35901d5c460907b2e387d9dfcda6",
   "status": "accepted",
-  "summary": "Verified operator identity permits verdicts and completion after record_delivery or accept_worker_result. Approval admission and self-evaluation refusal share the current lease and recorded execution history. Workers cannot submit operator decisions. Existing evidence, predicate, premise, version, and independent-evaluator gates remain in force.",
+  "summary": "Verified operator identity permits verdicts and completion after a pinned workflow's advancing exit, including delivery, accepted-worker, research-report, and architecture-decision routes. Definition membership, evidence, predicate, premise, version, and independent-evaluator gates remain in force.",
   "tags": [
     "workflow",
     "evidence",
     "law"
   ],
-  "title": "the operator signs the verdict after either delivery route"
+  "title": "the operator signs the verdict after a definition-backed exit"
 }

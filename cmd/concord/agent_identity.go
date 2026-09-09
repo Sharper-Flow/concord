@@ -213,11 +213,16 @@ func verifyOrchestratorIdentity(home, dir, agent string) (store.OrchestratorIden
 // regular file named fileName. When no directory supplies the file, the
 // returned error is the typed agentIdentityAbsentError the session command
 // surfaces unchanged.
+//
+// fileName derives from the caller-validated agent name: both entry points
+// (session-prepare's request field and the launcher's CONCORD_SELECTED_AGENT)
+// match it against ^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$ before this runs, so
+// it cannot carry a path separator or traversal.
 func firstAgentDefinition(dirs []string, fileName string) (string, error) {
 	resolved := ""
 	for _, dir := range dirs {
 		candidate := filepath.Join(dir, fileName)
-		info, err := os.Stat(candidate)
+		info, err := os.Stat(candidate) //nolint:gosec // candidate joins a fixed search root with a caller-validated agent name (see above); no traversal is reachable.
 		if err == nil && info.Mode().IsRegular() {
 			resolved = candidate
 			break

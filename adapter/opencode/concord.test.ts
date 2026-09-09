@@ -95,6 +95,31 @@ test("published tool arguments expose one generated request union", () => {
   expect((adapter.work_start as any).args.project_id).toBeUndefined()
 })
 
+test("published tool schemas type every enum node", () => {
+  // Moonshot's flavored tool-schema validator refuses enum nodes without an
+  // explicit type, so the published surface must type each one.
+  const untyped: string[] = []
+  const walk = (value: unknown, path: string, seen: Set<unknown>) => {
+    if (typeof value !== "object" || value === null || seen.has(value)) return
+    seen.add(value)
+    if (Array.isArray(value)) {
+      value.forEach((item, index) => walk(item, `${path}[${index}]`, seen))
+      return
+    }
+    for (const [key, item] of Object.entries(value)) {
+      if (key === "enum" && !("type" in (value as Record<string, unknown>))) untyped.push(path)
+      walk(item, `${path}.${key}`, seen)
+    }
+  }
+  for (const toolName of ["concord_product_view", "concord_work_browse", "concord_work_trace", "concord_knowledge", "concord_work_define", "concord_domain", "concord_work_initiative", "concord_work_transition", "concord_work_relate", "concord_work_compact"]) {
+    walk(adapter.publishedRequestSchema(toolName), toolName, new Set())
+  }
+  const workStartDefinition = { description: "", parameters: {}, jsonSchema: undefined as unknown }
+  void adapter.publishWorkStartDefinition({ toolID: "concord_work_start" }, workStartDefinition)
+  walk(workStartDefinition.jsonSchema, "concord_work_start", new Set())
+  expect(untyped).toEqual([])
+})
+
 test("all exported tools return one serialized Concord envelope", async () => {
   const tools = [
     ["concord_product_view", adapter.product_view],

@@ -11,12 +11,12 @@
     "ref": {"type": "string", "pattern": "^workflow\\.[a-z][a-z0-9_.-]{1,62}$", "minLength": 10, "maxLength": 64},
     "version": {"type": "integer", "minimum": 1, "maximum": 2147483647},
     "digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$", "minLength": 71, "maxLength": 71},
-    "work_kind": {"enum": ["implementation", "break_fix", "research", "architecture_spike", "ops_runbook", "static_analysis", "generic_one_off"]},
+    "work_kind": {"type": "string", "enum": ["implementation", "break_fix", "research", "architecture_spike", "ops_runbook", "static_analysis", "generic_one_off"]},
     "changes_product_truth": {"type": "boolean"},
     "step_graph": {"$ref": "#/$defs/stepGraph"},
     "available_actions": {"type": "array", "minItems": 1, "maxItems": 64, "uniqueItems": true, "items": {"$ref": "#/$defs/id"}},
     "action_definitions": {"type": "array", "minItems": 1, "maxItems": 64, "items": {"$ref": "#/$defs/actionDefinition"}},
-    "required_evidence_kinds": {"type": "array", "minItems": 0, "maxItems": 7, "uniqueItems": true, "items": {"enum": ["verification", "review", "approval", "commit", "durable_note", "native_run", "artifact"]}},
+    "required_evidence_kinds": {"type": "array", "minItems": 0, "maxItems": 7, "uniqueItems": true, "items": {"type": "string", "enum": ["verification", "review", "approval", "commit", "durable_note", "native_run", "artifact"]}},
     "outcome_schema": {"$ref": "#/$defs/outcomeSchema"},
     "rigor_rules": {"type": "array", "minItems": 1, "maxItems": 16, "items": {"$ref": "#/$defs/rigorRule"}},
     "staleness_rules": {"type": "array", "minItems": 0, "maxItems": 16, "items": {"$ref": "#/$defs/stalenessRule"}},
@@ -51,9 +51,9 @@
       "required": ["id", "kind", "actions"],
       "properties": {
         "id": {"$ref": "#/$defs/id"},
-        "kind": {"enum": ["internal_sqlite", "cross_authority", "external_effect", "human_checkpoint"]},
+        "kind": {"type": "string", "enum": ["internal_sqlite", "cross_authority", "external_effect", "human_checkpoint"]},
         "actions": {"type": "array", "minItems": 1, "maxItems": 16, "uniqueItems": true, "items": {"$ref": "#/$defs/id"}},
-        "required_evidence_kinds": {"type": "array", "minItems": 0, "maxItems": 7, "uniqueItems": true, "items": {"enum": ["verification", "review", "approval", "commit", "durable_note", "native_run", "artifact"]}}
+        "required_evidence_kinds": {"type": "array", "minItems": 0, "maxItems": 7, "uniqueItems": true, "items": {"type": "string", "enum": ["verification", "review", "approval", "commit", "durable_note", "native_run", "artifact"]}}
       }
     },
     "edge": {
@@ -62,7 +62,7 @@
       "properties": {
         "from": {"$ref": "#/$defs/id"},
         "to": {"$ref": "#/$defs/id"},
-        "kind": {"enum": ["forward", "retry", "optional", "failure"]}
+        "kind": {"type": "string", "enum": ["forward", "retry", "optional", "failure"]}
       }
     },
     "actionDefinition": {
@@ -70,9 +70,9 @@
       "required": ["id", "consequence", "approval", "execution_mode", "payload"],
       "properties": {
         "id": {"$ref": "#/$defs/id"},
-        "consequence": {"enum": ["internal_sqlite", "cross_authority", "external_effect"]},
-        "approval": {"enum": ["none", "conditional", "required"]},
-        "execution_mode": {"enum": ["advance", "hold", "fenced", "checkpoint"]},
+        "consequence": {"type": "string", "enum": ["internal_sqlite", "cross_authority", "external_effect"]},
+        "approval": {"type": "string", "enum": ["none", "conditional", "required"]},
+        "execution_mode": {"type": "string", "enum": ["advance", "hold", "fenced", "checkpoint"]},
         "required_capability": {"type": "string", "minLength": 1, "maxLength": 64, "pattern": "^[a-z][a-z0-9_]{1,63}$"},
         "payload": {"$ref": "#/$defs/payloadDefinition"},
         "public_payload": {"$ref": "#/$defs/payloadDefinition"}
@@ -91,7 +91,7 @@
       "required": ["name", "value_type", "required"],
       "properties": {
         "name": {"$ref": "#/$defs/id"},
-        "value_type": {"enum": ["string", "integer", "boolean", "ref", "digest", "string_list", "object", "array"]},
+        "value_type": {"type": "string", "enum": ["string", "integer", "boolean", "ref", "digest", "string_list", "object", "array"]},
         "required": {"type": "boolean"},
         "min_length": {"type": "integer", "minimum": 0, "maximum": 4096},
         "max_length": {"type": "integer", "minimum": 0, "maximum": 16384},
@@ -108,9 +108,9 @@
       "type": "object", "additionalProperties": false,
       "required": ["default_kind", "allowed_kinds", "allowed_outcome_tokens", "decision_record_required"],
       "properties": {
-        "default_kind": {"enum": ["exists", "absent", "outcome", "check"]},
-        "allowed_kinds": {"type": "array", "minItems": 1, "maxItems": 4, "uniqueItems": true, "items": {"enum": ["exists", "absent", "outcome", "check"]}},
-        "allowed_outcome_tokens": {"type": "array", "minItems": 0, "maxItems": 8, "uniqueItems": true, "items": {"enum": ["no_change", "accepted_decision", "insufficient_evidence", "resolved", "remediated", "report_recorded", "completed", "operator_defined"]}},
+        "default_kind": {"type": "string", "enum": ["exists", "absent", "outcome", "check"]},
+        "allowed_kinds": {"type": "array", "minItems": 1, "maxItems": 4, "uniqueItems": true, "items": {"type": "string", "enum": ["exists", "absent", "outcome", "check"]}},
+        "allowed_outcome_tokens": {"type": "array", "minItems": 0, "maxItems": 8, "uniqueItems": true, "items": {"type": "string", "enum": ["no_change", "accepted_decision", "insufficient_evidence", "resolved", "remediated", "report_recorded", "completed", "operator_defined"]}},
         "decision_record_required": {"type": "boolean"}
       }
     },
@@ -118,23 +118,23 @@
       "type": "object", "additionalProperties": false,
       "required": ["maturity", "audience_band", "required_evidence_kinds"],
       "properties": {
-        "maturity": {"enum": ["prototype", "production", "critical"]},
-        "audience_band": {"enum": ["internal", "trusted", "public", "safety_critical"]},
-        "required_evidence_kinds": {"type": "array", "minItems": 1, "maxItems": 7, "uniqueItems": true, "items": {"enum": ["verification", "review", "approval", "commit", "durable_note", "native_run", "artifact"]}}
+        "maturity": {"type": "string", "enum": ["prototype", "production", "critical"]},
+        "audience_band": {"type": "string", "enum": ["internal", "trusted", "public", "safety_critical"]},
+        "required_evidence_kinds": {"type": "array", "minItems": 1, "maxItems": 7, "uniqueItems": true, "items": {"type": "string", "enum": ["verification", "review", "approval", "commit", "durable_note", "native_run", "artifact"]}}
       }
     },
     "stalenessRule": {
       "type": "object", "additionalProperties": false,
       "required": ["id", "input_ref", "severity"],
-      "properties": {"id": {"$ref": "#/$defs/id"}, "input_ref": {"$ref": "#/$defs/ref"}, "severity": {"enum": ["warning", "block"]}}
+      "properties": {"id": {"$ref": "#/$defs/id"}, "input_ref": {"$ref": "#/$defs/ref"}, "severity": {"type": "string", "enum": ["warning", "block"]}}
     },
     "compositionRules": {
       "type": "object", "additionalProperties": false,
       "required": ["forward_link_only", "allowed_successor_work_kinds", "forbidden_compositions"],
       "properties": {
         "forward_link_only": {"const": true},
-        "allowed_successor_work_kinds": {"type": "array", "minItems": 0, "maxItems": 7, "uniqueItems": true, "items": {"enum": ["implementation", "break_fix", "research", "architecture_spike", "ops_runbook", "static_analysis", "generic_one_off"]}},
-        "forbidden_compositions": {"type": "array", "minItems": 0, "maxItems": 16, "uniqueItems": true, "items": {"type": "object", "additionalProperties": false, "required": ["successor_work_kind", "reason"], "properties": {"successor_work_kind": {"enum": ["implementation", "break_fix", "research", "architecture_spike", "ops_runbook", "static_analysis", "generic_one_off"]}, "reason": {"type": "string", "minLength": 1, "maxLength": 256}}}}
+        "allowed_successor_work_kinds": {"type": "array", "minItems": 0, "maxItems": 7, "uniqueItems": true, "items": {"type": "string", "enum": ["implementation", "break_fix", "research", "architecture_spike", "ops_runbook", "static_analysis", "generic_one_off"]}},
+        "forbidden_compositions": {"type": "array", "minItems": 0, "maxItems": 16, "uniqueItems": true, "items": {"type": "object", "additionalProperties": false, "required": ["successor_work_kind", "reason"], "properties": {"successor_work_kind": {"type": "string", "enum": ["implementation", "break_fix", "research", "architecture_spike", "ops_runbook", "static_analysis", "generic_one_off"]}, "reason": {"type": "string", "minLength": 1, "maxLength": 256}}}}
       }
     },
     "evaluatorIndependence": {

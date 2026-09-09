@@ -173,7 +173,7 @@ def workflow_payload_field_schema(field: dict) -> dict:
         schema = {"$ref": "#/$defs/digest"}
     elif value_type == "string_list":
         if field.get("enum"):
-            items = {"enum": field["enum"]}
+            items = {"type": "string", "enum": field["enum"]}
         else:
             items = {"$ref": f"#/$defs/{field.get('item_ref', 'reference')}"}
         schema = {"type": "array", "uniqueItems": True, "items": items}
@@ -187,7 +187,7 @@ def workflow_payload_field_schema(field: dict) -> dict:
     return schema
 
 
-def install_workflow_outcome_schema(defs: dict) -> None:
+def install_workflow_outcome_schema(defs: dict) -> dict:
     document = json.loads(WORKFLOW_OUTCOME.read_text())
     names = {name: "workflow_outcome_" + re.sub(r"(?<!^)(?=[A-Z])", "_", name).lower() for name in document["$defs"]}
 
@@ -203,17 +203,21 @@ def install_workflow_outcome_schema(defs: dict) -> None:
 
     for name, schema in document["$defs"].items():
         defs[names[name]] = rewrite(schema)
-    defs["workflow_outcome_payload"] = {"oneOf": [rewrite(branch) for branch in document["oneOf"]]}
+    # The payload oneOf stays inline at each use site. Moonshot's flavored
+    # tool-schema validator rejects a $ref whose target is rooted at a bare
+    # combinator ("detected infinite recursion without termination condition"),
+    # and this def would be exactly that shape.
+    return {"oneOf": [rewrite(branch) for branch in document["oneOf"]]}
 
 
-def workflow_supersede_fields_schema() -> dict:
+def workflow_supersede_fields_schema(outcome_payload: dict) -> dict:
     string_list = {"type": "array", "maxItems": 32, "uniqueItems": True, "items": {"$ref": "#/$defs/id"}}
     return {
         "type": "object", "additionalProperties": False,
         "required": ["contract_version", "premise", "outcome_kind", "outcome_payload", "required_evidence", "route_conventions", "spec_mandate", "law_modifies", "rigor_class"],
         "properties": {
             "contract_version": {"$ref": "#/$defs/version"}, "premise": {"type": "string", "minLength": 1, "maxLength": 4096},
-            "outcome_kind": {"enum": ["exists", "absent", "outcome", "check"]}, "outcome_payload": {"$ref": "#/$defs/workflow_outcome_payload"},
+            "outcome_kind": {"type": "string", "enum": ["exists", "absent", "outcome", "check"]}, "outcome_payload": copy.deepcopy(outcome_payload),
             "required_evidence": copy.deepcopy(string_list), "route_conventions": copy.deepcopy(string_list),
             "spec_mandate": copy.deepcopy(string_list), "law_modifies": copy.deepcopy(string_list),
             "rigor_class": {"$ref": "#/$defs/rigor_class"}, "architecture_binding": {"$ref": "#/$defs/architecture_binding"},
@@ -236,26 +240,26 @@ def project_workflow_action_schema(document: dict, actions: list[dict]) -> dict:
             "type": "array", "minItems": 1, "maxItems": 16,
             "items": {"type": "object", "additionalProperties": False, "required": ["pack_id", "revision", "use_role", "required"], "properties": {
                 "pack_id": {"$ref": "#/$defs/id"}, "revision": {"type": "integer", "minimum": 1},
-                "use_role": {"enum": ["context", "design_input", "verification_basis", "decision_basis"]}, "required": {"type": "boolean"},
+                "use_role": {"type": "string", "enum": ["context", "design_input", "verification_basis", "decision_basis"]}, "required": {"type": "boolean"},
             }},
         },
         "requested_budget_seconds": {"$ref": "#/$defs/requested_budget_seconds"},
     }
     common_required = ["work_id", "expected_version", "action_id", "idempotency_key"]
 
-    install_workflow_outcome_schema(defs)
+    outcome_payload = install_workflow_outcome_schema(defs)
     defs["workflow_action_outcome_predicates"] = {
         "type": "array", "minItems": 1, "maxItems": 8,
         "items": {"type": "object", "additionalProperties": False, "required": ["predicate_id", "ordinal", "outcome_kind", "outcome_payload"], "properties": {
             "predicate_id": {"$ref": "#/$defs/id"}, "ordinal": {"type": "integer", "minimum": 0, "maximum": 7},
-            "outcome_kind": {"enum": ["exists", "absent", "outcome", "check"]}, "outcome_payload": {"$ref": "#/$defs/workflow_outcome_payload"},
+            "outcome_kind": {"type": "string", "enum": ["exists", "absent", "outcome", "check"]}, "outcome_payload": copy.deepcopy(outcome_payload),
         }},
     }
-    defs["workflow_forward_relation"] = {"type": "object", "additionalProperties": False, "required": ["kind"], "properties": {"kind": {"const": "forward_link"}, "class": {"enum": ["hard", "soft", "none"]}, "severity": {"enum": ["breaking", "non-breaking", "informational"]}}}
-    defs["workflow_completion_payload"] = {"type": "object", "additionalProperties": False, "properties": {"evidence_commit": {"type": "string", "minLength": 1, "maxLength": 128}, "current_commit": {"type": "string", "minLength": 1, "maxLength": 128}, "staleness": {"type": "object", "additionalProperties": False, "required": ["drifted"], "properties": {"drifted": {"type": "boolean"}, "severity": {"enum": ["block", "warning"]}}}}}
+    defs["workflow_forward_relation"] = {"type": "object", "additionalProperties": False, "required": ["kind"], "properties": {"kind": {"const": "forward_link"}, "class": {"type": "string", "enum": ["hard", "soft", "none"]}, "severity": {"type": "string", "enum": ["breaking", "non-breaking", "informational"]}}}
+    defs["workflow_completion_payload"] = {"type": "object", "additionalProperties": False, "properties": {"evidence_commit": {"type": "string", "minLength": 1, "maxLength": 128}, "current_commit": {"type": "string", "minLength": 1, "maxLength": 128}, "staleness": {"type": "object", "additionalProperties": False, "required": ["drifted"], "properties": {"drifted": {"type": "boolean"}, "severity": {"type": "string", "enum": ["block", "warning"]}}}}}
 
     outer_properties = copy.deepcopy(common)
-    outer_properties["selected_choice"] = {"enum": ["confirm", "revise", "stop"]}
+    outer_properties["selected_choice"] = {"type": "string", "enum": ["confirm", "revise", "stop"]}
     outer_properties["decision_context_digest"] = {"$ref": "#/$defs/digest"}
     outer_properties["fields"] = {}
 
@@ -280,7 +284,7 @@ def project_workflow_action_schema(document: dict, actions: list[dict]) -> dict:
     shared_actions = [action for action in actions if action["payload"] == action["public_payload"]]
     divergent_actions = [action for action in actions if action["payload"] != action["public_payload"]]
     shared_conditions = [action_condition(action, "payload") for action in shared_actions]
-    shared_conditions.append({"if": {"properties": {"action_id": {"const": "supersede_contract"}}, "required": ["action_id"]}, "then": {"required": ["fields"], "properties": {"fields": workflow_supersede_fields_schema()}, "not": {"anyOf": [{"required": ["selected_choice"]}, {"required": ["decision_context_digest"]}]}}})
+    shared_conditions.append({"if": {"properties": {"action_id": {"const": "supersede_contract"}}, "required": ["action_id"]}, "then": {"required": ["fields"], "properties": {"fields": workflow_supersede_fields_schema(outcome_payload)}, "not": {"anyOf": [{"required": ["selected_choice"]}, {"required": ["decision_context_digest"]}]}}})
     defs["work_transition_action_shared_input"] = {"type": "object", "additionalProperties": False, "required": common_required, "properties": copy.deepcopy(outer_properties), "allOf": shared_conditions}
     wrapper = {"type": "object", "additionalProperties": False, "required": common_required, "properties": copy.deepcopy(outer_properties)}
     defs["work_transition_action_input"] = copy.deepcopy(wrapper) | {"allOf": [{"$ref": "#/$defs/work_transition_action_shared_input"}] + [action_condition(action, "payload") for action in divergent_actions]}
@@ -292,6 +296,9 @@ def check_schema_keywords(node, path="schema"):
     if not isinstance(node, dict): return
     unsupported=set(node)-SCHEMA_KEYWORDS
     if unsupported: fail(f"unsupported JSON Schema keywords at {path}: {sorted(unsupported)}")
+    # Moonshot's flavored tool-schema validator rejects enum nodes without an
+    # explicit type ("type is not defined"), so an enum must always name one.
+    if "enum" in node and "type" not in node: fail(f"enum without type at {path}")
     for key,value in node.items():
         if key in {"properties", "patternProperties", "$defs"} and isinstance(value, dict):
             for name, child in value.items(): check_schema_keywords(child, f"{path}.{key}.{name}")

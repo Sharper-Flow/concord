@@ -1,0 +1,5 @@
+{
+  "id": "CD-0122",
+  "reason": "This is a repository policy amendment, not a runtime workflow or host capability change. Document, knowledge, link, public-content, and repository checks validate its artifacts; runtime behavior retains its existing owners.",
+  "state": "out_of_scope"
+}

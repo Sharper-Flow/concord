@@ -1,0 +1,46 @@
+{
+  "date": "2026-09-09T00:00:00Z",
+  "evidence": [
+    "docs/development-authority.md",
+    "AGENTS.md",
+    "scripts/check-agents-md.py",
+    "scripts/check-doc-contract.py",
+    "scripts/check-doc-links.py",
+    "scripts/check-knowledge-index.py",
+    "scripts/check-knowledge-closure.py",
+    "scripts/check-public-content.py"
+  ],
+  "home_domain_id": "product-root:concord",
+  "id": "CD-0122",
+  "kind": "decision",
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "CD-0089"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0102"
+    }
+  ],
+  "path": "docs/decisions/CD-0122-concord-workflow-scope-and-defect-repair.md",
+  "product_wide_rationale": "Concord workflow participation is explicit across the Product. Outside project work and authorized defect repair must preserve repository evidence without changing host-owned roles.",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:d63eb28959613a77916bdf8889def76eff90206c59f1571fb140c419b114ccc6",
+  "status": "accepted",
+  "summary": "Limits Concord workflow authority to explicitly managed participation, permits outside project work and authorized defect repair, and preserves repository evidence and host-owned roles.",
+  "tags": [
+    "authority",
+    "coordination",
+    "defect-repair",
+    "repository",
+    "host-boundary"
+  ],
+  "title": "Concord workflow scope and defect repair"
+}

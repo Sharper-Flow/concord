@@ -111,10 +111,10 @@
         }
       }
     },
-  "operations": {
-    "type": "array",
-    "minItems": 48,
-    "maxItems": 65,
+    "operations": {
+      "type": "array",
+      "minItems": 48,
+      "maxItems": 65,
       "items": {
         "type": "object",
         "additionalProperties": false,
@@ -143,13 +143,15 @@
             "enum": [
               "read",
               "mutation"
-            ]
+            ],
+            "type": "string"
           },
           "availability": {
             "enum": [
               "always",
               "workflow_definition"
-            ]
+            ],
+            "type": "string"
           },
           "query_id": {
             "type": [
@@ -176,7 +178,8 @@
               "work_initiative",
               "work_relate",
               "work_transition"
-            ]
+            ],
+            "type": "string"
           },
           "consequence": {
             "enum": [
@@ -191,14 +194,16 @@
               "recovery",
               "research",
               "claim"
-            ]
+            ],
+            "type": "string"
           },
           "approval": {
             "enum": [
               "none",
               "conditional",
               "required"
-            ]
+            ],
+            "type": "string"
           },
           "metadata": {
             "$ref": "#/$defs/metadata"
@@ -231,7 +236,8 @@
           "work_initiative",
           "work_relate",
           "work_transition"
-        ]
+        ],
+        "type": "string"
       },
       "uniqueItems": true,
       "minItems": 8,
@@ -252,7 +258,8 @@
           "recovery",
           "research",
           "claim"
-        ]
+        ],
+        "type": "string"
       },
       "uniqueItems": true,
       "minItems": 11,
@@ -308,20 +315,23 @@
             "explicit",
             "workflow",
             "portfolio"
-          ]
+          ],
+          "type": "string"
         },
         "idempotency": {
           "enum": [
             "request_id",
             "required"
-          ]
+          ],
+          "type": "string"
         },
         "pagination": {
           "enum": [
             "none",
             "cursor",
             "limit"
-          ]
+          ],
+          "type": "string"
         },
         "output_bytes": {
           "const": 51200

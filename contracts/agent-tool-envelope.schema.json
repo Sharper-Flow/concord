@@ -145,7 +145,8 @@
               "enum": [
                 "observation_record",
                 "observation_dismiss"
-              ]
+              ],
+              "type": "string"
             }
           }
         },
@@ -443,7 +444,8 @@
                 "research_source_record",
                 "research_freshness_set",
                 "observation_record"
-              ]
+              ],
+              "type": "string"
             }
           }
         },
@@ -469,7 +471,8 @@
                 "reorder_entry",
                 "change_requiredness",
                 "revise_narrative"
-              ]
+              ],
+              "type": "string"
             }
           }
         },
@@ -515,7 +518,8 @@
                 "worktree_reclaim",
                 "worktree_audit_reclaim",
                 "worktree_verify"
-              ]
+              ],
+              "type": "string"
             }
           }
         },
@@ -545,7 +549,8 @@
                 "resource_release",
                 "message_send",
                 "message_withdraw"
-              ]
+              ],
+              "type": "string"
             }
           }
         },
@@ -568,7 +573,8 @@
                 "publish",
                 "reconcile",
                 "lesson_publish"
-              ]
+              ],
+              "type": "string"
             }
           }
         },
@@ -720,7 +726,8 @@
           "enum": [
             "core",
             "adapter"
-          ]
+          ],
+          "type": "string"
         },
         "tool": {
           "enum": [
@@ -734,7 +741,8 @@
             "concord_work_transition",
             "concord_work_relate",
             "concord_work_compact"
-          ]
+          ],
+          "type": "string"
         },
         "operation": {
           "enum": [
@@ -801,7 +809,8 @@
             "worktree_inspect",
             "worktree_reclaim",
             "worktree_verify"
-          ]
+          ],
+          "type": "string"
         },
         "query_id": {
           "type": "string",
@@ -813,7 +822,8 @@
             "pending",
             "partial",
             "error"
-          ]
+          ],
+          "type": "string"
         },
         "resolved_scope": {
           "oneOf": [
@@ -863,7 +873,8 @@
             "authoritative",
             "degraded",
             "unreachable"
-          ]
+          ],
+          "type": "string"
         },
         "freshness": {
           "oneOf": [
@@ -912,7 +923,8 @@
                   "git_knowledge",
                   "native_authority",
                   "adapter"
-                ]
+                ],
+                "type": "string"
               },
               "source_id": {
                 "type": "string",
@@ -1101,7 +1113,8 @@
             "durable_note",
             "native_run",
             "artifact"
-          ]
+          ],
+          "type": "string"
         },
         "authority": {
           "type": "string",
@@ -1177,7 +1190,8 @@
             "concord_work_transition",
             "concord_work_relate",
             "concord_work_compact"
-          ]
+          ],
+          "type": "string"
         },
         "operation": {
           "enum": [
@@ -1244,7 +1258,8 @@
             "worktree_inspect",
             "worktree_reclaim",
             "worktree_verify"
-          ]
+          ],
+          "type": "string"
         },
         "query_id": {
           "type": "string",
@@ -1314,7 +1329,8 @@
             "partial",
             "failed",
             "completed"
-          ]
+          ],
+          "type": "string"
         },
         "current_step": {
           "type": "string",
@@ -1403,7 +1419,8 @@
             "reconcile_operation",
             "resolve_ambiguity",
             "contact_operator"
-          ]
+          ],
+          "type": "string"
         },
         "required_refs": {
           "type": "array",
@@ -1459,7 +1476,8 @@
             "transport_failure",
             "malformed_response",
             "internal_error"
-          ]
+          ],
+          "type": "string"
         },
         "retry_safe": {
           "type": "boolean"
@@ -1472,7 +1490,8 @@
             "none",
             "possible",
             "partial"
-          ]
+          ],
+          "type": "string"
         },
         "adapter_reason": {
           "enum": [
@@ -1486,7 +1505,8 @@
             "grant_bootstrap_failed",
             "unknown_effect",
             "session_occupancy_unreadable"
-          ]
+          ],
+          "type": "string"
         },
         "message": {
           "type": "string",
@@ -1528,7 +1548,8 @@
               "clarify",
               "amend_contract",
               "accept_scope_cut"
-            ]
+            ],
+            "type": "string"
           }
         },
         "stale_law_revision": {
@@ -1957,7 +1978,8 @@
                       "invalid_relation",
                       "invariant_violation",
                       "not_terminal"
-                    ]
+                    ],
+                    "type": "string"
                   }
                 },
                 "required": [
@@ -2015,7 +2037,8 @@
                 "enum": [
                   "approval_required",
                   "approval_invalid"
-                ]
+                ],
+                "type": "string"
               }
             },
             "required": [
@@ -2208,7 +2231,8 @@
                 "enum": [
                   "cancelled",
                   "timeout"
-                ]
+                ],
+                "type": "string"
               }
             },
             "required": [
@@ -2445,7 +2469,8 @@
                       "concord_work_transition",
                       "concord_work_relate",
                       "concord_work_compact"
-                    ]
+                    ],
+                    "type": "string"
                   }
                 },
                 "required": [
@@ -2490,7 +2515,8 @@
               "enum": [
                 "concord_work_compact",
                 "concord_work_transition"
-              ]
+              ],
+              "type": "string"
             },
             "operation_ref": {
               "allOf": [
@@ -2535,7 +2561,8 @@
               "enum": [
                 "concord_work_compact",
                 "concord_work_transition"
-              ]
+              ],
+              "type": "string"
             },
             "operation_ref": {
               "allOf": [
@@ -2548,7 +2575,8 @@
                       "enum": [
                         "partial",
                         "failed"
-                      ]
+                      ],
+                      "type": "string"
                     }
                   }
                 }
@@ -2619,7 +2647,8 @@
                       "enum": [
                         "none",
                         "possible"
-                      ]
+                      ],
+                      "type": "string"
                     }
                   }
                 }
@@ -2655,7 +2684,8 @@
                       "timeout",
                       "cancelled",
                       "operation_conflict"
-                    ]
+                    ],
+                    "type": "string"
                   }
                 }
               }
@@ -2694,7 +2724,8 @@
                     "enum": [
                       "manifest_mismatch",
                       "grant_bootstrap_failed"
-                    ]
+                    ],
+                    "type": "string"
                   }
                 },
                 "required": [

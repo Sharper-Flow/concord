@@ -146,7 +146,8 @@ const GeneratedEnvelopeSchemaDocument = `{
             "authoritative",
             "degraded",
             "unreachable"
-          ]
+          ],
+          "type": "string"
         },
         "evidence_refs": {
           "items": {
@@ -267,7 +268,8 @@ const GeneratedEnvelopeSchemaDocument = `{
             "worktree_inspect",
             "worktree_reclaim",
             "worktree_verify"
-          ]
+          ],
+          "type": "string"
         },
         "ordering_keys": {
           "items": {
@@ -282,7 +284,8 @@ const GeneratedEnvelopeSchemaDocument = `{
           "enum": [
             "core",
             "adapter"
-          ]
+          ],
+          "type": "string"
         },
         "outcome": {
           "enum": [
@@ -290,7 +293,8 @@ const GeneratedEnvelopeSchemaDocument = `{
             "pending",
             "partial",
             "error"
-          ]
+          ],
+          "type": "string"
         },
         "query_id": {
           "pattern": "^(PM1\\.Q(1[0-6]|[1-9])|CD-0030\\.R1|CD-0040\\.R1|CD-0096\\.R1|C14\\.ProductRows|C15\\.Resources|C19\\.Continuity|C21\\.InitiativeEntries|C22\\.Domain(List|Detail|ActiveWork|Attachments|Overlaps))$",
@@ -365,7 +369,8 @@ const GeneratedEnvelopeSchemaDocument = `{
                   "git_knowledge",
                   "native_authority",
                   "adapter"
-                ]
+                ],
+                "type": "string"
               },
               "version": {
                 "maxLength": 256,
@@ -395,7 +400,8 @@ const GeneratedEnvelopeSchemaDocument = `{
             "concord_work_transition",
             "concord_work_relate",
             "concord_work_compact"
-          ]
+          ],
+          "type": "string"
         },
         "warnings": {
           "items": {
@@ -531,7 +537,8 @@ const GeneratedEnvelopeSchemaDocument = `{
                       "enum": [
                         "none",
                         "possible"
-                      ]
+                      ],
+                      "type": "string"
                     }
                   }
                 }
@@ -569,7 +576,8 @@ const GeneratedEnvelopeSchemaDocument = `{
                       "timeout",
                       "cancelled",
                       "operation_conflict"
-                    ]
+                    ],
+                    "type": "string"
                   }
                 },
                 "required": [
@@ -614,7 +622,8 @@ const GeneratedEnvelopeSchemaDocument = `{
                     "enum": [
                       "manifest_mismatch",
                       "grant_bootstrap_failed"
-                    ]
+                    ],
+                    "type": "string"
                   }
                 },
                 "required": [
@@ -729,7 +738,8 @@ const GeneratedEnvelopeSchemaDocument = `{
             "durable_note",
             "native_run",
             "artifact"
-          ]
+          ],
+          "type": "string"
         },
         "locator": {
           "maxLength": 2048,
@@ -837,7 +847,8 @@ const GeneratedEnvelopeSchemaDocument = `{
             "worktree_inspect",
             "worktree_reclaim",
             "worktree_verify"
-          ]
+          ],
+          "type": "string"
         },
         "query_id": {
           "pattern": "^(PM1\\.Q(1[0-6]|[1-9])|CD-0030\\.R1|CD-0040\\.R1|CD-0096\\.R1|C14\\.ProductRows|C15\\.Resources|C19\\.Continuity|C21\\.InitiativeEntries|C22\\.Domain(List|Detail|ActiveWork|Attachments|Overlaps))$",
@@ -870,7 +881,8 @@ const GeneratedEnvelopeSchemaDocument = `{
             "concord_work_transition",
             "concord_work_relate",
             "concord_work_compact"
-          ]
+          ],
+          "type": "string"
         }
       },
       "required": [
@@ -933,7 +945,8 @@ const GeneratedEnvelopeSchemaDocument = `{
                       "concord_work_transition",
                       "concord_work_relate",
                       "concord_work_compact"
-                    ]
+                    ],
+                    "type": "string"
                   }
                 },
                 "required": [
@@ -1037,7 +1050,8 @@ const GeneratedEnvelopeSchemaDocument = `{
             "partial",
             "failed",
             "completed"
-          ]
+          ],
+          "type": "string"
         },
         "updated_at": {
           "format": "date-time",
@@ -1111,7 +1125,8 @@ const GeneratedEnvelopeSchemaDocument = `{
                       "enum": [
                         "partial",
                         "failed"
-                      ]
+                      ],
+                      "type": "string"
                     }
                   }
                 }
@@ -1124,7 +1139,8 @@ const GeneratedEnvelopeSchemaDocument = `{
               "enum": [
                 "concord_work_compact",
                 "concord_work_transition"
-              ]
+              ],
+              "type": "string"
             }
           },
           "required": [
@@ -1169,7 +1185,8 @@ const GeneratedEnvelopeSchemaDocument = `{
               "enum": [
                 "concord_work_compact",
                 "concord_work_transition"
-              ]
+              ],
+              "type": "string"
             }
           },
           "required": [
@@ -1200,7 +1217,8 @@ const GeneratedEnvelopeSchemaDocument = `{
             "reconcile_operation",
             "resolve_ambiguity",
             "contact_operator"
-          ]
+          ],
+          "type": "string"
         },
         "required_refs": {
           "items": {
@@ -1339,7 +1357,8 @@ const GeneratedEnvelopeSchemaDocument = `{
               "enum": [
                 "observation_record",
                 "observation_dismiss"
-              ]
+              ],
+              "type": "string"
             },
             "tool": {
               "const": "concord_domain"
@@ -1637,7 +1656,8 @@ const GeneratedEnvelopeSchemaDocument = `{
                 "research_source_record",
                 "research_freshness_set",
                 "observation_record"
-              ]
+              ],
+              "type": "string"
             },
             "tool": {
               "const": "concord_work_define"
@@ -1663,7 +1683,8 @@ const GeneratedEnvelopeSchemaDocument = `{
                 "reorder_entry",
                 "change_requiredness",
                 "revise_narrative"
-              ]
+              ],
+              "type": "string"
             },
             "tool": {
               "const": "concord_work_initiative"
@@ -1709,7 +1730,8 @@ const GeneratedEnvelopeSchemaDocument = `{
                 "worktree_reclaim",
                 "worktree_audit_reclaim",
                 "worktree_verify"
-              ]
+              ],
+              "type": "string"
             },
             "tool": {
               "const": "concord_work_transition"
@@ -1739,7 +1761,8 @@ const GeneratedEnvelopeSchemaDocument = `{
                 "resource_release",
                 "message_send",
                 "message_withdraw"
-              ]
+              ],
+              "type": "string"
             },
             "tool": {
               "const": "concord_work_relate"
@@ -1762,7 +1785,8 @@ const GeneratedEnvelopeSchemaDocument = `{
                 "publish",
                 "reconcile",
                 "lesson_publish"
-              ]
+              ],
+              "type": "string"
             },
             "tool": {
               "const": "concord_work_compact"
@@ -1978,7 +2002,8 @@ const GeneratedEnvelopeSchemaDocument = `{
                       "invalid_relation",
                       "invariant_violation",
                       "not_terminal"
-                    ]
+                    ],
+                    "type": "string"
                   }
                 },
                 "required": [
@@ -2036,7 +2061,8 @@ const GeneratedEnvelopeSchemaDocument = `{
                 "enum": [
                   "approval_required",
                   "approval_invalid"
-                ]
+                ],
+                "type": "string"
               }
             },
             "required": [
@@ -2229,7 +2255,8 @@ const GeneratedEnvelopeSchemaDocument = `{
                 "enum": [
                   "cancelled",
                   "timeout"
-                ]
+                ],
+                "type": "string"
               }
             },
             "required": [
@@ -2345,7 +2372,8 @@ const GeneratedEnvelopeSchemaDocument = `{
             "grant_bootstrap_failed",
             "unknown_effect",
             "session_occupancy_unreadable"
-          ]
+          ],
+          "type": "string"
         },
         "candidates": {
           "items": {
@@ -2654,7 +2682,8 @@ const GeneratedEnvelopeSchemaDocument = `{
             "none",
             "possible",
             "partial"
-          ]
+          ],
+          "type": "string"
         },
         "kind": {
           "enum": [
@@ -2688,7 +2717,8 @@ const GeneratedEnvelopeSchemaDocument = `{
             "transport_failure",
             "malformed_response",
             "internal_error"
-          ]
+          ],
+          "type": "string"
         },
         "message": {
           "maxLength": 1000,
@@ -2700,7 +2730,8 @@ const GeneratedEnvelopeSchemaDocument = `{
               "clarify",
               "amend_contract",
               "accept_scope_cut"
-            ]
+            ],
+            "type": "string"
           },
           "maxItems": 3,
           "type": "array",

@@ -23,7 +23,7 @@
         "kind": {"const": "absent"},
         "surface": {"$ref": "#/$defs/surface"},
         "subjects": {"type": "array", "minItems": 1, "maxItems": 100, "uniqueItems": true, "items": {"$ref": "#/$defs/subject"}},
-        "distinguish_from": {"type": "array", "minItems": 1, "maxItems": 4, "uniqueItems": true, "items": {"enum": ["archived", "relocated", "renamed", "disabled"]}}
+        "distinguish_from": {"type": "array", "minItems": 1, "maxItems": 4, "uniqueItems": true, "items": {"type": "string", "enum": ["archived", "relocated", "renamed", "disabled"]}}
       }
     },
     "decisionRecord": {
@@ -32,7 +32,7 @@
       "properties": {
         "question": {"type": "string", "minLength": 1, "maxLength": 4096},
         "options_considered": {"type": "array", "minItems": 1, "maxItems": 16, "uniqueItems": true, "items": {"type": "string", "minLength": 1, "maxLength": 1024}},
-        "decision": {"enum": ["accepted_decision", "insufficient_evidence"]},
+        "decision": {"type": "string", "enum": ["accepted_decision", "insufficient_evidence"]},
         "rationale": {"type": "string", "minLength": 1, "maxLength": 4096},
         "consequences": {"type": "array", "minItems": 1, "maxItems": 16, "items": {"type": "string", "minLength": 1, "maxLength": 1024}},
         "inputs": {"type": "array", "minItems": 1, "maxItems": 32, "uniqueItems": true, "items": {"type": "string", "minLength": 1, "maxLength": 2048}},
@@ -50,7 +50,7 @@
       "required": ["kind", "allowed"],
       "properties": {
         "kind": {"const": "outcome"},
-        "allowed": {"type": "array", "minItems": 1, "maxItems": 8, "uniqueItems": true, "items": {"enum": ["no_change", "accepted_decision", "insufficient_evidence", "resolved", "remediated", "report_recorded", "completed", "operator_defined"]}},
+        "allowed": {"type": "array", "minItems": 1, "maxItems": 8, "uniqueItems": true, "items": {"type": "string", "enum": ["no_change", "accepted_decision", "insufficient_evidence", "resolved", "remediated", "report_recorded", "completed", "operator_defined"]}},
         "decision_record": {"$ref": "#/$defs/decisionRecord"}
       }
     },
@@ -61,7 +61,7 @@
         "kind": {"const": "check"},
         "check_ref": {"type": "string", "pattern": "^check:[a-z][a-z0-9_.:/-]{1,127}$", "minLength": 7, "maxLength": 134},
         "immutable_subject_ref": {"type": "string", "pattern": "^[a-z][a-z0-9_.:/-]{1,255}$", "minLength": 2, "maxLength": 256},
-        "expected_result": {"enum": ["true", "false", "pass", "fail", "present", "absent", "healthy", "unhealthy", "accepted", "rejected"]}
+        "expected_result": {"type": "string", "enum": ["true", "false", "pass", "fail", "present", "absent", "healthy", "unhealthy", "accepted", "rejected"]}
       }
     }
   }

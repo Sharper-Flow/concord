@@ -2633,14 +2633,16 @@ const GeneratedPayloadSchemaDocument = `{
             "end_signal",
             "closed_structure_digest",
             "exhaustive_local"
-          ]
+          ],
+          "type": "string"
         },
         "coverage": {
           "enum": [
             "complete",
             "partial",
             "unknown"
-          ]
+          ],
+          "type": "string"
         },
         "observed_count": {
           "minimum": 0,
@@ -2669,7 +2671,8 @@ const GeneratedPayloadSchemaDocument = `{
             "item",
             "collection",
             "stream"
-          ]
+          ],
+          "type": "string"
         },
         "structure_digest": {
           "pattern": "^sha256:[0-9a-f]{64}$",
@@ -2680,7 +2683,8 @@ const GeneratedPayloadSchemaDocument = `{
             "eq",
             "gte",
             "unknown"
-          ]
+          ],
+          "type": "string"
         },
         "total_value": {
           "minimum": 0,
@@ -5035,7 +5039,8 @@ const GeneratedPayloadSchemaDocument = `{
               "enum": [
                 "capture",
                 "verification"
-              ]
+              ],
+              "type": "string"
             },
             "observation_id": {
               "pattern": "^xobs:[0-9a-f]{16}$",
@@ -5059,7 +5064,8 @@ const GeneratedPayloadSchemaDocument = `{
                 "diverged",
                 "unreachable",
                 "unavailable"
-              ]
+              ],
+              "type": "string"
             },
             "subject_digest": {
               "pattern": "^sha256:[0-9a-f]{64}$",
@@ -5071,7 +5077,8 @@ const GeneratedPayloadSchemaDocument = `{
                 "git_position",
                 "recovery_artifact",
                 "environment"
-              ]
+              ],
+              "type": "string"
             },
             "subject_ref": {
               "maxLength": 2048,
@@ -5082,7 +5089,8 @@ const GeneratedPayloadSchemaDocument = `{
               "enum": [
                 "trusted_client_report",
                 "git_probe"
-              ]
+              ],
+              "type": "string"
             },
             "verified_at": {
               "format": "date-time",
@@ -6628,7 +6636,8 @@ const GeneratedPayloadSchemaDocument = `{
                   "design_input",
                   "verification_basis",
                   "decision_basis"
-                ]
+                ],
+                "type": "string"
               }
             },
             "required": [
@@ -6648,7 +6657,8 @@ const GeneratedPayloadSchemaDocument = `{
             "confirm",
             "revise",
             "stop"
-          ]
+          ],
+          "type": "string"
         },
         "work_id": {
           "$ref": "#/$defs/id"
@@ -6762,7 +6772,8 @@ const GeneratedPayloadSchemaDocument = `{
                   "design_input",
                   "verification_basis",
                   "decision_basis"
-                ]
+                ],
+                "type": "string"
               }
             },
             "required": [
@@ -6782,7 +6793,8 @@ const GeneratedPayloadSchemaDocument = `{
             "confirm",
             "revise",
             "stop"
-          ]
+          ],
+          "type": "string"
         },
         "work_id": {
           "$ref": "#/$defs/id"
@@ -7055,7 +7067,8 @@ const GeneratedPayloadSchemaDocument = `{
                         "durable_note",
                         "native_run",
                         "artifact"
-                      ]
+                      ],
+                      "type": "string"
                     },
                     "maxItems": 7,
                     "minItems": 0,
@@ -9406,10 +9419,24 @@ const GeneratedPayloadSchemaDocument = `{
                       "absent",
                       "outcome",
                       "check"
-                    ]
+                    ],
+                    "type": "string"
                   },
                   "outcome_payload": {
-                    "$ref": "#/$defs/workflow_outcome_payload"
+                    "oneOf": [
+                      {
+                        "$ref": "#/$defs/workflow_outcome_exists"
+                      },
+                      {
+                        "$ref": "#/$defs/workflow_outcome_absent"
+                      },
+                      {
+                        "$ref": "#/$defs/workflow_outcome_outcome"
+                      },
+                      {
+                        "$ref": "#/$defs/workflow_outcome_check"
+                      }
+                    ]
                   },
                   "premise": {
                     "maxLength": 4096,
@@ -9516,7 +9543,8 @@ const GeneratedPayloadSchemaDocument = `{
                   "design_input",
                   "verification_basis",
                   "decision_basis"
-                ]
+                ],
+                "type": "string"
               }
             },
             "required": [
@@ -9536,7 +9564,8 @@ const GeneratedPayloadSchemaDocument = `{
             "confirm",
             "revise",
             "stop"
-          ]
+          ],
+          "type": "string"
         },
         "work_id": {
           "$ref": "#/$defs/id"
@@ -9934,10 +9963,24 @@ const GeneratedPayloadSchemaDocument = `{
               "absent",
               "outcome",
               "check"
-            ]
+            ],
+            "type": "string"
           },
           "outcome_payload": {
-            "$ref": "#/$defs/workflow_outcome_payload"
+            "oneOf": [
+              {
+                "$ref": "#/$defs/workflow_outcome_exists"
+              },
+              {
+                "$ref": "#/$defs/workflow_outcome_absent"
+              },
+              {
+                "$ref": "#/$defs/workflow_outcome_outcome"
+              },
+              {
+                "$ref": "#/$defs/workflow_outcome_check"
+              }
+            ]
           },
           "predicate_id": {
             "$ref": "#/$defs/id"
@@ -9978,7 +10021,8 @@ const GeneratedPayloadSchemaDocument = `{
               "enum": [
                 "block",
                 "warning"
-              ]
+              ],
+              "type": "string"
             }
           },
           "required": [
@@ -10112,7 +10156,8 @@ const GeneratedPayloadSchemaDocument = `{
             "hard",
             "soft",
             "none"
-          ]
+          ],
+          "type": "string"
         },
         "kind": {
           "const": "forward_link"
@@ -10122,7 +10167,8 @@ const GeneratedPayloadSchemaDocument = `{
             "breaking",
             "non-breaking",
             "informational"
-          ]
+          ],
+          "type": "string"
         }
       },
       "required": [
@@ -10140,7 +10186,8 @@ const GeneratedPayloadSchemaDocument = `{
               "relocated",
               "renamed",
               "disabled"
-            ]
+            ],
+            "type": "string"
           },
           "maxItems": 4,
           "minItems": 1,
@@ -10192,7 +10239,8 @@ const GeneratedPayloadSchemaDocument = `{
             "unhealthy",
             "accepted",
             "rejected"
-          ]
+          ],
+          "type": "string"
         },
         "immutable_subject_ref": {
           "maxLength": 256,
@@ -10229,7 +10277,8 @@ const GeneratedPayloadSchemaDocument = `{
           "enum": [
             "accepted_decision",
             "insufficient_evidence"
-          ]
+          ],
+          "type": "string"
         },
         "inputs": {
           "items": {
@@ -10374,7 +10423,8 @@ const GeneratedPayloadSchemaDocument = `{
               "report_recorded",
               "completed",
               "operator_defined"
-            ]
+            ],
+            "type": "string"
           },
           "maxItems": 8,
           "minItems": 1,

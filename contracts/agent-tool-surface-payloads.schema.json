@@ -3491,6 +3491,7 @@
                 "minimum": 1
               },
               "use_role": {
+                "type": "string",
                 "enum": [
                   "context",
                   "design_input",
@@ -3508,6 +3509,7 @@
           "$ref": "#/$defs/requested_budget_seconds"
         },
         "selected_choice": {
+          "type": "string",
           "enum": [
             "confirm",
             "revise",
@@ -6237,7 +6239,8 @@
               "enum": [
                 "capture",
                 "verification"
-              ]
+              ],
+              "type": "string"
             },
             "observation_id": {
               "type": "string",
@@ -6249,7 +6252,8 @@
                 "git_position",
                 "recovery_artifact",
                 "environment"
-              ]
+              ],
+              "type": "string"
             },
             "subject_ref": {
               "type": "string",
@@ -6273,7 +6277,8 @@
               "enum": [
                 "trusted_client_report",
                 "git_probe"
-              ]
+              ],
+              "type": "string"
             },
             "verified_at": {
               "type": "string",
@@ -6287,7 +6292,8 @@
                 "diverged",
                 "unreachable",
                 "unavailable"
-              ]
+              ],
+              "type": "string"
             },
             "current_digest": {
               "type": "string",
@@ -7097,7 +7103,8 @@
             "item",
             "collection",
             "stream"
-          ]
+          ],
+          "type": "string"
         },
         "applied_scope": {
           "type": "string",
@@ -7118,7 +7125,8 @@
             "complete",
             "partial",
             "unknown"
-          ]
+          ],
+          "type": "string"
         },
         "observed_count": {
           "type": "integer",
@@ -7138,7 +7146,8 @@
             "eq",
             "gte",
             "unknown"
-          ]
+          ],
+          "type": "string"
         },
         "total_value": {
           "type": "integer",
@@ -7150,7 +7159,8 @@
             "end_signal",
             "closed_structure_digest",
             "exhaustive_local"
-          ]
+          ],
+          "type": "string"
         },
         "canonical_identity_key": {
           "type": "string",
@@ -7887,6 +7897,7 @@
           "maxItems": 4,
           "uniqueItems": true,
           "items": {
+            "type": "string",
             "enum": [
               "archived",
               "relocated",
@@ -7933,6 +7944,7 @@
           }
         },
         "decision": {
+          "type": "string",
           "enum": [
             "accepted_decision",
             "insufficient_evidence"
@@ -8036,6 +8048,7 @@
           "maxItems": 8,
           "uniqueItems": true,
           "items": {
+            "type": "string",
             "enum": [
               "no_change",
               "accepted_decision",
@@ -8079,6 +8092,7 @@
           "maxLength": 256
         },
         "expected_result": {
+          "type": "string",
           "enum": [
             "true",
             "false",
@@ -8133,6 +8147,7 @@
             "maximum": 7
           },
           "outcome_kind": {
+            "type": "string",
             "enum": [
               "exists",
               "absent",
@@ -8141,7 +8156,20 @@
             ]
           },
           "outcome_payload": {
-            "$ref": "#/$defs/workflow_outcome_payload"
+            "oneOf": [
+              {
+                "$ref": "#/$defs/workflow_outcome_exists"
+              },
+              {
+                "$ref": "#/$defs/workflow_outcome_absent"
+              },
+              {
+                "$ref": "#/$defs/workflow_outcome_outcome"
+              },
+              {
+                "$ref": "#/$defs/workflow_outcome_check"
+              }
+            ]
           }
         }
       }
@@ -8157,6 +8185,7 @@
           "const": "forward_link"
         },
         "class": {
+          "type": "string",
           "enum": [
             "hard",
             "soft",
@@ -8164,6 +8193,7 @@
           ]
         },
         "severity": {
+          "type": "string",
           "enum": [
             "breaking",
             "non-breaking",
@@ -8197,6 +8227,7 @@
               "type": "boolean"
             },
             "severity": {
+              "type": "string",
               "enum": [
                 "block",
                 "warning"
@@ -8260,6 +8291,7 @@
                 "minimum": 1
               },
               "use_role": {
+                "type": "string",
                 "enum": [
                   "context",
                   "design_input",
@@ -8277,6 +8309,7 @@
           "$ref": "#/$defs/requested_budget_seconds"
         },
         "selected_choice": {
+          "type": "string",
           "enum": [
             "confirm",
             "revise",
@@ -8538,6 +8571,7 @@
                     "type": "array",
                     "uniqueItems": true,
                     "items": {
+                      "type": "string",
                       "enum": [
                         "verification",
                         "review",
@@ -10878,6 +10912,7 @@
                     "maxLength": 4096
                   },
                   "outcome_kind": {
+                    "type": "string",
                     "enum": [
                       "exists",
                       "absent",
@@ -10886,7 +10921,20 @@
                     ]
                   },
                   "outcome_payload": {
-                    "$ref": "#/$defs/workflow_outcome_payload"
+                    "oneOf": [
+                      {
+                        "$ref": "#/$defs/workflow_outcome_exists"
+                      },
+                      {
+                        "$ref": "#/$defs/workflow_outcome_absent"
+                      },
+                      {
+                        "$ref": "#/$defs/workflow_outcome_outcome"
+                      },
+                      {
+                        "$ref": "#/$defs/workflow_outcome_check"
+                      }
+                    ]
                   },
                   "required_evidence": {
                     "type": "array",
@@ -11014,6 +11062,7 @@
                 "minimum": 1
               },
               "use_role": {
+                "type": "string",
                 "enum": [
                   "context",
                   "design_input",
@@ -11031,6 +11080,7 @@
           "$ref": "#/$defs/requested_budget_seconds"
         },
         "selected_choice": {
+          "type": "string",
           "enum": [
             "confirm",
             "revise",

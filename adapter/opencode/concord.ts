@@ -8,6 +8,7 @@ import { createRunSessionObservation, errorEnvelopeForLane, MAX_OUTPUT_BYTES, ob
 import { concordBinaryPath, CoreBinaryUnavailable } from "./dispatch"
 import { createWorkStateReporter, formatGateBrief } from "./workflow-status"
 import { hostLeaseFault } from "./host-lease"
+import { armTurnMoveBoundary } from "./turn-move-boundary"
 
 type ToolContext = {
   sessionID: string
@@ -839,6 +840,7 @@ async function executeWorkStart(args: WorkStartArgs, context: ToolContext): Prom
     if (!samePath(landed, target.worktree.path)) {
       throw new AdapterFailure("session_directory_mismatch", "move_destination_mismatch", `the session moved to ${JSON.stringify(landed)} rather than the claimed worktree ${JSON.stringify(target.worktree.path)}`, "none", "retry_same_request")
     }
+    if (!samePath(context.directory, target.worktree.path)) armTurnMoveBoundary(context.sessionID)
     // Issue #917: the pane frame now names the work this session runs. The
     // rename sits after every refusal point, so it fires once per success and
     // never changes the outcome the envelope reports.
@@ -1001,6 +1003,7 @@ export async function moveSessionToClaimedWorktree(args: HostToolArgs, context: 
   if (!samePath(landed, path)) {
     return adapterError("concord_work_transition", "worktree_claim", requestID, "session_directory_mismatch", "claim_move_destination_mismatch", `the claim recorded ${JSON.stringify(path)} but the session runs in ${JSON.stringify(landed)}`, "none", "retry_same_request")
   }
+  if (!samePath(context.directory, path)) armTurnMoveBoundary(context.sessionID)
   return envelope
 }
 
@@ -1037,6 +1040,7 @@ export async function moveSessionToRegisteredMainCheckout(args: HostToolArgs, co
   if (!samePath(landed, destination)) {
     return adapterError("concord_work_transition", "session_vacate", requestID, "session_directory_mismatch", "vacate_destination_mismatch", `the session landed in ${JSON.stringify(landed)} rather than the registered main checkout ${JSON.stringify(destination)}`, "none", "retry_same_request")
   }
+  if (!samePath(context.directory, destination)) armTurnMoveBoundary(context.sessionID)
   return envelope
 }
 

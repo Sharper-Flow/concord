@@ -32,14 +32,15 @@ type workflowActionGuardContext struct {
 	entry       RegisteredDefinition
 	currentStep string
 
-	staleRecovery       bool
-	lateVerdictRecovery bool
-	recoveryBind        bool
-	actorRef            string
-	eventActor          string
-	operatorRef         string
-	actorNeedsRecord    bool
-	operatorNeedsRecord bool
+	staleRecovery         bool
+	lateVerdictRecovery   bool
+	recoveryBind          bool
+	workerFailureRecovery bool
+	actorRef              string
+	eventActor            string
+	operatorRef           string
+	actorNeedsRecord      bool
+	operatorNeedsRecord   bool
 }
 
 type workflowActionGuardFunc func(*workflowActionGuardContext) error
@@ -145,6 +146,41 @@ func stepDeclaresAction(definition WorkflowDefinition, stepID, actionID string) 
 		}
 	}
 	return false
+}
+
+// workflowWorkerFailureRecovery reports whether a failed worker attempt is
+// still held by the current step. The recovery action is not added to the
+// pinned definition, so this query preserves the definition digest.
+func workflowWorkerFailureRecovery(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, currentStep, subject string, excludeRecorded bool) (bool, error) {
+	if containsString(definition.AvailableActions, "record_worker_failure") || currentStep == "" {
+		return false, nil
+	}
+	var startSeq sql.NullInt64
+	if err := q.QueryRowContext(ctx, `SELECT MAX(seq) FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.step_id')=?`, string(SubjectWorkItem), workID, WorkflowActionStarted, currentStep).Scan(&startSeq); err != nil {
+		return false, wrapFailure(KindUnavailable, subject, "cannot inspect the current workflow action start", true, "retry once the workflow projection is readable", err)
+	}
+	if !startSeq.Valid {
+		return false, nil
+	}
+	query := `SELECT EXISTS(SELECT 1 FROM worker_attempts a JOIN domain_events d ON d.subject_type=? AND d.subject_id=a.work_id AND d.kind=? AND json_extract(d.payload,'$.attempt_id')=a.attempt_id WHERE a.work_id=? AND a.lifecycle_state='failed' AND d.seq>?)`
+	args := []any{string(SubjectWorkItem), WorkerDispatched, workID, startSeq.Int64}
+	if excludeRecorded {
+		query = `SELECT EXISTS(SELECT 1 FROM worker_attempts a JOIN domain_events d ON d.subject_type=? AND d.subject_id=a.work_id AND d.kind=? AND json_extract(d.payload,'$.attempt_id')=a.attempt_id WHERE a.work_id=? AND a.lifecycle_state='failed' AND d.seq>? AND NOT EXISTS (SELECT 1 FROM domain_events f WHERE f.subject_type=? AND f.subject_id=a.work_id AND f.kind=? AND json_extract(f.payload,'$.action_id')='record_worker_failure' AND json_extract(f.payload,'$.worker_attempt_id')=a.attempt_id))`
+		args = append(args, string(SubjectWorkItem), WorkflowActionCompleted)
+	}
+	var available int
+	if err := q.QueryRowContext(ctx, query, args...).Scan(&available); err != nil {
+		return false, wrapFailure(KindUnavailable, subject, "cannot inspect failed worker attempts", true, "retry once the worker attempt projection is readable", err)
+	}
+	return available != 0, nil
+}
+
+func workflowWorkerFailureRecoveryAvailable(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, currentStep, subject string) (bool, error) {
+	return workflowWorkerFailureRecovery(ctx, q, workID, definition, currentStep, subject, true)
+}
+
+func workflowWorkerFailureRecoveryMayFold(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, currentStep, subject string) (bool, error) {
+	return workflowWorkerFailureRecovery(ctx, q, workID, definition, currentStep, subject, false)
 }
 
 func workflowEvidenceBindingStep(definition WorkflowDefinition, currentStep string) string {

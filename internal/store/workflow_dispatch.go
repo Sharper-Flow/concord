@@ -113,6 +113,19 @@ func WorkflowActionDefinitionFor(ctx context.Context, s *Store, registry Definit
 		}
 		return RegisteredDefinition{}, WorkflowActionDefinition{}, newFailure(KindInvalidOperation, "workflow_action", "contract recovery is available only for a stale workflow contract", false, "continue the current contract or request terminal work")
 	}
+	if actionID == "record_worker_failure" && !containsString(entry.Definition.AvailableActions, actionID) {
+		var currentStep string
+		if err := s.db.QueryRowContext(ctx, `SELECT current_step FROM workflow_instances WHERE work_id=?`, workID).Scan(&currentStep); err != nil {
+			return RegisteredDefinition{}, WorkflowActionDefinition{}, wrapFailure(KindUnavailable, "workflow_action", "cannot inspect workflow step", true, "retry once the workflow projection is readable", err)
+		}
+		available, recoveryErr := workflowWorkerFailureRecoveryAvailable(ctx, s.db, workID, entry.Definition, currentStep, "workflow_action")
+		if recoveryErr != nil {
+			return RegisteredDefinition{}, WorkflowActionDefinition{}, recoveryErr
+		}
+		if available {
+			return entry, workerFailureRecoveryActionDefinition(), nil
+		}
+	}
 	for _, action := range entry.Definition.ActionDefinitions {
 		if action.ID == actionID {
 			return entry, action, nil
@@ -168,6 +181,12 @@ func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, registry Definiti
 		return result, newFailure(KindInvalidOperation, "workflow_action", "terminal workflow instance is immutable", false, "start a successor workflow")
 	}
 	guards := &workflowActionGuardContext{ctx: ctx, tx: tx, request: request, entry: entry, currentStep: currentStep}
+	if request.ActionID == "record_worker_failure" {
+		guards.workerFailureRecovery, err = workflowWorkerFailureRecoveryAvailable(ctx, tx, request.WorkID, entry.Definition, currentStep, "workflow_action")
+		if err != nil {
+			return result, err
+		}
+	}
 	if err := runWorkflowActionGuard(guards, guardPhaseRecovery); err != nil {
 		return result, err
 	} else if request.ActionID == "record_verdict" && !definitionStepAllows(entry.Definition, currentStep, request.ActionID) {
@@ -202,7 +221,7 @@ func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, registry Definiti
 	if err := guardWorkflowActionStepMatch(request.Payload, currentStep); err != nil {
 		return result, err
 	}
-	stepAllowed := guards.staleRecovery || guards.lateVerdictRecovery || definitionStepAllows(entry.Definition, currentStep, request.ActionID)
+	stepAllowed := guards.staleRecovery || guards.lateVerdictRecovery || guards.workerFailureRecovery || definitionStepAllows(entry.Definition, currentStep, request.ActionID)
 	if request.ActionID == "bind_evidence" {
 		var recoveryErr error
 		guards.recoveryBind, recoveryErr = guardRecoveryEvidenceBind(ctx, tx, request.WorkID, entry.Definition, currentStep, request.Payload, subject)

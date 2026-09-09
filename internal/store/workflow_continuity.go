@@ -26,6 +26,22 @@ type ContextCheckpoint struct {
 	PendingDecisions []string `json:"pending_decisions"`
 }
 
+type WorkflowDesignDecision struct {
+	ID        string   `json:"id"`
+	Question  string   `json:"question"`
+	Choice    string   `json:"choice"`
+	Rationale string   `json:"rationale"`
+	Rejected  []string `json:"rejected"`
+}
+
+type WorkflowDesignRecord struct {
+	WorkVersion int64                    `json:"work_version"`
+	Approach    string                   `json:"approach"`
+	Decisions   []WorkflowDesignDecision `json:"decisions"`
+	TouchedRefs []string                 `json:"touched_refs"`
+	RecordedAt  string                   `json:"recorded_at"`
+}
+
 type ContextBoundary struct {
 	BoundaryID         string `json:"boundary_id"`
 	Sequence           int64  `json:"sequence"`
@@ -52,6 +68,7 @@ type ContinuitySnapshot struct {
 	SpecMandate             []string                  `json:"spec_mandate"`
 	PendingOperatorDecision *WorkflowOperatorQuestion `json:"pending_operator_decision"`
 	LatestCheckpoint        *ContextCheckpoint        `json:"latest_checkpoint"`
+	DesignRecord            *WorkflowDesignRecord     `json:"design_record"`
 	UnresolvedFailure       *ContextFailure           `json:"unresolved_failure"`
 	Boundaries              []ContextBoundary         `json:"boundaries"`
 	BoundaryCount           int64                     `json:"boundary_count"`
@@ -243,6 +260,16 @@ func ReadWorkflowContinuity(ctx context.Context, s *Store, req ContinuityRequest
 		out.LatestCheckpoint = &checkpoint
 	} else if err != sql.ErrNoRows {
 		return out, wrapFailure(KindUnavailable, "C19.Continuity", "cannot read latest context checkpoint", true, "retry once the database is readable", err)
+	}
+	var design WorkflowDesignRecord
+	var designDecisions, designTouchedRefs string
+	if err := tx.QueryRowContext(ctx, `SELECT work_version,approach,decisions,touched_refs,recorded_at FROM workflow_design_records WHERE work_id=? ORDER BY work_version DESC LIMIT 1`, req.Work).Scan(&design.WorkVersion, &design.Approach, &designDecisions, &designTouchedRefs, &design.RecordedAt); err == nil {
+		if json.Unmarshal([]byte(designDecisions), &design.Decisions) != nil || json.Unmarshal([]byte(designTouchedRefs), &design.TouchedRefs) != nil {
+			return out, newFailure(KindInvariantViolation, "C19.Continuity", "design record projection contains malformed arrays", false, "rebuild projections from the event log")
+		}
+		out.DesignRecord = &design
+	} else if err != sql.ErrNoRows {
+		return out, wrapFailure(KindUnavailable, "C19.Continuity", "cannot read latest workflow design record", true, "retry once the database is readable", err)
 	}
 	var state string
 	if err := tx.QueryRowContext(ctx, `SELECT instance_state FROM workflow_instances WHERE work_id=?`, req.Work).Scan(&state); err != nil {

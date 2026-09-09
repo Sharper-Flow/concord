@@ -670,6 +670,23 @@
               "spec_mandate": [],
               "version": 1
             },
+            "design_record": {
+              "approach": "id-1",
+              "decisions": [
+                {
+                  "choice": "id-1",
+                  "id": "id-1",
+                  "question": "id-1",
+                  "rationale": "id-1",
+                  "rejected": []
+                }
+              ],
+              "recorded_at": "id-1",
+              "touched_refs": [
+                "id-1"
+              ],
+              "work_version": 1
+            },
             "latest_checkpoint": {
               "active_unit": "id-1",
               "attempt_epoch": 1,
@@ -761,6 +778,23 @@
               "route_conventions": [],
               "spec_mandate": [],
               "version": 1
+            },
+            "design_record": {
+              "approach": "id-1",
+              "decisions": [
+                {
+                  "choice": "id-1",
+                  "id": "id-1",
+                  "question": "id-1",
+                  "rationale": "id-1",
+                  "rejected": []
+                }
+              ],
+              "recorded_at": "id-1",
+              "touched_refs": [
+                "id-1"
+              ],
+              "work_version": 1
             },
             "latest_checkpoint": {
               "active_unit": "id-1",
@@ -854,6 +888,23 @@
               "spec_mandate": [],
               "version": 1
             },
+            "design_record": {
+              "approach": "id-1",
+              "decisions": [
+                {
+                  "choice": "id-1",
+                  "id": "id-1",
+                  "question": "id-1",
+                  "rationale": "id-1",
+                  "rejected": []
+                }
+              ],
+              "recorded_at": "id-1",
+              "touched_refs": [
+                "id-1"
+              ],
+              "work_version": 1
+            },
             "latest_checkpoint": {
               "active_unit": "id-1",
               "attempt_epoch": 1,
@@ -946,6 +997,23 @@
             "route_conventions": [],
             "spec_mandate": [],
             "version": 1
+          },
+          "design_record": {
+            "approach": "id-1",
+            "decisions": [
+              {
+                "choice": "id-1",
+                "id": "id-1",
+                "question": "id-1",
+                "rationale": "id-1",
+                "rejected": []
+              }
+            ],
+            "recorded_at": "id-1",
+            "touched_refs": [
+              "id-1"
+            ],
+            "work_version": 1
           },
           "latest_checkpoint": {
             "active_unit": "id-1",
@@ -3271,5 +3339,5 @@
       }
     }
   ],
-  "manifest_digest": "sha256:df03217928885f1ad4fee092013bb631819d27a7ac8aa821b00b0b34507a424d"
+  "manifest_digest": "sha256:6b566c63b7b2d9b454cf8ca36a7a716d01d37a7aa7b4b157418f2b1e7d6fa29a"
 }

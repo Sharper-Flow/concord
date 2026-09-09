@@ -25,9 +25,9 @@
     },
     {
       "function": "internal/store.workflowSemanticActionEvents",
-      "measured": 199,
+      "measured": 209,
       "state": "unmeasured",
-      "reason": "Flat dispatch over the workflow action vocabulary constructs typed events. The verdict arm checks evaluator authority through the shared store query, admits operator identity only after a recorded delivery exit, and handles evidence binding and bounded evaluation references. The accepted-attempt arm binds evidence under the lane capability's evidence kind."
+      "reason": "Flat dispatch over the workflow action vocabulary constructs typed events. The verdict arm checks evaluator authority through the shared store query, admits operator identity only after a recorded delivery exit, and handles evidence binding and bounded evaluation references. The accepted-attempt arm binds evidence under the lane capability's evidence kind. Score moved 199 to 209 when CD-0128 added the design-record arm to the implement-lane packet construction."
     }
   ]
 }

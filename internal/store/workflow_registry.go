@@ -566,6 +566,7 @@ func builtinWorkflowDefinitionsWithHistory() []WorkflowDefinition {
 			prePayloadImplementationV3(), prePayloadBreakFixV3(), prePayloadGenericOneOffV3(), prePayloadResearchV3(), prePayloadArchitectureSpikeV2(), prePayloadOpsRunbookV2(), prePayloadStaticAnalysisV2(),
 			preFailureImplementationV4(), preFailureBreakFixV4(), preFailureGenericOneOffV4(), preFailureResearchV4(), preFailureArchitectureSpikeV3(), preFailureOpsRunbookV3(), preFailureStaticAnalysisV3(),
 			releasedBreakFixV5(),
+			preDesignImplementationV5(),
 		},
 		BuiltinWorkflowDefinitions()...,
 	)
@@ -1084,7 +1085,11 @@ func nativeRunActionFields(statuses ...string) []WorkflowPayloadField {
 var builtinActionPolicies = map[string]builtinActionPolicy{
 	"record_proposal":  actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance, ActionEventGeneric),
 	"record_discovery": actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance, ActionEventGeneric),
-	"record_design":    actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance, ActionEventGeneric),
+	"record_design": actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance, ActionEventTyped,
+		WorkflowPayloadField{Name: "approach", ValueType: PayloadString, Required: true, MinLength: workflowInt(2), MaxLength: workflowInt(4096)},
+		actionArrayField("decisions", true, 1, 16, "workflow_design_decision"),
+		actionListField("touched_refs", true, 1, 64),
+	),
 	"approve_contract": actionPolicy(ActionInternalSQLite, ActionApprovalRequired, ActionAdvance, ActionEventTyped,
 		actionEnumField("route_convention", false, "workflow_action"),
 		actionListField("route_conventions", false, 0, 16),
@@ -1296,7 +1301,7 @@ func builtinImplementation(payloadContracts bool) WorkflowDefinition {
 	edges = addEdge(edges, "execution", "execution", WorkflowEdgeRetry)
 	actions := []string{"record_proposal", "record_discovery", "record_design", "approve_contract", "start_execution", "checkpoint_execution", "bind_evidence", "declare_impact", "link_successor", "record_delivery", "record_verdict", "confirm_premise", "complete"}
 	d := baseDefinition("workflow.implementation", WorkKindImplementation, graph(steps, edges, "release"), actions, []EvidenceKind{EvidenceVerification, EvidenceReview}, WorkflowOutcomeSchema{DefaultKind: PredicateCheck, AllowedKinds: []PredicateKind{PredicateExists, PredicateAbsent, PredicateCheck}, AllowedOutcomeTokens: []string{}, DecisionRecordRequired: false}, []WorkKind{WorkKindBreakFix, WorkKindResearch}, payloadContracts)
-	d.Version = 5
+	d.Version = 6
 	return withContinuityActions(d, payloadContracts)
 }
 func builtinBreakFix(payloadContracts bool) WorkflowDefinition {

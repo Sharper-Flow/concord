@@ -1,0 +1,39 @@
+{
+  "date": "2026-09-09T00:00:00Z",
+  "evidence": [
+    "docs/workflow-engine-contract.md",
+    "adapter/opencode/packet.ts"
+  ],
+  "home_domain_id": "product-root:concord",
+  "id": "CD-0128",
+  "kind": "decision",
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "CD-0013"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0043"
+    }
+  ],
+  "path": "docs/decisions/CD-0128-design-record-travels-with-implement-packet.md",
+  "product_wide_rationale": "The design record belongs to the implementation change and must travel as durable state, while lane methodology remains host-owned under CD-0043 D1.",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:919486c68164905d8e8d1f32fe87280a214149717227aa7c6f0eb4fc46415fd6",
+  "status": "accepted",
+  "summary": "Makes record_design a typed workflow action and projects its latest durable design record into implement lane context.",
+  "tags": [
+    "workflow",
+    "design",
+    "implement-lane",
+    "decision-record"
+  ],
+  "title": "The design record travels with the implement packet"
+}

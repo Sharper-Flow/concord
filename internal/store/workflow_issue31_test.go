@@ -9,6 +9,9 @@ import (
 )
 
 func issue31WorkflowAction(t *testing.T, s *Store, workID string, version int64, actionID, operationID string, actor WorkflowActor) int64 {
+	if actionID == "record_design" {
+		return issue31WorkflowActionWithPayload(t, s, workID, version, actionID, operationID, actor, json.RawMessage(`{"approach":"The recorded approach is the implementation boundary.","decisions":[{"id":"decision:issue31","question":"What crosses into execution?","choice":"The typed design record.","rationale":"The worker must receive the approved decision.","rejected":[]}],"touched_refs":["path:issue31"]}`))
+	}
 	return issue31WorkflowActionWithPayload(t, s, workID, version, actionID, operationID, actor, json.RawMessage(`{}`))
 }
 
@@ -93,12 +96,12 @@ func TestWorkflowActionSemanticEventsAreFollowedByUniversalCompletion(t *testing
 	}
 	approval := json.RawMessage(`{"spec_mandate":[],"law_modifies":[],"architecture_binding":{"domain_registry_content_hash":"sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","home_domain_id":"root","affected_domain_ids":["root"],"domain_modifies":[],"domain_relation_modifies":[],"law_additions":[],"verification_obligations":[]}}`)
 	version = issue31WorkflowActionWithPayload(t, s, "workflow-issue31-actions", version, "approve_contract", "issue31-approve", actor, approval)
-	if version != 9 {
-		t.Fatalf("approve_contract resulting version=%d, want 9", version)
+	if version != 10 {
+		t.Fatalf("approve_contract resulting version=%d, want 10", version)
 	}
 	version = issue31WorkflowAction(t, s, "workflow-issue31-actions", version, "bind_evidence", "issue31-evidence", actor)
-	if version != 11 {
-		t.Fatalf("bind_evidence resulting version=%d, want 11", version)
+	if version != 12 {
+		t.Fatalf("bind_evidence resulting version=%d, want 12", version)
 	}
 	rows, err := s.DatabaseForTesting().Query(`SELECT kind FROM domain_events WHERE subject_id=? AND (kind=? OR kind=? OR kind=?) ORDER BY seq`, "workflow-issue31-actions", WorkflowContractApproved, WorkflowEvidenceBound, WorkflowActionCompleted)
 	if err != nil {

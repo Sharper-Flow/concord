@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 )
 
 // seedLinearWorkItem seeds a work item with title, value statement, and primary
@@ -245,5 +246,98 @@ func TestLinearCompleteConfirmsLinkIdentity(t *testing.T) {
 	}
 	if linkState != LinearLinkConfirmed || remoteUUID != identity.RemoteUUID || humanKey != "SHA-1" || url != identity.URL || contentHash != identity.ContentHash {
 		t.Fatalf("link = %s/%s/%s/%s, want confirmed with identity", linkState, remoteUUID, humanKey, url)
+	}
+}
+
+func TestLinearUpdateCompletionRefreshesConfirmedLink(t *testing.T) {
+	s := openTemp(t)
+	ctx := context.Background()
+	setupLinearProduct(t, s, "update-product")
+	setupLinearConnectionResource(t, s, "update-product", map[string]any{"linear": map[string]any{"workspace_url": "https://linear.app/example", "team_id": "team-uuid-1", "auth_mode": "personal_api_key"}})
+	if _, err := s.SetProductPlanningMode(ctx, "update-product", PlanningModeLinear, "pilot", "operator", 2); err != nil {
+		t.Fatal(err)
+	}
+	seedLinearWorkItem(t, s, "update-work", "update-product-project", "Updated title", "Updated value")
+	create, err := s.EnqueueLinearIssueForWork(ctx, "update-work", LinearOpIssueCreate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.ClaimLinearOperations(ctx, 1); err != nil {
+		t.Fatal(err)
+	}
+	first := LinearRemoteIdentity{RemoteUUID: "remote-1", HumanKey: "SHA-1", URL: "https://linear.app/example/issue/SHA-1", RemoteUpdatedAt: "2026-09-09T01:00:00Z", ContentHash: "sha256:" + strings.Repeat("1", 64)}
+	if err := s.CompleteLinearOperation(ctx, create.OperationID, first); err != nil {
+		t.Fatal(err)
+	}
+
+	update, err := s.EnqueueLinearIssueForWork(ctx, "update-work", LinearOpIssueUpdate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	claimed, err := s.ClaimLinearOperations(ctx, 1)
+	if err != nil || len(claimed) != 1 || claimed[0].OperationID != update.OperationID {
+		t.Fatalf("claimed update = %+v, error = %v", claimed, err)
+	}
+	second := LinearRemoteIdentity{RemoteUUID: "remote-1", HumanKey: "SHA-1", URL: "https://linear.app/example/issue/SHA-1", RemoteUpdatedAt: "2026-09-09T02:00:00Z", ContentHash: "sha256:" + strings.Repeat("2", 64)}
+	if err := s.CompleteLinearOperation(ctx, update.OperationID, second); err != nil {
+		t.Fatalf("update completion error = %v", err)
+	}
+
+	var outboxState, linkState, remoteUUID, updatedAt, contentHash string
+	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT state FROM linear_outbox WHERE operation_id=?`, update.OperationID).Scan(&outboxState); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT link_state, remote_issue_uuid, remote_updated_at, content_hash FROM linear_issue_links WHERE work_id=?`, "update-work").Scan(&linkState, &remoteUUID, &updatedAt, &contentHash); err != nil {
+		t.Fatal(err)
+	}
+	if outboxState != LinearOutboxDone || linkState != LinearLinkConfirmed || remoteUUID != second.RemoteUUID || updatedAt != second.RemoteUpdatedAt || contentHash != second.ContentHash {
+		t.Fatalf("completion state = %s/%s/%s/%s/%s", outboxState, linkState, remoteUUID, updatedAt, contentHash)
+	}
+}
+
+func TestLinearTerminalStatusUsesDeclaredConnectionPolicy(t *testing.T) {
+	s := openTemp(t)
+	ctx := context.Background()
+	setupLinearProduct(t, s, "status-product")
+	setupLinearConnectionResource(t, s, "status-product", map[string]any{"linear": map[string]any{
+		"workspace_url": "https://linear.app/example", "team_id": "team-uuid-1", "auth_mode": "personal_api_key",
+		"status_ids": map[string]string{"cancelled": "state-cancelled", "completed": "state-completed", "superseded": "state-superseded"},
+	}})
+	if _, err := s.SetProductPlanningMode(ctx, "status-product", PlanningModeLinear, "pilot", "operator", 2); err != nil {
+		t.Fatal(err)
+	}
+	seedLinearWorkItem(t, s, "status-work", "status-product-project", "Terminal title", "Terminal value")
+	if err := ApplyOperation(ctx, s, Operation{Events: []Event{{
+		EventID: "status-work-cancelled", Kind: "work.transitioned", SubjectType: SubjectWorkItem, SubjectID: "status-work", Actor: "operator", OccurredAt: time.Unix(1, 0).UTC(), PayloadVersion: 1,
+		Payload: json.RawMessage(`{"from":"needed","to":"cancelled","reason":"cancelled for test","expected_version":1,"resulting_version":2}`),
+	}}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "status-work"): 1}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.RecordLinearLink(ctx, "status-work", "remote-status", "SHA-2", "https://linear.app/example/issue/SHA-2", "", "", LinearLinkUnpublished); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.RecordLinearLink(ctx, "status-work", "remote-status", "SHA-2", "https://linear.app/example/issue/SHA-2", "", "", LinearLinkPending); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.RecordLinearLink(ctx, "status-work", "remote-status", "SHA-2", "https://linear.app/example/issue/SHA-2", "", "", LinearLinkConfirmed); err != nil {
+		t.Fatal(err)
+	}
+	op, err := s.EnqueueLinearIssueForWork(ctx, "status-work", LinearOpIssueUpdate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload string
+	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT payload FROM linear_outbox WHERE operation_id=?`, op.OperationID).Scan(&payload); err != nil {
+		t.Fatal(err)
+	}
+	var decoded struct {
+		Lifecycle string `json:"lifecycle"`
+		StatusID  string `json:"status_id"`
+	}
+	if err := json.Unmarshal([]byte(payload), &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if decoded.Lifecycle != "cancelled" || decoded.StatusID != "state-cancelled" {
+		t.Fatalf("terminal payload = %+v", decoded)
 	}
 }

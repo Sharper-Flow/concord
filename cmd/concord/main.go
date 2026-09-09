@@ -1002,6 +1002,8 @@ type linearDrainPayload struct {
 	Title       string `json:"title"`
 	Description string `json:"description"`
 	TeamID      string `json:"team_id"`
+	Lifecycle   string `json:"lifecycle,omitempty"`
+	StatusID    string `json:"status_id,omitempty"`
 }
 
 // drainUpdate resolves the linked remote identity and executes issueUpdate.
@@ -1013,7 +1015,7 @@ func drainUpdate(ctx context.Context, s *store.Store, client *linearclient.Clien
 	if link.RemoteIssueUUID == "" || link.RemoteIssueUUID == payload.ClientUUID {
 		return linearclient.Issue{}, fmt.Errorf("link has no confirmed remote issue to update")
 	}
-	return client.UpdateIssue(ctx, link.RemoteIssueUUID, linearclient.UpdateIssueInput{Title: payload.Title, Description: payload.Description})
+	return client.UpdateIssue(ctx, link.RemoteIssueUUID, linearclient.UpdateIssueInput{Title: payload.Title, Description: payload.Description, StatusID: payload.StatusID})
 }
 
 // linearContentHash digests the synchronized content so a later reconciliation

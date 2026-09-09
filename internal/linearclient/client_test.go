@@ -77,14 +77,14 @@ func TestUpdateIssueAddressesRemoteIdentity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	issue, err := client.UpdateIssue(context.Background(), "68d52710-76d9-4b41-ba45-778511d0e2ed", UpdateIssueInput{Title: "Revised title", Description: "Revised description"})
+	issue, err := client.UpdateIssue(context.Background(), "68d52710-76d9-4b41-ba45-778511d0e2ed", UpdateIssueInput{Title: "Revised title", Description: "Revised description", StatusID: "state-cancelled"})
 	if err != nil {
 		t.Fatalf("UpdateIssue() error = %v", err)
 	}
 	if issue.Identifier != "SHA-1" {
 		t.Fatalf("issue = %+v", issue)
 	}
-	for _, want := range []string{`"id":"68d52710-76d9-4b41-ba45-778511d0e2ed"`, `"title":"Revised title"`, "issueUpdate"} {
+	for _, want := range []string{`"id":"68d52710-76d9-4b41-ba45-778511d0e2ed"`, `"title":"Revised title"`, `"stateId":"state-cancelled"`, "issueUpdate"} {
 		if !strings.Contains(gotBody, want) {
 			t.Fatalf("request body %q lacks %q", gotBody, want)
 		}

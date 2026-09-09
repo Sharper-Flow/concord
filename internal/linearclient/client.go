@@ -81,6 +81,7 @@ type CreateIssueInput struct {
 type UpdateIssueInput struct {
 	Title       string `json:"title"`
 	Description string `json:"description"`
+	StatusID    string `json:"stateId,omitempty"`
 }
 
 // Issue is the remote identity a completed operation records.

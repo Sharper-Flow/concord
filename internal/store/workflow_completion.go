@@ -653,7 +653,21 @@ func workflowCompletionActorDistinct(ctx context.Context, tx *sql.Tx, workID, ve
 
 func workflowActorsDistinct(ctx context.Context, tx *sql.Tx, workID, verdictActor, verdictModel string, requireModelDistinct bool, operation string) error {
 	var executing WorkflowActor
-	if err := tx.QueryRowContext(ctx, `SELECT a.actor_ref,a.principal_ref,a.client_ref,a.agent_ref,a.session_ref,a.actor_class,i.execution_model FROM workflow_instances i JOIN workflow_actors a ON a.actor_ref=i.execution_actor_ref WHERE i.work_id=?`, workID).Scan(&executing.ActorRef, &executing.PrincipalRef, &executing.ClientRef, &executing.AgentRef, &executing.SessionRef, &executing.ActorClass, &executing.Model); err != nil {
+	err := tx.QueryRowContext(ctx, `SELECT a.actor_ref,a.principal_ref,a.client_ref,a.agent_ref,a.session_ref,a.actor_class,i.execution_model FROM workflow_instances i JOIN workflow_actors a ON a.actor_ref=i.execution_actor_ref WHERE i.work_id=?`, workID).Scan(&executing.ActorRef, &executing.PrincipalRef, &executing.ClientRef, &executing.AgentRef, &executing.SessionRef, &executing.ActorClass, &executing.Model)
+	if err == sql.ErrNoRows {
+		// Instances pinned before selector pinning carry no executor tuple.
+		// The selecting actor from the immutable definition event is the
+		// same identity the fold now pins, so distinctness evaluates
+		// against it instead of refusing outright (#970).
+		derived, found, deriveErr := workflowSelectingActorTx(ctx, tx, workID)
+		if deriveErr != nil {
+			return deriveErr
+		}
+		if !found {
+			return newFailure(KindUnauthorized, operation, "executing actor tuple is incomplete", false, "contact_operator")
+		}
+		executing = derived
+	} else if err != nil {
 		return newFailure(KindUnauthorized, operation, "executing actor tuple is incomplete", false, "contact_operator")
 	}
 	var verdict WorkflowActor

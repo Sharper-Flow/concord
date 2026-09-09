@@ -72,7 +72,14 @@ func pinnedWorkflowDefinitionTx(ctx context.Context, tx *sql.Tx, workID string) 
 // re-initialization: the instance takes the new definition's start step, so
 // the pair stays coherent rather than stranding a step the new definition
 // does not declare.
-func pinWorkflowInstanceTx(ctx context.Context, tx *sql.Tx, workID string, definition RegisteredDefinition) error {
+//
+// The selecting session is also pinned as the executing actor. A lane-less
+// instance never runs the fenced action that would otherwise assign one, so
+// without this pin every distinctness check on it fails for a missing
+// executor tuple (#970). The pin is conditional on the actor row existing:
+// legacy definition events can name an unrecorded actor, and those keep the
+// empty executor rather than failing the fold.
+func pinWorkflowInstanceTx(ctx context.Context, tx *sql.Tx, workID string, definition RegisteredDefinition, selectingActor string) error {
 	start, err := workflowDefinitionStartStep(definition.Definition)
 	if err != nil {
 		return err
@@ -81,7 +88,41 @@ func pinWorkflowInstanceTx(ctx context.Context, tx *sql.Tx, workID string, defin
 	if err != nil {
 		return workflowProjectionError(err, "cannot record workflow definition")
 	}
+	if selectingActor == "" {
+		return nil
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE workflow_instances SET execution_actor_ref=? WHERE work_id=? AND EXISTS(SELECT 1 FROM workflow_actors WHERE actor_ref=?)`, selectingActor, workID, selectingActor); err != nil {
+		return workflowProjectionError(err, "cannot record the selecting workflow actor")
+	}
 	return nil
+}
+
+// workflowSelectingActorTx derives the executing identity for instances whose
+// projection predates selector pinning (#970): the actor on the most recent
+// definition_selected event chose the pinned definition, and the immutable
+// event order makes the derivation stable under rebuild. An unrecorded or
+// absent actor yields found=false so callers keep their refusing behavior.
+func workflowSelectingActorTx(ctx context.Context, q queryer, workID string) (WorkflowActor, bool, error) {
+	var ref string
+	err := q.QueryRowContext(ctx, `SELECT actor FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? ORDER BY seq DESC LIMIT 1`, string(SubjectWorkItem), workID, WorkflowDefinitionSelected).Scan(&ref)
+	if err == sql.ErrNoRows {
+		return WorkflowActor{}, false, nil
+	}
+	if err != nil {
+		return WorkflowActor{}, false, wrapFailure(KindUnavailable, "workflow_step", "cannot read the selecting workflow actor", true, "retry once the database is readable", err)
+	}
+	if ref == "" {
+		return WorkflowActor{}, false, nil
+	}
+	var actor WorkflowActor
+	err = q.QueryRowContext(ctx, `SELECT actor_ref,principal_ref,client_ref,agent_ref,session_ref,actor_class FROM workflow_actors WHERE actor_ref=?`, ref).Scan(&actor.ActorRef, &actor.PrincipalRef, &actor.ClientRef, &actor.AgentRef, &actor.SessionRef, &actor.ActorClass)
+	if err == sql.ErrNoRows {
+		return WorkflowActor{}, false, nil
+	}
+	if err != nil {
+		return WorkflowActor{}, false, wrapFailure(KindUnavailable, "workflow_step", "cannot read the selecting workflow actor tuple", true, "retry once the database is readable", err)
+	}
+	return actor, true, nil
 }
 
 // startWorkflowInstanceStepTx moves an instance onto the step an action

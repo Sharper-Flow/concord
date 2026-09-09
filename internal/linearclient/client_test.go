@@ -48,8 +48,8 @@ func TestCreateIssueSendsBearerAndClientUUID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateIssue() error = %v", err)
 	}
-	if gotAuth != "Bearer lin_api_test" {
-		t.Fatalf("Authorization = %q", gotAuth)
+	if gotAuth != "lin_api_test" {
+		t.Fatalf("Authorization = %q, want the raw key without a Bearer prefix", gotAuth)
 	}
 	for _, want := range []string{`"id":"0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0"`, `"teamId":"68d52710-76d9-4b41-ba45-778511d0e2ed"`, `"title":"Example issue"`, "issueCreate"} {
 		if !strings.Contains(gotBody, want) {
@@ -101,8 +101,10 @@ func TestFailureClassificationIsTyped(t *testing.T) {
 	}{
 		{"auth refused", http.StatusUnauthorized, `{"errors":[{"message":"unauthorized"}]}`, "", KindAuthRefused},
 		{"rate limited", http.StatusTooManyRequests, ``, "7", KindRateLimited},
+		{"rate limited as 400", http.StatusBadRequest, `{"errors":[{"message":"You have exceeded your request quota. RATELIMITED"}]}`, "", KindRateLimited},
 		{"graphql error", http.StatusOK, `{"errors":[{"message":"team not found"}]}`, "", KindGraphqlError},
 		{"mutation reported failure", http.StatusOK, `{"data":{"issueCreate":{"success":false}}}`, "", KindGraphqlError},
+		{"error body surfaces", http.StatusBadRequest, `{"errors":[{"message":"an API key is not a Bearer token"}]}`, "", KindGraphqlError},
 		{"malformed body", http.StatusOK, `not-json`, "", KindMalformedResponse},
 	}
 	for _, tc := range cases {
@@ -127,7 +129,10 @@ func TestFailureClassificationIsTyped(t *testing.T) {
 			if !failureAs(err, &failure) || failure.Kind != tc.wantKind {
 				t.Fatalf("error = %v, want kind %s", err, tc.wantKind)
 			}
-			if tc.wantKind == KindRateLimited && failure.RetryAfter != 7*time.Second {
+			if tc.name == "error body surfaces" && !strings.Contains(failure.Detail, "not a Bearer token") {
+				t.Fatalf("detail = %q, want the server message surfaced", failure.Detail)
+			}
+			if tc.wantKind == KindRateLimited && tc.retryAfter != "" && failure.RetryAfter != 7*time.Second {
 				t.Fatalf("retry-after = %v, want 7s", failure.RetryAfter)
 			}
 		})

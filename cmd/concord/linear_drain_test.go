@@ -69,7 +69,7 @@ func TestLinearEnqueueAndDrainCLI(t *testing.T) {
 
 	var sawAuth bool
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("Authorization") == "Bearer lin_api_cli_test" {
+		if r.Header.Get("Authorization") == "lin_api_cli_test" {
 			sawAuth = true
 		}
 		w.Header().Set("Content-Type", "application/json")

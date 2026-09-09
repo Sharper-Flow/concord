@@ -442,6 +442,59 @@ func TestProductStageUpdateCLIRecordsPromotion(t *testing.T) {
 	}
 }
 
+func TestProductModeSetAndLinearHealthCLI(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "concord.db")
+	seedCLIProduct(t, dbPath, "mode-set-product", "mode-set-project")
+	runOperatorJSON(t, dbPath, []string{"product-mode-set"}, map[string]any{
+		"product_id": "mode-set-product", "planning_mode": "linear_enabled",
+		"reason": "CD-0121 operator selected Linear", "expected_version": 2,
+	})
+	s, err := store.Open(context.Background(), dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	var gotKind, mode string
+	var version int
+	if err := s.DatabaseForTesting().QueryRow(`SELECT e.kind, p.planning_mode, p.version FROM domain_events e JOIN products p ON p.id=e.subject_id WHERE e.kind='product.planning_mode_set' AND e.subject_id='mode-set-product'`).Scan(&gotKind, &mode, &version); err != nil {
+		t.Fatalf("no product.planning_mode_set event: %v", err)
+	}
+	if mode != "linear_enabled" || version != 3 {
+		t.Fatalf("planning mode after CLI set: %s v%d", mode, version)
+	}
+	// The health read reports the enabled mode with missing setup; it never
+	// falls back to local_only (CD-0121 D3).
+	var out, errOut bytes.Buffer
+	t.Setenv(dbOverrideEnv, dbPath)
+	if code := runWithInput([]string{"linear", "health"}, strings.NewReader(`{"product_id":"mode-set-product"}`), &out, &errOut); code != 0 {
+		t.Fatalf("linear health exit=%d stderr=%q", code, errOut.String())
+	}
+	var health struct {
+		OK     bool `json:"ok"`
+		Health struct {
+			PlanningMode    string         `json:"planning_mode"`
+			ConnectionState string         `json:"connection_state"`
+			OutboxDepth     int            `json:"outbox_depth"`
+			LinkCounts      map[string]int `json:"link_counts"`
+		} `json:"health"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &health); err != nil {
+		t.Fatalf("health output %q: %v", out.String(), err)
+	}
+	if !health.OK || health.Health.PlanningMode != "linear_enabled" || health.Health.ConnectionState != "absent" || health.Health.OutboxDepth != 0 || len(health.Health.LinkCounts) != 4 {
+		t.Fatalf("health = %+v", health)
+	}
+	// A refusal stays typed: the closed enum is enforced before an event lands.
+	out.Reset()
+	errOut.Reset()
+	if code := runWithInput([]string{"product-mode-set"}, strings.NewReader(`{"product_id":"mode-set-product","planning_mode":"github","expected_version":3,"reason":"x"}`), &out, &errOut); code == 0 {
+		t.Fatal("invalid planning mode must exit non-zero")
+	}
+	if !strings.Contains(errOut.String(), "planning mode is not recognized") {
+		t.Fatalf("stderr=%q", errOut.String())
+	}
+}
+
 func TestResourceCreateCLIRecordsExpectedEvent(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "concord.db")
 	seedCLIProduct(t, dbPath, "resource-create-product", "resource-create-project")

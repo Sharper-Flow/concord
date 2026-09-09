@@ -53,14 +53,21 @@ func ReadWorkflowVerdict(ctx context.Context, s *Store, workID string) (*Workflo
 
 // WorkflowExecutingIdentity returns the agent and session refs of the actor
 // recorded as executing a work item's workflow. found is false when the work
-// has no workflow instance or no recorded executing actor.
+// has no workflow instance or no recorded executing actor. Instances whose
+// projection predates selector pinning derive the same identity from the
+// definition-selected event, so one notion of executing identity serves every
+// caller (#970).
 func WorkflowExecutingIdentity(ctx context.Context, s *Store, workID string) (agentRef, sessionRef string, found bool, err error) {
 	if s == nil || s.db == nil {
 		return "", "", false, newFailure(KindUnavailable, "workflow_verdict", "store is not open", false, "open the authority database")
 	}
 	err = s.db.QueryRowContext(ctx, `SELECT a.agent_ref, a.session_ref FROM workflow_instances i JOIN workflow_actors a ON a.actor_ref = i.execution_actor_ref WHERE i.work_id=?`, workID).Scan(&agentRef, &sessionRef)
 	if err == sql.ErrNoRows {
-		return "", "", false, nil
+		derived, derivedFound, deriveErr := workflowSelectingActorTx(ctx, s.db, workID)
+		if deriveErr != nil || !derivedFound {
+			return "", "", false, deriveErr
+		}
+		return derived.AgentRef, derived.SessionRef, true, nil
 	}
 	if err != nil {
 		return "", "", false, wrapFailure(KindUnavailable, "workflow_verdict", "cannot read executing identity", true, "retry once the database is readable", err)

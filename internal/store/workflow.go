@@ -561,7 +561,7 @@ func foldWorkflowDefinitionSelected(ctx context.Context, tx *sql.Tx, event Event
 	if started > 0 {
 		return newFailure(KindInvalidOperation, "fold_event", "definition cannot change after execution starts", false, "supersede the workflow contract instead")
 	}
-	return pinWorkflowInstanceTx(ctx, tx, event.SubjectID, registered)
+	return pinWorkflowInstanceTx(ctx, tx, event.SubjectID, registered, event.Actor)
 }
 
 func workflowProjectionError(err error, message string) error {

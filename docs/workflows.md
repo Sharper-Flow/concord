@@ -205,7 +205,7 @@ implementation change.
 | **Architecture spike** | Architectural decision / de-risking | Frame → research → options → optional throwaway POC → decision record → reviewer → user acceptance; flat (has tasks, no sub-spikes); no timebox | Peer to the implementation change. Distinct from research: research *may* resolve to "no change"; a spike *must* resolve to a decision, and that decision **binds until superseded**. Full model: [`architecture-spike.md`](./architecture-spike.md). |
 | **Static-analysis workflows** | Code-quality / architecture analysis | Coordinates an external analysis run and records its report and verdict | External analysis tools own scanner implementation; Concord owns the tracked workflow. |
 | **Ops runbook** | Operational procedure | Steps (plan/approval/execute/health/rollback/cleanup); evidence | inventory §2.4 / §3.5. |
-| **Break-fix workflow** | Defect / RCA | RCA → fix → verify; GitHub issue as canonical home | Builds on cross-project GH-issue integration. |
+| **Break-fix workflow** | Defect / RCA | RCA → fix → verify; the Product's selected planning authority owns the defect | [Product-scoped planning and local-only operation](development-authority.md). |
 | **Database workflow** | Schema/data migration | Ops-runbook shape with migration-specific rollback | Reuses ops runbook primitives. |
 | **Configuration workflow** | Infra/tooling config | Lightweight change or ops-runbook shape | Reproducible, auditable. |
 

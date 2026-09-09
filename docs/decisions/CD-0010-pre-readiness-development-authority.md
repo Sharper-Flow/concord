@@ -5,6 +5,10 @@
 **Approval:** Operator plan approval.
 **Type:** Development-authority decision.
 
+**Current applicability:** CD-0089 supersedes the self-hosting prohibition.
+[CD-0121](CD-0121-product-scoped-planning-authority.md) amends planning authority
+and issue linkage. Other authority boundaries remain in force.
+
 ## Decision
 
 Before Concord reaches replacement readiness, public GitHub and Git remain the

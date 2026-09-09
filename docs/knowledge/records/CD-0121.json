@@ -1,0 +1,40 @@
+{
+  "date": "2026-09-08T00:00:00Z",
+  "evidence": [
+    "docs/development-authority.md",
+    "AGENTS.md"
+  ],
+  "home_domain_id": "product-root:concord",
+  "id": "CD-0121",
+  "kind": "decision",
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "CD-0010"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0089"
+    }
+  ],
+  "path": "docs/decisions/CD-0121-product-scoped-planning-authority.md",
+  "product_wide_rationale": "Planning-provider selection applies per Product across development and coordination. It is not owned by one runtime Domain and must preserve workflow, repository-review, and Product-law authority across all Domains.",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:cf57bbb011e460b416dde48a45131d821bc112d55f8cf1706f4f54a92ac7e3bb",
+  "status": "accepted",
+  "summary": "Makes Linear optional per Product, permits local-only planning without an external issue prerequisite, preserves other authority boundaries, and separates policy adoption from verified integration activation.",
+  "tags": [
+    "authority",
+    "planning",
+    "linear",
+    "local-only",
+    "product-scope"
+  ],
+  "title": "Product-scoped planning authority"
+}

@@ -151,3 +151,24 @@ func TestIssue933PremiseRevisionUsesTypedContractSupersession(t *testing.T) {
 		t.Fatalf("post-correction question = %+v, want corrected premise", question)
 	}
 }
+
+func TestWorkflowActionPreflightResolvesContractCorrectionAtCheckpoint(t *testing.T) {
+	const workID = "preflight-supersede-at-checkpoint"
+	s, owner := seedItemAtAcceptance(t, workID, false)
+	if err := runVerdictActionAs(t, s, workID, "record_verdict", json.RawMessage(`{"contract_version":1,"predicate_id":"predicate:primary","verdict_kind":"ok"}`), 0, verdictReviewer(t, workID)); err != nil {
+		t.Fatalf("record compatible verdict: %v", err)
+	}
+
+	version := verdictItemVersion(t, s, workID)
+	payload := json.RawMessage(`{"contract_version":2,"premise":"corrected premise","outcome_predicates":[{"predicate_id":"predicate:primary","ordinal":0,"outcome_kind":"check","outcome_payload":{"kind":"check","check_ref":"check:workflow","immutable_subject_ref":"commit:` + workID + `","expected_result":"pass"}}],"required_evidence":["verification"],"route_conventions":[],"spec_mandate":[],"law_modifies":[],"rigor_class":"prototype_internal","supersede_reason":"correct the accepted premise","audit_evidence":["evidence:preflight"]}`)
+	request := WorkflowActionPreflightRequest{WorkID: workID, ExpectedVersion: version, StepID: "acceptance", ActionID: "supersede_contract", Payload: payload, Actor: owner}
+	if err := WorkflowActionPreflight(context.Background(), s, request); err != nil {
+		t.Fatalf("contract correction preflight: %v", err)
+	}
+
+	request.ActionID = "undeclared_action"
+	request.Payload = json.RawMessage(`{}`)
+	if err := WorkflowActionPreflight(context.Background(), s, request); err == nil {
+		t.Fatal("undeclared action passed preflight")
+	}
+}

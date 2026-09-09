@@ -380,7 +380,7 @@ func workflowActionPreflightTx(ctx context.Context, tx *sql.Tx, registry Definit
 	staleRecovery := false
 	lateVerdictRecovery := false
 	if request.ActionID == "record_verdict" {
-		lateVerdictRecovery, err = workflowLateVerdictRecoveryAvailable(ctx, tx, request.WorkID, entry.Definition, currentStep)
+		lateVerdictRecovery, err = workflowLateVerdictRecoveryForActionPayload(ctx, tx, request.WorkID, entry.Definition, currentStep, request.Payload)
 		if err != nil {
 			return RegisteredDefinition{}, err
 		}

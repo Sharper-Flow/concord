@@ -862,6 +862,10 @@ func latestWorkflowVerdicts(ctx context.Context, q queryer, workID string, contr
 }
 
 func workflowLateVerdictRecoveryAvailable(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, currentStep string) (bool, error) {
+	return workflowLateVerdictRecoveryForPredicate(ctx, q, workID, definition, currentStep, "", 0)
+}
+
+func workflowLateVerdictRecoveryForPredicate(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, currentStep, requestedPredicateID string, requestedContractVersion int64) (bool, error) {
 	if !containsString(definition.StepGraph.TerminalSteps, currentStep) {
 		return false, nil
 	}
@@ -882,6 +886,9 @@ func workflowLateVerdictRecoveryAvailable(ctx context.Context, q queryer, workID
 		}
 		return false, wrapFailure(KindUnavailable, "workflow_action", "cannot read the active workflow contract", true, "retry once the workflow contract is readable", err)
 	}
+	if requestedPredicateID != "" && requestedContractVersion != contractVersion {
+		return false, nil
+	}
 	verdicts, err := latestWorkflowVerdicts(ctx, q, workID, contractVersion)
 	if err != nil {
 		return false, err
@@ -899,6 +906,9 @@ func workflowLateVerdictRecoveryAvailable(ctx context.Context, q queryer, workID
 		var predicateID string
 		if err := rows.Scan(&predicateID); err != nil {
 			return false, wrapFailure(KindUnavailable, "workflow_action", "cannot read active workflow predicate", true, "retry once the workflow contract is readable", err)
+		}
+		if requestedPredicateID != "" && predicateID != requestedPredicateID {
+			continue
 		}
 		verdict, found := latest[predicateID]
 		if !found || verdict.VerdictKind != "ok" || verdict.IncomparableWithApproved {

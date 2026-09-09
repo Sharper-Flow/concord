@@ -353,12 +353,72 @@ func TestReclaimWorktreeDerivesFromGitFacts(t *testing.T) {
 	if _, still := git.worktrees[req.Path]; still {
 		t.Fatal("native worktree was not removed")
 	}
+	replay, err := s.ReclaimWorktree(context.Background(), reclaim)
+	if err != nil || replay.State != worktreeEntryReclaimed {
+		t.Fatalf("same-generation reclaim replay=%+v err=%v", replay, err)
+	}
 	// A second claim after reclamation is allowed.
 	third := baseClaim(git)
 	third.OpID = "wt-op-3"
 	third.ExpectedVersion = 4
 	if _, err := s.ClaimWorktree(context.Background(), third); err != nil {
 		t.Fatalf("re-claim after reclaim failed: %v", err)
+	}
+	stalePayload := jsonRaw(`{"expected_version":5,"resulting_version":6,"set_id":"` + WorktreeSetID("work-w") + `","project_id":"project-w","claim_op_id":"wt-op-1","git_facts":{}}`)
+	stale := Event{EventID: "wt-op-1:stale-replay", Kind: "work.worktree_reclaimed", SubjectType: SubjectWorkItem, SubjectID: "work-w", Actor: "principal-1", OccurredAt: time.Unix(30, 0).UTC(), PayloadVersion: 1, Payload: stalePayload}
+	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{stale}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "work-w"): 5}}); err == nil {
+		t.Fatal("a reclaim event from an older claim generation must be refused")
+	}
+	entries, err := s.WorktreeEntries(context.Background(), "work-w")
+	if err != nil || len(entries) != 1 || entries[0].ClaimOpID != "wt-op-3" || entries[0].State != worktreeEntryActive {
+		t.Fatalf("stale replay changed the later claim: entries=%+v err=%v", entries, err)
+	}
+	secondReclaim := reclaim
+	secondReclaim.RequestID = "req-3"
+	secondReclaim.ExpectedVersion = 5
+	secondReclaim.Now = time.Unix(40, 0).UTC()
+	if _, err := s.ReclaimWorktree(context.Background(), secondReclaim); err != nil {
+		t.Fatalf("second generation reclaim failed: %v", err)
+	}
+	rows, err := s.db.Query(`SELECT event_id FROM domain_events WHERE kind='work.worktree_reclaimed' ORDER BY seq`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	var eventIDs []string
+	for rows.Next() {
+		var eventID string
+		if err := rows.Scan(&eventID); err != nil {
+			t.Fatal(err)
+		}
+		eventIDs = append(eventIDs, eventID)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	if len(eventIDs) != 2 || eventIDs[0] == eventIDs[1] || !strings.Contains(eventIDs[0], "wt-op-1") || !strings.Contains(eventIDs[1], "wt-op-3") {
+		t.Fatalf("reclaim events=%v, want one event per claim generation", eventIDs)
+	}
+}
+
+func TestReclaimWorktreeReplaysVersionOnePayload(t *testing.T) {
+	s, git, _ := worktreeFixture(t)
+	req := baseClaim(git)
+	if _, err := s.ClaimWorktree(context.Background(), req); err != nil {
+		t.Fatal(err)
+	}
+	event := Event{
+		EventID: "legacy-worktree-reclaim",
+		Kind:    "work.worktree_reclaimed", SubjectType: SubjectWorkItem, SubjectID: "work-w",
+		Actor: "principal-1", OccurredAt: time.Unix(20, 0).UTC(), PayloadVersion: 1,
+		Payload: jsonRaw(`{"expected_version":3,"resulting_version":4,"set_id":"` + WorktreeSetID("work-w") + `","project_id":"project-w","git_facts":{}}`),
+	}
+	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "work-w"): 3}}); err != nil {
+		t.Fatalf("version-one reclaim replay failed: %v", err)
+	}
+	entries, err := s.WorktreeEntries(context.Background(), "work-w")
+	if err != nil || len(entries) != 1 || entries[0].State != worktreeEntryReclaimed {
+		t.Fatalf("entries after version-one replay=%+v err=%v", entries, err)
 	}
 }
 

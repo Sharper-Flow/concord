@@ -74,6 +74,7 @@ type worktreeReclaimedPayload struct {
 	ResultingVersion int64           `json:"resulting_version"`
 	SetID            string          `json:"set_id"`
 	ProjectID        string          `json:"project_id"`
+	ClaimOpID        string          `json:"claim_op_id,omitempty"`
 	GitFacts         json.RawMessage `json:"git_facts"`
 }
 
@@ -130,16 +131,52 @@ func foldWorktreeReclaimed(ctx context.Context, tx *sql.Tx, event Event) error {
 	if p.ResultingVersion != p.ExpectedVersion+1 {
 		return newFailure(KindInvalidPayload, "fold_event", "worktree reclamation version must advance by exactly one", false, "supply expected and resulting versions one apart")
 	}
-	res, err := tx.ExecContext(ctx, `UPDATE worktree_entries SET state='reclaimed', reclaimed_at=?, git_facts=? WHERE set_id=? AND project_id=? AND state='active'`,
-		event.OccurredAt.Format(time.RFC3339Nano), string(p.GitFacts), p.SetID, p.ProjectID)
+	var state, currentClaim string
+	err := tx.QueryRowContext(ctx, `SELECT state,claim_op_id FROM worktree_entries WHERE set_id=? AND project_id=?`, p.SetID, p.ProjectID).Scan(&state, &currentClaim)
+	if err == sql.ErrNoRows {
+		return newFailure(KindProjectionNotFound, "fold_event", "no worktree exists for this Project", false, "claim a worktree before reclaiming it")
+	}
+	if err != nil {
+		return err
+	}
+	claimOpID := p.ClaimOpID
+	if claimOpID == "" {
+		// Payload version 1 events predate the claim generation field. They are
+		// safe to replay only while no later generation has replaced the row.
+		if event.Seq > 0 {
+			var currentClaimCreatedAt sql.NullInt64
+			if err := tx.QueryRowContext(ctx, `SELECT max(seq) FROM domain_events WHERE kind='work.worktree_created' AND subject_type=? AND subject_id=? AND json_extract(payload,'$.project_id')=? AND json_extract(payload,'$.claim_op_id')=?`, string(SubjectWorkItem), event.SubjectID, p.ProjectID, currentClaim).Scan(&currentClaimCreatedAt); err != nil {
+				return err
+			}
+			if currentClaimCreatedAt.Valid && currentClaimCreatedAt.Int64 > event.Seq {
+				return newFailure(KindProjectionConflict, "fold_event", "reclaim event has no claim generation and targets a later worktree claim", false, "emit a reclaim event for the active claim generation")
+			}
+		}
+		var reclaimedClaims int
+		if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM worktree_claims WHERE set_id=? AND project_id=? AND state=?`, p.SetID, p.ProjectID, worktreeStateReclaimed).Scan(&reclaimedClaims); err != nil {
+			return err
+		}
+		if reclaimedClaims > 0 && state == worktreeEntryActive {
+			return newFailure(KindProjectionConflict, "fold_event", "reclaim event has no claim generation and cannot target the active worktree", false, "emit a reclaim event for the active claim generation")
+		}
+		claimOpID = currentClaim
+	}
+	if currentClaim != claimOpID {
+		return newFailure(KindProjectionConflict, "fold_event", "reclaim event targets a stale worktree claim generation", false, "reclaim the active claim generation")
+	}
+	if state == worktreeEntryReclaimed {
+		return nil
+	}
+	res, err := tx.ExecContext(ctx, `UPDATE worktree_entries SET state='reclaimed', reclaimed_at=?, git_facts=? WHERE set_id=? AND project_id=? AND claim_op_id=? AND state='active'`,
+		event.OccurredAt.Format(time.RFC3339Nano), string(p.GitFacts), p.SetID, p.ProjectID, claimOpID)
 	if err != nil {
 		return err
 	}
 	if n, _ := res.RowsAffected(); n != 1 {
 		return newFailure(KindProjectionNotFound, "fold_event", "no active worktree to reclaim for this Project", false, "claim a worktree before reclaiming it")
 	}
-	if _, err := tx.ExecContext(ctx, `UPDATE worktree_claims SET state=?, updated_at=? WHERE set_id=? AND project_id=? AND state=?`,
-		worktreeStateReclaimed, event.OccurredAt.Format(time.RFC3339Nano), p.SetID, p.ProjectID, worktreeStateVerified); err != nil {
+	if _, err := tx.ExecContext(ctx, `UPDATE worktree_claims SET state=?, updated_at=? WHERE op_id=? AND state=?`,
+		worktreeStateReclaimed, event.OccurredAt.Format(time.RFC3339Nano), claimOpID, worktreeStateVerified); err != nil {
 		return err
 	}
 	return bumpVersion(ctx, tx, "work_items", event, p.ExpectedVersion, p.ResultingVersion, "work item")
@@ -561,7 +598,13 @@ func reclaimWorktreeRawTx(ctx context.Context, tx *sql.Tx, req WorktreeReclaimRe
 			break
 		}
 	}
-	if entry.ProjectID == "" || entry.State != worktreeEntryActive {
+	if entry.ProjectID == "" {
+		return out, newFailure(KindProjectionNotFound, op, "no active worktree for this Project", false, "claim a worktree before reclaiming it")
+	}
+	if entry.State == worktreeEntryReclaimed {
+		return entry, nil
+	}
+	if entry.State != worktreeEntryActive {
 		return out, newFailure(KindProjectionNotFound, op, "no active worktree for this Project", false, "claim a worktree before reclaiming it")
 	}
 
@@ -578,7 +621,7 @@ func reclaimWorktreeRawTx(ctx context.Context, tx *sql.Tx, req WorktreeReclaimRe
 		if req.Destructive {
 			facts = jsonMustMarshal(map[string]any{"already_absent": true, "forced": true, "operator_override": req.OperatorApprovalRef})
 		}
-		if err := appendReclaimedTx(ctx, tx, req, setID, now, facts); err != nil {
+		if err := appendReclaimedTx(ctx, tx, req, setID, entry.ClaimOpID, now, facts); err != nil {
 			return out, err
 		}
 		return worktreeEntryAfterReclaimTx(ctx, tx, req.WorkID, req.ProjectID)
@@ -603,7 +646,7 @@ func reclaimWorktreeRawTx(ctx context.Context, tx *sql.Tx, req WorktreeReclaimRe
 	// is forced (CD-0096 D3 Destroy).
 	if req.Destructive {
 		facts := jsonMustMarshal(map[string]any{"forced": true, "operator_override": req.OperatorApprovalRef})
-		if err := appendReclaimedTx(ctx, tx, req, setID, now, facts); err != nil {
+		if err := appendReclaimedTx(ctx, tx, req, setID, entry.ClaimOpID, now, facts); err != nil {
 			return out, err
 		}
 		if _, err := runner.Run(ctx, repoRoot, "worktree", "remove", "--force", entry.Path); err != nil {
@@ -650,7 +693,7 @@ func reclaimWorktreeRawTx(ctx context.Context, tx *sql.Tx, req WorktreeReclaimRe
 	} else {
 		reclaimFacts["head_reachable"] = true
 	}
-	if err := appendReclaimedTx(ctx, tx, req, setID, now, jsonMustMarshal(reclaimFacts)); err != nil {
+	if err := appendReclaimedTx(ctx, tx, req, setID, entry.ClaimOpID, now, jsonMustMarshal(reclaimFacts)); err != nil {
 		return out, err
 	}
 	if _, err := runner.Run(ctx, repoRoot, "worktree", "remove", entry.Path); err != nil {
@@ -849,10 +892,10 @@ func jsonMustMarshal(v any) json.RawMessage {
 	return out
 }
 
-func appendReclaimedTx(ctx context.Context, tx *sql.Tx, req WorktreeReclaimRequest, setID string, now time.Time, facts json.RawMessage) error {
-	payload, _ := json.Marshal(worktreeReclaimedPayload{ExpectedVersion: req.ExpectedVersion, ResultingVersion: req.ExpectedVersion + 1, SetID: setID, ProjectID: req.ProjectID, GitFacts: facts})
+func appendReclaimedTx(ctx context.Context, tx *sql.Tx, req WorktreeReclaimRequest, setID, claimOpID string, now time.Time, facts json.RawMessage) error {
+	payload, _ := json.Marshal(worktreeReclaimedPayload{ExpectedVersion: req.ExpectedVersion, ResultingVersion: req.ExpectedVersion + 1, SetID: setID, ProjectID: req.ProjectID, ClaimOpID: claimOpID, GitFacts: facts})
 	_, err := applyOperationTx(ctx, tx, Operation{Events: []Event{{
-		EventID: fmt.Sprintf("%s:%s:worktree-reclaimed", req.WorkID, req.ProjectID), Kind: "work.worktree_reclaimed", SubjectType: SubjectWorkItem, SubjectID: req.WorkID, Actor: req.PrincipalRef, OccurredAt: now, PayloadVersion: 1, Payload: payload,
+		EventID: fmt.Sprintf("%s:%s:%s:worktree-reclaimed", req.WorkID, req.ProjectID, claimOpID), Kind: "work.worktree_reclaimed", SubjectType: SubjectWorkItem, SubjectID: req.WorkID, Actor: req.PrincipalRef, OccurredAt: now, PayloadVersion: 1, Payload: payload,
 	}}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, req.WorkID): req.ExpectedVersion}}, true, false)
 	return err
 }

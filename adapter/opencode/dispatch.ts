@@ -40,7 +40,9 @@ export interface AgentLanePacket {
 
 // AgentLaneReport mirrors contracts/agent-lane-report.schema.json, which the
 // generator embeds as agentLaneReportSchema. The schema, not this type, is what
-// a worker's output is validated against (CD-0056 D7).
+// a worker's output is validated against (CD-0056 D7). The worker-authored
+// surface carries no identity: the admitted canonical report composes the
+// transport-owned identity fields from the authorized dispatch packet.
 export interface AgentLaneReportEvidence {
   obligation: string
   detail: string
@@ -48,14 +50,12 @@ export interface AgentLaneReportEvidence {
 
 export interface AgentLaneReport {
   schema_version: "1.0"
-  attempt_id: string
-  lane_id: string
-  lane_version: number
-  lane_digest: string
   readback_model: string
   status: "completed" | "failed"
   evidence: AgentLaneReportEvidence[]
 }
+
+export type CanonicalLaneReport = AgentLaneReport & Pick<AgentLanePacket, "attempt_id" | "lane_id" | "lane_version" | "lane_digest">
 
 export interface SessionMetadata {
   readback_model: string
@@ -513,38 +513,39 @@ export function scanReportTexts(texts: string[]): WorkerReportScan {
 
 const REPORT_IDENTITY_FIELDS = ["attempt_id", "lane_id", "lane_version", "lane_digest"] as const
 
-// resolveWorkerReport is the CD-0056 D7 admission boundary: a report is admitted
-// only when it is present, parses, satisfies the closed report schema, and
-// echoes the identity of the packet it was dispatched for. Anything else returns
-// a bounded detail that names what was wrong, and the caller records
-// worker.failed with the invalid_report kind rather than a completion.
-export function resolveWorkerReport(stdout: string, packet: AgentLanePacket): { report: AgentLaneReport } | { detail: string } {
+// admitWorkerReport is the CD-0056 D7 admission boundary. The model-authored
+// report carries worker-owned content only: the closed schema has no identity
+// properties, so additionalProperties:false refuses any report that supplies
+// them, whatever value it names. Identity reaches the canonical terminal
+// report exclusively from the authorized dispatch packet.
+function admitWorkerReport(scan: WorkerReportScan, packet: AgentLanePacket): { report: CanonicalLaneReport } | { detail: string } {
+  if (!scan.report) {
+    return { detail: scan.malformed
+      ? "worker output carried a malformed JSON document and no agent-lane-report.v1 report"
+      : "worker output carried no agent-lane-report.v1 report" }
+  }
+  const supplied = REPORT_IDENTITY_FIELDS.filter((field) => scan.report![field] !== undefined)
+  if (supplied.length > 0) {
+    return { detail: `worker report supplied dispatch-owned field(s) ${supplied.join(", ")}; identity belongs to the authorized dispatch window` }
+  }
+  const failures: string[] = []
+  if (!validateAgentLaneReport(scan.report, failures)) {
+    return { detail: `worker report failed the closed agent-lane-report.v1 schema: ${failures[0] ?? "unknown field"}` }
+  }
+  const admitted = scan.report
+  return { report: { ...admitted, attempt_id: packet.attempt_id, lane_id: packet.lane_id, lane_version: packet.lane_version, lane_digest: packet.lane_digest } }
+}
+
+// resolveWorkerReport admits a report from a worker run's captured output.
+export function resolveWorkerReport(stdout: string, packet: AgentLanePacket): { report: CanonicalLaneReport } | { detail: string } {
   return admitWorkerReport(readWorkerReport(stdout), packet)
 }
 
 // resolveWorkerReportFromText admits a report from one message body, which is
 // what the native task route carries: the host has already resolved the
 // worker's final text part before it renders the result (CD-0102 D5).
-export function resolveWorkerReportFromText(text: string, packet: AgentLanePacket): { report: AgentLaneReport } | { detail: string } {
+export function resolveWorkerReportFromText(text: string, packet: AgentLanePacket): { report: CanonicalLaneReport } | { detail: string } {
   return admitWorkerReport(scanReportTexts([text]), packet)
-}
-
-function admitWorkerReport(scan: WorkerReportScan, packet: AgentLanePacket): { report: AgentLaneReport } | { detail: string } {
-  if (!scan.report) {
-    return { detail: scan.malformed
-      ? "worker output carried a malformed JSON document and no agent-lane-report.v1 report"
-      : "worker output carried no agent-lane-report.v1 report" }
-  }
-  const failures: string[] = []
-  if (!validateAgentLaneReport(scan.report, failures)) {
-    return { detail: `worker report failed the closed agent-lane-report.v1 schema: ${failures[0] ?? "unknown field"}` }
-  }
-  for (const field of REPORT_IDENTITY_FIELDS) {
-    if (scan.report[field] !== packet[field]) {
-      return { detail: `worker report ${field} ${JSON.stringify(scan.report[field])} does not match dispatched packet ${JSON.stringify(packet[field])}` }
-    }
-  }
-  return { report: scan.report }
 }
 
 // workerReportedFailureDetail renders a `failed` report's own evidence as the
@@ -1070,7 +1071,7 @@ export async function completeWorkerAttempt(
   // the report is admitted here. A report that is absent, unparseable, invalid,
   // or bound to another packet is a typed failure, never a completion.
   const resolution = resolveWorkerReportFromText(resultBody, packet)
-  const terminal: { verb: "worker-complete"; report: AgentLaneReport } | { verb: "worker-fail"; failure_kind: string; detail: string } =
+  const terminal: { verb: "worker-complete"; report: CanonicalLaneReport } | { verb: "worker-fail"; failure_kind: string; detail: string } =
     "detail" in resolution
       ? { verb: "worker-fail", failure_kind: "invalid_report", detail: resolution.detail.slice(0, MAX_FAILURE_DETAIL_BYTES) }
       : resolution.report.status === "failed"

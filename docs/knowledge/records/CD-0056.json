@@ -21,7 +21,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:8c25d11950c0ff5f3bec9cddbfe668788b1aa8607e54e2cfd261f0e4b7d78dc3",
+  "sha256": "sha256:68f7dd35a25677c63b45ce536b16eee3b1ba1f7ea1940250d590b406661d4851",
   "status": "accepted",
   "summary": "A lane report discharges its lane's declared evidence obligations: report evidence entries become typed obligation and detail pairs over one closed vocabulary shared by the lane and report contracts, the discharged evidence joins the worker.completed payload at version 2 with an explicit reported or legacy_unavailable origin, and a completion leaving any declared obligation undischarged is refused in the fold and recorded as a typed invalid_report failure instead.",
   "tags": [

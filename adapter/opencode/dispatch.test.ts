@@ -1,7 +1,7 @@
 import { test, expect } from "bun:test"
 import { createHash } from "node:crypto"
 import { agentLanes } from "./generated-agent-lanes"
-import { completeWorkerAttempt, concordBinaryPath, configureCoreBinary, defaultExportRunner, dispatchWorker, MAX_EXPORT_BYTES, readExportSession, readExportSessionMetadata, readRunSessionMetadata, resolveCoreBinary, validateAgentLanePacket, type AgentLanePacket, type DispatchAuthorizer, type DispatchRunner } from "./dispatch"
+import { completeWorkerAttempt, concordBinaryPath, configureCoreBinary, defaultExportRunner, dispatchWorker, MAX_EXPORT_BYTES, readExportSession, readExportSessionMetadata, readRunSessionMetadata, resolveCoreBinary, validateAgentLanePacket, type AgentLanePacket, type CanonicalLaneReport, type DispatchAuthorizer, type DispatchRunner } from "./dispatch"
 
 // Fake-runner suite: bind worker-evidence CLI calls to a nominal core path
 // instead of the unstamped repository placeholder (CD-0111 D1).
@@ -53,15 +53,22 @@ const reportEvidence = () => [
 
 const report = (overrides: Record<string, unknown> = {}, model = READBACK_MODEL) => ({
   schema_version: "1.0",
-  attempt_id: "attempt-1",
-  lane_id: lane.id,
-  lane_version: lane.version,
-  lane_digest: lane.digest,
   readback_model: model,
   status: "completed",
   evidence: reportEvidence(),
   ...overrides,
 })
+
+// The admitted canonical report composes the transport-owned identity fields
+// from the authorized dispatch packet with the worker-authored content.
+const canonicalReport = (overrides: Record<string, unknown> = {}, p: AgentLanePacket = packet()): CanonicalLaneReport =>
+  ({
+    ...report(overrides),
+    attempt_id: p.attempt_id,
+    lane_id: p.lane_id,
+    lane_version: p.lane_version,
+    lane_digest: p.lane_digest,
+  }) as CanonicalLaneReport
 
 const reportEvent = (document: unknown) => JSON.stringify({ type: "text", timestamp: 3, sessionID: "session-1", part: { type: "text", text: typeof document === "string" ? document : JSON.stringify(document) } })
 
@@ -598,7 +605,7 @@ test("the AGENTS.md walk names the global file once when the spawn directory is 
 // CD-0056 D7 / issue #333: the adapter parses the report it already receives,
 // carries its evidence into worker-complete, and turns anything it cannot admit
 // into a typed worker-fail rather than a completion.
-import { readWorkerReport, resolveWorkerReport, validateAgentLaneReport, validateAgainstSchema } from "./dispatch"
+import { readWorkerReport, resolveWorkerReport, resolveWorkerReportFromText, validateAgentLaneReport, validateAgainstSchema } from "./dispatch"
 
 async function terminalEvidence(carried: unknown = report()) {
   const calls: { argv: string[]; input: string }[] = []
@@ -644,11 +651,59 @@ test("a report naming an obligation outside the enum is worker-fail with invalid
   expect(payloads[1].detail).toContain("outside the closed enum")
 })
 
-test("a report that does not echo the dispatched attempt is worker-fail with invalid_report", async () => {
-  const { verbs, payloads } = await terminalEvidence(report({ attempt_id: "attempt-other" }))
+test("model-supplied identity is refused, however near-identical", () => {
+  const cases = [
+    {
+      packetAttempt: "attempt-work-4c23eeda61b1bf31fa61e58e-implement-01a07f5d6291",
+      reportedAttempt: "attempt-work-4c23eeda61b1bf31fa61e58e-implement",
+    },
+    {
+      packetAttempt: "attempt-work-3669a80ab2828182e6ccc334-verify-01a083c23815",
+      reportedAttempt: "attempt-work-3669a80ab2828182e6ccc334-verify-01a83c23815",
+    },
+  ]
+  for (const testCase of cases) {
+    const dispatched = { ...packet(), attempt_id: testCase.packetAttempt }
+    const resolved = resolveWorkerReport(runOutput("", report({ attempt_id: testCase.reportedAttempt })), dispatched)
+    expect(resolved).toEqual({ detail: "worker report supplied dispatch-owned field(s) attempt_id; identity belongs to the authorized dispatch window" })
+  }
+})
+
+test("each dispatch-owned identity field is refused when the model supplies it", () => {
+  const conflicts: Record<string, unknown> = {
+    attempt_id: "attempt-work-1-other",
+    lane_id: "review",
+    lane_version: 99,
+    lane_digest: "sha256:" + "0".repeat(64),
+  }
+  for (const [field, value] of Object.entries(conflicts)) {
+    const resolved = resolveWorkerReport(runOutput("", report({ [field]: value })), packet())
+    expect("detail" in resolved && resolved.detail).toContain(`supplied dispatch-owned field(s) ${field}`)
+  }
+})
+
+test("identity-free worker content reaches worker-complete bound to the dispatch window", async () => {
+  const dispatched = { ...packet(), attempt_id: "attempt-work-3669a80ab2828182e6ccc334-implement-01a0838fa54c" }
+  const carried = report()
+  expect(carried).not.toHaveProperty("attempt_id")
+  const calls: { argv: string[]; input: string }[] = []
+  const result = await complete(workerBody(carried), {
+    concordBinary: "concord-test",
+    evidenceRunner: { async run(argv, input) { calls.push({ argv, input }); return { exitCode: 0, stdout: "", stderr: "" } } },
+  }, dispatched)
+  const payloads = calls.map((call) => JSON.parse(call.input))
+  expect(result.outcome).toBe("ok")
+  expect(calls.map((call) => call.argv[1])).toEqual(["worker-dispatch", "worker-complete"])
+  expect(payloads[0].attempt_id).toBe(dispatched.attempt_id)
+  expect(payloads[1].attempt_id).toBe(dispatched.attempt_id)
+  expect(payloads[1].evidence).toEqual(reportEvidence())
+})
+
+test("an incomplete report remains worker-fail with invalid_report", async () => {
+  const { verbs, payloads } = await terminalEvidence(report({ status: undefined }))
   expect(verbs).toEqual(["worker-dispatch", "worker-fail"])
   expect(payloads[1].failure_kind).toBe("invalid_report")
-  expect(payloads[1].detail).toBe('worker report attempt_id "attempt-other" does not match dispatched packet "attempt-1"')
+  expect(payloads[1].detail).toContain("missing required property status")
 })
 
 test("a reported failure is recorded as the worker's own failure, not an invalid report", async () => {
@@ -723,13 +778,20 @@ test("a run with no text part at all carries no report", async () => {
   expect(readWorkerReport(stdout)).toEqual({ report: null, malformed: false })
 })
 
-test("report resolution admits only a schema-valid, packet-bound report", () => {
-  expect(resolveWorkerReport(runOutput(), packet())).toEqual({ report: report() as never })
-  expect(resolveWorkerReport(runOutput("", report({ lane_digest: "sha256:" + "0".repeat(64) })), packet())).toEqual({
-    detail: `worker report lane_digest ${JSON.stringify("sha256:" + "0".repeat(64))} does not match dispatched packet ${JSON.stringify(lane.digest)}`,
-  })
+test("report resolution composes packet identity over closed worker content", () => {
+  expect(resolveWorkerReport(runOutput(), packet())).toEqual({ report: canonicalReport() })
+  const conflicting = resolveWorkerReport(runOutput("", report({ lane_digest: "sha256:" + "0".repeat(64) })), packet())
+  expect("detail" in conflicting && conflicting.detail).toContain("supplied dispatch-owned field(s) lane_digest")
   const missing = resolveWorkerReport(runOutput("", report({ status: undefined })), packet())
   expect("detail" in missing && missing.detail).toContain("missing required property status")
+})
+
+test("the native-text admission path composes packet identity and refuses supplied identity", () => {
+  expect(resolveWorkerReportFromText(JSON.stringify(report()), packet())).toEqual({ report: canonicalReport() })
+  const refused = resolveWorkerReportFromText(JSON.stringify(report({ attempt_id: "attempt-work-1-other" })), packet())
+  expect("detail" in refused && refused.detail).toContain("supplied dispatch-owned field(s) attempt_id")
+  const malformed = resolveWorkerReportFromText("the worker returned prose", packet())
+  expect("detail" in malformed && malformed.detail).toContain("carried no agent-lane-report.v1 report")
 })
 
 test("the report schema validator resolves $defs through $ref", () => {

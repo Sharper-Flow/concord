@@ -127,11 +127,13 @@ session with `opencode export <session> --sanitize`, verifies the executing
 agent, and records host-derived model readback. Worker-supplied identity is not
 a substitute for that readback.
 
-The report must echo the dispatched `attempt_id`, `lane_id`, `lane_version`,
-and `lane_digest`. An admitted completed report becomes `worker-complete`
-evidence. A missing, invalid, or failed report follows the typed worker-failure
-route. Workers return reports; they do not own workflow transitions, verdicts,
-operator approvals, or completion.
+The adapter derives `attempt_id`, `lane_id`, `lane_version`, and `lane_digest`
+from the authorized dispatch packet. A model report cannot supply them: a report
+that carries any of those fields is refused as `invalid_report`, whatever value
+it names. An admitted completed report becomes `worker-complete` evidence. A
+missing, invalid, or failed report follows the typed worker-failure route.
+Workers return reports; they do not own workflow transitions, verdicts, operator
+approvals, or completion.
 
 ### Managed Task scope
 

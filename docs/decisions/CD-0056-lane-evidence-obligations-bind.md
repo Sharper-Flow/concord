@@ -139,6 +139,16 @@ This is where the boundary belongs. The adapter is the only component that sees
 worker output, and CD-0044 already places evidence admission at the boundary
 rather than inside the worker.
 
+Amended 2026-09-09 for [issue #962](https://github.com/Sharper-Flow/concord/issues/962):
+report identity is transport-owned. The worker-authored report surface carries
+`schema_version`, `readback_model`, `status`, and `evidence` only; the closed
+schema has no identity properties. The adapter composes `attempt_id`, `lane_id`,
+`lane_version`, and `lane_digest` onto the admitted canonical report from the
+authorized dispatch packet, and refuses a report that supplies any of those
+fields itself, whatever value it names. Exact opaque identity is structural at
+the boundary instead of probabilistic in the model: three live attempts failed
+on one-character transcription drift before this amendment.
+
 ### D8. What this decision does not do
 
 It does not connect lane evidence to the workflow `EvidenceKind` enum. Those
@@ -172,6 +182,11 @@ step graph under CD-0013 D1.
 - Every lane digest is unchanged from before this decision.
 - The adapter turns an unparseable or invalid report into `worker.failed` with
   `invalid_report` rather than a completion.
+- The admitted canonical report carries `attempt_id`, `lane_id`, `lane_version`,
+  and `lane_digest` from the dispatch packet, never from the worker's output. A
+  report that supplies any of those fields is refused as `invalid_report`, and a
+  report whose supplied identity differs from the packet by one character is
+  refused rather than corrected.
 
 ## Rejected alternatives
 

@@ -33,6 +33,7 @@ type workflowActionGuardContext struct {
 	currentStep string
 
 	staleRecovery       bool
+	lateVerdictRecovery bool
 	recoveryBind        bool
 	actorRef            string
 	eventActor          string
@@ -227,7 +228,31 @@ func guardSupersedeContractRecovery(g *workflowActionGuardContext) error {
 		g.staleRecovery = true
 		return nil
 	}
+	if workflowContractCorrectionCheckpoint(g.entry.Definition, g.currentStep) {
+		g.staleRecovery = true
+		return nil
+	}
 	return newFailure(KindInvalidOperation, "workflow_action", "contract recovery is available only for a stale workflow contract", false, "continue the current contract or request terminal work")
+}
+
+func workflowContractCorrectionCheckpoint(definition WorkflowDefinition, currentStep string) bool {
+	step := workflowStep(definition, currentStep)
+	if step == nil || step.Kind != WorkflowStepHumanCheckpoint || containsString(definition.StepGraph.TerminalSteps, currentStep) {
+		return false
+	}
+	return containsString(step.Actions, "confirm_premise")
+}
+
+func guardLateVerdictRecovery(g *workflowActionGuardContext) error {
+	available, err := workflowLateVerdictRecoveryAvailable(g.ctx, g.tx, g.request.WorkID, g.entry.Definition, g.currentStep)
+	if err != nil {
+		return err
+	}
+	if !available {
+		return newFailure(KindInvalidOperation, "workflow_action", "late verdict recovery requires a missing, non-ok, or incomparable verdict for an active predicate", false, "record the verdict at its normal verification step or refresh the active contract")
+	}
+	g.lateVerdictRecovery = true
+	return nil
 }
 
 func guardCompleteBoundary(g *workflowActionGuardContext) error {

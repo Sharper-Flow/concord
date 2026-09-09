@@ -77,10 +77,25 @@ const staleLawRecoveryActions = "supersede_contract,terminal_work"
 func workflowContractRecoveryActionDefinition() WorkflowActionDefinition {
 	return WorkflowActionDefinition{
 		ID: "supersede_contract", Consequence: ActionInternalSQLite, Approval: ActionApprovalRequired, ExecutionMode: ActionAdvance,
-		// The recovery payload contains a registered outcome predicate object;
-		// semantic validation below owns this closed object rather than lying
-		// about it as one of the scalar payload field types.
-		Payload: WorkflowPayloadDefinition{Fields: []WorkflowPayloadField{}},
+		Payload: WorkflowPayloadDefinition{Closed: true, Fields: workflowContractRecoveryPayloadFields()},
+	}
+}
+
+func workflowContractRecoveryPayloadFields() []WorkflowPayloadField {
+	return []WorkflowPayloadField{
+		actionIntegerField("contract_version", true, 1, 2147483647),
+		actionStringField("premise", true, WorkflowPremiseMaxLength),
+		actionArrayField("outcome_predicates", false, 1, 8, "workflow_action_outcome_predicates"),
+		actionEnumField("outcome_kind", false, "exists", "absent", "outcome", "check"),
+		actionObjectField("outcome_payload", false, "workflow_action_outcome"),
+		actionEnumListField("required_evidence", true, 0, 7, "verification", "review", "approval", "commit", "durable_note", "native_run", "artifact"),
+		actionListField("route_conventions", true, 0, 16),
+		actionLawListField("spec_mandate", true, 0, 32),
+		actionLawListField("law_modifies", true, 0, 32),
+		actionEnumField("rigor_class", true, "prototype_internal", "prototype_trusted", "prototype_public", "prototype_safety_critical", "production_internal", "production_trusted", "production_public", "production_safety_critical", "critical_internal", "critical_trusted", "critical_public", "critical_safety_critical"),
+		actionStringField("supersede_reason", true, 4096),
+		actionListField("audit_evidence", true, 1, 32),
+		actionObjectField("architecture_binding", false, "architecture_binding"),
 	}
 }
 
@@ -415,22 +430,31 @@ func validateWorkflowContractRecoveryPayload(raw json.RawMessage) error {
 	if err != nil {
 		return err
 	}
-	for _, name := range []string{"contract_version", "premise", "outcome_kind", "outcome_payload", "required_evidence", "route_conventions", "spec_mandate", "law_modifies", "rigor_class"} {
+	allowed := make(map[string]WorkflowPayloadField)
+	for _, field := range workflowContractRecoveryPayloadFields() {
+		allowed[field.Name] = field
+	}
+	for name, value := range fields {
+		field, ok := allowed[name]
+		if !ok || !validateWorkflowPayloadValue(field, value) {
+			return newFailure(KindInvalidPayload, "workflow_action", "successor contract contains an undeclared or invalid field", false, "supply the typed successor contract")
+		}
+	}
+	for _, name := range []string{"contract_version", "premise", "required_evidence", "route_conventions", "spec_mandate", "law_modifies", "rigor_class", "supersede_reason", "audit_evidence"} {
 		if _, ok := fields[name]; !ok {
-			return newFailure(KindInvalidPayload, "workflow_action", "stale-law recovery requires a fully supplied successor contract", false, "supply every successor contract field")
+			return newFailure(KindInvalidPayload, "workflow_action", "successor contract requires a fully supplied contract", false, "supply every successor contract field")
 		}
 	}
-	if workflowFieldInt(fields, "contract_version", 0) <= 0 || workflowFieldStringDefault(fields, "premise", "") == "" || workflowFieldStringDefault(fields, "outcome_kind", "") == "" || workflowFieldStringDefault(fields, "rigor_class", "") == "" {
-		return newFailure(KindInvalidPayload, "workflow_action", "stale-law recovery successor contract has an empty required field", false, "supply the complete successor contract")
+	hasPredicates := fields["outcome_predicates"] != nil
+	hasLegacyOutcome := fields["outcome_kind"] != nil && fields["outcome_payload"] != nil
+	if !hasPredicates && !hasLegacyOutcome {
+		return newFailure(KindInvalidPayload, "workflow_action", "successor contract requires outcome_predicates or the outcome pair", false, "supply the complete successor outcome")
 	}
-	for _, name := range []string{"required_evidence", "route_conventions", "spec_mandate", "law_modifies"} {
-		var values []string
-		if err := json.Unmarshal(workflowFieldRaw(fields, name), &values); err != nil || values == nil {
-			return newFailure(KindInvalidPayload, "workflow_action", "stale-law recovery successor contract contains an invalid list", false, "supply JSON string lists for the successor contract")
-		}
+	if hasPredicates && hasLegacyOutcome {
+		return newFailure(KindInvalidPayload, "workflow_action", "successor contract must supply one outcome shape", false, "supply outcome_predicates or the outcome pair")
 	}
-	if rawOutcome := workflowFieldRaw(fields, "outcome_payload"); len(rawOutcome) == 0 || string(rawOutcome) == "null" {
-		return newFailure(KindInvalidPayload, "workflow_action", "stale-law recovery successor contract requires an outcome predicate", false, "supply the successor outcome predicate")
+	if workflowFieldInt(fields, "contract_version", 0) <= 0 || workflowFieldStringDefault(fields, "premise", "") == "" || workflowFieldStringDefault(fields, "rigor_class", "") == "" || workflowFieldStringDefault(fields, "supersede_reason", "") == "" {
+		return newFailure(KindInvalidPayload, "workflow_action", "successor contract has an empty required field", false, "supply the complete successor contract")
 	}
 	return nil
 }

@@ -27,6 +27,41 @@ func TestWorkflowLawRevisionSameIDAmendmentRemainsCompatible(t *testing.T) {
 	}
 }
 
+func TestWorkflowContractRecoveryPayloadAcceptsPredicateArray(t *testing.T) {
+	raw := mustJSONValue(map[string]any{
+		"contract_version": 2, "premise": "continue with the corrected contract",
+		"outcome_predicates": []map[string]any{{"predicate_id": "predicate:first", "ordinal": 0, "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:first", "immutable_subject_ref": "commit:first", "expected_result": "pass"}}},
+		"required_evidence":  []string{"verification"}, "route_conventions": []string{}, "spec_mandate": []string{}, "law_modifies": []string{},
+		"rigor_class": "prototype_internal", "supersede_reason": "correct the accepted premise", "audit_evidence": []string{"evidence:audit"},
+	})
+	if err := validateWorkflowContractRecoveryPayload(raw); err != nil {
+		t.Fatalf("predicate-array successor payload refused: %v", err)
+	}
+	legacyAndArray := mustJSONValue(map[string]any{
+		"contract_version": 2, "premise": "ambiguous outcome shape", "outcome_predicates": []map[string]any{{"predicate_id": "predicate:first", "ordinal": 0, "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check"}}},
+		"outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check"}, "required_evidence": []string{}, "route_conventions": []string{}, "spec_mandate": []string{}, "law_modifies": []string{},
+		"rigor_class": "prototype_internal", "supersede_reason": "ambiguous", "audit_evidence": []string{"evidence:audit"},
+	})
+	if err := validateWorkflowContractRecoveryPayload(legacyAndArray); err == nil {
+		t.Fatal("successor payload accepted both outcome shapes")
+	}
+}
+
+func TestWorkflowPredicateHistoryCompatibilityRequiresUnchangedPayload(t *testing.T) {
+	history := workflowContractPredicateHistoryData{
+		1: {"predicate:first": {PredicateID: "predicate:first", OutcomeKind: "check", OutcomePayload: `{"kind":"check","expected_result":"pass"}`}},
+		2: {"predicate:first": {PredicateID: "predicate:first", OutcomeKind: "check", OutcomePayload: `{"expected_result":"pass","kind":"check"}`}},
+	}
+	verdict := workflowVerdictRecordedPayload{PredicateID: "predicate:first"}
+	if !workflowPredicateHistoryCompatible(history, 1, 2, verdict.PredicateID, verdict) {
+		t.Fatal("canonical-equivalent predicate payload was refused")
+	}
+	history[2]["predicate:first"] = WorkflowReadPredicate{PredicateID: "predicate:first", OutcomeKind: "check", OutcomePayload: `{"kind":"check","expected_result":"fail"}`}
+	if workflowPredicateHistoryCompatible(history, 1, 2, verdict.PredicateID, verdict) {
+		t.Fatal("changed predicate payload remained compatible")
+	}
+}
+
 func TestWorkflowLawRevisionSupersessionRefusesPinnedConsumer(t *testing.T) {
 	s := openTemp(t)
 	seedWork(t, s, "law-supersession")

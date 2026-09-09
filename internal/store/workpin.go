@@ -106,6 +106,13 @@ func ReadWorkPinTx(ctx context.Context, tx *sql.Tx, workID string) (WorkPin, err
 		if err != nil {
 			return pin, err
 		}
+		lateVerdictRecovery, recoveryErr := workflowLateVerdictRecoveryAvailable(ctx, tx, workID, registered.Definition, pin.Step)
+		if recoveryErr != nil {
+			return pin, recoveryErr
+		}
+		if lateVerdictRecovery {
+			pin.NextValidIntents = append(pin.NextValidIntents, workPinIntentForAction(currentActionDefinition("record_verdict", true), pin.Version, "late_verdict_recovery"))
+		}
 	} else if err != sql.ErrNoRows {
 		return pin, wrapFailure(KindUnavailable, "work_pin", "cannot read workflow contract", true, "retry once the database is readable", err)
 	}
@@ -164,7 +171,21 @@ func workPinIntents(definition WorkflowDefinition, stepID string, version int64)
 		}
 		intents = append(intents, WorkPinIntent{Tool: "concord_work_transition", Operation: "workflow_action", ReasonCode: "declared_step_action", ActionID: action.ID, RequiredFields: fields, ExpectedVersion: version})
 	}
+	if workflowContractCorrectionCheckpoint(definition, stepID) {
+		intents = append(intents, workPinIntentForAction(workflowContractRecoveryActionDefinition(), version, "operator_contract_correction"))
+	}
 	return intents
+}
+
+func workPinIntentForAction(action WorkflowActionDefinition, version int64, reason string) WorkPinIntent {
+	payload := publicWorkflowActionPayload(action)
+	fields := make([]string, 0, len(payload.Fields))
+	for _, field := range payload.Fields {
+		if field.Required {
+			fields = append(fields, field.Name)
+		}
+	}
+	return WorkPinIntent{Tool: "concord_work_transition", Operation: "workflow_action", ReasonCode: reason, ActionID: action.ID, RequiredFields: fields, ExpectedVersion: version}
 }
 
 func publicWorkflowActionPayload(action WorkflowActionDefinition) WorkflowPayloadDefinition {

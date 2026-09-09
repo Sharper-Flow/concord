@@ -339,7 +339,7 @@ func issue31ConfirmInput(t *testing.T, s *store.Store, version int64, key string
 	if question.ActionID != "confirm_premise" || question.Header != "Operator checkpoint" || question.AllowMultiple || question.AllowCustom || len(question.Choices) != 3 {
 		t.Fatalf("operator question shape=%+v", question)
 	}
-	if question.Choices[0].ID != "confirm" || question.Choices[0].ActionID != "confirm_premise" || question.Choices[1].ActionID != "concord_work_define.revise_intent" || question.Choices[2].ActionID != "concord_work_transition.lifecycle" {
+	if question.Choices[0].ID != "confirm" || question.Choices[0].ActionID != "confirm_premise" || question.Choices[1].ActionID != "supersede_contract" || question.Choices[2].ActionID != "concord_work_transition.lifecycle" {
 		t.Fatalf("operator question choices=%+v", question.Choices)
 	}
 	return json.RawMessage(`{"work_id":"work-1","expected_version":` + strconv.FormatInt(version, 10) + `,"action_id":"confirm_premise","selected_choice":"confirm","decision_context_digest":"` + question.DecisionContextDigest + `","idempotency_key":"` + key + `"}`)

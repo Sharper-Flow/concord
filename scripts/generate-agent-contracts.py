@@ -214,15 +214,20 @@ def workflow_supersede_fields_schema(outcome_payload: dict) -> dict:
     string_list = {"type": "array", "maxItems": 32, "uniqueItems": True, "items": {"$ref": "#/$defs/id"}}
     return {
         "type": "object", "additionalProperties": False,
-        "required": ["contract_version", "premise", "outcome_kind", "outcome_payload", "required_evidence", "route_conventions", "spec_mandate", "law_modifies", "rigor_class"],
+        "required": ["contract_version", "premise", "required_evidence", "route_conventions", "spec_mandate", "law_modifies", "rigor_class", "supersede_reason", "audit_evidence"],
         "properties": {
             "contract_version": {"$ref": "#/$defs/version"}, "premise": {"type": "string", "minLength": 1, "maxLength": 4096},
             "outcome_kind": {"type": "string", "enum": ["exists", "absent", "outcome", "check"]}, "outcome_payload": copy.deepcopy(outcome_payload),
+            "outcome_predicates": {"$ref": "#/$defs/workflow_action_outcome_predicates"},
             "required_evidence": copy.deepcopy(string_list), "route_conventions": copy.deepcopy(string_list),
             "spec_mandate": copy.deepcopy(string_list), "law_modifies": copy.deepcopy(string_list),
             "rigor_class": {"$ref": "#/$defs/rigor_class"}, "architecture_binding": {"$ref": "#/$defs/architecture_binding"},
             "supersede_reason": {"type": "string", "minLength": 1, "maxLength": 4096}, "audit_evidence": copy.deepcopy(string_list),
         },
+        "oneOf": [
+            {"required": ["outcome_predicates"]},
+            {"required": ["outcome_kind", "outcome_payload"]},
+        ],
     }
 
 

@@ -9390,6 +9390,19 @@ const GeneratedPayloadSchemaDocument = `{
             "properties": {
               "fields": {
                 "additionalProperties": false,
+                "oneOf": [
+                  {
+                    "required": [
+                      "outcome_predicates"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "outcome_kind",
+                      "outcome_payload"
+                    ]
+                  }
+                ],
                 "properties": {
                   "architecture_binding": {
                     "$ref": "#/$defs/architecture_binding"
@@ -9438,6 +9451,9 @@ const GeneratedPayloadSchemaDocument = `{
                       }
                     ]
                   },
+                  "outcome_predicates": {
+                    "$ref": "#/$defs/workflow_action_outcome_predicates"
+                  },
                   "premise": {
                     "maxLength": 4096,
                     "minLength": 1,
@@ -9479,13 +9495,13 @@ const GeneratedPayloadSchemaDocument = `{
                 "required": [
                   "contract_version",
                   "premise",
-                  "outcome_kind",
-                  "outcome_payload",
                   "required_evidence",
                   "route_conventions",
                   "spec_mandate",
                   "law_modifies",
-                  "rigor_class"
+                  "rigor_class",
+                  "supersede_reason",
+                  "audit_evidence"
                 ],
                 "type": "object"
               }

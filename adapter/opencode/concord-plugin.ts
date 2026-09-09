@@ -36,6 +36,7 @@ import { agentLanes } from "./generated-agent-lanes"
 import { completeDispatchedWorker } from "./lane_completion"
 import { hostControlPlane, SessionScopeUnavailable } from "./move-session"
 import { claimHostLease } from "./host-lease"
+import { clearTurnMoveBoundary, questionRequiresNormalChat, TURN_MOVE_QUESTION_REFUSAL } from "./turn-move-boundary"
 
 // The plugin factory is the only place the host hands over its own client, and
 // CD-0098 D2 makes the move-session route a requirement of work start. Binding
@@ -66,7 +67,10 @@ export default async function ConcordAdapterPlugin(input?: Partial<PluginInput>)
       concord_work_compact: work_compact,
       concord_work_start: work_start,
     },
-    "chat.message": agentSwitch.chatMessage,
+    "chat.message": async (input: { sessionID: string }) => {
+      clearTurnMoveBoundary(input.sessionID)
+      await agentSwitch.chatMessage(input)
+    },
     "tool.definition": publishWorkStartDefinition,
     // Managed sessions and Concord lanes require one authorized packet.
     // Ordinary unmanaged Tasks remain entirely subject to host permissions.
@@ -74,6 +78,9 @@ export default async function ConcordAdapterPlugin(input?: Partial<PluginInput>)
       input: { tool: string; sessionID: string; callID: string },
       output: { args: Record<string, unknown> },
     ) => {
+      if (input.tool === "question" && questionRequiresNormalChat(input.sessionID)) {
+        throw new Error(TURN_MOVE_QUESTION_REFUSAL)
+      }
       if (input.tool !== TASK_TOOL_ID) return
       const windows = dispatchWindows()
       const concordLane = agentLanes.some((lane) => output.args.subagent_type === `concord-${lane.id}`)

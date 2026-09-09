@@ -107,6 +107,7 @@ ADAPTER_FILES = (
     "move-session.ts",
     "packet.ts",
     "task-result.ts",
+    "turn-move-boundary.ts",
     "workflow-status.ts",
 )
 INSTRUCTION_FILES = (

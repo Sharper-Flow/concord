@@ -3,11 +3,13 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/sharper-flow/concord/internal/linearclient"
 	"github.com/sharper-flow/concord/internal/store"
@@ -56,7 +58,7 @@ func enableLinearProduct(t *testing.T, dbPath, productID string) {
 		"display_name": "Linear connection", "class": "saas", "kind": "saas_account", "purpose": "Linear planning connection",
 		"stage_maturity": "prototype", "stage_audience_commitment": "operator_only", "environments": []string{"production"},
 		"metadata_schema_version":  "linear-connection-v1",
-		"metadata":                 map[string]any{"linear": map[string]any{"workspace_url": "https://linear.app/example", "team_id": "68d52710-76d9-4b41-ba45-778511d0e2ed", "auth_mode": "personal_api_key"}},
+		"metadata":                 map[string]any{"linear": map[string]any{"workspace_url": "https://linear.app/example", "team_id": "68d52710-76d9-4b41-ba45-778511d0e2ed", "auth_mode": "personal_api_key", "status_ids": map[string]string{"cancelled": "state-cancelled", "completed": "state-completed", "superseded": "state-superseded"}}},
 		"expected_product_version": 3,
 	})
 }
@@ -145,3 +147,68 @@ func TestLinearEnqueueAndDrainCLI(t *testing.T) {
 		t.Fatalf("stderr=%q", errOut.String())
 	}
 }
+
+func TestLinearIssueUpdateDrainReportsDoneAndMirrorsTerminalStatus(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "concord.db")
+	seedCLIProduct(t, dbPath, "update-drain-product", "update-drain-project")
+	enableLinearProduct(t, dbPath, "update-drain-product")
+	seedLinearCLIWork(t, dbPath, "update-drain-work", "update-drain-project", "Cancelled title")
+
+	s, err := store.Open(context.Background(), dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.ApplyOperation(context.Background(), s, store.Operation{Events: []store.Event{{
+		EventID: "update-drain-cancelled", Kind: "work.transitioned", SubjectType: store.SubjectWorkItem, SubjectID: "update-drain-work", Actor: "operator", OccurredAt: fixedLinearTestTime(), PayloadVersion: 1,
+		Payload: json.RawMessage(`{"from":"needed","to":"cancelled","reason":"cancelled for test","expected_version":1,"resulting_version":2}`),
+	}}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, "update-drain-work"): 1}}); err != nil {
+		s.Close()
+		t.Fatal(err)
+	}
+	if err := s.RecordLinearLink(context.Background(), "update-drain-work", "remote-update", "SHA-3", "https://linear.app/example/issue/SHA-3", "", "", store.LinearLinkUnpublished); err != nil {
+		s.Close()
+		t.Fatal(err)
+	}
+	if err := s.RecordLinearLink(context.Background(), "update-drain-work", "remote-update", "SHA-3", "https://linear.app/example/issue/SHA-3", "", "", store.LinearLinkPending); err != nil {
+		s.Close()
+		t.Fatal(err)
+	}
+	if err := s.RecordLinearLink(context.Background(), "update-drain-work", "remote-update", "SHA-3", "https://linear.app/example/issue/SHA-3", "", "", store.LinearLinkConfirmed); err != nil {
+		s.Close()
+		t.Fatal(err)
+	}
+	s.Close()
+
+	var sawStatus bool
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		sawStatus = strings.Contains(string(body), `"stateId":"state-cancelled"`)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":{"issueUpdate":{"success":true,"issue":{"id":"remote-update","identifier":"SHA-3","url":"https://linear.app/example/issue/SHA-3","updatedAt":"2026-09-09T12:00:00Z"}}}}`))
+	}))
+	defer server.Close()
+	t.Setenv(linearclient.EnvEndpoint, server.URL)
+	t.Setenv(linearclient.EnvAPIKey, "lin_api_update_test")
+	t.Setenv(dbOverrideEnv, dbPath)
+	runOperatorJSON(t, dbPath, []string{"linear-issue-enqueue"}, map[string]any{"product_id": "update-drain-product", "work_id": "update-drain-work", "op_kind": "issue_update"})
+	var out, errOut strings.Builder
+	if code := runWithInput([]string{"linear", "outbox-drain"}, strings.NewReader(`{"product_id":"update-drain-product"}`), &out, &errOut); code != 0 {
+		t.Fatalf("drain exit=%d stderr=%q", code, errOut.String())
+	}
+	if !sawStatus {
+		t.Fatal("drain did not send the declared terminal status")
+	}
+	var drained struct {
+		Operations []struct {
+			Outcome string `json:"outcome"`
+		} `json:"operations"`
+	}
+	if err := json.Unmarshal([]byte(out.String()), &drained); err != nil {
+		t.Fatal(err)
+	}
+	if len(drained.Operations) != 1 || drained.Operations[0].Outcome != "done" {
+		t.Fatalf("drain result = %+v", drained)
+	}
+}
+
+func fixedLinearTestTime() time.Time { return time.Date(2026, 9, 9, 1, 0, 0, 0, time.UTC) }

@@ -550,6 +550,9 @@ func workflowSemanticActionEvents(ctx context.Context, tx *sql.Tx, definition Wo
 				return nil, newFailure(KindInvariantViolation, "workflow_action", "required route convention is not declared by the contract", false, "declare every required route convention")
 			}
 		}
+		if err := requireRecordedInvestigationArtifact(ctx, tx, request.WorkID); err != nil {
+			return nil, err
+		}
 		contractVersion := workflowFieldInt(fields, "contract_version", 1)
 		premise := workflowFieldStringDefault(fields, "premise", "workflow premise")
 		outcomeKind := workflowFieldStringDefault(fields, "outcome_kind", string(definition.OutcomeSchema.DefaultKind))
@@ -1042,6 +1045,41 @@ func workflowFieldStringsDefault(fields map[string]json.RawMessage, name string,
 		return values
 	}
 	return fallback
+}
+
+func requireRecordedInvestigationArtifact(ctx context.Context, q queryer, workID string) error {
+	rows, err := q.QueryContext(ctx, `SELECT refs FROM work_observations WHERE work_id=? ORDER BY recorded_at DESC, observation_id`, workID)
+	if err != nil {
+		return wrapFailure(KindUnavailable, "workflow_action", "cannot inspect recorded investigation artifacts", true, "retry once the workflow evidence is readable", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var refsJSON string
+		if err := rows.Scan(&refsJSON); err != nil {
+			return wrapFailure(KindUnavailable, "workflow_action", "cannot read recorded investigation artifact refs", true, "retry once the workflow evidence is readable", err)
+		}
+		var refs []string
+		if json.Unmarshal([]byte(refsJSON), &refs) != nil {
+			return newFailure(KindInvariantViolation, "workflow_action", "recorded investigation artifact refs are malformed", false, "rebuild the work observation projection")
+		}
+		hasWorkRef := false
+		hasDomainRef := false
+		for _, ref := range refs {
+			if ref == workID || ref == "work:"+workID {
+				hasWorkRef = true
+			}
+			if strings.HasPrefix(ref, "domain:") || strings.HasPrefix(ref, "domain-") {
+				hasDomainRef = true
+			}
+		}
+		if hasWorkRef && hasDomainRef {
+			return nil
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return wrapFailure(KindUnavailable, "workflow_action", "cannot inspect recorded investigation artifacts", true, "retry once the workflow evidence is readable", err)
+	}
+	return newFailure(KindMissingEvidence, "workflow_action", "contract approval requires a recorded investigation artifact with work and Domain refs", false, "record an investigation artifact before approving the contract")
 }
 
 func workflowFieldStringDefaultMap(fields map[string]any, name, fallback string) string {

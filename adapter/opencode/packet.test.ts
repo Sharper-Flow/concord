@@ -278,6 +278,19 @@ test("no pinned contract is a typed unapproved-mandate failure", async () => {
   expect(built.failure!.message).toContain("no pinned workflow contract")
 })
 
+test("a read-only lane can dispatch before contract approval from recorded context", async () => {
+  const built = await build(
+    { ...defaultScript(), "concord_work_trace.continuity": continuityEnvelope(null) },
+    { laneId: "research" },
+  )
+  expect(built.failure, JSON.stringify(built.failure)).toBeUndefined()
+  expect(built.packet!.inputs.task).toContain("Work narrative:")
+  expect(built.packet!.inputs.task).toContain(NARRATIVE)
+  expect(built.packet!.inputs.task).toContain("Step question:")
+  expect(built.packet!.inputs.task).toContain("Project dispatch inputs from durable state")
+  expect(built.packet!.inputs.task).toContain("contract: none")
+})
+
 test("an error-enveloped core read is a typed transport failure", async () => {
   const refusal = coreEnvelope("concord_work_browse", "scope", "PM1.Q6", "error", {
     error: { kind: "unknown_scope", retry_safe: false, recovery_action: { kind: "reread_entities" }, effect_state: "none" },

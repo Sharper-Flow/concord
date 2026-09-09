@@ -2,6 +2,8 @@ package store
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"strconv"
@@ -94,6 +96,26 @@ func seedWork(t *testing.T, s *Store, id string) {
 		ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, id): 0},
 	}); err != nil {
 		t.Fatalf("create work %s: %v", id, err)
+	}
+	tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := enterFold(context.Background(), tx); err != nil {
+		tx.Rollback()
+		t.Fatal(err)
+	}
+	observationDigest := sha256.Sum256([]byte(id))
+	if _, err := tx.Exec(`INSERT INTO work_observations(observation_id,work_id,statement,refs,tags,recorded_at) VALUES(?,?,?,?,?,?)`, "obs:"+hex.EncodeToString(observationDigest[:8]), id, "synthetic investigation artifact", `["work:`+id+`","domain:test-domain"]`, `[]`, time.Now().UTC().Format(time.RFC3339Nano)); err != nil {
+		tx.Rollback()
+		t.Fatal(err)
+	}
+	if err := leaveFold(context.Background(), tx); err != nil {
+		tx.Rollback()
+		t.Fatal(err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
 	}
 }
 

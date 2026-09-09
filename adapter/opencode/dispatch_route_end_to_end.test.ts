@@ -267,6 +267,14 @@ routeDeclaration("dispatches a real store route through Task completion and work
     expect(domainList.outcome).toBe("ok")
     const registry = domainList.result as JSONRecord
     const registryHash = (registry.registry as JSONRecord).content_hash as string
+    response = await invoke("concord_work_define", { operation: "observation_record", input: {
+      work_id: workID,
+      statement: "The investigation examined the work item and its Product domain.",
+      refs: [`work:${workID}`, `domain:product-root:${PRODUCT_ID}`],
+      tags: [],
+      idempotency_key: "e2e-investigation-artifact",
+    } }, context)
+    expect(response.outcome).toBe("ok")
     response = await transition(8, "approve_contract", "e2e-approve-contract", {
       premise: APPROVED_OBJECTIVE,
       outcome_predicates: [WORKFLOW_PREDICATE],

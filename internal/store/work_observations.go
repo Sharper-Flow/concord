@@ -9,9 +9,10 @@ import (
 )
 
 // CD-0030: an observation is the durable form of "I noticed something" —
-// recorded mid-life, cheaply, without deciding work-hood. Observations are
-// non-authoritative: no gate, no evidence kind, no workflow action reads them
-// as authority. Promotion to work is the separate, unchanged CD-0018 path.
+// recorded mid-life, cheaply, without deciding work-hood. Ordinary observations
+// are non-authoritative. A contract approval may consume an observation as an
+// investigation artifact only when its refs name work and Domain identities.
+// Promotion to work is the separate, unchanged CD-0018 path.
 
 var observationIDPattern = regexp.MustCompile(`^obs:[0-9a-f]{16}$`)
 

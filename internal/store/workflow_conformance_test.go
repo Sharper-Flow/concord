@@ -2,7 +2,9 @@ package store
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -663,6 +665,9 @@ func TestWorkflowInlineTransactionRollbackLeavesNoSemanticOrActionEvents(t *test
 	if err := replayWorkflowCorpusSetup(ctx, s, scenario.Setup, definition, actorRef, true); err != nil {
 		t.Fatal(err)
 	}
+	if err := seedCorpusInvestigationArtifact(ctx, s, scenario.Setup.FixtureRefs.WorkItem); err != nil {
+		t.Fatal(err)
+	}
 	if definition.Definition.ChangesProductTruth != nil && *definition.Definition.ChangesProductTruth {
 		if err := seedCorpusArchitectureScope(ctx, s, scenario.Setup.FixtureRefs.WorkItem, scenario.Request.Fields); err != nil {
 			t.Fatal(err)
@@ -1023,6 +1028,9 @@ func executeStructuredWorkflowAction(t *testing.T, name string, initial map[stri
 	if err := replayCorpusEventStream(ctx, s, request.Fields); err != nil {
 		return workflowObservation{}, err
 	}
+	if err := seedCorpusInvestigationArtifact(ctx, s, workID); err != nil {
+		return workflowObservation{}, err
+	}
 	if err := seedCorpusOperations(ctx, s, initial, request, registered.Definition); err != nil {
 		return workflowObservation{}, err
 	}
@@ -1342,6 +1350,27 @@ func executeStructuredWorkflowAction(t *testing.T, name string, initial map[stri
 	actionResult := map[string]any{}
 	actionResult["operation_id"] = result.OperationID
 	return observeWorkflowStore(ctx, s, workID, beforeSeq, nil, actionResult)
+}
+
+func seedCorpusInvestigationArtifact(ctx context.Context, s *Store, workID string) error {
+	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	if err := enterFold(ctx, tx); err != nil {
+		_ = tx.Rollback()
+		return err
+	}
+	digest := sha256.Sum256([]byte(workID))
+	_, err = tx.ExecContext(ctx, `INSERT OR IGNORE INTO work_observations(observation_id,work_id,statement,refs,tags,recorded_at) VALUES(?,?,?,?,?,?)`, "obs:"+hex.EncodeToString(digest[:8]), workID, "synthetic investigation artifact", `["work:`+workID+`","domain:test-domain"]`, `[]`, corpusNow.Format(time.RFC3339Nano))
+	if leaveErr := leaveFold(ctx, tx); err == nil {
+		err = leaveErr
+	}
+	if err != nil {
+		_ = tx.Rollback()
+		return err
+	}
+	return tx.Commit()
 }
 
 func corpusSetupInputDeclaresLaw(input workflowCorpusEvent) bool {

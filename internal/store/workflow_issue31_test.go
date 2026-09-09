@@ -66,6 +66,64 @@ func TestGenericApplyOperationRejectsEveryReservedWorkflowEvent(t *testing.T) {
 	}
 }
 
+func TestApproveContractRequiresInvestigationArtifactRefs(t *testing.T) {
+	s := openTemp(t)
+	workID := "workflow-investigation-gate"
+	seedWork(t, s, workID)
+	ctx := context.Background()
+	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := enterFold(ctx, tx); err != nil {
+		tx.Rollback()
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec(`DELETE FROM work_observations WHERE work_id=?`, workID); err != nil {
+		_ = leaveFold(ctx, tx)
+		tx.Rollback()
+		t.Fatal(err)
+	}
+	if err := leaveFold(ctx, tx); err != nil {
+		tx.Rollback()
+		t.Fatal(err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	err = requireRecordedInvestigationArtifact(ctx, s.DatabaseForTesting(), workID)
+	if err == nil || !strings.Contains(err.Error(), "recorded investigation artifact") {
+		t.Fatalf("missing investigation artifact error=%v", err)
+	}
+	if err := seedTestInvestigationArtifact(t, s, workID, `["work:`+workID+`","domain:store"]`); err != nil {
+		t.Fatal(err)
+	}
+	if err := requireRecordedInvestigationArtifact(ctx, s.DatabaseForTesting(), workID); err != nil {
+		t.Fatalf("valid investigation artifact refused: %v", err)
+	}
+}
+
+func seedTestInvestigationArtifact(t *testing.T, s *Store, workID, refs string) error {
+	t.Helper()
+	tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
+	if err != nil {
+		return err
+	}
+	if err := enterFold(context.Background(), tx); err != nil {
+		_ = tx.Rollback()
+		return err
+	}
+	_, err = tx.Exec(`INSERT INTO work_observations(observation_id,work_id,statement,refs,tags,recorded_at) VALUES(?,?,?,?,?,?)`, "obs:"+strings.Repeat("b", 16), workID, "recorded investigation artifact", refs, `[]`, time.Now().UTC().Format(time.RFC3339Nano))
+	if leaveErr := leaveFold(context.Background(), tx); err == nil {
+		err = leaveErr
+	}
+	if err != nil {
+		_ = tx.Rollback()
+		return err
+	}
+	return tx.Commit()
+}
+
 func TestWorkflowActionSemanticEventsAreFollowedByUniversalCompletion(t *testing.T) {
 	s := openTemp(t)
 	seedWork(t, s, "workflow-issue31-actions")

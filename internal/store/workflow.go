@@ -1247,25 +1247,40 @@ func foldWorkflowActionCompleted(ctx context.Context, tx *sql.Tx, event Event) e
 		if bindingStep == "" || !workflowStepFollows(entry.Definition, bindingStep, currentStep) {
 			return newFailure(KindIllegalLifecycleTransition, "fold_event", "recovery evidence binding is not past its declared binding step", false, "reread_entities")
 		}
-		mandate, mandateErr := workflowSpecMandate(ctx, tx, event.SubjectID, "fold_event")
-		if mandateErr != nil {
-			return mandateErr
+		required, mandates, obligations, inputsErr := workflowEvidenceRequirementInputs(ctx, tx, event.SubjectID)
+		if inputsErr != nil {
+			return inputsErr
 		}
-		mandateBound := false
-		for _, lawID := range mandate {
-			if contains(p.ResultEvidenceRefs, lawID) {
-				bound, boundErr := workflowEvidenceReferenceBound(ctx, tx, event.SubjectID, lawID, "fold_event")
-				if boundErr != nil {
-					return boundErr
-				}
-				if bound {
-					mandateBound = true
-					break
-				}
+		requirementBound := false
+		rows, rowsErr := tx.QueryContext(ctx, `SELECT payload FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? ORDER BY seq DESC`, event.SubjectID, WorkflowEvidenceBound)
+		if rowsErr != nil {
+			return wrapFailure(KindUnavailable, "fold_event", "cannot inspect recovery evidence requirements", true, "retry once the workflow evidence projection is readable", rowsErr)
+		}
+		for rows.Next() {
+			var raw []byte
+			if scanErr := rows.Scan(&raw); scanErr != nil {
+				_ = rows.Close()
+				return wrapFailure(KindUnavailable, "fold_event", "cannot read recovery evidence binding", true, "retry once the workflow evidence projection is readable", scanErr)
+			}
+			var binding workflowEvidenceBoundPayload
+			if decodeErr := json.Unmarshal(raw, &binding); decodeErr != nil {
+				_ = rows.Close()
+				return newFailure(KindInvariantViolation, "fold_event", "recovery evidence binding payload is malformed", false, "reread_entities")
+			}
+			if contains(p.ResultEvidenceRefs, binding.ImmutableSubjectRef) && workflowEvidenceRequirementDeclared(binding.EvidenceKind, binding.ImmutableSubjectRef, required, mandates, entry.Definition, obligations) {
+				requirementBound = true
+				break
 			}
 		}
-		if !mandateBound {
-			return newFailure(KindMissingEvidence, "fold_event", "recovery evidence binding does not bind an active spec mandate", false, "bind the unbound spec mandate law reference")
+		if rowsErr := rows.Err(); rowsErr != nil {
+			_ = rows.Close()
+			return wrapFailure(KindUnavailable, "fold_event", "cannot scan recovery evidence bindings", true, "retry once the workflow evidence projection is readable", rowsErr)
+		}
+		if closeErr := rows.Close(); closeErr != nil {
+			return wrapFailure(KindUnavailable, "fold_event", "cannot close recovery evidence bindings", true, "retry once the workflow evidence projection is readable", closeErr)
+		}
+		if !requirementBound {
+			return newFailure(KindMissingEvidence, "fold_event", "recovery evidence binding does not bind an outstanding contract evidence requirement", false, "bind an outstanding contract evidence requirement")
 		}
 	}
 	advancesStep := false

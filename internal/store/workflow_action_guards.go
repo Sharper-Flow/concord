@@ -169,8 +169,8 @@ func workflowStepFollows(definition WorkflowDefinition, earlierStep, currentStep
 	return false
 }
 
-// guardRecoveryEvidenceBind admits only a mandate binding that is late in the
-// graph and still needed. It does not reopen evidence binding after recovery.
+// guardRecoveryEvidenceBind admits one outstanding evidence requirement late
+// in the graph. It does not reopen evidence binding after recovery.
 func guardRecoveryEvidenceBind(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, currentStep string, payload json.RawMessage, subject string) (bool, error) {
 	if stepDeclaresAction(definition, currentStep, "bind_evidence") {
 		return false, nil
@@ -179,12 +179,9 @@ func guardRecoveryEvidenceBind(ctx context.Context, q queryer, workID string, de
 	if bindingStep == "" || !workflowStepFollows(definition, bindingStep, currentStep) {
 		return false, nil
 	}
-	mandate, err := workflowSpecMandate(ctx, q, workID, subject)
-	if err != nil {
-		return false, err
-	}
-	if len(mandate) == 0 {
-		return false, nil
+	required, mandates, obligations, inputsErr := workflowEvidenceRequirementInputs(ctx, q, workID)
+	if inputsErr != nil {
+		return false, inputsErr
 	}
 	fields, err := workflowActionObject(payload)
 	if err != nil {
@@ -192,78 +189,30 @@ func guardRecoveryEvidenceBind(ctx context.Context, q queryer, workID string, de
 	}
 	reference := workflowFieldStringDefault(fields, "evidence_ref", "")
 	reference = workflowFieldStringDefault(fields, "immutable_subject_ref", reference)
-	if reference == "" {
-		return false, newFailure(KindInvalidPayload, subject, "recovery bind_evidence requires the mandated law reference", false, "bind the unbound spec mandate law reference")
+	kind := workflowFieldStringDefault(fields, "evidence_kind", "verification")
+	if reference != "" {
+		exactBound, exactErr := workflowEvidenceTupleBound(ctx, q, workID, kind, reference)
+		if exactErr != nil {
+			return false, exactErr
+		}
+		if exactBound {
+			return false, newFailure(KindIllegalLifecycleTransition, subject, "recovery bind_evidence cannot reopen an already bound evidence tuple", false, fmt.Sprintf("use bind_evidence on step %q before advancing", bindingStep))
+		}
 	}
-	for _, lawID := range mandate {
-		if lawID != reference {
+	requirements, requirementsErr := outstandingWorkflowEvidenceRequirements(ctx, q, workID, required, mandates, definition, obligations)
+	if requirementsErr != nil {
+		return false, requirementsErr
+	}
+	for _, requirement := range requirements {
+		if requirement.Kind != "" && requirement.Kind != kind {
 			continue
 		}
-		bound, boundErr := workflowEvidenceReferenceBound(ctx, q, workID, lawID, subject)
-		if boundErr != nil {
-			return false, boundErr
-		}
-		if !bound {
-			return true, nil
-		}
-		break
-	}
-	// A declared verification obligation admits a late bind of its exact
-	// (evidence kind, law reference) tuple while that obligation is
-	// unsatisfied (#905). The completion gate reads the same tuple, so a
-	// mandate already bound under another kind must not lock the obligation
-	// out of recovery.
-	if kind := workflowFieldStringDefault(fields, "evidence_kind", ""); kind != "" {
-		admitted, admitErr := workflowObligationAwaitingEvidence(ctx, q, workID, reference, kind, subject)
-		if admitErr != nil {
-			return false, admitErr
-		}
-		if admitted {
-			return true, nil
-		}
-	}
-	return false, newFailure(KindIllegalLifecycleTransition, subject, "recovery bind_evidence is only available for an unbound spec mandate or an unsatisfied declared obligation", false, fmt.Sprintf("use bind_evidence on step %q before advancing", bindingStep))
-}
-
-// workflowObligationAwaitingEvidence reports whether the current contract
-// declares a verification obligation whose law reference and evidence kind
-// match the late bind and whose evidence is not yet bound.
-func workflowObligationAwaitingEvidence(ctx context.Context, q queryer, workID, reference, kind, subject string) (bool, error) {
-	rows, err := q.QueryContext(ctx, `SELECT o.law_id, o.obligation_id FROM workflow_contract_verification_obligations o WHERE o.work_id=? AND o.contract_version=(SELECT MAX(contract_version) FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL)`, workID, workID)
-	if err != nil {
-		return false, wrapFailure(KindUnavailable, subject, "cannot read the workflow verification obligations", true, "retry once the workflow contract is readable", err)
-	}
-	defer rows.Close()
-	var tuples []WorkflowVerificationObligation
-	for rows.Next() {
-		var lawID, obligationID string
-		if err := rows.Scan(&lawID, &obligationID); err != nil {
-			return false, wrapFailure(KindUnavailable, subject, "cannot read the workflow verification obligations", true, "retry once the workflow contract is readable", err)
-		}
-		tuples = append(tuples, WorkflowVerificationObligation{LawID: lawID, ObligationID: obligationID})
-	}
-	if err := rows.Err(); err != nil {
-		return false, wrapFailure(KindUnavailable, subject, "cannot read the workflow verification obligations", true, "retry once the workflow contract is readable", err)
-	}
-	if err := rows.Close(); err != nil {
-		return false, wrapFailure(KindUnavailable, subject, "cannot read the workflow verification obligations", true, "retry once the workflow contract is readable", err)
-	}
-	// The evidence count runs only after the rows are closed: the guard can
-	// be reached through the single pooled connection, where a query inside
-	// an open rows iteration parks forever.
-	for _, tuple := range tuples {
-		if tuple.LawID != reference || tuple.ObligationID != kind {
+		if requirement.Reference != "" && requirement.Reference != reference {
 			continue
 		}
-		var count int
-		if err := q.QueryRowContext(ctx, `SELECT count(*) FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND json_extract(payload,'$.evidence_kind')=? AND json_extract(payload,'$.immutable_subject_ref')=?`, workID, WorkflowEvidenceBound, tuple.ObligationID, tuple.LawID).Scan(&count); err != nil {
-			return false, wrapFailure(KindUnavailable, subject, "cannot inspect obligation evidence", true, "retry once the workflow evidence projection is readable", err)
-		}
-		if count == 0 {
-			return true, nil
-		}
+		return true, nil
 	}
-	return false, nil
+	return false, newFailure(KindIllegalLifecycleTransition, subject, "recovery bind_evidence is only available for an outstanding contract evidence requirement", false, fmt.Sprintf("use bind_evidence on step %q before advancing", bindingStep))
 }
 
 // guardSupersedeContractRecovery admits contract recovery only for a workflow

@@ -168,3 +168,71 @@ func TestBindEvidenceObligationRefusedOnceSatisfied(t *testing.T) {
 		t.Fatalf("satisfied obligation bind error = %v, want %s", err, KindIllegalLifecycleTransition)
 	}
 }
+
+func TestBindEvidenceRequiredKindRecoveryWithEmptyMandate(t *testing.T) {
+	const workID = "required-kind-recovery-empty-mandate"
+	s, _ := seedItemAtAcceptance(t, workID, false)
+	db := s.DatabaseForTesting()
+	if _, err := db.Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`UPDATE workflow_contracts SET required_evidence='["verification","review","commit"]',spec_mandate='[]' WHERE work_id=? AND superseded_by IS NULL`, workID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`DELETE FROM fold_guard`); err != nil {
+		t.Fatal(err)
+	}
+	var beforeStep, beforeContract string
+	if err := db.QueryRow(`SELECT current_step FROM workflow_instances WHERE work_id=?`, workID).Scan(&beforeStep); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.QueryRow(`SELECT spec_mandate FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL`, workID).Scan(&beforeContract); err != nil {
+		t.Fatal(err)
+	}
+	for _, kind := range []string{"review", "commit"} {
+		payload := json.RawMessage(`{"evidence_kind":"` + kind + `","evidence_ref":"evidence:` + kind + `"}`)
+		if err := runVerdictAction(t, s, workID, "bind_evidence", payload, 0); err != nil {
+			t.Fatalf("required %s recovery binding refused: %v", kind, err)
+		}
+	}
+	var afterStep, afterContract string
+	if err := db.QueryRow(`SELECT current_step FROM workflow_instances WHERE work_id=?`, workID).Scan(&afterStep); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.QueryRow(`SELECT spec_mandate FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL`, workID).Scan(&afterContract); err != nil {
+		t.Fatal(err)
+	}
+	if afterStep != beforeStep || afterContract != beforeContract {
+		t.Fatalf("recovery changed workflow authority: step %q/%q contract %q/%q", beforeStep, afterStep, beforeContract, afterContract)
+	}
+	for _, kind := range []string{"review", "commit"} {
+		var count int
+		if err := db.QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.evidence_kind')=?`, workID, WorkflowEvidenceBound, kind).Scan(&count); err != nil {
+			t.Fatal(err)
+		}
+		if count != 1 {
+			t.Fatalf("recovered %s binding count=%d, want 1", kind, count)
+		}
+	}
+}
+
+func TestBindEvidenceRequiredKindRecoveryAfterMandateBound(t *testing.T) {
+	const workID = "required-kind-recovery-after-mandate"
+	s := seedMandateRecoveryItem(t, workID)
+	if err := runVerdictAction(t, s, workID, "bind_evidence", recoveryBindPayload(), 0); err != nil {
+		t.Fatalf("mandate binding refused: %v", err)
+	}
+	db := s.DatabaseForTesting()
+	if _, err := db.Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`UPDATE workflow_contracts SET required_evidence='["verification","review"]' WHERE work_id=? AND superseded_by IS NULL`, workID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`DELETE FROM fold_guard`); err != nil {
+		t.Fatal(err)
+	}
+	if err := runVerdictAction(t, s, workID, "bind_evidence", json.RawMessage(`{"evidence_kind":"review","evidence_ref":"evidence:review-after-mandate"}`), 0); err != nil {
+		t.Fatalf("required-kind recovery after mandate binding refused: %v", err)
+	}
+}

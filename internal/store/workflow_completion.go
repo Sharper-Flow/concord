@@ -447,27 +447,134 @@ func missingPredicateVerdicts(ctx context.Context, tx *sql.Tx, workID string) ([
 	return missing, nil
 }
 
-// missingCompletionEvidenceKinds lists the contract- and definition-required
-// evidence kinds that are not yet durably bound to the work item.
-func missingCompletionEvidenceKinds(ctx context.Context, tx *sql.Tx, workID string) ([]string, error) {
-	contract, definition, err := workflowCompletionContract(ctx, tx, BuiltinWorkflowRegistry(), workID)
-	if err != nil {
-		return nil, err
+// workflowEvidenceRequirement represents one completion evidence requirement.
+type workflowEvidenceRequirement struct {
+	Kind      string
+	Reference string
+}
+
+func workflowEvidenceRequirementInputs(ctx context.Context, q queryer, workID string) ([]string, []string, []WorkflowVerificationObligation, error) {
+	var requiredJSON, mandateJSON string
+	if err := q.QueryRowContext(ctx, `SELECT required_evidence,spec_mandate FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL ORDER BY contract_version DESC LIMIT 1`, workID).Scan(&requiredJSON, &mandateJSON); err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil, nil, newFailure(KindInvariantViolation, "workflow_action", "approved workflow contract is missing", false, "reread_entities")
+		}
+		return nil, nil, nil, wrapFailure(KindUnavailable, "workflow_action", "cannot read approved workflow evidence requirements", true, "retry once the workflow contract is readable", err)
 	}
-	needed := append([]string(nil), contract.RequiredEvidence...)
+	var required, mandates []string
+	if err := json.Unmarshal([]byte(requiredJSON), &required); err != nil {
+		return nil, nil, nil, newFailure(KindInvariantViolation, "workflow_action", "approved workflow contract evidence kinds are malformed", false, "reread_entities")
+	}
+	if err := json.Unmarshal([]byte(mandateJSON), &mandates); err != nil {
+		return nil, nil, nil, newFailure(KindInvariantViolation, "workflow_action", "approved workflow contract law mandates are malformed", false, "reread_entities")
+	}
+	rows, err := q.QueryContext(ctx, `SELECT law_id,obligation_id FROM workflow_contract_verification_obligations WHERE work_id=? AND contract_version=(SELECT MAX(contract_version) FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL) ORDER BY law_id,obligation_id`, workID, workID)
+	if err != nil {
+		return nil, nil, nil, wrapFailure(KindUnavailable, "workflow_action", "cannot read workflow verification obligations", true, "retry once the workflow contract is readable", err)
+	}
+	var obligations []WorkflowVerificationObligation
+	for rows.Next() {
+		var obligation WorkflowVerificationObligation
+		if err := rows.Scan(&obligation.LawID, &obligation.ObligationID); err != nil {
+			_ = rows.Close()
+			return nil, nil, nil, wrapFailure(KindUnavailable, "workflow_action", "cannot read workflow verification obligation", true, "retry once the workflow contract is readable", err)
+		}
+		obligations = append(obligations, obligation)
+	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return nil, nil, nil, wrapFailure(KindUnavailable, "workflow_action", "cannot scan workflow verification obligations", true, "retry once the workflow contract is readable", err)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, nil, nil, wrapFailure(KindUnavailable, "workflow_action", "cannot close workflow verification obligations", true, "retry once the workflow contract is readable", err)
+	}
+	return required, mandates, obligations, nil
+}
+
+func outstandingWorkflowEvidenceRequirements(ctx context.Context, q queryer, workID string, required, mandates []string, definition WorkflowDefinition, obligations []WorkflowVerificationObligation) ([]workflowEvidenceRequirement, error) {
+	requirements := workflowEvidenceRequirementDefinitions(required, mandates, definition, obligations)
+	outstanding := make([]workflowEvidenceRequirement, 0, len(requirements))
+	for _, requirement := range requirements {
+		var found bool
+		var err error
+		switch {
+		case requirement.Reference != "" && requirement.Kind != "":
+			found, err = workflowEvidenceTupleBound(ctx, q, workID, requirement.Kind, requirement.Reference)
+		case requirement.Reference != "":
+			found, err = workflowEvidenceReferenceBound(ctx, q, workID, requirement.Reference, "workflow_action")
+		default:
+			found, err = workflowEvidenceKindBound(ctx, q, workID, requirement.Kind)
+		}
+		if err != nil {
+			return nil, err
+		}
+		if !found {
+			outstanding = append(outstanding, requirement)
+		}
+	}
+	return outstanding, nil
+}
+
+func workflowEvidenceRequirementDefinitions(required, mandates []string, definition WorkflowDefinition, obligations []WorkflowVerificationObligation) []workflowEvidenceRequirement {
+	needed := append([]string(nil), required...)
 	for _, kind := range definition.RequiredEvidenceKinds {
 		if !contains(needed, string(kind)) {
 			needed = append(needed, string(kind))
 		}
 	}
-	var missing []string
+	requirements := make([]workflowEvidenceRequirement, 0, len(needed)+len(mandates)+len(obligations))
 	for _, kind := range needed {
-		found, err := workflowEvidenceKindBound(ctx, tx, workID, kind)
-		if err != nil {
-			return nil, err
+		requirements = append(requirements, workflowEvidenceRequirement{Kind: kind})
+	}
+	for _, mandate := range mandates {
+		requirements = append(requirements, workflowEvidenceRequirement{Reference: mandate})
+	}
+	for _, obligation := range obligations {
+		requirements = append(requirements, workflowEvidenceRequirement{Kind: obligation.ObligationID, Reference: obligation.LawID})
+	}
+	return requirements
+}
+
+func workflowEvidenceRequirementDeclared(kind, reference string, required, mandates []string, definition WorkflowDefinition, obligations []WorkflowVerificationObligation) bool {
+	for _, requirement := range workflowEvidenceRequirementDefinitions(required, mandates, definition, obligations) {
+		if requirement.Kind != "" && requirement.Kind != kind {
+			continue
 		}
-		if !found {
-			missing = append(missing, kind)
+		if requirement.Reference != "" && requirement.Reference != reference {
+			continue
+		}
+		return true
+	}
+	return false
+}
+
+func workflowEvidenceTupleBound(ctx context.Context, q queryer, workID, kind, reference string) (bool, error) {
+	var count int
+	if err := q.QueryRowContext(ctx, `SELECT count(*) FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND json_extract(payload,'$.evidence_kind')=? AND json_extract(payload,'$.immutable_subject_ref')=?`, workID, WorkflowEvidenceBound, kind, reference).Scan(&count); err != nil {
+		return false, wrapFailure(KindUnavailable, "complete_workflow", "cannot inspect workflow evidence requirement", true, "retry once the database is readable", err)
+	}
+	return count != 0, nil
+}
+
+func missingCompletionEvidenceKinds(ctx context.Context, tx *sql.Tx, workID string) ([]string, error) {
+	contract, definition, err := workflowCompletionContract(ctx, tx, BuiltinWorkflowRegistry(), workID)
+	if err != nil {
+		return nil, err
+	}
+	requirements, err := outstandingWorkflowEvidenceRequirements(ctx, tx, workID, contract.RequiredEvidence, contract.SpecMandate, definition, contract.VerificationObligations)
+	if err != nil {
+		return nil, err
+	}
+	missing := make([]string, 0, len(requirements))
+	for _, requirement := range requirements {
+		if requirement.Kind != "" {
+			if !contains(missing, requirement.Kind) {
+				missing = append(missing, requirement.Kind)
+			}
+			continue
+		}
+		if !contains(missing, requirement.Reference) {
+			missing = append(missing, requirement.Reference)
 		}
 	}
 	return missing, nil
@@ -693,17 +800,28 @@ func completionNoticeEvents(ctx context.Context, tx *sql.Tx, workID string, cont
 	return events, nil
 }
 
-func workflowEvidenceKindBound(ctx context.Context, tx *sql.Tx, workID, kind string) (bool, error) {
-	rows, err := tx.QueryContext(ctx, `SELECT payload FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? ORDER BY seq`, workID, WorkflowEvidenceBound)
+func workflowEvidenceKindBound(ctx context.Context, q queryer, workID, kind string) (bool, error) {
+	rows, err := q.QueryContext(ctx, `SELECT payload FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? ORDER BY seq`, workID, WorkflowEvidenceBound)
 	if err != nil {
 		return false, wrapFailure(KindUnavailable, "complete_workflow", "cannot inspect workflow evidence bindings", true, "retry once the database is readable", err)
 	}
-	defer rows.Close()
+	var payloads [][]byte
 	for rows.Next() {
 		var raw []byte
 		if err := rows.Scan(&raw); err != nil {
+			_ = rows.Close()
 			return false, wrapFailure(KindUnavailable, "complete_workflow", "cannot read workflow evidence binding", true, "retry once the database is readable", err)
 		}
+		payloads = append(payloads, raw)
+	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return false, wrapFailure(KindUnavailable, "complete_workflow", "cannot scan workflow evidence bindings", true, "retry once the database is readable", err)
+	}
+	if err := rows.Close(); err != nil {
+		return false, wrapFailure(KindUnavailable, "complete_workflow", "cannot close workflow evidence bindings", true, "retry once the database is readable", err)
+	}
+	for _, raw := range payloads {
 		var payload workflowEvidenceBoundPayload
 		if err := json.Unmarshal(raw, &payload); err != nil {
 			return false, newFailure(KindInvariantViolation, "complete_workflow", "workflow evidence binding payload is malformed", false, "reread_entities")
@@ -712,15 +830,12 @@ func workflowEvidenceKindBound(ctx context.Context, tx *sql.Tx, workID, kind str
 			continue
 		}
 		var authoritative int
-		if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM durable_operations WHERE op_id=? AND work_id=? AND principal_ref=? AND request_id=? AND result_kind='completed' AND EXISTS (SELECT 1 FROM json_each(durable_operations.evidence_refs) WHERE value=?)`, payload.ProducerRunRef, workID, payload.ProducerID, payload.ProducerWatermark, payload.ImmutableSubjectRef).Scan(&authoritative); err != nil {
+		if err := q.QueryRowContext(ctx, `SELECT count(*) FROM durable_operations WHERE op_id=? AND work_id=? AND principal_ref=? AND request_id=? AND result_kind='completed' AND EXISTS (SELECT 1 FROM json_each(durable_operations.evidence_refs) WHERE value=?)`, payload.ProducerRunRef, workID, payload.ProducerID, payload.ProducerWatermark, payload.ImmutableSubjectRef).Scan(&authoritative); err != nil {
 			return false, wrapFailure(KindUnavailable, "complete_workflow", "cannot verify workflow evidence authority", true, "retry once the database is readable", err)
 		}
 		if authoritative == 1 {
 			return true, nil
 		}
-	}
-	if err := rows.Err(); err != nil {
-		return false, wrapFailure(KindUnavailable, "complete_workflow", "cannot scan workflow evidence bindings", true, "retry once the database is readable", err)
 	}
 	return false, nil
 }

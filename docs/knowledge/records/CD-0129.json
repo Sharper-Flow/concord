@@ -1,0 +1,42 @@
+{
+  "date": "2026-09-09T00:00:00Z",
+  "evidence": [
+    "internal/store/workflow_operator.go",
+    "internal/store/workflow_dispatch.go",
+    "internal/store/workflow_investigation_gate_test.go",
+    "internal/agent/workflow_issue31_test.go",
+    "adapter/opencode/dispatch_route_end_to_end.test.ts"
+  ],
+  "home_domain_id": "workflow-engine",
+  "id": "CD-0129",
+  "kind": "decision",
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "CD-0030"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0113"
+    }
+  ],
+  "path": "docs/decisions/CD-0129-investigation-gates-the-operator-question-open-questions-gate-approval.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:fe981ec0ed3170440ce3066a5e89ad9be02c9c3f4400c2c1306c59b6d85010a0",
+  "status": "accepted",
+  "summary": "Withholds every approval-required operator question until the work item carries an observation whose refs resolve to a current Domain and another work item, refuses contract approval while recorded pending questions lack a bound research pack revision, and leaves architecture mandatory where it already binds, at approval for Product-changing work.",
+  "tags": [
+    "workflow",
+    "investigation",
+    "operator",
+    "research",
+    "law"
+  ],
+  "title": "Investigation gates the operator question, open questions gate approval"
+}

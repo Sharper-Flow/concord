@@ -136,7 +136,7 @@ func ReadWorkflowOperatorQuestion(ctx context.Context, s *Store, workID string) 
 			if action.ID != candidate || action.Approval != ActionApprovalRequired {
 				continue
 			}
-			return workflowOperatorQuestion(workID, workVersion, definition, contract, action.ID), nil
+			return workflowOperatorQuestionTx(ctx, s.db, workID, currentStep, workVersion, definition, contract)
 		}
 	}
 	return nil, nil
@@ -165,7 +165,7 @@ func workflowOperatorQuestion(workID string, workVersion int64, definition Workf
 	}
 }
 
-func workflowOperatorQuestionTx(workID, currentStep string, workVersion int64, definition WorkflowReadDefinition, contract WorkflowReadContract) (*WorkflowOperatorQuestion, error) {
+func workflowOperatorQuestionTx(ctx context.Context, q queryer, workID, currentStep string, workVersion int64, definition WorkflowReadDefinition, contract WorkflowReadContract) (*WorkflowOperatorQuestion, error) {
 	entry, err := VerifyWorkflowDefinitionPin(BuiltinWorkflowRegistry(), WorkflowDefinitionPin(definition))
 	if err != nil {
 		return nil, err
@@ -177,11 +177,97 @@ func workflowOperatorQuestionTx(workID, currentStep string, workVersion int64, d
 	for _, candidate := range step.Actions {
 		for _, action := range entry.Definition.ActionDefinitions {
 			if action.ID == candidate && action.Approval == ActionApprovalRequired {
+				if err := requireRecordedInvestigationArtifact(ctx, q, workID); err != nil {
+					var failure *Failure
+					if failureAs(err, &failure) && failure.Kind == KindMissingEvidence {
+						return nil, nil
+					}
+					return nil, err
+				}
 				return workflowOperatorQuestion(workID, workVersion, definition, contract, action.ID), nil
 			}
 		}
 	}
 	return nil, nil
+}
+
+// requireRecordedInvestigationArtifact admits an operator question only when a
+// work observation names a current Domain of the work item's Product and a
+// different work item. Each ref must resolve in its owning projection.
+func requireRecordedInvestigationArtifact(ctx context.Context, q queryer, workID string) error {
+	rows, err := q.QueryContext(ctx, `SELECT refs FROM work_observations WHERE work_id=? ORDER BY recorded_at DESC, observation_id`, workID)
+	if err != nil {
+		return wrapFailure(KindUnavailable, "workflow_operator_question", "cannot inspect recorded investigation artifacts", true, "retry once the workflow evidence is readable", err)
+	}
+	var candidates [][]string
+	for rows.Next() {
+		var refsJSON string
+		if err := rows.Scan(&refsJSON); err != nil {
+			rows.Close()
+			return wrapFailure(KindUnavailable, "workflow_operator_question", "cannot read recorded investigation artifact refs", true, "retry once the workflow evidence is readable", err)
+		}
+		var refs []string
+		if json.Unmarshal([]byte(refsJSON), &refs) != nil {
+			rows.Close()
+			return newFailure(KindInvariantViolation, "workflow_operator_question", "recorded investigation artifact refs are malformed", false, "rebuild the work observation projection")
+		}
+		candidates = append(candidates, refs)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return wrapFailure(KindUnavailable, "workflow_operator_question", "cannot inspect recorded investigation artifacts", true, "retry once the workflow evidence is readable", err)
+	}
+	if err := rows.Close(); err != nil {
+		return wrapFailure(KindUnavailable, "workflow_operator_question", "cannot inspect recorded investigation artifacts", true, "retry once the workflow evidence is readable", err)
+	}
+	for _, refs := range candidates {
+		namesDomain := false
+		namesWork := false
+		for _, ref := range refs {
+			if !namesDomain {
+				current, err := investigationRefIsCurrentDomain(ctx, q, workID, ref)
+				if err != nil {
+					return err
+				}
+				namesDomain = current
+			}
+			if !namesWork && ref != workID {
+				known, err := investigationRefIsKnownWork(ctx, q, ref)
+				if err != nil {
+					return err
+				}
+				namesWork = known
+			}
+			if namesDomain && namesWork {
+				return nil
+			}
+		}
+	}
+	return newFailure(KindMissingEvidence, "workflow_operator_question", "operator question requires a recorded investigation artifact naming a current Domain of the Product and another work item", false, "record an observation whose refs resolve to a current Product Domain and another work item")
+}
+
+func investigationRefIsCurrentDomain(ctx context.Context, q queryer, workID, ref string) (bool, error) {
+	var status string
+	err := q.QueryRowContext(ctx, `SELECT d.status FROM domains d JOIN product_projects pp ON pp.product_id=d.product_id JOIN work_projects wp ON wp.project_id=pp.project_id WHERE wp.work_id=? AND d.domain_id=? LIMIT 1`, workID, ref).Scan(&status)
+	if err == sql.ErrNoRows {
+		return false, nil
+	}
+	if err != nil {
+		return false, wrapFailure(KindUnavailable, "workflow_operator_question", "cannot resolve investigation artifact Domain ref", true, "retry once the Domain projection is readable", err)
+	}
+	return status == "current", nil
+}
+
+func investigationRefIsKnownWork(ctx context.Context, q queryer, ref string) (bool, error) {
+	var found string
+	err := q.QueryRowContext(ctx, `SELECT id FROM work_items WHERE id=?`, ref).Scan(&found)
+	if err == sql.ErrNoRows {
+		return false, nil
+	}
+	if err != nil {
+		return false, wrapFailure(KindUnavailable, "workflow_operator_question", "cannot resolve investigation artifact work ref", true, "retry once the work item projection is readable", err)
+	}
+	return true, nil
 }
 
 func boundedQuestionText(value string, max int) string {
@@ -277,7 +363,10 @@ func validateWorkflowOperatorSelectionTx(ctx context.Context, tx *sql.Tx, regist
 	for _, candidate := range step.Actions {
 		for _, action := range entry.Definition.ActionDefinitions {
 			if action.ID == candidate && action.Approval == ActionApprovalRequired {
-				question = workflowOperatorQuestion(request.WorkID, workVersion, definition, contract, action.ID)
+				question, err = workflowOperatorQuestionTx(ctx, tx, request.WorkID, currentStep, workVersion, definition, contract)
+				if err != nil {
+					return err
+				}
 				break
 			}
 		}

@@ -102,7 +102,7 @@ func ReadWorkPinTx(ctx context.Context, tx *sql.Tx, workID string) (WorkPin, err
 		if err != nil {
 			return pin, err
 		}
-		pin.PendingOperatorDecision, err = workflowOperatorQuestionTx(workID, pin.Step, pin.Version, definition, contract)
+		pin.PendingOperatorDecision, err = workflowOperatorQuestionTx(ctx, tx, workID, pin.Step, pin.Version, definition, contract)
 		if err != nil {
 			return pin, err
 		}

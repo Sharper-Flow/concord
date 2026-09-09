@@ -571,6 +571,9 @@ func workflowSemanticActionEvents(ctx context.Context, tx *sql.Tx, definition Wo
 			"approach": approach, "decisions": decisions, "touched_refs": workflowFieldStrings(fields, "touched_refs"),
 		})}, nil
 	case "approve_contract":
+		if err := requireResearchForPendingQuestions(ctx, tx, request.WorkID); err != nil {
+			return nil, err
+		}
 		outcomePredicates, err := workflowContractOutcomePredicates(definition, fields)
 		if err != nil {
 			return nil, err
@@ -1090,6 +1093,35 @@ func workflowFieldStringDefaultMap(fields map[string]any, name, fallback string)
 	}
 	return fallback
 }
+
+// requireResearchForPendingQuestions prevents contract approval from closing
+// a plan while its latest durable context checkpoint still has open questions.
+func requireResearchForPendingQuestions(ctx context.Context, q queryer, workID string) error {
+	var questionsJSON string
+	err := q.QueryRowContext(ctx, `SELECT pending_questions FROM workflow_context_checkpoints WHERE work_id=? ORDER BY checkpoint_sequence DESC LIMIT 1`, workID).Scan(&questionsJSON)
+	if err == sql.ErrNoRows {
+		return nil
+	}
+	if err != nil {
+		return wrapFailure(KindUnavailable, "workflow_action", "cannot inspect pending workflow questions", true, "retry once the workflow context is readable", err)
+	}
+	var questions []string
+	if err := json.Unmarshal([]byte(questionsJSON), &questions); err != nil {
+		return newFailure(KindInvariantViolation, "workflow_action", "pending workflow questions are malformed", false, "rebuild the workflow context projection")
+	}
+	if len(questions) == 0 {
+		return nil
+	}
+	var bound int
+	if err := q.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM active_research_consumers WHERE consumer_work_id=?)`, workID).Scan(&bound); err != nil {
+		return wrapFailure(KindUnavailable, "workflow_action", "cannot inspect research bound to pending workflow questions", true, "retry once the research projection is readable", err)
+	}
+	if bound != 0 {
+		return nil
+	}
+	return newFailure(KindMissingEvidence, "workflow_action", "contract approval requires a research pack revision for recorded pending questions", false, "bind a research pack revision to the work item before approving the contract")
+}
+
 func defaultWorkflowOutcome(definition WorkflowDefinition, fields map[string]json.RawMessage) json.RawMessage {
 	if raw := workflowFieldRaw(fields, "outcome"); len(raw) != 0 && string(raw) != "null" {
 		return raw

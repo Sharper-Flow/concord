@@ -88,6 +88,9 @@ func TestIssue933PremiseRevisionUsesTypedContractSupersession(t *testing.T) {
 	if err := runVerdictActionAs(t, s, workID, "record_verdict", json.RawMessage(`{"contract_version":1,"predicate_id":"predicate:primary","verdict_kind":"ok"}`), 0, reviewer); err != nil {
 		t.Fatalf("record compatible verdict: %v", err)
 	}
+	// The operator question gate requires an investigation observation naming
+	// a current Domain and another work item before it offers the question.
+	seedComparisonObservation(t, s, workID)
 	question, err := ReadWorkflowOperatorQuestion(context.Background(), s, workID)
 	if err != nil {
 		t.Fatal(err)

@@ -5680,6 +5680,13 @@ const GeneratedPayloadSchemaDocument = `{
         "step": {
           "$ref": "#/$defs/short"
         },
+        "verdict_evidence": {
+          "items": {
+            "$ref": "#/$defs/work_pin_evidence"
+          },
+          "maxItems": 100,
+          "type": "array"
+        },
         "version": {
           "$ref": "#/$defs/version"
         },
@@ -5727,6 +5734,26 @@ const GeneratedPayloadSchemaDocument = `{
         "epoch",
         "lane",
         "state"
+      ],
+      "type": "object"
+    },
+    "work_pin_evidence": {
+      "additionalProperties": false,
+      "properties": {
+        "evidence_kind": {
+          "maxLength": 32,
+          "minLength": 1,
+          "type": "string"
+        },
+        "immutable_subject_ref": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "evidence_kind",
+        "immutable_subject_ref"
       ],
       "type": "object"
     },

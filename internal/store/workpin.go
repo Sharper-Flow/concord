@@ -19,6 +19,10 @@ type WorkPin struct {
 	PendingOperatorDecision *WorkflowOperatorQuestion `json:"pending_operator_decision"`
 	Watermark               string                    `json:"watermark"`
 	NextValidIntents        []WorkPinIntent           `json:"next_valid_intents"`
+	// VerdictEvidence exposes the bound immutable evidence set at steps where
+	// record_verdict is declarable, so a caller cites qualifying refs without
+	// a raw store read (#974). It stays nil at every other step.
+	VerdictEvidence []WorkPinEvidence `json:"verdict_evidence,omitempty"`
 }
 
 type WorkPinAttempt struct {
@@ -26,6 +30,11 @@ type WorkPinAttempt struct {
 	Epoch int64  `json:"epoch"`
 	Lane  string `json:"lane"`
 	State string `json:"state"`
+}
+
+type WorkPinEvidence struct {
+	EvidenceKind        string `json:"evidence_kind"`
+	ImmutableSubjectRef string `json:"immutable_subject_ref"`
 }
 
 type WorkPinIntent struct {
@@ -113,6 +122,12 @@ func ReadWorkPinTx(ctx context.Context, tx *sql.Tx, workID string) (WorkPin, err
 		if lateVerdictRecovery {
 			pin.NextValidIntents = append(pin.NextValidIntents, workPinIntentForAction(currentActionDefinition("record_verdict", true), pin.Version, "late_verdict_recovery"))
 		}
+		if stepDeclaresAction(registered.Definition, pin.Step, "record_verdict") || lateVerdictRecovery {
+			pin.VerdictEvidence, err = workPinVerdictEvidenceTx(ctx, tx, workID)
+			if err != nil {
+				return pin, err
+			}
+		}
 	} else if err != sql.ErrNoRows {
 		return pin, wrapFailure(KindUnavailable, "work_pin", "cannot read workflow contract", true, "retry once the database is readable", err)
 	}
@@ -141,6 +156,29 @@ func ReadWorkPinTx(ctx context.Context, tx *sql.Tx, workID string) (WorkPin, err
 	}
 	pin.Watermark = "seq:" + strconv.FormatInt(watermark, 10)
 	return pin, nil
+}
+
+// workPinVerdictEvidenceTx reads the distinct bound evidence pairs for a
+// work item, ordered deterministically. The set is read-only; binding stays
+// owned by the workflow actions that mint evidence events.
+func workPinVerdictEvidenceTx(ctx context.Context, tx *sql.Tx, workID string) ([]WorkPinEvidence, error) {
+	rows, err := tx.QueryContext(ctx, `SELECT DISTINCT json_extract(payload,'$.evidence_kind') AS evidence_kind, json_extract(payload,'$.immutable_subject_ref') AS immutable_subject_ref FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.immutable_subject_ref') IS NOT NULL ORDER BY immutable_subject_ref, evidence_kind LIMIT 100`, string(SubjectWorkItem), workID, WorkflowEvidenceBound)
+	if err != nil {
+		return nil, wrapFailure(KindUnavailable, "work_pin", "cannot read bound verdict evidence", true, "retry once the database is readable", err)
+	}
+	defer rows.Close()
+	out := []WorkPinEvidence{}
+	for rows.Next() {
+		var entry WorkPinEvidence
+		if scanErr := rows.Scan(&entry.EvidenceKind, &entry.ImmutableSubjectRef); scanErr != nil {
+			return nil, wrapFailure(KindUnavailable, "work_pin", "cannot scan bound verdict evidence", true, "retry once the database is readable", scanErr)
+		}
+		out = append(out, entry)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, wrapFailure(KindUnavailable, "work_pin", "cannot iterate bound verdict evidence", true, "retry once the database is readable", err)
+	}
+	return out, nil
 }
 
 func decodeWorkflowPinContract(contract *WorkflowReadContract, required, routes, mandate, modifies string) error {

@@ -176,6 +176,26 @@
         }
       }
     },
+    "work_pin_evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "evidence_kind",
+        "immutable_subject_ref"
+      ],
+      "properties": {
+        "evidence_kind": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 32
+        },
+        "immutable_subject_ref": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        }
+      }
+    },
     "work_pin_intent": {
       "type": "object",
       "additionalProperties": false,
@@ -302,6 +322,13 @@
                 "$ref": "#/$defs/version"
               }
             }
+          }
+        },
+        "verdict_evidence": {
+          "type": "array",
+          "maxItems": 100,
+          "items": {
+            "$ref": "#/$defs/work_pin_evidence"
           }
         }
       }

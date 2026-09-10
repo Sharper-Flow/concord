@@ -1151,13 +1151,6 @@ func max(a, b int) int {
 	return b
 }
 
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
-
 func (m *Model) renderCandidates(snapshot launcher.Snapshot) string {
 	lines := []string{"CANDIDATES", "STATUS: " + snapshot.Coverage}
 	if snapshot.StatusMessage != "" {

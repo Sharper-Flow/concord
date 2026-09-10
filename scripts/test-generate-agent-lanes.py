@@ -12,6 +12,7 @@ if spec is None or spec.loader is None:
     raise RuntimeError("unable to load lane generator")
 generator = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(generator)
+REPORT_SCHEMA = json.loads((ROOT / "contracts/agent-lane-report.schema.json").read_text(encoding="utf-8"))
 
 
 class AgentProjectionTests(unittest.TestCase):
@@ -25,20 +26,19 @@ class AgentProjectionTests(unittest.TestCase):
         # CD-0070 D1. The host cycles every agent whose mode is not subagent
         # and whose hidden flag is unset, so mode alone cannot keep a worker
         # lane out of the operator's session-agent cycle.
-        self.assertIn("\nhidden: true\n", generator.agent_projection(self.LANE))
+        self.assertIn("\nhidden: true\n", generator.agent_projection(self.LANE, REPORT_SCHEMA))
 
     def test_projection_stays_selectable_by_run_mode(self):
         # CD-0070 D2. Run mode refuses a subagent-mode target and substitutes
         # the default agent, so CD-0064 D1's mode survives the hidden flag.
-        self.assertIn("\nmode: all\n", generator.agent_projection(self.LANE))
+        self.assertIn("\nmode: all\n", generator.agent_projection(self.LANE, REPORT_SCHEMA))
 
     def test_projection_denies_task_dispatch(self):
         # CD-0070 Invariant 3, carrying CD-0064 Invariant 3 forward.
-        self.assertIn('"*": deny', generator.agent_projection(self.LANE))
+        self.assertIn('"*": deny', generator.agent_projection(self.LANE, REPORT_SCHEMA))
 
     def test_projection_reads_report_bounds_from_schema(self):
-        report_schema = json.loads((ROOT / "contracts/agent-lane-report.schema.json").read_text(encoding="utf-8"))
-        changed = copy.deepcopy(report_schema)
+        changed = copy.deepcopy(REPORT_SCHEMA)
         changed["properties"]["readback_model"]["maxLength"] = 77
         changed["properties"]["evidence"]["maxItems"] = 11
         changed["$defs"]["evidence_entry"]["properties"]["detail"]["maxLength"] = 23

@@ -257,7 +257,7 @@ test("every registered lane projects its own obligation set and nothing else", a
     expect(packet.lane_version).toBe(lane.version)
     expect(packet.lane_digest).toBe(lane.digest)
     expect(packet.inputs.constraints!.length).toBeGreaterThan(lane.evidence_obligations.length)
-    const laneConstraints = packet.inputs.constraints!.slice(0, lane.evidence_obligations.length)
+    const laneConstraints = packet.inputs.constraints!.filter((entry) => entry.startsWith("Evidence obligation "))
     for (const obligation of lane.evidence_obligations) {
       expect(laneConstraints.some((entry) => entry.includes(`"${obligation}"`)), `${lane.id} omitted ${obligation}`).toBe(true)
     }

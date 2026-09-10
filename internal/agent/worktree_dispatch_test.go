@@ -369,3 +369,84 @@ func TestSessionVacateSucceedsFromLinkedWorktreeMutation(t *testing.T) {
 		t.Fatalf("session_vacated event count=%d, want 1", eventCount)
 	}
 }
+
+// The vacate request digest is caller-constant: the input carries only the
+// idempotency key, which mutationDigest strips. When the event id was the
+// bare digest, the first vacate ever recorded owned the id for every later
+// session, and each one refused as a conflicting replay. A second session
+// vacating its own linked worktree must record its own event.
+func TestSecondSessionVacateRecordsItsOwnEvent(t *testing.T) {
+	ctx := context.Background()
+	s, service, grant, _, baseSHA := worktreeDispatchFixture(t)
+
+	worktreeA := filepath.Join(t.TempDir(), "wt-session-a")
+	claimLinkedWorktree(t, s, service, grant, worktreeA, baseSHA, "work/vacate-a", "claim-vacate-a")
+	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	envA := mutationEnvelope(grant, scopeVersion)
+	envA.Worktree = worktreeA
+	envA.Directory = worktreeA
+	first, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "session_vacate", Input: json.RawMessage(`{"idempotency_key":"vacate-a"}`)}, envA)
+	if err != nil || first.Outcome != OutcomeOK {
+		t.Fatalf("first vacate response=%+v error=%+v err=%v", first, first.Error, err)
+	}
+
+	// A second work item gives the second session its own linked worktree.
+	seed := []store.Event{
+		{EventID: "wt-dispatch-work-2", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: "work-2", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 2, Payload: json.RawMessage(`{"work_kind":"task","title":"Second Vacate","priority":1}`)},
+		{EventID: "wt-dispatch-work-2-membership", Kind: "work.memberships_replaced", SubjectType: store.SubjectWorkItem, SubjectID: "work-2", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"memberships":[{"project_id":"project-1","role":"primary"}],"expected_version":1,"resulting_version":2}`)},
+	}
+	if err := store.ApplyOperation(ctx, s, store.Operation{Events: seed, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, "work-2"): 0}}); err != nil {
+		t.Fatal(err)
+	}
+
+	grantB := grant
+	grantB.SessionRef = "session/vacate-b"
+	worktreeB := filepath.Join(t.TempDir(), "wt-session-b")
+	claimB, _ := json.Marshal(map[string]any{
+		"work_id": "work-2", "project_id": "project-1",
+		"branch": "work/vacate-b", "base_sha": baseSHA, "path": worktreeB,
+		"expected_version": 2, "idempotency_key": "claim-vacate-b",
+	})
+	scopeVersionB, _, err := s.ScopeVersion(ctx, "project-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	claim, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "worktree_claim", Input: claimB}, mutationEnvelope(grantB, scopeVersionB))
+	if err != nil || claim.Outcome != OutcomeOK {
+		t.Fatalf("second claim response=%+v err=%v", claim, err)
+	}
+
+	envB := mutationEnvelope(grantB, scopeVersionB)
+	envB.Worktree = worktreeB
+	envB.Directory = worktreeB
+	second, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "session_vacate", Input: json.RawMessage(`{"idempotency_key":"vacate-b"}`)}, envB)
+	if err != nil || second.Outcome != OutcomeOK {
+		t.Fatalf("second vacate response=%+v error=%+v err=%v", second, second.Error, err)
+	}
+	var eventIDs, sessionRefs []string
+	rows, err := s.DatabaseForTesting().QueryContext(ctx, `SELECT event_id, json_extract(payload,'$.session_ref') FROM domain_events WHERE kind='work.session_vacated' ORDER BY occurred_at`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var eventID, sessionRef string
+		if err := rows.Scan(&eventID, &sessionRef); err != nil {
+			t.Fatal(err)
+		}
+		eventIDs = append(eventIDs, eventID)
+		sessionRefs = append(sessionRefs, sessionRef)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	if len(eventIDs) != 2 {
+		t.Fatalf("session_vacated events=%v, want one per session", eventIDs)
+	}
+	if eventIDs[0] == eventIDs[1] || sessionRefs[0] == sessionRefs[1] {
+		t.Fatalf("session_vacated ids=%v sessions=%v, want distinct ids and sessions", eventIDs, sessionRefs)
+	}
+}

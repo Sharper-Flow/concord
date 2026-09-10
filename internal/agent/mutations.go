@@ -1903,6 +1903,13 @@ func (r runtime) planSessionVacate(ctx context.Context, base Envelope, raw []byt
 		if err != nil {
 			return nil, nil, nil, err
 		}
+		// The request digest is caller-constant here: mutationDigest strips
+		// session identity and idempotency key by design, and the vacate
+		// input carries nothing else, so digest alone names no one. The event
+		// id must name the relocating session and the worktree's work item,
+		// or the first vacate ever recorded owns the id for every later
+		// session and each one refuses as a conflicting replay (CD-0120 D4).
+		eventID := digest + ":session-vacated:" + grant.SessionRef + ":" + target.WorkID
 		payload, err := json.Marshal(map[string]any{
 			"work_id":               target.WorkID,
 			"project_id":            target.ProjectID,
@@ -1915,7 +1922,7 @@ func (r runtime) planSessionVacate(ctx context.Context, base Envelope, raw []byt
 			return nil, nil, nil, err
 		}
 		if _, err := store.ApplyOperationTx(ctx, tx, store.Operation{Events: []store.Event{{
-			EventID:        digest + ":session-vacated",
+			EventID:        eventID,
 			Kind:           "work.session_vacated",
 			SubjectType:    store.SubjectWorkItem,
 			SubjectID:      target.WorkID,
@@ -1934,7 +1941,7 @@ func (r runtime) planSessionVacate(ctx context.Context, base Envelope, raw []byt
 			"source_directory":      target.SourceDirectory,
 			"destination_directory": target.DestinationDirectory,
 		})
-		return result, []string{digest + ":session-vacated"}, []ChangedRef{}, err
+		return result, []string{eventID}, []ChangedRef{}, err
 	}
 	return Envelope{}, nil, false
 }

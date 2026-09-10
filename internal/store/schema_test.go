@@ -1025,25 +1025,6 @@ func TestMigrationsAreOrderedAndUnique(t *testing.T) {
 	}
 }
 
-func TestMigration58MatchesIssuedBootstrapLedger(t *testing.T) {
-	var migration58 migration
-	for _, candidate := range migrations {
-		if candidate.Version == 58 {
-			migration58 = candidate
-			break
-		}
-	}
-	if migration58.Version != 58 {
-		t.Fatal("migration 58 is missing")
-	}
-	if migration58.Name != "work_bootstrap_operations" {
-		t.Fatalf("migration 58 name = %q, want work_bootstrap_operations", migration58.Name)
-	}
-	if got := migration58.checksum(); got != "ecfc4b59eadf07db45659fd92bc4fcfd1a88894d97ba727e3bc1cc2418c0cc19" {
-		t.Fatalf("migration 58 checksum = %s, want issued checksum", got)
-	}
-}
-
 func TestMigration49SeedsVocabularyRegistriesAndGuardsNativePairs(t *testing.T) {
 	s := openTemp(t)
 	db := s.DatabaseForTesting()

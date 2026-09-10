@@ -2696,7 +2696,7 @@ INSERT OR IGNORE INTO fold_guard(active) VALUES (1);
 UPDATE work_items SET kind=kind;
 UPDATE workflow_native_runs SET phase=phase,status=status;
 DELETE FROM fold_guard;
-`,
+		`,
 	},
 	{
 		Version:  50,
@@ -4237,7 +4237,7 @@ SET instance_state=CASE (SELECT lifecycle FROM work_items WHERE work_items.id=wo
 WHERE instance_state NOT IN ('completed','cancelled','superseded')
   AND work_id IN (SELECT id FROM work_items WHERE lifecycle IN ('completed','cancelled','superseded'));
 DELETE FROM fold_guard;
-		`,
+`,
 	},
 	{
 		Version: 76,
@@ -4687,13 +4687,13 @@ func appliedMigrations(ctx context.Context, tx queryer) (map[int]appliedMigratio
 
 // migrationShippedVariantChecksums lists, per migration version, the SHA-256
 // checksums of SQL texts that differ from this binary's definition but shipped
-// in published releases. Thirteen migrations had their text edited after
-// first release (digest corrections, reformatting, comment edits), so
-// databases created by those releases recorded checksums no later binary
-// reproduced. The manifest check accepts exactly these recorded variants and
-// no others: a fresh edit to an applied migration still fails, and the table
-// is closed — extending it requires naming the release range that shipped
-// the new variant.
+// in published releases. Some migrations had their text edited after first
+// release (digest corrections, reformatting, comment edits), so databases
+// created by those releases recorded checksums no later binary reproduced.
+// The manifest check accepts exactly these recorded variants and no others: a
+// fresh edit to an applied migration still fails, and the table is closed —
+// extending it requires naming the release range that shipped the new
+// variant.
 var migrationShippedVariantChecksums = map[int][]string{
 	3:  {"c8ca3aa3d712044cab66d22184c20cae39472401fd2ea778f29b3c50dee94b90"},
 	7:  {"5c5d5aa28ef3d5bac4a345a860d700410c81821dc7a68ddb6930205f99c1b60d"},

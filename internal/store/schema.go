@@ -2696,7 +2696,7 @@ INSERT OR IGNORE INTO fold_guard(active) VALUES (1);
 UPDATE work_items SET kind=kind;
 UPDATE workflow_native_runs SET phase=phase,status=status;
 DELETE FROM fold_guard;
-`,
+		`,
 	},
 	{
 		Version:  50,

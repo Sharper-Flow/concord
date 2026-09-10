@@ -1,0 +1,5 @@
+{
+  "id": "CD-0130",
+  "reason": "The action resolver, preflight, event fold, work-pin projection, immutable version pins, and recovery tests provide the decision's reachability evidence, so no separate coverage surface applies.",
+  "state": "out_of_scope"
+}

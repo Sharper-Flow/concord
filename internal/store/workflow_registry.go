@@ -1210,6 +1210,12 @@ func currentActionDefinition(id string, payloadContracts bool) WorkflowActionDef
 	return WorkflowActionDefinition{ID: id, Consequence: policy.Consequence, Approval: policy.Approval, ExecutionMode: policy.ExecutionMode, Payload: payload, PublicPayload: publicPayload}
 }
 
+func workerFailureRecoveryActionDefinition() WorkflowActionDefinition {
+	action := currentActionDefinition("record_worker_failure", true)
+	action.RequiredCapability = "work_transition"
+	return action
+}
+
 func actionDefinitions(ids []string, payloadContracts bool) []WorkflowActionDefinition {
 	result := make([]WorkflowActionDefinition, 0, len(ids))
 	for _, id := range ids {
@@ -1229,7 +1235,7 @@ func workflowActionExecutionMode(definition WorkflowDefinition, actionID string)
 		break
 	}
 	// Recovery actions can be outside the pinned root list.
-	if actionID == "supersede_contract" || actionID == "record_verdict" {
+	if actionID == "supersede_contract" || actionID == "record_verdict" || actionID == "record_worker_failure" {
 		policy, ok := builtinActionPolicies[actionID]
 		return policy.ExecutionMode, ok
 	}

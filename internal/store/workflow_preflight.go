@@ -176,6 +176,13 @@ func WorkflowActionPreflightWithRegistry(ctx context.Context, s *Store, registry
 	if err != nil {
 		return err
 	}
+	workerFailureRecovery := false
+	if request.ActionID == "record_worker_failure" {
+		workerFailureRecovery, err = workflowWorkerFailureRecoveryAvailable(ctx, s.db, request.WorkID, entry.Definition, currentStep, "workflow_action_preflight")
+		if err != nil {
+			return err
+		}
+	}
 	consequence := action.Consequence
 	staleRecovery := request.ActionID == "supersede_contract"
 	// The resolver admits record_verdict past its verification step, but
@@ -218,7 +225,7 @@ func WorkflowActionPreflightWithRegistry(ctx context.Context, s *Store, registry
 	if err := guardMandatedWorkflowLawBound(ctx, s.db, request.WorkID, entry.Definition, currentStep, request.ActionID, "workflow_action_preflight"); err != nil {
 		return err
 	}
-	if !staleRecovery && !lateVerdictRecovery && !definitionStepAllows(entry.Definition, currentStep, request.ActionID) {
+	if !staleRecovery && !lateVerdictRecovery && !workerFailureRecovery && !definitionStepAllows(entry.Definition, currentStep, request.ActionID) {
 		if request.ActionID != "bind_evidence" {
 			return newFailure(KindIllegalLifecycleTransition, "workflow_action_preflight", "workflow action is not declared on the current step", false, "reread_entities")
 		}
@@ -357,7 +364,7 @@ func AuthorizeWorkflowActionAtBoundaryTx(ctx context.Context, s *Store, registry
 }
 
 func workflowActionConsequence(definition WorkflowDefinition, actionID string) ActionConsequence {
-	if actionID == "supersede_contract" || actionID == "record_verdict" {
+	if actionID == "supersede_contract" || actionID == "record_verdict" || actionID == "record_worker_failure" {
 		return ActionInternalSQLite
 	}
 	for _, action := range definition.ActionDefinitions {
@@ -393,8 +400,15 @@ func workflowActionPreflightTx(ctx context.Context, tx *sql.Tx, registry Definit
 	}
 	staleRecovery := false
 	lateVerdictRecovery := false
+	workerFailureRecovery := false
 	if request.ActionID == "record_verdict" {
 		lateVerdictRecovery, err = workflowLateVerdictRecoveryForActionPayload(ctx, tx, request.WorkID, entry.Definition, currentStep, request.Payload)
+		if err != nil {
+			return RegisteredDefinition{}, err
+		}
+	}
+	if request.ActionID == "record_worker_failure" {
+		workerFailureRecovery, err = workflowWorkerFailureRecoveryAvailable(ctx, tx, request.WorkID, entry.Definition, currentStep, "workflow_action_preflight")
 		if err != nil {
 			return RegisteredDefinition{}, err
 		}
@@ -444,7 +458,7 @@ func workflowActionPreflightTx(ctx context.Context, tx *sql.Tx, registry Definit
 	if err := guardMandatedWorkflowLawBound(ctx, tx, request.WorkID, entry.Definition, currentStep, request.ActionID, "workflow_action_preflight"); err != nil {
 		return RegisteredDefinition{}, err
 	}
-	if !staleRecovery && !lateVerdictRecovery && !definitionStepAllows(entry.Definition, currentStep, request.ActionID) {
+	if !staleRecovery && !lateVerdictRecovery && !workerFailureRecovery && !definitionStepAllows(entry.Definition, currentStep, request.ActionID) {
 		if request.ActionID != "bind_evidence" {
 			return RegisteredDefinition{}, newFailure(KindIllegalLifecycleTransition, "workflow_action_preflight", "workflow action is not declared on the current step", false, "reread_entities")
 		}
@@ -494,6 +508,12 @@ func validateWorkflowActionPayload(definition WorkflowDefinition, actionID strin
 			payloadDefinition = action.Payload
 			found = true
 			break
+		}
+	}
+	if !found {
+		if actionID == "record_worker_failure" {
+			payloadDefinition = workerFailureRecoveryActionDefinition().Payload
+			found = true
 		}
 	}
 	if !found {

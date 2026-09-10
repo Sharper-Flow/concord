@@ -134,9 +134,7 @@ export type AgentLane = (typeof agentLanes)[number];
 """ % (json.dumps(manifest_digest), json.dumps(manifest["lanes"], ensure_ascii=False, indent=2), json.dumps(packet_schema, ensure_ascii=False, separators=(",", ":")), json.dumps(report_schema, ensure_ascii=False, separators=(",", ":")), json.dumps(report_constraints, ensure_ascii=False))
 
 
-def agent_projection(lane: dict, report_schema: dict | None = None) -> str:
-    if report_schema is None:
-        report_schema = json.loads(REPORT_SCHEMA.read_text(encoding="utf-8"))
+def agent_projection(lane: dict, report_schema: dict) -> str:
     agent_name = f"concord-{lane['id']}"
     evidence = ", ".join(f"`{item}`" for item in lane["evidence_obligations"])
     report_properties = report_schema["properties"]

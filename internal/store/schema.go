@@ -4342,6 +4342,31 @@ CREATE TRIGGER workflow_proposal_records_guard_update BEFORE UPDATE ON workflow_
 CREATE TRIGGER workflow_proposal_records_guard_delete BEFORE DELETE ON workflow_proposal_records FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_proposal_records is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
 `,
 	},
+	{
+		Version: 79,
+		Name:    "linear_outbox_product_scope",
+		SQL: `
+-- Outbox ownership is explicit so claim, drain, and health reads cannot cross
+-- Product boundaries. Existing rows are backfilled only when one Product owns
+-- their work item; unresolved legacy rows remain unclaimable until repaired.
+ALTER TABLE linear_outbox ADD COLUMN product_id TEXT NOT NULL DEFAULT ''
+    CHECK(length(product_id) = 0 OR length(product_id) BETWEEN 2 AND 128);
+INSERT OR IGNORE INTO fold_guard(active) VALUES (1);
+UPDATE linear_outbox
+SET product_id = coalesce((
+    SELECT min(pp.product_id)
+    FROM work_projects wp
+    JOIN product_projects pp ON pp.project_id = wp.project_id
+    WHERE wp.work_id = linear_outbox.work_id
+    GROUP BY wp.work_id
+    HAVING count(DISTINCT pp.product_id) = 1
+), '')
+WHERE product_id = '';
+DELETE FROM fold_guard;
+CREATE INDEX linear_outbox_product_state
+    ON linear_outbox(product_id, state, created_at);
+`,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any

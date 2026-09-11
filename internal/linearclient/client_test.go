@@ -91,6 +91,25 @@ func TestUpdateIssueAddressesRemoteIdentity(t *testing.T) {
 	}
 }
 
+func TestInventoryReadsWorkspaceTeamsProjectsAndStates(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":{"organization":{"id":"workspace-example"},"teams":{"nodes":[{"id":"team-example","name":"Example","key":"EX","states":{"nodes":[{"id":"status-done","name":"Done","type":"completed"}]}}]},"projects":{"nodes":[{"id":"linear-project-example","name":"Example project","team":{"id":"team-example"}}]}}}`))
+	}))
+	defer server.Close()
+	client, err := New("lin_api_test", WithEndpoint(server.URL))
+	if err != nil {
+		t.Fatal(err)
+	}
+	inventory, err := client.Inventory(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if inventory.WorkspaceID != "workspace-example" || len(inventory.Teams) != 1 || len(inventory.Teams[0].States) != 1 || len(inventory.Projects) != 1 || inventory.Projects[0].Team.ID != "team-example" {
+		t.Fatalf("inventory = %+v", inventory)
+	}
+}
+
 func TestFailureClassificationIsTyped(t *testing.T) {
 	cases := []struct {
 		name       string

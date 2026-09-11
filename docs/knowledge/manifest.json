@@ -53,6 +53,7 @@
   "exclusions": [
     "docs/agent-lanes-contract.md",
     "docs/generated-agent-tool-surface.md",
+    "docs/linear-integration-operations.md",
     "docs/research/"
   ],
   "indexed_kinds": [

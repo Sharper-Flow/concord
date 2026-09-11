@@ -49,6 +49,7 @@ type LinearConnection struct {
 	ResourceID   string            `json:"resource_id"`
 	WorkspaceURL string            `json:"workspace_url"`
 	TeamID       string            `json:"team_id"`
+	ProjectIDs   map[string]string `json:"project_ids,omitempty"`
 	AuthMode     string            `json:"auth_mode"`
 	StatusIDs    map[string]string `json:"status_ids,omitempty"`
 	State        string            `json:"state"` // declared | partial | absent
@@ -57,6 +58,7 @@ type LinearConnection struct {
 // LinearOutboxEntry is one queued outbound operation.
 type LinearOutboxEntry struct {
 	OperationID    string          `json:"operation_id"`
+	ProductID      string          `json:"product_id,omitempty"`
 	WorkID         string          `json:"work_id"`
 	OpKind         string          `json:"op_kind"`
 	IdempotencyKey string          `json:"idempotency_key"`
@@ -229,6 +231,14 @@ ORDER BY r.resource_id`, productID)
 		if v, ok := linear["team_id"].(string); ok {
 			candidate.TeamID = v
 		}
+		if projectIDs, ok := linear["project_ids"].(map[string]any); ok {
+			candidate.ProjectIDs = make(map[string]string, len(projectIDs))
+			for projectID, value := range projectIDs {
+				if remoteID, ok := value.(string); ok {
+					candidate.ProjectIDs[projectID] = remoteID
+				}
+			}
+		}
 		if v, ok := linear["auth_mode"].(string); ok {
 			candidate.AuthMode = v
 		}
@@ -269,6 +279,18 @@ func (s *Store) EnqueueLinearOperation(ctx context.Context, entry LinearOutboxEn
 	if entry.IdempotencyKey == "" || len(entry.IdempotencyKey) > 128 {
 		return newFailure(KindInvalidPayload, "linear_outbox_enqueue", "idempotency key must be 2 to 128 characters", false, "supply a bounded idempotency key")
 	}
+	if entry.ProductID != "" {
+		if len(entry.ProductID) < 2 || len(entry.ProductID) > 128 {
+			return newFailure(KindInvalidPayload, "linear_outbox_enqueue", "product id must be 2 to 128 characters", false, "supply a bounded Product id")
+		}
+		resolved, err := s.resolveLinearProduct(ctx, entry.WorkID)
+		if err != nil {
+			return err
+		}
+		if resolved != entry.ProductID {
+			return newFailure(KindAmbiguousScope, "linear_outbox_enqueue", "work item does not belong to the requested Product", false, "use the Product that owns the work item's Project")
+		}
+	}
 	if len(entry.Payload) == 0 || json.Unmarshal(entry.Payload, &map[string]any{}) != nil {
 		return newFailure(KindInvalidPayload, "linear_outbox_enqueue", "payload must be a JSON object", false, "supply a JSON object payload")
 	}
@@ -296,8 +318,8 @@ func (s *Store) EnqueueLinearOperation(ctx context.Context, entry LinearOutboxEn
 	} else if err != sql.ErrNoRows {
 		return wrapFailure(KindUnavailable, "linear_outbox_enqueue", "cannot inspect queue", true, "retry once the database is readable", err)
 	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO linear_outbox(operation_id, work_id, op_kind, idempotency_key, payload, state, attempts, last_error, created_at, updated_at) VALUES (?,?,?,?,?,'queued',0,'',?,?)`,
-		entry.OperationID, entry.WorkID, entry.OpKind, entry.IdempotencyKey, string(entry.Payload), now, now); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO linear_outbox(operation_id, product_id, work_id, op_kind, idempotency_key, payload, state, attempts, last_error, created_at, updated_at) VALUES (?,?,?,?,?,?,'queued',0,'',?,?)`,
+		entry.OperationID, entry.ProductID, entry.WorkID, entry.OpKind, entry.IdempotencyKey, string(entry.Payload), now, now); err != nil {
 		return wrapFailure(KindUnavailable, "linear_outbox_enqueue", "cannot queue operation", true, "retry once the database is writable", err)
 	}
 	if err := leaveFold(ctx, tx); err != nil {
@@ -440,7 +462,7 @@ func (s *Store) ReadLinearIntegrationHealth(ctx context.Context, productID strin
 		health.Connection = &connection
 	}
 	var oldestPending string
-	if err := s.db.QueryRowContext(ctx, `SELECT count(*), coalesce(min(CASE WHEN state IN ('queued','in_flight') THEN created_at END), '') FROM linear_outbox`).Scan(&health.OutboxDepth, &oldestPending); err != nil {
+	if err := s.db.QueryRowContext(ctx, `SELECT count(*), coalesce(min(created_at), '') FROM linear_outbox WHERE state IN ('queued','in_flight') AND (product_id=? OR (product_id='' AND NOT EXISTS (SELECT 1 FROM product_projects pp JOIN work_projects wp ON wp.project_id=pp.project_id WHERE wp.work_id=linear_outbox.work_id)))`, productID).Scan(&health.OutboxDepth, &oldestPending); err != nil {
 		return LinearIntegrationHealth{}, wrapFailure(KindUnavailable, "linear_health_read", "cannot read outbox depth", true, "retry once the database is readable", err)
 	}
 	if oldestPending != "" {
@@ -451,7 +473,7 @@ func (s *Store) ReadLinearIntegrationHealth(ctx context.Context, productID strin
 			}
 		}
 	}
-	rows, err := s.db.QueryContext(ctx, `SELECT link_state, count(*) FROM linear_issue_links GROUP BY link_state`)
+	rows, err := s.db.QueryContext(ctx, `SELECT l.link_state, count(*) FROM linear_issue_links l WHERE EXISTS (SELECT 1 FROM work_projects wp JOIN product_projects pp ON pp.project_id=wp.project_id WHERE wp.work_id=l.work_id AND pp.product_id=?) OR NOT EXISTS (SELECT 1 FROM work_projects wp WHERE wp.work_id=l.work_id) GROUP BY l.link_state`, productID)
 	if err != nil {
 		return LinearIntegrationHealth{}, wrapFailure(KindUnavailable, "linear_health_read", "cannot read link counts", true, "retry once the database is readable", err)
 	}
@@ -512,6 +534,7 @@ type LinearRemoteIdentity struct {
 // ClaimedLinearOperation is one operation handed to the drain under claim.
 type ClaimedLinearOperation struct {
 	OperationID    string          `json:"operation_id"`
+	ProductID      string          `json:"product_id"`
 	WorkID         string          `json:"work_id"`
 	OpKind         string          `json:"op_kind"`
 	IdempotencyKey string          `json:"idempotency_key"`
@@ -527,6 +550,7 @@ type linearPayload struct {
 	Title       string `json:"title"`
 	Description string `json:"description"`
 	TeamID      string `json:"team_id"`
+	ProjectID   string `json:"project_id,omitempty"`
 	Lifecycle   string `json:"lifecycle,omitempty"`
 	StatusID    string `json:"status_id,omitempty"`
 }
@@ -594,7 +618,19 @@ WHERE w.id = ?`, workID)
 // item and records its link as unpublished. The guards are the CD-0121
 // boundaries: local_only refuses, linear_enabled without a declared
 // connection refuses as missing setup, and neither is inferred.
+// EnqueueLinearIssueForWork queues an operation after resolving its sole
+// Product. Callers with an explicit Product should use the scoped variant.
 func (s *Store) EnqueueLinearIssueForWork(ctx context.Context, workID, opKind string) (ClaimedLinearOperation, error) {
+	return s.enqueueLinearIssueForProduct(ctx, "", workID, opKind)
+}
+
+// EnqueueLinearIssueForProduct requires the caller's Product binding to match
+// the work item's exactly one derived Product before any queue or link write.
+func (s *Store) EnqueueLinearIssueForProduct(ctx context.Context, productID, workID, opKind string) (ClaimedLinearOperation, error) {
+	return s.enqueueLinearIssueForProduct(ctx, productID, workID, opKind)
+}
+
+func (s *Store) enqueueLinearIssueForProduct(ctx context.Context, requestedProductID, workID, opKind string) (ClaimedLinearOperation, error) {
 	if opKind != LinearOpIssueCreate && opKind != LinearOpIssueUpdate {
 		return ClaimedLinearOperation{}, newFailure(KindInvalidPayload, "linear_issue_enqueue", "operation kind is not recognized", false, "use issue_create or issue_update")
 	}
@@ -611,6 +647,9 @@ func (s *Store) EnqueueLinearIssueForWork(ctx context.Context, workID, opKind st
 	productID, err := s.resolveLinearProduct(ctx, workID)
 	if err != nil {
 		return ClaimedLinearOperation{}, err
+	}
+	if requestedProductID != "" && requestedProductID != productID {
+		return ClaimedLinearOperation{}, newFailure(KindAmbiguousScope, "linear_issue_enqueue", "work item does not belong to the requested Product", false, "use the Product that owns the work item's Project")
 	}
 	mode, err := s.ResolveLinearPlanningTarget(ctx, productID)
 	if err != nil {
@@ -637,18 +676,31 @@ func (s *Store) EnqueueLinearIssueForWork(ctx context.Context, workID, opKind st
 	}
 	clientUUID := newLinearClientUUID()
 	statusID := ""
-	if opKind == LinearOpIssueUpdate {
+	if isTerminalLifecycle(lifecycle) {
 		statusID, err = linearTerminalStatusID(connection, lifecycle)
 		if err != nil {
 			return ClaimedLinearOperation{}, err
 		}
 	}
-	payload, err := json.Marshal(linearPayload{ClientUUID: clientUUID, Title: title, Description: valueStatement, TeamID: connection.TeamID, Lifecycle: lifecycle, StatusID: statusID})
+	projectID := ""
+	if len(connection.ProjectIDs) > 0 {
+		var localProjectID string
+		if err := s.db.QueryRowContext(ctx, `SELECT project_id FROM work_projects WHERE work_id=? AND role='primary'`, workID).Scan(&localProjectID); err == sql.ErrNoRows {
+			return ClaimedLinearOperation{}, newFailure(KindAmbiguousScope, "linear_issue_enqueue", "work item has no primary repository Project", false, "assign exactly one primary Project before enqueueing")
+		} else if err != nil {
+			return ClaimedLinearOperation{}, wrapFailure(KindUnavailable, "linear_issue_enqueue", "cannot read the work item's repository Project", true, "retry once the database is readable", err)
+		}
+		projectID = connection.ProjectIDs[localProjectID]
+		if projectID == "" {
+			return ClaimedLinearOperation{}, newFailure(KindInvalidOperation, "linear_issue_enqueue", "the work item's repository Project has no declared Linear project", false, "declare project_ids for the repository Project")
+		}
+	}
+	payload, err := json.Marshal(linearPayload{ClientUUID: clientUUID, Title: title, Description: valueStatement, TeamID: connection.TeamID, ProjectID: projectID, Lifecycle: lifecycle, StatusID: statusID})
 	if err != nil {
 		return ClaimedLinearOperation{}, wrapFailure(KindUnavailable, "linear_issue_enqueue", "cannot encode payload", true, "retry the enqueue", err)
 	}
-	entry := ClaimedLinearOperation{OperationID: "linear-" + clientUUID, WorkID: workID, OpKind: opKind, IdempotencyKey: clientUUID, Payload: payload}
-	if err := s.EnqueueLinearOperation(ctx, LinearOutboxEntry{OperationID: entry.OperationID, WorkID: workID, OpKind: opKind, IdempotencyKey: entry.IdempotencyKey, Payload: payload}); err != nil {
+	entry := ClaimedLinearOperation{OperationID: "linear-" + clientUUID, ProductID: productID, WorkID: workID, OpKind: opKind, IdempotencyKey: clientUUID, Payload: payload}
+	if err := s.EnqueueLinearOperation(ctx, LinearOutboxEntry{OperationID: entry.OperationID, ProductID: productID, WorkID: workID, OpKind: opKind, IdempotencyKey: entry.IdempotencyKey, Payload: payload}); err != nil {
 		return ClaimedLinearOperation{}, err
 	}
 	// The link starts unpublished carrying the client UUID as its placeholder
@@ -671,6 +723,22 @@ func (s *Store) EnqueueLinearIssueForWork(ctx context.Context, workID, opKind st
 // UPDATE makes the claim exclusive: an operation another caller already
 // claimed stays out of this result.
 func (s *Store) ClaimLinearOperations(ctx context.Context, limit int64) ([]ClaimedLinearOperation, error) {
+	return s.claimLinearOperations(ctx, "", limit)
+}
+
+// ClaimLinearOperationsForProduct claims only queued operations owned by the
+// named Product. It is the required boundary for CLI drains.
+func (s *Store) ClaimLinearOperationsForProduct(ctx context.Context, productID string, limit int64) ([]ClaimedLinearOperation, error) {
+	if len(productID) < 2 || len(productID) > 128 {
+		return nil, newFailure(KindInvalidPayload, "linear_outbox_claim", "product id must be 2 to 128 characters", false, "supply a bounded Product id")
+	}
+	if _, err := s.ReadProductPlanningMode(ctx, productID); err != nil {
+		return nil, err
+	}
+	return s.claimLinearOperations(ctx, productID, limit)
+}
+
+func (s *Store) claimLinearOperations(ctx context.Context, productID string, limit int64) ([]ClaimedLinearOperation, error) {
 	if limit < 1 || limit > 25 {
 		return nil, newFailure(KindInvalidPayload, "linear_outbox_claim", "limit must be 1 to 25", false, "bound each drain pass to 25 operations")
 	}
@@ -682,7 +750,13 @@ func (s *Store) ClaimLinearOperations(ctx context.Context, limit int64) ([]Claim
 	if err := enterFold(ctx, tx); err != nil {
 		return nil, err
 	}
-	rows, err := tx.QueryContext(ctx, `SELECT operation_id FROM linear_outbox WHERE state=? ORDER BY created_at LIMIT ?`, LinearOutboxQueued, limit)
+	query := `SELECT operation_id FROM linear_outbox WHERE state=? ORDER BY created_at LIMIT ?`
+	args := []any{LinearOutboxQueued, limit}
+	if productID != "" {
+		query = `SELECT operation_id FROM linear_outbox WHERE state=? AND product_id=? ORDER BY created_at LIMIT ?`
+		args = []any{LinearOutboxQueued, productID, limit}
+	}
+	rows, err := tx.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, wrapFailure(KindUnavailable, "linear_outbox_claim", "cannot read the queue", true, "retry once the database is readable", err)
 	}
@@ -713,7 +787,7 @@ func (s *Store) ClaimLinearOperations(ctx context.Context, limit int64) ([]Claim
 		}
 		var op ClaimedLinearOperation
 		var payload string
-		if err := tx.QueryRowContext(ctx, `SELECT operation_id, work_id, op_kind, idempotency_key, attempts, payload FROM linear_outbox WHERE operation_id=?`, id).Scan(&op.OperationID, &op.WorkID, &op.OpKind, &op.IdempotencyKey, &op.Attempts, &payload); err != nil {
+		if err := tx.QueryRowContext(ctx, `SELECT operation_id, product_id, work_id, op_kind, idempotency_key, attempts, payload FROM linear_outbox WHERE operation_id=?`, id).Scan(&op.OperationID, &op.ProductID, &op.WorkID, &op.OpKind, &op.IdempotencyKey, &op.Attempts, &payload); err != nil {
 			return nil, wrapFailure(KindUnavailable, "linear_outbox_claim", "cannot read claimed operation", true, "retry once the database is readable", err)
 		}
 		op.Payload = json.RawMessage(payload)

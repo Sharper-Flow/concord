@@ -153,6 +153,7 @@ var commandSpecs = []commandSpec{
 	{Canonical: "linear-issue-enqueue", TwoWord: "linear issue-enqueue", RequiredFields: requiredFields(field("product_id"), field("work_id"), field("op_kind")), Optional: "none", Enums: "op_kind: issue_create | issue_update"},
 	{Canonical: "linear-outbox-drain", TwoWord: "linear outbox-drain", RequiredFields: requiredFields(field("product_id")), Optional: "max_operations", Enums: "none"},
 	{Canonical: "linear-initiative-import", TwoWord: "linear initiative-import", RequiredFields: requiredFields(field("product_id"), field("initiative_id")), Optional: "none", Enums: "none"},
+	{Canonical: "linear-setup", RequiredFields: requiredFields(), Optional: "none", Enums: "none"},
 	{Canonical: "resource-create", TwoWord: "resource create", RequiredFields: requiredFields(field("event_id"), field("resource_id"), field("product_id"), field("display_name"), field("class"), field("kind"), field("purpose"), field("stage_maturity"), field("stage_audience_commitment"), field("environments"), field("expected_product_version")), Optional: "locator_absence_reason, metadata_schema_version, metadata, owner_purpose, owner_environments", Enums: "stage_maturity: prototype | alpha | beta | production | deprecated; stage_audience_commitment: operator_only | limited | public"},
 	{Canonical: "resource-share", TwoWord: "resource share", RequiredFields: requiredFields(field("event_id"), field("resource_id"), field("product_id"), field("expected_resource_version")), Optional: "purpose, environments", Enums: "none"},
 	{Canonical: "domain-project-attachments-replace", TwoWord: "domain project-attachments-replace", RequiredFields: requiredFields(field("event_id"), field("product_id"), field("domain_id"), field("expected_version"), field("attachments")), Optional: "attachments (replaces the full edge set)", Enums: "attachments[].role: primary | secondary"},
@@ -215,7 +216,9 @@ func writeUsage(out io.Writer) {
 		if spec.TwoWord != "" {
 			_, _ = fmt.Fprintf(out, "  concord %s < JSON stdin\n", spec.TwoWord)
 		}
-		_, _ = fmt.Fprintf(out, "    required: %s\n", formatRequiredFields(spec.RequiredFields))
+		if len(spec.RequiredFields) > 0 {
+			_, _ = fmt.Fprintf(out, "    required: %s\n", formatRequiredFields(spec.RequiredFields))
+		}
 		if spec.Optional != "" && spec.Optional != "none" {
 			_, _ = fmt.Fprintf(out, "    optional: %s\n", spec.Optional)
 		}
@@ -888,7 +891,7 @@ func runLinearIssueEnqueue(ctx context.Context, s *store.Store, raw []byte, comm
 		writeOperatorDiagnostic(errOut, command, err.Error())
 		return 1
 	}
-	entry, err := s.EnqueueLinearIssueForWork(ctx, request.WorkID, request.OpKind)
+	entry, err := s.EnqueueLinearIssueForProduct(ctx, request.ProductID, request.WorkID, request.OpKind)
 	if err != nil {
 		writeOperatorDiagnostic(errOut, command, err.Error())
 		return 1
@@ -936,7 +939,7 @@ func runLinearOutboxDrain(ctx context.Context, s *store.Store, raw []byte, comma
 		writeOperatorDiagnostic(errOut, command, err.Error())
 		return 1
 	}
-	claimed, err := s.ClaimLinearOperations(ctx, request.MaxOperations)
+	claimed, err := s.ClaimLinearOperationsForProduct(ctx, request.ProductID, request.MaxOperations)
 	if err != nil {
 		writeOperatorDiagnostic(errOut, command, err.Error())
 		return 1
@@ -966,8 +969,12 @@ func runLinearOutboxDrain(ctx context.Context, s *store.Store, raw []byte, comma
 		if op.OpKind == store.LinearOpIssueUpdate {
 			issue, derr = drainUpdate(ctx, s, client, op, payload)
 		} else {
+			projects := []string{}
+			if payload.ProjectID != "" {
+				projects = []string{payload.ProjectID}
+			}
 			issue, derr = client.CreateIssue(ctx, linearclient.CreateIssueInput{
-				ID: payload.ClientUUID, TeamID: teamID, Title: payload.Title, Description: payload.Description,
+				ID: payload.ClientUUID, TeamID: teamID, ProjectIDs: projects, StateID: payload.StatusID, Title: payload.Title, Description: payload.Description,
 			})
 		}
 		if derr != nil {
@@ -993,7 +1000,12 @@ func runLinearOutboxDrain(ctx context.Context, s *store.Store, raw []byte, comma
 		}
 		results = append(results, drained{OperationID: op.OperationID, Outcome: "done", Identifier: issue.Identifier})
 	}
-	return writeJSON(out, map[string]any{"ok": true, "drained": len(results), "operations": results}, errOut)
+	health, healthErr := s.ReadLinearIntegrationHealth(ctx, request.ProductID)
+	if healthErr != nil {
+		writeOperatorDiagnostic(errOut, command, healthErr.Error())
+		return 1
+	}
+	return writeJSON(out, map[string]any{"ok": true, "drained": len(results), "pending": health.OutboxDepth, "operations": results}, errOut)
 }
 
 // linearDrainPayload is the JSON convention every outbox payload carries.
@@ -1002,6 +1014,7 @@ type linearDrainPayload struct {
 	Title       string `json:"title"`
 	Description string `json:"description"`
 	TeamID      string `json:"team_id"`
+	ProjectID   string `json:"project_id,omitempty"`
 	Lifecycle   string `json:"lifecycle,omitempty"`
 	StatusID    string `json:"status_id,omitempty"`
 }
@@ -1061,6 +1074,63 @@ func runLinearInitiativeImport(ctx context.Context, s *store.Store, raw []byte, 
 		return 1
 	}
 	return writeJSON(out, map[string]any{"ok": true, "initiative": imported}, errOut)
+}
+
+// runLinearSetupPreflight validates the explicit local bindings, then reads the
+// remote inventory. It performs no remote write.
+func runLinearSetupPreflight(ctx context.Context, raw []byte, command string, out, errOut io.Writer) int {
+	var request struct {
+		Config store.LinearSetupConfig `json:"config"`
+	}
+	if err := decodeObject(raw, &request); err != nil {
+		writeOperatorDiagnostic(errOut, command, err.Error())
+		return 1
+	}
+	if err := store.ValidateLinearSetupConfig(request.Config); err != nil {
+		writeOperatorDiagnostic(errOut, command, err.Error())
+		return 1
+	}
+	client, err := linearclient.FromEnv()
+	if err != nil {
+		writeOperatorDiagnostic(errOut, command, err.Error()+"; set CONCORD_LINEAR_API_KEY in the process environment")
+		return 1
+	}
+	inventory, err := client.Inventory(ctx)
+	if err != nil {
+		writeOperatorDiagnostic(errOut, command, err.Error())
+		return 1
+	}
+	if inventory.WorkspaceID != request.Config.WorkspaceID {
+		writeOperatorDiagnostic(errOut, command, "remote inventory workspace does not match the configured workspace")
+		return 1
+	}
+	teamIDs := make(map[string]bool, len(inventory.Teams))
+	for _, team := range inventory.Teams {
+		teamIDs[team.ID] = true
+	}
+	for _, binding := range request.Config.Teams {
+		if !teamIDs[binding.TeamID] {
+			writeOperatorDiagnostic(errOut, command, "configured remote team was not returned by inventory")
+			return 1
+		}
+	}
+	projectIDs := make(map[string]bool, len(inventory.Projects))
+	projectTeams := make(map[string]string, len(inventory.Projects))
+	for _, project := range inventory.Projects {
+		projectIDs[project.ID] = true
+		projectTeams[project.ID] = project.Team.ID
+	}
+	for _, binding := range request.Config.Projects {
+		if !projectIDs[binding.LinearProjectID] {
+			writeOperatorDiagnostic(errOut, command, "configured remote project was not returned by inventory")
+			return 1
+		}
+		if projectTeams[binding.LinearProjectID] != binding.TeamID {
+			writeOperatorDiagnostic(errOut, command, "configured remote project belongs to a different team")
+			return 1
+		}
+	}
+	return writeJSON(out, map[string]any{"ok": true, "readback": inventory}, errOut)
 }
 
 func runInternal(command string, raw []byte, service *agent.Service, s *store.Store, clock func() time.Time, out, errOut io.Writer) int {
@@ -1243,6 +1313,8 @@ func runInternal(command string, raw []byte, service *agent.Service, s *store.St
 		return runLinearOutboxDrain(ctx, s, raw, command, out, errOut)
 	case "linear-initiative-import":
 		return runLinearInitiativeImport(ctx, s, raw, command, out, errOut)
+	case "linear-setup":
+		return runLinearSetupPreflight(ctx, raw, command, out, errOut)
 	case "resource-create":
 		var request struct {
 			EventID                 string          `json:"event_id"`

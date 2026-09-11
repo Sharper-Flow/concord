@@ -71,10 +71,12 @@ func (f *Failure) Error() string {
 // is the client UUID: Linear's IssueCreateInput.id, which makes a repeated
 // create converge on the existing issue instead of duplicating it.
 type CreateIssueInput struct {
-	ID          string `json:"id"`
-	TeamID      string `json:"teamId"`
-	Title       string `json:"title"`
-	Description string `json:"description"`
+	ID          string   `json:"id"`
+	TeamID      string   `json:"teamId"`
+	ProjectIDs  []string `json:"projectIds,omitempty"`
+	StateID     string   `json:"stateId,omitempty"`
+	Title       string   `json:"title"`
+	Description string   `json:"description"`
 }
 
 // UpdateIssueInput carries the mutable fields the drain synchronizes.

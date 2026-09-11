@@ -100,7 +100,7 @@ func TestVersionConflictOnExistingWorkMarshals(t *testing.T) {
 		Tool:      "concord_work_transition",
 		Operation: "workflow_action",
 		Input: json.RawMessage(`{"work_id":"` + workID + `","expected_version":` +
-			jsonInt(stale) + `,"action_id":"record_proposal","idempotency_key":"stale-pin-marshals"}`),
+			jsonInt(stale) + `,"action_id":"record_proposal","fields":{"problem":"The bounded problem statement.","affected":["The affected system."],"stakes":"The bounded stakes statement.","user_outcomes":["The expected user outcome."]},"idempotency_key":"stale-pin-marshals"}`),
 	}
 	resp, err := Dispatch(context.Background(), s, service, action, env)
 	if err != nil {
@@ -139,7 +139,7 @@ func TestVersionConflictOnMissingWorkIsUnknownScope(t *testing.T) {
 	action := InvokeRequest{
 		Tool:      "concord_work_transition",
 		Operation: "workflow_action",
-		Input:     json.RawMessage(`{"work_id":"work-does-not-exist","expected_version":3,"action_id":"record_proposal","idempotency_key":"missing-subject-pin"}`),
+		Input:     json.RawMessage(`{"work_id":"work-does-not-exist","expected_version":3,"action_id":"record_proposal","fields":{"problem":"The bounded problem statement.","affected":["The affected system."],"stakes":"The bounded stakes statement.","user_outcomes":["The expected user outcome."]},"idempotency_key":"missing-subject-pin"}`),
 	}
 	resp, err := Dispatch(context.Background(), s, service, action, env)
 	if err != nil {

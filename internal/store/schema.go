@@ -4313,6 +4313,35 @@ CREATE TRIGGER workflow_design_records_guard_update BEFORE UPDATE ON workflow_de
 CREATE TRIGGER workflow_design_records_guard_delete BEFORE DELETE ON workflow_design_records FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_design_records is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
 `,
 	},
+	{
+		Version: 78,
+		Name:    "workflow_proposal_records",
+		SQL: `
+CREATE TABLE workflow_proposal_records (
+    work_id        TEXT NOT NULL REFERENCES work_items(id) ON DELETE RESTRICT,
+    work_version   INTEGER NOT NULL,
+    problem        TEXT NOT NULL,
+    affected       TEXT NOT NULL CHECK(json_valid(affected) AND json_type(affected)='array'),
+    stakes         TEXT NOT NULL,
+    user_outcomes  TEXT NOT NULL CHECK(json_valid(user_outcomes) AND json_type(user_outcomes)='array'),
+    constraints    TEXT NOT NULL CHECK(json_valid(constraints) AND json_type(constraints)='array'),
+    open_questions TEXT NOT NULL CHECK(json_valid(open_questions) AND json_type(open_questions)='array'),
+    recorded_at    TEXT NOT NULL,
+    PRIMARY KEY(work_id, work_version),
+    CHECK(work_version > 0),
+    CHECK(length(problem) BETWEEN 1 AND 4096),
+    CHECK(json_array_length(affected) BETWEEN 1 AND 16),
+    CHECK(length(stakes) BETWEEN 1 AND 2048),
+    CHECK(json_array_length(user_outcomes) BETWEEN 1 AND 16),
+    CHECK(json_array_length(constraints) BETWEEN 0 AND 16),
+    CHECK(json_array_length(open_questions) BETWEEN 0 AND 16)
+);
+CREATE INDEX workflow_proposal_records_latest ON workflow_proposal_records(work_id, work_version DESC);
+CREATE TRIGGER workflow_proposal_records_guard_insert BEFORE INSERT ON workflow_proposal_records FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_proposal_records is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER workflow_proposal_records_guard_update BEFORE UPDATE ON workflow_proposal_records FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_proposal_records is immutable'); END;
+CREATE TRIGGER workflow_proposal_records_guard_delete BEFORE DELETE ON workflow_proposal_records FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_proposal_records is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+`,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any

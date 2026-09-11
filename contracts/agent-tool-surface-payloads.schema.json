@@ -10205,7 +10205,60 @@
                 "type": "object",
                 "additionalProperties": false,
                 "maxProperties": 32,
-                "properties": {}
+                "properties": {
+                  "problem": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 4096
+                  },
+                  "affected": {
+                    "type": "array",
+                    "uniqueItems": true,
+                    "items": {
+                      "$ref": "#/$defs/proposal_affected_text"
+                    },
+                    "minItems": 1,
+                    "maxItems": 16
+                  },
+                  "stakes": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 2048
+                  },
+                  "user_outcomes": {
+                    "type": "array",
+                    "uniqueItems": true,
+                    "items": {
+                      "$ref": "#/$defs/proposal_text"
+                    },
+                    "minItems": 1,
+                    "maxItems": 16
+                  },
+                  "constraints": {
+                    "type": "array",
+                    "uniqueItems": true,
+                    "items": {
+                      "$ref": "#/$defs/proposal_text"
+                    },
+                    "minItems": 0,
+                    "maxItems": 16
+                  },
+                  "open_questions": {
+                    "type": "array",
+                    "uniqueItems": true,
+                    "items": {
+                      "$ref": "#/$defs/proposal_text"
+                    },
+                    "minItems": 0,
+                    "maxItems": 16
+                  }
+                },
+                "required": [
+                  "problem",
+                  "affected",
+                  "stakes",
+                  "user_outcomes"
+                ]
               }
             },
             "not": {
@@ -10221,7 +10274,10 @@
                   ]
                 }
               ]
-            }
+            },
+            "required": [
+              "fields"
+            ]
           }
         },
         {
@@ -11310,6 +11366,16 @@
           }
         }
       ]
+    },
+    "proposal_affected_text": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    },
+    "proposal_text": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512
     }
   }
 }

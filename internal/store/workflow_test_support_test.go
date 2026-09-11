@@ -67,6 +67,12 @@ func workflowFixtureDigest(t *testing.T) string {
 }
 
 func testApprovalPayload(actionID string, payload json.RawMessage) json.RawMessage {
+	if actionID == "record_proposal" {
+		var fields map[string]any
+		if json.Unmarshal(payload, &fields) == nil && len(fields) == 0 {
+			return json.RawMessage(`{"problem":"The bounded problem statement.","affected":["The affected system."],"stakes":"The bounded stakes statement.","user_outcomes":["The expected user outcome."]}`)
+		}
+	}
 	if actionID != "approve_contract" {
 		return payload
 	}

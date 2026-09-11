@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"encoding/json"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -158,4 +159,109 @@ func TestActionPayloadListItemSchemasMatchPreflight(t *testing.T) {
 	}
 	invalid := json.RawMessage(`{"outcome_predicates":[{"predicate_id":"predicate:one","ordinal":0,"outcome_kind":"check","outcome_payload":{"kind":"check","check_ref":"check:test","immutable_subject_ref":"commit:test","expected_result":"pass"}}],"spec_mandate":[" spec:one"]}`)
 	_ = requirePayloadFailure(t, validateWorkflowActionPayload(definition, "approve_contract", invalid), "spec_mandate", "item_ref=law_id")
+}
+
+func TestRecordProposalPersistsAndReadsAfterReplay(t *testing.T) {
+	s := openTemp(t)
+	defer s.Close()
+	const workID = "work-proposal-read"
+	seedStepWork(t, s, workID)
+	initializeStepWorkflow(t, s, workID, currentWorkflowDefinition(t, "workflow.implementation"))
+	var version int64
+	if err := s.db.QueryRow(`SELECT version FROM work_items WHERE id=?`, workID).Scan(&version); err != nil {
+		t.Fatal(err)
+	}
+	actor := stepFixtureActor()
+	payload := json.RawMessage(`{"problem":"The problem statement preserves its text.","affected":["The first affected system.","The second affected system."],"stakes":"The stakes statement preserves its text.","user_outcomes":["The first user outcome.","The second user outcome."],"constraints":["The implementation constraint."],"open_questions":["The unresolved question."]}`)
+	tx, err := s.db.BeginTx(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := enterFold(context.Background(), tx); err != nil {
+		_ = tx.Rollback()
+		t.Fatal(err)
+	}
+	_, actionErr := applyWorkflowActionRawTx(context.Background(), tx, BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
+		WorkID: workID, ExpectedVersion: version, ActionID: "record_proposal", Payload: payload, Actor: actor,
+		AcceptedInputsDigest: "sha256:proposal-read", IdempotencyIdentity: "proposal-read", OperationID: "proposal-read",
+		PrincipalRef: actor.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "proposal-read",
+		RequestID: "request:proposal-read", ContractDigest: testManifestDigest, Now: time.Date(2026, 9, 9, 0, 0, 0, 0, time.UTC),
+	})
+	_ = leaveFold(context.Background(), tx)
+	if actionErr != nil {
+		_ = tx.Rollback()
+		t.Fatal(actionErr)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	read := func() WorkflowProposalRecord {
+		t.Helper()
+		projection, readErr := ReadWorkflowProjection(context.Background(), s, WorkflowReadRequest{WorkID: workID})
+		if readErr != nil {
+			t.Fatal(readErr)
+		}
+		if projection.ProposalRecord == nil {
+			t.Fatal("workflow read omitted the proposal record")
+		}
+		return *projection.ProposalRecord
+	}
+	first := read()
+	if first.Problem != "The problem statement preserves its text." || len(first.Affected) != 2 || first.Affected[1] != "The second affected system." || first.Constraints[0] != "The implementation constraint." || first.OpenQuestions[0] != "The unresolved question." {
+		t.Fatalf("workflow read proposal=%+v", first)
+	}
+	if err := RebuildFromLog(context.Background(), s); err != nil {
+		t.Fatal(err)
+	}
+	second := read()
+	if !reflect.DeepEqual(first, second) {
+		t.Fatalf("proposal changed after replay: before=%+v after=%+v", first, second)
+	}
+}
+
+// historicalWorkflowDefinition returns one released definition version so a
+// test can hold a pin taken before a payload gained typed fields.
+func historicalWorkflowDefinition(t *testing.T, ref string, version int64) WorkflowDefinition {
+	t.Helper()
+	for _, definition := range builtinWorkflowDefinitionsWithHistory() {
+		if definition.Ref == ref && definition.Version == version {
+			return definition
+		}
+	}
+	t.Fatalf("workflow definition %q version %d is absent", ref, version)
+	return WorkflowDefinition{}
+}
+
+func TestRecordProposalRefusesAnInvalidDocument(t *testing.T) {
+	definition := currentWorkflowDefinition(t, "workflow.implementation")
+	valid := `{"problem":"The recorded problem.","affected":["The affected party."],"stakes":"The recorded stakes.","user_outcomes":["The expected outcome."]}`
+	if err := validateWorkflowActionPayload(definition, "record_proposal", json.RawMessage(valid)); err != nil {
+		t.Fatalf("the bounded proposal document was refused: %v", err)
+	}
+	for name, payload := range map[string]string{
+		"empty_document":     `{}`,
+		"missing_problem":    `{"affected":["The affected party."],"stakes":"The recorded stakes.","user_outcomes":["The expected outcome."]}`,
+		"blank_problem":      `{"problem":"   ","affected":["The affected party."],"stakes":"The recorded stakes.","user_outcomes":["The expected outcome."]}`,
+		"blank_list_item":    `{"problem":"The recorded problem.","affected":["  "],"stakes":"The recorded stakes.","user_outcomes":["The expected outcome."]}`,
+		"empty_affected":     `{"problem":"The recorded problem.","affected":[],"stakes":"The recorded stakes.","user_outcomes":["The expected outcome."]}`,
+		"duplicate_affected": `{"problem":"The recorded problem.","affected":["The affected party.","The affected party."],"stakes":"The recorded stakes.","user_outcomes":["The expected outcome."]}`,
+		"unknown_field":      `{"problem":"The recorded problem.","affected":["The affected party."],"stakes":"The recorded stakes.","user_outcomes":["The expected outcome."],"solution":"Write the code."}`,
+		"null_optional_list": `{"problem":"The recorded problem.","affected":["The affected party."],"stakes":"The recorded stakes.","user_outcomes":["The expected outcome."],"constraints":null}`,
+	} {
+		if err := validateWorkflowActionPayload(definition, "record_proposal", json.RawMessage(payload)); err == nil {
+			t.Errorf("%s: the transition accepted an invalid proposal document", name)
+		}
+	}
+}
+
+func TestRecordProposalKeepsTheEmptyCallOfAnEarlierPin(t *testing.T) {
+	for _, version := range []int64{4, 5, 6} {
+		definition := historicalWorkflowDefinition(t, "workflow.implementation", version)
+		if err := validateWorkflowActionPayload(definition, "record_proposal", json.RawMessage(`{}`)); err != nil {
+			t.Errorf("version %d refused its released empty call: %v", version, err)
+		}
+		if err := validateWorkflowActionPayload(definition, "record_proposal", json.RawMessage(`{"problem":"The recorded problem."}`)); err == nil {
+			t.Errorf("version %d accepted a field it never declared", version)
+		}
+	}
 }

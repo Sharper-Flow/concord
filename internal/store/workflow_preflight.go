@@ -448,6 +448,12 @@ func workflowActionPreflightTx(ctx context.Context, tx *sql.Tx, registry Definit
 			return RegisteredDefinition{}, newFailure(KindInvariantViolation, "workflow_action_preflight", "breaking workflow impact notice blocks consequential execution", false, "reread_entities")
 		}
 	}
+	if err := ValidateWorkflowActor(request.Actor); err != nil {
+		return RegisteredDefinition{}, err
+	}
+	if _, err := WorkflowActorRef(request.Actor); err != nil {
+		return RegisteredDefinition{}, err
+	}
 	if staleRecovery {
 		if err := validateWorkflowContractRecoveryPayload(request.Payload); err != nil {
 			return RegisteredDefinition{}, err
@@ -480,12 +486,6 @@ func workflowActionPreflightTx(ctx context.Context, tx *sql.Tx, registry Definit
 		}
 	}
 	if err := validateWorkflowOperatorSelectionTx(ctx, tx, registry, request); err != nil {
-		return RegisteredDefinition{}, err
-	}
-	if err := ValidateWorkflowActor(request.Actor); err != nil {
-		return RegisteredDefinition{}, err
-	}
-	if _, err := WorkflowActorRef(request.Actor); err != nil {
 		return RegisteredDefinition{}, err
 	}
 	// See the note in the non-transactional preflight: recording a new actor is
@@ -542,6 +542,13 @@ func validateWorkflowActionPayload(definition WorkflowDefinition, actionID strin
 				return newFailure(KindInvalidPayload, "workflow_action_preflight", fmt.Sprintf("workflow action payload field %q is required for action %q", name, actionID), false, "supply every required registered action field")
 			}
 		}
+	}
+	// The proposal document rule is cross-field, so it runs only for a pinned
+	// definition that declares the document. A definition pinned before the
+	// typed payload keeps its empty call.
+	if _, typed := allowed["problem"]; typed && actionID == "record_proposal" {
+		_, err := decodeWorkflowProposalContent(payload)
+		return err
 	}
 	return nil
 }
@@ -670,11 +677,19 @@ func validWorkflowPayloadListItem(itemRef, value string) bool {
 	case "law_id":
 		runes := []rune(value)
 		return len(runes) >= 2 && len(runes) <= 256 && !unicode.IsSpace(runes[0]) && !unicode.IsSpace(runes[len(runes)-1])
+	case "proposal_affected_text":
+		return validWorkflowProseItem(value, 256)
+	case "proposal_text":
+		return validWorkflowProseItem(value, 512)
 	case "", "reference":
 		return ValidReference(value)
 	default:
 		return false
 	}
+}
+
+func validWorkflowProseItem(value string, max int) bool {
+	return len([]rune(value)) >= 1 && len([]rune(value)) <= max && strings.TrimSpace(value) != ""
 }
 
 func definitionStepAllows(definition WorkflowDefinition, stepID, actionID string) bool {

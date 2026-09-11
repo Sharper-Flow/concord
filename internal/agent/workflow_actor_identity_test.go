@@ -27,7 +27,7 @@ func TestWorkflowActionPartitionsUnderDerivedPrincipal(t *testing.T) {
 	response, err := Dispatch(context.Background(), s, service, InvokeRequest{
 		Tool:      "concord_work_transition",
 		Operation: "workflow_action",
-		Input:     json.RawMessage(`{"work_id":"work-1","expected_version":4,"action_id":"record_proposal","fields":{},"idempotency_key":"wf-partition"}`),
+		Input:     json.RawMessage(`{"work_id":"work-1","expected_version":4,"action_id":"record_proposal","fields":{"problem":"The bounded problem statement.","affected":["The affected system."],"stakes":"The bounded stakes statement.","user_outcomes":["The expected user outcome."]},"idempotency_key":"wf-partition"}`),
 	}, env)
 	if err != nil || response.Outcome != OutcomeOK || response.Error != nil {
 		t.Fatalf("workflow action response=%+v err=%v", response, err)
@@ -67,7 +67,7 @@ func TestWorkflowActionRefusesForgedEnvelopePrincipal(t *testing.T) {
 	response, err := Dispatch(context.Background(), s, service, InvokeRequest{
 		Tool:      "concord_work_transition",
 		Operation: "workflow_action",
-		Input:     json.RawMessage(`{"work_id":"work-1","expected_version":4,"action_id":"record_proposal","fields":{},"idempotency_key":"wf-forged"}`),
+		Input:     json.RawMessage(`{"work_id":"work-1","expected_version":4,"action_id":"record_proposal","fields":{"problem":"The bounded problem statement.","affected":["The affected system."],"stakes":"The bounded stakes statement.","user_outcomes":["The expected user outcome."]},"idempotency_key":"wf-forged"}`),
 	}, env)
 	if err != nil {
 		t.Fatalf("forged principal dispatch err=%v", err)

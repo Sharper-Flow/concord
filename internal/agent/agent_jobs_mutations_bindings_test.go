@@ -1302,7 +1302,7 @@ func bindAJ8BudgetRefused(t *testing.T, sc jobScenario) jobObservation {
 		key = seed
 	}
 
-	overBudget := []byte(fmt.Sprintf(`{"work_id":%q,"expected_version":%d,"action_id":%q,"requested_budget_seconds":60,"idempotency_key":%q}`, workID, version, actionID, key))
+	overBudget := []byte(fmt.Sprintf(`{"work_id":%q,"expected_version":%d,"action_id":%q,"fields":{"problem":"The bounded problem statement.","affected":["The affected system."],"stakes":"The bounded stakes statement.","user_outcomes":["The expected user outcome."]},"requested_budget_seconds":60,"idempotency_key":%q}`, workID, version, actionID, key))
 	resp := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: overBudget}, env)
 	if resp.Outcome != OutcomeError || resp.Error == nil || resp.Error.Kind != "budget_refused" {
 		t.Fatalf("60-second request was not refused outcome=%s err=%+v", resp.Outcome, resp.Error)
@@ -1326,7 +1326,7 @@ func bindAJ8BudgetRefused(t *testing.T, sc jobScenario) jobObservation {
 	// The clamp probe, second half: the same idempotency key with an
 	// admissible budget executes for real. A silent clamp would have consumed
 	// the key or fabricated a completion; either fails here.
-	withinBudget := []byte(fmt.Sprintf(`{"work_id":%q,"expected_version":%d,"action_id":%q,"requested_budget_seconds":30,"idempotency_key":%q}`, workID, version, actionID, key))
+	withinBudget := []byte(fmt.Sprintf(`{"work_id":%q,"expected_version":%d,"action_id":%q,"fields":{"problem":"The bounded problem statement.","affected":["The affected system."],"stakes":"The bounded stakes statement.","user_outcomes":["The expected user outcome."]},"requested_budget_seconds":30,"idempotency_key":%q}`, workID, version, actionID, key))
 	retry := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: withinBudget}, env)
 	if retry.Outcome != OutcomeOK {
 		t.Fatalf("lowered-budget retry on the same key was refused outcome=%s err=%+v", retry.Outcome, retry.Error)

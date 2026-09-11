@@ -589,6 +589,22 @@ func workflowSemanticActionEvents(ctx context.Context, tx *sql.Tx, definition Wo
 		return []Event{workflowTypedEvent(eventID, WorkflowDesignRecorded, request.WorkID, actor, request.Now, expected, map[string]any{
 			"approach": approach, "decisions": decisions, "touched_refs": workflowFieldStrings(fields, "touched_refs"),
 		})}, nil
+	case "record_proposal":
+		if definition.Version < 7 {
+			return nil, nil
+		}
+		proposal, proposalErr := decodeWorkflowProposalContent(raw)
+		if proposalErr != nil {
+			return nil, proposalErr
+		}
+		values := map[string]any{"problem": proposal.Problem, "affected": proposal.Affected, "stakes": proposal.Stakes, "user_outcomes": proposal.UserOutcomes}
+		if proposal.Constraints != nil {
+			values["constraints"] = proposal.Constraints
+		}
+		if proposal.OpenQuestions != nil {
+			values["open_questions"] = proposal.OpenQuestions
+		}
+		return []Event{workflowTypedEvent(eventID, WorkflowProposalRecorded, request.WorkID, actor, request.Now, expected, values)}, nil
 	case "approve_contract":
 		if err := requireResearchForPendingQuestions(ctx, tx, request.WorkID); err != nil {
 			return nil, err

@@ -3422,6 +3422,16 @@ const GeneratedPayloadSchemaDocument = `{
       },
       "type": "object"
     },
+    "proposal_affected_text": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "proposal_text": {
+      "maxLength": 512,
+      "minLength": 1,
+      "type": "string"
+    },
     "reference": {
       "description": "A workflow reference list item: whitespace-free, 2-128 chars, matching the store's ValidReference. Slashes are allowed because touched refs name repository paths.",
       "maxLength": 128,
@@ -8625,10 +8635,66 @@ const GeneratedPayloadSchemaDocument = `{
               "fields": {
                 "additionalProperties": false,
                 "maxProperties": 32,
-                "properties": {},
+                "properties": {
+                  "affected": {
+                    "items": {
+                      "$ref": "#/$defs/proposal_affected_text"
+                    },
+                    "maxItems": 16,
+                    "minItems": 1,
+                    "type": "array",
+                    "uniqueItems": true
+                  },
+                  "constraints": {
+                    "items": {
+                      "$ref": "#/$defs/proposal_text"
+                    },
+                    "maxItems": 16,
+                    "minItems": 0,
+                    "type": "array",
+                    "uniqueItems": true
+                  },
+                  "open_questions": {
+                    "items": {
+                      "$ref": "#/$defs/proposal_text"
+                    },
+                    "maxItems": 16,
+                    "minItems": 0,
+                    "type": "array",
+                    "uniqueItems": true
+                  },
+                  "problem": {
+                    "maxLength": 4096,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "stakes": {
+                    "maxLength": 2048,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "user_outcomes": {
+                    "items": {
+                      "$ref": "#/$defs/proposal_text"
+                    },
+                    "maxItems": 16,
+                    "minItems": 1,
+                    "type": "array",
+                    "uniqueItems": true
+                  }
+                },
+                "required": [
+                  "problem",
+                  "affected",
+                  "stakes",
+                  "user_outcomes"
+                ],
                 "type": "object"
               }
-            }
+            },
+            "required": [
+              "fields"
+            ]
           }
         },
         {

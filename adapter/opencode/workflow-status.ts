@@ -12,6 +12,43 @@ type WorkPin = {
 type MutationEnvelope = { outcome?: unknown; result?: unknown }
 type Toast = (message: string, context: WorkflowStatusContext) => Promise<boolean>
 
+const MAX_PENDING_SESSIONS = 512
+const MAX_PENDING_LINES_PER_SESSION = 128
+
+export type PendingWorkStateLineBuffer = {
+  append: (sessionID: string, lines: string[]) => void
+  drain: (sessionID: string) => string[]
+}
+
+export function createPendingWorkStateLineBuffer(): PendingWorkStateLineBuffer {
+  const pending = new Map<string, string[]>()
+
+  function touch(sessionID: string, lines: string[]): void {
+    pending.delete(sessionID)
+    pending.set(sessionID, lines)
+    while (pending.size > MAX_PENDING_SESSIONS) {
+      const oldest = pending.keys().next()
+      if (oldest.done) break
+      pending.delete(oldest.value)
+    }
+  }
+
+  return {
+    append(sessionID, lines) {
+      if (!sessionID || lines.length === 0) return
+      const existing = pending.get(sessionID) ?? []
+      touch(sessionID, existing.concat(lines).slice(-MAX_PENDING_LINES_PER_SESSION))
+    },
+    drain(sessionID) {
+      const lines = pending.get(sessionID) ?? []
+      pending.delete(sessionID)
+      return lines
+    },
+  }
+}
+
+export const pendingWorkStateLineBuffer = createPendingWorkStateLineBuffer()
+
 function record(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value)
 }
@@ -50,11 +87,19 @@ export function workStateLines(envelope: unknown): string[] {
 export function createWorkStateReporter(toast: Toast) {
   return {
     async report(envelope: MutationEnvelope, context: WorkflowStatusContext): Promise<void> {
-      for (const line of workStateLines(envelope)) {
+      const lines = workStateLines(envelope)
+      pendingWorkStateLineBuffer.append(context.sessionID, lines)
+      for (const line of lines) {
         try { await toast(line, context) } catch { /* state delivery is best effort */ }
       }
     },
   }
+}
+
+export function appendPendingWorkStateLines(sessionID: string, text: string): string {
+  const lines = pendingWorkStateLineBuffer.drain(sessionID)
+  if (lines.length === 0) return text
+  return text.length === 0 ? lines.join("\n") : `${text}\n${lines.join("\n")}`
 }
 
 export type GateBriefRow = { work_id: string; workflow_step: string; decision: "pending" | "none" }

@@ -37,6 +37,7 @@ import { completeDispatchedWorker } from "./lane_completion"
 import { hostControlPlane, SessionScopeUnavailable } from "./move-session"
 import { claimHostLease } from "./host-lease"
 import { clearTurnMoveBoundary, questionRequiresNormalChat, TURN_MOVE_QUESTION_REFUSAL } from "./turn-move-boundary"
+import { appendPendingWorkStateLines } from "./workflow-status"
 
 // The plugin factory is the only place the host hands over its own client, and
 // CD-0098 D2 makes the move-session route a requirement of work start. Binding
@@ -116,6 +117,12 @@ export default async function ConcordAdapterPlugin(input?: Partial<PluginInput>)
     "experimental.chat.system.transform": async (input: unknown, output: { system: string[] }) => {
       await continuityTransform(input, output)
       await agentSwitch.transform(input, output)
+    },
+    "experimental.text.complete": async (
+      input: { sessionID: string; messageID: string; partID: string },
+      output: { text: string },
+    ) => {
+      output.text = appendPendingWorkStateLines(input.sessionID, output.text)
     },
   }
 }

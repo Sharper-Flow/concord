@@ -127,12 +127,15 @@ const (
 	// KindResourceClaimHeld marks a claim on a resource another work item
 	// already holds. The refusal names coordination, not authority.
 	KindResourceClaimHeld FailureKind = "resource_claim_held"
-	// KindWorktreeOwnershipConflict marks a worktree removal that would strand
-	// a live session the host reports running there (CD-0096 D3 Destroy,
-	// CD-0104 D1). The occupancy is read from the host at the moment of
-	// refusal, never from a stored binding. The refusal names the session and
-	// the recovery action.
-	KindWorktreeOwnershipConflict FailureKind = "worktree_ownership_conflict"
+	// KindWorktreeRelocationRequired marks a worktree removal that found host
+	// sessions inside the worktree (CD-0135). The removal is not refused as a
+	// dead end: the failure carries every occupying session and the
+	// core-derived registered main checkout, so the adapter relocates those
+	// sessions and retries. The occupancy is read from the host at the moment
+	// of the check, never from a stored binding. A destructive approval
+	// covers the git gates and never this step, because no approval may
+	// authorize stranding a session.
+	KindWorktreeRelocationRequired FailureKind = "worktree_relocation_required"
 	// KindWorktreeLeaseHeld marks a verify lease the worktree already holds
 	// (CD-0096 D3 Verify tier). Exclusivity is coordination, not authority:
 	// the refusal names the holding session and the retry route.
@@ -231,6 +234,11 @@ type Failure struct {
 	// DomainOverlap carries both active contract identities and every derived
 	// bounded intersection needed to choose one of the closed recovery paths.
 	DomainOverlap *DomainOverlapFailure `json:"domain_overlap,omitempty"`
+	// WorktreeRelocation carries every host session the removal found inside
+	// the worktree and the core-derived destination, so the adapter
+	// relocates them and retries without parsing the human detail string
+	// (CD-0135).
+	WorktreeRelocation *WorktreeRelocationFailure `json:"worktree_relocation,omitempty"`
 	// Clause identifies the ordered workflow completion clause that refused the
 	// operation. Zero means the failure did not originate in that gate.
 	Clause int `json:"clause,omitempty"`

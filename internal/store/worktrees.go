@@ -427,8 +427,20 @@ type WorktreeReclaimRequest struct {
 // registry: the observation is the caller's, and the removal only asks whether
 // the directory it is about to delete is one of them.
 type SessionDirectory struct {
-	SessionRef string
-	Directory  string
+	SessionRef string `json:"session_ref"`
+	Directory  string `json:"directory"`
+}
+
+// WorktreeRelocationFailure is the typed relocation step a removal returns
+// instead of a dead-end refusal when host sessions run inside the worktree
+// (CD-0135). The adapter moves each named session to the core-derived
+// destination, then retries the removal. The store owns the worktree path and
+// the destination; the host owns which sessions are live; the failure carries
+// both halves so neither side has to guess the other's.
+type WorktreeRelocationFailure struct {
+	WorktreePath         string             `json:"worktree_path"`
+	DestinationDirectory string             `json:"destination_directory"`
+	Sessions             []SessionDirectory `json:"sessions"`
 }
 
 // WorktreeDestroyRequest drives the CD-0096 D3 Destroy tier: merged terminal
@@ -627,18 +639,28 @@ func reclaimWorktreeRawTx(ctx context.Context, tx *sql.Tx, req WorktreeReclaimRe
 		return worktreeEntryAfterReclaimTx(ctx, tx, req.WorkID, req.ProjectID)
 	}
 
-	// Issue #722: a worktree a live session runs in is not safe to remove.
-	// The host resolves a session's directory once per prompt, so removing it
-	// leaves that session alive but unable to answer another prompt. This gate
+	// Issue #722, CD-0135: a worktree a live session runs in is not safe to
+	// remove, because the host resolves a session's directory once per prompt,
+	// so removing it leaves that session alive but unable to answer another
+	// prompt. The removal therefore does not proceed while a session occupies
+	// the worktree, but it is not refused either: it returns the typed
+	// relocation step naming every occupant and the registered main checkout,
+	// and the calling adapter relocates those sessions and retries. This step
 	// sits above the tier split because the destructive approval covers the
 	// git gates, which protect committed and uncommitted work, and never
 	// authorizes stranding a session. It sits below the already-absent branch
 	// because a directory that is already gone strands nobody, and stale-claim
 	// recovery must stay reachable.
-	if occupant, occupied := occupyingSession(entry.Path, req.ObservedSessionDirectories); occupied {
-		return out, newFailure(KindWorktreeOwnershipConflict, op,
-			fmt.Sprintf("session %s runs in worktree %s; removing it would leave that session unable to send another prompt", occupant.SessionRef, entry.Path),
-			false, "end that session, or move it out of the worktree, then remove it")
+	if occupants := occupyingSessions(entry.Path, req.ObservedSessionDirectories); len(occupants) > 0 {
+		destination, destErr := projectMainCheckoutTx(ctx, tx, req.ProjectID)
+		if destErr != nil {
+			return out, destErr
+		}
+		ref := newFailure(KindWorktreeRelocationRequired, op,
+			fmt.Sprintf("host sessions run in worktree %s; the removal proceeds once they are relocated to %s", entry.Path, destination),
+			true, "relocate the named sessions to the destination directory, then retry the removal")
+		ref.WorktreeRelocation = &WorktreeRelocationFailure{WorktreePath: entry.Path, DestinationDirectory: destination, Sessions: occupants}
+		return out, ref
 	}
 
 	// A destructive removal runs under its consumed operator approval: the
@@ -702,27 +724,42 @@ func reclaimWorktreeRawTx(ctx context.Context, tx *sql.Tx, req WorktreeReclaimRe
 	return worktreeEntryAfterReclaimTx(ctx, tx, req.WorkID, req.ProjectID)
 }
 
-// occupyingSession reports the first observed session whose directory is the
+// occupyingSessions reports every observed session whose directory is the
 // worktree or sits beneath it. The comparison is lexical on cleaned absolute
 // paths: the worktree directory still exists at this point, but an observed
 // session directory need not, so resolving symlinks here would refuse on the
 // filesystem rather than on the question asked. The separator test keeps a
 // sibling that merely shares a name prefix out of the match.
-func occupyingSession(worktreePath string, observed []SessionDirectory) (SessionDirectory, bool) {
+func occupyingSessions(worktreePath string, observed []SessionDirectory) []SessionDirectory {
 	if worktreePath == "" || len(observed) == 0 {
-		return SessionDirectory{}, false
+		return nil
 	}
 	root := filepath.Clean(worktreePath)
+	var occupants []SessionDirectory
 	for _, candidate := range observed {
 		if candidate.Directory == "" {
 			continue
 		}
 		directory := filepath.Clean(candidate.Directory)
 		if directory == root || strings.HasPrefix(directory, root+string(filepath.Separator)) {
-			return candidate, true
+			occupants = append(occupants, candidate)
 		}
 	}
-	return SessionDirectory{}, false
+	return occupants
+}
+
+// projectMainCheckoutTx resolves the Project's canonical_path locator through
+// the removal's own transaction: the destination a relocation moves sessions
+// to is the same registered main checkout session_vacate derives, owned by the
+// store rather than named by the caller.
+func projectMainCheckoutTx(ctx context.Context, tx *sql.Tx, projectID string) (string, error) {
+	var destination string
+	if err := tx.QueryRowContext(ctx, `SELECT pl.normalized_value FROM project_locators pl WHERE pl.project_id=? AND pl.kind='canonical_path' ORDER BY pl.locator_id LIMIT 1`, projectID).Scan(&destination); err == sql.ErrNoRows {
+		return "", newFailure(KindUnknownScope, "worktree_reclaim", "Project has no canonical_path locator", false, "register the repository's canonical path locator")
+	} else if err != nil {
+		return "", wrapFailure(KindUnavailable, "worktree_reclaim", "cannot resolve the registered main checkout", true, "retry once the database is readable", err)
+	}
+	return destination, nil
 }
 
 // worktreeRepoRootTx resolves the repository to create from: the explicit

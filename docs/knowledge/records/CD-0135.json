@@ -1,0 +1,44 @@
+{
+  "date": "2026-09-11T00:00:00Z",
+  "evidence": [
+    "internal/store/worktrees.go",
+    "internal/store/errors.go",
+    "internal/agent/runtime.go",
+    "internal/agent/envelope.go",
+    "adapter/opencode/concord.ts",
+    "contracts/agent-tool-envelope.schema.json"
+  ],
+  "home_domain_id": "product-root:concord",
+  "id": "CD-0135",
+  "kind": "decision",
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "CD-0096"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0098"
+    }
+  ],
+  "path": "docs/decisions/CD-0135-a-worktree-removal-relocates-occupying-sessions.md",
+  "product_wide_rationale": "Worktree removal crosses every Domain's boundary: any lane, any session, any Project reaches it through the same typed removal operations. A removal that refuses strands sessions product-wide; a relocation step that every adapter consumer must honor can only be owned above the Domains it binds.",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:5a954528bc8802bff1d477bb3e41d1d7dd38f424fb5134fa314dacbde6657293",
+  "status": "accepted",
+  "summary": "A worktree removal returns a typed relocation step naming occupying sessions and the derived main checkout; the adapter relocates them and retries, so no finished worker session blocks reclamation.",
+  "tags": [
+    "worktree",
+    "removal",
+    "relocation",
+    "adapter",
+    "session"
+  ],
+  "title": "A worktree removal relocates occupying sessions instead of refusing"
+}

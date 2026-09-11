@@ -146,6 +146,21 @@ type DomainOverlapDetail struct {
 	DetailTruncated               bool                         `json:"detail_truncated"`
 }
 
+// WorktreeRelocationSession is one session the removal found inside the
+// worktree, in the wire shape the relocation step carries.
+type WorktreeRelocationSession struct {
+	SessionRef string `json:"session_ref"`
+	Directory  string `json:"directory"`
+}
+
+// WorktreeRelocation is the CD-0135 wire form: the worktree, the
+// core-derived registered main checkout, and every occupying session.
+type WorktreeRelocation struct {
+	WorktreePath         string                      `json:"worktree_path"`
+	DestinationDirectory string                      `json:"destination_directory"`
+	Sessions             []WorktreeRelocationSession `json:"sessions"`
+}
+
 type DomainOverlap struct {
 	Overlaps         []DomainOverlapDetail `json:"overlaps"`
 	TotalOverlaps    int                   `json:"total_overlaps"`
@@ -170,6 +185,11 @@ type TypedError struct {
 	Options          []string          `json:"options,omitempty"`
 	StaleLawRevision *StaleLawRevision `json:"stale_law_revision,omitempty"`
 	DomainOverlap    *DomainOverlap    `json:"domain_overlap,omitempty"`
+	// WorktreeRelocation is the CD-0135 typed relocation step. It rides only
+	// a removal that found host sessions inside the worktree and removed
+	// nothing: the sessions and the core-derived destination are structural
+	// so the adapter relocates them and retries without parsing the message.
+	WorktreeRelocation *WorktreeRelocation `json:"worktree_relocation,omitempty"`
 	// ConsequenceSummary is the CD-0037 typed approval prompt. It is derived
 	// at challenge mint from the exact facts the challenge binds, so nothing
 	// it describes can change without invalidating the challenge itself. It

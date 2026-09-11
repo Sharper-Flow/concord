@@ -9801,7 +9801,7 @@ const GeneratedPayloadSchemaDocument = `{
           "type": "integer"
         },
         "observed_session_directories": {
-          "description": "CD-0096 D3, issue #722: the live host sessions the caller observed, each with the directory it runs in. The removal refuses when one of them is the worktree or sits beneath it, because removing that directory leaves the session unable to send another prompt. The store owns the worktree path and the host owns session liveness, so the caller that sees both supplies the observation and the core decides on it. A caller with no host omits the field and reaches the git gates alone.",
+          "description": "CD-0096 D3, issue #722, CD-0135: the live host sessions the caller observed, each with the directory it runs in. When one of them is the worktree or sits beneath it, the removal removes nothing and returns the typed relocation step naming every occupant and the registered main checkout; the calling adapter relocates those sessions and retries. The store owns the worktree path and the relocation destination, and the host owns session liveness, so the caller that sees both supplies the observation and the core decides on it. A caller with no host omits the field and reaches the git gates alone.",
           "items": {
             "additionalProperties": false,
             "properties": {
@@ -9908,7 +9908,7 @@ const GeneratedPayloadSchemaDocument = `{
           "$ref": "#/$defs/id"
         },
         "observed_session_directories": {
-          "description": "CD-0096 D3, issue #722: the live host sessions the caller observed, each with the directory it runs in. The removal refuses when one of them is the worktree or sits beneath it, because removing that directory leaves the session unable to send another prompt. The store owns the worktree path and the host owns session liveness, so the caller that sees both supplies the observation and the core decides on it. A caller with no host omits the field and reaches the git gates alone.",
+          "description": "CD-0096 D3, issue #722, CD-0135: the live host sessions the caller observed, each with the directory it runs in. When one of them is the worktree or sits beneath it, the removal removes nothing and returns the typed relocation step naming every occupant and the registered main checkout; the calling adapter relocates those sessions and retries. The store owns the worktree path and the relocation destination, and the host owns session liveness, so the caller that sees both supplies the observation and the core decides on it. A caller with no host omits the field and reaches the git gates alone.",
           "items": {
             "additionalProperties": false,
             "properties": {
@@ -9958,7 +9958,7 @@ const GeneratedPayloadSchemaDocument = `{
           "$ref": "#/$defs/id"
         },
         "observed_session_directories": {
-          "description": "CD-0096 D3, issue #722: the live host sessions the caller observed, each with the directory it runs in. The removal refuses when one of them is the worktree or sits beneath it, because removing that directory leaves the session unable to send another prompt. The store owns the worktree path and the host owns session liveness, so the caller that sees both supplies the observation and the core decides on it. A caller with no host omits the field and reaches the git gates alone.",
+          "description": "CD-0096 D3, issue #722, CD-0135: the live host sessions the caller observed, each with the directory it runs in. When one of them is the worktree or sits beneath it, the removal removes nothing and returns the typed relocation step naming every occupant and the registered main checkout; the calling adapter relocates those sessions and retries. The store owns the worktree path and the relocation destination, and the host owns session liveness, so the caller that sees both supplies the observation and the core decides on it. A caller with no host omits the field and reaches the git gates alone.",
           "items": {
             "additionalProperties": false,
             "properties": {

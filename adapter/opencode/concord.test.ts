@@ -7,7 +7,7 @@ import { contractOperations, hostToolSchemas, manifestDigest } from "./generated
 import { configureCoreBinary } from "./dispatch"
 import { claimHostLease, configureHostLease } from "./host-lease"
 import { validateGeneratedEnvelope, envelopeFailurePath } from "./generated-contract-tests"
-import { hostControlPlane, SESSION_LIST_ROUTE, SESSION_ROUTE, SHOW_TOAST_ROUTE } from "./move-session"
+import { hostControlPlane, MOVE_SESSION_ROUTE, SESSION_LIST_ROUTE, SESSION_ROUTE, SHOW_TOAST_ROUTE } from "./move-session"
 
 function schemaBuilder(kind: string, ...args: unknown[]) {
   return {
@@ -1543,30 +1543,57 @@ test("work start leaves a resumable claim when the move is refused", async () =>
   expect(calls.map(({ argv }) => argv[1])).toEqual(["project-resolve", "work-bootstrap", "session-prepare"])
 })
 
-// Issue #722: a worktree removal is safe only when no live session runs in the
-// directory it deletes. The store owns the worktree path and refuses on it;
-// the adapter owns the only truthful answer to which sessions are live and
-// where, because no event records a session leaving a directory.
-const bindSessionRoutes = (options: { sessions?: unknown; listStatus?: number; unbound?: boolean; toastStatus?: number } = {}) => {
+// Issue #722, CD-0135: a worktree removal is safe only when no live session
+// runs in the directory it deletes. The store owns the worktree path and the
+// relocation destination; the adapter owns the only truthful answer to which
+// sessions are live and where, because no event records a session leaving a
+// directory. When the core names occupants, the adapter relocates them and
+// retries the removal itself.
+const bindSessionRoutes = (options: {
+  sessions?: unknown
+  listStatus?: number
+  unbound?: boolean
+  toastStatus?: number
+  moveStatus?: number
+  moves?: Array<{ sessionID: string; directory: string }>
+  directories?: Record<string, string>
+  moveHonored?: boolean
+} = {}) => {
   const toasts: Array<Record<string, unknown>> = []
   if (options.unbound) {
     hostControlPlane().bind(undefined)
     return toasts
   }
+  const directories: Record<string, string> = { "session-1": "/worktree", ...(options.directories ?? {}) }
   hostControlPlane().bind({
     post: async ({ url, body }) => {
       if (url === SHOW_TOAST_ROUTE) {
         toasts.push(body as Record<string, unknown>)
         return { response: new Response("true", { status: options.toastStatus ?? 200 }) }
       }
+      if (url === MOVE_SESSION_ROUTE) {
+        const move = body as { sessionID?: string; destination?: { directory?: string } }
+        if (typeof move.sessionID === "string" && typeof move.destination?.directory === "string") {
+          options.moves?.push({ sessionID: move.sessionID, directory: move.destination.directory })
+          // A host that reports the session elsewhere after the move has not
+          // moved it: moveHonored false keeps the pre-seeded directory.
+          if (options.moveHonored !== false) directories[move.sessionID] = move.destination.directory
+        }
+        return { response: new Response(null, { status: options.moveStatus ?? 204 }) }
+      }
       return { response: new Response(null, { status: 404 }) }
     },
-    get: async ({ url }) => {
-      if (url === SESSION_ROUTE) return { data: { id: "session-1", directory: "/worktree" }, response: new Response(null, { status: 200 }) }
-      if (url !== SESSION_LIST_ROUTE) return { response: new Response(null, { status: 404 }) }
-      const status = options.listStatus ?? 200
-      if (status !== 200) return { response: new Response("host is unwell", { status }) }
-      return { data: options.sessions ?? [], response: new Response(null, { status }) }
+    get: async ({ url, path }) => {
+      if (url === SESSION_LIST_ROUTE) {
+        const status = options.listStatus ?? 200
+        if (status !== 200) return { response: new Response("host is unwell", { status }) }
+        return { data: options.sessions ?? [], response: new Response(null, { status }) }
+      }
+      if (url === SESSION_ROUTE || String(url).startsWith("/session/")) {
+        const id = typeof path?.id === "string" ? path.id : "session-1"
+        return { data: { id, directory: directories[id] ?? "/unknown" }, response: new Response(null, { status: 200 }) }
+      }
+      return { response: new Response(null, { status: 404 }) }
     },
   })
   return toasts
@@ -1635,6 +1662,104 @@ test("a completed worktree removal reports itself to the operator", async () => 
   expect(String(toasts[0].message)).toContain("work-1")
 })
 
+// CD-0135: a relocation step is not a refusal. The core names the occupants
+// and the destination it derived; the adapter moves each session, verifies
+// the landing, and retries the removal once with a fresh observation.
+const relocationRequiredEnvelope = (sessions: Array<{ session_ref: string; directory: string }>, destination = "/main") =>
+  coreEnvelope("concord_work_transition", "worktree_reclaim", "error", {
+    error: {
+      kind: "operation_conflict",
+      retry_safe: true,
+      // The envelope contract couples operation_conflict to reconcile_operation;
+      // the structured payload below is what the adapter acts on.
+      recovery_action: { kind: "reconcile_operation" },
+      effect_state: "none",
+      worktree_relocation: { worktree_path: "/worktrees/work-1", destination_directory: destination, sessions },
+    },
+  })
+
+test("a worktree removal relocates occupying sessions to the derived checkout and retries", async () => {
+  // The host list still shows the occupant inside the worktree; the core's
+  // first answer is the relocation step. After the move the binding's
+  // directory map (and therefore the fresh observation) places the session
+  // in the main checkout, so the retry reaches the git gates.
+  const moves: Array<{ sessionID: string; directory: string }> = []
+  bindSessionRoutes({
+    sessions: [{ id: "ses_alpha", directory: "/worktrees/work-1" }],
+    directories: { ses_alpha: "/worktrees/work-1" },
+    moves,
+  })
+  let coreCalls = 0
+  adapter.configureConcordAdapter({ runner: runnerWithContext((argv: string[]) => {
+    if (argv[1] === "project-resolve") return contextResponse()
+    coreCalls++
+    return coreCalls === 1 ? relocationRequiredEnvelope([{ session_ref: "ses_alpha", directory: "/worktrees/work-1" }]) : removalOk("worktree_reclaim")
+  }) })
+  const envelope: any = await rawHostResult(adapter.work_transition.execute(removalRequest("worktree_reclaim"), contextFor()))
+  expect(envelope.outcome).toBe("ok")
+  expect(moves).toEqual([{ sessionID: "ses_alpha", directory: "/main" }])
+  expect(coreCalls).toBe(2)
+})
+
+test("a relocation move the host refuses strands nothing and removes nothing", async () => {
+  const moves: Array<{ sessionID: string; directory: string }> = []
+  bindSessionRoutes({
+    sessions: [{ id: "ses_alpha", directory: "/worktrees/work-1" }],
+    directories: { ses_alpha: "/worktrees/work-1" },
+    moveStatus: 400,
+    moves,
+  })
+  let coreCalls = 0
+  adapter.configureConcordAdapter({ runner: runnerWithContext((argv: string[]) => {
+    if (argv[1] === "project-resolve") return contextResponse()
+    coreCalls++
+    return relocationRequiredEnvelope([{ session_ref: "ses_alpha", directory: "/worktrees/work-1" }])
+  }) })
+  const envelope: any = await rawHostResult(adapter.work_transition.execute(removalRequest("worktree_reclaim"), contextFor()))
+  expect(envelope.outcome).toBe("error")
+  expect(envelope.error.adapter_reason).toBe("relocation_move_refused")
+  expect(envelope.error.message).toContain("was not relocated")
+  expect(coreCalls).toBe(1)
+})
+
+test("an occupant the host will not move surfaces as an operator decision", async () => {
+  // The relocation ran, the retry still names an occupant: the host refused
+  // or reverted the move. The worktree still stands, so nothing is stranded,
+  // and the remaining step belongs to the operator.
+  bindSessionRoutes({ sessions: [{ id: "ses_alpha", directory: "/worktrees/work-1" }], directories: { ses_alpha: "/worktrees/work-1" } })
+  let coreCalls = 0
+  adapter.configureConcordAdapter({ runner: runnerWithContext((argv: string[]) => {
+    if (argv[1] === "project-resolve") return contextResponse()
+    coreCalls++
+    return relocationRequiredEnvelope([{ session_ref: "ses_alpha", directory: "/worktrees/work-1" }])
+  }) })
+  const envelope: any = await rawHostResult(adapter.work_transition.execute(removalRequest("worktree_reclaim"), contextFor()))
+  expect(envelope.outcome).toBe("error")
+  expect(envelope.error.adapter_reason).toBe("relocation_incomplete")
+  expect(envelope.error.recovery_action.kind).toBe("contact_operator")
+  expect(coreCalls).toBe(2)
+})
+
+test("a relocation that lands elsewhere stops the removal", async () => {
+  // The readback, not the move call's status, is the truth: a session the
+  // host reports somewhere else after the move has not moved.
+  bindSessionRoutes({
+    sessions: [{ id: "ses_alpha", directory: "/worktrees/work-1" }],
+    directories: { ses_alpha: "/somewhere-else" },
+    moveHonored: false,
+  })
+  let coreCalls = 0
+  adapter.configureConcordAdapter({ runner: runnerWithContext((argv: string[]) => {
+    if (argv[1] === "project-resolve") return contextResponse()
+    coreCalls++
+    return relocationRequiredEnvelope([{ session_ref: "ses_alpha", directory: "/worktrees/work-1" }])
+  }) })
+  const envelope: any = await rawHostResult(adapter.work_transition.execute(removalRequest("worktree_reclaim"), contextFor()))
+  expect(envelope.outcome).toBe("error")
+  expect(envelope.error.adapter_reason).toBe("relocation_landing_mismatch")
+  expect(coreCalls).toBe(1)
+})
+
 test("a refused worktree removal reports nothing, and a failed toast does not fail the removal", async () => {
   // Your rule: an unsafe removal does not happen, and needs no notice because
   // nothing was lost. A notice for a removal that did not happen would be a
@@ -1643,7 +1768,7 @@ test("a refused worktree removal reports nothing, and a failed toast does not fa
   const refused = bindSessionRoutes({ sessions: [{ id: "ses_alpha", directory: "/elsewhere" }] })
   adapter.configureConcordAdapter({ runner: runnerWithContext(coreEnvelope(
     "concord_work_transition", "worktree_reclaim", "error",
-    { error: { kind: "worktree_ownership_conflict", retry_safe: false, recovery_action: { kind: "contact_operator" }, effect_state: "none" } },
+    { error: { kind: "invalid_transition", retry_safe: false, recovery_action: { kind: "reread_entities" }, effect_state: "none" } },
   )) })
   const refusal: any = await rawHostResult(adapter.work_transition.execute(removalRequest("worktree_reclaim"), contextFor()))
   expect(refusal.outcome).toBe("error")

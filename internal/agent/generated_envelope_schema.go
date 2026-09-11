@@ -2806,6 +2806,52 @@ const GeneratedEnvelopeSchemaDocument = `{
           "maxItems": 20,
           "type": "array",
           "uniqueItems": true
+        },
+        "worktree_relocation": {
+          "additionalProperties": false,
+          "properties": {
+            "destination_directory": {
+              "maxLength": 4096,
+              "minLength": 1,
+              "type": "string"
+            },
+            "sessions": {
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "directory": {
+                    "maxLength": 4096,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "session_ref": {
+                    "maxLength": 128,
+                    "minLength": 1,
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "session_ref",
+                  "directory"
+                ],
+                "type": "object"
+              },
+              "maxItems": 100,
+              "minItems": 1,
+              "type": "array"
+            },
+            "worktree_path": {
+              "maxLength": 4096,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "worktree_path",
+            "destination_directory",
+            "sessions"
+          ],
+          "type": "object"
         }
       },
       "required": [

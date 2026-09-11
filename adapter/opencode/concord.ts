@@ -987,8 +987,78 @@ async function observeSessionsForRemoval(args: HostToolArgs, context: ToolContex
   }
 }
 
-// reportWorktreeRemoval puts the completed removal in front of the operator.
-// The agent that made the call may end its turn without relaying anything, and
+// relocationRequired reads the typed relocation step a removal returns when
+// host sessions occupy the worktree (CD-0135). The core, not the agent and
+// not this side, owns the destination; this side owns which sessions are live
+// and how they move.
+type WorktreeRelocationStep = {
+  worktree_path: string
+  destination_directory: string
+  sessions: Array<{ session_ref: string; directory: string }>
+}
+
+function relocationStep(envelope: CoreConcordEnvelope): WorktreeRelocationStep | null {
+  const failure = record(envelope) && record(envelope.error) ? (envelope.error as Record<string, unknown>) : null
+  if (!failure) return null
+  // The envelope's error.kind is the mapped outcome name; the structured
+  // worktree_relocation payload is the discriminator for this step.
+  const relocation = record(failure.worktree_relocation) ? (failure.worktree_relocation as Record<string, unknown>) : null
+  if (!relocation) return null
+  const destination = relocation.destination_directory
+  const sessions = relocation.sessions
+  if (typeof destination !== "string" || !destination.startsWith("/") || !Array.isArray(sessions) || sessions.length === 0) return null
+  const named: Array<{ session_ref: string; directory: string }> = []
+  for (const session of sessions) {
+    const ref = record(session) ? session.session_ref : undefined
+    const directory = record(session) ? session.directory : undefined
+    if (typeof ref !== "string" || !ref || typeof directory !== "string" || !directory) return null
+    named.push({ session_ref: ref, directory })
+  }
+  return { worktree_path: typeof relocation.worktree_path === "string" ? relocation.worktree_path : "", destination_directory: destination, sessions: named }
+}
+
+function relocationRequired(envelope: CoreConcordEnvelope): boolean {
+  return relocationStep(envelope) !== null
+}
+
+// relocateOccupyingSessions moves every named session to the core-derived
+// registered main checkout and returns the original request for the retry.
+// The landing is read back from the host rather than assumed: a session the
+// host reports elsewhere after the move has not moved, and the removal must
+// not proceed over it. A move that fails or lands wrong stops the removal
+// with a typed error; nothing was removed, so nothing is stranded.
+async function relocateOccupyingSessions(envelope: CoreConcordEnvelope, args: HostToolArgs, context: ToolContext): Promise<HostToolArgs | CoreConcordEnvelope> {
+  const step = relocationStep(envelope)
+  if (!step) return args
+  const requestID = `${context.sessionID}-${context.messageID}`
+  for (const session of step.sessions) {
+    try {
+      await hostControlPlane().moveSession(session.session_ref, step.destination_directory, context.abort)
+      const landed = await hostControlPlane().sessionDirectory(session.session_ref, context.abort)
+      if (!samePath(landed, step.destination_directory)) {
+        return adapterError("concord_work_transition", "worktree_reclaim", requestID, "session_directory_mismatch", "relocation_landing_mismatch", `session ${session.session_ref} landed in ${JSON.stringify(landed)} rather than the registered main checkout ${JSON.stringify(step.destination_directory)}; the worktree was not removed`, "none", "retry_same_request")
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      const kind = error instanceof MoveSessionUnavailable ? "unreachable" : "transport_failure"
+      const reason = error instanceof MoveSessionUnavailable ? "move_session_route_unavailable" : "relocation_move_refused"
+      return adapterError("concord_work_transition", "worktree_reclaim", requestID, kind, reason, `${message}; session ${session.session_ref} was not relocated and the worktree was not removed`, "none", "retry_same_request")
+    }
+  }
+  return args
+}
+
+// relocationStillOccupied reports a retry that still found an occupant. The
+// relocation already ran once, so a remaining session is one the host would
+// not move: that is an operator decision, not a route this side can complete.
+function relocationStillOccupied(envelope: CoreConcordEnvelope, context: ToolContext): CoreConcordEnvelope {
+  const step = relocationStep(envelope)
+  const session = step && step.sessions.length > 0 ? step.sessions[0].session_ref : "unknown"
+  const destination = step ? step.destination_directory : "the registered main checkout"
+  return adapterError("concord_work_transition", "worktree_reclaim", `${context.sessionID}-${context.messageID}`, "operation_conflict", "relocation_incomplete", `session ${session} still runs in the worktree after relocation to ${destination}; nothing was removed`, "none", "contact_operator")
+}
+
+// reportWorktreeRemoval puts the completed removal in front of the operator.// The agent that made the call may end its turn without relaying anything, and
 // the session that was running in a neighbouring worktree has no other way to
 // learn the directory is gone. Delivery is best effort: the removal already
 // happened, and a host with no attached TUI must not turn it into a failure.
@@ -1076,8 +1146,26 @@ async function executeWorkTransition(args: HostToolArgs, context: ToolContext): 
     // An unreadable host answers with the refusal itself, so nothing reaches
     // the core and nothing is reported.
     if (!("operation" in observed && "input" in observed)) return observed as CoreConcordEnvelope
-    const request = observed as HostToolArgs
-    const envelope = await invokeConcordOperation("concord_work_transition", request, context)
+    let request = observed as HostToolArgs
+    let envelope = await invokeConcordOperation("concord_work_transition", request, context)
+    // CD-0135: the core found host sessions inside the worktree and removed
+    // nothing. Relocate every named session to the core-derived registered
+    // main checkout, then retry the removal once with a fresh observation.
+    // A session that will not move stops here with a typed error: the
+    // worktree still stands, so nothing is stranded and the retry is safe.
+    if (relocationRequired(envelope)) {
+      const relocated = await relocateOccupyingSessions(envelope, args, context)
+      // An adapter error arrives as the envelope itself, so it carries no
+      // operation and input to re-observe; the removal never retried.
+      if (!("operation" in relocated && "input" in relocated)) return relocated as CoreConcordEnvelope
+      const reobserved = await observeSessionsForRemoval(relocated as HostToolArgs, context)
+      if (!("operation" in reobserved && "input" in reobserved)) return reobserved as CoreConcordEnvelope
+      request = reobserved as HostToolArgs
+      envelope = await invokeConcordOperation("concord_work_transition", request, context)
+      if (relocationRequired(envelope)) {
+        return relocationStillOccupied(envelope, context)
+      }
+    }
     await reportWorktreeRemoval(request, context, envelope)
     return envelope
   }

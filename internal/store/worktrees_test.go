@@ -422,14 +422,15 @@ func TestReclaimWorktreeReplaysVersionOnePayload(t *testing.T) {
 	}
 }
 
-// TestReclaimWorktreeRefusesOccupiedWorktree pins the occupancy gate (issue
-// #722). Removing a directory a live session runs in strands that session:
-// the host resolves the session directory once per prompt, so the session
-// survives until the operator types again and then fails on every prompt. The
-// git gates read git only, so a clean merged worktree passed every one of them
-// while a session was still inside it.
-func TestReclaimWorktreeRefusesOccupiedWorktree(t *testing.T) {
-	s, git, _ := worktreeFixture(t)
+// TestReclaimWorktreeReturnsRelocationStep pins the relocation protocol
+// (issue #722, CD-0135). Removing a directory a live session runs in strands
+// that session: the host resolves the session directory once per prompt, so
+// the session survives until the operator types again and then fails on every
+// prompt. The removal therefore does not proceed, but it is not refused
+// either: it names every occupant and the registered main checkout, so the
+// calling adapter relocates those sessions and retries.
+func TestReclaimWorktreeReturnsRelocationStep(t *testing.T) {
+	s, git, repoRoot := worktreeFixture(t)
 	req := baseClaim(git)
 	if _, err := s.ClaimWorktree(context.Background(), req); err != nil {
 		t.Fatal(err)
@@ -441,23 +442,33 @@ func TestReclaimWorktreeRefusesOccupiedWorktree(t *testing.T) {
 	}
 
 	// A session sitting in a subdirectory of the worktree occupies it just as
-	// one sitting at its root does.
+	// one sitting at its root does, and every occupant is named.
 	for _, directory := range []string{req.Path, filepath.Join(req.Path, "internal", "store")} {
 		occupied := reclaim
-		occupied.ObservedSessionDirectories = []SessionDirectory{{SessionRef: "ses_live", Directory: directory}}
+		occupied.ObservedSessionDirectories = []SessionDirectory{
+			{SessionRef: "ses_live", Directory: directory},
+			{SessionRef: "ses_elsewhere", Directory: "/elsewhere"},
+		}
 		_, err := s.ReclaimWorktree(context.Background(), occupied)
 		if err == nil {
-			t.Fatalf("a session in %q must refuse the removal", directory)
+			t.Fatalf("a session in %q must stop the removal", directory)
 		}
 		failure, ok := err.(*Failure)
-		if !ok || failure.Kind != KindWorktreeOwnershipConflict {
-			t.Fatalf("err=%v, want worktree_ownership_conflict", err)
+		if !ok || failure.Kind != KindWorktreeRelocationRequired {
+			t.Fatalf("err=%v, want worktree_relocation_required", err)
 		}
-		if !strings.Contains(failure.Detail, "ses_live") || !strings.Contains(failure.Detail, req.Path) {
-			t.Fatalf("refusal %q must name the session and the worktree", failure.Detail)
+		if !failure.RetrySafe {
+			t.Fatal("a relocation step removed nothing, so the retry must be safe")
+		}
+		relocation := failure.WorktreeRelocation
+		if relocation == nil || relocation.DestinationDirectory != repoRoot || relocation.WorktreePath != req.Path {
+			t.Fatalf("relocation=%+v, want the worktree and the registered main checkout", relocation)
+		}
+		if len(relocation.Sessions) != 1 || relocation.Sessions[0].SessionRef != "ses_live" || relocation.Sessions[0].Directory != directory {
+			t.Fatalf("relocation sessions=%+v, want only the occupant", relocation.Sessions)
 		}
 		if _, still := git.worktrees[req.Path]; !still {
-			t.Fatal("a refused removal must leave the native worktree in place")
+			t.Fatal("an unrelocated removal must leave the native worktree in place")
 		}
 		entries, entriesErr := s.WorktreeEntries(context.Background(), "work-w")
 		if entriesErr != nil || len(entries) != 1 || entries[0].State != worktreeEntryActive {
@@ -484,12 +495,12 @@ func TestReclaimWorktreeRefusesOccupiedWorktree(t *testing.T) {
 	}
 }
 
-// TestDestroyRefusesOccupiedWorktreeDespiteApproval pins that the destructive
-// tier's operator approval does not reach the occupancy gate. The approval
+// TestDestroyReturnsRelocationStepDespiteApproval pins that the destructive
+// tier's operator approval does not reach the relocation step. The approval
 // covers discarding the clean-tree and merged-branch gates, which protect
 // committed and uncommitted work. It does not authorize stranding a session.
-func TestDestroyRefusesOccupiedWorktreeDespiteApproval(t *testing.T) {
-	s, git, _ := worktreeFixture(t)
+func TestDestroyReturnsRelocationStepDespiteApproval(t *testing.T) {
+	s, git, repoRoot := worktreeFixture(t)
 	req := baseClaim(git)
 	if _, err := s.ClaimWorktree(context.Background(), req); err != nil {
 		t.Fatal(err)
@@ -504,14 +515,17 @@ func TestDestroyRefusesOccupiedWorktreeDespiteApproval(t *testing.T) {
 		ObservedSessionDirectories: []SessionDirectory{{SessionRef: "ses_live", Directory: req.Path}},
 	})
 	if err == nil {
-		t.Fatal("a destructive destroy must still refuse an occupied worktree")
+		t.Fatal("a destructive destroy must still stop for an occupied worktree")
 	}
 	failure, ok := err.(*Failure)
-	if !ok || failure.Kind != KindWorktreeOwnershipConflict {
-		t.Fatalf("err=%v, want worktree_ownership_conflict", err)
+	if !ok || failure.Kind != KindWorktreeRelocationRequired {
+		t.Fatalf("err=%v, want worktree_relocation_required", err)
+	}
+	if failure.WorktreeRelocation == nil || failure.WorktreeRelocation.DestinationDirectory != repoRoot {
+		t.Fatalf("relocation=%+v, want the registered main checkout", failure.WorktreeRelocation)
 	}
 	if _, still := git.worktrees[req.Path]; !still {
-		t.Fatal("a refused destroy must leave the native worktree in place")
+		t.Fatal("an unrelocated destroy must leave the native worktree in place")
 	}
 }
 

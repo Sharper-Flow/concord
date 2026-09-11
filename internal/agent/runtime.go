@@ -758,8 +758,7 @@ func failureEnvelope(base Envelope, err error) Envelope {
 		}
 		if sf.DomainOverlap != nil {
 			out.Error.DomainOverlap = &DomainOverlap{TotalOverlaps: sf.DomainOverlap.TotalOverlaps, ReturnedOverlaps: sf.DomainOverlap.ReturnedOverlaps, Truncated: sf.DomainOverlap.Truncated}
-			for _, overlap := range sf.DomainOverlap.Overlaps {
-				// The envelope contract requires an array for every shared list.
+			for _, overlap := range sf.DomainOverlap.Overlaps { // The envelope contract requires an array for every shared list.
 				// An architecture-only overlap carries empty law, modification,
 				// and relation lists; a nil slice marshals as null and makes the
 				// refusal undeliverable.
@@ -769,6 +768,13 @@ func failureEnvelope(base Envelope, err error) Envelope {
 				}
 				out.Error.DomainOverlap.Overlaps = append(out.Error.DomainOverlap.Overlaps, converted)
 			}
+		}
+		if sf.WorktreeRelocation != nil {
+			relocation := &WorktreeRelocation{WorktreePath: sf.WorktreeRelocation.WorktreePath, DestinationDirectory: sf.WorktreeRelocation.DestinationDirectory, Sessions: []WorktreeRelocationSession{}}
+			for _, session := range sf.WorktreeRelocation.Sessions {
+				relocation.Sessions = append(relocation.Sessions, WorktreeRelocationSession{SessionRef: session.SessionRef, Directory: session.Directory})
+			}
+			out.Error.WorktreeRelocation = relocation
 		}
 		return out
 	}
@@ -910,12 +916,13 @@ func mapFailureKind(kind store.FailureKind) string {
 		return "stale_requires_review"
 	case store.KindUnreachable, store.KindGitUnreachable:
 		return "unreachable"
-	case store.KindWorktreeOwnershipConflict:
-		// CD-0096 D3 Destroy: a removal refused because a live session runs in
-		// the worktree. The remedy is ending or moving that session, so this
-		// is an authority refusal and carries the contact_operator route the
-		// store already proposes. It is not an operation to reconcile.
-		return "unauthorized"
+	case store.KindWorktreeRelocationRequired:
+		// CD-0135: the removal found host sessions inside the worktree and
+		// recorded nothing. The failure carries the sessions and the
+		// core-derived destination, so the adapter relocates them and retries
+		// the same request. It is coordination, not authority: the retry is
+		// safe, and nothing needs reconciling.
+		return "operation_conflict"
 	case store.KindUnauthorizedDispatch:
 		// A worker dispatch refused at the admission boundary: no active
 		// worktree claim, a session outside the claimed worktree, or no

@@ -103,7 +103,7 @@ func TestWorktreeAuditReclaimDispatchReportsMixedEffects(t *testing.T) {
 	if byWork["work-2"].outcome != "reclaimed" {
 		t.Fatalf("successful sweep row was lost: %+v", byWork)
 	}
-	if byWork["work-1"].outcome != "refused" || byWork["work-1"].refusal != string(store.KindWorktreeOwnershipConflict) {
+	if byWork["work-1"].outcome != "refused" || byWork["work-1"].refusal != string(store.KindWorktreeRelocationRequired) {
 		t.Fatalf("refused sweep row was lost: %+v", byWork)
 	}
 	if response.ChangedRefs == nil || len(*response.ChangedRefs) != 1 || (*response.ChangedRefs)[0].ID != "work-2" {

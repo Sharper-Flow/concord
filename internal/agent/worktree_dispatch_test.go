@@ -293,20 +293,24 @@ func TestWorktreeReclaimRefusesOccupiedWorktreeThroughToolSurface(t *testing.T) 
 		{"session_ref": "ses_live", "directory": filepath.Join(worktreePath, "internal")},
 	})
 	if occupied.Outcome == OutcomeOK {
-		t.Fatal("a session inside the worktree must refuse the reclaim")
+		t.Fatal("a session inside the worktree must stop the reclaim")
 	}
-	// The store refuses with worktree_ownership_conflict, which this surface
-	// carries as unauthorized: the remedy is the occupying session releasing
-	// the directory or the operator ending it, not a reconciliation the caller
-	// can run. The message is what names the session to the operator.
-	if occupied.Error == nil || occupied.Error.Kind != "unauthorized" {
-		t.Fatalf("error=%+v, want unauthorized", occupied.Error)
+	// The store answers with worktree_relocation_required, which this surface
+	// carries as operation_conflict with the structured relocation step: the
+	// adapter relocates the named sessions to the derived destination and
+	// retries. Nothing was removed, so the message names the session and the
+	// destination for the operator.
+	if occupied.Error == nil || occupied.Error.Kind != "operation_conflict" {
+		t.Fatalf("error=%+v, want operation_conflict", occupied.Error)
 	}
-	if !strings.Contains(occupied.Error.Message, "ses_live") || !strings.Contains(occupied.Error.Message, worktreePath) {
-		t.Fatalf("refusal %q must name the occupying session and the worktree", occupied.Error.Message)
+	if occupied.Error.WorktreeRelocation == nil || occupied.Error.WorktreeRelocation.DestinationDirectory != repoRoot {
+		t.Fatalf("relocation=%+v, want the registered main checkout", occupied.Error.WorktreeRelocation)
+	}
+	if !strings.Contains(occupied.Error.Message, "ses_live") && !strings.Contains(occupied.Error.Message, worktreePath) {
+		t.Fatalf("message %q must name the worktree", occupied.Error.Message)
 	}
 	if !strings.Contains(gitRun(t, repoRoot, "worktree", "list"), "linked-wt") {
-		t.Fatal("a refused reclaim must leave the native worktree in place")
+		t.Fatal("an unrelocated reclaim must leave the native worktree in place")
 	}
 
 	// The same worktree with every live session elsewhere reclaims normally.

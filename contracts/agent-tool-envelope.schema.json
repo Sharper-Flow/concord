@@ -1799,6 +1799,52 @@
             }
           }
         },
+        "worktree_relocation": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "worktree_path",
+            "destination_directory",
+            "sessions"
+          ],
+          "properties": {
+            "worktree_path": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096
+            },
+            "destination_directory": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096
+            },
+            "sessions": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 100,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "session_ref",
+                  "directory"
+                ],
+                "properties": {
+                  "session_ref": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128
+                  },
+                  "directory": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 4096
+                  }
+                }
+              }
+            }
+          }
+        },
         "supported_budget_seconds": {
           "description": "CD-0038 D3: the operation's declared seconds ceiling, typed on every budget_refused error so the recovery value a caller needs is never buried in details. Carried on no other kind.",
           "type": "integer",

@@ -1,0 +1,5 @@
+{
+  "id": "CD-0135",
+  "reason": "The store relocation step, the agent envelope member, and the adapter relocate-and-retry flow provide the decision's reachability evidence.",
+  "state": "out_of_scope"
+}

@@ -168,7 +168,7 @@ func TestWorktreeAuditReclaimRefusesOccupiedWorktree(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(result.Rows) != 1 || result.Rows[0].Outcome != WorktreeAuditRefused || result.Rows[0].RefusalKind != string(KindWorktreeOwnershipConflict) {
+	if len(result.Rows) != 1 || result.Rows[0].Outcome != WorktreeAuditRefused || result.Rows[0].RefusalKind != string(KindWorktreeRelocationRequired) {
 		t.Fatalf("occupied worktree must be refused typed, got %+v", result.Rows)
 	}
 	if _, kept := git.worktrees[donePath]; !kept {
@@ -308,7 +308,7 @@ func TestWorktreeAuditReclaimRefusesOccupiedUnstartedWorktree(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(result.Rows) != 1 || result.Rows[0].Outcome != WorktreeAuditRefused || result.Rows[0].RefusalKind != string(KindWorktreeOwnershipConflict) {
+	if len(result.Rows) != 1 || result.Rows[0].Outcome != WorktreeAuditRefused || result.Rows[0].RefusalKind != string(KindWorktreeRelocationRequired) {
 		t.Fatalf("occupied unstarted worktree must be refused typed, got %+v", result.Rows)
 	}
 	if _, kept := git.worktrees[path]; !kept {

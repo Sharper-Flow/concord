@@ -114,7 +114,8 @@ async function readOperation(
 // item version bind the packet to the exact recorded state it projected. A
 // packet built from a contract with no objective would let baseline-passing
 // predicates masquerade as delivery, so a contentless premise is a typed
-// refusal, never an omitted field.
+// refusal, never an omitted field. Numbered constraints carry the complete
+// serialized mandate, with boundaries that preserve Unicode characters.
 export async function buildAgentLanePacket(request: AgentLanePacketRequest, deps: AgentLanePacketDeps): Promise<AgentLanePacketBuild> {
   const lane: AgentLane | undefined = agentLanes.find((candidate) => candidate.id === request.laneId)
   if (!lane) {
@@ -153,19 +154,14 @@ export async function buildAgentLanePacket(request: AgentLanePacketRequest, deps
   if (workVersion === null || contractVersion === null) {
     return failure("transport_failure", `work ${request.workId} pinned state did not carry the typed work and contract versions the packet must bind to`)
   }
-  const outcomePayload = JSON.stringify(outcomePredicates)
-
   const task = [
     `Deliver the approved objective for work ${request.workId}, at workflow step "${workflowStep}" (work v${workVersion}, contract v${contractVersion}).`,
     "",
     "Approved objective:",
     premise,
-    "",
-    "Approved end-state mandate:",
-    outcomePayload,
   ].join("\n")
   if (task.length > TASK_MAX_LENGTH) {
-    return failure("projection_overflow", `the approved end-state mandate does not fit inputs.task: ${task.length} characters against a limit of ${TASK_MAX_LENGTH}`, { field: "task", limit: TASK_MAX_LENGTH, actual: task.length })
+    return failure("projection_overflow", `the approved objective does not fit inputs.task: ${task.length} characters against a limit of ${TASK_MAX_LENGTH}`, { field: "task", limit: TASK_MAX_LENGTH, actual: task.length })
   }
 
   const design = renderDesignRecord(pinned.design_record)
@@ -176,7 +172,22 @@ export async function buildAgentLanePacket(request: AgentLanePacketRequest, deps
 
   // CD-0056: the fold refuses a report that leaves a declared obligation
   // undischarged, so the obligation set travels with the packet by name.
+  const mandateLabel = "Approved end-state mandate (join parts in order) "
+  const partLimit = CONSTRAINT_MAX_LENGTH - `${mandateLabel}${CONSTRAINTS_MAX_ITEMS}/${CONSTRAINTS_MAX_ITEMS}: `.length
+  const mandateParts: string[] = []
+  let part = ""
+  for (const character of JSON.stringify(outcomePredicates)) {
+    if (part.length + character.length > partLimit) {
+      mandateParts.push(part)
+      part = ""
+    }
+    part += character
+  }
+  if (part.length > 0) mandateParts.push(part)
+  const predicateConstraints = mandateParts.map((text, index) => `${mandateLabel}${index + 1}/${mandateParts.length}: ${text}`)
+
   const constraints = [
+    ...predicateConstraints,
     ...lane.evidence_obligations.map(
       (obligation) => `Evidence obligation "${obligation}": your agent-lane-report.v1 report must carry an evidence entry whose obligation is "${obligation}". An undischarged obligation is refused.`,
     ),
@@ -187,7 +198,7 @@ export async function buildAgentLanePacket(request: AgentLanePacketRequest, deps
   }
   const oversized = constraints.find((entry) => entry.length > CONSTRAINT_MAX_LENGTH)
   if (oversized !== undefined) {
-    return failure("projection_overflow", `a rendered evidence obligation does not fit an inputs.constraints entry: ${oversized.length} characters against a limit of ${CONSTRAINT_MAX_LENGTH}`, { field: "constraints", limit: CONSTRAINT_MAX_LENGTH, actual: oversized.length })
+    return failure("projection_overflow", `a rendered packet constraint does not fit an inputs.constraints entry: ${oversized.length} characters against a limit of ${CONSTRAINT_MAX_LENGTH}`, { field: "constraints", limit: CONSTRAINT_MAX_LENGTH, actual: oversized.length })
   }
 
   const packet = {

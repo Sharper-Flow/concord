@@ -341,10 +341,11 @@ type workflowEvidenceBoundPayload struct {
 }
 
 type workflowStalenessObservedPayload struct {
-	RuleID     string `json:"rule_id"`
-	Severity   string `json:"severity"`
-	Drifted    bool   `json:"drifted"`
-	ObservedAt string `json:"observed_at"`
+	RuleID               string `json:"rule_id"`
+	Severity             string `json:"severity"`
+	Drifted              bool   `json:"drifted"`
+	ObservedAt           string `json:"observed_at"`
+	AcceptedInputsDigest string `json:"accepted_inputs_digest"`
 }
 
 type workflowVerdictRecordedPayload struct {
@@ -1731,7 +1732,7 @@ func validateWorkflowStalenessObservedPayload(event Event, payload workflowStale
 	if err := checkSubject(event, SubjectWorkItem); err != nil {
 		return err
 	}
-	if !workflowString(payload.RuleID, 128) || (payload.Severity != "warning" && payload.Severity != "block") || payload.ObservedAt == "" {
+	if !workflowString(payload.RuleID, 128) || (payload.Severity != "warning" && payload.Severity != "block") || payload.ObservedAt == "" || !validDigest(payload.AcceptedInputsDigest) {
 		return newFailure(KindInvalidPayload, "validate_event", "staleness observation is incomplete", false, "supply rule, severity, drift, and observation time")
 	}
 	if _, err := time.Parse(time.RFC3339Nano, payload.ObservedAt); err != nil {

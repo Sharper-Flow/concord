@@ -1034,7 +1034,7 @@ func executeStructuredWorkflowAction(t *testing.T, name string, initial map[stri
 		if fieldsErr != nil {
 			return workflowObservation{}, fieldsErr
 		}
-		if err := AppendWorkflowStalenessObservation(ctx, s, request.Operation.OpID+":staleness", workID, actorRef, fields, corpusNow); err != nil {
+		if err := AppendWorkflowStalenessObservation(ctx, s, request.Operation.OpID+":staleness", workID, actorRef, request.Idempotency.AcceptedInputsDigest, fields, corpusNow); err != nil {
 			return workflowObservation{}, err
 		}
 	}

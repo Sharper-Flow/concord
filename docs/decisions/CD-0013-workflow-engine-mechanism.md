@@ -152,7 +152,8 @@ The workflow engine emits the following new typed events, all with
 - `workflow.evidence_bound` — `evidence_kind`, `immutable_subject_ref`,
   `producer_id`, `producer_run_ref`, `producer_watermark`, `observed_at`;
 - `workflow.staleness_observed` — `rule_id`, `severity`, `drifted`,
-  `observed_at`; the latest observation for each rule is the staleness authority;
+  `observed_at`, `accepted_inputs_digest`; the latest observation for each rule
+  is the staleness authority;
 - `workflow.verdict_recorded` — `predicate_id`, `verdict_kind`,
   `verdict_actor_ref`, `evaluation_evidence`, `incomparable_with_approved`;
 - `workflow.premise_confirmed` — `contract_version`, `confirming_actor_ref`;

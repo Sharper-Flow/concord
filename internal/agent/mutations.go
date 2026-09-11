@@ -1008,7 +1008,7 @@ func (r runtime) mutateWorkflowAction(ctx context.Context, base Envelope, raw []
 	}
 	if in.ActionID == "complete" {
 		actorRef := store.DeriveWorkflowActorRef(grant.PrincipalRef, grant.ClientRef, grant.AgentRef, grant.SessionRef)
-		if err := store.AppendWorkflowStalenessObservation(ctx, r.Store, operationID+":staleness", in.WorkID, actorRef, payload, r.Authority.now()); err != nil {
+		if err := store.AppendWorkflowStalenessObservation(ctx, r.Store, operationID+":staleness", in.WorkID, actorRef, digest, payload, r.Authority.now()); err != nil {
 			return failureEnvelope(base, err), nil
 		}
 	}

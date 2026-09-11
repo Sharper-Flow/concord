@@ -653,7 +653,7 @@ func assembleWorkflowActionEventsTx(ctx context.Context, tx *sql.Tx, in workflow
 			out.nativeRun = nativeRunFromSemanticEvents(semantic)
 		}
 	} else {
-		staleness, present, stalenessErr := workflowStalenessObservationEvent(in.request.OperationID+":staleness", in.request.WorkID, actor, in.payload, in.request.Now)
+		staleness, present, stalenessErr := workflowStalenessObservationEvent(in.request.OperationID+":staleness", in.request.WorkID, actor, in.request.AcceptedInputsDigest, in.payload, in.request.Now)
 		if stalenessErr != nil {
 			return out, stalenessErr
 		}

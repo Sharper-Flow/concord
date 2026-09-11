@@ -563,7 +563,7 @@ func TestWorkflowWarningStalenessIsRecordedForNextRead(t *testing.T) {
 func TestWorkflowStalenessWarningsRebuildFromEventLog(t *testing.T) {
 	s, _ := seedCompletionGateCase(t, "staleness-rebuild", completionGateCase{requiredEvidence: []string{"verification", "review"}})
 	fields := json.RawMessage(`{"staleness_rule_id":"staleness:warning","observed_drift":{"severity":"warning","drifted":true}}`)
-	if err := AppendWorkflowStalenessObservation(context.Background(), s, "staleness-rebuild:observation", "staleness-rebuild", "actor:staleness", fields, time.Date(2026, 8, 9, 0, 0, 0, 0, time.UTC)); err != nil {
+	if err := AppendWorkflowStalenessObservation(context.Background(), s, "staleness-rebuild:observation", "staleness-rebuild", "actor:staleness", testManifestDigest, fields, time.Date(2026, 8, 9, 0, 0, 0, 0, time.UTC)); err != nil {
 		t.Fatal(err)
 	}
 	definition := cloneWorkflowDefinition(BuiltinWorkflowDefinitions()[0])

@@ -32,7 +32,7 @@ import type { PluginInput } from "@opencode-ai/plugin"
 import { createContinuityTransform } from "./continuity-hook"
 import { createAgentSwitchNotice } from "./agent-switch-hook"
 import { dispatchWindows, DispatchWindowError, TASK_TOOL_ID } from "./dispatch-window"
-import { agentLanes } from "./generated-agent-lanes"
+import { agentLanes, agentUtilities } from "./generated-agent-lanes"
 import { completeDispatchedWorker } from "./lane_completion"
 import { hostControlPlane, SessionScopeUnavailable } from "./move-session"
 import { claimHostLease } from "./host-lease"
@@ -87,6 +87,13 @@ export default async function ConcordAdapterPlugin(input?: Partial<PluginInput>)
       const concordLane = agentLanes.some((lane) => output.args.subagent_type === `concord-${lane.id}`)
       if (windows.has(input.sessionID) || concordLane) {
         windows.bind(input.tool, input.sessionID, output.args)
+        return
+      }
+      const concordUtility = agentUtilities.some((utility) => output.args.subagent_type === `concord-${utility.id}`)
+      if (concordUtility) {
+        if (await hostControlPlane().hasManagedParent(input.sessionID)) {
+          throw new DispatchWindowError("a Concord utility cannot run from a session with a managed parent")
+        }
         return
       }
       const scope = await hostControlPlane().taskScope(input.sessionID)

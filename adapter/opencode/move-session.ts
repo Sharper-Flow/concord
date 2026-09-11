@@ -178,6 +178,38 @@ export class HostControlPlane {
     }
   }
 
+  // A coordinator may use a host utility without a dispatch window. A lane
+  // inherits its coordinator's managed participation through its parent, so
+  // checking the parent boundary distinguishes the two without trusting the
+  // selected agent or its prompt.
+  async hasManagedParent(sessionID: string, signal: AbortSignal = AbortSignal.timeout(5_000)): Promise<boolean> {
+    signal.throwIfAborted()
+    let current = sessionID
+    const visited = new Set<string>()
+    visited.add(current)
+    let session: { metadata: Record<string, unknown>; parentID?: string }
+    try {
+      session = await this.#scopeSession(current, signal)
+    } catch (error) {
+      if (error instanceof HostSessionMissing) throw new SessionScopeUnavailable("cannot resolve managed Task parent: the calling host session does not exist")
+      throw error
+    }
+    for (;;) {
+      signal.throwIfAborted()
+      if (session.parentID === undefined) return false
+      current = session.parentID
+      if (visited.has(current)) throw new SessionScopeUnavailable("cannot resolve managed Task parent: the host session ancestry contains a cycle")
+      visited.add(current)
+      try {
+        session = await this.#scopeSession(current, signal)
+      } catch (error) {
+        if (error instanceof HostSessionMissing) throw new SessionScopeUnavailable("cannot resolve managed Task parent: an ancestor session does not exist")
+        throw error
+      }
+      if (session.metadata[MANAGED_TASK_SCOPE_KEY] === "managed") return true
+    }
+  }
+
   // The host PATCH replaces metadata. Preserve the other namespaces and read
   // the saved session back before admitting any Concord operation that starts
   // managed work. Repeating enrollment does not write a second policy record.

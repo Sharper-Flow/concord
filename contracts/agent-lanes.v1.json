@@ -63,5 +63,21 @@
       "evidence_obligations": ["commands", "exit_codes", "failure_classification"],
       "lifecycle_states": ["dispatched", "completed", "failed"]
     }
+  ],
+  "utilities": [
+    {
+      "id": "ci-wait",
+      "version": 1,
+      "purpose": "Wait for GitHub CI to reach a terminal state and report the result.",
+      "allowed_commands": [
+        "gh pr checks *",
+        "gh pr view *",
+        "gh run list *",
+        "gh run view *",
+        "sleep *",
+        "date *"
+      ],
+      "time_seconds_max": 1800
+    }
   ]
 }

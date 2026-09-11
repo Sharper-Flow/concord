@@ -845,7 +845,7 @@ def main() -> int:
     if generated.returncode: return generated.returncode
     lane_findings: list[str] = []
     lane_schema_expectations = {
-        ROOT / "contracts/agent-lanes.schema.json": {"schema_version", "registry", "version", "lanes"},
+        ROOT / "contracts/agent-lanes.schema.json": {"schema_version", "registry", "version", "lanes", "utilities"},
         ROOT / "contracts/agent-lane-packet.schema.json": {"schema_version", "attempt_id", "lane_id", "lane_version", "lane_digest", "work_id", "step_id", "inputs"},
         ROOT / "contracts/agent-lane-report.schema.json": {"schema_version", "readback_model", "status", "evidence"},
     }

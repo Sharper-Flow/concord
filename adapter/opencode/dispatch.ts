@@ -536,6 +536,20 @@ function admitWorkerReport(scan: WorkerReportScan, packet: AgentLanePacket): { r
     return { detail: `worker report failed the closed agent-lane-report.v1 schema: ${failures[0] ?? "unknown field"}` }
   }
   const admitted = scan.report
+  const lane = laneForPacket(packet)
+  if (!lane) return { detail: "worker report packet names an unregistered lane identity or digest" }
+  if (admitted.status === "completed") {
+    const declared = new Set<string>(lane.evidence_obligations)
+    const reported = new Set(admitted.evidence.map((entry) => entry.obligation))
+    const undeclared = [...reported].filter((obligation) => !declared.has(obligation))
+    if (undeclared.length > 0) {
+      return { detail: `worker report names evidence obligations the ${lane.id} lane does not declare: ${undeclared.join(", ")}` }
+    }
+    const missing = [...declared].filter((obligation) => !reported.has(obligation))
+    if (missing.length > 0) {
+      return { detail: `worker report leaves ${lane.id} lane evidence obligations undischarged: ${missing.join(", ")}` }
+    }
+  }
   return { report: { ...admitted, attempt_id: packet.attempt_id, lane_id: packet.lane_id, lane_version: packet.lane_version, lane_digest: packet.lane_digest } }
 }
 
@@ -1169,6 +1183,7 @@ export async function completeWorkerAttempt(
     }, signal)
     if (failureRecordFailure) return errorEnvelope(lane, packet, "error", "error", failureRecordFailure, "reconcile_operation")
     const failed = errorEnvelope(lane, packet, "error", terminal.failure_kind === "invalid_report" ? "invalid_report" : "error", terminal.detail, "reconcile_operation")
+    failed.error!.retry_safe = false
     failed.readback_model = readback.readback_model
     failed.session_id = readback.session_id
     return withHostBoundedOutput(failed, resultBody) ?? failed

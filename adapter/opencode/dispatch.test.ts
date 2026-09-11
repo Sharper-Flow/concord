@@ -625,6 +625,35 @@ test("a valid completed report carries its reported evidence into worker-complet
   expect(payloads[1].report_schema_version).toBe("1.0")
 })
 
+test("a schema-valid but undeclared research obligation records invalid_report instead of completion", async () => {
+  const evidence = [...reportEvidence(), { obligation: "commands", detail: "Read the cited source." }]
+  const { result, verbs, payloads } = await terminalEvidence(report({ evidence }))
+  expect(verbs).toEqual(["worker-dispatch", "worker-fail"])
+  expect(payloads[1].failure_kind).toBe("invalid_report")
+  expect(payloads[1].detail).toContain("commands")
+  expect(payloads[1].detail).toContain("research")
+  expect(result.error?.kind).toBe("invalid_report")
+  expect(result.error?.retry_safe).toBe(false)
+  expect(result.output).toContain("Read the cited source.")
+})
+
+test("a completed report missing a declared obligation records invalid_report", async () => {
+  const evidence = reportEvidence().filter((entry) => entry.obligation !== "uncertainties")
+  const { result, verbs, payloads } = await terminalEvidence(report({ evidence }))
+  expect(verbs).toEqual(["worker-dispatch", "worker-fail"])
+  expect(payloads[1].failure_kind).toBe("invalid_report")
+  expect(payloads[1].detail).toContain("uncertainties")
+  expect(result.error?.kind).toBe("invalid_report")
+})
+
+test("multiple distinct findings may discharge one declared obligation", async () => {
+  const evidence = [...reportEvidence(), { obligation: "bounded_findings", detail: "A second bounded finding." }]
+  const { result, verbs, payloads } = await terminalEvidence(report({ evidence }))
+  expect(result.outcome).toBe("ok")
+  expect(verbs).toEqual(["worker-dispatch", "worker-complete"])
+  expect(payloads[1].evidence).toEqual(evidence)
+})
+
 test("a missing report is worker-fail with invalid_report, not a completion", async () => {
   const { result, verbs, payloads } = await terminalEvidence(null)
   expect(verbs).toEqual(["worker-dispatch", "worker-fail"])

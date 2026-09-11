@@ -133,6 +133,20 @@ function mandateParts(packet: { inputs: { constraints?: string[] } }): string[] 
   return entries.map((entry) => entry.slice(entry.indexOf(": ") + 2))
 }
 
+test("packet and installed agent advertise only their lane's evidence vocabulary", async () => {
+  for (const lane of agentLanes) {
+    const built = await build(defaultScript(), { laneId: lane.id })
+    expect(built.failure).toBeUndefined()
+    const constraints = built.packet!.inputs.constraints!
+    const enums = constraints.filter((entry) => entry.startsWith("evidence_entry.obligation: enum="))
+    expect(enums).toHaveLength(1)
+    const declared = JSON.parse(enums[0]!.slice("evidence_entry.obligation: enum=".length, -1))
+    expect(declared).toEqual([...lane.evidence_obligations])
+    const agent = await Bun.file(new URL(`../../.opencode/agents/concord-${lane.id}.md`, import.meta.url)).text()
+    expect(agent).toContain(enums[0]!)
+  }
+})
+
 test("a well-formed build projects mandate, narrative, and obligations into a valid packet", async () => {
   const built = await build(defaultScript())
   expect(built.failure).toBeUndefined()

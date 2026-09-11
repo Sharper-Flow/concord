@@ -358,10 +358,6 @@ func productRowUnavailableReason(reliance ProductRowReliance) string {
 	return "source_lag"
 }
 
-func productRowStepRequiresApproval(registry DefinitionRegistry, ref string, version int64, digest, currentStep, state string) (bool, string, error) {
-	return productRowStepRequiresApprovalCached(registry, ref, version, digest, currentStep, state, nil)
-}
-
 func productRowStepRequiresApprovalCached(registry DefinitionRegistry, ref string, version int64, digest, currentStep, state string, cache map[string]RegisteredDefinition) (bool, string, error) {
 	if ref == "" || digest == "" || version == 0 || state == "completed" || state == "cancelled" || state == "superseded" {
 		return false, "", nil

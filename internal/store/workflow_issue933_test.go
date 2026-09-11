@@ -165,13 +165,13 @@ func TestWorkflowActionPreflightResolvesContractCorrectionAtCheckpoint(t *testin
 	version := verdictItemVersion(t, s, workID)
 	payload := json.RawMessage(`{"contract_version":2,"premise":"corrected premise","outcome_predicates":[{"predicate_id":"predicate:primary","ordinal":0,"outcome_kind":"check","outcome_payload":{"kind":"check","check_ref":"check:workflow","immutable_subject_ref":"commit:` + workID + `","expected_result":"pass"}}],"required_evidence":["verification"],"route_conventions":[],"spec_mandate":[],"law_modifies":[],"rigor_class":"prototype_internal","supersede_reason":"correct the accepted premise","audit_evidence":["evidence:preflight"]}`)
 	request := WorkflowActionPreflightRequest{WorkID: workID, ExpectedVersion: version, StepID: "acceptance", ActionID: "supersede_contract", Payload: payload, Actor: owner}
-	if err := WorkflowActionPreflight(context.Background(), s, request); err != nil {
+	if err := testWorkflowActionPreflight(context.Background(), s, request); err != nil {
 		t.Fatalf("contract correction preflight: %v", err)
 	}
 
 	request.ActionID = "undeclared_action"
 	request.Payload = json.RawMessage(`{}`)
-	if err := WorkflowActionPreflight(context.Background(), s, request); err == nil {
+	if err := testWorkflowActionPreflight(context.Background(), s, request); err == nil {
 		t.Fatal("undeclared action passed preflight")
 	}
 }

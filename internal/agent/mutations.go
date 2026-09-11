@@ -638,64 +638,6 @@ func scopeFromMap(scope map[string]any) *Scope {
 	return result
 }
 
-func (r runtime) preflightWorkflowAction(ctx context.Context, raw []byte, grant Authority) error {
-	var in actionMutationInput
-	if err := decodeOperationInput(raw, &in); err != nil {
-		return err
-	}
-	payload, err := workflowActionFields(in.Fields)
-	if err != nil {
-		return err
-	}
-	return store.AuthorizeWorkflowAction(ctx, r.Store, nil, store.WorkflowActionPreflightRequest{
-		WorkID:                in.WorkID,
-		ExpectedVersion:       in.ExpectedVersion,
-		ActionID:              in.ActionID,
-		SelectedChoice:        in.SelectedChoice,
-		DecisionContextDigest: in.DecisionContextDigest,
-		Payload:               payload,
-		Actor: store.WorkflowActor{
-			PrincipalRef: grant.PrincipalRef,
-			ClientRef:    grant.ClientRef,
-			AgentRef:     grant.AgentRef,
-			SessionRef:   grant.SessionRef,
-			ActorClass:   store.ActorAgent,
-		},
-		SessionWorktree: r.Envelope.Worktree,
-	}, nil)
-}
-
-func (r runtime) authorizeWorkflowAction(ctx context.Context, raw []byte, grant Authority, authorize func() error) error {
-	var in actionMutationInput
-	if err := decodeOperationInput(raw, &in); err != nil {
-		return err
-	}
-	payload, err := workflowActionFields(in.Fields)
-	if err != nil {
-		return err
-	}
-	return store.AuthorizeWorkflowAction(ctx, r.Store, nil, store.WorkflowActionPreflightRequest{
-		WorkID:                in.WorkID,
-		ExpectedVersion:       in.ExpectedVersion,
-		ActionID:              in.ActionID,
-		SelectedChoice:        in.SelectedChoice,
-		DecisionContextDigest: in.DecisionContextDigest,
-		Payload:               payload,
-		Actor: store.WorkflowActor{
-			PrincipalRef: grant.PrincipalRef,
-			ClientRef:    grant.ClientRef,
-			AgentRef:     grant.AgentRef,
-			SessionRef:   grant.SessionRef,
-			ActorClass:   store.ActorAgent,
-		},
-		SessionWorktree: r.Envelope.Worktree,
-	}, authorize)
-}
-
-func preflightWorkflowActionRequest(ctx context.Context, s *store.Store, raw []byte, env CallEnvelope, actor Authority) error {
-	return preflightWorkflowActionRequestWithRegistry(ctx, s, raw, env, actor, store.BuiltinWorkflowRegistry())
-}
-
 // preflightWorkflowActionRequestWithRegistry takes the authorized actor
 // separately from the envelope. CD-0080 D1 derives principal_ref from the
 // registered client, so the envelope carries no principal to build an actor

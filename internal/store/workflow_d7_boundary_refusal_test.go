@@ -233,7 +233,7 @@ func TestD7ConsequentialBoundariesRefuseUnresolvedOverlap(t *testing.T) {
 			if _, err := ReadWorkflow(ctx, s, workID); err != nil {
 				t.Fatalf("read-only workflow inspection failed while the boundary refused: %v", err)
 			}
-			if err := CheckWorkflowDomainOverlap(ctx, s, otherID); err == nil {
+			if err := testWorkflowDomainOverlap(ctx, s, otherID); err == nil {
 				t.Fatal("the concurrent item reports no overlap, so the refusal was not mutual")
 			}
 

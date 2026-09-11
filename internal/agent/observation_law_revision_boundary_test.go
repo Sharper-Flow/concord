@@ -269,10 +269,14 @@ func runStaleLawBoundaryRefusal(t *testing.T, build func(idempotencyKey, observa
 	if browse.Outcome != OutcomeOK {
 		t.Fatalf("read-only scope inspection refused while the mutation boundary refused: %+v", browse.Error)
 	}
-	// The overlap read over the same projections the guard consults also stays
-	// available and reports no overlap, so the refusal above is the law half
-	// and not the overlap half.
-	if err := store.CheckWorkflowDomainOverlap(ctx, s, observationBoundaryWork); err != nil {
+	// The transactional overlap check reports no overlap, so the refusal above
+	// is the law half and not the overlap half.
+	overlapTx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer overlapTx.Rollback()
+	if err := store.CheckWorkflowDomainOverlapTx(ctx, overlapTx, observationBoundaryWork); err != nil {
 		t.Fatalf("read-only overlap inspection failed while the boundary refused: %v", err)
 	}
 }

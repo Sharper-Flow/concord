@@ -3,7 +3,7 @@ import { chmod, mkdir, mkdtemp, rm } from "node:fs/promises"
 import { fileURLToPath } from "node:url"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
-import { contractOperations, hostToolSchemas, manifestDigest } from "./generated-contracts"
+import { contractOperations, hostToolSchemas, manifestDigest, payloadSchemas } from "./generated-contracts"
 import { configureCoreBinary } from "./dispatch"
 import { claimHostLease, configureHostLease } from "./host-lease"
 import { validateGeneratedEnvelope, envelopeFailurePath } from "./generated-contract-tests"
@@ -764,6 +764,7 @@ test("generated and adapter validators reject unknown top-level fields for every
 })
 
 test("worktree audit reclaim preserves committed refs through the adapter boundary", async () => {
+  bindSessionRoutes({ sessions: [] })
   const response = coreEnvelope("concord_work_transition", "worktree_audit_reclaim", "error", {
     changed_refs: [{ entity_kind: "work_item", id: "work-2", version: "5" }],
     error: { kind: "budget_refused", retry_safe: false, recovery_action: { kind: "adjust_budget" }, effect_state: "possible", supported_budget_seconds: 300 },
@@ -1575,6 +1576,7 @@ const bindSessionRoutes = (options: { sessions?: unknown; listStatus?: number; u
 const removalRequest = (operation: string) => hostCall(operation, {
   work_id: "work-1", project_id: "project-1", expected_version: 2, idempotency_key: "remove-1",
 })
+const auditRemovalRequest = () => hostCall("worktree_audit_reclaim", { idempotency_key: "audit-remove-1" })
 
 // A removal is a mutation, so an ok core answer carries the result, the
 // changed refs, and the next intents the generated envelope contract requires.
@@ -1584,9 +1586,23 @@ const removalOk = (operation: string) => coreEnvelope("concord_work_transition",
   changed_refs: [{ entity_kind: "work_item", id: "work-1", version: "3" }],
   next_valid_intents: [],
 })
+const auditOk = () => coreEnvelope("concord_work_transition", "worktree_audit_reclaim", "ok", {
+  result: { root: "/repo", rows: [], report_only: [], changed_refs: [], next_valid_intents: [] },
+  changed_refs: [],
+  next_valid_intents: [],
+})
+
+test("worktree removal operations derive from contract inputs", () => {
+  const expected = contractOperations
+    .filter((operation: any) => operation.tool === "concord_work_transition" && operation.input_schema.startsWith("#/schemas/"))
+    .filter((operation: any) => Object.hasOwn((payloadSchemas as any)[operation.input_schema.slice("#/schemas/".length)]?.properties ?? {}, "observed_session_directories"))
+    .map((operation: any) => operation.id.slice("concord_work_transition.".length))
+  expect([...adapter.WORKTREE_REMOVAL_OPERATIONS].sort()).toEqual(expected.sort())
+  expect([...adapter.WORKTREE_REMOVAL_OPERATIONS].sort()).toEqual(["worktree_audit_reclaim", "worktree_destroy", "worktree_reclaim"])
+})
 
 test("a worktree removal carries the host's live session directories to the core", async () => {
-  for (const operation of ["worktree_reclaim", "worktree_destroy"]) {
+  for (const operation of ["worktree_reclaim", "worktree_destroy", "worktree_audit_reclaim"]) {
     bindSessionRoutes({ sessions: [
       { id: "ses_alpha", directory: "/worktrees/work-1" },
       { id: "ses_beta", directory: "/elsewhere" },
@@ -1594,15 +1610,31 @@ test("a worktree removal carries the host's live session directories to the core
     const seen: string[] = []
     adapter.configureConcordAdapter({ runner: runnerWithContext((_argv: string[], input: string) => {
       seen.push(input)
-      return removalOk(operation)
+      return operation === "worktree_audit_reclaim" ? auditOk() : removalOk(operation)
     }) })
-    const envelope: any = await rawHostResult(adapter.work_transition.execute(removalRequest(operation), contextFor()))
+    const request = operation === "worktree_audit_reclaim" ? auditRemovalRequest() : removalRequest(operation)
+    const envelope: any = await rawHostResult(adapter.work_transition.execute(request, contextFor()))
     expect(envelope.outcome, operation).toBe("ok")
     expect(JSON.parse(seen[0]).input.observed_session_directories, operation).toEqual([
       { session_ref: "ses_alpha", directory: "/worktrees/work-1" },
       { session_ref: "ses_beta", directory: "/elsewhere" },
     ])
   }
+})
+
+test("audit reclaim refuses an occupied worktree through the core", async () => {
+  bindSessionRoutes({ sessions: [{ id: "ses_alpha", directory: "/worktrees/work-1" }] })
+  let seen = ""
+  adapter.configureConcordAdapter({ runner: runnerWithContext((_argv: string[], input: string) => {
+    seen = input
+    return coreEnvelope("concord_work_transition", "worktree_audit_reclaim", "error", {
+      error: { kind: "unauthorized", retry_safe: false, recovery_action: { kind: "contact_operator" }, effect_state: "none" },
+    })
+  }) })
+  const envelope: any = await rawHostResult(adapter.work_transition.execute(auditRemovalRequest(), contextFor()))
+  expect(envelope.outcome).toBe("error")
+  expect(envelope.error.kind).toBe("unauthorized")
+  expect(JSON.parse(seen).input.observed_session_directories).toEqual([{ session_ref: "ses_alpha", directory: "/worktrees/work-1" }])
 })
 
 test("a worktree removal refuses when the host session list cannot be read", async () => {

@@ -956,10 +956,19 @@ export function laneDispatchRequest(args: any): LaneDispatchInput | { error: str
 // falls through to the generic core transport. The dispatch path shares the
 // same transport seam as every other adapter tool, so a host-side caller
 // receives the same envelope shape on either branch.
-// WORKTREE_REMOVAL_OPERATIONS are the two typed operations that delete a
-// worktree directory. Both reach `reclaimWorktreeRawTx`, so both carry the
-// same occupancy observation and both report the same way (issue #722).
-const WORKTREE_REMOVAL_OPERATIONS = new Set(["worktree_reclaim", "worktree_destroy"])
+// WORKTREE_REMOVAL_OPERATIONS derives every typed operation that accepts the
+// occupancy observation from the generated contract. The core owns the set of
+// removal operations, so this stays complete as the contract grows (issue #722).
+export const WORKTREE_REMOVAL_OPERATIONS = new Set(
+  contractOperations
+    .filter((operation) => operation.tool === "concord_work_transition" && operation.input_schema.startsWith("#/schemas/"))
+    .filter((operation) => {
+      const schemaName = operation.input_schema.slice("#/schemas/".length)
+      const schema = (payloadSchemas as Record<string, { properties?: Record<string, unknown> }>)[schemaName]
+      return schema?.properties !== undefined && Object.hasOwn(schema.properties, "observed_session_directories")
+    })
+    .map((operation) => operation.id.slice("concord_work_transition.".length)),
+)
 
 // observeSessionsForRemoval attaches the host's live session directories to a
 // worktree removal. The store owns the worktree path and refuses on it; this

@@ -1,0 +1,31 @@
+{
+  "date": "2026-09-11T00:00:00Z",
+  "evidence": [
+    "internal/agent/payload_validation.go",
+    "internal/agent/mutations.go",
+    "internal/agent/envelope_contract_test.go",
+    "adapter/opencode/concord.test.ts"
+  ],
+  "home_domain_id": "agent-surface",
+  "id": "CD-0132",
+  "kind": "decision",
+  "law_relations": [],
+  "path": "docs/decisions/CD-0132-the-envelope-law-is-the-same-at-producer-and-adapter.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:b4bdaf043ebce11ec3324d5b84924f31357aaa2c95ed95ecae1302d8c64fa7a6",
+  "status": "accepted",
+  "summary": "The Go envelope validator enforces unevaluatedProperties with allOf evaluation semantics so producer and adapter enforce one law, errorOutcome admits changed_refs for partially-applied mutations, and the audit post-commit failure path validates its output before it reaches the wire.",
+  "tags": [
+    "envelope",
+    "validator",
+    "parity",
+    "law"
+  ],
+  "title": "The envelope law is the same at producer and adapter"
+}

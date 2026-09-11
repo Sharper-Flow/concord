@@ -85,7 +85,6 @@
     {"table":"workflow_native_runs","column":"status","authority":"registry_trigger","validator":"scripts/check-native-run-statuses.py"},
     {"table":"workflow_native_runs","column":"verification_state","authority":"check"},
     {"table":"workflow_overlap_resolutions","column":"resolution_kind","authority":"check"},
-    {"table":"workflow_staleness_warnings","column":"severity","authority":"check"},
     {"table":"worktree_claims","column":"state","authority":"check"},
     {"table":"worktree_entries","column":"state","authority":"check"},
     {"table":"worktree_verify_leases","column":"state","authority":"check"}

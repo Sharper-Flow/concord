@@ -1006,6 +1006,12 @@ func (r runtime) mutateWorkflowAction(ctx context.Context, base Envelope, raw []
 		response.Error.Details = map[string]any{"approval_ref": challengeRef, "summary": "Approve the exact workflow action, scope, and expected version.", "operation_digest": digest, "scope": approvalScopeBindings(scope), "versions": approvalVersionBindings(versions), "work_id": in.WorkID, "action_id": in.ActionID, "contract_version": strconv.FormatInt(contractVersion, 10), "selected_choice": in.SelectedChoice, "premise_summary": premiseSummary, "decision_context_digest": in.DecisionContextDigest}
 		return response, nil
 	}
+	if in.ActionID == "complete" {
+		actorRef := store.DeriveWorkflowActorRef(grant.PrincipalRef, grant.ClientRef, grant.AgentRef, grant.SessionRef)
+		if err := store.AppendWorkflowStalenessObservation(ctx, r.Store, operationID+":staleness", in.WorkID, actorRef, payload, r.Authority.now()); err != nil {
+			return failureEnvelope(base, err), nil
+		}
+	}
 
 	var execution store.WorkflowActionExecutionResult
 	var operatorActor *store.WorkflowActor

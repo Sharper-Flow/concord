@@ -25,6 +25,7 @@ const (
 	WorkflowActionCompleted        = "workflow.action_completed"
 	WorkflowActionFailed           = "workflow.action_failed"
 	WorkflowEvidenceBound          = "workflow.evidence_bound"
+	WorkflowStalenessObserved      = "workflow.staleness_observed"
 	WorkflowVerdictRecorded        = "workflow.verdict_recorded"
 	WorkflowPremiseConfirmed       = "workflow.premise_confirmed"
 	WorkflowSuccessorLinked        = "workflow.successor_linked"
@@ -337,6 +338,13 @@ type workflowEvidenceBoundPayload struct {
 	ProducerRunRef      string `json:"producer_run_ref"`
 	ProducerWatermark   string `json:"producer_watermark"`
 	ObservedAt          string `json:"observed_at"`
+}
+
+type workflowStalenessObservedPayload struct {
+	RuleID     string `json:"rule_id"`
+	Severity   string `json:"severity"`
+	Drifted    bool   `json:"drifted"`
+	ObservedAt string `json:"observed_at"`
 }
 
 type workflowVerdictRecordedPayload struct {
@@ -1717,6 +1725,34 @@ func foldWorkflowEvidenceBound(ctx context.Context, tx *sql.Tx, event Event) err
 		}
 	}
 	return advanceWorkflowVersion(ctx, tx, event, p.WorkflowVersionFields)
+}
+
+func validateWorkflowStalenessObservedPayload(event Event, payload workflowStalenessObservedPayload) error {
+	if err := checkSubject(event, SubjectWorkItem); err != nil {
+		return err
+	}
+	if !workflowString(payload.RuleID, 128) || (payload.Severity != "warning" && payload.Severity != "block") || payload.ObservedAt == "" {
+		return newFailure(KindInvalidPayload, "validate_event", "staleness observation is incomplete", false, "supply rule, severity, drift, and observation time")
+	}
+	if _, err := time.Parse(time.RFC3339Nano, payload.ObservedAt); err != nil {
+		return newFailure(KindInvalidPayload, "validate_event", "staleness observation time is invalid", false, "supply an RFC3339 observation time")
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(event.Payload, &fields); err != nil {
+		return newFailure(KindInvalidPayload, "validate_event", "staleness observation payload is malformed", false, "supply a JSON object")
+	}
+	if _, ok := fields["drifted"]; !ok {
+		return newFailure(KindInvalidPayload, "validate_event", "staleness observation drift is required", false, "supply the observed drift value")
+	}
+	return nil
+}
+
+func foldWorkflowStalenessObserved(ctx context.Context, tx *sql.Tx, event Event) error {
+	var payload workflowStalenessObservedPayload
+	if err := decodeWorkflowPayload(event, &payload); err != nil {
+		return err
+	}
+	return validateWorkflowStalenessObservedPayload(event, payload)
 }
 
 func foldWorkflowVerdictRecorded(ctx context.Context, tx *sql.Tx, event Event) error {

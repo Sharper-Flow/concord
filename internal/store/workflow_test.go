@@ -560,6 +560,45 @@ func TestWorkflowWarningStalenessIsRecordedForNextRead(t *testing.T) {
 	}
 }
 
+func TestWorkflowStalenessWarningsRebuildFromEventLog(t *testing.T) {
+	s, _ := seedCompletionGateCase(t, "staleness-rebuild", completionGateCase{requiredEvidence: []string{"verification", "review"}})
+	fields := json.RawMessage(`{"staleness_rule_id":"staleness:warning","observed_drift":{"severity":"warning","drifted":true}}`)
+	if err := AppendWorkflowStalenessObservation(context.Background(), s, "staleness-rebuild:observation", "staleness-rebuild", "actor:staleness", fields, time.Date(2026, 8, 9, 0, 0, 0, 0, time.UTC)); err != nil {
+		t.Fatal(err)
+	}
+	definition := cloneWorkflowDefinition(BuiltinWorkflowDefinitions()[0])
+	definition.StalenessRules = []WorkflowStalenessRule{{ID: "staleness:warning", InputRef: "input:drifted", Severity: "warning"}}
+	var before []string
+	if err := s.Transact(context.Background(), func(tx *Transaction) error {
+		var err error
+		before, err = workflowStalenessWarnings(context.Background(), tx.tx, "staleness-rebuild", definition, nil)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := RebuildFromLog(context.Background(), s); err != nil {
+		t.Fatal(err)
+	}
+	var after []string
+	if err := s.Transact(context.Background(), func(tx *Transaction) error {
+		var err error
+		after, err = workflowStalenessWarnings(context.Background(), tx.tx, "staleness-rebuild", definition, nil)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(after, before) || !reflect.DeepEqual(after, []string{"staleness:warning"}) {
+		t.Fatalf("staleness warnings before=%v after=%v", before, after)
+	}
+	var retired int
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM sqlite_schema WHERE type='table' AND name='workflow_staleness_warnings'`).Scan(&retired); err != nil {
+		t.Fatal(err)
+	}
+	if retired != 0 {
+		t.Fatal("retired staleness warning table remains")
+	}
+}
+
 func TestWorkflowContractRevisionEmitsBreakingNoticeForConsumedActiveDependent(t *testing.T) {
 	source, _ := seedCompletionGateCase(t, "revision-source", completionGateCase{requiredEvidence: []string{"verification", "review"}})
 	seedWork(t, source, "revision-dependent")

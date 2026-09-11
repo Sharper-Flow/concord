@@ -1030,7 +1030,11 @@ func executeStructuredWorkflowAction(t *testing.T, name string, initial map[stri
 		return workflowObservation{}, err
 	}
 	if action == "complete" {
-		if err := ObserveWorkflowCompletionInput(ctx, s, workID, request.Fields, corpusNow); err != nil {
+		fields, fieldsErr := json.Marshal(request.Fields)
+		if fieldsErr != nil {
+			return workflowObservation{}, fieldsErr
+		}
+		if err := AppendWorkflowStalenessObservation(ctx, s, request.Operation.OpID+":staleness", workID, actorRef, fields, corpusNow); err != nil {
 			return workflowObservation{}, err
 		}
 	}
@@ -2591,7 +2595,7 @@ func observeWorkflowStore(ctx context.Context, s *Store, workID string, beforeSe
 	if evidence, ok := observation.Result["replay_evidence"].(workflowReplayEvidence); ok {
 		observation.Authority["old_event"] = map[string]any{"upcasted": evidence.StoredPayloadVersion < evidence.ReplayPayloadVersion, "stored_version": evidence.StoredPayloadVersion, "replay_version": evidence.ReplayPayloadVersion, "projection_version": evidence.ProjectionVersion}
 	}
-	if warnings, warningErr := readWorkflowStalenessWarnings(ctx, s.DatabaseForTesting(), workID); warningErr == nil && len(warnings) != 0 {
+	if warnings, warningErr := workflowRecordedStalenessWarnings(ctx, s.DatabaseForTesting(), workID); warningErr == nil && len(warnings) != 0 {
 		if observation.Result == nil {
 			observation.Result = map[string]any{}
 		}

@@ -150,7 +150,7 @@ func TestNonOKVerdictCorrectionReturnsImplementationToExecution(t *testing.T) {
 	if correction == nil || correction.AttemptCount != 1 || correction.PredicateIDs[0] != "predicate:return-route" {
 		t.Fatalf("dispatch correction context = %+v, want the first verdict correction", correction)
 	}
-	if err := WorkflowActionPreflight(ctx, s, WorkflowActionPreflightRequest{WorkID: workID, ActionID: "request_correction", Payload: payload, Actor: owner}); err == nil {
+	if err := InspectWorkflowActionAdmission(ctx, s, WorkflowActionPreflightRequest{WorkID: workID, ActionID: "request_correction", Payload: payload, Actor: owner}); err == nil {
 		t.Fatal("request_correction remained available before a fresh verdict")
 	}
 }
@@ -197,11 +197,16 @@ func TestVerdictCorrectionRequiresAcceptedWorkerDelivery(t *testing.T) {
 	if err := runVerdictActionAs(t, s, workID, "record_verdict", json.RawMessage(`{"contract_version":1,"predicate_id":"predicate:return-route","verdict_kind":"outcome_mismatch","incomparable_with_approved":true}`), 0, reviewer); err != nil {
 		t.Fatalf("record non-ok verdict: %v", err)
 	}
-	err = WorkflowActionPreflight(context.Background(), s, WorkflowActionPreflightRequest{
+	err = InspectWorkflowActionAdmission(context.Background(), s, WorkflowActionPreflightRequest{
 		WorkID: workID, ActionID: "request_correction", Payload: json.RawMessage(`{"diagnosis":"missing accepted delivery","strategy":"accept a completed worker result first","predicate_ids":["predicate:return-route"],"evidence_refs":["evidence:return-route-verification"]}`), Actor: fixture.owner,
 	})
-	if err == nil || !strings.Contains(err.Error(), "correction request is unavailable") {
-		t.Fatalf("correction without accepted delivery error=%v, want refusal", err)
+	// Admission gates request_correction on the correction-request recovery
+	// guard, and that guard needs an accepted worker delivery. Without one the
+	// action reaches no step that declares it, so the step graph states the
+	// refusal.
+	var failure *Failure
+	if err == nil || !failureAs(err, &failure) || failure.Kind != KindIllegalLifecycleTransition {
+		t.Fatalf("correction without accepted delivery error=%v, want an illegal transition refusal", err)
 	}
 }
 
@@ -212,7 +217,13 @@ func TestVerdictCorrectionRefusesIncompleteAuthority(t *testing.T) {
 		kind       FailureKind
 		detailPart string
 	}{
-		{name: "missing fields", payload: `{}`, kind: KindInvalidPayload, detailPart: "requires diagnosis"},
+		// The required-field scan reports one absent field, and it walks a map,
+		// so an empty payload names an arbitrary one. Assert the part that does
+		// not depend on that order, then pin each field with a payload that
+		// omits exactly it.
+		{name: "missing fields", payload: `{}`, kind: KindInvalidPayload, detailPart: `is required for action "request_correction"`},
+		{name: "diagnosis absent", payload: `{"strategy":"strategy","predicate_ids":["predicate:return-route"],"evidence_refs":["evidence:return-route-verification"]}`, kind: KindInvalidPayload, detailPart: `field "diagnosis" is required`},
+		{name: "strategy absent", payload: `{"diagnosis":"diagnosis","predicate_ids":["predicate:return-route"],"evidence_refs":["evidence:return-route-verification"]}`, kind: KindInvalidPayload, detailPart: `field "strategy" is required`},
 		{name: "predicate outside active contract", payload: `{"diagnosis":"diagnosis","strategy":"strategy","predicate_ids":["predicate:outside"],"evidence_refs":["evidence:return-route-verification"]}`, kind: KindInvalidPayload, detailPart: "without a current non-ok verdict"},
 		{name: "evidence is not bound", payload: `{"diagnosis":"diagnosis","strategy":"strategy","predicate_ids":["predicate:return-route"],"evidence_refs":["evidence:not-bound"]}`, kind: KindMissingEvidence, detailPart: "not durably bound"},
 	}
@@ -220,7 +231,7 @@ func TestVerdictCorrectionRefusesIncompleteAuthority(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			workID := "return-route-refusal-" + strings.ReplaceAll(testCase.name, " ", "-")
 			fixture, _ := prepareVerdictCorrectionFixture(t, workID, "workflow.implementation")
-			err := WorkflowActionPreflight(context.Background(), fixture.store, WorkflowActionPreflightRequest{
+			err := InspectWorkflowActionAdmission(context.Background(), fixture.store, WorkflowActionPreflightRequest{
 				WorkID: workID, ActionID: "request_correction", Payload: json.RawMessage(testCase.payload), Actor: fixture.owner,
 			})
 			var failure *Failure
@@ -471,7 +482,7 @@ func testWorkflowReturnRoute(t *testing.T, workID, definitionRef, verdictStep st
 		t.Fatal(err)
 	}
 	version := verdictItemVersion(t, fixture.store, workID)
-	if err := WorkflowActionPreflight(ctx, fixture.store, WorkflowActionPreflightRequest{
+	if err := InspectWorkflowActionAdmission(ctx, fixture.store, WorkflowActionPreflightRequest{
 		WorkID: workID, ExpectedVersion: version, StepID: "refine", ActionID: "dispatch_worker", Payload: payload,
 		Actor: fixture.owner, SessionWorktree: dispatchSessionWorktree(t, fixture.store, workID),
 	}); err != nil {

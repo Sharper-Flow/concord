@@ -130,7 +130,7 @@ DELETE FROM fold_guard`); err != nil {
 	if err != nil || pin.WorkID != "work-1" {
 		t.Fatalf("recovery changed execution identity: pin=%+v err=%v", pin, err)
 	}
-	if err := store.WorkflowActionPreflight(ctx, s, store.WorkflowActionPreflightRequest{WorkID: "work-1", ExpectedVersion: version + 2, ActionID: "start_execution", Payload: json.RawMessage(`{}`), Actor: store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}}); err != nil {
+	if err := store.InspectWorkflowActionAdmission(ctx, s, store.WorkflowActionPreflightRequest{WorkID: "work-1", ExpectedVersion: version + 2, ActionID: "start_execution", Payload: json.RawMessage(`{}`), Actor: store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}}); err != nil {
 		t.Fatalf("recovered work did not reach execution admission: %v", err)
 	}
 	var payload string

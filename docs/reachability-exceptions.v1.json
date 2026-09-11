@@ -15,21 +15,13 @@
       "id": "workflow-action-surface-reserved",
       "state": "out_of_scope",
       "functions": [
-        "internal/store.AbortStep",
-        "internal/store.AuthorizeWorkflowAction",
-        "internal/store.AuthorizeWorkflowActionAtBoundary",
         "internal/store.CancelWorkflowCondition",
-        "internal/store.CheckWorkflowDomainOverlap",
-        "internal/store.CheckWorkflowDomainOverlapTransactionTx",
         "internal/store.ClaimStep",
-        "internal/store.CompareCheckResults",
         "internal/store.CompareOutcomeStrength",
         "internal/store.CompareWorkflowPredicates",
         "internal/store.CompleteWorkflow",
         "internal/store.CompleteWorkflowTx",
         "internal/store.CompleteWorkflowWithRegistry",
-        "internal/store.DecodeOutcomePredicate",
-        "internal/store.DecodeWorkflowOutcome",
         "internal/store.DeriveWorkflowReady",
         "internal/store.DeriveWorkflowReadyWithReader",
         "internal/store.EvaluateWorkflowOutcome",
@@ -39,31 +31,23 @@
         "internal/store.ReadWorkflowProjection",
         "internal/store.ReplaceWorkflowCheckTx",
         "internal/store.ReplaceWorkflowOutcome",
-        "internal/store.ResolveCondition",
         "internal/store.ResolveWorkflowCondition",
         "internal/store.ResolveWorkflowConditionsAtBoundary",
         "internal/store.ResumeWorkflow",
-        "internal/store.WorkflowActionAvailable",
-        "internal/store.WorkflowActionPreflight",
         "internal/store.WorkflowProjectionHash",
         "internal/store.claimStepObserved",
         "internal/store.compareSubjectSets",
         "internal/store.compareTokenSets",
         "internal/store.evaluateWorkflowOutcomePredicateCore",
         "internal/store.predicateStringSet",
-        "internal/store.productRowStepRequiresApproval",
         "internal/store.projectionColumns",
         "internal/store.quoteSQLiteIdentifier",
         "internal/store.setContains",
         "internal/store.workflowOutcomeDefinition",
-        "internal/store.workflowResumePreflight",
-        "internal/store.workflowResumePreflightWithRegistry",
-        "internal/store.workflowStartPreflight",
-        "internal/store.workflowStartPreflightWithRegistry",
         "internal/store.workflowRecordedStalenessWarnings",
         "internal/store.writeHashValue"
       ],
-      "reason": "CD-0013 D11 keeps the public workflow-action surface reserved until the engine registers and ships, so no CLI verb reaches the engine by design. The engine itself is not unproven: the 56-scenario corpus in scenarios/workflow-engine.v1.json executes it against authoritative state. Exposing it is the act that makes these reachable."
+      "reason": "The shipped command entrypoints do not reach these retained workflow support, projection, outcome-evaluation, completion, and contract-revision mechanisms. Focused tests cover their behavior, and their separate removal needs explicit adjudication of the whole mechanisms."
     },
     {
       "id": "point-in-time-reconstruction-no-operator-verb",
@@ -108,6 +92,16 @@
         "internal/store.BuiltinWorkflowDefinitionsWithHistory"
       ],
       "reason": "BuiltinWorkflowDefinitionsWithHistory is the data source for scripts/workflow-action-contracts, the projector the contract generator runs under `go run` (scripts/generate-agent-contracts.py). The analysis roots ./cmd/... only, so it cannot see a build-time consumption edge that never enters the shipped binary. The edge is not unproven: CI runs generate-agent-contracts.py --check, which fails the build when this function stops projecting the historical payloads. The unexported core builtinWorkflowDefinitionsWithHistory stays runtime-reachable through NewBuiltinWorkflowRegistry, so only the generator-facing export is declared here."
+    },
+    {
+      "id": "workflow-admission-inspection-seam",
+      "state": "out_of_scope",
+      "functions": [
+        "internal/store.InspectWorkflowActionAdmission",
+        "internal/store.InspectWorkflowDomainOverlap",
+        "internal/store.inspectWorkflowActionAdmissionTx"
+      ],
+      "reason": "Production reaches workflow admission and Domain overlap through the dispatcher, which already holds the write transaction and calls workflowActionPreflightTx and CheckWorkflowDomainOverlapTx directly. Those two need a transaction the caller owns, so a test in another package cannot reach them, and internal/store/boundary_test.go forbids that caller from opening one through the raw database. The two exported functions open one transaction and defer to the same implementation, so admission keeps a single set of rules instead of the untransacted second copy this change removed. inspectWorkflowActionAdmissionTx carries the admission call for them, because TestTxScope requires a Transact closure to be one delegating return."
     }
   ]
 }

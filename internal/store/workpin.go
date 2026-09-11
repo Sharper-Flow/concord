@@ -250,7 +250,7 @@ func ReadWorkPinTx(ctx context.Context, tx *sql.Tx, workID string) (WorkPin, err
 			pin.NextValidIntents = append(pin.NextValidIntents, workPinIntentForAction(workflowCorrectionActionDefinition(), pin.Version, "worker_result_rejection"))
 		}
 	}
-	// A closed instance admits no workflow action: WorkflowActionPreflight
+	// A closed instance admits no workflow action: the action preflight
 	// refuses every one against it. The pin states what the caller may do, so
 	// a terminal instance offers nothing. This clears the whole set after it
 	// is assembled, because each recovery branch above appends an action the

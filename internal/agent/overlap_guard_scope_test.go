@@ -22,7 +22,7 @@ import (
 func dispatchUnderOverlap(t *testing.T, tool, operation string, input map[string]any) string {
 	t.Helper()
 	s, service, _, _, env, _ := seedAgentOverlapFixtureWith(t, []Capability{"work_relate", "work_define"})
-	if err := store.CheckWorkflowDomainOverlap(context.Background(), s, "work-1"); err == nil {
+	if err := store.InspectWorkflowDomainOverlap(context.Background(), s, "work-1"); err == nil {
 		t.Fatal("precondition: the fixture reports no unresolved overlap on work-1")
 	}
 	raw, _ := json.Marshal(input)

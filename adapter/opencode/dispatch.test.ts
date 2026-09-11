@@ -625,26 +625,86 @@ test("a valid completed report carries its reported evidence into worker-complet
   expect(payloads[1].report_schema_version).toBe("1.0")
 })
 
-test("a schema-valid but undeclared research obligation records invalid_report instead of completion", async () => {
-  const evidence = [...reportEvidence(), { obligation: "commands", detail: "Read the cited source." }]
-  const { result, verbs, payloads } = await terminalEvidence(report({ evidence }))
-  expect(verbs).toEqual(["worker-dispatch", "worker-fail"])
-  expect(payloads[1].failure_kind).toBe("invalid_report")
-  expect(payloads[1].detail).toContain("commands")
-  expect(payloads[1].detail).toContain("research")
-  expect(result.error?.kind).toBe("invalid_report")
-  expect(result.error?.retry_safe).toBe(false)
-  expect(result.output).toContain("Read the cited source.")
-})
+// CD-0056 D4 binds each lane to its own evidence obligations, while
+// agent-lane-report.v1 types `obligation` as one flat union across every lane
+// and the report carries no lane field. A report naming another lane's
+// obligation is therefore schema-valid and still inadmissible, so the check is
+// per lane and every registered lane carries its own proof.
+type LaneEvidence = { obligation: string; detail: string }
 
-test("a completed report missing a declared obligation records invalid_report", async () => {
-  const evidence = reportEvidence().filter((entry) => entry.obligation !== "uncertainties")
-  const { result, verbs, payloads } = await terminalEvidence(report({ evidence }))
-  expect(verbs).toEqual(["worker-dispatch", "worker-fail"])
-  expect(payloads[1].failure_kind).toBe("invalid_report")
-  expect(payloads[1].detail).toContain("uncertainties")
-  expect(result.error?.kind).toBe("invalid_report")
-})
+const laneOf = (id: string) => agentLanes.find((entry) => entry.id === id)!
+
+const lanePacketFor = (laneID: string): AgentLanePacket => {
+  const target = laneOf(laneID)
+  return { ...packet(), lane_id: target.id, lane_version: target.version, lane_digest: target.digest }
+}
+
+const dischargingEvidence = (laneID: string): LaneEvidence[] =>
+  laneOf(laneID).evidence_obligations.map((obligation) => ({ obligation, detail: `the ${laneID} lane discharges ${obligation}` }))
+
+// The intruding obligation is the first one, in registry order, that another
+// lane declares and this lane does not. Registry order makes the choice
+// deterministic without pinning a literal the lane manifest owns.
+const foreignObligation = (laneID: string): { lane: string; obligation: string } => {
+  const declared = new Set<string>(laneOf(laneID).evidence_obligations)
+  for (const other of agentLanes) {
+    if (other.id === laneID) continue
+    const obligation = other.evidence_obligations.find((candidate) => !declared.has(candidate))
+    if (obligation) return { lane: other.id, obligation }
+  }
+  throw new Error(`no lane declares an obligation the ${laneID} lane omits`)
+}
+
+async function laneTerminalEvidence(laneID: string, evidence: LaneEvidence[]) {
+  const target = laneOf(laneID)
+  const calls: { argv: string[]; input: string }[] = []
+  const body = workerBody({ schema_version: "1.0", readback_model: READBACK_MODEL, status: "completed", evidence })
+  const result = await completeWorkerAttempt(target, lanePacketFor(laneID), body, {
+    credentials: testCredentials,
+    readbackRunner: readbackRunner(READBACK_MODEL, `concord-${target.id}`),
+    packetDigest: PACKET_DIGEST,
+    concordBinary: "concord-test",
+    evidenceRunner: { async run(argv, input) { calls.push({ argv, input }); return { exitCode: 0, stdout: "", stderr: "" } } },
+  }, SIGNAL)
+  return { result, verbs: calls.map((call) => call.argv[1]), payloads: calls.map((call) => JSON.parse(call.input)) }
+}
+
+for (const registered of agentLanes) {
+  const laneID = registered.id
+  const intruder = foreignObligation(laneID)
+
+  test(`the ${laneID} lane refuses a report naming the ${intruder.lane} lane's ${intruder.obligation} obligation`, async () => {
+    const detail = `an obligation the ${laneID} lane does not declare`
+    const evidence = [...dischargingEvidence(laneID), { obligation: intruder.obligation, detail }]
+    const { result, verbs, payloads } = await laneTerminalEvidence(laneID, evidence)
+    expect(verbs).toEqual(["worker-dispatch", "worker-fail"])
+    expect(payloads[1].failure_kind).toBe("invalid_report")
+    expect(payloads[1].detail).toContain(intruder.obligation)
+    expect(payloads[1].detail).toContain(laneID)
+    expect(result.error?.kind).toBe("invalid_report")
+    expect(result.error?.retry_safe).toBe(false)
+    expect(result.output).toContain(detail)
+  })
+
+  test(`the ${laneID} lane refuses a report that leaves one of its obligations undischarged`, async () => {
+    const dropped = registered.evidence_obligations[registered.evidence_obligations.length - 1]
+    const evidence = dischargingEvidence(laneID).filter((entry) => entry.obligation !== dropped)
+    const { result, verbs, payloads } = await laneTerminalEvidence(laneID, evidence)
+    expect(verbs).toEqual(["worker-dispatch", "worker-fail"])
+    expect(payloads[1].failure_kind).toBe("invalid_report")
+    expect(payloads[1].detail).toContain(dropped)
+    expect(payloads[1].detail).toContain(laneID)
+    expect(result.error?.kind).toBe("invalid_report")
+  })
+
+  test(`the ${laneID} lane admits a report that discharges exactly its declared obligations`, async () => {
+    const evidence = dischargingEvidence(laneID)
+    const { result, verbs, payloads } = await laneTerminalEvidence(laneID, evidence)
+    expect(result.outcome).toBe("ok")
+    expect(verbs).toEqual(["worker-dispatch", "worker-complete"])
+    expect(payloads[1].evidence).toEqual(evidence)
+  })
+}
 
 test("multiple distinct findings may discharge one declared obligation", async () => {
   const evidence = [...reportEvidence(), { obligation: "bounded_findings", detail: "A second bounded finding." }]

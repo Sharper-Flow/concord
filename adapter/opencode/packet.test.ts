@@ -394,7 +394,7 @@ test("the task bound rejects only the next character", async () => {
 test("the combined mandate and report guidance bound admits exactly 64 entries", async () => {
   const contract = pinnedContract("")
   const partLimit = 512 - "Approved end-state mandate (join parts in order) 64/64: ".length
-  const reportCount = agentLanes.find((lane) => lane.id === "implement")!.evidence_obligations.length + agentLaneReportConstraints.length
+  const reportCount = agentLanes.find((lane) => lane.id === "implement")!.evidence_obligations.length + agentLaneReportConstraints.implement.length
   const payloadLength = (64 - reportCount) * partLimit - JSON.stringify(contract.outcome_predicates).length
   contract.outcome_predicates[0].outcome_payload = "p".repeat(payloadLength)
   const exact = await build({ ...defaultScript(), "concord_work_trace.continuity": continuityEnvelope(contract) })

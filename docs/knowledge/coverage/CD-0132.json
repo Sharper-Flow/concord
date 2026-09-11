@@ -1,0 +1,5 @@
+{
+  "id": "CD-0132",
+  "reason": "The decision is proved by the envelope contract tests over both validators and the adapter boundary regression for worktree_audit_reclaim. The runtime route and its refusals are the law's reachability evidence, so no separate coverage surface applies.",
+  "state": "out_of_scope"
+}

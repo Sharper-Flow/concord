@@ -326,10 +326,10 @@ function selectedProductID() {
 
 type AmbientContext = { projectID: string; productIDs: string[]; scopeVersion: string; mainWorktree: boolean }
 
-async function resolveAmbientContext(context: ToolContext): Promise<AmbientContext> {
+async function resolveAmbientContext(context: ToolContext, sessionDirectory: string): Promise<AmbientContext> {
   let result
   try {
-    result = await runner.run([concordBinaryPath(), "project-resolve"], JSON.stringify({ directory: context.directory, worktree: context.worktree }), context.abort)
+    result = await runner.run([concordBinaryPath(), "project-resolve"], JSON.stringify({ directory: sessionDirectory, worktree: sessionDirectory }), context.abort)
   } catch (error) {
     throw runnerFailure(error, context.abort.aborted)
   }
@@ -340,6 +340,14 @@ async function resolveAmbientContext(context: ToolContext): Promise<AmbientConte
     throw new AdapterFailure("malformed_response", "malformed_core_response", "project-resolve response failed the context contract")
   }
   return { projectID: response.project_id, productIDs: response.product_ids, scopeVersion: response.scope_version, mainWorktree: response.main_worktree }
+}
+
+async function resolveSessionDirectory(context: ToolContext): Promise<string> {
+  try {
+    return await hostControlPlane().sessionDirectory(context.sessionID, context.abort)
+  } catch (error) {
+    throw new AdapterFailure("transport_failure", "session_directory_unreadable", error instanceof Error ? error.message : String(error), "none", "retry_same_request")
+  }
 }
 
 // invokeConcordOperation is the single `concord project-resolve` + `concord invoke`
@@ -360,9 +368,11 @@ async function invokeConcordOperationRaw(toolName: string, args: HostToolArgs, c
     }
   }
   let ambient: AmbientContext
-  try { ambient = await resolveAmbientContext(context) } catch (error) { return failureEnvelope(toolName, operation, requestID, error, "context_resolution_failed") }
+  let sessionDirectory: string
+  try { sessionDirectory = await resolveSessionDirectory(context) } catch (error) { return failureEnvelope(toolName, operation, requestID, error, "context_resolution_failed") }
+  try { ambient = await resolveAmbientContext(context, sessionDirectory) } catch (error) { return failureEnvelope(toolName, operation, requestID, error, "context_resolution_failed") }
   const selectedProduct = selectedProductID() || (ambient.productIDs.length === 1 ? ambient.productIDs[0] : "")
-  const envelope: any = { schema_version: "1.0", request_id: requestID, client_ref: clientRef(), principal_ref: "", session_ref: context.sessionID, agent_ref: context.agent, directory: context.directory, worktree: context.worktree, ambient_project_id: ambient.projectID, selected_product_id: selectedProduct, scope_version: ambient.scopeVersion, manifest_digest: activeManifestDigest() }
+  const envelope: any = { schema_version: "1.0", request_id: requestID, client_ref: clientRef(), principal_ref: "", session_ref: context.sessionID, agent_ref: context.agent, directory: sessionDirectory, worktree: sessionDirectory, ambient_project_id: ambient.projectID, selected_product_id: selectedProduct, scope_version: ambient.scopeVersion, manifest_digest: activeManifestDigest() }
   const run = async (input: any) => runner.run([concordBinaryPath(), "invoke"], JSON.stringify({ call_envelope: envelope, tool: toolName, operation, input }), context.abort)
   let result: any
   try { result = await run(args.input) } catch (error) { return failureEnvelope(toolName, operation, requestID, runnerFailure(error, context.abort.aborted), "spawn_failure") }
@@ -455,7 +465,7 @@ async function invokeConcordOperationRaw(toolName: string, args: HostToolArgs, c
     // Built-in question supplies semantic choice; ToolContext.ask authorizes
     // only this exact core-issued challenge.
     try { await context.ask({ permission: `concord:${toolName}.${operation}`, patterns: [], always: [], metadata: askMetadata }) } catch { return adapterError(toolName, operation, requestID, "cancelled", "cancelled_no_effect", "host approval was rejected") }
-    envelope.host_approval_assertion = { challenge_ref: details.approval_ref, request_digest: details.operation_digest, scope: details.scope, versions: details.versions, session_ref: envelope.session_ref, agent_ref: envelope.agent_ref, worktree: context.worktree, issued_at: new Date().toISOString() }
+    envelope.host_approval_assertion = { challenge_ref: details.approval_ref, request_digest: details.operation_digest, scope: details.scope, versions: details.versions, session_ref: envelope.session_ref, agent_ref: envelope.agent_ref, worktree: sessionDirectory, issued_at: new Date().toISOString() }
     const approvedInput = args.input && typeof args.input === "object" && !Array.isArray(args.input) ? { ...args.input, approval: { approval_ref: details.approval_ref } } : null
     if (!approvedInput) return adapterError(toolName, operation, requestID, "malformed_response", "malformed_core_response", "approval resubmission requires object input")
     try { result = await run(approvedInput) } catch (error) { return failureEnvelope(toolName, operation, requestID, runnerFailure(error, context.abort.aborted), "unknown_effect", "possible", "possible", "reconcile_operation") }
@@ -769,7 +779,7 @@ async function executeWorkStart(args: WorkStartArgs, context: ToolContext): Prom
     const failures: string[] = []
     if (!validateWorkStartArgs(args, failures)) throw new AdapterFailure("invalid_input", "invalid_work_start_input", `work_start arguments failed the host-tool contract: ${failures.join("; ")}. ${workStartUsage} Submit a corrected request; resubmitting unchanged arguments will fail again.`, "none", "correct_request")
     if (context.abort.aborted) throw new AdapterFailure("cancelled", "cancelled_no_effect", `work_start was cancelled before ${resume ? "the resume read" : "bootstrap"}`)
-    const ambient = await resolveAmbientContext(context)
+    const ambient = await resolveAmbientContext(context, context.directory)
     const productID = deriveWorkStartProduct(ambient)
     // CD-0098 D2 makes the move the only route into the claimed worktree, so
     // a session that cannot reach its host cannot start work at all. Asking

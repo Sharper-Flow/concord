@@ -7,6 +7,7 @@ import * as adapter from "./concord"
 import { contractOperations, manifestDigest } from "./generated-contracts"
 import { activeManifestDigest, adoptManifestDigest, resetManifestPinForTesting, resolveDiskManifestDigest, setManifestSourceForTesting } from "./manifest-pin"
 import { configureCoreBinary } from "./dispatch"
+import { hostControlPlane } from "./move-session"
 
 // Fake-runner suite: bind the transport to a nominal core path instead of the
 // unstamped repository placeholder (CD-0111 D1). Each file sets this itself,
@@ -22,7 +23,13 @@ const coreEnvelope = (tool: string, operation: string, outcome: string, fields: 
 })
 const foreignDigest = "sha256:" + "0".repeat(63) + "1"
 
-beforeEach(() => { resetManifestPinForTesting() })
+beforeEach(() => {
+  resetManifestPinForTesting()
+  hostControlPlane().bind({
+    get: async () => ({ data: { id: "session-1", directory: "/worktree" }, response: new Response(null, { status: 200 }) }),
+    post: async () => ({ response: new Response(null, { status: 204 }) }),
+  })
+})
 afterEach(() => { adapter.configureConcordAdapter({ reset: true }); resetManifestPinForTesting(); setManifestSourceForTesting(null) })
 
 describe("the manifest pin", () => {

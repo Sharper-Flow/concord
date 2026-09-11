@@ -7,7 +7,7 @@ import { contractOperations, hostToolSchemas, manifestDigest } from "./generated
 import { configureCoreBinary } from "./dispatch"
 import { claimHostLease, configureHostLease } from "./host-lease"
 import { validateGeneratedEnvelope, envelopeFailurePath } from "./generated-contract-tests"
-import { hostControlPlane, SESSION_LIST_ROUTE, SHOW_TOAST_ROUTE } from "./move-session"
+import { hostControlPlane, SESSION_LIST_ROUTE, SESSION_ROUTE, SHOW_TOAST_ROUTE } from "./move-session"
 
 function schemaBuilder(kind: string, ...args: unknown[]) {
   return {
@@ -45,7 +45,13 @@ const adapter = await import("./concord")
 // ZELLIJ_PANE_ID (issue #917). The suite stays hermetic against the operator's
 // own zellij session: no test sees a pane id unless it sets one.
 const outerPaneID = process.env.ZELLIJ_PANE_ID
-beforeEach(() => { delete process.env.ZELLIJ_PANE_ID })
+beforeEach(() => {
+  hostControlPlane().bind({
+    get: async () => ({ data: { id: "session-1", directory: "/worktree" }, response: new Response(null, { status: 200 }) }),
+    post: async () => ({ response: new Response(null, { status: 204 }) }),
+  })
+  delete process.env.ZELLIJ_PANE_ID
+})
 afterEach(() => {
   if (outerPaneID === undefined) delete process.env.ZELLIJ_PANE_ID
   else process.env.ZELLIJ_PANE_ID = outerPaneID
@@ -232,6 +238,38 @@ test("project context is resolved before invoke", async () => {
   expect(requests[0]).toEqual({ directory: "/worktree", worktree: "/worktree" })
   expect(requests[1].call_envelope.ambient_project_id).toBe("project-1")
   expect(requests[1].call_envelope.selected_product_id).toBe("product-launcher-51")
+})
+
+test("project resolution and envelopes use the live session directory", async () => {
+  const requests: any[] = []
+  hostControlPlane().bind({
+    get: async () => ({ data: { id: "session-1", directory: "/moved" }, response: new Response(null, { status: 200 }) }),
+    post: async () => ({ response: new Response(null, { status: 204 }) }),
+  })
+  adapter.configureConcordAdapter({ runner: {
+    async run(_argv: string[], input: string) {
+      requests.push(JSON.parse(input))
+      if (requests.length === 1) return { exitCode: 0, stdout: JSON.stringify(contextResponse()), stderr: "" }
+      return { exitCode: 0, stdout: JSON.stringify(coreEnvelope("concord_product_view", "resolve", "ok", { result: { product_id: "product-1", projects: [], stage: "prototype" } })), stderr: "" }
+    },
+  } })
+  const result: any = await rawHostResult(adapter.product_view.execute(hostCall("resolve", {}), contextFor(() => {}, undefined, "/stale", "/stale")))
+  expect(result.outcome).toBe("ok")
+  expect(requests[0]).toEqual({ directory: "/moved", worktree: "/moved" })
+  expect(requests[1].call_envelope.directory).toBe("/moved")
+  expect(requests[1].call_envelope.worktree).toBe("/moved")
+  expect(JSON.stringify(requests[1])).not.toContain("/stale")
+})
+
+test("an unreadable session directory refuses before core transport", async () => {
+  hostControlPlane().bind(undefined)
+  let calls = 0
+  adapter.configureConcordAdapter({ runner: { async run() { calls++; throw new Error("core transport must not run") } } })
+  const result: any = await rawHostResult(adapter.product_view.execute(hostCall("resolve", {}), contextFor()))
+  expect(result.outcome).toBe("error")
+  expect(result.error.kind).toBe("transport_failure")
+  expect(result.error.adapter_reason).toBe("session_directory_unreadable")
+  expect(calls).toBe(0)
 })
 
 test("single core response rejects invalid trailing content", async () => {
@@ -1524,6 +1562,7 @@ const bindSessionRoutes = (options: { sessions?: unknown; listStatus?: number; u
       return { response: new Response(null, { status: 404 }) }
     },
     get: async ({ url }) => {
+      if (url === SESSION_ROUTE) return { data: { id: "session-1", directory: "/worktree" }, response: new Response(null, { status: 200 }) }
       if (url !== SESSION_LIST_ROUTE) return { response: new Response(null, { status: 404 }) }
       const status = options.listStatus ?? 200
       if (status !== 200) return { response: new Response("host is unwell", { status }) }

@@ -1,0 +1,47 @@
+{
+  "date": "2026-09-10T00:00:00Z",
+  "evidence": [
+    "internal/store/workflow_action_guards.go",
+    "internal/store/workflow_dispatch.go",
+    "internal/store/workflow_preflight.go",
+    "internal/store/workflow.go",
+    "internal/store/workpin.go",
+    "internal/store/workflow_issue1013_test.go"
+  ],
+  "home_domain_id": "workflow-engine",
+  "id": "CD-0133",
+  "kind": "decision",
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "CD-0059"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0115"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0130"
+    }
+  ],
+  "path": "docs/decisions/CD-0133-contract-correction-at-a-worker-dispatch-step.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:7032e6f27cac37b1893ab731dd0edd46958bf76fc24d1d0d2cab1dab5142fec8",
+  "status": "accepted",
+  "summary": "Admits operator-approved contract correction at a failed worker-dispatch step without changing the pinned definition digest and keeps post-dispatch remediation actionable.",
+  "tags": [
+    "workflow",
+    "worker",
+    "contract",
+    "recovery",
+    "definition"
+  ],
+  "title": "Contract correction at a worker-dispatch step"
+}

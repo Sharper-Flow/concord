@@ -1,0 +1,5 @@
+{
+  "id": "CD-0133",
+  "reason": "The action resolver, preflight, event fold, work-pin projection, and regression test provide the decision's reachability evidence.",
+  "state": "out_of_scope"
+}

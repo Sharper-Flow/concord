@@ -4342,6 +4342,14 @@ CREATE TRIGGER workflow_proposal_records_guard_update BEFORE UPDATE ON workflow_
 CREATE TRIGGER workflow_proposal_records_guard_delete BEFORE DELETE ON workflow_proposal_records FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_proposal_records is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
 `,
 	},
+	{
+		Version:  79,
+		Name:     "retire_workflow_staleness_warnings",
+		Breaking: true,
+		SQL: `
+DROP TABLE workflow_staleness_warnings;
+`,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any

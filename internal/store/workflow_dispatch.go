@@ -970,18 +970,6 @@ func workflowCompletionEvent(ctx context.Context, tx *sql.Tx, request WorkflowAc
 			if evidenceCommit := workflowFieldStringDefault(payloadFields, "evidence_commit", ""); evidenceCommit != "" && evidenceCommit != workflowFieldStringDefault(payloadFields, "current_commit", evidenceCommit) {
 				return Event{}, newFailure(KindMissingEvidence, "complete_workflow", "immutable evidence commit does not match the current commit", false, "rebind_evidence")
 			}
-			severity := workflowFieldStringDefault(payloadFields, "staleness_severity", "")
-			drifted := workflowFieldBool(payloadFields, "staleness_drifted")
-			if nested, present := payloadFields["staleness"]; present {
-				var staleness map[string]json.RawMessage
-				if json.Unmarshal(nested, &staleness) == nil {
-					severity = workflowFieldStringDefault(staleness, "severity", severity)
-					drifted = workflowFieldBool(staleness, "drifted")
-				}
-			}
-			if drifted && severity == "block" {
-				return Event{}, newFailure(KindStaleRequiresReview, "complete_workflow", "blocking staleness drift requires review", false, "refresh_context")
-			}
 		}
 	}
 	verdictActor := actor
@@ -1035,20 +1023,6 @@ func workflowCompletionEvent(ctx context.Context, tx *sql.Tx, request WorkflowAc
 		premiseConfirmed = true
 	}
 	payload := map[string]any{"terminal_state": "completed", "final_verdict_kind": finalVerdictKind, "verdict_actor_ref": verdictActor, "premise_confirmed": premiseConfirmed, "evidence_count": boundEvidence, "changed_refs_digest": WorkflowChangedRefsDigest([]string{request.WorkID}), "impact_verdict": impactVerdict}
-	if payloadFields, ok := fields["payload"]; ok {
-		var nested map[string]json.RawMessage
-		if json.Unmarshal(payloadFields, &nested) == nil {
-			if severity := workflowFieldStringDefault(nested, "staleness_severity", ""); severity == "warning" && workflowFieldBool(nested, "staleness_drifted") {
-				payload["warnings"] = []string{"rule:workflow-staleness"}
-			}
-			if stalenessRaw := nested["staleness"]; len(stalenessRaw) != 0 {
-				var staleness map[string]json.RawMessage
-				if json.Unmarshal(stalenessRaw, &staleness) == nil && workflowFieldStringDefault(staleness, "severity", "") == "warning" && workflowFieldBool(staleness, "drifted") {
-					payload["warnings"] = []string{"rule:workflow-staleness"}
-				}
-			}
-		}
-	}
 	return workflowTypedEvent(request.OperationID+":completed", WorkflowCompleted, request.WorkID, actor, request.Now, request.ExpectedVersion, payload), nil
 }
 

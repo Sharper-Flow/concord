@@ -702,8 +702,18 @@ func verifyVerdictEvidence(ctx context.Context, tx *sql.Tx, workID string, refs 
 }
 
 func verifyBlockingStaleness(ctx context.Context, tx *sql.Tx, workID string, definition WorkflowDefinition, required []string) error {
+	observations, err := workflowStalenessObservationState(ctx, tx, workID)
+	if err != nil {
+		return err
+	}
 	for _, rule := range definition.StalenessRules {
 		if rule.Severity != "block" {
+			continue
+		}
+		if observation, observed := observations[rule.ID]; observed {
+			if observation.Drifted {
+				return newFailure(KindStaleRequiresReview, "complete_workflow", "blocking staleness rule has drifted", false, "refresh_context")
+			}
 			continue
 		}
 		var count int
@@ -718,9 +728,19 @@ func verifyBlockingStaleness(ctx context.Context, tx *sql.Tx, workID string, def
 }
 
 func workflowStalenessWarnings(ctx context.Context, tx *sql.Tx, workID string, definition WorkflowDefinition, required []string) ([]string, error) {
+	observations, err := workflowStalenessObservationState(ctx, tx, workID)
+	if err != nil {
+		return nil, err
+	}
 	var warnings []string
 	for _, rule := range definition.StalenessRules {
 		if rule.Severity != "warning" {
+			continue
+		}
+		if observation, observed := observations[rule.ID]; observed {
+			if observation.Drifted && observation.Severity == "warning" {
+				warnings = append(warnings, rule.ID)
+			}
 			continue
 		}
 		var count int
@@ -733,6 +753,47 @@ func workflowStalenessWarnings(ctx context.Context, tx *sql.Tx, workID string, d
 	}
 	sort.Strings(warnings)
 	return warnings, nil
+}
+
+func workflowRecordedStalenessWarnings(ctx context.Context, q queryer, workID string) ([]string, error) {
+	observations, err := workflowStalenessObservationState(ctx, q, workID)
+	if err != nil {
+		return nil, err
+	}
+	warnings := make([]string, 0, len(observations))
+	for ruleID, observation := range observations {
+		if observation.Drifted {
+			warnings = append(warnings, ruleID)
+		}
+	}
+	sort.Strings(warnings)
+	return warnings, nil
+}
+
+func workflowStalenessObservationState(ctx context.Context, q queryer, workID string) (map[string]workflowStalenessObservedPayload, error) {
+	rows, err := q.QueryContext(ctx, `SELECT payload FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? ORDER BY seq DESC`, workID, WorkflowStalenessObserved)
+	if err != nil {
+		return nil, wrapFailure(KindUnavailable, "workflow_staleness", "cannot read staleness observation events", true, "retry once the database is readable", err)
+	}
+	defer rows.Close()
+	observations := map[string]workflowStalenessObservedPayload{}
+	for rows.Next() {
+		var raw string
+		if err := rows.Scan(&raw); err != nil {
+			return nil, wrapFailure(KindUnavailable, "workflow_staleness", "cannot scan staleness observation event", true, "retry once the database is readable", err)
+		}
+		var observation workflowStalenessObservedPayload
+		if err := json.Unmarshal([]byte(raw), &observation); err != nil {
+			return nil, newFailure(KindInvariantViolation, "workflow_staleness", "staleness observation event is malformed", false, "rebuild projections from the event log")
+		}
+		if _, exists := observations[observation.RuleID]; !exists {
+			observations[observation.RuleID] = observation
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, wrapFailure(KindUnavailable, "workflow_staleness", "cannot scan staleness observation events", true, "retry once the database is readable", err)
+	}
+	return observations, nil
 }
 
 func completionNoticeEvents(ctx context.Context, tx *sql.Tx, workID string, contractVersion int64, impactVerdict string, completion Event) ([]Event, error) {

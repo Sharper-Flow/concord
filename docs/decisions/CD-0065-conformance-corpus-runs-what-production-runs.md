@@ -96,8 +96,8 @@ leaves two corpora to keep in sync.
 - Every Product-changing scenario declares `domain_home` and an architecture
   binding in setup; at least one declares unresolved overlap and is blocked.
 - `internal/store` suite passes against the corpus, including
-  `initializeWorkflowRawTx`, `CompleteWorkflow`, `ObserveWorkflowCompletionInput`,
-  and `RebuildFromLog` over real SQLite.
+  `initializeWorkflowRawTx`, `CompleteWorkflow`,
+  `AppendWorkflowStalenessObservation`, and `RebuildFromLog` over real SQLite.
 - `docs/workflow-engine-contract.md` describes the collapsed single-version
   definitions and no longer documents v1/v2/v3 pinned replay.
 - `python3 scripts/check-agent-contracts.py`,

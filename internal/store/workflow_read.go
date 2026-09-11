@@ -330,7 +330,7 @@ func ReadWorkflowProjection(ctx context.Context, s *Store, request WorkflowReadR
 			return out, newFailure(KindInvariantViolation, "workflow_read", "completion warnings are malformed", false, "rebuild projections from the event log")
 		}
 	}
-	persisted, warningErr := readWorkflowStalenessWarnings(ctx, s.db, request.WorkID)
+	persisted, warningErr := workflowRecordedStalenessWarnings(ctx, s.db, request.WorkID)
 	if warningErr != nil {
 		return out, warningErr
 	}

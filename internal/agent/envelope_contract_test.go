@@ -137,3 +137,45 @@ func TestGeneratedContractRejectsUndeclaredScopeMembers(t *testing.T) {
 		t.Fatal("generated TS7 contract accepted resolved_scope.product_ids, the exact #701 drift shape")
 	}
 }
+
+func TestGeneratedContractRejectsUndeclaredAllOfMembers(t *testing.T) {
+	base := NewBase("allof-unknown", "concord_work_transition", "lifecycle")
+	errorEnvelope := NewCoreError(base, TypedError{Kind: "invalid_input", RetrySafe: false, RecoveryAction: RecoveryAction{Kind: "reread_entities"}, EffectState: EffectNone})
+	raw, err := json.Marshal(map[string]any{
+		"schema_version":           errorEnvelope.SchemaVersion,
+		"manifest_digest":          errorEnvelope.ManifestDigest,
+		"request_id":               errorEnvelope.RequestID,
+		"origin":                   errorEnvelope.Origin,
+		"tool":                     errorEnvelope.Tool,
+		"operation":                errorEnvelope.Operation,
+		"outcome":                  errorEnvelope.Outcome,
+		"resolved_scope":           nil,
+		"authority":                errorEnvelope.Authority,
+		"freshness":                nil,
+		"source_version_watermark": []Watermark{},
+		"ordering_keys":            []string{},
+		"next_cursor":              nil,
+		"omissions":                []Notice{},
+		"warnings":                 []Notice{},
+		"evidence_refs":            []EvidenceRef{},
+		"replayed":                 false,
+		"error":                    errorEnvelope.Error,
+		"unknown_top_level":        true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ValidateGeneratedEnvelope(raw); err == nil {
+		t.Fatal("generated contract accepted an undeclared allOf member")
+	}
+}
+
+func TestErrorOutcomeContractAdmitsChangedRefs(t *testing.T) {
+	base := NewBase("error-changed-refs", "concord_work_transition", "worktree_audit_reclaim")
+	errorEnvelope := NewCoreError(base, TypedError{Kind: "budget_refused", RetrySafe: false, RecoveryAction: RecoveryAction{Kind: "adjust_budget"}, EffectState: EffectPossible, SupportedBudgetSeconds: 300})
+	refs := []ChangedRef{{EntityKind: "work_item", ID: "work-2", Version: "5"}}
+	errorEnvelope.ChangedRefs = &refs
+	if err := errorEnvelope.Validate(); err != nil {
+		t.Fatalf("error outcome with committed refs is invalid: %v", err)
+	}
+}

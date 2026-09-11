@@ -725,6 +725,21 @@ test("generated and adapter validators reject unknown top-level fields for every
   }
 })
 
+test("worktree audit reclaim preserves committed refs through the adapter boundary", async () => {
+  const response = coreEnvelope("concord_work_transition", "worktree_audit_reclaim", "error", {
+    changed_refs: [{ entity_kind: "work_item", id: "work-2", version: "5" }],
+    error: { kind: "budget_refused", retry_safe: false, recovery_action: { kind: "adjust_budget" }, effect_state: "possible", supported_budget_seconds: 300 },
+  })
+  expect(validateGeneratedEnvelope(response)).toBe(true)
+  adapter.configureConcordAdapter({ runner: runnerWithContext(response) })
+  const result: any = await rawHostResult(adapter.work_transition.execute(hostCall("worktree_audit_reclaim", {
+    product_id: "product-1", default_ref: "main", idempotency_key: "audit-reclaim-adapter-1",
+  }), contextFor()))
+  expect(validateGeneratedEnvelope(result)).toBe(true)
+  expect(result.outcome).toBe("error")
+  expect(result.changed_refs).toEqual([{ entity_kind: "work_item", id: "work-2", version: "5" }])
+})
+
 test("approval rejection and possible-effect conflict are valid adapter envelopes", async () => {
   const rejected: any = await runTransition(runnerWithContext({ exitCode: 0, stdout: JSON.stringify(approvalChallenge()), stderr: "" }), async () => { throw new Error("rejected") })
   assertAdapterEnvelope(rejected)

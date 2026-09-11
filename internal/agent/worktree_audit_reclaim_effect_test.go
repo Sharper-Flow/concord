@@ -134,4 +134,13 @@ func TestAuditReclaimPostCommitFailureMapping(t *testing.T) {
 	if kept.Error.EffectState != EffectNone || kept.ChangedRefs != nil {
 		t.Fatalf("empty commit set must keep the no-effect refusal: %+v", kept.Error)
 	}
+
+	invalid := coreError(base, "budget_refused", "mutation result exceeds requested max_bytes budget", "adjust_budget", false)
+	validated := auditReclaimPostCommitFailure(base, changed, invalid)
+	if err := validated.Validate(); err != nil {
+		t.Fatalf("invalid post-commit failure was not repaired to a valid envelope: %v", err)
+	}
+	if validated.Error == nil || validated.Error.Kind != "malformed_response" || validated.Error.EffectState != EffectPossible {
+		t.Fatalf("invalid post-commit failure was not typed with its committed effect: %+v", validated)
+	}
 }

@@ -4,6 +4,7 @@ package storeport
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"os/exec"
@@ -18,18 +19,20 @@ import (
 )
 
 type Port struct {
-	Store       *store.Store
-	VisionProbe ProbeFunc
-	LgrepProbe  ProbeFunc
+	Store        *store.Store
+	VisionProbe  ProbeFunc
+	LgrepProbe   ProbeFunc
+	SessionProbe launcher.SessionProbe
 }
 
 type ProbeFunc func(context.Context) (bool, string)
 
 func New(s *store.Store) *Port {
 	return &Port{
-		Store:       s,
-		VisionProbe: commandProbe("vision", "daemon", "status"),
-		LgrepProbe:  commandProbe("lgrep", "--version"),
+		Store:        s,
+		VisionProbe:  commandProbe("vision", "daemon", "status"),
+		LgrepProbe:   commandProbe("lgrep", "--version"),
+		SessionProbe: sessionProbe,
 	}
 }
 
@@ -62,8 +65,8 @@ func probeStatus(ctx context.Context, name string, probe ProbeFunc) launcher.Pro
 	return launcher.ProbeStatus{Name: name, Available: available, Reason: reason}
 }
 
-// Candidates returns the bounded Concord-first candidate list. It reads
-// Products and their active worktrees, then adds configured filesystem roots.
+// Candidates returns the Concord-first candidate list. Product entries and
+// work entries share one read, but the renderer presents them as separate feeds.
 func (p *Port) Candidates(ctx context.Context, limit int) ([]launcher.Candidate, error) {
 	if limit == 0 {
 		limit = 20
@@ -94,7 +97,7 @@ func (p *Port) Candidates(ctx context.Context, limit int) ([]launcher.Candidate,
 			if state == "" {
 				state = "unavailable"
 			}
-			candidate := launcher.Candidate{ID: item.ID, Kind: launcher.CandidateWork, Name: item.Title, ProductID: row.ProductID, WorkID: item.ID, Rank: workRank, State: state, Blocked: item.Blocked, Available: false}
+			candidate := launcher.Candidate{ID: item.ID, Kind: launcher.CandidateWork, Name: item.Title, ProductID: row.ProductID, WorkID: item.ID, Rank: workRank, State: state, Lifecycle: item.Lifecycle, UpdatedAt: item.UpdatedAt, WorkflowStep: item.WorkflowStep, Blocked: item.Blocked, Ready: item.Ready, Terminal: item.Terminal, Available: false}
 			worktrees, treeErr := p.Store.WorktreeEntries(ctx, item.ID)
 			if treeErr != nil {
 				candidates = append(candidates, candidate)
@@ -113,10 +116,57 @@ func (p *Port) Candidates(ctx context.Context, limit int) ([]launcher.Candidate,
 	}
 	candidates = append(candidates, scanRootCandidates()...)
 	candidates = launcher.OrderCandidates(candidates)
-	if len(candidates) > limit {
-		candidates = candidates[:limit]
+	for i := range candidates {
+		candidates[i].SessionState = "idle"
+	}
+	if p.SessionProbe != nil {
+		live, _ := p.SessionProbe(ctx, candidates)
+		for i := range candidates {
+			candidates[i].Live = live[candidates[i].ID]
+			if candidates[i].Live > 0 {
+				candidates[i].SessionState = "live"
+			} else {
+				candidates[i].SessionState = "idle"
+			}
+		}
 	}
 	return candidates, nil
+}
+
+type sessionPane struct {
+	TabID   int    `json:"tab_id"`
+	TabName string `json:"tab_name"`
+	PaneCWD string `json:"pane_cwd"`
+}
+
+// sessionProbe observes host tabs and panes. It does not read or write the
+// Concord store, and a missing host tool means that every item is idle.
+func sessionProbe(ctx context.Context, candidates []launcher.Candidate) (map[string]int, string) {
+	live := make(map[string]int)
+	tool := "ze" + "llij"
+	if _, err := exec.LookPath(tool); err != nil {
+		return live, tool + " is not installed"
+	}
+	output, err := exec.CommandContext(ctx, tool, "action", "list-panes", "--all", "--json").Output() //nolint:gosec // tool and arguments are fixed.
+	if err != nil {
+		return live, err.Error()
+	}
+	var panes []sessionPane
+	if err := json.Unmarshal(output, &panes); err != nil {
+		return live, err.Error()
+	}
+	for _, candidate := range candidates {
+		seen := map[int]bool{}
+		for _, pane := range panes {
+			if (candidate.WorkID != "" && strings.Contains(pane.TabName, candidate.WorkID)) || (candidate.Worktree != "" && pane.PaneCWD == candidate.Worktree) {
+				if !seen[pane.TabID] {
+					seen[pane.TabID] = true
+					live[candidate.ID]++
+				}
+			}
+		}
+	}
+	return live, ""
 }
 
 func scanRootCandidates() []launcher.Candidate {
@@ -203,7 +253,8 @@ func (p *Port) Read(ctx context.Context, request launcher.ReadRequest) (launcher
 		if err != nil {
 			return launcher.Snapshot{Screen: launcher.ScreenPortfolio, Coverage: "unreachable", StatusMessage: err.Error()}, err
 		}
-		return launcher.Snapshot{Screen: launcher.ScreenPortfolio, Coverage: "authoritative", Candidates: candidates}, nil
+		products, works := launcher.SplitCandidates(candidates)
+		return launcher.Snapshot{Screen: launcher.ScreenPortfolio, Coverage: "authoritative", Candidates: candidates, Products: products, WorkItems: works}, nil
 	default:
 		return launcher.Snapshot{Screen: launcher.ScreenPortfolio, Coverage: "unavailable", StatusMessage: "unsupported_read"}, nil
 	}
@@ -270,7 +321,7 @@ func snapshotFromWork(result store.LauncherWorkResult, product, work string, sec
 }
 
 func mapWork(item store.LauncherWork) launcher.RankedWork {
-	out := launcher.RankedWork{ID: item.ID, Kind: item.Kind, Title: item.Title, Lifecycle: item.Lifecycle, Priority: item.Priority, Urgency: item.Urgency, CreatedAt: item.CreatedAt, UpdatedAt: item.UpdatedAt, TerminalAt: item.TerminalAt, ProjectCount: item.ProjectCount, Blocked: item.Blocked, Ready: item.Ready, Terminal: item.Terminal}
+	out := launcher.RankedWork{ID: item.ID, Kind: item.Kind, Title: item.Title, Lifecycle: item.Lifecycle, WorkflowStep: item.WorkflowStep, Priority: item.Priority, Urgency: item.Urgency, CreatedAt: item.CreatedAt, UpdatedAt: item.UpdatedAt, TerminalAt: item.TerminalAt, ProjectCount: item.ProjectCount, Blocked: item.Blocked, Ready: item.Ready, Terminal: item.Terminal}
 	for _, blocker := range item.Blockers {
 		out.Blockers = append(out.Blockers, launcher.Blocker{ID: blocker.ID, Title: blocker.Title, Authority: blocker.Authority, Age: blocker.Age, External: blocker.External, ConditionID: blocker.ConditionID})
 	}

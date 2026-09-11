@@ -123,14 +123,14 @@ type Blocker struct {
 }
 
 type RankedWork struct {
-	ID, Kind, Title, Lifecycle string
-	Priority                   int64
-	Urgency                    string
-	CreatedAt, UpdatedAt       string
-	TerminalAt                 string
-	ProjectCount               int
-	Blocked, Ready, Terminal   bool
-	Blockers                   []Blocker
+	ID, Kind, Title, Lifecycle, WorkflowStep string
+	Priority                                 int64
+	Urgency                                  string
+	CreatedAt, UpdatedAt                     string
+	TerminalAt                               string
+	ProjectCount                             int
+	Blocked, Ready, Terminal                 bool
+	Blockers                                 []Blocker
 }
 
 // Readiness is the single derivation of the C14 drill-down readiness marker.
@@ -220,10 +220,40 @@ type WorkDetail struct {
 }
 
 type SessionHandoff struct {
-	ProductID   string
-	WorkID      string
-	Prompt      string
-	ProjectPath string
+	ProductID    string
+	WorkID       string
+	Prompt       string
+	ProjectPath  string
+	Worktree     string
+	WorkflowStep string
+	Posture      string
+}
+
+// OperatorPosture maps the authoritative workflow step to an operator mode.
+// Unknown steps use the neutral operator mode and never select a worker lane.
+func OperatorPosture(step string) string {
+	switch strings.ToLower(strings.TrimSpace(step)) {
+	case "proposal", "discovery", "design", "planning", "plan":
+		return "plan"
+	case "research", "investigate", "findings", "poc_optional":
+		return "research"
+	case "execution", "repair", "execute", "action":
+		return "implement"
+	case "acceptance", "verify", "review", "conclude":
+		return "review"
+	default:
+		return "operator"
+	}
+}
+
+func OperatorPrompt(workID, step, posture string) string {
+	if workID == "" {
+		return ""
+	}
+	if posture == "" {
+		posture = OperatorPosture(step)
+	}
+	return "Continue work " + workID + " with operator posture " + posture + "."
 }
 
 type CandidateKind string
@@ -237,20 +267,26 @@ const (
 // Candidate is one launcher entry. It contains display data only. The launcher
 // never treats a candidate as a second store authority.
 type Candidate struct {
-	ID        string        `json:"id"`
-	Kind      CandidateKind `json:"kind"`
-	Name      string        `json:"name"`
-	State     string        `json:"state,omitempty"`
-	Blocked   bool          `json:"blocked"`
-	Path      string        `json:"path,omitempty"`
-	ProductID string        `json:"product_id,omitempty"`
-	WorkID    string        `json:"work_id,omitempty"`
-	Worktree  string        `json:"worktree,omitempty"`
-	Pinned    bool          `json:"pinned"`
-	LastUsed  string        `json:"last_used,omitempty"`
-	Rank      int           `json:"rank"`
-	Live      int           `json:"live_sessions"`
-	Available bool          `json:"available"`
+	ID           string        `json:"id"`
+	Kind         CandidateKind `json:"kind"`
+	Name         string        `json:"name"`
+	State        string        `json:"state,omitempty"`
+	Lifecycle    string        `json:"lifecycle,omitempty"`
+	UpdatedAt    string        `json:"updated_at,omitempty"`
+	WorkflowStep string        `json:"workflow_step,omitempty"`
+	Blocked      bool          `json:"blocked"`
+	Ready        bool          `json:"ready"`
+	Terminal     bool          `json:"terminal"`
+	Path         string        `json:"path,omitempty"`
+	ProductID    string        `json:"product_id,omitempty"`
+	WorkID       string        `json:"work_id,omitempty"`
+	Worktree     string        `json:"worktree,omitempty"`
+	Pinned       bool          `json:"pinned"`
+	LastUsed     string        `json:"last_used,omitempty"`
+	Rank         int           `json:"rank"`
+	Live         int           `json:"live_sessions"`
+	SessionState string        `json:"session_state,omitempty"`
+	Available    bool          `json:"available"`
 }
 
 type ProbeStatus struct {
@@ -269,6 +305,10 @@ type ProbePort interface {
 type CandidatePort interface {
 	Candidates(context.Context, int) ([]Candidate, error)
 }
+
+// SessionProbe supplies host session counts for candidate work items. The
+// launcher keeps this observation ephemeral and does not persist it.
+type SessionProbe func(context.Context, []Candidate) (map[string]int, string)
 
 type CandidatePreview struct {
 	Worktree string
@@ -291,6 +331,8 @@ type Snapshot struct {
 	NextCursor             *string
 	Rows                   []ProductRow
 	Candidates             []Candidate
+	Products               []Candidate
+	WorkItems              []Candidate
 	Preview                CandidatePreview
 	Probes                 []ProbeStatus
 	StatusMessage          string
@@ -365,7 +407,8 @@ func (m *Model) SelectWork(ctx context.Context, work string) error {
 		m.snapshot.Ranked, m.snapshot.Relations = nil, RelationTree{}
 		return err
 	}
-	m.snapshot.Session = SessionHandoff{ProductID: m.snapshot.AmbientProduct, WorkID: work}
+	step := m.snapshot.Detail.Item.WorkflowStep
+	m.snapshot.Session = SessionHandoff{ProductID: m.snapshot.AmbientProduct, WorkID: work, WorkflowStep: step, Posture: OperatorPosture(step), Prompt: OperatorPrompt(work, step, "")}
 	return err
 }
 
@@ -486,6 +529,9 @@ func (m *Model) Handoff() SessionHandoff { return m.snapshot.Session }
 func (m *Model) Candidates() []Candidate { return append([]Candidate(nil), m.snapshot.Candidates...) }
 
 func (m *Model) RestoreSnapshot(snapshot Snapshot) {
+	if len(snapshot.Candidates) > 0 && len(snapshot.Products) == 0 && len(snapshot.WorkItems) == 0 {
+		snapshot.Products, snapshot.WorkItems = SplitCandidates(snapshot.Candidates)
+	}
 	if snapshot.Screen == SurfaceProduct {
 		if snapshot.Section == "" {
 			snapshot.Section = SectionDomains
@@ -596,6 +642,8 @@ func cloneSnapshot(snapshot Snapshot) Snapshot {
 		cloned.NextCursor = &cursor
 	}
 	cloned.Candidates = append([]Candidate(nil), snapshot.Candidates...)
+	cloned.Products = append([]Candidate(nil), snapshot.Products...)
+	cloned.WorkItems = append([]Candidate(nil), snapshot.WorkItems...)
 	cloned.Probes = append([]ProbeStatus(nil), snapshot.Probes...)
 	cloned.Preview.Sessions = cloneStrings(snapshot.Preview.Sessions)
 	return cloned
@@ -639,11 +687,35 @@ func cloneRanked(values []RankedWork) []RankedWork {
 	return out
 }
 
-// OrderCandidates applies the contract order: pins first, then most-recently
-// used values, then the stored rank and stable identity.
+// OrderCandidates applies the launcher tiers. Work in progress comes first,
+// then changed nonterminal work, then ready work. Legacy project candidates
+// retain their pin and last-used order until work metadata is available.
 func OrderCandidates(values []Candidate) []Candidate {
 	out := append([]Candidate(nil), values...)
+	metadata := false
+	for _, value := range out {
+		if value.Lifecycle != "" || value.UpdatedAt != "" || value.Ready || value.Terminal {
+			metadata = true
+			break
+		}
+	}
 	sort.SliceStable(out, func(i, j int) bool {
+		if metadata {
+			leftTier, rightTier := candidateTier(out[i]), candidateTier(out[j])
+			if leftTier != rightTier {
+				return leftTier < rightTier
+			}
+			if out[i].UpdatedAt != out[j].UpdatedAt {
+				return out[i].UpdatedAt > out[j].UpdatedAt
+			}
+			if out[i].Pinned != out[j].Pinned {
+				return out[i].Pinned
+			}
+			if out[i].Rank != out[j].Rank {
+				return out[i].Rank < out[j].Rank
+			}
+			return out[i].ID < out[j].ID
+		}
 		if out[i].Pinned != out[j].Pinned {
 			return out[i].Pinned
 		}
@@ -656,6 +728,19 @@ func OrderCandidates(values []Candidate) []Candidate {
 		return out[i].ID < out[j].ID
 	})
 	return out
+}
+
+func candidateTier(candidate Candidate) int {
+	if candidate.Lifecycle == "in_progress" || candidate.State == "in_progress" {
+		return 0
+	}
+	if candidate.Terminal || candidate.Lifecycle == "completed" || candidate.Lifecycle == "cancelled" || candidate.Lifecycle == "superseded" {
+		return 3
+	}
+	if candidate.Ready || candidate.Lifecycle == "needed" {
+		return 2
+	}
+	return 1
 }
 
 func FilterCandidates(values []Candidate, query string) []Candidate {
@@ -681,6 +766,8 @@ func (m *Model) read(ctx context.Context, request ReadRequest) error {
 		// error; retain that state, clear rows, and let the caller render it.
 		snapshot.Rows = nil
 		snapshot.Candidates = nil
+		snapshot.Products = nil
+		snapshot.WorkItems = nil
 		if snapshot.Screen == "" {
 			snapshot.Screen = SurfacePortfolio
 		}
@@ -736,6 +823,7 @@ func (m *Model) read(ctx context.Context, request ReadRequest) error {
 			values, candidateErr := candidates.Candidates(ctx, request.Limit)
 			if candidateErr == nil {
 				snapshot.Candidates = OrderCandidates(values)
+				snapshot.Products, snapshot.WorkItems = SplitCandidates(snapshot.Candidates)
 			} else if snapshot.StatusMessage == "" {
 				snapshot.StatusMessage = "candidate preview unavailable: " + candidateErr.Error()
 			}
@@ -751,12 +839,26 @@ func (m *Model) read(ctx context.Context, request ReadRequest) error {
 	return nil
 }
 
+func SplitCandidates(values []Candidate) (products, works []Candidate) {
+	for _, value := range values {
+		switch value.Kind {
+		case CandidateProduct:
+			products = append(products, value)
+		case CandidateWork:
+			works = append(works, value)
+		}
+	}
+	return products, works
+}
+
 func mergeKnowledgeSnapshot(previous, knowledge Snapshot) Snapshot {
 	knowledge.Screen = previous.Screen
 	knowledge.AmbientProduct = previous.AmbientProduct
 	knowledge.SelectedWorkID = previous.SelectedWorkID
 	knowledge.Rows = previous.Rows
 	knowledge.Candidates = previous.Candidates
+	knowledge.Products = previous.Products
+	knowledge.WorkItems = previous.WorkItems
 	knowledge.Preview = previous.Preview
 	knowledge.Probes = previous.Probes
 	knowledge.Domains = previous.Domains

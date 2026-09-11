@@ -25,6 +25,29 @@ func TestReplacementCandidateOrderUsesPinsMRUThenRank(t *testing.T) {
 	}
 }
 
+func TestCandidateOrderUsesWorkTiersBeforeRecency(t *testing.T) {
+	input := []Candidate{
+		{ID: "ready", Lifecycle: "needed", Ready: true, UpdatedAt: "2026-09-10T03:00:00Z"},
+		{ID: "changed", Lifecycle: "planning", UpdatedAt: "2026-09-10T04:00:00Z"},
+		{ID: "active", Lifecycle: "in_progress", UpdatedAt: "2026-09-10T01:00:00Z"},
+		{ID: "done", Lifecycle: "completed", Terminal: true, UpdatedAt: "2026-09-10T05:00:00Z"},
+	}
+	got := OrderCandidates(input)
+	for i, want := range []string{"active", "changed", "ready", "done"} {
+		if got[i].ID != want {
+			t.Fatalf("candidate %d = %q, want %q", i, got[i].ID, want)
+		}
+	}
+}
+
+func TestOperatorPostureUsesWorkflowStep(t *testing.T) {
+	for step, want := range map[string]string{"execution": "implement", "repair": "implement", "verify": "review", "research": "research", "planning": "plan", "unknown": "operator"} {
+		if got := OperatorPosture(step); got != want {
+			t.Fatalf("posture for %q = %q, want %q", step, got, want)
+		}
+	}
+}
+
 func TestReplacementCandidateFilterIsExactSubstringOnly(t *testing.T) {
 	values := []Candidate{{ID: "concord", Name: "Concord"}, {ID: "project", Path: "/tmp/project"}}
 	if got := FilterCandidates(values, "cord"); len(got) != 1 || got[0].ID != "concord" {

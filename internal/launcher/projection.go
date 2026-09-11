@@ -16,6 +16,24 @@ type Projection struct {
 // no reads and emits textual reliance markers so meaning survives no-color
 // output and screen-reader consumption.
 func Project(snapshot Snapshot, _ int) Projection {
+	if len(snapshot.Products) > 0 || len(snapshot.WorkItems) > 0 {
+		rows := make([][]string, 0, len(snapshot.WorkItems))
+		for _, item := range snapshot.WorkItems {
+			state := item.SessionState
+			if state == "" {
+				state = "idle"
+				if item.Live > 0 {
+					state = "live"
+				}
+			}
+			rows = append(rows, []string{item.ProductID, item.ID + " " + item.Name, item.Lifecycle, state})
+		}
+		return Projection{
+			Header:  []string{"WORK BROWSER", "PRODUCTS: " + fmt.Sprintf("%d", len(snapshot.Products))},
+			Columns: []string{"Product", "Work", "Lifecycle", "Session"},
+			Rows:    rows,
+		}
+	}
 	columns := []string{"Product", "Stage", "Reliance", "Actions", "Focus"}
 	rows := make([][]string, 0, len(snapshot.Rows))
 	markers := make([]string, 0, len(snapshot.Rows))

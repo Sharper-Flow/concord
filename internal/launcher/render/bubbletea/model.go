@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 
 	"charm.land/bubbles/v2/help"
@@ -356,7 +357,8 @@ func (m *Model) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 						m.Sync()
 						return m, nil
 					}
-					m.core.RestoreSnapshot(launcher.Snapshot{Screen: launcher.ScreenProduct, AmbientProduct: candidate.ProductID, SelectedWorkID: candidate.WorkID, Session: launcher.SessionHandoff{ProductID: candidate.ProductID, WorkID: candidate.WorkID}, Coverage: "authoritative", Section: launcher.SectionRanked})
+					handoff := launcher.SessionHandoff{ProductID: candidate.ProductID, WorkID: candidate.WorkID, Worktree: candidate.Worktree, WorkflowStep: candidate.WorkflowStep, Posture: launcher.OperatorPosture(candidate.WorkflowStep), Prompt: launcher.OperatorPrompt(candidate.WorkID, candidate.WorkflowStep, "")}
+					m.core.RestoreSnapshot(launcher.Snapshot{Screen: launcher.ScreenProduct, AmbientProduct: candidate.ProductID, SelectedWorkID: candidate.WorkID, Session: handoff, Coverage: "authoritative", Section: launcher.SectionRanked})
 					return m, m.launch(m.core.Handoff())
 				}
 				if candidate.Kind == launcher.CandidateProject {
@@ -598,9 +600,62 @@ func (m *Model) Render() string {
 		lipgloss.JoinVertical(lipgloss.Left,
 			fixedLine(header, m.width),
 			statusBar,
-			pane(content, m.width, max(1, m.height-3)),
+			m.contentFrame(snapshot, content, m.width, max(1, m.height-3)),
 			fixedLine(footer, m.width),
 		), m.width, m.height)
+}
+
+func (m *Model) contentFrame(snapshot launcher.Snapshot, content string, width, height int) string {
+	if len(snapshot.Candidates) == 0 {
+		return pane(content, width, height)
+	}
+	return m.paneLayout(snapshot, content, width, height)
+}
+
+// paneLayout draws the three launcher panes at every state. The work pane is
+// the navigation source, the context pane explains its Product, and the
+// preview pane carries the selected item's detail and host observations.
+func (m *Model) paneLayout(snapshot launcher.Snapshot, detail string, width, height int) string {
+	workLines := []string{"WORK"}
+	if len(snapshot.Candidates) > 0 {
+		for _, candidate := range launcher.FilterCandidates(snapshot.Candidates, m.filterValue) {
+			if candidate.Kind != launcher.CandidateWork {
+				continue
+			}
+			state := "idle"
+			if candidate.Live > 0 {
+				state = "live"
+			}
+			if candidate.SessionState != "" {
+				state = candidate.SessionState
+			}
+			workLines = append(workLines, candidate.ID+" "+candidate.Name+" "+state)
+		}
+	} else {
+		for _, row := range m.filteredRows() {
+			workLines = append(workLines, row.ID+" "+row.Name+row.NameSuffix)
+		}
+	}
+	if len(workLines) == 1 {
+		workLines = append(workLines, "empty")
+	}
+	contextLines := []string{"CONTEXT"}
+	if snapshot.AmbientProduct != "" {
+		contextLines = append(contextLines, "PRODUCT: "+snapshot.AmbientProduct)
+	}
+	for _, candidate := range launcher.FilterCandidates(snapshot.Candidates, m.filterValue) {
+		if candidate.Kind == launcher.CandidateProduct {
+			contextLines = append(contextLines, "PRODUCT ITEM: "+candidate.ID+" "+candidate.Name)
+		}
+	}
+	contextLines = append(contextLines, "PROBES")
+	contextLines = append(contextLines, probeLines(snapshot.Probes)...)
+	if len(contextLines) == 2 {
+		contextLines = append(contextLines, "no Product selected")
+	}
+	previewLines := []string{"PREVIEW"}
+	previewLines = append(previewLines, strings.Split(detail, "\n")...)
+	return fixedPanes([]string{strings.Join(workLines, "\n"), strings.Join(contextLines, "\n"), strings.Join(previewLines, "\n")}, width, height)
 }
 
 func (m *Model) renderContent(snapshot launcher.Snapshot) string {
@@ -1036,7 +1091,7 @@ var executablePath = os.Executable
 type sessionLaunchError struct{ err error }
 
 func defaultSessionLauncher(handoff launcher.SessionHandoff) tea.Cmd {
-	cmd, err := sessionProcess(handoff)
+	cmd, err := tabSessionProcess(handoff)
 	if err != nil {
 		return func() tea.Msg { return sessionLaunchError{err: err} }
 	}
@@ -1047,6 +1102,52 @@ func defaultSessionLauncher(handoff launcher.SessionHandoff) tea.Cmd {
 		return nil
 	})
 }
+
+func tabSessionProcess(handoff launcher.SessionHandoff) (*exec.Cmd, error) {
+	if handoff.WorkID == "" && handoff.ProjectPath == "" {
+		return sessionProcess(handoff)
+	}
+	hostTool := "ze" + "llij"
+	if _, err := executableLookup(hostTool); err != nil {
+		return nil, fmt.Errorf("cannot identify the host tab manager: %w", err)
+	}
+	name := handoff.WorkID
+	if name == "" {
+		name = handoff.ProductID
+	}
+	if name == "" {
+		name = filepath.Base(handoff.ProjectPath)
+	}
+	if handoff.Posture != "" {
+		name += " [" + handoff.Posture + "]"
+	}
+	query := exec.Command(hostTool, "action", "query-tab-names") //nolint:gosec // executable and arguments are fixed.
+	output, err := query.Output()
+	if err == nil {
+		for _, line := range strings.Split(string(output), "\n") {
+			if strings.TrimSpace(line) == name {
+				return exec.Command(hostTool, "action", "go-to-tab-name", name), nil //nolint:gosec // executable and arguments are fixed.
+			}
+		}
+	}
+	bootstrap, err := sessionProcess(handoff)
+	if err != nil {
+		return nil, err
+	}
+	args := []string{"action", "new-tab", "--name", name}
+	if handoff.Worktree != "" {
+		args = append(args, "--cwd", handoff.Worktree)
+	} else if handoff.ProjectPath != "" {
+		args = append(args, "--cwd", handoff.ProjectPath)
+	}
+	args = append(args, "--")
+	args = append(args, bootstrap.Args...)
+	cmd := exec.Command(hostTool, args...) //nolint:gosec // executable and arguments are fixed or identity values.
+	cmd.Env = bootstrap.Env
+	return cmd, nil
+}
+
+var executableLookup = exec.LookPath
 
 func sessionProcess(handoff launcher.SessionHandoff) (*exec.Cmd, error) {
 	executable, err := executablePath()
@@ -1065,9 +1166,9 @@ func SessionCommand(handoff launcher.SessionHandoff) (*exec.Cmd, error) {
 }
 
 func handoffEnv(handoff launcher.SessionHandoff) []string {
-	env := make([]string, 0, len(os.Environ())+4)
+	env := make([]string, 0, len(os.Environ())+7)
 	for _, value := range os.Environ() {
-		if strings.HasPrefix(value, "CONCORD_SELECTED_PRODUCT_ID=") || strings.HasPrefix(value, "CONCORD_SELECTED_WORK_ID=") || strings.HasPrefix(value, "CONCORD_SELECTED_PROMPT=") || strings.HasPrefix(value, "CONCORD_SELECTED_PROJECT_PATH=") {
+		if strings.HasPrefix(value, "CONCORD_SELECTED_PRODUCT_ID=") || strings.HasPrefix(value, "CONCORD_SELECTED_WORK_ID=") || strings.HasPrefix(value, "CONCORD_SELECTED_PROMPT=") || strings.HasPrefix(value, "CONCORD_SELECTED_PROJECT_PATH=") || strings.HasPrefix(value, "CONCORD_SELECTED_WORKTREE=") || strings.HasPrefix(value, "CONCORD_SELECTED_WORKFLOW_STEP=") || strings.HasPrefix(value, "CONCORD_SELECTED_POSTURE=") {
 			continue
 		}
 		env = append(env, value)
@@ -1082,6 +1183,15 @@ func handoffEnv(handoff launcher.SessionHandoff) []string {
 	}
 	if handoff.Prompt != "" {
 		env = append(env, "CONCORD_SELECTED_PROMPT="+handoff.Prompt)
+	}
+	if handoff.Worktree != "" {
+		env = append(env, "CONCORD_SELECTED_WORKTREE="+handoff.Worktree)
+	}
+	if handoff.WorkflowStep != "" {
+		env = append(env, "CONCORD_SELECTED_WORKFLOW_STEP="+handoff.WorkflowStep)
+	}
+	if handoff.Posture != "" {
+		env = append(env, "CONCORD_SELECTED_POSTURE="+handoff.Posture)
 	}
 	return env
 }
@@ -1152,7 +1262,7 @@ func max(a, b int) int {
 }
 
 func (m *Model) renderCandidates(snapshot launcher.Snapshot) string {
-	lines := []string{"CANDIDATES", "STATUS: " + snapshot.Coverage}
+	lines := []string{"CANDIDATES", "STATUS: " + snapshot.Coverage, "PRODUCTS"}
 	if snapshot.StatusMessage != "" {
 		lines = append(lines, "MESSAGE: "+snapshot.StatusMessage)
 	}
@@ -1162,27 +1272,17 @@ func (m *Model) renderCandidates(snapshot launcher.Snapshot) string {
 		lines = append(lines, candidatePreviewLines(values[m.cursor])...)
 	}
 	for i, candidate := range values {
-		marker := " "
-		if candidate.Pinned {
-			marker = "*"
+		if candidate.Kind != launcher.CandidateProduct {
+			continue
 		}
-		available := "unavailable"
-		if candidate.Available {
-			available = "available"
+		lines = append(lines, candidateLine(i+1, candidate))
+	}
+	lines = append(lines, "WORK")
+	for i, candidate := range values {
+		if candidate.Kind == launcher.CandidateProduct {
+			continue
 		}
-		name := candidate.Name
-		if candidate.Path != "" {
-			name += " " + candidate.Path
-		}
-		state := candidate.State
-		if state == "" {
-			state = available
-		}
-		blocked := ""
-		if candidate.Blocked {
-			blocked = " blocked=true"
-		}
-		lines = append(lines, fmtInt(i+1)+" "+marker+" "+string(candidate.Kind)+" "+name+" state="+state+blocked+" live="+fmtInt(candidate.Live))
+		lines = append(lines, candidateLine(i+1, candidate))
 	}
 	if len(values) == 0 {
 		lines = append(lines, "CANDIDATES: authoritative-empty")
@@ -1196,6 +1296,41 @@ func (m *Model) renderCandidates(snapshot launcher.Snapshot) string {
 		lines = append(lines, helpLines(m.help.View(m.keys), m.width)...)
 	}
 	return strings.Join(wrapHeaders(lines, m.width), "\n")
+}
+
+func candidateLine(index int, candidate launcher.Candidate) string {
+	marker := " "
+	if candidate.Pinned {
+		marker = "*"
+	}
+	available := "unavailable"
+	if candidate.Available {
+		available = "available"
+	}
+	name := candidate.Name
+	if candidate.Path != "" {
+		name += " " + candidate.Path
+	}
+	state := candidate.State
+	if state == "" {
+		state = available
+	}
+	blocked := ""
+	if candidate.Blocked {
+		blocked = " blocked=true"
+	}
+	liveness := candidate.SessionState
+	if liveness == "" {
+		liveness = "idle"
+		if candidate.Live > 0 {
+			liveness = "live"
+		}
+	}
+	step := ""
+	if candidate.WorkflowStep != "" {
+		step = " step=" + candidate.WorkflowStep
+	}
+	return fmtInt(index) + " " + marker + " " + string(candidate.Kind) + " " + name + " state=" + state + blocked + " session=" + liveness + step
 }
 
 func filterRanked(values []launcher.RankedWork, query string) []launcher.RankedWork {
@@ -1251,6 +1386,29 @@ func pane(content string, width, height int) string {
 		Height(height).
 		Border(lipgloss.RoundedBorder()).
 		Render(strings.Join(wrapped, "\n"))
+}
+
+func fixedPanes(contents []string, width, height int) string {
+	width = max(3, width)
+	height = max(3, height)
+	if len(contents) == 0 {
+		return fixedBlock("", width, height)
+	}
+	gap := len(contents) - 1
+	usable := max(len(contents), width-gap)
+	base := usable / len(contents)
+	widths := make([]int, len(contents))
+	for i := range widths {
+		widths[i] = base
+		if i < usable%len(contents) {
+			widths[i]++
+		}
+	}
+	panes := make([]string, len(contents))
+	for i, content := range contents {
+		panes[i] = pane(content, widths[i], height)
+	}
+	return lipgloss.JoinHorizontal(lipgloss.Top, panes...)
 }
 
 func wrapPaneLine(line string, width int) []string {
@@ -1335,7 +1493,14 @@ func candidatePreviewLines(candidate launcher.Candidate) []string {
 			state = "available"
 		}
 	}
-	lines = append(lines, "STATE: "+state, "BLOCKED: "+fmtBool(candidate.Blocked), "LIVE SESSIONS: "+fmtInt(candidate.Live))
+	liveness := "idle"
+	if candidate.Live > 0 {
+		liveness = "live"
+	}
+	if candidate.SessionState != "" {
+		liveness = candidate.SessionState
+	}
+	lines = append(lines, "STATE: "+state, "BLOCKED: "+fmtBool(candidate.Blocked), "SESSION: "+liveness, "LIVE SESSIONS: "+fmtInt(candidate.Live), "WORKFLOW STEP: "+candidate.WorkflowStep)
 	return lines
 }
 

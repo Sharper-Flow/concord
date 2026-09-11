@@ -335,16 +335,21 @@ routeDeclaration("dispatches a real store route through Task completion and work
     const packet = JSON.parse(taskArgs.prompt as string) as JSONRecord
     expect(taskArgs.subagent_type).toBe("concord-implement")
     expect(packet.step_id).toBe("repair")
-    // #903: this fixture is a non-Initiative work item, so no narrative
-    // context exists. The missing narrative must not erase the approved
-    // objective: the real builder and dispatch route must land the objective,
-    // its recorded version binding, and the predicates in inputs.task.
+    // This non-Initiative fixture has no narrative. The task still carries
+    // the objective and version binding; numbered constraints carry the mandate.
     expect(packet.inputs).not.toHaveProperty("context")
     expect(packet.inputs.task).toContain("Approved objective:")
     expect(packet.inputs.task).toContain(APPROVED_OBJECTIVE)
     expect(packet.inputs.task).toContain("(work v10, contract v1)")
-    expect(packet.inputs.task).toContain(WORKFLOW_PREDICATE.predicate_id)
-    expect(packet.inputs.task).toContain(WORKFLOW_PREDICATE.outcome_payload.check_ref)
+    expect(packet.inputs.task).not.toContain(WORKFLOW_PREDICATE.predicate_id)
+    const mandate = packet.inputs.constraints
+      .filter((entry: string) => entry.startsWith("Approved end-state mandate (join parts in order) "))
+      .map((entry: string) => entry.slice(entry.indexOf(": ") + 2)).join("")
+    const projectedPredicates = JSON.parse(mandate).map((predicate: { outcome_payload: string }) => ({
+      ...predicate,
+      outcome_payload: JSON.parse(predicate.outcome_payload),
+    }))
+    expect(projectedPredicates).toEqual([WORKFLOW_PREDICATE])
     expect(dispatchResponse?.result?.worker_packet_digest).toMatch(/^sha256:[0-9a-f]{64}$/)
     const report = {
       schema_version: "1.0",

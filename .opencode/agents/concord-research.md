@@ -33,7 +33,7 @@ Report contract constraints:
 - evidence: type=array, minItems=1, maxItems=64, items={"$ref": "#/$defs/evidence_entry"}.
 - evidence_entry shape: type=object, additionalProperties=false, required=["obligation", "detail"].
 - evidence_entry.detail: type=string, minLength=1, maxLength=512.
-- evidence_entry.obligation: enum=["bounded_findings", "commands", "contract_findings", "exit_codes", "failure_classification", "files_touched", "severity", "source_citations", "uncertainties", "unresolved_issues", "verification_commands", "visual_artifacts"].
+- evidence_entry.obligation: enum=["source_citations", "bounded_findings", "uncertainties"].
 
 A successful report must carry at least one entry for every obligation below, and may name no other obligation.
 

@@ -191,7 +191,7 @@ export async function buildAgentLanePacket(request: AgentLanePacketRequest, deps
     ...lane.evidence_obligations.map(
       (obligation) => `Evidence obligation "${obligation}": your agent-lane-report.v1 report must carry an evidence entry whose obligation is "${obligation}". An undischarged obligation is refused.`,
     ),
-    ...agentLaneReportConstraints,
+    ...agentLaneReportConstraints[lane.id],
   ]
   if (constraints.length > CONSTRAINTS_MAX_ITEMS) {
     return failure("projection_overflow", `lane ${lane.id} declares ${constraints.length} evidence obligations, above the inputs.constraints limit of ${CONSTRAINTS_MAX_ITEMS}`, { field: "constraints", limit: CONSTRAINTS_MAX_ITEMS, actual: constraints.length })

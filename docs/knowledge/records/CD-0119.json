@@ -4,7 +4,8 @@
     "cmd/concord/work_resume.go",
     "cmd/concord/work_resume_test.go",
     "internal/store/bootstrap.go",
-    "adapter/opencode/concord.ts"
+    "adapter/opencode/concord.ts",
+    "contracts/host-tool-surface.v1.json"
   ],
   "home_domain_id": "product-root:concord",
   "id": "CD-0119",
@@ -28,9 +29,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:1a67518527a0f0e793ba8f8492dd79c1c28d14a9c32e4f2694501b4badbc38bb",
+  "sha256": "sha256:f7bfff7a55a7608bacd97ef2250d63385c829cfe77f19a8ee4632f840810fca9",
   "status": "accepted",
-  "summary": "concord_work_start accepts a resume shape naming an existing item by work identity. The work-resume read derives the item's active worktree entry from the Product, Project, and work identity, applies the bootstrap origin gate only when the session leaves a different worktree, and refuses unknown, terminal, unclaimed, or out-of-scope work typed. The adapter runs the same session-prepare, move, and read-back tail as a capture and records nothing.",
+  "summary": "concord_work_start accepts a resume shape naming an existing item by work identity. The work-resume path reuses an active entry read-only or durably bootstraps a missing canonical worktree under the original work identity after the same Product, Project, terminal, and origin guards. The adapter runs the same session-prepare, move, and read-back tail as a capture.",
   "tags": [
     "workflow",
     "law"

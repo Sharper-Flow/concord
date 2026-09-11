@@ -1,5 +1,26 @@
 {
+  "evidence": [
+    {
+      "kind": "go_test",
+      "value": "cmd/concord.TestWorkResumeBootstrapsExistingIdentityAndRecoversAfterNativeCreate"
+    },
+    {
+      "kind": "go_test",
+      "value": "cmd/concord.TestWorkResumeConcurrentExistingStartsConvergeOnOneClaim"
+    },
+    {
+      "kind": "go_test",
+      "value": "cmd/concord.TestWorkResumeRefusesTerminalAndUnknownButBootstrapsUnclaimedWork"
+    },
+    {
+      "kind": "go_test",
+      "value": "cmd/concord.TestWorkResumeAppliesTheBootstrapOriginGate"
+    },
+    {
+      "kind": "adapter_test",
+      "value": "adapter/opencode/concord.test.ts#work start resume derives the entry by work_id and moves the session"
+    }
+  ],
   "id": "CD-0119",
-  "reason": "The decision is proved by the CLI and store tests that pin the resume read, its typed refusals, and the same-target origin-gate skip, and by the adapter tests that drive the resume tail end to end. Runtime behavior they exercise is the law itself, so no separate reachability surface applies.",
-  "state": "out_of_scope"
+  "state": "satisfied"
 }

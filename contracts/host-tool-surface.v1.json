@@ -3,7 +3,7 @@
   "tools": [
     {
       "name": "concord_work_start",
-      "description": "Use for implementation work requested from a default checkout, or to resume an existing item by work_id. Capture or resume the work, claim or derive its canonical worktree, and verify child execution there.",
+      "description": "Use for implementation work requested from a default checkout, or to resume an existing item by work_id. Capture new work, reuse an active worktree, or durably bootstrap the missing canonical worktree under the existing work identity, then verify child execution there.",
       "args": {
         "type": "object",
         "oneOf": [

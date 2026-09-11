@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"io"
 	"os"
 
@@ -23,13 +24,10 @@ type workResumeOutput struct {
 }
 
 // runWorkResume resolves the worktree a session enters when it resumes an
-// existing work item by work identity (issue #891). It reads the item's
-// active entry for the resolved Project first, then applies the origin gate
-// work-bootstrap applies to a capture — the default checkout, or a linked
-// worktree ValidateBootstrapOrigin admits — only when the session runs
-// somewhere other than the derived entry. It records nothing: the session's
-// worktree is the directory it runs in, and the host owns that fact
-// (CD-0104 D1).
+// existing work item by work identity (issue #891). It reads an active entry
+// first and keeps that path read-only. If no entry exists, it applies the
+// bootstrap origin gate and durably creates the missing canonical worktree
+// under the existing work identity.
 func runWorkResume(raw []byte, s *store.Store, out, errOut io.Writer) int {
 	var input workResumeInput
 	if err := decodeObject(raw, &input); err != nil {
@@ -53,8 +51,31 @@ func runWorkResume(raw []byte, s *store.Store, out, errOut io.Writer) int {
 	}
 	entry, err := s.ResumeWorktreeLocation(ctx, input.ProductID, input.ProjectID, input.WorkID)
 	if err != nil {
-		writeOperatorDiagnostic(errOut, "work-resume", err.Error())
-		return 1
+		var failure *store.Failure
+		if !errors.As(err, &failure) || failure.Kind != store.KindProjectionNotFound {
+			writeOperatorDiagnostic(errOut, "work-resume", err.Error())
+			return 1
+		}
+		ref := "HEAD"
+		if !resolution.MainWorktree {
+			if _, err := s.ValidateBootstrapOrigin(ctx, input.ProjectID, resolution.Repository.WorktreePath, store.ExecGitRunner{}); err != nil {
+				writeOperatorDiagnostic(errOut, "work-resume", err.Error())
+				return 1
+			}
+			ref, err = store.DefaultBranchRef(ctx, resolution.Repository.CanonicalPath)
+			if err != nil {
+				writeOperatorDiagnostic(errOut, "work-resume", err.Error())
+				return 1
+			}
+		}
+		result, bootstrapErr := s.BootstrapExistingWorktree(ctx, store.ExistingBootstrapRequest{
+			ProductID: input.ProductID, ProjectID: input.ProjectID, WorkID: input.WorkID, Ref: ref,
+		}, nil)
+		if bootstrapErr != nil {
+			writeOperatorDiagnostic(errOut, "work-resume", bootstrapErr.Error())
+			return 1
+		}
+		entry = result.Entry
 	}
 	// The target is derived before the origin gate: a session that already
 	// runs in the item's own worktree chains from no origin, so the move is

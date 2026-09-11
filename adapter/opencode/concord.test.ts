@@ -1171,8 +1171,7 @@ test("work start resume derives the entry by work_id and moves the session", asy
   const result: any = await rawHostResult(adapter.work_start.execute({ work_id: "work-1" }, contextFor()))
   expect(await hostControlPlane().taskScope("session-1")).toBe("managed")
   expect(result).toMatchObject({ outcome: "ok", product_id: "product-1", project_id: "project-1", work_id: "work-1", worktree_path: WORKTREE, agent: "agent-1", session_id: "session-1" })
-  // A resume never captures: work-resume replaces work-bootstrap and records
-  // nothing, so the child sequence has no journal step.
+  // An active resume is read-only, so the child sequence has no journal step.
   expect(calls.map(({ argv }) => argv[1])).toEqual(["project-resolve", "work-resume", "session-prepare", "project-resolve", "invoke"])
   expect(JSON.parse(calls[1].input)).toEqual({ product_id: "product-1", project_id: "project-1", work_id: "work-1" })
   // A resume carries no task; session-prepare still verifies the active

@@ -650,8 +650,9 @@ function validateWorkStartPrepared(value: unknown, bootstrap: { product_id: stri
 
 // validateWorkStartResume is the strict read-back contract for the work-resume
 // child. It mirrors validateWorkStartBootstrap minus the capture-only fields
-// (operation id, replay flag, work version): a resume records nothing, so the
-// read carries only identity and the derived worktree.
+// (operation id, replay flag, work version): the active-entry read records
+// nothing, while missing-entry bootstrap keeps those fields outside this
+// shared resume response.
 function validateWorkStartResume(value: unknown): value is WorkStartResume {
   if (!record(value) || !exactKeys(value, ["schema_version", "product_id", "project_id", "work_id", "worktree"])) return false
   if (value.schema_version !== "1.0" || !nonEmptyString(value.product_id) || !nonEmptyString(value.project_id) || !nonEmptyString(value.work_id) || !record(value.worktree)) return false
@@ -747,10 +748,9 @@ async function warnPaneRename(context: ToolContext, detail: string): Promise<voi
 // request's derived identity, so a replay under the same idempotency_key
 // adopts whatever an earlier attempt left and runs only what is missing:
 //
-//   1. work-bootstrap derives the work item and the worktree from the request
-//      digest, and replays the same operation on the same key. A resume
-//      request skips it: work-resume derives the existing item's active
-//      worktree from the work identity and records nothing (issue #891).
+  //   1. work-bootstrap derives new work, while work-resume reuses an active
+  //      entry or durably bootstraps a missing entry under the existing work
+  //      identity (issue #891).
 //   2. session-prepare verifies that worktree and derives the boot packet. It
 //      records nothing.
 //   3. moveSession moves the calling session, and is a no-op when the session

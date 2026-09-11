@@ -105,6 +105,14 @@
         "internal/agent.InvokeWithRegistry"
       ],
       "reason": "Production never injects a definition registry: cmd/concord enters through Invoke, which dispatches on the builtin registry. This seam exists so the workflow corpus boundary runner can drive a scenario registry through the real byte-oriented boundary instead of reaching past it. Issue #450 removed the divergence it was filed for by routing runInvoke through Invoke; the injection point is the deliberate remainder, not an unreached surface."
+    },
+    {
+      "id": "contract-generator-history-source",
+      "state": "out_of_scope",
+      "functions": [
+        "internal/store.BuiltinWorkflowDefinitionsWithHistory"
+      ],
+      "reason": "BuiltinWorkflowDefinitionsWithHistory is the data source for scripts/workflow-action-contracts, the projector the contract generator runs under `go run` (scripts/generate-agent-contracts.py). The analysis roots ./cmd/... only, so it cannot see a build-time consumption edge that never enters the shipped binary. The edge is not unproven: CI runs generate-agent-contracts.py --check, which fails the build when this function stops projecting the historical payloads. The unexported core builtinWorkflowDefinitionsWithHistory stays runtime-reachable through NewBuiltinWorkflowRegistry, so only the generator-facing export is declared here."
     }
   ]
 }

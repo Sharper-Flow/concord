@@ -522,6 +522,12 @@ def step_f_workflow_evidence(binary: Path, env: dict, repo: Path, context: dict,
             'work_id': work_id,
             'expected_version': work_version,
             'action_id': 'record_proposal',
+            'fields': {
+                'problem': 'The harness records a proposal to prove the workflow evidence path fired.',
+                'affected': ['The packaged acceptance harness.'],
+                'stakes': 'Without the document the proposal step records no intent.',
+                'user_outcomes': ['The harness reads a recorded proposal document.'],
+            },
             'idempotency_key': 'harness-workflow-action-0001',
         },
     }, env)

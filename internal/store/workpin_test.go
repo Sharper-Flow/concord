@@ -15,8 +15,8 @@ func TestReadWorkPinUsesOneTransactionAndDeclaredStepActions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if pin.WorkID != "workpin-reader" || pin.Version != version || pin.Step != "proposal" {
-		t.Fatalf("pin=%+v, want work, version, and step", pin)
+	if pin.WorkID != "workpin-reader" || pin.Title == "" || pin.LinearIssueKey != "" || pin.Version != version || pin.Step != "proposal" {
+		t.Fatalf("pin=%+v, want work, title, no unconfirmed key, version, and step", pin)
 	}
 	if !strings.HasPrefix(pin.Watermark, "seq:") {
 		t.Fatalf("watermark=%q, want sequence watermark", pin.Watermark)
@@ -57,6 +57,24 @@ func TestReadWorkPinUsesOneTransactionAndDeclaredStepActions(t *testing.T) {
 	}
 	if len(listing.Items) != 1 || listing.Items[0].WorkPin == nil || listing.Items[0].WorkPin.Version != pin.Version {
 		t.Fatalf("full listing=%+v, want the same work pin", listing.Items)
+	}
+}
+
+func TestReadWorkPinIncludesConfirmedLinearIssueKeyInTheSameTransaction(t *testing.T) {
+	s := openTemp(t)
+	continuityTestWorkflow(t, s, "workpin-linear")
+	for _, state := range []string{LinearLinkUnpublished, LinearLinkPending, LinearLinkConfirmed} {
+		if err := s.RecordLinearLink(context.Background(), "workpin-linear", "remote-1", "CON-42", "https://linear.app/example/issue/CON-42", "", "", state); err != nil {
+			t.Fatalf("RecordLinearLink(%s) error = %v", state, err)
+		}
+	}
+
+	pin, err := ReadWorkPin(context.Background(), s, "workpin-linear")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pin.Title == "" || pin.LinearIssueKey != "CON-42" {
+		t.Fatalf("pin=%+v, want title and confirmed Linear key", pin)
 	}
 }
 

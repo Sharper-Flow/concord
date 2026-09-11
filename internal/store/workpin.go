@@ -11,6 +11,8 @@ import (
 // the next operation for a work item.
 type WorkPin struct {
 	WorkID                  string                    `json:"work_id"`
+	Title                   string                    `json:"title"`
+	LinearIssueKey          string                    `json:"linear_issue_key"`
 	Version                 int64                     `json:"version"`
 	Lifecycle               string                    `json:"lifecycle"`
 	WorkflowType            string                    `json:"workflow_type"`
@@ -80,7 +82,7 @@ func ReadWorkPinTx(ctx context.Context, tx *sql.Tx, workID string) (WorkPin, err
 	if len(workID) < 2 || len(workID) > 128 {
 		return pin, newFailure(KindInvalidOperation, "work_pin", "work ID is out of bounds", false, "supply one bounded work ID")
 	}
-	if err := tx.QueryRowContext(ctx, `SELECT version,lifecycle FROM work_items WHERE id=?`, workID).Scan(&pin.Version, &pin.Lifecycle); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT w.version,w.lifecycle,w.title,COALESCE(l.human_key,'') FROM work_items w LEFT JOIN linear_issue_links l ON l.work_id=w.id AND l.link_state='confirmed' WHERE w.id=?`, workID).Scan(&pin.Version, &pin.Lifecycle, &pin.Title, &pin.LinearIssueKey); err != nil {
 		if err == sql.ErrNoRows {
 			return pin, newFailure(KindProjectionNotFound, "work_pin", "work item is not recorded", false, "reread_entities")
 		}

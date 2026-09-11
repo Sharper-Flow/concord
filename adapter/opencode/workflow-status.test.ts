@@ -3,6 +3,8 @@ import { appendPendingWorkStateLines, createPendingWorkStateLineBuffer, createWo
 
 const pin = {
   work_id: "work-1",
+  title: "Repair the adapter",
+  linear_issue_key: "",
   version: 4,
   lifecycle: "in_progress",
   workflow_type: "workflow.break_fix",
@@ -11,7 +13,10 @@ const pin = {
 }
 
 test("formats the fixed WorkPin state line", () => {
-  expect(formatWorkStateLine(pin)).toBe("◆ CONCORD WORK STATE | work=work-1 | version=4 | lifecycle=in_progress | workflow=workflow.break_fix | step=repair | decision=none")
+  expect(formatWorkStateLine(pin)).toBe("◆ CONCORD WORK STATE | work-1 | title=Repair the adapter | version=4 | lifecycle=in_progress | step=repair | decision=none")
+  expect(formatWorkStateLine({ ...pin, linear_issue_key: "CON-42" })).toContain("◆ CONCORD WORK STATE | CON-42 | title=Repair the adapter")
+  expect(formatWorkStateLine({ ...pin, title: "bad|title\nwith control" })).toContain("title=bad title with control")
+  expect(formatWorkStateLine({ ...pin, title: "x".repeat(65) })).toContain(`title=${"x".repeat(63)}…`)
   expect(formatWorkStateLine({ ...pin, pending_operator_decision: { action_id: "approve-repair" } })).toContain("decision=pending:approve-repair")
 })
 
@@ -24,8 +29,8 @@ test("rejects an incomplete or unsafe WorkPin", () => {
 test("renders every mutation WorkPin in stable order", () => {
   const second = { ...pin, work_id: "work-2", version: 5, step: "verify" }
   expect(workStateLines({ outcome: "ok", result: { work_pins: [second, pin] } })).toEqual([
-    "◆ CONCORD WORK STATE | work=work-1 | version=4 | lifecycle=in_progress | workflow=workflow.break_fix | step=repair | decision=none",
-    "◆ CONCORD WORK STATE | work=work-2 | version=5 | lifecycle=in_progress | workflow=workflow.break_fix | step=verify | decision=none",
+    "◆ CONCORD WORK STATE | work-1 | title=Repair the adapter | version=4 | lifecycle=in_progress | step=repair | decision=none",
+    "◆ CONCORD WORK STATE | work-2 | title=Repair the adapter | version=5 | lifecycle=in_progress | step=verify | decision=none",
   ])
   expect(workStateLines({ outcome: "ok", result: { work_pins: [pin, { ...pin, step: "unsafe|step" }] } })).toEqual([])
 })
@@ -47,16 +52,48 @@ test("buffers lines per session and appends them to completed text", async () =>
 
   expect(appendPendingWorkStateLines("session-2", "assistant text")).toBe("assistant text")
   expect(appendPendingWorkStateLines("session-1", "assistant text")).toBe(
-    "assistant text\n◆ CONCORD WORK STATE | work=work-1 | version=4 | lifecycle=in_progress | workflow=workflow.break_fix | step=repair | decision=none",
+    "assistant text\n◆ CONCORD WORK STATE | work-1 | title=Repair the adapter | version=4 | lifecycle=in_progress | step=repair | decision=none",
   )
   expect(appendPendingWorkStateLines("session-1", "next text")).toBe("next text")
 })
 
-test("keeps a bounded pending line buffer and drains it", () => {
+test("keeps a bounded pending buffer and drains one line", () => {
   const buffer = createPendingWorkStateLineBuffer()
-  buffer.append("session-1", Array.from({ length: 129 }, (_, index) => `line-${index}`))
-  expect(buffer.drain("session-1")).toHaveLength(128)
+  buffer.append("session-1", Array.from({ length: 129 }, (_, index) => ({ work_id: `work-${index}`, line: `line-${index}` })))
+  expect(buffer.drain("session-1")).toEqual(["line-128"])
   expect(buffer.drain("session-1")).toEqual([])
+})
+
+test("emits one line for the session work item a turn touches most", async () => {
+  const context = { sessionID: "session-many", abort: new AbortController().signal }
+  const reporter = createWorkStateReporter(async () => true)
+  const peer = (index: number) => ({ ...pin, work_id: `peer-${index}`, version: 9 })
+  // A turn that resolves twenty overlaps records the session item in every
+  // mutation and each peer once.
+  for (let index = 0; index < 20; index += 1) {
+    await reporter.report({ outcome: "ok", result: { work_pins: [pin, peer(index)] } }, context)
+  }
+
+  const text = appendPendingWorkStateLines("session-many", "assistant text")
+  expect(text.split("\n").filter((line) => line.startsWith("◆ CONCORD WORK STATE"))).toEqual([
+    "◆ CONCORD WORK STATE | work-1 | title=Repair the adapter | version=4 | lifecycle=in_progress | step=repair | decision=none",
+  ])
+})
+
+test("prefers the launcher-selected work item over the turn count", async () => {
+  const context = { sessionID: "session-selected", abort: new AbortController().signal }
+  const reporter = createWorkStateReporter(async () => true)
+  process.env.CONCORD_SELECTED_WORK_ID = "work-2"
+  try {
+    const selected = { ...pin, work_id: "work-2", version: 5, step: "verify" }
+    await reporter.report({ outcome: "ok", result: { work_pins: [pin, selected] } }, context)
+    await reporter.report({ outcome: "ok", result: { work_pins: [pin] } }, context)
+    expect(appendPendingWorkStateLines("session-selected", "")).toBe(
+      "◆ CONCORD WORK STATE | work-2 | title=Repair the adapter | version=5 | lifecycle=in_progress | step=verify | decision=none",
+    )
+  } finally {
+    delete process.env.CONCORD_SELECTED_WORK_ID
+  }
 })
 
 test("formats the gate brief from focused portfolio rows", () => {

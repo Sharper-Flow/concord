@@ -238,6 +238,8 @@
       "additionalProperties": false,
       "required": [
         "work_id",
+        "title",
+        "linear_issue_key",
         "version",
         "lifecycle",
         "workflow_type",
@@ -250,6 +252,13 @@
       "properties": {
         "work_id": {
           "$ref": "#/$defs/id"
+        },
+        "title": {
+          "$ref": "#/$defs/short"
+        },
+        "linear_issue_key": {
+          "type": "string",
+          "maxLength": 64
         },
         "version": {
           "$ref": "#/$defs/version"

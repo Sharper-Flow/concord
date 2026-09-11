@@ -33,7 +33,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:7032e6f27cac37b1893ab731dd0edd46958bf76fc24d1d0d2cab1dab5142fec8",
+  "sha256": "sha256:ab532186d348931f9eff071c3926c9225d244ed3030d291b76fbbcf34dfe664b",
   "status": "accepted",
   "summary": "Admits operator-approved contract correction at a failed worker-dispatch step without changing the pinned definition digest and keeps post-dispatch remediation actionable.",
   "tags": [

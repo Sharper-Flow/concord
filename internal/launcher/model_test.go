@@ -23,7 +23,7 @@ func (p *countingPort) Read(_ context.Context, request ReadRequest) (Snapshot, e
 }
 
 func TestModelReadsOnlyOnEntrySubmitAndRefresh(t *testing.T) {
-	port := &countingPort{snapshot: Snapshot{Screen: ScreenPortfolio, Coverage: "authoritative"}}
+	port := &countingPort{snapshot: Snapshot{Coverage: "authoritative"}}
 	model := New(port)
 	model.Resize(80, 24)
 	if len(port.requests) != 0 {
@@ -44,22 +44,22 @@ func TestModelReadsOnlyOnEntrySubmitAndRefresh(t *testing.T) {
 }
 
 func TestSelectingProductReadsS2DataAndBackDoesNotRead(t *testing.T) {
-	port := &countingPort{snapshot: Snapshot{Screen: ScreenPortfolio, Rows: []ProductRow{{ID: "p-1", Name: "One"}}, Coverage: "authoritative"}}
+	port := &countingPort{snapshot: Snapshot{Rows: []ProductRow{{ID: "p-1", Name: "One"}}, Coverage: "authoritative"}}
 	model := New(port)
 	if err := model.Enter(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	port.snapshot = Snapshot{Screen: ScreenProduct, Coverage: "authoritative"}
+	port.snapshot = Snapshot{AmbientProduct: "p-1", Coverage: "authoritative"}
 	if err := model.SelectProduct(context.Background(), "p-1"); err != nil {
 		t.Fatal(err)
 	}
-	if got := model.Snapshot(); got.Screen != ScreenProduct || got.AmbientProduct != "p-1" {
+	if got := model.Snapshot(); got.AmbientProduct != "p-1" {
 		t.Fatalf("S2 = %#v", got)
 	}
 	if err := model.Back(); err != nil {
 		t.Fatal(err)
 	}
-	if got := model.Snapshot(); got.Screen != ScreenPortfolio || got.AmbientProduct != "" {
+	if got := model.Snapshot(); got.AmbientProduct != "" {
 		t.Fatalf("back snapshot = %#v", got)
 	}
 	if len(port.requests) != 3 {
@@ -69,7 +69,6 @@ func TestSelectingProductReadsS2DataAndBackDoesNotRead(t *testing.T) {
 
 func TestBackRestoresPortfolioSnapshotRowsAndSection(t *testing.T) {
 	portfolio := Snapshot{
-		Screen:   ScreenPortfolio,
 		Coverage: "authoritative",
 		Section:  SectionRanked,
 		Rows:     []ProductRow{{ID: "p-1", Name: "One"}, {ID: "p-2", Name: "Two"}},
@@ -80,7 +79,6 @@ func TestBackRestoresPortfolioSnapshotRowsAndSection(t *testing.T) {
 		t.Fatal(err)
 	}
 	port.snapshot = Snapshot{
-		Screen:         ScreenProduct,
 		AmbientProduct: "p-1",
 		Coverage:       "authoritative",
 		Section:        SectionRanked,
@@ -93,7 +91,7 @@ func TestBackRestoresPortfolioSnapshotRowsAndSection(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := model.Snapshot()
-	if got.Screen != ScreenPortfolio || got.AmbientProduct != "" || got.Section != portfolio.Section {
+	if got.AmbientProduct != "" || got.Section != portfolio.Section {
 		t.Fatalf("restored portfolio state = %#v", got)
 	}
 	if len(got.Rows) != len(portfolio.Rows) || got.Rows[0].ID != "p-1" || got.Rows[1].ID != "p-2" {
@@ -107,24 +105,24 @@ func TestBackAtPortfolioIsNoOp(t *testing.T) {
 	if err := model.Back(); err != nil {
 		t.Fatal(err)
 	}
-	if got := model.Snapshot(); got.Screen != before.Screen || got.AmbientProduct != before.AmbientProduct || len(got.Rows) != len(before.Rows) {
+	if got := model.Snapshot(); got.AmbientProduct != before.AmbientProduct || len(got.Rows) != len(before.Rows) {
 		t.Fatalf("first S1 back changed state = %#v", got)
 	}
 	if err := model.Back(); err != nil {
 		t.Fatal(err)
 	}
-	if got := model.Snapshot(); got.Screen != ScreenPortfolio {
+	if got := model.Snapshot(); got.AmbientProduct != "" {
 		t.Fatalf("second S1 back underflowed to %#v", got)
 	}
 }
 
 func TestFailedWorkSelectionRollsBackNavigationDepth(t *testing.T) {
-	port := &countingPort{snapshot: Snapshot{Screen: ScreenPortfolio, Rows: []ProductRow{{ID: "p-1"}}, Coverage: "authoritative"}}
+	port := &countingPort{snapshot: Snapshot{Rows: []ProductRow{{ID: "p-1"}}, Coverage: "authoritative"}}
 	model := New(port)
 	if err := model.Enter(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	port.snapshot = Snapshot{Screen: ScreenProduct, AmbientProduct: "p-1", Section: SectionRanked, Coverage: "authoritative"}
+	port.snapshot = Snapshot{AmbientProduct: "p-1", RankedWorkRead: true, Section: SectionRanked, Coverage: "authoritative"}
 	if err := model.SelectProduct(context.Background(), "p-1"); err != nil {
 		t.Fatal(err)
 	}
@@ -136,7 +134,7 @@ func TestFailedWorkSelectionRollsBackNavigationDepth(t *testing.T) {
 	if err := model.Back(); err != nil {
 		t.Fatal(err)
 	}
-	if got := model.Snapshot(); got.Screen != ScreenPortfolio || len(got.Rows) != 1 || got.Rows[0].ID != "p-1" {
+	if got := model.Snapshot(); len(got.Rows) != 1 || got.Rows[0].ID != "p-1" {
 		t.Fatalf("back after failed work selection = %#v", got)
 	}
 }
@@ -155,7 +153,7 @@ func TestSnapshotCopiesRows(t *testing.T) {
 }
 
 func TestProjectionIsDeterministicAndCarriesC14Meaning(t *testing.T) {
-	snapshot := Snapshot{Screen: ScreenPortfolio, AmbientProduct: "Concord", Watermark: "w42", ObservedAt: "2m", Reliance: "blocked", Coverage: "authoritative", Rows: []ProductRow{{Name: "Launcher", Stage: "in_progress", Reliance: "blocked", Actions: 3, Focus: "Fix launcher input"}}}
+	snapshot := Snapshot{AmbientProduct: "Concord", Watermark: "w42", ObservedAt: "2m", Reliance: "blocked", Coverage: "authoritative", Rows: []ProductRow{{Name: "Launcher", Stage: "in_progress", Reliance: "blocked", Actions: 3, Focus: "Fix launcher input"}}}
 	first, second := Project(snapshot, 80), Project(snapshot, 80)
 	if len(first.Rows) != 1 || len(first.Rows[0]) != 5 {
 		t.Fatalf("projection rows=%#v", first.Rows)
@@ -171,18 +169,18 @@ func TestProjectionIsDeterministicAndCarriesC14Meaning(t *testing.T) {
 }
 
 func TestProductAndWorkProjectionCarriesTypedScreenSections(t *testing.T) {
-	product := Project(Snapshot{Screen: ScreenProduct, AmbientProduct: "p-1", Watermark: "w", ObservedAt: "now", Reliance: "authoritative", Coverage: "authoritative", Section: SectionRanked, Ranked: []RankedWork{{ID: "w-1", Title: "Next", Priority: 1, Lifecycle: "needed", Ready: true}}}, 80)
+	product := Project(Snapshot{AmbientProduct: "p-1", RankedWorkRead: true, Watermark: "w", ObservedAt: "now", Reliance: "authoritative", Coverage: "authoritative", Section: SectionRanked, Ranked: []RankedWork{{ID: "w-1", Title: "Next", Priority: 1, Lifecycle: "needed", Ready: true}}}, 80)
 	if product.Columns[0] != "Work" || len(product.Rows) != 1 || !strings.Contains(strings.Join(product.Rows[0], " "), "w-1") {
 		t.Fatalf("product projection=%#v", product)
 	}
-	work := Project(Snapshot{Screen: ScreenWork, AmbientProduct: "p-1", Section: SectionKnowledge, Detail: WorkDetail{Item: RankedWork{ID: "w-1", Title: "Next", Lifecycle: "needed"}}}, 80)
+	work := Project(Snapshot{AmbientProduct: "p-1", RankedWorkRead: true, Section: SectionKnowledge, Detail: WorkDetail{Item: RankedWork{ID: "w-1", Title: "Next", Lifecycle: "needed"}}}, 80)
 	if work.Columns[0] != "Work" || len(work.Rows) != 1 || !strings.Contains(work.Header[len(work.Header)-1], "knowledge") {
 		t.Fatalf("work projection=%#v", work)
 	}
 }
 
 func TestRankedDrillDownProjectionIsDeterministicWithTerminalTail(t *testing.T) {
-	snapshot := Snapshot{Screen: ScreenProduct, AmbientProduct: "p-1", Watermark: "w", ObservedAt: "now", Reliance: "authoritative", Coverage: "authoritative", Section: SectionRanked, Ranked: []RankedWork{
+	snapshot := Snapshot{AmbientProduct: "p-1", RankedWorkRead: true, Watermark: "w", ObservedAt: "now", Reliance: "authoritative", Coverage: "authoritative", Section: SectionRanked, Ranked: []RankedWork{
 		{ID: "w-1", Kind: "task", Title: "First", Priority: 1, Urgency: "expedite", Lifecycle: "needed", Ready: true},
 		{ID: "w-2", Kind: "bug", Title: "Second", Priority: 2, Lifecycle: "needed", Blocked: true},
 		{ID: "w-3", Kind: "task", Title: "Done", Priority: 3, Lifecycle: "completed", Terminal: true, TerminalAt: "2026-08-05T00:00:00Z"},
@@ -227,22 +225,22 @@ func TestRankedReadinessDerivesTerminalBeforeBlocked(t *testing.T) {
 }
 
 func TestRankedDrillDownEmptyRendersTypedStateNotSilentBlank(t *testing.T) {
-	authoritative := Project(Snapshot{Screen: ScreenProduct, Section: SectionRanked, Coverage: "authoritative"}, 80)
+	authoritative := Project(Snapshot{AmbientProduct: "p-1", RankedWorkRead: true, Section: SectionRanked, Coverage: "authoritative"}, 80)
 	if len(authoritative.Rows) != 1 || authoritative.Rows[0][0] != "authoritative-empty" {
 		t.Fatalf("authoritative empty drill-down=%#v", authoritative.Rows)
 	}
-	degraded := Project(Snapshot{Screen: ScreenProduct, Section: SectionRanked, Coverage: "unavailable", StatusMessage: "unavailable: Product work omitted by launcher limit"}, 80)
+	degraded := Project(Snapshot{AmbientProduct: "p-1", RankedWorkRead: true, Section: SectionRanked, Coverage: "unavailable", StatusMessage: "unavailable: Product work omitted by launcher limit"}, 80)
 	if len(degraded.Rows) != 1 || degraded.Rows[0][0] != "unavailable: Product work omitted by launcher limit" {
 		t.Fatalf("degraded empty drill-down=%#v", degraded.Rows)
 	}
-	unreachable := Project(Snapshot{Screen: ScreenProduct, Section: SectionRanked, Coverage: "unreachable", StatusMessage: "database unavailable"}, 80)
+	unreachable := Project(Snapshot{AmbientProduct: "p-1", RankedWorkRead: true, Section: SectionRanked, Coverage: "unreachable", StatusMessage: "database unavailable"}, 80)
 	if len(unreachable.Rows) != 1 || unreachable.Rows[0][0] != "unavailable: database unavailable" {
 		t.Fatalf("unreachable empty drill-down=%#v", unreachable.Rows)
 	}
 }
 
 func TestS2AnswerStackSummariesSkipTerminalDrillDownTail(t *testing.T) {
-	withActive := Snapshot{Screen: ScreenProduct, Ranked: []RankedWork{
+	withActive := Snapshot{AmbientProduct: "p-1", RankedWorkRead: true, Ranked: []RankedWork{
 		{ID: "done", Title: "Done", Terminal: true, TerminalAt: "2026-08-01T00:00:00Z"},
 		{ID: "live", Title: "Live", Ready: true},
 	}}
@@ -250,7 +248,7 @@ func TestS2AnswerStackSummariesSkipTerminalDrillDownTail(t *testing.T) {
 	if stack.Blocked.Work == nil || stack.Blocked.Work.ID != "live" || stack.Next.Work == nil || stack.Next.Work.ID != "live" {
 		t.Fatalf("terminal tail supplied a coordination summary: %#v", stack)
 	}
-	onlyTerminal := Snapshot{Screen: ScreenProduct, Ranked: []RankedWork{{ID: "done", Title: "Done", Terminal: true}}}
+	onlyTerminal := Snapshot{AmbientProduct: "p-1", RankedWorkRead: true, Ranked: []RankedWork{{ID: "done", Title: "Done", Terminal: true}}}
 	stack = onlyTerminal.S2AnswerStack()
 	if stack.Blocked.Work != nil || stack.Next.Work != nil {
 		t.Fatalf("terminal-only drill-down must not answer blocked/next: %#v", stack)
@@ -258,12 +256,12 @@ func TestS2AnswerStackSummariesSkipTerminalDrillDownTail(t *testing.T) {
 }
 
 func TestSelectingProductOpensOnDomainSection(t *testing.T) {
-	port := &countingPort{snapshot: Snapshot{Screen: ScreenPortfolio, Rows: []ProductRow{{ID: "p-1", Name: "One"}}, Coverage: "authoritative"}}
+	port := &countingPort{snapshot: Snapshot{Rows: []ProductRow{{ID: "p-1", Name: "One"}}, Coverage: "authoritative"}}
 	model := New(port)
 	if err := model.Enter(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	port.snapshot = Snapshot{Screen: ScreenProduct, Section: SectionDomains, Coverage: "authoritative", Domains: DomainSection{Read: true, State: "authoritative", Domains: []DomainRow{{ID: "root", Name: "One", Home: true}}}}
+	port.snapshot = Snapshot{AmbientProduct: "p-1", RankedWorkRead: true, Section: SectionDomains, Coverage: "authoritative", Domains: DomainSection{Read: true, State: "authoritative", Domains: []DomainRow{{ID: "root", Name: "One", Home: true}}}}
 	if err := model.SelectProduct(context.Background(), "p-1"); err != nil {
 		t.Fatal(err)
 	}
@@ -287,11 +285,11 @@ type ambientPort struct{}
 func (p *ambientPort) Read(_ context.Context, request ReadRequest) (Snapshot, error) {
 	switch request.Kind {
 	case ReadPortfolio:
-		return Snapshot{Screen: ScreenPortfolio, Coverage: "authoritative", Rows: []ProductRow{{ID: "p-1", Name: "One"}, {ID: "p-2", Name: "Two"}}}, nil
+		return Snapshot{Coverage: "authoritative", Rows: []ProductRow{{ID: "p-1", Name: "One"}, {ID: "p-2", Name: "Two"}}}, nil
 	case ReadKnowledge:
-		return Snapshot{Screen: ScreenProduct, AmbientProduct: request.Product, Section: SectionKnowledge, Coverage: "authoritative", Knowledge: KnowledgeSection{Read: true, State: "authoritative-empty"}}, nil
+		return Snapshot{AmbientProduct: request.Product, Section: SectionKnowledge, Coverage: "authoritative", Knowledge: KnowledgeSection{Read: true, State: "authoritative-empty"}}, nil
 	default:
-		return Snapshot{Screen: ScreenProduct, AmbientProduct: request.Product, Section: SectionDomains, Coverage: "authoritative", Domains: DomainSection{Read: true, State: "authoritative"}}, nil
+		return Snapshot{AmbientProduct: request.Product, Section: SectionDomains, Coverage: "authoritative", Domains: DomainSection{Read: true, State: "authoritative"}}, nil
 	}
 }
 
@@ -308,7 +306,7 @@ func TestTwoInstancesHoldDifferentAmbientProductsWithoutObservingEachOther(t *te
 	if err := first.SelectProduct(ctx, "p-1"); err != nil {
 		t.Fatal(err)
 	}
-	if got := second.Snapshot(); got.Screen != ScreenPortfolio || got.AmbientProduct != "" {
+	if got := second.Snapshot(); got.AmbientProduct != "" {
 		t.Fatalf("second instance observed the first instance's selection: %#v", got)
 	}
 
@@ -341,10 +339,10 @@ func TestTwoInstancesHoldDifferentAmbientProductsWithoutObservingEachOther(t *te
 	if err := second.Back(); err != nil {
 		t.Fatal(err)
 	}
-	if got := second.Snapshot(); got.Screen != ScreenPortfolio || got.AmbientProduct != "" {
+	if got := second.Snapshot(); got.AmbientProduct != "" {
 		t.Fatalf("second instance after Back = %#v", got)
 	}
-	if got := first.Snapshot(); got.Screen != ScreenProduct || got.AmbientProduct != "p-1" {
+	if got := first.Snapshot(); got.AmbientProduct != "p-1" {
 		t.Fatalf("the second instance's Back changed the first instance: %#v", got)
 	}
 }

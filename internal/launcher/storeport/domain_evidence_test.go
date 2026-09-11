@@ -53,8 +53,8 @@ func readDomainSection(t *testing.T, s *store.Store, product string) launcher.Sn
 	if err != nil {
 		t.Fatalf("S2 Domain read errored the screen: %v", err)
 	}
-	if snapshot.Screen != launcher.ScreenProduct || snapshot.Section != launcher.SectionDomains {
-		t.Fatalf("S2 Domain read landed on %s/%s", snapshot.Screen, snapshot.Section)
+	if snapshot.AmbientProduct == "" || snapshot.Section != launcher.SectionDomains {
+		t.Fatalf("Domain read landed on %s/%s", snapshot.AmbientProduct, snapshot.Section)
 	}
 	if !snapshot.Domains.Read {
 		t.Fatalf("S2 Domain section was not marked read: %#v", snapshot.Domains)

@@ -73,6 +73,10 @@ and urgency, blocked-work indicators, session inventory with reattach,
 Domain context per Product, an in-place refresh key, and a `--list` JSON
 verb.
 
+The work feed orders items in progress first, then recently changed
+non-completed items, and then ready items. Pinned state and stable identity
+break ties. This ordering refines most-recently-used ordering for active work.
+
 Removed: the launch registry, because the store already owns worktree claims
 and session records; in-launcher work capture; and the knowledge peek.
 

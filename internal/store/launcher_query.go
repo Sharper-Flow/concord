@@ -36,6 +36,7 @@ type LauncherWork struct {
 	CreatedAt    string
 	UpdatedAt    string
 	TerminalAt   string
+	WorkflowStep string
 	ProjectCount int
 	Blocked      bool
 	Ready        bool
@@ -170,7 +171,7 @@ func (s *Store) QueryLauncherSearch(ctx context.Context, req LauncherSearchReque
 		return out, err
 	}
 	needle := "%" + strings.ToLower(req.Query) + "%"
-	rows, err := tx.QueryContext(ctx, `SELECT w.id,w.kind,w.title,w.lifecycle,w.priority,w.urgency,w.created_at,w.updated_at,
+	rows, err := tx.QueryContext(ctx, `SELECT w.id,w.kind,w.title,w.lifecycle,w.priority,w.urgency,w.created_at,w.updated_at,COALESCE((SELECT current_step FROM workflow_instances wi WHERE wi.work_id=w.id),''),
 		(SELECT count(DISTINCT wp2.project_id) FROM work_projects wp2 JOIN product_projects pp2 ON pp2.project_id=wp2.project_id WHERE wp2.work_id=w.id AND pp2.product_id=?),
 		EXISTS (SELECT 1 FROM relations br JOIN work_items b ON b.id=br.work_id_from WHERE br.work_id_to=w.id AND br.kind='blocks' AND b.lifecycle IN ('needed','in_progress'))
 		FROM work_items w WHERE EXISTS (SELECT 1 FROM work_projects wp JOIN product_projects pp ON pp.project_id=wp.project_id WHERE wp.work_id=w.id AND pp.product_id=?) AND w.lifecycle IN ('needed','in_progress') AND lower(w.id || ' ' || w.title || ' ' || w.kind) LIKE ?
@@ -180,7 +181,7 @@ func (s *Store) QueryLauncherSearch(ctx context.Context, req LauncherSearchReque
 	}
 	for rows.Next() {
 		var item LauncherWork
-		if err := rows.Scan(&item.ID, &item.Kind, &item.Title, &item.Lifecycle, &item.Priority, &item.Urgency, &item.CreatedAt, &item.UpdatedAt, &item.ProjectCount, &item.Blocked); err != nil {
+		if err := rows.Scan(&item.ID, &item.Kind, &item.Title, &item.Lifecycle, &item.Priority, &item.Urgency, &item.CreatedAt, &item.UpdatedAt, &item.WorkflowStep, &item.ProjectCount, &item.Blocked); err != nil {
 			rows.Close()
 			return out, err
 		}
@@ -280,7 +281,7 @@ func (s *Store) QueryLauncherProduct(ctx context.Context, req LauncherProductReq
 	if _, err := readProduct(ctx, tx, req.Product); err != nil {
 		return out, err
 	}
-	q := `SELECT w.id,w.kind,w.title,w.lifecycle,w.priority,w.urgency,w.created_at,w.updated_at,
+	q := `SELECT w.id,w.kind,w.title,w.lifecycle,w.priority,w.urgency,w.created_at,w.updated_at,COALESCE((SELECT current_step FROM workflow_instances wi WHERE wi.work_id=w.id),''),
 		(SELECT count(DISTINCT wp2.project_id) FROM work_projects wp2 JOIN product_projects pp2 ON pp2.project_id=wp2.project_id WHERE wp2.work_id=w.id AND pp2.product_id=?),
 		EXISTS (SELECT 1 FROM relations br JOIN work_items b ON b.id=br.work_id_from WHERE br.work_id_to=w.id AND br.kind='blocks' AND b.lifecycle IN ('needed','in_progress'))
 		FROM work_items w WHERE EXISTS (SELECT 1 FROM work_projects wp JOIN product_projects pp ON pp.project_id=wp.project_id WHERE wp.work_id=w.id AND pp.product_id=? AND w.lifecycle IN ('needed','in_progress'))
@@ -291,7 +292,7 @@ func (s *Store) QueryLauncherProduct(ctx context.Context, req LauncherProductReq
 	}
 	for rows.Next() {
 		var item LauncherWork
-		if err := rows.Scan(&item.ID, &item.Kind, &item.Title, &item.Lifecycle, &item.Priority, &item.Urgency, &item.CreatedAt, &item.UpdatedAt, &item.ProjectCount, &item.Blocked); err != nil {
+		if err := rows.Scan(&item.ID, &item.Kind, &item.Title, &item.Lifecycle, &item.Priority, &item.Urgency, &item.CreatedAt, &item.UpdatedAt, &item.WorkflowStep, &item.ProjectCount, &item.Blocked); err != nil {
 			rows.Close()
 			return out, err
 		}
@@ -311,7 +312,7 @@ func (s *Store) QueryLauncherProduct(ctx context.Context, req LauncherProductReq
 	// The completed-history drill-down segment. It is one grouped read in the
 	// same transaction, not a per-work fan-out, and readiness is not computed
 	// for terminal items: their marker is the terminal state itself.
-	trows, err := tx.QueryContext(ctx, `SELECT w.id,w.kind,w.title,w.lifecycle,w.priority,w.urgency,w.created_at,w.updated_at,coalesce(w.terminal_time,''),
+	trows, err := tx.QueryContext(ctx, `SELECT w.id,w.kind,w.title,w.lifecycle,w.priority,w.urgency,w.created_at,w.updated_at,coalesce(w.terminal_time,''),COALESCE((SELECT current_step FROM workflow_instances wi WHERE wi.work_id=w.id),''),
 		(SELECT count(DISTINCT wp2.project_id) FROM work_projects wp2 JOIN product_projects pp2 ON pp2.project_id=wp2.project_id WHERE wp2.work_id=w.id AND pp2.product_id=?)
 		FROM work_items w WHERE EXISTS (SELECT 1 FROM work_projects wp JOIN product_projects pp ON pp.project_id=wp.project_id WHERE wp.work_id=w.id AND pp.product_id=? AND w.lifecycle IN ('completed','cancelled','superseded'))
 		ORDER BY w.terminal_time DESC,w.id LIMIT ?`, req.Product, req.Product, limit+1)
@@ -320,7 +321,7 @@ func (s *Store) QueryLauncherProduct(ctx context.Context, req LauncherProductReq
 	}
 	for trows.Next() {
 		var item LauncherWork
-		if err := trows.Scan(&item.ID, &item.Kind, &item.Title, &item.Lifecycle, &item.Priority, &item.Urgency, &item.CreatedAt, &item.UpdatedAt, &item.TerminalAt, &item.ProjectCount); err != nil {
+		if err := trows.Scan(&item.ID, &item.Kind, &item.Title, &item.Lifecycle, &item.Priority, &item.Urgency, &item.CreatedAt, &item.UpdatedAt, &item.TerminalAt, &item.WorkflowStep, &item.ProjectCount); err != nil {
 			trows.Close()
 			return out, err
 		}
@@ -519,6 +520,9 @@ func (s *Store) QueryLauncherWork(ctx context.Context, req LauncherWorkRequest) 
 	out.Workflow, err = readWorkflowSummaryTx(ctx, tx, req.Work)
 	if err != nil {
 		return out, err
+	}
+	if out.Workflow != nil {
+		out.Work.WorkflowStep = out.Workflow.CurrentStep
 	}
 	// The work detail relation read is bounded and stays in this transaction.
 	rrows, err := tx.QueryContext(ctx, `SELECT r.id,r.kind,r.work_id_from,r.work_id_to FROM relations r WHERE (r.work_id_from=? OR r.work_id_to=?) ORDER BY r.kind,r.work_id_from,r.work_id_to LIMIT 100`, req.Work, req.Work)

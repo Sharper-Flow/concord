@@ -10,7 +10,6 @@ import (
 
 	"charm.land/bubbles/v2/help"
 	"charm.land/bubbles/v2/key"
-	"charm.land/bubbles/v2/table"
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -54,10 +53,10 @@ type Model struct {
 	core                     *launcher.Model
 	ctx                      context.Context
 	input                    textinput.Model
-	table                    table.Model
 	help                     help.Model
 	profile                  Profile
 	projection               launcher.Projection
+	snapshot                 launcher.Snapshot
 	filterMode               bool
 	queryMode                bool
 	queryDisplayed           bool
@@ -79,7 +78,7 @@ func New(core *launcher.Model, ctx context.Context, profile Profile) *Model {
 	input.Prompt = "FILTER: "
 	input.SetStyles(textinput.Styles{})
 	model := &Model{
-		core: core, ctx: ctx, input: input, table: table.New(), help: help.New(),
+		core: core, ctx: ctx, input: input, help: help.New(),
 		profile: profile, width: 80, height: 24,
 		keys: keyMap{
 			Move:    key.NewBinding(key.WithKeys("↑", "↓"), key.WithHelp("arrows", "move")),
@@ -110,7 +109,8 @@ func New(core *launcher.Model, ctx context.Context, profile Profile) *Model {
 // Sync projects the latest in-memory launcher snapshot after an explicit read
 // or UI event. Render never reads the core or its read port.
 func (m *Model) Sync() {
-	m.projection = launcher.Project(m.core.Snapshot(), m.width)
+	m.snapshot = m.core.Snapshot()
+	m.projection = launcher.Project(m.snapshot, m.width)
 	m.clampCursor()
 }
 
@@ -562,61 +562,70 @@ func (m *Model) togglePin(pin bool) {
 	m.clampCursor()
 }
 
-func (m *Model) Init() tea.Cmd  { return nil }
-func (m *Model) View() tea.View { return tea.NewView(m.Render()) }
+func (m *Model) Init() tea.Cmd { return nil }
+func (m *Model) View() tea.View {
+	view := tea.NewView(m.Render())
+	view.AltScreen = true
+	return view
+}
 
-// Render uses only the last explicit projection and local interaction state.
-// It never reads the core or ReadPort.
+// Render uses the last explicit projection and local interaction state.
 func (m *Model) Render() string {
-	projection := m.projection
-	rows := m.filteredRows()
-	snapshot := m.core.Snapshot()
-	screen := snapshot.Screen
-	m.keys.Search.SetEnabled(screen != launcher.ScreenPortfolio)
-	m.keys.Filter.SetEnabled(screen != launcher.ScreenWork)
-	m.keys.Section.SetEnabled(screen != launcher.ScreenPortfolio)
-	m.keys.Launch.SetEnabled(screen != launcher.ScreenPortfolio)
-	if screen == launcher.ScreenProduct {
-		return m.renderS2(projection.Header)
+	snapshot := m.snapshot
+	m.keys.Search.SetEnabled(snapshot.Screen != launcher.ScreenPortfolio)
+	m.keys.Filter.SetEnabled(snapshot.Screen != launcher.ScreenWork)
+	m.keys.Section.SetEnabled(snapshot.Screen != launcher.ScreenPortfolio)
+	m.keys.Launch.SetEnabled(snapshot.Screen != launcher.ScreenPortfolio)
+
+	content := m.renderContent(snapshot)
+	header := "CONCORD LAUNCHER"
+	if snapshot.AmbientProduct != "" {
+		header += " | PRODUCT: " + snapshot.AmbientProduct
 	}
-	if screen == launcher.ScreenWork {
-		return m.renderS3(projection.Header)
+	status := "COVERAGE: " + coverageValue(snapshot.Coverage)
+	if snapshot.StatusMessage != "" {
+		status = "STATUS: " + snapshot.StatusMessage
 	}
+	statusBar := lipgloss.JoinHorizontal(lipgloss.Top,
+		fixedLine("FOCUS: "+focusText(snapshot), m.width/2),
+		fixedLine(status, m.width-m.width/2),
+	)
+	footer := m.help.View(m.keys)
+	if m.showHelp {
+		footer = "HELP: " + footer
+	}
+	return fixedFrame(
+		lipgloss.JoinVertical(lipgloss.Left,
+			fixedLine(header, m.width),
+			statusBar,
+			pane(content, m.width, max(1, m.height-3)),
+			fixedLine(footer, m.width),
+		), m.width, m.height)
+}
+
+func (m *Model) renderContent(snapshot launcher.Snapshot) string {
 	if len(snapshot.Candidates) > 0 {
 		return m.renderCandidates(snapshot)
 	}
+	if snapshot.Screen == launcher.ScreenProduct {
+		return m.renderS2(m.projection.Header)
+	}
+	if snapshot.Screen == launcher.ScreenWork {
+		return m.renderS3(m.projection.Header)
+	}
+	return m.renderPortfolio(snapshot)
+}
+
+func (m *Model) renderPortfolio(snapshot launcher.Snapshot) string {
+	projection := m.projection
+	rows := snapshot.Rows
 	widths := columnWidths(m.width)
-	columns := make([]table.Column, len(projection.Columns))
-	for i, title := range projection.Columns {
-		columns[i] = table.Column{Title: title, Width: widths[i]}
-	}
-	projectedRows := make([]table.Row, 0, len(rows))
-	start := m.scroll
-	if start > len(rows) {
-		start = len(rows)
-	}
-	end := min(len(rows), start+m.pageSize())
-	for _, row := range rows[start:end] {
-		value := []string{row.Name + row.NameSuffix, row.Stage, relianceText(row), actionText(row), row.Focus}
-		projectedRows = append(projectedRows, wrappedRows(value, widths)...)
-	}
-	m.table.SetColumns(columns)
-	m.table.SetRows(projectedRows)
-	m.table.SetWidth(m.width)
-	m.table.SetHeight(max(1, m.height-6))
-	styles := table.Styles{}
-	if m.profile.Color {
-		accent := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("63"))
-		styles = table.Styles{Header: accent, Cell: lipgloss.NewStyle(), Selected: accent}
-	}
-	m.table.SetStyles(styles)
-	lines := append([]string{}, projection.Header...)
-	lines = wrapHeaders(lines, m.width)
+	lines := []string{strings.Join(projection.Header, " | ")}
 	lines = append(lines, probeLines(snapshot.Probes)...)
 	if m.filterMode {
 		lines = append(lines, m.input.View())
 	} else if m.filterValue != "" {
-		hidden := len(m.core.Snapshot().Rows) - len(rows)
+		hidden := len(snapshot.Rows) - len(rows)
 		lines = append(lines, "FILTERED: "+m.filterValue+" (hidden: "+fmtInt(hidden)+")")
 	}
 	if len(snapshot.Rows) == 0 && snapshot.Coverage == "first_run" {
@@ -626,7 +635,25 @@ func (m *Model) Render() string {
 	} else if snapshot.StatusMessage != "" {
 		lines = append(lines, "STATUS: "+snapshot.StatusMessage)
 	}
-	lines = append(lines, m.table.View())
+	lines = append(lines, strings.Join(projection.Columns, "  "))
+	for _, row := range rows {
+		values := []string{row.Name + row.NameSuffix, row.Stage, relianceText(row), actionText(row), row.Focus}
+		parts := make([][]string, len(values))
+		multiline := false
+		for i, value := range values {
+			parts[i] = splitDisplay(value, widths[i])
+			if len(parts[i]) > 1 {
+				multiline = true
+			}
+		}
+		if !multiline {
+			lines = append(lines, strings.Join(values, " | "))
+			continue
+		}
+		for _, valueParts := range parts {
+			lines = append(lines, valueParts...)
+		}
+	}
 	if m.showHelp {
 		lines = append(lines, helpLines("HELP: "+m.help.View(m.keys), m.width)...)
 	} else {
@@ -637,7 +664,7 @@ func (m *Model) Render() string {
 
 func (m *Model) renderS2(headers []string) string {
 	lines := append([]string{}, headers...)
-	s := m.core.Snapshot()
+	s := m.snapshot
 	lines = append(lines, probeLines(s.Probes)...)
 	stack := s.S2AnswerStack()
 	lines = append(lines, "S2 PRODUCT COORDINATION")
@@ -651,7 +678,7 @@ func (m *Model) renderS2(headers []string) string {
 	}
 	for _, panel := range stack.Panels {
 		focused := s.PanelFocus == panel || (s.PanelFocus == "" && panel == launcher.S2PanelDomain)
-		lines = append(lines, s2PanelLines(panel, focused, stack, s, m.filteredRanked())...)
+		lines = append(lines, s2PanelLines(panel, focused, stack, s, filterRanked(s.Ranked, m.filterValue))...)
 	}
 	if s.QueryResult {
 		lines = append(lines, "KNOWLEDGE WATERMARK: "+s.Knowledge.Watermark+" STATE: "+s.Knowledge.State)
@@ -819,7 +846,7 @@ func rankedLines(ranked []launcher.RankedWork, snapshot launcher.Snapshot) []str
 
 func (m *Model) renderS3(headers []string) string {
 	lines := append([]string{}, headers...)
-	s := m.core.Snapshot()
+	s := m.snapshot
 	lines = append(lines, probeLines(s.Probes)...)
 	if s.QueryResult {
 		lines = append(lines, "S3 WORK SEARCH", "QUERY RESULT: "+s.QuerySubmitted+" (Esc restores prior view)")
@@ -1066,30 +1093,6 @@ func columnWidths(width int) []int {
 	return []int{18, 14, 18, 12, width - 18 - 14 - 18 - 12}
 }
 
-func wrappedRows(row []string, widths []int) []table.Row {
-	wrapped := make([][]string, len(row))
-	lineCount := 1
-	for i := range row {
-		wrapped[i] = splitDisplay(row[i], widths[i])
-		if len(wrapped[i]) == 0 {
-			wrapped[i] = []string{""}
-		}
-		if len(wrapped[i]) > lineCount {
-			lineCount = len(wrapped[i])
-		}
-	}
-	rows := make([]table.Row, lineCount)
-	for line := 0; line < lineCount; line++ {
-		rows[line] = make(table.Row, len(row))
-		for field := range row {
-			if line < len(wrapped[field]) {
-				rows[line][field] = wrapped[field][line]
-			}
-		}
-	}
-	return rows
-}
-
 func wrapHeaders(headers []string, width int) []string {
 	wrapped := make([]string, 0, len(headers))
 	for _, header := range headers {
@@ -1148,15 +1151,8 @@ func max(a, b int) int {
 	return b
 }
 
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
-
 func (m *Model) renderCandidates(snapshot launcher.Snapshot) string {
-	lines := []string{"CONCORD LAUNCHER", "CANDIDATES", "STATUS: " + snapshot.Coverage}
+	lines := []string{"CANDIDATES", "STATUS: " + snapshot.Coverage}
 	if snapshot.StatusMessage != "" {
 		lines = append(lines, "MESSAGE: "+snapshot.StatusMessage)
 	}
@@ -1200,6 +1196,128 @@ func (m *Model) renderCandidates(snapshot launcher.Snapshot) string {
 		lines = append(lines, helpLines(m.help.View(m.keys), m.width)...)
 	}
 	return strings.Join(wrapHeaders(lines, m.width), "\n")
+}
+
+func filterRanked(values []launcher.RankedWork, query string) []launcher.RankedWork {
+	needle := strings.ToLower(query)
+	if needle == "" {
+		return values
+	}
+	out := make([]launcher.RankedWork, 0, len(values))
+	for _, value := range values {
+		if strings.Contains(strings.ToLower(value.ID+" "+value.Title+" "+value.Kind+" "+value.Lifecycle), needle) {
+			out = append(out, value)
+		}
+	}
+	return out
+}
+
+func focusText(snapshot launcher.Snapshot) string {
+	if snapshot.SelectedWorkID != "" {
+		return "work/" + snapshot.SelectedWorkID
+	}
+	if snapshot.AmbientProduct != "" {
+		return "product/" + snapshot.AmbientProduct
+	}
+	return "portfolio"
+}
+
+func coverageValue(value string) string {
+	if value == "" {
+		return "unknown"
+	}
+	return value
+}
+
+func pane(content string, width, height int) string {
+	if width < 3 || height < 3 {
+		return fixedBlock(content, width, height)
+	}
+	innerWidth := width - 2
+	lines := strings.Split(content, "\n")
+	wrapped := make([]string, 0, len(lines))
+	for _, line := range lines {
+		parts := wrapPaneLine(line, innerWidth)
+		if len(parts) == 0 {
+			parts = []string{""}
+		}
+		wrapped = append(wrapped, parts...)
+	}
+	if len(wrapped) > height-2 {
+		wrapped = wrapped[:height-2]
+	}
+	return lipgloss.NewStyle().
+		Width(width).
+		Height(height).
+		Border(lipgloss.RoundedBorder()).
+		Render(strings.Join(wrapped, "\n"))
+}
+
+func wrapPaneLine(line string, width int) []string {
+	if lipgloss.Width(line) <= width {
+		return []string{line}
+	}
+	var lines []string
+	current := ""
+	for _, word := range strings.Fields(line) {
+		candidate := word
+		if current != "" {
+			candidate = current + " " + word
+		}
+		if current != "" && lipgloss.Width(candidate) > width {
+			lines = append(lines, current)
+			current = word
+			continue
+		}
+		if current == "" && lipgloss.Width(candidate) > width {
+			parts := splitDisplay(candidate, width)
+			if len(parts) > 1 {
+				lines = append(lines, parts[:len(parts)-1]...)
+				current = parts[len(parts)-1]
+				continue
+			}
+		}
+		current = candidate
+	}
+	if current != "" {
+		lines = append(lines, current)
+	}
+	return lines
+}
+
+func fixedBlock(content string, width, height int) string {
+	width = max(1, width)
+	height = max(1, height)
+	lines := strings.Split(content, "\n")
+	if len(lines) > height {
+		lines = lines[:height]
+	}
+	for len(lines) < height {
+		lines = append(lines, "")
+	}
+	for i := range lines {
+		lines[i] = fixedLine(lines[i], width)
+	}
+	return strings.Join(lines, "\n")
+}
+
+func fixedLine(value string, width int) string {
+	width = max(1, width)
+	parts := splitDisplay(value, width)
+	if len(parts) == 0 {
+		return strings.Repeat(" ", width)
+	}
+	line := parts[0]
+	if displayWidth := lipgloss.Width(line); displayWidth < width {
+		line += strings.Repeat(" ", width-displayWidth)
+	}
+	return line
+}
+
+func fixedFrame(content string, width, height int) string {
+	width = max(1, width)
+	height = max(1, height)
+	return fixedBlock(content, width, height)
 }
 
 func candidatePreviewLines(candidate launcher.Candidate) []string {

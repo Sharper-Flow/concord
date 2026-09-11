@@ -7,14 +7,6 @@ import (
 	"strings"
 )
 
-type Screen string
-
-const (
-	ScreenPortfolio Screen = "portfolio"
-	ScreenProduct   Screen = "product"
-	ScreenWork      Screen = "work"
-)
-
 type ReadKind string
 
 const (
@@ -286,7 +278,7 @@ type CandidatePreview struct {
 }
 
 type Snapshot struct {
-	Screen                 Screen
+	Screen                 Surface
 	AmbientProduct         string
 	QueryID                string
 	ContractVersion        string
@@ -326,7 +318,7 @@ type Model struct {
 }
 
 func New(port ReadPort) *Model {
-	return &Model{port: port, width: 80, height: 24, section: SectionRelations, snapshot: Snapshot{Screen: ScreenPortfolio, Coverage: "authoritative"}}
+	return &Model{port: port, width: 80, height: 24, section: SectionRelations, snapshot: Snapshot{Screen: SurfacePortfolio, Coverage: "authoritative"}}
 }
 
 func (m *Model) Enter(ctx context.Context) error {
@@ -340,7 +332,7 @@ func (m *Model) SelectProduct(ctx context.Context, product string) error {
 			err := m.read(ctx, ReadRequest{Kind: ReadDomains, Product: product, Limit: 20, Section: SectionDomains})
 			if err != nil {
 				m.navigation = m.navigation[:len(m.navigation)-1]
-				m.snapshot = Snapshot{Screen: ScreenPortfolio, Coverage: "unreachable", Reliance: "unreachable", StatusMessage: err.Error()}
+				m.snapshot = Snapshot{Screen: SurfacePortfolio, Coverage: "unreachable", Reliance: "unreachable", StatusMessage: err.Error()}
 				return err
 			}
 			// The Domain panel is focused on entry, so its bounded knowledge
@@ -359,7 +351,7 @@ func (m *Model) SelectProduct(ctx context.Context, product string) error {
 }
 
 func (m *Model) SelectWork(ctx context.Context, work string) error {
-	if m.snapshot.Screen != ScreenProduct || m.snapshot.AmbientProduct == "" {
+	if m.snapshot.Screen != SurfaceProduct || m.snapshot.AmbientProduct == "" {
 		return nil
 	}
 	previous := m.Snapshot()
@@ -381,7 +373,7 @@ func (m *Model) SubmitQuery(ctx context.Context, query string) error {
 	// S1 carries no semantic-query binding, so a query submitted against the
 	// portfolio issues no read. The ambient guard below is not a substitute: an
 	// S1 snapshot with a non-empty ambient Product is representable.
-	if m.snapshot.Screen == ScreenPortfolio {
+	if m.snapshot.Screen == SurfacePortfolio {
 		return nil
 	}
 	if m.snapshot.AmbientProduct == "" {
@@ -393,9 +385,9 @@ func (m *Model) SubmitQuery(ctx context.Context, query string) error {
 func (m *Model) Refresh(ctx context.Context) error {
 	s := m.snapshot
 	switch s.Screen {
-	case ScreenPortfolio:
+	case SurfacePortfolio:
 		return m.read(ctx, ReadRequest{Kind: ReadPortfolio, Limit: 20})
-	case ScreenProduct:
+	case SurfaceProduct:
 		if s.Section == SectionKnowledge {
 			return m.read(ctx, ReadRequest{Kind: ReadKnowledge, Product: s.AmbientProduct, Limit: 20, Section: SectionKnowledge})
 		}
@@ -403,7 +395,7 @@ func (m *Model) Refresh(ctx context.Context) error {
 			return m.read(ctx, ReadRequest{Kind: ReadDomains, Product: s.AmbientProduct, Limit: 20, Section: SectionDomains})
 		}
 		return m.read(ctx, ReadRequest{Kind: ReadProduct, Product: s.AmbientProduct, Limit: 20, Section: s.Section})
-	case ScreenWork:
+	case SurfaceWork:
 		if s.Section == SectionKnowledge {
 			return m.read(ctx, ReadRequest{Kind: ReadKnowledge, Product: s.AmbientProduct, Work: s.SelectedWorkID, Limit: 20, Section: SectionKnowledge})
 		}
@@ -425,7 +417,7 @@ func (m *Model) Back() error {
 }
 
 func (m *Model) SetSection(section Section) error {
-	if m.snapshot.Screen != ScreenProduct && m.snapshot.Screen != ScreenWork {
+	if m.snapshot.Screen != SurfaceProduct && m.snapshot.Screen != SurfaceWork {
 		return nil
 	}
 	m.section = section
@@ -441,7 +433,7 @@ func (m *Model) PanelFocus() S2Panel {
 }
 
 func (m *Model) SetPanelFocus(panel S2Panel) error {
-	if m.snapshot.Screen != ScreenProduct {
+	if m.snapshot.Screen != SurfaceProduct {
 		return nil
 	}
 	if !isS2Panel(panel) {
@@ -460,7 +452,7 @@ func (m *Model) SetPanelFocus(panel S2Panel) error {
 
 func (m *Model) CyclePanelFocus() S2Panel {
 	current := m.PanelFocus()
-	if m.snapshot.Screen != ScreenProduct {
+	if m.snapshot.Screen != SurfaceProduct {
 		return current
 	}
 	order := S2PanelOrder()
@@ -476,7 +468,7 @@ func (m *Model) CyclePanelFocus() S2Panel {
 }
 
 func (m *Model) EnsureKnowledge(ctx context.Context) error {
-	if m.snapshot.Screen != ScreenProduct && m.snapshot.Screen != ScreenWork {
+	if m.snapshot.Screen != SurfaceProduct && m.snapshot.Screen != SurfaceWork {
 		return nil
 	}
 	if m.snapshot.Knowledge.Read {
@@ -494,7 +486,7 @@ func (m *Model) Handoff() SessionHandoff { return m.snapshot.Session }
 func (m *Model) Candidates() []Candidate { return append([]Candidate(nil), m.snapshot.Candidates...) }
 
 func (m *Model) RestoreSnapshot(snapshot Snapshot) {
-	if snapshot.Screen == ScreenProduct {
+	if snapshot.Screen == SurfaceProduct {
 		if snapshot.Section == "" {
 			snapshot.Section = SectionDomains
 		}
@@ -690,7 +682,7 @@ func (m *Model) read(ctx context.Context, request ReadRequest) error {
 		snapshot.Rows = nil
 		snapshot.Candidates = nil
 		if snapshot.Screen == "" {
-			snapshot.Screen = ScreenPortfolio
+			snapshot.Screen = SurfacePortfolio
 		}
 		if snapshot.Coverage == "" {
 			snapshot.Coverage = "unreachable"
@@ -713,8 +705,8 @@ func (m *Model) read(ctx context.Context, request ReadRequest) error {
 	if snapshot.Screen == "" {
 		snapshot.Screen = m.snapshot.Screen
 	}
-	if request.Kind == ReadWork && snapshot.Screen == ScreenPortfolio {
-		snapshot.Screen = ScreenWork
+	if request.Kind == ReadWork && snapshot.Screen == SurfacePortfolio {
+		snapshot.Screen = SurfaceWork
 	}
 	if request.Kind == ReadProduct || request.Kind == ReadDomains || request.Kind == ReadWork || request.Kind == ReadKnowledge || request.Kind == ReadSearch {
 		if snapshot.AmbientProduct == "" {
@@ -727,7 +719,7 @@ func (m *Model) read(ctx context.Context, request ReadRequest) error {
 	if request.Kind == ReadKnowledge {
 		snapshot = mergeKnowledgeSnapshot(previous, snapshot)
 	}
-	if snapshot.Screen == ScreenProduct && snapshot.PanelFocus == "" {
+	if snapshot.Screen == SurfaceProduct && snapshot.PanelFocus == "" {
 		snapshot.PanelFocus = previous.PanelFocus
 		if snapshot.PanelFocus == "" {
 			snapshot.PanelFocus = S2PanelDomain
@@ -753,7 +745,7 @@ func (m *Model) read(ctx context.Context, request ReadRequest) error {
 		snapshot.Probes = append([]ProbeStatus(nil), probes.Probe(ctx)...)
 	}
 	m.snapshot = snapshot
-	if snapshot.Screen == ScreenProduct || snapshot.Screen == ScreenWork {
+	if snapshot.Screen == SurfaceProduct || snapshot.Screen == SurfaceWork {
 		m.section = snapshot.Section
 	}
 	return nil

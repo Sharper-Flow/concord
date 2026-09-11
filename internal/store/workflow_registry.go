@@ -567,6 +567,7 @@ func builtinWorkflowDefinitionsWithHistory() []WorkflowDefinition {
 			preFailureImplementationV4(), preFailureBreakFixV4(), preFailureGenericOneOffV4(), preFailureResearchV4(), preFailureArchitectureSpikeV3(), preFailureOpsRunbookV3(), preFailureStaticAnalysisV3(),
 			releasedBreakFixV5(),
 			preDesignImplementationV5(),
+			preProposalImplementationV6(),
 		},
 		BuiltinWorkflowDefinitions()...,
 	)
@@ -1040,6 +1041,10 @@ func actionEnumListField(name string, required bool, min, max int64, values ...s
 	return WorkflowPayloadField{Name: name, ValueType: PayloadStringList, Required: required, MinItems: workflowInt(min), MaxItems: workflowInt(max), Enum: values}
 }
 
+func actionProseListField(name string, required bool, min, max int64, itemRef string) WorkflowPayloadField {
+	return WorkflowPayloadField{Name: name, ValueType: PayloadStringList, Required: required, MinItems: workflowInt(min), MaxItems: workflowInt(max), ItemRef: itemRef}
+}
+
 func actionLawListField(name string, required bool, min, max int64) WorkflowPayloadField {
 	return WorkflowPayloadField{Name: name, ValueType: PayloadStringList, Required: required, MinItems: workflowInt(min), MaxItems: workflowInt(max), ItemRef: "law_id"}
 }
@@ -1083,7 +1088,14 @@ func nativeRunActionFields(statuses ...string) []WorkflowPayloadField {
 }
 
 var builtinActionPolicies = map[string]builtinActionPolicy{
-	"record_proposal":  actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance, ActionEventGeneric),
+	"record_proposal": actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance, ActionEventTyped,
+		actionStringField("problem", true, 4096),
+		actionProseListField("affected", true, 1, 16, "proposal_affected_text"),
+		actionStringField("stakes", true, 2048),
+		actionProseListField("user_outcomes", true, 1, 16, "proposal_text"),
+		actionProseListField("constraints", false, 0, 16, "proposal_text"),
+		actionProseListField("open_questions", false, 0, 16, "proposal_text"),
+	),
 	"record_discovery": actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance, ActionEventGeneric),
 	"record_design": actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance, ActionEventTyped,
 		WorkflowPayloadField{Name: "approach", ValueType: PayloadString, Required: true, MinLength: workflowInt(2), MaxLength: workflowInt(4096)},
@@ -1307,7 +1319,7 @@ func builtinImplementation(payloadContracts bool) WorkflowDefinition {
 	edges = addEdge(edges, "execution", "execution", WorkflowEdgeRetry)
 	actions := []string{"record_proposal", "record_discovery", "record_design", "approve_contract", "start_execution", "checkpoint_execution", "bind_evidence", "declare_impact", "link_successor", "record_delivery", "record_verdict", "confirm_premise", "complete"}
 	d := baseDefinition("workflow.implementation", WorkKindImplementation, graph(steps, edges, "release"), actions, []EvidenceKind{EvidenceVerification, EvidenceReview}, WorkflowOutcomeSchema{DefaultKind: PredicateCheck, AllowedKinds: []PredicateKind{PredicateExists, PredicateAbsent, PredicateCheck}, AllowedOutcomeTokens: []string{}, DecisionRecordRequired: false}, []WorkKind{WorkKindBreakFix, WorkKindResearch}, payloadContracts)
-	d.Version = 6
+	d.Version = 7
 	return withContinuityActions(d, payloadContracts)
 }
 func builtinBreakFix(payloadContracts bool) WorkflowDefinition {

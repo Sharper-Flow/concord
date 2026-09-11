@@ -491,6 +491,28 @@ func bornBoundEvidenceEvents(ctx context.Context, tx *sql.Tx, workID string, def
 	return events, nil
 }
 
+// workflowProposalRecordedEvents builds the typed proposal event for a
+// definition that declares the proposal document. A definition pinned before
+// the document keeps its generic completion and emits no typed event. An
+// omitted optional list stays absent, so it never reads back as an empty one.
+func workflowProposalRecordedEvents(definition WorkflowDefinition, request WorkflowActionExecutionRequest, actor string, raw json.RawMessage, eventID string, expected int64) ([]Event, error) {
+	if definition.Version < 7 {
+		return nil, nil
+	}
+	proposal, err := decodeWorkflowProposalContent(raw)
+	if err != nil {
+		return nil, err
+	}
+	values := map[string]any{"problem": proposal.Problem, "affected": proposal.Affected, "stakes": proposal.Stakes, "user_outcomes": proposal.UserOutcomes}
+	if proposal.Constraints != nil {
+		values["constraints"] = proposal.Constraints
+	}
+	if proposal.OpenQuestions != nil {
+		values["open_questions"] = proposal.OpenQuestions
+	}
+	return []Event{workflowTypedEvent(eventID, WorkflowProposalRecorded, request.WorkID, actor, request.Now, expected, values)}, nil
+}
+
 func workflowSemanticActionEvents(ctx context.Context, tx *sql.Tx, definition WorkflowDefinition, request WorkflowActionExecutionRequest, stepID, actor string, raw json.RawMessage, expected int64, defaultVerdictEvidence bool) ([]Event, error) {
 	fields, err := workflowActionObject(raw)
 	if err != nil {
@@ -589,6 +611,8 @@ func workflowSemanticActionEvents(ctx context.Context, tx *sql.Tx, definition Wo
 		return []Event{workflowTypedEvent(eventID, WorkflowDesignRecorded, request.WorkID, actor, request.Now, expected, map[string]any{
 			"approach": approach, "decisions": decisions, "touched_refs": workflowFieldStrings(fields, "touched_refs"),
 		})}, nil
+	case "record_proposal":
+		return workflowProposalRecordedEvents(definition, request, actor, raw, eventID, expected)
 	case "approve_contract":
 		if err := requireResearchForPendingQuestions(ctx, tx, request.WorkID); err != nil {
 			return nil, err

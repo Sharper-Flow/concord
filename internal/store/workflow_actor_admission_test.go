@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"testing"
 )
@@ -65,6 +66,7 @@ func TestPreflightAdmitsAnActorTheCapturingSessionNeverRecorded(t *testing.T) {
 		ExpectedVersion: version,
 		StepID:          readInstanceStep(t, s, "work-handoff"),
 		ActionID:        "record_proposal",
+		Payload:         json.RawMessage(`{"problem":"The bounded problem statement.","affected":["The affected system."],"stakes":"The bounded stakes statement.","user_outcomes":["The expected user outcome."]}`),
 		Actor:           secondSessionActor(),
 	}
 	if err := WorkflowActionPreflightWithRegistry(ctx, s, BuiltinWorkflowRegistry(), request); err != nil {

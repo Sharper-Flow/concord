@@ -42,6 +42,17 @@ type WorkflowDesignRecord struct {
 	RecordedAt  string                   `json:"recorded_at"`
 }
 
+type WorkflowProposalRecord struct {
+	WorkVersion   int64    `json:"work_version"`
+	Problem       string   `json:"problem"`
+	Affected      []string `json:"affected"`
+	Stakes        string   `json:"stakes"`
+	UserOutcomes  []string `json:"user_outcomes"`
+	Constraints   []string `json:"constraints"`
+	OpenQuestions []string `json:"open_questions"`
+	RecordedAt    string   `json:"recorded_at"`
+}
+
 type ContextBoundary struct {
 	BoundaryID         string `json:"boundary_id"`
 	Sequence           int64  `json:"sequence"`
@@ -69,6 +80,7 @@ type ContinuitySnapshot struct {
 	PendingOperatorDecision *WorkflowOperatorQuestion `json:"pending_operator_decision"`
 	LatestCheckpoint        *ContextCheckpoint        `json:"latest_checkpoint"`
 	DesignRecord            *WorkflowDesignRecord     `json:"design_record"`
+	ProposalRecord          *WorkflowProposalRecord   `json:"proposal_record"`
 	UnresolvedFailure       *ContextFailure           `json:"unresolved_failure"`
 	Boundaries              []ContextBoundary         `json:"boundaries"`
 	BoundaryCount           int64                     `json:"boundary_count"`
@@ -270,6 +282,16 @@ func ReadWorkflowContinuity(ctx context.Context, s *Store, req ContinuityRequest
 		out.DesignRecord = &design
 	} else if err != sql.ErrNoRows {
 		return out, wrapFailure(KindUnavailable, "C19.Continuity", "cannot read latest workflow design record", true, "retry once the database is readable", err)
+	}
+	var proposal WorkflowProposalRecord
+	var proposalAffected, proposalOutcomes, proposalConstraints, proposalQuestions string
+	if err := tx.QueryRowContext(ctx, `SELECT work_version,problem,affected,stakes,user_outcomes,constraints,open_questions,recorded_at FROM workflow_proposal_records WHERE work_id=? ORDER BY work_version DESC LIMIT 1`, req.Work).Scan(&proposal.WorkVersion, &proposal.Problem, &proposalAffected, &proposal.Stakes, &proposalOutcomes, &proposalConstraints, &proposalQuestions, &proposal.RecordedAt); err == nil {
+		if json.Unmarshal([]byte(proposalAffected), &proposal.Affected) != nil || json.Unmarshal([]byte(proposalOutcomes), &proposal.UserOutcomes) != nil || json.Unmarshal([]byte(proposalConstraints), &proposal.Constraints) != nil || json.Unmarshal([]byte(proposalQuestions), &proposal.OpenQuestions) != nil {
+			return out, newFailure(KindInvariantViolation, "C19.Continuity", "proposal record projection contains malformed arrays", false, "rebuild projections from the event log")
+		}
+		out.ProposalRecord = &proposal
+	} else if err != sql.ErrNoRows {
+		return out, wrapFailure(KindUnavailable, "C19.Continuity", "cannot read latest workflow proposal record", true, "retry once the database is readable", err)
 	}
 	var state string
 	if err := tx.QueryRowContext(ctx, `SELECT instance_state FROM workflow_instances WHERE work_id=?`, req.Work).Scan(&state); err != nil {

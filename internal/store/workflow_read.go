@@ -136,6 +136,7 @@ type WorkflowReadProjection struct {
 	StaleLawRevision     *StaleLawRevision            `json:"stale_law_revision,omitempty"`
 	ChangesProductTruth  bool                         `json:"changes_product_truth"`
 	ArchitectureBinding  *WorkflowArchitectureBinding `json:"architecture_binding,omitempty"`
+	ProposalRecord       *WorkflowProposalRecord      `json:"proposal_record,omitempty"`
 }
 
 // ReadWorkflowProjection returns one bounded, point-in-time workflow
@@ -176,6 +177,16 @@ func ReadWorkflowProjection(ctx context.Context, s *Store, request WorkflowReadR
 	out.BlockingConditions = []string{}
 	out.ImpactNotices = []WorkflowReadNotice{}
 	out.CompletionWarnings = []string{}
+	var proposal WorkflowProposalRecord
+	var proposalAffected, proposalOutcomes, proposalConstraints, proposalQuestions string
+	if err := s.db.QueryRowContext(ctx, `SELECT work_version,problem,affected,stakes,user_outcomes,constraints,open_questions,recorded_at FROM workflow_proposal_records WHERE work_id=? ORDER BY work_version DESC LIMIT 1`, request.WorkID).Scan(&proposal.WorkVersion, &proposal.Problem, &proposalAffected, &proposal.Stakes, &proposalOutcomes, &proposalConstraints, &proposalQuestions, &proposal.RecordedAt); err == nil {
+		if json.Unmarshal([]byte(proposalAffected), &proposal.Affected) != nil || json.Unmarshal([]byte(proposalOutcomes), &proposal.UserOutcomes) != nil || json.Unmarshal([]byte(proposalConstraints), &proposal.Constraints) != nil || json.Unmarshal([]byte(proposalQuestions), &proposal.OpenQuestions) != nil {
+			return out, newFailure(KindInvariantViolation, "workflow_read", "proposal record projection contains malformed arrays", false, "rebuild projections from the event log")
+		}
+		out.ProposalRecord = &proposal
+	} else if err != sql.ErrNoRows {
+		return out, wrapFailure(KindUnavailable, "workflow_read", "cannot read latest workflow proposal record", true, "retry once the database is readable", err)
+	}
 
 	var contract WorkflowReadContract
 	var required, routes, mandates, modifies string

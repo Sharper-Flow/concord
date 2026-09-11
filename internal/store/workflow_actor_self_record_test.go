@@ -70,10 +70,14 @@ func TestFirstWorkflowActionRecordsTheActingActor(t *testing.T) {
 			if got := countWorkflowActor(t, s, agentRef); got != 0 {
 				t.Fatalf("fixture already recorded the acting session: rows=%d, want 0", got)
 			}
+			payload := mustJSONValue(map[string]any{})
+			if testCase.actionID == "record_proposal" {
+				payload = mustJSONValue(map[string]any{"problem": "The bounded problem statement.", "affected": []string{"The affected system."}, "stakes": "The bounded stakes statement.", "user_outcomes": []string{"The expected user outcome."}})
+			}
 
 			request := WorkflowActionExecutionRequest{
 				WorkID: workID, ExpectedVersion: version, ActionID: testCase.actionID,
-				Payload: mustJSONValue(map[string]any{}), Actor: agent,
+				Payload: payload, Actor: agent,
 				AcceptedInputsDigest: "sha256:" + strings.Repeat("e", 64),
 				IdempotencyIdentity:  "issue740-" + testCase.actionID,
 				OperationID:          "issue740-" + testCase.actionID,

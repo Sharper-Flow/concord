@@ -35,6 +35,7 @@ const (
 	WorkflowConditionCancelled     = "workflow.condition_cancelled"
 	WorkflowContextCheckpointed    = "workflow.context_checkpointed"
 	WorkflowContextBoundaryCrossed = "workflow.context_boundary_crossed"
+	WorkflowProposalRecorded       = "workflow.proposal_recorded"
 	WorkflowDesignRecorded         = "workflow.design_recorded"
 	WorkflowCompleted              = "workflow.completed"
 )
@@ -241,6 +242,84 @@ type workflowDesignDecisionPayload struct {
 	Choice    string   `json:"choice"`
 	Rationale string   `json:"rationale"`
 	Rejected  []string `json:"rejected"`
+}
+
+type workflowProposalContent struct {
+	Problem       string   `json:"problem"`
+	Affected      []string `json:"affected"`
+	Stakes        string   `json:"stakes"`
+	UserOutcomes  []string `json:"user_outcomes"`
+	Constraints   []string `json:"constraints,omitempty"`
+	OpenQuestions []string `json:"open_questions,omitempty"`
+}
+
+type workflowProposalRecordedPayload struct {
+	WorkflowVersionFields
+	Problem       string   `json:"problem"`
+	Affected      []string `json:"affected"`
+	Stakes        string   `json:"stakes"`
+	UserOutcomes  []string `json:"user_outcomes"`
+	Constraints   []string `json:"constraints,omitempty"`
+	OpenQuestions []string `json:"open_questions,omitempty"`
+}
+
+func (p workflowProposalRecordedPayload) content() workflowProposalContent {
+	return workflowProposalContent{Problem: p.Problem, Affected: p.Affected, Stakes: p.Stakes, UserOutcomes: p.UserOutcomes, Constraints: p.Constraints, OpenQuestions: p.OpenQuestions}
+}
+
+func validateWorkflowProposalContent(content workflowProposalContent) error {
+	if !validWorkflowProseItem(content.Problem, 4096) || len(content.Affected) < 1 || len(content.Affected) > 16 || !validWorkflowProseItem(content.Stakes, 2048) || len(content.UserOutcomes) < 1 || len(content.UserOutcomes) > 16 || len(content.Constraints) > 16 || len(content.OpenQuestions) > 16 {
+		return newFailure(KindInvalidPayload, "workflow_proposal", "proposal document is missing required text or exceeds its bounds", false, "supply the bounded proposal document")
+	}
+	for _, values := range [][]string{content.Affected, content.UserOutcomes, content.Constraints, content.OpenQuestions} {
+		seen := make(map[string]struct{}, len(values))
+		for _, value := range values {
+			if _, exists := seen[value]; exists {
+				return newFailure(KindInvalidPayload, "workflow_proposal", "proposal text entries must be unique", false, "supply unique proposal text entries")
+			}
+			seen[value] = struct{}{}
+		}
+	}
+	for _, value := range content.Affected {
+		if !validWorkflowProseItem(value, 256) {
+			return newFailure(KindInvalidPayload, "workflow_proposal", "proposal affected entry is blank or exceeds 256 characters", false, "supply bounded affected entries")
+		}
+	}
+	for _, values := range [][]string{content.UserOutcomes, content.Constraints, content.OpenQuestions} {
+		for _, value := range values {
+			if !validWorkflowProseItem(value, 512) {
+				return newFailure(KindInvalidPayload, "workflow_proposal", "proposal text entry is blank or exceeds 512 characters", false, "supply bounded proposal text")
+			}
+		}
+	}
+	return nil
+}
+
+func decodeWorkflowProposalContent(raw json.RawMessage) (workflowProposalContent, error) {
+	if len(raw) == 0 {
+		raw = json.RawMessage(`{}`)
+	}
+	var content workflowProposalContent
+	if err := decodePredicateStrict(raw, &content); err != nil {
+		return content, newFailure(KindInvalidPayload, "workflow_proposal", "proposal payload is not one strict JSON object", false, "supply the closed proposal document")
+	}
+	if err := validateWorkflowProposalContent(content); err != nil {
+		return content, err
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &fields); err != nil {
+		return content, newFailure(KindInvalidPayload, "workflow_proposal", "proposal payload is not one strict JSON object", false, "supply the closed proposal document")
+	}
+	for _, name := range []string{"constraints", "open_questions"} {
+		if value, present := fields[name]; present && strings.TrimSpace(string(value)) == "null" {
+			return content, newFailure(KindInvalidPayload, "workflow_proposal", "proposal optional list cannot be null", false, "supply an array or omit the optional list")
+		}
+	}
+	content.Affected = nonNilStrings(content.Affected)
+	content.UserOutcomes = nonNilStrings(content.UserOutcomes)
+	content.Constraints = nonNilStrings(content.Constraints)
+	content.OpenQuestions = nonNilStrings(content.OpenQuestions)
+	return content, nil
 }
 
 type workflowDesignRecordedPayload struct {
@@ -1166,6 +1245,28 @@ func foldWorkflowDesignRecorded(ctx context.Context, tx *sql.Tx, event Event) er
 	}
 	_, err := tx.ExecContext(ctx, `INSERT INTO workflow_design_records(work_id,work_version,approach,decisions,touched_refs,recorded_at) VALUES(?,?,?,?,?,?)`, event.SubjectID, *p.ResultingVersion, p.Approach, workflowJSON(p.Decisions), workflowJSON(p.TouchedRefs), event.OccurredAt.UTC().Format(time.RFC3339Nano))
 	return workflowProjectionError(err, "cannot record workflow design")
+}
+
+func foldWorkflowProposalRecorded(ctx context.Context, tx *sql.Tx, event Event) error {
+	var p workflowProposalRecordedPayload
+	if err := decodeWorkflowPayload(event, &p); err != nil {
+		return err
+	}
+	if err := workflowBase(event, p.WorkflowVersionFields); err != nil {
+		return err
+	}
+	if err := validateWorkflowProposalContent(p.content()); err != nil {
+		return err
+	}
+	p.Affected = nonNilStrings(p.Affected)
+	p.UserOutcomes = nonNilStrings(p.UserOutcomes)
+	p.Constraints = nonNilStrings(p.Constraints)
+	p.OpenQuestions = nonNilStrings(p.OpenQuestions)
+	if err := advanceWorkflowVersion(ctx, tx, event, p.WorkflowVersionFields); err != nil {
+		return err
+	}
+	_, err := tx.ExecContext(ctx, `INSERT INTO workflow_proposal_records(work_id,work_version,problem,affected,stakes,user_outcomes,constraints,open_questions,recorded_at) VALUES(?,?,?,?,?,?,?,?,?)`, event.SubjectID, *p.ResultingVersion, p.Problem, workflowJSON(p.Affected), p.Stakes, workflowJSON(p.UserOutcomes), workflowJSON(p.Constraints), workflowJSON(p.OpenQuestions), event.OccurredAt.UTC().Format(time.RFC3339Nano))
+	return workflowProjectionError(err, "cannot record workflow proposal")
 }
 
 func foldWorkflowContextBoundaryCrossed(ctx context.Context, tx *sql.Tx, event Event) error {

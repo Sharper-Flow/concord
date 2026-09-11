@@ -198,7 +198,7 @@ func preFailureImplementationV4() WorkflowDefinition {
 	d := builtinImplementation(true)
 	d.Version = 4
 	d = withWorkerActionsBeforeFailure(d, true)
-	return withLegacyRecordDesign(d)
+	return withLegacyRecordProposal(withLegacyRecordDesign(d))
 }
 
 func preFailureBreakFixV4() WorkflowDefinition {
@@ -265,12 +265,28 @@ func preDesignImplementationV5() WorkflowDefinition {
 	d := builtinImplementation(true)
 	d.Version = 5
 	d = withWorkerActions(d, true)
-	return withLegacyRecordDesign(d)
+	return withLegacyRecordProposal(withLegacyRecordDesign(d))
+}
+
+func preProposalImplementationV6() WorkflowDefinition {
+	d := builtinImplementation(true)
+	d.Version = 6
+	d = withWorkerActions(d, true)
+	return withLegacyRecordProposal(d)
 }
 
 func withLegacyRecordDesign(definition WorkflowDefinition) WorkflowDefinition {
 	for i := range definition.ActionDefinitions {
 		if definition.ActionDefinitions[i].ID == "record_design" {
+			definition.ActionDefinitions[i].Payload = WorkflowPayloadDefinition{Closed: true, Fields: []WorkflowPayloadField{}}
+		}
+	}
+	return definition
+}
+
+func withLegacyRecordProposal(definition WorkflowDefinition) WorkflowDefinition {
+	for i := range definition.ActionDefinitions {
+		if definition.ActionDefinitions[i].ID == "record_proposal" {
 			definition.ActionDefinitions[i].Payload = WorkflowPayloadDefinition{Closed: true, Fields: []WorkflowPayloadField{}}
 		}
 	}

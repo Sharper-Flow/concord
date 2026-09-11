@@ -8366,58 +8366,86 @@ const GeneratedPayloadSchemaDocument = `{
             ]
           },
           "then": {
-            "not": {
-              "anyOf": [
-                {
-                  "required": [
-                    "selected_choice"
+            "anyOf": [
+              {
+                "not": {
+                  "anyOf": [
+                    {
+                      "required": [
+                        "selected_choice"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "decision_context_digest"
+                      ]
+                    }
                   ]
                 },
-                {
-                  "required": [
-                    "decision_context_digest"
-                  ]
-                }
-              ]
-            },
-            "properties": {
-              "fields": {
-                "additionalProperties": false,
-                "maxProperties": 32,
                 "properties": {
-                  "approach": {
-                    "maxLength": 4096,
-                    "minLength": 2,
-                    "type": "string"
-                  },
-                  "decisions": {
-                    "items": {
-                      "$ref": "#/$defs/workflow_design_decision"
+                  "fields": {
+                    "additionalProperties": false,
+                    "maxProperties": 32,
+                    "properties": {
+                      "approach": {
+                        "maxLength": 4096,
+                        "minLength": 2,
+                        "type": "string"
+                      },
+                      "decisions": {
+                        "items": {
+                          "$ref": "#/$defs/workflow_design_decision"
+                        },
+                        "maxItems": 16,
+                        "minItems": 1,
+                        "type": "array"
+                      },
+                      "touched_refs": {
+                        "items": {
+                          "$ref": "#/$defs/reference"
+                        },
+                        "maxItems": 64,
+                        "minItems": 1,
+                        "type": "array",
+                        "uniqueItems": true
+                      }
                     },
-                    "maxItems": 16,
-                    "minItems": 1,
-                    "type": "array"
-                  },
-                  "touched_refs": {
-                    "items": {
-                      "$ref": "#/$defs/reference"
-                    },
-                    "maxItems": 64,
-                    "minItems": 1,
-                    "type": "array",
-                    "uniqueItems": true
+                    "required": [
+                      "approach",
+                      "decisions",
+                      "touched_refs"
+                    ],
+                    "type": "object"
                   }
                 },
                 "required": [
-                  "approach",
-                  "decisions",
-                  "touched_refs"
-                ],
-                "type": "object"
+                  "fields"
+                ]
+              },
+              {
+                "not": {
+                  "anyOf": [
+                    {
+                      "required": [
+                        "selected_choice"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "decision_context_digest"
+                      ]
+                    }
+                  ]
+                },
+                "properties": {
+                  "fields": {
+                    "additionalProperties": false,
+                    "maxProperties": 32,
+                    "properties": {},
+                    "type": "object"
+                  }
+                }
               }
-            },
-            "required": [
-              "fields"
             ]
           }
         },
@@ -8617,83 +8645,111 @@ const GeneratedPayloadSchemaDocument = `{
             ]
           },
           "then": {
-            "not": {
-              "anyOf": [
-                {
-                  "required": [
-                    "selected_choice"
+            "anyOf": [
+              {
+                "not": {
+                  "anyOf": [
+                    {
+                      "required": [
+                        "selected_choice"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "decision_context_digest"
+                      ]
+                    }
                   ]
                 },
-                {
-                  "required": [
-                    "decision_context_digest"
-                  ]
-                }
-              ]
-            },
-            "properties": {
-              "fields": {
-                "additionalProperties": false,
-                "maxProperties": 32,
                 "properties": {
-                  "affected": {
-                    "items": {
-                      "$ref": "#/$defs/proposal_affected_text"
+                  "fields": {
+                    "additionalProperties": false,
+                    "maxProperties": 32,
+                    "properties": {
+                      "affected": {
+                        "items": {
+                          "$ref": "#/$defs/proposal_affected_text"
+                        },
+                        "maxItems": 16,
+                        "minItems": 1,
+                        "type": "array",
+                        "uniqueItems": true
+                      },
+                      "constraints": {
+                        "items": {
+                          "$ref": "#/$defs/proposal_text"
+                        },
+                        "maxItems": 16,
+                        "minItems": 0,
+                        "type": "array",
+                        "uniqueItems": true
+                      },
+                      "open_questions": {
+                        "items": {
+                          "$ref": "#/$defs/proposal_text"
+                        },
+                        "maxItems": 16,
+                        "minItems": 0,
+                        "type": "array",
+                        "uniqueItems": true
+                      },
+                      "problem": {
+                        "maxLength": 4096,
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "stakes": {
+                        "maxLength": 2048,
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "user_outcomes": {
+                        "items": {
+                          "$ref": "#/$defs/proposal_text"
+                        },
+                        "maxItems": 16,
+                        "minItems": 1,
+                        "type": "array",
+                        "uniqueItems": true
+                      }
                     },
-                    "maxItems": 16,
-                    "minItems": 1,
-                    "type": "array",
-                    "uniqueItems": true
-                  },
-                  "constraints": {
-                    "items": {
-                      "$ref": "#/$defs/proposal_text"
-                    },
-                    "maxItems": 16,
-                    "minItems": 0,
-                    "type": "array",
-                    "uniqueItems": true
-                  },
-                  "open_questions": {
-                    "items": {
-                      "$ref": "#/$defs/proposal_text"
-                    },
-                    "maxItems": 16,
-                    "minItems": 0,
-                    "type": "array",
-                    "uniqueItems": true
-                  },
-                  "problem": {
-                    "maxLength": 4096,
-                    "minLength": 1,
-                    "type": "string"
-                  },
-                  "stakes": {
-                    "maxLength": 2048,
-                    "minLength": 1,
-                    "type": "string"
-                  },
-                  "user_outcomes": {
-                    "items": {
-                      "$ref": "#/$defs/proposal_text"
-                    },
-                    "maxItems": 16,
-                    "minItems": 1,
-                    "type": "array",
-                    "uniqueItems": true
+                    "required": [
+                      "problem",
+                      "affected",
+                      "stakes",
+                      "user_outcomes"
+                    ],
+                    "type": "object"
                   }
                 },
                 "required": [
-                  "problem",
-                  "affected",
-                  "stakes",
-                  "user_outcomes"
-                ],
-                "type": "object"
+                  "fields"
+                ]
+              },
+              {
+                "not": {
+                  "anyOf": [
+                    {
+                      "required": [
+                        "selected_choice"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "decision_context_digest"
+                      ]
+                    }
+                  ]
+                },
+                "properties": {
+                  "fields": {
+                    "additionalProperties": false,
+                    "maxProperties": 32,
+                    "properties": {},
+                    "type": "object"
+                  }
+                }
               }
-            },
-            "required": [
-              "fields"
             ]
           }
         },

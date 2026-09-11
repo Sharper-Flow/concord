@@ -573,6 +573,12 @@ func builtinWorkflowDefinitionsWithHistory() []WorkflowDefinition {
 	)
 }
 
+// BuiltinWorkflowDefinitionsWithHistory returns the immutable built-in
+// definitions that the contract generator must inspect for legacy payloads.
+func BuiltinWorkflowDefinitionsWithHistory() []WorkflowDefinition {
+	return builtinWorkflowDefinitionsWithHistory()
+}
+
 func NewBuiltinWorkflowRegistry() DefinitionRegistry {
 	registry := NewWorkflowDefinitionRegistry()
 	for _, definition := range builtinWorkflowDefinitionsWithHistory() {

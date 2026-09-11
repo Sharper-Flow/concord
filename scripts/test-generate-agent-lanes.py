@@ -47,6 +47,21 @@ class AgentProjectionTests(unittest.TestCase):
         self.assertIn("maxItems=11", projection)
         self.assertIn("maxLength=23", projection)
 
+    def test_utility_projection_is_bash_only_and_uses_declared_permissions(self):
+        utility = {
+            "id": "ci-wait",
+            "purpose": "Wait for CI.",
+            "allowed_commands": ["gh run view *", "sleep *"],
+            "time_seconds_max": 1800,
+        }
+        projection = generator.utility_projection(utility)
+        self.assertIn("mode: all", projection)
+        self.assertIn("  bash: true", projection)
+        self.assertIn("  task: false", projection)
+        self.assertIn('"*": deny', projection)
+        self.assertIn('"gh run view *": allow', projection)
+        self.assertIn("30 minutes", projection)
+
 
 class EvalPacketProjectionTests(unittest.TestCase):
     def test_projection_replaces_lane_digest_without_manual_edit(self):

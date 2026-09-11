@@ -3,6 +3,8 @@ import { appendPendingWorkStateLines, createPendingWorkStateLineBuffer, createWo
 
 const pin = {
   work_id: "work-1",
+  title: "Repair the adapter",
+  linear_issue_key: "",
   version: 4,
   lifecycle: "in_progress",
   workflow_type: "workflow.break_fix",
@@ -11,7 +13,10 @@ const pin = {
 }
 
 test("formats the fixed WorkPin state line", () => {
-  expect(formatWorkStateLine(pin)).toBe("◆ CONCORD WORK STATE | work=work-1 | version=4 | lifecycle=in_progress | workflow=workflow.break_fix | step=repair | decision=none")
+  expect(formatWorkStateLine(pin)).toBe("◆ CONCORD WORK STATE | work-1 | title=Repair the adapter | version=4 | lifecycle=in_progress | step=repair | decision=none")
+  expect(formatWorkStateLine({ ...pin, linear_issue_key: "CON-42" })).toContain("◆ CONCORD WORK STATE | CON-42 | title=Repair the adapter")
+  expect(formatWorkStateLine({ ...pin, title: "bad|title\nwith control" })).toContain("title=bad title with control")
+  expect(formatWorkStateLine({ ...pin, title: "x".repeat(65) })).toContain(`title=${"x".repeat(63)}…`)
   expect(formatWorkStateLine({ ...pin, pending_operator_decision: { action_id: "approve-repair" } })).toContain("decision=pending:approve-repair")
 })
 
@@ -24,8 +29,8 @@ test("rejects an incomplete or unsafe WorkPin", () => {
 test("renders every mutation WorkPin in stable order", () => {
   const second = { ...pin, work_id: "work-2", version: 5, step: "verify" }
   expect(workStateLines({ outcome: "ok", result: { work_pins: [second, pin] } })).toEqual([
-    "◆ CONCORD WORK STATE | work=work-1 | version=4 | lifecycle=in_progress | workflow=workflow.break_fix | step=repair | decision=none",
-    "◆ CONCORD WORK STATE | work=work-2 | version=5 | lifecycle=in_progress | workflow=workflow.break_fix | step=verify | decision=none",
+    "◆ CONCORD WORK STATE | work-1 | title=Repair the adapter | version=4 | lifecycle=in_progress | step=repair | decision=none",
+    "◆ CONCORD WORK STATE | work-2 | title=Repair the adapter | version=5 | lifecycle=in_progress | step=verify | decision=none",
   ])
   expect(workStateLines({ outcome: "ok", result: { work_pins: [pin, { ...pin, step: "unsafe|step" }] } })).toEqual([])
 })
@@ -47,7 +52,7 @@ test("buffers lines per session and appends them to completed text", async () =>
 
   expect(appendPendingWorkStateLines("session-2", "assistant text")).toBe("assistant text")
   expect(appendPendingWorkStateLines("session-1", "assistant text")).toBe(
-    "assistant text\n◆ CONCORD WORK STATE | work=work-1 | version=4 | lifecycle=in_progress | workflow=workflow.break_fix | step=repair | decision=none",
+    "assistant text\n◆ CONCORD WORK STATE | work-1 | title=Repair the adapter | version=4 | lifecycle=in_progress | step=repair | decision=none",
   )
   expect(appendPendingWorkStateLines("session-1", "next text")).toBe("next text")
 })

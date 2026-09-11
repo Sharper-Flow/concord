@@ -41,6 +41,8 @@ test("plugin appends pending work-state lines to completed text", async () => {
     result: {
       work_pins: [{
         work_id: "work-plugin",
+        title: "Plugin work",
+        linear_issue_key: "",
         version: 1,
         lifecycle: "in_progress",
         workflow_type: "workflow.break_fix",
@@ -51,7 +53,7 @@ test("plugin appends pending work-state lines to completed text", async () => {
   }, { sessionID: "session-plugin", abort: new AbortController().signal })
   const output = { text: "assistant text" }
   await complete!({ sessionID: "session-plugin", messageID: "message-1", partID: "part-1" }, output)
-  expect(output.text).toContain("assistant text\n◆ CONCORD WORK STATE | work=work-plugin")
+  expect(output.text).toContain("assistant text\n◆ CONCORD WORK STATE | work-plugin | title=Plugin work")
 })
 
 test("work start definition hook leaves other tool definitions unchanged", async () => {

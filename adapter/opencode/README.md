@@ -165,7 +165,7 @@ carries a `WorkPin`. The line is rendered from the returned post-state pin, not
 from request fields or a second database read:
 
 ```text
-◆ CONCORD WORK STATE | work=work-1 | version=4 | lifecycle=in_progress | workflow=workflow.break_fix | step=repair | decision=none
+◆ CONCORD WORK STATE | work-1 | title=Repair the adapter | version=4 | lifecycle=in_progress | step=repair | decision=none
 ```
 
 When `pending_operator_decision` is present, `decision` is

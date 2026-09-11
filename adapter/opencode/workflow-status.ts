@@ -2,6 +2,8 @@ export type WorkflowStatusContext = { sessionID: string; abort: AbortSignal }
 
 type WorkPin = {
   work_id: string
+  title: string
+  linear_issue_key: string
   version: number
   lifecycle: string
   workflow_type: string
@@ -57,20 +59,29 @@ function safeText(value: unknown): value is string {
   return typeof value === "string" && value.length > 0 && !/[\u0000-\u001f\u007f|]/u.test(value)
 }
 
+function safeTitle(value: unknown): string | null {
+  if (typeof value !== "string" || value.length === 0) return null
+  const sanitized = value.replace(/[\u0000-\u001f\u007f|]/gu, " ")
+  return sanitized.length > 64 ? `${sanitized.slice(0, 63)}…` : sanitized
+}
+
 function workPin(value: unknown): WorkPin | null {
-  if (!record(value) || !safeText(value.work_id) || !safeText(value.lifecycle) || !safeText(value.workflow_type) || !safeText(value.step)) return null
+  if (!record(value) || !safeText(value.work_id) || !safeText(value.lifecycle) || !safeText(value.step)) return null
+  const title = safeTitle(value.title)
+  if (title === null || typeof value.linear_issue_key !== "string" || (!safeText(value.linear_issue_key) && value.linear_issue_key !== "")) return null
   if (typeof value.version !== "number" || !Number.isInteger(value.version) || value.version < 1) return null
   if (value.pending_operator_decision !== null) {
     if (!record(value.pending_operator_decision) || !safeText(value.pending_operator_decision.action_id)) return null
   }
-  return value as unknown as WorkPin
+  return { ...value, title } as unknown as WorkPin
 }
 
 export function formatWorkStateLine(value: unknown): string | null {
   const pin = workPin(value)
   if (!pin) return null
   const decision = pin.pending_operator_decision === null ? "none" : `pending:${pin.pending_operator_decision.action_id}`
-  return `◆ CONCORD WORK STATE | work=${pin.work_id} | version=${pin.version} | lifecycle=${pin.lifecycle} | workflow=${pin.workflow_type} | step=${pin.step} | decision=${decision}`
+  const identifier = pin.linear_issue_key || pin.work_id
+  return `◆ CONCORD WORK STATE | ${identifier} | title=${pin.title} | version=${pin.version} | lifecycle=${pin.lifecycle} | step=${pin.step} | decision=${decision}`
 }
 
 export function workStateLines(envelope: unknown): string[] {

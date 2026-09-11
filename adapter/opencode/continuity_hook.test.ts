@@ -69,7 +69,7 @@ test("continuity transform carries pending messages from core output", async () 
 test("continuity transform uses the shared WorkPin state line", async () => {
   await withIdentity(async () => {
     const packet = JSON.stringify({ continuity: { pinned: { work_pin: {
-      work_id: "work-1", version: 4, lifecycle: "in_progress", workflow_type: "workflow.break_fix",
+      work_id: "work-1", title: "Repair the adapter", linear_issue_key: "", version: 4, lifecycle: "in_progress", workflow_type: "workflow.break_fix",
       step: "repair", pending_operator_decision: null,
     } } } })
     const transformed = output("system prefix")
@@ -79,7 +79,7 @@ test("continuity transform uses the shared WorkPin state line", async () => {
 
     await transform({}, transformed)
 
-    expect(transformed.system[0]).toContain("◆ CONCORD WORK STATE | work=work-1 | version=4 | lifecycle=in_progress | workflow=workflow.break_fix | step=repair | decision=none")
+    expect(transformed.system[0]).toContain("◆ CONCORD WORK STATE | work-1 | title=Repair the adapter | version=4 | lifecycle=in_progress | step=repair | decision=none")
   })
 })
 

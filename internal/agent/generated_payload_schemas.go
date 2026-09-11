@@ -5639,6 +5639,10 @@ const GeneratedPayloadSchemaDocument = `{
         "lifecycle": {
           "$ref": "#/$defs/lifecycle"
         },
+        "linear_issue_key": {
+          "maxLength": 64,
+          "type": "string"
+        },
         "next_valid_intents": {
           "items": {
             "additionalProperties": false,
@@ -5690,6 +5694,9 @@ const GeneratedPayloadSchemaDocument = `{
         "step": {
           "$ref": "#/$defs/short"
         },
+        "title": {
+          "$ref": "#/$defs/short"
+        },
         "verdict_evidence": {
           "items": {
             "$ref": "#/$defs/work_pin_evidence"
@@ -5712,6 +5719,8 @@ const GeneratedPayloadSchemaDocument = `{
       },
       "required": [
         "work_id",
+        "title",
+        "linear_issue_key",
         "version",
         "lifecycle",
         "workflow_type",

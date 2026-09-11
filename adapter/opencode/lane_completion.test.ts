@@ -32,6 +32,8 @@ const packet = (): AgentLanePacket => ({
 
 const workPin = {
   work_id: "work-1",
+  title: "Repair the adapter",
+  linear_issue_key: "",
   version: 4,
   lifecycle: "in_progress",
   workflow_type: "workflow.break_fix",
@@ -95,7 +97,7 @@ describe("completeDispatchedWorker", () => {
     const verbs: string[] = []
     const output = { title: "verify lane", output: taskWrap(JSON.stringify(report())), metadata: {} }
     await completeDispatchedWorker({ tool: TASK_TOOL_ID, sessionID: SESSION, callID: "call-1", args: {} }, output, deps(verbs, windows))
-    expect(output.output).toContain("◆ CONCORD WORK STATE | work=work-1 | version=4 | lifecycle=in_progress | workflow=workflow.break_fix | step=repair | decision=none")
+    expect(output.output).toContain("◆ CONCORD WORK STATE | work-1 | title=Repair the adapter | version=4 | lifecycle=in_progress | step=repair | decision=none")
   })
 
   test("a failed report records worker-fail and surfaces the refusal on the tool output", async () => {

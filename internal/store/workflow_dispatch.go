@@ -108,7 +108,11 @@ func WorkflowActionDefinitionFor(ctx context.Context, s *Store, registry Definit
 			}
 			return RegisteredDefinition{}, WorkflowActionDefinition{}, err
 		}
-		if workflowContractCorrectionCheckpoint(entry.Definition, currentStep) {
+		correction, correctionErr := workflowContractCorrectionAvailable(ctx, s.db, workID, entry.Definition, currentStep, "workflow_action")
+		if correctionErr != nil {
+			return RegisteredDefinition{}, WorkflowActionDefinition{}, correctionErr
+		}
+		if correction {
 			return entry, workflowContractRecoveryActionDefinition(), nil
 		}
 		return RegisteredDefinition{}, WorkflowActionDefinition{}, newFailure(KindInvalidOperation, "workflow_action", "contract recovery is available only for a stale workflow contract", false, "continue the current contract or request terminal work")

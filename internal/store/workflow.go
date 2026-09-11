@@ -1481,26 +1481,39 @@ func foldWorkflowActionCompleted(ctx context.Context, tx *sql.Tx, event Event) e
 	return err
 }
 
+// workflowDispatchHoldsStepAdvance reports whether a worker dispatch in the
+// current attempt holds every advancing exit except accept_worker_result.
+// rejectWorkerDispatchedStepAdvance refuses on this fact in the fold, and the
+// work pin reads it so the pin never offers an advance the fold will refuse
+// (CD-0133 D4). One owner keeps the two surfaces from drifting apart.
+func workflowDispatchHoldsStepAdvance(ctx context.Context, q queryer, workID, stepID string) (bool, error) {
+	startSeq, _, found, err := latestWorkflowActionStart(ctx, q, workID, stepID)
+	if err != nil {
+		return false, err
+	}
+	if !found {
+		return false, nil
+	}
+	var dispatched int
+	if err := q.QueryRowContext(ctx, `SELECT count(*) FROM domain_events WHERE subject_id=? AND subject_type=? AND kind=? AND seq>?`, workID, string(SubjectWorkItem), WorkerDispatched, startSeq).Scan(&dispatched); err != nil {
+		return false, workflowProjectionError(err, "cannot inspect worker dispatches for the current workflow attempt")
+	}
+	return dispatched != 0, nil
+}
+
 func rejectWorkerDispatchedStepAdvance(ctx context.Context, tx *sql.Tx, workID, stepID, actionID string) error {
-	startSeq, _, found, err := latestWorkflowActionStart(ctx, tx, workID, stepID)
+	held, err := workflowDispatchHoldsStepAdvance(ctx, tx, workID, stepID)
 	if err != nil {
 		return err
 	}
-	if !found {
+	if !held || actionID == "accept_worker_result" {
 		return nil
 	}
-	var dispatched int
-	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM domain_events WHERE subject_id=? AND subject_type=? AND kind=? AND seq>?`, workID, string(SubjectWorkItem), WorkerDispatched, startSeq).Scan(&dispatched); err != nil {
-		return workflowProjectionError(err, "cannot inspect worker dispatches for the current workflow attempt")
-	}
-	if dispatched != 0 && actionID != "accept_worker_result" {
-		return newFailure(KindIllegalLifecycleTransition, "fold_event", "a dispatched worker attempt must advance through accept_worker_result", false, "accept the exact completed worker attempt")
-	}
-	return nil
+	return newFailure(KindIllegalLifecycleTransition, "fold_event", "a dispatched worker attempt must advance through accept_worker_result", false, "accept the exact completed worker attempt, or record the failed attempt and start a fresh one")
 }
 
-func latestWorkflowActionStart(ctx context.Context, tx *sql.Tx, workID, stepID string) (int64, int64, bool, error) {
-	return latestWorkflowActionStartAt(ctx, tx, workID, stepID, 0)
+func latestWorkflowActionStart(ctx context.Context, q queryer, workID, stepID string) (int64, int64, bool, error) {
+	return latestWorkflowActionStartAt(ctx, q, workID, stepID, 0)
 }
 
 func latestWorkflowActionStartEpoch(ctx context.Context, tx *sql.Tx, workID, stepID string, beforeSeq int64) (int64, bool, error) {
@@ -1525,7 +1538,7 @@ func workflowActionStartEpochForDispatch(ctx context.Context, tx *sql.Tx, workID
 	return latestEpoch, nil
 }
 
-func latestWorkflowActionStartAt(ctx context.Context, tx *sql.Tx, workID, stepID string, beforeSeq int64) (int64, int64, bool, error) {
+func latestWorkflowActionStartAt(ctx context.Context, q queryer, workID, stepID string, beforeSeq int64) (int64, int64, bool, error) {
 	query := `SELECT seq,payload FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.step_id')=?`
 	args := []any{string(SubjectWorkItem), workID, WorkflowActionStarted, stepID}
 	if beforeSeq > 0 {
@@ -1535,7 +1548,7 @@ func latestWorkflowActionStartAt(ctx context.Context, tx *sql.Tx, workID, stepID
 	query += ` ORDER BY seq DESC LIMIT 1`
 	var seq int64
 	var raw string
-	if err := tx.QueryRowContext(ctx, query, args...).Scan(&seq, &raw); err != nil {
+	if err := q.QueryRowContext(ctx, query, args...).Scan(&seq, &raw); err != nil {
 		if err == sql.ErrNoRows {
 			return 0, 0, false, nil
 		}

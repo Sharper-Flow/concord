@@ -134,7 +134,7 @@ func TestMissingRequiredActionFieldHasNoDurableEffect(t *testing.T) {
 
 func TestDispatchWorkerIntentNamesThePublicAdapterField(t *testing.T) {
 	definition := currentWorkflowDefinition(t, "workflow.implementation")
-	intents := workPinIntents(definition, "execution", 11)
+	intents := workPinIntents(definition, "execution", 11, false)
 	for _, intent := range intents {
 		if intent.ActionID != "dispatch_worker" {
 			continue

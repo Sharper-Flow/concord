@@ -99,7 +99,11 @@ func ReadWorkPinTx(ctx context.Context, tx *sql.Tx, workID string) (WorkPin, err
 	if err != nil {
 		return pin, err
 	}
-	pin.NextValidIntents = workPinIntents(registered.Definition, pin.Step, pin.Version)
+	dispatchHoldsAdvance, holdErr := workflowDispatchHoldsStepAdvance(ctx, tx, workID, pin.Step)
+	if holdErr != nil {
+		return pin, holdErr
+	}
+	pin.NextValidIntents = workPinIntents(registered.Definition, pin.Step, pin.Version, dispatchHoldsAdvance)
 
 	var contract WorkflowReadContract
 	var required, routes, mandate, modifies string
@@ -150,6 +154,13 @@ func ReadWorkPinTx(ctx context.Context, tx *sql.Tx, workID string) (WorkPin, err
 	if workerFailureRecovery {
 		pin.NextValidIntents = append(pin.NextValidIntents, workPinIntentForAction(workerFailureRecoveryActionDefinition(), pin.Version, "worker_failure_recovery"))
 	}
+	contractCorrection, correctionErr := workflowContractCorrectionAvailable(ctx, tx, workID, registered.Definition, pin.Step, "work_pin")
+	if correctionErr != nil {
+		return pin, correctionErr
+	}
+	if contractCorrection && !workPinContainsAction(pin.NextValidIntents, "supersede_contract") {
+		pin.NextValidIntents = append(pin.NextValidIntents, workPinIntentForAction(workflowContractRecoveryActionDefinition(), pin.Version, "operator_contract_correction"))
+	}
 	var watermark int64
 	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(seq),0) FROM domain_events WHERE subject_type='work_item' AND subject_id=?`, workID).Scan(&watermark); err != nil {
 		return pin, wrapFailure(KindUnavailable, "work_pin", "cannot read work watermark", true, "retry once the database is readable", err)
@@ -192,7 +203,12 @@ func decodeWorkflowPinContract(contract *WorkflowReadContract, required, routes,
 	return nil
 }
 
-func workPinIntents(definition WorkflowDefinition, stepID string, version int64) []WorkPinIntent {
+// workPinIntents lists the actions the current step offers. When
+// dispatchHoldsAdvance is set, a worker dispatch in the current attempt holds
+// every advancing exit except accept_worker_result, so those advances are
+// omitted: the pin states what the caller may do, and an action the fold
+// refuses is not one of them (CD-0133 D4).
+func workPinIntents(definition WorkflowDefinition, stepID string, version int64, dispatchHoldsAdvance bool) []WorkPinIntent {
 	step := workflowStep(definition, stepID)
 	if step == nil {
 		return []WorkPinIntent{}
@@ -207,6 +223,9 @@ func workPinIntents(definition WorkflowDefinition, stepID string, version int64)
 		if !ok {
 			continue
 		}
+		if dispatchHoldsAdvance && action.ExecutionMode == ActionAdvance && actionID != "accept_worker_result" {
+			continue
+		}
 		payload := publicWorkflowActionPayload(action)
 		fields := make([]string, 0, len(payload.Fields))
 		for _, field := range payload.Fields {
@@ -216,10 +235,19 @@ func workPinIntents(definition WorkflowDefinition, stepID string, version int64)
 		}
 		intents = append(intents, WorkPinIntent{Tool: "concord_work_transition", Operation: "workflow_action", ReasonCode: "declared_step_action", ActionID: action.ID, RequiredFields: fields, ExpectedVersion: version})
 	}
-	if workflowContractCorrectionCheckpoint(definition, stepID) {
+	if step != nil && step.Kind == WorkflowStepHumanCheckpoint && workflowContractCorrectionCheckpoint(definition, stepID) {
 		intents = append(intents, workPinIntentForAction(workflowContractRecoveryActionDefinition(), version, "operator_contract_correction"))
 	}
 	return intents
+}
+
+func workPinContainsAction(intents []WorkPinIntent, actionID string) bool {
+	for _, intent := range intents {
+		if intent.ActionID == actionID {
+			return true
+		}
+	}
+	return false
 }
 
 func workPinIntentForAction(action WorkflowActionDefinition, version int64, reason string) WorkPinIntent {

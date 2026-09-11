@@ -420,10 +420,16 @@ func workflowActionPreflightTx(ctx context.Context, tx *sql.Tx, registry Definit
 				return RegisteredDefinition{}, err
 			}
 			staleRecovery = true
-		} else if workflowContractCorrectionCheckpoint(entry.Definition, currentStep) {
-			staleRecovery = true
 		} else {
-			return RegisteredDefinition{}, newFailure(KindInvalidOperation, "workflow_action_preflight", "contract recovery is available only for a stale workflow contract", false, "continue the current contract or request terminal work")
+			correction, correctionErr := workflowContractCorrectionAvailable(ctx, tx, request.WorkID, entry.Definition, currentStep, "workflow_action_preflight")
+			if correctionErr != nil {
+				return RegisteredDefinition{}, correctionErr
+			}
+			if correction {
+				staleRecovery = true
+			} else {
+				return RegisteredDefinition{}, newFailure(KindInvalidOperation, "workflow_action_preflight", "contract recovery is available only for a stale workflow contract", false, "continue the current contract or request terminal work")
+			}
 		}
 	} else if !workflowActionAllowsTerminalRecovery(request) && !lateVerdictRecovery {
 		if err := checkWorkflowLawRevisionStalenessTx(ctx, tx, request.WorkID); err != nil {

@@ -155,6 +155,13 @@ func workflowWorkerFailureRecovery(ctx context.Context, q queryer, workID string
 	if containsString(definition.AvailableActions, "record_worker_failure") || currentStep == "" {
 		return false, nil
 	}
+	return workflowFailedWorkerAttempt(ctx, q, workID, currentStep, subject, excludeRecorded)
+}
+
+func workflowFailedWorkerAttempt(ctx context.Context, q queryer, workID, currentStep, subject string, excludeRecorded bool) (bool, error) {
+	if currentStep == "" {
+		return false, nil
+	}
 	var startSeq sql.NullInt64
 	if err := q.QueryRowContext(ctx, `SELECT MAX(seq) FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.step_id')=?`, string(SubjectWorkItem), workID, WorkflowActionStarted, currentStep).Scan(&startSeq); err != nil {
 		return false, wrapFailure(KindUnavailable, subject, "cannot inspect the current workflow action start", true, "retry once the workflow projection is readable", err)
@@ -173,6 +180,30 @@ func workflowWorkerFailureRecovery(ctx context.Context, q queryer, workID string
 		return false, wrapFailure(KindUnavailable, subject, "cannot inspect failed worker attempts", true, "retry once the worker attempt projection is readable", err)
 	}
 	return available != 0, nil
+}
+
+// workflowContractCorrectionAvailable reports whether operator-approved
+// contract correction is open on the current step. A human checkpoint carries
+// the route unconditionally. A worker-dispatch step carries it only once the
+// honest lane failure is in the durable record, so the audit trail holds the
+// failure the correction answers before it holds the correction (CD-0133 D1).
+func workflowContractCorrectionAvailable(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, currentStep, subject string) (bool, error) {
+	if !workflowContractCorrectionCheckpoint(definition, currentStep) {
+		return false, nil
+	}
+	step := workflowStep(definition, currentStep)
+	if step.Kind == WorkflowStepHumanCheckpoint {
+		return true, nil
+	}
+	failed, err := workflowFailedWorkerAttempt(ctx, q, workID, currentStep, subject, false)
+	if err != nil || !failed {
+		return false, err
+	}
+	unrecorded, err := workflowFailedWorkerAttempt(ctx, q, workID, currentStep, subject, true)
+	if err != nil {
+		return false, err
+	}
+	return !unrecorded, nil
 }
 
 func workflowWorkerFailureRecoveryAvailable(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, currentStep, subject string) (bool, error) {
@@ -270,7 +301,11 @@ func guardSupersedeContractRecovery(g *workflowActionGuardContext) error {
 		g.staleRecovery = true
 		return nil
 	}
-	if workflowContractCorrectionCheckpoint(g.entry.Definition, g.currentStep) {
+	correction, correctionErr := workflowContractCorrectionAvailable(g.ctx, g.tx, g.request.WorkID, g.entry.Definition, g.currentStep, "workflow_action")
+	if correctionErr != nil {
+		return correctionErr
+	}
+	if correction {
 		g.staleRecovery = true
 		return nil
 	}
@@ -279,10 +314,13 @@ func guardSupersedeContractRecovery(g *workflowActionGuardContext) error {
 
 func workflowContractCorrectionCheckpoint(definition WorkflowDefinition, currentStep string) bool {
 	step := workflowStep(definition, currentStep)
-	if step == nil || step.Kind != WorkflowStepHumanCheckpoint || containsString(definition.StepGraph.TerminalSteps, currentStep) {
+	if step == nil || containsString(definition.StepGraph.TerminalSteps, currentStep) {
 		return false
 	}
-	return containsString(step.Actions, "confirm_premise")
+	if step.Kind == WorkflowStepHumanCheckpoint {
+		return containsString(step.Actions, "confirm_premise")
+	}
+	return step.Kind == WorkflowStepExternalEffect && containsString(step.Actions, "dispatch_worker")
 }
 
 func guardLateVerdictRecovery(g *workflowActionGuardContext) error {
@@ -376,7 +414,14 @@ func guardRecordedActorTuple(g *workflowActionGuardContext) error {
 // confirmation. A worker cannot acquire this authority through its report.
 func guardOperatorPremiseActor(g *workflowActionGuardContext) error {
 	if g.request.OperatorActor == nil {
-		if g.request.ActionID == "supersede_contract" && workflowContractCorrectionCheckpoint(g.entry.Definition, g.currentStep) {
+		if g.request.ActionID != "supersede_contract" {
+			return nil
+		}
+		correction, correctionErr := workflowContractCorrectionAvailable(g.ctx, g.tx, g.request.WorkID, g.entry.Definition, g.currentStep, "workflow_action")
+		if correctionErr != nil {
+			return correctionErr
+		}
+		if correction {
 			return newFailure(KindApprovalRequired, "workflow_action", "contract correction requires the verified operator approval identity", false, "request_approval")
 		}
 		return nil

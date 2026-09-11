@@ -37,8 +37,14 @@ func Project(snapshot Snapshot, _ int) Projection {
 	columns := []string{"Product", "Stage", "Reliance", "Actions", "Focus"}
 	rows := make([][]string, 0, len(snapshot.Rows))
 	markers := make([]string, 0, len(snapshot.Rows))
-	if snapshot.Screen == ScreenProduct && snapshot.Section == SectionDomains {
+	// Each block below draws from the data the snapshot holds. None asks which
+	// context is current, and the more specific data wins by assigning rows
+	// outright rather than appending to a less specific table.
+	drilled := false
+	if snapshot.Section == SectionDomains {
+		drilled = true
 		columns = []string{"Domain", "Marker", "Parent", "Relations"}
+		rows = nil
 		for _, domain := range snapshot.Domains.Domains {
 			marker := "DOMAIN"
 			if domain.Home {
@@ -60,8 +66,10 @@ func Project(snapshot Snapshot, _ int) Projection {
 			rows = append(rows, []string{"unavailable: " + snapshot.Domains.Reason, "!", "-", "-"})
 		}
 	}
-	if snapshot.Screen == ScreenProduct && snapshot.Section != SectionDomains {
+	if snapshot.RankedWorkRead && snapshot.Section != SectionDomains && snapshot.Detail.Item.ID == "" {
+		drilled = true
 		columns = []string{"Work", "Kind", "Priority", "Urgency", "Readiness", "Lifecycle", "TerminalAt", "Projects"}
+		rows = nil
 		for _, item := range snapshot.Ranked {
 			terminalAt := item.TerminalAt
 			if terminalAt == "" {
@@ -73,17 +81,17 @@ func Project(snapshot Snapshot, _ int) Projection {
 			rows = append(rows, drillDownStateRow(rankedSectionState(snapshot), columns))
 		}
 	}
-	if snapshot.Screen == ScreenWork {
+	if snapshot.Detail.Item.ID != "" && snapshot.Section != SectionDomains {
+		drilled = true
 		columns = []string{"Work", "Lifecycle", "Priority", "Urgency", "Projects", "Section"}
+		rows = nil
 		item := snapshot.Detail.Item
 		rows = append(rows, []string{item.ID + " " + item.Title, item.Lifecycle, fmt.Sprintf("%d", item.Priority), item.Urgency, fmt.Sprintf("%d", item.ProjectCount), string(snapshot.Section)})
 	}
-	if snapshot.Screen != ScreenPortfolio {
-		ambient := snapshot.AmbientProduct
-		if ambient == "" {
-			ambient = "(none)"
-		}
-		return Projection{Header: []string{"PRODUCT: " + ambient, "WATERMARK: " + watermarkText(snapshot.Watermark), "AGE: " + watermarkText(snapshot.ObservedAt), "SCREEN: " + string(snapshot.Screen), "RELIANCE: " + relianceText(snapshot.Reliance), "COVERAGE: " + coverageText(snapshot.Coverage), "SECTION: " + string(snapshot.Section)}, Columns: columns, Rows: rows, Markers: []string{strings.ToUpper(string(snapshot.Section))}}
+	// A drill-down table already claimed the rows. The Product table below
+	// fills them only when no more specific read did.
+	if drilled {
+		return Projection{Header: []string{"PRODUCT: " + productText(snapshot.AmbientProduct), "WATERMARK: " + watermarkText(snapshot.Watermark), "AGE: " + watermarkText(snapshot.ObservedAt), "RELIANCE: " + relianceText(snapshot.Reliance), "COVERAGE: " + coverageText(snapshot.Coverage), "SECTION: " + string(snapshot.Section)}, Columns: columns, Rows: rows, Markers: []string{strings.ToUpper(string(snapshot.Section))}}
 	}
 	for _, row := range snapshot.Rows {
 		name := row.Name + row.NameSuffix
@@ -143,7 +151,6 @@ func Project(snapshot Snapshot, _ int) Projection {
 			"PRODUCT: " + ambient,
 			"WATERMARK: " + watermark,
 			"AGE: " + age,
-			"SCREEN: " + string(snapshot.Screen),
 			"RELIANCE: " + reliance,
 			"COVERAGE: " + coverage,
 		},
@@ -191,4 +198,13 @@ func coverageText(value string) string {
 		return "unknown"
 	}
 	return value
+}
+
+// productText names the ambient Product, or states its absence, so a header
+// never renders an empty field.
+func productText(product string) string {
+	if product == "" {
+		return "(none)"
+	}
+	return product
 }

@@ -12,7 +12,7 @@ func TestS2AnswerStackPanelOrderIsFixed(t *testing.T) {
 		t.Fatalf("panel order=%v, want %v", got, want)
 	}
 
-	stack := (Snapshot{Screen: ScreenProduct}).S2AnswerStack()
+	stack := (Snapshot{AmbientProduct: "Concord"}).S2AnswerStack()
 	if got := stack.Panels; !reflect.DeepEqual(got, want) {
 		t.Fatalf("composed panel order=%v, want %v", got, want)
 	}
@@ -20,8 +20,8 @@ func TestS2AnswerStackPanelOrderIsFixed(t *testing.T) {
 
 func TestS2AnswerStackSummaryValuesAreStoreMaterialized(t *testing.T) {
 	snapshot := Snapshot{
-		Screen:  ScreenProduct,
-		Domains: DomainSection{Read: true, State: "authoritative", Overlaps: []OverlapPair{{From: "w-1", To: "w-2", State: "absent", SharedDomains: []string{"d-1"}}}},
+		AmbientProduct: "Concord",
+		Domains:        DomainSection{Read: true, State: "authoritative", Overlaps: []OverlapPair{{From: "w-1", To: "w-2", State: "absent", SharedDomains: []string{"d-1"}}}},
 		Ranked: []RankedWork{
 			{ID: "w-1", Title: "First", Blocked: true, Blockers: []Blocker{{ID: "w-0", Title: "Gate", Authority: "ci"}}},
 			{ID: "w-2", Title: "Second", Ready: true},
@@ -40,19 +40,19 @@ func TestS2AnswerStackSummaryValuesAreStoreMaterialized(t *testing.T) {
 }
 
 func TestS2NoUnresolvedOverlapIsDistinctFromUnavailable(t *testing.T) {
-	clean := (Snapshot{Screen: ScreenProduct, Domains: DomainSection{Read: true, State: "authoritative", Overlaps: []OverlapPair{{From: "w-1", To: "w-2", State: "resolved"}}}}).S2AnswerStack().Domain.Domain
+	clean := (Snapshot{AmbientProduct: "Concord", Domains: DomainSection{Read: true, State: "authoritative", Overlaps: []OverlapPair{{From: "w-1", To: "w-2", State: "resolved"}}}}).S2AnswerStack().Domain.Domain
 	if !clean.Evaluated || clean.UnavailableReason != "" || len(clean.UnresolvedOverlaps) != 0 {
 		t.Fatalf("clean domain summary=%#v", clean)
 	}
 
-	unavailable := (Snapshot{Screen: ScreenProduct, Domains: DomainSection{Read: true, State: "unavailable", Reason: "domain registry unavailable"}}).S2AnswerStack().Domain.Domain
+	unavailable := (Snapshot{AmbientProduct: "Concord", Domains: DomainSection{Read: true, State: "unavailable", Reason: "domain registry unavailable"}}).S2AnswerStack().Domain.Domain
 	if unavailable.Evaluated || unavailable.UnavailableReason != "domain registry unavailable" {
 		t.Fatalf("unavailable domain summary=%#v", unavailable)
 	}
 }
 
 func TestS2AnswerStackRenderIsIdempotent(t *testing.T) {
-	snapshot := Snapshot{Screen: ScreenProduct, Domains: DomainSection{Read: true, State: "authoritative"}, Ranked: []RankedWork{{ID: "w-1", Title: "First", Ready: true}}}
+	snapshot := Snapshot{AmbientProduct: "Concord", Domains: DomainSection{Read: true, State: "authoritative"}, Ranked: []RankedWork{{ID: "w-1", Title: "First", Ready: true}}}
 	first := fmt.Sprintf("%#v", snapshot.S2AnswerStack())
 	second := fmt.Sprintf("%#v", snapshot.S2AnswerStack())
 	if first != second {
@@ -62,7 +62,7 @@ func TestS2AnswerStackRenderIsIdempotent(t *testing.T) {
 
 func TestS2PanelFocusCyclesAndS3SectionsRemainSeparate(t *testing.T) {
 	m := New(nil)
-	m.RestoreSnapshot(Snapshot{Screen: ScreenProduct, Section: SectionDomains})
+	m.RestoreSnapshot(Snapshot{AmbientProduct: "Concord", Section: SectionDomains})
 	if got := m.PanelFocus(); got != S2PanelDomain {
 		t.Fatalf("initial S2 focus=%q, want %q", got, S2PanelDomain)
 	}
@@ -71,7 +71,7 @@ func TestS2PanelFocusCyclesAndS3SectionsRemainSeparate(t *testing.T) {
 			t.Fatalf("cycled S2 focus=%q, want %q", got, want)
 		}
 	}
-	m.RestoreSnapshot(Snapshot{Screen: ScreenWork, Section: SectionRelations})
+	m.RestoreSnapshot(Snapshot{AmbientProduct: "Concord", SelectedWorkID: "w-1", Section: SectionRelations})
 	if got := m.CyclePanelFocus(); got != S2PanelDomain {
 		t.Fatalf("S3 changed S2 focus=%q", got)
 	}

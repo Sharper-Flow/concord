@@ -24,8 +24,8 @@ func TestFrameHasTerminalGeometryAndStableHeader(t *testing.T) {
 			name:  "80x24",
 			width: 80, height: 24,
 			snapshot: launcher.Snapshot{
-				Screen: launcher.ScreenPortfolio, AmbientProduct: "Concord",
-				Watermark: "w42", ObservedAt: "2m", Reliance: "clear", Coverage: "authoritative",
+				AmbientProduct: "Concord",
+				Watermark:      "w42", ObservedAt: "2m", Reliance: "clear", Coverage: "authoritative",
 				Rows: []launcher.ProductRow{{ID: "p-1", Name: "Launcher", Stage: "in_progress", Reliance: "clear", Actions: 3, Focus: "Fix frame"}},
 			},
 			golden: "frame-80x24.golden",
@@ -34,7 +34,7 @@ func TestFrameHasTerminalGeometryAndStableHeader(t *testing.T) {
 			name:  "120x40",
 			width: 120, height: 40,
 			snapshot: launcher.Snapshot{
-				Screen: launcher.ScreenProduct, AmbientProduct: "Concord", Section: launcher.SectionDomains,
+				AmbientProduct: "Concord", RankedWorkRead: true, Section: launcher.SectionDomains,
 				Coverage: "authoritative", Domains: launcher.DomainSection{
 					Read: true, State: "authoritative", Domains: []launcher.DomainRow{{ID: "operator-surface", Name: "Operator surface", Home: true}},
 				},

@@ -135,8 +135,8 @@ func TestReadDomainsMapsAbsentRegistryToTypedUnavailableSection(t *testing.T) {
 	if err != nil {
 		t.Fatalf("absent registry must not error the screen: %v", err)
 	}
-	if snapshot.Screen != launcher.ScreenProduct || snapshot.Section != launcher.SectionDomains {
-		t.Fatalf("screen/section = %s/%s", snapshot.Screen, snapshot.Section)
+	if snapshot.AmbientProduct == "" || snapshot.Section != launcher.SectionDomains {
+		t.Fatalf("product/section = %s/%s", snapshot.AmbientProduct, snapshot.Section)
 	}
 	if snapshot.Coverage != "unavailable" || snapshot.Domains.State != "unavailable" || snapshot.Domains.Reason != "domain_registry_absent" {
 		t.Fatalf("absent registry must render typed unavailable, not empty: %#v", snapshot.Domains)

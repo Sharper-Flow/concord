@@ -24,14 +24,14 @@ type Section string
 const (
 	// SectionDomains is S2's primary section: Domain hierarchy, architecture
 	// relations, and unresolved overlap render before the subordinate C17
-	// work modes (CD-0041 amended S2; no fourth screen).
+	// work sections (CD-0041 amended S2).
 	SectionDomains   Section = "domains"
 	SectionRelations Section = "relations"
 	SectionRanked    Section = "ranked"
 	SectionKnowledge Section = "knowledge"
 )
 
-// S2Panel identifies one answer in Product screen order. The order is a
+// S2Panel identifies one answer in Product order. The order is a
 // contract, not a ranking computed by the launcher.
 type S2Panel string
 
@@ -192,7 +192,7 @@ type S2PanelSummary struct {
 }
 
 // S2AnswerStack is the framework-independent composition of the values the
-// store already materialized for the Product screen.
+// store already materialized for the Product read.
 type S2AnswerStack struct {
 	Panels  []S2Panel
 	Domain  S2PanelSummary
@@ -318,7 +318,6 @@ type CandidatePreview struct {
 }
 
 type Snapshot struct {
-	Screen                 Surface
 	AmbientProduct         string
 	QueryID                string
 	ContractVersion        string
@@ -341,13 +340,17 @@ type Snapshot struct {
 	PanelFocus             S2Panel
 	Domains                DomainSection
 	Relations              RelationTree
-	Ranked                 []RankedWork
-	Knowledge              KnowledgeSection
-	Detail                 WorkDetail
-	QueryResult            bool
-	QuerySubmitted         string
-	SelectedWorkID         string
-	Session                SessionHandoff
+	// RankedWorkRead marks that a read materialized the ranked work list, so
+	// an empty list is an authoritative answer and not absent data. It mirrors
+	// DomainSection.Read and KnowledgeSection.Read.
+	RankedWorkRead bool
+	Ranked         []RankedWork
+	Knowledge      KnowledgeSection
+	Detail         WorkDetail
+	QueryResult    bool
+	QuerySubmitted string
+	SelectedWorkID string
+	Session        SessionHandoff
 }
 
 type Model struct {
@@ -357,10 +360,13 @@ type Model struct {
 	height     int
 	section    Section
 	navigation []Snapshot
+	// lastRead is the request that produced the current snapshot. Refresh
+	// replays it, so a refresh needs no mode value to decide what to read.
+	lastRead ReadRequest
 }
 
 func New(port ReadPort) *Model {
-	return &Model{port: port, width: 80, height: 24, section: SectionRelations, snapshot: Snapshot{Screen: SurfacePortfolio, Coverage: "authoritative"}}
+	return &Model{port: port, width: 80, height: 24, section: SectionRelations, snapshot: Snapshot{Coverage: "authoritative"}}
 }
 
 func (m *Model) Enter(ctx context.Context) error {
@@ -374,7 +380,7 @@ func (m *Model) SelectProduct(ctx context.Context, product string) error {
 			err := m.read(ctx, ReadRequest{Kind: ReadDomains, Product: product, Limit: 20, Section: SectionDomains})
 			if err != nil {
 				m.navigation = m.navigation[:len(m.navigation)-1]
-				m.snapshot = Snapshot{Screen: SurfacePortfolio, Coverage: "unreachable", Reliance: "unreachable", StatusMessage: err.Error()}
+				m.snapshot = Snapshot{Coverage: "unreachable", Reliance: "unreachable", StatusMessage: err.Error()}
 				return err
 			}
 			// The Domain panel is focused on entry, so its bounded knowledge
@@ -393,7 +399,10 @@ func (m *Model) SelectProduct(ctx context.Context, product string) error {
 }
 
 func (m *Model) SelectWork(ctx context.Context, work string) error {
-	if m.snapshot.Screen != SurfaceProduct || m.snapshot.AmbientProduct == "" {
+	// A work read needs the Product that owns the item. That is a data
+	// precondition, not a mode: the ambient Product is either known or it
+	// is not.
+	if m.snapshot.AmbientProduct == "" {
 		return nil
 	}
 	previous := m.Snapshot()
@@ -413,38 +422,42 @@ func (m *Model) SelectWork(ctx context.Context, work string) error {
 }
 
 func (m *Model) SubmitQuery(ctx context.Context, query string) error {
-	// S1 carries no semantic-query binding, so a query submitted against the
-	// portfolio issues no read. The ambient guard below is not a substitute: an
-	// S1 snapshot with a non-empty ambient Product is representable.
-	if m.snapshot.Screen == SurfacePortfolio {
-		return nil
-	}
+	// A semantic query binds to an ambient Product. Without one there is
+	// nothing to search.
 	if m.snapshot.AmbientProduct == "" {
 		return nil
 	}
 	return m.read(ctx, ReadRequest{Kind: ReadSearch, Product: m.snapshot.AmbientProduct, Work: m.snapshot.SelectedWorkID, Query: query, Limit: 20, Section: m.section})
 }
 
+// Refresh re-issues the read that produced the current snapshot. Replaying the
+// recorded request keeps refresh honest without asking which context is
+// current, so no mode value survives here.
 func (m *Model) Refresh(ctx context.Context) error {
-	s := m.snapshot
-	switch s.Screen {
-	case SurfacePortfolio:
-		return m.read(ctx, ReadRequest{Kind: ReadPortfolio, Limit: 20})
-	case SurfaceProduct:
-		if s.Section == SectionKnowledge {
-			return m.read(ctx, ReadRequest{Kind: ReadKnowledge, Product: s.AmbientProduct, Limit: 20, Section: SectionKnowledge})
-		}
-		if s.Section == SectionDomains {
-			return m.read(ctx, ReadRequest{Kind: ReadDomains, Product: s.AmbientProduct, Limit: 20, Section: SectionDomains})
-		}
-		return m.read(ctx, ReadRequest{Kind: ReadProduct, Product: s.AmbientProduct, Limit: 20, Section: s.Section})
-	case SurfaceWork:
-		if s.Section == SectionKnowledge {
-			return m.read(ctx, ReadRequest{Kind: ReadKnowledge, Product: s.AmbientProduct, Work: s.SelectedWorkID, Limit: 20, Section: SectionKnowledge})
-		}
-		return m.read(ctx, ReadRequest{Kind: ReadWork, Product: s.AmbientProduct, Work: s.SelectedWorkID, Limit: 20, Section: s.Section})
+	request := m.lastRead
+	if request.Kind == "" {
+		// No read has run yet, so refresh asks the broadest question.
+		request = ReadRequest{Kind: ReadPortfolio, Limit: 20}
 	}
-	return nil
+	// The section may have moved since the last read. A drill-down section
+	// names its own read kind, so refresh follows the section the operator is
+	// looking at rather than repeating a stale one.
+	request.Section = m.snapshot.Section
+	// A search keeps its own kind so refresh re-runs the query. Otherwise the
+	// section and the selected work item name the read that answers them.
+	if request.Product != "" && request.Kind != ReadSearch {
+		switch {
+		case request.Section == SectionKnowledge:
+			request.Kind = ReadKnowledge
+		case request.Work != "":
+			request.Kind = ReadWork
+		case request.Section == SectionDomains:
+			request.Kind = ReadDomains
+		default:
+			request.Kind = ReadProduct
+		}
+	}
+	return m.read(ctx, request)
 }
 
 // Back changes the in-memory navigation stack without performing a read.
@@ -460,7 +473,7 @@ func (m *Model) Back() error {
 }
 
 func (m *Model) SetSection(section Section) error {
-	if m.snapshot.Screen != SurfaceProduct && m.snapshot.Screen != SurfaceWork {
+	if m.snapshot.AmbientProduct == "" {
 		return nil
 	}
 	m.section = section
@@ -476,7 +489,9 @@ func (m *Model) PanelFocus() S2Panel {
 }
 
 func (m *Model) SetPanelFocus(panel S2Panel) error {
-	if m.snapshot.Screen != SurfaceProduct {
+	// A selected work item owns its own sections, so the Product answer stack
+	// does not take focus while one is open.
+	if m.snapshot.SelectedWorkID != "" {
 		return nil
 	}
 	if !isS2Panel(panel) {
@@ -495,7 +510,7 @@ func (m *Model) SetPanelFocus(panel S2Panel) error {
 
 func (m *Model) CyclePanelFocus() S2Panel {
 	current := m.PanelFocus()
-	if m.snapshot.Screen != SurfaceProduct {
+	if m.snapshot.SelectedWorkID != "" {
 		return current
 	}
 	order := S2PanelOrder()
@@ -511,7 +526,7 @@ func (m *Model) CyclePanelFocus() S2Panel {
 }
 
 func (m *Model) EnsureKnowledge(ctx context.Context) error {
-	if m.snapshot.Screen != SurfaceProduct && m.snapshot.Screen != SurfaceWork {
+	if m.snapshot.AmbientProduct == "" {
 		return nil
 	}
 	if m.snapshot.Knowledge.Read {
@@ -532,7 +547,7 @@ func (m *Model) RestoreSnapshot(snapshot Snapshot) {
 	if len(snapshot.Candidates) > 0 && len(snapshot.Products) == 0 && len(snapshot.WorkItems) == 0 {
 		snapshot.Products, snapshot.WorkItems = SplitCandidates(snapshot.Candidates)
 	}
-	if snapshot.Screen == SurfaceProduct {
+	if snapshot.AmbientProduct != "" {
 		if snapshot.Section == "" {
 			snapshot.Section = SectionDomains
 		}
@@ -760,6 +775,7 @@ func FilterCandidates(values []Candidate, query string) []Candidate {
 func (m *Model) read(ctx context.Context, request ReadRequest) error {
 	previous := m.snapshot
 	snapshot, err := m.port.Read(ctx, request)
+	m.lastRead = request
 	if err != nil {
 		// A failed foreground read must never leave the previous rows looking
 		// current. Read ports may return typed unavailable state alongside the
@@ -768,9 +784,6 @@ func (m *Model) read(ctx context.Context, request ReadRequest) error {
 		snapshot.Candidates = nil
 		snapshot.Products = nil
 		snapshot.WorkItems = nil
-		if snapshot.Screen == "" {
-			snapshot.Screen = SurfacePortfolio
-		}
 		if snapshot.Coverage == "" {
 			snapshot.Coverage = "unreachable"
 		}
@@ -789,12 +802,8 @@ func (m *Model) read(ctx context.Context, request ReadRequest) error {
 		m.snapshot = snapshot
 		return err
 	}
-	if snapshot.Screen == "" {
-		snapshot.Screen = m.snapshot.Screen
-	}
-	if request.Kind == ReadWork && snapshot.Screen == SurfacePortfolio {
-		snapshot.Screen = SurfaceWork
-	}
+	// A read answers about the Product and work item it asked for, so the
+	// request backfills the identity when the port leaves it blank.
 	if request.Kind == ReadProduct || request.Kind == ReadDomains || request.Kind == ReadWork || request.Kind == ReadKnowledge || request.Kind == ReadSearch {
 		if snapshot.AmbientProduct == "" {
 			snapshot.AmbientProduct = request.Product
@@ -806,7 +815,7 @@ func (m *Model) read(ctx context.Context, request ReadRequest) error {
 	if request.Kind == ReadKnowledge {
 		snapshot = mergeKnowledgeSnapshot(previous, snapshot)
 	}
-	if snapshot.Screen == SurfaceProduct && snapshot.PanelFocus == "" {
+	if snapshot.AmbientProduct != "" && snapshot.SelectedWorkID == "" && snapshot.PanelFocus == "" {
 		snapshot.PanelFocus = previous.PanelFocus
 		if snapshot.PanelFocus == "" {
 			snapshot.PanelFocus = S2PanelDomain
@@ -833,7 +842,7 @@ func (m *Model) read(ctx context.Context, request ReadRequest) error {
 		snapshot.Probes = append([]ProbeStatus(nil), probes.Probe(ctx)...)
 	}
 	m.snapshot = snapshot
-	if snapshot.Screen == SurfaceProduct || snapshot.Screen == SurfaceWork {
+	if snapshot.AmbientProduct != "" {
 		m.section = snapshot.Section
 	}
 	return nil
@@ -852,7 +861,6 @@ func SplitCandidates(values []Candidate) (products, works []Candidate) {
 }
 
 func mergeKnowledgeSnapshot(previous, knowledge Snapshot) Snapshot {
-	knowledge.Screen = previous.Screen
 	knowledge.AmbientProduct = previous.AmbientProduct
 	knowledge.SelectedWorkID = previous.SelectedWorkID
 	knowledge.Rows = previous.Rows

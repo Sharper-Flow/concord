@@ -28,7 +28,7 @@ func keyPress(code rune, text string, mod tea.KeyMod) tea.KeyPressMsg {
 }
 
 func TestTextInputUsesBubblesForEditingPasteAndClear(t *testing.T) {
-	p := &port{state: launcher.Snapshot{Screen: launcher.ScreenPortfolio, Coverage: "authoritative"}}
+	p := &port{state: launcher.Snapshot{Coverage: "authoritative"}}
 	m := New(launcher.New(p), context.Background(), Profile{})
 	m.OpenFilter()
 	for _, msg := range []tea.KeyPressMsg{keyPress('a', "a", 0), keyPress('b', "b", 0), keyPress(tea.KeyLeft, "", 0), keyPress('X', "X", 0)} {
@@ -58,7 +58,7 @@ func TestTextInputUsesBubblesForEditingPasteAndClear(t *testing.T) {
 }
 
 func TestRenderIsStableNoColorAndResizeDoesNotRead(t *testing.T) {
-	p := &port{state: launcher.Snapshot{Screen: launcher.ScreenPortfolio, AmbientProduct: "Concord", Watermark: "w42", ObservedAt: "2m", Reliance: "blocked", Coverage: "authoritative", Rows: []launcher.ProductRow{{Name: "Launcher", Stage: "in_progress", Reliance: "blocked", Actions: 3, Focus: "Fix input"}}}}
+	p := &port{state: launcher.Snapshot{AmbientProduct: "Concord", Watermark: "w42", ObservedAt: "2m", Reliance: "blocked", Coverage: "authoritative", Rows: []launcher.ProductRow{{Name: "Launcher", Stage: "in_progress", Reliance: "blocked", Actions: 3, Focus: "Fix input"}}}}
 	core := launcher.New(p)
 	if err := core.Enter(context.Background()); err != nil {
 		t.Fatal(err)
@@ -77,8 +77,9 @@ func TestRenderIsStableNoColorAndResizeDoesNotRead(t *testing.T) {
 			t.Fatalf("line exceeds 80 display columns: %d: %q", got, line)
 		}
 	}
+	content := first + "\n" + paneText(m)
 	for _, marker := range []string{"Concord", "w42", "2m", "authoritative", "! blocked", "in_progress", "3", "Fix input"} {
-		if !strings.Contains(first, marker) {
+		if !strings.Contains(content, marker) {
 			t.Fatalf("semantic marker %q missing: %q", marker, first)
 		}
 	}
@@ -90,7 +91,7 @@ func TestRenderIsStableNoColorAndResizeDoesNotRead(t *testing.T) {
 
 func TestNoColorOutputIsPlainTextAndKeepsAllSemanticMarkers(t *testing.T) {
 	p := &port{state: launcher.Snapshot{
-		Screen: launcher.ScreenPortfolio, AmbientProduct: "Concord", Watermark: "w-stale", ObservedAt: "old",
+		AmbientProduct: "Concord", Watermark: "w-stale", ObservedAt: "old",
 		Reliance: "stale", Coverage: "partial",
 		Rows: []launcher.ProductRow{
 			{Name: "Degraded", Stage: "degraded", Reliance: "degraded", Actions: 1, Focus: "degraded: unavailable dependency"},
@@ -108,20 +109,19 @@ func TestNoColorOutputIsPlainTextAndKeepsAllSemanticMarkers(t *testing.T) {
 	if err := rejectTerminalControls(rendered); err != nil {
 		t.Fatal(err)
 	}
+	all := rendered + "\n" + paneText(m)
 	for _, marker := range []string{
 		"PRODUCT:", "Concord", "WATERMARK:", "w-stale", "AGE:", "old", "RELIANCE:", "stale", "COVERAGE:", "partial",
 		"degraded", "! degraded", "stale", "! stale", "error", "! error", "1", "2", "3",
 	} {
-		if !strings.Contains(rendered, marker) {
+		if !strings.Contains(all, marker) {
 			t.Fatalf("semantic marker %q missing: %q", marker, rendered)
 		}
 	}
-	widths := columnWidths(80)
+	content := paneText(m)
 	for i, value := range []string{"degraded: unavailable dependency", "stale: old watermark", "error: read failed"} {
-		for _, chunk := range splitDisplay(value, widths[4]) {
-			if !strings.Contains(rendered, chunk) {
-				t.Fatalf("semantic value chunk %q missing for field %d", chunk, i)
-			}
+		if !strings.Contains(content, value) {
+			t.Fatalf("semantic value %q missing for field %d", value, i)
 		}
 	}
 }
@@ -129,7 +129,7 @@ func TestNoColorOutputIsPlainTextAndKeepsAllSemanticMarkers(t *testing.T) {
 func TestPortfolioRendersDegradedProbesWithoutCandidates(t *testing.T) {
 	core := launcher.New(nil)
 	core.RestoreSnapshot(launcher.Snapshot{
-		Screen: launcher.ScreenPortfolio, Coverage: "authoritative",
+		Coverage: "authoritative",
 		Probes: []launcher.ProbeStatus{
 			{Name: "vision", Reason: "daemon unavailable"},
 			{Name: "lgrep", Reason: "index unavailable"},
@@ -137,7 +137,7 @@ func TestPortfolioRendersDegradedProbesWithoutCandidates(t *testing.T) {
 	})
 	m := New(core, context.Background(), Profile{})
 	m.Sync()
-	rendered := m.Render()
+	rendered := paneText(m)
 	for _, want := range []string{"VISION: unavailable: daemon unavailable", "LGREP: unavailable: index unavailable"} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("degraded probe marker %q missing: %q", want, rendered)
@@ -182,8 +182,8 @@ func TestLongFieldsWrapByRendererDisplayWidth(t *testing.T) {
 	reliance := "blocked-" + strings.Repeat("!", 38)
 	focus := "Focus-" + strings.Repeat("界", 24)
 	p := &port{state: launcher.Snapshot{
-		Screen: launcher.ScreenPortfolio, AmbientProduct: "Product-" + strings.Repeat("界", 22),
-		Watermark: "watermark-" + strings.Repeat("W", 34), ObservedAt: "observed-" + strings.Repeat("o", 34),
+		AmbientProduct: "Product-" + strings.Repeat("界", 22),
+		Watermark:      "watermark-" + strings.Repeat("W", 34), ObservedAt: "observed-" + strings.Repeat("o", 34),
 		Reliance: "blocked", Coverage: "authoritative",
 		Rows: []launcher.ProductRow{{Name: name, Stage: stage, Reliance: reliance, Actions: 7, Focus: focus}},
 	}}
@@ -199,23 +199,21 @@ func TestLongFieldsWrapByRendererDisplayWidth(t *testing.T) {
 			t.Fatalf("wrapped line exceeds 80 display columns: %d: %q", got, line)
 		}
 	}
-	for _, label := range []string{"PRODUCT:", "WATERMARK:", "AGE:", "SCREEN:", "RELIANCE:", "COVERAGE:", "Product", "Stage", "Reliance", "Actions", "Focus"} {
+	for _, label := range []string{"PRODUCT:", "WATERMARK:", "AGE:", "RELIANCE:", "COVERAGE:"} {
 		if !strings.Contains(rendered, label) {
 			t.Fatalf("semantic label %q missing: %q", label, rendered)
 		}
 	}
-	widths := columnWidths(80)
+	content := paneText(m)
 	for i, value := range []string{name, stage, "! " + reliance, "7", focus} {
-		for _, chunk := range splitDisplay(value, widths[i]) {
-			if !strings.Contains(rendered, chunk) {
-				t.Fatalf("wrapped value chunk %q missing for field %d: %q", chunk, i, rendered)
-			}
+		if !strings.Contains(content, value) {
+			t.Fatalf("wrapped value %q missing for field %d: %q", value, i, content)
 		}
 	}
 }
 
 func TestNoOpAndResizeReturnNoCommandAndDoNotRead(t *testing.T) {
-	p := &port{state: launcher.Snapshot{Screen: launcher.ScreenPortfolio, Coverage: "authoritative"}}
+	p := &port{state: launcher.Snapshot{Coverage: "authoritative"}}
 	m := New(launcher.New(p), context.Background(), Profile{})
 	if _, cmd := m.Update(tea.KeyPressMsg(tea.Key{Code: 'z', Text: "z"})); cmd != nil {
 		t.Fatal("no-op update returned an autonomous command")
@@ -229,7 +227,7 @@ func TestNoOpAndResizeReturnNoCommandAndDoNotRead(t *testing.T) {
 }
 
 func TestBubblesUICommandsAreReadFreeAndOnlyExplicitPathsRead(t *testing.T) {
-	p := &port{state: launcher.Snapshot{Screen: launcher.ScreenPortfolio, Coverage: "authoritative"}}
+	p := &port{state: launcher.Snapshot{Coverage: "authoritative"}}
 	m := New(launcher.New(p), context.Background(), Profile{})
 	if cmd := m.OpenFilter(); cmd != nil {
 		_ = cmd() // Bubbles cursor blink; UI-only command, never a Concord read.
@@ -252,7 +250,7 @@ func TestBubblesUICommandsAreReadFreeAndOnlyExplicitPathsRead(t *testing.T) {
 }
 
 func TestSubmitCallsReadOnceAndNoTimerOrPolling(t *testing.T) {
-	p := &port{state: launcher.Snapshot{Screen: launcher.ScreenPortfolio, Coverage: "authoritative"}}
+	p := &port{state: launcher.Snapshot{Coverage: "authoritative"}}
 	m := New(launcher.New(p), context.Background(), Profile{})
 	m.OpenFilter()
 	m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
@@ -262,7 +260,7 @@ func TestSubmitCallsReadOnceAndNoTimerOrPolling(t *testing.T) {
 }
 
 func TestS1NavigationFilterHelpRefreshAndS2BackAreReadBounded(t *testing.T) {
-	p := &port{state: launcher.Snapshot{Screen: launcher.ScreenPortfolio, Coverage: "authoritative", Rows: []launcher.ProductRow{
+	p := &port{state: launcher.Snapshot{Coverage: "authoritative", Rows: []launcher.ProductRow{
 		{ID: "p-1", Name: "Alpha", Stage: "production"},
 		{ID: "p-2", Name: "Beta", Stage: "alpha"},
 		{ID: "p-3", Name: "Gamma", Stage: "beta"},
@@ -298,23 +296,22 @@ func TestS1NavigationFilterHelpRefreshAndS2BackAreReadBounded(t *testing.T) {
 	if p.reads != 2 {
 		t.Fatalf("refresh reads=%d, want 2", p.reads)
 	}
-	p.state = launcher.Snapshot{Screen: launcher.ScreenProduct, Section: launcher.SectionRelations, Coverage: "authoritative"}
+	p.state = launcher.Snapshot{RankedWorkRead: true, Section: launcher.SectionRelations, Coverage: "authoritative"}
 	m.UpdateKey("enter")
-	if got := core.Snapshot(); got.Screen != launcher.ScreenProduct || got.StatusMessage != "" {
+	if got := core.Snapshot(); got.AmbientProduct == "" || got.StatusMessage != "" {
 		t.Fatalf("S2=%#v", got)
 	}
 	if p.reads != 4 {
 		t.Fatalf("selection reads=%d", p.reads)
 	}
 	m.UpdateKey("esc")
-	if core.Snapshot().Screen != launcher.ScreenPortfolio || p.reads != 4 {
-		t.Fatalf("back screen=%s reads=%d", core.Snapshot().Screen, p.reads)
+	if core.Snapshot().AmbientProduct != "" || p.reads != 4 {
+		t.Fatalf("back product=%s reads=%d", core.Snapshot().AmbientProduct, p.reads)
 	}
 }
 
 func TestS2BackRestoresPortfolioRowsCursorAndScroll(t *testing.T) {
 	portfolio := launcher.Snapshot{
-		Screen:   launcher.ScreenPortfolio,
 		Coverage: "authoritative",
 		Rows: []launcher.ProductRow{
 			{ID: "p-1", Name: "Alpha"},
@@ -330,7 +327,7 @@ func TestS2BackRestoresPortfolioRowsCursorAndScroll(t *testing.T) {
 	m.UpdateKey("j")
 	m.scroll = 1
 	p.state = launcher.Snapshot{
-		Screen:         launcher.ScreenProduct,
+		RankedWorkRead: true,
 		AmbientProduct: "p-2",
 		Section:        launcher.SectionRanked,
 		Coverage:       "authoritative",
@@ -340,7 +337,7 @@ func TestS2BackRestoresPortfolioRowsCursorAndScroll(t *testing.T) {
 	m.UpdateKey("enter")
 	m.UpdateKey("esc")
 	got := core.Snapshot()
-	if got.Screen != launcher.ScreenPortfolio || len(got.Rows) != 2 || got.Rows[1].ID != "p-2" {
+	if got.AmbientProduct != "" || len(got.Rows) != 2 || got.Rows[1].ID != "p-2" {
 		t.Fatalf("restored portfolio snapshot = %#v", got)
 	}
 	if m.Cursor() != 1 || m.scroll != 1 {
@@ -349,7 +346,7 @@ func TestS2BackRestoresPortfolioRowsCursorAndScroll(t *testing.T) {
 }
 
 func TestS1HelpHasNoSemanticQueryBinding(t *testing.T) {
-	p := &port{state: launcher.Snapshot{Screen: launcher.ScreenPortfolio, Coverage: "authoritative"}}
+	p := &port{state: launcher.Snapshot{Coverage: "authoritative"}}
 	m := New(launcher.New(p), context.Background(), Profile{})
 	m.UpdateKey("?")
 	rendered := m.Render()
@@ -363,7 +360,7 @@ func TestS1HelpHasNoSemanticQueryBinding(t *testing.T) {
 }
 
 func TestS1QuitReturnsTeaQuitAndNoRead(t *testing.T) {
-	p := &port{state: launcher.Snapshot{Screen: launcher.ScreenPortfolio, Coverage: "authoritative"}}
+	p := &port{state: launcher.Snapshot{Coverage: "authoritative"}}
 	m := New(launcher.New(p), context.Background(), Profile{})
 	_, cmd := m.Update(keyPress('q', "q", 0))
 	if cmd == nil || p.reads != 0 {
@@ -381,17 +378,17 @@ func (p *coordinationPort) Read(_ context.Context, request launcher.ReadRequest)
 	p.requests = append(p.requests, request)
 	switch request.Kind {
 	case launcher.ReadPortfolio:
-		return launcher.Snapshot{Screen: launcher.ScreenPortfolio, Coverage: "authoritative", Rows: []launcher.ProductRow{{ID: "product-1", Name: "Product One"}}}, nil
+		return launcher.Snapshot{Coverage: "authoritative", Rows: []launcher.ProductRow{{ID: "product-1", Name: "Product One"}}}, nil
 	case launcher.ReadDomains:
-		return launcher.Snapshot{Screen: launcher.ScreenProduct, AmbientProduct: request.Product, Section: launcher.SectionDomains, Coverage: "authoritative", Ranked: []launcher.RankedWork{{ID: "work-1", Title: "First", Lifecycle: "needed", Priority: 1, Ready: true}, {ID: "work-2", Title: "Blocked", Lifecycle: "needed", Priority: 2, Blocked: true, Blockers: []launcher.Blocker{{ID: "blocker-1", Title: "External", Authority: "ci", Age: "old", External: true}}}}, Relations: launcher.RelationTree{Edges: []launcher.RelationEdge{{Kind: "parent", Source: "work-1", Target: "work-2"}}, Clusters: [][]string{{"work-1", "work-2"}}, Roots: []string{"work-1"}, Depth: 3}, Domains: launcher.DomainSection{Read: true, State: "authoritative", Registry: "sha256:fixed", Domains: []launcher.DomainRow{{ID: "product-root:one", Name: "Product One", Home: true}, {ID: "work-nav", Name: "Work navigation", ParentID: "product-root:one"}}, Relations: []launcher.DomainRelationEdge{{Kind: "depends_on", Source: "work-nav", Target: "product-root:one", State: "active"}}, Overlaps: []launcher.OverlapPair{{From: "work-1", To: "work-2", State: "absent", SharedDomains: []string{"work-nav"}}}}}, nil
+		return launcher.Snapshot{RankedWorkRead: true, AmbientProduct: request.Product, Section: launcher.SectionDomains, Coverage: "authoritative", Ranked: []launcher.RankedWork{{ID: "work-1", Title: "First", Lifecycle: "needed", Priority: 1, Ready: true}, {ID: "work-2", Title: "Blocked", Lifecycle: "needed", Priority: 2, Blocked: true, Blockers: []launcher.Blocker{{ID: "blocker-1", Title: "External", Authority: "ci", Age: "old", External: true}}}}, Relations: launcher.RelationTree{Edges: []launcher.RelationEdge{{Kind: "parent", Source: "work-1", Target: "work-2"}}, Clusters: [][]string{{"work-1", "work-2"}}, Roots: []string{"work-1"}, Depth: 3}, Domains: launcher.DomainSection{Read: true, State: "authoritative", Registry: "sha256:fixed", Domains: []launcher.DomainRow{{ID: "product-root:one", Name: "Product One", Home: true}, {ID: "work-nav", Name: "Work navigation", ParentID: "product-root:one"}}, Relations: []launcher.DomainRelationEdge{{Kind: "depends_on", Source: "work-nav", Target: "product-root:one", State: "active"}}, Overlaps: []launcher.OverlapPair{{From: "work-1", To: "work-2", State: "absent", SharedDomains: []string{"work-nav"}}}}}, nil
 	case launcher.ReadProduct:
-		return launcher.Snapshot{Screen: launcher.ScreenProduct, AmbientProduct: request.Product, Section: request.Section, Coverage: "authoritative", Ranked: []launcher.RankedWork{{ID: "work-1", Title: "First", Lifecycle: "needed", Priority: 1, Ready: true}, {ID: "work-2", Title: "Blocked", Lifecycle: "needed", Priority: 2, Blocked: true, Blockers: []launcher.Blocker{{ID: "blocker-1", Title: "External", Authority: "ci", Age: "old", External: true}}}}, Relations: launcher.RelationTree{Edges: []launcher.RelationEdge{{Kind: "parent", Source: "work-1", Target: "work-2"}}, Clusters: [][]string{{"work-1", "work-2"}}, Roots: []string{"work-1"}, Depth: 3}}, nil
+		return launcher.Snapshot{RankedWorkRead: true, AmbientProduct: request.Product, Section: request.Section, Coverage: "authoritative", Ranked: []launcher.RankedWork{{ID: "work-1", Title: "First", Lifecycle: "needed", Priority: 1, Ready: true}, {ID: "work-2", Title: "Blocked", Lifecycle: "needed", Priority: 2, Blocked: true, Blockers: []launcher.Blocker{{ID: "blocker-1", Title: "External", Authority: "ci", Age: "old", External: true}}}}, Relations: launcher.RelationTree{Edges: []launcher.RelationEdge{{Kind: "parent", Source: "work-1", Target: "work-2"}}, Clusters: [][]string{{"work-1", "work-2"}}, Roots: []string{"work-1"}, Depth: 3}}, nil
 	case launcher.ReadSearch:
-		return launcher.Snapshot{Screen: launcher.ScreenProduct, AmbientProduct: request.Product, Section: launcher.SectionRanked, Coverage: "authoritative", QueryResult: true, QuerySubmitted: request.Query, Ranked: []launcher.RankedWork{{ID: "work-1", Title: "First", Lifecycle: "needed", Priority: 1, Ready: true}}}, nil
+		return launcher.Snapshot{RankedWorkRead: true, AmbientProduct: request.Product, Section: launcher.SectionRanked, Coverage: "authoritative", QueryResult: true, QuerySubmitted: request.Query, Ranked: []launcher.RankedWork{{ID: "work-1", Title: "First", Lifecycle: "needed", Priority: 1, Ready: true}}}, nil
 	case launcher.ReadWork:
-		return launcher.Snapshot{Screen: launcher.ScreenWork, AmbientProduct: request.Product, SelectedWorkID: request.Work, Section: request.Section, Coverage: "authoritative", Detail: launcher.WorkDetail{Item: launcher.RankedWork{ID: request.Work, Title: "First", Lifecycle: "needed", Priority: 1}, History: []string{"created"}}}, nil
+		return launcher.Snapshot{AmbientProduct: request.Product, SelectedWorkID: request.Work, Section: request.Section, Coverage: "authoritative", Detail: launcher.WorkDetail{Item: launcher.RankedWork{ID: request.Work, Title: "First", Lifecycle: "needed", Priority: 1}, History: []string{"created"}}}, nil
 	case launcher.ReadKnowledge:
-		return launcher.Snapshot{Screen: launcher.ScreenProduct, AmbientProduct: request.Product, Section: launcher.SectionKnowledge, Coverage: "authoritative", Knowledge: launcher.KnowledgeSection{Read: true, State: "authoritative-empty"}}, nil
+		return launcher.Snapshot{RankedWorkRead: true, AmbientProduct: request.Product, Section: launcher.SectionKnowledge, Coverage: "authoritative", Knowledge: launcher.KnowledgeSection{Read: true, State: "authoritative-empty"}}, nil
 	default:
 		return launcher.Snapshot{}, nil
 	}
@@ -405,18 +402,18 @@ func TestS2S3NavigationRestoresProductSelectionAndScroll(t *testing.T) {
 	}
 	m := New(core, context.Background(), Profile{})
 	m.UpdateKey("enter")
-	if core.Snapshot().Screen != launcher.ScreenProduct || p.reads != 3 {
+	if core.Snapshot().AmbientProduct == "" || p.reads != 3 {
 		t.Fatalf("S2=%#v reads=%d", core.Snapshot(), p.reads)
 	}
 	m.UpdateKey("tab") // domain -> blocked
 	m.UpdateKey("tab") // blocked -> next
 	m.UpdateKey("j")
 	m.UpdateKey("enter")
-	if core.Snapshot().Screen != launcher.ScreenWork || core.Handoff().WorkID != "work-2" || p.reads != 4 {
+	if core.Snapshot().SelectedWorkID == "" || core.Handoff().WorkID != "work-2" || p.reads != 4 {
 		t.Fatalf("S3=%#v reads=%d", core.Snapshot(), p.reads)
 	}
 	m.UpdateKey("esc")
-	if core.Snapshot().Screen != launcher.ScreenProduct || m.Cursor() != 1 || core.Section() != launcher.SectionRanked {
+	if core.Snapshot().SelectedWorkID != "" || m.Cursor() != 1 || core.Section() != launcher.SectionRanked {
 		t.Fatalf("restored product=%#v cursor=%d", core.Snapshot(), m.Cursor())
 	}
 }
@@ -437,12 +434,12 @@ func TestS3BackRestoresProductSnapshotCursorAndScrollForEveryBackKey(t *testing.
 			m.scroll = 1
 			product := core.Snapshot()
 			m.UpdateKey("enter")
-			if core.Snapshot().Screen != launcher.ScreenWork {
+			if core.Snapshot().SelectedWorkID == "" {
 				t.Fatalf("work snapshot = %#v", core.Snapshot())
 			}
 			m.UpdateKey(backKey)
 			got := core.Snapshot()
-			if got.Screen != launcher.ScreenProduct || got.Section != product.Section || len(got.Ranked) != len(product.Ranked) {
+			if got.SelectedWorkID != "" || got.Section != product.Section || len(got.Ranked) != len(product.Ranked) {
 				t.Fatalf("restored product snapshot = %#v, want %#v", got, product)
 			}
 			if m.Cursor() != 1 || m.scroll != 1 {
@@ -503,7 +500,7 @@ func TestDisplayedQueryEscRestoresSnapshotCursorAndScroll(t *testing.T) {
 		t.Fatalf("query must make exactly one port read: %d", p.reads)
 	}
 	m.UpdateKey("esc")
-	if got := core.Snapshot(); got.Screen != launcher.ScreenProduct || got.Section != launcher.SectionRanked || m.Cursor() != 1 || m.scroll != 1 {
+	if got := core.Snapshot(); got.AmbientProduct == "" || got.Section != launcher.SectionRanked || m.Cursor() != 1 || m.scroll != 1 {
 		t.Fatalf("query Esc did not restore prior Product state: snapshot=%#v cursor=%d scroll=%d", got, m.Cursor(), m.scroll)
 	}
 }
@@ -538,8 +535,8 @@ func TestFilterAndQueryInputRemainSeparate(t *testing.T) {
 
 func TestS2AndS3RenderUnavailableForegroundReadState(t *testing.T) {
 	for _, snapshot := range []launcher.Snapshot{
-		{Screen: launcher.ScreenProduct, AmbientProduct: "product-1", Section: launcher.SectionRanked, Coverage: "unavailable", StatusMessage: "unavailable: Product work omitted by launcher limit"},
-		{Screen: launcher.ScreenWork, AmbientProduct: "product-1", SelectedWorkID: "work-1", Section: launcher.SectionRelations, Coverage: "unreachable", StatusMessage: "database unavailable"},
+		{RankedWorkRead: true, AmbientProduct: "product-1", Section: launcher.SectionRanked, Coverage: "unavailable", StatusMessage: "unavailable: Product work omitted by launcher limit"},
+		{AmbientProduct: "product-1", SelectedWorkID: "work-1", Section: launcher.SectionRelations, Coverage: "unreachable", StatusMessage: "database unavailable"},
 	} {
 		p := &port{state: snapshot}
 		core := launcher.New(p)
@@ -554,7 +551,7 @@ func TestS2AndS3RenderUnavailableForegroundReadState(t *testing.T) {
 
 func TestS2DrillDownRendersKindReadinessAndTerminalAt(t *testing.T) {
 	snapshot := launcher.Snapshot{
-		Screen: launcher.ScreenProduct, AmbientProduct: "product-1", Section: launcher.SectionRanked,
+		RankedWorkRead: true, AmbientProduct: "product-1", Section: launcher.SectionRanked,
 		PanelFocus: launcher.S2PanelBlocked, Coverage: "authoritative",
 		Ranked: []launcher.RankedWork{
 			{ID: "work-1", Kind: "task", Title: "Live", Lifecycle: "needed", Priority: 1, Ready: true},
@@ -565,7 +562,7 @@ func TestS2DrillDownRendersKindReadinessAndTerminalAt(t *testing.T) {
 	core := launcher.New(p)
 	core.RestoreSnapshot(snapshot)
 	m := New(core, context.Background(), Profile{})
-	rendered := m.Render()
+	rendered := paneText(m)
 	for _, want := range []string{
 		"kind=task", "kind=bug",
 		"+READY", "-TERMINAL",
@@ -576,7 +573,7 @@ func TestS2DrillDownRendersKindReadinessAndTerminalAt(t *testing.T) {
 			t.Fatalf("drill-down line missing %q: %q", want, rendered)
 		}
 	}
-	if again := m.Render(); again != rendered {
+	if again := paneText(m); again != rendered {
 		t.Fatalf("drill-down render changed between frames:\n%s\n%s", rendered, again)
 	}
 }
@@ -584,7 +581,7 @@ func TestS2DrillDownRendersKindReadinessAndTerminalAt(t *testing.T) {
 func TestS2DegradedDrillDownNeverRendersAuthoritativeEmpty(t *testing.T) {
 	for _, focus := range []launcher.S2Panel{launcher.S2PanelBlocked, launcher.S2PanelNext} {
 		snapshot := launcher.Snapshot{
-			Screen: launcher.ScreenProduct, AmbientProduct: "product-1", Section: launcher.SectionRanked,
+			RankedWorkRead: true, AmbientProduct: "product-1", Section: launcher.SectionRanked,
 			PanelFocus: focus, Coverage: "unavailable", StatusMessage: "unavailable: Product work omitted by launcher limit",
 		}
 		p := &port{state: snapshot}
@@ -612,11 +609,11 @@ type authorityPort struct {
 func (p *authorityPort) Read(_ context.Context, _ launcher.ReadRequest) (launcher.Snapshot, error) {
 	if p.unreachable {
 		return launcher.Snapshot{
-			Screen: launcher.ScreenPortfolio, Coverage: "unreachable", Reliance: "unreachable",
+			Coverage: "unreachable", Reliance: "unreachable",
 			StatusMessage: "unreachable: database unavailable",
 		}, errors.New("database unavailable")
 	}
-	return launcher.Snapshot{Screen: launcher.ScreenPortfolio, Coverage: "authoritative", Rows: p.rows}, nil
+	return launcher.Snapshot{Coverage: "authoritative", Rows: p.rows}, nil
 }
 
 func TestS1RendersNoCachedRowsAsCurrentWhenAuthorityIsUnreachable(t *testing.T) {
@@ -666,8 +663,8 @@ type refreshCountingPort struct {
 func (p *refreshCountingPort) Read(_ context.Context, request launcher.ReadRequest) (launcher.Snapshot, error) {
 	p.requests = append(p.requests, request)
 	return launcher.Snapshot{
-		Screen: launcher.ScreenPortfolio, Coverage: "authoritative",
-		Rows: []launcher.ProductRow{{ID: "p-1", Name: "Alpha"}, {ID: "p-2", Name: "Beta"}},
+		Coverage: "authoritative",
+		Rows:     []launcher.ProductRow{{ID: "p-1", Name: "Alpha"}, {ID: "p-2", Name: "Beta"}},
 	}, nil
 }
 
@@ -728,7 +725,7 @@ func TestLaunchHandoffIsIdentityOnlyAndS1CannotReachWork(t *testing.T) {
 	if err := core.SelectWork(context.Background(), "work-1"); err != nil {
 		t.Fatal(err)
 	}
-	if core.Snapshot().Screen != launcher.ScreenPortfolio || p.reads != 1 {
+	if core.Snapshot().AmbientProduct != "" || p.reads != 1 {
 		t.Fatalf("ambient-less work selection=%#v reads=%d", core.Snapshot(), p.reads)
 	}
 	m := New(core, context.Background(), Profile{})
@@ -787,7 +784,7 @@ func TestSessionCommandPassesPromptThroughEnvironment(t *testing.T) {
 func TestProjectCandidateStartsAPlainSession(t *testing.T) {
 	project := "/projects/plain"
 	core := launcher.New(nil)
-	core.RestoreSnapshot(launcher.Snapshot{Screen: launcher.ScreenPortfolio, Coverage: "authoritative", Candidates: []launcher.Candidate{{
+	core.RestoreSnapshot(launcher.Snapshot{Coverage: "authoritative", Candidates: []launcher.Candidate{{
 		ID: project, Kind: launcher.CandidateProject, Name: "plain", Path: project, Available: true,
 	}}})
 	m := New(core, context.Background(), Profile{})
@@ -819,7 +816,7 @@ func TestS2DomainSectionRendersHierarchyRelationsAndOverlap(t *testing.T) {
 	}
 	m := New(core, context.Background(), Profile{})
 	m.UpdateKey("enter")
-	rendered := m.Render()
+	rendered := paneText(m)
 	for _, want := range []string{"HOME product-root:one Product One law=0 active=0", "DOMAIN work-nav Work navigation parent=product-root:one law=0 active=0", "RELATION depends_on: work-nav -> product-root:one state=active", "OVERLAP work-1 & work-2 domains=work-nav resolution=absent"} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("domains render missing %q: %q", want, rendered)
@@ -835,7 +832,7 @@ func TestS2DomainSectionRendersHierarchyRelationsAndOverlap(t *testing.T) {
 
 func TestS2AnswerStackAdapterRendersPanelsInContractOrderAndKeepsSummariesStable(t *testing.T) {
 	snapshot := launcher.Snapshot{
-		Screen: launcher.ScreenProduct, AmbientProduct: "product-1", Coverage: "authoritative",
+		RankedWorkRead: true, AmbientProduct: "product-1", Coverage: "authoritative",
 		PanelFocus: launcher.S2PanelDomain,
 		Domains:    launcher.DomainSection{Read: true, State: "authoritative", Overlaps: []launcher.OverlapPair{{From: "w-a", To: "w-b", State: "absent", SharedDomains: []string{"d-law"}}}},
 		Ranked:     []launcher.RankedWork{{ID: "w-store", Title: "Stored order", Blocked: true, Blockers: []launcher.Blocker{{ID: "b-store", Authority: "law"}}}, {ID: "w-second", Title: "Not first", Ready: true}},
@@ -844,7 +841,7 @@ func TestS2AnswerStackAdapterRendersPanelsInContractOrderAndKeepsSummariesStable
 	core.RestoreSnapshot(snapshot)
 	m := New(core, context.Background(), Profile{})
 	m.Sync()
-	rendered := m.Render()
+	rendered := paneText(m)
 	for _, want := range []string{"OVERLAP w-a & w-b domains=d-law resolution=absent", "BLOCKED: w-store Stored order marker=!BLOCKED blockers=b-store[law]", "NEXT: !BLOCKED w-store Stored order"} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("initial stack line missing %q: %q", want, rendered)
@@ -855,7 +852,7 @@ func TestS2AnswerStackAdapterRendersPanelsInContractOrderAndKeepsSummariesStable
 	}
 	m.UpdateKey("tab")
 	m.UpdateKey("tab")
-	rendered = m.Render()
+	rendered = paneText(m)
 	for _, want := range []string{"DOMAIN: unresolved overlap: w-a & w-b domains=d-law resolution=absent", "BLOCKED: w-store Stored order marker=!BLOCKED blockers=b-store[law]", "1 !BLOCKED w-store Stored order"} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("summary missing %q: %q", want, rendered)
@@ -866,7 +863,7 @@ func TestS2AnswerStackAdapterRendersPanelsInContractOrderAndKeepsSummariesStable
 func TestS2AnswerStackAdapterRedrawIsByteIdentical(t *testing.T) {
 	core := launcher.New(nil)
 	core.RestoreSnapshot(launcher.Snapshot{
-		Screen: launcher.ScreenProduct, AmbientProduct: "product-1", Coverage: "authoritative",
+		RankedWorkRead: true, AmbientProduct: "product-1", Coverage: "authoritative",
 		Domains: launcher.DomainSection{Read: true, State: "authoritative"},
 		Ranked:  []launcher.RankedWork{{ID: "w-1", Title: "Next", Ready: true}},
 	})
@@ -883,11 +880,13 @@ func TestS2AnswerStackSummaryLinesStayWithin80ColumnsAndUnavailableDiffersFromCl
 		{Read: true, State: "unavailable", Reason: "registry unavailable"},
 	} {
 		core := launcher.New(nil)
-		core.RestoreSnapshot(launcher.Snapshot{Screen: launcher.ScreenProduct, AmbientProduct: "product-1", Coverage: "authoritative", PanelFocus: launcher.S2PanelNext, Domains: state, Ranked: []launcher.RankedWork{{ID: "w-1", Title: strings.Repeat("x", 200), Ready: true}}})
+		core.RestoreSnapshot(launcher.Snapshot{RankedWorkRead: true, AmbientProduct: "product-1", Coverage: "authoritative", PanelFocus: launcher.S2PanelNext, Domains: state, Ranked: []launcher.RankedWork{{ID: "w-1", Title: strings.Repeat("x", 200), Ready: true}}})
 		m := New(core, context.Background(), Profile{})
 		m.Sync()
-		rendered := m.Render()
-		for _, line := range strings.Split(rendered, "\n") {
+		rendered := paneText(m)
+		// The frame owns the column budget; the pane body holds the untruncated
+		// summary text the assertions below name.
+		for _, line := range strings.Split(m.Render(), "\n") {
 			if width := lipgloss.Width(line); width > 80 {
 				t.Fatalf("line width=%d: %q", width, line)
 			}
@@ -903,7 +902,7 @@ func TestS2AnswerStackSummaryLinesStayWithin80ColumnsAndUnavailableDiffersFromCl
 
 func TestS2TabFocusAndS3TabSectionBehaviour(t *testing.T) {
 	core := launcher.New(nil)
-	core.RestoreSnapshot(launcher.Snapshot{Screen: launcher.ScreenProduct, Section: launcher.SectionDomains, Domains: launcher.DomainSection{Read: true, State: "authoritative"}})
+	core.RestoreSnapshot(launcher.Snapshot{RankedWorkRead: true, Section: launcher.SectionDomains, Domains: launcher.DomainSection{Read: true, State: "authoritative"}})
 	m := New(core, context.Background(), Profile{})
 	m.Sync()
 	for _, want := range []launcher.S2Panel{launcher.S2PanelBlocked, launcher.S2PanelNext, launcher.S2PanelDomain} {
@@ -912,10 +911,21 @@ func TestS2TabFocusAndS3TabSectionBehaviour(t *testing.T) {
 			t.Fatalf("S2 focus=%q, want %q", got, want)
 		}
 	}
-	core.RestoreSnapshot(launcher.Snapshot{Screen: launcher.ScreenWork, Section: launcher.SectionRelations, Detail: launcher.WorkDetail{Knowledge: launcher.KnowledgeSection{Read: true}}})
+	core.RestoreSnapshot(launcher.Snapshot{AmbientProduct: "product-1", SelectedWorkID: "work-1", Section: launcher.SectionRelations, Detail: launcher.WorkDetail{Item: launcher.RankedWork{ID: "work-1"}, Knowledge: launcher.KnowledgeSection{Read: true}}})
 	m.Sync()
 	m.UpdateKey("tab")
 	if got := core.Section(); got != launcher.SectionRanked {
 		t.Fatalf("S3 Tab changed to %q, want next existing section", got)
 	}
+}
+
+// paneText joins the pane bodies before the frame wraps them to pane width. A
+// content assertion asks what a pane carries; frame_test.go owns geometry and
+// TestNoColorOutputIsPlainTextAndKeepsAllSemanticMarkers owns the escape check.
+func paneText(m *Model) string {
+	snapshot := m.snapshot
+	lines := append([]string{}, m.workPaneLines(snapshot)...)
+	lines = append(lines, m.contextPaneLines(snapshot)...)
+	lines = append(lines, m.previewPaneLines(snapshot)...)
+	return strings.Join(lines, "\n")
 }

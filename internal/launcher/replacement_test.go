@@ -64,9 +64,9 @@ type replacementProbePort struct {
 
 func (p replacementProbePort) Read(context.Context, ReadRequest) (Snapshot, error) {
 	if p.failed {
-		return Snapshot{Screen: ScreenPortfolio, Coverage: "unreachable"}, errors.New("authority unavailable")
+		return Snapshot{Coverage: "unreachable"}, errors.New("authority unavailable")
 	}
-	return Snapshot{Screen: ScreenPortfolio, Coverage: "authoritative"}, nil
+	return Snapshot{Coverage: "authoritative"}, nil
 }
 
 func (p replacementProbePort) Probe(context.Context) []ProbeStatus {
@@ -89,7 +89,7 @@ func TestReplacementProbeFailureStaysInPreview(t *testing.T) {
 
 func TestReplacementCandidatePreviewCarriesLaunchContext(t *testing.T) {
 	model := New(nil)
-	model.RestoreSnapshot(Snapshot{Screen: ScreenPortfolio, Coverage: "authoritative", Candidates: []Candidate{{
+	model.RestoreSnapshot(Snapshot{Coverage: "authoritative", Candidates: []Candidate{{
 		ID: "work-1", Kind: CandidateWork, Name: "Fix launcher", State: "in_progress", Blocked: true,
 		Worktree: "/worktrees/work-1", Live: 2, Available: true,
 	}}})

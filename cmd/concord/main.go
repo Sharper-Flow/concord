@@ -228,7 +228,7 @@ func writeUsage(out io.Writer) {
 type firstRunPort struct{}
 
 func (firstRunPort) Read(context.Context, launcher.ReadRequest) (launcher.Snapshot, error) {
-	return launcher.Snapshot{Screen: launcher.ScreenPortfolio, Coverage: "first_run", FirstRun: true, StatusMessage: "initialize the Concord authority database through operator setup"}, nil
+	return launcher.Snapshot{Coverage: "first_run", FirstRun: true, StatusMessage: "initialize the Concord authority database through operator setup"}, nil
 }
 
 func (firstRunPort) Candidates(context.Context, int) ([]launcher.Candidate, error) {

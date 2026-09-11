@@ -1,24 +1,24 @@
-CONCORD LAUNCHER | PRODUCT: Concord                                             
-FOCUS: product/Concord                  COVERAGE: authoritative                 
-╭──────────────────────────────────────────────────────────────────────────────╮
-│PRODUCT: Concord | WATERMARK: w42 | AGE: 2m | SCREEN: portfolio | RELIANCE:   │
-│clear | COVERAGE: authoritative                                               │
-│Product  Stage  Reliance  Actions  Focus                                      │
-│Launcher | in_progress | clear | 3 | Fix frame                                │
-│arrows move • / filter • r refresh • enter open • ctrl-p pin • ctrl-u unpin … │
-│                                                                              │
-│                                                                              │
-│                                                                              │
-│                                                                              │
-│                                                                              │
-│                                                                              │
-│                                                                              │
-│                                                                              │
-│                                                                              │
-│                                                                              │
-│                                                                              │
-│                                                                              │
-│                                                                              │
-│                                                                              │
-╰──────────────────────────────────────────────────────────────────────────────╯
-arrows move • / filter • r refresh • enter open • ctrl-p pin • ctrl-u unpin …   
+CONCORD LAUNCHER | PRODUCT: Concord | WATERMARK: w42 | AGE: 2m                  
+FOCUS: product/Concord    COVERAGE: authoritative | RELIANCE: clear             
+╭────────────────────────╮╭────────────────────────╮╭────────────────────────╮  
+│WORK                    ││CONTEXT                 ││PREVIEW                 │  
+│Launcher | in_progress |││PRODUCT: Concord        ││no selection            │  
+│clear | 3 | Fix frame   ││                        ││                        │  
+│                        ││                        ││                        │  
+│                        ││                        ││                        │  
+│                        ││                        ││                        │  
+│                        ││                        ││                        │  
+│                        ││                        ││                        │  
+│                        ││                        ││                        │  
+│                        ││                        ││                        │  
+│                        ││                        ││                        │  
+│                        ││                        ││                        │  
+│                        ││                        ││                        │  
+│                        ││                        ││                        │  
+│                        ││                        ││                        │  
+│                        ││                        ││                        │  
+│                        ││                        ││                        │  
+│                        ││                        ││                        │  
+│                        ││                        ││                        │  
+╰────────────────────────╯╰────────────────────────╯╰────────────────────────╯  
+arrows move • / filter • s search • tab panel/section • r refresh • enter open •

@@ -39,7 +39,7 @@ type launcherPortfolioObservation struct {
 	Rows             map[string]store.ProductRow
 	Coverage         map[string]store.ProductRow
 	SessionReads     []launcher.ReadRequest
-	SessionScreen    launcher.Screen
+	SessionProduct   string
 	SessionReadsWant int
 	DurableBefore    map[string]int
 	DurableAfter     map[string]int
@@ -245,8 +245,8 @@ func evaluateLauncherAssertion(observation launcherPortfolioObservation, scenari
 		}
 		return nil
 	case "s2_not_implemented":
-		if observation.SessionScreen != launcher.ScreenPortfolio {
-			return fmt.Errorf("%s: session entered an S2 screen: %s", scenario.ID, observation.SessionScreen)
+		if observation.SessionProduct != "" {
+			return fmt.Errorf("%s: session entered a Product read: %s", scenario.ID, observation.SessionProduct)
 		}
 		return nil
 	case "typed_first_run":
@@ -378,7 +378,7 @@ func bindLauncherSession(t *testing.T, scenario launcherPortfolioCase) launcherP
 		}
 	}
 	after := launcherDurableCounts(t, s)
-	return launcherPortfolioObservation{SessionReads: append([]launcher.ReadRequest(nil), port.requests...), SessionScreen: core.Snapshot().Screen, SessionReadsWant: 2, DurableBefore: before, DurableAfter: after}
+	return launcherPortfolioObservation{SessionReads: append([]launcher.ReadRequest(nil), port.requests...), SessionProduct: core.Snapshot().AmbientProduct, SessionReadsWant: 2, DurableBefore: before, DurableAfter: after}
 }
 
 func bindFirstRun(t *testing.T, _ launcherPortfolioCase) launcherPortfolioObservation {

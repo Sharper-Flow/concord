@@ -2636,6 +2636,13 @@
             "outcome": {
               "const": "error"
             },
+            "changed_refs": {
+              "type": "array",
+              "maxItems": 32,
+              "items": {
+                "$ref": "#/$defs/changedRef"
+              }
+            },
             "error": {
               "allOf": [
                 {

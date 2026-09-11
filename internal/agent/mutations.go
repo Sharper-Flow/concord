@@ -2187,16 +2187,24 @@ func (r runtime) mutateWorktreeAuditReclaim(ctx context.Context, base Envelope, 
 // audit's row transactions committed. The reclaimed rows in changed already
 // applied, so the envelope keeps the failure's kind and coupled recovery,
 // marks effects possible, and carries exactly the committed refs — refused
-// rows never ride along. An empty commit set leaves the refusal untouched:
-// nothing applied, so no effect stays truthful.
+// rows never ride along. A valid failure keeps its kind and recovery action.
+// An invalid failure becomes malformed_response, while an empty commit set
+// leaves the no-effect classification truthful.
 func auditReclaimPostCommitFailure(base Envelope, changed []ChangedRef, failure Envelope) Envelope {
-	if len(changed) == 0 || failure.Outcome != OutcomeError || failure.Error == nil {
+	refs := append([]ChangedRef(nil), changed...)
+	if len(refs) > 0 && failure.Outcome == OutcomeError && failure.Error != nil {
+		failure.Error.EffectState = EffectPossible
+		failure.ChangedRefs = &refs
+	}
+	if err := failure.Validate(); err == nil {
 		return failure
 	}
-	failure.Error.EffectState = EffectPossible
-	refs := append([]ChangedRef(nil), changed...)
-	failure.ChangedRefs = &refs
-	return failure
+	validated := coreError(base, "malformed_response", "post-commit failure envelope failed closed-schema validation", "contact_operator", false)
+	if len(refs) > 0 {
+		validated.Error.EffectState = EffectPossible
+		validated.ChangedRefs = &refs
+	}
+	return validated
 }
 
 func auditReclaimChangedRefs(rows []store.WorktreeAuditReclaimRow) []ChangedRef {

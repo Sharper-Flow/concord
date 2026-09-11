@@ -526,6 +526,13 @@ const GeneratedEnvelopeSchemaDocument = `{
         },
         {
           "properties": {
+            "changed_refs": {
+              "items": {
+                "$ref": "#/$defs/changedRef"
+              },
+              "maxItems": 32,
+              "type": "array"
+            },
             "error": {
               "allOf": [
                 {

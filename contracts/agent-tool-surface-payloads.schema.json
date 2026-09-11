@@ -9949,58 +9949,86 @@
             ]
           },
           "then": {
-            "properties": {
-              "fields": {
-                "type": "object",
-                "additionalProperties": false,
-                "maxProperties": 32,
+            "anyOf": [
+              {
                 "properties": {
-                  "approach": {
-                    "type": "string",
-                    "minLength": 2,
-                    "maxLength": 4096
-                  },
-                  "decisions": {
-                    "type": "array",
-                    "items": {
-                      "$ref": "#/$defs/workflow_design_decision"
+                  "fields": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "maxProperties": 32,
+                    "properties": {
+                      "approach": {
+                        "type": "string",
+                        "minLength": 2,
+                        "maxLength": 4096
+                      },
+                      "decisions": {
+                        "type": "array",
+                        "items": {
+                          "$ref": "#/$defs/workflow_design_decision"
+                        },
+                        "minItems": 1,
+                        "maxItems": 16
+                      },
+                      "touched_refs": {
+                        "type": "array",
+                        "uniqueItems": true,
+                        "items": {
+                          "$ref": "#/$defs/reference"
+                        },
+                        "minItems": 1,
+                        "maxItems": 64
+                      }
                     },
-                    "minItems": 1,
-                    "maxItems": 16
-                  },
-                  "touched_refs": {
-                    "type": "array",
-                    "uniqueItems": true,
-                    "items": {
-                      "$ref": "#/$defs/reference"
-                    },
-                    "minItems": 1,
-                    "maxItems": 64
+                    "required": [
+                      "approach",
+                      "decisions",
+                      "touched_refs"
+                    ]
                   }
                 },
-                "required": [
-                  "approach",
-                  "decisions",
-                  "touched_refs"
-                ]
-              }
-            },
-            "not": {
-              "anyOf": [
-                {
-                  "required": [
-                    "selected_choice"
+                "not": {
+                  "anyOf": [
+                    {
+                      "required": [
+                        "selected_choice"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "decision_context_digest"
+                      ]
+                    }
                   ]
                 },
-                {
-                  "required": [
-                    "decision_context_digest"
+                "required": [
+                  "fields"
+                ]
+              },
+              {
+                "properties": {
+                  "fields": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "maxProperties": 32,
+                    "properties": {}
+                  }
+                },
+                "not": {
+                  "anyOf": [
+                    {
+                      "required": [
+                        "selected_choice"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "decision_context_digest"
+                      ]
+                    }
                   ]
                 }
-              ]
-            },
-            "required": [
-              "fields"
+              }
             ]
           }
         },
@@ -10200,83 +10228,111 @@
             ]
           },
           "then": {
-            "properties": {
-              "fields": {
-                "type": "object",
-                "additionalProperties": false,
-                "maxProperties": 32,
+            "anyOf": [
+              {
                 "properties": {
-                  "problem": {
-                    "type": "string",
-                    "minLength": 1,
-                    "maxLength": 4096
-                  },
-                  "affected": {
-                    "type": "array",
-                    "uniqueItems": true,
-                    "items": {
-                      "$ref": "#/$defs/proposal_affected_text"
+                  "fields": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "maxProperties": 32,
+                    "properties": {
+                      "problem": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 4096
+                      },
+                      "affected": {
+                        "type": "array",
+                        "uniqueItems": true,
+                        "items": {
+                          "$ref": "#/$defs/proposal_affected_text"
+                        },
+                        "minItems": 1,
+                        "maxItems": 16
+                      },
+                      "stakes": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 2048
+                      },
+                      "user_outcomes": {
+                        "type": "array",
+                        "uniqueItems": true,
+                        "items": {
+                          "$ref": "#/$defs/proposal_text"
+                        },
+                        "minItems": 1,
+                        "maxItems": 16
+                      },
+                      "constraints": {
+                        "type": "array",
+                        "uniqueItems": true,
+                        "items": {
+                          "$ref": "#/$defs/proposal_text"
+                        },
+                        "minItems": 0,
+                        "maxItems": 16
+                      },
+                      "open_questions": {
+                        "type": "array",
+                        "uniqueItems": true,
+                        "items": {
+                          "$ref": "#/$defs/proposal_text"
+                        },
+                        "minItems": 0,
+                        "maxItems": 16
+                      }
                     },
-                    "minItems": 1,
-                    "maxItems": 16
-                  },
-                  "stakes": {
-                    "type": "string",
-                    "minLength": 1,
-                    "maxLength": 2048
-                  },
-                  "user_outcomes": {
-                    "type": "array",
-                    "uniqueItems": true,
-                    "items": {
-                      "$ref": "#/$defs/proposal_text"
-                    },
-                    "minItems": 1,
-                    "maxItems": 16
-                  },
-                  "constraints": {
-                    "type": "array",
-                    "uniqueItems": true,
-                    "items": {
-                      "$ref": "#/$defs/proposal_text"
-                    },
-                    "minItems": 0,
-                    "maxItems": 16
-                  },
-                  "open_questions": {
-                    "type": "array",
-                    "uniqueItems": true,
-                    "items": {
-                      "$ref": "#/$defs/proposal_text"
-                    },
-                    "minItems": 0,
-                    "maxItems": 16
+                    "required": [
+                      "problem",
+                      "affected",
+                      "stakes",
+                      "user_outcomes"
+                    ]
                   }
                 },
-                "required": [
-                  "problem",
-                  "affected",
-                  "stakes",
-                  "user_outcomes"
-                ]
-              }
-            },
-            "not": {
-              "anyOf": [
-                {
-                  "required": [
-                    "selected_choice"
+                "not": {
+                  "anyOf": [
+                    {
+                      "required": [
+                        "selected_choice"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "decision_context_digest"
+                      ]
+                    }
                   ]
                 },
-                {
-                  "required": [
-                    "decision_context_digest"
+                "required": [
+                  "fields"
+                ]
+              },
+              {
+                "properties": {
+                  "fields": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "maxProperties": 32,
+                    "properties": {}
+                  }
+                },
+                "not": {
+                  "anyOf": [
+                    {
+                      "required": [
+                        "selected_choice"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "decision_context_digest"
+                      ]
+                    }
                   ]
                 }
-              ]
-            },
-            "required": [
-              "fields"
+              }
             ]
           }
         },

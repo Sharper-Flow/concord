@@ -86,6 +86,50 @@ func TestCurrentActionPayloadContractsRefuseCrossActionAndInvalidFields(t *testi
 	}
 }
 
+func TestRecordDesignPayloadContractsRemainVersioned(t *testing.T) {
+	registry := BuiltinWorkflowRegistry()
+	historical, ok := registry.Lookup("workflow.implementation", 5)
+	if !ok {
+		t.Fatal("workflow.implementation v5 is not registered")
+	}
+	current, ok := registry.Lookup("workflow.implementation", 6)
+	if !ok {
+		t.Fatal("workflow.implementation v6 is not registered")
+	}
+
+	findAction := func(definition WorkflowDefinition) WorkflowActionDefinition {
+		t.Helper()
+		for _, action := range definition.ActionDefinitions {
+			if action.ID == "record_design" {
+				return action
+			}
+		}
+		t.Fatal("record_design is not declared")
+		return WorkflowActionDefinition{}
+	}
+	historicalAction := findAction(historical.Definition)
+	currentAction := findAction(current.Definition)
+	if !historicalAction.Payload.Closed || len(historicalAction.Payload.Fields) != 0 {
+		t.Fatalf("v5 record_design payload = %#v, want a closed empty payload", historicalAction.Payload)
+	}
+	if len(currentAction.Payload.Fields) != 3 {
+		t.Fatalf("v6 record_design payload has %d fields, want 3", len(currentAction.Payload.Fields))
+	}
+	typed := json.RawMessage(`{"approach":"keep the pinned contract","decisions":[{"id":"decision:one","question":"Which route?","choice":"native","rationale":"The adapter owns the route","rejected":[]}],"touched_refs":["work:item"]}`)
+	if err := validateWorkflowActionPayload(historical.Definition, "record_design", typed); err == nil {
+		t.Fatal("v5 accepted the v6 typed record_design payload")
+	}
+	if err := validateWorkflowActionPayload(historical.Definition, "record_design", json.RawMessage(`{}`)); err != nil {
+		t.Fatalf("v5 refused its empty record_design payload: %v", err)
+	}
+	if err := validateWorkflowActionPayload(current.Definition, "record_design", typed); err != nil {
+		t.Fatalf("v6 refused its typed record_design payload: %v", err)
+	}
+	if err := validateWorkflowActionPayload(current.Definition, "record_design", json.RawMessage(`{}`)); err == nil {
+		t.Fatal("v6 accepted the v5 empty record_design payload")
+	}
+}
+
 func TestMissingRequiredActionFieldHasNoDurableEffect(t *testing.T) {
 	s := openTemp(t)
 	defer s.Close()

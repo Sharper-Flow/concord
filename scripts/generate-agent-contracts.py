@@ -146,13 +146,20 @@ def load_workflow_action_contracts() -> list[dict]:
     if not actions or len({action.get("id") for action in actions}) != len(actions):
         fail("workflow action contract projection has no unique actions")
     for action in actions:
-        if set(action) != {"id", "payload", "public_payload"}:
+        if set(action) != {"id", "payload", "public_payload", "legacy_payloads"}:
             fail("workflow action contract projection contains an open record")
         for payload_key in ("payload", "public_payload"):
             if set(action[payload_key]) - {"closed", "fields"}:
                 fail("workflow action contract projection contains an open payload")
             if action[payload_key].get("closed") is not True:
                 fail(f"current workflow action {payload_key} is not closed: {action.get('id')}")
+        if not isinstance(action["legacy_payloads"], list):
+            fail(f"legacy workflow action payloads are not a list: {action.get('id')}")
+        for legacy in action["legacy_payloads"]:
+            if set(legacy) - {"closed", "fields"}:
+                fail(f"legacy workflow action payload is an open record: {action.get('id')}")
+            if legacy.get("closed") is not True or legacy.get("fields"):
+                fail(f"legacy workflow action payload is not an empty closed payload: {action.get('id')}")
     return actions
 
 
@@ -277,17 +284,23 @@ def project_workflow_action_schema(document: dict, actions: list[dict]) -> dict:
         if action_id == "confirm_premise":
             then = {"required": ["selected_choice", "decision_context_digest"], "not": {"required": ["fields"]}}
         else:
-            field_properties = {}
-            field_required = []
-            for field in action[payload_key]["fields"]:
-                field_properties[field["name"]] = workflow_payload_field_schema(field)
-                if field.get("required"):
-                    field_required.append(field["name"])
-            field_object = {"type": "object", "additionalProperties": False, "maxProperties": 32, "properties": field_properties}
-            then = {"properties": {"fields": field_object}, "not": {"anyOf": [{"required": ["selected_choice"]}, {"required": ["decision_context_digest"]}]}}
-            if field_required:
-                field_object["required"] = field_required
-                then["required"] = ["fields"]
+            def payload_branch(payload: dict) -> dict:
+                field_properties = {}
+                field_required = []
+                for field in payload["fields"]:
+                    field_properties[field["name"]] = workflow_payload_field_schema(field)
+                    if field.get("required"):
+                        field_required.append(field["name"])
+                field_object = {"type": "object", "additionalProperties": False, "maxProperties": 32, "properties": field_properties}
+                branch = {"properties": {"fields": field_object}, "not": {"anyOf": [{"required": ["selected_choice"]}, {"required": ["decision_context_digest"]}]}}
+                if field_required:
+                    field_object["required"] = field_required
+                    branch["required"] = ["fields"]
+                return branch
+
+            branches = [payload_branch(action[payload_key])]
+            branches.extend(payload_branch(legacy) for legacy in action["legacy_payloads"])
+            then = branches[0] if len(branches) == 1 else {"anyOf": branches}
         return {"if": {"properties": {"action_id": {"const": action_id}}, "required": ["action_id"]}, "then": then}
 
     shared_actions = [action for action in actions if action["payload"] == action["public_payload"]]

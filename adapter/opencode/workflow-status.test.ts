@@ -57,11 +57,43 @@ test("buffers lines per session and appends them to completed text", async () =>
   expect(appendPendingWorkStateLines("session-1", "next text")).toBe("next text")
 })
 
-test("keeps a bounded pending line buffer and drains it", () => {
+test("keeps a bounded pending buffer and drains one line", () => {
   const buffer = createPendingWorkStateLineBuffer()
-  buffer.append("session-1", Array.from({ length: 129 }, (_, index) => `line-${index}`))
-  expect(buffer.drain("session-1")).toHaveLength(128)
+  buffer.append("session-1", Array.from({ length: 129 }, (_, index) => ({ work_id: `work-${index}`, line: `line-${index}` })))
+  expect(buffer.drain("session-1")).toEqual(["line-128"])
   expect(buffer.drain("session-1")).toEqual([])
+})
+
+test("emits one line for the session work item a turn touches most", async () => {
+  const context = { sessionID: "session-many", abort: new AbortController().signal }
+  const reporter = createWorkStateReporter(async () => true)
+  const peer = (index: number) => ({ ...pin, work_id: `peer-${index}`, version: 9 })
+  // A turn that resolves twenty overlaps records the session item in every
+  // mutation and each peer once.
+  for (let index = 0; index < 20; index += 1) {
+    await reporter.report({ outcome: "ok", result: { work_pins: [pin, peer(index)] } }, context)
+  }
+
+  const text = appendPendingWorkStateLines("session-many", "assistant text")
+  expect(text.split("\n").filter((line) => line.startsWith("◆ CONCORD WORK STATE"))).toEqual([
+    "◆ CONCORD WORK STATE | work-1 | title=Repair the adapter | version=4 | lifecycle=in_progress | step=repair | decision=none",
+  ])
+})
+
+test("prefers the launcher-selected work item over the turn count", async () => {
+  const context = { sessionID: "session-selected", abort: new AbortController().signal }
+  const reporter = createWorkStateReporter(async () => true)
+  process.env.CONCORD_SELECTED_WORK_ID = "work-2"
+  try {
+    const selected = { ...pin, work_id: "work-2", version: 5, step: "verify" }
+    await reporter.report({ outcome: "ok", result: { work_pins: [pin, selected] } }, context)
+    await reporter.report({ outcome: "ok", result: { work_pins: [pin] } }, context)
+    expect(appendPendingWorkStateLines("session-selected", "")).toBe(
+      "◆ CONCORD WORK STATE | work-2 | title=Repair the adapter | version=5 | lifecycle=in_progress | step=verify | decision=none",
+    )
+  } finally {
+    delete process.env.CONCORD_SELECTED_WORK_ID
+  }
 })
 
 test("formats the gate brief from focused portfolio rows", () => {

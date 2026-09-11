@@ -15,36 +15,76 @@ type MutationEnvelope = { outcome?: unknown; result?: unknown }
 type Toast = (message: string, context: WorkflowStatusContext) => Promise<boolean>
 
 const MAX_PENDING_SESSIONS = 512
-const MAX_PENDING_LINES_PER_SESSION = 128
+const MAX_PENDING_WORK_ITEMS_PER_SESSION = 64
+
+// A turn touches the session's own work item in every mutation it records, and
+// a peer item only in the mutations that name it. The most-seen item is
+// therefore the session's, which identifies it without an environment
+// variable. A launcher-booted session exports CONCORD_SELECTED_WORK_ID and
+// overrides the count.
+export type WorkStatePin = { work_id: string; line: string }
+type PendingEntry = { line: string; count: number; seq: number }
 
 export type PendingWorkStateLineBuffer = {
-  append: (sessionID: string, lines: string[]) => void
+  append: (sessionID: string, pins: WorkStatePin[]) => void
   drain: (sessionID: string) => string[]
 }
 
-export function createPendingWorkStateLineBuffer(): PendingWorkStateLineBuffer {
-  const pending = new Map<string, string[]>()
+function selectedWorkID(): string {
+  const value = process.env.CONCORD_SELECTED_WORK_ID ?? ""
+  return /^[A-Za-z0-9][A-Za-z0-9._:-]{1,127}$/.test(value) ? value : ""
+}
 
-  function touch(sessionID: string, lines: string[]): void {
+export function createPendingWorkStateLineBuffer(): PendingWorkStateLineBuffer {
+  const pending = new Map<string, Map<string, PendingEntry>>()
+  let clock = 0
+
+  function touch(sessionID: string): Map<string, PendingEntry> {
+    const entries = pending.get(sessionID) ?? new Map<string, PendingEntry>()
     pending.delete(sessionID)
-    pending.set(sessionID, lines)
+    pending.set(sessionID, entries)
     while (pending.size > MAX_PENDING_SESSIONS) {
       const oldest = pending.keys().next()
       if (oldest.done) break
       pending.delete(oldest.value)
     }
+    return entries
   }
 
   return {
-    append(sessionID, lines) {
-      if (!sessionID || lines.length === 0) return
-      const existing = pending.get(sessionID) ?? []
-      touch(sessionID, existing.concat(lines).slice(-MAX_PENDING_LINES_PER_SESSION))
+    append(sessionID, pins) {
+      if (!sessionID || pins.length === 0) return
+      const entries = touch(sessionID)
+      for (const pin of pins) {
+        clock += 1
+        const existing = entries.get(pin.work_id)
+        entries.set(pin.work_id, { line: pin.line, count: (existing?.count ?? 0) + 1, seq: clock })
+      }
+      while (entries.size > MAX_PENDING_WORK_ITEMS_PER_SESSION) {
+        let coldest: string | undefined
+        for (const [workID, entry] of entries) {
+          const held = coldest === undefined ? undefined : entries.get(coldest)
+          if (!held || entry.count < held.count || (entry.count === held.count && entry.seq < held.seq)) coldest = workID
+        }
+        if (coldest === undefined) break
+        entries.delete(coldest)
+      }
     },
+    // CD-0134: one session, one current state, one line. The buffer holds the
+    // latest pin per work item so a turn reports where the session stands, not
+    // every transition it passed through.
     drain(sessionID) {
-      const lines = pending.get(sessionID) ?? []
+      const entries = pending.get(sessionID)
       pending.delete(sessionID)
-      return lines
+      if (!entries || entries.size === 0) return []
+      const selected = selectedWorkID()
+      const pinned = selected ? entries.get(selected) : undefined
+      if (pinned) return [pinned.line]
+      let chosen: PendingEntry | undefined
+      for (const entry of entries.values()) {
+        if (!chosen || entry.count > chosen.count || (entry.count === chosen.count && entry.seq > chosen.seq)) chosen = entry
+      }
+      return chosen ? [chosen.line] : []
     },
   }
 }
@@ -84,24 +124,28 @@ export function formatWorkStateLine(value: unknown): string | null {
   return `◆ CONCORD WORK STATE | ${identifier} | title=${pin.title} | version=${pin.version} | lifecycle=${pin.lifecycle} | step=${pin.step} | decision=${decision}`
 }
 
-export function workStateLines(envelope: unknown): string[] {
+export function workStatePins(envelope: unknown): WorkStatePin[] {
   if (!record(envelope) || envelope.outcome !== "ok") return []
   const payload = record(envelope.result) ? envelope.result : envelope
   if (!Array.isArray(payload.work_pins)) return []
-  const pins = payload.work_pins.map((value) => ({ value, line: formatWorkStateLine(value) }))
-  if (pins.some((item) => item.line === null)) return []
+  const pins = payload.work_pins.map((value) => ({ pin: workPin(value), line: formatWorkStateLine(value) }))
+  if (pins.some((item) => item.pin === null || item.line === null)) return []
   return pins
-    .sort((left, right) => left.line! < right.line! ? -1 : left.line! > right.line! ? 1 : 0)
-    .map((item) => item.line!)
+    .map((item) => ({ work_id: item.pin!.work_id, line: item.line! }))
+    .sort((left, right) => left.line < right.line ? -1 : left.line > right.line ? 1 : 0)
+}
+
+export function workStateLines(envelope: unknown): string[] {
+  return workStatePins(envelope).map((pin) => pin.line)
 }
 
 export function createWorkStateReporter(toast: Toast) {
   return {
     async report(envelope: MutationEnvelope, context: WorkflowStatusContext): Promise<void> {
-      const lines = workStateLines(envelope)
-      pendingWorkStateLineBuffer.append(context.sessionID, lines)
-      for (const line of lines) {
-        try { await toast(line, context) } catch { /* state delivery is best effort */ }
+      const pins = workStatePins(envelope)
+      pendingWorkStateLineBuffer.append(context.sessionID, pins)
+      for (const pin of pins) {
+        try { await toast(pin.line, context) } catch { /* state delivery is best effort */ }
       }
     },
   }

@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test"
-import { createWorkStateReporter, formatGateBrief, formatWorkStateLine, workStateLines } from "./workflow-status"
+import { appendPendingWorkStateLines, createPendingWorkStateLineBuffer, createWorkStateReporter, formatGateBrief, formatWorkStateLine, workStateLines } from "./workflow-status"
 
 const pin = {
   work_id: "work-1",
@@ -32,12 +32,31 @@ test("renders every mutation WorkPin in stable order", () => {
 
 test("reports one toast for each mutation result", async () => {
   const messages: string[] = []
-  const context = { sessionID: "session-1", abort: new AbortController().signal }
+  const context = { sessionID: "session-toast", abort: new AbortController().signal }
   const reporter = createWorkStateReporter(async (message) => { messages.push(message); return true })
   await reporter.report({ outcome: "ok", result: { work_pins: [pin] } }, context)
   await reporter.report({ outcome: "ok", result: { work_pins: [pin] } }, context)
   expect(messages).toHaveLength(2)
   expect(messages[0]).toContain("◆ CONCORD WORK STATE")
+})
+
+test("buffers lines per session and appends them to completed text", async () => {
+  const context = { sessionID: "session-1", abort: new AbortController().signal }
+  const reporter = createWorkStateReporter(async () => true)
+  await reporter.report({ outcome: "ok", result: { work_pins: [pin] } }, context)
+
+  expect(appendPendingWorkStateLines("session-2", "assistant text")).toBe("assistant text")
+  expect(appendPendingWorkStateLines("session-1", "assistant text")).toBe(
+    "assistant text\n◆ CONCORD WORK STATE | work=work-1 | version=4 | lifecycle=in_progress | workflow=workflow.break_fix | step=repair | decision=none",
+  )
+  expect(appendPendingWorkStateLines("session-1", "next text")).toBe("next text")
+})
+
+test("keeps a bounded pending line buffer and drains it", () => {
+  const buffer = createPendingWorkStateLineBuffer()
+  buffer.append("session-1", Array.from({ length: 129 }, (_, index) => `line-${index}`))
+  expect(buffer.drain("session-1")).toHaveLength(128)
+  expect(buffer.drain("session-1")).toEqual([])
 })
 
 test("formats the gate brief from focused portfolio rows", () => {

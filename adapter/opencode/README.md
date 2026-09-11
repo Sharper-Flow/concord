@@ -174,6 +174,8 @@ When `pending_operator_decision` is present, `decision` is
 The session-start gate brief uses the same `◆ CONCORD` prefix and fixed field
 separators. The adapter uses the same line in mutation toasts, lane reports, and
 the continuity block that supplies agent chat context.
+The plugin also appends pending lines to the completed assistant text part, so
+the transcript keeps every transition when a toast expires or is replaced.
 
 ### Recommended host permission and fallback configuration
 

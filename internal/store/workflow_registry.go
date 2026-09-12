@@ -656,7 +656,7 @@ func withRefinementStep(definition WorkflowDefinition, producingStep, verdictSte
 	definition = cloneWorkflowDefinition(definition)
 	refine := step("refine", WorkflowStepExternalEffect, "start_refine", "checkpoint_refine", "bind_evidence", "record_delivery", "checkpoint_context", "cross_context_boundary")
 
-	steps := make([]WorkflowStep, 0, len(definition.StepGraph.Steps)+1)
+	steps := make([]WorkflowStep, 0, len(definition.StepGraph.Steps))
 	for _, existing := range definition.StepGraph.Steps {
 		steps = append(steps, existing)
 		if existing.ID == producingStep {
@@ -665,7 +665,7 @@ func withRefinementStep(definition WorkflowDefinition, producingStep, verdictSte
 	}
 	definition.StepGraph.Steps = steps
 
-	edges := make([]WorkflowEdge, 0, len(definition.StepGraph.Edges)+1)
+	edges := make([]WorkflowEdge, 0, len(definition.StepGraph.Edges))
 	for _, edge := range definition.StepGraph.Edges {
 		if edge.From == producingStep && edge.To == verdictStep && edge.Kind == WorkflowEdgeForward {
 			edges = append(edges, WorkflowEdge{From: producingStep, To: refine.ID, Kind: WorkflowEdgeForward}, WorkflowEdge{From: refine.ID, To: verdictStep, Kind: WorkflowEdgeForward})
@@ -675,8 +675,8 @@ func withRefinementStep(definition WorkflowDefinition, producingStep, verdictSte
 	}
 	definition.StepGraph.Edges = edges
 
-	available := make([]string, 0, len(definition.AvailableActions)+2)
-	actionDefinitions := make([]WorkflowActionDefinition, 0, len(definition.ActionDefinitions)+2)
+	available := make([]string, 0, len(definition.AvailableActions))
+	actionDefinitions := make([]WorkflowActionDefinition, 0, len(definition.ActionDefinitions))
 	for i, actionID := range definition.AvailableActions {
 		available = append(available, actionID)
 		actionDefinitions = append(actionDefinitions, definition.ActionDefinitions[i])

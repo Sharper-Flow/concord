@@ -177,6 +177,10 @@ the continuity block that supplies agent chat context.
 The plugin also appends pending lines to the completed assistant text part, so
 the transcript keeps every transition when a toast expires or is replaced.
 
+When a mutation completes a work item, the adapter also appends a closure receipt
+with the WorkPin identity, title, bound evidence locators, and `release=pending`.
+The release value stays pending because publication occurs after completion.
+
 ### Recommended host permission and fallback configuration
 
 Apply Concord-only Task permissions to each coordinator's agent definition,

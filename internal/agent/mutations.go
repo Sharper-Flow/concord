@@ -471,6 +471,9 @@ func (r runtime) replayMutationBeforeScope(ctx context.Context, base Envelope, r
 		if replayErr != nil {
 			return Envelope{}, false, replayErr
 		}
+		if evidence, complete := completionEvidenceRefs(raw); complete && replay.Outcome == OutcomeOK {
+			replay.EvidenceRefs = append([]EvidenceRef{}, evidence...)
+		}
 		if replay.Outcome == OutcomeError {
 			return replay, true, nil
 		}
@@ -598,6 +601,14 @@ func decodeWorkflowChangedRefs(values []string) []ChangedRef {
 		}
 	}
 	return out
+}
+
+func completionEvidenceRefs(raw []byte) ([]EvidenceRef, bool) {
+	var in actionMutationInput
+	if json.Unmarshal(raw, &in) != nil || in.ActionID != "complete" {
+		return nil, false
+	}
+	return append([]EvidenceRef{}, in.Evidence...), true
 }
 
 func scopeFromMap(scope map[string]any) *Scope {
@@ -1070,7 +1081,11 @@ func (r runtime) mutateWorkflowAction(ctx context.Context, base Envelope, raw []
 		if enrichErr != nil {
 			return enrichErr
 		}
-		result = r.mutationResult(base, resultPayload, changed, derivedIntents)
+		resultBase := base
+		if in.ActionID == "complete" {
+			resultBase.EvidenceRefs = append([]EvidenceRef{}, in.Evidence...)
+		}
+		result = r.mutationResult(resultBase, resultPayload, changed, derivedIntents)
 		if result.Outcome == OutcomeError {
 			resultRejected = true
 			return errors.New("mutation result rejected")

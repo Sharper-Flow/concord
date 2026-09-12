@@ -1365,14 +1365,10 @@ func foldWorkflowContextBoundaryCrossed(ctx context.Context, tx *sql.Tx, event E
 	return workflowProjectionError(err, "cannot record context boundary")
 }
 
-func foldWorkflowActionCompleted(ctx context.Context, tx *sql.Tx, event Event) error {
-	var p workflowActionCompletedPayload
-	if err := decodeWorkflowPayload(event, &p); err != nil {
-		return err
-	}
-	if err := workflowBase(event, p.WorkflowVersionFields); err != nil {
-		return err
-	}
+// validateWorkflowActionCompletedShape bounds the payload before any read.
+// worker_attempt_id belongs to the worker result actions and to dispatch_worker
+// alone, and a rejected result carries its full correction record or none.
+func validateWorkflowActionCompletedShape(p workflowActionCompletedPayload) error {
 	if (p.ActionID != "" && !workflowString(p.ActionID, 128)) || !workflowString(p.StepID, 128) || p.AttemptEpoch <= 0 || p.AttemptEpoch > 2147483647 || (p.WorkerAttemptID != "" && !workflowString(p.WorkerAttemptID, 128)) || !workflowList(p.ResultEvidenceRefs, 32, 0) || !workflowList(p.ChangedRefs, 32, 0) {
 		return newFailure(KindInvalidPayload, "fold_event", "action_completed has invalid result fields", false, "supply bounded action result references")
 	}
@@ -1381,6 +1377,20 @@ func foldWorkflowActionCompleted(ctx context.Context, tx *sql.Tx, event Event) e
 	}
 	if p.ActionID == "reject_worker_result" && (!workflowString(p.CorrectionDiagnosis, 4096) || !workflowString(p.CorrectionStrategy, 4096) || !workflowList(p.CorrectionPredicateIDs, 8, 1) || !workflowList(p.CorrectionEvidenceRefs, 32, 1)) {
 		return newFailure(KindInvalidPayload, "fold_event", "rejected worker result has incomplete correction fields", false, "supply diagnosis, strategy, predicate IDs, and evidence references")
+	}
+	return nil
+}
+
+func foldWorkflowActionCompleted(ctx context.Context, tx *sql.Tx, event Event) error {
+	var p workflowActionCompletedPayload
+	if err := decodeWorkflowPayload(event, &p); err != nil {
+		return err
+	}
+	if err := workflowBase(event, p.WorkflowVersionFields); err != nil {
+		return err
+	}
+	if err := validateWorkflowActionCompletedShape(p); err != nil {
+		return err
 	}
 	if err := requireActor(ctx, tx, p.ActorRef); err != nil {
 		return err

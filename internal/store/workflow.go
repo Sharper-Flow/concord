@@ -1477,6 +1477,17 @@ func foldWorkflowActionCompleted(ctx context.Context, tx *sql.Tx, event Event) e
 			}
 		}
 	}
+	nextStep := ""
+	if advancesStep {
+		nextStep = workflowNextStep(entry.Definition, currentStep)
+		if p.ActionID == "confirm_premise" {
+			var nextErr error
+			nextStep, nextErr = workflowNextStepForAction(ctx, tx, event.SubjectID, entry.Definition, currentStep, p.ActionID)
+			if nextErr != nil {
+				return nextErr
+			}
+		}
+	}
 	if err := advanceWorkflowVersion(ctx, tx, event, p.WorkflowVersionFields); err != nil {
 		return err
 	}
@@ -1484,8 +1495,8 @@ func foldWorkflowActionCompleted(ctx context.Context, tx *sql.Tx, event Event) e
 	if err != nil || p.ActionID == "" || !advancesStep {
 		return err
 	}
-	if next := workflowNextStep(entry.Definition, currentStep); next != "" {
-		return advanceWorkflowInstanceStepTx(ctx, tx, event.SubjectID, next, entry.Definition)
+	if nextStep != "" {
+		return advanceWorkflowInstanceStepTx(ctx, tx, event.SubjectID, nextStep, entry.Definition)
 	}
 	return err
 }
@@ -1635,6 +1646,49 @@ func workflowNextStep(definition WorkflowDefinition, current string) string {
 		}
 	}
 	return ""
+}
+
+func workflowNextStepForAction(ctx context.Context, tx *sql.Tx, workID string, definition WorkflowDefinition, current, actionID string) (string, error) {
+	step := workflowStep(definition, current)
+	if actionID != "confirm_premise" || step == nil || !containsString(step.Actions, "record_verdict") {
+		return workflowNextStep(definition, current), nil
+	}
+	hasFailureEdge := false
+	for _, edge := range definition.StepGraph.Edges {
+		if edge.From == current && edge.Kind == WorkflowEdgeFailure {
+			hasFailureEdge = true
+			break
+		}
+	}
+	if !hasFailureEdge {
+		return workflowNextStep(definition, current), nil
+	}
+	var contractCount int
+	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM workflow_contracts WHERE work_id=?`, workID).Scan(&contractCount); err != nil {
+		return "", workflowProjectionError(err, "cannot inspect workflow contracts")
+	}
+	if contractCount == 0 {
+		return workflowNextStep(definition, current), nil
+	}
+	contract, _, err := workflowCompletionContract(ctx, tx, BuiltinWorkflowRegistry(), workID)
+	if err != nil {
+		return "", err
+	}
+	verdicts, err := latestWorkflowVerdicts(ctx, tx, workID, contract.Version)
+	if err != nil {
+		return "", err
+	}
+	for _, verdict := range verdicts {
+		if verdict.VerdictKind != "ok" || verdict.IncomparableWithApproved {
+			for _, edge := range definition.StepGraph.Edges {
+				if edge.From == current && edge.Kind == WorkflowEdgeFailure {
+					return edge.To, nil
+				}
+			}
+			break
+		}
+	}
+	return workflowNextStep(definition, current), nil
 }
 
 func foldWorkflowActionFailed(ctx context.Context, tx *sql.Tx, event Event) error {

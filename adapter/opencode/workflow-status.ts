@@ -11,7 +11,7 @@ type WorkPin = {
   pending_operator_decision: { action_id: string } | null
 }
 
-type MutationEnvelope = { outcome?: unknown; result?: unknown }
+type MutationEnvelope = { outcome?: unknown; result?: unknown; evidence_refs?: unknown }
 type Toast = (message: string, context: WorkflowStatusContext) => Promise<boolean>
 
 const MAX_PENDING_SESSIONS = 512
@@ -22,8 +22,8 @@ const MAX_PENDING_WORK_ITEMS_PER_SESSION = 64
 // therefore the session's, which identifies it without an environment
 // variable. A launcher-booted session exports CONCORD_SELECTED_WORK_ID and
 // overrides the count.
-export type WorkStatePin = { work_id: string; line: string }
-type PendingEntry = { line: string; count: number; seq: number }
+export type WorkStatePin = { work_id: string; line: string; receipt?: string }
+type PendingEntry = { line: string; receipt?: string; count: number; seq: number }
 
 export type PendingWorkStateLineBuffer = {
   append: (sessionID: string, pins: WorkStatePin[]) => void
@@ -58,7 +58,7 @@ export function createPendingWorkStateLineBuffer(): PendingWorkStateLineBuffer {
       for (const pin of pins) {
         clock += 1
         const existing = entries.get(pin.work_id)
-        entries.set(pin.work_id, { line: pin.line, count: (existing?.count ?? 0) + 1, seq: clock })
+        entries.set(pin.work_id, { line: pin.line, receipt: pin.receipt, count: (existing?.count ?? 0) + 1, seq: clock })
       }
       while (entries.size > MAX_PENDING_WORK_ITEMS_PER_SESSION) {
         let coldest: string | undefined
@@ -79,12 +79,16 @@ export function createPendingWorkStateLineBuffer(): PendingWorkStateLineBuffer {
       if (!entries || entries.size === 0) return []
       const selected = selectedWorkID()
       const pinned = selected ? entries.get(selected) : undefined
-      if (pinned) return [pinned.line]
+      const chosenLine = pinned?.line
       let chosen: PendingEntry | undefined
       for (const entry of entries.values()) {
         if (!chosen || entry.count > chosen.count || (entry.count === chosen.count && entry.seq > chosen.seq)) chosen = entry
       }
-      return chosen ? [chosen.line] : []
+      const lines = chosenLine ? [chosenLine] : chosen ? [chosen.line] : []
+      for (const entry of [...entries.values()].sort((left, right) => left.seq - right.seq)) {
+        if (entry.receipt) lines.push(entry.receipt)
+      }
+      return lines
     },
   }
 }
@@ -124,6 +128,21 @@ export function formatWorkStateLine(value: unknown): string | null {
   return `◆ CONCORD WORK STATE | ${identifier} | title=${pin.title} | version=${pin.version} | lifecycle=${pin.lifecycle} | step=${pin.step} | decision=${decision}`
 }
 
+function evidenceLocators(envelope: MutationEnvelope): string[] | null {
+  if (envelope.outcome !== "ok" || !Array.isArray(envelope.evidence_refs)) return null
+  const locators = envelope.evidence_refs.map((value) => record(value) && safeText(value.locator) ? value.locator : null)
+  if (locators.some((locator) => locator === null)) return null
+  return locators as string[]
+}
+
+export function formatWorkClosureReceipt(value: unknown, envelope: MutationEnvelope): string | null {
+  const pin = workPin(value)
+  const locators = evidenceLocators(envelope)
+  if (!pin || pin.lifecycle !== "completed" || !locators || locators.length === 0) return null
+  const identifier = pin.linear_issue_key || pin.work_id
+  return `◆ CONCORD WORK CLOSURE | ${identifier} | title=${pin.title} | release=pending | evidence=${locators.join(",")}`
+}
+
 export function workStatePins(envelope: unknown): WorkStatePin[] {
   if (!record(envelope) || envelope.outcome !== "ok") return []
   const payload = record(envelope.result) ? envelope.result : envelope
@@ -131,7 +150,12 @@ export function workStatePins(envelope: unknown): WorkStatePin[] {
   const pins = payload.work_pins.map((value) => ({ pin: workPin(value), line: formatWorkStateLine(value) }))
   if (pins.some((item) => item.pin === null || item.line === null)) return []
   return pins
-    .map((item) => ({ work_id: item.pin!.work_id, line: item.line! }))
+    .map((item) => {
+      const result: WorkStatePin = { work_id: item.pin!.work_id, line: item.line! }
+      const receipt = formatWorkClosureReceipt(item.pin, envelope as MutationEnvelope)
+      if (receipt) result.receipt = receipt
+      return result
+    })
     .sort((left, right) => left.line < right.line ? -1 : left.line > right.line ? 1 : 0)
 }
 
@@ -146,6 +170,9 @@ export function createWorkStateReporter(toast: Toast) {
       pendingWorkStateLineBuffer.append(context.sessionID, pins)
       for (const pin of pins) {
         try { await toast(pin.line, context) } catch { /* state delivery is best effort */ }
+        if (pin.receipt) {
+          try { await toast(pin.receipt, context) } catch { /* closure delivery is best effort */ }
+        }
       }
     },
   }

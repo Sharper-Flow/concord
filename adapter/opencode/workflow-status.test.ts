@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test"
-import { appendPendingWorkStateLines, createPendingWorkStateLineBuffer, createWorkStateReporter, formatGateBrief, formatWorkStateLine, workStateLines } from "./workflow-status"
+import { appendPendingWorkStateLines, createPendingWorkStateLineBuffer, createWorkStateReporter, formatGateBrief, formatWorkClosureReceipt, formatWorkStateLine, workStateLines } from "./workflow-status"
 
 const pin = {
   work_id: "work-1",
@@ -24,6 +24,14 @@ test("rejects an incomplete or unsafe WorkPin", () => {
   expect(formatWorkStateLine({ ...pin, version: 0 })).toBeNull()
   expect(formatWorkStateLine({ ...pin, step: "repair|unsafe" })).toBeNull()
   expect(formatWorkStateLine({ ...pin, pending_operator_decision: {} })).toBeNull()
+})
+
+test("formats a completed WorkPin as a closure receipt", () => {
+  const completed = { ...pin, lifecycle: "completed", step: "complete" }
+  const envelope = { outcome: "ok", evidence_refs: [{ kind: "commit", authority: "git", locator_kind: "commit", locator: "commit:abc123" }] }
+  expect(formatWorkClosureReceipt(completed, envelope)).toBe("◆ CONCORD WORK CLOSURE | work-1 | title=Repair the adapter | release=pending | evidence=commit:abc123")
+  expect(formatWorkClosureReceipt(pin, envelope)).toBeNull()
+  expect(formatWorkClosureReceipt(completed, { outcome: "ok", evidence_refs: [] })).toBeNull()
 })
 
 test("renders every mutation WorkPin in stable order", () => {
@@ -55,6 +63,39 @@ test("buffers lines per session and appends them to completed text", async () =>
     "assistant text\n◆ CONCORD WORK STATE | work-1 | title=Repair the adapter | version=4 | lifecycle=in_progress | step=repair | decision=none",
   )
   expect(appendPendingWorkStateLines("session-1", "next text")).toBe("next text")
+})
+
+test("appends a completed receipt with the state line to the transcript", async () => {
+  const context = { sessionID: "session-closure", abort: new AbortController().signal }
+  const reporter = createWorkStateReporter(async () => true)
+  await reporter.report({
+    outcome: "ok",
+    evidence_refs: [{ kind: "pull_request", authority: "github", locator_kind: "url", locator: "https://github.com/example/repo/pull/7" }],
+    result: { work_pins: [{ ...pin, lifecycle: "completed", step: "complete" }] },
+  }, context)
+
+  expect(appendPendingWorkStateLines("session-closure", "assistant text")).toBe(
+    "assistant text\n◆ CONCORD WORK STATE | work-1 | title=Repair the adapter | version=4 | lifecycle=completed | step=complete | decision=none\n◆ CONCORD WORK CLOSURE | work-1 | title=Repair the adapter | release=pending | evidence=https://github.com/example/repo/pull/7",
+  )
+})
+
+test("keeps one closure receipt for each completed WorkPin", async () => {
+  const context = { sessionID: "session-closures", abort: new AbortController().signal }
+  const reporter = createWorkStateReporter(async () => true)
+  const evidence_refs = [{ kind: "commit", authority: "git", locator_kind: "commit", locator: "commit:abc123" }]
+  await reporter.report({
+    outcome: "ok",
+    evidence_refs,
+    result: { work_pins: [
+      { ...pin, work_id: "work-1", lifecycle: "completed", step: "complete" },
+      { ...pin, work_id: "work-2", lifecycle: "completed", step: "complete" },
+    ] },
+  }, context)
+
+  const text = appendPendingWorkStateLines("session-closures", "")
+  expect(text.match(/◆ CONCORD WORK CLOSURE/g)).toHaveLength(2)
+  expect(text).toContain("◆ CONCORD WORK CLOSURE | work-1")
+  expect(text).toContain("◆ CONCORD WORK CLOSURE | work-2")
 })
 
 test("keeps a bounded pending buffer and drains one line", () => {

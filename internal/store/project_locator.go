@@ -223,7 +223,7 @@ func (s *Store) LocateWorktree(ctx context.Context, projectID, workID, ref strin
 	if err != nil {
 		return out, err
 	}
-	sha, err := ResolveCommitSHA(ctx, repo, ref)
+	sha, err := resolveWorktreeBase(ctx, ExecGitRunner{}, repo, ref)
 	if err != nil {
 		return out, err
 	}
@@ -238,6 +238,61 @@ func (s *Store) LocateWorktree(ctx context.Context, projectID, workID, ref strin
 		return WorktreeLocation{}, wrapFailure(KindInvalidOperation, "worktree_locate", "derived intent fails the claim's own validation", false, "use a valid work item ID and repository ref", err)
 	}
 	return out, nil
+}
+
+// resolveWorktreeBase uses the observed default-branch tip when the caller
+// leaves the ref at its default. The remote probe is best effort: a failed
+// network probe falls back to the local remote-tracking ref.
+func resolveWorktreeBase(ctx context.Context, runner GitRunner, repo, ref string) (string, error) {
+	if ref != "HEAD" {
+		return resolveCommitSHARunner(ctx, runner, repo, ref)
+	}
+	return resolveDefaultBranchTip(ctx, runner, repo)
+}
+
+func resolveDefaultBranchTip(ctx context.Context, runner GitRunner, repo string) (string, error) {
+	defaultRef, defaultErr := bootstrapDefaultBranchRef(ctx, runner, repo)
+	if defaultErr == nil {
+		branch := strings.TrimPrefix(defaultRef, "origin/")
+		remoteRef := "refs/heads/" + branch
+		if out, err := runner.Run(ctx, repo, "ls-remote", "origin", remoteRef); err == nil {
+			if sha, ok := remoteCommitSHA(out, remoteRef); ok {
+				return sha, nil
+			}
+		}
+		if sha, err := resolveCommitSHARunner(ctx, runner, repo, "refs/remotes/origin/"+branch); err == nil {
+			return sha, nil
+		}
+	} else if out, err := runner.Run(ctx, repo, "ls-remote", "--symref", "origin", "HEAD"); err == nil {
+		if sha, ok := remoteHeadCommitSHA(out); ok {
+			return sha, nil
+		}
+	}
+	if sha, err := resolveCommitSHARunner(ctx, runner, repo, "refs/remotes/origin/HEAD"); err == nil {
+		return sha, nil
+	}
+	if defaultErr != nil {
+		return "", defaultErr
+	}
+	return "", newFailure(KindGitUnreachable, "worktree_locate", "cannot resolve the default branch tip", false, "set origin/HEAD or refresh the remote-tracking ref")
+}
+
+func remoteCommitSHA(output []byte, wantRef string) (string, bool) {
+	fields := strings.Fields(string(output))
+	if len(fields) < 2 || fields[1] != wantRef || len(fields[0]) != 40 || !worktreeSHAPattern.MatchString(fields[0]) {
+		return "", false
+	}
+	return fields[0], true
+}
+
+func remoteHeadCommitSHA(output []byte) (string, bool) {
+	for _, line := range strings.Split(string(output), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) == 2 && fields[1] == "HEAD" && len(fields[0]) == 40 && worktreeSHAPattern.MatchString(fields[0]) {
+			return fields[0], true
+		}
+	}
+	return "", false
 }
 
 // ResolveCommitSHA pins a repository ref to one full commit SHA.

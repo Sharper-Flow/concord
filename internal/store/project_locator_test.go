@@ -21,6 +21,35 @@ type locatorGitStub struct {
 	args         [][]string
 }
 
+type defaultTipGitStub struct {
+	remoteTip   string
+	remoteError error
+	localTip    string
+	calls       [][]string
+}
+
+func (g *defaultTipGitStub) Run(_ context.Context, dir string, args ...string) ([]byte, error) {
+	g.calls = append(g.calls, append([]string{dir}, args...))
+	switch strings.Join(args, " ") {
+	case "symbolic-ref --quiet refs/remotes/origin/HEAD":
+		return []byte("refs/remotes/origin/main\n"), nil
+	case "ls-remote origin refs/heads/main":
+		if g.remoteError != nil {
+			return nil, g.remoteError
+		}
+		return []byte(g.remoteTip + "\trefs/heads/main\n"), nil
+	case "rev-parse --verify refs/remotes/origin/main^{commit}":
+		if g.localTip == "" {
+			return nil, errors.New("remote-tracking ref is absent")
+		}
+		return []byte(g.localTip + "\n"), nil
+	case "rev-parse --verify refs/remotes/origin/HEAD^{commit}":
+		return nil, errors.New("remote HEAD is absent")
+	default:
+		return nil, errors.New("unexpected git invocation: " + strings.Join(args, " "))
+	}
+}
+
 func (g *locatorGitStub) Run(_ context.Context, dir string, args ...string) ([]byte, error) {
 	g.args = append(g.args, append([]string{dir}, args...))
 	if args[0] == "rev-parse" {
@@ -108,6 +137,24 @@ func TestProjectLocatorsNormalizeFoldRebuildAndResolveWorktree(t *testing.T) {
 	locators, err = s.ProjectLocators(ctx, "project-a")
 	if err != nil || len(locators) != 2 {
 		t.Fatalf("rebuild locators=%+v err=%v", locators, err)
+	}
+}
+
+func TestResolveDefaultBranchTipUsesRemoteProbeAndOfflineTrackingFallback(t *testing.T) {
+	ctx := context.Background()
+	remoteTip := strings.Repeat("b", 40)
+	localTip := strings.Repeat("a", 40)
+
+	remote := &defaultTipGitStub{remoteTip: remoteTip, localTip: localTip}
+	got, err := resolveDefaultBranchTip(ctx, remote, "/repo")
+	if err != nil || got != remoteTip {
+		t.Fatalf("remote tip=%q err=%v, want %q", got, err, remoteTip)
+	}
+
+	offline := &defaultTipGitStub{remoteError: errors.New("network unreachable"), localTip: localTip}
+	got, err = resolveDefaultBranchTip(ctx, offline, "/repo")
+	if err != nil || got != localTip {
+		t.Fatalf("offline tip=%q err=%v, want %q", got, err, localTip)
 	}
 }
 

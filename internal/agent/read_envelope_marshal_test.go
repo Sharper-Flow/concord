@@ -127,6 +127,87 @@ func TestWorkBrowseListAnswersWhenAnInitiativeIsInTheResult(t *testing.T) {
 	}
 }
 
+func TestWorkBrowseBlockedReturnsValidResultWithDisjointItemsAndNodes(t *testing.T) {
+	s, service, grant, _ := agentJobsPM1Fixture(t)
+	resp := dispatchRead(t, s, service, InvokeRequest{
+		Tool:      "concord_work_browse",
+		Operation: "blocked",
+		Input:     json.RawMessage(`{"product_id":"prod-alpha","page":{"cursor":null,"limit":10}}`),
+	}, agentJobsEnvelope(grant, "proj-web", "prod-alpha"))
+	if resp.Outcome != OutcomeOK {
+		t.Fatalf("blocked outcome=%s error=%+v", resp.Outcome, resp.Error)
+	}
+	var result struct {
+		Items []workSummary `json:"items"`
+		Nodes []workSummary `json:"nodes"`
+	}
+	if err := json.Unmarshal(resp.Result, &result); err != nil {
+		t.Fatalf("unmarshal blocked result: %v", err)
+	}
+	if len(result.Items) == 0 || result.Items[0].ID != "work-blocked" {
+		t.Fatalf("blocked items = %#v", result.Items)
+	}
+	if result.Items[0].Version < 1 {
+		t.Fatalf("blocked item version = %d", result.Items[0].Version)
+	}
+	if len(result.Nodes) == 0 || result.Nodes[0].ID != "work-prereq" {
+		t.Fatalf("blocked nodes = %#v", result.Nodes)
+	}
+	if result.Nodes[0].Version < 1 {
+		t.Fatalf("blocker node version = %d", result.Nodes[0].Version)
+	}
+	for _, item := range result.Items {
+		for _, node := range result.Nodes {
+			if item.ID == node.ID {
+				t.Fatalf("items and nodes overlap at %q", item.ID)
+			}
+		}
+	}
+}
+
+func TestSeededReadResultsConformToDeclaredSchemas(t *testing.T) {
+	ctx := context.Background()
+	s, service, grant, corpus := agentJobsPM1Fixture(t)
+	if _, err := pm1fixture.SeedKnowledge(ctx, s, corpus, t.TempDir()); err != nil {
+		t.Fatalf("pm1fixture.SeedKnowledge: %v", err)
+	}
+	env := agentJobsEnvelope(grant, "proj-web", "prod-alpha")
+	cases := []struct {
+		tool, operation, input string
+	}{
+		{"concord_product_view", "resolve", `{"product_id":"prod-alpha","page":{"cursor":null,"limit":10}}`},
+		{"concord_product_view", "snapshot", `{"product_id":"prod-alpha","preview_limit":10}`},
+		{"concord_product_view", "portfolio", `{"product_id":"prod-alpha","page":{"cursor":null,"limit":10}}`},
+		{"concord_product_view", "blocked_sessions", `{"product_id":"prod-alpha","page":{"cursor":null,"limit":10}}`},
+		{"concord_product_view", "resources", `{"product_id":"prod-alpha","page":{"cursor":null,"limit":10}}`},
+		{"concord_work_browse", "list", `{"product_id":"prod-alpha","page":{"cursor":null,"limit":10}}`},
+		{"concord_work_browse", "blocked", `{"product_id":"prod-alpha","page":{"cursor":null,"limit":10}}`},
+		{"concord_work_browse", "ready", `{"product_id":"prod-alpha","page":{"cursor":null,"limit":10}}`},
+		{"concord_work_browse", "scope", `{"product_id":"prod-alpha","work_id":"work-blocked","page":{"cursor":null,"limit":10}}`},
+		{"concord_work_browse", "resource_claims", `{"product_id":"prod-alpha","resource_key":"vendor:missing","page":{"cursor":null,"limit":10}}`},
+		{"concord_work_browse", "messages", `{"product_id":"prod-alpha","work_id":"work-blocked","page":{"cursor":null,"limit":10}}`},
+		{"concord_work_browse", "worktree_audit", `{"product_id":"prod-alpha","page":{"cursor":null,"limit":10}}`},
+		{"concord_work_trace", "history", `{"work_id":"work-blocked","page":{"cursor":null,"limit":10}}`},
+		{"concord_work_trace", "observations", `{"work_id":"work-blocked","page":{"cursor":null,"limit":10}}`},
+		{"concord_work_trace", "external_observations", `{"work_id":"work-blocked","limit":10}`},
+		{"concord_work_trace", "relations", `{"work_id":"work-blocked","relation_kinds":["blocks"],"direction":"incoming"}`},
+		{"concord_knowledge", "search", `{"product_id":"prod-alpha","kinds":["decision","lesson"],"page":{"cursor":null,"limit":10}}`},
+		{"concord_knowledge", "resolve_note", `{"knowledge_id":"knowledge-decision"}`},
+		{"concord_knowledge", "unprocessed", `{"product_id":"prod-alpha"}`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.tool+"."+tc.operation, func(t *testing.T) {
+			resp := dispatchRead(t, s, service, InvokeRequest{Tool: tc.tool, Operation: tc.operation, Input: json.RawMessage(tc.input)}, env)
+			if resp.Outcome != OutcomeOK {
+				t.Fatalf("outcome=%s error=%+v", resp.Outcome, resp.Error)
+			}
+			if _, err := json.Marshal(resp); err != nil {
+				t.Fatalf("envelope does not marshal: %v", err)
+			}
+		})
+	}
+}
+
 func firstBytes(raw []byte, n int) string {
 	if len(raw) < n {
 		return string(raw)

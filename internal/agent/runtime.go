@@ -1887,7 +1887,7 @@ func (r runtime) q5(base Envelope, q store.Q5Result) (Envelope, error) {
 }
 func (r runtime) q4(base Envelope, q store.Q4Result) (Envelope, error) {
 	items := make([]workSummary, 0, len(q.Items))
-	nodes := items
+	nodes := make([]workSummary, 0, len(q.Items))
 	edges := []map[string]string{}
 	seen := map[string]bool{}
 	for _, w := range q.Items {

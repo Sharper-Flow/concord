@@ -1061,7 +1061,7 @@ func readQ4BlockerGraph(ctx context.Context, tx *sql.Tx, selected []WorkItem, de
 		JOIN work_items b ON b.id=r.work_id_from AND b.lifecycle IN ('needed','in_progress')
 		WHERE g.depth < ?
 	)
-	SELECT g.root_id,g.parent_id,g.blocker_id,g.depth,b.kind,b.title,b.lifecycle,b.priority,b.urgency,b.created_at,b.updated_at,coalesce(b.terminal_time,'')
+	SELECT g.root_id,g.parent_id,g.blocker_id,g.depth,b.kind,b.title,b.lifecycle,b.version,b.priority,b.urgency,b.created_at,b.updated_at,coalesce(b.terminal_time,'')
 	FROM graph g
 	JOIN selected s ON s.id=g.root_id
 	JOIN work_items b ON b.id=g.blocker_id
@@ -1086,7 +1086,8 @@ func readQ4BlockerGraph(ctx context.Context, tx *sql.Tx, selected []WorkItem, de
 	for rows.Next() {
 		var rootID, parentID, blockerID, kind, title, lifecycle, urgency, createdAt, updatedAt, terminalAt string
 		var graphDepth, priority int
-		if err := rows.Scan(&rootID, &parentID, &blockerID, &graphDepth, &kind, &title, &lifecycle, &priority, &urgency, &createdAt, &updatedAt, &terminalAt); err != nil {
+		var version int64
+		if err := rows.Scan(&rootID, &parentID, &blockerID, &graphDepth, &kind, &title, &lifecycle, &version, &priority, &urgency, &createdAt, &updatedAt, &terminalAt); err != nil {
 			return nil, false, false, err
 		}
 		if edgeCount >= edgeLimit {
@@ -1109,7 +1110,7 @@ func readQ4BlockerGraph(ctx context.Context, tx *sql.Tx, selected []WorkItem, de
 			continue
 		}
 		root.seen[blockerID] = true
-		node := &q4GraphNode{item: WorkItem{ID: blockerID, Kind: kind, Title: title, Lifecycle: lifecycle, Priority: int64(priority), Urgency: urgency, CreatedAt: createdAt, UpdatedAt: updatedAt, TerminalAt: terminalAt, Active: !terminalState(lifecycle), Terminal: terminalState(lifecycle)}, seen: map[string]bool{}}
+		node := &q4GraphNode{item: WorkItem{ID: blockerID, Kind: kind, Title: title, Lifecycle: lifecycle, Version: int64(version), Priority: int64(priority), Urgency: urgency, CreatedAt: createdAt, UpdatedAt: updatedAt, TerminalAt: terminalAt, Active: !terminalState(lifecycle), Terminal: terminalState(lifecycle)}, seen: map[string]bool{}}
 		parent.children = append(parent.children, node)
 		nodes[rootID+"|"+blockerID] = node
 		nodeCount++

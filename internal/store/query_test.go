@@ -472,6 +472,20 @@ func TestQueryQ4DerivesAndResolvesBlockers(t *testing.T) {
 	}
 }
 
+func TestQueryQ4BlockerSummaryCarriesStoredVersion(t *testing.T) {
+	s := seedQueryFixture(t)
+	result, err := s.QueryQ4(context.Background(), Q4Request{Product: "prod"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Items) != 1 || len(result.Items[0].Blockers) != 1 {
+		t.Fatalf("Q4 = %#v", result.Items)
+	}
+	if got := result.Items[0].Blockers[0].Version; got != 3 {
+		t.Fatalf("blocker version = %d, want stored version 3", got)
+	}
+}
+
 // An inverse label reads a stored edge backwards. The store keeps one row, not a
 // mirrored pair, so the inverse is a read projection and never a second relation.
 func TestQueryQ8InverseLabelReadsWithoutMirroredRow(t *testing.T) {

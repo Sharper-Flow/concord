@@ -9230,6 +9230,42 @@
           "if": {
             "properties": {
               "action_id": {
+                "const": "checkpoint_refine"
+              }
+            },
+            "required": [
+              "action_id"
+            ]
+          },
+          "then": {
+            "properties": {
+              "fields": {
+                "type": "object",
+                "additionalProperties": false,
+                "maxProperties": 32,
+                "properties": {}
+              }
+            },
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "selected_choice"
+                  ]
+                },
+                {
+                  "required": [
+                    "decision_context_digest"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "action_id": {
                 "const": "checkpoint_repair"
               }
             },
@@ -11002,6 +11038,42 @@
             "properties": {
               "action_id": {
                 "const": "start_poc"
+              }
+            },
+            "required": [
+              "action_id"
+            ]
+          },
+          "then": {
+            "properties": {
+              "fields": {
+                "type": "object",
+                "additionalProperties": false,
+                "maxProperties": 32,
+                "properties": {}
+              }
+            },
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "selected_choice"
+                  ]
+                },
+                {
+                  "required": [
+                    "decision_context_digest"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "action_id": {
+                "const": "start_refine"
               }
             },
             "required": [

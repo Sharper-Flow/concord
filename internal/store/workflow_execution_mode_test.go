@@ -51,6 +51,8 @@ func TestWorkflowExecutionModesPreserveCurrentTransitionSemantics(t *testing.T) 
 		"checkpoint_context":     ActionHold,
 		"cross_context_boundary": ActionHold,
 		"record_delivery":        ActionAdvance,
+		"start_refine":           ActionFenced,
+		"checkpoint_refine":      ActionCheckpoint,
 		"accept_worker_result":   ActionAdvance,
 		"record_worker_failure":  ActionHold,
 	}

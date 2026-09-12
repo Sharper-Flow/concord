@@ -17,8 +17,8 @@ func TestBuiltinWorkflowRegistryHasTheSevenContractFamilies(t *testing.T) {
 	}
 	registry := NewWorkflowDefinitionRegistry()
 	wantSteps := map[string][]string{
-		"workflow.implementation":     {"proposal", "discovery", "design", "planning", "execution", "acceptance", "release"},
-		"workflow.break_fix":          {"reproduce", "diagnose", "planning", "repair", "verify", "complete"},
+		"workflow.implementation":     {"proposal", "discovery", "design", "planning", "execution", "refine", "acceptance", "release"},
+		"workflow.break_fix":          {"reproduce", "diagnose", "planning", "repair", "refine", "verify", "complete"},
 		"workflow.research":           {"frame", "investigate", "findings", "conclude", "complete"},
 		"workflow.architecture_spike": {"frame", "research", "options", "poc_optional", "decision_record", "review", "acceptance", "complete"},
 		"workflow.ops_runbook":        {"plan", "approval", "execute", "health", "rollback_optional", "cleanup", "complete"},
@@ -26,8 +26,8 @@ func TestBuiltinWorkflowRegistryHasTheSevenContractFamilies(t *testing.T) {
 		"workflow.generic_one_off":    {"define", "execute", "verify", "complete"},
 	}
 	wantActions := map[string][]string{
-		"workflow.implementation":     {"record_proposal", "record_discovery", "record_design", "approve_contract", "start_execution", "checkpoint_execution", "bind_evidence", "declare_impact", "link_successor", "record_delivery", "record_verdict", "confirm_premise", "complete", "checkpoint_context", "cross_context_boundary", "accept_worker_result", "record_worker_failure", "dispatch_worker"},
-		"workflow.break_fix":          {"record_reproduction", "record_root_cause", "approve_contract", "start_repair", "checkpoint_repair", "bind_evidence", "link_successor", "record_delivery", "record_verdict", "confirm_premise", "complete", "checkpoint_context", "cross_context_boundary", "accept_worker_result", "record_worker_failure", "dispatch_worker"},
+		"workflow.implementation":     {"record_proposal", "record_discovery", "record_design", "approve_contract", "start_execution", "checkpoint_execution", "bind_evidence", "declare_impact", "link_successor", "record_delivery", "start_refine", "checkpoint_refine", "record_verdict", "confirm_premise", "complete", "checkpoint_context", "cross_context_boundary", "accept_worker_result", "record_worker_failure", "dispatch_worker"},
+		"workflow.break_fix":          {"record_reproduction", "record_root_cause", "approve_contract", "start_repair", "checkpoint_repair", "bind_evidence", "link_successor", "record_delivery", "start_refine", "checkpoint_refine", "record_verdict", "confirm_premise", "complete", "checkpoint_context", "cross_context_boundary", "accept_worker_result", "record_worker_failure", "dispatch_worker"},
 		"workflow.research":           {"frame_research", "approve_contract", "record_finding", "revise_candidates", "bind_evidence", "record_report", "link_successor", "record_conclusion", "record_verdict", "confirm_premise", "complete", "checkpoint_context", "cross_context_boundary", "accept_worker_result", "record_worker_failure", "dispatch_worker"},
 		"workflow.architecture_spike": {"frame_question", "approve_contract", "record_research", "bind_evidence", "record_option", "start_poc", "checkpoint_poc", "discard_poc", "record_delivery", "record_decision", "record_verdict", "accept_decision", "confirm_premise", "complete", "checkpoint_context", "cross_context_boundary", "accept_worker_result", "record_worker_failure", "dispatch_worker"},
 		"workflow.ops_runbook":        {"approve_contract", "approve_operation", "start_run", "checkpoint_run", "bind_evidence", "add_condition", "resolve_condition", "cancel_condition", "record_delivery", "record_health", "record_verdict", "rollback_run", "cleanup_run", "confirm_premise", "complete", "checkpoint_context", "cross_context_boundary", "accept_worker_result", "record_worker_failure", "dispatch_worker"},
@@ -38,8 +38,8 @@ func TestBuiltinWorkflowRegistryHasTheSevenContractFamilies(t *testing.T) {
 		"workflow.implementation": "release", "workflow.break_fix": "complete", "workflow.research": "complete", "workflow.architecture_spike": "complete", "workflow.ops_runbook": "complete", "workflow.static_analysis": "complete", "workflow.generic_one_off": "complete",
 	}
 	wantEdges := map[string][]WorkflowEdge{
-		"workflow.implementation":     {{"proposal", "discovery", WorkflowEdgeForward}, {"discovery", "design", WorkflowEdgeForward}, {"design", "planning", WorkflowEdgeForward}, {"planning", "execution", WorkflowEdgeForward}, {"execution", "acceptance", WorkflowEdgeForward}, {"acceptance", "release", WorkflowEdgeForward}, {"execution", "execution", WorkflowEdgeRetry}},
-		"workflow.break_fix":          {{"reproduce", "diagnose", WorkflowEdgeForward}, {"diagnose", "planning", WorkflowEdgeForward}, {"planning", "repair", WorkflowEdgeForward}, {"repair", "verify", WorkflowEdgeForward}, {"verify", "complete", WorkflowEdgeForward}, {"repair", "repair", WorkflowEdgeRetry}},
+		"workflow.implementation":     {{"proposal", "discovery", WorkflowEdgeForward}, {"discovery", "design", WorkflowEdgeForward}, {"design", "planning", WorkflowEdgeForward}, {"planning", "execution", WorkflowEdgeForward}, {"execution", "refine", WorkflowEdgeForward}, {"refine", "acceptance", WorkflowEdgeForward}, {"acceptance", "release", WorkflowEdgeForward}, {"execution", "execution", WorkflowEdgeRetry}},
+		"workflow.break_fix":          {{"reproduce", "diagnose", WorkflowEdgeForward}, {"diagnose", "planning", WorkflowEdgeForward}, {"planning", "repair", WorkflowEdgeForward}, {"repair", "refine", WorkflowEdgeForward}, {"refine", "verify", WorkflowEdgeForward}, {"verify", "complete", WorkflowEdgeForward}, {"repair", "repair", WorkflowEdgeRetry}},
 		"workflow.research":           {{"frame", "investigate", WorkflowEdgeForward}, {"investigate", "findings", WorkflowEdgeForward}, {"findings", "conclude", WorkflowEdgeForward}, {"conclude", "complete", WorkflowEdgeForward}},
 		"workflow.architecture_spike": {{"frame", "research", WorkflowEdgeForward}, {"research", "options", WorkflowEdgeForward}, {"options", "poc_optional", WorkflowEdgeForward}, {"poc_optional", "decision_record", WorkflowEdgeForward}, {"decision_record", "review", WorkflowEdgeForward}, {"review", "acceptance", WorkflowEdgeForward}, {"acceptance", "complete", WorkflowEdgeForward}, {"options", "decision_record", WorkflowEdgeOptional}, {"poc_optional", "poc_optional", WorkflowEdgeRetry}},
 		"workflow.ops_runbook":        {{"plan", "approval", WorkflowEdgeForward}, {"approval", "execute", WorkflowEdgeForward}, {"execute", "health", WorkflowEdgeForward}, {"health", "rollback_optional", WorkflowEdgeForward}, {"rollback_optional", "cleanup", WorkflowEdgeForward}, {"cleanup", "complete", WorkflowEdgeForward}, {"health", "cleanup", WorkflowEdgeOptional}, {"execute", "execute", WorkflowEdgeRetry}},
@@ -113,6 +113,35 @@ func TestBuiltinWorkflowRegistryHasTheSevenContractFamilies(t *testing.T) {
 	}
 }
 
+func TestRefinementStepsRequireArtifactEvidenceAndHaveNoSkipEdge(t *testing.T) {
+	for _, definition := range BuiltinWorkflowDefinitions()[:2] {
+		var refine WorkflowStep
+		for _, candidate := range definition.StepGraph.Steps {
+			if candidate.ID == "refine" {
+				refine = candidate
+				break
+			}
+		}
+		if refine.ID == "" || refine.Kind != WorkflowStepExternalEffect {
+			t.Fatalf("%s refine step = %+v, want external_effect", definition.Ref, refine)
+		}
+		if !containsString(evidenceStrings(definition.RequiredEvidenceKinds), string(EvidenceArtifact)) {
+			t.Fatalf("%s definition evidence = %v, want artifact", definition.Ref, definition.RequiredEvidenceKinds)
+		}
+		if !reflect.DeepEqual(refine.Actions[:4], []string{"start_refine", "checkpoint_refine", "bind_evidence", "record_delivery"}) {
+			t.Fatalf("%s refine actions = %v, want fenced, checkpoint, evidence, delivery", definition.Ref, refine.Actions)
+		}
+		if bindingStep := workflowEvidenceRecoveryBindingStep(definition, refine.ID); bindingStep != "" {
+			t.Fatalf("%s refine recovery binding step = %q, want none", definition.Ref, bindingStep)
+		}
+		for _, edge := range definition.StepGraph.Edges {
+			if edge.From == refine.ID && edge.Kind == WorkflowEdgeOptional {
+				t.Fatalf("%s refine has an optional edge: %+v", definition.Ref, edge)
+			}
+		}
+	}
+}
+
 func TestBuiltinWorkflowDefinitionsMatchExactPhaseBContractMetadata(t *testing.T) {
 	type expected struct {
 		evidence []EvidenceKind
@@ -123,8 +152,8 @@ func TestBuiltinWorkflowDefinitionsMatchExactPhaseBContractMetadata(t *testing.T
 		cross    map[string]ActionConsequence
 	}
 	want := map[string]expected{
-		"workflow.implementation":     {evidence: []EvidenceKind{EvidenceVerification, EvidenceReview}, outcome: WorkflowOutcomeSchema{DefaultKind: PredicateCheck, AllowedKinds: []PredicateKind{PredicateExists, PredicateAbsent, PredicateCheck}, AllowedOutcomeTokens: []string{}}, success: []WorkKind{WorkKindBreakFix, WorkKindResearch}, approval: map[string]ActionApproval{"approve_contract": ActionApprovalRequired, "confirm_premise": ActionApprovalRequired}, external: map[string]ActionConsequence{"start_execution": ActionExternalEffect, "checkpoint_execution": ActionExternalEffect}},
-		"workflow.break_fix":          {evidence: []EvidenceKind{EvidenceVerification}, outcome: WorkflowOutcomeSchema{DefaultKind: PredicateAbsent, AllowedKinds: []PredicateKind{PredicateExists, PredicateAbsent, PredicateCheck}, AllowedOutcomeTokens: []string{}}, success: []WorkKind{WorkKindImplementation, WorkKindResearch}, approval: map[string]ActionApproval{"approve_contract": ActionApprovalRequired, "confirm_premise": ActionApprovalRequired}, external: map[string]ActionConsequence{"start_repair": ActionExternalEffect, "checkpoint_repair": ActionExternalEffect}},
+		"workflow.implementation":     {evidence: []EvidenceKind{EvidenceVerification, EvidenceReview, EvidenceArtifact}, outcome: WorkflowOutcomeSchema{DefaultKind: PredicateCheck, AllowedKinds: []PredicateKind{PredicateExists, PredicateAbsent, PredicateCheck}, AllowedOutcomeTokens: []string{}}, success: []WorkKind{WorkKindBreakFix, WorkKindResearch}, approval: map[string]ActionApproval{"approve_contract": ActionApprovalRequired, "confirm_premise": ActionApprovalRequired}, external: map[string]ActionConsequence{"start_execution": ActionExternalEffect, "checkpoint_execution": ActionExternalEffect}},
+		"workflow.break_fix":          {evidence: []EvidenceKind{EvidenceVerification, EvidenceArtifact}, outcome: WorkflowOutcomeSchema{DefaultKind: PredicateAbsent, AllowedKinds: []PredicateKind{PredicateExists, PredicateAbsent, PredicateCheck}, AllowedOutcomeTokens: []string{}}, success: []WorkKind{WorkKindImplementation, WorkKindResearch}, approval: map[string]ActionApproval{"approve_contract": ActionApprovalRequired, "confirm_premise": ActionApprovalRequired}, external: map[string]ActionConsequence{"start_repair": ActionExternalEffect, "checkpoint_repair": ActionExternalEffect}},
 		"workflow.research":           {evidence: []EvidenceKind{EvidenceArtifact}, outcome: WorkflowOutcomeSchema{DefaultKind: PredicateOutcome, AllowedKinds: []PredicateKind{PredicateOutcome}, AllowedOutcomeTokens: []string{"no_change", "resolved", "report_recorded"}}, success: []WorkKind{WorkKindBreakFix, WorkKindArchitectureSpike, WorkKindStaticAnalysis}, approval: map[string]ActionApproval{"approve_contract": ActionApprovalRequired, "confirm_premise": ActionApprovalRequired}, cross: map[string]ActionConsequence{"record_finding": ActionCrossAuthority}},
 		"workflow.architecture_spike": {evidence: []EvidenceKind{EvidenceReview, EvidenceApproval, EvidenceArtifact}, outcome: WorkflowOutcomeSchema{DefaultKind: PredicateOutcome, AllowedKinds: []PredicateKind{PredicateOutcome}, AllowedOutcomeTokens: []string{"accepted_decision", "insufficient_evidence"}, DecisionRecordRequired: true}, success: []WorkKind{WorkKindImplementation, WorkKindResearch, WorkKindStaticAnalysis}, approval: map[string]ActionApproval{"approve_contract": ActionApprovalRequired, "accept_decision": ActionApprovalRequired, "confirm_premise": ActionApprovalRequired}, external: map[string]ActionConsequence{"start_poc": ActionExternalEffect, "checkpoint_poc": ActionExternalEffect}, cross: map[string]ActionConsequence{"record_research": ActionCrossAuthority, "record_option": ActionCrossAuthority}},
 		"workflow.ops_runbook":        {evidence: []EvidenceKind{EvidenceApproval, EvidenceNativeRun}, outcome: WorkflowOutcomeSchema{DefaultKind: PredicateCheck, AllowedKinds: []PredicateKind{PredicateExists, PredicateAbsent, PredicateCheck}, AllowedOutcomeTokens: []string{}}, success: []WorkKind{WorkKindImplementation, WorkKindBreakFix, WorkKindResearch}, approval: map[string]ActionApproval{"approve_contract": ActionApprovalRequired, "approve_operation": ActionApprovalRequired, "confirm_premise": ActionApprovalRequired}, external: map[string]ActionConsequence{"start_run": ActionExternalEffect, "checkpoint_run": ActionExternalEffect, "rollback_run": ActionExternalEffect}, cross: map[string]ActionConsequence{"record_health": ActionCrossAuthority}},

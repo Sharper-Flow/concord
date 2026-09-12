@@ -1,0 +1,5 @@
+{
+  "id": "CD-0137",
+  "reason": "The rejection action, correction projection, packet builder, work-pin projection, and regression tests provide the decision's reachability evidence, so no separate coverage surface applies.",
+  "state": "out_of_scope"
+}

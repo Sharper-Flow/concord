@@ -116,7 +116,10 @@ export async function dispatchLaneWorker(input: LaneDispatchInput, deps: LaneDis
   }
 
   const now = deps.now ?? Date.now
-  const attempt = `attempt-${input.work_id}-${input.lane_id}-${toHexRadix(now())}`
+  const pinnedWork = isRecord(pinned.work_pin) ? pinned.work_pin : null
+  const correction = pinnedWork && isRecord(pinnedWork.correction) ? pinnedWork.correction : null
+  const retrySuffix = correction && typeof correction.attempt_count === "number" ? `-retry-${correction.attempt_count}` : ""
+  const attempt = `attempt-${input.work_id}-${input.lane_id}-${toHexRadix(now())}${retrySuffix}`
   // The packet builder performs the additional scope + trace reads it needs
   // and returns either a packet or a typed refusal; we forward refusals
   // verbatim after the kind → outcome mapping in CD-0067 D5.

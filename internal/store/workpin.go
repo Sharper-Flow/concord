@@ -10,17 +10,18 @@ import (
 // WorkPin is the one point-in-time projection that a caller needs to prepare
 // the next operation for a work item.
 type WorkPin struct {
-	WorkID                  string                    `json:"work_id"`
-	Title                   string                    `json:"title"`
-	LinearIssueKey          string                    `json:"linear_issue_key"`
-	Version                 int64                     `json:"version"`
-	Lifecycle               string                    `json:"lifecycle"`
-	WorkflowType            string                    `json:"workflow_type"`
-	Step                    string                    `json:"step"`
-	Attempt                 *WorkPinAttempt           `json:"attempt"`
-	PendingOperatorDecision *WorkflowOperatorQuestion `json:"pending_operator_decision"`
-	Watermark               string                    `json:"watermark"`
-	NextValidIntents        []WorkPinIntent           `json:"next_valid_intents"`
+	WorkID                  string                     `json:"work_id"`
+	Title                   string                     `json:"title"`
+	LinearIssueKey          string                     `json:"linear_issue_key"`
+	Version                 int64                      `json:"version"`
+	Lifecycle               string                     `json:"lifecycle"`
+	WorkflowType            string                     `json:"workflow_type"`
+	Step                    string                     `json:"step"`
+	Attempt                 *WorkPinAttempt            `json:"attempt"`
+	PendingOperatorDecision *WorkflowOperatorQuestion  `json:"pending_operator_decision"`
+	Watermark               string                     `json:"watermark"`
+	NextValidIntents        []WorkPinIntent            `json:"next_valid_intents"`
+	Correction              *WorkflowCorrectionContext `json:"correction,omitempty"`
 	// VerdictEvidence exposes the bound immutable evidence set at steps where
 	// record_verdict is declarable, so a caller cites qualifying refs without
 	// a raw store read (#974). It stays nil at every other step.
@@ -163,6 +164,23 @@ func ReadWorkPinTx(ctx context.Context, tx *sql.Tx, workID string) (WorkPin, err
 	if contractCorrection && !workPinContainsAction(pin.NextValidIntents, "supersede_contract") {
 		pin.NextValidIntents = append(pin.NextValidIntents, workPinIntentForAction(workflowContractRecoveryActionDefinition(), pin.Version, "operator_contract_correction"))
 	}
+	correction, correctionErr := workflowCorrectionContext(ctx, tx, workID, pin.Step)
+	if correctionErr != nil {
+		return pin, correctionErr
+	}
+	pin.Correction = correction
+	if correction != nil && correction.Escalated {
+		pin.NextValidIntents = workPinWithoutAction(pin.NextValidIntents, "dispatch_worker")
+	}
+	if stepDeclaresAction(registered.Definition, pin.Step, "dispatch_worker") {
+		rejected, rejectionErr := workflowRejectedWorkerResultAvailable(ctx, tx, workID, pin.Step, "work_pin")
+		if rejectionErr != nil {
+			return pin, rejectionErr
+		}
+		if rejected {
+			pin.NextValidIntents = append(pin.NextValidIntents, workPinIntentForAction(workflowCorrectionActionDefinition(), pin.Version, "worker_result_rejection"))
+		}
+	}
 	var watermark int64
 	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(seq),0) FROM domain_events WHERE subject_type='work_item' AND subject_id=?`, workID).Scan(&watermark); err != nil {
 		return pin, wrapFailure(KindUnavailable, "work_pin", "cannot read work watermark", true, "retry once the database is readable", err)
@@ -250,6 +268,16 @@ func workPinContainsAction(intents []WorkPinIntent, actionID string) bool {
 		}
 	}
 	return false
+}
+
+func workPinWithoutAction(intents []WorkPinIntent, actionID string) []WorkPinIntent {
+	filtered := make([]WorkPinIntent, 0, len(intents))
+	for _, intent := range intents {
+		if intent.ActionID != actionID {
+			filtered = append(filtered, intent)
+		}
+	}
+	return filtered
 }
 
 func workPinIntentForAction(action WorkflowActionDefinition, version int64, reason string) WorkPinIntent {

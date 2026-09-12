@@ -186,6 +186,10 @@ type workflowActionCompletedPayload struct {
 	WorkerLaneID           string   `json:"worker_lane_id,omitempty"`
 	WorkerPacketDigest     string   `json:"worker_packet_digest,omitempty"`
 	WorkerWorktreeIdentity string   `json:"worker_worktree_identity,omitempty"`
+	CorrectionDiagnosis    string   `json:"correction_diagnosis,omitempty"`
+	CorrectionStrategy     string   `json:"correction_strategy,omitempty"`
+	CorrectionEvidenceRefs []string `json:"correction_evidence_refs,omitempty"`
+	CorrectionPredicateIDs []string `json:"correction_predicate_ids,omitempty"`
 	ResultEvidenceRefs     []string `json:"result_evidence_refs"`
 	ChangedRefs            []string `json:"changed_refs"`
 	ActorRef               string   `json:"actor_ref"`
@@ -1372,8 +1376,11 @@ func foldWorkflowActionCompleted(ctx context.Context, tx *sql.Tx, event Event) e
 	if (p.ActionID != "" && !workflowString(p.ActionID, 128)) || !workflowString(p.StepID, 128) || p.AttemptEpoch <= 0 || p.AttemptEpoch > 2147483647 || (p.WorkerAttemptID != "" && !workflowString(p.WorkerAttemptID, 128)) || !workflowList(p.ResultEvidenceRefs, 32, 0) || !workflowList(p.ChangedRefs, 32, 0) {
 		return newFailure(KindInvalidPayload, "fold_event", "action_completed has invalid result fields", false, "supply bounded action result references")
 	}
-	if p.ActionID != "accept_worker_result" && p.ActionID != "record_worker_failure" && p.ActionID != "dispatch_worker" && p.WorkerAttemptID != "" {
+	if p.ActionID != "accept_worker_result" && p.ActionID != "record_worker_failure" && p.ActionID != "reject_worker_result" && p.ActionID != "dispatch_worker" && p.WorkerAttemptID != "" {
 		return newFailure(KindInvalidPayload, "fold_event", "worker_attempt_id is reserved for worker result actions and dispatch_worker", false, "omit worker_attempt_id for ordinary action completion")
+	}
+	if p.ActionID == "reject_worker_result" && (!workflowString(p.CorrectionDiagnosis, 4096) || !workflowString(p.CorrectionStrategy, 4096) || !workflowList(p.CorrectionPredicateIDs, 8, 1) || !workflowList(p.CorrectionEvidenceRefs, 32, 1)) {
+		return newFailure(KindInvalidPayload, "fold_event", "rejected worker result has incomplete correction fields", false, "supply diagnosis, strategy, predicate IDs, and evidence references")
 	}
 	if err := requireActor(ctx, tx, p.ActorRef); err != nil {
 		return err
@@ -1395,6 +1402,7 @@ func foldWorkflowActionCompleted(ctx context.Context, tx *sql.Tx, event Event) e
 	}
 	if !definitionStepAllows(entry.Definition, currentStep, p.ActionID) {
 		workerFailureRecovery := false
+		correctionRecovery := false
 		if p.ActionID == "record_worker_failure" {
 			var recoveryErr error
 			workerFailureRecovery, recoveryErr = workflowWorkerFailureRecoveryMayFold(ctx, tx, event.SubjectID, entry.Definition, currentStep, "fold_event")
@@ -1402,10 +1410,17 @@ func foldWorkflowActionCompleted(ctx context.Context, tx *sql.Tx, event Event) e
 				return recoveryErr
 			}
 		}
-		if !workerFailureRecovery && (p.ActionID != "bind_evidence" || stepDeclaresAction(entry.Definition, currentStep, "bind_evidence")) {
+		if p.ActionID == "reject_worker_result" && stepDeclaresAction(entry.Definition, currentStep, "dispatch_worker") {
+			var recoveryErr error
+			correctionRecovery, recoveryErr = workflowRejectedWorkerResultAvailable(ctx, tx, event.SubjectID, currentStep, "fold_event")
+			if recoveryErr != nil {
+				return recoveryErr
+			}
+		}
+		if !workerFailureRecovery && !correctionRecovery && (p.ActionID != "bind_evidence" || stepDeclaresAction(entry.Definition, currentStep, "bind_evidence")) {
 			return newFailure(KindIllegalLifecycleTransition, "fold_event", "completed action is not declared on the pinned current step", false, "reread_entities")
 		}
-		if !workerFailureRecovery {
+		if !workerFailureRecovery && !correctionRecovery {
 			bindingStep := workflowEvidenceBindingStep(entry.Definition, currentStep)
 			if bindingStep == "" || !workflowStepFollows(entry.Definition, bindingStep, currentStep) {
 				return newFailure(KindIllegalLifecycleTransition, "fold_event", "recovery evidence binding is not past its declared binding step", false, "reread_entities")
@@ -1460,6 +1475,11 @@ func foldWorkflowActionCompleted(ctx context.Context, tx *sql.Tx, event Event) e
 			}
 		}
 		if p.ActionID == "accept_worker_result" {
+			if err := validateWorkerAttemptAction(ctx, tx, event, p, entry.Definition, currentStep, "completed"); err != nil {
+				return err
+			}
+		}
+		if p.ActionID == "reject_worker_result" {
 			if err := validateWorkerAttemptAction(ctx, tx, event, p, entry.Definition, currentStep, "completed"); err != nil {
 				return err
 			}
@@ -1576,6 +1596,13 @@ func validateWorkerAttemptAction(ctx context.Context, tx *sql.Tx, event Event, p
 	if !allowed && payload.ActionID == "record_worker_failure" {
 		var recoveryErr error
 		allowed, recoveryErr = workflowWorkerFailureRecoveryMayFold(ctx, tx, event.SubjectID, definition, currentStep, "fold_event")
+		if recoveryErr != nil {
+			return recoveryErr
+		}
+	}
+	if !allowed && payload.ActionID == "reject_worker_result" && stepDeclaresAction(definition, currentStep, "dispatch_worker") {
+		var recoveryErr error
+		allowed, recoveryErr = workflowRejectedWorkerResultAvailable(ctx, tx, event.SubjectID, currentStep, "fold_event")
 		if recoveryErr != nil {
 			return recoveryErr
 		}

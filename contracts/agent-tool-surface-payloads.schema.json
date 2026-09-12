@@ -196,6 +196,25 @@
         }
       }
     },
+    "workflow_correction_context": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["disposition", "attempt_count", "attempt_limit", "escalated", "predicate_ids", "evidence_refs"],
+      "properties": {
+        "disposition": {"type": "string", "enum": ["failed", "rejected"]},
+        "attempt_count": {"type": "integer", "minimum": 0, "maximum": 2147483647},
+        "attempt_limit": {"$ref": "#/$defs/version"},
+        "escalated": {"type": "boolean"},
+        "predicate_ids": {"type": "array", "maxItems": 8, "uniqueItems": true, "items": {"$ref": "#/$defs/id"}},
+        "evidence_refs": {"type": "array", "maxItems": 32, "uniqueItems": true, "items": {"$ref": "#/$defs/reference"}},
+        "diagnosis": {"type": "string", "maxLength": 4096},
+        "strategy": {"type": "string", "maxLength": 4096},
+        "failure_kind": {"type": "string", "maxLength": 64},
+        "failure_detail": {"type": "string", "maxLength": 4096},
+        "failed_attempt_id": {"$ref": "#/$defs/id"},
+        "failed_attempt_epoch": {"$ref": "#/$defs/version"}
+      }
+    },
     "work_pin_intent": {
       "type": "object",
       "additionalProperties": false,
@@ -332,6 +351,12 @@
               }
             }
           }
+        },
+        "correction": {
+          "oneOf": [
+            {"$ref": "#/$defs/workflow_correction_context"},
+            {"type": "null"}
+          ]
         },
         "verdict_evidence": {
           "type": "array",

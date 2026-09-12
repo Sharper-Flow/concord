@@ -38,7 +38,18 @@ export interface AgentLanePacket {
   lane_digest: string
   work_id: string
   step_id: string
-  inputs: { task: string; context?: string; constraints?: string[] }
+  inputs: { task: string; context?: string; correction?: AgentLanePacketCorrection; constraints?: string[] }
+}
+
+export interface AgentLanePacketCorrection {
+  disposition: "failed" | "rejected"
+  attempt_count: number
+  attempt_limit: 3
+  escalated: boolean
+  diagnosis: string
+  strategy: string
+  predicate_ids: string[]
+  evidence_refs: string[]
 }
 
 // AgentLaneReport mirrors contracts/agent-lane-report.schema.json, which the
@@ -307,8 +318,8 @@ function validateSchema(schema: any, value: unknown, root: any, path = "", failu
   return true
 }
 
-export function validateAgentLanePacket(value: unknown): value is AgentLanePacket {
-  return validateSchema(agentLanePacketSchema, value, agentLanePacketSchema)
+export function validateAgentLanePacket(value: unknown, failures?: string[]): value is AgentLanePacket {
+  return validateSchema(agentLanePacketSchema, value, agentLanePacketSchema, "", failures)
 }
 
 export function validateAgentLaneReport(value: unknown, failures?: string[]): value is AgentLaneReport {

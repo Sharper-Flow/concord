@@ -130,6 +130,23 @@ func WorkflowActionDefinitionFor(ctx context.Context, s *Store, registry Definit
 			return entry, workerFailureRecoveryActionDefinition(), nil
 		}
 	}
+	if actionID == "reject_worker_result" {
+		var currentStep string
+		if err := s.db.QueryRowContext(ctx, `SELECT current_step FROM workflow_instances WHERE work_id=?`, workID).Scan(&currentStep); err != nil {
+			return RegisteredDefinition{}, WorkflowActionDefinition{}, wrapFailure(KindUnavailable, "workflow_action", "cannot inspect workflow step", true, "retry once the workflow projection is readable", err)
+		}
+		if !stepDeclaresAction(entry.Definition, currentStep, "dispatch_worker") {
+			return RegisteredDefinition{}, WorkflowActionDefinition{}, newFailure(KindInvalidOperation, "workflow_action", "worker result rejection is unavailable outside a worker-dispatch step", false, "reread_entities")
+		}
+		available, correctionErr := workflowRejectedWorkerResultAvailable(ctx, s.db, workID, currentStep, "workflow_action")
+		if correctionErr != nil {
+			return RegisteredDefinition{}, WorkflowActionDefinition{}, correctionErr
+		}
+		if available {
+			return entry, workflowCorrectionActionDefinition(), nil
+		}
+		return RegisteredDefinition{}, WorkflowActionDefinition{}, newFailure(KindInvalidOperation, "workflow_action", "worker result rejection is unavailable without a completed result", false, "accept or reject the completed worker result")
+	}
 	for _, action := range entry.Definition.ActionDefinitions {
 		if action.ID == actionID {
 			return entry, action, nil
@@ -191,6 +208,21 @@ func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, registry Definiti
 			return result, err
 		}
 	}
+	if request.ActionID == "reject_worker_result" && stepDeclaresAction(entry.Definition, currentStep, "dispatch_worker") {
+		guards.correctionRecovery, err = workflowRejectedWorkerResultAvailable(ctx, tx, request.WorkID, currentStep, "workflow_action")
+		if err != nil {
+			return result, err
+		}
+	}
+	if request.ActionID == "dispatch_worker" {
+		correction, correctionErr := workflowCorrectionContext(ctx, tx, request.WorkID, currentStep)
+		if correctionErr != nil {
+			return result, correctionErr
+		}
+		if correction != nil && correction.Escalated {
+			return result, newFailure(KindApprovalRequired, "workflow_action", "worker correction reached the three-attempt limit", false, "escalate the failed or rejected result to the operator")
+		}
+	}
 	if err := runWorkflowActionGuard(guards, guardPhaseRecovery); err != nil {
 		return result, err
 	} else if request.ActionID == "record_verdict" && !definitionStepAllows(entry.Definition, currentStep, request.ActionID) {
@@ -225,7 +257,7 @@ func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, registry Definiti
 	if err := guardWorkflowActionStepMatch(request.Payload, currentStep); err != nil {
 		return result, err
 	}
-	stepAllowed := guards.staleRecovery || guards.lateVerdictRecovery || guards.workerFailureRecovery || definitionStepAllows(entry.Definition, currentStep, request.ActionID)
+	stepAllowed := guards.staleRecovery || guards.lateVerdictRecovery || guards.workerFailureRecovery || guards.correctionRecovery || definitionStepAllows(entry.Definition, currentStep, request.ActionID)
 	if request.ActionID == "bind_evidence" {
 		var recoveryErr error
 		guards.recoveryBind, recoveryErr = guardRecoveryEvidenceBind(ctx, tx, request.WorkID, entry.Definition, currentStep, request.Payload, subject)
@@ -267,6 +299,7 @@ func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, registry Definiti
 		return result, err
 	}
 	assemblyInput := workflowActionAssemblyInput{
+		ctx: ctx, tx: tx,
 		entry: entry, request: request, currentStep: currentStep, step: step, payload: payload, evidenceRefs: evidenceRefs,
 		actorRef: guards.actorRef, eventActor: guards.eventActor, operatorRef: guards.operatorRef,
 		actorNeedsRecord: guards.actorNeedsRecord, operatorNeedsRecord: guards.operatorNeedsRecord,

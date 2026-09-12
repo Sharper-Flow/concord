@@ -36,6 +36,7 @@ type workflowActionGuardContext struct {
 	lateVerdictRecovery   bool
 	recoveryBind          bool
 	workerFailureRecovery bool
+	correctionRecovery    bool
 	actorRef              string
 	eventActor            string
 	operatorRef           string
@@ -55,10 +56,18 @@ type workflowActionGuard struct {
 // consults this table at each phase point in its sequence.
 var workflowActionGuards = map[string]workflowActionGuard{
 	"supersede_contract":     {guardPhaseRecovery, guardSupersedeContractRecovery},
+	"reject_worker_result":   {guardPhaseRecovery, guardRejectWorkerResultRecovery},
 	"complete":               {guardPhaseBoundary, guardCompleteBoundary},
 	"link_successor":         {guardPhasePostValidation, guardForwardLinkOnly},
 	"cross_context_boundary": {guardPhaseClaim, guardNoRestartDispatch},
 	"record_delivery":        {guardPhaseClaim, guardDeliveryFollowsStart},
+}
+
+func guardRejectWorkerResultRecovery(g *workflowActionGuardContext) error {
+	if !g.correctionRecovery {
+		return newFailure(KindInvalidOperation, "workflow_action", "worker result rejection is unavailable without a completed result", false, "accept or reject the completed worker result")
+	}
+	return nil
 }
 
 // runWorkflowActionGuard runs the request's guard when one is declared for
@@ -576,6 +585,8 @@ func claimDurableWorkflowOperationTx(ctx context.Context, tx *sql.Tx, entry Regi
 // workflowActionAssemblyInput is the normalized state the event assembly
 // folds into the action's events.
 type workflowActionAssemblyInput struct {
+	ctx          context.Context
+	tx           *sql.Tx
 	entry        RegisteredDefinition
 	request      WorkflowActionExecutionRequest
 	currentStep  string
@@ -697,7 +708,7 @@ func appendGenericWorkflowCompletion(in workflowActionAssemblyInput, attemptEpoc
 		"changed_refs": []string{in.request.WorkID}, "actor_ref": in.eventActor,
 	}
 	var workerPacketDigest string
-	if in.request.ActionID == "accept_worker_result" || in.request.ActionID == "record_worker_failure" {
+	if in.request.ActionID == "accept_worker_result" || in.request.ActionID == "record_worker_failure" || in.request.ActionID == "reject_worker_result" {
 		completionValues["attempt_epoch"] = workflowFieldInt(fields, "attempt_epoch", 0)
 		completionValues["worker_attempt_id"] = workflowFieldStringDefault(fields, "attempt_id", "")
 	}
@@ -756,6 +767,11 @@ func appendGenericWorkflowCompletion(in workflowActionAssemblyInput, attemptEpoc
 		if in.step != nil && !LaneStepDispatchAllowed(lane.CapabilityClass, in.step.Kind) {
 			return events, "", newFailure(KindUnauthorizedDispatch, "workflow_action", "lane capability class "+lane.CapabilityClass+" is not dispatchable at a "+string(in.step.Kind)+" step", false, "dispatch the lane at a step kind the lane-step dispatch join admits")
 		}
+		if in.tx != nil {
+			if err := validateWorkerPacketCorrection(in.ctx, in.tx, in.request.WorkID, in.currentStep, packetRaw); err != nil {
+				return events, "", err
+			}
+		}
 		canonical, err := canonicalJSON(packetRaw)
 		if err != nil {
 			return events, "", newFailure(KindInvalidPayload, "workflow_action", "dispatch_worker worker_packet does not decode as canonical JSON", false, "supply the lane packet bound to this work item and attempt")
@@ -766,6 +782,12 @@ func appendGenericWorkflowCompletion(in workflowActionAssemblyInput, attemptEpoc
 		if in.request.SessionWorktreeIdentity != "" {
 			completionValues["worker_worktree_identity"] = in.request.SessionWorktreeIdentity
 		}
+	}
+	if in.request.ActionID == "reject_worker_result" {
+		completionValues["correction_diagnosis"] = workflowFieldStringDefault(fields, "diagnosis", "")
+		completionValues["correction_strategy"] = workflowFieldStringDefault(fields, "strategy", "")
+		completionValues["correction_predicate_ids"] = workflowFieldStrings(fields, "predicate_ids")
+		completionValues["correction_evidence_refs"] = workflowFieldStrings(fields, "evidence_refs")
 	}
 	events = append(events, workflowTypedEvent(in.request.OperationID+":completed", WorkflowActionCompleted, in.request.WorkID, in.eventActor, in.request.Now, resultVersion-1, completionValues))
 	return events, workerPacketDigest, nil

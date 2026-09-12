@@ -5636,6 +5636,16 @@ const GeneratedPayloadSchemaDocument = `{
             }
           ]
         },
+        "correction": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/workflow_correction_context"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "lifecycle": {
           "$ref": "#/$defs/lifecycle"
         },
@@ -10361,6 +10371,76 @@ const GeneratedPayloadSchemaDocument = `{
         "route_conventions",
         "spec_mandate",
         "changes_product_truth"
+      ],
+      "type": "object"
+    },
+    "workflow_correction_context": {
+      "additionalProperties": false,
+      "properties": {
+        "attempt_count": {
+          "maximum": 2147483647,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "attempt_limit": {
+          "$ref": "#/$defs/version"
+        },
+        "diagnosis": {
+          "maxLength": 4096,
+          "type": "string"
+        },
+        "disposition": {
+          "enum": [
+            "failed",
+            "rejected"
+          ],
+          "type": "string"
+        },
+        "escalated": {
+          "type": "boolean"
+        },
+        "evidence_refs": {
+          "items": {
+            "$ref": "#/$defs/reference"
+          },
+          "maxItems": 32,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "failed_attempt_epoch": {
+          "$ref": "#/$defs/version"
+        },
+        "failed_attempt_id": {
+          "$ref": "#/$defs/id"
+        },
+        "failure_detail": {
+          "maxLength": 4096,
+          "type": "string"
+        },
+        "failure_kind": {
+          "maxLength": 64,
+          "type": "string"
+        },
+        "predicate_ids": {
+          "items": {
+            "$ref": "#/$defs/id"
+          },
+          "maxItems": 8,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "strategy": {
+          "maxLength": 4096,
+          "type": "string"
+        }
+      },
+      "required": [
+        "disposition",
+        "attempt_count",
+        "attempt_limit",
+        "escalated",
+        "predicate_ids",
+        "evidence_refs"
       ],
       "type": "object"
     },

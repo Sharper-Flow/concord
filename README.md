@@ -2,17 +2,37 @@
 
 *Organized Product Development at Chaotic Speed.*
 
-Concord is a Product-law-first, agent-native coordination system for one
-operator and many concurrent local AI agents working on one machine. One local
-SQLite authority holds accepted Product law, work, workflow state, evidence,
-knowledge, and research. Every agent reads and changes that state through a
-small typed tool surface, under per-call authorization.
+Concord is a coordination system for one operator who runs many AI coding
+agents at once on one machine. It keeps one SQLite authority on that machine:
+accepted Product law, work items, workflow state, evidence, knowledge, and
+research. Agents never edit that state directly. They read and change it
+through a small typed tool surface, one authorized call at a time.
 
-The failure Concord prevents is quiet contradiction: many agents produce
-individually clean changes that jointly enact a different Product than the one
-the accepted law describes. Concord binds Product-changing work to canonical
-Domains that own the law, detects concurrent Domain overlap, and refuses the
-overlap until the operator resolves it against pinned versions.
+## The problem it solves
+
+One agent that drifts is visible. Ten agents in parallel are not. Each one
+plans distinct work against the same architectural area. Each produces a clean
+Git merge and passes review on its own terms. Together they enact Product
+behavior nobody approved. No single diff holds the contradiction, so no
+reviewer can see it.
+
+Concord makes the accepted law the thing agents write against, not a document
+beside the work. Three mechanisms carry that
+([CD-0041](docs/decisions/CD-0041-architecture-bound-product-law.md)):
+
+- **Domain binding.** Work that changes the Product declares the canonical
+  Domains whose law it touches. Concord detects concurrent work with
+  overlapping Domain footprints and refuses it until the operator resolves the
+  overlap against pinned versions.
+- **Outcome binding.** Completion is one transaction that compares the
+  delivered outcome against the approved one. A weaker delivery fails. Work
+  discovered mid-execution forward-links instead of replacing the goal
+  ([CD-0012](docs/decisions/CD-0012-bind-stated-goals-to-delivered-outcomes.md)).
+- **Manifest-primary knowledge.** A document outside the knowledge manifest is
+  source material, not law, however much it reads like a specification.
+
+Issue trackers and task queues coordinate what agents do. Concord governs what
+they are permitted to change.
 
 ## Status
 
@@ -21,9 +41,10 @@ authorizing manifest records every condition satisfied, with none outstanding
 ([issue #685](https://github.com/Sharper-Flow/concord/issues/685)). The alpha
 and beta maturity rungs hold their manifests with no outstanding item. Concord
 coordinates its own development under
-[CD-0089](docs/decisions/CD-0089-concord-development-coordination.md): GitHub
-issues remain authority for planning, and pull requests plus required checks
-remain authority for review and merge.
+[CD-0089](docs/decisions/CD-0089-concord-development-coordination.md): pull
+requests plus required checks are authority for review and merge, and planning
+authority follows the Product's selected mode
+([development authority](docs/development-authority.md)).
 
 Releases publish automatically on every merged pull request. Published
 releases support Linux amd64 only.
@@ -45,11 +66,10 @@ releases support Linux amd64 only.
 
 ### Architecture-bound Product law
 
-- Canonical Domains own the law and bind Product-changing work to exact
-  Domain and law footprints
+- A Product-changing contract declares its home Domain, affected Domains,
+  Domain and relation modifications, law additions, and verification
+  obligations against a pinned Domain-registry hash
   ([CD-0041](docs/decisions/CD-0041-architecture-bound-product-law.md)).
-- Durable knowledge is manifest-primary: a document outside the knowledge
-  manifest is source material, not law, whatever it reads like.
 - Lessons publish from finished work into the Git knowledge home under
   operator approval
   ([CD-0026](docs/decisions/CD-0026-learning-capture.md)).
@@ -60,9 +80,7 @@ releases support Linux amd64 only.
   is work-item events with typed projections
   ([CD-0013](docs/decisions/CD-0013-workflow-engine-mechanism.md)).
 - Completion is one transaction that binds evidence, external conditions,
-  verdict, and premise confirmation. A delivered outcome weaker than the
-  approved one fails, and work discovered mid-execution forward-links rather
-  than substitutes
+  verdict, and premise confirmation
   ([CD-0012](docs/decisions/CD-0012-bind-stated-goals-to-delivered-outcomes.md)).
 
 ### Continuity for every session
@@ -88,6 +106,26 @@ releases support Linux amd64 only.
 - Worker evidence is a signed `worker-evidence-v1` assertion from a key held
   in the OS Secret Service, bound to the exact attempt
   ([CD-0044](docs/decisions/CD-0044-worker-evidence-caller-authentication.md)).
+
+### Planning that fits the Product
+
+- Each Product selects its own planning authority with `concord product
+  mode-set`: `local_only` or `linear_enabled`. The choice belongs to the
+  Product, not to the installation, the Project, or the repository path
+  ([CD-0121](docs/decisions/CD-0121-product-scoped-planning-authority.md)).
+  Products in different modes share one installation.
+- A local-only Product needs no external tracker, credentials, or API access.
+  The local work item is the planning record.
+- A Linear-enabled Product creates and updates Linear issues through a durable
+  outbox: `concord linear issue-enqueue` queues the operation and `concord
+  linear outbox-drain` performs it. A queued or failed operation is not a
+  confirmed issue. `concord linear health` reports the connection, and
+  `concord linear initiative-import` imports an existing initiative.
+- A work item can carry an opaque external reference to a record in another
+  system, such as a GitHub issue, a pull request, or a commit. That reference
+  gives provenance and traceability. The external object is never Concord
+  authority, and referencing it does not make that system a planning mode
+  ([development authority](docs/development-authority.md)).
 
 ### A work vocabulary that records intent
 
@@ -240,8 +278,8 @@ focused-test guidance.
 Concord coordinates its own development under
 [CD-0089](docs/decisions/CD-0089-concord-development-coordination.md):
 
-1. Start from a public issue.
-2. Start a Concord session with the issue link; Concord captures the item and
+1. Start from the planning record the Product's selected mode owns.
+2. Start a Concord session with that record; Concord captures the item and
    claims its canonical worktree.
 3. Follow accepted decisions and linked acceptance scenarios.
 4. Open a pull request with local evidence.

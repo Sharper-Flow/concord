@@ -63,6 +63,10 @@ while any live session holds a release older than the migration. The refusal
 names each session and the release it holds. The operator chooses when to run
 it.
 
+An unstamped development build is not a release. It applies no migration to an
+existing store at open or upgrade. It may fully migrate a fresh store and may
+operate a store that is already up to date. CD-0139 records this isolation rule.
+
 ### D4. The typed refusal never asks for a restart
 
 No core refusal and no adapter refusal names a session restart as its

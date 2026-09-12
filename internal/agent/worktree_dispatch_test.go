@@ -53,6 +53,11 @@ func worktreeDispatchFixture(t *testing.T) (*store.Store, *Service, Authority, s
 	}
 	gitRun(t, repoRoot, "add", "README.md")
 	gitRun(t, repoRoot, "commit", "-m", "fixture base")
+	// A Project repository is a clone: validateBootstrapDefaultBranch proves
+	// the default branch through origin/HEAD, and a claim resolves its base
+	// from the matching remote-tracking ref.
+	gitRun(t, repoRoot, "update-ref", "refs/remotes/origin/main", "HEAD")
+	gitRun(t, repoRoot, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main")
 	baseSHA := gitRun(t, repoRoot, "rev-parse", "HEAD")
 
 	if err := s.AddProjectLocator(ctx, "project-1", store.ProjectLocator{ID: "path-1", Kind: store.LocatorCanonicalPath, Value: repoRoot}, 1); err != nil {

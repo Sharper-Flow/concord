@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="820" viewBox="0 0 1400 820"
+     role="img" aria-labelledby="title desc" shape-rendering="geometricPrecision" color-interpolation="sRGB">
+  <title id="title">Concord primary monochrome dark</title>
+  <desc id="desc">One-color Concord logo in dark mode.</desc>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Jost:wght@500;600&amp;display=swap');
+    .wordmark { font-family:'Jost','Century Gothic',Arial,sans-serif; font-kerning:normal; }
+  </style>
+  <defs><path id="aircraft" d="
+M 82 171
+C 112 164, 143 156, 166 155
+C 191 155, 225 172, 270 188
+C 365 222, 463 253, 554 281
+C 588 292, 616 299, 640 302
+C 662 304, 680 299, 695 285
+C 711 270, 727 253, 740 239
+Q 744 234, 751 238
+L 774 244
+Q 780 246, 780 253
+C 780 278, 781 305, 782 331
+C 814 344, 847 357, 879 366
+Q 884 368, 878 370
+C 856 372, 837 372, 817 370
+C 826 375, 835 380, 842 384
+L 838 388
+C 816 390, 788 391, 759 389
+C 728 387, 699 386, 668 388
+C 626 391, 580 396, 534 401
+C 491 406, 450 411, 416 414
+C 405 413, 397 410, 392 405
+Q 389 402, 389 397
+C 388 385, 389 366, 393 350
+C 364 328, 331 303, 295 277
+C 258 251, 223 231, 187 217
+C 146 200, 108 185, 82 177
+Q 74 174, 82 171
+Z"/></defs>
+  <use href="#aircraft" transform="translate(5 -60) scale(1.45)"
+       fill="none" stroke="#140821" stroke-width="22" vector-effect="non-scaling-stroke"
+       stroke-linecap="round" stroke-linejoin="bevel" stroke-miterlimit="2"/>
+  <text class="wordmark" x="704" y="738" text-anchor="middle" font-size="158" font-weight="600"
+        textLength="660" lengthAdjust="spacing" fill="#140821">Concord</text>
+</svg>

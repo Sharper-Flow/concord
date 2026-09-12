@@ -1,3 +1,10 @@
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="brand/github/concord-readme-banner-dark.svg">
+  <source media="(prefers-color-scheme: light)" srcset="brand/github/concord-readme-banner-light.svg">
+  <img alt="Concord — Product-first agent coordination for professionals."
+       src="brand/github/concord-readme-banner-light.svg">
+</picture>
+
 # Concord
 
 *Organized Product Development at Chaotic Speed.*
@@ -262,6 +269,7 @@ focused-test guidance.
 | `adapter/opencode/` | OpenCode custom-tool adapter, generated lane agents, tests, and advisory evals. |
 | `docs/` | Accepted Product law, decisions, research reports, and design evidence. |
 | `scripts/` | Validators, code generators, installer, and release tooling. |
+| `brand/` | Logos, marks, icons, GitHub banners, color tokens, and the brand guide. |
 | `workflows/`, `skills/` | Reserved release boundaries; currently README-only in source. |
 
 ## Documentation

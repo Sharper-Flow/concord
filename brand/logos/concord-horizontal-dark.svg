@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="2200" height="650" viewBox="0 0 2200 650"
+     role="img" aria-labelledby="title desc" shape-rendering="geometricPrecision" color-interpolation="sRGB">
+  <title id="title">Concord horizontal dark-mode logo</title>
+  <desc id="desc">Horizontal Concord lockup for dark-mode headers and navigation.</desc>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Jost:wght@500;600&amp;display=swap');
+    .wordmark { font-family:'Jost','Century Gothic',Arial,sans-serif; font-kerning:normal; }
+  </style>
+  <defs>
+    <linearGradient id="mark-gradient" gradientUnits="userSpaceOnUse" x1="90" y1="300" x2="875" y2="260">
+      <stop offset="0%" stop-color="#FCF9FF"/>
+      <stop offset="28%" stop-color="#EEE5F8"/>
+      <stop offset="55%" stop-color="#D8C8EC"/>
+      <stop offset="78%" stop-color="#C2A9E0"/>
+      <stop offset="100%" stop-color="#F2EAF9"/>
+    </linearGradient>
+    <linearGradient id="word-gradient" gradientUnits="userSpaceOnUse" x1="1090" y1="350" x2="1880" y2="350">
+      <stop offset="0%" stop-color="#FCF9FF"/>
+      <stop offset="28%" stop-color="#EEE5F8"/>
+      <stop offset="55%" stop-color="#D8C8EC"/>
+      <stop offset="78%" stop-color="#C2A9E0"/>
+      <stop offset="100%" stop-color="#F2EAF9"/>
+    </linearGradient>
+    <path id="aircraft" d="
+M 82 171
+C 112 164, 143 156, 166 155
+C 191 155, 225 172, 270 188
+C 365 222, 463 253, 554 281
+C 588 292, 616 299, 640 302
+C 662 304, 680 299, 695 285
+C 711 270, 727 253, 740 239
+Q 744 234, 751 238
+L 774 244
+Q 780 246, 780 253
+C 780 278, 781 305, 782 331
+C 814 344, 847 357, 879 366
+Q 884 368, 878 370
+C 856 372, 837 372, 817 370
+C 826 375, 835 380, 842 384
+L 838 388
+C 816 390, 788 391, 759 389
+C 728 387, 699 386, 668 388
+C 626 391, 580 396, 534 401
+C 491 406, 450 411, 416 414
+C 405 413, 397 410, 392 405
+Q 389 402, 389 397
+C 388 385, 389 366, 393 350
+C 364 328, 331 303, 295 277
+C 258 251, 223 231, 187 217
+C 146 200, 108 185, 82 177
+Q 74 174, 82 171
+Z"/>
+  </defs>
+  <use href="#aircraft" transform="translate(50 26) scale(1.05)"
+       fill="none" stroke="url(#mark-gradient)" stroke-width="22" vector-effect="non-scaling-stroke"
+       stroke-linecap="round" stroke-linejoin="bevel" stroke-miterlimit="2"/>
+  <text class="wordmark" x="1090" y="397" text-anchor="start" font-size="194" font-weight="600"
+        textLength="790" lengthAdjust="spacing" fill="url(#word-gradient)">Concord</text>
+</svg>

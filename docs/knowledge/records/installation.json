@@ -10,7 +10,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:0e994d78306a71e8e5541e151ed89dd28481c5ce9981c062d83dfddf17cd6bda",
+  "sha256": "sha256:eaa5aa1ae68d54887944e84daf7c5ee153ad90b454d81e61baf3d40620e7ea3c",
   "status": "published",
   "summary": "Operational installation guide describing what the shipped installer does: prerequisites it checks, release artifacts, upgrade, repair, and uninstall behavior. Descriptive, not prescriptive — the installer's behavior is proved by scripts/test-installer.py and the release pipeline, so under the procedure's prescription rule the document is reference material, not law.",
   "tags": [

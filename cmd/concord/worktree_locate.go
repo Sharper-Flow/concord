@@ -20,8 +20,8 @@ import (
 //     repository basename stay distinct because the key is the Project ID,
 //     never a path.
 //   - Base: the commit SHA of the Project's `canonical_path` repository at
-//     the requested ref (default `HEAD`, which is the default branch under
-//     the trunk-stays-on-default rule).
+//     the requested ref. The default `HEAD` resolves through the local
+//     `refs/remotes/origin/<default>` tracking ref.
 //
 // The store still owns validation: the derived intent passes
 // store.ValidateWorktreeClaimIntent — the claim's own patterns — before it is

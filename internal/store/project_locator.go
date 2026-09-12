@@ -212,6 +212,10 @@ func (s *Store) ResolveSessionDirectory(ctx context.Context, workID string) (str
 // LocateWorktree owns the branch, base, and path derivation used by native
 // worktree operations.
 func (s *Store) LocateWorktree(ctx context.Context, projectID, workID, ref string) (WorktreeLocation, error) {
+	return s.locateWorktreeWithRunner(ctx, projectID, workID, ref, ExecGitRunner{})
+}
+
+func (s *Store) locateWorktreeWithRunner(ctx context.Context, projectID, workID, ref string, runner GitRunner) (WorktreeLocation, error) {
 	var out WorktreeLocation
 	if projectID == "" || workID == "" {
 		return out, newFailure(KindInvalidOperation, "worktree_locate", "project and work IDs are required", false, "supply one Project and one work item")
@@ -223,7 +227,16 @@ func (s *Store) LocateWorktree(ctx context.Context, projectID, workID, ref strin
 	if err != nil {
 		return out, err
 	}
-	sha, err := ResolveCommitSHA(ctx, repo, ref)
+	baseRef := ref
+	if ref == "HEAD" {
+		defaultRef, err := bootstrapDefaultBranchRef(ctx, runner, repo)
+		if err != nil {
+			return out, err
+		}
+		defaultBranch := strings.TrimPrefix(defaultRef, "origin/")
+		baseRef = "refs/remotes/origin/" + defaultBranch
+	}
+	sha, err := resolveCommitSHARunner(ctx, runner, repo, baseRef)
 	if err != nil {
 		return out, err
 	}
@@ -240,12 +253,8 @@ func (s *Store) LocateWorktree(ctx context.Context, projectID, workID, ref strin
 	return out, nil
 }
 
-// ResolveCommitSHA pins a repository ref to one full commit SHA.
-func ResolveCommitSHA(ctx context.Context, repo, ref string) (string, error) {
-	return resolveCommitSHARunner(ctx, ExecGitRunner{}, repo, ref)
-}
-
-// resolveCommitSHARunner is the runner-parameterized core, so callers that
+// resolveCommitSHARunner pins a repository ref to one full commit SHA. It is
+// the runner-parameterized core, so callers that
 // already hold a GitRunner seam (the worktree claim and retarget routes)
 // resolve the base commit through their own runner.
 func resolveCommitSHARunner(ctx context.Context, runner GitRunner, repo, ref string) (string, error) {

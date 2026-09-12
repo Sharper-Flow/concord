@@ -21,6 +21,27 @@ type locatorGitStub struct {
 	args         [][]string
 }
 
+type locateWorktreeGitStub struct {
+	defaultRef  string
+	sha         string
+	args        [][]string
+	failResolve bool
+}
+
+func (g *locateWorktreeGitStub) Run(_ context.Context, dir string, args ...string) ([]byte, error) {
+	g.args = append(g.args, append([]string{dir}, args...))
+	if len(args) >= 3 && args[0] == "symbolic-ref" && args[2] == "refs/remotes/origin/HEAD" {
+		return []byte(g.defaultRef + "\n"), nil
+	}
+	if len(args) >= 3 && args[0] == "rev-parse" && args[1] == "--verify" {
+		if g.failResolve {
+			return nil, errors.New("tracking ref does not resolve")
+		}
+		return []byte(g.sha + "\n"), nil
+	}
+	return nil, errors.New("unexpected git verb")
+}
+
 func (g *locatorGitStub) Run(_ context.Context, dir string, args ...string) ([]byte, error) {
 	g.args = append(g.args, append([]string{dir}, args...))
 	if args[0] == "rev-parse" {
@@ -276,5 +297,94 @@ func TestResolveSessionDirectoryFailsClosedOnEveryAbsentInput(t *testing.T) {
 	}
 	if dir != repo {
 		t.Fatalf("session directory=%q want the primary Project canonical path %q", dir, repo)
+	}
+}
+
+func TestLocateWorktreeDefaultUsesRemoteTrackingRefWithoutNetwork(t *testing.T) {
+	s := openTemp(t)
+	ctx := context.Background()
+	createProductProject(t, s, "product-locate", "project-locate")
+	repo := t.TempDir()
+	if err := s.AddProjectLocator(ctx, "project-locate", ProjectLocator{ID: "path-locate", Kind: LocatorCanonicalPath, Value: repo}, 1); err != nil {
+		t.Fatal(err)
+	}
+	sha := strings.Repeat("a", 40)
+	runner := &locateWorktreeGitStub{defaultRef: "refs/remotes/origin/main", sha: sha}
+
+	location, err := s.locateWorktreeWithRunner(ctx, "project-locate", "work-locate", "HEAD", runner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if location.BaseSHA != sha {
+		t.Fatalf("base SHA=%q want %q", location.BaseSHA, sha)
+	}
+	if len(runner.args) != 2 || strings.Join(runner.args[1][1:], " ") != "rev-parse --verify refs/remotes/origin/main^{commit}" {
+		t.Fatalf("git calls=%q", runner.args)
+	}
+}
+
+func TestLocateWorktreeRefusalDoesNotFallBackToHEAD(t *testing.T) {
+	s := openTemp(t)
+	ctx := context.Background()
+	createProductProject(t, s, "product-refusal", "project-refusal")
+	repo := t.TempDir()
+	if err := s.AddProjectLocator(ctx, "project-refusal", ProjectLocator{ID: "path-refusal", Kind: LocatorCanonicalPath, Value: repo}, 1); err != nil {
+		t.Fatal(err)
+	}
+	runner := &locateWorktreeGitStub{defaultRef: "refs/remotes/origin/main", failResolve: true}
+
+	if _, err := s.locateWorktreeWithRunner(ctx, "project-refusal", "work-refusal", "HEAD", runner); err == nil {
+		t.Fatal("unresolvable tracking ref unexpectedly fell back to HEAD")
+	} else {
+		assertFailureKind(t, err, KindGitUnreachable)
+	}
+	if len(runner.args) != 2 {
+		t.Fatalf("git calls=%q", runner.args)
+	}
+}
+
+func TestLocateWorktreeReturnedBaseCreatesNativeWorktree(t *testing.T) {
+	s := openTemp(t)
+	ctx := context.Background()
+	createProductProject(t, s, "product-native", "project-native")
+	repo := initBootstrapStoreRepo(t)
+	if err := s.AddProjectLocator(ctx, "project-native", ProjectLocator{ID: "path-native", Kind: LocatorCanonicalPath, Value: repo}, 1); err != nil {
+		t.Fatal(err)
+	}
+	base := strings.TrimSpace(runBootstrapGit(t, repo, "rev-parse", "HEAD"))
+	if err := os.WriteFile(filepath.Join(repo, "local-only.txt"), []byte("local\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runBootstrapGit(t, repo, "add", "local-only.txt")
+	runBootstrapGit(t, repo, "commit", "-q", "-m", "local-only")
+	worktreePath := filepath.Join(t.TempDir(), "native-worktree")
+	location, err := s.LocateWorktree(ctx, "project-native", "work-native", "HEAD")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if location.BaseSHA != base {
+		t.Fatalf("base SHA=%q want tracking SHA %q", location.BaseSHA, base)
+	}
+	runBootstrapGit(t, repo, "worktree", "add", "--detach", worktreePath, location.BaseSHA)
+	checkedOut := strings.TrimSpace(runBootstrapGit(t, worktreePath, "rev-parse", "HEAD"))
+	if checkedOut != location.BaseSHA {
+		t.Fatalf("native worktree HEAD=%q want %q", checkedOut, location.BaseSHA)
+	}
+}
+
+// resolveCommitSHARunner guards every base resolution against a ref that git
+// would read as an option or that carries whitespace or NUL, so the refusals
+// are asserted beside the guard rather than through one caller.
+func TestResolveCommitSHARunnerRejectsHostileRefs(t *testing.T) {
+	ctx := context.Background()
+	repo := initBootstrapStoreRepo(t)
+	for _, ref := range []string{"-help", "main branch", "main\x00suffix"} {
+		if _, err := resolveCommitSHARunner(ctx, ExecGitRunner{}, repo, ref); err == nil {
+			t.Fatalf("hostile ref %q was accepted", ref)
+		}
+	}
+	sha, err := resolveCommitSHARunner(ctx, ExecGitRunner{}, repo, "refs/heads/main")
+	if err != nil || len(sha) != 40 {
+		t.Fatalf("valid symbolic ref: sha=%q err=%v", sha, err)
 	}
 }

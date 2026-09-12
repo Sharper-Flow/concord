@@ -698,6 +698,7 @@ func TestMigrateIsIdempotent(t *testing.T) {
 }
 
 func TestMigrateV7ToV8PreservesValidMultiParentRelations(t *testing.T) {
+	useStampedBuild(t)
 	path := filepath.Join(t.TempDir(), "concord.db")
 	ctx := context.Background()
 	db, err := sql.Open(driverName, dataSourceName(path))
@@ -742,6 +743,7 @@ func TestMigrateV7ToV8PreservesValidMultiParentRelations(t *testing.T) {
 }
 
 func TestMigrateLeavesPopulatedVersion3DatabaseUntouched(t *testing.T) {
+	useStampedBuild(t)
 	path := filepath.Join(t.TempDir(), "concord.db")
 	ctx := context.Background()
 	db := seedVersion3Database(t, path)
@@ -799,6 +801,7 @@ func TestMigrateLeavesPopulatedVersion3DatabaseUntouched(t *testing.T) {
 }
 
 func TestMigrateEmptyVersion3DatabaseToVersion4(t *testing.T) {
+	useStampedBuild(t)
 	path := filepath.Join(t.TempDir(), "concord.db")
 	ctx := context.Background()
 	db := seedVersion3Database(t, path)

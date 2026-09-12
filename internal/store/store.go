@@ -17,6 +17,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/sharper-flow/concord/internal/version"
+
 	// Registers the pure-Go "sqlite" driver.
 	_ "modernc.org/sqlite"
 )
@@ -99,17 +101,34 @@ func DefaultPath() (string, error) {
 }
 
 // Open prepares the authority at path, creating the file and its parent
-// directory when absent, and brings the schema up to date. It applies additive
-// migrations only: when the next pending migration is breaking it refuses with
-// KindUpgradeRequired, and Upgrade applies that step (CD-0111 D3).
+// directory when absent, and brings the schema up to date. A stamped release
+// applies additive migrations only: when the next pending migration is breaking
+// it refuses with KindUpgradeRequired, and Upgrade applies that step (CD-0111
+// D3). An unstamped build migrates only a fresh store and admits an existing
+// store only when every known migration is already applied.
 func Open(ctx context.Context, path string) (*Store, error) {
 	s, err := openUnmigrated(ctx, path)
 	if err != nil {
 		return nil, err
 	}
-	if err := migrateAtOpen(ctx, s.db, s.Clock); err != nil {
-		_ = s.db.Close()
-		return nil, err
+	unstampedFresh := false
+	if version.Value == version.Development {
+		_, unstampedFresh, err = unstampedStoreFresh(ctx, s.db)
+		if err != nil {
+			_ = s.db.Close()
+			return nil, err
+		}
+	}
+	if version.Value != version.Development || unstampedFresh {
+		if version.Value == version.Development {
+			err = migrateUnstamped(ctx, s.db, s.Clock)
+		} else {
+			err = migrateAtOpen(ctx, s.db, s.Clock)
+		}
+		if err != nil {
+			_ = s.db.Close()
+			return nil, err
+		}
 	}
 	if err := s.finishOpen(ctx); err != nil {
 		_ = s.db.Close()
@@ -137,8 +156,8 @@ type UpgradeReport struct {
 // Upgrade applies every pending migration, breaking steps included. It refuses
 // with KindUpgradeBlocked while any held schema predates the first pending
 // breaking step, naming each session and the release it holds, and writes
-// nothing in that case. With no pending breaking step it applies the pending
-// additive steps, which Open would also apply.
+// nothing in that case. An unstamped build refuses pending migrations in an
+// existing store and applies them only to a fresh store.
 func Upgrade(ctx context.Context, path string, held []HeldSchema) (UpgradeReport, error) {
 	s, err := openUnmigrated(ctx, path)
 	if err != nil {
@@ -146,7 +165,13 @@ func Upgrade(ctx context.Context, path string, held []HeldSchema) (UpgradeReport
 	}
 	defer func() { _ = s.db.Close() }()
 
-	before, err := manifestVersions(ctx, s.db)
+	unstampedFresh := false
+	var before map[int]appliedMigration
+	if version.Value == version.Development {
+		before, unstampedFresh, err = unstampedStoreFresh(ctx, s.db)
+	} else {
+		before, err = manifestVersions(ctx, s.db)
+	}
 	if err != nil {
 		return UpgradeReport{}, err
 	}
@@ -155,14 +180,24 @@ func Upgrade(ctx context.Context, path string, held []HeldSchema) (UpgradeReport
 			return UpgradeReport{}, err
 		}
 	}
-	if err := Migrate(ctx, s.db, s.Clock); err != nil {
-		return UpgradeReport{}, err
+	var after map[int]appliedMigration
+	if version.Value == version.Development && !unstampedFresh {
+		after = before
+	} else {
+		if version.Value == version.Development {
+			err = migrateUnstamped(ctx, s.db, s.Clock)
+		} else {
+			err = Migrate(ctx, s.db, s.Clock)
+		}
+		if err != nil {
+			return UpgradeReport{}, err
+		}
+		after, err = manifestVersions(ctx, s.db)
+		if err != nil {
+			return UpgradeReport{}, err
+		}
 	}
 	if err := s.finishOpen(ctx); err != nil {
-		return UpgradeReport{}, err
-	}
-	after, err := manifestVersions(ctx, s.db)
-	if err != nil {
 		return UpgradeReport{}, err
 	}
 	report := UpgradeReport{Applied: []int{}}

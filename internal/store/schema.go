@@ -4440,6 +4440,11 @@ const (
 	// migrateForUpgrade applies every pending step, breaking ones included.
 	// Only concord upgrade reaches it, after the live-session check.
 	migrateForUpgrade
+	// migrateForUnstamped applies every pending step only after the caller has
+	// established that no migration is recorded. The transaction checks that
+	// precondition again to prevent concurrent development openers from racing
+	// into an existing store.
+	migrateForUnstamped
 )
 
 // Migrate brings the database up to this binary's schema version, breaking
@@ -4457,6 +4462,10 @@ const (
 // as soon as the winner commits.
 func Migrate(ctx context.Context, db *sql.DB, clock ...func() time.Time) error {
 	return migrate(ctx, db, migrateForUpgrade, clock...)
+}
+
+func migrateUnstamped(ctx context.Context, db *sql.DB, clock ...func() time.Time) error {
+	return migrate(ctx, db, migrateForUnstamped, clock...)
 }
 
 // migrateAtOpen applies the pending additive steps and refuses with
@@ -4542,6 +4551,57 @@ func migrationManifestCurrent(ctx context.Context, db *sql.DB, scope migrationSc
 	return true, nil
 }
 
+// unstampedStoreFresh reads the manifest without changing it. An unstamped
+// binary may migrate only a store with no applied migrations. An up-to-date
+// existing store is admitted without a migration pass.
+func unstampedStoreFresh(ctx context.Context, db *sql.DB) (map[int]appliedMigration, bool, error) {
+	var present string
+	err := db.QueryRowContext(ctx, `SELECT name FROM sqlite_schema WHERE type='table' AND name='schema_migrations'`).Scan(&present)
+	if err == sql.ErrNoRows {
+		return map[int]appliedMigration{}, true, nil
+	}
+	if err != nil {
+		return nil, false, wrapFailure(KindUnavailable, "open", "cannot inspect the schema manifest", true,
+			"confirm the database is readable", err)
+	}
+	var count int
+	if err := db.QueryRowContext(ctx, `SELECT count(*) FROM schema_migrations`).Scan(&count); err != nil {
+		return nil, false, wrapFailure(KindUnavailable, "open", "cannot count applied migrations", true,
+			"confirm the database is readable", err)
+	}
+	if count == 0 {
+		return map[int]appliedMigration{}, true, nil
+	}
+	applied, err := appliedMigrations(ctx, db)
+	if err != nil {
+		if strings.Contains(err.Error(), "no such column: breaking") {
+			return nil, false, unstampedManifestRefused()
+		}
+		return nil, false, err
+	}
+	if err := checkManifest(applied); err != nil {
+		return nil, false, err
+	}
+	for _, m := range migrations {
+		if _, done := applied[m.Version]; !done {
+			return nil, false, unstampedMigrationRefused(applied)
+		}
+	}
+	return applied, false, nil
+}
+
+func unstampedMigrationRefused(applied map[int]appliedMigration) *Failure {
+	version := 0
+	for appliedVersion := range applied {
+		if appliedVersion > version {
+			version = appliedVersion
+		}
+	}
+	return newFailure(KindInvalidOperation, "open",
+		fmt.Sprintf("unstamped development build refuses schema migration for an existing store at schema version %d", version),
+		true, "set CONCORD_DB_PATH to a fresh path outside any repository, then retry")
+}
+
 // openStopsBefore reports the breaking step an open-scoped pass may not
 // apply: the first pending step, when it is breaking and the database already
 // carries applied migrations. A fresh database applies every step.
@@ -4616,6 +4676,38 @@ func migrateOnce(ctx context.Context, db *sql.DB, scope migrationScope, clock ..
 		_ = tx.Rollback()
 		return cause
 	}
+	if scope == migrateForUnstamped {
+		var count int
+		err := tx.QueryRowContext(ctx, `SELECT count(*) FROM schema_migrations`).Scan(&count)
+		if err != nil {
+			if strings.Contains(err.Error(), "no such table") {
+				count = 0
+			} else {
+				return rollback(wrapFailure(KindUnavailable, "migrate", "cannot inspect the schema manifest", true,
+					"confirm the database is readable", err))
+			}
+		}
+		if count > 0 {
+			applied, err := appliedMigrations(ctx, tx)
+			if err != nil {
+				if strings.Contains(err.Error(), "no such column: breaking") {
+					return rollback(unstampedManifestRefused())
+				}
+				return rollback(err)
+			}
+			complete := true
+			for _, m := range migrations {
+				if _, done := applied[m.Version]; !done {
+					complete = false
+					break
+				}
+			}
+			if complete {
+				return rollback(nil)
+			}
+			return rollback(unstampedMigrationRefused(applied))
+		}
+	}
 
 	if _, err := tx.ExecContext(ctx, schemaManifestDDL); err != nil {
 		return rollback(wrapFailure(KindUnavailable, "migrate", "cannot create the schema manifest", true,
@@ -4667,6 +4759,12 @@ func migrateOnce(ctx context.Context, db *sql.DB, scope migrationScope, clock ..
 		return upgradeRequired(*stopped)
 	}
 	return nil
+}
+
+func unstampedManifestRefused() *Failure {
+	return newFailure(KindInvalidOperation, "open",
+		"unstamped development build refuses to repair an existing store's schema manifest",
+		true, "set CONCORD_DB_PATH to a fresh path outside any repository, then retry")
 }
 
 func preflightMembershipMigration(ctx context.Context, tx *sql.Tx) error {

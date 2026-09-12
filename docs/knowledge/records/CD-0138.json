@@ -33,7 +33,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:9a7807e0792dc284a947898fb74b27d14e3d79b8b962892d39ba620dafa5ff00",
+  "sha256": "sha256:775bc8e262881c3ae9d728afea62eaf884ad4b2b4c1ce759bac772ab52fb32a0",
   "status": "accepted",
   "summary": "Adds a mandatory artifact-backed refinement pass before verdicts in implementation and break-fix workflows without moving pinned instances.",
   "tags": [

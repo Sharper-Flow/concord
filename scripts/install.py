@@ -432,6 +432,11 @@ def registration_snippet(skill_path: str) -> str:
     return f'"skills": {{"paths": [{json.dumps(skill_path)}]}}'
 
 
+def stable_skill_path(paths: Paths) -> str:
+    """Return the version-stable skills directory registered with OpenCode."""
+    return str(paths.stable_root / "skills")
+
+
 def plan_config(path: Path, skill_path: str, old_skill_path: str | None) -> ConfigPlan:
     if not path.exists():
         text = '{\n  "skills": {\n    "paths": [\n      ' + json.dumps(skill_path) + '\n    ]\n  }\n}\n'
@@ -695,10 +700,13 @@ def validate_manifest(paths: Paths, manifest: dict[str, object]) -> None:
             raise InstallerError(f"installer manifest has invalid agent file name {name!r}")
         safe_relative_target(paths.agents_dir, name, "agent file")
 
-    expected_skill = paths.data_root / version / "skills"
+    expected_skill = paths.stable_root / "skills"
+    legacy_skill = paths.data_root / version / "skills"
     skill_path = manifest.get("skill_path")
-    if not isinstance(skill_path, str) or Path(skill_path).resolve(strict=False) != expected_skill.resolve(strict=False):
+    if not isinstance(skill_path, str) or skill_path not in {str(expected_skill), str(legacy_skill)}:
         raise InstallerError("installer manifest has a redirected skills path")
+    # Accept the versioned path only when reading a pre-stable-path manifest.
+    # The next upgrade or repair writes the stable path back to the manifest.
     safe_relative_target(paths.data_root, f"{version}/skills", "skills")
 
     # The stable root is the path projects embed so they survive upgrades; the
@@ -1063,7 +1071,7 @@ def preflight(paths: Paths, version: str, old_manifest: dict[str, object] | None
     if old_skill is not None and not isinstance(old_skill, str):
         failures.append("existing installer manifest has no valid skills path")
     try:
-        config_plan = plan_config(paths.config_file, str((paths.data_root / version / "skills").resolve()), old_skill)
+        config_plan = plan_config(paths.config_file, stable_skill_path(paths), old_skill)
         plugin_text = plan_plugin_entry(config_plan.text, plugin_entry_path(paths))
         if plugin_text != config_plan.text:
             config_plan = ConfigPlan(config_plan.path, plugin_text, True, config_plan.managed_fragment)
@@ -1823,7 +1831,10 @@ def apply_launcher(transaction_root: Path, journal: dict[str, object], paths: Pa
 def apply_config(transaction_root: Path, journal: dict[str, object], paths: Paths) -> None:
     target = paths.config_file
     if journal["new_config"]["exists"]:
-        write_atomic(target, (transaction_root / "stage" / "config").read_bytes())
+        content = (transaction_root / "stage" / "config").read_bytes()
+        if target.is_file() and not target.is_symlink() and target.read_bytes() == content:
+            return
+        write_atomic(target, content)
     elif target.exists() or target.is_symlink():
         target.unlink()
         fsync_directory(target.parent)
@@ -2193,7 +2204,7 @@ def install(args: argparse.Namespace) -> int:
             raise InstallerError(f"refusing to repair modified managed launcher {paths.launcher}")
         if not paths.stable_root.is_symlink() or os.readlink(paths.stable_root) != str(paths.data_root / version):
             raise InstallerError(f"refusing to repair modified managed stable root {paths.stable_root}")
-        skill_path = str((paths.data_root / version / "skills").resolve())
+        skill_path = stable_skill_path(paths)
         if config_plan.changed or manifest.get("skill_path") != skill_path:
             raise InstallerError("existing installation registration is incomplete; refusing an unsafe repair")
         ensure_secret_service_ready(paths)
@@ -2282,7 +2293,7 @@ def install(args: argparse.Namespace) -> int:
             "version_files": version_records,
             "adapter_files": adapter_stage_records,
             "agent_files": agent_stage_records,
-            "skill_path": str((version_root / "skills").resolve()),
+            "skill_path": stable_skill_path(paths),
             "stable_root": str(paths.stable_root),
             "launcher_target": str((version_root / "bin" / "concord").resolve()),
             "config_path": str(paths.config_file.resolve()),
@@ -2322,7 +2333,7 @@ def install(args: argparse.Namespace) -> int:
     print(f"Installed Concord {version} under {version_root}.")
     print(f"OpenCode custom tools installed under {paths.tools_dir}.")
     print(f"Concord agent definitions installed under {paths.agents_dir}.")
-    print("Restart OpenCode before using the newly registered versioned skills path.")
+    print("Restart OpenCode before using the newly registered stable skills path.")
     return 0
 
 
@@ -2477,7 +2488,7 @@ def repair(args: argparse.Namespace) -> int:
             "version_files": version_records,
             "adapter_files": adapter_stage_records,
             "agent_files": agent_stage_records,
-            "skill_path": str((version_root / "skills").resolve()),
+            "skill_path": stable_skill_path(paths),
             "stable_root": str(paths.stable_root),
             "launcher_target": str((version_root / "bin" / "concord").resolve()),
             "config_path": str(paths.config_file.resolve()),
@@ -2597,7 +2608,7 @@ def uninstall(args: argparse.Namespace) -> int:
         except OSError:
             pass
     print(f"Uninstalled Concord {version} managed files.")
-    print("Restart OpenCode before assuming the removed versioned skills path is gone.")
+    print("Restart OpenCode before assuming the removed stable skills path is gone.")
     return 0
 
 

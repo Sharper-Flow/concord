@@ -305,8 +305,45 @@ esac''',
         adapter = self.root / "config" / "opencode" / "tools" / "concord.ts"
         self.assertIn("new", adapter.read_text(encoding="utf-8"))
         config = self.config.read_text(encoding="utf-8")
-        self.assertIn("v1.1.0/skills", config)
+        self.assertIn("concord/current/skills", config)
         self.assertNotIn("v1.0.0/skills", config)
+
+    def test_upgrade_keeps_stable_skills_registration_unchanged(self) -> None:
+        self.make_release("v1.0.0", "old")
+        self.make_release("v1.1.0", "new")
+        first = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
+        self.assertEqual(first.returncode, 0, first.stderr)
+        before_bytes = self.config.read_bytes()
+        before_mtime = self.config.stat().st_mtime_ns
+
+        second = self.run_installer("install", "--version", "v1.1.0", "--artifact-dir", str(self.artifacts))
+
+        self.assertEqual(second.returncode, 0, second.stderr)
+        self.assertEqual(self.config.read_bytes(), before_bytes)
+        self.assertEqual(self.config.stat().st_mtime_ns, before_mtime)
+
+    def test_upgrade_migrates_a_versioned_skills_registration_once(self) -> None:
+        self.make_release("v1.0.0", "old")
+        self.make_release("v1.1.0", "new")
+        first = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
+        self.assertEqual(first.returncode, 0, first.stderr)
+
+        old_skill = str(self.root / "data" / "concord" / "v1.0.0" / "skills")
+        stable_skill = str(self.root / "data" / "concord" / "current" / "skills")
+        self.config.write_text(self.config.read_text(encoding="utf-8").replace(stable_skill, old_skill), encoding="utf-8")
+        manifest_path = self.root / "data" / "concord" / installer.MANIFEST_NAME
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        manifest["skill_path"] = old_skill
+        manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+        upgraded = self.run_installer("install", "--version", "v1.1.0", "--artifact-dir", str(self.artifacts))
+
+        self.assertEqual(upgraded.returncode, 0, upgraded.stderr)
+        config = self.config.read_text(encoding="utf-8")
+        self.assertIn(stable_skill, config)
+        self.assertNotIn(old_skill, config)
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        self.assertEqual(manifest["skill_path"], stable_skill)
 
     def retention_report(self, *release_roots: str) -> Path:
         report = self.root / "host-leases.json"

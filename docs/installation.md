@@ -33,7 +33,7 @@ state.
 
 The installer also refuses to overwrite an existing user-authored adapter,
 launcher, version directory, or incompatible OpenCode configuration. When it
-cannot safely add the versioned skills path, it prints the exact `skills.paths`
+cannot safely add the stable skills path, it prints the exact `skills.paths`
 entry to add manually.
 
 ## Install or upgrade
@@ -115,7 +115,7 @@ python3 concord-installer.py status
 ```
 
 Restart OpenCode after installation or upgrade. OpenCode reads the registered
-versioned `skills.paths` entry and the plugin entry module at startup. The
+stable `skills.paths` entry and the plugin entry module at startup. The
 installer manages only those two registrations; it does not modify unrelated
 configuration keys.
 

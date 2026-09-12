@@ -48,7 +48,18 @@ Maintain clear space equal to the cap height of the wordmark’s uppercase **C**
 - Supporting headings: **Jost Medium 500**
 - UI/body copy: use the project’s existing system sans or Jost Regular if adopted
 
-The SVG wordmarks remain editable text and load Jost from Google Fonts. For offline print production, install Jost and convert the final wordmark to outlines.
+The SVG wordmarks remain editable text. Every asset that draws the wordmark embeds a subset of the Jost variable font as a base64 `@font-face`, because a browser renders an SVG referenced by `<img>` or `<picture>` in a sandbox that blocks every external subresource. A remote font link never loads in that context, so the wordmark would fall back to a system sans. Each subset carries only the glyphs that asset draws: `Ccdnor` for the logo lockups, and the full tagline alphabet for the `github/` assets.
+
+The icons and marks carry no text and need no font.
+
+Jost is licensed under the SIL Open Font License 1.1 by The Jost Project Authors. The license is in [`fonts/Jost-OFL.txt`](fonts/Jost-OFL.txt) and covers the embedded subset.
+
+To rebuild the subset after changing the text in a `github/` asset:
+
+```sh
+python3 -m fontTools.subset Jost[wght].ttf --text='<every character the asset draws>' \
+  --flavor=woff2 --layout-features='kern,liga,calt' --output-file=jost-subset.woff2
+```
 
 ## Color
 

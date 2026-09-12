@@ -1,0 +1,35 @@
+{
+  "date": "2026-09-12T00:00:00Z",
+  "evidence": [
+    "internal/store/store.go",
+    "internal/store/schema.go",
+    "internal/store/unstamped_open_test.go"
+  ],
+  "home_domain_id": "durable-authority",
+  "id": "CD-0139",
+  "kind": "decision",
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "CD-0111"
+    }
+  ],
+  "path": "docs/decisions/CD-0139-unstamped-build-store-isolation.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:bdbc27d889097991bcc54682919317b92886cd5a0caac35b92c43031927ac11a",
+  "status": "accepted",
+  "summary": "An unstamped development build migrates only a fresh store, admits an up-to-date existing store, and refuses migration of an existing store without changing its manifest or omitting the isolated CONCORD_DB_PATH route. Stamped release behavior remains unchanged.",
+  "tags": [
+    "storage",
+    "migration",
+    "development",
+    "isolation"
+  ],
+  "title": "Unstamped builds isolate store migration"
+}

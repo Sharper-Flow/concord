@@ -550,7 +550,7 @@ func normalizeWorkflowDefinition(definition WorkflowDefinition) WorkflowDefiniti
 // workflow_registry_versions.go and never acquire current payload contracts.
 func BuiltinWorkflowDefinitions() []WorkflowDefinition {
 	return []WorkflowDefinition{
-		withWorkerActions(builtinImplementation(true), true), breakFixEvidenceRecoveryV6(), withWorkerActions(builtinResearch(true), true), withWorkerActions(builtinArchitectureSpike(true), true), withWorkerActions(builtinOpsRunbook(true), true), withWorkerActions(builtinStaticAnalysis(true), true), withWorkerActions(builtinGenericOneOff(true), true),
+		implementationRefinementV8(), breakFixRefinementV7(), withWorkerActions(builtinResearch(true), true), withWorkerActions(builtinArchitectureSpike(true), true), withWorkerActions(builtinOpsRunbook(true), true), withWorkerActions(builtinStaticAnalysis(true), true), withWorkerActions(builtinGenericOneOff(true), true),
 	}
 }
 
@@ -565,9 +565,10 @@ func builtinWorkflowDefinitionsWithHistory() []WorkflowDefinition {
 			preJoinImplementationV2(), preJoinBreakFixV2(), preJoinGenericOneOffV2(), preJoinResearchV2(), preJoinArchitectureSpikeV1(), preJoinOpsRunbookV1(), preJoinStaticAnalysisV1(),
 			prePayloadImplementationV3(), prePayloadBreakFixV3(), prePayloadGenericOneOffV3(), prePayloadResearchV3(), prePayloadArchitectureSpikeV2(), prePayloadOpsRunbookV2(), prePayloadStaticAnalysisV2(),
 			preFailureImplementationV4(), preFailureBreakFixV4(), preFailureGenericOneOffV4(), preFailureResearchV4(), preFailureArchitectureSpikeV3(), preFailureOpsRunbookV3(), preFailureStaticAnalysisV3(),
-			releasedBreakFixV5(),
+			releasedBreakFixV5(), breakFixEvidenceRecoveryV6(),
 			preDesignImplementationV5(),
 			preProposalImplementationV6(),
+			releasedImplementationV7(),
 		},
 		BuiltinWorkflowDefinitions()...,
 	)
@@ -649,6 +650,44 @@ func LaneStepDispatchAllowed(capabilityClass string, kind WorkflowStepKind) bool
 // their immutable digests do not acquire record_worker_failure.
 func withWorkerActions(definition WorkflowDefinition, payloadContracts bool) WorkflowDefinition {
 	return withWorkerActionsForVersion(definition, payloadContracts, true)
+}
+
+func withRefinementStep(definition WorkflowDefinition, producingStep, verdictStep string) WorkflowDefinition {
+	definition = cloneWorkflowDefinition(definition)
+	refine := step("refine", WorkflowStepExternalEffect, "start_refine", "checkpoint_refine", "bind_evidence", "record_delivery", "checkpoint_context", "cross_context_boundary")
+
+	steps := make([]WorkflowStep, 0, len(definition.StepGraph.Steps))
+	for _, existing := range definition.StepGraph.Steps {
+		steps = append(steps, existing)
+		if existing.ID == producingStep {
+			steps = append(steps, refine)
+		}
+	}
+	definition.StepGraph.Steps = steps
+
+	edges := make([]WorkflowEdge, 0, len(definition.StepGraph.Edges))
+	for _, edge := range definition.StepGraph.Edges {
+		if edge.From == producingStep && edge.To == verdictStep && edge.Kind == WorkflowEdgeForward {
+			edges = append(edges, WorkflowEdge{From: producingStep, To: refine.ID, Kind: WorkflowEdgeForward}, WorkflowEdge{From: refine.ID, To: verdictStep, Kind: WorkflowEdgeForward})
+			continue
+		}
+		edges = append(edges, edge)
+	}
+	definition.StepGraph.Edges = edges
+
+	available := make([]string, 0, len(definition.AvailableActions))
+	actionDefinitions := make([]WorkflowActionDefinition, 0, len(definition.ActionDefinitions))
+	for i, actionID := range definition.AvailableActions {
+		available = append(available, actionID)
+		actionDefinitions = append(actionDefinitions, definition.ActionDefinitions[i])
+		if actionID == "record_delivery" {
+			available = append(available, "start_refine", "checkpoint_refine")
+			actionDefinitions = append(actionDefinitions, currentActionDefinition("start_refine", true), currentActionDefinition("checkpoint_refine", true))
+		}
+	}
+	definition.AvailableActions = available
+	definition.ActionDefinitions = actionDefinitions
+	return definition
 }
 
 func withWorkerActionsBeforeFailure(definition WorkflowDefinition, payloadContracts bool) WorkflowDefinition {
@@ -1153,6 +1192,8 @@ var builtinActionPolicies = map[string]builtinActionPolicy{
 	"record_root_cause":   actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance, ActionEventGeneric),
 	"start_repair":        actionPolicy(ActionExternalEffect, ActionApprovalNone, ActionFenced, ActionEventGeneric),
 	"checkpoint_repair":   actionPolicy(ActionExternalEffect, ActionApprovalNone, ActionCheckpoint, ActionEventCheckpoint),
+	"start_refine":        actionPolicy(ActionExternalEffect, ActionApprovalNone, ActionFenced, ActionEventGeneric),
+	"checkpoint_refine":   actionPolicy(ActionExternalEffect, ActionApprovalNone, ActionCheckpoint, ActionEventCheckpoint),
 	"frame_research":      actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionHold, ActionEventGeneric),
 	"record_finding":      actionPolicy(ActionCrossAuthority, ActionApprovalNone, ActionAdvance, ActionEventGeneric),
 	"revise_candidates": actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance, ActionEventTyped,

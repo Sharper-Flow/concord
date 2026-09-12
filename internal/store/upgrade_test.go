@@ -48,6 +48,7 @@ func manifestMax(t *testing.T, path string) int {
 }
 
 func TestOpenStopsBeforeAPendingBreakingMigration(t *testing.T) {
+	useStampedBuild(t)
 	breaking, applied := breakingWindow(t)
 	path := filepath.Join(t.TempDir(), "older.db")
 	if err := openMigratedTo(t, path, applied).Close(); err != nil {
@@ -98,6 +99,7 @@ func TestOpenAppliesEveryMigrationToAFreshDatabase(t *testing.T) {
 }
 
 func TestUpgradeRefusesWhileALiveLeaseHoldsAnOlderSchema(t *testing.T) {
+	useStampedBuild(t)
 	breaking, applied := breakingWindow(t)
 	path := filepath.Join(t.TempDir(), "older.db")
 	if err := openMigratedTo(t, path, applied).Close(); err != nil {
@@ -151,6 +153,7 @@ func TestUpgradeRefusesWhileALiveLeaseHoldsAnOlderSchema(t *testing.T) {
 }
 
 func TestUpgradeRepairsAManifestPredatingTheBreakingColumn(t *testing.T) {
+	useStampedBuild(t)
 	_, applied := breakingWindow(t)
 	path := filepath.Join(t.TempDir(), "pre-column.db")
 	db := openMigratedTo(t, path, applied)

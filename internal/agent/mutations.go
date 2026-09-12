@@ -471,9 +471,6 @@ func (r runtime) replayMutationBeforeScope(ctx context.Context, base Envelope, r
 		if replayErr != nil {
 			return Envelope{}, false, replayErr
 		}
-		if evidence, complete := completionEvidenceRefs(raw); complete && replay.Outcome == OutcomeOK {
-			replay.EvidenceRefs = append([]EvidenceRef{}, evidence...)
-		}
 		if replay.Outcome == OutcomeError {
 			return replay, true, nil
 		}
@@ -490,6 +487,9 @@ func (r runtime) replayMutationBeforeScope(ctx context.Context, base Envelope, r
 		replayedPayload, intents, enrichErr := r.enrichMutationPayloadRead(ctx, json.RawMessage(payload), refs)
 		if enrichErr != nil {
 			return Envelope{}, false, enrichErr
+		}
+		if evidence, completed := completionEvidenceRefs(raw); completed {
+			base.EvidenceRefs = append([]EvidenceRef{}, evidence...)
 		}
 		response := r.mutationResult(base, replayedPayload, refs, intents)
 		if response.Outcome == OutcomeError {
@@ -603,9 +603,12 @@ func decodeWorkflowChangedRefs(values []string) []ChangedRef {
 	return out
 }
 
+// completionEvidenceRefs reports the evidence a lifecycle transition into the
+// completed state carries, so a replayed completion surfaces the same
+// evidence_refs as the original response.
 func completionEvidenceRefs(raw []byte) ([]EvidenceRef, bool) {
-	var in actionMutationInput
-	if json.Unmarshal(raw, &in) != nil || in.ActionID != "complete" {
+	var in lifecycleMutationInput
+	if json.Unmarshal(raw, &in) != nil || in.Target != "completed" {
 		return nil, false
 	}
 	return append([]EvidenceRef{}, in.Evidence...), true
@@ -1081,11 +1084,7 @@ func (r runtime) mutateWorkflowAction(ctx context.Context, base Envelope, raw []
 		if enrichErr != nil {
 			return enrichErr
 		}
-		resultBase := base
-		if in.ActionID == "complete" {
-			resultBase.EvidenceRefs = append([]EvidenceRef{}, in.Evidence...)
-		}
-		result = r.mutationResult(resultBase, resultPayload, changed, derivedIntents)
+		result = r.mutationResult(base, resultPayload, changed, derivedIntents)
 		if result.Outcome == OutcomeError {
 			resultRejected = true
 			return errors.New("mutation result rejected")
@@ -1126,6 +1125,10 @@ type mutationPlan struct {
 	governingConflict []string
 	intents           []NextIntent
 	effect            mutationEffect
+	// evidenceRefs surfaces the operation's evidence on the result envelope.
+	// A lifecycle transition into a terminal state sets it so the adapter can
+	// render a closure receipt from the same envelope that reports the state.
+	evidenceRefs []EvidenceRef
 }
 
 func newMutationPlan(envelope CallEnvelope, op ContractOperation) *mutationPlan {
@@ -1460,6 +1463,9 @@ func (r runtime) planLifecycle(ctx context.Context, base Envelope, raw []byte, d
 		plan.approval = in.Approval.ApprovalRef
 	}
 	plan.requiresApproval = in.Target == "completed" || in.Target == "cancelled"
+	if in.Target == "completed" {
+		plan.evidenceRefs = append([]EvidenceRef{}, in.Evidence...)
+	}
 	plan.versions["work"] = in.ExpectedVersion
 	plan.scope["work_ids"] = []string{in.WorkID}
 	plan.intents = []NextIntent{{Tool: "concord_work_browse", Operation: "scope", QueryID: "PM1.Q6", ReasonCode: "refresh_work_version", RequiredFields: []string{"work_id"}}}
@@ -2518,6 +2524,7 @@ func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Au
 		return failureEnvelope(base, preflightErr), nil
 	}
 	plan.scope["product_ids"] = preflightProducts
+	base.EvidenceRefs = append([]EvidenceRef{}, plan.evidenceRefs...)
 	return r.executeMutation(ctx, base, raw, digest, plan.scope, plan.versions, plan.consequence, plan.approval, plan.requiresApproval, plan.governingConflict, plan.intents, plan.effect)
 }
 

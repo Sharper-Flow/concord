@@ -1,0 +1,18 @@
+:root {
+  --concord-ink: #09040F;
+  --concord-aubergine: #140821;
+  --concord-violet-black: #1B1032;
+  --concord-deep-purple: #2B1042;
+  --concord-purple-return: #160721;
+
+  --concord-canvas-light: #F7F5F8;
+  --concord-canvas-dark: #08060D;
+  --concord-text-light: #F5EFFB;
+  --concord-text-dark: #140821;
+  --concord-lavender: #D8C8EC;
+  --concord-indigo: #6F66A8;
+
+  --concord-gradient-dark: linear-gradient(96deg, #09040F 0%, #140821 28%, #1B1032 55%, #2B1042 78%, #160721 100%);
+  --concord-gradient-light: linear-gradient(96deg, #FCF9FF 0%, #EEE5F8 28%, #D8C8EC 55%, #C2A9E0 78%, #F2EAF9 100%);
+}
+

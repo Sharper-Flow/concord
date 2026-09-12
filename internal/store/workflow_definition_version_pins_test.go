@@ -20,6 +20,8 @@ import (
 // adds the action-specific payload contracts from issue #776. Version 5
 // (version 4 for those three definitions) adds record_worker_failure (#869).
 // Version 6 adds the CD-0124 hold-only break-fix verify recovery route.
+// Version 7 of break_fix and version 8 of implementation add the mandatory
+// refinement step and its artifact evidence requirement.
 //
 // Editing a definition changes its computed digest and fails this test. Ship
 // the new content as a new version and add its digest here; never edit a row
@@ -31,6 +33,7 @@ var workflowDefinitionVersionPins = map[[2]string]string{
 	{"workflow.break_fix", "4"}:          "sha256:db759043452bf078754a547f4222d1adcc43b8b386af79cf81dfb517c39c4056",
 	{"workflow.break_fix", "5"}:          "sha256:bb565fdcb7bcf4b4ba630ea1c56a2d34ac79ab17c486df63648775212b9047e1",
 	{"workflow.break_fix", "6"}:          "sha256:ba1d605ecaa729f6ac729f6fc06733404875e2c45c90061c8d6c01b5e785eebc",
+	{"workflow.break_fix", "7"}:          "sha256:7ba7c722550e96e45f98ffd6de41cf6fc8d14baca3d400abe9f8a68b700bc667",
 	{"workflow.implementation", "1"}:     "sha256:deaeec1077f5360b23b4c6ca78328d45a620668c503760855ec28e7bf6ecf155",
 	{"workflow.implementation", "2"}:     "sha256:e16dfed665a50ece82f33040d2cb0e4a6abfd72dbc5b4743098eab22f0faab89",
 	{"workflow.implementation", "3"}:     "sha256:12ecaeb8b7947387905b0354f131308586635e61a553eba25deb1564179cbcd4",
@@ -38,6 +41,7 @@ var workflowDefinitionVersionPins = map[[2]string]string{
 	{"workflow.implementation", "5"}:     "sha256:64714294b727772997db3eb96e696b7c2b9cae64a01edc840e4fd9a9d5226661",
 	{"workflow.implementation", "6"}:     "sha256:6f512e8f25772ef071d00f1378a8f675cac2624fe230c7c75a1e82635e2de785",
 	{"workflow.implementation", "7"}:     "sha256:7b0e0582da3716e7d44a8097d16afa81deecf59b61d3af4c02833fa6f443291a",
+	{"workflow.implementation", "8"}:     "sha256:15028d1f2b1d00df2ea0c0649f72dc9fb6151fb05bc88e3a6002eb5a93568f7c",
 	{"workflow.generic_one_off", "1"}:    "sha256:c2b8b4c8ef11b2de08912f7c82faa91dffe6a2fbe4ddcef924ff4b393da578b3",
 	{"workflow.generic_one_off", "2"}:    "sha256:273c82c0a0cf6c17d231f1be898ff74c6158f8036985cb3e1666b8f12c1b7895",
 	{"workflow.generic_one_off", "3"}:    "sha256:a639d5a41e09ed2b2f1543912c4dc8686fb6d5cc97d945d4c3f6705df4f1165f",
@@ -105,8 +109,8 @@ func TestBuiltinDefinitionsCoverExactlyThePinnedVersions(t *testing.T) {
 
 func TestBuiltinDefinitionForRefResolvesTheLatestVersion(t *testing.T) {
 	cases := map[string]int64{
-		"workflow.break_fix":          6,
-		"workflow.implementation":     7,
+		"workflow.break_fix":          7,
+		"workflow.implementation":     8,
 		"workflow.generic_one_off":    5,
 		"workflow.research":           5,
 		"workflow.architecture_spike": 4,

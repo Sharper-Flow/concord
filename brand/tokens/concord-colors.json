@@ -1,0 +1,73 @@
+{
+  "name": "Concord",
+  "typography": {
+    "display": "Jost",
+    "wordmarkWeight": 600
+  },
+  "colors": {
+    "ink": "#09040F",
+    "aubergine": "#140821",
+    "violetBlack": "#1B1032",
+    "deepPurple": "#2B1042",
+    "purpleReturn": "#160721",
+    "canvasLight": "#F7F5F8",
+    "canvasDark": "#08060D",
+    "textLight": "#F5EFFB",
+    "textDark": "#140821",
+    "lavender": "#D8C8EC",
+    "indigo": "#6F66A8"
+  },
+  "gradientStops": {
+    "dark": [
+      [
+        "0%",
+        "#09040F"
+      ],
+      [
+        "28%",
+        "#140821"
+      ],
+      [
+        "55%",
+        "#1B1032"
+      ],
+      [
+        "78%",
+        "#2B1042"
+      ],
+      [
+        "100%",
+        "#160721"
+      ]
+    ],
+    "light": [
+      [
+        "0%",
+        "#FCF9FF"
+      ],
+      [
+        "28%",
+        "#EEE5F8"
+      ],
+      [
+        "55%",
+        "#D8C8EC"
+      ],
+      [
+        "78%",
+        "#C2A9E0"
+      ],
+      [
+        "100%",
+        "#F2EAF9"
+      ]
+    ]
+  },
+  "responsive": {
+    "fullLockupMinWidth": 480,
+    "horizontalMinWidth": 280,
+    "markOnlyMinWidth": 72,
+    "solidIconMaxWidth": 64
+  }
+}
+

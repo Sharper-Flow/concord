@@ -1,0 +1,5 @@
+{
+  "id": "CD-0138",
+  "reason": "The versioned registry definitions, digest pin test, phase-B graph test, generated action contracts, and workflow contract document prove the mandatory refinement pass and its external analysis boundary.",
+  "state": "out_of_scope"
+}

@@ -10,9 +10,9 @@ import (
 	"github.com/sharper-flow/concord/internal/store"
 )
 
-// CD-0112: the session that executed an external-effect step leaves it through
-// record_delivery, a hand-off summary never moves the step, and delivery needs
-// the step's fenced start.
+// CD-0112/CD-0138: the session that executed an external-effect step leaves it
+// through record_delivery, and a hand-off summary never moves the step. The
+// mandatory refinement pass also needs its own fenced start and delivery.
 func TestRecordDeliveryExitsTheStepTheSessionExecuted(t *testing.T) {
 	ctx := context.Background()
 	s, _, _, _, _ := workflowEngineFixture(t, "")
@@ -71,12 +71,24 @@ func TestRecordDeliveryExitsTheStepTheSessionExecuted(t *testing.T) {
 		t.Fatalf("cross_context_boundary moved the step to %q", step)
 	}
 
-	// Delivery after the fenced start advances to verify.
+	// Delivery after the repair fenced start advances to the mandatory refine step.
 	if err := try("record_delivery", map[string]any{}); err != nil {
 		t.Fatalf("record_delivery after start_repair refused: %v", err)
 	}
+	if step := currentStep(); step != "refine" {
+		t.Fatalf("record_delivery left the step at %q, want refine", step)
+	}
+	if err := try("start_refine", map[string]any{}); err != nil {
+		t.Fatalf("start_refine refused: %v", err)
+	}
+	if err := try("bind_evidence", map[string]any{"evidence_kind": "artifact"}); err != nil {
+		t.Fatalf("refine artifact binding refused: %v", err)
+	}
+	if err := try("record_delivery", map[string]any{}); err != nil {
+		t.Fatalf("record_delivery after start_refine refused: %v", err)
+	}
 	if step := currentStep(); step != "verify" {
-		t.Fatalf("record_delivery left the step at %q, want verify", step)
+		t.Fatalf("refine record_delivery left the step at %q, want verify", step)
 	}
 }
 

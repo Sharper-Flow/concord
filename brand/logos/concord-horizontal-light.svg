@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="2200" height="650" viewBox="0 0 2200 650"
+     role="img" aria-labelledby="title desc" shape-rendering="geometricPrecision" color-interpolation="sRGB">
+  <title id="title">Concord horizontal light-mode logo</title>
+  <desc id="desc">Horizontal Concord lockup for light-mode headers and navigation.</desc>
+  <style>
+    @font-face{font-family:'Jost';font-style:normal;font-weight:100 900;font-display:block;src:url(data:font/woff2;base64,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) format('woff2');}
+    .wordmark { font-family:'Jost','Century Gothic',Arial,sans-serif; font-kerning:normal; }
+  </style>
+  <defs>
+    <linearGradient id="mark-gradient" gradientUnits="userSpaceOnUse" x1="90" y1="300" x2="875" y2="260">
+      <stop offset="0%" stop-color="#09040F"/>
+      <stop offset="28%" stop-color="#140821"/>
+      <stop offset="55%" stop-color="#1B1032"/>
+      <stop offset="78%" stop-color="#2B1042"/>
+      <stop offset="100%" stop-color="#160721"/>
+    </linearGradient>
+    <linearGradient id="word-gradient" gradientUnits="userSpaceOnUse" x1="1090" y1="350" x2="1880" y2="350">
+      <stop offset="0%" stop-color="#09040F"/>
+      <stop offset="28%" stop-color="#140821"/>
+      <stop offset="55%" stop-color="#1B1032"/>
+      <stop offset="78%" stop-color="#2B1042"/>
+      <stop offset="100%" stop-color="#160721"/>
+    </linearGradient>
+    <path id="aircraft" d="
+M 82 171
+C 112 164, 143 156, 166 155
+C 191 155, 225 172, 270 188
+C 365 222, 463 253, 554 281
+C 588 292, 616 299, 640 302
+C 662 304, 680 299, 695 285
+C 711 270, 727 253, 740 239
+Q 744 234, 751 238
+L 774 244
+Q 780 246, 780 253
+C 780 278, 781 305, 782 331
+C 814 344, 847 357, 879 366
+Q 884 368, 878 370
+C 856 372, 837 372, 817 370
+C 826 375, 835 380, 842 384
+L 838 388
+C 816 390, 788 391, 759 389
+C 728 387, 699 386, 668 388
+C 626 391, 580 396, 534 401
+C 491 406, 450 411, 416 414
+C 405 413, 397 410, 392 405
+Q 389 402, 389 397
+C 388 385, 389 366, 393 350
+C 364 328, 331 303, 295 277
+C 258 251, 223 231, 187 217
+C 146 200, 108 185, 82 177
+Q 74 174, 82 171
+Z"/>
+  </defs>
+  <use href="#aircraft" transform="translate(50 26) scale(1.05)"
+       fill="none" stroke="url(#mark-gradient)" stroke-width="22" vector-effect="non-scaling-stroke"
+       stroke-linecap="round" stroke-linejoin="bevel" stroke-miterlimit="2"/>
+  <text class="wordmark" x="1090" y="397" text-anchor="start" font-size="194" font-weight="600"
+        textLength="790" lengthAdjust="spacing" fill="url(#word-gradient)">Concord</text>
+</svg>

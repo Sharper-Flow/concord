@@ -214,6 +214,10 @@ inconsistency detection, AI-slop detection, and spec/implementation drift audit.
 The host selects and runs an external tool. Concord records the declared scope,
 report, evidence, and verdict.
 
+Implementation version 8 and break-fix version 7 insert a mandatory `refine` pass
+between the producing step and the verdict step. The pass records an artifact
+from the external analysis authority. Concord does not implement the scanner.
+
 ---
 
 ## 5. Coordinating external analysis tools

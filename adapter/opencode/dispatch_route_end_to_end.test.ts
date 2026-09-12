@@ -373,6 +373,17 @@ routeDeclaration("dispatches a real store route through Task completion and work
     const currentVersion = dbValue(dbPath, `SELECT version FROM work_items WHERE id='${workID}'`).version as number
     response = await transition(currentVersion, "accept_worker_result", "e2e-accept-worker", { attempt_id: packet.attempt_id, attempt_epoch: 1 })
     expect(response.outcome).toBe("ok")
+    const refineStartVersion = dbValue(dbPath, `SELECT version FROM work_items WHERE id='${workID}'`).version as number
+    response = await transition(refineStartVersion, "start_refine", "e2e-start-refine", {})
+    expect(response.outcome).toBe("ok")
+    expect(dbValue(dbPath, `SELECT definition_version FROM workflow_instances WHERE work_id='${workID}'`).definition_version).toBe(7)
+    expect(dbValue(dbPath, `SELECT current_step FROM workflow_instances WHERE work_id='${workID}'`).current_step).toBe("refine")
+    const refineEvidenceVersion = dbValue(dbPath, `SELECT version FROM work_items WHERE id='${workID}'`).version as number
+    response = await transition(refineEvidenceVersion, "bind_evidence", "e2e-bind-refine-artifact", { evidence_kind: "artifact" })
+    expect(response.outcome, JSON.stringify(response)).toBe("ok")
+    const refineDeliveryVersion = dbValue(dbPath, `SELECT version FROM work_items WHERE id='${workID}'`).version as number
+    response = await transition(refineDeliveryVersion, "record_delivery", "e2e-record-refine-delivery", {})
+    expect(response.outcome).toBe("ok")
     const verifyVersion = dbValue(dbPath, `SELECT version FROM work_items WHERE id='${workID}'`).version as number
     // CD-0116 after a lane exit: the session that accepted the worker result
     // submits its own verdict, the adapter mints the operator challenge, the

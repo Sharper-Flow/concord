@@ -236,10 +236,10 @@ func workflowEvidenceBindingStep(definition WorkflowDefinition, currentStep stri
 }
 
 func workflowEvidenceRecoveryBindingStep(definition WorkflowDefinition, currentStep string) string {
+	if stepDeclaresAction(definition, currentStep, "bind_evidence") {
+		return ""
+	}
 	for _, step := range definition.StepGraph.Steps {
-		if step.ID == currentStep {
-			return ""
-		}
 		if stepDeclaresAction(definition, step.ID, "bind_evidence") {
 			return step.ID
 		}

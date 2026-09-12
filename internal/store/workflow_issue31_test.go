@@ -148,7 +148,7 @@ func TestApproveContractPersistsEvidenceAndRigor(t *testing.T) {
 		rigorClass       string
 	}{
 		{name: "explicit", extraFields: `"required_evidence":["artifact"],"rigor_class":"critical_public",`, requiredEvidence: `["artifact"]`, rigorClass: "critical_public"},
-		{name: "defaults", requiredEvidence: `["verification","review"]`, rigorClass: "prototype_internal"},
+		{name: "defaults", requiredEvidence: `["verification","review","artifact"]`, rigorClass: "prototype_internal"},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			s := openTemp(t)

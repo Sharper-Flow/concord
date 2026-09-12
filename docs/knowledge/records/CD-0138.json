@@ -1,0 +1,46 @@
+{
+  "date": "2026-09-12T00:00:00Z",
+  "evidence": [
+    "internal/store/workflow_registry.go",
+    "internal/store/workflow_registry_versions.go",
+    "internal/store/workflow_definition_version_pins_test.go",
+    "internal/store/workflow_phase_b_test.go",
+    "docs/workflow-engine-contract.md",
+    "docs/workflows.md"
+  ],
+  "home_domain_id": "workflow-engine",
+  "id": "CD-0138",
+  "kind": "decision",
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "CD-0013"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0059"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0115"
+    }
+  ],
+  "path": "docs/decisions/CD-0138-mandatory-refinement-pass.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:9a7807e0792dc284a947898fb74b27d14e3d79b8b962892d39ba620dafa5ff00",
+  "status": "accepted",
+  "summary": "Adds a mandatory artifact-backed refinement pass before verdicts in implementation and break-fix workflows without moving pinned instances.",
+  "tags": [
+    "workflow",
+    "refinement",
+    "evidence",
+    "definition"
+  ],
+  "title": "Mandatory refinement pass before workflow verdict"
+}

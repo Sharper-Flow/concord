@@ -275,6 +275,34 @@ func preProposalImplementationV6() WorkflowDefinition {
 	return withLegacyRecordProposal(d)
 }
 
+func releasedImplementationV7() WorkflowDefinition {
+	d := builtinImplementation(true)
+	d.Version = 7
+	return withWorkerActions(d, true)
+}
+
+func implementationRefinementV8() WorkflowDefinition {
+	d := builtinImplementation(true)
+	d.Version = 8
+	d.RequiredEvidenceKinds = append(d.RequiredEvidenceKinds, EvidenceArtifact)
+	d = withRefinementStep(d, "execution", "acceptance")
+	return withWorkerActions(d, true)
+}
+
+func breakFixRefinementV7() WorkflowDefinition {
+	d := builtinBreakFix(true)
+	d.Version = 7
+	d.RequiredEvidenceKinds = append(d.RequiredEvidenceKinds, EvidenceArtifact)
+	for i := range d.StepGraph.Steps {
+		if d.StepGraph.Steps[i].ID == "verify" {
+			d.StepGraph.Steps[i].Actions = append([]string{"bind_evidence"}, d.StepGraph.Steps[i].Actions...)
+			break
+		}
+	}
+	d = withRefinementStep(d, "repair", "verify")
+	return withWorkerActions(d, true)
+}
+
 func withLegacyRecordDesign(definition WorkflowDefinition) WorkflowDefinition {
 	for i := range definition.ActionDefinitions {
 		if definition.ActionDefinitions[i].ID == "record_design" {

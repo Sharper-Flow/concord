@@ -371,3 +371,20 @@ func TestLocateWorktreeReturnedBaseCreatesNativeWorktree(t *testing.T) {
 		t.Fatalf("native worktree HEAD=%q want %q", checkedOut, location.BaseSHA)
 	}
 }
+
+// resolveCommitSHARunner guards every base resolution against a ref that git
+// would read as an option or that carries whitespace or NUL, so the refusals
+// are asserted beside the guard rather than through one caller.
+func TestResolveCommitSHARunnerRejectsHostileRefs(t *testing.T) {
+	ctx := context.Background()
+	repo := initBootstrapStoreRepo(t)
+	for _, ref := range []string{"-help", "main branch", "main\x00suffix"} {
+		if _, err := resolveCommitSHARunner(ctx, ExecGitRunner{}, repo, ref); err == nil {
+			t.Fatalf("hostile ref %q was accepted", ref)
+		}
+	}
+	sha, err := resolveCommitSHARunner(ctx, ExecGitRunner{}, repo, "refs/heads/main")
+	if err != nil || len(sha) != 40 {
+		t.Fatalf("valid symbolic ref: sha=%q err=%v", sha, err)
+	}
+}

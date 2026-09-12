@@ -253,12 +253,8 @@ func (s *Store) locateWorktreeWithRunner(ctx context.Context, projectID, workID,
 	return out, nil
 }
 
-// ResolveCommitSHA pins a repository ref to one full commit SHA.
-func ResolveCommitSHA(ctx context.Context, repo, ref string) (string, error) {
-	return resolveCommitSHARunner(ctx, ExecGitRunner{}, repo, ref)
-}
-
-// resolveCommitSHARunner is the runner-parameterized core, so callers that
+// resolveCommitSHARunner pins a repository ref to one full commit SHA. It is
+// the runner-parameterized core, so callers that
 // already hold a GitRunner seam (the worktree claim and retarget routes)
 // resolve the base commit through their own runner.
 func resolveCommitSHARunner(ctx context.Context, runner GitRunner, repo, ref string) (string, error) {

@@ -429,7 +429,7 @@ func prepareDomainProjection(ctx context.Context, s *Store, home KnowledgeHome, 
 	result.ProductID = products[0]
 	result.LawHomes, result.LawApplicability = map[string]string{}, map[string][]string{}
 	for _, record := range manifest.Records {
-		if record.Kind != "decision" && record.Kind != "spec" {
+		if !manifestLawBearingKinds[record.Kind] {
 			continue
 		}
 		homeDomain := record.HomeDomainID
@@ -549,7 +549,7 @@ func (s *Store) RebuildKnowledgeIndex(ctx context.Context, home KnowledgeHome) e
 			}
 			seen[record.ID], seenPaths[record.Path] = true, true
 			notes = append(notes, manifestRecordNote(record, commit, manifest.SchemaVersion))
-			if record.Kind == "decision" || record.Kind == "spec" {
+			if manifestLawBearingKinds[record.Kind] {
 				laws = append(laws, record)
 			}
 		}

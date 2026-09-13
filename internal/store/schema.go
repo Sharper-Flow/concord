@@ -4350,6 +4350,79 @@ CREATE TRIGGER workflow_proposal_records_guard_delete BEFORE DELETE ON workflow_
 DROP TABLE workflow_staleness_warnings;
 `,
 	},
+	{
+		// The constitution kind is law-bearing under the accepted knowledge
+		// taxonomy (an accepted constitution requires a home Domain), but the
+		// derived law projection admitted only decisions and specs: an
+		// accepted constitution resolved through Q9, failed canonical Q10
+		// proof on home_domain_id, and could not satisfy a workflow law
+		// mandate. This migration widens the law-subject vocabulary the
+		// schema admits and invalidates every knowledge watermark so the
+		// demand-driven rebuild (CD-0082 D1) repopulates the projection with
+		// constitutional law even though the Git content did not move. The
+		// watermark digest names Git content, not projection semantics, so
+		// without this invalidation a pre-fix index reads fresh forever.
+		Version: 80,
+		Name:    "constitution_law_subjects",
+		SQL: `
+PRAGMA defer_foreign_keys = ON;
+
+CREATE TEMP TABLE law_subjects_v80_backup AS SELECT * FROM law_subjects;
+CREATE TEMP TABLE law_relations_v80_backup AS SELECT * FROM law_relations;
+CREATE TEMP TABLE law_domain_homes_v80_backup AS SELECT * FROM law_domain_homes;
+CREATE TEMP TABLE law_domain_applicability_v80_backup AS SELECT * FROM law_domain_applicability;
+CREATE TEMP TABLE domain_relation_governing_laws_v80_backup AS SELECT * FROM domain_relation_governing_laws;
+
+INSERT OR IGNORE INTO fold_guard(active) VALUES (1);
+DELETE FROM domain_relation_governing_laws;
+DELETE FROM law_domain_applicability;
+DELETE FROM law_domain_homes;
+DELETE FROM law_relations;
+DELETE FROM law_subjects;
+DROP TABLE law_subjects;
+
+CREATE TABLE law_subjects (
+    home_project_id    TEXT NOT NULL,
+    home_locator_id    TEXT NOT NULL,
+    law_id             TEXT NOT NULL,
+    kind               TEXT NOT NULL CHECK(kind IN ('constitution','decision','spec')),
+    status             TEXT NOT NULL CHECK(status IN ('accepted','superseded')),
+    path               TEXT NOT NULL,
+    title              TEXT NOT NULL,
+    content_hash       TEXT NOT NULL CHECK(length(content_hash)=71 AND substr(content_hash,1,7)='sha256:'),
+    scanned_commit_oid TEXT NOT NULL,
+    PRIMARY KEY(home_project_id, home_locator_id, law_id)
+);
+CREATE INDEX law_subjects_lookup ON law_subjects(home_project_id, home_locator_id, status, law_id);
+CREATE UNIQUE INDEX law_subjects_identity_hash ON law_subjects(home_project_id, home_locator_id, law_id, content_hash);
+CREATE TRIGGER law_subjects_guard_insert BEFORE INSERT ON law_subjects FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'law_subjects is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER law_subjects_guard_update BEFORE UPDATE ON law_subjects FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'law_subjects is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER law_subjects_guard_delete BEFORE DELETE ON law_subjects FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'law_subjects is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER law_subjects_home_pair_bound_insert
+BEFORE INSERT ON law_subjects FOR EACH ROW
+WHEN NOT EXISTS (SELECT 1 FROM project_locators pl
+                 WHERE pl.project_id = NEW.home_project_id AND pl.locator_id = NEW.home_locator_id)
+BEGIN
+    SELECT RAISE(ABORT, 'law_subjects home pair does not reference a Project locator');
+END;
+CREATE TRIGGER law_subjects_home_pair_bound_update
+BEFORE UPDATE OF home_project_id, home_locator_id ON law_subjects FOR EACH ROW
+WHEN NOT EXISTS (SELECT 1 FROM project_locators pl
+                 WHERE pl.project_id = NEW.home_project_id AND pl.locator_id = NEW.home_locator_id)
+BEGIN
+    SELECT RAISE(ABORT, 'law_subjects home pair does not reference a Project locator');
+END;
+
+INSERT INTO law_subjects SELECT * FROM law_subjects_v80_backup;
+INSERT INTO law_relations SELECT * FROM law_relations_v80_backup;
+INSERT INTO law_domain_homes SELECT * FROM law_domain_homes_v80_backup;
+INSERT INTO law_domain_applicability SELECT * FROM law_domain_applicability_v80_backup;
+INSERT INTO domain_relation_governing_laws SELECT * FROM domain_relation_governing_laws_v80_backup;
+
+DELETE FROM knowledge_index_watermark;
+DELETE FROM fold_guard WHERE active = 1;
+`,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any

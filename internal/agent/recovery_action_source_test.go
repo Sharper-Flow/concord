@@ -104,48 +104,54 @@ var refusalConstructors = map[string]int{
 func TestEveryCoreErrorRecoveryActionIsContractual(t *testing.T) {
 	kinds := contractRecoveryKinds(t)
 	fset := token.NewFileSet()
-	pkgs, err := parser.ParseDir(fset, ".", func(info os.FileInfo) bool {
-		return filepath.Ext(info.Name()) == ".go"
-	}, 0)
+	// Each file is parsed on its own rather than through parser.ParseDir,
+	// which is deprecated, and rather than golang.org/x/tools/go/packages,
+	// which would be a new third-party dependency. Only this directory's own
+	// Go files are read, so build tags cannot change which package they
+	// belong to in a way that matters here.
+	entries, err := os.ReadDir(".")
 	if err != nil {
-		t.Fatalf("parse package: %v", err)
+		t.Fatalf("read package directory: %v", err)
 	}
 	checked := 0
-	for _, pkg := range pkgs {
-		for path, file := range pkg.Files {
-			if filepath.Base(path) == filepath.Base(mustTestFileName()) {
-				continue
-			}
-			ast.Inspect(file, func(n ast.Node) bool {
-				call, ok := n.(*ast.CallExpr)
-				if !ok {
-					return true
-				}
-				name, ok := call.Fun.(*ast.Ident)
-				if !ok {
-					return true
-				}
-				position, known := refusalConstructors[name.Name]
-				if !known || len(call.Args) <= position {
-					return true
-				}
-				lit, ok := call.Args[position].(*ast.BasicLit)
-				if !ok || lit.Kind != token.STRING {
-					// A computed recovery action cannot be read here. The
-					// marshal validator remains its only check.
-					return true
-				}
-				value, err := strconv.Unquote(lit.Value)
-				if err != nil {
-					return true
-				}
-				checked++
-				if !kinds[value] {
-					t.Errorf("%s: %s builds recovery action %q, which the envelope contract does not declare; the refusal cannot marshal", fset.Position(lit.Pos()), name.Name, value)
-				}
-				return true
-			})
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || filepath.Ext(name) != ".go" || name == thisSourceFile {
+			continue
 		}
+		file, parseErr := parser.ParseFile(fset, name, nil, 0)
+		if parseErr != nil {
+			t.Fatalf("parse %s: %v", name, parseErr)
+		}
+		ast.Inspect(file, func(n ast.Node) bool {
+			call, ok := n.(*ast.CallExpr)
+			if !ok {
+				return true
+			}
+			name, ok := call.Fun.(*ast.Ident)
+			if !ok {
+				return true
+			}
+			position, known := refusalConstructors[name.Name]
+			if !known || len(call.Args) <= position {
+				return true
+			}
+			lit, ok := call.Args[position].(*ast.BasicLit)
+			if !ok || lit.Kind != token.STRING {
+				// A computed recovery action cannot be read here. The
+				// marshal validator remains its only check.
+				return true
+			}
+			value, err := strconv.Unquote(lit.Value)
+			if err != nil {
+				return true
+			}
+			checked++
+			if !kinds[value] {
+				t.Errorf("%s: %s builds recovery action %q, which the envelope contract does not declare; the refusal cannot marshal", fset.Position(lit.Pos()), name.Name, value)
+			}
+			return true
+		})
 	}
 	if checked == 0 {
 		t.Fatal("no refusal call with a literal recovery action was found; the construction site changed shape")
@@ -162,7 +168,7 @@ func sortedKeys(m map[string]bool) []string {
 	return out
 }
 
-// mustTestFileName names this file so the scan skips it. Its own prose carries
+// thisSourceFile names this file so the scan skips it. Its own prose carries
 // the invalid kinds the tests above probe with, and a scan that read them
 // would report this file as a defect.
-func mustTestFileName() string { return "recovery_action_source_test.go" }
+const thisSourceFile = "recovery_action_source_test.go"

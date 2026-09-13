@@ -460,6 +460,16 @@ func guardOperatorPremiseActor(g *workflowActionGuardContext) error {
 		if g.request.ActionID != "supersede_contract" && g.request.ActionID != "request_correction" {
 			return nil
 		}
+		if g.request.ActionID == "request_correction" {
+			available, correctionErr := workflowCorrectionRequestAvailable(g.ctx, g.tx, g.request.WorkID, g.entry.Definition, g.currentStep, "workflow_action")
+			if correctionErr != nil {
+				return correctionErr
+			}
+			if !available {
+				return newFailure(KindInvalidOperation, "workflow_action", "correction request is unavailable without a current non-ok verification verdict", false, "reread the current work pin")
+			}
+			return newFailure(KindApprovalRequired, "workflow_action", "correction request requires the verified operator approval identity", false, "request_approval")
+		}
 		correction, correctionErr := workflowContractCorrectionAvailable(g.ctx, g.tx, g.request.WorkID, g.entry.Definition, g.currentStep, "workflow_action")
 		if correctionErr != nil {
 			return correctionErr

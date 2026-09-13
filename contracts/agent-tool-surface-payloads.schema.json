@@ -212,7 +212,8 @@
           "type": "string",
           "enum": [
             "failed",
-            "rejected"
+            "rejected",
+            "verification"
           ]
         },
         "attempt_count": {

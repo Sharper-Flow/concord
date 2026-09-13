@@ -92,12 +92,12 @@ function renderCorrectionContext(value: unknown): string {
   const failureKind = typeof value.failure_kind === "string" ? value.failure_kind : ""
   const failureDetail = typeof value.failure_detail === "string" ? value.failure_detail : ""
   if (!disposition && attemptCount === null && !diagnosis && !strategy && predicateIDs.length === 0 && evidenceRefs.length === 0) return ""
-  const lines = ["Durable correction context:", `Disposition: ${disposition || "recorded rejection"}.`]
+  const lines = ["Durable correction context:", `Disposition: ${disposition || "recorded correction"}.`]
   if (attemptCount !== null && attemptLimit !== null) lines.push(`Execution attempts: ${attemptCount}/${attemptLimit}.`)
   if (failureKind) lines.push(`Failure kind: ${failureKind}.`)
   if (failureDetail) lines.push(`Failure detail: ${failureDetail}`)
-  if (predicateIDs.length > 0) lines.push(`Rejected predicates: ${predicateIDs.join(", ")}.`)
-  if (evidenceRefs.length > 0) lines.push(`Mismatch evidence: ${evidenceRefs.join(", ")}.`)
+  if (predicateIDs.length > 0) lines.push(`Affected predicates: ${predicateIDs.join(", ")}.`)
+  if (evidenceRefs.length > 0) lines.push(`Bound evidence: ${evidenceRefs.join(", ")}.`)
   if (diagnosis) lines.push(`Diagnosis: ${diagnosis}`)
   if (strategy) lines.push(`Changed strategy: ${strategy}`)
   lines.push("")
@@ -106,7 +106,7 @@ function renderCorrectionContext(value: unknown): string {
 
 function projectCorrectionContext(value: unknown): AgentLanePacketCorrection | undefined {
   if (!isRecord(value)) return undefined
-  const disposition = value.disposition === "failed" || value.disposition === "rejected" ? value.disposition : null
+  const disposition = value.disposition === "failed" || value.disposition === "rejected" || value.disposition === "verification" ? value.disposition : null
   const attemptCount = typeof value.attempt_count === "number" ? value.attempt_count : null
   const attemptLimit = typeof value.attempt_limit === "number" ? value.attempt_limit : null
   const diagnosis = typeof value.diagnosis === "string" ? value.diagnosis : ""

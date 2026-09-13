@@ -125,6 +125,10 @@ func workflowVerdictCorrectionContext(ctx context.Context, q queryer, workID str
 	if delivered == 0 {
 		return nil, nil
 	}
+	var contractVersion int64
+	if err := q.QueryRowContext(ctx, `SELECT contract_version FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL ORDER BY contract_version DESC LIMIT 1`, workID).Scan(&contractVersion); err != nil {
+		return nil, wrapFailure(KindUnavailable, subject, "cannot read the active workflow contract", true, "retry once the workflow contract is readable", err)
+	}
 	var lastHealthySeq int64
 	if err := q.QueryRowContext(ctx, `SELECT COALESCE(MAX(seq),0) FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.verdict_kind')='ok' AND seq<?`, string(SubjectWorkItem), workID, WorkflowVerdictRecorded, seq).Scan(&lastHealthySeq); err != nil {
 		return nil, wrapFailure(KindUnavailable, subject, "cannot inspect the correction sequence", true, "retry once the workflow verdict projection is readable", err)
@@ -135,6 +139,22 @@ func workflowVerdictCorrectionContext(ctx context.Context, q queryer, workID str
 	}
 	if latestCorrectionSeq >= seq {
 		return nil, nil
+	}
+	verdictSequences, sequenceErr := workflowLatestVerdictSequences(ctx, q, workID, contractVersion, verdicts)
+	if sequenceErr != nil {
+		return nil, sequenceErr
+	}
+	var latestDispatchSeq int64
+	if err := q.QueryRowContext(ctx, `SELECT COALESCE(MAX(seq),0) FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND seq<?`, string(SubjectWorkItem), workID, WorkerDispatched, seq).Scan(&latestDispatchSeq); err != nil {
+		return nil, wrapFailure(KindUnavailable, subject, "cannot inspect the latest worker delivery", true, "retry once the worker delivery projection is readable", err)
+	}
+	if latestDispatchSeq <= latestCorrectionSeq {
+		return nil, nil
+	}
+	for _, verdict := range verdicts {
+		if verdictSequences[verdict.PredicateID] <= latestCorrectionSeq || verdictSequences[verdict.PredicateID] <= latestDispatchSeq {
+			return nil, nil
+		}
 	}
 	var priorCorrections int64
 	if err := q.QueryRowContext(ctx, `SELECT count(*) FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='request_correction' AND seq>? AND seq<?`, string(SubjectWorkItem), workID, WorkflowActionCompleted, lastHealthySeq, seq).Scan(&priorCorrections); err != nil {
@@ -152,10 +172,62 @@ func workflowVerdictCorrectionContext(ctx context.Context, q queryer, workID str
 		}
 	}
 	return &WorkflowCorrectionContext{
-		Disposition: "verification", AttemptCount: attempts, AttemptLimit: workflowCorrectionAttemptLimit, Escalated: attempts >= workflowCorrectionAttemptLimit,
+		Disposition: "verification", AttemptCount: attempts, AttemptLimit: workflowCorrectionAttemptLimit, Escalated: attempts > workflowCorrectionAttemptLimit,
 		PredicateIDs: nonNilStrings(predicates), EvidenceRefs: nonNilStrings(evidence),
 		Diagnosis: "latest verification verdict is not healthy", Strategy: fmt.Sprintf("repeat the external-effect step %q", workflowCorrectionTargetStep(definition, currentStep)),
 	}, nil
+}
+
+func workflowLatestVerdictSequences(ctx context.Context, q queryer, workID string, contractVersion int64, wanted []workflowVerdictRecordedPayload) (map[string]int64, error) {
+	history, err := workflowContractPredicateHistory(ctx, q, workID, contractVersion)
+	if err != nil {
+		return nil, err
+	}
+	wantedIDs := make(map[string]bool, len(wanted))
+	for _, verdict := range wanted {
+		wantedIDs[verdict.PredicateID] = true
+	}
+	sequences := make(map[string]int64, len(wanted))
+	seen := make(map[string]bool)
+	foundWanted := 0
+	rows, err := q.QueryContext(ctx, `SELECT seq,payload,payload_version FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? ORDER BY seq DESC`, workID, WorkflowVerdictRecorded)
+	if err != nil {
+		return nil, wrapFailure(KindUnavailable, "workflow_correction", "cannot read workflow verdict sequences", true, "retry once the workflow verdict projection is readable", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var seq int64
+		var raw []byte
+		var payloadVersion int
+		if err := rows.Scan(&seq, &raw, &payloadVersion); err != nil {
+			return nil, wrapFailure(KindUnavailable, "workflow_correction", "cannot scan workflow verdict sequence", true, "retry once the workflow verdict projection is readable", err)
+		}
+		var verdict workflowVerdictRecordedPayload
+		if err := json.Unmarshal(raw, &verdict); err != nil {
+			return nil, newFailure(KindInvariantViolation, "workflow_correction", "workflow verdict payload is malformed", false, "rebuild workflow projections from the event log")
+		}
+		if payloadVersion == 1 {
+			verdict.PredicateID = "predicate:primary"
+		}
+		if verdict.ContractVersion <= 0 || verdict.ContractVersion > contractVersion || seen[verdict.PredicateID] {
+			continue
+		}
+		if verdict.ContractVersion < contractVersion && !workflowPredicateHistoryCompatible(history, verdict.ContractVersion, contractVersion, verdict.PredicateID, verdict) {
+			continue
+		}
+		seen[verdict.PredicateID] = true
+		if wantedIDs[verdict.PredicateID] {
+			sequences[verdict.PredicateID] = seq
+			foundWanted++
+		}
+		if foundWanted == len(wantedIDs) {
+			break
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, wrapFailure(KindUnavailable, "workflow_correction", "cannot scan workflow verdict sequences", true, "retry once the workflow verdict projection is readable", err)
+	}
+	return sequences, nil
 }
 
 func workflowCorrectionRequestAvailable(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, currentStep, subject string) (bool, error) {
@@ -254,7 +326,7 @@ ORDER BY d.seq DESC LIMIT 1`
 			return nil, wrapFailure(KindUnavailable, "workflow_correction", "cannot count correction requests", true, "retry once the workflow correction projection is readable", err)
 		}
 		return &WorkflowCorrectionContext{
-			Disposition: "verification", AttemptCount: attempts, AttemptLimit: workflowCorrectionAttemptLimit, Escalated: attempts >= workflowCorrectionAttemptLimit,
+			Disposition: "verification", AttemptCount: attempts, AttemptLimit: workflowCorrectionAttemptLimit, Escalated: attempts > workflowCorrectionAttemptLimit,
 			PredicateIDs: nonNilStrings(fields.CorrectionPredicates), EvidenceRefs: nonNilStrings(fields.CorrectionEvidence), Diagnosis: fields.CorrectionDiagnosis, Strategy: fields.CorrectionStrategy,
 		}, nil
 	}

@@ -164,6 +164,37 @@ func TestNonOKVerdictCorrectionReturnsImplementationToExecution(t *testing.T) {
 	}
 }
 
+func TestNonOKVerdictCorrectionReturnsTerminalImplementationToExecution(t *testing.T) {
+	const workID = "return-route-terminal-verdict-correction"
+	ctx := context.Background()
+	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.implementation", "release")
+	s, owner := fixture.store, fixture.owner
+	ownerRef, err := WorkflowActorRef(owner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lane := BuiltinLaneDefinitions()[0]
+	if err := ApplyOperation(ctx, s, Operation{Events: []Event{{
+		EventID: "dispatch-" + workID, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID,
+		Actor: ownerRef, OccurredAt: time.Unix(30, 0).UTC(), PayloadVersion: 2,
+		Payload: mustJSONValue(WorkerDispatchedPayload{AttemptID: "attempt:" + workID, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, ReadbackModel: preferredModelForLane(lane), PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion}),
+	}}}); err != nil {
+		t.Fatal(err)
+	}
+	reviewer := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/terminal-verdict-reviewer", SessionRef: "session/" + workID + "-reviewer", ActorClass: ActorAgent}
+	verdict := json.RawMessage(`{"contract_version":1,"predicate_id":"predicate:return-route","verdict_kind":"insufficient_evidence","evaluation_evidence":["evidence:return-route-verification"],"incomparable_with_approved":true}`)
+	if err := runVerdictActionAs(t, s, workID, "record_verdict", verdict, 0, reviewer); err != nil {
+		t.Fatalf("record terminal non-ok verdict: %v", err)
+	}
+	correction := json.RawMessage(`{"diagnosis":"the delivered subject lacks the required proof","strategy":"repeat the implementation external effect with stronger evidence","predicate_ids":["predicate:return-route"],"evidence_refs":["evidence:return-route-verification"]}`)
+	if err := runIssue933OperatorAction(t, s, workID, "request_correction", correction, owner, fixture.operator); err != nil {
+		t.Fatalf("request terminal correction: %v", err)
+	}
+	if got := currentStep(t, s, workID); got != "execution" {
+		t.Fatalf("step after terminal correction = %q, want execution", got)
+	}
+}
+
 func testWorkflowReturnRoute(t *testing.T, workID, definitionRef, verdictStep string) {
 	t.Helper()
 	ctx := context.Background()

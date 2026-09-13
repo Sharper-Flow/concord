@@ -3,7 +3,7 @@ package store
 
 // LaneStepDispatchManifestDigest pins the authored join contract this
 // projection was generated from: contracts/lane-step-dispatch.v1.json.
-const LaneStepDispatchManifestDigest = "sha256:cf1e894109b3cd0d6d1cb483250036dd450845d2af6021001d8c0db8250021b7"
+const LaneStepDispatchManifestDigest = "sha256:943d1cadccdeed59180f9864d31d4410e1dcdb28b7138c2ea33acb85a6a1b4b3"
 
 // laneStepDispatchKinds maps one agent-lane capability class to the workflow
 // step kinds at which a lane of that class may be dispatched. The map is the
@@ -13,6 +13,6 @@ var laneStepDispatchKinds = map[string][]string{
 	"design":         {"external_effect"},
 	"implementation": {"external_effect"},
 	"research":       {"internal_sqlite", "cross_authority"},
-	"review":         {"internal_sqlite", "cross_authority"},
+	"review":         {"cross_authority", "external_effect", "internal_sqlite"},
 	"verification":   {"external_effect"},
 }

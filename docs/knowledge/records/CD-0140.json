@@ -1,0 +1,29 @@
+{
+  "date": "2026-09-13T00:00:00Z",
+  "evidence": [
+    "contracts/lane-step-dispatch.v1.json",
+    "internal/store/generated_lane_step_dispatch.go",
+    "internal/store/lane_step_dispatch_test.go",
+    "scripts/generate-lane-step-dispatch.py"
+  ],
+  "home_domain_id": "workflow-engine",
+  "id": "CD-0140",
+  "kind": "decision",
+  "path": "docs/decisions/CD-0140-the-review-lane-dispatches-at-the-steps-that-hold-produced-work.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:62fd03421e4ca154197b24de7bc201d4bdc3946a0af5637b73ab9a0ea376a69f",
+  "status": "accepted",
+  "summary": "The review capability-class binding gains external_effect so review evidence can be bound at the steps that hold produced work; CD-0138's mandatory refine step is external_effect, so without this binding no contract can ever bind review evidence. Amends CD-0117 D1 for review only; the research binding, checkpoint and terminal exclusions, and worker fences are unchanged.",
+  "tags": [
+    "workflow",
+    "lanes",
+    "law"
+  ],
+  "title": "The review lane dispatches at the steps that hold produced work"
+}

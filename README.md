@@ -1,8 +1,6 @@
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="brand/github/concord-readme-banner-dark.svg">
-  <source media="(prefers-color-scheme: light)" srcset="brand/github/concord-readme-banner-light.svg">
-  <img alt="Concord — Product-first agent coordination for professionals."
-       src="brand/github/concord-readme-banner-light.svg">
+  <source media="(prefers-color-scheme: dark)" srcset="brand/logos/concord-primary-mono-light.svg">
+  <img alt="Concord" src="brand/logos/concord-primary-mono-dark.svg" width="240">
 </picture>
 
 # Concord

@@ -278,7 +278,10 @@ func TestWorkPinEscalatedCorrectionRemovesDispatchIntent(t *testing.T) {
 	s, _, pin := seedIssue1013EscalatedCorrection(t, workID)
 	defer s.Close()
 
-	if pin.Correction == nil || pin.Correction.AttemptCount != workflowCorrectionAttemptLimit || !pin.Correction.Escalated {
+	if workflowCorrectionAttemptLimit != 3 {
+		t.Fatalf("workflow correction attempt limit = %d, want 3", workflowCorrectionAttemptLimit)
+	}
+	if pin.Correction == nil || pin.Correction.AttemptCount != 3 || !pin.Correction.Escalated {
 		t.Fatalf("correction = %#v, want three attempts and escalation", pin.Correction)
 	}
 	if issue1013HasIntent(pin, "dispatch_worker") {
@@ -291,14 +294,14 @@ func seedIssue1013EscalatedCorrection(t *testing.T, workID string) (*Store, Work
 	s, owner, attemptID, _ := seedOldDefinitionWorker(t, workID)
 	worker := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/worker", SessionRef: "session/" + workID, ActorClass: ActorAgent}
 	workerEpoch := int64(1)
-	for correctionAttempt := int64(1); correctionAttempt <= workflowCorrectionAttemptLimit; correctionAttempt++ {
+	for correctionAttempt := int64(1); correctionAttempt <= 3; correctionAttempt++ {
 		version := readWorkVersion(t, s, workID)
 		failWorkerAttempt(t, s, workID, attemptID)
 		applyRecordWorkerFailureForTest(t, s, workID, owner, attemptID, workerEpoch, version, "issue1013-record-failure-"+workID+fmt.Sprint(correctionAttempt))
 		pin := issue1013Pin(t, s, workID)
 		issue1013StartRepair(t, s, workID, worker, pin.Version, workerEpoch+1)
 		pin = issue1013Pin(t, s, workID)
-		if correctionAttempt == workflowCorrectionAttemptLimit {
+		if correctionAttempt == 3 {
 			return s, owner, pin
 		}
 		attemptID = "attempt:" + workID + ":" + fmt.Sprint(correctionAttempt+1)

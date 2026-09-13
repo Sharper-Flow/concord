@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -251,6 +252,111 @@ func TestRejectWorkerResultRecordsCorrectionContext(t *testing.T) {
 	} else if pin.Correction != nil {
 		t.Fatalf("fresh dispatch did not consume correction context: %#v", pin.Correction)
 	}
+}
+
+func TestWorkflowFourthCorrectionDispatchRefusesWithApprovalRequired(t *testing.T) {
+	const workID = "issue1013-fourth-correction-preflight"
+	s, owner, pin := seedIssue1013EscalatedCorrection(t, workID)
+	defer s.Close()
+
+	attemptID := "attempt:" + workID + ":4"
+	payload := issue1013CorrectionDispatchPayload(t, workID, "repair", attemptID, pin.Correction)
+	err := WorkflowActionPreflight(context.Background(), s, WorkflowActionPreflightRequest{
+		WorkID: workID, ExpectedVersion: pin.Version, ActionID: "dispatch_worker", Payload: payload, Actor: owner,
+	})
+	if err == nil {
+		t.Fatal("fourth correction dispatch passed preflight")
+	}
+	var failure *Failure
+	if !errors.As(err, &failure) || failure.Kind != KindApprovalRequired {
+		t.Fatalf("fourth correction dispatch failure=%v, want approval_required", err)
+	}
+}
+
+func TestWorkPinEscalatedCorrectionRemovesDispatchIntent(t *testing.T) {
+	const workID = "issue1013-escalated-correction-pin"
+	s, _, pin := seedIssue1013EscalatedCorrection(t, workID)
+	defer s.Close()
+
+	if pin.Correction == nil || pin.Correction.AttemptCount != workflowCorrectionAttemptLimit || !pin.Correction.Escalated {
+		t.Fatalf("correction = %#v, want three attempts and escalation", pin.Correction)
+	}
+	if issue1013HasIntent(pin, "dispatch_worker") {
+		t.Fatalf("escalated correction retained dispatch_worker: %#v", pin.NextValidIntents)
+	}
+}
+
+func seedIssue1013EscalatedCorrection(t *testing.T, workID string) (*Store, WorkflowActor, WorkPin) {
+	t.Helper()
+	s, owner, attemptID, _ := seedOldDefinitionWorker(t, workID)
+	worker := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/worker", SessionRef: "session/" + workID, ActorClass: ActorAgent}
+	workerEpoch := int64(1)
+	for correctionAttempt := int64(1); correctionAttempt <= workflowCorrectionAttemptLimit; correctionAttempt++ {
+		version := readWorkVersion(t, s, workID)
+		failWorkerAttempt(t, s, workID, attemptID)
+		applyRecordWorkerFailureForTest(t, s, workID, owner, attemptID, workerEpoch, version, "issue1013-record-failure-"+workID+fmt.Sprint(correctionAttempt))
+		pin := issue1013Pin(t, s, workID)
+		issue1013StartRepair(t, s, workID, worker, pin.Version, workerEpoch+1)
+		pin = issue1013Pin(t, s, workID)
+		if correctionAttempt == workflowCorrectionAttemptLimit {
+			return s, owner, pin
+		}
+		attemptID = "attempt:" + workID + ":" + fmt.Sprint(correctionAttempt+1)
+		payload := issue1013CorrectionDispatchPayload(t, workID, "repair", attemptID, pin.Correction)
+		if _, err := invokeWorkflowActionForCD0059(context.Background(), t, s, WorkflowActionExecutionRequest{
+			WorkID: workID, ExpectedVersion: pin.Version, ActionID: "dispatch_worker", Payload: payload, SessionWorktree: dispatchSessionWorktree(t, s, workID),
+			Actor: worker, AcceptedInputsDigest: "sha256:" + strings.Repeat("d", 64), IdempotencyIdentity: "issue1013-dispatch-" + attemptID, OperationID: "issue1013-dispatch-" + attemptID,
+			PrincipalRef: worker.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "issue1013-dispatch-" + attemptID, RequestID: "request:issue1013-dispatch-" + attemptID, ContractDigest: testManifestDigest, Now: time.Unix(10+correctionAttempt, 0).UTC(),
+		}); err != nil {
+			t.Fatalf("dispatch correction attempt %d: %v", correctionAttempt+1, err)
+		}
+		issue1013RecordWorkerDispatch(t, s, workID, attemptID)
+		workerEpoch += 2
+	}
+	t.Fatal("escalated correction fixture did not return")
+	return nil, WorkflowActor{}, WorkPin{}
+}
+
+func issue1013RecordWorkerDispatch(t *testing.T, s *Store, workID, attemptID string) {
+	t.Helper()
+	lane := BuiltinLaneDefinitions()[0]
+	dispatch := Event{EventID: "issue1013-worker-dispatch-" + workID + "-" + attemptID, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(20, 0).UTC(), PayloadVersion: 2, Payload: mustJSONValue(WorkerDispatchedPayload{
+		AttemptID: attemptID, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass,
+		ReadbackModel: preferredModelForLane(lane), PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion,
+	})}
+	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{dispatch}}); err != nil {
+		t.Fatalf("record worker dispatch %s: %v", attemptID, err)
+	}
+}
+
+func issue1013StartRepair(t *testing.T, s *Store, workID string, owner WorkflowActor, expectedVersion, attemptEpoch int64) {
+	t.Helper()
+	actorRef, err := WorkflowActorRef(owner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	start := workflowEventWithActor("issue1013-start-"+workID+"-"+fmt.Sprint(attemptEpoch), WorkflowActionStarted, workID, actorRef, map[string]any{
+		"work_id": workID, "expected_version": expectedVersion, "resulting_version": expectedVersion + 1, "step_id": "repair",
+		"action_id": "start_repair", "attempt_epoch": attemptEpoch, "accepted_inputs_digest": "sha256:" + strings.Repeat("b", 64),
+		"idempotency_identity": "issue1013-start:" + workID + ":" + fmt.Sprint(attemptEpoch), "actor_ref": actorRef,
+	})
+	if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{start}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): expectedVersion}}); err != nil {
+		t.Fatalf("start correction attempt %d: %v", attemptEpoch, err)
+	}
+}
+
+func issue1013CorrectionDispatchPayload(t *testing.T, workID, stepID, attemptID string, correction *WorkflowCorrectionContext) json.RawMessage {
+	t.Helper()
+	packet := dispatchWorkerPacket(workID, stepID, attemptID)
+	packet["inputs"].(map[string]any)["correction"] = map[string]any{
+		"disposition": correction.Disposition, "attempt_count": correction.AttemptCount, "attempt_limit": correction.AttemptLimit, "escalated": correction.Escalated,
+		"diagnosis": correction.Diagnosis, "strategy": correction.Strategy, "predicate_ids": correction.PredicateIDs, "evidence_refs": correction.EvidenceRefs,
+	}
+	packetPayload, err := json.Marshal(packet)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return mustJSONValue(map[string]any{"attempt_id": attemptID, "worker_packet": json.RawMessage(packetPayload)})
 }
 
 func issue1013Pin(t *testing.T, s *Store, workID string) WorkPin {

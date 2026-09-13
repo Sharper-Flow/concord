@@ -1,5 +1,5 @@
 import type { ToolContext } from "@opencode-ai/plugin"
-import { validateAgentLanePacket, type AgentLanePacket } from "./dispatch"
+import { validateAgentLanePacket, type AgentLanePacket, type AgentLanePacketCorrection } from "./dispatch"
 import { agentLanePacketSchema, agentLaneReportConstraints, agentLanes, type AgentLane } from "./generated-agent-lanes"
 
 // The packet bounds are read off the generated contract rather than restated,
@@ -78,6 +78,44 @@ function renderDesignRecord(value: unknown): string {
   }
   lines.push(`Touched refs: ${touchedRefs.join(", ")}`, "")
   return lines.join("\n")
+}
+
+function renderCorrectionContext(value: unknown): string {
+  if (!isRecord(value)) return ""
+  const disposition = typeof value.disposition === "string" ? value.disposition : ""
+  const attemptCount = typeof value.attempt_count === "number" ? value.attempt_count : null
+  const attemptLimit = typeof value.attempt_limit === "number" ? value.attempt_limit : null
+  const diagnosis = typeof value.diagnosis === "string" ? value.diagnosis : ""
+  const strategy = typeof value.strategy === "string" ? value.strategy : ""
+  const predicateIDs = Array.isArray(value.predicate_ids) ? value.predicate_ids.filter((item): item is string => typeof item === "string") : []
+  const evidenceRefs = Array.isArray(value.evidence_refs) ? value.evidence_refs.filter((item): item is string => typeof item === "string") : []
+  const failureKind = typeof value.failure_kind === "string" ? value.failure_kind : ""
+  const failureDetail = typeof value.failure_detail === "string" ? value.failure_detail : ""
+  if (!disposition && attemptCount === null && !diagnosis && !strategy && predicateIDs.length === 0 && evidenceRefs.length === 0) return ""
+  const lines = ["Durable correction context:", `Disposition: ${disposition || "recorded rejection"}.`]
+  if (attemptCount !== null && attemptLimit !== null) lines.push(`Execution attempts: ${attemptCount}/${attemptLimit}.`)
+  if (failureKind) lines.push(`Failure kind: ${failureKind}.`)
+  if (failureDetail) lines.push(`Failure detail: ${failureDetail}`)
+  if (predicateIDs.length > 0) lines.push(`Rejected predicates: ${predicateIDs.join(", ")}.`)
+  if (evidenceRefs.length > 0) lines.push(`Mismatch evidence: ${evidenceRefs.join(", ")}.`)
+  if (diagnosis) lines.push(`Diagnosis: ${diagnosis}`)
+  if (strategy) lines.push(`Changed strategy: ${strategy}`)
+  lines.push("")
+  return lines.join("\n")
+}
+
+function projectCorrectionContext(value: unknown): AgentLanePacketCorrection | undefined {
+  if (!isRecord(value)) return undefined
+  const disposition = value.disposition === "failed" || value.disposition === "rejected" ? value.disposition : null
+  const attemptCount = typeof value.attempt_count === "number" ? value.attempt_count : null
+  const attemptLimit = typeof value.attempt_limit === "number" ? value.attempt_limit : null
+  const diagnosis = typeof value.diagnosis === "string" ? value.diagnosis : ""
+  const strategy = typeof value.strategy === "string" ? value.strategy : ""
+  const escalated = typeof value.escalated === "boolean" ? value.escalated : null
+  const predicateIDs = Array.isArray(value.predicate_ids) ? value.predicate_ids.filter((item): item is string => typeof item === "string") : []
+  const evidenceRefs = Array.isArray(value.evidence_refs) ? value.evidence_refs.filter((item): item is string => typeof item === "string") : []
+  if (disposition === null || attemptCount === null || attemptLimit !== 3 || escalated === null || diagnosis.length === 0 || strategy.length === 0 || attemptCount > 3) return undefined
+  return { disposition, attempt_count: attemptCount, attempt_limit: 3, escalated, diagnosis, strategy, predicate_ids: predicateIDs, evidence_refs: evidenceRefs }
 }
 
 // readOperation refuses anything that is not an ok core read with an object
@@ -165,7 +203,10 @@ export async function buildAgentLanePacket(request: AgentLanePacketRequest, deps
   }
 
   const design = renderDesignRecord(pinned.design_record)
-  const context = design + narrative
+  const workPin = isRecord(pinned.work_pin) ? pinned.work_pin : null
+  const correctionValue = workPin ? projectCorrectionContext(workPin.correction) : undefined
+  const correction = correctionValue ? renderCorrectionContext(correctionValue) : ""
+  const context = design + correction + narrative
   if (context.length > CONTEXT_MAX_LENGTH) {
     return failure("projection_overflow", `the pinned design and work item narrative do not fit inputs.context: ${context.length} characters against a limit of ${CONTEXT_MAX_LENGTH}`, { field: "context", limit: CONTEXT_MAX_LENGTH, actual: context.length })
   }
@@ -209,11 +250,12 @@ export async function buildAgentLanePacket(request: AgentLanePacketRequest, deps
     lane_digest: lane.digest,
     work_id: request.workId,
     step_id: request.stepId,
-    inputs: { task, ...(context.length > 0 ? { context } : {}), constraints },
+    inputs: { task, ...(context.length > 0 ? { context } : {}), ...(correctionValue ? { correction: correctionValue } : {}), constraints },
   }
 
-  if (!validateAgentLanePacket(packet)) {
-    return failure("packet_refused", `the projected packet for work ${request.workId} failed the closed agent-lane-packet.v1 schema`)
+  const packetFailures: string[] = []
+  if (!validateAgentLanePacket(packet, packetFailures)) {
+    return failure("packet_refused", `the projected packet for work ${request.workId} failed the closed agent-lane-packet.v1 schema (${packetFailures[0] ?? "unknown validation failure"})`)
   }
   return { packet }
 }

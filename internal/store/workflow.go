@@ -186,6 +186,10 @@ type workflowActionCompletedPayload struct {
 	WorkerLaneID           string   `json:"worker_lane_id,omitempty"`
 	WorkerPacketDigest     string   `json:"worker_packet_digest,omitempty"`
 	WorkerWorktreeIdentity string   `json:"worker_worktree_identity,omitempty"`
+	CorrectionDiagnosis    string   `json:"correction_diagnosis,omitempty"`
+	CorrectionStrategy     string   `json:"correction_strategy,omitempty"`
+	CorrectionEvidenceRefs []string `json:"correction_evidence_refs,omitempty"`
+	CorrectionPredicateIDs []string `json:"correction_predicate_ids,omitempty"`
 	ResultEvidenceRefs     []string `json:"result_evidence_refs"`
 	ChangedRefs            []string `json:"changed_refs"`
 	ActorRef               string   `json:"actor_ref"`
@@ -1361,6 +1365,89 @@ func foldWorkflowContextBoundaryCrossed(ctx context.Context, tx *sql.Tx, event E
 	return workflowProjectionError(err, "cannot record context boundary")
 }
 
+// validateWorkflowActionCompletedShape bounds the payload before any read.
+// worker_attempt_id belongs to the worker result actions and to dispatch_worker
+// alone, and a rejected result carries its full correction record or none.
+func validateWorkflowActionCompletedShape(p workflowActionCompletedPayload) error {
+	if (p.ActionID != "" && !workflowString(p.ActionID, 128)) || !workflowString(p.StepID, 128) || p.AttemptEpoch <= 0 || p.AttemptEpoch > 2147483647 || (p.WorkerAttemptID != "" && !workflowString(p.WorkerAttemptID, 128)) || !workflowList(p.ResultEvidenceRefs, 32, 0) || !workflowList(p.ChangedRefs, 32, 0) {
+		return newFailure(KindInvalidPayload, "fold_event", "action_completed has invalid result fields", false, "supply bounded action result references")
+	}
+	if p.ActionID != "accept_worker_result" && p.ActionID != "record_worker_failure" && p.ActionID != "reject_worker_result" && p.ActionID != "dispatch_worker" && p.WorkerAttemptID != "" {
+		return newFailure(KindInvalidPayload, "fold_event", "worker_attempt_id is reserved for worker result actions and dispatch_worker", false, "omit worker_attempt_id for ordinary action completion")
+	}
+	if p.ActionID == "reject_worker_result" && (!workflowString(p.CorrectionDiagnosis, 4096) || !workflowString(p.CorrectionStrategy, 4096) || !workflowList(p.CorrectionPredicateIDs, 8, 1) || !workflowList(p.CorrectionEvidenceRefs, 32, 1)) {
+		return newFailure(KindInvalidPayload, "fold_event", "rejected worker result has incomplete correction fields", false, "supply diagnosis, strategy, predicate IDs, and evidence references")
+	}
+	return nil
+}
+
+// admitWorkflowActionOffStep decides whether an action the pinned step does
+// not declare may still fold. Worker failure recovery, rejected result
+// correction, and recovery evidence binding are the three admitted routes.
+func admitWorkflowActionOffStep(ctx context.Context, tx *sql.Tx, event Event, p workflowActionCompletedPayload, entry RegisteredDefinition, currentStep string) error {
+	workerFailureRecovery := false
+	correctionRecovery := false
+	if p.ActionID == "record_worker_failure" {
+		var recoveryErr error
+		workerFailureRecovery, recoveryErr = workflowWorkerFailureRecoveryMayFold(ctx, tx, event.SubjectID, entry.Definition, currentStep, "fold_event")
+		if recoveryErr != nil {
+			return recoveryErr
+		}
+	}
+	if p.ActionID == "reject_worker_result" && stepDeclaresAction(entry.Definition, currentStep, "dispatch_worker") {
+		var recoveryErr error
+		correctionRecovery, recoveryErr = workflowRejectedWorkerResultAvailable(ctx, tx, event.SubjectID, currentStep, "fold_event")
+		if recoveryErr != nil {
+			return recoveryErr
+		}
+	}
+	if !workerFailureRecovery && !correctionRecovery && (p.ActionID != "bind_evidence" || stepDeclaresAction(entry.Definition, currentStep, "bind_evidence")) {
+		return newFailure(KindIllegalLifecycleTransition, "fold_event", "completed action is not declared on the pinned current step", false, "reread_entities")
+	}
+	if !workerFailureRecovery && !correctionRecovery {
+		bindingStep := workflowEvidenceBindingStep(entry.Definition, currentStep)
+		if bindingStep == "" || !workflowStepFollows(entry.Definition, bindingStep, currentStep) {
+			return newFailure(KindIllegalLifecycleTransition, "fold_event", "recovery evidence binding is not past its declared binding step", false, "reread_entities")
+		}
+		required, mandates, obligations, inputsErr := workflowEvidenceRequirementInputs(ctx, tx, event.SubjectID)
+		if inputsErr != nil {
+			return inputsErr
+		}
+		requirementBound := false
+		rows, rowsErr := tx.QueryContext(ctx, `SELECT payload FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? ORDER BY seq DESC`, event.SubjectID, WorkflowEvidenceBound)
+		if rowsErr != nil {
+			return wrapFailure(KindUnavailable, "fold_event", "cannot inspect recovery evidence requirements", true, "retry once the workflow evidence projection is readable", rowsErr)
+		}
+		for rows.Next() {
+			var raw []byte
+			if scanErr := rows.Scan(&raw); scanErr != nil {
+				_ = rows.Close()
+				return wrapFailure(KindUnavailable, "fold_event", "cannot read recovery evidence binding", true, "retry once the workflow evidence projection is readable", scanErr)
+			}
+			var binding workflowEvidenceBoundPayload
+			if decodeErr := json.Unmarshal(raw, &binding); decodeErr != nil {
+				_ = rows.Close()
+				return newFailure(KindInvariantViolation, "fold_event", "recovery evidence binding payload is malformed", false, "reread_entities")
+			}
+			if contains(p.ResultEvidenceRefs, binding.ImmutableSubjectRef) && workflowEvidenceRequirementDeclared(binding.EvidenceKind, binding.ImmutableSubjectRef, required, mandates, entry.Definition, obligations) {
+				requirementBound = true
+				break
+			}
+		}
+		if rowsErr := rows.Err(); rowsErr != nil {
+			_ = rows.Close()
+			return wrapFailure(KindUnavailable, "fold_event", "cannot scan recovery evidence bindings", true, "retry once the workflow evidence projection is readable", rowsErr)
+		}
+		if closeErr := rows.Close(); closeErr != nil {
+			return wrapFailure(KindUnavailable, "fold_event", "cannot close recovery evidence bindings", true, "retry once the workflow evidence projection is readable", closeErr)
+		}
+		if !requirementBound {
+			return newFailure(KindMissingEvidence, "fold_event", "recovery evidence binding does not bind an outstanding contract evidence requirement", false, "bind an outstanding contract evidence requirement")
+		}
+	}
+	return nil
+}
+
 func foldWorkflowActionCompleted(ctx context.Context, tx *sql.Tx, event Event) error {
 	var p workflowActionCompletedPayload
 	if err := decodeWorkflowPayload(event, &p); err != nil {
@@ -1369,11 +1456,8 @@ func foldWorkflowActionCompleted(ctx context.Context, tx *sql.Tx, event Event) e
 	if err := workflowBase(event, p.WorkflowVersionFields); err != nil {
 		return err
 	}
-	if (p.ActionID != "" && !workflowString(p.ActionID, 128)) || !workflowString(p.StepID, 128) || p.AttemptEpoch <= 0 || p.AttemptEpoch > 2147483647 || (p.WorkerAttemptID != "" && !workflowString(p.WorkerAttemptID, 128)) || !workflowList(p.ResultEvidenceRefs, 32, 0) || !workflowList(p.ChangedRefs, 32, 0) {
-		return newFailure(KindInvalidPayload, "fold_event", "action_completed has invalid result fields", false, "supply bounded action result references")
-	}
-	if p.ActionID != "accept_worker_result" && p.ActionID != "record_worker_failure" && p.ActionID != "dispatch_worker" && p.WorkerAttemptID != "" {
-		return newFailure(KindInvalidPayload, "fold_event", "worker_attempt_id is reserved for worker result actions and dispatch_worker", false, "omit worker_attempt_id for ordinary action completion")
+	if err := validateWorkflowActionCompletedShape(p); err != nil {
+		return err
 	}
 	if err := requireActor(ctx, tx, p.ActorRef); err != nil {
 		return err
@@ -1394,57 +1478,8 @@ func foldWorkflowActionCompleted(ctx context.Context, tx *sql.Tx, event Event) e
 		return newFailure(KindIllegalLifecycleTransition, "fold_event", "completed action is not declared on the pinned current step", false, "reread_entities")
 	}
 	if !definitionStepAllows(entry.Definition, currentStep, p.ActionID) {
-		workerFailureRecovery := false
-		if p.ActionID == "record_worker_failure" {
-			var recoveryErr error
-			workerFailureRecovery, recoveryErr = workflowWorkerFailureRecoveryMayFold(ctx, tx, event.SubjectID, entry.Definition, currentStep, "fold_event")
-			if recoveryErr != nil {
-				return recoveryErr
-			}
-		}
-		if !workerFailureRecovery && (p.ActionID != "bind_evidence" || stepDeclaresAction(entry.Definition, currentStep, "bind_evidence")) {
-			return newFailure(KindIllegalLifecycleTransition, "fold_event", "completed action is not declared on the pinned current step", false, "reread_entities")
-		}
-		if !workerFailureRecovery {
-			bindingStep := workflowEvidenceBindingStep(entry.Definition, currentStep)
-			if bindingStep == "" || !workflowStepFollows(entry.Definition, bindingStep, currentStep) {
-				return newFailure(KindIllegalLifecycleTransition, "fold_event", "recovery evidence binding is not past its declared binding step", false, "reread_entities")
-			}
-			required, mandates, obligations, inputsErr := workflowEvidenceRequirementInputs(ctx, tx, event.SubjectID)
-			if inputsErr != nil {
-				return inputsErr
-			}
-			requirementBound := false
-			rows, rowsErr := tx.QueryContext(ctx, `SELECT payload FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? ORDER BY seq DESC`, event.SubjectID, WorkflowEvidenceBound)
-			if rowsErr != nil {
-				return wrapFailure(KindUnavailable, "fold_event", "cannot inspect recovery evidence requirements", true, "retry once the workflow evidence projection is readable", rowsErr)
-			}
-			for rows.Next() {
-				var raw []byte
-				if scanErr := rows.Scan(&raw); scanErr != nil {
-					_ = rows.Close()
-					return wrapFailure(KindUnavailable, "fold_event", "cannot read recovery evidence binding", true, "retry once the workflow evidence projection is readable", scanErr)
-				}
-				var binding workflowEvidenceBoundPayload
-				if decodeErr := json.Unmarshal(raw, &binding); decodeErr != nil {
-					_ = rows.Close()
-					return newFailure(KindInvariantViolation, "fold_event", "recovery evidence binding payload is malformed", false, "reread_entities")
-				}
-				if contains(p.ResultEvidenceRefs, binding.ImmutableSubjectRef) && workflowEvidenceRequirementDeclared(binding.EvidenceKind, binding.ImmutableSubjectRef, required, mandates, entry.Definition, obligations) {
-					requirementBound = true
-					break
-				}
-			}
-			if rowsErr := rows.Err(); rowsErr != nil {
-				_ = rows.Close()
-				return wrapFailure(KindUnavailable, "fold_event", "cannot scan recovery evidence bindings", true, "retry once the workflow evidence projection is readable", rowsErr)
-			}
-			if closeErr := rows.Close(); closeErr != nil {
-				return wrapFailure(KindUnavailable, "fold_event", "cannot close recovery evidence bindings", true, "retry once the workflow evidence projection is readable", closeErr)
-			}
-			if !requirementBound {
-				return newFailure(KindMissingEvidence, "fold_event", "recovery evidence binding does not bind an outstanding contract evidence requirement", false, "bind an outstanding contract evidence requirement")
-			}
+		if err := admitWorkflowActionOffStep(ctx, tx, event, p, entry, currentStep); err != nil {
+			return err
 		}
 	}
 	advancesStep := false
@@ -1460,6 +1495,11 @@ func foldWorkflowActionCompleted(ctx context.Context, tx *sql.Tx, event Event) e
 			}
 		}
 		if p.ActionID == "accept_worker_result" {
+			if err := validateWorkerAttemptAction(ctx, tx, event, p, entry.Definition, currentStep, "completed"); err != nil {
+				return err
+			}
+		}
+		if p.ActionID == "reject_worker_result" {
 			if err := validateWorkerAttemptAction(ctx, tx, event, p, entry.Definition, currentStep, "completed"); err != nil {
 				return err
 			}
@@ -1587,6 +1627,13 @@ func validateWorkerAttemptAction(ctx context.Context, tx *sql.Tx, event Event, p
 	if !allowed && payload.ActionID == "record_worker_failure" {
 		var recoveryErr error
 		allowed, recoveryErr = workflowWorkerFailureRecoveryMayFold(ctx, tx, event.SubjectID, definition, currentStep, "fold_event")
+		if recoveryErr != nil {
+			return recoveryErr
+		}
+	}
+	if !allowed && payload.ActionID == "reject_worker_result" && stepDeclaresAction(definition, currentStep, "dispatch_worker") {
+		var recoveryErr error
+		allowed, recoveryErr = workflowRejectedWorkerResultAvailable(ctx, tx, event.SubjectID, currentStep, "fold_event")
 		if recoveryErr != nil {
 			return recoveryErr
 		}

@@ -20,6 +20,21 @@
       "properties": {
         "task": {"type": "string", "minLength": 1, "maxLength": 4096},
         "context": {"type": "string", "minLength": 0, "maxLength": 16384},
+        "correction": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["disposition", "attempt_count", "attempt_limit", "escalated", "diagnosis", "strategy", "predicate_ids", "evidence_refs"],
+          "properties": {
+            "disposition": {"type": "string", "enum": ["failed", "rejected"]},
+            "attempt_count": {"type": "integer", "minimum": 1, "maximum": 3},
+            "attempt_limit": {"const": 3},
+            "escalated": {"type": "boolean"},
+            "diagnosis": {"type": "string", "minLength": 1, "maxLength": 4096},
+            "strategy": {"type": "string", "minLength": 1, "maxLength": 4096},
+            "predicate_ids": {"type": "array", "minItems": 0, "maxItems": 8, "items": {"type": "string", "minLength": 1, "maxLength": 128}},
+            "evidence_refs": {"type": "array", "minItems": 0, "maxItems": 32, "items": {"type": "string", "minLength": 1, "maxLength": 256}}
+          }
+        },
         "constraints": {"type": "array", "minItems": 0, "maxItems": 64, "items": {"type": "string", "minLength": 1, "maxLength": 512}}
       }
     }

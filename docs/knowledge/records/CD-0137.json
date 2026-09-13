@@ -1,0 +1,57 @@
+{
+  "date": "2026-09-12T00:00:00Z",
+  "evidence": [
+    "internal/store/workflow_correction.go",
+    "internal/store/workflow.go",
+    "internal/store/workflow_dispatch.go",
+    "internal/store/workflow_action_guards.go",
+    "internal/store/workflow_preflight.go",
+    "internal/store/workpin.go",
+    "adapter/opencode/packet.ts",
+    "adapter/opencode/lane_dispatch.ts"
+  ],
+  "home_domain_id": "workflow-engine",
+  "id": "CD-0137",
+  "kind": "decision",
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "CD-0017"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0112"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0113"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0130"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0133"
+    }
+  ],
+  "path": "docs/decisions/CD-0137-iterative-correction-preserves-result-disposition.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:dd17673d438156e5a63a37c49e9a8db828c89cd4cbda5956fddb0bb3e1943053",
+  "status": "accepted",
+  "summary": "Records completed worker-result disposition, bounded correction context, fresh attempt consumption, and a three-attempt escalation limit without changing historical pins.",
+  "tags": [
+    "workflow",
+    "worker",
+    "recovery",
+    "correction",
+    "law"
+  ],
+  "title": "Iterative correction preserves result disposition"
+}

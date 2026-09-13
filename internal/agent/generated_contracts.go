@@ -6,7 +6,7 @@ import (
 	"fmt"
 )
 
-const ManifestDigest = "sha256:e117efcb79a745ff61d58ae6e6981907684ffed35fb99fdbea3756587b2170da"
+const ManifestDigest = "sha256:6715cb13b4a44fc44a1f877de11098ea6b4e9b6bee6d92caa429fd2eb4e8c627"
 
 type OperationKind string
 
@@ -234,7 +234,7 @@ var GeneratedPayloadRules = map[string]GeneratedPayloadRule{
 	"work_observation_input":                       {Required: []string{"work_id"}, Properties: []string{"work_id", "page"}},
 	"work_observation_page":                        {Required: []string{"observations"}, Properties: []string{"observations"}},
 	"work_page":                                    {Required: []string{"items"}, Properties: []string{"items", "next_cursor", "readiness_evidence"}},
-	"work_pin":                                     {Required: []string{"work_id", "title", "linear_issue_key", "version", "lifecycle", "workflow_type", "step", "attempt", "pending_operator_decision", "watermark", "next_valid_intents"}, Properties: []string{"work_id", "title", "linear_issue_key", "version", "lifecycle", "workflow_type", "step", "attempt", "pending_operator_decision", "watermark", "next_valid_intents", "verdict_evidence"}},
+	"work_pin":                                     {Required: []string{"work_id", "title", "linear_issue_key", "version", "lifecycle", "workflow_type", "step", "attempt", "pending_operator_decision", "watermark", "next_valid_intents"}, Properties: []string{"work_id", "title", "linear_issue_key", "version", "lifecycle", "workflow_type", "step", "attempt", "pending_operator_decision", "watermark", "next_valid_intents", "correction", "verdict_evidence"}},
 	"work_pin_attempt":                             {Required: []string{"id", "epoch", "lane", "state"}, Properties: []string{"id", "epoch", "lane", "state"}},
 	"work_pin_evidence":                            {Required: []string{"evidence_kind", "immutable_subject_ref"}, Properties: []string{"evidence_kind", "immutable_subject_ref"}},
 	"work_pin_intent":                              {Required: []string{"tool", "operation", "reason_code", "action_id", "required_fields", "expected_version"}, Properties: []string{"tool", "operation", "reason_code", "action_id", "required_fields", "expected_version"}},
@@ -268,6 +268,7 @@ var GeneratedPayloadRules = map[string]GeneratedPayloadRule{
 	"worker_packet":                                {Required: []string{"schema_version", "attempt_id", "lane_id", "lane_version", "lane_digest", "work_id", "step_id", "inputs"}, Properties: []string{"schema_version", "attempt_id", "lane_id", "lane_version", "lane_digest", "work_id", "step_id", "inputs"}},
 	"workflow_completion_payload":                  {Required: []string{}, Properties: []string{"evidence_commit", "current_commit", "staleness"}},
 	"workflow_contract":                            {Required: []string{"version", "premise", "outcome_predicates", "required_evidence", "route_conventions", "spec_mandate", "changes_product_truth"}, Properties: []string{"version", "premise", "outcome_predicates", "required_evidence", "route_conventions", "spec_mandate", "law_revisions", "law_modifies", "rigor_class", "changes_product_truth", "architecture_binding"}},
+	"workflow_correction_context":                  {Required: []string{"disposition", "attempt_count", "attempt_limit", "escalated", "predicate_ids", "evidence_refs"}, Properties: []string{"disposition", "attempt_count", "attempt_limit", "escalated", "predicate_ids", "evidence_refs", "diagnosis", "strategy", "failure_kind", "failure_detail", "failed_attempt_id", "failed_attempt_epoch"}},
 	"workflow_design_decision":                     {Required: []string{"id", "question", "choice", "rationale", "rejected"}, Properties: []string{"id", "question", "choice", "rationale", "rejected"}},
 	"workflow_design_record":                       {Required: []string{"work_version", "approach", "decisions", "touched_refs", "recorded_at"}, Properties: []string{"work_version", "approach", "decisions", "touched_refs", "recorded_at"}},
 	"workflow_forward_relation":                    {Required: []string{"kind"}, Properties: []string{"kind", "class", "severity"}},

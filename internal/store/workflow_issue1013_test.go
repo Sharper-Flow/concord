@@ -6,6 +6,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 )
 
 // issue1013SuccessorContract is a complete recovery payload: the correction
@@ -142,6 +143,113 @@ func TestIssue1013ContractCorrectionAtFailedWorkerDispatch(t *testing.T) {
 	registered, ok := BuiltinWorkflowRegistry().Lookup(entry.Definition.Ref, entry.Definition.Version)
 	if !ok || registered.Digest != entry.Digest {
 		t.Fatalf("pinned definition changed: before=%s after=%s", entry.Digest, registered.Digest)
+	}
+}
+
+func TestRejectWorkerResultRecordsCorrectionContext(t *testing.T) {
+	const workID = "issue1013-rejected-worker-result"
+	s, workerRef, owner, attemptID := seedCompletedWorkerAtExecution(t, workID)
+	defer s.Close()
+
+	_, action, err := WorkflowActionDefinitionFor(context.Background(), s, BuiltinWorkflowRegistry(), workID, "reject_worker_result")
+	if err != nil {
+		t.Fatalf("resolve worker result rejection: %v", err)
+	}
+	if action.ID != "reject_worker_result" || action.ExecutionMode != ActionHold {
+		t.Fatalf("rejection action = %#v, want hold-mode reject_worker_result", action)
+	}
+	ctx := context.Background()
+	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := enterFold(ctx, tx); err != nil {
+		tx.Rollback()
+		t.Fatal(err)
+	}
+	result, err := applyWorkflowActionRawTx(ctx, tx, BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
+		WorkID: workID, ExpectedVersion: 10, ActionID: "reject_worker_result", Payload: mustJSONValue(map[string]any{
+			"attempt_id": attemptID, "attempt_epoch": 1, "diagnosis": "the result misses the boundary case", "strategy": "change the helper and add a test",
+			"predicate_ids": []string{"predicate:primary"}, "evidence_refs": []string{"evidence:review"},
+		}), Actor: owner,
+		AcceptedInputsDigest: "sha256:" + strings.Repeat("f", 64), IdempotencyIdentity: "reject:" + workID, OperationID: "reject:" + workID,
+		PrincipalRef: owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "reject:" + workID, RequestID: "request:reject:" + workID, ContractDigest: testManifestDigest, Now: time.Unix(4, 0).UTC(),
+	})
+	_ = leaveFold(ctx, tx)
+	if err != nil {
+		tx.Rollback()
+		t.Fatalf("reject worker result: %v", err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	if result.ResultingVersion != 11 {
+		t.Fatalf("rejection result version=%d, want 11", result.ResultingVersion)
+	}
+
+	var workerAttempt, diagnosis string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.worker_attempt_id'),json_extract(payload,'$.correction_diagnosis') FROM domain_events WHERE event_id=?`, "reject:"+workID+":completed").Scan(&workerAttempt, &diagnosis); err != nil {
+		t.Fatal(err)
+	}
+	if workerAttempt != attemptID || diagnosis == "" {
+		t.Fatalf("rejection event attempt=%q diagnosis=%q, want %q and a diagnosis", workerAttempt, diagnosis, attemptID)
+	}
+	pin, err := ReadWorkPin(ctx, s, workID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pin.Correction == nil || pin.Correction.Disposition != "rejected" || pin.Correction.Diagnosis != "the result misses the boundary case" {
+		t.Fatalf("correction pin = %#v, want the recorded rejection context", pin.Correction)
+	}
+	start := workflowEventWithActor("restart-"+workID, WorkflowActionStarted, workID, workerRef, map[string]any{
+		"work_id": workID, "expected_version": 11, "resulting_version": 12, "step_id": "execution", "action_id": "start_execution", "attempt_epoch": 2,
+		"accepted_inputs_digest": "sha256:" + strings.Repeat("a", 64), "idempotency_identity": "restart:" + workID, "actor_ref": workerRef,
+	})
+	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{start}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 11}}); err != nil {
+		t.Fatalf("start fresh correction attempt: %v", err)
+	}
+	packetPayload, err := json.Marshal(dispatchWorkerPacket(workID, "execution", "attempt:fresh-"+workID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	fieldsPayload, err := json.Marshal(map[string]any{"attempt_id": "attempt:fresh-" + workID, "worker_packet": json.RawMessage(packetPayload)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = invokeWorkflowActionForCD0059(ctx, t, s, WorkflowActionExecutionRequest{
+		WorkID: workID, ExpectedVersion: 12, ActionID: "dispatch_worker", Payload: fieldsPayload, SessionWorktree: dispatchSessionWorktree(t, s, workID),
+		Actor: owner, AcceptedInputsDigest: "sha256:" + strings.Repeat("b", 64), IdempotencyIdentity: "dispatch:" + workID, OperationID: "dispatch:" + workID,
+		PrincipalRef: owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "dispatch:" + workID, RequestID: "request:dispatch:" + workID, ContractDigest: testManifestDigest, Now: time.Unix(5, 0).UTC(),
+	})
+	if !hasFailureKind(err, KindInvalidPayload) {
+		t.Fatalf("dispatch without correction context error=%v, want invalid_payload", err)
+	}
+	correction := pin.Correction
+	correctionPayload := map[string]any{
+		"disposition": correction.Disposition, "attempt_count": correction.AttemptCount, "attempt_limit": correction.AttemptLimit, "escalated": correction.Escalated,
+		"diagnosis": correction.Diagnosis, "strategy": correction.Strategy, "predicate_ids": correction.PredicateIDs, "evidence_refs": correction.EvidenceRefs,
+	}
+	packet := dispatchWorkerPacket(workID, "execution", "attempt:fresh-"+workID)
+	packet["inputs"].(map[string]any)["correction"] = correctionPayload
+	packetPayload, err = json.Marshal(packet)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fieldsPayload, err = json.Marshal(map[string]any{"attempt_id": "attempt:fresh-" + workID, "worker_packet": json.RawMessage(packetPayload)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = invokeWorkflowActionForCD0059(ctx, t, s, WorkflowActionExecutionRequest{
+		WorkID: workID, ExpectedVersion: 12, ActionID: "dispatch_worker", Payload: fieldsPayload, SessionWorktree: dispatchSessionWorktree(t, s, workID),
+		Actor: owner, AcceptedInputsDigest: "sha256:" + strings.Repeat("c", 64), IdempotencyIdentity: "dispatch-valid:" + workID, OperationID: "dispatch-valid:" + workID,
+		PrincipalRef: owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "dispatch-valid:" + workID, RequestID: "request:dispatch-valid:" + workID, ContractDigest: testManifestDigest, Now: time.Unix(6, 0).UTC(),
+	}); err != nil {
+		t.Fatalf("dispatch with current correction context: %v", err)
+	}
+	if pin, err = ReadWorkPin(ctx, s, workID); err != nil {
+		t.Fatal(err)
+	} else if pin.Correction != nil {
+		t.Fatalf("fresh dispatch did not consume correction context: %#v", pin.Correction)
 	}
 }
 

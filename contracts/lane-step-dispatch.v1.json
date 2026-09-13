@@ -1,7 +1,7 @@
 {
   "$schema": "contracts/lane-step-dispatch.schema.json",
   "schema_version": "1.0",
-  "summary": "The join between agent-lane capability classes and the workflow step kinds that may dispatch them. A lane is dispatchable at a step only when the step's kind appears in the lane's capability-class binding. Read-only classes reach internal_sqlite and cross_authority steps, so proposal, discovery, reproduction, and investigation steps can delegate bounded reads to a lane. Classes that edit repository files or run commands stay on external_effect steps, where the workflow already fences worker attempts. No class binds human_checkpoint: those steps record operator decisions, not worker attempts. Terminal steps never dispatch. The registry this joins to is contracts/agent-lanes.v1.json: every capability class this file names must be carried by at least one registered lane, and every registered lane's capability class must be named here, so no lane is unreachable and no binding is dead.",
+  "summary": "The join between agent-lane capability classes and the workflow step kinds that may dispatch them. A lane is dispatchable at a step only when the step's kind appears in the lane's capability-class binding. Read-only classes reach internal_sqlite and cross_authority steps, so proposal, discovery, reproduction, and investigation steps can delegate bounded reads to a lane. The review class also reaches external_effect steps: review inspects produced work, and produced work exists only after an external-effect step has run (CD-0140; CD-0138's mandatory refine step is external_effect, so without this binding no contract can ever bind review evidence). Classes that edit repository files or run commands stay on external_effect steps, where the workflow already fences worker attempts. No class binds human_checkpoint: those steps record operator decisions, not worker attempts. Terminal steps never dispatch. The registry this joins to is contracts/agent-lanes.v1.json: every capability class this file names must be carried by at least one registered lane, and every registered lane's capability class must be named here, so no lane is unreachable and no binding is dead.",
   "bindings": [
     {
       "capability_class": "design",
@@ -25,8 +25,9 @@
     {
       "capability_class": "review",
       "step_kinds": [
-        "internal_sqlite",
-        "cross_authority"
+        "cross_authority",
+        "external_effect",
+        "internal_sqlite"
       ]
     },
     {

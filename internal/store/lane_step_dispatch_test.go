@@ -202,6 +202,26 @@ func TestJoinAdmitsResearchLaneAtReadStep(t *testing.T) {
 	}
 }
 
+func TestJoinAdmitsReviewLaneAtEffectStep(t *testing.T) {
+	s := openTemp(t)
+	defer s.Close()
+	// CD-0140: review inspects produced work, which exists only after an
+	// external-effect step has run; the repair step is the break_fix family's
+	// external_effect step.
+	workID := "work-join-admit-review"
+	actor := seedJoinFixture(t, s, workID, "repair")
+	version := readWorkVersion(t, s, workID)
+	laneVersion, laneDigest := registeredLaneIdentity(t, "review")
+	packet := joinPacketFor(workID, "repair", "attempt-join-admit-review", "review", laneVersion, laneDigest)
+	result, err := dispatchJoinAttempt(context.Background(), t, s, workID, version, actor, packet)
+	if err != nil {
+		t.Fatalf("review lane dispatch at an external_effect step refused: %v", err)
+	}
+	if result.ResultingVersion <= version {
+		t.Fatalf("dispatch did not advance the version: %d", result.ResultingVersion)
+	}
+}
+
 func TestJoinRefusesLaneAtUnadmittedStepKind(t *testing.T) {
 	s := openTemp(t)
 	defer s.Close()

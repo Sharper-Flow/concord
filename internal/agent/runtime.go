@@ -1354,7 +1354,7 @@ func (r runtime) read(ctx context.Context, base Envelope, input []byte, queryID 
 			return base, err
 		}
 		if (in.PackID == "") == (in.WorkID == "") {
-			return coreError(base, "invalid_input", "research read requires exactly one of pack_id or work_id", "supply_pack_or_work", false), nil
+			return coreError(base, "invalid_input", "research read requires exactly one of pack_id or work_id", "resolve_ambiguity", false), nil
 		}
 		var pack store.ResearchPack
 		var readErr error
@@ -1366,7 +1366,7 @@ func (r runtime) read(ctx context.Context, base Envelope, input []byte, queryID 
 				return failureEnvelope(base, listErr), nil
 			}
 			if len(packs) == 0 {
-				return coreError(base, "not_found", "no active research pack for that work item", "check_the_owner", false), nil
+				return coreError(base, "not_found", "no active research pack for that work item", "reread_entities", false), nil
 			}
 			pack = packs[0]
 		}
@@ -1890,7 +1890,10 @@ func (r runtime) q5(base Envelope, q store.Q5Result) (Envelope, error) {
 }
 func (r runtime) q4(base Envelope, q store.Q4Result) (Envelope, error) {
 	items := make([]workSummary, 0, len(q.Items))
-	nodes := items
+	// nodes carries the unresolved blockers and items carries the blocked work.
+	// They must not share a backing array: `nodes := items` copies the slice
+	// header, so appending to one overwrites the elements of the other.
+	nodes := []workSummary{}
 	edges := []map[string]string{}
 	seen := map[string]bool{}
 	for _, w := range q.Items {

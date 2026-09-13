@@ -65,3 +65,35 @@ func TestArchitectureOnlyDomainOverlapRefusalIsDeliverable(t *testing.T) {
 		t.Fatalf("empty shared lists must marshal as arrays, not null: %s", raw)
 	}
 }
+
+// The envelope is the authority on how many overlaps a refusal may carry. This
+// pins its side of the coupling: a producer that emits more than twenty makes
+// the refusal undeliverable, whatever the byte budget allows. The store's bound
+// honors the same number (internal/store/workflow_domain_overlap.go,
+// maxWorkflowOverlapDetailItems), and a drift on either side fails a test.
+func TestDomainOverlapRefusalAboveEnvelopeCapIsRefused(t *testing.T) {
+	overlaps := make([]store.WorkflowDomainOverlap, 0, 21)
+	for i := 0; i < 21; i++ {
+		overlaps = append(overlaps, store.WorkflowDomainOverlap{
+			ProductID: "concord", FromWorkID: "work-self", ToWorkID: "work-peer",
+			FromContractVersion: 1, ToContractVersion: 1,
+			SharedAffectedDomainIDs:   []string{"agent-surface"},
+			OverlapClasses:            []string{"architecture"},
+			ResolutionState:           "unresolved",
+			RecoveryActions:           []string{"wait", "resolve_overlap", "terminal_work", "supersede_contract"},
+			SharedAffectedDomainCount: 1,
+		})
+	}
+	failure := &store.Failure{
+		Kind: store.KindDomainOverlap, Op: "workflow_domain_overlap",
+		Detail:    "active Product-changing workflows have unresolved Domain overlap",
+		RetrySafe: false, RecoveryAction: "request_approval",
+		DomainOverlap: &store.DomainOverlapFailure{
+			Overlaps: overlaps, TotalOverlaps: 21, ReturnedOverlaps: 21, Truncated: false,
+		},
+	}
+	out := failureEnvelope(NewBase("overlap-cap", "concord_work_transition", "workflow_action"), failure)
+	if _, err := out.Encode(); err == nil {
+		t.Fatal("an envelope carrying twenty-one overlaps must be refused, not delivered")
+	}
+}

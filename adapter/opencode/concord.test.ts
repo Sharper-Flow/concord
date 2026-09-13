@@ -1716,3 +1716,13 @@ test("portable continuation posture leaves host protocol names to the host surfa
   expect(continuationSource).not.toContain("Do not ask for general permission to continue")
   expect(continuationSource.match(/When you stop,/g)?.length).toBe(1)
 })
+
+test("continuation permits bounded recovery for recorded worker failures", () => {
+  expect(continuationSource).toContain("After a worker failure")
+  expect(continuationSource).toContain("failure is recorded as\nrecoverable")
+  expect(continuationSource).toContain("record_worker_failure")
+  expect(continuationSource).toContain("declared worker dispatch route")
+  expect(continuationSource).toContain("new attempt identity and idempotency key")
+  expect(continuationSource).toContain("at most one recovery")
+  expect(continuationSource).toContain("runtime\nenforcement")
+})

@@ -35,7 +35,19 @@ Classify a refusal before you stop. Keep these classes distinct:
   your authority.
 
 Do not retry an identical refused request. Do not bypass a refusal, invent an
-approval, reclassify the work, restart a worker, or use an unauthorized route.
+approval, reclassify the work, or use an unauthorized route.
+
+After a worker failure, read the authoritative continuity record before choosing
+recovery. A fresh attempt is eligible only when the failure is recorded as
+recoverable, the current step admits `dispatch_worker`, the approved task and
+scope are unchanged, and any required execution input is corrected. Record the
+exact failed attempt through the declared `record_worker_failure` action before
+dispatching. Then use the declared worker dispatch route with its lane
+identifier for one fresh typed dispatch.
+Use a new attempt identity and idempotency key. Allow at most one recovery
+dispatch for each recorded failed attempt. Stop for a terminal failure, an
+active, completed, foreign, stale, or already recorded attempt, a refused
+route, or missing or changed approval or scope.
 
 When you stop, state the failed action and boundary, the known cause or limit of
 diagnosis, the actual effect state, the recovery owner, and the exact operator
@@ -52,4 +64,5 @@ Suggest a restart only when evidence shows that a reload is required. State what
 the reload repairs. An unexplained error does not establish a restart requirement.
 
 Keep mandatory refusal stops, approval boundaries, scope limits, and the ban on
-unauthorized execution. Do not open a fresh attempt to simulate a restart.
+unauthorized execution. A recovery dispatch is not a worker restart or runtime
+enforcement.

@@ -1367,9 +1367,13 @@ func latestWorkflowActionStartAt(ctx context.Context, tx *sql.Tx, workID, stepID
 }
 
 func validateAcceptedWorkerResult(ctx context.Context, tx *sql.Tx, event Event, payload workflowActionCompletedPayload, definition WorkflowDefinition, currentStep string) error {
-	step := workflowStep(definition, currentStep)
-	if step == nil || step.Kind != WorkflowStepExternalEffect {
-		return newFailure(KindIllegalLifecycleTransition, "fold_event", "accept_worker_result is only valid on an external-effect step", false, "accept a worker result on the pinned external-effect step")
+	// CD-0117 D2 composes the dispatch/accept pair onto every non-terminal
+	// step kind the lane-step join admits, so admission follows the pinned
+	// definition's declared actions rather than one hard-coded step kind.
+	// Approval-gated and terminal steps carry no pair, and a step the
+	// definition does not know resolves to no declared action.
+	if !stepDeclaresAction(definition, currentStep, "accept_worker_result") {
+		return newFailure(KindIllegalLifecycleTransition, "fold_event", "accept_worker_result is not declared at the current workflow step", false, "accept a worker result on the step whose pinned definition declares it")
 	}
 	if payload.WorkerAttemptID == "" {
 		return newFailure(KindInvalidPayload, "fold_event", "accept_worker_result requires worker_attempt_id", false, "supply the completed worker attempt identity")

@@ -574,8 +574,11 @@ reproducible.
 
 Concord ships one built-in version of each family, version 1. Every family is
 authored in the shape it runs in: typed action execution modes, the
-`accept_worker_result` and `dispatch_worker` pair on each external-effect step
-except research, `record_delivery` as the exit for a step the session executed
+`accept_worker_result` and `dispatch_worker` pair on every non-terminal step
+kind the lane-step join admits except approval-gated steps, which CD-0117 D2
+composes from `contracts/lane-step-dispatch.v1.json`; acceptance admission
+follows the pinned definition's declared actions, not one hard-coded step
+kind, `record_delivery` as the exit for a step the session executed
 itself, and the per-work-kind Product-truth classification. `checkpoint_context`
 and `cross_context_boundary` hold every step: a session hand-off is not progress
 (CD-0112). Action IDs

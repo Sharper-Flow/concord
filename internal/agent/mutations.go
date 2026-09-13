@@ -941,6 +941,14 @@ func (r runtime) mutateWorkflowAction(ctx context.Context, base Envelope, raw []
 		contractVersion = contract.Version
 		versions["contract"] = contractVersion
 	}
+	if in.ActionID == "request_correction" {
+		version, err := r.Store.LatestWorkflowContractVersion(ctx, in.WorkID)
+		if err != nil {
+			return failureEnvelope(base, err), nil
+		}
+		contractVersion = version
+		versions["contract"] = contractVersion
+	}
 	approval := ""
 	if in.Approval != nil {
 		approval = in.Approval.ApprovalRef
@@ -948,7 +956,7 @@ func (r runtime) mutateWorkflowAction(ctx context.Context, base Envelope, raw []
 	requiresApproval := action.Approval == store.ActionApprovalRequired
 	// Approval admission uses the same execution history as the store's
 	// self-evaluation refusal, including execution before lease rotation.
-	operatorVerdict := in.ActionID == "record_verdict" || in.ActionID == "complete"
+	operatorVerdict := in.ActionID == "record_verdict" || in.ActionID == "complete" || in.ActionID == "request_correction"
 	if operatorVerdict || in.ActionID == "confirm_premise" {
 		actorRef := store.DeriveWorkflowActorRef(grant.PrincipalRef, grant.ClientRef, grant.AgentRef, grant.SessionRef)
 		evaluation, err := r.Store.WorkflowEvaluationAuthority(ctx, in.WorkID, actorRef)

@@ -175,11 +175,21 @@ func ReadWorkPinTx(ctx context.Context, tx *sql.Tx, workID string) (WorkPin, err
 	if contractCorrection && !workPinContainsAction(pin.NextValidIntents, "supersede_contract") {
 		pin.NextValidIntents = append(pin.NextValidIntents, workPinIntentForAction(workflowContractRecoveryActionDefinition(), pin.Version, "operator_contract_correction"))
 	}
+	verdictCorrection, correctionErr := workflowVerdictCorrectionContext(ctx, tx, workID, registered.Definition, pin.Step, "work_pin")
+	if correctionErr != nil {
+		return pin, correctionErr
+	}
+	if verdictCorrection != nil && !verdictCorrection.Escalated && !workPinContainsAction(pin.NextValidIntents, "request_correction") {
+		pin.NextValidIntents = append(pin.NextValidIntents, workPinIntentForAction(workflowCorrectionRequestActionDefinition(), pin.Version, "verification_correction"))
+	}
 	correction, correctionErr := workflowCorrectionContext(ctx, tx, workID, pin.Step)
 	if correctionErr != nil {
 		return pin, correctionErr
 	}
 	pin.Correction = correction
+	if pin.Correction == nil {
+		pin.Correction = verdictCorrection
+	}
 	if correction != nil && correction.Escalated {
 		pin.NextValidIntents = workPinWithoutAction(pin.NextValidIntents, "dispatch_worker")
 	}

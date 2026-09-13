@@ -82,33 +82,28 @@ for (const [toolName, exportedTool] of Object.entries(tools)) {
   const properties = object(root.properties, `${toolName} properties`)
   if (JSON.stringify(Object.keys(properties)) !== JSON.stringify(["request"])) fail(`${toolName} schema exposes fields outside request`)
   const request = object(properties.request, `${toolName} request`)
-  const variants = request.oneOf
-  if (!Array.isArray(variants)) fail(`${toolName} request does not publish oneOf variants`)
+  if (request.type !== "object") fail(`${toolName} request is not an object`)
+  if (request.additionalProperties !== false) fail(`${toolName} request does not close its envelope`)
   const expected = contractOperations.filter((operation: any) => operation.tool === toolName)
-  if (variants.length !== expected.length) fail(`${toolName} publishes ${variants.length} variants for ${expected.length} operations`)
-  for (const operation of expected as any[]) {
-    const operationName = operation.id.slice(operation.id.indexOf(".") + 1)
-    const variant = variants.find((candidate: any) => candidate?.properties?.operation?.const === operationName)
-    if (!variant) fail(`${toolName} does not publish ${operationName}`)
-    if (variant.additionalProperties !== false) fail(`${operation.id} request is not closed`)
-    if (JSON.stringify(variant.required) !== JSON.stringify(["operation", "input"])) fail(`${operation.id} request fields are not required`)
-    const input = resolvePointer(root, variant.properties.input.$ref)
-    const schemaName = operation.id === "concord_work_transition.workflow_action"
-      ? "work_transition_action_public_input"
-      : operation.input_schema.slice(operation.input_schema.lastIndexOf("/") + 1)
-    if (JSON.stringify(input) !== JSON.stringify((payloadSchemas as Record<string, unknown>)[schemaName]).replaceAll("#/$defs/", "#/properties/request/definitions/")) {
-      fail(`${operation.id} input differs from generated schema ${schemaName}`)
-    }
-  }
+  const operationNames = expected.map((operation: any) => operation.id.slice(operation.id.indexOf(".") + 1))
+  if (JSON.stringify(request.required) !== JSON.stringify(["operation", "input"])) fail(`${toolName} request fields are not required`)
+  if (JSON.stringify(request.properties.operation?.enum) !== JSON.stringify(operationNames)) fail(`${toolName} request operation enum differs from the contract`)
+  if (object(request.properties.input, `${toolName} input`).additionalProperties !== true) fail(`${toolName} request input is not permissive`)
+  if (forbiddenNodes(request).length > 0) fail(`${toolName} request carries a host-unresolved schema node`)
 }
 
-const workDefineRoot = publishedArgsSchema(work_define.args, "work define schema")
-const workDefineRequest = object(object(workDefineRoot.properties, "work define properties").request, "work define request")
-const capture = (workDefineRequest.oneOf as any[]).find((variant) => variant.properties.operation.const === "capture")
-const captureInput = object(resolvePointer(workDefineRoot, capture.properties.input.$ref), "capture input")
-const urgencyProperty = object(object(captureInput.properties, "capture properties").urgency, "capture urgency property")
-const urgency = object(resolvePointer(workDefineRoot, urgencyProperty.$ref), "capture urgency")
-if (JSON.stringify(urgency.enum) !== JSON.stringify(["standard", "expedite"])) fail("capture urgency enum is not published")
+function forbiddenNodes(value: unknown, path = "$", found: string[] = []): string[] {
+  if (typeof value !== "object" || value === null) return found
+  if (Array.isArray(value)) {
+    value.forEach((item, index) => forbiddenNodes(item, `${path}[${index}]`, found))
+    return found
+  }
+  for (const [key, item] of Object.entries(value)) {
+    if (key === "$ref" || key === "oneOf") found.push(`${path}.${key}`)
+    forbiddenNodes(item, `${path}.${key}`, found)
+  }
+  return found
+}
 
 function publishedArgsSchema(args: Record<string, unknown>, label: string, required = Object.keys(args)): Record<string, any> {
   const properties = Object.fromEntries(Object.entries(args).filter(([, value]) => value !== undefined))

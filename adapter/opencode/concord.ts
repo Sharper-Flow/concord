@@ -135,27 +135,76 @@ function schemaName(ref: string): string {
   return name
 }
 
-function collectSchemaRefs(value: unknown, names: Set<string>): void {
-  if (Array.isArray(value)) {
-    for (const item of value) collectSchemaRefs(item, names)
-    return
+function hostSchema(value: unknown, resolving = new Set<string>()): JSONSchema {
+  if (typeof value !== "object" || value === null) return {}
+  if (Array.isArray(value)) return mergeHostSchemas(value, resolving)
+  const schema = value as Record<string, unknown>
+  if (typeof schema.$ref === "string") {
+    const name = schemaName(schema.$ref)
+    if (resolving.has(name)) return {}
+    const next = new Set(resolving)
+    next.add(name)
+    return hostSchema((payloadSchemas as Record<string, unknown>)[name], next)
   }
-  if (typeof value !== "object" || value === null) return
-  for (const [key, item] of Object.entries(value)) {
-    if (key === "$ref" && typeof item === "string" && item.startsWith("#/$defs/")) names.add(schemaName(item))
-    else collectSchemaRefs(item, names)
+  const direct: JSONSchema = {}
+  for (const [key, item] of Object.entries(schema)) {
+    if (["$ref", "oneOf", "allOf", "anyOf", "if", "then", "else", "not", "required", "additionalProperties"].includes(key)) continue
+    if (key === "properties" && typeof item === "object" && item !== null && !Array.isArray(item)) {
+      direct.properties = Object.fromEntries(Object.entries(item).map(([name, property]) => [name, hostSchema(property, resolving)]))
+    } else if (key === "items") {
+      direct.items = hostSchema(item, resolving)
+    } else {
+      direct[key] = item
+    }
   }
+  return mergeFlattenedSchemas([
+    direct,
+    ...(Array.isArray(schema.oneOf) ? schema.oneOf.map((item) => hostSchema(item, resolving)) : []),
+    ...(Array.isArray(schema.allOf) ? schema.allOf.map((item) => hostSchema(item, resolving)) : []),
+    ...(Array.isArray(schema.anyOf) ? schema.anyOf.map((item) => hostSchema(item, resolving)) : []),
+    ...(schema.then && typeof schema.then === "object" ? [hostSchema(schema.then, resolving)] : []),
+  ])
 }
 
-function rewriteSchemaRefs(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(rewriteSchemaRefs)
-  if (typeof value !== "object" || value === null) return value
-  return Object.fromEntries(Object.entries(value).map(([key, item]) => [
-    key,
-    key === "$ref" && typeof item === "string" && item.startsWith("#/$defs/")
-      ? `#/properties/request/definitions/${schemaName(item)}`
-      : rewriteSchemaRefs(item),
-  ]))
+function mergeHostSchemas(values: unknown[], resolving: Set<string>): JSONSchema {
+  return mergeFlattenedSchemas(values.map((value) => hostSchema(value, resolving)))
+}
+
+function mergeFlattenedSchemas(schemas: JSONSchema[]): JSONSchema {
+  schemas = schemas.filter((value) => Object.keys(value).length > 0)
+  const result: JSONSchema = {}
+  const types = new Set<string>()
+  const constants: unknown[] = []
+  const enums: unknown[] = []
+  const properties = new Map<string, unknown[]>()
+  let items: unknown[] = []
+  for (const schema of schemas) {
+    if (typeof schema.type === "string") types.add(schema.type)
+    if (Object.hasOwn(schema, "const")) constants.push(schema.const)
+    if (Array.isArray(schema.enum)) enums.push(...schema.enum)
+    if (schema.properties && typeof schema.properties === "object" && !Array.isArray(schema.properties)) {
+      for (const [name, property] of Object.entries(schema.properties as Record<string, unknown>)) {
+        properties.set(name, [...(properties.get(name) ?? []), property])
+      }
+    }
+    if (Object.hasOwn(schema, "items")) items.push(schema.items)
+    if (typeof schema.description === "string" && result.description === undefined) result.description = schema.description
+  }
+  if (types.size === 1) result.type = [...types][0]
+  if (properties.size > 0) {
+    result.type = "object"
+    result.properties = Object.fromEntries([...properties.entries()].sort(([left], [right]) => left.localeCompare(right)).map(([name, candidates]) => [name, mergeFlattenedSchemas(candidates as JSONSchema[])]))
+    result.additionalProperties = true
+  }
+  if (items.length > 0) result.items = mergeFlattenedSchemas(items as JSONSchema[])
+  const valuesForEnum = [...enums, ...constants]
+  if (valuesForEnum.length > 0) {
+    const unique = [...new Map(valuesForEnum.map((value) => [JSON.stringify(value), value])).values()]
+    if (unique.length === 1 && constants.length > 0) result.const = unique[0]
+    else result.enum = unique
+    if (result.type === undefined && unique.every((value) => typeof value === "string")) result.type = "string"
+  }
+  return result
 }
 
 export function publishedRequestSchema(toolName: string): JSONSchema {
@@ -164,28 +213,16 @@ export function publishedRequestSchema(toolName: string): JSONSchema {
   const publicInputSchema = (operation: any): string => operation.id === "concord_work_transition.workflow_action"
     ? "work_transition_action_public_input"
     : schemaName(operation.input_schema)
-  const needed = new Set<string>(operations.map(publicInputSchema))
-  const definitions: Record<string, unknown> = {}
-  while (true) {
-    const pending = [...needed].filter((name) => !Object.hasOwn(definitions, name)).sort()
-    if (pending.length === 0) break
-    for (const name of pending) {
-      const schema = (payloadSchemas as Record<string, unknown>)[name]
-      collectSchemaRefs(schema, needed)
-      definitions[name] = rewriteSchemaRefs(schema)
-    }
-  }
+  const operationNames = operations.map((operation: any) => operation.id.slice(operation.id.indexOf(".") + 1))
+  const inputSchemas = operations.map((operation: any) => (payloadSchemas as Record<string, unknown>)[publicInputSchema(operation)])
   return {
-    oneOf: operations.map((operation: any) => ({
-      type: "object",
-      additionalProperties: false,
-      required: ["operation", "input"],
-      properties: {
-        operation: { type: "string", const: operation.id.slice(operation.id.indexOf(".") + 1) },
-        input: { $ref: `#/properties/request/definitions/${publicInputSchema(operation)}` },
-      },
-    })),
-    definitions,
+    type: "object",
+    additionalProperties: false,
+    required: ["operation", "input"],
+    properties: {
+      operation: { type: "string", enum: operationNames },
+      input: mergeHostSchemas(inputSchemas, new Set()),
+    },
   }
 }
 

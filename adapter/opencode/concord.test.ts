@@ -65,7 +65,7 @@ test("exports exactly the generated tool names", () => {
   expect(new Set(contractOperations.map((operation: any) => operation.tool))).toEqual(new Set(names.map((name) => `concord_${name}`)))
 })
 
-test("published tool arguments expose one generated request union", () => {
+test("published tool arguments expose one flattened request shape", () => {
   const tools = {
     concord_product_view: adapter.product_view,
     concord_work_browse: adapter.work_browse,
@@ -82,18 +82,16 @@ test("published tool arguments expose one generated request union", () => {
     expect(Object.keys((exportedTool as any).args), toolName).toEqual(["request"])
     const published = adapter.publishedRequestSchema(toolName) as any
     const expected = contractOperations.filter((item: any) => item.tool === toolName).map((item: any) => item.id.split(".")[1])
-    expect(published.oneOf.map((variant: any) => variant.properties.operation.const), toolName).toEqual(expected)
-    expect(JSON.stringify(published), toolName).not.toContain("~standard")
-    expect(JSON.stringify(published), toolName).not.toContain('"def"')
+    expect(published.type, toolName).toBe("object")
+    expect(published.properties.operation.enum, toolName).toEqual(expected)
+    expect(published.required, toolName).toEqual(["operation", "input"])
+    expect(published.oneOf, toolName).toBeUndefined()
+    expect(published.definitions, toolName).toBeUndefined()
   }
   const published = adapter.publishedRequestSchema("concord_work_define") as any
-  const capture = published.oneOf.find((variant: any) => variant.properties.operation.const === "capture")
-  const inputRef = capture.properties.input.$ref.replace("#/properties/request/definitions/", "")
-  const urgencyRef = published.definitions[inputRef].properties.urgency.$ref.replace("#/properties/request/definitions/", "")
-  expect(published.definitions[urgencyRef].enum).toEqual(["standard", "expedite"])
+  expect(published.properties.input.properties.urgency.enum).toEqual(["standard", "expedite"])
   const transition = adapter.publishedRequestSchema("concord_work_transition") as any
-  const workflowAction = transition.oneOf.find((variant: any) => variant.properties.operation.const === "workflow_action")
-  expect(workflowAction.properties.input.$ref).toContain("work_transition_action_public_input")
+  expect(transition.properties.input.properties.fields.properties.outcome_predicates.items.properties.outcome_payload.properties.kind.enum).toEqual(["exists", "absent", "outcome", "check"])
   // Every generated field reaches the host. The definition hook makes the
   // published fields optional; the adapter enforces the closed modes.
   expect(Object.keys((adapter.work_start as any).args).sort()).toEqual(["title", "value_statement", "kind", "task", "idempotency_key", "priority", "urgency", "tags", "workflow_type_ref", "external_ref", "governing_requirements", "ref", "work_id"].sort())
@@ -592,6 +590,35 @@ test("approve_contract clears the approval challenge the core actually builds", 
   )
   expect(result.outcome).toBe("ok")
   expect(approvals).toBe(1)
+})
+
+test("approve_contract preserves a published exists predicate through transport", async () => {
+  const input = {
+    work_id: "work-1",
+    expected_version: 2,
+    action_id: "approve_contract",
+    fields: {
+      outcome_predicates: [{
+        predicate_id: "predicate:host-safe-publication",
+        ordinal: 0,
+        outcome_kind: "exists",
+        outcome_payload: {
+          kind: "exists",
+          surface: "adapter/opencode/concord.ts",
+          subjects: ["publishedRequestSchema"],
+        },
+      }],
+    },
+    idempotency_key: "idem-1",
+  }
+  let seen = ""
+  adapter.configureConcordAdapter({ runner: runnerWithContext((_argv: string[], payload: string) => {
+    seen = payload
+    return { ...approvalSuccess(), operation: "workflow_action" }
+  }) })
+  const result: any = await rawHostResult(adapter.work_transition.execute(hostCall("workflow_action", input), contextFor()))
+  expect(result.outcome).toBe("ok")
+  expect(JSON.parse(seen).input).toEqual(input)
 })
 
 test("confirm_premise still binds the selection it carries", async () => {

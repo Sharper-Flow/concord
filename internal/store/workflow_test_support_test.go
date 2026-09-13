@@ -11,6 +11,19 @@ import (
 
 const testManifestDigest = "sha256:0000000000000000000000000000000000000000000000000000000000000000"
 
+func testWorkflowActionPreflight(ctx context.Context, s *Store, request WorkflowActionPreflightRequest) error {
+	return s.Transact(ctx, func(transaction *Transaction) error {
+		_, err := workflowActionPreflightTx(ctx, transaction.tx, BuiltinWorkflowRegistry(), request, true)
+		return err
+	})
+}
+
+func testWorkflowDomainOverlap(ctx context.Context, s *Store, workID string) error {
+	return s.Transact(ctx, func(transaction *Transaction) error {
+		return CheckWorkflowDomainOverlapTx(ctx, transaction.tx, workID)
+	})
+}
+
 // workflowFixtureRef names the test-only workflow family that fold, projection,
 // and supersession fixtures pin. It carries the implementation step graph so
 // step IDs stay familiar, and a work kind without Product-truth authority so a

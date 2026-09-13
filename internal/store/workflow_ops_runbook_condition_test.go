@@ -49,7 +49,7 @@ func TestOpsRunbookConditionResolutionAcrossHealthDispatch(t *testing.T) {
 	assertOpsRunbookStep(t, s, workID, "health")
 
 	healthPayload := json.RawMessage(`{"run_id":"run:ops","native_subject_ref":"route:ops","status":"healthy","evidence_ref":"evidence:health","evidence_digest":"sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"}`)
-	err = WorkflowActionPreflight(ctx, s, WorkflowActionPreflightRequest{WorkID: workID, ExpectedVersion: version, StepID: "health", ActionID: "record_health", Payload: healthPayload, Actor: actor})
+	err = testWorkflowActionPreflight(ctx, s, WorkflowActionPreflightRequest{WorkID: workID, ExpectedVersion: version, StepID: "health", ActionID: "record_health", Payload: healthPayload, Actor: actor})
 	if err == nil || !strings.Contains(err.Error(), "consequential action has unresolved external conditions") {
 		t.Fatalf("record_health with an open condition error=%v, want boundary refusal", err)
 	}

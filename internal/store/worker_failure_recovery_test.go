@@ -22,7 +22,7 @@ func TestFailedWorkerRecoveryIsAvailableForAnOlderPinnedDefinition(t *testing.T)
 	}
 
 	payload := mustJSONValue(map[string]any{"attempt_id": attemptID, "attempt_epoch": 1})
-	if err := WorkflowActionPreflight(context.Background(), s, WorkflowActionPreflightRequest{
+	if err := testWorkflowActionPreflight(context.Background(), s, WorkflowActionPreflightRequest{
 		WorkID: workID, ExpectedVersion: 9, ActionID: "record_worker_failure", Payload: payload, Actor: owner,
 	}); err != nil {
 		t.Fatalf("recovery preflight: %v", err)
@@ -39,7 +39,7 @@ func TestFailedWorkerRecoveryIsAvailableForAnOlderPinnedDefinition(t *testing.T)
 	if result.ResultingVersion != 10 {
 		t.Fatalf("recovery result version=%d, want 10", result.ResultingVersion)
 	}
-	if err := WorkflowActionPreflight(context.Background(), s, WorkflowActionPreflightRequest{
+	if err := testWorkflowActionPreflight(context.Background(), s, WorkflowActionPreflightRequest{
 		WorkID: workID, ExpectedVersion: 10, ActionID: "record_delivery", Payload: mustJSONValue(map[string]any{}), Actor: owner,
 	}); err != nil {
 		t.Fatalf("record delivery after failure recovery: %v", err)
@@ -71,7 +71,7 @@ func TestFailedWorkerRecoveryRefusesWithoutTheCurrentFailedAttempt(t *testing.T)
 		t.Fatal("recovery action resolved without a failed attempt")
 	}
 	payload := mustJSONValue(map[string]any{"attempt_id": attemptID, "attempt_epoch": 1})
-	err := WorkflowActionPreflight(context.Background(), s, WorkflowActionPreflightRequest{
+	err := testWorkflowActionPreflight(context.Background(), s, WorkflowActionPreflightRequest{
 		WorkID: workID, ExpectedVersion: 9, ActionID: "record_worker_failure", Payload: payload, Actor: owner,
 	})
 	if err == nil {

@@ -18,14 +18,6 @@ type WorkflowDefinitionPin struct {
 	Digest  string
 }
 
-type WorkflowStartRequest struct {
-	WorkID     string
-	Definition WorkflowDefinitionPin
-	StepID     string
-	ActionID   string
-	Actor      WorkflowActor
-}
-
 type WorkflowActionPreflightRequest struct {
 	WorkID                string
 	ExpectedVersion       int64
@@ -84,12 +76,6 @@ func VerifyWorkflowInstanceDefinition(ctx context.Context, s *Store, registry De
 	return VerifyWorkflowDefinitionPin(registry, pin)
 }
 
-// WorkflowActionAvailable performs the fail-closed definition check used by
-// action authorization. It does not authorize an action by itself.
-func WorkflowActionAvailable(ctx context.Context, s *Store, workID string) (bool, error) {
-	return WorkflowActionAvailableWithRegistry(ctx, s, BuiltinWorkflowRegistry(), workID)
-}
-
 func WorkflowActionAvailableWithRegistry(ctx context.Context, s *Store, registry DefinitionRegistry, workID string) (bool, error) {
 	if _, err := VerifyWorkflowInstanceDefinition(ctx, s, registry, workID); err != nil {
 		var failure *Failure
@@ -99,52 +85,6 @@ func WorkflowActionAvailableWithRegistry(ctx context.Context, s *Store, registry
 		return false, err
 	}
 	return true, nil
-}
-
-func workflowStartPreflight(ctx context.Context, s *Store, request WorkflowStartRequest) error {
-	return workflowStartPreflightWithRegistry(ctx, s, BuiltinWorkflowRegistry(), request)
-}
-
-func workflowStartPreflightWithRegistry(ctx context.Context, s *Store, registry DefinitionRegistry, request WorkflowStartRequest) error {
-	entry, err := VerifyWorkflowDefinitionPin(registry, request.Definition)
-	if err != nil {
-		return err
-	}
-	if request.WorkID == "" {
-		return newFailure(KindInvalidOperation, "workflow_start", "work ID is empty", false, "supply a work item ID")
-	}
-	if request.StepID == "" && request.ActionID == "" {
-		return nil
-	}
-	stepID := request.StepID
-	if stepID == "" {
-		stepID = entry.Definition.StepGraph.StartStep
-	}
-	if stepID != entry.Definition.StepGraph.StartStep {
-		return workflowPinFailure("workflow start does not use the definition start step")
-	}
-	if !definitionStepAllows(entry.Definition, stepID, request.ActionID) {
-		return workflowPinFailure("workflow start action is not declared on the definition start path")
-	}
-	if request.ActionID != "" || request.Actor.ActorClass != "" {
-		if err := ValidateWorkflowActor(request.Actor); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func workflowResumePreflight(ctx context.Context, s *Store, workID string) error {
-	return workflowResumePreflightWithRegistry(ctx, s, BuiltinWorkflowRegistry(), workID)
-}
-
-func workflowResumePreflightWithRegistry(ctx context.Context, s *Store, registry DefinitionRegistry, workID string) error {
-	_, err := VerifyWorkflowInstanceDefinition(ctx, s, registry, workID)
-	return err
-}
-
-func WorkflowActionPreflight(ctx context.Context, s *Store, request WorkflowActionPreflightRequest) error {
-	return WorkflowActionPreflightWithRegistry(ctx, s, BuiltinWorkflowRegistry(), request)
 }
 
 func WorkflowActionPreflightWithRegistry(ctx context.Context, s *Store, registry DefinitionRegistry, request WorkflowActionPreflightRequest) error {
@@ -263,34 +203,6 @@ func WorkflowActionPreflightWithRegistry(ctx context.Context, s *Store, registry
 	// work item to the session that captured it. A recorded actor_ref whose tuple
 	// disagrees still fails closed, in the guard that can read both.
 	return nil
-}
-
-// AuthorizeWorkflowAction is the future dispatch ordering seam. It performs
-// the complete read-only preflight before invoking any authorization callback;
-// it does not append events or enable workflow_action dispatch.
-func AuthorizeWorkflowAction(ctx context.Context, s *Store, registry DefinitionRegistry, request WorkflowActionPreflightRequest, authorize func() error) error {
-	if request.ConditionResolver != nil || !request.BoundaryNow.IsZero() {
-		return AuthorizeWorkflowActionAtBoundary(ctx, s, registry, request, request.ConditionResolver, request.BoundaryNow, authorize)
-	}
-	if err := WorkflowActionPreflightWithRegistry(ctx, s, registry, request); err != nil {
-		return err
-	}
-	if authorize != nil {
-		return authorize()
-	}
-	return nil
-}
-
-// AuthorizeWorkflowActionAtBoundary resolves eligible conditions once before
-// authorizing a cross-authority or external-effect action. It intentionally
-// leaves ordinary internal SQLite actions untouched.
-func AuthorizeWorkflowActionAtBoundary(ctx context.Context, s *Store, registry DefinitionRegistry, request WorkflowActionPreflightRequest, resolver ConditionResolver, now time.Time, authorize func() error) error {
-	return AuthorizeWorkflowActionAtBoundaryTx(ctx, s, registry, request, resolver, now, func(*Transaction) error {
-		if authorize != nil {
-			return authorize()
-		}
-		return nil
-	}, func(*Transaction) error { return nil })
 }
 
 // AuthorizeWorkflowActionAtBoundaryTx is the owning-action transaction

@@ -274,12 +274,6 @@ func ResolveWorkflowCondition(ctx context.Context, s *Store, workID, conditionID
 	return nil
 }
 
-// ResolveCondition is a short compatibility spelling for the explicit public
-// request boundary.
-func ResolveCondition(ctx context.Context, s *Store, workID, conditionID string, resolver ConditionResolver, now time.Time) error {
-	return ResolveWorkflowCondition(ctx, s, workID, conditionID, resolver, now)
-}
-
 // CancelWorkflowCondition records an operator-authorized terminal condition
 // without pretending that the awaited external authority resolved it.
 func CancelWorkflowCondition(ctx context.Context, s *Store, workID, conditionID, actorRef string, evidence []string, now time.Time) error {

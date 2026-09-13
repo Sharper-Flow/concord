@@ -8,6 +8,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestBuiltinWorkflowRegistryHasTheSevenContractFamilies(t *testing.T) {
@@ -474,9 +475,6 @@ func TestWorkflowDefinitionPinPreflightFailsClosedOnDrift(t *testing.T) {
 	if _, err := VerifyWorkflowDefinitionPin(registry, WorkflowDefinitionPin{Ref: definition.Ref, Version: definition.Version, Digest: "sha256:" + strings.Repeat("f", 64)}); err == nil {
 		t.Fatal("drifted workflow pin was accepted")
 	}
-	if err := workflowStartPreflightWithRegistry(context.Background(), nil, registry, WorkflowStartRequest{WorkID: "work-alpha", Definition: WorkflowDefinitionPin{Ref: definition.Ref, Version: definition.Version, Digest: registered.Digest}, StepID: "proposal", ActionID: "record_proposal", Actor: WorkflowActor{PrincipalRef: "principal:operator", ClientRef: "client:concord-1", AgentRef: "agent:engineer", SessionRef: "session:one", ActorClass: ActorAgent}}); err != nil {
-		t.Fatal(err)
-	}
 	s := openTemp(t)
 	seedWork(t, s, "drift-work")
 	badEvent := workflowEvent("drift-definition", WorkflowDefinitionSelected, "drift-work", map[string]any{
@@ -518,10 +516,10 @@ func TestWorkflowActionAuthorizationPreflightsBeforeCallbackOnRegistryDrift(t *t
 		t.Fatal(err)
 	}
 	called := false
-	err = AuthorizeWorkflowAction(context.Background(), s, NewWorkflowDefinitionRegistry(), WorkflowActionPreflightRequest{WorkID: "preflight-work", StepID: "proposal", ActionID: "record_proposal"}, func() error {
+	err = AuthorizeWorkflowActionAtBoundaryTx(context.Background(), s, NewWorkflowDefinitionRegistry(), WorkflowActionPreflightRequest{WorkID: "preflight-work", StepID: "proposal", ActionID: "record_proposal"}, nil, time.Time{}, func(*Transaction) error {
 		called = true
 		return nil
-	})
+	}, func(*Transaction) error { return nil })
 	if err == nil || called {
 		t.Fatalf("registry drift did not fail before authorization: err=%v called=%v", err, called)
 	}

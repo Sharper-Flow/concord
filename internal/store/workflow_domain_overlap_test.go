@@ -83,7 +83,7 @@ func seedOverlapProjection(t *testing.T, left, right string, relation bool) (*St
 func TestWorkflowDomainOverlapDerivesTypedIntersectionsAndCompatibleResolution(t *testing.T) {
 	ctx := context.Background()
 	s, actor := seedOverlapProjection(t, "overlap-left", "overlap-right", true)
-	err := CheckWorkflowDomainOverlap(ctx, s, "overlap-left")
+	err := testWorkflowDomainOverlap(ctx, s, "overlap-left")
 	var failure *Failure
 	if !errors.As(err, &failure) || failure.Kind != KindDomainOverlap || failure.DomainOverlap == nil || len(failure.DomainOverlap.Overlaps) != 1 {
 		t.Fatalf("expected typed overlap refusal, got %v", err)
@@ -105,10 +105,10 @@ func TestWorkflowDomainOverlapDerivesTypedIntersectionsAndCompatibleResolution(t
 	if relationCount != 1 {
 		t.Fatalf("compatible resolution relation count = %d, want 1", relationCount)
 	}
-	if err := CheckWorkflowDomainOverlap(ctx, s, "overlap-left"); err != nil {
+	if err := testWorkflowDomainOverlap(ctx, s, "overlap-left"); err != nil {
 		t.Fatalf("compatible resolution did not permit leading side: %v", err)
 	}
-	if err := CheckWorkflowDomainOverlap(ctx, s, "overlap-right"); err != nil {
+	if err := testWorkflowDomainOverlap(ctx, s, "overlap-right"); err != nil {
 		t.Fatalf("compatible resolution did not permit symmetric side: %v", err)
 	}
 }
@@ -156,10 +156,10 @@ func TestWorkflowDomainOverlapSequencingUsesExplicitStateAndEventOrder(t *testin
 	if err := resolve("sequence-depends", ResolutionDependsOn, 2, 2); err != nil {
 		t.Fatalf("depends_on resolution: %v", err)
 	}
-	if err := CheckWorkflowDomainOverlap(ctx, s, "sequence-right"); err != nil {
+	if err := testWorkflowDomainOverlap(ctx, s, "sequence-right"); err != nil {
 		t.Fatalf("leading sequence side should be allowed: %v", err)
 	}
-	err := CheckWorkflowDomainOverlap(ctx, s, "sequence-left")
+	err := testWorkflowDomainOverlap(ctx, s, "sequence-left")
 	var failure *Failure
 	if !errors.As(err, &failure) || failure.Kind != KindDomainOverlap || failure.DomainOverlap == nil || len(failure.DomainOverlap.Overlaps) != 1 {
 		t.Fatalf("follower should receive typed overlap refusal: %v", err)
@@ -171,10 +171,10 @@ func TestWorkflowDomainOverlapSequencingUsesExplicitStateAndEventOrder(t *testin
 	if err := resolve("sequence-blocks", ResolutionBlocks, 3, 3); err != nil {
 		t.Fatalf("same-timestamp newer resolution: %v", err)
 	}
-	if err := CheckWorkflowDomainOverlap(ctx, s, "sequence-left"); err != nil {
+	if err := testWorkflowDomainOverlap(ctx, s, "sequence-left"); err != nil {
 		t.Fatalf("newer blocks leading side should be allowed: %v", err)
 	}
-	err = CheckWorkflowDomainOverlap(ctx, s, "sequence-right")
+	err = testWorkflowDomainOverlap(ctx, s, "sequence-right")
 	if !errors.As(err, &failure) || failure.DomainOverlap == nil || failure.DomainOverlap.Overlaps[0].ResolutionKind != ResolutionBlocks || failure.DomainOverlap.Overlaps[0].ResolutionState != "sequenced" {
 		t.Fatalf("event sequence did not outrank equal timestamp: %v", err)
 	}
@@ -198,7 +198,7 @@ func TestWorkflowDomainOverlapReopenInvalidatesSameVersionResolution(t *testing.
 	if err := applyWorkEvent(t, s, workReopenedEvent("reopen-again", "reopen-left", "completed", 4, 5), nil); err != nil {
 		t.Fatalf("reopen transition: %v", err)
 	}
-	err := CheckWorkflowDomainOverlap(ctx, s, "reopen-left")
+	err := testWorkflowDomainOverlap(ctx, s, "reopen-left")
 	var failure *Failure
 	if !errors.As(err, &failure) || failure.Kind != KindDomainOverlap || failure.DomainOverlap == nil || failure.DomainOverlap.Overlaps[0].ResolutionState != "stale" {
 		t.Fatalf("reopen must require a fresh resolution, got %v", err)
@@ -251,7 +251,7 @@ func TestWorkflowDomainOverlapClassifiesLawDomainAndRelationWrites(t *testing.T)
 		t.Fatal(err)
 	}
 
-	err = CheckWorkflowDomainOverlap(ctx, s, "classes-left")
+	err = testWorkflowDomainOverlap(ctx, s, "classes-left")
 	var failure *Failure
 	if !errors.As(err, &failure) || failure.DomainOverlap == nil || len(failure.DomainOverlap.Overlaps) != 1 {
 		t.Fatalf("expected typed overlap classes, got %v", err)
@@ -274,7 +274,7 @@ func TestWorkflowDomainOverlapOrdinaryRelationsCannotResolveOrForgeAuthority(t *
 	if err := applyWorkEvent(t, s, relationAddedEvent("ordinary-blocks", "blocks", "ordinary-left", "ordinary-right", 2, 3), workVersion("ordinary-right", 2)); err != nil {
 		t.Fatalf("ordinary blocks relation: %v", err)
 	}
-	err := CheckWorkflowDomainOverlap(ctx, s, "ordinary-left")
+	err := testWorkflowDomainOverlap(ctx, s, "ordinary-left")
 	var failure *Failure
 	if !errors.As(err, &failure) || failure.Kind != KindDomainOverlap || failure.DomainOverlap.Overlaps[0].ResolutionState != "unresolved" {
 		t.Fatalf("ordinary relation satisfied overlap authority: %v", err)
@@ -298,13 +298,13 @@ func TestWorkflowDomainOverlapSequenceTerminalUnblocksFollower(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if err := CheckWorkflowDomainOverlap(ctx, s, "terminal-left"); err == nil {
+	if err := testWorkflowDomainOverlap(ctx, s, "terminal-left"); err == nil {
 		t.Fatal("sequenced follower was allowed before predecessor became terminal")
 	}
 	if err := applyWorkEvent(t, s, workTransitionEvent("terminal-right-complete", "terminal-right", "needed", "completed", 3, 4), nil); err != nil {
 		t.Fatalf("terminal predecessor: %v", err)
 	}
-	if err := CheckWorkflowDomainOverlap(ctx, s, "terminal-left"); err != nil {
+	if err := testWorkflowDomainOverlap(ctx, s, "terminal-left"); err != nil {
 		t.Fatalf("terminal predecessor did not resolve active pair: %v", err)
 	}
 }
@@ -387,7 +387,7 @@ func TestWorkflowDomainOverlapMergeAndSupersessionAreAtomicAndReopenStale(t *tes
 			if err := applyWorkEvent(t, s, workReopenedFromSupersededEvent("terminal-reopen-"+testCase.kind, testCase.terminalID, "", 3, 4), nil); err != nil {
 				t.Fatalf("reopen terminal resolution: %v", err)
 			}
-			err = CheckWorkflowDomainOverlap(ctx, s, testCase.terminalID)
+			err = testWorkflowDomainOverlap(ctx, s, testCase.terminalID)
 			var failure *Failure
 			if !errors.As(err, &failure) || failure.Kind != KindDomainOverlap || failure.DomainOverlap.Overlaps[0].ResolutionState != "stale" {
 				t.Fatalf("reopened terminal work inherited resolution: %v", err)
@@ -469,7 +469,7 @@ func TestWorkflowDomainOverlapContractRevisionStalesResolutionAndRebuilds(t *tes
 	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{supersede}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "revision-left"): 6}}); err != nil {
 		t.Fatalf("contract revision: %v", err)
 	}
-	err = CheckWorkflowDomainOverlap(ctx, s, "revision-left")
+	err = testWorkflowDomainOverlap(ctx, s, "revision-left")
 	var failure *Failure
 	if !errors.As(err, &failure) || failure.Kind != KindDomainOverlap || failure.DomainOverlap.Overlaps[0].ResolutionState != "stale" || failure.DomainOverlap.Overlaps[0].FromContractVersion != 2 {
 		t.Fatalf("contract revision did not stale v1 resolution: %v", err)

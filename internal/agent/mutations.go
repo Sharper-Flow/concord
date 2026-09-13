@@ -3413,6 +3413,22 @@ func mutationIsOverlapRecovery(tool, operation string, raw []byte) bool {
 	if tool == "concord_work_relate" && (operation == "resolve_overlap" || operation == "supersede" || operation == "restore_superseded") {
 		return true
 	}
+	// A statement observation asserts no Product change: it records prose
+	// against the work item and moves neither the contract, the Domain binding,
+	// nor the workflow step. Guarding it means a blocked item cannot record why
+	// it is blocked, which is how the diagnosis of a refusal ends up outside
+	// Concord. The external form is not exempt — it binds verification and
+	// capture evidence with digests, so it owes the full boundary.
+	if tool == "concord_work_define" && operation == "observation_record" {
+		var input struct {
+			Statement *string         `json:"statement"`
+			External  json.RawMessage `json:"external"`
+		}
+		if json.Unmarshal(raw, &input) == nil {
+			return input.Statement != nil && len(input.External) == 0
+		}
+		return false
+	}
 	if tool == "concord_work_transition" && operation == "lifecycle" {
 		var input struct {
 			Target string `json:"target"`

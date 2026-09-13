@@ -4350,6 +4350,15 @@ CREATE TRIGGER workflow_proposal_records_guard_delete BEFORE DELETE ON workflow_
 DROP TABLE workflow_staleness_warnings;
 `,
 	},
+	{
+		Version: 80,
+		Name:    "linear_issue_identity_is_canonical",
+		SQL: `
+CREATE UNIQUE INDEX linear_issue_links_remote_identity
+ON linear_issue_links(remote_issue_uuid)
+WHERE link_state IN ('pending','confirmed');
+`,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any

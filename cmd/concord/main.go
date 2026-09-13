@@ -151,6 +151,7 @@ var commandSpecs = []commandSpec{
 	{Canonical: "product-mode-set", TwoWord: "product mode-set", RequiredFields: requiredFields(field("product_id"), field("planning_mode"), field("expected_version"), field("reason")), Optional: "none", Enums: "planning_mode: local_only | linear_enabled"},
 	{Canonical: "linear-health", TwoWord: "linear health", RequiredFields: requiredFields(field("product_id")), Optional: "none", Enums: "none"},
 	{Canonical: "linear-issue-enqueue", TwoWord: "linear issue-enqueue", RequiredFields: requiredFields(field("product_id"), field("work_id"), field("op_kind")), Optional: "none", Enums: "op_kind: issue_create | issue_update"},
+	{Canonical: "linear-issue-adopt", RequiredFields: requiredFields(field("product_id"), field("work_id"), field("remote_issue_uuid")), Optional: "expected_remote_updated_at", Enums: "none"},
 	{Canonical: "linear-outbox-drain", TwoWord: "linear outbox-drain", RequiredFields: requiredFields(field("product_id")), Optional: "max_operations", Enums: "none"},
 	{Canonical: "linear-initiative-import", TwoWord: "linear initiative-import", RequiredFields: requiredFields(field("product_id"), field("initiative_id")), Optional: "none", Enums: "none"},
 	{Canonical: "resource-create", TwoWord: "resource create", RequiredFields: requiredFields(field("event_id"), field("resource_id"), field("product_id"), field("display_name"), field("class"), field("kind"), field("purpose"), field("stage_maturity"), field("stage_audience_commitment"), field("environments"), field("expected_product_version")), Optional: "locator_absence_reason, metadata_schema_version, metadata, owner_purpose, owner_environments", Enums: "stage_maturity: prototype | alpha | beta | production | deprecated; stage_audience_commitment: operator_only | limited | public"},
@@ -183,6 +184,9 @@ func routeCommand(args []string) (string, []string, bool) {
 	if len(args) == 0 {
 		return "", nil, false
 	}
+	if len(args) >= 2 && args[0] == "linear" && args[1] == "issue-adopt" {
+		return "linear-issue-adopt", args[2:], true
+	}
 	for _, spec := range commandSpecs {
 		if args[0] == spec.Canonical {
 			return spec.Canonical, args[1:], true
@@ -198,11 +202,11 @@ func writeUsage(out io.Writer) {
 	_, _ = fmt.Fprintln(out, "Usage:")
 	_, _ = fmt.Fprintln(out, "  concord --help")
 	_, _ = fmt.Fprintln(out, "  concord --version")
-	_, _ = fmt.Fprintln(out, "  concord launcher   # interactive TTY; does not read JSON stdin")
-	_, _ = fmt.Fprintln(out, "  concord launcher --list   # bounded candidate JSON")
-	_, _ = fmt.Fprintln(out, "  concord zl <work> -- <prompt>   # start or resume without the UI")
-	_, _ = fmt.Fprintln(out, "  concord zl --resume-last   # resume the last workspace")
-	_, _ = fmt.Fprintln(out, "  concord session    # internal TTY bootstrap; launcher identity env required")
+	_, _ = fmt.Fprintln(out, "  concord launcher   # interactive TTY")
+	_, _ = fmt.Fprintln(out, "  concord launcher --list   # candidates")
+	_, _ = fmt.Fprintln(out, "  concord zl <work> -- <prompt>")
+	_, _ = fmt.Fprintln(out, "  concord zl --resume-last   # resume last workspace")
+	_, _ = fmt.Fprintln(out, "  concord session    # internal bootstrap")
 	_, _ = fmt.Fprintln(out, "  concord continuity-block             # read-only continuity packet; launcher identity env required")
 	_, _ = fmt.Fprintln(out, "  concord host-lease < JSON stdin      # record this host session's release lease (adapter-invoked)")
 	_, _ = fmt.Fprintln(out, "  concord host-leases                  # print live release leases; prunes stale ones")
@@ -888,14 +892,74 @@ func runLinearIssueEnqueue(ctx context.Context, s *store.Store, raw []byte, comm
 		writeOperatorDiagnostic(errOut, command, err.Error())
 		return 1
 	}
+	if err := s.VerifyLinearWorkProduct(ctx, request.ProductID, request.WorkID); err != nil {
+		writeOperatorDiagnostic(errOut, command, err.Error())
+		return 1
+	}
 	entry, err := s.EnqueueLinearIssueForWork(ctx, request.WorkID, request.OpKind)
 	if err != nil {
 		writeOperatorDiagnostic(errOut, command, err.Error())
 		return 1
 	}
+	state := entry.State
+	if state == "" {
+		state = store.LinearOutboxQueued
+	}
 	return writeJSON(out, map[string]any{"ok": true, "operation": map[string]any{
-		"operation_id": entry.OperationID, "work_id": entry.WorkID, "op_kind": entry.OpKind, "state": "queued",
+		"operation_id": entry.OperationID, "work_id": entry.WorkID, "op_kind": entry.OpKind, "state": state,
 	}}, errOut)
+}
+
+// runLinearIssueAdopt verifies an existing provider issue, then records its
+// identity locally without issuing a remote create or update.
+func runLinearIssueAdopt(ctx context.Context, s *store.Store, raw []byte, command string, out, errOut io.Writer) int {
+	var request struct {
+		ProductID               string `json:"product_id"`
+		WorkID                  string `json:"work_id"`
+		RemoteIssueUUID         string `json:"remote_issue_uuid"`
+		ExpectedRemoteUpdatedAt string `json:"expected_remote_updated_at,omitempty"`
+	}
+	if err := decodeObject(raw, &request); err != nil {
+		writeOperatorDiagnostic(errOut, command, err.Error())
+		return 1
+	}
+	if _, err := s.ResolveLinearPlanningTarget(ctx, request.ProductID); err != nil {
+		writeOperatorDiagnostic(errOut, command, err.Error())
+		return 1
+	}
+	connection, err := s.ReadLinearConnection(ctx, request.ProductID)
+	if err != nil {
+		writeOperatorDiagnostic(errOut, command, err.Error())
+		return 1
+	}
+	client, err := linearclient.FromEnv()
+	if err != nil {
+		writeOperatorDiagnostic(errOut, command, err.Error()+"; set CONCORD_LINEAR_API_KEY in the process environment")
+		return 1
+	}
+	issue, err := client.GetIssue(ctx, request.RemoteIssueUUID)
+	if err != nil {
+		writeOperatorDiagnostic(errOut, command, "issue verification failed: "+err.Error())
+		return 1
+	}
+	if issue.TeamID != connection.TeamID || (connection.ProjectID != "" && issue.ProjectID != connection.ProjectID) || (connection.WorkspaceURL != "" && issue.WorkspaceURL != "" && strings.TrimRight(connection.WorkspaceURL, "/") != strings.TrimRight(issue.WorkspaceURL, "/")) {
+		writeOperatorDiagnostic(errOut, command, "issue verification failed: remote issue destination does not match the Product connection")
+		return 1
+	}
+	if request.ExpectedRemoteUpdatedAt != "" && issue.UpdatedAt.UTC().Format(time.RFC3339Nano) != request.ExpectedRemoteUpdatedAt {
+		writeOperatorDiagnostic(errOut, command, "issue verification failed: remote issue version does not match the expected version")
+		return 1
+	}
+	identity := store.LinearRemoteIdentity{
+		RemoteUUID: issue.ID, HumanKey: issue.Identifier, URL: issue.URL,
+		RemoteUpdatedAt: issue.UpdatedAt.UTC().Format(time.RFC3339Nano),
+		WorkspaceURL:    issue.WorkspaceURL, TeamID: issue.TeamID, ProjectID: issue.ProjectID, StateID: issue.StateID,
+	}
+	if err := s.AdoptLinearIssue(ctx, request.ProductID, request.WorkID, identity); err != nil {
+		writeOperatorDiagnostic(errOut, command, err.Error())
+		return 1
+	}
+	return writeJSON(out, map[string]any{"ok": true, "adopted": identity}, errOut)
 }
 
 // runLinearOutboxDrain handles the Phase 1 verb that drains claimed outbox
@@ -936,7 +1000,13 @@ func runLinearOutboxDrain(ctx context.Context, s *store.Store, raw []byte, comma
 		writeOperatorDiagnostic(errOut, command, err.Error())
 		return 1
 	}
-	claimed, err := s.ClaimLinearOperations(ctx, request.MaxOperations)
+	if connection.ProjectID != "" {
+		if err := client.VerifyDestination(ctx, linearclient.Destination{WorkspaceURL: connection.WorkspaceURL, TeamID: connection.TeamID, ProjectID: connection.ProjectID, StatusIDs: connection.StatusIDs}); err != nil {
+			writeOperatorDiagnostic(errOut, command, "destination verification failed: "+err.Error())
+			return 1
+		}
+	}
+	claimed, err := s.ClaimLinearOperationsForProduct(ctx, request.ProductID, request.MaxOperations)
 	if err != nil {
 		writeOperatorDiagnostic(errOut, command, err.Error())
 		return 1
@@ -959,33 +1029,34 @@ func runLinearOutboxDrain(ctx context.Context, s *store.Store, raw []byte, comma
 		if teamID == "" {
 			teamID = connection.TeamID
 		}
-		var (
-			issue linearclient.Issue
-			derr  error
-		)
-		if op.OpKind == store.LinearOpIssueUpdate {
-			issue, derr = drainUpdate(ctx, s, client, op, payload)
-		} else {
-			issue, derr = client.CreateIssue(ctx, linearclient.CreateIssueInput{
-				ID: payload.ClientUUID, TeamID: teamID, Title: payload.Title, Description: payload.Description,
-			})
-		}
-		if derr != nil {
-			class := "permanent"
-			if linearclient.IsRetryable(derr) {
-				class = "retryable"
-			}
-			_ = s.FailLinearOperation(ctx, op.OperationID, class, derr.Error())
-			results = append(results, drained{OperationID: op.OperationID, Outcome: class, Detail: derr.Error()})
+		if teamID != connection.TeamID || (connection.ProjectID != "" && payload.ProjectID != connection.ProjectID) {
+			_ = s.FailLinearOperation(ctx, op.OperationID, "permanent", "queued operation destination does not match the Product connection")
+			results = append(results, drained{OperationID: op.OperationID, Outcome: "permanent", Detail: "queued operation destination does not match the Product connection"})
 			continue
 		}
-		identity := store.LinearRemoteIdentity{
-			RemoteUUID:      issue.ID,
-			HumanKey:        issue.Identifier,
-			URL:             issue.URL,
-			RemoteUpdatedAt: issue.UpdatedAt.UTC().Format(time.RFC3339Nano),
-			ContentHash:     linearContentHash(payload.Title, payload.Description),
+		var issue linearclient.Issue
+		var drainErr error
+		if op.OpKind == store.LinearOpIssueUpdate {
+			issue, drainErr = drainUpdate(ctx, s, client, op, payload)
+		} else {
+			issue, drainErr = client.CreateIssue(ctx, linearclient.CreateIssueInput{ID: payload.ClientUUID, TeamID: teamID, Title: payload.Title, Description: payload.Description})
 		}
+		if drainErr != nil {
+			class := "permanent"
+			if linearclient.IsRetryable(drainErr) {
+				class = "retryable"
+			}
+			_ = s.FailLinearOperation(ctx, op.OperationID, class, drainErr.Error())
+			results = append(results, drained{OperationID: op.OperationID, Outcome: class, Detail: drainErr.Error()})
+			continue
+		}
+		contentHash := linearContentHash(payload.Title, payload.Description)
+		if op.OpKind == store.LinearOpIssueUpdate {
+			if link, readErr := s.ReadLinearLink(ctx, op.WorkID); readErr == nil {
+				contentHash = link.ContentHash
+			}
+		}
+		identity := store.LinearRemoteIdentity{RemoteUUID: issue.ID, HumanKey: issue.Identifier, URL: issue.URL, RemoteUpdatedAt: issue.UpdatedAt.UTC().Format(time.RFC3339Nano), ContentHash: contentHash}
 		if err := s.CompleteLinearOperation(ctx, op.OperationID, identity); err != nil {
 			_ = s.FailLinearOperation(ctx, op.OperationID, "retryable", err.Error())
 			results = append(results, drained{OperationID: op.OperationID, Outcome: "retryable", Detail: err.Error()})
@@ -1002,6 +1073,7 @@ type linearDrainPayload struct {
 	Title       string `json:"title"`
 	Description string `json:"description"`
 	TeamID      string `json:"team_id"`
+	ProjectID   string `json:"project_id,omitempty"`
 	Lifecycle   string `json:"lifecycle,omitempty"`
 	StatusID    string `json:"status_id,omitempty"`
 }
@@ -1015,7 +1087,7 @@ func drainUpdate(ctx context.Context, s *store.Store, client *linearclient.Clien
 	if link.RemoteIssueUUID == "" || link.RemoteIssueUUID == payload.ClientUUID {
 		return linearclient.Issue{}, fmt.Errorf("link has no confirmed remote issue to update")
 	}
-	return client.UpdateIssue(ctx, link.RemoteIssueUUID, linearclient.UpdateIssueInput{Title: payload.Title, Description: payload.Description, StatusID: payload.StatusID})
+	return client.UpdateIssue(ctx, link.RemoteIssueUUID, linearclient.UpdateIssueInput{StatusID: payload.StatusID})
 }
 
 // linearContentHash digests the synchronized content so a later reconciliation
@@ -1239,6 +1311,8 @@ func runInternal(command string, raw []byte, service *agent.Service, s *store.St
 		return runLinearHealth(ctx, s, raw, command, out, errOut)
 	case "linear-issue-enqueue":
 		return runLinearIssueEnqueue(ctx, s, raw, command, out, errOut)
+	case "linear-issue-adopt":
+		return runLinearIssueAdopt(ctx, s, raw, command, out, errOut)
 	case "linear-outbox-drain":
 		return runLinearOutboxDrain(ctx, s, raw, command, out, errOut)
 	case "linear-initiative-import":

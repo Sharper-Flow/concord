@@ -43,12 +43,13 @@ type ProductPlanningMode struct {
 }
 
 // LinearConnection is the declarative view of a Product's Linear connection:
-// the C15 managed saas_account resource carrying the linear metadata
-// convention. No credential material is read or stored here.
+// the C15 managed saas_account resource carrying workspace, team, project and
+// status bindings. No credential material is read or stored here.
 type LinearConnection struct {
 	ResourceID   string            `json:"resource_id"`
 	WorkspaceURL string            `json:"workspace_url"`
 	TeamID       string            `json:"team_id"`
+	ProjectID    string            `json:"project_id"`
 	AuthMode     string            `json:"auth_mode"`
 	StatusIDs    map[string]string `json:"status_ids,omitempty"`
 	State        string            `json:"state"` // declared | partial | absent
@@ -196,7 +197,7 @@ func (s *Store) ResolveLinearPlanningTarget(ctx context.Context, productID strin
 // from the C15 inventory: the owner-role managed resource of kind saas_account
 // whose metadata carries the linear convention. declared requires workspace
 // URL, team id, and auth mode; partial means some are missing; absent means no
-// such resource exists.
+// such resource exists. Multiple matching owner resources refuse.
 func (s *Store) ReadLinearConnection(ctx context.Context, productID string) (LinearConnection, error) {
 	rows, err := s.db.QueryContext(ctx, `
 SELECT r.resource_id, r.metadata
@@ -208,7 +209,7 @@ ORDER BY r.resource_id`, productID)
 		return LinearConnection{}, wrapFailure(KindUnavailable, "linear_connection_read", "cannot read Linear connection resources", true, "retry once the database is readable", err)
 	}
 	defer rows.Close()
-	var connection *LinearConnection
+	var candidates []LinearConnection
 	for rows.Next() {
 		var resourceID, metadataJSON string
 		if err := rows.Scan(&resourceID, &metadataJSON); err != nil {
@@ -229,6 +230,9 @@ ORDER BY r.resource_id`, productID)
 		if v, ok := linear["team_id"].(string); ok {
 			candidate.TeamID = v
 		}
+		if v, ok := linear["project_id"].(string); ok {
+			candidate.ProjectID = v
+		}
 		if v, ok := linear["auth_mode"].(string); ok {
 			candidate.AuthMode = v
 		}
@@ -240,15 +244,18 @@ ORDER BY r.resource_id`, productID)
 				}
 			}
 		}
-		connection = &candidate
-		break
+		candidates = append(candidates, candidate)
 	}
 	if err := rows.Err(); err != nil {
 		return LinearConnection{}, wrapFailure(KindUnavailable, "linear_connection_read", "cannot finish Linear connection read", true, "retry once the database is readable", err)
 	}
-	if connection == nil {
+	if len(candidates) == 0 {
 		return LinearConnection{State: LinearConnectionAbsent}, nil
 	}
+	if len(candidates) > 1 {
+		return LinearConnection{}, newFailure(KindAmbiguousScope, "linear_connection_read", "Product has multiple Linear owner connections", false, "retain exactly one owner connection for this Product")
+	}
+	connection := &candidates[0]
 	if connection.WorkspaceURL != "" && connection.TeamID != "" && connection.AuthMode != "" {
 		connection.State = LinearConnectionDeclared
 	} else {
@@ -440,7 +447,7 @@ func (s *Store) ReadLinearIntegrationHealth(ctx context.Context, productID strin
 		health.Connection = &connection
 	}
 	var oldestPending string
-	if err := s.db.QueryRowContext(ctx, `SELECT count(*), coalesce(min(CASE WHEN state IN ('queued','in_flight') THEN created_at END), '') FROM linear_outbox`).Scan(&health.OutboxDepth, &oldestPending); err != nil {
+	if err := s.db.QueryRowContext(ctx, `SELECT count(*), coalesce(min(CASE WHEN o.state IN ('queued','in_flight') THEN o.created_at END), '') FROM linear_outbox o WHERE EXISTS (SELECT 1 FROM work_projects wp JOIN product_projects pp ON pp.project_id=wp.project_id WHERE wp.work_id=o.work_id AND pp.product_id=?) OR NOT EXISTS (SELECT 1 FROM work_projects wp JOIN product_projects pp ON pp.project_id=wp.project_id WHERE wp.work_id=o.work_id)`, productID).Scan(&health.OutboxDepth, &oldestPending); err != nil {
 		return LinearIntegrationHealth{}, wrapFailure(KindUnavailable, "linear_health_read", "cannot read outbox depth", true, "retry once the database is readable", err)
 	}
 	if oldestPending != "" {
@@ -451,7 +458,7 @@ func (s *Store) ReadLinearIntegrationHealth(ctx context.Context, productID strin
 			}
 		}
 	}
-	rows, err := s.db.QueryContext(ctx, `SELECT link_state, count(*) FROM linear_issue_links GROUP BY link_state`)
+	rows, err := s.db.QueryContext(ctx, `SELECT l.link_state, count(*) FROM linear_issue_links l WHERE EXISTS (SELECT 1 FROM work_projects wp JOIN product_projects pp ON pp.project_id=wp.project_id WHERE wp.work_id=l.work_id AND pp.product_id=?) OR NOT EXISTS (SELECT 1 FROM work_projects wp JOIN product_projects pp ON pp.project_id=wp.project_id WHERE wp.work_id=l.work_id) GROUP BY l.link_state`, productID)
 	if err != nil {
 		return LinearIntegrationHealth{}, wrapFailure(KindUnavailable, "linear_health_read", "cannot read link counts", true, "retry once the database is readable", err)
 	}
@@ -492,6 +499,82 @@ func (s *Store) ReadLinearLink(ctx context.Context, workID string) (LinearIssueL
 	return link, nil
 }
 
+func isLinearFailureKind(err error, kind FailureKind) bool {
+	failure, ok := err.(*Failure)
+	return ok && failure.Kind == kind
+}
+
+// AdoptLinearIssue records a provider-verified issue as the canonical link for
+// one Product work item. It never creates or updates a remote issue.
+func (s *Store) AdoptLinearIssue(ctx context.Context, productID, workID string, identity LinearRemoteIdentity) error {
+	if len(productID) < 2 || len(productID) > 128 || len(workID) < 2 || len(workID) > 128 {
+		return newFailure(KindInvalidPayload, "linear_issue_adopt", "Product and work ids must be bounded", false, "supply bounded identifiers")
+	}
+	if len(identity.RemoteUUID) < 2 || len(identity.RemoteUUID) > 128 {
+		return newFailure(KindInvalidPayload, "linear_issue_adopt", "remote issue uuid must be bounded", false, "supply the provider issue uuid")
+	}
+	if _, err := s.ResolveLinearPlanningTarget(ctx, productID); err != nil {
+		return err
+	}
+	connection, err := s.ReadLinearConnection(ctx, productID)
+	if err != nil {
+		return err
+	}
+	resolvedProduct, err := s.resolveLinearProduct(ctx, workID)
+	if err != nil {
+		return err
+	}
+	if resolvedProduct != productID {
+		return newFailure(KindAmbiguousScope, "linear_issue_adopt", "work item belongs to a different Product", false, "adopt the issue through the work item's Product")
+	}
+	if connection.TeamID == "" || identity.TeamID != connection.TeamID {
+		return newFailure(KindProjectionConflict, "linear_issue_adopt", "remote issue team does not match the Product destination", false, "verify the issue against the declared team")
+	}
+	if connection.ProjectID != "" && identity.ProjectID != connection.ProjectID {
+		return newFailure(KindProjectionConflict, "linear_issue_adopt", "remote issue project does not match the Product destination", false, "verify the issue against the declared project")
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return wrapFailure(KindUnavailable, "linear_issue_adopt", "cannot open adoption transaction", true, "retry once the database is writable", err)
+	}
+	defer tx.Rollback()
+	if err := enterFold(ctx, tx); err != nil {
+		return err
+	}
+	var existingWork string
+	if err := tx.QueryRowContext(ctx, `SELECT work_id FROM linear_issue_links WHERE remote_issue_uuid=? AND work_id<>? AND link_state IN ('pending','confirmed')`, identity.RemoteUUID, workID).Scan(&existingWork); err == nil {
+		return newFailure(KindIdempotencyConflict, "linear_issue_adopt", "remote issue is already linked to another work item", false, "resolve the conflicting canonical mapping")
+	} else if err != sql.ErrNoRows {
+		return wrapFailure(KindUnavailable, "linear_issue_adopt", "cannot inspect remote identity mappings", true, "retry once the database is readable", err)
+	}
+	var currentUUID, currentState string
+	err = tx.QueryRowContext(ctx, `SELECT remote_issue_uuid, link_state FROM linear_issue_links WHERE work_id=?`, workID).Scan(&currentUUID, &currentState)
+	now := s.now().UTC().Format(time.RFC3339Nano)
+	switch {
+	case err == sql.ErrNoRows:
+		if _, err := tx.ExecContext(ctx, `INSERT INTO linear_issue_links(work_id, remote_issue_uuid, human_key, url, remote_updated_at, content_hash, link_state, created_at, updated_at) VALUES (?,?,?,?,?,?,?, ?, ?)`, workID, identity.RemoteUUID, identity.HumanKey, identity.URL, identity.RemoteUpdatedAt, identity.ContentHash, LinearLinkConfirmed, now, now); err != nil {
+			return wrapFailure(KindUnavailable, "linear_issue_adopt", "cannot record the native link", true, "retry once the database is writable", err)
+		}
+	case err != nil:
+		return wrapFailure(KindUnavailable, "linear_issue_adopt", "cannot read the existing link", true, "retry once the database is readable", err)
+	case currentUUID != identity.RemoteUUID:
+		return newFailure(KindIdempotencyConflict, "linear_issue_adopt", "work item already maps to a different remote issue", false, "resolve the conflicting canonical mapping")
+	case currentState == LinearLinkConfirmed:
+		if err := leaveFold(ctx, tx); err != nil {
+			return err
+		}
+		return tx.Commit()
+	default:
+		if _, err := tx.ExecContext(ctx, `UPDATE linear_issue_links SET human_key=?, url=?, remote_updated_at=?, content_hash=?, link_state=?, updated_at=? WHERE work_id=?`, identity.HumanKey, identity.URL, identity.RemoteUpdatedAt, identity.ContentHash, LinearLinkConfirmed, now, workID); err != nil {
+			return wrapFailure(KindUnavailable, "linear_issue_adopt", "cannot confirm the native link", true, "retry once the database is writable", err)
+		}
+	}
+	if err := leaveFold(ctx, tx); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
 // Linear Phase 1 (issue 990): the enqueue, batch claim, and completion surface
 // the drain executes against. The store still performs no network calls; the
 // drain verb in the CLI owns the Linear client and maps its typed failures onto
@@ -507,6 +590,10 @@ type LinearRemoteIdentity struct {
 	URL             string
 	RemoteUpdatedAt string
 	ContentHash     string
+	WorkspaceURL    string
+	TeamID          string
+	ProjectID       string
+	StateID         string
 }
 
 // ClaimedLinearOperation is one operation handed to the drain under claim.
@@ -515,6 +602,7 @@ type ClaimedLinearOperation struct {
 	WorkID         string          `json:"work_id"`
 	OpKind         string          `json:"op_kind"`
 	IdempotencyKey string          `json:"idempotency_key"`
+	State          string          `json:"state"`
 	Attempts       int             `json:"attempts"`
 	Payload        json.RawMessage `json:"payload"`
 }
@@ -527,6 +615,7 @@ type linearPayload struct {
 	Title       string `json:"title"`
 	Description string `json:"description"`
 	TeamID      string `json:"team_id"`
+	ProjectID   string `json:"project_id,omitempty"`
 	Lifecycle   string `json:"lifecycle,omitempty"`
 	StatusID    string `json:"status_id,omitempty"`
 }
@@ -552,6 +641,17 @@ func newLinearClientUUID() string {
 		return fmt.Sprintf("fallback-%d", time.Now().UnixNano())
 	}
 	bytes[6] = (bytes[6] & 0x0f) | 0x40
+	bytes[8] = (bytes[8] & 0x3f) | 0x80
+	return fmt.Sprintf("%x-%x-%x-%x-%x", bytes[0:4], bytes[4:6], bytes[6:8], bytes[8:10], bytes[10:16])
+}
+
+// linearCreationUUID derives one stable UUID from the local work identity.
+// The work identity is the creation intent, so a retry cannot mint a second
+// remote issue after an uncertain response.
+func linearCreationUUID(workID string) string {
+	sum := sha256.Sum256([]byte("linear-create:" + workID))
+	bytes := sum[:16]
+	bytes[6] = (bytes[6] & 0x0f) | 0x50
 	bytes[8] = (bytes[8] & 0x3f) | 0x80
 	return fmt.Sprintf("%x-%x-%x-%x-%x", bytes[0:4], bytes[4:6], bytes[6:8], bytes[8:10], bytes[10:16])
 }
@@ -588,6 +688,19 @@ WHERE w.id = ?`, workID)
 	default:
 		return "", newFailure(KindAmbiguousScope, "linear_product_resolve", "work item belongs to more than one Product", false, "supply a work item with exactly one Product")
 	}
+}
+
+// VerifyLinearWorkProduct refuses a command whose declared Product does not
+// own the work item. The command boundary must not ignore its Product field.
+func (s *Store) VerifyLinearWorkProduct(ctx context.Context, productID, workID string) error {
+	resolved, err := s.resolveLinearProduct(ctx, workID)
+	if err != nil {
+		return err
+	}
+	if resolved != productID {
+		return newFailure(KindProjectionConflict, "linear_product_resolve", "work item does not belong to the declared Product", false, "supply the Product that owns the work item")
+	}
+	return nil
 }
 
 // EnqueueLinearIssueForWork queues one outbound issue operation for a work
@@ -636,20 +749,56 @@ func (s *Store) EnqueueLinearIssueForWork(ctx context.Context, workID, opKind st
 		}
 	}
 	clientUUID := newLinearClientUUID()
+	if opKind == LinearOpIssueCreate {
+		clientUUID = linearCreationUUID(workID)
+	}
 	statusID := ""
 	if opKind == LinearOpIssueUpdate {
-		statusID, err = linearTerminalStatusID(connection, lifecycle)
-		if err != nil {
-			return ClaimedLinearOperation{}, err
+		statusID = connection.StatusIDs[lifecycle]
+		if isTerminalLifecycle(lifecycle) {
+			statusID, err = linearTerminalStatusID(connection, lifecycle)
+			if err != nil {
+				return ClaimedLinearOperation{}, err
+			}
 		}
 	}
-	payload, err := json.Marshal(linearPayload{ClientUUID: clientUUID, Title: title, Description: valueStatement, TeamID: connection.TeamID, Lifecycle: lifecycle, StatusID: statusID})
+	payload, err := json.Marshal(linearPayload{ClientUUID: clientUUID, Title: title, Description: valueStatement, TeamID: connection.TeamID, ProjectID: connection.ProjectID, Lifecycle: lifecycle, StatusID: statusID})
 	if err != nil {
 		return ClaimedLinearOperation{}, wrapFailure(KindUnavailable, "linear_issue_enqueue", "cannot encode payload", true, "retry the enqueue", err)
 	}
-	entry := ClaimedLinearOperation{OperationID: "linear-" + clientUUID, WorkID: workID, OpKind: opKind, IdempotencyKey: clientUUID, Payload: payload}
+	entry := ClaimedLinearOperation{OperationID: "linear-" + clientUUID, WorkID: workID, OpKind: opKind, IdempotencyKey: clientUUID, Payload: payload, State: LinearOutboxQueued}
+	if opKind == LinearOpIssueCreate {
+		var existingState string
+		if err := s.db.QueryRowContext(ctx, `SELECT link_state FROM linear_issue_links WHERE work_id=?`, workID).Scan(&existingState); err == nil {
+			var existing ClaimedLinearOperation
+			var existingPayload string
+			readErr := s.db.QueryRowContext(ctx, `SELECT operation_id, work_id, op_kind, idempotency_key, state, attempts, payload FROM linear_outbox WHERE work_id=? AND op_kind=? ORDER BY created_at LIMIT 1`, workID, LinearOpIssueCreate).Scan(&existing.OperationID, &existing.WorkID, &existing.OpKind, &existing.IdempotencyKey, &existing.State, &existing.Attempts, &existingPayload)
+			if readErr == nil {
+				existing.Payload = json.RawMessage(existingPayload)
+				return existing, nil
+			}
+			if readErr != sql.ErrNoRows {
+				return ClaimedLinearOperation{}, wrapFailure(KindUnavailable, "linear_issue_enqueue", "cannot read existing creation", true, "retry once the database is readable", readErr)
+			}
+			if existingState == LinearLinkConfirmed {
+				entry.State = LinearOutboxDone
+				return entry, nil
+			}
+			return ClaimedLinearOperation{}, newFailure(KindIdempotencyConflict, "linear_issue_enqueue", "work item already has an unresolved native link", false, "resolve the existing pending link before creating an issue")
+		} else if err != nil && err != sql.ErrNoRows {
+			return ClaimedLinearOperation{}, wrapFailure(KindUnavailable, "linear_issue_enqueue", "cannot read link", true, "retry once the database is readable", err)
+		}
+	}
 	if err := s.EnqueueLinearOperation(ctx, LinearOutboxEntry{OperationID: entry.OperationID, WorkID: workID, OpKind: opKind, IdempotencyKey: entry.IdempotencyKey, Payload: payload}); err != nil {
-		return ClaimedLinearOperation{}, err
+		if opKind != LinearOpIssueCreate || !isLinearFailureKind(err, KindIdempotencyConflict) {
+			return ClaimedLinearOperation{}, err
+		}
+		var existingPayload string
+		if readErr := s.db.QueryRowContext(ctx, `SELECT operation_id, work_id, op_kind, idempotency_key, state, attempts, payload FROM linear_outbox WHERE idempotency_key=?`, clientUUID).Scan(&entry.OperationID, &entry.WorkID, &entry.OpKind, &entry.IdempotencyKey, &entry.State, &entry.Attempts, &existingPayload); readErr != nil {
+			return ClaimedLinearOperation{}, wrapFailure(KindUnavailable, "linear_issue_enqueue", "cannot read concurrent creation", true, "retry once the database is readable", readErr)
+		}
+		entry.Payload = json.RawMessage(existingPayload)
+		return entry, nil
 	}
 	// The link starts unpublished carrying the client UUID as its placeholder
 	// remote identity; the drain replaces it with the confirmed identity. A
@@ -671,6 +820,23 @@ func (s *Store) EnqueueLinearIssueForWork(ctx context.Context, workID, opKind st
 // UPDATE makes the claim exclusive: an operation another caller already
 // claimed stays out of this result.
 func (s *Store) ClaimLinearOperations(ctx context.Context, limit int64) ([]ClaimedLinearOperation, error) {
+	return s.claimLinearOperations(ctx, "", limit)
+}
+
+// ClaimLinearOperationsForProduct claims only operations whose work belongs to
+// the selected Product. The Product is resolved before the transaction opens.
+func (s *Store) ClaimLinearOperationsForProduct(ctx context.Context, productID string, limit int64) ([]ClaimedLinearOperation, error) {
+	mode, err := s.ResolveLinearPlanningTarget(ctx, productID)
+	if err != nil {
+		return nil, err
+	}
+	if mode.PlanningMode == PlanningModeLocalOnly {
+		return nil, newFailure(KindInvalidOperation, "linear_outbox_claim", "planning mode is local_only", false, "set planning_mode to linear_enabled before draining")
+	}
+	return s.claimLinearOperations(ctx, productID, limit)
+}
+
+func (s *Store) claimLinearOperations(ctx context.Context, productID string, limit int64) ([]ClaimedLinearOperation, error) {
 	if limit < 1 || limit > 25 {
 		return nil, newFailure(KindInvalidPayload, "linear_outbox_claim", "limit must be 1 to 25", false, "bound each drain pass to 25 operations")
 	}
@@ -682,7 +848,15 @@ func (s *Store) ClaimLinearOperations(ctx context.Context, limit int64) ([]Claim
 	if err := enterFold(ctx, tx); err != nil {
 		return nil, err
 	}
-	rows, err := tx.QueryContext(ctx, `SELECT operation_id FROM linear_outbox WHERE state=? ORDER BY created_at LIMIT ?`, LinearOutboxQueued, limit)
+	queueQuery := `SELECT operation_id FROM linear_outbox WHERE state=?`
+	queueArgs := []any{LinearOutboxQueued}
+	if productID != "" {
+		queueQuery += ` AND operation_id IN (SELECT o.operation_id FROM linear_outbox o JOIN work_projects wp ON wp.work_id=o.work_id JOIN product_projects pp ON pp.project_id=wp.project_id WHERE pp.product_id=?)`
+		queueArgs = append(queueArgs, productID)
+	}
+	queueQuery += ` ORDER BY created_at LIMIT ?`
+	queueArgs = append(queueArgs, limit)
+	rows, err := tx.QueryContext(ctx, queueQuery, queueArgs...)
 	if err != nil {
 		return nil, wrapFailure(KindUnavailable, "linear_outbox_claim", "cannot read the queue", true, "retry once the database is readable", err)
 	}
@@ -713,7 +887,7 @@ func (s *Store) ClaimLinearOperations(ctx context.Context, limit int64) ([]Claim
 		}
 		var op ClaimedLinearOperation
 		var payload string
-		if err := tx.QueryRowContext(ctx, `SELECT operation_id, work_id, op_kind, idempotency_key, attempts, payload FROM linear_outbox WHERE operation_id=?`, id).Scan(&op.OperationID, &op.WorkID, &op.OpKind, &op.IdempotencyKey, &op.Attempts, &payload); err != nil {
+		if err := tx.QueryRowContext(ctx, `SELECT operation_id, work_id, op_kind, idempotency_key, state, attempts, payload FROM linear_outbox WHERE operation_id=?`, id).Scan(&op.OperationID, &op.WorkID, &op.OpKind, &op.IdempotencyKey, &op.State, &op.Attempts, &payload); err != nil {
 			return nil, wrapFailure(KindUnavailable, "linear_outbox_claim", "cannot read claimed operation", true, "retry once the database is readable", err)
 		}
 		op.Payload = json.RawMessage(payload)
@@ -739,8 +913,8 @@ func (s *Store) CompleteLinearOperation(ctx context.Context, operationID string,
 	if err := enterFold(ctx, tx); err != nil {
 		return err
 	}
-	var workID, opKind, state string
-	if err := tx.QueryRowContext(ctx, `SELECT work_id, op_kind, state FROM linear_outbox WHERE operation_id=?`, operationID).Scan(&workID, &opKind, &state); err == sql.ErrNoRows {
+	var workID, opKind, state, payload string
+	if err := tx.QueryRowContext(ctx, `SELECT work_id, op_kind, state, payload FROM linear_outbox WHERE operation_id=?`, operationID).Scan(&workID, &opKind, &state, &payload); err == sql.ErrNoRows {
 		return newFailure(KindUnknownScope, "linear_outbox_complete", "queued operation does not exist", false, "supply an in-flight operation id")
 	} else if err != nil {
 		return wrapFailure(KindUnavailable, "linear_outbox_complete", "cannot read the completed operation", true, "retry once the database is readable", err)
@@ -780,6 +954,15 @@ func completeLinearLinkTx(ctx context.Context, tx *sql.Tx, workID, opKind string
 	}
 	if currentState == LinearLinkConfirmed && opKind != LinearOpIssueUpdate {
 		return newFailure(KindInvalidTransition, "linear_outbox_complete", "a create operation cannot complete an already confirmed link", false, "complete the operation that owns the linked issue")
+	}
+	if currentState == LinearLinkConfirmed && opKind == LinearOpIssueUpdate {
+		var currentUUID string
+		if err := tx.QueryRowContext(ctx, `SELECT remote_issue_uuid FROM linear_issue_links WHERE work_id=?`, workID).Scan(&currentUUID); err != nil {
+			return wrapFailure(KindUnavailable, "linear_outbox_complete", "cannot read linked remote identity", true, "retry once the database is readable", err)
+		}
+		if identity.RemoteUUID != currentUUID {
+			return newFailure(KindProjectionConflict, "linear_outbox_complete", "update completion returned a different remote issue", false, "complete the operation against the verified linked issue")
+		}
 	}
 	if _, err := tx.ExecContext(ctx, `UPDATE linear_issue_links SET remote_issue_uuid=?, human_key=?, url=?, remote_updated_at=?, content_hash=?, link_state=?, updated_at=? WHERE work_id=?`, identity.RemoteUUID, identity.HumanKey, identity.URL, identity.RemoteUpdatedAt, identity.ContentHash, LinearLinkConfirmed, now, workID); err != nil {
 		return wrapFailure(KindUnavailable, "linear_outbox_complete", "cannot confirm completed link", true, "retry once the database is writable", err)

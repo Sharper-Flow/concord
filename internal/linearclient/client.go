@@ -90,6 +90,24 @@ type Issue struct {
 	Identifier string    `json:"identifier"`
 	URL        string    `json:"url"`
 	UpdatedAt  time.Time `json:"updatedAt"`
+	TeamID     string    `json:"teamId,omitempty"`
+	ProjectID  string    `json:"projectId,omitempty"`
+	StateID    string    `json:"stateId,omitempty"`
+}
+
+// Destination is the provider readback used before a native write or link.
+// It contains no credential material.
+type Destination struct {
+	WorkspaceURL string
+	TeamID       string
+	ProjectID    string
+	StatusIDs    map[string]string
+}
+
+// IssueRead is the remote identity and destination of an existing issue.
+type IssueRead struct {
+	Issue
+	WorkspaceURL string
 }
 
 // Client talks to one Linear workspace over GraphQL with Bearer auth.
@@ -170,6 +188,111 @@ func (c *Client) UpdateIssue(ctx context.Context, remoteUUID string, input Updat
 		return Issue{}, &Failure{Kind: KindGraphqlError, Detail: "issueUpdate reported success=false"}
 	}
 	return payload.IssueUpdate.Issue, nil
+}
+
+// VerifyDestination reads the declared team, project, and workflow states.
+// The provider response must agree with every declared binding before a write.
+func (c *Client) VerifyDestination(ctx context.Context, expected Destination) error {
+	if expected.TeamID == "" || expected.ProjectID == "" {
+		return &Failure{Kind: KindGraphqlError, Detail: "Linear destination requires a team and project"}
+	}
+	var payload struct {
+		Team *struct {
+			ID           string `json:"id"`
+			Organization *struct {
+				URLKey string `json:"urlKey"`
+			} `json:"organization"`
+		} `json:"team"`
+		Project *struct {
+			ID   string `json:"id"`
+			Team *struct {
+				ID string `json:"id"`
+			} `json:"team"`
+		} `json:"project"`
+		WorkflowStates struct {
+			Nodes []struct {
+				ID   string `json:"id"`
+				Team *struct {
+					ID string `json:"id"`
+				} `json:"team"`
+			} `json:"nodes"`
+		} `json:"workflowStates"`
+	}
+	if err := c.call(ctx, `query($teamId: String!, $projectId: String!) { team(id: $teamId) { id organization { urlKey } } project(id: $projectId) { id team { id } } workflowStates { nodes { id team { id } } } }`, map[string]any{"teamId": expected.TeamID, "projectId": expected.ProjectID}, &payload); err != nil {
+		return err
+	}
+	if payload.Team == nil || payload.Team.ID != expected.TeamID {
+		return &Failure{Kind: KindGraphqlError, Detail: "Linear team does not match the declared destination"}
+	}
+	if expected.WorkspaceURL != "" && payload.Team.Organization != nil && payload.Team.Organization.URLKey != "" {
+		workspace := "https://linear.app/" + payload.Team.Organization.URLKey
+		if strings.TrimRight(expected.WorkspaceURL, "/") != workspace {
+			return &Failure{Kind: KindGraphqlError, Detail: "Linear team does not belong to the declared workspace"}
+		}
+	}
+	if payload.Project == nil || payload.Project.ID != expected.ProjectID || payload.Project.Team == nil || payload.Project.Team.ID != expected.TeamID {
+		return &Failure{Kind: KindGraphqlError, Detail: "Linear project does not match the declared team"}
+	}
+	actual := make(map[string]bool, len(payload.WorkflowStates.Nodes))
+	for _, state := range payload.WorkflowStates.Nodes {
+		if state.Team != nil && state.Team.ID == expected.TeamID {
+			actual[state.ID] = true
+		}
+	}
+	for lifecycle, stateID := range expected.StatusIDs {
+		if stateID == "" || !actual[stateID] {
+			return &Failure{Kind: KindGraphqlError, Detail: "Linear status does not match the declared destination for " + lifecycle}
+		}
+	}
+	return nil
+}
+
+// GetIssue reads an existing issue without changing it. It is the only client
+// route used by native adoption.
+func (c *Client) GetIssue(ctx context.Context, remoteUUID string) (IssueRead, error) {
+	if remoteUUID == "" {
+		return IssueRead{}, &Failure{Kind: KindGraphqlError, Detail: "remote issue uuid is required"}
+	}
+	var payload struct {
+		Issue *struct {
+			ID         string    `json:"id"`
+			Identifier string    `json:"identifier"`
+			URL        string    `json:"url"`
+			UpdatedAt  time.Time `json:"updatedAt"`
+			Team       *struct {
+				ID           string `json:"id"`
+				Organization *struct {
+					URLKey string `json:"urlKey"`
+				} `json:"organization"`
+			} `json:"team"`
+			Project *struct {
+				ID string `json:"id"`
+			} `json:"project"`
+			State *struct {
+				ID string `json:"id"`
+			} `json:"state"`
+		} `json:"issue"`
+	}
+	if err := c.call(ctx, `query($id: String!) { issue(id: $id) { id identifier url updatedAt team { id organization { urlKey } } project { id } state { id } } }`, map[string]any{"id": remoteUUID}, &payload); err != nil {
+		return IssueRead{}, err
+	}
+	if payload.Issue == nil || payload.Issue.ID == "" {
+		return IssueRead{}, &Failure{Kind: KindGraphqlError, Detail: "Linear issue was not found"}
+	}
+	read := IssueRead{Issue: Issue{ID: payload.Issue.ID, Identifier: payload.Issue.Identifier, URL: payload.Issue.URL, UpdatedAt: payload.Issue.UpdatedAt}}
+	if payload.Issue.Team != nil {
+		read.TeamID = payload.Issue.Team.ID
+		if payload.Issue.Team.Organization != nil && payload.Issue.Team.Organization.URLKey != "" {
+			read.WorkspaceURL = "https://linear.app/" + payload.Issue.Team.Organization.URLKey
+		}
+	}
+	if payload.Issue.Project != nil {
+		read.ProjectID = payload.Issue.Project.ID
+	}
+	if payload.Issue.State != nil {
+		read.StateID = payload.Issue.State.ID
+	}
+	return read, nil
 }
 
 func (c *Client) call(ctx context.Context, query string, variables map[string]any, into any) error {

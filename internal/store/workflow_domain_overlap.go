@@ -18,10 +18,10 @@ type WorkflowDomainRelationTuple struct {
 	TargetDomainID string `json:"target_domain_id"`
 }
 
-// WorkflowDomainOverlap names every bounded intersection between two active
-// Product-changing contracts. The active contract versions are part of the
-// identity; a later contract revision therefore makes an old resolution stale
-// without rewriting its event history.
+// WorkflowDomainOverlap names every bounded write intersection between two
+// active Product-changing contracts. The active contract versions are part of
+// the identity; a later contract revision therefore makes an old resolution
+// stale without rewriting its event history.
 type WorkflowDomainOverlap struct {
 	ProductID                     string                        `json:"product_id"`
 	FromWorkID                    string                        `json:"from_work_id"`
@@ -308,7 +308,7 @@ func workflowDomainOverlapPair(left, right workflowOverlapFootprint) (WorkflowDo
 	sharedLaw := intersectStrings(from.LawWrites, to.LawWrites)
 	sharedDomainModifications := intersectStrings(from.DomainModifications, to.DomainModifications)
 	sharedRelations := intersectDomainRelations(from.Relations, to.Relations)
-	if len(sharedDomains) == 0 {
+	if len(sharedLaw) == 0 && len(sharedDomainModifications) == 0 && len(sharedRelations) == 0 {
 		return WorkflowDomainOverlap{}, false
 	}
 	classes := []string{"architecture"}

@@ -1,0 +1,18 @@
+{
+  "evidence": [
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestWorkflowDomainOverlapArchitectureOnlyDoesNotBlock"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestWorkflowDomainOverlapWriteIntersectionBlocks"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestWorkflowDomainOverlapClassifiesLawDomainAndRelationWrites"
+    }
+  ],
+  "id": "CD-0145",
+  "state": "satisfied"
+}

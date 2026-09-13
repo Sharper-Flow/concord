@@ -186,6 +186,10 @@ type workflowActionCompletedPayload struct {
 	WorkerLaneID           string   `json:"worker_lane_id,omitempty"`
 	WorkerPacketDigest     string   `json:"worker_packet_digest,omitempty"`
 	WorkerWorktreeIdentity string   `json:"worker_worktree_identity,omitempty"`
+	CorrectionDiagnosis    string   `json:"correction_diagnosis,omitempty"`
+	CorrectionStrategy     string   `json:"correction_strategy,omitempty"`
+	CorrectionEvidenceRefs []string `json:"correction_evidence_refs,omitempty"`
+	CorrectionPredicateIDs []string `json:"correction_predicate_ids,omitempty"`
 	ResultEvidenceRefs     []string `json:"result_evidence_refs"`
 	ChangedRefs            []string `json:"changed_refs"`
 	ActorRef               string   `json:"actor_ref"`
@@ -1372,8 +1376,11 @@ func foldWorkflowActionCompleted(ctx context.Context, tx *sql.Tx, event Event) e
 	if (p.ActionID != "" && !workflowString(p.ActionID, 128)) || !workflowString(p.StepID, 128) || p.AttemptEpoch <= 0 || p.AttemptEpoch > 2147483647 || (p.WorkerAttemptID != "" && !workflowString(p.WorkerAttemptID, 128)) || !workflowList(p.ResultEvidenceRefs, 32, 0) || !workflowList(p.ChangedRefs, 32, 0) {
 		return newFailure(KindInvalidPayload, "fold_event", "action_completed has invalid result fields", false, "supply bounded action result references")
 	}
-	if p.ActionID != "accept_worker_result" && p.ActionID != "record_worker_failure" && p.ActionID != "dispatch_worker" && p.WorkerAttemptID != "" {
+	if p.ActionID != "accept_worker_result" && p.ActionID != "record_worker_failure" && p.ActionID != "reject_worker_result" && p.ActionID != "dispatch_worker" && p.WorkerAttemptID != "" {
 		return newFailure(KindInvalidPayload, "fold_event", "worker_attempt_id is reserved for worker result actions and dispatch_worker", false, "omit worker_attempt_id for ordinary action completion")
+	}
+	if (p.CorrectionDiagnosis != "" && !workflowString(p.CorrectionDiagnosis, 4096)) || (p.CorrectionStrategy != "" && !workflowString(p.CorrectionStrategy, 4096)) || (len(p.CorrectionEvidenceRefs) > 0 && !workflowList(p.CorrectionEvidenceRefs, 32, 1)) || (len(p.CorrectionPredicateIDs) > 0 && !workflowList(p.CorrectionPredicateIDs, 8, 1)) {
+		return newFailure(KindInvalidPayload, "fold_event", "action_completed has invalid correction fields", false, "supply bounded correction context")
 	}
 	if err := requireActor(ctx, tx, p.ActorRef); err != nil {
 		return err
@@ -1395,6 +1402,7 @@ func foldWorkflowActionCompleted(ctx context.Context, tx *sql.Tx, event Event) e
 	}
 	if !definitionStepAllows(entry.Definition, currentStep, p.ActionID) {
 		workerFailureRecovery := false
+		workerResultRejection := false
 		if p.ActionID == "record_worker_failure" {
 			var recoveryErr error
 			workerFailureRecovery, recoveryErr = workflowWorkerFailureRecoveryMayFold(ctx, tx, event.SubjectID, entry.Definition, currentStep, "fold_event")
@@ -1402,10 +1410,17 @@ func foldWorkflowActionCompleted(ctx context.Context, tx *sql.Tx, event Event) e
 				return recoveryErr
 			}
 		}
-		if !workerFailureRecovery && (p.ActionID != "bind_evidence" || stepDeclaresAction(entry.Definition, currentStep, "bind_evidence")) {
+		if p.ActionID == "reject_worker_result" {
+			var recoveryErr error
+			workerResultRejection, _, recoveryErr = workflowCompletedWorkerRejectionAvailable(ctx, tx, event.SubjectID)
+			if recoveryErr != nil {
+				return recoveryErr
+			}
+		}
+		if !workerFailureRecovery && !workerResultRejection && (p.ActionID != "bind_evidence" || stepDeclaresAction(entry.Definition, currentStep, "bind_evidence")) {
 			return newFailure(KindIllegalLifecycleTransition, "fold_event", "completed action is not declared on the pinned current step", false, "reread_entities")
 		}
-		if !workerFailureRecovery {
+		if !workerFailureRecovery && !workerResultRejection {
 			bindingStep := workflowEvidenceBindingStep(entry.Definition, currentStep)
 			if bindingStep == "" || !workflowStepFollows(entry.Definition, bindingStep, currentStep) {
 				return newFailure(KindIllegalLifecycleTransition, "fold_event", "recovery evidence binding is not past its declared binding step", false, "reread_entities")
@@ -1474,6 +1489,18 @@ func foldWorkflowActionCompleted(ctx context.Context, tx *sql.Tx, event Event) e
 			}
 			if recorded != 0 {
 				return newFailure(KindIllegalLifecycleTransition, "fold_event", "worker failure is already recorded", false, "start a fresh workflow attempt")
+			}
+		}
+		if p.ActionID == "reject_worker_result" {
+			if err := validateWorkerAttemptAction(ctx, tx, event, p, entry.Definition, currentStep, "completed"); err != nil {
+				return err
+			}
+			var recorded int
+			if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id') IN ('accept_worker_result','reject_worker_result') AND json_extract(payload,'$.worker_attempt_id')=? AND seq<?`, string(SubjectWorkItem), event.SubjectID, WorkflowActionCompleted, p.WorkerAttemptID, event.Seq).Scan(&recorded); err != nil {
+				return workflowProjectionError(err, "cannot inspect worker result disposition")
+			}
+			if recorded != 0 {
+				return newFailure(KindIllegalLifecycleTransition, "fold_event", "worker result already has a disposition", false, "use the current undisposed worker result")
 			}
 		}
 	}
@@ -1573,7 +1600,7 @@ func latestWorkflowActionStartAt(ctx context.Context, q queryer, workID, stepID 
 func validateWorkerAttemptAction(ctx context.Context, tx *sql.Tx, event Event, payload workflowActionCompletedPayload, definition WorkflowDefinition, currentStep, requiredLifecycle string) error {
 	step := workflowStep(definition, currentStep)
 	allowed := step != nil && definitionStepAllows(definition, currentStep, payload.ActionID)
-	if !allowed && payload.ActionID == "record_worker_failure" {
+	if !allowed && (payload.ActionID == "record_worker_failure" || payload.ActionID == "reject_worker_result") {
 		var recoveryErr error
 		allowed, recoveryErr = workflowWorkerFailureRecoveryMayFold(ctx, tx, event.SubjectID, definition, currentStep, "fold_event")
 		if recoveryErr != nil {

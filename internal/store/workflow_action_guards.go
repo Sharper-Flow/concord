@@ -32,15 +32,16 @@ type workflowActionGuardContext struct {
 	entry       RegisteredDefinition
 	currentStep string
 
-	staleRecovery         bool
-	lateVerdictRecovery   bool
-	recoveryBind          bool
-	workerFailureRecovery bool
-	actorRef              string
-	eventActor            string
-	operatorRef           string
-	actorNeedsRecord      bool
-	operatorNeedsRecord   bool
+	staleRecovery           bool
+	lateVerdictRecovery     bool
+	recoveryBind            bool
+	workerFailureRecovery   bool
+	workerRejectionRecovery bool
+	actorRef                string
+	eventActor              string
+	operatorRef             string
+	actorNeedsRecord        bool
+	operatorNeedsRecord     bool
 }
 
 type workflowActionGuardFunc func(*workflowActionGuardContext) error
@@ -59,6 +60,24 @@ var workflowActionGuards = map[string]workflowActionGuard{
 	"link_successor":         {guardPhasePostValidation, guardForwardLinkOnly},
 	"cross_context_boundary": {guardPhaseClaim, guardNoRestartDispatch},
 	"record_delivery":        {guardPhaseClaim, guardDeliveryFollowsStart},
+}
+
+func guardFreshWorkerAttemptStart(g *workflowActionGuardContext) error {
+	held, err := workflowDispatchHoldsStepAdvance(g.ctx, g.tx, g.request.WorkID, g.currentStep)
+	if err != nil || !held {
+		return err
+	}
+	correction, err := workflowCorrectionContext(g.ctx, g.tx, g.request.WorkID)
+	if err != nil {
+		return err
+	}
+	if correction == nil {
+		return newFailure(KindIllegalLifecycleTransition, "workflow_action", "a worker attempt must be accepted, rejected, or recorded as failed before a fresh start", false, "record the exact worker result disposition")
+	}
+	if correction.Escalated {
+		return newFailure(KindApprovalRequired, "workflow_action", "worker correction reached the three-attempt limit", false, "escalate the correction to the operator")
+	}
+	return nil
 }
 
 // runWorkflowActionGuard runs the request's guard when one is declared for
@@ -697,9 +716,18 @@ func appendGenericWorkflowCompletion(in workflowActionAssemblyInput, attemptEpoc
 		"changed_refs": []string{in.request.WorkID}, "actor_ref": in.eventActor,
 	}
 	var workerPacketDigest string
-	if in.request.ActionID == "accept_worker_result" || in.request.ActionID == "record_worker_failure" {
+	if in.request.ActionID == "accept_worker_result" || in.request.ActionID == "record_worker_failure" || in.request.ActionID == "reject_worker_result" {
 		completionValues["attempt_epoch"] = workflowFieldInt(fields, "attempt_epoch", 0)
 		completionValues["worker_attempt_id"] = workflowFieldStringDefault(fields, "attempt_id", "")
+	}
+	if in.request.ActionID == "record_worker_failure" || in.request.ActionID == "reject_worker_result" {
+		completionValues["correction_diagnosis"] = workflowFieldStringDefault(fields, "diagnosis", "")
+		completionValues["correction_strategy"] = workflowFieldStringDefault(fields, "strategy", "")
+		completionValues["correction_evidence_refs"] = workflowFieldStrings(fields, "evidence_refs")
+		completionValues["correction_predicate_ids"] = workflowFieldStrings(fields, "predicate_ids")
+		if in.request.ActionID == "reject_worker_result" {
+			completionValues["rejection_reason"] = workflowFieldStringDefault(fields, "rejection_reason", "")
+		}
 	}
 	// CD-0059 D1/D5: the dispatch_worker completion carries the authorized
 	// attempt_id into the durable record so the worker-dispatch evidence

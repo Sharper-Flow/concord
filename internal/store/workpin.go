@@ -21,6 +21,7 @@ type WorkPin struct {
 	PendingOperatorDecision *WorkflowOperatorQuestion `json:"pending_operator_decision"`
 	Watermark               string                    `json:"watermark"`
 	NextValidIntents        []WorkPinIntent           `json:"next_valid_intents"`
+	Correction              *WorkflowCorrectionContext `json:"correction,omitempty"`
 	// VerdictEvidence exposes the bound immutable evidence set at steps where
 	// record_verdict is declarable, so a caller cites qualifying refs without
 	// a raw store read (#974). It stays nil at every other step.
@@ -162,6 +163,21 @@ func ReadWorkPinTx(ctx context.Context, tx *sql.Tx, workID string) (WorkPin, err
 	}
 	if contractCorrection && !workPinContainsAction(pin.NextValidIntents, "supersede_contract") {
 		pin.NextValidIntents = append(pin.NextValidIntents, workPinIntentForAction(workflowContractRecoveryActionDefinition(), pin.Version, "operator_contract_correction"))
+	}
+	correction, correctionErr := workflowCorrectionContext(ctx, tx, workID)
+	if correctionErr != nil {
+		return pin, correctionErr
+	}
+	pin.Correction = correction
+	correctionAvailable, _, correctionErr := workflowCorrectionAvailable(ctx, tx, workID)
+	if correctionErr != nil {
+		return pin, correctionErr
+	}
+	if correctionAvailable && !workPinContainsAction(pin.NextValidIntents, "start_execution") && !workPinContainsAction(pin.NextValidIntents, "start_repair") {
+		pin.NextValidIntents = append(pin.NextValidIntents, workPinIntentForAction(workerFreshAttemptActionDefinition(registered.Definition), pin.Version, "worker_correction_retry"))
+	}
+	if correction != nil && correction.Escalated {
+		pin.NextValidIntents = append(pin.NextValidIntents, WorkPinIntent{Tool: "concord_work_transition", Operation: "workflow_action", ReasonCode: "operator_escalation", ActionID: "operator_escalation", ExpectedVersion: pin.Version})
 	}
 	var watermark int64
 	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(seq),0) FROM domain_events WHERE subject_type='work_item' AND subject_id=?`, workID).Scan(&watermark); err != nil {

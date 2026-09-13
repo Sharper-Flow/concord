@@ -9084,11 +9084,125 @@ const GeneratedPayloadSchemaDocument = `{
                   },
                   "attempt_id": {
                     "$ref": "#/$defs/reference"
+                  },
+                  "diagnosis": {
+                    "maxLength": 4096,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "evidence_refs": {
+                    "items": {
+                      "$ref": "#/$defs/reference"
+                    },
+                    "maxItems": 32,
+                    "minItems": 0,
+                    "type": "array",
+                    "uniqueItems": true
+                  },
+                  "predicate_ids": {
+                    "items": {
+                      "$ref": "#/$defs/reference"
+                    },
+                    "maxItems": 8,
+                    "minItems": 0,
+                    "type": "array",
+                    "uniqueItems": true
+                  },
+                  "strategy": {
+                    "maxLength": 4096,
+                    "minLength": 1,
+                    "type": "string"
                   }
                 },
                 "required": [
                   "attempt_id",
                   "attempt_epoch"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "fields"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "action_id": {
+                "const": "reject_worker_result"
+              }
+            },
+            "required": [
+              "action_id"
+            ]
+          },
+          "then": {
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "selected_choice"
+                  ]
+                },
+                {
+                  "required": [
+                    "decision_context_digest"
+                  ]
+                }
+              ]
+            },
+            "properties": {
+              "fields": {
+                "additionalProperties": false,
+                "maxProperties": 32,
+                "properties": {
+                  "attempt_epoch": {
+                    "maximum": 2147483647,
+                    "minimum": 1,
+                    "type": "integer"
+                  },
+                  "attempt_id": {
+                    "$ref": "#/$defs/reference"
+                  },
+                  "diagnosis": {
+                    "maxLength": 4096,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "evidence_refs": {
+                    "items": {
+                      "$ref": "#/$defs/reference"
+                    },
+                    "maxItems": 32,
+                    "minItems": 0,
+                    "type": "array",
+                    "uniqueItems": true
+                  },
+                  "predicate_ids": {
+                    "items": {
+                      "$ref": "#/$defs/reference"
+                    },
+                    "maxItems": 8,
+                    "minItems": 0,
+                    "type": "array",
+                    "uniqueItems": true
+                  },
+                  "rejection_reason": {
+                    "maxLength": 4096,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "strategy": {
+                    "maxLength": 4096,
+                    "minLength": 1,
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "attempt_id",
+                  "attempt_epoch",
+                  "diagnosis"
                 ],
                 "type": "object"
               }

@@ -130,6 +130,18 @@ func WorkflowActionDefinitionFor(ctx context.Context, s *Store, registry Definit
 			return entry, workerFailureRecoveryActionDefinition(), nil
 		}
 	}
+	if actionID == "reject_worker_result" {
+		available, correction, correctionErr := workflowCompletedWorkerRejectionAvailable(ctx, s.db, workID)
+		if correctionErr != nil {
+			return RegisteredDefinition{}, WorkflowActionDefinition{}, correctionErr
+		}
+		if available {
+			return entry, workerResultRejectionActionDefinition(), nil
+		}
+		if correction != nil {
+			return RegisteredDefinition{}, WorkflowActionDefinition{}, newFailure(KindIllegalLifecycleTransition, "workflow_action", "worker result is not awaiting acceptance or rejection", false, "accept or reject the current completed worker result")
+		}
+	}
 	for _, action := range entry.Definition.ActionDefinitions {
 		if action.ID == actionID {
 			return entry, action, nil
@@ -185,10 +197,24 @@ func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, registry Definiti
 		return result, newFailure(KindInvalidOperation, "workflow_action", "terminal workflow instance is immutable", false, "start a successor workflow")
 	}
 	guards := &workflowActionGuardContext{ctx: ctx, tx: tx, request: request, entry: entry, currentStep: currentStep}
+	if request.ActionID == "start_execution" || request.ActionID == "start_repair" || request.ActionID == "start_action" {
+		if err := guardFreshWorkerAttemptStart(guards); err != nil {
+			return result, err
+		}
+	}
 	if request.ActionID == "record_worker_failure" {
 		guards.workerFailureRecovery, err = workflowWorkerFailureRecoveryAvailable(ctx, tx, request.WorkID, entry.Definition, currentStep, "workflow_action")
 		if err != nil {
 			return result, err
+		}
+	}
+	if request.ActionID == "reject_worker_result" {
+		available, _, recoveryErr := workflowCompletedWorkerRejectionAvailable(ctx, tx, request.WorkID)
+		if recoveryErr != nil {
+			return result, recoveryErr
+		}
+		if !available {
+			return result, newFailure(KindIllegalLifecycleTransition, "workflow_action", "worker result is not awaiting acceptance or rejection", false, "reject the exact completed worker result")
 		}
 	}
 	if err := runWorkflowActionGuard(guards, guardPhaseRecovery); err != nil {
@@ -225,7 +251,7 @@ func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, registry Definiti
 	if err := guardWorkflowActionStepMatch(request.Payload, currentStep); err != nil {
 		return result, err
 	}
-	stepAllowed := guards.staleRecovery || guards.lateVerdictRecovery || guards.workerFailureRecovery || definitionStepAllows(entry.Definition, currentStep, request.ActionID)
+	stepAllowed := guards.staleRecovery || guards.lateVerdictRecovery || guards.workerFailureRecovery || request.ActionID == "reject_worker_result" || definitionStepAllows(entry.Definition, currentStep, request.ActionID)
 	if request.ActionID == "bind_evidence" {
 		var recoveryErr error
 		guards.recoveryBind, recoveryErr = guardRecoveryEvidenceBind(ctx, tx, request.WorkID, entry.Definition, currentStep, request.Payload, subject)

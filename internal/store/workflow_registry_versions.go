@@ -242,7 +242,7 @@ func preFailureStaticAnalysisV3() WorkflowDefinition {
 func releasedBreakFixV5() WorkflowDefinition {
 	d := builtinBreakFix(true)
 	d.Version = 5
-	return withWorkerActions(d, true)
+	return withWorkerActionsFrozen(d, true)
 }
 
 // breakFixEvidenceRecoveryV6 adds the CD-0124 hold route without changing the
@@ -256,7 +256,59 @@ func breakFixEvidenceRecoveryV6() WorkflowDefinition {
 			break
 		}
 	}
+	return withWorkerActionsFrozen(d, true)
+}
+
+func breakFixEvidenceRecoveryV7() WorkflowDefinition {
+	d := builtinBreakFix(true)
+	d.Version = 7
+	for i := range d.StepGraph.Steps {
+		if d.StepGraph.Steps[i].ID == "verify" {
+			d.StepGraph.Steps[i].Actions = append([]string{"bind_evidence"}, d.StepGraph.Steps[i].Actions...)
+			break
+		}
+	}
 	return withWorkerActions(d, true)
+}
+
+func releasedBreakFixV6() WorkflowDefinition {
+	return breakFixEvidenceRecoveryV6()
+}
+
+func releasedImplementationV7() WorkflowDefinition {
+	d := builtinImplementation(true)
+	d.Version = 7
+	return withWorkerActionsFrozen(d, true)
+}
+
+func releasedResearchV5() WorkflowDefinition {
+	d := builtinResearch(true)
+	d.Version = 5
+	return withWorkerActionsFrozen(d, true)
+}
+
+func releasedArchitectureSpikeV4() WorkflowDefinition {
+	d := builtinArchitectureSpike(true)
+	d.Version = 4
+	return withWorkerActionsFrozen(d, true)
+}
+
+func releasedOpsRunbookV4() WorkflowDefinition {
+	d := builtinOpsRunbook(true)
+	d.Version = 4
+	return withWorkerActionsFrozen(d, true)
+}
+
+func releasedStaticAnalysisV4() WorkflowDefinition {
+	d := builtinStaticAnalysis(true)
+	d.Version = 4
+	return withWorkerActionsFrozen(d, true)
+}
+
+func releasedGenericOneOffV5() WorkflowDefinition {
+	d := builtinGenericOneOff(true)
+	d.Version = 5
+	return withWorkerActionsFrozen(d, true)
 }
 
 // preDesignImplementationV5 freezes the implementation definition immediately
@@ -264,14 +316,14 @@ func breakFixEvidenceRecoveryV6() WorkflowDefinition {
 func preDesignImplementationV5() WorkflowDefinition {
 	d := builtinImplementation(true)
 	d.Version = 5
-	d = withWorkerActions(d, true)
+	d = withWorkerActionsFrozen(d, true)
 	return withLegacyRecordProposal(withLegacyRecordDesign(d))
 }
 
 func preProposalImplementationV6() WorkflowDefinition {
 	d := builtinImplementation(true)
 	d.Version = 6
-	d = withWorkerActions(d, true)
+	d = withWorkerActionsFrozen(d, true)
 	return withLegacyRecordProposal(d)
 }
 

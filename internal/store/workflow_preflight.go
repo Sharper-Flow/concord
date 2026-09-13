@@ -364,7 +364,7 @@ func AuthorizeWorkflowActionAtBoundaryTx(ctx context.Context, s *Store, registry
 }
 
 func workflowActionConsequence(definition WorkflowDefinition, actionID string) ActionConsequence {
-	if actionID == "supersede_contract" || actionID == "record_verdict" || actionID == "record_worker_failure" {
+	if actionID == "supersede_contract" || actionID == "record_verdict" || actionID == "record_worker_failure" || actionID == "reject_worker_result" {
 		return ActionInternalSQLite
 	}
 	for _, action := range definition.ActionDefinitions {
@@ -401,6 +401,7 @@ func workflowActionPreflightTx(ctx context.Context, tx *sql.Tx, registry Definit
 	staleRecovery := false
 	lateVerdictRecovery := false
 	workerFailureRecovery := false
+	workerRejectionRecovery := false
 	if request.ActionID == "record_verdict" {
 		lateVerdictRecovery, err = workflowLateVerdictRecoveryForActionPayload(ctx, tx, request.WorkID, entry.Definition, currentStep, request.Payload)
 		if err != nil {
@@ -412,6 +413,16 @@ func workflowActionPreflightTx(ctx context.Context, tx *sql.Tx, registry Definit
 		if err != nil {
 			return RegisteredDefinition{}, err
 		}
+	}
+	if request.ActionID == "reject_worker_result" {
+		available, _, recoveryErr := workflowCompletedWorkerRejectionAvailable(ctx, tx, request.WorkID)
+		if recoveryErr != nil {
+			return RegisteredDefinition{}, recoveryErr
+		}
+		if !available {
+			return RegisteredDefinition{}, newFailure(KindIllegalLifecycleTransition, "workflow_action_preflight", "worker result is not awaiting acceptance or rejection", false, "reject the exact completed worker result")
+		}
+		workerRejectionRecovery = true
 	}
 	if request.ActionID == "supersede_contract" {
 		if err := checkWorkflowLawRevisionStalenessTx(ctx, tx, request.WorkID); err != nil {
@@ -470,7 +481,7 @@ func workflowActionPreflightTx(ctx context.Context, tx *sql.Tx, registry Definit
 	if err := guardMandatedWorkflowLawBound(ctx, tx, request.WorkID, entry.Definition, currentStep, request.ActionID, "workflow_action_preflight"); err != nil {
 		return RegisteredDefinition{}, err
 	}
-	if !staleRecovery && !lateVerdictRecovery && !workerFailureRecovery && !definitionStepAllows(entry.Definition, currentStep, request.ActionID) {
+	if !staleRecovery && !lateVerdictRecovery && !workerFailureRecovery && !workerRejectionRecovery && !definitionStepAllows(entry.Definition, currentStep, request.ActionID) {
 		if request.ActionID != "bind_evidence" {
 			return RegisteredDefinition{}, newFailure(KindIllegalLifecycleTransition, "workflow_action_preflight", "workflow action is not declared on the current step", false, "reread_entities")
 		}
@@ -519,6 +530,10 @@ func validateWorkflowActionPayload(definition WorkflowDefinition, actionID strin
 	if !found {
 		if actionID == "record_worker_failure" {
 			payloadDefinition = workerFailureRecoveryActionDefinition().Payload
+			found = true
+		}
+		if actionID == "reject_worker_result" {
+			payloadDefinition = workerResultRejectionActionDefinition().Payload
 			found = true
 		}
 	}

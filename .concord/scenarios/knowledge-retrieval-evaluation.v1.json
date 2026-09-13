@@ -1,0 +1,45 @@
+{
+  "schema_version": "1.0",
+  "contract": "knowledge-retrieval-evaluation",
+  "contract_status": "proposed",
+  "authority": "non_authoritative",
+  "workload": {
+    "id": "pm1-metadata-queries",
+    "name": "PM1 metadata query floor",
+    "source": "synthetic",
+    "population": "PM1 Q9 metadata filters over the synthetic knowledge corpus",
+    "scale_multiplier": 10,
+    "pm1_metadata_floor": {"metric": "metadata_query_p99_ms", "comparator": "lte", "threshold_ms": 100, "workload_id": "pm1-metadata-queries", "status": "proposed"}
+  },
+  "capabilities": {
+    "exact_lookup": {"mode": "exact", "oracle": "The requested record or element ID resolves exactly once.", "required_proof": ["record_id", "element_id", "scope", "status", "source_revision", "source_digest", "canonical_path"], "ranking_authority": "stable_id"},
+    "structured_filters": {"mode": "filter", "oracle": "Closed kind, scope, status, tag, and time filters return deterministic records.", "required_proof": ["record_id", "scope", "status", "source_revision", "index_watermark"], "ranking_authority": "structured_score_then_id"},
+    "body_discovery": {"mode": "ranked_discovery", "oracle": "Ranked body matches are useful discovery and never law authority.", "required_proof": ["record_id", "element_id", "scope", "status", "source_digest"], "ranking_authority": "advisory_only"},
+    "current_resolution": {"mode": "canonical_resolution", "oracle": "A current hit has a matching canonical path, revision, digest, and eligible status.", "required_proof": ["record_id", "scope", "status", "source_revision", "source_digest", "canonical_path"], "ranking_authority": "stable_id"},
+    "historical_resolution": {"mode": "canonical_resolution", "oracle": "A historical hit retains its own revision proof and does not replace current law.", "required_proof": ["record_id", "scope", "status", "source_revision", "source_digest", "canonical_path", "successor_id"], "ranking_authority": "stable_id"},
+    "stale_superseded_results": {"mode": "lifecycle_resolution", "oracle": "Stale and superseded results remain labeled, bounded, and excluded from current-law answers.", "required_proof": ["record_id", "status", "source_revision", "source_digest", "stale_reason", "successor_id"], "ranking_authority": "stable_id"}
+  },
+  "protocol": {
+    "corpus_description": "Synthetic seven-kind records with stable sections, requirements, revisions, references, and status transitions.",
+    "query_set": [
+      {"id": "query-exact-record", "capability": "exact_lookup", "input": "record_id=decision-storage-shape", "expected_authority": "canonical"},
+      {"id": "query-exact-element", "capability": "exact_lookup", "input": "record_id=spec-retrieval-contract, element_id=requirement:spec-canonical-hit", "expected_authority": "canonical"},
+      {"id": "query-structured-kind", "capability": "structured_filters", "input": "kind in {decision,spec}, status=current", "expected_authority": "derived_projection"},
+      {"id": "query-structured-scope", "capability": "structured_filters", "input": "scope=home, tag=authority", "expected_authority": "derived_projection"},
+      {"id": "query-body-discovery", "capability": "body_discovery", "input": "text=canonical proof", "expected_authority": "non_authoritative_provider"},
+      {"id": "query-current", "capability": "current_resolution", "input": "record_id=spec-retrieval-contract", "expected_authority": "canonical"},
+      {"id": "query-historical", "capability": "historical_resolution", "input": "record_id=old-retrieval-contract", "expected_authority": "canonical"},
+      {"id": "query-stale", "capability": "stale_superseded_results", "input": "source_digest does not match canonical revision", "expected_authority": "derived_projection"}
+    ],
+    "chunking": {"algorithm": "section_then_requirement", "stable_key": "record_id_element_id_revision", "includes": ["record_id", "kind", "scope", "status", "section_id", "requirement_id", "narrative", "source_digest"], "excludes": ["private_content", "unverified_inference", "raw_exhaust"]},
+    "rebuild": {"trigger": "canonical_revision_change", "invalidation_key": "canonical_path_source_digest_schema_version", "replacement": "transactional_rebuild", "historical_policy": "retain_by_revision"},
+    "privacy": {"private_content_egress": "forbidden_by_default", "operator_permission_required": true, "redaction": "required_before_egress", "provider_boundary": "lgrep_non_authoritative"},
+    "reporting": {"separate_proposed_and_measured": true, "metrics": ["p50_ms", "p99_ms", "recall_at_k", "precision_at_k", "freshness_age_ms", "rebuild_ms", "invalidation_count", "rows_scanned", "output_bytes", "egress_bytes"], "no_benchmark_claim_without_result": true}
+  },
+  "proposed_targets": [
+    {"id": "target-pm1-metadata-p99", "metric": "p99_ms", "comparator": "lte", "threshold": 100, "population": "pm1-metadata-queries at 10x measured ADV dataset", "status": "proposed"},
+    {"id": "target-exact-unique", "metric": "precision_at_k", "comparator": "eq", "threshold": 1, "population": "exact record and element lookup queries", "status": "proposed"},
+    {"id": "target-freshness-rebuild", "metric": "invalidation_count", "comparator": "gte", "threshold": 1, "population": "one canonical revision change followed by rebuild", "status": "proposed"}
+  ],
+  "measured_results": []
+}

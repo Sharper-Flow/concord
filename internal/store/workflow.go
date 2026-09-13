@@ -684,8 +684,8 @@ func foldWorkflowContractApproved(ctx context.Context, tx *sql.Tx, event Event) 
 	}
 	seenPredicateIDs := make(map[string]bool, len(p.OutcomePredicates))
 	for ordinal, predicate := range p.OutcomePredicates {
-		if len(predicate.PredicateID) < 11 || len(predicate.PredicateID) > 128 || !strings.HasPrefix(predicate.PredicateID, "predicate:") || seenPredicateIDs[predicate.PredicateID] || predicate.Ordinal != ordinal || predicate.OutcomeKind == "" || len(predicate.OutcomePayload) == 0 {
-			return newFailure(KindInvalidPayload, "fold_event", "contract_approved contains an invalid outcome predicate set", false, "supply unique predicate IDs and strict outcome predicates")
+		if err := validateWorkflowContractPredicate(ordinal, predicate, seenPredicateIDs); err != nil {
+			return err
 		}
 		seenPredicateIDs[predicate.PredicateID] = true
 		if ordinal > 7 {
@@ -2379,4 +2379,45 @@ func nullableInt(v int64) any {
 		return nil
 	}
 	return v
+}
+
+// validateWorkflowContractPredicate refuses one outcome predicate and names the
+// rule it broke and the value that broke it. The predicate set carries seven
+// independent rules; reporting them as one opaque set failure forces the caller
+// to read this source to learn which rule applied, and the prefix rule in
+// particular appears in no schema the caller can see.
+func validateWorkflowContractPredicate(ordinal int, predicate workflowContractPredicatePayload, seen map[string]bool) error {
+	const prefix = "predicate:"
+	id := predicate.PredicateID
+	switch {
+	case id == "":
+		return newFailure(KindInvalidPayload, "fold_event",
+			fmt.Sprintf("outcome predicate at ordinal %d has no predicate_id", ordinal), false,
+			"give every outcome predicate a predicate_id prefixed with \"predicate:\"")
+	case !strings.HasPrefix(id, prefix):
+		return newFailure(KindInvalidPayload, "fold_event",
+			fmt.Sprintf("outcome predicate id %q must start with %q", id, prefix), false,
+			"prefix the predicate_id with \"predicate:\"")
+	case len(id) < 11 || len(id) > 128:
+		return newFailure(KindInvalidPayload, "fold_event",
+			fmt.Sprintf("outcome predicate id %q is %d characters, want 11-128", id, len(id)), false,
+			"supply a predicate_id of 11-128 characters")
+	case seen[id]:
+		return newFailure(KindInvalidPayload, "fold_event",
+			fmt.Sprintf("outcome predicate id %q appears more than once", id), false,
+			"give every outcome predicate a distinct predicate_id")
+	case predicate.Ordinal != ordinal:
+		return newFailure(KindInvalidPayload, "fold_event",
+			fmt.Sprintf("outcome predicate %q declares ordinal %d at position %d", id, predicate.Ordinal, ordinal), false,
+			"set each predicate ordinal to its own position in the set")
+	case predicate.OutcomeKind == "":
+		return newFailure(KindInvalidPayload, "fold_event",
+			fmt.Sprintf("outcome predicate %q has no outcome_kind", id), false,
+			"supply exists, absent, outcome, or check as the outcome_kind")
+	case len(predicate.OutcomePayload) == 0:
+		return newFailure(KindInvalidPayload, "fold_event",
+			fmt.Sprintf("outcome predicate %q has no outcome_payload", id), false,
+			"supply the outcome_payload matching the declared outcome_kind")
+	}
+	return nil
 }

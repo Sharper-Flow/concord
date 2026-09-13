@@ -301,8 +301,18 @@ func ValidateWorkflowOperatorSelection(ctx context.Context, s *Store, workID str
 	if err != nil {
 		return err
 	}
-	if question == nil || question.ActionID != actionID {
-		return newFailure(KindStaleRequiresReview, "workflow_operator_question", "the operator question is no longer available for this action", false, "refresh_context")
+	if question == nil {
+		// The read path admits a question only after the investigation-artifact
+		// precondition holds, and swallows that refusal to keep reads total. The
+		// requirement is knowable here, so name it: reporting staleness sends the
+		// caller to refresh context that refreshing cannot change.
+		if artifactErr := requireRecordedInvestigationArtifact(ctx, s.db, workID); artifactErr != nil {
+			return artifactErr
+		}
+		return newFailure(KindStaleRequiresReview, "workflow_operator_question", "no operator question is open at the current workflow step", false, "reread the workflow step and its declared actions")
+	}
+	if question.ActionID != actionID {
+		return newFailure(KindStaleRequiresReview, "workflow_operator_question", fmt.Sprintf("the open operator question is for action %s, not %s", question.ActionID, actionID), false, "answer the open question's action")
 	}
 	if question.DecisionContextDigest != decisionDigest {
 		return newFailure(KindStaleRequiresReview, "workflow_operator_question", "decision context digest is stale or forged", false, "refresh_context")
@@ -374,7 +384,16 @@ func validateWorkflowOperatorSelectionTx(ctx context.Context, tx *sql.Tx, regist
 			break
 		}
 	}
-	if question == nil || question.ActionID != request.ActionID || question.DecisionContextDigest != request.DecisionContextDigest {
+	if question == nil {
+		if artifactErr := requireRecordedInvestigationArtifact(ctx, tx, request.WorkID); artifactErr != nil {
+			return artifactErr
+		}
+		return newFailure(KindStaleRequiresReview, "workflow_operator_question", "no operator question is open at the current workflow step", false, "reread the workflow step and its declared actions")
+	}
+	if question.ActionID != request.ActionID {
+		return newFailure(KindStaleRequiresReview, "workflow_operator_question", fmt.Sprintf("the open operator question is for action %s, not %s", question.ActionID, request.ActionID), false, "answer the open question's action")
+	}
+	if question.DecisionContextDigest != request.DecisionContextDigest {
 		return newFailure(KindStaleRequiresReview, "workflow_operator_question", "decision context digest is stale or forged", false, "refresh_context")
 	}
 	if workVersion != request.ExpectedVersion {

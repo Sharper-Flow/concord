@@ -281,7 +281,7 @@ func foldWorkIntentRevised(ctx context.Context, tx *sql.Tx, event Event) error {
 		return newFailure(KindIllegalLifecycleTransition, "fold_event", "work intent cannot be revised on terminal work", false,
 			"reopen the work item before revising its intent")
 	}
-	if err := validateWorkVersion(event, current.version, payload.ExpectedVersion, payload.ResultingVersion); err != nil {
+	if err := validateWorkVersion(event.SubjectID, current.version, payload.ExpectedVersion, payload.ResultingVersion); err != nil {
 		return err
 	}
 	var intent workIntentProjection
@@ -348,7 +348,7 @@ func foldWorkMembershipsReplaced(ctx context.Context, tx *sql.Tx, event Event) e
 	if err != nil {
 		return err
 	}
-	if err := validateWorkVersion(event, current.version, payload.ExpectedVersion, payload.ResultingVersion); err != nil {
+	if err := validateWorkVersion(event.SubjectID, current.version, payload.ExpectedVersion, payload.ResultingVersion); err != nil {
 		return err
 	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM work_projects WHERE work_id=?`, event.SubjectID); err != nil {
@@ -416,7 +416,7 @@ func foldWorkTransitioned(ctx context.Context, tx *sql.Tx, event Event) error {
 			return err
 		}
 	}
-	if err := validateWorkVersion(event, current.version, payload.ExpectedVersion, payload.ResultingVersion); err != nil {
+	if err := validateWorkVersion(event.SubjectID, current.version, payload.ExpectedVersion, payload.ResultingVersion); err != nil {
 		return err
 	}
 	if err := updateWorkLifecycle(ctx, tx, event, payload.To, current.version, payload.ResultingVersion); err != nil {
@@ -451,7 +451,7 @@ func foldWorkReopened(ctx context.Context, tx *sql.Tx, event Event) error {
 	if current.lifecycle != payload.From {
 		return illegalTransition(current.lifecycle, "needed")
 	}
-	if err := validateWorkVersion(event, current.version, payload.ExpectedVersion, payload.ResultingVersion); err != nil {
+	if err := validateWorkVersion(event.SubjectID, current.version, payload.ExpectedVersion, payload.ResultingVersion); err != nil {
 		return err
 	}
 	if err := invalidateWorkflowOverlapResolutionsForWorkTx(ctx, tx, event.EventID, event.SubjectID); err != nil {
@@ -484,7 +484,7 @@ func foldWorkSuperseded(ctx context.Context, tx *sql.Tx, event Event) error {
 		return newFailure(KindIllegalLifecycleTransition, "fold_event", "work item cannot be superseded from its current state", false,
 			"supersede only needed, in_progress, completed, or cancelled work")
 	}
-	if err := validateWorkVersion(event, predecessor.version, payload.ExpectedVersion, payload.ResultingVersion); err != nil {
+	if err := validateWorkVersion(event.SubjectID, predecessor.version, payload.ExpectedVersion, payload.ResultingVersion); err != nil {
 		return err
 	}
 	successor, err := readWork(ctx, tx, payload.Successor)
@@ -492,7 +492,7 @@ func foldWorkSuperseded(ctx context.Context, tx *sql.Tx, event Event) error {
 		return err
 	}
 	if payload.SuccessorVersion != 0 && payload.SuccessorResultingVer != 0 {
-		if err := validateWorkVersion(event, successor.version, payload.SuccessorVersion, payload.SuccessorResultingVer); err != nil {
+		if err := validateWorkVersion(payload.Successor, successor.version, payload.SuccessorVersion, payload.SuccessorResultingVer); err != nil {
 			return err
 		}
 	}
@@ -560,7 +560,7 @@ func foldWorkReopenedFromSuperseded(ctx context.Context, tx *sql.Tx, event Event
 	if current.lifecycle != "superseded" {
 		return illegalTransition(current.lifecycle, "needed")
 	}
-	if err := validateWorkVersion(event, current.version, payload.ExpectedVersion, payload.ResultingVersion); err != nil {
+	if err := validateWorkVersion(event.SubjectID, current.version, payload.ExpectedVersion, payload.ResultingVersion); err != nil {
 		return err
 	}
 	var successor, successorKind string
@@ -582,7 +582,7 @@ func foldWorkReopenedFromSuperseded(ctx context.Context, tx *sql.Tx, event Event
 		if err != nil {
 			return err
 		}
-		if err := validateWorkVersion(event, successorWork.version, payload.SuccessorExpected, payload.SuccessorResulting); err != nil {
+		if err := validateWorkVersion(successor, successorWork.version, payload.SuccessorExpected, payload.SuccessorResulting); err != nil {
 			return err
 		}
 	}
@@ -613,7 +613,7 @@ func foldWorkReopenedFromSuperseded(ctx context.Context, tx *sql.Tx, event Event
 		if payload.ReplacementExpected == 0 || payload.ReplacementResulting == 0 {
 			return newFailure(KindInvalidPayload, "fold_event", "replacement successor version is required", false, "supply the replacement endpoint version")
 		}
-		if err := validateWorkVersion(event, replacement.version, payload.ReplacementExpected, payload.ReplacementResulting); err != nil {
+		if err := validateWorkVersion(payload.Replacement, replacement.version, payload.ReplacementExpected, payload.ReplacementResulting); err != nil {
 			return err
 		}
 		if cycle, err := relationWouldCycle(ctx, tx, payload.Replacement, event.SubjectID, "supersedes"); err != nil {
@@ -674,7 +674,7 @@ func foldRelationAdded(ctx context.Context, tx *sql.Tx, event Event) error {
 	if err != nil {
 		return err
 	}
-	if err := validateWorkVersion(event, current.version, payload.ExpectedVersion, payload.ResultingVersion); err != nil {
+	if err := validateWorkVersion(event.SubjectID, current.version, payload.ExpectedVersion, payload.ResultingVersion); err != nil {
 		return err
 	}
 	if payload.ToExpectedVersion != 0 && payload.ToResultingVersion != 0 {
@@ -682,7 +682,7 @@ func foldRelationAdded(ctx context.Context, tx *sql.Tx, event Event) error {
 		if err != nil {
 			return err
 		}
-		if err := validateWorkVersion(event, other.version, payload.ToExpectedVersion, payload.ToResultingVersion); err != nil {
+		if err := validateWorkVersion(payload.To, other.version, payload.ToExpectedVersion, payload.ToResultingVersion); err != nil {
 			return err
 		}
 	}
@@ -757,7 +757,7 @@ func foldRelationRemoved(ctx context.Context, tx *sql.Tx, event Event) error {
 	if err != nil {
 		return err
 	}
-	if err := validateWorkVersion(event, current.version, payload.ExpectedVersion, payload.ResultingVersion); err != nil {
+	if err := validateWorkVersion(event.SubjectID, current.version, payload.ExpectedVersion, payload.ResultingVersion); err != nil {
 		return err
 	}
 	if payload.ToExpectedVersion != 0 && payload.ToResultingVersion != 0 {
@@ -765,7 +765,7 @@ func foldRelationRemoved(ctx context.Context, tx *sql.Tx, event Event) error {
 		if err != nil {
 			return err
 		}
-		if err := validateWorkVersion(event, other.version, payload.ToExpectedVersion, payload.ToResultingVersion); err != nil {
+		if err := validateWorkVersion(payload.To, other.version, payload.ToExpectedVersion, payload.ToResultingVersion); err != nil {
 			return err
 		}
 	}
@@ -825,12 +825,17 @@ func workExists(ctx context.Context, tx *sql.Tx, id string) (bool, error) {
 	return true, nil
 }
 
-func validateWorkVersion(event Event, current, expected, resulting int64) error {
+// validateWorkVersion refuses when subjectID's stored version disagrees with the
+// version the caller pinned for it. A two-sided fold validates one version per
+// endpoint, so the subject is a parameter rather than the event's subject: an
+// endpoint that is not the event subject must still be named as itself, or the
+// refusal sends the caller to re-read an item that is already current.
+func validateWorkVersion(subjectID string, current, expected, resulting int64) error {
 	if expected != current {
 		f := newFailure(KindVersionConflict, "fold_event",
-			fmt.Sprintf("work item %s has version %d, want %d", event.SubjectID, current, expected), false,
+			fmt.Sprintf("work item %s has version %d, want %d", subjectID, current, expected), false,
 			"reload the work item and retry with its current version")
-		f.CurrentVersions = []SubjectCurrentVersion{{SubjectType: SubjectWorkItem, SubjectID: event.SubjectID, Version: current}}
+		f.CurrentVersions = []SubjectCurrentVersion{{SubjectType: SubjectWorkItem, SubjectID: subjectID, Version: current}}
 		return f
 	}
 	if resulting != current+1 {

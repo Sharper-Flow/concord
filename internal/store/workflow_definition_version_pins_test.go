@@ -63,6 +63,7 @@ var workflowDefinitionVersionPins = map[[2]string]string{
 	{"workflow.ops_runbook", "2"}:        "sha256:8e14e680f37516f3c596058058f4982eee30bd47f2dbd5b2a79f32ff1bc832af",
 	{"workflow.ops_runbook", "3"}:        "sha256:bdeeb5c08ee8eae101bca23fcf95a2ba8687af542a4551d6ff61f6449c07259f",
 	{"workflow.ops_runbook", "4"}:        "sha256:eea14c43d682cc5846e405ea7467aac19468dcea74e75eab7b5fb1883c09653d",
+	{"workflow.ops_runbook", "5"}:        "sha256:df99926053090bdbada3c8de55775b47dfc3c5f6725e9a20c46abca755930cf1",
 	{"workflow.static_analysis", "1"}:    "sha256:dcd49187f4c5f3f3a54aa3a54cf28ce1eae5a4e093203ec761cf314b2b1bdd91",
 	{"workflow.static_analysis", "2"}:    "sha256:9b3f7159c5346ee1d5d8f7a6f7ff21bfb3ae7babfb08243d7a0f49f16624f522",
 	{"workflow.static_analysis", "3"}:    "sha256:fdad8adff22cff5e2d1d1bcf73aeb5748f7bf3a65f45cc58eda399ae3a365704",
@@ -117,7 +118,7 @@ func TestBuiltinDefinitionForRefResolvesTheLatestVersion(t *testing.T) {
 		"workflow.generic_one_off":    5,
 		"workflow.research":           5,
 		"workflow.architecture_spike": 4,
-		"workflow.ops_runbook":        4,
+		"workflow.ops_runbook":        5,
 		"workflow.static_analysis":    4,
 	}
 	for ref, version := range cases {

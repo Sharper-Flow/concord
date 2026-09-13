@@ -2,6 +2,7 @@ import { concordBinaryPath, defaultRunner, type DispatchRunner } from "./dispatc
 import { formatWorkStateLine } from "./workflow-status"
 
 const CONTINUITY_TTL_MS = 10_000
+const MAX_SESSION_IDENTITIES = 512
 const START_SENTINEL = "<!-- concord:continuity:v1 -->"
 const END_SENTINEL = "<!-- /concord:continuity:v1 -->"
 const IDENTITY = /^[A-Za-z0-9][A-Za-z0-9._:-]{1,127}$/
@@ -10,6 +11,9 @@ const SENTINEL_BLOCK = new RegExp(`${escapeRegExp(START_SENTINEL)}[\\s\\S]*?${es
 type ContinuityOutput = { system: string[] }
 type ContinuityOptions = { runner?: DispatchRunner; now?: () => number }
 type CacheEntry = { attemptedAt: number; block?: string }
+type SessionIdentity = { productID: string; workID: string }
+
+const sessionIdentities = new Map<string, SessionIdentity>()
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
@@ -18,6 +22,38 @@ function escapeRegExp(value: string): string {
 function selectedIdentityValue(name: string): string {
   const value = process.env[name] ?? ""
   return IDENTITY.test(value) ? value : ""
+}
+
+function validSessionID(value: unknown): value is string {
+  return typeof value === "string" && value.length > 0 && value.length <= 128
+}
+
+export function bindWorkStartSessionIdentity(sessionID: string, productID: string, workID: string): void {
+  if (!validSessionID(sessionID) || !IDENTITY.test(productID) || !IDENTITY.test(workID)) return
+  sessionIdentities.delete(sessionID)
+  sessionIdentities.set(sessionID, { productID, workID })
+  while (sessionIdentities.size > MAX_SESSION_IDENTITIES) {
+    const oldest = sessionIdentities.keys().next()
+    if (oldest.done) return
+    sessionIdentities.delete(oldest.value)
+  }
+}
+
+function sessionIdentity(input: unknown): { cacheKey: string; identity: SessionIdentity } | null {
+  const sessionID = input !== null && typeof input === "object" && !Array.isArray(input)
+    ? (input as { sessionID?: unknown }).sessionID
+    : undefined
+  if (validSessionID(sessionID)) {
+    const registered = sessionIdentities.get(sessionID)
+    if (registered) {
+      sessionIdentities.delete(sessionID)
+      sessionIdentities.set(sessionID, registered)
+      return { cacheKey: `session:${sessionID}\u0000${registered.productID}\u0000${registered.workID}`, identity: registered }
+    }
+  }
+  const productID = selectedIdentityValue("CONCORD_SELECTED_PRODUCT_ID")
+  const workID = selectedIdentityValue("CONCORD_SELECTED_WORK_ID")
+  return productID && workID ? { cacheKey: `launcher:${productID}\u0000${workID}`, identity: { productID, workID } } : null
 }
 
 function renderBlock(stdout: string): string {
@@ -46,26 +82,30 @@ export function createContinuityTransform(options: ContinuityOptions = {}) {
   const now = options.now ?? Date.now
   const cache = new Map<string, CacheEntry>()
 
-  return async (_input: unknown, output: ContinuityOutput): Promise<void> => {
+  return async (input: unknown, output: ContinuityOutput): Promise<void> => {
     try {
-      const productID = selectedIdentityValue("CONCORD_SELECTED_PRODUCT_ID")
-      const workID = selectedIdentityValue("CONCORD_SELECTED_WORK_ID")
-      if (!productID || !workID) return
+      const selected = sessionIdentity(input)
+      if (!selected) return
 
-      const identity = `${productID}\u0000${workID}`
+      const { cacheKey, identity } = selected
       const attemptedAt = now()
-      const cached = cache.get(identity)
+      const cached = cache.get(cacheKey)
       if (cached && attemptedAt >= cached.attemptedAt && attemptedAt - cached.attemptedAt < CONTINUITY_TTL_MS) {
         if (cached.block) applyBlock(output, cached.block)
         return
       }
 
-      cache.set(identity, { attemptedAt })
-      const result = await runner.run([concordBinaryPath(), "continuity-block"], "", new AbortController().signal)
+      cache.set(cacheKey, { attemptedAt })
+      const result = await runner.run([concordBinaryPath(), "continuity-block"], "", new AbortController().signal, {
+        env: {
+          CONCORD_SELECTED_PRODUCT_ID: identity.productID,
+          CONCORD_SELECTED_WORK_ID: identity.workID,
+        },
+      })
       if (result.exitCode !== 0 || typeof result.stdout !== "string" || result.stdout.length === 0) return
 
       const block = renderBlock(result.stdout)
-      cache.set(identity, { attemptedAt, block })
+      cache.set(cacheKey, { attemptedAt, block })
       applyBlock(output, block)
     } catch {
       return

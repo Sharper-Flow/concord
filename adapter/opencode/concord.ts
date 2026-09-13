@@ -6,7 +6,8 @@ import { dispatchLaneWorker, type LaneDispatchInput } from "./lane_dispatch"
 import { hostControlPlane, MoveSessionUnavailable } from "./move-session"
 import { createRunSessionObservation, errorEnvelopeForLane, MAX_OUTPUT_BYTES, observeRunSessionLine, readExportSessionMetadata, readRunSessionMetadata, readRunTextParts, runStreamRefusalMessage, runStreamRefusalRecovery, validateAgainstSchema, type AgentResultEnvelope, type RunLineMetadata, type RunSessionObservation } from "./dispatch"
 import { concordBinaryPath, CoreBinaryUnavailable } from "./dispatch"
-import { createWorkStateReporter, formatGateBrief } from "./workflow-status"
+import { createWorkStateReporter, formatGateBrief, formatWorkStateLine } from "./workflow-status"
+import { bindWorkStartSessionIdentity } from "./continuity-hook"
 import { hostLeaseFault } from "./host-lease"
 import { armTurnMoveBoundary } from "./turn-move-boundary"
 
@@ -672,6 +673,21 @@ function validateWorkStartResume(value: unknown): value is WorkStartResume {
     && nonEmptyString(worktree.branch) && /^[0-9a-f]{40}$/.test(String(worktree.base_sha)) && worktree.state === "active"
 }
 
+function workStateLineFromPreparedPrompt(prompt: string): string | null {
+  const headerEnd = prompt.indexOf("\n")
+  if (headerEnd < 0) return null
+  const taskStart = prompt.indexOf("\nTask:", headerEnd + 1)
+  const packetText = prompt.slice(headerEnd + 1, taskStart < 0 ? prompt.length : taskStart)
+  try {
+    const packet = JSON.parse(packetText)
+    const continuity = record(packet) && record(packet.continuity) ? packet.continuity : null
+    const pinned = continuity && record(continuity.pinned) ? continuity.pinned : null
+    return pinned && record(pinned.work_pin) ? formatWorkStateLine(pinned.work_pin) : null
+  } catch {
+    return null
+  }
+}
+
 function boundedUTF8(value: string, maxBytes: number): string {
   if (Buffer.byteLength(value) <= maxBytes) return value
   return new TextDecoder().decode(Buffer.from(value).subarray(0, maxBytes))
@@ -871,6 +887,8 @@ async function executeWorkStart(args: WorkStartArgs, context: ToolContext): Prom
     // rename sits after every refusal point, so it fires once per success and
     // never changes the outcome the envelope reports.
     await renameZellijPaneFrame(preparedValue.title, context)
+    bindWorkStartSessionIdentity(context.sessionID, target.product_id, target.work_id)
+    const stateLine = workStateLineFromPreparedPrompt(preparedValue.prompt)
     return {
       schema_version: "1.0",
       outcome: "ok",
@@ -880,7 +898,7 @@ async function executeWorkStart(args: WorkStartArgs, context: ToolContext): Prom
       worktree_path: target.worktree.path,
       agent,
       session_id: context.sessionID,
-      output: `This session now runs in ${target.worktree.path} on work item ${target.work_id}.`,
+      output: `This session now runs in ${target.worktree.path} on work item ${target.work_id}.${stateLine ? `\n${stateLine}` : ""}`,
     }
   } catch (error) {
     return workStartFailure(error, target, "work_start_failed")

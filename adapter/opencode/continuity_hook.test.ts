@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test"
-import { createContinuityTransform } from "./continuity-hook"
+import { bindWorkStartSessionIdentity, createContinuityTransform } from "./continuity-hook"
 import { configureCoreBinary } from "./dispatch"
 
 const PRODUCT_ENV = "CONCORD_SELECTED_PRODUCT_ID"
@@ -171,6 +171,60 @@ test("continuity transform gates spawns by identity for ten seconds", async () =
     await transform({}, output("two"))
     expect(calls).toBe(1)
   })
+})
+
+test("continuity transform uses the work_start identity without launcher variables", async () => {
+  const previousProduct = process.env[PRODUCT_ENV]
+  const previousWork = process.env[WORK_ENV]
+  process.env[PRODUCT_ENV] = "launcher-product"
+  process.env[WORK_ENV] = "launcher-work"
+  try {
+    bindWorkStartSessionIdentity("session-started", "started-product", "started-work")
+    let options: any
+    const transform = createContinuityTransform({
+      runner: { run: async (_argv, _input, _signal, received) => {
+        options = received
+        return { exitCode: 0, stdout: "fixture", stderr: "" }
+      } },
+    }) as Transform
+    await transform({ sessionID: "session-started" }, output("prefix"))
+    expect(options.env).toEqual({ CONCORD_SELECTED_PRODUCT_ID: "started-product", CONCORD_SELECTED_WORK_ID: "started-work" })
+  } finally {
+    if (previousProduct === undefined) delete process.env[PRODUCT_ENV]
+    else process.env[PRODUCT_ENV] = previousProduct
+    if (previousWork === undefined) delete process.env[WORK_ENV]
+    else process.env[WORK_ENV] = previousWork
+  }
+})
+
+test("continuity identities stay isolated and the registry evicts its oldest session", async () => {
+  const calls: string[] = []
+  for (let index = 0; index < 512; index += 1) bindWorkStartSessionIdentity(`bounded-${index}`, "product-1", `work-${index}`)
+  bindWorkStartSessionIdentity("bounded-new", "product-1", "work-new")
+  const transform = createContinuityTransform({
+    runner: { run: async (_argv, _input, _signal, received) => {
+      calls.push(received?.env?.CONCORD_SELECTED_WORK_ID ?? "")
+      return { exitCode: 0, stdout: "fixture", stderr: "" }
+    } },
+  }) as Transform
+  await transform({ sessionID: "bounded-0" }, output("old"))
+  await transform({ sessionID: "bounded-new" }, output("new"))
+  expect(calls).toEqual(["work-new"])
+
+  bindWorkStartSessionIdentity("isolated-a", "product-a", "work-a")
+  bindWorkStartSessionIdentity("isolated-b", "product-b", "work-b")
+  const isolatedCalls: string[] = []
+  const isolated = createContinuityTransform({
+    runner: { run: async (_argv, _input, _signal, received) => {
+      isolatedCalls.push(received?.env?.CONCORD_SELECTED_WORK_ID ?? "")
+      return { exitCode: 0, stdout: "fixture", stderr: "" }
+    } },
+  }) as Transform
+  await isolated({ sessionID: "isolated-a" }, output("a"))
+  await isolated({ sessionID: "isolated-b" }, output("b"))
+  bindWorkStartSessionIdentity("isolated-a", "product-a", "work-a-new")
+  await isolated({ sessionID: "isolated-a" }, output("a-new"))
+  expect(isolatedCalls).toEqual(["work-a", "work-b", "work-a-new"])
 })
 
 // Fake-runner suite: bind the continuity hook transport to a nominal core

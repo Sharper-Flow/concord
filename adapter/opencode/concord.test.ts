@@ -8,6 +8,7 @@ import { configureCoreBinary } from "./dispatch"
 import { claimHostLease, configureHostLease } from "./host-lease"
 import { validateGeneratedEnvelope, envelopeFailurePath } from "./generated-contract-tests"
 import { hostControlPlane, SESSION_LIST_ROUTE, SESSION_ROUTE, SHOW_TOAST_ROUTE } from "./move-session"
+import { createContinuityTransform } from "./continuity-hook"
 
 function schemaBuilder(kind: string, ...args: unknown[]) {
   return {
@@ -1073,6 +1074,26 @@ test("work start moves the calling session into the claimed worktree", async () 
   expect(calls.some(({ argv }) => argv[1] === "session-exec" || argv[0] === "opencode")).toBe(false)
 })
 
+test("work start appends exactly one returned workflow state line", async () => {
+  const moved = bindRetargetRoute()
+  const calls: RetargetCall[] = []
+  const workPin = {
+    work_id: "work-1", title: "Add atomic start", linear_issue_key: "", version: 2,
+    lifecycle: "in_progress", workflow_type: "workflow.break_fix", step: "repair", pending_operator_decision: null,
+  }
+  adapter.configureConcordAdapter({ runner: retargetRunner(calls, {
+    "session-prepare": () => ({
+      exitCode: 0,
+      stdout: JSON.stringify(preparedContract("agent-1", `Concord session boot packet:\n${JSON.stringify({ continuity: { pinned: { work_pin: workPin } } })}`)),
+      stderr: "",
+    }),
+  }) })
+  const result: any = await rawHostResult(adapter.work_start.execute(bootstrapArgs, contextFor()))
+  const lines = result.output.split("\n").filter((line: string) => line.startsWith("◆ CONCORD WORK STATE"))
+  expect(moved).toEqual([{ sessionID: "session-1", destination: { directory: WORKTREE } }])
+  expect(lines).toEqual(["◆ CONCORD WORK STATE | work-1 | title=Add atomic start | version=2 | lifecycle=in_progress | step=repair | decision=none"])
+})
+
 // A core that answers session-prepare with any agent other than the one this
 // session runs as fails the strict read-back: the move must not happen on an
 // agent identity the session does not hold.
@@ -1176,6 +1197,35 @@ test("work start forwards a core terminal-origin refusal", async () => {
   expect(result.error.kind).toBe("bootstrap_failure")
   expect(result.error.message).toContain("live work item work-origin")
   expect(calls.map(({ argv }) => argv[1])).toEqual(["project-resolve", "work-bootstrap"])
+})
+
+test("a failed work start does not bind continuity identity", async () => {
+  const sessionID = "failed-start-identity"
+  bindRetargetRoute()
+  adapter.configureConcordAdapter({ runner: retargetRunner([], {
+    "work-bootstrap": () => ({ exitCode: 1, stdout: "", stderr: "bootstrap refused" }),
+  }) })
+  const result: any = await rawHostResult(adapter.work_start.execute(bootstrapArgs, { ...contextFor(), sessionID }))
+  expect(result.outcome).toBe("error")
+
+  const previousProduct = process.env.CONCORD_SELECTED_PRODUCT_ID
+  const previousWork = process.env.CONCORD_SELECTED_WORK_ID
+  delete process.env.CONCORD_SELECTED_PRODUCT_ID
+  delete process.env.CONCORD_SELECTED_WORK_ID
+  try {
+    let calls = 0
+    const transform = createContinuityTransform({ runner: { run: async () => {
+      calls += 1
+      return { exitCode: 0, stdout: "unexpected", stderr: "" }
+    } } })
+    await transform({ sessionID }, { system: ["unchanged"] })
+    expect(calls).toBe(0)
+  } finally {
+    if (previousProduct === undefined) delete process.env.CONCORD_SELECTED_PRODUCT_ID
+    else process.env.CONCORD_SELECTED_PRODUCT_ID = previousProduct
+    if (previousWork === undefined) delete process.env.CONCORD_SELECTED_WORK_ID
+    else process.env.CONCORD_SELECTED_WORK_ID = previousWork
+  }
 })
 
 // A host that serves no control plane cannot retarget, and CD-0098 D2 leaves

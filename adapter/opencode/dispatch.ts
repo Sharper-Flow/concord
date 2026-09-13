@@ -27,7 +27,7 @@ const PACKET_SCHEMA_VERSION: AgentLanePacketSchemaVersion = agentLanePacketSchem
 const REPORT_SCHEMA_VERSION: AgentLaneReportSchemaVersion = agentLaneReportSchema.properties.schema_version.const
 
 export interface DispatchRunner {
-  run(argv: string[], input: string, signal: AbortSignal): Promise<{ exitCode: number; stdout: string; stderr: string }>
+  run(argv: string[], input: string, signal: AbortSignal, options?: { env?: Record<string, string> }): Promise<{ exitCode: number; stdout: string; stderr: string }>
 }
 
 export interface AgentLanePacket {
@@ -177,8 +177,8 @@ function withHostBoundedOutput(envelope: AgentResultEnvelope, output: string): A
 }
 
 export const defaultRunner: DispatchRunner = {
-  async run(argv, input, signal) {
-    const child = Bun.spawn(argv, { stdin: "pipe", stdout: "pipe", stderr: "pipe" })
+  async run(argv, input, signal, options) {
+    const child = Bun.spawn(argv, { stdin: "pipe", stdout: "pipe", stderr: "pipe", ...(options?.env ? { env: { ...process.env, ...options.env } as Record<string, string> } : {}) })
     const abort = () => child.kill()
     if (signal.aborted) abort()
     signal.addEventListener("abort", abort, { once: true })

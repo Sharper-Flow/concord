@@ -104,6 +104,10 @@ type WorkerCompletedPayload struct {
 	AttemptID           string `json:"attempt_id"`
 	ReadbackModel       string `json:"readback_model"`
 	ReportSchemaVersion string `json:"report_schema_version"`
+	// WorkerDirectory is the directory the host session reported at completion.
+	// An empty value preserves compatibility with adapters that predate this
+	// boundary.
+	WorkerDirectory string `json:"worker_directory,omitempty"`
 	// Evidence is the reported discharge of the dispatching lane's declared
 	// obligations. It is empty exactly when EvidenceOrigin is
 	// legacy_unavailable.
@@ -660,6 +664,14 @@ func foldWorkerCompleted(ctx context.Context, tx *sql.Tx, event Event) error {
 	attempt, err := readWorkerTerminalAttempt(ctx, tx, event, payload.AttemptID)
 	if err != nil {
 		return err
+	}
+	// The host session can retain its old process directory after the host moves
+	// the session record. Refuse a reported directory that is not an active claim
+	// before the completion event can make the attempt terminal.
+	if payload.WorkerDirectory != "" {
+		if err := validateWorkerDispatchWorktree(ctx, tx, event.SubjectID, payload.WorkerDirectory); err != nil {
+			return err
+		}
 	}
 	now := event.OccurredAt.UTC().Format("2006-01-02T15:04:05.999999999Z07:00")
 	// CD-0056 D4: the fold is the only point where the attempt's lane

@@ -37,6 +37,7 @@ type BootstrapRequest struct {
 	Tags                  []string `json:"tags"`
 	WorkflowTypeRef       string   `json:"workflow_type_ref"`
 	ExternalRef           string   `json:"external_ref"`
+	RaisedFromWorkID      string   `json:"raised_from_work_id,omitempty"`
 	GoverningRequirements []string `json:"governing_requirements"`
 	Ref                   string   `json:"ref"`
 }
@@ -720,6 +721,9 @@ func validateBootstrapRequest(req BootstrapRequest) error {
 	if req.WorkflowTypeRef != "" && !bootstrapIDPattern.MatchString(req.WorkflowTypeRef) {
 		return newFailure(KindInvalidOperation, "work_bootstrap", "workflow_type_ref is not a valid identifier", false, "supply a bounded workflow reference")
 	}
+	if req.RaisedFromWorkID != "" && !bootstrapIDPattern.MatchString(req.RaisedFromWorkID) {
+		return newFailure(KindInvalidOperation, "work_bootstrap", "raised_from_work_id is not a valid identifier", false, "supply a bounded work identifier")
+	}
 	if req.Ref != "" && (len(req.Ref) > 128 || strings.HasPrefix(req.Ref, "-") || strings.ContainsAny(req.Ref, " \t\n\r\x00")) {
 		return newFailure(KindInvalidOperation, "work_bootstrap", "ref is not a bounded rev-syntax value", false, "supply one safe repository ref")
 	}
@@ -779,7 +783,7 @@ func (s *Store) prepareBootstrap(ctx context.Context, req BootstrapRequest, oper
 		}
 		now := s.now()
 		priority := req.Priority
-		workPayload, _ := json.Marshal(workCreatedPayload{WorkID: workID, WorkKind: req.Kind, Title: req.Title, ValueStatement: req.ValueStatement, Priority: &priority, Urgency: req.Urgency, Tags: req.Tags, WorkflowTypeRef: req.WorkflowTypeRef, ExternalRef: req.ExternalRef})
+		workPayload, _ := json.Marshal(workCreatedPayload{WorkID: workID, WorkKind: req.Kind, Title: req.Title, ValueStatement: req.ValueStatement, Priority: &priority, Urgency: req.Urgency, Tags: req.Tags, WorkflowTypeRef: req.WorkflowTypeRef, ExternalRef: req.ExternalRef, RaisedFromWorkID: req.RaisedFromWorkID})
 		membershipPayload, _ := json.Marshal(workMembershipsPayload{Memberships: []workMembershipPayload{{ProjectID: req.ProjectID, Role: "primary"}}, ExpectedVersion: 1, ResultingVersion: 2})
 		events := []Event{
 			{EventID: operationID + ":work-created", Kind: "work.created", SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "operator", OccurredAt: now, PayloadVersion: 2, Payload: workPayload},

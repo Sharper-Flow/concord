@@ -153,23 +153,29 @@ type DomainOverlap struct {
 	Truncated        bool                  `json:"truncated"`
 }
 
+type ExternalRefConflict struct {
+	ExistingWorkID string `json:"existing_work_id"`
+	ExternalRef    string `json:"external_ref"`
+}
+
 // MaxNotices bounds each notice collection on an envelope. Producers that merge
 // notices from more than one stage must respect it before validation runs.
 const MaxNotices = 16
 
 type TypedError struct {
-	Kind             string            `json:"kind"`
-	RetrySafe        bool              `json:"retry_safe"`
-	RecoveryAction   RecoveryAction    `json:"recovery_action"`
-	EffectState      EffectState       `json:"effect_state"`
-	AdapterReason    string            `json:"adapter_reason,omitempty"`
-	Message          string            `json:"message,omitempty"`
-	CurrentVersions  []ChangedRef      `json:"current_versions,omitempty"`
-	Candidates       []string          `json:"candidates,omitempty"`
-	Violations       []string          `json:"violations,omitempty"`
-	Options          []string          `json:"options,omitempty"`
-	StaleLawRevision *StaleLawRevision `json:"stale_law_revision,omitempty"`
-	DomainOverlap    *DomainOverlap    `json:"domain_overlap,omitempty"`
+	Kind                string               `json:"kind"`
+	RetrySafe           bool                 `json:"retry_safe"`
+	RecoveryAction      RecoveryAction       `json:"recovery_action"`
+	EffectState         EffectState          `json:"effect_state"`
+	AdapterReason       string               `json:"adapter_reason,omitempty"`
+	Message             string               `json:"message,omitempty"`
+	CurrentVersions     []ChangedRef         `json:"current_versions,omitempty"`
+	Candidates          []string             `json:"candidates,omitempty"`
+	Violations          []string             `json:"violations,omitempty"`
+	Options             []string             `json:"options,omitempty"`
+	StaleLawRevision    *StaleLawRevision    `json:"stale_law_revision,omitempty"`
+	DomainOverlap       *DomainOverlap       `json:"domain_overlap,omitempty"`
+	ExternalRefConflict *ExternalRefConflict `json:"external_ref_conflict,omitempty"`
 	// ConsequenceSummary is the CD-0037 typed approval prompt. It is derived
 	// at challenge mint from the exact facts the challenge binds, so nothing
 	// it describes can change without invalidating the challenge itself. It
@@ -767,6 +773,11 @@ func validateError(err TypedError) error {
 					return errors.New("unknown domain overlap recovery action")
 				}
 			}
+		}
+	}
+	if err.ExternalRefConflict != nil {
+		if err.Kind != "operation_conflict" || !bounded(err.ExternalRefConflict.ExistingWorkID, 1, 128) || !bounded(err.ExternalRefConflict.ExternalRef, 1, 256) {
+			return errors.New("external reference conflict coupling violated")
 		}
 	}
 	if want, coupled := enforcedRecoveryCouplings[err.Kind]; coupled && err.RecoveryAction.Kind != want {

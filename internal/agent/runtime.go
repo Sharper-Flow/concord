@@ -770,6 +770,9 @@ func failureEnvelope(base Envelope, err error) Envelope {
 				out.Error.DomainOverlap.Overlaps = append(out.Error.DomainOverlap.Overlaps, converted)
 			}
 		}
+		if sf.ExternalRefConflict != nil {
+			out.Error.ExternalRefConflict = &ExternalRefConflict{ExistingWorkID: sf.ExternalRefConflict.ExistingWorkID, ExternalRef: sf.ExternalRefConflict.ExternalRef}
+		}
 		return out
 	}
 	return coreError(base, "internal_error", err.Error(), "contact_operator", false)

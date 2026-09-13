@@ -22,16 +22,17 @@ type mutationMembership struct {
 	Role      string `json:"role"`
 }
 type captureMutationInput struct {
-	Title           string   `json:"title"`
-	ValueStatement  string   `json:"value_statement"`
-	Kind            string   `json:"kind"`
-	ProjectIDs      []string `json:"project_ids"`
-	Priority        int64    `json:"priority"`
-	Urgency         string   `json:"urgency"`
-	Tags            []string `json:"tags"`
-	WorkflowTypeRef string   `json:"workflow_type_ref"`
-	ExternalRef     string   `json:"external_ref"`
-	IdempotencyKey  string   `json:"idempotency_key"`
+	Title            string   `json:"title"`
+	ValueStatement   string   `json:"value_statement"`
+	Kind             string   `json:"kind"`
+	ProjectIDs       []string `json:"project_ids"`
+	Priority         int64    `json:"priority"`
+	Urgency          string   `json:"urgency"`
+	Tags             []string `json:"tags"`
+	WorkflowTypeRef  string   `json:"workflow_type_ref"`
+	ExternalRef      string   `json:"external_ref"`
+	RaisedFromWorkID string   `json:"raised_from_work_id"`
+	IdempotencyKey   string   `json:"idempotency_key"`
 	// GoverningRequirements enumerates the scope-level obligations this capture
 	// carries (CD-0035 D3/D4). It confers no authority: the core refuses when it
 	// fails to cover the requirements the target scope declares, and the caller
@@ -1205,7 +1206,7 @@ func (r runtime) planCapture(ctx context.Context, base Envelope, raw []byte, dig
 		if urgency == "" {
 			urgency = "standard"
 		}
-		payload, _ := json.Marshal(map[string]any{"work_kind": in.Kind, "title": in.Title, "value_statement": in.ValueStatement, "priority": priority, "urgency": urgency, "tags": in.Tags, "workflow_type_ref": in.WorkflowTypeRef, "external_ref": in.ExternalRef})
+		payload, _ := json.Marshal(map[string]any{"work_kind": in.Kind, "title": in.Title, "value_statement": in.ValueStatement, "priority": priority, "urgency": urgency, "tags": in.Tags, "workflow_type_ref": in.WorkflowTypeRef, "external_ref": in.ExternalRef, "raised_from_work_id": in.RaisedFromWorkID})
 		memberships := make([]storeMembership, len(in.ProjectIDs))
 		for i, project := range in.ProjectIDs {
 			role := "secondary"

@@ -78,6 +78,7 @@
         "internal/store.insertScratchLocator",
         "internal/store.insertScratchProject",
         "internal/store.insertScratchWork",
+        "internal/store.insertScratchWorkWithExternalRef",
         "internal/store.newReconstructionStore",
         "internal/store.populateReconstructionSnapshot",
         "internal/store.readSubjectEvents",

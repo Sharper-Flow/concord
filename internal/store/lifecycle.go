@@ -10,18 +10,19 @@ import (
 )
 
 type workCreatedPayload struct {
-	WorkID          string   `json:"work_id,omitempty"`
-	WorkKind        string   `json:"work_kind"`
-	Title           string   `json:"title"`
-	From            string   `json:"from,omitempty"`
-	To              string   `json:"to,omitempty"`
-	ValueStatement  string   `json:"value_statement,omitempty"`
-	Priority        *int64   `json:"priority"`
-	Urgency         string   `json:"urgency,omitempty"`
-	Tags            []string `json:"tags,omitempty"`
-	ComponentID     string   `json:"component_id,omitempty"`
-	WorkflowTypeRef string   `json:"workflow_type_ref,omitempty"`
-	ExternalRef     string   `json:"external_ref,omitempty"`
+	WorkID           string   `json:"work_id,omitempty"`
+	WorkKind         string   `json:"work_kind"`
+	Title            string   `json:"title"`
+	From             string   `json:"from,omitempty"`
+	To               string   `json:"to,omitempty"`
+	ValueStatement   string   `json:"value_statement,omitempty"`
+	Priority         *int64   `json:"priority"`
+	Urgency          string   `json:"urgency,omitempty"`
+	Tags             []string `json:"tags,omitempty"`
+	ComponentID      string   `json:"component_id,omitempty"`
+	WorkflowTypeRef  string   `json:"workflow_type_ref,omitempty"`
+	ExternalRef      string   `json:"external_ref,omitempty"`
+	RaisedFromWorkID string   `json:"raised_from_work_id,omitempty"`
 }
 
 type workCreatedV1Payload struct {
@@ -222,6 +223,29 @@ func foldWorkCreated(ctx context.Context, tx *sql.Tx, event Event) error {
 		return newFailure(KindInvalidPayload, "fold_event", "work.created payload has invalid urgency", false,
 			"supply urgency of 'standard' or 'expedite'")
 	}
+	if payload.ExternalRef == "" && payload.RaisedFromWorkID != "" {
+		return newFailure(KindInvalidPayload, "fold_event", "raised_from_work_id requires an external_ref collision", false,
+			"supply raised_from_work_id only when acknowledging a live external reference conflict")
+	}
+	if payload.ExternalRef != "" {
+		var existingWorkID string
+		err := tx.QueryRowContext(ctx, `SELECT id FROM work_items WHERE json_extract(intent_json, '$.external_ref')=? AND terminal_time IS NULL LIMIT 1`, payload.ExternalRef).Scan(&existingWorkID)
+		if err != nil && err != sql.ErrNoRows {
+			return wrapFailure(KindUnavailable, "fold_event", "cannot inspect live external-reference owners", true,
+				"retry once the database is readable", err)
+		}
+		if err == nil {
+			conflict := newFailure(KindProjectionConflict, "fold_event", "external reference already belongs to live work item "+existingWorkID, false,
+				"acknowledge the colliding work item with raised_from_work_id")
+			conflict.ExternalRefConflict = &ExternalRefConflict{ExistingWorkID: existingWorkID, ExternalRef: payload.ExternalRef}
+			if payload.RaisedFromWorkID != existingWorkID {
+				return conflict
+			}
+		} else if payload.RaisedFromWorkID != "" {
+			return newFailure(KindProjectionConflict, "fold_event", "raised_from_work_id does not acknowledge a live external reference conflict", false,
+				"reread the live external reference owner and supply its work ID")
+		}
+	}
 	now := event.OccurredAt.UTC().Format(time.RFC3339Nano)
 	intent, err := json.Marshal(workIntentProjection{
 		Title: payload.Title, ValueStatement: payload.ValueStatement, Kind: payload.WorkKind,
@@ -242,6 +266,11 @@ func foldWorkCreated(ctx context.Context, tx *sql.Tx, event Event) error {
 		}
 		return wrapFailure(KindUnavailable, "fold_event", "cannot create work item projection", true,
 			"retry once the database is writable", err)
+	}
+	if payload.RaisedFromWorkID != "" {
+		if err := insertRelation(ctx, tx, event, relationPayload{From: event.SubjectID, To: payload.RaisedFromWorkID, Kind: "raised_from", Reason: "capture acknowledges the colliding external reference"}); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -995,10 +1024,11 @@ func relationIdentity(ctx context.Context, tx *sql.Tx, event Event) (int64, erro
 	for _, kind := range relationIdentityEventKinds {
 		args = append(args, kind)
 	}
-	if err := tx.QueryRowContext(ctx, `
+	query := `
 		SELECT count(*) FROM domain_events
 		WHERE seq <= (SELECT seq FROM domain_events WHERE event_id = ?)
-		AND kind IN (`+placeholders+`)`, args...).Scan(&relationID); err != nil {
+		AND (kind IN (` + placeholders + `) OR (kind = 'work.created' AND json_extract(payload, '$.raised_from_work_id') <> ''))`
+	if err := tx.QueryRowContext(ctx, query, args...).Scan(&relationID); err != nil {
 		return 0, wrapFailure(KindUnavailable, "fold_event", "cannot assign a deterministic relation identity", true,
 			"retry once the event log is readable", err)
 	}

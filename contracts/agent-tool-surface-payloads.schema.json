@@ -3225,6 +3225,9 @@
         "external_ref": {
           "$ref": "#/$defs/short"
         },
+        "raised_from_work_id": {
+          "$ref": "#/$defs/id"
+        },
         "idempotency_key": {
           "$ref": "#/$defs/id"
         },

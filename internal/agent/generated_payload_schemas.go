@@ -4955,6 +4955,9 @@ const GeneratedPayloadSchemaDocument = `{
           "type": "array",
           "uniqueItems": true
         },
+        "raised_from_work_id": {
+          "$ref": "#/$defs/id"
+        },
         "requested_budget_seconds": {
           "$ref": "#/$defs/requested_budget_seconds"
         },

@@ -443,7 +443,7 @@ def validate_host_manifest(manifest: dict, schema: dict) -> str:
     if [tool.get("name") for tool in tools] != ["concord_work_start"]:
         fail("host tool manifest must declare concord_work_start once")
     args = tools[0].get("args", {})
-    capture = ["title", "value_statement", "kind", "task", "idempotency_key", "priority", "urgency", "tags", "workflow_type_ref", "external_ref", "governing_requirements", "ref"]
+    capture = ["title", "value_statement", "kind", "task", "idempotency_key", "priority", "urgency", "tags", "workflow_type_ref", "external_ref", "raised_from_work_id", "governing_requirements", "ref"]
     resume = ["work_id"]
     branches = args.get("oneOf")
     if args.get("type") != "object" or not isinstance(branches, list) or len(branches) != 2:

@@ -1,5 +1,18 @@
 {
+  "evidence": [
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestWorkCreatedExternalRefCollisionCarriesTypedOwner"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestWorkCreatedExternalRefAcknowledgementRecordsRaisedFrom"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestWorkCreatedExternalRefCollisionIgnoresTerminalOwner"
+    }
+  ],
   "id": "CD-0140",
-  "reason": "The decision is proved by lane_step_dispatch_test.go, which drives the dispatch fold through the admitted review-at-effect pair and the preserved research refusal, and by the generator check in CI, which refuses drift between the join contract and the generated projection.",
-  "state": "out_of_scope"
+  "state": "satisfied"
 }

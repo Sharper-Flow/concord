@@ -2692,6 +2692,26 @@ const GeneratedEnvelopeSchemaDocument = `{
           ],
           "type": "string"
         },
+        "external_ref_conflict": {
+          "additionalProperties": false,
+          "properties": {
+            "existing_work_id": {
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            },
+            "external_ref": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "existing_work_id",
+            "external_ref"
+          ],
+          "type": "object"
+        },
         "kind": {
           "enum": [
             "unknown_scope",

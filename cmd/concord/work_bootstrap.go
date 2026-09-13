@@ -26,6 +26,7 @@ type workBootstrapInput struct {
 	Tags                  []string `json:"tags"`
 	WorkflowTypeRef       string   `json:"workflow_type_ref"`
 	ExternalRef           string   `json:"external_ref"`
+	RaisedFromWorkID      string   `json:"raised_from_work_id"`
 	GoverningRequirements []string `json:"governing_requirements"`
 	Ref                   string   `json:"ref"`
 }
@@ -83,7 +84,7 @@ func runWorkBootstrap(raw []byte, s *store.Store, out, errOut io.Writer) int {
 		ProductID: input.ProductID, ProjectID: input.ProjectID, Title: input.Title,
 		ValueStatement: input.ValueStatement, Kind: input.Kind, Task: input.Task,
 		IdempotencyKey: input.IdempotencyKey, Priority: input.Priority, Urgency: input.Urgency,
-		Tags: input.Tags, WorkflowTypeRef: input.WorkflowTypeRef, ExternalRef: input.ExternalRef,
+		Tags: input.Tags, WorkflowTypeRef: input.WorkflowTypeRef, ExternalRef: input.ExternalRef, RaisedFromWorkID: input.RaisedFromWorkID,
 		GoverningRequirements: input.GoverningRequirements, Ref: input.Ref,
 	}, nil)
 	if err != nil {

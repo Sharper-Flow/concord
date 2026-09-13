@@ -29,6 +29,13 @@ func advanceWorkflowReplay(ctx context.Context, event Event) {
 	if !ok {
 		return
 	}
+	if event.Kind == "work.created" {
+		var payload workCreatedPayload
+		if json.Unmarshal(event.Payload, &payload) == nil && payload.RaisedFromWorkID != "" {
+			state.relationIdentity++
+		}
+		return
+	}
 	for _, kind := range relationIdentityEventKinds {
 		if event.Kind == kind {
 			state.relationIdentity++

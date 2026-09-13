@@ -86,6 +86,28 @@ func seedOverlapProjection(t *testing.T, left, right string, relation bool) (*St
 	return s, actor
 }
 
+func TestWorkflowDomainOverlapArchitectureOnlyDoesNotBlock(t *testing.T) {
+	left := workflowOverlapFootprint{ProductID: "product", WorkID: "architecture-left", ContractVersion: 1, AffectedDomains: []string{"shared-domain"}}
+	right := workflowOverlapFootprint{ProductID: "product", WorkID: "architecture-right", ContractVersion: 1, AffectedDomains: []string{"shared-domain"}}
+
+	if _, ok := workflowDomainOverlapPair(left, right); ok {
+		t.Fatal("shared affected Domain without a shared write must not block execution authority")
+	}
+}
+
+func TestWorkflowDomainOverlapWriteIntersectionBlocks(t *testing.T) {
+	left := workflowOverlapFootprint{ProductID: "product", WorkID: "write-left", ContractVersion: 1, AffectedDomains: []string{"shared-domain"}, LawWrites: []string{"law:shared"}}
+	right := workflowOverlapFootprint{ProductID: "product", WorkID: "write-right", ContractVersion: 1, AffectedDomains: []string{"shared-domain"}, LawWrites: []string{"law:shared"}}
+
+	overlap, ok := workflowDomainOverlapPair(left, right)
+	if !ok {
+		t.Fatal("shared law write must block execution authority")
+	}
+	if got := strings.Join(overlap.OverlapClasses, ","); got != "architecture,law_write" {
+		t.Fatalf("overlap classes = %q, want architecture,law_write", got)
+	}
+}
+
 func TestWorkflowDomainOverlapDerivesTypedIntersectionsAndCompatibleResolution(t *testing.T) {
 	ctx := context.Background()
 	s, actor := seedOverlapProjection(t, "overlap-left", "overlap-right", true)
@@ -583,6 +605,10 @@ func seedCompletedWorkerOverlap(t *testing.T, workID, otherID string) (*Store, W
 			t.Fatal(err)
 		}
 		if _, err := tx.ExecContext(ctx, `INSERT INTO workflow_contract_affected_domains(work_id,contract_version,domain_id) VALUES(?,1,'root')`, id); err != nil {
+			tx.Rollback()
+			t.Fatal(err)
+		}
+		if _, err := tx.ExecContext(ctx, `INSERT INTO workflow_contract_domain_modifications(work_id,contract_version,domain_id) VALUES(?,1,'root')`, id); err != nil {
 			tx.Rollback()
 			t.Fatal(err)
 		}

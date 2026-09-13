@@ -135,27 +135,81 @@ function schemaName(ref: string): string {
   return name
 }
 
-function collectSchemaRefs(value: unknown, names: Set<string>): void {
-  if (Array.isArray(value)) {
-    for (const item of value) collectSchemaRefs(item, names)
-    return
-  }
-  if (typeof value !== "object" || value === null) return
-  for (const [key, item] of Object.entries(value)) {
-    if (key === "$ref" && typeof item === "string" && item.startsWith("#/$defs/")) names.add(schemaName(item))
-    else collectSchemaRefs(item, names)
-  }
+const hostSchemaStructuralKeys = new Set(["$defs", "$ref", "additionalProperties", "allOf", "anyOf", "definitions", "else", "if", "not", "oneOf", "properties", "required", "then"])
+
+function sameSchema(left: unknown, right: unknown): boolean {
+  return JSON.stringify(left) === JSON.stringify(right)
 }
 
-function rewriteSchemaRefs(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(rewriteSchemaRefs)
-  if (typeof value !== "object" || value === null) return value
-  return Object.fromEntries(Object.entries(value).map(([key, item]) => [
-    key,
-    key === "$ref" && typeof item === "string" && item.startsWith("#/$defs/")
-      ? `#/properties/request/definitions/${schemaName(item)}`
-      : rewriteSchemaRefs(item),
-  ]))
+function mergeHostSchemas(schemas: JSONSchema[]): JSONSchema {
+  if (schemas.length === 0) return {}
+  if (schemas.every((schema) => sameSchema(schema, schemas[0]))) return schemas[0]
+
+  const objectLike = schemas.some((schema) => schema.type === "object" || schema.properties !== undefined)
+  if (objectLike) {
+    const properties: Record<string, unknown> = {}
+    for (const schema of schemas) {
+      for (const [name, property] of Object.entries((schema.properties ?? {}) as Record<string, unknown>)) {
+        const previous = properties[name]
+        properties[name] = previous === undefined
+          ? property
+          : mergeHostSchemas([previous as JSONSchema, property as JSONSchema])
+      }
+    }
+    return { type: "object", properties, required: [], additionalProperties: true }
+  }
+
+  const result: JSONSchema = {}
+  for (const [key, value] of Object.entries(schemas[0])) {
+    if (hostSchemaStructuralKeys.has(key)) continue
+    if (schemas.every((schema) => sameSchema(schema[key], value))) result[key] = value
+  }
+  const inferredTypes = schemas.map((schema) => {
+    if (typeof schema.type === "string") return schema.type
+    if (schema.type !== undefined) return JSON.stringify(schema.type)
+    if (schema.const !== undefined) return typeof schema.const
+    if (Array.isArray(schema.enum) && schema.enum.length > 0) return typeof schema.enum[0]
+    return ""
+  }).filter(Boolean)
+  if (inferredTypes.length > 0 && inferredTypes.every((type) => type === inferredTypes[0])) result.type = inferredTypes[0]
+  return result
+}
+
+function flattenHostSchema(value: unknown, resolving = new Set<string>()): JSONSchema {
+  if (Array.isArray(value) || typeof value !== "object" || value === null) return {}
+  const schema = value as JSONSchema
+  if (typeof schema.$ref === "string") {
+    const name = schemaName(schema.$ref)
+    if (resolving.has(name)) return {}
+    const next = new Set(resolving)
+    next.add(name)
+    return flattenHostSchema((payloadSchemas as Record<string, unknown>)[name], next)
+  }
+
+  const combinations = ["oneOf", "anyOf", "allOf", "then", "else"]
+    .flatMap((key) => Array.isArray(schema[key]) ? schema[key] as unknown[] : schema[key] === undefined ? [] : [schema[key]])
+  if (combinations.length > 0) {
+    const base = Object.fromEntries(Object.entries(schema).filter(([key]) => !hostSchemaStructuralKeys.has(key)))
+    const branches = [base, ...combinations].map((branch) => flattenHostSchema(branch, resolving))
+    return mergeHostSchemas(branches)
+  }
+
+  const result: JSONSchema = {}
+  for (const [key, child] of Object.entries(schema)) {
+    if (hostSchemaStructuralKeys.has(key)) continue
+    if (key === "items") {
+      result[key] = Array.isArray(child) ? child.map((item) => flattenHostSchema(item, resolving)) : flattenHostSchema(child, resolving)
+    } else {
+      result[key] = child
+    }
+  }
+  if (schema.properties !== undefined || schema.type === "object") {
+    result.type = "object"
+    result.properties = Object.fromEntries(Object.entries((schema.properties ?? {}) as Record<string, unknown>).map(([name, property]) => [name, flattenHostSchema(property, resolving)]))
+    result.required = []
+    result.additionalProperties = true
+  }
+  return result
 }
 
 export function publishedRequestSchema(toolName: string): JSONSchema {
@@ -164,28 +218,15 @@ export function publishedRequestSchema(toolName: string): JSONSchema {
   const publicInputSchema = (operation: any): string => operation.id === "concord_work_transition.workflow_action"
     ? "work_transition_action_public_input"
     : schemaName(operation.input_schema)
-  const needed = new Set<string>(operations.map(publicInputSchema))
-  const definitions: Record<string, unknown> = {}
-  while (true) {
-    const pending = [...needed].filter((name) => !Object.hasOwn(definitions, name)).sort()
-    if (pending.length === 0) break
-    for (const name of pending) {
-      const schema = (payloadSchemas as Record<string, unknown>)[name]
-      collectSchemaRefs(schema, needed)
-      definitions[name] = rewriteSchemaRefs(schema)
-    }
-  }
+  const input = mergeHostSchemas(operations.map((operation: any) => flattenHostSchema((payloadSchemas as Record<string, unknown>)[publicInputSchema(operation)])))
   return {
-    oneOf: operations.map((operation: any) => ({
-      type: "object",
-      additionalProperties: false,
-      required: ["operation", "input"],
-      properties: {
-        operation: { type: "string", const: operation.id.slice(operation.id.indexOf(".") + 1) },
-        input: { $ref: `#/properties/request/definitions/${publicInputSchema(operation)}` },
-      },
-    })),
-    definitions,
+    type: "object",
+    additionalProperties: false,
+    required: ["operation", "input"],
+    properties: {
+      operation: { type: "string", enum: operations.map((operation: any) => operation.id.slice(operation.id.indexOf(".") + 1)) },
+      input,
+    },
   }
 }
 

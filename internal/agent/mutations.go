@@ -3254,10 +3254,11 @@ func (r runtime) executeMutation(ctx context.Context, base Envelope, raw []byte,
 			return store.TouchMutationIdempotencyTx(ctx, tx, store.MutationIdempotencyKey{PrincipalRef: grant.PrincipalRef, Tool: r.Tool, OperationKind: r.Operation, IdempotencyKey: key}, r.Authority.now())
 		}
 		// CD-0041 D7: every consequential boundary validates the contract's law
-		// revision pins and its active Domain overlaps. The recovery operations
-		// this exempts are the closed recovery choices both refusals name, so
-		// guarding them would refuse the only way out of either condition.
-		if !mutationIsOverlapRecovery(r.Tool, r.Operation, raw) {
+		// revision pins and its active Domain overlaps. The guarded set is the
+		// action classes D7 names, and no wider: D7 also holds that read-only
+		// inspection remains available, and an operation that records no
+		// workflow state sits outside every class it lists.
+		if mutationRequiresConsequentialBoundary(r.Tool, r.Operation, raw) {
 			for _, workID := range mutationScopeWorkIDs(scope) {
 				if err := store.CheckWorkflowConsequentialBoundaryTx(ctx, tx, workID); err != nil {
 					return err
@@ -3361,6 +3362,50 @@ func mutationScopeWorkIDs(scope map[string]any) []string {
 		out = append(out, value)
 	}
 	return out
+}
+
+// mutationRequiresConsequentialBoundary answers whether one mutation belongs to
+// an action class CD-0041 D7 names. The generated operation manifest already
+// classifies every operation's consequence, so the answer derives from that
+// declaration rather than from a second list beside it that can drift.
+//
+// The consequences below record intent, a work-to-work relation, research, or
+// project scope. None advances the pinned workflow, and D7 names none of them,
+// so an unresolved overlap must not close them: they carry the only way a
+// blocked item can state that it is blocked.
+func mutationRequiresConsequentialBoundary(tool, operation string, raw []byte) bool {
+	if mutationIsOverlapRecovery(tool, operation, raw) {
+		return false
+	}
+	// The external variant is the exception inside an otherwise unguarded
+	// operation. It accepts an attributed merge or ship result, which is the
+	// sixth class D7 names, so it keeps the full preflight.
+	if tool == "concord_work_define" && operation == "observation_record" {
+		var input struct {
+			External json.RawMessage `json:"external"`
+		}
+		if json.Unmarshal(raw, &input) != nil {
+			return true
+		}
+		return len(input.External) != 0
+	}
+	switch mutationConsequence(tool, operation) {
+	case "intent", "relation", "research", "scope":
+		return false
+	}
+	return true
+}
+
+// mutationConsequence reports the consequence the generated manifest declares
+// for one operation. An unknown operation reports the empty string, which the
+// caller treats as guarded.
+func mutationConsequence(tool, operation string) OperationConsequence {
+	for _, op := range ContractOperations {
+		if op.Tool == tool && op.Operation == operation {
+			return op.Consequence
+		}
+	}
+	return ""
 }
 
 func mutationIsOverlapRecovery(tool, operation string, raw []byte) bool {

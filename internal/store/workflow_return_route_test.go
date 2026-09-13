@@ -109,6 +109,61 @@ func TestNonOKVerdictReturnsBreakFixVerificationToRefine(t *testing.T) {
 	testWorkflowReturnRoute(t, "return-route-break-fix", "workflow.break_fix", "verify")
 }
 
+func TestNonOKVerdictCorrectionReturnsImplementationToExecution(t *testing.T) {
+	const workID = "return-route-verdict-correction"
+	ctx := context.Background()
+	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.implementation", "acceptance")
+	s, owner := fixture.store, fixture.owner
+	ownerRef, err := WorkflowActorRef(owner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reviewer := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/verdict-reviewer", SessionRef: "session/" + workID + "-reviewer", ActorClass: ActorAgent}
+	reviewerRef, err := WorkflowActorRef(reviewer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	version := verdictItemVersion(t, s, workID)
+	if err := applyWorkflowTestOperation(ctx, s, Operation{
+		Events: []Event{workflowEventWithActor("reviewer-"+workID, WorkflowActorRecorded, workID, reviewerRef, map[string]any{
+			"work_id": workID, "expected_version": version, "resulting_version": version + 1, "actor_ref": reviewerRef,
+			"principal_ref": reviewer.PrincipalRef, "client_ref": reviewer.ClientRef, "agent_ref": reviewer.AgentRef,
+			"session_ref": reviewer.SessionRef, "actor_class": string(reviewer.ActorClass),
+		})}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	lane := BuiltinLaneDefinitions()[0]
+	if err := ApplyOperation(ctx, s, Operation{Events: []Event{{
+		EventID: "dispatch-" + workID, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID,
+		Actor: ownerRef, OccurredAt: time.Unix(30, 0).UTC(), PayloadVersion: 2,
+		Payload: mustJSONValue(WorkerDispatchedPayload{AttemptID: "attempt:" + workID, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, ReadbackModel: preferredModelForLane(lane), PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion}),
+	}}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := runVerdictActionAs(t, s, workID, "record_verdict", json.RawMessage(`{"contract_version":1,"predicate_id":"predicate:return-route","verdict_kind":"outcome_mismatch","evaluation_evidence":["evidence:return-route-verification"],"incomparable_with_approved":true}`), 0, reviewer); err != nil {
+		t.Fatalf("record non-ok verdict: %v", err)
+	}
+	operator := fixture.operator
+	payload := json.RawMessage(`{"diagnosis":"the delivered subject does not satisfy the approved predicate","strategy":"repeat the implementation external effect","predicate_ids":["predicate:return-route"],"evidence_refs":["evidence:return-route-verification"]}`)
+	if err := runIssue933OperatorAction(t, s, workID, "request_correction", payload, owner, operator); err != nil {
+		t.Fatalf("request correction: %v", err)
+	}
+	if got := currentStep(t, s, workID); got != "execution" {
+		t.Fatalf("step after verdict correction = %q, want execution", got)
+	}
+	correction, err := workflowCorrectionContextForDispatch(ctx, s.db, workID, "execution", "attempt:next")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if correction == nil || correction.AttemptCount != 1 || correction.PredicateIDs[0] != "predicate:return-route" {
+		t.Fatalf("dispatch correction context = %+v, want the first verdict correction", correction)
+	}
+	if err := WorkflowActionPreflight(ctx, s, WorkflowActionPreflightRequest{WorkID: workID, ActionID: "request_correction", Payload: payload, Actor: owner}); err == nil {
+		t.Fatal("request_correction remained available before a fresh verdict")
+	}
+}
+
 func testWorkflowReturnRoute(t *testing.T, workID, definitionRef, verdictStep string) {
 	t.Helper()
 	ctx := context.Background()

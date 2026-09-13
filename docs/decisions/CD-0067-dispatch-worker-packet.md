@@ -3,6 +3,8 @@
 Status: accepted
 Date: 2026-08-24
 
+Amended by: CD-0143 for the fresh packet and epoch required by verdict correction.
+
 ## Context
 
 Issue #253: the lane worker pipeline reaches no installation. The

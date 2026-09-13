@@ -1,0 +1,60 @@
+{
+  "date": "2026-09-13T00:00:00Z",
+  "evidence": [
+    "internal/store/workflow_correction.go",
+    "internal/store/workflow_dispatch.go",
+    "internal/store/workflow_preflight.go",
+    "internal/store/workflow.go",
+    "internal/store/workpin.go",
+    "internal/store/workflow_return_route_test.go",
+    "contracts/agent-tool-surface-payloads.schema.json"
+  ],
+  "home_domain_id": "workflow-engine",
+  "id": "CD-0143",
+  "kind": "decision",
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "CD-0013"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0059"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0067"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0133"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0137"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0138"
+    }
+  ],
+  "path": "docs/decisions/CD-0143-verdict-correction-returns-to-external-effect.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:552fa683563cacdc40b383a2d30f4a2e161598efee7b88d0c141b8e5fea5fe2e",
+  "status": "accepted",
+  "summary": "Adds an engine-owned verdict correction route that returns pinned workflows to their declared external effect with bounded attempts and fail-closed completion.",
+  "tags": [
+    "workflow",
+    "correction",
+    "verdict",
+    "worker",
+    "evidence"
+  ],
+  "title": "Verdict correction returns to the external effect"
+}

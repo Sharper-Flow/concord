@@ -6,7 +6,7 @@ import (
 	"fmt"
 )
 
-const ManifestDigest = "sha256:483f0877912facd1d45c04f353dc81c0728bdc5158780a211f1671fd585af77f"
+const ManifestDigest = "sha256:acd8e079f2689ecfd45f3d73f18dc3279d9879a4f9042b1818bf8afa6b6b8864"
 
 type OperationKind string
 
@@ -222,7 +222,7 @@ var GeneratedPayloadRules = map[string]GeneratedPayloadRule{
 	"work_compact_lesson_publish_input":            {Required: []string{"work_id", "lesson_id", "title", "summary", "content", "idempotency_key"}, Properties: []string{"work_id", "lesson_id", "title", "summary", "content", "tags", "scopes", "evidence", "idempotency_key", "approval", "requested_budget_seconds"}},
 	"work_compact_publish_input":                   {Required: []string{"work_id", "expected_version", "content", "content_digest", "home_project_id", "home_locator_id", "idempotency_key", "approval"}, Properties: []string{"work_id", "expected_version", "content", "content_digest", "home_project_id", "home_locator_id", "idempotency_key", "approval", "evidence", "requested_budget_seconds"}},
 	"work_compact_reconcile_input":                 {Required: []string{}, Properties: []string{"operation_id", "expected_operation_version", "work_id", "expected_work_version", "expected_proof_digest", "idempotency_key", "approval", "evidence", "requested_budget_seconds"}},
-	"work_define_capture_input":                    {Required: []string{"title", "value_statement", "kind", "project_ids", "idempotency_key"}, Properties: []string{"title", "value_statement", "kind", "project_ids", "priority", "urgency", "tags", "workflow_type_ref", "external_ref", "idempotency_key", "governing_requirements", "approval", "requested_budget_seconds"}},
+	"work_define_capture_input":                    {Required: []string{"title", "value_statement", "kind", "project_ids", "idempotency_key"}, Properties: []string{"title", "value_statement", "kind", "project_ids", "priority", "urgency", "tags", "workflow_type_ref", "external_ref", "raised_from_work_id", "idempotency_key", "governing_requirements", "approval", "requested_budget_seconds"}},
 	"work_define_observation_record_input":         {Required: []string{"work_id", "idempotency_key"}, Properties: []string{"work_id", "observation_id", "external", "statement", "refs", "tags", "idempotency_key", "requested_budget_seconds"}},
 	"work_define_research_finding_record_input":    {Required: []string{"pack_id", "expected_version", "finding", "idempotency_key"}, Properties: []string{"pack_id", "expected_version", "finding", "source_ids", "idempotency_key", "requested_budget_seconds"}},
 	"work_define_research_freshness_set_input":     {Required: []string{"pack_id", "expected_version", "freshness", "idempotency_key"}, Properties: []string{"pack_id", "expected_version", "freshness", "idempotency_key", "revision", "requested_budget_seconds"}},

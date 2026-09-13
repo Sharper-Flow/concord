@@ -38,7 +38,7 @@ for (const [name, expected] of Object.entries(expectedWorkStartProperties)) {
     if (JSON.stringify(actual[keyword]) !== JSON.stringify(value)) fail(`concord_work_start ${name}.${keyword} differs from the generated contract`)
   }
 }
-inspect(workStartRoot, workStartRoot)
+inspect(workStartRoot)
 
 function fail(message: string): never {
   throw new Error(message)

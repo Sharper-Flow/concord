@@ -215,6 +215,8 @@ function flattenHostSchema(value: unknown, resolving = new Set<string>()): JSONS
 export function publishedRequestSchema(toolName: string): JSONSchema {
   const operations = contractOperations.filter((operation: any) => operation.tool === toolName)
   if (operations.length === 0) throw new Error(`tool ${toolName} has no generated operations`)
+  // The host receives one permissive request shape. ValidateOperationPayload
+  // remains the closed operation boundary because it runs after host delivery.
   const publicInputSchema = (operation: any): string => operation.id === "concord_work_transition.workflow_action"
     ? "work_transition_action_public_input"
     : schemaName(operation.input_schema)

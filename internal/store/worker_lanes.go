@@ -104,6 +104,7 @@ type WorkerCompletedPayload struct {
 	AttemptID           string `json:"attempt_id"`
 	ReadbackModel       string `json:"readback_model"`
 	ReportSchemaVersion string `json:"report_schema_version"`
+	ReviewResult        string `json:"review_result,omitempty"`
 	// Evidence is the reported discharge of the dispatching lane's declared
 	// obligations. It is empty exactly when EvidenceOrigin is
 	// legacy_unavailable.
@@ -170,6 +171,9 @@ func validateWorkerDispatchedPayload(event Event, payload WorkerDispatchedPayloa
 func validateWorkerCompletedPayload(_ Event, payload WorkerCompletedPayload) error {
 	if payload.AttemptID == "" || !workerModelPattern.MatchString(payload.ReadbackModel) || payload.ReportSchemaVersion != WorkerReportSchemaVersion {
 		return invalidWorkerPayload("worker.completed payload has invalid identity or report schema")
+	}
+	if payload.ReviewResult != "" && payload.ReviewResult != "pass" && payload.ReviewResult != "block" {
+		return invalidWorkerPayload("worker.completed payload has an invalid review result")
 	}
 	return validateWorkerReportEvidence(payload.EvidenceOrigin, payload.Evidence)
 }
@@ -672,6 +676,12 @@ func foldWorkerCompleted(ctx context.Context, tx *sql.Tx, event Event) error {
 		}
 		if err := verifyWorkerEvidenceCoverage(lane, payload.Evidence); err != nil {
 			return err
+		}
+		if lane.CapabilityClass == "review" && payload.ReviewResult == "" {
+			return invalidWorkerPayload("review worker completion requires a typed review result")
+		}
+		if lane.CapabilityClass != "review" && payload.ReviewResult != "" {
+			return invalidWorkerPayload("non-review worker completion carries a review result")
 		}
 	}
 	result, err := tx.ExecContext(ctx, `UPDATE worker_attempts SET readback_model=?, lifecycle_state='completed', completed_at=? WHERE attempt_id=? AND work_id=? AND lifecycle_state='dispatched'`, payload.ReadbackModel, now, payload.AttemptID, attempt.WorkID)

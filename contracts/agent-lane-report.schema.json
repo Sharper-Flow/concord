@@ -13,6 +13,7 @@
     "lane_digest": {"type": "string", "minLength": 71, "maxLength": 71, "pattern": "^sha256:[0-9a-f]{64}$"},
     "readback_model": {"type": "string", "minLength": 3, "maxLength": 128, "pattern": "^[a-z][a-z0-9_.-]*/[^/ ]+$"},
     "status": {"enum": ["completed", "failed"]},
+    "review_result": {"enum": ["pass", "block"]},
     "evidence": {"type": "array", "minItems": 1, "maxItems": 64, "items": {"$ref": "#/$defs/evidence_entry"}}
   },
   "$defs": {
@@ -28,5 +29,11 @@
     "evidence_obligation": {
       "enum": ["bounded_findings", "commands", "contract_findings", "exit_codes", "failure_classification", "files_touched", "severity", "source_citations", "uncertainties", "unresolved_issues", "verification_commands", "visual_artifacts"]
     }
-  }
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"lane_id": {"const": "review"}}, "required": ["lane_id"]},
+      "then": {"required": ["review_result"]}
+    }
+  ]
 }

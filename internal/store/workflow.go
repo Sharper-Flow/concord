@@ -1293,7 +1293,9 @@ func foldWorkflowActionCompleted(ctx context.Context, tx *sql.Tx, event Event) e
 	if err != nil || p.ActionID == "" || !advancesStep {
 		return err
 	}
-	if next := workflowNextStep(entry.Definition, currentStep); next != "" {
+	if next, nextErr := workflowNextStepAfterAction(ctx, tx, event.SubjectID, entry.Definition, currentStep, p); nextErr != nil {
+		return nextErr
+	} else if next != "" {
 		return advanceWorkflowInstanceStepTx(ctx, tx, event.SubjectID, next, entry.Definition)
 	}
 	return err
@@ -1368,8 +1370,8 @@ func latestWorkflowActionStartAt(ctx context.Context, tx *sql.Tx, workID, stepID
 
 func validateAcceptedWorkerResult(ctx context.Context, tx *sql.Tx, event Event, payload workflowActionCompletedPayload, definition WorkflowDefinition, currentStep string) error {
 	step := workflowStep(definition, currentStep)
-	if step == nil || step.Kind != WorkflowStepExternalEffect {
-		return newFailure(KindIllegalLifecycleTransition, "fold_event", "accept_worker_result is only valid on an external-effect step", false, "accept a worker result on the pinned external-effect step")
+	if step == nil || (step.Kind != WorkflowStepInternalSQLite && step.Kind != WorkflowStepCrossAuthority && step.Kind != WorkflowStepExternalEffect) {
+		return newFailure(KindIllegalLifecycleTransition, "fold_event", "accept_worker_result is only valid on a worker-dispatchable step", false, "accept a worker result on the pinned worker-dispatchable step")
 	}
 	if payload.WorkerAttemptID == "" {
 		return newFailure(KindInvalidPayload, "fold_event", "accept_worker_result requires worker_attempt_id", false, "supply the completed worker attempt identity")
@@ -1381,8 +1383,8 @@ func validateAcceptedWorkerResult(ctx context.Context, tx *sql.Tx, event Event, 
 	if !found || payload.AttemptEpoch != startEpoch {
 		return newFailure(KindIllegalLifecycleTransition, "fold_event", "worker result attempt epoch does not match the latest workflow action start", false, "accept the current workflow attempt")
 	}
-	var attemptWorkID, lifecycle, readback string
-	if err := tx.QueryRowContext(ctx, `SELECT work_id,lifecycle_state,readback_model FROM worker_attempts WHERE attempt_id=?`, payload.WorkerAttemptID).Scan(&attemptWorkID, &lifecycle, &readback); err != nil {
+	var attemptWorkID, laneID, lifecycle, readback string
+	if err := tx.QueryRowContext(ctx, `SELECT work_id,lane_id,lifecycle_state,readback_model FROM worker_attempts WHERE attempt_id=?`, payload.WorkerAttemptID).Scan(&attemptWorkID, &laneID, &lifecycle, &readback); err != nil {
 		if err == sql.ErrNoRows {
 			return newFailure(KindProjectionNotFound, "fold_event", "worker attempt does not exist", false, "dispatch the worker attempt before accepting its result")
 		}
@@ -1407,6 +1409,16 @@ func validateAcceptedWorkerResult(ctx context.Context, tx *sql.Tx, event Event, 
 	if readback == "" {
 		return newFailure(KindIllegalLifecycleTransition, "fold_event", "worker readback model is empty", false, "accept only a worker attempt that reported a readback model")
 	}
+	reviewResult, err := workerReviewResult(ctx, tx, payload.WorkerAttemptID)
+	if err != nil {
+		return err
+	}
+	if laneID == "review" && reviewResult == "" {
+		return newFailure(KindInvalidPayload, "fold_event", "review worker result is missing its typed result", false, "return review_result as pass or block")
+	}
+	if laneID != "review" && reviewResult != "" {
+		return newFailure(KindInvalidPayload, "fold_event", "non-review worker result carries a review result", false, "omit review_result outside the review lane")
+	}
 	if payload.ActorRef != event.Actor {
 		return newFailure(KindUnauthorized, "fold_event", "accepting actor must match the authenticated event actor", false, "accept the worker result through the authenticated workflow owner")
 	}
@@ -1414,6 +1426,72 @@ func validateAcceptedWorkerResult(ctx context.Context, tx *sql.Tx, event Event, 
 		return err
 	}
 	return nil
+}
+
+func workerReviewResult(ctx context.Context, tx *sql.Tx, attemptID string) (string, error) {
+	var raw string
+	if err := tx.QueryRowContext(ctx, `SELECT payload FROM domain_events WHERE subject_type=? AND kind=? AND json_extract(payload,'$.attempt_id')=? ORDER BY seq DESC LIMIT 1`, string(SubjectWorkItem), WorkerCompleted, attemptID).Scan(&raw); err != nil {
+		if err == sql.ErrNoRows {
+			return "", nil
+		}
+		return "", workflowProjectionError(err, "cannot read the completed worker result")
+	}
+	var payload WorkerCompletedPayload
+	if err := json.Unmarshal([]byte(raw), &payload); err != nil {
+		return "", newFailure(KindInvariantViolation, "fold_event", "completed worker result is malformed", false, "rebuild the worker attempt projection")
+	}
+	return payload.ReviewResult, nil
+}
+
+func workflowNextStepAfterAction(ctx context.Context, tx *sql.Tx, workID string, definition WorkflowDefinition, currentStep string, payload workflowActionCompletedPayload) (string, error) {
+	next := workflowNextStep(definition, currentStep)
+	if currentStep != "review" || payload.ActionID != "accept_worker_result" {
+		return next, nil
+	}
+	result, err := workerReviewResult(ctx, tx, payload.WorkerAttemptID)
+	if err != nil {
+		return "", err
+	}
+	if result != "block" {
+		return next, nil
+	}
+	priorBlocks, err := priorConsecutiveBlockingReviews(ctx, tx, workID)
+	if err != nil {
+		return "", err
+	}
+	if priorBlocks >= 1 {
+		return "planning", nil
+	}
+	if definition.WorkKind == WorkKindImplementation {
+		return "execution", nil
+	}
+	if definition.WorkKind == WorkKindBreakFix {
+		return "repair", nil
+	}
+	return next, nil
+}
+
+func priorConsecutiveBlockingReviews(ctx context.Context, tx *sql.Tx, workID string) (int, error) {
+	rows, err := tx.QueryContext(ctx, `SELECT json_extract(completed.payload,'$.review_result') FROM domain_events accepted JOIN domain_events completed ON completed.subject_type=? AND completed.kind=? AND json_extract(completed.payload,'$.attempt_id')=json_extract(accepted.payload,'$.worker_attempt_id') WHERE accepted.subject_type=? AND accepted.subject_id=? AND accepted.kind=? AND json_extract(accepted.payload,'$.action_id')='accept_worker_result' AND json_extract(accepted.payload,'$.step_id')='review' ORDER BY accepted.seq DESC`, string(SubjectWorkItem), WorkerCompleted, string(SubjectWorkItem), workID, WorkflowActionCompleted)
+	if err != nil {
+		return 0, workflowProjectionError(err, "cannot read prior review results")
+	}
+	defer rows.Close()
+	count := 0
+	for rows.Next() {
+		var result sql.NullString
+		if err := rows.Scan(&result); err != nil {
+			return 0, workflowProjectionError(err, "cannot read a prior review result")
+		}
+		if !result.Valid || result.String != "block" {
+			break
+		}
+		count++
+	}
+	if err := rows.Err(); err != nil {
+		return 0, workflowProjectionError(err, "cannot read prior review results")
+	}
+	return count, nil
 }
 
 func workflowNextStep(definition WorkflowDefinition, current string) string {

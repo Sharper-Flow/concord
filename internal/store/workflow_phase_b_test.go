@@ -17,8 +17,8 @@ func TestBuiltinWorkflowRegistryHasTheSevenContractFamilies(t *testing.T) {
 	}
 	registry := NewWorkflowDefinitionRegistry()
 	wantSteps := map[string][]string{
-		"workflow.implementation":     {"proposal", "discovery", "design", "planning", "execution", "acceptance", "release"},
-		"workflow.break_fix":          {"reproduce", "diagnose", "planning", "repair", "verify", "complete"},
+		"workflow.implementation":     {"proposal", "discovery", "design", "planning", "execution", "review", "acceptance", "release"},
+		"workflow.break_fix":          {"reproduce", "diagnose", "planning", "repair", "review", "verify", "complete"},
 		"workflow.research":           {"frame", "investigate", "findings", "conclude", "complete"},
 		"workflow.architecture_spike": {"frame", "research", "options", "poc_optional", "decision_record", "review", "acceptance", "complete"},
 		"workflow.ops_runbook":        {"plan", "approval", "execute", "health", "rollback_optional", "cleanup", "complete"},
@@ -38,8 +38,8 @@ func TestBuiltinWorkflowRegistryHasTheSevenContractFamilies(t *testing.T) {
 		"workflow.implementation": "release", "workflow.break_fix": "complete", "workflow.research": "complete", "workflow.architecture_spike": "complete", "workflow.ops_runbook": "complete", "workflow.static_analysis": "complete", "workflow.generic_one_off": "complete",
 	}
 	wantEdges := map[string][]WorkflowEdge{
-		"workflow.implementation":     {{"proposal", "discovery", WorkflowEdgeForward}, {"discovery", "design", WorkflowEdgeForward}, {"design", "planning", WorkflowEdgeForward}, {"planning", "execution", WorkflowEdgeForward}, {"execution", "acceptance", WorkflowEdgeForward}, {"acceptance", "release", WorkflowEdgeForward}, {"execution", "execution", WorkflowEdgeRetry}},
-		"workflow.break_fix":          {{"reproduce", "diagnose", WorkflowEdgeForward}, {"diagnose", "planning", WorkflowEdgeForward}, {"planning", "repair", WorkflowEdgeForward}, {"repair", "verify", WorkflowEdgeForward}, {"verify", "complete", WorkflowEdgeForward}, {"repair", "repair", WorkflowEdgeRetry}},
+		"workflow.implementation":     {{"proposal", "discovery", WorkflowEdgeForward}, {"discovery", "design", WorkflowEdgeForward}, {"design", "planning", WorkflowEdgeForward}, {"planning", "execution", WorkflowEdgeForward}, {"execution", "review", WorkflowEdgeForward}, {"review", "acceptance", WorkflowEdgeForward}, {"acceptance", "release", WorkflowEdgeForward}, {"execution", "execution", WorkflowEdgeRetry}, {"review", "execution", WorkflowEdgeRetry}, {"review", "planning", WorkflowEdgeRetry}},
+		"workflow.break_fix":          {{"reproduce", "diagnose", WorkflowEdgeForward}, {"diagnose", "planning", WorkflowEdgeForward}, {"planning", "repair", WorkflowEdgeForward}, {"repair", "review", WorkflowEdgeForward}, {"review", "verify", WorkflowEdgeForward}, {"verify", "complete", WorkflowEdgeForward}, {"repair", "repair", WorkflowEdgeRetry}, {"review", "repair", WorkflowEdgeRetry}, {"review", "planning", WorkflowEdgeRetry}},
 		"workflow.research":           {{"frame", "investigate", WorkflowEdgeForward}, {"investigate", "findings", WorkflowEdgeForward}, {"findings", "conclude", WorkflowEdgeForward}, {"conclude", "complete", WorkflowEdgeForward}},
 		"workflow.architecture_spike": {{"frame", "research", WorkflowEdgeForward}, {"research", "options", WorkflowEdgeForward}, {"options", "poc_optional", WorkflowEdgeForward}, {"poc_optional", "decision_record", WorkflowEdgeForward}, {"decision_record", "review", WorkflowEdgeForward}, {"review", "acceptance", WorkflowEdgeForward}, {"acceptance", "complete", WorkflowEdgeForward}, {"options", "decision_record", WorkflowEdgeOptional}, {"poc_optional", "poc_optional", WorkflowEdgeRetry}},
 		"workflow.ops_runbook":        {{"plan", "approval", WorkflowEdgeForward}, {"approval", "execute", WorkflowEdgeForward}, {"execute", "health", WorkflowEdgeForward}, {"health", "rollback_optional", WorkflowEdgeForward}, {"rollback_optional", "cleanup", WorkflowEdgeForward}, {"cleanup", "complete", WorkflowEdgeForward}, {"health", "cleanup", WorkflowEdgeOptional}, {"execute", "execute", WorkflowEdgeRetry}},

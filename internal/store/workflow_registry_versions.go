@@ -191,3 +191,15 @@ func prePayloadStaticAnalysisV2() WorkflowDefinition {
 	d.Version = 2
 	return withWorkerActions(d, false)
 }
+
+func preReviewImplementationV4() WorkflowDefinition {
+	d := builtinImplementation(true)
+	d.Version = 4
+	return withWorkerActions(d, true)
+}
+
+func preReviewBreakFixV4() WorkflowDefinition {
+	d := builtinBreakFix(true)
+	d.Version = 4
+	return withWorkerActions(d, true)
+}

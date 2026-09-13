@@ -54,6 +54,7 @@ export interface AgentLaneReport {
   lane_digest: string
   readback_model: string
   status: "completed" | "failed"
+  review_result?: "pass" | "block"
   evidence: AgentLaneReportEvidence[]
 }
 
@@ -1177,6 +1178,7 @@ export async function completeWorkerAttempt(
     readback_model: readback.readback_model,
     report_schema_version: REPORT_SCHEMA_VERSION,
     evidence_origin: "reported",
+    review_result: terminal.report.review_result,
     evidence: terminal.report.evidence,
     assertion: terminalAssertion,
   }, signal)

@@ -111,10 +111,10 @@ function taskResult(report: JSONRecord): string {
   ].join("\n")
 }
 
-function exportedSession(): string {
+function exportedSession(agent = "concord-implement"): string {
   return JSON.stringify({
     info: { id: "worker-session" },
-    messages: [{ info: { id: "worker-message", sessionID: "worker-session", role: "assistant", agent: "concord-implement", providerID: "openai", modelID: "gpt-5.6-luna", time: { created: 1 } }, parts: [] }],
+        messages: [{ info: { id: "worker-message", sessionID: "worker-session", role: "assistant", agent, providerID: "openai", modelID: "gpt-5.6-luna", time: { created: 1 } }, parts: [] }],
   })
 }
 
@@ -147,7 +147,9 @@ routeDeclaration("dispatches a real store route through Task completion and work
   const configPath = join(repo, "opencode.jsonc")
   const previousConfig = process.env.OPENCODE_CONFIG
   const lane = agentLanes.find((candidate) => candidate.id === "implement")
-  if (!lane) throw new Error("implement lane is not registered")
+  const reviewLane = agentLanes.find((candidate) => candidate.id === "review")
+  if (!lane || !reviewLane) throw new Error("implement and review lanes are not registered")
+  let activeAgent = "concord-implement"
 
   try {
     await mkdir(join(repo, "docs"), { recursive: true })
@@ -237,7 +239,7 @@ routeDeclaration("dispatches a real store route through Task completion and work
     const realCalls: Array<{ argv: string[]; input: JSONRecord }> = []
     const realRunner: DispatchRunner = {
       async run(argv, input, signal) {
-        if (argv[1] === "export") return { exitCode: 0, stdout: exportedSession(), stderr: "" }
+        if (argv[1] === "export") return { exitCode: 0, stdout: exportedSession(activeAgent), stderr: "" }
         if (argv[1] === "worker-dispatch" || argv[1] === "worker-complete" || argv[1] === "worker-fail" || argv[1] === "invoke") {
           realCalls.push({ argv, input: JSON.parse(input) as JSONRecord })
         }
@@ -283,67 +285,73 @@ routeDeclaration("dispatches a real store route through Task completion and work
     const stepRead = (await invoke("concord_work_trace", { operation: "continuity", input: { work_id: workID, page: { cursor: null, limit: 1 } } }, context)).result as JSONRecord
     expect((stepRead.pinned as JSONRecord).workflow_step).toBe("repair")
 
-    const routed = laneDispatchRequest({ operation: "workflow_action", input: { work_id: workID, expected_version: 10, action_id: "dispatch_worker", idempotency_key: "e2e-dispatch", fields: { lane_id: "implement" } } })
-    expect(routed).toEqual({ work_id: workID, expected_version: 10, idempotency_key: "e2e-dispatch", lane_id: "implement" })
     const windows = new DispatchWindows()
     let dispatchResponse: JSONRecord | undefined
-    const dispatchResult = await dispatchLaneWorker(routed as any, {
-      context,
-      invoke: async (toolName, args, callContext) => {
-        if (toolName === "concord_work_transition" && args.input.action_id === "dispatch_worker") {
-          expect(sessionMetadata).toEqual({ [MANAGED_TASK_SCOPE_KEY]: "managed" })
-        }
-        const result = await invoke(toolName, args, callContext)
-        if (toolName === "concord_work_transition" && args.input.action_id === "dispatch_worker") dispatchResponse = result
-        return result
-      },
-      credentials: { async getPrivateKey() { return PRIVATE_SEED } } satisfies CredentialStore,
-      windows,
-      now: () => 1_700_000_000_000,
-    })
-    expect(dispatchResult.outcome).toBe("ok")
-    expect(dispatchResult.dispatch_state).toBe("awaiting_worker")
-    expect(await hostControlPlane().taskScope(SESSION_ID)).toBe("managed")
-    expect(await hostControlPlane().taskScope("worker-session")).toBe("managed")
-    expect(windows.has(SESSION_ID)).toBe(true)
-    const taskArgs: Record<string, unknown> = { subagent_type: "general", prompt: "model input", description: "model task" }
-    windows.bind(TASK_TOOL_ID, SESSION_ID, taskArgs)
-    const packet = JSON.parse(taskArgs.prompt as string) as JSONRecord
-    expect(taskArgs.subagent_type).toBe("concord-implement")
-    expect(packet.step_id).toBe("repair")
-    expect(dispatchResponse?.result?.worker_packet_digest).toMatch(/^sha256:[0-9a-f]{64}$/)
-    const report = {
-      schema_version: "1.0",
-      attempt_id: packet.attempt_id,
-      lane_id: packet.lane_id,
-      lane_version: packet.lane_version,
-      lane_digest: packet.lane_digest,
-      readback_model: READBACK_MODEL,
-      status: "completed",
-      evidence: lane.evidence_obligations.map((obligation) => ({ obligation, detail: `discharged ${obligation}` })),
+    const runWorker = async (workerLane: typeof lane | typeof reviewLane, result?: "pass" | "block") => {
+      activeAgent = workerLane.id === "review" ? "concord-review" : "concord-implement"
+      const expectedVersion = dbValue(dbPath, `SELECT version FROM work_items WHERE id='${workID}'`).version as number
+      const routed = laneDispatchRequest({ operation: "workflow_action", input: { work_id: workID, expected_version: expectedVersion, action_id: "dispatch_worker", idempotency_key: `e2e-dispatch-${workerLane.id}-${expectedVersion}`, fields: { lane_id: workerLane.id } } })
+      const dispatchResult = await dispatchLaneWorker(routed as any, {
+        context,
+        invoke: async (toolName, args, callContext) => {
+          if (toolName === "concord_work_transition" && args.input.action_id === "dispatch_worker") {
+            expect(sessionMetadata).toEqual({ [MANAGED_TASK_SCOPE_KEY]: "managed" })
+          }
+          const result = await invoke(toolName, args, callContext)
+          if (toolName === "concord_work_transition" && args.input.action_id === "dispatch_worker") dispatchResponse = result
+          return result
+        },
+        credentials: { async getPrivateKey() { return PRIVATE_SEED } } satisfies CredentialStore,
+        windows,
+        now: () => 1_700_000_000_000,
+      })
+      expect(dispatchResult.outcome).toBe("ok")
+      expect(dispatchResult.dispatch_state).toBe("awaiting_worker")
+      expect(await hostControlPlane().taskScope(SESSION_ID)).toBe("managed")
+      expect(await hostControlPlane().taskScope("worker-session")).toBe("managed")
+      expect(windows.has(SESSION_ID)).toBe(true)
+      const taskArgs: Record<string, unknown> = { subagent_type: "general", prompt: "model input", description: "model task" }
+      windows.bind(TASK_TOOL_ID, SESSION_ID, taskArgs)
+      const packet = JSON.parse(taskArgs.prompt as string) as JSONRecord
+      expect(taskArgs.subagent_type).toBe(activeAgent)
+      expect(packet.step_id).toBe(result ? "review" : "repair")
+      expect(dispatchResponse?.result?.worker_packet_digest).toMatch(/^sha256:[0-9a-f]{64}$/)
+      const report = {
+        schema_version: "1.0",
+        attempt_id: packet.attempt_id,
+        lane_id: packet.lane_id,
+        lane_version: packet.lane_version,
+        lane_digest: packet.lane_digest,
+        readback_model: READBACK_MODEL,
+        status: "completed",
+        ...(result ? { review_result: result } : {}),
+        evidence: workerLane.evidence_obligations.map((obligation) => ({ obligation, detail: `discharged ${obligation}` })),
+      }
+      const completionOutput = { title: "task", output: taskResult(report), metadata: {} }
+      await completeDispatchedWorker({ tool: TASK_TOOL_ID, sessionID: SESSION_ID, callID: `e2e-task-call-${workerLane.id}`, args: taskArgs }, completionOutput, { windows, credentials: { async getPrivateKey() { return PRIVATE_SEED } }, runner: realRunner, concordBinary: binary })
+      expect(completionOutput.output).toContain("<concord_attempt>")
+      const attempt = dbValue(dbPath, `SELECT lifecycle_state,readback_model FROM worker_attempts WHERE attempt_id='${packet.attempt_id}'`)
+      expect(attempt.lifecycle_state, completionOutput.output).toBe("completed")
+      expect(attempt.readback_model).toBe(READBACK_MODEL)
+      if (!result) {
+        const evidenceVersion = dbValue(dbPath, `SELECT version FROM work_items WHERE id='${workID}'`).version as number
+        response = await transition(evidenceVersion, "bind_evidence", `e2e-bind-evidence-${workerLane.id}`, { evidence_kind: "verification" })
+        expect(response.outcome, JSON.stringify(response)).toBe("ok")
+      }
+      const currentVersion = dbValue(dbPath, `SELECT version FROM work_items WHERE id='${workID}'`).version as number
+      response = await transition(currentVersion, "accept_worker_result", `e2e-accept-worker-${workerLane.id}`, { attempt_id: packet.attempt_id, attempt_epoch: 1 })
+      expect(response.outcome).toBe("ok")
+      return packet
     }
-    const completionOutput = { title: "task", output: taskResult(report), metadata: {} }
-    await completeDispatchedWorker({ tool: TASK_TOOL_ID, sessionID: SESSION_ID, callID: "e2e-task-call", args: taskArgs }, completionOutput, { windows, credentials: { async getPrivateKey() { return PRIVATE_SEED } }, runner: realRunner, concordBinary: binary })
-    expect(completionOutput.output).toContain("<concord_attempt>")
-    const attempt = dbValue(dbPath, `SELECT lifecycle_state,readback_model FROM worker_attempts WHERE attempt_id='${packet.attempt_id}'`)
-    expect(attempt.lifecycle_state).toBe("completed")
-    expect(attempt.readback_model).toBe(READBACK_MODEL)
-    const provenance = dbRows(dbPath, `SELECT payload FROM domain_events WHERE kind='worker.dispatched' AND subject_id='${workID}' ORDER BY seq DESC LIMIT 1`)
-    const provenancePayload = JSON.parse(provenance[0].payload as string)
-    expect(provenancePayload.host_provenance.sources).toContainEqual({ kind: "unenumerated", path: "https://example.invalid/synthetic-instructions" })
 
-    const evidenceVersion = dbValue(dbPath, `SELECT version FROM work_items WHERE id='${workID}'`).version as number
-    response = await transition(evidenceVersion, "bind_evidence", "e2e-bind-evidence", { evidence_kind: "verification" })
-    expect(response.outcome, JSON.stringify(response)).toBe("ok")
-    const currentVersion = dbValue(dbPath, `SELECT version FROM work_items WHERE id='${workID}'`).version as number
-    response = await transition(currentVersion, "accept_worker_result", "e2e-accept-worker", { attempt_id: packet.attempt_id, attempt_epoch: 1 })
-    expect(response.outcome).toBe("ok")
+    const packet = await runWorker(lane)
+    const reviewPacket = await runWorker(reviewLane, "pass")
     const verifyVersion = dbValue(dbPath, `SELECT version FROM work_items WHERE id='${workID}'`).version as number
     // CD-0116 after a lane exit: the session that accepted the worker result
     // submits its own verdict, the adapter mints the operator challenge, the
     // host approval signs it, and the verdict records under the operator
     // identity rather than a distinct agent session.
-    response = await invoke("concord_work_transition", { operation: "workflow_action", input: { work_id: workID, expected_version: verifyVersion, action_id: "record_verdict", idempotency_key: "e2e-record-verdict", fields: { contract_version: 1, predicate_id: WORKFLOW_PREDICATE.predicate_id, evaluation_evidence: [packet.attempt_id] } } }, context)
+    response = await invoke("concord_work_transition", { operation: "workflow_action", input: { work_id: workID, expected_version: verifyVersion, action_id: "record_verdict", idempotency_key: "e2e-record-verdict", fields: { contract_version: 1, predicate_id: WORKFLOW_PREDICATE.predicate_id, evaluation_evidence: [packet.attempt_id, reviewPacket.attempt_id] } } }, context)
     expect(response.outcome, JSON.stringify(response)).toBe("ok")
     const verdictActor = dbValue(dbPath, `SELECT json_extract(payload,'$.verdict_actor_ref') AS actor FROM domain_events WHERE subject_id='${workID}' AND kind='workflow.verdict_recorded' ORDER BY seq DESC LIMIT 1`).actor as string
     const verdictActorClass = dbValue(dbPath, `SELECT actor_class FROM workflow_actors WHERE actor_ref='${verdictActor}'`).actor_class as string

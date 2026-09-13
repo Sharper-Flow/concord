@@ -10,9 +10,9 @@ import (
 	"github.com/sharper-flow/concord/internal/store"
 )
 
-// CD-0112: the session that executed an external-effect step leaves it through
+// The session that executed an external-effect step leaves it through
 // record_delivery, a hand-off summary never moves the step, and delivery needs
-// the step's fenced start.
+// the step's fenced start. Repository changes then enter independent review.
 func TestRecordDeliveryExitsTheStepTheSessionExecuted(t *testing.T) {
 	ctx := context.Background()
 	s, _, _, _, _ := workflowEngineFixture(t, "")
@@ -71,12 +71,12 @@ func TestRecordDeliveryExitsTheStepTheSessionExecuted(t *testing.T) {
 		t.Fatalf("cross_context_boundary moved the step to %q", step)
 	}
 
-	// Delivery after the fenced start advances to verify.
+	// Delivery after the fenced start advances to review.
 	if err := try("record_delivery", map[string]any{}); err != nil {
 		t.Fatalf("record_delivery after start_repair refused: %v", err)
 	}
-	if step := currentStep(); step != "verify" {
-		t.Fatalf("record_delivery left the step at %q, want verify", step)
+	if step := currentStep(); step != "review" {
+		t.Fatalf("record_delivery left the step at %q, want review", step)
 	}
 }
 

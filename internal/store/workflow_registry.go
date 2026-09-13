@@ -550,7 +550,7 @@ func normalizeWorkflowDefinition(definition WorkflowDefinition) WorkflowDefiniti
 // workflow_registry_versions.go and never acquire current payload contracts.
 func BuiltinWorkflowDefinitions() []WorkflowDefinition {
 	return []WorkflowDefinition{
-		withWorkerActions(builtinImplementation(true), true), withWorkerActions(builtinBreakFix(true), true), withWorkerActions(builtinResearch(true), true), withWorkerActions(builtinArchitectureSpike(true), true), withWorkerActions(builtinOpsRunbook(true), true), withWorkerActions(builtinStaticAnalysis(true), true), withWorkerActions(builtinGenericOneOff(true), true),
+		withWorkerActions(postImplementationReview(builtinImplementation(true)), true), withWorkerActions(postImplementationReview(builtinBreakFix(true)), true), withWorkerActions(builtinResearch(true), true), withWorkerActions(builtinArchitectureSpike(true), true), withWorkerActions(builtinOpsRunbook(true), true), withWorkerActions(builtinStaticAnalysis(true), true), withWorkerActions(builtinGenericOneOff(true), true),
 	}
 }
 
@@ -564,9 +564,47 @@ func builtinWorkflowDefinitionsWithHistory() []WorkflowDefinition {
 			withLegacyWorkerActions(legacyImplementationV1()), withLegacyWorkerActions(legacyBreakFixV1()), withLegacyWorkerActions(legacyResearchV1()), withLegacyWorkerActions(legacyGenericOneOffV1()),
 			preJoinImplementationV2(), preJoinBreakFixV2(), preJoinGenericOneOffV2(), preJoinResearchV2(), preJoinArchitectureSpikeV1(), preJoinOpsRunbookV1(), preJoinStaticAnalysisV1(),
 			prePayloadImplementationV3(), prePayloadBreakFixV3(), prePayloadGenericOneOffV3(), prePayloadResearchV3(), prePayloadArchitectureSpikeV2(), prePayloadOpsRunbookV2(), prePayloadStaticAnalysisV2(),
+			preReviewImplementationV4(), preReviewBreakFixV4(),
 		},
 		BuiltinWorkflowDefinitions()...,
 	)
+}
+
+// postImplementationReview inserts the independent review lane after a
+// repository-changing step. The released version before this route remains
+// registered by preReview*V4 so pinned instances keep their original digest.
+func postImplementationReview(definition WorkflowDefinition) WorkflowDefinition {
+	definition = cloneWorkflowDefinition(definition)
+	var sourceStep, nextStep string
+	switch definition.WorkKind {
+	case WorkKindImplementation:
+		sourceStep, nextStep = "execution", "acceptance"
+	case WorkKindBreakFix:
+		sourceStep, nextStep = "repair", "verify"
+	default:
+		return definition
+	}
+	steps := make([]WorkflowStep, 0, len(definition.StepGraph.Steps)+1)
+	for _, existing := range definition.StepGraph.Steps {
+		steps = append(steps, existing)
+		if existing.ID == sourceStep {
+			steps = append(steps, step("review", WorkflowStepCrossAuthority, "checkpoint_context", "cross_context_boundary"))
+		}
+	}
+	definition.StepGraph.Steps = steps
+	edges := make([]WorkflowEdge, 0, len(definition.StepGraph.Edges)+2)
+	for _, edge := range definition.StepGraph.Edges {
+		if edge.From == sourceStep && edge.To == nextStep && edge.Kind == WorkflowEdgeForward {
+			edges = append(edges, WorkflowEdge{From: sourceStep, To: "review", Kind: WorkflowEdgeForward}, WorkflowEdge{From: "review", To: nextStep, Kind: WorkflowEdgeForward})
+			continue
+		}
+		edges = append(edges, edge)
+	}
+	implementationStep := sourceStep
+	edges = append(edges, WorkflowEdge{From: "review", To: implementationStep, Kind: WorkflowEdgeRetry}, WorkflowEdge{From: "review", To: "planning", Kind: WorkflowEdgeRetry})
+	definition.StepGraph.Edges = edges
+	definition.Version++
+	return definition
 }
 
 func NewBuiltinWorkflowRegistry() DefinitionRegistry {

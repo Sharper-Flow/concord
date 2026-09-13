@@ -4818,8 +4818,7 @@ const GeneratedPayloadSchemaDocument = `{
         "content_digest",
         "home_project_id",
         "home_locator_id",
-        "idempotency_key",
-        "approval"
+        "idempotency_key"
       ],
       "type": "object"
     },
@@ -6145,8 +6144,7 @@ const GeneratedPayloadSchemaDocument = `{
         "successor_id",
         "successor_expected_version",
         "reason",
-        "idempotency_key",
-        "approval"
+        "idempotency_key"
       ],
       "type": "object"
     },

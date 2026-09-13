@@ -1,7 +1,7 @@
 # Generated Concord agent tool surface
 
-Manifest digest: `sha256:e117efcb79a745ff61d58ae6e6981907684ffed35fb99fdbea3756587b2170da`
-Payload schema digest: `sha256:d370eb3875189ddcd99a926aabc5c35125a59e8636170b829185fcf90168fd60`
+Manifest digest: `sha256:6dec2ce7cd8aa4a1325b162449fa11f52cf403e20e900932ce6c0ebc1eb1b8d5`
+Payload schema digest: `sha256:db90177593c8b3fd3420e6dc82b96fa45924e66b7247433c9fc645c3c1a49bf1`
 Envelope schema: `1.0`
 
 | Operation | Kind | Query | Capability | Consequence | Availability |

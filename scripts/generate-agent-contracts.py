@@ -413,6 +413,10 @@ def validate(manifest: dict) -> str:
         branch_required=[set(branch.get("required",[])) for branch in input_schema.get("oneOf",[])]
         has_idempotency="idempotency_key" in input_schema.get("required",[]) or bool(branch_required and all("idempotency_key" in branch for branch in branch_required))
         if op["kind"] == "mutation" and not has_idempotency: fail(f"mutation lacks idempotency identity: {op['id']}")
+        if op["approval"] == "required":
+            approval_schema = input_schema.get("properties", {}).get("approval")
+            if approval_schema != {"$ref": "#/$defs/approval"} or "approval" in input_schema.get("required", []):
+                fail(f"required-approval operation must expose an optional typed approval property: {op['id']}")
         if not result_schema.get("required"): fail(f"result schema lacks required fields: {op['id']}")
     unsigned = dict(manifest); unsigned.pop("digest", None)
     return "sha256:" + hashlib.sha256(canonical(unsigned)).hexdigest()

@@ -10,18 +10,22 @@ import (
 // WorkPin is the one point-in-time projection that a caller needs to prepare
 // the next operation for a work item.
 type WorkPin struct {
-	WorkID                  string                     `json:"work_id"`
-	Title                   string                     `json:"title"`
-	LinearIssueKey          string                     `json:"linear_issue_key"`
-	Version                 int64                      `json:"version"`
-	Lifecycle               string                     `json:"lifecycle"`
-	WorkflowType            string                     `json:"workflow_type"`
-	Step                    string                     `json:"step"`
-	Attempt                 *WorkPinAttempt            `json:"attempt"`
-	PendingOperatorDecision *WorkflowOperatorQuestion  `json:"pending_operator_decision"`
-	Watermark               string                     `json:"watermark"`
-	NextValidIntents        []WorkPinIntent            `json:"next_valid_intents"`
-	Correction              *WorkflowCorrectionContext `json:"correction,omitempty"`
+	WorkID                  string                    `json:"work_id"`
+	Title                   string                    `json:"title"`
+	LinearIssueKey          string                    `json:"linear_issue_key"`
+	Version                 int64                     `json:"version"`
+	Lifecycle               string                    `json:"lifecycle"`
+	WorkflowType            string                    `json:"workflow_type"`
+	Step                    string                    `json:"step"`
+	Attempt                 *WorkPinAttempt           `json:"attempt"`
+	PendingOperatorDecision *WorkflowOperatorQuestion `json:"pending_operator_decision"`
+	// WithheldOperatorDecision names the checkpoint action whose question the
+	// step declares but the gate holds closed, with the reason and the remedy.
+	// It stays nil when a question is open and when the step has none.
+	WithheldOperatorDecision *WorkflowOperatorQuestionWithheld `json:"withheld_operator_decision,omitempty"`
+	Watermark                string                            `json:"watermark"`
+	NextValidIntents         []WorkPinIntent                   `json:"next_valid_intents"`
+	Correction               *WorkflowCorrectionContext        `json:"correction,omitempty"`
 	// VerdictEvidence exposes the bound immutable evidence set at steps where
 	// record_verdict is declarable, so a caller cites qualifying refs without
 	// a raw store read (#974). It stays nil at every other step.
@@ -125,7 +129,7 @@ func ReadWorkPinTx(ctx context.Context, tx *sql.Tx, workID string) (WorkPin, err
 		if err != nil {
 			return pin, err
 		}
-		pin.PendingOperatorDecision, err = workflowOperatorQuestionTx(ctx, tx, workID, pin.Step, pin.Version, definition, contract)
+		pin.PendingOperatorDecision, pin.WithheldOperatorDecision, err = workflowOperatorQuestionTx(ctx, tx, workID, pin.Step, pin.Version, definition, contract)
 		if err != nil {
 			return pin, err
 		}

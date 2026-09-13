@@ -245,7 +245,8 @@
         "attempt",
         "pending_operator_decision",
         "watermark",
-        "next_valid_intents"
+        "next_valid_intents",
+        "outstanding_evidence_kinds"
       ],
       "properties": {
         "work_id": {
@@ -322,6 +323,23 @@
                 "$ref": "#/$defs/version"
               }
             }
+          }
+        },
+        "outstanding_evidence_kinds": {
+          "type": "array",
+          "maxItems": 7,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "verification",
+              "review",
+              "approval",
+              "commit",
+              "durable_note",
+              "native_run",
+              "artifact"
+            ],
+            "type": "string"
           }
         },
         "verdict_evidence": {

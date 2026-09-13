@@ -8,7 +8,7 @@
 - **Approval:** The operator approved this decision for issue #857 on work item
   `work-201ad0df0700db9255d3f256`.
 - **Related:** CD-0005, CD-0027, CD-0030, CD-0039, CD-0096
-- **Amends:** None
+- **Amends:** CD-0113 D1, D3, and D5
 
 ## Context
 
@@ -49,7 +49,8 @@ operation.
 
 `internal/store` defines a `WorkPin`: `work_id`, `version`, `lifecycle`,
 `workflow_type`, `step`, `attempt` (id, epoch, lane, state, or null),
-`pending_operator_decision`, and `watermark`. One tx-scoped reader derives it.
+`pending_operator_decision`, `watermark`, and the outstanding evidence kinds.
+One tx-scoped reader derives it from the same snapshot as the version and step.
 The store connection invariant applies: no `s.db`-backed call runs inside the
 transaction.
 
@@ -62,11 +63,15 @@ stays; the pin is the typed form.
 
 ### D3. Intents are derived, not authored
 
-`next_valid_intents` is derived from the pin and the step definition: one
-intent per action the current step declares, each carrying `tool`,
-`operation`, `action_id`, `required_fields`, and `expected_version`. The
-hand-written `plan.intents` literals for work mutations are removed. Read
-verifications that follow a write keep their intents.
+`next_valid_intents` is derived from the pin, the step definition, and the
+supported engine-owned recovery rules. It lists one intent per declared action
+and one intent per available recovery route, without duplicate action IDs. Each
+intent carries `tool`, `operation`, `action_id`, `required_fields`, and
+`expected_version`. Recovery availability uses the same checks as action
+admission. An undeclared evidence bind is exposed only after its binding step,
+while an eligible evidence requirement remains outstanding. The hand-written
+`plan.intents` literals for work mutations are removed. Read verifications that
+follow a write keep their intents.
 
 ### D4. Reads embed the same pin
 
@@ -106,14 +111,36 @@ Scenario: intents stay honest
   Given any emitted next_valid_intent
   When the pin's step definition is read
   Then the step declares the intent's action
+
+Scenario: a session learns an admitted evidence recovery
+  Given a nonterminal work item after its evidence-binding step
+  And the existing requirement calculation reports an outstanding eligible evidence kind
+  When any mutation or read returns the pin
+  Then the pin exposes that evidence kind
+  And next_valid_intents lists exactly one bind_evidence intent with a recovery reason
+  And the intent carries the action's required fields and the pin's expected version
+
+Scenario: a satisfied evidence requirement closes recovery
+  Given a work item whose evidence requirement is satisfied by a binding
+  When a mutation or read returns the pin
+  Then the satisfied kind is absent from outstanding_evidence_kinds
+  And next_valid_intents has no recovery-only bind_evidence intent
+
+Scenario: recovery preserves admission refusals
+  Given an unrelated, satisfied, unauthorized, stale-version, duplicate, or terminal bind request
+  When the workflow action runs
+  Then the existing refusal remains unchanged and the request has no durable effect
 ```
 
 ## Verification
 
 - Store tests derive the pin in one read-only transaction and prove the
   version equals the committed `changed_refs` version.
-- Runtime tests prove every work mutation envelope carries the pin and every
-  intent names a declared step action.
+- Store tests prove outstanding evidence kinds and recovery intents use the
+  same transaction snapshot as the version and step.
+- Runtime tests prove every work mutation envelope carries the pin, every
+  declared action remains unique, and every recovery intent uses the same
+  availability check as admission.
 - The generated payload schemas, the TS7 contracts, and the adapter are
   regenerated; the manifest digest changes once, in the same change.
 - `python3 scripts/check-doc-contract.py` and

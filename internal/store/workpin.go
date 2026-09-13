@@ -4,21 +4,23 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"sort"
 	"strconv"
 )
 
 // WorkPin is the one point-in-time projection that a caller needs to prepare
 // the next operation for a work item.
 type WorkPin struct {
-	WorkID                  string                    `json:"work_id"`
-	Version                 int64                     `json:"version"`
-	Lifecycle               string                    `json:"lifecycle"`
-	WorkflowType            string                    `json:"workflow_type"`
-	Step                    string                    `json:"step"`
-	Attempt                 *WorkPinAttempt           `json:"attempt"`
-	PendingOperatorDecision *WorkflowOperatorQuestion `json:"pending_operator_decision"`
-	Watermark               string                    `json:"watermark"`
-	NextValidIntents        []WorkPinIntent           `json:"next_valid_intents"`
+	WorkID                   string                    `json:"work_id"`
+	Version                  int64                     `json:"version"`
+	Lifecycle                string                    `json:"lifecycle"`
+	WorkflowType             string                    `json:"workflow_type"`
+	Step                     string                    `json:"step"`
+	Attempt                  *WorkPinAttempt           `json:"attempt"`
+	PendingOperatorDecision  *WorkflowOperatorQuestion `json:"pending_operator_decision"`
+	Watermark                string                    `json:"watermark"`
+	NextValidIntents         []WorkPinIntent           `json:"next_valid_intents"`
+	OutstandingEvidenceKinds []string                  `json:"outstanding_evidence_kinds"`
 	// VerdictEvidence exposes the bound immutable evidence set at steps where
 	// record_verdict is declarable, so a caller cites qualifying refs without
 	// a raw store read (#974). It stays nil at every other step.
@@ -88,7 +90,8 @@ func ReadWorkPinTx(ctx context.Context, tx *sql.Tx, workID string) (WorkPin, err
 	}
 	pin.WorkID = workID
 	var definition WorkflowReadDefinition
-	if err := tx.QueryRowContext(ctx, `SELECT definition_ref,definition_version,definition_digest,current_step FROM workflow_instances WHERE work_id=?`, workID).Scan(&definition.Ref, &definition.Version, &definition.Digest, &pin.Step); err != nil {
+	var instanceState string
+	if err := tx.QueryRowContext(ctx, `SELECT definition_ref,definition_version,definition_digest,current_step,instance_state FROM workflow_instances WHERE work_id=?`, workID).Scan(&definition.Ref, &definition.Version, &definition.Digest, &pin.Step, &instanceState); err != nil {
 		if err == sql.ErrNoRows {
 			return pin, newFailure(KindProjectionNotFound, "work_pin", "workflow instance is not recorded", false, "reread_entities")
 		}
@@ -99,6 +102,7 @@ func ReadWorkPinTx(ctx context.Context, tx *sql.Tx, workID string) (WorkPin, err
 	if err != nil {
 		return pin, err
 	}
+	pin.OutstandingEvidenceKinds = []string{}
 	dispatchHoldsAdvance, holdErr := workflowDispatchHoldsStepAdvance(ctx, tx, workID, pin.Step)
 	if holdErr != nil {
 		return pin, holdErr
@@ -115,6 +119,11 @@ func ReadWorkPinTx(ctx context.Context, tx *sql.Tx, workID string) (WorkPin, err
 		if err != nil {
 			return pin, err
 		}
+		requirements, requirementsErr := outstandingWorkflowEvidenceRequirementsForWork(ctx, tx, workID, registered.Definition)
+		if requirementsErr != nil {
+			return pin, requirementsErr
+		}
+		pin.OutstandingEvidenceKinds = outstandingEvidenceKinds(requirements)
 		pin.PendingOperatorDecision, err = workflowOperatorQuestionTx(ctx, tx, workID, pin.Step, pin.Version, definition, contract)
 		if err != nil {
 			return pin, err
@@ -134,6 +143,15 @@ func ReadWorkPinTx(ctx context.Context, tx *sql.Tx, workID string) (WorkPin, err
 		}
 	} else if err != sql.ErrNoRows {
 		return pin, wrapFailure(KindUnavailable, "work_pin", "cannot read workflow contract", true, "retry once the database is readable", err)
+	}
+	if !isTerminalLifecycle(pin.Lifecycle) && instanceState != "completed" && instanceState != "cancelled" && instanceState != "superseded" {
+		evidenceRecovery, recoveryErr := workflowEvidenceRecoveryAvailable(ctx, tx, workID, registered.Definition, pin.Step)
+		if recoveryErr != nil {
+			return pin, recoveryErr
+		}
+		if evidenceRecovery && !workPinContainsAction(pin.NextValidIntents, "bind_evidence") {
+			pin.NextValidIntents = append(pin.NextValidIntents, workPinIntentForAction(currentActionDefinition("bind_evidence", true), pin.Version, "evidence_binding_recovery"))
+		}
 	}
 
 	var attempt WorkPinAttempt
@@ -190,6 +208,21 @@ func workPinVerdictEvidenceTx(ctx context.Context, tx *sql.Tx, workID string) ([
 		return nil, wrapFailure(KindUnavailable, "work_pin", "cannot iterate bound verdict evidence", true, "retry once the database is readable", err)
 	}
 	return out, nil
+}
+
+func outstandingEvidenceKinds(requirements []workflowEvidenceRequirement) []string {
+	kinds := make(map[string]struct{}, len(requirements))
+	for _, requirement := range requirements {
+		if requirement.Kind != "" {
+			kinds[requirement.Kind] = struct{}{}
+		}
+	}
+	out := make([]string, 0, len(kinds))
+	for kind := range kinds {
+		out = append(out, kind)
+	}
+	sort.Strings(out)
+	return out
 }
 
 func decodeWorkflowPinContract(contract *WorkflowReadContract, required, routes, mandate, modifies string) error {

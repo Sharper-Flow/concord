@@ -3,8 +3,11 @@
   "evidence": [
     "internal/agent/mutations.go",
     "internal/agent/generated_contracts.go",
+    "internal/store/workpin.go",
+    "internal/store/workflow_action_guards.go",
     "internal/store/workflow_continuity.go",
-    "internal/store/workflow.go"
+    "internal/store/workflow.go",
+    "contracts/agent-tool-surface-payloads.schema.json"
   ],
   "home_domain_id": "agent-surface",
   "id": "CD-0113",
@@ -17,9 +20,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:4d79f2890164098c36fcce31b9ae54a3d198057538ec770f4792cfd4bbd359c8",
+  "sha256": "sha256:381c6ef313d969d2e1926e0e24983251cfac925e742847195326fb5d5b1fed64",
   "status": "accepted",
-  "summary": "Every mutation result that touches a work item carries a WorkPin computed in its own transaction: version, lifecycle, workflow type, step, live attempt, pending operator decision, and watermark. next_valid_intents is derived from the pin and the step definition instead of hand-written literals, and continuity and the full list detail embed the same pin, so a session never reads the store around the typed surface.",
+  "summary": "Every mutation result that touches a work item carries a WorkPin computed in its own transaction: version, lifecycle, workflow type, step, live attempt, pending operator decision, watermark, and outstanding evidence kinds. next_valid_intents derives declared actions and supported recovery routes with the same availability checks as admission.",
   "tags": [
     "agent-surface",
     "workflow",

@@ -253,10 +253,14 @@ func workflowStepFollows(definition WorkflowDefinition, earlierStep, currentStep
 // the definition's evidence-binding step. It also guards the typed recovery
 // action declared by definition version 6.
 func guardRecoveryEvidenceBind(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, currentStep string, payload json.RawMessage, subject string) (bool, error) {
-	bindingStep := workflowEvidenceRecoveryBindingStep(definition, currentStep)
-	if bindingStep == "" || !workflowStepFollows(definition, bindingStep, currentStep) {
+	requirements, requirementsErr := workflowEvidenceRecoveryRequirements(ctx, q, workID, definition, currentStep)
+	if requirementsErr != nil {
+		return false, requirementsErr
+	}
+	if len(requirements) == 0 {
 		return false, nil
 	}
+	bindingStep := workflowEvidenceRecoveryBindingStep(definition, currentStep)
 	fields, err := workflowActionObject(payload)
 	if err != nil {
 		return false, err
@@ -273,10 +277,6 @@ func guardRecoveryEvidenceBind(ctx context.Context, q queryer, workID string, de
 			return false, newFailure(KindIllegalLifecycleTransition, subject, "recovery bind_evidence cannot reopen an already bound evidence tuple", false, fmt.Sprintf("use bind_evidence on step %q before advancing", bindingStep))
 		}
 	}
-	requirements, requirementsErr := outstandingWorkflowEvidenceRequirementsForWork(ctx, q, workID, definition)
-	if requirementsErr != nil {
-		return false, requirementsErr
-	}
 	for _, requirement := range requirements {
 		if requirement.Kind != "" && requirement.Kind != kind {
 			continue
@@ -287,6 +287,22 @@ func guardRecoveryEvidenceBind(ctx context.Context, q queryer, workID string, de
 		return true, nil
 	}
 	return false, newFailure(KindIllegalLifecycleTransition, subject, "recovery bind_evidence is only available for an outstanding contract evidence requirement", false, fmt.Sprintf("use bind_evidence on step %q before advancing", bindingStep))
+}
+
+func workflowEvidenceRecoveryRequirements(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, currentStep string) ([]workflowEvidenceRequirement, error) {
+	bindingStep := workflowEvidenceRecoveryBindingStep(definition, currentStep)
+	if bindingStep == "" || !workflowStepFollows(definition, bindingStep, currentStep) || containsString(definition.StepGraph.TerminalSteps, currentStep) {
+		return nil, nil
+	}
+	return outstandingWorkflowEvidenceRequirementsForWork(ctx, q, workID, definition)
+}
+
+func workflowEvidenceRecoveryAvailable(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, currentStep string) (bool, error) {
+	requirements, err := workflowEvidenceRecoveryRequirements(ctx, q, workID, definition, currentStep)
+	if err != nil {
+		return false, err
+	}
+	return len(requirements) != 0, nil
 }
 
 // guardSupersedeContractRecovery admits contract recovery only for a workflow

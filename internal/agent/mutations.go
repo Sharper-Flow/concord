@@ -2980,7 +2980,11 @@ func mutationPayload(changed []ChangedRef, intents []NextIntent) json.RawMessage
 func nextIntentsFromPin(pin store.WorkPin) []NextIntent {
 	intents := make([]NextIntent, 0, len(pin.NextValidIntents))
 	for _, intent := range pin.NextValidIntents {
-		intents = append(intents, NextIntent{Tool: intent.Tool, Operation: intent.Operation, ActionID: intent.ActionID, ReasonCode: "declared_step_action", RequiredFields: append([]string(nil), intent.RequiredFields...), ExpectedVersion: intent.ExpectedVersion})
+		reason := intent.ReasonCode
+		if reason == "" {
+			reason = "declared_step_action"
+		}
+		intents = append(intents, NextIntent{Tool: intent.Tool, Operation: intent.Operation, ActionID: intent.ActionID, ReasonCode: reason, RequiredFields: append([]string(nil), intent.RequiredFields...), ExpectedVersion: intent.ExpectedVersion})
 	}
 	return intents
 }

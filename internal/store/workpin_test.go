@@ -88,3 +88,72 @@ func TestReadWorkPinIncludesTheCurrentWorkerAttemptEpoch(t *testing.T) {
 	}
 	t.Fatal("continuity result has no dispatch_worker intent")
 }
+
+func TestReadWorkPinExposesOutstandingEvidenceRecovery(t *testing.T) {
+	ctx := context.Background()
+	fixture := newAcceptanceRecoveryFixture(ctx, t, wf04OutstandingKind)
+
+	pin, err := ReadWorkPin(ctx, fixture.store, fixture.workID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(pin.OutstandingEvidenceKinds, []string{wf04OutstandingKind}) {
+		t.Fatalf("outstanding evidence kinds=%v, want [%s]", pin.OutstandingEvidenceKinds, wf04OutstandingKind)
+	}
+	var recovery *WorkPinIntent
+	for i := range pin.NextValidIntents {
+		if pin.NextValidIntents[i].ActionID == "bind_evidence" {
+			recovery = &pin.NextValidIntents[i]
+		}
+	}
+	if recovery == nil {
+		t.Fatalf("next valid intents=%v, want recovery bind_evidence", pin.NextValidIntents)
+	}
+	if recovery.ReasonCode == "declared_step_action" || recovery.ExpectedVersion != pin.Version {
+		t.Fatalf("recovery intent=%+v, want distinct reason and pin version", *recovery)
+	}
+
+	if err := fixture.bind(ctx, "workpin-recover", pin.Version, wf04OutstandingKind, wf04RecoveryRef); err != nil {
+		t.Fatal(err)
+	}
+	after, err := ReadWorkPin(ctx, fixture.store, fixture.workID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(after.OutstandingEvidenceKinds) != 0 {
+		t.Fatalf("outstanding evidence kinds after binding=%v, want empty", after.OutstandingEvidenceKinds)
+	}
+	for _, intent := range after.NextValidIntents {
+		if intent.ActionID == "bind_evidence" {
+			t.Fatalf("satisfied recovery route remains in intents=%v", after.NextValidIntents)
+		}
+	}
+}
+
+func TestReadWorkPinDoesNotExposeEvidenceRecoveryForTerminalWork(t *testing.T) {
+	ctx := context.Background()
+	fixture := newAcceptanceRecoveryFixture(ctx, t, wf04OutstandingKind)
+	setWorkflowInstanceState(t, fixture.store, fixture.workID, "completed")
+
+	pin, err := ReadWorkPin(ctx, fixture.store, fixture.workID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, intent := range pin.NextValidIntents {
+		if intent.ActionID == "bind_evidence" && intent.ReasonCode != "declared_step_action" {
+			t.Fatalf("terminal pin exposes recovery intent=%+v", intent)
+		}
+	}
+}
+
+func TestWorkPinIntentsDoNotDuplicateDeclaredEvidenceBind(t *testing.T) {
+	definition := WorkflowDefinition{
+		StepGraph:         WorkflowStepGraph{Steps: []WorkflowStep{{ID: "verify", Actions: []string{"bind_evidence"}}}},
+		ActionDefinitions: []WorkflowActionDefinition{currentActionDefinition("bind_evidence", true)},
+	}
+
+	intents := workPinIntents(definition, "verify", 9, false)
+	if len(intents) != 1 || intents[0].ActionID != "bind_evidence" || intents[0].ReasonCode != "declared_step_action" {
+		t.Fatalf("intents=%+v, want one declared bind_evidence intent", intents)
+	}
+}

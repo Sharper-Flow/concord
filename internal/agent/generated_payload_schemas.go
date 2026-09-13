@@ -5677,6 +5677,23 @@ const GeneratedPayloadSchemaDocument = `{
           "maxItems": 16,
           "type": "array"
         },
+        "outstanding_evidence_kinds": {
+          "items": {
+            "enum": [
+              "verification",
+              "review",
+              "approval",
+              "commit",
+              "durable_note",
+              "native_run",
+              "artifact"
+            ],
+            "type": "string"
+          },
+          "maxItems": 7,
+          "type": "array",
+          "uniqueItems": true
+        },
         "pending_operator_decision": {
           "oneOf": [
             {
@@ -5719,7 +5736,8 @@ const GeneratedPayloadSchemaDocument = `{
         "attempt",
         "pending_operator_decision",
         "watermark",
-        "next_valid_intents"
+        "next_valid_intents",
+        "outstanding_evidence_kinds"
       ],
       "type": "object"
     },

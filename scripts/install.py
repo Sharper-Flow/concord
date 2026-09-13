@@ -25,6 +25,7 @@ import tempfile
 import urllib.parse
 import urllib.request
 import uuid
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -34,12 +35,26 @@ SHA256_RE = re.compile(r"^[0-9a-fA-F]{64}$")
 MANIFEST_NAME = "install-manifest.json"
 # The shipped adapter set follows the plugin entry's module import graph, not
 # a hand list: an entry import referencing an unshipped module is a
-# new-session outage, not a packaging choice (issue #681).
+# new-session outage, not a packaging choice (issue #681). The set is derived
+# where it is used, never at import time from this file's location: the
+# standalone release asset runs from an empty download directory, where no
+# source tree exists beside it (issue #690). Install paths derive it from the
+# verified extracted bundle; release and check surfaces derive it from the
+# repository adapter directory.
 RELATIVE_IMPORT_RE = re.compile(r'(?:from\s+|import\(\s*)([\'"])(\.[^\'"]+)\1')
 # The OpenCode plugin entry module, installed into the tools directory and
 # registered by path in the host `plugin` array so OpenCode loads it as the
 # adapter's plugin factory. The import walk starts here.
 PLUGIN_ENTRY_FILE = "concord-plugin.ts"
+# Adapter file names arrive from on-disk state (manifests, transaction
+# journals) and from release bundles, so a name is trusted only after this
+# shape check: a plain .ts filename can never traverse out of the tools
+# directory the way a relative path or a dotted parent could.
+ADAPTER_NAME_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*\.ts")
+
+
+class InstallerError(Exception):
+    """An actionable refusal that must not leave a partial installation."""
 
 
 def derive_adapter_files(adapter_dir: Path) -> tuple[str, ...]:
@@ -68,7 +83,17 @@ def derive_adapter_files(adapter_dir: Path) -> tuple[str, ...]:
     return tuple(sorted(shipped))
 
 
-ADAPTER_FILES = derive_adapter_files(Path(__file__).resolve().parent.parent / "adapter" / "opencode")
+def validate_adapter_names(names: Iterable[str], context: str) -> None:
+    """Refuse adapter names that are not plain .ts filenames.
+
+    Adapter names reach path joins from on-disk records and bundles, so each
+    one must be a shape that cannot escape the managed tools directory.
+    """
+    for name in names:
+        if not isinstance(name, str) or not ADAPTER_NAME_RE.fullmatch(name):
+            raise InstallerError(f"refusing {context} adapter file name {name!r}")
+
+
 INSTRUCTION_FILES = (
     "README.md",
     "asking.md",
@@ -462,7 +487,22 @@ def validate_manifest(paths: Paths, manifest: dict[str, object]) -> None:
     version_files = manifest.get("version_files")
     if not isinstance(version_files, dict) or not version_files:
         raise InstallerError("installer manifest has invalid version file records")
-    allowed_fixed = {"bin/concord", *(f"adapter/opencode/{name}" for name in ADAPTER_FILES)}
+    # The manifest records what a previous install managed. The adapter set
+    # is per-release (each release derives its own from its bundle), so the
+    # recorded names are validated on their own shape rather than membership
+    # in the set this release ships. A prior installation can legitimately
+    # predate a later adapter file, and requiring membership in the new set
+    # would make adding one an upgrade-breaking change. The shape check keeps
+    # an unknown or traversing key from reaching a delete.
+    adapter_files = manifest.get("adapter_files")
+    if not isinstance(adapter_files, dict) or not all(
+        isinstance(value, str) and SHA256_RE.fullmatch(value) for value in adapter_files.values()
+    ):
+        raise InstallerError("installer manifest has invalid adapter file records")
+    validate_adapter_names(adapter_files, "manifest")
+    for name in adapter_files:
+        safe_relative_target(paths.tools_dir, name, "adapter")
+    allowed_fixed = {"bin/concord", *(f"adapter/opencode/{name}" for name in adapter_files)}
     for relative, digest in version_files.items():
         if not isinstance(relative, str) or not isinstance(digest, str) or not SHA256_RE.fullmatch(digest):
             raise InstallerError("installer manifest has invalid version file records")
@@ -480,21 +520,6 @@ def validate_manifest(paths: Paths, manifest: dict[str, object]) -> None:
     # still rejects every unknown or malformed recorded path.
     if "bin/concord" not in version_files:
         raise InstallerError("installer manifest omits a required managed version file")
-
-    # The manifest records what a previous install managed, which is a subset of
-    # what this version installs whenever an adapter file has since been added.
-    # Requiring equality would make adding one an upgrade-breaking change. Keys
-    # outside ADAPTER_FILES stay refused, so an unknown or traversing key cannot
-    # reach a delete.
-    adapter_files = manifest.get("adapter_files")
-    if (
-        not isinstance(adapter_files, dict)
-        or not set(adapter_files).issubset(ADAPTER_FILES)
-        or not all(isinstance(value, str) and SHA256_RE.fullmatch(value) for value in adapter_files.values())
-    ):
-        raise InstallerError("installer manifest has invalid adapter file records")
-    for name in ADAPTER_FILES:
-        safe_relative_target(paths.tools_dir, name, "adapter")
 
     # Central agent definitions: filenames only (the path inside the version
     # tree lives in version_files). The shape mirrors adapter_files: a dict of
@@ -793,7 +818,12 @@ def unmanaged_manifest_note(old_manifest: dict[str, object] | None, paths: Paths
         return ""
     return f" (no install manifest at {paths.data_root / MANIFEST_NAME})"
 
-def preflight(paths: Paths, version: str, old_manifest: dict[str, object] | None) -> ConfigPlan:
+def preflight(
+    paths: Paths,
+    version: str,
+    old_manifest: dict[str, object] | None,
+    adapter_files: tuple[str, ...],
+) -> ConfigPlan:
     failures: list[str] = []
     for managed_parent in (
         paths.data_root,
@@ -850,7 +880,9 @@ def preflight(paths: Paths, version: str, old_manifest: dict[str, object] | None
             failures.append(f"refusing to overwrite user-authored credential unit {paths.credential_unit}")
     adapter_records = managed_adapter_records(old_manifest)
     manifest_note = unmanaged_manifest_note(old_manifest, paths)
-    for name in ADAPTER_FILES:
+    # adapter_files is the deploy set derived from the release bundle being
+    # installed; the guard must cover exactly the names this install writes.
+    for name in adapter_files:
         destination = paths.tools_dir / name
         if destination.exists() or destination.is_symlink():
             if not old_manifest or name not in adapter_records:
@@ -913,7 +945,9 @@ def artifact_file(artifact_dir: Path | None, base_url: str, name: str, directory
     return destination
 
 
-def extract_verified_artifact(version: str, artifact_dir: Path | None, base_url: str, workspace: Path) -> tuple[Path, dict[str, str]]:
+def extract_verified_artifact(
+    version: str, artifact_dir: Path | None, base_url: str, workspace: Path
+) -> tuple[Path, dict[str, str], tuple[str, ...]]:
     prefix = f"concord-{version}"
     checksum_path = artifact_file(artifact_dir, base_url, f"{prefix}.sha256", workspace)
     checksums = parse_checksums(checksum_path)
@@ -949,10 +983,17 @@ def extract_verified_artifact(version: str, artifact_dir: Path | None, base_url:
         raise InstallerError(f"checksum file does not contain the binary entry {prefix}")
     if sha256(binary) != expected_binary:
         raise InstallerError("archive binary does not match the published checksum; nothing was installed")
+    # The deploy set is derived from the verified extracted bundle itself:
+    # the only adapter directory a standalone installer can trust is the one
+    # whose archive matched the published checksum (issue #690). A bundle
+    # whose entry import graph references a missing module or escapes the
+    # adapter directory refuses here, before any operator file changes.
     adapter_dir = extracted / "adapter" / "opencode"
-    if any(not (adapter_dir / name).is_file() for name in ADAPTER_FILES):
-        raise InstallerError("release archive is missing the OpenCode adapter files")
-    return extracted, checksums
+    try:
+        adapter_files = derive_adapter_files(adapter_dir)
+    except InstallerError as error:
+        raise InstallerError(f"release archive adapter set is not installable: {error}") from error
+    return extracted, checksums, adapter_files
 
 
 def file_records(root: Path, paths: list[str]) -> dict[str, str]:
@@ -1243,7 +1284,7 @@ def validate_transaction(journal: dict[str, object], transaction_root: Path, pat
                 raise InstallerError(f"refusing malformed transaction file record {journal_path(transaction_root)}")
             safe_relative_target(record_root, relative, "transaction file")
     old_adapter = journal.get("old_adapter")
-    if not isinstance(old_adapter, dict) or set(old_adapter) != set(ADAPTER_FILES):
+    if not isinstance(old_adapter, dict):
         raise InstallerError(f"refusing malformed transaction adapter records {journal_path(transaction_root)}")
     for name, state in old_adapter.items():
         if not isinstance(state, dict) or not isinstance(state.get("exists"), bool):
@@ -1252,13 +1293,20 @@ def validate_transaction(journal: dict[str, object], transaction_root: Path, pat
             raise InstallerError(f"refusing malformed transaction adapter state {journal_path(transaction_root)}")
         if state["exists"] and state.get("backup") != f"{name}":
             raise InstallerError(f"refusing malformed transaction adapter backup {journal_path(transaction_root)}")
+        safe_relative_target(paths.tools_dir, name, "transaction adapter")
+    # The adapter set is per-release, so the journal's recorded names are
+    # validated on their own shape rather than equality with any fixed list.
+    validate_adapter_names(old_adapter, "transaction")
     new_adapter = journal.get("new_adapter")
     if new_adapter is not None and (
         not isinstance(new_adapter, dict)
-        or set(new_adapter) != set(ADAPTER_FILES)
         or not all(isinstance(value, str) and SHA256_RE.fullmatch(value) for value in new_adapter.values())
     ):
         raise InstallerError(f"refusing malformed transaction adapter targets {journal_path(transaction_root)}")
+    if isinstance(new_adapter, dict):
+        validate_adapter_names(new_adapter, "transaction")
+        for name in new_adapter:
+            safe_relative_target(paths.tools_dir, name, "transaction adapter")
     old_agents = journal.get("old_agents")
     if not isinstance(old_agents, dict):
         raise InstallerError(f"refusing malformed transaction agent records {journal_path(transaction_root)}")
@@ -1359,9 +1407,30 @@ def make_transaction(
         durable_copy_tree(activation_root, version_backup)
     elif operation == "uninstall":
         raise InstallerError("cannot uninstall without a managed version directory")
+    # Capture the union of the adapter paths this transaction owns or will
+    # write, mirroring the agents handling: names the old manifest managed
+    # (so an adapter file the new release retires can be removed and
+    # restored) plus names the new release ships. The preflight refused
+    # user-authored files under the new names; this re-checks the union so
+    # neither a modified managed file nor an unexpected survivor is clobbered.
     old_adapter: dict[str, object] = {}
-    for name in ADAPTER_FILES:
-        old_adapter[name] = capture_file(paths.tools_dir / name, backup / "adapter" / name, f"adapter {name}")
+    managed_adapters = managed_adapter_records(old_manifest)
+    adapter_names = set(managed_adapters)
+    if isinstance(new_adapter, dict):
+        adapter_names.update(new_adapter)
+    for name in sorted(adapter_names):
+        target = paths.tools_dir / name
+        if target.exists() or target.is_symlink():
+            expected = managed_adapters.get(name)
+            if expected is None:
+                raise InstallerError(f"refusing to overwrite user-authored adapter file {target}")
+            if not target.is_file() or sha256(target) != expected:
+                raise InstallerError(f"refusing to overwrite modified managed adapter file {target}")
+        old_adapter[name] = capture_file(
+            target,
+            backup / "adapter" / name,
+            f"adapter {name}",
+        )
     # Capture only agent paths this transaction owns or will write. A broad
     # concord-*.md snapshot would give uninstall deletion authority over
     # operator-authored primary agents that the manifest never managed.
@@ -1433,7 +1502,7 @@ def make_transaction(
         "live_version_backup": "backup/live-version",
         "targets": {
             "version": str(activation_root.resolve(strict=False)),
-            "adapters": [str((paths.tools_dir / name).resolve(strict=False)) for name in ADAPTER_FILES],
+            "adapters": [str((paths.tools_dir / name).resolve(strict=False)) for name in sorted(adapter_names)],
             "agents": [str(paths.agents_dir)],
             "launcher": str(paths.launcher),
             "config": str(paths.config_file.resolve(strict=False)),
@@ -1562,15 +1631,44 @@ def apply_agents(transaction_root: Path, journal: dict[str, object], paths: Path
 
 
 def apply_adapters(transaction_root: Path, journal: dict[str, object], paths: Paths) -> None:
-    for name in ADAPTER_FILES:
-        target = paths.tools_dir / name
-        if journal["operation"] == "install":
-            version = journal["new_version"]
+    touched = False
+    old_adapter = journal.get("old_adapter")
+    if not isinstance(old_adapter, dict):
+        raise InstallerError("transaction has malformed adapter records")
+    if journal["operation"] == "install":
+        new_adapter = journal.get("new_adapter")
+        if not isinstance(new_adapter, dict):
+            raise InstallerError("transaction has malformed adapter target records")
+        version = journal["new_version"]
+        if not isinstance(version, str):
+            raise InstallerError("transaction has no new version")
+        # A release can retire an adapter file its predecessor shipped. The
+        # captured pre-transaction state lets rollback restore it; leaving it
+        # in place would strand a file the new manifest no longer manages,
+        # which the next install would then refuse as user-authored.
+        for name in sorted(set(old_adapter) - set(new_adapter)):
+            target = paths.tools_dir / name
+            if target.exists() or target.is_symlink():
+                target.unlink()
+                touched = True
+        for name, digest in new_adapter.items():
+            if not isinstance(name, str) or not isinstance(digest, str) or not SHA256_RE.fullmatch(digest):
+                raise InstallerError("transaction has malformed adapter target record")
             source = paths.data_root / str(version) / "adapter" / "opencode" / name
-            write_atomic(target, source.read_bytes())
-        elif target.exists() or target.is_symlink():
-            target.unlink()
-    fsync_directory(paths.tools_dir)
+            if not source.is_file():
+                raise InstallerError(f"version tree is missing adapter source {source}")
+            write_atomic(paths.tools_dir / name, source.read_bytes())
+            touched = True
+    else:
+        for name in old_adapter:
+            if not isinstance(name, str):
+                raise InstallerError("transaction has malformed adapter record")
+            target = paths.tools_dir / name
+            if target.exists() or target.is_symlink():
+                target.unlink()
+                touched = True
+    if touched and paths.tools_dir.exists():
+        fsync_directory(paths.tools_dir)
 
 
 def apply_launcher(transaction_root: Path, journal: dict[str, object], paths: Paths) -> None:
@@ -1706,14 +1804,26 @@ def verify_states(journal: dict[str, object], paths: Paths, committed: bool) -> 
         config_expected = journal["old_config"]
         manifest_expected = journal["old_manifest"]
         stable_root_expected = journal.get("old_stable_root", {"exists": False})
-    for name in ADAPTER_FILES:
-        if committed:
+    # The adapter set is per-release, so iterate over the names the journal
+    # records rather than a static list, mirroring the agents handling.
+    # committed=True expects every shipped name present with its digest and
+    # every retired or removed name absent; committed=False expects the
+    # captured pre-transaction state of every recorded name.
+    recorded_adapter = journal.get("old_adapter")
+    old_adapter_names = set(recorded_adapter) if isinstance(recorded_adapter, dict) else set()
+    if committed:
+        committed_names = set(adapter_expected) if isinstance(adapter_expected, dict) else set()
+        for name in sorted(committed_names | old_adapter_names):
             digest = adapter_expected.get(name) if isinstance(adapter_expected, dict) else None
             expected = {"exists": True, "kind": "file", "sha256": digest} if digest else {"exists": False}
-        else:
-            expected = adapter_expected[name] if isinstance(adapter_expected, dict) and name in adapter_expected else {"exists": False}
-        if not state_matches(paths.tools_dir / name, expected):
-            raise InstallerError(f"transaction conflict at adapter {name}")
+            if not state_matches(paths.tools_dir / name, expected):
+                raise InstallerError(f"transaction conflict at adapter {name}")
+    else:
+        for name in sorted(old_adapter_names):
+            state = adapter_expected.get(name) if isinstance(adapter_expected, dict) else None
+            expected = state if isinstance(state, dict) else {"exists": False}
+            if not state_matches(paths.tools_dir / name, expected):
+                raise InstallerError(f"transaction conflict at adapter {name}")
     # Agents are dynamic, so iterate over the union of expected names rather
     # than a static list. committed=True expects every name in new_agents;
     # committed=False expects every name in old_agents (the pre-transaction set).
@@ -1744,16 +1854,17 @@ def verify_states(journal: dict[str, object], paths: Paths, committed: bool) -> 
 
 def ensure_rollback_safe(journal: dict[str, object], paths: Paths) -> None:
     """Allow only states produced by this transaction or its original state."""
-    old_adapter = journal["old_adapter"]
-    new_adapter = journal["new_adapter"]
-    for name in ADAPTER_FILES:
-        old = old_adapter[name]
-        digest = new_adapter.get(name) if isinstance(new_adapter, dict) else None
-        new = {"exists": True, "kind": "file", "sha256": digest} if digest else {"exists": False}
-        path = paths.tools_dir / name
-        current = file_state(path)
-        if current.get("exists") and not state_matches(path, old) and not state_matches(path, new):
-            raise InstallerError(f"transaction conflict at adapter {name}; refusing rollback")
+    old_adapter = journal.get("old_adapter") or {}
+    new_adapter = journal.get("new_adapter") or {}
+    if isinstance(old_adapter, dict) and isinstance(new_adapter, dict):
+        for name in set(old_adapter) | set(new_adapter):
+            old_state = old_adapter.get(name) if isinstance(old_adapter.get(name), dict) else {"exists": False}
+            new_digest = new_adapter.get(name)
+            new_state = {"exists": True, "kind": "file", "sha256": new_digest} if isinstance(new_digest, str) else {"exists": False}
+            path = paths.tools_dir / name
+            current = file_state(path)
+            if current.get("exists") and not state_matches(path, old_state) and not state_matches(path, new_state):
+                raise InstallerError(f"transaction conflict at adapter {name}; refusing rollback")
     old_agents = journal.get("old_agents") or {}
     new_agents = journal.get("new_agents") or {}
     if isinstance(old_agents, dict) and isinstance(new_agents, dict):
@@ -1839,9 +1950,24 @@ def recover_transaction(transaction_root: Path, paths: Paths) -> None:
         return
     ensure_rollback_safe(journal, paths)
     rollback_version(transaction_root, journal, paths)
-    for name in ADAPTER_FILES:
-        state = journal["old_adapter"][name]
-        restore_file(paths.tools_dir / name, state, transaction_root, f"adapter/{name}")
+    old_adapter = journal.get("old_adapter") or {}
+    if isinstance(old_adapter, dict):
+        for name, state in old_adapter.items():
+            if isinstance(name, str) and isinstance(state, dict):
+                restore_file(paths.tools_dir / name, state, transaction_root, f"adapter/{name}")
+    # Adapter files this transaction may have placed that the pre-transaction
+    # state did not record (new in this release) must not survive rollback.
+    # validate_transaction shape-checked every journal name, and preflight
+    # refused user-authored files under the shipped names, so anything left
+    # here under a new name was written by this transaction.
+    new_adapter = journal.get("new_adapter") or {}
+    if isinstance(new_adapter, dict):
+        for name in list(new_adapter):
+            if name in old_adapter:
+                continue
+            target = paths.tools_dir / name
+            if target.exists() or target.is_symlink():
+                target.unlink()
     old_agents = journal.get("old_agents") or {}
     if isinstance(old_agents, dict):
         for name, state in old_agents.items():
@@ -1897,47 +2023,53 @@ def install(args: argparse.Namespace) -> int:
     paths = paths_for(args.root)
     recover_transactions(paths)
     manifest = load_manifest(paths)
-    config_plan = preflight(paths, version, manifest)
-    if manifest and manifest.get("version") == version:
-        records = manifest.get("version_files")
-        if not isinstance(records, dict):
-            raise InstallerError("existing installer manifest has invalid version file records")
-        validate_owned_tree(paths.data_root / version, records)
-        adapter_records = managed_adapter_records(manifest)
-        for relative, expected in adapter_records.items():
-            destination = paths.tools_dir / relative
-            if not destination.is_file() or sha256(destination) != expected:
-                raise InstallerError(f"refusing to overwrite modified managed adapter file {destination}")
-        agent_records = managed_agent_records(manifest)
-        for name, expected in agent_records.items():
-            destination = paths.agents_dir / name
-            if not destination.is_file() or sha256(destination) != expected:
-                raise InstallerError(f"refusing to overwrite modified managed agent file {destination}")
-        if not paths.launcher.is_symlink() or os.readlink(paths.launcher) != manifest.get("launcher_target"):
-            raise InstallerError(f"refusing to repair modified managed launcher {paths.launcher}")
-        if not paths.stable_root.is_symlink() or os.readlink(paths.stable_root) != str(paths.data_root / version):
-            raise InstallerError(f"refusing to repair modified managed stable root {paths.stable_root}")
-        skill_path = str((paths.data_root / version / "skills").resolve())
-        if config_plan.changed or manifest.get("skill_path") != skill_path:
-            raise InstallerError("existing installation registration is incomplete; refusing an unsafe repair")
-        ensure_secret_service_ready(paths)
-        print(f"Concord {version} is already installed; no changes made.")
-        return 0
-
     with tempfile.TemporaryDirectory(prefix="concord-installer-") as temporary:
         workspace = Path(temporary)
-        extracted, _checksums = extract_verified_artifact(
+        # Adapter discovery runs on the verified extracted bundle, never on
+        # source-tree siblings relative to this file: the standalone release
+        # asset runs from an otherwise empty directory, where no checkout
+        # exists beside it (issue #690). Extraction writes only to this
+        # workspace, so the operator's files are untouched while the deploy
+        # set and preflight inputs are established.
+        extracted, _checksums, adapter_files = extract_verified_artifact(
             version,
             Path(args.artifact_dir).resolve() if args.artifact_dir else None,
             args.base_url,
             workspace,
         )
+        config_plan = preflight(paths, version, manifest, adapter_files)
+        if manifest and manifest.get("version") == version:
+            records = manifest.get("version_files")
+            if not isinstance(records, dict):
+                raise InstallerError("existing installer manifest has invalid version file records")
+            validate_owned_tree(paths.data_root / version, records)
+            adapter_records = managed_adapter_records(manifest)
+            for relative, expected in adapter_records.items():
+                destination = paths.tools_dir / relative
+                if not destination.is_file() or sha256(destination) != expected:
+                    raise InstallerError(f"refusing to overwrite modified managed adapter file {destination}")
+            agent_records = managed_agent_records(manifest)
+            for name, expected in agent_records.items():
+                destination = paths.agents_dir / name
+                if not destination.is_file() or sha256(destination) != expected:
+                    raise InstallerError(f"refusing to overwrite modified managed agent file {destination}")
+            if not paths.launcher.is_symlink() or os.readlink(paths.launcher) != manifest.get("launcher_target"):
+                raise InstallerError(f"refusing to repair modified managed launcher {paths.launcher}")
+            if not paths.stable_root.is_symlink() or os.readlink(paths.stable_root) != str(paths.data_root / version):
+                raise InstallerError(f"refusing to repair modified managed stable root {paths.stable_root}")
+            skill_path = str((paths.data_root / version / "skills").resolve())
+            if config_plan.changed or manifest.get("skill_path") != skill_path:
+                raise InstallerError("existing installation registration is incomplete; refusing an unsafe repair")
+            ensure_secret_service_ready(paths)
+            print(f"Concord {version} is already installed; no changes made.")
+            return 0
+
         source_stage = workspace / "version"
         (source_stage / "bin").mkdir(parents=True)
         (source_stage / "adapter" / "opencode").mkdir(parents=True)
         shutil.copy2(extracted / "bin" / "concord", source_stage / "bin" / "concord")
         os.chmod(source_stage / "bin" / "concord", 0o755)
-        for name in ADAPTER_FILES:
+        for name in adapter_files:
             shutil.copy2(extracted / "adapter" / "opencode" / name, source_stage / "adapter" / "opencode" / name)
         # skills, instructions, and agents are copied only when the archive
         # carries them. The three branches share the helper so a future
@@ -1948,7 +2080,7 @@ def install(args: argparse.Namespace) -> int:
         fsync_tree(source_stage)
         managed_version_paths = [str(path.relative_to(source_stage)) for path in source_stage.rglob("*") if path.is_file()]
         version_records = file_records(source_stage, managed_version_paths)
-        adapter_stage_records = {name: sha256(source_stage / "adapter" / "opencode" / name) for name in ADAPTER_FILES}
+        adapter_stage_records = {name: sha256(source_stage / "adapter" / "opencode" / name) for name in adapter_files}
         agent_stage_records = {
             path.name: sha256(path)
             for path in sorted((source_stage / "agents").glob(AGENT_GLOB))

@@ -77,11 +77,11 @@ jobs:
           mkdir -p release/package/bin release/package/adapter/opencode release/package/skills release/package/instructions release/package/agents
           cp "release/concord-$VERSION" release/package/bin/concord
           # The installer decides which adapter files a release must contain, so
-          # the packing step reads that set rather than restating it. A literal
-          # list here can fall behind ADAPTER_FILES and produce an archive the
-          # installer refuses, which is how v1.0.0 through v1.1.1 shipped
-          # without credentials.ts.
-          python3 -c 'import sys; sys.path.insert(0, "scripts"); import install; print("\n".join(install.ADAPTER_FILES))' > release/adapter-files.txt
+          # the packing step consumes that same canonical derivation rather
+          # than restating the set. A literal list here can fall behind the
+          # derivation and produce an archive the installer refuses, which is
+          # how v1.0.0 through v1.1.1 shipped without credentials.ts.
+          python3 -c 'import sys; sys.path.insert(0, "scripts"); from pathlib import Path; import install; print("\n".join(install.derive_adapter_files(Path("adapter") / "opencode")))' > release/adapter-files.txt
           test -s release/adapter-files.txt
           while read -r adapter_name; do
             test -n "$adapter_name"
@@ -126,17 +126,18 @@ jobs:
         run: |
           # Publishing an archive the installer refuses is the failure this step
           # exists to make impossible. scripts/test-installer.py cannot catch it:
-          # it builds its fixture archive from installer.ADAPTER_FILES, so its
+          # it builds its fixture archive from the same derivation, so its
           # input agrees with the installer by construction and the packing step
           # is never consulted. This checks the real archive instead.
           #
-          # A full `install` is not run here. Preflight requires secret-tool,
-          # gnome-keyring-daemon and a live Secret Service, which a runner does
-          # not have; test-installer.py only clears it by stubbing those onto
-          # PATH. Stubbing them here would test the stubs, so this asserts the
-          # archive's contents, which is the property that actually broke.
+          # A full `install` is exercised in the next step with stubbed
+          # provider commands; here the archive contents are asserted against
+          # the canonical derivation run on the checkout's adapter directory.
+          # Missing files break installs (issue #681); extra adapter files ship
+          # dev-only inputs to operators.
           python3 - "release/upload/concord-$VERSION.tar.gz" <<'PY'
           import sys, tarfile
+          from pathlib import Path
           sys.path.insert(0, "scripts")
           import install
 
@@ -144,8 +145,18 @@ jobs:
           with tarfile.open(archive) as bundle:
               present = set(bundle.getnames())
 
-          required = {"bin/concord"}
-          required |= {f"adapter/opencode/{name}" for name in install.ADAPTER_FILES}
+          expected_adapters = {
+              f"adapter/opencode/{name}"
+              for name in install.derive_adapter_files(Path("adapter") / "opencode")
+          }
+          shipped_adapters = {name for name in present if name.startswith("adapter/opencode/")}
+          if shipped_adapters != expected_adapters:
+              raise SystemExit(
+                  f"{archive} adapter set diverges from the checkout derivation: "
+                  f"missing={sorted(expected_adapters - shipped_adapters)} "
+                  f"extra={sorted(shipped_adapters - expected_adapters)}"
+              )
+          required = {"bin/concord"} | expected_adapters
           required |= {f"instructions/{name}" for name in install.INSTRUCTION_FILES}
           required |= {f"agents/{name}" for name in install.AGENT_FILES}
           missing = sorted(required - present)
@@ -154,6 +165,51 @@ jobs:
                   f"{archive} omits files the installer requires: {', '.join(missing)}"
               )
           print(f"{archive} carries every installer-required file: {', '.join(sorted(required))}")
+          PY
+      - name: Execute the standalone installer from an empty directory
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          # Issue #690: the published standalone installer must start and
+          # install with no source checkout beside it. This step executes the
+          # exact uploaded asset from an otherwise empty directory before
+          # publication. The provider commands are stubbed onto PATH because a
+          # runner has no Secret Service; the stubbed surface is only the
+          # preflight gate, while the artifact verification, adapter
+          # derivation, and file placement under test are the real ones.
+          empty="$(mktemp -d)"
+          stub="$empty/stub-bin"
+          mkdir -p "$stub" "$empty/home"
+          for command in git opencode secret-tool gnome-keyring-daemon dbus-run-session systemctl; do
+            printf '#!/bin/sh\nexit 0\n' > "$stub/$command"
+            chmod +x "$stub/$command"
+          done
+          printf '#!/bin/sh\ncase "$*" in\n  "--user --list") printf '"'"'org.freedesktop.secrets\\n'"'"' ;;\n  *"ReadAlias"*) printf '"'"'o "/org/freedesktop.secrets/collection/login"\\n'"'"' ;;\n  *" Locked") printf '"'"'b false\\n'"'"' ;;\n  *) exit 2 ;;\nesac\n' > "$stub/busctl"
+          chmod +x "$stub/busctl"
+          cp "release/upload/concord-installer.py" "$empty/concord-installer.py"
+          python3 "$empty/concord-installer.py" --help > /dev/null
+          HOME="$empty/home" PATH="$stub" python3 "$empty/concord-installer.py" status --root "$empty/root"
+          mkdir -p "$empty/root/bin"
+          HOME="$empty/home" PATH="$stub:$empty/root/bin" python3 "$empty/concord-installer.py" \
+            install --version "$VERSION" --artifact-dir "$PWD/release/upload" --root "$empty/root"
+          HOME="$empty/home" PATH="$stub" python3 "$empty/concord-installer.py" status --root "$empty/root" | grep "\"version\": \"$VERSION\""
+          # The placed adapter set must equal the canonical derivation from
+          # the checkout: this is the property #690 broke, discovery from a
+          # source-tree location the standalone asset does not have.
+          python3 - "$empty/root" <<'PY'
+          import sys
+          from pathlib import Path
+          sys.path.insert(0, "scripts")
+          import install
+
+          tools = Path(sys.argv[1]) / "config" / "opencode" / "tools"
+          placed = sorted(path.name for path in tools.iterdir())
+          expected = sorted(install.derive_adapter_files(Path("adapter") / "opencode"))
+          if placed != expected:
+              raise SystemExit(
+                  f"standalone install placed {placed} but the checkout derivation is {expected}"
+              )
+          print(f"standalone install placed the derived adapter set: {placed}")
           PY
       - name: Attest release artifacts
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8

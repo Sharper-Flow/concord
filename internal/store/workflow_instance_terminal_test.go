@@ -93,7 +93,7 @@ func TestTerminalLifecycleLeavesACompletedInstanceAlone(t *testing.T) {
 	if err := s.DatabaseForTesting().QueryRow(`SELECT w.version, i.completed_at FROM work_items w JOIN workflow_instances i ON i.work_id=w.id WHERE w.id=?`, workID).Scan(&version, &completedAt); err != nil {
 		t.Fatal(err)
 	}
-	if err := applyWorkEvent(t, s, workTransitionEvent(workID+"-cancel", workID, "needed", "cancelled", version, version+1), workVersion(workID, version)); err != nil {
+	if err := applyWorkEvent(t, s, workTransitionEvent(workID+"-cancel", workID, "in_progress", "cancelled", version, version+1), workVersion(workID, version)); err != nil {
 		t.Fatal(err)
 	}
 	var state, after string

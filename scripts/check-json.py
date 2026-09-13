@@ -144,6 +144,12 @@ def main() -> int:
         if checked.returncode:
             findings.append(f"doc contract drift: {checked.stdout.strip() or checked.stderr.strip()}")
 
+    typed_knowledge_checker = ROOT / "scripts/check-typed-knowledge.py"
+    if typed_knowledge_checker.is_file():
+        checked = subprocess.run([sys.executable, str(typed_knowledge_checker)], cwd=ROOT, capture_output=True, text=True)
+        if checked.returncode:
+            findings.append(f"typed knowledge draft drift: {checked.stdout.strip() or checked.stderr.strip()}")
+
     # Lane eval baseline (issue #212): the record that lanes were measured,
     # bound to the registry digests and per-attempt readback evidence. The
     # check asserts structure and binding only; eval outcomes stay advisory

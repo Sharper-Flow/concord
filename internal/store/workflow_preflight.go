@@ -198,11 +198,20 @@ func WorkflowActionPreflightWithRegistry(ctx context.Context, s *Store, registry
 			return newFailure(KindNotTerminal, "workflow_action_preflight", "consequential action has unresolved external conditions", false, "reread_entities")
 		}
 	}
-	if !definitionStepAllows(entry.Definition, currentStep, request.ActionID) {
-		return newFailure(KindIllegalLifecycleTransition, "workflow_action_preflight", "workflow action is not declared on the current step", false, "reread_entities")
-	}
 	if err := validateWorkflowActionPayload(entry.Definition, request.ActionID, request.Payload); err != nil {
 		return newFailure(KindIllegalLifecycleTransition, "workflow_action_preflight", err.Error(), false, "reread_entities")
+	}
+	if err := guardMandatedWorkflowLawBound(ctx, s.db, request.WorkID, entry.Definition, currentStep, request.ActionID, "workflow_action_preflight"); err != nil {
+		return err
+	}
+	if !definitionStepAllows(entry.Definition, currentStep, request.ActionID) {
+		recoveryBind, recoveryErr := guardRecoveryEvidenceBind(ctx, s.db, request.WorkID, entry.Definition, currentStep, request.Payload, "workflow_action_preflight")
+		if recoveryErr != nil {
+			return recoveryErr
+		}
+		if !recoveryBind {
+			return newFailure(KindIllegalLifecycleTransition, "workflow_action_preflight", "workflow action is not declared on the current step", false, "reread_entities")
+		}
 	}
 	if err := ValidateWorkflowOperatorSelection(ctx, s, request.WorkID, request.ExpectedVersion, request.ActionID, request.SelectedChoice, request.DecisionContextDigest); err != nil {
 		return err
@@ -390,15 +399,24 @@ func workflowActionPreflightTx(ctx context.Context, tx *sql.Tx, registry Definit
 			return RegisteredDefinition{}, newFailure(KindInvariantViolation, "workflow_action_preflight", "breaking workflow impact notice blocks consequential execution", false, "reread_entities")
 		}
 	}
-	if !staleRecovery && !definitionStepAllows(entry.Definition, currentStep, request.ActionID) {
-		return RegisteredDefinition{}, newFailure(KindIllegalLifecycleTransition, "workflow_action_preflight", "workflow action is not declared on the current step", false, "reread_entities")
-	}
 	if staleRecovery {
 		if err := validateWorkflowContractRecoveryPayload(request.Payload); err != nil {
 			return RegisteredDefinition{}, err
 		}
 	} else if err := validateWorkflowActionPayload(entry.Definition, request.ActionID, request.Payload); err != nil {
 		return RegisteredDefinition{}, newFailure(KindIllegalLifecycleTransition, "workflow_action_preflight", err.Error(), false, "reread_entities")
+	}
+	if err := guardMandatedWorkflowLawBound(ctx, tx, request.WorkID, entry.Definition, currentStep, request.ActionID, "workflow_action_preflight"); err != nil {
+		return RegisteredDefinition{}, err
+	}
+	if !staleRecovery && !definitionStepAllows(entry.Definition, currentStep, request.ActionID) {
+		recoveryBind, recoveryErr := guardRecoveryEvidenceBind(ctx, tx, request.WorkID, entry.Definition, currentStep, request.Payload, "workflow_action_preflight")
+		if recoveryErr != nil {
+			return RegisteredDefinition{}, recoveryErr
+		}
+		if !recoveryBind {
+			return RegisteredDefinition{}, newFailure(KindIllegalLifecycleTransition, "workflow_action_preflight", "workflow action is not declared on the current step", false, "reread_entities")
+		}
 	}
 	if err := validateWorkflowOperatorSelectionTx(ctx, tx, registry, request); err != nil {
 		return RegisteredDefinition{}, err

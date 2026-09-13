@@ -154,13 +154,29 @@ func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, registry Definiti
 	} else if err := validateWorkflowActionPayload(entry.Definition, request.ActionID, request.Payload); err != nil {
 		return result, err
 	}
+	subject := "workflow_action"
+	if request.ActionID == "complete" {
+		subject = "complete_workflow"
+	}
+	if err := guardMandatedWorkflowLawBound(ctx, tx, request.WorkID, entry.Definition, currentStep, request.ActionID, subject); err != nil {
+		return result, err
+	}
 	if err := runWorkflowActionGuard(guards, guardPhasePostValidation); err != nil {
 		return result, err
 	}
 	if err := guardWorkflowActionStepMatch(request.Payload, currentStep); err != nil {
 		return result, err
 	}
-	if !guards.staleRecovery && !definitionStepAllows(entry.Definition, currentStep, request.ActionID) {
+	stepAllowed := guards.staleRecovery || definitionStepAllows(entry.Definition, currentStep, request.ActionID)
+	if !stepAllowed && request.ActionID == "bind_evidence" {
+		var recoveryErr error
+		guards.recoveryBind, recoveryErr = guardRecoveryEvidenceBind(ctx, tx, request.WorkID, entry.Definition, currentStep, request.Payload, subject)
+		if recoveryErr != nil {
+			return result, recoveryErr
+		}
+		stepAllowed = guards.recoveryBind
+	}
+	if !stepAllowed {
 		return result, newFailure(KindIllegalLifecycleTransition, "workflow_action", "workflow action is not declared on the current step", false, "reread_entities")
 	}
 	actorRef, err := WorkflowActorRef(request.Actor)
@@ -196,7 +212,7 @@ func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, registry Definiti
 		entry: entry, request: request, currentStep: currentStep, step: step, payload: payload, evidenceRefs: evidenceRefs,
 		actorRef: guards.actorRef, eventActor: guards.eventActor, operatorRef: guards.operatorRef,
 		actorNeedsRecord: guards.actorNeedsRecord, operatorNeedsRecord: guards.operatorNeedsRecord,
-		defaultVerdictEvidence: defaultVerdictEvidence,
+		defaultVerdictEvidence: defaultVerdictEvidence, recoveryBind: guards.recoveryBind,
 	}
 	assembly, err := assembleWorkflowActionEventsTx(ctx, tx, assemblyInput)
 	if err != nil {
@@ -317,6 +333,17 @@ func workflowActionEvidenceRefs(request WorkflowActionExecutionRequest, payload 
 		refs := append([]string(nil), request.EvidenceRefs...)
 		if attemptID := workflowFieldStringDefault(fields, "attempt_id", ""); attemptID != "" && !contains(refs, attemptID) {
 			refs = append(refs, attemptID)
+		}
+		return refs, false, nil
+	}
+	if request.ActionID == "bind_evidence" {
+		fields, err := workflowActionObject(payload)
+		if err != nil {
+			return nil, false, err
+		}
+		refs := append([]string(nil), request.EvidenceRefs...)
+		if reference := workflowFieldStringDefault(fields, "immutable_subject_ref", ""); reference != "" && !contains(refs, reference) {
+			refs = append(refs, reference)
 		}
 		return refs, false, nil
 	}

@@ -173,6 +173,7 @@ type workflowActionCompletedPayload struct {
 	ActionID        string `json:"action_id,omitempty"`
 	StepID          string `json:"step_id"`
 	AttemptEpoch    int64  `json:"attempt_epoch"`
+	RecoveryBind    bool   `json:"recovery_bind,omitempty"`
 	WorkerAttemptID string `json:"worker_attempt_id,omitempty"`
 	// CD-0059 D1/D5: dispatch_worker binds the attempt identity it
 	// authorized so the worker-dispatch evidence boundary can prove the
@@ -1220,7 +1221,38 @@ func foldWorkflowActionCompleted(ctx context.Context, tx *sql.Tx, event Event) e
 	if p.ActorRef != event.Actor {
 		return newFailure(KindUnauthorized, "fold_event", "completed action actor must match the authenticated event actor", false, "complete the workflow action through the authenticated workflow actor")
 	}
-	if p.ActionID == "" || p.StepID != currentStep || !definitionStepAllows(entry.Definition, currentStep, p.ActionID) {
+	if p.ActionID == "" || p.StepID != currentStep {
+		return newFailure(KindIllegalLifecycleTransition, "fold_event", "completed action is not declared on the pinned current step", false, "reread_entities")
+	}
+	if p.RecoveryBind {
+		if p.ActionID != "bind_evidence" || stepDeclaresAction(entry.Definition, currentStep, "bind_evidence") {
+			return newFailure(KindIllegalLifecycleTransition, "fold_event", "recovery evidence binding is not valid on the pinned current step", false, "reread_entities")
+		}
+		bindingStep := workflowEvidenceBindingStep(entry.Definition, currentStep)
+		if bindingStep == "" || workflowStepIndex(entry.Definition, currentStep) <= workflowStepIndex(entry.Definition, bindingStep) {
+			return newFailure(KindIllegalLifecycleTransition, "fold_event", "recovery evidence binding is not past its declared binding step", false, "reread_entities")
+		}
+		mandate, mandateErr := workflowSpecMandate(ctx, tx, event.SubjectID, "fold_event")
+		if mandateErr != nil {
+			return mandateErr
+		}
+		mandateBound := false
+		for _, lawID := range mandate {
+			if contains(p.ResultEvidenceRefs, lawID) {
+				bound, boundErr := workflowEvidenceReferenceBound(ctx, tx, event.SubjectID, lawID, "fold_event")
+				if boundErr != nil {
+					return boundErr
+				}
+				mandateBound = bound
+				if mandateBound {
+					break
+				}
+			}
+		}
+		if !mandateBound {
+			return newFailure(KindMissingEvidence, "fold_event", "recovery evidence binding does not bind an active spec mandate", false, "bind the unbound spec mandate law reference")
+		}
+	} else if !definitionStepAllows(entry.Definition, currentStep, p.ActionID) {
 		return newFailure(KindIllegalLifecycleTransition, "fold_event", "completed action is not declared on the pinned current step", false, "reread_entities")
 	}
 	advancesStep := false

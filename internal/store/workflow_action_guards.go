@@ -33,6 +33,7 @@ type workflowActionGuardContext struct {
 	currentStep string
 
 	staleRecovery       bool
+	recoveryBind        bool
 	actorRef            string
 	eventActor          string
 	operatorRef         string
@@ -66,6 +67,143 @@ func runWorkflowActionGuard(g *workflowActionGuardContext, phase workflowActionG
 		return nil
 	}
 	return guard.run(g)
+}
+
+// guardMandatedWorkflowLawBound prevents a workflow from leaving its last
+// evidence-binding step while a contract mandate remains unbound. Terminal
+// acceptance actions remain gated everywhere, while bind_evidence stays
+// available as the recovery route.
+func guardMandatedWorkflowLawBound(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, currentStep, actionID, subject string) error {
+	if actionID == "supersede_contract" || actionID == "bind_evidence" {
+		return nil
+	}
+	terminalGate := actionID == "record_verdict" || actionID == "confirm_premise" || actionID == "complete"
+	if !terminalGate {
+		mode, declared := workflowActionExecutionMode(definition, actionID)
+		if !declared || mode != ActionAdvance || !stepDeclaresAction(definition, currentStep, "bind_evidence") {
+			return nil
+		}
+	}
+	mandate, err := workflowSpecMandate(ctx, q, workID, subject)
+	if err != nil || len(mandate) == 0 {
+		return err
+	}
+	bindingStep := workflowEvidenceBindingStep(definition, currentStep)
+	if bindingStep == "" {
+		return newFailure(KindInvariantViolation, subject, "workflow spec mandate has no bind_evidence step", false, "repair the pinned workflow definition")
+	}
+	for _, lawID := range mandate {
+		bound, boundErr := workflowEvidenceReferenceBound(ctx, q, workID, lawID, subject)
+		if boundErr != nil {
+			return boundErr
+		}
+		if !bound {
+			kind := KindMissingEvidence
+			if actionID == "complete" {
+				kind = KindInvariantViolation
+			}
+			return newFailure(kind, subject, fmt.Sprintf("spec mandate law %q is not bound", lawID), false, fmt.Sprintf("run bind_evidence on step %q before %s", bindingStep, actionID))
+		}
+	}
+	return nil
+}
+
+func workflowSpecMandate(ctx context.Context, q queryer, workID, subject string) ([]string, error) {
+	var mandateJSON string
+	if err := q.QueryRowContext(ctx, `SELECT spec_mandate FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL ORDER BY contract_version DESC LIMIT 1`, workID).Scan(&mandateJSON); err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, wrapFailure(KindUnavailable, subject, "cannot read the workflow spec mandate", true, "retry once the workflow contract is readable", err)
+	}
+	var mandate []string
+	if err := json.Unmarshal([]byte(mandateJSON), &mandate); err != nil {
+		return nil, newFailure(KindInvariantViolation, subject, "workflow spec mandate is malformed", false, "rebuild projections from the event log")
+	}
+	return mandate, nil
+}
+
+func workflowEvidenceReferenceBound(ctx context.Context, q queryer, workID, reference, subject string) (bool, error) {
+	var count int
+	if err := q.QueryRowContext(ctx, `SELECT count(*) FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND json_extract(payload,'$.immutable_subject_ref')=?`, workID, WorkflowEvidenceBound, reference).Scan(&count); err != nil {
+		return false, wrapFailure(KindUnavailable, subject, "cannot inspect spec-mandate evidence", true, "retry once the workflow evidence projection is readable", err)
+	}
+	return count != 0, nil
+}
+
+func stepDeclaresAction(definition WorkflowDefinition, stepID, actionID string) bool {
+	step := workflowStep(definition, stepID)
+	if step == nil {
+		return false
+	}
+	for _, declared := range step.Actions {
+		if declared == actionID {
+			return true
+		}
+	}
+	return false
+}
+
+func workflowEvidenceBindingStep(definition WorkflowDefinition, currentStep string) string {
+	if stepDeclaresAction(definition, currentStep, "bind_evidence") {
+		return currentStep
+	}
+	for _, step := range definition.StepGraph.Steps {
+		if stepDeclaresAction(definition, step.ID, "bind_evidence") {
+			return step.ID
+		}
+	}
+	return ""
+}
+
+func workflowStepIndex(definition WorkflowDefinition, stepID string) int {
+	for index, step := range definition.StepGraph.Steps {
+		if step.ID == stepID {
+			return index
+		}
+	}
+	return -1
+}
+
+// guardRecoveryEvidenceBind admits only a mandate binding that is late in the
+// graph and still needed. It does not reopen evidence binding after recovery.
+func guardRecoveryEvidenceBind(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, currentStep string, payload json.RawMessage, subject string) (bool, error) {
+	if stepDeclaresAction(definition, currentStep, "bind_evidence") {
+		return false, nil
+	}
+	bindingStep := workflowEvidenceBindingStep(definition, currentStep)
+	if bindingStep == "" || workflowStepIndex(definition, currentStep) <= workflowStepIndex(definition, bindingStep) {
+		return false, nil
+	}
+	mandate, err := workflowSpecMandate(ctx, q, workID, subject)
+	if err != nil {
+		return false, err
+	}
+	if len(mandate) == 0 {
+		return false, nil
+	}
+	fields, err := workflowActionObject(payload)
+	if err != nil {
+		return false, err
+	}
+	reference := workflowFieldStringDefault(fields, "immutable_subject_ref", "")
+	if reference == "" {
+		return false, newFailure(KindInvalidPayload, subject, "recovery bind_evidence requires the mandated law reference", false, "bind the unbound spec mandate law reference")
+	}
+	for _, lawID := range mandate {
+		if lawID != reference {
+			continue
+		}
+		bound, boundErr := workflowEvidenceReferenceBound(ctx, q, workID, lawID, subject)
+		if boundErr != nil {
+			return false, boundErr
+		}
+		if !bound {
+			return true, nil
+		}
+		break
+	}
+	return false, newFailure(KindIllegalLifecycleTransition, subject, "recovery bind_evidence is only available for an unbound spec mandate", false, fmt.Sprintf("use bind_evidence on step %q before advancing", bindingStep))
 }
 
 // guardSupersedeContractRecovery admits contract recovery only for a workflow
@@ -300,6 +438,7 @@ type workflowActionAssemblyInput struct {
 	actorNeedsRecord       bool
 	operatorNeedsRecord    bool
 	defaultVerdictEvidence bool
+	recoveryBind           bool
 }
 
 type workflowActionEventAssembly struct {
@@ -391,6 +530,9 @@ func appendGenericWorkflowCompletion(in workflowActionAssemblyInput, attemptEpoc
 	completionValues := map[string]any{
 		"step_id": in.currentStep, "action_id": in.request.ActionID, "attempt_epoch": attemptEpoch, "result_evidence_refs": in.evidenceRefs,
 		"changed_refs": []string{in.request.WorkID}, "actor_ref": in.eventActor,
+	}
+	if in.recoveryBind {
+		completionValues["recovery_bind"] = true
 	}
 	var workerPacketDigest string
 	if in.request.ActionID == "accept_worker_result" {

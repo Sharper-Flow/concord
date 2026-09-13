@@ -1,0 +1,22 @@
+{
+  "evidence": [
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestWorktreeAuditProtectsUncommittedAndUnpushedContent"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestUnstartedContractDoesNotBlockAPeer"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestExecutionStartMovesLifecycleIntoTheClaim"
+    },
+    {
+      "kind": "generated",
+      "value": "scripts/generate-agent-contracts.py#go_payload_schema_projection"
+    }
+  ],
+  "id": "CD-0144",
+  "state": "satisfied"
+}

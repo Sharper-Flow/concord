@@ -11201,7 +11201,9 @@ const GeneratedPayloadSchemaDocument = `{
                   "stale_claim",
                   "stranded_needed",
                   "terminal_present",
-                  "unstarted_present"
+                  "unstarted_present",
+                  "uncommitted_content",
+                  "unpushed_content"
                 ],
                 "type": "string"
               },
@@ -11224,9 +11226,19 @@ const GeneratedPayloadSchemaDocument = `{
                 "enum": [
                   "remove_worktree",
                   "worktree_reclaim",
-                  "worktree_claim"
+                  "worktree_claim",
+                  "worktree_inspect"
                 ],
                 "type": "string"
+              },
+              "risk": {
+                "maxLength": 64,
+                "minLength": 1,
+                "type": "string"
+              },
+              "unpushed_commits": {
+                "minimum": 1,
+                "type": "integer"
               },
               "work_id": {
                 "$ref": "#/$defs/id"
@@ -11340,7 +11352,9 @@ const GeneratedPayloadSchemaDocument = `{
                   "stale_claim",
                   "stranded_needed",
                   "terminal_present",
-                  "unstarted_present"
+                  "unstarted_present",
+                  "uncommitted_content",
+                  "unpushed_content"
                 ],
                 "type": "string"
               },
@@ -11363,9 +11377,19 @@ const GeneratedPayloadSchemaDocument = `{
                 "enum": [
                   "remove_worktree",
                   "worktree_reclaim",
-                  "worktree_claim"
+                  "worktree_claim",
+                  "worktree_inspect"
                 ],
                 "type": "string"
+              },
+              "risk": {
+                "maxLength": 64,
+                "minLength": 1,
+                "type": "string"
+              },
+              "unpushed_commits": {
+                "minimum": 1,
+                "type": "integer"
               },
               "work_id": {
                 "$ref": "#/$defs/id"

@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -937,7 +938,9 @@ const (
 	// with no commit beyond the Project's default ref (CD-0118). The checkout
 	// cost is real and the work has not started, so the audit names the same
 	// reclaim the terminal class names, under its own narrower gate.
-	WorktreeDriftUnstartedPresent = "unstarted_present"
+	WorktreeDriftUnstartedPresent   = "unstarted_present"
+	WorktreeDriftUncommittedContent = "uncommitted_content"
+	WorktreeDriftUnpushedContent    = "unpushed_content"
 )
 
 // Typed recovery actions. Where a Concord operation owns the recovery, the
@@ -947,6 +950,7 @@ const (
 	WorktreeRecoveryRemoveOrphan = "remove_worktree"
 	WorktreeRecoveryReclaim      = "worktree_reclaim"
 	WorktreeRecoveryClaim        = "worktree_claim"
+	WorktreeRecoveryInspect      = "worktree_inspect"
 )
 
 // worktreeIDNamePattern mirrors the agent surface's shared id definition
@@ -964,10 +968,13 @@ type WorktreeDrift struct {
 	ClaimState     string `json:"claim_state,omitempty"`
 	Lifecycle      string `json:"lifecycle,omitempty"`
 	RecoveryAction string `json:"recovery_action"`
+	Risk           string `json:"risk,omitempty"`
 	// CommitsAhead is the commit count the branch holds beyond the
 	// Project's default ref. It is the unstarted class's gate input and is
 	// set only on rows whose classification derived it.
 	CommitsAhead int `json:"commits_ahead,omitempty"`
+	// UnpushedCommits counts branch commits unreachable from local remotes.
+	UnpushedCommits int `json:"unpushed_commits,omitempty"`
 	// ClaimAgeSeconds is the age of the claim at audit time. It is an
 	// operator display fact; no gate reads it.
 	ClaimAgeSeconds int64 `json:"claim_age_seconds,omitempty"`
@@ -1003,14 +1010,12 @@ type WorktreeAuditRequest struct {
 // its stale_claim row by design: the claim and the work item are different
 // subjects, and recovering the work requires both actions in order.
 //
-// The unstarted class derives its facts from git: a clean tree and a branch
-// with no commit beyond the Project's default ref. Git is probed only for
-// candidate rows (needed work, active entry, path present). A project whose
-// default ref cannot be resolved contributes no unstarted rows to a read —
-// the class cannot be evaluated there — while a pass that would act on the
-// class refuses typed instead, because a mutation cannot silently skip its
-// own gate. An unreachable repository refuses the pass typed rather than
-// degrading to an unclassified row.
+// Content-risk classes derive status and local remote reachability from Git for
+// every present active entry. The unstarted class derives a separate gate from
+// a clean tree and no commit beyond the Project's default ref. A project whose
+// default ref cannot be resolved contributes no unstarted rows to a read, while
+// a pass that would act on the class refuses typed instead. An unreachable
+// repository refuses the pass typed rather than degrading to an unclassified row.
 //
 // Output is bounded by limit and ordered deterministically (class, project,
 // path), so a truncated pass is stable for the caller.
@@ -1132,6 +1137,22 @@ func worktreeAudit(ctx context.Context, q queryer, root string, productID string
 	if err := terminalRows.Err(); err != nil {
 		return WorktreeAudit{}, err
 	}
+	lifecycleByWorkID := map[string]string{}
+	lifecycleRows, err := q.QueryContext(ctx, `SELECT DISTINCT w.id,w.lifecycle FROM work_items w JOIN worktree_entries e ON e.set_id=?||w.id JOIN product_projects pp ON pp.project_id=e.project_id WHERE pp.product_id=? AND e.state='active' ORDER BY w.id`, worktreeSetPrefix, productID)
+	if err != nil {
+		return WorktreeAudit{}, wrapFailure(KindUnavailable, "worktree_audit", "cannot read worktree lifecycle", true, "retry once the database is readable", err)
+	}
+	defer lifecycleRows.Close()
+	for lifecycleRows.Next() {
+		var workID, lifecycle string
+		if err := lifecycleRows.Scan(&workID, &lifecycle); err != nil {
+			return WorktreeAudit{}, err
+		}
+		lifecycleByWorkID[workID] = lifecycle
+	}
+	if err := lifecycleRows.Err(); err != nil {
+		return WorktreeAudit{}, err
+	}
 
 	claimedPaths := map[string]bool{}
 	for _, c := range claims {
@@ -1179,6 +1200,11 @@ func worktreeAudit(ctx context.Context, q queryer, root string, productID string
 			drift = append(drift, row)
 		}
 	}
+	contentRows, contentRiskPaths, err := classifyWorktreeContent(ctx, q, runner, entries, lifecycleByWorkID)
+	if err != nil {
+		return WorktreeAudit{}, err
+	}
+	drift = append(drift, contentRows...)
 	// Stale claim: the verified locator points at a path the disk no longer
 	// holds. ReclaimWorktree reconciles exactly this shape (already_absent).
 	for _, c := range claims {
@@ -1223,6 +1249,9 @@ func worktreeAudit(ctx context.Context, q queryer, root string, productID string
 		if !present {
 			continue
 		}
+		if contentRiskPaths[e.path] {
+			continue
+		}
 		drift = append(drift, WorktreeDrift{Class: WorktreeDriftTerminalPresent, ProjectID: e.projectID, WorkID: e.workID, Path: e.path, Lifecycle: lifecycle, RecoveryAction: WorktreeRecoveryReclaim})
 	}
 	// Unstarted present: needed work whose active worktree holds nothing a
@@ -1235,7 +1264,7 @@ func worktreeAudit(ctx context.Context, q queryer, root string, productID string
 			claimObservedAt[c.workID] = c.observedAt
 		}
 	}
-	unstarted, err := classifyUnstartedWorktrees(ctx, q, runner, now, defaultRefOverride, refRequired, entries, strandedIDs, claimObservedAt)
+	unstarted, err := classifyUnstartedWorktrees(ctx, q, runner, now, defaultRefOverride, refRequired, entries, strandedIDs, claimObservedAt, contentRiskPaths)
 	if err != nil {
 		return WorktreeAudit{}, err
 	}
@@ -1355,10 +1384,11 @@ func (s *Store) WorktreeAuditReclaim(ctx context.Context, req WorktreeAuditRecla
 // classifyUnstartedWorktrees derives the unstarted_present rows for one
 // audit pass (CD-0118). Git is probed only for candidates: needed work with
 // an active entry whose path exists. A dirty tree or a branch with commits
-// beyond the default ref is work in flight and stays unclassified. A read
-// whose default ref is underivable skips the project's candidates; a pass
-// that will act on the class refuses typed instead (refRequired).
-func classifyUnstartedWorktrees(ctx context.Context, q queryer, runner GitRunner, now time.Time, defaultRefOverride string, refRequired bool, entries []worktreeAuditEntry, strandedIDs map[string]bool, claimObservedAt map[string]string) ([]WorktreeDrift, error) {
+// beyond the default ref is not unstarted drift. Content-risk classification
+// reports those commits separately. A read whose default ref is underivable
+// skips the project's candidates; a pass that will act on the class refuses
+// typed instead (refRequired).
+func classifyUnstartedWorktrees(ctx context.Context, q queryer, runner GitRunner, now time.Time, defaultRefOverride string, refRequired bool, entries []worktreeAuditEntry, strandedIDs map[string]bool, claimObservedAt map[string]string, contentRiskPaths map[string]bool) ([]WorktreeDrift, error) {
 	repoRoots := map[string]string{}
 	defaultRefs := map[string]string{}
 	var rows []WorktreeDrift
@@ -1371,6 +1401,9 @@ func classifyUnstartedWorktrees(ctx context.Context, q queryer, runner GitRunner
 			return nil, err
 		}
 		if !present {
+			continue
+		}
+		if contentRiskPaths[e.path] {
 			continue
 		}
 		repoRoot, ok := repoRoots[e.projectID]
@@ -1425,6 +1458,53 @@ func classifyUnstartedWorktrees(ctx context.Context, q queryer, runner GitRunner
 		rows = append(rows, row)
 	}
 	return rows, nil
+}
+
+// classifyWorktreeContent derives content risk from local Git state. Remote
+// tracking refs are local observations and do not require network access.
+func classifyWorktreeContent(ctx context.Context, q queryer, runner GitRunner, entries []worktreeAuditEntry, lifecycleByWorkID map[string]string) ([]WorktreeDrift, map[string]bool, error) {
+	repoRoots := map[string]string{}
+	rows := []WorktreeDrift{}
+	riskPaths := map[string]bool{}
+	for _, entry := range entries {
+		present, err := pathExistsForAudit(entry.path)
+		if err != nil {
+			return nil, nil, err
+		}
+		if !present {
+			continue
+		}
+		repoRoot, ok := repoRoots[entry.projectID]
+		if !ok {
+			repoRoot, err = worktreeAuditRepoRoot(ctx, q, entry.projectID)
+			if err != nil {
+				return nil, nil, err
+			}
+			repoRoots[entry.projectID] = repoRoot
+		}
+		statusOut, statusErr := runner.Run(ctx, entry.path, "status", "--porcelain")
+		if statusErr != nil {
+			return nil, nil, wrapFailure(KindGitUnreachable, "worktree_audit", "cannot read worktree status at "+entry.path, true, "retry once the worktree is reachable", statusErr)
+		}
+		lifecycle := lifecycleByWorkID[entry.workID]
+		if strings.TrimSpace(string(statusOut)) != "" {
+			rows = append(rows, WorktreeDrift{Class: WorktreeDriftUncommittedContent, ProjectID: entry.projectID, WorkID: entry.workID, Path: entry.path, ClaimState: worktreeStateVerified, Lifecycle: lifecycle, RecoveryAction: WorktreeRecoveryInspect, Risk: "uncommitted changes"})
+			riskPaths[entry.path] = true
+		}
+		countOut, countErr := runner.Run(ctx, repoRoot, "rev-list", "--count", "--not", "--remotes", entry.branch)
+		if countErr != nil {
+			return nil, nil, wrapFailure(KindGitUnreachable, "worktree_audit", "cannot count unpushed commits for "+entry.branch, true, "retry once the repository is reachable", countErr)
+		}
+		unpushed, parseErr := strconv.Atoi(strings.TrimSpace(string(countOut)))
+		if parseErr != nil || unpushed < 0 {
+			return nil, nil, newFailure(KindGitUnreachable, "worktree_audit", "local Git returned an invalid unpushed commit count for "+entry.branch, false, "repair the repository refs before auditing worktrees")
+		}
+		if unpushed > 0 {
+			rows = append(rows, WorktreeDrift{Class: WorktreeDriftUnpushedContent, ProjectID: entry.projectID, WorkID: entry.workID, Path: entry.path, ClaimState: worktreeStateVerified, Lifecycle: lifecycle, RecoveryAction: WorktreeRecoveryInspect, Risk: "unpushed commits", UnpushedCommits: unpushed})
+			riskPaths[entry.path] = true
+		}
+	}
+	return rows, riskPaths, nil
 }
 
 type worktreeAuditEntry struct {

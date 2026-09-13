@@ -106,7 +106,9 @@ func WorkflowActionDefinitionFor(ctx context.Context, s *Store, registry Definit
 			if failureAs(err, &failure) && failure.Kind == KindStaleLawRevision {
 				return entry, workflowContractRecoveryActionDefinition(), nil
 			}
-			return RegisteredDefinition{}, WorkflowActionDefinition{}, err
+			if !failureAs(err, &failure) || failure.Kind != KindDomainOverlap {
+				return RegisteredDefinition{}, WorkflowActionDefinition{}, err
+			}
 		}
 		correction, correctionErr := workflowContractCorrectionAvailable(ctx, s.db, workID, entry.Definition, currentStep, "workflow_action")
 		if correctionErr != nil {

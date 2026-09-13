@@ -193,15 +193,40 @@ func workflowFailedWorkerAttempt(ctx context.Context, q queryer, workID, current
 
 // workflowContractCorrectionAvailable reports whether operator-approved
 // contract correction is open on the current step. A human checkpoint carries
-// the route unconditionally. A worker-dispatch step carries it only once the
-// honest lane failure is in the durable record, so the audit trail holds the
-// failure the correction answers before it holds the correction (CD-0133 D1).
+// the route unconditionally. A worker-dispatch step admits correction before
+// dispatch or after the dispatched worker's failure has been recorded. An
+// authorized dispatch window counts even before a worker report exists.
 func workflowContractCorrectionAvailable(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, currentStep, subject string) (bool, error) {
 	if !workflowContractCorrectionCheckpoint(definition, currentStep) {
 		return false, nil
 	}
 	step := workflowStep(definition, currentStep)
 	if step.Kind == WorkflowStepHumanCheckpoint {
+		return true, nil
+	}
+	var contracts int
+	if err := q.QueryRowContext(ctx, `SELECT count(*) FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL`, workID).Scan(&contracts); err != nil {
+		return false, wrapFailure(KindUnavailable, subject, "cannot inspect the active workflow contract", true, "retry once the workflow projection is readable", err)
+	}
+	if contracts != 1 {
+		return false, nil
+	}
+	startSeq, _, started, err := latestWorkflowActionStart(ctx, q, workID, currentStep)
+	if err != nil {
+		return false, err
+	}
+	if !started {
+		return true, nil
+	}
+	var dispatched int
+	if err := q.QueryRowContext(ctx, `SELECT EXISTS (
+		SELECT 1 FROM domain_events
+		WHERE subject_type=? AND subject_id=? AND seq>=?
+		AND (kind=? OR (kind IN (?,?) AND json_extract(payload,'$.action_id')='dispatch_worker'))
+	)`, string(SubjectWorkItem), workID, startSeq, WorkerDispatched, WorkflowActionStarted, WorkflowActionCompleted).Scan(&dispatched); err != nil {
+		return false, wrapFailure(KindUnavailable, subject, "cannot inspect worker dispatch authorization", true, "retry once the workflow event log is readable", err)
+	}
+	if dispatched == 0 {
 		return true, nil
 	}
 	failed, err := workflowFailedWorkerAttempt(ctx, q, workID, currentStep, subject, false)

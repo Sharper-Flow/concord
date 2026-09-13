@@ -7420,6 +7420,9 @@
               "minLength": 0,
               "maxLength": 16384
             },
+            "correction": {
+              "$ref": "#/$defs/workflow_correction_context"
+            },
             "constraints": {
               "type": "array",
               "minItems": 0,

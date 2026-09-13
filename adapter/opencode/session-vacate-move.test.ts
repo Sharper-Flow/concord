@@ -1,5 +1,6 @@
-import { afterEach, describe, expect, test } from "bun:test"
+import { afterAll, afterEach, describe, expect, test } from "bun:test"
 import ConcordAdapterPlugin from "./concord-plugin"
+import { configureHostLease } from "./host-lease"
 import { moveSessionToRegisteredMainCheckout } from "./concord"
 
 const context = () => ({
@@ -69,3 +70,8 @@ describe("session_vacate moves only to the core-derived checkout", () => {
     if (envelope.outcome === "error") expect((envelope.error as { adapter_reason?: string }).adapter_reason).toBe("vacate_destination_mismatch")
   })
 })
+
+// The factory's host-lease claim fails against the unstamped repository
+// placeholder; the suite's files share one process in an order no file
+// controls, so this file leaves the lease state clean.
+afterAll(() => configureHostLease({ reset: true }))

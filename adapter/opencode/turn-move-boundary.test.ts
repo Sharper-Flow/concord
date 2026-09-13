@@ -1,5 +1,6 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test"
+import { afterAll, afterEach, beforeEach, describe, expect, test } from "bun:test"
 import ConcordAdapterPlugin from "./concord-plugin"
+import { configureHostLease } from "./host-lease"
 import { configureCoreBinary } from "./dispatch"
 import { configureConcordAdapter } from "./concord"
 import { hostControlPlane } from "./move-session"
@@ -149,3 +150,8 @@ describe("same-turn session move boundary", () => {
     await expectQuestionBlocked()
   })
 })
+
+// The factory's host-lease claim fails against the unstamped repository
+// placeholder; the suite's files share one process in an order no file
+// controls, so this file leaves the lease state clean.
+afterAll(() => configureHostLease({ reset: true }))

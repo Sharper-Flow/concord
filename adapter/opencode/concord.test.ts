@@ -65,7 +65,7 @@ test("exports exactly the generated tool names", () => {
   expect(new Set(contractOperations.map((operation: any) => operation.tool))).toEqual(new Set(names.map((name) => `concord_${name}`)))
 })
 
-test("published tool arguments expose one generated request union", () => {
+test("published tool arguments expose a host-safe request shape", () => {
   const tools = {
     concord_product_view: adapter.product_view,
     concord_work_browse: adapter.work_browse,
@@ -82,18 +82,19 @@ test("published tool arguments expose one generated request union", () => {
     expect(Object.keys((exportedTool as any).args), toolName).toEqual(["request"])
     const published = adapter.publishedRequestSchema(toolName) as any
     const expected = contractOperations.filter((item: any) => item.tool === toolName).map((item: any) => item.id.split(".")[1])
-    expect(published.oneOf.map((variant: any) => variant.properties.operation.const), toolName).toEqual(expected)
+    expect(published.properties.operation.enum, toolName).toEqual(expected)
+    expect(published.properties.input.type, toolName).toBe("object")
+    expect(published.properties.input.additionalProperties, toolName).toBe(true)
+    expect(published.properties.input.required, toolName).toEqual([])
     expect(JSON.stringify(published), toolName).not.toContain("~standard")
     expect(JSON.stringify(published), toolName).not.toContain('"def"')
+    expect(JSON.stringify(published), toolName).not.toContain("#/properties/request/definitions/")
+    expect(JSON.stringify(published), toolName).not.toContain('"oneOf"')
   }
   const published = adapter.publishedRequestSchema("concord_work_define") as any
-  const capture = published.oneOf.find((variant: any) => variant.properties.operation.const === "capture")
-  const inputRef = capture.properties.input.$ref.replace("#/properties/request/definitions/", "")
-  const urgencyRef = published.definitions[inputRef].properties.urgency.$ref.replace("#/properties/request/definitions/", "")
-  expect(published.definitions[urgencyRef].enum).toEqual(["standard", "expedite"])
+  expect(published.properties.input.properties.urgency.enum).toEqual(["standard", "expedite"])
   const transition = adapter.publishedRequestSchema("concord_work_transition") as any
-  const workflowAction = transition.oneOf.find((variant: any) => variant.properties.operation.const === "workflow_action")
-  expect(workflowAction.properties.input.$ref).toContain("work_transition_action_public_input")
+  expect(transition.properties.input.properties.fields.properties.outcome_predicates.items.properties.outcome_payload.properties.kind.type).toBe("string")
   // Every generated field reaches the host. The definition hook makes the
   // published fields optional; the adapter enforces the closed modes.
   expect(Object.keys((adapter.work_start as any).args).sort()).toEqual(["title", "value_statement", "kind", "task", "idempotency_key", "priority", "urgency", "tags", "workflow_type_ref", "external_ref", "governing_requirements", "ref", "work_id"].sort())
@@ -592,6 +593,39 @@ test("approve_contract clears the approval challenge the core actually builds", 
   )
   expect(result.outcome).toBe("ok")
   expect(approvals).toBe(1)
+})
+
+test("host publication round-trips check predicate payloads unchanged", async () => {
+  const input = {
+    work_id: "work-1",
+    expected_version: 2,
+    action_id: "approve_contract",
+    idempotency_key: "idem-check-predicate-1",
+    fields: {
+      outcome_predicates: [{
+        predicate_id: "predicate:primary",
+        ordinal: 0,
+        outcome_kind: "check",
+        outcome_payload: {
+          kind: "check",
+          check_ref: "check:approve-contract",
+          immutable_subject_ref: "commit:approve-contract",
+          expected_result: "pass",
+        },
+      }],
+    },
+  }
+  const published: any = adapter.publishedRequestSchema("concord_work_transition")
+  expect(published.properties.input.properties.fields.properties.outcome_predicates.items.properties.outcome_payload.properties.kind).toEqual({ type: "string" })
+  let sentInput: unknown
+  const success = coreEnvelope("concord_work_transition", "workflow_action", "ok", { result: { changed_refs: [], next_valid_intents: [] }, changed_refs: [], next_valid_intents: [] })
+  adapter.configureConcordAdapter({ runner: runnerWithContext((_argv: string[], raw: string) => {
+    sentInput = JSON.parse(raw).input
+    return success
+  }) })
+  const result: any = await rawHostResult(adapter.work_transition.execute(hostCall("workflow_action", input), contextFor()))
+  expect(result.outcome).toBe("ok")
+  expect(sentInput).toEqual(input)
 })
 
 test("confirm_premise still binds the selection it carries", async () => {

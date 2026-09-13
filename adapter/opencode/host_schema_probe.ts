@@ -1,4 +1,4 @@
-import { contractOperations, hostToolSchemas, payloadSchemas } from "./generated-contracts"
+import { contractOperations, hostToolSchemas } from "./generated-contracts"
 import { domain, knowledge, product_view, publishWorkStartDefinition, work_browse, work_compact, work_define, work_initiative, work_relate, work_start, work_trace, work_transition } from "./concord"
 
 const tools: Record<string, any> = {
@@ -38,7 +38,7 @@ for (const [name, expected] of Object.entries(expectedWorkStartProperties)) {
     if (JSON.stringify(actual[keyword]) !== JSON.stringify(value)) fail(`concord_work_start ${name}.${keyword} differs from the generated contract`)
   }
 }
-inspect(workStartRoot, workStartRoot)
+inspect(workStartRoot)
 
 function fail(message: string): never {
   throw new Error(message)
@@ -49,65 +49,40 @@ function object(value: unknown, label: string): Record<string, any> {
   return value as Record<string, any>
 }
 
-function resolvePointer(root: unknown, pointer: string): unknown {
-  if (!pointer.startsWith("#/")) fail(`non-local published schema reference ${pointer}`)
-  let value = root
-  for (const token of pointer.slice(2).split("/")) {
-    const key = token.replaceAll("~1", "/").replaceAll("~0", "~")
-    value = object(value, `reference parent ${pointer}`)[key]
-    if (value === undefined) fail(`unresolved published schema reference ${pointer}`)
-  }
-  return value
-}
-
-function inspect(value: unknown, root: unknown, path = "$", seen = new Set<unknown>()): void {
+function inspect(value: unknown, path = "$", seen = new Set<unknown>()): void {
   if (typeof value !== "object" || value === null || seen.has(value)) return
   seen.add(value)
   if (Array.isArray(value)) {
-    value.forEach((item, index) => inspect(item, root, `${path}[${index}]`, seen))
+    value.forEach((item, index) => inspect(item, `${path}[${index}]`, seen))
     return
   }
   for (const [key, item] of Object.entries(value)) {
     if (key === "~standard" || key === "def") fail(`published schema contains Zod implementation key ${path}.${key}`)
-    if (key === "$ref" && typeof item === "string") resolvePointer(root, item)
-    inspect(item, root, `${path}.${key}`, seen)
+    if (key === "$ref" || key === "oneOf" || key === "anyOf" || key === "allOf" || key === "definitions") fail(`published schema contains host-unsafe ${key} at ${path}`)
+    inspect(item, `${path}.${key}`, seen)
   }
 }
 
 for (const [toolName, exportedTool] of Object.entries(tools)) {
   const root = publishedArgsSchema(exportedTool.args, `${toolName} schema`)
-  inspect(root, root)
+  inspect(root)
   if (root.type !== "object") fail(`${toolName} schema root is not an object`)
   if (JSON.stringify(root.required) !== JSON.stringify(["request"])) fail(`${toolName} schema does not require only request`)
   const properties = object(root.properties, `${toolName} properties`)
   if (JSON.stringify(Object.keys(properties)) !== JSON.stringify(["request"])) fail(`${toolName} schema exposes fields outside request`)
   const request = object(properties.request, `${toolName} request`)
-  const variants = request.oneOf
-  if (!Array.isArray(variants)) fail(`${toolName} request does not publish oneOf variants`)
   const expected = contractOperations.filter((operation: any) => operation.tool === toolName)
-  if (variants.length !== expected.length) fail(`${toolName} publishes ${variants.length} variants for ${expected.length} operations`)
-  for (const operation of expected as any[]) {
-    const operationName = operation.id.slice(operation.id.indexOf(".") + 1)
-    const variant = variants.find((candidate: any) => candidate?.properties?.operation?.const === operationName)
-    if (!variant) fail(`${toolName} does not publish ${operationName}`)
-    if (variant.additionalProperties !== false) fail(`${operation.id} request is not closed`)
-    if (JSON.stringify(variant.required) !== JSON.stringify(["operation", "input"])) fail(`${operation.id} request fields are not required`)
-    const input = resolvePointer(root, variant.properties.input.$ref)
-    const schemaName = operation.id === "concord_work_transition.workflow_action"
-      ? "work_transition_action_public_input"
-      : operation.input_schema.slice(operation.input_schema.lastIndexOf("/") + 1)
-    if (JSON.stringify(input) !== JSON.stringify((payloadSchemas as Record<string, unknown>)[schemaName]).replaceAll("#/$defs/", "#/properties/request/definitions/")) {
-      fail(`${operation.id} input differs from generated schema ${schemaName}`)
-    }
-  }
+  if (JSON.stringify(request.required) !== JSON.stringify(["operation", "input"])) fail(`${toolName} request fields are not required`)
+  const operation = object(request.properties.operation, `${toolName} operation`)
+  if (JSON.stringify(operation.enum) !== JSON.stringify(expected.map((candidate: any) => candidate.id.slice(candidate.id.indexOf(".") + 1)))) fail(`${toolName} operation enum differs from the generated contract`)
+  const input = object(request.properties.input, `${toolName} input`)
+  if (input.type !== "object" || input.additionalProperties !== true || input.required.length !== 0) fail(`${toolName} input is not a permissive object`)
 }
 
 const workDefineRoot = publishedArgsSchema(work_define.args, "work define schema")
 const workDefineRequest = object(object(workDefineRoot.properties, "work define properties").request, "work define request")
-const capture = (workDefineRequest.oneOf as any[]).find((variant) => variant.properties.operation.const === "capture")
-const captureInput = object(resolvePointer(workDefineRoot, capture.properties.input.$ref), "capture input")
-const urgencyProperty = object(object(captureInput.properties, "capture properties").urgency, "capture urgency property")
-const urgency = object(resolvePointer(workDefineRoot, urgencyProperty.$ref), "capture urgency")
+const urgencyProperty = object(object(object(workDefineRequest.properties, "work define request properties").input, "work define input").properties, "work define input properties").urgency
+const urgency = object(urgencyProperty, "capture urgency")
 if (JSON.stringify(urgency.enum) !== JSON.stringify(["standard", "expedite"])) fail("capture urgency enum is not published")
 
 function publishedArgsSchema(args: Record<string, unknown>, label: string, required = Object.keys(args)): Record<string, any> {

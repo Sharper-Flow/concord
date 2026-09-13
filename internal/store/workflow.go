@@ -1049,7 +1049,30 @@ func foldWorkflowActionStarted(ctx context.Context, tx *sql.Tx, event Event) err
 	if err := advanceWorkflowVersion(ctx, tx, event, p.WorkflowVersionFields); err != nil {
 		return err
 	}
-	return startWorkflowInstanceStepTx(ctx, tx, event.SubjectID, p.StepID, p.ActorRef, p.ExecutionModel, event.OccurredAt)
+	if err := startWorkflowInstanceStepTx(ctx, tx, event.SubjectID, p.StepID, p.ActorRef, p.ExecutionModel, event.OccurredAt); err != nil {
+		return err
+	}
+	return startExecutionLifecycleTx(ctx, tx, event, definitionStepKind(entry.Definition, p.StepID))
+}
+
+// startExecutionLifecycleTx moves a work item from needed to in_progress when
+// an external-effect step starts. CD-0144: Domain exclusivity attaches at
+// execution start, and the overlap footprint reads the lifecycle, so the
+// lifecycle has to move with the action that begins external effect. Without
+// this the footprint predicate would merely be narrower, not correct: an item
+// could hold a worktree and a branch while its record still said needed. The
+// action already advanced the work version, so this carries no version of its
+// own. Only a needed item moves, which leaves a resumed item untouched.
+func startExecutionLifecycleTx(ctx context.Context, tx *sql.Tx, event Event, kind WorkflowStepKind) error {
+	if kind != WorkflowStepExternalEffect {
+		return nil
+	}
+	now := event.OccurredAt.UTC().Format(time.RFC3339Nano)
+	if _, err := tx.ExecContext(ctx, `UPDATE work_items SET lifecycle='in_progress', updated_at=? WHERE id=? AND lifecycle='needed'`, now, event.SubjectID); err != nil {
+		return wrapFailure(KindUnavailable, "fold_event", "cannot start execution on the work item projection", true,
+			"retry once the database is writable", err)
+	}
+	return nil
 }
 
 // Execution history and the current lease both prohibit self-evaluation.

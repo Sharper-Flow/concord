@@ -725,6 +725,15 @@ func validWorkflowProseItem(value string, max int) bool {
 	return len([]rune(value)) >= 1 && len([]rune(value)) <= max && strings.TrimSpace(value) != ""
 }
 
+func definitionStepKind(definition WorkflowDefinition, stepID string) WorkflowStepKind {
+	for _, step := range definition.StepGraph.Steps {
+		if step.ID == stepID {
+			return step.Kind
+		}
+	}
+	return ""
+}
+
 func definitionStepAllows(definition WorkflowDefinition, stepID, actionID string) bool {
 	if stepID == "" || actionID == "" {
 		return false

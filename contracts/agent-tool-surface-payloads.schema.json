@@ -311,6 +311,9 @@
             }
           ]
         },
+        "withheld_operator_decision": {
+          "$ref": "#/$defs/operator_decision_withheld"
+        },
         "watermark": {
           "$ref": "#/$defs/id"
         },
@@ -1688,6 +1691,26 @@
         }
       }
     },
+    "operator_decision_withheld": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "action_id",
+        "reason",
+        "remedy"
+      ],
+      "properties": {
+        "action_id": {
+          "$ref": "#/$defs/id"
+        },
+        "reason": {
+          "$ref": "#/$defs/short"
+        },
+        "remedy": {
+          "$ref": "#/$defs/short"
+        }
+      }
+    },
     "continuity_operator_decision": {
       "type": "object",
       "additionalProperties": false,
@@ -2117,6 +2140,16 @@
               "oneOf": [
                 {
                   "$ref": "#/$defs/continuity_operator_decision"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "withheld_operator_decision": {
+              "oneOf": [
+                {
+                  "$ref": "#/$defs/operator_decision_withheld"
                 },
                 {
                   "type": "null"

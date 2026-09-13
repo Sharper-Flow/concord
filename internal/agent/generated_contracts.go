@@ -6,7 +6,7 @@ import (
 	"fmt"
 )
 
-const ManifestDigest = "sha256:6715cb13b4a44fc44a1f877de11098ea6b4e9b6bee6d92caa429fd2eb4e8c627"
+const ManifestDigest = "sha256:483f0877912facd1d45c04f353dc81c0728bdc5158780a211f1671fd585af77f"
 
 type OperationKind string
 
@@ -175,6 +175,7 @@ var GeneratedPayloadRules = map[string]GeneratedPayloadRule{
 	"next_valid_intent":                            {Required: []string{"tool", "operation", "reason_code"}, Properties: []string{"tool", "operation", "reason_code", "action_id", "required_fields", "expected_version"}},
 	"observed_universe":                            {Required: []string{"shape", "applied_scope", "coverage", "total_kind", "canonical_identity_key"}, Properties: []string{"shape", "applied_scope", "anchor_token", "structure_digest", "coverage", "observed_count", "observed_refs", "total_kind", "total_value", "completion_evidence", "canonical_identity_key", "omissions"}},
 	"operator_choice":                              {Required: []string{"id", "label", "description", "action_id"}, Properties: []string{"id", "label", "description", "action_id"}},
+	"operator_decision_withheld":                   {Required: []string{"action_id", "reason", "remedy"}, Properties: []string{"action_id", "reason", "remedy"}},
 	"operator_question":                            {Required: []string{"action_id", "prompt", "header", "choices", "allow_multiple", "allow_custom", "premise_summary", "contract_summary", "decision_context_digest"}, Properties: []string{"action_id", "prompt", "header", "choices", "allow_multiple", "allow_custom", "premise_summary", "contract_summary", "decision_context_digest"}},
 	"page":                                         {Required: []string{"cursor", "limit"}, Properties: []string{"cursor", "limit"}},
 	"product_context":                              {Required: []string{"product_id", "projects"}, Properties: []string{"product_id", "stage", "projects", "candidates", "next_cursor"}},
@@ -234,7 +235,7 @@ var GeneratedPayloadRules = map[string]GeneratedPayloadRule{
 	"work_observation_input":                       {Required: []string{"work_id"}, Properties: []string{"work_id", "page"}},
 	"work_observation_page":                        {Required: []string{"observations"}, Properties: []string{"observations"}},
 	"work_page":                                    {Required: []string{"items"}, Properties: []string{"items", "next_cursor", "readiness_evidence"}},
-	"work_pin":                                     {Required: []string{"work_id", "title", "linear_issue_key", "version", "lifecycle", "workflow_type", "step", "attempt", "pending_operator_decision", "watermark", "next_valid_intents"}, Properties: []string{"work_id", "title", "linear_issue_key", "version", "lifecycle", "workflow_type", "step", "attempt", "pending_operator_decision", "watermark", "next_valid_intents", "correction", "verdict_evidence"}},
+	"work_pin":                                     {Required: []string{"work_id", "title", "linear_issue_key", "version", "lifecycle", "workflow_type", "step", "attempt", "pending_operator_decision", "watermark", "next_valid_intents"}, Properties: []string{"work_id", "title", "linear_issue_key", "version", "lifecycle", "workflow_type", "step", "attempt", "pending_operator_decision", "withheld_operator_decision", "watermark", "next_valid_intents", "correction", "verdict_evidence"}},
 	"work_pin_attempt":                             {Required: []string{"id", "epoch", "lane", "state"}, Properties: []string{"id", "epoch", "lane", "state"}},
 	"work_pin_evidence":                            {Required: []string{"evidence_kind", "immutable_subject_ref"}, Properties: []string{"evidence_kind", "immutable_subject_ref"}},
 	"work_pin_intent":                              {Required: []string{"tool", "operation", "reason_code", "action_id", "required_fields", "expected_version"}, Properties: []string{"tool", "operation", "reason_code", "action_id", "required_fields", "expected_version"}},

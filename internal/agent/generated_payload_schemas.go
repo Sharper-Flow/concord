@@ -956,6 +956,16 @@ const GeneratedPayloadSchemaDocument = `{
               "maxItems": 20,
               "type": "array"
             },
+            "withheld_operator_decision": {
+              "oneOf": [
+                {
+                  "$ref": "#/$defs/operator_decision_withheld"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
             "work_pin": {
               "$ref": "#/$defs/work_pin"
             },
@@ -2732,6 +2742,26 @@ const GeneratedPayloadSchemaDocument = `{
         "label",
         "description",
         "action_id"
+      ],
+      "type": "object"
+    },
+    "operator_decision_withheld": {
+      "additionalProperties": false,
+      "properties": {
+        "action_id": {
+          "$ref": "#/$defs/id"
+        },
+        "reason": {
+          "$ref": "#/$defs/short"
+        },
+        "remedy": {
+          "$ref": "#/$defs/short"
+        }
+      },
+      "required": [
+        "action_id",
+        "reason",
+        "remedy"
       ],
       "type": "object"
     },
@@ -5719,6 +5749,9 @@ const GeneratedPayloadSchemaDocument = `{
         },
         "watermark": {
           "$ref": "#/$defs/id"
+        },
+        "withheld_operator_decision": {
+          "$ref": "#/$defs/operator_decision_withheld"
         },
         "work_id": {
           "$ref": "#/$defs/id"

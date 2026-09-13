@@ -71,21 +71,22 @@ type ContextFailure struct {
 }
 
 type ContinuitySnapshot struct {
-	WorkID                  string                    `json:"work_id"`
-	ProductIdentity         []string                  `json:"product_identity"`
-	WorkflowStep            string                    `json:"workflow_step"`
-	StepActions             []string                  `json:"step_actions"`
-	Contract                *WorkflowReadContract     `json:"contract"`
-	SpecMandate             []string                  `json:"spec_mandate"`
-	PendingOperatorDecision *WorkflowOperatorQuestion `json:"pending_operator_decision"`
-	LatestCheckpoint        *ContextCheckpoint        `json:"latest_checkpoint"`
-	DesignRecord            *WorkflowDesignRecord     `json:"design_record"`
-	ProposalRecord          *WorkflowProposalRecord   `json:"proposal_record"`
-	UnresolvedFailure       *ContextFailure           `json:"unresolved_failure"`
-	Boundaries              []ContextBoundary         `json:"boundaries"`
-	BoundaryCount           int64                     `json:"boundary_count"`
-	NextCursor              *string                   `json:"next_cursor"`
-	Watermark               string                    `json:"watermark"`
+	WorkID                   string                            `json:"work_id"`
+	ProductIdentity          []string                          `json:"product_identity"`
+	WorkflowStep             string                            `json:"workflow_step"`
+	StepActions              []string                          `json:"step_actions"`
+	Contract                 *WorkflowReadContract             `json:"contract"`
+	SpecMandate              []string                          `json:"spec_mandate"`
+	PendingOperatorDecision  *WorkflowOperatorQuestion         `json:"pending_operator_decision"`
+	WithheldOperatorDecision *WorkflowOperatorQuestionWithheld `json:"withheld_operator_decision,omitempty"`
+	LatestCheckpoint         *ContextCheckpoint                `json:"latest_checkpoint"`
+	DesignRecord             *WorkflowDesignRecord             `json:"design_record"`
+	ProposalRecord           *WorkflowProposalRecord           `json:"proposal_record"`
+	UnresolvedFailure        *ContextFailure                   `json:"unresolved_failure"`
+	Boundaries               []ContextBoundary                 `json:"boundaries"`
+	BoundaryCount            int64                             `json:"boundary_count"`
+	NextCursor               *string                           `json:"next_cursor"`
+	Watermark                string                            `json:"watermark"`
 	// NativeRuns carries the attributed native-run reports for this work
 	// item, newest phase per run, with reporter, subject, evidence, and both
 	// times alongside the status (CD-0039 D1/D4).
@@ -252,7 +253,7 @@ func ReadWorkflowContinuity(ctx context.Context, s *Store, req ContinuityRequest
 			}
 		}
 		out.SpecMandate = nonNilStrings(append([]string(nil), contract.SpecMandate...))
-		out.PendingOperatorDecision, err = workflowOperatorQuestionTx(ctx, tx, req.Work, currentStep, workVersion, definition, contract)
+		out.PendingOperatorDecision, out.WithheldOperatorDecision, err = workflowOperatorQuestionTx(ctx, tx, req.Work, currentStep, workVersion, definition, contract)
 		if err != nil {
 			return out, err
 		}

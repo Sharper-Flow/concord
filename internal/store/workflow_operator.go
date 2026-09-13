@@ -36,6 +36,16 @@ type WorkflowOperatorQuestion struct {
 	DecisionContextDigest string                   `json:"decision_context_digest"`
 }
 
+// WorkflowOperatorQuestionWithheld explains a human checkpoint whose question
+// exists in the definition but is not open yet. A bare nil question cannot say
+// whether the step has no checkpoint at all or has one the caller can still
+// open, and those two states need different actions from the caller.
+type WorkflowOperatorQuestionWithheld struct {
+	ActionID string `json:"action_id"`
+	Reason   string `json:"reason"`
+	Remedy   string `json:"remedy"`
+}
+
 // ComputeWorkflowDecisionContextDigest is the stable digest bound into a
 // question and required by confirm_premise. Raw outcome bytes are deliberately
 // retained: re-encoding or normalizing them must not silently change the
@@ -136,7 +146,8 @@ func ReadWorkflowOperatorQuestion(ctx context.Context, s *Store, workID string) 
 			if action.ID != candidate || action.Approval != ActionApprovalRequired {
 				continue
 			}
-			return workflowOperatorQuestionTx(ctx, s.db, workID, currentStep, workVersion, definition, contract)
+			question, _, questionErr := workflowOperatorQuestionTx(ctx, s.db, workID, currentStep, workVersion, definition, contract)
+			return question, questionErr
 		}
 	}
 	return nil, nil
@@ -165,14 +176,17 @@ func workflowOperatorQuestion(workID string, workVersion int64, definition Workf
 	}
 }
 
-func workflowOperatorQuestionTx(ctx context.Context, q queryer, workID, currentStep string, workVersion int64, definition WorkflowReadDefinition, contract WorkflowReadContract) (*WorkflowOperatorQuestion, error) {
+// workflowOperatorQuestionTx returns the open question for the current step,
+// or the reason its question is withheld. Exactly one of the two is non-nil,
+// and both are nil when the step declares no approval-required action.
+func workflowOperatorQuestionTx(ctx context.Context, q queryer, workID, currentStep string, workVersion int64, definition WorkflowReadDefinition, contract WorkflowReadContract) (*WorkflowOperatorQuestion, *WorkflowOperatorQuestionWithheld, error) {
 	entry, err := VerifyWorkflowDefinitionPin(BuiltinWorkflowRegistry(), WorkflowDefinitionPin(definition))
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	step := workflowStep(entry.Definition, currentStep)
 	if step == nil || step.Kind != WorkflowStepHumanCheckpoint {
-		return nil, nil
+		return nil, nil, nil
 	}
 	for _, candidate := range step.Actions {
 		for _, action := range entry.Definition.ActionDefinitions {
@@ -180,15 +194,15 @@ func workflowOperatorQuestionTx(ctx context.Context, q queryer, workID, currentS
 				if err := requireRecordedInvestigationArtifact(ctx, q, workID); err != nil {
 					var failure *Failure
 					if failureAs(err, &failure) && failure.Kind == KindMissingEvidence {
-						return nil, nil
+						return nil, &WorkflowOperatorQuestionWithheld{ActionID: action.ID, Reason: failure.Detail, Remedy: failure.RecoveryAction}, nil
 					}
-					return nil, err
+					return nil, nil, err
 				}
-				return workflowOperatorQuestion(workID, workVersion, definition, contract, action.ID), nil
+				return workflowOperatorQuestion(workID, workVersion, definition, contract, action.ID), nil, nil
 			}
 		}
 	}
-	return nil, nil
+	return nil, nil, nil
 }
 
 // requireRecordedInvestigationArtifact admits an operator question only when a
@@ -373,7 +387,7 @@ func validateWorkflowOperatorSelectionTx(ctx context.Context, tx *sql.Tx, regist
 	for _, candidate := range step.Actions {
 		for _, action := range entry.Definition.ActionDefinitions {
 			if action.ID == candidate && action.Approval == ActionApprovalRequired {
-				question, err = workflowOperatorQuestionTx(ctx, tx, request.WorkID, currentStep, workVersion, definition, contract)
+				question, _, err = workflowOperatorQuestionTx(ctx, tx, request.WorkID, currentStep, workVersion, definition, contract)
 				if err != nil {
 					return err
 				}

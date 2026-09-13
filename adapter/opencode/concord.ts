@@ -350,6 +350,22 @@ async function resolveSessionDirectory(context: ToolContext): Promise<string> {
   }
 }
 
+const DECISION_CONTEXT_DIGEST_SHAPE = /^sha256:[0-9a-f]{64}$/
+
+// confirmPremiseInputFault names the one input that fails the confirm_premise
+// gate, so a caller learns which field to correct rather than a conjunction of
+// two independent requirements. It returns an empty string when both hold.
+function confirmPremiseInputFault(input: any): string {
+  const choice = input.selected_choice
+  const digest = input.decision_context_digest
+  if (choice === undefined) return "confirm_premise requires selected_choice; supply the closed choice \"confirm\""
+  if (choice !== "confirm") return `confirm_premise admits only selected_choice "confirm"; this request sent ${JSON.stringify(choice)}`
+  if (digest === undefined) return "confirm_premise requires decision_context_digest; read the canonical value from the work item's pending_operator_decision, it cannot be computed by the caller"
+  if (typeof digest !== "string") return `confirm_premise requires decision_context_digest as a string; this request sent ${typeof digest}`
+  if (!DECISION_CONTEXT_DIGEST_SHAPE.test(digest)) return `decision_context_digest must match sha256: followed by 64 lowercase hex characters; this request sent ${JSON.stringify(digest)}, which the core would refuse. Read the canonical value from the work item's pending_operator_decision`
+  return ""
+}
+
 // invokeConcordOperation is the single `concord project-resolve` + `concord invoke`
 // transport for every adapter surface, including host-side callers outside the
 // tool exports below. It owns envelope construction, the closed core-response
@@ -363,9 +379,8 @@ async function invokeConcordOperationRaw(toolName: string, args: HostToolArgs, c
   const leaseFault = hostLeaseFault()
   if (leaseFault) return adapterError(toolName, operation, requestID, "transport_failure", "host_lease_missing", `${leaseFault}; no operation ran`, "none", "contact_operator")
   if (toolName === "concord_work_transition" && operation === "workflow_action" && args.input?.action_id === "confirm_premise") {
-    if (args.input.selected_choice !== "confirm" || typeof args.input.decision_context_digest !== "string" || !/^sha256:[0-9a-f]{64}$/.test(args.input.decision_context_digest)) {
-      return adapterError(toolName, operation, requestID, "invalid_input", "missing_question_selection", "confirm_premise requires the closed confirm choice and a decision context digest", "none", "reread_entities")
-    }
+    const detail = confirmPremiseInputFault(args.input)
+    if (detail) return adapterError(toolName, operation, requestID, "invalid_input", "missing_question_selection", detail, "none", "reread_entities")
   }
   let ambient: AmbientContext
   let sessionDirectory: string

@@ -550,7 +550,7 @@ func normalizeWorkflowDefinition(definition WorkflowDefinition) WorkflowDefiniti
 // workflow_registry_versions.go and never acquire current payload contracts.
 func BuiltinWorkflowDefinitions() []WorkflowDefinition {
 	return []WorkflowDefinition{
-		implementationRefinementV9(), breakFixRefinementV8(), withWorkerActions(builtinResearch(true), true), withWorkerActions(builtinArchitectureSpike(true), true), withWorkerActions(builtinOpsRunbook(true), true), withWorkerActions(builtinStaticAnalysis(true), true), withWorkerActions(builtinGenericOneOff(true), true),
+		implementationRefinementV9(), breakFixRefinementV8(), withWorkerActions(builtinResearch(true), true), withWorkerActions(builtinArchitectureSpike(true), true), opsRunbookCleanupCheckpointV5(), withWorkerActions(builtinStaticAnalysis(true), true), withWorkerActions(builtinGenericOneOff(true), true),
 	}
 }
 
@@ -569,6 +569,7 @@ func builtinWorkflowDefinitionsWithHistory() []WorkflowDefinition {
 			preDesignImplementationV5(),
 			preProposalImplementationV6(),
 			releasedImplementationV7(), implementationRefinementV8(),
+			releasedOpsRunbookV4(),
 		},
 		BuiltinWorkflowDefinitions()...,
 	)

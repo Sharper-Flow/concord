@@ -315,6 +315,31 @@ func breakFixRefinementV8() WorkflowDefinition {
 	return withRefinementFailureEdge(d, "repair", "verify")
 }
 
+// releasedOpsRunbookV4 keeps the released version-4 ops-runbook content
+// available after version 5 becomes the latest definition.
+func releasedOpsRunbookV4() WorkflowDefinition {
+	d := builtinOpsRunbook(true)
+	d.Version = 4
+	return withWorkerActions(d, true)
+}
+
+// opsRunbookCleanupCheckpointV5 makes the cleanup step a human checkpoint. The
+// step declares confirm_premise, whose approval the operator question serves,
+// and that question is only reachable from a human-checkpoint step. Under the
+// internal-SQLite kind the step's one advancing action refused, so the only
+// edge out of cleanup was unreachable and every ops-runbook item stopped there.
+func opsRunbookCleanupCheckpointV5() WorkflowDefinition {
+	d := builtinOpsRunbook(true)
+	d.Version = 5
+	for i := range d.StepGraph.Steps {
+		if d.StepGraph.Steps[i].ID == "cleanup" {
+			d.StepGraph.Steps[i].Kind = WorkflowStepHumanCheckpoint
+			break
+		}
+	}
+	return withWorkerActions(d, true)
+}
+
 func withLegacyRecordDesign(definition WorkflowDefinition) WorkflowDefinition {
 	for i := range definition.ActionDefinitions {
 		if definition.ActionDefinitions[i].ID == "record_design" {

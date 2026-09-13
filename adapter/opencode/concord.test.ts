@@ -615,6 +615,44 @@ test("confirm_premise still binds the selection it carries", async () => {
   expect(approvals).toBe(1)
 })
 
+test("the confirm_premise gate names the one input that failed", async () => {
+  // The gate holds two independent requirements. A message naming both leaves
+  // a caller who satisfied one guessing which half refused, so each fault
+  // carries the field it is about.
+  const digest = "sha256:" + "b".repeat(64)
+  const failing = async (input: Record<string, unknown>) => {
+    const result: any = await runWorkflowAction({ async run() { throw new Error("no core call may leave") } },
+      { work_id: "work-1", expected_version: 2, action_id: "confirm_premise", idempotency_key: "idem-gate", ...input })
+    expect(result.outcome).not.toBe("ok")
+    expect(result.error.kind).toBe("invalid_input")
+    expect(result.error.adapter_reason).toBe("missing_question_selection")
+    return result.error.message as string
+  }
+
+  const noChoice = await failing({ decision_context_digest: digest })
+  expect(noChoice).toContain("selected_choice")
+  expect(noChoice).not.toContain("decision_context_digest")
+
+  const wrongChoice = await failing({ selected_choice: "revise", decision_context_digest: digest })
+  expect(wrongChoice).toContain("selected_choice")
+  expect(wrongChoice).toContain("\"revise\"")
+  expect(wrongChoice).not.toContain("decision_context_digest")
+
+  const noDigest = await failing({ selected_choice: "confirm" })
+  expect(noDigest).toContain("decision_context_digest")
+  expect(noDigest).toContain("pending_operator_decision")
+  expect(noDigest).not.toContain("selected_choice")
+
+  const wrongType = await failing({ selected_choice: "confirm", decision_context_digest: 7 })
+  expect(wrongType).toContain("decision_context_digest")
+  expect(wrongType).toContain("string")
+
+  const wrongShape = await failing({ selected_choice: "confirm", decision_context_digest: "sha256:NOTHEX" })
+  expect(wrongShape).toContain("64 lowercase hex")
+  expect(wrongShape).toContain("sha256:NOTHEX")
+  expect(wrongShape).not.toContain("selected_choice")
+})
+
 const coreEnvelope = (tool: string, operation: string, outcome: string, fields: Record<string, unknown> = {}) => ({
   schema_version: "1.0", manifest_digest: manifestDigest, request_id: "session-1-message-1", origin: "core", tool, operation, ...((contractOperations.find((candidate: any) => candidate.tool === tool && candidate.id.endsWith(`.${operation}`)) as any)?.query_id ? { query_id: (contractOperations.find((candidate: any) => candidate.tool === tool && candidate.id.endsWith(`.${operation}`)) as any).query_id } : {}), outcome, resolved_scope: null, authority: "authoritative", freshness: null, source_version_watermark: [], ordering_keys: [], next_cursor: null, omissions: [], warnings: [], evidence_refs: [], replayed: false, ...fields,
 })

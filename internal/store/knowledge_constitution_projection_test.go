@@ -31,7 +31,7 @@ func seedConstitutionHome(t *testing.T) (KnowledgeHome, string, string, string) 
 	writeKnowledgeFile(t, repo, lessonPath, lessonBody)
 	constitutionSum, decisionSum, lessonSum := sha256.Sum256([]byte(constitutionBody)), sha256.Sum256([]byte(decisionBody)), sha256.Sum256([]byte(lessonBody))
 	manifest := KnowledgeManifest{
-		SchemaVersion: "1.2",
+		SchemaVersion:  "1.2",
 		SupportedKinds: []string{"constitution", "decision", "lesson"},
 		IndexedKinds:   []string{"constitution", "decision", "lesson"},
 		DomainRegistry: KnowledgeDomainRegistry{

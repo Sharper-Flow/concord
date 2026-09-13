@@ -401,7 +401,7 @@ func ValidateWorkflowDefinition(definition WorkflowDefinition) error {
 		if _, ok := steps[edge.To]; !ok {
 			return definitionFailure(KindInvalidDefinition, "graph edge endpoint is not declared")
 		}
-		if edge.Kind != WorkflowEdgeRetry {
+		if edge.Kind != WorkflowEdgeRetry && edge.Kind != WorkflowEdgeFailure {
 			adjacency[edge.From] = append(adjacency[edge.From], edge.To)
 		}
 	}
@@ -550,7 +550,7 @@ func normalizeWorkflowDefinition(definition WorkflowDefinition) WorkflowDefiniti
 // workflow_registry_versions.go and never acquire current payload contracts.
 func BuiltinWorkflowDefinitions() []WorkflowDefinition {
 	return []WorkflowDefinition{
-		implementationRefinementV8(), breakFixRefinementV7(), withWorkerActions(builtinResearch(true), true), withWorkerActions(builtinArchitectureSpike(true), true), withWorkerActions(builtinOpsRunbook(true), true), withWorkerActions(builtinStaticAnalysis(true), true), withWorkerActions(builtinGenericOneOff(true), true),
+		implementationRefinementV9(), breakFixRefinementV8(), withWorkerActions(builtinResearch(true), true), withWorkerActions(builtinArchitectureSpike(true), true), withWorkerActions(builtinOpsRunbook(true), true), withWorkerActions(builtinStaticAnalysis(true), true), withWorkerActions(builtinGenericOneOff(true), true),
 	}
 }
 
@@ -565,10 +565,10 @@ func builtinWorkflowDefinitionsWithHistory() []WorkflowDefinition {
 			preJoinImplementationV2(), preJoinBreakFixV2(), preJoinGenericOneOffV2(), preJoinResearchV2(), preJoinArchitectureSpikeV1(), preJoinOpsRunbookV1(), preJoinStaticAnalysisV1(),
 			prePayloadImplementationV3(), prePayloadBreakFixV3(), prePayloadGenericOneOffV3(), prePayloadResearchV3(), prePayloadArchitectureSpikeV2(), prePayloadOpsRunbookV2(), prePayloadStaticAnalysisV2(),
 			preFailureImplementationV4(), preFailureBreakFixV4(), preFailureGenericOneOffV4(), preFailureResearchV4(), preFailureArchitectureSpikeV3(), preFailureOpsRunbookV3(), preFailureStaticAnalysisV3(),
-			releasedBreakFixV5(), breakFixEvidenceRecoveryV6(),
+			releasedBreakFixV5(), breakFixEvidenceRecoveryV6(), breakFixRefinementV7(),
 			preDesignImplementationV5(),
 			preProposalImplementationV6(),
-			releasedImplementationV7(),
+			releasedImplementationV7(), implementationRefinementV8(),
 		},
 		BuiltinWorkflowDefinitions()...,
 	)
@@ -687,6 +687,23 @@ func withRefinementStep(definition WorkflowDefinition, producingStep, verdictSte
 	}
 	definition.AvailableActions = available
 	definition.ActionDefinitions = actionDefinitions
+	return definition
+}
+
+func withRefinementFailureEdge(definition WorkflowDefinition, producingStep, verdictStep string) WorkflowDefinition {
+	definition = cloneWorkflowDefinition(definition)
+	for _, edge := range definition.StepGraph.Edges {
+		if edge.From != producingStep || edge.To != "refine" || edge.Kind != WorkflowEdgeForward {
+			continue
+		}
+		for _, candidate := range definition.StepGraph.Edges {
+			if candidate.From == verdictStep && candidate.To == "refine" && candidate.Kind == WorkflowEdgeFailure {
+				return definition
+			}
+		}
+		definition.StepGraph.Edges = append(definition.StepGraph.Edges, WorkflowEdge{From: verdictStep, To: "refine", Kind: WorkflowEdgeFailure})
+		break
+	}
 	return definition
 }
 

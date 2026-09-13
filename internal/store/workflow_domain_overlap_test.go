@@ -718,3 +718,37 @@ func TestWorkflowDomainOverlapCrossProcessWorker(t *testing.T) {
 		t.Fatalf("unknown overlap race role %q", role)
 	}
 }
+
+// The agent envelope refuses a domain_overlap error carrying more than twenty
+// overlaps (internal/agent/envelope.go, domain overlap coupling). The producer
+// must therefore never emit more than that, whatever the byte budget allows.
+// Many small architecture-only overlaps fit well inside the byte budget, so a
+// byte-only bound keeps every entry and the refusal cannot be delivered.
+func TestOverlapFailureBoundHonorsEnvelopeCountCap(t *testing.T) {
+	overlaps := make([]WorkflowDomainOverlap, 0, 31)
+	for i := 0; i < 31; i++ {
+		overlaps = append(overlaps, WorkflowDomainOverlap{
+			ProductID: "concord", FromWorkID: "work-self", ToWorkID: fmt.Sprintf("work-peer-%02d", i),
+			FromContractVersion: 1, ToContractVersion: 1,
+			SharedAffectedDomainIDs: []string{"agent-surface"},
+			OverlapClasses:          []string{"architecture"},
+			ResolutionState:         "unresolved",
+			RecoveryActions:         []string{"wait", "resolve_overlap", "terminal_work", "supersede_contract"},
+		})
+	}
+	failure := &DomainOverlapFailure{Overlaps: overlaps}
+	boundWorkflowDomainOverlapFailure(failure)
+
+	if failure.TotalOverlaps != 31 {
+		t.Fatalf("total overlaps = %d, want the true count 31", failure.TotalOverlaps)
+	}
+	if len(failure.Overlaps) > maxWorkflowOverlapDetailItems {
+		t.Fatalf("returned %d overlaps, want at most %d: the envelope cannot deliver more", len(failure.Overlaps), maxWorkflowOverlapDetailItems)
+	}
+	if failure.ReturnedOverlaps != len(failure.Overlaps) {
+		t.Fatalf("returned_overlaps = %d, want %d", failure.ReturnedOverlaps, len(failure.Overlaps))
+	}
+	if !failure.Truncated {
+		t.Fatal("a bound that drops overlaps must report itself as truncated")
+	}
+}

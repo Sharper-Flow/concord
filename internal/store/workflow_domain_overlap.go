@@ -231,9 +231,6 @@ func readWorkflowUnresolvedDomainOverlapsTx(ctx context.Context, tx *sql.Tx, wor
 	}
 	failure := &DomainOverlapFailure{Overlaps: overlaps}
 	boundWorkflowDomainOverlapFailure(failure)
-	if len(failure.Overlaps) > maxWorkflowOverlapDetailItems {
-		failure.Overlaps = failure.Overlaps[:maxWorkflowOverlapDetailItems]
-	}
 	return failure.Overlaps, nil
 }
 
@@ -440,6 +437,14 @@ func boundWorkflowDomainOverlapFailure(failure *DomainOverlapFailure) {
 			detail.SharedRelationTuples = detail.SharedRelationTuples[:maxWorkflowOverlapDetailItems]
 			detail.DetailTruncated = true
 		}
+	}
+	// The agent envelope refuses a domain_overlap error that carries more than
+	// maxWorkflowOverlapDetailItems overlaps. Many small overlaps fit inside the
+	// byte budget, so the count bound must run before it or the refusal cannot
+	// be delivered. TotalOverlaps keeps the true population.
+	if len(failure.Overlaps) > maxWorkflowOverlapDetailItems {
+		failure.Overlaps = failure.Overlaps[:maxWorkflowOverlapDetailItems]
+		failure.Truncated = true
 	}
 	for {
 		failure.ReturnedOverlaps = len(failure.Overlaps)
@@ -660,10 +665,10 @@ func foldWorkflowOverlapResolved(ctx context.Context, tx *sql.Tx, event Event) e
 	if err != nil {
 		return err
 	}
-	if err := validateWorkVersion(event, from.version, fromExpected, fromResulting); err != nil {
+	if err := validateWorkVersion(event.SubjectID, from.version, fromExpected, fromResulting); err != nil {
 		return err
 	}
-	if err := validateWorkVersion(event, to.version, payload.ToExpectedVersion, payload.ToResultingVersion); err != nil {
+	if err := validateWorkVersion(payload.ToWorkID, to.version, payload.ToExpectedVersion, payload.ToResultingVersion); err != nil {
 		return err
 	}
 	left, err := readWorkflowOverlapFootprintTx(ctx, tx, event.SubjectID)

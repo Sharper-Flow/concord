@@ -289,6 +289,12 @@ func implementationRefinementV8() WorkflowDefinition {
 	return withWorkerActions(d, true)
 }
 
+func implementationRefinementV9() WorkflowDefinition {
+	d := implementationRefinementV8()
+	d.Version = 9
+	return withRefinementFailureEdge(d, "execution", "acceptance")
+}
+
 func breakFixRefinementV7() WorkflowDefinition {
 	d := builtinBreakFix(true)
 	d.Version = 7
@@ -301,6 +307,12 @@ func breakFixRefinementV7() WorkflowDefinition {
 	}
 	d = withRefinementStep(d, "repair", "verify")
 	return withWorkerActions(d, true)
+}
+
+func breakFixRefinementV8() WorkflowDefinition {
+	d := breakFixRefinementV7()
+	d.Version = 8
+	return withRefinementFailureEdge(d, "repair", "verify")
 }
 
 func withLegacyRecordDesign(definition WorkflowDefinition) WorkflowDefinition {

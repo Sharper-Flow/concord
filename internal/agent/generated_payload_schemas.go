@@ -10238,6 +10238,9 @@ const GeneratedPayloadSchemaDocument = `{
               "minLength": 0,
               "type": "string"
             },
+            "correction": {
+              "$ref": "#/$defs/workflow_correction_context"
+            },
             "task": {
               "maxLength": 4096,
               "minLength": 1,

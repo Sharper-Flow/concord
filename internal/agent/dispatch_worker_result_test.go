@@ -26,3 +26,10 @@ func TestMutationResultRefusesMalformedWorkerPacketDigest(t *testing.T) {
 		t.Fatalf("error %q does not name worker_packet_digest", err)
 	}
 }
+
+func TestDispatchWorkerPacketAdmitsCorrectionContext(t *testing.T) {
+	payload := []byte(`{"work_id":"work-1","expected_version":2,"action_id":"dispatch_worker","idempotency_key":"dispatch-1","fields":{"attempt_id":"attempt-1","worker_packet":{"schema_version":"1.0","attempt_id":"attempt-1","lane_id":"verify","lane_version":1,"lane_digest":"sha256:0000000000000000000000000000000000000000000000000000000000000000","work_id":"work-1","step_id":"repair","inputs":{"task":"verify the change","correction":{"disposition":"rejected","attempt_count":1,"attempt_limit":3,"escalated":false,"predicate_ids":["predicate:primary"],"evidence_refs":["evidence:review"],"diagnosis":"the result misses the boundary case","strategy":"change the helper and add a test"}}}}}`)
+	if err := ValidateOperationPayload("concord_work_transition", "workflow_action", payload, false); err != nil {
+		t.Fatalf("dispatch_worker worker_packet with correction refused: %v", err)
+	}
+}

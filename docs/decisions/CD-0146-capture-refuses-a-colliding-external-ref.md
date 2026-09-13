@@ -1,4 +1,4 @@
-# CD-0140: Capture refuses a colliding external reference
+# CD-0146: Capture refuses a colliding external reference
 
 - **Status:** Accepted
 - **Date:** 2026-09-12

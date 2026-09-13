@@ -1,21 +1,15 @@
 {
-  "date": "2026-09-12T00:00:00Z",
+  "date": "2026-09-13T00:00:00Z",
   "evidence": [
-    "internal/store/lifecycle.go",
-    "internal/store/external_ref_collision_test.go",
-    "internal/agent/mutations.go",
-    "cmd/concord/work_bootstrap.go"
+    "contracts/lane-step-dispatch.v1.json",
+    "internal/store/generated_lane_step_dispatch.go",
+    "internal/store/lane_step_dispatch_test.go",
+    "scripts/generate-lane-step-dispatch.py"
   ],
-  "home_domain_id": "durable-authority",
+  "home_domain_id": "workflow-engine",
   "id": "CD-0140",
   "kind": "decision",
-  "law_relations": [
-    {
-      "kind": "refines",
-      "target_id": "CD-0035"
-    }
-  ],
-  "path": "docs/decisions/CD-0140-capture-refuses-a-colliding-external-ref.md",
+  "path": "docs/decisions/CD-0140-the-review-lane-dispatches-at-the-steps-that-hold-produced-work.md",
   "scopes": {
     "domain_ids": [],
     "mode": "home",
@@ -23,14 +17,13 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:28c3dd4e51976bd190a60fc20cec3400c6843887320bf75f7cf8fc2a6bbe6bed",
+  "sha256": "sha256:62fd03421e4ca154197b24de7bc201d4bdc3946a0af5637b73ab9a0ea376a69f",
   "status": "accepted",
-  "summary": "Live work captures with duplicate external references refuse with a typed owner unless raised_from_work_id names that owner, which records a raised_from relation atomically; terminal owners remain reusable.",
+  "summary": "The review capability-class binding gains external_effect so review evidence can be bound at the steps that hold produced work; CD-0138's mandatory refine step is external_effect, so without this binding no contract can ever bind review evidence. Amends CD-0117 D1 for review only; the research binding, checkpoint and terminal exclusions, and worker fences are unchanged.",
   "tags": [
-    "capture",
-    "external-reference",
-    "collision",
-    "relations"
+    "workflow",
+    "lanes",
+    "law"
   ],
-  "title": "Capture refuses a colliding external reference"
+  "title": "The review lane dispatches at the steps that hold produced work"
 }

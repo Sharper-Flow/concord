@@ -68,7 +68,7 @@ func foldInitiativeNarrativeRevised(ctx context.Context, tx *sql.Tx, event Event
 		return newFailure(KindIllegalLifecycleTransition, "fold_event", "Initiative narrative cannot be revised on terminal work", false,
 			"reopen the Initiative before revising its narrative")
 	}
-	if err := validateWorkVersion(event, current.version, p.ExpectedVersion, p.ResultingVersion); err != nil {
+	if err := validateWorkVersion(event.SubjectID, current.version, p.ExpectedVersion, p.ResultingVersion); err != nil {
 		return err
 	}
 	result, err := tx.ExecContext(ctx, `UPDATE work_items SET narrative=?, version=?, updated_at=? WHERE id=? AND version=?`, p.Narrative, p.ResultingVersion, event.OccurredAt.UTC().Format(time.RFC3339Nano), event.SubjectID, p.ExpectedVersion)
@@ -121,7 +121,7 @@ func foldInitiativeEntryAdded(ctx context.Context, tx *sql.Tx, event Event) erro
 	if versionErr != nil {
 		return versionErr
 	}
-	if err := validateWorkVersion(event, subjectVersion, p.ExpectedVersion, p.ResultingVersion); err != nil {
+	if err := validateWorkVersion(event.SubjectID, subjectVersion, p.ExpectedVersion, p.ResultingVersion); err != nil {
 		return err
 	}
 	if cycle, err := relationWouldCycle(ctx, tx, event.SubjectID, p.ChildWorkID, "includes"); err != nil {
@@ -267,7 +267,7 @@ func validateInitiativeOwnerAndVersion(ctx context.Context, tx *sql.Tx, id strin
 	if versionErr != nil {
 		return versionErr
 	}
-	return validateWorkVersion(Event{SubjectID: id}, version, expected, expected+1)
+	return validateWorkVersion(id, version, expected, expected+1)
 }
 func mustVersion(ctx context.Context, tx *sql.Tx, id string) (int64, error) {
 	var v int64

@@ -660,10 +660,10 @@ func foldWorkflowOverlapResolved(ctx context.Context, tx *sql.Tx, event Event) e
 	if err != nil {
 		return err
 	}
-	if err := validateWorkVersion(event, from.version, fromExpected, fromResulting); err != nil {
+	if err := validateWorkVersion(event.SubjectID, from.version, fromExpected, fromResulting); err != nil {
 		return err
 	}
-	if err := validateWorkVersion(event, to.version, payload.ToExpectedVersion, payload.ToResultingVersion); err != nil {
+	if err := validateWorkVersion(payload.ToWorkID, to.version, payload.ToExpectedVersion, payload.ToResultingVersion); err != nil {
 		return err
 	}
 	left, err := readWorkflowOverlapFootprintTx(ctx, tx, event.SubjectID)

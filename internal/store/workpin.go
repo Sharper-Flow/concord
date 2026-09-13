@@ -105,7 +105,14 @@ func ReadWorkPinTx(ctx context.Context, tx *sql.Tx, workID string) (WorkPin, err
 	if holdErr != nil {
 		return pin, holdErr
 	}
+	evidenceRecovery, recoveryErr := workflowEvidenceBindingRecoveryAvailable(ctx, tx, registered.Definition, workID, pin.Step)
+	if recoveryErr != nil {
+		return pin, recoveryErr
+	}
 	pin.NextValidIntents = workPinIntents(registered.Definition, pin.Step, pin.Version, dispatchHoldsAdvance)
+	if evidenceRecovery && !workPinContainsAction(pin.NextValidIntents, "bind_evidence") {
+		pin.NextValidIntents = append(pin.NextValidIntents, workPinIntentForAction(workflowActionDefinitionByID(registered.Definition, "bind_evidence"), pin.Version, "evidence_binding_recovery"))
+	}
 
 	var contract WorkflowReadContract
 	var required, routes, mandate, modifies string
@@ -271,4 +278,38 @@ func publicWorkflowActionPayload(action WorkflowActionDefinition) WorkflowPayloa
 		return *policy.PublicPayload
 	}
 	return action.Payload
+}
+
+// workflowActionDefinitionByID returns the pinned definition's action, or a bare
+// action carrying the ID when the definition omits it.
+func workflowActionDefinitionByID(definition WorkflowDefinition, actionID string) WorkflowActionDefinition {
+	for _, action := range definition.ActionDefinitions {
+		if action.ID == actionID {
+			return action
+		}
+	}
+	return WorkflowActionDefinition{ID: actionID}
+}
+
+// workflowEvidenceBindingRecoveryAvailable reports whether bind_evidence is
+// admitted past its declared binding step for this work item. The fold admits
+// that recovery when the current step follows the binding step and the binding
+// satisfies an outstanding requirement, but the pin listed only declared step
+// actions. A caller that reaches a human checkpoint with a required evidence
+// kind unbound then sees no route out, which is the wedge the acceptance
+// deliverable gate refuses on. The conditions here are the fold's conditions,
+// so the pin never advertises an action the fold would refuse.
+func workflowEvidenceBindingRecoveryAvailable(ctx context.Context, tx *sql.Tx, definition WorkflowDefinition, workID, currentStep string) (bool, error) {
+	if stepDeclaresAction(definition, currentStep, "bind_evidence") {
+		return false, nil
+	}
+	bindingStep := workflowEvidenceBindingStep(definition, currentStep)
+	if bindingStep == "" || !workflowStepFollows(definition, bindingStep, currentStep) {
+		return false, nil
+	}
+	outstanding, err := outstandingWorkflowEvidenceRequirementsForWork(ctx, tx, workID, definition)
+	if err != nil {
+		return false, err
+	}
+	return len(outstanding) != 0, nil
 }

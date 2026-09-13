@@ -718,3 +718,38 @@ func TestWorkflowDomainOverlapCrossProcessWorker(t *testing.T) {
 		t.Fatalf("unknown overlap race role %q", role)
 	}
 }
+
+// The agent envelope admits at most maxWorkflowOverlapDetailItems overlap
+// details. A Domain with more unresolved counterparts than that must still
+// produce a serializable refusal, so the bound trims the list by count as well
+// as by encoded size and reports the trim through Truncated.
+func TestBoundWorkflowDomainOverlapFailureCapsOverlapCount(t *testing.T) {
+	overlaps := make([]WorkflowDomainOverlap, 0, maxWorkflowOverlapDetailItems+5)
+	for i := 0; i < maxWorkflowOverlapDetailItems+5; i++ {
+		overlaps = append(overlaps, WorkflowDomainOverlap{
+			ProductID:               "concord",
+			FromWorkID:              fmt.Sprintf("work-%024d", i),
+			ToWorkID:                "work-000000000000000000000999",
+			FromContractVersion:     1,
+			ToContractVersion:       1,
+			SharedAffectedDomainIDs: []string{"agent-surface"},
+			OverlapClasses:          []string{"affected_domain"},
+			ResolutionState:         "unresolved",
+			RecoveryActions:         []string{"resolve_overlap"},
+		})
+	}
+	failure := &DomainOverlapFailure{Overlaps: overlaps}
+	boundWorkflowDomainOverlapFailure(failure)
+	if len(failure.Overlaps) > maxWorkflowOverlapDetailItems {
+		t.Fatalf("overlap details exceed the envelope bound: got %d, want at most %d", len(failure.Overlaps), maxWorkflowOverlapDetailItems)
+	}
+	if failure.ReturnedOverlaps != len(failure.Overlaps) {
+		t.Fatalf("returned count does not match the list: got %d, want %d", failure.ReturnedOverlaps, len(failure.Overlaps))
+	}
+	if failure.TotalOverlaps != maxWorkflowOverlapDetailItems+5 {
+		t.Fatalf("total count lost the untrimmed population: got %d, want %d", failure.TotalOverlaps, maxWorkflowOverlapDetailItems+5)
+	}
+	if !failure.Truncated {
+		t.Fatal("a trimmed overlap list must report Truncated")
+	}
+}

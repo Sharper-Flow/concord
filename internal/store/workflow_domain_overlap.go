@@ -441,6 +441,10 @@ func boundWorkflowDomainOverlapFailure(failure *DomainOverlapFailure) {
 			detail.DetailTruncated = true
 		}
 	}
+	if len(failure.Overlaps) > maxWorkflowOverlapDetailItems {
+		failure.Overlaps = failure.Overlaps[:maxWorkflowOverlapDetailItems]
+		failure.Truncated = true
+	}
 	for {
 		failure.ReturnedOverlaps = len(failure.Overlaps)
 		encoded, _ := json.Marshal(failure)

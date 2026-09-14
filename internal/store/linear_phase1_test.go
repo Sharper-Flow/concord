@@ -448,6 +448,26 @@ func TestLinearLifecycleTransitionSkipsUnmappedLegacyConnection(t *testing.T) {
 	}
 }
 
+func TestLinearHealthReportsUnmappedLifecyclesOnLegacyConnection(t *testing.T) {
+	s := openTemp(t)
+	ctx := context.Background()
+	setupLinearProduct(t, s, "health-legacy-product")
+	setupLinearConnectionResource(t, s, "health-legacy-product", map[string]any{"linear": map[string]any{
+		"workspace_url": "https://linear.app/example", "team_id": "team-uuid-1", "auth_mode": "personal_api_key",
+		"status_ids": map[string]string{"completed": "state-completed", "cancelled": "state-cancelled", "superseded": "state-superseded"},
+	}})
+	if _, err := s.SetProductPlanningMode(ctx, "health-legacy-product", PlanningModeLinear, "pilot", "operator", 2); err != nil {
+		t.Fatal(err)
+	}
+	health, err := s.ReadLinearIntegrationHealth(ctx, "health-legacy-product")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(health.UnmappedLifecycles) != 2 || health.UnmappedLifecycles[0] != "in_progress" || health.UnmappedLifecycles[1] != "needed" {
+		t.Fatalf("unmapped lifecycles = %v, want [in_progress needed]", health.UnmappedLifecycles)
+	}
+}
+
 func TestLinearConnectionUpdateAcceptsSharedStatusAcrossLifecycles(t *testing.T) {
 	s := openTemp(t)
 	ctx := context.Background()

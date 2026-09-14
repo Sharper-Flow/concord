@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 )
@@ -80,6 +81,7 @@ type LinearIntegrationHealth struct {
 	OutboxDepth                   int               `json:"outbox_depth"`
 	OutboxOldestPendingAgeSeconds int64             `json:"outbox_oldest_pending_age_seconds"`
 	LinkCounts                    map[string]int    `json:"link_counts"`
+	UnmappedLifecycles            []string          `json:"unmapped_lifecycles"`
 }
 
 type productPlanningModeSetPayload struct {
@@ -643,6 +645,18 @@ func (s *Store) ReadLinearIntegrationHealth(ctx context.Context, productID strin
 	}
 	if connection.State != LinearConnectionAbsent {
 		health.Connection = &connection
+	}
+	// A declared connection may predate the widened mapping and carry only
+	// the terminal lifecycles. Health names the gap so the operator can
+	// re-declare without reading the resource record.
+	health.UnmappedLifecycles = []string{}
+	if connection.State == LinearConnectionDeclared {
+		for lifecycle := range lifecycleStates {
+			if connection.StatusIDs[lifecycle] == "" {
+				health.UnmappedLifecycles = append(health.UnmappedLifecycles, lifecycle)
+			}
+		}
+		sort.Strings(health.UnmappedLifecycles)
 	}
 	var oldestPending string
 	if err := s.db.QueryRowContext(ctx, `SELECT count(*), coalesce(min(CASE WHEN state IN ('queued','in_flight') THEN created_at END), '') FROM linear_outbox o WHERE EXISTS (SELECT 1 FROM work_projects wp JOIN product_projects pp ON pp.project_id=wp.project_id WHERE wp.work_id=o.work_id AND pp.product_id=?)`, productID).Scan(&health.OutboxDepth, &oldestPending); err != nil {

@@ -53,7 +53,7 @@ type LinearConnection struct {
 	WorkspaceURL string            `json:"workspace_url"`
 	TeamID       string            `json:"team_id"`
 	AuthMode     string            `json:"auth_mode"`
-	ProjectID    string            `json:"project_id,omitempty"`
+	ProjectIDs   map[string]string `json:"project_ids,omitempty"`
 	StatusIDs    map[string]string `json:"status_ids,omitempty"`
 	State        string            `json:"state"` // declared | partial | absent
 }
@@ -250,14 +250,25 @@ ORDER BY r.resource_id`, productID)
 		if v, ok := linear["auth_mode"].(string); ok {
 			candidate.AuthMode = v
 		}
-		if v, ok := linear["project_id"].(string); ok {
-			candidate.ProjectID = v
-		} else if _, exists := linear["project_id"]; exists {
-			return LinearConnection{}, newFailure(KindInvalidPayload, "linear_connection_read", "Linear project_id must be a string", false, "supply a bounded project id or omit project_id")
-		}
-		if candidate.ProjectID != "" {
-			if err := validateLinearConnectionID(candidate.ProjectID, "project id"); err != nil {
-				return LinearConnection{}, err
+		if encoded, exists := linear["project_ids"]; exists {
+			rawProjects, marshalErr := json.Marshal(encoded)
+			var projectIDs map[string]json.RawMessage
+			if marshalErr != nil || json.Unmarshal(rawProjects, &projectIDs) != nil || projectIDs == nil {
+				return LinearConnection{}, newFailure(KindInvalidPayload, "linear_connection_read", "Linear project_ids must be an object", false, "supply Concord project id to Linear project id mappings")
+			}
+			candidate.ProjectIDs = make(map[string]string, len(projectIDs))
+			for projectID, value := range projectIDs {
+				if err := validateLinearConnectionID(projectID, "Concord project id"); err != nil {
+					return LinearConnection{}, err
+				}
+				var linearProjectID string
+				if err := json.Unmarshal(value, &linearProjectID); err != nil {
+					return LinearConnection{}, newFailure(KindInvalidPayload, "linear_connection_read", "Linear project_ids values must be strings", false, "supply Concord project id to Linear project id mappings")
+				}
+				if err := validateLinearConnectionID(linearProjectID, "Linear project id"); err != nil {
+					return LinearConnection{}, err
+				}
+				candidate.ProjectIDs[projectID] = linearProjectID
 			}
 		}
 		if encoded, exists := linear["status_ids"]; exists {
@@ -302,15 +313,14 @@ ORDER BY r.resource_id`, productID)
 }
 
 // LinearConnectionUpdateRequest changes the destination and status mapping
-// owned by one Product's managed Linear resource. A nil StatusIDs keeps the
-// existing mapping. An empty ProjectID keeps an existing project or leaves it
-// absent, which preserves the optional-project contract.
+// owned by one Product's managed Linear resource. Nil maps keep their existing
+// values. Non-nil maps replace the complete mapping.
 type LinearConnectionUpdateRequest struct {
 	EventID                 string
 	ResourceID              string
 	ProductID               string
 	TeamID                  string
-	ProjectID               string
+	ProjectIDs              map[string]string
 	StatusIDs               map[string]string
 	ExpectedResourceVersion int64
 	Actor                   string
@@ -329,9 +339,14 @@ func (s *Store) UpdateLinearConnection(ctx context.Context, req LinearConnection
 			return err
 		}
 	}
-	if req.ProjectID != "" {
-		if err := validateLinearConnectionID(req.ProjectID, "project id"); err != nil {
-			return err
+	if req.ProjectIDs != nil {
+		for projectID, linearProjectID := range req.ProjectIDs {
+			if err := validateLinearConnectionID(projectID, "Concord project id"); err != nil {
+				return err
+			}
+			if err := validateLinearConnectionID(linearProjectID, "Linear project id"); err != nil {
+				return err
+			}
 		}
 	}
 	if req.StatusIDs != nil {
@@ -384,9 +399,10 @@ func (s *Store) UpdateLinearConnection(ctx context.Context, req LinearConnection
 	if req.TeamID != "" {
 		linear["team_id"], _ = json.Marshal(req.TeamID)
 	}
-	if req.ProjectID != "" {
-		linear["project_id"], _ = json.Marshal(req.ProjectID)
+	if req.ProjectIDs != nil {
+		linear["project_ids"], _ = json.Marshal(req.ProjectIDs)
 	}
+	delete(linear, "project_id")
 	if req.StatusIDs != nil {
 		linear["status_ids"], _ = json.Marshal(req.StatusIDs)
 	}
@@ -816,6 +832,31 @@ WHERE w.id = ?`, workID)
 	}
 }
 
+// resolveLinearProject resolves the primary Concord project for a work item
+// within its owning Product. Project names make unmapped routing refusals
+// actionable for the operator.
+func (s *Store) resolveLinearProject(ctx context.Context, workID, productID string) (string, string, error) {
+	return resolveLinearProjectCore(ctx, s.db, workID, productID)
+}
+
+func resolveLinearProjectCore(ctx context.Context, q queryer, workID, productID string) (string, string, error) {
+	var projectID, displayName string
+	err := q.QueryRowContext(ctx, `
+SELECT wp.project_id, p.display_name
+FROM work_items w
+JOIN work_projects wp ON wp.work_id = w.id AND wp.role = 'primary'
+JOIN product_projects pp ON pp.project_id = wp.project_id AND pp.product_id = ?
+JOIN projects p ON p.id = wp.project_id
+WHERE w.id = ?`, productID, workID).Scan(&projectID, &displayName)
+	if err == sql.ErrNoRows {
+		return "", "", newFailure(KindUnknownScope, "linear_project_resolve", "work item has no owning Concord project in the Product", false, "supply a work item with one primary project in the owning Product")
+	}
+	if err != nil {
+		return "", "", wrapFailure(KindUnavailable, "linear_project_resolve", "cannot resolve the work item's Concord project", true, "retry once the database is readable", err)
+	}
+	return projectID, displayName, nil
+}
+
 // EnqueueLinearIssueForWork queues one outbound issue operation for a work
 // item and records its link as unpublished. The guards are the CD-0121
 // boundaries: local_only refuses, linear_enabled without a declared
@@ -930,6 +971,14 @@ func enqueueLinearIssueForWorkCore(ctx context.Context, q queryer, expectedProdu
 	if connection.State != LinearConnectionDeclared {
 		return linearIssueEnqueuePlan{}, newFailure(KindInvalidOperation, "linear_issue_enqueue", "linear_enabled Product has no declared Linear connection", false, "declare the connection as a managed saas_account resource or set the mode back to local_only")
 	}
+	projectID, projectName, err := resolveLinearProjectCore(ctx, q, workID, productID)
+	if err != nil {
+		return linearIssueEnqueuePlan{}, err
+	}
+	linearProjectID := connection.ProjectIDs[projectID]
+	if linearProjectID == "" {
+		return linearIssueEnqueuePlan{}, newFailure(KindInvalidRelation, "linear_issue_enqueue", fmt.Sprintf("Concord project %q is not mapped in Linear project_ids", projectName), false, "add the owning Concord project to project_ids before enqueueing Linear issues")
+	}
 	createLink := false
 	if opKind == LinearOpIssueUpdate {
 		var linkState string
@@ -960,7 +1009,7 @@ func enqueueLinearIssueForWorkCore(ctx context.Context, q queryer, expectedProdu
 		return linearIssueEnqueuePlan{}, err
 	}
 	description := composeLinearIssueBody(valueStatement, premise, workID)
-	payload, err := json.Marshal(linearPayload{ClientUUID: clientUUID, ProductID: productID, Title: title, Description: description, TeamID: connection.TeamID, ProjectID: connection.ProjectID, ConnectionVersion: connection.Version, Lifecycle: lifecycle, StatusID: statusID})
+	payload, err := json.Marshal(linearPayload{ClientUUID: clientUUID, ProductID: productID, Title: title, Description: description, TeamID: connection.TeamID, ProjectID: linearProjectID, ConnectionVersion: connection.Version, Lifecycle: lifecycle, StatusID: statusID})
 	if err != nil {
 		return linearIssueEnqueuePlan{}, wrapFailure(KindUnavailable, "linear_issue_enqueue", "cannot encode payload", true, "retry the enqueue", err)
 	}

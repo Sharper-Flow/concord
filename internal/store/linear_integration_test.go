@@ -109,6 +109,12 @@ func setupLinearConnectionResource(t *testing.T, s *Store, productID string, met
 func setupLinearConnectionResourceAtVersion(t *testing.T, s *Store, productID string, metadata map[string]any, expectedVersion int64) {
 	t.Helper()
 	ctx := context.Background()
+	linear, _ := metadata["linear"].(map[string]any)
+	if linear != nil {
+		if _, exists := linear["project_ids"]; !exists {
+			linear["project_ids"] = map[string]string{productID + "-project": "linear-project-1"}
+		}
+	}
 	now := time.Date(2026, 9, 9, 0, 0, 0, 0, time.UTC)
 	raw, _ := json.Marshal(metadata)
 	if _, err := CreateManagedResource(ctx, s, ManagedResourceCreateRequest{
@@ -158,11 +164,11 @@ func TestLinearConnectionUpdateIsVersionCheckedAndPreservesMetadata(t *testing.T
 	setupLinearProduct(t, s, "update-connection-product")
 	setupLinearConnectionResource(t, s, "update-connection-product", map[string]any{
 		"unrelated": "preserved",
-		"linear":    map[string]any{"workspace_url": "https://linear.app/example", "team_id": "old-team", "auth_mode": "personal_api_key", "status_ids": map[string]string{"cancelled": "old-cancelled", "completed": "old-completed", "superseded": "old-superseded"}},
+		"linear":    map[string]any{"workspace_url": "https://linear.app/example", "team_id": "old-team", "auth_mode": "personal_api_key", "project_id": "legacy-project", "project_ids": map[string]string{"update-connection-product-project": "old-project", "stale-project": "stale-project"}, "status_ids": map[string]string{"cancelled": "old-cancelled", "completed": "old-completed", "superseded": "old-superseded"}},
 	})
 	if err := s.UpdateLinearConnection(ctx, LinearConnectionUpdateRequest{
 		EventID: "update-linear-connection", ResourceID: "linear-conn-update-connection-product", ProductID: "update-connection-product",
-		TeamID: "new-team", ProjectID: "new-project", StatusIDs: map[string]string{"needed": "new-needed", "in_progress": "new-in-progress", "cancelled": "new-cancelled", "completed": "new-completed", "superseded": "new-superseded"},
+		TeamID: "new-team", ProjectIDs: map[string]string{"update-connection-product-project": "new-project"}, StatusIDs: map[string]string{"needed": "new-needed", "in_progress": "new-in-progress", "cancelled": "new-cancelled", "completed": "new-completed", "superseded": "new-superseded"},
 		ExpectedResourceVersion: 1, Actor: "operator", OccurredAt: time.Date(2026, 9, 9, 1, 0, 0, 0, time.UTC),
 	}); err != nil {
 		t.Fatalf("UpdateLinearConnection() error = %v", err)
@@ -171,7 +177,7 @@ func TestLinearConnectionUpdateIsVersionCheckedAndPreservesMetadata(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	if connection.TeamID != "new-team" || connection.ProjectID != "new-project" || connection.StatusIDs["cancelled"] != "new-cancelled" || connection.Version != 2 {
+	if connection.TeamID != "new-team" || len(connection.ProjectIDs) != 1 || connection.ProjectIDs["update-connection-product-project"] != "new-project" || connection.StatusIDs["cancelled"] != "new-cancelled" || connection.Version != 2 {
 		t.Fatalf("updated connection = %+v", connection)
 	}
 	var metadataJSON string
@@ -184,6 +190,13 @@ func TestLinearConnectionUpdateIsVersionCheckedAndPreservesMetadata(t *testing.T
 	}
 	if metadata["unrelated"] != "preserved" {
 		t.Fatalf("unrelated metadata = %v, want preserved", metadata["unrelated"])
+	}
+	linearMetadata, ok := metadata["linear"].(map[string]any)
+	if !ok {
+		t.Fatalf("linear metadata = %v, want object", metadata["linear"])
+	}
+	if _, exists := linearMetadata["project_id"]; exists {
+		t.Fatalf("legacy project_id remains in Linear metadata: %v", linearMetadata["project_id"])
 	}
 	if err := s.UpdateLinearConnection(ctx, LinearConnectionUpdateRequest{
 		EventID: "stale-linear-connection", ResourceID: connection.ResourceID, ProductID: "update-connection-product",
@@ -217,6 +230,59 @@ func TestLinearConnectionUpdateRequiresCompleteReplacementStatusMapping(t *testi
 				t.Fatalf("status mapping %v was accepted", statusIDs)
 			}
 		})
+	}
+}
+
+func TestLinearIssueEnqueueUsesTheOwningProjectMapping(t *testing.T) {
+	s := openTemp(t)
+	ctx := context.Background()
+	setupLinearProduct(t, s, "routing-product")
+	setupLinearConnectionResource(t, s, "routing-product", map[string]any{
+		"linear": map[string]any{
+			"workspace_url": "https://linear.app/example",
+			"team_id":       "team-uuid-1",
+			"auth_mode":     "personal_api_key",
+			"project_ids": map[string]string{
+				"routing-product-project": "linear-project-one",
+				"other-project":           "linear-project-two",
+			},
+		},
+	})
+	if _, err := s.SetProductPlanningMode(ctx, "routing-product", PlanningModeLinear, "pilot", "operator", 2); err != nil {
+		t.Fatal(err)
+	}
+	seedLinearWorkItem(t, s, "routing-work", "routing-product-project", "Routing title", "Routing value")
+	op, err := s.EnqueueLinearIssueForWork(ctx, "routing-work", LinearOpIssueCreate)
+	if err != nil {
+		t.Fatalf("EnqueueLinearIssueForWork() error = %v", err)
+	}
+	var payload linearPayload
+	if err := json.Unmarshal(op.Payload, &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.ProjectID != "linear-project-one" {
+		t.Fatalf("payload project id = %q, want linear-project-one", payload.ProjectID)
+	}
+}
+
+func TestLinearIssueEnqueueRefusesAnUnmappedOwningProject(t *testing.T) {
+	s := openTemp(t)
+	ctx := context.Background()
+	setupLinearProduct(t, s, "unmapped-product")
+	setupLinearConnectionResource(t, s, "unmapped-product", map[string]any{
+		"linear": map[string]any{
+			"workspace_url": "https://linear.app/example",
+			"team_id":       "team-uuid-1",
+			"auth_mode":     "personal_api_key",
+			"project_ids":   map[string]string{"other-project": "linear-project-two"},
+		},
+	})
+	if _, err := s.SetProductPlanningMode(ctx, "unmapped-product", PlanningModeLinear, "pilot", "operator", 2); err != nil {
+		t.Fatal(err)
+	}
+	seedLinearWorkItem(t, s, "unmapped-work", "unmapped-product-project", "Unmapped title", "Unmapped value")
+	if _, err := s.EnqueueLinearIssueForWork(ctx, "unmapped-work", LinearOpIssueCreate); err == nil || !strings.Contains(err.Error(), "Core") || !strings.Contains(err.Error(), "not mapped") {
+		t.Fatalf("unmapped project error = %v, want named refusal", err)
 	}
 }
 

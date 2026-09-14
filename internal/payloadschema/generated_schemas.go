@@ -174,59 +174,7 @@ const GeneratedPayloadSchemaDocument = `{
       "properties": {
         "sessions": {
           "items": {
-            "additionalProperties": false,
-            "properties": {
-              "agent_ref": {
-                "$ref": "#/$defs/id"
-              },
-              "block_age_seconds": {
-                "minimum": 0,
-                "type": "integer"
-              },
-              "blocked_since": {
-                "maxLength": 40,
-                "minLength": 10,
-                "type": "string"
-              },
-              "consequence": {
-                "enum": [
-                  "read",
-                  "intent",
-                  "lifecycle",
-                  "workflow_action",
-                  "scope",
-                  "relation",
-                  "supersession",
-                  "publication",
-                  "recovery",
-                  "research"
-                ],
-                "type": "string"
-              },
-              "directory": {
-                "maxLength": 4096,
-                "minLength": 1,
-                "type": "string"
-              },
-              "session_ref": {
-                "$ref": "#/$defs/id"
-              },
-              "worktree": {
-                "maxLength": 4096,
-                "minLength": 1,
-                "type": "string"
-              }
-            },
-            "required": [
-              "session_ref",
-              "agent_ref",
-              "worktree",
-              "directory",
-              "consequence",
-              "blocked_since",
-              "block_age_seconds"
-            ],
-            "type": "object"
+            "$ref": "#/$defs/product_row_blocked_session"
           },
           "maxItems": 100,
           "type": "array"
@@ -3011,6 +2959,61 @@ const GeneratedPayloadSchemaDocument = `{
       ],
       "type": "object"
     },
+    "product_row_blocked_session": {
+      "additionalProperties": false,
+      "properties": {
+        "agent_ref": {
+          "$ref": "#/$defs/id"
+        },
+        "block_age_seconds": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "blocked_since": {
+          "maxLength": 40,
+          "minLength": 10,
+          "type": "string"
+        },
+        "consequence": {
+          "enum": [
+            "read",
+            "intent",
+            "lifecycle",
+            "workflow_action",
+            "scope",
+            "relation",
+            "supersession",
+            "publication",
+            "recovery",
+            "research"
+          ],
+          "type": "string"
+        },
+        "directory": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "type": "string"
+        },
+        "session_ref": {
+          "$ref": "#/$defs/id"
+        },
+        "worktree": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "session_ref",
+        "agent_ref",
+        "worktree",
+        "directory",
+        "consequence",
+        "blocked_since",
+        "block_age_seconds"
+      ],
+      "type": "object"
+    },
     "product_row_focus": {
       "additionalProperties": false,
       "properties": {
@@ -3023,6 +3026,13 @@ const GeneratedPayloadSchemaDocument = `{
             "ready"
           ],
           "type": "string"
+        },
+        "blocked_sessions": {
+          "items": {
+            "$ref": "#/$defs/product_row_blocked_session"
+          },
+          "maxItems": 100,
+          "type": "array"
         },
         "lifecycle": {
           "$ref": "#/$defs/lifecycle"

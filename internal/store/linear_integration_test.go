@@ -338,6 +338,19 @@ func TestLinearIntegrationHealthRead(t *testing.T) {
 	if health.OutboxDepth != 1 || health.LinkCounts[LinearLinkUnpublished] != 1 {
 		t.Fatalf("populated health = %+v", health)
 	}
+	if err := s.ClaimLinearOperation(ctx, "hop-1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.CompleteLinearOperation(ctx, "hop-1", LinearRemoteIdentity{RemoteUUID: "health-remote"}); err != nil {
+		t.Fatal(err)
+	}
+	health, err = s.ReadLinearIntegrationHealth(ctx, "health-product")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if health.OutboxDepth != 0 || health.OutboxOldestPendingAgeSeconds != 0 {
+		t.Fatalf("completed outbox health = %+v", health)
+	}
 
 	// Unknown Products refuse rather than reporting empty health.
 	if _, err := s.ReadLinearIntegrationHealth(ctx, "ghost"); err == nil || !failureKindIs(err, KindUnknownScope) {

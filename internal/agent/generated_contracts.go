@@ -6,7 +6,7 @@ import (
 	"fmt"
 )
 
-const ManifestDigest = "sha256:ddf77a94d1ff29e5b5d70e7fe354967fdbacc194eda8a89b0f87d6be2dda62e8"
+const ManifestDigest = "sha256:bb97acd4db4eb679862e96411556bc6046e3c996b8ef04da758b957d020944e8"
 
 type OperationKind string
 
@@ -182,7 +182,8 @@ var GeneratedPayloadRules = map[string]GeneratedPayloadRule{
 	"product_row":                                  {Required: []string{"product_id", "display_name", "stage", "reliance", "action_counts"}, Properties: []string{"product_id", "display_name", "display_name_suffix", "stage", "reliance", "action_counts", "focus", "focus_absent_reason"}},
 	"product_row_action_counts":                    {Required: []string{"state"}, Properties: []string{"state", "values", "unavailable"}},
 	"product_row_action_values":                    {Required: []string{"in_progress", "blocked", "ready", "active_problems", "approval_required", "overdue_awaits"}, Properties: []string{"in_progress", "blocked", "ready", "active_problems", "approval_required", "overdue_awaits"}},
-	"product_row_focus":                            {Required: []string{"work_id", "title", "work_kind", "lifecycle", "attention_kind", "priority", "project_count", "stage_context"}, Properties: []string{"work_id", "title", "work_kind", "lifecycle", "attention_kind", "priority", "workflow_step_label", "project_count", "stage_context"}},
+	"product_row_blocked_session":                  {Required: []string{"session_ref", "agent_ref", "worktree", "directory", "consequence", "blocked_since", "block_age_seconds"}, Properties: []string{"session_ref", "agent_ref", "worktree", "directory", "consequence", "blocked_since", "block_age_seconds"}},
+	"product_row_focus":                            {Required: []string{"work_id", "title", "work_kind", "lifecycle", "attention_kind", "priority", "project_count", "stage_context"}, Properties: []string{"work_id", "title", "work_kind", "lifecycle", "attention_kind", "priority", "workflow_step_label", "project_count", "stage_context", "blocked_sessions"}},
 	"product_row_page":                             {Required: []string{"observed_at", "rows"}, Properties: []string{"observed_at", "rows"}},
 	"product_row_portfolio_input":                  {Required: []string{"page"}, Properties: []string{"product_id", "page", "budget", "source", "requested_budget_seconds"}},
 	"product_row_reliance":                         {Required: []string{"authority", "observed_at", "age", "stale", "blocks_execution", "omissions"}, Properties: []string{"authority", "observed_at", "age", "stale", "blocks_execution", "reason", "omissions"}},

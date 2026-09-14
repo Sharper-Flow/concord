@@ -353,7 +353,21 @@ func claimWorktreeRawTx(ctx context.Context, tx *sql.Tx, req WorktreeClaimReques
 		return out, probeErr
 	}
 	if !created {
-		if _, err := runner.Run(ctx, repoRoot, "worktree", "add", pinnedPath, "-b", pinnedBranch, pinnedBase); err != nil {
+		// A branch left by a prior failed claim can be adopted only when it
+		// still points at the pinned base. A divergent branch is native state
+		// that this claim must not overwrite.
+		branchHead, branchExists, branchErr := worktreeBranchHead(ctx, runner, repoRoot, pinnedBranch)
+		if branchErr != nil {
+			return out, branchErr
+		}
+		if branchExists {
+			if branchHead != pinnedBase {
+				return out, newFailure(KindProjectionConflict, "worktree_claim", "existing branch does not match the pinned base", false, "resolve the existing branch before claiming this worktree")
+			}
+			if _, err := runner.Run(ctx, repoRoot, "worktree", "add", pinnedPath, pinnedBranch); err != nil {
+				return out, wrapFailure(KindGitUnreachable, "worktree_claim", "native worktree creation failed; the claim stays pending for reconciliation", true, "retry the same operation with the same op id", err)
+			}
+		} else if _, err := runner.Run(ctx, repoRoot, "worktree", "add", pinnedPath, "-b", pinnedBranch, pinnedBase); err != nil {
 			return out, wrapFailure(KindGitUnreachable, "worktree_claim", "native worktree creation failed; the claim stays pending for reconciliation", true, "retry the same operation with the same op id", err)
 		}
 		var verifyErr error
@@ -700,6 +714,13 @@ func reclaimWorktreeRawTx(ctx context.Context, tx *sql.Tx, req WorktreeReclaimRe
 	if _, err := runner.Run(ctx, repoRoot, "worktree", "remove", entry.Path); err != nil {
 		return out, wrapFailure(KindGitUnreachable, op, "reclaimed in Concord but native removal failed", true, "remove the worktree manually; the projection already records reclamation", err)
 	}
+	// -D, not -d: this Product squash-merges, so a reclaimed branch is
+	// usually not an ancestor of the default ref and git's own -d check
+	// would refuse it. branchIsMergedInto above is the authority that the
+	// branch is merged, and it recognizes a squash merge that -d cannot.
+	if _, err := runner.Run(ctx, repoRoot, "branch", "-D", "--", entry.Branch); err != nil {
+		return out, wrapFailure(KindGitUnreachable, op, "reclaimed in Concord but merged branch deletion failed", true, "delete the merged branch manually; the projection already records reclamation", err)
+	}
 	return worktreeEntryAfterReclaimTx(ctx, tx, req.WorkID, req.ProjectID)
 }
 
@@ -784,6 +805,22 @@ type worktreeFacts struct {
 	branch       string
 	headSHA      string
 	repositoryID string
+}
+
+func worktreeBranchHead(ctx context.Context, runner GitRunner, repoRoot, branch string) (string, bool, error) {
+	ref := "refs/heads/" + branch
+	if _, err := runner.Run(ctx, repoRoot, "show-ref", "--verify", "--quiet", ref); err != nil {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
+			return "", false, nil
+		}
+		return "", false, wrapFailure(KindGitUnreachable, "worktree_claim", "cannot inspect the existing branch", true, "retry once the repository is reachable", err)
+	}
+	out, err := runner.Run(ctx, repoRoot, "rev-parse", "--verify", ref+"^{commit}")
+	if err != nil {
+		return "", false, wrapFailure(KindGitUnreachable, "worktree_claim", "cannot resolve the existing branch", true, "retry once the repository is reachable", err)
+	}
+	return strings.TrimSpace(string(out)), true, nil
 }
 
 func (f worktreeFacts) raw() json.RawMessage {

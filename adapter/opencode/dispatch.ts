@@ -482,11 +482,30 @@ export function readSessionDirectory(stdout: string, sessionID: string): string 
   return null
 }
 
-async function readWorkerSessionDirectory(runner: DispatchRunner, binary: string, sessionID: string, signal: AbortSignal): Promise<string | null> {
+// A worker runs as a subagent session, and the session index lists no subagent.
+// Resolving a worker identifier against the index therefore always yields
+// nothing, which the core reads as an unresolvable directory and refuses. The
+// sanitized export does resolve a subagent and carries its parentID, and a
+// subagent runs in its parent's directory, so the parent's indexed directory is
+// the worker's real directory. The value still comes from the host's own
+// session record rather than from the claim the core is checking, so a worker
+// whose parent sits outside the claimed worktree is still refused.
+export function readSessionParent(stdout: string, sessionID: string): string | null {
+  let value: unknown
+  try { value = JSON.parse(stdout) } catch { return null }
+  if (!isRecord(value) || !isRecord(value.info)) return null
+  const info = value.info
+  if (info.id !== sessionID) return null
+  return typeof info.parentID === "string" && info.parentID !== "" ? info.parentID : null
+}
+
+async function readWorkerSessionDirectory(runner: DispatchRunner, binary: string, sessionID: string, signal: AbortSignal, parentID: string | null): Promise<string | null> {
   let listed: { exitCode: number; stdout: string; stderr: string }
   try { listed = await runner.run([binary, "session", "list", "--format", "json"], "", signal) } catch { return null }
   if (listed.exitCode !== 0) return null
-  return readSessionDirectory(listed.stdout, sessionID)
+  const direct = readSessionDirectory(listed.stdout, sessionID)
+  if (direct !== null) return direct
+  return parentID === null ? null : readSessionDirectory(listed.stdout, parentID)
 }
 
 // readRunTextParts returns the model's message text in emission order. The host
@@ -1150,7 +1169,7 @@ async function completeWorkerSession(
   const cli = concordBinaryPath(options.concordBinary)
   const credentials = options.credentials ?? defaultCredentials
   const provenance = await computeHostPromptProvenance(lane.id)
-  const workerDirectory = await readWorkerSessionDirectory(readbackRunner, binary, workerSessionID, signal)
+  const workerDirectory = await readWorkerSessionDirectory(readbackRunner, binary, workerSessionID, signal, readSessionParent(exported.stdout, workerSessionID))
 
   // CD-0056 D7: the adapter is the only component that sees worker output, so
   // the report is admitted here. A report that is absent, unparseable, invalid,

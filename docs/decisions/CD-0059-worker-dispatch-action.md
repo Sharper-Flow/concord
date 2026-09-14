@@ -13,6 +13,7 @@
   envelope-thin), CD-0013 (workflow authority)
 - **Preserves:** the CD-0044 signed-evidence boundary in full; lane identity
   validation; the worker authority boundary
+- **Amended by:** CD-0143 for verification-verdict correction after completed and accepted worker delivery
 - **Supersedes:** nothing
 
 ## Context

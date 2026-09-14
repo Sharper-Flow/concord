@@ -42,7 +42,7 @@ export interface AgentLanePacket {
 }
 
 export interface AgentLanePacketCorrection {
-  disposition: "failed" | "rejected"
+  disposition: "failed" | "rejected" | "verification"
   attempt_count: number
   attempt_limit: 3
   escalated: boolean

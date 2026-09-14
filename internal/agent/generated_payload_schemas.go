@@ -10503,7 +10503,8 @@ const GeneratedPayloadSchemaDocument = `{
         "disposition": {
           "enum": [
             "failed",
-            "rejected"
+            "rejected",
+            "verification"
           ],
           "type": "string"
         },

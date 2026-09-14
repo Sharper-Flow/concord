@@ -3429,6 +3429,21 @@ func mutationIsOverlapRecovery(tool, operation string, raw []byte) bool {
 		}
 		return false
 	}
+	// supersede_contract is the contract-correction recovery every overlap
+	// advertises, and it is the one action that can dissolve the overlap by
+	// changing what the contract modifies. Guarding it leaves a blocking pair
+	// resolvable only by the other party, so the gate refuses the escape it
+	// names. No other workflow action is exempt: the rest advance the pinned
+	// workflow, which is what CD-0041 D7 holds behind the boundary.
+	if tool == "concord_work_transition" && operation == "workflow_action" {
+		var input struct {
+			ActionID string `json:"action_id"`
+		}
+		if json.Unmarshal(raw, &input) == nil {
+			return input.ActionID == "supersede_contract"
+		}
+		return false
+	}
 	if tool == "concord_work_transition" && operation == "lifecycle" {
 		var input struct {
 			Target string `json:"target"`

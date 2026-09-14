@@ -1651,7 +1651,7 @@ func (r runtime) planResourceClaim(ctx context.Context, base Envelope, raw []byt
 		if _, err := store.ApplyOperationTx(ctx, tx, store.Operation{Events: []store.Event{{EventID: digest + ":claim", Kind: "work.resource_claimed", SubjectType: store.SubjectWorkItem, SubjectID: in.WorkID, Actor: grant.PrincipalRef, OccurredAt: r.Authority.now(), PayloadVersion: 1, Payload: payload}}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, in.WorkID): in.ExpectedVersion}}); err != nil {
 			return nil, nil, nil, err
 		}
-		changed := []ChangedRef{{EntityKind: "resource_claim", ID: in.ResourceKey, Version: strconv.FormatInt(in.ExpectedVersion+1, 10)}}
+		changed := []ChangedRef{{EntityKind: "work_item", ID: in.WorkID, Version: strconv.FormatInt(in.ExpectedVersion+1, 10)}}
 		return mutationPayload(changed, plan.intents), []string{in.ResourceKey}, changed, nil
 	}
 	return Envelope{}, nil, false
@@ -1671,7 +1671,7 @@ func (r runtime) planResourceRelease(ctx context.Context, base Envelope, raw []b
 		if _, err := store.ApplyOperationTx(ctx, tx, store.Operation{Events: []store.Event{{EventID: digest + ":release", Kind: "work.resource_claim_released", SubjectType: store.SubjectWorkItem, SubjectID: in.WorkID, Actor: grant.PrincipalRef, OccurredAt: r.Authority.now(), PayloadVersion: 1, Payload: payload}}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, in.WorkID): in.ExpectedVersion}}); err != nil {
 			return nil, nil, nil, err
 		}
-		changed := []ChangedRef{{EntityKind: "resource_claim", ID: in.ResourceKey, Version: strconv.FormatInt(in.ExpectedVersion+1, 10)}}
+		changed := []ChangedRef{{EntityKind: "work_item", ID: in.WorkID, Version: strconv.FormatInt(in.ExpectedVersion+1, 10)}}
 		return mutationPayload(changed, plan.intents), []string{in.ResourceKey}, changed, nil
 	}
 	return Envelope{}, nil, false
@@ -1716,8 +1716,8 @@ func (r runtime) planMessageSend(ctx context.Context, base Envelope, raw []byte,
 			}
 			recipients = filtered
 		}
-		// One event per (sender, recipient) pair: the work version
-		// advances once (on the sender) regardless of fan-out size.
+		// One event per (sender, recipient) pair advances the sender version
+		// once for each delivered message.
 		events := make([]store.Event, 0, len(recipients))
 		ids := make([]string, 0, len(recipients))
 		for i, recipient := range recipients {
@@ -1730,7 +1730,7 @@ func (r runtime) planMessageSend(ctx context.Context, base Envelope, raw []byte,
 		if _, err := store.ApplyOperationTx(ctx, tx, store.Operation{Events: events, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, in.WorkID): in.ExpectedVersion}}); err != nil {
 			return nil, nil, nil, err
 		}
-		changed := []ChangedRef{{EntityKind: "work_item", ID: in.WorkID, Version: strconv.FormatInt(in.ExpectedVersion+1, 10)}}
+		changed := []ChangedRef{{EntityKind: "work_item", ID: in.WorkID, Version: strconv.FormatInt(in.ExpectedVersion+int64(len(recipients)), 10)}}
 		return mutationPayload(changed, plan.intents), ids, changed, nil
 	}
 	return Envelope{}, nil, false

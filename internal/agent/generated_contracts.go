@@ -6,7 +6,7 @@ import (
 	"fmt"
 )
 
-const ManifestDigest = "sha256:c42a8674d6650de47cecc375c0adc1bf5d914691239d2da0e6385f8e77dd31a5"
+const ManifestDigest = "sha256:ddf77a94d1ff29e5b5d70e7fe354967fdbacc194eda8a89b0f87d6be2dda62e8"
 
 type OperationKind string
 
@@ -270,6 +270,7 @@ var GeneratedPayloadRules = map[string]GeneratedPayloadRule{
 	"workflow_completion_payload":                  {Required: []string{}, Properties: []string{"evidence_commit", "current_commit", "staleness"}},
 	"workflow_contract":                            {Required: []string{"version", "premise", "outcome_predicates", "required_evidence", "route_conventions", "spec_mandate", "changes_product_truth"}, Properties: []string{"version", "premise", "outcome_predicates", "required_evidence", "route_conventions", "spec_mandate", "law_revisions", "law_modifies", "rigor_class", "changes_product_truth", "architecture_binding"}},
 	"workflow_correction_context":                  {Required: []string{"disposition", "attempt_count", "attempt_limit", "escalated", "predicate_ids", "evidence_refs"}, Properties: []string{"disposition", "attempt_count", "attempt_limit", "escalated", "predicate_ids", "evidence_refs", "diagnosis", "strategy", "failure_kind", "failure_detail", "failed_attempt_id", "failed_attempt_epoch"}},
+	"workflow_design_content":                      {Required: []string{"approach", "decisions", "touched_refs"}, Properties: []string{"approach", "decisions", "touched_refs"}},
 	"workflow_design_decision":                     {Required: []string{"id", "question", "choice", "rationale", "rejected"}, Properties: []string{"id", "question", "choice", "rationale", "rejected"}},
 	"workflow_design_record":                       {Required: []string{"work_version", "approach", "decisions", "touched_refs", "recorded_at"}, Properties: []string{"work_version", "approach", "decisions", "touched_refs", "recorded_at"}},
 	"workflow_forward_relation":                    {Required: []string{"kind"}, Properties: []string{"kind", "class", "severity"}},

@@ -184,6 +184,11 @@ func bindAJ8GroundTruthReclamation(t *testing.T, sc jobScenario) jobObservation 
 // action produced.
 func approvedOpsAction(t *testing.T, s *store.Store, service *Service, grant Authority, privateKey ed25519.PrivateKey, env CallEnvelope, version int64, action string, fields map[string]any, key string) (Envelope, int64) {
 	t.Helper()
+	return approvedWorkflowActionWithVersions(t, s, service, grant, privateKey, env, version, action, fields, key, map[string]any{"work": version})
+}
+
+func approvedWorkflowActionWithVersions(t *testing.T, s *store.Store, service *Service, grant Authority, privateKey ed25519.PrivateKey, env CallEnvelope, version int64, action string, fields map[string]any, key string, versions map[string]any) (Envelope, int64) {
+	t.Helper()
 	input := map[string]any{"work_id": "work-1", "expected_version": version, "action_id": action, "idempotency_key": key}
 	if fields != nil {
 		input["fields"] = fields
@@ -204,7 +209,6 @@ func approvedOpsAction(t *testing.T, s *store.Store, service *Service, grant Aut
 		withApproval["approval"] = map[string]any{"approval_ref": challengeRef}
 		approvedRaw, _ := json.Marshal(withApproval)
 		scope := map[string]any{"product_id": "product-1", "project_ids": []string{"project-1"}, "work_ids": []string{"work-1"}, "scope_version": env.ScopeVersion}
-		versions := map[string]any{"work": version}
 		approvalEnv := env
 		approvalEnv.HostApproval = signedHostApproval(privateKey, challengeRef, mutationDigest("concord_work_transition", "workflow_action", env, approvedRaw), scope, versions, grant.SessionRef, grant.AgentRef, grant.Worktree, fixedTime(), nonceForChallenge(challengeRef))
 		resp = dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: approvedRaw}, approvalEnv)

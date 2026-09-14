@@ -743,22 +743,7 @@ func workflowSemanticActionEvents(ctx context.Context, tx *sql.Tx, definition Wo
 		if definition.Version < 6 {
 			return nil, nil
 		}
-		approach := workflowFieldStringDefault(fields, "approach", "")
-		rawDecisions := workflowFieldRaw(fields, "decisions")
-		var decisions []workflowDesignDecisionPayload
-		decoder := json.NewDecoder(strings.NewReader(string(rawDecisions)))
-		decoder.DisallowUnknownFields()
-		if len(rawDecisions) == 0 || decoder.Decode(&decisions) != nil || len(decisions) < 1 || len(decisions) > 16 {
-			return nil, newFailure(KindInvalidPayload, "workflow_action", "record_design requires a bounded decisions array", false, "supply one to sixteen typed design decisions")
-		}
-		for _, decision := range decisions {
-			if decision.Choice == "" {
-				return nil, newFailure(KindInvalidPayload, "workflow_action", "record_design refuses a decision with an empty choice", false, "supply the selected design choice")
-			}
-		}
-		return []Event{workflowTypedEvent(eventID, WorkflowDesignRecorded, request.WorkID, actor, request.Now, expected, map[string]any{
-			"approach": approach, "decisions": decisions, "touched_refs": workflowFieldStrings(fields, "touched_refs"),
-		})}, nil
+		return workflowDesignRecordedEvents(request, actor, raw, eventID, expected)
 	case "record_proposal":
 		return workflowProposalRecordedEvents(definition, request, actor, raw, eventID, expected)
 	case "approve_contract":
@@ -921,7 +906,8 @@ func workflowSemanticActionEvents(ctx context.Context, tx *sql.Tx, definition Wo
 		} else {
 			delete(successor, "law_modifies")
 		}
-		return []Event{workflowTypedEvent(eventID, WorkflowContractSuperseded, request.WorkID, actor, request.Now, expected, map[string]any{"previous_contract_version": previous, "new_contract_version": next, "supersede_reason": workflowFieldStringDefault(fields, "supersede_reason", "contract revision"), "audit_evidence": audit, "successor_contract": successor})}, nil
+		events := []Event{workflowTypedEvent(eventID, WorkflowContractSuperseded, request.WorkID, actor, request.Now, expected, map[string]any{"previous_contract_version": previous, "new_contract_version": next, "supersede_reason": workflowFieldStringDefault(fields, "supersede_reason", "contract revision"), "audit_evidence": audit, "successor_contract": successor})}
+		return appendWorkflowDesignCorrection(ctx, tx, definition, request, actor, fields["design_record"], eventID, expected, events)
 	case "accept_worker_result":
 		// Acceptance binds the attempt it certifies (#865). The evidence kind
 		// is the lane's capability class, so a verify lane's report is

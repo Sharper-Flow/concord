@@ -103,6 +103,7 @@ func workflowContractRecoveryPayloadFields() []WorkflowPayloadField {
 		actionStringField("supersede_reason", true, 4096),
 		actionListField("audit_evidence", true, 1, 32),
 		actionObjectField("architecture_binding", false, "architecture_binding"),
+		actionObjectField("design_record", false, "workflow_design_content"),
 	}
 }
 

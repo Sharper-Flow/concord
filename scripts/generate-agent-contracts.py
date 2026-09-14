@@ -249,6 +249,7 @@ def workflow_supersede_fields_schema(outcome_payload: dict) -> dict:
             "required_evidence": copy.deepcopy(string_list), "route_conventions": copy.deepcopy(string_list),
             "spec_mandate": copy.deepcopy(string_list), "law_modifies": copy.deepcopy(string_list),
             "rigor_class": {"$ref": "#/$defs/rigor_class"}, "architecture_binding": {"$ref": "#/$defs/architecture_binding"},
+            "design_record": {"$ref": "#/$defs/workflow_design_content"},
             "supersede_reason": {"type": "string", "minLength": 1, "maxLength": 4096}, "audit_evidence": copy.deepcopy(string_list),
         },
         "oneOf": [
@@ -256,6 +257,15 @@ def workflow_supersede_fields_schema(outcome_payload: dict) -> dict:
             {"required": ["outcome_kind", "outcome_payload"]},
         ],
     }
+
+
+def workflow_payload_object_schema(payload: dict, defs: dict) -> dict:
+    properties = {field["name"]: workflow_payload_field_schema(field, defs) for field in payload["fields"]}
+    required = [field["name"] for field in payload["fields"] if field.get("required")]
+    result = {"type": "object", "additionalProperties": False, "maxProperties": 32, "properties": properties}
+    if required:
+        result["required"] = required
+    return result
 
 
 def project_workflow_action_schema(document: dict, actions: list[dict]) -> dict:
@@ -293,6 +303,8 @@ def project_workflow_action_schema(document: dict, actions: list[dict]) -> dict:
     defs["proposal_text"] = {"type": "string", "minLength": 1, "maxLength": 512}
     defs["decision_record_text"] = {"type": "string", "minLength": 2, "maxLength": 128}
     defs["native_report_timestamp"] = {"type": "string", "minLength": 20, "maxLength": 64, "format": "date-time"}
+    design_action = next(action for action in actions if action["id"] == "record_design")
+    defs["workflow_design_content"] = workflow_payload_object_schema(design_action["payload"], defs)
 
     outer_properties = copy.deepcopy(common)
     outer_properties["selected_choice"] = {"type": "string", "enum": ["confirm", "revise", "stop"]}
@@ -305,16 +317,9 @@ def project_workflow_action_schema(document: dict, actions: list[dict]) -> dict:
             then = {"required": ["selected_choice", "decision_context_digest"], "not": {"required": ["fields"]}}
         else:
             def payload_branch(payload: dict) -> dict:
-                field_properties = {}
-                field_required = []
-                for field in payload["fields"]:
-                    field_properties[field["name"]] = workflow_payload_field_schema(field, defs)
-                    if field.get("required"):
-                        field_required.append(field["name"])
-                field_object = {"type": "object", "additionalProperties": False, "maxProperties": 32, "properties": field_properties}
+                field_object = workflow_payload_object_schema(payload, defs)
                 branch = {"properties": {"fields": field_object}, "not": {"anyOf": [{"required": ["selected_choice"]}, {"required": ["decision_context_digest"]}]}}
-                if field_required:
-                    field_object["required"] = field_required
+                if "required" in field_object:
                     branch["required"] = ["fields"]
                 return branch
 

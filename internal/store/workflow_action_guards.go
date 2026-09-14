@@ -60,6 +60,7 @@ var workflowActionGuards = map[string]workflowActionGuard{
 	"reject_worker_result":   {guardPhaseRecovery, guardRejectWorkerResultRecovery},
 	"request_correction":     {guardPhaseRecovery, guardRequestCorrectionRecovery},
 	"complete":               {guardPhaseBoundary, guardCompleteBoundary},
+	"dispatch_worker":        {guardPhaseBoundary, guardCurrentDesignBeforeDispatch},
 	"link_successor":         {guardPhasePostValidation, guardForwardLinkOnly},
 	"cross_context_boundary": {guardPhaseClaim, guardNoRestartDispatch},
 	"record_delivery":        {guardPhaseClaim, guardDeliveryFollowsStart},

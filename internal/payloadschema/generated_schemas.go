@@ -9925,6 +9925,9 @@ const GeneratedPayloadSchemaDocument = `{
                   "contract_version": {
                     "$ref": "#/$defs/version"
                   },
+                  "design_record": {
+                    "$ref": "#/$defs/workflow_design_content"
+                  },
                   "law_modifies": {
                     "items": {
                       "$ref": "#/$defs/id"
@@ -10742,6 +10745,40 @@ const GeneratedPayloadSchemaDocument = `{
         "escalated",
         "predicate_ids",
         "evidence_refs"
+      ],
+      "type": "object"
+    },
+    "workflow_design_content": {
+      "additionalProperties": false,
+      "maxProperties": 32,
+      "properties": {
+        "approach": {
+          "maxLength": 4096,
+          "minLength": 2,
+          "type": "string"
+        },
+        "decisions": {
+          "items": {
+            "$ref": "#/$defs/workflow_design_decision"
+          },
+          "maxItems": 16,
+          "minItems": 1,
+          "type": "array"
+        },
+        "touched_refs": {
+          "items": {
+            "$ref": "#/$defs/reference"
+          },
+          "maxItems": 64,
+          "minItems": 1,
+          "type": "array",
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "approach",
+        "decisions",
+        "touched_refs"
       ],
       "type": "object"
     },

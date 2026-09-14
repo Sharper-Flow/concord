@@ -5,6 +5,7 @@
 - **Scope:** Operator-approved contract correction before worker dispatch and after a recorded worker failure
 - **Approval:** The operator approved this bounded correction route.
 - **Related:** CD-0013, CD-0059, CD-0115, CD-0130
+- **Refines:** CD-0128
 - **Preserves:** Released workflow definitions, definition digests, worker attempt identity, and operator authority
 
 ## Context
@@ -56,6 +57,22 @@ correction. Action discovery and mutation preflight agree on that recovery
 route. Correcting a contract does not itself resolve compatibility with other
 work or permit execution through an unresolved overlap.
 
+### D6. Correct the contract and design through one approval
+
+The correction payload may include `design_record`: an approach, typed decisions,
+and touched references under the existing design bounds. It replaces an existing
+typed design, not a missing design step. The approval binds the whole payload,
+including the replacement design and expected versions.
+
+The core records the supersession and replacement design atomically. Without a
+replacement, an earlier design remains historical and cannot authorize worker
+dispatch. A later approved correction can supply the replacement. Work-version
+order determines validity, not timestamps. Replay preserves the same distinction.
+
+The work pin and dispatch guard use the same current-design predicate. No new
+late-step action or workflow-definition exception is required. Worker fences and
+ordinary overlap checks remain in force.
+
 ## Verification
 
 - The contract-correction checkpoint remains available on human checkpoints.
@@ -68,3 +85,6 @@ work or permit execution through an unresolved overlap.
 - Post-dispatch advance refusal names the accepted-result and failed-attempt routes.
 - The work pin includes the correction action at the current expected version.
 - The work pin omits refused advances while a dispatch holds the step, and restores them after a fresh start.
+- A replacement design cannot reuse an approval issued for different content.
+- Contract and design replacement replay without another design record.
+- An invalidated design blocks dispatch until an approved replacement is current.

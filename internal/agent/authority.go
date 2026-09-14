@@ -575,8 +575,11 @@ func (s *Service) validateHostApprovalAssertionIdentityTx(ctx context.Context, t
 	if err := s.authorityReady("agent_validate_host_approval"); err != nil {
 		return false, err
 	}
-	if tx == nil || assertion.ChallengeRef != check.ApprovalRef || assertion.RequestDigest != check.OperationDigest || assertion.SessionRef != in.SessionRef || assertion.AgentRef != in.AgentRef || assertion.Worktree != in.Worktree {
+	if tx == nil {
 		return false, transactionInvalid("agent_validate_host_approval")
+	}
+	if assertion.ChallengeRef != check.ApprovalRef || assertion.RequestDigest != check.OperationDigest || assertion.SessionRef != in.SessionRef || assertion.AgentRef != in.AgentRef || assertion.Worktree != in.Worktree {
+		return false, newRuntimeFailure("approval_invalid", "host approval assertion does not match the requested operation or caller", "request_approval", false)
 	}
 	issued, err := time.Parse(time.RFC3339Nano, assertion.IssuedAt)
 	if err != nil || issued.Before(s.now().Add(-s.skew())) || issued.After(s.now().Add(s.skew())) {

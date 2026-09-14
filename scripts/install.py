@@ -2125,6 +2125,8 @@ def recover_transaction(transaction_root: Path, paths: Paths) -> None:
         if phase != "cleanup":
             advance_phase(transaction_root, journal, "cleanup")
         cleanup_transaction(transaction_root, journal, paths)
+        if activating(str(journal["operation"])):
+            link_worktrees_root(paths)
         return
     ensure_rollback_safe(journal, paths)
     rollback_version(transaction_root, journal, paths)
@@ -2732,22 +2734,33 @@ def worktrees_root(paths: Paths) -> Path:
     return paths.data_root / "worktrees"
 
 
+def worktrees_project_file(paths: Paths) -> Path:
+    """Return the worktrees pointer after rejecting every symlinked component."""
+    root = worktrees_root(paths)
+    project_dir = root / ".opencode"
+    project_file = project_dir / "opencode.json"
+    for path, label in (
+        (paths.data_home, "installer data home"),
+        (paths.data_root, "installer data root"),
+        (root, "worktrees root"),
+        (project_dir, "worktrees OpenCode directory"),
+        (project_file, "worktrees OpenCode config"),
+    ):
+        if path.is_symlink():
+            raise InstallerError(f"refusing symlinked {label} {path}")
+    return project_file
+
+
 def plan_worktrees_root_link(paths: Paths) -> tuple[Path, str, bool]:
     """Plan the conduct pointer inherited by every Concord worktree."""
-    root = worktrees_root(paths)
-    if root.is_symlink():
-        raise InstallerError(f"refusing symlinked worktrees root {root}")
-    project_file = project_opencode_json(root)
+    project_file = worktrees_project_file(paths)
     new_text, changed = plan_project_link(project_file, conduct_instruction_entry(paths))
     return project_file, new_text, changed
 
 
 def plan_worktrees_root_unlink(paths: Paths) -> tuple[Path, str, bool]:
     """Plan removal of the conduct pointer without changing the worktree root."""
-    root = worktrees_root(paths)
-    if root.is_symlink():
-        raise InstallerError(f"refusing symlinked worktrees root {root}")
-    project_file = project_opencode_json(root)
+    project_file = worktrees_project_file(paths)
     new_text, changed = remove_conduct_entry(project_file, conduct_instruction_entry(paths))
     return project_file, new_text, changed
 
@@ -2764,7 +2777,6 @@ def link_worktrees_root(paths: Paths) -> bool:
 
 def unlink_worktrees_root(paths: Paths) -> bool:
     """Remove only the installer-owned conduct pointer from the worktree root."""
-    root = worktrees_root(paths)
     project_file, new_text, changed = plan_worktrees_root_unlink(paths)
     if not changed:
         return False
@@ -2777,7 +2789,7 @@ def unlink_worktrees_root(paths: Paths) -> bool:
     else:
         write_atomic(project_file, new_text.encode("utf-8"))
     try:
-        root.rmdir()
+        worktrees_root(paths).rmdir()
     except OSError:
         pass
     return True

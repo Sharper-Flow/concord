@@ -531,6 +531,37 @@ esac''',
             {"instructions": [str(self.root / "data" / "concord" / "current" / "instructions" / "*.md")]},
         )
 
+    def test_uninstall_refuses_a_symlinked_worktrees_config_parent(self) -> None:
+        self.make_release("v1.0.0")
+        installed = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
+        self.assertEqual(installed.returncode, 0, installed.stderr)
+
+        worktrees_root = self.root / "data" / "concord" / "worktrees"
+        outside_config = self.root / "outside" / "opencode.json"
+        outside_config.parent.mkdir()
+        outside_config.write_text(
+            json.dumps(
+                {"instructions": [str(self.root / "data" / "concord" / "current" / "instructions" / "*.md")]}
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        shutil.rmtree(worktrees_root / ".opencode")
+        (worktrees_root / ".opencode").symlink_to(outside_config.parent, target_is_directory=True)
+
+        result = self.run_installer("uninstall")
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn(str(worktrees_root / ".opencode"), result.stderr)
+        self.assertEqual(
+            outside_config.read_text(encoding="utf-8"),
+            json.dumps(
+                {"instructions": [str(self.root / "data" / "concord" / "current" / "instructions" / "*.md")]}
+            )
+            + "\n",
+        )
+        self.assertTrue((self.root / "data" / "concord" / installer.MANIFEST_NAME).exists())
+
     def test_repair_refuses_a_checksum_mismatch_before_changing_anything(self) -> None:
         self.make_release("v1.0.0")
         first = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
@@ -819,6 +850,9 @@ esac''',
                 self.assertEqual(stopped.returncode, 97, stopped.stderr)
                 recovered = self.run_installer("status")
                 self.assertEqual(recovered.returncode, 0, recovered.stderr)
+                if phase in {"manifest_committed", "cleanup"}:
+                    pointer = self.root / "data" / "concord" / "worktrees" / ".opencode" / "opencode.json"
+                    self.assertTrue(pointer.is_file(), f"{phase}: worktrees root conduct link was not restored")
                 installed = self.run_installer("install", "--version", version, "--artifact-dir", str(self.artifacts))
                 self.assertEqual(installed.returncode, 0, installed.stderr)
                 self.assertIn(f'"version": "{version}"', self.run_installer("status").stdout)

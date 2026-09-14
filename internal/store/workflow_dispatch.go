@@ -588,7 +588,7 @@ func bornBoundEvidenceEvents(ctx context.Context, tx *sql.Tx, workID string, def
 			return nil, nil, err
 		}
 	}
-	events := make([]Event, 0, len(evidence)*len(kinds))
+	events := make([]Event, 0, len(evidence))
 	effective := make([]string, 0, len(evidence)+1)
 	appendBinding := func(kind, ref string) {
 		events = append(events, workflowTypedEvent(eventID+":evidence:"+fmt.Sprint(len(events)), WorkflowEvidenceBound, workID, actor, request.Now, expected+int64(len(events)), map[string]any{

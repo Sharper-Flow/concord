@@ -23,6 +23,7 @@ type fakeWorktreeGit struct {
 	defaultRef string
 	headBranch string         // the ref HEAD resolves to; the fixture default is main
 	ahead      map[string]int // branch -> commit count beyond the default ref
+	unpushed   map[string]int // branch -> commits unreachable from local remotes
 	failAdd    bool
 	calls      [][]string
 }
@@ -47,6 +48,7 @@ func newFakeWorktreeGit(repoRoot string) *fakeWorktreeGit {
 		dirty:      map[string]bool{},
 		content:    map[string]string{},
 		ahead:      map[string]int{},
+		unpushed:   map[string]int{},
 		headBranch: "main",
 	}
 }
@@ -105,6 +107,9 @@ func (g *fakeWorktreeGit) Run(_ context.Context, dir string, args ...string) ([]
 			return nil, nil
 		}
 		return nil, fmt.Errorf("not an ancestor")
+	case strings.HasPrefix(join, "rev-list --count --not --remotes "):
+		branch := strings.TrimPrefix(join, "rev-list --count --not --remotes ")
+		return []byte(strconv.Itoa(g.unpushed[branch]) + "\n"), nil
 	case strings.HasPrefix(join, "rev-list --count "):
 		refs := strings.TrimPrefix(join, "rev-list --count ")
 		dotdot := strings.Index(refs, "..")

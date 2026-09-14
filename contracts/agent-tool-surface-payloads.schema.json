@@ -6085,7 +6085,9 @@
                   "stale_claim",
                   "stranded_needed",
                   "terminal_present",
-                  "unstarted_present"
+                  "unstarted_present",
+                  "uncommitted_content",
+                  "unpushed_content"
                 ]
               },
               "project_id": {
@@ -6113,12 +6115,22 @@
                 "enum": [
                   "remove_worktree",
                   "worktree_reclaim",
-                  "worktree_claim"
+                  "worktree_claim",
+                  "worktree_inspect"
                 ]
+              },
+              "risk": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64
               },
               "commits_ahead": {
                 "type": "integer",
                 "minimum": 0
+              },
+              "unpushed_commits": {
+                "type": "integer",
+                "minimum": 1
               },
               "claim_age_seconds": {
                 "type": "integer",
@@ -7681,7 +7693,9 @@
                   "stale_claim",
                   "stranded_needed",
                   "terminal_present",
-                  "unstarted_present"
+                  "unstarted_present",
+                  "uncommitted_content",
+                  "unpushed_content"
                 ]
               },
               "project_id": {
@@ -7709,12 +7723,22 @@
                 "enum": [
                   "remove_worktree",
                   "worktree_reclaim",
-                  "worktree_claim"
+                  "worktree_claim",
+                  "worktree_inspect"
                 ]
+              },
+              "risk": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64
               },
               "commits_ahead": {
                 "type": "integer",
                 "minimum": 0
+              },
+              "unpushed_commits": {
+                "type": "integer",
+                "minimum": 1
               },
               "claim_age_seconds": {
                 "type": "integer",

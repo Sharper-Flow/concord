@@ -55,6 +55,9 @@ func seedAgentOverlapFixtureWith(t *testing.T, capabilities []Capability) (*stor
 		// progress, so the fixture starts both sides. Without this the pair
 		// claims nothing and derives no overlap to resolve.
 		{"started lifecycles", `UPDATE work_items SET lifecycle='in_progress' WHERE id IN ('work-1','work-2')`, nil},
+		// Only a write intersection blocks, so the pair must modify the same
+		// Domain. A shared affected Domain alone derives no overlap.
+		{"shared Domain writes", `INSERT INTO workflow_contract_domain_modifications(work_id,contract_version,domain_id) VALUES('work-1',1,'root'),('work-2',1,'root')`, nil},
 		{"leave fold", `DELETE FROM fold_guard`, nil},
 	}
 	for _, statement := range statements {

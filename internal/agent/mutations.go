@@ -1148,7 +1148,7 @@ func (r runtime) planCapture(ctx context.Context, base Envelope, raw []byte, dig
 		return base, err, true
 	}
 	if message, refused := workKindMutationRefusal(in.Kind, store.WorkKindAgentCaptureAllowed(in.Kind), "work kind is not capturable"); refused {
-		return coreError(base, "invalid_input", message, "use_initiative_operation", false), nil, true
+		return coreError(base, "invalid_input", message, "reread_entities", false), nil, true
 	}
 	if len(in.ProjectIDs) == 0 {
 		return coreError(base, "invalid_input", "capture requires at least one Project membership", "reread_entities", false), nil, true
@@ -1241,7 +1241,7 @@ func (r runtime) planReviseIntent(ctx context.Context, base Envelope, raw []byte
 		return base, err, true
 	}
 	if message, refused := workKindMutationRefusal(in.Kind, store.WorkKindFoldReviseAllowed(in.Kind), "work kind cannot be revised"); refused {
-		return coreError(base, "invalid_input", message, "use_initiative_operation", false), nil, true
+		return coreError(base, "invalid_input", message, "reread_entities", false), nil, true
 	}
 	plan.versions["work"] = in.ExpectedVersion
 	plan.scope["work_ids"] = []string{in.WorkID}
@@ -1448,7 +1448,7 @@ func (r runtime) planLifecycle(ctx context.Context, base Envelope, raw []byte, d
 		return base, err, true
 	}
 	if in.Target == "superseded" {
-		return coreError(base, "invalid_input", "superseded is only available through relate.supersede", "use_relation_operation", false), nil, true
+		return coreError(base, "invalid_input", "superseded is only available through relate.supersede", "reread_entities", false), nil, true
 	}
 	// Terminal lifecycle transitions demand evidence before approval can be
 	// granted. Refuse the missing-evidence case structurally with a typed
@@ -1676,10 +1676,10 @@ func (r runtime) planMessageSend(ctx context.Context, base Envelope, raw []byte,
 		return base, err, true
 	}
 	if in.RecipientWorkID == "" && !in.Broadcast {
-		return coreError(base, "invalid_input", "message requires a recipient work id or broadcast", "supply_recipient_or_broadcast", false), nil, true
+		return coreError(base, "invalid_input", "message requires a recipient work id or broadcast", "resolve_ambiguity", false), nil, true
 	}
 	if in.RecipientWorkID != "" && in.Broadcast {
-		return coreError(base, "invalid_input", "message cannot both target one work and broadcast", "choose_addressing", false), nil, true
+		return coreError(base, "invalid_input", "message cannot both target one work and broadcast", "resolve_ambiguity", false), nil, true
 	}
 	plan.versions["work"] = in.ExpectedVersion
 	plan.scope["work_ids"] = []string{in.WorkID}
@@ -2291,7 +2291,7 @@ func (r runtime) planSetMemberships(ctx context.Context, base Envelope, raw []by
 		return base, err, true
 	}
 	if len(in.Memberships) == 0 {
-		return coreError(base, "invalid_input", "membership replacement cannot be empty", "supply_memberships", false), nil, true
+		return coreError(base, "invalid_input", "membership replacement cannot be empty", "reread_entities", false), nil, true
 	}
 	if in.Approval != nil {
 		plan.approval = in.Approval.ApprovalRef
@@ -2379,7 +2379,7 @@ func (r runtime) planUnlink(ctx context.Context, base Envelope, raw []byte, dige
 		return base, err, true
 	}
 	if len(in.ExpectedVersions) == 0 {
-		return coreError(base, "invalid_input", "unlink requires endpoint versions", "reread_relations", false), nil, true
+		return coreError(base, "invalid_input", "unlink requires endpoint versions", "reread_entities", false), nil, true
 	}
 	endpoints, endpointErr := r.Store.RelationEndpoints(ctx, in.RelationID)
 	if endpointErr != nil {
@@ -3515,7 +3515,7 @@ func (r runtime) unlinkEffect(digest string, in unlinkMutationInput, preflightEn
 		}
 		from, to, kind := relation.FromWorkID, relation.ToWorkID, relation.Kind
 		if len(preflightEndpoints) != 2 || from != preflightEndpoints[0] || to != preflightEndpoints[1] {
-			return nil, nil, nil, newRuntimeFailure("version_conflict", "relation endpoints changed after scope preflight", "reread_relations", false)
+			return nil, nil, nil, newRuntimeFailure("version_conflict", "relation endpoints changed after scope preflight", "reread_entities", false)
 		}
 		byWork, err := store.ProductsForWorkIDsTx(ctx, tx, []string{from, to})
 		if err != nil {

@@ -1,0 +1,30 @@
+{
+  "date": "2026-09-13T00:00:00Z",
+  "evidence": [
+    "internal/store/workflow_domain_overlap.go",
+    "internal/store/workflow_domain_overlap_test.go",
+    "docs/decisions/CD-0041-architecture-bound-product-law.md"
+  ],
+  "home_domain_id": "product-root:concord",
+  "id": "CD-0145",
+  "kind": "decision",
+  "path": "docs/decisions/CD-0145-domain-overlap-blocks-only-shared-writes.md",
+  "product_wide_rationale": "Defines the Product-wide authority boundary for concurrent Product-changing work, so no child Domain can own the rule that partitions write conflicts.",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:b3240c59f262e8ddb00bcf392f1642e3549fdce8d1b6513e96b8846ed0553400",
+  "status": "accepted",
+  "summary": "Amends CD-0041 D6 so Domain overlap blocks execution authority only for shared law writes, Domain modifications, or exact Domain-relation tuples. Shared affected Domains remain in refusal detail but do not block by themselves, and existing resolutions remain immutable history.",
+  "tags": [
+    "product-law",
+    "architecture",
+    "domains",
+    "concurrency"
+  ],
+  "title": "Domain overlap blocks only shared writes"
+}

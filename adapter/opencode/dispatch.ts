@@ -742,7 +742,7 @@ export function canonicalWorkerEvidence(assertion: Record<string, unknown>): Uin
 // never reaches the worker: it is produced here, after the run, and is not part
 // of the lane packet or any prompt surface.
 async function signWorkerEvidence(credentials: CredentialStore, fields: Record<string, unknown>): Promise<Record<string, unknown>> {
-  const assertion = { ...fields, client_ref: clientRef(), issued_at: new Date().toISOString(), nonce: randomNonce() }
+  const assertion = { ...fields, client_ref: clientRef(), issued_at: new Date().toISOString(), nonce: fields.nonce ?? randomNonce() }
   const privateKey = privateKeyObject(await credentials.getPrivateKey(clientRef()))
   return { ...assertion, signature: b64(signBytes(null, Buffer.from(canonicalWorkerEvidence(assertion)), privateKey)) }
 }
@@ -1128,13 +1128,13 @@ export async function failWorkerAttempt(
 // dispatch record and owns the worktree occupancy check.
 export async function abandonWorkerAttempt(
   lane: AgentLane,
-  packet: AgentLanePacket,
+  packet: Pick<AgentLanePacket, "work_id" | "attempt_id">,
   detail: string,
-  options: WorkerCompletionOptions,
+  options: WorkerCompletionOptions & { abandonEventID?: string; abandonNonce?: string },
   signal: AbortSignal,
   onRecorded?: () => void,
 ): Promise<AgentResultEnvelope> {
-  let observed: Awaited<ReturnType<typeof hostControlPlane>["liveSessionDirectories"]>
+  let observed: Awaited<ReturnType<ReturnType<typeof hostControlPlane>["liveSessionDirectories"]>>
   try {
     observed = await hostControlPlane().liveSessionDirectories(signal)
   } catch (error) {
@@ -1159,12 +1159,13 @@ export async function abandonWorkerAttempt(
       lane_digest: lane.digest,
       readback_model: "",
       failure_kind: "abandoned",
+      ...(options.abandonNonce ? { nonce: options.abandonNonce } : {}),
     })
   } catch (error) {
     return errorEnvelope(lane, packet, "error", "error", `worker attempt remains open because its abandonment assertion could not be signed: ${String(error)}`.slice(0, MAX_ERROR_BYTES), "contact_operator")
   }
   const failure = await recordWorkerEvent(cliRunner, binary, "worker-abandon", {
-    event_id: crypto.randomUUID(),
+    event_id: options.abandonEventID ?? crypto.randomUUID(),
     work_id: packet.work_id,
     attempt_id: packet.attempt_id,
     detail: detail.slice(0, MAX_FAILURE_DETAIL_BYTES),

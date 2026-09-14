@@ -1,8 +1,11 @@
-import { clientRef } from "./credentials"
+import { createHash } from "node:crypto"
+import { clientRef, type CredentialStore } from "./credentials"
 import { contractOperations, hostToolDescriptions, hostToolSchemas, maxEnvelopeBytes, payloadSchemas } from "./generated-contracts"
 import { activeManifestDigest, adoptManifestDigest, resolveDiskManifestDigest } from "./manifest-pin"
 import { validateGeneratedEnvelope, validateGeneratedPayload, envelopeFailurePath, payloadFailurePath } from "./generated-contract-tests"
 import { dispatchLaneWorker, type LaneDispatchInput } from "./lane_dispatch"
+import { abandonWorkerAttempt } from "./dispatch"
+import { agentLanes } from "./generated-agent-lanes"
 import { hostControlPlane, MoveSessionUnavailable } from "./move-session"
 import { createRunSessionObservation, errorEnvelopeForLane, MAX_OUTPUT_BYTES, observeRunSessionLine, readExportSessionMetadata, readRunSessionMetadata, readRunTextParts, runStreamRefusalMessage, runStreamRefusalRecovery, validateAgainstSchema, type AgentResultEnvelope, type RunLineMetadata, type RunSessionObservation } from "./dispatch"
 import { concordBinaryPath, CoreBinaryUnavailable } from "./dispatch"
@@ -122,10 +125,12 @@ const defaultRunner: ChildRunner = {
 }
 
 let runner: ChildRunner = defaultRunner
+let credentialsOverride: CredentialStore | null = null
 
-export function configureConcordAdapter(overrides: { runner?: ChildRunner; reset?: boolean } = {}) {
-  if (overrides.reset) runner = defaultRunner
+export function configureConcordAdapter(overrides: { runner?: ChildRunner; credentials?: CredentialStore; reset?: boolean } = {}) {
+  if (overrides.reset) { runner = defaultRunner; credentialsOverride = null }
   if (overrides.runner) runner = overrides.runner
+  if (overrides.credentials) credentialsOverride = overrides.credentials
 }
 
 function schemaName(ref: string): string {
@@ -964,7 +969,7 @@ export const knowledge = tool({ description: "Concord knowledge", args: argsSche
 export const work_define = tool({ description: "Concord work define", args: argsSchema("concord_work_define"), execute: (args: HostToolCall, context: ToolContext): Promise<ToolResult> => executeHostTool("concord_work_define", hostRequest(args), context) })
 export const domain = tool({ description: "Concord domain", args: argsSchema("concord_domain"), execute: (args: HostToolCall, context: ToolContext): Promise<ToolResult> => executeHostTool("concord_domain", hostRequest(args), context) })
 export const work_initiative = tool({ description: "Concord work initiative", args: argsSchema("concord_work_initiative"), execute: (args: HostToolCall, context: ToolContext): Promise<ToolResult> => executeHostTool("concord_work_initiative", hostRequest(args), context) })
-export const work_transition = tool({ description: "Concord work transition. Use operation workflow_action for declared workflow actions. Use action_id dispatch_worker with fields.lane_id for the native worker route. Route discovery does not prove admission at the current workflow step.", args: argsSchema("concord_work_transition"), execute: (args: HostToolCall, context: ToolContext): Promise<ToolResult> => executeHostTransition(hostRequest(args), context) })
+export const work_transition = tool({ description: "Concord work transition. Use operation workflow_action for declared workflow actions. Use operation worker_abandon with the attempt and lane identity to close a dispatched attempt with no report. Use action_id dispatch_worker with fields.lane_id for the native worker route. Route discovery does not prove admission at the current workflow step.", args: argsSchema("concord_work_transition"), execute: (args: HostToolCall, context: ToolContext): Promise<ToolResult> => executeHostTransition(hostRequest(args), context) })
 export const work_relate = tool({ description: "Concord work relate", args: argsSchema("concord_work_relate"), execute: (args: HostToolCall, context: ToolContext): Promise<ToolResult> => executeHostTool("concord_work_relate", hostRequest(args), context) })
 export const work_compact = tool({ description: "Concord work compact", args: argsSchema("concord_work_compact"), execute: (args: HostToolCall, context: ToolContext): Promise<ToolResult> => executeHostTool("concord_work_compact", hostRequest(args), context) })
 export const work_start = tool({ description: `${hostToolDescriptions.concord_work_start} ${workStartUsage}`, args: workStartArgsSchema(), execute: async (args: any, context: ToolContext): Promise<ToolResult> => {
@@ -1065,6 +1070,39 @@ async function reportWorktreeRemoval(args: HostToolArgs, context: ToolContext, e
   await hostControlPlane().showToast(`Concord removed the worktree of ${workID}.`, "info", context.abort)
 }
 
+const WORKER_ABANDON_OPERATION = "worker_abandon"
+
+function workerAbandonToken(idempotencyKey: string): string {
+  return createHash("sha256").update(`concord_work_transition.${WORKER_ABANDON_OPERATION}\0${idempotencyKey}`).digest("hex")
+}
+
+async function executeWorkerAbandon(args: HostToolArgs, context: ToolContext): Promise<HostConcordEnvelope> {
+  const requestID = `${context.sessionID}-${context.messageID}`
+  const leaseFault = hostLeaseFault()
+  if (leaseFault) return adapterError("concord_work_transition", WORKER_ABANDON_OPERATION, requestID, "transport_failure", "host_lease_missing", `${leaseFault}; no worker attempt was closed`, "none", "contact_operator")
+  const input = args.input
+  if (!validateGeneratedPayload("work_transition_worker_abandon_input", input)) {
+    return adapterError("concord_work_transition", WORKER_ABANDON_OPERATION, requestID, "invalid_input", "invalid_worker_abandon_input", `worker_abandon input failed the generated contract at ${payloadFailurePath("work_transition_worker_abandon_input", input)}`, "none", "correct_request")
+  }
+  const abandonInput = input as { work_id: string; attempt_id: string; lane_id: string; detail: string; idempotency_key: string }
+  const lane = agentLanes.find((candidate) => candidate.id === abandonInput.lane_id)
+  if (!lane) return adapterError("concord_work_transition", WORKER_ABANDON_OPERATION, requestID, "invalid_input", "unknown_worker_lane", `worker_abandon does not recognize lane ${JSON.stringify(abandonInput.lane_id)}`, "none", "correct_request")
+  const token = workerAbandonToken(abandonInput.idempotency_key)
+  const result = await abandonWorkerAttempt(lane, { work_id: abandonInput.work_id, attempt_id: abandonInput.attempt_id }, abandonInput.detail, {
+    credentials: credentialsOverride ?? undefined,
+    evidenceRunner: runner,
+    abandonEventID: `worker-abandon-${token}`,
+    abandonNonce: token,
+  }, context.abort)
+  if (result.error?.retry_safe === false) {
+    const receipt = await invokeConcordOperation("concord_work_transition", args, context)
+    if (receipt.outcome === "ok") return receipt
+    return adapterError("concord_work_transition", WORKER_ABANDON_OPERATION, requestID, "operation_conflict", "worker_abandon_receipt_failed", `the worker attempt was closed, but the durable replay receipt was not recorded: ${JSON.stringify(receipt.error ?? receipt)}`, "possible", "reconcile_operation")
+  }
+  const message = result.error?.message ?? "worker abandonment returned no diagnostic"
+  return adapterError("concord_work_transition", WORKER_ABANDON_OPERATION, requestID, "operation_conflict", "worker_abandon_refused", message, "none", "reconcile_operation")
+}
+
 // A claimed worktree is only the session's worktree when the session runs in
 // it. work_start moves the session through the same route; worktree_claim
 // recorded the claim durably but never moved the session, so a later lane
@@ -1138,6 +1176,7 @@ export async function moveSessionToRegisteredMainCheckout(args: HostToolArgs, co
 }
 
 async function executeWorkTransition(args: HostToolArgs, context: ToolContext): Promise<HostConcordEnvelope> {
+  if (args?.operation === WORKER_ABANDON_OPERATION) return executeWorkerAbandon(args, context)
   if (WORKTREE_REMOVAL_OPERATIONS.has(args?.operation)) {
     const observed = await observeSessionsForRemoval(args, context)
     // An unreadable host answers with the refusal itself, so nothing reaches

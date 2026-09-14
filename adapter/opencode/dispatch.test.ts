@@ -6,6 +6,12 @@ import { completeWorkerAttempt, concordBinaryPath, configureCoreBinary, defaultE
 // Fake-runner suite: bind worker-evidence CLI calls to a nominal core path
 // instead of the unstamped repository placeholder (CD-0111 D1).
 configureCoreBinary("concord-test")
+// This suite runs with no host. The completion path prefers a bound control
+// plane for its session observation, and other test files bind fake clients
+// into the module-shared instance; a runner that shares one process would
+// otherwise hand this file a host it never asked for. State the precondition.
+import { hostControlPlane } from "./move-session"
+hostControlPlane().bind(undefined)
 import { DispatchWindows } from "./dispatch-window"
 import type { CredentialStore } from "./credentials"
 

@@ -1803,6 +1803,32 @@ test("the host-owned tool description publishes the native dispatch route", () =
   expect(contractOperations.some((operation: any) => operation.id === "concord_work_transition.workflow_action")).toBe(true)
 })
 
+test("worker_abandon routes through the signed worker-abandon command", async () => {
+  bindSessionRoutes({ sessions: [{ id: "ses_other", directory: "/elsewhere" }] })
+  const calls: Array<{ argv: string[]; input: any }> = []
+  adapter.configureConcordAdapter({
+    credentials: { async getPrivateKey() { return new Uint8Array(32).fill(7) } },
+    runner: { async run(argv, input) {
+      calls.push({ argv, input: JSON.parse(input) })
+      if (argv[1] === "project-resolve") return { exitCode: 0, stdout: JSON.stringify(contextResponse()), stderr: "" }
+      if (argv[1] === "invoke") return { exitCode: 0, stdout: JSON.stringify(coreEnvelope("concord_work_transition", "worker_abandon", "ok", { result: { changed_refs: [], next_valid_intents: [] }, changed_refs: [], next_valid_intents: [] })), stderr: "" }
+      return { exitCode: 0, stdout: "", stderr: "" }
+    } },
+  })
+  const input = { work_id: "work-1", attempt_id: "attempt-1", lane_id: "implement", detail: "the worker session ended", idempotency_key: "worker-abandon-operation-1" }
+  const result: any = await rawHostResult(adapter.work_transition.execute(hostCall("worker_abandon", input), contextFor()))
+  expect(result.outcome).toBe("ok")
+  expect(result.operation).toBe("worker_abandon")
+  expect(calls).toHaveLength(3)
+  expect(calls[0].argv).toEqual(["concord", "worker-abandon"])
+  expect(calls[0].input.work_id).toBe("work-1")
+  expect(calls[0].input.attempt_id).toBe("attempt-1")
+  expect(calls[0].input.observed_session_directories).toEqual([{ session_ref: "ses_other", directory: "/elsewhere" }])
+  expect(calls[0].input.assertion).toMatchObject({ verb: "worker-fail", failure_kind: "abandoned", readback_model: "" })
+  expect(typeof calls[0].input.assertion.signature).toBe("string")
+  expect(calls.map(({ argv }) => argv[1])).toEqual(["worker-abandon", "project-resolve", "invoke"])
+})
+
 test("portable continuation posture leaves host protocol names to the host surface", () => {
   for (const hostTerm of [
     "Concord",

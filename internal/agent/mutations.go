@@ -115,6 +115,13 @@ type lifecycleMutationInput struct {
 	Evidence        []EvidenceRef  `json:"evidence"`
 	Approval        *approvalInput `json:"approval"`
 }
+type workerAbandonInput struct {
+	WorkID         string `json:"work_id"`
+	AttemptID      string `json:"attempt_id"`
+	LaneID         string `json:"lane_id"`
+	Detail         string `json:"detail"`
+	IdempotencyKey string `json:"idempotency_key"`
+}
 type worktreeClaimInput struct {
 	WorkID          string `json:"work_id"`
 	ProjectID       string `json:"project_id"`
@@ -1449,6 +1456,28 @@ func (r runtime) planInitiativeNarrative(ctx context.Context, base Envelope, raw
 	return Envelope{}, nil, false
 }
 
+// planWorkerAbandon records the adapter's durable idempotency receipt after the
+// host has appended the signed worker.failed event. The host owns session
+// observation and worker evidence, so this core operation records no event.
+func (r runtime) planWorkerAbandon(ctx context.Context, base Envelope, raw []byte, digest string, grant Authority, op ContractOperation, plan *mutationPlan) (Envelope, error, bool) {
+	var in workerAbandonInput
+	if err := decodeOperationInput(raw, &in); err != nil {
+		return base, err, true
+	}
+	plan.scope["work_ids"] = []string{in.WorkID}
+	plan.effect = func(ctx context.Context, tx *store.Transaction, _ Authority) (json.RawMessage, []string, []ChangedRef, error) {
+		attempt, err := store.WorkerAttemptByIDTx(ctx, tx, in.AttemptID)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		if attempt.WorkID != in.WorkID || attempt.LaneID != in.LaneID || attempt.LifecycleState != "failed" || attempt.FailureKind != store.WorkerFailureAbandoned {
+			return nil, nil, nil, errors.New("worker abandonment receipt requires the matching abandoned worker attempt")
+		}
+		return mutationPayload(nil, plan.intents), nil, nil, nil
+	}
+	return Envelope{}, nil, false
+}
+
 // planLifecycle plans concord_work_transition.lifecycle.
 func (r runtime) planLifecycle(ctx context.Context, base Envelope, raw []byte, digest string, grant Authority, op ContractOperation, plan *mutationPlan) (Envelope, error, bool) {
 	var in lifecycleMutationInput
@@ -2473,6 +2502,8 @@ func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Au
 		answer, err, handled = r.planInitiativeNarrative(ctx, base, raw, digest, grant, op, plan)
 	case "concord_work_transition.lifecycle":
 		answer, err, handled = r.planLifecycle(ctx, base, raw, digest, grant, op, plan)
+	case "concord_work_transition.worker_abandon":
+		answer, err, handled = r.planWorkerAbandon(ctx, base, raw, digest, grant, op, plan)
 	case "concord_work_define.research_pack_create":
 		answer, err, handled = r.planResearchPackCreate(ctx, base, raw, digest, grant, op, plan)
 	case "concord_work_define.research_revision_append":

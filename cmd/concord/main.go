@@ -686,6 +686,21 @@ func applyWorkerEvidence(ctx context.Context, command string, s *store.Store, se
 	var eventIDs []string
 	var recorded error
 	err := s.Transact(ctx, func(tx *store.Transaction) error {
+		if command == "worker-abandon" {
+			existing, found, lookupErr := store.EventByIDTx(ctx, tx, event.EventID)
+			if lookupErr != nil {
+				return lookupErr
+			}
+			if found {
+				var prior store.WorkerFailedPayload
+				var requested store.WorkerFailedPayload
+				if existing.Kind != store.WorkerFailed || existing.SubjectType != store.SubjectWorkItem || existing.SubjectID != event.SubjectID || json.Unmarshal(existing.Payload, &prior) != nil || json.Unmarshal(event.Payload, &requested) != nil || prior.AttemptID != binding.AttemptID || prior.FailureKind != store.WorkerFailureAbandoned || prior.Detail != requested.Detail {
+					return errors.New("worker abandonment event identity conflicts with an existing event")
+				}
+				eventIDs = []string{existing.EventID}
+				return nil
+			}
+		}
 		if binding.Verb != agent.WorkerEvidenceVerbDispatch {
 			attempt, err := store.WorkerAttemptByIDTx(ctx, tx, binding.AttemptID)
 			if err != nil {

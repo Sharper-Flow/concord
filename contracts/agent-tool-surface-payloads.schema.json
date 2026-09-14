@@ -3683,6 +3683,37 @@
         }
       }
     },
+    "work_transition_worker_abandon_input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "work_id",
+        "attempt_id",
+        "lane_id",
+        "detail",
+        "idempotency_key"
+      ],
+      "properties": {
+        "work_id": {
+          "$ref": "#/$defs/id"
+        },
+        "attempt_id": {
+          "$ref": "#/$defs/id"
+        },
+        "lane_id": {
+          "$ref": "#/$defs/id"
+        },
+        "detail": {
+          "$ref": "#/$defs/short"
+        },
+        "idempotency_key": {
+          "$ref": "#/$defs/id"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
+        }
+      }
+    },
     "work_transition_action_input": {
       "type": "object",
       "additionalProperties": false,

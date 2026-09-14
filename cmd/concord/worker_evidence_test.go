@@ -397,6 +397,18 @@ func TestWorkerAbandonDerivesReadbackAndRequiresAnEmptyObservation(t *testing.T)
 	if storedReadback != readback {
 		t.Fatalf("readback_model = %q, want dispatched model %q", storedReadback, readback)
 	}
+	out.Reset()
+	errOut.Reset()
+	if code := runWithInput([]string{"worker-abandon"}, strings.NewReader(mustJSON(t, request)), &out, &errOut); code != 0 {
+		t.Fatalf("replayed worker-abandon exit=%d stderr=%q, want the existing event", code, errOut.String())
+	}
+	var events int
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE kind=? AND json_extract(payload,'$.failure_kind')=?`, store.WorkerFailed, store.WorkerFailureAbandoned).Scan(&events); err != nil {
+		t.Fatal(err)
+	}
+	if events != 1 {
+		t.Fatalf("abandon replay recorded %d abandoned events, want one", events)
+	}
 }
 
 func TestWorkerAbandonRefusesAnObservedLiveSession(t *testing.T) {

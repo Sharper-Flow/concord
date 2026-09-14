@@ -92,6 +92,29 @@ func AppendEvent(ctx context.Context, tx *sql.Tx, e Event) (Sequence, error) {
 	return appendEvent(ctx, tx, e, false)
 }
 
+// EventByIDTx reads one durable event through the caller's transaction.
+func EventByIDTx(ctx context.Context, transaction *Transaction, eventID string) (Event, bool, error) {
+	tx, err := transactionSQL(transaction, "event_by_id")
+	if err != nil {
+		return Event{}, false, err
+	}
+	var event Event
+	var occurredAt string
+	err = tx.QueryRowContext(ctx, `SELECT seq,event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload FROM domain_events WHERE event_id=?`, eventID).
+		Scan(&event.Seq, &event.EventID, &event.Kind, &event.SubjectType, &event.SubjectID, &event.Actor, &occurredAt, &event.PayloadVersion, &event.Payload)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return Event{}, false, nil
+		}
+		return Event{}, false, err
+	}
+	event.OccurredAt, err = time.Parse(time.RFC3339Nano, occurredAt)
+	if err != nil {
+		return Event{}, false, wrapFailure(KindUnavailable, "event_by_id", "cannot parse the stored event time", false, "repair the stored event", err)
+	}
+	return event, true, nil
+}
+
 // appendEvent is the lower-level append seam. All workflow advancement events
 // are reserved for an owning workflow route; the private authority bit is not
 // exposed through the generic append APIs.

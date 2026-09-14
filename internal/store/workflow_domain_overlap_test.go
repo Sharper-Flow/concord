@@ -120,6 +120,15 @@ func TestWorkflowDomainOverlapDerivesTypedIntersectionsAndCompatibleResolution(t
 	if overlap.FromWorkID != "overlap-left" || overlap.ToWorkID != "overlap-right" || overlap.FromContractVersion != 1 || overlap.ToContractVersion != 1 || len(overlap.SharedAffectedDomainIDs) != 1 || len(overlap.SharedDomainModifications) != 1 || len(overlap.SharedRelationTuples) != 1 || overlap.OverlapClasses[0] != "architecture" {
 		t.Fatalf("unexpected deterministic overlap detail: %#v", overlap)
 	}
+	// The refusal must not advertise an approval it never challenges for.
+	// KindDomainOverlap carries no approval reference, so a caller told to
+	// request approval has no reference to request against.
+	if failure.RecoveryAction == "request_approval" {
+		t.Fatal("the overlap refusal advertises request_approval but issues no approval challenge")
+	}
+	if failure.RecoveryAction != workflowOverlapRecoveryAction {
+		t.Fatalf("overlap recovery action = %q, want %q", failure.RecoveryAction, workflowOverlapRecoveryAction)
+	}
 	if err := s.Transact(ctx, func(tx *Transaction) error {
 		_, err := ResolveWorkflowDomainOverlapTx(ctx, tx, WorkflowDomainOverlapResolutionRequest{EventID: "overlap-compatible", FromWorkID: "overlap-left", ToWorkID: "overlap-right", FromExpectedVersion: 2, ToExpectedVersion: 2, FromContractVersion: 1, ToContractVersion: 1, ResolutionKind: ResolutionCompatibleWith, Reason: "operator approved compatible change", ApprovalRef: "approval:overlap-test", Actor: actor, OccurredAt: time.Date(2026, 8, 19, 1, 0, 0, 0, time.UTC)})
 		return err

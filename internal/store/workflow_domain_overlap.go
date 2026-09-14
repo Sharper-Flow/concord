@@ -63,6 +63,14 @@ const (
 
 var workflowOverlapRecoveryActions = []string{"wait", "resolve_overlap", "terminal_work", "supersede_contract"}
 
+// workflowOverlapRecoveryAction is the envelope-level recovery action the
+// refusal carries. It must name something the caller can act on. The routes
+// out of a blocking pair are the four in workflowOverlapRecoveryActions, and
+// approval is not among them: CD-0145 D1 leaves a shared write to the existing
+// resolution choices, and the refusal attaches no approval reference for an
+// approval assertion to cite.
+const workflowOverlapRecoveryAction = "reconcile_operation"
+
 // Domain-overlap details are carried in an agent envelope, whose maximum list
 // size is twenty. A global byte bound is applied after deriving the complete
 // population; exact counts make truncation explicit.
@@ -404,7 +412,7 @@ func CheckWorkflowDomainOverlapTx(ctx context.Context, tx *sql.Tx, workID string
 		}
 		return failures[i].FromWorkID < failures[j].FromWorkID
 	})
-	failure := newFailure(KindDomainOverlap, "workflow_domain_overlap", "active Product-changing workflows have unresolved Domain overlap", false, "request_approval")
+	failure := newFailure(KindDomainOverlap, "workflow_domain_overlap", "active Product-changing workflows have unresolved Domain overlap", false, workflowOverlapRecoveryAction)
 	failure.DomainOverlap = &DomainOverlapFailure{Overlaps: failures, TotalOverlaps: len(failures)}
 	boundWorkflowDomainOverlapFailure(failure.DomainOverlap)
 	return failure

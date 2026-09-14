@@ -36,6 +36,10 @@
     {
       "kind": "refines",
       "target_id": "CD-0138"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0124"
     }
   ],
   "path": "docs/decisions/CD-0143-verdict-correction-returns-to-external-effect.md",
@@ -46,9 +50,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:552fa683563cacdc40b383a2d30f4a2e161598efee7b88d0c141b8e5fea5fe2e",
+  "sha256": "sha256:dd55ffe0cbf352ba74573d07b4384f4f7aeb70f66c28b96bcfc2106595dfa378",
   "status": "accepted",
-  "summary": "Adds an engine-owned verdict correction route that returns pinned workflows to their declared external effect with bounded attempts and fail-closed completion.",
+  "summary": "Adds an engine-owned verdict correction route after completed and accepted worker delivery, returns pinned workflows to their declared external effect, requires comparable healthy predicate sets to reset bounds, and keeps completion fail-closed.",
   "tags": [
     "workflow",
     "correction",

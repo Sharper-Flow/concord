@@ -74,20 +74,20 @@ func workflowCorrectionWorkflow(definition WorkflowDefinition) bool {
 	return definition.WorkKind == WorkKindImplementation || definition.WorkKind == WorkKindBreakFix
 }
 
-func workflowCorrectionVerdicts(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, currentStep, subject string) ([]workflowVerdictRecordedPayload, int64, error) {
+func workflowCorrectionVerdicts(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, currentStep, subject string) ([]workflowVerdictRecordedPayload, int64, int64, error) {
 	if !workflowCorrectionWorkflow(definition) || workflowCorrectionTargetStep(definition, currentStep) == "" {
-		return nil, 0, nil
+		return nil, 0, 0, nil
 	}
 	var contractVersion int64
 	if err := q.QueryRowContext(ctx, `SELECT contract_version FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL ORDER BY contract_version DESC LIMIT 1`, workID).Scan(&contractVersion); err != nil {
 		if err == sql.ErrNoRows {
-			return nil, 0, nil
+			return nil, 0, 0, nil
 		}
-		return nil, 0, wrapFailure(KindUnavailable, subject, "cannot read the active workflow contract", true, "retry once the workflow contract is readable", err)
+		return nil, 0, 0, wrapFailure(KindUnavailable, subject, "cannot read the active workflow contract", true, "retry once the workflow contract is readable", err)
 	}
 	verdicts, err := latestWorkflowVerdicts(ctx, q, workID, contractVersion)
 	if err != nil {
-		return nil, 0, err
+		return nil, 0, 0, err
 	}
 	nonOK := make([]workflowVerdictRecordedPayload, 0, len(verdicts))
 	for _, verdict := range verdicts {
@@ -96,13 +96,125 @@ func workflowCorrectionVerdicts(ctx context.Context, q queryer, workID string, d
 		}
 	}
 	if len(nonOK) == 0 {
-		return nil, 0, nil
+		return nil, 0, 0, nil
 	}
 	var verdictSeq int64
 	if err := q.QueryRowContext(ctx, `SELECT COALESCE(MAX(seq),0) FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=?`, string(SubjectWorkItem), workID, WorkflowVerdictRecorded).Scan(&verdictSeq); err != nil {
-		return nil, 0, wrapFailure(KindUnavailable, subject, "cannot read the latest workflow verdict sequence", true, "retry once the workflow verdict projection is readable", err)
+		return nil, 0, 0, wrapFailure(KindUnavailable, subject, "cannot read the latest workflow verdict sequence", true, "retry once the workflow verdict projection is readable", err)
 	}
-	return nonOK, verdictSeq, nil
+	acceptedDispatchSeq, accepted, acceptedErr := workflowAcceptedWorkerDelivery(ctx, q, workID, verdictSeq, subject)
+	if acceptedErr != nil {
+		return nil, 0, 0, acceptedErr
+	}
+	if !accepted {
+		return nil, 0, 0, nil
+	}
+	return nonOK, verdictSeq, acceptedDispatchSeq, nil
+}
+
+// workflowAcceptedWorkerDelivery requires both a completed worker attempt and
+// its folded accept_worker_result action before a verdict can request correction.
+func workflowAcceptedWorkerDelivery(ctx context.Context, q queryer, workID string, throughSeq int64, subject string) (int64, bool, error) {
+	var dispatchSeq int64
+	var attemptID string
+	if err := q.QueryRowContext(ctx, `SELECT d.seq,json_extract(d.payload,'$.attempt_id') FROM domain_events d WHERE d.subject_type=? AND d.subject_id=? AND d.kind=? AND d.seq<=? ORDER BY d.seq DESC LIMIT 1`, string(SubjectWorkItem), workID, WorkerDispatched, throughSeq).Scan(&dispatchSeq, &attemptID); err != nil {
+		if err == sql.ErrNoRows {
+			return 0, false, nil
+		}
+		return 0, false, wrapFailure(KindUnavailable, subject, "cannot inspect worker delivery", true, "retry once the worker delivery projection is readable", err)
+	}
+	var accepted int
+	if err := q.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM worker_attempts a JOIN domain_events accepted ON accepted.subject_type=? AND accepted.subject_id=a.work_id AND accepted.kind=? AND accepted.seq>? AND accepted.seq<=? AND json_extract(accepted.payload,'$.action_id')='accept_worker_result' AND json_extract(accepted.payload,'$.worker_attempt_id')=a.attempt_id WHERE a.work_id=? AND a.attempt_id=? AND a.lifecycle_state='completed')`, string(SubjectWorkItem), WorkflowActionCompleted, dispatchSeq, throughSeq, workID, attemptID).Scan(&accepted); err != nil {
+		return 0, false, wrapFailure(KindUnavailable, subject, "cannot inspect accepted worker delivery", true, "retry once the worker delivery projection is readable", err)
+	}
+	return dispatchSeq, accepted != 0, nil
+}
+
+// workflowLatestComparableHealthySequence returns the latest sequence before
+// beforeSeq at which every active predicate had a comparable healthy verdict.
+// A single ok verdict cannot reset a sequence when another predicate remains
+// unhealthy or has no verdict.
+func workflowLatestComparableHealthySequence(ctx context.Context, q queryer, workID string, contractVersion, beforeSeq int64) (int64, error) {
+	rows, err := q.QueryContext(ctx, `SELECT predicate_id FROM workflow_contract_predicates WHERE work_id=? AND contract_version=?`, workID, contractVersion)
+	if err != nil {
+		return 0, wrapFailure(KindUnavailable, "workflow_correction", "cannot read active workflow predicates", true, "retry once the workflow contract is readable", err)
+	}
+	predicates := make(map[string]bool)
+	for rows.Next() {
+		var predicateID string
+		if err := rows.Scan(&predicateID); err != nil {
+			rows.Close()
+			return 0, wrapFailure(KindUnavailable, "workflow_correction", "cannot scan active workflow predicate", true, "retry once the workflow contract is readable", err)
+		}
+		predicates[predicateID] = true
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return 0, wrapFailure(KindUnavailable, "workflow_correction", "cannot enumerate active workflow predicates", true, "retry once the workflow contract is readable", err)
+	}
+	if err := rows.Close(); err != nil {
+		return 0, wrapFailure(KindUnavailable, "workflow_correction", "cannot close active workflow predicates", true, "retry once the workflow contract is readable", err)
+	}
+	if len(predicates) == 0 {
+		return 0, nil
+	}
+	history, err := workflowContractPredicateHistory(ctx, q, workID, contractVersion)
+	if err != nil {
+		return 0, err
+	}
+	type verdictAtSequence struct {
+		seq     int64
+		verdict workflowVerdictRecordedPayload
+	}
+	latest := make(map[string]verdictAtSequence, len(predicates))
+	verdictRows, err := q.QueryContext(ctx, `SELECT seq,payload,payload_version FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND seq<? ORDER BY seq DESC`, workID, WorkflowVerdictRecorded, beforeSeq)
+	if err != nil {
+		return 0, wrapFailure(KindUnavailable, "workflow_correction", "cannot read workflow verdict history", true, "retry once the workflow verdict projection is readable", err)
+	}
+	defer verdictRows.Close()
+	for verdictRows.Next() {
+		var seq int64
+		var raw []byte
+		var payloadVersion int
+		if err := verdictRows.Scan(&seq, &raw, &payloadVersion); err != nil {
+			return 0, wrapFailure(KindUnavailable, "workflow_correction", "cannot scan workflow verdict history", true, "retry once the workflow verdict projection is readable", err)
+		}
+		var verdict workflowVerdictRecordedPayload
+		if err := json.Unmarshal(raw, &verdict); err != nil {
+			return 0, newFailure(KindInvariantViolation, "workflow_correction", "workflow verdict payload is malformed", false, "rebuild workflow projections from the event log")
+		}
+		if payloadVersion == 1 {
+			verdict.PredicateID = "predicate:primary"
+		}
+		if !predicates[verdict.PredicateID] || verdict.ContractVersion <= 0 || verdict.ContractVersion > contractVersion {
+			continue
+		}
+		if verdict.ContractVersion < contractVersion && !workflowPredicateHistoryCompatible(history, verdict.ContractVersion, contractVersion, verdict.PredicateID, verdict) {
+			continue
+		}
+		latest[verdict.PredicateID] = verdictAtSequence{seq: seq, verdict: verdict}
+		healthy := len(latest) == len(predicates)
+		if healthy {
+			var healthySeq int64
+			for predicateID := range predicates {
+				candidate := latest[predicateID]
+				if candidate.verdict.VerdictKind != "ok" || candidate.verdict.IncomparableWithApproved {
+					healthy = false
+					break
+				}
+				if candidate.seq > healthySeq {
+					healthySeq = candidate.seq
+				}
+			}
+			if healthy {
+				return healthySeq, nil
+			}
+		}
+	}
+	if err := verdictRows.Err(); err != nil {
+		return 0, wrapFailure(KindUnavailable, "workflow_correction", "cannot scan workflow verdict history", true, "retry once the workflow verdict projection is readable", err)
+	}
+	return 0, nil
 }
 
 func workflowCorrectionAttemptCount(ctx context.Context, q queryer, workID string, seq int64, subject string) (int64, error) {
@@ -114,24 +226,18 @@ func workflowCorrectionAttemptCount(ctx context.Context, q queryer, workID strin
 }
 
 func workflowVerdictCorrectionContext(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, currentStep, subject string) (*WorkflowCorrectionContext, error) {
-	verdicts, seq, err := workflowCorrectionVerdicts(ctx, q, workID, definition, currentStep, subject)
+	verdicts, seq, acceptedDispatchSeq, err := workflowCorrectionVerdicts(ctx, q, workID, definition, currentStep, subject)
 	if err != nil || len(verdicts) == 0 {
 		return nil, err
-	}
-	var delivered int64
-	if err := q.QueryRowContext(ctx, `SELECT count(*) FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND seq<=?`, string(SubjectWorkItem), workID, WorkerDispatched, seq).Scan(&delivered); err != nil {
-		return nil, wrapFailure(KindUnavailable, subject, "cannot inspect delivered correction attempts", true, "retry once the worker attempt projection is readable", err)
-	}
-	if delivered == 0 {
-		return nil, nil
 	}
 	var contractVersion int64
 	if err := q.QueryRowContext(ctx, `SELECT contract_version FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL ORDER BY contract_version DESC LIMIT 1`, workID).Scan(&contractVersion); err != nil {
 		return nil, wrapFailure(KindUnavailable, subject, "cannot read the active workflow contract", true, "retry once the workflow contract is readable", err)
 	}
 	var lastHealthySeq int64
-	if err := q.QueryRowContext(ctx, `SELECT COALESCE(MAX(seq),0) FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.verdict_kind')='ok' AND seq<?`, string(SubjectWorkItem), workID, WorkflowVerdictRecorded, seq).Scan(&lastHealthySeq); err != nil {
-		return nil, wrapFailure(KindUnavailable, subject, "cannot inspect the correction sequence", true, "retry once the workflow verdict projection is readable", err)
+	lastHealthySeq, healthyErr := workflowLatestComparableHealthySequence(ctx, q, workID, contractVersion, seq)
+	if healthyErr != nil {
+		return nil, healthyErr
 	}
 	var latestCorrectionSeq int64
 	if err := q.QueryRowContext(ctx, `SELECT COALESCE(MAX(seq),0) FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='request_correction' AND seq>? AND seq<?`, string(SubjectWorkItem), workID, WorkflowActionCompleted, lastHealthySeq, seq).Scan(&latestCorrectionSeq); err != nil {
@@ -144,15 +250,11 @@ func workflowVerdictCorrectionContext(ctx context.Context, q queryer, workID str
 	if sequenceErr != nil {
 		return nil, sequenceErr
 	}
-	var latestDispatchSeq int64
-	if err := q.QueryRowContext(ctx, `SELECT COALESCE(MAX(seq),0) FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND seq<?`, string(SubjectWorkItem), workID, WorkerDispatched, seq).Scan(&latestDispatchSeq); err != nil {
-		return nil, wrapFailure(KindUnavailable, subject, "cannot inspect the latest worker delivery", true, "retry once the worker delivery projection is readable", err)
-	}
-	if latestDispatchSeq <= latestCorrectionSeq {
+	if acceptedDispatchSeq <= latestCorrectionSeq {
 		return nil, nil
 	}
 	for _, verdict := range verdicts {
-		if verdictSequences[verdict.PredicateID] <= latestCorrectionSeq || verdictSequences[verdict.PredicateID] <= latestDispatchSeq {
+		if verdictSequences[verdict.PredicateID] <= latestCorrectionSeq || verdictSequences[verdict.PredicateID] <= acceptedDispatchSeq {
 			return nil, nil
 		}
 	}

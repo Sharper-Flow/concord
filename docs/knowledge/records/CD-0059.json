@@ -26,9 +26,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:47abf8e00d057223f008b4e127495bad62ec0409d5b4ff72a134fabc37be9bb5",
+  "sha256": "sha256:eb22e3c99001fb25f460ccdd394b3317cb0bc4d6efead281ba2f94315267b1c8",
   "status": "accepted",
-  "summary": "Lane dispatch is a registered workflow action (dispatch_worker) reached through concord_work_transition.workflow_action; its D1 policy triple matches start_execution (external_effect, approval none, fenced, generic); the per-action capability is structural — the runtime reads the action's required_capability rather than hard-coding work_transition; the dispatch_worker action requires a new worker_dispatch capability that is registrable in a client policy but structurally non-grantable, mirroring worker_evidence; the worker-dispatch evidence boundary refuses when no authorized, unconsumed dispatch window exists for (work_id, step_id, attempt_epoch), closing the integrity hole a Task-tool spawn used to leave open; the adapter authorizes before spawning.",
+  "summary": "Lane dispatch is a registered workflow action reached through concord_work_transition.workflow_action; its worker window is not a completed delivery until the worker attempt completes and accept_worker_result folds; completed and accepted delivery is required before verdict correction.",
   "tags": [
     "workflow",
     "lanes",

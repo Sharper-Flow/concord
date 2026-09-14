@@ -262,8 +262,7 @@ describe("host task failure", () => {
     windows.bind(TASK_TOOL_ID, SESSION, {}, "call-cancel")
     const verbs: string[] = []
     const options = deps(verbs, windows)
-    options.runner = { async run(argv) {
-      if (argv[1] === "export") return { exitCode: 0, stdout: exportedSession(), stderr: "" }
+    options.evidenceRunner = { async run(argv) {
       verbs.push(argv[1])
       return { exitCode: 1, stdout: "", stderr: "unavailable" }
     } }

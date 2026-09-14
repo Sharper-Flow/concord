@@ -90,7 +90,7 @@ func TestLinearEnqueueForWorkGuards(t *testing.T) {
 	if err := json.Unmarshal([]byte(payload), &decoded); err != nil {
 		t.Fatal(err)
 	}
-	if decoded.ClientUUID == "" || decoded.Title != "Enqueue title" || decoded.Description != "Enqueue value statement" || decoded.ProductID != "enq-product" || decoded.TeamID != "team-uuid-1" || decoded.ProjectID != "project-uuid-1" {
+	if decoded.ClientUUID == "" || decoded.Title != "Enqueue title" || decoded.Description != composeLinearIssueBody("Enqueue value statement", "", "enq-work") || decoded.ProductID != "enq-product" || decoded.TeamID != "team-uuid-1" || decoded.ProjectID != "project-uuid-1" {
 		t.Fatalf("payload = %+v", decoded)
 	}
 	if len(decoded.ClientUUID) != 36 || !strings.Contains(decoded.ClientUUID, "-") {
@@ -486,5 +486,98 @@ func TestLinearConnectionUpdateAcceptsSharedStatusAcrossLifecycles(t *testing.T)
 		ExpectedResourceVersion: 1, Actor: "operator", OccurredAt: time.Date(2026, 9, 9, 1, 0, 0, 0, time.UTC),
 	}); err != nil {
 		t.Fatalf("UpdateLinearConnection() with shared status error = %v", err)
+	}
+}
+
+// seedLinearContractPremise records a workflow contract premise directly so the
+// enqueue body test owns its fixture without a full workflow instance walk.
+func seedLinearContractPremise(t *testing.T, s *Store, workID, premise string) {
+	t.Helper()
+	actorRef := DeriveWorkflowActorRef("principal/body", "client/body", "agent/body", "session/body")
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT OR IGNORE INTO workflow_actors(actor_ref,principal_ref,client_ref,agent_ref,session_ref,actor_class,first_seen_at) VALUES(?,?,?,?,?,'agent','2026-09-09T00:00:00Z'); DELETE FROM fold_guard`,
+		actorRef, "principal/body", "client/body", "agent/body", "session/body"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class) VALUES(?,1,?,'internal_sqlite','[]','[]','2026-09-09T00:00:00Z',?,'[]','[]',1,'prototype_internal'); DELETE FROM fold_guard`,
+		workID, premise, actorRef); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func decodeLinearDescription(t *testing.T, s *Store, operationID string) string {
+	t.Helper()
+	var payload string
+	if err := s.DatabaseForTesting().QueryRowContext(context.Background(), `SELECT payload FROM linear_outbox WHERE operation_id=?`, operationID).Scan(&payload); err != nil {
+		t.Fatal(err)
+	}
+	var decoded struct {
+		Description string `json:"description"`
+	}
+	if err := json.Unmarshal([]byte(payload), &decoded); err != nil {
+		t.Fatal(err)
+	}
+	return decoded.Description
+}
+
+func TestLinearEnqueueBodyComposesPremiseAndResume(t *testing.T) {
+	s := openTemp(t)
+	ctx := context.Background()
+	setupLinearProduct(t, s, "body-product")
+	setupLinearConnectionResource(t, s, "body-product", map[string]any{"linear": map[string]any{
+		"workspace_url": "https://linear.app/example", "team_id": "team-uuid-1", "auth_mode": "personal_api_key",
+		"status_ids": map[string]string{"needed": "state-needed", "in_progress": "state-in-progress", "completed": "state-completed", "cancelled": "state-cancelled", "superseded": "state-superseded"},
+	}})
+	if _, err := s.SetProductPlanningMode(ctx, "body-product", PlanningModeLinear, "pilot", "operator", 2); err != nil {
+		t.Fatal(err)
+	}
+	seedLinearWorkItem(t, s, "body-work", "body-product-project", "Body title", "Body value statement")
+	seedLinearContractPremise(t, s, "body-work", "Body premise text")
+
+	create, err := s.EnqueueLinearIssueForWork(ctx, "body-work", LinearOpIssueCreate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	createDescription := decodeLinearDescription(t, s, create.OperationID)
+	for _, want := range []string{"Body value statement", "## Premise\n\nBody premise text", "Concord work: body-work", "Resume: `concord zl body-work --`"} {
+		if !strings.Contains(createDescription, want) {
+			t.Fatalf("create description = %q, want substring %q", createDescription, want)
+		}
+	}
+
+	update, err := s.EnqueueLinearIssueForWork(ctx, "body-work", LinearOpIssueUpdate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	updateDescription := decodeLinearDescription(t, s, update.OperationID)
+	if updateDescription != createDescription {
+		t.Fatalf("update description = %q, want create description %q", updateDescription, createDescription)
+	}
+
+	// Without a current contract the Premise section is omitted, not emitted
+	// as an empty label; value statement and resume footer stay.
+	seedLinearWorkItem(t, s, "plain-work", "body-product-project", "Plain title", "Plain value")
+	plain, err := s.EnqueueLinearIssueForWork(ctx, "plain-work", LinearOpIssueCreate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plainDescription := decodeLinearDescription(t, s, plain.OperationID)
+	if strings.Contains(plainDescription, "## Premise") {
+		t.Fatalf("plain description = %q, want no Premise section", plainDescription)
+	}
+	for _, want := range []string{"Plain value", "Concord work: plain-work", "Resume: `concord zl plain-work --`"} {
+		if !strings.Contains(plainDescription, want) {
+			t.Fatalf("plain description = %q, want substring %q", plainDescription, want)
+		}
+	}
+}
+
+func TestComposeLinearIssueBodyOmitsAbsentSections(t *testing.T) {
+	body := composeLinearIssueBody("", "", "work-x")
+	want := "Concord work: work-x\nResume: `concord zl work-x --`"
+	if body != want {
+		t.Fatalf("body = %q, want %q", body, want)
+	}
+	if got := composeLinearIssueBody("  value ", " premise ", "work-y"); !strings.Contains(got, "value\n\n## Premise\n\npremise\n\nConcord work: work-y") {
+		t.Fatalf("body = %q, want trimmed sections", got)
 	}
 }

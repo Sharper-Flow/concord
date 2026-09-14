@@ -54,7 +54,7 @@ const taskWrap = (text: string, state = "completed") =>
   [`<task id="${WORKER_SESSION}" state="${state}">`, "<task_result>", text, "</task_result>", "</task>"].join("\n")
 
 const exportedSession = (agent = `concord-${lane.id}`) => JSON.stringify({
-  info: { id: WORKER_SESSION },
+  info: { id: WORKER_SESSION, directory: "/claimed/worktree" },
   messages: [
     { info: { id: "message-0", sessionID: WORKER_SESSION, role: "user", agent, time: { created: 0 } }, parts: [] },
     { info: { id: "message-1", sessionID: WORKER_SESSION, role: "assistant", agent, providerID: "openai", modelID: "gpt-5.6-luna", time: { created: 1 } }, parts: [] },
@@ -88,6 +88,28 @@ describe("completeDispatchedWorker", () => {
     expect(verbs).toEqual(["worker-dispatch", "worker-complete"])
     expect(windows.takeInFlight(SESSION)).toBeNull()
     expect(output.output).toContain("<task_result>")
+  })
+
+  test("passes the exported worker directory to worker-complete", async () => {
+    const windows = new DispatchWindows()
+    windows.open(SESSION, packet(), PACKET_DIGEST)
+    windows.bind(TASK_TOOL_ID, SESSION, {})
+    let completionInput: Record<string, unknown> | undefined
+    const runner: DispatchRunner = {
+      async run(argv, input) {
+        if (argv[1] === "export") return { exitCode: 0, stdout: exportedSession(), stderr: "" }
+        if (argv[1] === "worker-complete") completionInput = JSON.parse(input) as Record<string, unknown>
+        return { exitCode: 0, stdout: "", stderr: "" }
+      },
+    }
+    const output = { title: "verify lane", output: taskWrap(JSON.stringify(report())), metadata: {} }
+    await completeDispatchedWorker({ tool: TASK_TOOL_ID, sessionID: SESSION, callID: "call-directory", args: {} }, output, {
+      windows,
+      credentials: testCredentials,
+      runner,
+      concordBinary: "concord",
+    })
+    expect(completionInput?.worker_directory).toBe("/claimed/worktree")
   })
 
   test("adds the dispatch WorkPin state line to the lane report", async () => {

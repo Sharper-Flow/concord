@@ -75,6 +75,7 @@ export interface SessionMetadata {
   readback_model: string
   readback_agent: string
   session_id: string | null
+  worker_directory?: string
 }
 
 // ReadbackRefusal identifies the first export predicate that refused the
@@ -94,7 +95,7 @@ export type ReadbackRefusal =
   | "dispatched_agent_identity"
 
 export type SessionMetadataRead =
-  | { ok: true; metadata: Pick<SessionMetadata, "readback_model" | "readback_agent" | "session_id">; export_digest: string; export_bytes: number }
+  | { ok: true; metadata: Pick<SessionMetadata, "readback_model" | "readback_agent" | "session_id" | "worker_directory">; export_digest: string; export_bytes: number }
   | { ok: false; predicate: ReadbackRefusal; export_digest: string; export_bytes: number; message: string }
 
 export interface RunSessionMetadata {
@@ -397,7 +398,7 @@ export function readRunSessionMetadata(input: string | RunSessionObservation): R
   return { ok: true, metadata: { session_id: [...input.sessions][0] } }
 }
 
-function readExportSessionIdentity(info: Record<string, unknown>): { model: string | null; agent: string | null } | null {
+function readExportSessionIdentity(info: Record<string, unknown>): { model: string | null; agent: string | null; directory?: string } | null {
   let model: string | null = null
   if ("model" in info) {
     if (!isRecord(info.model) || typeof info.model.providerID !== "string" || typeof info.model.id !== "string") return null
@@ -408,7 +409,12 @@ function readExportSessionIdentity(info: Record<string, unknown>): { model: stri
     if (typeof info.agent !== "string") return null
     agent = info.agent
   }
-  return { model, agent }
+  let directory: string | undefined
+  if ("directory" in info) {
+    if (typeof info.directory !== "string") return null
+    directory = info.directory
+  }
+  return { model, agent, directory }
 }
 
 function sha256Digest(value: string): string {
@@ -453,11 +459,11 @@ export function readExportSession(stdout: string, expectedSessionID: string): Se
   assistants.sort((left, right) => left.created - right.created || left.id.localeCompare(right.id))
   const latest = assistants.at(-1)
   return latest
-    ? { ok: true, metadata: { readback_model: latest.model, readback_agent: latest.agent, session_id: expectedSessionID }, export_digest: exportDigest, export_bytes: exportBytes }
+    ? { ok: true, metadata: { readback_model: latest.model, readback_agent: latest.agent, session_id: expectedSessionID, ...(sessionIdentity.directory !== undefined ? { worker_directory: sessionIdentity.directory } : {}) }, export_digest: exportDigest, export_bytes: exportBytes }
     : refuse("export_assistant_message", "export session contained no assistant readback")
 }
 
-export function readExportSessionMetadata(stdout: string, expectedSessionID: string): Pick<SessionMetadata, "readback_model" | "readback_agent" | "session_id"> | null {
+export function readExportSessionMetadata(stdout: string, expectedSessionID: string): Pick<SessionMetadata, "readback_model" | "readback_agent" | "session_id" | "worker_directory"> | null {
   const result = readExportSession(stdout, expectedSessionID)
   return result.ok ? result.metadata : null
 }
@@ -1208,6 +1214,7 @@ export async function completeWorkerAttempt(
     report_schema_version: REPORT_SCHEMA_VERSION,
     evidence_origin: "reported",
     evidence: terminal.report.evidence,
+    ...(readback.worker_directory !== undefined ? { worker_directory: readback.worker_directory } : {}),
     assertion: terminalAssertion,
   }, signal)
   if (completionFailure) return errorEnvelope(lane, packet, "error", "error", completionFailure, "reconcile_operation")

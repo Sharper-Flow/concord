@@ -504,7 +504,7 @@ const GeneratedEnvelopeSchemaDocument = `{
             "type": "string"
           },
           "maxItems": 32,
-          "minItems": 1,
+          "minItems": 0,
           "type": "array"
         }
       },

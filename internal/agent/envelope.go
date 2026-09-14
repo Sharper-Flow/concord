@@ -706,10 +706,16 @@ func sortedBoundedList(values []string, limit int) bool {
 // versions, `budget_refused` needs a supported budget, and cancel and timeout
 // need an empty effect state. Those stay as their own checks, because they
 // constrain the payload rather than the action a caller takes next.
+// enforcedRecoveryCouplings names every error kind that admits exactly one
+// recovery action. It is the single owner of that rule: publicRecovery builds
+// from it and validateError refuses against it. A kind enforced by only one of
+// the two halves is a refusal the core decided and the caller never receives,
+// because the pair reaches the transport as a marshal fault.
 var enforcedRecoveryCouplings = map[string]string{
 	"ambiguous_scope":    "resolve_ambiguity",
 	"budget_refused":     "adjust_budget",
 	"cancelled":          "retry_same_request",
+	"domain_overlap":     "request_approval",
 	"invalid_cursor":     "restart_query",
 	"limit_exceeded":     "reduce_limit",
 	"missing_evidence":   "provide_evidence",
@@ -717,6 +723,7 @@ var enforcedRecoveryCouplings = map[string]string{
 	"resource_busy":      "retry_same_request",
 	"outcome_mismatch":   "contact_operator",
 	"stale_context":      "refresh_context",
+	"stale_law_revision": "request_approval",
 	"timeout":            "retry_same_request",
 	"version_conflict":   "reread_entities",
 }
@@ -752,12 +759,12 @@ func validateError(err TypedError) error {
 		return errors.New("invalid error details")
 	}
 	if err.Kind == "stale_law_revision" {
-		if err.RecoveryAction.Kind != "request_approval" || err.StaleLawRevision == nil || !bounded(err.StaleLawRevision.OldLawID, 2, 256) || !validSHA256Proof(err.StaleLawRevision.OldContentHash) || !bounded(err.StaleLawRevision.AcceptedSuccessorLawID, 2, 256) || !validSHA256Proof(err.StaleLawRevision.AcceptedSuccessorContentHash) || len(err.StaleLawRevision.RecoveryActions) == 0 || len(err.StaleLawRevision.RecoveryActions) > 4 || !boundedStrings(err.StaleLawRevision.RecoveryActions, 1, 128) {
+		if err.StaleLawRevision == nil || !bounded(err.StaleLawRevision.OldLawID, 2, 256) || !validSHA256Proof(err.StaleLawRevision.OldContentHash) || !bounded(err.StaleLawRevision.AcceptedSuccessorLawID, 2, 256) || !validSHA256Proof(err.StaleLawRevision.AcceptedSuccessorContentHash) || len(err.StaleLawRevision.RecoveryActions) == 0 || len(err.StaleLawRevision.RecoveryActions) > 4 || !boundedStrings(err.StaleLawRevision.RecoveryActions, 1, 128) {
 			return errors.New("stale law revision coupling violated")
 		}
 	}
 	if err.Kind == "domain_overlap" {
-		if err.RecoveryAction.Kind != "request_approval" || err.DomainOverlap == nil || len(err.DomainOverlap.Overlaps) == 0 || len(err.DomainOverlap.Overlaps) > 20 || err.DomainOverlap.TotalOverlaps < len(err.DomainOverlap.Overlaps) || err.DomainOverlap.ReturnedOverlaps != len(err.DomainOverlap.Overlaps) || err.DomainOverlap.TotalOverlaps < 1 || (!err.DomainOverlap.Truncated && err.DomainOverlap.TotalOverlaps != err.DomainOverlap.ReturnedOverlaps) {
+		if err.DomainOverlap == nil || len(err.DomainOverlap.Overlaps) == 0 || len(err.DomainOverlap.Overlaps) > 20 || err.DomainOverlap.TotalOverlaps < len(err.DomainOverlap.Overlaps) || err.DomainOverlap.ReturnedOverlaps != len(err.DomainOverlap.Overlaps) || err.DomainOverlap.TotalOverlaps < 1 || (!err.DomainOverlap.Truncated && err.DomainOverlap.TotalOverlaps != err.DomainOverlap.ReturnedOverlaps) {
 			return errors.New("domain overlap coupling violated")
 		}
 		for _, overlap := range err.DomainOverlap.Overlaps {

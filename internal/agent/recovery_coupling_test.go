@@ -17,6 +17,10 @@ func companionFields(err *TypedError) {
 		err.CurrentVersions = []ChangedRef{{EntityKind: "work_item", ID: "work-1", Version: "2"}}
 	case "budget_refused":
 		err.SupportedBudgetSeconds = 30
+	case "domain_overlap":
+		err.DomainOverlap = coupledDomainOverlap()
+	case "stale_law_revision":
+		err.StaleLawRevision = coupledStaleLawRevision()
 	}
 }
 

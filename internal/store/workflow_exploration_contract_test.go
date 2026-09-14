@@ -80,6 +80,66 @@ func TestLivenessDetectsSeededMissingExit(t *testing.T) {
 	if result.conclusion() != "counterexample" {
 		t.Fatalf("missing exit not detected: %+v", result)
 	}
+	if result.testedTransitions != 0 {
+		t.Fatalf("refused probes counted as admitted transitions: %d", result.testedTransitions)
+	}
+	if result.testedProbes == 0 {
+		t.Fatal("missing-exit fixture exercised no probes")
+	}
+}
+
+func TestLivenessExecutesGeneratedCorrection(t *testing.T) {
+	const workID = "liveness-generated-correction"
+	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.implementation", "execution")
+	ownerRef, err := WorkflowActorRef(fixture.owner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reviewer := acceptReturnRouteWorker(t, fixture, workID, ownerRef)
+	if err := runVerdictActionAs(t, fixture.store, workID, "record_verdict", json.RawMessage(`{"contract_version":1,"predicate_id":"predicate:return-route","verdict_kind":"outcome_mismatch","evaluation_evidence":["evidence:return-route-verification"],"incomparable_with_approved":true}`), 0, reviewer); err != nil {
+		t.Fatal(err)
+	}
+	definition, err := BuiltinWorkflowDefinitionForRef("workflow.implementation")
+	if err != nil {
+		t.Fatal(err)
+	}
+	step := currentStep(t, fixture.store, workID)
+	for _, move := range livenessStateMoves(t, definition.Definition, step) {
+		if move.action != "request_correction" {
+			continue
+		}
+		if err := livenessApply(context.Background(), fixture.store, workID, move, 100, true); err != nil {
+			t.Fatalf("generated correction cannot execute: %v", err)
+		}
+		if got := currentStep(t, fixture.store, workID); got != "execution" {
+			t.Fatalf("correction reached %s, want execution", got)
+		}
+		return
+	}
+	t.Fatal("no generated request_correction move")
+}
+
+func TestLivenessBindsCurrentAndSuccessorContractVersions(t *testing.T) {
+	const workID = "liveness-contract-versions"
+	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.implementation", "execution")
+	for _, scenario := range []struct {
+		action string
+		want   int64
+	}{{"supersede_contract", 2}, {"record_verdict", 1}} {
+		raw, err := livenessBindRecordedState(context.Background(), fixture.store, workID, scenario.action, json.RawMessage(`{"contract_version":99}`))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var fields struct {
+			Version int64 `json:"contract_version"`
+		}
+		if err := json.Unmarshal(raw, &fields); err != nil {
+			t.Fatal(err)
+		}
+		if fields.Version != scenario.want {
+			t.Errorf("%s version=%d, want %d", scenario.action, fields.Version, scenario.want)
+		}
+	}
 }
 
 func TestLivenessDoesNotTreatHoldLoopAsCompletion(t *testing.T) {

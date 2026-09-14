@@ -70,6 +70,7 @@ type livenessExploration struct {
 	reports            []livenessReport
 	testedStates       int
 	testedTransitions  int
+	testedProbes       int
 	terminalStates     int
 	depthBoundStates   int
 	depthBoundStepHits map[string]int
@@ -646,7 +647,7 @@ func livenessApply(ctx context.Context, s *Store, workID string, move livenessMo
 	var operator *WorkflowActor
 	selectedChoice := ""
 	decisionDigest := ""
-	if move.action == "record_verdict" || move.action == "confirm_premise" || move.action == "complete" {
+	if workflowActionAllowsOperatorIdentity(move.action) {
 		operatorActor := livenessOperator()
 		operator = &operatorActor
 	}
@@ -665,7 +666,7 @@ func livenessApply(ctx context.Context, s *Store, workID string, move livenessMo
 		// the control this explorer must not defeat.
 	}
 	actor := livenessActionActor(move.action)
-	payload, bindErr := livenessBindRecordedState(ctx, s, workID, move.payload)
+	payload, bindErr := livenessBindRecordedState(ctx, s, workID, move.action, move.payload)
 	if bindErr != nil {
 		return bindErr
 	}
@@ -716,12 +717,42 @@ func livenessApply(ctx context.Context, s *Store, workID string, move livenessMo
 // is recorded state. The engine joins these against committed rows, so a value
 // synthesized from the declaration alone refuses on the join, and every state
 // behind that refusal reads as stranded when it is not.
-func livenessBindRecordedState(ctx context.Context, s *Store, workID string, raw json.RawMessage) (json.RawMessage, error) {
+func livenessBindRecordedState(ctx context.Context, s *Store, workID, actionID string, raw json.RawMessage) (json.RawMessage, error) {
 	fields := map[string]json.RawMessage{}
 	if err := json.Unmarshal(raw, &fields); err != nil {
 		return raw, nil
 	}
 	bound := map[string]any{}
+	if _, declared := fields["contract_version"]; declared {
+		var version int64
+		if err := s.db.QueryRowContext(ctx, `SELECT COALESCE(MAX(contract_version),0) FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL`, workID).Scan(&version); err != nil {
+			return nil, err
+		}
+		if actionID == "supersede_contract" {
+			version++
+		}
+		if version > 0 {
+			bound["contract_version"] = version
+		}
+	}
+	if actionID == "request_correction" {
+		entry, err := VerifyWorkflowInstanceDefinition(ctx, s, BuiltinWorkflowRegistry(), workID)
+		if err != nil {
+			return nil, err
+		}
+		step, err := livenessStep(ctx, s, workID)
+		if err != nil {
+			return nil, err
+		}
+		correction, err := workflowVerdictCorrectionContext(ctx, s.db, workID, entry.Definition, step, "liveness")
+		if err != nil {
+			return nil, err
+		}
+		if correction != nil {
+			bound["predicate_ids"] = correction.PredicateIDs
+			bound["evidence_refs"] = correction.EvidenceRefs
+		}
+	}
 	subject := livenessSubjectRef
 	if string(fields["evidence_kind"]) == `"native_run"` {
 		if err := s.db.QueryRowContext(ctx, `SELECT observation_id FROM workflow_native_runs WHERE work_id=? ORDER BY recorded_at DESC LIMIT 1`, workID).Scan(&subject); err != nil {
@@ -978,6 +1009,7 @@ func livenessExplore(t *testing.T, definition WorkflowDefinition) livenessExplor
 	omittedVariants = append(omittedVariants, "host-dispatch", "context-continuity", "external-environment-transitions")
 	testedStates := 0
 	testedTransitions := 0
+	testedProbes := 0
 	terminalStates := 0
 	seen := map[string]bool{}
 	cache := livenessReplayCache{}
@@ -1003,7 +1035,7 @@ func livenessExplore(t *testing.T, definition WorkflowDefinition) livenessExplor
 		}
 		testedStates++
 		if testedStates == 1 || testedStates%16 == 0 {
-			t.Logf("exploration progress: states=%d probes=%d frontier=%d", testedStates, testedTransitions, len(queue))
+			t.Logf("exploration progress: states=%d probes=%d transitions=%d frontier=%d", testedStates, testedProbes, testedTransitions, len(queue))
 		}
 		state, completions, completionErr := livenessCompletion(ctx, s, workID)
 		if completionErr != nil {
@@ -1029,7 +1061,7 @@ func livenessExplore(t *testing.T, definition WorkflowDefinition) livenessExplor
 			if livenessContinuityAction(move.action) || move.action == "dispatch_worker" {
 				continue
 			}
-			testedTransitions++
+			testedProbes++
 			probeErr := livenessApply(ctx, s, workID, move, len(path), false)
 			kind := ""
 			detail := ""
@@ -1042,6 +1074,7 @@ func livenessExplore(t *testing.T, definition WorkflowDefinition) livenessExplor
 			}
 			probes = append(probes, livenessProbe{move: move, failure: detail, failKind: kind})
 			if probeErr == nil {
+				testedTransitions++
 				advancing = append(advancing, move)
 			}
 		}
@@ -1061,7 +1094,7 @@ func livenessExplore(t *testing.T, definition WorkflowDefinition) livenessExplor
 	for _, count := range depthBoundStepHits {
 		depthBoundStates += count
 	}
-	return livenessExploration{reports: reports, testedStates: testedStates, testedTransitions: testedTransitions, terminalStates: terminalStates, depthBoundStates: depthBoundStates, depthBoundStepHits: depthBoundStepHits, omittedVariants: omittedVariants}
+	return livenessExploration{reports: reports, testedStates: testedStates, testedTransitions: testedTransitions, testedProbes: testedProbes, terminalStates: terminalStates, depthBoundStates: depthBoundStates, depthBoundStepHits: depthBoundStepHits, omittedVariants: omittedVariants}
 }
 
 // livenessStateMoves builds every action variant the step declares.
@@ -1145,7 +1178,7 @@ func TestBuiltinWorkflowExplorationReportsNoObservedStrandedState(t *testing.T) 
 			if len(result.omittedVariants) != 0 {
 				t.Logf("inconclusive: omitted enum variants for %s", strings.Join(result.omittedVariants, ", "))
 			}
-			t.Logf("coverage: states=%d transitions=%d terminal_states=%d", result.testedStates, result.testedTransitions, result.terminalStates)
+			t.Logf("coverage: states=%d probes=%d admitted_transitions=%d terminal_states=%d", result.testedStates, result.testedProbes, result.testedTransitions, result.terminalStates)
 			if result.conclusion() == "inconclusive" {
 				t.Skip("inconclusive exploration; required completion witnesses run separately")
 			}

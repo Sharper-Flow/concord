@@ -28,6 +28,8 @@ import (
 // the new content as a new version and add its digest here; never edit a row
 // that already holds a digest.
 var workflowDefinitionVersionPins = map[[2]string]string{
+	{"workflow.architecture_spike", "6"}: "sha256:7c734ff4bcb0c0f7881b0101779c576ff39535432148e031a7b984a28802fa83",
+	{"workflow.ops_runbook", "7"}:        "sha256:5fbe2710a20464f0bb56167fb1c803d4956b5b1c804424a86014f6c67e6ccb03",
 	{"workflow.break_fix", "1"}:          "sha256:aefce865f350345dc41fc1e2e988e7d5e246fa7fd560335399cf8c826e4cc35a",
 	{"workflow.break_fix", "2"}:          "sha256:d7f8d8cc8b951e74751ddafe95c7b9c9d65e606cd73c41b2ceadd5fa2cdf29cb",
 	{"workflow.break_fix", "3"}:          "sha256:3a406e35712a33dcab245ab93c77d51e0811ef51fbefb1a54c2fb40ae6b1f8b6",
@@ -45,6 +47,7 @@ var workflowDefinitionVersionPins = map[[2]string]string{
 	{"workflow.implementation", "7"}:     "sha256:7b0e0582da3716e7d44a8097d16afa81deecf59b61d3af4c02833fa6f443291a",
 	{"workflow.implementation", "8"}:     "sha256:15028d1f2b1d00df2ea0c0649f72dc9fb6151fb05bc88e3a6002eb5a93568f7c",
 	{"workflow.implementation", "9"}:     "sha256:787ae3f02df30630408ef1c12badcd280eb604e71909fe7227b3c08b94cb71ca",
+	{"workflow.implementation", "10"}:    "sha256:9335bd4830c5592240e578528582a26b51702f3f6d0b4f20916c47267fd160ac",
 	{"workflow.generic_one_off", "1"}:    "sha256:c2b8b4c8ef11b2de08912f7c82faa91dffe6a2fbe4ddcef924ff4b393da578b3",
 	{"workflow.generic_one_off", "2"}:    "sha256:273c82c0a0cf6c17d231f1be898ff74c6158f8036985cb3e1666b8f12c1b7895",
 	{"workflow.generic_one_off", "3"}:    "sha256:a639d5a41e09ed2b2f1543912c4dc8686fb6d5cc97d945d4c3f6705df4f1165f",
@@ -59,11 +62,13 @@ var workflowDefinitionVersionPins = map[[2]string]string{
 	{"workflow.architecture_spike", "2"}: "sha256:99ecb21ccfbf263d61f44c43730a2e0945b721082fd8c8a40e50df143b5fffcc",
 	{"workflow.architecture_spike", "3"}: "sha256:3b8d63a48c2bdcd008eb69dcf0322b0b1c40b0566ab0c4157283d9282789f720",
 	{"workflow.architecture_spike", "4"}: "sha256:878c4019adc0692571c0d23f1f28238248dfc0f2b12816340eb8458b205208f7",
+	{"workflow.architecture_spike", "5"}: "sha256:44b9bd043ac4f82ed5564114bc944cab5507de3bb193f51978b39ab07d940826",
 	{"workflow.ops_runbook", "1"}:        "sha256:2e681414f079418a9aa2c7260832837d7ecde0e3974fdd602749d8125072dba6",
 	{"workflow.ops_runbook", "2"}:        "sha256:8e14e680f37516f3c596058058f4982eee30bd47f2dbd5b2a79f32ff1bc832af",
 	{"workflow.ops_runbook", "3"}:        "sha256:bdeeb5c08ee8eae101bca23fcf95a2ba8687af542a4551d6ff61f6449c07259f",
 	{"workflow.ops_runbook", "4"}:        "sha256:eea14c43d682cc5846e405ea7467aac19468dcea74e75eab7b5fb1883c09653d",
 	{"workflow.ops_runbook", "5"}:        "sha256:df99926053090bdbada3c8de55775b47dfc3c5f6725e9a20c46abca755930cf1",
+	{"workflow.ops_runbook", "6"}:        "sha256:89d8bfd21c5ac708b4ba27491d9a56fa0fd13e008ec315f9eac0b1eecd269053",
 	{"workflow.static_analysis", "1"}:    "sha256:dcd49187f4c5f3f3a54aa3a54cf28ce1eae5a4e093203ec761cf314b2b1bdd91",
 	{"workflow.static_analysis", "2"}:    "sha256:9b3f7159c5346ee1d5d8f7a6f7ff21bfb3ae7babfb08243d7a0f49f16624f522",
 	{"workflow.static_analysis", "3"}:    "sha256:fdad8adff22cff5e2d1d1bcf73aeb5748f7bf3a65f45cc58eda399ae3a365704",
@@ -114,11 +119,11 @@ func TestBuiltinDefinitionsCoverExactlyThePinnedVersions(t *testing.T) {
 func TestBuiltinDefinitionForRefResolvesTheLatestVersion(t *testing.T) {
 	cases := map[string]int64{
 		"workflow.break_fix":          8,
-		"workflow.implementation":     9,
+		"workflow.implementation":     10,
 		"workflow.generic_one_off":    5,
 		"workflow.research":           5,
-		"workflow.architecture_spike": 4,
-		"workflow.ops_runbook":        5,
+		"workflow.architecture_spike": 6,
+		"workflow.ops_runbook":        7,
 		"workflow.static_analysis":    4,
 	}
 	for ref, version := range cases {

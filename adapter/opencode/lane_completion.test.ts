@@ -9,7 +9,7 @@ import ConcordAdapterPlugin from "./concord-plugin"
 import { type AgentLanePacket, type DispatchRunner } from "./dispatch"
 import { DispatchWindows, TASK_TOOL_ID } from "./dispatch-window"
 import { agentLanes } from "./generated-agent-lanes"
-import { completeDispatchedWorker, type LaneCompletionDeps } from "./lane_completion"
+import { completeDispatchedWorker, failDispatchedWorker, type LaneCompletionDeps } from "./lane_completion"
 import type { CredentialStore } from "./credentials"
 
 const testCredentials: CredentialStore = { async getPrivateKey() { return new Uint8Array(32).fill(7) } }
@@ -247,6 +247,77 @@ describe("completeDispatchedWorker", () => {
     expect(verbs).toEqual([])
     expect(read.output).toBe("file contents")
     expect(unbound.output).toBe(taskWrap("prose"))
+  })
+})
+
+describe("host task failure", () => {
+  const failedEvent = (callID = "call-cancel", sessionID = SESSION, metadata: unknown = { sessionId: WORKER_SESSION }) => ({
+    type: "message.part.updated",
+    properties: { part: { type: "tool", tool: "task", sessionID, callID,
+      state: { status: "error", error: "Task cancelled", metadata } } },
+  })
+
+  test("a cancelled task records failure once using exported identity", async () => {
+    const windows = new DispatchWindows()
+    windows.open(SESSION, packet(), PACKET_DIGEST)
+    windows.bind(TASK_TOOL_ID, SESSION, {}, "call-cancel")
+    const verbs: string[] = []
+    const result = await failDispatchedWorker(failedEvent(), deps(verbs, windows))
+    expect(verbs).toEqual(["worker-dispatch", "worker-fail"])
+    expect(result?.error?.message).toContain("Task cancelled")
+    await failDispatchedWorker(failedEvent(), deps(verbs, windows))
+    expect(verbs).toEqual(["worker-dispatch", "worker-fail"])
+  })
+
+  test("foreign calls and unbound sessions cannot consume an attempt", async () => {
+    const windows = new DispatchWindows()
+    windows.open(SESSION, packet(), PACKET_DIGEST)
+    windows.bind(TASK_TOOL_ID, SESSION, {}, "call-cancel")
+    const verbs: string[] = []
+    await failDispatchedWorker(failedEvent("foreign"), deps(verbs, windows))
+    await failDispatchedWorker(failedEvent("call-cancel", "other-session"), deps(verbs, windows))
+    expect(verbs).toEqual([])
+    await failDispatchedWorker(failedEvent(), deps(verbs, windows))
+    expect(verbs).toEqual(["worker-dispatch", "worker-fail"])
+  })
+
+  test("missing child identity refuses without inventing model evidence", async () => {
+    const windows = new DispatchWindows()
+    windows.open(SESSION, packet(), PACKET_DIGEST)
+    windows.bind(TASK_TOOL_ID, SESSION, {}, "call-cancel")
+    const verbs: string[] = []
+    const result = await failDispatchedWorker(failedEvent("call-cancel", SESSION, {}), deps(verbs, windows))
+    expect(verbs).toEqual([])
+    expect(result?.error?.recovery_action).toBe("reconcile_operation")
+    expect(() => windows.open(SESSION, packet(), PACKET_DIGEST)).toThrow()
+  })
+
+  test("a substituted executor still fails identity verification", async () => {
+    const windows = new DispatchWindows()
+    windows.open(SESSION, packet(), PACKET_DIGEST)
+    windows.bind(TASK_TOOL_ID, SESSION, {}, "call-cancel")
+    const verbs: string[] = []
+    const result = await failDispatchedWorker(failedEvent(), deps(verbs, windows, "general"))
+    expect(verbs).toEqual([])
+    expect(result?.error?.kind).toBe("agent_identity_mismatch")
+    expect(() => windows.open(SESSION, packet(), PACKET_DIGEST)).toThrow()
+  })
+
+  test("failed persistence retains the authorization and does not automatically retry", async () => {
+    const windows = new DispatchWindows()
+    windows.open(SESSION, packet(), PACKET_DIGEST)
+    windows.bind(TASK_TOOL_ID, SESSION, {}, "call-cancel")
+    const verbs: string[] = []
+    const options = deps(verbs, windows)
+    options.evidenceRunner = { async run(argv) {
+      verbs.push(argv[1])
+      return { exitCode: 1, stdout: "", stderr: "unavailable" }
+    } }
+    await failDispatchedWorker(failedEvent(), options)
+    await failDispatchedWorker(failedEvent(), options)
+    expect(verbs).toEqual(["worker-dispatch"])
+    expect(windows.inFlight(SESSION, "call-cancel")).not.toBeNull()
+    expect(() => windows.open(SESSION, packet(), PACKET_DIGEST)).toThrow()
   })
 })
 

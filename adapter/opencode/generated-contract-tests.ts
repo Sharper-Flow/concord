@@ -18,15 +18,23 @@ function pass(evaluated: Iterable<string> = []): Validation { return { valid: tr
 function fail(at: string): Validation { return { valid: false, evaluated: new Set(), path: at }; }
 function joinPath(path: string, key: string): string { return path ? path + "." + key : key; }
 function merge(target: Set<string>, source: Set<string>): void { for (const key of source) target.add(key); }
+function dateTime(value: string): boolean {
+  const parts = /^([0-9]{4})-([0-9]{2})-([0-9]{2})T([0-9]{2}):([0-9]{2}):([0-9]{2})(?:[.][0-9]+)?(Z|[+-]([0-9]{2}):([0-9]{2}))$/.exec(value);
+  if (!parts) return false;
+  const [, year, month, day, hour, minute, second, zone, offsetHour, offsetMinute] = parts;
+  const y = Number(year), m = Number(month), d = Number(day);
+  const days = [31, y % 4 === 0 && (y % 100 !== 0 || y % 400 === 0) ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+  return m >= 1 && m <= 12 && d >= 1 && d <= days[m - 1] && Number(hour) < 24 && Number(minute) < 60 && Number(second) < 60 && (zone === "Z" || Number(offsetHour) < 24 && Number(offsetMinute) < 60);
+}
 function validateSchema(schema: any, value: unknown, root: Record<string, unknown>, path: string = ""): Validation {
   if (!schema || typeof schema !== "object") return fail(path || "<root>");
-  if (schema.$ref) { const definitions: Record<string, unknown> = (root.$defs as Record<string, unknown> | undefined) ?? root; const target = definitions[schema.$ref.replace("#/$defs/", "")]; return validateSchema(target, value, root, path); }
+  const evaluated = new Set<string>();
+  if (schema.$ref) { const definitions: Record<string, unknown> = (root.$defs as Record<string, unknown> | undefined) ?? root; const target = definitions[schema.$ref.replace("#/$defs/", "")]; const result = validateSchema(target, value, root, path); if (!result.valid) return result; merge(evaluated, result.evaluated); }
   if ("const" in schema && JSON.stringify(schema.const) !== JSON.stringify(value)) return fail(path || "<root>");
   if (schema.enum && !schema.enum.some((candidate: unknown) => JSON.stringify(candidate) === JSON.stringify(value))) return fail(path || "<root>");
   if (schema.type) { const types = Array.isArray(schema.type) ? schema.type : [schema.type]; if (!types.some((kind: string) => kind === "null" ? value === null : kind === "array" ? Array.isArray(value) : kind === "object" ? value !== null && typeof value === "object" && !Array.isArray(value) : kind === "integer" ? typeof value === "number" && Number.isInteger(value) : typeof value === kind || kind === "number" && typeof value === "number")) return fail(path || "<root>"); }
-  if (typeof value === "string") { if (schema.minLength !== undefined && value.length < schema.minLength || schema.maxLength !== undefined && value.length > schema.maxLength || schema.pattern && !(new RegExp(schema.pattern).test(value))) return fail(path || "<root>"); if (schema.format === "date-time" && Number.isNaN(Date.parse(value))) return fail(path || "<root>"); }
+  if (typeof value === "string") { const length = Array.from(value).length; if (schema.minLength !== undefined && length < schema.minLength || schema.maxLength !== undefined && length > schema.maxLength || schema.pattern && !(new RegExp(schema.pattern).test(value))) return fail(path || "<root>"); if (schema.format === "date-time" && !dateTime(value)) return fail(path || "<root>"); }
   if (typeof value === "number" && (schema.minimum !== undefined && value < schema.minimum || schema.maximum !== undefined && value > schema.maximum)) return fail(path || "<root>");
-  const evaluated = new Set<string>();
   if (value !== null && typeof value === "object" && !Array.isArray(value)) {
     const object = value as Record<string, unknown>; const properties = schema.properties ?? {}; const patterns = schema.patternProperties ?? {}; const known = new Set<string>();
     if (schema.required) for (const key of schema.required) if (!(key in object)) return fail(joinPath(path, key));

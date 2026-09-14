@@ -80,9 +80,14 @@ func copyTestDatabase(t *testing.T) string {
 	if testDatabaseTemplate.err != nil {
 		t.Fatalf("prepare test database template: %v", testDatabaseTemplate.err)
 	}
+	return copyClosedTestDatabase(t, testDatabaseTemplate.path)
+}
 
+// The source must be closed and checkpointed so the copy needs no WAL sidecar.
+func copyClosedTestDatabase(t *testing.T, path string) string {
+	t.Helper()
 	destination := filepath.Join(t.TempDir(), "concord.db")
-	source, err := os.Open(testDatabaseTemplate.path)
+	source, err := os.Open(path)
 	if err != nil {
 		t.Fatalf("open test database template: %v", err)
 	}

@@ -222,13 +222,13 @@ func preFailureResearchV4() WorkflowDefinition {
 func preFailureArchitectureSpikeV3() WorkflowDefinition {
 	d := builtinArchitectureSpike(true)
 	d.Version = 3
-	return withWorkerActionsBeforeFailure(d, true)
+	return withoutDecisionRecordPayload(withWorkerActionsBeforeFailure(d, true))
 }
 
 func preFailureOpsRunbookV3() WorkflowDefinition {
 	d := builtinOpsRunbook(true)
 	d.Version = 3
-	return withWorkerActionsBeforeFailure(d, true)
+	return withOptionalConditionCancellation(withWorkerActionsBeforeFailure(d, true))
 }
 
 func preFailureStaticAnalysisV3() WorkflowDefinition {
@@ -320,7 +320,7 @@ func breakFixRefinementV8() WorkflowDefinition {
 func releasedOpsRunbookV4() WorkflowDefinition {
 	d := builtinOpsRunbook(true)
 	d.Version = 4
-	return withWorkerActions(d, true)
+	return withOptionalConditionCancellation(withWorkerActions(d, true))
 }
 
 // opsRunbookCleanupCheckpointV5 makes the cleanup step a human checkpoint. The
@@ -356,4 +356,125 @@ func withLegacyRecordProposal(definition WorkflowDefinition) WorkflowDefinition 
 		}
 	}
 	return definition
+}
+
+// withDesignDecisionItemSchema restates the record_design decisions field so it
+// names its element contract through item_ref. The frozen versions declare the
+// same schema through schema_ref, where an array field naming a non-array
+// schema had to be read as a per-element contract by inference. Their content
+// is unchanged; only definitions from this version forward say it outright.
+func withDesignDecisionItemSchema(definition WorkflowDefinition) WorkflowDefinition {
+	definition = cloneWorkflowDefinition(definition)
+	for actionIndex := range definition.ActionDefinitions {
+		if definition.ActionDefinitions[actionIndex].ID != "record_design" {
+			continue
+		}
+		fields := definition.ActionDefinitions[actionIndex].Payload.Fields
+		for fieldIndex := range fields {
+			if fields[fieldIndex].Name != "decisions" {
+				continue
+			}
+			fields[fieldIndex] = actionItemArrayField("decisions", fields[fieldIndex].Required, *fields[fieldIndex].MinItems, *fields[fieldIndex].MaxItems, fields[fieldIndex].SchemaRef)
+		}
+	}
+	return definition
+}
+
+// implementationDesignItemSchemaV10 ships the unambiguous decisions declaration.
+func implementationDesignItemSchemaV10() WorkflowDefinition {
+	d := implementationRefinementV9()
+	d.Version = 10
+	return withDesignDecisionItemSchema(d)
+}
+
+// withoutDecisionRecordPayload restores record_decision's empty declared
+// payload. Versions up to 4 declared no fields for it, so the fold could never
+// receive the decision record it requires. Version 5 declares the fields; the
+// released versions keep the content they were pinned under.
+func withoutDecisionRecordPayload(definition WorkflowDefinition) WorkflowDefinition {
+	definition = cloneWorkflowDefinition(definition)
+	for index := range definition.ActionDefinitions {
+		if definition.ActionDefinitions[index].ID != "record_decision" {
+			continue
+		}
+		definition.ActionDefinitions[index].Payload = WorkflowPayloadDefinition{Closed: true, Fields: []WorkflowPayloadField{}}
+	}
+	return definition
+}
+
+// preDecisionPayloadArchitectureSpikeV4 freezes the architecture spike as it
+// stood before record_decision declared the decision record it must carry.
+func preDecisionPayloadArchitectureSpikeV4() WorkflowDefinition {
+	d := builtinArchitectureSpike(true)
+	d.Version = 4
+	return withoutDecisionRecordPayload(withWorkerActions(d, true))
+}
+
+// withOptionalConditionCancellation restores cancel_condition's all-optional
+// declaration. Versions up to 5 declared every field optional and left the
+// authority a free reference, while the fold required all four and accepted
+// only the operator as the authority. Version 6 declares what the fold
+// requires; the released versions keep the content they were pinned under.
+func withOptionalConditionCancellation(definition WorkflowDefinition) WorkflowDefinition {
+	definition = cloneWorkflowDefinition(definition)
+	for index := range definition.ActionDefinitions {
+		if definition.ActionDefinitions[index].ID != "cancel_condition" {
+			continue
+		}
+		definition.ActionDefinitions[index].Payload = WorkflowPayloadDefinition{Closed: true, Fields: []WorkflowPayloadField{
+			actionRefField("condition_id", false), actionRefField("cancellation_authority", false),
+			actionListField("cancellation_evidence", false, 1, 32), actionRefField("cancelled_by_event", false),
+		}}
+	}
+	return definition
+}
+
+// preCancellationContractOpsRunbookV5 freezes the ops runbook as it stood
+// before cancel_condition declared the cancellation its fold requires.
+func preCancellationContractOpsRunbookV5() WorkflowDefinition {
+	return withOptionalConditionCancellation(opsRunbookCleanupCheckpointV5())
+}
+
+// opsRunbookConditionContractV6 ships cancel_condition's declared cancellation:
+// the condition, the operator authority, its evidence, and the cancelling
+// event, all required, as the fold has always demanded them.
+func opsRunbookConditionContractV6() WorkflowDefinition {
+	d := opsRunbookCleanupCheckpointV5()
+	d.Version = 6
+	return d
+}
+
+func opsRunbookTimestampV7() WorkflowDefinition {
+	d := cloneWorkflowDefinition(opsRunbookConditionContractV6())
+	d.Version = 7
+	for i := range d.ActionDefinitions {
+		for j := range d.ActionDefinitions[i].Payload.Fields {
+			field := &d.ActionDefinitions[i].Payload.Fields[j]
+			if field.Name == "asserted_at" {
+				field.SchemaRef = "native_report_timestamp"
+			}
+		}
+	}
+	return d
+}
+
+func releasedArchitectureSpikeV5() WorkflowDefinition {
+	return withWorkerActions(builtinArchitectureSpike(true), true)
+}
+
+func architectureSpikeDecisionBoundsV6() WorkflowDefinition {
+	d := cloneWorkflowDefinition(releasedArchitectureSpikeV5())
+	d.Version = 6
+	for i := range d.ActionDefinitions {
+		if d.ActionDefinitions[i].ID != "record_decision" {
+			continue
+		}
+		for j := range d.ActionDefinitions[i].Payload.Fields {
+			field := &d.ActionDefinitions[i].Payload.Fields[j]
+			if field.ValueType == PayloadStringList {
+				field.ItemRef = "decision_record_text"
+			}
+		}
+	}
+	return d
 }

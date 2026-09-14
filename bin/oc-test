@@ -66,6 +66,9 @@ run_tier() {
   fi
 
   local rc=0
+  if [[ "$tier" != "targeted" && ${#gate[@]} -gt 0 ]]; then
+    printf 'WAIT admission: %s (shared heavy-test slot)\n' "$tier"
+  fi
   set +e
   "${gate[@]+"${gate[@]}"}" "$@"
   rc=$?
@@ -97,23 +100,39 @@ case "$tier" in
     [[ $# -eq 0 ]] || usage
     run_tier smoke bash -c "
 set -euo pipefail
+printf 'START gofmt\n'
 ${check_gofmt}
+printf 'PASS gofmt\nSTART vet\n'
 go vet ./...
-go test ./...
+printf 'PASS vet\nSTART go-tests\n'
+go test -v ./...
+printf 'PASS go-tests\n'
 "
     ;;
   full)
     [[ $# -eq 0 ]] || usage
     run_tier full bash -c "
 set -euo pipefail
-python3 scripts/check-public-content.py
-python3 scripts/check-doc-links.py
-python3 scripts/check-json.py
-${check_gofmt}
-go mod tidy
-git diff --exit-code -- go.mod go.sum
-go vet ./...
-go test -race -p \"\$1\" -timeout \"\$2\" ./...
+phase() {
+  local label=\"\$1\" started=\$SECONDS rc
+  shift
+  printf 'START %s\n' \"\$label\"
+  if \"\$@\"; then
+    printf 'PASS %s (%ss)\n' \"\$label\" \"\$((SECONDS-started))\"
+  else
+    rc=\$?
+    printf 'FAIL %s (%ss, exit %s)\n' \"\$label\" \"\$((SECONDS-started))\" \"\$rc\" >&2
+    return \"\$rc\"
+  fi
+}
+phase public-content python3 scripts/check-public-content.py
+phase doc-links python3 scripts/check-doc-links.py
+phase json python3 scripts/check-json.py
+phase gofmt bash -e -u -o pipefail -c '${check_gofmt}'
+phase module-tidiness go mod tidy -diff
+phase module-diff git diff --exit-code -- go.mod go.sum
+phase vet go vet ./...
+phase race-tests go test -v -race -p \"\$1\" -timeout \"\$2\" ./...
 " bash "$full_workers" "$full_timeout"
     ;;
   conformance)

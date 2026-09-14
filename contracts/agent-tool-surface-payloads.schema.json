@@ -3790,7 +3790,9 @@
                 "maxProperties": 32,
                 "properties": {
                   "attempt_id": {
-                    "$ref": "#/$defs/reference"
+                    "$ref": "#/$defs/reference",
+                    "minLength": 2,
+                    "maxLength": 128
                   },
                   "worker_packet": {
                     "$ref": "#/$defs/worker_packet"
@@ -8636,13 +8638,19 @@
                     "maxLength": 2048
                   },
                   "producer_id": {
-                    "$ref": "#/$defs/reference"
+                    "$ref": "#/$defs/reference",
+                    "minLength": 2,
+                    "maxLength": 128
                   },
                   "producer_run_ref": {
-                    "$ref": "#/$defs/reference"
+                    "$ref": "#/$defs/reference",
+                    "minLength": 2,
+                    "maxLength": 128
                   },
                   "producer_watermark": {
-                    "$ref": "#/$defs/reference"
+                    "$ref": "#/$defs/reference",
+                    "minLength": 2,
+                    "maxLength": 128
                   }
                 }
               }
@@ -8682,7 +8690,9 @@
                 "maxProperties": 32,
                 "properties": {
                   "attempt_id": {
-                    "$ref": "#/$defs/reference"
+                    "$ref": "#/$defs/reference",
+                    "minLength": 2,
+                    "maxLength": 128
                   },
                   "attempt_epoch": {
                     "type": "integer",
@@ -8734,7 +8744,9 @@
                 "maxProperties": 32,
                 "properties": {
                   "condition_id": {
-                    "$ref": "#/$defs/reference"
+                    "$ref": "#/$defs/reference",
+                    "minLength": 2,
+                    "maxLength": 128
                   },
                   "await_type": {
                     "type": "string",
@@ -8747,10 +8759,14 @@
                     ]
                   },
                   "await_ref": {
-                    "$ref": "#/$defs/reference"
+                    "$ref": "#/$defs/reference",
+                    "minLength": 2,
+                    "maxLength": 128
                   },
                   "resolution_authority": {
-                    "$ref": "#/$defs/reference"
+                    "$ref": "#/$defs/reference",
+                    "minLength": 2,
+                    "maxLength": 128
                   },
                   "expected_within_seconds": {
                     "type": "integer",
@@ -8838,7 +8854,9 @@
                     "maxLength": 4096
                   },
                   "outcome_predicates": {
-                    "$ref": "#/$defs/workflow_action_outcome_predicates"
+                    "$ref": "#/$defs/workflow_action_outcome_predicates",
+                    "minItems": 1,
+                    "maxItems": 8
                   },
                   "required_evidence": {
                     "type": "array",
@@ -8962,13 +8980,19 @@
                     "maxLength": 2048
                   },
                   "producer_id": {
-                    "$ref": "#/$defs/reference"
+                    "$ref": "#/$defs/reference",
+                    "minLength": 2,
+                    "maxLength": 128
                   },
                   "producer_run_ref": {
-                    "$ref": "#/$defs/reference"
+                    "$ref": "#/$defs/reference",
+                    "minLength": 2,
+                    "maxLength": 128
                   },
                   "producer_watermark": {
-                    "$ref": "#/$defs/reference"
+                    "$ref": "#/$defs/reference",
+                    "minLength": 2,
+                    "maxLength": 128
                   }
                 }
               }
@@ -9030,13 +9054,19 @@
                     "maxLength": 2048
                   },
                   "producer_id": {
-                    "$ref": "#/$defs/reference"
+                    "$ref": "#/$defs/reference",
+                    "minLength": 2,
+                    "maxLength": 128
                   },
                   "producer_run_ref": {
-                    "$ref": "#/$defs/reference"
+                    "$ref": "#/$defs/reference",
+                    "minLength": 2,
+                    "maxLength": 128
                   },
                   "producer_watermark": {
-                    "$ref": "#/$defs/reference"
+                    "$ref": "#/$defs/reference",
+                    "minLength": 2,
+                    "maxLength": 128
                   }
                 }
               }
@@ -9076,10 +9106,15 @@
                 "maxProperties": 32,
                 "properties": {
                   "condition_id": {
-                    "$ref": "#/$defs/reference"
+                    "$ref": "#/$defs/reference",
+                    "minLength": 2,
+                    "maxLength": 128
                   },
                   "cancellation_authority": {
-                    "$ref": "#/$defs/reference"
+                    "type": "string",
+                    "enum": [
+                      "operator"
+                    ]
                   },
                   "cancellation_evidence": {
                     "type": "array",
@@ -9091,9 +9126,17 @@
                     "maxItems": 32
                   },
                   "cancelled_by_event": {
-                    "$ref": "#/$defs/reference"
+                    "$ref": "#/$defs/reference",
+                    "minLength": 2,
+                    "maxLength": 128
                   }
-                }
+                },
+                "required": [
+                  "condition_id",
+                  "cancellation_authority",
+                  "cancellation_evidence",
+                  "cancelled_by_event"
+                ]
               }
             },
             "not": {
@@ -9109,7 +9152,10 @@
                   ]
                 }
               ]
-            }
+            },
+            "required": [
+              "fields"
+            ]
           }
         },
         {
@@ -9203,7 +9249,9 @@
                 "maxProperties": 32,
                 "properties": {
                   "checkpoint_id": {
-                    "$ref": "#/$defs/reference"
+                    "$ref": "#/$defs/reference",
+                    "minLength": 2,
+                    "maxLength": 128
                   },
                   "checkpoint_sequence": {
                     "type": "integer",
@@ -9497,7 +9545,9 @@
                 "maxProperties": 32,
                 "properties": {
                   "run_id": {
-                    "$ref": "#/$defs/reference"
+                    "$ref": "#/$defs/reference",
+                    "minLength": 2,
+                    "maxLength": 128
                   },
                   "native_subject_ref": {
                     "type": "string",
@@ -9520,7 +9570,7 @@
                     "$ref": "#/$defs/digest"
                   },
                   "asserted_at": {
-                    "type": "string",
+                    "$ref": "#/$defs/native_report_timestamp",
                     "minLength": 1,
                     "maxLength": 64
                   }
@@ -9698,7 +9748,9 @@
                     ]
                   },
                   "checkpoint_id": {
-                    "$ref": "#/$defs/reference"
+                    "$ref": "#/$defs/reference",
+                    "minLength": 2,
+                    "maxLength": 128
                   },
                   "boundary_sequence": {
                     "type": "integer",
@@ -9765,10 +9817,14 @@
                 "maxProperties": 32,
                 "properties": {
                   "target_work_id": {
-                    "$ref": "#/$defs/reference"
+                    "$ref": "#/$defs/reference",
+                    "minLength": 2,
+                    "maxLength": 128
                   },
                   "edge_id": {
-                    "$ref": "#/$defs/reference"
+                    "$ref": "#/$defs/reference",
+                    "minLength": 2,
+                    "maxLength": 128
                   },
                   "edge_kind": {
                     "type": "string",
@@ -9991,7 +10047,9 @@
                     "$ref": "#/$defs/workflow_forward_relation"
                   },
                   "successor_work_id": {
-                    "$ref": "#/$defs/reference"
+                    "$ref": "#/$defs/reference",
+                    "minLength": 2,
+                    "maxLength": 128
                   }
                 },
                 "required": [
@@ -10066,28 +10124,118 @@
             ]
           },
           "then": {
-            "properties": {
-              "fields": {
-                "type": "object",
-                "additionalProperties": false,
-                "maxProperties": 32,
-                "properties": {}
-              }
-            },
-            "not": {
-              "anyOf": [
-                {
-                  "required": [
-                    "selected_choice"
+            "anyOf": [
+              {
+                "properties": {
+                  "fields": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "maxProperties": 32,
+                    "properties": {
+                      "question": {
+                        "type": "string",
+                        "minLength": 2,
+                        "maxLength": 4096
+                      },
+                      "options_considered": {
+                        "type": "array",
+                        "uniqueItems": true,
+                        "items": {
+                          "$ref": "#/$defs/decision_record_text"
+                        },
+                        "minItems": 1,
+                        "maxItems": 16
+                      },
+                      "decision": {
+                        "type": "string",
+                        "enum": [
+                          "accepted_decision",
+                          "insufficient_evidence"
+                        ]
+                      },
+                      "rationale": {
+                        "type": "string",
+                        "minLength": 2,
+                        "maxLength": 4096
+                      },
+                      "consequences": {
+                        "type": "array",
+                        "uniqueItems": true,
+                        "items": {
+                          "$ref": "#/$defs/decision_record_text"
+                        },
+                        "minItems": 1,
+                        "maxItems": 16
+                      },
+                      "inputs": {
+                        "type": "array",
+                        "uniqueItems": true,
+                        "items": {
+                          "$ref": "#/$defs/decision_record_text"
+                        },
+                        "minItems": 1,
+                        "maxItems": 32
+                      },
+                      "poc_findings": {
+                        "type": "string",
+                        "minLength": 2,
+                        "maxLength": 4096
+                      }
+                    },
+                    "required": [
+                      "question",
+                      "options_considered",
+                      "decision",
+                      "rationale",
+                      "consequences",
+                      "inputs",
+                      "poc_findings"
+                    ]
+                  }
+                },
+                "not": {
+                  "anyOf": [
+                    {
+                      "required": [
+                        "selected_choice"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "decision_context_digest"
+                      ]
+                    }
                   ]
                 },
-                {
-                  "required": [
-                    "decision_context_digest"
+                "required": [
+                  "fields"
+                ]
+              },
+              {
+                "properties": {
+                  "fields": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "maxProperties": 32,
+                    "properties": {}
+                  }
+                },
+                "not": {
+                  "anyOf": [
+                    {
+                      "required": [
+                        "selected_choice"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "decision_context_digest"
+                      ]
+                    }
                   ]
                 }
-              ]
-            }
+              }
+            ]
           }
         },
         {
@@ -10312,7 +10460,9 @@
                 "maxProperties": 32,
                 "properties": {
                   "run_id": {
-                    "$ref": "#/$defs/reference"
+                    "$ref": "#/$defs/reference",
+                    "minLength": 2,
+                    "maxLength": 128
                   },
                   "native_subject_ref": {
                     "type": "string",
@@ -10336,7 +10486,7 @@
                     "$ref": "#/$defs/digest"
                   },
                   "asserted_at": {
-                    "type": "string",
+                    "$ref": "#/$defs/native_report_timestamp",
                     "minLength": 1,
                     "maxLength": 64
                   }
@@ -10566,13 +10716,19 @@
                     "maxLength": 2048
                   },
                   "producer_id": {
-                    "$ref": "#/$defs/reference"
+                    "$ref": "#/$defs/reference",
+                    "minLength": 2,
+                    "maxLength": 128
                   },
                   "producer_run_ref": {
-                    "$ref": "#/$defs/reference"
+                    "$ref": "#/$defs/reference",
+                    "minLength": 2,
+                    "maxLength": 128
                   },
                   "producer_watermark": {
-                    "$ref": "#/$defs/reference"
+                    "$ref": "#/$defs/reference",
+                    "minLength": 2,
+                    "maxLength": 128
                   }
                 }
               }
@@ -10670,13 +10826,19 @@
                     "maxLength": 2048
                   },
                   "producer_id": {
-                    "$ref": "#/$defs/reference"
+                    "$ref": "#/$defs/reference",
+                    "minLength": 2,
+                    "maxLength": 128
                   },
                   "producer_run_ref": {
-                    "$ref": "#/$defs/reference"
+                    "$ref": "#/$defs/reference",
+                    "minLength": 2,
+                    "maxLength": 128
                   },
                   "producer_watermark": {
-                    "$ref": "#/$defs/reference"
+                    "$ref": "#/$defs/reference",
+                    "minLength": 2,
+                    "maxLength": 128
                   }
                 }
               }
@@ -10757,7 +10919,9 @@
                     "maximum": 2147483647
                   },
                   "predicate_id": {
-                    "$ref": "#/$defs/reference"
+                    "$ref": "#/$defs/reference",
+                    "minLength": 2,
+                    "maxLength": 128
                   },
                   "verdict_kind": {
                     "type": "string",
@@ -10828,7 +10992,9 @@
                 "maxProperties": 32,
                 "properties": {
                   "attempt_id": {
-                    "$ref": "#/$defs/reference"
+                    "$ref": "#/$defs/reference",
+                    "minLength": 2,
+                    "maxLength": 128
                   },
                   "attempt_epoch": {
                     "type": "integer",
@@ -10880,7 +11046,9 @@
                 "maxProperties": 32,
                 "properties": {
                   "condition_id": {
-                    "$ref": "#/$defs/reference"
+                    "$ref": "#/$defs/reference",
+                    "minLength": 2,
+                    "maxLength": 128
                   },
                   "resolution_evidence": {
                     "type": "array",
@@ -10892,7 +11060,9 @@
                     "maxItems": 32
                   },
                   "resolved_by_event": {
-                    "$ref": "#/$defs/reference"
+                    "$ref": "#/$defs/reference",
+                    "minLength": 2,
+                    "maxLength": 128
                   }
                 }
               }
@@ -10945,7 +11115,9 @@
                     ]
                   },
                   "candidate_ref": {
-                    "$ref": "#/$defs/reference"
+                    "$ref": "#/$defs/reference",
+                    "minLength": 2,
+                    "maxLength": 128
                   },
                   "added": {
                     "type": "array",
@@ -11012,7 +11184,9 @@
                 "maxProperties": 32,
                 "properties": {
                   "run_id": {
-                    "$ref": "#/$defs/reference"
+                    "$ref": "#/$defs/reference",
+                    "minLength": 2,
+                    "maxLength": 128
                   },
                   "native_subject_ref": {
                     "type": "string",
@@ -11036,7 +11210,7 @@
                     "$ref": "#/$defs/digest"
                   },
                   "asserted_at": {
-                    "type": "string",
+                    "$ref": "#/$defs/native_report_timestamp",
                     "minLength": 1,
                     "maxLength": 64
                   }
@@ -11304,7 +11478,9 @@
                 "maxProperties": 32,
                 "properties": {
                   "run_id": {
-                    "$ref": "#/$defs/reference"
+                    "$ref": "#/$defs/reference",
+                    "minLength": 2,
+                    "maxLength": 128
                   },
                   "native_subject_ref": {
                     "type": "string",
@@ -11327,7 +11503,7 @@
                     "$ref": "#/$defs/digest"
                   },
                   "asserted_at": {
-                    "type": "string",
+                    "$ref": "#/$defs/native_report_timestamp",
                     "minLength": 1,
                     "maxLength": 64
                   }
@@ -11619,7 +11795,9 @@
                 "maxProperties": 32,
                 "properties": {
                   "lane_id": {
-                    "$ref": "#/$defs/reference"
+                    "$ref": "#/$defs/reference",
+                    "minLength": 2,
+                    "maxLength": 128
                   }
                 },
                 "required": [
@@ -11657,6 +11835,17 @@
       "type": "string",
       "minLength": 1,
       "maxLength": 512
+    },
+    "decision_record_text": {
+      "type": "string",
+      "minLength": 2,
+      "maxLength": 128
+    },
+    "native_report_timestamp": {
+      "type": "string",
+      "minLength": 20,
+      "maxLength": 64,
+      "format": "date-time"
     }
   }
 }

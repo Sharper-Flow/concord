@@ -101,11 +101,11 @@ func seedWorkflowReturnRouteFixture(t *testing.T, workID, definitionRef, verdict
 	return workflowReturnRouteFixture{store: s, owner: owner, operator: operator}
 }
 
-func TestNonOKVerdictReturnsImplementationAcceptanceToRefine(t *testing.T) {
+func TestIssue1062PersistentMismatchReturnsImplementationAcceptanceToRefine(t *testing.T) {
 	testWorkflowReturnRoute(t, "return-route-implementation", "workflow.implementation", "acceptance")
 }
 
-func TestNonOKVerdictReturnsBreakFixVerificationToRefine(t *testing.T) {
+func TestIssue1062PersistentMismatchReturnsBreakFixVerificationToRefine(t *testing.T) {
 	testWorkflowReturnRoute(t, "return-route-break-fix", "workflow.break_fix", "verify")
 }
 

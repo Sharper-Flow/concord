@@ -516,6 +516,52 @@ test("host prompt provenance binds the global AGENTS.md", async () => {
   }
 })
 
+test("host prompt provenance prefers the project agent definition", async () => {
+  const configDir = await mkdtemp(path.join(os.tmpdir(), "provenance-config-"))
+  const dir = await mkdtemp(path.join(os.tmpdir(), "provenance-cwd-"))
+  const previous = process.env.OPENCODE_CONFIG_DIR
+  process.env.OPENCODE_CONFIG_DIR = configDir
+  try {
+    await fs.promises.mkdir(`${configDir}/agents`, { recursive: true })
+    await fs.promises.mkdir(`${dir}/.opencode/agents`, { recursive: true })
+    await Bun.write(`${configDir}/agents/concord-research.md`, "# global agent\n")
+    await Bun.write(`${dir}/.opencode/agents/concord-research.md`, "# project agent\n")
+
+    const first = await computeHostPromptProvenance("research", dir)
+    expect(first.sources.filter(source => source.kind === "agent_definition")).toEqual([
+      expect.objectContaining({ kind: "agent_definition", path: `${dir}/.opencode/agents/concord-research.md` }),
+    ])
+
+    await Bun.write(`${configDir}/agents/concord-research.md`, "# global agent changed\n")
+    expect((await computeHostPromptProvenance("research", dir)).digest).toBe(first.digest)
+  } finally {
+    if (previous === undefined) delete process.env.OPENCODE_CONFIG_DIR
+    else process.env.OPENCODE_CONFIG_DIR = previous
+  }
+})
+
+test("host prompt provenance falls back to the global agent definition", async () => {
+  const configDir = await mkdtemp(path.join(os.tmpdir(), "provenance-config-"))
+  const dir = await mkdtemp(path.join(os.tmpdir(), "provenance-cwd-"))
+  const previous = process.env.OPENCODE_CONFIG_DIR
+  process.env.OPENCODE_CONFIG_DIR = configDir
+  try {
+    await fs.promises.mkdir(`${configDir}/agents`, { recursive: true })
+    await Bun.write(`${configDir}/agents/concord-research.md`, "# global agent\n")
+
+    const first = await computeHostPromptProvenance("research", dir)
+    expect(first.sources.filter(source => source.kind === "agent_definition")).toEqual([
+      expect.objectContaining({ kind: "agent_definition", path: `${configDir}/agents/concord-research.md` }),
+    ])
+
+    await Bun.write(`${configDir}/agents/concord-research.md`, "# global agent changed\n")
+    expect((await computeHostPromptProvenance("research", dir)).digest).not.toBe(first.digest)
+  } finally {
+    if (previous === undefined) delete process.env.OPENCODE_CONFIG_DIR
+    else process.env.OPENCODE_CONFIG_DIR = previous
+  }
+})
+
 // Issue #409: instruction files the host config declares reach every lane. They
 // are bound when they resolve exactly, and named when they cannot, so nothing
 // injected is absent from the manifest.

@@ -78,10 +78,13 @@ type livenessExploration struct {
 }
 
 func (result livenessExploration) conclusion() string {
-	if len(result.reports) != 0 {
-		return "counterexample"
+	if result.depthBoundStates != 0 || len(result.omittedVariants) != 0 {
+		return "inconclusive"
 	}
-	if result.depthBoundStates != 0 || len(result.omittedVariants) != 0 || result.terminalStates == 0 {
+	if len(result.reports) != 0 {
+		return "candidate-found"
+	}
+	if result.terminalStates == 0 {
 		return "inconclusive"
 	}
 	return "complete-within-model"

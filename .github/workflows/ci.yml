@@ -17,12 +17,47 @@ permissions:
   contents: read
 
 jobs:
+  verify-history:
+    name: verify-history
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository and historical baseline
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
+        with:
+          go-version-file: go.mod
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version: 1.4.0
+      - name: Replay historical failures and current regressions
+        run: python3 scripts/test-workflow-history.py --output-dir "$RUNNER_TEMP/workflow-history"
+      - name: Retain baseline and current execution evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: workflow-history-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/workflow-history
+          if-no-files-found: error
+          retention-days: 90
+
   # Validators and the Python script battery. No Go compilation here: the
   # Go-dependent analysis checks live in verify-go.
   verify:
     name: verify
+    needs: verify-history
+    if: always()
     runs-on: ubuntu-latest
     steps:
+      - name: Require historical regression evidence
+        env:
+          HISTORY_RESULT: ${{ needs.verify-history.result }}
+        run: test "$HISTORY_RESULT" = success
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:

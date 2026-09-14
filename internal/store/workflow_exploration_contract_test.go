@@ -62,8 +62,22 @@ func TestLivenessConclusionDoesNotConflateIncompleteAndSuccessful(t *testing.T) 
 	if (livenessExploration{terminalStates: 1}).conclusion() != "complete-within-model" {
 		t.Fatal("closed model lost its result")
 	}
-	if (livenessExploration{reports: []livenessReport{{}}, depthBoundStates: 1}).conclusion() != "counterexample" {
-		t.Fatal("cutoff concealed a finding")
+	if (livenessExploration{reports: []livenessReport{{}}}).conclusion() != "candidate-found" {
+		t.Fatal("closed exploration lost its candidate finding")
+	}
+}
+
+func TestLivenessTruncationNeverBecomesConclusive(t *testing.T) {
+	for _, result := range []livenessExploration{
+		{reports: []livenessReport{{}}, depthBoundStates: 1},
+		{reports: []livenessReport{{}}, omittedVariants: []string{"unexamined-exit"}},
+	} {
+		if result.conclusion() != "inconclusive" {
+			t.Fatalf("candidate report overrode incomplete exploration: %s", result.conclusion())
+		}
+		if len(result.reports) != 1 {
+			t.Fatal("inconclusive result lost its candidate finding")
+		}
 	}
 }
 
@@ -77,7 +91,7 @@ func TestLivenessDetectsSeededMissingExit(t *testing.T) {
 		}
 	}
 	result := livenessExplore(t, d)
-	if result.conclusion() != "counterexample" {
+	if len(result.reports) == 0 {
 		t.Fatalf("missing exit not detected: %+v", result)
 	}
 	if result.testedTransitions != 0 {
@@ -163,7 +177,7 @@ func TestLivenessExecutesAndRejectsUnapprovedCompletion(t *testing.T) {
 	d.Version = 1
 	d.StepGraph = graph([]WorkflowStep{step("discovery", WorkflowStepInternalSQLite, "record_discovery"), step("release", WorkflowStepInternalSQLite, "complete")}, forward("discovery", "release"), "release")
 	result := livenessExplore(t, d)
-	if result.terminalStates != 0 || result.conclusion() != "counterexample" {
+	if result.terminalStates != 0 || len(result.reports) == 0 {
 		t.Fatalf("terminal step hid rejected completion: %+v", result)
 	}
 }

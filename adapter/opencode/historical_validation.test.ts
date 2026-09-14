@@ -19,8 +19,10 @@ test("historical Unicode character bounds", () => {
 test("historical date-time calendar validation", () => {
   const value = { work_version: 1, approach: "shared validation", decisions: [{ id: "choice-one", question: "question", choice: "choice", rationale: "rationale", rejected: [] }], touched_refs: ["ref:one"], recorded_at: "2026-02-28T00:00:00Z" }
   if (!validateGeneratedPayload("workflow_design_record", value)) throw new Error("fixture schema unavailable")
-  value.recorded_at = "2026-02-30T00:00:00Z"
-  if (validateGeneratedPayload("workflow_design_record", value)) repro("historical date-time calendar validation", "invalid calendar date was accepted")
+  for (const invalid of ["2026-02-30T00:00:00Z", "2026-02-28"]) {
+    value.recorded_at = invalid
+    if (validateGeneratedPayload("workflow_design_record", value)) repro("historical date-time calendar validation", "invalid date-time was accepted")
+  }
 })
 
 test("historical reference sibling validation", () => {

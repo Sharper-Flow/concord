@@ -8,7 +8,10 @@
     "internal/store/workpin.go",
     "internal/store/workflow_issue1013_test.go",
     "internal/store/workflow_predispatch_correction_test.go",
-    "internal/agent/supersede_contract_dispatch_test.go"
+    "internal/agent/supersede_contract_dispatch_test.go",
+    "internal/agent/design_contract_correction_test.go",
+    "internal/store/workflow_design.go",
+    "internal/store/workflow_design_test.go"
   ],
   "home_domain_id": "workflow-engine",
   "id": "CD-0133",
@@ -25,6 +28,10 @@
     {
       "kind": "refines",
       "target_id": "CD-0130"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0128"
     }
   ],
   "path": "docs/decisions/CD-0133-contract-correction-at-a-worker-dispatch-step.md",
@@ -35,9 +42,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:29bbc7413778676463069042f0ca8f268edf1efe44d2bc7828be02f52015cc18",
+  "sha256": "sha256:7cc413d19a140786d866a8db9faf538ead101c7e32acc56cad97350d76de0ac4",
   "status": "accepted",
-  "summary": "Admits operator-approved contract correction before worker dispatch or after a recorded failure, preserving definition digests, pending-dispatch protection, and overlap admission for subsequent execution.",
+  "summary": "Admits operator-approved contract correction with atomic design replacement, preserving definition digests, worker fences, audit history, and overlap admission for subsequent execution.",
   "tags": [
     "workflow",
     "worker",

@@ -2,6 +2,8 @@ package store
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"testing"
 )
 
@@ -28,6 +30,32 @@ func TestPredispatchContractCorrectionSurvivesRebuild(t *testing.T) {
 	}
 	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: events, ExpectedVersions: workVersion(workID, 2)}); err != nil {
 		t.Fatal(err)
+	}
+	var unsupportedDesign map[string]any
+	if err := json.Unmarshal(issue1013SuccessorContract(), &unsupportedDesign); err != nil {
+		t.Fatal(err)
+	}
+	unsupportedDesign["design_record"] = map[string]any{
+		"approach":     "A design for work without a typed design",
+		"decisions":    []map[string]any{{"id": "decision:unsupported", "question": "Which approach?", "choice": "new", "rationale": "Synthetic input", "rejected": []string{}}},
+		"touched_refs": []string{"src/work.go"},
+	}
+	raw, err := json.Marshal(unsupportedDesign)
+	if err != nil {
+		t.Fatal(err)
+	}
+	version := verdictItemVersion(t, s, workID)
+	err = runIssue933OperatorAction(t, s, workID, "supersede_contract", raw, owner, operatorVerdictActor(t, workID))
+	var failure *Failure
+	if !errors.As(err, &failure) || failure.Kind != KindInvalidPayload {
+		t.Fatalf("designless workflow acquired a design: %v", err)
+	}
+	if verdictItemVersion(t, s, workID) != version {
+		t.Fatal("refused design addition changed work")
+	}
+	active, err := s.ActiveWorkflowContract(ctx, workID)
+	if err != nil || active.Version != 1 {
+		t.Fatalf("refused design addition partially changed the contract: %+v err=%v", active, err)
 	}
 	if err := runIssue933OperatorAction(t, s, workID, "supersede_contract", issue1013SuccessorContract(), owner, operatorVerdictActor(t, workID)); err != nil {
 		t.Fatalf("correct before dispatch: %v", err)

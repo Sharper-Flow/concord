@@ -2,7 +2,10 @@
   "date": "2026-09-09T00:00:00Z",
   "evidence": [
     "docs/workflow-engine-contract.md",
-    "adapter/opencode/packet.ts"
+    "adapter/opencode/packet.ts",
+    "internal/store/workflow_design.go",
+    "internal/store/workflow_design_test.go",
+    "internal/agent/design_contract_correction_test.go"
   ],
   "home_domain_id": "product-root:concord",
   "id": "CD-0128",
@@ -26,9 +29,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:919486c68164905d8e8d1f32fe87280a214149717227aa7c6f0eb4fc46415fd6",
+  "sha256": "sha256:2ff548e28395dce3eaf9ea5693352b5afbe69cb5b1d61f4dcbd32b23e017c848",
   "status": "accepted",
-  "summary": "Makes record_design a typed workflow action and projects its latest durable design record into implement lane context.",
+  "summary": "Projects the current typed design into implement context, preserves superseded designs as history, and requires an approved replacement after contract correction.",
   "tags": [
     "workflow",
     "design",

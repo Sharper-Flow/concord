@@ -1326,6 +1326,25 @@ func actionDefinitions(ids []string, payloadContracts bool) []WorkflowActionDefi
 	return result
 }
 
+// Recovery payloads are engine-owned even when absent from a historical pin.
+// Discovery of a definition does not grant admission at the current step.
+func workflowRecoveryActionDefinition(actionID string) (WorkflowActionDefinition, bool) {
+	switch actionID {
+	case "supersede_contract":
+		return workflowContractRecoveryActionDefinition(), true
+	case "record_verdict":
+		return currentActionDefinition(actionID, true), true
+	case "record_worker_failure":
+		return workerFailureRecoveryActionDefinition(), true
+	case "reject_worker_result":
+		return workflowCorrectionActionDefinition(), true
+	case "request_correction":
+		return workflowCorrectionRequestActionDefinition(), true
+	default:
+		return WorkflowActionDefinition{}, false
+	}
+}
+
 func workflowActionExecutionMode(definition WorkflowDefinition, actionID string) (ActionExecutionMode, bool) {
 	for _, action := range definition.ActionDefinitions {
 		if action.ID != actionID {
@@ -1337,9 +1356,8 @@ func workflowActionExecutionMode(definition WorkflowDefinition, actionID string)
 		break
 	}
 	// Recovery actions can be outside the pinned root list.
-	if actionID == "supersede_contract" || actionID == "record_verdict" || actionID == "record_worker_failure" || actionID == "reject_worker_result" || actionID == "request_correction" {
-		policy, ok := builtinActionPolicies[actionID]
-		return policy.ExecutionMode, ok
+	if action, ok := workflowRecoveryActionDefinition(actionID); ok {
+		return action.ExecutionMode, true
 	}
 	return "", false
 }

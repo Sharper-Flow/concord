@@ -257,6 +257,32 @@ describe("host task failure", () => {
       state: { status: "error", error: "Task cancelled", metadata } } },
   })
 
+  for (const fault of ["export-command", "malformed-export"]) {
+    test(`a persisted born-failed ${fault} releases settlement`, async () => {
+      const windows = new DispatchWindows()
+      windows.open(SESSION, packet(), PACKET_DIGEST)
+      windows.bind(TASK_TOOL_ID, SESSION, {}, "call-cancel")
+      const verbs: string[] = []
+      const options = deps(verbs, windows)
+      options.runner = { async run() {
+        return fault === "export-command"
+          ? { exitCode: 1, stdout: "", stderr: "export unavailable" }
+          : { exitCode: 0, stdout: "{", stderr: "" }
+      } }
+      options.evidenceRunner = { async run(argv, raw) {
+        verbs.push(argv[1])
+        const input = JSON.parse(raw)
+        expect(input.terminal).toBe("failed")
+        expect(input.readback_model).toBe("")
+        return { exitCode: 0, stdout: "", stderr: "" }
+      } }
+      await failDispatchedWorker(failedEvent(), options)
+      expect(verbs).toEqual(["worker-dispatch"])
+      expect(windows.inFlight(SESSION, "call-cancel")).toBeNull()
+      expect(() => windows.open(SESSION, packet(), PACKET_DIGEST)).not.toThrow()
+    })
+  }
+
   test("a cancelled task records failure once using exported identity", async () => {
     const windows = new DispatchWindows()
     windows.open(SESSION, packet(), PACKET_DIGEST)
@@ -267,6 +293,24 @@ describe("host task failure", () => {
     expect(result?.error?.message).toContain("Task cancelled")
     await failDispatchedWorker(failedEvent(), deps(verbs, windows))
     expect(verbs).toEqual(["worker-dispatch", "worker-fail"])
+  })
+
+  test("a refused born-failed write retains settlement without retry", async () => {
+    const windows = new DispatchWindows()
+    windows.open(SESSION, packet(), PACKET_DIGEST)
+    windows.bind(TASK_TOOL_ID, SESSION, {}, "call-cancel")
+    const verbs: string[] = []
+    const options = deps(verbs, windows)
+    options.runner = { async run() { return { exitCode: 1, stdout: "", stderr: "export unavailable" } } }
+    options.evidenceRunner = { async run(argv) {
+      verbs.push(argv[1])
+      return { exitCode: 1, stdout: "", stderr: "write unavailable" }
+    } }
+    await failDispatchedWorker(failedEvent(), options)
+    await failDispatchedWorker(failedEvent(), options)
+    expect(verbs).toEqual(["worker-dispatch"])
+    expect(windows.inFlight(SESSION, "call-cancel")).not.toBeNull()
+    expect(() => windows.open(SESSION, packet(), PACKET_DIGEST)).toThrow()
   })
 
   test("foreign calls and unbound sessions cannot consume an attempt", async () => {

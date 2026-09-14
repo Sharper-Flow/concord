@@ -107,15 +107,7 @@ func livenessActionDefinition(definition WorkflowDefinition, actionID string) (W
 			return action, true
 		}
 	}
-	switch actionID {
-	case "record_worker_failure":
-		return workerFailureRecoveryActionDefinition(), true
-	case "reject_worker_result":
-		return workflowCorrectionActionDefinition(), true
-	case "supersede_contract":
-		return workflowContractRecoveryActionDefinition(), true
-	}
-	return WorkflowActionDefinition{}, false
+	return workflowRecoveryActionDefinition(actionID)
 }
 
 // livenessVariants enumerates the enum combinations worth exploring for one
@@ -158,6 +150,9 @@ func livenessVariants(action WorkflowActionDefinition) []map[string]string {
 	const routingEnumMax = 4
 	enums := make([]WorkflowPayloadField, 0, 2)
 	for _, field := range action.Payload.Fields {
+		if action.ID == "supersede_contract" && field.Name == "outcome_kind" {
+			continue // This sampler uses the outcome_predicates arm.
+		}
 		if len(field.Enum) > 1 && len(field.Enum) <= routingEnumMax {
 			enums = append(enums, field)
 		}
@@ -189,6 +184,16 @@ func livenessOmittedVariants(definition WorkflowDefinition) []string {
 			if len(field.Enum) > routingEnumMax {
 				omitted = append(omitted, action.ID+"."+field.Name)
 			}
+		}
+	}
+	for _, kind := range definition.OutcomeSchema.AllowedKinds {
+		if kind != definition.OutcomeSchema.DefaultKind {
+			omitted = append(omitted, "outcome_kind="+string(kind))
+		}
+	}
+	for i, token := range definition.OutcomeSchema.AllowedOutcomeTokens {
+		if definition.OutcomeSchema.DefaultKind != PredicateOutcome || i > 0 {
+			omitted = append(omitted, "outcome_token="+token)
 		}
 	}
 	return omitted
@@ -1086,7 +1091,12 @@ func livenessContinuityAction(actionID string) bool {
 func livenessDeclaredActions(definition WorkflowDefinition, stepID string) []string {
 	// These engine-owned recovery routes may be admitted outside the step's
 	// action list. The real preflight, not this enumeration, decides admission.
-	actions := []string{"bind_evidence", "record_verdict", "record_worker_failure", "reject_worker_result", "supersede_contract"}
+	actions := []string{"bind_evidence"}
+	for id := range builtinActionPolicies {
+		if _, ok := workflowRecoveryActionDefinition(id); ok {
+			actions = append(actions, id)
+		}
+	}
 	for _, step := range definition.StepGraph.Steps {
 		if step.ID == stepID {
 			for _, action := range step.Actions {

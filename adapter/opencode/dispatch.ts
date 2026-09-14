@@ -727,7 +727,7 @@ async function recordWorkerEvent(childRunner: DispatchRunner, binary: string, co
 // waiting for a failure that was not written. The detail names the refusing
 // predicate and the export digest so the failure is diagnosable from the
 // store alone.
-async function recordModelReadbackFailure(lane: AgentLane, packet: AgentLanePacket, refusal: { predicate: ReadbackRefusal; export_digest: string; export_bytes: number; message: string }, options: { runner?: DispatchRunner; evidenceRunner?: DispatchRunner; concordBinary?: string; credentials?: CredentialStore; packetDigest?: string }, signal: AbortSignal): Promise<string | null> {
+async function recordModelReadbackFailure(lane: AgentLane, packet: AgentLanePacket, refusal: { predicate: ReadbackRefusal; export_digest: string; export_bytes: number; message: string }, options: { runner?: DispatchRunner; evidenceRunner?: DispatchRunner; concordBinary?: string; credentials?: CredentialStore; packetDigest?: string }, signal: AbortSignal, onRecorded?: () => void): Promise<string | null> {
   if (!options.packetDigest) return "model readback failure cannot be recorded without the dispatch packet digest"
   const cliRunner = options.evidenceRunner ?? options.runner ?? defaultRunner
   const binary = concordBinaryPath(options.concordBinary)
@@ -745,7 +745,7 @@ async function recordModelReadbackFailure(lane: AgentLane, packet: AgentLanePack
   } catch (error) {
     return String(error).slice(0, MAX_ERROR_BYTES)
   }
-  return recordWorkerEvent(cliRunner, binary, "worker-dispatch", {
+  const failure = await recordWorkerEvent(cliRunner, binary, "worker-dispatch", {
     event_id: crypto.randomUUID(), work_id: packet.work_id, attempt_id: packet.attempt_id,
     lane_id: lane.id, lane_version: lane.version, lane_digest: lane.digest,
     readback_model: "", packet_schema_version: PACKET_SCHEMA_VERSION,
@@ -753,6 +753,8 @@ async function recordModelReadbackFailure(lane: AgentLane, packet: AgentLanePack
     terminal: "failed", terminal_failure_kind: failureKind, terminal_detail: detail,
     host_provenance: provenance, assertion,
   }, signal)
+  if (failure === null) onRecorded?.()
+  return failure
 }
 
 // CD-0034 / issue #103: host prompt provenance. The adapter enumerates the
@@ -1102,7 +1104,7 @@ async function completeWorkerSession(
       export_bytes: Buffer.byteLength(exported.stdout),
       message: exported.stderr.slice(0, MAX_ERROR_BYTES) || "OpenCode session export failed without diagnostic output",
     }
-    const recorded = await recordModelReadbackFailure(lane, packet, refusal, options, signal)
+    const recorded = await recordModelReadbackFailure(lane, packet, refusal, options, signal, onRecorded)
     const failure = readbackRefusalEnvelope(lane, packet, refusal)
     if (recorded) failure.error!.message = `${failure.error!.message}; terminal evidence write failed: ${recorded}`.slice(0, MAX_ERROR_BYTES)
     failure.session_id = workerSessionID
@@ -1110,7 +1112,7 @@ async function completeWorkerSession(
   }
   const readbackResult = readExportSession(exported.stdout, workerSessionID)
   if (!readbackResult.ok) {
-    const recorded = await recordModelReadbackFailure(lane, packet, readbackResult, options, signal)
+    const recorded = await recordModelReadbackFailure(lane, packet, readbackResult, options, signal, onRecorded)
     const failure = readbackRefusalEnvelope(lane, packet, readbackResult)
     if (recorded) failure.error!.message = `${failure.error!.message}; terminal evidence write failed: ${recorded}`.slice(0, MAX_ERROR_BYTES)
     failure.session_id = workerSessionID

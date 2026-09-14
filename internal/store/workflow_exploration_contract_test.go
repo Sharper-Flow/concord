@@ -24,6 +24,35 @@ func TestLivenessPathIdentityPreservesOrderAndPayload(t *testing.T) {
 	}
 }
 
+func TestLivenessResolvesEngineOwnedRequestCorrection(t *testing.T) {
+	for _, definition := range BuiltinWorkflowDefinitions() {
+		if _, ok := livenessActionDefinition(definition, "request_correction"); !ok {
+			t.Errorf("%s omits the engine-owned correction payload", definition.Ref)
+		}
+		for _, step := range definition.StepGraph.Steps {
+			if !containsString(livenessDeclaredActions(definition, step.ID), "request_correction") {
+				t.Errorf("%s/%s never probes engine-owned correction", definition.Ref, step.ID)
+			}
+		}
+	}
+}
+
+func TestLivenessDisclosesOutcomeKindAndTokenOmissions(t *testing.T) {
+	for _, definition := range BuiltinWorkflowDefinitions() {
+		omissions := livenessOmittedVariants(definition)
+		for _, kind := range definition.OutcomeSchema.AllowedKinds {
+			if kind != definition.OutcomeSchema.DefaultKind && !containsString(omissions, "outcome_kind="+string(kind)) {
+				t.Errorf("%s silently omits outcome kind %s", definition.Ref, kind)
+			}
+		}
+		for i, token := range definition.OutcomeSchema.AllowedOutcomeTokens {
+			if i > 0 && !containsString(omissions, "outcome_token="+token) {
+				t.Errorf("%s silently omits outcome token %s", definition.Ref, token)
+			}
+		}
+	}
+}
+
 func TestLivenessConclusionDoesNotConflateIncompleteAndSuccessful(t *testing.T) {
 	for _, result := range []livenessExploration{{}, {terminalStates: 1, depthBoundStates: 1}, {terminalStates: 1, omittedVariants: []string{"route"}}} {
 		if result.conclusion() != "inconclusive" {

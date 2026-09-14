@@ -964,8 +964,8 @@ export async function computeHostPromptProvenance(laneId: string, cwd = process.
   const sources: HostProvenanceSource[] = []
   const configDir = opencodeConfigDir()
   const agentCandidates = [
-    `${configDir}/agents/concord-${laneId}.md`,
     `${cwd}/.opencode/agents/concord-${laneId}.md`,
+    `${configDir}/agents/concord-${laneId}.md`,
   ]
   for (const candidate of agentCandidates) {
     const source = await fileProvenance("agent_definition", candidate)

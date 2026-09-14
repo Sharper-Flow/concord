@@ -1,0 +1,39 @@
+{
+  "date": "2026-09-14T00:00:00Z",
+  "evidence": [
+    "docs/decisions/CD-0122-concord-workflow-scope-and-defect-repair.md",
+    "docs/decisions/CD-0144-record-reality-reconciliation.md",
+    "docs/decisions/CD-0041-architecture-bound-product-law.md",
+    "scripts/check-knowledge-index.py",
+    "scripts/check-knowledge-closure.py"
+  ],
+  "home_domain_id": "product-root:concord",
+  "id": "CD-0147",
+  "kind": "decision",
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "CD-0122"
+    }
+  ],
+  "path": "docs/decisions/CD-0147-self-repair-route-for-workflow-blocking-defects.md",
+  "product_wide_rationale": "A code-first repair route must govern every Concord Domain without adding capability or weakening typed refusals, and its record must carry the full reconciliation that makes the repair legitimate.",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:7ba00a0b31a69652d48b0dfe21e3c512c7cc23b6e6d65c628ad1e67cd6cb884e",
+  "status": "accepted",
+  "summary": "Declares a code-first conduct route only when a Concord defect refuses the typed operation that would record its repair, the operator approved the ordering, capture preceded code, full reconciliation follows, and the session claims no authority beyond the record.",
+  "tags": [
+    "authority",
+    "defect-repair",
+    "code-first",
+    "reconciliation",
+    "workflow"
+  ],
+  "title": "Self-repair route for workflow-blocking defects"
+}

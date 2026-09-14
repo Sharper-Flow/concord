@@ -1,0 +1,5 @@
+{
+  "id": "CD-0147",
+  "reason": "This is a conduct declaration, not an engine, gate, admission, or workflow-step change. The decision and its knowledge record are validated by the repository checks; runtime behavior keeps its existing owners.",
+  "state": "out_of_scope"
+}

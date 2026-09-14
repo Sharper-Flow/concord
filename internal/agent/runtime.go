@@ -1362,7 +1362,7 @@ func (r runtime) read(ctx context.Context, base Envelope, input []byte, queryID 
 				return failureEnvelope(base, listErr), nil
 			}
 			if len(packs) == 0 {
-				return coreError(base, "not_found", "no active research pack for that work item", "reread_entities", false), nil
+				return coreError(base, "unknown_scope", "no active research pack for that work item", "reread_entities", false), nil
 			}
 			pack = packs[0]
 		}

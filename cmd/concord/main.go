@@ -958,11 +958,6 @@ func runLinearOutboxDrain(ctx context.Context, s *store.Store, raw []byte, comma
 		writeOperatorDiagnostic(errOut, command, err.Error()+"; set CONCORD_LINEAR_API_KEY in the process environment")
 		return 1
 	}
-	connection, err := s.ReadLinearConnection(ctx, request.ProductID)
-	if err != nil {
-		writeOperatorDiagnostic(errOut, command, err.Error())
-		return 1
-	}
 	claimed, err := s.ClaimLinearOperationsForProduct(ctx, request.ProductID, request.MaxOperations)
 	if err != nil {
 		writeOperatorDiagnostic(errOut, command, err.Error())
@@ -982,8 +977,21 @@ func runLinearOutboxDrain(ctx context.Context, s *store.Store, raw []byte, comma
 			results = append(results, drained{OperationID: op.OperationID, Outcome: "failed", Detail: "payload does not decode"})
 			continue
 		}
+		connection, connectionErr := s.ReadLinearConnection(ctx, request.ProductID)
+		if connectionErr != nil {
+			const detail = "cannot read the current Linear connection before sending the operation"
+			_ = s.FailLinearOperation(ctx, op.OperationID, "retryable", detail)
+			results = append(results, drained{OperationID: op.OperationID, Outcome: "retryable", Detail: detail})
+			continue
+		}
 		if payload.ConnectionVersion < 1 || payload.ConnectionVersion != connection.Version {
 			const detail = "Linear connection changed after this operation was queued; re-enqueue it for the current destination"
+			_ = s.FailLinearOperation(ctx, op.OperationID, "permanent", detail)
+			results = append(results, drained{OperationID: op.OperationID, Outcome: "failed", Detail: detail})
+			continue
+		}
+		if payload.ProductID == "" || payload.ProductID != request.ProductID {
+			const detail = "operation has no immutable Product owner; re-enqueue it for the requested Product"
 			_ = s.FailLinearOperation(ctx, op.OperationID, "permanent", detail)
 			results = append(results, drained{OperationID: op.OperationID, Outcome: "failed", Detail: detail})
 			continue
@@ -1032,6 +1040,7 @@ func runLinearOutboxDrain(ctx context.Context, s *store.Store, raw []byte, comma
 // linearDrainPayload is the JSON convention every outbox payload carries.
 type linearDrainPayload struct {
 	ClientUUID        string `json:"client_uuid"`
+	ProductID         string `json:"product_id"`
 	Title             string `json:"title"`
 	Description       string `json:"description"`
 	TeamID            string `json:"team_id"`

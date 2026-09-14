@@ -221,7 +221,7 @@ func TestLinearDrainRefusesQueuedOperationAfterConnectionChange(t *testing.T) {
 	runOperatorJSON(t, dbPath, []string{"linear-issue-enqueue"}, map[string]any{"product_id": "stale-product", "work_id": "stale-work", "op_kind": "issue_create"})
 	runOperatorJSON(t, dbPath, []string{"linear-connection-update"}, map[string]any{
 		"event_id": "stale-connection-update", "resource_id": "drain-conn-stale-product", "product_id": "stale-product",
-		"team_id": "new-team", "project_id": "new-project", "status_ids": map[string]string{"cancelled": "new-cancelled"}, "expected_resource_version": 1,
+		"team_id": "new-team", "project_id": "new-project", "status_ids": map[string]string{"cancelled": "new-cancelled", "completed": "new-completed", "superseded": "new-superseded"}, "expected_resource_version": 1,
 	})
 
 	calls := 0
@@ -285,7 +285,7 @@ func TestLinearDrainRefusesLegacyQueuedOperationAfterConnectionChange(t *testing
 
 	runOperatorJSON(t, dbPath, []string{"linear-connection-update"}, map[string]any{
 		"event_id": "legacy-stale-connection-update", "resource_id": "drain-conn-legacy-stale-product", "product_id": "legacy-stale-product",
-		"team_id": "new-team", "project_id": "new-project", "status_ids": map[string]string{"cancelled": "new-cancelled"}, "expected_resource_version": 1,
+		"team_id": "new-team", "project_id": "new-project", "status_ids": map[string]string{"cancelled": "new-cancelled", "completed": "new-completed", "superseded": "new-superseded"}, "expected_resource_version": 1,
 	})
 
 	calls := 0
@@ -315,6 +315,51 @@ func TestLinearDrainRefusesLegacyQueuedOperationAfterConnectionChange(t *testing
 	}
 	if state != store.LinearOutboxFailed || !strings.Contains(detail, "connection changed") {
 		t.Fatalf("legacy stale operation = %s/%s, want failed connection-change detail", state, detail)
+	}
+}
+
+func TestLinearDrainRefreshesConnectionPerClaimedOperation(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "concord.db")
+	seedCLIProduct(t, dbPath, "refresh-product", "refresh-project")
+	enableLinearProduct(t, dbPath, "refresh-product")
+	seedLinearCLIWork(t, dbPath, "refresh-work-a", "refresh-project", "Refresh A")
+	seedLinearCLIWork(t, dbPath, "refresh-work-b", "refresh-project", "Refresh B")
+	runOperatorJSON(t, dbPath, []string{"linear-issue-enqueue"}, map[string]any{"product_id": "refresh-product", "work_id": "refresh-work-a", "op_kind": "issue_create"})
+	runOperatorJSON(t, dbPath, []string{"linear-issue-enqueue"}, map[string]any{"product_id": "refresh-product", "work_id": "refresh-work-b", "op_kind": "issue_create"})
+
+	calls := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		if calls == 1 {
+			s, err := store.Open(context.Background(), dbPath)
+			if err != nil {
+				t.Errorf("open update store: %v", err)
+				w.WriteHeader(http.StatusInternalServerError)
+				return
+			}
+			err = s.UpdateLinearConnection(context.Background(), store.LinearConnectionUpdateRequest{
+				EventID: "refresh-connection-update", ResourceID: "drain-conn-refresh-product", ProductID: "refresh-product",
+				TeamID: "refresh-team", ProjectID: "refresh-new-project", StatusIDs: map[string]string{"cancelled": "refresh-cancelled", "completed": "refresh-completed", "superseded": "refresh-superseded"},
+				ExpectedResourceVersion: 1, Actor: "operator", OccurredAt: fixedLinearTestTime(),
+			})
+			s.Close()
+			if err != nil {
+				t.Errorf("update connection: %v", err)
+			}
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":{"issueCreate":{"success":true,"issue":{"id":"refresh-remote","identifier":"SHA-9","url":"https://linear.app/example/issue/SHA-9","updatedAt":"2026-09-09T12:00:00Z"}}}}`))
+	}))
+	defer server.Close()
+	t.Setenv(linearclient.EnvEndpoint, server.URL)
+	t.Setenv(linearclient.EnvAPIKey, "lin_api_refresh_test")
+	t.Setenv(dbOverrideEnv, dbPath)
+	var out, errOut strings.Builder
+	if code := runWithInput([]string{"linear", "outbox-drain"}, strings.NewReader(`{"product_id":"refresh-product"}`), &out, &errOut); code != 0 {
+		t.Fatalf("drain exit=%d stderr=%q", code, errOut.String())
+	}
+	if calls != 1 {
+		t.Fatalf("provider calls = %d, want one before connection refresh stops the second", calls)
 	}
 }
 

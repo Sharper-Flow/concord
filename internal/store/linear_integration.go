@@ -266,6 +266,9 @@ ORDER BY r.resource_id`, productID)
 				}
 				candidate.StatusIDs[lifecycle] = statusID
 			}
+			if err := validateLinearStatusMapping(candidate.StatusIDs, "linear_connection_read"); err != nil {
+				return LinearConnection{}, err
+			}
 		}
 		connection = &candidate
 		break
@@ -318,16 +321,8 @@ func (s *Store) UpdateLinearConnection(ctx context.Context, req LinearConnection
 		}
 	}
 	if req.StatusIDs != nil {
-		if len(req.StatusIDs) > 16 {
-			return newFailure(KindLimitExceeded, "linear_connection_update", "status mapping exceeds 16 entries", false, "supply a bounded team status mapping")
-		}
-		for lifecycle, statusID := range req.StatusIDs {
-			if !isTerminalLifecycle(lifecycle) {
-				return newFailure(KindInvalidPayload, "linear_connection_update", "status mapping lifecycle is not terminal", false, "map cancelled, completed, or superseded")
-			}
-			if err := validateLinearConnectionID(statusID, "status id"); err != nil {
-				return err
-			}
+		if err := validateLinearStatusMapping(req.StatusIDs, "linear_connection_update"); err != nil {
+			return err
 		}
 	}
 	var schemaVersion string
@@ -360,6 +355,18 @@ func (s *Store) UpdateLinearConnection(ctx context.Context, req LinearConnection
 	if req.TeamID != "" && existingTeamID != "" && req.TeamID != existingTeamID && req.StatusIDs == nil {
 		return newFailure(KindInvalidOperation, "linear_connection_update", "a team change requires a replacement status mapping", false, "supply status_ids that belong to the selected team")
 	}
+	if req.StatusIDs != nil && req.TeamID != "" && req.TeamID != existingTeamID {
+		var existingStatusIDs map[string]string
+		if encoded := linear["status_ids"]; len(encoded) > 0 && json.Unmarshal(encoded, &existingStatusIDs) == nil {
+			for _, statusID := range req.StatusIDs {
+				for _, existingStatusID := range existingStatusIDs {
+					if statusID == existingStatusID {
+						return newFailure(KindInvalidRelation, "linear_connection_update", "status mapping contains an identifier from the previous team", false, "supply status identifiers belonging to the selected team")
+					}
+				}
+			}
+		}
+	}
 	if req.TeamID != "" {
 		linear["team_id"], _ = json.Marshal(req.TeamID)
 	}
@@ -388,6 +395,32 @@ func validateLinearConnectionID(value, name string) error {
 	return nil
 }
 
+func validateLinearStatusMapping(statusIDs map[string]string, operation string) error {
+	if len(statusIDs) != len(terminalLifecycles) {
+		return newFailure(KindInvalidPayload, operation, "status mapping must contain all terminal lifecycles", false, "map cancelled, completed, and superseded")
+	}
+	seen := make(map[string]string, len(statusIDs))
+	for lifecycle, statusID := range statusIDs {
+		if !isTerminalLifecycle(lifecycle) {
+			return newFailure(KindInvalidPayload, operation, "status mapping lifecycle is not terminal", false, "map cancelled, completed, or superseded")
+		}
+		if err := validateLinearConnectionID(statusID, "status id"); err != nil {
+			return err
+		}
+		if _, exists := seen[statusID]; exists {
+			return newFailure(KindInvalidPayload, operation, "status mapping reuses a status identifier", false, "supply one status identifier for each terminal lifecycle")
+		} else {
+			seen[statusID] = lifecycle
+		}
+	}
+	for _, lifecycle := range terminalLifecycles {
+		if statusIDs[lifecycle] == "" {
+			return newFailure(KindInvalidPayload, operation, "status mapping must contain all terminal lifecycles", false, "map cancelled, completed, and superseded")
+		}
+	}
+	return nil
+}
+
 // EnqueueLinearOperation queues one intended outbound operation. Phase 0 owns
 // the typed refusal surface; the drain arrives with Phase 1.
 func (s *Store) EnqueueLinearOperation(ctx context.Context, entry LinearOutboxEntry) error {
@@ -402,6 +435,23 @@ func (s *Store) EnqueueLinearOperation(ctx context.Context, entry LinearOutboxEn
 	}
 	if len(entry.Payload) == 0 || json.Unmarshal(entry.Payload, &map[string]any{}) != nil {
 		return newFailure(KindInvalidPayload, "linear_outbox_enqueue", "payload must be a JSON object", false, "supply a JSON object payload")
+	}
+	var payloadFields map[string]json.RawMessage
+	if err := json.Unmarshal(entry.Payload, &payloadFields); err != nil {
+		return newFailure(KindInvalidPayload, "linear_outbox_enqueue", "payload must be a JSON object", false, "supply a JSON object payload")
+	}
+	if encoded, exists := payloadFields["product_id"]; exists {
+		var productID string
+		if json.Unmarshal(encoded, &productID) != nil || productID == "" {
+			return newFailure(KindInvalidPayload, "linear_outbox_enqueue", "payload product_id must be a non-empty string", false, "supply the immutable owning Product")
+		}
+		owner, err := s.resolveLinearProduct(ctx, entry.WorkID)
+		if err != nil {
+			return err
+		}
+		if owner != productID {
+			return newFailure(KindInvalidRelation, "linear_outbox_enqueue", "payload Product does not own the work item", false, "supply the work item's owning Product")
+		}
 	}
 	var exists int
 	if err := s.db.QueryRowContext(ctx, `SELECT 1 FROM work_items WHERE id=?`, entry.WorkID).Scan(&exists); err == sql.ErrNoRows {
@@ -655,6 +705,7 @@ type ClaimedLinearOperation struct {
 // re-drain after an ambiguous outcome converges on the same remote issue.
 type linearPayload struct {
 	ClientUUID        string `json:"client_uuid"`
+	ProductID         string `json:"product_id"`
 	Title             string `json:"title"`
 	Description       string `json:"description"`
 	TeamID            string `json:"team_id"`
@@ -790,7 +841,7 @@ func (s *Store) enqueueLinearIssueForWork(ctx context.Context, expectedProductID
 			return ClaimedLinearOperation{}, err
 		}
 	}
-	payload, err := json.Marshal(linearPayload{ClientUUID: clientUUID, Title: title, Description: valueStatement, TeamID: connection.TeamID, ProjectID: connection.ProjectID, ConnectionVersion: connection.Version, Lifecycle: lifecycle, StatusID: statusID})
+	payload, err := json.Marshal(linearPayload{ClientUUID: clientUUID, ProductID: productID, Title: title, Description: valueStatement, TeamID: connection.TeamID, ProjectID: connection.ProjectID, ConnectionVersion: connection.Version, Lifecycle: lifecycle, StatusID: statusID})
 	if err != nil {
 		return ClaimedLinearOperation{}, wrapFailure(KindUnavailable, "linear_issue_enqueue", "cannot encode payload", true, "retry the enqueue", err)
 	}
@@ -843,7 +894,7 @@ func (s *Store) claimLinearOperations(ctx context.Context, productID string, lim
 	if err := enterFold(ctx, tx); err != nil {
 		return nil, err
 	}
-	rows, err := tx.QueryContext(ctx, `SELECT operation_id FROM linear_outbox WHERE state=? AND (?='' OR EXISTS (SELECT 1 FROM work_projects wp JOIN product_projects pp ON pp.project_id=wp.project_id WHERE wp.work_id=linear_outbox.work_id AND pp.product_id=?)) ORDER BY created_at LIMIT ?`, LinearOutboxQueued, productID, productID, limit)
+	rows, err := tx.QueryContext(ctx, `SELECT operation_id FROM linear_outbox WHERE state=? AND (?='' OR json_extract(payload, '$.product_id')=? OR json_type(payload, '$.product_id') IS NULL) ORDER BY created_at LIMIT ?`, LinearOutboxQueued, productID, productID, limit)
 	if err != nil {
 		return nil, wrapFailure(KindUnavailable, "linear_outbox_claim", "cannot read the queue", true, "retry once the database is readable", err)
 	}

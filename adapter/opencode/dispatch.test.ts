@@ -98,9 +98,14 @@ const workerBody = (carried: unknown = report()) =>
 
 // The completion path reads the worker session back and records evidence. It
 // never starts a process, so the runner answers `export` and nothing else.
+// Completion reads two host surfaces: the sanitized export for the executing
+// model, and the session index for the directory the export redacts.
+const sessionIndex = (directory = "/claimed/worktree") => JSON.stringify([{ id: "session-1", directory }])
+
 const readbackRunner = (model = READBACK_MODEL, agent = "concord-research"): DispatchRunner => ({
   async run(argv) {
     if (argv[1] === "export") return { exitCode: 0, stdout: exportedSession(model, agent), stderr: "" }
+    if (argv[1] === "session") return { exitCode: 0, stdout: sessionIndex(), stderr: "" }
     return { exitCode: 0, stdout: "", stderr: "" }
   },
 })
@@ -186,8 +191,9 @@ test("completion obtains readback from a sanitized session export", async () => 
     evidenceRunner: { async run() { return { exitCode: 0, stdout: "", stderr: "" } } },
   })
   expect(result.outcome).toBe("ok")
-  expect(calls.map((argv) => argv.slice(0, 2))).toEqual([["opencode", "export"]])
+  expect(calls.map((argv) => argv.slice(0, 2))).toEqual([["opencode", "export"], ["opencode", "session"]])
   expect(calls[0]).toEqual(["opencode", "export", "session-1", "--sanitize"])
+  expect(calls[1]).toEqual(["opencode", "session", "list", "--format", "json"])
 })
 
 test("readback accepts a large sanitized session export", () => {
@@ -366,14 +372,17 @@ test("a run whose evidence cannot be recorded is not reported as a success", asy
   expect(result.error?.message).toBe("evidence write refused")
 })
 
-test("a completion that cannot be recorded is not reported as a success", async () => {
-  let recorded = 0
+// A refused completion is reported as an error and closed with worker-fail, so
+// the attempt never stays dispatched. An open attempt blocks every later
+// dispatch on that work item and pins the host session to its worktree.
+test("a completion that cannot be recorded is closed and not reported as a success", async () => {
+  const verbs: string[] = []
   const result = await complete(workerBody(), {
-    evidenceRunner: { async run(argv) { recorded++; return argv[1] === "worker-complete" ? { exitCode: 1, stdout: "", stderr: "worker attempt belongs to a different work item" } : { exitCode: 0, stdout: "", stderr: "" } } },
+    evidenceRunner: { async run(argv) { verbs.push(argv[1]); return argv[1] === "worker-complete" ? { exitCode: 1, stdout: "", stderr: "worker attempt belongs to a different work item" } : { exitCode: 0, stdout: "", stderr: "" } } },
   })
-  expect(recorded).toBe(2)
+  expect(verbs).toEqual(["worker-dispatch", "worker-complete", "worker-fail"])
   expect(result.outcome).toBe("error")
-  expect(result.error?.message).toBe("worker attempt belongs to a different work item")
+  expect(result.error?.message).toBe("worker-complete refused: worker attempt belongs to a different work item")
 })
 
 test("generic host agents are not dispatchable and never spawn or record", async () => {

@@ -4620,6 +4620,13 @@
         },
         "stage_context": {
           "$ref": "#/$defs/product_row_stage_context"
+        },
+        "blocked_sessions": {
+          "type": "array",
+          "maxItems": 100,
+          "items": {
+            "$ref": "#/$defs/product_row_blocked_session"
+          }
         }
       }
     },
@@ -5712,6 +5719,61 @@
         }
       }
     },
+    "product_row_blocked_session": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "session_ref",
+        "agent_ref",
+        "worktree",
+        "directory",
+        "consequence",
+        "blocked_since",
+        "block_age_seconds"
+      ],
+      "properties": {
+        "session_ref": {
+          "$ref": "#/$defs/id"
+        },
+        "agent_ref": {
+          "$ref": "#/$defs/id"
+        },
+        "worktree": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "directory": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "consequence": {
+          "type": "string",
+          "enum": [
+            "read",
+            "intent",
+            "lifecycle",
+            "workflow_action",
+            "scope",
+            "relation",
+            "supersession",
+            "publication",
+            "recovery",
+            "research"
+          ]
+        },
+        "blocked_since": {
+          "type": "string",
+          "minLength": 10,
+          "maxLength": 40
+        },
+        "block_age_seconds": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
     "blocked_sessions_page": {
       "type": "object",
       "additionalProperties": false,
@@ -5723,59 +5785,7 @@
           "type": "array",
           "maxItems": 100,
           "items": {
-            "type": "object",
-            "additionalProperties": false,
-            "required": [
-              "session_ref",
-              "agent_ref",
-              "worktree",
-              "directory",
-              "consequence",
-              "blocked_since",
-              "block_age_seconds"
-            ],
-            "properties": {
-              "session_ref": {
-                "$ref": "#/$defs/id"
-              },
-              "agent_ref": {
-                "$ref": "#/$defs/id"
-              },
-              "worktree": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 4096
-              },
-              "directory": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 4096
-              },
-              "consequence": {
-                "type": "string",
-                "enum": [
-                  "read",
-                  "intent",
-                  "lifecycle",
-                  "workflow_action",
-                  "scope",
-                  "relation",
-                  "supersession",
-                  "publication",
-                  "recovery",
-                  "research"
-                ]
-              },
-              "blocked_since": {
-                "type": "string",
-                "minLength": 10,
-                "maxLength": 40
-              },
-              "block_age_seconds": {
-                "type": "integer",
-                "minimum": 0
-              }
-            }
+            "$ref": "#/$defs/product_row_blocked_session"
           }
         }
       }

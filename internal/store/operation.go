@@ -216,6 +216,7 @@ var eventKindRegistry = map[string]EventKindRegistration{
 	"compaction_link.published":               registerEventKind[compactionLinkPayload](2, 1, map[int]Upcaster{1: upcastCompactionLinkPublishedV1}, EventAppendAuthorityGeneric, foldCompactionLinkPublished, nil),
 	"managed_resource.created":                registerEventKind[managedResourceCreatedPayload](1, 1, nil, EventAppendAuthorityGeneric, foldManagedResourceCreated, nil),
 	"managed_resource.consumer_added":         registerEventKind[managedResourceConsumerAddedPayload](1, 1, nil, EventAppendAuthorityGeneric, foldManagedResourceConsumerAdded, nil),
+	"managed_resource.updated":                registerEventKind[managedResourceUpdatedPayload](1, 1, nil, EventAppendAuthorityGeneric, foldManagedResourceUpdated, nil),
 	"domain.project_attachments_replaced":     registerEventKind[domainProjectAttachmentsReplacedPayload](1, 1, nil, EventAppendAuthorityGeneric, foldDomainProjectAttachmentsReplaced, nil),
 	"domain.resource_attachments_replaced":    registerEventKind[domainResourceAttachmentsReplacedPayload](1, 1, nil, EventAppendAuthorityGeneric, foldDomainResourceAttachmentsReplaced, nil),
 	"domain.observation_recorded":             registerEventKind[domainObservationRecordedPayload](1, 1, nil, EventAppendAuthorityGeneric, foldDomainObservationRecorded, nil),

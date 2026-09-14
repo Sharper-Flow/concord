@@ -152,6 +152,47 @@ func TestLinearConnectionResolutionStates(t *testing.T) {
 	}
 }
 
+func TestLinearConnectionUpdateIsVersionCheckedAndPreservesMetadata(t *testing.T) {
+	s := openTemp(t)
+	ctx := context.Background()
+	setupLinearProduct(t, s, "update-connection-product")
+	setupLinearConnectionResource(t, s, "update-connection-product", map[string]any{
+		"unrelated": "preserved",
+		"linear":    map[string]any{"workspace_url": "https://linear.app/example", "team_id": "old-team", "auth_mode": "personal_api_key"},
+	})
+	if err := s.UpdateLinearConnection(ctx, LinearConnectionUpdateRequest{
+		EventID: "update-linear-connection", ResourceID: "linear-conn-update-connection-product", ProductID: "update-connection-product",
+		TeamID: "new-team", ProjectID: "new-project", StatusIDs: map[string]string{"cancelled": "new-cancelled"},
+		ExpectedResourceVersion: 1, Actor: "operator", OccurredAt: time.Date(2026, 9, 9, 1, 0, 0, 0, time.UTC),
+	}); err != nil {
+		t.Fatalf("UpdateLinearConnection() error = %v", err)
+	}
+	connection, err := s.ReadLinearConnection(ctx, "update-connection-product")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if connection.TeamID != "new-team" || connection.ProjectID != "new-project" || connection.StatusIDs["cancelled"] != "new-cancelled" || connection.Version != 2 {
+		t.Fatalf("updated connection = %+v", connection)
+	}
+	var metadataJSON string
+	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT metadata FROM managed_resources WHERE resource_id=?`, connection.ResourceID).Scan(&metadataJSON); err != nil {
+		t.Fatal(err)
+	}
+	var metadata map[string]any
+	if err := json.Unmarshal([]byte(metadataJSON), &metadata); err != nil {
+		t.Fatal(err)
+	}
+	if metadata["unrelated"] != "preserved" {
+		t.Fatalf("unrelated metadata = %v, want preserved", metadata["unrelated"])
+	}
+	if err := s.UpdateLinearConnection(ctx, LinearConnectionUpdateRequest{
+		EventID: "stale-linear-connection", ResourceID: connection.ResourceID, ProductID: "update-connection-product",
+		TeamID: "stale-team", StatusIDs: map[string]string{"cancelled": "stale-cancelled"}, ExpectedResourceVersion: 1, Actor: "operator", OccurredAt: time.Now().UTC(),
+	}); err == nil || !failureKindIs(err, KindVersionConflict) {
+		t.Fatalf("stale update error = %v, want version conflict", err)
+	}
+}
+
 func TestLinearOutboxTypedSurface(t *testing.T) {
 	s := openTemp(t)
 	ctx := context.Background()
@@ -238,7 +279,7 @@ func TestLinearIntegrationHealthRead(t *testing.T) {
 	s := openTemp(t)
 	ctx := context.Background()
 	setupLinearProduct(t, s, "health-product")
-	seedWorkItem(t, s, "health-work")
+	seedLinearWorkItem(t, s, "health-work", "health-product-project", "Health title", "Health value")
 
 	health, err := s.ReadLinearIntegrationHealth(ctx, "health-product")
 	if err != nil {

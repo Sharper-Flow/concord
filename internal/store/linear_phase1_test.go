@@ -56,7 +56,7 @@ func TestLinearEnqueueForWorkGuards(t *testing.T) {
 	}
 
 	// Unknown work refuses.
-	setupLinearConnectionResourceAtVersion(t, s, "enq-product", map[string]any{"linear": map[string]any{"workspace_url": "https://linear.app/example", "team_id": "team-uuid-1", "auth_mode": "personal_api_key"}}, 3)
+	setupLinearConnectionResourceAtVersion(t, s, "enq-product", map[string]any{"linear": map[string]any{"workspace_url": "https://linear.app/example", "team_id": "team-uuid-1", "project_id": "project-uuid-1", "auth_mode": "personal_api_key"}}, 3)
 	if _, err := s.EnqueueLinearIssueForWork(ctx, "ghost", LinearOpIssueCreate); err == nil || !failureKindIs(err, KindUnknownScope) {
 		t.Fatalf("unknown work error = %v, want unknown_scope", err)
 	}
@@ -84,11 +84,12 @@ func TestLinearEnqueueForWorkGuards(t *testing.T) {
 		Title       string `json:"title"`
 		Description string `json:"description"`
 		TeamID      string `json:"team_id"`
+		ProjectID   string `json:"project_id"`
 	}
 	if err := json.Unmarshal([]byte(payload), &decoded); err != nil {
 		t.Fatal(err)
 	}
-	if decoded.ClientUUID == "" || decoded.Title != "Enqueue title" || decoded.Description != "Enqueue value statement" || decoded.TeamID != "team-uuid-1" {
+	if decoded.ClientUUID == "" || decoded.Title != "Enqueue title" || decoded.Description != "Enqueue value statement" || decoded.TeamID != "team-uuid-1" || decoded.ProjectID != "project-uuid-1" {
 		t.Fatalf("payload = %+v", decoded)
 	}
 	if len(decoded.ClientUUID) != 36 || !strings.Contains(decoded.ClientUUID, "-") {

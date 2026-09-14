@@ -58,7 +58,7 @@ func enableLinearProduct(t *testing.T, dbPath, productID string) {
 		"display_name": "Linear connection", "class": "saas", "kind": "saas_account", "purpose": "Linear planning connection",
 		"stage_maturity": "prototype", "stage_audience_commitment": "operator_only", "environments": []string{"production"},
 		"metadata_schema_version":  "linear-connection-v1",
-		"metadata":                 map[string]any{"linear": map[string]any{"workspace_url": "https://linear.app/example", "team_id": "68d52710-76d9-4b41-ba45-778511d0e2ed", "auth_mode": "personal_api_key", "status_ids": map[string]string{"cancelled": "state-cancelled", "completed": "state-completed", "superseded": "state-superseded"}}},
+		"metadata":                 map[string]any{"linear": map[string]any{"workspace_url": "https://linear.app/example", "team_id": "68d52710-76d9-4b41-ba45-778511d0e2ed", "project_id": "project-uuid-1", "auth_mode": "personal_api_key", "status_ids": map[string]string{"cancelled": "state-cancelled", "completed": "state-completed", "superseded": "state-superseded"}}},
 		"expected_product_version": 3,
 	})
 }
@@ -69,11 +69,13 @@ func TestLinearEnqueueAndDrainCLI(t *testing.T) {
 	enableLinearProduct(t, dbPath, "drain-product")
 	seedLinearCLIWork(t, dbPath, "drain-work", "drain-product-project", "Drain title")
 
-	var sawAuth bool
+	var sawAuth, sawProject bool
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
 		if r.Header.Get("Authorization") == "lin_api_cli_test" {
 			sawAuth = true
 		}
+		sawProject = strings.Contains(string(body), `"projectId":"project-uuid-1"`)
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"data":{"issueCreate":{"success":true,"issue":{"id":"68d52710-76d9-4b41-ba45-778511d0e2ed","identifier":"SHA-1","url":"https://linear.app/example/issue/SHA-1","updatedAt":"2026-09-09T12:00:00Z"}}}}`))
 	}))
@@ -100,8 +102,8 @@ func TestLinearEnqueueAndDrainCLI(t *testing.T) {
 	if code := runWithInput([]string{"linear", "outbox-drain"}, strings.NewReader(`{"product_id":"drain-product"}`), &out, &errOut); code != 0 {
 		t.Fatalf("drain exit=%d stderr=%q", code, errOut.String())
 	}
-	if !sawAuth {
-		t.Fatal("the drain never reached the remote endpoint")
+	if !sawAuth || !sawProject {
+		t.Fatalf("the drain request lacked authorization or project routing: auth=%t project=%t", sawAuth, sawProject)
 	}
 	var drained struct {
 		OK         bool `json:"ok"`
@@ -208,6 +210,111 @@ func TestLinearIssueUpdateDrainReportsDoneAndMirrorsTerminalStatus(t *testing.T)
 	}
 	if len(drained.Operations) != 1 || drained.Operations[0].Outcome != "done" {
 		t.Fatalf("drain result = %+v", drained)
+	}
+}
+
+func TestLinearDrainRefusesQueuedOperationAfterConnectionChange(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "concord.db")
+	seedCLIProduct(t, dbPath, "stale-product", "stale-project")
+	enableLinearProduct(t, dbPath, "stale-product")
+	seedLinearCLIWork(t, dbPath, "stale-work", "stale-project", "Stale title")
+	runOperatorJSON(t, dbPath, []string{"linear-issue-enqueue"}, map[string]any{"product_id": "stale-product", "work_id": "stale-work", "op_kind": "issue_create"})
+	runOperatorJSON(t, dbPath, []string{"linear-connection-update"}, map[string]any{
+		"event_id": "stale-connection-update", "resource_id": "drain-conn-stale-product", "product_id": "stale-product",
+		"team_id": "new-team", "project_id": "new-project", "status_ids": map[string]string{"cancelled": "new-cancelled"}, "expected_resource_version": 1,
+	})
+
+	calls := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer server.Close()
+	t.Setenv(linearclient.EnvEndpoint, server.URL)
+	t.Setenv(linearclient.EnvAPIKey, "lin_api_stale_test")
+	t.Setenv(dbOverrideEnv, dbPath)
+	var out, errOut strings.Builder
+	if code := runWithInput([]string{"linear", "outbox-drain"}, strings.NewReader(`{"product_id":"stale-product"}`), &out, &errOut); code != 0 {
+		t.Fatalf("drain exit=%d stderr=%q", code, errOut.String())
+	}
+	if calls != 0 {
+		t.Fatalf("stale operation reached the provider %d times", calls)
+	}
+	var state string
+	s, err := store.Open(context.Background(), dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	if err := s.DatabaseForTesting().QueryRow(`SELECT state FROM linear_outbox WHERE work_id='stale-work'`).Scan(&state); err != nil {
+		t.Fatal(err)
+	}
+	if state != store.LinearOutboxFailed {
+		t.Fatalf("stale operation state=%s, want failed", state)
+	}
+}
+
+func TestLinearDrainRefusesLegacyQueuedOperationAfterConnectionChange(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "concord.db")
+	seedCLIProduct(t, dbPath, "legacy-stale-product", "legacy-stale-project")
+	enableLinearProduct(t, dbPath, "legacy-stale-product")
+	seedLinearCLIWork(t, dbPath, "legacy-stale-work", "legacy-stale-project", "Legacy stale title")
+
+	s, err := store.Open(context.Background(), dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload, err := json.Marshal(map[string]any{
+		"client_uuid": "legacy-client-uuid",
+		"title":       "Legacy stale title",
+		"description": "Legacy stale description",
+		"team_id":     "previous-team",
+	})
+	if err != nil {
+		s.Close()
+		t.Fatal(err)
+	}
+	if err := s.EnqueueLinearOperation(context.Background(), store.LinearOutboxEntry{
+		OperationID: "legacy-stale-operation", WorkID: "legacy-stale-work", OpKind: store.LinearOpIssueCreate,
+		IdempotencyKey: "legacy-stale-idempotency", Payload: payload,
+	}); err != nil {
+		s.Close()
+		t.Fatal(err)
+	}
+	s.Close()
+
+	runOperatorJSON(t, dbPath, []string{"linear-connection-update"}, map[string]any{
+		"event_id": "legacy-stale-connection-update", "resource_id": "drain-conn-legacy-stale-product", "product_id": "legacy-stale-product",
+		"team_id": "new-team", "project_id": "new-project", "status_ids": map[string]string{"cancelled": "new-cancelled"}, "expected_resource_version": 1,
+	})
+
+	calls := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer server.Close()
+	t.Setenv(linearclient.EnvEndpoint, server.URL)
+	t.Setenv(linearclient.EnvAPIKey, "lin_api_legacy_stale_test")
+	t.Setenv(dbOverrideEnv, dbPath)
+	var out, errOut strings.Builder
+	if code := runWithInput([]string{"linear", "outbox-drain"}, strings.NewReader(`{"product_id":"legacy-stale-product"}`), &out, &errOut); code != 0 {
+		t.Fatalf("drain exit=%d stderr=%q", code, errOut.String())
+	}
+	if calls != 0 {
+		t.Fatalf("legacy stale operation reached the provider %d times", calls)
+	}
+	var state, detail string
+	s, err = store.Open(context.Background(), dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	if err := s.DatabaseForTesting().QueryRow(`SELECT state, last_error FROM linear_outbox WHERE operation_id='legacy-stale-operation'`).Scan(&state, &detail); err != nil {
+		t.Fatal(err)
+	}
+	if state != store.LinearOutboxFailed || !strings.Contains(detail, "connection changed") {
+		t.Fatalf("legacy stale operation = %s/%s, want failed connection-change detail", state, detail)
 	}
 }
 

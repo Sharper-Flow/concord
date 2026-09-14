@@ -183,10 +183,27 @@ func livenessVariants(action WorkflowActionDefinition) []map[string]string {
 func livenessOmittedVariants(definition WorkflowDefinition) []string {
 	const routingEnumMax = 4
 	omitted := []string{}
-	for _, action := range definition.ActionDefinitions {
-		for _, field := range action.Payload.Fields {
-			if len(field.Enum) > routingEnumMax {
-				omitted = append(omitted, action.ID+"."+field.Name)
+	seen := map[string]bool{}
+	for _, step := range definition.StepGraph.Steps {
+		for _, actionID := range livenessDeclaredActions(definition, step.ID) {
+			if seen[actionID] {
+				continue
+			}
+			seen[actionID] = true
+			action, ok := livenessActionDefinition(definition, actionID)
+			if !ok {
+				continue
+			}
+			for _, field := range action.Payload.Fields {
+				if !field.Required {
+					omitted = append(omitted, "optional-presence:"+action.ID+"."+field.Name)
+				}
+				if field.SchemaRef != "" || field.ItemRef != "" {
+					omitted = append(omitted, "schema-values:"+action.ID+"."+field.Name)
+				}
+				if len(field.Enum) > routingEnumMax {
+					omitted = append(omitted, action.ID+"."+field.Name)
+				}
 			}
 		}
 	}
@@ -500,20 +517,17 @@ func livenessPayload(definition WorkflowDefinition, action WorkflowActionDefinit
 			fields[field.Name] = livenessSubjectRef
 			continue
 		}
-		// A structural object or array carries its real contract in a
-		// dedicated validator rather than in the registry declaration, so the
-		// declaration alone is not enough to build one. An optional field of
-		// that shape is omitted; a required one must be declared in the
-		// override table below, and the KindInvalidPayload guard fails the run
-		// when it is not.
-		if !field.Required && (field.ValueType == PayloadObject || field.ValueType == PayloadArray) && field.SchemaRef == "" {
-			continue
-		}
 		// architecture_binding is required when the definition changes Product
 		// truth and refused when it does not. The declaration says only that
 		// the field is optional, so the condition is applied here; it is the
 		// one structural rule the published contract still cannot state.
 		if field.Name == "architecture_binding" && (definition.ChangesProductTruth == nil || !*definition.ChangesProductTruth) {
+			continue
+		}
+		// Optional structured values can request distinct effects, such as
+		// replacing a design. A schema reference does not require their presence.
+		// State-bound outcomes and architecture bindings are handled explicitly.
+		if !field.Required && (field.ValueType == PayloadObject || field.ValueType == PayloadArray) && variant[field.Name] == "" && field.Name != "architecture_binding" {
 			continue
 		}
 		value := livenessValue(field, variant[field.Name])

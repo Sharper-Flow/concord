@@ -53,6 +53,41 @@ func TestLivenessDisclosesOutcomeKindAndTokenOmissions(t *testing.T) {
 	}
 }
 
+func TestLivenessOmitsUnrequestedOptionalDesignCorrection(t *testing.T) {
+	definition, err := BuiltinWorkflowDefinitionForRef("workflow.break_fix")
+	if err != nil {
+		t.Fatal(err)
+	}
+	action := workflowContractRecoveryActionDefinition()
+	raw, err := livenessPayload(definition.Definition, action, map[string]string{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &fields); err != nil {
+		t.Fatal(err)
+	}
+	if _, exists := fields["design_record"]; exists {
+		t.Error("unrequested optional design_record was synthesized")
+	}
+	if !containsString(livenessOmittedVariants(definition.Definition), "optional-presence:supersede_contract.design_record") {
+		t.Error("engine-owned optional design presence was not reported as unexamined")
+	}
+}
+
+func TestLivenessReportsOptionalPresenceSampling(t *testing.T) {
+	for _, definition := range BuiltinWorkflowDefinitions() {
+		omitted := livenessOmittedVariants(definition)
+		for _, action := range definition.ActionDefinitions {
+			for _, field := range action.Payload.Fields {
+				if !field.Required && !containsString(omitted, "optional-presence:"+action.ID+"."+field.Name) {
+					t.Errorf("%s omits presence coverage for %s.%s", definition.Ref, action.ID, field.Name)
+				}
+			}
+		}
+	}
+}
+
 func TestLivenessConclusionDoesNotConflateIncompleteAndSuccessful(t *testing.T) {
 	for _, result := range []livenessExploration{{}, {terminalStates: 1, depthBoundStates: 1}, {terminalStates: 1, omittedVariants: []string{"route"}}} {
 		if result.conclusion() != "inconclusive" {

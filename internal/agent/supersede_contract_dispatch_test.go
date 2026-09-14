@@ -12,7 +12,7 @@ import (
 )
 
 func TestSupersedeContractDispatchChallengesThenBindsApprovalOperator(t *testing.T) {
-	for _, stage := range []string{"before-start", "after-start", "acceptance", "overlap", "pending-dispatch", "pending-dispatch-overlap"} {
+	for _, stage := range []string{"before-start", "after-start", "acceptance", "overlap", "pending-dispatch", "pending-dispatch-overlap", "shared-domain"} {
 		t.Run(stage, func(t *testing.T) {
 			testSupersedeContractDispatch(t, stage)
 		})
@@ -33,7 +33,13 @@ func testSupersedeContractDispatch(t *testing.T, stage string) {
 		invokeWorkflowIssue31Action(t, s, service, env, "work-1", actionID, version, "supersede-"+actionID)
 		version = workflowIssue31Version(t, s)
 	}
-	contract, version := approvedOpsAction(t, s, service, grant, privateKey, env, version, "approve_contract", workflowContractFieldsFixture(), "supersede-approve-contract")
+	binding := workflowArchitectureBindingFixture()
+	if stage == "overlap" || stage == "pending-dispatch-overlap" {
+		binding["domain_modifies"] = []string{"root"}
+	}
+	contractFields := workflowContractFieldsFixture()
+	contractFields["architecture_binding"] = binding
+	contract, version := approvedOpsAction(t, s, service, grant, privateKey, env, version, "approve_contract", contractFields, "supersede-approve-contract")
 	if contract.Outcome != OutcomeOK {
 		t.Fatalf("approve_contract=%+v", contract.Error)
 	}
@@ -55,7 +61,7 @@ func testSupersedeContractDispatch(t *testing.T, stage string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if stage == "overlap" {
+	if stage == "overlap" || stage == "shared-domain" {
 		seedContractCorrectionPeer(t, s)
 	}
 	if strings.HasPrefix(stage, "pending-dispatch") {
@@ -109,7 +115,7 @@ func testSupersedeContractDispatch(t *testing.T, stage string) {
 	fields := map[string]any{
 		"contract_version":     2,
 		"premise":              "corrected premise",
-		"architecture_binding": workflowArchitectureBindingFixture(),
+		"architecture_binding": binding,
 		"outcome_predicates": []map[string]any{{
 			"predicate_id": "predicate:primary", "ordinal": 0, "outcome_kind": "check",
 			"outcome_payload": map[string]any{"kind": "check", "check_ref": "check:workflow", "immutable_subject_ref": "commit:workflow", "expected_result": "pass"},
@@ -213,6 +219,13 @@ func testSupersedeContractDispatch(t *testing.T, stage string) {
 			t.Fatalf("overlap refusal cannot be serialized: %v", err)
 		}
 	}
+	if stage == "shared-domain" {
+		if err := s.Transact(context.Background(), func(tx *store.Transaction) error {
+			return store.CheckWorkflowConsequentialBoundaryTx(context.Background(), tx, "work-1")
+		}); err != nil {
+			t.Fatalf("shared Domain without shared writes blocked execution: %v", err)
+		}
+	}
 	committedVersion := workflowIssue31Version(t, s)
 	replayed := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: approvedRaw}, env)
 	if replayed.Outcome != OutcomeOK || !replayed.Replayed || workflowIssue31Version(t, s) != committedVersion {
@@ -237,6 +250,8 @@ func seedContractCorrectionPeer(t *testing.T, s *store.Store) {
 		SELECT 'correction-peer',contract_version,product_id,domain_registry_content_hash,home_domain_id,projection_hash FROM workflow_architecture_bindings WHERE work_id='work-1' AND contract_version=1;
 		INSERT INTO workflow_contract_affected_domains(work_id,contract_version,domain_id)
 		SELECT 'correction-peer',contract_version,domain_id FROM workflow_contract_affected_domains WHERE work_id='work-1' AND contract_version=1;
+		INSERT INTO workflow_contract_domain_modifications(work_id,contract_version,domain_id)
+		SELECT 'correction-peer',contract_version,domain_id FROM workflow_contract_domain_modifications WHERE work_id='work-1' AND contract_version=1;
 		DELETE FROM fold_guard;`)
 	if err != nil {
 		t.Fatal(err)

@@ -54,17 +54,23 @@ const taskWrap = (text: string, state = "completed") =>
   [`<task id="${WORKER_SESSION}" state="${state}">`, "<task_result>", text, "</task_result>", "</task>"].join("\n")
 
 const exportedSession = (agent = `concord-${lane.id}`) => JSON.stringify({
-  info: { id: WORKER_SESSION, directory: "/claimed/worktree" },
+  info: { id: WORKER_SESSION },
   messages: [
     { info: { id: "message-0", sessionID: WORKER_SESSION, role: "user", agent, time: { created: 0 } }, parts: [] },
     { info: { id: "message-1", sessionID: WORKER_SESSION, role: "assistant", agent, providerID: "openai", modelID: "gpt-5.6-luna", time: { created: 1 } }, parts: [] },
   ],
 })
 
-// One runner answers the session export and records every CLI verb it sees.
+// The session index is the only source of the worker's directory: the export
+// runs with --sanitize, which redacts that field.
+const sessionIndex = (directory = "/claimed/worktree") =>
+  JSON.stringify([{ id: "ses_other", directory: "/somewhere/else" }, { id: WORKER_SESSION, directory }])
+
+// One runner answers the session export and index, and records every CLI verb.
 const recordingRunner = (verbs: string[], agent?: string): DispatchRunner => ({
   async run(argv) {
     if (argv[1] === "export") return { exitCode: 0, stdout: exportedSession(agent), stderr: "" }
+    if (argv[1] === "session") return { exitCode: 0, stdout: sessionIndex(), stderr: "" }
     verbs.push(argv[1])
     return { exitCode: 0, stdout: "", stderr: "" }
   },
@@ -90,7 +96,9 @@ describe("completeDispatchedWorker", () => {
     expect(output.output).toContain("<task_result>")
   })
 
-  test("passes the exported worker directory to worker-complete", async () => {
+  // The directory reaches the core from the session index, never from the
+  // sanitized export, whose directory field is a redaction placeholder.
+  const completionInputFor = async (directory: string, callID: string): Promise<Record<string, unknown> | undefined> => {
     const windows = new DispatchWindows()
     windows.open(SESSION, packet(), PACKET_DIGEST)
     windows.bind(TASK_TOOL_ID, SESSION, {})
@@ -98,18 +106,57 @@ describe("completeDispatchedWorker", () => {
     const runner: DispatchRunner = {
       async run(argv, input) {
         if (argv[1] === "export") return { exitCode: 0, stdout: exportedSession(), stderr: "" }
+        if (argv[1] === "session") return { exitCode: 0, stdout: sessionIndex(directory), stderr: "" }
         if (argv[1] === "worker-complete") completionInput = JSON.parse(input) as Record<string, unknown>
         return { exitCode: 0, stdout: "", stderr: "" }
       },
     }
     const output = { title: "verify lane", output: taskWrap(JSON.stringify(report())), metadata: {} }
-    await completeDispatchedWorker({ tool: TASK_TOOL_ID, sessionID: SESSION, callID: "call-directory", args: {} }, output, {
+    await completeDispatchedWorker({ tool: TASK_TOOL_ID, sessionID: SESSION, callID, args: {} }, output, {
       windows,
       credentials: testCredentials,
       runner,
       concordBinary: "concord",
     })
+    return completionInput
+  }
+
+  test("passes the indexed worker directory to worker-complete", async () => {
+    const completionInput = await completionInputFor("/claimed/worktree", "call-directory")
     expect(completionInput?.worker_directory).toBe("/claimed/worktree")
+  })
+
+  test("sends no worker directory when the index value is not a path", async () => {
+    const completionInput = await completionInputFor(`[redacted:session-directory:${WORKER_SESSION}]`, "call-redacted")
+    expect(completionInput).toBeDefined()
+    expect("worker_directory" in (completionInput ?? {})).toBe(false)
+  })
+
+  // An attempt the core refused to complete must not stay dispatched: an open
+  // attempt blocks every later dispatch on that work item.
+  test("a refused completion is closed with worker-fail", async () => {
+    const windows = new DispatchWindows()
+    windows.open(SESSION, packet(), PACKET_DIGEST)
+    windows.bind(TASK_TOOL_ID, SESSION, {})
+    const verbs: string[] = []
+    const runner: DispatchRunner = {
+      async run(argv) {
+        if (argv[1] === "export") return { exitCode: 0, stdout: exportedSession(), stderr: "" }
+        if (argv[1] === "session") return { exitCode: 0, stdout: sessionIndex(), stderr: "" }
+        verbs.push(argv[1])
+        if (argv[1] === "worker-complete") return { exitCode: 1, stdout: "", stderr: "store: worker_dispatch: unauthorized_dispatch: refused" }
+        return { exitCode: 0, stdout: "", stderr: "" }
+      },
+    }
+    const output = { title: "verify lane", output: taskWrap(JSON.stringify(report())), metadata: {} }
+    await completeDispatchedWorker({ tool: TASK_TOOL_ID, sessionID: SESSION, callID: "call-refused", args: {} }, output, {
+      windows,
+      credentials: testCredentials,
+      runner,
+      concordBinary: "concord",
+    })
+    expect(verbs).toEqual(["worker-dispatch", "worker-complete", "worker-fail"])
+    expect(output.output).toContain("worker-complete refused")
   })
 
   test("adds the dispatch WorkPin state line to the lane report", async () => {

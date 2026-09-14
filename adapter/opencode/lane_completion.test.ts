@@ -53,18 +53,20 @@ const report = (status = "completed") => ({
 const taskWrap = (text: string, state = "completed") =>
   [`<task id="${WORKER_SESSION}" state="${state}">`, "<task_result>", text, "</task_result>", "</task>"].join("\n")
 
-const exportedSession = (agent = `concord-${lane.id}`) => JSON.stringify({
-  info: { id: WORKER_SESSION },
+const exportedSession = (agent = `concord-${lane.id}`, parentID: string | null = SESSION) => JSON.stringify({
+  info: { id: WORKER_SESSION, ...(parentID === null ? {} : { parentID }) },
   messages: [
     { info: { id: "message-0", sessionID: WORKER_SESSION, role: "user", agent, time: { created: 0 } }, parts: [] },
     { info: { id: "message-1", sessionID: WORKER_SESSION, role: "assistant", agent, providerID: "openai", modelID: "gpt-5.6-luna", time: { created: 1 } }, parts: [] },
   ],
 })
 
-// The session index is the only source of the worker's directory: the export
-// runs with --sanitize, which redacts that field.
+// The session index is the only source of a real directory, because the export
+// runs with --sanitize and redacts that field. The index lists no subagent
+// session, so a worker is reached through its parent, which the index does
+// list and whose directory the worker inherits.
 const sessionIndex = (directory = "/claimed/worktree") =>
-  JSON.stringify([{ id: "ses_other", directory: "/somewhere/else" }, { id: WORKER_SESSION, directory }])
+  JSON.stringify([{ id: "ses_other", directory: "/somewhere/else" }, { id: SESSION, directory }])
 
 // One runner answers the session export and index, and records every CLI verb.
 const recordingRunner = (verbs: string[], agent?: string): DispatchRunner => ({
@@ -124,6 +126,59 @@ describe("completeDispatchedWorker", () => {
   test("passes the indexed worker directory to worker-complete", async () => {
     const completionInput = await completionInputFor("/claimed/worktree", "call-directory")
     expect(completionInput?.worker_directory).toBe("/claimed/worktree")
+  })
+
+  // A subagent session never appears in the session index, so resolving it
+  // directly yields nothing and the core refuses every completion. The parent
+  // is listed, and the worker runs in the parent's directory.
+  test("resolves the worker directory through the parent session", async () => {
+    const windows = new DispatchWindows()
+    windows.open(SESSION, packet(), PACKET_DIGEST)
+    windows.bind(TASK_TOOL_ID, SESSION, {})
+    let completionInput: Record<string, unknown> | undefined
+    const runner: DispatchRunner = {
+      async run(argv, input) {
+        if (argv[1] === "export") return { exitCode: 0, stdout: exportedSession(), stderr: "" }
+        // Reality: the index holds the parent alone.
+        if (argv[1] === "session") return { exitCode: 0, stdout: JSON.stringify([{ id: SESSION, directory: "/claimed/worktree" }]), stderr: "" }
+        if (argv[1] === "worker-complete") completionInput = JSON.parse(input) as Record<string, unknown>
+        return { exitCode: 0, stdout: "", stderr: "" }
+      },
+    }
+    const output = { title: "verify lane", output: taskWrap(JSON.stringify(report())), metadata: {} }
+    await completeDispatchedWorker({ tool: TASK_TOOL_ID, sessionID: SESSION, callID: "call-parent", args: {} }, output, {
+      windows,
+      credentials: testCredentials,
+      runner,
+      concordBinary: "concord",
+    })
+    expect(completionInput?.worker_directory).toBe("/claimed/worktree")
+  })
+
+  // Without a parent there is nothing to inherit, so the adapter sends no
+  // directory rather than inventing one.
+  test("sends no worker directory when neither the session nor a parent is listed", async () => {
+    const windows = new DispatchWindows()
+    windows.open(SESSION, packet(), PACKET_DIGEST)
+    windows.bind(TASK_TOOL_ID, SESSION, {})
+    let completionInput: Record<string, unknown> | undefined
+    const runner: DispatchRunner = {
+      async run(argv, input) {
+        if (argv[1] === "export") return { exitCode: 0, stdout: exportedSession(`concord-${lane.id}`, null), stderr: "" }
+        if (argv[1] === "session") return { exitCode: 0, stdout: JSON.stringify([{ id: "ses_other", directory: "/somewhere/else" }]), stderr: "" }
+        if (argv[1] === "worker-complete") completionInput = JSON.parse(input) as Record<string, unknown>
+        return { exitCode: 0, stdout: "", stderr: "" }
+      },
+    }
+    const output = { title: "verify lane", output: taskWrap(JSON.stringify(report())), metadata: {} }
+    await completeDispatchedWorker({ tool: TASK_TOOL_ID, sessionID: SESSION, callID: "call-orphan", args: {} }, output, {
+      windows,
+      credentials: testCredentials,
+      runner,
+      concordBinary: "concord",
+    })
+    expect(completionInput).toBeDefined()
+    expect("worker_directory" in (completionInput ?? {})).toBe(false)
   })
 
   test("sends no worker directory when the index value is not a path", async () => {

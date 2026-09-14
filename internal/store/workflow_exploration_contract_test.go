@@ -17,7 +17,9 @@ func TestLivenessPathIdentityPreservesOrderAndPayload(t *testing.T) {
 	if livenessPathKey([]livenessMove{a}) == livenessPathKey([]livenessMove{b}) {
 		t.Fatal("different payloads share a key")
 	}
-	if livenessPathKey([]livenessMove{a, b}) != livenessPathKey([]livenessMove{a, b}) {
+	original := []livenessMove{a, b}
+	copied := append([]livenessMove(nil), original...)
+	if livenessPathKey(original) != livenessPathKey(copied) {
 		t.Fatal("identical paths have different keys")
 	}
 }

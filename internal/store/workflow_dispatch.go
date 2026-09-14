@@ -291,6 +291,17 @@ func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, registry Definiti
 	if err != nil {
 		return result, err
 	}
+	if defaultVerdictEvidence {
+		// The mint binds the work's real native-run capture, so the durable
+		// operation must carry that reference as evidence authority too.
+		nativeRunRef, nativeErr := defaultVerdictNativeRunRef(ctx, tx, request.WorkID, entry.Definition)
+		if nativeErr != nil {
+			return result, nativeErr
+		}
+		if nativeRunRef != "" && !contains(evidenceRefs, nativeRunRef) {
+			evidenceRefs = append(evidenceRefs, nativeRunRef)
+		}
+	}
 	request.EvidenceRefs = evidenceRefs
 	guards.request = request
 	step, evidenceRefs, err := claimDurableWorkflowOperationTx(ctx, tx, entry, request, currentStep)
@@ -509,25 +520,98 @@ func bornBoundEvidenceKinds(ctx context.Context, tx *sql.Tx, workID string, defi
 	return kinds, nil
 }
 
-// bornBoundEvidenceEvents mints the evidence rows a defaulted verdict is
-// born bound under: one row per (evaluation ref, required kind), each
-// consuming one expected sequence number starting at expected.
-func bornBoundEvidenceEvents(ctx context.Context, tx *sql.Tx, workID string, definition WorkflowDefinition, request WorkflowActionExecutionRequest, actor, eventID string, evidence []string, expected int64) ([]Event, error) {
+// verifiedNativeRunRef returns the observation the work already captured for
+// a native run, once that capture is verified. The native_run consumption
+// gate resolves evidence against these two projections, so a minted
+// reference can never satisfy it and the real capture is the only ref that
+// can. Absence is reported as a missing capture, not as an empty string.
+// defaultVerdictNativeRunRef names the capture a defaulted verdict must bind
+// under the native_run kind, or the empty string when the approved contract
+// requires no native run. It is the one authority for that rule: the durable
+// operation's evidence authority and the minted bindings both consult it, so
+// the reference they record cannot diverge.
+func defaultVerdictNativeRunRef(ctx context.Context, tx *sql.Tx, workID string, definition WorkflowDefinition) (string, error) {
 	kinds, err := bornBoundEvidenceKinds(ctx, tx, workID, definition)
 	if err != nil {
-		return nil, err
+		return "", err
 	}
-	events := make([]Event, 0, len(evidence))
-	for _, ref := range evidence {
-		for _, kind := range kinds {
-			events = append(events, workflowTypedEvent(eventID+":evidence:"+fmt.Sprint(len(events)), WorkflowEvidenceBound, workID, actor, request.Now, expected+int64(len(events)), map[string]any{
-				"evidence_kind": kind, "immutable_subject_ref": ref, "producer_id": request.PrincipalRef,
-				"producer_run_ref": request.OperationID, "producer_watermark": request.RequestID,
-				"observed_at": request.Now.UTC().Format(time.RFC3339Nano),
-			}))
+	if !contains(kinds, "native_run") {
+		return "", nil
+	}
+	return verifiedNativeRunRef(ctx, tx, workID)
+}
+
+func verifiedNativeRunRef(ctx context.Context, tx *sql.Tx, workID string) (string, error) {
+	var ref string
+	err := tx.QueryRowContext(ctx, `SELECT observation_id FROM workflow_native_runs WHERE work_id=? AND observation_id IS NOT NULL AND verification_state=? ORDER BY recorded_at DESC, run_id LIMIT 1`, workID, string(VerificationVerified)).Scan(&ref)
+	if err == nil {
+		return ref, nil
+	}
+	if err != sql.ErrNoRows {
+		return "", wrapFailure(KindUnavailable, "workflow_action", "cannot read the work's native-run captures", true, "retry once the projection is readable", err)
+	}
+	err = tx.QueryRowContext(ctx, `SELECT observation_id FROM external_observations WHERE work_id=? AND subject_kind='native_run' AND verification_state=? ORDER BY captured_at DESC, observation_id LIMIT 1`, workID, string(VerificationVerified)).Scan(&ref)
+	if err == sql.ErrNoRows {
+		return "", newFailure(KindMissingEvidence, "workflow_action", "the approved contract requires native_run evidence and this work holds no verified native-run capture: record the run as an external observation and verify it, then name that observation in evaluation_evidence", false, "provide_evidence")
+	}
+	if err != nil {
+		return "", wrapFailure(KindUnavailable, "workflow_action", "cannot read the work's native-run captures", true, "retry once the projection is readable", err)
+	}
+	return ref, nil
+}
+
+// bornBoundEvidenceEvents mints the evidence rows a defaulted verdict is
+// born bound under: one row per (evaluation ref, required kind), each
+// consuming one expected sequence number starting at expected. The
+// native_run kind is the exception. Its consumption gate demands a captured
+// and verified record, so the mint binds the work's real capture under that
+// kind rather than a reference it invented. The effective evaluation
+// evidence is returned, because a contract requiring only native_run carries
+// the capture alone and the minted reference would otherwise stay unbound.
+func bornBoundEvidenceEvents(ctx context.Context, tx *sql.Tx, workID string, definition WorkflowDefinition, request WorkflowActionExecutionRequest, actor, eventID string, evidence []string, expected int64) ([]Event, []string, error) {
+	kinds, err := bornBoundEvidenceKinds(ctx, tx, workID, definition)
+	if err != nil {
+		return nil, nil, err
+	}
+	mintedKinds := make([]string, 0, len(kinds))
+	requiresNativeRun := false
+	for _, kind := range kinds {
+		if kind == "native_run" {
+			requiresNativeRun = true
+			continue
+		}
+		mintedKinds = append(mintedKinds, kind)
+	}
+	nativeRunRef := ""
+	if requiresNativeRun {
+		if nativeRunRef, err = verifiedNativeRunRef(ctx, tx, workID); err != nil {
+			return nil, nil, err
 		}
 	}
-	return events, nil
+	events := make([]Event, 0, len(evidence)*len(kinds))
+	effective := make([]string, 0, len(evidence)+1)
+	appendBinding := func(kind, ref string) {
+		events = append(events, workflowTypedEvent(eventID+":evidence:"+fmt.Sprint(len(events)), WorkflowEvidenceBound, workID, actor, request.Now, expected+int64(len(events)), map[string]any{
+			"evidence_kind": kind, "immutable_subject_ref": ref, "producer_id": request.PrincipalRef,
+			"producer_run_ref": request.OperationID, "producer_watermark": request.RequestID,
+			"observed_at": request.Now.UTC().Format(time.RFC3339Nano),
+		}))
+	}
+	for _, ref := range evidence {
+		for _, kind := range mintedKinds {
+			appendBinding(kind, ref)
+		}
+		if len(mintedKinds) != 0 {
+			effective = append(effective, ref)
+		}
+	}
+	if requiresNativeRun {
+		appendBinding("native_run", nativeRunRef)
+		if !contains(effective, nativeRunRef) {
+			effective = append(effective, nativeRunRef)
+		}
+	}
+	return events, effective, nil
 }
 
 // workflowProposalRecordedEvents builds the typed proposal event for a
@@ -889,10 +973,12 @@ func workflowSemanticActionEvents(ctx context.Context, tx *sql.Tx, definition Wo
 		var mintedEvents []Event
 		if defaultVerdictEvidence {
 			var mintErr error
-			mintedEvents, mintErr = bornBoundEvidenceEvents(ctx, tx, request.WorkID, definition, request, actor, eventID, evidence, expected)
+			var effective []string
+			mintedEvents, effective, mintErr = bornBoundEvidenceEvents(ctx, tx, request.WorkID, definition, request, actor, eventID, evidence, expected)
 			if mintErr != nil {
 				return nil, mintErr
 			}
+			evidence = effective
 		}
 		events := make([]Event, 0, len(mintedEvents)+1)
 		events = append(events, mintedEvents...)

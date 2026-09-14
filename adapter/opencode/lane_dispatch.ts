@@ -14,6 +14,7 @@
 // which reaches back into lane_dispatch.ts. lane_dispatch.ts never imports
 // concord.ts at runtime; the orchestrator-facing call site in concord.ts
 // passes its own transport in through `deps.invoke`.
+import { createHash } from "node:crypto"
 import type { ToolContext } from "@opencode-ai/plugin"
 import type { ConcordInvoke } from "./packet"
 import type { CredentialStore } from "./credentials"
@@ -28,6 +29,7 @@ export interface LaneDispatchInput {
   expected_version: number
   idempotency_key: string
   lane_id: string
+  approval_ref?: string
 }
 
 export interface LaneDispatchDeps {
@@ -41,9 +43,6 @@ export interface LaneDispatchDeps {
   // unset and the dispatch path uses the per-instance store the plugin hook
   // reads; tests supply an isolated one.
   windows?: DispatchWindows
-  // now is an injected clock so the attempt id is deterministic in tests;
-  // production callers leave it unset and the seam defaults to Date.now.
-  now?: () => number
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -59,12 +58,15 @@ function laneForId(laneId: string): AgentLane | null {
   return agentLanes.find((candidate) => candidate.id === laneId) ?? null
 }
 
-// toHexRadix turns a number into a non-negative integer string in base 16,
-// padded to twelve lowercase hex digits. attempt ids embed this so the same
-// millisecond does not collide across lanes, but the form stays deterministic
-// for tests that inject `now`.
-function toHexRadix(value: number): string {
-  return Math.max(0, Math.floor(value)).toString(16).padStart(12, "0")
+// dispatchAttemptID identifies the exact adapter request, not the time at which
+// the request reaches the host. Approval handling can resubmit the unchanged
+// request after a prompt, so a clock-based identity would change its packet and
+// operation digest during that round trip. A new idempotency key mints a new
+// identity for the next retry.
+export function dispatchAttemptID(input: LaneDispatchInput): string {
+  const request = JSON.stringify({ work_id: input.work_id, expected_version: input.expected_version, idempotency_key: input.idempotency_key, lane_id: input.lane_id })
+  const digest = createHash("sha256").update(request, "utf8").digest("hex")
+  return `attempt-${digest}`
 }
 
 // mapPacketFailure converts the packet builder's typed refusal into an
@@ -115,11 +117,10 @@ export async function dispatchLaneWorker(input: LaneDispatchInput, deps: LaneDis
     return errorEnvelopeForLane(null, { work_id: input.work_id, lane_id: input.lane_id }, "error", "transport_failure", `concord_work_trace.continuity pinned workflow_step is not a string for ${input.work_id}`, "reconcile_operation")
   }
 
-  const now = deps.now ?? Date.now
   const pinnedWork = isRecord(pinned.work_pin) ? pinned.work_pin : null
   const correction = pinnedWork && isRecord(pinnedWork.correction) ? pinnedWork.correction : null
   const retrySuffix = correction && typeof correction.attempt_count === "number" ? `-retry-${correction.attempt_count}` : ""
-  const attempt = `attempt-${input.work_id}-${input.lane_id}-${toHexRadix(now())}${retrySuffix}`
+  const attempt = `${dispatchAttemptID(input)}${retrySuffix}`
   // The packet builder performs the additional scope + trace reads it needs
   // and returns either a packet or a typed refusal; we forward refusals
   // verbatim after the kind → outcome mapping in CD-0067 D5.
@@ -140,7 +141,8 @@ export async function dispatchLaneWorker(input: LaneDispatchInput, deps: LaneDis
   // forwarded — it is tool-level vocabulary the adapter consumed above.
   let coreResponse: unknown
   try {
-    coreResponse = await deps.invoke("concord_work_transition", { operation: "workflow_action", input: { work_id: input.work_id, expected_version: input.expected_version, action_id: "dispatch_worker", idempotency_key: input.idempotency_key, fields: { attempt_id: packet.attempt_id, worker_packet: packet } } }, deps.context)
+    const approval = input.approval_ref ? { approval: { approval_ref: input.approval_ref } } : {}
+    coreResponse = await deps.invoke("concord_work_transition", { operation: "workflow_action", input: { work_id: input.work_id, expected_version: input.expected_version, action_id: "dispatch_worker", idempotency_key: input.idempotency_key, fields: { attempt_id: packet.attempt_id, worker_packet: packet }, ...approval } }, deps.context)
   } catch (error) {
     return errorEnvelopeForLane(laneForId(packet.lane_id), packet as Partial<AgentLanePacket>, "error", "transport_failure", `concord_work_transition.workflow_action threw before reaching the core: ${String(error)}`, "reconcile_operation")
   }
@@ -150,6 +152,12 @@ export async function dispatchLaneWorker(input: LaneDispatchInput, deps: LaneDis
   if (coreResponse.outcome === "error") {
     const errorObj = isRecord(coreResponse.error) ? coreResponse.error : null
     const message = errorObj && typeof errorObj.message === "string" ? errorObj.message : "dispatch_worker authorization refused"
+    const details = errorObj && isRecord(errorObj.details) ? errorObj.details : undefined
+    if (errorObj?.kind === "approval_required") {
+      const refusal = errorEnvelopeForLane(laneForId(packet.lane_id), packet as Partial<AgentLanePacket>, "error", "approval_required", message, "request_approval", details)
+      refusal.error!.retry_safe = false
+      return refusal
+    }
     return errorEnvelopeForLane(laneForId(packet.lane_id), packet as Partial<AgentLanePacket>, "error", "unauthorized_dispatch", message, "reconcile_operation")
   }
 

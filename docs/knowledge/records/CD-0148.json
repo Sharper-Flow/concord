@@ -1,0 +1,47 @@
+{
+  "date": "2026-09-14T00:00:00Z",
+  "evidence": [
+    "internal/agent/authority.go",
+    "internal/agent/mutations.go",
+    "internal/agent/worker_retry_approval_test.go",
+    "internal/store/workflow_correction.go",
+    "internal/store/workflow_dispatch.go",
+    "internal/store/worker_failure_recovery_test.go",
+    "adapter/opencode/concord.ts",
+    "adapter/opencode/dispatch.ts",
+    "adapter/opencode/lane_dispatch.ts"
+  ],
+  "home_domain_id": "product-root:concord",
+  "id": "CD-0148",
+  "kind": "decision",
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "CD-0017"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0027"
+    }
+  ],
+  "path": "docs/decisions/CD-0148-approved-fresh-worker-retries.md",
+  "product_wide_rationale": "Failed worker attempts remain terminal evidence, so retries require exact operator approval and fresh execution fencing without becoming typed restart.",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:08c4ac69368b2b5ebfded3c81c057a5d1e0a0edae1c9d7bb5726eb10bebdfc40",
+  "status": "accepted",
+  "summary": "Failed worker retries require exact approval bound to the failed attempt, contract, work version, scope, and request digest, and each admitted retry receives a fresh attempt identity and fenced epoch.",
+  "tags": [
+    "worker",
+    "retry",
+    "approval",
+    "fencing",
+    "workflow"
+  ],
+  "title": "Failed worker retries require exact approval and fresh fencing"
+}

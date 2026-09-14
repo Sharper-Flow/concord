@@ -26,6 +26,78 @@ type WorkflowCorrectionContext struct {
 	FailedAttemptEpoch int64    `json:"failed_attempt_epoch,omitempty"`
 }
 
+// WorkflowRetryApprovalBinding is the durable identity that an operator
+// approval must bind before a failed worker attempt can run again.
+type WorkflowRetryApprovalBinding struct {
+	FailedAttemptID    string
+	FailedAttemptEpoch int64
+	ContractVersion    int64
+	Escalated          bool
+}
+
+// WorkflowFailedWorkerRetryBinding reads the current failed worker attempt
+// and active contract without opening a nested store connection.
+func WorkflowFailedWorkerRetryBinding(ctx context.Context, s *Store, workID string) (*WorkflowRetryApprovalBinding, error) {
+	if s == nil || s.db == nil {
+		return nil, newFailure(KindUnavailable, "workflow_correction", "store is not open", false, "open the authority database")
+	}
+	return workflowFailedWorkerRetryBinding(ctx, s.db, workID)
+}
+
+// WorkflowFailedWorkerRetryBindingTx is the transaction-scoped form used by
+// the approval and dispatch boundary. It rereads the binding before approval
+// consumption, so a stale approval cannot authorize a different attempt.
+func WorkflowFailedWorkerRetryBindingTx(ctx context.Context, transaction *Transaction, workID string) (*WorkflowRetryApprovalBinding, error) {
+	q, err := transactionSQL(transaction, "workflow_correction")
+	if err != nil {
+		return nil, err
+	}
+	return workflowFailedWorkerRetryBinding(ctx, q, workID)
+}
+
+func workflowFailedWorkerRetryBinding(ctx context.Context, q queryer, workID string) (*WorkflowRetryApprovalBinding, error) {
+	var stepID string
+	if err := q.QueryRowContext(ctx, `SELECT current_step FROM workflow_instances WHERE work_id=?`, workID).Scan(&stepID); err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, wrapFailure(KindUnavailable, "workflow_correction", "cannot read the current workflow step", true, "retry once the workflow projection is readable", err)
+	}
+	correction, err := workflowCorrectionContextForDispatch(ctx, q, workID, stepID, "")
+	if err != nil || correction == nil || correction.FailedAttemptID == "" {
+		return nil, err
+	}
+	contractVersion, err := latestWorkflowContractVersion(ctx, q, workID)
+	if err != nil {
+		return nil, err
+	}
+	return &WorkflowRetryApprovalBinding{
+		FailedAttemptID: correction.FailedAttemptID, FailedAttemptEpoch: correction.FailedAttemptEpoch,
+		ContractVersion: contractVersion, Escalated: correction.Escalated,
+	}, nil
+}
+
+// validateFailedWorkerRetryIdentity refuses a retry that reuses the failed
+// worker identity. The dispatch fold mints the next step epoch separately.
+func validateFailedWorkerRetryIdentity(ctx context.Context, q queryer, workID, currentStep string, payload json.RawMessage) error {
+	correction, err := workflowCorrectionContextForDispatch(ctx, q, workID, currentStep, "")
+	if err != nil {
+		return err
+	}
+	if correction == nil || correction.FailedAttemptID == "" {
+		return nil
+	}
+	fields, err := workflowActionObject(payload)
+	if err != nil {
+		return err
+	}
+	attemptID := workflowFieldStringDefault(fields, "attempt_id", "")
+	if attemptID == "" || attemptID == correction.FailedAttemptID {
+		return newFailure(KindStaleAttempt, "workflow_action", "worker retry must use a fresh attempt identity", false, "mint a new fenced worker attempt")
+	}
+	return nil
+}
+
 func workflowCorrectionActionDefinition() WorkflowActionDefinition {
 	return WorkflowActionDefinition{
 		ID: "reject_worker_result", Consequence: ActionInternalSQLite, Approval: ActionApprovalNone, ExecutionMode: ActionHold, RequiredCapability: "work_transition",

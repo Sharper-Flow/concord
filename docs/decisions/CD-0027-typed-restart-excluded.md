@@ -4,6 +4,7 @@
 - **Date:** 2026-08-15
 - **Scope:** Context continuity; worker lane dispatch
 - **Related:** CD-0016 (context continuity), CD-0017 (typed workers), issue #120
+- **Amended:** CD-0148 (failed worker retries require a fresh approved dispatch)
 - **Supersedes:** nothing; records a deliberate exclusion against the
   predecessor enumeration
 

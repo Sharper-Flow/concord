@@ -236,13 +236,18 @@ func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, registry Definiti
 			return result, err
 		}
 	}
+	var retryCorrection *WorkflowCorrectionContext
 	if request.ActionID == "dispatch_worker" {
 		correction, correctionErr := workflowCorrectionContext(ctx, tx, request.WorkID, currentStep)
 		if correctionErr != nil {
 			return result, correctionErr
 		}
+		retryCorrection = correction
 		if correction != nil && correction.Escalated {
 			return result, newFailure(KindApprovalRequired, "workflow_action", "worker correction reached the three-attempt limit", false, "escalate the failed or rejected result to the operator")
+		}
+		if err := validateFailedWorkerRetryIdentity(ctx, tx, request.WorkID, currentStep, request.Payload); err != nil {
+			return result, err
 		}
 	}
 	if request.ActionID == "request_correction" {
@@ -346,6 +351,9 @@ func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, registry Definiti
 	assembly, err := assembleWorkflowActionEventsTx(ctx, tx, assemblyInput)
 	if err != nil {
 		return result, err
+	}
+	if request.ActionID == "dispatch_worker" && retryCorrection != nil && assembly.attemptEpoch <= retryCorrection.FailedAttemptEpoch {
+		return result, newFailure(KindStaleAttempt, "workflow_action", "worker retry must open a fresh step epoch", false, "mint a new fenced worker attempt")
 	}
 	if request.ActionID == "complete" {
 		// The assembly's event list holds the actor- and operator-recording

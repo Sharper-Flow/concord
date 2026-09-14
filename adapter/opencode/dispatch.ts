@@ -173,10 +173,11 @@ export interface AgentResultEnvelope {
     // separate members because a refusal is the authorization boundary working
     // and a transport fault is the adapter being misconfigured; collapsing
     // them tells an operator to seek permission for a wiring defect.
-    kind: "invalid_input" | "blocked" | "error" | "invalid_report" | "agent_identity_mismatch" | "readback_refusal" | "unauthorized_dispatch" | "transport_failure"
+    kind: "invalid_input" | "blocked" | "error" | "invalid_report" | "agent_identity_mismatch" | "readback_refusal" | "unauthorized_dispatch" | "approval_required" | "transport_failure"
     retry_safe: boolean
-    recovery_action: "retry_same_request" | "adjust_budget" | "contact_operator" | "reconcile_operation"
+    recovery_action: "retry_same_request" | "adjust_budget" | "contact_operator" | "reconcile_operation" | "request_approval"
     message: string
+    details?: Record<string, unknown>
     predicate?: ReadbackRefusal
     export_digest?: string
     export_bytes?: number
@@ -661,7 +662,7 @@ function baseEnvelope(lane: AgentLane | null, packet: Partial<AgentLanePacket>, 
   return { schema_version: "1.0", outcome, lane: { id, version: lane?.version ?? Number(packet.lane_version ?? 0), digest: lane?.digest ?? String(packet.lane_digest ?? "") }, agent: lane ? `concord-${lane.id}` : `concord-${id}`, readback_model: null, session_id: null }
 }
 
-function errorEnvelope(lane: AgentLane | null, packet: Partial<AgentLanePacket>, outcome: "blocked" | "error", kind: NonNullable<AgentResultEnvelope["error"]>["kind"], message: string, recovery_action: NonNullable<AgentResultEnvelope["error"]>["recovery_action"] = "contact_operator", details: Pick<NonNullable<AgentResultEnvelope["error"]>, "predicate" | "export_digest" | "export_bytes"> = {}): AgentResultEnvelope {
+function errorEnvelope(lane: AgentLane | null, packet: Partial<AgentLanePacket>, outcome: "blocked" | "error", kind: NonNullable<AgentResultEnvelope["error"]>["kind"], message: string, recovery_action: NonNullable<AgentResultEnvelope["error"]>["recovery_action"] = "contact_operator", details: Pick<NonNullable<AgentResultEnvelope["error"]>, "predicate" | "export_digest" | "export_bytes" | "details"> = {}): AgentResultEnvelope {
   return { ...baseEnvelope(lane, packet, outcome), error: { kind, retry_safe: outcome !== "blocked", recovery_action, message: message.slice(0, MAX_ERROR_BYTES), ...details } }
 }
 
@@ -682,8 +683,8 @@ function readbackRefusalEnvelope(lane: AgentLane, packet: AgentLanePacket, refus
 // helper mirrors dispatch.ts's internal contract exactly so envelopes
 // returned from the dispatch path are structurally indistinguishable from
 // envelopes returned here.
-export function errorEnvelopeForLane(lane: AgentLane | null, packet: Partial<AgentLanePacket>, outcome: "blocked" | "error", kind: NonNullable<AgentResultEnvelope["error"]>["kind"], message: string, recovery_action: NonNullable<AgentResultEnvelope["error"]>["recovery_action"] = "contact_operator"): AgentResultEnvelope {
-  return errorEnvelope(lane, packet, outcome, kind, message, recovery_action)
+export function errorEnvelopeForLane(lane: AgentLane | null, packet: Partial<AgentLanePacket>, outcome: "blocked" | "error", kind: NonNullable<AgentResultEnvelope["error"]>["kind"], message: string, recovery_action: NonNullable<AgentResultEnvelope["error"]>["recovery_action"] = "contact_operator", details?: Pick<NonNullable<AgentResultEnvelope["error"]>, "predicate" | "export_digest" | "export_bytes" | "details">): AgentResultEnvelope {
+  return errorEnvelope(lane, packet, outcome, kind, message, recovery_action, details)
 }
 
 // resolveCoreBinary is the pure resolution the transport runs: an explicit

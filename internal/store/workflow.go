@@ -1439,7 +1439,7 @@ func validateWorkflowActionCompletedShape(p workflowActionCompletedPayload) erro
 	if p.ActionID != "accept_worker_result" && p.ActionID != "record_worker_failure" && p.ActionID != "reject_worker_result" && p.ActionID != "dispatch_worker" && p.WorkerAttemptID != "" {
 		return newFailure(KindInvalidPayload, "fold_event", "worker_attempt_id is reserved for worker result actions and dispatch_worker", false, "omit worker_attempt_id for ordinary action completion")
 	}
-	if p.ActionID == "reject_worker_result" && (!workflowString(p.CorrectionDiagnosis, 4096) || !workflowString(p.CorrectionStrategy, 4096) || !workflowList(p.CorrectionPredicateIDs, 8, 1) || !workflowList(p.CorrectionEvidenceRefs, 32, 1)) {
+	if (p.ActionID == "reject_worker_result" || p.ActionID == "request_correction") && (!workflowString(p.CorrectionDiagnosis, 4096) || !workflowString(p.CorrectionStrategy, 4096) || !workflowList(p.CorrectionPredicateIDs, 8, 1) || !workflowList(p.CorrectionEvidenceRefs, 32, 1)) {
 		return newFailure(KindInvalidPayload, "fold_event", "rejected worker result has incomplete correction fields", false, "supply diagnosis, strategy, predicate IDs, and evidence references")
 	}
 	return nil
@@ -1465,7 +1465,18 @@ func admitWorkflowActionOffStep(ctx context.Context, tx *sql.Tx, event Event, p 
 			return recoveryErr
 		}
 	}
-	if !workerFailureRecovery && !correctionRecovery && (p.ActionID != "bind_evidence" || stepDeclaresAction(entry.Definition, currentStep, "bind_evidence")) {
+	if p.ActionID == "request_correction" {
+		var recoveryErr error
+		correctionRecovery, recoveryErr = workflowCorrectionRequestAvailable(ctx, tx, event.SubjectID, entry.Definition, currentStep, "fold_event")
+		if recoveryErr != nil {
+			return recoveryErr
+		}
+		if !correctionRecovery {
+			return newFailure(KindInvalidOperation, "fold_event", "correction request is unavailable without a current non-ok verification verdict", false, "reread the current work pin")
+		}
+		return nil
+	}
+	if !workerFailureRecovery && !correctionRecovery && p.ActionID != "request_correction" && (p.ActionID != "bind_evidence" || stepDeclaresAction(entry.Definition, currentStep, "bind_evidence")) {
 		return newFailure(KindIllegalLifecycleTransition, "fold_event", "completed action is not declared on the pinned current step", false, "reread_entities")
 	}
 	if !workerFailureRecovery && !correctionRecovery {
@@ -1580,6 +1591,12 @@ func foldWorkflowActionCompleted(ctx context.Context, tx *sql.Tx, event Event) e
 				return newFailure(KindIllegalLifecycleTransition, "fold_event", "worker failure is already recorded", false, "start a fresh workflow attempt")
 			}
 		}
+		if p.ActionID == "request_correction" {
+			correctionPayload, _ := json.Marshal(map[string]any{"diagnosis": p.CorrectionDiagnosis, "strategy": p.CorrectionStrategy, "predicate_ids": p.CorrectionPredicateIDs, "evidence_refs": p.CorrectionEvidenceRefs})
+			if err := validateCorrectionRequestPayload(ctx, tx, event.SubjectID, entry.Definition, currentStep, correctionPayload, "fold_event"); err != nil {
+				return err
+			}
+		}
 	}
 	nextStep := ""
 	if advancesStep {
@@ -1591,12 +1608,17 @@ func foldWorkflowActionCompleted(ctx context.Context, tx *sql.Tx, event Event) e
 				return nextErr
 			}
 		}
+	} else if p.ActionID == "request_correction" {
+		nextStep = workflowCorrectionTargetStep(entry.Definition, currentStep)
+		if nextStep == "" {
+			return newFailure(KindIllegalLifecycleTransition, "fold_event", "correction has no declared external-effect return step", false, "repair the pinned workflow definition")
+		}
 	}
 	if err := advanceWorkflowVersion(ctx, tx, event, p.WorkflowVersionFields); err != nil {
 		return err
 	}
 	_, err = tx.ExecContext(ctx, `UPDATE workflow_instances SET instance_state='running',last_checkpoint_at=? WHERE work_id=?`, event.OccurredAt.UTC().Format(time.RFC3339Nano), event.SubjectID)
-	if err != nil || p.ActionID == "" || !advancesStep {
+	if err != nil || p.ActionID == "" || (!advancesStep && p.ActionID != "request_correction") {
 		return err
 	}
 	if nextStep != "" {

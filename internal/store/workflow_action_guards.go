@@ -32,16 +32,17 @@ type workflowActionGuardContext struct {
 	entry       RegisteredDefinition
 	currentStep string
 
-	staleRecovery         bool
-	lateVerdictRecovery   bool
-	recoveryBind          bool
-	workerFailureRecovery bool
-	correctionRecovery    bool
-	actorRef              string
-	eventActor            string
-	operatorRef           string
-	actorNeedsRecord      bool
-	operatorNeedsRecord   bool
+	staleRecovery             bool
+	lateVerdictRecovery       bool
+	recoveryBind              bool
+	workerFailureRecovery     bool
+	correctionRecovery        bool
+	correctionRequestRecovery bool
+	actorRef                  string
+	eventActor                string
+	operatorRef               string
+	actorNeedsRecord          bool
+	operatorNeedsRecord       bool
 }
 
 type workflowActionGuardFunc func(*workflowActionGuardContext) error
@@ -57,6 +58,7 @@ type workflowActionGuard struct {
 var workflowActionGuards = map[string]workflowActionGuard{
 	"supersede_contract":     {guardPhaseRecovery, guardSupersedeContractRecovery},
 	"reject_worker_result":   {guardPhaseRecovery, guardRejectWorkerResultRecovery},
+	"request_correction":     {guardPhaseRecovery, guardRequestCorrectionRecovery},
 	"complete":               {guardPhaseBoundary, guardCompleteBoundary},
 	"link_successor":         {guardPhasePostValidation, guardForwardLinkOnly},
 	"cross_context_boundary": {guardPhaseClaim, guardNoRestartDispatch},
@@ -68,6 +70,13 @@ func guardRejectWorkerResultRecovery(g *workflowActionGuardContext) error {
 		return newFailure(KindInvalidOperation, "workflow_action", "worker result rejection is unavailable without a completed result", false, "accept or reject the completed worker result")
 	}
 	return nil
+}
+
+func guardRequestCorrectionRecovery(g *workflowActionGuardContext) error {
+	if !g.correctionRequestRecovery {
+		return newFailure(KindInvalidOperation, "workflow_action", "correction request is unavailable without a current non-ok verification verdict", false, "reread the current work pin")
+	}
+	return validateCorrectionRequestPayload(g.ctx, g.tx, g.request.WorkID, g.entry.Definition, g.currentStep, g.request.Payload, "workflow_action")
 }
 
 // runWorkflowActionGuard runs the request's guard when one is declared for
@@ -448,8 +457,18 @@ func guardRecordedActorTuple(g *workflowActionGuardContext) error {
 // confirmation. A worker cannot acquire this authority through its report.
 func guardOperatorPremiseActor(g *workflowActionGuardContext) error {
 	if g.request.OperatorActor == nil {
-		if g.request.ActionID != "supersede_contract" {
+		if g.request.ActionID != "supersede_contract" && g.request.ActionID != "request_correction" {
 			return nil
+		}
+		if g.request.ActionID == "request_correction" {
+			available, correctionErr := workflowCorrectionRequestAvailable(g.ctx, g.tx, g.request.WorkID, g.entry.Definition, g.currentStep, "workflow_action")
+			if correctionErr != nil {
+				return correctionErr
+			}
+			if !available {
+				return newFailure(KindInvalidOperation, "workflow_action", "correction request is unavailable without a current non-ok verification verdict", false, "reread the current work pin")
+			}
+			return newFailure(KindApprovalRequired, "workflow_action", "correction request requires the verified operator approval identity", false, "request_approval")
 		}
 		correction, correctionErr := workflowContractCorrectionAvailable(g.ctx, g.tx, g.request.WorkID, g.entry.Definition, g.currentStep, "workflow_action")
 		if correctionErr != nil {
@@ -460,7 +479,7 @@ func guardOperatorPremiseActor(g *workflowActionGuardContext) error {
 		}
 		return nil
 	}
-	if (g.request.ActionID != "confirm_premise" && g.request.ActionID != "record_verdict" && g.request.ActionID != "complete" && g.request.ActionID != "supersede_contract") || g.request.OperatorActor.ActorClass != ActorOperator {
+	if (g.request.ActionID != "confirm_premise" && g.request.ActionID != "record_verdict" && g.request.ActionID != "complete" && g.request.ActionID != "supersede_contract" && g.request.ActionID != "request_correction") || g.request.OperatorActor.ActorClass != ActorOperator {
 		return newFailure(KindUnauthorized, "workflow_action", "operator actor is only valid for signed premise confirmation, contract correction, conditioned verdict, and completion", false, "use the verified approval identity")
 	}
 	ref, err := WorkflowActorRef(*g.request.OperatorActor)
@@ -814,7 +833,7 @@ func appendGenericWorkflowCompletion(in workflowActionAssemblyInput, attemptEpoc
 			completionValues["worker_worktree_identity"] = in.request.SessionWorktreeIdentity
 		}
 	}
-	if in.request.ActionID == "reject_worker_result" {
+	if in.request.ActionID == "reject_worker_result" || in.request.ActionID == "request_correction" {
 		completionValues["correction_diagnosis"] = workflowFieldStringDefault(fields, "diagnosis", "")
 		completionValues["correction_strategy"] = workflowFieldStringDefault(fields, "strategy", "")
 		completionValues["correction_predicate_ids"] = workflowFieldStrings(fields, "predicate_ids")

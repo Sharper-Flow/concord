@@ -5,7 +5,7 @@
 - **Scope:** The break-fix verify route for an outstanding contract evidence kind
 - **Approval:** The operator approved this Product law amendment for the
   workflow recovery repair.
-- **Related:** CD-0013, CD-0115, CD-0122, issue #837
+- **Related:** CD-0013, CD-0115, CD-0122, CD-0143, issue #837
 - **Amends:** CD-0013 at the break-fix verify action set
 - **Preserves:** Contract authority, event history, evidence provenance,
   operator approval, lifecycle gates, and released definition pins
@@ -16,6 +16,10 @@ An accepted break-fix delivery can reach `verify` with a contract-required
 evidence kind still outstanding. The existing completion gate correctly refuses
 premise confirmation, but the prior action set provides no typed route that can
 repair the missing evidence without changing the step.
+
+Verdict correction is a separate route. It requires a completed and accepted
+worker delivery, returns to the pinned `repair` step, and does not replace this
+evidence-binding recovery.
 
 ## Decision
 
@@ -63,3 +67,6 @@ deployment or stranded-work recovery.
   and terminal requests.
 - Replay tests prove one durable binding for one recovery identity.
 - The released definition digest pins remain unchanged.
+- Verdict correction requires a completed and accepted worker delivery, uses a
+  comparable healthy predicate set to reset its bound, and returns break-fix
+  work to the pinned `repair` step without rewriting history.

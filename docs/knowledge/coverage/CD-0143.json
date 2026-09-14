@@ -1,0 +1,5 @@
+{
+  "id": "CD-0143",
+  "reason": "The correction policy, action payload, pinned return route, and bounded-attempt tests prove the engine-owned verdict correction boundary.",
+  "state": "out_of_scope"
+}

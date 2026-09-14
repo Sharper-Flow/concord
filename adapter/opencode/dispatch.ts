@@ -42,7 +42,7 @@ export interface AgentLanePacket {
 }
 
 export interface AgentLanePacketCorrection {
-  disposition: "failed" | "rejected"
+  disposition: "failed" | "rejected" | "verification"
   attempt_count: number
   attempt_limit: 3
   escalated: boolean
@@ -75,7 +75,6 @@ export interface SessionMetadata {
   readback_model: string
   readback_agent: string
   session_id: string | null
-  worker_directory?: string
 }
 
 // ReadbackRefusal identifies the first export predicate that refused the
@@ -95,7 +94,7 @@ export type ReadbackRefusal =
   | "dispatched_agent_identity"
 
 export type SessionMetadataRead =
-  | { ok: true; metadata: Pick<SessionMetadata, "readback_model" | "readback_agent" | "session_id" | "worker_directory">; export_digest: string; export_bytes: number }
+  | { ok: true; metadata: Pick<SessionMetadata, "readback_model" | "readback_agent" | "session_id">; export_digest: string; export_bytes: number }
   | { ok: false; predicate: ReadbackRefusal; export_digest: string; export_bytes: number; message: string }
 
 export interface RunSessionMetadata {
@@ -398,7 +397,7 @@ export function readRunSessionMetadata(input: string | RunSessionObservation): R
   return { ok: true, metadata: { session_id: [...input.sessions][0] } }
 }
 
-function readExportSessionIdentity(info: Record<string, unknown>): { model: string | null; agent: string | null; directory?: string } | null {
+function readExportSessionIdentity(info: Record<string, unknown>): { model: string | null; agent: string | null } | null {
   let model: string | null = null
   if ("model" in info) {
     if (!isRecord(info.model) || typeof info.model.providerID !== "string" || typeof info.model.id !== "string") return null
@@ -409,12 +408,7 @@ function readExportSessionIdentity(info: Record<string, unknown>): { model: stri
     if (typeof info.agent !== "string") return null
     agent = info.agent
   }
-  let directory: string | undefined
-  if ("directory" in info) {
-    if (typeof info.directory !== "string") return null
-    directory = info.directory
-  }
-  return { model, agent, directory }
+  return { model, agent }
 }
 
 function sha256Digest(value: string): string {
@@ -459,13 +453,40 @@ export function readExportSession(stdout: string, expectedSessionID: string): Se
   assistants.sort((left, right) => left.created - right.created || left.id.localeCompare(right.id))
   const latest = assistants.at(-1)
   return latest
-    ? { ok: true, metadata: { readback_model: latest.model, readback_agent: latest.agent, session_id: expectedSessionID, ...(sessionIdentity.directory !== undefined ? { worker_directory: sessionIdentity.directory } : {}) }, export_digest: exportDigest, export_bytes: exportBytes }
+    ? { ok: true, metadata: { readback_model: latest.model, readback_agent: latest.agent, session_id: expectedSessionID }, export_digest: exportDigest, export_bytes: exportBytes }
     : refuse("export_assistant_message", "export session contained no assistant readback")
 }
 
-export function readExportSessionMetadata(stdout: string, expectedSessionID: string): Pick<SessionMetadata, "readback_model" | "readback_agent" | "session_id" | "worker_directory"> | null {
+export function readExportSessionMetadata(stdout: string, expectedSessionID: string): Pick<SessionMetadata, "readback_model" | "readback_agent" | "session_id"> | null {
   const result = readExportSession(stdout, expectedSessionID)
   return result.ok ? result.metadata : null
+}
+
+// The core compares the worker session's directory against the work item's
+// active worktree claim, so the value it receives must be a real path. The
+// session export runs with --sanitize, which replaces that directory with a
+// redaction placeholder. A placeholder is not a path and cannot resolve, so
+// the core refused every completion. The directory is read from the session
+// index instead, which holds the real path and no transcript content. A value
+// that is not an absolute path is reported as absent rather than sent, so a
+// redacted or relative value cannot reach the boundary again.
+export function readSessionDirectory(stdout: string, sessionID: string): string | null {
+  let value: unknown
+  try { value = JSON.parse(stdout) } catch { return null }
+  const rows = Array.isArray(value) ? value : isRecord(value) && Array.isArray(value.sessions) ? value.sessions : null
+  if (!rows) return null
+  for (const row of rows) {
+    if (!isRecord(row) || row.id !== sessionID) continue
+    return typeof row.directory === "string" && row.directory.startsWith("/") ? row.directory : null
+  }
+  return null
+}
+
+async function readWorkerSessionDirectory(runner: DispatchRunner, binary: string, sessionID: string, signal: AbortSignal): Promise<string | null> {
+  let listed: { exitCode: number; stdout: string; stderr: string }
+  try { listed = await runner.run([binary, "session", "list", "--format", "json"], "", signal) } catch { return null }
+  if (listed.exitCode !== 0) return null
+  return readSessionDirectory(listed.stdout, sessionID)
 }
 
 // readRunTextParts returns the model's message text in emission order. The host
@@ -1127,6 +1148,7 @@ async function completeWorkerSession(
   const cli = concordBinaryPath(options.concordBinary)
   const credentials = options.credentials ?? defaultCredentials
   const provenance = await computeHostPromptProvenance(lane.id)
+  const workerDirectory = await readWorkerSessionDirectory(readbackRunner, binary, workerSessionID, signal)
 
   // CD-0056 D7: the adapter is the only component that sees worker output, so
   // the report is admitted here. A report that is absent, unparseable, invalid,
@@ -1244,10 +1266,42 @@ async function completeWorkerSession(
     report_schema_version: REPORT_SCHEMA_VERSION,
     evidence_origin: "reported",
     evidence: terminal.report.evidence,
-    ...(readback.worker_directory !== undefined ? { worker_directory: readback.worker_directory } : {}),
+    ...(workerDirectory !== null ? { worker_directory: workerDirectory } : {}),
     assertion: terminalAssertion,
   }, signal)
-  if (completionFailure) return errorEnvelope(lane, packet, "error", "error", completionFailure, "reconcile_operation")
+  if (completionFailure) {
+    // A refused completion leaves the attempt dispatched. An open attempt
+    // blocks every later dispatch on the work item and pins the host session
+    // to that worktree, and no coordinator route closes it, so the refusal is
+    // carried into a terminal failure here.
+    const detail = `worker-complete refused: ${completionFailure}`.slice(0, MAX_FAILURE_DETAIL_BYTES)
+    let closeAssertion: Record<string, unknown>
+    try {
+      closeAssertion = await signWorkerEvidence(credentials, {
+        verb: "worker-fail",
+        work_id: packet.work_id,
+        attempt_id: packet.attempt_id,
+        lane_id: lane.id,
+        lane_version: lane.version,
+        lane_digest: lane.digest,
+        readback_model: readback.readback_model,
+        failure_kind: "worker_error",
+      })
+    } catch (error) {
+      return errorEnvelope(lane, packet, "error", "error", `${detail}; the attempt stays open because its failure could not be signed: ${String(error)}`.slice(0, MAX_ERROR_BYTES), "contact_operator")
+    }
+    const closeFailure = await recordWorkerEvent(cliRunner, cli, "worker-fail", {
+      event_id: crypto.randomUUID(),
+      work_id: packet.work_id,
+      attempt_id: packet.attempt_id,
+      readback_model: readback.readback_model,
+      failure_kind: "worker_error",
+      detail,
+      assertion: closeAssertion,
+    }, signal)
+    const message = closeFailure ? `${detail}; the attempt stays open because its failure could not be recorded: ${closeFailure}` : detail
+    return errorEnvelope(lane, packet, "error", "error", message.slice(0, MAX_ERROR_BYTES), "reconcile_operation")
+  }
 
   return envelope
 }

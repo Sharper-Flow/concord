@@ -188,11 +188,17 @@ func ReadWorkPinTx(ctx context.Context, tx *sql.Tx, workID string) (WorkPin, err
 		return pin, correctionErr
 	}
 	pin.Correction = correction
-	if pin.Correction == nil {
-		pin.Correction = verdictCorrection
-	}
 	if correction != nil && correction.Escalated {
 		pin.NextValidIntents = workPinWithoutAction(pin.NextValidIntents, "dispatch_worker")
+	}
+	if workPinContainsAction(pin.NextValidIntents, "dispatch_worker") {
+		_, staleDesign, designErr := readCurrentWorkflowDesign(ctx, tx, workID)
+		if designErr != nil {
+			return pin, designErr
+		}
+		if staleDesign {
+			pin.NextValidIntents = workPinWithoutAction(pin.NextValidIntents, "dispatch_worker")
+		}
 	}
 	if stepDeclaresAction(registered.Definition, pin.Step, "dispatch_worker") {
 		rejected, rejectionErr := workflowRejectedWorkerResultAvailable(ctx, tx, workID, pin.Step, "work_pin")

@@ -11641,6 +11641,9 @@
                   "architecture_binding": {
                     "$ref": "#/$defs/architecture_binding"
                   },
+                  "design_record": {
+                    "$ref": "#/$defs/workflow_design_content"
+                  },
                   "supersede_reason": {
                     "type": "string",
                     "minLength": 1,
@@ -11846,6 +11849,40 @@
       "minLength": 20,
       "maxLength": 64,
       "format": "date-time"
+    },
+    "workflow_design_content": {
+      "type": "object",
+      "additionalProperties": false,
+      "maxProperties": 32,
+      "properties": {
+        "approach": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 4096
+        },
+        "decisions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/workflow_design_decision"
+          },
+          "minItems": 1,
+          "maxItems": 16
+        },
+        "touched_refs": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/reference"
+          },
+          "minItems": 1,
+          "maxItems": 64
+        }
+      },
+      "required": [
+        "approach",
+        "decisions",
+        "touched_refs"
+      ]
     }
   }
 }

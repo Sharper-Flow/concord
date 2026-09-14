@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -47,9 +48,11 @@ type ProductPlanningMode struct {
 // convention. No credential material is read or stored here.
 type LinearConnection struct {
 	ResourceID   string            `json:"resource_id"`
+	Version      int64             `json:"version"`
 	WorkspaceURL string            `json:"workspace_url"`
 	TeamID       string            `json:"team_id"`
 	AuthMode     string            `json:"auth_mode"`
+	ProjectID    string            `json:"project_id,omitempty"`
 	StatusIDs    map[string]string `json:"status_ids,omitempty"`
 	State        string            `json:"state"` // declared | partial | absent
 }
@@ -199,10 +202,10 @@ func (s *Store) ResolveLinearPlanningTarget(ctx context.Context, productID strin
 // such resource exists.
 func (s *Store) ReadLinearConnection(ctx context.Context, productID string) (LinearConnection, error) {
 	rows, err := s.db.QueryContext(ctx, `
-SELECT r.resource_id, r.metadata
+SELECT r.resource_id, r.version, r.metadata
 FROM managed_resources r
 JOIN resource_products rp ON rp.resource_id = r.resource_id
-WHERE rp.product_id = ? AND rp.role = 'owner' AND r.kind = 'saas_account'
+WHERE rp.product_id = ? AND rp.role = 'owner' AND r.class = 'saas' AND r.kind = 'saas_account'
 ORDER BY r.resource_id`, productID)
 	if err != nil {
 		return LinearConnection{}, wrapFailure(KindUnavailable, "linear_connection_read", "cannot read Linear connection resources", true, "retry once the database is readable", err)
@@ -211,7 +214,8 @@ ORDER BY r.resource_id`, productID)
 	var connection *LinearConnection
 	for rows.Next() {
 		var resourceID, metadataJSON string
-		if err := rows.Scan(&resourceID, &metadataJSON); err != nil {
+		var version int64
+		if err := rows.Scan(&resourceID, &version, &metadataJSON); err != nil {
 			return LinearConnection{}, wrapFailure(KindUnavailable, "linear_connection_read", "cannot scan Linear connection resource", true, "retry once the database is readable", err)
 		}
 		var metadata map[string]any
@@ -222,7 +226,7 @@ ORDER BY r.resource_id`, productID)
 		if !ok {
 			continue
 		}
-		candidate := LinearConnection{ResourceID: resourceID}
+		candidate := LinearConnection{ResourceID: resourceID, Version: version}
 		if v, ok := linear["workspace_url"].(string); ok {
 			candidate.WorkspaceURL = v
 		}
@@ -232,12 +236,38 @@ ORDER BY r.resource_id`, productID)
 		if v, ok := linear["auth_mode"].(string); ok {
 			candidate.AuthMode = v
 		}
-		if statusIDs, ok := linear["status_ids"].(map[string]any); ok {
+		if v, ok := linear["project_id"].(string); ok {
+			candidate.ProjectID = v
+		} else if _, exists := linear["project_id"]; exists {
+			return LinearConnection{}, newFailure(KindInvalidPayload, "linear_connection_read", "Linear project_id must be a string", false, "supply a bounded project id or omit project_id")
+		}
+		if candidate.ProjectID != "" {
+			if err := validateLinearConnectionID(candidate.ProjectID, "project id"); err != nil {
+				return LinearConnection{}, err
+			}
+		}
+		if encoded, exists := linear["status_ids"]; exists {
+			rawStatus, marshalErr := json.Marshal(encoded)
+			var statusIDs map[string]json.RawMessage
+			if marshalErr != nil || json.Unmarshal(rawStatus, &statusIDs) != nil || statusIDs == nil {
+				return LinearConnection{}, newFailure(KindInvalidPayload, "linear_connection_read", "Linear status_ids must be an object", false, "supply terminal lifecycle to status id mappings")
+			}
 			candidate.StatusIDs = make(map[string]string, len(statusIDs))
 			for lifecycle, value := range statusIDs {
-				if statusID, ok := value.(string); ok {
-					candidate.StatusIDs[lifecycle] = statusID
+				if !isTerminalLifecycle(lifecycle) {
+					return LinearConnection{}, newFailure(KindInvalidPayload, "linear_connection_read", "Linear status mapping lifecycle is not terminal", false, "map cancelled, completed, or superseded")
 				}
+				var statusID string
+				if err := json.Unmarshal(value, &statusID); err != nil {
+					return LinearConnection{}, newFailure(KindInvalidPayload, "linear_connection_read", "Linear status id must be a string", false, "supply terminal lifecycle to status id mappings")
+				}
+				if err := validateLinearConnectionID(statusID, "status id"); err != nil {
+					return LinearConnection{}, err
+				}
+				candidate.StatusIDs[lifecycle] = statusID
+			}
+			if err := validateLinearStatusMapping(candidate.StatusIDs, "linear_connection_read"); err != nil {
+				return LinearConnection{}, err
 			}
 		}
 		connection = &candidate
@@ -257,6 +287,140 @@ ORDER BY r.resource_id`, productID)
 	return *connection, nil
 }
 
+// LinearConnectionUpdateRequest changes the destination and status mapping
+// owned by one Product's managed Linear resource. A nil StatusIDs keeps the
+// existing mapping. An empty ProjectID keeps an existing project or leaves it
+// absent, which preserves the optional-project contract.
+type LinearConnectionUpdateRequest struct {
+	EventID                 string
+	ResourceID              string
+	ProductID               string
+	TeamID                  string
+	ProjectID               string
+	StatusIDs               map[string]string
+	ExpectedResourceVersion int64
+	Actor                   string
+	OccurredAt              time.Time
+}
+
+// UpdateLinearConnection records a version-checked, Product-scoped metadata
+// update. It merges the Linear extension with the current object and leaves all
+// unrelated managed-resource metadata unchanged.
+func (s *Store) UpdateLinearConnection(ctx context.Context, req LinearConnectionUpdateRequest) error {
+	if req.EventID == "" || req.ResourceID == "" || req.ProductID == "" || req.Actor == "" || req.OccurredAt.IsZero() || req.ExpectedResourceVersion < 1 {
+		return newFailure(KindInvalidOperation, "linear_connection_update", "connection update is missing bounded identity or version fields", false, "supply resource, Product, event, actor, time, and a positive expected version")
+	}
+	if req.TeamID != "" {
+		if err := validateLinearConnectionID(req.TeamID, "team id"); err != nil {
+			return err
+		}
+	}
+	if req.ProjectID != "" {
+		if err := validateLinearConnectionID(req.ProjectID, "project id"); err != nil {
+			return err
+		}
+	}
+	if req.StatusIDs != nil {
+		if err := validateLinearStatusMapping(req.StatusIDs, "linear_connection_update"); err != nil {
+			return err
+		}
+	}
+	var schemaVersion string
+	var raw []byte
+	err := s.db.QueryRowContext(ctx, `SELECT metadata_schema_version, metadata FROM managed_resources r JOIN resource_products rp ON rp.resource_id=r.resource_id WHERE r.resource_id=? AND rp.product_id=? AND rp.role='owner' AND r.class='saas' AND r.kind='saas_account'`, req.ResourceID, req.ProductID).Scan(&schemaVersion, &raw)
+	if err == sql.ErrNoRows {
+		return newFailure(KindUnknownScope, "linear_connection_update", "the Product does not own a Linear connection resource", false, "supply the owning Product and managed resource")
+	}
+	if err != nil {
+		return wrapFailure(KindUnavailable, "linear_connection_update", "cannot read the Linear connection metadata", true, "retry once the database is readable", err)
+	}
+	var metadata map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &metadata); err != nil || metadata == nil {
+		return newFailure(KindInvalidPayload, "linear_connection_update", "stored resource metadata is not a JSON object", false, "repair the managed resource metadata")
+	}
+	var linear map[string]json.RawMessage
+	if encoded := metadata["linear"]; len(encoded) > 0 {
+		if err := json.Unmarshal(encoded, &linear); err != nil || linear == nil {
+			return newFailure(KindInvalidPayload, "linear_connection_update", "stored Linear metadata is not a JSON object", false, "repair the managed resource metadata")
+		}
+	} else {
+		return newFailure(KindInvalidOperation, "linear_connection_update", "managed resource does not declare Linear metadata", false, "update an existing Linear connection resource")
+	}
+	var existingTeamID string
+	if encoded := linear["team_id"]; len(encoded) > 0 {
+		if err := json.Unmarshal(encoded, &existingTeamID); err != nil {
+			return newFailure(KindInvalidPayload, "linear_connection_update", "stored Linear team_id is not a string", false, "repair the managed resource metadata")
+		}
+	}
+	if req.TeamID != "" && existingTeamID != "" && req.TeamID != existingTeamID && req.StatusIDs == nil {
+		return newFailure(KindInvalidOperation, "linear_connection_update", "a team change requires a replacement status mapping", false, "supply status_ids that belong to the selected team")
+	}
+	if req.StatusIDs != nil && req.TeamID != "" && req.TeamID != existingTeamID {
+		var existingStatusIDs map[string]string
+		if encoded := linear["status_ids"]; len(encoded) > 0 && json.Unmarshal(encoded, &existingStatusIDs) == nil {
+			for _, statusID := range req.StatusIDs {
+				for _, existingStatusID := range existingStatusIDs {
+					if statusID == existingStatusID {
+						return newFailure(KindInvalidRelation, "linear_connection_update", "status mapping contains an identifier from the previous team", false, "supply status identifiers belonging to the selected team")
+					}
+				}
+			}
+		}
+	}
+	if req.TeamID != "" {
+		linear["team_id"], _ = json.Marshal(req.TeamID)
+	}
+	if req.ProjectID != "" {
+		linear["project_id"], _ = json.Marshal(req.ProjectID)
+	}
+	if req.StatusIDs != nil {
+		linear["status_ids"], _ = json.Marshal(req.StatusIDs)
+	}
+	metadata["linear"], _ = json.Marshal(linear)
+	merged, err := json.Marshal(metadata)
+	if err != nil {
+		return wrapFailure(KindInvalidPayload, "linear_connection_update", "cannot encode merged Linear metadata", false, "supply valid connection metadata", err)
+	}
+	return UpdateManagedResourceMetadata(ctx, s, ManagedResourceMetadataUpdateRequest{
+		EventID: req.EventID, ResourceID: req.ResourceID, ProductID: req.ProductID,
+		MetadataSchemaVersion: schemaVersion, Metadata: merged, ExpectedResourceVersion: req.ExpectedResourceVersion,
+		Actor: req.Actor, OccurredAt: req.OccurredAt,
+	})
+}
+
+func validateLinearConnectionID(value, name string) error {
+	if len(value) < 2 || len(value) > 128 || value != strings.TrimSpace(value) {
+		return newFailure(KindInvalidPayload, "linear_connection_update", name+" must be a trimmed value of 2 to 128 characters", false, "supply a bounded connection identifier")
+	}
+	return nil
+}
+
+func validateLinearStatusMapping(statusIDs map[string]string, operation string) error {
+	if len(statusIDs) != len(terminalLifecycles) {
+		return newFailure(KindInvalidPayload, operation, "status mapping must contain all terminal lifecycles", false, "map cancelled, completed, and superseded")
+	}
+	seen := make(map[string]string, len(statusIDs))
+	for lifecycle, statusID := range statusIDs {
+		if !isTerminalLifecycle(lifecycle) {
+			return newFailure(KindInvalidPayload, operation, "status mapping lifecycle is not terminal", false, "map cancelled, completed, or superseded")
+		}
+		if err := validateLinearConnectionID(statusID, "status id"); err != nil {
+			return err
+		}
+		if _, exists := seen[statusID]; exists {
+			return newFailure(KindInvalidPayload, operation, "status mapping reuses a status identifier", false, "supply one status identifier for each terminal lifecycle")
+		} else {
+			seen[statusID] = lifecycle
+		}
+	}
+	for _, lifecycle := range terminalLifecycles {
+		if statusIDs[lifecycle] == "" {
+			return newFailure(KindInvalidPayload, operation, "status mapping must contain all terminal lifecycles", false, "map cancelled, completed, and superseded")
+		}
+	}
+	return nil
+}
+
 // EnqueueLinearOperation queues one intended outbound operation. Phase 0 owns
 // the typed refusal surface; the drain arrives with Phase 1.
 func (s *Store) EnqueueLinearOperation(ctx context.Context, entry LinearOutboxEntry) error {
@@ -271,6 +435,23 @@ func (s *Store) EnqueueLinearOperation(ctx context.Context, entry LinearOutboxEn
 	}
 	if len(entry.Payload) == 0 || json.Unmarshal(entry.Payload, &map[string]any{}) != nil {
 		return newFailure(KindInvalidPayload, "linear_outbox_enqueue", "payload must be a JSON object", false, "supply a JSON object payload")
+	}
+	var payloadFields map[string]json.RawMessage
+	if err := json.Unmarshal(entry.Payload, &payloadFields); err != nil {
+		return newFailure(KindInvalidPayload, "linear_outbox_enqueue", "payload must be a JSON object", false, "supply a JSON object payload")
+	}
+	if encoded, exists := payloadFields["product_id"]; exists {
+		var productID string
+		if json.Unmarshal(encoded, &productID) != nil || productID == "" {
+			return newFailure(KindInvalidPayload, "linear_outbox_enqueue", "payload product_id must be a non-empty string", false, "supply the immutable owning Product")
+		}
+		owner, err := s.resolveLinearProduct(ctx, entry.WorkID)
+		if err != nil {
+			return err
+		}
+		if owner != productID {
+			return newFailure(KindInvalidRelation, "linear_outbox_enqueue", "payload Product does not own the work item", false, "supply the work item's owning Product")
+		}
 	}
 	var exists int
 	if err := s.db.QueryRowContext(ctx, `SELECT 1 FROM work_items WHERE id=?`, entry.WorkID).Scan(&exists); err == sql.ErrNoRows {
@@ -440,7 +621,7 @@ func (s *Store) ReadLinearIntegrationHealth(ctx context.Context, productID strin
 		health.Connection = &connection
 	}
 	var oldestPending string
-	if err := s.db.QueryRowContext(ctx, `SELECT count(*), coalesce(min(CASE WHEN state IN ('queued','in_flight') THEN created_at END), '') FROM linear_outbox`).Scan(&health.OutboxDepth, &oldestPending); err != nil {
+	if err := s.db.QueryRowContext(ctx, `SELECT count(*), coalesce(min(CASE WHEN state IN ('queued','in_flight') THEN created_at END), '') FROM linear_outbox o WHERE EXISTS (SELECT 1 FROM work_projects wp JOIN product_projects pp ON pp.project_id=wp.project_id WHERE wp.work_id=o.work_id AND pp.product_id=?)`, productID).Scan(&health.OutboxDepth, &oldestPending); err != nil {
 		return LinearIntegrationHealth{}, wrapFailure(KindUnavailable, "linear_health_read", "cannot read outbox depth", true, "retry once the database is readable", err)
 	}
 	if oldestPending != "" {
@@ -451,7 +632,7 @@ func (s *Store) ReadLinearIntegrationHealth(ctx context.Context, productID strin
 			}
 		}
 	}
-	rows, err := s.db.QueryContext(ctx, `SELECT link_state, count(*) FROM linear_issue_links GROUP BY link_state`)
+	rows, err := s.db.QueryContext(ctx, `SELECT l.link_state, count(*) FROM linear_issue_links l WHERE EXISTS (SELECT 1 FROM work_projects wp JOIN product_projects pp ON pp.project_id=wp.project_id WHERE wp.work_id=l.work_id AND pp.product_id=?) GROUP BY l.link_state`, productID)
 	if err != nil {
 		return LinearIntegrationHealth{}, wrapFailure(KindUnavailable, "linear_health_read", "cannot read link counts", true, "retry once the database is readable", err)
 	}
@@ -523,12 +704,15 @@ type ClaimedLinearOperation struct {
 // client UUID is the idempotency identity: Linear's IssueCreateInput.id, so a
 // re-drain after an ambiguous outcome converges on the same remote issue.
 type linearPayload struct {
-	ClientUUID  string `json:"client_uuid"`
-	Title       string `json:"title"`
-	Description string `json:"description"`
-	TeamID      string `json:"team_id"`
-	Lifecycle   string `json:"lifecycle,omitempty"`
-	StatusID    string `json:"status_id,omitempty"`
+	ClientUUID        string `json:"client_uuid"`
+	ProductID         string `json:"product_id"`
+	Title             string `json:"title"`
+	Description       string `json:"description"`
+	TeamID            string `json:"team_id"`
+	ProjectID         string `json:"project_id,omitempty"`
+	ConnectionVersion int64  `json:"connection_version"`
+	Lifecycle         string `json:"lifecycle,omitempty"`
+	StatusID          string `json:"status_id,omitempty"`
 }
 
 // linearTerminalStatusID resolves only the terminal lifecycle mapping declared
@@ -595,6 +779,17 @@ WHERE w.id = ?`, workID)
 // boundaries: local_only refuses, linear_enabled without a declared
 // connection refuses as missing setup, and neither is inferred.
 func (s *Store) EnqueueLinearIssueForWork(ctx context.Context, workID, opKind string) (ClaimedLinearOperation, error) {
+	return s.enqueueLinearIssueForWork(ctx, "", workID, opKind)
+}
+
+// EnqueueLinearIssueForProduct applies the caller's Product scope before it
+// persists an operation. This prevents a Product argument from routing work
+// that belongs to another Product.
+func (s *Store) EnqueueLinearIssueForProduct(ctx context.Context, productID, workID, opKind string) (ClaimedLinearOperation, error) {
+	return s.enqueueLinearIssueForWork(ctx, productID, workID, opKind)
+}
+
+func (s *Store) enqueueLinearIssueForWork(ctx context.Context, expectedProductID, workID, opKind string) (ClaimedLinearOperation, error) {
 	if opKind != LinearOpIssueCreate && opKind != LinearOpIssueUpdate {
 		return ClaimedLinearOperation{}, newFailure(KindInvalidPayload, "linear_issue_enqueue", "operation kind is not recognized", false, "use issue_create or issue_update")
 	}
@@ -611,6 +806,9 @@ func (s *Store) EnqueueLinearIssueForWork(ctx context.Context, workID, opKind st
 	productID, err := s.resolveLinearProduct(ctx, workID)
 	if err != nil {
 		return ClaimedLinearOperation{}, err
+	}
+	if expectedProductID != "" && expectedProductID != productID {
+		return ClaimedLinearOperation{}, newFailure(KindInvalidRelation, "linear_issue_enqueue", "work item belongs to a different Product", false, "supply a work item in the requested Product")
 	}
 	mode, err := s.ResolveLinearPlanningTarget(ctx, productID)
 	if err != nil {
@@ -643,7 +841,7 @@ func (s *Store) EnqueueLinearIssueForWork(ctx context.Context, workID, opKind st
 			return ClaimedLinearOperation{}, err
 		}
 	}
-	payload, err := json.Marshal(linearPayload{ClientUUID: clientUUID, Title: title, Description: valueStatement, TeamID: connection.TeamID, Lifecycle: lifecycle, StatusID: statusID})
+	payload, err := json.Marshal(linearPayload{ClientUUID: clientUUID, ProductID: productID, Title: title, Description: valueStatement, TeamID: connection.TeamID, ProjectID: connection.ProjectID, ConnectionVersion: connection.Version, Lifecycle: lifecycle, StatusID: statusID})
 	if err != nil {
 		return ClaimedLinearOperation{}, wrapFailure(KindUnavailable, "linear_issue_enqueue", "cannot encode payload", true, "retry the enqueue", err)
 	}
@@ -671,6 +869,20 @@ func (s *Store) EnqueueLinearIssueForWork(ctx context.Context, workID, opKind st
 // UPDATE makes the claim exclusive: an operation another caller already
 // claimed stays out of this result.
 func (s *Store) ClaimLinearOperations(ctx context.Context, limit int64) ([]ClaimedLinearOperation, error) {
+	return s.claimLinearOperations(ctx, "", limit)
+}
+
+// ClaimLinearOperationsForProduct claims only operations whose work item is
+// a member of the requested Product. The Product filter is inside the claim
+// transaction so one drain cannot send another Product's operation.
+func (s *Store) ClaimLinearOperationsForProduct(ctx context.Context, productID string, limit int64) ([]ClaimedLinearOperation, error) {
+	if productID == "" {
+		return nil, newFailure(KindInvalidPayload, "linear_outbox_claim", "Product id is required", false, "supply the Product being drained")
+	}
+	return s.claimLinearOperations(ctx, productID, limit)
+}
+
+func (s *Store) claimLinearOperations(ctx context.Context, productID string, limit int64) ([]ClaimedLinearOperation, error) {
 	if limit < 1 || limit > 25 {
 		return nil, newFailure(KindInvalidPayload, "linear_outbox_claim", "limit must be 1 to 25", false, "bound each drain pass to 25 operations")
 	}
@@ -682,7 +894,7 @@ func (s *Store) ClaimLinearOperations(ctx context.Context, limit int64) ([]Claim
 	if err := enterFold(ctx, tx); err != nil {
 		return nil, err
 	}
-	rows, err := tx.QueryContext(ctx, `SELECT operation_id FROM linear_outbox WHERE state=? ORDER BY created_at LIMIT ?`, LinearOutboxQueued, limit)
+	rows, err := tx.QueryContext(ctx, `SELECT operation_id FROM linear_outbox WHERE state=? AND (?='' OR json_extract(payload, '$.product_id')=? OR json_type(payload, '$.product_id') IS NULL) ORDER BY created_at LIMIT ?`, LinearOutboxQueued, productID, productID, limit)
 	if err != nil {
 		return nil, wrapFailure(KindUnavailable, "linear_outbox_claim", "cannot read the queue", true, "retry once the database is readable", err)
 	}

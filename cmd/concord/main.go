@@ -152,6 +152,7 @@ var commandSpecs = []commandSpec{
 	{Canonical: "linear-health", TwoWord: "linear health", RequiredFields: requiredFields(field("product_id")), Optional: "none", Enums: "none"},
 	{Canonical: "linear-issue-enqueue", TwoWord: "linear issue-enqueue", RequiredFields: requiredFields(field("product_id"), field("work_id"), field("op_kind")), Optional: "none", Enums: "op_kind: issue_create | issue_update"},
 	{Canonical: "linear-outbox-drain", TwoWord: "linear outbox-drain", RequiredFields: requiredFields(field("product_id")), Optional: "max_operations", Enums: "none"},
+	{Canonical: "linear-connection-update", TwoWord: "linear connection-update", RequiredFields: requiredFields(field("event_id"), field("resource_id"), field("product_id"), field("expected_resource_version")), Optional: "team_id, project_id, status_ids", Enums: "status_ids keys: cancelled | completed | superseded"},
 	{Canonical: "linear-initiative-import", TwoWord: "linear initiative-import", RequiredFields: requiredFields(field("product_id"), field("initiative_id")), Optional: "none", Enums: "none"},
 	{Canonical: "resource-create", TwoWord: "resource create", RequiredFields: requiredFields(field("event_id"), field("resource_id"), field("product_id"), field("display_name"), field("class"), field("kind"), field("purpose"), field("stage_maturity"), field("stage_audience_commitment"), field("environments"), field("expected_product_version")), Optional: "locator_absence_reason, metadata_schema_version, metadata, owner_purpose, owner_environments", Enums: "stage_maturity: prototype | alpha | beta | production | deprecated; stage_audience_commitment: operator_only | limited | public"},
 	{Canonical: "resource-share", TwoWord: "resource share", RequiredFields: requiredFields(field("event_id"), field("resource_id"), field("product_id"), field("expected_resource_version")), Optional: "purpose, environments", Enums: "none"},
@@ -851,6 +852,31 @@ func runProductModeSet(ctx context.Context, s *store.Store, raw []byte, command 
 	return writeOperatorResult(command, s, result.EventIDs, []operatorRef{{EntityKind: store.SubjectProduct, ID: request.ProductID}}, out, errOut)
 }
 
+func runLinearConnectionUpdate(ctx context.Context, s *store.Store, raw []byte, command string, clock func() time.Time, out, errOut io.Writer) int {
+	var request struct {
+		EventID                 string            `json:"event_id"`
+		ResourceID              string            `json:"resource_id"`
+		ProductID               string            `json:"product_id"`
+		TeamID                  string            `json:"team_id"`
+		ProjectID               string            `json:"project_id"`
+		StatusIDs               map[string]string `json:"status_ids"`
+		ExpectedResourceVersion int64             `json:"expected_resource_version"`
+	}
+	if err := decodeObject(raw, &request); err != nil {
+		writeOperatorDiagnostic(errOut, command, err.Error())
+		return 1
+	}
+	if err := s.UpdateLinearConnection(ctx, store.LinearConnectionUpdateRequest{
+		EventID: request.EventID, ResourceID: request.ResourceID, ProductID: request.ProductID,
+		TeamID: request.TeamID, ProjectID: request.ProjectID, StatusIDs: request.StatusIDs,
+		ExpectedResourceVersion: request.ExpectedResourceVersion, Actor: "operator", OccurredAt: clock().UTC(),
+	}); err != nil {
+		writeOperatorDiagnostic(errOut, command, err.Error())
+		return 1
+	}
+	return writeOperatorResult(command, s, []string{request.EventID}, []operatorRef{{EntityKind: store.SubjectProduct, ID: request.ProductID}}, out, errOut)
+}
+
 // runLinearHealth handles the Linear Phase 0 operator verb that reads one
 // Product's bounded integration health.
 func runLinearHealth(ctx context.Context, s *store.Store, raw []byte, command string, out, errOut io.Writer) int {
@@ -889,7 +915,7 @@ func runLinearIssueEnqueue(ctx context.Context, s *store.Store, raw []byte, comm
 		writeOperatorDiagnostic(errOut, command, err.Error())
 		return 1
 	}
-	entry, err := s.EnqueueLinearIssueForWork(ctx, request.WorkID, request.OpKind)
+	entry, err := s.EnqueueLinearIssueForProduct(ctx, request.ProductID, request.WorkID, request.OpKind)
 	if err != nil {
 		writeOperatorDiagnostic(errOut, command, err.Error())
 		return 1
@@ -932,12 +958,7 @@ func runLinearOutboxDrain(ctx context.Context, s *store.Store, raw []byte, comma
 		writeOperatorDiagnostic(errOut, command, err.Error()+"; set CONCORD_LINEAR_API_KEY in the process environment")
 		return 1
 	}
-	connection, err := s.ReadLinearConnection(ctx, request.ProductID)
-	if err != nil {
-		writeOperatorDiagnostic(errOut, command, err.Error())
-		return 1
-	}
-	claimed, err := s.ClaimLinearOperations(ctx, request.MaxOperations)
+	claimed, err := s.ClaimLinearOperationsForProduct(ctx, request.ProductID, request.MaxOperations)
 	if err != nil {
 		writeOperatorDiagnostic(errOut, command, err.Error())
 		return 1
@@ -956,6 +977,25 @@ func runLinearOutboxDrain(ctx context.Context, s *store.Store, raw []byte, comma
 			results = append(results, drained{OperationID: op.OperationID, Outcome: "failed", Detail: "payload does not decode"})
 			continue
 		}
+		connection, connectionErr := s.ReadLinearConnection(ctx, request.ProductID)
+		if connectionErr != nil {
+			const detail = "cannot read the current Linear connection before sending the operation"
+			_ = s.FailLinearOperation(ctx, op.OperationID, "retryable", detail)
+			results = append(results, drained{OperationID: op.OperationID, Outcome: "retryable", Detail: detail})
+			continue
+		}
+		if payload.ConnectionVersion < 1 || payload.ConnectionVersion != connection.Version {
+			const detail = "Linear connection changed after this operation was queued; re-enqueue it for the current destination"
+			_ = s.FailLinearOperation(ctx, op.OperationID, "permanent", detail)
+			results = append(results, drained{OperationID: op.OperationID, Outcome: "failed", Detail: detail})
+			continue
+		}
+		if payload.ProductID == "" || payload.ProductID != request.ProductID {
+			const detail = "operation has no immutable Product owner; re-enqueue it for the requested Product"
+			_ = s.FailLinearOperation(ctx, op.OperationID, "permanent", detail)
+			results = append(results, drained{OperationID: op.OperationID, Outcome: "failed", Detail: detail})
+			continue
+		}
 		teamID := payload.TeamID
 		if teamID == "" {
 			teamID = connection.TeamID
@@ -968,7 +1008,7 @@ func runLinearOutboxDrain(ctx context.Context, s *store.Store, raw []byte, comma
 			issue, derr = drainUpdate(ctx, s, client, op, payload)
 		} else {
 			issue, derr = client.CreateIssue(ctx, linearclient.CreateIssueInput{
-				ID: payload.ClientUUID, TeamID: teamID, Title: payload.Title, Description: payload.Description,
+				ID: payload.ClientUUID, TeamID: teamID, ProjectID: payload.ProjectID, Title: payload.Title, Description: payload.Description,
 			})
 		}
 		if derr != nil {
@@ -999,12 +1039,15 @@ func runLinearOutboxDrain(ctx context.Context, s *store.Store, raw []byte, comma
 
 // linearDrainPayload is the JSON convention every outbox payload carries.
 type linearDrainPayload struct {
-	ClientUUID  string `json:"client_uuid"`
-	Title       string `json:"title"`
-	Description string `json:"description"`
-	TeamID      string `json:"team_id"`
-	Lifecycle   string `json:"lifecycle,omitempty"`
-	StatusID    string `json:"status_id,omitempty"`
+	ClientUUID        string `json:"client_uuid"`
+	ProductID         string `json:"product_id"`
+	Title             string `json:"title"`
+	Description       string `json:"description"`
+	TeamID            string `json:"team_id"`
+	ProjectID         string `json:"project_id,omitempty"`
+	ConnectionVersion int64  `json:"connection_version"`
+	Lifecycle         string `json:"lifecycle,omitempty"`
+	StatusID          string `json:"status_id,omitempty"`
 }
 
 // drainUpdate resolves the linked remote identity and executes issueUpdate.
@@ -1016,7 +1059,7 @@ func drainUpdate(ctx context.Context, s *store.Store, client *linearclient.Clien
 	if link.RemoteIssueUUID == "" || link.RemoteIssueUUID == payload.ClientUUID {
 		return linearclient.Issue{}, fmt.Errorf("link has no confirmed remote issue to update")
 	}
-	return client.UpdateIssue(ctx, link.RemoteIssueUUID, linearclient.UpdateIssueInput{Title: payload.Title, Description: payload.Description, StatusID: payload.StatusID})
+	return client.UpdateIssue(ctx, link.RemoteIssueUUID, linearclient.UpdateIssueInput{Title: payload.Title, Description: payload.Description, ProjectID: payload.ProjectID, StatusID: payload.StatusID})
 }
 
 // linearContentHash digests the synchronized content so a later reconciliation
@@ -1236,6 +1279,8 @@ func runInternal(command string, raw []byte, service *agent.Service, s *store.St
 		return writeOperatorResult(command, s, result.EventIDs, []operatorRef{{EntityKind: store.SubjectProduct, ID: request.ProductID}, {EntityKind: store.SubjectProject, ID: request.ProjectID}}, out, errOut)
 	case "product-mode-set":
 		return runProductModeSet(ctx, s, raw, command, out, errOut)
+	case "linear-connection-update":
+		return runLinearConnectionUpdate(ctx, s, raw, command, clock, out, errOut)
 	case "linear-health":
 		return runLinearHealth(ctx, s, raw, command, out, errOut)
 	case "linear-issue-enqueue":

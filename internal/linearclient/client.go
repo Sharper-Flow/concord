@@ -73,6 +73,7 @@ func (f *Failure) Error() string {
 type CreateIssueInput struct {
 	ID          string `json:"id"`
 	TeamID      string `json:"teamId"`
+	ProjectID   string `json:"projectId,omitempty"`
 	Title       string `json:"title"`
 	Description string `json:"description"`
 }
@@ -81,6 +82,7 @@ type CreateIssueInput struct {
 type UpdateIssueInput struct {
 	Title       string `json:"title"`
 	Description string `json:"description"`
+	ProjectID   string `json:"projectId,omitempty"`
 	StatusID    string `json:"stateId,omitempty"`
 }
 

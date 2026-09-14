@@ -65,13 +65,7 @@ func testSupersedeContractDispatch(t *testing.T, stage string) {
 		seedContractCorrectionPeer(t, s)
 	}
 	if strings.HasPrefix(stage, "pending-dispatch") {
-		env.Worktree = t.TempDir()
-		if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1);
-			INSERT INTO worktree_entries(set_id,project_id,claim_op_id,branch,base_sha,path,repository_id,state,verified_at,git_facts)
-			VALUES(?,'project-1','correction-claim','work/correction',?,?,'repo-1','active','2026-09-05T00:00:00Z','{}');
-			DELETE FROM fold_guard`, store.WorktreeSetID("work-1"), strings.Repeat("a", 40), env.Worktree); err != nil {
-			t.Fatal(err)
-		}
+		env = workflowDispatchWorktreeFixture(t, s, env)
 		var lane store.LaneDefinition
 		for _, candidate := range store.BuiltinLaneDefinitions() {
 			if candidate.ID == "verify" {
@@ -127,6 +121,11 @@ func testSupersedeContractDispatch(t *testing.T, stage string) {
 		"rigor_class":       "prototype_internal",
 		"supersede_reason":  "correct the accepted premise",
 		"audit_evidence":    []string{"evidence:supersede-dispatch"},
+		"design_record": map[string]any{
+			"approach":     "corrected design",
+			"decisions":    []map[string]any{{"id": "decision:corrected", "question": "Which approach?", "choice": "corrected", "rationale": "Matches the approved objective", "rejected": []string{"original"}}},
+			"touched_refs": []string{"src/work.go"},
+		},
 	}
 	input := map[string]any{"work_id": "work-1", "expected_version": version, "action_id": "supersede_contract", "fields": fields, "idempotency_key": "supersede-contract-dispatch"}
 	raw, err := json.Marshal(input)
@@ -163,6 +162,11 @@ func testSupersedeContractDispatch(t *testing.T, stage string) {
 	if refused.Outcome != OutcomeError || refused.Error == nil || refused.Error.Kind != "approval_invalid" || workflowIssue31Version(t, s) != version {
 		t.Fatalf("changed contract reused approval: outcome=%s error=%+v", refused.Outcome, refused.Error)
 	}
+	tamperedDesign := bytes.Replace(approvedRaw, []byte("corrected design"), []byte("unapproved design"), 1)
+	refused = dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: tamperedDesign}, env)
+	if refused.Outcome != OutcomeError || refused.Error == nil || refused.Error.Kind != "approval_invalid" || workflowIssue31Version(t, s) != version {
+		t.Fatalf("changed design reused approval: outcome=%s error=%+v", refused.Outcome, refused.Error)
+	}
 	var stale map[string]any
 	if err := json.Unmarshal(approvedRaw, &stale); err != nil {
 		t.Fatal(err)
@@ -186,6 +190,10 @@ func testSupersedeContractDispatch(t *testing.T, stage string) {
 	}
 	if activeVersion != 2 {
 		t.Fatalf("active contract version=%d, want 2", activeVersion)
+	}
+	continuity, err := store.ReadWorkflowContinuity(context.Background(), s, store.ContinuityRequest{Work: "work-1"})
+	if err != nil || continuity.DesignRecord == nil || continuity.DesignRecord.Approach != "corrected design" {
+		t.Fatalf("approved correction did not replace the design: %+v err=%v", continuity.DesignRecord, err)
 	}
 	var actorClass string
 	if err := s.DatabaseForTesting().QueryRow(`SELECT a.actor_class FROM workflow_contracts c JOIN workflow_actors a ON a.actor_ref=c.approved_by WHERE c.work_id='work-1' AND c.contract_version=2`).Scan(&actorClass); err != nil {
@@ -231,6 +239,21 @@ func testSupersedeContractDispatch(t *testing.T, stage string) {
 	if replayed.Outcome != OutcomeOK || !replayed.Replayed || workflowIssue31Version(t, s) != committedVersion {
 		t.Fatalf("correction replay mutated work or failed: outcome=%s replayed=%v error=%+v", replayed.Outcome, replayed.Replayed, replayed.Error)
 	}
+	if designs := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM workflow_design_records WHERE work_id='work-1'`); designs != 2 {
+		t.Fatalf("replayed correction changed design history: rows=%d", designs)
+	}
+}
+
+func workflowDispatchWorktreeFixture(t *testing.T, s *store.Store, env CallEnvelope) CallEnvelope {
+	t.Helper()
+	env.Worktree = t.TempDir()
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1);
+		INSERT INTO worktree_entries(set_id,project_id,claim_op_id,branch,base_sha,path,repository_id,state,verified_at,git_facts)
+		VALUES(?,'project-1','correction-claim','work/correction',?,?,'repo-1','active','2026-09-05T00:00:00Z','{}');
+		DELETE FROM fold_guard`, store.WorktreeSetID("work-1"), strings.Repeat("a", 40), env.Worktree); err != nil {
+		t.Fatal(err)
+	}
+	return env
 }
 
 func seedContractCorrectionPeer(t *testing.T, s *store.Store) {

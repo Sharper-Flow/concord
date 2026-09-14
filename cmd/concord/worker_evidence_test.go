@@ -357,6 +357,71 @@ func TestWorkerFailRefusesAnAssertionWithoutLaneIdentity(t *testing.T) {
 	}
 }
 
+// TestWorkerAbandonDerivesReadbackAndRequiresAnEmptyObservation proves that
+// the host-only close route carries no caller-supplied model. The core derives
+// the dispatched model from its attempt row and accepts only an observation
+// that shows no live session occupies the attempt's worktree.
+func TestWorkerAbandonDerivesReadbackAndRequiresAnEmptyObservation(t *testing.T) {
+	dbPath := freshMigratedCLIDatabase(t)
+	key := seedWorkerEvidenceClient(t)
+	lane := store.BuiltinLaneDefinitions()[0]
+	readback := preferredLaneModel(lane)
+	seedWorkerEvidenceAttempt(t, key, lane, dbPath, "work-1", "attempt-1", readback)
+
+	request, assertion := workerEvidenceRequest(t, agent.WorkerEvidenceVerbFail, lane, "work-1", "attempt-1", "", "nonce-abandon-emptyobs01")
+	request["event_id"] = "abandon-empty-observation"
+	request["detail"] = "the host observed that the lane never reported"
+	request["observed_session_directories"] = []store.SessionDirectory{}
+	delete(request, "readback_model")
+	delete(request, "failure_kind")
+	assertion.ReadbackModel = ""
+	assertion.FailureKind = string(store.WorkerFailureAbandoned)
+	request["assertion"] = signWorkerEvidence(t, key, assertion)
+
+	var out, errOut bytes.Buffer
+	if code := runWithInput([]string{"worker-abandon"}, strings.NewReader(mustJSON(t, request)), &out, &errOut); code != 0 {
+		t.Fatalf("worker-abandon exit=%d stderr=%q", code, errOut.String())
+	}
+	s, err := store.Open(context.Background(), dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	var state, storedReadback string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT lifecycle_state, readback_model FROM worker_attempts WHERE attempt_id=?`, "attempt-1").Scan(&state, &storedReadback); err != nil {
+		t.Fatal(err)
+	}
+	if state != "failed" {
+		t.Fatalf("lifecycle_state = %q, want failed", state)
+	}
+	if storedReadback != readback {
+		t.Fatalf("readback_model = %q, want dispatched model %q", storedReadback, readback)
+	}
+}
+
+func TestWorkerAbandonRefusesAnObservedLiveSession(t *testing.T) {
+	dbPath := freshMigratedCLIDatabase(t)
+	key := seedWorkerEvidenceClient(t)
+	lane := store.BuiltinLaneDefinitions()[0]
+	seedWorkerEvidenceAttempt(t, key, lane, dbPath, "work-1", "attempt-1", preferredLaneModel(lane))
+
+	request, assertion := workerEvidenceRequest(t, agent.WorkerEvidenceVerbFail, lane, "work-1", "attempt-1", "", "nonce-abandon-livesess01")
+	request["event_id"] = "abandon-live-session"
+	request["detail"] = "the host observed that the lane never reported"
+	request["observed_session_directories"] = []store.SessionDirectory{{SessionRef: "ses_live", Directory: filepath.Join(filepath.Dir(dbPath), "worktree-work-1")}}
+	delete(request, "readback_model")
+	delete(request, "failure_kind")
+	assertion.ReadbackModel = ""
+	assertion.FailureKind = string(store.WorkerFailureAbandoned)
+	request["assertion"] = signWorkerEvidence(t, key, assertion)
+
+	var out, errOut bytes.Buffer
+	if code := runWithInput([]string{"worker-abandon"}, strings.NewReader(mustJSON(t, request)), &out, &errOut); code == 0 || !strings.Contains(errOut.String(), "still holds the worker attempt worktree") {
+		t.Fatalf("worker-abandon exit=%d stderr=%q, want live-session refusal", code, errOut.String())
+	}
+	assertNoTerminalWorkerEvent(t, dbPath, errOut.String())
+}
+
 // assertNoTerminalWorkerEvent proves a refusal happened before mutation: the
 // seeded dispatch may exist, but no completion or failure was appended.
 func assertNoTerminalWorkerEvent(t *testing.T, dbPath, stderr string) {

@@ -7,6 +7,7 @@ import { maxEnvelopeBytes } from "./generated-contracts"
 import { coreBinary } from "./generated-release"
 import { SecretToolCredentialStore, b64, clientRef, privateKeyObject, randomNonce, type CredentialStore } from "./credentials"
 import { dispatchWindows, DispatchWindowError, type DispatchWindows } from "./dispatch-window"
+import { hostControlPlane } from "./move-session"
 import { readTaskResult } from "./task-result"
 
 export const MAX_OUTPUT_BYTES = 65_536
@@ -470,18 +471,6 @@ export function readExportSessionMetadata(stdout: string, expectedSessionID: str
 // index instead, which holds the real path and no transcript content. A value
 // that is not an absolute path is reported as absent rather than sent, so a
 // redacted or relative value cannot reach the boundary again.
-export function readSessionDirectory(stdout: string, sessionID: string): string | null {
-  let value: unknown
-  try { value = JSON.parse(stdout) } catch { return null }
-  const rows = Array.isArray(value) ? value : isRecord(value) && Array.isArray(value.sessions) ? value.sessions : null
-  if (!rows) return null
-  for (const row of rows) {
-    if (!isRecord(row) || row.id !== sessionID) continue
-    return typeof row.directory === "string" && row.directory.startsWith("/") ? row.directory : null
-  }
-  return null
-}
-
 // A worker runs as a subagent session, and the session index lists no subagent.
 // Resolving a worker identifier against the index therefore always yields
 // nothing, which the core reads as an unresolvable directory and refuses. The
@@ -490,6 +479,11 @@ export function readSessionDirectory(stdout: string, sessionID: string): string 
 // the worker's real directory. The value still comes from the host's own
 // session record rather than from the claim the core is checking, so a worker
 // whose parent sits outside the claimed worktree is still refused.
+export function readSessionDirectory(stdout: string, sessionID: string): string | null {
+  const observed = readLiveSessionDirectories(stdout)
+  return observed?.find((session) => session.session_ref === sessionID)?.directory ?? null
+}
+
 export function readSessionParent(stdout: string, sessionID: string): string | null {
   let value: unknown
   try { value = JSON.parse(stdout) } catch { return null }
@@ -499,13 +493,41 @@ export function readSessionParent(stdout: string, sessionID: string): string | n
   return typeof info.parentID === "string" && info.parentID !== "" ? info.parentID : null
 }
 
-async function readWorkerSessionDirectory(runner: DispatchRunner, binary: string, sessionID: string, signal: AbortSignal, parentID: string | null): Promise<string | null> {
+// readLiveSessionDirectories returns the same host-owned session observation
+// used to protect worktree removal. A malformed or unreadable list is absent,
+// never an empty observation that could authorize an abandoned close.
+export function readLiveSessionDirectories(stdout: string): { session_ref: string; directory: string }[] | null {
+  let value: unknown
+  try { value = JSON.parse(stdout) } catch { return null }
+  const rows = Array.isArray(value) ? value : isRecord(value) && Array.isArray(value.sessions) ? value.sessions : null
+  if (!rows) return null
+  const observed: { session_ref: string; directory: string }[] = []
+  for (const row of rows) {
+    if (!isRecord(row) || typeof row.id !== "string" || row.id.length === 0 || typeof row.directory !== "string" || !row.directory.startsWith("/")) return null
+    observed.push({ session_ref: row.id, directory: row.directory })
+  }
+  return observed
+}
+
+async function readWorkerSessionObservation(runner: DispatchRunner, binary: string, sessionID: string, signal: AbortSignal, parentID: string | null): Promise<{ directory: string | null; observed: { session_ref: string; directory: string }[] | null }> {
   let listed: { exitCode: number; stdout: string; stderr: string }
-  try { listed = await runner.run([binary, "session", "list", "--format", "json"], "", signal) } catch { return null }
-  if (listed.exitCode !== 0) return null
-  const direct = readSessionDirectory(listed.stdout, sessionID)
-  if (direct !== null) return direct
-  return parentID === null ? null : readSessionDirectory(listed.stdout, parentID)
+  try { listed = await runner.run([binary, "session", "list", "--format", "json"], "", signal) } catch { return { directory: null, observed: null } }
+  if (listed.exitCode !== 0) return { directory: null, observed: null }
+  const observed = readLiveSessionDirectories(listed.stdout)
+  if (observed === null) return { directory: null, observed: null }
+  const direct = observed.find((session) => session.session_ref === sessionID)?.directory ?? null
+  const directory = direct ?? (parentID === null ? null : observed.find((session) => session.session_ref === parentID)?.directory ?? null)
+  // Production uses the host control-plane route that owns the liveness
+  // observation. The CLI list remains the test and compatibility seam for
+  // callers that do not run inside a bound plugin host.
+  if (hostControlPlane().available()) {
+    try {
+      return { directory, observed: await hostControlPlane().liveSessionDirectories(signal) }
+    } catch {
+      return { directory, observed: null }
+    }
+  }
+  return { directory, observed }
 }
 
 // readRunTextParts returns the model's message text in emission order. The host
@@ -729,7 +751,7 @@ async function signWorkerEvidence(credentials: CredentialStore, fields: Record<s
 // JSON CLI, the same transport concord.ts uses for every tool invocation. The
 // adapter stays envelope-thin per CD-0017 D2 and never writes the event log
 // directly. Returns a bounded diagnostic on failure, or null on success.
-async function recordWorkerEvent(childRunner: DispatchRunner, binary: string, command: "worker-dispatch" | "worker-complete" | "worker-fail", request: Record<string, unknown>, signal: AbortSignal): Promise<string | null> {
+async function recordWorkerEvent(childRunner: DispatchRunner, binary: string, command: "worker-dispatch" | "worker-complete" | "worker-fail" | "worker-abandon", request: Record<string, unknown>, signal: AbortSignal): Promise<string | null> {
   const input = JSON.stringify(request)
   if (Buffer.byteLength(input) > MAX_CLI_INPUT_BYTES) return `${command} request exceeded the bounded CLI input limit`
   let result: { exitCode: number; stdout: string; stderr: string }
@@ -1100,6 +1122,62 @@ export async function failWorkerAttempt(
   return completeWorkerSession(lane, packet, workerSessionID, "", options, signal, detail, onRecorded)
 }
 
+// abandonWorkerAttempt closes a dispatched attempt when no worker report exists.
+// The host observes every live session and signs the existing worker-fail
+// assertion, while the core derives the attempt's readback model from its
+// dispatch record and owns the worktree occupancy check.
+export async function abandonWorkerAttempt(
+  lane: AgentLane,
+  packet: AgentLanePacket,
+  detail: string,
+  options: WorkerCompletionOptions,
+  signal: AbortSignal,
+  onRecorded?: () => void,
+): Promise<AgentResultEnvelope> {
+  let observed: Awaited<ReturnType<typeof hostControlPlane>["liveSessionDirectories"]>
+  try {
+    observed = await hostControlPlane().liveSessionDirectories(signal)
+  } catch (error) {
+    return errorEnvelope(lane, packet, "error", "error", `worker attempt remains open because live host sessions could not be observed: ${String(error)}`.slice(0, MAX_ERROR_BYTES), "reconcile_operation")
+  }
+  const cliRunner = options.evidenceRunner ?? options.runner ?? defaultRunner
+  let binary: string
+  try {
+    binary = concordBinaryPath(options.concordBinary)
+  } catch (error) {
+    return errorEnvelope(lane, packet, "error", "error", `worker attempt remains open because the Concord core binary is unavailable: ${String(error)}`.slice(0, MAX_ERROR_BYTES), "contact_operator")
+  }
+  const credentials = options.credentials ?? defaultCredentials
+  let assertion: Record<string, unknown>
+  try {
+    assertion = await signWorkerEvidence(credentials, {
+      verb: "worker-fail",
+      work_id: packet.work_id,
+      attempt_id: packet.attempt_id,
+      lane_id: lane.id,
+      lane_version: lane.version,
+      lane_digest: lane.digest,
+      readback_model: "",
+      failure_kind: "abandoned",
+    })
+  } catch (error) {
+    return errorEnvelope(lane, packet, "error", "error", `worker attempt remains open because its abandonment assertion could not be signed: ${String(error)}`.slice(0, MAX_ERROR_BYTES), "contact_operator")
+  }
+  const failure = await recordWorkerEvent(cliRunner, binary, "worker-abandon", {
+    event_id: crypto.randomUUID(),
+    work_id: packet.work_id,
+    attempt_id: packet.attempt_id,
+    detail: detail.slice(0, MAX_FAILURE_DETAIL_BYTES),
+    observed_session_directories: observed,
+    assertion,
+  }, signal)
+  if (failure) return errorEnvelope(lane, packet, "error", "error", `worker attempt remains open because abandonment could not be recorded: ${failure}`.slice(0, MAX_ERROR_BYTES), "reconcile_operation")
+  onRecorded?.()
+  const envelope = errorEnvelope(lane, packet, "error", "error", detail.slice(0, MAX_ERROR_BYTES), "reconcile_operation")
+  envelope.error!.retry_safe = false
+  return envelope
+}
+
 async function completeWorkerSession(
   lane: AgentLane,
   packet: AgentLanePacket,
@@ -1169,7 +1247,8 @@ async function completeWorkerSession(
   const cli = concordBinaryPath(options.concordBinary)
   const credentials = options.credentials ?? defaultCredentials
   const provenance = await computeHostPromptProvenance(lane.id)
-  const workerDirectory = await readWorkerSessionDirectory(readbackRunner, binary, workerSessionID, signal, readSessionParent(exported.stdout, workerSessionID))
+  const workerObservation = await readWorkerSessionObservation(readbackRunner, binary, workerSessionID, signal, readSessionParent(exported.stdout, workerSessionID))
+  const workerDirectory = workerObservation.directory
 
   // CD-0056 D7: the adapter is the only component that sees worker output, so
   // the report is admitted here. A report that is absent, unparseable, invalid,
@@ -1293,9 +1372,13 @@ async function completeWorkerSession(
   if (completionFailure) {
     // A refused completion leaves the attempt dispatched. An open attempt
     // blocks every later dispatch on the work item and pins the host session
-    // to that worktree, and no coordinator route closes it, so the refusal is
-    // carried into a terminal failure here.
+    // to that worktree. The host session observation is part of the typed
+    // worker-fail request, and the core refuses the close while any observed
+    // session still occupies an active worktree.
     const detail = `worker-complete refused: ${completionFailure}`.slice(0, MAX_FAILURE_DETAIL_BYTES)
+    if (workerObservation.observed === null) {
+      return errorEnvelope(lane, packet, "error", "error", `${detail}; the attempt stays open because live host sessions could not be observed`.slice(0, MAX_ERROR_BYTES), "reconcile_operation")
+    }
     let closeAssertion: Record<string, unknown>
     try {
       closeAssertion = await signWorkerEvidence(credentials, {
@@ -1306,7 +1389,7 @@ async function completeWorkerSession(
         lane_version: lane.version,
         lane_digest: lane.digest,
         readback_model: readback.readback_model,
-        failure_kind: "worker_error",
+        failure_kind: "abandoned",
       })
     } catch (error) {
       return errorEnvelope(lane, packet, "error", "error", `${detail}; the attempt stays open because its failure could not be signed: ${String(error)}`.slice(0, MAX_ERROR_BYTES), "contact_operator")
@@ -1316,8 +1399,9 @@ async function completeWorkerSession(
       work_id: packet.work_id,
       attempt_id: packet.attempt_id,
       readback_model: readback.readback_model,
-      failure_kind: "worker_error",
+      failure_kind: "abandoned",
       detail,
+      observed_session_directories: workerObservation.observed,
       assertion: closeAssertion,
     }, signal)
     const message = closeFailure ? `${detail}; the attempt stays open because its failure could not be recorded: ${closeFailure}` : detail

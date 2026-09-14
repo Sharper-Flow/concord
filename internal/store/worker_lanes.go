@@ -23,6 +23,7 @@ const (
 	WorkerFailureFallbackBlocked        = "fallback_blocked"
 	WorkerFailureWorkerError            = "worker_error"
 	WorkerFailureInvalidReport          = "invalid_report"
+	WorkerFailureAbandoned              = "abandoned"
 	WorkerFailureModelIdentity          = "model_identity_mismatch"
 	WorkerFailureModelReadbackMissing   = "model_readback_missing"
 	WorkerFailureModelReadbackAmbiguous = "model_readback_ambiguous"
@@ -119,10 +120,11 @@ type WorkerCompletedPayload struct {
 }
 
 type WorkerFailedPayload struct {
-	AttemptID     string `json:"attempt_id"`
-	ReadbackModel string `json:"readback_model"`
-	FailureKind   string `json:"failure_kind"`
-	Detail        string `json:"detail"`
+	AttemptID                  string              `json:"attempt_id"`
+	ReadbackModel              string              `json:"readback_model"`
+	FailureKind                string              `json:"failure_kind"`
+	Detail                     string              `json:"detail"`
+	ObservedSessionDirectories *[]SessionDirectory `json:"observed_session_directories,omitempty"`
 }
 
 // WorkerHostProvenance is the typed record of host prompt-injection surfaces
@@ -214,9 +216,12 @@ func validateWorkerReportEvidence(origin string, evidence []WorkerReportEvidence
 }
 
 func validateWorkerFailedPayload(_ Event, payload WorkerFailedPayload) error {
-	readbackValid := workerModelPattern.MatchString(payload.ReadbackModel) || payload.ReadbackModel == "" && modelReadbackFailureKind(payload.FailureKind)
+	readbackValid := workerModelPattern.MatchString(payload.ReadbackModel) || payload.ReadbackModel == "" && (modelReadbackFailureKind(payload.FailureKind) || payload.FailureKind == WorkerFailureAbandoned)
 	if payload.AttemptID == "" || !readbackValid || !validWorkerFailureKind(payload.FailureKind) || len(payload.Detail) < 1 || len(payload.Detail) > 4096 {
 		return invalidWorkerPayload("worker.failed payload has invalid identity or failure")
+	}
+	if payload.FailureKind == WorkerFailureAbandoned && payload.ObservedSessionDirectories == nil {
+		return invalidWorkerPayload("abandoned worker failure requires the host session observation")
 	}
 	return nil
 }
@@ -495,7 +500,7 @@ func invalidWorkerPayload(detail string) error {
 
 func validWorkerFailureKind(value string) bool {
 	switch value {
-	case WorkerFailureFallbackBlocked, WorkerFailureWorkerError, WorkerFailureInvalidReport, WorkerFailureModelIdentity, WorkerFailureModelReadbackMissing, WorkerFailureModelReadbackAmbiguous:
+	case WorkerFailureFallbackBlocked, WorkerFailureWorkerError, WorkerFailureInvalidReport, WorkerFailureAbandoned, WorkerFailureModelIdentity, WorkerFailureModelReadbackMissing, WorkerFailureModelReadbackAmbiguous:
 		return true
 	default:
 		return false
@@ -705,8 +710,19 @@ func foldWorkerFailed(ctx context.Context, tx *sql.Tx, event Event) error {
 	if err != nil {
 		return err
 	}
+	if payload.FailureKind == WorkerFailureAbandoned {
+		if err := validateNoLiveWorkerSession(ctx, tx, event.SubjectID, *payload.ObservedSessionDirectories); err != nil {
+			return err
+		}
+	}
+	readbackModel := payload.ReadbackModel
+	if payload.FailureKind == WorkerFailureAbandoned {
+		// Abandonment has no worker readback. Preserve the model recorded when
+		// the attempt was dispatched instead of accepting caller-supplied data.
+		readbackModel = attempt.ReadbackModel
+	}
 	now := event.OccurredAt.UTC().Format("2006-01-02T15:04:05.999999999Z07:00")
-	result, err := tx.ExecContext(ctx, `UPDATE worker_attempts SET readback_model=?, lifecycle_state='failed', failure_kind=?, failure_detail=?, failed_at=? WHERE attempt_id=? AND work_id=? AND lifecycle_state='dispatched'`, payload.ReadbackModel, payload.FailureKind, payload.Detail, now, payload.AttemptID, attempt.WorkID)
+	result, err := tx.ExecContext(ctx, `UPDATE worker_attempts SET readback_model=?, lifecycle_state='failed', failure_kind=?, failure_detail=?, failed_at=? WHERE attempt_id=? AND work_id=? AND lifecycle_state='dispatched'`, readbackModel, payload.FailureKind, payload.Detail, now, payload.AttemptID, attempt.WorkID)
 	if err != nil {
 		return wrapFailure(KindUnavailable, "fold_event", "cannot fail worker attempt projection", true, "retry once the database is writable", err)
 	}
@@ -716,17 +732,45 @@ func foldWorkerFailed(ctx context.Context, tx *sql.Tx, event Event) error {
 	return nil
 }
 
+// validateNoLiveWorkerSession is the host-observation gate for an abandoned
+// attempt. The host owns session liveness and supplies the current directories;
+// the core owns the active worktree paths and decides whether one observation
+// still holds the attempt's worktree. An absent observation is rejected by the
+// payload validator, so a coordinator cannot turn an unreadable host into an
+// empty list.
+func validateNoLiveWorkerSession(ctx context.Context, q queryer, workID string, observed []SessionDirectory) error {
+	for _, session := range observed {
+		if session.SessionRef == "" || session.Directory == "" {
+			return invalidWorkerPayload("abandoned worker failure has an invalid host session observation")
+		}
+	}
+	entries, err := worktreeEntriesCore(ctx, q, workID)
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		if entry.State != worktreeEntryActive {
+			continue
+		}
+		if occupant, occupied := occupyingSession(entry.Path, observed); occupied {
+			return newFailure(KindWorktreeOwnershipConflict, "worker_fail",
+				fmt.Sprintf("session %s still holds the worker attempt worktree %s", occupant.SessionRef, entry.Path),
+				false, "end or move the live session, then retry the abandonment")
+		}
+	}
+	return nil
+}
+
 // workerTerminalAttempt is the dispatched-attempt identity a terminal worker
-// fold needs. It carries the lane identity so the fold can resolve the
-// dispatching lane without a claim from the payload. ResolvedModel is not
-// recorded (CD-0058): the fold compares no declared-side model against
-// readback, so the struct carries what the fold still needs.
+// fold needs. It carries the lane identity and dispatch-time model so the fold
+// can resolve the lane and preserve that model for an abandonment event.
 type workerTerminalAttempt struct {
-	WorkID      string
-	Lifecycle   string
-	LaneID      string
-	LaneVersion int64
-	LaneDigest  string
+	WorkID        string
+	Lifecycle     string
+	LaneID        string
+	LaneVersion   int64
+	LaneDigest    string
+	ReadbackModel string
 }
 
 // readWorkerTerminalAttempt reads through the passed transaction only. The
@@ -737,7 +781,7 @@ func readWorkerTerminalAttempt(ctx context.Context, tx *sql.Tx, event Event, att
 	if event.SubjectType != SubjectWorkItem {
 		return attempt, newFailure(KindInvalidPayload, "fold_event", "worker terminal event must target a work item", false, "use subject_type=work_item")
 	}
-	if err := tx.QueryRowContext(ctx, `SELECT work_id,lifecycle_state,lane_id,lane_version,lane_digest FROM worker_attempts WHERE attempt_id=?`, attemptID).Scan(&attempt.WorkID, &attempt.Lifecycle, &attempt.LaneID, &attempt.LaneVersion, &attempt.LaneDigest); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT work_id,lifecycle_state,lane_id,lane_version,lane_digest,readback_model FROM worker_attempts WHERE attempt_id=?`, attemptID).Scan(&attempt.WorkID, &attempt.Lifecycle, &attempt.LaneID, &attempt.LaneVersion, &attempt.LaneDigest, &attempt.ReadbackModel); err != nil {
 		if err == sql.ErrNoRows {
 			return attempt, newFailure(KindProjectionNotFound, "fold_event", "worker dispatch row does not exist", false, "record worker.dispatched before the terminal worker event")
 		}

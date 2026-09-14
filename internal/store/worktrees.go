@@ -442,8 +442,8 @@ type WorktreeReclaimRequest struct {
 // registry: the observation is the caller's, and the removal only asks whether
 // the directory it is about to delete is one of them.
 type SessionDirectory struct {
-	SessionRef string
-	Directory  string
+	SessionRef string `json:"session_ref"`
+	Directory  string `json:"directory"`
 }
 
 // WorktreeDestroyRequest drives the CD-0096 D3 Destroy tier: merged terminal

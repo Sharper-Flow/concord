@@ -162,7 +162,7 @@ func TestLinearConnectionUpdateIsVersionCheckedAndPreservesMetadata(t *testing.T
 	})
 	if err := s.UpdateLinearConnection(ctx, LinearConnectionUpdateRequest{
 		EventID: "update-linear-connection", ResourceID: "linear-conn-update-connection-product", ProductID: "update-connection-product",
-		TeamID: "new-team", ProjectID: "new-project", StatusIDs: map[string]string{"cancelled": "new-cancelled", "completed": "new-completed", "superseded": "new-superseded"},
+		TeamID: "new-team", ProjectID: "new-project", StatusIDs: map[string]string{"needed": "new-needed", "in_progress": "new-in-progress", "cancelled": "new-cancelled", "completed": "new-completed", "superseded": "new-superseded"},
 		ExpectedResourceVersion: 1, Actor: "operator", OccurredAt: time.Date(2026, 9, 9, 1, 0, 0, 0, time.UTC),
 	}); err != nil {
 		t.Fatalf("UpdateLinearConnection() error = %v", err)
@@ -187,7 +187,7 @@ func TestLinearConnectionUpdateIsVersionCheckedAndPreservesMetadata(t *testing.T
 	}
 	if err := s.UpdateLinearConnection(ctx, LinearConnectionUpdateRequest{
 		EventID: "stale-linear-connection", ResourceID: connection.ResourceID, ProductID: "update-connection-product",
-		TeamID: "stale-team", StatusIDs: map[string]string{"cancelled": "stale-cancelled", "completed": "stale-completed", "superseded": "stale-superseded"}, ExpectedResourceVersion: 1, Actor: "operator", OccurredAt: time.Now().UTC(),
+		TeamID: "stale-team", StatusIDs: map[string]string{"needed": "stale-needed", "in_progress": "stale-in-progress", "cancelled": "stale-cancelled", "completed": "stale-completed", "superseded": "stale-superseded"}, ExpectedResourceVersion: 1, Actor: "operator", OccurredAt: time.Now().UTC(),
 	}); err == nil || !failureKindIs(err, KindVersionConflict) {
 		t.Fatalf("stale update error = %v, want version conflict", err)
 	}

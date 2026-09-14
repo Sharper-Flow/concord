@@ -158,8 +158,12 @@ func foldProductPlanningModeSet(ctx context.Context, tx *sql.Tx, event Event) er
 // ReadProductPlanningMode returns one Product's mode with a typed refusal for
 // an unknown Product.
 func (s *Store) ReadProductPlanningMode(ctx context.Context, productID string) (ProductPlanningMode, error) {
+	return readProductPlanningModeCore(ctx, s.db, productID)
+}
+
+func readProductPlanningModeCore(ctx context.Context, q queryer, productID string) (ProductPlanningMode, error) {
 	var mode ProductPlanningMode
-	err := s.db.QueryRowContext(ctx, `SELECT id, planning_mode, version FROM products WHERE id=?`, productID).Scan(&mode.ProductID, &mode.PlanningMode, &mode.Version)
+	err := q.QueryRowContext(ctx, `SELECT id, planning_mode, version FROM products WHERE id=?`, productID).Scan(&mode.ProductID, &mode.PlanningMode, &mode.Version)
 	if err == sql.ErrNoRows {
 		return ProductPlanningMode{}, newFailure(KindUnknownScope, "planning_mode_read", "Product does not exist", false, "supply an existing Product")
 	}
@@ -174,15 +178,19 @@ func (s *Store) ReadProductPlanningMode(ctx context.Context, productID string) (
 // id refuses with ambiguous_scope naming the operator choice, never inferring
 // from repository path or installation (CD-0121 D1).
 func (s *Store) ResolveLinearPlanningTarget(ctx context.Context, productID string) (ProductPlanningMode, error) {
+	return resolveLinearPlanningTargetCore(ctx, s.db, productID)
+}
+
+func resolveLinearPlanningTargetCore(ctx context.Context, q queryer, productID string) (ProductPlanningMode, error) {
 	if productID == "" {
 		return ProductPlanningMode{}, newFailure(KindAmbiguousScope, "planning_mode_resolve", "planning resolution requires exactly one Product", false, "name the Product explicitly; mode is never inferred from repository path or installation")
 	}
-	mode, err := s.ReadProductPlanningMode(ctx, productID)
+	mode, err := readProductPlanningModeCore(ctx, q, productID)
 	if err != nil {
 		return ProductPlanningMode{}, err
 	}
 	if mode.PlanningMode == PlanningModeLinear {
-		connection, connErr := s.ReadLinearConnection(ctx, productID)
+		connection, connErr := readLinearConnectionCore(ctx, q, productID)
 		if connErr != nil {
 			return ProductPlanningMode{}, connErr
 		}
@@ -201,7 +209,11 @@ func (s *Store) ResolveLinearPlanningTarget(ctx context.Context, productID strin
 // URL, team id, and auth mode; partial means some are missing; absent means no
 // such resource exists.
 func (s *Store) ReadLinearConnection(ctx context.Context, productID string) (LinearConnection, error) {
-	rows, err := s.db.QueryContext(ctx, `
+	return readLinearConnectionCore(ctx, s.db, productID)
+}
+
+func readLinearConnectionCore(ctx context.Context, q queryer, productID string) (LinearConnection, error) {
+	rows, err := q.QueryContext(ctx, `
 SELECT r.resource_id, r.version, r.metadata
 FROM managed_resources r
 JOIN resource_products rp ON rp.resource_id = r.resource_id
@@ -250,23 +262,23 @@ ORDER BY r.resource_id`, productID)
 			rawStatus, marshalErr := json.Marshal(encoded)
 			var statusIDs map[string]json.RawMessage
 			if marshalErr != nil || json.Unmarshal(rawStatus, &statusIDs) != nil || statusIDs == nil {
-				return LinearConnection{}, newFailure(KindInvalidPayload, "linear_connection_read", "Linear status_ids must be an object", false, "supply terminal lifecycle to status id mappings")
+				return LinearConnection{}, newFailure(KindInvalidPayload, "linear_connection_read", "Linear status_ids must be an object", false, "supply persistable lifecycle to status id mappings")
 			}
 			candidate.StatusIDs = make(map[string]string, len(statusIDs))
 			for lifecycle, value := range statusIDs {
-				if !isTerminalLifecycle(lifecycle) {
-					return LinearConnection{}, newFailure(KindInvalidPayload, "linear_connection_read", "Linear status mapping lifecycle is not terminal", false, "map cancelled, completed, or superseded")
+				if !lifecycleStates[lifecycle] {
+					return LinearConnection{}, newFailure(KindInvalidPayload, "linear_connection_read", "Linear status mapping lifecycle is not persistable", false, "map needed, in_progress, completed, cancelled, or superseded")
 				}
 				var statusID string
 				if err := json.Unmarshal(value, &statusID); err != nil {
-					return LinearConnection{}, newFailure(KindInvalidPayload, "linear_connection_read", "Linear status id must be a string", false, "supply terminal lifecycle to status id mappings")
+					return LinearConnection{}, newFailure(KindInvalidPayload, "linear_connection_read", "Linear status id must be a string", false, "supply persistable lifecycle to status id mappings")
 				}
 				if err := validateLinearConnectionID(statusID, "status id"); err != nil {
 					return LinearConnection{}, err
 				}
 				candidate.StatusIDs[lifecycle] = statusID
 			}
-			if err := validateLinearStatusMapping(candidate.StatusIDs, "linear_connection_read"); err != nil {
+			if err := validateLinearStatusMappingRead(candidate.StatusIDs, "linear_connection_read"); err != nil {
 				return LinearConnection{}, err
 			}
 		}
@@ -396,26 +408,38 @@ func validateLinearConnectionID(value, name string) error {
 }
 
 func validateLinearStatusMapping(statusIDs map[string]string, operation string) error {
-	if len(statusIDs) != len(terminalLifecycles) {
-		return newFailure(KindInvalidPayload, operation, "status mapping must contain all terminal lifecycles", false, "map cancelled, completed, and superseded")
+	if len(statusIDs) != len(lifecycleStates) {
+		return newFailure(KindInvalidPayload, operation, "status mapping must contain all lifecycles", false, "map needed, in_progress, completed, cancelled, and superseded")
 	}
-	seen := make(map[string]string, len(statusIDs))
 	for lifecycle, statusID := range statusIDs {
-		if !isTerminalLifecycle(lifecycle) {
-			return newFailure(KindInvalidPayload, operation, "status mapping lifecycle is not terminal", false, "map cancelled, completed, or superseded")
+		if !lifecycleStates[lifecycle] {
+			return newFailure(KindInvalidPayload, operation, "status mapping lifecycle is not persistable", false, "map needed, in_progress, completed, cancelled, and superseded")
 		}
 		if err := validateLinearConnectionID(statusID, "status id"); err != nil {
 			return err
 		}
-		if _, exists := seen[statusID]; exists {
-			return newFailure(KindInvalidPayload, operation, "status mapping reuses a status identifier", false, "supply one status identifier for each terminal lifecycle")
-		} else {
-			seen[statusID] = lifecycle
+	}
+	// Distinctness is deliberately not required: a workspace may hold one
+	// status that two lifecycles share, and a default team has exactly one
+	// cancelled-category status for both cancelled and superseded.
+	for lifecycle := range lifecycleStates {
+		if statusIDs[lifecycle] == "" {
+			return newFailure(KindInvalidPayload, operation, "status mapping must contain all lifecycles", false, "map needed, in_progress, completed, cancelled, and superseded")
 		}
 	}
-	for _, lifecycle := range terminalLifecycles {
-		if statusIDs[lifecycle] == "" {
-			return newFailure(KindInvalidPayload, operation, "status mapping must contain all terminal lifecycles", false, "map cancelled, completed, and superseded")
+	return nil
+}
+
+func validateLinearStatusMappingRead(statusIDs map[string]string, operation string) error {
+	if len(statusIDs) > len(lifecycleStates) {
+		return newFailure(KindInvalidPayload, operation, "status mapping contains too many lifecycles", false, "map only persistable lifecycles")
+	}
+	for lifecycle, statusID := range statusIDs {
+		if !lifecycleStates[lifecycle] {
+			return newFailure(KindInvalidPayload, operation, "status mapping lifecycle is not persistable", false, "map only persistable lifecycles")
+		}
+		if err := validateLinearConnectionID(statusID, "status id"); err != nil {
+			return err
 		}
 	}
 	return nil
@@ -715,15 +739,15 @@ type linearPayload struct {
 	StatusID          string `json:"status_id,omitempty"`
 }
 
-// linearTerminalStatusID resolves only the terminal lifecycle mapping declared
-// on the Product's connection resource. It never guesses a workspace state.
-func linearTerminalStatusID(connection LinearConnection, lifecycle string) (string, error) {
-	if !isTerminalLifecycle(lifecycle) {
-		return "", nil
+// linearLifecycleStatusID resolves the lifecycle mapping declared on the
+// Product's connection resource. It never guesses a workspace state.
+func linearLifecycleStatusID(connection LinearConnection, lifecycle string) (string, error) {
+	if !lifecycleStates[lifecycle] {
+		return "", newFailure(KindInvalidPayload, "linear_issue_enqueue", "lifecycle is not persistable", false, "supply a persistable work lifecycle")
 	}
 	statusID := connection.StatusIDs[lifecycle]
 	if statusID == "" {
-		return "", newFailure(KindInvalidOperation, "linear_issue_enqueue", "no declared Linear status id for terminal lifecycle "+lifecycle, false, "declare status_ids."+lifecycle+" on the Linear connection resource")
+		return "", newFailure(KindInvalidOperation, "linear_issue_enqueue", "no declared Linear status id for lifecycle "+lifecycle, false, "declare status_ids."+lifecycle+" on the Linear connection resource")
 	}
 	return statusID, nil
 }
@@ -743,7 +767,11 @@ func newLinearClientUUID() string {
 // resolveLinearProduct resolves the exactly one Product a work item belongs
 // to. Zero or many Products refuse: planning authority is never inferred.
 func (s *Store) resolveLinearProduct(ctx context.Context, workID string) (string, error) {
-	rows, err := s.db.QueryContext(ctx, `
+	return resolveLinearProductCore(ctx, s.db, workID)
+}
+
+func resolveLinearProductCore(ctx context.Context, q queryer, workID string) (string, error) {
+	rows, err := q.QueryContext(ctx, `
 SELECT DISTINCT pp.product_id
 FROM work_items w
 JOIN work_projects wp ON wp.work_id = w.id
@@ -790,78 +818,166 @@ func (s *Store) EnqueueLinearIssueForProduct(ctx context.Context, productID, wor
 }
 
 func (s *Store) enqueueLinearIssueForWork(ctx context.Context, expectedProductID, workID, opKind string) (ClaimedLinearOperation, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return ClaimedLinearOperation{}, wrapFailure(KindUnavailable, "linear_issue_enqueue", "cannot open enqueue transaction", true, "retry once the database is writable", err)
+	}
+	defer tx.Rollback()
+	if err := enterFold(ctx, tx); err != nil {
+		return ClaimedLinearOperation{}, err
+	}
+	plan, err := enqueueLinearIssueForWorkCore(ctx, tx, expectedProductID, workID, opKind)
+	if err != nil {
+		return ClaimedLinearOperation{}, err
+	}
+	entry, err := persistLinearIssueEnqueueTx(ctx, tx, plan, s.now().UTC().Format(time.RFC3339Nano))
+	if err != nil {
+		return ClaimedLinearOperation{}, err
+	}
+	if err := leaveFold(ctx, tx); err != nil {
+		return ClaimedLinearOperation{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return ClaimedLinearOperation{}, wrapFailure(KindUnavailable, "linear_issue_enqueue", "cannot commit queued issue", true, "retry once the database is writable", err)
+	}
+	return entry, nil
+}
+
+type linearIssueEnqueuePlan struct {
+	entry      ClaimedLinearOperation
+	payload    []byte
+	createLink bool
+}
+
+func enqueueLinearIssueForWorkCore(ctx context.Context, q queryer, expectedProductID, workID, opKind string) (linearIssueEnqueuePlan, error) {
 	if opKind != LinearOpIssueCreate && opKind != LinearOpIssueUpdate {
-		return ClaimedLinearOperation{}, newFailure(KindInvalidPayload, "linear_issue_enqueue", "operation kind is not recognized", false, "use issue_create or issue_update")
+		return linearIssueEnqueuePlan{}, newFailure(KindInvalidPayload, "linear_issue_enqueue", "operation kind is not recognized", false, "use issue_create or issue_update")
 	}
 	if len(workID) < 2 || len(workID) > 128 {
-		return ClaimedLinearOperation{}, newFailure(KindInvalidPayload, "linear_issue_enqueue", "work id must be 2 to 128 characters", false, "supply a bounded work id")
+		return linearIssueEnqueuePlan{}, newFailure(KindInvalidPayload, "linear_issue_enqueue", "work id must be 2 to 128 characters", false, "supply a bounded work id")
 	}
 	var title, valueStatement, lifecycle string
-	err := s.db.QueryRowContext(ctx, `SELECT title, coalesce(json_extract(intent_json, '$.value_statement'), ''), lifecycle FROM work_items WHERE id=?`, workID).Scan(&title, &valueStatement, &lifecycle)
+	err := q.QueryRowContext(ctx, `SELECT title, coalesce(json_extract(intent_json, '$.value_statement'), ''), lifecycle FROM work_items WHERE id=?`, workID).Scan(&title, &valueStatement, &lifecycle)
 	if err == sql.ErrNoRows {
-		return ClaimedLinearOperation{}, newFailure(KindUnknownScope, "linear_issue_enqueue", "work item does not exist", false, "supply an existing work item")
+		return linearIssueEnqueuePlan{}, newFailure(KindUnknownScope, "linear_issue_enqueue", "work item does not exist", false, "supply an existing work item")
 	} else if err != nil {
-		return ClaimedLinearOperation{}, wrapFailure(KindUnavailable, "linear_issue_enqueue", "cannot read work item", true, "retry once the database is readable", err)
+		return linearIssueEnqueuePlan{}, wrapFailure(KindUnavailable, "linear_issue_enqueue", "cannot read work item", true, "retry once the database is readable", err)
 	}
-	productID, err := s.resolveLinearProduct(ctx, workID)
+	productID, err := resolveLinearProductCore(ctx, q, workID)
 	if err != nil {
-		return ClaimedLinearOperation{}, err
+		return linearIssueEnqueuePlan{}, err
 	}
 	if expectedProductID != "" && expectedProductID != productID {
-		return ClaimedLinearOperation{}, newFailure(KindInvalidRelation, "linear_issue_enqueue", "work item belongs to a different Product", false, "supply a work item in the requested Product")
+		return linearIssueEnqueuePlan{}, newFailure(KindInvalidRelation, "linear_issue_enqueue", "work item belongs to a different Product", false, "supply a work item in the requested Product")
 	}
-	mode, err := s.ResolveLinearPlanningTarget(ctx, productID)
+	mode, err := resolveLinearPlanningTargetCore(ctx, q, productID)
 	if err != nil {
-		return ClaimedLinearOperation{}, err
+		return linearIssueEnqueuePlan{}, err
 	}
 	if mode.PlanningMode == PlanningModeLocalOnly {
-		return ClaimedLinearOperation{}, newFailure(KindInvalidOperation, "linear_issue_enqueue", "planning mode is local_only", false, "set planning_mode to linear_enabled before enqueueing Linear issues")
+		return linearIssueEnqueuePlan{}, newFailure(KindInvalidOperation, "linear_issue_enqueue", "planning mode is local_only", false, "set planning_mode to linear_enabled before enqueueing Linear issues")
 	}
-	connection, err := s.ReadLinearConnection(ctx, productID)
+	connection, err := readLinearConnectionCore(ctx, q, productID)
 	if err != nil {
-		return ClaimedLinearOperation{}, err
+		return linearIssueEnqueuePlan{}, err
 	}
 	if connection.State != LinearConnectionDeclared {
-		return ClaimedLinearOperation{}, newFailure(KindInvalidOperation, "linear_issue_enqueue", "linear_enabled Product has no declared Linear connection", false, "declare the connection as a managed saas_account resource or set the mode back to local_only")
+		return linearIssueEnqueuePlan{}, newFailure(KindInvalidOperation, "linear_issue_enqueue", "linear_enabled Product has no declared Linear connection", false, "declare the connection as a managed saas_account resource or set the mode back to local_only")
 	}
+	createLink := false
 	if opKind == LinearOpIssueUpdate {
 		var linkState string
-		err := s.db.QueryRowContext(ctx, `SELECT link_state FROM linear_issue_links WHERE work_id=?`, workID).Scan(&linkState)
+		err := q.QueryRowContext(ctx, `SELECT link_state FROM linear_issue_links WHERE work_id=?`, workID).Scan(&linkState)
 		if err == sql.ErrNoRows {
-			return ClaimedLinearOperation{}, newFailure(KindInvalidOperation, "linear_issue_enqueue", "no link exists to update", false, "enqueue issue_create first; an update addresses the linked remote issue")
+			return linearIssueEnqueuePlan{}, newFailure(KindInvalidOperation, "linear_issue_enqueue", "no link exists to update", false, "enqueue issue_create first; an update addresses the linked remote issue")
 		} else if err != nil {
-			return ClaimedLinearOperation{}, wrapFailure(KindUnavailable, "linear_issue_enqueue", "cannot read link", true, "retry once the database is readable", err)
+			return linearIssueEnqueuePlan{}, wrapFailure(KindUnavailable, "linear_issue_enqueue", "cannot read link", true, "retry once the database is readable", err)
 		}
 	}
 	clientUUID := newLinearClientUUID()
 	statusID := ""
 	if opKind == LinearOpIssueUpdate {
-		statusID, err = linearTerminalStatusID(connection, lifecycle)
+		statusID, err = linearLifecycleStatusID(connection, lifecycle)
 		if err != nil {
-			return ClaimedLinearOperation{}, err
+			return linearIssueEnqueuePlan{}, err
+		}
+	} else {
+		var linkState string
+		if err := q.QueryRowContext(ctx, `SELECT link_state FROM linear_issue_links WHERE work_id=?`, workID).Scan(&linkState); err == sql.ErrNoRows {
+			createLink = true
+		} else if err != nil {
+			return linearIssueEnqueuePlan{}, wrapFailure(KindUnavailable, "linear_issue_enqueue", "cannot read link", true, "retry once the database is readable", err)
 		}
 	}
 	payload, err := json.Marshal(linearPayload{ClientUUID: clientUUID, ProductID: productID, Title: title, Description: valueStatement, TeamID: connection.TeamID, ProjectID: connection.ProjectID, ConnectionVersion: connection.Version, Lifecycle: lifecycle, StatusID: statusID})
 	if err != nil {
-		return ClaimedLinearOperation{}, wrapFailure(KindUnavailable, "linear_issue_enqueue", "cannot encode payload", true, "retry the enqueue", err)
+		return linearIssueEnqueuePlan{}, wrapFailure(KindUnavailable, "linear_issue_enqueue", "cannot encode payload", true, "retry the enqueue", err)
 	}
 	entry := ClaimedLinearOperation{OperationID: "linear-" + clientUUID, WorkID: workID, OpKind: opKind, IdempotencyKey: clientUUID, Payload: payload}
-	if err := s.EnqueueLinearOperation(ctx, LinearOutboxEntry{OperationID: entry.OperationID, WorkID: workID, OpKind: opKind, IdempotencyKey: entry.IdempotencyKey, Payload: payload}); err != nil {
-		return ClaimedLinearOperation{}, err
+	return linearIssueEnqueuePlan{entry: entry, payload: payload, createLink: createLink}, nil
+}
+
+func persistLinearIssueEnqueueTx(ctx context.Context, tx *sql.Tx, plan linearIssueEnqueuePlan, now string) (ClaimedLinearOperation, error) {
+	entry := plan.entry
+	if _, err := tx.ExecContext(ctx, `INSERT INTO linear_outbox(operation_id, work_id, op_kind, idempotency_key, payload, state, attempts, last_error, created_at, updated_at) VALUES (?,?,?,?,?,'queued',0,'',?,?)`,
+		entry.OperationID, entry.WorkID, entry.OpKind, entry.IdempotencyKey, string(plan.payload), now, now); err != nil {
+		return ClaimedLinearOperation{}, wrapFailure(KindUnavailable, "linear_issue_enqueue", "cannot queue operation", true, "retry once the database is writable", err)
 	}
 	// The link starts unpublished carrying the client UUID as its placeholder
 	// remote identity; the drain replaces it with the confirmed identity. A
 	// re-enqueue keeps the existing link — one link per work item, many
 	// operations.
-	var existingLink string
-	if err := s.db.QueryRowContext(ctx, `SELECT link_state FROM linear_issue_links WHERE work_id=?`, workID).Scan(&existingLink); err == sql.ErrNoRows {
-		if recordErr := s.RecordLinearLink(ctx, workID, clientUUID, "", "", "", "", LinearLinkUnpublished); recordErr != nil {
-			return ClaimedLinearOperation{}, recordErr
+	if plan.createLink {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO linear_issue_links(work_id, remote_issue_uuid, human_key, url, remote_updated_at, content_hash, link_state, created_at, updated_at) VALUES (?,?,?,?,?,?,?, ?, ?)`,
+			entry.WorkID, entry.IdempotencyKey, "", "", "", "", LinearLinkUnpublished, now, now); err != nil {
+			return ClaimedLinearOperation{}, wrapFailure(KindUnavailable, "linear_issue_enqueue", "cannot create link", true, "retry once the database is writable", err)
 		}
-	} else if err != nil {
-		return ClaimedLinearOperation{}, wrapFailure(KindUnavailable, "linear_issue_enqueue", "cannot read link", true, "retry once the database is readable", err)
 	}
 	return entry, nil
+}
+
+func enqueueLinearIssueForLifecycleTx(ctx context.Context, tx *sql.Tx, workID, lifecycle string, at time.Time) error {
+	var table string
+	if err := tx.QueryRowContext(ctx, `SELECT name FROM sqlite_schema WHERE type='table' AND name='linear_issue_links'`).Scan(&table); err == sql.ErrNoRows {
+		return nil
+	} else if err != nil {
+		return wrapFailure(KindUnavailable, "linear_issue_enqueue", "cannot inspect Linear link schema", true, "retry once the database is readable", err)
+	}
+	var linkState string
+	err := tx.QueryRowContext(ctx, `SELECT link_state FROM linear_issue_links WHERE work_id=?`, workID).Scan(&linkState)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil
+		}
+		return wrapFailure(KindUnavailable, "linear_issue_enqueue", "cannot read link", true, "retry once the database is readable", err)
+	}
+	if linkState != LinearLinkConfirmed {
+		return nil
+	}
+	productID, err := resolveLinearProductCore(ctx, tx, workID)
+	if err != nil {
+		return err
+	}
+	mode, err := readProductPlanningModeCore(ctx, tx, productID)
+	if err != nil {
+		return err
+	}
+	if mode.PlanningMode == PlanningModeLocalOnly {
+		return nil
+	}
+	connection, err := readLinearConnectionCore(ctx, tx, productID)
+	if err != nil {
+		return err
+	}
+	if connection.State != LinearConnectionDeclared || connection.StatusIDs[lifecycle] == "" {
+		return nil
+	}
+	plan, err := enqueueLinearIssueForWorkCore(ctx, tx, productID, workID, LinearOpIssueUpdate)
+	if err != nil {
+		return err
+	}
+	_, err = persistLinearIssueEnqueueTx(ctx, tx, plan, at.UTC().Format(time.RFC3339Nano))
+	return err
 }
 
 // ClaimLinearOperations moves up to limit queued operations to in_flight and

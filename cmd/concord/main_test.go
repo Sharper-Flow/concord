@@ -370,6 +370,8 @@ func TestRunHelpListsExactCommandFormsAndStdinShapes(t *testing.T) {
 		"concord client policy-expand < JSON stdin",
 		"concord product-create < JSON stdin",
 		"concord product create < JSON stdin",
+		"concord linear-connection-update < JSON stdin",
+		"concord linear connection-update < JSON stdin",
 		"concord resource-create < JSON stdin",
 		"concord resource create < JSON stdin",
 		"concord resource-share < JSON stdin",
@@ -397,7 +399,7 @@ func TestRunHelpListsExactCommandFormsAndStdinShapes(t *testing.T) {
 	if errOut.Len() != 0 {
 		t.Fatalf("help stderr = %q, want empty", errOut.String())
 	}
-	if out.Len() > 12288 {
+	if out.Len() > 13312 {
 		t.Fatalf("help output is unbounded: %d bytes", out.Len())
 	}
 }
@@ -782,6 +784,7 @@ func TestCommandRouterAcceptsCanonicalAndTwoWordFormsWithoutPanicking(t *testing
 		{"project-locator-remove"}, {"project", "locator-remove"},
 		{"project-resolve"}, {"project", "resolve"},
 		{"product-create"}, {"product", "create"},
+		{"linear-connection-update"}, {"linear", "connection-update"},
 		{"linear-issue-enqueue"}, {"linear", "issue-enqueue"},
 		{"linear-outbox-drain"}, {"linear", "outbox-drain"},
 		{"resource-create"}, {"resource", "create"},

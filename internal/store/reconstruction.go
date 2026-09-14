@@ -128,7 +128,7 @@ func ReconstructSubjectAt(ctx context.Context, s *Store, subject SubjectRef, asO
 // excluded from the scratch projection fold.
 func excludedFromReconstructionSnapshot(kind string) bool {
 	switch kind {
-	case managedResourceEventCreated, managedResourceEventConsumerAdded,
+	case managedResourceEventCreated, managedResourceEventConsumerAdded, managedResourceEventUpdated,
 		"domain.project_attachments_replaced", "domain.resource_attachments_replaced":
 		return true
 	default:

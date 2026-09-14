@@ -17,6 +17,7 @@ const (
 const (
 	managedResourceEventCreated       = "managed_resource.created"
 	managedResourceEventConsumerAdded = "managed_resource.consumer_added"
+	managedResourceEventUpdated       = "managed_resource.updated"
 )
 
 // ManagedResource is the canonical C15 identity and declarative inventory
@@ -98,6 +99,51 @@ type managedResourceConsumerAddedPayload struct {
 	Environments     []string `json:"environments"`
 	ExpectedVersion  int64    `json:"expected_version"`
 	ResultingVersion int64    `json:"resulting_version"`
+}
+
+// ManagedResourceMetadataUpdateRequest replaces only the versioned metadata
+// object of one owned resource. The event carries the complete resulting
+// object so unrelated metadata survives a typed update.
+type ManagedResourceMetadataUpdateRequest struct {
+	EventID                 string
+	ResourceID              string
+	ProductID               string
+	MetadataSchemaVersion   string
+	Metadata                json.RawMessage
+	ExpectedResourceVersion int64
+	Actor                   string
+	OccurredAt              time.Time
+}
+
+type managedResourceUpdatedPayload struct {
+	ResourceID            string          `json:"resource_id"`
+	ProductID             string          `json:"product_id"`
+	MetadataSchemaVersion string          `json:"metadata_schema_version"`
+	Metadata              json.RawMessage `json:"metadata"`
+	ExpectedVersion       int64           `json:"expected_version"`
+	ResultingVersion      int64           `json:"resulting_version"`
+}
+
+// UpdateManagedResourceMetadata records a version-checked replacement of a
+// managed resource's metadata through its Product owner.
+func UpdateManagedResourceMetadata(ctx context.Context, s *Store, req ManagedResourceMetadataUpdateRequest) error {
+	if req.EventID == "" || req.ResourceID == "" || req.ProductID == "" || req.Actor == "" || req.OccurredAt.IsZero() || req.ExpectedResourceVersion < 1 {
+		return newFailure(KindInvalidOperation, "update_managed_resource", "metadata update is missing bounded identity or version fields", false, "supply resource, Product, event, actor, time, and a positive expected version")
+	}
+	if req.MetadataSchemaVersion == "" || len(req.MetadataSchemaVersion) > 64 || len(req.Metadata) > maxManagedResourceMetadataBytes || !isJSONObject(req.Metadata) {
+		return newFailure(KindInvalidOperation, "update_managed_resource", "metadata schema or object is missing or unbounded", false, "supply a bounded schema version and JSON object")
+	}
+	payload, err := json.Marshal(managedResourceUpdatedPayload{
+		ResourceID: req.ResourceID, ProductID: req.ProductID, MetadataSchemaVersion: req.MetadataSchemaVersion,
+		Metadata: req.Metadata, ExpectedVersion: req.ExpectedResourceVersion, ResultingVersion: req.ExpectedResourceVersion + 1,
+	})
+	if err != nil {
+		return wrapFailure(KindInvalidPayload, "update_managed_resource", "cannot encode metadata update", false, "supply valid metadata", err)
+	}
+	return ApplyOperation(ctx, s, Operation{Events: []Event{{
+		EventID: req.EventID, Kind: managedResourceEventUpdated, SubjectType: SubjectProduct, SubjectID: req.ProductID,
+		Actor: req.Actor, OccurredAt: req.OccurredAt, PayloadVersion: 1, Payload: payload,
+	}}})
 }
 
 func CreateManagedResource(ctx context.Context, s *Store, req ManagedResourceCreateRequest) (ManagedResource, error) {
@@ -304,6 +350,42 @@ func foldManagedResourceConsumerAdded(ctx context.Context, tx *sql.Tx, event Eve
 	_, err := tx.ExecContext(ctx, `UPDATE managed_resources SET version=?,updated_at=? WHERE resource_id=? AND version=?`, p.ResultingVersion, event.OccurredAt.UTC().Format(time.RFC3339Nano), p.ResourceID, p.ExpectedVersion)
 	if err != nil {
 		return wrapFailure(KindUnavailable, "fold_event", "cannot advance managed resource version", true, "retry once the database is writable", err)
+	}
+	return nil
+}
+
+func foldManagedResourceUpdated(ctx context.Context, tx *sql.Tx, event Event) error {
+	if err := checkSubject(event, SubjectProduct); err != nil {
+		return err
+	}
+	var p managedResourceUpdatedPayload
+	if err := decodePayload(event, &p); err != nil {
+		return err
+	}
+	if p.ProductID != event.SubjectID || p.ProductID == "" || p.ResourceID == "" || p.ExpectedVersion < 1 || p.ResultingVersion != p.ExpectedVersion+1 {
+		return newFailure(KindInvalidPayload, "fold_event", "managed resource update payload is incomplete", false, "supply resource, Product, and consecutive versions")
+	}
+	if p.MetadataSchemaVersion == "" || len(p.MetadataSchemaVersion) > 64 || len(p.Metadata) > maxManagedResourceMetadataBytes || !isJSONObject(p.Metadata) {
+		return newFailure(KindInvalidPayload, "fold_event", "managed resource update metadata is missing or unbounded", false, "supply a bounded schema version and JSON object")
+	}
+	var owner int
+	if err := tx.QueryRowContext(ctx, `SELECT 1 FROM resource_products WHERE resource_id=? AND product_id=? AND role='owner'`, p.ResourceID, p.ProductID).Scan(&owner); err == sql.ErrNoRows {
+		return newFailure(KindProjectionNotFound, "fold_event", "managed resource owner does not exist", false, "update the resource through its owning Product")
+	} else if err != nil {
+		return wrapFailure(KindUnavailable, "fold_event", "cannot inspect managed resource owner", true, "retry once the database is readable", err)
+	}
+	var current int64
+	if err := tx.QueryRowContext(ctx, `SELECT version FROM managed_resources WHERE resource_id=?`, p.ResourceID).Scan(&current); err == sql.ErrNoRows {
+		return newFailure(KindProjectionNotFound, "fold_event", "managed resource does not exist", false, "create the resource before updating its metadata")
+	} else if err != nil {
+		return wrapFailure(KindUnavailable, "fold_event", "cannot read managed resource version", true, "retry once the database is readable", err)
+	} else if current != p.ExpectedVersion {
+		f := newFailure(KindVersionConflict, "fold_event", fmt.Sprintf("managed resource %s has version %d, want %d", p.ResourceID, current, p.ExpectedVersion), false, "reload the resource and retry with its current version")
+		f.CurrentVersions = []SubjectCurrentVersion{{SubjectType: "managed_resource", SubjectID: p.ResourceID, Version: current}}
+		return f
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE managed_resources SET metadata_schema_version=?, metadata=?, version=?, updated_at=? WHERE resource_id=? AND version=?`, p.MetadataSchemaVersion, string(p.Metadata), p.ResultingVersion, event.OccurredAt.UTC().Format(time.RFC3339Nano), p.ResourceID, p.ExpectedVersion); err != nil {
+		return wrapFailure(KindUnavailable, "fold_event", "cannot update managed resource metadata", true, "retry once the database is writable", err)
 	}
 	return nil
 }

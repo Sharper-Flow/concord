@@ -56,7 +56,7 @@ func TestLinearEnqueueForWorkGuards(t *testing.T) {
 	}
 
 	// Unknown work refuses.
-	setupLinearConnectionResourceAtVersion(t, s, "enq-product", map[string]any{"linear": map[string]any{"workspace_url": "https://linear.app/example", "team_id": "team-uuid-1", "auth_mode": "personal_api_key"}}, 3)
+	setupLinearConnectionResourceAtVersion(t, s, "enq-product", map[string]any{"linear": map[string]any{"workspace_url": "https://linear.app/example", "team_id": "team-uuid-1", "project_id": "project-uuid-1", "auth_mode": "personal_api_key"}}, 3)
 	if _, err := s.EnqueueLinearIssueForWork(ctx, "ghost", LinearOpIssueCreate); err == nil || !failureKindIs(err, KindUnknownScope) {
 		t.Fatalf("unknown work error = %v, want unknown_scope", err)
 	}
@@ -83,12 +83,14 @@ func TestLinearEnqueueForWorkGuards(t *testing.T) {
 		ClientUUID  string `json:"client_uuid"`
 		Title       string `json:"title"`
 		Description string `json:"description"`
+		ProductID   string `json:"product_id"`
 		TeamID      string `json:"team_id"`
+		ProjectID   string `json:"project_id"`
 	}
 	if err := json.Unmarshal([]byte(payload), &decoded); err != nil {
 		t.Fatal(err)
 	}
-	if decoded.ClientUUID == "" || decoded.Title != "Enqueue title" || decoded.Description != "Enqueue value statement" || decoded.TeamID != "team-uuid-1" {
+	if decoded.ClientUUID == "" || decoded.Title != "Enqueue title" || decoded.Description != "Enqueue value statement" || decoded.ProductID != "enq-product" || decoded.TeamID != "team-uuid-1" || decoded.ProjectID != "project-uuid-1" {
 		t.Fatalf("payload = %+v", decoded)
 	}
 	if len(decoded.ClientUUID) != 36 || !strings.Contains(decoded.ClientUUID, "-") {
@@ -150,6 +152,42 @@ func TestLinearClaimBatchIsExclusiveAndBounded(t *testing.T) {
 	}
 	if len(seen) != 3 {
 		t.Fatalf("claims overlap or miss: %v", seen)
+	}
+}
+
+func TestLinearClaimUsesQueuedProductIdentity(t *testing.T) {
+	s := openTemp(t)
+	ctx := context.Background()
+	setupLinearProduct(t, s, "claim-owner-product")
+	setupLinearConnectionResource(t, s, "claim-owner-product", map[string]any{"linear": map[string]any{"workspace_url": "https://linear.app/example", "team_id": "team-uuid-1", "auth_mode": "personal_api_key"}})
+	if _, err := s.SetProductPlanningMode(ctx, "claim-owner-product", PlanningModeLinear, "pilot", "operator", 2); err != nil {
+		t.Fatal(err)
+	}
+	seedLinearWorkItem(t, s, "claim-owner-work", "claim-owner-product-project", "Title", "Value")
+	op, err := s.EnqueueLinearIssueForProduct(ctx, "claim-owner-product", "claim-owner-work", LinearOpIssueCreate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ApplyOperation(ctx, s, Operation{
+		Events: []Event{
+			productCreatedEvent("claim-other-product", "claim-other-created"),
+			membershipEvent("claim-other-membership", "product_project.added", SubjectProduct, "claim-other-product", map[string]any{"product_id": "claim-other-product", "project_id": "claim-owner-product-project", "role": "primary", "reason": "test", "expected_version": 1, "resulting_version": 2}),
+		},
+		ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectProduct, "claim-other-product"): 0},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if claimed, err := s.ClaimLinearOperationsForProduct(ctx, "claim-other-product", 1); err != nil {
+		t.Fatal(err)
+	} else if len(claimed) != 0 {
+		t.Fatalf("other Product claimed %d operation(s)", len(claimed))
+	}
+	claimed, err := s.ClaimLinearOperationsForProduct(ctx, "claim-owner-product", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(claimed) != 1 || claimed[0].OperationID != op.OperationID {
+		t.Fatalf("owner claims = %+v", claimed)
 	}
 }
 

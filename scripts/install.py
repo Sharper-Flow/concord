@@ -2039,6 +2039,8 @@ def cleanup_transaction(transaction_root: Path, journal: dict[str, object], path
     # itself anymore.
     if remove_old_version:
         remove_unheld_releases(journal, paths)
+        if journal.get("operation") == "uninstall":
+            unlink_worktrees_root(paths)
     live = transaction_root / "backup" / "live-version"
     if live.exists() or live.is_symlink():
         live.unlink() if live.is_symlink() else shutil.rmtree(live)
@@ -2207,6 +2209,7 @@ def install(args: argparse.Namespace) -> int:
         skill_path = stable_skill_path(paths)
         if config_plan.changed or manifest.get("skill_path") != skill_path:
             raise InstallerError("existing installation registration is incomplete; refusing an unsafe repair")
+        plan_worktrees_root_link(paths)
         ensure_secret_service_ready(paths)
         # An unchanged install still retries the release cleanup a previous
         # install skipped: a held release stays a candidate, so the removal
@@ -2232,7 +2235,11 @@ def install(args: argparse.Namespace) -> int:
             manifest["retained_releases"] = survivors
             manifest_bytes = json.dumps(manifest, indent=2, sort_keys=True) + "\n"
             write_atomic(paths.data_root / MANIFEST_NAME, manifest_bytes.encode("utf-8"))
-        print(f"Concord {version} is already installed; no changes made.")
+        linked_worktrees = link_worktrees_root(paths)
+        if linked_worktrees:
+            print(f"Concord {version} was already installed; restored the worktrees root conduct link.")
+        else:
+            print(f"Concord {version} is already installed; no changes made.")
         return 0
 
     with tempfile.TemporaryDirectory(prefix="concord-installer-") as temporary:
@@ -2300,6 +2307,7 @@ def install(args: argparse.Namespace) -> int:
             "retained_releases": retained,
         }
         new_manifest_bytes = (json.dumps(new_manifest, indent=2, sort_keys=True) + "\n").encode("utf-8")
+        plan_worktrees_root_link(paths)
         ensure_secret_service_ready(paths)
         transaction_root, journal = make_transaction(
             paths,
@@ -2330,6 +2338,7 @@ def install(args: argparse.Namespace) -> int:
         advance_phase(transaction_root, journal, "cleanup")
         verify_states(journal, paths, committed=True)
         cleanup_transaction(transaction_root, journal, paths)
+    link_worktrees_root(paths)
     print(f"Installed Concord {version} under {version_root}.")
     print(f"OpenCode custom tools installed under {paths.tools_dir}.")
     print(f"Concord agent definitions installed under {paths.agents_dir}.")
@@ -2422,6 +2431,9 @@ def plan_repair(
         repairs.add("restored the stable root")
     if config_plan.changed:
         repairs.add("restored the OpenCode registration")
+    _, _, worktrees_changed = plan_worktrees_root_link(paths)
+    if worktrees_changed:
+        repairs.add("restored the worktrees root conduct link")
     return repairs
 
 
@@ -2531,6 +2543,7 @@ def repair(args: argparse.Namespace) -> int:
         advance_phase(transaction_root, journal, "cleanup")
         verify_states(journal, paths, committed=True)
         cleanup_transaction(transaction_root, journal, paths)
+    link_worktrees_root(paths)
     print(f"Repaired Concord {installed}: {', '.join(sorted(repairs))}.")
     print("Verified the deployment against the release archive; the manifest matches the deployed files.")
     return 0
@@ -2573,6 +2586,7 @@ def uninstall(args: argparse.Namespace) -> int:
         new_config = remove_plugin_entry(remove_path_from_config(config_path, skill_path), plugin_entry_path(paths))
     else:
         new_config = None
+    plan_worktrees_root_unlink(paths)
     retained = retained_release_records(manifest)
     transaction_root, journal = make_transaction(
         paths,
@@ -2711,6 +2725,62 @@ def remove_conduct_entry(project_file: Path, conduct_entry: str) -> tuple[str, b
     if not parsed:
         return "", True
     return json.dumps(parsed, indent=2) + "\n", True
+
+
+def worktrees_root(paths: Paths) -> Path:
+    """Return the shared ancestor for Concord-created worktrees."""
+    return paths.data_root / "worktrees"
+
+
+def plan_worktrees_root_link(paths: Paths) -> tuple[Path, str, bool]:
+    """Plan the conduct pointer inherited by every Concord worktree."""
+    root = worktrees_root(paths)
+    if root.is_symlink():
+        raise InstallerError(f"refusing symlinked worktrees root {root}")
+    project_file = project_opencode_json(root)
+    new_text, changed = plan_project_link(project_file, conduct_instruction_entry(paths))
+    return project_file, new_text, changed
+
+
+def plan_worktrees_root_unlink(paths: Paths) -> tuple[Path, str, bool]:
+    """Plan removal of the conduct pointer without changing the worktree root."""
+    root = worktrees_root(paths)
+    if root.is_symlink():
+        raise InstallerError(f"refusing symlinked worktrees root {root}")
+    project_file = project_opencode_json(root)
+    new_text, changed = remove_conduct_entry(project_file, conduct_instruction_entry(paths))
+    return project_file, new_text, changed
+
+
+def link_worktrees_root(paths: Paths) -> bool:
+    """Register the installed conduct corpus for all generated worktrees."""
+    project_file, new_text, changed = plan_worktrees_root_link(paths)
+    if not changed:
+        return False
+    ensure_directory(project_file.parent, mode=0o755)
+    write_atomic(project_file, new_text.encode("utf-8"))
+    return True
+
+
+def unlink_worktrees_root(paths: Paths) -> bool:
+    """Remove only the installer-owned conduct pointer from the worktree root."""
+    root = worktrees_root(paths)
+    project_file, new_text, changed = plan_worktrees_root_unlink(paths)
+    if not changed:
+        return False
+    if new_text == "":
+        project_file.unlink()
+        try:
+            project_file.parent.rmdir()
+        except OSError:
+            pass
+    else:
+        write_atomic(project_file, new_text.encode("utf-8"))
+    try:
+        root.rmdir()
+    except OSError:
+        pass
+    return True
 
 
 def link(args: argparse.Namespace) -> int:

@@ -254,6 +254,98 @@ func TestRejectWorkerResultRecordsCorrectionContext(t *testing.T) {
 	}
 }
 
+func TestCorrectionDispatchClearsPinContextForLaterLane(t *testing.T) {
+	const workID = "work-c1b9adae6631673333fc94b8"
+	ctx := context.Background()
+	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", "repair")
+	s, owner := fixture.store, fixture.owner
+	defer s.Close()
+
+	ownerRef, err := WorkflowActorRef(owner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reviewer := acceptReturnRouteWorker(t, fixture, workID, ownerRef)
+	if err := runVerdictActionAs(t, s, workID, "record_verdict", json.RawMessage(`{"contract_version":1,"predicate_id":"predicate:return-route","verdict_kind":"outcome_mismatch","incomparable_with_approved":true}`), 0, reviewer); err != nil {
+		t.Fatalf("record non-ok verdict: %v", err)
+	}
+	correction := json.RawMessage(`{"diagnosis":"the repaired subject still reproduces the defect","strategy":"repeat the repair external effect","predicate_ids":["predicate:return-route"],"evidence_refs":["evidence:return-route-verification"]}`)
+	if err := runIssue933OperatorAction(t, s, workID, "request_correction", correction, owner, fixture.operator); err != nil {
+		t.Fatalf("request correction: %v", err)
+	}
+
+	pin := issue1013Pin(t, s, workID)
+	if pin.Correction == nil {
+		t.Fatal("work pin omitted the undischarged correction")
+	}
+	attemptID := "attempt:" + workID + ":corrective"
+	validatorCorrection, err := workflowCorrectionContextForDispatch(ctx, s.db, workID, "repair", attemptID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !sameWorkflowCorrection(pin.Correction, validatorCorrection) {
+		t.Fatalf("work pin correction=%#v, validator correction=%#v", pin.Correction, validatorCorrection)
+	}
+	withoutCorrection := dispatchWorkerPacket(workID, "repair", attemptID)
+	packetPayload, err := json.Marshal(withoutCorrection)
+	if err != nil {
+		t.Fatal(err)
+	}
+	withoutCorrectionPayload := mustJSONValue(map[string]any{"attempt_id": attemptID, "worker_packet": json.RawMessage(packetPayload)})
+	if _, err := invokeWorkflowActionForCD0059(context.Background(), t, s, WorkflowActionExecutionRequest{
+		WorkID: workID, ExpectedVersion: pin.Version, ActionID: "dispatch_worker", Payload: withoutCorrectionPayload, SessionWorktree: dispatchSessionWorktree(t, s, workID),
+		Actor: owner, AcceptedInputsDigest: "sha256:" + strings.Repeat("a", 64), IdempotencyIdentity: "dispatch-without-correction:" + workID, OperationID: "dispatch-without-correction:" + workID,
+		PrincipalRef: owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "dispatch-without-correction:" + workID, RequestID: "request:dispatch-without-correction:" + workID, ContractDigest: testManifestDigest, Now: time.Unix(40, 0).UTC(),
+	}); !hasFailureKind(err, KindInvalidPayload) {
+		t.Fatalf("dispatch without correction error=%v, want invalid_payload", err)
+	}
+
+	validPayload := issue1013CorrectionDispatchPayload(t, workID, "repair", attemptID, pin.Correction)
+	if _, err := invokeWorkflowActionForCD0059(ctx, t, s, WorkflowActionExecutionRequest{
+		WorkID: workID, ExpectedVersion: pin.Version, ActionID: "dispatch_worker", Payload: validPayload, SessionWorktree: dispatchSessionWorktree(t, s, workID),
+		Actor: owner, AcceptedInputsDigest: "sha256:" + strings.Repeat("b", 64), IdempotencyIdentity: "dispatch-corrective:" + workID, OperationID: "dispatch-corrective:" + workID,
+		PrincipalRef: owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "dispatch-corrective:" + workID, RequestID: "request:dispatch-corrective:" + workID, ContractDigest: testManifestDigest, Now: time.Unix(41, 0).UTC(),
+	}); err != nil {
+		t.Fatalf("corrective dispatch: %v", err)
+	}
+
+	lane := BuiltinLaneDefinitions()[0]
+	issue1013RecordWorkerDispatch(t, s, workID, attemptID)
+	if err := ApplyOperation(ctx, s, Operation{Events: []Event{{
+		EventID: "worker-completed-corrective-" + workID,
+		Kind:    WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID,
+		Actor: "worker:test", OccurredAt: time.Unix(41, 1).UTC(), PayloadVersion: 1,
+		Payload: mustJSONValue(WorkerCompletedPayload{AttemptID: attemptID, ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion}),
+	}}}); err != nil {
+		t.Fatalf("complete corrective worker attempt: %v", err)
+	}
+	var attemptEpoch int64
+	if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.attempt_epoch') FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker' ORDER BY seq DESC LIMIT 1`, workID, WorkflowActionStarted).Scan(&attemptEpoch); err != nil {
+		t.Fatal(err)
+	}
+	acceptor := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/correction-acceptor", SessionRef: "session/" + workID + "-acceptor", ActorClass: ActorAgent}
+	if err := runVerdictActionAs(t, s, workID, "accept_worker_result", mustJSONValue(map[string]any{"attempt_id": attemptID, "attempt_epoch": attemptEpoch}), 0, acceptor); err != nil {
+		t.Fatalf("accept corrective worker result: %v", err)
+	}
+
+	pin = issue1013Pin(t, s, workID)
+	if pin.Correction != nil {
+		t.Fatalf("work pin retained discharged correction: %#v", pin.Correction)
+	}
+	nextAttemptID := "attempt:" + workID + ":later"
+	nextPacket, err := json.Marshal(dispatchWorkerPacket(workID, "repair", nextAttemptID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := invokeWorkflowActionForCD0059(ctx, t, s, WorkflowActionExecutionRequest{
+		WorkID: workID, ExpectedVersion: pin.Version, ActionID: "dispatch_worker", Payload: mustJSONValue(map[string]any{"attempt_id": nextAttemptID, "worker_packet": json.RawMessage(nextPacket)}), SessionWorktree: dispatchSessionWorktree(t, s, workID),
+		Actor: owner, AcceptedInputsDigest: "sha256:" + strings.Repeat("c", 64), IdempotencyIdentity: "dispatch-later:" + workID, OperationID: "dispatch-later:" + workID,
+		PrincipalRef: owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "dispatch-later:" + workID, RequestID: "request:dispatch-later:" + workID, ContractDigest: testManifestDigest, Now: time.Unix(42, 0).UTC(),
+	}); err != nil {
+		t.Fatalf("dispatch after discharged correction: %v", err)
+	}
+}
+
 func TestWorkflowFourthCorrectionDispatchRefusesWithApprovalRequired(t *testing.T) {
 	const workID = "issue1013-fourth-correction-preflight"
 	s, owner, pin := seedIssue1013EscalatedCorrection(t, workID)

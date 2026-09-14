@@ -95,7 +95,8 @@ func ReadWorkPinTx(ctx context.Context, tx *sql.Tx, workID string) (WorkPin, err
 	}
 	pin.WorkID = workID
 	var definition WorkflowReadDefinition
-	if err := tx.QueryRowContext(ctx, `SELECT definition_ref,definition_version,definition_digest,current_step FROM workflow_instances WHERE work_id=?`, workID).Scan(&definition.Ref, &definition.Version, &definition.Digest, &pin.Step); err != nil {
+	var instanceState string
+	if err := tx.QueryRowContext(ctx, `SELECT definition_ref,definition_version,definition_digest,current_step,instance_state FROM workflow_instances WHERE work_id=?`, workID).Scan(&definition.Ref, &definition.Version, &definition.Digest, &pin.Step, &instanceState); err != nil {
 		if err == sql.ErrNoRows {
 			return pin, newFailure(KindProjectionNotFound, "work_pin", "workflow instance is not recorded", false, "reread_entities")
 		}
@@ -202,6 +203,16 @@ func ReadWorkPinTx(ctx context.Context, tx *sql.Tx, workID string) (WorkPin, err
 			pin.NextValidIntents = append(pin.NextValidIntents, workPinIntentForAction(workflowCorrectionActionDefinition(), pin.Version, "worker_result_rejection"))
 		}
 	}
+	// A closed instance admits no workflow action: WorkflowActionPreflight
+	// refuses every one against it. The pin states what the caller may do, so
+	// a terminal instance offers nothing. This clears the whole set after it
+	// is assembled, because each recovery branch above appends an action the
+	// same preflight would refuse. Instance states spell terminality with the
+	// same three words as lifecycles.
+	if isTerminalLifecycle(instanceState) {
+		pin.NextValidIntents = []WorkPinIntent{}
+	}
+
 	var watermark int64
 	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(seq),0) FROM domain_events WHERE subject_type='work_item' AND subject_id=?`, workID).Scan(&watermark); err != nil {
 		return pin, wrapFailure(KindUnavailable, "work_pin", "cannot read work watermark", true, "retry once the database is readable", err)

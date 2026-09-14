@@ -985,10 +985,6 @@ func publicRecovery(kind, proposed string) string {
 		return "contact_operator"
 	case "approval_required", "approval_invalid":
 		return "request_approval"
-	case "stale_law_revision":
-		return "request_approval"
-	case "domain_overlap":
-		return "request_approval"
 	case "invalid_transition", "invalid_relation", "invariant_violation", "invalid_input":
 		return "reread_entities"
 	case "not_terminal", "stale_requires_review", "idempotency_conflict", "degraded_not_allowed":

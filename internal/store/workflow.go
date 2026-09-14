@@ -1066,11 +1066,20 @@ func startExecutionLifecycleTx(ctx context.Context, tx *sql.Tx, event Event, kin
 		return nil
 	}
 	now := event.OccurredAt.UTC().Format(time.RFC3339Nano)
-	if _, err := tx.ExecContext(ctx, `UPDATE work_items SET lifecycle='in_progress', updated_at=? WHERE id=? AND lifecycle='needed'`, now, event.SubjectID); err != nil {
+	result, err := tx.ExecContext(ctx, `UPDATE work_items SET lifecycle='in_progress', updated_at=? WHERE id=? AND lifecycle='needed'`, now, event.SubjectID)
+	if err != nil {
 		return wrapFailure(KindUnavailable, "fold_event", "cannot start execution on the work item projection", true,
 			"retry once the database is writable", err)
 	}
-	return nil
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return wrapFailure(KindUnavailable, "fold_event", "cannot verify execution start on the work item projection", true,
+			"retry once the database is readable", err)
+	}
+	if affected == 0 {
+		return nil
+	}
+	return enqueueLinearIssueForLifecycleTx(ctx, tx, event.SubjectID, "in_progress", event.OccurredAt)
 }
 
 // Execution history and the current lease both prohibit self-evaluation.

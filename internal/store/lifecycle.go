@@ -898,9 +898,11 @@ func updateWorkLifecycle(ctx context.Context, tx *sql.Tx, event Event, lifecycle
 			"reload the work item before applying the lifecycle event")
 	}
 	if isTerminalLifecycle(lifecycle) {
-		return closeWorkflowInstanceForTerminalLifecycle(ctx, tx, event.SubjectID, lifecycle, now)
+		if err := closeWorkflowInstanceForTerminalLifecycle(ctx, tx, event.SubjectID, lifecycle, now); err != nil {
+			return err
+		}
 	}
-	return nil
+	return enqueueLinearIssueForLifecycleTx(ctx, tx, event.SubjectID, lifecycle, event.OccurredAt)
 }
 
 // closeWorkflowInstanceForTerminalLifecycle closes a live workflow instance in

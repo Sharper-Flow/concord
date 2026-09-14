@@ -1816,6 +1816,8 @@ test("portable continuation posture leaves host protocol names to the host surfa
   ]) {
     expect(continuationSource).not.toContain(hostTerm)
   }
+  expect(continuationSource).toContain("Do not end a turn to report progress.")
+  expect(continuationSource).toContain("A wait is not a stop.")
   expect(askingSource).toContain("Do not ask for permission to continue work already agreed")
   expect(continuationSource).not.toContain("Do not ask for general permission to continue")
   expect(continuationSource.match(/When you stop,/g)?.length).toBe(1)

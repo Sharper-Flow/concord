@@ -4,6 +4,14 @@ Continue an agreed task while a permitted next action exists and no operator
 decision, permission, credential, or action is required. Treat a progress report
 as information, not as a blocker.
 
+Do not end a turn to report progress. An update is not a decision, and a summary
+of finished steps does not need a reply. Continue until an operator decision is
+required, a boundary refuses, or the agreed end state is reached.
+
+A wait is not a stop. When an external check must finish before the next action,
+delegate the wait and act on the result in the same pass. A passed check is not a
+decision point.
+
 Keep authority boundaries separate. Inspect the owning surface before you
 describe a route, refusal, repair, or capability.
 Do not create a second policy, mutation route, approval record, or evidence path.

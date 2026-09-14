@@ -1221,7 +1221,7 @@ func foldWorkflowDecisionRecord(ctx context.Context, tx *sql.Tx, event Event, ra
 				continue
 			}
 			for _, field := range action.Payload.Fields {
-				if field.Name == "options_considered" && field.ItemRef == "decision_record_text" {
+				if field.Name == "options_considered" {
 					declaredBounds = true
 				}
 			}
@@ -1238,8 +1238,8 @@ func foldWorkflowDecisionRecord(ctx context.Context, tx *sql.Tx, event Event, ra
 			}
 		}
 	}
-	// Historical pins retain their byte bounds. Current typed records use the
-	// pinned payload contract for both preflight and replay validation.
+	// Typed records use their pinned payload contract for both preflight and
+	// replay. Legacy envelopes without declared fields retain their byte bounds.
 	if !declaredBounds && (!workflowString(checkpoint.Question, 4096) || !workflowList(checkpoint.Options, 16, 1) || (checkpoint.Decision != "accepted_decision" && checkpoint.Decision != "insufficient_evidence") || !workflowString(checkpoint.Rationale, 4096) || !workflowList(checkpoint.Consequences, 16, 1) || !workflowList(checkpoint.Inputs, 32, 1) || !workflowString(checkpoint.POCFindings, 4096)) {
 		return newFailure(KindInvalidPayload, "fold_event", "record_decision checkpoint is structurally invalid", false, "supply the complete typed decision record")
 	}

@@ -24,6 +24,70 @@ func TestLivenessPathIdentityPreservesOrderAndPayload(t *testing.T) {
 	}
 }
 
+func TestLivenessResolvesEngineOwnedRequestCorrection(t *testing.T) {
+	for _, definition := range BuiltinWorkflowDefinitions() {
+		if _, ok := livenessActionDefinition(definition, "request_correction"); !ok {
+			t.Errorf("%s omits the engine-owned correction payload", definition.Ref)
+		}
+		for _, step := range definition.StepGraph.Steps {
+			if !containsString(livenessDeclaredActions(definition, step.ID), "request_correction") {
+				t.Errorf("%s/%s never probes engine-owned correction", definition.Ref, step.ID)
+			}
+		}
+	}
+}
+
+func TestLivenessDisclosesOutcomeKindAndTokenOmissions(t *testing.T) {
+	for _, definition := range BuiltinWorkflowDefinitions() {
+		omissions := livenessOmittedVariants(definition)
+		for _, kind := range definition.OutcomeSchema.AllowedKinds {
+			if kind != definition.OutcomeSchema.DefaultKind && !containsString(omissions, "outcome_kind="+string(kind)) {
+				t.Errorf("%s silently omits outcome kind %s", definition.Ref, kind)
+			}
+		}
+		for i, token := range definition.OutcomeSchema.AllowedOutcomeTokens {
+			if i > 0 && !containsString(omissions, "outcome_token="+token) {
+				t.Errorf("%s silently omits outcome token %s", definition.Ref, token)
+			}
+		}
+	}
+}
+
+func TestLivenessOmitsUnrequestedOptionalDesignCorrection(t *testing.T) {
+	definition, err := BuiltinWorkflowDefinitionForRef("workflow.break_fix")
+	if err != nil {
+		t.Fatal(err)
+	}
+	action := workflowContractRecoveryActionDefinition()
+	raw, err := livenessPayload(definition.Definition, action, map[string]string{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &fields); err != nil {
+		t.Fatal(err)
+	}
+	if _, exists := fields["design_record"]; exists {
+		t.Error("unrequested optional design_record was synthesized")
+	}
+	if !containsString(livenessOmittedVariants(definition.Definition), "optional-presence:supersede_contract.design_record") {
+		t.Error("engine-owned optional design presence was not reported as unexamined")
+	}
+}
+
+func TestLivenessReportsOptionalPresenceSampling(t *testing.T) {
+	for _, definition := range BuiltinWorkflowDefinitions() {
+		omitted := livenessOmittedVariants(definition)
+		for _, action := range definition.ActionDefinitions {
+			for _, field := range action.Payload.Fields {
+				if !field.Required && !containsString(omitted, "optional-presence:"+action.ID+"."+field.Name) {
+					t.Errorf("%s omits presence coverage for %s.%s", definition.Ref, action.ID, field.Name)
+				}
+			}
+		}
+	}
+}
+
 func TestLivenessConclusionDoesNotConflateIncompleteAndSuccessful(t *testing.T) {
 	for _, result := range []livenessExploration{{}, {terminalStates: 1, depthBoundStates: 1}, {terminalStates: 1, omittedVariants: []string{"route"}}} {
 		if result.conclusion() != "inconclusive" {
@@ -33,8 +97,22 @@ func TestLivenessConclusionDoesNotConflateIncompleteAndSuccessful(t *testing.T) 
 	if (livenessExploration{terminalStates: 1}).conclusion() != "complete-within-model" {
 		t.Fatal("closed model lost its result")
 	}
-	if (livenessExploration{reports: []livenessReport{{}}, depthBoundStates: 1}).conclusion() != "counterexample" {
-		t.Fatal("cutoff concealed a finding")
+	if (livenessExploration{reports: []livenessReport{{}}}).conclusion() != "candidate-found" {
+		t.Fatal("closed exploration lost its candidate finding")
+	}
+}
+
+func TestLivenessTruncationNeverBecomesConclusive(t *testing.T) {
+	for _, result := range []livenessExploration{
+		{reports: []livenessReport{{}}, depthBoundStates: 1},
+		{reports: []livenessReport{{}}, omittedVariants: []string{"unexamined-exit"}},
+	} {
+		if result.conclusion() != "inconclusive" {
+			t.Fatalf("candidate report overrode incomplete exploration: %s", result.conclusion())
+		}
+		if len(result.reports) != 1 {
+			t.Fatal("inconclusive result lost its candidate finding")
+		}
 	}
 }
 
@@ -48,8 +126,68 @@ func TestLivenessDetectsSeededMissingExit(t *testing.T) {
 		}
 	}
 	result := livenessExplore(t, d)
-	if result.conclusion() != "counterexample" {
+	if len(result.reports) == 0 {
 		t.Fatalf("missing exit not detected: %+v", result)
+	}
+	if result.testedTransitions != 0 {
+		t.Fatalf("refused probes counted as admitted transitions: %d", result.testedTransitions)
+	}
+	if result.testedProbes == 0 {
+		t.Fatal("missing-exit fixture exercised no probes")
+	}
+}
+
+func TestLivenessExecutesGeneratedCorrection(t *testing.T) {
+	const workID = "liveness-generated-correction"
+	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.implementation", "execution")
+	ownerRef, err := WorkflowActorRef(fixture.owner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reviewer := acceptReturnRouteWorker(t, fixture, workID, ownerRef)
+	if err := runVerdictActionAs(t, fixture.store, workID, "record_verdict", json.RawMessage(`{"contract_version":1,"predicate_id":"predicate:return-route","verdict_kind":"outcome_mismatch","evaluation_evidence":["evidence:return-route-verification"],"incomparable_with_approved":true}`), 0, reviewer); err != nil {
+		t.Fatal(err)
+	}
+	definition, err := BuiltinWorkflowDefinitionForRef("workflow.implementation")
+	if err != nil {
+		t.Fatal(err)
+	}
+	step := currentStep(t, fixture.store, workID)
+	for _, move := range livenessStateMoves(t, definition.Definition, step) {
+		if move.action != "request_correction" {
+			continue
+		}
+		if err := livenessApply(context.Background(), fixture.store, workID, move, 100, true); err != nil {
+			t.Fatalf("generated correction cannot execute: %v", err)
+		}
+		if got := currentStep(t, fixture.store, workID); got != "execution" {
+			t.Fatalf("correction reached %s, want execution", got)
+		}
+		return
+	}
+	t.Fatal("no generated request_correction move")
+}
+
+func TestLivenessBindsCurrentAndSuccessorContractVersions(t *testing.T) {
+	const workID = "liveness-contract-versions"
+	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.implementation", "execution")
+	for _, scenario := range []struct {
+		action string
+		want   int64
+	}{{"supersede_contract", 2}, {"record_verdict", 1}} {
+		raw, err := livenessBindRecordedState(context.Background(), fixture.store, workID, scenario.action, json.RawMessage(`{"contract_version":99}`))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var fields struct {
+			Version int64 `json:"contract_version"`
+		}
+		if err := json.Unmarshal(raw, &fields); err != nil {
+			t.Fatal(err)
+		}
+		if fields.Version != scenario.want {
+			t.Errorf("%s version=%d, want %d", scenario.action, fields.Version, scenario.want)
+		}
 	}
 }
 
@@ -74,7 +212,7 @@ func TestLivenessExecutesAndRejectsUnapprovedCompletion(t *testing.T) {
 	d.Version = 1
 	d.StepGraph = graph([]WorkflowStep{step("discovery", WorkflowStepInternalSQLite, "record_discovery"), step("release", WorkflowStepInternalSQLite, "complete")}, forward("discovery", "release"), "release")
 	result := livenessExplore(t, d)
-	if result.terminalStates != 0 || result.conclusion() != "counterexample" {
+	if result.terminalStates != 0 || len(result.reports) == 0 {
 		t.Fatalf("terminal step hid rejected completion: %+v", result)
 	}
 }

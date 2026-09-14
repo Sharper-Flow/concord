@@ -454,8 +454,17 @@ func guardRecordedActorTuple(g *workflowActionGuardContext) error {
 	return nil
 }
 
-// The operator identity belongs only to approval-gated evaluation and premise
-// confirmation. A worker cannot acquire this authority through its report.
+// Only these operator-decision actions can carry a verified operator identity.
+// A worker cannot acquire that authority through its report.
+func workflowActionAllowsOperatorIdentity(actionID string) bool {
+	switch actionID {
+	case "confirm_premise", "record_verdict", "complete", "supersede_contract", "request_correction":
+		return true
+	default:
+		return false
+	}
+}
+
 func guardOperatorPremiseActor(g *workflowActionGuardContext) error {
 	if g.request.OperatorActor == nil {
 		if g.request.ActionID != "supersede_contract" && g.request.ActionID != "request_correction" {
@@ -480,7 +489,7 @@ func guardOperatorPremiseActor(g *workflowActionGuardContext) error {
 		}
 		return nil
 	}
-	if (g.request.ActionID != "confirm_premise" && g.request.ActionID != "record_verdict" && g.request.ActionID != "complete" && g.request.ActionID != "supersede_contract" && g.request.ActionID != "request_correction") || g.request.OperatorActor.ActorClass != ActorOperator {
+	if !workflowActionAllowsOperatorIdentity(g.request.ActionID) || g.request.OperatorActor.ActorClass != ActorOperator {
 		return newFailure(KindUnauthorized, "workflow_action", "operator actor is only valid for signed premise confirmation, contract correction, conditioned verdict, and completion", false, "use the verified approval identity")
 	}
 	ref, err := WorkflowActorRef(*g.request.OperatorActor)

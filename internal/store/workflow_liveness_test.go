@@ -70,6 +70,7 @@ type livenessExploration struct {
 	reports            []livenessReport
 	testedStates       int
 	testedTransitions  int
+	testedProbes       int
 	terminalStates     int
 	depthBoundStates   int
 	depthBoundStepHits map[string]int
@@ -77,10 +78,13 @@ type livenessExploration struct {
 }
 
 func (result livenessExploration) conclusion() string {
-	if len(result.reports) != 0 {
-		return "counterexample"
+	if result.depthBoundStates != 0 || len(result.omittedVariants) != 0 {
+		return "inconclusive"
 	}
-	if result.depthBoundStates != 0 || len(result.omittedVariants) != 0 || result.terminalStates == 0 {
+	if len(result.reports) != 0 {
+		return "candidate-found"
+	}
+	if result.terminalStates == 0 {
 		return "inconclusive"
 	}
 	return "complete-within-model"
@@ -107,15 +111,7 @@ func livenessActionDefinition(definition WorkflowDefinition, actionID string) (W
 			return action, true
 		}
 	}
-	switch actionID {
-	case "record_worker_failure":
-		return workerFailureRecoveryActionDefinition(), true
-	case "reject_worker_result":
-		return workflowCorrectionActionDefinition(), true
-	case "supersede_contract":
-		return workflowContractRecoveryActionDefinition(), true
-	}
-	return WorkflowActionDefinition{}, false
+	return workflowRecoveryActionDefinition(actionID)
 }
 
 // livenessVariants enumerates the enum combinations worth exploring for one
@@ -158,6 +154,9 @@ func livenessVariants(action WorkflowActionDefinition) []map[string]string {
 	const routingEnumMax = 4
 	enums := make([]WorkflowPayloadField, 0, 2)
 	for _, field := range action.Payload.Fields {
+		if action.ID == "supersede_contract" && field.Name == "outcome_kind" {
+			continue // This sampler uses the outcome_predicates arm.
+		}
 		if len(field.Enum) > 1 && len(field.Enum) <= routingEnumMax {
 			enums = append(enums, field)
 		}
@@ -184,11 +183,38 @@ func livenessVariants(action WorkflowActionDefinition) []map[string]string {
 func livenessOmittedVariants(definition WorkflowDefinition) []string {
 	const routingEnumMax = 4
 	omitted := []string{}
-	for _, action := range definition.ActionDefinitions {
-		for _, field := range action.Payload.Fields {
-			if len(field.Enum) > routingEnumMax {
-				omitted = append(omitted, action.ID+"."+field.Name)
+	seen := map[string]bool{}
+	for _, step := range definition.StepGraph.Steps {
+		for _, actionID := range livenessDeclaredActions(definition, step.ID) {
+			if seen[actionID] {
+				continue
 			}
+			seen[actionID] = true
+			action, ok := livenessActionDefinition(definition, actionID)
+			if !ok {
+				continue
+			}
+			for _, field := range action.Payload.Fields {
+				if !field.Required {
+					omitted = append(omitted, "optional-presence:"+action.ID+"."+field.Name)
+				}
+				if field.SchemaRef != "" || field.ItemRef != "" {
+					omitted = append(omitted, "schema-values:"+action.ID+"."+field.Name)
+				}
+				if len(field.Enum) > routingEnumMax {
+					omitted = append(omitted, action.ID+"."+field.Name)
+				}
+			}
+		}
+	}
+	for _, kind := range definition.OutcomeSchema.AllowedKinds {
+		if kind != definition.OutcomeSchema.DefaultKind {
+			omitted = append(omitted, "outcome_kind="+string(kind))
+		}
+	}
+	for i, token := range definition.OutcomeSchema.AllowedOutcomeTokens {
+		if definition.OutcomeSchema.DefaultKind != PredicateOutcome || i > 0 {
+			omitted = append(omitted, "outcome_token="+token)
 		}
 	}
 	return omitted
@@ -491,20 +517,17 @@ func livenessPayload(definition WorkflowDefinition, action WorkflowActionDefinit
 			fields[field.Name] = livenessSubjectRef
 			continue
 		}
-		// A structural object or array carries its real contract in a
-		// dedicated validator rather than in the registry declaration, so the
-		// declaration alone is not enough to build one. An optional field of
-		// that shape is omitted; a required one must be declared in the
-		// override table below, and the KindInvalidPayload guard fails the run
-		// when it is not.
-		if !field.Required && (field.ValueType == PayloadObject || field.ValueType == PayloadArray) && field.SchemaRef == "" {
-			continue
-		}
 		// architecture_binding is required when the definition changes Product
 		// truth and refused when it does not. The declaration says only that
 		// the field is optional, so the condition is applied here; it is the
 		// one structural rule the published contract still cannot state.
 		if field.Name == "architecture_binding" && (definition.ChangesProductTruth == nil || !*definition.ChangesProductTruth) {
+			continue
+		}
+		// Optional structured values can request distinct effects, such as
+		// replacing a design. A schema reference does not require their presence.
+		// State-bound outcomes and architecture bindings are handled explicitly.
+		if !field.Required && (field.ValueType == PayloadObject || field.ValueType == PayloadArray) && variant[field.Name] == "" && field.Name != "architecture_binding" {
 			continue
 		}
 		value := livenessValue(field, variant[field.Name])
@@ -641,7 +664,7 @@ func livenessApply(ctx context.Context, s *Store, workID string, move livenessMo
 	var operator *WorkflowActor
 	selectedChoice := ""
 	decisionDigest := ""
-	if move.action == "record_verdict" || move.action == "confirm_premise" || move.action == "complete" {
+	if workflowActionAllowsOperatorIdentity(move.action) {
 		operatorActor := livenessOperator()
 		operator = &operatorActor
 	}
@@ -660,7 +683,7 @@ func livenessApply(ctx context.Context, s *Store, workID string, move livenessMo
 		// the control this explorer must not defeat.
 	}
 	actor := livenessActionActor(move.action)
-	payload, bindErr := livenessBindRecordedState(ctx, s, workID, move.payload)
+	payload, bindErr := livenessBindRecordedState(ctx, s, workID, move.action, move.payload)
 	if bindErr != nil {
 		return bindErr
 	}
@@ -711,12 +734,42 @@ func livenessApply(ctx context.Context, s *Store, workID string, move livenessMo
 // is recorded state. The engine joins these against committed rows, so a value
 // synthesized from the declaration alone refuses on the join, and every state
 // behind that refusal reads as stranded when it is not.
-func livenessBindRecordedState(ctx context.Context, s *Store, workID string, raw json.RawMessage) (json.RawMessage, error) {
+func livenessBindRecordedState(ctx context.Context, s *Store, workID, actionID string, raw json.RawMessage) (json.RawMessage, error) {
 	fields := map[string]json.RawMessage{}
 	if err := json.Unmarshal(raw, &fields); err != nil {
 		return raw, nil
 	}
 	bound := map[string]any{}
+	if _, declared := fields["contract_version"]; declared {
+		var version int64
+		if err := s.db.QueryRowContext(ctx, `SELECT COALESCE(MAX(contract_version),0) FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL`, workID).Scan(&version); err != nil {
+			return nil, err
+		}
+		if actionID == "supersede_contract" {
+			version++
+		}
+		if version > 0 {
+			bound["contract_version"] = version
+		}
+	}
+	if actionID == "request_correction" {
+		entry, err := VerifyWorkflowInstanceDefinition(ctx, s, BuiltinWorkflowRegistry(), workID)
+		if err != nil {
+			return nil, err
+		}
+		step, err := livenessStep(ctx, s, workID)
+		if err != nil {
+			return nil, err
+		}
+		correction, err := workflowVerdictCorrectionContext(ctx, s.db, workID, entry.Definition, step, "liveness")
+		if err != nil {
+			return nil, err
+		}
+		if correction != nil {
+			bound["predicate_ids"] = correction.PredicateIDs
+			bound["evidence_refs"] = correction.EvidenceRefs
+		}
+	}
 	subject := livenessSubjectRef
 	if string(fields["evidence_kind"]) == `"native_run"` {
 		if err := s.db.QueryRowContext(ctx, `SELECT observation_id FROM workflow_native_runs WHERE work_id=? ORDER BY recorded_at DESC LIMIT 1`, workID).Scan(&subject); err != nil {
@@ -973,6 +1026,7 @@ func livenessExplore(t *testing.T, definition WorkflowDefinition) livenessExplor
 	omittedVariants = append(omittedVariants, "host-dispatch", "context-continuity", "external-environment-transitions")
 	testedStates := 0
 	testedTransitions := 0
+	testedProbes := 0
 	terminalStates := 0
 	seen := map[string]bool{}
 	cache := livenessReplayCache{}
@@ -998,7 +1052,7 @@ func livenessExplore(t *testing.T, definition WorkflowDefinition) livenessExplor
 		}
 		testedStates++
 		if testedStates == 1 || testedStates%16 == 0 {
-			t.Logf("exploration progress: states=%d probes=%d frontier=%d", testedStates, testedTransitions, len(queue))
+			t.Logf("exploration progress: states=%d probes=%d transitions=%d frontier=%d", testedStates, testedProbes, testedTransitions, len(queue))
 		}
 		state, completions, completionErr := livenessCompletion(ctx, s, workID)
 		if completionErr != nil {
@@ -1024,7 +1078,7 @@ func livenessExplore(t *testing.T, definition WorkflowDefinition) livenessExplor
 			if livenessContinuityAction(move.action) || move.action == "dispatch_worker" {
 				continue
 			}
-			testedTransitions++
+			testedProbes++
 			probeErr := livenessApply(ctx, s, workID, move, len(path), false)
 			kind := ""
 			detail := ""
@@ -1037,6 +1091,7 @@ func livenessExplore(t *testing.T, definition WorkflowDefinition) livenessExplor
 			}
 			probes = append(probes, livenessProbe{move: move, failure: detail, failKind: kind})
 			if probeErr == nil {
+				testedTransitions++
 				advancing = append(advancing, move)
 			}
 		}
@@ -1056,7 +1111,7 @@ func livenessExplore(t *testing.T, definition WorkflowDefinition) livenessExplor
 	for _, count := range depthBoundStepHits {
 		depthBoundStates += count
 	}
-	return livenessExploration{reports: reports, testedStates: testedStates, testedTransitions: testedTransitions, terminalStates: terminalStates, depthBoundStates: depthBoundStates, depthBoundStepHits: depthBoundStepHits, omittedVariants: omittedVariants}
+	return livenessExploration{reports: reports, testedStates: testedStates, testedTransitions: testedTransitions, testedProbes: testedProbes, terminalStates: terminalStates, depthBoundStates: depthBoundStates, depthBoundStepHits: depthBoundStepHits, omittedVariants: omittedVariants}
 }
 
 // livenessStateMoves builds every action variant the step declares.
@@ -1086,7 +1141,12 @@ func livenessContinuityAction(actionID string) bool {
 func livenessDeclaredActions(definition WorkflowDefinition, stepID string) []string {
 	// These engine-owned recovery routes may be admitted outside the step's
 	// action list. The real preflight, not this enumeration, decides admission.
-	actions := []string{"bind_evidence", "record_verdict", "record_worker_failure", "reject_worker_result", "supersede_contract"}
+	actions := []string{"bind_evidence"}
+	for id := range builtinActionPolicies {
+		if _, ok := workflowRecoveryActionDefinition(id); ok {
+			actions = append(actions, id)
+		}
+	}
 	for _, step := range definition.StepGraph.Steps {
 		if step.ID == stepID {
 			for _, action := range step.Actions {
@@ -1135,7 +1195,7 @@ func TestBuiltinWorkflowExplorationReportsNoObservedStrandedState(t *testing.T) 
 			if len(result.omittedVariants) != 0 {
 				t.Logf("inconclusive: omitted enum variants for %s", strings.Join(result.omittedVariants, ", "))
 			}
-			t.Logf("coverage: states=%d transitions=%d terminal_states=%d", result.testedStates, result.testedTransitions, result.terminalStates)
+			t.Logf("coverage: states=%d probes=%d admitted_transitions=%d terminal_states=%d", result.testedStates, result.testedProbes, result.testedTransitions, result.terminalStates)
 			if result.conclusion() == "inconclusive" {
 				t.Skip("inconclusive exploration; required completion witnesses run separately")
 			}

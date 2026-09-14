@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -40,6 +41,39 @@ func TestDecisionRecordCurrentBoundsMatchFold(t *testing.T) {
 		if err := validateWorkflowActionPayload(d, "record_decision", raw); err == nil {
 			t.Errorf("accepted out-of-bounds item length %d", len(text))
 		}
+	}
+}
+
+func TestV5DeclaredDecisionBoundsMatchFold(t *testing.T) {
+	for _, length := range []int{1, 129} {
+		t.Run(fmt.Sprint(length), func(t *testing.T) {
+			ctx := context.Background()
+			s := openTemp(t)
+			workID := "work-v5-decision-bounds"
+			seedStepWork(t, s, workID)
+			d := releasedArchitectureSpikeV5()
+			initializeStepWorkflow(t, s, workID, d)
+			fields := map[string]any{"question": "question", "options_considered": []string{strings.Repeat("x", length)}, "decision": "accepted_decision", "rationale": "rationale", "consequences": []string{"consequence"}, "inputs": []string{"input"}, "poc_findings": "findings"}
+			raw, err := json.Marshal(fields)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := validateWorkflowActionPayload(d, "record_decision", raw); err != nil {
+				t.Fatal(err)
+			}
+			envelope, _ := json.Marshal(map[string]any{"action_id": "record_decision", "fields": fields})
+			if err := s.Transact(ctx, func(tx *Transaction) error {
+				if err := enterFold(ctx, tx.tx); err != nil {
+					return err
+				}
+				if err := foldWorkflowDecisionRecord(ctx, tx.tx, Event{SubjectID: workID, OccurredAt: time.Unix(100, 0)}, envelope); err != nil {
+					return err
+				}
+				return leaveFold(ctx, tx.tx)
+			}); err != nil {
+				t.Fatalf("v5 declaration-valid item length %d refused by fold: %v", length, err)
+			}
+		})
 	}
 }
 

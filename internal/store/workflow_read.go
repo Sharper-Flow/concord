@@ -115,15 +115,16 @@ type WorkflowReadNotice struct {
 // read surfaces. All values are derived from event-folded projections and the
 // pinned definition; it is intentionally not an authority for mutation.
 type WorkflowReadProjection struct {
-	WorkID               string                    `json:"work_id"`
-	State                string                    `json:"state"`
-	CurrentStep          string                    `json:"current_step"`
-	Definition           WorkflowReadDefinition    `json:"definition"`
-	Contract             *WorkflowReadContract     `json:"contract,omitempty"`
-	OperatorQuestion     *WorkflowOperatorQuestion `json:"operator_question,omitempty"`
-	CandidateIDs         []string                  `json:"candidate_ids"`
-	Conditions           []WorkflowReadCondition   `json:"conditions"`
-	UnresolvedConditions []string                  `json:"unresolved_conditions"`
+	WorkID                   string                            `json:"work_id"`
+	State                    string                            `json:"state"`
+	CurrentStep              string                            `json:"current_step"`
+	Definition               WorkflowReadDefinition            `json:"definition"`
+	Contract                 *WorkflowReadContract             `json:"contract,omitempty"`
+	OperatorQuestion         *WorkflowOperatorQuestion         `json:"operator_question,omitempty"`
+	WithheldOperatorQuestion *WorkflowOperatorQuestionWithheld `json:"withheld_operator_question,omitempty"`
+	CandidateIDs             []string                          `json:"candidate_ids"`
+	Conditions               []WorkflowReadCondition           `json:"conditions"`
+	UnresolvedConditions     []string                          `json:"unresolved_conditions"`
 	// OverdueAwaits lists condition ids whose wait exceeded the declared
 	// bound, derived at read time — the waiting/never-completable split.
 	OverdueAwaits        []string                     `json:"overdue_awaits"`
@@ -445,7 +446,7 @@ func readWorkflowSummaryTx(ctx context.Context, tx *sql.Tx, workID string) (*Wor
 		if err := tx.QueryRowContext(ctx, `SELECT version FROM work_items WHERE id=?`, workID).Scan(&workVersion); err != nil {
 			return nil, wrapFailure(KindUnavailable, "workflow_read", "cannot read workflow history version", true, "retry once the database is readable", err)
 		}
-		out.OperatorQuestion, err = workflowOperatorQuestionTx(ctx, tx, workID, out.CurrentStep, workVersion, out.Definition, contract)
+		out.OperatorQuestion, out.WithheldOperatorQuestion, err = workflowOperatorQuestionTx(ctx, tx, workID, out.CurrentStep, workVersion, out.Definition, contract)
 		if err != nil {
 			return nil, err
 		}

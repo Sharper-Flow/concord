@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"strconv"
-	"strings"
 	"testing"
 	"time"
 )
@@ -45,10 +44,8 @@ func TestWorktreeAuditClassifiesTerminalPresentWorktrees(t *testing.T) {
 	}
 }
 
-// The audit performs the one safe action it names: reclaim a terminal
-// worktree, through the same gates a direct reclaim runs. Every other class
-// stays report-only, and a row the gates refuse is reported typed rather
-// than skipped silently.
+// The audit reclaims a clean terminal worktree and reports content risk without
+// recommending reclaim.
 func TestWorktreeAuditReclaimsMergedTerminalWork(t *testing.T) {
 	s, git, _ := worktreeFixture(t)
 	ctx := context.Background()
@@ -71,8 +68,11 @@ func TestWorktreeAuditReclaimsMergedTerminalWork(t *testing.T) {
 	if got := outcomes["work-done"]; got.Outcome != WorktreeAuditReclaimed || got.Path != donePath {
 		t.Fatalf("merged terminal worktree: %+v", got)
 	}
-	if got := outcomes["work-dirty"]; got.Outcome != WorktreeAuditRefused || got.RefusalKind != string(KindInvalidOperation) || !strings.Contains(got.Detail, "dirty") {
-		t.Fatalf("dirty terminal worktree must be refused typed, got %+v", got)
+	if _, present := outcomes["work-dirty"]; present {
+		t.Fatalf("dirty terminal worktree must not enter the reclaim pass: %+v", outcomes["work-dirty"])
+	}
+	if len(result.ReportOnly) != 1 || result.ReportOnly[0].Class != WorktreeDriftUncommittedContent || result.ReportOnly[0].WorkID != "work-dirty" {
+		t.Fatalf("dirty terminal worktree must be report-only, got %+v", result.ReportOnly)
 	}
 	if _, present := outcomes["work-live"]; present {
 		t.Fatalf("live work must not appear in a reclaim pass: %+v", outcomes["work-live"])
@@ -179,9 +179,9 @@ func TestWorktreeAuditReclaimRefusesOccupiedWorktree(t *testing.T) {
 // A needed work item whose claimed worktree is present, clean, and holds no
 // commit beyond the default ref is unstarted drift (CD-0118): the checkout
 // cost is real, nothing a merge could lose exists, and the audit names the
-// same reclaim the terminal class names. Work in flight — a dirty tree or a
-// branch with commits — stays healthy, and so does work that has moved past
-// needed.
+// same reclaim the terminal class names. A dirty tree or a branch with commits
+// is reported through a content-risk class, and work past needed stays outside
+// the unstarted class.
 func TestWorktreeAuditClassifiesUnstartedPresentWorktrees(t *testing.T) {
 	s, git, _ := worktreeFixture(t)
 	ctx := context.Background()
@@ -212,9 +212,13 @@ func TestWorktreeAuditClassifiesUnstartedPresentWorktrees(t *testing.T) {
 	}
 	for _, row := range audit.Drift {
 		switch row.WorkID {
-		case "work-ahead", "work-dirty-unstarted", "work-started":
+		case "work-ahead", "work-started":
 			t.Fatalf("work in flight or started classified as drift: %+v", row)
 		}
+	}
+	dirtyRows := auditRowsByClass(audit.Drift)[WorktreeDriftUncommittedContent]
+	if len(dirtyRows) != 1 || dirtyRows[0].WorkID != "work-dirty-unstarted" || dirtyRows[0].RecoveryAction != WorktreeRecoveryInspect {
+		t.Fatalf("dirty worktree content row=%+v", dirtyRows)
 	}
 }
 
@@ -267,6 +271,48 @@ func TestWorktreeAuditReclaimsUnstartedPresentWorktrees(t *testing.T) {
 		if row.WorkID == "work-unstarted" && row.Outcome == WorktreeAuditReclaimed {
 			t.Fatalf("second pass reclaimed again: %+v", row)
 		}
+	}
+}
+
+func TestWorktreeAuditProtectsUncommittedAndUnpushedContent(t *testing.T) {
+	s, git, _ := worktreeFixture(t)
+	ctx := context.Background()
+	dirtyPath := auditWork(t, s, git, "work-dirty-content", true)
+	git.dirty[dirtyPath] = true
+	unpushedPath := auditWork(t, s, git, "work-unpushed-content", true)
+	git.unpushed["work/work-unpushed-content"] = 2
+	completeAuditWork(t, s, "work-dirty-content", 3)
+	completeAuditWork(t, s, "work-unpushed-content", 3)
+
+	audit, err := s.WorktreeAudit(ctx, WorktreeAuditRequest{ProductID: "product-w", Limit: 100, Runner: git, DefaultRef: "origin/main"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	byClass := auditRowsByClass(audit.Drift)
+	dirty := byClass[WorktreeDriftUncommittedContent]
+	if len(dirty) != 1 || dirty[0].WorkID != "work-dirty-content" || dirty[0].Path != dirtyPath || dirty[0].Lifecycle != "completed" || dirty[0].Risk != "uncommitted changes" || dirty[0].RecoveryAction != WorktreeRecoveryInspect {
+		t.Fatalf("uncommitted content rows=%+v", dirty)
+	}
+	unpushed := byClass[WorktreeDriftUnpushedContent]
+	if len(unpushed) != 1 || unpushed[0].WorkID != "work-unpushed-content" || unpushed[0].Path != unpushedPath || unpushed[0].Lifecycle != "completed" || unpushed[0].Risk != "unpushed commits" || unpushed[0].UnpushedCommits != 2 || unpushed[0].RecoveryAction != WorktreeRecoveryInspect {
+		t.Fatalf("unpushed content rows=%+v", unpushed)
+	}
+	if len(byClass[WorktreeDriftTerminalPresent]) != 0 {
+		t.Fatalf("content-bearing terminal worktrees must not recommend reclaim: %+v", byClass[WorktreeDriftTerminalPresent])
+	}
+
+	result, err := s.WorktreeAuditReclaim(ctx, WorktreeAuditReclaimRequest{ProductID: "product-w", DefaultRef: "origin/main", PrincipalRef: "principal-1", RequestID: "content-risk-pass", Now: time.Unix(40, 0).UTC(), Runner: git, Limit: 100})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Rows) != 0 || len(result.ReportOnly) != 2 {
+		t.Fatalf("content-bearing worktrees must stay report-only: rows=%+v report_only=%+v", result.Rows, result.ReportOnly)
+	}
+	if _, present := git.worktrees[dirtyPath]; !present {
+		t.Fatal("uncommitted content worktree was removed")
+	}
+	if _, present := git.worktrees[unpushedPath]; !present {
+		t.Fatal("unpushed content worktree was removed")
 	}
 }
 

@@ -135,57 +135,100 @@ function schemaName(ref: string): string {
   return name
 }
 
-function collectSchemaRefs(value: unknown, names: Set<string>): void {
-  if (Array.isArray(value)) {
-    for (const item of value) collectSchemaRefs(item, names)
-    return
-  }
-  if (typeof value !== "object" || value === null) return
-  for (const [key, item] of Object.entries(value)) {
-    if (key === "$ref" && typeof item === "string" && item.startsWith("#/$defs/")) names.add(schemaName(item))
-    else collectSchemaRefs(item, names)
-  }
+const hostSchemaStructuralKeys = new Set(["$defs", "$ref", "additionalProperties", "allOf", "anyOf", "definitions", "else", "if", "not", "oneOf", "properties", "required", "then"])
+
+function sameSchema(left: unknown, right: unknown): boolean {
+  return JSON.stringify(left) === JSON.stringify(right)
 }
 
-function rewriteSchemaRefs(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(rewriteSchemaRefs)
-  if (typeof value !== "object" || value === null) return value
-  return Object.fromEntries(Object.entries(value).map(([key, item]) => [
-    key,
-    key === "$ref" && typeof item === "string" && item.startsWith("#/$defs/")
-      ? `#/properties/request/definitions/${schemaName(item)}`
-      : rewriteSchemaRefs(item),
-  ]))
+function mergeHostSchemas(schemas: JSONSchema[]): JSONSchema {
+  if (schemas.length === 0) return {}
+  if (schemas.every((schema) => sameSchema(schema, schemas[0]))) return schemas[0]
+
+  const objectLike = schemas.some((schema) => schema.type === "object" || schema.properties !== undefined)
+  if (objectLike) {
+    const properties: Record<string, unknown> = {}
+    for (const schema of schemas) {
+      for (const [name, property] of Object.entries((schema.properties ?? {}) as Record<string, unknown>)) {
+        const previous = properties[name]
+        properties[name] = previous === undefined
+          ? property
+          : mergeHostSchemas([previous as JSONSchema, property as JSONSchema])
+      }
+    }
+    return { type: "object", properties, required: [], additionalProperties: true }
+  }
+
+  const result: JSONSchema = {}
+  for (const [key, value] of Object.entries(schemas[0])) {
+    if (hostSchemaStructuralKeys.has(key)) continue
+    if (schemas.every((schema) => sameSchema(schema[key], value))) result[key] = value
+  }
+  const inferredTypes = schemas.map((schema) => {
+    if (typeof schema.type === "string") return schema.type
+    if (schema.type !== undefined) return JSON.stringify(schema.type)
+    if (schema.const !== undefined) return typeof schema.const
+    if (Array.isArray(schema.enum) && schema.enum.length > 0) return typeof schema.enum[0]
+    return ""
+  }).filter(Boolean)
+  if (inferredTypes.length > 0 && inferredTypes.every((type) => type === inferredTypes[0])) result.type = inferredTypes[0]
+  return result
+}
+
+function flattenHostSchema(value: unknown, resolving = new Set<string>()): JSONSchema {
+  if (Array.isArray(value) || typeof value !== "object" || value === null) return {}
+  const schema = value as JSONSchema
+  if (typeof schema.$ref === "string") {
+    const name = schemaName(schema.$ref)
+    if (resolving.has(name)) return {}
+    const next = new Set(resolving)
+    next.add(name)
+    return flattenHostSchema((payloadSchemas as Record<string, unknown>)[name], next)
+  }
+
+  const combinations = ["oneOf", "anyOf", "allOf", "then", "else"]
+    .flatMap((key) => Array.isArray(schema[key]) ? schema[key] as unknown[] : schema[key] === undefined ? [] : [schema[key]])
+  if (combinations.length > 0) {
+    const base = Object.fromEntries(Object.entries(schema).filter(([key]) => !hostSchemaStructuralKeys.has(key)))
+    const branches = [base, ...combinations].map((branch) => flattenHostSchema(branch, resolving))
+    return mergeHostSchemas(branches)
+  }
+
+  const result: JSONSchema = {}
+  for (const [key, child] of Object.entries(schema)) {
+    if (hostSchemaStructuralKeys.has(key)) continue
+    if (key === "items") {
+      result[key] = Array.isArray(child) ? child.map((item) => flattenHostSchema(item, resolving)) : flattenHostSchema(child, resolving)
+    } else {
+      result[key] = child
+    }
+  }
+  if (schema.properties !== undefined || schema.type === "object") {
+    result.type = "object"
+    result.properties = Object.fromEntries(Object.entries((schema.properties ?? {}) as Record<string, unknown>).map(([name, property]) => [name, flattenHostSchema(property, resolving)]))
+    result.required = []
+    result.additionalProperties = true
+  }
+  return result
 }
 
 export function publishedRequestSchema(toolName: string): JSONSchema {
   const operations = contractOperations.filter((operation: any) => operation.tool === toolName)
   if (operations.length === 0) throw new Error(`tool ${toolName} has no generated operations`)
+  // The host receives one permissive request shape. ValidateOperationPayload
+  // remains the closed operation boundary because it runs after host delivery.
   const publicInputSchema = (operation: any): string => operation.id === "concord_work_transition.workflow_action"
     ? "work_transition_action_public_input"
     : schemaName(operation.input_schema)
-  const needed = new Set<string>(operations.map(publicInputSchema))
-  const definitions: Record<string, unknown> = {}
-  while (true) {
-    const pending = [...needed].filter((name) => !Object.hasOwn(definitions, name)).sort()
-    if (pending.length === 0) break
-    for (const name of pending) {
-      const schema = (payloadSchemas as Record<string, unknown>)[name]
-      collectSchemaRefs(schema, needed)
-      definitions[name] = rewriteSchemaRefs(schema)
-    }
-  }
+  const input = mergeHostSchemas(operations.map((operation: any) => flattenHostSchema((payloadSchemas as Record<string, unknown>)[publicInputSchema(operation)])))
   return {
-    oneOf: operations.map((operation: any) => ({
-      type: "object",
-      additionalProperties: false,
-      required: ["operation", "input"],
-      properties: {
-        operation: { type: "string", const: operation.id.slice(operation.id.indexOf(".") + 1) },
-        input: { $ref: `#/properties/request/definitions/${publicInputSchema(operation)}` },
-      },
-    })),
-    definitions,
+    type: "object",
+    additionalProperties: false,
+    required: ["operation", "input"],
+    properties: {
+      operation: { type: "string", enum: operations.map((operation: any) => operation.id.slice(operation.id.indexOf(".") + 1)) },
+      input,
+    },
   }
 }
 
@@ -350,6 +393,22 @@ async function resolveSessionDirectory(context: ToolContext): Promise<string> {
   }
 }
 
+const DECISION_CONTEXT_DIGEST_SHAPE = /^sha256:[0-9a-f]{64}$/
+
+// confirmPremiseInputFault names the one input that fails the confirm_premise
+// gate, so a caller learns which field to correct rather than a conjunction of
+// two independent requirements. It returns an empty string when both hold.
+function confirmPremiseInputFault(input: any): string {
+  const choice = input.selected_choice
+  const digest = input.decision_context_digest
+  if (choice === undefined) return "confirm_premise requires selected_choice; supply the closed choice \"confirm\""
+  if (choice !== "confirm") return `confirm_premise admits only selected_choice "confirm"; this request sent ${JSON.stringify(choice)}`
+  if (digest === undefined) return "confirm_premise requires decision_context_digest; read the canonical value from the work item's pending_operator_decision, it cannot be computed by the caller"
+  if (typeof digest !== "string") return `confirm_premise requires decision_context_digest as a string; this request sent ${typeof digest}`
+  if (!DECISION_CONTEXT_DIGEST_SHAPE.test(digest)) return `decision_context_digest must match sha256: followed by 64 lowercase hex characters; this request sent ${JSON.stringify(digest)}, which the core would refuse. Read the canonical value from the work item's pending_operator_decision`
+  return ""
+}
+
 // invokeConcordOperation is the single `concord project-resolve` + `concord invoke`
 // transport for every adapter surface, including host-side callers outside the
 // tool exports below. It owns envelope construction, the closed core-response
@@ -363,9 +422,8 @@ async function invokeConcordOperationRaw(toolName: string, args: HostToolArgs, c
   const leaseFault = hostLeaseFault()
   if (leaseFault) return adapterError(toolName, operation, requestID, "transport_failure", "host_lease_missing", `${leaseFault}; no operation ran`, "none", "contact_operator")
   if (toolName === "concord_work_transition" && operation === "workflow_action" && args.input?.action_id === "confirm_premise") {
-    if (args.input.selected_choice !== "confirm" || typeof args.input.decision_context_digest !== "string" || !/^sha256:[0-9a-f]{64}$/.test(args.input.decision_context_digest)) {
-      return adapterError(toolName, operation, requestID, "invalid_input", "missing_question_selection", "confirm_premise requires the closed confirm choice and a decision context digest", "none", "reread_entities")
-    }
+    const detail = confirmPremiseInputFault(args.input)
+    if (detail) return adapterError(toolName, operation, requestID, "invalid_input", "missing_question_selection", detail, "none", "reread_entities")
   }
   let ambient: AmbientContext
   let sessionDirectory: string

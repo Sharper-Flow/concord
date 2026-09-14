@@ -7,6 +7,8 @@ import (
 	"testing"
 
 	"github.com/sharper-flow/concord/internal/store"
+
+	"github.com/sharper-flow/concord/internal/payloadschema"
 )
 
 // The store's write validation and the generated continuity read schema must
@@ -17,7 +19,7 @@ import (
 func schemaDef(t *testing.T, name string) map[string]any {
 	t.Helper()
 	var document map[string]any
-	if err := json.Unmarshal([]byte(GeneratedPayloadSchemaDocument), &document); err != nil {
+	if err := json.Unmarshal([]byte(payloadschema.GeneratedPayloadSchemaDocument), &document); err != nil {
 		t.Fatalf("generated schema does not parse: %v", err)
 	}
 	defs, ok := document["$defs"].(map[string]any)

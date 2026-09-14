@@ -33,7 +33,7 @@ import { createContinuityTransform } from "./continuity-hook"
 import { createAgentSwitchNotice } from "./agent-switch-hook"
 import { dispatchWindows, DispatchWindowError, TASK_TOOL_ID } from "./dispatch-window"
 import { agentLanes, agentUtilities } from "./generated-agent-lanes"
-import { completeDispatchedWorker } from "./lane_completion"
+import { completeDispatchedWorker, failDispatchedWorker } from "./lane_completion"
 import { hostControlPlane, SessionScopeUnavailable } from "./move-session"
 import { claimHostLease } from "./host-lease"
 import { clearTurnMoveBoundary, questionRequiresNormalChat, TURN_MOVE_QUESTION_REFUSAL } from "./turn-move-boundary"
@@ -73,6 +73,12 @@ export default async function ConcordAdapterPlugin(input?: Partial<PluginInput>)
       await agentSwitch.chatMessage(input)
     },
     "tool.definition": publishWorkStartDefinition,
+    event: async ({ event }: { event: unknown }) => {
+      const result = await failDispatchedWorker(event)
+      if (result?.error) {
+        await input?.client?.app.log({ body: { service: "concord", level: "error", message: JSON.stringify(result) } })
+      }
+    },
     // Managed sessions and Concord lanes require one authorized packet.
     // Ordinary unmanaged Tasks remain entirely subject to host permissions.
     "tool.execute.before": async (
@@ -86,7 +92,7 @@ export default async function ConcordAdapterPlugin(input?: Partial<PluginInput>)
       const windows = dispatchWindows()
       const concordLane = agentLanes.some((lane) => output.args.subagent_type === `concord-${lane.id}`)
       if (windows.has(input.sessionID) || concordLane) {
-        windows.bind(input.tool, input.sessionID, output.args)
+        windows.bind(input.tool, input.sessionID, output.args, input.callID)
         return
       }
       const concordUtility = agentUtilities.some((utility) => output.args.subagent_type === `concord-${utility.id}`)
@@ -99,7 +105,7 @@ export default async function ConcordAdapterPlugin(input?: Partial<PluginInput>)
       const scope = await hostControlPlane().taskScope(input.sessionID)
       if (scope === null) throw new SessionScopeUnavailable("cannot resolve managed Task scope: the calling host session does not exist")
       if (scope === "managed") {
-        windows.bind(input.tool, input.sessionID, output.args)
+        windows.bind(input.tool, input.sessionID, output.args, input.callID)
         return
       }
       // A native Task may resume a session that belongs to another parent.

@@ -93,6 +93,11 @@ func seedD7BoundaryOverlap(t *testing.T, workID, otherID, step string) (*Store, 
 	if err := tx.Commit(); err != nil {
 		t.Fatal(err)
 	}
+	// CD-0144: a contract holds its Domains from execution start. Every D7
+	// boundary here sits at or after execution, so both items hold theirs and
+	// the refusal stays mutual.
+	setWorkLifecycleForTesting(t, s, workID, "in_progress")
+	setWorkLifecycleForTesting(t, s, otherID, "in_progress")
 	if got := currentStep(t, s, workID); got != step {
 		t.Fatalf("fixture step=%q, want %q", got, step)
 	}

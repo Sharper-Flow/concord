@@ -10,6 +10,8 @@ import (
 	"strings"
 	"time"
 	"unicode"
+
+	"github.com/sharper-flow/concord/internal/payloadschema"
 )
 
 type WorkflowDefinitionPin struct {
@@ -183,6 +185,36 @@ func WorkflowActionPreflightWithRegistry(ctx context.Context, s *Store, registry
 			return err
 		}
 	}
+	correctionRecovery := false
+	if request.ActionID == "reject_worker_result" && stepDeclaresAction(entry.Definition, currentStep, "dispatch_worker") {
+		correctionRecovery, err = workflowRejectedWorkerResultAvailable(ctx, s.db, request.WorkID, currentStep, "workflow_action_preflight")
+		if err != nil {
+			return err
+		}
+	}
+	if request.ActionID == "request_correction" {
+		available, correctionErr := workflowCorrectionRequestAvailable(ctx, s.db, request.WorkID, entry.Definition, currentStep, "workflow_action_preflight")
+		if correctionErr != nil {
+			return correctionErr
+		}
+		if !available {
+			return newFailure(KindInvalidOperation, "workflow_action_preflight", "correction request is unavailable without a current non-ok verification verdict", false, "reread the current work pin")
+		}
+	}
+	if request.ActionID == "dispatch_worker" {
+		correction, correctionErr := workflowCorrectionContext(ctx, s.db, request.WorkID, currentStep)
+		if correctionErr != nil {
+			return correctionErr
+		}
+		if correction != nil && correction.Escalated {
+			return newFailure(KindApprovalRequired, "workflow_action_preflight", "worker correction reached the three-attempt limit", false, "escalate the failed or rejected result to the operator")
+		}
+	}
+	if request.ActionID == "request_correction" {
+		if err := validateCorrectionRequestPayload(ctx, s.db, request.WorkID, entry.Definition, currentStep, request.Payload, "workflow_action_preflight"); err != nil {
+			return err
+		}
+	}
 	consequence := action.Consequence
 	staleRecovery := request.ActionID == "supersede_contract"
 	// The resolver admits record_verdict past its verification step, but
@@ -225,7 +257,7 @@ func WorkflowActionPreflightWithRegistry(ctx context.Context, s *Store, registry
 	if err := guardMandatedWorkflowLawBound(ctx, s.db, request.WorkID, entry.Definition, currentStep, request.ActionID, "workflow_action_preflight"); err != nil {
 		return err
 	}
-	if !staleRecovery && !lateVerdictRecovery && !workerFailureRecovery && !definitionStepAllows(entry.Definition, currentStep, request.ActionID) {
+	if !staleRecovery && !lateVerdictRecovery && !workerFailureRecovery && !correctionRecovery && request.ActionID != "request_correction" && !definitionStepAllows(entry.Definition, currentStep, request.ActionID) {
 		if request.ActionID != "bind_evidence" {
 			return newFailure(KindIllegalLifecycleTransition, "workflow_action_preflight", "workflow action is not declared on the current step", false, "reread_entities")
 		}
@@ -364,7 +396,7 @@ func AuthorizeWorkflowActionAtBoundaryTx(ctx context.Context, s *Store, registry
 }
 
 func workflowActionConsequence(definition WorkflowDefinition, actionID string) ActionConsequence {
-	if actionID == "supersede_contract" || actionID == "record_verdict" || actionID == "record_worker_failure" {
+	if actionID == "supersede_contract" || actionID == "record_verdict" || actionID == "record_worker_failure" || actionID == "reject_worker_result" || actionID == "request_correction" {
 		return ActionInternalSQLite
 	}
 	for _, action := range definition.ActionDefinitions {
@@ -401,6 +433,8 @@ func workflowActionPreflightTx(ctx context.Context, tx *sql.Tx, registry Definit
 	staleRecovery := false
 	lateVerdictRecovery := false
 	workerFailureRecovery := false
+	correctionRecovery := false
+	correctionRequestRecovery := false
 	if request.ActionID == "record_verdict" {
 		lateVerdictRecovery, err = workflowLateVerdictRecoveryForActionPayload(ctx, tx, request.WorkID, entry.Definition, currentStep, request.Payload)
 		if err != nil {
@@ -409,6 +443,18 @@ func workflowActionPreflightTx(ctx context.Context, tx *sql.Tx, registry Definit
 	}
 	if request.ActionID == "record_worker_failure" {
 		workerFailureRecovery, err = workflowWorkerFailureRecoveryAvailable(ctx, tx, request.WorkID, entry.Definition, currentStep, "workflow_action_preflight")
+		if err != nil {
+			return RegisteredDefinition{}, err
+		}
+	}
+	if request.ActionID == "reject_worker_result" && stepDeclaresAction(entry.Definition, currentStep, "dispatch_worker") {
+		correctionRecovery, err = workflowRejectedWorkerResultAvailable(ctx, tx, request.WorkID, currentStep, "workflow_action_preflight")
+		if err != nil {
+			return RegisteredDefinition{}, err
+		}
+	}
+	if request.ActionID == "request_correction" {
+		correctionRequestRecovery, err = workflowCorrectionRequestAvailable(ctx, tx, request.WorkID, entry.Definition, currentStep, "workflow_action_preflight")
 		if err != nil {
 			return RegisteredDefinition{}, err
 		}
@@ -470,7 +516,7 @@ func workflowActionPreflightTx(ctx context.Context, tx *sql.Tx, registry Definit
 	if err := guardMandatedWorkflowLawBound(ctx, tx, request.WorkID, entry.Definition, currentStep, request.ActionID, "workflow_action_preflight"); err != nil {
 		return RegisteredDefinition{}, err
 	}
-	if !staleRecovery && !lateVerdictRecovery && !workerFailureRecovery && !definitionStepAllows(entry.Definition, currentStep, request.ActionID) {
+	if !staleRecovery && !lateVerdictRecovery && !workerFailureRecovery && !correctionRecovery && !correctionRequestRecovery && !definitionStepAllows(entry.Definition, currentStep, request.ActionID) {
 		if request.ActionID != "bind_evidence" {
 			return RegisteredDefinition{}, newFailure(KindIllegalLifecycleTransition, "workflow_action_preflight", "workflow action is not declared on the current step", false, "reread_entities")
 		}
@@ -488,6 +534,11 @@ func workflowActionPreflightTx(ctx context.Context, tx *sql.Tx, registry Definit
 	}
 	if request.ActionID == "dispatch_worker" {
 		if err := validateWorkerDispatchWorktree(ctx, tx, request.WorkID, request.SessionWorktree); err != nil {
+			return RegisteredDefinition{}, err
+		}
+	}
+	if request.ActionID == "request_correction" {
+		if err := validateCorrectionRequestPayload(ctx, tx, request.WorkID, entry.Definition, currentStep, request.Payload, "workflow_action_preflight"); err != nil {
 			return RegisteredDefinition{}, err
 		}
 	}
@@ -521,6 +572,14 @@ func validateWorkflowActionPayload(definition WorkflowDefinition, actionID strin
 			payloadDefinition = workerFailureRecoveryActionDefinition().Payload
 			found = true
 		}
+		if actionID == "reject_worker_result" {
+			payloadDefinition = workflowCorrectionActionDefinition().Payload
+			found = true
+		}
+		if actionID == "request_correction" {
+			payloadDefinition = workflowCorrectionRequestActionDefinition().Payload
+			found = true
+		}
 	}
 	if !found {
 		return nil
@@ -541,6 +600,9 @@ func validateWorkflowActionPayload(definition WorkflowDefinition, actionID strin
 		if !validateWorkflowPayloadValue(field, fields[name]) {
 			return newFailure(KindInvalidPayload, "workflow_action_preflight", fmt.Sprintf("workflow action payload field %q has the wrong registered type or bounds for rule %s", name, workflowPayloadFieldRule(field)), false, "supply the declared action field type and bounds")
 		}
+		if err := validateWorkflowPayloadSchema(field, fields[name]); err != nil {
+			return err
+		}
 	}
 	for name, field := range allowed {
 		if field.Required {
@@ -555,6 +617,65 @@ func validateWorkflowActionPayload(definition WorkflowDefinition, actionID strin
 	if _, typed := allowed["problem"]; typed && actionID == "record_proposal" {
 		_, err := decodeWorkflowProposalContent(payload)
 		return err
+	}
+	return nil
+}
+
+// validateWorkflowPayloadSchema enforces the structure a payload field already
+// declares by name. The registry has always carried schema_ref for its object
+// and array fields, and the agent boundary has always resolved it; the engine
+// used to accept any object here and rely on a separate Go validator further
+// down to reject a malformed one. That left one declaration with two
+// enforcement authorities, and a divergence between them reached the caller as
+// a refusal no published contract stated.
+//
+// A declared name that the generated document does not carry fails closed. A
+// declaration pointing at a schema nobody generated enforces nothing, and
+// silently passing it would restore the gap this closes.
+func validateWorkflowPayloadSchema(field WorkflowPayloadField, raw json.RawMessage) error {
+	if len(raw) == 0 {
+		return nil
+	}
+	// item_ref names the contract for each element. For a string list it
+	// selects a built-in item kind, which validWorkflowPayloadListItem already
+	// applied; for an array it names a generated schema.
+	if field.ValueType == PayloadArray && field.ItemRef != "" {
+		return validateWorkflowPayloadItems(field, raw)
+	}
+	if field.SchemaRef == "" {
+		return nil
+	}
+	if !payloadschema.Has(field.SchemaRef) {
+		return newFailure(KindInvalidPayload, "workflow_action_preflight", fmt.Sprintf("workflow action payload field %q declares schema %q, which is not generated", field.Name, field.SchemaRef), false, "regenerate the payload contracts or correct the declared schema reference")
+	}
+	// An array field frozen before item_ref could name a generated schema
+	// describing one element rather than the whole value. Those definitions
+	// cannot be edited, so the element reading is preserved for them: it is the
+	// only reading under which they ever accepted a payload. A definition
+	// written now says which it means by choosing item_ref or schema_ref.
+	if field.ValueType == PayloadArray && !payloadschema.DescribesArray(field.SchemaRef) {
+		return validateWorkflowPayloadItems(WorkflowPayloadField{Name: field.Name, ValueType: PayloadArray, ItemRef: field.SchemaRef}, raw)
+	}
+	if err := payloadschema.Validate(field.SchemaRef, raw); err != nil {
+		return newFailure(KindInvalidPayload, "workflow_action_preflight", fmt.Sprintf("workflow action payload field %q does not satisfy its declared schema %q: %v", field.Name, field.SchemaRef, err), false, "supply a value the declared field schema accepts")
+	}
+	return nil
+}
+
+// validateWorkflowPayloadItems checks every element of an array field against
+// the schema its item reference names.
+func validateWorkflowPayloadItems(field WorkflowPayloadField, raw json.RawMessage) error {
+	if !payloadschema.Has(field.ItemRef) {
+		return newFailure(KindInvalidPayload, "workflow_action_preflight", fmt.Sprintf("workflow action payload field %q declares item schema %q, which is not generated", field.Name, field.ItemRef), false, "regenerate the payload contracts or correct the declared item schema reference")
+	}
+	var items []json.RawMessage
+	if err := json.Unmarshal(raw, &items); err != nil {
+		return newFailure(KindInvalidPayload, "workflow_action_preflight", fmt.Sprintf("workflow action payload field %q is not one JSON array", field.Name), false, "supply the declared action field type and bounds")
+	}
+	for index, item := range items {
+		if err := payloadschema.Validate(field.ItemRef, item); err != nil {
+			return newFailure(KindInvalidPayload, "workflow_action_preflight", fmt.Sprintf("workflow action payload field %q item %d does not satisfy its declared schema %q: %v", field.Name, index, field.ItemRef, err), false, "supply items the declared item schema accepts")
+		}
 	}
 	return nil
 }
@@ -690,12 +811,25 @@ func validWorkflowPayloadListItem(itemRef, value string) bool {
 	case "", "reference":
 		return ValidReference(value)
 	default:
-		return false
+		if !payloadschema.Has(itemRef) {
+			return false
+		}
+		raw, err := json.Marshal(value)
+		return err == nil && payloadschema.Validate(itemRef, raw) == nil
 	}
 }
 
 func validWorkflowProseItem(value string, max int) bool {
 	return len([]rune(value)) >= 1 && len([]rune(value)) <= max && strings.TrimSpace(value) != ""
+}
+
+func definitionStepKind(definition WorkflowDefinition, stepID string) WorkflowStepKind {
+	for _, step := range definition.StepGraph.Steps {
+		if step.ID == stepID {
+			return step.Kind
+		}
+	}
+	return ""
 }
 
 func definitionStepAllows(definition WorkflowDefinition, stepID, actionID string) bool {

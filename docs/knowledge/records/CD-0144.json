@@ -1,0 +1,37 @@
+{
+  "date": "2026-09-13T00:00:00Z",
+  "evidence": [
+    "internal/store/worktrees.go",
+    "internal/store/worktrees_audit_reclaim_test.go",
+    "internal/store/workflow_domain_overlap.go",
+    "internal/store/workflow_domain_overlap_test.go"
+  ],
+  "home_domain_id": "workflow-engine",
+  "id": "CD-0144",
+  "kind": "decision",
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "CD-0041"
+    }
+  ],
+  "path": "docs/decisions/CD-0144-record-reality-reconciliation.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:a067810d6b559efa12bd264d86d98b8849708e23dc05a725635394e4624eeab6",
+  "status": "accepted",
+  "summary": "Adds local Git content-risk drift classes that suppress reclaim recommendations and moves Domain exclusivity from contract approval to execution start.",
+  "tags": [
+    "worktree",
+    "reconciliation",
+    "workflow",
+    "domain",
+    "safety"
+  ],
+  "title": "Reconciliation records repository reality before reclaim"
+}

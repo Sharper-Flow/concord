@@ -644,6 +644,19 @@ kind, event family, or actor tuple requires an accepted CD-NNNN.
 
 ## Relationship to existing artifacts
 
+### CD-0143 amendment: verdict correction remains engine-owned
+
+The engine admits `request_correction` after a completed and accepted worker
+result leaves a current unhealthy verification verdict. A dispatch alone does
+not satisfy this boundary. The action requires a diagnosis, strategy, affected
+predicate IDs, bound evidence, and exact operator approval. It holds
+the current checkpoint, preserves the verdict and attempt history, and returns
+the pinned instance to its declared external-effect step. It does not return to
+`refine`, rewrite the contract, alter a released definition, or delete history.
+The engine refuses a fourth correction attempt. Only a latest comparable healthy
+verdict set for every approved predicate resets the correction sequence. Completion
+stays fail-closed until the latest approved predicates are healthy.
+
 | Artifact | Change |
 |---|---|
 | `docs/decisions/CD-0006-concord-root-product-policy.md` | Extends D3, D4, D5, D10 with engine-shaped definitions, rigor, and spec mandate enforcement. |

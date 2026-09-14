@@ -207,6 +207,40 @@ test("the context carries the pinned design before the work narrative", async ()
   expect(context).toContain("The typed design record.")
 })
 
+test("the context carries bounded correction evidence from the work pin", async () => {
+  const continuity = continuityEnvelope()
+  const pinned = (continuity as any).result.pinned
+  pinned.work_pin = {
+    work_id: WORK_ID,
+    title: "Correction",
+    linear_issue_key: "",
+    version: 4,
+    lifecycle: "in_progress",
+    workflow_type: "workflow.implementation",
+    step: WORKFLOW_STEP,
+    attempt: null,
+    pending_operator_decision: null,
+    watermark: "seq:4",
+    next_valid_intents: [],
+    correction: {
+      disposition: "rejected",
+      attempt_count: 1,
+      attempt_limit: 3,
+      escalated: false,
+      predicate_ids: ["predicate:primary"],
+      evidence_refs: ["evidence:review"],
+      diagnosis: "the result misses the boundary case",
+      strategy: "change the helper and add a test",
+    },
+  }
+  const built = await build({ ...defaultScript(), "concord_work_trace.continuity": continuity })
+  expect(built.failure).toBeUndefined()
+  const context = built.packet!.inputs.context!
+  expect(context).toContain("Durable correction context:")
+  expect(context).toContain("predicate:primary")
+  expect(context).toContain("change the helper and add a test")
+})
+
 // #903: non-Initiative work items carry no narrative, and a missing
 // narrative must not erase the objective from the packet.
 test("a non-Initiative work item with no narrative still carries the approved objective", async () => {

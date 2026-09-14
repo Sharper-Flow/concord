@@ -681,7 +681,7 @@
                   "rejected": []
                 }
               ],
-              "recorded_at": "id-1",
+              "recorded_at": "2026-08-08T00:00:00Z",
               "touched_refs": [
                 "id-1"
               ],
@@ -790,7 +790,7 @@
                   "rejected": []
                 }
               ],
-              "recorded_at": "id-1",
+              "recorded_at": "2026-08-08T00:00:00Z",
               "touched_refs": [
                 "id-1"
               ],
@@ -899,7 +899,7 @@
                   "rejected": []
                 }
               ],
-              "recorded_at": "id-1",
+              "recorded_at": "2026-08-08T00:00:00Z",
               "touched_refs": [
                 "id-1"
               ],
@@ -1009,7 +1009,7 @@
                 "rejected": []
               }
             ],
-            "recorded_at": "id-1",
+            "recorded_at": "2026-08-08T00:00:00Z",
             "touched_refs": [
               "id-1"
             ],
@@ -3296,5 +3296,5 @@
       }
     }
   ],
-  "manifest_digest": "sha256:6dec2ce7cd8aa4a1325b162449fa11f52cf403e20e900932ce6c0ebc1eb1b8d5"
+  "manifest_digest": "sha256:0d435ad4c762bf6e064c58f4965488043668342e54db5eddc733a77b172bdcf1"
 }

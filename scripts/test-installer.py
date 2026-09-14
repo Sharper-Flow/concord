@@ -515,6 +515,53 @@ esac''',
         self.assertIn("no repair needed", result.stdout)
         self.assertEqual(manifest_path.read_bytes(), before)
 
+    def test_repair_restores_a_missing_worktrees_root_link(self) -> None:
+        self.make_release("v1.0.0")
+        first = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
+        self.assertEqual(first.returncode, 0, first.stderr)
+        worktrees_root = self.root / "data" / "concord" / "worktrees"
+        shutil.rmtree(worktrees_root / ".opencode")
+
+        repaired = self.run_installer("repair", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
+
+        self.assertEqual(repaired.returncode, 0, repaired.stderr)
+        worktrees_config = worktrees_root / ".opencode" / "opencode.json"
+        self.assertEqual(
+            json.loads(worktrees_config.read_text(encoding="utf-8")),
+            {"instructions": [str(self.root / "data" / "concord" / "current" / "instructions" / "*.md")]},
+        )
+
+    def test_uninstall_refuses_a_symlinked_worktrees_config_parent(self) -> None:
+        self.make_release("v1.0.0")
+        installed = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
+        self.assertEqual(installed.returncode, 0, installed.stderr)
+
+        worktrees_root = self.root / "data" / "concord" / "worktrees"
+        outside_config = self.root / "outside" / "opencode.json"
+        outside_config.parent.mkdir()
+        outside_config.write_text(
+            json.dumps(
+                {"instructions": [str(self.root / "data" / "concord" / "current" / "instructions" / "*.md")]}
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        shutil.rmtree(worktrees_root / ".opencode")
+        (worktrees_root / ".opencode").symlink_to(outside_config.parent, target_is_directory=True)
+
+        result = self.run_installer("uninstall")
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn(str(worktrees_root / ".opencode"), result.stderr)
+        self.assertEqual(
+            outside_config.read_text(encoding="utf-8"),
+            json.dumps(
+                {"instructions": [str(self.root / "data" / "concord" / "current" / "instructions" / "*.md")]}
+            )
+            + "\n",
+        )
+        self.assertTrue((self.root / "data" / "concord" / installer.MANIFEST_NAME).exists())
+
     def test_repair_refuses_a_checksum_mismatch_before_changing_anything(self) -> None:
         self.make_release("v1.0.0")
         first = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
@@ -803,6 +850,9 @@ esac''',
                 self.assertEqual(stopped.returncode, 97, stopped.stderr)
                 recovered = self.run_installer("status")
                 self.assertEqual(recovered.returncode, 0, recovered.stderr)
+                if phase in {"manifest_committed", "cleanup"}:
+                    pointer = self.root / "data" / "concord" / "worktrees" / ".opencode" / "opencode.json"
+                    self.assertTrue(pointer.is_file(), f"{phase}: worktrees root conduct link was not restored")
                 installed = self.run_installer("install", "--version", version, "--artifact-dir", str(self.artifacts))
                 self.assertEqual(installed.returncode, 0, installed.stderr)
                 self.assertIn(f'"version": "{version}"', self.run_installer("status").stdout)
@@ -1213,6 +1263,31 @@ esac''',
         for name in installer.AGENT_FILES:
             self.assertFalse((self.root / "config" / "opencode" / "agents" / name).exists())
         self.assertFalse((self.root / "data" / "concord" / "current").exists())
+
+    def test_install_links_the_worktrees_root_to_the_conduct_corpus(self) -> None:
+        self.make_release("v1.0.0")
+        installed = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
+        self.assertEqual(installed.returncode, 0, installed.stderr)
+
+        worktrees_config = self.root / "data" / "concord" / "worktrees" / ".opencode" / "opencode.json"
+        self.assertEqual(
+            json.loads(worktrees_config.read_text(encoding="utf-8")),
+            {"instructions": [str(self.root / "data" / "concord" / "current" / "instructions" / "*.md")]},
+        )
+
+    def test_uninstall_unlinks_the_worktrees_root_and_preserves_worktrees(self) -> None:
+        self.make_release("v1.0.0")
+        installed = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
+        self.assertEqual(installed.returncode, 0, installed.stderr)
+        worktree = self.root / "data" / "concord" / "worktrees" / "project" / "work"
+        worktree.mkdir(parents=True)
+        (worktree / "operator-note.txt").write_text("keep\n", encoding="utf-8")
+
+        removed = self.run_installer("uninstall")
+
+        self.assertEqual(removed.returncode, 0, removed.stderr)
+        self.assertFalse((self.root / "data" / "concord" / "worktrees" / ".opencode").exists())
+        self.assertEqual((worktree / "operator-note.txt").read_text(encoding="utf-8"), "keep\n")
 
     def test_install_refuses_modified_central_agent_file(self) -> None:
         self.make_release("v1.0.0")

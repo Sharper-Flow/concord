@@ -153,23 +153,29 @@ type DomainOverlap struct {
 	Truncated        bool                  `json:"truncated"`
 }
 
+type ExternalRefConflict struct {
+	ExistingWorkID string `json:"existing_work_id"`
+	ExternalRef    string `json:"external_ref"`
+}
+
 // MaxNotices bounds each notice collection on an envelope. Producers that merge
 // notices from more than one stage must respect it before validation runs.
 const MaxNotices = 16
 
 type TypedError struct {
-	Kind             string            `json:"kind"`
-	RetrySafe        bool              `json:"retry_safe"`
-	RecoveryAction   RecoveryAction    `json:"recovery_action"`
-	EffectState      EffectState       `json:"effect_state"`
-	AdapterReason    string            `json:"adapter_reason,omitempty"`
-	Message          string            `json:"message,omitempty"`
-	CurrentVersions  []ChangedRef      `json:"current_versions,omitempty"`
-	Candidates       []string          `json:"candidates,omitempty"`
-	Violations       []string          `json:"violations,omitempty"`
-	Options          []string          `json:"options,omitempty"`
-	StaleLawRevision *StaleLawRevision `json:"stale_law_revision,omitempty"`
-	DomainOverlap    *DomainOverlap    `json:"domain_overlap,omitempty"`
+	Kind                string               `json:"kind"`
+	RetrySafe           bool                 `json:"retry_safe"`
+	RecoveryAction      RecoveryAction       `json:"recovery_action"`
+	EffectState         EffectState          `json:"effect_state"`
+	AdapterReason       string               `json:"adapter_reason,omitempty"`
+	Message             string               `json:"message,omitempty"`
+	CurrentVersions     []ChangedRef         `json:"current_versions,omitempty"`
+	Candidates          []string             `json:"candidates,omitempty"`
+	Violations          []string             `json:"violations,omitempty"`
+	Options             []string             `json:"options,omitempty"`
+	StaleLawRevision    *StaleLawRevision    `json:"stale_law_revision,omitempty"`
+	DomainOverlap       *DomainOverlap       `json:"domain_overlap,omitempty"`
+	ExternalRefConflict *ExternalRefConflict `json:"external_ref_conflict,omitempty"`
 	// ConsequenceSummary is the CD-0037 typed approval prompt. It is derived
 	// at challenge mint from the exact facts the challenge binds, so nothing
 	// it describes can change without invalidating the challenge itself. It
@@ -670,6 +676,20 @@ var (
 
 // sortedBoundedList enforces the canonical renderer's contract: sorted,
 // unique, non-empty strings within the envelope bound.
+// sortedOptionalBindings is sortedBoundedList for a binding list the challenge
+// may legitimately bind nothing to. CD-0037 D3 derives the summary from the
+// exact versions bound to the challenge, and D4 has approval consumption
+// compare that same value byte for byte. An approval-gated operation that pins
+// no expected version binds an empty version map, so an empty list is the
+// faithful rendering of it. Refusing empty made that refusal undeliverable and
+// withheld the approval reference the operator needs to act.
+func sortedOptionalBindings(values []string, limit int) bool {
+	if len(values) == 0 {
+		return true
+	}
+	return sortedBoundedList(values, limit)
+}
+
 func sortedBoundedList(values []string, limit int) bool {
 	if len(values) == 0 || len(values) > limit {
 		return false
@@ -700,10 +720,16 @@ func sortedBoundedList(values []string, limit int) bool {
 // versions, `budget_refused` needs a supported budget, and cancel and timeout
 // need an empty effect state. Those stay as their own checks, because they
 // constrain the payload rather than the action a caller takes next.
+// enforcedRecoveryCouplings names every error kind that admits exactly one
+// recovery action. It is the single owner of that rule: publicRecovery builds
+// from it and validateError refuses against it. A kind enforced by only one of
+// the two halves is a refusal the core decided and the caller never receives,
+// because the pair reaches the transport as a marshal fault.
 var enforcedRecoveryCouplings = map[string]string{
 	"ambiguous_scope":    "resolve_ambiguity",
 	"budget_refused":     "adjust_budget",
 	"cancelled":          "retry_same_request",
+	"domain_overlap":     "request_approval",
 	"invalid_cursor":     "restart_query",
 	"limit_exceeded":     "reduce_limit",
 	"missing_evidence":   "provide_evidence",
@@ -711,6 +737,7 @@ var enforcedRecoveryCouplings = map[string]string{
 	"resource_busy":      "retry_same_request",
 	"outcome_mismatch":   "contact_operator",
 	"stale_context":      "refresh_context",
+	"stale_law_revision": "request_approval",
 	"timeout":            "retry_same_request",
 	"version_conflict":   "reread_entities",
 }
@@ -746,12 +773,12 @@ func validateError(err TypedError) error {
 		return errors.New("invalid error details")
 	}
 	if err.Kind == "stale_law_revision" {
-		if err.RecoveryAction.Kind != "request_approval" || err.StaleLawRevision == nil || !bounded(err.StaleLawRevision.OldLawID, 2, 256) || !validSHA256Proof(err.StaleLawRevision.OldContentHash) || !bounded(err.StaleLawRevision.AcceptedSuccessorLawID, 2, 256) || !validSHA256Proof(err.StaleLawRevision.AcceptedSuccessorContentHash) || len(err.StaleLawRevision.RecoveryActions) == 0 || len(err.StaleLawRevision.RecoveryActions) > 4 || !boundedStrings(err.StaleLawRevision.RecoveryActions, 1, 128) {
+		if err.StaleLawRevision == nil || !bounded(err.StaleLawRevision.OldLawID, 2, 256) || !validSHA256Proof(err.StaleLawRevision.OldContentHash) || !bounded(err.StaleLawRevision.AcceptedSuccessorLawID, 2, 256) || !validSHA256Proof(err.StaleLawRevision.AcceptedSuccessorContentHash) || len(err.StaleLawRevision.RecoveryActions) == 0 || len(err.StaleLawRevision.RecoveryActions) > 4 || !boundedStrings(err.StaleLawRevision.RecoveryActions, 1, 128) {
 			return errors.New("stale law revision coupling violated")
 		}
 	}
 	if err.Kind == "domain_overlap" {
-		if err.RecoveryAction.Kind != "request_approval" || err.DomainOverlap == nil || len(err.DomainOverlap.Overlaps) == 0 || len(err.DomainOverlap.Overlaps) > 20 || err.DomainOverlap.TotalOverlaps < len(err.DomainOverlap.Overlaps) || err.DomainOverlap.ReturnedOverlaps != len(err.DomainOverlap.Overlaps) || err.DomainOverlap.TotalOverlaps < 1 || (!err.DomainOverlap.Truncated && err.DomainOverlap.TotalOverlaps != err.DomainOverlap.ReturnedOverlaps) {
+		if err.DomainOverlap == nil || len(err.DomainOverlap.Overlaps) == 0 || len(err.DomainOverlap.Overlaps) > 20 || err.DomainOverlap.TotalOverlaps < len(err.DomainOverlap.Overlaps) || err.DomainOverlap.ReturnedOverlaps != len(err.DomainOverlap.Overlaps) || err.DomainOverlap.TotalOverlaps < 1 || (!err.DomainOverlap.Truncated && err.DomainOverlap.TotalOverlaps != err.DomainOverlap.ReturnedOverlaps) {
 			return errors.New("domain overlap coupling violated")
 		}
 		for _, overlap := range err.DomainOverlap.Overlaps {
@@ -767,6 +794,11 @@ func validateError(err TypedError) error {
 					return errors.New("unknown domain overlap recovery action")
 				}
 			}
+		}
+	}
+	if err.ExternalRefConflict != nil {
+		if err.Kind != "operation_conflict" || !bounded(err.ExternalRefConflict.ExistingWorkID, 1, 128) || !bounded(err.ExternalRefConflict.ExternalRef, 1, 256) {
+			return errors.New("external reference conflict coupling violated")
 		}
 	}
 	if want, coupled := enforcedRecoveryCouplings[err.Kind]; coupled && err.RecoveryAction.Kind != want {
@@ -800,7 +832,7 @@ func validateError(err TypedError) error {
 		if _, err := time.Parse(time.RFC3339Nano, summary.ExpiresAt); err != nil {
 			return errors.New("consequence summary expiry is not RFC3339")
 		}
-		if !sortedBoundedList(summary.Scope, 32) || !sortedBoundedList(summary.Versions, 32) {
+		if !sortedBoundedList(summary.Scope, 32) || !sortedOptionalBindings(summary.Versions, 32) {
 			return errors.New("consequence summary scope or versions are not canonical sorted bindings")
 		}
 	}

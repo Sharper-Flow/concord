@@ -32,15 +32,17 @@ type workflowActionGuardContext struct {
 	entry       RegisteredDefinition
 	currentStep string
 
-	staleRecovery         bool
-	lateVerdictRecovery   bool
-	recoveryBind          bool
-	workerFailureRecovery bool
-	actorRef              string
-	eventActor            string
-	operatorRef           string
-	actorNeedsRecord      bool
-	operatorNeedsRecord   bool
+	staleRecovery             bool
+	lateVerdictRecovery       bool
+	recoveryBind              bool
+	workerFailureRecovery     bool
+	correctionRecovery        bool
+	correctionRequestRecovery bool
+	actorRef                  string
+	eventActor                string
+	operatorRef               string
+	actorNeedsRecord          bool
+	operatorNeedsRecord       bool
 }
 
 type workflowActionGuardFunc func(*workflowActionGuardContext) error
@@ -55,10 +57,27 @@ type workflowActionGuard struct {
 // consults this table at each phase point in its sequence.
 var workflowActionGuards = map[string]workflowActionGuard{
 	"supersede_contract":     {guardPhaseRecovery, guardSupersedeContractRecovery},
+	"reject_worker_result":   {guardPhaseRecovery, guardRejectWorkerResultRecovery},
+	"request_correction":     {guardPhaseRecovery, guardRequestCorrectionRecovery},
 	"complete":               {guardPhaseBoundary, guardCompleteBoundary},
+	"dispatch_worker":        {guardPhaseBoundary, guardCurrentDesignBeforeDispatch},
 	"link_successor":         {guardPhasePostValidation, guardForwardLinkOnly},
 	"cross_context_boundary": {guardPhaseClaim, guardNoRestartDispatch},
 	"record_delivery":        {guardPhaseClaim, guardDeliveryFollowsStart},
+}
+
+func guardRejectWorkerResultRecovery(g *workflowActionGuardContext) error {
+	if !g.correctionRecovery {
+		return newFailure(KindInvalidOperation, "workflow_action", "worker result rejection is unavailable without a completed result", false, "accept or reject the completed worker result")
+	}
+	return nil
+}
+
+func guardRequestCorrectionRecovery(g *workflowActionGuardContext) error {
+	if !g.correctionRequestRecovery {
+		return newFailure(KindInvalidOperation, "workflow_action", "correction request is unavailable without a current non-ok verification verdict", false, "reread the current work pin")
+	}
+	return validateCorrectionRequestPayload(g.ctx, g.tx, g.request.WorkID, g.entry.Definition, g.currentStep, g.request.Payload, "workflow_action")
 }
 
 // runWorkflowActionGuard runs the request's guard when one is declared for
@@ -184,15 +203,40 @@ func workflowFailedWorkerAttempt(ctx context.Context, q queryer, workID, current
 
 // workflowContractCorrectionAvailable reports whether operator-approved
 // contract correction is open on the current step. A human checkpoint carries
-// the route unconditionally. A worker-dispatch step carries it only once the
-// honest lane failure is in the durable record, so the audit trail holds the
-// failure the correction answers before it holds the correction (CD-0133 D1).
+// the route unconditionally. A worker-dispatch step admits correction before
+// dispatch or after the dispatched worker's failure has been recorded. An
+// authorized dispatch window counts even before a worker report exists.
 func workflowContractCorrectionAvailable(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, currentStep, subject string) (bool, error) {
 	if !workflowContractCorrectionCheckpoint(definition, currentStep) {
 		return false, nil
 	}
 	step := workflowStep(definition, currentStep)
 	if step.Kind == WorkflowStepHumanCheckpoint {
+		return true, nil
+	}
+	var contracts int
+	if err := q.QueryRowContext(ctx, `SELECT count(*) FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL`, workID).Scan(&contracts); err != nil {
+		return false, wrapFailure(KindUnavailable, subject, "cannot inspect the active workflow contract", true, "retry once the workflow projection is readable", err)
+	}
+	if contracts != 1 {
+		return false, nil
+	}
+	startSeq, _, started, err := latestWorkflowActionStart(ctx, q, workID, currentStep)
+	if err != nil {
+		return false, err
+	}
+	if !started {
+		return true, nil
+	}
+	var dispatched int
+	if err := q.QueryRowContext(ctx, `SELECT EXISTS (
+		SELECT 1 FROM domain_events
+		WHERE subject_type=? AND subject_id=? AND seq>=?
+		AND (kind=? OR (kind IN (?,?) AND json_extract(payload,'$.action_id')='dispatch_worker'))
+	)`, string(SubjectWorkItem), workID, startSeq, WorkerDispatched, WorkflowActionStarted, WorkflowActionCompleted).Scan(&dispatched); err != nil {
+		return false, wrapFailure(KindUnavailable, subject, "cannot inspect worker dispatch authorization", true, "retry once the workflow event log is readable", err)
+	}
+	if dispatched == 0 {
 		return true, nil
 	}
 	failed, err := workflowFailedWorkerAttempt(ctx, q, workID, currentStep, subject, false)
@@ -410,12 +454,31 @@ func guardRecordedActorTuple(g *workflowActionGuardContext) error {
 	return nil
 }
 
-// The operator identity belongs only to approval-gated evaluation and premise
-// confirmation. A worker cannot acquire this authority through its report.
+// Only these operator-decision actions can carry a verified operator identity.
+// A worker cannot acquire that authority through its report.
+func workflowActionAllowsOperatorIdentity(actionID string) bool {
+	switch actionID {
+	case "confirm_premise", "record_verdict", "complete", "supersede_contract", "request_correction":
+		return true
+	default:
+		return false
+	}
+}
+
 func guardOperatorPremiseActor(g *workflowActionGuardContext) error {
 	if g.request.OperatorActor == nil {
-		if g.request.ActionID != "supersede_contract" {
+		if g.request.ActionID != "supersede_contract" && g.request.ActionID != "request_correction" {
 			return nil
+		}
+		if g.request.ActionID == "request_correction" {
+			available, correctionErr := workflowCorrectionRequestAvailable(g.ctx, g.tx, g.request.WorkID, g.entry.Definition, g.currentStep, "workflow_action")
+			if correctionErr != nil {
+				return correctionErr
+			}
+			if !available {
+				return newFailure(KindInvalidOperation, "workflow_action", "correction request is unavailable without a current non-ok verification verdict", false, "reread the current work pin")
+			}
+			return newFailure(KindApprovalRequired, "workflow_action", "correction request requires the verified operator approval identity", false, "request_approval")
 		}
 		correction, correctionErr := workflowContractCorrectionAvailable(g.ctx, g.tx, g.request.WorkID, g.entry.Definition, g.currentStep, "workflow_action")
 		if correctionErr != nil {
@@ -426,7 +489,7 @@ func guardOperatorPremiseActor(g *workflowActionGuardContext) error {
 		}
 		return nil
 	}
-	if (g.request.ActionID != "confirm_premise" && g.request.ActionID != "record_verdict" && g.request.ActionID != "complete" && g.request.ActionID != "supersede_contract") || g.request.OperatorActor.ActorClass != ActorOperator {
+	if !workflowActionAllowsOperatorIdentity(g.request.ActionID) || g.request.OperatorActor.ActorClass != ActorOperator {
 		return newFailure(KindUnauthorized, "workflow_action", "operator actor is only valid for signed premise confirmation, contract correction, conditioned verdict, and completion", false, "use the verified approval identity")
 	}
 	ref, err := WorkflowActorRef(*g.request.OperatorActor)
@@ -576,6 +639,8 @@ func claimDurableWorkflowOperationTx(ctx context.Context, tx *sql.Tx, entry Regi
 // workflowActionAssemblyInput is the normalized state the event assembly
 // folds into the action's events.
 type workflowActionAssemblyInput struct {
+	ctx          context.Context
+	tx           *sql.Tx
 	entry        RegisteredDefinition
 	request      WorkflowActionExecutionRequest
 	currentStep  string
@@ -607,7 +672,13 @@ func assembleWorkflowActionEventsTx(ctx context.Context, tx *sql.Tx, in workflow
 	if !ok {
 		return out, newFailure(KindInvariantViolation, "workflow_action", "workflow action execution mode is not declared", false, "repair the pinned workflow definition")
 	}
-	workflowActionEpoch, epochErr := workflowActionStartEpochForDispatch(ctx, tx, in.request.WorkID, in.currentStep, executionMode == ActionFenced)
+	var workflowActionEpoch int64
+	var epochErr error
+	if builtinActionPolicies[in.request.ActionID].EventShape == ActionEventCheckpoint && executionMode != ActionFenced {
+		workflowActionEpoch, epochErr = workflowCheckpointAttemptEpoch(ctx, tx, in.entry.Definition, in.step, in.request.WorkID, in.currentStep)
+	} else {
+		workflowActionEpoch, epochErr = workflowActionStartEpochForDispatch(ctx, tx, in.request.WorkID, in.currentStep, executionMode == ActionFenced)
+	}
 	if epochErr != nil {
 		return out, epochErr
 	}
@@ -697,7 +768,7 @@ func appendGenericWorkflowCompletion(in workflowActionAssemblyInput, attemptEpoc
 		"changed_refs": []string{in.request.WorkID}, "actor_ref": in.eventActor,
 	}
 	var workerPacketDigest string
-	if in.request.ActionID == "accept_worker_result" || in.request.ActionID == "record_worker_failure" {
+	if in.request.ActionID == "accept_worker_result" || in.request.ActionID == "record_worker_failure" || in.request.ActionID == "reject_worker_result" {
 		completionValues["attempt_epoch"] = workflowFieldInt(fields, "attempt_epoch", 0)
 		completionValues["worker_attempt_id"] = workflowFieldStringDefault(fields, "attempt_id", "")
 	}
@@ -756,6 +827,11 @@ func appendGenericWorkflowCompletion(in workflowActionAssemblyInput, attemptEpoc
 		if in.step != nil && !LaneStepDispatchAllowed(lane.CapabilityClass, in.step.Kind) {
 			return events, "", newFailure(KindUnauthorizedDispatch, "workflow_action", "lane capability class "+lane.CapabilityClass+" is not dispatchable at a "+string(in.step.Kind)+" step", false, "dispatch the lane at a step kind the lane-step dispatch join admits")
 		}
+		if in.tx != nil {
+			if err := validateWorkerPacketCorrection(in.ctx, in.tx, in.request.WorkID, in.currentStep, packetRaw); err != nil {
+				return events, "", err
+			}
+		}
 		canonical, err := canonicalJSON(packetRaw)
 		if err != nil {
 			return events, "", newFailure(KindInvalidPayload, "workflow_action", "dispatch_worker worker_packet does not decode as canonical JSON", false, "supply the lane packet bound to this work item and attempt")
@@ -766,6 +842,12 @@ func appendGenericWorkflowCompletion(in workflowActionAssemblyInput, attemptEpoc
 		if in.request.SessionWorktreeIdentity != "" {
 			completionValues["worker_worktree_identity"] = in.request.SessionWorktreeIdentity
 		}
+	}
+	if in.request.ActionID == "reject_worker_result" || in.request.ActionID == "request_correction" {
+		completionValues["correction_diagnosis"] = workflowFieldStringDefault(fields, "diagnosis", "")
+		completionValues["correction_strategy"] = workflowFieldStringDefault(fields, "strategy", "")
+		completionValues["correction_predicate_ids"] = workflowFieldStrings(fields, "predicate_ids")
+		completionValues["correction_evidence_refs"] = workflowFieldStrings(fields, "evidence_refs")
 	}
 	events = append(events, workflowTypedEvent(in.request.OperationID+":completed", WorkflowActionCompleted, in.request.WorkID, in.eventActor, in.request.Now, resultVersion-1, completionValues))
 	return events, workerPacketDigest, nil

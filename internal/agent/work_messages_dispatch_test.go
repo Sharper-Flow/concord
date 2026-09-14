@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"strconv"
 	"testing"
 
 	"github.com/sharper-flow/concord/internal/store"
@@ -75,6 +76,9 @@ func TestMessagesDirectBroadcastWithdrawAndRestartSurvival(t *testing.T) {
 	broadcast := invoke("message_send", map[string]any{"work_id": "work-sender", "broadcast": true, "body": "policy-version constant advanced twice in trunk after your merge-base", "expected_version": 3, "idempotency_key": "msg-bcast-1"})
 	if broadcast.Outcome != OutcomeOK {
 		t.Fatalf("broadcast failed: %+v", broadcast.Error)
+	}
+	if broadcast.ChangedRefs == nil || len(*broadcast.ChangedRefs) != 1 || (*broadcast.ChangedRefs)[0] != (ChangedRef{EntityKind: "work_item", ID: "work-sender", Version: "5"}) {
+		t.Fatalf("broadcast receipt=%+v, want the final sender version", broadcast.ChangedRefs)
 	}
 
 	// The target received exactly the direct + broadcast messages.
@@ -194,4 +198,76 @@ func TestMessagesCarryNoAuthority(t *testing.T) {
 	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE kind LIKE 'work.message%' AND payload LIKE '%approved by the operator%'`).Scan(&count); err != nil || count == 0 {
 		t.Fatalf("message event count=%d err=%v (audit trail must exist)", count, err)
 	}
+}
+
+func TestMessageBroadcastReceiptVersionsAndRecipientBounds(t *testing.T) {
+	testCases := []struct {
+		name       string
+		recipients int
+	}{
+		{name: "zero", recipients: 0},
+		{name: "one", recipients: 1},
+		{name: "three", recipients: 3},
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			ctx := context.Background()
+			s, service, grant := messagesFixture(t)
+			scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if testCase.recipients < 2 {
+				if err := completeWorkForBroadcastTest(ctx, s, "work-third"); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if testCase.recipients == 0 {
+				if err := completeWorkForBroadcastTest(ctx, s, "work-target"); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if testCase.recipients == 3 {
+				if err := seedActiveBroadcastRecipient(ctx, s, "work-fourth"); err != nil {
+					t.Fatal(err)
+				}
+			}
+			raw, _ := json.Marshal(map[string]any{"work_id": "work-sender", "broadcast": true, "body": "bounded broadcast", "expected_version": 2, "idempotency_key": "broadcast-" + testCase.name})
+			response, dispatchErr := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_relate", Operation: "message_send", Input: raw}, mutationEnvelope(grant, scopeVersion))
+			if dispatchErr != nil {
+				t.Fatal(dispatchErr)
+			}
+			if testCase.recipients == 0 {
+				if response.Outcome != OutcomeError || response.Error == nil {
+					t.Fatalf("zero-recipient broadcast=%+v", response)
+				}
+				if version, versionErr := s.WorkVersion(ctx, "work-sender"); versionErr != nil || version != 2 {
+					t.Fatalf("zero-recipient version=%d err=%v", version, versionErr)
+				}
+				return
+			}
+			if response.Outcome != OutcomeOK || response.ChangedRefs == nil || len(*response.ChangedRefs) != 1 {
+				t.Fatalf("broadcast response=%+v", response)
+			}
+			wantVersion := strconv.Itoa(2 + testCase.recipients)
+			if (*response.ChangedRefs)[0] != (ChangedRef{EntityKind: "work_item", ID: "work-sender", Version: wantVersion}) {
+				t.Fatalf("broadcast refs=%+v want version %s", *response.ChangedRefs, wantVersion)
+			}
+			if version, versionErr := s.WorkVersion(ctx, "work-sender"); versionErr != nil || version != int64(2+testCase.recipients) {
+				t.Fatalf("broadcast stored version=%d err=%v", version, versionErr)
+			}
+		})
+	}
+}
+
+func completeWorkForBroadcastTest(ctx context.Context, s *store.Store, workID string) error {
+	return store.ApplyOperation(ctx, s, store.Operation{Events: []store.Event{{EventID: workID + "-broadcast-terminal", Kind: "work.transitioned", SubjectType: store.SubjectWorkItem, SubjectID: workID, Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"from":"in_progress","to":"completed","reason":"broadcast test","expected_version":3,"resulting_version":4}`)}}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, workID): 3}})
+}
+
+func seedActiveBroadcastRecipient(ctx context.Context, s *store.Store, workID string) error {
+	return store.ApplyOperation(ctx, s, store.Operation{Events: []store.Event{
+		{EventID: workID + "-create", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: workID, Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 2, Payload: json.RawMessage(`{"work_kind":"task","title":"` + workID + `","priority":1}`)},
+		{EventID: workID + "-membership", Kind: "work.memberships_replaced", SubjectType: store.SubjectWorkItem, SubjectID: workID, Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"memberships":[{"project_id":"project-1","role":"primary"}],"expected_version":1,"resulting_version":2}`)},
+		{EventID: workID + "-active", Kind: "work.transitioned", SubjectType: store.SubjectWorkItem, SubjectID: workID, Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"from":"needed","to":"in_progress","reason":"broadcast test","expected_version":2,"resulting_version":3}`)},
+	}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, workID): 0}})
 }

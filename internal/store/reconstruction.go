@@ -128,7 +128,7 @@ func ReconstructSubjectAt(ctx context.Context, s *Store, subject SubjectRef, asO
 // excluded from the scratch projection fold.
 func excludedFromReconstructionSnapshot(kind string) bool {
 	switch kind {
-	case managedResourceEventCreated, managedResourceEventConsumerAdded,
+	case managedResourceEventCreated, managedResourceEventConsumerAdded, managedResourceEventUpdated,
 		"domain.project_attachments_replaced", "domain.resource_attachments_replaced":
 		return true
 	default:
@@ -226,6 +226,12 @@ func seedReconstructionEndpoints(ctx context.Context, tx *sql.Tx, subject Subjec
 					return err
 				}
 			}
+		case subject.Type == SubjectWorkItem && current.Kind == "work.created":
+			if workID := id("raised_from_work_id"); workID != "" && workID != subject.ID {
+				if err := insertScratchWorkWithExternalRef(ctx, tx, workID, id("external_ref")); err != nil {
+					return err
+				}
+			}
 		case subject.Type == SubjectWorkItem && current.Kind == "work.superseded":
 			if workID := id("successor"); workID != "" && workID != subject.ID {
 				if err := insertScratchWork(ctx, tx, workID); err != nil {
@@ -259,6 +265,20 @@ func insertScratchWork(ctx context.Context, tx *sql.Tx, id string) error {
 	_, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO work_items (id,kind,title,lifecycle,priority,urgency,version,created_at,updated_at) VALUES (?, 'task', ?, 'needed', 0, 'standard', 1, 'reconstruction', 'reconstruction')`, id, "reconstructed work "+id)
 	if err != nil {
 		return wrapFailure(KindUnavailable, "reconstruct_subject", "cannot prepare a scoped work endpoint", true,
+			"retry once the temporary database is available", err)
+	}
+	return nil
+}
+
+func insertScratchWorkWithExternalRef(ctx context.Context, tx *sql.Tx, id, externalRef string) error {
+	intent, err := json.Marshal(workIntentProjection{ExternalRef: externalRef})
+	if err != nil {
+		return wrapFailure(KindUnavailable, "reconstruct_subject", "cannot prepare a reconstructed external reference", true,
+			"retry once the temporary database is available", err)
+	}
+	_, err = tx.ExecContext(ctx, `INSERT OR IGNORE INTO work_items (id,kind,title,lifecycle,priority,urgency,version,created_at,updated_at,intent_json) VALUES (?, 'task', ?, 'needed', 0, 'standard', 1, 'reconstruction', 'reconstruction', ?)`, id, "reconstructed work "+id, string(intent))
+	if err != nil {
+		return wrapFailure(KindUnavailable, "reconstruct_subject", "cannot prepare a reconstructed work endpoint", true,
 			"retry once the temporary database is available", err)
 	}
 	return nil

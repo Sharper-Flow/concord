@@ -18,10 +18,10 @@ type WorkflowDomainRelationTuple struct {
 	TargetDomainID string `json:"target_domain_id"`
 }
 
-// WorkflowDomainOverlap names every bounded intersection between two active
-// Product-changing contracts. The active contract versions are part of the
-// identity; a later contract revision therefore makes an old resolution stale
-// without rewriting its event history.
+// WorkflowDomainOverlap names every bounded write intersection between two
+// active Product-changing contracts. The active contract versions are part of
+// the identity; a later contract revision therefore makes an old resolution
+// stale without rewriting its event history.
 type WorkflowDomainOverlap struct {
 	ProductID                     string                        `json:"product_id"`
 	FromWorkID                    string                        `json:"from_work_id"`
@@ -62,6 +62,14 @@ const (
 )
 
 var workflowOverlapRecoveryActions = []string{"wait", "resolve_overlap", "terminal_work", "supersede_contract"}
+
+// workflowOverlapRecoveryAction is the envelope-level recovery action the
+// refusal carries. It must name something the caller can act on. The routes
+// out of a blocking pair are the four in workflowOverlapRecoveryActions, and
+// approval is not among them: CD-0145 D1 leaves a shared write to the existing
+// resolution choices, and the refusal attaches no approval reference for an
+// approval assertion to cite.
+const workflowOverlapRecoveryAction = "reconcile_operation"
 
 // Domain-overlap details are carried in an agent envelope, whose maximum list
 // size is twenty. A global byte bound is applied after deriving the complete
@@ -132,6 +140,11 @@ func domainRelationTupleKey(value WorkflowDomainRelationTuple) string {
 	return value.SourceDomainID + "\x00" + value.Kind + "\x00" + value.TargetDomainID
 }
 
+// readWorkflowOverlapFootprintTx reads the Domain footprint a contract carries.
+// It reads the subject's prospective footprint, so it admits any nonterminal
+// item: an item entering execution has to be checked against the claim it is
+// about to take, not the empty one it holds while it waits. Which footprints
+// count as live claims is decided where peers are enumerated (CD-0144).
 func readWorkflowOverlapFootprintTx(ctx context.Context, tx *sql.Tx, workID string) (workflowOverlapFootprint, error) {
 	var footprint workflowOverlapFootprint
 	footprint.WorkID = workID
@@ -182,12 +195,19 @@ func readWorkflowOverlapFootprintTx(ctx context.Context, tx *sql.Tx, workID stri
 	return footprint, nil
 }
 
+// readWorkflowDomainOverlapCandidatesTx pairs the subject against the items
+// that actually hold Domains. CD-0144: exclusivity attaches at execution start,
+// not at contract approval, so only work that is in progress is a candidate. An
+// approved contract that nobody has started claims nothing and blocks nobody.
+// The lifecycle moves with the external-effect step that starts execution,
+// which is what makes this predicate name the boundary rather than merely
+// narrow the old one.
 func readWorkflowDomainOverlapCandidatesTx(ctx context.Context, tx *sql.Tx, workID string) (workflowOverlapFootprint, []workflowOverlapFootprint, error) {
 	self, err := readWorkflowOverlapFootprintTx(ctx, tx, workID)
 	if err != nil || self.ProductID == "" {
 		return self, []workflowOverlapFootprint{}, err
 	}
-	rows, err := tx.QueryContext(ctx, `SELECT DISTINCT c.work_id FROM workflow_contracts c JOIN workflow_architecture_bindings b ON b.work_id=c.work_id AND b.contract_version=c.contract_version JOIN work_items w ON w.id=c.work_id WHERE c.superseded_by IS NULL AND w.lifecycle NOT IN ('completed','cancelled','superseded') AND b.product_id=? AND c.work_id<>? ORDER BY c.work_id`, self.ProductID, workID)
+	rows, err := tx.QueryContext(ctx, `SELECT DISTINCT c.work_id FROM workflow_contracts c JOIN workflow_architecture_bindings b ON b.work_id=c.work_id AND b.contract_version=c.contract_version JOIN work_items w ON w.id=c.work_id WHERE c.superseded_by IS NULL AND w.lifecycle = 'in_progress' AND b.product_id=? AND c.work_id<>? ORDER BY c.work_id`, self.ProductID, workID)
 	if err != nil {
 		return self, nil, wrapFailure(KindUnavailable, "workflow_domain_overlap", "cannot enumerate active Product-changing workflows", true, "retry once the workflow projection is readable", err)
 	}
@@ -296,7 +316,7 @@ func workflowDomainOverlapPair(left, right workflowOverlapFootprint) (WorkflowDo
 	sharedLaw := intersectStrings(from.LawWrites, to.LawWrites)
 	sharedDomainModifications := intersectStrings(from.DomainModifications, to.DomainModifications)
 	sharedRelations := intersectDomainRelations(from.Relations, to.Relations)
-	if len(sharedDomains) == 0 {
+	if len(sharedLaw) == 0 && len(sharedDomainModifications) == 0 && len(sharedRelations) == 0 {
 		return WorkflowDomainOverlap{}, false
 	}
 	classes := []string{"architecture"}
@@ -392,7 +412,7 @@ func CheckWorkflowDomainOverlapTx(ctx context.Context, tx *sql.Tx, workID string
 		}
 		return failures[i].FromWorkID < failures[j].FromWorkID
 	})
-	failure := newFailure(KindDomainOverlap, "workflow_domain_overlap", "active Product-changing workflows have unresolved Domain overlap", false, "request_approval")
+	failure := newFailure(KindDomainOverlap, "workflow_domain_overlap", "active Product-changing workflows have unresolved Domain overlap", false, workflowOverlapRecoveryAction)
 	failure.DomainOverlap = &DomainOverlapFailure{Overlaps: failures, TotalOverlaps: len(failures)}
 	boundWorkflowDomainOverlapFailure(failure.DomainOverlap)
 	return failure

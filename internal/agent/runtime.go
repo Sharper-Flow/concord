@@ -770,6 +770,9 @@ func failureEnvelope(base Envelope, err error) Envelope {
 				out.Error.DomainOverlap.Overlaps = append(out.Error.DomainOverlap.Overlaps, converted)
 			}
 		}
+		if sf.ExternalRefConflict != nil {
+			out.Error.ExternalRefConflict = &ExternalRefConflict{ExistingWorkID: sf.ExternalRefConflict.ExistingWorkID, ExternalRef: sf.ExternalRefConflict.ExternalRef}
+		}
 		return out
 	}
 	return coreError(base, "internal_error", err.Error(), "contact_operator", false)
@@ -981,10 +984,6 @@ func publicRecovery(kind, proposed string) string {
 	case "unauthorized", "unreachable", "internal_error":
 		return "contact_operator"
 	case "approval_required", "approval_invalid":
-		return "request_approval"
-	case "stale_law_revision":
-		return "request_approval"
-	case "domain_overlap":
 		return "request_approval"
 	case "invalid_transition", "invalid_relation", "invariant_violation", "invalid_input":
 		return "reread_entities"
@@ -1351,7 +1350,7 @@ func (r runtime) read(ctx context.Context, base Envelope, input []byte, queryID 
 			return base, err
 		}
 		if (in.PackID == "") == (in.WorkID == "") {
-			return coreError(base, "invalid_input", "research read requires exactly one of pack_id or work_id", "supply_pack_or_work", false), nil
+			return coreError(base, "invalid_input", "research read requires exactly one of pack_id or work_id", "resolve_ambiguity", false), nil
 		}
 		var pack store.ResearchPack
 		var readErr error
@@ -1363,7 +1362,7 @@ func (r runtime) read(ctx context.Context, base Envelope, input []byte, queryID 
 				return failureEnvelope(base, listErr), nil
 			}
 			if len(packs) == 0 {
-				return coreError(base, "not_found", "no active research pack for that work item", "check_the_owner", false), nil
+				return coreError(base, "unknown_scope", "no active research pack for that work item", "reread_entities", false), nil
 			}
 			pack = packs[0]
 		}
@@ -1887,7 +1886,10 @@ func (r runtime) q5(base Envelope, q store.Q5Result) (Envelope, error) {
 }
 func (r runtime) q4(base Envelope, q store.Q4Result) (Envelope, error) {
 	items := make([]workSummary, 0, len(q.Items))
-	nodes := items
+	// nodes carries the unresolved blockers and items carries the blocked work.
+	// They must not share a backing array: `nodes := items` copies the slice
+	// header, so appending to one overwrites the elements of the other.
+	nodes := []workSummary{}
 	edges := []map[string]string{}
 	seen := map[string]bool{}
 	for _, w := range q.Items {
@@ -1989,7 +1991,7 @@ func ContinuityPayload(snapshot store.ContinuitySnapshot) map[string]any {
 	if stepActions == nil {
 		stepActions = []string{}
 	}
-	pinned := map[string]any{"product_identity": snapshot.ProductIdentity, "workflow_step": snapshot.WorkflowStep, "step_actions": stepActions, "contract": snapshot.Contract, "spec_mandate": snapshot.SpecMandate, "pending_operator_decision": snapshot.PendingOperatorDecision, "latest_checkpoint": snapshot.LatestCheckpoint, "design_record": snapshot.DesignRecord, "unresolved_failure": snapshot.UnresolvedFailure}
+	pinned := map[string]any{"product_identity": snapshot.ProductIdentity, "workflow_step": snapshot.WorkflowStep, "step_actions": stepActions, "contract": snapshot.Contract, "spec_mandate": snapshot.SpecMandate, "pending_operator_decision": snapshot.PendingOperatorDecision, "withheld_operator_decision": snapshot.WithheldOperatorDecision, "latest_checkpoint": snapshot.LatestCheckpoint, "design_record": snapshot.DesignRecord, "unresolved_failure": snapshot.UnresolvedFailure}
 	if snapshot.WorkPin != nil {
 		pinned["work_pin"] = snapshot.WorkPin
 	}

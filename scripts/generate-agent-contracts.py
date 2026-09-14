@@ -163,12 +163,30 @@ def load_workflow_action_contracts() -> list[dict]:
     return actions
 
 
-def workflow_payload_field_schema(field: dict) -> dict:
+def workflow_payload_field_schema(field: dict, defs: dict) -> dict:
     value_type = field["value_type"]
     schema_ref = field.get("schema_ref")
-    if value_type == "array" and schema_ref != "workflow_action_outcome_predicates":
-        schema = {"type": "array", "items": {"$ref": f"#/$defs/{schema_ref}"}}
+    item_ref = field.get("item_ref")
+    if value_type == "array":
+        # item_ref names the element contract. schema_ref names the whole value,
+        # and frozen definitions that point an array field at a non-array schema
+        # keep their original per-element reading.
+        if item_ref:
+            element = item_ref
+        elif schema_ref and defs.get(schema_ref, {}).get("type") != "array":
+            element = schema_ref
+        elif schema_ref:
+            schema = {"$ref": f"#/$defs/{schema_ref}"}
+            element = None
+        else:
+            fail(f"workflow action array field {field.get('name')} names no schema")
+        if element is not None:
+            if element not in defs:
+                fail(f"workflow action field {field.get('name')} references unknown schema {element}")
+            schema = {"type": "array", "items": {"$ref": f"#/$defs/{element}"}}
     elif schema_ref:
+        if schema_ref not in defs:
+            fail(f"workflow action field {field.get('name')} references unknown schema {schema_ref}")
         schema = {"$ref": f"#/$defs/{schema_ref}"}
     elif value_type == "string":
         schema = {"type": "string"}
@@ -191,7 +209,7 @@ def workflow_payload_field_schema(field: dict) -> dict:
     for source, target in (("min_length", "minLength"), ("max_length", "maxLength"), ("min_items", "minItems"), ("max_items", "maxItems"), ("minimum", "minimum"), ("maximum", "maximum"), ("enum", "enum")):
         if source == "enum" and value_type == "string_list":
             continue
-        if source in field and "$ref" not in schema:
+        if source in field:
             schema[target] = field[source]
     return schema
 
@@ -231,6 +249,7 @@ def workflow_supersede_fields_schema(outcome_payload: dict) -> dict:
             "required_evidence": copy.deepcopy(string_list), "route_conventions": copy.deepcopy(string_list),
             "spec_mandate": copy.deepcopy(string_list), "law_modifies": copy.deepcopy(string_list),
             "rigor_class": {"$ref": "#/$defs/rigor_class"}, "architecture_binding": {"$ref": "#/$defs/architecture_binding"},
+            "design_record": {"$ref": "#/$defs/workflow_design_content"},
             "supersede_reason": {"type": "string", "minLength": 1, "maxLength": 4096}, "audit_evidence": copy.deepcopy(string_list),
         },
         "oneOf": [
@@ -238,6 +257,15 @@ def workflow_supersede_fields_schema(outcome_payload: dict) -> dict:
             {"required": ["outcome_kind", "outcome_payload"]},
         ],
     }
+
+
+def workflow_payload_object_schema(payload: dict, defs: dict) -> dict:
+    properties = {field["name"]: workflow_payload_field_schema(field, defs) for field in payload["fields"]}
+    required = [field["name"] for field in payload["fields"] if field.get("required")]
+    result = {"type": "object", "additionalProperties": False, "maxProperties": 32, "properties": properties}
+    if required:
+        result["required"] = required
+    return result
 
 
 def project_workflow_action_schema(document: dict, actions: list[dict]) -> dict:
@@ -273,6 +301,10 @@ def project_workflow_action_schema(document: dict, actions: list[dict]) -> dict:
     defs["workflow_completion_payload"] = {"type": "object", "additionalProperties": False, "properties": {"evidence_commit": {"type": "string", "minLength": 1, "maxLength": 128}, "current_commit": {"type": "string", "minLength": 1, "maxLength": 128}, "staleness": {"type": "object", "additionalProperties": False, "required": ["drifted"], "properties": {"drifted": {"type": "boolean"}, "severity": {"type": "string", "enum": ["block", "warning"]}}}}}
     defs["proposal_affected_text"] = {"type": "string", "minLength": 1, "maxLength": 256}
     defs["proposal_text"] = {"type": "string", "minLength": 1, "maxLength": 512}
+    defs["decision_record_text"] = {"type": "string", "minLength": 2, "maxLength": 128}
+    defs["native_report_timestamp"] = {"type": "string", "minLength": 20, "maxLength": 64, "format": "date-time"}
+    design_action = next(action for action in actions if action["id"] == "record_design")
+    defs["workflow_design_content"] = workflow_payload_object_schema(design_action["payload"], defs)
 
     outer_properties = copy.deepcopy(common)
     outer_properties["selected_choice"] = {"type": "string", "enum": ["confirm", "revise", "stop"]}
@@ -285,16 +317,9 @@ def project_workflow_action_schema(document: dict, actions: list[dict]) -> dict:
             then = {"required": ["selected_choice", "decision_context_digest"], "not": {"required": ["fields"]}}
         else:
             def payload_branch(payload: dict) -> dict:
-                field_properties = {}
-                field_required = []
-                for field in payload["fields"]:
-                    field_properties[field["name"]] = workflow_payload_field_schema(field)
-                    if field.get("required"):
-                        field_required.append(field["name"])
-                field_object = {"type": "object", "additionalProperties": False, "maxProperties": 32, "properties": field_properties}
+                field_object = workflow_payload_object_schema(payload, defs)
                 branch = {"properties": {"fields": field_object}, "not": {"anyOf": [{"required": ["selected_choice"]}, {"required": ["decision_context_digest"]}]}}
-                if field_required:
-                    field_object["required"] = field_required
+                if "required" in field_object:
                     branch["required"] = ["fields"]
                 return branch
 
@@ -447,7 +472,7 @@ def validate_host_manifest(manifest: dict, schema: dict) -> str:
     if [tool.get("name") for tool in tools] != ["concord_work_start"]:
         fail("host tool manifest must declare concord_work_start once")
     args = tools[0].get("args", {})
-    capture = ["title", "value_statement", "kind", "task", "idempotency_key", "priority", "urgency", "tags", "workflow_type_ref", "external_ref", "governing_requirements", "ref"]
+    capture = ["title", "value_statement", "kind", "task", "idempotency_key", "priority", "urgency", "tags", "workflow_type_ref", "external_ref", "raised_from_work_id", "governing_requirements", "ref"]
     resume = ["work_id"]
     branches = args.get("oneOf")
     if args.get("type") != "object" or not isinstance(branches, list) or len(branches) != 2:
@@ -503,6 +528,7 @@ def fixtures_projection(manifest: dict) -> str:
             return result
         if kind=="array": return [sample(schema.get("items",{}))] if schema.get("minItems",0)>0 else []
         if kind=="string":
+            if schema.get("format") == "date-time": return "2026-08-08T00:00:00Z"
             pattern=schema.get("pattern","")
             if "sha256:" in pattern: return "sha256:"+"0"*64
             if "[0-9a-f]{40}" in pattern: return "0"*40
@@ -549,7 +575,7 @@ def docs_projection(manifest: dict) -> str:
 
 def go_payload_schema_projection() -> str:
     document = json.dumps(json.loads(PAYLOAD.read_text()), ensure_ascii=False, sort_keys=True, indent=2)
-    return "// Code generated by scripts/generate-agent-contracts.py; DO NOT EDIT.\npackage agent\n\nconst GeneratedPayloadSchemaDocument = `" + document + "`\n"
+    return "// Code generated by scripts/generate-agent-contracts.py; DO NOT EDIT.\npackage payloadschema\n\nconst GeneratedPayloadSchemaDocument = `" + document + "`\n"
 
 def go_envelope_schema_projection() -> str:
     document = json.dumps(json.loads((ROOT / "contracts/agent-tool-envelope.schema.json").read_text()), ensure_ascii=False, sort_keys=True, indent=2)
@@ -588,15 +614,23 @@ function pass(evaluated: Iterable<string> = []): Validation {{ return {{ valid: 
 function fail(at: string): Validation {{ return {{ valid: false, evaluated: new Set(), path: at }}; }}
 function joinPath(path: string, key: string): string {{ return path ? path + "." + key : key; }}
 function merge(target: Set<string>, source: Set<string>): void {{ for (const key of source) target.add(key); }}
+function dateTime(value: string): boolean {{
+  const parts = /^([0-9]{{4}})-([0-9]{{2}})-([0-9]{{2}})T([0-9]{{2}}):([0-9]{{2}}):([0-9]{{2}})(?:[.][0-9]+)?(Z|[+-]([0-9]{{2}}):([0-9]{{2}}))$/.exec(value);
+  if (!parts) return false;
+  const [, year, month, day, hour, minute, second, zone, offsetHour, offsetMinute] = parts;
+  const y = Number(year), m = Number(month), d = Number(day);
+  const days = [31, y % 4 === 0 && (y % 100 !== 0 || y % 400 === 0) ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+  return m >= 1 && m <= 12 && d >= 1 && d <= days[m - 1] && Number(hour) < 24 && Number(minute) < 60 && Number(second) < 60 && (zone === "Z" || Number(offsetHour) < 24 && Number(offsetMinute) < 60);
+}}
 function validateSchema(schema: any, value: unknown, root: Record<string, unknown>, path: string = ""): Validation {{
   if (!schema || typeof schema !== "object") return fail(path || "<root>");
-  if (schema.$ref) {{ const definitions: Record<string, unknown> = (root.$defs as Record<string, unknown> | undefined) ?? root; const target = definitions[schema.$ref.replace("#/$defs/", "")]; return validateSchema(target, value, root, path); }}
+  const evaluated = new Set<string>();
+  if (schema.$ref) {{ const definitions: Record<string, unknown> = (root.$defs as Record<string, unknown> | undefined) ?? root; const target = definitions[schema.$ref.replace("#/$defs/", "")]; const result = validateSchema(target, value, root, path); if (!result.valid) return result; merge(evaluated, result.evaluated); }}
   if ("const" in schema && JSON.stringify(schema.const) !== JSON.stringify(value)) return fail(path || "<root>");
   if (schema.enum && !schema.enum.some((candidate: unknown) => JSON.stringify(candidate) === JSON.stringify(value))) return fail(path || "<root>");
   if (schema.type) {{ const types = Array.isArray(schema.type) ? schema.type : [schema.type]; if (!types.some((kind: string) => kind === "null" ? value === null : kind === "array" ? Array.isArray(value) : kind === "object" ? value !== null && typeof value === "object" && !Array.isArray(value) : kind === "integer" ? typeof value === "number" && Number.isInteger(value) : typeof value === kind || kind === "number" && typeof value === "number")) return fail(path || "<root>"); }}
-  if (typeof value === "string") {{ if (schema.minLength !== undefined && value.length < schema.minLength || schema.maxLength !== undefined && value.length > schema.maxLength || schema.pattern && !(new RegExp(schema.pattern).test(value))) return fail(path || "<root>"); if (schema.format === "date-time" && Number.isNaN(Date.parse(value))) return fail(path || "<root>"); }}
+  if (typeof value === "string") {{ const length = Array.from(value).length; if (schema.minLength !== undefined && length < schema.minLength || schema.maxLength !== undefined && length > schema.maxLength || schema.pattern && !(new RegExp(schema.pattern).test(value))) return fail(path || "<root>"); if (schema.format === "date-time" && !dateTime(value)) return fail(path || "<root>"); }}
   if (typeof value === "number" && (schema.minimum !== undefined && value < schema.minimum || schema.maximum !== undefined && value > schema.maximum)) return fail(path || "<root>");
-  const evaluated = new Set<string>();
   if (value !== null && typeof value === "object" && !Array.isArray(value)) {{
     const object = value as Record<string, unknown>; const properties = schema.properties ?? {{}}; const patterns = schema.patternProperties ?? {{}}; const known = new Set<string>();
     if (schema.required) for (const key of schema.required) if (!(key in object)) return fail(joinPath(path, key));
@@ -709,7 +743,7 @@ def main() -> int:
             ROOT / "contracts/agent-tool-surface.fixtures.json": fixtures_projection(manifest),
             ROOT / "docs/generated-agent-tool-surface.md": docs_projection(manifest),
             ROOT / "adapter/opencode/generated-contract-tests.ts": ts_validator_projection(manifest),
-            ROOT / "internal/agent/generated_payload_schemas.go": go_payload_schema_projection(),
+            ROOT / "internal/payloadschema/generated_schemas.go": go_payload_schema_projection(),
             ROOT / "internal/agent/generated_envelope_schema.go": subprocess.run(["gofmt"], input=go_envelope_schema_projection(), text=True, capture_output=True, check=True).stdout,
             ROOT / "internal/store/generated_typed_error_kinds.go": subprocess.run(["gofmt"], input=go_typed_error_kind_projection(envelope), text=True, capture_output=True, check=True).stdout,
         }

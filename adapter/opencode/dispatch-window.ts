@@ -24,6 +24,7 @@ export interface DispatchRecord {
   packet: AgentLanePacket
   packetDigest: string
   workPins?: unknown[]
+  callID?: string
 }
 
 interface MutableToolArgs {
@@ -48,10 +49,11 @@ export class DispatchWindows {
   // An attempt the host is running now. The Task call consumed its window, and
   // completion still needs the packet and the digest the core recorded.
   readonly #inFlight = new Map<string, DispatchRecord>()
+  readonly #settling = new Set<string>()
 
   open(sessionID: string, packet: AgentLanePacket, packetDigest = "", workPins?: unknown[]): void {
-    if (this.#open.has(sessionID)) {
-      throw new DispatchWindowError(`session ${sessionID} already holds an open dispatch window`)
+    if (this.#open.has(sessionID) || this.#inFlight.has(sessionID)) {
+      throw new DispatchWindowError(`session ${sessionID} already holds an open dispatch window or an in-flight attempt`)
     }
     this.#open.set(sessionID, { packet, packetDigest, workPins })
   }
@@ -69,16 +71,37 @@ export class DispatchWindows {
   // takeInFlight hands the running attempt to the completion path once. A second
   // completion for one dispatch finds nothing, so a result cannot be admitted
   // twice against a single authorization.
-  takeInFlight(sessionID: string): DispatchRecord | null {
+  takeInFlight(sessionID: string, callID?: string): DispatchRecord | null {
+    if (this.#settling.has(sessionID)) return null
     const record = this.#inFlight.get(sessionID)
     if (!record) return null
+    if (callID !== undefined && record.callID !== undefined && record.callID !== callID) return null
     this.#inFlight.delete(sessionID)
     return record
   }
 
+  inFlight(sessionID: string, callID: string): DispatchRecord | null {
+    const record = this.#inFlight.get(sessionID)
+    return record?.callID === callID ? record : null
+  }
+
+  claimSettlement(sessionID: string, callID: string): DispatchRecord | null {
+    if (this.#settling.has(sessionID)) return null
+    const record = this.inFlight(sessionID, callID)
+    if (!record) return null
+    this.#settling.add(sessionID)
+    return record
+  }
+
+  finishSettlement(sessionID: string, callID: string): void {
+    if (!this.inFlight(sessionID, callID)) return
+    this.#inFlight.delete(sessionID)
+    this.#settling.delete(sessionID)
+  }
+
   // bind is the `tool.execute.before` body. It mutates the caller's arguments in
   // place, which is the only channel the host hook contract offers.
-  bind(tool: string, sessionID: string, args: MutableToolArgs): void {
+  bind(tool: string, sessionID: string, args: MutableToolArgs, callID?: string): void {
     if (tool !== TASK_TOOL_ID) return
     const record = this.#open.get(sessionID)
     if (!record) {
@@ -87,6 +110,7 @@ export class DispatchWindows {
       )
     }
     this.#open.delete(sessionID)
+    record.callID = callID
     this.#inFlight.set(sessionID, record)
     const packet = record.packet
     args.subagent_type = LANE_AGENT_PREFIX + packet.lane_id

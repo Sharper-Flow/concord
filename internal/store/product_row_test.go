@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/sharper-flow/concord/internal/payloadschema"
 )
 
 func TestProductRowsC14ReturnsFiveGroups(t *testing.T) {
@@ -43,6 +45,34 @@ func TestProductRowsC14ReturnsFiveGroups(t *testing.T) {
 	}
 	if row.Reliance.Authority != ProductRowAuthorityAuthoritative || result.ObservedAt == "" {
 		t.Fatalf("reliance/meta = %#v %#v", row.Reliance, result.ResultMeta)
+	}
+}
+
+func TestProductRowsC14BlockedSessionFocusMatchesPayloadSchema(t *testing.T) {
+	result := ProductRowResult{
+		ObservedAt: "2026-09-14T00:00:00Z",
+		Rows: []ProductRow{{
+			ProductID:    "product-row",
+			DisplayName:  "Portfolio",
+			Stage:        ProductRowStage{Maturity: "prototype", AudienceCommitment: "operator_only"},
+			Reliance:     ProductRowReliance{Authority: ProductRowAuthorityAuthoritative, ObservedAt: "2026-09-14T00:00:00Z", Omissions: []string{}},
+			ActionCounts: ProductRowActionCounts{State: ProductRowCountsKnown, Values: &ProductRowActionCountValues{}},
+			Focus: &ProductRowFocus{
+				WorkID: "work-row", Title: "Approve", WorkKind: "task", Lifecycle: "needed",
+				AttentionKind: ProductRowAttentionApprovalRequired, StageContext: ProductRowStageContext{Kind: "product_default"},
+				BlockedSessions: []BlockedSession{{
+					SessionRef: "session-row", AgentRef: "agent-row", Worktree: "/worktree", Directory: "/worktree",
+					Consequence: "workflow_action", BlockedSince: "2026-09-13T23:00:00Z", BlockAgeSec: 3600,
+				}},
+			},
+		}},
+	}
+	payload, err := ProductRowPagePayload(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := payloadschema.Validate("product_row_page", payload); err != nil {
+		t.Fatalf("blocked-session portfolio payload is invalid: %v", err)
 	}
 }
 

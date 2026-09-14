@@ -29,6 +29,13 @@ func advanceWorkflowReplay(ctx context.Context, event Event) {
 	if !ok {
 		return
 	}
+	if event.Kind == "work.created" {
+		var payload workCreatedPayload
+		if json.Unmarshal(event.Payload, &payload) == nil && payload.RaisedFromWorkID != "" {
+			state.relationIdentity++
+		}
+		return
+	}
 	for _, kind := range relationIdentityEventKinds {
 		if event.Kind == kind {
 			state.relationIdentity++
@@ -96,6 +103,7 @@ func workflowContractRecoveryPayloadFields() []WorkflowPayloadField {
 		actionStringField("supersede_reason", true, 4096),
 		actionListField("audit_evidence", true, 1, 32),
 		actionObjectField("architecture_binding", false, "architecture_binding"),
+		actionObjectField("design_record", false, "workflow_design_content"),
 	}
 }
 

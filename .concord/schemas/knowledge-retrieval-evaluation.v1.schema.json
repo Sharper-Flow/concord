@@ -1,0 +1,167 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/Sharper-Flow/concord/main/.concord/schemas/knowledge-retrieval-evaluation.v1.schema.json",
+  "title": "Concord knowledge retrieval evaluation v1 (proposed)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "contract", "contract_status", "authority", "workload", "capabilities", "protocol", "proposed_targets", "measured_results"],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "contract": {"const": "knowledge-retrieval-evaluation"},
+    "contract_status": {"const": "proposed"},
+    "authority": {"const": "non_authoritative"},
+    "workload": {"$ref": "#/$defs/workload"},
+    "capabilities": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["exact_lookup", "structured_filters", "body_discovery", "current_resolution", "historical_resolution", "stale_superseded_results"],
+      "properties": {
+        "exact_lookup": {"$ref": "#/$defs/capability"},
+        "structured_filters": {"$ref": "#/$defs/capability"},
+        "body_discovery": {"$ref": "#/$defs/capability"},
+        "current_resolution": {"$ref": "#/$defs/capability"},
+        "historical_resolution": {"$ref": "#/$defs/capability"},
+        "stale_superseded_results": {"$ref": "#/$defs/capability"}
+      }
+    },
+    "protocol": {"$ref": "#/$defs/protocol"},
+    "proposed_targets": {"type": "array", "minItems": 1, "maxItems": 64, "uniqueItems": true, "items": {"$ref": "#/$defs/proposedTarget"}},
+    "measured_results": {"type": "array", "minItems": 0, "maxItems": 256, "uniqueItems": true, "items": {"$ref": "#/$defs/measuredResult"}}
+  },
+  "$defs": {
+    "id": {"type": "string", "minLength": 3, "maxLength": 128, "pattern": "^[a-z][a-z0-9_-]{2,127}$"},
+    "short": {"type": "string", "minLength": 1, "maxLength": 1024},
+    "workload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name", "source", "population", "scale_multiplier", "pm1_metadata_floor"],
+      "properties": {
+        "id": {"$ref": "#/$defs/id"},
+        "name": {"$ref": "#/$defs/short"},
+        "source": {"enum": ["synthetic", "measured"]},
+        "population": {"$ref": "#/$defs/short"},
+        "scale_multiplier": {"type": "integer", "minimum": 1, "maximum": 1000},
+        "pm1_metadata_floor": {"$ref": "#/$defs/pm1Floor"}
+      }
+    },
+    "pm1Floor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["metric", "comparator", "threshold_ms", "workload_id", "status"],
+      "properties": {
+        "metric": {"const": "metadata_query_p99_ms"},
+        "comparator": {"const": "lte"},
+        "threshold_ms": {"const": 100},
+        "workload_id": {"const": "pm1-metadata-queries"},
+        "status": {"const": "proposed"}
+      }
+    },
+    "capability": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode", "oracle", "required_proof", "ranking_authority"],
+      "properties": {
+        "mode": {"enum": ["exact", "filter", "ranked_discovery", "canonical_resolution", "lifecycle_resolution"]},
+        "oracle": {"$ref": "#/$defs/short"},
+        "required_proof": {"type": "array", "minItems": 1, "maxItems": 16, "uniqueItems": true, "items": {"enum": ["record_id", "element_id", "scope", "status", "source_revision", "source_digest", "canonical_path", "index_watermark", "stale_reason", "successor_id"]}},
+        "ranking_authority": {"enum": ["stable_id", "structured_score_then_id", "advisory_only"]}
+      }
+    },
+    "protocol": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["corpus_description", "query_set", "chunking", "rebuild", "privacy", "reporting"],
+      "properties": {
+        "corpus_description": {"$ref": "#/$defs/short"},
+        "query_set": {"type": "array", "minItems": 6, "maxItems": 64, "uniqueItems": true, "items": {"$ref": "#/$defs/query"}},
+        "chunking": {"$ref": "#/$defs/chunking"},
+        "rebuild": {"$ref": "#/$defs/rebuild"},
+        "privacy": {"$ref": "#/$defs/privacy"},
+        "reporting": {"$ref": "#/$defs/reporting"}
+      }
+    },
+    "query": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "capability", "input", "expected_authority"],
+      "properties": {
+        "id": {"$ref": "#/$defs/id"},
+        "capability": {"enum": ["exact_lookup", "structured_filters", "body_discovery", "current_resolution", "historical_resolution", "stale_superseded_results"]},
+        "input": {"$ref": "#/$defs/short"},
+        "expected_authority": {"enum": ["canonical", "derived_projection", "non_authoritative_provider"]}
+      }
+    },
+    "chunking": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["algorithm", "stable_key", "includes", "excludes"],
+      "properties": {
+        "algorithm": {"enum": ["section_then_requirement", "record_narrative_only"]},
+        "stable_key": {"enum": ["record_id_element_id_revision"]},
+        "includes": {"type": "array", "minItems": 1, "maxItems": 16, "uniqueItems": true, "items": {"enum": ["record_id", "kind", "scope", "status", "section_id", "requirement_id", "narrative", "source_digest"]}},
+        "excludes": {"type": "array", "minItems": 1, "maxItems": 16, "uniqueItems": true, "items": {"enum": ["private_content", "unverified_inference", "raw_exhaust"]}}
+      }
+    },
+    "rebuild": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["trigger", "invalidation_key", "replacement", "historical_policy"],
+      "properties": {
+        "trigger": {"enum": ["canonical_revision_change", "explicit_operator_request", "evaluation_setup"]},
+        "invalidation_key": {"enum": ["canonical_path_source_digest_schema_version"]},
+        "replacement": {"enum": ["transactional_rebuild", "fixture_only"]},
+        "historical_policy": {"enum": ["retain_by_revision", "exclude_from_current"]}
+      }
+    },
+    "privacy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["private_content_egress", "operator_permission_required", "redaction", "provider_boundary"],
+      "properties": {
+        "private_content_egress": {"enum": ["forbidden_by_default", "explicitly_allowed"]},
+        "operator_permission_required": {"type": "boolean"},
+        "redaction": {"enum": ["required_before_egress", "not_applicable"]},
+        "provider_boundary": {"enum": ["lgrep_non_authoritative", "local_only"]}
+      }
+    },
+    "reporting": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["separate_proposed_and_measured", "metrics", "no_benchmark_claim_without_result"],
+      "properties": {
+        "separate_proposed_and_measured": {"const": true},
+        "metrics": {"type": "array", "minItems": 1, "maxItems": 32, "uniqueItems": true, "items": {"enum": ["p50_ms", "p99_ms", "recall_at_k", "precision_at_k", "freshness_age_ms", "rebuild_ms", "invalidation_count", "rows_scanned", "output_bytes", "egress_bytes"]}},
+        "no_benchmark_claim_without_result": {"const": true}
+      }
+    },
+    "proposedTarget": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "metric", "comparator", "threshold", "population", "status"],
+      "properties": {
+        "id": {"$ref": "#/$defs/id"},
+        "metric": {"enum": ["p50_ms", "p99_ms", "recall_at_k", "precision_at_k", "freshness_age_ms", "rebuild_ms", "invalidation_count", "rows_scanned", "output_bytes", "egress_bytes"]},
+        "comparator": {"enum": ["lte", "gte", "eq"]},
+        "threshold": {"type": "number", "minimum": 0, "maximum": 1000000000},
+        "population": {"$ref": "#/$defs/short"},
+        "status": {"const": "proposed"}
+      }
+    },
+    "measuredResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "target_id", "run_id", "metric", "observed", "population", "measured_at", "evidence", "status"],
+      "properties": {
+        "id": {"$ref": "#/$defs/id"},
+        "target_id": {"$ref": "#/$defs/id"},
+        "run_id": {"$ref": "#/$defs/id"},
+        "metric": {"enum": ["p50_ms", "p99_ms", "recall_at_k", "precision_at_k", "freshness_age_ms", "rebuild_ms", "invalidation_count", "rows_scanned", "output_bytes", "egress_bytes"]},
+        "observed": {"type": "number", "minimum": 0, "maximum": 1000000000},
+        "population": {"$ref": "#/$defs/short"},
+        "measured_at": {"type": "string", "minLength": 20, "maxLength": 40, "format": "date-time"},
+        "evidence": {"type": "array", "minItems": 1, "maxItems": 16, "uniqueItems": true, "items": {"$ref": "#/$defs/short"}},
+        "status": {"enum": ["measured", "inconclusive"]}
+      }
+    }
+  }
+}

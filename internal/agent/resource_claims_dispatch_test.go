@@ -60,13 +60,16 @@ func TestResourceClaimLifecycle(t *testing.T) {
 	}
 
 	// Uncontended claim.
-	claim := invoke("resource_claim", map[string]any{"work_id": "work-holder", "resource_key": "fence:prod-pause", "reason": "Holding the fleet pause while data cleanup runs.", "expected_version": 2, "idempotency_key": "claim-1"})
+	claim := invoke("resource_claim", map[string]any{"work_id": "work-holder", "resource_key": "fence:prod/pause", "reason": "Holding the fleet pause while data cleanup runs.", "expected_version": 2, "idempotency_key": "claim-1"})
 	if claim.Outcome != OutcomeOK {
 		t.Fatalf("uncontended claim failed: %+v", claim.Error)
 	}
+	if claim.ChangedRefs == nil || len(*claim.ChangedRefs) != 1 || (*claim.ChangedRefs)[0] != (ChangedRef{EntityKind: "work_item", ID: "work-holder", Version: "3"}) {
+		t.Fatalf("claim receipt=%+v, want the stored work identity and version", claim.ChangedRefs)
+	}
 
 	// Contended claim: another work item sees a typed refusal naming coordination.
-	contended := invoke("resource_claim", map[string]any{"work_id": "work-contender", "resource_key": "fence:prod-pause", "reason": "Designing hardened tooling for the same pause.", "expected_version": 2, "idempotency_key": "claim-2"})
+	contended := invoke("resource_claim", map[string]any{"work_id": "work-contender", "resource_key": "fence:prod/pause", "reason": "Designing hardened tooling for the same pause.", "expected_version": 2, "idempotency_key": "claim-2"})
 	if contended.Outcome == OutcomeOK || contended.Error == nil {
 		t.Fatal("contended claim must refuse")
 	}
@@ -76,7 +79,7 @@ func TestResourceClaimLifecycle(t *testing.T) {
 	}
 
 	// Discovery: exact key shows holder and reason.
-	discover := invoke("resource_claims", map[string]any{"product_id": "product-1", "resource_key": "fence:prod-pause"})
+	discover := invoke("resource_claims", map[string]any{"product_id": "product-1", "resource_key": "fence:prod/pause"})
 	if discover.Outcome != OutcomeOK {
 		t.Fatalf("discovery failed: %+v", discover.Error)
 	}
@@ -91,13 +94,16 @@ func TestResourceClaimLifecycle(t *testing.T) {
 	}
 
 	// Release by the holder.
-	release := invoke("resource_release", map[string]any{"work_id": "work-holder", "resource_key": "fence:prod-pause", "expected_version": 3, "idempotency_key": "release-1"})
+	release := invoke("resource_release", map[string]any{"work_id": "work-holder", "resource_key": "fence:prod/pause", "expected_version": 3, "idempotency_key": "release-1"})
 	if release.Outcome != OutcomeOK {
 		t.Fatalf("release failed: %+v", release.Error)
 	}
+	if release.ChangedRefs == nil || len(*release.ChangedRefs) != 1 || (*release.ChangedRefs)[0] != (ChangedRef{EntityKind: "work_item", ID: "work-holder", Version: "4"}) {
+		t.Fatalf("release receipt=%+v, want the stored work identity and version", release.ChangedRefs)
+	}
 
 	// After release the contender may claim.
-	reclaim := invoke("resource_claim", map[string]any{"work_id": "work-contender", "resource_key": "fence:prod-pause", "reason": "Now free to exercise the pause tooling.", "expected_version": 2, "idempotency_key": "claim-3"})
+	reclaim := invoke("resource_claim", map[string]any{"work_id": "work-contender", "resource_key": "fence:prod/pause", "reason": "Now free to exercise the pause tooling.", "expected_version": 2, "idempotency_key": "claim-3"})
 	if reclaim.Outcome != OutcomeOK {
 		t.Fatalf("post-release claim failed: %+v", reclaim.Error)
 	}
@@ -110,7 +116,7 @@ func TestResourceClaimLifecycle(t *testing.T) {
 	}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, "work-contender"): 3}}); err != nil {
 		t.Fatal(err)
 	}
-	after := invoke("resource_claims", map[string]any{"product_id": "product-1", "resource_key": "fence:prod-pause"})
+	after := invoke("resource_claims", map[string]any{"product_id": "product-1", "resource_key": "fence:prod/pause"})
 	if err := json.Unmarshal(after.Result, &page); err != nil || len(page.Claims) != 1 || page.Claims[0].State != "released" {
 		t.Fatalf("claims after terminal=%+v err=%v", page.Claims, err)
 	}
@@ -153,6 +159,74 @@ func TestResourceClaimGrantsNoAuthority(t *testing.T) {
 	}
 	if ref, _ := approvalGated.Error.Details["approval_ref"].(string); len(ref) != 64 {
 		t.Fatalf("approval refusal must carry an actionable approval_ref, got %v", approvalGated.Error.Details["approval_ref"])
+	}
+}
+
+func TestResourceClaimReplayRefusalsAndAtomicity(t *testing.T) {
+	ctx := context.Background()
+	s, service, grant := claimsFixture(t)
+	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	input := map[string]any{"work_id": "work-holder", "resource_key": "fence:prod/pause", "reason": "Holding the fleet pause while data cleanup runs.", "expected_version": 2, "idempotency_key": "claim-replay"}
+	invoke := func(op string, value any) Envelope {
+		t.Helper()
+		raw, _ := json.Marshal(value)
+		response, dispatchErr := Dispatch(ctx, s, service, InvokeRequest{Tool: toolForClaimsOp(op), Operation: op, Input: raw}, mutationEnvelope(grant, scopeVersion))
+		if dispatchErr != nil {
+			t.Fatal(dispatchErr)
+		}
+		return response
+	}
+	first := invoke("resource_claim", input)
+	if first.Outcome != OutcomeOK {
+		t.Fatalf("claim failed: %+v", first.Error)
+	}
+	replay := invoke("resource_claim", input)
+	if replay.Outcome != OutcomeOK || !replay.Replayed {
+		t.Fatalf("replay=%+v", replay)
+	}
+	if version, versionErr := s.WorkVersion(ctx, "work-holder"); versionErr != nil || version != 3 {
+		t.Fatalf("replayed claim version=%d err=%v", version, versionErr)
+	}
+	var events int
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE kind='work.resource_claimed' AND subject_id=?`, "work-holder").Scan(&events); err != nil || events != 1 {
+		t.Fatalf("claim events=%d err=%v", events, err)
+	}
+
+	stale := invoke("resource_claim", map[string]any{"work_id": "work-holder", "resource_key": "fence:other/pause", "reason": "A stale claim.", "expected_version": 2, "idempotency_key": "claim-stale"})
+	if stale.Outcome != OutcomeError || stale.Error == nil {
+		t.Fatalf("stale claim=%+v", stale)
+	}
+	if version, versionErr := s.WorkVersion(ctx, "work-holder"); versionErr != nil || version != 3 {
+		t.Fatalf("stale claim version=%d err=%v", version, versionErr)
+	}
+
+	ownership := invoke("resource_release", map[string]any{"work_id": "work-contender", "resource_key": "fence:prod/pause", "expected_version": 2, "idempotency_key": "release-not-owner"})
+	if ownership.Outcome != OutcomeError || ownership.Error == nil {
+		t.Fatalf("ownership refusal=%+v", ownership)
+	}
+	var state, holder string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT state,holder_work_id FROM resource_claims WHERE resource_key=?`, "fence:prod/pause").Scan(&state, &holder); err != nil {
+		t.Fatal(err)
+	}
+	if state != store.ResourceClaimHeld || holder != "work-holder" {
+		t.Fatalf("claim after ownership refusal state=%q holder=%q", state, holder)
+	}
+
+	atomicEvents := []store.Event{
+		{EventID: "atomic-valid", Kind: "work.resource_claimed", SubjectType: store.SubjectWorkItem, SubjectID: "work-contender", Actor: grant.PrincipalRef, OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"expected_version":2,"resulting_version":3,"resource_key":"fence:atomic/valid","reason":"atomicity","holder_agent":"agent-1","holder_session":"session-1"}`)},
+		{EventID: "atomic-invalid", Kind: "work.resource_claimed", SubjectType: store.SubjectWorkItem, SubjectID: "work-contender", Actor: grant.PrincipalRef, OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"expected_version":3,"resulting_version":4,"resource_key":"invalid key","reason":"must fail","holder_agent":"agent-1","holder_session":"session-1"}`)},
+	}
+	if err := store.ApplyOperation(ctx, s, store.Operation{Events: atomicEvents, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, "work-contender"): 2}}); err == nil {
+		t.Fatal("invalid second claim must refuse")
+	}
+	if version, versionErr := s.WorkVersion(ctx, "work-contender"); versionErr != nil || version != 2 {
+		t.Fatalf("partial atomic claim version=%d err=%v", version, versionErr)
+	}
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM resource_claims WHERE resource_key=?`, "fence:atomic/valid").Scan(&events); err != nil || events != 0 {
+		t.Fatalf("partial atomic claim rows=%d err=%v", events, err)
 	}
 }
 

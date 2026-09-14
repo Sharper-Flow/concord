@@ -42,6 +42,7 @@ func TestCreateIssueSendsBearerAndClientUUID(t *testing.T) {
 	issue, err := client.CreateIssue(context.Background(), CreateIssueInput{
 		ID:          "0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0",
 		TeamID:      "68d52710-76d9-4b41-ba45-778511d0e2ed",
+		ProjectID:   "project-uuid-1",
 		Title:       "Example issue",
 		Description: "Example description",
 	})
@@ -51,7 +52,7 @@ func TestCreateIssueSendsBearerAndClientUUID(t *testing.T) {
 	if gotAuth != "lin_api_test" {
 		t.Fatalf("Authorization = %q, want the raw key without a Bearer prefix", gotAuth)
 	}
-	for _, want := range []string{`"id":"0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0"`, `"teamId":"68d52710-76d9-4b41-ba45-778511d0e2ed"`, `"title":"Example issue"`, "issueCreate"} {
+	for _, want := range []string{`"id":"0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0"`, `"teamId":"68d52710-76d9-4b41-ba45-778511d0e2ed"`, `"projectId":"project-uuid-1"`, `"title":"Example issue"`, "issueCreate"} {
 		if !strings.Contains(gotBody, want) {
 			t.Fatalf("request body %q lacks %q", gotBody, want)
 		}

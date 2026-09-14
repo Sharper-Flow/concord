@@ -1,0 +1,36 @@
+{
+  "date": "2026-09-12T00:00:00Z",
+  "evidence": [
+    "internal/store/lifecycle.go",
+    "internal/store/external_ref_collision_test.go",
+    "internal/agent/mutations.go",
+    "cmd/concord/work_bootstrap.go"
+  ],
+  "home_domain_id": "durable-authority",
+  "id": "CD-0146",
+  "kind": "decision",
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "CD-0035"
+    }
+  ],
+  "path": "docs/decisions/CD-0146-capture-refuses-a-colliding-external-ref.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:3fccfcd68feb13e5e3552a785bcf3d20533f75540b46d67391e8041412fd0085",
+  "status": "accepted",
+  "summary": "Live work captures with duplicate external references refuse with a typed owner unless raised_from_work_id names that owner, which records a raised_from relation atomically; terminal owners remain reusable.",
+  "tags": [
+    "capture",
+    "external-reference",
+    "collision",
+    "relations"
+  ],
+  "title": "Capture refuses a colliding external reference"
+}

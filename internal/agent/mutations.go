@@ -22,16 +22,17 @@ type mutationMembership struct {
 	Role      string `json:"role"`
 }
 type captureMutationInput struct {
-	Title           string   `json:"title"`
-	ValueStatement  string   `json:"value_statement"`
-	Kind            string   `json:"kind"`
-	ProjectIDs      []string `json:"project_ids"`
-	Priority        int64    `json:"priority"`
-	Urgency         string   `json:"urgency"`
-	Tags            []string `json:"tags"`
-	WorkflowTypeRef string   `json:"workflow_type_ref"`
-	ExternalRef     string   `json:"external_ref"`
-	IdempotencyKey  string   `json:"idempotency_key"`
+	Title            string   `json:"title"`
+	ValueStatement   string   `json:"value_statement"`
+	Kind             string   `json:"kind"`
+	ProjectIDs       []string `json:"project_ids"`
+	Priority         int64    `json:"priority"`
+	Urgency          string   `json:"urgency"`
+	Tags             []string `json:"tags"`
+	WorkflowTypeRef  string   `json:"workflow_type_ref"`
+	ExternalRef      string   `json:"external_ref"`
+	RaisedFromWorkID string   `json:"raised_from_work_id"`
+	IdempotencyKey   string   `json:"idempotency_key"`
 	// GoverningRequirements enumerates the scope-level obligations this capture
 	// carries (CD-0035 D3/D4). It confers no authority: the core refuses when it
 	// fails to cover the requirements the target scope declares, and the caller
@@ -537,7 +538,7 @@ func (r runtime) replayWorkflowAction(ctx context.Context, base Envelope, step s
 	case store.ResultCompleted:
 		payload := json.RawMessage(step.ResultPayload)
 		if step.ContractDigest != ManifestDigest {
-			return coreError(base, "manifest_mismatch", "durable workflow result manifest digest does not match the current contract", "contact_operator", false), nil
+			return coreError(base, "malformed_response", "durable workflow result manifest digest does not match the current contract", "contact_operator", false), nil
 		}
 		if err := ValidateOperationPayload(base.Tool, base.Operation, payload, true); err != nil {
 			return coreError(base, "malformed_response", fmt.Sprintf("durable workflow result is not a valid current result: %v", err), "contact_operator", false), nil
@@ -940,6 +941,14 @@ func (r runtime) mutateWorkflowAction(ctx context.Context, base Envelope, raw []
 		contractVersion = contract.Version
 		versions["contract"] = contractVersion
 	}
+	if in.ActionID == "request_correction" {
+		version, err := r.Store.LatestWorkflowContractVersion(ctx, in.WorkID)
+		if err != nil {
+			return failureEnvelope(base, err), nil
+		}
+		contractVersion = version
+		versions["contract"] = contractVersion
+	}
 	approval := ""
 	if in.Approval != nil {
 		approval = in.Approval.ApprovalRef
@@ -947,7 +956,7 @@ func (r runtime) mutateWorkflowAction(ctx context.Context, base Envelope, raw []
 	requiresApproval := action.Approval == store.ActionApprovalRequired
 	// Approval admission uses the same execution history as the store's
 	// self-evaluation refusal, including execution before lease rotation.
-	operatorVerdict := in.ActionID == "record_verdict" || in.ActionID == "complete"
+	operatorVerdict := in.ActionID == "record_verdict" || in.ActionID == "complete" || in.ActionID == "request_correction"
 	if operatorVerdict || in.ActionID == "confirm_premise" {
 		actorRef := store.DeriveWorkflowActorRef(grant.PrincipalRef, grant.ClientRef, grant.AgentRef, grant.SessionRef)
 		evaluation, err := r.Store.WorkflowEvaluationAuthority(ctx, in.WorkID, actorRef)
@@ -1147,7 +1156,7 @@ func (r runtime) planCapture(ctx context.Context, base Envelope, raw []byte, dig
 		return base, err, true
 	}
 	if message, refused := workKindMutationRefusal(in.Kind, store.WorkKindAgentCaptureAllowed(in.Kind), "work kind is not capturable"); refused {
-		return coreError(base, "invalid_input", message, "use_initiative_operation", false), nil, true
+		return coreError(base, "invalid_input", message, "reread_entities", false), nil, true
 	}
 	if len(in.ProjectIDs) == 0 {
 		return coreError(base, "invalid_input", "capture requires at least one Project membership", "reread_entities", false), nil, true
@@ -1205,7 +1214,7 @@ func (r runtime) planCapture(ctx context.Context, base Envelope, raw []byte, dig
 		if urgency == "" {
 			urgency = "standard"
 		}
-		payload, _ := json.Marshal(map[string]any{"work_kind": in.Kind, "title": in.Title, "value_statement": in.ValueStatement, "priority": priority, "urgency": urgency, "tags": in.Tags, "workflow_type_ref": in.WorkflowTypeRef, "external_ref": in.ExternalRef})
+		payload, _ := json.Marshal(map[string]any{"work_kind": in.Kind, "title": in.Title, "value_statement": in.ValueStatement, "priority": priority, "urgency": urgency, "tags": in.Tags, "workflow_type_ref": in.WorkflowTypeRef, "external_ref": in.ExternalRef, "raised_from_work_id": in.RaisedFromWorkID})
 		memberships := make([]storeMembership, len(in.ProjectIDs))
 		for i, project := range in.ProjectIDs {
 			role := "secondary"
@@ -1240,7 +1249,7 @@ func (r runtime) planReviseIntent(ctx context.Context, base Envelope, raw []byte
 		return base, err, true
 	}
 	if message, refused := workKindMutationRefusal(in.Kind, store.WorkKindFoldReviseAllowed(in.Kind), "work kind cannot be revised"); refused {
-		return coreError(base, "invalid_input", message, "use_initiative_operation", false), nil, true
+		return coreError(base, "invalid_input", message, "reread_entities", false), nil, true
 	}
 	plan.versions["work"] = in.ExpectedVersion
 	plan.scope["work_ids"] = []string{in.WorkID}
@@ -1447,7 +1456,7 @@ func (r runtime) planLifecycle(ctx context.Context, base Envelope, raw []byte, d
 		return base, err, true
 	}
 	if in.Target == "superseded" {
-		return coreError(base, "invalid_input", "superseded is only available through relate.supersede", "use_relation_operation", false), nil, true
+		return coreError(base, "invalid_input", "superseded is only available through relate.supersede", "reread_entities", false), nil, true
 	}
 	// Terminal lifecycle transitions demand evidence before approval can be
 	// granted. Refuse the missing-evidence case structurally with a typed
@@ -1642,7 +1651,7 @@ func (r runtime) planResourceClaim(ctx context.Context, base Envelope, raw []byt
 		if _, err := store.ApplyOperationTx(ctx, tx, store.Operation{Events: []store.Event{{EventID: digest + ":claim", Kind: "work.resource_claimed", SubjectType: store.SubjectWorkItem, SubjectID: in.WorkID, Actor: grant.PrincipalRef, OccurredAt: r.Authority.now(), PayloadVersion: 1, Payload: payload}}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, in.WorkID): in.ExpectedVersion}}); err != nil {
 			return nil, nil, nil, err
 		}
-		changed := []ChangedRef{{EntityKind: "resource_claim", ID: in.ResourceKey, Version: strconv.FormatInt(in.ExpectedVersion+1, 10)}}
+		changed := []ChangedRef{{EntityKind: "work_item", ID: in.WorkID, Version: strconv.FormatInt(in.ExpectedVersion+1, 10)}}
 		return mutationPayload(changed, plan.intents), []string{in.ResourceKey}, changed, nil
 	}
 	return Envelope{}, nil, false
@@ -1662,7 +1671,7 @@ func (r runtime) planResourceRelease(ctx context.Context, base Envelope, raw []b
 		if _, err := store.ApplyOperationTx(ctx, tx, store.Operation{Events: []store.Event{{EventID: digest + ":release", Kind: "work.resource_claim_released", SubjectType: store.SubjectWorkItem, SubjectID: in.WorkID, Actor: grant.PrincipalRef, OccurredAt: r.Authority.now(), PayloadVersion: 1, Payload: payload}}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, in.WorkID): in.ExpectedVersion}}); err != nil {
 			return nil, nil, nil, err
 		}
-		changed := []ChangedRef{{EntityKind: "resource_claim", ID: in.ResourceKey, Version: strconv.FormatInt(in.ExpectedVersion+1, 10)}}
+		changed := []ChangedRef{{EntityKind: "work_item", ID: in.WorkID, Version: strconv.FormatInt(in.ExpectedVersion+1, 10)}}
 		return mutationPayload(changed, plan.intents), []string{in.ResourceKey}, changed, nil
 	}
 	return Envelope{}, nil, false
@@ -1675,10 +1684,10 @@ func (r runtime) planMessageSend(ctx context.Context, base Envelope, raw []byte,
 		return base, err, true
 	}
 	if in.RecipientWorkID == "" && !in.Broadcast {
-		return coreError(base, "invalid_input", "message requires a recipient work id or broadcast", "supply_recipient_or_broadcast", false), nil, true
+		return coreError(base, "invalid_input", "message requires a recipient work id or broadcast", "resolve_ambiguity", false), nil, true
 	}
 	if in.RecipientWorkID != "" && in.Broadcast {
-		return coreError(base, "invalid_input", "message cannot both target one work and broadcast", "choose_addressing", false), nil, true
+		return coreError(base, "invalid_input", "message cannot both target one work and broadcast", "resolve_ambiguity", false), nil, true
 	}
 	plan.versions["work"] = in.ExpectedVersion
 	plan.scope["work_ids"] = []string{in.WorkID}
@@ -1707,8 +1716,8 @@ func (r runtime) planMessageSend(ctx context.Context, base Envelope, raw []byte,
 			}
 			recipients = filtered
 		}
-		// One event per (sender, recipient) pair: the work version
-		// advances once (on the sender) regardless of fan-out size.
+		// One event per (sender, recipient) pair advances the sender version
+		// once for each delivered message.
 		events := make([]store.Event, 0, len(recipients))
 		ids := make([]string, 0, len(recipients))
 		for i, recipient := range recipients {
@@ -1721,7 +1730,7 @@ func (r runtime) planMessageSend(ctx context.Context, base Envelope, raw []byte,
 		if _, err := store.ApplyOperationTx(ctx, tx, store.Operation{Events: events, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, in.WorkID): in.ExpectedVersion}}); err != nil {
 			return nil, nil, nil, err
 		}
-		changed := []ChangedRef{{EntityKind: "work_item", ID: in.WorkID, Version: strconv.FormatInt(in.ExpectedVersion+1, 10)}}
+		changed := []ChangedRef{{EntityKind: "work_item", ID: in.WorkID, Version: strconv.FormatInt(in.ExpectedVersion+int64(len(recipients)), 10)}}
 		return mutationPayload(changed, plan.intents), ids, changed, nil
 	}
 	return Envelope{}, nil, false
@@ -2290,7 +2299,7 @@ func (r runtime) planSetMemberships(ctx context.Context, base Envelope, raw []by
 		return base, err, true
 	}
 	if len(in.Memberships) == 0 {
-		return coreError(base, "invalid_input", "membership replacement cannot be empty", "supply_memberships", false), nil, true
+		return coreError(base, "invalid_input", "membership replacement cannot be empty", "reread_entities", false), nil, true
 	}
 	if in.Approval != nil {
 		plan.approval = in.Approval.ApprovalRef
@@ -2378,7 +2387,7 @@ func (r runtime) planUnlink(ctx context.Context, base Envelope, raw []byte, dige
 		return base, err, true
 	}
 	if len(in.ExpectedVersions) == 0 {
-		return coreError(base, "invalid_input", "unlink requires endpoint versions", "reread_relations", false), nil, true
+		return coreError(base, "invalid_input", "unlink requires endpoint versions", "reread_entities", false), nil, true
 	}
 	endpoints, endpointErr := r.Store.RelationEndpoints(ctx, in.RelationID)
 	if endpointErr != nil {
@@ -3254,10 +3263,11 @@ func (r runtime) executeMutation(ctx context.Context, base Envelope, raw []byte,
 			return store.TouchMutationIdempotencyTx(ctx, tx, store.MutationIdempotencyKey{PrincipalRef: grant.PrincipalRef, Tool: r.Tool, OperationKind: r.Operation, IdempotencyKey: key}, r.Authority.now())
 		}
 		// CD-0041 D7: every consequential boundary validates the contract's law
-		// revision pins and its active Domain overlaps. The recovery operations
-		// this exempts are the closed recovery choices both refusals name, so
-		// guarding them would refuse the only way out of either condition.
-		if !mutationIsOverlapRecovery(r.Tool, r.Operation, raw) {
+		// revision pins and its active Domain overlaps. The guarded set is the
+		// action classes D7 names, and no wider: D7 also holds that read-only
+		// inspection remains available, and an operation that records no
+		// workflow state sits outside every class it lists.
+		if mutationRequiresConsequentialBoundary(r.Tool, r.Operation, raw) {
 			for _, workID := range mutationScopeWorkIDs(scope) {
 				if err := store.CheckWorkflowConsequentialBoundaryTx(ctx, tx, workID); err != nil {
 					return err
@@ -3363,9 +3373,84 @@ func mutationScopeWorkIDs(scope map[string]any) []string {
 	return out
 }
 
+// mutationRequiresConsequentialBoundary answers whether one mutation belongs to
+// an action class CD-0041 D7 names. The generated operation manifest already
+// classifies every operation's consequence, so the answer derives from that
+// declaration rather than from a second list beside it that can drift.
+//
+// The consequences below record intent, a work-to-work relation, research, or
+// project scope. None advances the pinned workflow, and D7 names none of them,
+// so an unresolved overlap must not close them: they carry the only way a
+// blocked item can state that it is blocked.
+func mutationRequiresConsequentialBoundary(tool, operation string, raw []byte) bool {
+	if mutationIsOverlapRecovery(tool, operation, raw) {
+		return false
+	}
+	// The external variant is the exception inside an otherwise unguarded
+	// operation. It accepts an attributed merge or ship result, which is the
+	// sixth class D7 names, so it keeps the full preflight.
+	if tool == "concord_work_define" && operation == "observation_record" {
+		var input struct {
+			External json.RawMessage `json:"external"`
+		}
+		if json.Unmarshal(raw, &input) != nil {
+			return true
+		}
+		return len(input.External) != 0
+	}
+	switch mutationConsequence(tool, operation) {
+	case "intent", "relation", "research", "scope":
+		return false
+	}
+	return true
+}
+
+// mutationConsequence reports the consequence the generated manifest declares
+// for one operation. An unknown operation reports the empty string, which the
+// caller treats as guarded.
+func mutationConsequence(tool, operation string) OperationConsequence {
+	for _, op := range ContractOperations {
+		if op.Tool == tool && op.Operation == operation {
+			return op.Consequence
+		}
+	}
+	return ""
+}
+
 func mutationIsOverlapRecovery(tool, operation string, raw []byte) bool {
 	if tool == "concord_work_relate" && (operation == "resolve_overlap" || operation == "supersede" || operation == "restore_superseded") {
 		return true
+	}
+	// A statement observation asserts no Product change: it records prose
+	// against the work item and moves neither the contract, the Domain binding,
+	// nor the workflow step. Guarding it means a blocked item cannot record why
+	// it is blocked, which is how the diagnosis of a refusal ends up outside
+	// Concord. The external form is not exempt — it binds verification and
+	// capture evidence with digests, so it owes the full boundary.
+	if tool == "concord_work_define" && operation == "observation_record" {
+		var input struct {
+			Statement *string         `json:"statement"`
+			External  json.RawMessage `json:"external"`
+		}
+		if json.Unmarshal(raw, &input) == nil {
+			return input.Statement != nil && len(input.External) == 0
+		}
+		return false
+	}
+	// supersede_contract is the contract-correction recovery every overlap
+	// advertises, and it is the one action that can dissolve the overlap by
+	// changing what the contract modifies. Guarding it leaves a blocking pair
+	// resolvable only by the other party, so the gate refuses the escape it
+	// names. No other workflow action is exempt: the rest advance the pinned
+	// workflow, which is what CD-0041 D7 holds behind the boundary.
+	if tool == "concord_work_transition" && operation == "workflow_action" {
+		var input struct {
+			ActionID string `json:"action_id"`
+		}
+		if json.Unmarshal(raw, &input) == nil {
+			return input.ActionID == "supersede_contract"
+		}
+		return false
 	}
 	if tool == "concord_work_transition" && operation == "lifecycle" {
 		var input struct {
@@ -3453,7 +3538,7 @@ func (r runtime) unlinkEffect(digest string, in unlinkMutationInput, preflightEn
 		}
 		from, to, kind := relation.FromWorkID, relation.ToWorkID, relation.Kind
 		if len(preflightEndpoints) != 2 || from != preflightEndpoints[0] || to != preflightEndpoints[1] {
-			return nil, nil, nil, newRuntimeFailure("version_conflict", "relation endpoints changed after scope preflight", "reread_relations", false)
+			return nil, nil, nil, newRuntimeFailure("version_conflict", "relation endpoints changed after scope preflight", "reread_entities", false)
 		}
 		byWork, err := store.ProductsForWorkIDsTx(ctx, tx, []string{from, to})
 		if err != nil {

@@ -186,6 +186,10 @@ type workflowActionCompletedPayload struct {
 	WorkerLaneID           string   `json:"worker_lane_id,omitempty"`
 	WorkerPacketDigest     string   `json:"worker_packet_digest,omitempty"`
 	WorkerWorktreeIdentity string   `json:"worker_worktree_identity,omitempty"`
+	CorrectionDiagnosis    string   `json:"correction_diagnosis,omitempty"`
+	CorrectionStrategy     string   `json:"correction_strategy,omitempty"`
+	CorrectionEvidenceRefs []string `json:"correction_evidence_refs,omitempty"`
+	CorrectionPredicateIDs []string `json:"correction_predicate_ids,omitempty"`
 	ResultEvidenceRefs     []string `json:"result_evidence_refs"`
 	ChangedRefs            []string `json:"changed_refs"`
 	ActorRef               string   `json:"actor_ref"`
@@ -325,9 +329,7 @@ func decodeWorkflowProposalContent(raw json.RawMessage) (workflowProposalContent
 
 type workflowDesignRecordedPayload struct {
 	WorkflowVersionFields
-	Approach    string                          `json:"approach"`
-	Decisions   []workflowDesignDecisionPayload `json:"decisions"`
-	TouchedRefs []string                        `json:"touched_refs"`
+	workflowDesignContent
 }
 
 type workflowEvidenceBoundPayload struct {
@@ -1045,7 +1047,39 @@ func foldWorkflowActionStarted(ctx context.Context, tx *sql.Tx, event Event) err
 	if err := advanceWorkflowVersion(ctx, tx, event, p.WorkflowVersionFields); err != nil {
 		return err
 	}
-	return startWorkflowInstanceStepTx(ctx, tx, event.SubjectID, p.StepID, p.ActorRef, p.ExecutionModel, event.OccurredAt)
+	if err := startWorkflowInstanceStepTx(ctx, tx, event.SubjectID, p.StepID, p.ActorRef, p.ExecutionModel, event.OccurredAt); err != nil {
+		return err
+	}
+	return startExecutionLifecycleTx(ctx, tx, event, definitionStepKind(entry.Definition, p.StepID))
+}
+
+// startExecutionLifecycleTx moves a work item from needed to in_progress when
+// an external-effect step starts. CD-0144: Domain exclusivity attaches at
+// execution start, and the overlap footprint reads the lifecycle, so the
+// lifecycle has to move with the action that begins external effect. Without
+// this the footprint predicate would merely be narrower, not correct: an item
+// could hold a worktree and a branch while its record still said needed. The
+// action already advanced the work version, so this carries no version of its
+// own. Only a needed item moves, which leaves a resumed item untouched.
+func startExecutionLifecycleTx(ctx context.Context, tx *sql.Tx, event Event, kind WorkflowStepKind) error {
+	if kind != WorkflowStepExternalEffect {
+		return nil
+	}
+	now := event.OccurredAt.UTC().Format(time.RFC3339Nano)
+	result, err := tx.ExecContext(ctx, `UPDATE work_items SET lifecycle='in_progress', updated_at=? WHERE id=? AND lifecycle='needed'`, now, event.SubjectID)
+	if err != nil {
+		return wrapFailure(KindUnavailable, "fold_event", "cannot start execution on the work item projection", true,
+			"retry once the database is writable", err)
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return wrapFailure(KindUnavailable, "fold_event", "cannot verify execution start on the work item projection", true,
+			"retry once the database is readable", err)
+	}
+	if affected == 0 {
+		return nil
+	}
+	return enqueueLinearIssueForLifecycleTx(ctx, tx, event.SubjectID, "in_progress", event.OccurredAt)
 }
 
 // Execution history and the current lease both prohibit self-evaluation.
@@ -1092,11 +1126,11 @@ func foldWorkflowActionCheckpointed(ctx context.Context, tx *sql.Tx, event Event
 	if p.StepID != currentStep || step == nil || p.StepKind != string(step.Kind) {
 		return newFailure(KindIllegalLifecycleTransition, "fold_event", "checkpoint does not match the pinned current workflow step kind", false, "checkpoint the pinned current workflow step and kind")
 	}
-	_, latestEpoch, found, err := latestWorkflowActionStart(ctx, tx, event.SubjectID, currentStep)
+	expectedEpoch, err := workflowCheckpointAttemptEpoch(ctx, tx, entry.Definition, step, event.SubjectID, currentStep)
 	if err != nil {
 		return err
 	}
-	if !found || p.AttemptEpoch != latestEpoch {
+	if p.AttemptEpoch != expectedEpoch {
 		return newFailure(KindIllegalLifecycleTransition, "fold_event", "checkpoint does not match the latest workflow action start epoch", false, "checkpoint the current workflow action attempt")
 	}
 	if executionActor == "" || p.ActorRef != executionActor {
@@ -1136,18 +1170,12 @@ func foldWorkflowActionCheckpointed(ctx context.Context, tx *sql.Tx, event Event
 }
 
 func foldWorkflowDecisionRecord(ctx context.Context, tx *sql.Tx, event Event, raw json.RawMessage) error {
-	var checkpoint struct {
-		ActionID   string `json:"action_id"`
-		Checkpoint *struct {
-			ActionID     string   `json:"action_id"`
-			Question     string   `json:"question"`
-			Options      []string `json:"options_considered"`
-			Decision     string   `json:"decision"`
-			Rationale    string   `json:"rationale"`
-			Consequences []string `json:"consequences"`
-			Inputs       []string `json:"inputs"`
-			POCFindings  string   `json:"poc_findings"`
-		} `json:"checkpoint,omitempty"`
+	// The checkpoint envelope carries the action's declared payload under
+	// "fields". A stored event from before that envelope carries the same
+	// record at the top level or under "checkpoint", so all three are read and
+	// the emitted shape wins.
+	type decisionRecordFields struct {
+		ActionID     string   `json:"action_id"`
 		Question     string   `json:"question"`
 		Options      []string `json:"options_considered"`
 		Decision     string   `json:"decision"`
@@ -1155,26 +1183,73 @@ func foldWorkflowDecisionRecord(ctx context.Context, tx *sql.Tx, event Event, ra
 		Consequences []string `json:"consequences"`
 		Inputs       []string `json:"inputs"`
 		POCFindings  string   `json:"poc_findings"`
-		Supersedes   *string  `json:"supersedes"`
-		SupersededBy *string  `json:"superseded_by"`
+	}
+	var checkpoint struct {
+		ActionID     string                `json:"action_id"`
+		Fields       *decisionRecordFields `json:"fields,omitempty"`
+		Checkpoint   *decisionRecordFields `json:"checkpoint,omitempty"`
+		Question     string                `json:"question"`
+		Options      []string              `json:"options_considered"`
+		Decision     string                `json:"decision"`
+		Rationale    string                `json:"rationale"`
+		Consequences []string              `json:"consequences"`
+		Inputs       []string              `json:"inputs"`
+		POCFindings  string                `json:"poc_findings"`
+		Supersedes   *string               `json:"supersedes"`
+		SupersededBy *string               `json:"superseded_by"`
 	}
 	if len(raw) == 0 || json.Unmarshal(raw, &checkpoint) != nil {
 		return nil
 	}
-	if checkpoint.ActionID == "" && checkpoint.Checkpoint != nil {
-		checkpoint.ActionID = checkpoint.Checkpoint.ActionID
-		checkpoint.Question = checkpoint.Checkpoint.Question
-		checkpoint.Options = checkpoint.Checkpoint.Options
-		checkpoint.Decision = checkpoint.Checkpoint.Decision
-		checkpoint.Rationale = checkpoint.Checkpoint.Rationale
-		checkpoint.Consequences = checkpoint.Checkpoint.Consequences
-		checkpoint.Inputs = checkpoint.Checkpoint.Inputs
-		checkpoint.POCFindings = checkpoint.Checkpoint.POCFindings
+	for _, nested := range []*decisionRecordFields{checkpoint.Fields, checkpoint.Checkpoint} {
+		if nested == nil || nested == checkpoint.Checkpoint && (checkpoint.Fields != nil || checkpoint.Question != "") {
+			continue
+		}
+		if checkpoint.ActionID == "" {
+			checkpoint.ActionID = nested.ActionID
+		}
+		checkpoint.Question = nested.Question
+		checkpoint.Options = nested.Options
+		checkpoint.Decision = nested.Decision
+		checkpoint.Rationale = nested.Rationale
+		checkpoint.Consequences = nested.Consequences
+		checkpoint.Inputs = nested.Inputs
+		checkpoint.POCFindings = nested.POCFindings
 	}
 	if checkpoint.ActionID != "record_decision" {
 		return nil
 	}
-	if !workflowString(checkpoint.Question, 4096) || !workflowList(checkpoint.Options, 16, 1) || (checkpoint.Decision != "accepted_decision" && checkpoint.Decision != "insufficient_evidence") || !workflowString(checkpoint.Rationale, 4096) || !workflowList(checkpoint.Consequences, 16, 1) || !workflowList(checkpoint.Inputs, 32, 1) || !workflowString(checkpoint.POCFindings, 4096) {
+	declaredBounds := false
+	if checkpoint.Fields != nil {
+		entry, err := VerifyWorkflowInstanceDefinitionTx(ctx, tx, BuiltinWorkflowRegistry(), event.SubjectID)
+		if err != nil {
+			return err
+		}
+		for _, action := range entry.Definition.ActionDefinitions {
+			if action.ID != "record_decision" {
+				continue
+			}
+			for _, field := range action.Payload.Fields {
+				if field.Name == "options_considered" {
+					declaredBounds = true
+				}
+			}
+		}
+		if declaredBounds {
+			var envelope struct {
+				Fields json.RawMessage `json:"fields"`
+			}
+			if err := json.Unmarshal(raw, &envelope); err != nil {
+				return err
+			}
+			if err := validateWorkflowActionPayload(entry.Definition, "record_decision", envelope.Fields); err != nil {
+				return err
+			}
+		}
+	}
+	// Typed records use their pinned payload contract for both preflight and
+	// replay. Legacy envelopes without declared fields retain their byte bounds.
+	if !declaredBounds && (!workflowString(checkpoint.Question, 4096) || !workflowList(checkpoint.Options, 16, 1) || (checkpoint.Decision != "accepted_decision" && checkpoint.Decision != "insufficient_evidence") || !workflowString(checkpoint.Rationale, 4096) || !workflowList(checkpoint.Consequences, 16, 1) || !workflowList(checkpoint.Inputs, 32, 1) || !workflowString(checkpoint.POCFindings, 4096)) {
 		return newFailure(KindInvalidPayload, "fold_event", "record_decision checkpoint is structurally invalid", false, "supply the complete typed decision record")
 	}
 	_, err := tx.ExecContext(ctx, `INSERT INTO workflow_decision_records(work_id,question,options_considered,decision,rationale,consequences,inputs,poc_findings,supersedes,superseded_by,recorded_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)`, event.SubjectID, checkpoint.Question, workflowJSON(checkpoint.Options), checkpoint.Decision, checkpoint.Rationale, workflowJSON(checkpoint.Consequences), workflowJSON(checkpoint.Inputs), checkpoint.POCFindings, valueOrNil(checkpoint.Supersedes), valueOrNil(checkpoint.SupersededBy), event.OccurredAt.UTC().Format(time.RFC3339Nano))
@@ -1236,18 +1311,8 @@ func foldWorkflowDesignRecorded(ctx context.Context, tx *sql.Tx, event Event) er
 	if err := workflowBase(event, p.WorkflowVersionFields); err != nil {
 		return err
 	}
-	if len(p.Approach) < 2 || len(p.Approach) > 4096 || len(p.Decisions) < 1 || len(p.Decisions) > 16 || !workflowList(p.TouchedRefs, 64, 1) {
-		return newFailure(KindInvalidPayload, "fold_event", "design record is incomplete or outside its bounds", false, "supply the bounded design approach, decisions, and touched references")
-	}
-	for _, decision := range p.Decisions {
-		if !ValidReference(decision.ID) || len(decision.Question) < 1 || len(decision.Question) > 512 || len(decision.Choice) < 1 || len(decision.Choice) > 1024 || len(decision.Rationale) < 1 || len(decision.Rationale) > 1024 || len(decision.Rejected) > 8 {
-			return newFailure(KindInvalidPayload, "fold_event", "design decision is incomplete or outside its bounds", false, "supply each bounded design decision with a non-empty choice")
-		}
-		for _, rejected := range decision.Rejected {
-			if len(rejected) < 1 || len(rejected) > 1024 {
-				return newFailure(KindInvalidPayload, "fold_event", "design decision rejected choice is outside its bounds", false, "supply bounded rejected choices")
-			}
-		}
+	if err := validateWorkflowDesignContent(p.workflowDesignContent); err != nil {
+		return err
 	}
 	if err := advanceWorkflowVersion(ctx, tx, event, p.WorkflowVersionFields); err != nil {
 		return err
@@ -1361,6 +1426,100 @@ func foldWorkflowContextBoundaryCrossed(ctx context.Context, tx *sql.Tx, event E
 	return workflowProjectionError(err, "cannot record context boundary")
 }
 
+// validateWorkflowActionCompletedShape bounds the payload before any read.
+// worker_attempt_id belongs to the worker result actions and to dispatch_worker
+// alone, and a rejected result carries its full correction record or none.
+func validateWorkflowActionCompletedShape(p workflowActionCompletedPayload) error {
+	if (p.ActionID != "" && !workflowString(p.ActionID, 128)) || !workflowString(p.StepID, 128) || p.AttemptEpoch <= 0 || p.AttemptEpoch > 2147483647 || (p.WorkerAttemptID != "" && !workflowString(p.WorkerAttemptID, 128)) || !workflowList(p.ResultEvidenceRefs, 32, 0) || !workflowList(p.ChangedRefs, 32, 0) {
+		return newFailure(KindInvalidPayload, "fold_event", "action_completed has invalid result fields", false, "supply bounded action result references")
+	}
+	if p.ActionID != "accept_worker_result" && p.ActionID != "record_worker_failure" && p.ActionID != "reject_worker_result" && p.ActionID != "dispatch_worker" && p.WorkerAttemptID != "" {
+		return newFailure(KindInvalidPayload, "fold_event", "worker_attempt_id is reserved for worker result actions and dispatch_worker", false, "omit worker_attempt_id for ordinary action completion")
+	}
+	if (p.ActionID == "reject_worker_result" || p.ActionID == "request_correction") && (!workflowString(p.CorrectionDiagnosis, 4096) || !workflowString(p.CorrectionStrategy, 4096) || !workflowList(p.CorrectionPredicateIDs, 8, 1) || !workflowList(p.CorrectionEvidenceRefs, 32, 1)) {
+		return newFailure(KindInvalidPayload, "fold_event", "rejected worker result has incomplete correction fields", false, "supply diagnosis, strategy, predicate IDs, and evidence references")
+	}
+	return nil
+}
+
+// admitWorkflowActionOffStep decides whether an action the pinned step does
+// not declare may still fold. Worker failure recovery, rejected result
+// correction, and recovery evidence binding are the three admitted routes.
+func admitWorkflowActionOffStep(ctx context.Context, tx *sql.Tx, event Event, p workflowActionCompletedPayload, entry RegisteredDefinition, currentStep string) error {
+	workerFailureRecovery := false
+	correctionRecovery := false
+	if p.ActionID == "record_worker_failure" {
+		var recoveryErr error
+		workerFailureRecovery, recoveryErr = workflowWorkerFailureRecoveryMayFold(ctx, tx, event.SubjectID, entry.Definition, currentStep, "fold_event")
+		if recoveryErr != nil {
+			return recoveryErr
+		}
+	}
+	if p.ActionID == "reject_worker_result" && stepDeclaresAction(entry.Definition, currentStep, "dispatch_worker") {
+		var recoveryErr error
+		correctionRecovery, recoveryErr = workflowRejectedWorkerResultAvailable(ctx, tx, event.SubjectID, currentStep, "fold_event")
+		if recoveryErr != nil {
+			return recoveryErr
+		}
+	}
+	if p.ActionID == "request_correction" {
+		var recoveryErr error
+		correctionRecovery, recoveryErr = workflowCorrectionRequestAvailable(ctx, tx, event.SubjectID, entry.Definition, currentStep, "fold_event")
+		if recoveryErr != nil {
+			return recoveryErr
+		}
+		if !correctionRecovery {
+			return newFailure(KindInvalidOperation, "fold_event", "correction request is unavailable without a current non-ok verification verdict", false, "reread the current work pin")
+		}
+		return nil
+	}
+	if !workerFailureRecovery && !correctionRecovery && p.ActionID != "request_correction" && (p.ActionID != "bind_evidence" || stepDeclaresAction(entry.Definition, currentStep, "bind_evidence")) {
+		return newFailure(KindIllegalLifecycleTransition, "fold_event", "completed action is not declared on the pinned current step", false, "reread_entities")
+	}
+	if !workerFailureRecovery && !correctionRecovery {
+		bindingStep := workflowEvidenceBindingStep(entry.Definition, currentStep)
+		if bindingStep == "" || !workflowStepFollows(entry.Definition, bindingStep, currentStep) {
+			return newFailure(KindIllegalLifecycleTransition, "fold_event", "recovery evidence binding is not past its declared binding step", false, "reread_entities")
+		}
+		required, mandates, obligations, inputsErr := workflowEvidenceRequirementInputs(ctx, tx, event.SubjectID)
+		if inputsErr != nil {
+			return inputsErr
+		}
+		requirementBound := false
+		rows, rowsErr := tx.QueryContext(ctx, `SELECT payload FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? ORDER BY seq DESC`, event.SubjectID, WorkflowEvidenceBound)
+		if rowsErr != nil {
+			return wrapFailure(KindUnavailable, "fold_event", "cannot inspect recovery evidence requirements", true, "retry once the workflow evidence projection is readable", rowsErr)
+		}
+		for rows.Next() {
+			var raw []byte
+			if scanErr := rows.Scan(&raw); scanErr != nil {
+				_ = rows.Close()
+				return wrapFailure(KindUnavailable, "fold_event", "cannot read recovery evidence binding", true, "retry once the workflow evidence projection is readable", scanErr)
+			}
+			var binding workflowEvidenceBoundPayload
+			if decodeErr := json.Unmarshal(raw, &binding); decodeErr != nil {
+				_ = rows.Close()
+				return newFailure(KindInvariantViolation, "fold_event", "recovery evidence binding payload is malformed", false, "reread_entities")
+			}
+			if contains(p.ResultEvidenceRefs, binding.ImmutableSubjectRef) && workflowEvidenceRequirementDeclared(binding.EvidenceKind, binding.ImmutableSubjectRef, required, mandates, entry.Definition, obligations) {
+				requirementBound = true
+				break
+			}
+		}
+		if rowsErr := rows.Err(); rowsErr != nil {
+			_ = rows.Close()
+			return wrapFailure(KindUnavailable, "fold_event", "cannot scan recovery evidence bindings", true, "retry once the workflow evidence projection is readable", rowsErr)
+		}
+		if closeErr := rows.Close(); closeErr != nil {
+			return wrapFailure(KindUnavailable, "fold_event", "cannot close recovery evidence bindings", true, "retry once the workflow evidence projection is readable", closeErr)
+		}
+		if !requirementBound {
+			return newFailure(KindMissingEvidence, "fold_event", "recovery evidence binding does not bind an outstanding contract evidence requirement", false, "bind an outstanding contract evidence requirement")
+		}
+	}
+	return nil
+}
+
 func foldWorkflowActionCompleted(ctx context.Context, tx *sql.Tx, event Event) error {
 	var p workflowActionCompletedPayload
 	if err := decodeWorkflowPayload(event, &p); err != nil {
@@ -1369,11 +1528,8 @@ func foldWorkflowActionCompleted(ctx context.Context, tx *sql.Tx, event Event) e
 	if err := workflowBase(event, p.WorkflowVersionFields); err != nil {
 		return err
 	}
-	if (p.ActionID != "" && !workflowString(p.ActionID, 128)) || !workflowString(p.StepID, 128) || p.AttemptEpoch <= 0 || p.AttemptEpoch > 2147483647 || (p.WorkerAttemptID != "" && !workflowString(p.WorkerAttemptID, 128)) || !workflowList(p.ResultEvidenceRefs, 32, 0) || !workflowList(p.ChangedRefs, 32, 0) {
-		return newFailure(KindInvalidPayload, "fold_event", "action_completed has invalid result fields", false, "supply bounded action result references")
-	}
-	if p.ActionID != "accept_worker_result" && p.ActionID != "record_worker_failure" && p.ActionID != "dispatch_worker" && p.WorkerAttemptID != "" {
-		return newFailure(KindInvalidPayload, "fold_event", "worker_attempt_id is reserved for worker result actions and dispatch_worker", false, "omit worker_attempt_id for ordinary action completion")
+	if err := validateWorkflowActionCompletedShape(p); err != nil {
+		return err
 	}
 	if err := requireActor(ctx, tx, p.ActorRef); err != nil {
 		return err
@@ -1394,57 +1550,8 @@ func foldWorkflowActionCompleted(ctx context.Context, tx *sql.Tx, event Event) e
 		return newFailure(KindIllegalLifecycleTransition, "fold_event", "completed action is not declared on the pinned current step", false, "reread_entities")
 	}
 	if !definitionStepAllows(entry.Definition, currentStep, p.ActionID) {
-		workerFailureRecovery := false
-		if p.ActionID == "record_worker_failure" {
-			var recoveryErr error
-			workerFailureRecovery, recoveryErr = workflowWorkerFailureRecoveryMayFold(ctx, tx, event.SubjectID, entry.Definition, currentStep, "fold_event")
-			if recoveryErr != nil {
-				return recoveryErr
-			}
-		}
-		if !workerFailureRecovery && (p.ActionID != "bind_evidence" || stepDeclaresAction(entry.Definition, currentStep, "bind_evidence")) {
-			return newFailure(KindIllegalLifecycleTransition, "fold_event", "completed action is not declared on the pinned current step", false, "reread_entities")
-		}
-		if !workerFailureRecovery {
-			bindingStep := workflowEvidenceBindingStep(entry.Definition, currentStep)
-			if bindingStep == "" || !workflowStepFollows(entry.Definition, bindingStep, currentStep) {
-				return newFailure(KindIllegalLifecycleTransition, "fold_event", "recovery evidence binding is not past its declared binding step", false, "reread_entities")
-			}
-			required, mandates, obligations, inputsErr := workflowEvidenceRequirementInputs(ctx, tx, event.SubjectID)
-			if inputsErr != nil {
-				return inputsErr
-			}
-			requirementBound := false
-			rows, rowsErr := tx.QueryContext(ctx, `SELECT payload FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? ORDER BY seq DESC`, event.SubjectID, WorkflowEvidenceBound)
-			if rowsErr != nil {
-				return wrapFailure(KindUnavailable, "fold_event", "cannot inspect recovery evidence requirements", true, "retry once the workflow evidence projection is readable", rowsErr)
-			}
-			for rows.Next() {
-				var raw []byte
-				if scanErr := rows.Scan(&raw); scanErr != nil {
-					_ = rows.Close()
-					return wrapFailure(KindUnavailable, "fold_event", "cannot read recovery evidence binding", true, "retry once the workflow evidence projection is readable", scanErr)
-				}
-				var binding workflowEvidenceBoundPayload
-				if decodeErr := json.Unmarshal(raw, &binding); decodeErr != nil {
-					_ = rows.Close()
-					return newFailure(KindInvariantViolation, "fold_event", "recovery evidence binding payload is malformed", false, "reread_entities")
-				}
-				if contains(p.ResultEvidenceRefs, binding.ImmutableSubjectRef) && workflowEvidenceRequirementDeclared(binding.EvidenceKind, binding.ImmutableSubjectRef, required, mandates, entry.Definition, obligations) {
-					requirementBound = true
-					break
-				}
-			}
-			if rowsErr := rows.Err(); rowsErr != nil {
-				_ = rows.Close()
-				return wrapFailure(KindUnavailable, "fold_event", "cannot scan recovery evidence bindings", true, "retry once the workflow evidence projection is readable", rowsErr)
-			}
-			if closeErr := rows.Close(); closeErr != nil {
-				return wrapFailure(KindUnavailable, "fold_event", "cannot close recovery evidence bindings", true, "retry once the workflow evidence projection is readable", closeErr)
-			}
-			if !requirementBound {
-				return newFailure(KindMissingEvidence, "fold_event", "recovery evidence binding does not bind an outstanding contract evidence requirement", false, "bind an outstanding contract evidence requirement")
-			}
+		if err := admitWorkflowActionOffStep(ctx, tx, event, p, entry, currentStep); err != nil {
+			return err
 		}
 	}
 	advancesStep := false
@@ -1464,6 +1571,11 @@ func foldWorkflowActionCompleted(ctx context.Context, tx *sql.Tx, event Event) e
 				return err
 			}
 		}
+		if p.ActionID == "reject_worker_result" {
+			if err := validateWorkerAttemptAction(ctx, tx, event, p, entry.Definition, currentStep, "completed"); err != nil {
+				return err
+			}
+		}
 		if p.ActionID == "record_worker_failure" {
 			if err := validateWorkerAttemptAction(ctx, tx, event, p, entry.Definition, currentStep, "failed"); err != nil {
 				return err
@@ -1474,6 +1586,12 @@ func foldWorkflowActionCompleted(ctx context.Context, tx *sql.Tx, event Event) e
 			}
 			if recorded != 0 {
 				return newFailure(KindIllegalLifecycleTransition, "fold_event", "worker failure is already recorded", false, "start a fresh workflow attempt")
+			}
+		}
+		if p.ActionID == "request_correction" {
+			correctionPayload, _ := json.Marshal(map[string]any{"diagnosis": p.CorrectionDiagnosis, "strategy": p.CorrectionStrategy, "predicate_ids": p.CorrectionPredicateIDs, "evidence_refs": p.CorrectionEvidenceRefs})
+			if err := validateCorrectionRequestPayload(ctx, tx, event.SubjectID, entry.Definition, currentStep, correctionPayload, "fold_event"); err != nil {
+				return err
 			}
 		}
 	}
@@ -1487,12 +1605,17 @@ func foldWorkflowActionCompleted(ctx context.Context, tx *sql.Tx, event Event) e
 				return nextErr
 			}
 		}
+	} else if p.ActionID == "request_correction" {
+		nextStep = workflowCorrectionTargetStep(entry.Definition, currentStep)
+		if nextStep == "" {
+			return newFailure(KindIllegalLifecycleTransition, "fold_event", "correction has no declared external-effect return step", false, "repair the pinned workflow definition")
+		}
 	}
 	if err := advanceWorkflowVersion(ctx, tx, event, p.WorkflowVersionFields); err != nil {
 		return err
 	}
 	_, err = tx.ExecContext(ctx, `UPDATE workflow_instances SET instance_state='running',last_checkpoint_at=? WHERE work_id=?`, event.OccurredAt.UTC().Format(time.RFC3339Nano), event.SubjectID)
-	if err != nil || p.ActionID == "" || !advancesStep {
+	if err != nil || p.ActionID == "" || (!advancesStep && p.ActionID != "request_correction") {
 		return err
 	}
 	if nextStep != "" {
@@ -1541,6 +1664,40 @@ func latestWorkflowActionStartEpoch(ctx context.Context, tx *sql.Tx, workID, ste
 	return epoch, found, err
 }
 
+// workflowCheckpointAttemptEpoch resolves the attempt epoch a checkpoint on
+// this step must carry, and is the single rule the checkpoint producer and the
+// checkpoint fold both answer to.
+//
+// A fenced action opens an attempt and records its start, so a checkpoint on
+// such a step must name a started attempt: a checkpoint with no start is a
+// checkpoint of an attempt that never ran. A step that declares no fenced
+// action opens no attempt at all, and CD-0112 D3 lets an action there append a
+// typed checkpoint and still advance, so the epoch is the first attempt.
+func workflowCheckpointAttemptEpoch(ctx context.Context, q queryer, definition WorkflowDefinition, step *WorkflowStep, workID, stepID string) (int64, error) {
+	_, latestEpoch, found, err := latestWorkflowActionStartAt(ctx, q, workID, stepID, 0)
+	if err != nil {
+		return 0, err
+	}
+	if found {
+		return latestEpoch, nil
+	}
+	if step != nil && workflowStepFences(definition, *step) {
+		return 0, newFailure(KindIllegalLifecycleTransition, "fold_event", "checkpoint does not match the latest workflow action start epoch", false, "checkpoint the current workflow action attempt")
+	}
+	return 1, nil
+}
+
+// workflowStepFences reports whether any action on the step runs fenced, and so
+// whether the step records an attempt start a checkpoint can bind to.
+func workflowStepFences(definition WorkflowDefinition, step WorkflowStep) bool {
+	for _, actionID := range step.Actions {
+		if mode, ok := workflowActionExecutionMode(definition, actionID); ok && mode == ActionFenced {
+			return true
+		}
+	}
+	return false
+}
+
 func workflowActionStartEpochForDispatch(ctx context.Context, tx *sql.Tx, workID, stepID string, starting bool) (int64, error) {
 	latestEpoch, found, err := latestWorkflowActionStartEpoch(ctx, tx, workID, stepID, 0)
 	if err != nil {
@@ -1587,6 +1744,13 @@ func validateWorkerAttemptAction(ctx context.Context, tx *sql.Tx, event Event, p
 	if !allowed && payload.ActionID == "record_worker_failure" {
 		var recoveryErr error
 		allowed, recoveryErr = workflowWorkerFailureRecoveryMayFold(ctx, tx, event.SubjectID, definition, currentStep, "fold_event")
+		if recoveryErr != nil {
+			return recoveryErr
+		}
+	}
+	if !allowed && payload.ActionID == "reject_worker_result" && stepDeclaresAction(definition, currentStep, "dispatch_worker") {
+		var recoveryErr error
+		allowed, recoveryErr = workflowRejectedWorkerResultAvailable(ctx, tx, event.SubjectID, currentStep, "fold_event")
 		if recoveryErr != nil {
 			return recoveryErr
 		}

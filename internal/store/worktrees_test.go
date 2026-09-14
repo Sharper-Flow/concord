@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -23,6 +24,7 @@ type fakeWorktreeGit struct {
 	defaultRef string
 	headBranch string         // the ref HEAD resolves to; the fixture default is main
 	ahead      map[string]int // branch -> commit count beyond the default ref
+	unpushed   map[string]int // branch -> commits unreachable from local remotes
 	failAdd    bool
 	calls      [][]string
 }
@@ -47,6 +49,7 @@ func newFakeWorktreeGit(repoRoot string) *fakeWorktreeGit {
 		dirty:      map[string]bool{},
 		content:    map[string]string{},
 		ahead:      map[string]int{},
+		unpushed:   map[string]int{},
 		headBranch: "main",
 	}
 }
@@ -105,6 +108,9 @@ func (g *fakeWorktreeGit) Run(_ context.Context, dir string, args ...string) ([]
 			return nil, nil
 		}
 		return nil, fmt.Errorf("not an ancestor")
+	case strings.HasPrefix(join, "rev-list --count --not --remotes "):
+		branch := strings.TrimPrefix(join, "rev-list --count --not --remotes ")
+		return []byte(strconv.Itoa(g.unpushed[branch]) + "\n"), nil
 	case strings.HasPrefix(join, "rev-list --count "):
 		refs := strings.TrimPrefix(join, "rev-list --count ")
 		dotdot := strings.Index(refs, "..")
@@ -118,12 +124,24 @@ func (g *fakeWorktreeGit) Run(_ context.Context, dir string, args ...string) ([]
 			return nil, fmt.Errorf("native add failed")
 		}
 		parts := strings.Fields(join)
-		path, branch, base := parts[2], parts[4], parts[5]
+		path := parts[2]
+		branch := parts[3]
+		base := g.branches[branch]
+		if len(parts) == 6 && parts[3] == "-b" {
+			branch, base = parts[4], parts[5]
+		}
 		if _, exists := g.worktrees[path]; exists {
 			return nil, fmt.Errorf("worktree already exists")
 		}
 		g.worktrees[path] = branch
 		g.branches[branch] = base
+		return nil, nil
+	case strings.HasPrefix(join, "branch -D "):
+		branch := strings.TrimPrefix(join, "branch -D -- ")
+		if _, exists := g.branches[branch]; !exists {
+			return nil, fmt.Errorf("branch does not exist")
+		}
+		delete(g.branches, branch)
 		return nil, nil
 	case strings.HasPrefix(join, "worktree remove"):
 		path := strings.Fields(join)[2]
@@ -147,8 +165,15 @@ func (g *fakeWorktreeGit) Run(_ context.Context, dir string, args ...string) ([]
 			return nil, fmt.Errorf("no origin HEAD")
 		}
 		return []byte("refs/remotes/" + g.defaultRef + "\n"), nil
+	case strings.HasPrefix(join, "show-ref --verify --quiet refs/heads/"):
+		branch := strings.TrimPrefix(join, "show-ref --verify --quiet refs/heads/")
+		if _, exists := g.branches[branch]; !exists {
+			return nil, exec.Command("false").Run()
+		}
+		return nil, nil
 	case strings.HasPrefix(join, "rev-parse --verify ") && strings.HasSuffix(join, "^{commit}"):
 		ref := strings.TrimSuffix(strings.TrimPrefix(join, "rev-parse --verify "), "^{commit}")
+		ref = strings.TrimPrefix(ref, "refs/heads/")
 		if ref == "HEAD" {
 			ref = g.headBranch
 		}
@@ -284,6 +309,43 @@ func TestClaimWorktreeRetryFromPendingWithoutNativeCreateProbesFirst(t *testing.
 	}
 }
 
+func TestClaimWorktreeReusesOrphanedBranchAtPinnedBase(t *testing.T) {
+	s, git, _ := worktreeFixture(t)
+	req := baseClaim(git)
+	git.branches[req.Branch] = req.BaseSHA
+
+	result, err := s.ClaimWorktree(context.Background(), req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Entry.State != worktreeEntryActive {
+		t.Fatalf("entry=%+v", result.Entry)
+	}
+	if git.countCalls("worktree add") != 1 {
+		t.Fatalf("expected one native add, got %d", git.countCalls("worktree add"))
+	}
+	for _, call := range git.calls {
+		if strings.Join(call[1:], " ") == "worktree add "+req.Path+" "+req.Branch {
+			return
+		}
+	}
+	t.Fatalf("worktree add did not reuse the existing branch: %v", git.calls)
+}
+
+func TestClaimWorktreeRefusesDivergentExistingBranch(t *testing.T) {
+	s, git, _ := worktreeFixture(t)
+	req := baseClaim(git)
+	git.branches[req.Branch] = strings.Repeat("b", 40)
+
+	_, err := s.ClaimWorktree(context.Background(), req)
+	if failureKind(err) != KindProjectionConflict {
+		t.Fatalf("err=%v, want projection conflict", err)
+	}
+	if git.countCalls("worktree add") != 0 {
+		t.Fatalf("divergent branch must not be attached, saw %d adds", git.countCalls("worktree add"))
+	}
+}
+
 func TestClaimWorktreeRefusesSecondActiveAndIntentMismatch(t *testing.T) {
 	s, git, _ := worktreeFixture(t)
 	req := baseClaim(git)
@@ -352,6 +414,9 @@ func TestReclaimWorktreeDerivesFromGitFacts(t *testing.T) {
 	}
 	if _, still := git.worktrees[req.Path]; still {
 		t.Fatal("native worktree was not removed")
+	}
+	if _, still := git.branches[req.Branch]; still {
+		t.Fatal("reclaimed branch was not deleted")
 	}
 	replay, err := s.ReclaimWorktree(context.Background(), reclaim)
 	if err != nil || replay.State != worktreeEntryReclaimed {

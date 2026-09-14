@@ -140,7 +140,7 @@ func formatRequiredFields(fields []commandField) string {
 var commandSpecs = []commandSpec{
 	{Canonical: "invoke", RequiredFields: requiredFields(nestedField("call_envelope", "schema_version", "request_id", "client_ref", "principal_ref", "session_ref", "agent_ref", "directory", "worktree", "ambient_project_id", "scope_version", "manifest_digest"), field("tool"), field("operation"), field("input")), Optional: "call_envelope.selected_product_id, call_envelope.host_assertion_digest, call_envelope.host_approval_assertion", Enums: "tool.operation: concord_product_view.resolve | concord_product_view.snapshot | concord_product_view.portfolio | concord_work_browse.list | concord_work_browse.blocked | concord_work_browse.ready | concord_work_browse.scope | concord_work_trace.history | concord_work_trace.continuity | concord_work_trace.relations | concord_knowledge.search | concord_knowledge.resolve_note | concord_knowledge.unprocessed | concord_work_define.capture | concord_work_define.revise_intent | concord_work_transition.lifecycle | concord_work_transition.workflow_action | concord_work_transition.session_vacate | concord_work_relate.set_memberships | concord_work_relate.link | concord_work_relate.unlink | concord_work_relate.supersede | concord_work_compact.publish | concord_work_compact.reconcile"},
 	{Canonical: "worker-dispatch", RequiredFields: requiredFields(field("event_id"), field("work_id"), field("attempt_id"), field("lane_id"), field("lane_version"), field("lane_digest"), field("packet_schema_version"), field("report_schema_version"), field("packet_digest")), Optional: "readback_model (host-reported executing model); terminal ('failed') with terminal_failure_kind and terminal_detail for an attempt born failed, such as a lost or ambiguous readback; host_provenance.digest (sha256), host_provenance.sources[] (kind: agent_definition | agents_md | instruction_file | unenumerated; path; sha256) — required for v3 evidence (CD-0034)", Enums: "none"},
-	{Canonical: "worker-complete", RequiredFields: requiredFields(field("event_id"), field("work_id"), field("attempt_id"), field("readback_model"), field("report_schema_version"), field("evidence_origin")), Optional: "evidence[] (obligation; detail 1-512 chars) — required and non-empty when evidence_origin is reported (CD-0056)", Enums: "evidence_origin: reported | legacy_unavailable; evidence[].obligation: bounded_findings | commands | contract_findings | exit_codes | failure_classification | files_touched | severity | source_citations | uncertainties | unresolved_issues | verification_commands | visual_artifacts; reported evidence must discharge every obligation the dispatching lane declares"},
+	{Canonical: "worker-complete", RequiredFields: requiredFields(field("event_id"), field("work_id"), field("attempt_id"), field("readback_model"), field("report_schema_version"), field("evidence_origin")), Optional: "worker_directory, evidence[] — required when evidence_origin is reported", Enums: "evidence_origin: reported | legacy_unavailable; evidence[].obligation: bounded_findings | commands | contract_findings | exit_codes | failure_classification | files_touched | severity | source_citations | uncertainties | unresolved_issues | verification_commands | visual_artifacts; reported evidence must discharge every obligation the dispatching lane declares"},
 	{Canonical: "worker-fail", RequiredFields: requiredFields(field("event_id"), field("work_id"), field("attempt_id"), field("readback_model"), field("failure_kind"), field("detail")), Optional: "none", Enums: "failure_kind: fallback_blocked | worker_error | invalid_report"},
 	{Canonical: "client-register", TwoWord: "client register", RequiredFields: requiredFields(field("client_ref"), field("key_id"), field("principal_ref"), field("public_key"), field("capabilities"), field("product_scope"), field("project_scope"), field("agent_scope")), Optional: "none", Enums: "capabilities: product_read | work_define | work_transition | work_relate | work_compact | work_initiative | cross_scope | research | worker_evidence | worker_dispatch; public_key: base64 Ed25519; agent_scope: the agent references this client may present"},
 	{Canonical: "client-policy-update", TwoWord: "client policy-update", RequiredFields: requiredFields(field("client_ref"), field("principal_ref"), field("capabilities"), field("product_scope"), field("project_scope"), field("agent_scope")), Optional: "none", Enums: "capabilities: product_read | work_define | work_transition | work_relate | work_compact | work_initiative | cross_scope | research | worker_evidence | worker_dispatch; agent_scope: the agent references this client may present"},
@@ -152,6 +152,7 @@ var commandSpecs = []commandSpec{
 	{Canonical: "linear-health", TwoWord: "linear health", RequiredFields: requiredFields(field("product_id")), Optional: "none", Enums: "none"},
 	{Canonical: "linear-issue-enqueue", TwoWord: "linear issue-enqueue", RequiredFields: requiredFields(field("product_id"), field("work_id"), field("op_kind")), Optional: "none", Enums: "op_kind: issue_create | issue_update"},
 	{Canonical: "linear-outbox-drain", TwoWord: "linear outbox-drain", RequiredFields: requiredFields(field("product_id")), Optional: "max_operations", Enums: "none"},
+	{Canonical: "linear-connection-update", TwoWord: "linear connection-update", RequiredFields: requiredFields(field("event_id"), field("resource_id"), field("product_id"), field("expected_resource_version")), Optional: "team_id, project_id, status_ids", Enums: "status_ids keys: needed | in_progress | completed | cancelled | superseded"},
 	{Canonical: "linear-initiative-import", TwoWord: "linear initiative-import", RequiredFields: requiredFields(field("product_id"), field("initiative_id")), Optional: "none", Enums: "none"},
 	{Canonical: "resource-create", TwoWord: "resource create", RequiredFields: requiredFields(field("event_id"), field("resource_id"), field("product_id"), field("display_name"), field("class"), field("kind"), field("purpose"), field("stage_maturity"), field("stage_audience_commitment"), field("environments"), field("expected_product_version")), Optional: "locator_absence_reason, metadata_schema_version, metadata, owner_purpose, owner_environments", Enums: "stage_maturity: prototype | alpha | beta | production | deprecated; stage_audience_commitment: operator_only | limited | public"},
 	{Canonical: "resource-share", TwoWord: "resource share", RequiredFields: requiredFields(field("event_id"), field("resource_id"), field("product_id"), field("expected_resource_version")), Optional: "purpose, environments", Enums: "none"},
@@ -517,6 +518,7 @@ type workerCompleteRequest struct {
 	AttemptID           string                        `json:"attempt_id"`
 	ReadbackModel       string                        `json:"readback_model"`
 	ReportSchemaVersion string                        `json:"report_schema_version"`
+	WorkerDirectory     string                        `json:"worker_directory,omitempty"`
 	Assertion           agent.WorkerEvidenceAssertion `json:"assertion"`
 	// Evidence is the parsed agent-lane-report.v1 evidence the adapter read
 	// from the worker; EvidenceOrigin says whether it was reported at all
@@ -615,7 +617,7 @@ func runWorkerCommand(command string, raw []byte, s *store.Store, service *agent
 			AttemptID:     request.AttemptID,
 			ReadbackModel: request.ReadbackModel,
 		}
-		payload := store.WorkerCompletedPayload{AttemptID: request.AttemptID, ReadbackModel: request.ReadbackModel, ReportSchemaVersion: request.ReportSchemaVersion, Evidence: request.Evidence, EvidenceOrigin: request.EvidenceOrigin}
+		payload := store.WorkerCompletedPayload{AttemptID: request.AttemptID, ReadbackModel: request.ReadbackModel, ReportSchemaVersion: request.ReportSchemaVersion, WorkerDirectory: request.WorkerDirectory, Evidence: request.Evidence, EvidenceOrigin: request.EvidenceOrigin}
 		event := store.Event{EventID: request.EventID, Kind: store.WorkerCompleted, SubjectType: store.SubjectWorkItem, SubjectID: request.WorkID, OccurredAt: clock().UTC(), PayloadVersion: 2, Payload: mustMarshalWorkerPayload(payload)}
 		return applyWorkerEvidence(ctx, command, s, service, request.Assertion, binding, nil, event, out, errOut)
 	case "worker-fail":
@@ -850,6 +852,31 @@ func runProductModeSet(ctx context.Context, s *store.Store, raw []byte, command 
 	return writeOperatorResult(command, s, result.EventIDs, []operatorRef{{EntityKind: store.SubjectProduct, ID: request.ProductID}}, out, errOut)
 }
 
+func runLinearConnectionUpdate(ctx context.Context, s *store.Store, raw []byte, command string, clock func() time.Time, out, errOut io.Writer) int {
+	var request struct {
+		EventID                 string            `json:"event_id"`
+		ResourceID              string            `json:"resource_id"`
+		ProductID               string            `json:"product_id"`
+		TeamID                  string            `json:"team_id"`
+		ProjectID               string            `json:"project_id"`
+		StatusIDs               map[string]string `json:"status_ids"`
+		ExpectedResourceVersion int64             `json:"expected_resource_version"`
+	}
+	if err := decodeObject(raw, &request); err != nil {
+		writeOperatorDiagnostic(errOut, command, err.Error())
+		return 1
+	}
+	if err := s.UpdateLinearConnection(ctx, store.LinearConnectionUpdateRequest{
+		EventID: request.EventID, ResourceID: request.ResourceID, ProductID: request.ProductID,
+		TeamID: request.TeamID, ProjectID: request.ProjectID, StatusIDs: request.StatusIDs,
+		ExpectedResourceVersion: request.ExpectedResourceVersion, Actor: "operator", OccurredAt: clock().UTC(),
+	}); err != nil {
+		writeOperatorDiagnostic(errOut, command, err.Error())
+		return 1
+	}
+	return writeOperatorResult(command, s, []string{request.EventID}, []operatorRef{{EntityKind: store.SubjectProduct, ID: request.ProductID}}, out, errOut)
+}
+
 // runLinearHealth handles the Linear Phase 0 operator verb that reads one
 // Product's bounded integration health.
 func runLinearHealth(ctx context.Context, s *store.Store, raw []byte, command string, out, errOut io.Writer) int {
@@ -888,7 +915,7 @@ func runLinearIssueEnqueue(ctx context.Context, s *store.Store, raw []byte, comm
 		writeOperatorDiagnostic(errOut, command, err.Error())
 		return 1
 	}
-	entry, err := s.EnqueueLinearIssueForWork(ctx, request.WorkID, request.OpKind)
+	entry, err := s.EnqueueLinearIssueForProduct(ctx, request.ProductID, request.WorkID, request.OpKind)
 	if err != nil {
 		writeOperatorDiagnostic(errOut, command, err.Error())
 		return 1
@@ -931,12 +958,7 @@ func runLinearOutboxDrain(ctx context.Context, s *store.Store, raw []byte, comma
 		writeOperatorDiagnostic(errOut, command, err.Error()+"; set CONCORD_LINEAR_API_KEY in the process environment")
 		return 1
 	}
-	connection, err := s.ReadLinearConnection(ctx, request.ProductID)
-	if err != nil {
-		writeOperatorDiagnostic(errOut, command, err.Error())
-		return 1
-	}
-	claimed, err := s.ClaimLinearOperations(ctx, request.MaxOperations)
+	claimed, err := s.ClaimLinearOperationsForProduct(ctx, request.ProductID, request.MaxOperations)
 	if err != nil {
 		writeOperatorDiagnostic(errOut, command, err.Error())
 		return 1
@@ -955,6 +977,25 @@ func runLinearOutboxDrain(ctx context.Context, s *store.Store, raw []byte, comma
 			results = append(results, drained{OperationID: op.OperationID, Outcome: "failed", Detail: "payload does not decode"})
 			continue
 		}
+		connection, connectionErr := s.ReadLinearConnection(ctx, request.ProductID)
+		if connectionErr != nil {
+			const detail = "cannot read the current Linear connection before sending the operation"
+			_ = s.FailLinearOperation(ctx, op.OperationID, "retryable", detail)
+			results = append(results, drained{OperationID: op.OperationID, Outcome: "retryable", Detail: detail})
+			continue
+		}
+		if payload.ConnectionVersion < 1 || payload.ConnectionVersion != connection.Version {
+			const detail = "Linear connection changed after this operation was queued; re-enqueue it for the current destination"
+			_ = s.FailLinearOperation(ctx, op.OperationID, "permanent", detail)
+			results = append(results, drained{OperationID: op.OperationID, Outcome: "failed", Detail: detail})
+			continue
+		}
+		if payload.ProductID == "" || payload.ProductID != request.ProductID {
+			const detail = "operation has no immutable Product owner; re-enqueue it for the requested Product"
+			_ = s.FailLinearOperation(ctx, op.OperationID, "permanent", detail)
+			results = append(results, drained{OperationID: op.OperationID, Outcome: "failed", Detail: detail})
+			continue
+		}
 		teamID := payload.TeamID
 		if teamID == "" {
 			teamID = connection.TeamID
@@ -967,7 +1008,7 @@ func runLinearOutboxDrain(ctx context.Context, s *store.Store, raw []byte, comma
 			issue, derr = drainUpdate(ctx, s, client, op, payload)
 		} else {
 			issue, derr = client.CreateIssue(ctx, linearclient.CreateIssueInput{
-				ID: payload.ClientUUID, TeamID: teamID, Title: payload.Title, Description: payload.Description,
+				ID: payload.ClientUUID, TeamID: teamID, ProjectID: payload.ProjectID, Title: payload.Title, Description: payload.Description,
 			})
 		}
 		if derr != nil {
@@ -998,12 +1039,15 @@ func runLinearOutboxDrain(ctx context.Context, s *store.Store, raw []byte, comma
 
 // linearDrainPayload is the JSON convention every outbox payload carries.
 type linearDrainPayload struct {
-	ClientUUID  string `json:"client_uuid"`
-	Title       string `json:"title"`
-	Description string `json:"description"`
-	TeamID      string `json:"team_id"`
-	Lifecycle   string `json:"lifecycle,omitempty"`
-	StatusID    string `json:"status_id,omitempty"`
+	ClientUUID        string `json:"client_uuid"`
+	ProductID         string `json:"product_id"`
+	Title             string `json:"title"`
+	Description       string `json:"description"`
+	TeamID            string `json:"team_id"`
+	ProjectID         string `json:"project_id,omitempty"`
+	ConnectionVersion int64  `json:"connection_version"`
+	Lifecycle         string `json:"lifecycle,omitempty"`
+	StatusID          string `json:"status_id,omitempty"`
 }
 
 // drainUpdate resolves the linked remote identity and executes issueUpdate.
@@ -1015,7 +1059,7 @@ func drainUpdate(ctx context.Context, s *store.Store, client *linearclient.Clien
 	if link.RemoteIssueUUID == "" || link.RemoteIssueUUID == payload.ClientUUID {
 		return linearclient.Issue{}, fmt.Errorf("link has no confirmed remote issue to update")
 	}
-	return client.UpdateIssue(ctx, link.RemoteIssueUUID, linearclient.UpdateIssueInput{Title: payload.Title, Description: payload.Description, StatusID: payload.StatusID})
+	return client.UpdateIssue(ctx, link.RemoteIssueUUID, linearclient.UpdateIssueInput{Title: payload.Title, Description: payload.Description, ProjectID: payload.ProjectID, StatusID: payload.StatusID})
 }
 
 // linearContentHash digests the synchronized content so a later reconciliation
@@ -1235,6 +1279,8 @@ func runInternal(command string, raw []byte, service *agent.Service, s *store.St
 		return writeOperatorResult(command, s, result.EventIDs, []operatorRef{{EntityKind: store.SubjectProduct, ID: request.ProductID}, {EntityKind: store.SubjectProject, ID: request.ProjectID}}, out, errOut)
 	case "product-mode-set":
 		return runProductModeSet(ctx, s, raw, command, out, errOut)
+	case "linear-connection-update":
+		return runLinearConnectionUpdate(ctx, s, raw, command, clock, out, errOut)
 	case "linear-health":
 		return runLinearHealth(ctx, s, raw, command, out, errOut)
 	case "linear-issue-enqueue":

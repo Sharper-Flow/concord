@@ -1,0 +1,5 @@
+{
+  "id": "CD-0134",
+  "reason": "The decision records the target Domain decomposition and migration, but it makes no executable Product-behavior claim. Repository validators prove the record, shard, and current registry shape. The later registry migration requires its own runtime evidence.",
+  "state": "out_of_scope"
+}

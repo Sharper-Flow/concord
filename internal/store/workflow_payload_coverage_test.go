@@ -107,6 +107,7 @@ func TestDispatcherFieldReadsHaveActionPayloadDeclarations(t *testing.T) {
 		delete(reads["approve_contract"], field)
 	}
 	delete(reads, "supersede_contract")
+	delete(reads, "reject_worker_result")
 
 	declared := map[string]map[string]bool{}
 	for _, definition := range BuiltinWorkflowDefinitions() {

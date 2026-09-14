@@ -1,0 +1,59 @@
+{
+  "date": "2026-09-12T00:00:00Z",
+  "evidence": [
+    "docs/knowledge/domain-registry.json",
+    "docs/decisions/CD-0041-architecture-bound-product-law.md",
+    "docs/decisions/CD-0060-domain-registry-enactment.md",
+    "docs/agent-tool-surface-budget.md",
+    "docs/agent-tool-surface-evolution.md",
+    "docs/agent-tool-surface-measurement.md",
+    "docs/agent-call-context-contract.md",
+    "docs/agent-adapter-transport-contract.md",
+    "docs/agent-result-envelope.md",
+    "docs/agent-lanes-contract.md"
+  ],
+  "home_domain_id": "agent-surface",
+  "id": "CD-0134",
+  "kind": "decision",
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "CD-0041"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0060"
+    },
+    {
+      "kind": "refines",
+      "target_id": "TS2"
+    },
+    {
+      "kind": "refines",
+      "target_id": "TS8"
+    },
+    {
+      "kind": "refines",
+      "target_id": "TS9"
+    }
+  ],
+  "path": "docs/decisions/CD-0134-agent-surface-splits-by-authority-boundary.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:6ae11a52b5d7881eb166c455826177ff2a162d3f3e8d6edea5cf163a37a53a94",
+  "status": "accepted",
+  "summary": "Splits the agent-surface Domain into five child boundaries earned by stable ownership and material authority or recovery distinctions, while preserving one generated callable surface and requiring a later registry and law-home migration.",
+  "tags": [
+    "domain",
+    "granularity",
+    "agent-surface",
+    "architecture",
+    "migration"
+  ],
+  "title": "The agent surface splits by authority boundary"
+}

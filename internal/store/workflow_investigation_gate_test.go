@@ -132,12 +132,12 @@ func TestOperatorQuestionWithheldForAnyApprovalRequiredAction(t *testing.T) {
 		t.Fatal(err)
 	}
 	definition := WorkflowReadDefinition{Ref: registered.Definition.Ref, Version: registered.Definition.Version, Digest: digest}
-	if q, err := workflowOperatorQuestionTx(ctx, s.DatabaseForTesting(), workID, "verify", 1, definition, WorkflowReadContract{}); err != nil {
+	if q, _, err := workflowOperatorQuestionTx(ctx, s.DatabaseForTesting(), workID, "verify", 1, definition, WorkflowReadContract{}); err != nil {
 		t.Fatalf("question read failed: %v", err)
 	} else if q != nil {
 		t.Fatal("confirm_premise question admitted without an investigation artifact")
 	}
-	if q, err := workflowOperatorQuestionTx(ctx, s.DatabaseForTesting(), workID, "planning", 1, definition, WorkflowReadContract{}); err != nil {
+	if q, _, err := workflowOperatorQuestionTx(ctx, s.DatabaseForTesting(), workID, "planning", 1, definition, WorkflowReadContract{}); err != nil {
 		t.Fatalf("question read failed: %v", err)
 	} else if q != nil {
 		t.Fatal("approve_contract question admitted without an investigation artifact")
@@ -145,7 +145,7 @@ func TestOperatorQuestionWithheldForAnyApprovalRequiredAction(t *testing.T) {
 
 	// With a resolvable artifact the same questions are admitted.
 	insertInvestigationGateObservation(t, s, workID, "obs:"+strings.Repeat("4", 16), []string{"root", "investigation-gate-other-work"})
-	if _, err := workflowOperatorQuestionTx(ctx, s.DatabaseForTesting(), workID, "verify", 1, definition, WorkflowReadContract{}); err != nil {
+	if _, _, err := workflowOperatorQuestionTx(ctx, s.DatabaseForTesting(), workID, "verify", 1, definition, WorkflowReadContract{}); err != nil {
 		t.Fatalf("question refused after investigation: %v", err)
 	}
 }

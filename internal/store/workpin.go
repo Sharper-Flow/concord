@@ -19,8 +19,13 @@ type WorkPin struct {
 	Step                    string                    `json:"step"`
 	Attempt                 *WorkPinAttempt           `json:"attempt"`
 	PendingOperatorDecision *WorkflowOperatorQuestion `json:"pending_operator_decision"`
-	Watermark               string                    `json:"watermark"`
-	NextValidIntents        []WorkPinIntent           `json:"next_valid_intents"`
+	// WithheldOperatorDecision names the checkpoint action whose question the
+	// step declares but the gate holds closed, with the reason and the remedy.
+	// It stays nil when a question is open and when the step has none.
+	WithheldOperatorDecision *WorkflowOperatorQuestionWithheld `json:"withheld_operator_decision,omitempty"`
+	Watermark                string                            `json:"watermark"`
+	NextValidIntents         []WorkPinIntent                   `json:"next_valid_intents"`
+	Correction               *WorkflowCorrectionContext        `json:"correction,omitempty"`
 	// VerdictEvidence exposes the bound immutable evidence set at steps where
 	// record_verdict is declarable, so a caller cites qualifying refs without
 	// a raw store read (#974). It stays nil at every other step.
@@ -90,7 +95,8 @@ func ReadWorkPinTx(ctx context.Context, tx *sql.Tx, workID string) (WorkPin, err
 	}
 	pin.WorkID = workID
 	var definition WorkflowReadDefinition
-	if err := tx.QueryRowContext(ctx, `SELECT definition_ref,definition_version,definition_digest,current_step FROM workflow_instances WHERE work_id=?`, workID).Scan(&definition.Ref, &definition.Version, &definition.Digest, &pin.Step); err != nil {
+	var instanceState string
+	if err := tx.QueryRowContext(ctx, `SELECT definition_ref,definition_version,definition_digest,current_step,instance_state FROM workflow_instances WHERE work_id=?`, workID).Scan(&definition.Ref, &definition.Version, &definition.Digest, &pin.Step, &instanceState); err != nil {
 		if err == sql.ErrNoRows {
 			return pin, newFailure(KindProjectionNotFound, "work_pin", "workflow instance is not recorded", false, "reread_entities")
 		}
@@ -124,7 +130,7 @@ func ReadWorkPinTx(ctx context.Context, tx *sql.Tx, workID string) (WorkPin, err
 		if err != nil {
 			return pin, err
 		}
-		pin.PendingOperatorDecision, err = workflowOperatorQuestionTx(ctx, tx, workID, pin.Step, pin.Version, definition, contract)
+		pin.PendingOperatorDecision, pin.WithheldOperatorDecision, err = workflowOperatorQuestionTx(ctx, tx, workID, pin.Step, pin.Version, definition, contract)
 		if err != nil {
 			return pin, err
 		}
@@ -170,6 +176,49 @@ func ReadWorkPinTx(ctx context.Context, tx *sql.Tx, workID string) (WorkPin, err
 	if contractCorrection && !workPinContainsAction(pin.NextValidIntents, "supersede_contract") {
 		pin.NextValidIntents = append(pin.NextValidIntents, workPinIntentForAction(workflowContractRecoveryActionDefinition(), pin.Version, "operator_contract_correction"))
 	}
+	verdictCorrection, correctionErr := workflowVerdictCorrectionContext(ctx, tx, workID, registered.Definition, pin.Step, "work_pin")
+	if correctionErr != nil {
+		return pin, correctionErr
+	}
+	if verdictCorrection != nil && !verdictCorrection.Escalated && !workPinContainsAction(pin.NextValidIntents, "request_correction") {
+		pin.NextValidIntents = append(pin.NextValidIntents, workPinIntentForAction(workflowCorrectionRequestActionDefinition(), pin.Version, "verification_correction"))
+	}
+	correction, correctionErr := workflowCorrectionContext(ctx, tx, workID, pin.Step)
+	if correctionErr != nil {
+		return pin, correctionErr
+	}
+	pin.Correction = correction
+	if correction != nil && correction.Escalated {
+		pin.NextValidIntents = workPinWithoutAction(pin.NextValidIntents, "dispatch_worker")
+	}
+	if workPinContainsAction(pin.NextValidIntents, "dispatch_worker") {
+		_, staleDesign, designErr := readCurrentWorkflowDesign(ctx, tx, workID)
+		if designErr != nil {
+			return pin, designErr
+		}
+		if staleDesign {
+			pin.NextValidIntents = workPinWithoutAction(pin.NextValidIntents, "dispatch_worker")
+		}
+	}
+	if stepDeclaresAction(registered.Definition, pin.Step, "dispatch_worker") {
+		rejected, rejectionErr := workflowRejectedWorkerResultAvailable(ctx, tx, workID, pin.Step, "work_pin")
+		if rejectionErr != nil {
+			return pin, rejectionErr
+		}
+		if rejected {
+			pin.NextValidIntents = append(pin.NextValidIntents, workPinIntentForAction(workflowCorrectionActionDefinition(), pin.Version, "worker_result_rejection"))
+		}
+	}
+	// A closed instance admits no workflow action: WorkflowActionPreflight
+	// refuses every one against it. The pin states what the caller may do, so
+	// a terminal instance offers nothing. This clears the whole set after it
+	// is assembled, because each recovery branch above appends an action the
+	// same preflight would refuse. Instance states spell terminality with the
+	// same three words as lifecycles.
+	if isTerminalLifecycle(instanceState) {
+		pin.NextValidIntents = []WorkPinIntent{}
+	}
+
 	var watermark int64
 	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(seq),0) FROM domain_events WHERE subject_type='work_item' AND subject_id=?`, workID).Scan(&watermark); err != nil {
 		return pin, wrapFailure(KindUnavailable, "work_pin", "cannot read work watermark", true, "retry once the database is readable", err)
@@ -257,6 +306,16 @@ func workPinContainsAction(intents []WorkPinIntent, actionID string) bool {
 		}
 	}
 	return false
+}
+
+func workPinWithoutAction(intents []WorkPinIntent, actionID string) []WorkPinIntent {
+	filtered := make([]WorkPinIntent, 0, len(intents))
+	for _, intent := range intents {
+		if intent.ActionID != actionID {
+			filtered = append(filtered, intent)
+		}
+	}
+	return filtered
 }
 
 func workPinIntentForAction(action WorkflowActionDefinition, version int64, reason string) WorkPinIntent {

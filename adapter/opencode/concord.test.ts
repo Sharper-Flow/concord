@@ -65,7 +65,7 @@ test("exports exactly the generated tool names", () => {
   expect(new Set(contractOperations.map((operation: any) => operation.tool))).toEqual(new Set(names.map((name) => `concord_${name}`)))
 })
 
-test("published tool arguments expose one generated request union", () => {
+test("published tool arguments expose a host-safe request shape", () => {
   const tools = {
     concord_product_view: adapter.product_view,
     concord_work_browse: adapter.work_browse,
@@ -82,21 +82,22 @@ test("published tool arguments expose one generated request union", () => {
     expect(Object.keys((exportedTool as any).args), toolName).toEqual(["request"])
     const published = adapter.publishedRequestSchema(toolName) as any
     const expected = contractOperations.filter((item: any) => item.tool === toolName).map((item: any) => item.id.split(".")[1])
-    expect(published.oneOf.map((variant: any) => variant.properties.operation.const), toolName).toEqual(expected)
+    expect(published.properties.operation.enum, toolName).toEqual(expected)
+    expect(published.properties.input.type, toolName).toBe("object")
+    expect(published.properties.input.additionalProperties, toolName).toBe(true)
+    expect(published.properties.input.required, toolName).toEqual([])
     expect(JSON.stringify(published), toolName).not.toContain("~standard")
     expect(JSON.stringify(published), toolName).not.toContain('"def"')
+    expect(JSON.stringify(published), toolName).not.toContain("#/properties/request/definitions/")
+    expect(JSON.stringify(published), toolName).not.toContain('"oneOf"')
   }
   const published = adapter.publishedRequestSchema("concord_work_define") as any
-  const capture = published.oneOf.find((variant: any) => variant.properties.operation.const === "capture")
-  const inputRef = capture.properties.input.$ref.replace("#/properties/request/definitions/", "")
-  const urgencyRef = published.definitions[inputRef].properties.urgency.$ref.replace("#/properties/request/definitions/", "")
-  expect(published.definitions[urgencyRef].enum).toEqual(["standard", "expedite"])
+  expect(published.properties.input.properties.urgency.enum).toEqual(["standard", "expedite"])
   const transition = adapter.publishedRequestSchema("concord_work_transition") as any
-  const workflowAction = transition.oneOf.find((variant: any) => variant.properties.operation.const === "workflow_action")
-  expect(workflowAction.properties.input.$ref).toContain("work_transition_action_public_input")
+  expect(transition.properties.input.properties.fields.properties.outcome_predicates.items.properties.outcome_payload.properties.kind.type).toBe("string")
   // Every generated field reaches the host. The definition hook makes the
   // published fields optional; the adapter enforces the closed modes.
-  expect(Object.keys((adapter.work_start as any).args).sort()).toEqual(["title", "value_statement", "kind", "task", "idempotency_key", "priority", "urgency", "tags", "workflow_type_ref", "external_ref", "governing_requirements", "ref", "work_id"].sort())
+  expect(Object.keys((adapter.work_start as any).args).sort()).toEqual(["title", "value_statement", "kind", "task", "idempotency_key", "priority", "urgency", "tags", "workflow_type_ref", "external_ref", "raised_from_work_id", "governing_requirements", "ref", "work_id"].sort())
   for (const value of Object.values((adapter.work_start as any).args)) expect(value).toBeObject()
   expect((adapter.work_start as any).args.product_id).toBeUndefined()
   expect((adapter.work_start as any).args.project_id).toBeUndefined()
@@ -594,6 +595,39 @@ test("approve_contract clears the approval challenge the core actually builds", 
   expect(approvals).toBe(1)
 })
 
+test("host publication round-trips check predicate payloads unchanged", async () => {
+  const input = {
+    work_id: "work-1",
+    expected_version: 2,
+    action_id: "approve_contract",
+    idempotency_key: "idem-check-predicate-1",
+    fields: {
+      outcome_predicates: [{
+        predicate_id: "predicate:primary",
+        ordinal: 0,
+        outcome_kind: "check",
+        outcome_payload: {
+          kind: "check",
+          check_ref: "check:approve-contract",
+          immutable_subject_ref: "commit:approve-contract",
+          expected_result: "pass",
+        },
+      }],
+    },
+  }
+  const published: any = adapter.publishedRequestSchema("concord_work_transition")
+  expect(published.properties.input.properties.fields.properties.outcome_predicates.items.properties.outcome_payload.properties.kind).toEqual({ type: "string" })
+  let sentInput: unknown
+  const success = coreEnvelope("concord_work_transition", "workflow_action", "ok", { result: { changed_refs: [], next_valid_intents: [] }, changed_refs: [], next_valid_intents: [] })
+  adapter.configureConcordAdapter({ runner: runnerWithContext((_argv: string[], raw: string) => {
+    sentInput = JSON.parse(raw).input
+    return success
+  }) })
+  const result: any = await rawHostResult(adapter.work_transition.execute(hostCall("workflow_action", input), contextFor()))
+  expect(result.outcome).toBe("ok")
+  expect(sentInput).toEqual(input)
+})
+
 test("confirm_premise still binds the selection it carries", async () => {
   // The one action whose schema admits a selection must still agree with the
   // core, or an operator could approve a choice they did not make.
@@ -613,6 +647,44 @@ test("confirm_premise still binds the selection it carries", async () => {
   )
   expect(agreed.outcome).toBe("ok")
   expect(approvals).toBe(1)
+})
+
+test("the confirm_premise gate names the one input that failed", async () => {
+  // The gate holds two independent requirements. A message naming both leaves
+  // a caller who satisfied one guessing which half refused, so each fault
+  // carries the field it is about.
+  const digest = "sha256:" + "b".repeat(64)
+  const failing = async (input: Record<string, unknown>) => {
+    const result: any = await runWorkflowAction({ async run() { throw new Error("no core call may leave") } },
+      { work_id: "work-1", expected_version: 2, action_id: "confirm_premise", idempotency_key: "idem-gate", ...input })
+    expect(result.outcome).not.toBe("ok")
+    expect(result.error.kind).toBe("invalid_input")
+    expect(result.error.adapter_reason).toBe("missing_question_selection")
+    return result.error.message as string
+  }
+
+  const noChoice = await failing({ decision_context_digest: digest })
+  expect(noChoice).toContain("selected_choice")
+  expect(noChoice).not.toContain("decision_context_digest")
+
+  const wrongChoice = await failing({ selected_choice: "revise", decision_context_digest: digest })
+  expect(wrongChoice).toContain("selected_choice")
+  expect(wrongChoice).toContain("\"revise\"")
+  expect(wrongChoice).not.toContain("decision_context_digest")
+
+  const noDigest = await failing({ selected_choice: "confirm" })
+  expect(noDigest).toContain("decision_context_digest")
+  expect(noDigest).toContain("pending_operator_decision")
+  expect(noDigest).not.toContain("selected_choice")
+
+  const wrongType = await failing({ selected_choice: "confirm", decision_context_digest: 7 })
+  expect(wrongType).toContain("decision_context_digest")
+  expect(wrongType).toContain("string")
+
+  const wrongShape = await failing({ selected_choice: "confirm", decision_context_digest: "sha256:NOTHEX" })
+  expect(wrongShape).toContain("64 lowercase hex")
+  expect(wrongShape).toContain("sha256:NOTHEX")
+  expect(wrongShape).not.toContain("selected_choice")
 })
 
 const coreEnvelope = (tool: string, operation: string, outcome: string, fields: Record<string, unknown> = {}) => ({
@@ -1744,6 +1816,8 @@ test("portable continuation posture leaves host protocol names to the host surfa
   ]) {
     expect(continuationSource).not.toContain(hostTerm)
   }
+  expect(continuationSource).toContain("Do not end a turn to report progress.")
+  expect(continuationSource).toContain("A wait is not a stop.")
   expect(askingSource).toContain("Do not ask for permission to continue work already agreed")
   expect(continuationSource).not.toContain("Do not ask for general permission to continue")
   expect(continuationSource.match(/When you stop,/g)?.length).toBe(1)

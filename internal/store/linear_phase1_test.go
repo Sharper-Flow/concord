@@ -56,7 +56,7 @@ func TestLinearEnqueueForWorkGuards(t *testing.T) {
 	}
 
 	// Unknown work refuses.
-	setupLinearConnectionResourceAtVersion(t, s, "enq-product", map[string]any{"linear": map[string]any{"workspace_url": "https://linear.app/example", "team_id": "team-uuid-1", "auth_mode": "personal_api_key"}}, 3)
+	setupLinearConnectionResourceAtVersion(t, s, "enq-product", map[string]any{"linear": map[string]any{"workspace_url": "https://linear.app/example", "team_id": "team-uuid-1", "project_id": "project-uuid-1", "auth_mode": "personal_api_key"}}, 3)
 	if _, err := s.EnqueueLinearIssueForWork(ctx, "ghost", LinearOpIssueCreate); err == nil || !failureKindIs(err, KindUnknownScope) {
 		t.Fatalf("unknown work error = %v, want unknown_scope", err)
 	}
@@ -83,12 +83,14 @@ func TestLinearEnqueueForWorkGuards(t *testing.T) {
 		ClientUUID  string `json:"client_uuid"`
 		Title       string `json:"title"`
 		Description string `json:"description"`
+		ProductID   string `json:"product_id"`
 		TeamID      string `json:"team_id"`
+		ProjectID   string `json:"project_id"`
 	}
 	if err := json.Unmarshal([]byte(payload), &decoded); err != nil {
 		t.Fatal(err)
 	}
-	if decoded.ClientUUID == "" || decoded.Title != "Enqueue title" || decoded.Description != "Enqueue value statement" || decoded.TeamID != "team-uuid-1" {
+	if decoded.ClientUUID == "" || decoded.Title != "Enqueue title" || decoded.Description != "Enqueue value statement" || decoded.ProductID != "enq-product" || decoded.TeamID != "team-uuid-1" || decoded.ProjectID != "project-uuid-1" {
 		t.Fatalf("payload = %+v", decoded)
 	}
 	if len(decoded.ClientUUID) != 36 || !strings.Contains(decoded.ClientUUID, "-") {
@@ -150,6 +152,42 @@ func TestLinearClaimBatchIsExclusiveAndBounded(t *testing.T) {
 	}
 	if len(seen) != 3 {
 		t.Fatalf("claims overlap or miss: %v", seen)
+	}
+}
+
+func TestLinearClaimUsesQueuedProductIdentity(t *testing.T) {
+	s := openTemp(t)
+	ctx := context.Background()
+	setupLinearProduct(t, s, "claim-owner-product")
+	setupLinearConnectionResource(t, s, "claim-owner-product", map[string]any{"linear": map[string]any{"workspace_url": "https://linear.app/example", "team_id": "team-uuid-1", "auth_mode": "personal_api_key"}})
+	if _, err := s.SetProductPlanningMode(ctx, "claim-owner-product", PlanningModeLinear, "pilot", "operator", 2); err != nil {
+		t.Fatal(err)
+	}
+	seedLinearWorkItem(t, s, "claim-owner-work", "claim-owner-product-project", "Title", "Value")
+	op, err := s.EnqueueLinearIssueForProduct(ctx, "claim-owner-product", "claim-owner-work", LinearOpIssueCreate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ApplyOperation(ctx, s, Operation{
+		Events: []Event{
+			productCreatedEvent("claim-other-product", "claim-other-created"),
+			membershipEvent("claim-other-membership", "product_project.added", SubjectProduct, "claim-other-product", map[string]any{"product_id": "claim-other-product", "project_id": "claim-owner-product-project", "role": "primary", "reason": "test", "expected_version": 1, "resulting_version": 2}),
+		},
+		ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectProduct, "claim-other-product"): 0},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if claimed, err := s.ClaimLinearOperationsForProduct(ctx, "claim-other-product", 1); err != nil {
+		t.Fatal(err)
+	} else if len(claimed) != 0 {
+		t.Fatalf("other Product claimed %d operation(s)", len(claimed))
+	}
+	claimed, err := s.ClaimLinearOperationsForProduct(ctx, "claim-owner-product", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(claimed) != 1 || claimed[0].OperationID != op.OperationID {
+		t.Fatalf("owner claims = %+v", claimed)
 	}
 }
 
@@ -253,7 +291,7 @@ func TestLinearUpdateCompletionRefreshesConfirmedLink(t *testing.T) {
 	s := openTemp(t)
 	ctx := context.Background()
 	setupLinearProduct(t, s, "update-product")
-	setupLinearConnectionResource(t, s, "update-product", map[string]any{"linear": map[string]any{"workspace_url": "https://linear.app/example", "team_id": "team-uuid-1", "auth_mode": "personal_api_key"}})
+	setupLinearConnectionResource(t, s, "update-product", map[string]any{"linear": map[string]any{"workspace_url": "https://linear.app/example", "team_id": "team-uuid-1", "auth_mode": "personal_api_key", "status_ids": map[string]string{"needed": "state-needed", "in_progress": "state-in-progress", "completed": "state-completed", "cancelled": "state-cancelled", "superseded": "state-superseded"}}})
 	if _, err := s.SetProductPlanningMode(ctx, "update-product", PlanningModeLinear, "pilot", "operator", 2); err != nil {
 		t.Fatal(err)
 	}
@@ -339,5 +377,114 @@ func TestLinearTerminalStatusUsesDeclaredConnectionPolicy(t *testing.T) {
 	}
 	if decoded.Lifecycle != "cancelled" || decoded.StatusID != "state-cancelled" {
 		t.Fatalf("terminal payload = %+v", decoded)
+	}
+}
+
+func TestLinearLifecycleTransitionQueuesConfirmedLinkUpdate(t *testing.T) {
+	s := openTemp(t)
+	ctx := context.Background()
+	setupLinearProduct(t, s, "lifecycle-product")
+	setupLinearConnectionResource(t, s, "lifecycle-product", map[string]any{"linear": map[string]any{
+		"workspace_url": "https://linear.app/example", "team_id": "team-uuid-1", "auth_mode": "personal_api_key",
+		"status_ids": map[string]string{"needed": "state-needed", "in_progress": "state-in-progress", "completed": "state-completed", "cancelled": "state-cancelled", "superseded": "state-superseded"},
+	}})
+	if _, err := s.SetProductPlanningMode(ctx, "lifecycle-product", PlanningModeLinear, "pilot", "operator", 2); err != nil {
+		t.Fatal(err)
+	}
+	seedLinearWorkItem(t, s, "lifecycle-work", "lifecycle-product-project", "Lifecycle title", "Lifecycle value")
+	for _, state := range []string{LinearLinkUnpublished, LinearLinkPending, LinearLinkConfirmed} {
+		if err := s.RecordLinearLink(ctx, "lifecycle-work", "remote-lifecycle", "", "", "", "", state); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if err := ApplyOperation(ctx, s, Operation{Events: []Event{{
+		EventID: "lifecycle-work-in-progress", Kind: "work.transitioned", SubjectType: SubjectWorkItem, SubjectID: "lifecycle-work", Actor: "operator", OccurredAt: time.Unix(1, 0).UTC(), PayloadVersion: 1,
+		Payload: json.RawMessage(`{"from":"needed","to":"in_progress","reason":"start execution","expected_version":1,"resulting_version":2}`),
+	}}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "lifecycle-work"): 1}}); err != nil {
+		t.Fatal(err)
+	}
+	var lifecycle, statusID string
+	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT json_extract(payload, '$.lifecycle'), json_extract(payload, '$.status_id') FROM linear_outbox WHERE work_id=?`, "lifecycle-work").Scan(&lifecycle, &statusID); err != nil {
+		t.Fatal(err)
+	}
+	if lifecycle != "in_progress" || statusID != "state-in-progress" {
+		t.Fatalf("automatic update = %s/%s, want in_progress/state-in-progress", lifecycle, statusID)
+	}
+}
+
+func TestLinearLifecycleTransitionSkipsUnmappedLegacyConnection(t *testing.T) {
+	s := openTemp(t)
+	ctx := context.Background()
+	setupLinearProduct(t, s, "legacy-product")
+	// A legacy connection maps only the three terminal lifecycles, which the
+	// read path must keep accepting.
+	setupLinearConnectionResource(t, s, "legacy-product", map[string]any{"linear": map[string]any{
+		"workspace_url": "https://linear.app/example", "team_id": "team-uuid-1", "auth_mode": "personal_api_key",
+		"status_ids": map[string]string{"completed": "state-completed", "cancelled": "state-cancelled", "superseded": "state-superseded"},
+	}})
+	if _, err := s.SetProductPlanningMode(ctx, "legacy-product", PlanningModeLinear, "pilot", "operator", 2); err != nil {
+		t.Fatal(err)
+	}
+	seedLinearWorkItem(t, s, "legacy-work", "legacy-product-project", "Legacy title", "Legacy value")
+	for _, state := range []string{LinearLinkUnpublished, LinearLinkPending, LinearLinkConfirmed} {
+		if err := s.RecordLinearLink(ctx, "legacy-work", "remote-legacy", "", "", "", "", state); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if err := ApplyOperation(ctx, s, Operation{Events: []Event{{
+		EventID: "legacy-work-in-progress", Kind: "work.transitioned", SubjectType: SubjectWorkItem, SubjectID: "legacy-work", Actor: "operator", OccurredAt: time.Unix(1, 0).UTC(), PayloadVersion: 1,
+		Payload: json.RawMessage(`{"from":"needed","to":"in_progress","reason":"start execution","expected_version":1,"resulting_version":2}`),
+	}}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "legacy-work"): 1}}); err != nil {
+		t.Fatal(err)
+	}
+	var count int
+	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT count(*) FROM linear_outbox WHERE work_id=?`, "legacy-work").Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 0 {
+		t.Fatalf("unmapped lifecycle enqueued %d operations, want 0", count)
+	}
+}
+
+func TestLinearHealthReportsUnmappedLifecyclesOnLegacyConnection(t *testing.T) {
+	s := openTemp(t)
+	ctx := context.Background()
+	setupLinearProduct(t, s, "health-legacy-product")
+	setupLinearConnectionResource(t, s, "health-legacy-product", map[string]any{"linear": map[string]any{
+		"workspace_url": "https://linear.app/example", "team_id": "team-uuid-1", "auth_mode": "personal_api_key",
+		"status_ids": map[string]string{"completed": "state-completed", "cancelled": "state-cancelled", "superseded": "state-superseded"},
+	}})
+	if _, err := s.SetProductPlanningMode(ctx, "health-legacy-product", PlanningModeLinear, "pilot", "operator", 2); err != nil {
+		t.Fatal(err)
+	}
+	health, err := s.ReadLinearIntegrationHealth(ctx, "health-legacy-product")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(health.UnmappedLifecycles) != 2 || health.UnmappedLifecycles[0] != "in_progress" || health.UnmappedLifecycles[1] != "needed" {
+		t.Fatalf("unmapped lifecycles = %v, want [in_progress needed]", health.UnmappedLifecycles)
+	}
+}
+
+func TestLinearConnectionUpdateAcceptsSharedStatusAcrossLifecycles(t *testing.T) {
+	s := openTemp(t)
+	ctx := context.Background()
+	setupLinearProduct(t, s, "shared-product")
+	setupLinearConnectionResource(t, s, "shared-product", map[string]any{"linear": map[string]any{
+		"workspace_url": "https://linear.app/example", "team_id": "team-uuid-1", "auth_mode": "personal_api_key",
+	}})
+	if _, err := s.SetProductPlanningMode(ctx, "shared-product", PlanningModeLinear, "pilot", "operator", 2); err != nil {
+		t.Fatal(err)
+	}
+	// A default workspace holds one cancelled-category status; cancelled and
+	// superseded must both be declarable against it.
+	if err := s.UpdateLinearConnection(ctx, LinearConnectionUpdateRequest{
+		EventID: "shared-connection-update", ResourceID: "linear-conn-shared-product", ProductID: "shared-product",
+		TeamID: "team-uuid-1", StatusIDs: map[string]string{"needed": "state-todo", "in_progress": "state-in-progress", "completed": "state-done", "cancelled": "state-canceled", "superseded": "state-canceled"},
+		ExpectedResourceVersion: 1, Actor: "operator", OccurredAt: time.Date(2026, 9, 9, 1, 0, 0, 0, time.UTC),
+	}); err != nil {
+		t.Fatalf("UpdateLinearConnection() with shared status error = %v", err)
 	}
 }

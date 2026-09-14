@@ -13,8 +13,9 @@
 - **Amends:** CD-0006 D5/D10/R3, CD-0009 D1/D1a, CD-0015,
   CD-0024 D1/D2/D4, and PM6/PM7 historical-scope vocabulary
 - **Amended by:** CD-0042 amends the pre-go-live agent-surface sequencing and
-  removes unreleased surface compatibility policy; the Domain-overlap runtime path
-  remains on the current generated manifest.
+  removes unreleased surface compatibility policy; CD-0145 narrows the
+  Domain-overlap execution block to shared writes; CD-0144 moves the active
+  footprint boundary from contract approval to execution start.
 - **Preserves:** CD-0002 and CD-0011 storage authority and falsifiers;
   CD-0009 D2–D8 research-pack authority; CD-0036 breaking-law cutovers
 - **Supersedes:** Epic as Concord's current Product-facing initiative term and
@@ -245,13 +246,19 @@ Product-changing type. The generic type cannot bypass this split.
 
 ### D6. Architectural overlap is explicit before concurrent work proceeds
 
-For each nonterminal Product-changing work item, Concord derives its active
-architecture footprint from the approved contract. Two active items overlap when
-their `affected_domain_ids` intersect. Exact intersections in law additions or
-modifications, Domain modifications, or Domain-relation modifications are marked
-as write overlaps; broader same-Domain intersections remain architecture overlaps.
+For each nonterminal Product-changing work item that has started execution,
+Concord derives its active architecture footprint from the approved contract.
+An approved contract that has not started execution has no active footprint and
+does not block a peer. Two executing items block execution authority only when
+at least one exact write intersection exists: shared law additions or
+modifications, shared Domain modifications, or shared Domain-relation
+modifications. A shared `affected_domain_ids` value alone is architecture
+proximity and does not block execution authority.
 
-Both forms require a resolution before both items may hold execution authority.
+The derived overlap detail retains the shared affected Domains and marks the
+architecture class when a blocking write overlap also shares a Domain. Only a
+blocking write overlap requires a resolution before both items may hold
+execution authority.
 The closed resolutions are:
 
 | Resolution | Record |

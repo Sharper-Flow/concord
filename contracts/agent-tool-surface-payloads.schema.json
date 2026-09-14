@@ -196,6 +196,77 @@
         }
       }
     },
+    "workflow_correction_context": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "disposition",
+        "attempt_count",
+        "attempt_limit",
+        "escalated",
+        "predicate_ids",
+        "evidence_refs"
+      ],
+      "properties": {
+        "disposition": {
+          "type": "string",
+          "enum": [
+            "failed",
+            "rejected",
+            "verification"
+          ]
+        },
+        "attempt_count": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2147483647
+        },
+        "attempt_limit": {
+          "$ref": "#/$defs/version"
+        },
+        "escalated": {
+          "type": "boolean"
+        },
+        "predicate_ids": {
+          "type": "array",
+          "maxItems": 8,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/id"
+          }
+        },
+        "evidence_refs": {
+          "type": "array",
+          "maxItems": 32,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/reference"
+          }
+        },
+        "diagnosis": {
+          "type": "string",
+          "maxLength": 4096
+        },
+        "strategy": {
+          "type": "string",
+          "maxLength": 4096
+        },
+        "failure_kind": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "failure_detail": {
+          "type": "string",
+          "maxLength": 4096
+        },
+        "failed_attempt_id": {
+          "$ref": "#/$defs/id"
+        },
+        "failed_attempt_epoch": {
+          "$ref": "#/$defs/version"
+        }
+      }
+    },
     "work_pin_intent": {
       "type": "object",
       "additionalProperties": false,
@@ -292,6 +363,9 @@
             }
           ]
         },
+        "withheld_operator_decision": {
+          "$ref": "#/$defs/operator_decision_withheld"
+        },
         "watermark": {
           "$ref": "#/$defs/id"
         },
@@ -332,6 +406,16 @@
               }
             }
           }
+        },
+        "correction": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/workflow_correction_context"
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "verdict_evidence": {
           "type": "array",
@@ -1663,6 +1747,26 @@
         }
       }
     },
+    "operator_decision_withheld": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "action_id",
+        "reason",
+        "remedy"
+      ],
+      "properties": {
+        "action_id": {
+          "$ref": "#/$defs/id"
+        },
+        "reason": {
+          "$ref": "#/$defs/short"
+        },
+        "remedy": {
+          "$ref": "#/$defs/short"
+        }
+      }
+    },
     "continuity_operator_decision": {
       "type": "object",
       "additionalProperties": false,
@@ -2092,6 +2196,16 @@
               "oneOf": [
                 {
                   "$ref": "#/$defs/continuity_operator_decision"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "withheld_operator_decision": {
+              "oneOf": [
+                {
+                  "$ref": "#/$defs/operator_decision_withheld"
                 },
                 {
                   "type": "null"
@@ -3167,6 +3281,9 @@
         "external_ref": {
           "$ref": "#/$defs/short"
         },
+        "raised_from_work_id": {
+          "$ref": "#/$defs/id"
+        },
         "idempotency_key": {
           "$ref": "#/$defs/id"
         },
@@ -3673,7 +3790,9 @@
                 "maxProperties": 32,
                 "properties": {
                   "attempt_id": {
-                    "$ref": "#/$defs/reference"
+                    "$ref": "#/$defs/reference",
+                    "minLength": 2,
+                    "maxLength": 128
                   },
                   "worker_packet": {
                     "$ref": "#/$defs/worker_packet"
@@ -4499,6 +4618,13 @@
         },
         "stage_context": {
           "$ref": "#/$defs/product_row_stage_context"
+        },
+        "blocked_sessions": {
+          "type": "array",
+          "maxItems": 100,
+          "items": {
+            "$ref": "#/$defs/product_row_blocked_session"
+          }
         }
       }
     },
@@ -5591,6 +5717,61 @@
         }
       }
     },
+    "product_row_blocked_session": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "session_ref",
+        "agent_ref",
+        "worktree",
+        "directory",
+        "consequence",
+        "blocked_since",
+        "block_age_seconds"
+      ],
+      "properties": {
+        "session_ref": {
+          "$ref": "#/$defs/id"
+        },
+        "agent_ref": {
+          "$ref": "#/$defs/id"
+        },
+        "worktree": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "directory": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "consequence": {
+          "type": "string",
+          "enum": [
+            "read",
+            "intent",
+            "lifecycle",
+            "workflow_action",
+            "scope",
+            "relation",
+            "supersession",
+            "publication",
+            "recovery",
+            "research"
+          ]
+        },
+        "blocked_since": {
+          "type": "string",
+          "minLength": 10,
+          "maxLength": 40
+        },
+        "block_age_seconds": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
     "blocked_sessions_page": {
       "type": "object",
       "additionalProperties": false,
@@ -5602,59 +5783,7 @@
           "type": "array",
           "maxItems": 100,
           "items": {
-            "type": "object",
-            "additionalProperties": false,
-            "required": [
-              "session_ref",
-              "agent_ref",
-              "worktree",
-              "directory",
-              "consequence",
-              "blocked_since",
-              "block_age_seconds"
-            ],
-            "properties": {
-              "session_ref": {
-                "$ref": "#/$defs/id"
-              },
-              "agent_ref": {
-                "$ref": "#/$defs/id"
-              },
-              "worktree": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 4096
-              },
-              "directory": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 4096
-              },
-              "consequence": {
-                "type": "string",
-                "enum": [
-                  "read",
-                  "intent",
-                  "lifecycle",
-                  "workflow_action",
-                  "scope",
-                  "relation",
-                  "supersession",
-                  "publication",
-                  "recovery",
-                  "research"
-                ]
-              },
-              "blocked_since": {
-                "type": "string",
-                "minLength": 10,
-                "maxLength": 40
-              },
-              "block_age_seconds": {
-                "type": "integer",
-                "minimum": 0
-              }
-            }
+            "$ref": "#/$defs/product_row_blocked_session"
           }
         }
       }
@@ -6022,7 +6151,9 @@
                   "stale_claim",
                   "stranded_needed",
                   "terminal_present",
-                  "unstarted_present"
+                  "unstarted_present",
+                  "uncommitted_content",
+                  "unpushed_content"
                 ]
               },
               "project_id": {
@@ -6050,12 +6181,22 @@
                 "enum": [
                   "remove_worktree",
                   "worktree_reclaim",
-                  "worktree_claim"
+                  "worktree_claim",
+                  "worktree_inspect"
                 ]
+              },
+              "risk": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64
               },
               "commits_ahead": {
                 "type": "integer",
                 "minimum": 0
+              },
+              "unpushed_commits": {
+                "type": "integer",
+                "minimum": 1
               },
               "claim_age_seconds": {
                 "type": "integer",
@@ -7360,6 +7501,9 @@
               "minLength": 0,
               "maxLength": 16384
             },
+            "correction": {
+              "$ref": "#/$defs/workflow_correction_context"
+            },
             "constraints": {
               "type": "array",
               "minItems": 0,
@@ -7615,7 +7759,9 @@
                   "stale_claim",
                   "stranded_needed",
                   "terminal_present",
-                  "unstarted_present"
+                  "unstarted_present",
+                  "uncommitted_content",
+                  "unpushed_content"
                 ]
               },
               "project_id": {
@@ -7643,12 +7789,22 @@
                 "enum": [
                   "remove_worktree",
                   "worktree_reclaim",
-                  "worktree_claim"
+                  "worktree_claim",
+                  "worktree_inspect"
                 ]
+              },
+              "risk": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64
               },
               "commits_ahead": {
                 "type": "integer",
                 "minimum": 0
+              },
+              "unpushed_commits": {
+                "type": "integer",
+                "minimum": 1
               },
               "claim_age_seconds": {
                 "type": "integer",
@@ -8490,13 +8646,19 @@
                     "maxLength": 2048
                   },
                   "producer_id": {
-                    "$ref": "#/$defs/reference"
+                    "$ref": "#/$defs/reference",
+                    "minLength": 2,
+                    "maxLength": 128
                   },
                   "producer_run_ref": {
-                    "$ref": "#/$defs/reference"
+                    "$ref": "#/$defs/reference",
+                    "minLength": 2,
+                    "maxLength": 128
                   },
                   "producer_watermark": {
-                    "$ref": "#/$defs/reference"
+                    "$ref": "#/$defs/reference",
+                    "minLength": 2,
+                    "maxLength": 128
                   }
                 }
               }
@@ -8536,7 +8698,9 @@
                 "maxProperties": 32,
                 "properties": {
                   "attempt_id": {
-                    "$ref": "#/$defs/reference"
+                    "$ref": "#/$defs/reference",
+                    "minLength": 2,
+                    "maxLength": 128
                   },
                   "attempt_epoch": {
                     "type": "integer",
@@ -8588,7 +8752,9 @@
                 "maxProperties": 32,
                 "properties": {
                   "condition_id": {
-                    "$ref": "#/$defs/reference"
+                    "$ref": "#/$defs/reference",
+                    "minLength": 2,
+                    "maxLength": 128
                   },
                   "await_type": {
                     "type": "string",
@@ -8601,10 +8767,14 @@
                     ]
                   },
                   "await_ref": {
-                    "$ref": "#/$defs/reference"
+                    "$ref": "#/$defs/reference",
+                    "minLength": 2,
+                    "maxLength": 128
                   },
                   "resolution_authority": {
-                    "$ref": "#/$defs/reference"
+                    "$ref": "#/$defs/reference",
+                    "minLength": 2,
+                    "maxLength": 128
                   },
                   "expected_within_seconds": {
                     "type": "integer",
@@ -8692,7 +8862,9 @@
                     "maxLength": 4096
                   },
                   "outcome_predicates": {
-                    "$ref": "#/$defs/workflow_action_outcome_predicates"
+                    "$ref": "#/$defs/workflow_action_outcome_predicates",
+                    "minItems": 1,
+                    "maxItems": 8
                   },
                   "required_evidence": {
                     "type": "array",
@@ -8816,13 +8988,19 @@
                     "maxLength": 2048
                   },
                   "producer_id": {
-                    "$ref": "#/$defs/reference"
+                    "$ref": "#/$defs/reference",
+                    "minLength": 2,
+                    "maxLength": 128
                   },
                   "producer_run_ref": {
-                    "$ref": "#/$defs/reference"
+                    "$ref": "#/$defs/reference",
+                    "minLength": 2,
+                    "maxLength": 128
                   },
                   "producer_watermark": {
-                    "$ref": "#/$defs/reference"
+                    "$ref": "#/$defs/reference",
+                    "minLength": 2,
+                    "maxLength": 128
                   }
                 }
               }
@@ -8884,13 +9062,19 @@
                     "maxLength": 2048
                   },
                   "producer_id": {
-                    "$ref": "#/$defs/reference"
+                    "$ref": "#/$defs/reference",
+                    "minLength": 2,
+                    "maxLength": 128
                   },
                   "producer_run_ref": {
-                    "$ref": "#/$defs/reference"
+                    "$ref": "#/$defs/reference",
+                    "minLength": 2,
+                    "maxLength": 128
                   },
                   "producer_watermark": {
-                    "$ref": "#/$defs/reference"
+                    "$ref": "#/$defs/reference",
+                    "minLength": 2,
+                    "maxLength": 128
                   }
                 }
               }
@@ -8930,10 +9114,15 @@
                 "maxProperties": 32,
                 "properties": {
                   "condition_id": {
-                    "$ref": "#/$defs/reference"
+                    "$ref": "#/$defs/reference",
+                    "minLength": 2,
+                    "maxLength": 128
                   },
                   "cancellation_authority": {
-                    "$ref": "#/$defs/reference"
+                    "type": "string",
+                    "enum": [
+                      "operator"
+                    ]
                   },
                   "cancellation_evidence": {
                     "type": "array",
@@ -8945,9 +9134,17 @@
                     "maxItems": 32
                   },
                   "cancelled_by_event": {
-                    "$ref": "#/$defs/reference"
+                    "$ref": "#/$defs/reference",
+                    "minLength": 2,
+                    "maxLength": 128
                   }
-                }
+                },
+                "required": [
+                  "condition_id",
+                  "cancellation_authority",
+                  "cancellation_evidence",
+                  "cancelled_by_event"
+                ]
               }
             },
             "not": {
@@ -8963,7 +9160,10 @@
                   ]
                 }
               ]
-            }
+            },
+            "required": [
+              "fields"
+            ]
           }
         },
         {
@@ -9057,7 +9257,9 @@
                 "maxProperties": 32,
                 "properties": {
                   "checkpoint_id": {
-                    "$ref": "#/$defs/reference"
+                    "$ref": "#/$defs/reference",
+                    "minLength": 2,
+                    "maxLength": 128
                   },
                   "checkpoint_sequence": {
                     "type": "integer",
@@ -9351,7 +9553,9 @@
                 "maxProperties": 32,
                 "properties": {
                   "run_id": {
-                    "$ref": "#/$defs/reference"
+                    "$ref": "#/$defs/reference",
+                    "minLength": 2,
+                    "maxLength": 128
                   },
                   "native_subject_ref": {
                     "type": "string",
@@ -9374,7 +9578,7 @@
                     "$ref": "#/$defs/digest"
                   },
                   "asserted_at": {
-                    "type": "string",
+                    "$ref": "#/$defs/native_report_timestamp",
                     "minLength": 1,
                     "maxLength": 64
                   }
@@ -9552,7 +9756,9 @@
                     ]
                   },
                   "checkpoint_id": {
-                    "$ref": "#/$defs/reference"
+                    "$ref": "#/$defs/reference",
+                    "minLength": 2,
+                    "maxLength": 128
                   },
                   "boundary_sequence": {
                     "type": "integer",
@@ -9619,10 +9825,14 @@
                 "maxProperties": 32,
                 "properties": {
                   "target_work_id": {
-                    "$ref": "#/$defs/reference"
+                    "$ref": "#/$defs/reference",
+                    "minLength": 2,
+                    "maxLength": 128
                   },
                   "edge_id": {
-                    "$ref": "#/$defs/reference"
+                    "$ref": "#/$defs/reference",
+                    "minLength": 2,
+                    "maxLength": 128
                   },
                   "edge_kind": {
                     "type": "string",
@@ -9845,7 +10055,9 @@
                     "$ref": "#/$defs/workflow_forward_relation"
                   },
                   "successor_work_id": {
-                    "$ref": "#/$defs/reference"
+                    "$ref": "#/$defs/reference",
+                    "minLength": 2,
+                    "maxLength": 128
                   }
                 },
                 "required": [
@@ -9920,28 +10132,118 @@
             ]
           },
           "then": {
-            "properties": {
-              "fields": {
-                "type": "object",
-                "additionalProperties": false,
-                "maxProperties": 32,
-                "properties": {}
-              }
-            },
-            "not": {
-              "anyOf": [
-                {
-                  "required": [
-                    "selected_choice"
+            "anyOf": [
+              {
+                "properties": {
+                  "fields": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "maxProperties": 32,
+                    "properties": {
+                      "question": {
+                        "type": "string",
+                        "minLength": 2,
+                        "maxLength": 4096
+                      },
+                      "options_considered": {
+                        "type": "array",
+                        "uniqueItems": true,
+                        "items": {
+                          "$ref": "#/$defs/decision_record_text"
+                        },
+                        "minItems": 1,
+                        "maxItems": 16
+                      },
+                      "decision": {
+                        "type": "string",
+                        "enum": [
+                          "accepted_decision",
+                          "insufficient_evidence"
+                        ]
+                      },
+                      "rationale": {
+                        "type": "string",
+                        "minLength": 2,
+                        "maxLength": 4096
+                      },
+                      "consequences": {
+                        "type": "array",
+                        "uniqueItems": true,
+                        "items": {
+                          "$ref": "#/$defs/decision_record_text"
+                        },
+                        "minItems": 1,
+                        "maxItems": 16
+                      },
+                      "inputs": {
+                        "type": "array",
+                        "uniqueItems": true,
+                        "items": {
+                          "$ref": "#/$defs/decision_record_text"
+                        },
+                        "minItems": 1,
+                        "maxItems": 32
+                      },
+                      "poc_findings": {
+                        "type": "string",
+                        "minLength": 2,
+                        "maxLength": 4096
+                      }
+                    },
+                    "required": [
+                      "question",
+                      "options_considered",
+                      "decision",
+                      "rationale",
+                      "consequences",
+                      "inputs",
+                      "poc_findings"
+                    ]
+                  }
+                },
+                "not": {
+                  "anyOf": [
+                    {
+                      "required": [
+                        "selected_choice"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "decision_context_digest"
+                      ]
+                    }
                   ]
                 },
-                {
-                  "required": [
-                    "decision_context_digest"
+                "required": [
+                  "fields"
+                ]
+              },
+              {
+                "properties": {
+                  "fields": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "maxProperties": 32,
+                    "properties": {}
+                  }
+                },
+                "not": {
+                  "anyOf": [
+                    {
+                      "required": [
+                        "selected_choice"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "decision_context_digest"
+                      ]
+                    }
                   ]
                 }
-              ]
-            }
+              }
+            ]
           }
         },
         {
@@ -10166,7 +10468,9 @@
                 "maxProperties": 32,
                 "properties": {
                   "run_id": {
-                    "$ref": "#/$defs/reference"
+                    "$ref": "#/$defs/reference",
+                    "minLength": 2,
+                    "maxLength": 128
                   },
                   "native_subject_ref": {
                     "type": "string",
@@ -10190,7 +10494,7 @@
                     "$ref": "#/$defs/digest"
                   },
                   "asserted_at": {
-                    "type": "string",
+                    "$ref": "#/$defs/native_report_timestamp",
                     "minLength": 1,
                     "maxLength": 64
                   }
@@ -10420,13 +10724,19 @@
                     "maxLength": 2048
                   },
                   "producer_id": {
-                    "$ref": "#/$defs/reference"
+                    "$ref": "#/$defs/reference",
+                    "minLength": 2,
+                    "maxLength": 128
                   },
                   "producer_run_ref": {
-                    "$ref": "#/$defs/reference"
+                    "$ref": "#/$defs/reference",
+                    "minLength": 2,
+                    "maxLength": 128
                   },
                   "producer_watermark": {
-                    "$ref": "#/$defs/reference"
+                    "$ref": "#/$defs/reference",
+                    "minLength": 2,
+                    "maxLength": 128
                   }
                 }
               }
@@ -10524,13 +10834,19 @@
                     "maxLength": 2048
                   },
                   "producer_id": {
-                    "$ref": "#/$defs/reference"
+                    "$ref": "#/$defs/reference",
+                    "minLength": 2,
+                    "maxLength": 128
                   },
                   "producer_run_ref": {
-                    "$ref": "#/$defs/reference"
+                    "$ref": "#/$defs/reference",
+                    "minLength": 2,
+                    "maxLength": 128
                   },
                   "producer_watermark": {
-                    "$ref": "#/$defs/reference"
+                    "$ref": "#/$defs/reference",
+                    "minLength": 2,
+                    "maxLength": 128
                   }
                 }
               }
@@ -10611,7 +10927,9 @@
                     "maximum": 2147483647
                   },
                   "predicate_id": {
-                    "$ref": "#/$defs/reference"
+                    "$ref": "#/$defs/reference",
+                    "minLength": 2,
+                    "maxLength": 128
                   },
                   "verdict_kind": {
                     "type": "string",
@@ -10682,7 +11000,9 @@
                 "maxProperties": 32,
                 "properties": {
                   "attempt_id": {
-                    "$ref": "#/$defs/reference"
+                    "$ref": "#/$defs/reference",
+                    "minLength": 2,
+                    "maxLength": 128
                   },
                   "attempt_epoch": {
                     "type": "integer",
@@ -10734,7 +11054,9 @@
                 "maxProperties": 32,
                 "properties": {
                   "condition_id": {
-                    "$ref": "#/$defs/reference"
+                    "$ref": "#/$defs/reference",
+                    "minLength": 2,
+                    "maxLength": 128
                   },
                   "resolution_evidence": {
                     "type": "array",
@@ -10746,7 +11068,9 @@
                     "maxItems": 32
                   },
                   "resolved_by_event": {
-                    "$ref": "#/$defs/reference"
+                    "$ref": "#/$defs/reference",
+                    "minLength": 2,
+                    "maxLength": 128
                   }
                 }
               }
@@ -10799,7 +11123,9 @@
                     ]
                   },
                   "candidate_ref": {
-                    "$ref": "#/$defs/reference"
+                    "$ref": "#/$defs/reference",
+                    "minLength": 2,
+                    "maxLength": 128
                   },
                   "added": {
                     "type": "array",
@@ -10866,7 +11192,9 @@
                 "maxProperties": 32,
                 "properties": {
                   "run_id": {
-                    "$ref": "#/$defs/reference"
+                    "$ref": "#/$defs/reference",
+                    "minLength": 2,
+                    "maxLength": 128
                   },
                   "native_subject_ref": {
                     "type": "string",
@@ -10890,7 +11218,7 @@
                     "$ref": "#/$defs/digest"
                   },
                   "asserted_at": {
-                    "type": "string",
+                    "$ref": "#/$defs/native_report_timestamp",
                     "minLength": 1,
                     "maxLength": 64
                   }
@@ -11158,7 +11486,9 @@
                 "maxProperties": 32,
                 "properties": {
                   "run_id": {
-                    "$ref": "#/$defs/reference"
+                    "$ref": "#/$defs/reference",
+                    "minLength": 2,
+                    "maxLength": 128
                   },
                   "native_subject_ref": {
                     "type": "string",
@@ -11181,7 +11511,7 @@
                     "$ref": "#/$defs/digest"
                   },
                   "asserted_at": {
-                    "type": "string",
+                    "$ref": "#/$defs/native_report_timestamp",
                     "minLength": 1,
                     "maxLength": 64
                   }
@@ -11318,6 +11648,9 @@
                   },
                   "architecture_binding": {
                     "$ref": "#/$defs/architecture_binding"
+                  },
+                  "design_record": {
+                    "$ref": "#/$defs/workflow_design_content"
                   },
                   "supersede_reason": {
                     "type": "string",
@@ -11473,7 +11806,9 @@
                 "maxProperties": 32,
                 "properties": {
                   "lane_id": {
-                    "$ref": "#/$defs/reference"
+                    "$ref": "#/$defs/reference",
+                    "minLength": 2,
+                    "maxLength": 128
                   }
                 },
                 "required": [
@@ -11511,6 +11846,51 @@
       "type": "string",
       "minLength": 1,
       "maxLength": 512
+    },
+    "decision_record_text": {
+      "type": "string",
+      "minLength": 2,
+      "maxLength": 128
+    },
+    "native_report_timestamp": {
+      "type": "string",
+      "minLength": 20,
+      "maxLength": 64,
+      "format": "date-time"
+    },
+    "workflow_design_content": {
+      "type": "object",
+      "additionalProperties": false,
+      "maxProperties": 32,
+      "properties": {
+        "approach": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 4096
+        },
+        "decisions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/workflow_design_decision"
+          },
+          "minItems": 1,
+          "maxItems": 16
+        },
+        "touched_refs": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/reference"
+          },
+          "minItems": 1,
+          "maxItems": 64
+        }
+      },
+      "required": [
+        "approach",
+        "decisions",
+        "touched_refs"
+      ]
     }
   }
 }

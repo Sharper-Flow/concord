@@ -550,7 +550,7 @@ func normalizeWorkflowDefinition(definition WorkflowDefinition) WorkflowDefiniti
 // workflow_registry_versions.go and never acquire current payload contracts.
 func BuiltinWorkflowDefinitions() []WorkflowDefinition {
 	return []WorkflowDefinition{
-		implementationRefinementV9(), breakFixRefinementV8(), withWorkerActions(builtinResearch(true), true), withWorkerActions(builtinArchitectureSpike(true), true), opsRunbookCleanupCheckpointV5(), withWorkerActions(builtinStaticAnalysis(true), true), withWorkerActions(builtinGenericOneOff(true), true),
+		implementationDesignItemSchemaV10(), breakFixRefinementV8(), withWorkerActions(builtinResearch(true), true), architectureSpikeDecisionBoundsV6(), opsRunbookTimestampV7(), withWorkerActions(builtinStaticAnalysis(true), true), withWorkerActions(builtinGenericOneOff(true), true),
 	}
 }
 
@@ -568,8 +568,8 @@ func builtinWorkflowDefinitionsWithHistory() []WorkflowDefinition {
 			releasedBreakFixV5(), breakFixEvidenceRecoveryV6(), breakFixRefinementV7(),
 			preDesignImplementationV5(),
 			preProposalImplementationV6(),
-			releasedImplementationV7(), implementationRefinementV8(),
-			releasedOpsRunbookV4(),
+			releasedImplementationV7(), implementationRefinementV8(), implementationRefinementV9(),
+			releasedOpsRunbookV4(), preDecisionPayloadArchitectureSpikeV4(), preCancellationContractOpsRunbookV5(), opsRunbookConditionContractV6(), releasedArchitectureSpikeV5(),
 		},
 		BuiltinWorkflowDefinitions()...,
 	)
@@ -938,7 +938,11 @@ func validatePayloadFields(fields []WorkflowPayloadField) bool {
 		if field.MinLength != nil && field.MaxLength != nil && *field.MinLength > *field.MaxLength || field.MinItems != nil && field.MaxItems != nil && *field.MinItems > *field.MaxItems || field.Minimum != nil && field.Maximum != nil && *field.Minimum > *field.Maximum {
 			return false
 		}
-		if len(field.Enum) > 32 || !uniqueStrings(field.Enum) || len(field.Enum) != 0 && field.ValueType != PayloadString && field.ValueType != PayloadRef && field.ValueType != PayloadStringList || field.SchemaRef != "" && !validWorkflowID(field.SchemaRef) || field.ItemRef != "" && (field.ValueType != PayloadStringList || !validWorkflowID(field.ItemRef)) {
+		// item_ref names the contract each element answers to. A string list
+		// resolves it against the built-in item kinds; an array resolves it
+		// against the generated payload schemas. Both readings are per element,
+		// so one field keeps one meaning.
+		if len(field.Enum) > 32 || !uniqueStrings(field.Enum) || len(field.Enum) != 0 && field.ValueType != PayloadString && field.ValueType != PayloadRef && field.ValueType != PayloadStringList || field.SchemaRef != "" && !validWorkflowID(field.SchemaRef) || field.ItemRef != "" && (field.ValueType != PayloadStringList && field.ValueType != PayloadArray || !validWorkflowID(field.ItemRef)) {
 			return false
 		}
 	}
@@ -1128,6 +1132,12 @@ func actionArrayField(name string, required bool, min, max int64, schemaRef stri
 	return WorkflowPayloadField{Name: name, ValueType: PayloadArray, Required: required, MinItems: workflowInt(min), MaxItems: workflowInt(max), SchemaRef: schemaRef}
 }
 
+// actionItemArrayField declares an array whose elements answer to one generated
+// schema. It states the per-element reading that schema_ref left to inference.
+func actionItemArrayField(name string, required bool, min, max int64, itemRef string) WorkflowPayloadField {
+	return WorkflowPayloadField{Name: name, ValueType: PayloadArray, Required: required, MinItems: workflowInt(min), MaxItems: workflowInt(max), ItemRef: itemRef}
+}
+
 func evidenceBindingActionFields() []WorkflowPayloadField {
 	return []WorkflowPayloadField{
 		actionStringField("evidence_ref", false, 2048),
@@ -1227,7 +1237,15 @@ var builtinActionPolicies = map[string]builtinActionPolicy{
 	"start_poc":         actionPolicy(ActionExternalEffect, ActionApprovalNone, ActionFenced, ActionEventGeneric),
 	"checkpoint_poc":    actionPolicy(ActionExternalEffect, ActionApprovalNone, ActionCheckpoint, ActionEventCheckpoint),
 	"discard_poc":       actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance, ActionEventGeneric),
-	"record_decision":   actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance, ActionEventCheckpoint),
+	"record_decision": actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance, ActionEventCheckpoint,
+		WorkflowPayloadField{Name: "question", ValueType: PayloadString, Required: true, MinLength: workflowInt(2), MaxLength: workflowInt(4096)},
+		actionProseListField("options_considered", true, 1, 16, "proposal_text"),
+		actionEnumField("decision", true, "accepted_decision", "insufficient_evidence"),
+		WorkflowPayloadField{Name: "rationale", ValueType: PayloadString, Required: true, MinLength: workflowInt(2), MaxLength: workflowInt(4096)},
+		actionProseListField("consequences", true, 1, 16, "proposal_text"),
+		actionProseListField("inputs", true, 1, 32, "proposal_text"),
+		WorkflowPayloadField{Name: "poc_findings", ValueType: PayloadString, Required: true, MinLength: workflowInt(2), MaxLength: workflowInt(4096)},
+	),
 	"accept_decision":   actionPolicy(ActionInternalSQLite, ActionApprovalRequired, ActionAdvance, ActionEventTyped, evidenceBindingActionFields()...),
 	"approve_operation": actionPolicy(ActionInternalSQLite, ActionApprovalRequired, ActionAdvance, ActionEventTyped, evidenceBindingActionFields()...),
 	"start_run":         actionPolicy(ActionExternalEffect, ActionApprovalNone, ActionFenced, ActionEventTyped, nativeRunActionFields("started", "failed_to_start")...),
@@ -1240,7 +1258,8 @@ var builtinActionPolicies = map[string]builtinActionPolicy{
 		actionRefField("condition_id", false), actionListField("resolution_evidence", false, 1, 32), actionRefField("resolved_by_event", false),
 	),
 	"cancel_condition": actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionHold, ActionEventTyped,
-		actionRefField("condition_id", false), actionRefField("cancellation_authority", false), actionListField("cancellation_evidence", false, 1, 32), actionRefField("cancelled_by_event", false),
+		actionRefField("condition_id", true), actionEnumField("cancellation_authority", true, "operator"),
+		actionListField("cancellation_evidence", true, 1, 32), actionRefField("cancelled_by_event", true),
 	),
 	"record_health":       actionPolicy(ActionCrossAuthority, ActionApprovalNone, ActionAdvance, ActionEventTyped, nativeRunActionFields("healthy", "degraded", "failed")...),
 	"rollback_run":        actionPolicy(ActionExternalEffect, ActionApprovalNone, ActionFenced, ActionEventTyped, nativeRunActionFields("rolled_back", "partially_rolled_back", "rollback_failed")...),
@@ -1418,7 +1437,7 @@ func builtinArchitectureSpike(payloadContracts bool) WorkflowDefinition {
 	edges = addEdge(edges, "poc_optional", "poc_optional", WorkflowEdgeRetry)
 	actions := []string{"frame_question", "approve_contract", "record_research", "bind_evidence", "record_option", "start_poc", "checkpoint_poc", "discard_poc", "record_delivery", "record_decision", "record_verdict", "accept_decision", "confirm_premise", "complete"}
 	d := baseDefinition("workflow.architecture_spike", WorkKindArchitectureSpike, graph(steps, edges, "complete"), actions, []EvidenceKind{EvidenceReview, EvidenceApproval, EvidenceArtifact}, WorkflowOutcomeSchema{DefaultKind: PredicateOutcome, AllowedKinds: []PredicateKind{PredicateOutcome}, AllowedOutcomeTokens: []string{"accepted_decision", "insufficient_evidence"}, DecisionRecordRequired: true}, []WorkKind{WorkKindImplementation, WorkKindResearch, WorkKindStaticAnalysis}, payloadContracts)
-	d.Version = 4
+	d.Version = 5
 	return withContinuityActions(d, payloadContracts)
 }
 func builtinOpsRunbook(payloadContracts bool) WorkflowDefinition {

@@ -10,7 +10,7 @@
 // call in place of its result. A completion refusal is therefore appended to
 // the tool output as a typed element the coordinator reads, and the hook never
 // throws: the worker's own result stays visible either way.
-import { completeWorkerAttempt, type AgentResultEnvelope, type DispatchRunner } from "./dispatch"
+import { completeWorkerAttempt, failWorkerAttempt, type AgentResultEnvelope, type DispatchRunner } from "./dispatch"
 import type { CredentialStore } from "./credentials"
 import { dispatchWindows, DispatchWindows, TASK_TOOL_ID } from "./dispatch-window"
 import { agentLanes } from "./generated-agent-lanes"
@@ -56,7 +56,7 @@ function renderAttempt(envelope: AgentResultEnvelope, stateLines: string[]): str
 export async function completeDispatchedWorker(input: LaneCompletionInput, output: LaneCompletionOutput, deps: LaneCompletionDeps = {}): Promise<void> {
   if (input.tool !== TASK_TOOL_ID) return
   const windows = deps.windows ?? dispatchWindows()
-  const record = windows.takeInFlight(input.sessionID)
+  const record = windows.takeInFlight(input.sessionID, input.callID)
   if (!record) return
   // The packet pins the lane's version and digest, so completion binds to the
   // definition the dispatch authorized rather than to whatever the registry
@@ -79,4 +79,43 @@ export async function completeDispatchedWorker(input: LaneCompletionInput, outpu
   }
   const stateLines = record.workPins ? workStateLines({ outcome: "ok", work_pins: record.workPins }) : []
   output.output += renderAttempt(envelope, stateLines)
+}
+
+function object(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value)
+}
+
+// Cancellation can end Task without tool.execute.after. Consume only the
+// terminal error for the exact host call that consumed the dispatch window.
+export async function failDispatchedWorker(event: unknown, deps: LaneCompletionDeps = {}): Promise<AgentResultEnvelope | null> {
+  if (!object(event) || event.type !== "message.part.updated" || !object(event.properties)) return null
+  const part = event.properties.part
+  if (!object(part) || part.type !== "tool" || part.tool !== TASK_TOOL_ID || typeof part.sessionID !== "string" || typeof part.callID !== "string") return null
+  const state = part.state
+  if (!object(state) || state.status !== "error" || typeof state.error !== "string") return null
+  const windows = deps.windows ?? dispatchWindows()
+  const pending = windows.inFlight(part.sessionID, part.callID)
+  if (!pending) return null
+  const lane = agentLanes.find((candidate) => candidate.id === pending.packet.lane_id && candidate.version === pending.packet.lane_version && candidate.digest === pending.packet.lane_digest)
+  const unavailable = (message: string): AgentResultEnvelope => ({
+    schema_version: "1.0", outcome: "error",
+    lane: { id: pending.packet.lane_id, version: pending.packet.lane_version, digest: pending.packet.lane_digest },
+    agent: `concord-${pending.packet.lane_id}`, readback_model: null, session_id: null,
+    error: { kind: "invalid_input", retry_safe: false, recovery_action: "reconcile_operation", message },
+  })
+  const metadata = state.metadata
+  if (!lane) return unavailable("in-flight attempt names a lane the registry does not carry")
+  if (!object(metadata) || typeof metadata.sessionId !== "string" || !/^ses_[a-zA-Z0-9]+$/.test(metadata.sessionId)) {
+    return unavailable("cancelled Task has no host child session identity; retain the in-flight attempt for reconciliation")
+  }
+  if (!windows.claimSettlement(part.sessionID, part.callID)) return null
+  const sessionID = part.sessionID
+  const callID = part.callID
+  try {
+    return await failWorkerAttempt(lane, pending.packet, metadata.sessionId, state.error, {
+      credentials: deps.credentials, runner: deps.runner, concordBinary: deps.concordBinary, packetDigest: pending.packetDigest,
+    }, deps.signal ?? new AbortController().signal, () => windows.finishSettlement(sessionID, callID))
+  } catch (error) {
+    return unavailable(String(error).slice(0, 2048))
+  }
 }

@@ -1119,11 +1119,11 @@ func foldWorkflowActionCheckpointed(ctx context.Context, tx *sql.Tx, event Event
 	if p.StepID != currentStep || step == nil || p.StepKind != string(step.Kind) {
 		return newFailure(KindIllegalLifecycleTransition, "fold_event", "checkpoint does not match the pinned current workflow step kind", false, "checkpoint the pinned current workflow step and kind")
 	}
-	_, latestEpoch, found, err := latestWorkflowActionStart(ctx, tx, event.SubjectID, currentStep)
+	expectedEpoch, err := workflowCheckpointAttemptEpoch(ctx, tx, entry.Definition, step, event.SubjectID, currentStep)
 	if err != nil {
 		return err
 	}
-	if !found || p.AttemptEpoch != latestEpoch {
+	if p.AttemptEpoch != expectedEpoch {
 		return newFailure(KindIllegalLifecycleTransition, "fold_event", "checkpoint does not match the latest workflow action start epoch", false, "checkpoint the current workflow action attempt")
 	}
 	if executionActor == "" || p.ActorRef != executionActor {
@@ -1163,18 +1163,12 @@ func foldWorkflowActionCheckpointed(ctx context.Context, tx *sql.Tx, event Event
 }
 
 func foldWorkflowDecisionRecord(ctx context.Context, tx *sql.Tx, event Event, raw json.RawMessage) error {
-	var checkpoint struct {
-		ActionID   string `json:"action_id"`
-		Checkpoint *struct {
-			ActionID     string   `json:"action_id"`
-			Question     string   `json:"question"`
-			Options      []string `json:"options_considered"`
-			Decision     string   `json:"decision"`
-			Rationale    string   `json:"rationale"`
-			Consequences []string `json:"consequences"`
-			Inputs       []string `json:"inputs"`
-			POCFindings  string   `json:"poc_findings"`
-		} `json:"checkpoint,omitempty"`
+	// The checkpoint envelope carries the action's declared payload under
+	// "fields". A stored event from before that envelope carries the same
+	// record at the top level or under "checkpoint", so all three are read and
+	// the emitted shape wins.
+	type decisionRecordFields struct {
+		ActionID     string   `json:"action_id"`
 		Question     string   `json:"question"`
 		Options      []string `json:"options_considered"`
 		Decision     string   `json:"decision"`
@@ -1182,26 +1176,73 @@ func foldWorkflowDecisionRecord(ctx context.Context, tx *sql.Tx, event Event, ra
 		Consequences []string `json:"consequences"`
 		Inputs       []string `json:"inputs"`
 		POCFindings  string   `json:"poc_findings"`
-		Supersedes   *string  `json:"supersedes"`
-		SupersededBy *string  `json:"superseded_by"`
+	}
+	var checkpoint struct {
+		ActionID     string                `json:"action_id"`
+		Fields       *decisionRecordFields `json:"fields,omitempty"`
+		Checkpoint   *decisionRecordFields `json:"checkpoint,omitempty"`
+		Question     string                `json:"question"`
+		Options      []string              `json:"options_considered"`
+		Decision     string                `json:"decision"`
+		Rationale    string                `json:"rationale"`
+		Consequences []string              `json:"consequences"`
+		Inputs       []string              `json:"inputs"`
+		POCFindings  string                `json:"poc_findings"`
+		Supersedes   *string               `json:"supersedes"`
+		SupersededBy *string               `json:"superseded_by"`
 	}
 	if len(raw) == 0 || json.Unmarshal(raw, &checkpoint) != nil {
 		return nil
 	}
-	if checkpoint.ActionID == "" && checkpoint.Checkpoint != nil {
-		checkpoint.ActionID = checkpoint.Checkpoint.ActionID
-		checkpoint.Question = checkpoint.Checkpoint.Question
-		checkpoint.Options = checkpoint.Checkpoint.Options
-		checkpoint.Decision = checkpoint.Checkpoint.Decision
-		checkpoint.Rationale = checkpoint.Checkpoint.Rationale
-		checkpoint.Consequences = checkpoint.Checkpoint.Consequences
-		checkpoint.Inputs = checkpoint.Checkpoint.Inputs
-		checkpoint.POCFindings = checkpoint.Checkpoint.POCFindings
+	for _, nested := range []*decisionRecordFields{checkpoint.Fields, checkpoint.Checkpoint} {
+		if nested == nil || nested == checkpoint.Checkpoint && (checkpoint.Fields != nil || checkpoint.Question != "") {
+			continue
+		}
+		if checkpoint.ActionID == "" {
+			checkpoint.ActionID = nested.ActionID
+		}
+		checkpoint.Question = nested.Question
+		checkpoint.Options = nested.Options
+		checkpoint.Decision = nested.Decision
+		checkpoint.Rationale = nested.Rationale
+		checkpoint.Consequences = nested.Consequences
+		checkpoint.Inputs = nested.Inputs
+		checkpoint.POCFindings = nested.POCFindings
 	}
 	if checkpoint.ActionID != "record_decision" {
 		return nil
 	}
-	if !workflowString(checkpoint.Question, 4096) || !workflowList(checkpoint.Options, 16, 1) || (checkpoint.Decision != "accepted_decision" && checkpoint.Decision != "insufficient_evidence") || !workflowString(checkpoint.Rationale, 4096) || !workflowList(checkpoint.Consequences, 16, 1) || !workflowList(checkpoint.Inputs, 32, 1) || !workflowString(checkpoint.POCFindings, 4096) {
+	declaredBounds := false
+	if checkpoint.Fields != nil {
+		entry, err := VerifyWorkflowInstanceDefinitionTx(ctx, tx, BuiltinWorkflowRegistry(), event.SubjectID)
+		if err != nil {
+			return err
+		}
+		for _, action := range entry.Definition.ActionDefinitions {
+			if action.ID != "record_decision" {
+				continue
+			}
+			for _, field := range action.Payload.Fields {
+				if field.Name == "options_considered" && field.ItemRef == "decision_record_text" {
+					declaredBounds = true
+				}
+			}
+		}
+		if declaredBounds {
+			var envelope struct {
+				Fields json.RawMessage `json:"fields"`
+			}
+			if err := json.Unmarshal(raw, &envelope); err != nil {
+				return err
+			}
+			if err := validateWorkflowActionPayload(entry.Definition, "record_decision", envelope.Fields); err != nil {
+				return err
+			}
+		}
+	}
+	// Historical pins retain their byte bounds. Current typed records use the
+	// pinned payload contract for both preflight and replay validation.
+	if !declaredBounds && (!workflowString(checkpoint.Question, 4096) || !workflowList(checkpoint.Options, 16, 1) || (checkpoint.Decision != "accepted_decision" && checkpoint.Decision != "insufficient_evidence") || !workflowString(checkpoint.Rationale, 4096) || !workflowList(checkpoint.Consequences, 16, 1) || !workflowList(checkpoint.Inputs, 32, 1) || !workflowString(checkpoint.POCFindings, 4096)) {
 		return newFailure(KindInvalidPayload, "fold_event", "record_decision checkpoint is structurally invalid", false, "supply the complete typed decision record")
 	}
 	_, err := tx.ExecContext(ctx, `INSERT INTO workflow_decision_records(work_id,question,options_considered,decision,rationale,consequences,inputs,poc_findings,supersedes,superseded_by,recorded_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)`, event.SubjectID, checkpoint.Question, workflowJSON(checkpoint.Options), checkpoint.Decision, checkpoint.Rationale, workflowJSON(checkpoint.Consequences), workflowJSON(checkpoint.Inputs), checkpoint.POCFindings, valueOrNil(checkpoint.Supersedes), valueOrNil(checkpoint.SupersededBy), event.OccurredAt.UTC().Format(time.RFC3339Nano))
@@ -1602,6 +1643,40 @@ func latestWorkflowActionStart(ctx context.Context, q queryer, workID, stepID st
 func latestWorkflowActionStartEpoch(ctx context.Context, tx *sql.Tx, workID, stepID string, beforeSeq int64) (int64, bool, error) {
 	_, epoch, found, err := latestWorkflowActionStartAt(ctx, tx, workID, stepID, beforeSeq)
 	return epoch, found, err
+}
+
+// workflowCheckpointAttemptEpoch resolves the attempt epoch a checkpoint on
+// this step must carry, and is the single rule the checkpoint producer and the
+// checkpoint fold both answer to.
+//
+// A fenced action opens an attempt and records its start, so a checkpoint on
+// such a step must name a started attempt: a checkpoint with no start is a
+// checkpoint of an attempt that never ran. A step that declares no fenced
+// action opens no attempt at all, and CD-0112 D3 lets an action there append a
+// typed checkpoint and still advance, so the epoch is the first attempt.
+func workflowCheckpointAttemptEpoch(ctx context.Context, q queryer, definition WorkflowDefinition, step *WorkflowStep, workID, stepID string) (int64, error) {
+	_, latestEpoch, found, err := latestWorkflowActionStartAt(ctx, q, workID, stepID, 0)
+	if err != nil {
+		return 0, err
+	}
+	if found {
+		return latestEpoch, nil
+	}
+	if step != nil && workflowStepFences(definition, *step) {
+		return 0, newFailure(KindIllegalLifecycleTransition, "fold_event", "checkpoint does not match the latest workflow action start epoch", false, "checkpoint the current workflow action attempt")
+	}
+	return 1, nil
+}
+
+// workflowStepFences reports whether any action on the step runs fenced, and so
+// whether the step records an attempt start a checkpoint can bind to.
+func workflowStepFences(definition WorkflowDefinition, step WorkflowStep) bool {
+	for _, actionID := range step.Actions {
+		if mode, ok := workflowActionExecutionMode(definition, actionID); ok && mode == ActionFenced {
+			return true
+		}
+	}
+	return false
 }
 
 func workflowActionStartEpochForDispatch(ctx context.Context, tx *sql.Tx, workID, stepID string, starting bool) (int64, error) {

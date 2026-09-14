@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"sort"
 	"testing"
+
+	"github.com/sharper-flow/concord/internal/payloadschema"
 )
 
 // closedKnowledgeKinds reads the manifest schema's supported_kinds enum, the
@@ -53,7 +55,7 @@ func TestKnowledgeSearchKindsEnumSpansTheClosedVocabulary(t *testing.T) {
 			} `json:"properties"`
 		} `json:"$defs"`
 	}
-	if err := json.Unmarshal([]byte(GeneratedPayloadSchemaDocument), &document); err != nil {
+	if err := json.Unmarshal([]byte(payloadschema.GeneratedPayloadSchemaDocument), &document); err != nil {
 		t.Fatal(err)
 	}
 	input, ok := document.Defs["knowledge_search_input"]

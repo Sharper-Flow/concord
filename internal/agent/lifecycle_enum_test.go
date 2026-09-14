@@ -5,6 +5,8 @@ import (
 	"sort"
 	"strconv"
 	"testing"
+
+	"github.com/sharper-flow/concord/internal/payloadschema"
 )
 
 // lifecycleDefPath locates the one authority for the observed lifecycle
@@ -50,7 +52,7 @@ func collectLifecycleNodes(node any, path string, found map[string]map[string]an
 // every row.
 func TestLifecyclePropertiesReferenceTheSingleDef(t *testing.T) {
 	var document any
-	if err := json.Unmarshal([]byte(GeneratedPayloadSchemaDocument), &document); err != nil {
+	if err := json.Unmarshal([]byte(payloadschema.GeneratedPayloadSchemaDocument), &document); err != nil {
 		t.Fatal(err)
 	}
 	found := map[string]map[string]any{}
@@ -101,7 +103,7 @@ func TestLifecycleDefSpansEveryPersistableState(t *testing.T) {
 			Enum []string `json:"enum"`
 		} `json:"$defs"`
 	}
-	if err := json.Unmarshal([]byte(GeneratedPayloadSchemaDocument), &document); err != nil {
+	if err := json.Unmarshal([]byte(payloadschema.GeneratedPayloadSchemaDocument), &document); err != nil {
 		t.Fatal(err)
 	}
 	got := append([]string(nil), document.Defs["lifecycle"].Enum...)

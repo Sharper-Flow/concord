@@ -7,6 +7,8 @@ import (
 	"testing"
 
 	"github.com/sharper-flow/concord/internal/store"
+
+	"github.com/sharper-flow/concord/internal/payloadschema"
 )
 
 // A Domain read crosses two joins no compiler checks. The store result type
@@ -18,7 +20,7 @@ import (
 
 func TestDomainReadPayloadTypesPinResultFieldsAndSchema(t *testing.T) {
 	var root map[string]any
-	if err := json.Unmarshal([]byte(GeneratedPayloadSchemaDocument), &root); err != nil {
+	if err := json.Unmarshal([]byte(payloadschema.GeneratedPayloadSchemaDocument), &root); err != nil {
 		t.Fatalf("decode generated payload schema: %v", err)
 	}
 	for _, testCase := range []struct {

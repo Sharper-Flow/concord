@@ -1039,8 +1039,35 @@ export async function completeWorkerAttempt(
   // readback, and without readback there is no executing-model evidence.
   const read = readTaskResult(taskResult)
   if (!read) return errorEnvelope(lane, packet, "error", "invalid_report", "worker result is not a host task result wrapper", "reconcile_operation")
-  const workerSessionID = read.sessionID
-  const resultBody = read.text
+  return completeWorkerSession(lane, packet, read.sessionID, read.text, options, signal)
+}
+
+type WorkerCompletionOptions = Parameters<typeof completeWorkerAttempt>[3]
+
+// A terminal host tool event supplies failure and child identity, not a worker
+// report. Model, lane, and directory evidence still come from session export.
+export async function failWorkerAttempt(
+  lane: AgentLane,
+  packet: AgentLanePacket,
+  workerSessionID: string,
+  detail: string,
+  options: WorkerCompletionOptions,
+  signal: AbortSignal,
+  onRecorded: () => void,
+): Promise<AgentResultEnvelope> {
+  return completeWorkerSession(lane, packet, workerSessionID, "", options, signal, detail, onRecorded)
+}
+
+async function completeWorkerSession(
+  lane: AgentLane,
+  packet: AgentLanePacket,
+  workerSessionID: string,
+  resultBody: string,
+  options: WorkerCompletionOptions,
+  signal: AbortSignal,
+  hostFailure?: string,
+  onRecorded?: () => void,
+): Promise<AgentResultEnvelope> {
   const binary = options.binary ?? "opencode"
   const readbackRunner = options.readbackRunner ?? options.runner ?? defaultExportRunner
   let exported: { exitCode: number; stdout: string; stderr: string }
@@ -1106,7 +1133,9 @@ export async function completeWorkerAttempt(
   // or bound to another packet is a typed failure, never a completion.
   const resolution = resolveWorkerReportFromText(resultBody, packet)
   const terminal: { verb: "worker-complete"; report: CanonicalLaneReport } | { verb: "worker-fail"; failure_kind: string; detail: string } =
-    "detail" in resolution
+    hostFailure !== undefined
+      ? { verb: "worker-fail", failure_kind: "worker_error", detail: hostFailure.slice(0, MAX_FAILURE_DETAIL_BYTES) }
+      : "detail" in resolution
       ? { verb: "worker-fail", failure_kind: "invalid_report", detail: resolution.detail.slice(0, MAX_FAILURE_DETAIL_BYTES) }
       : resolution.report.status === "failed"
         ? { verb: "worker-fail", failure_kind: "worker_error", detail: workerReportedFailureDetail(resolution.report) }
@@ -1199,6 +1228,7 @@ export async function completeWorkerAttempt(
       assertion: terminalAssertion,
     }, signal)
     if (failureRecordFailure) return errorEnvelope(lane, packet, "error", "error", failureRecordFailure, "reconcile_operation")
+    onRecorded?.()
     const failed = errorEnvelope(lane, packet, "error", terminal.failure_kind === "invalid_report" ? "invalid_report" : "error", terminal.detail, "reconcile_operation")
     failed.error!.retry_safe = false
     failed.readback_model = readback.readback_model

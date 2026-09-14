@@ -676,6 +676,20 @@ var (
 
 // sortedBoundedList enforces the canonical renderer's contract: sorted,
 // unique, non-empty strings within the envelope bound.
+// sortedOptionalBindings is sortedBoundedList for a binding list the challenge
+// may legitimately bind nothing to. CD-0037 D3 derives the summary from the
+// exact versions bound to the challenge, and D4 has approval consumption
+// compare that same value byte for byte. An approval-gated operation that pins
+// no expected version binds an empty version map, so an empty list is the
+// faithful rendering of it. Refusing empty made that refusal undeliverable and
+// withheld the approval reference the operator needs to act.
+func sortedOptionalBindings(values []string, limit int) bool {
+	if len(values) == 0 {
+		return true
+	}
+	return sortedBoundedList(values, limit)
+}
+
 func sortedBoundedList(values []string, limit int) bool {
 	if len(values) == 0 || len(values) > limit {
 		return false
@@ -818,7 +832,7 @@ func validateError(err TypedError) error {
 		if _, err := time.Parse(time.RFC3339Nano, summary.ExpiresAt); err != nil {
 			return errors.New("consequence summary expiry is not RFC3339")
 		}
-		if !sortedBoundedList(summary.Scope, 32) || !sortedBoundedList(summary.Versions, 32) {
+		if !sortedBoundedList(summary.Scope, 32) || !sortedOptionalBindings(summary.Versions, 32) {
 			return errors.New("consequence summary scope or versions are not canonical sorted bindings")
 		}
 	}

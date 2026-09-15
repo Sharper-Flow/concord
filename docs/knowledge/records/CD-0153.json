@@ -1,0 +1,36 @@
+{
+  "date": "2026-09-15T00:00:00Z",
+  "evidence": [
+    "docs/decisions/CD-0041-architecture-bound-product-law.md",
+    "docs/decisions/CD-0144-record-reality-reconciliation.md"
+  ],
+  "home_domain_id": "product-root:concord",
+  "id": "CD-0153",
+  "kind": "decision",
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "CD-0041"
+    }
+  ],
+  "path": "docs/decisions/CD-0153-contract-content-staleness-for-overlap-resolutions.md",
+  "product_wide_rationale": "Resolution staleness partitions Product-wide concurrent-work authority, so no child Domain can decide which contract changes affect an operator's overlap judgment.",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:40f35ae00a64e256afef3e59872a2c658cfe2c447119de2f383f7587085ad99f",
+  "status": "accepted",
+  "summary": "Amends CD-0041 D6 so a contract revision makes an overlap resolution stale only when it changes affected Domains, law additions or modifications, Domain modifications, or Domain-relation modifications. Preserves the 2,513-row resolution population, the execution-start claim boundary from PR 1084, D7, the closed resolution kinds, operator approval, and CD-0036.",
+  "tags": [
+    "product-law",
+    "architecture",
+    "domains",
+    "concurrency",
+    "resolution"
+  ],
+  "title": "Contract-content staleness for overlap resolutions"
+}

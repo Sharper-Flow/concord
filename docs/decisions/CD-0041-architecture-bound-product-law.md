@@ -15,7 +15,8 @@
 - **Amended by:** CD-0042 amends the pre-go-live agent-surface sequencing and
   removes unreleased surface compatibility policy; CD-0145 narrows the
   Domain-overlap execution block to shared writes; CD-0144 moves the active
-  footprint boundary from contract approval to execution start.
+  footprint boundary from contract approval to execution start; CD-0153
+  refines D6 staleness to judged contract content.
 - **Preserves:** CD-0002 and CD-0011 storage authority and falsifiers;
   CD-0009 D2–D8 research-pack authority; CD-0036 breaking-law cutovers
 - **Supersedes:** Epic as Concord's current Product-facing initiative term and

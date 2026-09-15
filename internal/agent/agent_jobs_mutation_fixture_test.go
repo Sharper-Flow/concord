@@ -151,9 +151,7 @@ func deriveWorkBlocked(t *testing.T, s *store.Store, workID string) bool {
 // strict-decoded mutation input. The input is otherwise opaque so we
 // decode into map[string]any and re-emit; the schema validator runs
 // after this and refuses unknown fields, so the approval block must
-// already be declared in the schema (it is, in
-// work_define_capture_input, work_transition_lifecycle_input, and
-// work_relate_link_input).
+// already be declared in the operation's input schema.
 func injectApproval(raw []byte, ref string) ([]byte, error) {
 	var m map[string]any
 	if err := json.Unmarshal(raw, &m); err != nil {

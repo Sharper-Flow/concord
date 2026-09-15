@@ -11,7 +11,6 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-	"time"
 
 	"github.com/sharper-flow/concord/internal/pm1fixture"
 	"github.com/sharper-flow/concord/internal/store"
@@ -88,12 +87,11 @@ func publishCancelledNote(t *testing.T, s *store.Store, service *Service, grant 
 		t.Fatalf("encode note content: %v", err)
 	}
 	input := []byte(fmt.Sprintf(
-		`{"work_id":"work-cancelled","expected_version":%d,"content":%s,"content_digest":%q,"home_project_id":%q,"home_locator_id":%q,"idempotency_key":"compact-cancelled-1"}`,
+		`{"work_id":"work-cancelled","expected_version":%d,"content":%s,"content_digest":%q,"home_project_id":%q,"home_locator_id":%q,"idempotency_key":"compact-cancelled-approval-roundtrip-1"}`,
 		version, string(contentJSON), digestValue, home.HomeProjectID, home.HomeLocatorID))
 
-	// Publication refuses outright without an approval reference rather than
-	// minting a challenge from the mutation itself, so the operator approval is
-	// obtained out of band. The test stands in for the host that produced it.
+	// The first publication request mints the core approval challenge. The test
+	// stands in for the host that asks the operator and resubmits the same intent.
 	scope := map[string]any{
 		"product_id":    "prod-alpha",
 		"project_ids":   []string{"proj-api"},
@@ -102,7 +100,17 @@ func publishCancelledNote(t *testing.T, s *store.Store, service *Service, grant 
 	}
 	versions := map[string]any{"work": version}
 	mutDigest := mutationDigest("concord_work_compact", "publish", env, input)
-	challengeRef := mintPublicationChallenge(t, s, service, grant, env, mutDigest, scope, versions)
+	first := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_compact", Operation: "publish", Input: input}, env)
+	if first.Outcome == OutcomeOK {
+		return first
+	}
+	if first.Outcome != OutcomeError || first.Error == nil || first.Error.Kind != "approval_required" {
+		t.Fatalf("first publication dispatch=%+v, want approval_required", first)
+	}
+	challengeRef, ok := first.Error.Details["approval_ref"].(string)
+	if !ok || len(challengeRef) != 64 {
+		t.Fatalf("publication challenge=%v", first.Error.Details)
+	}
 
 	withApproval, err := injectApproval(input, challengeRef)
 	if err != nil {
@@ -112,23 +120,18 @@ func publishCancelledNote(t *testing.T, s *store.Store, service *Service, grant 
 	return dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_compact", Operation: "publish", Input: withApproval}, env)
 }
 
-// mintPublicationChallenge creates the operator approval challenge that a
-// publication requires, binding it to the exact operation digest, scope, and
-// expected versions the dispatch will present.
-func mintPublicationChallenge(t *testing.T, s *store.Store, service *Service, grant Authority, env CallEnvelope, digest string, scope, versions map[string]any) string {
-	t.Helper()
-	ctx := context.Background()
-	inv := Invocation{ClientRef: grant.ClientRef, PrincipalRef: grant.PrincipalRef, SessionRef: grant.SessionRef, AgentRef: grant.AgentRef, Directory: grant.Directory, Worktree: grant.Worktree, ManifestDigest: env.ManifestDigest, HostAssertionDigest: env.HostAssertionDigest, RequiredCapability: "work_compact", ProductID: env.SelectedProductID}
-	var ref string
-	err := s.Transact(ctx, func(tx *store.Transaction) error {
-		var err error
-		ref, err = service.CreateApprovalChallengeTx(ctx, tx, inv, ApprovalChallengeSpec{OperationDigest: digest, Scope: scope, Versions: versions, Consequence: "publication", HostAssertionDigest: env.HostAssertionDigest, ExpiresAt: fixedTime().Add(time.Hour)})
-		return err
-	})
-	if err != nil {
-		t.Fatalf("commit approval challenge: %v", err)
+func TestPredicateFirstCallChallengePublish(t *testing.T) {
+	s, service, grant, privateKey, home := agentJobsCompactionFixture(t)
+	response := publishCancelledNote(t, s, service, grant, privateKey, home)
+	if response.Outcome != OutcomeOK {
+		t.Fatalf("publish response=%+v", response)
 	}
-	return ref
+	if archivedWorkCount(t, s, "work-cancelled") != 1 {
+		t.Fatal("approved publication did not record one canonical note")
+	}
+	if countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM agent_approval_challenges WHERE consequence='publication'`) != 1 {
+		t.Fatal("publication did not persist its first-call approval challenge")
+	}
 }
 
 // bindAJ6CompactTerminalWork proves the cross-authority publication runs in the

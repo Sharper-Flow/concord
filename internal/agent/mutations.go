@@ -2686,9 +2686,6 @@ func (r runtime) mutateCompaction(ctx context.Context, base Envelope, raw []byte
 		if err := decodeOperationInput(raw, &publish); err != nil {
 			return base, err
 		}
-		if publish.Approval == nil || publish.Approval.ApprovalRef == "" {
-			return coreError(base, "approval_required", "publication requires a core approval reference", "request_approval", false), nil
-		}
 	}
 	if op.ID == "concord_work_compact.reconcile" {
 		if err := decodeOperationInput(raw, &reconcile); err != nil {
@@ -2726,11 +2723,31 @@ func (r runtime) mutateCompaction(ctx context.Context, base Envelope, raw []byte
 		claimScope["head_ref"] = resolvedHome.HeadRef
 	}
 	acceptedScope, _ := json.Marshal(claimScope)
-	grant, err := r.Authority.Authorize(ctx, Invocation{ClientRef: r.Envelope.ClientRef, PrincipalRef: r.Envelope.PrincipalRef, SessionRef: r.Envelope.SessionRef, AgentRef: r.Envelope.AgentRef, Directory: r.Envelope.Directory, Worktree: r.Envelope.Worktree, ManifestDigest: r.Envelope.ManifestDigest, RequiredCapability: "work_compact", RequiredOperation: r.Operation, ProductID: r.Envelope.SelectedProductID})
+	inv := Invocation{ClientRef: r.Envelope.ClientRef, PrincipalRef: r.Envelope.PrincipalRef, SessionRef: r.Envelope.SessionRef, AgentRef: r.Envelope.AgentRef, Directory: r.Envelope.Directory, Worktree: r.Envelope.Worktree, ManifestDigest: r.Envelope.ManifestDigest, HostAssertionDigest: r.Envelope.HostAssertionDigest, RequiredCapability: "work_compact", RequiredOperation: r.Operation, ProductID: r.Envelope.SelectedProductID}
+	if inv.HostAssertionDigest == "" {
+		inv.HostAssertionDigest = digest
+	}
+	grant, err := r.Authority.Authorize(ctx, inv)
 	if err != nil {
 		return coreError(base, "unauthorized", err.Error(), "contact_operator", false), nil
 	}
 	if op.ID == "concord_work_compact.publish" {
+		if publish.Approval == nil || publish.Approval.ApprovalRef == "" {
+			challengeScope := boundedApprovalScope(scope)
+			spec := ApprovalChallengeSpec{OperationDigest: digest, Scope: challengeScope, Versions: map[string]any{"work": publish.ExpectedVersion}, Consequence: string(op.Consequence), HostAssertionDigest: inv.HostAssertionDigest, ExpiresAt: r.Authority.now().Add(10 * time.Minute)}
+			var challengeRef string
+			if err := r.Store.Transact(ctx, func(tx *store.Transaction) error {
+				var err error
+				challengeRef, err = r.Authority.CreateApprovalChallengeTx(ctx, tx, inv, spec)
+				return err
+			}); err != nil {
+				return failureEnvelope(base, err), nil
+			}
+			response := coreError(base, "approval_required", "core approval is required for publication", "request_approval", false)
+			response.Error.ConsequenceSummary = consequenceSummaryFor(r.Tool, r.Operation, spec)
+			response.Error.Details = map[string]any{"approval_ref": challengeRef, "summary": "Approve the exact requested publication, scope, and expected version.", "operation_digest": digest, "scope": approvalScopeBindings(challengeScope), "versions": approvalVersionBindings(spec.Versions)}
+			return response, nil
+		}
 		changed := []ChangedRef{{EntityKind: "work_item", ID: workID, Version: strconv.FormatInt(publish.ExpectedVersion+1, 10)}}
 		payload := mutationPayload(changed, []NextIntent{{Tool: "concord_knowledge", Operation: "resolve_note", QueryID: "PM1.Q10", ReasonCode: "verify_canonical_note"}})
 		base.ResolvedScope = &Scope{ProductID: r.Envelope.SelectedProductID, ProjectIDs: []string{r.Envelope.AmbientProjectID}, WorkIDs: []string{workID}, ScopeVersion: r.Envelope.ScopeVersion}
@@ -2739,7 +2756,6 @@ func (r runtime) mutateCompaction(ctx context.Context, base Envelope, raw []byte
 			return result, nil
 		}
 		claimReq := store.ClaimRequest{OpID: opID, WorkID: workID, WorkflowTypeRef: "concord.pm6.compaction", WorkflowTypeVersion: 1, StepID: "git_proof", StepKind: store.StepCrossAuthority, AcceptedInputsDigest: digest, AcceptedScopeSnapshot: string(acceptedScope), PrincipalRef: grant.PrincipalRef, Tool: r.Tool, IdempotencyKey: key, RequestID: r.Envelope.RequestID, ObservedAt: r.Authority.now(), ApprovalRef: publish.Approval.ApprovalRef, ContractDigest: ManifestDigest}
-		inv := Invocation{ClientRef: r.Envelope.ClientRef, PrincipalRef: r.Envelope.PrincipalRef, SessionRef: r.Envelope.SessionRef, AgentRef: r.Envelope.AgentRef, Directory: r.Envelope.Directory, Worktree: r.Envelope.Worktree, ManifestDigest: r.Envelope.ManifestDigest, HostAssertionDigest: r.Envelope.HostAssertionDigest, RequiredCapability: "work_compact", RequiredOperation: r.Operation, ProductID: r.Envelope.SelectedProductID}
 		claim, claimErr := store.ClaimStepAuthorized(ctx, r.Store, claimReq, func(tx *store.Transaction) error {
 			// CD-0041 D7: publication is consequential, so the claim refuses
 			// before any git note is written when the contract's law revision

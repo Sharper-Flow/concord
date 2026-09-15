@@ -120,6 +120,28 @@ describe("dispatch authorization window", () => {
     expect(windows.has("session-a")).toBe(false)
   })
 
+  test("does not expose paths in a directory mismatch", async () => {
+    const windows = new DispatchWindows()
+    windows.open("session-a", packet, "", undefined, process.cwd())
+    const result = await windows.bind(TASK_TOOL_ID, "session-a", { subagent_type: "general", prompt: "model input" }, undefined, async () => realpathSync(tmpdir())).catch(error => String(error))
+
+    expect(result).not.toContain(process.cwd())
+    expect(result).not.toContain(realpathSync(tmpdir()))
+  })
+
+  test("closes the window when the bind-time directory read fails", async () => {
+    const windows = new DispatchWindows()
+    const secretPath = path.join(process.cwd(), "private-session-path")
+    windows.open("session-a", packet, "", undefined, process.cwd())
+
+    await expect(
+      windows.bind(TASK_TOOL_ID, "session-a", { subagent_type: "general", prompt: "model input" }, undefined, async () => {
+        throw new Error(`cannot read ${secretPath}`)
+      }),
+    ).rejects.toThrow(/could not resolve the host session directory/i)
+    expect(windows.has("session-a")).toBe(false)
+  })
+
   test("refuses a window without a resolvable worker directory", () => {
     for (const workerDirectory of [undefined, `${process.cwd()}/concord-dispatch-nonexistent-${randomUUID()}`]) {
       const windows = new DispatchWindows()

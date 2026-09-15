@@ -12,7 +12,7 @@
 
 - [ ] `gofmt -l .`
 - [ ] `go vet ./...`
-- [ ] `go test -race ./...`
+- [ ] `go test ./...` for the packages this change touches
 - [ ] `python3 scripts/check-doc-links.py`
 - [ ] `python3 scripts/check-public-content.py`
 - [ ] `python3 scripts/check-json.py`

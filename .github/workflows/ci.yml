@@ -17,7 +17,15 @@ permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
+  # A pull_request run groups by ref, so a new push to the branch supersedes the
+  # previous run and releases its six job slots against the 20-job account
+  # ceiling. Every other event gets a group unique to the run. GitHub cancels an
+  # existing *pending* run when a newer run joins the same group, and that
+  # happens with `cancel-in-progress: false`, so a shared group would let one
+  # main push cancel another's queued run. A cancelled merge_group run breaks
+  # the queue, and a cancelled push-to-main run destroys the mainline check
+  # evidence that release.yml consumes through `workflow_run`.
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:

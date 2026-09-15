@@ -3,10 +3,13 @@
 // successful claim, the landing is read back from the host, and every failure
 // mode is a typed refusal whose remedy is an idempotent replay (issue #822).
 import { afterEach, afterAll, describe, expect, test } from "bun:test"
+import { mkdir, mkdtemp, rm, symlink } from "node:fs/promises"
+import { join, resolve } from "node:path"
 import { configureHostLease } from "./host-lease"
 import ConcordAdapterPlugin from "./concord-plugin"
 import { hostControlPlane } from "./move-session"
 import { moveSessionToClaimedWorktree } from "./concord"
+import { ensureConductLink } from "./project-link"
 
 const context = (overrides: Partial<Parameters<typeof moveSessionToClaimedWorktree>[1]> = {}) =>
   ({ sessionID: "session-1", messageID: "message-1", abort: new AbortController().signal, directory: "/old", ...overrides }) as Parameters<typeof moveSessionToClaimedWorktree>[1]
@@ -38,6 +41,298 @@ describe("worktree_claim moves the session into the claimed worktree", () => {
     await fakeHost({})
     const envelope = await moveSessionToClaimedWorktree(claimArgs("/claimed"), context(), okEnvelope())
     expect(envelope.outcome).toBe("ok")
+  })
+
+  test("adds the conduct entry to an empty instructions array", async () => {
+    await mkdir("worktrees", { recursive: true })
+    const worktree = await mkdtemp(join("worktrees", "adapter-link-"))
+    const config = join(worktree, ".opencode", "opencode.json")
+    try {
+      await mkdir(join(worktree, ".git"))
+      await mkdir(join(worktree, ".opencode"), { recursive: true })
+      await Bun.write(config, '{\n  "instructions": []\n}\n')
+      await fakeHost({ get: () => ({ status: 200, body: { directory: worktree } }) })
+
+      const envelope = await moveSessionToClaimedWorktree(claimArgs(worktree), context(), okEnvelope())
+
+      expect(envelope.outcome).toBe("ok")
+      expect(JSON.parse(await Bun.file(config).text())).toEqual({ instructions: ["current/instructions/*.md"] })
+      const ownership = JSON.parse(await Bun.file("project-link-ownership.json").text()) as { links: Record<string, { action: string; scope: string }> }
+      expect(ownership.links[resolve(config)]).toMatchObject({ action: "restore", scope: "worktree" })
+    } finally {
+      await rm(worktree, { recursive: true, force: true })
+    }
+  })
+
+  test("adds the conduct entry when a JSONC object has a trailing comma", async () => {
+    await mkdir("worktrees", { recursive: true })
+    const worktree = await mkdtemp(join("worktrees", "adapter-jsonc-"))
+    const config = join(worktree, ".opencode", "opencode.jsonc")
+    try {
+      await mkdir(join(worktree, ".git"))
+      await mkdir(join(worktree, ".opencode"), { recursive: true })
+      await Bun.write(config, '{\n  "theme": "dark",\n}\n')
+      await fakeHost({ get: () => ({ status: 200, body: { directory: worktree } }) })
+
+      const envelope = await moveSessionToClaimedWorktree(claimArgs(worktree), context(), okEnvelope())
+
+      expect(envelope.outcome).toBe("ok")
+      const text = await Bun.file(config).text()
+      expect(text).toContain('"instructions": [')
+      expect(text).toContain("current/instructions/*.md")
+    } finally {
+      await rm(worktree, { recursive: true, force: true })
+    }
+  })
+
+  test("adds the conduct entry when an object trailing comma has JSONC comments", async () => {
+    await mkdir("worktrees", { recursive: true })
+    const worktree = await mkdtemp(join("worktrees", "adapter-jsonc-object-comments-"))
+    const config = join(worktree, ".opencode", "opencode.jsonc")
+    try {
+      await mkdir(join(worktree, ".git"))
+      await mkdir(join(worktree, ".opencode"), { recursive: true })
+      await Bun.write(config, '{\n  "theme": "dark", // a line comment\n  /* a block comment */\n}\n')
+
+      await ensureConductLink(resolve(worktree), new AbortController().signal)
+
+      const linked = await Bun.file(config).text()
+      expect(linked).toContain('"theme": "dark", // a line comment')
+      expect(linked).toContain('"instructions": [')
+      expect(linked).not.toContain("*/,\n")
+    } finally {
+      await rm(worktree, { recursive: true, force: true })
+    }
+  })
+
+  test("adds the conduct entry when an instructions array ends with comments", async () => {
+    await mkdir("worktrees", { recursive: true })
+    const worktree = await mkdtemp(join("worktrees", "adapter-jsonc-array-comments-"))
+    const config = join(worktree, ".opencode", "opencode.jsonc")
+    try {
+      await mkdir(join(worktree, ".git"))
+      await mkdir(join(worktree, ".opencode"), { recursive: true })
+      await Bun.write(config, '{\n  "instructions": [\n    "contains // and /* markers", // a line comment\n    /* a block comment */\n  ]\n}\n')
+
+      await ensureConductLink(resolve(worktree), new AbortController().signal)
+
+      const linked = await Bun.file(config).text()
+      expect(linked).toContain('"contains // and /* markers", // a line comment')
+      expect(linked).toContain("current/instructions/*.md")
+    } finally {
+      await rm(worktree, { recursive: true, force: true })
+    }
+  })
+
+  test("parses an instructions entry that contains an open bracket", async () => {
+    await mkdir("worktrees", { recursive: true })
+    for (const [suffix, comma] of [["without-comma", ""], ["with-comma", ","]]) {
+      const worktree = await mkdtemp(join("worktrees", `adapter-jsonc-array-string-bracket-${suffix}-`))
+      const config = join(worktree, ".opencode", "opencode.jsonc")
+      try {
+        await mkdir(join(worktree, ".git"))
+        await mkdir(join(worktree, ".opencode"), { recursive: true })
+        await Bun.write(config, `{\n  "instructions": ["contains [ an open bracket"${comma}]\n}\n`)
+
+        await ensureConductLink(resolve(worktree), new AbortController().signal)
+
+        const linked = await Bun.file(config).text()
+        const parsed = JSON.parse(linked.replaceAll(",]", "]").replaceAll(",}", "}")) as { instructions: string[] }
+        expect(parsed.instructions).toContain("current/instructions/*.md")
+      } finally {
+        await rm(worktree, { recursive: true, force: true })
+      }
+    }
+  })
+
+  test("keeps object trailing-comma detection bounded for repeated block comments", async () => {
+    await mkdir("worktrees", { recursive: true })
+    const worktree = await mkdtemp(join("worktrees", "adapter-jsonc-adversarial-"))
+    const config = join(worktree, ".opencode", "opencode.jsonc")
+    const adversarialComments = "/*" + "x".repeat(32) + "*/"
+    try {
+      await mkdir(join(worktree, ".git"))
+      await mkdir(join(worktree, ".opencode"), { recursive: true })
+      await Bun.write(config, `{"theme":"dark",${adversarialComments.repeat(25)}"final":"value"}\n`)
+
+      const started = performance.now()
+      await ensureConductLink(resolve(worktree), new AbortController().signal)
+      const elapsed = performance.now() - started
+
+      expect(elapsed).toBeLessThan(1000)
+    } finally {
+      await rm(worktree, { recursive: true, force: true })
+    }
+  })
+
+  test("keeps instructions-array trailing-comma detection bounded for repeated block comments", async () => {
+    await mkdir("worktrees", { recursive: true })
+    const worktree = await mkdtemp(join("worktrees", "adapter-jsonc-array-adversarial-"))
+    const config = join(worktree, ".opencode", "opencode.jsonc")
+    const adversarialComments = "/*" + "x".repeat(32) + "*/"
+    try {
+      await mkdir(join(worktree, ".git"))
+      await mkdir(join(worktree, ".opencode"), { recursive: true })
+      await Bun.write(config, `{"instructions":["/operator/rules.md",${adversarialComments.repeat(25)}"final"]}\n`)
+
+      const started = performance.now()
+      await ensureConductLink(resolve(worktree), new AbortController().signal)
+      const elapsed = performance.now() - started
+
+      expect(elapsed).toBeLessThan(1000)
+      expect(await Bun.file(config).text()).toContain("current/instructions/*.md")
+    } finally {
+      await rm(worktree, { recursive: true, force: true })
+    }
+  })
+
+  test("locates the instructions array instead of a JSONC decoy", async () => {
+    await mkdir("worktrees", { recursive: true })
+    const worktree = await mkdtemp(join("worktrees", "adapter-jsonc-decoy-"))
+    const config = join(worktree, ".opencode", "opencode.jsonc")
+    try {
+      await mkdir(join(worktree, ".git"))
+      await mkdir(join(worktree, ".opencode"), { recursive: true })
+      await Bun.write(config, '{\n  "description": "https://example.test//instructions",\n  "comment-text": "/* not a comment */",\n  "decoy": [],\n  "instructions" // comment one\n  /* comment two */ : [\n    "/operator/rules.md"\n  ]\n}\n')
+      await fakeHost({ get: () => ({ status: 200, body: { directory: worktree } }) })
+
+      const envelope = await moveSessionToClaimedWorktree(claimArgs(worktree), context(), okEnvelope())
+
+      expect(envelope.outcome).toBe("ok")
+      const linked = await Bun.file(config).text()
+      expect(linked).toContain('"description": "https://example.test//instructions"')
+      expect(linked).toContain('"decoy": []')
+      expect(linked).toContain("current/instructions/*.md")
+    } finally {
+      await rm(worktree, { recursive: true, force: true })
+    }
+  })
+
+  test("records ownership for an adapter-created worktree config", async () => {
+    await mkdir("worktrees", { recursive: true })
+    const worktree = await mkdtemp(join("worktrees", "adapter-created-link-"))
+    const config = join(worktree, ".opencode", "opencode.json")
+    try {
+      await mkdir(join(worktree, ".git"))
+      await fakeHost({ get: () => ({ status: 200, body: { directory: worktree } }) })
+
+      const envelope = await moveSessionToClaimedWorktree(claimArgs(worktree), context(), okEnvelope())
+
+      expect(envelope.outcome).toBe("ok")
+      const ownership = JSON.parse(await Bun.file("project-link-ownership.json").text()) as { links: Record<string, { action: string; scope: string }> }
+      expect(ownership.links[resolve(config)]).toMatchObject({ action: "remove", scope: "worktree" })
+    } finally {
+      await rm(worktree, { recursive: true, force: true })
+    }
+  })
+
+  test("recovers ownership after a config write before the ownership hash", async () => {
+    await mkdir("worktrees", { recursive: true })
+    const worktree = await mkdtemp(join("worktrees", "adapter-link-recovery-"))
+    const config = join(worktree, ".opencode", "opencode.json")
+    const updated = JSON.stringify({ instructions: ["current/instructions/*.md"] }, null, 2) + "\n"
+    try {
+      await mkdir(join(worktree, ".git"))
+      await mkdir(join(worktree, ".opencode"), { recursive: true })
+      await Bun.write(config, updated)
+      await Bun.write("project-link-pending.json", JSON.stringify({ schema: 1, links: { [resolve(config)]: { action: "remove", before: null, original: null, updated, scope: "worktree" } } }) + "\n")
+      await fakeHost({ get: () => ({ status: 200, body: { directory: worktree } }) })
+
+      const envelope = await moveSessionToClaimedWorktree(claimArgs(worktree), context(), okEnvelope())
+
+      expect(envelope.outcome).toBe("ok")
+      const ownership = JSON.parse(await Bun.file("project-link-ownership.json").text()) as { links: Record<string, { action: string; scope: string }> }
+      expect(ownership.links[resolve(config)]).toMatchObject({ action: "remove", scope: "worktree" })
+      expect(await Bun.file("project-link-pending.json").exists()).toBe(false)
+    } finally {
+      await rm(worktree, { recursive: true, force: true })
+      await rm("project-link-pending.json", { force: true })
+    }
+  })
+
+  test("serializes ownership records for concurrent adapter-created configs", async () => {
+    await mkdir("worktrees", { recursive: true })
+    const worktrees = await Promise.all(Array.from({ length: 20 }, (_, index) => mkdtemp(join("worktrees", `adapter-concurrent-${index}-`))))
+    try {
+      await Promise.all(worktrees.map(async (worktree) => {
+        await mkdir(join(worktree, ".git"))
+        await ensureConductLink(resolve(worktree), new AbortController().signal)
+      }))
+
+      const ownership = JSON.parse(await Bun.file("project-link-ownership.json").text()) as { links: Record<string, { action: string; scope: string }> }
+      for (const worktree of worktrees) {
+        expect(ownership.links[resolve(worktree, ".opencode", "opencode.json")]).toMatchObject({ action: "remove", scope: "worktree" })
+      }
+    } finally {
+      await Promise.all(worktrees.map((worktree) => rm(worktree, { recursive: true, force: true })))
+    }
+  })
+
+  test("refuses an outside pending recovery path", async () => {
+    await mkdir("worktrees", { recursive: true })
+    const worktree = await mkdtemp(join("worktrees", "adapter-pending-outside-"))
+    const outside = join(".", "adapter-pending-outside.json")
+    const updated = JSON.stringify({ instructions: ["current/instructions/*.md"] }, null, 2) + "\n"
+    try {
+      await mkdir(join(worktree, ".git"))
+      await Bun.write(outside, updated)
+      await Bun.write("project-link-pending.json", JSON.stringify({ schema: 1, links: { [resolve(outside)]: { action: "remove", before: null, original: null, updated, scope: "worktree" } } }) + "\n")
+
+      await expect(ensureConductLink(resolve(worktree), new AbortController().signal)).rejects.toThrow("outside a managed worktree config")
+      expect(await Bun.file(outside).text()).toBe(updated)
+      const ownership = (await Bun.file("project-link-ownership.json").exists()
+        ? JSON.parse(await Bun.file("project-link-ownership.json").text())
+        : { links: {} }) as { links: Record<string, unknown> }
+      expect(ownership.links[resolve(outside)]).toBeUndefined()
+    } finally {
+      await rm(worktree, { recursive: true, force: true })
+      await rm(outside, { force: true })
+      await rm("project-link-pending.json", { force: true })
+    }
+  })
+
+  test("refuses a dangling config symlink without writing through it", async () => {
+    await mkdir("worktrees", { recursive: true })
+    const worktree = await mkdtemp(join("worktrees", "adapter-dangling-link-"))
+    const config = join(worktree, ".opencode", "opencode.json")
+    const outside = join(worktree, "..", "adapter-dangling-outside.json")
+    try {
+      await mkdir(join(worktree, ".git"))
+      await mkdir(join(worktree, ".opencode"), { recursive: true })
+      await Bun.write(outside, '{"keep":true}\n')
+      await symlink(`${outside}/missing`, config)
+      await fakeHost({ get: () => ({ status: 200, body: { directory: worktree } }) })
+
+      const envelope = await moveSessionToClaimedWorktree(claimArgs(worktree), context(), okEnvelope())
+
+      expect(envelope.outcome).toBe("error")
+      if (envelope.outcome === "error") expect((envelope.error as { message?: string }).message).toContain("symlink")
+      expect(await Bun.file(outside).text()).toBe('{"keep":true}\n')
+      expect(await Bun.file(join(worktree, ".opencode", "opencode.jsonc")).exists()).toBe(false)
+    } finally {
+      await rm(worktree, { recursive: true, force: true })
+      await rm(outside, { force: true })
+    }
+  })
+
+  test("refuses a worktree symlink that resolves outside the managed root", async () => {
+    await mkdir("worktrees", { recursive: true })
+    const outside = await mkdtemp(join(".", "adapter-outside-"))
+    const worktree = join("worktrees", "adapter-escape")
+    try {
+      await mkdir(join(outside, ".git"))
+      await symlink(resolve(outside), worktree)
+      await fakeHost({ get: () => ({ status: 200, body: { directory: worktree } }) })
+
+      const envelope = await moveSessionToClaimedWorktree(claimArgs(worktree), context(), okEnvelope())
+
+      expect(envelope.outcome).toBe("error")
+      if (envelope.outcome === "error") expect((envelope.error as { message?: string }).message).toContain("outside the managed worktree root")
+      expect(await Bun.file(join(outside, ".opencode", "opencode.json")).exists()).toBe(false)
+    } finally {
+      await rm(worktree, { force: true })
+      await rm(outside, { recursive: true, force: true })
+    }
   })
 
   test("refuses when the host lands the session elsewhere", async () => {
@@ -76,4 +371,7 @@ describe("worktree_claim moves the session into the claimed worktree", () => {
 // The factory's host-lease claim fails against the unstamped repository
 // placeholder; the suite's files share one process in an order no file
 // controls, so this file leaves the lease state clean.
-afterAll(() => configureHostLease({ reset: true }))
+afterAll(async () => {
+  await rm("project-link-ownership.json", { force: true })
+  configureHostLease({ reset: true })
+})

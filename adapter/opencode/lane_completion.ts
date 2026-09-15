@@ -4,7 +4,7 @@
 // Task call the dispatch window bound. This module takes that hook's input,
 // drains the in-flight attempt, and admits the result through
 // completeWorkerAttempt, which exports the worker session, reads the executing
-// model and agent, resolves the report, signs, and records the attempt.
+// model and agent, uses the forwarded worker directory, signs, and records the attempt.
 //
 // The hook contract offers no return channel and a thrown error fails the tool
 // call in place of its result. A completion refusal is therefore appended to
@@ -74,7 +74,7 @@ export async function completeDispatchedWorker(input: LaneCompletionInput, outpu
   const signal = deps.signal ?? new AbortController().signal
   let envelope: AgentResultEnvelope
   try {
-    envelope = await completeWorkerAttempt(lane, record.packet, output.output, { credentials: deps.credentials, runner: deps.runner, evidenceRunner: deps.evidenceRunner, concordBinary: deps.concordBinary, packetDigest: record.packetDigest }, signal)
+    envelope = await completeWorkerAttempt(lane, record.packet, output.output, { credentials: deps.credentials, runner: deps.runner, evidenceRunner: deps.evidenceRunner, concordBinary: deps.concordBinary, packetDigest: record.packetDigest, workerDirectory: record.workerDirectory }, signal)
   } catch (error) {
     envelope = { schema_version: "1.0", outcome: "error", lane: { id: lane.id, version: lane.version, digest: lane.digest }, agent: `concord-${lane.id}`, readback_model: null, session_id: null, error: { kind: "error", retry_safe: false, recovery_action: "reconcile_operation", message: String(error).slice(0, 2048) } }
   }
@@ -114,7 +114,7 @@ export async function failDispatchedWorker(event: unknown, deps: LaneCompletionD
   const callID = part.callID
   try {
     return await failWorkerAttempt(lane, pending.packet, metadata.sessionId, state.error, {
-      credentials: deps.credentials, runner: deps.runner, evidenceRunner: deps.evidenceRunner, concordBinary: deps.concordBinary, packetDigest: pending.packetDigest,
+      credentials: deps.credentials, runner: deps.runner, evidenceRunner: deps.evidenceRunner, concordBinary: deps.concordBinary, packetDigest: pending.packetDigest, workerDirectory: pending.workerDirectory,
     }, deps.signal ?? new AbortController().signal, () => windows.finishSettlement(sessionID, callID))
   } catch (error) {
     return unavailable(String(error).slice(0, 2048))

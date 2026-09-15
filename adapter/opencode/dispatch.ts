@@ -467,19 +467,8 @@ export function readExportSessionMetadata(stdout: string, expectedSessionID: str
 // The core compares the worker session's directory against the work item's
 // active worktree claim, so the value it receives must be a real path. The
 // session export runs with --sanitize, which replaces that directory with a
-// redaction placeholder. A placeholder is not a path and cannot resolve, so
-// the core refused every completion. The directory is read from the session
-// index instead, which holds the real path and no transcript content. A value
-// that is not an absolute path is reported as absent rather than sent, so a
-// redacted or relative value cannot reach the boundary again.
-// A worker runs as a subagent session, and the session index lists no subagent.
-// Resolving a worker identifier against the index therefore always yields
-// nothing, which the core reads as an unresolvable directory and refuses. The
-// sanitized export does resolve a subagent and carries its parentID, and a
-// subagent runs in its parent's directory, so the parent's indexed directory is
-// the worker's real directory. The value still comes from the host's own
-// session record rather than from the claim the core is checking, so a worker
-// whose parent sits outside the claimed worktree is still refused.
+// redaction placeholder. Worker completion receives the real directory from
+// the dispatch window. The session list remains a host-owned liveness source.
 export function readSessionDirectory(stdout: string, sessionID: string): string | null {
   const observed = readLiveSessionDirectories(stdout)
   return observed?.find((session) => session.session_ref === sessionID)?.directory ?? null
@@ -510,25 +499,25 @@ export function readLiveSessionDirectories(stdout: string): { session_ref: strin
   return observed
 }
 
-async function readWorkerSessionObservation(runner: DispatchRunner, binary: string, sessionID: string, signal: AbortSignal, parentID: string | null): Promise<{ directory: string | null; observed: { session_ref: string; directory: string }[] | null }> {
+type WorkerSessionObservation = { observed: { session_ref: string; directory: string }[] | null; unreadable: boolean }
+
+async function readWorkerSessionObservation(runner: DispatchRunner, binary: string, signal: AbortSignal): Promise<WorkerSessionObservation> {
   let listed: { exitCode: number; stdout: string; stderr: string }
-  try { listed = await runner.run([binary, "session", "list", "--format", "json"], "", signal) } catch { return { directory: null, observed: null } }
-  if (listed.exitCode !== 0) return { directory: null, observed: null }
+  try { listed = await runner.run([binary, "session", "list", "--format", "json"], "", signal) } catch { return { observed: null, unreadable: true } }
+  if (listed.exitCode !== 0) return { observed: null, unreadable: true }
   const observed = readLiveSessionDirectories(listed.stdout)
-  if (observed === null) return { directory: null, observed: null }
-  const direct = observed.find((session) => session.session_ref === sessionID)?.directory ?? null
-  const directory = direct ?? (parentID === null ? null : observed.find((session) => session.session_ref === parentID)?.directory ?? null)
+  if (observed === null) return { observed: null, unreadable: false }
   // Production uses the host control-plane route that owns the liveness
   // observation. The CLI list remains the test and compatibility seam for
   // callers that do not run inside a bound plugin host.
   if (hostControlPlane().available()) {
     try {
-      return { directory, observed: await hostControlPlane().liveSessionDirectories(signal) }
+      return { observed: await hostControlPlane().liveSessionDirectories(signal), unreadable: false }
     } catch {
-      return { directory, observed: null }
+      return { observed: null, unreadable: true }
     }
   }
-  return { directory, observed }
+  return { observed, unreadable: false }
 }
 
 // readRunTextParts returns the model's message text in emission order. The host
@@ -769,14 +758,14 @@ async function recordWorkerEvent(childRunner: DispatchRunner, binary: string, co
 // waiting for a failure that was not written. The detail names the refusing
 // predicate and the export digest so the failure is diagnosable from the
 // store alone.
-async function recordModelReadbackFailure(lane: AgentLane, packet: AgentLanePacket, refusal: { predicate: ReadbackRefusal; export_digest: string; export_bytes: number; message: string }, options: { runner?: DispatchRunner; evidenceRunner?: DispatchRunner; concordBinary?: string; credentials?: CredentialStore; packetDigest?: string }, signal: AbortSignal, onRecorded?: () => void): Promise<string | null> {
+async function recordModelReadbackFailure(lane: AgentLane, packet: AgentLanePacket, refusal: { predicate: ReadbackRefusal; export_digest: string; export_bytes: number; message: string }, workerDirectory: string, options: { runner?: DispatchRunner; evidenceRunner?: DispatchRunner; concordBinary?: string; credentials?: CredentialStore; packetDigest?: string }, signal: AbortSignal, onRecorded?: () => void): Promise<string | null> {
   if (!options.packetDigest) return "model readback failure cannot be recorded without the dispatch packet digest"
   const cliRunner = options.evidenceRunner ?? options.runner ?? defaultRunner
   const binary = concordBinaryPath(options.concordBinary)
   const credentials = options.credentials ?? defaultCredentials
   const failureKind = refusal.predicate === "export_model_ambiguous" ? "model_readback_ambiguous" : "model_readback_missing"
   const detail = `readback predicate ${refusal.predicate} refused: ${refusal.message} (export_digest ${refusal.export_digest}, export_bytes ${refusal.export_bytes})`.slice(0, MAX_FAILURE_DETAIL_BYTES)
-  const provenance = await computeHostPromptProvenance(lane.id)
+  const provenance = await computeHostPromptProvenance(lane.id, workerDirectory)
   let assertion: Record<string, unknown>
   try {
     assertion = await signWorkerEvidence(credentials, {
@@ -887,6 +876,16 @@ function stripJsonc(text: string): string {
 const CONFIG_FILE_NAMES = ["config.json", "opencode.json", "opencode.jsonc"]
 const GLOB_METACHARACTERS = /[*?[\]{}]/
 
+function projectGitRoot(cwd: string): string {
+  let current = cwd
+  for (;;) {
+    if (fs.existsSync(`${current}/.git`)) return current
+    const parent = current.slice(0, current.lastIndexOf("/"))
+    if (!parent || parent === current) return cwd
+    current = parent
+  }
+}
+
 // Every config file OpenCode may merge an instructions array from, bounded so a
 // dispatch cost stays fixed: the global directory, an explicit OPENCODE_CONFIG
 // file, and the project walk from cwd toward the filesystem root.
@@ -895,14 +894,19 @@ function configFileCandidates(cwd: string): string[] {
   const candidates = CONFIG_FILE_NAMES.map(name => `${dir}/${name}`)
   if (process.env.OPENCODE_CONFIG) candidates.push(process.env.OPENCODE_CONFIG)
   let current = cwd
-  for (let depth = 0; depth < 8; depth++) {
+  for (let depth = 0; depth < 64; depth++) {
     candidates.push(`${current}/opencode.jsonc`, `${current}/opencode.json`)
     candidates.push(`${current}/.opencode/opencode.json`, `${current}/.opencode/opencode.jsonc`)
+    // OpenCode stops project configuration discovery at the Git worktree
+    // root. Reading parent files after this boundary records configuration
+    // that the host did not load and can bind unrelated projects into worker
+    // evidence.
+    if (fs.existsSync(`${current}/.git`)) break
     const parent = current.slice(0, current.lastIndexOf("/"))
     if (!parent || parent === current) break
     current = parent
   }
-  return candidates.slice(0, 48)
+  return candidates.slice(0, 260)
 }
 
 async function configInstructionEntries(cwd: string): Promise<{ entries: string[]; unreadable: string[] }> {
@@ -934,6 +938,7 @@ async function configInstructionEntries(cwd: string): Promise<{ entries: string[
 async function instructionSources(cwd: string): Promise<HostProvenanceSource[]> {
   const sources: HostProvenanceSource[] = []
   const { entries, unreadable } = await configInstructionEntries(cwd)
+  const root = projectGitRoot(cwd)
   for (const path of unreadable) sources.push({ kind: "unenumerated", path })
   for (const entry of entries) {
     if (entry.startsWith("http://") || entry.startsWith("https://")) {
@@ -971,9 +976,10 @@ async function instructionSources(cwd: string): Promise<HostProvenanceSource[]> 
     // is still named.
     let matched = false
     let dir = cwd
-    for (let depth = 0; depth < 8; depth++) {
+    for (let depth = 0; depth < 64; depth++) {
       const source = await fileProvenance("instruction_file", `${dir}/${expanded}`)
       if (source) { sources.push(source); matched = true }
+      if (dir === root) break
       const parent = dir.slice(0, dir.lastIndexOf("/"))
       if (!parent || parent === dir) break
       dir = parent
@@ -986,8 +992,10 @@ async function instructionSources(cwd: string): Promise<HostProvenanceSource[]> 
 export async function computeHostPromptProvenance(laneId: string, cwd = process.cwd()): Promise<HostProvenance> {
   const sources: HostProvenanceSource[] = []
   const configDir = opencodeConfigDir()
+  const root = projectGitRoot(cwd)
   const agentCandidates = [
     `${cwd}/.opencode/agents/concord-${laneId}.md`,
+    `${root}/.opencode/agents/concord-${laneId}.md`,
     `${configDir}/agents/concord-${laneId}.md`,
   ]
   for (const candidate of agentCandidates) {
@@ -1003,12 +1011,13 @@ export async function computeHostPromptProvenance(laneId: string, cwd = process.
   const globalAgents = await fileProvenance("agents_md", globalAgentsPath)
   if (globalAgents) sources.push(globalAgents)
   let dir = cwd
-  for (let depth = 0; depth < 8 && sources.filter(s => s.kind === "agents_md").length < 5; depth++) {
+  for (let depth = 0; depth < 64 && sources.filter(s => s.kind === "agents_md").length < 5; depth++) {
     // A spawn directory at or under the config directory would meet the
     // global file again on the walk; one surface is named once.
     const candidate = `${dir}/AGENTS.md`
     const source = candidate === globalAgentsPath ? null : await fileProvenance("agents_md", candidate)
     if (source) sources.push(source)
+    if (dir === root) break
     const parent = dir.slice(0, dir.lastIndexOf("/"))
     if (!parent || parent === dir) break
     dir = parent
@@ -1100,7 +1109,7 @@ export async function completeWorkerAttempt(
   lane: AgentLane,
   packet: AgentLanePacket,
   taskResult: string,
-  options: { signal?: AbortSignal; runner?: DispatchRunner; readbackRunner?: DispatchRunner; evidenceRunner?: DispatchRunner; binary?: string; concordBinary?: string; credentials?: CredentialStore; authorize?: DispatchAuthorizer; packetDigest?: string },
+  options: { signal?: AbortSignal; runner?: DispatchRunner; readbackRunner?: DispatchRunner; evidenceRunner?: DispatchRunner; binary?: string; concordBinary?: string; credentials?: CredentialStore; authorize?: DispatchAuthorizer; packetDigest?: string; workerDirectory: string },
   signal: AbortSignal,
 ): Promise<AgentResultEnvelope> {
   // The wrapper carries the worker session identifier, so a body that is not a
@@ -1114,7 +1123,7 @@ export async function completeWorkerAttempt(
 type WorkerCompletionOptions = Parameters<typeof completeWorkerAttempt>[3]
 
 // A terminal host tool event supplies failure and child identity, not a worker
-// report. Model, lane, and directory evidence still come from session export.
+// report. Model and lane evidence still come from the session export.
 export async function failWorkerAttempt(
   lane: AgentLane,
   packet: AgentLanePacket,
@@ -1135,7 +1144,7 @@ export async function abandonWorkerAttempt(
   lane: AgentLane,
   packet: Pick<AgentLanePacket, "work_id" | "attempt_id">,
   detail: string,
-  options: WorkerCompletionOptions & { abandonEventID?: string; abandonNonce?: string },
+  options: Omit<WorkerCompletionOptions, "workerDirectory"> & { abandonEventID?: string; abandonNonce?: string },
   signal: AbortSignal,
   onRecorded?: () => void,
 ): Promise<AgentResultEnvelope> {
@@ -1196,6 +1205,7 @@ async function completeWorkerSession(
 ): Promise<AgentResultEnvelope> {
   const binary = options.binary ?? "opencode"
   const readbackRunner = options.readbackRunner ?? options.runner ?? defaultExportRunner
+  const workerDirectory = options.workerDirectory
   let exported: { exitCode: number; stdout: string; stderr: string }
   try { exported = await readbackRunner.run([binary, "export", workerSessionID, "--sanitize"], "", signal) } catch (error) {
     return errorEnvelope(lane, packet, "error", "error", String(error), "reconcile_operation")
@@ -1207,7 +1217,7 @@ async function completeWorkerSession(
       export_bytes: Buffer.byteLength(exported.stdout),
       message: exported.stderr.slice(0, MAX_ERROR_BYTES) || "OpenCode session export failed without diagnostic output",
     }
-    const recorded = await recordModelReadbackFailure(lane, packet, refusal, options, signal, onRecorded)
+    const recorded = await recordModelReadbackFailure(lane, packet, refusal, workerDirectory, options, signal, onRecorded)
     const failure = readbackRefusalEnvelope(lane, packet, refusal)
     if (recorded) failure.error!.message = `${failure.error!.message}; terminal evidence write failed: ${recorded}`.slice(0, MAX_ERROR_BYTES)
     failure.session_id = workerSessionID
@@ -1215,7 +1225,7 @@ async function completeWorkerSession(
   }
   const readbackResult = readExportSession(exported.stdout, workerSessionID)
   if (!readbackResult.ok) {
-    const recorded = await recordModelReadbackFailure(lane, packet, readbackResult, options, signal, onRecorded)
+    const recorded = await recordModelReadbackFailure(lane, packet, readbackResult, workerDirectory, options, signal, onRecorded)
     const failure = readbackRefusalEnvelope(lane, packet, readbackResult)
     if (recorded) failure.error!.message = `${failure.error!.message}; terminal evidence write failed: ${recorded}`.slice(0, MAX_ERROR_BYTES)
     failure.session_id = workerSessionID
@@ -1252,9 +1262,10 @@ async function completeWorkerSession(
   const cliRunner = options.evidenceRunner ?? options.runner ?? defaultRunner
   const cli = concordBinaryPath(options.concordBinary)
   const credentials = options.credentials ?? defaultCredentials
-  const provenance = await computeHostPromptProvenance(lane.id)
-  const workerObservation = await readWorkerSessionObservation(readbackRunner, binary, workerSessionID, signal, readSessionParent(exported.stdout, workerSessionID))
-  const workerDirectory = workerObservation.directory
+  // The dispatch window owns the worker directory. The session observation is
+  // separate and supplies only the live-session evidence for abandoned close.
+  const provenance = await computeHostPromptProvenance(lane.id, workerDirectory)
+  const workerObservation = await readWorkerSessionObservation(readbackRunner, binary, signal)
 
   // CD-0056 D7: the adapter is the only component that sees worker output, so
   // the report is admitted here. A report that is absent, unparseable, invalid,
@@ -1372,7 +1383,7 @@ async function completeWorkerSession(
     report_schema_version: REPORT_SCHEMA_VERSION,
     evidence_origin: "reported",
     evidence: terminal.report.evidence,
-    ...(workerDirectory !== null ? { worker_directory: workerDirectory } : {}),
+    worker_directory: workerDirectory,
     assertion: terminalAssertion,
   }, signal)
   if (completionFailure) {
@@ -1382,7 +1393,7 @@ async function completeWorkerSession(
     // worker-fail request, and the core refuses the close while any observed
     // session still occupies an active worktree.
     const detail = `worker-complete refused: ${completionFailure}`.slice(0, MAX_FAILURE_DETAIL_BYTES)
-    if (workerObservation.observed === null) {
+    if (workerObservation.unreadable) {
       return errorEnvelope(lane, packet, "error", "error", `${detail}; the attempt stays open because live host sessions could not be observed`.slice(0, MAX_ERROR_BYTES), "reconcile_operation")
     }
     let closeAssertion: Record<string, unknown>

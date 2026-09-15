@@ -475,7 +475,8 @@ func (s *Store) QueryDomainActiveWork(ctx context.Context, req DomainActiveWorkR
 
 func queryDomainActiveWork(ctx context.Context, q queryer, req DomainActiveWorkRequest) (DomainActiveWorkResult, error) {
 	var out DomainActiveWorkResult
-	if err := ensureNoDuplicateActiveWorkflowContracts(ctx, q, "C22.DomainActiveWork"); err != nil {
+	omissions, err := duplicateActiveContractOmissions(ctx, q)
+	if err != nil {
 		return out, err
 	}
 	registry, err := readDomainRegistry(ctx, q, req.Product)
@@ -512,6 +513,7 @@ func queryDomainActiveWork(ctx context.Context, q queryer, req DomainActiveWorkR
 		JOIN workflow_architecture_bindings b ON b.work_id=c.work_id AND b.contract_version=c.contract_version
 		JOIN work_items w ON w.id=c.work_id
 		WHERE c.superseded_by IS NULL AND w.lifecycle NOT IN ('completed','cancelled','superseded')
+		  AND (SELECT count(*) FROM workflow_contracts c3 WHERE c3.work_id=c.work_id AND c3.superseded_by IS NULL)=1
 		  AND (b.home_domain_id=? OR EXISTS (SELECT 1 FROM workflow_contract_affected_domains a WHERE a.work_id=c.work_id AND a.contract_version=c.contract_version AND a.domain_id=?))
 		  AND (w.priority,w.id) > (?,?)
 		ORDER BY w.priority,w.id LIMIT ?`,
@@ -548,7 +550,7 @@ func queryDomainActiveWork(ctx context.Context, q queryer, req DomainActiveWorkR
 		out.NextCursor = &next
 	}
 	out.Registry = registry
-	out.ResultMeta = ResultMeta{QueryID: "C22.DomainActiveWork", ContractVersion: "C22/1.0", ResolvedScope: ResolvedScope{ProductID: req.Product, DomainID: req.Domain}, Authority: "authoritative", OrderingKeys: []string{"priority", "work_id"}}
+	out.ResultMeta = ResultMeta{QueryID: "C22.DomainActiveWork", ContractVersion: "C22/1.0", ResolvedScope: ResolvedScope{ProductID: req.Product, DomainID: req.Domain}, Authority: "authoritative", OrderingKeys: []string{"priority", "work_id"}, Omissions: omissions}
 	return out, nil
 }
 
@@ -638,7 +640,8 @@ func (s *Store) QueryDomainOverlaps(ctx context.Context, req DomainOverlapsReque
 
 func queryDomainOverlaps(ctx context.Context, q queryer, req DomainOverlapsRequest) (DomainOverlapsResult, error) {
 	var out DomainOverlapsResult
-	if err := ensureNoDuplicateActiveWorkflowContracts(ctx, q, "C22.DomainOverlaps"); err != nil {
+	omissions, err := duplicateActiveContractOmissions(ctx, q)
+	if err != nil {
 		return out, err
 	}
 	registry, err := readDomainRegistry(ctx, q, req.Product)
@@ -659,6 +662,7 @@ func queryDomainOverlaps(ctx context.Context, q queryer, req DomainOverlapsReque
 		JOIN workflow_architecture_bindings b ON b.work_id=c.work_id AND b.contract_version=c.contract_version
 		JOIN work_items w ON w.id=c.work_id
 		WHERE c.superseded_by IS NULL AND w.lifecycle NOT IN ('completed','cancelled','superseded')
+		  AND (SELECT count(*) FROM workflow_contracts c3 WHERE c3.work_id=c.work_id AND c3.superseded_by IS NULL)=1
 		  AND b.product_id=?
 		ORDER BY c.work_id`, req.Product)
 	if err != nil {
@@ -727,7 +731,7 @@ func queryDomainOverlaps(ctx context.Context, q queryer, req DomainOverlapsReque
 		}
 	}
 	out.Registry = registry
-	out.ResultMeta = ResultMeta{QueryID: "C22.DomainOverlaps", ContractVersion: "C22/1.0", ResolvedScope: ResolvedScope{ProductID: req.Product}, Authority: "authoritative", OrderingKeys: []string{"from_work_id", "to_work_id"}}
+	out.ResultMeta = ResultMeta{QueryID: "C22.DomainOverlaps", ContractVersion: "C22/1.0", ResolvedScope: ResolvedScope{ProductID: req.Product}, Authority: "authoritative", OrderingKeys: []string{"from_work_id", "to_work_id"}, Omissions: omissions}
 	return out, nil
 }
 

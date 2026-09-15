@@ -133,6 +133,7 @@ STABLE_ROOT_NAME = "current"
 AGENT_GLOB = "concord-*.md"
 PROJECT_CONFIG_NAMES = ("opencode.json", "opencode.jsonc")
 PROJECT_LINK_OWNERSHIP_NAME = "project-link-ownership.json"
+PROJECT_LINK_PENDING_NAME = "project-link-pending.json"
 MAX_PROJECT_LINKS = 1024
 CREDENTIAL_UNIT_NAME = "concord-keyring-unlock.service"
 SECRET_SERVICE_DESTINATION = "org.freedesktop.secrets"
@@ -468,102 +469,111 @@ def outer_object_end(text: str) -> int:
     raise InstallerError("OpenCode config has unbalanced braces")
 
 
+def skip_jsonc_space(text: str, index: int) -> int:
+    """Skip JSON whitespace and comments between a key and its value."""
+    while index < len(text):
+        while index < len(text) and text[index].isspace():
+            index += 1
+        if text.startswith("//", index):
+            newline = text.find("\n", index + 2)
+            index = len(text) if newline < 0 else newline + 1
+            continue
+        if text.startswith("/*", index):
+            end = text.find("*/", index + 2)
+            if end < 0:
+                raise InstallerError("OpenCode config contains an unterminated comment")
+            index = end + 2
+            continue
+        break
+    return index
+
+
 def jsonc_array_end(text: str, key: str) -> int | None:
     """Return the closing bracket of a named JSON or JSONC array."""
     quoted = json.dumps(key)
-    key_start = 0
-    while True:
-        key_start = text.find(quoted, key_start)
-        if key_start < 0:
-            return None
-        index = key_start + len(quoted)
-        in_string = False
-        escaped = False
-        comment = ""
-        while index < len(text):
-            char = text[index]
-            if comment == "line":
-                if char == "\n":
-                    comment = ""
-                index += 1
-                continue
-            if comment == "block":
-                if text.startswith("*/", index):
-                    comment = ""
-                    index += 2
-                else:
-                    index += 1
-                continue
-            if not in_string and text.startswith("//", index):
-                comment = "line"
-                index += 2
-                continue
-            if not in_string and text.startswith("/*", index):
-                comment = "block"
-                index += 2
-                continue
-            if in_string:
+    index = 0
+    object_depth = 0
+    array_depth = 0
+    while index < len(text):
+        char = text[index]
+        if char == '"':
+            end = index + 1
+            escaped = False
+            while end < len(text):
+                current = text[end]
                 if escaped:
                     escaped = False
-                elif char == "\\":
+                elif current == "\\":
                     escaped = True
-                elif char == '"':
-                    in_string = False
-                index += 1
-                continue
-            if char == '"':
-                in_string = True
-            elif char == ":":
-                index += 1
-                while index < len(text) and text[index].isspace():
-                    index += 1
-                if index >= len(text) or text[index] != "[":
+                elif current == '"':
                     break
-                depth = 0
-                in_string = False
-                escaped = False
-                comment = ""
-                while index < len(text):
-                    char = text[index]
-                    if comment == "line":
-                        if char == "\n":
-                            comment = ""
-                        index += 1
-                        continue
-                    if comment == "block":
-                        if text.startswith("*/", index):
-                            comment = ""
-                            index += 2
-                        else:
-                            index += 1
-                        continue
-                    if not in_string and text.startswith("//", index):
-                        comment = "line"
-                        index += 2
-                        continue
-                    if not in_string and text.startswith("/*", index):
-                        comment = "block"
-                        index += 2
-                        continue
-                    if in_string:
-                        if escaped:
-                            escaped = False
-                        elif char == "\\":
-                            escaped = True
-                        elif char == '"':
-                            in_string = False
-                    elif char == '"':
-                        in_string = True
-                    elif char == "[":
-                        depth += 1
-                    elif char == "]":
-                        depth -= 1
-                        if depth == 0:
-                            return index
-                    index += 1
-                break
-            index += 1
-        key_start += len(quoted)
+                end += 1
+            if end >= len(text):
+                return None
+            if object_depth == 1 and array_depth == 0 and text[index : end + 1] == quoted:
+                after = skip_jsonc_space(text, end + 1)
+                if after < len(text) and text[after] == ":":
+                    after = skip_jsonc_space(text, after + 1)
+                    if after < len(text) and text[after] == "[":
+                        bracket_depth = 0
+                        cursor = after
+                        string = False
+                        escaped = False
+                        while cursor < len(text):
+                            current = text[cursor]
+                            following = text[cursor + 1] if cursor + 1 < len(text) else ""
+                            if string:
+                                if escaped:
+                                    escaped = False
+                                elif current == "\\":
+                                    escaped = True
+                                elif current == '"':
+                                    string = False
+                            elif current == '"':
+                                string = True
+                            elif current == "/" and following == "/":
+                                newline = text.find("\n", cursor + 2)
+                                if newline < 0:
+                                    return None
+                                cursor = newline + 1
+                                continue
+                            elif current == "/" and following == "*":
+                                comment_end = text.find("*/", cursor + 2)
+                                if comment_end < 0:
+                                    raise InstallerError("OpenCode config contains an unterminated comment")
+                                cursor = comment_end + 2
+                                continue
+                            elif current == "[":
+                                bracket_depth += 1
+                            elif current == "]":
+                                bracket_depth -= 1
+                                if bracket_depth == 0:
+                                    return cursor
+                            cursor += 1
+            index = end + 1
+            continue
+        if text.startswith("//", index):
+            newline = text.find("\n", index + 2)
+            if newline < 0:
+                return None
+            index = newline + 1
+            continue
+        if text.startswith("/*", index):
+            end = text.find("*/", index + 2)
+            if end < 0:
+                raise InstallerError("OpenCode config contains an unterminated comment")
+            index = end + 2
+            continue
+        if char == "{":
+            object_depth += 1
+        elif char == "}":
+            object_depth -= 1
+        elif char == "[":
+            array_depth += 1
+        elif char == "]":
+            array_depth -= 1
+        index += 1
+    return None
 
 
 def registration_snippet(skill_path: str) -> str:
@@ -2352,6 +2362,7 @@ def install(args: argparse.Namespace) -> int:
     download_base_url = release_download_base_url(args.base_url, version) if args.version else args.base_url
     paths = paths_for(args.root)
     recover_transactions(paths)
+    recover_pending_project_links(paths)
     manifest = load_manifest(paths)
     config_plan = preflight(paths, version, manifest)
     if manifest and manifest.get("version") == version:
@@ -2617,6 +2628,7 @@ def repair(args: argparse.Namespace) -> int:
     """
     paths = paths_for(args.root)
     recover_transactions(paths)
+    recover_pending_project_links(paths)
     manifest = load_manifest(paths)
     if manifest is None:
         raise InstallerError(f"no installer manifest at {paths.data_root / MANIFEST_NAME}; run install")
@@ -2723,6 +2735,7 @@ def repair(args: argparse.Namespace) -> int:
 def uninstall(args: argparse.Namespace) -> int:
     paths = paths_for(args.root)
     recover_transactions(paths)
+    recover_pending_project_links(paths)
     manifest = load_manifest(paths)
     if manifest is None:
         print("No Concord installer manifest found; nothing was changed.")
@@ -3052,6 +3065,110 @@ def save_project_link_ownership(paths: Paths, links: dict[str, dict[str, object]
     write_atomic(path, (json.dumps(payload, indent=2, sort_keys=True) + "\n").encode("utf-8"))
 
 
+def project_link_pending_path(paths: Paths) -> Path:
+    """Return the installer recovery record for project link writes."""
+    path = paths.data_root / PROJECT_LINK_PENDING_NAME
+    if path.is_symlink():
+        raise InstallerError(f"refusing symlinked project link recovery record {path}")
+    return path
+
+
+def recover_pending_project_links(paths: Paths) -> None:
+    """Finish or discard project writes interrupted before ownership was saved."""
+    path = project_link_pending_path(paths)
+    if not path.exists():
+        return
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise InstallerError(f"cannot read project link recovery record {path}: {error}") from error
+    if not isinstance(value, dict) or value.get("schema") != 1 or not isinstance(value.get("links"), dict):
+        raise InstallerError(f"refusing malformed project link recovery record {path}")
+    pending = value["links"]
+    if len(pending) > MAX_PROJECT_LINKS:
+        raise InstallerError(f"project link recovery record contains too many entries: {path}")
+    ownership = load_project_link_ownership(paths)
+    changed = False
+    for raw_path, raw_record in pending.items():
+        if (
+            not isinstance(raw_path, str)
+            or not raw_path.startswith("/")
+            or Path(raw_path).as_posix() != os.path.normpath(raw_path)
+            or not isinstance(raw_record, dict)
+            or set(raw_record) != {"scope", "action", "before", "original", "updated"}
+            or raw_record.get("scope") not in {"project", "worktree", "legacy"}
+            or raw_record.get("action") not in {"remove", "restore"}
+            or (raw_record.get("before") is not None and not isinstance(raw_record.get("before"), str))
+            or (raw_record.get("original") is not None and not isinstance(raw_record.get("original"), str))
+            or not isinstance(raw_record.get("updated"), str)
+            or (raw_record.get("action") == "restore" and not isinstance(raw_record.get("original"), str))
+            or (raw_record.get("action") == "remove" and raw_record.get("original") is not None)
+        ):
+            raise InstallerError(f"refusing malformed project link recovery entry in {path}")
+        project_file = Path(raw_path)
+        scope = raw_record["scope"]
+        if scope == "worktree":
+            validate_managed_worktree_config_path(paths, project_file)
+        elif scope == "legacy":
+            expected_legacy = worktrees_root(paths) / ".opencode" / "opencode.json"
+            if project_file != expected_legacy or project_file.resolve(strict=False) != project_file:
+                raise InstallerError(f"refusing project link recovery path outside the managed worktrees root: {project_file}")
+        before = raw_record["before"]
+        original = raw_record["original"]
+        updated = raw_record["updated"]
+        assert isinstance(before, (str, type(None))) and isinstance(original, (str, type(None))) and isinstance(updated, str)
+        current = project_file_state(project_file)
+        expected = {"exists": bool(updated)}
+        if updated:
+            expected["sha256"] = hashlib.sha256(updated.encode("utf-8")).hexdigest()
+        before_state = {"exists": False} if before is None else {
+            "exists": True,
+            "sha256": hashlib.sha256(before.encode("utf-8")).hexdigest(),
+        }
+        previous = ownership.get(raw_path)
+        if previous is not None:
+            if current == previous.get("expected"):
+                continue
+            if current == expected:
+                previous["expected"] = expected
+                changed = True
+                continue
+            raise InstallerError(f"refusing to recover a modified project OpenCode config {project_file}")
+        if current == expected:
+            action = raw_record["action"]
+            record: dict[str, object] = {"action": action, "scope": raw_record["scope"], "expected": expected}
+            if action == "restore":
+                assert isinstance(original, str)
+                record["original"] = original
+            ownership[raw_path] = record
+            changed = True
+            continue
+        if current != before_state:
+            raise InstallerError(f"refusing to recover a modified project OpenCode config {project_file}")
+    if changed:
+        save_project_link_ownership(paths, ownership)
+    path.unlink()
+    fsync_directory(path.parent)
+
+
+def validate_managed_worktree_config_path(paths: Paths, project_file: Path) -> None:
+    """Require a worktree recovery target inside a managed worktree config."""
+    if project_file.name not in PROJECT_CONFIG_NAMES or project_file.parent.name != ".opencode":
+        raise InstallerError(f"refusing project link recovery path outside a managed worktree config: {project_file}")
+    root = paths.data_root / "worktrees"
+    if root.is_symlink():
+        raise InstallerError(f"refusing symlinked worktrees root {root}")
+    try:
+        project_file.relative_to(root)
+    except ValueError as error:
+        raise InstallerError(f"refusing project link recovery path outside the managed worktrees root: {project_file}") from error
+    if project_file.resolve(strict=False) != project_file:
+        raise InstallerError(f"refusing symlinked managed worktree config {project_file}")
+    worktree = project_file.parent.parent
+    if not worktree.is_dir():
+        raise InstallerError(f"refusing project link recovery path outside a managed worktree: {project_file}")
+
+
 def project_link_record(
     project_file: Path,
     original: str | None,
@@ -3131,10 +3248,12 @@ def plan_worktree_links(paths: Paths) -> list[tuple[Path, str, bool]]:
 
 def sync_worktree_links(paths: Paths, remove: bool = False) -> bool:
     """Converge project pointers and preserve every preexisting config."""
+    recover_pending_project_links(paths)
     links = load_project_link_ownership(paths)
     entry = conduct_instruction_entry(paths)
     if remove:
         changed = False
+        pending: dict[str, dict[str, object]] = {}
         for raw_path, record in sorted(links.items()):
             project_file = Path(raw_path)
             if record["action"] == "preserve":
@@ -3144,9 +3263,31 @@ def sync_worktree_links(paths: Paths, remove: bool = False) -> bool:
                 raise InstallerError(f"refusing to restore user-modified project OpenCode config {project_file}")
             if record.get("scope") == "legacy":
                 continue
+            before = project_file.read_text(encoding="utf-8") if project_file.exists() else None
+            if before is None:
+                continue
+            action = record["action"]
+            pending[raw_path] = {
+                "scope": record["scope"],
+                "action": action,
+                "before": before,
+                "original": record.get("original") if action == "restore" else None,
+                "updated": "" if action == "remove" else str(record["original"]),
+            }
+        pending_path = project_link_pending_path(paths)
+        if pending:
+            write_atomic(
+                pending_path,
+                (json.dumps({"schema": 1, "links": {key: pending[key] for key in sorted(pending)}}, indent=2, sort_keys=True) + "\n").encode("utf-8"),
+            )
+        for raw_path, record in sorted(links.items()):
+            project_file = Path(raw_path)
+            if record["action"] == "preserve" or record.get("scope") == "legacy":
+                continue
             if record["action"] == "remove":
-                project_file.unlink()
-                changed = True
+                if project_file.exists():
+                    project_file.unlink()
+                    changed = True
                 try:
                     project_file.parent.rmdir()
                 except OSError:
@@ -3155,12 +3296,17 @@ def sync_worktree_links(paths: Paths, remove: bool = False) -> bool:
                 write_atomic(project_file, str(record["original"]).encode("utf-8"))
                 changed = True
         save_project_link_ownership(paths, {})
+        if pending:
+            pending_path.unlink()
+            fsync_directory(pending_path.parent)
         return changed
 
     changed = False
     legacy = worktrees_project_file(paths)
+    legacy_original: str | None = None
     legacy_text: str | None = None
     if legacy.exists():
+        legacy_original = legacy.read_text(encoding="utf-8")
         legacy_key = str(legacy.resolve(strict=False))
         previous_legacy = links.get(legacy_key)
         if previous_legacy and previous_legacy.get("action") in {"remove", "restore"}:
@@ -3180,12 +3326,28 @@ def sync_worktree_links(paths: Paths, remove: bool = False) -> bool:
     planned_links = plan_worktree_links(paths)
     seen = set()
     writes: list[tuple[Path, str]] = []
+    pending: dict[str, dict[str, object]] = {}
+    if legacy_text is not None and legacy_original is not None:
+        pending[str(legacy.resolve(strict=False))] = {
+            "scope": "legacy",
+            "action": "remove",
+            "before": legacy_original,
+            "original": None,
+            "updated": legacy_text,
+        }
     for project_file, new_text, planned in planned_links:
         key = str(project_file.resolve(strict=False))
         seen.add(key)
         original = project_file.read_text(encoding="utf-8") if project_file.exists() else None
         links[key] = project_link_record(project_file, original, new_text, planned, "worktree", links.get(key))
         if planned:
+            pending[key] = {
+                "scope": "worktree",
+                "action": links[key]["action"],
+                "before": original,
+                "original": links[key].get("original") if links[key]["action"] == "restore" else None,
+                "updated": new_text,
+            }
             writes.append((project_file, new_text))
             changed = True
     links = {
@@ -3193,7 +3355,12 @@ def sync_worktree_links(paths: Paths, remove: bool = False) -> bool:
         for key, record in links.items()
         if record.get("scope") != "worktree" or key in seen
     }
-    save_project_link_ownership(paths, links)
+    if pending:
+        pending_path = project_link_pending_path(paths)
+        write_atomic(
+            pending_path,
+            (json.dumps({"schema": 1, "links": {key: pending[key] for key in sorted(pending)}}, indent=2, sort_keys=True) + "\n").encode("utf-8"),
+        )
     if legacy_text is not None:
         if legacy_text == "":
             legacy.unlink()
@@ -3206,6 +3373,11 @@ def sync_worktree_links(paths: Paths, remove: bool = False) -> bool:
     for project_file, new_text in writes:
         ensure_directory(project_file.parent, mode=0o755)
         write_atomic(project_file, new_text.encode("utf-8"))
+    save_project_link_ownership(paths, links)
+    if pending:
+        pending_path = project_link_pending_path(paths)
+        pending_path.unlink()
+        fsync_directory(pending_path.parent)
     return changed
 
 
@@ -3238,6 +3410,7 @@ def unlink_worktrees_root(paths: Paths) -> bool:
 def link(args: argparse.Namespace) -> int:
     paths = paths_for(args.root)
     recover_transactions(paths)
+    recover_pending_project_links(paths)
     manifest = load_manifest(paths)
     if manifest is None:
         raise InstallerError("cannot link a project: no Concord installation is present")
@@ -3255,12 +3428,35 @@ def link(args: argparse.Namespace) -> int:
         "project",
         ownership.get(str(project_file.resolve(strict=False))),
     )
-    save_project_link_ownership(paths, ownership)
     if not changed:
+        save_project_link_ownership(paths, ownership)
         print(f"Project {project_dir} already points at the conduct corpus; no changes made.")
         return 0
+    pending_path = project_link_pending_path(paths)
+    write_atomic(
+        pending_path,
+        (json.dumps(
+            {
+                "schema": 1,
+                "links": {
+                    str(project_file.resolve(strict=False)): {
+                        "scope": "project",
+                        "action": ownership[str(project_file.resolve(strict=False))]["action"],
+                        "before": original,
+                        "original": ownership[str(project_file.resolve(strict=False))].get("original") if ownership[str(project_file.resolve(strict=False))]["action"] == "restore" else None,
+                        "updated": new_text,
+                    }
+                },
+            },
+            indent=2,
+            sort_keys=True,
+        ) + "\n").encode("utf-8"),
+    )
     ensure_directory(project_file.parent, mode=0o755)
     write_atomic(project_file, new_text.encode("utf-8"))
+    save_project_link_ownership(paths, ownership)
+    pending_path.unlink()
+    fsync_directory(pending_path.parent)
     print(f"Linked project {project_dir} to {conduct_entry}.")
     return 0
 
@@ -3268,6 +3464,7 @@ def link(args: argparse.Namespace) -> int:
 def unlink(args: argparse.Namespace) -> int:
     paths = paths_for(args.root)
     recover_transactions(paths)
+    recover_pending_project_links(paths)
     project_dir = Path(args.project).resolve()
     project_file = project_opencode_json(project_dir)
     conduct_entry = conduct_instruction_entry(paths)

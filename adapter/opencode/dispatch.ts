@@ -510,12 +510,14 @@ export function readLiveSessionDirectories(stdout: string): { session_ref: strin
   return observed
 }
 
-async function readWorkerSessionObservation(runner: DispatchRunner, binary: string, sessionID: string, signal: AbortSignal, parentID: string | null): Promise<{ directory: string | null; observed: { session_ref: string; directory: string }[] | null }> {
+type WorkerSessionObservation = { directory: string | null; observed: { session_ref: string; directory: string }[] | null; unreadable: boolean }
+
+async function readWorkerSessionObservation(runner: DispatchRunner, binary: string, sessionID: string, signal: AbortSignal, parentID: string | null): Promise<WorkerSessionObservation> {
   let listed: { exitCode: number; stdout: string; stderr: string }
-  try { listed = await runner.run([binary, "session", "list", "--format", "json"], "", signal) } catch { return { directory: null, observed: null } }
-  if (listed.exitCode !== 0) return { directory: null, observed: null }
+  try { listed = await runner.run([binary, "session", "list", "--format", "json"], "", signal) } catch { return { directory: null, observed: null, unreadable: true } }
+  if (listed.exitCode !== 0) return { directory: null, observed: null, unreadable: true }
   const observed = readLiveSessionDirectories(listed.stdout)
-  if (observed === null) return { directory: null, observed: null }
+  if (observed === null) return { directory: null, observed: null, unreadable: false }
   const direct = observed.find((session) => session.session_ref === sessionID)?.directory ?? null
   const directory = direct ?? (parentID === null ? null : observed.find((session) => session.session_ref === parentID)?.directory ?? null)
   // Production uses the host control-plane route that owns the liveness
@@ -523,12 +525,12 @@ async function readWorkerSessionObservation(runner: DispatchRunner, binary: stri
   // callers that do not run inside a bound plugin host.
   if (hostControlPlane().available()) {
     try {
-      return { directory, observed: await hostControlPlane().liveSessionDirectories(signal) }
+      return { directory, observed: await hostControlPlane().liveSessionDirectories(signal), unreadable: false }
     } catch {
-      return { directory, observed: null }
+      return { directory, observed: null, unreadable: true }
     }
   }
-  return { directory, observed }
+  return { directory, observed, unreadable: false }
 }
 
 // readRunTextParts returns the model's message text in emission order. The host
@@ -1045,6 +1047,15 @@ export async function computeHostPromptProvenance(laneId: string, cwd = process.
   return { digest: "sha256:" + Bun.SHA256.hash(manifest, "hex"), sources: sources.slice(0, 64) }
 }
 
+function unresolvedWorkerPromptProvenance(): HostProvenance {
+  const sources = [
+    { kind: "unenumerated" as const, path: "worker_session_directory_unresolved" },
+    ...UNENUMERATED_SURFACES,
+  ]
+  const manifest = sources.map(source => [source.kind, source.path ?? "", source.sha256 ?? ""].join("\n")).join("\n---\n")
+  return { digest: "sha256:" + Bun.SHA256.hash(manifest, "hex"), sources }
+}
+
 export async function dispatchWorker(packet: unknown, options: { signal?: AbortSignal; runner?: DispatchRunner; readbackRunner?: DispatchRunner; evidenceRunner?: DispatchRunner; binary?: string; concordBinary?: string; credentials?: CredentialStore; authorize?: DispatchAuthorizer; packetDigest?: string; sessionID?: string; windows?: DispatchWindows; workPins?: unknown[] } = {}): Promise<AgentResultEnvelope> {
   if (!validateAgentLanePacket(packet)) return errorEnvelope(null, isRecord(packet) ? packet as Partial<AgentLanePacket> : {}, "error", "invalid_input", "agent lane packet failed the closed packet schema", "retry_same_request")
   const lane = laneForPacket(packet)
@@ -1236,15 +1247,17 @@ async function completeWorkerSession(
     return failure
   }
   const readbackResult = readExportSession(exported.stdout, workerSessionID)
-  const workerObservation = indexedWorkerDirectory !== null
+  const workerObservation = indexedWorkerDirectory !== null || earlyObservation.unreadable
     ? earlyObservation
     : await readWorkerSessionObservation(readbackRunner, binary, workerSessionID, signal, readSessionParent(exported.stdout, workerSessionID))
   const workerDirectory = workerObservation.directory
-  if (workerDirectory === null) {
+  if (workerDirectory === null && !workerObservation.unreadable) {
     return errorEnvelope(lane, packet, "error", "invalid_input", "worker session directory could not be resolved; refusing to record provenance for an unknown prompt corpus", "reconcile_operation")
   }
   if (!readbackResult.ok) {
-    const recorded = await recordModelReadbackFailure(lane, packet, readbackResult, workerDirectory, options, signal, onRecorded)
+    const recorded = workerDirectory === null
+      ? "worker session directory could not be resolved"
+      : await recordModelReadbackFailure(lane, packet, readbackResult, workerDirectory, options, signal, onRecorded)
     const failure = readbackRefusalEnvelope(lane, packet, readbackResult)
     if (recorded) failure.error!.message = `${failure.error!.message}; terminal evidence write failed: ${recorded}`.slice(0, MAX_ERROR_BYTES)
     failure.session_id = workerSessionID
@@ -1281,7 +1294,12 @@ async function completeWorkerSession(
   const cliRunner = options.evidenceRunner ?? options.runner ?? defaultRunner
   const cli = concordBinaryPath(options.concordBinary)
   const credentials = options.credentials ?? defaultCredentials
-  const provenance = await computeHostPromptProvenance(lane.id, workerDirectory)
+  // An unreadable liveness surface must not block the core refusal path. Bind
+  // that uncertainty as unenumerated provenance instead of borrowing the
+  // coordinator directory, which could claim the wrong corpus.
+  const provenance = workerDirectory === null
+    ? unresolvedWorkerPromptProvenance()
+    : await computeHostPromptProvenance(lane.id, workerDirectory)
 
   // CD-0056 D7: the adapter is the only component that sees worker output, so
   // the report is admitted here. A report that is absent, unparseable, invalid,
@@ -1409,7 +1427,7 @@ async function completeWorkerSession(
     // worker-fail request, and the core refuses the close while any observed
     // session still occupies an active worktree.
     const detail = `worker-complete refused: ${completionFailure}`.slice(0, MAX_FAILURE_DETAIL_BYTES)
-    if (workerObservation.observed === null) {
+    if (workerObservation.unreadable) {
       return errorEnvelope(lane, packet, "error", "error", `${detail}; the attempt stays open because live host sessions could not be observed`.slice(0, MAX_ERROR_BYTES), "reconcile_operation")
     }
     let closeAssertion: Record<string, unknown>

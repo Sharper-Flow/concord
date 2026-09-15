@@ -516,7 +516,7 @@ test("worker evidence uses the indexed worker directory for provenance", async (
   }
 })
 
-test("worker evidence refuses when the worker directory cannot be resolved", async () => {
+test("worker evidence records unresolved provenance when the session index is unreadable", async () => {
   let evidenceCalls = 0
   const result = await complete(workerBody(), {
     readbackRunner: {
@@ -532,9 +532,8 @@ test("worker evidence refuses when the worker directory cannot be resolved", asy
       },
     },
   })
-  expect(result.outcome).toBe("error")
-  expect(result.error?.message).toContain("worker session directory could not be resolved")
-  expect(evidenceCalls).toBe(0)
+  expect(result.outcome).toBe("ok")
+  expect(evidenceCalls).toBe(2)
 })
 
 // CD-0032 / issue #103: provenance is deterministic for the same inputs and

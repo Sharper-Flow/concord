@@ -1158,6 +1158,44 @@ esac''',
         self.assertIn("/operator/rules.md", content)
         self.assertIn(str(self.root / "data" / "concord" / "current" / "instructions" / "*.md"), content)
 
+    def test_link_ignores_instruction_key_decoys_in_jsonc_values_and_arrays(self) -> None:
+        self.make_release("v1.0.0")
+        installed = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
+        self.assertEqual(installed.returncode, 0, installed.stderr)
+        project_dir = self.root / "consumer"
+        project_file = project_dir / ".opencode" / "opencode.jsonc"
+        project_file.parent.mkdir(parents=True)
+        project_file.write_text(
+            '{\n  "description": "https://example.test//instructions",\n  "comment-text": "/* not a comment */",\n  "decoy": [],\n  "instructions": [\n    "/operator/rules.md"\n  ]\n}\n',
+            encoding="utf-8",
+        )
+
+        result = self.run_installer("link", "--project", str(project_dir))
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        parsed = installer.jsonc_data(project_file.read_text(encoding="utf-8"))
+        self.assertIsInstance(parsed, dict)
+        self.assertEqual(parsed["decoy"], [])
+        self.assertIn(str(self.root / "data" / "concord" / "current" / "instructions" / "*.md"), parsed["instructions"])
+
+    def test_link_skips_comments_between_instruction_key_and_colon(self) -> None:
+        self.make_release("v1.0.0")
+        installed = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
+        self.assertEqual(installed.returncode, 0, installed.stderr)
+        project_dir = self.root / "consumer-comments"
+        project_file = project_dir / ".opencode" / "opencode.jsonc"
+        project_file.parent.mkdir(parents=True)
+        project_file.write_text(
+            '{\n  "instructions" // comment one\n  /* comment two */ : [\n    "/operator/rules.md"\n  ]\n}\n',
+            encoding="utf-8",
+        )
+
+        result = self.run_installer("link", "--project", str(project_dir))
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        parsed = installer.jsonc_data(project_file.read_text(encoding="utf-8"))
+        self.assertIn(str(self.root / "data" / "concord" / "current" / "instructions" / "*.md"), parsed["instructions"])
+
     def test_link_handles_empty_whitespace_and_trailing_comma_instruction_arrays(self) -> None:
         self.make_release("v1.0.0")
         installed = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
@@ -1249,6 +1287,35 @@ esac''',
 
         self.assertEqual(existing.read_text(encoding="utf-8"), original)
         self.assertFalse((created_project / ".opencode").exists())
+
+    def test_uninstall_recovers_worktree_config_write_before_ownership_update(self) -> None:
+        worktree = self.root / "data" / "concord" / "worktrees" / "project" / "work"
+        worktree.mkdir(parents=True)
+        self.make_release("v1.0.0")
+        installed = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
+        self.assertEqual(installed.returncode, 0, installed.stderr)
+        config = worktree / ".opencode" / "opencode.json"
+        before = config.read_text(encoding="utf-8")
+        config.unlink()
+        pending = self.root / "data" / "concord" / installer.PROJECT_LINK_PENDING_NAME
+        pending.write_text(
+            json.dumps(
+                {"schema": 1, "links": {str(config.resolve()): {
+                    "scope": "worktree",
+                    "action": "remove",
+                    "before": before,
+                    "original": None,
+                    "updated": "",
+                }}}
+            ) + "\n",
+            encoding="utf-8",
+        )
+
+        removed = self.run_installer("uninstall")
+
+        self.assertEqual(removed.returncode, 0, removed.stderr)
+        self.assertFalse(config.exists())
+        self.assertFalse(pending.exists())
 
     def test_link_refuses_non_array_instructions(self) -> None:
         self.make_release("v1.0.0")
@@ -1435,6 +1502,81 @@ esac''',
             json.loads(worktrees_config.read_text(encoding="utf-8")),
             {"instructions": [str(self.root / "data" / "concord" / "current" / "instructions" / "*.md")]},
         )
+
+    def test_install_recovers_a_worktree_config_written_before_ownership(self) -> None:
+        self.make_release("v1.0.0")
+        installed = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
+        self.assertEqual(installed.returncode, 0, installed.stderr)
+        worktree = self.root / "data" / "concord" / "worktrees" / "project" / "work"
+        config = worktree / ".opencode" / "opencode.json"
+        config.parent.mkdir(parents=True)
+        updated = json.dumps(
+            {"instructions": [str(self.root / "data" / "concord" / "current" / "instructions" / "*.md")]},
+            indent=2,
+        ) + "\n"
+        config.write_text(updated, encoding="utf-8")
+        pending = self.root / "data" / "concord" / installer.PROJECT_LINK_PENDING_NAME
+        pending.write_text(
+            json.dumps({"schema": 1, "links": {str(config.resolve()): {"scope": "worktree", "action": "remove", "before": None, "original": None, "updated": updated}}}) + "\n",
+            encoding="utf-8",
+        )
+
+        recovered = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
+
+        self.assertEqual(recovered.returncode, 0, recovered.stderr)
+        ownership = json.loads((self.root / "data" / "concord" / installer.PROJECT_LINK_OWNERSHIP_NAME).read_text(encoding="utf-8"))
+        self.assertEqual(ownership["links"][str(config.resolve())]["action"], "remove")
+        self.assertFalse(pending.exists())
+
+    def test_link_recovers_a_project_config_written_before_ownership(self) -> None:
+        self.make_release("v1.0.0")
+        installed = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
+        self.assertEqual(installed.returncode, 0, installed.stderr)
+        project_dir = self.root / "consumer-recovery"
+        config = project_dir / ".opencode" / "opencode.json"
+        config.parent.mkdir(parents=True)
+        updated = json.dumps(
+            {"keep": True, "instructions": [str(self.root / "data" / "concord" / "current" / "instructions" / "*.md")]},
+            indent=2,
+        ) + "\n"
+        config.write_text(updated, encoding="utf-8")
+        pending = self.root / "data" / "concord" / installer.PROJECT_LINK_PENDING_NAME
+        pending.write_text(
+            json.dumps({"schema": 1, "links": {str(config.resolve()): {"scope": "project", "action": "remove", "before": None, "original": None, "updated": updated}}}) + "\n",
+            encoding="utf-8",
+        )
+
+        recovered = self.run_installer("link", "--project", str(project_dir))
+
+        self.assertEqual(recovered.returncode, 0, recovered.stderr)
+        ownership = json.loads((self.root / "data" / "concord" / installer.PROJECT_LINK_OWNERSHIP_NAME).read_text(encoding="utf-8"))
+        self.assertEqual(ownership["links"][str(config.resolve())]["scope"], "project")
+        self.assertFalse(pending.exists())
+
+    def test_install_recovers_an_interrupted_legacy_config_deletion(self) -> None:
+        self.make_release("v1.0.0")
+        installed = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
+        self.assertEqual(installed.returncode, 0, installed.stderr)
+        legacy = self.root / "data" / "concord" / "worktrees" / ".opencode" / "opencode.json"
+        original = json.dumps(
+            {"instructions": [str(self.root / "data" / "concord" / "current" / "instructions" / "*.md")]},
+            indent=2,
+        ) + "\n"
+        legacy.parent.mkdir(parents=True)
+        legacy.write_text(original, encoding="utf-8")
+        legacy.unlink()
+        pending = self.root / "data" / "concord" / installer.PROJECT_LINK_PENDING_NAME
+        pending.write_text(
+            json.dumps({"schema": 1, "links": {str(legacy.resolve()): {"scope": "legacy", "action": "remove", "before": original, "original": None, "updated": ""}}}) + "\n",
+            encoding="utf-8",
+        )
+
+        recovered = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
+
+        self.assertEqual(recovered.returncode, 0, recovered.stderr)
+        ownership = json.loads((self.root / "data" / "concord" / installer.PROJECT_LINK_OWNERSHIP_NAME).read_text(encoding="utf-8"))
+        self.assertEqual(ownership["links"][str(legacy.resolve())]["expected"], {"exists": False})
+        self.assertFalse(pending.exists())
 
     def test_legacy_ancestor_registration_is_removed_without_restore_on_uninstall(self) -> None:
         self.make_release("v1.0.0")

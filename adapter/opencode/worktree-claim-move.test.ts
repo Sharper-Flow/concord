@@ -9,6 +9,7 @@ import { configureHostLease } from "./host-lease"
 import ConcordAdapterPlugin from "./concord-plugin"
 import { hostControlPlane } from "./move-session"
 import { moveSessionToClaimedWorktree } from "./concord"
+import { ensureConductLink } from "./project-link"
 
 const context = (overrides: Partial<Parameters<typeof moveSessionToClaimedWorktree>[1]> = {}) =>
   ({ sessionID: "session-1", messageID: "message-1", abort: new AbortController().signal, directory: "/old", ...overrides }) as Parameters<typeof moveSessionToClaimedWorktree>[1]
@@ -81,6 +82,111 @@ describe("worktree_claim moves the session into the claimed worktree", () => {
       expect(text).toContain("current/instructions/*.md")
     } finally {
       await rm(worktree, { recursive: true, force: true })
+    }
+  })
+
+  test("locates the instructions array instead of a JSONC decoy", async () => {
+    await mkdir("worktrees", { recursive: true })
+    const worktree = await mkdtemp(join("worktrees", "adapter-jsonc-decoy-"))
+    const config = join(worktree, ".opencode", "opencode.jsonc")
+    try {
+      await mkdir(join(worktree, ".git"))
+      await mkdir(join(worktree, ".opencode"), { recursive: true })
+      await Bun.write(config, '{\n  "description": "https://example.test//instructions",\n  "comment-text": "/* not a comment */",\n  "decoy": [],\n  "instructions" // comment one\n  /* comment two */ : [\n    "/operator/rules.md"\n  ]\n}\n')
+      await fakeHost({ get: () => ({ status: 200, body: { directory: worktree } }) })
+
+      const envelope = await moveSessionToClaimedWorktree(claimArgs(worktree), context(), okEnvelope())
+
+      expect(envelope.outcome).toBe("ok")
+      const linked = await Bun.file(config).text()
+      expect(linked).toContain('"description": "https://example.test//instructions"')
+      expect(linked).toContain('"decoy": []')
+      expect(linked).toContain("current/instructions/*.md")
+    } finally {
+      await rm(worktree, { recursive: true, force: true })
+    }
+  })
+
+  test("records ownership for an adapter-created worktree config", async () => {
+    await mkdir("worktrees", { recursive: true })
+    const worktree = await mkdtemp(join("worktrees", "adapter-created-link-"))
+    const config = join(worktree, ".opencode", "opencode.json")
+    try {
+      await mkdir(join(worktree, ".git"))
+      await fakeHost({ get: () => ({ status: 200, body: { directory: worktree } }) })
+
+      const envelope = await moveSessionToClaimedWorktree(claimArgs(worktree), context(), okEnvelope())
+
+      expect(envelope.outcome).toBe("ok")
+      const ownership = JSON.parse(await Bun.file("project-link-ownership.json").text()) as { links: Record<string, { action: string; scope: string }> }
+      expect(ownership.links[resolve(config)]).toMatchObject({ action: "remove", scope: "worktree" })
+    } finally {
+      await rm(worktree, { recursive: true, force: true })
+    }
+  })
+
+  test("recovers ownership after a config write before the ownership hash", async () => {
+    await mkdir("worktrees", { recursive: true })
+    const worktree = await mkdtemp(join("worktrees", "adapter-link-recovery-"))
+    const config = join(worktree, ".opencode", "opencode.json")
+    const updated = JSON.stringify({ instructions: ["current/instructions/*.md"] }, null, 2) + "\n"
+    try {
+      await mkdir(join(worktree, ".git"))
+      await mkdir(join(worktree, ".opencode"), { recursive: true })
+      await Bun.write(config, updated)
+      await Bun.write("project-link-pending.json", JSON.stringify({ schema: 1, links: { [resolve(config)]: { action: "remove", before: null, original: null, updated, scope: "worktree" } } }) + "\n")
+      await fakeHost({ get: () => ({ status: 200, body: { directory: worktree } }) })
+
+      const envelope = await moveSessionToClaimedWorktree(claimArgs(worktree), context(), okEnvelope())
+
+      expect(envelope.outcome).toBe("ok")
+      const ownership = JSON.parse(await Bun.file("project-link-ownership.json").text()) as { links: Record<string, { action: string; scope: string }> }
+      expect(ownership.links[resolve(config)]).toMatchObject({ action: "remove", scope: "worktree" })
+      expect(await Bun.file("project-link-pending.json").exists()).toBe(false)
+    } finally {
+      await rm(worktree, { recursive: true, force: true })
+      await rm("project-link-pending.json", { force: true })
+    }
+  })
+
+  test("serializes ownership records for concurrent adapter-created configs", async () => {
+    await mkdir("worktrees", { recursive: true })
+    const worktrees = await Promise.all(Array.from({ length: 20 }, (_, index) => mkdtemp(join("worktrees", `adapter-concurrent-${index}-`))))
+    try {
+      await Promise.all(worktrees.map(async (worktree) => {
+        await mkdir(join(worktree, ".git"))
+        await ensureConductLink(resolve(worktree), new AbortController().signal)
+      }))
+
+      const ownership = JSON.parse(await Bun.file("project-link-ownership.json").text()) as { links: Record<string, { action: string; scope: string }> }
+      for (const worktree of worktrees) {
+        expect(ownership.links[resolve(worktree, ".opencode", "opencode.json")]).toMatchObject({ action: "remove", scope: "worktree" })
+      }
+    } finally {
+      await Promise.all(worktrees.map((worktree) => rm(worktree, { recursive: true, force: true })))
+    }
+  })
+
+  test("refuses an outside pending recovery path", async () => {
+    await mkdir("worktrees", { recursive: true })
+    const worktree = await mkdtemp(join("worktrees", "adapter-pending-outside-"))
+    const outside = join(".", "adapter-pending-outside.json")
+    const updated = JSON.stringify({ instructions: ["current/instructions/*.md"] }, null, 2) + "\n"
+    try {
+      await mkdir(join(worktree, ".git"))
+      await Bun.write(outside, updated)
+      await Bun.write("project-link-pending.json", JSON.stringify({ schema: 1, links: { [resolve(outside)]: { action: "remove", before: null, original: null, updated, scope: "worktree" } } }) + "\n")
+
+      await expect(ensureConductLink(resolve(worktree), new AbortController().signal)).rejects.toThrow("outside a managed worktree config")
+      expect(await Bun.file(outside).text()).toBe(updated)
+      const ownership = (await Bun.file("project-link-ownership.json").exists()
+        ? JSON.parse(await Bun.file("project-link-ownership.json").text())
+        : { links: {} }) as { links: Record<string, unknown> }
+      expect(ownership.links[resolve(outside)]).toBeUndefined()
+    } finally {
+      await rm(worktree, { recursive: true, force: true })
+      await rm(outside, { force: true })
+      await rm("project-link-pending.json", { force: true })
     }
   })
 

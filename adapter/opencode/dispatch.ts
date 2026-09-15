@@ -771,7 +771,7 @@ async function recordWorkerEvent(childRunner: DispatchRunner, binary: string, co
 // waiting for a failure that was not written. The detail names the refusing
 // predicate and the export digest so the failure is diagnosable from the
 // store alone.
-async function recordModelReadbackFailure(lane: AgentLane, packet: AgentLanePacket, refusal: { predicate: ReadbackRefusal; export_digest: string; export_bytes: number; message: string }, workerDirectory: string, options: { runner?: DispatchRunner; evidenceRunner?: DispatchRunner; concordBinary?: string; credentials?: CredentialStore; packetDigest?: string }, signal: AbortSignal, onRecorded?: () => void): Promise<string | null> {
+async function recordModelReadbackFailure(lane: AgentLane, packet: AgentLanePacket, refusal: { predicate: ReadbackRefusal; export_digest: string; export_bytes: number; message: string }, workerDirectory: string | undefined, options: { runner?: DispatchRunner; evidenceRunner?: DispatchRunner; concordBinary?: string; credentials?: CredentialStore; packetDigest?: string }, signal: AbortSignal, onRecorded?: () => void): Promise<string | null> {
   if (!options.packetDigest) return "model readback failure cannot be recorded without the dispatch packet digest"
   const cliRunner = options.evidenceRunner ?? options.runner ?? defaultRunner
   const binary = concordBinaryPath(options.concordBinary)
@@ -1047,15 +1047,6 @@ export async function computeHostPromptProvenance(laneId: string, cwd = process.
   return { digest: "sha256:" + Bun.SHA256.hash(manifest, "hex"), sources: sources.slice(0, 64) }
 }
 
-function unresolvedWorkerPromptProvenance(): HostProvenance {
-  const sources = [
-    { kind: "unenumerated" as const, path: "worker_session_directory_unresolved" },
-    ...UNENUMERATED_SURFACES,
-  ]
-  const manifest = sources.map(source => [source.kind, source.path ?? "", source.sha256 ?? ""].join("\n")).join("\n---\n")
-  return { digest: "sha256:" + Bun.SHA256.hash(manifest, "hex"), sources }
-}
-
 export async function dispatchWorker(packet: unknown, options: { signal?: AbortSignal; runner?: DispatchRunner; readbackRunner?: DispatchRunner; evidenceRunner?: DispatchRunner; binary?: string; concordBinary?: string; credentials?: CredentialStore; authorize?: DispatchAuthorizer; packetDigest?: string; sessionID?: string; windows?: DispatchWindows; workPins?: unknown[]; workerDirectory?: string } = {}): Promise<AgentResultEnvelope> {
   if (!validateAgentLanePacket(packet)) return errorEnvelope(null, isRecord(packet) ? packet as Partial<AgentLanePacket> : {}, "error", "invalid_input", "agent lane packet failed the closed packet schema", "retry_same_request")
   const lane = laneForPacket(packet)
@@ -1131,7 +1122,7 @@ export async function completeWorkerAttempt(
   lane: AgentLane,
   packet: AgentLanePacket,
   taskResult: string,
-  options: { signal?: AbortSignal; runner?: DispatchRunner; readbackRunner?: DispatchRunner; evidenceRunner?: DispatchRunner; binary?: string; concordBinary?: string; credentials?: CredentialStore; authorize?: DispatchAuthorizer; packetDigest?: string },
+  options: { signal?: AbortSignal; runner?: DispatchRunner; readbackRunner?: DispatchRunner; evidenceRunner?: DispatchRunner; binary?: string; concordBinary?: string; credentials?: CredentialStore; authorize?: DispatchAuthorizer; packetDigest?: string; workerDirectory?: string },
   signal: AbortSignal,
 ): Promise<AgentResultEnvelope> {
   // The wrapper carries the worker session identifier, so a body that is not a
@@ -1227,10 +1218,15 @@ async function completeWorkerSession(
 ): Promise<AgentResultEnvelope> {
   const binary = options.binary ?? "opencode"
   const readbackRunner = options.readbackRunner ?? options.runner ?? defaultExportRunner
-  // Resolve the worker's indexed directory at completion. The coordinator's
-  // directory is not a worker claim and must never stand in for this value.
-  const earlyObservation = await readWorkerSessionObservation(readbackRunner, binary, workerSessionID, signal, null)
-  const indexedWorkerDirectory = earlyObservation.directory
+  let workerDirectory = options.workerDirectory
+  let workerObservation: WorkerSessionObservation | null = null
+  // Direct callers without a dispatch window have no forwarded directory. Keep
+  // their readback path compatible, while dispatched completion uses the
+  // window-owned value without a session-index lookup.
+  if (workerDirectory === undefined) {
+    workerObservation = await readWorkerSessionObservation(readbackRunner, binary, workerSessionID, signal, null)
+    workerDirectory = workerObservation.directory ?? undefined
+  }
   let exported: { exitCode: number; stdout: string; stderr: string }
   try { exported = await readbackRunner.run([binary, "export", workerSessionID, "--sanitize"], "", signal) } catch (error) {
     return errorEnvelope(lane, packet, "error", "error", String(error), "reconcile_operation")
@@ -1242,26 +1238,15 @@ async function completeWorkerSession(
       export_bytes: Buffer.byteLength(exported.stdout),
       message: exported.stderr.slice(0, MAX_ERROR_BYTES) || "OpenCode session export failed without diagnostic output",
     }
-    const recorded = indexedWorkerDirectory === null
-      ? "worker session directory could not be resolved before readback"
-      : await recordModelReadbackFailure(lane, packet, refusal, indexedWorkerDirectory, options, signal, onRecorded)
+    const recorded = await recordModelReadbackFailure(lane, packet, refusal, workerDirectory, options, signal, onRecorded)
     const failure = readbackRefusalEnvelope(lane, packet, refusal)
     if (recorded) failure.error!.message = `${failure.error!.message}; terminal evidence write failed: ${recorded}`.slice(0, MAX_ERROR_BYTES)
     failure.session_id = workerSessionID
     return failure
   }
   const readbackResult = readExportSession(exported.stdout, workerSessionID)
-  const workerObservation = indexedWorkerDirectory !== null || earlyObservation.unreadable
-    ? earlyObservation
-    : await readWorkerSessionObservation(readbackRunner, binary, workerSessionID, signal, readSessionParent(exported.stdout, workerSessionID))
-  const workerDirectory = workerObservation.directory
-  if (workerDirectory === null && !workerObservation.unreadable) {
-    return errorEnvelope(lane, packet, "error", "invalid_input", "worker session directory could not be resolved; refusing to record provenance for an unknown prompt corpus", "reconcile_operation")
-  }
   if (!readbackResult.ok) {
-    const recorded = workerDirectory === null
-      ? "worker session directory could not be resolved"
-      : await recordModelReadbackFailure(lane, packet, readbackResult, workerDirectory, options, signal, onRecorded)
+    const recorded = await recordModelReadbackFailure(lane, packet, readbackResult, workerDirectory, options, signal, onRecorded)
     const failure = readbackRefusalEnvelope(lane, packet, readbackResult)
     if (recorded) failure.error!.message = `${failure.error!.message}; terminal evidence write failed: ${recorded}`.slice(0, MAX_ERROR_BYTES)
     failure.session_id = workerSessionID
@@ -1298,12 +1283,12 @@ async function completeWorkerSession(
   const cliRunner = options.evidenceRunner ?? options.runner ?? defaultRunner
   const cli = concordBinaryPath(options.concordBinary)
   const credentials = options.credentials ?? defaultCredentials
-  // An unreadable liveness surface must not block the core refusal path. Bind
-  // that uncertainty as unenumerated provenance instead of borrowing the
-  // coordinator directory, which could claim the wrong corpus.
-  const provenance = workerDirectory === null
-    ? unresolvedWorkerPromptProvenance()
-    : await computeHostPromptProvenance(lane.id, workerDirectory)
+  // The dispatch window owns the worker directory. The session observation is
+  // separate and supplies only the live-session evidence for abandoned close.
+  const provenance = await computeHostPromptProvenance(lane.id, workerDirectory)
+  if (workerObservation === null) {
+    workerObservation = await readWorkerSessionObservation(readbackRunner, binary, workerSessionID, signal, readSessionParent(exported.stdout, workerSessionID))
+  }
 
   // CD-0056 D7: the adapter is the only component that sees worker output, so
   // the report is admitted here. A report that is absent, unparseable, invalid,
@@ -1421,7 +1406,7 @@ async function completeWorkerSession(
     report_schema_version: REPORT_SCHEMA_VERSION,
     evidence_origin: "reported",
     evidence: terminal.report.evidence,
-    ...(workerDirectory !== null ? { worker_directory: workerDirectory } : {}),
+    ...(workerDirectory !== undefined ? { worker_directory: workerDirectory } : {}),
     assertion: terminalAssertion,
   }, signal)
   if (completionFailure) {

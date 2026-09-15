@@ -6,7 +6,7 @@
 import { afterAll, describe, expect, test } from "bun:test"
 import { configureHostLease } from "./host-lease"
 import ConcordAdapterPlugin from "./concord-plugin"
-import { type AgentLanePacket, type DispatchRunner } from "./dispatch"
+import { computeHostPromptProvenance, type AgentLanePacket, type DispatchRunner } from "./dispatch"
 import { DispatchWindows, TASK_TOOL_ID } from "./dispatch-window"
 import { agentLanes } from "./generated-agent-lanes"
 import { completeDispatchedWorker, failDispatchedWorker, type LaneCompletionDeps } from "./lane_completion"
@@ -98,8 +98,32 @@ describe("completeDispatchedWorker", () => {
     expect(output.output).toContain("<task_result>")
   })
 
-  // The directory reaches the core from the session index, never from the
-  // sanitized export, whose directory field is a redaction placeholder.
+  test("computes prompt provenance from the dispatch-window directory", async () => {
+    const windows = new DispatchWindows()
+    windows.open(SESSION, packet(), PACKET_DIGEST, undefined, process.cwd())
+    windows.bind(TASK_TOOL_ID, SESSION, {})
+    let dispatchInput: Record<string, unknown> | undefined
+    const runner: DispatchRunner = {
+      async run(argv, input) {
+        if (argv[1] === "export") return { exitCode: 0, stdout: exportedSession(), stderr: "" }
+        if (argv[1] === "session") return { exitCode: 0, stdout: sessionIndex("/different/worktree"), stderr: "" }
+        if (argv[1] === "worker-dispatch") dispatchInput = JSON.parse(input) as Record<string, unknown>
+        return { exitCode: 0, stdout: "", stderr: "" }
+      },
+    }
+    const output = { title: "verify lane", output: taskWrap(JSON.stringify(report())), metadata: {} }
+    await completeDispatchedWorker({ tool: TASK_TOOL_ID, sessionID: SESSION, callID: "call-provenance", args: {} }, output, {
+      windows,
+      credentials: testCredentials,
+      runner,
+      concordBinary: "concord",
+    })
+    const expected = await computeHostPromptProvenance(lane.id, process.cwd())
+    expect((dispatchInput?.host_provenance as { digest?: string } | undefined)?.digest).toBe(expected.digest)
+  })
+
+  // The directory reaches the core from the dispatch window, never from the
+  // sanitized export or the session index.
   const completionInputFor = async (directory: string, callID: string): Promise<Record<string, unknown> | undefined> => {
     const windows = new DispatchWindows()
     windows.open(SESSION, packet(), PACKET_DIGEST, undefined, process.cwd())
@@ -123,15 +147,14 @@ describe("completeDispatchedWorker", () => {
     return completionInput
   }
 
-  test("passes the indexed worker directory to worker-complete", async () => {
+  test("passes the dispatch-window worker directory to worker-complete", async () => {
     const completionInput = await completionInputFor("/claimed/worktree", "call-directory")
-    expect(completionInput?.worker_directory).toBe("/claimed/worktree")
+    expect(completionInput?.worker_directory).toBe(process.cwd())
   })
 
-  // A subagent session never appears in the session index, so resolving it
-  // directly yields nothing and the core refuses every completion. The parent
-  // is listed, and the worker runs in the parent's directory.
-  test("resolves the worker directory through the parent session", async () => {
+  // A subagent session need not appear in the session index. The dispatch
+  // window still supplies the worker directory to the completion event.
+  test("uses the dispatch-window directory despite parent observation", async () => {
     const windows = new DispatchWindows()
     windows.open(SESSION, packet(), PACKET_DIGEST, undefined, process.cwd())
     windows.bind(TASK_TOOL_ID, SESSION, {})
@@ -152,12 +175,10 @@ describe("completeDispatchedWorker", () => {
       runner,
       concordBinary: "concord",
     })
-    expect(completionInput?.worker_directory).toBe("/claimed/worktree")
+    expect(completionInput?.worker_directory).toBe(process.cwd())
   })
 
-  // Without a parent there is nothing to inherit, so the adapter sends no
-  // directory rather than inventing one.
-  test("sends no worker directory when neither the session nor a parent is listed", async () => {
+  test("uses the dispatch-window directory when neither session nor parent is listed", async () => {
     const windows = new DispatchWindows()
     windows.open(SESSION, packet(), PACKET_DIGEST, undefined, process.cwd())
     windows.bind(TASK_TOOL_ID, SESSION, {})
@@ -177,13 +198,12 @@ describe("completeDispatchedWorker", () => {
       runner,
       concordBinary: "concord",
     })
-    expect(completionInput).toBeUndefined()
-    expect(output.output).toContain("worker session directory could not be resolved")
+    expect(completionInput?.worker_directory).toBe(process.cwd())
   })
 
-  test("sends no worker directory when the index value is not a path", async () => {
+  test("ignores an invalid session-index directory", async () => {
     const completionInput = await completionInputFor(`[redacted:session-directory:${WORKER_SESSION}]`, "call-redacted")
-    expect(completionInput).toBeUndefined()
+    expect(completionInput?.worker_directory).toBe(process.cwd())
   })
 
   // An attempt the core refused to complete must not stay dispatched: an open
@@ -349,12 +369,11 @@ describe("host task failure", () => {
       windows.open(SESSION, packet(), PACKET_DIGEST, undefined, process.cwd())
       windows.bind(TASK_TOOL_ID, SESSION, {}, "call-cancel")
       const verbs: string[] = []
-       const options = deps(verbs, windows)
-       options.runner = { async run(argv) {
-         if (argv[1] === "session") return { exitCode: 0, stdout: sessionIndex(), stderr: "" }
-         return fault === "export-command"
-           ? { exitCode: 1, stdout: "", stderr: "export unavailable" }
-           : { exitCode: 0, stdout: "{", stderr: "" }
+      const options = deps(verbs, windows)
+      options.runner = { async run() {
+        return fault === "export-command"
+          ? { exitCode: 1, stdout: "", stderr: "export unavailable" }
+          : { exitCode: 0, stdout: "{", stderr: "" }
       } }
       options.evidenceRunner = { async run(argv, raw) {
         verbs.push(argv[1])
@@ -388,17 +407,14 @@ describe("host task failure", () => {
     windows.bind(TASK_TOOL_ID, SESSION, {}, "call-cancel")
     const verbs: string[] = []
     const options = deps(verbs, windows)
-     options.runner = { async run(argv) {
-       if (argv[1] === "session") return { exitCode: 0, stdout: sessionIndex(), stderr: "" }
-       return { exitCode: 1, stdout: "", stderr: "export unavailable" }
-     } }
+    options.runner = { async run() { return { exitCode: 1, stdout: "", stderr: "export unavailable" } } }
     options.evidenceRunner = { async run(argv) {
       verbs.push(argv[1])
       return { exitCode: 1, stdout: "", stderr: "write unavailable" }
     } }
     await failDispatchedWorker(failedEvent(), options)
     await failDispatchedWorker(failedEvent(), options)
-     expect(verbs).toEqual([])
+    expect(verbs).toEqual(["worker-dispatch"])
     expect(windows.inFlight(SESSION, "call-cancel")).not.toBeNull()
     expect(() => windows.open(SESSION, packet(), PACKET_DIGEST, undefined, process.cwd())).toThrow()
   })

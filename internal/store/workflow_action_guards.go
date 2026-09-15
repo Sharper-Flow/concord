@@ -347,6 +347,16 @@ func guardRecoveryEvidenceBind(ctx context.Context, q queryer, workID string, de
 // contract whose law revision is stale or domain-overlapped, and records that
 // recovery for the later validation stages.
 func guardSupersedeContractRecovery(g *workflowActionGuardContext) error {
+	activeContracts, countErr := activeWorkflowContractCount(g.ctx, g.tx, g.request.WorkID, "workflow_action")
+	if countErr != nil {
+		return countErr
+	}
+	if activeContracts > 1 {
+		// Recovery owns the ambiguous projection. The normal authority check
+		// cannot run first because it deliberately refuses duplicate state.
+		g.staleRecovery = true
+		return nil
+	}
 	if err := checkWorkflowLawRevisionStalenessTx(g.ctx, g.tx, g.request.WorkID); err != nil {
 		var failure *Failure
 		if !failureAs(err, &failure) || (failure.Kind != KindStaleLawRevision && failure.Kind != KindDomainOverlap) {
@@ -953,6 +963,10 @@ func nativeRunFromSemanticEvents(semantic []Event) *NativeRunReport {
 // the ordered completion gate runs and workflow.completed is appended here.
 func applyCompleteWorkflowActionTx(ctx context.Context, tx *sql.Tx, registry DefinitionRegistry, entry RegisteredDefinition, request WorkflowActionExecutionRequest, currentStep, actor string, payload json.RawMessage, prefixEvents []Event) (WorkflowActionExecutionResult, error) {
 	var result WorkflowActionExecutionResult
+	startSeq, err := operationEventSequence(ctx, tx)
+	if err != nil {
+		return result, err
+	}
 	// The completion fold's requireActor refuses an event actor whose tuple
 	// is not recorded, and the actor-recording events the guard minted are
 	// the only writer that can land them (#909). Append and fold them first,
@@ -979,14 +993,10 @@ func applyCompleteWorkflowActionTx(ctx context.Context, tx *sql.Tx, registry Def
 	if err := CompleteWorkflowTxWithRegistry(ctx, tx, registry, completion); err != nil {
 		return result, err
 	}
-	result.EventIDs = make([]string, 0, len(prefixEvents)+len(bindingEvents)+1)
-	for _, prefix := range prefixEvents {
-		result.EventIDs = append(result.EventIDs, prefix.EventID)
+	result.EventIDs, err = operationEventIDsSince(ctx, tx, startSeq)
+	if err != nil {
+		return result, err
 	}
-	for _, binding := range bindingEvents {
-		result.EventIDs = append(result.EventIDs, binding.EventID)
-	}
-	result.EventIDs = append(result.EventIDs, completion.EventID)
 	result.ChangedRefs = []string{request.WorkID}
 	result.OperationID = request.OperationID
 	_ = tx.QueryRowContext(ctx, `SELECT version FROM work_items WHERE id=?`, request.WorkID).Scan(&result.ResultingVersion)

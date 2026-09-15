@@ -109,8 +109,15 @@ func readWorkflowSelfRepair(ctx context.Context, q queryer, workID string, contr
 }
 
 func workflowSelfRepairExemptTx(ctx context.Context, tx *sql.Tx, workID string) (bool, error) {
+	contractVersion, err := activeWorkflowContractVersion(ctx, tx, workID, "workflow_self_repair")
+	if err == sql.ErrNoRows {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
 	var raw string
-	err := tx.QueryRowContext(ctx, `SELECT self_repair_json FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL ORDER BY contract_version DESC LIMIT 1`, workID).Scan(&raw)
+	err = tx.QueryRowContext(ctx, `SELECT self_repair_json FROM workflow_contracts WHERE work_id=? AND contract_version=? AND superseded_by IS NULL`, workID, contractVersion).Scan(&raw)
 	if err == sql.ErrNoRows {
 		return false, nil
 	}

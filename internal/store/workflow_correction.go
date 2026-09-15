@@ -261,7 +261,7 @@ func workflowLatestComparableHealthySequence(ctx context.Context, q queryer, wor
 		if !predicates[verdict.PredicateID] || verdict.ContractVersion <= 0 || verdict.ContractVersion > contractVersion {
 			continue
 		}
-		if verdict.ContractVersion < contractVersion && !workflowPredicateHistoryCompatible(history, verdict.ContractVersion, contractVersion, verdict.PredicateID, verdict) {
+		if verdict.ContractVersion < contractVersion && (!workflowPredicateHistoryCompatible(history, verdict.ContractVersion, contractVersion, verdict.PredicateID, verdict) || !workflowContractDefinitionPinsCompatible(ctx, q, workID, verdict.ContractVersion, contractVersion)) {
 			continue
 		}
 		latest[verdict.PredicateID] = verdictAtSequence{seq: seq, verdict: verdict}
@@ -386,7 +386,7 @@ func workflowLatestVerdictSequences(ctx context.Context, q queryer, workID strin
 		if verdict.ContractVersion <= 0 || verdict.ContractVersion > contractVersion || seen[verdict.PredicateID] {
 			continue
 		}
-		if verdict.ContractVersion < contractVersion && !workflowPredicateHistoryCompatible(history, verdict.ContractVersion, contractVersion, verdict.PredicateID, verdict) {
+		if verdict.ContractVersion < contractVersion && (!workflowPredicateHistoryCompatible(history, verdict.ContractVersion, contractVersion, verdict.PredicateID, verdict) || !workflowContractDefinitionPinsCompatible(ctx, q, workID, verdict.ContractVersion, contractVersion)) {
 			continue
 		}
 		seen[verdict.PredicateID] = true

@@ -634,7 +634,7 @@ func queryLauncherDomains(ctx context.Context, q queryer, req LauncherProductReq
 	lawRows.Close()
 	workCounts := map[string]int{}
 	workRows, err := q.QueryContext(ctx, `
-		SELECT b.home_domain_id, count(*) FROM workflow_contracts c
+		SELECT b.home_domain_id, count(DISTINCT c.work_id) FROM workflow_contracts c
 		JOIN workflow_architecture_bindings b ON b.work_id=c.work_id AND b.contract_version=c.contract_version
 		JOIN work_items w ON w.id=c.work_id
 		WHERE c.superseded_by IS NULL AND w.lifecycle NOT IN ('completed','cancelled','superseded') AND b.product_id=?

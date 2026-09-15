@@ -58,10 +58,13 @@ export class DispatchWindows {
     if (this.#open.has(sessionID) || this.#inFlight.has(sessionID)) {
       throw new DispatchWindowError(`session ${sessionID} already holds an open dispatch window or an in-flight attempt`)
     }
-    if (!isResolvableDirectory(workerDirectory)) {
+    // Store the resolved path, not the caller's alias. The claim identity must
+    // stay fixed if a symlink changes before the host invokes Task.
+    const canonicalWorkerDirectory = canonicalDirectory(workerDirectory)
+    if (canonicalWorkerDirectory === null) {
       throw new DispatchWindowError("worker dispatch requires a non-empty, resolvable worker directory")
     }
-    this.#open.set(sessionID, { packet, packetDigest, workPins, workerDirectory })
+    this.#open.set(sessionID, { packet, packetDigest, workPins, workerDirectory: canonicalWorkerDirectory })
   }
 
   // close discards a window whose dispatch failed before the worker started, so

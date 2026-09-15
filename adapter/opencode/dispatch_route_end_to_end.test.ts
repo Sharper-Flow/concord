@@ -310,7 +310,7 @@ routeDeclaration("dispatches a real store route through Task completion and work
 
     const routed = laneDispatchRequest({ operation: "workflow_action", input: { work_id: workID, expected_version: 10, action_id: "dispatch_worker", idempotency_key: "e2e-dispatch", fields: { lane_id: "implement" } } })
     expect(routed).toEqual({ work_id: workID, expected_version: 10, idempotency_key: "e2e-dispatch", lane_id: "implement" })
-    const windows = new DispatchWindows(() => worktree)
+    const windows = new DispatchWindows()
     let dispatchResponse: JSONRecord | undefined
     const dispatchResult = await dispatchLaneWorker(routed as any, {
       context,
@@ -324,7 +324,6 @@ routeDeclaration("dispatches a real store route through Task completion and work
       },
       credentials: { async getPrivateKey() { return PRIVATE_SEED } } satisfies CredentialStore,
       windows,
-      executionDirectory: () => worktree,
     })
     expect(dispatchResult.outcome).toBe("ok")
     expect(dispatchResult.dispatch_state).toBe("awaiting_worker")
@@ -332,7 +331,7 @@ routeDeclaration("dispatches a real store route through Task completion and work
     expect(await hostControlPlane().taskScope("worker-session")).toBe("managed")
     expect(windows.has(SESSION_ID)).toBe(true)
     const taskArgs: Record<string, unknown> = { subagent_type: "general", prompt: "model input", description: "model task" }
-    windows.bind(TASK_TOOL_ID, SESSION_ID, taskArgs)
+    await windows.bind(TASK_TOOL_ID, SESSION_ID, taskArgs, undefined, async () => worktree)
     const packet = JSON.parse(taskArgs.prompt as string) as JSONRecord
     expect(taskArgs.subagent_type).toBe("concord-implement")
     expect(packet.step_id).toBe("repair")

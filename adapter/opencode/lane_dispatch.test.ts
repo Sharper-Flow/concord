@@ -206,7 +206,11 @@ test("happy path: continuity → packet → core ok → spawn with stubbed runne
   expect(windows.has("session-1")).toBe(true)
 })
 
-test("a host directory mismatch refuses before core dispatch authorization", async () => {
+// Where the worker will run must be known before the core authorizes the
+// dispatch. The directory itself is the host's answer and is not compared
+// against the host process directory, which is not where Task runs; the window
+// re-reads it at bind time to catch a session that moved in between.
+test("an unreadable session directory refuses before core dispatch authorization", async () => {
   const seen: string[] = []
   const invoke = async (toolName: string, args: { operation: string; input?: Record<string, unknown> }): Promise<unknown> => {
     const key = `${toolName}.${args.operation}`
@@ -216,14 +220,22 @@ test("a host directory mismatch refuses before core dispatch authorization", asy
     throw new Error(`unexpected ${key}`)
   }
 
+  hostControlPlane().bind({
+    get: async ({ path }) => ({
+      data: { id: path?.id, metadata: { [MANAGED_TASK_SCOPE_KEY]: "managed" } },
+      response: new Response(null, { status: 200 }),
+    }),
+    post: async () => { throw new Error("dispatch does not move the host session") },
+  })
+
   const result = await dispatchLaneWorker(
     { work_id: WORK_ID, expected_version: 3, idempotency_key: "directory-mismatch", lane_id: lane.id },
-    { context: contextFor(), invoke: invoke as any, executionDirectory: () => "/another/worktree" },
+    { context: contextFor(), invoke: invoke as any },
   )
 
   expect(result.outcome).toBe("error")
-  expect(result.error?.kind).toBe("unauthorized_dispatch")
-  expect(result.error?.message).toContain("active claimed worktree")
+  expect(result.error?.kind).toBe("transport_failure")
+  expect(result.error?.message).toContain("directory")
   expect(seen).not.toContain("concord_work_transition.workflow_action")
 })
 
@@ -365,6 +377,6 @@ test("dispatchLaneWorker retains the core's packet digest for completion", async
   // CD-0067 D6: the adapter never computes the digest. The value the core
   // recorded is carried across the host's Task call and quoted by the dispatch
   // assertion at completion.
-  windows.bind(TASK_TOOL_ID, "session-1", { subagent_type: "general", prompt: "x" })
+  await windows.bind(TASK_TOOL_ID, "session-1", { subagent_type: "general", prompt: "x" }, undefined, async () => process.cwd())
   expect(windows.takeInFlight("session-1")?.packetDigest).toBe(CORE_PACKET_DIGEST)
 })

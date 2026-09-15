@@ -105,6 +105,12 @@ describe("plugin entry registers the dispatch window hook", () => {
     }
     expect(typeof plugin["tool.execute.before"]).toBe("function")
 
+    // The bind reads back where the host runs this session, so the fixture host
+    // must answer with the directory the window recorded.
+    hostControlPlane().bind({
+      get: async () => ({ data: { id: "session-plugin", directory: process.cwd() }, response: new Response(null, { status: 200 }) }),
+      post: async () => { throw new Error("Task admission cannot write host state") },
+    })
     dispatchWindows().open("session-plugin", packet, "", undefined, process.cwd())
     const output = { args: { subagent_type: "general", prompt: "whatever I like", task_id: "old" } }
     await plugin["tool.execute.before"]({ tool: TASK_TOOL_ID, sessionID: "session-plugin", callID: "call-1" }, output)

@@ -34,7 +34,9 @@ function host(records: Session[], persist = true) {
   return { sessions, reads, writes, client, plugin: () => ConcordAdapterPlugin({ client: { _client: client } as never }) }
 }
 
-const session = (id: string, managed = false): Session => ({ id, directory: "/synthetic/worktree", metadata: managed ? { [SCOPE_KEY]: "managed" } : {} })
+// The directory must resolve on disk: the dispatch window compares the claimed
+// worktree against the directory the host reports for the session.
+const session = (id: string, managed = false): Session => ({ id, directory: process.cwd(), metadata: managed ? { [SCOPE_KEY]: "managed" } : {} })
 const task = (sessionID: string) => ({ tool: "task", sessionID, callID: "scope-call" })
 const args = (): { subagent_type: string; prompt: string; description: string; task_id?: string } => ({ subagent_type: "general", prompt: "Read the bounded source", description: "Read source", task_id: "prior-host-worker" })
 

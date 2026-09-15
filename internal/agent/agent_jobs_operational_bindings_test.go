@@ -118,6 +118,7 @@ func bindAJ8GroundTruthReclamation(t *testing.T, sc jobScenario) jobObservation 
 	gitRun(t, worktreePath, "add", "done.md")
 	gitRun(t, worktreePath, "commit", "-m", "work-done change")
 	gitRun(t, repoRoot, "merge", "--ff-only", "work/work-done")
+	gitRun(t, repoRoot, "update-ref", "refs/remotes/origin/main", "HEAD")
 	if dirty := gitRun(t, worktreePath, "status", "--porcelain"); dirty != "" {
 		t.Fatalf("worktree is not clean before reclamation: %q", dirty)
 	}

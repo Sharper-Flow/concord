@@ -389,8 +389,8 @@ func claimWorktreeRawTx(ctx context.Context, tx *sql.Tx, dataPath string, req Wo
 }
 
 // WorktreeReclaimRequest reclaims a worktree from git facts: the tree must be
-// clean, the head merged into the default branch, and no native remove may be
-// forced. A stale Concord projection never overrides stronger git truth.
+// clean, the branch must be durable in a remote ref, and no native remove may
+// be forced. A stale Concord projection never overrides stronger git truth.
 type WorktreeReclaimRequest struct {
 	WorkID          string
 	ProjectID       string
@@ -412,7 +412,7 @@ type WorktreeReclaimRequest struct {
 	// keeps the gate. The git safety gates are unaffected by this field.
 	OperatorApprovalRef string
 	// Destructive declares that the consumed approval also covers discarding
-	// the git safety gates: the clean-tree and merged-branch checks are
+	// the git safety gates: the clean-tree and durable-branch checks are
 	// skipped and the native remove is forced. It requires a non-empty
 	// OperatorApprovalRef; the surface guarantees the pairing and the store
 	// refuses the combination that would skip gates unapproved.
@@ -649,7 +649,7 @@ func reclaimWorktreeRawTx(ctx context.Context, tx *sql.Tx, req WorktreeReclaimRe
 	}
 
 	// A destructive removal runs under its consumed operator approval: the
-	// clean-tree and merged-branch gates are skipped and the native remove
+	// clean-tree and durable-branch gates are skipped and the native remove
 	// is forced (CD-0096 D3 Destroy).
 	if req.Destructive {
 		facts := jsonMustMarshal(map[string]any{"forced": true, "operator_override": req.OperatorApprovalRef})
@@ -663,7 +663,7 @@ func reclaimWorktreeRawTx(ctx context.Context, tx *sql.Tx, req WorktreeReclaimRe
 	}
 
 	// Derive git facts. Reclamation is refused unless the tree is clean and
-	// the head is merged into the default branch. The verified reclamation
+	// the branch is durable in a remote ref. The verified reclamation
 	// event lands before the native remove: a stale directory left by a
 	// failed remove holds no authority, while a removed worktree with an
 	// active projection would.
@@ -679,7 +679,7 @@ func reclaimWorktreeRawTx(ctx context.Context, tx *sql.Tx, req WorktreeReclaimRe
 		return out, newFailure(KindInvalidOperation, op, "worktree tree is dirty", false, recovery)
 	}
 	defaultRef := req.DefaultRef
-	if defaultRef == "" {
+	if req.RequireUnstarted && defaultRef == "" {
 		refOut, refErr := runner.Run(ctx, repoRoot, "symbolic-ref", "refs/remotes/origin/HEAD")
 		if refErr != nil || strings.TrimSpace(string(refOut)) == "" {
 			return out, newFailure(KindGitUnreachable, op, "cannot resolve the default branch", false, "set origin/HEAD or supply the merge target ref")
@@ -690,15 +690,16 @@ func reclaimWorktreeRawTx(ctx context.Context, tx *sql.Tx, req WorktreeReclaimRe
 		if err := branchHasNoCommitsBeyond(ctx, runner, repoRoot, entry.Branch, defaultRef, op); err != nil {
 			return out, err
 		}
-	} else if err := branchIsMergedInto(ctx, runner, repoRoot, entry.Branch, defaultRef, op); err != nil {
+	} else if err := branchIsDurable(ctx, runner, repoRoot, entry.Branch, op); err != nil {
 		return out, err
 	}
 
-	reclaimFacts := map[string]any{"clean_tree": true, "default_ref": defaultRef}
+	reclaimFacts := map[string]any{"clean_tree": true}
 	if req.RequireUnstarted {
+		reclaimFacts["default_ref"] = defaultRef
 		reclaimFacts["commits_beyond"] = 0
 	} else {
-		reclaimFacts["head_reachable"] = true
+		reclaimFacts["remote_reachable"] = true
 	}
 	if err := appendReclaimedTx(ctx, tx, req, setID, entry.ClaimOpID, now, jsonMustMarshal(reclaimFacts)); err != nil {
 		return out, err
@@ -706,12 +707,10 @@ func reclaimWorktreeRawTx(ctx context.Context, tx *sql.Tx, req WorktreeReclaimRe
 	if _, err := runner.Run(ctx, repoRoot, "worktree", "remove", entry.Path); err != nil {
 		return out, wrapFailure(KindGitUnreachable, op, "reclaimed in Concord but native removal failed", true, "remove the worktree manually; the projection already records reclamation", err)
 	}
-	// -D, not -d: this Product squash-merges, so a reclaimed branch is
-	// usually not an ancestor of the default ref and git's own -d check
-	// would refuse it. branchIsMergedInto above is the authority that the
-	// branch is merged, and it recognizes a squash merge that -d cannot.
+	// -D, not -d: the durability gate above checks remote refs, while git's
+	// own -d check tests branch ancestry.
 	if _, err := runner.Run(ctx, repoRoot, "branch", "-D", "--", entry.Branch); err != nil {
-		return out, wrapFailure(KindGitUnreachable, op, "reclaimed in Concord but merged branch deletion failed", true, "delete the merged branch manually; the projection already records reclamation", err)
+		return out, wrapFailure(KindGitUnreachable, op, "reclaimed in Concord but branch deletion failed", true, "delete the branch manually; the projection already records reclamation", err)
 	}
 	return worktreeEntryAfterReclaimTx(ctx, tx, req.WorkID, req.ProjectID)
 }
@@ -854,31 +853,20 @@ func probeWorktree(ctx context.Context, runner GitRunner, repoRoot, path, branch
 	return true, worktreeFacts{branch: branch, headSHA: head, repositoryID: canonicalRoot}, nil
 }
 
-// branchIsMergedInto reports whether branch is already contained in defaultRef,
-// answering by tree identity rather than commit reachability.
-//
-// Commit reachability is the wrong question under a squash merge. Squashing
-// rewrites a branch's commits into one new commit on the default branch, so the
-// original branch tip never becomes an ancestor of it. A repository that permits
-// squash merge only — as GitHub's merge queue commonly enforces — therefore makes
-// `merge-base --is-ancestor` refuse every branch that actually merged.
-//
-// Merging a contained branch adds nothing, so the merged tree equals the default
-// ref's own tree. That equality holds for squash, rebase, and fast-forward alike,
-// because all three land the same content.
-func branchIsMergedInto(ctx context.Context, runner GitRunner, repoRoot, branch, defaultRef, op string) error {
-	mergedTree, mergeErr := runner.Run(ctx, repoRoot, "merge-tree", "--write-tree", defaultRef, branch)
-	if mergeErr != nil {
-		// A non-zero exit means the merge conflicts, so the branch carries
-		// content the default ref does not hold. It is not merged.
-		return newFailure(KindInvalidOperation, op, "worktree branch does not merge cleanly into "+defaultRef, false, "merge the branch before reclaiming")
+// branchIsDurable reports whether every commit reachable from branch is also
+// reachable from at least one local remote-tracking ref. It protects the sole
+// copy of a commit without requiring the branch to merge cleanly into main.
+func branchIsDurable(ctx context.Context, runner GitRunner, repoRoot, branch, op string) error {
+	countOut, err := runner.Run(ctx, repoRoot, "rev-list", "--count", branch, "--not", "--remotes")
+	if err != nil {
+		return wrapFailure(KindGitUnreachable, op, "cannot count commits not reachable from remote refs for "+branch, true, "retry once the repository is reachable", err)
 	}
-	defaultTree, treeErr := runner.Run(ctx, repoRoot, "rev-parse", defaultRef+"^{tree}")
-	if treeErr != nil {
-		return newFailure(KindGitUnreachable, op, "cannot resolve the tree of "+defaultRef, false, "retry once the repository is reachable")
+	count, parseErr := strconv.Atoi(strings.TrimSpace(string(countOut)))
+	if parseErr != nil || count < 0 {
+		return newFailure(KindGitUnreachable, op, "local Git returned an invalid durable commit count for "+branch, false, "repair the repository refs before reclaiming")
 	}
-	if firstLine(mergedTree) != firstLine(defaultTree) {
-		return newFailure(KindInvalidOperation, op, "worktree head is not merged into "+defaultRef, false, "merge the branch before reclaiming")
+	if count > 0 {
+		return newFailure(KindInvalidOperation, op, "worktree branch holds "+strconv.Itoa(count)+" commit(s) not reachable from remote refs", false, "push or otherwise preserve the commits before reclaiming")
 	}
 	return nil
 }
@@ -898,17 +886,6 @@ func branchHasNoCommitsBeyond(ctx context.Context, runner GitRunner, repoRoot, b
 		return newFailure(KindInvalidOperation, op, "worktree branch holds "+count+" commit(s) beyond "+defaultRef, false, "merge or remove the commits before reclaiming, or obtain an operator-approved destroy")
 	}
 	return nil
-}
-
-// firstLine returns the first line of git output with surrounding space removed.
-// `merge-tree --write-tree` prints the tree object id on its own first line and
-// may print more after it.
-func firstLine(out []byte) string {
-	text := strings.TrimSpace(string(out))
-	if index := strings.IndexByte(text, '\n'); index >= 0 {
-		return strings.TrimSpace(text[:index])
-	}
-	return text
 }
 
 func jsonMustMarshal(v any) json.RawMessage {
@@ -1514,7 +1491,7 @@ func classifyWorktreeContent(ctx context.Context, q queryer, runner GitRunner, e
 			rows = append(rows, WorktreeDrift{Class: WorktreeDriftUncommittedContent, ProjectID: entry.projectID, WorkID: entry.workID, Path: entry.path, ClaimState: worktreeStateVerified, Lifecycle: lifecycle, RecoveryAction: WorktreeRecoveryInspect, Risk: "uncommitted changes"})
 			riskPaths[entry.path] = true
 		}
-		countOut, countErr := runner.Run(ctx, repoRoot, "rev-list", "--count", "--not", "--remotes", entry.branch)
+		countOut, countErr := runner.Run(ctx, repoRoot, "rev-list", "--count", entry.branch, "--not", "--remotes")
 		if countErr != nil {
 			return nil, nil, wrapFailure(KindGitUnreachable, "worktree_audit", "cannot count unpushed commits for "+entry.branch, true, "retry once the repository is reachable", countErr)
 		}

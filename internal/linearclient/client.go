@@ -80,8 +80,8 @@ type CreateIssueInput struct {
 
 // UpdateIssueInput carries the mutable fields the drain synchronizes.
 type UpdateIssueInput struct {
-	Title       string `json:"title"`
-	Description string `json:"description"`
+	Title       string `json:"title,omitempty"`
+	Description string `json:"description,omitempty"`
 	ProjectID   string `json:"projectId,omitempty"`
 	StatusID    string `json:"stateId,omitempty"`
 }

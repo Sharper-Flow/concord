@@ -1061,7 +1061,7 @@ func (s *Store) claimLinearOperations(ctx context.Context, productID string, lim
 	if err := enterFold(ctx, tx); err != nil {
 		return nil, err
 	}
-	rows, err := tx.QueryContext(ctx, `SELECT operation_id FROM linear_outbox WHERE state=? AND (?='' OR json_extract(payload, '$.product_id')=? OR json_type(payload, '$.product_id') IS NULL) ORDER BY created_at LIMIT ?`, LinearOutboxQueued, productID, productID, limit)
+	rows, err := tx.QueryContext(ctx, `SELECT operation_id FROM linear_outbox WHERE state=? AND (?='' OR json_extract(payload, '$.product_id')=? OR json_type(payload, '$.product_id') IS NULL) ORDER BY created_at, rowid LIMIT ?`, LinearOutboxQueued, productID, productID, limit)
 	if err != nil {
 		return nil, wrapFailure(KindUnavailable, "linear_outbox_claim", "cannot read the queue", true, "retry once the database is readable", err)
 	}
@@ -1110,6 +1110,16 @@ func (s *Store) claimLinearOperations(ctx context.Context, productID string, lim
 // CompleteLinearOperation atomically marks an in_flight operation done and
 // records the remote identity on its link.
 func (s *Store) CompleteLinearOperation(ctx context.Context, operationID string, identity LinearRemoteIdentity) error {
+	return s.completeLinearOperation(ctx, operationID, &identity)
+}
+
+// CompleteSupersededLinearOperation marks an older in-flight update done while
+// leaving the link owned by the newer operation unchanged.
+func (s *Store) CompleteSupersededLinearOperation(ctx context.Context, operationID string) error {
+	return s.completeLinearOperation(ctx, operationID, nil)
+}
+
+func (s *Store) completeLinearOperation(ctx context.Context, operationID string, identity *LinearRemoteIdentity) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return wrapFailure(KindUnavailable, "linear_outbox_complete", "cannot open completion transaction", true, "retry once the database is writable", err)
@@ -1130,8 +1140,10 @@ func (s *Store) CompleteLinearOperation(ctx context.Context, operationID string,
 	if _, err := tx.ExecContext(ctx, `UPDATE linear_outbox SET state=?, last_error='', updated_at=? WHERE operation_id=? AND state=?`, LinearOutboxDone, s.now().UTC().Format(time.RFC3339Nano), operationID, LinearOutboxInFlight); err != nil {
 		return wrapFailure(KindUnavailable, "linear_outbox_complete", "cannot mark operation done", true, "retry once the database is writable", err)
 	}
-	if err := completeLinearLinkTx(ctx, tx, workID, opKind, identity, s.now().UTC().Format(time.RFC3339Nano)); err != nil {
-		return err
+	if identity != nil {
+		if err := completeLinearLinkTx(ctx, tx, workID, opKind, *identity, s.now().UTC().Format(time.RFC3339Nano)); err != nil {
+			return err
+		}
 	}
 	if err := leaveFold(ctx, tx); err != nil {
 		return err
@@ -1140,6 +1152,33 @@ func (s *Store) CompleteLinearOperation(ctx context.Context, operationID string,
 		return wrapFailure(KindUnavailable, "linear_outbox_complete", "cannot commit completed operation", true, "retry once the database is writable", err)
 	}
 	return nil
+}
+
+// HasNewerLinearIssueUpdate reports whether a non-failed update for the same
+// work item was queued after operationID. The rowid is the persisted
+// insertion order, so equal created_at values keep the order the operations
+// were enqueued in; a random operation id would order them arbitrarily.
+func (s *Store) HasNewerLinearIssueUpdate(ctx context.Context, operationID string) (bool, error) {
+	var workID, opKind string
+	var rowID int64
+	err := s.db.QueryRowContext(ctx, `SELECT work_id, op_kind, rowid FROM linear_outbox WHERE operation_id=?`, operationID).Scan(&workID, &opKind, &rowID)
+	if err == sql.ErrNoRows {
+		return false, newFailure(KindUnknownScope, "linear_outbox_staleness", "queued operation does not exist", false, "supply an existing operation id")
+	}
+	if err != nil {
+		return false, wrapFailure(KindUnavailable, "linear_outbox_staleness", "cannot read queued operation", true, "retry once the database is readable", err)
+	}
+	if opKind != LinearOpIssueUpdate {
+		return false, nil
+	}
+	var newer bool
+	if err := s.db.QueryRowContext(ctx, `SELECT EXISTS(
+		SELECT 1 FROM linear_outbox
+		WHERE work_id=? AND op_kind=? AND state<>? AND rowid>?
+	)`, workID, LinearOpIssueUpdate, LinearOutboxFailed, rowID).Scan(&newer); err != nil {
+		return false, wrapFailure(KindUnavailable, "linear_outbox_staleness", "cannot inspect newer issue updates", true, "retry once the database is readable", err)
+	}
+	return newer, nil
 }
 
 func completeLinearLinkTx(ctx context.Context, tx *sql.Tx, workID, opKind string, identity LinearRemoteIdentity, now string) error {

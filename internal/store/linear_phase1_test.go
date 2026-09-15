@@ -581,3 +581,55 @@ func TestComposeLinearIssueBodyOmitsAbsentSections(t *testing.T) {
 		t.Fatalf("body = %q, want trimmed sections", got)
 	}
 }
+
+func TestHasNewerLinearIssueUpdateUsesEnqueueOrderOnEqualTimestamps(t *testing.T) {
+	s := openTemp(t)
+	ctx := context.Background()
+	setupLinearProduct(t, s, "tie-product")
+	seedLinearWorkItem(t, s, "tie-work", "tie-product-project", "Tie title", "Tie value")
+	payload, err := json.Marshal(map[string]any{"client_uuid": "tie-client", "product_id": "tie-product", "title": "tie title", "description": "tie description", "team_id": "team-uuid-1", "connection_version": 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The later update carries the lexically smaller operation id, so any
+	// id-based tiebreak would classify it as the stale one.
+	if err := s.EnqueueLinearOperation(ctx, LinearOutboxEntry{OperationID: "z-older-op", WorkID: "tie-work", OpKind: LinearOpIssueUpdate, IdempotencyKey: "tie-older", Payload: payload}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.EnqueueLinearOperation(ctx, LinearOutboxEntry{OperationID: "a-newer-op", WorkID: "tie-work", OpKind: LinearOpIssueUpdate, IdempotencyKey: "tie-newer", Payload: payload}); err != nil {
+		t.Fatal(err)
+	}
+	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := enterFold(ctx, tx); err != nil {
+		tx.Rollback()
+		t.Fatal(err)
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE linear_outbox SET created_at='2026-09-15T00:00:00Z'`); err != nil {
+		tx.Rollback()
+		t.Fatal(err)
+	}
+	if err := leaveFold(ctx, tx); err != nil {
+		tx.Rollback()
+		t.Fatal(err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	older, err := s.HasNewerLinearIssueUpdate(ctx, "z-older-op")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !older {
+		t.Fatal("first-enqueued operation with equal created_at must report a newer update")
+	}
+	newer, err := s.HasNewerLinearIssueUpdate(ctx, "a-newer-op")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if newer {
+		t.Fatal("last-enqueued operation with equal created_at must not report a newer update")
+	}
+}

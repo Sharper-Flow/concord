@@ -5776,6 +5776,14 @@ const GeneratedPayloadSchemaDocument = `{
             }
           ]
         },
+        "driving_sessions": {
+          "items": {
+            "$ref": "#/$defs/work_pin_driving_session"
+          },
+          "maxItems": 16,
+          "type": "array",
+          "uniqueItems": true
+        },
         "lifecycle": {
           "$ref": "#/$defs/lifecycle"
         },
@@ -5870,6 +5878,7 @@ const GeneratedPayloadSchemaDocument = `{
         "step",
         "attempt",
         "pending_operator_decision",
+        "driving_sessions",
         "watermark",
         "next_valid_intents"
       ],
@@ -5896,6 +5905,27 @@ const GeneratedPayloadSchemaDocument = `{
         "epoch",
         "lane",
         "state"
+      ],
+      "type": "object"
+    },
+    "work_pin_driving_session": {
+      "additionalProperties": false,
+      "properties": {
+        "last_acted_at": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "last_action_id": {
+          "$ref": "#/$defs/reference"
+        },
+        "session_ref": {
+          "$ref": "#/$defs/reference"
+        }
+      },
+      "required": [
+        "session_ref",
+        "last_action_id",
+        "last_acted_at"
       ],
       "type": "object"
     },

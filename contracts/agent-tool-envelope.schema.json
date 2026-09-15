@@ -1173,6 +1173,26 @@
         }
       }
     },
+    "interveningAction": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "action_id",
+        "session_ref"
+      ],
+      "properties": {
+        "action_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "session_ref": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        }
+      }
+    },
     "nextIntent": {
       "type": "object",
       "additionalProperties": false,
@@ -1523,6 +1543,13 @@
           "maxItems": 20,
           "items": {
             "$ref": "#/$defs/changedRef"
+          }
+        },
+        "intervening_actions": {
+          "type": "array",
+          "maxItems": 20,
+          "items": {
+            "$ref": "#/$defs/interveningAction"
           }
         },
         "candidates": {

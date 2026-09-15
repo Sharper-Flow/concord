@@ -22,6 +22,9 @@ func TestReadWorkPinUsesOneTransactionAndDeclaredStepActions(t *testing.T) {
 	if !strings.HasPrefix(pin.Watermark, "seq:") {
 		t.Fatalf("watermark=%q, want sequence watermark", pin.Watermark)
 	}
+	if len(pin.DrivingSessions) != 1 || pin.DrivingSessions[0].SessionRef != "session:continuity" || pin.DrivingSessions[0].LastActionID != "record_proposal" || pin.DrivingSessions[0].LastActedAt != "2026-08-07T12:00:00Z" {
+		t.Fatalf("driving sessions=%v, want only the coordinator session", pin.DrivingSessions)
+	}
 	registered, err := BuiltinWorkflowDefinitionForRef(pin.WorkflowType)
 	if err != nil {
 		t.Fatal(err)

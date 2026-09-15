@@ -746,6 +746,9 @@ func failureEnvelope(base Envelope, err error) Envelope {
 		for _, current := range sf.CurrentVersions {
 			out.Error.CurrentVersions = append(out.Error.CurrentVersions, ChangedRef{EntityKind: string(current.SubjectType), ID: current.SubjectID, Version: strconv.FormatInt(current.Version, 10)})
 		}
+		for _, action := range sf.InterveningActions {
+			out.Error.InterveningActions = append(out.Error.InterveningActions, InterveningAction{ActionID: action.ActionID, SessionRef: action.SessionRef})
+		}
 		if len(sf.Violations) > 0 {
 			out.Error.Violations = append(out.Error.Violations, sf.Violations...)
 		}

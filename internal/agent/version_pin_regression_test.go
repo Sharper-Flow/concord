@@ -95,8 +95,18 @@ func TestVersionConflictOnExistingWorkMarshals(t *testing.T) {
 	t.Parallel()
 	s, service, env, workID := transitionFixture(t)
 
+	stale := workItemProjectionVersion(t, s, workID)
+	advance := InvokeRequest{
+		Tool:      "concord_work_transition",
+		Operation: "workflow_action",
+		Input: json.RawMessage(`{"work_id":"` + workID + `","expected_version":` +
+			jsonInt(stale) + `,"action_id":"record_proposal","fields":{"problem":"The bounded problem statement.","affected":["The affected system."],"stakes":"The bounded stakes statement.","user_outcomes":["The expected user outcome."]},"idempotency_key":"advance-before-stale"}`),
+	}
+	advanced, err := Dispatch(context.Background(), s, service, advance, env)
+	if err != nil || advanced.Outcome != OutcomeOK {
+		t.Fatalf("advance response=%+v err=%v", advanced, err)
+	}
 	current := workItemProjectionVersion(t, s, workID)
-	stale := current + 1
 
 	action := InvokeRequest{
 		Tool:      "concord_work_transition",
@@ -128,6 +138,9 @@ func TestVersionConflictOnExistingWorkMarshals(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("current_versions did not carry %s at %d: %+v", workID, current, resp.Error.CurrentVersions)
+	}
+	if len(resp.Error.InterveningActions) != 1 || resp.Error.InterveningActions[0].ActionID != "record_proposal" || resp.Error.InterveningActions[0].SessionRef == "" {
+		t.Fatalf("intervening_actions=%v, want the action and recording session", resp.Error.InterveningActions)
 	}
 }
 

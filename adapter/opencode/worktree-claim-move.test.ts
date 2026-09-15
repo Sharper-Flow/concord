@@ -144,6 +144,27 @@ describe("worktree_claim moves the session into the claimed worktree", () => {
     }
   })
 
+  test("keeps instructions-array trailing-comma detection bounded for repeated block comments", async () => {
+    await mkdir("worktrees", { recursive: true })
+    const worktree = await mkdtemp(join("worktrees", "adapter-jsonc-array-adversarial-"))
+    const config = join(worktree, ".opencode", "opencode.jsonc")
+    const adversarialComments = "/*" + "x".repeat(32) + "*/"
+    try {
+      await mkdir(join(worktree, ".git"))
+      await mkdir(join(worktree, ".opencode"), { recursive: true })
+      await Bun.write(config, `{"instructions":["/operator/rules.md",${adversarialComments.repeat(25)}"final"]}\n`)
+
+      const started = performance.now()
+      await ensureConductLink(resolve(worktree), new AbortController().signal)
+      const elapsed = performance.now() - started
+
+      expect(elapsed).toBeLessThan(1000)
+      expect(await Bun.file(config).text()).toContain("current/instructions/*.md")
+    } finally {
+      await rm(worktree, { recursive: true, force: true })
+    }
+  })
+
   test("locates the instructions array instead of a JSONC decoy", async () => {
     await mkdir("worktrees", { recursive: true })
     const worktree = await mkdtemp(join("worktrees", "adapter-jsonc-decoy-"))

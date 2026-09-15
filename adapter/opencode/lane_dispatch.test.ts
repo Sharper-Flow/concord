@@ -3,7 +3,7 @@ import { hostControlPlane, MANAGED_TASK_SCOPE_KEY } from "./move-session"
 
 beforeEach(() => {
   hostControlPlane().bind({
-    get: async ({ path }) => ({ data: { id: path?.id, metadata: { [MANAGED_TASK_SCOPE_KEY]: "managed" } }, response: new Response(null, { status: 200 }) }),
+    get: async ({ path }) => ({ data: { id: path?.id, directory: process.cwd(), metadata: { [MANAGED_TASK_SCOPE_KEY]: "managed" } }, response: new Response(null, { status: 200 }) }),
     post: async () => { throw new Error("dispatch does not move the host session") },
   })
 })
@@ -114,7 +114,7 @@ const exportedSession = () => JSON.stringify({
   messages: [{ info: { id: "message-1", sessionID: "session-1", role: "assistant", agent: `concord-${lane.id}`, providerID: READBACK_MODEL.split("/")[0], modelID: READBACK_MODEL.split("/").slice(1).join("/"), time: { created: 1 } }, parts: [] }],
 })
 
-const contextFor = () => ({ sessionID: "session-1", messageID: "message-1", agent: "agent-1", worktree: "/worktree", directory: "/worktree", abort: new AbortController().signal, ask: async () => {} }) as any
+const contextFor = () => ({ sessionID: "session-1", messageID: "message-1", agent: "agent-1", worktree: process.cwd(), directory: process.cwd(), abort: new AbortController().signal, ask: async () => {} }) as any
 
 test("failed scope enrollment cannot authorize a core dispatch or open a window", async () => {
   hostControlPlane().bind({
@@ -204,6 +204,27 @@ test("happy path: continuity → packet → core ok → spawn with stubbed runne
   // evidence. Both belong to completion (CD-0102 D5).
   expect(evidenceCalls).toBe(0)
   expect(windows.has("session-1")).toBe(true)
+})
+
+test("a host directory mismatch refuses before core dispatch authorization", async () => {
+  const seen: string[] = []
+  const invoke = async (toolName: string, args: { operation: string; input?: Record<string, unknown> }): Promise<unknown> => {
+    const key = `${toolName}.${args.operation}`
+    seen.push(key)
+    if (key === "concord_work_trace.continuity") return continuityEnvelope()
+    if (key === "concord_work_browse.scope") return scopeEnvelope()
+    throw new Error(`unexpected ${key}`)
+  }
+
+  const result = await dispatchLaneWorker(
+    { work_id: WORK_ID, expected_version: 3, idempotency_key: "directory-mismatch", lane_id: lane.id },
+    { context: contextFor(), invoke: invoke as any, executionDirectory: () => "/another/worktree" },
+  )
+
+  expect(result.outcome).toBe("error")
+  expect(result.error?.kind).toBe("unauthorized_dispatch")
+  expect(result.error?.message).toContain("active claimed worktree")
+  expect(seen).not.toContain("concord_work_transition.workflow_action")
 })
 
 test("unregistered lane refuses before any core invoke or spawn", async () => {

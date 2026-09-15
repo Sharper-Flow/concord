@@ -6,6 +6,8 @@
 // authorized `dispatch_worker` action. The next Task call from the same session
 // has its agent selection and prompt overwritten by the recorded packet, and the
 // window closes. A Task call with no open window fails.
+import fs from "node:fs"
+import path from "node:path"
 import type { AgentLanePacket } from "./dispatch"
 
 // The host renders the worker card only for the tool with this id, so the lane
@@ -24,6 +26,7 @@ export interface DispatchRecord {
   packet: AgentLanePacket
   packetDigest: string
   workPins?: unknown[]
+  workerDirectory: string
   callID?: string
 }
 
@@ -51,11 +54,16 @@ export class DispatchWindows {
   readonly #inFlight = new Map<string, DispatchRecord>()
   readonly #settling = new Set<string>()
 
-  open(sessionID: string, packet: AgentLanePacket, packetDigest = "", workPins?: unknown[]): void {
+  constructor(private readonly executionDirectory: () => string = () => process.cwd()) {}
+
+  open(sessionID: string, packet: AgentLanePacket, packetDigest = "", workPins: unknown[] | undefined = undefined, workerDirectory?: string): void {
     if (this.#open.has(sessionID) || this.#inFlight.has(sessionID)) {
       throw new DispatchWindowError(`session ${sessionID} already holds an open dispatch window or an in-flight attempt`)
     }
-    this.#open.set(sessionID, { packet, packetDigest, workPins })
+    if (!isResolvableDirectory(workerDirectory)) {
+      throw new DispatchWindowError("worker dispatch requires a non-empty, resolvable worker directory")
+    }
+    this.#open.set(sessionID, { packet, packetDigest, workPins, workerDirectory })
   }
 
   // close discards a window whose dispatch failed before the worker started, so
@@ -109,6 +117,15 @@ export class DispatchWindows {
         `no authorized dispatch window is open for session ${sessionID}; start a worker through dispatch_worker`,
       )
     }
+    const expected = canonicalDirectory(record.workerDirectory)
+    const actualValue = this.executionDirectory()
+    const actual = canonicalDirectory(actualValue)
+    if (expected === null || actual === null || expected !== actual) {
+      this.#open.delete(sessionID)
+      throw new DispatchWindowError(
+        `worker dispatch directory does not match the active claimed worktree (expected ${JSON.stringify(record.workerDirectory)}, actual ${JSON.stringify(actualValue)})`,
+      )
+    }
     this.#open.delete(sessionID)
     record.callID = callID
     this.#inFlight.set(sessionID, record)
@@ -120,6 +137,30 @@ export class DispatchWindows {
     // attempt. Lane restart is not reachable, so the resume field never survives.
     delete args.task_id
   }
+}
+
+// The native Task uses the host process directory when it creates the worker
+// session. Resolve both sides before comparison so a symlink cannot make the
+// host run a worker outside the claimed worktree.
+function canonicalDirectory(value: unknown): string | null {
+  if (typeof value !== "string" || value.length === 0 || !path.isAbsolute(value)) return null
+  try {
+    const resolved = fs.realpathSync(value)
+    return fs.statSync(resolved).isDirectory() ? resolved : null
+  } catch {
+    return null
+  }
+}
+
+export function isResolvableDirectory(value: unknown): value is string {
+  return canonicalDirectory(value) !== null
+}
+
+export function dispatchDirectoryMismatch(expected: unknown, executionDirectory = process.cwd()): string | null {
+  const expectedCanonical = canonicalDirectory(expected)
+  const actualCanonical = canonicalDirectory(executionDirectory)
+  return expectedCanonical !== null && expectedCanonical === actualCanonical ? null :
+    `worker dispatch directory does not match the active claimed worktree (expected ${JSON.stringify(expected)}, actual ${JSON.stringify(executionDirectory)})`
 }
 
 const shared = new DispatchWindows()

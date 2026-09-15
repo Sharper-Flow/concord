@@ -177,14 +177,13 @@ describe("completeDispatchedWorker", () => {
       runner,
       concordBinary: "concord",
     })
-    expect(completionInput).toBeDefined()
-    expect("worker_directory" in (completionInput ?? {})).toBe(false)
+    expect(completionInput).toBeUndefined()
+    expect(output.output).toContain("worker session directory could not be resolved")
   })
 
   test("sends no worker directory when the index value is not a path", async () => {
     const completionInput = await completionInputFor(`[redacted:session-directory:${WORKER_SESSION}]`, "call-redacted")
-    expect(completionInput).toBeDefined()
-    expect("worker_directory" in (completionInput ?? {})).toBe(false)
+    expect(completionInput).toBeUndefined()
   })
 
   // An attempt the core refused to complete must not stay dispatched: an open
@@ -270,7 +269,7 @@ describe("completeDispatchedWorker", () => {
 
   test("a substituted executor is refused and nothing is recorded as that lane's evidence", async () => {
     const windows = new DispatchWindows()
-    windows.open(SESSION, packet(), PACKET_DIGEST)
+       windows.open(SESSION, packet(), PACKET_DIGEST)
     windows.bind(TASK_TOOL_ID, SESSION, {})
     const verbs: string[] = []
     const output = { title: "verify lane", output: taskWrap(JSON.stringify(report())), metadata: {} }
@@ -313,7 +312,7 @@ describe("completeDispatchedWorker", () => {
   // finds nothing in flight, so a single dispatch cannot record two attempts.
   test("one authorization admits one result", async () => {
     const windows = new DispatchWindows()
-    windows.open(SESSION, packet(), PACKET_DIGEST)
+     windows.open(SESSION, packet(), PACKET_DIGEST)
     windows.bind(TASK_TOOL_ID, SESSION, {})
     const verbs: string[] = []
     const first = { title: "verify lane", output: taskWrap(JSON.stringify(report())), metadata: {} }
@@ -347,14 +346,15 @@ describe("host task failure", () => {
   for (const fault of ["export-command", "malformed-export"]) {
     test(`a persisted born-failed ${fault} releases settlement`, async () => {
       const windows = new DispatchWindows()
-      windows.open(SESSION, packet(), PACKET_DIGEST)
+       windows.open(SESSION, packet(), PACKET_DIGEST)
       windows.bind(TASK_TOOL_ID, SESSION, {}, "call-cancel")
       const verbs: string[] = []
-      const options = deps(verbs, windows)
-      options.runner = { async run() {
-        return fault === "export-command"
-          ? { exitCode: 1, stdout: "", stderr: "export unavailable" }
-          : { exitCode: 0, stdout: "{", stderr: "" }
+       const options = deps(verbs, windows)
+       options.runner = { async run(argv) {
+         if (argv[1] === "session") return { exitCode: 0, stdout: sessionIndex(), stderr: "" }
+         return fault === "export-command"
+           ? { exitCode: 1, stdout: "", stderr: "export unavailable" }
+           : { exitCode: 0, stdout: "{", stderr: "" }
       } }
       options.evidenceRunner = { async run(argv, raw) {
         verbs.push(argv[1])
@@ -364,9 +364,9 @@ describe("host task failure", () => {
         return { exitCode: 0, stdout: "", stderr: "" }
       } }
       await failDispatchedWorker(failedEvent(), options)
-      expect(verbs).toEqual(["worker-dispatch"])
-      expect(windows.inFlight(SESSION, "call-cancel")).toBeNull()
-      expect(() => windows.open(SESSION, packet(), PACKET_DIGEST)).not.toThrow()
+       expect(verbs).toEqual([])
+       expect(windows.inFlight(SESSION, "call-cancel")).not.toBeNull()
+       expect(() => windows.open(SESSION, packet(), PACKET_DIGEST)).toThrow()
     })
   }
 
@@ -388,14 +388,17 @@ describe("host task failure", () => {
     windows.bind(TASK_TOOL_ID, SESSION, {}, "call-cancel")
     const verbs: string[] = []
     const options = deps(verbs, windows)
-    options.runner = { async run() { return { exitCode: 1, stdout: "", stderr: "export unavailable" } } }
+     options.runner = { async run(argv) {
+       if (argv[1] === "session") return { exitCode: 0, stdout: sessionIndex(), stderr: "" }
+       return { exitCode: 1, stdout: "", stderr: "export unavailable" }
+     } }
     options.evidenceRunner = { async run(argv) {
       verbs.push(argv[1])
       return { exitCode: 1, stdout: "", stderr: "write unavailable" }
     } }
     await failDispatchedWorker(failedEvent(), options)
     await failDispatchedWorker(failedEvent(), options)
-    expect(verbs).toEqual(["worker-dispatch"])
+     expect(verbs).toEqual([])
     expect(windows.inFlight(SESSION, "call-cancel")).not.toBeNull()
     expect(() => windows.open(SESSION, packet(), PACKET_DIGEST)).toThrow()
   })

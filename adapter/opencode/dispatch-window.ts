@@ -17,9 +17,9 @@ const LANE_AGENT_PREFIX = "concord-"
 
 export class DispatchWindowError extends Error {}
 
-// An authorized attempt in flight: the packet the core authorized and the
-// packet digest it recorded. Completion needs both, and the host runs the
-// worker between dispatch and completion, so neither can be held on a stack.
+// An authorized attempt in flight: the packet and digest captured before the
+// host starts the worker. Completion needs these values after the host runs
+// the worker, so none can be held on a stack.
 export interface DispatchRecord {
   packet: AgentLanePacket
   packetDigest: string

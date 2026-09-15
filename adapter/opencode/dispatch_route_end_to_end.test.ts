@@ -262,6 +262,7 @@ routeDeclaration("dispatches a real store route through Task completion and work
     const realRunner: DispatchRunner = {
       async run(argv, input, signal) {
         if (argv[1] === "export") return { exitCode: 0, stdout: exportedSession(), stderr: "" }
+        if (argv[1] === "session") return { exitCode: 0, stdout: JSON.stringify([{ id: "worker-session", directory: worktree, parentID: SESSION_ID }, { id: SESSION_ID, directory: worktree }]), stderr: "" }
         if (argv[1] === "worker-dispatch" || argv[1] === "worker-complete" || argv[1] === "worker-fail" || argv[1] === "invoke") {
           realCalls.push({ argv, input: JSON.parse(input) as JSONRecord })
         }

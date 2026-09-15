@@ -3,6 +3,8 @@
 // successful claim, the landing is read back from the host, and every failure
 // mode is a typed refusal whose remedy is an idempotent replay (issue #822).
 import { afterEach, afterAll, describe, expect, test } from "bun:test"
+import { mkdir, mkdtemp, rm, symlink } from "node:fs/promises"
+import { join, resolve } from "node:path"
 import { configureHostLease } from "./host-lease"
 import ConcordAdapterPlugin from "./concord-plugin"
 import { hostControlPlane } from "./move-session"
@@ -38,6 +40,92 @@ describe("worktree_claim moves the session into the claimed worktree", () => {
     await fakeHost({})
     const envelope = await moveSessionToClaimedWorktree(claimArgs("/claimed"), context(), okEnvelope())
     expect(envelope.outcome).toBe("ok")
+  })
+
+  test("adds the conduct entry to an empty instructions array", async () => {
+    await mkdir("worktrees", { recursive: true })
+    const worktree = await mkdtemp(join("worktrees", "adapter-link-"))
+    const config = join(worktree, ".opencode", "opencode.json")
+    try {
+      await mkdir(join(worktree, ".git"))
+      await mkdir(join(worktree, ".opencode"), { recursive: true })
+      await Bun.write(config, '{\n  "instructions": []\n}\n')
+      await fakeHost({ get: () => ({ status: 200, body: { directory: worktree } }) })
+
+      const envelope = await moveSessionToClaimedWorktree(claimArgs(worktree), context(), okEnvelope())
+
+      expect(envelope.outcome).toBe("ok")
+      expect(JSON.parse(await Bun.file(config).text())).toEqual({ instructions: ["current/instructions/*.md"] })
+      const ownership = JSON.parse(await Bun.file("project-link-ownership.json").text()) as { links: Record<string, { action: string; scope: string }> }
+      expect(ownership.links[resolve(config)]).toMatchObject({ action: "restore", scope: "worktree" })
+    } finally {
+      await rm(worktree, { recursive: true, force: true })
+    }
+  })
+
+  test("adds the conduct entry when a JSONC object has a trailing comma", async () => {
+    await mkdir("worktrees", { recursive: true })
+    const worktree = await mkdtemp(join("worktrees", "adapter-jsonc-"))
+    const config = join(worktree, ".opencode", "opencode.jsonc")
+    try {
+      await mkdir(join(worktree, ".git"))
+      await mkdir(join(worktree, ".opencode"), { recursive: true })
+      await Bun.write(config, '{\n  "theme": "dark",\n}\n')
+      await fakeHost({ get: () => ({ status: 200, body: { directory: worktree } }) })
+
+      const envelope = await moveSessionToClaimedWorktree(claimArgs(worktree), context(), okEnvelope())
+
+      expect(envelope.outcome).toBe("ok")
+      const text = await Bun.file(config).text()
+      expect(text).toContain('"instructions": [')
+      expect(text).toContain("current/instructions/*.md")
+    } finally {
+      await rm(worktree, { recursive: true, force: true })
+    }
+  })
+
+  test("refuses a dangling config symlink without writing through it", async () => {
+    await mkdir("worktrees", { recursive: true })
+    const worktree = await mkdtemp(join("worktrees", "adapter-dangling-link-"))
+    const config = join(worktree, ".opencode", "opencode.json")
+    const outside = join(worktree, "..", "adapter-dangling-outside.json")
+    try {
+      await mkdir(join(worktree, ".git"))
+      await mkdir(join(worktree, ".opencode"), { recursive: true })
+      await Bun.write(outside, '{"keep":true}\n')
+      await symlink(`${outside}/missing`, config)
+      await fakeHost({ get: () => ({ status: 200, body: { directory: worktree } }) })
+
+      const envelope = await moveSessionToClaimedWorktree(claimArgs(worktree), context(), okEnvelope())
+
+      expect(envelope.outcome).toBe("error")
+      if (envelope.outcome === "error") expect((envelope.error as { message?: string }).message).toContain("symlink")
+      expect(await Bun.file(outside).text()).toBe('{"keep":true}\n')
+      expect(await Bun.file(join(worktree, ".opencode", "opencode.jsonc")).exists()).toBe(false)
+    } finally {
+      await rm(worktree, { recursive: true, force: true })
+      await rm(outside, { force: true })
+    }
+  })
+
+  test("refuses a worktree symlink that resolves outside the managed root", async () => {
+    await mkdir("worktrees", { recursive: true })
+    const outside = await mkdtemp(join(".", "adapter-outside-"))
+    const worktree = join("worktrees", "adapter-escape")
+    try {
+      await mkdir(join(outside, ".git"))
+      await symlink(resolve(outside), worktree)
+      await fakeHost({ get: () => ({ status: 200, body: { directory: worktree } }) })
+
+      const envelope = await moveSessionToClaimedWorktree(claimArgs(worktree), context(), okEnvelope())
+
+      expect(envelope.outcome).toBe("error")
+      if (envelope.outcome === "error") expect((envelope.error as { message?: string }).message).toContain("outside the managed worktree root")
+      expect(await Bun.file(join(outside, ".opencode", "opencode.json")).exists()).toBe(false)
+    } finally {
+      await rm(worktree, { force: true })
+      await rm(outside, { recursive: true, force: true })
+    }
   })
 
   test("refuses when the host lands the session elsewhere", async () => {
@@ -76,4 +164,7 @@ describe("worktree_claim moves the session into the claimed worktree", () => {
 // The factory's host-lease claim fails against the unstamped repository
 // placeholder; the suite's files share one process in an order no file
 // controls, so this file leaves the lease state clean.
-afterAll(() => configureHostLease({ reset: true }))
+afterAll(async () => {
+  await rm("project-link-ownership.json", { force: true })
+  configureHostLease({ reset: true })
+})

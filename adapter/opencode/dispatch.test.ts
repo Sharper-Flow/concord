@@ -197,9 +197,9 @@ test("completion obtains readback from a sanitized session export", async () => 
     evidenceRunner: { async run() { return { exitCode: 0, stdout: "", stderr: "" } } },
   })
   expect(result.outcome).toBe("ok")
-  expect(calls.map((argv) => argv.slice(0, 2))).toEqual([["opencode", "export"], ["opencode", "session"]])
-  expect(calls[0]).toEqual(["opencode", "export", "session-1", "--sanitize"])
-  expect(calls[1]).toEqual(["opencode", "session", "list", "--format", "json"])
+  expect(calls.map((argv) => argv.slice(0, 2))).toEqual([["opencode", "session"], ["opencode", "export"]])
+  expect(calls[0]).toEqual(["opencode", "session", "list", "--format", "json"])
+  expect(calls[1]).toEqual(["opencode", "export", "session-1", "--sanitize"])
 })
 
 test("readback accepts a large sanitized session export", () => {
@@ -239,7 +239,10 @@ test("readback refusal names its predicate and preserves the export digest", () 
 
 test("readback refusal is typed and does not change valid completion", async () => {
   const result = await complete(workerBody(), {
-    readbackRunner: { async run() { return { exitCode: 0, stdout: "not-json", stderr: "" } } },
+    readbackRunner: { async run(argv) {
+      if (argv[1] === "session") return { exitCode: 0, stdout: sessionIndex(), stderr: "" }
+      return { exitCode: 0, stdout: "not-json", stderr: "" }
+    } },
   })
   expect(result.outcome).toBe("error")
   expect(result.error?.kind).toBe("readback_refusal")
@@ -265,6 +268,7 @@ test("ambiguous model readback records one durable failed attempt", async () => 
         { info: { id: "message-2", sessionID: "session-1", role: "assistant", agent: "concord-research", providerID: "openai", modelID: "second", time: { created: 2 } }, parts: [] },
       ],
     }), stderr: "" }
+    if (argv[1] === "session") return { exitCode: 0, stdout: sessionIndex(), stderr: "" }
     return { exitCode: 0, stdout: "", stderr: "" }
   } }
   const result = await complete(workerBody(), {
@@ -287,6 +291,7 @@ test("missing model readback records one durable failed attempt", async () => {
   const calls: { argv: string[]; input: string }[] = []
   const exportRunner: DispatchRunner = { async run(argv) {
     if (argv[1] === "export") return { exitCode: 0, stdout: JSON.stringify({ info: { id: "session-1" }, messages: [] }), stderr: "" }
+    if (argv[1] === "session") return { exitCode: 0, stdout: sessionIndex(), stderr: "" }
     return { exitCode: 0, stdout: "", stderr: "" }
   } }
   const result = await complete(workerBody(), {
@@ -475,6 +480,63 @@ test("host prompt provenance binds an absolute corpus glob file for file", async
   }
 })
 
+test("worker evidence uses the indexed worker directory for provenance", async () => {
+  const parent = await mkdtemp(path.join(os.tmpdir(), "worker-provenance-"))
+  const worker = `${parent}/worktree`
+  const configDir = await mkdtemp(path.join(os.tmpdir(), "worker-provenance-config-"))
+  const previous = process.env.OPENCODE_CONFIG_DIR
+  process.env.OPENCODE_CONFIG_DIR = configDir
+  try {
+    await fs.promises.mkdir(`${worker}/.git`, { recursive: true })
+    await Bun.write(`${worker}/opencode.json`, JSON.stringify({ instructions: ["worker-rules.md"] }))
+    await Bun.write(`${worker}/worker-rules.md`, "# worker rules\n")
+    let dispatchPayload: Record<string, unknown> | undefined
+    const result = await complete(workerBody(), {
+      readbackRunner: {
+        async run(argv) {
+          if (argv[1] === "export") return { exitCode: 0, stdout: exportedSession(), stderr: "" }
+          if (argv[1] === "session") return { exitCode: 0, stdout: sessionIndex(worker), stderr: "" }
+          return { exitCode: 0, stdout: "", stderr: "" }
+        },
+      },
+      evidenceRunner: {
+        async run(argv, input) {
+          if (argv[1] === "worker-dispatch") dispatchPayload = JSON.parse(input) as Record<string, unknown>
+          return { exitCode: 0, stdout: "", stderr: "" }
+        },
+      },
+    })
+    expect(result.outcome).toBe("ok")
+    const sources = (dispatchPayload?.host_provenance as { sources?: { path?: string }[] }).sources ?? []
+    expect(sources.map(source => source.path)).toContain(`${worker}/worker-rules.md`)
+  } finally {
+    if (previous === undefined) delete process.env.OPENCODE_CONFIG_DIR
+    else process.env.OPENCODE_CONFIG_DIR = previous
+    await fs.promises.rm(parent, { recursive: true, force: true })
+  }
+})
+
+test("worker evidence refuses when the worker directory cannot be resolved", async () => {
+  let evidenceCalls = 0
+  const result = await complete(workerBody(), {
+    readbackRunner: {
+      async run(argv) {
+        if (argv[1] === "session") return { exitCode: 1, stdout: "", stderr: "session list failed" }
+        return { exitCode: 0, stdout: exportedSession(), stderr: "" }
+      },
+    },
+    evidenceRunner: {
+      async run() {
+        evidenceCalls++
+        return { exitCode: 0, stdout: "", stderr: "" }
+      },
+    },
+  })
+  expect(result.outcome).toBe("error")
+  expect(result.error?.message).toContain("worker session directory could not be resolved")
+  expect(evidenceCalls).toBe(0)
+})
+
 // CD-0032 / issue #103: provenance is deterministic for the same inputs and
 // changes when an enumerated source changes.
 import { computeHostPromptProvenance } from "./dispatch"
@@ -602,6 +664,35 @@ test("host prompt provenance binds config-declared instruction files", async () 
 
     await Bun.write(`${configDir}/rules.md`, "# rules v2 — silently changed\n")
     expect((await computeHostPromptProvenance("research", dir)).digest).not.toBe(first.digest)
+  } finally {
+    if (previous === undefined) delete process.env.OPENCODE_CONFIG_DIR
+    else process.env.OPENCODE_CONFIG_DIR = previous
+  }
+})
+
+test("host prompt provenance stops project discovery at the Git root", async () => {
+  const parent = await mkdtemp(path.join(os.tmpdir(), "provenance-parent-"))
+  const root = `${parent}/project`
+  const nested = `${root}/packages/child`
+  const configDir = await mkdtemp(path.join(os.tmpdir(), "provenance-config-"))
+  const previous = process.env.OPENCODE_CONFIG_DIR
+  process.env.OPENCODE_CONFIG_DIR = configDir
+  try {
+    await fs.promises.mkdir(`${root}/.git`, { recursive: true })
+    await fs.promises.mkdir(nested, { recursive: true })
+    await Bun.write(`${parent}/opencode.json`, JSON.stringify({ instructions: [`${parent}/outside.md`] }))
+    await Bun.write(`${parent}/outside.md`, "# outside\n")
+    await Bun.write(`${root}/opencode.json`, JSON.stringify({ instructions: ["rules.md"] }))
+    await Bun.write(`${root}/rules.md`, "# project\n")
+    await Bun.write(`${root}/AGENTS.md`, "# project agents\n")
+    await Bun.write(`${parent}/AGENTS.md`, "# parent agents\n")
+
+    const result = await computeHostPromptProvenance("research", nested)
+
+    expect(result.sources.map(source => source.path)).toContain(`${root}/rules.md`)
+    expect(result.sources.map(source => source.path)).not.toContain(`${parent}/outside.md`)
+    expect(result.sources.map(source => source.path)).toContain(`${root}/AGENTS.md`)
+    expect(result.sources.map(source => source.path)).not.toContain(`${parent}/AGENTS.md`)
   } finally {
     if (previous === undefined) delete process.env.OPENCODE_CONFIG_DIR
     else process.env.OPENCODE_CONFIG_DIR = previous
@@ -1098,7 +1189,7 @@ const writeExportFixture = (): { binary: string; body: string; cleanup: () => vo
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "concord-fixture-export-"))
   fs.writeFileSync(path.join(directory, "export.json"), body)
   const script = path.join(directory, "opencode-export")
-  fs.writeFileSync(script, `#!/bin/sh\ncat "$(dirname "$0")/export.json"\n`, { mode: 0o755 })
+  fs.writeFileSync(script, `#!/bin/sh\ncase "$1" in\n  export) cat "$(dirname "$0")/export.json" ;;\n  session) printf '[{"id":"session-1","directory":"/claimed/worktree"}]\\n' ;;\nesac\n`, { mode: 0o755 })
   return { binary: script, body, cleanup: () => fs.rmSync(directory, { recursive: true, force: true }) }
 }
 

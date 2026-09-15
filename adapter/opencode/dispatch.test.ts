@@ -538,7 +538,7 @@ test("worker evidence uses the supplied worker directory for provenance", async 
   }
 })
 
-test("worker evidence records unresolved provenance when the session index is unreadable", async () => {
+test("worker evidence remains successful when the session index is unreadable", async () => {
   let evidenceCalls = 0
   const result = await complete(workerBody(), {
     readbackRunner: {
@@ -836,6 +836,7 @@ async function laneTerminalEvidence(laneID: string, evidence: LaneEvidence[]) {
     credentials: testCredentials,
     readbackRunner: readbackRunner(READBACK_MODEL, `concord-${target.id}`),
     packetDigest: PACKET_DIGEST,
+    workerDirectory: process.cwd(),
     concordBinary: "concord-test",
     evidenceRunner: { async run(argv, input) { calls.push({ argv, input }); return { exitCode: 0, stdout: "", stderr: "" } } },
   }, SIGNAL)

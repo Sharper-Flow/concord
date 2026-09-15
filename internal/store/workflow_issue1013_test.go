@@ -202,6 +202,11 @@ func TestRejectWorkerResultRecordsCorrectionContext(t *testing.T) {
 	if pin.Correction == nil || pin.Correction.Disposition != "rejected" || pin.Correction.Diagnosis != "the result misses the boundary case" {
 		t.Fatalf("correction pin = %#v, want the recorded rejection context", pin.Correction)
 	}
+	if binding, err := WorkflowFailedWorkerRetryBinding(ctx, s, workID); err != nil {
+		t.Fatalf("read retry binding after rejected result: %v", err)
+	} else if binding != nil {
+		t.Fatalf("rejected completed result has retry approval binding %#v", binding)
+	}
 	start := workflowEventWithActor("restart-"+workID, WorkflowActionStarted, workID, workerRef, map[string]any{
 		"work_id": workID, "expected_version": 11, "resulting_version": 12, "step_id": "execution", "action_id": "start_execution", "attempt_epoch": 2,
 		"accepted_inputs_digest": "sha256:" + strings.Repeat("a", 64), "idempotency_identity": "restart:" + workID, "actor_ref": workerRef,

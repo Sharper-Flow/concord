@@ -323,7 +323,6 @@ routeDeclaration("dispatches a real store route through Task completion and work
       },
       credentials: { async getPrivateKey() { return PRIVATE_SEED } } satisfies CredentialStore,
       windows,
-      now: () => 1_700_000_000_000,
     })
     expect(dispatchResult.outcome).toBe("ok")
     expect(dispatchResult.dispatch_state).toBe("awaiting_worker")

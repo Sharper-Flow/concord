@@ -4423,6 +4423,18 @@ DELETE FROM knowledge_index_watermark;
 DELETE FROM fold_guard WHERE active = 1;
 `,
 	},
+	{
+		// A nullable JSON object would let SQL NULL and JSON null describe the
+		// same state. The non-null JSON default keeps one canonical unclassified
+		// representation while older binaries continue to omit the new column.
+		Version: 81,
+		Name:    "workflow_self_repair_classification",
+		SQL: `
+ALTER TABLE workflow_contracts
+ADD COLUMN self_repair_json TEXT NOT NULL DEFAULT 'null'
+CHECK(json_valid(self_repair_json) AND json_type(self_repair_json) IN ('null','object'));
+`,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any

@@ -1011,7 +1011,9 @@ export function laneDispatchRequest(args: any): LaneDispatchInput | { error: str
   if (typeof inner.work_id !== "string" || typeof inner.expected_version !== "number" || typeof inner.idempotency_key !== "string") {
     return null
   }
-  return { work_id: inner.work_id, expected_version: inner.expected_version, idempotency_key: inner.idempotency_key, lane_id: laneId }
+  const approval = inner.approval
+  const approvalRef = approval && typeof approval === "object" && !Array.isArray(approval) && typeof (approval as Record<string, unknown>).approval_ref === "string" ? (approval as Record<string, unknown>).approval_ref as string : undefined
+  return { work_id: inner.work_id, expected_version: inner.expected_version, idempotency_key: inner.idempotency_key, lane_id: laneId, ...(approvalRef ? { approval_ref: approvalRef } : {}) }
 }
 
 // executeWorkTransition is the work_transition tool body. dispatch_worker is

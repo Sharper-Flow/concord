@@ -1,0 +1,14 @@
+{
+  "evidence": [
+    {
+      "kind": "go_test",
+      "value": "internal/agent.TestWorkerRetryMutationRequiresExactApprovalAndFreshAttempt"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestWorkflowFourthCorrectionDispatchRefusesWithApprovalRequired"
+    }
+  ],
+  "id": "CD-0148",
+  "state": "satisfied"
+}

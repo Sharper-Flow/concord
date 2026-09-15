@@ -236,13 +236,18 @@ func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, registry Definiti
 			return result, err
 		}
 	}
+	var retryCorrection *WorkflowCorrectionContext
 	if request.ActionID == "dispatch_worker" {
 		correction, correctionErr := workflowCorrectionContext(ctx, tx, request.WorkID, currentStep)
 		if correctionErr != nil {
 			return result, correctionErr
 		}
+		retryCorrection = correction
 		if correction != nil && correction.Escalated {
 			return result, newFailure(KindApprovalRequired, "workflow_action", "worker correction reached the three-attempt limit", false, "escalate the failed or rejected result to the operator")
+		}
+		if err := validateFailedWorkerRetryIdentity(ctx, tx, request.WorkID, currentStep, request.Payload); err != nil {
+			return result, err
 		}
 	}
 	if request.ActionID == "request_correction" {
@@ -346,6 +351,9 @@ func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, registry Definiti
 	assembly, err := assembleWorkflowActionEventsTx(ctx, tx, assemblyInput)
 	if err != nil {
 		return result, err
+	}
+	if request.ActionID == "dispatch_worker" && retryCorrection != nil && assembly.attemptEpoch <= retryCorrection.FailedAttemptEpoch {
+		return result, newFailure(KindStaleAttempt, "workflow_action", "worker retry must open a fresh step epoch", false, "mint a new fenced worker attempt")
 	}
 	if request.ActionID == "complete" {
 		// The assembly's event list holds the actor- and operator-recording
@@ -831,7 +839,7 @@ func workflowSemanticActionEvents(ctx context.Context, tx *sql.Tx, definition Wo
 		contract["law_revisions"] = revisions
 		contract["law_boundary_version"] = 1
 		approvalEvent := workflowTypedEvent(eventID, WorkflowContractApproved, request.WorkID, actor, request.Now, expected, contract)
-		approvalEvent.PayloadVersion = 2
+		approvalEvent.PayloadVersion = 4
 		return []Event{approvalEvent}, nil
 	case "revise_candidates":
 		added := workflowFieldStrings(fields, "added")
@@ -883,6 +891,14 @@ func workflowSemanticActionEvents(ctx context.Context, tx *sql.Tx, definition Wo
 		if !productChanging && len(lawModifies) != 0 {
 			return nil, newFailure(KindInvalidPayload, "workflow_action", "non-Product-changing successor cannot modify Product law", false, "leave law_modifies empty")
 		}
+		selfRepairRaw, selfRepairPresent := fields["self_repair"]
+		selfRepair, selfRepairErr := parseWorkflowSelfRepair(selfRepairRaw)
+		if selfRepairErr != nil {
+			return nil, selfRepairErr
+		}
+		if selfRepairPresent && selfRepair != nil && !productChanging {
+			return nil, newFailure(KindInvalidPayload, "workflow_action", "non-Product-changing successor cannot carry self_repair", false, "classify only Product-changing Concord defect repair")
+		}
 		revisionMandate := specMandate
 		var revisionErr error
 		if productChanging {
@@ -905,6 +921,9 @@ func workflowSemanticActionEvents(ctx context.Context, tx *sql.Tx, definition Wo
 			successor["architecture_binding"] = binding
 		} else {
 			delete(successor, "law_modifies")
+		}
+		if selfRepairPresent && selfRepair != nil {
+			successor["self_repair"] = selfRepair
 		}
 		events := []Event{workflowTypedEvent(eventID, WorkflowContractSuperseded, request.WorkID, actor, request.Now, expected, map[string]any{"previous_contract_version": previous, "new_contract_version": next, "supersede_reason": workflowFieldStringDefault(fields, "supersede_reason", "contract revision"), "audit_evidence": audit, "successor_contract": successor})}
 		return appendWorkflowDesignCorrection(ctx, tx, definition, request, actor, fields["design_record"], eventID, expected, events)

@@ -741,7 +741,7 @@ func scopeWithinAuthority(scope map[string]any, authority Authority) bool {
 	return true
 }
 func validChallengeScope(scope map[string]any) bool {
-	allowed := map[string]bool{"product_id": true, "product_ids": true, "project_ids": true, "work_ids": true, "scope_version": true}
+	allowed := map[string]bool{"product_id": true, "product_ids": true, "project_ids": true, "work_ids": true, "failed_attempt_id": true, "scope_version": true}
 	for key, value := range scope {
 		if !allowed[key] {
 			return false
@@ -751,7 +751,13 @@ func validChallengeScope(scope map[string]any) bool {
 			if text, ok := value.(string); !ok || !bounded(text, 1, 128) {
 				return false
 			}
-		case "product_ids", "project_ids", "work_ids":
+		case "failed_attempt_id", "product_ids", "project_ids", "work_ids":
+			if key == "failed_attempt_id" {
+				if text, ok := value.(string); !ok || !bounded(text, 1, 128) {
+					return false
+				}
+				continue
+			}
 			switch ids := value.(type) {
 			case []any:
 				if len(ids) > 100 {
@@ -780,7 +786,7 @@ func validChallengeScope(scope map[string]any) bool {
 	return true
 }
 func validChallengeVersions(versions map[string]any) bool {
-	allowed := map[string]bool{"work": true, "contract": true, "operation": true, "terminal_work": true, "predecessor": true, "successor": true, "from": true, "to": true, "from_contract": true, "to_contract": true, "target": true}
+	allowed := map[string]bool{"work": true, "contract": true, "operation": true, "terminal_work": true, "predecessor": true, "successor": true, "from": true, "to": true, "from_contract": true, "to_contract": true, "target": true, "failed_attempt_epoch": true}
 	for key, value := range versions {
 		if !allowed[key] {
 			return false

@@ -9,6 +9,7 @@ MANIFEST = ROOT / "contracts/agent-tool-surface.v1.json"
 IR = ROOT / "contracts/agent-tool-surface.schema.json"
 PAYLOAD = ROOT / "contracts/agent-tool-surface-payloads.schema.json"
 WORKFLOW_OUTCOME = ROOT / "contracts/workflow-outcome.schema.json"
+ENVELOPE = ROOT / "contracts/agent-tool-envelope.schema.json"
 HOST_MANIFEST = ROOT / "contracts/host-tool-surface.v1.json"
 HOST_SCHEMA = ROOT / "contracts/host-tool-surface.schema.json"
 
@@ -237,6 +238,27 @@ def install_workflow_outcome_schema(defs: dict) -> dict:
     return {"oneOf": [rewrite(branch) for branch in document["oneOf"]]}
 
 
+def install_workflow_self_repair_schema(defs: dict) -> None:
+    envelope = json.loads(ENVELOPE.read_text())
+    refusal_kinds = envelope["$defs"]["typedError"]["properties"]["kind"]["enum"]
+    defs["workflow_self_repair"] = {
+        "type": "object", "additionalProperties": False,
+        "required": ["refusal_kind", "blocked_operation", "evidence_refs"],
+        "properties": {
+            "refusal_kind": {"type": "string", "enum": refusal_kinds},
+            "blocked_operation": {"$ref": "#/$defs/reference"},
+            "evidence_refs": {
+                "type": "array", "minItems": 1, "maxItems": 32, "uniqueItems": True,
+                "items": {"$ref": "#/$defs/reference"},
+            },
+        },
+    }
+    contract = defs.get("workflow_contract")
+    if not isinstance(contract, dict) or not isinstance(contract.get("properties"), dict):
+        fail("workflow_contract schema is unavailable for self-repair projection")
+    contract["properties"]["self_repair"] = {"$ref": "#/$defs/workflow_self_repair"}
+
+
 def workflow_supersede_fields_schema(outcome_payload: dict) -> dict:
     string_list = {"type": "array", "maxItems": 32, "uniqueItems": True, "items": {"$ref": "#/$defs/id"}}
     return {
@@ -249,6 +271,7 @@ def workflow_supersede_fields_schema(outcome_payload: dict) -> dict:
             "required_evidence": copy.deepcopy(string_list), "route_conventions": copy.deepcopy(string_list),
             "spec_mandate": copy.deepcopy(string_list), "law_modifies": copy.deepcopy(string_list),
             "rigor_class": {"$ref": "#/$defs/rigor_class"}, "architecture_binding": {"$ref": "#/$defs/architecture_binding"},
+            "self_repair": {"$ref": "#/$defs/workflow_self_repair"},
             "design_record": {"$ref": "#/$defs/workflow_design_content"},
             "supersede_reason": {"type": "string", "minLength": 1, "maxLength": 4096}, "audit_evidence": copy.deepcopy(string_list),
         },
@@ -271,6 +294,7 @@ def workflow_payload_object_schema(payload: dict, defs: dict) -> dict:
 def project_workflow_action_schema(document: dict, actions: list[dict]) -> dict:
     projected = copy.deepcopy(document)
     defs = projected["$defs"]
+    install_workflow_self_repair_schema(defs)
     common = {
         "work_id": {"$ref": "#/$defs/id"},
         "expected_version": {"$ref": "#/$defs/version"},
@@ -717,7 +741,7 @@ def main() -> int:
                 fail("generated workflow action payload contract drift: contracts/agent-tool-surface-payloads.schema.json")
             PAYLOAD.write_text(json.dumps(projected_payload, ensure_ascii=False, indent=2) + "\n")
             payload = projected_payload
-        envelope = json.loads((ROOT / "contracts/agent-tool-envelope.schema.json").read_text())
+        envelope = json.loads(ENVELOPE.read_text())
         host_manifest = json.loads(HOST_MANIFEST.read_text())
         host_schema = json.loads(HOST_SCHEMA.read_text())
         check_schema_keywords(ir, "ir")

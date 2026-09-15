@@ -1,6 +1,9 @@
 # CD-0017: Typed Workers and Model Routing
 
-**Status:** Accepted 2026-08-11; amended 2026-08-11 (fallback resolution semantics: D2/D3/D5/D8 clarified, D9 routing-policy record added, Invariant 7 replaced — operator-accepted); amended 2026-08-15 (issue #106: undeclared-role terminal evidence; `resolved ≠ readback` scope restated)
+**Status:** Accepted 2026-08-11.
+**Amended:** 2026-08-11. Clarified fallback resolution semantics and replaced Invariant 7.
+**Amended:** 2026-08-15. Added undeclared-role terminal evidence and restated `resolved ≠ readback` scope.
+**Amended:** 2026-09-14. Added exact approval and fresh retry identity and epoch for failed worker attempts.
 **Type:** Architecture decision (spike outcome)
 **Spike:** [`../research/R6-typed-workers-and-model-routing.md`](../research/R6-typed-workers-and-model-routing.md)
 **Issue:** [#57](https://github.com/Sharper-Flow/concord/issues/57)
@@ -149,6 +152,13 @@ attempt is never retried; a new attempt is a new decision.*
 *The dispatch event also records `worker_worktree_identity`, the sha256 of the
 canonical session worktree path the core admitted under CD-0102 D7. Later
 worker evidence binds to that claim without a machine path in a public event.*
+
+*A failed worker attempt remains terminal and immutable. A retry is a new fenced
+attempt, with a new attempt identity and step epoch. The agent boundary must first
+obtain an exact operator approval bound to the failed attempt, its epoch, and the
+unchanged approved contract. Missing, stale, or reused approval refuses without a
+new dispatch. The retry limit remains three attempts, and a worker session cannot
+resume the failed attempt.*
 
 `worker.completed` and `worker.failed` bind to the dispatched attempt's exact work
 item and make one transition from `dispatched`. Both terminal states are immutable;

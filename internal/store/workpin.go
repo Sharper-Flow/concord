@@ -130,6 +130,10 @@ func ReadWorkPinTx(ctx context.Context, tx *sql.Tx, workID string) (WorkPin, err
 		if err != nil {
 			return pin, err
 		}
+		contract.SelfRepair, err = readWorkflowSelfRepair(ctx, tx, workID, contract.Version)
+		if err != nil {
+			return pin, err
+		}
 		pin.PendingOperatorDecision, pin.WithheldOperatorDecision, err = workflowOperatorQuestionTx(ctx, tx, workID, pin.Step, pin.Version, definition, contract)
 		if err != nil {
 			return pin, err

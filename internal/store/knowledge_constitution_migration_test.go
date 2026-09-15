@@ -14,7 +14,7 @@ import (
 // the deleted watermark forces the demand-driven knowledge rebuild.
 func TestMigrateV80WidensLawSubjectsAndInvalidatesWatermark(t *testing.T) {
 	ctx := context.Background()
-	db := openMigratedTo(t, filepath.Join(t.TempDir(), "concord-v79.db"), len(migrations)-1)
+	db := openMigratedTo(t, filepath.Join(t.TempDir(), "concord-v79.db"), len(migrations)-2)
 
 	if _, err := db.ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
@@ -42,7 +42,7 @@ func TestMigrateV80WidensLawSubjectsAndInvalidatesWatermark(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	last := migrations[len(migrations)-1]
+	last := migrations[len(migrations)-2]
 	if last.Version != 80 {
 		t.Fatalf("last migration version = %d, want 80", last.Version)
 	}

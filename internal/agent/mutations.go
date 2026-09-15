@@ -2603,6 +2603,8 @@ func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Au
 		answer, err, handled = r.planInitiativeNarrative(ctx, base, raw, digest, grant, op, plan)
 	case "concord_work_transition.lifecycle":
 		answer, err, handled = r.planLifecycle(ctx, base, raw, digest, grant, op, plan)
+	case "concord_work_transition.worker_abandon":
+		answer, err, handled = r.planWorkerAbandon(ctx, base, raw, digest, grant, op, plan)
 	case "concord_work_transition.remove":
 		answer, err, handled = r.planWorkRemoval(ctx, base, raw, digest, grant, op, plan)
 	case "concord_work_define.research_pack_create":

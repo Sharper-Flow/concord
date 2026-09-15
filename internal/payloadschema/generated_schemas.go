@@ -3054,6 +3054,13 @@ const GeneratedPayloadSchemaDocument = `{
           ],
           "type": "string"
         },
+        "blocked_sessions": {
+          "items": {
+            "$ref": "#/$defs/product_row_blocked_session"
+          },
+          "maxItems": 100,
+          "type": "array"
+        },
         "lifecycle": {
           "$ref": "#/$defs/lifecycle"
         },

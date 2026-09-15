@@ -576,7 +576,7 @@ func deleteWorkOwnedProjections(ctx context.Context, tx *sql.Tx, workID string) 
 	}
 	tables := []string{"workflow_impact_notices", "workflow_candidate_sets", "workflow_contract_predicates", "workflow_contract_law_revisions", "workflow_contract_law_modifications", "workflow_contract_verification_obligations", "workflow_contract_law_additions", "workflow_contract_domain_relation_modifications", "workflow_contract_domain_modifications", "workflow_contract_affected_domains", "workflow_law_addition_reservations", "workflow_architecture_bindings", "workflow_premise_confirmations", "workflow_context_boundaries", "workflow_context_checkpoints", "workflow_impact_edges", "workflow_external_conditions", "workflow_checkpoints", "workflow_decision_records", "workflow_native_runs", "workflow_contracts", "workflow_design_records", "workflow_proposal_records", "workflow_instances", "resource_claims", "work_messages", "work_observations", "external_observations", "worker_attempts", "initiative_entries", "relations", "work_projects", "linear_outbox", "linear_issue_links"}
 	for _, table := range tables {
-		_, deleteErr := tx.ExecContext(ctx, `DELETE FROM `+table+` WHERE work_id=?`, workID)
+		_, deleteErr := tx.ExecContext(ctx, `DELETE FROM `+table+` WHERE work_id=?`, workID) //nolint:gosec // table comes only from the closed FK-order projection list above and the work ID stays parameter-bound.
 		if deleteErr == nil {
 			continue
 		}
@@ -660,7 +660,7 @@ func deleteWorkOwnedProjections(ctx context.Context, tx *sql.Tx, workID string) 
 	packRows.Close()
 	for _, pack := range packs {
 		for _, table := range []string{"active_research_consumers", "active_research_finding_sources", "active_research_sources", "active_research_findings", "active_research_revisions", "active_research_packs"} {
-			if _, err := tx.ExecContext(ctx, `DELETE FROM `+table+` WHERE pack_id=?`, pack); err != nil {
+			if _, err := tx.ExecContext(ctx, `DELETE FROM `+table+` WHERE pack_id=?`, pack); err != nil { //nolint:gosec // table comes only from the closed active-research projection list above and the pack ID stays parameter-bound.
 				return projectionDeleteFailure(table, err)
 			}
 		}

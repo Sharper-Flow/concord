@@ -71,6 +71,10 @@ type ProductRowActionCountValues struct {
 	Ready            int `json:"ready"`
 	ActiveProblems   int `json:"active_problems"`
 	ApprovalRequired int `json:"approval_required"`
+	Live             int `json:"live"`
+	Waiting          int `json:"waiting"`
+	NeedsAttention   int `json:"needs_attention"`
+	Unknown          int `json:"unknown"`
 	// OverdueAwaits counts open external awaits whose wait exceeded the
 	// declared bound (issue #87): waiting-vs-never-completable made visible
 	// in the row the operator scans.
@@ -98,6 +102,7 @@ type ProductRowFocus struct {
 	WorkflowStepLabel string                 `json:"workflow_step_label,omitempty"`
 	ProjectCount      int                    `json:"project_count"`
 	StageContext      ProductRowStageContext `json:"stage_context"`
+	Liveness          *WorkLiveness          `json:"liveness,omitempty"`
 	// BlockedSessions routes operator attention when AttentionKind is
 	// approval_required: the sessions waiting on an operator decision, oldest
 	// first (issue #72). Empty for every other attention kind.
@@ -175,6 +180,7 @@ type productRowWork struct {
 	ApprovalRequired  bool
 	OverdueAwaits     bool
 	WorkflowStepLabel string
+	Liveness          *WorkLiveness
 }
 
 // productRowPageSQL is the only page-data statement. page_products first
@@ -232,7 +238,14 @@ WITH page_products AS (
 		wi.definition_digest,
 		wi.instance_state,
 		MIN(CASE WHEN project.stage_maturity_override IS NOT NULL THEN project.stage_maturity_override || char(31) || project.stage_audience_commitment_override END) AS stage_override_min,
-		MAX(CASE WHEN project.stage_maturity_override IS NOT NULL THEN project.stage_maturity_override || char(31) || project.stage_audience_commitment_override END) AS stage_override_max
+		MAX(CASE WHEN project.stage_maturity_override IS NOT NULL THEN project.stage_maturity_override || char(31) || project.stage_audience_commitment_override END) AS stage_override_max,
+		(SELECT COUNT(*) FROM worker_attempts a WHERE a.work_id=w.id) AS liveness_attempts,
+		(SELECT COUNT(*) FROM worker_attempts a WHERE a.work_id=w.id AND a.lifecycle_state='dispatched') AS liveness_dispatched,
+		(SELECT COUNT(*) FROM worker_attempts a WHERE a.work_id=w.id AND a.lifecycle_state='failed') AS liveness_failed,
+		(SELECT COUNT(*) FROM workflow_external_conditions c WHERE c.work_id=w.id AND c.condition_state='open' AND c.expected_within_seconds IS NOT NULL) AS liveness_open_waits,
+		(SELECT COUNT(*) FROM workflow_external_conditions c WHERE c.work_id=w.id AND c.condition_state='open' AND c.expected_within_seconds IS NULL) AS liveness_unbounded_waits,
+		(SELECT COUNT(*) FROM workflow_decision_records d WHERE d.work_id=w.id) AS liveness_decisions,
+		(SELECT MAX(e.occurred_at) FROM domain_events e WHERE e.subject_type='work_item' AND e.subject_id=w.id AND e.kind NOT IN ('work.message_sent','work.message_withdrawn','workflow.overlap_resolved')) AS liveness_last_progress
 	FROM page_products pp
 	JOIN product_projects product_membership ON product_membership.product_id = pp.id
 	JOIN work_projects wp ON wp.project_id = product_membership.project_id
@@ -246,7 +259,8 @@ SELECT
 	pp.id, pp.display_name, pp.stage_maturity, pp.stage_audience_commitment, pp.version, pp.created_at, pp.updated_at,
 	sw.work_id, sw.kind, sw.title, sw.lifecycle, sw.priority, sw.urgency, sw.created_at, sw.updated_at, sw.project_count,
 	sw.blocked, sw.ready, sw.active_problem, sw.overdue_awaits,
-	sw.current_step, sw.definition_ref, sw.definition_version, sw.definition_digest, sw.instance_state, sw.stage_override_min, sw.stage_override_max
+	sw.current_step, sw.definition_ref, sw.definition_version, sw.definition_digest, sw.instance_state, sw.stage_override_min, sw.stage_override_max,
+		sw.liveness_attempts, sw.liveness_dispatched, sw.liveness_failed, sw.liveness_open_waits, sw.liveness_unbounded_waits, sw.liveness_decisions, sw.liveness_last_progress
 FROM page_products pp
 LEFT JOIN scoped_work sw ON sw.product_id = pp.id`
 
@@ -534,10 +548,12 @@ func (s *Store) QueryProductRows(ctx context.Context, req ProductRowRequest) (Pr
 		var workID, workKind, title, lifecycle, urgency, createdAt, updatedAt sql.NullString
 		var priority, projectCount, definitionVersion sql.NullInt64
 		var blocked, ready, activeProblem, overdueAwaits sql.NullBool
-		var currentStep, definitionRef, definitionDigest, instanceState, stageOverrideMin, stageOverrideMax sql.NullString
+		var currentStep, definitionRef, definitionDigest, instanceState, stageOverrideMin, stageOverrideMax, livenessLastProgress sql.NullString
+		var livenessAttempts, livenessDispatched, livenessFailed, livenessOpenWaits, livenessUnboundedWaits, livenessDecisions sql.NullInt64
 		if err := rows.Scan(&p.ID, &p.DisplayName, &p.StageMaturity, &p.StageAudienceCommitment, &p.Version, &p.CreatedAt, &p.UpdatedAt,
 			&workID, &workKind, &title, &lifecycle, &priority, &urgency, &createdAt, &updatedAt, &projectCount, &blocked, &ready, &activeProblem, &overdueAwaits,
-			&currentStep, &definitionRef, &definitionVersion, &definitionDigest, &instanceState, &stageOverrideMin, &stageOverrideMax); err != nil {
+			&currentStep, &definitionRef, &definitionVersion, &definitionDigest, &instanceState, &stageOverrideMin, &stageOverrideMax,
+			&livenessAttempts, &livenessDispatched, &livenessFailed, &livenessOpenWaits, &livenessUnboundedWaits, &livenessDecisions, &livenessLastProgress); err != nil {
 			return out, wrapFailure(KindUnavailable, productRowQueryID, "cannot decode Product row", true, "retry once the database is readable", err)
 		}
 		idx, ok := productIndex[p.ID]
@@ -561,10 +577,14 @@ func (s *Store) QueryProductRows(ctx context.Context, req ProductRowRequest) (Pr
 			CreatedAt: createdAt.String, UpdatedAt: updatedAt.String, ProjectCount: int(projectCount.Int64), Blocked: blocked.Bool,
 			Ready: ready.Bool, ActiveProblem: activeProblem.Bool, ApprovalRequired: approvalRequired, OverdueAwaits: overdueAwaits.Bool, WorkflowStepLabel: stepLabel,
 			StageOverrides: parseProductRowStageOverrides(stageOverrideMin.String, stageOverrideMax.String),
+			Liveness:       workLivenessPtrFromCounts(workID.String, livenessAttempts.Int64, livenessDispatched.Int64, livenessFailed.Int64, livenessOpenWaits.Int64, livenessUnboundedWaits.Int64, livenessDecisions.Int64, livenessLastProgress),
 		})
 	}
 	if err := rows.Err(); err != nil {
 		return out, wrapFailure(KindUnavailable, productRowQueryID, "cannot scan Product rows", true, "retry once the database is readable", err)
+	}
+	if err := rows.Close(); err != nil {
+		return out, wrapFailure(KindUnavailable, productRowQueryID, "cannot close Product rows", true, "retry once the database is readable", err)
 	}
 	sort.SliceStable(products, func(i, j int) bool {
 		if products[i].row.DisplayName != products[j].row.DisplayName {
@@ -609,6 +629,16 @@ func (s *Store) QueryProductRows(ctx context.Context, req ProductRowRequest) (Pr
 			if work.ApprovalRequired {
 				values.ApprovalRequired++
 			}
+			switch work.Liveness.State {
+			case "live":
+				values.Live++
+			case "waiting":
+				values.Waiting++
+			case "needs_attention":
+				values.NeedsAttention++
+			case "unknown":
+				values.Unknown++
+			}
 		}
 		products[i].row.ActionCounts = ProductRowActionCounts{State: ProductRowCountsKnown, Values: values}
 		focusCandidates := append([]productRowWork(nil), products[i].works...)
@@ -648,6 +678,7 @@ func (s *Store) QueryProductRows(ctx context.Context, req ProductRowRequest) (Pr
 			WorkID: focus.ID, Title: focus.Title, WorkKind: focus.Kind, Lifecycle: focus.Lifecycle,
 			AttentionKind: focus.attentionKind(), Priority: focus.Priority, WorkflowStepLabel: focus.WorkflowStepLabel,
 			ProjectCount: focus.ProjectCount, StageContext: productRowStageContext(products[i].row.Stage, focus),
+			Liveness: focus.Liveness,
 		}
 		// Approval-gated focus carries the routing detail: which sessions
 		// are waiting, oldest first. Read bounded and indexed (issue #72).

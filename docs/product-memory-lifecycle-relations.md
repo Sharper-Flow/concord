@@ -11,9 +11,11 @@
 > **Does not decide:** PM5 Project-membership roles/order, exact DDL/indexes, agent
 > tools, workflow/gate ceremony, PM8 WIP-byte exclusion, PM9 no-receipt boundary, PM10 recovery, or
 > external-system polling.
-> **Amended by CD-0041 and CD-0042:** Initiative is the current grouping kind; Initiative
+> **Amended by CD-0041, CD-0042, and CD-0142:** Initiative is the current grouping kind; Initiative
 > membership uses the dedicated `includes`/entry projection rather than generic
 > `parent`; architecture-overlap resolutions extend the work-pair grammar.
+> CD-0142 adds operator-directed removal of nonterminal execution projections
+> without adding a lifecycle state. The planning record and exact event history remain.
 > Issues #196/#197 replace obsolete pre-go-live forms directly, without aliases,
 > upcasters, or compatibility windows.
 
@@ -96,6 +98,13 @@ superseded  → needed       (only after removing/replacing its supersession edg
   same transaction. A partially terminal record is unrepresentable.
 - Workflow-specific gates, approvals, or phases may constrain when an operation is
   accepted, but they do not create additional Product-memory lifecycle states.
+
+CD-0142 defines a separate operator-directed removal operation for nonterminal
+execution. It preserves the planning handoff and exact `domain_events` history,
+then removes the WorkItem and its owned execution projections atomically. The
+removal reason is `shelved` or `cancelled`; shelving never emits cancellation.
+The removed identity is audit-only and cannot reopen. Renewed work receives a
+new identity from the surviving planning record.
 
 ## 3. Derived work views
 

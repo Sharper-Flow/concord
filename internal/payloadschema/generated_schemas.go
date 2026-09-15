@@ -1035,6 +1035,9 @@ const GeneratedPayloadSchemaDocument = `{
         "lifecycle": {
           "$ref": "#/$defs/lifecycle"
         },
+        "liveness": {
+          "$ref": "#/$defs/work_liveness"
+        },
         "priority": {
           "type": "integer"
         },
@@ -2939,11 +2942,31 @@ const GeneratedPayloadSchemaDocument = `{
           "minimum": 0,
           "type": "integer"
         },
+        "live": {
+          "maximum": 100,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "needs_attention": {
+          "maximum": 100,
+          "minimum": 0,
+          "type": "integer"
+        },
         "overdue_awaits": {
           "minimum": 0,
           "type": "integer"
         },
         "ready": {
+          "maximum": 100,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "unknown": {
+          "maximum": 100,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "waiting": {
           "maximum": 100,
           "minimum": 0,
           "type": "integer"
@@ -2955,7 +2978,11 @@ const GeneratedPayloadSchemaDocument = `{
         "ready",
         "active_problems",
         "approval_required",
-        "overdue_awaits"
+        "overdue_awaits",
+        "live",
+        "waiting",
+        "needs_attention",
+        "unknown"
       ],
       "type": "object"
     },
@@ -3027,15 +3054,11 @@ const GeneratedPayloadSchemaDocument = `{
           ],
           "type": "string"
         },
-        "blocked_sessions": {
-          "items": {
-            "$ref": "#/$defs/product_row_blocked_session"
-          },
-          "maxItems": 100,
-          "type": "array"
-        },
         "lifecycle": {
           "$ref": "#/$defs/lifecycle"
+        },
+        "liveness": {
+          "$ref": "#/$defs/work_liveness"
         },
         "priority": {
           "type": "integer"
@@ -5512,6 +5535,53 @@ const GeneratedPayloadSchemaDocument = `{
       ],
       "type": "string"
     },
+    "work_liveness": {
+      "additionalProperties": false,
+      "properties": {
+        "attempts": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "evidence": {
+          "items": {
+            "maxLength": 512,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 64,
+          "minItems": 1,
+          "type": "array"
+        },
+        "last_progress": {
+          "maxLength": 64,
+          "type": "string"
+        },
+        "open_waits": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "state": {
+          "enum": [
+            "live",
+            "waiting",
+            "needs_attention",
+            "unknown"
+          ],
+          "type": "string"
+        },
+        "work_id": {
+          "$ref": "#/$defs/id"
+        }
+      },
+      "required": [
+        "work_id",
+        "state",
+        "evidence",
+        "attempts",
+        "open_waits"
+      ],
+      "type": "object"
+    },
     "work_messages_page": {
       "additionalProperties": false,
       "properties": {
@@ -6369,6 +6439,69 @@ const GeneratedPayloadSchemaDocument = `{
       ],
       "type": "object"
     },
+    "work_removal_handoff": {
+      "additionalProperties": false,
+      "properties": {
+        "artifacts": {
+          "items": {
+            "maxLength": 4096,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 64,
+          "minItems": 1,
+          "type": "array"
+        },
+        "blockers": {
+          "items": {
+            "maxLength": 4096,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 64,
+          "minItems": 1,
+          "type": "array"
+        },
+        "findings": {
+          "items": {
+            "maxLength": 4096,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 64,
+          "minItems": 1,
+          "type": "array"
+        },
+        "remaining_scope": {
+          "items": {
+            "maxLength": 4096,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 64,
+          "minItems": 1,
+          "type": "array"
+        },
+        "renewal_conditions": {
+          "items": {
+            "maxLength": 4096,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 64,
+          "minItems": 1,
+          "type": "array"
+        }
+      },
+      "required": [
+        "findings",
+        "remaining_scope",
+        "blockers",
+        "artifacts",
+        "renewal_conditions"
+      ],
+      "type": "object"
+    },
     "work_scope": {
       "additionalProperties": false,
       "anyOf": [
@@ -6488,6 +6621,9 @@ const GeneratedPayloadSchemaDocument = `{
         },
         "lifecycle": {
           "$ref": "#/$defs/lifecycle"
+        },
+        "liveness": {
+          "$ref": "#/$defs/work_liveness"
         },
         "narrative": {
           "maxLength": 16384,
@@ -10154,6 +10290,129 @@ const GeneratedPayloadSchemaDocument = `{
         "target",
         "reason",
         "idempotency_key"
+      ],
+      "type": "object"
+    },
+    "work_transition_remove_input": {
+      "additionalProperties": false,
+      "properties": {
+        "actor": {
+          "$ref": "#/$defs/id"
+        },
+        "approval": {
+          "$ref": "#/$defs/approval"
+        },
+        "artifacts_verified": {
+          "type": "boolean"
+        },
+        "dependencies_resolved": {
+          "type": "boolean"
+        },
+        "effects_reconciled": {
+          "type": "boolean"
+        },
+        "execution_relinquished": {
+          "type": "boolean"
+        },
+        "expected_version": {
+          "$ref": "#/$defs/version"
+        },
+        "handoff": {
+          "$ref": "#/$defs/work_removal_handoff"
+        },
+        "idempotency_key": {
+          "$ref": "#/$defs/id"
+        },
+        "linear": {
+          "additionalProperties": false,
+          "properties": {
+            "creation_intent": {
+              "maxLength": 256,
+              "type": "string"
+            },
+            "destination": {
+              "const": "linear",
+              "type": "string"
+            },
+            "handoff_digest": {
+              "$ref": "#/$defs/digest"
+            },
+            "product_id": {
+              "$ref": "#/$defs/id"
+            },
+            "remote_issue_uuid": {
+              "$ref": "#/$defs/id"
+            }
+          },
+          "required": [
+            "product_id",
+            "remote_issue_uuid",
+            "destination",
+            "handoff_digest"
+          ],
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "operation_id": {
+          "$ref": "#/$defs/id"
+        },
+        "product_id": {
+          "$ref": "#/$defs/id"
+        },
+        "reason": {
+          "enum": [
+            "shelved",
+            "cancelled"
+          ],
+          "type": "string"
+        },
+        "sessions": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "session_ref": {
+                "$ref": "#/$defs/id"
+              },
+              "state": {
+                "enum": [
+                  "active",
+                  "unknown",
+                  "vacated"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "session_ref",
+              "state"
+            ],
+            "type": "object"
+          },
+          "maxItems": 64,
+          "type": "array"
+        },
+        "work_id": {
+          "$ref": "#/$defs/id"
+        },
+        "writes_reconciled": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "operation_id",
+        "idempotency_key",
+        "work_id",
+        "expected_version",
+        "reason",
+        "actor",
+        "handoff",
+        "execution_relinquished",
+        "writes_reconciled",
+        "effects_reconciled",
+        "dependencies_resolved",
+        "artifacts_verified"
       ],
       "type": "object"
     },

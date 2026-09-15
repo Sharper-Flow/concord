@@ -14,9 +14,12 @@
 > `archived_work_linked` event/projection, §9.8's maintenance cursor) is deferred;
 > live projections are unbounded with a recorded revisit trigger; backup retention
 > stays out of scope. The authority guarantees in §1, §5, §6, §8 and §7.1 stand.
-> **Amended by CD-0041 and CD-0042:** historical scope uses `domain_ids` and
+> **Amended by CD-0041, CD-0042, and CD-0142:** historical scope uses `domain_ids` and
 > `archived_work_domains`; #197 replaces component scope directly on the
 > pre-go-live primary path without an upcaster or compatibility window.
+> CD-0142 defines a separate, operator-directed removal boundary for nonterminal
+> execution. It does not authorize terminal compaction or alter the historical
+> retention guarantees in this record.
 
 ## Context
 
@@ -43,6 +46,11 @@ removed table those guarantees rest on.
 PM6 compaction linkage makes terminal work eligible to leave live typed projections.
 PM7 permits a bounded lazy maintenance operation to remove those disposable live
 projection rows while retaining the authoritative `domain_events` history in v1.
+
+CD-0142 is a separate correctness operation. It removes a nonterminal execution
+identity only after a verified planning handoff and reconciled execution state.
+It does not make terminal work eligible for compaction and does not remove core
+event history.
 
 After projection pruning:
 
@@ -234,6 +242,10 @@ lessons through their ordinary durable forms; it never serializes or indexes the
 
 Core event pruning is rejected for v1 because it would break PM1 Q7 and CD-0002 I5
 unless a later accepted decision introduces another authoritative replay source.
+
+CD-0142's `work.removed` event is not a prune event. It records removal of a
+nonterminal execution projection and retains the exact audit history required by
+PM1 Q7.
 
 ## 9. Structural invariants
 

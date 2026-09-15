@@ -187,6 +187,7 @@ var eventKindRegistry = map[string]EventKindRegistration{
 	"project.governing_requirement_withdrawn": registerEventKind[GoverningRequirement](1, 1, nil, EventAppendAuthorityGeneric, foldProjectGoverningRequirementWithdrawn, nil),
 	"work.created":                            registerEventKind[workCreatedPayload](2, 1, map[int]Upcaster{1: upcastWorkCreatedV1}, EventAppendAuthorityGeneric, foldWorkCreated, nil),
 	"work.intent_revised":                     registerEventKind[workIntentPayload](1, 1, nil, EventAppendAuthorityGeneric, foldWorkIntentRevised, nil),
+	WorkRemoved:                               registerEventKind[workRemovedPayload](1, 1, nil, EventAppendAuthorityGeneric, foldWorkRemoved, nil),
 	"work.memberships_replaced":               registerEventKind[workMembershipsPayload](1, 1, nil, EventAppendAuthorityGeneric, foldWorkMembershipsReplaced, nil),
 	"work.worktree_created":                   registerEventKind[worktreeCreatedPayload](1, 1, nil, EventAppendAuthorityGeneric, foldWorktreeCreated, nil),
 	"work.resource_claimed":                   registerEventKind[resourceClaimedPayload](1, 1, nil, EventAppendAuthorityGeneric, foldResourceClaimed, nil),
@@ -429,6 +430,11 @@ func applyOperationTx(ctx context.Context, tx *sql.Tx, operation Operation, ownF
 		if err := event.validate(); err != nil {
 			return output, err
 		}
+		if event.SubjectType == SubjectWorkItem && event.Kind != WorkRemoved {
+			if err := refuseRemovedWorkTx(ctx, tx, event.SubjectID, "apply_operation"); err != nil {
+				return output, err
+			}
+		}
 		if err := validateRegisteredEvent(event); err != nil {
 			return output, attributeFailure(err, event, "upcast")
 		}
@@ -533,6 +539,11 @@ func applyOperationObserved(ctx context.Context, s *Store, operation Operation, 
 	for _, event := range operation.Events {
 		if err := event.validate(); err != nil {
 			return output, rollback(err)
+		}
+		if event.SubjectType == SubjectWorkItem && event.Kind != WorkRemoved {
+			if err := refuseRemovedWorkTx(ctx, tx, event.SubjectID, "apply_operation"); err != nil {
+				return output, rollback(err)
+			}
 		}
 		// Validate and upcast before AppendEvent so unsupported versions and
 		// incomplete chains cannot leave even a log row behind. The fold below

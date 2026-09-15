@@ -1217,7 +1217,16 @@ const writeExportFixture = (): { binary: string; body: string; cleanup: () => vo
   return { binary: script, body, cleanup: () => fs.rmSync(directory, { recursive: true, force: true }) }
 }
 
+const exportScratchDirectories = (): string[] =>
+  fs.readdirSync(os.tmpdir()).filter((entry) => entry.startsWith("concord-export-"))
+
 test("TestExportReadbackRunnerReadsFullExportThroughFile", async () => {
+  // The temporary directory is shared with every other process on the host,
+  // so the claim under test is that this run leaves nothing behind, not that
+  // the directory is empty. Asserting the latter made one abandoned export
+  // from a crashed run fail this test on every later run, which reads as a
+  // regression in the runner rather than as unrelated debris.
+  const before = new Set(exportScratchDirectories())
   const { binary, body, cleanup } = writeExportFixture()
   try {
     const result = await defaultExportRunner.run([binary, "export", "session-1", "--sanitize"], "", SIGNAL)
@@ -1227,8 +1236,8 @@ test("TestExportReadbackRunnerReadsFullExportThroughFile", async () => {
   } finally {
     cleanup()
   }
-  const leftover = fs.readdirSync(os.tmpdir()).filter((entry) => entry.startsWith("concord-export-"))
-  expect(leftover).toEqual([])
+  const leaked = exportScratchDirectories().filter((entry) => !before.has(entry))
+  expect(leaked).toEqual([])
 })
 
 test("TestDispatchWorkerCompletesWithExportLargerThanPipeBuffer", async () => {

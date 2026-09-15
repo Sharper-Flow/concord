@@ -122,9 +122,25 @@ func ReadWorkPinTx(ctx context.Context, tx *sql.Tx, workID string) (WorkPin, err
 	if err != nil {
 		return pin, err
 	}
-	activeContractVersion, contractErr := activeWorkflowContractVersion(ctx, tx, workID, "work_pin")
-	if contractErr != nil && contractErr != sql.ErrNoRows {
+	// The pin reads; it does not adjudicate. A work item whose projection
+	// carries duplicate active contracts must stay readable, because the
+	// operator reaches the recovery that retires them through this pin. A
+	// strict selection here would make the ambiguity permanent.
+	//
+	// Every enrichment below this point resolves the one approved contract,
+	// and an ambiguous projection has none. The pin therefore reports where
+	// the work item stands and the one route that repairs it, and stops.
+	activeContractVersions, contractErr := activeWorkflowContractVersions(ctx, tx, workID)
+	if contractErr != nil {
 		return pin, contractErr
+	}
+	if len(activeContractVersions) > 1 {
+		pin.NextValidIntents = []WorkPinIntent{workPinIntentForAction(workflowContractRecoveryActionDefinition(), pin.Version, "operator_contract_correction")}
+		return pin, nil
+	}
+	var activeContractVersion int64
+	if len(activeContractVersions) == 1 {
+		activeContractVersion = activeContractVersions[0]
 	}
 	dispatchHoldsAdvance, holdErr := workflowDispatchHoldsStepAdvance(ctx, tx, workID, pin.Step)
 	if holdErr != nil {

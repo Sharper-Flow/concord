@@ -109,6 +109,7 @@ func repositoryRootForTest(t *testing.T) string {
 // tree composes under the store's strict parser and carries one record per
 // shard file.
 func TestComposeKnowledgeManifestReadsTheLiveShards(t *testing.T) {
+	t.Parallel()
 	root := repositoryRootForTest(t)
 	manifest := composeWorkingTreeManifest(t, root)
 	entries, err := os.ReadDir(filepath.Join(root, filepath.FromSlash(knowledgeRecordTree)))
@@ -140,6 +141,7 @@ func TestComposeKnowledgeManifestReadsTheLiveShards(t *testing.T) {
 // covers the three shapes a commit can have: shards, the aggregate file that
 // predates them, and neither.
 func TestReadKnowledgeManifestAtCommitPrefersShardsAndReadsLegacyAggregates(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	repo := t.TempDir()
 	run := func(args ...string) string {
@@ -208,6 +210,7 @@ func TestReadKnowledgeManifestAtCommitPrefersShardsAndReadsLegacyAggregates(t *t
 // a publication commits the note and its record shard, and touches no other
 // file, so two publications never conflict.
 func TestPublishLessonAddsExactlyOneShard(t *testing.T) {
+	t.Parallel()
 	repo := lessonRepoFixture(t)
 	headBefore, err := os.ReadFile(filepath.Join(repo, filepath.FromSlash(knowledgeHeadPath)))
 	if err != nil {

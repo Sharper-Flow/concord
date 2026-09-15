@@ -12,6 +12,7 @@ import (
 // This shaping previously lived inside cmd/concord's invoke verb, where no test
 // could reach it (issue #450).
 func TestInvokeShapesUnsupportedOperationAsTypedEnvelope(t *testing.T) {
+	t.Parallel()
 	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_transition"})
 	scopeVersion, _, err := s.ScopeVersion(context.Background(), "project-1")
 	if err != nil {
@@ -39,6 +40,7 @@ func TestInvokeShapesUnsupportedOperationAsTypedEnvelope(t *testing.T) {
 // travels as a Go error: a payload that cannot be decoded yields no request to
 // address, so no envelope can be built for it.
 func TestInvokeReturnsErrorOnlyForUndecodableInput(t *testing.T) {
+	t.Parallel()
 	s, service, _, _ := mutationDispatchFixture(t, []Capability{"work_transition"})
 
 	response, err := Invoke(context.Background(), s, service, []byte(`{"tool":`))

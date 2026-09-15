@@ -11,6 +11,7 @@ import (
 )
 
 func TestManifestPathBoundUsesUnicodeScalarsAtSchemaLimit(t *testing.T) {
+	t.Parallel()
 	valid := "docs/" + strings.Repeat("é", 504) + ".md"
 	if utf8.RuneCountInString(valid) != 512 {
 		t.Fatalf("valid path rune count = %d", utf8.RuneCountInString(valid))
@@ -28,6 +29,7 @@ func TestManifestPathBoundUsesUnicodeScalarsAtSchemaLimit(t *testing.T) {
 }
 
 func TestKnowledgeManifestRejectsUnknownFieldsAndInvalidCombinations(t *testing.T) {
+	t.Parallel()
 	valid := `{"schema_version":"1.2","supported_kinds":["lesson","research"],"indexed_kinds":["lesson"],"domain_registry":{"schema_version":"1.0","product_key":"concord","root_domain_id":"product-root:concord","domains":[{"domain_id":"product-root:concord","name":"Concord","purpose":"Product-wide Concord law and architecture","status":"current","architecture_relations":[]}]},"records":[{"id":"lesson-1","kind":"lesson","path":"docs/lessons/one.md","status":"published","date":"2026-08-10T00:00:00Z","title":"Lesson","summary":"Summary","tags":[],"scopes":{"mode":"home","product_ids":[],"project_ids":[],"domain_ids":[],"tag_ids":[]},"sha256":"sha256:` + strings.Repeat("a", 64) + `"}]}`
 	for name, raw := range map[string]string{
 		"unknown field":  strings.Replace(valid, `"summary":"Summary"`, `"summary":"Summary","body":"forbidden"`, 1),
@@ -51,6 +53,7 @@ func TestKnowledgeManifestRejectsUnknownFieldsAndInvalidCombinations(t *testing.
 }
 
 func TestKnowledgeManifestV12RequiresDomainHomesAndDomainScopes(t *testing.T) {
+	t.Parallel()
 	valid := `{"schema_version":"1.2","supported_kinds":["decision","spec"],"indexed_kinds":["decision","spec"],"domain_registry":{"schema_version":"1.0","product_key":"concord","root_domain_id":"product-root:concord","domains":[{"domain_id":"product-root:concord","name":"Concord","purpose":"Product-wide Concord law and architecture","status":"current","architecture_relations":[]}]},"records":[{"id":"CD-0001","kind":"decision","path":"docs/decisions/CD-0001.md","status":"accepted","date":"2026-08-10T00:00:00Z","title":"Decision","summary":"Summary","tags":[],"scopes":{"mode":"home","product_ids":[],"project_ids":[],"domain_ids":[],"tag_ids":[]},"home_domain_id":"product-root:concord","product_wide_rationale":"Fixture law binds every child Domain.","sha256":"sha256:` + strings.Repeat("a", 64) + `"}]}`
 	if _, err := parseKnowledgeManifest([]byte(valid)); err != nil {
 		t.Fatalf("valid 1.2 manifest rejected: %v", err)
@@ -70,6 +73,7 @@ func TestKnowledgeManifestV12RequiresDomainHomesAndDomainScopes(t *testing.T) {
 }
 
 func TestKnowledgeManifestV12RequiresLawHomeForApplicability(t *testing.T) {
+	t.Parallel()
 	valid := `{"schema_version":"1.2","supported_kinds":["decision"],"indexed_kinds":["decision"],"domain_registry":{"schema_version":"1.0","product_key":"concord","root_domain_id":"product-root:concord","domains":[{"domain_id":"product-root:concord","name":"Concord","purpose":"Product-wide Concord law and architecture","status":"current","architecture_relations":[]}]},"records":[{"id":"CD-0001","kind":"decision","path":"docs/decisions/CD-0001.md","status":"superseded","date":"2026-08-10T00:00:00Z","title":"Decision","summary":"Summary","tags":[],"scopes":{"mode":"home","product_ids":[],"project_ids":[],"domain_ids":[],"tag_ids":[]},"successor":"CD-0002","home_domain_id":"product-root:concord","product_wide_rationale":"Fixture law binds every child Domain.","applies_to_domain_ids":[],"sha256":"sha256:` + strings.Repeat("a", 64) + `"},{"id":"CD-0002","kind":"decision","path":"docs/decisions/CD-0002.md","status":"accepted","date":"2026-08-10T00:00:00Z","title":"Successor","summary":"Summary","tags":[],"scopes":{"mode":"home","product_ids":[],"project_ids":[],"domain_ids":[],"tag_ids":[]},"home_domain_id":"product-root:concord","product_wide_rationale":"Fixture successor law binds every child Domain.","law_relations":[{"kind":"supersedes","target_id":"CD-0001"}],"sha256":"sha256:` + strings.Repeat("b", 64) + `"}]}`
 	if _, err := parseKnowledgeManifest([]byte(valid)); err != nil {
 		t.Fatalf("superseded law with home and empty applicability rejected: %v", err)
@@ -81,6 +85,7 @@ func TestKnowledgeManifestV12RequiresLawHomeForApplicability(t *testing.T) {
 }
 
 func TestKnowledgeManifestV12RejectsInvalidDomainRelations(t *testing.T) {
+	t.Parallel()
 	valid := `{"schema_version":"1.2","supported_kinds":["decision","spec"],"indexed_kinds":["decision","spec"],"domain_registry":{"schema_version":"1.0","product_key":"concord","root_domain_id":"product-root:concord","domains":[{"domain_id":"product-root:concord","name":"Concord","purpose":"Product-wide Concord law and architecture","status":"current","architecture_relations":[{"kind":"depends_on","target_domain_id":"product-root:concord","governing_law_ids":["CD-0001"]}]}]},"records":[{"id":"CD-0001","kind":"decision","path":"docs/decisions/CD-0001.md","status":"accepted","date":"2026-08-10T00:00:00Z","title":"Decision","summary":"Summary","tags":[],"scopes":{"mode":"home","product_ids":[],"project_ids":[],"domain_ids":[],"tag_ids":[]},"home_domain_id":"product-root:concord","product_wide_rationale":"Fixture law binds every child Domain.","sha256":"sha256:` + strings.Repeat("a", 64) + `"}]}`
 	if _, err := parseKnowledgeManifest([]byte(valid)); err == nil {
 		t.Fatal("self-referential domain dependency accepted")
@@ -88,6 +93,7 @@ func TestKnowledgeManifestV12RejectsInvalidDomainRelations(t *testing.T) {
 }
 
 func TestKnowledgeDomainRegistryHashIsDeterministicAndNonMutating(t *testing.T) {
+	t.Parallel()
 	first := KnowledgeDomainRegistry{
 		SchemaVersion: "1.0", ProductKey: "concord", RootDomainID: "product-root:concord",
 		Domains: []KnowledgeDomain{
@@ -112,6 +118,7 @@ func TestKnowledgeDomainRegistryHashIsDeterministicAndNonMutating(t *testing.T) 
 }
 
 func TestManifestSuccessorsAreValidatedAfterTheFullRecordSet(t *testing.T) {
+	t.Parallel()
 	base := func(id, kind, status, successor string) KnowledgeRecord {
 		recordPath := "docs/" + id + ".md"
 		if kind == "decision" {
@@ -151,6 +158,7 @@ func TestManifestSuccessorsAreValidatedAfterTheFullRecordSet(t *testing.T) {
 }
 
 func TestManifestRebuildIndexesDecisionSpecLessonAndQ10Proof(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	repo := initKnowledgeRepo(t)
 	decision := "docs/decisions/CD-0001.md"
@@ -186,6 +194,7 @@ func TestManifestRebuildIndexesDecisionSpecLessonAndQ10Proof(t *testing.T) {
 }
 
 func TestManifestQ10VerifiesThePersistedProjectionOfRichRecords(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	repo := initKnowledgeRepo(t)
 	decision := "docs/decisions/CD-0001.md"
@@ -229,6 +238,7 @@ func TestManifestQ10VerifiesThePersistedProjectionOfRichRecords(t *testing.T) {
 }
 
 func TestQueryQ9StructuredTextRankingIsCursorSafe(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	repo := initKnowledgeRepo(t)
 	writeManifestFixture(t, repo,
@@ -277,6 +287,7 @@ func TestQueryQ9StructuredTextRankingIsCursorSafe(t *testing.T) {
 }
 
 func TestQueryQ9StructuredTextExactFieldsAreCaseInsensitiveAndUnique(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	repo := initKnowledgeRepo(t)
 	writeManifestFixture(t, repo,
@@ -359,6 +370,7 @@ func knowledgeProjectionSnapshot(t *testing.T, s *Store) string {
 }
 
 func TestKnowledgeCoverageDistinguishesIndexedEmptyFromUnavailableResearch(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	repo := initKnowledgeRepo(t)
 	writeManifestFixture(t, repo)
@@ -381,6 +393,7 @@ func TestKnowledgeCoverageDistinguishesIndexedEmptyFromUnavailableResearch(t *te
 }
 
 func TestKnowledgeScopeModesAreStructural(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	repo := initKnowledgeRepo(t)
 	writeManifestFixture(t, repo,
@@ -427,6 +440,7 @@ func TestKnowledgeScopeModesAreStructural(t *testing.T) {
 }
 
 func TestHomeScopeRoutingDoesNotLeakAcrossCanonicalHomes(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	firstRepo := initKnowledgeRepo(t)
 	writeManifestFixture(t, firstRepo,
@@ -493,6 +507,7 @@ func containsKnowledgeString(values []string, want string) bool {
 }
 
 func TestManifestFailureLeavesPriorProjectionAndCoverageUnchanged(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	repo := initKnowledgeRepo(t)
 	path := "docs/decisions/CD-0099-rollback.md"
@@ -528,6 +543,7 @@ func TestManifestFailureLeavesPriorProjectionAndCoverageUnchanged(t *testing.T) 
 }
 
 func TestManifestAndWorkNoteStableIDCollisionFailsClosed(t *testing.T) {
+	t.Parallel()
 	repo := initKnowledgeRepo(t)
 	workPath := "docs/work/2026-08-10-collision.md"
 	writeKnowledgeFile(t, repo, workPath, canonicalWorkNote("collision", "2026-08-10T00:00:00Z"))
@@ -541,6 +557,7 @@ func TestManifestAndWorkNoteStableIDCollisionFailsClosed(t *testing.T) {
 }
 
 func TestLegacyManifestAbsenceCoverageIsExplicit(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	repo := initKnowledgeRepo(t)
 	writeKnowledgeFile(t, repo, "README.md", "legacy home\n")

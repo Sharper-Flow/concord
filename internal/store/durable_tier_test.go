@@ -24,6 +24,7 @@ func publishNote(t *testing.T, repo, workID, content string) error {
 // the note is in the log and the operator's knowledge home already carries it.
 // Only the producer can refuse before the write.
 func TestProducerRefusesNoteOverTheDurableBound(t *testing.T) {
+	t.Parallel()
 	repo := initKnowledgeRepo(t)
 	valid := canonicalWorkNote("bound-work", "2026-08-07T00:00:00Z")
 	if err := publishNote(t, repo, "bound-work", valid); err != nil {
@@ -48,6 +49,7 @@ func TestProducerRefusesNoteOverTheDurableBound(t *testing.T) {
 // cannot express: a note within the page budget that has still stopped
 // distilling and started serializing.
 func TestProducerRefusesEmbeddedStateDump(t *testing.T) {
+	t.Parallel()
 	repo := initKnowledgeRepo(t)
 	dump := strings.Repeat(`{"k":"vvvvvvvvvvvvvvvv"},`, maxDurableFencedJSONBytes/16)
 	note := canonicalWorkNote("dump-work", "2026-08-07T00:00:00Z") + "\n```json\n[" + dump + "]\n```\n"
@@ -69,6 +71,7 @@ func TestProducerRefusesEmbeddedStateDump(t *testing.T) {
 // validator would publish notes CI then rejects, which is the split CD-0069 D1
 // forbids by putting the bounds in one file.
 func TestFencedJSONScanMatchesTheDetectiveLayer(t *testing.T) {
+	t.Parallel()
 	large := strings.Repeat("x", 64)
 	for name, tc := range map[string]struct {
 		content string
@@ -97,6 +100,7 @@ func TestFencedJSONScanMatchesTheDetectiveLayer(t *testing.T) {
 // it here means a hand edit to the generated file fails the Go suite too, rather
 // than only the workflow step someone might not run locally.
 func TestGeneratedBoundsMatchTheBudget(t *testing.T) {
+	t.Parallel()
 	raw, err := os.ReadFile("../../docs/durable-tier-budget.v1.json")
 	if err != nil {
 		t.Fatal(err)

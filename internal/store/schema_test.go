@@ -22,6 +22,7 @@ func readSchemaManifestVersion(ctx context.Context, db *sql.DB) (int, error) {
 }
 
 func TestOpenAppliesSchemaManifest(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	ctx := context.Background()
 
@@ -43,6 +44,7 @@ func TestOpenAppliesSchemaManifest(t *testing.T) {
 }
 
 func TestMigrateV60ToV61PreservesWorkflowContractForeignKeys(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "concord-v60.db")
 	ctx := context.Background()
 	db, err := sql.Open(driverName, dataSourceName(path))
@@ -146,6 +148,7 @@ func TestMigrateV60ToV61PreservesWorkflowContractForeignKeys(t *testing.T) {
 }
 
 func TestMigrateV39ToV40BackfillsLawModificationsAndGuardsOverlapAuthority(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "concord-v39.db")
 	ctx := context.Background()
 	db, err := sql.Open(driverName, dataSourceName(path))
@@ -210,6 +213,7 @@ func TestMigrateV39ToV40BackfillsLawModificationsAndGuardsOverlapAuthority(t *te
 }
 
 func TestMigrateV18ToV19AddsClosedKnowledgeCoverageAndScopeGuards(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "concord-v18.db")
 	ctx := context.Background()
 	db, err := sql.Open(driverName, dataSourceName(path))
@@ -268,6 +272,7 @@ func TestMigrateV18ToV19AddsClosedKnowledgeCoverageAndScopeGuards(t *testing.T) 
 }
 
 func TestMigrateV19ToV20AddsProjectStageOverridesAndC14OrderingIndexes(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "concord-v19.db")
 	ctx := context.Background()
 	db, err := sql.Open(driverName, dataSourceName(path))
@@ -320,6 +325,7 @@ func TestMigrateV19ToV20AddsProjectStageOverridesAndC14OrderingIndexes(t *testin
 }
 
 func TestMigrateV20ToV21AddsDerivedLawProjectionAndAmendmentField(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "concord-v20.db")
 	ctx := context.Background()
 	db, err := sql.Open(driverName, dataSourceName(path))
@@ -365,6 +371,7 @@ func TestMigrateV20ToV21AddsDerivedLawProjectionAndAmendmentField(t *testing.T) 
 }
 
 func TestMigrateV22ToV23AddsBoundedInitiativeNarrative(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "concord-v22.db")
 	ctx := context.Background()
 	db, err := sql.Open(driverName, dataSourceName(path))
@@ -421,6 +428,7 @@ func TestMigrateV22ToV23AddsBoundedInitiativeNarrative(t *testing.T) {
 }
 
 func TestMigrateV24ToV25AddsRoutingResolutionEvidence(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "concord-v24.db")
 	ctx := context.Background()
 	db, err := sql.Open(driverName, dataSourceName(path))
@@ -487,6 +495,7 @@ func TestMigrateV24ToV25AddsRoutingResolutionEvidence(t *testing.T) {
 // recreate + copy + drop, every pre-existing row survives, and the lifecycle
 // CHECK that references readback_model is preserved.
 func TestMigrateV43ToV44DropsWorkerRoutingEvidenceAndPreservesRows(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "concord-v43.db")
 	ctx := context.Background()
 	db, err := sql.Open(driverName, dataSourceName(path))
@@ -545,6 +554,7 @@ func TestMigrateV43ToV44DropsWorkerRoutingEvidenceAndPreservesRows(t *testing.T)
 }
 
 func TestMigrateV36ToV37AddsWorkflowLawRevisionProjection(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "concord-v36.db")
 	ctx := context.Background()
 	db, err := sql.Open(driverName, dataSourceName(path))
@@ -583,6 +593,7 @@ func TestMigrateV36ToV37AddsWorkflowLawRevisionProjection(t *testing.T) {
 }
 
 func TestMigrateV8ToV9AddsAgentAuthorityWithoutChangingPriorMigrations(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "concord-v8.db")
 	ctx := context.Background()
 	db, err := sql.Open(driverName, dataSourceName(path))
@@ -627,6 +638,7 @@ func TestMigrateV8ToV9AddsAgentAuthorityWithoutChangingPriorMigrations(t *testin
 }
 
 func TestMigrateV27ToV28PreservesImpactNoticesWithSourceOwnedEdges(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "concord-v27.db")
 	ctx := context.Background()
 	db, err := sql.Open(driverName, dataSourceName(path))
@@ -670,6 +682,7 @@ DELETE FROM fold_guard`, WorkflowNoticeID("legacy-source", 1, "spec", "spec:one"
 }
 
 func TestMigrateIsIdempotent(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	ctx := context.Background()
 
@@ -862,6 +875,8 @@ func seedVersion3Database(t *testing.T, path string) *sql.DB {
 	return db
 }
 
+// Serial: the concurrent-open busy budget assumes an idle machine;
+// parallel siblings exceed it and surface SQLITE_BUSY.
 func TestOpenConcurrentlyInitializesOneDatabase(t *testing.T) {
 	const openers = 8
 
@@ -948,6 +963,7 @@ func TestOpenConcurrentlyInitializesOneDatabase(t *testing.T) {
 // The manifest records a checksum per migration so an edited historical
 // migration is detected instead of silently diverging from the live schema.
 func TestMigrateDetectsEditedHistory(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "concord.db")
 	ctx := context.Background()
 
@@ -976,6 +992,7 @@ func TestMigrateDetectsEditedHistory(t *testing.T) {
 // A database written by a newer binary must fail closed rather than be operated
 // on by an older schema definition.
 func TestMigrateRejectsNewerSchema(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "concord.db")
 	ctx := context.Background()
 
@@ -1007,6 +1024,7 @@ func TestMigrateRejectsNewerSchema(t *testing.T) {
 }
 
 func TestMigrationsAreOrderedAndUnique(t *testing.T) {
+	t.Parallel()
 	seen := make(map[int]bool, len(migrations))
 	for i, m := range migrations {
 		if m.Version <= 0 {
@@ -1029,6 +1047,7 @@ func TestMigrationsAreOrderedAndUnique(t *testing.T) {
 }
 
 func TestMigration58MatchesIssuedBootstrapLedger(t *testing.T) {
+	t.Parallel()
 	var migration58 migration
 	for _, candidate := range migrations {
 		if candidate.Version == 58 {
@@ -1048,6 +1067,7 @@ func TestMigration58MatchesIssuedBootstrapLedger(t *testing.T) {
 }
 
 func TestMigration49SeedsVocabularyRegistriesAndGuardsNativePairs(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	db := s.DatabaseForTesting()
 	ctx := context.Background()
@@ -1094,6 +1114,7 @@ func TestMigration49SeedsVocabularyRegistriesAndGuardsNativePairs(t *testing.T) 
 }
 
 func TestMigration49RejectsInvalidPreMigrationRows(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name string
 		seed string
@@ -1143,6 +1164,7 @@ func TestMigration49RejectsInvalidPreMigrationRows(t *testing.T) {
 }
 
 func TestMigration49UpgradesValidPreMigrationRows(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "valid-pre-migration.db")
 	db, err := sql.Open(driverName, dataSourceName(path))
 	if err != nil {
@@ -1183,6 +1205,7 @@ func TestMigration49UpgradesValidPreMigrationRows(t *testing.T) {
 }
 
 func TestMigration53UpgradesValidNativeRunVerificationState(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	db := openV49(t, "native-run-v52-valid.db")
 	seedV49NativeRun(t, db, string(VerificationVerified))
@@ -1196,6 +1219,7 @@ func TestMigration53UpgradesValidNativeRunVerificationState(t *testing.T) {
 }
 
 func TestMigration53RejectsInvalidNativeRunVerificationState(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	db := openV49(t, "native-run-v52-invalid.db")
 	seedV49NativeRun(t, db, "definitely_bogus")
@@ -1206,6 +1230,7 @@ func TestMigration53RejectsInvalidNativeRunVerificationState(t *testing.T) {
 }
 
 func TestWorkflowContractRigorClassVocabulary(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openTemp(t)
 	db := s.DatabaseForTesting()
@@ -1225,6 +1250,7 @@ func TestWorkflowContractRigorClassVocabulary(t *testing.T) {
 }
 
 func TestMigration54UpgradesValidRigorClass(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	db := openV53(t, "rigor-class-v53-valid.db")
 	if _, err := db.ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
@@ -1243,6 +1269,7 @@ func TestMigration54UpgradesValidRigorClass(t *testing.T) {
 }
 
 func TestMigration54RejectsInvalidRigorClass(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	db := openV53(t, "rigor-class-v53-invalid.db")
 	if _, err := db.ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
@@ -1264,6 +1291,7 @@ func TestMigration54RejectsInvalidRigorClass(t *testing.T) {
 }
 
 func TestMigration55AllowsDeclaredApprovalConsequences(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	db := openV54(t, "approval-consequence-v54-valid.db")
 	if err := Migrate(ctx, db); err != nil {
@@ -1282,6 +1310,7 @@ func TestMigration55AllowsDeclaredApprovalConsequences(t *testing.T) {
 }
 
 func TestMigration55UpgradesValidApprovalConsequences(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	db := openV54(t, "approval-consequence-v54-upgrade.db")
 	grantRef := seedApprovalChallengeGrant(t, db, "intent")
@@ -1308,6 +1337,7 @@ func TestMigration55UpgradesValidApprovalConsequences(t *testing.T) {
 }
 
 func TestMigration55RejectsUndeclaredApprovalConsequence(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	db := openV54(t, "approval-consequence-v54-invalid.db")
 	grantRef := seedApprovalChallengeGrant(t, db, "invalid")
@@ -1329,6 +1359,7 @@ func TestMigration55RejectsUndeclaredApprovalConsequence(t *testing.T) {
 }
 
 func TestArchivedWorkKindVocabulary(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openTemp(t)
 	db := s.DatabaseForTesting()
@@ -1356,6 +1387,7 @@ func TestArchivedWorkKindVocabulary(t *testing.T) {
 }
 
 func TestMigration56UpgradesValidArchivedWorkKind(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	db := openV55(t, "archived-work-kind-v55-valid.db")
 	seedArchivedWorkKindHome(t, db)
@@ -1377,6 +1409,7 @@ func TestMigration56UpgradesValidArchivedWorkKind(t *testing.T) {
 }
 
 func TestMigration56RejectsUndeclaredArchivedWorkKind(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	db := openV55(t, "archived-work-kind-v55-invalid.db")
 	seedArchivedWorkKindHome(t, db)
@@ -1583,6 +1616,7 @@ func seedV49NativeRun(t *testing.T, db *sql.DB, verificationState string) {
 }
 
 func TestMigration40AddsDomainOverlapProjectionTables(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	ctx := context.Background()
 	db := s.DatabaseForTesting()
@@ -1628,6 +1662,7 @@ func TestMigration40AddsDomainOverlapProjectionTables(t *testing.T) {
 // concord_routing_policy_manifest_digest() SQLite function during the replay,
 // and migration 44 leaves worker_attempts without the five CD-0058 columns.
 func TestMigrationReplayFromScratchDropsWorkerRoutingEvidence(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "concord-replay.db")
 	ctx := context.Background()
 	db, err := sql.Open(driverName, dataSourceName(path))
@@ -1751,6 +1786,7 @@ func TestMigrationReplayFromScratchDropsWorkerRoutingEvidence(t *testing.T) {
 // and boundary_kind narrows to admit only 'summary', encoding CD-0027's
 // exclusion in the schema rather than only in prose.
 func TestMigrateV45ToV46DropsOrchestratorReservationAndNarrowsBoundaryKind(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "concord-v45.db")
 	ctx := context.Background()
 	db, err := sql.Open(driverName, dataSourceName(path))
@@ -1881,6 +1917,7 @@ func TestMigrateV45ToV46DropsOrchestratorReservationAndNarrowsBoundaryKind(t *te
 // guard trigger still refuses home-with-IDs, and the rest of the replay
 // reaches the head schema with no step depending on the retired enum member.
 func TestMigrateV47ToV48RenamesResearchScopeComponentToDomain(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "concord-v47-scopes.db")
 	ctx := context.Background()
 	db, err := sql.Open(driverName, dataSourceName(path))
@@ -2072,6 +2109,7 @@ func readTableSQL(t *testing.T, ctx context.Context, db *sql.DB, name string) st
 // a fresh database, with no step that depends on a column or CHECK constraint
 // removed by a later step.
 func TestMigrationReplayFromScratchReachesHead(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "concord-replay-cd0061.db")
 	ctx := context.Background()
 	db, err := sql.Open(driverName, dataSourceName(path))

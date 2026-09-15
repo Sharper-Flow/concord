@@ -88,6 +88,7 @@ func exprText(expr ast.Expr) string {
 }
 
 func TestTypedEventShapeMatchesTheSemanticDispatcher(t *testing.T) {
+	t.Parallel()
 	cases := semanticCaseActions(t)
 	var undeclared, unbuilt []string
 	for action, policy := range builtinActionPolicies {
@@ -118,6 +119,7 @@ func TestTypedEventShapeMatchesTheSemanticDispatcher(t *testing.T) {
 // event records nothing, and no checkpoint-shape action has a semantic case arm,
 // since the checkpoint branch runs before the semantic switch.
 func TestCheckpointEventShapeGovernsTheCheckpointBranch(t *testing.T) {
+	t.Parallel()
 	source, err := os.ReadFile("workflow_action_guards.go")
 	if err != nil {
 		t.Fatal(err)
@@ -139,6 +141,7 @@ func TestCheckpointEventShapeGovernsTheCheckpointBranch(t *testing.T) {
 }
 
 func TestEveryActionDeclaresOneKnownEventShape(t *testing.T) {
+	t.Parallel()
 	known := map[ActionEventShape]bool{
 		ActionEventCheckpoint: true,
 		ActionEventTyped:      true,

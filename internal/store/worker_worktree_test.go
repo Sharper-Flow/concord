@@ -9,6 +9,7 @@ import (
 )
 
 func TestValidateWorkerDispatchWorktreeCanonicalizesSymlinks(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	root := t.TempDir()
 	claimed := filepath.Join(root, "claimed")
@@ -26,6 +27,7 @@ func TestValidateWorkerDispatchWorktreeCanonicalizesSymlinks(t *testing.T) {
 }
 
 func TestValidateWorkerDispatchWorktreeRefusesMismatchWithoutPathLeak(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	root := t.TempDir()
 	claimed := filepath.Join(root, "claimed")
@@ -53,6 +55,7 @@ func TestValidateWorkerDispatchWorktreeRefusesMismatchWithoutPathLeak(t *testing
 }
 
 func TestValidateWorkerDispatchWorktreeRequiresActiveClaim(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	root := t.TempDir()
 	err := validateWorkerDispatchWorktree(context.Background(), s.db, "work-without-claim", root)

@@ -75,6 +75,7 @@ func seedAgentOverlapFixtureWith(t *testing.T, capabilities []Capability) (*stor
 }
 
 func TestResolveOverlapApprovalBindsDirectionKindVersionsAndPersistsConsumedApproval(t *testing.T) {
+	t.Parallel()
 	s, service, _, privateKey, env, input := seedAgentOverlapFixture(t)
 	var err error
 	first, err := Dispatch(context.Background(), s, service, InvokeRequest{Tool: "concord_work_relate", Operation: "resolve_overlap", Input: input}, env)

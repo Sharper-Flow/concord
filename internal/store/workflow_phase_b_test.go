@@ -11,6 +11,7 @@ import (
 )
 
 func TestBuiltinWorkflowRegistryHasTheSevenContractFamilies(t *testing.T) {
+	t.Parallel()
 	defs := BuiltinWorkflowDefinitions()
 	if len(defs) != 7 {
 		t.Fatalf("built-in definition count = %d, want 7", len(defs))
@@ -143,6 +144,7 @@ func TestRefinementStepsRequireArtifactEvidenceAndHaveNoSkipEdge(t *testing.T) {
 }
 
 func TestBuiltinWorkflowDefinitionsMatchExactPhaseBContractMetadata(t *testing.T) {
+	t.Parallel()
 	type expected struct {
 		evidence []EvidenceKind
 		outcome  WorkflowOutcomeSchema
@@ -186,6 +188,7 @@ func TestBuiltinWorkflowDefinitionsMatchExactPhaseBContractMetadata(t *testing.T
 }
 
 func TestBuiltinWorkflowResolverReturnsTheShippedDefinition(t *testing.T) {
+	t.Parallel()
 	registry := NewBuiltinWorkflowRegistry()
 	for _, latest := range BuiltinWorkflowDefinitions() {
 		registered, ok := registry.Lookup(latest.Ref, latest.Version)
@@ -231,6 +234,7 @@ func TestBuiltinWorkflowResolverReturnsTheShippedDefinition(t *testing.T) {
 }
 
 func TestWorkflowDefinitionValidationRejectsMalformedGraphsAndMetadataDrift(t *testing.T) {
+	t.Parallel()
 	base := BuiltinWorkflowDefinitions()[0]
 	cases := []struct {
 		name   string
@@ -264,6 +268,7 @@ func TestWorkflowDefinitionValidationRejectsMalformedGraphsAndMetadataDrift(t *t
 }
 
 func TestWorkflowDefinitionCanonicalDigestAndDriftProtection(t *testing.T) {
+	t.Parallel()
 	definition := BuiltinWorkflowDefinitions()[0]
 	first, err := CanonicalWorkflowDefinition(definition)
 	if err != nil {
@@ -294,6 +299,7 @@ func TestWorkflowDefinitionCanonicalDigestAndDriftProtection(t *testing.T) {
 }
 
 func TestWorkflowDefinitionCanonicalEncodingMatchesPublicFixture(t *testing.T) {
+	t.Parallel()
 	raw, err := os.ReadFile(filepath.Join("..", "..", "contracts", "workflow-engine.fixtures.json"))
 	if err != nil {
 		t.Fatal(err)
@@ -340,6 +346,7 @@ func TestWorkflowDefinitionCanonicalEncodingMatchesPublicFixture(t *testing.T) {
 }
 
 func TestWorkflowPredicateDecoderIsClosedAndRejectsTrailingData(t *testing.T) {
+	t.Parallel()
 	valid := []byte(`{"kind":"exists","surface":"git:tree","subjects":["path:cmd/concord"]}`)
 	predicate, err := DecodeWorkflowPredicate(valid)
 	if err != nil {
@@ -369,6 +376,7 @@ func TestWorkflowPredicateDecoderIsClosedAndRejectsTrailingData(t *testing.T) {
 }
 
 func TestWorkflowOutcomeStrengthAndActorDistinctness(t *testing.T) {
+	t.Parallel()
 	approved := OutcomePredicate{Kind: PredicateExists, Surface: "git:tree", Subjects: []string{"path:a"}}
 	equal, err := CompareWorkflowPredicates(approved, approved)
 	if err != nil || equal != StrengthStrongerOrEqual {
@@ -412,6 +420,7 @@ func TestWorkflowOutcomeStrengthAndActorDistinctness(t *testing.T) {
 }
 
 func TestWorkflowOutcomeEvaluationUsesPinnedDefinitionAndAuthoritativeCheckStrength(t *testing.T) {
+	t.Parallel()
 	_, registry, pin := phaseBDefinition(t, 0)
 	approved := OutcomePredicate{Kind: PredicateCheck, CheckRef: "check:workflow-proof", ImmutableSubjectRef: "commit:aaaaaaaa", ExpectedResult: "pass"}
 	for _, testCase := range []struct {
@@ -447,6 +456,7 @@ func TestWorkflowOutcomeEvaluationUsesPinnedDefinitionAndAuthoritativeCheckStren
 }
 
 func TestWorkflowPredicateRoundTripUsesStrictShape(t *testing.T) {
+	t.Parallel()
 	predicate := OutcomePredicate{Kind: PredicateOutcome, Allowed: []string{"no_change"}}
 	raw, err := json.Marshal(predicate)
 	if err != nil {
@@ -462,6 +472,7 @@ func TestWorkflowPredicateRoundTripUsesStrictShape(t *testing.T) {
 }
 
 func TestWorkflowDefinitionPinPreflightFailsClosedOnDrift(t *testing.T) {
+	t.Parallel()
 	registry := NewWorkflowDefinitionRegistry()
 	definition := BuiltinWorkflowDefinitions()[0]
 	registered, err := registry.Register(definition)
@@ -503,6 +514,7 @@ func TestWorkflowDefinitionPinPreflightFailsClosedOnDrift(t *testing.T) {
 }
 
 func TestWorkflowActionAuthorizationPreflightsBeforeCallbackOnRegistryDrift(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	seedWork(t, s, "preflight-work")
 	definition := BuiltinWorkflowDefinitions()[0]

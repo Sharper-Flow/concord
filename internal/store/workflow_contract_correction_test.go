@@ -38,9 +38,10 @@ func runIssue933OperatorAction(t *testing.T, s *Store, workID, action string, pa
 }
 
 func TestIssue933LateVerdictRecoveryHoldsStepAndRefusesHealthyReplacement(t *testing.T) {
+	t.Parallel()
 	const workID = "issue933-late-verdict"
-	s, owner := seedItemAtAcceptance(t, workID, false)
-	reviewer := verdictReviewer(t, workID)
+	s, owner, _ := seedItemAtAcceptance(t, workID, false)
+	reviewer := verdictReviewer(t, s, workID)
 	if err := runVerdictActionAs(t, s, workID, "record_verdict", json.RawMessage(`{"contract_version":1,"predicate_id":"predicate:primary","verdict_kind":"outcome_mismatch","incomparable_with_approved":true}`), 0, reviewer); err != nil {
 		t.Fatalf("record mismatch verdict: %v", err)
 	}
@@ -82,9 +83,10 @@ func TestIssue933LateVerdictRecoveryHoldsStepAndRefusesHealthyReplacement(t *tes
 }
 
 func TestIssue933PremiseRevisionUsesTypedContractSupersession(t *testing.T) {
+	t.Parallel()
 	const workID = "issue933-contract-correction"
-	s, owner := seedItemAtAcceptance(t, workID, false)
-	reviewer := verdictReviewer(t, workID)
+	s, owner, _ := seedItemAtAcceptance(t, workID, false)
+	reviewer := verdictReviewer(t, s, workID)
 	if err := runVerdictActionAs(t, s, workID, "record_verdict", json.RawMessage(`{"contract_version":1,"predicate_id":"predicate:primary","verdict_kind":"ok"}`), 0, reviewer); err != nil {
 		t.Fatalf("record compatible verdict: %v", err)
 	}
@@ -156,9 +158,10 @@ func TestIssue933PremiseRevisionUsesTypedContractSupersession(t *testing.T) {
 }
 
 func TestWorkflowActionPreflightResolvesContractCorrectionAtCheckpoint(t *testing.T) {
+	t.Parallel()
 	const workID = "preflight-supersede-at-checkpoint"
-	s, owner := seedItemAtAcceptance(t, workID, false)
-	if err := runVerdictActionAs(t, s, workID, "record_verdict", json.RawMessage(`{"contract_version":1,"predicate_id":"predicate:primary","verdict_kind":"ok"}`), 0, verdictReviewer(t, workID)); err != nil {
+	s, owner, _ := seedItemAtAcceptance(t, workID, false)
+	if err := runVerdictActionAs(t, s, workID, "record_verdict", json.RawMessage(`{"contract_version":1,"predicate_id":"predicate:primary","verdict_kind":"ok"}`), 0, verdictReviewer(t, s, workID)); err != nil {
 		t.Fatalf("record compatible verdict: %v", err)
 	}
 

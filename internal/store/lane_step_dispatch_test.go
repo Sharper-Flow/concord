@@ -111,6 +111,7 @@ func dispatchJoinAttempt(ctx context.Context, t *testing.T, s *Store, workID str
 }
 
 func TestJoinComposesWorkerActionsOnAdmittedStepKinds(t *testing.T) {
+	t.Parallel()
 	breakFix, ok := BuiltinWorkflowRegistry().Lookup("workflow.break_fix", 3)
 	if !ok {
 		t.Fatal("workflow.break_fix v3 is not registered")
@@ -162,6 +163,7 @@ func TestJoinComposesWorkerActionsOnAdmittedStepKinds(t *testing.T) {
 }
 
 func TestCurrentJoinComposesTheWorkerFailureRecordWithTheDispatchPair(t *testing.T) {
+	t.Parallel()
 	for _, definition := range BuiltinWorkflowDefinitions() {
 		if !containsString(definition.AvailableActions, "record_worker_failure") {
 			t.Errorf("%s current definition does not declare record_worker_failure", definition.Ref)
@@ -186,6 +188,7 @@ func TestCurrentJoinComposesTheWorkerFailureRecordWithTheDispatchPair(t *testing
 }
 
 func TestJoinAdmitsResearchLaneAtReadStep(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	defer s.Close()
 	workID := "work-join-admit"
@@ -223,6 +226,7 @@ func TestJoinAdmitsReviewLaneAtEffectStep(t *testing.T) {
 }
 
 func TestJoinRefusesLaneAtUnadmittedStepKind(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	defer s.Close()
 	workID := "work-join-refuse"

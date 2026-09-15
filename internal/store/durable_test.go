@@ -15,6 +15,7 @@ import (
 // on that same conn, invisible to the pool after restore, and restorable even
 // when the transaction errors.
 func TestDurableTxPragmaPinning(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	root := t.TempDir()
 	s, err := Open(ctx, filepath.Join(root, "pin.db"))
@@ -88,6 +89,7 @@ func TestDurableTxPragmaPinning(t *testing.T) {
 // completes, reports zero busy, resets the WAL to zero pages, and the
 // connection stays usable afterwards.
 func TestDurableSyncCheckpoint(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	root := t.TempDir()
 	s, err := Open(ctx, filepath.Join(root, "ckpt.db"))
@@ -137,6 +139,7 @@ func TestDurableSyncCheckpoint(t *testing.T) {
 }
 
 func TestDurableBarrierAfterRegisterTrustedClientTruncatesWal(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	root := t.TempDir()
 	dbpath := filepath.Join(root, "concord.db")
@@ -166,6 +169,7 @@ func TestDurableBarrierAfterRegisterTrustedClientTruncatesWal(t *testing.T) {
 // the pool returns its single connection and the next append goes through the
 // normal path.
 func TestDurableBarrierLeavesStoreUsable(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	root := t.TempDir()
 	dbpath := filepath.Join(root, "concord.db")
@@ -196,6 +200,7 @@ func TestDurableBarrierLeavesStoreUsable(t *testing.T) {
 // the post-commit SyncDurable call returns the underlying database-closed
 // error instead of nil.
 func TestDurableBarrierFailureSurfaces(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	root := t.TempDir()
 	dbpath := filepath.Join(root, "concord.db")

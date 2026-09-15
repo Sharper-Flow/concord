@@ -62,6 +62,7 @@ func workflowContractActionInput(t *testing.T, workID string, expectedVersion in
 }
 
 func TestArchitectureBindingSchemaPreservesCurrentIdentifierBounds(t *testing.T) {
+	t.Parallel()
 	domainID := strings.Repeat("d", 256)
 	lawID := strings.Repeat("l", 256)
 	obligationID := strings.Repeat("o", 256)
@@ -108,6 +109,7 @@ func TestArchitectureBindingSchemaPreservesCurrentIdentifierBounds(t *testing.T)
 }
 
 func TestApproveContractSchemaAcceptsExplicitEvidenceAndRigor(t *testing.T) {
+	t.Parallel()
 	fields := workflowContractFieldsFixture()
 	fields["required_evidence"] = []string{"verification", "review"}
 	fields["rigor_class"] = "prototype_internal"

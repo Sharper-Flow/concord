@@ -7,6 +7,7 @@ import (
 )
 
 func TestWorkflowActionDispatchBoundaryRemainsDisabled(t *testing.T) {
+	t.Parallel()
 	r := runtime{}
 	base := NewBase("workflow-disabled", "concord_work_transition", "workflow_action")
 	response, err := r.mutate(context.Background(), base, json.RawMessage(`{"work_id":"work-alpha","expected_version":2,"action_id":"start_execution","fields":{"unexpected":true},"idempotency_key":"wf-disabled"}`), Authority{}, ContractOperation{ID: "concord_work_transition.workflow_action"})

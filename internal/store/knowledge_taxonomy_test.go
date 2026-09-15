@@ -58,6 +58,7 @@ func taxonomyManifestBytes(t *testing.T, manifest taxonomyManifest) []byte {
 // status a kind may carry is decided by its tier, so accepted is unavailable to
 // a non-law kind and published is unavailable to a law-bearing one.
 func TestRecordStatusFollowsTheKindTier(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		kind      string
 		path      string
@@ -99,6 +100,7 @@ func TestRecordStatusFollowsTheKindTier(t *testing.T) {
 // to name lessons; reference and research are non-law for the same reason and
 // must inherit it rather than acquire a law home by omission.
 func TestNonLawRecordsCannotAuthorLawHomeFields(t *testing.T) {
+	t.Parallel()
 	for kind, path := range map[string]string{
 		"lesson":    "docs/lessons/one.md",
 		"reference": "docs/installation.md",
@@ -121,6 +123,7 @@ func TestNonLawRecordsCannotAuthorLawHomeFields(t *testing.T) {
 // status purposes without joining that graph, so authoring a relation on one is
 // a failure rather than an unremarked extension of the law model.
 func TestLawRelationsRemainDecisionAndSpecOnly(t *testing.T) {
+	t.Parallel()
 	raw := taxonomyManifestBytes(t, taxonomyManifest{
 		Records: []json.RawMessage{
 			taxonomyRecord(t, "CO-0001", "constitution", "docs/constitution.md", "accepted", map[string]any{
@@ -140,6 +143,7 @@ func TestLawRelationsRemainDecisionAndSpecOnly(t *testing.T) {
 }
 
 func TestDispositionsAreBoundedAndExcludeRecordPaths(t *testing.T) {
+	t.Parallel()
 	disposition := func(path, kind, reason string) json.RawMessage {
 		encoded, err := json.Marshal(map[string]string{"path": path, "disposition": kind, "reason": reason})
 		if err != nil {

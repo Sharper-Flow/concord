@@ -208,6 +208,7 @@ func bindAJ7DegradedIndex(t *testing.T, sc jobScenario) jobObservation {
 // The read is the demand: the same strict query now answers authoritative and
 // returns the record the index had not yet scanned.
 func TestKnowledgeSearchRebuildsAStaleIndexOnDemand(t *testing.T) {
+	t.Parallel()
 	s, service, grant, corpus := agentJobsPM1Fixture(t)
 	knowledge, err := pm1fixture.SeedKnowledge(context.Background(), s, corpus, t.TempDir())
 	if err != nil {
@@ -245,6 +246,7 @@ func TestKnowledgeSearchRebuildsAStaleIndexOnDemand(t *testing.T) {
 // this proves a caller who did not opt in is refused rather than quietly handed
 // an answer the index cannot stand behind.
 func TestKnowledgeSearchFailsClosedWithoutDegradedOptIn(t *testing.T) {
+	t.Parallel()
 	s, service, grant, _, unscanned := agentJobsKnowledgeFixture(t, true)
 	if unscanned == "" {
 		t.Fatal("lagging fixture produced no unscanned record")
@@ -264,6 +266,7 @@ func TestKnowledgeSearchFailsClosedWithoutDegradedOptIn(t *testing.T) {
 }
 
 func TestKnowledgeUnprocessedReadEnumeratesSortedPaths(t *testing.T) {
+	t.Parallel()
 	s, service, grant, _, _ := agentJobsKnowledgeFixture(t, false)
 	resp := dispatchRead(t, s, service, InvokeRequest{
 		Tool:      "concord_knowledge",

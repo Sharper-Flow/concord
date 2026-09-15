@@ -13,6 +13,7 @@ import (
 // confirms the premise; the completed payload must carry those facts, not
 // the literal zero, the absent-fields default, and the constant "ok".
 func TestCompletionRecordCarriesTheValuesTheGateComputed(t *testing.T) {
+	t.Parallel()
 	s, _ := seedCompletionGateCase(t, "record-integrity", completionGateCase{requiredEvidence: []string{"verification", "review"}, includeSpec: true, includeVerdict: true, includePremise: true, verdictKind: "ok"})
 	var version int64
 	if err := s.DatabaseForTesting().QueryRow(`SELECT version FROM work_items WHERE id='record-integrity'`).Scan(&version); err != nil {
@@ -49,6 +50,7 @@ func TestCompletionRecordCarriesTheValuesTheGateComputed(t *testing.T) {
 // record, so the evaluator-distinctness check must refuse that owner even
 // while the lane holds the executing lease.
 func TestLaneDispatchRotatesTheLeaseNotTheAuthorship(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	workID := "record-authorship-rotation"
 	s := openTemp(t)
@@ -136,6 +138,7 @@ func TestLaneDispatchRotatesTheLeaseNotTheAuthorship(t *testing.T) {
 // follow-on). Binding through it is what lets a verdict cite the commit it
 // evaluated instead of an opaque operation id.
 func TestBindEvidenceHonorsTheDeclaredEvidenceRefField(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	workID := "record-evidence-ref"
 	s := openTemp(t)

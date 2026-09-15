@@ -136,6 +136,7 @@ func seedResearchItemAtConclusion(t *testing.T, workID string, recordReport bool
 }
 
 func TestOperatorVerdictAfterResearchReportPassesDefinitionBackedExit(t *testing.T) {
+	t.Parallel()
 	const workID = "operator-verdict-research-report"
 	s, owner := seedResearchItemAtConclusion(t, workID, true)
 	operator := operatorVerdictActor(t, workID)
@@ -145,6 +146,7 @@ func TestOperatorVerdictAfterResearchReportPassesDefinitionBackedExit(t *testing
 }
 
 func TestOperatorVerdictExitAdmitsPinnedArchitectureDecision(t *testing.T) {
+	t.Parallel()
 	const workID = "operator-verdict-architecture-decision"
 	s := openTemp(t)
 	seedWork(t, s, workID)
@@ -220,8 +222,9 @@ func setWorkflowStepForOperatorVerdictTest(t *testing.T, s *Store, workID, stepI
 }
 
 func TestOperatorVerdictAfterAcceptedWorkerResultPassesDistinctness(t *testing.T) {
+	t.Parallel()
 	const workID = "operator-verdict-accepted-worker"
-	s, owner := seedItemAtAcceptance(t, workID, true)
+	s, owner, _ := seedItemAtAcceptance(t, workID, true)
 	operator := operatorVerdictActor(t, workID)
 
 	if err := runOperatorVerdictWithEvidence(t, s, workID, owner, operator, "attempt:"+workID); err != nil {
@@ -239,12 +242,13 @@ func TestOperatorVerdictAfterAcceptedWorkerResultPassesDistinctness(t *testing.T
 }
 
 func TestOperatorVerdictConditionAcceptsDefinitionBackedExits(t *testing.T) {
+	t.Parallel()
 	noExit, _ := seedResearchItemAtConclusion(t, "operator-verdict-no-exit", false)
 	if err := operatorVerdictExitCheck(t, noExit, "operator-verdict-no-exit"); err == nil {
 		t.Fatal("operator verdict condition accepted a workflow without an allowed exit")
 	}
 
-	accepted, _ := seedItemAtAcceptance(t, "operator-verdict-accepted-exit", true)
+	accepted, _, _ := seedItemAtAcceptance(t, "operator-verdict-accepted-exit", true)
 	if err := operatorVerdictExitCheck(t, accepted, "operator-verdict-accepted-exit"); err != nil {
 		t.Fatalf("operator verdict condition refused an accepted worker result: %v", err)
 	}
@@ -256,8 +260,9 @@ func TestOperatorVerdictConditionAcceptsDefinitionBackedExits(t *testing.T) {
 }
 
 func TestAgentVerdictAfterAcceptedWorkerResultStillRequiresDistinctActor(t *testing.T) {
+	t.Parallel()
 	const workID = "agent-verdict-accepted-worker"
-	s, _ := seedItemAtAcceptance(t, workID, true)
+	s, _, _ := seedItemAtAcceptance(t, workID, true)
 
 	var laneRef string
 	if err := s.DatabaseForTesting().QueryRow(`SELECT execution_actor_ref FROM workflow_instances WHERE work_id=?`, workID).Scan(&laneRef); err != nil {
@@ -274,12 +279,15 @@ func TestAgentVerdictAfterAcceptedWorkerResultStillRequiresDistinctActor(t *test
 }
 
 func TestOperatorVerdictAfterDeliveryPassesDistinctness(t *testing.T) {
+	t.Parallel()
 	testOperatorVerdictAfterDelivery(t, seedDeliveredItemAtAcceptance)
 }
 
 func TestOperatorVerdictAfterLanePassesDistinctness(t *testing.T) {
+	t.Parallel()
 	testOperatorVerdictAfterDelivery(t, func(t *testing.T, id string) (*Store, WorkflowActor) {
-		return seedItemAtAcceptance(t, id, true)
+		s, owner, _ := seedItemAtAcceptance(t, id, true)
+		return s, owner
 	})
 }
 
@@ -320,12 +328,15 @@ func testOperatorVerdictAfterDelivery(t *testing.T, seed func(*testing.T, string
 }
 
 func TestOperatorCompleteAfterDeliveryPassesDistinctness(t *testing.T) {
+	t.Parallel()
 	testOperatorCompleteAfterDelivery(t, seedDeliveredItemAtAcceptance)
 }
 
 func TestOperatorCompleteAfterLanePassesDistinctness(t *testing.T) {
+	t.Parallel()
 	testOperatorCompleteAfterDelivery(t, func(t *testing.T, id string) (*Store, WorkflowActor) {
-		return seedItemAtAcceptance(t, id, true)
+		s, owner, _ := seedItemAtAcceptance(t, id, true)
+		return s, owner
 	})
 }
 
@@ -382,8 +393,9 @@ func testOperatorCompleteAfterDelivery(t *testing.T, seed func(*testing.T, strin
 // Completion still requires a recorded verdict after an accepted worker
 // result, even though the operator identity is an allowed verdict actor.
 func TestOperatorCompleteConditionBinds(t *testing.T) {
+	t.Parallel()
 	const workID = "operator-complete-lane"
-	s, owner := seedItemAtAcceptance(t, workID, true)
+	s, owner, _ := seedItemAtAcceptance(t, workID, true)
 	operator := operatorVerdictActor(t, workID)
 
 	// Advance past acceptance so complete is the declared action.
@@ -417,6 +429,7 @@ func TestOperatorCompleteConditionBinds(t *testing.T) {
 }
 
 func TestOperatorEvaluationRequiresDefinitionBackedExit(t *testing.T) {
+	t.Parallel()
 	for _, completedWorker := range []bool{false, true} {
 		name := "no_delivery"
 		if completedWorker {
@@ -448,6 +461,7 @@ func TestOperatorEvaluationRequiresDefinitionBackedExit(t *testing.T) {
 // land the guard's actor-recording events instead of dropping them; before
 // the fix this refused with "workflow actor reference is not recorded".
 func TestCompleteRecordsAFirstSeenActorTuple(t *testing.T) {
+	t.Parallel()
 	const workID = "complete-first-seen-actor"
 	s, owner := seedDeliveredItemAtAcceptance(t, workID)
 	operator := operatorVerdictActor(t, workID)
@@ -511,6 +525,7 @@ func TestCompleteRecordsAFirstSeenActorTuple(t *testing.T) {
 // declared, so it refuses while any approved predicate lacks a verdict
 // instead of letting the item wedge at complete.
 func TestConfirmPremiseRequiresEveryPredicateVerdict(t *testing.T) {
+	t.Parallel()
 	const workID = "confirm-all-predicates"
 	s := openTemp(t)
 	seedWork(t, s, workID)

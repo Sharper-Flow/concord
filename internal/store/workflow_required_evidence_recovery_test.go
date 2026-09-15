@@ -385,9 +385,9 @@ func TestAcceptanceRecoveryClosedWhenNoRequirementOutstanding(t *testing.T) {
 func TestAcceptedWorkerRecoveryCompletesWithoutChangingAuthority(t *testing.T) {
 	ctx := context.Background()
 	const workID = "accepted-worker-recovery-completion"
-	s, owner := seedItemAtAcceptance(t, workID, false)
+	s, owner, _ := seedItemAtAcceptance(t, workID, false)
 	defer s.Close()
-	reviewer := verdictReviewer(t, workID)
+	reviewer := verdictReviewer(t, s, workID)
 	if err := runVerdictActionAs(t, s, workID, "record_verdict", json.RawMessage(`{"contract_version":1,"predicate_id":"predicate:primary"}`), 0, reviewer); err != nil {
 		t.Fatalf("recording the prior worker verdict refused: %v", err)
 	}
@@ -507,7 +507,7 @@ func TestAcceptanceRecoveryRefusesUnauthorizedAndTerminalActors(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			workID := "recovery-refusal-" + strings.ReplaceAll(tc.name, " ", "-")
-			s, owner := seedItemAtAcceptance(t, workID, false)
+			s, owner, _ := seedItemAtAcceptance(t, workID, false)
 			defer s.Close()
 			setRequiredEvidenceKinds(t, s, workID, wf04OutstandingKind)
 			if tc.actor.AgentRef == "agent/owner" && tc.actor.SessionRef == "" {

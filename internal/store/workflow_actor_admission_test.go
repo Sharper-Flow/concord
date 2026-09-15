@@ -24,6 +24,7 @@ func secondSessionActor() WorkflowActor {
 // item to its capturing session: a restart, a resume, a retarget, or any
 // handoff was locked out of its own workflow.
 func TestPreflightAdmitsAnActorTheCapturingSessionNeverRecorded(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	defer s.Close()
 	seedStepWork(t, s, "work-handoff")
@@ -81,6 +82,7 @@ func TestPreflightAdmitsAnActorTheCapturingSessionNeverRecorded(t *testing.T) {
 // stopped reading the actor row, so this check must remain reachable in the
 // guard, which reads both the stored tuple and the authenticated one.
 func TestRecordedActorTupleMismatchStillFailsClosed(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	defer s.Close()
 	seedStepWork(t, s, "work-mismatch")

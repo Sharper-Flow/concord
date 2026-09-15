@@ -41,6 +41,7 @@ func seedTwoResources(t *testing.T, s *Store) {
 
 // C15 §5 direction 1: Product → owned plus consumed resources, filtered.
 func TestResourcesForProductReturnsOwnedAndConsumedOnce(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	seedTwoResources(t, s)
 	ctx := context.Background()
@@ -80,6 +81,7 @@ func TestResourcesForProductReturnsOwnedAndConsumedOnce(t *testing.T) {
 
 // C15 §5 direction 2: resource → owner plus consumers.
 func TestResourcesByIDReturnsOneCanonicalResource(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	seedTwoResources(t, s)
 	ctx := context.Background()
@@ -97,6 +99,7 @@ func TestResourcesByIDReturnsOneCanonicalResource(t *testing.T) {
 }
 
 func TestResourcesRefusesAnUnboundedOrUnscopedRead(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	seedTwoResources(t, s)
 	ctx := context.Background()

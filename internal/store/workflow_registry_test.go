@@ -8,6 +8,7 @@ import (
 func workflowProductTruth(value bool) *bool { return &value }
 
 func TestWorkflowDefinitionValidationRequiresProductTruthClassification(t *testing.T) {
+	t.Parallel()
 	for _, definition := range BuiltinWorkflowDefinitions() {
 		definition.ChangesProductTruth = nil
 		if err := ValidateWorkflowDefinition(definition); err == nil {
@@ -23,6 +24,7 @@ func TestWorkflowDefinitionValidationRequiresProductTruthClassification(t *testi
 }
 
 func TestWorkflowDefinitionValidationEnforcesProductTruthMatrix(t *testing.T) {
+	t.Parallel()
 	registry := NewBuiltinWorkflowRegistry()
 	cases := []struct {
 		name  string
@@ -48,6 +50,7 @@ func TestWorkflowDefinitionValidationEnforcesProductTruthMatrix(t *testing.T) {
 }
 
 func TestBuiltinWorkflowProductTruthClassification(t *testing.T) {
+	t.Parallel()
 	want := map[WorkKind]bool{
 		WorkKindImplementation:    true,
 		WorkKindBreakFix:          true,
@@ -74,6 +77,7 @@ func TestBuiltinWorkflowProductTruthClassification(t *testing.T) {
 // shape, and nothing beyond. workflow_definition_version_pins_test.go holds
 // the pins; this guards the ceiling.
 func TestBuiltinWorkflowRegistryHoldsNoVersionBeyondThePins(t *testing.T) {
+	t.Parallel()
 	registry := NewBuiltinWorkflowRegistry()
 	highest := map[string]int64{}
 	for _, definition := range builtinWorkflowDefinitionsWithHistory() {
@@ -91,6 +95,7 @@ func TestBuiltinWorkflowRegistryHoldsNoVersionBeyondThePins(t *testing.T) {
 }
 
 func TestProductChangingDefinitionsHaveApprovalRoute(t *testing.T) {
+	t.Parallel()
 	registry := NewBuiltinWorkflowRegistry()
 	for _, definition := range BuiltinWorkflowDefinitions() {
 		if definition.ChangesProductTruth == nil || !*definition.ChangesProductTruth {
@@ -113,6 +118,7 @@ func TestProductChangingDefinitionsHaveApprovalRoute(t *testing.T) {
 }
 
 func TestWorkflowDefinitionCanonicalManifestCarriesProductTruth(t *testing.T) {
+	t.Parallel()
 	registry := NewBuiltinWorkflowRegistry()
 	registered, ok := registry.Lookup("workflow.implementation", 1)
 	if !ok {

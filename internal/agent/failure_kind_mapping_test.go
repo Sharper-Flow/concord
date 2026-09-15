@@ -14,6 +14,7 @@ import (
 // this enumerates it rather than a hand list: any store kind naming a public
 // kind that maps elsewhere fails here, today and on the next kind added.
 func TestStoreKindNamingAPublicKindMapsToItself(t *testing.T) {
+	t.Parallel()
 	for _, public := range store.TypedErrorKinds() {
 		kind := store.FailureKind(public)
 		if got := mapFailureKind(kind); got != public {
@@ -29,6 +30,7 @@ func TestStoreKindNamingAPublicKindMapsToItself(t *testing.T) {
 // answer is contact_operator are listed here by name, so a new kind that
 // silently falls to the default fails this test.
 func TestEveryPublicKindHasADeliberateRecovery(t *testing.T) {
+	t.Parallel()
 	contactByDesign := map[string]bool{"unauthorized": true, "unreachable": true, "internal_error": true, "unknown_scope": true, "malformed_response": true, "transport_failure": true, "outcome_mismatch": true}
 	for _, kind := range store.TypedErrorKinds() {
 		got := publicRecovery(kind, "free prose the store proposed")
@@ -43,6 +45,7 @@ func TestEveryPublicKindHasADeliberateRecovery(t *testing.T) {
 // with not_terminal, a valid proposal passes through and an invalid one
 // resolves by the kind, never by a fault it did not raise.
 func TestNotTerminalRefusalKeepsAnActionableRecovery(t *testing.T) {
+	t.Parallel()
 	public := mapFailureKind(store.KindNotTerminal)
 	if public != "not_terminal" {
 		t.Fatalf("mapFailureKind(KindNotTerminal) = %q", public)

@@ -63,6 +63,7 @@ func seedProductAndProject(t *testing.T, s *Store) {
 }
 
 func TestCD0018UrgencyRoundTripPersistence(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	seedWorkWithUrgency(t, s, "expedite-item", "expedite", 10)
 
@@ -76,6 +77,7 @@ func TestCD0018UrgencyRoundTripPersistence(t *testing.T) {
 }
 
 func TestCD0018UrgencyDefaultsToStandard(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	seedWork(t, s, "default-item")
 
@@ -89,6 +91,7 @@ func TestCD0018UrgencyDefaultsToStandard(t *testing.T) {
 }
 
 func TestCD0018UrgencyInvalidValueRejected(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	event := operationEvent("bad-urgency", "work.created", SubjectWorkItem, "bad", map[string]any{
 		"work_kind": "task", "title": "bad", "priority": 10, "urgency": "critical",
@@ -99,6 +102,7 @@ func TestCD0018UrgencyInvalidValueRejected(t *testing.T) {
 }
 
 func TestCD0018UrgencyOrderingExpediteAboveStandard(t *testing.T) {
+	t.Parallel()
 	// An expedite item with priority=50 must sort above a standard item with
 	// priority=1. Expedite wins regardless of priority.
 	s := openTemp(t)
@@ -125,6 +129,7 @@ func TestCD0018UrgencyOrderingExpediteAboveStandard(t *testing.T) {
 }
 
 func TestCD0018UrgencyWithinBandPriorityOrders(t *testing.T) {
+	t.Parallel()
 	// Three expedite items with priorities 30, 10, 20: within the band, lower
 	// priority still sorts first.
 	s := openTemp(t)
@@ -148,6 +153,7 @@ func TestCD0018UrgencyWithinBandPriorityOrders(t *testing.T) {
 }
 
 func TestCD0018RaisedFromIsAcyclic(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	for _, id := range []string{"a", "b", "c"} {
 		seedWork(t, s, id)
@@ -164,6 +170,7 @@ func TestCD0018RaisedFromIsAcyclic(t *testing.T) {
 }
 
 func TestCD0018RaisedFromDoesNotExcludeFromReady(t *testing.T) {
+	t.Parallel()
 	// Unlike blocks, a raised_from edge must NOT remove the target from Q5.
 	s := openTemp(t)
 	seedWork(t, s, "parent-work")
@@ -190,6 +197,7 @@ func TestCD0018RaisedFromDoesNotExcludeFromReady(t *testing.T) {
 }
 
 func TestCD0018RaisedFromIsOrdinaryRelation(t *testing.T) {
+	t.Parallel()
 	// raised_from is created and removed by the standard relation operations,
 	// just like parent or blocks. No special-casing.
 	s := openTemp(t)

@@ -75,6 +75,7 @@ func addAwaitCondition(t *testing.T, s *Store, conditionID string, boundSeconds 
 }
 
 func TestAwaitHealthDistinguishesWaitingFromNeverCompletable(t *testing.T) {
+	t.Parallel()
 	s := awaitFixture(t)
 	ctx := context.Background()
 	now := time.Date(2026, 8, 15, 12, 0, 0, 0, time.UTC)
@@ -161,6 +162,7 @@ func (l lateResolver) Resolve(_ context.Context, condition ExternalCondition, _ 
 }
 
 func TestOverdueAwaitsInProductListsStalledWaits(t *testing.T) {
+	t.Parallel()
 	s := awaitFixture(t)
 	ctx := context.Background()
 	now := time.Date(2026, 8, 15, 12, 0, 0, 0, time.UTC)

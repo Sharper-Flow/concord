@@ -34,6 +34,7 @@ func openV49(t *testing.T, name string) *sql.DB {
 }
 
 func TestMigrateV49ToV50BoundsProductAndProjectDisplayNames(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	db := openV49(t, "concord-v49.db")
 	if err := Migrate(ctx, db); err != nil {
@@ -82,6 +83,7 @@ func TestMigrateV49ToV50BoundsProductAndProjectDisplayNames(t *testing.T) {
 }
 
 func TestMigrateV50RefusesAStoredOverlongDisplayName(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	db := openV49(t, "concord-v49-dirty.db")
 	if _, err := db.ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
@@ -106,6 +108,7 @@ func TestMigrateV50RefusesAStoredOverlongDisplayName(t *testing.T) {
 }
 
 func TestCreateProductRefusesADisplayNameTheReadSurfaceCannotReturn(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openTemp(t)
 	overlong := strings.Repeat("a", 257)
@@ -139,6 +142,7 @@ func TestCreateProductRefusesADisplayNameTheReadSurfaceCannotReturn(t *testing.T
 }
 
 func TestFoldRefusesAnOverlongDisplayNameOnEveryNamingEvent(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	overlong := strings.Repeat("a", 257)
 

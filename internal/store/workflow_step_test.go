@@ -63,6 +63,7 @@ func readInstanceStep(t *testing.T, s *Store, workID string) string {
 // It never holds a placeholder that no definition declares, because a step
 // outside the definition's vocabulary refuses every action.
 func TestWorkflowInstanceStartsAtItsDefinitionStartStep(t *testing.T) {
+	t.Parallel()
 	want := map[string]string{
 		"workflow.implementation":     "proposal",
 		"workflow.break_fix":          "reproduce",
@@ -92,6 +93,7 @@ func TestWorkflowInstanceStartsAtItsDefinitionStartStep(t *testing.T) {
 // never named by a literal. Every family declares approve_contract on exactly
 // one step, so the derivation is total.
 func TestWorkflowContractStepIsDerivedFromTheDefinition(t *testing.T) {
+	t.Parallel()
 	want := map[string]string{
 		"workflow.implementation":     "planning",
 		"workflow.break_fix":          "planning",
@@ -116,6 +118,7 @@ func TestWorkflowContractStepIsDerivedFromTheDefinition(t *testing.T) {
 // Re-pinning a definition before execution starts is re-initialization: the
 // instance takes the new definition's start step, so the pair stays coherent.
 func TestRepinWritesTheNewDefinitionStartStep(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	defer s.Close()
 	seedStepWork(t, s, "work-repin")
@@ -188,6 +191,7 @@ func startStepFixtureAction(t *testing.T, s *Store, workID, actionID string) {
 // action was authorized against, and changing it would rewrite that authority
 // underneath a live attempt. This gate is the sole guard on the transition.
 func TestRepinIsRefusedAfterAnActionStarts(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	defer s.Close()
 	seedStepWork(t, s, "work-started")
@@ -226,6 +230,7 @@ func TestRepinIsRefusedAfterAnActionStarts(t *testing.T) {
 // storage, and an instance holding such a step accepts no action at all. The
 // boundary is structural rather than a review convention.
 func TestCurrentStepIsWrittenOnlyByItsOwningFile(t *testing.T) {
+	t.Parallel()
 	const owner = "workflow_step.go"
 	entries, err := os.ReadDir(".")
 	if err != nil {

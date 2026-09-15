@@ -122,6 +122,7 @@ func corpusLookup(value any, parts []string) (any, bool) {
 }
 
 func TestWorkflowCorpusWF39DispatchesThroughAgentWorkflowAction(t *testing.T) {
+	t.Parallel()
 	corpus := struct {
 		Scenarios []struct {
 			ID       string         `json:"id"`

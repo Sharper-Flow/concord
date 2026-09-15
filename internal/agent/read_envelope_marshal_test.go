@@ -17,6 +17,7 @@ import (
 // Domain reads carried a fabricated zero freshness. This test dispatches
 // each read against a real fixture and marshals what it would send.
 func TestKnowledgeReadEnvelopeMarshalsWithRealisticIdentifiers(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s, service, grant, corpus := agentJobsPM1Fixture(t)
 	if _, err := pm1fixture.SeedKnowledge(ctx, s, corpus, t.TempDir()); err != nil {
@@ -48,6 +49,7 @@ func TestKnowledgeReadEnvelopeMarshalsWithRealisticIdentifiers(t *testing.T) {
 // The Domain reads carry no observation time from the store. The envelope
 // admits a null freshness for that; a zero instant is refused at marshal.
 func TestDomainReadEnvelopeMarshalsWithoutFreshness(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"product_read"})
 	if _, err := pm1fixture.SeedCommittedProductDomain(ctx, s, "product-1", "project-1", t.TempDir()); err != nil {
@@ -77,6 +79,7 @@ func TestDomainReadEnvelopeMarshalsWithoutFreshness(t *testing.T) {
 // surface: for each read on a tool that also has a mutation, a minimal ok
 // read envelope must marshal without mutation metadata.
 func TestEveryReadOnAMixedToolMarshalsAsARead(t *testing.T) {
+	t.Parallel()
 	mutating := map[string]bool{}
 	for _, op := range ContractOperations {
 		if op.Kind == OperationMutation {
@@ -103,6 +106,7 @@ func TestEveryReadOnAMixedToolMarshalsAsARead(t *testing.T) {
 // result once reused the capture input's enum, so a browse that included an
 // initiative refused its own answer. A result admits every stored kind.
 func TestWorkBrowseListAnswersWhenAnInitiativeIsInTheResult(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"product_read", "work_initiative"})
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")

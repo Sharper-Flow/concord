@@ -6,6 +6,7 @@ import (
 )
 
 func TestUnopenedStoreQueryMethods(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	assertUnopenedStoreTypedFailure(t, []nilStoreCase{
 		{"QueryQ9", func(s *Store) error {

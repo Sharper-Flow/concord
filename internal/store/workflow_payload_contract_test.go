@@ -39,6 +39,7 @@ func requirePayloadFailure(t *testing.T, err error, field, rule string) *Failure
 }
 
 func TestCurrentActionPayloadContractsRefuseCrossActionAndInvalidFields(t *testing.T) {
+	t.Parallel()
 	definition := currentWorkflowDefinition(t, "workflow.implementation")
 	tests := []struct {
 		name    string
@@ -131,6 +132,7 @@ func TestRecordDesignPayloadContractsRemainVersioned(t *testing.T) {
 }
 
 func TestMissingRequiredActionFieldHasNoDurableEffect(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	defer s.Close()
 	const workID = "work-required-payload"
@@ -177,6 +179,7 @@ func TestMissingRequiredActionFieldHasNoDurableEffect(t *testing.T) {
 }
 
 func TestDispatchWorkerIntentNamesThePublicAdapterField(t *testing.T) {
+	t.Parallel()
 	definition := currentWorkflowDefinition(t, "workflow.implementation")
 	intents := workPinIntents(definition, "execution", 11, false)
 	for _, intent := range intents {
@@ -192,6 +195,7 @@ func TestDispatchWorkerIntentNamesThePublicAdapterField(t *testing.T) {
 }
 
 func TestActionPayloadListItemSchemasMatchPreflight(t *testing.T) {
+	t.Parallel()
 	definition := currentWorkflowDefinition(t, "workflow.implementation")
 	if err := validateWorkflowActionPayload(definition, "record_verdict", json.RawMessage(`{"predicate_id":"predicate:one","evaluation_evidence":["artifact:path/with/slash"]}`)); err != nil {
 		t.Fatalf("workflow reference accepted by the generated reference schema was refused: %v", err)

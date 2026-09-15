@@ -68,6 +68,7 @@ func busyTimeout(t *testing.T) time.Duration {
 }
 
 func TestMigrateOnCurrentDatabaseTakesNoWriteLock(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openTemp(t)
 
@@ -87,6 +88,7 @@ func TestMigrateOnCurrentDatabaseTakesNoWriteLock(t *testing.T) {
 	}
 }
 
+// Serial: the migrate lock budget assumes an idle machine; parallel siblings exceed it.
 func TestMigrateWaitsOutALockHeldPastOneBusyTimeout(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "unmigrated.db")
@@ -129,6 +131,7 @@ func TestMigrateWaitsOutALockHeldPastOneBusyTimeout(t *testing.T) {
 }
 
 func TestMigrationLockContendedNeverRetriesDriftOrUnsupportedSchema(t *testing.T) {
+	t.Parallel()
 	for _, testCase := range []struct {
 		name string
 		err  error
@@ -152,6 +155,7 @@ func TestMigrationLockContendedNeverRetriesDriftOrUnsupportedSchema(t *testing.T
 
 // The fast path must not become a way to skip drift detection.
 func TestMigrationManifestCurrentStillFailsClosedOnAnUnknownMigration(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openTemp(t)
 	if _, err := s.DatabaseForTesting().ExecContext(ctx, `INSERT INTO schema_migrations (version, name, checksum, applied_at) VALUES (?, ?, ?, ?)`,

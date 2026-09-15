@@ -8,6 +8,7 @@ import (
 )
 
 func TestAuthorityRefusalsCarryTheUnauthorizedKind(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name   string
 		mutate func(*Invocation, *Service)

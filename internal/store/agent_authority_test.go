@@ -8,6 +8,7 @@ import (
 )
 
 func TestTrustedClientWithKeyRoundTrip(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s, err := Open(ctx, filepath.Join(t.TempDir(), "concord.db"))
 	if err != nil {
@@ -24,6 +25,7 @@ func TestTrustedClientWithKeyRoundTrip(t *testing.T) {
 }
 
 func TestRevokeTrustedClientRequiresExactlyOneActiveRow(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s, err := Open(ctx, filepath.Join(t.TempDir(), "concord.db"))
 	if err != nil {
@@ -48,6 +50,7 @@ func TestRevokeTrustedClientRequiresExactlyOneActiveRow(t *testing.T) {
 }
 
 func TestTransactionAuthorityRejectsNilTransaction(t *testing.T) {
+	t.Parallel()
 	_, _, err := TrustedClientWithKeyTx(context.Background(), nil, "client-1")
 	var failure *Failure
 	if !errors.As(err, &failure) || failure.Kind != KindInvalidOperation {
@@ -66,6 +69,7 @@ func TestTransactionAuthorityRejectsNilTransaction(t *testing.T) {
 // that decision first. If it fails, CD-0071 D3 is being changed, and D5 governs
 // what a real process boundary would require.
 func TestAuthorityTablesCarryNoIntegrityTrigger(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s, err := Open(ctx, filepath.Join(t.TempDir(), "concord.db"))
 	if err != nil {
@@ -95,6 +99,7 @@ func TestAuthorityTablesCarryNoIntegrityTrigger(t *testing.T) {
 }
 
 func TestMutateTrustedClientPolicyReadsCurrentAndWritesResultAtomically(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s, err := Open(ctx, filepath.Join(t.TempDir(), "concord.db"))
 	if err != nil {
@@ -126,6 +131,7 @@ func TestMutateTrustedClientPolicyReadsCurrentAndWritesResultAtomically(t *testi
 }
 
 func TestMutateTrustedClientPolicyAbortsAndKeepsStoredPolicyOnMutateError(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s, err := Open(ctx, filepath.Join(t.TempDir(), "concord.db"))
 	if err != nil {
@@ -156,6 +162,7 @@ func TestMutateTrustedClientPolicyAbortsAndKeepsStoredPolicyOnMutateError(t *tes
 }
 
 func TestMutateTrustedClientPolicyRefusesUnknownAndRevokedClientsTyped(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s, err := Open(ctx, filepath.Join(t.TempDir(), "concord.db"))
 	if err != nil {

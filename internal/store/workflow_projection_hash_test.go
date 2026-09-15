@@ -6,6 +6,7 @@ import (
 )
 
 func TestWorkflowProjectionHashQuotesSchemaIdentifiers(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	if _, err := s.DatabaseForTesting().Exec(`ALTER TABLE workflow_actors ADD COLUMN "hostile"", value; --" TEXT DEFAULT 'safe'`); err != nil {
 		t.Fatal(err)

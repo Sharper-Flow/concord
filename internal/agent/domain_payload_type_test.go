@@ -19,6 +19,7 @@ import (
 // three fails here without anyone having to think of a value that exposes it.
 
 func TestDomainReadPayloadTypesPinResultFieldsAndSchema(t *testing.T) {
+	t.Parallel()
 	var root map[string]any
 	if err := json.Unmarshal([]byte(payloadschema.GeneratedPayloadSchemaDocument), &root); err != nil {
 		t.Fatalf("decode generated payload schema: %v", err)

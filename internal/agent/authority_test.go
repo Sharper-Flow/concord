@@ -55,6 +55,7 @@ func newAuthorizedService(t *testing.T, db *store.Store, client, principal strin
 // additive expansion is the remedy: it grants the missing agents while every
 // existing grant and the stored principal survive.
 func TestAgentScopeBoundsTheAgentAClientMayPresent(t *testing.T) {
+	t.Parallel()
 	for _, testCase := range []struct {
 		name       string
 		scope      []string
@@ -110,6 +111,7 @@ func TestAgentScopeBoundsTheAgentAClientMayPresent(t *testing.T) {
 }
 
 func TestApprovalConsumptionIsTransactionBoundAndSingleUse(t *testing.T) {
+	t.Parallel()
 	db := openAgentDB(t)
 	service := NewService(db)
 	service.Now = func() time.Time { return fixedTime() }
@@ -160,6 +162,7 @@ func TestApprovalConsumptionIsTransactionBoundAndSingleUse(t *testing.T) {
 }
 
 func TestDirectApprovalAssertionConsumesExistingApprovalWithoutChallenge(t *testing.T) {
+	t.Parallel()
 	db := openAgentDB(t)
 	seedSimpleAuthorityScope(t, db)
 	service, invocation, _ := newAuthorizedService(t, db, "client-1", "human-1", []Capability{"product_read"}, []string{"product-1"}, []string{"project-1"}, store.ProjectResolution{ProjectID: "project-1"})
@@ -213,6 +216,7 @@ func seedSimpleAuthorityScope(t *testing.T, db *store.Store) {
 }
 
 func TestAuthorityMethodsGuardNilServiceAndStore(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	var nilService *Service
 	if _, err := nilService.Authorize(ctx, Invocation{}); err == nil {
@@ -231,6 +235,7 @@ func TestAuthorityMethodsGuardNilServiceAndStore(t *testing.T) {
 }
 
 func TestUnexplainedErrorsRemainInternalErrors(t *testing.T) {
+	t.Parallel()
 	envelope := failureEnvelope(Envelope{}, errors.New("disk caught fire"))
 	if envelope.Error == nil || envelope.Error.Kind != "internal_error" {
 		t.Fatalf("unexplained error kind = %v, want internal_error", envelope.Error)

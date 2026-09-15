@@ -317,6 +317,7 @@ func stringsToAny(values []string) []any {
 // follows the declaration; this proves the declaration is the contract order, so
 // the two together leave no way to reorder the seam silently.
 func TestPublicationOrderIsDeclaredNotIncidental(t *testing.T) {
+	t.Parallel()
 	want := []string{"git_publish", "verify_commit", "record_locator"}
 	if len(publicationPhases) != len(want) {
 		t.Fatalf("publicationPhases=%v, want %v", publicationPhases, want)
@@ -332,6 +333,7 @@ func TestPublicationOrderIsDeclaredNotIncidental(t *testing.T) {
 // injected fault: discarding the commit must not leave the note staged, or a
 // later publish would silently succeed against a dirty tree.
 func TestPartialPublicationLeavesNoDraftUntracked(t *testing.T) {
+	t.Parallel()
 	s, service, grant, privateKey, home := agentJobsCompactionFixture(t)
 	service.publicationObserver = func(phase string) error {
 		if phase == "git_publish" {

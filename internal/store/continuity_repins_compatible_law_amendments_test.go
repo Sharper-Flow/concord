@@ -9,6 +9,7 @@ import (
 // Issue #765: CD-0036 D2 — a same-ID accepted hash change is a compatible
 // amendment, surfaced with both hashes; supersession belongs to stale_law_revision.
 func TestContinuityRepinsCompatibleLawAmendments(t *testing.T) {
+	t.Parallel()
 
 	s := openTemp(t)
 	actor, _ := continuityTestWorkflow(t, s, "continuity-law-amendment")

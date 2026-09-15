@@ -165,6 +165,7 @@ func scopeReadFor(t *testing.T, s *store.Store, service *Service, privateKey ed2
 }
 
 func TestExecutingSessionCannotReadItsOwnVerdict(t *testing.T) {
+	t.Parallel()
 	s, service, execKey, _ := verdictScopeFixture(t)
 
 	response := scopeReadFor(t, s, service, execKey, "verdict-exec-nonce-0001", "session-exec-aaaa", "agent-exec", "client-session-exec-aaaa")
@@ -187,6 +188,7 @@ func TestExecutingSessionCannotReadItsOwnVerdict(t *testing.T) {
 }
 
 func TestDistinctSessionReadsTheVerdict(t *testing.T) {
+	t.Parallel()
 	s, service, _, otherKey := verdictScopeFixture(t)
 
 	response := scopeReadFor(t, s, service, otherKey, "verdict-distinct-nonce-2", "session-other-bbbb", "agent-other", "client-session-other-bbbb")

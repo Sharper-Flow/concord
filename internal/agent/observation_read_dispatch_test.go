@@ -10,6 +10,7 @@ import (
 )
 
 func TestWorkTraceObservationsReadsAllRowsForRequestedWork(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s, service, grant := claimsFixture(t)
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
@@ -68,6 +69,7 @@ func TestWorkTraceObservationsReadsAllRowsForRequestedWork(t *testing.T) {
 }
 
 func TestWorkTraceExternalObservationsReadPreservesD9StateWithoutEvents(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s, service, grant := claimsFixture(t)
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")

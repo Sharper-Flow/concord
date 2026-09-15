@@ -49,6 +49,7 @@ func messagesFixture(t *testing.T) (*store.Store, *Service, Authority) {
 }
 
 func TestMessagesDirectBroadcastWithdrawAndRestartSurvival(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s, service, grant := messagesFixture(t)
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
@@ -158,6 +159,7 @@ func TestMessagesDirectBroadcastWithdrawAndRestartSurvival(t *testing.T) {
 }
 
 func TestMessagesCarryNoAuthority(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s, service, grant := messagesFixture(t)
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")

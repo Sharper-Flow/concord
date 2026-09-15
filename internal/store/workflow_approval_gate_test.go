@@ -11,6 +11,7 @@ import (
 // lets the first call leave the step before the gate runs, so the gate never
 // runs. This holds for every built-in definition and every step.
 func TestApprovalGateStepHasNoOtherAdvancingAction(t *testing.T) {
+	t.Parallel()
 	for _, definition := range BuiltinWorkflowDefinitions() {
 		modes := make(map[string]ActionExecutionMode, len(definition.ActionDefinitions))
 		approvals := make(map[string]ActionApproval, len(definition.ActionDefinitions))
@@ -40,6 +41,7 @@ func TestApprovalGateStepHasNoOtherAdvancingAction(t *testing.T) {
 // spike frame walk without approve_contract records the defect this fix
 // removes.
 func TestWorkflowConformanceCorpusWalksApproveContract(t *testing.T) {
+	t.Parallel()
 	raw, err := os.ReadFile("../../scenarios/workflow-engine.v1.json")
 	if err != nil {
 		t.Fatal(err)

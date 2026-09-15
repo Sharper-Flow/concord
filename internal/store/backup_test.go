@@ -11,6 +11,7 @@ import (
 )
 
 func TestBackupUsesOnlineSnapshotAndPM10Manifest(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openTemp(t)
 	defer s.Close()
@@ -38,6 +39,7 @@ func TestBackupUsesOnlineSnapshotAndPM10Manifest(t *testing.T) {
 }
 
 func TestInterruptedBackupRemovesPartialSnapshotAndManifest(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	defer s.Close()
 	destination := filepath.Join(t.TempDir(), "interrupted.db")
@@ -55,6 +57,7 @@ func TestInterruptedBackupRemovesPartialSnapshotAndManifest(t *testing.T) {
 }
 
 func TestRestoreBackupUsesCleanOnlineRestoreAndPromotesVerifiedDatabase(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	source := openTemp(t)
 	defer source.Close()
@@ -89,6 +92,7 @@ func TestRestoreBackupUsesCleanOnlineRestoreAndPromotesVerifiedDatabase(t *testi
 }
 
 func TestRestoreBackupRefusesExistingDestinationUntouched(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	source := openTemp(t)
 	defer source.Close()
@@ -114,6 +118,7 @@ func TestRestoreBackupRefusesExistingDestinationUntouched(t *testing.T) {
 }
 
 func TestInterruptedRestoreRemovesStagingAndLeavesDestinationAbsent(t *testing.T) {
+	t.Parallel()
 	source := openTemp(t)
 	defer source.Close()
 	snapshot := filepath.Join(t.TempDir(), "snapshot.db")
@@ -137,6 +142,7 @@ func TestInterruptedRestoreRemovesStagingAndLeavesDestinationAbsent(t *testing.T
 }
 
 func TestBackupRejectsForeignKeyOnlyCorruption(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openTemp(t)
 	defer s.Close()

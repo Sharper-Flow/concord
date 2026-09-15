@@ -6,6 +6,7 @@ import (
 )
 
 func TestUnopenedStoreAgentAuthorityMethods(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	assertUnopenedStoreTypedFailure(t, []nilStoreCase{
 		{"TrustedClientWithKey", func(s *Store) error {

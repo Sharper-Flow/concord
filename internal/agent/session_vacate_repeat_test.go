@@ -18,6 +18,7 @@ import (
 // unit of identity, so a second linked worktree records its own event and a
 // same-key retry of the same relocation replays before the effect runs.
 func TestSessionVacateRepeatsWithinOneSession(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s, service, grant, _, baseSHA := worktreeDispatchFixture(t)
 

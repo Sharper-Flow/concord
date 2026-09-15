@@ -8,6 +8,7 @@ import (
 )
 
 func TestMutationIdempotencyBoundaryRoundTrip(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	defer s.Close()
 	ctx := context.Background()
@@ -46,6 +47,7 @@ func TestMutationIdempotencyBoundaryRoundTrip(t *testing.T) {
 }
 
 func TestTransactRollsBackCallbackFailure(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	defer s.Close()
 	errSentinel := errors.New("abort")

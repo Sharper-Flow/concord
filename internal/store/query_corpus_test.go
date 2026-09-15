@@ -15,6 +15,7 @@ import (
 )
 
 func TestAcceptedQ1ToQ10Corpus(t *testing.T) {
+	t.Parallel()
 	corpus, err := pm1fixture.Load()
 	if err != nil {
 		t.Fatalf("load corpus: %v", err)

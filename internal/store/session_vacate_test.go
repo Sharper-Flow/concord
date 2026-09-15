@@ -8,6 +8,7 @@ import (
 )
 
 func TestResolveSessionVacateTargetUsesRegisteredMainCheckout(t *testing.T) {
+	t.Parallel()
 	s, worktreePath := realGitTiersFixture(t)
 	var target SessionVacateTarget
 	err := s.Transact(context.Background(), func(transaction *Transaction) error {
@@ -34,6 +35,7 @@ func TestResolveSessionVacateTargetUsesRegisteredMainCheckout(t *testing.T) {
 }
 
 func TestResolveSessionVacateTargetRefusesRegisteredMainCheckout(t *testing.T) {
+	t.Parallel()
 	s, _ := realGitTiersFixture(t)
 	locators, err := s.ProjectLocators(context.Background(), "project-w")
 	if err != nil {
@@ -49,6 +51,7 @@ func TestResolveSessionVacateTargetRefusesRegisteredMainCheckout(t *testing.T) {
 }
 
 func TestVacateThenReclaimPassesOccupancyGate(t *testing.T) {
+	t.Parallel()
 	s, worktreePath := realGitTiersFixture(t)
 	ctx := context.Background()
 	var target SessionVacateTarget

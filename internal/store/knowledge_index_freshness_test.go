@@ -11,6 +11,7 @@ import (
 // object changes nothing the index projects, so it must leave the index
 // authoritative; a commit that changes a record must not.
 func TestKnowledgeIndexFreshnessFollowsContentNotCommit(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	repo := initKnowledgeRepo(t)
 	writeManifestFixture(t, repo, manifestFixture{ID: "law-one", Kind: "lesson", Path: "docs/lessons/law-one.md", Status: "published", Date: "2026-08-10T00:00:00Z", Title: "Law one", Summary: "First law", Scopes: KnowledgeRecordScopes{Mode: "home"}})
@@ -58,6 +59,7 @@ func TestKnowledgeIndexFreshnessFollowsContentNotCommit(t *testing.T) {
 // A canonical work note is projected content too: adding one without
 // touching the manifest must also turn the index stale.
 func TestKnowledgeIndexFreshnessTracksWorkNoteTree(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	repo := initKnowledgeRepo(t)
 	writeManifestFixture(t, repo, manifestFixture{ID: "law-one", Kind: "lesson", Path: "docs/lessons/law-one.md", Status: "published", Date: "2026-08-10T00:00:00Z", Title: "Law one", Summary: "First law", Scopes: KnowledgeRecordScopes{Mode: "home"}})

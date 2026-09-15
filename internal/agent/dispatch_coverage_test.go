@@ -100,6 +100,7 @@ func functionBody(file *ast.File, name string) *ast.BlockStmt {
 }
 
 func TestEveryContractOperationReachesADispatchArm(t *testing.T) {
+	t.Parallel()
 	dispatched := dispatchedOperationIDs(t)
 	var missing []string
 	for _, operation := range ContractOperations {
@@ -116,6 +117,7 @@ func TestEveryContractOperationReachesADispatchArm(t *testing.T) {
 }
 
 func TestEveryDispatchArmNamesAContractOperation(t *testing.T) {
+	t.Parallel()
 	declared := map[string]bool{}
 	for _, operation := range ContractOperations {
 		declared[operation.ID] = true

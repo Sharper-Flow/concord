@@ -12,6 +12,7 @@ import (
 // arrays for each, so a nil conversion marshals as null and the refusal the
 // gate decided cannot cross the agent boundary (issue #783).
 func TestArchitectureOnlyDomainOverlapRefusalIsDeliverable(t *testing.T) {
+	t.Parallel()
 	failure := &store.Failure{
 		Kind:           store.KindDomainOverlap,
 		Op:             "workflow_domain_overlap",

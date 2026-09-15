@@ -13,6 +13,7 @@ import (
 // confirmation, where the operator confronts it.
 
 func TestSupersessionInvalidatesPriorPremiseConfirmation(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	seedWork(t, s, "cd31-work")
 	seedWorkflowLaw(t, s)

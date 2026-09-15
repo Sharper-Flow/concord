@@ -7,6 +7,7 @@ import (
 )
 
 func TestStoreCursorRejectsTamperingAndBindingMismatch(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	defer s.Close()
 
@@ -35,6 +36,7 @@ func TestStoreCursorRejectsTamperingAndBindingMismatch(t *testing.T) {
 }
 
 func TestAgentReadWatermarksAreScoped(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	defer s.Close()
 	ctx := context.Background()
@@ -72,6 +74,7 @@ func TestAgentReadWatermarksAreScoped(t *testing.T) {
 }
 
 func TestReadWorkItemSummaryNotFoundIsTyped(t *testing.T) {
+	t.Parallel()
 	s := seedQueryFixture(t)
 	defer s.Close()
 

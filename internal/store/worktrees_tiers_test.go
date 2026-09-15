@@ -32,6 +32,7 @@ func inspectRequest(git *fakeWorktreeGit, mode, path string) WorktreeInspectRequ
 }
 
 func TestInspectWorktreeReadsStatusDiffWithoutLeaseOrTarget(t *testing.T) {
+	t.Parallel()
 	s, git, _ := worktreeFixture(t)
 	entry := claimFixtureWorktree(t, s, git)
 
@@ -68,6 +69,7 @@ func TestInspectWorktreeReadsStatusDiffWithoutLeaseOrTarget(t *testing.T) {
 }
 
 func TestInspectWorktreeRequiresActiveEntryInSessionProject(t *testing.T) {
+	t.Parallel()
 	s, git, _ := worktreeFixture(t)
 
 	_, err := s.InspectWorktree(context.Background(), inspectRequest(git, WorktreeInspectModeStatus, ""))
@@ -85,6 +87,7 @@ func TestInspectWorktreeRequiresActiveEntryInSessionProject(t *testing.T) {
 }
 
 func TestInspectWorktreeValidatesModeAndSelector(t *testing.T) {
+	t.Parallel()
 	s, git, _ := worktreeFixture(t)
 	claimFixtureWorktree(t, s, git)
 
@@ -113,6 +116,7 @@ func verifyRequest(git *fakeWorktreeGit, leaseID string, command []string, run f
 }
 
 func TestVerifyWorktreeRunsUnderLeaseAndReleases(t *testing.T) {
+	t.Parallel()
 	s, git, _ := worktreeFixture(t)
 	entry := claimFixtureWorktree(t, s, git)
 
@@ -143,6 +147,7 @@ func TestVerifyWorktreeRunsUnderLeaseAndReleases(t *testing.T) {
 }
 
 func TestVerifyWorktreeRefusesWhenTrackedFilesChange(t *testing.T) {
+	t.Parallel()
 	s, git, _ := worktreeFixture(t)
 	entry := claimFixtureWorktree(t, s, git)
 
@@ -173,6 +178,7 @@ func TestVerifyWorktreeRefusesWhenTrackedFilesChange(t *testing.T) {
 }
 
 func TestVerifyWorktreeConcurrentLeaseRefusesTypedNamingHolder(t *testing.T) {
+	t.Parallel()
 	s, git, _ := worktreeFixture(t)
 	entry := claimFixtureWorktree(t, s, git)
 
@@ -215,6 +221,7 @@ func TestVerifyWorktreeConcurrentLeaseRefusesTypedNamingHolder(t *testing.T) {
 }
 
 func TestVerifyWorktreeSameLeaseResumesOnlyPinnedCommand(t *testing.T) {
+	t.Parallel()
 	s, git, _ := worktreeFixture(t)
 	entry := claimFixtureWorktree(t, s, git)
 
@@ -250,6 +257,7 @@ func TestVerifyWorktreeSameLeaseResumesOnlyPinnedCommand(t *testing.T) {
 }
 
 func TestVerifyWorktreeReleasedLeaseReportsRecordedOutcome(t *testing.T) {
+	t.Parallel()
 	s, git, _ := worktreeFixture(t)
 	entry := claimFixtureWorktree(t, s, git)
 
@@ -273,6 +281,7 @@ func TestVerifyWorktreeReleasedLeaseReportsRecordedOutcome(t *testing.T) {
 }
 
 func TestVerifyWorktreeValidatesCommand(t *testing.T) {
+	t.Parallel()
 	s, git, _ := worktreeFixture(t)
 	claimFixtureWorktree(t, s, git)
 	for _, command := range [][]string{nil, {}, strings.Fields(strings.Repeat("x ", 20))} {
@@ -339,6 +348,7 @@ func gitRunStore(t *testing.T, dir string, args ...string) string {
 }
 
 func TestTiersAgainstRealGitInspectFileAndVerifyCommand(t *testing.T) {
+	t.Parallel()
 	s, worktreePath := realGitTiersFixture(t)
 	ctx := context.Background()
 	if !filepath.IsAbs(worktreePath) {

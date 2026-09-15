@@ -775,6 +775,7 @@ func (r *recorderT) Fatalf(format string, args ...any) {
 // sentinel at the resolved path. The guard must produce a clear
 // "no probe recorded" message — never a silent pass.
 func TestEvaluateAbsentRequiresProbe(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name         string
 		obs          jobObservation
@@ -857,6 +858,7 @@ func TestEvaluateAbsentRequiresProbe(t *testing.T) {
 // requires-probe test above; together they prove the operator both
 // rejects unprobed paths and accepts probed ones.
 func TestEvaluateAbsentAcceptsProbe(t *testing.T) {
+	t.Parallel()
 	rec := &recorderT{T: t}
 	obs := jobObservation{
 		State:         map[string]any{},
@@ -885,6 +887,7 @@ func TestEvaluateAbsentAcceptsProbe(t *testing.T) {
 // value (not nil and not probedAbsent). The brief's third branch
 // (path resolves to anything else → FAIL) must remain live.
 func TestEvaluateAbsentRejectsUnexpectedValue(t *testing.T) {
+	t.Parallel()
 	rec := &recorderT{T: t}
 	obs := jobObservation{
 		State:         map[string]any{},
@@ -923,6 +926,7 @@ func TestEvaluateAbsentRejectsUnexpectedValue(t *testing.T) {
 // satisfy nonempty by recording a probe at a path the assertion
 // expects to be populated.
 func TestEvaluateProbeSentinelRejectsOtherOps(t *testing.T) {
+	t.Parallel()
 	ops := []string{"eq", "not_eq", "contains", "not_contains", "set_eq", "unique", "nonempty"}
 	rec := &recorderT{T: t}
 	obs := jobObservation{
@@ -1022,6 +1026,7 @@ func (d scenarioDriver) approvalWithheld() bool {
 // ---------------------------------------------------------------------------
 
 func TestAgentJobsCorpus(t *testing.T) {
+	t.Parallel()
 	corpus := loadAgentJobsCorpus(t)
 
 	// The corpus count is pinned so scenario removal cannot masquerade as a
@@ -1687,6 +1692,7 @@ func bindAJ2BlockerExplanation(t *testing.T, sc jobScenario) jobObservation {
 // maintainer who weakens it must not be able to rely on the corpus alone to
 // notice: the corpus only proves the guard is quiet when every key is read.
 func TestFixtureOverrideConsumptionIsProven(t *testing.T) {
+	t.Parallel()
 	sc := jobScenario{ID: "X-scenario", InitialState: map[string]any{
 		"fixture": "PM1",
 		"fixture_override": map[string]any{

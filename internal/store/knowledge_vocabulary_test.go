@@ -209,6 +209,7 @@ func difference(left, right []string) []string {
 }
 
 func TestKnowledgeManifestVocabularyMatchesSchema(t *testing.T) {
+	t.Parallel()
 	schema := loadKnowledgeSchema(t)
 	record, ok := schema.Defs["record"]
 	if !ok {
@@ -291,6 +292,7 @@ func schemaIneligibleRE(t *testing.T, record json.RawMessage) *regexp.Regexp {
 // for every probe, the Go verdict and the schema verdict must agree. A file
 // excluded on one side alone fails here, in the direction it diverged.
 func TestKnowledgeManifestIneligiblePathsMatchSchema(t *testing.T) {
+	t.Parallel()
 	schema := loadKnowledgeSchema(t)
 	record, ok := schema.Defs["record"]
 	if !ok {
@@ -372,6 +374,7 @@ func repositoryDocsPaths(t *testing.T) []string {
 // above is not vacuous: were the repealed exclusion still present in Go, the
 // differential check would report it.
 func TestKnowledgeManifestIneligibleBindingDetectsDivergence(t *testing.T) {
+	t.Parallel()
 	schema := loadKnowledgeSchema(t)
 	ineligible := schemaIneligibleRE(t, schema.Defs["record"])
 	for _, repealed := range []string{"docs/product-coordination-view.md", "docs/terminal-launcher-contract.md"} {
@@ -396,6 +399,7 @@ func TestKnowledgeManifestIneligibleBindingDetectsDivergence(t *testing.T) {
 // TestKnowledgeManifestRepealedPathsValidate states the repeal directly: both
 // accepted contracts may now carry a manifest record.
 func TestKnowledgeManifestRepealedPathsValidate(t *testing.T) {
+	t.Parallel()
 	for _, eligible := range []string{"docs/product-coordination-view.md", "docs/terminal-launcher-contract.md"} {
 		if err := validateManifestPath(eligible); err != nil {
 			t.Errorf("validateManifestPath(%q) = %v, want nil", eligible, err)
@@ -417,6 +421,7 @@ func TestKnowledgeManifestRepealedPathsValidate(t *testing.T) {
 // naming a rule the condition does not enforce is how the previous message
 // went stale unnoticed for eleven days.
 func TestKnowledgeManifestIneligibleHintNamesEnforcedRules(t *testing.T) {
+	t.Parallel()
 	hint := manifestIneligibleHint()
 	for _, prefix := range manifestIneligiblePrefixes {
 		if !strings.Contains(hint, prefix) {
@@ -437,6 +442,7 @@ func TestKnowledgeManifestIneligibleHintNamesEnforcedRules(t *testing.T) {
 // above is not vacuous: a schema that gains or loses a member is reported in
 // the direction it diverged.
 func TestKnowledgeManifestVocabularyBindingDetectsDivergence(t *testing.T) {
+	t.Parallel()
 	if got := difference([]string{"a", "b"}, []string{"b"}); !reflect.DeepEqual(got, []string{"a"}) {
 		t.Fatalf("schema-only divergence not reported: %v", got)
 	}
@@ -455,6 +461,7 @@ func TestKnowledgeManifestVocabularyBindingDetectsDivergence(t *testing.T) {
 // repository policy (manifestRootKeys false) stays in the head shard, which
 // the store never rewrites.
 func TestLiveKnowledgeManifestHeadKeysSurviveComposition(t *testing.T) {
+	t.Parallel()
 	root := repositoryRootForTest(t)
 	shards, err := readKnowledgeShardsWorkingTree(root)
 	if err != nil {

@@ -8,6 +8,7 @@ import (
 )
 
 func TestWorkflowCompletedV1UpcastsToNonBreakingImpactVerdict(t *testing.T) {
+	t.Parallel()
 	event := workflowEvent("legacy-completion", WorkflowCompleted, "legacy-work", map[string]any{
 		"work_id": "legacy-work", "expected_version": 2, "resulting_version": 3,
 		"terminal_state": "completed", "final_verdict_kind": "ok",
@@ -28,6 +29,7 @@ func TestWorkflowCompletedV1UpcastsToNonBreakingImpactVerdict(t *testing.T) {
 }
 
 func TestWorkflowImpactNoticeV1UpcastsEdgeOwnerToLegacySource(t *testing.T) {
+	t.Parallel()
 	event := workflowEvent("legacy-notice", WorkflowImpactNoticeRecorded, "legacy-source", map[string]any{
 		"work_id": "legacy-source", "expected_version": 2, "resulting_version": 3,
 		"notice_id":               WorkflowNoticeID("legacy-source", 1, "spec", "spec:one", "legacy-target", "breaking"),
@@ -49,6 +51,7 @@ func TestWorkflowImpactNoticeV1UpcastsEdgeOwnerToLegacySource(t *testing.T) {
 }
 
 func TestWorkflowCompletionPropagatesReverseDependentsAndBoundaryUsesEdgeClass(t *testing.T) {
+	t.Parallel()
 	for _, testCase := range []struct {
 		name          string
 		edgeClass     string
@@ -98,6 +101,7 @@ func TestWorkflowCompletionPropagatesReverseDependentsAndBoundaryUsesEdgeClass(t
 }
 
 func TestWorkflowCompletionChoosesHardEdgeWhenDependentDeclaresMultipleEdges(t *testing.T) {
+	t.Parallel()
 	sourceID := "impact-multi-source"
 	dependentID := "impact-multi-dependent"
 	s, completion := seedCompletionGateCase(t, sourceID, completionGateCase{

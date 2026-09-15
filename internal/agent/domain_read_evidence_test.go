@@ -89,6 +89,7 @@ func assertAuthoritativeCoverage(t *testing.T, response Envelope, operation stri
 // Element 1: bounded Domain identity. The list read names the Product's current
 // Domains, flags the architectural home, and carries authority plus coverage.
 func TestAgentDomainListReturnsBoundedIdentityWithAuthorityAndCoverage(t *testing.T) {
+	t.Parallel()
 	s, service, env := domainEvidenceFixture(t)
 	response := domainRead(t, s, service, env, "list", `{"product_id":"product-1","page":{"cursor":null,"limit":20}}`)
 	assertAuthoritativeCoverage(t, response, "list")
@@ -117,6 +118,7 @@ func TestAgentDomainListReturnsBoundedIdentityWithAuthorityAndCoverage(t *testin
 // Elements 2, 5 and 6: current law, its Git evidence, and decision records.
 // Superseded law is absent, so "current" is a real filter rather than a label.
 func TestAgentDomainDetailReturnsCurrentLawDecisionsAndGitEvidence(t *testing.T) {
+	t.Parallel()
 	s, service, env := domainEvidenceFixture(t)
 	response := domainRead(t, s, service, env, "detail", `{"product_id":"product-1","domain_id":"`+singleDomainRootID+`"}`)
 	registry := assertAuthoritativeCoverage(t, response, "detail")
@@ -164,6 +166,7 @@ func TestAgentDomainDetailReturnsCurrentLawDecisionsAndGitEvidence(t *testing.T)
 // distinguishes that from a Product whose registry was never projected, which
 // is a typed error carrying no authority and no coverage at all.
 func TestAgentDomainRelationsAreAuthoritativeEmptyNotUnavailable(t *testing.T) {
+	t.Parallel()
 	s, service, env := domainEvidenceFixture(t)
 	response := domainRead(t, s, service, env, "detail", `{"product_id":"product-1","domain_id":"`+singleDomainRootID+`"}`)
 	registry := assertAuthoritativeCoverage(t, response, "detail")
@@ -251,6 +254,7 @@ func TestAgentDomainRelationsAreAuthoritativeEmptyNotUnavailable(t *testing.T) {
 // Element 4: active work bound to the Domain, distinguishing the architectural
 // home from mere footprint.
 func TestAgentDomainActiveWorkReturnsDomainBoundWorkWithCoverage(t *testing.T) {
+	t.Parallel()
 	s, service, env := domainEvidenceFixture(t)
 	response := domainRead(t, s, service, env, "active_work", `{"product_id":"product-1","domain_id":"`+singleDomainRootID+`","page":{"cursor":null,"limit":20}}`)
 	assertAuthoritativeCoverage(t, response, "active_work")
@@ -287,6 +291,7 @@ func TestAgentDomainActiveWorkReturnsDomainBoundWorkWithCoverage(t *testing.T) {
 
 // Element 7: typed local attachments with their optimistic set version.
 func TestAgentDomainAttachmentsReturnTypedLocalEdgesWithCoverage(t *testing.T) {
+	t.Parallel()
 	s, service, env := domainEvidenceFixture(t)
 	response := domainRead(t, s, service, env, "attachments", `{"product_id":"product-1","domain_id":"`+singleDomainRootID+`"}`)
 	assertAuthoritativeCoverage(t, response, "attachments")
@@ -316,6 +321,7 @@ func TestAgentDomainAttachmentsReturnTypedLocalEdgesWithCoverage(t *testing.T) {
 // Element 8: unresolved architecture overlap between the Domain-bound contracts,
 // reported with its resolution state rather than silently omitted.
 func TestAgentDomainOverlapsReturnUnresolvedPairsWithCoverage(t *testing.T) {
+	t.Parallel()
 	s, service, env := domainEvidenceFixture(t)
 	response := domainRead(t, s, service, env, "overlaps", `{"product_id":"product-1","domain_id":"`+singleDomainRootID+`"}`)
 	assertAuthoritativeCoverage(t, response, "overlaps")

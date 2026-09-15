@@ -7,6 +7,7 @@ import (
 )
 
 func TestGeneratedPayloadFixturesAreConsumedByGoValidator(t *testing.T) {
+	t.Parallel()
 	data, err := os.ReadFile("../../contracts/agent-tool-surface.fixtures.json")
 	if err != nil {
 		t.Fatal(err)
@@ -49,6 +50,7 @@ func TestGeneratedPayloadFixturesAreConsumedByGoValidator(t *testing.T) {
 }
 
 func TestWorkflowCompletionImpactVerdictIsPublicAndRequired(t *testing.T) {
+	t.Parallel()
 	valid := json.RawMessage(`{"work_id":"work-1","expected_version":1,"action_id":"complete","idempotency_key":"complete-1","fields":{"impact_verdict":"breaking"}}`)
 	if err := ValidatePayloadSchema("work_transition_action_input", valid); err != nil {
 		t.Fatalf("explicit completion impact verdict rejected: %v", err)
@@ -66,6 +68,7 @@ func TestWorkflowCompletionImpactVerdictIsPublicAndRequired(t *testing.T) {
 }
 
 func TestWorkflowActionSchemaIsActionSpecificAndUsesPublicDispatchFields(t *testing.T) {
+	t.Parallel()
 	dispatch := json.RawMessage(`{"work_id":"work-1","expected_version":1,"action_id":"dispatch_worker","idempotency_key":"dispatch-1","fields":{"lane_id":"research"}}`)
 	if err := ValidatePayloadSchema("work_transition_action_public_input", dispatch); err != nil {
 		t.Fatalf("public dispatch lane_id rejected: %v", err)
@@ -86,6 +89,7 @@ func TestWorkflowActionSchemaIsActionSpecificAndUsesPublicDispatchFields(t *test
 }
 
 func TestWorkerResultAcceptanceBindingIsPublicAndRequired(t *testing.T) {
+	t.Parallel()
 	valid := json.RawMessage(`{"work_id":"work-1","expected_version":1,"action_id":"accept_worker_result","idempotency_key":"accept-1","fields":{"attempt_id":"attempt-1","attempt_epoch":1}}`)
 	if err := ValidatePayloadSchema("work_transition_action_input", valid); err != nil {
 		t.Fatalf("explicit worker result binding rejected: %v", err)
@@ -105,6 +109,7 @@ func TestWorkerResultAcceptanceBindingIsPublicAndRequired(t *testing.T) {
 }
 
 func TestWorkflowActionSchemaAcceptsWorkflowReferencePaths(t *testing.T) {
+	t.Parallel()
 	input := json.RawMessage(`{"work_id":"work-1","expected_version":1,"action_id":"checkpoint_context","idempotency_key":"checkpoint-1","fields":{"active_unit":"repair","hypothesis":"test","diagnosis":"test","strategy":"test","touched_refs":["internal/store/workflow_registry.go"],"evidence_refs":["artifact:test/output.json"],"pending_questions":[],"pending_decisions":[]}}`)
 	if err := ValidatePayloadSchema("work_transition_action_input", input); err != nil {
 		t.Fatalf("workflow reference path was rejected: %v", err)

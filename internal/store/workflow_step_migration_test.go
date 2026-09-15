@@ -15,6 +15,7 @@ import (
 // stores that carry the rows it must repair: an empty store has nothing to
 // rewrite, so the trigger never fires and the migration looks correct.
 func TestStepMigrationRewritesPlaceholderRowsOnAPopulatedStore(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "concord-placeholder.db")
 	db, err := sql.Open(driverName, dataSourceName(path))

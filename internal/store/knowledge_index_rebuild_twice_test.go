@@ -11,6 +11,7 @@ import (
 // any is judged: the pool holds one connection, and a second query while a
 // result set is open would park forever.
 func TestDerivedKnowledgeClearOrderRespectsForeignKeys(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	db := s.DatabaseForTesting()
 	position := map[string]int{}
@@ -61,6 +62,7 @@ func TestDerivedKnowledgeClearOrderRespectsForeignKeys(t *testing.T) {
 // had no production caller until #708, so no populated store had ever
 // rebuilt twice, and the fixtures name no governing laws. This one does.
 func TestKnowledgeIndexRebuildsTwiceWithGoverningLaws(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	repo := initKnowledgeRepo(t)
 	writeManifestFixture(t, repo,

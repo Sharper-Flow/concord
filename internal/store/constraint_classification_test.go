@@ -32,6 +32,7 @@ func constraintProbeDB(t *testing.T) *sql.DB {
 // otherwise silently reclassify constraint failures as retryable
 // availability failures.
 func TestUniqueViolationClassificationIsMessageIndependent(t *testing.T) {
+	t.Parallel()
 	db := constraintProbeDB(t)
 	_, err := db.Exec(`INSERT INTO probe_unique VALUES('x')`)
 	if err == nil {
@@ -67,6 +68,7 @@ CREATE TABLE probe_check(value INTEGER CHECK(value > 0));`); err != nil {
 // Foreign-key, check, and any-constraint classification must equally
 // derive from typed codes, and constraint kinds must not cross-classify.
 func TestConstraintClassificationByKindIsTyped(t *testing.T) {
+	t.Parallel()
 	db := foreignKeyProbeDB(t)
 
 	_, fkErr := db.Exec(`INSERT INTO probe_child VALUES('missing')`)
@@ -100,6 +102,7 @@ func TestConstraintClassificationByKindIsTyped(t *testing.T) {
 }
 
 func TestIndexedNoteConstraintFailureIsDeterministicAndScoped(t *testing.T) {
+	t.Parallel()
 	db := constraintProbeDB(t)
 	_, err := db.Exec(`INSERT INTO probe_unique VALUES('x')`)
 	if err == nil {

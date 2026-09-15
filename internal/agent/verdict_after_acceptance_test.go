@@ -14,14 +14,17 @@ import (
 // Acceptance binds the attempt so a verdict can cite it after the external
 // step exits, where bind_evidence is not a declared action.
 func TestVerdictAfterAcceptanceCitesTheAttempt(t *testing.T) {
+	t.Parallel()
 	testVerdictAfterAcceptance(t, false, false)
 }
 
 func TestOperatorVerdictAfterLaneAcceptanceFromCoordinator(t *testing.T) {
+	t.Parallel()
 	testVerdictAfterAcceptance(t, true, false)
 }
 
 func TestOperatorVerdictAfterLaneAcceptanceFromHistoricalExecutor(t *testing.T) {
+	t.Parallel()
 	testVerdictAfterAcceptance(t, true, true)
 }
 

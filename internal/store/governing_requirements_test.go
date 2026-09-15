@@ -48,6 +48,7 @@ func withdrawRequirementEvent(id, project, ref string, expected, resulting int64
 // requirement is declared against a Project, and a mistaken declaration is
 // corrected by appending a withdrawal rather than by hand-repairing the row.
 func TestGoverningRequirementsAreScopeBoundAndCorrectForward(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openTemp(t)
 	seedGovernedProject(t, s, "prod", "proj")
@@ -81,6 +82,7 @@ func TestGoverningRequirementsAreScopeBoundAndCorrectForward(t *testing.T) {
 // fold fails closed rather than silently succeeding on a requirement that was
 // never declared.
 func TestWithdrawingUndeclaredGoverningRequirementIsRefused(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openTemp(t)
 	seedGovernedProject(t, s, "prod", "proj")
@@ -96,6 +98,7 @@ func TestWithdrawingUndeclaredGoverningRequirementIsRefused(t *testing.T) {
 // so omitting it from the clear list would make replay fail rather than degrade
 // quietly.
 func TestGoverningRequirementsSurviveRebuildFromLog(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openTemp(t)
 	seedGovernedProject(t, s, "prod", "proj")
@@ -119,6 +122,7 @@ func TestGoverningRequirementsSurviveRebuildFromLog(t *testing.T) {
 // computed arithmetically, so it is total, ordered, and never a judgement about
 // intent.
 func TestMissingGoverningRequirementsIsSetDifference(t *testing.T) {
+	t.Parallel()
 	for name, tc := range map[string]struct {
 		applicable []string
 		declared   []string

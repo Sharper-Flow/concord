@@ -85,6 +85,7 @@ func assertStaleLawRefusal(t *testing.T, err error) {
 // lands while the external git write is in flight must refuse the link, so
 // output authorized under a superseded revision never enters Product truth.
 func TestCompactionLinkBoundaryRefusesStaleLawRevisionAfterClaim(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s, home, commit, path := seedStaleLawCompaction(t)
 	beforeEvents := countRows(t, s, "domain_events")
@@ -104,6 +105,7 @@ func TestCompactionLinkBoundaryRefusesStaleLawRevisionAfterClaim(t *testing.T) {
 // for the guard above. Reconcile is the closed recovery choice for an orphaned
 // note, so gating it would deadlock the only way out of a pending compaction.
 func TestCompactionLinkRecoveryExemptPublishesUnderStaleLawRevision(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s, home, commit, path := seedStaleLawCompaction(t)
 
@@ -146,6 +148,7 @@ func (r *mergeConditionResolver) Resolve(_ context.Context, _ ExternalCondition,
 // CD-0041 D7 merge/ship boundary. Accepting a merge result is a consequential
 // mutation, so it revalidates architecture and law inside its own transaction.
 func TestResolveWorkflowConditionRefusesMergeUnderUnresolvedOverlap(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	const workID = "d7-merge-condition"
 	const otherID = "d7-merge-condition-other"
@@ -175,6 +178,7 @@ func TestResolveWorkflowConditionRefusesMergeUnderUnresolvedOverlap(t *testing.T
 // same call succeeds once no unresolved overlap exists, so the refusal above is
 // attributable to the boundary rather than to the fixture.
 func TestResolveWorkflowConditionAcceptsMergeWithoutOverlap(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	const workID = "d7-merge-clean"
 	s := openTemp(t)
@@ -204,6 +208,7 @@ func TestResolveWorkflowConditionAcceptsMergeWithoutOverlap(t *testing.T) {
 // TestResolveWorkflowConditionsAtBoundaryRefusesMergeUnderUnresolvedOverlap
 // covers the batch form of the same boundary.
 func TestResolveWorkflowConditionsAtBoundaryRefusesMergeUnderUnresolvedOverlap(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	const workID = "d7-merge-batch"
 	const otherID = "d7-merge-batch-other"

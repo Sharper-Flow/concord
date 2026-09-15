@@ -17,6 +17,7 @@ import (
 )
 
 func TestVerifyCommittedNoteIgnoresWorkingTreeEdits(t *testing.T) {
+	t.Parallel()
 	repo := initKnowledgeRepo(t)
 	path := "docs/work/2026-08-07-proof-work.md"
 	content := canonicalWorkNote("work-proof", "2026-08-07T00:00:00Z")
@@ -37,6 +38,7 @@ func TestVerifyCommittedNoteIgnoresWorkingTreeEdits(t *testing.T) {
 }
 
 func TestVerifyCommittedNoteRejectsHashMismatchAndSymlink(t *testing.T) {
+	t.Parallel()
 	repo := initKnowledgeRepo(t)
 	path := "docs/lessons/state.md"
 	content := canonicalKnowledgeNote("lesson-state", "lesson", "2026-08-07T00:00:00Z", []string{"sqlite"})
@@ -59,6 +61,7 @@ func TestVerifyCommittedNoteRejectsHashMismatchAndSymlink(t *testing.T) {
 }
 
 func TestVerifyCommittedNoteRejectsUnsafeAndNonBlobPaths(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	for _, path := range []string{"../docs/work/note.md", "/docs/work/note.md", "-docs/work/note.md", "docs/other/note.md", "docs/work/note.txt"} {
 		_, err := VerifyCommittedNote(ctx, t.TempDir(), strings.Repeat("a", 40), path, "")
@@ -76,6 +79,7 @@ func TestVerifyCommittedNoteRejectsUnsafeAndNonBlobPaths(t *testing.T) {
 }
 
 func TestFindVerifiedWorkNoteDiscoversOrphansWithoutCreatingNotes(t *testing.T) {
+	t.Parallel()
 	repo := initKnowledgeRepo(t)
 	path := "docs/work/2026-08-07-orphan.md"
 	writeKnowledgeFile(t, repo, path, canonicalWorkNote("orphan-work", "2026-08-07T00:00:00Z"))
@@ -110,6 +114,7 @@ func TestFindVerifiedWorkNoteDiscoversOrphansWithoutCreatingNotes(t *testing.T) 
 // that proof is the caller's separately ordered step, so this asserts the commit
 // and then verifies it explicitly, in the order the contract requires.
 func TestPublishCanonicalNoteCommitsOneNote(t *testing.T) {
+	t.Parallel()
 	repo := initKnowledgeRepo(t)
 	content := canonicalWorkNote("publish-work", "2026-08-07T00:00:00Z")
 	sum := sha256.Sum256([]byte(content))
@@ -129,6 +134,7 @@ func TestPublishCanonicalNoteCommitsOneNote(t *testing.T) {
 }
 
 func TestRunGitBoundsCommandOutput(t *testing.T) {
+	t.Parallel()
 	repo := initKnowledgeRepo(t)
 	largePath := "docs/work/large.md"
 	writeKnowledgeFile(t, repo, largePath, strings.Repeat("x", maxGitOutput+1))
@@ -139,6 +145,7 @@ func TestRunGitBoundsCommandOutput(t *testing.T) {
 }
 
 func TestParseKnowledgeNoteRejectsAmbiguousAndMalformedCriticalMetadata(t *testing.T) {
+	t.Parallel()
 	valid := canonicalWorkNote("work-proof", "2026-08-07T00:00:00Z")
 	for name, content := range map[string]string{
 		"duplicate identity": strings.Replace(valid, "concord_work_id: work-proof\n", "concord_work_id: work-proof\nid: another-work\n", 1),
@@ -153,6 +160,7 @@ func TestParseKnowledgeNoteRejectsAmbiguousAndMalformedCriticalMetadata(t *testi
 }
 
 func TestKnowledgeNoteDomainScopeCompatibilityAndWriteBoundary(t *testing.T) {
+	t.Parallel()
 	legacy := strings.Replace(canonicalWorkNote("legacy-scope", "2026-08-07T00:00:00Z"), "domain_ids: [auth]", "component_ids: [auth]", 1)
 	note, err := parseKnowledgeNote([]byte(legacy))
 	if err != nil || !note.HasComponentIDs || note.HasDomainIDs || !reflect.DeepEqual(note.ComponentIDs, []string{"auth"}) {
@@ -178,6 +186,7 @@ func TestKnowledgeNoteDomainScopeCompatibilityAndWriteBoundary(t *testing.T) {
 }
 
 func TestCompactionPayloadRequiresExplicitUniqueScopeArrays(t *testing.T) {
+	t.Parallel()
 	valid := compactionLinkPayload{LessonTags: []string{}, ProductIDs: []string{}, ProjectIDs: []string{}, DomainIDs: []string{}, TagIDs: []string{}}
 	if err := validateCompactionScopeArrays(valid); err != nil {
 		t.Fatalf("valid empty scopes rejected: %v", err)
@@ -195,6 +204,7 @@ func TestCompactionPayloadRequiresExplicitUniqueScopeArrays(t *testing.T) {
 }
 
 func TestUpcastCompactionLinkPublishedV1PreservesLegacyBytesAndOrder(t *testing.T) {
+	t.Parallel()
 	original, err := json.Marshal(compactionLinkPayloadV1{
 		ID: "work", Type: "work_note", Title: "Title", CompletedAt: "2026-08-07T00:00:00Z", OutcomeTag: "shipped",
 		LessonTags: []string{}, TerminalState: "completed", Summary: "Summary", ProductIDs: []string{}, ProjectIDs: []string{},
@@ -266,6 +276,7 @@ func TestRebuildKnowledgeIndexAndQ9Q10UseCurrentGitHead(t *testing.T) {
 }
 
 func TestQ10OrphanWorkNoteRemainsNotCompacted(t *testing.T) {
+	t.Parallel()
 	repo := initKnowledgeRepo(t)
 	path := "docs/work/2026-08-07-orphan.md"
 	writeKnowledgeFile(t, repo, path, canonicalWorkNote("work-orphan", "2026-08-07T00:00:00Z"))
@@ -284,6 +295,7 @@ func TestQ10OrphanWorkNoteRemainsNotCompacted(t *testing.T) {
 }
 
 func TestKnowledgeWatermarkControlsAuthoritativeEmptyAndDegradedResults(t *testing.T) {
+	t.Parallel()
 	repo := initKnowledgeRepo(t)
 	writeKnowledgeFile(t, repo, "docs/lessons/one.md", canonicalKnowledgeNote("one", "lesson", "2026-08-07T00:00:00Z", []string{"sqlite"}))
 	commitKnowledgeRepo(t, repo, "first")
@@ -320,6 +332,7 @@ func TestKnowledgeWatermarkControlsAuthoritativeEmptyAndDegradedResults(t *testi
 }
 
 func TestQ9DoesNotReturnKnowledgeFromAnotherGitHome(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openTemp(t)
 
@@ -355,6 +368,7 @@ func TestQ9DoesNotReturnKnowledgeFromAnotherGitHome(t *testing.T) {
 }
 
 func TestRebuildKnowledgeIndexRejectsDuplicateStableIDs(t *testing.T) {
+	t.Parallel()
 	repo := initKnowledgeRepo(t)
 	writeKnowledgeFile(t, repo, "docs/lessons/a.md", canonicalKnowledgeNote("duplicate", "lesson", "2026-08-07T00:00:00Z", []string{"one"}))
 	writeKnowledgeFile(t, repo, "docs/lessons/b.md", canonicalKnowledgeNote("duplicate", "lesson", "2026-08-07T00:00:00Z", []string{"two"}))
@@ -369,6 +383,7 @@ func TestRebuildKnowledgeIndexRejectsDuplicateStableIDs(t *testing.T) {
 }
 
 func TestRebuildFromLogLeavesGitKnowledgeTablesUntouched(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	ctx := context.Background()
 	if _, err := s.DatabaseForTesting().ExecContext(ctx, `INSERT INTO archived_work (id,type,title,completed_at,outcome_tag,lesson_tags,terminal_state,priority,summary,home_project_id,home_locator_id,note_path,commit_oid,content_hash) VALUES ('w','lesson','L','2026-08-07T00:00:00Z','published','[]','completed',1,'S','p','l','docs/lessons/l.md','`+strings.Repeat("a", 40)+`','sha256:`+strings.Repeat("b", 64)+`')`); err == nil {
@@ -381,6 +396,7 @@ func TestRebuildFromLogLeavesGitKnowledgeTablesUntouched(t *testing.T) {
 }
 
 func TestKnowledgeSchemaHasNoNoteBodyAndRebuildFromLogPreservesIndex(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	ctx := context.Background()
 	rows, err := s.DatabaseForTesting().QueryContext(ctx, `PRAGMA table_info(archived_work)`)
@@ -528,6 +544,7 @@ func canonicalKnowledgeNote(id, kind, completed string, tags []string) string {
 }
 
 func TestArchivedNoteIDsAreHomeScopedAcrossKnowledgeHomes(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openTemp(t)
 

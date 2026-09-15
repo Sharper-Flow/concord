@@ -7,8 +7,9 @@ import (
 )
 
 func TestWorkflowEvaluationAuthoritySurvivesLeaseRotation(t *testing.T) {
+	t.Parallel()
 	const workID = "evaluation-authority"
-	s, owner := seedItemAtAcceptance(t, workID, true)
+	s, owner, _ := seedItemAtAcceptance(t, workID, true)
 	ownerRef, err := WorkflowActorRef(owner)
 	if err != nil {
 		t.Fatal(err)
@@ -60,6 +61,7 @@ func TestWorkflowEvaluationAuthoritySurvivesLeaseRotation(t *testing.T) {
 }
 
 func TestWorkflowEvaluationAuthorityReadFailureIsNotIndependent(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	if err := s.DatabaseForTesting().Close(); err != nil {
 		t.Fatal(err)

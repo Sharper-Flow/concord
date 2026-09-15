@@ -6,6 +6,7 @@ import (
 )
 
 func TestQueryLauncherDomainsAggregatesHierarchyRelationsAndOverlaps(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s, _ := seedOverlapProjection(t, "nav-left", "nav-right", true)
 	result, err := s.QueryLauncherDomains(ctx, LauncherProductRequest{Product: "product", Limit: 20})

@@ -141,22 +141,22 @@ func TestDestroyDestructiveWithoutApprovalRefuses(t *testing.T) {
 	}
 }
 
-func TestDestroyRefusesUnmergedBranch(t *testing.T) {
+func TestDestroyRefusesLocalOnlyCommits(t *testing.T) {
 	t.Parallel()
 	s, worktreePath := realGitTiersFixture(t)
 	seedWorktreeLifecycle(t, s, "work-w", "completed", 3)
-	// A clean tree whose content the default branch does not hold.
-	if err := writeFile(filepath.Join(worktreePath, "tracked.txt"), "unmerged change\n"); err != nil {
+	// A clean tree with a commit that no remote ref retains.
+	if err := writeFile(filepath.Join(worktreePath, "tracked.txt"), "local-only change\n"); err != nil {
 		t.Fatal(err)
 	}
 	gitRunStore(t, worktreePath, "add", "tracked.txt")
 	gitRunStore(t, worktreePath, "commit", "-m", "unmerged")
 	_, err := s.DestroyWorktree(context.Background(), WorktreeDestroyRequest{
 		WorkID: "work-w", ProjectID: "project-w", DefaultRef: "main",
-		ExpectedVersion: 4, PrincipalRef: "principal-1", RequestID: "destroy-unmerged", Now: time.Unix(30, 0).UTC(), ObservedSessionDirectories: emptySessionObservation(),
+		ExpectedVersion: 4, PrincipalRef: "principal-1", RequestID: "destroy-local-only", Now: time.Unix(30, 0).UTC(), ObservedSessionDirectories: emptySessionObservation(),
 	})
-	if err == nil || !strings.Contains(err.(*Failure).Detail, "not merged into main") {
-		t.Fatalf("destroy err=%v, want the unmerged refusal", err)
+	if err == nil || !strings.Contains(err.(*Failure).Detail, "not reachable from remote refs") {
+		t.Fatalf("destroy err=%v, want the local-only refusal", err)
 	}
 }
 

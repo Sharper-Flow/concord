@@ -13,20 +13,21 @@ import (
 )
 
 // fakeWorktreeGit models one repository: branches with heads, existing linked
-// worktrees keyed by path, ancestry, dirtiness, and the default ref. It
+// worktrees keyed by path, ancestry, durability, dirtiness, and the default ref. It
 // records every invocation so tests can assert what git was asked to do.
 type fakeWorktreeGit struct {
-	repoRoot   string
-	branches   map[string]string // branch -> head sha
-	worktrees  map[string]string // path -> branch
-	dirty      map[string]bool   // path -> dirty
-	content    map[string]string // branch -> tree content id; defaults to the head sha
-	defaultRef string
-	headBranch string         // the ref HEAD resolves to; the fixture default is main
-	ahead      map[string]int // branch -> commit count beyond the default ref
-	unpushed   map[string]int // branch -> commits unreachable from local remotes
-	failAdd    bool
-	calls      [][]string
+	repoRoot      string
+	branches      map[string]string // branch -> head sha
+	worktrees     map[string]string // path -> branch
+	dirty         map[string]bool   // path -> dirty
+	content       map[string]string // branch -> tree content id; defaults to the head sha
+	defaultRef    string
+	headBranch    string         // the ref HEAD resolves to; the fixture default is main
+	ahead         map[string]int // branch -> commit count beyond the default ref
+	unpushed      map[string]int // branch -> commits unreachable from local remotes
+	mergeConflict bool
+	failAdd       bool
+	calls         [][]string
 }
 
 // treeOf models the tree a ref resolves to. Content is normally keyed to the
@@ -82,6 +83,9 @@ func (g *fakeWorktreeGit) Run(_ context.Context, dir string, args ...string) ([]
 		}
 		return []byte(filepath.Join(g.repoRoot, ".git") + "\n"), nil
 	case strings.HasPrefix(join, "merge-tree --write-tree"):
+		if g.mergeConflict {
+			return nil, fmt.Errorf("merge conflict")
+		}
 		parts := strings.Fields(join)
 		into, from := parts[2], parts[3]
 		if g.resolveRef(into) == into || g.resolveRef(from) == from {
@@ -109,8 +113,8 @@ func (g *fakeWorktreeGit) Run(_ context.Context, dir string, args ...string) ([]
 			return nil, nil
 		}
 		return nil, fmt.Errorf("not an ancestor")
-	case strings.HasPrefix(join, "rev-list --count --not --remotes "):
-		branch := strings.TrimPrefix(join, "rev-list --count --not --remotes ")
+	case strings.HasPrefix(join, "rev-list --count ") && strings.HasSuffix(join, " --not --remotes"):
+		branch := strings.TrimSuffix(strings.TrimPrefix(join, "rev-list --count "), " --not --remotes")
 		return []byte(strconv.Itoa(g.unpushed[branch]) + "\n"), nil
 	case strings.HasPrefix(join, "rev-list --count "):
 		refs := strings.TrimPrefix(join, "rev-list --count ")
@@ -398,7 +402,7 @@ func TestClaimWorktreeVerifiedReplayIsIdempotent(t *testing.T) {
 	}
 }
 
-func TestReclaimWorktreeDerivesFromGitFacts(t *testing.T) {
+func TestReclaimWorktreeUsesRemoteDurabilityFacts(t *testing.T) {
 	t.Parallel()
 	s, git, _ := worktreeFixture(t)
 	req := baseClaim(git)
@@ -414,12 +418,15 @@ func TestReclaimWorktreeDerivesFromGitFacts(t *testing.T) {
 	}
 	git.dirty[claimed.Entry.Path] = false
 
-	// Unmerged: the branch head moves beyond the default ref's history.
-	git.branches[claimBranch()] = strings.Repeat("b", 40)
-	if _, err := s.ReclaimWorktree(context.Background(), reclaim); err == nil || !strings.Contains(err.Error(), "not merged") {
-		t.Fatalf("unmerged head must be refused, got %v", err)
+	// A local-only commit is the sole copy and must remain in the worktree.
+	git.unpushed[claimBranch()] = 1
+	if _, err := s.ReclaimWorktree(context.Background(), reclaim); err == nil || !strings.Contains(err.Error(), "not reachable from remote refs") {
+		t.Fatalf("local-only commit must be refused, got %v", err)
 	}
-	git.branches[claimBranch()] = req.BaseSHA
+	git.unpushed[claimBranch()] = 0
+	// The branch can conflict when replayed onto main and still be safe to
+	// remove because a remote ref retains its tip.
+	git.mergeConflict = true
 
 	entry, err := s.ReclaimWorktree(context.Background(), reclaim)
 	if err != nil {
@@ -433,6 +440,9 @@ func TestReclaimWorktreeDerivesFromGitFacts(t *testing.T) {
 	}
 	if _, still := git.branches[claimBranch()]; still {
 		t.Fatal("reclaimed branch was not deleted")
+	}
+	if git.countCalls("merge-tree") != 0 {
+		t.Fatal("durability gate must not replay the branch onto the default ref")
 	}
 	replay, err := s.ReclaimWorktree(context.Background(), reclaim)
 	if err != nil || replay.State != worktreeEntryReclaimed {
@@ -570,7 +580,7 @@ func TestReclaimWorktreeRefusesOccupiedWorktree(t *testing.T) {
 
 // TestDestroyRefusesOccupiedWorktreeDespiteApproval pins that the destructive
 // tier's operator approval does not reach the occupancy gate. The approval
-// covers discarding the clean-tree and merged-branch gates, which protect
+// covers discarding the clean-tree and durable-branch gates, which protect
 // committed and uncommitted work. It does not authorize stranding a session.
 func TestDestroyRefusesOccupiedWorktreeDespiteApproval(t *testing.T) {
 	t.Parallel()

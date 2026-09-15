@@ -832,13 +832,6 @@ WHERE w.id = ?`, workID)
 	}
 }
 
-// resolveLinearProject resolves the primary Concord project for a work item
-// within its owning Product. Project names make unmapped routing refusals
-// actionable for the operator.
-func (s *Store) resolveLinearProject(ctx context.Context, workID, productID string) (string, string, error) {
-	return resolveLinearProjectCore(ctx, s.db, workID, productID)
-}
-
 func resolveLinearProjectCore(ctx context.Context, q queryer, workID, productID string) (string, string, error) {
 	var projectID, displayName string
 	err := q.QueryRowContext(ctx, `

@@ -762,15 +762,8 @@ func workflowSemanticActionEvents(ctx context.Context, tx *sql.Tx, definition Wo
 	case "record_proposal":
 		return workflowProposalRecordedEvents(definition, request, actor, raw, eventID, expected)
 	case "approve_contract":
-		_, activeErr := activeWorkflowContractVersion(ctx, tx, request.WorkID, "workflow_action")
-		if activeErr != sql.ErrNoRows {
-			if activeErr == nil {
-				return nil, newFailure(KindInvalidOperation, "workflow_action", "approve_contract cannot replace an existing workflow contract", false, "use supersede_contract with the typed successor contract")
-			}
-			return nil, activeErr
-		}
-		if workflowFieldInt(fields, "contract_version", 1) != 1 {
-			return nil, newFailure(KindInvalidPayload, "workflow_action", "initial workflow contract approval must be version 1", false, "approve the initial contract as version 1")
+		if err := ensureInitialWorkflowContractApproval(ctx, tx, request.WorkID, fields); err != nil {
+			return nil, err
 		}
 		if err := requireResearchForPendingQuestions(ctx, tx, request.WorkID); err != nil {
 			return nil, err
@@ -872,59 +865,12 @@ func workflowSemanticActionEvents(ctx context.Context, tx *sql.Tx, definition Wo
 		if err := validateWorkflowContractRecoveryPayload(raw); err != nil {
 			return nil, err
 		}
-		var activeCount, previous int64
-		if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL`, request.WorkID).Scan(&activeCount); err != nil {
-			return nil, workflowProjectionError(err, "cannot inspect active workflow contract")
+		predecessors, previous, predecessorErr := resolveWorkflowContractPredecessors(ctx, tx, request.WorkID, fields)
+		if predecessorErr != nil {
+			return nil, predecessorErr
 		}
-		if activeCount == 0 {
-			return nil, newFailure(KindInvariantViolation, "workflow_action", "contract recovery requires an active workflow contract", false, "rebuild the workflow contract projection")
-		}
-		predecessors, supplied, listErr := workflowFieldInt64List(fields, "predecessor_contract_versions")
-		if listErr != nil {
-			return nil, listErr
-		}
-		if !supplied {
-			if activeCount != 1 {
-				return nil, newFailure(KindInvalidPayload, "workflow_action", "duplicate active contracts require predecessor_contract_versions", false, "supply the exact active contract versions")
-			}
-			if err := tx.QueryRowContext(ctx, `SELECT contract_version FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL`, request.WorkID).Scan(&previous); err != nil {
-				return nil, workflowProjectionError(err, "cannot read active workflow contract")
-			}
-			predecessors = []int64{previous}
-		} else {
-			previous = predecessors[0]
-		}
-		if int64(len(predecessors)) != activeCount {
-			return nil, newFailure(KindInvariantViolation, "workflow_action", "predecessor_contract_versions does not match active workflow contracts", false, "supply every exact active contract version")
-		}
-		rows, rowsErr := tx.QueryContext(ctx, `SELECT contract_version FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL`, request.WorkID)
-		if rowsErr != nil {
-			return nil, workflowProjectionError(rowsErr, "cannot inspect active workflow contract versions")
-		}
-		for rows.Next() {
-			var version int64
-			if scanErr := rows.Scan(&version); scanErr != nil {
-				rows.Close()
-				return nil, workflowProjectionError(scanErr, "cannot scan active workflow contract version")
-			}
-			if !containsInt64(predecessors, version) {
-				rows.Close()
-				return nil, newFailure(KindInvariantViolation, "workflow_action", "predecessor_contract_versions names a non-active contract set", false, "supply the exact active contract versions")
-			}
-		}
-		if rowsErr := rows.Err(); rowsErr != nil {
-			rows.Close()
-			return nil, workflowProjectionError(rowsErr, "cannot scan active workflow contract versions")
-		}
-		rows.Close()
 		next := workflowFieldInt(fields, "contract_version", 0)
-		maxPredecessor := predecessors[0]
-		for _, version := range predecessors[1:] {
-			if version > maxPredecessor {
-				maxPredecessor = version
-			}
-		}
-		if next != maxPredecessor+1 {
+		if next != maxInt64(predecessors)+1 {
 			return nil, newFailure(KindInvalidPayload, "workflow_action", "successor contract version must immediately follow the active contract", false, "supply the next contract version")
 		}
 		audit := workflowFieldStrings(fields, "audit_evidence")

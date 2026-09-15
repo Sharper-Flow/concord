@@ -1061,7 +1061,7 @@ func (s *Store) claimLinearOperations(ctx context.Context, productID string, lim
 	if err := enterFold(ctx, tx); err != nil {
 		return nil, err
 	}
-	rows, err := tx.QueryContext(ctx, `SELECT operation_id FROM linear_outbox WHERE state=? AND (?='' OR json_extract(payload, '$.product_id')=? OR json_type(payload, '$.product_id') IS NULL) ORDER BY created_at LIMIT ?`, LinearOutboxQueued, productID, productID, limit)
+	rows, err := tx.QueryContext(ctx, `SELECT operation_id FROM linear_outbox WHERE state=? AND (?='' OR json_extract(payload, '$.product_id')=? OR json_type(payload, '$.product_id') IS NULL) ORDER BY created_at, rowid LIMIT ?`, LinearOutboxQueued, productID, productID, limit)
 	if err != nil {
 		return nil, wrapFailure(KindUnavailable, "linear_outbox_claim", "cannot read the queue", true, "retry once the database is readable", err)
 	}
@@ -1155,11 +1155,13 @@ func (s *Store) completeLinearOperation(ctx context.Context, operationID string,
 }
 
 // HasNewerLinearIssueUpdate reports whether a non-failed update for the same
-// work item was queued after operationID. The created-at and operation-id pair
-// gives equal-time operations a deterministic order.
+// work item was queued after operationID. The rowid is the persisted
+// insertion order, so equal created_at values keep the order the operations
+// were enqueued in; a random operation id would order them arbitrarily.
 func (s *Store) HasNewerLinearIssueUpdate(ctx context.Context, operationID string) (bool, error) {
-	var workID, opKind, createdAt string
-	err := s.db.QueryRowContext(ctx, `SELECT work_id, op_kind, created_at FROM linear_outbox WHERE operation_id=?`, operationID).Scan(&workID, &opKind, &createdAt)
+	var workID, opKind string
+	var rowID int64
+	err := s.db.QueryRowContext(ctx, `SELECT work_id, op_kind, rowid FROM linear_outbox WHERE operation_id=?`, operationID).Scan(&workID, &opKind, &rowID)
 	if err == sql.ErrNoRows {
 		return false, newFailure(KindUnknownScope, "linear_outbox_staleness", "queued operation does not exist", false, "supply an existing operation id")
 	}
@@ -1172,9 +1174,8 @@ func (s *Store) HasNewerLinearIssueUpdate(ctx context.Context, operationID strin
 	var newer bool
 	if err := s.db.QueryRowContext(ctx, `SELECT EXISTS(
 		SELECT 1 FROM linear_outbox
-		WHERE work_id=? AND op_kind=? AND state<>? AND
-		(created_at>? OR (created_at=? AND operation_id>?))
-	)`, workID, LinearOpIssueUpdate, LinearOutboxFailed, createdAt, createdAt, operationID).Scan(&newer); err != nil {
+		WHERE work_id=? AND op_kind=? AND state<>? AND rowid>?
+	)`, workID, LinearOpIssueUpdate, LinearOutboxFailed, rowID).Scan(&newer); err != nil {
 		return false, wrapFailure(KindUnavailable, "linear_outbox_staleness", "cannot inspect newer issue updates", true, "retry once the database is readable", err)
 	}
 	return newer, nil

@@ -6,7 +6,7 @@ import (
 	"fmt"
 )
 
-const ManifestDigest = "sha256:667437d877e552d0d0100903740e847c45bdf8a429c6cdbf530e577bc216fd55"
+const ManifestDigest = "sha256:c18d01db8b17c4e8e2540fbb03c650268b1008c256aa7c8210b312f84c1df60d"
 
 type OperationKind string
 
@@ -239,7 +239,7 @@ var GeneratedPayloadRules = map[string]GeneratedPayloadRule{
 	"work_observation_input":                       {Required: []string{"work_id"}, Properties: []string{"work_id", "page"}},
 	"work_observation_page":                        {Required: []string{"observations"}, Properties: []string{"observations"}},
 	"work_page":                                    {Required: []string{"items"}, Properties: []string{"items", "next_cursor", "readiness_evidence"}},
-	"work_pin":                                     {Required: []string{"work_id", "title", "linear_issue_key", "version", "lifecycle", "workflow_type", "step", "attempt", "pending_operator_decision", "driving_sessions", "watermark", "next_valid_intents"}, Properties: []string{"work_id", "title", "linear_issue_key", "version", "lifecycle", "workflow_type", "step", "attempt", "pending_operator_decision", "driving_sessions", "withheld_operator_decision", "watermark", "next_valid_intents", "correction", "verdict_evidence"}},
+	"work_pin":                                     {Required: []string{"work_id", "title", "linear_issue_key", "version", "lifecycle", "workflow_type", "step", "attempt", "pending_operator_decision", "driving_sessions", "watermark", "next_valid_intents"}, Properties: []string{"work_id", "title", "linear_issue_key", "version", "lifecycle", "workflow_type", "self_repair", "step", "attempt", "pending_operator_decision", "driving_sessions", "withheld_operator_decision", "watermark", "next_valid_intents", "correction", "verdict_evidence"}},
 	"work_pin_attempt":                             {Required: []string{"id", "epoch", "lane", "state"}, Properties: []string{"id", "epoch", "lane", "state"}},
 	"work_pin_driving_session":                     {Required: []string{"session_ref", "last_action_id", "last_acted_at"}, Properties: []string{"session_ref", "last_action_id", "last_acted_at"}},
 	"work_pin_evidence":                            {Required: []string{"evidence_kind", "immutable_subject_ref"}, Properties: []string{"evidence_kind", "immutable_subject_ref"}},

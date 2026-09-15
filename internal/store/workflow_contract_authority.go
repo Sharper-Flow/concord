@@ -144,13 +144,28 @@ func activeWorkflowContractVersions(ctx context.Context, q queryer, workID strin
 	return versions, nil
 }
 
-func ensureNoDuplicateActiveWorkflowContracts(ctx context.Context, q queryer, subject string) error {
-	var duplicateCount int64
-	if err := q.QueryRowContext(ctx, `SELECT count(*) FROM (SELECT work_id FROM workflow_contracts WHERE superseded_by IS NULL GROUP BY work_id HAVING count(*)>1)`).Scan(&duplicateCount); err != nil {
-		return wrapFailure(KindUnavailable, subject, "cannot inspect active workflow contracts", true, "retry once the workflow contract projection is readable", err)
+// duplicateActiveContractOmissions names the work items a Domain read leaves
+// out because their contract projection is ambiguous. A Domain read joins the
+// active contract, so an item holding two would appear twice and misreport the
+// Domain. Excluding it keeps the rest of the Product readable, and naming it
+// here keeps the exclusion visible rather than silent: a caller that sees an
+// omission knows the view is partial and which item to repair.
+func duplicateActiveContractOmissions(ctx context.Context, q queryer) ([]string, error) {
+	rows, err := q.QueryContext(ctx, `SELECT work_id FROM workflow_contracts WHERE superseded_by IS NULL GROUP BY work_id HAVING count(*)>1 ORDER BY work_id`)
+	if err != nil {
+		return nil, workflowProjectionError(err, "cannot inspect active workflow contracts")
 	}
-	if duplicateCount != 0 {
-		return newFailure(KindInvariantViolation, subject, "workflow contract projection has multiple active contracts", false, "use the typed operator recovery for duplicate active contracts")
+	defer rows.Close()
+	omissions := []string{}
+	for rows.Next() {
+		var workID string
+		if err := rows.Scan(&workID); err != nil {
+			return nil, workflowProjectionError(err, "cannot scan an ambiguous workflow contract projection")
+		}
+		omissions = append(omissions, workID+": omitted because its workflow contract projection has multiple active contracts; use the typed operator recovery")
 	}
-	return nil
+	if err := rows.Err(); err != nil {
+		return nil, workflowProjectionError(err, "cannot enumerate ambiguous workflow contract projections")
+	}
+	return omissions, nil
 }

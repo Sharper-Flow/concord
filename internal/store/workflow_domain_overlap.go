@@ -148,13 +148,23 @@ func domainRelationTupleKey(value WorkflowDomainRelationTuple) string {
 func readWorkflowOverlapFootprintTx(ctx context.Context, tx *sql.Tx, workID string) (workflowOverlapFootprint, error) {
 	var footprint workflowOverlapFootprint
 	footprint.WorkID = workID
-	activeVersion, activeErr := activeWorkflowContractVersion(ctx, tx, workID, "workflow_domain_overlap")
-	if activeErr == sql.ErrNoRows {
-		return footprint, nil
-	}
+	// A footprint is the Domain claim one approved contract carries. An item
+	// with no single approved contract carries no claim: it cannot reach an
+	// implementation-bearing action, so it can take no Domain a peer would
+	// contend for. Both the absent and the ambiguous projection therefore
+	// yield an empty footprint.
+	//
+	// This read runs for the subject and for every peer. Refusing here on an
+	// ambiguous peer would let one unrepaired item block every claim in the
+	// Product, including the claim its own operator recovery needs.
+	activeVersions, activeErr := activeWorkflowContractVersions(ctx, tx, workID)
 	if activeErr != nil {
 		return footprint, activeErr
 	}
+	if len(activeVersions) != 1 {
+		return footprint, nil
+	}
+	activeVersion := activeVersions[0]
 	err := tx.QueryRowContext(ctx, `
 		SELECT b.product_id,b.domain_registry_content_hash,c.contract_version
 		FROM workflow_contracts c

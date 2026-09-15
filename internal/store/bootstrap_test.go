@@ -139,6 +139,7 @@ func bootstrapTestOwner(t *testing.T) (int64, string) {
 }
 
 func TestValidateBootstrapTaskUsesUTF8ByteLimit(t *testing.T) {
+	t.Parallel()
 	base := BootstrapRequest{ProductID: "product", ProjectID: "project", Title: "title", ValueStatement: "value", Kind: "task", IdempotencyKey: "key"}
 	base.Task = strings.Repeat("✓", 2730)
 	if len(base.Task) != 8190 {
@@ -157,6 +158,7 @@ func TestValidateBootstrapTaskUsesUTF8ByteLimit(t *testing.T) {
 }
 
 func TestPrepareBootstrapReplayUsesTransactionPinnedLocation(t *testing.T) {
+	t.Parallel()
 	repo := initBootstrapStoreRepo(t)
 	s, err := Open(context.Background(), filepath.Join(t.TempDir(), "concord.db"))
 	if err != nil {
@@ -202,6 +204,7 @@ func TestPrepareBootstrapReplayUsesTransactionPinnedLocation(t *testing.T) {
 }
 
 func TestBootstrapBranchProbeFailureCreatesNoReplayAuthority(t *testing.T) {
+	t.Parallel()
 	repo := initBootstrapStoreRepo(t)
 	s, err := Open(context.Background(), filepath.Join(t.TempDir(), "concord.db"))
 	if err != nil {
@@ -236,6 +239,7 @@ func TestBootstrapBranchProbeFailureCreatesNoReplayAuthority(t *testing.T) {
 }
 
 func TestMigration59PreservesPopulatedBootstrapOperation(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "concord-v58.db")
 	db, err := sql.Open(driverName, dataSourceName(path))
@@ -278,6 +282,7 @@ func TestMigration59PreservesPopulatedBootstrapOperation(t *testing.T) {
 }
 
 func TestRollbackBootstrapDoesNotDeleteConcurrentlyMovedBranch(t *testing.T) {
+	t.Parallel()
 	repo := initBootstrapStoreRepo(t)
 	s, err := Open(context.Background(), filepath.Join(t.TempDir(), "concord.db"))
 	if err != nil {
@@ -313,6 +318,7 @@ func TestRollbackBootstrapDoesNotDeleteConcurrentlyMovedBranch(t *testing.T) {
 }
 
 func TestRollbackBootstrapLocksWorktreeHeadBeforeRemoval(t *testing.T) {
+	t.Parallel()
 	repo := initBootstrapStoreRepo(t)
 	s, err := Open(context.Background(), filepath.Join(t.TempDir(), "concord.db"))
 	if err != nil {
@@ -342,6 +348,7 @@ func TestRollbackBootstrapLocksWorktreeHeadBeforeRemoval(t *testing.T) {
 }
 
 func TestRollbackBootstrapRecoversItsStaleGitLock(t *testing.T) {
+	t.Parallel()
 	repo := initBootstrapStoreRepo(t)
 	s, err := Open(context.Background(), filepath.Join(t.TempDir(), "concord.db"))
 	if err != nil {
@@ -388,6 +395,7 @@ func TestRollbackBootstrapRecoversItsStaleGitLock(t *testing.T) {
 }
 
 func TestBootstrapReplayFinishesInterruptedNativeRollback(t *testing.T) {
+	t.Parallel()
 	repo := initBootstrapStoreRepo(t)
 	s, err := Open(context.Background(), filepath.Join(t.TempDir(), "concord.db"))
 	if err != nil {
@@ -434,6 +442,7 @@ func TestBootstrapReplayFinishesInterruptedNativeRollback(t *testing.T) {
 }
 
 func TestBootstrapGitLockRecoveryExcludesConcurrentReclaimers(t *testing.T) {
+	t.Parallel()
 	directory := t.TempDir()
 	lockPath := filepath.Join(directory, "branch.lock")
 	stalePID, staleStart := deadBootstrapOwner(t)
@@ -467,6 +476,7 @@ func TestBootstrapGitLockRecoveryExcludesConcurrentReclaimers(t *testing.T) {
 // workflow_type_ref (CD-0035), so the bootstrap derives a kind-driven default
 // instead of skipping initialization.
 func TestBootstrapWithoutWorkflowTypeRefStillInitializesContinuity(t *testing.T) {
+	t.Parallel()
 	repo := initBootstrapStoreRepo(t)
 	s, err := Open(context.Background(), filepath.Join(t.TempDir(), "concord.db"))
 	if err != nil {
@@ -524,6 +534,7 @@ func terminalBootstrapOrigin(t *testing.T, s *Store, key string) BootstrapResult
 }
 
 func TestValidateBootstrapOriginAdmitsLiveOrigin(t *testing.T) {
+	t.Parallel()
 	repo := initBootstrapStoreRepo(t)
 	s, err := Open(context.Background(), filepath.Join(t.TempDir(), "concord.db"))
 	if err != nil {
@@ -543,6 +554,7 @@ func TestValidateBootstrapOriginAdmitsLiveOrigin(t *testing.T) {
 }
 
 func TestValidateBootstrapOriginRefusesDirtyLeasedOrDispatchedOrigin(t *testing.T) {
+	t.Parallel()
 	t.Run("dirty", func(t *testing.T) {
 		repo := initBootstrapStoreRepo(t)
 		s, err := Open(context.Background(), filepath.Join(t.TempDir(), "concord.db"))
@@ -599,6 +611,7 @@ func TestValidateBootstrapOriginRefusesDirtyLeasedOrDispatchedOrigin(t *testing.
 }
 
 func TestValidateBootstrapOriginRefusesHeldVerifyLease(t *testing.T) {
+	t.Parallel()
 	repo := initBootstrapStoreRepo(t)
 	s, err := Open(context.Background(), filepath.Join(t.TempDir(), "concord.db"))
 	if err != nil {
@@ -621,6 +634,7 @@ func TestValidateBootstrapOriginRefusesHeldVerifyLease(t *testing.T) {
 }
 
 func TestValidateBootstrapOriginRefusesDispatchedWorkerAttempt(t *testing.T) {
+	t.Parallel()
 	repo := initBootstrapStoreRepo(t)
 	s, err := Open(context.Background(), filepath.Join(t.TempDir(), "concord.db"))
 	if err != nil {
@@ -640,6 +654,7 @@ func TestValidateBootstrapOriginRefusesDispatchedWorkerAttempt(t *testing.T) {
 }
 
 func TestResumeWorktreeLocationRefusals(t *testing.T) {
+	t.Parallel()
 	repo := initBootstrapStoreRepo(t)
 	s, err := Open(context.Background(), filepath.Join(t.TempDir(), "concord.db"))
 	if err != nil {

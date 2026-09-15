@@ -353,6 +353,7 @@ func corpusImpactVerdict(fields map[string]any) (string, error) {
 }
 
 func TestCorpusImpactVerdictRejectsOmissionAndInvalidValue(t *testing.T) {
+	t.Parallel()
 	for _, fields := range []map[string]any{{}, {"impact_verdict": "informational"}} {
 		if _, err := corpusImpactVerdict(fields); err == nil {
 			t.Fatalf("invalid corpus impact verdict accepted: %#v", fields)
@@ -445,6 +446,7 @@ var workflowCorpusActions = map[workflowCorpusAction]struct{}{
 }
 
 func TestWorkflowScenarioCorpusExecutesExactProductionActions(t *testing.T) {
+	t.Parallel()
 	corpus := readWorkflowScenarioCorpus(t)
 	want := workflowScenarioIDs()
 	seen := make(map[string]bool, len(corpus.Scenarios))
@@ -484,6 +486,7 @@ func TestWorkflowScenarioCorpusExecutesExactProductionActions(t *testing.T) {
 }
 
 func TestWorkflowCorpusBoundaryCoverageContract(t *testing.T) {
+	t.Parallel()
 	raw, err := os.ReadFile("../agent/workflow_corpus_boundary_test.go")
 	if err != nil {
 		t.Fatal(err)
@@ -506,6 +509,7 @@ func TestWorkflowCorpusBoundaryCoverageContract(t *testing.T) {
 }
 
 func TestWorkflowScenarioAssertionInterpreterRejectsMutatedExpectation(t *testing.T) {
+	t.Parallel()
 	observation := workflowObservation{
 		Communication: map[string]any{"error": map[string]any{"kind": "outcome_mismatch"}},
 		Effects:       map[string]any{},
@@ -525,6 +529,7 @@ func TestWorkflowScenarioAssertionInterpreterRejectsMutatedExpectation(t *testin
 }
 
 func TestWorkflowObservationArchitectureRejectsKnownConstantInjectionShapes(t *testing.T) {
+	t.Parallel()
 	raw, err := os.ReadFile("workflow_conformance_test.go")
 	if err != nil {
 		t.Fatal(err)
@@ -556,6 +561,7 @@ func TestWorkflowObservationArchitectureRejectsKnownConstantInjectionShapes(t *t
 }
 
 func TestWorkflowProjectionCorruptionHasOneTypedFaultAdapter(t *testing.T) {
+	t.Parallel()
 	raw, err := os.ReadFile("workflow_conformance_test.go")
 	if err != nil {
 		t.Fatal(err)
@@ -578,6 +584,7 @@ func TestWorkflowProjectionCorruptionHasOneTypedFaultAdapter(t *testing.T) {
 }
 
 func TestWorkflowScenarioCorpusMutationsRerunAgainstAuthoritativeState(t *testing.T) {
+	t.Parallel()
 	corpus := readWorkflowScenarioCorpus(t)
 	find := func(id string) workflowScenario {
 		for _, scenario := range corpus.Scenarios {
@@ -638,6 +645,7 @@ func TestWorkflowScenarioCorpusMutationsRerunAgainstAuthoritativeState(t *testin
 }
 
 func TestWorkflowInlineTransactionRollbackLeavesNoSemanticOrActionEvents(t *testing.T) {
+	t.Parallel()
 	corpus := readWorkflowScenarioCorpus(t)
 	var scenario workflowScenario
 	for _, candidate := range corpus.Scenarios {

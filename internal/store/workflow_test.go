@@ -18,6 +18,7 @@ import (
 )
 
 func TestWorkflowActorReferenceUsesDocumentedCanonicalNULEncoding(t *testing.T) {
+	t.Parallel()
 	parts := []string{"principal/operator", "client/concord-1", "agent/reviewer", "session/42"}
 	canonical := "actor-v1\x00" + fmt.Sprintf("principal_ref=%d:%s|", len([]byte(parts[0])), parts[0]) + fmt.Sprintf("client_ref=%d:%s|", len([]byte(parts[1])), parts[1]) + fmt.Sprintf("agent_ref=%d:%s|", len([]byte(parts[2])), parts[2]) + fmt.Sprintf("session_ref=%d:%s|", len([]byte(parts[3])), parts[3])
 	digest := sha256.Sum256([]byte(canonical))
@@ -31,6 +32,7 @@ func TestWorkflowActorReferenceUsesDocumentedCanonicalNULEncoding(t *testing.T) 
 }
 
 func TestWorkflowEventsFoldAndRebuildByteIdentically(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	ctx := context.Background()
 	seedWork(t, s, "workflow-work")
@@ -94,6 +96,7 @@ func TestWorkflowEventsFoldAndRebuildByteIdentically(t *testing.T) {
 }
 
 func TestWorkflowActorRowsRejectMutationAndDifferentTuple(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	seedWork(t, s, "actor-work")
 	actor := DeriveWorkflowActorRef("principal/operator", "client/concord-1", "agent/runner", "session/1")
@@ -117,6 +120,7 @@ func TestWorkflowActorRowsRejectMutationAndDifferentTuple(t *testing.T) {
 }
 
 func TestWorkflowCompletedCannotBeAppendedThroughGenericEventAPI(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	event := workflowEvent("direct-completed", WorkflowCompleted, "work-not-created", map[string]any{
 		"work_id": "work-not-created", "expected_version": 1, "resulting_version": 2,
@@ -129,6 +133,7 @@ func TestWorkflowCompletedCannotBeAppendedThroughGenericEventAPI(t *testing.T) {
 }
 
 func TestWorkflowCompletionGateUsesFirstRefusalAndRollsBackAllTerminalWrites(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	seedWork(t, s, "ordered-gate-work")
 	actor := DeriveWorkflowActorRef("principal/operator", "client/concord-1", "agent/executor", "session/executor")
@@ -182,6 +187,7 @@ func TestWorkflowCompletionGateUsesFirstRefusalAndRollsBackAllTerminalWrites(t *
 }
 
 func TestWorkflowCompletionGateCommitsTerminalEventOnlyAfterAllClauses(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	seedWork(t, s, "complete-work")
 	seedWorkflowLaw(t, s)
@@ -233,6 +239,7 @@ func TestWorkflowCompletionGateCommitsTerminalEventOnlyAfterAllClauses(t *testin
 }
 
 func TestWorkflowCompletionRequiresCurrentExplicitImpactVerdict(t *testing.T) {
+	t.Parallel()
 	t.Run("direct completion rejects v1", func(t *testing.T) {
 		s, completion := seedCompletionGateCase(t, "completion-v1-refused", completionGateCase{requiredEvidence: []string{"verification", "review"}, includeSpec: true, includeVerdict: true, includePremise: true, verdictKind: "ok"})
 		completion.PayloadVersion = 1
@@ -264,6 +271,7 @@ func TestWorkflowCompletionRequiresCurrentExplicitImpactVerdict(t *testing.T) {
 }
 
 func TestWorkflowConditionResolutionMustUseStoredAuthority(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	seedWork(t, s, "condition-work")
 	seedWorkflowAuthority(t, s, "condition-authority", "condition-work", "principal/resolver", "request:condition", []string{"evidence:valid"})
@@ -298,6 +306,7 @@ func (r *explicitConditionResolver) Resolve(_ context.Context, _ ExternalConditi
 }
 
 func TestWorkflowConditionResolutionIsExplicitAndUsesAuthoritativeEvidence(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	seedWork(t, s, "explicit-condition-work")
 	seedWorkflowAuthority(t, s, "explicit-condition-authority", "explicit-condition-work", "principal/resolver", "request:condition", []string{"evidence:valid"})
@@ -336,6 +345,7 @@ func (r *boundaryConditionResolver) Resolve(_ context.Context, condition Externa
 }
 
 func TestWorkflowConsequentialBoundaryResolvesEligibleConditionsOnly(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	seedWork(t, s, "boundary-work")
 	seedWorkflowAuthority(t, s, "boundary-authority-one", "boundary-work", "principal/one", "request/one", []string{"evidence:one"})
@@ -371,6 +381,7 @@ func TestWorkflowConsequentialBoundaryResolvesEligibleConditionsOnly(t *testing.
 }
 
 func TestWorkflowConsequentialBoundaryRollsBackEarlierResolutionOnInvalidEvidence(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	seedWork(t, s, "boundary-rollback-work")
 	seedWorkflowAuthority(t, s, "boundary-rollback-one", "boundary-rollback-work", "principal/one", "request/one", []string{"evidence:one"})
@@ -417,6 +428,7 @@ type completionGateCase struct {
 }
 
 func TestWorkflowCompletionGateAdjacentClausePrecedenceAndRollback(t *testing.T) {
+	t.Parallel()
 	cases := []completionGateCase{
 		{name: "clause-1-before-2", requiredEvidence: []string{"verification", "review", "native_run"}, openCondition: true, wantKind: KindMissingEvidence, wantClause: 1},
 		{name: "clause-2-before-3", requiredEvidence: []string{"verification", "review"}, openCondition: true, wantKind: KindNotTerminal, wantClause: 2},
@@ -446,6 +458,7 @@ func TestWorkflowCompletionGateAdjacentClausePrecedenceAndRollback(t *testing.T)
 }
 
 func TestWorkflowConsequentialActionBoundaryIsOneOwningTransaction(t *testing.T) {
+	t.Parallel()
 	t.Run("success commits resolution and action", func(t *testing.T) {
 		s, request, resolver := seedBoundaryActionRequest(t, "action-boundary-success", false)
 		var completedBefore int
@@ -508,6 +521,7 @@ func TestWorkflowConsequentialActionBoundaryIsOneOwningTransaction(t *testing.T)
 }
 
 func TestWorkflowReadyReportsUnreadableConditionWithoutRewrite(t *testing.T) {
+	t.Parallel()
 	s, _ := seedCompletionGateCase(t, "ready-unreadable", completionGateCase{requiredEvidence: []string{"verification", "review"}, openCondition: true})
 	if _, err := s.DatabaseForTesting().Exec(`DELETE FROM durable_operations WHERE op_id=?`, "gate-condition-ready-unreadable"); err != nil {
 		t.Fatal(err)
@@ -530,6 +544,7 @@ func TestWorkflowReadyReportsUnreadableConditionWithoutRewrite(t *testing.T) {
 }
 
 func TestWorkflowBlockingStalenessRefusesCompletionSemantics(t *testing.T) {
+	t.Parallel()
 	s, _ := seedCompletionGateCase(t, "staleness-block", completionGateCase{requiredEvidence: []string{"verification", "review"}})
 	tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
 	if err != nil {
@@ -546,6 +561,7 @@ func TestWorkflowBlockingStalenessRefusesCompletionSemantics(t *testing.T) {
 }
 
 func TestWorkflowWarningStalenessIsRecordedForNextRead(t *testing.T) {
+	t.Parallel()
 	s, _ := seedCompletionGateCase(t, "staleness-warning", completionGateCase{requiredEvidence: []string{"verification", "review"}})
 	tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
 	if err != nil {
@@ -600,6 +616,7 @@ func TestWorkflowStalenessWarningsRebuildFromEventLog(t *testing.T) {
 }
 
 func TestWorkflowContractRevisionEmitsBreakingNoticeForConsumedActiveDependent(t *testing.T) {
+	t.Parallel()
 	source, _ := seedCompletionGateCase(t, "revision-source", completionGateCase{requiredEvidence: []string{"verification", "review"}})
 	seedWork(t, source, "revision-dependent")
 	dependentActor := DeriveWorkflowActorRef("principal/operator", "client/concord-1", "agent/dependent", "session/revision-dependent")
@@ -642,6 +659,7 @@ func TestWorkflowContractRevisionEmitsBreakingNoticeForConsumedActiveDependent(t
 }
 
 func TestWorkflowContractRevisionEmitsAdvisoryNoticesForOtherDependents(t *testing.T) {
+	t.Parallel()
 	for _, testCase := range []struct {
 		name            string
 		edgeClass       string
@@ -845,6 +863,7 @@ func seedCompletionGateCase(t *testing.T, workID string, testCase completionGate
 }
 
 func TestWorkflowEvidenceBindingRejectsCrossWorkAndProducerIdentityLaundering(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	seedWork(t, s, "evidence-work-a")
 	seedWork(t, s, "evidence-work-b")
@@ -865,6 +884,7 @@ func TestWorkflowEvidenceBindingRejectsCrossWorkAndProducerIdentityLaundering(t 
 }
 
 func TestWorkflowCancellationRejectsForgedEvidenceFromOperator(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	seedWork(t, s, "cancel-evidence-work")
 	seedWorkflowAuthority(t, s, "cancel-authority", "cancel-evidence-work", "principal/provider", "request/provider", []string{"evidence:real"})
@@ -905,6 +925,7 @@ func seedWorkflowAuthority(t *testing.T, s *Store, opID, workID, principal, requ
 }
 
 func TestMigrateV14ToV15PreservesExistingData(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "v14.db")
 	ctx := context.Background()
 	db, err := sql.Open(driverName, dataSourceName(path))
@@ -956,6 +977,7 @@ DELETE FROM fold_guard`); err != nil {
 }
 
 func TestWorkflowProjectionSchemaHasClosedChecksForeignKeysAndFoldGuards(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	expectedColumns := map[string][]string{
 		"workflow_instances":             {"work_id", "definition_ref", "definition_version", "definition_digest", "current_step", "instance_state", "execution_actor_ref", "started_at", "completed_at", "last_checkpoint_at", "execution_model"},
@@ -1023,6 +1045,7 @@ func TestWorkflowProjectionSchemaHasClosedChecksForeignKeysAndFoldGuards(t *test
 }
 
 func TestWorkflowImpactTargetKindRejectsProductAndProject(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	seedWork(t, s, "target-kind-work")
 	for _, targetKind := range []string{"product", "project"} {
@@ -1149,6 +1172,7 @@ func assertWorkflowForeignKeys(t *testing.T, s *Store, table string, want []stri
 }
 
 func TestConcurrentWorkflowActorAppendsUseTheSingleWriter(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	for i := 0; i < 8; i++ {
 		seedWork(t, s, fmt.Sprintf("concurrent-work-%d", i))
@@ -1186,6 +1210,7 @@ func TestConcurrentWorkflowActorAppendsUseTheSingleWriter(t *testing.T) {
 }
 
 func TestWorkflowGoverningCycleCombinesDependsOnAndForwardLink(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	seedWork(t, s, "mixed-a")
 	seedWork(t, s, "mixed-b")
@@ -1207,6 +1232,7 @@ func TestWorkflowGoverningCycleCombinesDependsOnAndForwardLink(t *testing.T) {
 }
 
 func TestWorkflowPoisonEventLeavesAllProjectionsAtomic(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	seedWork(t, s, "poison-work")
 	actor := DeriveWorkflowActorRef("principal/operator", "client/concord-1", "agent/runner", "session/poison")

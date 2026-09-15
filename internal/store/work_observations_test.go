@@ -49,6 +49,7 @@ func recordObservation(t *testing.T, s *Store, event Event) error {
 }
 
 func TestObservationRecordsSurviveRebuildAndStayVisible(t *testing.T) {
+	t.Parallel()
 	s := observationFixture(t)
 	now := time.Date(2026, 8, 15, 12, 0, 0, 0, time.UTC)
 	payload, _ := json.Marshal(map[string]any{
@@ -75,6 +76,7 @@ func TestObservationRecordsSurviveRebuildAndStayVisible(t *testing.T) {
 }
 
 func TestObservationRefusesTerminalWorkAndBadShapes(t *testing.T) {
+	t.Parallel()
 	s := observationFixture(t)
 	now := time.Date(2026, 8, 15, 12, 0, 0, 0, time.UTC)
 	// Oversized statement.

@@ -29,6 +29,7 @@ func companionFields(err *TypedError) {
 // validateError accepts. Before the fix these two disagreed, and the
 // disagreement surfaced only at MarshalJSON time as a transport fault.
 func TestEveryCoupledKindValidatesWithItsCoupledAction(t *testing.T) {
+	t.Parallel()
 	for kind, want := range enforcedRecoveryCouplings {
 		err := TypedError{Kind: kind, RecoveryAction: RecoveryAction{Kind: publicRecovery(kind, "operator prose")}, EffectState: EffectNone}
 		companionFields(&err)
@@ -45,6 +46,7 @@ func TestEveryCoupledKindValidatesWithItsCoupledAction(t *testing.T) {
 // removes the disagreement; it must not remove the detection. A caller that
 // hand-builds a mismatched pair is still refused.
 func TestValidateErrorStillRefusesABrokenCoupling(t *testing.T) {
+	t.Parallel()
 	for kind, want := range enforcedRecoveryCouplings {
 		wrong := "reread_entities"
 		if want == wrong {
@@ -77,6 +79,7 @@ func TestValidateErrorStillRefusesABrokenCoupling(t *testing.T) {
 // coupling violated" as a transport failure in place of the typed refusal the
 // core decided, and with no operation_id to reconcile against.
 func TestPublicRecoveryHonorsEnforcedCouplings(t *testing.T) {
+	t.Parallel()
 	for kind, want := range enforcedRecoveryCouplings {
 		// The store proposes operator prose, which is the normal case for
 		// every newFailure call site.
@@ -98,6 +101,7 @@ func TestPublicRecoveryHonorsEnforcedCouplings(t *testing.T) {
 // mapped to operation_conflict, and the coupling overrode the store's own
 // retry proposal with reconcile advice the caller could not follow.
 func TestRetrySafeStoreKindsNeverCoupleToReconcile(t *testing.T) {
+	t.Parallel()
 	retrySafe := []store.FailureKind{store.KindWorktreeLeaseHeld}
 	for _, kind := range retrySafe {
 		public := mapFailureKind(kind)

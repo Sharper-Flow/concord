@@ -10,6 +10,7 @@ import (
 )
 
 func TestWorkflowSuccessorUsesDefinitionFamilyForComposition(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openTemp(t)
 	sourceID := "composition-source"
@@ -55,6 +56,7 @@ func TestWorkflowSuccessorUsesDefinitionFamilyForComposition(t *testing.T) {
 }
 
 func TestWorkflowSuccessorWithoutWorkflowInstanceIsRejected(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openTemp(t)
 	sourceID := "missing-instance-source"
@@ -94,6 +96,7 @@ func TestWorkflowSuccessorWithoutWorkflowInstanceIsRejected(t *testing.T) {
 }
 
 func TestWorkflowSuccessorLinkedV1RebuildPreservesUnpinnedResearchSuccessor(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openTemp(t)
 	sourceID := "legacy-composition-source"
@@ -170,6 +173,7 @@ func TestWorkflowSuccessorLinkedV1RebuildPreservesUnpinnedResearchSuccessor(t *t
 }
 
 func TestWorkflowSuccessorLinkedCurrentVersionRequiresDefinitionRef(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openTemp(t)
 	sourceID := "current-composition-source"

@@ -57,6 +57,7 @@ func workerEvidenceVectorCases(t *testing.T) []workerEvidenceVectorCase {
 // that would let one side accept bytes the other never produced fails here
 // rather than silently weakening the boundary.
 func TestCanonicalWorkerEvidenceVector(t *testing.T) {
+	t.Parallel()
 	cases := workerEvidenceVectorCases(t)
 	if len(cases) == 0 {
 		t.Fatal("shared worker evidence vector declares no cases")
@@ -87,6 +88,7 @@ func TestCanonicalWorkerEvidenceVector(t *testing.T) {
 // binding field must be claimed by some verb — so a fourth verb or a tenth
 // binding field cannot land on one side of the boundary alone.
 func TestWorkerEvidenceVectorCoversEveryVerbAndBindingField(t *testing.T) {
+	t.Parallel()
 	cases := workerEvidenceVectorCases(t)
 	covered := make([]string, 0, len(cases))
 	for _, testCase := range cases {
@@ -138,6 +140,7 @@ func snakeCase(name string) string {
 }
 
 func TestWorkerEvidenceCapabilityIsNotRequestable(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	_, service, authority, _ := mutationDispatchFixture(t, []Capability{"product_read"})
 	invocation := Invocation{
@@ -165,6 +168,7 @@ func TestWorkerEvidenceCapabilityIsNotRequestable(t *testing.T) {
 // comparison so a future field that lands on the binding follows the same
 // shape.
 func TestWorkerEvidenceBindingMismatchOnPacketDigest(t *testing.T) {
+	t.Parallel()
 	cases := workerEvidenceVectorCases(t)
 	var dispatchCase *workerEvidenceVectorCase
 	for i := range cases {

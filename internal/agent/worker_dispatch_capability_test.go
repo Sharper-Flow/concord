@@ -20,6 +20,7 @@ import (
 // test drives the runtime through mutateWorkflowAction directly so the
 // workflow-instance precondition does not gate the capability check.
 func TestDispatchWorkerRefusesPrincipalWithoutWorkerDispatchCapability(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_transition"})
 	defer s.Close()
@@ -61,6 +62,7 @@ func TestDispatchWorkerRefusesPrincipalWithoutWorkerDispatchCapability(t *testin
 }
 
 func TestWorkerDispatchCapabilityIsStructurallyNonAuthorizable(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	_, service, authority, _ := mutationDispatchFixture(t, []Capability{"work_transition"})
 	registry := store.BuiltinWorkflowRegistry()
@@ -96,6 +98,7 @@ func TestWorkerDispatchCapabilityIsStructurallyNonAuthorizable(t *testing.T) {
 // worker_evidence, but the policy list is closed: an unknown capability
 // is refused at registration time.
 func TestWorkerDispatchCapabilityIsInTheClientPolicyAllowList(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s, err := storetest.Open(t.TempDir())
 	if err != nil {

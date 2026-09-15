@@ -37,6 +37,7 @@ func seedLinearWorkItem(t *testing.T, s *Store, workID, projectID, title, valueS
 }
 
 func TestLinearEnqueueForWorkGuards(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	ctx := context.Background()
 	setupLinearProduct(t, s, "enq-product")
@@ -106,6 +107,7 @@ func TestLinearEnqueueForWorkGuards(t *testing.T) {
 }
 
 func TestLinearClaimBatchIsExclusiveAndBounded(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	ctx := context.Background()
 	setupLinearProduct(t, s, "claim-product")
@@ -192,6 +194,7 @@ func TestLinearClaimUsesQueuedProductIdentity(t *testing.T) {
 }
 
 func TestLinearFailClassesAndAttemptBound(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	ctx := context.Background()
 	setupLinearProduct(t, s, "fail-product")
@@ -246,6 +249,7 @@ func TestLinearFailClassesAndAttemptBound(t *testing.T) {
 }
 
 func TestLinearCompleteConfirmsLinkIdentity(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	ctx := context.Background()
 	setupLinearProduct(t, s, "done-product")
@@ -288,6 +292,7 @@ func TestLinearCompleteConfirmsLinkIdentity(t *testing.T) {
 }
 
 func TestLinearUpdateCompletionRefreshesConfirmedLink(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	ctx := context.Background()
 	setupLinearProduct(t, s, "update-product")
@@ -334,6 +339,7 @@ func TestLinearUpdateCompletionRefreshesConfirmedLink(t *testing.T) {
 }
 
 func TestLinearTerminalStatusUsesDeclaredConnectionPolicy(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	ctx := context.Background()
 	setupLinearProduct(t, s, "status-product")

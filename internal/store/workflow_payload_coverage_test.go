@@ -16,6 +16,7 @@ import (
 // compatibility fields and stale-law recovery, whose public contracts are
 // explicitly outside issue #776.
 func TestDispatcherFieldReadsHaveActionPayloadDeclarations(t *testing.T) {
+	t.Parallel()
 	files := map[string]*ast.File{}
 	fset := token.NewFileSet()
 	for _, name := range []string{"workflow_dispatch.go", "workflow_action_guards.go"} {

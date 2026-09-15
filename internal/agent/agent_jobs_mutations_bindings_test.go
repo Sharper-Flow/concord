@@ -1206,6 +1206,7 @@ func bindAJ3SpecConflict(t *testing.T, sc jobScenario) jobObservation {
 // the same capture proceeds against the minted challenge. Without this the
 // accept_scope_cut option would be decorative.
 func TestOperatorApprovedScopeCutProceeds(t *testing.T) {
+	t.Parallel()
 	s, service, grant, privateKey, _ := agentJobsMutationPM1Fixture(t)
 	if err := pm1fixture.SeedGoverningRequirement(context.Background(), s, "proj-web", "audit_required", "accepted audit obligation"); err != nil {
 		t.Fatalf("seed governing requirement: %v", err)
@@ -1251,6 +1252,7 @@ func TestOperatorApprovedScopeCutProceeds(t *testing.T) {
 // declaring the applicable requirement captures without approval, so the
 // mechanism refuses omissions rather than taxing every capture.
 func TestGoverningRequirementCoveredCapturePassesUngated(t *testing.T) {
+	t.Parallel()
 	s, service, grant, _, _ := agentJobsMutationPM1Fixture(t)
 	if err := pm1fixture.SeedGoverningRequirement(context.Background(), s, "proj-web", "audit_required", "accepted audit obligation"); err != nil {
 		t.Fatalf("seed governing requirement: %v", err)

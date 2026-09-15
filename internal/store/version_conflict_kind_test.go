@@ -8,6 +8,7 @@ import "testing"
 // version conflict produces a refusal that names nothing. The constructor
 // decides between the two conditions so no call site has to.
 func TestVersionConflictOnAnAbsentSubjectNamesTheAbsence(t *testing.T) {
+	t.Parallel()
 	f := versionConflict(SubjectWorkItem, "work-absent", 1, 0, false)
 	if f.Kind == KindVersionConflict {
 		t.Fatalf("an absent subject must not be reported as a version conflict")
@@ -22,6 +23,7 @@ func TestVersionConflictOnAnAbsentSubjectNamesTheAbsence(t *testing.T) {
 
 // The live-subject branch keeps the carrier the layers above depend on.
 func TestVersionConflictOnALiveSubjectCarriesItsVersion(t *testing.T) {
+	t.Parallel()
 	f := versionConflict(SubjectWorkItem, "work-1", 1, 3, true)
 	if f.Kind != KindVersionConflict {
 		t.Fatalf("failure kind=%q, want %q", f.Kind, KindVersionConflict)

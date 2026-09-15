@@ -9,7 +9,7 @@ import (
 
 func seedMandateRecoveryItem(t *testing.T, workID string) *Store {
 	t.Helper()
-	s, _ := seedItemAtAcceptance(t, workID, false)
+	s, _, _ := seedItemAtAcceptance(t, workID, false)
 	db := s.DatabaseForTesting()
 	if _, err := db.Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
@@ -60,7 +60,7 @@ func TestRecordVerdictPassesAfterRecoveryBind(t *testing.T) {
 	if err := runVerdictAction(t, s, workID, "bind_evidence", recoveryBindPayload(), 0); err != nil {
 		t.Fatalf("mandate recovery binding refused: %v", err)
 	}
-	if err := runVerdictActionAs(t, s, workID, "record_verdict", json.RawMessage(`{"contract_version":1,"predicate_id":"predicate:primary","evaluation_evidence":["spec:one"]}`), 0, verdictReviewer(t, workID)); err != nil {
+	if err := runVerdictActionAs(t, s, workID, "record_verdict", json.RawMessage(`{"contract_version":1,"predicate_id":"predicate:primary","evaluation_evidence":["spec:one"]}`), 0, verdictReviewer(t, s, workID)); err != nil {
 		t.Fatalf("verdict after mandate recovery binding refused: %v", err)
 	}
 }
@@ -171,7 +171,7 @@ func TestBindEvidenceObligationRefusedOnceSatisfied(t *testing.T) {
 
 func TestBindEvidenceRequiredKindRecoveryWithEmptyMandate(t *testing.T) {
 	const workID = "required-kind-recovery-empty-mandate"
-	s, _ := seedItemAtAcceptance(t, workID, false)
+	s, _, _ := seedItemAtAcceptance(t, workID, false)
 	db := s.DatabaseForTesting()
 	if _, err := db.Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)

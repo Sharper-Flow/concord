@@ -54,6 +54,7 @@ func openV51(t *testing.T, name string) *sql.DB {
 }
 
 func TestMigrateV51ToV52BindsKnowledgeHomePairsToProjectLocators(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	db := openV51(t, "concord-v51.db")
 	if _, err := db.ExecContext(ctx, `INSERT INTO projects(id,display_name,version,created_at,updated_at) VALUES('p','P',1,'t','t')`); err != nil {
@@ -98,6 +99,7 @@ func TestMigrateV51ToV52BindsKnowledgeHomePairsToProjectLocators(t *testing.T) {
 }
 
 func TestMigrateV52RefusesAStoredUnanchoredHomePair(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	db := openMigratedTo(t, filepath.Join(t.TempDir(), "concord-v51-dirty.db"), 51)
 	if _, err := db.ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
@@ -132,6 +134,7 @@ func TestMigrateV52RefusesAStoredUnanchoredHomePair(t *testing.T) {
 // TestKnowledgeHomePairTableListMatchesTriggers pins the Go-side table list to
 // the trigger set migration 52 declares, so the two cannot drift apart.
 func TestKnowledgeHomePairTableListMatchesTriggers(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	ctx := context.Background()
 	for _, table := range knowledgeHomePairTables {
@@ -154,6 +157,7 @@ func TestKnowledgeHomePairTableListMatchesTriggers(t *testing.T) {
 }
 
 func TestRemovingAKnowledgeReferencedLocatorIsRefusedWithATypedFailure(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openTemp(t)
 	anchorHomePair(t, s, "law-project", "law-locator")
@@ -174,6 +178,7 @@ func TestRemovingAKnowledgeReferencedLocatorIsRefusedWithATypedFailure(t *testin
 }
 
 func TestRebuildFromLogPreservesAnchoredKnowledgeAndRebindsGuard(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openTemp(t)
 	repo := t.TempDir()
@@ -210,6 +215,7 @@ func TestRebuildFromLogPreservesAnchoredKnowledgeAndRebindsGuard(t *testing.T) {
 }
 
 func TestRebuildFromLogRefusesOrphanedKnowledgePairs(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openTemp(t)
 	// The locator is seeded through SQL only: the event log holds no

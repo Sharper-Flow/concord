@@ -35,6 +35,7 @@ func tableColumns(t *testing.T, db *sql.DB, table string) map[string]bool {
 // through the shipped-variant entry for migration 7, and fails every insert
 // into durable_operations with "no such column".
 func TestMigrationRepairsDurableOperationsContractDigest(t *testing.T) {
+	t.Parallel()
 	db := openMigrated(t)
 	ctx := context.Background()
 
@@ -81,6 +82,7 @@ func TestMigrationRepairsDurableOperationsContractDigest(t *testing.T) {
 // The repair must not disturb a database that already holds the column, and it
 // must not discard the digests such a database recorded.
 func TestDurableOperationsRepairPreservesRecordedDigests(t *testing.T) {
+	t.Parallel()
 	db := openMigrated(t)
 	ctx := context.Background()
 

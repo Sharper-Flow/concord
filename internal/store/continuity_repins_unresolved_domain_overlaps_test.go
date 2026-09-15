@@ -10,6 +10,7 @@ import (
 // Issue #765: the pinned projection re-pins the Domain overlaps that will
 // refuse this work's next consequential mutation.
 func TestContinuityRepinsUnresolvedDomainOverlaps(t *testing.T) {
+	t.Parallel()
 
 	ctx := context.Background()
 	s, _ := seedOverlapProjection(t, "continuity-overlap-left", "continuity-overlap-right", false)

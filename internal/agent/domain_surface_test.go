@@ -8,6 +8,7 @@ import "testing"
 // is a closed schema, so the retired identity cannot re-enter as an unknown
 // field, and the Domain replacements validate.
 func TestComponentInputsAreProhibitedOnTheAgentSurface(t *testing.T) {
+	t.Parallel()
 	prohibited := []struct {
 		tool, operation, payload string
 	}{
@@ -37,6 +38,7 @@ func TestComponentInputsAreProhibitedOnTheAgentSurface(t *testing.T) {
 // independently assert domain_ids; the result schema is where the renamed
 // wire lives.
 func TestResearchScopeDomainIDsAreAcceptedOnTheResultSurface(t *testing.T) {
+	t.Parallel()
 	pack := `{"pack_id":"pack-1","owner_work_id":"owner-1","current_revision":1,"freshness":"current","expected_version":1,"created_at":"2026-01-01T00:00:00Z","updated_at":"2026-01-01T00:00:00Z","revisions":[{"pack_id":"pack-1","revision":1,"created_at":"2026-01-01T00:00:00Z","question":"q","method":"m","freshness":"current","findings":[{"pack_id":"pack-1","revision":1,"finding_id":"f1","kind":"observation","statement":"s","confidence":"high","freshness":"current","status":"active","scopes":{"mode":"explicit","product_ids":["p"],"domain_ids":["d"],"tag_ids":["t"]}}]}]}`
 	if err := ValidateOperationPayload("concord_work_trace", "research", []byte(pack), true); err != nil {
 		t.Fatalf("research scope surface must accept domain_ids on the result schema: %v", err)
@@ -46,6 +48,7 @@ func TestResearchScopeDomainIDsAreAcceptedOnTheResultSurface(t *testing.T) {
 // The Domain replacements carry the same closed-surface guarantee: the five
 // concord_domain reads validate, and knowledge search accepts domain_id.
 func TestDomainReadInputsValidate(t *testing.T) {
+	t.Parallel()
 	valid := []struct {
 		tool, operation, payload string
 	}{

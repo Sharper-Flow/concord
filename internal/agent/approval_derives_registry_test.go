@@ -19,6 +19,7 @@ import (
 // composes its pin from; both derive it on demand (CD-0082 D1), so the
 // approval succeeds with nothing rebuilt by hand.
 func TestProductChangingApprovalDerivesTheRegistryItPins(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s, service, grant, privateKey := mutationDispatchFixture(t, []Capability{"work_transition", "product_read"})
 	if _, err := pm1fixture.SeedCommittedProductDomain(ctx, s, "product-1", "project-1", t.TempDir()); err != nil {
@@ -93,6 +94,7 @@ func TestProductChangingApprovalDerivesTheRegistryItPins(t *testing.T) {
 // pin the agent holds is still correct, because it names committed content,
 // so the approval derives the registry again rather than refusing.
 func TestProductChangingApprovalDerivesTheRegistryWithoutAPriorRead(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s, service, grant, privateKey := mutationDispatchFixture(t, []Capability{"work_transition", "product_read"})
 	home, err := pm1fixture.SeedCommittedProductDomain(ctx, s, "product-1", "project-1", t.TempDir())

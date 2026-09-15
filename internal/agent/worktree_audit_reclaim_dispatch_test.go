@@ -14,6 +14,7 @@ import (
 // reclaim's own gates; a live one is left alone; a replay under the same
 // key returns the recorded pass rather than running the audit again.
 func TestWorktreeAuditReclaimDispatchReclaimsTerminalWorkOnly(t *testing.T) {
+	t.Parallel()
 	s, _, _, second, secondGrant, _ := tiersFixture(t)
 	root := filepath.Join(filepath.Dir(s.Path()), "worktrees", "project-1")
 	completeWork(t, s, "work-2", 3)
@@ -75,6 +76,7 @@ func TestWorktreeAuditReclaimDispatchReclaimsTerminalWorkOnly(t *testing.T) {
 }
 
 func TestWorktreeAuditReclaimDispatchReportsMixedEffects(t *testing.T) {
+	t.Parallel()
 	s, _, _, second, secondGrant, _ := tiersFixture(t)
 	completeWork(t, s, "work-2", 3)
 	workOnePath := filepath.Join(filepath.Dir(s.Path()), "worktrees", "project-1", "work-1")
@@ -116,6 +118,7 @@ func TestWorktreeAuditReclaimDispatchReportsMixedEffects(t *testing.T) {
 // agent surface, the work item stays at needed, and the schema accepts the
 // row the pass returns.
 func TestWorktreeAuditReclaimDispatchReclaimsUnstartedWork(t *testing.T) {
+	t.Parallel()
 	s, _, _, second, secondGrant, _ := tiersFixture(t)
 	root := filepath.Join(filepath.Dir(s.Path()), "worktrees", "project-1")
 	completeWork(t, s, "work-2", 3)

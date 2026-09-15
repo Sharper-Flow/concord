@@ -198,6 +198,7 @@ func scalarRow(t *testing.T, s *store.Store, query string, args ...any) int {
 // variants of that boundary are covered: the capture that admits the result
 // and the verification that re-attests it.
 func TestExternalObservationBoundaryRefusesStaleLawRevision(t *testing.T) {
+	t.Parallel()
 	for _, variant := range []struct {
 		name  string
 		input func(idempotencyKey, observationID string) map[string]any
@@ -281,6 +282,7 @@ func runStaleLawBoundaryRefusal(t *testing.T, build func(idempotencyKey, observa
 // same fixture without the law cutover accepts the same external result, so the
 // refusal above is attributable to the stale pin and not to the fixture.
 func TestExternalObservationBoundaryAcceptsCurrentLawRevision(t *testing.T) {
+	t.Parallel()
 	s, service, grant, scopeVersion := seedObservationLawBoundary(t)
 
 	captured := dispatchObservation(t, s, service, grant, scopeVersion, externalCaptureInput("obs-current-1", "xobs:0123456789abcdef"))
@@ -301,6 +303,7 @@ func TestExternalObservationBoundaryAcceptsCurrentLawRevision(t *testing.T) {
 // only recovery choices the stale-law refusal offers; guarding the operations
 // that enact them would close the refusal's own way out.
 func TestStaleLawBoundaryLeavesRecoveryReachable(t *testing.T) {
+	t.Parallel()
 	s, service, grant, scopeVersion := seedObservationLawBoundary(t)
 	supersedeObservationBoundaryLaw(t, s)
 

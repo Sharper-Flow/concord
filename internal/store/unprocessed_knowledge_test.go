@@ -10,6 +10,7 @@ import (
 // TestUnprocessedKnowledgeDocsFixture is a subprocess seam for the paired
 // Python validator test. The fixture root comes from the test environment.
 func TestUnprocessedKnowledgeDocsFixture(t *testing.T) {
+	t.Parallel()
 	root := os.Getenv("CONCORD_KNOWLEDGE_FIXTURE_ROOT")
 	if root == "" {
 		t.Skip("CONCORD_KNOWLEDGE_FIXTURE_ROOT is not set")
@@ -34,6 +35,7 @@ func TestUnprocessedKnowledgeDocsFixture(t *testing.T) {
 }
 
 func TestUnprocessedKnowledgeDocsRejectsEscapingRoot(t *testing.T) {
+	t.Parallel()
 	manifest := KnowledgeManifest{KnowledgeRoots: []string{"../outside"}}
 	if _, err := UnprocessedKnowledgeDocs(manifest, t.TempDir()); err == nil {
 		t.Fatal("escaping knowledge root was accepted")

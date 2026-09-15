@@ -22,6 +22,7 @@ import (
 )
 
 func TestDispatchInitiativeSurfaceUsesInitiativeEventsAndBoundedEntriesRead(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"product_read", "work_initiative"})
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
@@ -89,6 +90,7 @@ func TestDispatchInitiativeSurfaceUsesInitiativeEventsAndBoundedEntriesRead(t *t
 }
 
 func TestDispatchInitiativeCreateRejectsAmbiguousProductBeforeCreation(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_initiative", "cross_scope"})
 	if err := store.ApplyOperation(ctx, s, store.Operation{Events: []store.Event{
@@ -111,6 +113,7 @@ func TestDispatchInitiativeCreateRejectsAmbiguousProductBeforeCreation(t *testin
 }
 
 func TestDispatchRejectsObsoleteEpicSurfaceAndGenericInitiativeCapture(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"product_read", "work_define", "work_initiative"})
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
@@ -131,6 +134,7 @@ func TestDispatchRejectsObsoleteEpicSurfaceAndGenericInitiativeCapture(t *testin
 }
 
 func TestDispatchApprovalChallengeRoundTripIsDurableAndSingleUse(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s, service, grant, privateKey := mutationDispatchFixture(t, []Capability{"work_relate"})
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
@@ -191,6 +195,7 @@ func TestDispatchApprovalChallengeRoundTripIsDurableAndSingleUse(t *testing.T) {
 }
 
 func TestDispatchRejectsInvalidHostApprovalAssertions(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s, service, authority, _ := mutationDispatchFixture(t, []Capability{"work_relate"})
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
@@ -233,6 +238,7 @@ func TestDispatchRejectsInvalidHostApprovalAssertions(t *testing.T) {
 }
 
 func TestDispatchFailedDomainEffectRollsBackGrantAndApproval(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s, service, grant, privateKey := mutationDispatchFixture(t, []Capability{"work_relate"})
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
@@ -268,6 +274,7 @@ func TestDispatchFailedDomainEffectRollsBackGrantAndApproval(t *testing.T) {
 }
 
 func TestDispatchReconcileLinksVerifiedOrphanWithoutSecondNote(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s, err := storetest.Open(t.TempDir())
 	if err != nil {
@@ -337,6 +344,7 @@ func TestDispatchReconcileLinksVerifiedOrphanWithoutSecondNote(t *testing.T) {
 }
 
 func TestDispatchIdempotentReplaySurvivesAmbientScopeDrift(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_define"})
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
@@ -374,6 +382,7 @@ func TestDispatchIdempotentReplaySurvivesAmbientScopeDrift(t *testing.T) {
 }
 
 func TestDispatchCrossProductCaptureRequiresBoundApproval(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	deniedStore, deniedService, deniedGrant, _ := crossProductDispatchFixture(t, []Capability{"work_define"})
 	deniedScope, _, err := deniedStore.ScopeVersion(ctx, "project-1")
@@ -426,6 +435,7 @@ func TestDispatchCrossProductCaptureRequiresBoundApproval(t *testing.T) {
 }
 
 func TestDispatchRelationLinkAndUnlinkResolveEndpointVersionsAndRelationID(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_relate"})
 	if err := store.ApplyOperation(ctx, s, store.Operation{Events: []store.Event{
@@ -474,6 +484,7 @@ func TestDispatchRelationLinkAndUnlinkResolveEndpointVersionsAndRelationID(t *te
 }
 
 func TestDispatchCrossProductLinkRequiresCapabilityAndApproval(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	sDenied, serviceDenied, grantDenied, _ := crossProductDispatchFixture(t, []Capability{"work_relate"})
 	scopeVersion, _, err := sDenied.ScopeVersion(ctx, "project-1")
@@ -515,6 +526,7 @@ func TestDispatchCrossProductLinkRequiresCapabilityAndApproval(t *testing.T) {
 }
 
 func TestDispatchDisjointWorkCrossScopeLinkAndRelationUnlink(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	sDenied, serviceDenied, grantDenied, _ := disjointRelationFixture(t, []Capability{"work_relate"})
 	scopeVersion, _, err := sDenied.ScopeVersion(ctx, "ambient")
@@ -582,6 +594,7 @@ func TestDispatchDisjointWorkCrossScopeLinkAndRelationUnlink(t *testing.T) {
 }
 
 func TestDispatchDisjointCrossScopeSupersedeIsAtomicAndIdempotent(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	input := json.RawMessage(`{"predecessor_id":"work-a","successor_id":"work-b","predecessor_expected_version":2,"successor_expected_version":2,"reason":"replace disjoint work","idempotency_key":"disjoint-supersede"}`)
 	sDenied, serviceDenied, grantDenied, _ := disjointRelationFixture(t, []Capability{"work_relate"})

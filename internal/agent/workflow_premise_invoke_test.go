@@ -14,6 +14,7 @@ import (
 )
 
 func TestCaptureWorkflowTypeInitializesAndDispatchesFirstAction(t *testing.T) {
+	t.Parallel()
 	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_define", "work_transition"})
 	scopeVersion, _, err := s.ScopeVersion(context.Background(), "project-1")
 	if err != nil {
@@ -81,6 +82,7 @@ func TestCaptureWorkflowTypeInitializesAndDispatchesFirstAction(t *testing.T) {
 }
 
 func TestOperatorQuestionPremiseSummaryUsesSchemaRuneBound(t *testing.T) {
+	t.Parallel()
 	choice := map[string]any{"id": "confirm", "label": "Confirm", "description": "Continue", "action_id": "confirm_premise"}
 	for _, testCase := range []struct {
 		name  string
@@ -110,6 +112,7 @@ func TestOperatorQuestionPremiseSummaryUsesSchemaRuneBound(t *testing.T) {
 }
 
 func TestWorkflowActionMalformedBoundaryPrecedesPinAndAuthorityChecks(t *testing.T) {
+	t.Parallel()
 	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_transition"})
 	scopeVersion, _, err := s.ScopeVersion(context.Background(), "project-1")
 	if err != nil {
@@ -132,6 +135,7 @@ func TestWorkflowActionMalformedBoundaryPrecedesPinAndAuthorityChecks(t *testing
 }
 
 func TestConfirmPremiseInvokeDerivesOperatorFromSignedApproval(t *testing.T) {
+	t.Parallel()
 	s, service, grant, privateKey := mutationDispatchFixture(t, []Capability{"work_transition"})
 	if got := seedAgentWorkflow(t, s, grant); got != 4 {
 		t.Fatalf("workflow seed version=%d, want 4", got)
@@ -225,6 +229,7 @@ func TestConfirmPremiseInvokeDerivesOperatorFromSignedApproval(t *testing.T) {
 // principal from the raw invocation, so production confirm_premise failed
 // where every test passed.
 func TestConfirmPremiseInvokeToleratesEmptyHostPrincipal(t *testing.T) {
+	t.Parallel()
 	s, service, grant, privateKey := mutationDispatchFixture(t, []Capability{"work_transition"})
 	if got := seedAgentWorkflow(t, s, grant); got != 4 {
 		t.Fatalf("workflow seed version=%d, want 4", got)
@@ -405,6 +410,7 @@ func extractDecisionDigest(t *testing.T, raw json.RawMessage) string {
 }
 
 func TestConfirmPremiseInvokeRejectsMissingWrongAndPayloadActorsWithoutState(t *testing.T) {
+	t.Parallel()
 	for _, testCase := range []struct {
 		name string
 	}{
@@ -436,6 +442,7 @@ func TestConfirmPremiseInvokeRejectsMissingWrongAndPayloadActorsWithoutState(t *
 }
 
 func TestConfirmPremiseInvokeRejectsPayloadActorBorrowing(t *testing.T) {
+	t.Parallel()
 	s, service, _, _, env, _, challengeRef, _, _, _ := prepareIssue31Confirm(t)
 	beforeEvents := countWorkflowEvents(t, s)
 	beforeVersion := workflowIssue31Version(t, s)
@@ -451,6 +458,7 @@ func TestConfirmPremiseInvokeRejectsPayloadActorBorrowing(t *testing.T) {
 }
 
 func TestConfirmPremiseQuestionFailuresAreAuthorityNoOps(t *testing.T) {
+	t.Parallel()
 	for _, testCase := range []struct {
 		name   string
 		mutate func(map[string]any)

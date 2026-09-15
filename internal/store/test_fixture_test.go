@@ -108,6 +108,7 @@ func copyClosedTestDatabase(t *testing.T, path string) string {
 }
 
 func TestOpenTempCopiesIsolatedLatestSchema(t *testing.T) {
+	t.Parallel()
 	first := openTemp(t)
 	second := openTemp(t)
 	ctx := context.Background()

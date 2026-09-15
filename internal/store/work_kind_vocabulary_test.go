@@ -7,6 +7,7 @@ import (
 )
 
 func TestWorkKindPoliciesAndDatabaseRegistry(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	db := s.DatabaseForTesting()
 	ctx := context.Background()
@@ -61,6 +62,7 @@ func TestWorkKindPoliciesAndDatabaseRegistry(t *testing.T) {
 }
 
 func TestWorkKindFoldPoliciesRejectRetiredAndAllowInitiative(t *testing.T) {
+	t.Parallel()
 	if !WorkKindFoldCreateAllowed("initiative") || WorkKindFoldReviseAllowed("initiative") {
 		t.Fatal("initiative policy does not distinguish create from revise")
 	}
@@ -70,6 +72,7 @@ func TestWorkKindFoldPoliciesRejectRetiredAndAllowInitiative(t *testing.T) {
 }
 
 func TestVocabularyRegistriesAreImmutable(t *testing.T) {
+	t.Parallel()
 	db := openTemp(t).DatabaseForTesting()
 	ctx := context.Background()
 	for _, tc := range []struct {
@@ -93,6 +96,7 @@ func TestVocabularyRegistriesAreImmutable(t *testing.T) {
 }
 
 func TestReconstructionScratchWorkUsesStoredOperatorKind(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openTemp(t)
 	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)

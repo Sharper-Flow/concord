@@ -15,6 +15,7 @@ import (
 // a subset blocked, oldest-first routing, and active-only filtering.
 
 func TestBlockedSessionsRoutesAttentionUnderBurst(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openTemp(t)
 	t.Cleanup(func() { _ = s.Close() })

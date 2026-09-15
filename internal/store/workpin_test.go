@@ -8,6 +8,7 @@ import (
 )
 
 func TestReadWorkPinUsesOneTransactionAndDeclaredStepActions(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	_, version := continuityTestWorkflow(t, s, "workpin-reader")
 
@@ -79,6 +80,7 @@ func TestReadWorkPinIncludesConfirmedLinearIssueKeyInTheSameTransaction(t *testi
 }
 
 func TestReadWorkPinIncludesTheCurrentWorkerAttemptEpoch(t *testing.T) {
+	t.Parallel()
 	s, _, _, attemptID := seedWorkerAtExecution(t, "workpin-attempt")
 
 	pin, err := ReadWorkPin(context.Background(), s, "workpin-attempt")

@@ -69,6 +69,7 @@ func lanelessInstanceStep(t *testing.T, s *Store, workID string) string {
 // The definition-selected fold itself pins the selecting session: no other
 // write path is needed for a lane-less instance to name an executor.
 func TestDefinitionSelectedPinsSelectingActorAsExecutor(t *testing.T) {
+	t.Parallel()
 	const workID = "issue970-selector-pinned"
 	s, owner := seedLanelessResearchItem(t, workID)
 	ownerRef, err := WorkflowActorRef(owner)
@@ -91,6 +92,7 @@ func TestDefinitionSelectedPinsSelectingActorAsExecutor(t *testing.T) {
 // confirmation, and completion all succeed with no fenced action and no
 // direct projection write.
 func TestLanelessResearchCompletesWithoutFencedAction(t *testing.T) {
+	t.Parallel()
 	const workID = "issue970-laneless-complete"
 	s, owner := seedLanelessResearchItem(t, workID)
 	operator := operatorVerdictActor(t, workID)
@@ -143,6 +145,7 @@ func TestLanelessResearchCompletesWithoutFencedAction(t *testing.T) {
 // Pinning the selector must not weaken CD-0013 D5: the session that selected
 // the definition and drove every step still cannot verdict its own delivery.
 func TestLanelessResearchSelectorCannotVerdictOwnDelivery(t *testing.T) {
+	t.Parallel()
 	const workID = "issue970-self-verdict"
 	s, owner := seedLanelessResearchItem(t, workID)
 
@@ -157,6 +160,7 @@ func TestLanelessResearchSelectorCannotVerdictOwnDelivery(t *testing.T) {
 // distinctness checks derive the selector from the immutable definition
 // event, so an operator-signed verdict completes without a rebuild.
 func TestLegacyInstanceDerivesSelectorForDistinctness(t *testing.T) {
+	t.Parallel()
 	const workID = "issue970-legacy-derivation"
 	s, owner := seedLanelessResearchItem(t, workID)
 

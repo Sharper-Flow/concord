@@ -13,6 +13,7 @@ import (
 // approve_contract, so an investigate action before approval is refused and
 // the contract stays absent until the operator approves it.
 func TestResearchFramingRequiresContractApprovalBeforeInvestigate(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_define", "work_transition"})
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")

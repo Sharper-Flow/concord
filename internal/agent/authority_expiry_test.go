@@ -9,6 +9,7 @@ import (
 )
 
 func TestUnparseableStoredExpiryFailsClosed(t *testing.T) {
+	t.Parallel()
 	db := openAgentDB(t)
 	seedSimpleAuthorityScope(t, db)
 	service, invocation, _ := newAuthorizedService(t, db, "client-1", "human-1", []Capability{"product_read"}, []string{"product-1"}, []string{"project-1"}, store.ProjectResolution{ProjectID: "project-1"})

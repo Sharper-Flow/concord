@@ -20,6 +20,7 @@ import (
 // envelope, and the contract must keep refusing undeclared scope members.
 
 func TestCommittedLifecycleEnvelopeSatisfiesGeneratedContract(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_transition"})
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
@@ -56,6 +57,7 @@ func TestCommittedLifecycleEnvelopeSatisfiesGeneratedContract(t *testing.T) {
 }
 
 func TestCommittedReclaimEnvelopeSatisfiesGeneratedContract(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s, service, grant, repoRoot, baseSHA := worktreeDispatchFixture(t)
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
@@ -105,6 +107,7 @@ func containsWorktreePath(listing, path string) bool {
 }
 
 func TestGeneratedContractRejectsUndeclaredScopeMembers(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_transition"})
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")

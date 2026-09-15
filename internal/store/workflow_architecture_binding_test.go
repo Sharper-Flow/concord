@@ -9,6 +9,7 @@ import (
 )
 
 func TestWorkflowArchitectureBindingStrictShape(t *testing.T) {
+	t.Parallel()
 	valid := `{"domain_registry_content_hash":"sha256:` + strings.Repeat("a", 64) + `","home_domain_id":"root","affected_domain_ids":["root"],"domain_modifies":[],"domain_relation_modifies":[],"law_additions":[],"verification_obligations":[]}`
 	var binding WorkflowArchitectureBinding
 	if err := json.Unmarshal([]byte(valid), &binding); err != nil {
@@ -101,6 +102,7 @@ func architectureValidationFixture(t *testing.T, workID string) (*Store, Workflo
 }
 
 func TestArchitectureBindingCurrentValidationFailures(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name   string
 		mutate func(*Store, *WorkflowArchitectureBinding, *[]string, *[]WorkflowLawRevision)
@@ -162,6 +164,7 @@ func TestArchitectureBindingCurrentValidationFailures(t *testing.T) {
 }
 
 func TestArchitectureBindingRejectsSupersededLawAdditionID(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s, definition, binding, _, revisions, _ := architectureValidationFixture(t, "architecture-retired-law")
 	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('project','workflow-law-locator','law:retired','spec','superseded','docs/retired.md','Retired','sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb','test'); DELETE FROM fold_guard`); err != nil {
@@ -179,6 +182,7 @@ func TestArchitectureBindingRejectsSupersededLawAdditionID(t *testing.T) {
 }
 
 func TestLawAdditionReservationsAreProductScopedAndRevisionStable(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openTemp(t)
 	seedWork(t, s, "reservation-owner")
@@ -274,6 +278,7 @@ func TestLawAdditionReservationsAreProductScopedAndRevisionStable(t *testing.T) 
 }
 
 func TestProductChangingContractPersistsArchitectureBindingAndReadSurfaces(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openTemp(t)
 	workID := "architecture-binding-work"
@@ -412,6 +417,7 @@ func TestProductChangingContractPersistsArchitectureBindingAndReadSurfaces(t *te
 }
 
 func TestProductChangingApprovalMissingBindingIsAtomic(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openTemp(t)
 	workID := "architecture-binding-missing"
@@ -461,6 +467,7 @@ func TestProductChangingApprovalMissingBindingIsAtomic(t *testing.T) {
 }
 
 func TestGenericWorkflowAllowsEmptyLawModifiesButNoProductAuthority(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openTemp(t)
 	workID := "generic-binding-shape"
@@ -519,6 +526,7 @@ func TestGenericWorkflowAllowsEmptyLawModifiesButNoProductAuthority(t *testing.T
 }
 
 func TestProductChangingCompletionRequiresVerificationObligation(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	workID := "architecture-obligation-completion"
 	s, _, binding, mandate, revisions, _ := architectureValidationFixture(t, workID)

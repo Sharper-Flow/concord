@@ -34,6 +34,7 @@ func schemaDef(t *testing.T, name string) map[string]any {
 }
 
 func TestGeneratedPremiseBoundMatchesStore(t *testing.T) {
+	t.Parallel()
 	premise := schemaDef(t, "workflow_premise")
 	if got := premise["maxLength"]; got != float64(store.WorkflowPremiseMaxLength) {
 		t.Fatalf("$defs/workflow_premise maxLength = %v, want %d: the write and read bounds drifted apart", got, store.WorkflowPremiseMaxLength)
@@ -47,6 +48,7 @@ func TestGeneratedPremiseBoundMatchesStore(t *testing.T) {
 }
 
 func TestGeneratedReferenceDefMatchesStore(t *testing.T) {
+	t.Parallel()
 	reference := schemaDef(t, "reference")
 	if got := reference["pattern"]; got != "^\\S+$" {
 		t.Fatalf("$defs/reference pattern = %v, want the no-whitespace rule the store validates", got)
@@ -72,6 +74,7 @@ func TestGeneratedReferenceDefMatchesStore(t *testing.T) {
 }
 
 func TestWithEvidenceKindDefaultMapsInputKind(t *testing.T) {
+	t.Parallel()
 	payload := json.RawMessage(`{"evidence_ref":"commit:aa11bb22"}`)
 	got := withEvidenceKindDefault("bind_evidence", payload, []EvidenceRef{{Kind: "commit", Locator: "commit:aa11bb22"}})
 	var fields map[string]any
@@ -93,6 +96,7 @@ func TestWithEvidenceKindDefaultMapsInputKind(t *testing.T) {
 }
 
 func TestContinuityRoundTripLegalMaximum(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s, service, _, _, engine := workflowEngineFixture(t, strings.Repeat("p", store.WorkflowPremiseMaxLength))
 	engine("checkpoint_context", map[string]any{

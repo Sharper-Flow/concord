@@ -6,6 +6,7 @@ import (
 )
 
 func TestUnopenedStoreDomainMethods(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	assertUnopenedStoreTypedFailure(t, []nilStoreCase{
 		{"DomainEventWatermark", func(s *Store) error {

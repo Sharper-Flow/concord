@@ -6,6 +6,7 @@ import "testing"
 // environment metadata. The read projection dropped both until #387, so an
 // operator could record a purpose no agent could ever read back.
 func TestDomainAttachmentsPayloadKeepsResourceMetadata(t *testing.T) {
+	t.Parallel()
 	result := DomainAttachmentsResult{
 		Attachments: DomainAttachmentView{
 			ResourceEdges: []DomainResourceAttachment{{
@@ -36,6 +37,7 @@ func TestDomainAttachmentsPayloadKeepsResourceMetadata(t *testing.T) {
 // An edge recorded without environments must project an empty array rather
 // than a null, because the result schema declares environments as required.
 func TestDomainAttachmentsPayloadProjectsEmptyEnvironments(t *testing.T) {
+	t.Parallel()
 	payload := NewDomainAttachmentsPayload(DomainAttachmentsResult{
 		Attachments: DomainAttachmentView{
 			ResourceEdges: []DomainResourceAttachment{{ResourceID: "queue", Purpose: "stores data"}},

@@ -13,6 +13,7 @@ import (
 // sessions met in practice, where the typed refusal the core decided became a
 // transport fault with no operation_id to reconcile against.
 func TestVersionConflictMappingCarriesTheLiveVersion(t *testing.T) {
+	t.Parallel()
 	failure := &store.Failure{
 		Kind:           store.KindVersionConflict,
 		Op:             "workflow_action_preflight",
@@ -42,6 +43,7 @@ func TestVersionConflictMappingCarriesTheLiveVersion(t *testing.T) {
 // must not make the detection quieter, because a carrier-less version conflict
 // is still one no caller can act on.
 func TestEnvelopeStillRefusesACarrierLessVersionConflict(t *testing.T) {
+	t.Parallel()
 	failure := &store.Failure{
 		Kind:           store.KindVersionConflict,
 		Op:             "research_mutation",

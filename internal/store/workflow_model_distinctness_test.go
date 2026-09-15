@@ -24,6 +24,7 @@ func distinctnessActor(agent, session string, class ActorClass, model string) Wo
 }
 
 func TestDeclaredModelDistinctnessRejectsCollisionAndFailsClosed(t *testing.T) {
+	t.Parallel()
 	for _, testCase := range []struct {
 		name         string
 		executing    WorkflowActor
@@ -103,6 +104,7 @@ func TestDeclaredModelDistinctnessRejectsCollisionAndFailsClosed(t *testing.T) {
 }
 
 func TestWorkflowActorModelIsBoundedAndOutsideTheIdentityTuple(t *testing.T) {
+	t.Parallel()
 	if err := ValidateWorkflowActorModel(strings.Repeat("m", 129)); err == nil {
 		t.Fatal("oversized readback model accepted")
 	}
@@ -136,6 +138,7 @@ func TestWorkflowActorModelIsBoundedAndOutsideTheIdentityTuple(t *testing.T) {
 // This exercises the function the completion gate actually calls, against real
 // projection state, so the instance-column wiring is covered.
 func TestCompletionActorDistinctReadsExecutionModelFromTheInstance(t *testing.T) {
+	t.Parallel()
 	for _, testCase := range []struct {
 		name           string
 		executionModel string
@@ -199,6 +202,7 @@ func TestCompletionActorDistinctReadsExecutionModelFromTheInstance(t *testing.T)
 // The declared flag must reach the gate from the definition, so no builtin may
 // silently opt in: CD-0017 leaves mandatory scope to the R6 section 5 basis.
 func TestNoBuiltinDeclaresModelDistinctness(t *testing.T) {
+	t.Parallel()
 	for _, definition := range BuiltinWorkflowDefinitions() {
 		if definition.EvaluatorIndependence.ModelDistinct {
 			t.Fatalf("%s declares model distinctness; CD-0017 leaves that to the R6 measured basis", definition.Ref)

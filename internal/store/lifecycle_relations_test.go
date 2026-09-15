@@ -126,6 +126,7 @@ func seedState(t *testing.T, s *Store, id, state string) int64 {
 }
 
 func TestLifecycleTransitionsAreClosedAndTyped(t *testing.T) {
+	t.Parallel()
 	states := []string{"needed", "in_progress", "completed", "cancelled", "superseded"}
 	allowedDirect := map[string]map[string]bool{
 		"needed":      {"in_progress": true, "completed": true, "cancelled": true},
@@ -178,6 +179,7 @@ func TestLifecycleTransitionsAreClosedAndTyped(t *testing.T) {
 }
 
 func TestWorkLifecycleRejectsStaleExpectedVersionWithoutMutation(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	seedWork(t, s, "work")
 	err := applyWorkEvent(t, s, workTransitionEvent("stale", "work", "needed", "in_progress", 1, 2), workVersion("work", 0))
@@ -194,6 +196,7 @@ func TestWorkLifecycleRejectsStaleExpectedVersionWithoutMutation(t *testing.T) {
 }
 
 func TestPM4EvidenceFieldsRequireReasons(t *testing.T) {
+	t.Parallel()
 	t.Run("supersession", func(t *testing.T) {
 		s := openTemp(t)
 		seedWork(t, s, "a")
@@ -254,6 +257,7 @@ func TestPM4EvidenceFieldsRequireReasons(t *testing.T) {
 }
 
 func TestRelationAddedRejectsStaleExpectedVersionWithoutMutation(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	seedWork(t, s, "a")
 	seedWork(t, s, "b")
@@ -271,6 +275,7 @@ func TestRelationAddedRejectsStaleExpectedVersionWithoutMutation(t *testing.T) {
 }
 
 func TestRelationRemovedRejectsStaleExpectedVersionWithoutMutation(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	seedWork(t, s, "a")
 	seedWork(t, s, "b")
@@ -286,6 +291,7 @@ func TestRelationRemovedRejectsStaleExpectedVersionWithoutMutation(t *testing.T)
 }
 
 func TestSupersessionIsAtomicAndRejectsCyclesAndSecondSuccessors(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	seedWork(t, s, "a")
 	seedWork(t, s, "b")
@@ -317,6 +323,7 @@ func TestSupersessionIsAtomicAndRejectsCyclesAndSecondSuccessors(t *testing.T) {
 }
 
 func TestSupersessionRejectsAlreadySupersededAndReopenRequiresCompositeEvent(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	seedState(t, s, "b", "superseded")
 	seedWork(t, s, "c")
@@ -347,6 +354,7 @@ func workReopenedFromSupersededEvent(eventID, id, replacement string, expected, 
 }
 
 func TestRelationKindsEnforceTheirOwnGraphRules(t *testing.T) {
+	t.Parallel()
 	for _, kind := range []string{"parent", "blocks"} {
 		t.Run(kind+" cycle", func(t *testing.T) {
 			s := openTemp(t)
@@ -375,6 +383,7 @@ func TestRelationKindsEnforceTheirOwnGraphRules(t *testing.T) {
 }
 
 func TestCycleCheckRejectsSimpleTwoNodeCycle(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	seedWork(t, s, "a")
 	seedWork(t, s, "b")
@@ -385,6 +394,7 @@ func TestCycleCheckRejectsSimpleTwoNodeCycle(t *testing.T) {
 }
 
 func TestRelationsRejectSelfDuplicateAndSupersedesContract(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	seedWork(t, s, "a")
 	seedWork(t, s, "b")
@@ -400,6 +410,7 @@ func TestRelationsRejectSelfDuplicateAndSupersedesContract(t *testing.T) {
 }
 
 func TestRebuildRestoresWorkAndRelationProjectionsByteForByte(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	for _, id := range []string{"a", "b", "c"} {
 		seedWork(t, s, id)
@@ -429,6 +440,7 @@ func TestRebuildRestoresWorkAndRelationProjectionsByteForByte(t *testing.T) {
 }
 
 func TestRebuildPreservesGapAfterHighestRelationIDIsRemoved(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	for _, id := range []string{"a", "b", "c", "d"} {
 		seedWork(t, s, id)
@@ -457,6 +469,7 @@ func TestRebuildPreservesGapAfterHighestRelationIDIsRemoved(t *testing.T) {
 }
 
 func TestReplayRelationIdentityAllocationDoesNotReadEventLog(t *testing.T) {
+	t.Parallel()
 	ctx := workflowReplayContext(context.Background())
 	var want int64
 	for range 128 {
@@ -477,6 +490,7 @@ func TestReplayRelationIdentityAllocationDoesNotReadEventLog(t *testing.T) {
 }
 
 func TestWorkflowReplayRelationIdentitiesAreIsolated(t *testing.T) {
+	t.Parallel()
 	first := workflowReplayContext(context.Background())
 	second := workflowReplayContext(context.Background())
 	advanceWorkflowReplay(first, Event{Kind: "relation.added"})
@@ -501,6 +515,7 @@ func TestWorkflowReplayRelationIdentitiesAreIsolated(t *testing.T) {
 }
 
 func TestRelationRemovalAndFoldGuard(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	seedWork(t, s, "a")
 	seedWork(t, s, "b")
@@ -593,6 +608,7 @@ func relationProjectionIDs(t *testing.T, s *Store) string {
 }
 
 func TestSupersessionReleasesHeldResourceClaims(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	seedWork(t, s, "claim-holder")
 	seedWork(t, s, "claim-successor")
@@ -617,6 +633,7 @@ func TestSupersessionReleasesHeldResourceClaims(t *testing.T) {
 }
 
 func TestCompositeRelationKindsNameTheirOwningOperation(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name, kind, wantDetail string
 		removed                bool
@@ -647,6 +664,7 @@ func TestCompositeRelationKindsNameTheirOwningOperation(t *testing.T) {
 }
 
 func TestIntentRevisionRefusesTerminalWork(t *testing.T) {
+	t.Parallel()
 	for _, state := range []string{"completed", "cancelled", "superseded"} {
 		t.Run(state, func(t *testing.T) {
 			s := openTemp(t)
@@ -663,6 +681,7 @@ func TestIntentRevisionRefusesTerminalWork(t *testing.T) {
 }
 
 func TestWorkCreatedRejectsMismatchedWorkID(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	event := operationEvent("mismatched-create", "work.created", SubjectWorkItem, "work-subject", map[string]any{
 		"work_id": "work-payload", "work_kind": "task", "title": "Mismatch", "priority": 1,
@@ -676,6 +695,7 @@ func TestWorkCreatedRejectsMismatchedWorkID(t *testing.T) {
 // completely — the removed edge is gone, the added edge is present, and
 // nothing else about the work item changed.
 func TestMembershipReplacementReplacesTheWholeSet(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	seedWork(t, s, "work-replace")
 	ctx := context.Background()

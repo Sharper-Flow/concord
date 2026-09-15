@@ -15,6 +15,7 @@ import (
 // carries an approval challenge; the rows read back through the Domain surface.
 
 func TestDomainObservationDispatchRecordsReadsBackAndGatesDismissal(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s, service, grant, privateKey := mutationDispatchFixture(t, []Capability{"work_define", "product_read"})
 	if err := pm1fixture.SeedCurrentProductDomain(ctx, s, "product-1", "project-1"); err != nil {
@@ -90,6 +91,7 @@ func TestDomainObservationDispatchRecordsReadsBackAndGatesDismissal(t *testing.T
 
 // CD-0068 D2: a full window refuses and names the Domain rather than evicting.
 func TestDomainObservationDispatchRefusesWhenWindowIsFull(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_define", "product_read"})
 	if err := pm1fixture.SeedCurrentProductDomain(ctx, s, "product-1", "project-1"); err != nil {

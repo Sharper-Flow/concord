@@ -85,6 +85,7 @@ func locatorMembershipEvent(product, project string) Event {
 }
 
 func TestProjectLocatorsNormalizeFoldRebuildAndResolveWorktree(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	ctx := context.Background()
 	if err := ApplyOperation(ctx, s, Operation{Events: []Event{locatorProductEvent("product-a"), locatorProjectEvent("project-a"), locatorMembershipEvent("product-a", "project-a")}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectProduct, "product-a"): 0, VersionRef(SubjectProject, "project-a"): 0}}); err != nil {
@@ -133,6 +134,7 @@ func TestProjectLocatorsNormalizeFoldRebuildAndResolveWorktree(t *testing.T) {
 }
 
 func TestProjectLocatorResolutionRejectsUnknownAndAmbiguousRemote(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	ctx := context.Background()
 	root := t.TempDir()
@@ -158,6 +160,7 @@ func TestProjectLocatorResolutionRejectsUnknownAndAmbiguousRemote(t *testing.T) 
 }
 
 func TestResolveProjectDistinguishesMainAndLinkedWorktrees(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	ctx := context.Background()
 	if err := ApplyOperation(ctx, s, Operation{Events: []Event{locatorProductEvent("product-wt"), locatorProjectEvent("project-wt"), locatorMembershipEvent("product-wt", "project-wt")}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectProduct, "product-wt"): 0, VersionRef(SubjectProject, "project-wt"): 0}}); err != nil {
@@ -209,6 +212,7 @@ func TestResolveProjectDistinguishesMainAndLinkedWorktrees(t *testing.T) {
 }
 
 func TestResolveProjectMatchesLocalLinkedWorktreeToMainCanonicalPath(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	ctx := context.Background()
 	if err := ApplyOperation(ctx, s, Operation{Events: []Event{locatorProductEvent("product-local"), locatorProjectEvent("project-local"), locatorMembershipEvent("product-local", "project-local")}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectProduct, "product-local"): 0, VersionRef(SubjectProject, "project-local"): 0}}); err != nil {
@@ -249,6 +253,7 @@ func TestResolveProjectMatchesLocalLinkedWorktreeToMainCanonicalPath(t *testing.
 // Project, or a missing canonical_path locator is a typed refusal rather than
 // a fallback directory.
 func TestResolveSessionDirectoryFailsClosedOnEveryAbsentInput(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	ctx := context.Background()
 

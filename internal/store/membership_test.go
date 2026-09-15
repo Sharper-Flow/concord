@@ -21,6 +21,7 @@ func openTempAtPath(t *testing.T, path string) *Store {
 }
 
 func TestPM5MembershipScopeIsAtomicAndDerived(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	ctx := context.Background()
 
@@ -61,6 +62,7 @@ func TestPM5MembershipScopeIsAtomicAndDerived(t *testing.T) {
 }
 
 func TestPM5StandaloneCreationRejectsOrphans(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	err := ApplyOperation(context.Background(), s, Operation{
 		Events:           []Event{productCreatedEvent("orphan", "orphan-created")},
@@ -107,6 +109,7 @@ func addWorkProject(t *testing.T, s *Store, workID, projectID, role string, expe
 }
 
 func TestPM5InvariantsPrimaryRolesAndDerivedOrdering(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	ctx := context.Background()
 	createProductProject(t, s, "product-a", "project-z")
@@ -175,6 +178,7 @@ func TestPM5InvariantsPrimaryRolesAndDerivedOrdering(t *testing.T) {
 }
 
 func TestPM5RolePromotionDemotesAndDemotionAllowsZeroPrimary(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	ctx := context.Background()
 	createProductProject(t, s, "product", "project-a")
@@ -223,6 +227,7 @@ func TestPM5RolePromotionDemotesAndDemotionAllowsZeroPrimary(t *testing.T) {
 }
 
 func TestPM5WorkPrimaryUniquenessIsPerWork(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	ctx := context.Background()
 	createProductProject(t, s, "product", "project-a")
@@ -246,6 +251,7 @@ func TestPM5WorkPrimaryUniquenessIsPerWork(t *testing.T) {
 }
 
 func TestPM5MembershipImpactAndTypedVersions(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	ctx := context.Background()
 	createProductProject(t, s, "product", "project-a")
@@ -266,6 +272,7 @@ func TestPM5MembershipImpactAndTypedVersions(t *testing.T) {
 }
 
 func TestPM5TypedVersionKeysAllowSameTextualIDAcrossSubjects(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	err := ApplyOperation(context.Background(), s, Operation{
 		Events: []Event{
@@ -291,6 +298,7 @@ func TestPM5TypedVersionKeysAllowSameTextualIDAcrossSubjects(t *testing.T) {
 }
 
 func TestPM5MembershipTablesAreFoldOnlyAndProjectDeletionIsRestricted(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	createProductProject(t, s, "product", "project")
 	ctx := context.Background()
@@ -303,6 +311,7 @@ func TestPM5MembershipTablesAreFoldOnlyAndProjectDeletionIsRestricted(t *testing
 }
 
 func TestPM5RemovingLastMembershipIsRejectedAndWorkStateIsUntouched(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	ctx := context.Background()
 	createProductProject(t, s, "product", "project")
@@ -337,6 +346,7 @@ func TestPM5RemovingLastMembershipIsRejectedAndWorkStateIsUntouched(t *testing.T
 }
 
 func TestPM5OpenRejectsExistingOrphanProjection(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "orphan.db")
 	s := openTempAtPath(t, path)
 	ctx := context.Background()

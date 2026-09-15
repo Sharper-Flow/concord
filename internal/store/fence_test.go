@@ -30,6 +30,7 @@ func countRows(t *testing.T, s *Store, table string) int {
 }
 
 func TestFenceClaimsReplayConflictsAndCompletesIdempotently(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	ctx := context.Background()
 	claim := testClaim("op-1", "claim-1")
@@ -61,6 +62,7 @@ func TestFenceClaimsReplayConflictsAndCompletesIdempotently(t *testing.T) {
 }
 
 func TestFenceRequiresManifestDigest(t *testing.T) {
+	t.Parallel()
 	claim := testClaim("digest-current", "digest-current")
 	got, err := ClaimStep(context.Background(), openTemp(t), claim)
 	if err != nil || got.OpID != claim.OpID {
@@ -79,6 +81,7 @@ func TestFenceRequiresManifestDigest(t *testing.T) {
 }
 
 func TestFenceStaleAttemptAndExplicitTakeover(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	ctx := context.Background()
 	claim := testClaim("op-2", "claim-2")
@@ -109,6 +112,7 @@ func TestFenceStaleAttemptAndExplicitTakeover(t *testing.T) {
 }
 
 func TestFenceCommitHookRollsBackAllWrites(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	operation := Operation{Events: []Event{
 		productCreatedEvent("hook-product", "hook-product-created"), projectCreatedEvent("hook-project", "hook-project-created"),
@@ -130,6 +134,7 @@ func TestFenceCommitHookRollsBackAllWrites(t *testing.T) {
 }
 
 func TestBackupVerifyTamperAndOlderSchemaRejection(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	operation := Operation{Events: []Event{
 		productCreatedEvent("backup-product", "backup-product-created"), projectCreatedEvent("backup-project", "backup-project-created"),

@@ -32,6 +32,7 @@ func supersedeWork(t *testing.T, s *store.Store, predecessor, successor string, 
 // The response schema validates the whole payload, so a lifecycle the schema
 // omitted did not hide one row: it refused every row in the page.
 func TestWorktreeAuditReturnsSupersededDrift(t *testing.T) {
+	t.Parallel()
 	s, service, grant, _, _, _ := tiersFixture(t)
 	supersedeWork(t, s, "work-2", "work-1", 3)
 
@@ -67,6 +68,7 @@ func TestWorktreeAuditReturnsSupersededDrift(t *testing.T) {
 // report_only. One hand-spelled lifecycle in either array refuses the whole
 // response, so both must reach the same def.
 func TestWorktreeAuditReclaimReturnsSupersededRowsAndReportOnly(t *testing.T) {
+	t.Parallel()
 	s, _, _, second, secondGrant, repoRoot := tiersFixture(t)
 	root := filepath.Join(filepath.Dir(s.Path()), "worktrees", "project-1")
 	supersedeWork(t, s, "work-2", "work-1", 3)
@@ -114,6 +116,7 @@ func TestWorktreeAuditReclaimReturnsSupersededRowsAndReportOnly(t *testing.T) {
 // result. The closed result schema must declare that member, or every sweep
 // that reclaims one such item refuses its own answer after the core commits.
 func TestWorktreeAuditReclaimResultCarriesWorkPins(t *testing.T) {
+	t.Parallel()
 	s, _, _, second, secondGrant, _ := tiersFixture(t)
 	root := filepath.Join(filepath.Dir(s.Path()), "worktrees", "project-1")
 	// work-1 stays needed with in-flight work on its branch, so the same

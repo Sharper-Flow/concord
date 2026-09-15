@@ -8,6 +8,7 @@ import (
 )
 
 func TestFailedWorkerRecoveryIsAvailableForAnOlderPinnedDefinition(t *testing.T) {
+	t.Parallel()
 	const workID = "worker-failure-recovery-old-definition"
 	s, owner, attemptID, entry := seedOldDefinitionWorker(t, workID)
 	defer s.Close()
@@ -63,6 +64,7 @@ func TestFailedWorkerRecoveryIsAvailableForAnOlderPinnedDefinition(t *testing.T)
 }
 
 func TestFailedWorkerRecoveryRefusesWithoutTheCurrentFailedAttempt(t *testing.T) {
+	t.Parallel()
 	const workID = "worker-failure-recovery-no-failure"
 	s, owner, attemptID, _ := seedOldDefinitionWorker(t, workID)
 	defer s.Close()

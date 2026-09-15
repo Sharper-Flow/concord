@@ -38,6 +38,7 @@ const (
 )
 
 func TestTxScope(t *testing.T) {
+	t.Parallel()
 	root := txScopeRepoRoot()
 	findings, analyzed := scanTxScope(root)
 	// A scan that reaches no files reports no findings, which would let this
@@ -53,6 +54,7 @@ func TestTxScope(t *testing.T) {
 }
 
 func TestTxScopePropertiesBite(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name     string
 		property int

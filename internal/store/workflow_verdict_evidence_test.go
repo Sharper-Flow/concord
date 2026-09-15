@@ -61,7 +61,7 @@ func seedComparisonObservation(t *testing.T, s *Store, workID string) {
 		t.Fatal(err)
 	}
 }
-func seedItemAtAcceptance(t *testing.T, workID string, prebind bool) (*Store, WorkflowActor) {
+func seedItemAtAcceptance(t *testing.T, workID string, prebind bool) (*Store, WorkflowActor, WorkflowActor) {
 	t.Helper()
 	return seedItemAtAcceptanceRequiring(t, workID, prebind, []string{"verification"})
 }
@@ -69,7 +69,7 @@ func seedItemAtAcceptance(t *testing.T, workID string, prebind bool) (*Store, Wo
 // seedItemAtAcceptanceRequiring seeds the same item with a chosen
 // required_evidence set, so a contract can demand a kind whose consumption
 // gate resolves against a captured record.
-func seedItemAtAcceptanceRequiring(t *testing.T, workID string, prebind bool, requiredEvidence []string) (*Store, WorkflowActor) {
+func seedItemAtAcceptanceRequiring(t *testing.T, workID string, prebind bool, requiredEvidence []string) (*Store, WorkflowActor, WorkflowActor) {
 	t.Helper()
 	ctx := context.Background()
 	s := openTemp(t)
@@ -130,19 +130,16 @@ func seedItemAtAcceptanceRequiring(t *testing.T, workID string, prebind bool, re
 	if err := runVerdictAction(t, s, workID, "accept_worker_result", json.RawMessage(mustJSON(map[string]any{"attempt_id": attemptID, "attempt_epoch": 1})), 0); err != nil {
 		t.Fatalf("accept worker result: %v", err)
 	}
-	verdictReviewers[workID] = reviewer
-	return s, owner
+	return s, owner, reviewer
 }
 
-// verdictReviewers holds the non-executing reviewer actor each seeded item
-// records, so verdict actions can be run by an agent that executed nothing.
-var verdictReviewers = map[string]WorkflowActor{}
-
-func verdictReviewer(t *testing.T, workID string) WorkflowActor {
+// verdictReviewer reads the non-executing reviewer actor from the test's
+// isolated store, so verdict actions can be run by an agent that executed nothing.
+func verdictReviewer(t *testing.T, s *Store, workID string) WorkflowActor {
 	t.Helper()
-	reviewer, ok := verdictReviewers[workID]
-	if !ok {
-		t.Fatalf("no reviewer recorded for %s", workID)
+	var reviewer WorkflowActor
+	if err := s.DatabaseForTesting().QueryRow(`SELECT principal_ref,client_ref,agent_ref,session_ref,actor_class FROM workflow_actors WHERE agent_ref=? AND session_ref=?`, "agent/reviewer", "session/"+workID+"-reviewer").Scan(&reviewer.PrincipalRef, &reviewer.ClientRef, &reviewer.AgentRef, &reviewer.SessionRef, &reviewer.ActorClass); err != nil {
+		t.Fatalf("reviewer for %s: %v", workID, err)
 	}
 	return reviewer
 }
@@ -208,8 +205,8 @@ func verdictItemVersion(t *testing.T, s *Store, workID string) int64 {
 // clause 4 (issue #816).
 func TestRecordVerdictDefaultEvidenceIsBornBound(t *testing.T) {
 	const workID = "verdict-born-bound"
-	s, _ := seedItemAtAcceptance(t, workID, true)
-	if err := runVerdictActionAs(t, s, workID, "record_verdict", json.RawMessage(`{"contract_version":1,"predicate_id":"predicate:primary"}`), verdictItemVersion(t, s, workID), verdictReviewer(t, workID)); err != nil {
+	s, _, reviewer := seedItemAtAcceptance(t, workID, true)
+	if err := runVerdictActionAs(t, s, workID, "record_verdict", json.RawMessage(`{"contract_version":1,"predicate_id":"predicate:primary"}`), verdictItemVersion(t, s, workID), reviewer); err != nil {
 		t.Fatalf("record_verdict with default evidence refused: %v", err)
 	}
 	var bound int
@@ -228,8 +225,8 @@ func TestRecordVerdictDefaultEvidenceIsBornBound(t *testing.T) {
 // with no envelope kind.
 func TestRecordVerdictDefaultEvidenceSatisfiesContractRequiredKinds(t *testing.T) {
 	const workID = "verdict-born-bound-kinds"
-	s, _ := seedItemAtAcceptance(t, workID, false)
-	if err := runVerdictActionAs(t, s, workID, "record_verdict", json.RawMessage(`{"contract_version":1,"predicate_id":"predicate:primary"}`), verdictItemVersion(t, s, workID), verdictReviewer(t, workID)); err != nil {
+	s, _, reviewer := seedItemAtAcceptance(t, workID, false)
+	if err := runVerdictActionAs(t, s, workID, "record_verdict", json.RawMessage(`{"contract_version":1,"predicate_id":"predicate:primary"}`), verdictItemVersion(t, s, workID), reviewer); err != nil {
 		t.Fatalf("record_verdict with default evidence refused: %v", err)
 	}
 	var verification int
@@ -264,11 +261,11 @@ func TestRecordVerdictDefaultEvidenceSatisfiesContractRequiredKinds(t *testing.T
 // stranding the item (the live state of work-0ce535bc9d03c043ef8dddb1).
 func TestLateBindEvidenceAtCompleteStepUnblocksClauseFour(t *testing.T) {
 	const workID = "verdict-late-bind"
-	s, _ := seedItemAtAcceptance(t, workID, true)
+	s, _, reviewer := seedItemAtAcceptance(t, workID, true)
 	// The pre-fix fold: a verdict pinned to a minted, never-bound ref. The
 	// verdict actor is the reviewer, an agent that executed no step, as the
 	// corrected independence law requires (#801).
-	reviewerRef, err := WorkflowActorRef(verdictReviewer(t, workID))
+	reviewerRef, err := WorkflowActorRef(reviewer)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -311,9 +308,9 @@ func TestLateBindEvidenceAtCompleteStepUnblocksClauseFour(t *testing.T) {
 // ever appear there.
 func TestRecordVerdictDefaultEvidenceBindsVerifiedNativeRunCapture(t *testing.T) {
 	const workID = "verdict-native-run-mint"
-	s, _ := seedItemAtAcceptanceRequiring(t, workID, false, []string{"native_run"})
+	s, _, reviewer := seedItemAtAcceptanceRequiring(t, workID, false, []string{"native_run"})
 	seedVerifiedNativeRunCapture(t, s, workID, "xobs:0123456789abcdef")
-	if err := runVerdictActionAs(t, s, workID, "record_verdict", json.RawMessage(`{"contract_version":1,"predicate_id":"predicate:primary"}`), verdictItemVersion(t, s, workID), verdictReviewer(t, workID)); err != nil {
+	if err := runVerdictActionAs(t, s, workID, "record_verdict", json.RawMessage(`{"contract_version":1,"predicate_id":"predicate:primary"}`), verdictItemVersion(t, s, workID), reviewer); err != nil {
 		t.Fatalf("a defaulted verdict under a native_run contract refused: %v", err)
 	}
 	var bound int
@@ -338,8 +335,8 @@ func TestRecordVerdictDefaultEvidenceBindsVerifiedNativeRunCapture(t *testing.T)
 // native_run reference, because that evidence kind asserts a run happened.
 func TestRecordVerdictDefaultEvidenceRefusesNativeRunWithoutCapture(t *testing.T) {
 	const workID = "verdict-native-run-uncaptured"
-	s, _ := seedItemAtAcceptanceRequiring(t, workID, false, []string{"native_run"})
-	err := runVerdictActionAs(t, s, workID, "record_verdict", json.RawMessage(`{"contract_version":1,"predicate_id":"predicate:primary"}`), verdictItemVersion(t, s, workID), verdictReviewer(t, workID))
+	s, _, reviewer := seedItemAtAcceptanceRequiring(t, workID, false, []string{"native_run"})
+	err := runVerdictActionAs(t, s, workID, "record_verdict", json.RawMessage(`{"contract_version":1,"predicate_id":"predicate:primary"}`), verdictItemVersion(t, s, workID), reviewer)
 	if err == nil {
 		t.Fatal("a defaulted verdict minted native_run evidence with no captured run")
 	}
@@ -386,8 +383,8 @@ func seedVerifiedNativeRunCapture(t *testing.T, s *Store, workID, observationID 
 // already be bound when the verdict is recorded.
 func TestRecordVerdictExplicitEvidenceMustBePreBound(t *testing.T) {
 	const workID = "verdict-explicit-unbound"
-	s, _ := seedItemAtAcceptance(t, workID, true)
-	err := runVerdictActionAs(t, s, workID, "record_verdict", json.RawMessage(`{"contract_version":1,"predicate_id":"predicate:primary","evaluation_evidence":["evidence:never-bound"]}`), verdictItemVersion(t, s, workID), verdictReviewer(t, workID))
+	s, _, reviewer := seedItemAtAcceptance(t, workID, true)
+	err := runVerdictActionAs(t, s, workID, "record_verdict", json.RawMessage(`{"contract_version":1,"predicate_id":"predicate:primary","evaluation_evidence":["evidence:never-bound"]}`), verdictItemVersion(t, s, workID), reviewer)
 	if err == nil {
 		t.Fatal("a verdict naming unbound explicit evidence must be refused")
 	}

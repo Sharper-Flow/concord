@@ -7,6 +7,7 @@ import (
 )
 
 func TestStoreClockControlsDurableEventTimestamp(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	want := time.Date(2042, 12, 31, 23, 59, 59, 123456789, time.FixedZone("test", 2*60*60))
 	s.Clock = func() time.Time { return want }

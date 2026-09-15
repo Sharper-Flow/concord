@@ -58,6 +58,7 @@ func openMigrated(t *testing.T) *sql.DB {
 }
 
 func TestMigrationRepairsADatabaseBuiltFromTheEarlierHistory(t *testing.T) {
+	t.Parallel()
 	db := openMigrated(t)
 	ctx := context.Background()
 
@@ -107,6 +108,7 @@ func TestMigrationRepairsADatabaseBuiltFromTheEarlierHistory(t *testing.T) {
 }
 
 func TestRepairMigrationIsIdempotentOnAFreshDatabase(t *testing.T) {
+	t.Parallel()
 	fresh := schemaObjects(t, openMigrated(t))
 	if !fresh["initiative_entries"] || !fresh["project_governing_requirements"] {
 		t.Fatal("a fresh database is missing objects the repair migration creates")
@@ -156,6 +158,7 @@ func TestShippedVariantTableIsFrozen(t *testing.T) {
 // migration after it is additive by declaration. A binary defining the floor
 // must open a database that has run later additive migrations.
 func TestManifestAdmitsLaterAdditiveMigrations(t *testing.T) {
+	t.Parallel()
 	floor := 0
 	for _, m := range migrations {
 		if m.Breaking && m.Version > floor {
@@ -198,6 +201,7 @@ func TestManifestAdmitsLaterAdditiveMigrations(t *testing.T) {
 // Absent must read as breaking, so such a database keeps exactly the refusal
 // it had before this mechanism landed.
 func TestManifestWithoutCompatibilityColumnReadsAsBreaking(t *testing.T) {
+	t.Parallel()
 	db := openMigrated(t)
 	ctx := context.Background()
 	if _, err := db.ExecContext(ctx, `ALTER TABLE schema_migrations DROP COLUMN breaking`); err != nil {

@@ -11,6 +11,7 @@ import (
 // single-predicate storage defect. The approval payload names both an exists
 // and an absent predicate, then drives the workflow through completion.
 func TestPinnedConjunctiveContractCompletes(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	seedWork(t, s, "conjunctive-work")
 	seedWorkflowLaw(t, s)
@@ -90,6 +91,7 @@ func TestPinnedConjunctiveContractCompletes(t *testing.T) {
 }
 
 func TestWorkflowOutcomePredicateSetRejectsUnapprovedDeliveredPredicate(t *testing.T) {
+	t.Parallel()
 	definition := workflowFixtureDefinition(t, 1)
 	check := OutcomePredicate{Kind: PredicateExists, Surface: "surface:one", Subjects: []string{"subject:one"}}
 	_, err := EvaluateWorkflowOutcomePredicateSet(
@@ -104,6 +106,7 @@ func TestWorkflowOutcomePredicateSetRejectsUnapprovedDeliveredPredicate(t *testi
 }
 
 func TestWorkflowOutcomePredicateSetRejectsMissingApprovedPredicate(t *testing.T) {
+	t.Parallel()
 	definition := workflowFixtureDefinition(t, 1)
 	check := OutcomePredicate{Kind: PredicateExists, Surface: "surface:one", Subjects: []string{"subject:one"}}
 	_, err := EvaluateWorkflowOutcomePredicateSet(
@@ -124,6 +127,7 @@ func (conjunctiveGroundTruth) Resolve(string, string) (WorkflowGroundTruth, erro
 }
 
 func TestWorkflowOutcomePredicateVacuityChecksAbsentConjunct(t *testing.T) {
+	t.Parallel()
 	if !workflowOutcomePredicateVacuous("absent", "scope-absent") {
 		t.Fatal("an already absent conjunct must be vacuous")
 	}

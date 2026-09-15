@@ -274,6 +274,7 @@ type ConformanceReport struct {
 }
 
 func TestConformanceWorker(t *testing.T) {
+	t.Parallel()
 	if os.Getenv(conformanceWorkerEnv) != "1" {
 		return
 	}
@@ -298,6 +299,7 @@ func TestConformanceWorker(t *testing.T) {
 	_ = enc.Encode(result)
 }
 
+// Serial: ten child processes need the whole machine to meet their deadlines.
 func TestTenProcessConformance(t *testing.T) {
 	if os.Getenv(conformanceWorkerEnv) == "1" {
 		return
@@ -308,6 +310,7 @@ func TestTenProcessConformance(t *testing.T) {
 // TestTenProcessAcceptanceConformance is the isolated acceptance-workflow entry
 // point. The generic test above cannot elevate itself through environment input.
 func TestTenProcessAcceptanceConformance(t *testing.T) {
+	t.Parallel()
 	if os.Getenv(conformanceWorkerEnv) == "1" {
 		return
 	}

@@ -14,6 +14,7 @@ import (
 )
 
 func TestLaneRegistryIsGeneratedClosedAndDigestPinned(t *testing.T) {
+	t.Parallel()
 	definitions := BuiltinLaneDefinitions()
 	if len(definitions) != 5 {
 		t.Fatalf("lane count = %d, want 5", len(definitions))
@@ -73,6 +74,7 @@ func TestLaneRegistryIsGeneratedClosedAndDigestPinned(t *testing.T) {
 }
 
 func TestWorkerEventsRejectUnknownLanePacketAndPayloadFields(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	lane := BuiltinLaneDefinitions()[0]
 	unknown := workerDispatchEvent("worker-invalid", "dispatch-invalid", lane, map[string]any{
@@ -99,6 +101,7 @@ func TestWorkerEventsRejectUnknownLanePacketAndPayloadFields(t *testing.T) {
 }
 
 func TestWorkerCompletionMismatchIsDurableTypedFailureAndRebuildDeterministic(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	lane := BuiltinLaneDefinitions()[1]
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent("worker-mismatch", "dispatch-mismatch", lane, nil)}}); err != nil {
@@ -127,6 +130,7 @@ func TestWorkerCompletionMismatchIsDurableTypedFailureAndRebuildDeterministic(t 
 }
 
 func TestWorkerTerminalTransitionsAreSingleUseAndSubjectBound(t *testing.T) {
+	t.Parallel()
 	t.Run("failed then completed", func(t *testing.T) {
 		s := openTemp(t)
 		lane := BuiltinLaneDefinitions()[0]
@@ -231,6 +235,7 @@ func workerFailedEvent(workID, eventID, attemptID, model string) Event {
 }
 
 func TestWorkerCompletedAndFailedEventsRetainD5Evidence(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	lane := BuiltinLaneDefinitions()[2]
 	dispatchID := "dispatch-complete"
@@ -257,6 +262,7 @@ func TestWorkerCompletedAndFailedEventsRetainD5Evidence(t *testing.T) {
 }
 
 func TestWorkerModelReadbackFailureIsDurableWithoutModelValue(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	lane := BuiltinLaneDefinitions()[0]
 	attemptID := "model-readback-missing-attempt"
@@ -354,6 +360,7 @@ func preferredModelForLane(lane LaneDefinition) string {
 // adapter denies delegation in generated frontmatter, but the store is the
 // authority — an unregistered identifier must fail closed before any mutation.
 func TestGenericHostAgentsAreNotDispatchableLanes(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	definitions := BuiltinLaneDefinitions()
 	registered := make(map[string]struct{}, len(definitions))
@@ -384,6 +391,7 @@ func TestGenericHostAgentsAreNotDispatchableLanes(t *testing.T) {
 // legacy marker for v1/v2 history. Provenance is unaffected by CD-0058; only
 // the routing-policy fields left the dispatch payload.
 func TestWorkerHostProvenanceValidation(t *testing.T) {
+	t.Parallel()
 	valid := &WorkerHostProvenance{Digest: "sha256:" + strings.Repeat("a", 64), Sources: []WorkerHostProvenanceSource{
 		{Kind: "agent_definition", Path: "/agents/concord-research.md", SHA256: "sha256:" + strings.Repeat("b", 64)},
 		{Kind: "agents_md", Path: "/repo/AGENTS.md", SHA256: "sha256:" + strings.Repeat("c", 64)},
@@ -429,6 +437,7 @@ func TestWorkerHostProvenanceValidation(t *testing.T) {
 // fold accepts a v3 payload without provenance because the CLI boundary is the
 // gate that requires it.
 func TestWorkerDispatchV3CarriesProvenanceIntoDurableEvidence(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	lane := BuiltinLaneDefinitions()[0]
 	provenance := map[string]any{

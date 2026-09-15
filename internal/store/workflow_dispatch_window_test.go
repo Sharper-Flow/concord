@@ -20,6 +20,7 @@ import (
 // triple (ActionExternalEffect, ActionApprovalNone, ActionFenced,
 // ActionEventGeneric) is the action policy in the built-in registry.
 func TestDispatchWorkerIsRegisteredWithTheD2Policy(t *testing.T) {
+	t.Parallel()
 	policy, ok := builtinActionPolicies["dispatch_worker"]
 	if !ok {
 		t.Fatal("dispatch_worker is not registered in builtinActionPolicies")
@@ -43,6 +44,7 @@ func TestDispatchWorkerIsRegisteredWithTheD2Policy(t *testing.T) {
 // mutation layer must not hard-code work_transition for every action; the
 // dispatch action specifically requires worker_dispatch.
 func TestDispatchWorkerCapabilityMatchesTheRegistryEntry(t *testing.T) {
+	t.Parallel()
 	registry := BuiltinWorkflowRegistry()
 	cases := []struct {
 		actionID string
@@ -76,6 +78,7 @@ func TestDispatchWorkerCapabilityMatchesTheRegistryEntry(t *testing.T) {
 }
 
 func TestCurrentWorkerResultActionsRequireWorkTransition(t *testing.T) {
+	t.Parallel()
 	entry, err := BuiltinWorkflowDefinitionForRef("workflow.implementation")
 	if err != nil {
 		t.Fatal(err)
@@ -101,6 +104,7 @@ func TestCurrentWorkerResultActionsRequireWorkTransition(t *testing.T) {
 // existing ActionFenced branch; this test pins its dispatch behavior so a
 // future change cannot silently drop the fence.
 func TestDispatchFoldOpensAFencedWindowAgainstTheStepEpoch(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openTemp(t)
 	seed := seedDispatchFixture(t, s, "work-dispatch-fence")
@@ -142,6 +146,7 @@ func TestDispatchFoldOpensAFencedWindowAgainstTheStepEpoch(t *testing.T) {
 }
 
 func TestDispatchWorkerRefusesMismatchedSessionWorktreeBeforeWindow(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openTemp(t)
 	seed := seedDispatchFixture(t, s, "work-dispatch-worktree-mismatch")
@@ -184,6 +189,7 @@ func TestDispatchWorkerRefusesMismatchedSessionWorktreeBeforeWindow(t *testing.T
 }
 
 func TestDispatchWorkerBindsCanonicalWorktreeIdentityToWindow(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openTemp(t)
 	seed := seedDispatchFixture(t, s, "work-dispatch-worktree-identity")
@@ -227,6 +233,7 @@ func TestDispatchWorkerBindsCanonicalWorktreeIdentityToWindow(t *testing.T) {
 // no external_effect step (intentional per the early-return in
 // builtinWorkflowV2), so dispatch_worker is intentionally absent there.
 func TestDispatchWorkerAppearsOnExternalEffectWorkflows(t *testing.T) {
+	t.Parallel()
 	registry := BuiltinWorkflowRegistry()
 	wantHasDispatch := []string{
 		"workflow.implementation",
@@ -272,6 +279,7 @@ func TestDispatchWorkerAppearsOnExternalEffectWorkflows(t *testing.T) {
 // refused with KindUnauthorizedDispatch, and no worker_attempts row is
 // written.
 func TestWorkerDispatchRefusesWithoutAnAuthorizedWindow(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openTemp(t)
 	seed := seedDispatchFixture(t, s, "work-no-window")
@@ -313,6 +321,7 @@ func TestWorkerDispatchRefusesWithoutAnAuthorizedWindow(t *testing.T) {
 // can tell it apart from a missing authorization, and no worker_attempts
 // row is written.
 func TestWorkerDispatchRefusesAWorkItemWithNoWorkflowInstance(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openTemp(t)
 	// A work item with no workflow instance: seedWork folds the work item
@@ -359,6 +368,7 @@ func TestWorkerDispatchRefusesAWorkItemWithNoWorkflowInstance(t *testing.T) {
 // single-use rule: one authorization admits exactly one attempt, and a
 // second worker-dispatch against the same window is refused.
 func TestWorkerDispatchRejectsReuseOfAConsumedWindow(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openTemp(t)
 	seed := seedDispatchFixture(t, s, "work-reuse")
@@ -424,6 +434,7 @@ func TestWorkerDispatchRejectsReuseOfAConsumedWindow(t *testing.T) {
 // The digest is what later worker-evidence boundaries compare against the
 // worker's reported packet.
 func TestDispatchFoldRecordsTheCanonicalPacketDigest(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openTemp(t)
 	seed := seedDispatchFixture(t, s, "work-digest")
@@ -483,6 +494,7 @@ func TestDispatchFoldRecordsTheCanonicalPacketDigest(t *testing.T) {
 // a dispatch_worker whose worker_packet.work_id does not match the action's
 // work_id is refused with KindInvalidPayload and writes no events.
 func TestDispatchFoldRefusesPacketWorkIDMismatch(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openTemp(t)
 	seed := seedDispatchFixture(t, s, "work-mismatch")
@@ -528,6 +540,7 @@ func TestDispatchFoldRefusesPacketWorkIDMismatch(t *testing.T) {
 // guard: a dispatch_worker whose worker_packet.attempt_id does not match
 // fields.attempt_id is refused with KindInvalidPayload and writes no events.
 func TestDispatchFoldRefusesPacketAttemptIDMismatch(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openTemp(t)
 	seed := seedDispatchFixture(t, s, "work-attempt-mismatch")
@@ -577,6 +590,7 @@ func TestDispatchFoldRefusesPacketAttemptIDMismatch(t *testing.T) {
 // a future change cannot quietly let a string-shaped worker_packet reach
 // the fold.
 func TestDispatchPreflightRejectsNonObjectWorkerPacket(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openTemp(t)
 	seed := seedDispatchFixture(t, s, "work-non-object")
@@ -772,6 +786,7 @@ func seedWorkerDispatchedForAttempt(t *testing.T, s *Store, workID, attemptID st
 // any drift in the SELECT column expression, the payload key, or the struct
 // field becomes a hard failure rather than a silent gap.
 func TestFindAuthorizedDispatchWindowSurfacesThePacketDigest(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openTemp(t)
 	seed := seedDispatchFixture(t, s, "work-window-digest")
@@ -843,6 +858,7 @@ func TestFindAuthorizedDispatchWindowSurfacesThePacketDigest(t *testing.T) {
 // subtests share one fixture because each branch depends on the same window
 // state, and only the digest argument varies.
 func TestValidateWorkerDispatchWindowAcceptsMatchingPacketDigest(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openTemp(t)
 	seed := seedDispatchFixture(t, s, "work-window-enforce")
@@ -926,6 +942,7 @@ func TestValidateWorkerDispatchWindowAcceptsMatchingPacketDigest(t *testing.T) {
 // seeds the pre-CD-0067 completion event by hand the way the CLI test helper
 // does, then runs the gate through a fresh transaction.
 func TestValidateWorkerDispatchWindowRefusesPreCD0067Window(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openTemp(t)
 	seed := seedDispatchFixture(t, s, "work-pre-cd0067")
@@ -1004,6 +1021,7 @@ func TestValidateWorkerDispatchWindowRefusesPreCD0067Window(t *testing.T) {
 // reaching the fold directly tests the defensive depth the dispatch
 // refactor of #446 retained.
 func TestDispatchFoldDefensivelyRefusesAbsentWorkerPacket(t *testing.T) {
+	t.Parallel()
 	payload, err := json.Marshal(map[string]any{"attempt_id": "attempt-absent"})
 	if err != nil {
 		t.Fatalf("marshal payload: %v", err)
@@ -1020,6 +1038,7 @@ func TestDispatchFoldDefensivelyRefusesAbsentWorkerPacket(t *testing.T) {
 // normally catches this first; reaching the fold directly tests the
 // defensive depth.
 func TestDispatchFoldDefensivelyRefusesNonObjectWorkerPacket(t *testing.T) {
+	t.Parallel()
 	payload, err := json.Marshal(map[string]any{"attempt_id": "attempt-not-object", "worker_packet": "not-an-object"})
 	if err != nil {
 		t.Fatalf("marshal payload: %v", err)
@@ -1036,6 +1055,7 @@ func TestDispatchFoldDefensivelyRefusesNonObjectWorkerPacket(t *testing.T) {
 // WorkflowActionCompleted event. Preflight normally catches this first;
 // reaching the fold directly tests the defensive depth.
 func TestDispatchFoldDefensivelyRefusesWorkerPacketMissingIdentity(t *testing.T) {
+	t.Parallel()
 	packetBytes, err := json.Marshal(map[string]any{"schema_version": "1.0", "lane_id": "implement"})
 	if err != nil {
 		t.Fatalf("marshal packet: %v", err)
@@ -1061,6 +1081,7 @@ func TestDispatchFoldDefensivelyRefusesWorkerPacketMissingIdentity(t *testing.T)
 // unreachable defensive depth retained for the contract and is not faked
 // here.
 func TestDispatchFoldDefensivelyReachesTheCanonicalJSONCall(t *testing.T) {
+	t.Parallel()
 	attemptID := "attempt-reaches-canonical"
 	packetBytes, err := json.Marshal(dispatchWorkerPacket("work-fold-defensive", "execution", attemptID))
 	if err != nil {

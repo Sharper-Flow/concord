@@ -47,6 +47,7 @@ func seedImportedWork(t *testing.T, s *Store, workID, actor string) {
 // import actor reports no foreign event, and one Concord-side event by
 // another actor is returned with its kind and actor.
 func TestFirstWorkEventByOtherActorProbesConflictEvidence(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openTemp(t)
 	const workID = "import-advance-work-change-1"
@@ -85,6 +86,7 @@ func TestFirstWorkEventByOtherActorProbesConflictEvidence(t *testing.T) {
 // TestFirstWorkEventByOtherActorRefusesEmptyInputs pins the typed refusals
 // for the probe's own contract.
 func TestFirstWorkEventByOtherActorRefusesEmptyInputs(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	if _, _, _, err := s.FirstWorkEventByOtherActor(context.Background(), "", "actor"); err == nil {
 		t.Fatal("empty work id was accepted")

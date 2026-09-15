@@ -10,6 +10,7 @@ import (
 )
 
 func TestEnvelopeGoldenOutcomes(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name string
 		make func() Envelope
@@ -61,6 +62,7 @@ func TestEnvelopeGoldenOutcomes(t *testing.T) {
 }
 
 func TestMutationOKEnvelopeEmitsRequiredMetadataWhenEmpty(t *testing.T) {
+	t.Parallel()
 	// The generated envelope contract (contracts/agent-tool-envelope.schema.json,
 	// ok def) requires changed_refs and next_valid_intents on every mutation-tool
 	// ok response. Slice omitempty elides empty values, so a successful mutation
@@ -92,6 +94,7 @@ func TestMutationOKEnvelopeEmitsRequiredMetadataWhenEmpty(t *testing.T) {
 }
 
 func TestNonMutationEnvelopesOmitMutationMetadata(t *testing.T) {
+	t.Parallel()
 	read := newOKReadForTest(NewBase("req-702-r", "concord_product_view", "resolve"), "PM1.Q1", json.RawMessage(`{"product_id":"p-1","projects":[]}`), false)
 	readEncoded, err := read.Encode()
 	if err != nil {
@@ -119,6 +122,7 @@ func TestNonMutationEnvelopesOmitMutationMetadata(t *testing.T) {
 }
 
 func TestEnvelopeRejectsUnknownVariantsAndFields(t *testing.T) {
+	t.Parallel()
 	base := NewBase("req", "concord_product_view", "resolve")
 	base.Outcome = Outcome("surprise")
 	if err := base.Validate(); err == nil {
@@ -133,6 +137,7 @@ func TestEnvelopeRejectsUnknownVariantsAndFields(t *testing.T) {
 }
 
 func TestOutcomeMismatchIsClosedAndCannotDowngrade(t *testing.T) {
+	t.Parallel()
 	base := NewBase("outcome-mismatch", "concord_work_transition", "workflow_action")
 	valid := NewCoreError(base, TypedError{Kind: "outcome_mismatch", RetrySafe: false, RecoveryAction: RecoveryAction{Kind: "contact_operator"}, EffectState: EffectNone})
 	if _, err := valid.Encode(); err != nil {
@@ -145,6 +150,7 @@ func TestOutcomeMismatchIsClosedAndCannotDowngrade(t *testing.T) {
 }
 
 func TestStaleLawRevisionRequiresSHA256Proofs(t *testing.T) {
+	t.Parallel()
 	base := NewBase("stale-law", "concord_work_transition", "workflow_action")
 	valid := NewCoreError(base, TypedError{
 		Kind: "stale_law_revision", RecoveryAction: RecoveryAction{Kind: "request_approval"}, EffectState: EffectNone,
@@ -160,6 +166,7 @@ func TestStaleLawRevisionRequiresSHA256Proofs(t *testing.T) {
 }
 
 func TestDomainOverlapSequencedAndGloballyBoundedDetailsValidate(t *testing.T) {
+	t.Parallel()
 	base := NewBase("overlap", "concord_work_transition", "workflow_action")
 	longID := strings.Repeat("d", 256)
 	detail := DomainOverlapDetail{
@@ -186,6 +193,7 @@ func TestDomainOverlapSequencedAndGloballyBoundedDetailsValidate(t *testing.T) {
 }
 
 func TestEnvelopeAllowsBoundedListErrorDetails(t *testing.T) {
+	t.Parallel()
 	e := NewBase("req", "concord_work_define", "capture")
 	e.Authority = AuthorityAuthoritative
 	envelope := NewCoreError(e, TypedError{
@@ -206,6 +214,7 @@ func TestEnvelopeAllowsBoundedListErrorDetails(t *testing.T) {
 }
 
 func TestEnvelopeRejectsNestedErrorDetails(t *testing.T) {
+	t.Parallel()
 	e := NewBase("req", "concord_work_define", "capture")
 	e.Authority = AuthorityAuthoritative
 	envelope := NewCoreError(e, TypedError{
@@ -224,6 +233,7 @@ func TestEnvelopeRejectsNestedErrorDetails(t *testing.T) {
 // permitted rather than required so existing invariant_violation emitters are
 // untouched.
 func TestGoverningConflictOptionsAreClosedAndCoupled(t *testing.T) {
+	t.Parallel()
 	base := func() Envelope { return NewBase("req", "concord_work_define", "capture") }
 	governing := []string{"clarify", "amend_contract", "accept_scope_cut"}
 
@@ -254,6 +264,7 @@ func TestGoverningConflictOptionsAreClosedAndCoupled(t *testing.T) {
 }
 
 func TestEnvelopeRejectsUnknownFieldsAcrossEveryOutcome(t *testing.T) {
+	t.Parallel()
 	envelopes := []Envelope{
 		newOKReadForTest(NewBase("ok", "concord_product_view", "resolve"), "PM1.Q1", json.RawMessage(`{"product_id":"p-1","projects":[]}`), false),
 		NewPending(NewBase("pending", "concord_work_compact", "publish"), OperationRef{ID: "op-1", Kind: "publish", Version: "1", State: OperationPending, CurrentStep: "git", UpdatedAt: fixedTime()}, RecoveryAction{Kind: "reconcile_operation"}),
@@ -287,6 +298,7 @@ func TestEnvelopeRejectsUnknownFieldsAcrossEveryOutcome(t *testing.T) {
 }
 
 func TestEnvelopeHasHardSerializedLimit(t *testing.T) {
+	t.Parallel()
 	if MaxEnvelopeBytes != 65536 {
 		t.Fatalf("transport input limit=%d, want 65536", MaxEnvelopeBytes)
 	}
@@ -301,6 +313,7 @@ func TestEnvelopeHasHardSerializedLimit(t *testing.T) {
 }
 
 func TestOperationPayloadValidationUsesGeneratedClosedSchemas(t *testing.T) {
+	t.Parallel()
 	validInput := []byte(`{"work_id":"w-1","expected_version":2,"target":"completed","reason":"done","idempotency_key":"idem-1"}`)
 	if err := ValidateOperationPayload("concord_work_transition", "lifecycle", validInput, false); err != nil {
 		t.Fatal(err)
@@ -333,6 +346,7 @@ func TestOperationPayloadValidationUsesGeneratedClosedSchemas(t *testing.T) {
 }
 
 func TestMutationResultProducerAcceptsCanonicalPayload(t *testing.T) {
+	t.Parallel()
 	for _, operation := range []struct{ tool, operation string }{
 		{"concord_work_define", "capture"}, {"concord_work_define", "revise_intent"},
 		{"concord_work_transition", "lifecycle"}, {"concord_work_transition", "workflow_action"},
@@ -351,6 +365,7 @@ func TestMutationResultProducerAcceptsCanonicalPayload(t *testing.T) {
 }
 
 func TestMutationResultProducerRejectsMalformedAndOverBudgetResults(t *testing.T) {
+	t.Parallel()
 	base := NewBase("mutation-result-reject", "concord_work_define", "capture")
 	r := runtime{Tool: base.Tool, Operation: base.Operation}
 	invalid := r.mutationResult(base, json.RawMessage(`{"changed_refs":[],"next_valid_intents":[],"unknown":true}`), nil, nil)
@@ -387,6 +402,7 @@ func TestMutationResultProducerRejectsMalformedAndOverBudgetResults(t *testing.T
 }
 
 func TestMutationResultMalformedEnvelopeReturnsBoundedError(t *testing.T) {
+	t.Parallel()
 	base := NewBase("bounded-error", "concord_work_define", "capture")
 	base.EvidenceRefs = make([]EvidenceRef, 32)
 	for i := range base.EvidenceRefs {
@@ -407,6 +423,7 @@ func TestMutationResultMalformedEnvelopeReturnsBoundedError(t *testing.T) {
 }
 
 func TestCoreErrorBoundsLongMessage(t *testing.T) {
+	t.Parallel()
 	response := coreError(NewBase("long-error", "concord_work_define", "capture"), "invalid_input", strings.Repeat("x", 2000), "reread_entities", false)
 	if response.Error == nil || len(response.Error.Message) > 1000 {
 		t.Fatalf("error message length=%d, want <= 1000", len(response.Error.Message))
@@ -417,6 +434,7 @@ func TestCoreErrorBoundsLongMessage(t *testing.T) {
 }
 
 func TestStrictOperationUnions(t *testing.T) {
+	t.Parallel()
 	for _, input := range []string{`{}`, `{"product_id":"p-1"}`, `{"project_id":"pr-1"}`} {
 		if err := ValidateOperationPayload("concord_product_view", "resolve", []byte(input), false); err != nil {
 			t.Errorf("resolve union rejected %s: %v", input, err)
@@ -439,6 +457,7 @@ func TestStrictOperationUnions(t *testing.T) {
 }
 
 func TestDecodeEnvelopeRejectsInvalidTrailingJSON(t *testing.T) {
+	t.Parallel()
 	valid := newOKReadForTest(NewBase("request-1", "concord_product_view", "resolve"), "PM1.Q1", json.RawMessage(`{"product_id":"product-1","projects":[]}`), false)
 	raw, err := valid.Encode()
 	if err != nil {

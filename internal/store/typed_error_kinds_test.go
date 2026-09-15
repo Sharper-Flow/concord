@@ -12,6 +12,7 @@ import (
 // --check mode, so the drift is caught by `go test` and not only by the
 // contract validator.
 func TestTypedErrorKindsMatchEnvelopeSchema(t *testing.T) {
+	t.Parallel()
 	raw, err := os.ReadFile(filepath.Join("..", "..", "contracts", "agent-tool-envelope.schema.json"))
 	if err != nil {
 		t.Fatalf("cannot read the envelope schema: %v", err)
@@ -53,6 +54,7 @@ func TestTypedErrorKindsMatchEnvelopeSchema(t *testing.T) {
 // The two kinds the store fold previously omitted. Named explicitly so the
 // specific regression in #265 cannot silently return.
 func TestPreviouslyOmittedKindsAreAccepted(t *testing.T) {
+	t.Parallel()
 	for _, kind := range []string{"stale_law_revision", "domain_overlap"} {
 		if !TypedErrorKindAllowed(kind) {
 			t.Errorf("%q must be accepted; the store fold omitted it while the agent layer accepted it", kind)
@@ -65,6 +67,7 @@ func TestPreviouslyOmittedKindsAreAccepted(t *testing.T) {
 // source of membership; this asserts the constants cover it exactly, so a kind
 // added to the schema does not stay spelled as a literal forever.
 func TestEveryTypedErrorKindHasANamedConstant(t *testing.T) {
+	t.Parallel()
 	constants := map[string]FailureKind{
 		"unknown_scope": KindUnknownScope, "ambiguous_scope": KindAmbiguousScope,
 		"stale_context": KindStaleContext, "unauthorized": KindUnauthorized,
@@ -101,6 +104,7 @@ func TestEveryTypedErrorKindHasANamedConstant(t *testing.T) {
 }
 
 func TestUnknownKindIsRejected(t *testing.T) {
+	t.Parallel()
 	if TypedErrorKindAllowed("not_a_declared_kind") {
 		t.Fatal("an undeclared kind must be rejected")
 	}

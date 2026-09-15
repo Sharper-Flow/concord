@@ -69,6 +69,7 @@ func worktreeDispatchFixture(t *testing.T) (*store.Store, *Service, Authority, s
 }
 
 func TestWorktreeClaimAndReclaimThroughToolSurface(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s, service, grant, repoRoot, baseSHA := worktreeDispatchFixture(t)
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
@@ -174,6 +175,7 @@ func claimLinkedWorktree(t *testing.T, s *store.Store, service *Service, grant A
 // implementation surface. A linked worktree keeps reclaiming for every
 // lifecycle (TestWorktreeClaimAndReclaimThroughToolSurface).
 func TestWorktreeReclaimFromMainCheckoutRequiresTerminalWork(t *testing.T) {
+	t.Parallel()
 	dispatchReclaim := func(t *testing.T, s *store.Store, service *Service, grant Authority, key string, expected int64) Envelope {
 		t.Helper()
 		reclaimInput, _ := json.Marshal(map[string]any{
@@ -271,6 +273,7 @@ func TestWorktreeReclaimFromMainCheckoutRequiresTerminalWork(t *testing.T) {
 // because no event records a session leaving a directory, so a stored answer
 // would go stale with nothing to clear it.
 func TestWorktreeReclaimRefusesOccupiedWorktreeThroughToolSurface(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s, service, grant, repoRoot, baseSHA := worktreeDispatchFixture(t)
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
@@ -327,6 +330,7 @@ func TestWorktreeReclaimRefusesOccupiedWorktreeThroughToolSurface(t *testing.T) 
 }
 
 func TestSessionVacateSucceedsFromLinkedWorktreeMutation(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s, service, grant, repoRoot, baseSHA := worktreeDispatchFixture(t)
 	worktreePath := filepath.Join(t.TempDir(), "linked-wt")
@@ -381,6 +385,7 @@ func TestSessionVacateSucceedsFromLinkedWorktreeMutation(t *testing.T) {
 // session, and each one refused as a conflicting replay. A second session
 // vacating its own linked worktree must record its own event.
 func TestSecondSessionVacateRecordsItsOwnEvent(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s, service, grant, _, baseSHA := worktreeDispatchFixture(t)
 

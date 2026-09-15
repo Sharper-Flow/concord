@@ -7,6 +7,7 @@ import (
 )
 
 func TestReplaceDomainAttachmentsFoldsSetsAndSurvivesLogRebuild(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	ctx := context.Background()
 	setupProductWithProject(t, s, "domain-product", "domain-project")
@@ -52,6 +53,7 @@ func TestReplaceDomainAttachmentsFoldsSetsAndSurvivesLogRebuild(t *testing.T) {
 }
 
 func TestReplaceDomainProjectAttachmentsRejectsCrossProductProjectAndStaleSet(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	ctx := context.Background()
 	setupProductWithProject(t, s, "domain-product-cross", "domain-project-cross")
@@ -70,6 +72,7 @@ func TestReplaceDomainProjectAttachmentsRejectsCrossProductProjectAndStaleSet(t 
 }
 
 func TestDomainResourceAttachmentSchemaRequiresSameProductMembership(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	ctx := context.Background()
 	setupProductWithProject(t, s, "resource-owner", "resource-owner-project")
@@ -100,6 +103,7 @@ func TestDomainResourceAttachmentSchemaRequiresSameProductMembership(t *testing.
 }
 
 func TestProductReconstructionExcludesDomainAndResourceProjectionEvents(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openTemp(t)
 	setupProductWithProject(t, s, "reconstruct-product", "reconstruct-project")

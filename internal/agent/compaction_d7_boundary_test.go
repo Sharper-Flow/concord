@@ -37,6 +37,7 @@ func supersedeCompactionMandatedLaw(t *testing.T, s *store.Store, home store.Kno
 // no canonical note reaches the git knowledge home and no durable operation is
 // recorded.
 func TestCompactionPublishClaimRefusesStaleLawRevision(t *testing.T) {
+	t.Parallel()
 	s, service, grant, privateKey, home := agentJobsCompactionFixture(t)
 	supersedeCompactionMandatedLaw(t, s, home)
 

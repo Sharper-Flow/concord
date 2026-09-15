@@ -32,6 +32,7 @@ func productStageRow(t *testing.T, s *Store) (maturity string, audience string, 
 }
 
 func TestChangeProductStageUpdatesProjectionAndLog(t *testing.T) {
+	t.Parallel()
 	s := stageFixture(t)
 	_, _, before := productStageRow(t, s)
 	result, err := s.ChangeProductStage(context.Background(), ProductStageChange{
@@ -65,6 +66,7 @@ func TestChangeProductStageUpdatesProjectionAndLog(t *testing.T) {
 }
 
 func TestChangeProductStageRejectsInvalidValues(t *testing.T) {
+	t.Parallel()
 	s := stageFixture(t)
 	_, err := s.ChangeProductStage(context.Background(), ProductStageChange{
 		ProductID: "product-stage", StageMaturity: "ga", StageAudienceCommitment: "operator_only", ExpectedVersion: 99,
@@ -82,6 +84,7 @@ func TestChangeProductStageRejectsInvalidValues(t *testing.T) {
 }
 
 func TestChangeProductStageRebuildsFromLog(t *testing.T) {
+	t.Parallel()
 	s := stageFixture(t)
 	_, _, before := productStageRow(t, s)
 	if _, err := s.ChangeProductStage(context.Background(), ProductStageChange{

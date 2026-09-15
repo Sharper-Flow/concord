@@ -11,6 +11,7 @@ import (
 // refuses is unreachable by name, which is the gap that hid reference and
 // constitution records from every targeted search.
 func TestQ9KindFilterAdmitsEveryClosedKnowledgeKind(t *testing.T) {
+	t.Parallel()
 	for kind := range knowledgeKindsClosed {
 		if _, err := knowledgeKinds([]string{kind}); err != nil {
 			t.Errorf("closed kind %q refused by the Q9 filter: %v", kind, err)
@@ -22,6 +23,7 @@ func TestQ9KindFilterAdmitsEveryClosedKnowledgeKind(t *testing.T) {
 }
 
 func TestKnowledgeCoverageRowsSpanEveryClosedKind(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	repo := initKnowledgeRepo(t)
 	writeManifestFixture(t, repo,

@@ -60,6 +60,7 @@ func seedDomainReadStore(t *testing.T) *Store {
 }
 
 func TestDomainListCoversCurrentDomainsWithRegistryWatermark(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := seedDomainReadStore(t)
 	result, err := s.QueryDomainList(ctx, DomainListRequest{Product: "concord"})
@@ -87,6 +88,7 @@ func TestDomainListCoversCurrentDomainsWithRegistryWatermark(t *testing.T) {
 }
 
 func TestDomainDetailShowsCurrentLawRelationsAndRefusesUnknown(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := seedDomainReadStore(t)
 	detail, err := s.QueryDomainDetail(ctx, DomainDetailRequest{Product: "concord", Domain: "sync"})
@@ -119,6 +121,7 @@ func TestDomainDetailShowsCurrentLawRelationsAndRefusesUnknown(t *testing.T) {
 }
 
 func TestDomainActiveWorkAndOverlapsDeriveFromCurrentContracts(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s, actor := seedOverlapProjection(t, "overlap-left", "overlap-right", false)
 
@@ -171,6 +174,7 @@ func TestDomainActiveWorkAndOverlapsDeriveFromCurrentContracts(t *testing.T) {
 }
 
 func TestDomainAttachmentsReadLocalSets(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s, _ := seedOverlapProjection(t, "attach-work", "attach-other", false)
 	if err := ReplaceDomainProjectAttachments(ctx, s, DomainProjectAttachmentsRequest{EventID: "attach-projects", ProductID: "product", DomainID: "root", Attachments: []DomainProjectAttachment{{ProjectID: "project", Role: "primary"}}, ExpectedVersion: 0, Actor: "operator", OccurredAt: time.Unix(1, 0).UTC()}); err != nil {

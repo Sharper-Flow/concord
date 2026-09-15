@@ -95,6 +95,7 @@ func ekbEvidenceBoundEvents(t *testing.T, s *store.Store, workID string) []strin
 }
 
 func TestBindEvidenceRefusesMixedKindEvidenceArray(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s, service, grant, privateKey := mutationDispatchFixture(t, []Capability{"work_define", "work_transition"})
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
@@ -124,6 +125,7 @@ func TestBindEvidenceRefusesMixedKindEvidenceArray(t *testing.T) {
 }
 
 func TestBindEvidenceRecordsOneKindForHomogeneousArray(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s, service, grant, privateKey := mutationDispatchFixture(t, []Capability{"work_define", "work_transition"})
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
@@ -158,6 +160,7 @@ func TestBindEvidenceRecordsOneKindForHomogeneousArray(t *testing.T) {
 }
 
 func TestBindEvidenceRefusesContradictedExplicitKind(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s, service, grant, privateKey := mutationDispatchFixture(t, []Capability{"work_define", "work_transition"})
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
@@ -183,6 +186,7 @@ func TestBindEvidenceRefusesContradictedExplicitKind(t *testing.T) {
 }
 
 func TestEvidenceKindRefusalCoversTheBindingFamily(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s, service, grant, privateKey := mutationDispatchFixture(t, []Capability{"work_define", "work_transition"})
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")

@@ -329,6 +329,7 @@ func stripSQLComments(sql string) string {
 // TestStoreBoundaryRepoIsClean scans the real repository production tree and
 // asserts the boundary holds everywhere.
 func TestStoreBoundaryRepoIsClean(t *testing.T) {
+	t.Parallel()
 	_, thisFile, _, _ := runtime.Caller(0)
 	root := filepath.Dir(filepath.Dir(filepath.Dir(thisFile)))
 
@@ -377,6 +378,7 @@ func TestStoreBoundaryRepoIsClean(t *testing.T) {
 // comments, and the Store.DB escape hatch — plus the allowed scopes
 // (store-owned code, tests, pm1fixture) staying silent.
 func TestStoreBoundaryFixtureViolations(t *testing.T) {
+	t.Parallel()
 	const schema = "package store\nvar schema = `CREATE TABLE widgets (id INTEGER);`\n"
 	const bt = "`"
 	tables := boundaryStoreTables(schema)

@@ -24,10 +24,12 @@ cd "$repo_root"
 # defaults to GOMAXPROCS, which saturates the machine when several agents run
 # the full tier concurrently.
 full_workers="${OC_TEST_GO_WORKERS:-4}"
-# Measured under this tier's own admission control (-p 4, nice 10): the race
-# suite needs ~38m wall and internal/agent alone runs ~23m, so the default must
-# clear both the gate bound and the per-package go test timeout. CI is not
-# affected; it invokes the underlying commands natively.
+# Measured under this tier's own admission control (-p 4, nice 10) on the
+# shared development host (2026-09-14, roughly 3x CPU oversubscription):
+# with the store and agent test packages parallelized, the race suite needs
+# ~35m wall and internal/agent alone runs ~4m, so the default must clear both
+# the gate bound and the per-package go test timeout. CI is not affected; it
+# invokes the underlying commands natively.
 full_timeout="${OC_TEST_FULL_TIMEOUT:-45m}"
 
 usage() {

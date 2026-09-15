@@ -7,6 +7,7 @@ import (
 )
 
 func TestProjectCreatedV1UpcastsToInheritedStageWithoutReinterpretation(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	event := projectCreatedEvent("project-stage-v1", "project-stage-v1")
 	upcasted, err := upcastEvent(event)
@@ -52,6 +53,7 @@ func TestProjectCreatedV1UpcastsToInheritedStageWithoutReinterpretation(t *testi
 }
 
 func TestProjectStageChangeEventValidatesReplaysAndClearsInheritance(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	ctx := context.Background()
 	if err := ApplyOperation(ctx, s, Operation{Events: []Event{
@@ -94,6 +96,7 @@ func TestProjectStageChangeEventValidatesReplaysAndClearsInheritance(t *testing.
 }
 
 func TestProjectStageChangedRejectsPartialPairDuringReplay(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	seedSchemaEvolutionBase(t, s)
 	invalid := operationEvent("partial-stage", "project.stage_changed", SubjectProject, "schema-project", map[string]any{
@@ -107,6 +110,7 @@ func TestProjectStageChangedRejectsPartialPairDuringReplay(t *testing.T) {
 }
 
 func TestProjectCreationWritesStageOnlyThroughVersionedEvent(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	result, err := s.CreateProductWithProject(context.Background(), ProductCreation{
 		ProductID: "operator-stage-product", DisplayName: "Operator Product", StageMaturity: "prototype", StageAudienceCommitment: "operator_only",

@@ -10,6 +10,7 @@ import (
 )
 
 func TestWorkCreatedV1UpcasterIsDeterministic(t *testing.T) {
+	t.Parallel()
 	event := workCreatedEvent("work-v1", "event-v1")
 	event.PayloadVersion = 1
 	event.Payload = []byte(`{"kind":"task","title":"migrate","priority":2}`)
@@ -36,6 +37,7 @@ func TestWorkCreatedV1UpcasterIsDeterministic(t *testing.T) {
 }
 
 func TestWorkCreatedV1MissingFieldIsInvalidPayload(t *testing.T) {
+	t.Parallel()
 	for _, payload := range []string{
 		`{"kind":"task","priority":2}`,
 		`{"kind":"task","title":"missing priority"}`,
@@ -49,6 +51,7 @@ func TestWorkCreatedV1MissingFieldIsInvalidPayload(t *testing.T) {
 }
 
 func TestApplyWorkCreatedV1RetainsStoredBytesAndFoldsAsV2(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	if err := ApplyOperation(context.Background(), s, Operation{
 		Events: []Event{
@@ -92,6 +95,7 @@ func TestApplyWorkCreatedV1RetainsStoredBytesAndFoldsAsV2(t *testing.T) {
 }
 
 func TestApplyRejectsNewerPayloadBeforeMutation(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	event := workCreatedEvent("work-v3", "event-v3")
 	event.PayloadVersion = 3
@@ -102,6 +106,7 @@ func TestApplyRejectsNewerPayloadBeforeMutation(t *testing.T) {
 }
 
 func TestMixedWorkCreatedVersionsRebuildDeterministically(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	seedSchemaEvolutionBase(t, s)
 	legacy := workCreatedEvent("work-legacy", "event-legacy")
@@ -135,6 +140,7 @@ func TestMixedWorkCreatedVersionsRebuildDeterministically(t *testing.T) {
 }
 
 func TestRebuildPoisonFailureHasExactEventContextAndRollsBack(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	if err := ApplyOperation(context.Background(), s, Operation{
 		Events: []Event{
@@ -193,6 +199,7 @@ func TestRebuildPoisonFailureHasExactEventContextAndRollsBack(t *testing.T) {
 }
 
 func TestEventKindRegistryIsClosedAndComplete(t *testing.T) {
+	t.Parallel()
 	if err := validateEventKindRegistry(); err != nil {
 		t.Fatal(err)
 	}
@@ -217,6 +224,7 @@ func TestEventKindRegistryIsClosedAndComplete(t *testing.T) {
 }
 
 func TestValidateEventKindRegistryRejectsIncompleteRegistration(t *testing.T) {
+	t.Parallel()
 	valid := eventKindRegistry["product.created"]
 	versioned := eventKindRegistry["project.created"]
 	cases := []struct {
@@ -277,6 +285,7 @@ func TestValidateEventKindRegistryRejectsIncompleteRegistration(t *testing.T) {
 }
 
 func TestWorkflowActionCompletedV1UpcastsWithoutWorkerAttemptIdentity(t *testing.T) {
+	t.Parallel()
 	event := Event{EventID: "legacy-action-completed", Kind: WorkflowActionCompleted, SubjectType: SubjectWorkItem, SubjectID: "legacy-work", Actor: "actor:legacy", OccurredAt: time.Unix(1, 0).UTC(), PayloadVersion: 1, Payload: []byte(`{"work_id":"legacy-work","expected_version":1,"resulting_version":2,"step_id":"execution","action_id":"record_proposal","attempt_epoch":1,"result_evidence_refs":[],"changed_refs":[],"actor_ref":"actor:legacy"}`)}
 	upcasted, err := upcastEvent(event)
 	if err != nil {
@@ -295,6 +304,7 @@ func TestWorkflowActionCompletedV1UpcastsWithoutWorkerAttemptIdentity(t *testing
 }
 
 func TestIntentRevisionReplaysDeterministically(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	seedWork(t, s, "intent-work")
 	payload := []byte(`{"title":"Revised","value_statement":"A complete replacement","kind":"task","priority":4,"tags":["durable"],"reason":"clarified","expected_version":2,"resulting_version":3}`)
@@ -318,6 +328,7 @@ func TestIntentRevisionReplaysDeterministically(t *testing.T) {
 }
 
 func TestIntentRevisionPreservesExternalRefAndNormalizesShape(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	seedSchemaEvolutionBase(t, s)
 	create := Event{EventID: "intent-shape-create", Kind: "work.created", SubjectType: SubjectWorkItem, SubjectID: "intent-shape", Actor: "operator", OccurredAt: time.Unix(1, 0).UTC(), PayloadVersion: 2, Payload: []byte(`{"work_kind":"task","title":"Original","value_statement":"Original statement","priority":2,"tags":["alpha"],"external_ref":"tracker:issue-42"}`)}
@@ -370,6 +381,7 @@ func TestIntentRevisionPreservesExternalRefAndNormalizesShape(t *testing.T) {
 }
 
 func TestReconstructSubjectAtAcceptsOnlyAuditAndDiagnosis(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	if err := ApplyOperation(context.Background(), s, Operation{
 		Events: []Event{
@@ -408,6 +420,7 @@ func TestReconstructSubjectAtAcceptsOnlyAuditAndDiagnosis(t *testing.T) {
 }
 
 func TestReconstructSubjectAtDoesNotMutateLiveState(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	if err := ApplyOperation(context.Background(), s, Operation{
 		Events: []Event{
@@ -451,6 +464,7 @@ func TestReconstructSubjectAtDoesNotMutateLiveState(t *testing.T) {
 }
 
 func TestNoPersistentPointInTimeTableOrSnapshot(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	var count int
 	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM sqlite_master WHERE type = 'table' AND (name LIKE '%snapshot%' OR name LIKE '%reconstruct%')`).Scan(&count); err != nil {
@@ -462,6 +476,7 @@ func TestNoPersistentPointInTimeTableOrSnapshot(t *testing.T) {
 }
 
 func TestWorkCreatedV2FixturePayloadIsCanonical(t *testing.T) {
+	t.Parallel()
 	event := workCreatedEvent("work-v2", "event-v2")
 	var payload map[string]any
 	if err := json.Unmarshal(event.Payload, &payload); err != nil {

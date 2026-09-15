@@ -51,6 +51,7 @@ func seedQueryFixture(t *testing.T) *Store {
 }
 
 func TestQueryMigrationFiveAndIncomingIndex(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	version, err := readSchemaManifestVersion(context.Background(), s.DatabaseForTesting())
 	if err != nil {
@@ -81,6 +82,7 @@ func TestQueryMigrationFiveAndIncomingIndex(t *testing.T) {
 }
 
 func TestLauncherProductAndSearchProjectionsAreBoundedAndScoped(t *testing.T) {
+	t.Parallel()
 	s := seedQueryFixture(t)
 	defer s.Close()
 	ctx := context.Background()
@@ -144,6 +146,7 @@ func TestLauncherProductAndSearchProjectionsAreBoundedAndScoped(t *testing.T) {
 }
 
 func TestLauncherProductDrillDownIncludesTerminalWork(t *testing.T) {
+	t.Parallel()
 	s := seedQueryFixture(t)
 	defer s.Close()
 	ctx := context.Background()
@@ -210,6 +213,7 @@ func TestLauncherProductDrillDownIncludesTerminalWork(t *testing.T) {
 }
 
 func TestLauncherProductDepthThreeRepresentativeP99(t *testing.T) {
+	t.Parallel()
 	if productRowSkipPerformanceUnderRace {
 		t.Skip("representative latency threshold is measured without race instrumentation")
 	}
@@ -262,6 +266,7 @@ func TestLauncherProductDepthThreeRepresentativeP99(t *testing.T) {
 }
 
 func TestQueryQ1CarriesUniversalMetadata(t *testing.T) {
+	t.Parallel()
 	s := seedQueryFixture(t)
 	result, err := s.QueryQ1(context.Background(), Q1Request{Limit: 20})
 	if err != nil {
@@ -279,6 +284,7 @@ func TestQueryQ1CarriesUniversalMetadata(t *testing.T) {
 }
 
 func TestQueryRejectsInvalidFilterAndCursorBinding(t *testing.T) {
+	t.Parallel()
 	s := seedQueryFixture(t)
 	_, err := s.QueryQ3(context.Background(), Q3Request{Product: "prod", LifecycleStates: []string{"blocked"}})
 	assertFailureKind(t, err, KindInvalidFilter)
@@ -299,6 +305,7 @@ func TestQueryRejectsInvalidFilterAndCursorBinding(t *testing.T) {
 }
 
 func TestQueryQ6ValidatesExplicitProductForWork(t *testing.T) {
+	t.Parallel()
 	s := seedQueryFixture(t)
 	_, err := s.QueryQ6(context.Background(), Q6Request{Product: "missing", Work: "blocked"})
 	assertFailureKind(t, err, KindUnknownScope)
@@ -307,6 +314,7 @@ func TestQueryQ6ValidatesExplicitProductForWork(t *testing.T) {
 }
 
 func TestQueryQ10AcceptsExactlyOneStableReferenceAndReturnsTypedStates(t *testing.T) {
+	t.Parallel()
 	s := seedQueryFixture(t)
 	home := KnowledgeHome{HomeProjectID: "home", HomeLocatorID: "locator", RepoPath: t.TempDir(), HeadRef: "HEAD"}
 	authorizeKnowledgeLocator(t, s, home)
@@ -325,6 +333,7 @@ func TestQueryQ10AcceptsExactlyOneStableReferenceAndReturnsTypedStates(t *testin
 }
 
 func TestQueryQ10ContainsKnowledgeInSelectedProduct(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	insertArchivedKnowledge(t, s, "knowledge-b", "home", "locator", "missing.md", "missing", "missing", []string{"product-b"})
 	result, err := s.QueryQ10(context.Background(), Q10Request{KnowledgeID: "knowledge-b", Product: "product-a", AllowDegraded: true, Home: KnowledgeHome{HomeProjectID: "home", HomeLocatorID: "locator", RepoPath: t.TempDir(), HeadRef: "HEAD"}})
@@ -335,6 +344,7 @@ func TestQueryQ10ContainsKnowledgeInSelectedProduct(t *testing.T) {
 }
 
 func TestQueryQ10ReturnsAmbiguousAsTypedResult(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	repo := initKnowledgeRepo(t)
 	path := "docs/lessons/different.md"
@@ -388,6 +398,7 @@ func insertArchivedKnowledge(t *testing.T, s *Store, id, homeProject, homeLocato
 }
 
 func TestQueryQ6ProjectPaginationBoundsContinuationAndTamper(t *testing.T) {
+	t.Parallel()
 	s := seedQueryFixture(t)
 	for _, id := range []string{"scope-a", "scope-b", "scope-c"} {
 		addQ4Work(t, s, id, 1, time.Now().UTC())
@@ -410,6 +421,7 @@ func TestQueryQ6ProjectPaginationBoundsContinuationAndTamper(t *testing.T) {
 }
 
 func TestTerminalOnlyQ3RecognizesEveryTerminalFilter(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		states []string
 		want   bool
@@ -426,6 +438,7 @@ func TestTerminalOnlyQ3RecognizesEveryTerminalFilter(t *testing.T) {
 }
 
 func TestQueryDeduplicatesMultipleProjectMemberships(t *testing.T) {
+	t.Parallel()
 	s := seedQueryFixture(t)
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{
 		operationEvent("q-project-2", "project.created", SubjectProject, "proj-2", map[string]any{"display_name": "Project 2"}),
@@ -456,6 +469,7 @@ func TestQueryDeduplicatesMultipleProjectMemberships(t *testing.T) {
 }
 
 func TestQueryQ4DerivesAndResolvesBlockers(t *testing.T) {
+	t.Parallel()
 	s := seedQueryFixture(t)
 	result, err := s.QueryQ4(context.Background(), Q4Request{Product: "prod"})
 	if err != nil || len(result.Items) != 1 || result.Items[0].Blockers[0].ID != "blocker" {
@@ -475,6 +489,7 @@ func TestQueryQ4DerivesAndResolvesBlockers(t *testing.T) {
 // An inverse label reads a stored edge backwards. The store keeps one row, not a
 // mirrored pair, so the inverse is a read projection and never a second relation.
 func TestQueryQ8InverseLabelReadsWithoutMirroredRow(t *testing.T) {
+	t.Parallel()
 	s := seedQueryFixture(t)
 	result, err := s.QueryQ8(context.Background(), Q8Request{Work: "blocked", RelationKinds: []string{"blocked_by"}, Direction: "outgoing"})
 	if err != nil || len(result.Edges) != 1 || result.Edges[0].Kind != "blocked_by" || result.Edges[0].Source != "blocked" || result.Edges[0].Target != "blocker" || result.Edges[0].Depth != 1 {
@@ -484,6 +499,7 @@ func TestQueryQ8InverseLabelReadsWithoutMirroredRow(t *testing.T) {
 }
 
 func TestQueryQ8DependsOnUsesForwardStoredKind(t *testing.T) {
+	t.Parallel()
 	s := seedQueryFixture(t)
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{
 		relationAddedEvent("q-depends-on", "depends_on", "blocked", "blocker", 2, 3),
@@ -498,6 +514,7 @@ func TestQueryQ8DependsOnUsesForwardStoredKind(t *testing.T) {
 }
 
 func TestQueryQ8RejectsNonTransitiveDepth(t *testing.T) {
+	t.Parallel()
 	s := seedQueryFixture(t)
 	_, err := s.QueryQ8(context.Background(), Q8Request{Work: "blocked", RelationKinds: []string{"implements"}, Direction: "outgoing", Depth: 2})
 	assertFailureKind(t, err, KindInvalidFilter)
@@ -507,6 +524,7 @@ func TestQueryQ8RejectsNonTransitiveDepth(t *testing.T) {
 }
 
 func TestQuerySpecializedResultsCarryUniversalPayload(t *testing.T) {
+	t.Parallel()
 	s := seedQueryFixture(t)
 	cases := []struct {
 		name  string
@@ -631,6 +649,7 @@ func seedQ4LimitFixture(t *testing.T, secondBlockerWhen time.Time) *Store {
 }
 
 func TestQueryQ4LimitBoundsWorksBeforeBlockerJoin(t *testing.T) {
+	t.Parallel()
 	s := seedQ4LimitFixture(t, time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC))
 	result, err := s.QueryQ4(context.Background(), Q4Request{Product: "prod", Limit: 1})
 	if err != nil {
@@ -642,6 +661,7 @@ func TestQueryQ4LimitBoundsWorksBeforeBlockerJoin(t *testing.T) {
 }
 
 func TestQueryQ4LimitDoesNotDropSecondWork(t *testing.T) {
+	t.Parallel()
 	s := seedQ4LimitFixture(t, time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC))
 	result, err := s.QueryQ4(context.Background(), Q4Request{Product: "prod", Limit: 2})
 	if err != nil {
@@ -653,6 +673,7 @@ func TestQueryQ4LimitDoesNotDropSecondWork(t *testing.T) {
 }
 
 func TestQueryQ4OrdersOldestBlockerThenStableWorkID(t *testing.T) {
+	t.Parallel()
 	s := seedQ4LimitFixture(t, time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC))
 	result, err := s.QueryQ4(context.Background(), Q4Request{Product: "prod", Limit: 2})
 	if err != nil {
@@ -664,6 +685,7 @@ func TestQueryQ4OrdersOldestBlockerThenStableWorkID(t *testing.T) {
 }
 
 func TestQueryQ4ExcludesTerminalBlockersAndReportsCaps(t *testing.T) {
+	t.Parallel()
 	s := seedQ4LimitFixture(t, time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC))
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workTransitionEvent("q4-resolve-z1", "z-blocker-1", "needed", "completed", 3, 4)}, ExpectedVersions: workVersion("z-blocker-1", 3)}); err != nil {
 		t.Fatal(err)
@@ -687,6 +709,7 @@ func TestQueryQ4ExcludesTerminalBlockersAndReportsCaps(t *testing.T) {
 }
 
 func TestQueryQ4RejectsUnboundedGraphRequests(t *testing.T) {
+	t.Parallel()
 	s := seedQueryFixture(t)
 	for _, req := range []Q4Request{
 		{Product: "prod", Depth: 4},
@@ -703,6 +726,7 @@ func TestQueryQ4RejectsUnboundedGraphRequests(t *testing.T) {
 // (store.go SetMaxOpenConns(1)) a nested s.db query there parks on the pool
 // forever — this test would hang, not fail, without tx scoping.
 func TestLauncherSearchAuthoritativeKnowledgeDoesNotDeadlock(t *testing.T) {
+	t.Parallel()
 	s := seedQueryFixture(t)
 	defer s.Close()
 	ctx := context.Background()

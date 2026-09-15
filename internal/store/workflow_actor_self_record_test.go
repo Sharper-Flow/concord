@@ -45,6 +45,7 @@ func countWorkflowActor(t *testing.T, s *Store, actorRef string) int {
 // session may legally take on the current step is that session's possible first
 // action, and every fold that calls requireActor refuses until the row exists.
 func TestFirstWorkflowActionRecordsTheActingActor(t *testing.T) {
+	t.Parallel()
 	for _, testCase := range []struct {
 		kind     string
 		step     string

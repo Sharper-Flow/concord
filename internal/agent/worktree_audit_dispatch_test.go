@@ -15,6 +15,7 @@ import (
 // surfaces an operator would: a tool-surface claim at the canonical locator
 // path, a manual native removal, and a stray directory under the root.
 func TestWorktreeAuditReadClassifiesDriftThroughToolSurface(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s, service, grant, repoRoot, _ := worktreeDispatchFixture(t)
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
@@ -98,6 +99,7 @@ func TestWorktreeAuditReadClassifiesDriftThroughToolSurface(t *testing.T) {
 // A product with no drift answers with a valid empty page, not an error or a
 // null array: the caller must be able to trust a clean audit.
 func TestWorktreeAuditReadReportsCleanProductAsEmptyDrift(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s, service, grant, _, _ := worktreeDispatchFixture(t)
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")

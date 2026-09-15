@@ -38,6 +38,7 @@ var forbiddenReceiptShapes = []string{"receipt", "attestation", "salvage"}
 // requires a place to store it. PM9 is proved by name, because a receipt or
 // attestation has to be addressable to be useful.
 func TestPM8AndPM9DeclareNoEvidenceOrReceiptStore(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	ctx := context.Background()
 

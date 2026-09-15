@@ -6,6 +6,7 @@ import (
 )
 
 func TestNativeRunStatusVocabularyCoversEveryDeclaredPair(t *testing.T) {
+	t.Parallel()
 	actor := WorkflowActor{PrincipalRef: "principal:native-vocab", ClientRef: "client:native-vocab", AgentRef: "agent:native-vocab", SessionRef: "session:native-vocab", ActorClass: ActorAgent}
 	now := time.Date(2026, 8, 25, 0, 0, 0, 0, time.UTC)
 	for phase, statuses := range map[string][]string{
@@ -30,6 +31,7 @@ func TestNativeRunStatusVocabularyCoversEveryDeclaredPair(t *testing.T) {
 }
 
 func TestNativeRunStatusVocabularyRejectsWrongPhaseAndUnknownStatus(t *testing.T) {
+	t.Parallel()
 	actor := WorkflowActor{PrincipalRef: "principal:native-vocab-invalid", ClientRef: "client:native-vocab-invalid", AgentRef: "agent:native-vocab-invalid", SessionRef: "session:native-vocab-invalid", ActorClass: ActorAgent}
 	now := time.Date(2026, 8, 25, 0, 0, 0, 0, time.UTC)
 	for _, tc := range []struct{ phase, status string }{{"start", "healthy"}, {"health", "unknown"}} {

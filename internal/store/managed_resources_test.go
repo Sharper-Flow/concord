@@ -8,6 +8,7 @@ import (
 )
 
 func TestCreateManagedResourceAndAddConsumerAreEventBacked(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	ctx := context.Background()
 	setupProductWithProject(t, s, "resource-product", "resource-project")
@@ -57,6 +58,7 @@ func TestCreateManagedResourceAndAddConsumerAreEventBacked(t *testing.T) {
 }
 
 func TestManagedResourceRejectsDuplicateConsumerAndEnvironmentOutsideResource(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	setupProductWithProject(t, s, "resource-product-duplicate", "resource-project-duplicate")
 	now := time.Date(2026, 8, 18, 12, 0, 0, 0, time.UTC)
@@ -70,6 +72,7 @@ func TestManagedResourceRejectsDuplicateConsumerAndEnvironmentOutsideResource(t 
 }
 
 func TestManagedResourceMetadataBoundsAndOtherKindDetail(t *testing.T) {
+	t.Parallel()
 	base := ManagedResource{ResourceID: "resource-metadata", DisplayName: "Metadata", Class: "infrastructure", Kind: "service", Purpose: "tests metadata", StageMaturity: "production", StageAudienceCommitment: "limited", Environments: []string{"production"}, MetadataSchemaVersion: "1", Metadata: []byte(`{}`)}
 	if err := validateManagedResourceInput(base); err != nil {
 		t.Fatalf("valid metadata rejected: %v", err)

@@ -40,6 +40,7 @@ func testCapture(id, subjectKind string, universe ObservedUniverse) ExternalObse
 }
 
 func TestObservedUniverseRejectsUnearnedCompleteness(t *testing.T) {
+	t.Parallel()
 	refs := []string{"svc-a", "svc-b", "svc-c"}
 
 	// A witness without a stable anchor cannot close a universe.
@@ -76,6 +77,7 @@ func TestObservedUniverseRejectsUnearnedCompleteness(t *testing.T) {
 }
 
 func TestObservedUniverseAcceptsEarnedCompleteness(t *testing.T) {
+	t.Parallel()
 	refs := []string{"svc-a", "svc-b", "svc-c"}
 	if err := ValidateObservedUniverse(testUniverse(CoverageComplete, refs, TotalEq, 3, CompletionAuthoritativeItemRead, "anchor-1")); err != nil {
 		t.Fatalf("an anchored, witnessed, reconciled complete universe was refused: %v", err)
@@ -89,6 +91,7 @@ func TestObservedUniverseAcceptsEarnedCompleteness(t *testing.T) {
 }
 
 func TestCaptureBindsTheReviewedPolicyRef(t *testing.T) {
+	t.Parallel()
 	capture := testCapture("xobs:0123456789abcdef", "environment", testUniverse(CoveragePartial, nil, TotalUnknown, 0, "", ""))
 	if err := ValidateExternalObservationCapture(capture); err != nil {
 		t.Fatalf("a policy-aligned capture was refused: %v", err)
@@ -112,6 +115,7 @@ func TestCaptureBindsTheReviewedPolicyRef(t *testing.T) {
 
 // The four deterministic cases issue #89 requires.
 func TestVerificationFoldCoversTheRequiredMatrix(t *testing.T) {
+	t.Parallel()
 	// fresh verified
 	if state := FoldVerificationState(VerificationUnverified, DivergenceNoneExpected, VerificationMatched); state != VerificationVerified {
 		t.Fatalf("a matched check did not verify: %s", state)
@@ -138,6 +142,7 @@ func TestVerificationFoldCoversTheRequiredMatrix(t *testing.T) {
 }
 
 func TestFreshnessStateUsesTheKindBound(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2026, 8, 20, 12, 30, 0, 0, time.UTC)
 	verified := time.Date(2026, 8, 20, 12, 29, 0, 0, time.UTC) // 60s old
 	if state := FreshnessState(VerificationVerified, verified, now, 300); state != "verified" {
@@ -155,6 +160,7 @@ func TestFreshnessStateUsesTheKindBound(t *testing.T) {
 
 // The generic writer and its fold: capture, verification, rebuild.
 func TestExternalObservationCaptureVerifyAndRebuild(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s, err := Open(ctx, t.TempDir()+"/concord.db")
 	if err != nil {
@@ -225,6 +231,7 @@ func TestExternalObservationCaptureVerifyAndRebuild(t *testing.T) {
 // Issue #89 case 2 — stale unverified: a captured record that nothing ever
 // verified reads as exactly that, forever legible.
 func TestUnverifiedCaptureStaysLegiblyUnverified(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s, err := Open(ctx, t.TempDir()+"/concord.db")
 	if err != nil {
@@ -244,6 +251,7 @@ func TestUnverifiedCaptureStaysLegiblyUnverified(t *testing.T) {
 // Verification of an unknown observation is refused: verification binds one
 // existing capture, and inventing targets from nothing is not a check.
 func TestVerificationRequiresItsCapture(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s, err := Open(ctx, t.TempDir()+"/concord.db")
 	if err != nil {

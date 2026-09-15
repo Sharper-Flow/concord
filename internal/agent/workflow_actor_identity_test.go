@@ -13,6 +13,7 @@ import (
 // caller that omits it into one partition, where a shared idempotency key
 // would replay another principal's mutation.
 func TestWorkflowActionPartitionsUnderDerivedPrincipal(t *testing.T) {
+	t.Parallel()
 	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_transition"})
 	if version := seedAgentWorkflow(t, s, grant); version != 4 {
 		t.Fatalf("workflow seed version=%d, want 4", version)
@@ -53,6 +54,7 @@ func TestWorkflowActionPartitionsUnderDerivedPrincipal(t *testing.T) {
 // A principal the caller asserts must match the client the request authorizes
 // as. CD-0080 D1 leaves no room for the envelope to name a different one.
 func TestWorkflowActionRefusesForgedEnvelopePrincipal(t *testing.T) {
+	t.Parallel()
 	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_transition"})
 	if version := seedAgentWorkflow(t, s, grant); version != 4 {
 		t.Fatalf("workflow seed version=%d, want 4", version)

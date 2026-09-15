@@ -9,6 +9,7 @@ import (
 )
 
 func TestRelationSchemaKindsMatchVocabulary(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	var createSQL string
 	if err := s.DatabaseForTesting().QueryRowContext(context.Background(), `SELECT sql FROM sqlite_master WHERE type='table' AND name='relations'`).Scan(&createSQL); err != nil {
@@ -38,6 +39,7 @@ func TestRelationSchemaKindsMatchVocabulary(t *testing.T) {
 }
 
 func TestRelationIdentityIncludesWorkflowRelationEvents(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	db := s.DatabaseForTesting()
 	tx, err := db.BeginTx(context.Background(), nil)
@@ -98,6 +100,7 @@ func TestRelationIdentityIncludesWorkflowRelationEvents(t *testing.T) {
 // rather than every kind. The subset is a display choice, but each member must
 // still be a real stored kind, or the launcher silently renders nothing for it.
 func TestLauncherRelationSubsetIsDrawnFromVocabulary(t *testing.T) {
+	t.Parallel()
 	source, err := os.ReadFile("launcher_query.go")
 	if err != nil {
 		t.Fatal(err)

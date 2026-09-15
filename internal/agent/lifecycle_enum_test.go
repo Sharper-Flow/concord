@@ -51,6 +51,7 @@ func collectLifecycleNodes(node any, path string, found map[string]map[string]an
 // response, so a Product holding one worktree on an omitted lifecycle loses
 // every row.
 func TestLifecyclePropertiesReferenceTheSingleDef(t *testing.T) {
+	t.Parallel()
 	var document any
 	if err := json.Unmarshal([]byte(payloadschema.GeneratedPayloadSchemaDocument), &document); err != nil {
 		t.Fatal(err)
@@ -98,6 +99,7 @@ func keysOf(node map[string]any) []string {
 // The lifecycle def is the vocabulary the store can persist. A value the store
 // writes but the def omits would make every response carrying it fail.
 func TestLifecycleDefSpansEveryPersistableState(t *testing.T) {
+	t.Parallel()
 	var document struct {
 		Defs map[string]struct {
 			Enum []string `json:"enum"`

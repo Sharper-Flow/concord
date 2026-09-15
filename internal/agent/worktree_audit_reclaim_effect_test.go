@@ -14,6 +14,7 @@ import (
 // sweep — one row reclaimed, one row refused — under a result budget the
 // payload cannot fit, so the commit happens and the budget refusal follows.
 func TestWorktreeAuditReclaimPostCommitFailurePreservesCommittedRefs(t *testing.T) {
+	t.Parallel()
 	s, _, _, second, secondGrant, _ := tiersFixture(t)
 	root := filepath.Join(filepath.Dir(s.Path()), "worktrees", "project-1")
 	completeWork(t, s, "work-1", 3)
@@ -107,6 +108,7 @@ func TestWorktreeAuditReclaimPostCommitFailurePreservesCommittedRefs(t *testing.
 // committed refs, and leave the no-effect path untouched when nothing
 // committed.
 func TestAuditReclaimPostCommitFailureMapping(t *testing.T) {
+	t.Parallel()
 	base := NewBase("audit-effect-mapping", "concord_work_transition", "worktree_audit_reclaim")
 	changed := []ChangedRef{{EntityKind: "work_item", ID: "work-2", Version: "5"}}
 

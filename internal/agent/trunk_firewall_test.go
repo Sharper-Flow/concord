@@ -47,6 +47,7 @@ func trunkFirewallFixture(t *testing.T, mainWorktree bool) *Service {
 // cross_scope, until a linked worktree claims them. work_define is allowed
 // because its writes land in the store, not a checkout path.
 func TestAuthorizeRefusesMutationOnMainWorktree(t *testing.T) {
+	t.Parallel()
 	mutating := []Capability{"work_transition", "work_relate", "work_compact", "work_initiative", "cross_scope"}
 	for _, capability := range mutating {
 		service := trunkFirewallFixture(t, true)
@@ -60,6 +61,7 @@ func TestAuthorizeRefusesMutationOnMainWorktree(t *testing.T) {
 // CD-0092 D2/D3: work_define is a Product-state-only capability and resolves
 // from the main checkout. Each entry in the allowlist must grant there.
 func TestAuthorizeAllowsWorkDefineOnMainWorktree(t *testing.T) {
+	t.Parallel()
 	for _, capability := range []Capability{"product_read", "work_define"} {
 		service := trunkFirewallFixture(t, true)
 		invocation := Invocation{ClientRef: "client-1", PrincipalRef: "human-1", SessionRef: "session-1", AgentRef: "agent-1", Directory: "/repo", Worktree: "/repo-wt", ManifestDigest: ManifestDigest, RequiredCapability: capability, ProductID: "product-1", ProjectID: "project-1"}
@@ -74,6 +76,7 @@ func TestAuthorizeAllowsWorkDefineOnMainWorktree(t *testing.T) {
 }
 
 func TestAuthorizeAllowsReadsOnMainWorktreeAndMutationOnLinked(t *testing.T) {
+	t.Parallel()
 	service := trunkFirewallFixture(t, true)
 	invocation := Invocation{ClientRef: "client-1", PrincipalRef: "human-1", SessionRef: "session-1", AgentRef: "agent-1", Directory: "/repo", Worktree: "/repo-wt", ManifestDigest: ManifestDigest, RequiredCapability: "product_read", ProductID: "product-1", ProjectID: "project-1"}
 	authority, err := service.Authorize(context.Background(), invocation)
@@ -92,6 +95,7 @@ func TestAuthorizeAllowsReadsOnMainWorktreeAndMutationOnLinked(t *testing.T) {
 }
 
 func TestLifecycleTransitionAllowsMainCheckout(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_transition"})
 	service.ProjectResolver = func(context.Context, *store.Transaction, string, string) (store.ProjectResolution, error) {
@@ -115,6 +119,7 @@ func TestLifecycleTransitionAllowsMainCheckout(t *testing.T) {
 }
 
 func TestMainCheckoutLifecyclePreservesTerminalGates(t *testing.T) {
+	t.Parallel()
 	t.Run("missing evidence", func(t *testing.T) {
 		ctx := context.Background()
 		s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_transition"})
@@ -181,6 +186,7 @@ func TestMainCheckoutLifecyclePreservesTerminalGates(t *testing.T) {
 // stays refused here because work-1 is non-terminal (needed); issue #674 admits
 // it from the main checkout only for terminal work items.
 func TestMainCheckoutRefusesImplementationOperations(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		operation string
 		input     string
@@ -215,6 +221,7 @@ func TestMainCheckoutRefusesImplementationOperations(t *testing.T) {
 }
 
 func TestMainCheckoutAllowlistDeclaresBothSides(t *testing.T) {
+	t.Parallel()
 	for _, capability := range []Capability{"product_read", "work_define"} {
 		if _, ok := mainCheckoutAllowedCapabilities[capability]; !ok {
 			t.Fatalf("capability %q is missing from the main-checkout allowlist", capability)

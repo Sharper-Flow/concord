@@ -16,6 +16,7 @@ import (
 // serves it from the selected Product and the result passes the closed
 // resource_page schema.
 func TestProductViewResourcesReadsTheSelectedProductInventory(t *testing.T) {
+	t.Parallel()
 	s, err := storetest.Open(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -70,6 +71,7 @@ func TestProductViewResourcesReadsTheSelectedProductInventory(t *testing.T) {
 }
 
 func TestProductViewResourcesInputIsClosed(t *testing.T) {
+	t.Parallel()
 	if err := ValidateOperationPayload("concord_product_view", "resources", []byte(`{"resource_id":"vendor-api","class":"saas"}`), false); err != nil {
 		t.Fatalf("valid resources input refused: %v", err)
 	}

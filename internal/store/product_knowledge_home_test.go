@@ -36,6 +36,7 @@ func countKnowledgeHomes(t *testing.T, s *Store) int {
 // log rebuild reconstructs it by replay, not by snapshot. This is the
 // production-path proof floor readiness cites for fc2-domain-authority.
 func TestProductKnowledgeHomeDesignationIsEventSourcedAndRebuildStable(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openTemp(t)
 	designateFixture(t, s)
@@ -66,6 +67,7 @@ func TestProductKnowledgeHomeDesignationIsEventSourcedAndRebuildStable(t *testin
 }
 
 func TestProductKnowledgeHomeDesignationReplacesThePriorRow(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openTemp(t)
 	_, secondPath := designateFixture(t, s)
@@ -98,6 +100,7 @@ func TestProductKnowledgeHomeDesignationReplacesThePriorRow(t *testing.T) {
 }
 
 func TestProductKnowledgeHomeDesignationEnforcesEligibility(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 
 	t.Run("non-member Project", func(t *testing.T) {
@@ -186,6 +189,7 @@ func TestProductKnowledgeHomeDesignationEnforcesEligibility(t *testing.T) {
 }
 
 func TestProductKnowledgeHomeClearRemovesTheDesignation(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openTemp(t)
 	designateFixture(t, s)
@@ -209,6 +213,7 @@ func TestProductKnowledgeHomeClearRemovesTheDesignation(t *testing.T) {
 }
 
 func TestRemovingADesignatedLocatorIsRefusedWithATypedFailure(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openTemp(t)
 	designateFixture(t, s)

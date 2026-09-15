@@ -30,6 +30,7 @@ var guardedActions = map[string]workflowActionGuardPhase{
 }
 
 func TestEveryGuardTableEntryIsARegisteredAction(t *testing.T) {
+	t.Parallel()
 	for actionID := range workflowActionGuards {
 		if _, ok := builtinActionPolicies[actionID]; !ok {
 			t.Errorf("guard table names %q, which is not a registered action", actionID)
@@ -38,6 +39,7 @@ func TestEveryGuardTableEntryIsARegisteredAction(t *testing.T) {
 }
 
 func TestGuardTableMatchesTheGuardedActionInventory(t *testing.T) {
+	t.Parallel()
 	if len(workflowActionGuards) != len(guardedActions) {
 		t.Fatalf("guard table has %d entries, want %d", len(workflowActionGuards), len(guardedActions))
 	}
@@ -62,6 +64,7 @@ func TestGuardTableMatchesTheGuardedActionInventory(t *testing.T) {
 }
 
 func TestOperatorActorIsRejectedOutsidePremiseConfirmation(t *testing.T) {
+	t.Parallel()
 	g := &workflowActionGuardContext{
 		request: WorkflowActionExecutionRequest{
 			ActionID: "record_proposal",
@@ -81,6 +84,7 @@ func TestOperatorActorIsRejectedOutsidePremiseConfirmation(t *testing.T) {
 }
 
 func TestMandatedLawGuardNamesBindingRecoveryAndLeavesBindingAvailable(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	workID := "mandate-guard-work"
 	seedWork(t, s, workID)
@@ -122,6 +126,7 @@ func TestMandatedLawGuardNamesBindingRecoveryAndLeavesBindingAvailable(t *testin
 // same actions pass the guard. The walk pins the guard to every shipped
 // definition rather than to one hand-built graph.
 func TestMandatedContractGuardWalksEveryBuiltinDefinition(t *testing.T) {
+	t.Parallel()
 	const lawID = "CD-0013"
 	for _, definition := range BuiltinWorkflowDefinitions() {
 		bindingStep := workflowEvidenceBindingStep(definition, "")

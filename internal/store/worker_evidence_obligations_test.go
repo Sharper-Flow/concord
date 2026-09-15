@@ -37,6 +37,7 @@ func failureDetail(t *testing.T, err error) string {
 // CD-0056 D4: a completion whose evidence covers its lane's declared
 // obligations folds, and the discharged evidence stays durable in the event.
 func TestWorkerCompletionCoveringLaneObligationsFoldsAndRetainsEvidence(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	lane := BuiltinLaneDefinitions()[1]
 	attemptID := "evidence-covered-attempt"
@@ -71,6 +72,7 @@ func TestWorkerCompletionCoveringLaneObligationsFoldsAndRetainsEvidence(t *testi
 // CD-0056 D4: an undischarged obligation is not a completion. The refusal
 // names the missing obligation and leaves the attempt row untouched.
 func TestWorkerCompletionLeavingObligationUndischargedIsRefusedAndProjectionUnchanged(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	lane := BuiltinLaneDefinitions()[0]
 	attemptID := "evidence-undischarged-attempt"
@@ -107,6 +109,7 @@ func TestWorkerCompletionLeavingObligationUndischargedIsRefusedAndProjectionUnch
 // CD-0056 D4: a report may not name an obligation its dispatching lane does
 // not declare. The vocabulary is closed, but membership is not authority.
 func TestWorkerCompletionNamingObligationOutsideItsLaneIsRefused(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	lane := BuiltinLaneDefinitions()[3]
 	foreign := BuiltinLaneDefinitions()[0].EvidenceObligations[0]
@@ -137,6 +140,7 @@ func TestWorkerCompletionNamingObligationOutsideItsLaneIsRefused(t *testing.T) {
 // completion carrying evidence, nor an obligation outside the closed
 // vocabulary is a valid payload.
 func TestWorkerCompletionEvidenceShapeIsClosedInBothDirections(t *testing.T) {
+	t.Parallel()
 	lane := BuiltinLaneDefinitions()[1]
 	covered := laneCoveringEvidence(lane)
 	tests := []struct {
@@ -181,6 +185,7 @@ func TestWorkerCompletionEvidenceShapeIsClosedInBothDirections(t *testing.T) {
 // invented, so it upcasts to a visibly legacy v2 payload, skips coverage, and
 // replays to the same projection.
 func TestWorkerCompletedV1UpcastsToLegacyUnavailableAndReplaysIdentically(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	lane := BuiltinLaneDefinitions()[0]
 	attemptID := "evidence-legacy-attempt"
@@ -231,6 +236,7 @@ func TestWorkerCompletedV1UpcastsToLegacyUnavailableAndReplaysIdentically(t *tes
 // closed vocabulary, and binding evidence to that vocabulary changes no lane
 // digest.
 func TestBuiltinLaneObligationsAreClosedAndLaneDigestsAreUnchanged(t *testing.T) {
+	t.Parallel()
 	wantDigests := map[string]string{
 		"research":  "sha256:3969ceda54cc6be1532877e6d5b1dc5530c280ff77835f43286c4a0ad37e861b",
 		"implement": "sha256:ec541caf3d4df2d5fe70602cf65e747f19e5ac525b001fdd86ea7cf921b737fc",

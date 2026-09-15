@@ -16,6 +16,7 @@ import (
 // blind, and the signed approval records the verdict with the operator as the
 // verdict actor.
 func TestOperatorVerdictChallengeAfterInSessionDelivery(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s, service, grant, privateKey := mutationDispatchFixture(t, []Capability{"product_read", "work_define", "work_transition"})
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
@@ -101,6 +102,7 @@ func TestOperatorVerdictChallengeAfterInSessionDelivery(t *testing.T) {
 // the signed approval records the verdict with the operator identity. A
 // distinct agent evaluator keeps the ordinary verdict route.
 func TestOperatorVerdictChallengeAfterAcceptedWorkerResult(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s, service, grant, privateKey := mutationDispatchFixture(t, []Capability{"product_read", "work_define", "work_transition", "worker_dispatch"})
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")

@@ -4,7 +4,7 @@
     "internal/store/workflow_operator.go",
     "internal/store/workflow_dispatch.go",
     "internal/store/workflow_investigation_gate_test.go",
-    "internal/agent/workflow_issue31_test.go",
+    "internal/agent/workflow_premise_invoke_test.go",
     "adapter/opencode/dispatch_route_end_to_end.test.ts"
   ],
   "home_domain_id": "workflow-engine",

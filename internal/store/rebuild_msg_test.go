@@ -11,6 +11,7 @@ import (
 // Regression: work_messages and resource_claims (RESTRICT FKs to work_items)
 // must clear before work_items during log rebuild.
 func TestRebuildSurvivesMessagesAndClaims(t *testing.T) {
+	t.Parallel()
 	s := observationFixture(t)
 	now := time.Date(2026, 8, 15, 12, 0, 0, 0, time.UTC)
 	msgPayload, _ := json.Marshal(map[string]any{"work_id": "work-99", "expected_version": 2, "resulting_version": 3, "message_id": "msg:" + strings.Repeat("a", 32), "recipient_work_id": "other-work", "body": "x"})

@@ -10,6 +10,7 @@ import (
 )
 
 func TestAgentWorkflowCompositionUsesSelectedSuccessorFamily(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_define", "work_transition"})
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")

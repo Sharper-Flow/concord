@@ -6,6 +6,7 @@ import (
 )
 
 func TestEnumValidationErrorNamesPathAndAcceptedValues(t *testing.T) {
+	t.Parallel()
 	err := ValidateOperationPayload(
 		"concord_work_define",
 		"capture",

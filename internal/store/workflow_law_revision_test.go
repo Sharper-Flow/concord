@@ -13,6 +13,7 @@ import (
 )
 
 func TestWorkflowLawRevisionSameIDAmendmentRemainsCompatible(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	seedWork(t, s, "law-amendment")
 	insertLawRevisionFixture(t, s, "law-amendment", "spec:stable", "sha256:"+strings.Repeat("a", 64))
@@ -28,6 +29,7 @@ func TestWorkflowLawRevisionSameIDAmendmentRemainsCompatible(t *testing.T) {
 }
 
 func TestWorkflowContractRecoveryPayloadAcceptsPredicateArray(t *testing.T) {
+	t.Parallel()
 	raw := mustJSONValue(map[string]any{
 		"contract_version": 2, "premise": "continue with the corrected contract",
 		"outcome_predicates": []map[string]any{{"predicate_id": "predicate:first", "ordinal": 0, "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:first", "immutable_subject_ref": "commit:first", "expected_result": "pass"}}},
@@ -48,6 +50,7 @@ func TestWorkflowContractRecoveryPayloadAcceptsPredicateArray(t *testing.T) {
 }
 
 func TestWorkflowPredicateHistoryCompatibilityRequiresUnchangedPayload(t *testing.T) {
+	t.Parallel()
 	history := workflowContractPredicateHistoryData{
 		1: {"predicate:first": {PredicateID: "predicate:first", OutcomeKind: "check", OutcomePayload: `{"kind":"check","expected_result":"pass"}`}},
 		2: {"predicate:first": {PredicateID: "predicate:first", OutcomeKind: "check", OutcomePayload: `{"expected_result":"pass","kind":"check"}`}},
@@ -63,6 +66,7 @@ func TestWorkflowPredicateHistoryCompatibilityRequiresUnchangedPayload(t *testin
 }
 
 func TestWorkflowLawRevisionSupersessionRefusesPinnedConsumer(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	seedWork(t, s, "law-supersession")
 	insertLawRevisionFixture(t, s, "law-supersession", "spec:old", "sha256:"+strings.Repeat("a", 64))
@@ -82,6 +86,7 @@ func TestWorkflowLawRevisionSupersessionRefusesPinnedConsumer(t *testing.T) {
 }
 
 func TestWorkflowLawRevisionSupersessionRefusesLegacyUnpinnedConsumer(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	seedWork(t, s, "law-legacy")
 	insertLawRevisionFixture(t, s, "law-legacy", "spec:legacy", "sha256:"+strings.Repeat("a", 64))
@@ -100,6 +105,7 @@ func TestWorkflowLawRevisionSupersessionRefusesLegacyUnpinnedConsumer(t *testing
 }
 
 func TestWorkflowLawRevisionMissingProjectionFailsClosed(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	seedWork(t, s, "law-missing")
 	insertLawRevisionFixture(t, s, "law-missing", "spec:missing", "sha256:"+strings.Repeat("a", 64))
@@ -111,6 +117,7 @@ func TestWorkflowLawRevisionMissingProjectionFailsClosed(t *testing.T) {
 }
 
 func TestWorkflowLawRevisionSupersededWithoutSuccessorFailsClosed(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	seedWork(t, s, "law-no-successor")
 	insertLawRevisionFixture(t, s, "law-no-successor", "spec:orphan", "sha256:"+strings.Repeat("a", 64))
@@ -123,6 +130,7 @@ func TestWorkflowLawRevisionSupersededWithoutSuccessorFailsClosed(t *testing.T) 
 }
 
 func TestWorkflowLawRevisionRecontractsThroughProductionRoutes(t *testing.T) {
+	t.Parallel()
 	workID := "law-recontract-route"
 	s, _ := seedCompletionGateCase(t, workID, completionGateCase{requiredEvidence: []string{"verification", "review"}, includePremise: true})
 	attachWorkflowLawPin(t, s, workID, "spec:one", "sha256:"+strings.Repeat("a", 64))
@@ -193,6 +201,7 @@ func TestWorkflowLawRevisionRecontractsThroughProductionRoutes(t *testing.T) {
 }
 
 func TestWorkflowLawRevisionRecoveryActionIsStaleOnlyAndApprovalRequired(t *testing.T) {
+	t.Parallel()
 	staleWork := "law-recovery-action-stale"
 	staleStore, _ := seedCompletionGateCase(t, staleWork, completionGateCase{requiredEvidence: []string{"verification", "review"}})
 	attachWorkflowLawPin(t, staleStore, staleWork, "spec:one", "sha256:"+strings.Repeat("a", 64))
@@ -219,6 +228,7 @@ func TestWorkflowLawRevisionRecoveryActionIsStaleOnlyAndApprovalRequired(t *test
 }
 
 func TestWorkflowLawRevisionRecoveryRequiresAcceptedSuccessorPin(t *testing.T) {
+	t.Parallel()
 	workID := "law-recovery-requires-successor-pin"
 	s, _ := seedCompletionGateCase(t, workID, completionGateCase{requiredEvidence: []string{"verification", "review"}})
 	attachWorkflowLawPin(t, s, workID, "spec:one", "sha256:"+strings.Repeat("a", 64))
@@ -246,6 +256,7 @@ func TestWorkflowLawRevisionRecoveryRequiresAcceptedSuccessorPin(t *testing.T) {
 }
 
 func TestWorkflowLawRevisionAllowsTerminalLifecycleMutationAfterCutover(t *testing.T) {
+	t.Parallel()
 	workID := "law-terminal-route"
 	s, _ := seedCompletionGateCase(t, workID, completionGateCase{requiredEvidence: []string{"verification", "review"}})
 	cutoverLawProjection(t, s, "spec:one", "spec:two")
@@ -264,6 +275,7 @@ func TestWorkflowLawRevisionAllowsTerminalLifecycleMutationAfterCutover(t *testi
 }
 
 func TestWorkflowLawRevisionCutoverCommitsBeforeCrossConnectionAcceptance(t *testing.T) {
+	t.Parallel()
 	workID := "law-cross-connection-order"
 	s1, _ := seedCompletionGateCase(t, workID, completionGateCase{requiredEvidence: []string{"verification", "review"}})
 	attachWorkflowLawPin(t, s1, workID, "spec:one", "sha256:"+strings.Repeat("a", 64))
@@ -362,6 +374,7 @@ func TestWorkflowLawRevisionCutoverCommitsBeforeCrossConnectionAcceptance(t *tes
 }
 
 func TestWorkflowLawRevisionCutoverCommitsBeforeCrossProcessAcceptance(t *testing.T) {
+	t.Parallel()
 	workID := "law-cross-process-order"
 	s, _ := seedCompletionGateCase(t, workID, completionGateCase{requiredEvidence: []string{"verification", "review"}})
 	attachWorkflowLawPin(t, s, workID, "spec:one", "sha256:"+strings.Repeat("a", 64))
@@ -421,6 +434,7 @@ func TestWorkflowLawRevisionCutoverCommitsBeforeCrossProcessAcceptance(t *testin
 }
 
 func TestWorkflowLawRevisionCrossProcessWorker(t *testing.T) {
+	t.Parallel()
 	role := os.Getenv("CONCORD_LAW_RACE_ROLE")
 	if role == "" {
 		return
@@ -530,6 +544,7 @@ func cutoverLawProjection(t *testing.T, s *Store, oldID, successorID string) {
 }
 
 func TestWorkflowLawRevisionPinsFoldAndRebuildWithoutConsultingCurrentLaw(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	workID := "law-pinned-rebuild"
 	seedWork(t, s, workID)
@@ -559,6 +574,7 @@ func TestWorkflowLawRevisionPinsFoldAndRebuildWithoutConsultingCurrentLaw(t *tes
 }
 
 func TestWorkflowLawRevisionKeepsRawCompletionButRefusesWorkflowAcceptanceAfterCutover(t *testing.T) {
+	t.Parallel()
 	workID := "law-stale-in-flight"
 	s, _ := seedCompletionGateCase(t, workID, completionGateCase{requiredEvidence: []string{"verification", "review"}})
 	claim, err := ClaimStep(context.Background(), s, ClaimRequest{
@@ -650,6 +666,7 @@ func insertSupersededLaw(t *testing.T, s *Store, lawID, hash string) {
 // refusal. The removed non-transactional twin returned nil here — the overlap
 // half of the boundary silently omitted from the read path (issue #376).
 func TestWorkflowLawRevisionStalenessReadFormRunsTheOverlapHalf(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s, _ := seedOverlapProjection(t, "overlap-left", "overlap-right", true)
 

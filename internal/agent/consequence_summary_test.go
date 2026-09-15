@@ -11,6 +11,7 @@ import (
 // own facts, present exactly when a challenge was minted.
 
 func TestConsequenceSummaryDerivesFromTheChallengeSpec(t *testing.T) {
+	t.Parallel()
 	spec := ApprovalChallengeSpec{
 		OperationDigest: "sha256:" + make64Hex(t),
 		Scope:           map[string]any{"product_id": "prod-a", "work_ids": []string{"work-b", "work-a"}},
@@ -39,6 +40,7 @@ func TestConsequenceSummaryDerivesFromTheChallengeSpec(t *testing.T) {
 }
 
 func TestValidateErrorAcceptsTheDerivedSummary(t *testing.T) {
+	t.Parallel()
 	base := TypedError{Kind: "approval_required", RecoveryAction: RecoveryAction{Kind: "request_approval"}, EffectState: EffectNone}
 	base.ConsequenceSummary = consequenceSummaryFor("concord_work_transition", "workflow_action", ApprovalChallengeSpec{
 		OperationDigest: "sha256:" + make64Hex(t),
@@ -71,6 +73,7 @@ func make64Hex(t *testing.T) string {
 }
 
 func TestMintedChallengeRefusalCarriesTheTypedSummary(t *testing.T) {
+	t.Parallel()
 	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_transition"})
 	scopeVersion, _, err := s.ScopeVersion(context.Background(), "project-1")
 	if err != nil {

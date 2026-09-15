@@ -21,6 +21,7 @@ func completeAuditWork(t *testing.T, s *Store, workID string, version int64) {
 // orphaned nor absent, so the audit never saw it, and nothing reclaimed it.
 // It is exactly the shape a merged branch leaves behind.
 func TestWorktreeAuditClassifiesTerminalPresentWorktrees(t *testing.T) {
+	t.Parallel()
 	s, git, _ := worktreeFixture(t)
 	ctx := context.Background()
 	auditWork(t, s, git, "work-live", true)
@@ -47,6 +48,7 @@ func TestWorktreeAuditClassifiesTerminalPresentWorktrees(t *testing.T) {
 // The audit reclaims a clean terminal worktree and reports content risk without
 // recommending reclaim.
 func TestWorktreeAuditReclaimsMergedTerminalWork(t *testing.T) {
+	t.Parallel()
 	s, git, _ := worktreeFixture(t)
 	ctx := context.Background()
 	auditWork(t, s, git, "work-live", true)
@@ -110,6 +112,7 @@ func TestWorktreeAuditReclaimsMergedTerminalWork(t *testing.T) {
 // terminal set: for each, a present, clean, merged worktree is classified
 // terminal_present and reclaims under the pass with no approval.
 func TestWorktreeAuditTreatsEveryStoreTerminalLifecycleAsTerminal(t *testing.T) {
+	t.Parallel()
 	for _, lifecycle := range []string{"completed", "cancelled", "superseded"} {
 		t.Run(lifecycle, func(t *testing.T) {
 			if !isTerminalLifecycle(lifecycle) {
@@ -159,6 +162,7 @@ func TestWorktreeAuditTreatsEveryStoreTerminalLifecycleAsTerminal(t *testing.T) 
 // A session observed inside a terminal worktree keeps the stranding gate:
 // the audit must not remove the directory a live session runs in.
 func TestWorktreeAuditReclaimRefusesOccupiedWorktree(t *testing.T) {
+	t.Parallel()
 	s, git, _ := worktreeFixture(t)
 	ctx := context.Background()
 	donePath := auditWork(t, s, git, "work-done", true)
@@ -183,6 +187,7 @@ func TestWorktreeAuditReclaimRefusesOccupiedWorktree(t *testing.T) {
 // is reported through a content-risk class, and work past needed stays outside
 // the unstarted class.
 func TestWorktreeAuditClassifiesUnstartedPresentWorktrees(t *testing.T) {
+	t.Parallel()
 	s, git, _ := worktreeFixture(t)
 	ctx := context.Background()
 	unstartedPath := auditWork(t, s, git, "work-unstarted", true)
@@ -226,6 +231,7 @@ func TestWorktreeAuditClassifiesUnstartedPresentWorktrees(t *testing.T) {
 // through its own gate, refuses a row the gate refuses typed, leaves the
 // work item at needed, and reclaims nothing on a second pass.
 func TestWorktreeAuditReclaimsUnstartedPresentWorktrees(t *testing.T) {
+	t.Parallel()
 	s, git, _ := worktreeFixture(t)
 	ctx := context.Background()
 	unstartedPath := auditWork(t, s, git, "work-unstarted", true)
@@ -320,6 +326,7 @@ func TestWorktreeAuditProtectsUncommittedAndUnpushedContent(t *testing.T) {
 // branch whose tree equals the default ref's while holding commits still
 // refuses, because the commits exist and are not Concord's to discard.
 func TestWorktreeAuditReclaimRefusesUnstartedWorktreeWithEquivalentTree(t *testing.T) {
+	t.Parallel()
 	s, git, _ := worktreeFixture(t)
 	ctx := context.Background()
 	path := auditWork(t, s, git, "work-revert-pair", true)
@@ -346,6 +353,7 @@ func TestWorktreeAuditReclaimRefusesUnstartedWorktreeWithEquivalentTree(t *testi
 // the pass must not remove the directory a live session runs in, even though
 // the branch holds nothing.
 func TestWorktreeAuditReclaimRefusesOccupiedUnstartedWorktree(t *testing.T) {
+	t.Parallel()
 	s, git, _ := worktreeFixture(t)
 	ctx := context.Background()
 	path := auditWork(t, s, git, "work-unstarted-occupied", true)
@@ -366,6 +374,7 @@ func TestWorktreeAuditReclaimRefusesOccupiedUnstartedWorktree(t *testing.T) {
 // moved past needed, so a classification captured before a transition cannot
 // reclaim a worktree the driver has since occupied with real work.
 func TestReclaimWorktreeUnstartedTierRefusesStartedWork(t *testing.T) {
+	t.Parallel()
 	s, git, _ := worktreeFixture(t)
 	ctx := context.Background()
 	auditWork(t, s, git, "work-started", true)

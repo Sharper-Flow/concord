@@ -64,6 +64,7 @@ func assertStringSet(t *testing.T, label string, got []string, want ...string) {
 }
 
 func TestExpandTrustedClientPolicyPreservesEveryExistingGrant(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	service := expandService(t)
 	if err := service.RegisterTrustedClient(ctx, testClientRegistration("client-1", "human-1", []Capability{"product_read", "work_define"}, []string{"product-1"}, []string{"project-1", "project-2"})); err != nil {
@@ -82,6 +83,7 @@ func TestExpandTrustedClientPolicyPreservesEveryExistingGrant(t *testing.T) {
 }
 
 func TestExpandTrustedClientPolicyReplayIsIdempotent(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	service := expandService(t)
 	if err := service.RegisterTrustedClient(ctx, testClientRegistration("client-1", "human-1", []Capability{"product_read"}, []string{"product-1"}, []string{"project-1"})); err != nil {
@@ -103,6 +105,7 @@ func TestExpandTrustedClientPolicyReplayIsIdempotent(t *testing.T) {
 }
 
 func TestExpandTrustedClientPolicyEmptyAdditionsChangeNothing(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	service := expandService(t)
 	if err := service.RegisterTrustedClient(ctx, testClientRegistration("client-1", "human-1", []Capability{"product_read"}, []string{"product-1"}, []string{"project-1"})); err != nil {
@@ -118,6 +121,7 @@ func TestExpandTrustedClientPolicyEmptyAdditionsChangeNothing(t *testing.T) {
 }
 
 func TestExpandTrustedClientPolicyRefusesInvalidAdditionsAndKeepsPolicyUnchanged(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	service := expandService(t)
 	if err := service.RegisterTrustedClient(ctx, testClientRegistration("client-1", "human-1", []Capability{"product_read"}, []string{"product-1"}, []string{"project-1"})); err != nil {
@@ -146,6 +150,7 @@ func TestExpandTrustedClientPolicyRefusesInvalidAdditionsAndKeepsPolicyUnchanged
 }
 
 func TestExpandTrustedClientPolicyRefusesUnknownClientTyped(t *testing.T) {
+	t.Parallel()
 	err := expandService(t).ExpandTrustedClientPolicy(context.Background(), "missing-client", TrustedClientPolicy{Capabilities: []Capability{"product_read"}})
 	var failure *store.Failure
 	if !errors.As(err, &failure) || failure.Kind != store.KindProjectionNotFound {
@@ -154,6 +159,7 @@ func TestExpandTrustedClientPolicyRefusesUnknownClientTyped(t *testing.T) {
 }
 
 func TestExpandTrustedClientPolicyRefusesWhenUnionExceedsTheScopeBound(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	service := expandService(t)
 	full := make([]string, 0, 100)
@@ -178,6 +184,7 @@ func TestExpandTrustedClientPolicyRefusesWhenUnionExceedsTheScopeBound(t *testin
 }
 
 func TestExpandTrustedClientPolicyLeavesReplaceVerbSemanticsUnchanged(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	service := expandService(t)
 	if err := service.RegisterTrustedClient(ctx, testClientRegistration("client-1", "human-1", []Capability{"product_read", "work_define"}, []string{"product-1", "pokeedge"}, []string{"project-1"})); err != nil {

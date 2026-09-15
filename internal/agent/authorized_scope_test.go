@@ -5,6 +5,7 @@ import "testing"
 // An absent snapshot carries no scope constraint, which is distinct from a
 // snapshot that exists and cannot be read.
 func TestAbsentScopeSnapshotDecodesToNoConstraint(t *testing.T) {
+	t.Parallel()
 	scope, err := authorizedScopeFromSnapshot("")
 	if err != nil {
 		t.Fatalf("an absent snapshot should not error, got %v", err)
@@ -15,6 +16,7 @@ func TestAbsentScopeSnapshotDecodesToNoConstraint(t *testing.T) {
 }
 
 func TestReadableScopeSnapshotDecodes(t *testing.T) {
+	t.Parallel()
 	scope, err := authorizedScopeFromSnapshot(`{"work_id":"w-1"}`)
 	if err != nil {
 		t.Fatalf("a readable snapshot should decode, got %v", err)
@@ -26,6 +28,7 @@ func TestReadableScopeSnapshotDecodes(t *testing.T) {
 
 // A corrupt snapshot must not produce an unconstrained authority scope.
 func TestCorruptScopeSnapshotReportsError(t *testing.T) {
+	t.Parallel()
 	scope, err := authorizedScopeFromSnapshot(`{"work_id":`)
 	if err == nil {
 		t.Fatal("expected a corrupt snapshot to report an error, got none")
@@ -37,6 +40,7 @@ func TestCorruptScopeSnapshotReportsError(t *testing.T) {
 
 // An absent scope has no containment keys and therefore imposes no constraint.
 func TestNilScopeSatisfiesEveryLookup(t *testing.T) {
+	t.Parallel()
 	if !scopeWithinAuthority(nil, Authority{}) {
 		t.Fatal("nil scope must satisfy an empty authority")
 	}

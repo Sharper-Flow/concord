@@ -25,6 +25,7 @@ import (
 )
 
 func TestAuditReclaimResponseFailureReportsCommittedEffect(t *testing.T) {
+	t.Parallel()
 	s, _, _, service, grant, _ := tiersFixture(t)
 	completeWork(t, s, "work-2", 3)
 	livePath := filepath.Join(filepath.Dir(s.Path()), "worktrees", "project-1", "work-1")
@@ -66,6 +67,7 @@ func TestAuditReclaimResponseFailureReportsCommittedEffect(t *testing.T) {
 }
 
 func TestSupersedeContractPayloadIsRepresentableAtAgentBoundary(t *testing.T) {
+	t.Parallel()
 	payload, err := json.Marshal(map[string]any{
 		"work_id": "work-stale", "expected_version": 7, "action_id": "supersede_contract", "idempotency_key": "supersede-contract",
 		"fields": map[string]any{
@@ -83,6 +85,7 @@ func TestSupersedeContractPayloadIsRepresentableAtAgentBoundary(t *testing.T) {
 }
 
 func TestSeededProductPortfolioParityAcrossEnvelopeAndLauncher(t *testing.T) {
+	t.Parallel()
 	s, err := storetest.OpenNamed(t.TempDir(), "portfolio.db")
 	if err != nil {
 		t.Fatal(err)
@@ -264,6 +267,7 @@ func seedPortfolioParityFixture(t *testing.T, s *store.Store) {
 }
 
 func TestDispatchProductResolveReturnsGeneratedPayload(t *testing.T) {
+	t.Parallel()
 	s, err := storetest.Open(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -294,6 +298,7 @@ func TestDispatchProductResolveReturnsGeneratedPayload(t *testing.T) {
 }
 
 func TestDecodeInvokeRequestRejectsInvalidTrailingJSON(t *testing.T) {
+	t.Parallel()
 	valid := `{"call_envelope":{"schema_version":"1.0","request_id":"request-1","unexpected_field":"value"},"tool":"concord_product_view","operation":"resolve","input":{}}`
 	for _, suffix := range []string{" {}", " garbage"} {
 		if _, _, err := DecodeInvokeRequest([]byte(valid + suffix)); err == nil || !strings.Contains(err.Error(), "trailing JSON") {
@@ -303,6 +308,7 @@ func TestDecodeInvokeRequestRejectsInvalidTrailingJSON(t *testing.T) {
 }
 
 func TestDispatchCaptureCreatesWorkAndMembershipsAtomically(t *testing.T) {
+	t.Parallel()
 	s, err := storetest.Open(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -370,6 +376,7 @@ func TestDispatchCaptureCreatesWorkAndMembershipsAtomically(t *testing.T) {
 }
 
 func TestAuthenticatedCursorBindsOperationAndRejectsTampering(t *testing.T) {
+	t.Parallel()
 	s, err := storetest.Open(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -401,6 +408,7 @@ func TestAuthenticatedCursorBindsOperationAndRejectsTampering(t *testing.T) {
 }
 
 func TestMutationDigestBindsIntentNotApprovalTransportReference(t *testing.T) {
+	t.Parallel()
 	env := CallEnvelope{SelectedProductID: "product-1", AmbientProjectID: "project-1"}
 	without := []byte(`{"work_id":"work-1","expected_version":2,"reason":"complete"}`)
 	with := []byte(`{"work_id":"work-1","expected_version":2,"reason":"complete","approval":{"approval_ref":"` + strings.Repeat("a", 64) + `"}}`)
@@ -410,6 +418,7 @@ func TestMutationDigestBindsIntentNotApprovalTransportReference(t *testing.T) {
 }
 
 func TestResultPayloadNeverSerializesUnsignedStoreCursor(t *testing.T) {
+	t.Parallel()
 	rawCursor := "store-offset-cursor"
 	r := runtime{}
 	response, err := r.q3(NewBase("request", "concord_work_browse", "list"), store.Q3Result{
@@ -431,6 +440,7 @@ func TestResultPayloadNeverSerializesUnsignedStoreCursor(t *testing.T) {
 }
 
 func TestBudgetFieldsRefuseOrBoundResultsStructurally(t *testing.T) {
+	t.Parallel()
 	base := NewBase("request", "concord_work_browse", "list")
 	meta := store.ResultMeta{QueryID: "PM1.Q3", ContractVersion: "PM1/1.0", Authority: "authoritative", Freshness: store.Freshness{ObservedAt: time.Now().UTC().Format(time.RFC3339Nano)}}
 	items := []store.WorkItem{{ID: "one", Kind: "task", Title: "one", Lifecycle: "needed"}, {ID: "two", Kind: "task", Title: "two", Lifecycle: "needed"}}
@@ -459,6 +469,7 @@ func TestBudgetFieldsRefuseOrBoundResultsStructurally(t *testing.T) {
 }
 
 func TestKnowledgeReferenceHonorsSelectedProductContainment(t *testing.T) {
+	t.Parallel()
 	s, err := storetest.Open(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -481,6 +492,7 @@ func TestKnowledgeReferenceHonorsSelectedProductContainment(t *testing.T) {
 }
 
 func TestKnowledgeResolveNoteDelegatesHomeScopeToQ10(t *testing.T) {
+	t.Parallel()
 	s := runtimeKnowledgeStore(t, "home-knowledge", "lesson", "home", nil, map[string]string{"product-a": "member"})
 	defer s.Close()
 	request := InvokeRequest{Tool: "concord_knowledge", Operation: "resolve_note", Input: json.RawMessage(`{"knowledge_id":"home-knowledge"}`)}
@@ -492,6 +504,7 @@ func TestKnowledgeResolveNoteDelegatesHomeScopeToQ10(t *testing.T) {
 }
 
 func TestKnowledgeResolveNoteUnscopedUsesRecordedLocator(t *testing.T) {
+	t.Parallel()
 	s := runtimeKnowledgeStore(t, "unscoped-knowledge", "lesson", "home", nil, nil)
 	defer s.Close()
 	response := runtimeResolveNote(t, s, "", json.RawMessage(`{"knowledge_id":"unscoped-knowledge"}`))
@@ -499,6 +512,7 @@ func TestKnowledgeResolveNoteUnscopedUsesRecordedLocator(t *testing.T) {
 }
 
 func TestConcurrentKnowledgeResolveNoteFailuresStayTyped(t *testing.T) {
+	t.Parallel()
 	s := runtimeKnowledgeStore(t, "drifted-knowledge", "lesson", "home", nil, nil)
 	defer s.Close()
 	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE archived_work SET title='Drifted' WHERE id='drifted-knowledge'; DELETE FROM fold_guard`); err != nil {
@@ -533,6 +547,7 @@ func TestConcurrentKnowledgeResolveNoteFailuresStayTyped(t *testing.T) {
 }
 
 func TestKnowledgeResolveNotePreservesFrozenWorkNoteScope(t *testing.T) {
+	t.Parallel()
 	s := runtimeKnowledgeStore(t, "frozen-work", "work_note", "home", []string{"product-a"}, map[string]string{"product-b": "member"})
 	defer s.Close()
 	request := json.RawMessage(`{"work_id":"frozen-work"}`)
@@ -544,6 +559,7 @@ func TestKnowledgeResolveNotePreservesFrozenWorkNoteScope(t *testing.T) {
 }
 
 func TestKnowledgeResolveNoteRejectsUnrelatedSelectedProduct(t *testing.T) {
+	t.Parallel()
 	s := runtimeKnowledgeStore(t, "scoped-knowledge", "lesson", "home", nil, map[string]string{"product-a": "member"})
 	defer s.Close()
 	response := runtimeResolveNote(t, s, "product-b", json.RawMessage(`{"knowledge_id":"scoped-knowledge"}`))

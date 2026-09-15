@@ -10,6 +10,7 @@ import (
 )
 
 func TestRebuildKnowledgeIndexProjectsDomainRegistryAndLawScope(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	repo := initKnowledgeRepo(t)
 	path := "docs/decisions/CD-0001.md"
@@ -81,6 +82,7 @@ func TestRebuildKnowledgeIndexProjectsDomainRegistryAndLawScope(t *testing.T) {
 }
 
 func TestDomainProjectionSeparatesGitProductKeyFromLocalProductID(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	repo := initKnowledgeRepo(t)
 	path := "docs/decisions/CD-0001.md"
@@ -120,6 +122,7 @@ func TestDomainProjectionSeparatesGitProductKeyFromLocalProductID(t *testing.T) 
 // which SQLite checks immediately, so the Domain projection must be cleared
 // before the law tables (issue #767).
 func TestRebuildKnowledgeIndexClearsGoverningLawsBeforeLawSubjects(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	repo := initKnowledgeRepo(t)
 	path := "docs/decisions/CD-0001.md"

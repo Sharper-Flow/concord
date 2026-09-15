@@ -1,0 +1,25 @@
+{
+  "date": "2026-09-15T00:00:00Z",
+  "evidence": [
+    "https://github.com/Sharper-Flow/concord/commit/dd38421954bf15f102dcfe3f02e9cd60f99d13e0",
+    "https://github.com/Sharper-Flow/concord/pull/1162"
+  ],
+  "id": "lesson-test-fake-models-dependency-contract",
+  "kind": "lesson",
+  "path": "docs/lessons/2026-09-15-a-test-fake-must-model-the-dependency-s-contract.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:848efe5e63ae5440bc2657a6f337385e2c4c00f9619051580d188b69081b65a7",
+  "status": "published",
+  "summary": "A repository script test whose fake is derived from the code under test asserts self-consistency, not conformance. It certifies an invocation the real dependency rejects.",
+  "tags": [
+    "testing",
+    "fakes"
+  ],
+  "title": "A test fake must model the dependency's contract, not the caller's code"
+}

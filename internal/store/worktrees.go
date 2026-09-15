@@ -432,9 +432,9 @@ type WorktreeReclaimRequest struct {
 	// host reported for its live sessions (issue #722). The store owns the
 	// worktree path and the host owns session liveness, so the caller that
 	// can see both supplies the observation and the removal decides on it.
-	// A caller with no host, such as the CLI, supplies none and reaches the
-	// git gates alone.
-	ObservedSessionDirectories []SessionDirectory
+	// The caller must supply an observation. A present empty list proves that
+	// no live session occupies the worktree; an absent list is not evidence.
+	ObservedSessionDirectories *[]SessionDirectory
 }
 
 // SessionDirectory is one live host session and the directory it runs in, as
@@ -466,7 +466,7 @@ type WorktreeDestroyRequest struct {
 	Runner       GitRunner
 	// ObservedSessionDirectories carries the caller's live host sessions. The
 	// destructive approval covers the git gates, never the occupancy gate.
-	ObservedSessionDirectories []SessionDirectory
+	ObservedSessionDirectories *[]SessionDirectory
 }
 
 // DestroyWorktree reclaims the work item's worktree under the Destroy tier's
@@ -565,6 +565,9 @@ func reclaimWorktreeRawTx(ctx context.Context, tx *sql.Tx, req WorktreeReclaimRe
 	if req.RequireTerminal {
 		op = "worktree_destroy"
 	}
+	if req.ObservedSessionDirectories == nil {
+		return out, newFailure(KindWorktreeOwnershipConflict, op, "worktree occupancy was not observed", false, "provide the host's live session directory observation before removing the worktree")
+	}
 
 	// CD-0096 D3 Destroy: merged terminal work reclaims without approval.
 	// Non-terminal work refuses typed unless the operator approved this
@@ -647,10 +650,10 @@ func reclaimWorktreeRawTx(ctx context.Context, tx *sql.Tx, req WorktreeReclaimRe
 	// leaves that session alive but unable to answer another prompt. This gate
 	// sits above the tier split because the destructive approval covers the
 	// git gates, which protect committed and uncommitted work, and never
-	// authorizes stranding a session. It sits below the already-absent branch
-	// because a directory that is already gone strands nobody, and stale-claim
-	// recovery must stay reachable.
-	if occupant, occupied := occupyingSession(entry.Path, req.ObservedSessionDirectories); occupied {
+	// authorizes stranding a session. It also requires an observation before
+	// stale-claim reconciliation, so an absent observation cannot authorize any
+	// removal path.
+	if occupant, occupied := occupyingSession(entry.Path, *req.ObservedSessionDirectories); occupied {
 		return out, newFailure(KindWorktreeOwnershipConflict, op,
 			fmt.Sprintf("session %s runs in worktree %s; removing it would leave that session unable to send another prompt", occupant.SessionRef, entry.Path),
 			false, "end that session, or move it out of the worktree, then remove it")
@@ -1329,7 +1332,7 @@ type WorktreeAuditReclaimRequest struct {
 	Now                        time.Time
 	Runner                     GitRunner
 	Limit                      int
-	ObservedSessionDirectories []SessionDirectory
+	ObservedSessionDirectories *[]SessionDirectory
 }
 
 // WorktreeAuditReclaimRow is the outcome of one terminal-present worktree.

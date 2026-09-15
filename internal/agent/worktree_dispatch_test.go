@@ -112,7 +112,7 @@ func TestWorktreeClaimAndReclaimThroughToolSurface(t *testing.T) {
 	reclaimInput, _ := json.Marshal(map[string]any{
 		"work_id": "work-1", "project_id": "project-1",
 		"default_ref":      "main",
-		"expected_version": 3, "idempotency_key": "wt-reclaim-1",
+		"expected_version": 3, "idempotency_key": "wt-reclaim-1", "observed_session_directories": []map[string]any{},
 	})
 	reclaim := InvokeRequest{Tool: "concord_work_transition", Operation: "worktree_reclaim", Input: reclaimInput}
 	dirty, err := Dispatch(ctx, s, service, reclaim, mutationEnvelope(grant, scopeVersion))
@@ -179,6 +179,7 @@ func TestWorktreeReclaimFromMainCheckoutRequiresTerminalWork(t *testing.T) {
 		reclaimInput, _ := json.Marshal(map[string]any{
 			"work_id": "work-1", "project_id": "project-1",
 			"default_ref": "main", "expected_version": expected, "idempotency_key": key,
+			"observed_session_directories": []map[string]any{},
 		})
 		scopeVersion, _, err := s.ScopeVersion(context.Background(), "project-1")
 		if err != nil {

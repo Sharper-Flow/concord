@@ -63,7 +63,7 @@ func TestVacateThenReclaimPassesOccupancyGate(t *testing.T) {
 		WorkID: "work-w", ProjectID: "project-w", DefaultRef: "main",
 		PrincipalRef: "principal-1", RequestID: "reclaim-after-vacate",
 		ExpectedVersion: 3, Now: time.Unix(20, 0).UTC(),
-		ObservedSessionDirectories: []SessionDirectory{{SessionRef: "session-1", Directory: target.DestinationDirectory}},
+		ObservedSessionDirectories: &[]SessionDirectory{{SessionRef: "session-1", Directory: target.DestinationDirectory}},
 	})
 	if err != nil {
 		t.Fatal(err)

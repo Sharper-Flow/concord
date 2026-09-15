@@ -42,7 +42,7 @@ func TestAuditReclaimResponseFailureReportsCommittedEffect(t *testing.T) {
 	if !ok {
 		t.Fatal("worktree_audit_reclaim is not registered")
 	}
-	raw, _ := json.Marshal(map[string]any{"product_id": "product-1", "default_ref": "main", "idempotency_key": "post-commit-budget"})
+	raw, _ := json.Marshal(map[string]any{"product_id": "product-1", "default_ref": "main", "idempotency_key": "post-commit-budget", "observed_session_directories": []map[string]any{}})
 	r := runtime{Store: s, Authority: service, Envelope: mutationEnvelope(grant, scopeVersion), Tool: "concord_work_transition", Operation: "worktree_audit_reclaim", Budget: budgetInput{MaxBytes: 1}}
 	response, err := r.mutateWorktreeAuditReclaim(context.Background(), NewBase("post-commit", r.Tool, r.Operation), raw, grant, op)
 	if err != nil {

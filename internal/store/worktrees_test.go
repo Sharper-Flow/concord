@@ -390,7 +390,7 @@ func TestReclaimWorktreeDerivesFromGitFacts(t *testing.T) {
 	if _, err := s.ClaimWorktree(context.Background(), req); err != nil {
 		t.Fatal(err)
 	}
-	reclaim := WorktreeReclaimRequest{WorkID: "work-w", ProjectID: "project-w", DefaultRef: "origin/main", PrincipalRef: "principal-1", RequestID: "req-2", ExpectedVersion: 3, Now: time.Unix(20, 0).UTC(), Runner: git}
+	reclaim := WorktreeReclaimRequest{WorkID: "work-w", ProjectID: "project-w", DefaultRef: "origin/main", PrincipalRef: "principal-1", RequestID: "req-2", ExpectedVersion: 3, Now: time.Unix(20, 0).UTC(), Runner: git, ObservedSessionDirectories: emptySessionObservation()}
 
 	git.dirty[req.Path] = true
 	if _, err := s.ReclaimWorktree(context.Background(), reclaim); err == nil || !strings.Contains(err.Error(), "dirty") {
@@ -509,7 +509,7 @@ func TestReclaimWorktreeRefusesOccupiedWorktree(t *testing.T) {
 	// one sitting at its root does.
 	for _, directory := range []string{req.Path, filepath.Join(req.Path, "internal", "store")} {
 		occupied := reclaim
-		occupied.ObservedSessionDirectories = []SessionDirectory{{SessionRef: "ses_live", Directory: directory}}
+		occupied.ObservedSessionDirectories = &[]SessionDirectory{{SessionRef: "ses_live", Directory: directory}}
 		_, err := s.ReclaimWorktree(context.Background(), occupied)
 		if err == nil {
 			t.Fatalf("a session in %q must refuse the removal", directory)
@@ -533,7 +533,7 @@ func TestReclaimWorktreeRefusesOccupiedWorktree(t *testing.T) {
 	// A session elsewhere, and a path that merely shares a prefix with the
 	// worktree name, leave the removal alone.
 	unoccupied := reclaim
-	unoccupied.ObservedSessionDirectories = []SessionDirectory{
+	unoccupied.ObservedSessionDirectories = &[]SessionDirectory{
 		{SessionRef: "ses_other", Directory: filepath.Join(git.repoRoot, "..", "w-2")},
 		{SessionRef: "ses_sibling", Directory: req.Path + "-sibling"},
 	}
@@ -566,7 +566,7 @@ func TestDestroyRefusesOccupiedWorktreeDespiteApproval(t *testing.T) {
 		Now: time.Unix(30, 0).UTC(), Runner: git,
 		OperatorApprovalRef:        "approval:destroy-forced",
 		Destructive:                true,
-		ObservedSessionDirectories: []SessionDirectory{{SessionRef: "ses_live", Directory: req.Path}},
+		ObservedSessionDirectories: &[]SessionDirectory{{SessionRef: "ses_live", Directory: req.Path}},
 	})
 	if err == nil {
 		t.Fatal("a destructive destroy must still refuse an occupied worktree")
@@ -595,7 +595,7 @@ func TestReclaimAbsentWorktreeIgnoresOccupancy(t *testing.T) {
 		WorkID: "work-w", ProjectID: "project-w", DefaultRef: "origin/main",
 		PrincipalRef: "principal-1", RequestID: "req-absent", ExpectedVersion: 3,
 		Now: time.Unix(20, 0).UTC(), Runner: git,
-		ObservedSessionDirectories: []SessionDirectory{{SessionRef: "ses_live", Directory: req.Path}},
+		ObservedSessionDirectories: &[]SessionDirectory{{SessionRef: "ses_live", Directory: req.Path}},
 	})
 	if err != nil {
 		t.Fatalf("an absent worktree must reconcile, got %v", err)
@@ -626,7 +626,7 @@ func TestReclaimWorktreeAcceptsSquashMergedBranch(t *testing.T) {
 	git.branches["work/w-1"] = strings.Repeat("b", 40)
 	git.content["work/w-1"] = squashedTree
 
-	reclaim := WorktreeReclaimRequest{WorkID: "work-w", ProjectID: "project-w", DefaultRef: "origin/main", PrincipalRef: "principal-1", RequestID: "req-2", ExpectedVersion: 3, Now: time.Unix(20, 0).UTC(), Runner: git}
+	reclaim := WorktreeReclaimRequest{WorkID: "work-w", ProjectID: "project-w", DefaultRef: "origin/main", PrincipalRef: "principal-1", RequestID: "req-2", ExpectedVersion: 3, Now: time.Unix(20, 0).UTC(), Runner: git, ObservedSessionDirectories: emptySessionObservation()}
 	entry, err := s.ReclaimWorktree(context.Background(), reclaim)
 	if err != nil {
 		t.Fatalf("a squash-merged branch must reclaim, got %v", err)

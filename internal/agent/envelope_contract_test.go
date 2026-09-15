@@ -74,7 +74,7 @@ func TestCommittedReclaimEnvelopeSatisfiesGeneratedContract(t *testing.T) {
 	}
 	reclaimInput, _ := json.Marshal(map[string]any{
 		"work_id": "work-1", "project_id": "project-1",
-		"default_ref": "main", "expected_version": 3, "idempotency_key": "701-reclaim",
+		"default_ref": "main", "expected_version": 3, "idempotency_key": "701-reclaim", "observed_session_directories": []map[string]any{},
 	})
 	reclaim := InvokeRequest{Tool: "concord_work_transition", Operation: "worktree_reclaim", Input: reclaimInput}
 	committed, err := Dispatch(ctx, s, service, reclaim, mutationEnvelope(grant, scopeVersion))

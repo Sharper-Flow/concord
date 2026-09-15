@@ -165,19 +165,20 @@ type worktreeReclaimInput struct {
 	IdempotencyKey  string `json:"idempotency_key"`
 	// ObservedSessionDirectories carries the caller's live host sessions
 	// (issue #722). The store refuses the removal when one of them occupies
-	// the worktree it is about to delete.
-	ObservedSessionDirectories []observedSessionDirectoryInput `json:"observed_session_directories"`
+	// the worktree it is about to delete. A nil pointer means that the caller
+	// supplied no observation; a pointer to an empty list is an observation.
+	ObservedSessionDirectories *[]observedSessionDirectoryInput `json:"observed_session_directories"`
 }
 
 // observedSessionDirectoryInput is one live host session the caller observed,
 // and the directory it runs in. Session liveness is host truth, so the caller
 // that can reach the host reports it and the core decides on it.
 type worktreeAuditReclaimInput struct {
-	ProductID                  string                          `json:"product_id"`
-	DefaultRef                 string                          `json:"default_ref"`
-	Limit                      int                             `json:"limit"`
-	IdempotencyKey             string                          `json:"idempotency_key"`
-	ObservedSessionDirectories []observedSessionDirectoryInput `json:"observed_session_directories"`
+	ProductID                  string                           `json:"product_id"`
+	DefaultRef                 string                           `json:"default_ref"`
+	Limit                      int                              `json:"limit"`
+	IdempotencyKey             string                           `json:"idempotency_key"`
+	ObservedSessionDirectories *[]observedSessionDirectoryInput `json:"observed_session_directories"`
 }
 
 type observedSessionDirectoryInput struct {
@@ -187,15 +188,15 @@ type observedSessionDirectoryInput struct {
 
 // storeSessionDirectories converts the reported observations into the store's
 // shape. It is the only crossing point, so both removal planners share it.
-func storeSessionDirectories(in []observedSessionDirectoryInput) []store.SessionDirectory {
-	if len(in) == 0 {
+func storeSessionDirectories(in *[]observedSessionDirectoryInput) *[]store.SessionDirectory {
+	if in == nil {
 		return nil
 	}
-	out := make([]store.SessionDirectory, 0, len(in))
-	for _, observed := range in {
+	out := make([]store.SessionDirectory, 0, len(*in))
+	for _, observed := range *in {
 		out = append(out, store.SessionDirectory{SessionRef: observed.SessionRef, Directory: observed.Directory})
 	}
-	return out
+	return &out
 }
 
 type worktreeVerifyInput struct {
@@ -220,7 +221,7 @@ type worktreeDestroyInput struct {
 	// ObservedSessionDirectories carries the caller's live host sessions
 	// (issue #722). The destructive approval covers the git gates, never the
 	// occupancy gate.
-	ObservedSessionDirectories []observedSessionDirectoryInput `json:"observed_session_directories"`
+	ObservedSessionDirectories *[]observedSessionDirectoryInput `json:"observed_session_directories"`
 }
 type researchRevisionInput struct {
 	Question string `json:"question"`

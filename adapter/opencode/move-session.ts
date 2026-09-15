@@ -262,8 +262,10 @@ export class HostControlPlane {
     if (!Array.isArray(result.data)) {
       throw new MoveSessionRefused("the session list was not an array")
     }
-    const observed: ObservedSessionDirectory[] = []
-    for (const session of result.data) {
+    // Keep one observation for every host record. The occupancy gate must see
+    // the same population that this route reported, including sessions outside
+    // the worktree being removed.
+    const observed = result.data.map((session): ObservedSessionDirectory => {
       const id = (session as { id?: unknown } | null)?.id
       const directory = (session as { directory?: unknown } | null)?.directory
       // `directory` is required on every session record. A record missing it
@@ -272,8 +274,8 @@ export class HostControlPlane {
       if (typeof id !== "string" || !id || typeof directory !== "string" || !directory) {
         throw new MoveSessionRefused("the session list carried a record without an id and a directory")
       }
-      observed.push({ session_ref: id, directory })
-    }
+      return { session_ref: id, directory }
+    })
     return observed
   }
 

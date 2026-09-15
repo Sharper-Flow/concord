@@ -341,6 +341,9 @@ func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, registry Definiti
 	if err := runWorkflowActionGuard(guards, guardPhaseClaim); err != nil {
 		return result, err
 	}
+	if err := BindResearchRelianceTx(ctx, tx, request.WorkID, request.ResearchBindings, request.Now); err != nil {
+		return result, err
+	}
 	assemblyInput := workflowActionAssemblyInput{
 		ctx: ctx, tx: tx,
 		entry: entry, request: request, currentStep: currentStep, step: step, payload: payload, evidenceRefs: evidenceRefs,
@@ -370,9 +373,6 @@ func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, registry Definiti
 	}
 	result.NativeRun = assembly.nativeRun
 
-	if err := BindResearchRelianceTx(ctx, tx, request.WorkID, request.ResearchBindings, request.Now); err != nil {
-		return result, err
-	}
 	operationResult, err := applyWorkflowOperationTx(ctx, tx, Operation{Events: assembly.events, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, request.WorkID): request.ExpectedVersion}})
 	if err != nil {
 		return result, err

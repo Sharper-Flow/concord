@@ -6,7 +6,7 @@ import { agentLanePacketSchema, agentLaneReportSchema, agentLanes, type AgentLan
 import { maxEnvelopeBytes } from "./generated-contracts"
 import { coreBinary } from "./generated-release"
 import { SecretToolCredentialStore, b64, clientRef, privateKeyObject, randomNonce, type CredentialStore } from "./credentials"
-import { dispatchWindows, DispatchWindowError, isResolvableDirectory, type DispatchWindows } from "./dispatch-window"
+import { canonicalDirectory, dispatchWindows, DispatchWindowError, type DispatchWindows } from "./dispatch-window"
 import { hostControlPlane } from "./move-session"
 import { readTaskResult } from "./task-result"
 
@@ -1040,7 +1040,8 @@ export async function dispatchWorker(packet: unknown, options: { signal?: AbortS
   if (!lane) return errorEnvelope(null, packet, "error", "invalid_input", "lane identity or digest is not registered", "retry_same_request")
   const signal = options.signal ?? new AbortController().signal
   const workerDirectory = options.workerDirectory
-  if (!isResolvableDirectory(workerDirectory)) {
+  const canonicalWorkerDirectory = canonicalDirectory(workerDirectory)
+  if (canonicalWorkerDirectory === null) {
     return errorEnvelope(lane, packet as Partial<AgentLanePacket>, "error", "invalid_input", "dispatch requires a non-empty, resolvable worker directory before authorization", "reconcile_operation")
   }
 
@@ -1087,7 +1088,7 @@ export async function dispatchWorker(packet: unknown, options: { signal?: AbortS
   }
   const windows = options.windows ?? dispatchWindows()
   try {
-    windows.open(sessionID, packet, options.packetDigest ?? "", options.workPins, workerDirectory)
+    windows.open(sessionID, packet, options.packetDigest ?? "", options.workPins, workerDirectory, canonicalWorkerDirectory)
   } catch (error) {
     const detail = error instanceof DispatchWindowError ? error.message : String(error)
     return errorEnvelope(lane, packet as Partial<AgentLanePacket>, "error", "error", detail.slice(0, MAX_ERROR_BYTES), "reconcile_operation")

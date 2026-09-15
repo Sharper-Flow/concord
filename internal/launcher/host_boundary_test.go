@@ -9,8 +9,8 @@ import (
 
 // multiplexerNeedles are assembled from fragments so this file does not match
 // its own scan. CD-0078 D1 forbids multiplexer knowledge in the launcher and
-// the command package; "screen" is deliberately absent because Screen is a
-// launcher domain type.
+// the command package; "screen" is deliberately absent because Bubble Tea
+// names the alternate buffer AltScreen.
 var multiplexerNeedles = []string{
 	"zel" + "lij",
 	"tm" + "ux",

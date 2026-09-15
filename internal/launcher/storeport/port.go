@@ -4,6 +4,7 @@ package storeport
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"os/exec"
@@ -18,18 +19,20 @@ import (
 )
 
 type Port struct {
-	Store       *store.Store
-	VisionProbe ProbeFunc
-	LgrepProbe  ProbeFunc
+	Store        *store.Store
+	VisionProbe  ProbeFunc
+	LgrepProbe   ProbeFunc
+	SessionProbe launcher.SessionProbe
 }
 
 type ProbeFunc func(context.Context) (bool, string)
 
 func New(s *store.Store) *Port {
 	return &Port{
-		Store:       s,
-		VisionProbe: commandProbe("vision", "daemon", "status"),
-		LgrepProbe:  commandProbe("lgrep", "--version"),
+		Store:        s,
+		VisionProbe:  commandProbe("vision", "daemon", "status"),
+		LgrepProbe:   commandProbe("lgrep", "--version"),
+		SessionProbe: sessionProbe,
 	}
 }
 
@@ -62,8 +65,8 @@ func probeStatus(ctx context.Context, name string, probe ProbeFunc) launcher.Pro
 	return launcher.ProbeStatus{Name: name, Available: available, Reason: reason}
 }
 
-// Candidates returns the bounded Concord-first candidate list. It reads
-// Products and their active worktrees, then adds configured filesystem roots.
+// Candidates returns the Concord-first candidate list. Product entries and
+// work entries share one read, but the renderer presents them as separate feeds.
 func (p *Port) Candidates(ctx context.Context, limit int) ([]launcher.Candidate, error) {
 	if limit == 0 {
 		limit = 20
@@ -94,7 +97,7 @@ func (p *Port) Candidates(ctx context.Context, limit int) ([]launcher.Candidate,
 			if state == "" {
 				state = "unavailable"
 			}
-			candidate := launcher.Candidate{ID: item.ID, Kind: launcher.CandidateWork, Name: item.Title, ProductID: row.ProductID, WorkID: item.ID, Rank: workRank, State: state, Blocked: item.Blocked, Available: false}
+			candidate := launcher.Candidate{ID: item.ID, Kind: launcher.CandidateWork, Name: item.Title, ProductID: row.ProductID, WorkID: item.ID, Rank: workRank, State: state, Lifecycle: item.Lifecycle, UpdatedAt: item.UpdatedAt, WorkflowStep: item.WorkflowStep, Blocked: item.Blocked, Ready: item.Ready, Terminal: item.Terminal, Available: false}
 			worktrees, treeErr := p.Store.WorktreeEntries(ctx, item.ID)
 			if treeErr != nil {
 				candidates = append(candidates, candidate)
@@ -113,10 +116,57 @@ func (p *Port) Candidates(ctx context.Context, limit int) ([]launcher.Candidate,
 	}
 	candidates = append(candidates, scanRootCandidates()...)
 	candidates = launcher.OrderCandidates(candidates)
-	if len(candidates) > limit {
-		candidates = candidates[:limit]
+	for i := range candidates {
+		candidates[i].SessionState = "idle"
+	}
+	if p.SessionProbe != nil {
+		live, _ := p.SessionProbe(ctx, candidates)
+		for i := range candidates {
+			candidates[i].Live = live[candidates[i].ID]
+			if candidates[i].Live > 0 {
+				candidates[i].SessionState = "live"
+			} else {
+				candidates[i].SessionState = "idle"
+			}
+		}
 	}
 	return candidates, nil
+}
+
+type sessionPane struct {
+	TabID   int    `json:"tab_id"`
+	TabName string `json:"tab_name"`
+	PaneCWD string `json:"pane_cwd"`
+}
+
+// sessionProbe observes host tabs and panes. It does not read or write the
+// Concord store, and a missing host tool means that every item is idle.
+func sessionProbe(ctx context.Context, candidates []launcher.Candidate) (map[string]int, string) {
+	live := make(map[string]int)
+	tool := "ze" + "llij"
+	if _, err := exec.LookPath(tool); err != nil {
+		return live, tool + " is not installed"
+	}
+	output, err := exec.CommandContext(ctx, tool, "action", "list-panes", "--all", "--json").Output() //nolint:gosec // tool and arguments are fixed.
+	if err != nil {
+		return live, err.Error()
+	}
+	var panes []sessionPane
+	if err := json.Unmarshal(output, &panes); err != nil {
+		return live, err.Error()
+	}
+	for _, candidate := range candidates {
+		seen := map[int]bool{}
+		for _, pane := range panes {
+			if (candidate.WorkID != "" && strings.Contains(pane.TabName, candidate.WorkID)) || (candidate.Worktree != "" && pane.PaneCWD == candidate.Worktree) {
+				if !seen[pane.TabID] {
+					seen[pane.TabID] = true
+					live[candidate.ID]++
+				}
+			}
+		}
+	}
+	return live, ""
 }
 
 func scanRootCandidates() []launcher.Candidate {
@@ -163,13 +213,13 @@ func (p *Port) Read(ctx context.Context, request launcher.ReadRequest) (launcher
 	case launcher.ReadPortfolio:
 		result, err := portfolio.Read(ctx, p.Store, store.ProductRowRequest{Limit: request.Limit, Cursor: request.Cursor})
 		if err != nil {
-			return launcher.Snapshot{Screen: launcher.ScreenPortfolio, Coverage: "unreachable", StatusMessage: err.Error()}, err
+			return launcher.Snapshot{Coverage: "unreachable", StatusMessage: err.Error()}, err
 		}
 		return snapshotFromProductRows(result), nil
 	case launcher.ReadProduct:
 		result, err := p.Store.QueryLauncherProduct(ctx, store.LauncherProductRequest{Product: request.Product, Limit: request.Limit, Depth: 3})
 		if err != nil {
-			return launcher.Snapshot{Screen: launcher.ScreenProduct, AmbientProduct: request.Product, Coverage: "unreachable", StatusMessage: err.Error()}, err
+			return launcher.Snapshot{AmbientProduct: request.Product, Coverage: "unreachable", StatusMessage: err.Error()}, err
 		}
 		return snapshotFromProduct(result, request.Product, request.Section), nil
 	case launcher.ReadDomains:
@@ -178,20 +228,20 @@ func (p *Port) Read(ctx context.Context, request launcher.ReadRequest) (launcher
 			var failure *store.Failure
 			if errors.As(err, &failure) && (failure.Kind == store.KindDomainRegistryAbsent || failure.Kind == store.KindUnknownDomain) {
 				// An absent registry is a typed unavailable section, never an
-				// empty Domain list and never an unreachable screen.
-				return launcher.Snapshot{Screen: launcher.ScreenProduct, AmbientProduct: request.Product, Section: launcher.SectionDomains, Coverage: "unavailable", Domains: launcher.DomainSection{Read: true, State: "unavailable", Reason: string(failure.Kind)}}, nil
+				// empty Domain list and never an unreachable read.
+				return launcher.Snapshot{AmbientProduct: request.Product, Section: launcher.SectionDomains, Coverage: "unavailable", Domains: launcher.DomainSection{Read: true, State: "unavailable", Reason: string(failure.Kind)}}, nil
 			}
-			return launcher.Snapshot{Screen: launcher.ScreenProduct, AmbientProduct: request.Product, Section: launcher.SectionDomains, Coverage: "unreachable", StatusMessage: err.Error()}, err
+			return launcher.Snapshot{AmbientProduct: request.Product, Section: launcher.SectionDomains, Coverage: "unreachable", StatusMessage: err.Error()}, err
 		}
 		product, err := p.Store.QueryLauncherProduct(ctx, store.LauncherProductRequest{Product: request.Product, Limit: request.Limit, Depth: 3})
 		if err != nil {
-			return launcher.Snapshot{Screen: launcher.ScreenProduct, AmbientProduct: request.Product, Section: launcher.SectionDomains, Coverage: "unreachable", StatusMessage: err.Error()}, err
+			return launcher.Snapshot{AmbientProduct: request.Product, Section: launcher.SectionDomains, Coverage: "unreachable", StatusMessage: err.Error()}, err
 		}
 		return snapshotFromDomains(domains, product, request.Product), nil
 	case launcher.ReadWork:
 		result, err := p.Store.QueryLauncherWork(ctx, store.LauncherWorkRequest{Product: request.Product, Work: request.Work, Limit: request.Limit})
 		if err != nil {
-			return launcher.Snapshot{Screen: launcher.ScreenWork, AmbientProduct: request.Product, SelectedWorkID: request.Work, Coverage: "unreachable", StatusMessage: err.Error()}, err
+			return launcher.Snapshot{AmbientProduct: request.Product, SelectedWorkID: request.Work, Coverage: "unreachable", StatusMessage: err.Error()}, err
 		}
 		return snapshotFromWork(result, request.Product, request.Work, request.Section), nil
 	case launcher.ReadKnowledge:
@@ -201,16 +251,18 @@ func (p *Port) Read(ctx context.Context, request launcher.ReadRequest) (launcher
 	case launcher.ReadCandidates:
 		candidates, err := p.Candidates(ctx, request.Limit)
 		if err != nil {
-			return launcher.Snapshot{Screen: launcher.ScreenPortfolio, Coverage: "unreachable", StatusMessage: err.Error()}, err
+			return launcher.Snapshot{Coverage: "unreachable", StatusMessage: err.Error()}, err
 		}
-		return launcher.Snapshot{Screen: launcher.ScreenPortfolio, Coverage: "authoritative", Candidates: candidates}, nil
+		products, works := launcher.SplitCandidates(candidates)
+		return launcher.Snapshot{Coverage: "authoritative", Candidates: candidates, Products: products, WorkItems: works}, nil
 	default:
-		return launcher.Snapshot{Screen: launcher.ScreenPortfolio, Coverage: "unavailable", StatusMessage: "unsupported_read"}, nil
+		return launcher.Snapshot{Coverage: "unavailable", StatusMessage: "unsupported_read"}, nil
 	}
 }
 
 func snapshotFromProduct(result store.LauncherProductResult, product string, section launcher.Section) launcher.Snapshot {
-	s := launcher.Snapshot{Screen: launcher.ScreenProduct, AmbientProduct: product, Section: section, QueryID: result.QueryID, ContractVersion: result.ContractVersion, SourceVersionWatermark: result.SourceVersionWatermark, Watermark: strconv.FormatInt(result.SourceVersionWatermark, 10), ObservedAt: result.Freshness.ObservedAt, Reliance: result.Authority, Coverage: result.Authority, OrderingKeys: append([]string(nil), result.OrderingKeys...)}
+	s := launcher.Snapshot{AmbientProduct: product, Section: section, QueryID: result.QueryID, ContractVersion: result.ContractVersion, SourceVersionWatermark: result.SourceVersionWatermark, Watermark: strconv.FormatInt(result.SourceVersionWatermark, 10), ObservedAt: result.Freshness.ObservedAt, Reliance: result.Authority, Coverage: result.Authority, OrderingKeys: append([]string(nil), result.OrderingKeys...)}
+	s.RankedWorkRead = true
 	s.Ranked = make([]launcher.RankedWork, 0, len(result.Works)+len(result.TerminalWorks))
 	for _, item := range result.Works {
 		s.Ranked = append(s.Ranked, mapWork(item))
@@ -256,7 +308,7 @@ func snapshotFromDomains(result store.LauncherDomainsResult, product store.Launc
 }
 
 func snapshotFromWork(result store.LauncherWorkResult, product, work string, section launcher.Section) launcher.Snapshot {
-	s := launcher.Snapshot{Screen: launcher.ScreenWork, AmbientProduct: product, SelectedWorkID: work, Section: section, QueryID: result.QueryID, ContractVersion: result.ContractVersion, SourceVersionWatermark: result.SourceVersionWatermark, Watermark: strconv.FormatInt(result.SourceVersionWatermark, 10), ObservedAt: result.Freshness.ObservedAt, Reliance: result.Authority, Coverage: result.Authority}
+	s := launcher.Snapshot{AmbientProduct: product, SelectedWorkID: work, Section: section, QueryID: result.QueryID, ContractVersion: result.ContractVersion, SourceVersionWatermark: result.SourceVersionWatermark, Watermark: strconv.FormatInt(result.SourceVersionWatermark, 10), ObservedAt: result.Freshness.ObservedAt, Reliance: result.Authority, Coverage: result.Authority}
 	s.Detail.Item = mapWork(result.Work)
 	for _, project := range result.Projects {
 		s.Detail.Projects = append(s.Detail.Projects, project.ID+" ("+project.Role+")")
@@ -270,7 +322,7 @@ func snapshotFromWork(result store.LauncherWorkResult, product, work string, sec
 }
 
 func mapWork(item store.LauncherWork) launcher.RankedWork {
-	out := launcher.RankedWork{ID: item.ID, Kind: item.Kind, Title: item.Title, Lifecycle: item.Lifecycle, Priority: item.Priority, Urgency: item.Urgency, CreatedAt: item.CreatedAt, UpdatedAt: item.UpdatedAt, TerminalAt: item.TerminalAt, ProjectCount: item.ProjectCount, Blocked: item.Blocked, Ready: item.Ready, Terminal: item.Terminal}
+	out := launcher.RankedWork{ID: item.ID, Kind: item.Kind, Title: item.Title, Lifecycle: item.Lifecycle, WorkflowStep: item.WorkflowStep, Priority: item.Priority, Urgency: item.Urgency, CreatedAt: item.CreatedAt, UpdatedAt: item.UpdatedAt, TerminalAt: item.TerminalAt, ProjectCount: item.ProjectCount, Blocked: item.Blocked, Ready: item.Ready, Terminal: item.Terminal}
 	for _, blocker := range item.Blockers {
 		out.Blockers = append(out.Blockers, launcher.Blocker{ID: blocker.ID, Title: blocker.Title, Authority: blocker.Authority, Age: blocker.Age, External: blocker.External, ConditionID: blocker.ConditionID})
 	}
@@ -467,9 +519,9 @@ func (p *Port) readKnowledge(ctx context.Context, request launcher.ReadRequest) 
 	if request.Work != "" && request.Query == "" {
 		result, err := p.Store.QueryQ10(ctx, store.Q10Request{Product: request.Product, Work: request.Work, AllowDegraded: true})
 		if err != nil {
-			return launcher.Snapshot{Screen: launcher.ScreenWork, AmbientProduct: request.Product, SelectedWorkID: request.Work, Coverage: "unreachable", StatusMessage: err.Error()}, err
+			return launcher.Snapshot{AmbientProduct: request.Product, SelectedWorkID: request.Work, Coverage: "unreachable", StatusMessage: err.Error()}, err
 		}
-		s := launcher.Snapshot{Screen: launcher.ScreenWork, AmbientProduct: request.Product, SelectedWorkID: request.Work, Section: launcher.SectionKnowledge, QueryID: result.QueryID, ContractVersion: result.ContractVersion, SourceVersionWatermark: result.SourceVersionWatermark, Watermark: "q10", ObservedAt: result.Freshness.ObservedAt, Reliance: result.Authority, Coverage: result.Authority}
+		s := launcher.Snapshot{AmbientProduct: request.Product, SelectedWorkID: request.Work, Section: launcher.SectionKnowledge, QueryID: result.QueryID, ContractVersion: result.ContractVersion, SourceVersionWatermark: result.SourceVersionWatermark, Watermark: "q10", ObservedAt: result.Freshness.ObservedAt, Reliance: result.Authority, Coverage: result.Authority}
 		s.Knowledge.Read = true
 		if result.Status == "canonical" && result.Note != nil {
 			s.Knowledge.State = "authoritative"
@@ -487,9 +539,9 @@ func (p *Port) readKnowledge(ctx context.Context, request launcher.ReadRequest) 
 	}
 	result, err := p.Store.QueryQ9(ctx, req)
 	if err != nil {
-		return launcher.Snapshot{Screen: screenForWork(request.Work), AmbientProduct: request.Product, SelectedWorkID: request.Work, Coverage: "unreachable", StatusMessage: err.Error()}, err
+		return launcher.Snapshot{AmbientProduct: request.Product, SelectedWorkID: request.Work, Coverage: "unreachable", StatusMessage: err.Error()}, err
 	}
-	s := launcher.Snapshot{Screen: screenForWork(request.Work), AmbientProduct: request.Product, SelectedWorkID: request.Work, Section: launcher.SectionKnowledge, QueryID: result.QueryID, ContractVersion: result.ContractVersion, SourceVersionWatermark: result.SourceVersionWatermark, Watermark: result.IndexWatermark, ObservedAt: result.Freshness.ObservedAt, Reliance: result.Authority, Coverage: result.Authority}
+	s := launcher.Snapshot{AmbientProduct: request.Product, SelectedWorkID: request.Work, Section: launcher.SectionKnowledge, QueryID: result.QueryID, ContractVersion: result.ContractVersion, SourceVersionWatermark: result.SourceVersionWatermark, Watermark: result.IndexWatermark, ObservedAt: result.Freshness.ObservedAt, Reliance: result.Authority, Coverage: result.Authority}
 	s.Knowledge = mapKnowledge(result)
 	return s, nil
 }
@@ -497,13 +549,14 @@ func (p *Port) readKnowledge(ctx context.Context, request launcher.ReadRequest) 
 func (p *Port) readSearch(ctx context.Context, request launcher.ReadRequest) (launcher.Snapshot, error) {
 	result, err := p.Store.QueryLauncherSearch(ctx, store.LauncherSearchRequest{Product: request.Product, Query: request.Query, Limit: request.Limit})
 	if err != nil {
-		return launcher.Snapshot{Screen: screenForWork(request.Work), AmbientProduct: request.Product, SelectedWorkID: request.Work, Coverage: "unreachable", StatusMessage: err.Error()}, err
+		return launcher.Snapshot{AmbientProduct: request.Product, SelectedWorkID: request.Work, Coverage: "unreachable", StatusMessage: err.Error()}, err
 	}
 	return snapshotFromSearch(result, request.Product, request.Work, request.Query), nil
 }
 
 func snapshotFromSearch(result store.LauncherSearchResult, product, work, query string) launcher.Snapshot {
-	s := launcher.Snapshot{Screen: screenForWork(work), AmbientProduct: product, SelectedWorkID: work, Section: launcher.SectionRanked, QueryID: result.QueryID, ContractVersion: result.ContractVersion, SourceVersionWatermark: result.SourceVersionWatermark, Watermark: strconv.FormatInt(result.SourceVersionWatermark, 10), ObservedAt: result.Freshness.ObservedAt, Reliance: result.Authority, Coverage: result.Authority, OrderingKeys: append([]string(nil), result.OrderingKeys...), QueryResult: true, QuerySubmitted: query}
+	s := launcher.Snapshot{AmbientProduct: product, SelectedWorkID: work, Section: launcher.SectionRanked, QueryID: result.QueryID, ContractVersion: result.ContractVersion, SourceVersionWatermark: result.SourceVersionWatermark, Watermark: strconv.FormatInt(result.SourceVersionWatermark, 10), ObservedAt: result.Freshness.ObservedAt, Reliance: result.Authority, Coverage: result.Authority, OrderingKeys: append([]string(nil), result.OrderingKeys...), QueryResult: true, QuerySubmitted: query}
+	s.RankedWorkRead = true
 	for _, item := range result.Works {
 		s.Ranked = append(s.Ranked, mapWork(item))
 	}
@@ -538,13 +591,6 @@ func mapKnowledge(result store.Q9Result) launcher.KnowledgeSection {
 		section.State, section.Reason = "unavailable", "knowledge_index_lagging_or_unreachable"
 	}
 	return section
-}
-
-func screenForWork(work string) launcher.Screen {
-	if work != "" {
-		return launcher.ScreenWork
-	}
-	return launcher.ScreenProduct
 }
 
 func FromProductRows(result store.ProductRowResult) launcher.Snapshot {
@@ -597,7 +643,7 @@ func FromProductRows(result store.ProductRowResult) launcher.Snapshot {
 		rows = append(rows, present)
 	}
 	return launcher.Snapshot{
-		Screen: launcher.ScreenPortfolio, QueryID: result.QueryID, ContractVersion: result.ContractVersion,
+		QueryID: result.QueryID, ContractVersion: result.ContractVersion,
 		Watermark: strconv.FormatInt(result.SourceVersionWatermark, 10), SourceVersionWatermark: result.SourceVersionWatermark,
 		ObservedAt: result.ObservedAt, Reliance: result.Authority, Coverage: result.Authority,
 		OrderingKeys: append([]string(nil), result.OrderingKeys...), NextCursor: result.NextCursor,

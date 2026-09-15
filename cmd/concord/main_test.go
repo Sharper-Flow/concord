@@ -278,7 +278,7 @@ func TestFullLauncherSessionAppendsNothingToTheEventLog(t *testing.T) {
 
 	m.UpdateKey("r")     // S1 explicit refresh
 	m.UpdateKey("enter") // S1 -> S2, which also reads the focused knowledge section
-	if got := core.Snapshot(); got.Screen != launcher.ScreenProduct || got.AmbientProduct == "" {
+	if got := core.Snapshot(); got.AmbientProduct == "" {
 		t.Fatalf("S2 entry = %#v", got)
 	}
 	m.UpdateKey("tab") // domain -> blocked
@@ -295,8 +295,8 @@ func TestFullLauncherSessionAppendsNothingToTheEventLog(t *testing.T) {
 	if err := core.SelectWork(ctx, "import-advance-work-synth-change-alpha-1"); err != nil {
 		t.Fatalf("S3 entry: %v", err)
 	}
-	if got := core.Snapshot(); got.Screen != launcher.ScreenWork {
-		t.Fatalf("S3 entry left the session on %v, so the work screen is unexercised", got.Screen)
+	if got := core.Snapshot(); got.SelectedWorkID == "" {
+		t.Fatalf("S3 entry selected no work item, so the work detail is unexercised: %#v", got)
 	}
 	m.Sync()
 	m.UpdateKey("tab") // S3 sections, ending on knowledge

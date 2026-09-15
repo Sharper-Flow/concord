@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 
 	"charm.land/bubbles/v2/help"
@@ -116,7 +117,7 @@ func (m *Model) Sync() {
 
 // OpenFilter enters S1's read-free local filter mode.
 func (m *Model) OpenFilter() tea.Cmd {
-	if m.core.Snapshot().Screen == launcher.ScreenWork {
+	if m.core.Snapshot().SelectedWorkID != "" {
 		return nil
 	}
 	m.filterMode = true
@@ -127,10 +128,9 @@ func (m *Model) OpenFilter() tea.Cmd {
 }
 
 // openQuery enters the S2/S3 semantic query input. S1 has no semantic-query
-// binding, so the portfolio screen opens no query mode.
+// binding, so a snapshot with no ambient Product opens no query mode.
 func (m *Model) openQuery() tea.Cmd {
-	screen := m.core.Snapshot().Screen
-	if screen != launcher.ScreenProduct && screen != launcher.ScreenWork {
+	if m.core.Snapshot().AmbientProduct == "" {
 		return nil
 	}
 	m.queryBase = m.core.Snapshot()
@@ -282,10 +282,9 @@ func (m *Model) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "s":
 		return m, m.openQuery()
 	case "tab":
-		if m.core.Snapshot().Screen == launcher.ScreenProduct {
-			_ = m.core.CyclePanelFocus()
-			m.Sync()
-		} else if m.core.Snapshot().Screen == launcher.ScreenWork {
+		// A selected work item owns its sections, so Tab walks them. With no
+		// work item open, Tab moves focus across the Product answer stack.
+		if m.core.Snapshot().SelectedWorkID != "" {
 			next := launcher.SectionDomains
 			switch m.core.Section() {
 			case launcher.SectionDomains:
@@ -302,6 +301,9 @@ func (m *Model) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			}
 			_ = m.core.SetSection(next)
 			m.Sync()
+		} else if hasAnswerStack(m.core.Snapshot()) {
+			_ = m.core.CyclePanelFocus()
+			m.Sync()
 		}
 	case "?":
 		m.showHelp = !m.showHelp
@@ -317,7 +319,7 @@ func (m *Model) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.Sync()
 		return m, nil
 	case "l":
-		if m.core.Snapshot().Screen == launcher.ScreenProduct || m.core.Snapshot().Screen == launcher.ScreenWork {
+		if m.core.Snapshot().AmbientProduct != "" || m.core.Snapshot().SelectedWorkID != "" {
 			return m, m.launch(m.core.Handoff())
 		}
 	case "j", "down":
@@ -336,15 +338,15 @@ func (m *Model) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "p":
 		m.move(-m.pageSize())
 	case "enter":
-		if m.core.Snapshot().Screen == launcher.ScreenPortfolio {
+		if m.core.Snapshot().AmbientProduct == "" {
 			candidates := m.filteredCandidates()
 			if len(candidates) > 0 {
 				candidate := candidates[m.cursor]
 				if candidate.Kind == launcher.CandidateProduct {
-					previousScreen := m.core.Snapshot().Screen
+					previousPosition := navigationIdentity(m.core.Snapshot())
 					if err := m.core.SelectProduct(m.ctx, candidate.ProductID); err != nil {
 						m.setError(err)
-					} else if m.core.Snapshot().Screen != previousScreen {
+					} else if navigationIdentity(m.core.Snapshot()) != previousPosition {
 						m.navigation = append(m.navigation, navigationPosition{cursor: m.cursor, scroll: m.scroll})
 					}
 					m.Sync()
@@ -356,34 +358,35 @@ func (m *Model) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 						m.Sync()
 						return m, nil
 					}
-					m.core.RestoreSnapshot(launcher.Snapshot{Screen: launcher.ScreenProduct, AmbientProduct: candidate.ProductID, SelectedWorkID: candidate.WorkID, Session: launcher.SessionHandoff{ProductID: candidate.ProductID, WorkID: candidate.WorkID}, Coverage: "authoritative", Section: launcher.SectionRanked})
+					handoff := launcher.SessionHandoff{ProductID: candidate.ProductID, WorkID: candidate.WorkID, Worktree: candidate.Worktree, WorkflowStep: candidate.WorkflowStep, Posture: launcher.OperatorPosture(candidate.WorkflowStep), Prompt: launcher.OperatorPrompt(candidate.WorkID, candidate.WorkflowStep, "")}
+					m.core.RestoreSnapshot(launcher.Snapshot{AmbientProduct: candidate.ProductID, SelectedWorkID: candidate.WorkID, Session: handoff, Coverage: "authoritative", Section: launcher.SectionRanked})
 					return m, m.launch(m.core.Handoff())
 				}
 				if candidate.Kind == launcher.CandidateProject {
-					m.core.RestoreSnapshot(launcher.Snapshot{Screen: launcher.ScreenPortfolio, Session: launcher.SessionHandoff{ProjectPath: candidate.Path}, Coverage: "authoritative"})
+					m.core.RestoreSnapshot(launcher.Snapshot{Session: launcher.SessionHandoff{ProjectPath: candidate.Path}, Coverage: "authoritative"})
 					return m, m.launch(m.core.Handoff())
 				}
 			}
 			rows := m.filteredRows()
 			if len(rows) > 0 && m.cursor < len(rows) {
-				previousScreen := m.core.Snapshot().Screen
+				previousPosition := navigationIdentity(m.core.Snapshot())
 				if err := m.core.SelectProduct(m.ctx, rows[m.cursor].ID); err != nil {
 					m.setError(err)
-				} else if m.core.Snapshot().Screen != previousScreen {
+				} else if navigationIdentity(m.core.Snapshot()) != previousPosition {
 					m.navigation = append(m.navigation, navigationPosition{cursor: m.cursor, scroll: m.scroll})
 				}
 				m.filterValue = ""
 				m.input.Reset()
 				m.Sync()
 			}
-		} else if m.core.Snapshot().Screen == launcher.ScreenProduct && m.core.Section() == launcher.SectionRanked {
+		} else if m.core.Snapshot().AmbientProduct != "" && m.core.Section() == launcher.SectionRanked {
 			rows := m.filteredRanked()
 			if len(rows) > 0 && m.cursor < len(rows) {
-				previousScreen := m.core.Snapshot().Screen
+				previousPosition := navigationIdentity(m.core.Snapshot())
 				selectionErr := m.core.SelectWork(m.ctx, rows[m.cursor].ID)
 				if selectionErr != nil {
 					m.setError(selectionErr)
-				} else if m.core.Snapshot().Screen != previousScreen {
+				} else if navigationIdentity(m.core.Snapshot()) != previousPosition {
 					m.navigation = append(m.navigation, navigationPosition{cursor: m.cursor, scroll: m.scroll})
 				}
 				m.filterValue = ""
@@ -406,7 +409,7 @@ func (m *Model) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 		m.back()
 	case "q", "ctrl+c":
-		if m.core.Snapshot().Screen == launcher.ScreenProduct || m.core.Snapshot().Screen == launcher.ScreenWork {
+		if m.core.Snapshot().AmbientProduct != "" || m.core.Snapshot().SelectedWorkID != "" {
 			m.back()
 			return m, nil
 		}
@@ -415,12 +418,19 @@ func (m *Model) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// navigationIdentity names which item the launcher is pointed at. The
+// navigation stack compares it to see whether a selection moved. It carries
+// data the snapshot already holds and decides no layout.
+func navigationIdentity(snapshot launcher.Snapshot) [2]string {
+	return [2]string{snapshot.AmbientProduct, snapshot.SelectedWorkID}
+}
+
 func (m *Model) back() {
-	before := m.core.Snapshot().Screen
+	before := navigationIdentity(m.core.Snapshot())
 	if err := m.core.Back(); err != nil {
 		m.setError(err)
 	}
-	after := m.core.Snapshot().Screen
+	after := navigationIdentity(m.core.Snapshot())
 	m.Sync()
 	if before == after || len(m.navigation) == 0 {
 		return
@@ -526,13 +536,13 @@ func (m *Model) clampCursor() {
 
 func (m *Model) rowCount() int {
 	s := m.core.Snapshot()
-	if s.Screen == launcher.ScreenProduct {
+	if s.AmbientProduct != "" && s.SelectedWorkID == "" {
 		if m.core.PanelFocus() == launcher.S2PanelDomain {
 			return len(s.Domains.Domains)
 		}
 		return len(m.filteredRanked())
 	}
-	if s.Screen == launcher.ScreenWork {
+	if s.SelectedWorkID != "" {
 		return len(s.Detail.History)
 	}
 	if len(s.Candidates) > 0 {
@@ -572,132 +582,251 @@ func (m *Model) View() tea.View {
 // Render uses the last explicit projection and local interaction state.
 func (m *Model) Render() string {
 	snapshot := m.snapshot
-	m.keys.Search.SetEnabled(snapshot.Screen != launcher.ScreenPortfolio)
-	m.keys.Filter.SetEnabled(snapshot.Screen != launcher.ScreenWork)
-	m.keys.Section.SetEnabled(snapshot.Screen != launcher.ScreenPortfolio)
-	m.keys.Launch.SetEnabled(snapshot.Screen != launcher.ScreenPortfolio)
+	m.keys.Search.SetEnabled(snapshot.AmbientProduct != "")
+	m.keys.Filter.SetEnabled(snapshot.SelectedWorkID == "")
+	m.keys.Section.SetEnabled(snapshot.AmbientProduct != "")
+	m.keys.Launch.SetEnabled(snapshot.AmbientProduct != "")
 
-	content := m.renderContent(snapshot)
+	// The header carries the C14 freshness meaning: which Product answered, at
+	// which watermark, and how old that answer is.
 	header := "CONCORD LAUNCHER"
 	if snapshot.AmbientProduct != "" {
-		header += " | PRODUCT: " + snapshot.AmbientProduct
+		header += " | PRODUCT: " + truncateDisplay(snapshot.AmbientProduct, 24)
 	}
+	header += " | WATERMARK: " + watermarkValue(snapshot.Watermark) + " | AGE: " + watermarkValue(snapshot.ObservedAt)
 	status := "COVERAGE: " + coverageValue(snapshot.Coverage)
-	if snapshot.StatusMessage != "" {
-		status = "STATUS: " + snapshot.StatusMessage
+	// Coverage and reliance are C14 meaning and must stay on screen, so they
+	// ride the status bar rather than a pane that can scroll them out of view.
+	if snapshot.Reliance != "" {
+		status += " | RELIANCE: " + snapshot.Reliance
 	}
+	// Coverage and reliance need more room than the focus label, so the status
+	// bar gives the focus a third and the read state the rest.
+	focusWidth := max(1, m.width/3)
 	statusBar := lipgloss.JoinHorizontal(lipgloss.Top,
-		fixedLine("FOCUS: "+focusText(snapshot), m.width/2),
-		fixedLine(status, m.width-m.width/2),
+		fixedLine("FOCUS: "+focusText(snapshot), focusWidth),
+		fixedLine(status, m.width-focusWidth),
 	)
 	footer := m.help.View(m.keys)
 	if m.showHelp {
 		footer = "HELP: " + footer
 	}
-	return fixedFrame(
-		lipgloss.JoinVertical(lipgloss.Left,
-			fixedLine(header, m.width),
-			statusBar,
-			pane(content, m.width, max(1, m.height-3)),
-			fixedLine(footer, m.width),
-		), m.width, m.height)
+	// A read that reports a condition gets a full-width line. A pane column is
+	// too narrow to carry the sentence without breaking it.
+	rows := []string{}
+	chrome := 3
+	if snapshot.StatusMessage != "" {
+		rows = append(rows, fixedLine("STATUS: "+snapshot.StatusMessage, m.width))
+		chrome = 4
+	}
+	body := []string{fixedLine(header, m.width), statusBar}
+	body = append(body, rows...)
+	body = append(body, m.paneLayout(snapshot, m.width, max(1, m.height-chrome)), fixedLine(footer, m.width))
+	return fixedFrame(lipgloss.JoinVertical(lipgloss.Left, body...), m.width, m.height)
 }
 
-func (m *Model) renderContent(snapshot launcher.Snapshot) string {
-	if len(snapshot.Candidates) > 0 {
-		return m.renderCandidates(snapshot)
-	}
-	if snapshot.Screen == launcher.ScreenProduct {
-		return m.renderS2(m.projection.Header)
-	}
-	if snapshot.Screen == launcher.ScreenWork {
-		return m.renderS3(m.projection.Header)
-	}
-	return m.renderPortfolio(snapshot)
+// paneLayout draws the three launcher panes. Each pane owns one data role.
+// The work pane lists what the operator can select, the context pane explains
+// the Product that work sits in, and the preview pane details the selection.
+// The layout is unconditional and every pane states its own empty case, so a
+// pane never disappears and no pane repeats another pane's content.
+func (m *Model) paneLayout(snapshot launcher.Snapshot, width, height int) string {
+	return fixedPanes([]string{
+		strings.Join(m.workPaneLines(snapshot), "\n"),
+		strings.Join(m.contextPaneLines(snapshot), "\n"),
+		strings.Join(m.previewPaneLines(snapshot), "\n"),
+	}, width, height)
 }
 
-func (m *Model) renderPortfolio(snapshot launcher.Snapshot) string {
-	projection := m.projection
-	rows := snapshot.Rows
-	widths := columnWidths(m.width)
-	lines := []string{strings.Join(projection.Header, " | ")}
-	lines = append(lines, probeLines(snapshot.Probes)...)
+// workPaneLines lists the selectable items. Work candidates, ranked Product
+// work, and portfolio rows are three answers to one question, so each appears
+// when its read supplied it.
+func (m *Model) workPaneLines(snapshot launcher.Snapshot) []string {
+	head := []string{"WORK"}
 	if m.filterMode {
-		lines = append(lines, m.input.View())
+		head = append(head, m.input.View())
 	} else if m.filterValue != "" {
-		hidden := len(snapshot.Rows) - len(rows)
-		lines = append(lines, "FILTERED: "+m.filterValue+" (hidden: "+fmtInt(hidden)+")")
+		head = append(head, "FILTERED: "+m.filterValue)
 	}
-	if len(snapshot.Rows) == 0 && snapshot.Coverage == "first_run" {
-		lines = append(lines, "FIRST RUN: no database; initialize through the operator setup")
-	} else if len(snapshot.Rows) == 0 && snapshot.Coverage == "authoritative" {
-		lines = append(lines, "PORTFOLIO: authoritative-empty")
-	} else if snapshot.StatusMessage != "" {
-		lines = append(lines, "STATUS: "+snapshot.StatusMessage)
-	}
-	lines = append(lines, strings.Join(projection.Columns, "  "))
-	for _, row := range rows {
-		values := []string{row.Name + row.NameSuffix, row.Stage, relianceText(row), actionText(row), row.Focus}
-		parts := make([][]string, len(values))
-		multiline := false
-		for i, value := range values {
-			parts[i] = splitDisplay(value, widths[i])
-			if len(parts[i]) > 1 {
-				multiline = true
-			}
-		}
-		if !multiline {
-			lines = append(lines, strings.Join(values, " | "))
+	body := []string{}
+	for _, candidate := range launcher.FilterCandidates(snapshot.Candidates, m.filterValue) {
+		if candidate.Kind != launcher.CandidateWork {
 			continue
 		}
-		for _, valueParts := range parts {
-			lines = append(lines, valueParts...)
-		}
+		body = append(body, candidate.ID+" "+candidate.Name+" "+candidateLiveness(candidate))
 	}
-	if m.showHelp {
-		lines = append(lines, helpLines("HELP: "+m.help.View(m.keys), m.width)...)
-	} else {
-		lines = append(lines, helpLines(m.help.View(m.keys), m.width)...)
+	// Present ranked work always lists. The read marker only decides whether an
+	// empty list is an authoritative answer or absent data.
+	if snapshot.RankedWorkRead || len(snapshot.Ranked) > 0 {
+		body = append(body, rankedLines(filterRanked(snapshot.Ranked, m.filterValue), snapshot)...)
 	}
-	return strings.Join(lines, "\n")
+	for _, row := range m.filteredRows() {
+		body = append(body, row.Name+row.NameSuffix+" | "+row.Stage+" | "+relianceText(row)+" | "+actionText(row)+" | "+row.Focus)
+	}
+	if len(body) == 0 {
+		body = append(body, workEmptyText(snapshot))
+	}
+	return append(head, body...)
 }
 
-func (m *Model) renderS2(headers []string) string {
-	lines := append([]string{}, headers...)
-	s := m.snapshot
-	lines = append(lines, probeLines(s.Probes)...)
-	stack := s.S2AnswerStack()
-	lines = append(lines, "S2 PRODUCT COORDINATION")
-	if s.StatusMessage != "" {
-		lines = append(lines, "STATUS: "+s.StatusMessage)
+// workEmptyText names why the work pane is empty, because a blank pane and an
+// authoritative-empty answer are different facts.
+func workEmptyText(snapshot launcher.Snapshot) string {
+	if snapshot.FirstRun {
+		return "FIRST RUN: no database; initialize through the operator setup"
 	}
-	if m.filterMode {
-		lines = append(lines, m.input.View())
-	} else if m.filterValue != "" {
-		lines = append(lines, "FILTERED: "+m.filterValue+" (hidden: "+fmtInt(len(s.Ranked)-len(m.filteredRanked()))+")")
+	if snapshot.Coverage != "" && snapshot.Coverage != "authoritative" {
+		return "unavailable: " + coverageValue(snapshot.Coverage)
 	}
-	for _, panel := range stack.Panels {
-		focused := s.PanelFocus == panel || (s.PanelFocus == "" && panel == launcher.S2PanelDomain)
-		lines = append(lines, s2PanelLines(panel, focused, stack, s, filterRanked(s.Ranked, m.filterValue))...)
+	return "authoritative-empty"
+}
+
+// contextPaneLines explains the Product the work sits in.
+func (m *Model) contextPaneLines(snapshot launcher.Snapshot) []string {
+	body := []string{}
+	if snapshot.AmbientProduct != "" {
+		body = append(body, "PRODUCT: "+snapshot.AmbientProduct)
 	}
-	if s.QueryResult {
-		lines = append(lines, "KNOWLEDGE WATERMARK: "+s.Knowledge.Watermark+" STATE: "+s.Knowledge.State)
-	}
-	if s.QueryResult && len(s.Knowledge.Items) > 0 {
-		lines = append(lines, "KNOWLEDGE MATCHES:")
-		for _, item := range s.Knowledge.Items {
-			lines = append(lines, "  "+item.Kind+" "+item.ID+" "+item.Title)
+	for _, candidate := range launcher.FilterCandidates(snapshot.Candidates, m.filterValue) {
+		if candidate.Kind == launcher.CandidateProduct {
+			body = append(body, "PRODUCT ITEM: "+candidate.ID+" "+candidate.Name)
 		}
 	}
-	if s.QueryResult {
-		lines = append(lines, "QUERY RESULT: "+s.QuerySubmitted+" (Esc restores prior view)")
+	// The CD-0041 answer stack explains the Product: which domain it sits in,
+	// what blocks it, and what comes next. The work pane already lists the
+	// ranked work, so the blocked and next panels stay summaries here.
+	if hasAnswerStack(snapshot) {
+		stack := snapshot.S2AnswerStack()
+		for _, panel := range stack.Panels {
+			expanded := panel == launcher.S2PanelDomain && focusedPanel(snapshot) == launcher.S2PanelDomain
+			body = append(body, s2PanelLines(panel, expanded, stack, snapshot, filterRanked(snapshot.Ranked, m.filterValue))...)
+		}
+	}
+	if snapshot.Knowledge.Read {
+		body = append(body, knowledgeLines(snapshot.Knowledge)...)
+	}
+	if len(snapshot.Relations.Edges) > 0 || snapshot.Relations.Unavailable != "" {
+		body = append(body, relationLines(snapshot.Relations)...)
+	}
+	if len(snapshot.Probes) > 0 {
+		body = append(body, "PROBES")
+		body = append(body, probeLines(snapshot.Probes)...)
+	}
+	if len(body) == 0 {
+		body = append(body, "no Product selected")
+	}
+	return append([]string{"CONTEXT"}, body...)
+}
+
+// previewPaneLines details the selected item alone. The header already carries
+// the Product metadata and the footer already carries the keys, so neither is
+// repeated here.
+func (m *Model) previewPaneLines(snapshot launcher.Snapshot) []string {
+	body := []string{}
+	values := launcher.FilterCandidates(snapshot.Candidates, m.filterValue)
+	if len(values) > 0 && m.cursor >= 0 && m.cursor < len(values) {
+		body = append(body, candidatePreviewLines(values[m.cursor])...)
+	}
+	if snapshot.Detail.Item.ID != "" {
+		body = append(body, workDetailLines(snapshot)...)
+	}
+	if snapshot.QueryResult {
+		body = append(body, "QUERY RESULT: "+snapshot.QuerySubmitted+" (Esc restores prior view)")
+		for _, item := range snapshot.Ranked {
+			body = append(body, "WORK MATCH: "+item.ID+" "+item.Title+" lifecycle="+item.Lifecycle)
+		}
+		body = append(body, "KNOWLEDGE WATERMARK: "+snapshot.Knowledge.Watermark+" STATE: "+snapshot.Knowledge.State)
+		body = append(body, knowledgeLines(snapshot.Knowledge)...)
 	}
 	if m.showHelp {
-		lines = append(lines, helpLines("HELP: "+m.help.View(m.keys), m.width)...)
-	} else {
-		lines = append(lines, helpLines(m.help.View(m.keys), m.width)...)
+		body = append(body, "HELP: "+m.help.View(m.keys))
 	}
-	return strings.Join(wrapHeaders(lines, m.width), "\n")
+	if len(body) == 0 {
+		body = append(body, "no selection")
+	}
+	return append([]string{"PREVIEW"}, body...)
+}
+
+// workDetailLines describes one work item and the section the operator opened.
+func workDetailLines(s launcher.Snapshot) []string {
+	d := s.Detail
+	urgency := d.Item.Urgency
+	if urgency == "" {
+		urgency = "standard"
+	}
+	lines := []string{
+		"WORK: " + d.Item.ID + " " + d.Item.Title,
+		"LIFECYCLE: " + d.Item.Lifecycle + " PRIORITY: " + fmtInt64(d.Item.Priority) + " URGENCY: " + urgency,
+		"SECTION: " + string(s.Section),
+		"PROJECTS: " + strings.Join(d.Projects, ", "),
+		"WORKFLOW: " + d.Workflow,
+	}
+	if d.Item.Blocked {
+		for _, b := range d.Item.Blockers {
+			lines = append(lines, "BLOCKER: "+b.ID+" "+b.Title+" authority="+b.Authority+" age="+b.Age)
+		}
+	} else {
+		lines = append(lines, "BLOCKED: no")
+	}
+	switch s.Section {
+	case launcher.SectionKnowledge:
+		lines = append(lines, knowledgeLines(d.Knowledge)...)
+	case launcher.SectionRelations:
+		for _, e := range d.Edges {
+			lines = append(lines, "EDGE "+e.Kind+": "+e.Source+" -> "+e.Target)
+		}
+	case launcher.SectionRanked:
+		for _, h := range d.History {
+			lines = append(lines, "HISTORY: "+h)
+		}
+	}
+	return lines
+}
+
+// truncateDisplay caps a header field so a long value cannot push the fields
+// after it off the line.
+func truncateDisplay(value string, limit int) string {
+	parts := splitDisplay(value, limit)
+	if len(parts) == 0 {
+		return value
+	}
+	if len(parts) == 1 {
+		return parts[0]
+	}
+	return parts[0] + "…"
+}
+
+// watermarkValue names a freshness field, or states that it is unknown.
+func watermarkValue(value string) string {
+	if value == "" {
+		return "unknown"
+	}
+	return value
+}
+
+// hasAnswerStack reports whether a read supplied the Product answer stack.
+func hasAnswerStack(snapshot launcher.Snapshot) bool {
+	return snapshot.RankedWorkRead || snapshot.Domains.Read
+}
+
+// focusedPanel names the answer-stack panel that holds focus, defaulting to
+// the domain panel when no read has set one.
+func focusedPanel(snapshot launcher.Snapshot) launcher.S2Panel {
+	if snapshot.PanelFocus == "" {
+		return launcher.S2PanelDomain
+	}
+	return snapshot.PanelFocus
+}
+
+// candidateLiveness states whether a candidate has a live session.
+func candidateLiveness(candidate launcher.Candidate) string {
+	if candidate.SessionState != "" {
+		return candidate.SessionState
+	}
+	if candidate.Live > 0 {
+		return "live"
+	}
+	return "idle"
 }
 
 func s2PanelLines(panel launcher.S2Panel, expanded bool, stack launcher.S2AnswerStack, snapshot launcher.Snapshot, ranked []launcher.RankedWork) []string {
@@ -844,66 +973,6 @@ func rankedLines(ranked []launcher.RankedWork, snapshot launcher.Snapshot) []str
 	return lines
 }
 
-func (m *Model) renderS3(headers []string) string {
-	lines := append([]string{}, headers...)
-	s := m.snapshot
-	lines = append(lines, probeLines(s.Probes)...)
-	if s.QueryResult {
-		lines = append(lines, "S3 WORK SEARCH", "QUERY RESULT: "+s.QuerySubmitted+" (Esc restores prior view)")
-		for _, item := range s.Ranked {
-			lines = append(lines, "WORK MATCH: "+item.ID+" "+item.Title+" lifecycle="+item.Lifecycle)
-		}
-		lines = append(lines, "KNOWLEDGE WATERMARK: "+s.Knowledge.Watermark+" STATE: "+s.Knowledge.State)
-		lines = append(lines, knowledgeLines(s.Knowledge)...)
-		if m.showHelp {
-			lines = append(lines, helpLines("HELP: "+m.help.View(m.keys), m.width)...)
-		} else {
-			lines = append(lines, helpLines(m.help.View(m.keys), m.width)...)
-		}
-		return strings.Join(wrapHeaders(lines, m.width), "\n")
-	}
-	d := s.Detail
-	urgency := d.Item.Urgency
-	if urgency == "" {
-		urgency = "standard"
-	}
-	lines = append(lines, "S3 WORK DETAIL", "WORK: "+d.Item.ID+" "+d.Item.Title, "LIFECYCLE: "+d.Item.Lifecycle+" PRIORITY: "+fmtInt64(d.Item.Priority)+" URGENCY: "+urgency, "SECTION: "+string(s.Section), "PROJECTS: "+strings.Join(d.Projects, ", "), "WORKFLOW: "+d.Workflow)
-	if s.StatusMessage != "" {
-		lines = append(lines, "STATUS: "+s.StatusMessage)
-	}
-	if d.Item.Blocked {
-		for _, b := range d.Item.Blockers {
-			lines = append(lines, "BLOCKER: "+b.ID+" "+b.Title+" authority="+b.Authority+" age="+b.Age)
-		}
-	} else {
-		lines = append(lines, "BLOCKED: no")
-	}
-	switch s.Section {
-	case launcher.SectionKnowledge:
-		lines = append(lines, knowledgeLines(s.Knowledge)...)
-	case launcher.SectionRelations:
-		for _, e := range d.Edges {
-			lines = append(lines, "EDGE "+e.Kind+": "+e.Source+" -> "+e.Target)
-		}
-	case launcher.SectionRanked:
-		for _, h := range d.History {
-			lines = append(lines, "HISTORY: "+h)
-		}
-	}
-	if s.QueryResult && len(s.Knowledge.Items) > 0 {
-		lines = append(lines, "KNOWLEDGE MATCHES:")
-		for _, item := range s.Knowledge.Items {
-			lines = append(lines, "  "+item.Kind+" "+item.ID+" "+item.Title)
-		}
-	}
-	if m.showHelp {
-		lines = append(lines, helpLines("HELP: "+m.help.View(m.keys), m.width)...)
-	} else {
-		lines = append(lines, helpLines(m.help.View(m.keys), m.width)...)
-	}
-	return strings.Join(wrapHeaders(lines, m.width), "\n")
-}
-
 func domainLines(section launcher.DomainSection) []string {
 	if !section.Read {
 		return []string{"DOMAINS: unavailable: not_read"}
@@ -1036,7 +1105,7 @@ var executablePath = os.Executable
 type sessionLaunchError struct{ err error }
 
 func defaultSessionLauncher(handoff launcher.SessionHandoff) tea.Cmd {
-	cmd, err := sessionProcess(handoff)
+	cmd, err := tabSessionProcess(handoff)
 	if err != nil {
 		return func() tea.Msg { return sessionLaunchError{err: err} }
 	}
@@ -1047,6 +1116,52 @@ func defaultSessionLauncher(handoff launcher.SessionHandoff) tea.Cmd {
 		return nil
 	})
 }
+
+func tabSessionProcess(handoff launcher.SessionHandoff) (*exec.Cmd, error) {
+	if handoff.WorkID == "" && handoff.ProjectPath == "" {
+		return sessionProcess(handoff)
+	}
+	hostTool := "ze" + "llij"
+	if _, err := executableLookup(hostTool); err != nil {
+		return nil, fmt.Errorf("cannot identify the host tab manager: %w", err)
+	}
+	name := handoff.WorkID
+	if name == "" {
+		name = handoff.ProductID
+	}
+	if name == "" {
+		name = filepath.Base(handoff.ProjectPath)
+	}
+	if handoff.Posture != "" {
+		name += " [" + handoff.Posture + "]"
+	}
+	query := exec.Command(hostTool, "action", "query-tab-names") //nolint:gosec // executable and arguments are fixed.
+	output, err := query.Output()
+	if err == nil {
+		for _, line := range strings.Split(string(output), "\n") {
+			if strings.TrimSpace(line) == name {
+				return exec.Command(hostTool, "action", "go-to-tab-name", name), nil //nolint:gosec // executable and arguments are fixed.
+			}
+		}
+	}
+	bootstrap, err := sessionProcess(handoff)
+	if err != nil {
+		return nil, err
+	}
+	args := []string{"action", "new-tab", "--name", name}
+	if handoff.Worktree != "" {
+		args = append(args, "--cwd", handoff.Worktree)
+	} else if handoff.ProjectPath != "" {
+		args = append(args, "--cwd", handoff.ProjectPath)
+	}
+	args = append(args, "--")
+	args = append(args, bootstrap.Args...)
+	cmd := exec.Command(hostTool, args...) //nolint:gosec // executable and arguments are fixed or identity values.
+	cmd.Env = bootstrap.Env
+	return cmd, nil
+}
+
+var executableLookup = exec.LookPath
 
 func sessionProcess(handoff launcher.SessionHandoff) (*exec.Cmd, error) {
 	executable, err := executablePath()
@@ -1065,9 +1180,9 @@ func SessionCommand(handoff launcher.SessionHandoff) (*exec.Cmd, error) {
 }
 
 func handoffEnv(handoff launcher.SessionHandoff) []string {
-	env := make([]string, 0, len(os.Environ())+4)
+	env := make([]string, 0, len(os.Environ())+7)
 	for _, value := range os.Environ() {
-		if strings.HasPrefix(value, "CONCORD_SELECTED_PRODUCT_ID=") || strings.HasPrefix(value, "CONCORD_SELECTED_WORK_ID=") || strings.HasPrefix(value, "CONCORD_SELECTED_PROMPT=") || strings.HasPrefix(value, "CONCORD_SELECTED_PROJECT_PATH=") {
+		if strings.HasPrefix(value, "CONCORD_SELECTED_PRODUCT_ID=") || strings.HasPrefix(value, "CONCORD_SELECTED_WORK_ID=") || strings.HasPrefix(value, "CONCORD_SELECTED_PROMPT=") || strings.HasPrefix(value, "CONCORD_SELECTED_PROJECT_PATH=") || strings.HasPrefix(value, "CONCORD_SELECTED_WORKTREE=") || strings.HasPrefix(value, "CONCORD_SELECTED_WORKFLOW_STEP=") || strings.HasPrefix(value, "CONCORD_SELECTED_POSTURE=") {
 			continue
 		}
 		env = append(env, value)
@@ -1082,6 +1197,15 @@ func handoffEnv(handoff launcher.SessionHandoff) []string {
 	}
 	if handoff.Prompt != "" {
 		env = append(env, "CONCORD_SELECTED_PROMPT="+handoff.Prompt)
+	}
+	if handoff.Worktree != "" {
+		env = append(env, "CONCORD_SELECTED_WORKTREE="+handoff.Worktree)
+	}
+	if handoff.WorkflowStep != "" {
+		env = append(env, "CONCORD_SELECTED_WORKFLOW_STEP="+handoff.WorkflowStep)
+	}
+	if handoff.Posture != "" {
+		env = append(env, "CONCORD_SELECTED_POSTURE="+handoff.Posture)
 	}
 	return env
 }
@@ -1151,51 +1275,39 @@ func max(a, b int) int {
 	return b
 }
 
-func (m *Model) renderCandidates(snapshot launcher.Snapshot) string {
-	lines := []string{"CANDIDATES", "STATUS: " + snapshot.Coverage}
-	if snapshot.StatusMessage != "" {
-		lines = append(lines, "MESSAGE: "+snapshot.StatusMessage)
+func candidateLine(index int, candidate launcher.Candidate) string {
+	marker := " "
+	if candidate.Pinned {
+		marker = "*"
 	}
-	lines = append(lines, probeLines(snapshot.Probes)...)
-	values := launcher.FilterCandidates(snapshot.Candidates, m.filterValue)
-	if m.cursor >= 0 && m.cursor < len(values) {
-		lines = append(lines, candidatePreviewLines(values[m.cursor])...)
+	available := "unavailable"
+	if candidate.Available {
+		available = "available"
 	}
-	for i, candidate := range values {
-		marker := " "
-		if candidate.Pinned {
-			marker = "*"
+	name := candidate.Name
+	if candidate.Path != "" {
+		name += " " + candidate.Path
+	}
+	state := candidate.State
+	if state == "" {
+		state = available
+	}
+	blocked := ""
+	if candidate.Blocked {
+		blocked = " blocked=true"
+	}
+	liveness := candidate.SessionState
+	if liveness == "" {
+		liveness = "idle"
+		if candidate.Live > 0 {
+			liveness = "live"
 		}
-		available := "unavailable"
-		if candidate.Available {
-			available = "available"
-		}
-		name := candidate.Name
-		if candidate.Path != "" {
-			name += " " + candidate.Path
-		}
-		state := candidate.State
-		if state == "" {
-			state = available
-		}
-		blocked := ""
-		if candidate.Blocked {
-			blocked = " blocked=true"
-		}
-		lines = append(lines, fmtInt(i+1)+" "+marker+" "+string(candidate.Kind)+" "+name+" state="+state+blocked+" live="+fmtInt(candidate.Live))
 	}
-	if len(values) == 0 {
-		lines = append(lines, "CANDIDATES: authoritative-empty")
+	step := ""
+	if candidate.WorkflowStep != "" {
+		step = " step=" + candidate.WorkflowStep
 	}
-	if m.filterMode {
-		lines = append(lines, m.input.View())
-	}
-	if m.showHelp {
-		lines = append(lines, helpLines("HELP: "+m.help.View(m.keys), m.width)...)
-	} else {
-		lines = append(lines, helpLines(m.help.View(m.keys), m.width)...)
-	}
-	return strings.Join(wrapHeaders(lines, m.width), "\n")
+	return fmtInt(index) + " " + marker + " " + string(candidate.Kind) + " " + name + " state=" + state + blocked + " session=" + liveness + step
 }
 
 func filterRanked(values []launcher.RankedWork, query string) []launcher.RankedWork {
@@ -1251,6 +1363,29 @@ func pane(content string, width, height int) string {
 		Height(height).
 		Border(lipgloss.RoundedBorder()).
 		Render(strings.Join(wrapped, "\n"))
+}
+
+func fixedPanes(contents []string, width, height int) string {
+	width = max(3, width)
+	height = max(3, height)
+	if len(contents) == 0 {
+		return fixedBlock("", width, height)
+	}
+	gap := len(contents) - 1
+	usable := max(len(contents), width-gap)
+	base := usable / len(contents)
+	widths := make([]int, len(contents))
+	for i := range widths {
+		widths[i] = base
+		if i < usable%len(contents) {
+			widths[i]++
+		}
+	}
+	panes := make([]string, len(contents))
+	for i, content := range contents {
+		panes[i] = pane(content, widths[i], height)
+	}
+	return lipgloss.JoinHorizontal(lipgloss.Top, panes...)
 }
 
 func wrapPaneLine(line string, width int) []string {
@@ -1335,7 +1470,14 @@ func candidatePreviewLines(candidate launcher.Candidate) []string {
 			state = "available"
 		}
 	}
-	lines = append(lines, "STATE: "+state, "BLOCKED: "+fmtBool(candidate.Blocked), "LIVE SESSIONS: "+fmtInt(candidate.Live))
+	liveness := "idle"
+	if candidate.Live > 0 {
+		liveness = "live"
+	}
+	if candidate.SessionState != "" {
+		liveness = candidate.SessionState
+	}
+	lines = append(lines, "STATE: "+state, "BLOCKED: "+fmtBool(candidate.Blocked), "SESSION: "+liveness, "LIVE SESSIONS: "+fmtInt(candidate.Live), "WORKFLOW STEP: "+candidate.WorkflowStep)
 	return lines
 }
 

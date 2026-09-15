@@ -1291,7 +1291,7 @@ func requireResearchForPendingQuestions(ctx context.Context, q queryer, workID s
 	if bound != 0 {
 		return nil
 	}
-	return newFailure(KindMissingEvidence, "workflow_action", "contract approval requires a research pack revision for recorded pending questions", false, "bind a research pack revision to the work item before approving the contract")
+	return newFailure(KindMissingEvidence, "workflow_action", "contract approval requires a research pack revision for recorded pending questions", false, "add research_bindings to the approving action to bind a research pack revision to the work item before approving the contract")
 }
 
 func defaultWorkflowOutcome(definition WorkflowDefinition, fields map[string]json.RawMessage) json.RawMessage {

@@ -55,6 +55,8 @@ func TestPendingQuestionsRequireBoundResearchRevision(t *testing.T) {
 		var failure *Failure
 		if !errors.As(err, &failure) || failure.Kind != KindMissingEvidence {
 			t.Fatalf("pending-question refusal=%v, want missing evidence", err)
+		} else if !strings.Contains(failure.RecoveryAction, "research_bindings") || !strings.Contains(failure.RecoveryAction, "approving action") {
+			t.Fatalf("pending-question recovery=%q, want research_bindings on the approving action", failure.RecoveryAction)
 		}
 	}
 

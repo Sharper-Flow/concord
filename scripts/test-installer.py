@@ -1455,9 +1455,9 @@ class ResolveLatestVersionTest(unittest.TestCase):
             "https://github.com/Sharper-Flow/concord/releases/download/v9.9.9",
         )
 
-    def test_unpinned_download_base_stays_on_the_latest_endpoint(self) -> None:
-        base_url = "https://github.com/Sharper-Flow/concord/releases/latest/download"
-        self.assertEqual(installer.release_download_base_url(base_url, None), base_url)
+    def test_non_release_download_base_stays_unchanged(self) -> None:
+        base_url = "https://downloads.example.test/concord"
+        self.assertEqual(installer.release_download_base_url(base_url, "v9.9.9"), base_url)
 
     def test_download_base_follows_the_latest_redirect_to_its_tag(self) -> None:
         class Response:

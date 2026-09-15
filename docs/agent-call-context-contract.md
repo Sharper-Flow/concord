@@ -131,12 +131,17 @@ delegated automation principal comes from that record. `principal_ref` in the
 envelope is optional corroboration: when present it must equal the client's
 principal, and a mismatch is refused.
 
-Capability classes and allowed Product/Project scope come from the registered
+Capability classes and the allowed Product scope come from the registered
 client policy. The core resolves `directory` and `worktree` to a Project and
-reads the current scope version. It authorizes the intersection of that policy
-and the resolved scope. Tool input cannot name or impersonate a principal,
-widen scope, or add capabilities. `manifest_digest` must equal the core's
-generated manifest digest, so a stale or forged surface is refused.
+reads the current scope version. The policy Project list bounds which Project a
+session may resolve from. It authorizes the Products in that policy that own the
+resolved Project. Project authority then follows current Product membership, and
+holds every Project in the selected Product. The resolved Project selects the
+Product and does not limit authority to that Project (CD-0152 D1).
+
+Tool input cannot name or impersonate a principal, widen scope, or add
+capabilities. `manifest_digest` must equal the core's generated manifest digest,
+so a stale or forged surface is refused.
 
 `client_ref` identifies the calling integration for audit and is not
 independent authority. The registered client key is never exposed to the model,

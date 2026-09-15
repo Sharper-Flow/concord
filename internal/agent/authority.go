@@ -406,6 +406,28 @@ func (s *Service) authorizeResolved(ctx context.Context, tx *store.Transaction, 
 		return Authority{}, authorityRefusal("project outside resolved scope")
 	}
 	projects := []string{resolved.ProjectID}
+	product := in.ProductID
+	if product == "" && len(candidateProducts) == 1 {
+		product = candidateProducts[0]
+	}
+	// The ambient repository selects the Product. Current Product membership,
+	// not the repository locator allowlist, owns its Project authority.
+	if product != "" {
+		var memberships []store.ProjectMembership
+		if tx == nil {
+			memberships, err = s.Store.ProjectsForProduct(ctx, product)
+		} else {
+			memberships, err = store.ProjectsForProductTx(ctx, tx, product)
+		}
+		if err != nil {
+			return Authority{}, err
+		}
+		projects = nil
+		for _, membership := range memberships {
+			projects = append(projects, membership.ID)
+		}
+		projects = normalizeStrings(projects)
+	}
 	snapshot := map[string]any{"project_id": resolved.ProjectID, "product_ids": candidateProducts, "scope_version": scopeVersion}
 	return Authority{PrincipalRef: client.PrincipalRef, ClientRef: client.ClientRef, SessionRef: in.SessionRef, AgentRef: in.AgentRef, Directory: in.Directory, Worktree: in.Worktree, ManifestDigest: ManifestDigest, Capabilities: capabilityValues(normalizeStrings(policyCaps)), ProductScope: candidateProducts, ProjectScope: projects, ScopeVersion: scopeVersion, CandidateProducts: candidateProducts, ScopeSnapshot: snapshot, MainWorktree: resolved.MainWorktree}, nil
 }
@@ -667,6 +689,10 @@ func (s *Service) CreateApprovalFromChallengeTx(ctx context.Context, tx *store.T
 	_, challengeExpired := expiryPassed(challenge.ExpiresAt, s.now())
 	if challenge.Status != "active" || challenge.UsedCount >= challenge.MaxUses || challenge.HostAssertionDigest != in.HostAssertionDigest || challengeExpired {
 		return "", errors.New("approval challenge invalid")
+	}
+	var scope map[string]any
+	if json.Unmarshal([]byte(challenge.ScopeJSON), &scope) != nil || !validChallengeScope(scope) || !scopeWithinAuthority(scope, authority) {
+		return "", authorityRefusal("approval challenge exceeds current authorized scope")
 	}
 	if err := store.ConsumeApprovalChallengeTx(ctx, tx, challengeRef, identity, s.now().Format(time.RFC3339Nano)); err != nil {
 		return "", errors.New("approval challenge consumption lost race")

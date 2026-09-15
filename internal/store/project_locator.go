@@ -75,9 +75,9 @@ type ProjectResolution struct {
 	MainWorktree bool
 }
 
-// ScopeVersion is a structural membership watermark. It changes only when the
-// sorted Product↔Project authority changes, not when unrelated events append or
-// when a repository moves on disk.
+// ScopeVersion covers every Project in the ambient Project's Products, so a
+// sibling membership change invalidates authority derived from those Products.
+// Unrelated events and repository moves do not change the watermark.
 func (s *Store) ScopeVersion(ctx context.Context, projectID string) (string, []string, error) {
 	return scopeVersion(ctx, s.db, projectID)
 }
@@ -91,24 +91,33 @@ func ScopeVersionTx(ctx context.Context, transaction *Transaction, projectID str
 }
 
 func scopeVersion(ctx context.Context, q queryer, projectID string) (string, []string, error) {
-	rows, err := q.QueryContext(ctx, `SELECT product_id,role FROM product_projects WHERE project_id=? ORDER BY product_id,role`, projectID)
+	rows, err := q.QueryContext(ctx, `SELECT product_id,project_id,role FROM product_projects
+		WHERE product_id IN (SELECT product_id FROM product_projects WHERE project_id=?)
+		ORDER BY product_id,project_id,role`, projectID)
 	if err != nil {
 		return "", nil, wrapFailure(KindUnavailable, "scope_version", "cannot read Product scope", true, "retry once the database is readable", err)
 	}
 	defer rows.Close()
-	var pairs, products []string
+	var memberships [][3]string
+	var products []string
 	for rows.Next() {
-		var product, role string
-		if err := rows.Scan(&product, &role); err != nil {
+		var product, project, role string
+		if err := rows.Scan(&product, &project, &role); err != nil {
 			return "", nil, err
 		}
-		pairs = append(pairs, product+"|"+role)
-		products = append(products, product)
+		memberships = append(memberships, [3]string{product, project, role})
+		if project == projectID {
+			products = append(products, product)
+		}
 	}
 	if err := rows.Err(); err != nil {
 		return "", nil, err
 	}
-	digest := sha256.Sum256([]byte(strings.Join(pairs, "\n")))
+	encoded, err := json.Marshal(memberships)
+	if err != nil {
+		return "", nil, err
+	}
+	digest := sha256.Sum256(encoded)
 	return "sha256:" + hex.EncodeToString(digest[:]), orderedStrings(products), nil
 }
 

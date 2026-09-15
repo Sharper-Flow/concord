@@ -1,5 +1,7 @@
 import { test, expect } from "bun:test"
 import { createHash, randomUUID } from "node:crypto"
+import fs from "node:fs"
+import path from "node:path"
 import { agentLanes } from "./generated-agent-lanes"
 import { completeWorkerAttempt, concordBinaryPath, configureCoreBinary, defaultExportRunner, dispatchWorker, MAX_EXPORT_BYTES, readExportSession, readExportSessionMetadata, readRunSessionMetadata, resolveCoreBinary, validateAgentLanePacket, type AgentLanePacket, type CanonicalLaneReport, type DispatchAuthorizer, type DispatchRunner } from "./dispatch"
 
@@ -152,6 +154,34 @@ test("an omitted or nonexistent worker directory refuses before authorization", 
     expect(result.error?.message).toMatch(/resolvable worker directory/)
     expect(authorizeCalls).toBe(0)
     expect(windows.has(SESSION)).toBe(false)
+  }
+})
+
+test("a worker directory retargeted during authorization is refused", async () => {
+  const root = fs.mkdtempSync(path.join(process.cwd(), "concord-dispatch-"))
+  const claimed = path.join(root, "claimed")
+  const other = path.join(root, "other")
+  const alias = path.join(root, "alias")
+  for (const directory of [claimed, other]) fs.mkdirSync(directory)
+  fs.symlinkSync(claimed, alias)
+  try {
+    const windows = new DispatchWindows()
+    const result = await dispatchWorker(packet(), {
+      authorize: async () => {
+        fs.unlinkSync(alias)
+        fs.symlinkSync(other, alias)
+        return coreOk()
+      },
+      packetDigest: PACKET_DIGEST,
+      sessionID: SESSION,
+      windows,
+      workerDirectory: alias,
+    })
+    expect(result.outcome).toBe("error")
+    expect(result.error?.message).toMatch(/does not match the active claimed worktree/i)
+    expect(windows.has(SESSION)).toBe(false)
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
   }
 })
 

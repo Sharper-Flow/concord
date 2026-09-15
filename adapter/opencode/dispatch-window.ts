@@ -54,15 +54,20 @@ export class DispatchWindows {
   readonly #inFlight = new Map<string, DispatchRecord>()
   readonly #settling = new Set<string>()
 
-  open(sessionID: string, packet: AgentLanePacket, packetDigest = "", workPins: unknown[] | undefined = undefined, workerDirectory?: string): void {
+  open(sessionID: string, packet: AgentLanePacket, packetDigest = "", workPins: unknown[] | undefined = undefined, workerDirectory?: string, pinnedWorkerDirectory?: string): void {
     if (this.#open.has(sessionID) || this.#inFlight.has(sessionID)) {
       throw new DispatchWindowError(`session ${sessionID} already holds an open dispatch window or an in-flight attempt`)
     }
-    // Store the resolved path, not the caller's alias. The claim identity must
-    // stay fixed if a symlink changes before the host invokes Task.
-    const canonicalWorkerDirectory = canonicalDirectory(workerDirectory)
+    // The dispatch path resolves the host-reported directory before
+    // authorization. Verify that the same caller path still resolves to that
+    // pinned identity after authorization, before the window can open.
+    const canonicalWorkerDirectory = pinnedWorkerDirectory ?? canonicalDirectory(workerDirectory)
     if (canonicalWorkerDirectory === null) {
       throw new DispatchWindowError("worker dispatch requires a non-empty, resolvable worker directory")
+    }
+    if (pinnedWorkerDirectory !== undefined) {
+      const mismatch = dispatchDirectoryMismatch(canonicalWorkerDirectory, workerDirectory)
+      if (mismatch) throw new DispatchWindowError(mismatch)
     }
     this.#open.set(sessionID, { packet, packetDigest, workPins, workerDirectory: canonicalWorkerDirectory })
   }
@@ -151,7 +156,7 @@ export class DispatchWindows {
 // for the calling session, not in the host process directory. Resolve both sides
 // before comparison so a symlink cannot make the host run a worker outside the
 // claimed worktree.
-function canonicalDirectory(value: unknown): string | null {
+export function canonicalDirectory(value: unknown): string | null {
   if (typeof value !== "string" || value.length === 0 || !path.isAbsolute(value)) return null
   try {
     const resolved = fs.realpathSync(value)

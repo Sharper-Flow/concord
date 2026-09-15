@@ -1214,7 +1214,8 @@ async function completeWorkerSession(
   const readbackRunner = options.readbackRunner ?? options.runner ?? defaultExportRunner
   // Resolve the worker's indexed directory at completion. The coordinator's
   // directory is not a worker claim and must never stand in for this value.
-  const indexedWorkerDirectory = await readWorkerSessionDirectory(readbackRunner, binary, workerSessionID, signal, null)
+  const earlyObservation = await readWorkerSessionObservation(readbackRunner, binary, workerSessionID, signal, null)
+  const indexedWorkerDirectory = earlyObservation.directory
   let exported: { exitCode: number; stdout: string; stderr: string }
   try { exported = await readbackRunner.run([binary, "export", workerSessionID, "--sanitize"], "", signal) } catch (error) {
     return errorEnvelope(lane, packet, "error", "error", String(error), "reconcile_operation")
@@ -1235,7 +1236,10 @@ async function completeWorkerSession(
     return failure
   }
   const readbackResult = readExportSession(exported.stdout, workerSessionID)
-  const workerDirectory = indexedWorkerDirectory ?? await readWorkerSessionDirectory(readbackRunner, binary, workerSessionID, signal, readSessionParent(exported.stdout, workerSessionID))
+  const workerObservation = indexedWorkerDirectory !== null
+    ? earlyObservation
+    : await readWorkerSessionObservation(readbackRunner, binary, workerSessionID, signal, readSessionParent(exported.stdout, workerSessionID))
+  const workerDirectory = workerObservation.directory
   if (workerDirectory === null) {
     return errorEnvelope(lane, packet, "error", "invalid_input", "worker session directory could not be resolved; refusing to record provenance for an unknown prompt corpus", "reconcile_operation")
   }
@@ -1277,7 +1281,6 @@ async function completeWorkerSession(
   const cliRunner = options.evidenceRunner ?? options.runner ?? defaultRunner
   const cli = concordBinaryPath(options.concordBinary)
   const credentials = options.credentials ?? defaultCredentials
-  const workerObservation = await readWorkerSessionObservation(readbackRunner, binary, workerSessionID, signal, readSessionParent(exported.stdout, workerSessionID))
   const provenance = await computeHostPromptProvenance(lane.id, workerDirectory)
 
   // CD-0056 D7: the adapter is the only component that sees worker output, so

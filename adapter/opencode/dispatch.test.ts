@@ -105,7 +105,8 @@ const workerBody = (carried: unknown = report()) =>
 // The completion path reads the worker session back and records evidence. It
 // never starts a process, so the runner answers `export` and nothing else.
 // Completion reads two host surfaces: the sanitized export for the executing
-// model, and the session index for the directory the export redacts.
+// model, and the session index for live-session evidence. The dispatch window
+// supplies the worker directory.
 const sessionIndex = (directory = "/claimed/worktree") => JSON.stringify([{ id: "session-1", directory }])
 
 const readbackRunner = (model = READBACK_MODEL, agent = "concord-research"): DispatchRunner => ({
@@ -123,7 +124,7 @@ const WORKER_DIRECTORY = process.cwd()
 type CompleteOptions = Parameters<typeof completeWorkerAttempt>[3]
 const acceptingEvidence = (): DispatchRunner => ({ async run() { return { exitCode: 0, stdout: "", stderr: "" } } })
 const complete = (body: string, options: Partial<CompleteOptions> = {}, dispatched: AgentLanePacket = packet()) =>
-  completeWorkerAttempt(lane, dispatched, body, { credentials: testCredentials, readbackRunner: readbackRunner(), evidenceRunner: acceptingEvidence(), packetDigest: PACKET_DIGEST, ...options }, SIGNAL)
+  completeWorkerAttempt(lane, dispatched, body, { credentials: testCredentials, readbackRunner: readbackRunner(), evidenceRunner: acceptingEvidence(), packetDigest: PACKET_DIGEST, workerDirectory: WORKER_DIRECTORY, ...options }, SIGNAL)
 
 test("packet validation is closed before any runner call", async () => {
   let calls = 0
@@ -217,9 +218,9 @@ test("completion obtains readback from a sanitized session export", async () => 
     evidenceRunner: { async run() { return { exitCode: 0, stdout: "", stderr: "" } } },
   })
   expect(result.outcome).toBe("ok")
-  expect(calls.map((argv) => argv.slice(0, 2))).toEqual([["opencode", "session"], ["opencode", "export"]])
-  expect(calls[0]).toEqual(["opencode", "session", "list", "--format", "json"])
-  expect(calls[1]).toEqual(["opencode", "export", "session-1", "--sanitize"])
+  expect(calls.map((argv) => argv.slice(0, 2))).toEqual([["opencode", "export"], ["opencode", "session"]])
+  expect(calls[0]).toEqual(["opencode", "export", "session-1", "--sanitize"])
+  expect(calls[1]).toEqual(["opencode", "session", "list", "--format", "json"])
 })
 
 test("readback accepts a large sanitized session export", () => {
@@ -500,7 +501,7 @@ test("host prompt provenance binds an absolute corpus glob file for file", async
   }
 })
 
-test("worker evidence uses the indexed worker directory for provenance", async () => {
+test("worker evidence uses the supplied worker directory for provenance", async () => {
   const parent = await mkdtemp(path.join(os.tmpdir(), "worker-provenance-"))
   const worker = `${parent}/worktree`
   const configDir = await mkdtemp(path.join(os.tmpdir(), "worker-provenance-config-"))
@@ -512,6 +513,7 @@ test("worker evidence uses the indexed worker directory for provenance", async (
     await Bun.write(`${worker}/worker-rules.md`, "# worker rules\n")
     let dispatchPayload: Record<string, unknown> | undefined
     const result = await complete(workerBody(), {
+      workerDirectory: worker,
       readbackRunner: {
         async run(argv) {
           if (argv[1] === "export") return { exitCode: 0, stdout: exportedSession(), stderr: "" }
@@ -1237,6 +1239,7 @@ test("TestDispatchWorkerCompletesWithExportLargerThanPipeBuffer", async () => {
       evidenceRunner: acceptingEvidence(),
       packetDigest: PACKET_DIGEST,
       binary,
+      workerDirectory: WORKER_DIRECTORY,
     }, SIGNAL)
   } finally {
     cleanup()

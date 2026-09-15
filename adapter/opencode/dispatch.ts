@@ -467,19 +467,8 @@ export function readExportSessionMetadata(stdout: string, expectedSessionID: str
 // The core compares the worker session's directory against the work item's
 // active worktree claim, so the value it receives must be a real path. The
 // session export runs with --sanitize, which replaces that directory with a
-// redaction placeholder. A placeholder is not a path and cannot resolve, so
-// the core refused every completion. The directory is read from the session
-// index instead, which holds the real path and no transcript content. A value
-// that is not an absolute path is reported as absent rather than sent, so a
-// redacted or relative value cannot reach the boundary again.
-// A worker runs as a subagent session, and the session index lists no subagent.
-// Resolving a worker identifier against the index therefore always yields
-// nothing, which the core reads as an unresolvable directory and refuses. The
-// sanitized export does resolve a subagent and carries its parentID, and a
-// subagent runs in its parent's directory, so the parent's indexed directory is
-// the worker's real directory. The value still comes from the host's own
-// session record rather than from the claim the core is checking, so a worker
-// whose parent sits outside the claimed worktree is still refused.
+// redaction placeholder. Worker completion receives the real directory from
+// the dispatch window. The session list remains a host-owned liveness source.
 export function readSessionDirectory(stdout: string, sessionID: string): string | null {
   const observed = readLiveSessionDirectories(stdout)
   return observed?.find((session) => session.session_ref === sessionID)?.directory ?? null
@@ -510,27 +499,25 @@ export function readLiveSessionDirectories(stdout: string): { session_ref: strin
   return observed
 }
 
-type WorkerSessionObservation = { directory: string | null; observed: { session_ref: string; directory: string }[] | null; unreadable: boolean }
+type WorkerSessionObservation = { observed: { session_ref: string; directory: string }[] | null; unreadable: boolean }
 
-async function readWorkerSessionObservation(runner: DispatchRunner, binary: string, sessionID: string, signal: AbortSignal, parentID: string | null): Promise<WorkerSessionObservation> {
+async function readWorkerSessionObservation(runner: DispatchRunner, binary: string, signal: AbortSignal): Promise<WorkerSessionObservation> {
   let listed: { exitCode: number; stdout: string; stderr: string }
-  try { listed = await runner.run([binary, "session", "list", "--format", "json"], "", signal) } catch { return { directory: null, observed: null, unreadable: true } }
-  if (listed.exitCode !== 0) return { directory: null, observed: null, unreadable: true }
+  try { listed = await runner.run([binary, "session", "list", "--format", "json"], "", signal) } catch { return { observed: null, unreadable: true } }
+  if (listed.exitCode !== 0) return { observed: null, unreadable: true }
   const observed = readLiveSessionDirectories(listed.stdout)
-  if (observed === null) return { directory: null, observed: null, unreadable: false }
-  const direct = observed.find((session) => session.session_ref === sessionID)?.directory ?? null
-  const directory = direct ?? (parentID === null ? null : observed.find((session) => session.session_ref === parentID)?.directory ?? null)
+  if (observed === null) return { observed: null, unreadable: false }
   // Production uses the host control-plane route that owns the liveness
   // observation. The CLI list remains the test and compatibility seam for
   // callers that do not run inside a bound plugin host.
   if (hostControlPlane().available()) {
     try {
-      return { directory, observed: await hostControlPlane().liveSessionDirectories(signal), unreadable: false }
+      return { observed: await hostControlPlane().liveSessionDirectories(signal), unreadable: false }
     } catch {
-      return { directory, observed: null, unreadable: true }
+      return { observed: null, unreadable: true }
     }
   }
-  return { directory, observed, unreadable: false }
+  return { observed, unreadable: false }
 }
 
 // readRunTextParts returns the model's message text in emission order. The host
@@ -771,7 +758,7 @@ async function recordWorkerEvent(childRunner: DispatchRunner, binary: string, co
 // waiting for a failure that was not written. The detail names the refusing
 // predicate and the export digest so the failure is diagnosable from the
 // store alone.
-async function recordModelReadbackFailure(lane: AgentLane, packet: AgentLanePacket, refusal: { predicate: ReadbackRefusal; export_digest: string; export_bytes: number; message: string }, workerDirectory: string | undefined, options: { runner?: DispatchRunner; evidenceRunner?: DispatchRunner; concordBinary?: string; credentials?: CredentialStore; packetDigest?: string }, signal: AbortSignal, onRecorded?: () => void): Promise<string | null> {
+async function recordModelReadbackFailure(lane: AgentLane, packet: AgentLanePacket, refusal: { predicate: ReadbackRefusal; export_digest: string; export_bytes: number; message: string }, workerDirectory: string, options: { runner?: DispatchRunner; evidenceRunner?: DispatchRunner; concordBinary?: string; credentials?: CredentialStore; packetDigest?: string }, signal: AbortSignal, onRecorded?: () => void): Promise<string | null> {
   if (!options.packetDigest) return "model readback failure cannot be recorded without the dispatch packet digest"
   const cliRunner = options.evidenceRunner ?? options.runner ?? defaultRunner
   const binary = concordBinaryPath(options.concordBinary)
@@ -1122,7 +1109,7 @@ export async function completeWorkerAttempt(
   lane: AgentLane,
   packet: AgentLanePacket,
   taskResult: string,
-  options: { signal?: AbortSignal; runner?: DispatchRunner; readbackRunner?: DispatchRunner; evidenceRunner?: DispatchRunner; binary?: string; concordBinary?: string; credentials?: CredentialStore; authorize?: DispatchAuthorizer; packetDigest?: string; workerDirectory?: string },
+  options: { signal?: AbortSignal; runner?: DispatchRunner; readbackRunner?: DispatchRunner; evidenceRunner?: DispatchRunner; binary?: string; concordBinary?: string; credentials?: CredentialStore; authorize?: DispatchAuthorizer; packetDigest?: string; workerDirectory: string },
   signal: AbortSignal,
 ): Promise<AgentResultEnvelope> {
   // The wrapper carries the worker session identifier, so a body that is not a
@@ -1136,7 +1123,7 @@ export async function completeWorkerAttempt(
 type WorkerCompletionOptions = Parameters<typeof completeWorkerAttempt>[3]
 
 // A terminal host tool event supplies failure and child identity, not a worker
-// report. Model, lane, and directory evidence still come from session export.
+// report. Model and lane evidence still come from the session export.
 export async function failWorkerAttempt(
   lane: AgentLane,
   packet: AgentLanePacket,
@@ -1157,7 +1144,7 @@ export async function abandonWorkerAttempt(
   lane: AgentLane,
   packet: Pick<AgentLanePacket, "work_id" | "attempt_id">,
   detail: string,
-  options: WorkerCompletionOptions & { abandonEventID?: string; abandonNonce?: string },
+  options: Omit<WorkerCompletionOptions, "workerDirectory"> & { abandonEventID?: string; abandonNonce?: string },
   signal: AbortSignal,
   onRecorded?: () => void,
 ): Promise<AgentResultEnvelope> {
@@ -1218,15 +1205,7 @@ async function completeWorkerSession(
 ): Promise<AgentResultEnvelope> {
   const binary = options.binary ?? "opencode"
   const readbackRunner = options.readbackRunner ?? options.runner ?? defaultExportRunner
-  let workerDirectory = options.workerDirectory
-  let workerObservation: WorkerSessionObservation | null = null
-  // Direct callers without a dispatch window have no forwarded directory. Keep
-  // their readback path compatible, while dispatched completion uses the
-  // window-owned value without a session-index lookup.
-  if (workerDirectory === undefined) {
-    workerObservation = await readWorkerSessionObservation(readbackRunner, binary, workerSessionID, signal, null)
-    workerDirectory = workerObservation.directory ?? undefined
-  }
+  const workerDirectory = options.workerDirectory
   let exported: { exitCode: number; stdout: string; stderr: string }
   try { exported = await readbackRunner.run([binary, "export", workerSessionID, "--sanitize"], "", signal) } catch (error) {
     return errorEnvelope(lane, packet, "error", "error", String(error), "reconcile_operation")
@@ -1286,9 +1265,7 @@ async function completeWorkerSession(
   // The dispatch window owns the worker directory. The session observation is
   // separate and supplies only the live-session evidence for abandoned close.
   const provenance = await computeHostPromptProvenance(lane.id, workerDirectory)
-  if (workerObservation === null) {
-    workerObservation = await readWorkerSessionObservation(readbackRunner, binary, workerSessionID, signal, readSessionParent(exported.stdout, workerSessionID))
-  }
+  const workerObservation = await readWorkerSessionObservation(readbackRunner, binary, signal)
 
   // CD-0056 D7: the adapter is the only component that sees worker output, so
   // the report is admitted here. A report that is absent, unparseable, invalid,
@@ -1406,7 +1383,7 @@ async function completeWorkerSession(
     report_schema_version: REPORT_SCHEMA_VERSION,
     evidence_origin: "reported",
     evidence: terminal.report.evidence,
-    ...(workerDirectory !== undefined ? { worker_directory: workerDirectory } : {}),
+    worker_directory: workerDirectory,
     assertion: terminalAssertion,
   }, signal)
   if (completionFailure) {

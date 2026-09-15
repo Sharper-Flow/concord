@@ -61,10 +61,8 @@ const exportedSession = (agent = `concord-${lane.id}`, parentID: string | null =
   ],
 })
 
-// The session index is the only source of a real directory, because the export
-// runs with --sanitize and redacts that field. The index lists no subagent
-// session, so a worker is reached through its parent, which the index does
-// list and whose directory the worker inherits.
+// The session index supplies live-session evidence. The dispatch window owns
+// the worker directory because the export runs with --sanitize.
 const sessionIndex = (directory = "/claimed/worktree") =>
   JSON.stringify([{ id: "ses_other", directory: "/somewhere/else" }, { id: SESSION, directory }])
 

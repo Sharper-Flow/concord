@@ -424,6 +424,10 @@ type WorktreeReclaimRequest struct {
 	// The caller must supply an observation. A present empty list proves that
 	// no live session occupies the worktree; an absent list is not evidence.
 	ObservedSessionDirectories *[]SessionDirectory
+	// ObservedProjectID identifies the Project whose host session population
+	// the observation covers. A session list from another Project cannot prove
+	// that this worktree is unoccupied.
+	ObservedProjectID string
 }
 
 // SessionDirectory is one live host session and the directory it runs in, as
@@ -456,6 +460,9 @@ type WorktreeDestroyRequest struct {
 	// ObservedSessionDirectories carries the caller's live host sessions. The
 	// destructive approval covers the git gates, never the occupancy gate.
 	ObservedSessionDirectories *[]SessionDirectory
+	// ObservedProjectID identifies the Project whose host session population
+	// the observation covers.
+	ObservedProjectID string
 }
 
 // DestroyWorktree reclaims the work item's worktree under the Destroy tier's
@@ -466,7 +473,7 @@ func (s *Store) DestroyWorktree(ctx context.Context, req WorktreeDestroyRequest)
 		PrincipalRef: req.PrincipalRef, RequestID: req.RequestID,
 		ExpectedVersion: req.ExpectedVersion, Now: req.Now, Runner: req.Runner,
 		RequireTerminal: true, OperatorApprovalRef: req.OperatorApprovalRef, Destructive: req.Destructive,
-		ObservedSessionDirectories: req.ObservedSessionDirectories,
+		ObservedSessionDirectories: req.ObservedSessionDirectories, ObservedProjectID: req.ObservedProjectID,
 	}
 	if s == nil || s.db == nil {
 		return WorktreeEntry{}, newFailure(KindUnavailable, "worktree_destroy", "store is not open", false, "open the authority database")
@@ -556,6 +563,12 @@ func reclaimWorktreeRawTx(ctx context.Context, tx *sql.Tx, req WorktreeReclaimRe
 	}
 	if req.ObservedSessionDirectories == nil {
 		return out, newFailure(KindWorktreeOwnershipConflict, op, "worktree occupancy was not observed", false, "provide the host's live session directory observation before removing the worktree")
+	}
+	if req.ObservedProjectID == "" {
+		return out, newFailure(KindWorktreeOwnershipConflict, op, "worktree occupancy observation has no Project scope", false, "provide the Project whose host sessions were observed before removing the worktree")
+	}
+	if req.ObservedProjectID != req.ProjectID {
+		return out, newFailure(KindWorktreeOwnershipConflict, op, "worktree occupancy observation covers Project "+req.ObservedProjectID+", not target Project "+req.ProjectID, false, "observe the target Project's host sessions before removing the worktree")
 	}
 
 	// CD-0096 D3 Destroy: merged terminal work reclaims without approval.
@@ -1293,6 +1306,10 @@ type WorktreeAuditReclaimRequest struct {
 	Runner                     GitRunner
 	Limit                      int
 	ObservedSessionDirectories *[]SessionDirectory
+	// ObservedProjectID identifies the Project whose host session population
+	// the observation covers. The audit may span a Product, but it can reclaim
+	// only targets covered by this Project-scoped observation.
+	ObservedProjectID string
 }
 
 // WorktreeAuditReclaimRow is the outcome of one terminal-present worktree.
@@ -1353,6 +1370,13 @@ func (s *Store) WorktreeAuditReclaim(ctx context.Context, req WorktreeAuditRecla
 			continue
 		}
 		row := WorktreeAuditReclaimRow{ProjectID: drift.ProjectID, WorkID: drift.WorkID, Path: drift.Path, Lifecycle: drift.Lifecycle}
+		if req.ObservedProjectID == "" || req.ObservedProjectID != drift.ProjectID {
+			row.Outcome = WorktreeAuditRefused
+			row.RefusalKind = string(KindWorktreeOwnershipConflict)
+			row.Detail = "worktree occupancy observation does not cover target Project " + drift.ProjectID
+			out.Rows = append(out.Rows, row)
+			continue
+		}
 		version, err := currentWorkVersion(ctx, s.db, drift.WorkID)
 		if err != nil {
 			return out, err
@@ -1361,7 +1385,7 @@ func (s *Store) WorktreeAuditReclaim(ctx context.Context, req WorktreeAuditRecla
 			WorkID: drift.WorkID, ProjectID: drift.ProjectID, DefaultRef: req.DefaultRef,
 			PrincipalRef: req.PrincipalRef, RequestID: req.RequestID + ":" + drift.WorkID,
 			ExpectedVersion: version, Now: req.Now, Runner: runner, RequireTerminal: requireTerminal, RequireUnstarted: requireUnstarted,
-			ObservedSessionDirectories: req.ObservedSessionDirectories,
+			ObservedSessionDirectories: req.ObservedSessionDirectories, ObservedProjectID: req.ObservedProjectID,
 		})
 		if reclaimErr == nil {
 			row.Outcome, row.Version = WorktreeAuditReclaimed, version+1

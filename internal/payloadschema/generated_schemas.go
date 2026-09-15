@@ -5831,6 +5831,16 @@ const GeneratedPayloadSchemaDocument = `{
             }
           ]
         },
+        "self_repair": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/workflow_self_repair"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "step": {
           "$ref": "#/$defs/short"
         },

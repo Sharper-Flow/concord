@@ -1,0 +1,37 @@
+{
+  "date": "2026-09-14T00:00:00Z",
+  "evidence": [
+    "contracts/agent-lanes.v1.json",
+    "contracts/agent-lanes.schema.json",
+    "adapter/opencode/generated-agent-lanes.ts",
+    "scripts/generate-agent-lanes.py",
+    "scripts/install.py"
+  ],
+  "home_domain_id": "agent-surface",
+  "id": "CD-0149",
+  "kind": "decision",
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "CD-0081"
+    }
+  ],
+  "path": "docs/decisions/CD-0149-the-registry-gains-a-read-only-exploration-utility.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:a2a4b8a6869456bcfcab75aa19a16150e078d4b507c75d89142e43a5c5346fea",
+  "status": "accepted",
+  "summary": "Adds an explore utility with a manifest-owned read-only tool allowance, a bounded Git command set, and a generator-owned body template. The utility returns plain text without a packet, report schema, evidence obligations, Concord state authority, or nested worker capability.",
+  "tags": [
+    "agent-surface",
+    "utilities",
+    "read-only",
+    "exploration"
+  ],
+  "title": "The registry gains a read-only exploration utility"
+}

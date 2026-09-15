@@ -1,0 +1,18 @@
+{
+  "evidence": [
+    {
+      "kind": "validator",
+      "value": "scripts/test-generate-agent-lanes.py"
+    },
+    {
+      "kind": "validator",
+      "value": "scripts/check-agent-contracts.py"
+    },
+    {
+      "kind": "generated",
+      "value": "adapter/opencode/generated-agent-lanes.ts#agentUtilities"
+    }
+  ],
+  "id": "CD-0149",
+  "state": "satisfied"
+}

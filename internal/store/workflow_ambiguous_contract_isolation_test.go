@@ -66,6 +66,30 @@ func TestDomainReadsOmitTheAmbiguousItemAndKeepTheRest(t *testing.T) {
 	}
 }
 
+// The recovery that retires duplicate contracts runs through the law-revision
+// staleness boundary before it can retire anything, so refusing an ambiguous
+// projection there left supersede_contract unreachable and the duplicates in
+// place. The boundary reads the pins of one approved contract; an ambiguous
+// projection names none to read, exactly as an absent one does.
+func TestLawRevisionStalenessAdmitsAnAmbiguousProjection(t *testing.T) {
+	ctx := context.Background()
+	s, _ := seedOverlapProjection(t, "staleness-left", "staleness-right", false)
+	duplicateActiveContractForTest(ctx, t, s, "staleness-right")
+
+	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback()
+
+	if err := checkWorkflowLawRevisionStalenessTx(ctx, tx, "staleness-right"); err != nil {
+		t.Fatalf("ambiguous projection refused the law-revision boundary: %v", err)
+	}
+	if err := checkWorkflowLawRevisionStalenessTx(ctx, tx, "staleness-left"); err != nil {
+		t.Fatalf("clean item refused while a peer was ambiguous: %v", err)
+	}
+}
+
 func omissionNames(omissions []string, workID string) bool {
 	for _, omission := range omissions {
 		if strings.Contains(omission, workID) {

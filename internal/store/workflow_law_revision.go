@@ -354,15 +354,27 @@ func readWorkflowLawRevisions(ctx context.Context, q queryer, workID string, con
 }
 
 func checkWorkflowLawRevisionStalenessTx(ctx context.Context, tx *sql.Tx, workID string) error {
-	var contractVersion int64
 	var mandateJSON string
-	activeVersion, err := activeWorkflowContractVersion(ctx, tx, workID, "check_workflow_law_revision")
-	if err == sql.ErrNoRows {
-		return nil
-	} else if err != nil {
+	// This boundary reads the law revisions that one approved contract pins.
+	// An absent projection pins nothing, and an ambiguous one names no single
+	// contract to read, so neither can carry a stale pin this check could
+	// evaluate. An ambiguous item also reaches no implementation-bearing
+	// action while it stays ambiguous, so admitting it here surrenders no
+	// guard that another one is not already holding.
+	//
+	// Refusing the ambiguous projection instead makes the duplicate-contract
+	// recovery unreachable. Every mutation path runs this boundary first, so
+	// supersede_contract is refused before resolveWorkflowContractPredecessors
+	// can retire the versions it replaces, and the refusal protects the state
+	// it exists to clear.
+	activeVersions, err := activeWorkflowContractVersions(ctx, tx, workID)
+	if err != nil {
 		return err
 	}
-	contractVersion = activeVersion
+	if len(activeVersions) != 1 {
+		return nil
+	}
+	contractVersion := activeVersions[0]
 	if err := tx.QueryRowContext(ctx, `SELECT spec_mandate FROM workflow_contracts WHERE work_id=? AND contract_version=?`, workID, contractVersion).Scan(&mandateJSON); err != nil {
 		return wrapFailure(KindUnavailable, "check_workflow_law_revision", "cannot read active workflow contract", true, "retry once the workflow projection is readable", err)
 	}

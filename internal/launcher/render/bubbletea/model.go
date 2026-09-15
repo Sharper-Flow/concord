@@ -672,12 +672,7 @@ func (m *Model) renderPortfolio(snapshot launcher.Snapshot, cursor int) rendered
 		}
 		renderedRows = append(renderedRows, rowLines)
 	}
-	footer := []string{}
-	if m.showHelp {
-		footer = helpLines("HELP: "+m.help.View(m.keys), m.width)
-	} else {
-		footer = helpLines(m.help.View(m.keys), m.width)
-	}
+	footer := m.footerLines()
 	return renderedPane{header: header, rows: renderedRows, footer: footer}
 }
 
@@ -727,12 +722,7 @@ func (m *Model) renderS2(headers []string, cursor int) renderedPane {
 	if s.QueryResult {
 		tail = append(tail, "QUERY RESULT: "+s.QuerySubmitted+" (Esc restores prior view)")
 	}
-	footer := []string{}
-	if m.showHelp {
-		footer = helpLines("HELP: "+m.help.View(m.keys), m.width)
-	} else {
-		footer = helpLines(m.help.View(m.keys), m.width)
-	}
+	footer := m.footerLines()
 	return renderedPane{header: header, rows: rows, tail: tail, footer: footer}
 }
 
@@ -889,12 +879,7 @@ func (m *Model) renderS3(headers []string, cursor int) renderedPane {
 		}
 		header = append(header, "KNOWLEDGE WATERMARK: "+s.Knowledge.Watermark+" STATE: "+s.Knowledge.State)
 		header = append(header, knowledgeLines(s.Knowledge)...)
-		footer := []string{}
-		if m.showHelp {
-			footer = helpLines("HELP: "+m.help.View(m.keys), m.width)
-		} else {
-			footer = helpLines(m.help.View(m.keys), m.width)
-		}
+		footer := m.footerLines()
 		return renderedPane{header: header, footer: footer}
 	}
 	d := s.Detail
@@ -934,12 +919,7 @@ func (m *Model) renderS3(headers []string, cursor int) renderedPane {
 			tail = append(tail, "  "+item.Kind+" "+item.ID+" "+item.Title)
 		}
 	}
-	footer := []string{}
-	if m.showHelp {
-		footer = helpLines("HELP: "+m.help.View(m.keys), m.width)
-	} else {
-		footer = helpLines(m.help.View(m.keys), m.width)
-	}
+	footer := m.footerLines()
 	return renderedPane{header: header, rows: rows, tail: tail, footer: footer}
 }
 
@@ -1020,6 +1000,14 @@ func probeLines(probes []launcher.ProbeStatus) []string {
 }
 
 func helpLines(value string, width int) []string { return splitDisplay(value, width) }
+
+func (m *Model) footerLines() []string {
+	value := m.help.View(m.keys)
+	if m.showHelp {
+		value = "HELP: " + value
+	}
+	return helpLines(value, m.width)
+}
 
 func actionText(row launcher.ProductRow) string {
 	if row.CountsState == "unavailable" {
@@ -1211,12 +1199,7 @@ func (m *Model) renderCandidates(snapshot launcher.Snapshot, cursor int) rendere
 	if m.filterMode {
 		header = append(header, m.input.View())
 	}
-	footer := []string{}
-	if m.showHelp {
-		footer = helpLines("HELP: "+m.help.View(m.keys), m.width)
-	} else {
-		footer = helpLines(m.help.View(m.keys), m.width)
-	}
+	footer := m.footerLines()
 	return renderedPane{header: header, rows: rows, footer: footer}
 }
 

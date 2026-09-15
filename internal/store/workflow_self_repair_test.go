@@ -9,7 +9,7 @@ import (
 
 func TestMigrateV81AddsWorkflowSelfRepairClassification(t *testing.T) {
 	ctx := context.Background()
-	db := openMigratedTo(t, filepath.Join(t.TempDir(), "concord-v80.db"), len(migrations)-1)
+	db := openMigratedTo(t, filepath.Join(t.TempDir(), "concord-v80.db"), 80)
 	var columns int
 	if err := db.QueryRowContext(ctx, `SELECT count(*) FROM pragma_table_info('workflow_contracts') WHERE name='self_repair_json'`).Scan(&columns); err != nil {
 		t.Fatal(err)
@@ -17,11 +17,19 @@ func TestMigrateV81AddsWorkflowSelfRepairClassification(t *testing.T) {
 	if columns != 0 {
 		t.Fatal("v80 database already contains self_repair_json")
 	}
-	last := migrations[len(migrations)-1]
-	if last.Version != 81 {
-		t.Fatalf("last migration version = %d, want 81", last.Version)
+	var v81 migration
+	found := false
+	for i := range migrations {
+		if migrations[i].Version == 81 {
+			v81 = migrations[i]
+			found = true
+			break
+		}
 	}
-	if err := applyMigration(ctx, db, last); err != nil {
+	if !found {
+		t.Fatal("migration 81 is not registered")
+	}
+	if err := applyMigration(ctx, db, v81); err != nil {
 		t.Fatalf("apply migration 81: %v", err)
 	}
 	if err := db.QueryRowContext(ctx, `SELECT count(*) FROM pragma_table_info('workflow_contracts') WHERE name='self_repair_json'`).Scan(&columns); err != nil {

@@ -8,6 +8,8 @@
 - **Approval:** Operator selected option B, amend PM7, on 2026-08-24, recorded in
   [issue #326 comment](https://github.com/Sharper-Flow/concord/issues/326#issuecomment-5390292254)
 - **Related:** PM7, PM8, PM9, PM10 (unchanged), CD-0002, CD-0009, CD-0063
+- **Amended by:** CD-0142 for operator-directed removal of nonterminal execution
+  projections
 - **Preserves:** the authority split (git note for distilled knowledge,
   `domain_events` for exact history and replay); work-ID immutability; the
   link-before-any-removal ordering; git-rebuildable historical projections;
@@ -97,6 +99,11 @@ rejection), a content-addressed WIP-byte evidence store (PM8), or a
 process-exhaust receipt store (PM9). Deferring projection pruning does not
 weaken any rejected alternative.
 
+CD-0142 supersedes this deferral only at a separate correctness boundary: an
+operator may remove a nonterminal execution after a verified planning handoff
+and reconciliation. This exception is not terminal pruning, does not use the
+compaction eligibility mechanism, and does not remove `domain_events`.
+
 ### D6. The PM7 coverage record closes as satisfied
 
 With the pruning mechanism superseded, the law PM7 actually states is the
@@ -109,7 +116,7 @@ under #325, and #324's validator makes the recurrence impossible.
 ## Invariants
 
 1. No Concord code path deletes a live typed projection row for a compacted
-   work item.
+   work item. CD-0142's nonterminal removal operation is outside compaction.
 2. Every retention guarantee in D2's standing rows has executable evidence.
 3. The revisit triggers in D3 are the only conditions under which a pruning
    decision may return.

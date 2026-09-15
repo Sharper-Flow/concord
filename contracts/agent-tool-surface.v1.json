@@ -99,6 +99,7 @@
       "description": "Apply lifecycle or workflow-defined transitions.",
       "operations": [
         "concord_work_transition.lifecycle",
+        "concord_work_transition.remove",
         "concord_work_transition.workflow_action",
         "concord_work_transition.worker_abandon",
         "concord_work_transition.worktree_claim",
@@ -948,6 +949,27 @@
       "supported_budget_seconds": 300
     },
     {
+      "id": "concord_work_transition.remove",
+      "tool": "concord_work_transition",
+      "kind": "mutation",
+      "query_id": null,
+      "input_schema": "#/schemas/work_transition_remove_input",
+      "result_schema": "#/schemas/mutation_result",
+      "capability": "work_transition",
+      "consequence": "lifecycle",
+      "approval": "required",
+      "metadata": {
+        "context": "ambient",
+        "idempotency": "required",
+        "pagination": "none",
+        "output_bytes": 51200,
+        "versions": [
+          "1.0"
+        ]
+      },
+      "supported_budget_seconds": 300
+    },
+    {
       "id": "concord_work_transition.workflow_action",
       "tool": "concord_work_transition",
       "kind": "mutation",
@@ -1710,6 +1732,10 @@
       "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_transition_lifecycle_input",
       "closed": true
     },
+    "work_transition_remove_input": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_transition_remove_input",
+      "closed": true
+    },
     "work_transition_action_input": {
       "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_transition_action_input",
       "closed": true
@@ -1983,6 +2009,6 @@
       "digest"
     ]
   },
-  "payload_digest": "sha256:a57ab9236e7cabdfe7aaabe2caacc5ed8955381471f839bf8c72b312a0d61247",
-  "digest": "sha256:7cac677f4b60ef3a681f82670d91c561fa0e3997d1d4db510cd4c15cd273bdaa"
+  "payload_digest": "sha256:83c2706adf29863033d3ba06cf6e50ff9ca0153f665310c5dc337d2be36afe48",
+  "digest": "sha256:bd3eb849eba7dec87855755abe59f0ad439223bd6d304893f3b3a6f5652c4801"
 }

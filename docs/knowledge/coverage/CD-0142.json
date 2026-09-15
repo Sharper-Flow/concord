@@ -1,0 +1,18 @@
+{
+  "evidence": [
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestWorkRemovalDeletesExecutionAndReplaysAbsence"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestWorkRemovalRefusesMissingSafetyEvidence"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestWorkRemovalCancellationKeepsReasonDistinct"
+    }
+  ],
+  "id": "CD-0142",
+  "state": "satisfied"
+}

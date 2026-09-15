@@ -17,6 +17,24 @@ type workflowReturnRouteFixture struct {
 
 func seedWorkflowReturnRouteFixture(t *testing.T, workID, definitionRef, verdictStep string) workflowReturnRouteFixture {
 	t.Helper()
+	registered, err := BuiltinWorkflowDefinitionForRef(definitionRef)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return seedWorkflowReturnRouteFixtureWithDefinition(t, workID, registered, verdictStep)
+}
+
+func seedHistoricalWorkflowReturnRouteFixture(t *testing.T, workID, definitionRef string, definitionVersion int64, verdictStep string) workflowReturnRouteFixture {
+	t.Helper()
+	registered, ok := BuiltinWorkflowRegistry().Lookup(definitionRef, definitionVersion)
+	if !ok {
+		t.Fatalf("workflow definition %s@%d is not registered", definitionRef, definitionVersion)
+	}
+	return seedWorkflowReturnRouteFixtureWithDefinition(t, workID, registered, verdictStep)
+}
+
+func seedWorkflowReturnRouteFixtureWithDefinition(t *testing.T, workID string, registered RegisteredDefinition, verdictStep string) workflowReturnRouteFixture {
+	t.Helper()
 	ctx := context.Background()
 	s := openTemp(t)
 	seedWork(t, s, workID)
@@ -33,11 +51,6 @@ func seedWorkflowReturnRouteFixture(t *testing.T, workID, definitionRef, verdict
 	if err != nil {
 		t.Fatal(err)
 	}
-	registered, err := BuiltinWorkflowDefinitionForRef(definitionRef)
-	if err != nil {
-		t.Fatal(err)
-	}
-
 	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -190,6 +203,118 @@ func TestVerdictCorrectionRequiresAcceptedWorkerDelivery(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "correction request is unavailable") {
 		t.Fatalf("correction without accepted delivery error=%v, want refusal", err)
 	}
+}
+
+func TestVerdictCorrectionRefusesIncompleteAuthority(t *testing.T) {
+	cases := []struct {
+		name       string
+		payload    string
+		kind       FailureKind
+		detailPart string
+	}{
+		{name: "missing fields", payload: `{}`, kind: KindInvalidPayload, detailPart: "requires diagnosis"},
+		{name: "predicate outside active contract", payload: `{"diagnosis":"diagnosis","strategy":"strategy","predicate_ids":["predicate:outside"],"evidence_refs":["evidence:return-route-verification"]}`, kind: KindInvalidPayload, detailPart: "without a current non-ok verdict"},
+		{name: "evidence is not bound", payload: `{"diagnosis":"diagnosis","strategy":"strategy","predicate_ids":["predicate:return-route"],"evidence_refs":["evidence:not-bound"]}`, kind: KindMissingEvidence, detailPart: "not durably bound"},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			workID := "return-route-refusal-" + strings.ReplaceAll(testCase.name, " ", "-")
+			fixture, _ := prepareVerdictCorrectionFixture(t, workID, "workflow.implementation")
+			err := WorkflowActionPreflight(context.Background(), fixture.store, WorkflowActionPreflightRequest{
+				WorkID: workID, ActionID: "request_correction", Payload: json.RawMessage(testCase.payload), Actor: fixture.owner,
+			})
+			var failure *Failure
+			if err == nil || !failureAs(err, &failure) || failure.Kind != testCase.kind || !strings.Contains(failure.Detail, testCase.detailPart) {
+				t.Fatalf("request correction error=%v, want %s containing %q", err, testCase.kind, testCase.detailPart)
+			}
+		})
+	}
+}
+
+func TestVerdictCorrectionRefusesWithoutExactOperatorApproval(t *testing.T) {
+	const workID = "return-route-refusal-without-operator"
+	fixture, _ := prepareVerdictCorrectionFixture(t, workID, "workflow.implementation")
+	payload := json.RawMessage(`{"diagnosis":"diagnosis","strategy":"strategy","predicate_ids":["predicate:return-route"],"evidence_refs":["evidence:return-route-verification"]}`)
+	err := runCorrectionActionWithoutOperator(fixture.store, workID, fixture.owner, payload)
+	var failure *Failure
+	if err == nil || !failureAs(err, &failure) || failure.Kind != KindApprovalRequired || !strings.Contains(failure.Detail, "verified operator approval identity") {
+		t.Fatalf("request correction without operator error=%v, want exact approval refusal", err)
+	}
+}
+
+func TestHistoricalBreakFixPinSupportsVerdictCorrection(t *testing.T) {
+	const workID = "return-route-historical-break-fix"
+	fixture := seedHistoricalWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", 7, "repair")
+	ownerRef, err := WorkflowActorRef(fixture.owner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reviewer := acceptReturnRouteWorker(t, fixture, workID, ownerRef)
+	if err := runVerdictActionAs(t, fixture.store, workID, "record_verdict", json.RawMessage(`{"contract_version":1,"predicate_id":"predicate:return-route","verdict_kind":"outcome_mismatch","evaluation_evidence":["evidence:return-route-verification"],"incomparable_with_approved":true}`), 0, reviewer); err != nil {
+		t.Fatalf("record historical non-ok verdict: %v", err)
+	}
+	correction := json.RawMessage(`{"diagnosis":"the repaired subject still reproduces the defect","strategy":"repeat the repair external effect","predicate_ids":["predicate:return-route"],"evidence_refs":["evidence:return-route-verification"]}`)
+	if err := runIssue933OperatorAction(t, fixture.store, workID, "request_correction", correction, fixture.owner, fixture.operator); err != nil {
+		t.Fatalf("request historical correction: %v", err)
+	}
+	if got := currentStep(t, fixture.store, workID); got != "repair" {
+		t.Fatalf("historical step after correction = %q, want repair", got)
+	}
+	pin, err := ReadWorkPin(context.Background(), fixture.store, workID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var definitionVersion int64
+	if err := fixture.store.DatabaseForTesting().QueryRow(`SELECT definition_version FROM workflow_instances WHERE work_id=?`, workID).Scan(&definitionVersion); err != nil {
+		t.Fatal(err)
+	}
+	if definitionVersion != 7 || pin.Step != "repair" {
+		t.Fatalf("historical work pin = %+v, definition version %d, want version 7 at repair", pin, definitionVersion)
+	}
+}
+
+func prepareVerdictCorrectionFixture(t *testing.T, workID, definitionRef string) (workflowReturnRouteFixture, WorkflowActor) {
+	t.Helper()
+	initialStep := "execution"
+	if definitionRef == "workflow.break_fix" {
+		initialStep = "repair"
+	}
+	fixture := seedWorkflowReturnRouteFixture(t, workID, definitionRef, initialStep)
+	ownerRef, err := WorkflowActorRef(fixture.owner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reviewer := acceptReturnRouteWorker(t, fixture, workID, ownerRef)
+	if err := runVerdictActionAs(t, fixture.store, workID, "record_verdict", json.RawMessage(`{"contract_version":1,"predicate_id":"predicate:return-route","verdict_kind":"outcome_mismatch","evaluation_evidence":["evidence:return-route-verification"],"incomparable_with_approved":true}`), 0, reviewer); err != nil {
+		t.Fatalf("record refusal fixture verdict: %v", err)
+	}
+	return fixture, reviewer
+}
+
+func runCorrectionActionWithoutOperator(s *Store, workID string, owner WorkflowActor, payload json.RawMessage) error {
+	ctx := context.Background()
+	var version int64
+	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT version FROM work_items WHERE id=?`, workID).Scan(&version); err != nil {
+		return err
+	}
+	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	if err := enterFold(ctx, tx); err != nil {
+		_ = tx.Rollback()
+		return err
+	}
+	operationID := "correction-without-operator-" + workID
+	_, actionErr := applyWorkflowActionRawTx(ctx, tx, BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
+		WorkID: workID, ExpectedVersion: version, ActionID: "request_correction", Payload: payload, Actor: owner,
+		AcceptedInputsDigest: "sha256:" + strings.Repeat("f", 64), IdempotencyIdentity: operationID, OperationID: operationID,
+		PrincipalRef: owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: operationID, RequestID: "request:" + operationID,
+		ContractDigest: testManifestDigest, Now: time.Unix(20, version).UTC(),
+	})
+	_ = leaveFold(ctx, tx)
+	_ = tx.Rollback()
+	return actionErr
 }
 
 func TestVerdictCorrectionSequenceNeedsConjunctiveHealthyVerdicts(t *testing.T) {

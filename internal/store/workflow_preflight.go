@@ -856,6 +856,9 @@ func verifyWorkflowDefinitionPinTx(ctx context.Context, tx *sql.Tx, registry Def
 }
 
 func preflightWorkflowClaimTx(ctx context.Context, tx *sql.Tx, req ClaimRequest) error {
+	if err := refuseRemovedWorkTx(ctx, tx, req.WorkID, "workflow_preflight"); err != nil {
+		return err
+	}
 	var workflowExists int
 	if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM workflow_instances WHERE work_id=?)`, req.WorkID).Scan(&workflowExists); err != nil {
 		return wrapFailure(KindUnavailable, "workflow_preflight", "cannot inspect workflow claim identity", true, "retry once the workflow projection is readable", err)
@@ -896,6 +899,9 @@ func preflightWorkflowOperationTx(ctx context.Context, tx *sql.Tx, opID string) 
 	if err != nil {
 		return wrapFailure(KindUnavailable, "workflow_preflight", "cannot read workflow operation identity", true, "retry once the database is readable", err)
 	}
+	if err := refuseRemovedWorkTx(ctx, tx, workID, "workflow_preflight"); err != nil {
+		return err
+	}
 	if !strings.HasPrefix(workflowRef, "workflow.") {
 		return nil
 	}
@@ -921,6 +927,9 @@ func preflightWorkflowOperation(ctx context.Context, s *Store, opID string) erro
 			return newFailure(KindProjectionNotFound, "workflow_preflight", "workflow operation is not recorded", false, "claim the workflow operation before resuming it")
 		}
 		return wrapFailure(KindUnavailable, "workflow_preflight", "cannot read workflow operation identity", true, "retry once the database is readable", err)
+	}
+	if err := refuseRemovedWorkTx(ctx, s.db, workID, "workflow_preflight"); err != nil {
+		return err
 	}
 	if !strings.HasPrefix(workflowRef, "workflow.") {
 		return nil

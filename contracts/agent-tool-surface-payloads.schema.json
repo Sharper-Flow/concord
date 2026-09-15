@@ -152,6 +152,239 @@
         "cancelled"
       ]
     },
+    "work_liveness": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "work_id",
+        "state",
+        "evidence",
+        "attempts",
+        "open_waits"
+      ],
+      "properties": {
+        "work_id": {
+          "$ref": "#/$defs/id"
+        },
+        "state": {
+          "type": "string",
+          "enum": [
+            "live",
+            "waiting",
+            "needs_attention",
+            "unknown"
+          ]
+        },
+        "evidence": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 64,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512
+          }
+        },
+        "attempts": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "open_waits": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "last_progress": {
+          "type": "string",
+          "maxLength": 64
+        }
+      }
+    },
+    "work_removal_handoff": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "findings",
+        "remaining_scope",
+        "blockers",
+        "artifacts",
+        "renewal_conditions"
+      ],
+      "properties": {
+        "findings": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 64,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4096
+          }
+        },
+        "remaining_scope": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 64,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4096
+          }
+        },
+        "blockers": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 64,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4096
+          }
+        },
+        "artifacts": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 64,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4096
+          }
+        },
+        "renewal_conditions": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 64,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4096
+          }
+        }
+      }
+    },
+    "work_transition_remove_input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "operation_id",
+        "idempotency_key",
+        "work_id",
+        "expected_version",
+        "reason",
+        "actor",
+        "handoff",
+        "execution_relinquished",
+        "writes_reconciled",
+        "effects_reconciled",
+        "dependencies_resolved",
+        "artifacts_verified"
+      ],
+      "properties": {
+        "operation_id": {
+          "$ref": "#/$defs/id"
+        },
+        "idempotency_key": {
+          "$ref": "#/$defs/id"
+        },
+        "work_id": {
+          "$ref": "#/$defs/id"
+        },
+        "expected_version": {
+          "$ref": "#/$defs/version"
+        },
+        "reason": {
+          "type": "string",
+          "enum": [
+            "shelved",
+            "cancelled"
+          ]
+        },
+        "actor": {
+          "$ref": "#/$defs/id"
+        },
+        "product_id": {
+          "$ref": "#/$defs/id"
+        },
+        "handoff": {
+          "$ref": "#/$defs/work_removal_handoff"
+        },
+        "linear": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": false,
+          "required": [
+            "product_id",
+            "remote_issue_uuid",
+            "destination",
+            "handoff_digest"
+          ],
+          "properties": {
+            "product_id": {
+              "$ref": "#/$defs/id"
+            },
+            "remote_issue_uuid": {
+              "$ref": "#/$defs/id"
+            },
+            "destination": {
+              "type": "string",
+              "const": "linear"
+            },
+            "handoff_digest": {
+              "$ref": "#/$defs/digest"
+            },
+            "creation_intent": {
+              "type": "string",
+              "maxLength": 256
+            }
+          }
+        },
+        "execution_relinquished": {
+          "type": "boolean"
+        },
+        "writes_reconciled": {
+          "type": "boolean"
+        },
+        "effects_reconciled": {
+          "type": "boolean"
+        },
+        "dependencies_resolved": {
+          "type": "boolean"
+        },
+        "artifacts_verified": {
+          "type": "boolean"
+        },
+        "sessions": {
+          "type": "array",
+          "maxItems": 64,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "session_ref",
+              "state"
+            ],
+            "properties": {
+              "session_ref": {
+                "$ref": "#/$defs/id"
+              },
+              "state": {
+                "type": "string",
+                "enum": [
+                  "active",
+                  "unknown",
+                  "vacated"
+                ]
+              }
+            }
+          }
+        },
+        "approval": {
+          "$ref": "#/$defs/approval"
+        }
+      }
+    },
     "work_pin_attempt": {
       "type": "object",
       "additionalProperties": false,
@@ -804,6 +1037,9 @@
         },
         "work_pin": {
           "$ref": "#/$defs/work_pin"
+        },
+        "liveness": {
+          "$ref": "#/$defs/work_liveness"
         }
       }
     },
@@ -4527,7 +4763,11 @@
         "ready",
         "active_problems",
         "approval_required",
-        "overdue_awaits"
+        "overdue_awaits",
+        "live",
+        "waiting",
+        "needs_attention",
+        "unknown"
       ],
       "properties": {
         "in_progress": {
@@ -4558,6 +4798,26 @@
         "overdue_awaits": {
           "type": "integer",
           "minimum": 0
+        },
+        "live": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "waiting": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "needs_attention": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "unknown": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100
         }
       }
     },
@@ -4617,18 +4877,6 @@
         "stage_context"
       ],
       "properties": {
-        "work_id": {
-          "$ref": "#/$defs/id"
-        },
-        "title": {
-          "$ref": "#/$defs/short"
-        },
-        "work_kind": {
-          "$ref": "#/$defs/stored_work_kind"
-        },
-        "lifecycle": {
-          "$ref": "#/$defs/lifecycle"
-        },
         "attention_kind": {
           "type": "string",
           "enum": [
@@ -4639,11 +4887,21 @@
             "ready"
           ]
         },
+        "blocked_sessions": {
+          "type": "array",
+          "maxItems": 100,
+          "items": {
+            "$ref": "#/$defs/product_row_blocked_session"
+          }
+        },
+        "lifecycle": {
+          "$ref": "#/$defs/lifecycle"
+        },
+        "liveness": {
+          "$ref": "#/$defs/work_liveness"
+        },
         "priority": {
           "type": "integer"
-        },
-        "workflow_step_label": {
-          "$ref": "#/$defs/short"
         },
         "project_count": {
           "type": "integer",
@@ -4653,12 +4911,17 @@
         "stage_context": {
           "$ref": "#/$defs/product_row_stage_context"
         },
-        "blocked_sessions": {
-          "type": "array",
-          "maxItems": 100,
-          "items": {
-            "$ref": "#/$defs/product_row_blocked_session"
-          }
+        "title": {
+          "$ref": "#/$defs/short"
+        },
+        "work_id": {
+          "$ref": "#/$defs/id"
+        },
+        "work_kind": {
+          "$ref": "#/$defs/stored_work_kind"
+        },
+        "workflow_step_label": {
+          "$ref": "#/$defs/short"
         }
       }
     },
@@ -7192,6 +7455,9 @@
         },
         "home_domain": {
           "type": "boolean"
+        },
+        "liveness": {
+          "$ref": "#/$defs/work_liveness"
         }
       }
     },

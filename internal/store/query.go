@@ -172,6 +172,7 @@ type WorkItem struct {
 	Ready      bool                `json:"ready"`
 	Active     bool                `json:"active"`
 	Terminal   bool                `json:"terminal"`
+	Liveness   *WorkLiveness       `json:"liveness,omitempty"`
 	Blockers   []WorkItem          `json:"blockers,omitempty"`
 	WorkPin    *WorkPin            `json:"work_pin,omitempty"`
 }
@@ -873,6 +874,13 @@ func attachDerivedFlags(ctx context.Context, tx *sql.Tx, items []WorkItem) ([]Wo
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
+	}
+	for i := range items {
+		liveness, err := deriveWorkLivenessQ(ctx, tx, items[i].ID)
+		if err != nil {
+			return nil, err
+		}
+		items[i].Liveness = &liveness
 	}
 	return items, nil
 }

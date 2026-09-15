@@ -259,6 +259,7 @@ const GeneratedEnvelopeSchemaDocument = `{
             "supersede",
             "unlink",
             "unprocessed",
+            "remove",
             "workflow_action",
             "worker_abandon",
             "worktree_audit",
@@ -846,6 +847,7 @@ const GeneratedEnvelopeSchemaDocument = `{
             "supersede",
             "unlink",
             "unprocessed",
+            "remove",
             "workflow_action",
             "worker_abandon",
             "worktree_audit",
@@ -1732,6 +1734,7 @@ const GeneratedEnvelopeSchemaDocument = `{
             "operation": {
               "enum": [
                 "lifecycle",
+                "remove",
                 "workflow_action",
                 "worker_abandon",
                 "worktree_claim",

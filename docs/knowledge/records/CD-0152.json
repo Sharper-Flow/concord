@@ -1,0 +1,25 @@
+{
+  "date": "2026-09-14T00:00:00Z",
+  "home_domain_id": "product-root:concord",
+  "id": "CD-0152",
+  "kind": "decision",
+  "path": "docs/decisions/CD-0152-product-membership-grants-project-authority.md",
+  "product_wide_rationale": "Agent authority derives from Product and Project membership across the Product surface. No child Domain owns this cross-Domain authority boundary.",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:dcc384f2cb86b3abc332be3eeaee41355c2024202a13a50bff3ed00e32e0ddcd",
+  "status": "accepted",
+  "summary": "Derives Project authority from current Product membership, preserves explicit Product selection for shared Projects, and refuses removed or outside-Product Projects before effects.",
+  "tags": [
+    "authority",
+    "membership",
+    "product-scope",
+    "project-scope"
+  ],
+  "title": "Product membership grants Project authority"
+}

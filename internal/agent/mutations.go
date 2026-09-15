@@ -2103,7 +2103,7 @@ func (r runtime) planWorktreeDestroy(ctx context.Context, base Envelope, raw []b
 			PrincipalRef: grant.PrincipalRef, RequestID: in.IdempotencyKey,
 			ExpectedVersion: in.ExpectedVersion, Now: r.Authority.now(),
 			RequireTerminal: true, OperatorApprovalRef: approvalRef, Destructive: in.Destructive,
-			ObservedSessionDirectories: storeSessionDirectories(in.ObservedSessionDirectories),
+			ObservedSessionDirectories: storeSessionDirectories(in.ObservedSessionDirectories), ObservedProjectID: project,
 		}); err != nil {
 			return nil, nil, nil, err
 		}
@@ -2308,6 +2308,7 @@ func (r runtime) mutateWorktreeAuditReclaim(ctx context.Context, base Envelope, 
 		Now:                        r.Authority.now(),
 		Limit:                      r.boundedLimit(in.Limit),
 		ObservedSessionDirectories: storeSessionDirectories(in.ObservedSessionDirectories),
+		ObservedProjectID:          r.Envelope.AmbientProjectID,
 	})
 	if err != nil {
 		return auditReclaimPostCommitFailure(base, auditReclaimChangedRefs(result.Rows), failureEnvelope(base, err)), nil
@@ -2411,7 +2412,7 @@ func (r runtime) planWorktreeReclaim(ctx context.Context, base Envelope, raw []b
 			WorkID: in.WorkID, ProjectID: in.ProjectID, DefaultRef: in.DefaultRef,
 			PrincipalRef: grant.PrincipalRef, RequestID: in.IdempotencyKey,
 			ExpectedVersion: in.ExpectedVersion, Now: r.Authority.now(),
-			ObservedSessionDirectories: storeSessionDirectories(in.ObservedSessionDirectories),
+			ObservedSessionDirectories: storeSessionDirectories(in.ObservedSessionDirectories), ObservedProjectID: r.Envelope.AmbientProjectID,
 		}); err != nil {
 			return nil, nil, nil, err
 		}

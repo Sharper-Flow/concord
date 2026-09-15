@@ -410,7 +410,7 @@ func TestReclaimWorktreeUsesRemoteDurabilityFacts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	reclaim := WorktreeReclaimRequest{WorkID: "work-w", ProjectID: "project-w", DefaultRef: "origin/main", PrincipalRef: "principal-1", RequestID: "req-2", ExpectedVersion: 3, Now: time.Unix(20, 0).UTC(), Runner: git, ObservedSessionDirectories: emptySessionObservation()}
+	reclaim := WorktreeReclaimRequest{WorkID: "work-w", ProjectID: "project-w", DefaultRef: "origin/main", PrincipalRef: "principal-1", RequestID: "req-2", ExpectedVersion: 3, Now: time.Unix(20, 0).UTC(), Runner: git, ObservedSessionDirectories: emptySessionObservation(), ObservedProjectID: "project-w"}
 
 	git.dirty[claimed.Entry.Path] = true
 	if _, err := s.ReclaimWorktree(context.Background(), reclaim); err == nil || !strings.Contains(err.Error(), "dirty") {
@@ -531,7 +531,7 @@ func TestReclaimWorktreeRefusesOccupiedWorktree(t *testing.T) {
 	reclaim := WorktreeReclaimRequest{
 		WorkID: "work-w", ProjectID: "project-w", DefaultRef: "origin/main",
 		PrincipalRef: "principal-1", RequestID: "req-occupied", ExpectedVersion: 3,
-		Now: time.Unix(20, 0).UTC(), Runner: git,
+		Now: time.Unix(20, 0).UTC(), Runner: git, ObservedProjectID: "project-w",
 	}
 
 	// A session sitting in a subdirectory of the worktree occupies it just as
@@ -578,6 +578,39 @@ func TestReclaimWorktreeRefusesOccupiedWorktree(t *testing.T) {
 	}
 }
 
+// A session observation without Project scope cannot prove that the target
+// Project is unoccupied, so direct reclaim refuses before any effect.
+func TestReclaimWorktreeRefusesUnscopedOccupancy(t *testing.T) {
+	t.Parallel()
+	s, git, _ := worktreeFixture(t)
+	req := baseClaim(git)
+	claimed, err := s.ClaimWorktree(context.Background(), req)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = s.ReclaimWorktree(context.Background(), WorktreeReclaimRequest{
+		WorkID: "work-w", ProjectID: "project-w", DefaultRef: "origin/main",
+		PrincipalRef: "principal-1", RequestID: "req-unscoped", ExpectedVersion: 3,
+		Now: time.Unix(20, 0).UTC(), Runner: git,
+		ObservedSessionDirectories: &[]SessionDirectory{{SessionRef: "ses-live", Directory: "/unrelated-project/session"}},
+	})
+	if err == nil {
+		t.Fatal("an unscoped occupancy observation must refuse the removal")
+	}
+	failure, ok := err.(*Failure)
+	if !ok || failure.Kind != KindWorktreeOwnershipConflict {
+		t.Fatalf("err=%v, want worktree_ownership_conflict", err)
+	}
+	if _, still := git.worktrees[claimed.Entry.Path]; !still {
+		t.Fatal("an unscoped occupancy refusal must leave the native worktree in place")
+	}
+	entries, entriesErr := s.WorktreeEntries(context.Background(), "work-w")
+	if entriesErr != nil || len(entries) != 1 || entries[0].State != worktreeEntryActive {
+		t.Fatalf("entries=%+v err=%v, want the claim untouched", entries, entriesErr)
+	}
+}
+
 // TestDestroyRefusesOccupiedWorktreeDespiteApproval pins that the destructive
 // tier's operator approval does not reach the occupancy gate. The approval
 // covers discarding the clean-tree and durable-branch gates, which protect
@@ -598,6 +631,7 @@ func TestDestroyRefusesOccupiedWorktreeDespiteApproval(t *testing.T) {
 		OperatorApprovalRef:        "approval:destroy-forced",
 		Destructive:                true,
 		ObservedSessionDirectories: &[]SessionDirectory{{SessionRef: "ses_live", Directory: claimed.Entry.Path}},
+		ObservedProjectID:          "project-w",
 	})
 	if err == nil {
 		t.Fatal("a destructive destroy must still refuse an occupied worktree")
@@ -628,6 +662,7 @@ func TestReclaimAbsentWorktreeIgnoresOccupancy(t *testing.T) {
 		PrincipalRef: "principal-1", RequestID: "req-absent", ExpectedVersion: 3,
 		Now: time.Unix(20, 0).UTC(), Runner: git,
 		ObservedSessionDirectories: &[]SessionDirectory{{SessionRef: "ses_live", Directory: claimPath(s)}},
+		ObservedProjectID:          "project-w",
 	})
 	if err != nil {
 		t.Fatalf("an absent worktree must reconcile, got %v", err)
@@ -659,7 +694,7 @@ func TestReclaimWorktreeAcceptsSquashMergedBranch(t *testing.T) {
 	git.branches[claimBranch()] = strings.Repeat("b", 40)
 	git.content[claimBranch()] = squashedTree
 
-	reclaim := WorktreeReclaimRequest{WorkID: "work-w", ProjectID: "project-w", DefaultRef: "origin/main", PrincipalRef: "principal-1", RequestID: "req-2", ExpectedVersion: 3, Now: time.Unix(20, 0).UTC(), Runner: git, ObservedSessionDirectories: emptySessionObservation()}
+	reclaim := WorktreeReclaimRequest{WorkID: "work-w", ProjectID: "project-w", DefaultRef: "origin/main", PrincipalRef: "principal-1", RequestID: "req-2", ExpectedVersion: 3, Now: time.Unix(20, 0).UTC(), Runner: git, ObservedSessionDirectories: emptySessionObservation(), ObservedProjectID: "project-w"}
 	entry, err := s.ReclaimWorktree(context.Background(), reclaim)
 	if err != nil {
 		t.Fatalf("a squash-merged branch must reclaim, got %v", err)

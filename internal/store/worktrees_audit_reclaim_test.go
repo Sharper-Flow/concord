@@ -64,7 +64,7 @@ func TestWorktreeAuditReclaimsMergedTerminalWork(t *testing.T) {
 	completeAuditWork(t, s, "work-dirty", 3)
 	git.dirty[dirtyPath] = true
 
-	result, err := s.WorktreeAuditReclaim(ctx, WorktreeAuditReclaimRequest{ProductID: "product-w", DefaultRef: "origin/main", PrincipalRef: "principal-1", RequestID: "audit-reclaim-1", Now: time.Unix(40, 0).UTC(), Runner: git, Limit: 100, ObservedSessionDirectories: emptySessionObservation()})
+	result, err := s.WorktreeAuditReclaim(ctx, WorktreeAuditReclaimRequest{ProductID: "product-w", DefaultRef: "origin/main", PrincipalRef: "principal-1", RequestID: "audit-reclaim-1", Now: time.Unix(40, 0).UTC(), Runner: git, Limit: 100, ObservedSessionDirectories: emptySessionObservation(), ObservedProjectID: "project-w"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -99,7 +99,7 @@ func TestWorktreeAuditReclaimsMergedTerminalWork(t *testing.T) {
 		t.Fatal("reclaimed entry still active")
 	}
 	// A second pass finds nothing to reclaim and refuses nothing new.
-	again, err := s.WorktreeAuditReclaim(ctx, WorktreeAuditReclaimRequest{ProductID: "product-w", DefaultRef: "origin/main", PrincipalRef: "principal-1", RequestID: "audit-reclaim-2", Now: time.Unix(50, 0).UTC(), Runner: git, Limit: 100, ObservedSessionDirectories: emptySessionObservation()})
+	again, err := s.WorktreeAuditReclaim(ctx, WorktreeAuditReclaimRequest{ProductID: "product-w", DefaultRef: "origin/main", PrincipalRef: "principal-1", RequestID: "audit-reclaim-2", Now: time.Unix(50, 0).UTC(), Runner: git, Limit: 100, ObservedSessionDirectories: emptySessionObservation(), ObservedProjectID: "project-w"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -151,7 +151,7 @@ func TestWorktreeAuditTreatsEveryStoreTerminalLifecycleAsTerminal(t *testing.T) 
 			if !classified {
 				t.Fatalf("%s worktree not classified terminal_present: %+v", lifecycle, audit.Drift)
 			}
-			result, err := s.WorktreeAuditReclaim(ctx, WorktreeAuditReclaimRequest{ProductID: "product-w", DefaultRef: "origin/main", PrincipalRef: "principal-1", RequestID: "audit-" + lifecycle, Now: time.Unix(40, 0).UTC(), Runner: git, Limit: 100, ObservedSessionDirectories: emptySessionObservation()})
+			result, err := s.WorktreeAuditReclaim(ctx, WorktreeAuditReclaimRequest{ProductID: "product-w", DefaultRef: "origin/main", PrincipalRef: "principal-1", RequestID: "audit-" + lifecycle, Now: time.Unix(40, 0).UTC(), Runner: git, Limit: 100, ObservedSessionDirectories: emptySessionObservation(), ObservedProjectID: "project-w"})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -173,7 +173,7 @@ func TestWorktreeAuditReclaimRefusesOccupiedWorktree(t *testing.T) {
 	donePath := auditWork(t, s, git, "work-done", true)
 	completeAuditWork(t, s, "work-done", 3)
 
-	result, err := s.WorktreeAuditReclaim(ctx, WorktreeAuditReclaimRequest{ProductID: "product-w", DefaultRef: "origin/main", PrincipalRef: "principal-1", RequestID: "audit-reclaim-occupied", Now: time.Unix(40, 0).UTC(), Runner: git, Limit: 100, ObservedSessionDirectories: &[]SessionDirectory{{SessionRef: "ses-1", Directory: donePath}}})
+	result, err := s.WorktreeAuditReclaim(ctx, WorktreeAuditReclaimRequest{ProductID: "product-w", DefaultRef: "origin/main", PrincipalRef: "principal-1", RequestID: "audit-reclaim-occupied", Now: time.Unix(40, 0).UTC(), Runner: git, Limit: 100, ObservedSessionDirectories: &[]SessionDirectory{{SessionRef: "ses-1", Directory: donePath}}, ObservedProjectID: "project-w"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -182,6 +182,55 @@ func TestWorktreeAuditReclaimRefusesOccupiedWorktree(t *testing.T) {
 	}
 	if _, kept := git.worktrees[donePath]; !kept {
 		t.Fatal("occupied worktree must remain")
+	}
+}
+
+// A host observation is scoped to the Project that supplied it. A non-empty
+// list from another Project cannot prove that this target is unoccupied, so
+// the audit refuses before it opens a reclaim transaction or removes a path.
+func TestWorktreeAuditReclaimRefusesUncoveredTarget(t *testing.T) {
+	s, git, _ := worktreeFixture(t)
+	ctx := context.Background()
+	donePath := auditWork(t, s, git, "work-done", true)
+	completeAuditWork(t, s, "work-done", 3)
+
+	result, err := s.WorktreeAuditReclaim(ctx, WorktreeAuditReclaimRequest{
+		ProductID: "product-w", DefaultRef: "origin/main", PrincipalRef: "principal-1",
+		RequestID: "audit-reclaim-uncovered", Now: time.Unix(40, 0).UTC(), Runner: git,
+		Limit: 100, ObservedSessionDirectories: emptySessionObservation(), ObservedProjectID: "project-other",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Rows) != 1 || result.Rows[0].Outcome != WorktreeAuditRefused || result.Rows[0].RefusalKind != string(KindWorktreeOwnershipConflict) {
+		t.Fatalf("uncovered target must be refused typed, got %+v", result.Rows)
+	}
+	if _, kept := git.worktrees[donePath]; !kept {
+		t.Fatal("an uncovered target must remain on disk")
+	}
+}
+
+// A session observation without Project scope cannot prove that the target
+// Project is unoccupied, so the audit refuses before removing a path.
+func TestWorktreeAuditReclaimRefusesUnscopedOccupancy(t *testing.T) {
+	s, git, _ := worktreeFixture(t)
+	ctx := context.Background()
+	donePath := auditWork(t, s, git, "work-done", true)
+	completeAuditWork(t, s, "work-done", 3)
+
+	result, err := s.WorktreeAuditReclaim(ctx, WorktreeAuditReclaimRequest{
+		ProductID: "product-w", DefaultRef: "origin/main", PrincipalRef: "principal-1",
+		RequestID: "audit-reclaim-unscoped", Now: time.Unix(40, 0).UTC(), Runner: git,
+		Limit: 100, ObservedSessionDirectories: &[]SessionDirectory{{SessionRef: "ses-live", Directory: "/unrelated-project/session"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Rows) != 1 || result.Rows[0].Outcome != WorktreeAuditRefused || result.Rows[0].RefusalKind != string(KindWorktreeOwnershipConflict) {
+		t.Fatalf("unscoped occupancy must be refused typed, got %+v", result.Rows)
+	}
+	if _, kept := git.worktrees[donePath]; !kept {
+		t.Fatal("an unscoped occupancy observation must leave the worktree on disk")
 	}
 }
 
@@ -195,11 +244,11 @@ func TestWorktreeAuditReclaimRefusesUnobservedOccupancy(t *testing.T) {
 	donePath := auditWork(t, s, git, "work-done", true)
 	completeAuditWork(t, s, "work-done", 3)
 
-	result, err := s.WorktreeAuditReclaim(ctx, WorktreeAuditReclaimRequest{ProductID: "product-w", DefaultRef: "origin/main", PrincipalRef: "principal-1", RequestID: "audit-reclaim-unobserved", Now: time.Unix(40, 0).UTC(), Runner: git, Limit: 100})
+	result, err := s.WorktreeAuditReclaim(ctx, WorktreeAuditReclaimRequest{ProductID: "product-w", DefaultRef: "origin/main", PrincipalRef: "principal-1", RequestID: "audit-reclaim-unobserved", Now: time.Unix(40, 0).UTC(), Runner: git, Limit: 100, ObservedProjectID: "project-w"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(result.Rows) != 1 || result.Rows[0].Outcome != WorktreeAuditRefused {
+	if len(result.Rows) != 1 || result.Rows[0].Outcome != WorktreeAuditRefused || result.Rows[0].RefusalKind != string(KindWorktreeOwnershipConflict) {
 		t.Fatalf("a reclaim with no occupancy observation must be refused, got %+v", result.Rows)
 	}
 	if _, kept := git.worktrees[donePath]; !kept {
@@ -265,7 +314,7 @@ func TestWorktreeAuditReclaimsUnstartedPresentWorktrees(t *testing.T) {
 	auditWork(t, s, git, "work-ahead", true)
 	git.ahead["work/work-ahead"] = 1
 
-	result, err := s.WorktreeAuditReclaim(ctx, WorktreeAuditReclaimRequest{ProductID: "product-w", DefaultRef: "origin/main", PrincipalRef: "principal-1", RequestID: "unstarted-reclaim-1", Now: time.Unix(40, 0).UTC(), Runner: git, Limit: 100, ObservedSessionDirectories: emptySessionObservation()})
+	result, err := s.WorktreeAuditReclaim(ctx, WorktreeAuditReclaimRequest{ProductID: "product-w", DefaultRef: "origin/main", PrincipalRef: "principal-1", RequestID: "unstarted-reclaim-1", Now: time.Unix(40, 0).UTC(), Runner: git, Limit: 100, ObservedSessionDirectories: emptySessionObservation(), ObservedProjectID: "project-w"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -296,7 +345,7 @@ func TestWorktreeAuditReclaimsUnstartedPresentWorktrees(t *testing.T) {
 	if lifecycle != "needed" {
 		t.Fatalf("reclaim must not change the work lifecycle, got %q", lifecycle)
 	}
-	again, err := s.WorktreeAuditReclaim(ctx, WorktreeAuditReclaimRequest{ProductID: "product-w", DefaultRef: "origin/main", PrincipalRef: "principal-1", RequestID: "unstarted-reclaim-2", Now: time.Unix(50, 0).UTC(), Runner: git, Limit: 100, ObservedSessionDirectories: emptySessionObservation()})
+	again, err := s.WorktreeAuditReclaim(ctx, WorktreeAuditReclaimRequest{ProductID: "product-w", DefaultRef: "origin/main", PrincipalRef: "principal-1", RequestID: "unstarted-reclaim-2", Now: time.Unix(50, 0).UTC(), Runner: git, Limit: 100, ObservedSessionDirectories: emptySessionObservation(), ObservedProjectID: "project-w"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -334,7 +383,7 @@ func TestWorktreeAuditProtectsUncommittedAndUnpushedContent(t *testing.T) {
 		t.Fatalf("content-bearing terminal worktrees must not recommend reclaim: %+v", byClass[WorktreeDriftTerminalPresent])
 	}
 
-	result, err := s.WorktreeAuditReclaim(ctx, WorktreeAuditReclaimRequest{ProductID: "product-w", DefaultRef: "origin/main", PrincipalRef: "principal-1", RequestID: "content-risk-pass", Now: time.Unix(40, 0).UTC(), Runner: git, Limit: 100, ObservedSessionDirectories: emptySessionObservation()})
+	result, err := s.WorktreeAuditReclaim(ctx, WorktreeAuditReclaimRequest{ProductID: "product-w", DefaultRef: "origin/main", PrincipalRef: "principal-1", RequestID: "content-risk-pass", Now: time.Unix(40, 0).UTC(), Runner: git, Limit: 100, ObservedSessionDirectories: emptySessionObservation(), ObservedProjectID: "project-w"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -360,7 +409,7 @@ func TestWorktreeAuditReclaimRefusesUnstartedWorktreeWithEquivalentTree(t *testi
 	git.ahead["work/work-revert-pair"] = 2
 	git.content["work-revert-pair"] = git.branches["main"]
 
-	result, err := s.WorktreeAuditReclaim(ctx, WorktreeAuditReclaimRequest{ProductID: "product-w", DefaultRef: "origin/main", PrincipalRef: "principal-1", RequestID: "unstarted-equivalent-tree", Now: time.Unix(40, 0).UTC(), Runner: git, Limit: 100, ObservedSessionDirectories: emptySessionObservation()})
+	result, err := s.WorktreeAuditReclaim(ctx, WorktreeAuditReclaimRequest{ProductID: "product-w", DefaultRef: "origin/main", PrincipalRef: "principal-1", RequestID: "unstarted-equivalent-tree", Now: time.Unix(40, 0).UTC(), Runner: git, Limit: 100, ObservedSessionDirectories: emptySessionObservation(), ObservedProjectID: "project-w"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -385,7 +434,7 @@ func TestWorktreeAuditReclaimRefusesOccupiedUnstartedWorktree(t *testing.T) {
 	ctx := context.Background()
 	path := auditWork(t, s, git, "work-unstarted-occupied", true)
 
-	result, err := s.WorktreeAuditReclaim(ctx, WorktreeAuditReclaimRequest{ProductID: "product-w", DefaultRef: "origin/main", PrincipalRef: "principal-1", RequestID: "unstarted-occupied", Now: time.Unix(40, 0).UTC(), Runner: git, Limit: 100, ObservedSessionDirectories: &[]SessionDirectory{{SessionRef: "ses-1", Directory: path}}})
+	result, err := s.WorktreeAuditReclaim(ctx, WorktreeAuditReclaimRequest{ProductID: "product-w", DefaultRef: "origin/main", PrincipalRef: "principal-1", RequestID: "unstarted-occupied", Now: time.Unix(40, 0).UTC(), Runner: git, Limit: 100, ObservedSessionDirectories: &[]SessionDirectory{{SessionRef: "ses-1", Directory: path}}, ObservedProjectID: "project-w"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -408,7 +457,7 @@ func TestReclaimWorktreeUnstartedTierRefusesStartedWork(t *testing.T) {
 	if err := ApplyOperation(ctx, s, Operation{Events: []Event{{EventID: "started-begin", Kind: "work.transitioned", SubjectType: SubjectWorkItem, SubjectID: "work-started", Actor: "operator", OccurredAt: time.Unix(20, 0).UTC(), PayloadVersion: 1, Payload: jsonRaw(`{"from":"needed","to":"in_progress","reason":"started","expected_version":3,"resulting_version":4}`)}}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "work-started"): 3}}); err != nil {
 		t.Fatal(err)
 	}
-	_, err := s.ReclaimWorktree(ctx, WorktreeReclaimRequest{WorkID: "work-started", ProjectID: "project-w", DefaultRef: "origin/main", PrincipalRef: "principal-1", RequestID: "unstarted-started-refusal", ExpectedVersion: 4, Now: time.Unix(30, 0).UTC(), Runner: git, RequireUnstarted: true, ObservedSessionDirectories: emptySessionObservation()})
+	_, err := s.ReclaimWorktree(ctx, WorktreeReclaimRequest{WorkID: "work-started", ProjectID: "project-w", DefaultRef: "origin/main", PrincipalRef: "principal-1", RequestID: "unstarted-started-refusal", ExpectedVersion: 4, Now: time.Unix(30, 0).UTC(), Runner: git, RequireUnstarted: true, ObservedSessionDirectories: emptySessionObservation(), ObservedProjectID: "project-w"})
 	if err == nil {
 		t.Fatal("unstarted tier must refuse work past needed")
 	}

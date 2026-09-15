@@ -6,7 +6,7 @@ import (
 	"fmt"
 )
 
-const ManifestDigest = "sha256:6dcecd3f9f403b8bc58c743336876a93d1374202ab96ae369bf736cadeb11620"
+const ManifestDigest = "sha256:aa46f62ddc5d7d8f863e0e9b3ce9942b32738b62cbce43474912ffeb62ce43ed"
 
 type OperationKind string
 
@@ -239,7 +239,7 @@ var GeneratedPayloadRules = map[string]GeneratedPayloadRule{
 	"work_observation_input":                       {Required: []string{"work_id"}, Properties: []string{"work_id", "page"}},
 	"work_observation_page":                        {Required: []string{"observations"}, Properties: []string{"observations"}},
 	"work_page":                                    {Required: []string{"items"}, Properties: []string{"items", "next_cursor", "readiness_evidence"}},
-	"work_pin":                                     {Required: []string{"work_id", "title", "linear_issue_key", "version", "lifecycle", "workflow_type", "step", "attempt", "pending_operator_decision", "watermark", "next_valid_intents"}, Properties: []string{"work_id", "title", "linear_issue_key", "version", "lifecycle", "workflow_type", "step", "attempt", "pending_operator_decision", "withheld_operator_decision", "watermark", "next_valid_intents", "correction", "verdict_evidence"}},
+	"work_pin":                                     {Required: []string{"work_id", "title", "linear_issue_key", "version", "lifecycle", "workflow_type", "step", "attempt", "pending_operator_decision", "watermark", "next_valid_intents"}, Properties: []string{"work_id", "title", "linear_issue_key", "version", "lifecycle", "workflow_type", "self_repair", "step", "attempt", "pending_operator_decision", "withheld_operator_decision", "watermark", "next_valid_intents", "correction", "verdict_evidence"}},
 	"work_pin_attempt":                             {Required: []string{"id", "epoch", "lane", "state"}, Properties: []string{"id", "epoch", "lane", "state"}},
 	"work_pin_evidence":                            {Required: []string{"evidence_kind", "immutable_subject_ref"}, Properties: []string{"evidence_kind", "immutable_subject_ref"}},
 	"work_pin_intent":                              {Required: []string{"tool", "operation", "reason_code", "action_id", "required_fields", "expected_version"}, Properties: []string{"tool", "operation", "reason_code", "action_id", "required_fields", "expected_version"}},

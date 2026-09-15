@@ -17,6 +17,7 @@ type WorkPin struct {
 	Lifecycle               string                    `json:"lifecycle"`
 	WorkflowType            string                    `json:"workflow_type"`
 	Step                    string                    `json:"step"`
+	SelfRepair              *WorkflowSelfRepair       `json:"self_repair,omitempty"`
 	Attempt                 *WorkPinAttempt           `json:"attempt"`
 	PendingOperatorDecision *WorkflowOperatorQuestion `json:"pending_operator_decision"`
 	// WithheldOperatorDecision names the checkpoint action whose question the
@@ -134,6 +135,7 @@ func ReadWorkPinTx(ctx context.Context, tx *sql.Tx, workID string) (WorkPin, err
 		if err != nil {
 			return pin, err
 		}
+		pin.SelfRepair = contract.SelfRepair
 		pin.PendingOperatorDecision, pin.WithheldOperatorDecision, err = workflowOperatorQuestionTx(ctx, tx, workID, pin.Step, pin.Version, definition, contract)
 		if err != nil {
 			return pin, err

@@ -52,7 +52,25 @@ def build_fixture() -> tuple[Path, dict[str, object], str, tempfile.TemporaryDir
     shard = {"id": "CD-0014", "sha256": "sha256:" + "0" * 64}
     (root / "docs/knowledge/records/CD-0014.json").write_text(json.dumps(shard, indent=2) + "\n", encoding="utf-8")
     metadata = {"Path": module, "Version": "v2.0.0", "Dir": str(module_dir)}
-    (root / "bin/go").write_text(f"#!/usr/bin/env python3\nimport json\nprint(json.dumps({metadata!r}))\n", encoding="utf-8")
+    # `go list -m -json all` emits one JSON object per module in the build list,
+    # and the generator accumulates them in a raw_decode loop. The fake answers
+    # with two records and puts the module under test second, so a loop that
+    # stops after the first record fails every test in this file. It refuses any
+    # other argv, because a fake that answers a command the real `go` rejects
+    # certifies an invocation that cannot work.
+    other_metadata = {"Path": "example.com/other", "Version": "v1.0.0", "Dir": str(module_dir)}
+    fake_go = f'''#!/usr/bin/env python3
+import json
+import sys
+
+if sys.argv[1:] != ["list", "-m", "-json", "all"]:
+    print(f"unsupported go invocation: {{sys.argv[1:]!r}}", file=sys.stderr)
+    raise SystemExit(2)
+
+print(json.dumps({other_metadata!r}))
+print(json.dumps({metadata!r}))
+'''
+    (root / "bin/go").write_text(fake_go, encoding="utf-8")
     (root / "bin/go").chmod(0o755)
     for name in ("generate-knowledge-index.py", "generate-law-coverage.py"):
         (root / "scripts" / name).write_text("raise SystemExit(0)\n", encoding="utf-8")

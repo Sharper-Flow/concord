@@ -93,6 +93,59 @@ func TestWorkflowEventsFoldAndRebuildByteIdentically(t *testing.T) {
 	}
 }
 
+func TestWorkflowPremiseConfirmationReentryUpdatesProjectionRow(t *testing.T) {
+	s := openTemp(t)
+	workID := "workflow-premise-reentry"
+	seedWork(t, s, workID)
+	seedWorkflowLaw(t, s)
+	ctx := context.Background()
+	owner := DeriveWorkflowActorRef("principal/operator", "client/concord-1", "agent/runner", "session/1")
+	operator := DeriveWorkflowActorRef("principal/operator", "client/concord-1", "agent/operator", "session/operator")
+	digest := workflowFixtureDigest(t)
+	confirmation := func(id string, expected int64, occurredAt time.Time) Event {
+		event := workflowEventWithActor(id, WorkflowPremiseConfirmed, workID, operator, map[string]any{
+			"work_id": workID, "expected_version": expected, "resulting_version": expected + 1,
+			"contract_version": 1, "confirming_actor_ref": operator,
+		})
+		event.OccurredAt = occurredAt
+		return event
+	}
+	events := []Event{
+		workflowEvent("reentry-actor", WorkflowActorRecorded, workID, map[string]any{
+			"work_id": workID, "expected_version": 2, "resulting_version": 3, "actor_ref": owner,
+			"principal_ref": "principal/operator", "client_ref": "client/concord-1", "agent_ref": "agent/runner", "session_ref": "session/1", "actor_class": "agent",
+		}),
+		workflowEvent("reentry-operator", WorkflowActorRecorded, workID, map[string]any{
+			"work_id": workID, "expected_version": 3, "resulting_version": 4, "actor_ref": operator,
+			"principal_ref": "principal/operator", "client_ref": "client/concord-1", "agent_ref": "agent/operator", "session_ref": "session/operator", "actor_class": "operator",
+		}),
+		workflowEventWithActor("reentry-definition", WorkflowDefinitionSelected, workID, owner, map[string]any{
+			"work_id": workID, "expected_version": 4, "resulting_version": 5,
+			"ref": workflowFixtureRef, "version": 1, "digest": digest, "work_kind": workflowFixtureWorkKind,
+		}),
+		workflowEventWithActor("reentry-contract", WorkflowContractApproved, workID, owner, map[string]any{
+			"work_id": workID, "expected_version": 5, "resulting_version": 6,
+			"contract_version": 1, "premise": "delivery is required", "outcome_kind": "check",
+			"outcome_payload":   map[string]any{"kind": "check", "check_ref": "check:workflow", "immutable_subject_ref": "commit:reentry", "expected_result": "pass"},
+			"required_evidence": []string{"verification"}, "route_conventions": []string{}, "spec_mandate": []string{}, "rigor_class": "prototype_internal", "consequence_class": "internal_sqlite",
+		}),
+		confirmation("reentry-confirm-first", 6, time.Unix(10, 0).UTC()),
+		confirmation("reentry-confirm-second", 7, time.Unix(20, 0).UTC()),
+	}
+	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: events, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 2}}); err != nil {
+		t.Fatalf("re-entered premise confirmation: %v", err)
+	}
+
+	var rows int
+	var confirmedBy, confirmedAt string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*), max(confirmed_by), max(confirmed_at) FROM workflow_premise_confirmations WHERE work_id=? AND contract_version=1`, workID).Scan(&rows, &confirmedBy, &confirmedAt); err != nil {
+		t.Fatal(err)
+	}
+	if rows != 1 || confirmedBy != operator || confirmedAt != "1970-01-01T00:00:20Z" {
+		t.Fatalf("premise projection rows=%d confirmed_by=%q confirmed_at=%q", rows, confirmedBy, confirmedAt)
+	}
+}
+
 func TestWorkflowActorRowsRejectMutationAndDifferentTuple(t *testing.T) {
 	s := openTemp(t)
 	seedWork(t, s, "actor-work")

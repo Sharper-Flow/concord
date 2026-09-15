@@ -129,7 +129,49 @@ function jsoncObjectEnd(text: string): number {
 }
 
 function hasTrailingObjectComma(text: string): boolean {
-  return /,(?:(?:[ \t]*\/\/[^\n]*(?:\n|$))|(?:[ \t]*\/\*.*?\*\/[ \t]*))*[ \t\r\n]*$/s.test(text)
+  return lastJSONCSignificantCharacter(text) === ","
+}
+
+function lastJSONCSignificantCharacter(text: string): string | undefined {
+  let last: string | undefined
+  let index = 0
+  while (index < text.length) {
+    const character = text[index]
+    const next = text[index + 1]
+    if (/\s/.test(character)) {
+      index++
+      continue
+    }
+    if (character === "/" && next === "/") {
+      const newline = text.indexOf("\n", index + 2)
+      index = newline < 0 ? text.length : newline + 1
+      continue
+    }
+    if (character === "/" && next === "*") {
+      const end = text.indexOf("*/", index + 2)
+      if (end < 0) return undefined
+      index = end + 2
+      continue
+    }
+    if (character === '"') {
+      let end = index + 1
+      let escaped = false
+      while (end < text.length) {
+        const current = text[end]
+        if (escaped) escaped = false
+        else if (current === "\\") escaped = true
+        else if (current === '"') break
+        end++
+      }
+      if (end >= text.length) return undefined
+      last = '"'
+      index = end + 1
+      continue
+    }
+    last = character
+    index++
+  }
+  return last
 }
 
 function skipJSONCSpace(text: string, start: number): number {
@@ -245,7 +287,7 @@ function appendInstructionJSONC(original: string, entry: string): string {
   const before = original.slice(0, end)
   const arrayStart = before.lastIndexOf("[")
   const trailing = before.slice(arrayStart + 1)
-  const hasTrailingComma = /,(?:(?:[ \t]*\/\/[^\n]*(?:\n|$))|(?:[ \t]*\/\*.*?\*\/[ \t]*))*[ \t\r\n]*$/s.test(trailing)
+  const hasTrailingComma = lastJSONCSignificantCharacter(trailing) === ","
   const separator = hasTrailingComma ? "\n  " : "\n  ,\n  "
   const arraySeparator = parsed.instructions.length === 0 ? "\n  " : separator
   return before + arraySeparator + marker + "\n" + original.slice(end)

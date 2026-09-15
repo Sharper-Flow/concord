@@ -85,6 +85,65 @@ describe("worktree_claim moves the session into the claimed worktree", () => {
     }
   })
 
+  test("adds the conduct entry when an object trailing comma has JSONC comments", async () => {
+    await mkdir("worktrees", { recursive: true })
+    const worktree = await mkdtemp(join("worktrees", "adapter-jsonc-object-comments-"))
+    const config = join(worktree, ".opencode", "opencode.jsonc")
+    try {
+      await mkdir(join(worktree, ".git"))
+      await mkdir(join(worktree, ".opencode"), { recursive: true })
+      await Bun.write(config, '{\n  "theme": "dark", // a line comment\n  /* a block comment */\n}\n')
+
+      await ensureConductLink(resolve(worktree), new AbortController().signal)
+
+      const linked = await Bun.file(config).text()
+      expect(linked).toContain('"theme": "dark", // a line comment')
+      expect(linked).toContain('"instructions": [')
+      expect(linked).not.toContain("*/,\n")
+    } finally {
+      await rm(worktree, { recursive: true, force: true })
+    }
+  })
+
+  test("adds the conduct entry when an instructions array ends with comments", async () => {
+    await mkdir("worktrees", { recursive: true })
+    const worktree = await mkdtemp(join("worktrees", "adapter-jsonc-array-comments-"))
+    const config = join(worktree, ".opencode", "opencode.jsonc")
+    try {
+      await mkdir(join(worktree, ".git"))
+      await mkdir(join(worktree, ".opencode"), { recursive: true })
+      await Bun.write(config, '{\n  "instructions": [\n    "contains // and /* markers", // a line comment\n    /* a block comment */\n  ]\n}\n')
+
+      await ensureConductLink(resolve(worktree), new AbortController().signal)
+
+      const linked = await Bun.file(config).text()
+      expect(linked).toContain('"contains // and /* markers", // a line comment')
+      expect(linked).toContain("current/instructions/*.md")
+    } finally {
+      await rm(worktree, { recursive: true, force: true })
+    }
+  })
+
+  test("keeps object trailing-comma detection bounded for repeated block comments", async () => {
+    await mkdir("worktrees", { recursive: true })
+    const worktree = await mkdtemp(join("worktrees", "adapter-jsonc-adversarial-"))
+    const config = join(worktree, ".opencode", "opencode.jsonc")
+    const adversarialComments = "/*" + "x".repeat(32) + "*/"
+    try {
+      await mkdir(join(worktree, ".git"))
+      await mkdir(join(worktree, ".opencode"), { recursive: true })
+      await Bun.write(config, `{"theme":"dark",${adversarialComments.repeat(25)}"final":"value"}\n`)
+
+      const started = performance.now()
+      await ensureConductLink(resolve(worktree), new AbortController().signal)
+      const elapsed = performance.now() - started
+
+      expect(elapsed).toBeLessThan(1000)
+    } finally {
+      await rm(worktree, { recursive: true, force: true })
+    }
+  })
+
   test("locates the instructions array instead of a JSONC decoy", async () => {
     await mkdir("worktrees", { recursive: true })
     const worktree = await mkdtemp(join("worktrees", "adapter-jsonc-decoy-"))

@@ -213,6 +213,156 @@ func TestLinearIssueUpdateDrainReportsDoneAndMirrorsTerminalStatus(t *testing.T)
 	}
 }
 
+func TestLinearIssueUpdateDrainOmitsUnchangedContent(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "concord.db")
+	seedCLIProduct(t, dbPath, "unchanged-product", "unchanged-project")
+	enableLinearProduct(t, dbPath, "unchanged-product")
+	runOperatorJSON(t, dbPath, []string{"linear-connection-update"}, map[string]any{
+		"event_id": "unchanged-connection-update", "resource_id": "drain-conn-unchanged-product", "product_id": "unchanged-product",
+		"team_id": "68d52710-76d9-4b41-ba45-778511d0e2ed", "status_ids": map[string]string{"needed": "state-needed", "in_progress": "state-in-progress", "cancelled": "state-cancelled", "completed": "state-completed", "superseded": "state-superseded"}, "expected_resource_version": 1,
+	})
+	seedLinearCLIWork(t, dbPath, "unchanged-work", "unchanged-project", "Unchanged title")
+
+	ctx := context.Background()
+	s, err := store.Open(ctx, dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, state := range []string{store.LinearLinkUnpublished, store.LinearLinkPending} {
+		if err := s.RecordLinearLink(ctx, "unchanged-work", "remote-unchanged", "SHA-4", "https://linear.app/example/issue/SHA-4", "", "", state); err != nil {
+			s.Close()
+			t.Fatal(err)
+		}
+	}
+	description := "CLI drain value statement\n\nConcord work: unchanged-work\nResume: `concord zl unchanged-work --`"
+	if err := s.RecordLinearLink(ctx, "unchanged-work", "remote-unchanged", "SHA-4", "https://linear.app/example/issue/SHA-4", "", linearContentHash("Unchanged title", description), store.LinearLinkConfirmed); err != nil {
+		s.Close()
+		t.Fatal(err)
+	}
+	if _, err := s.EnqueueLinearIssueForWork(ctx, "unchanged-work", store.LinearOpIssueUpdate); err != nil {
+		s.Close()
+		t.Fatal(err)
+	}
+	s.Close()
+
+	var requestBody map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&requestBody); err != nil {
+			t.Errorf("decode request: %v", err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":{"issueUpdate":{"success":true,"issue":{"id":"remote-unchanged","identifier":"SHA-4","url":"https://linear.app/example/issue/SHA-4","updatedAt":"2026-09-09T12:00:00Z"}}}}`))
+	}))
+	defer server.Close()
+	t.Setenv(linearclient.EnvEndpoint, server.URL)
+	t.Setenv(linearclient.EnvAPIKey, "lin_api_unchanged_test")
+	t.Setenv(dbOverrideEnv, dbPath)
+	var out, errOut strings.Builder
+	if code := runWithInput([]string{"linear", "outbox-drain"}, strings.NewReader(`{"product_id":"unchanged-product"}`), &out, &errOut); code != 0 {
+		t.Fatalf("drain exit=%d stderr=%q", code, errOut.String())
+	}
+	variables, ok := requestBody["variables"].(map[string]any)
+	if !ok {
+		t.Fatalf("request variables = %#v", requestBody["variables"])
+	}
+	input, ok := variables["input"].(map[string]any)
+	if !ok {
+		t.Fatalf("request input = %#v", variables["input"])
+	}
+	if _, present := input["title"]; present {
+		t.Fatalf("unchanged update sent title: %#v", input)
+	}
+	if _, present := input["description"]; present {
+		t.Fatalf("unchanged update sent description: %#v", input)
+	}
+	if input["stateId"] != "state-needed" {
+		t.Fatalf("request input = %#v, want stateId", input)
+	}
+}
+
+func TestLinearDrainSuppressesStaleRetry(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "concord.db")
+	seedCLIProduct(t, dbPath, "stale-retry-product", "stale-retry-project")
+	enableLinearProduct(t, dbPath, "stale-retry-product")
+	seedLinearCLIWork(t, dbPath, "stale-retry-work", "stale-retry-project", "Stale retry title")
+
+	ctx := context.Background()
+	s, err := store.Open(ctx, dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, state := range []string{store.LinearLinkUnpublished, store.LinearLinkPending} {
+		if err := s.RecordLinearLink(ctx, "stale-retry-work", "remote-stale-retry", "SHA-5", "https://linear.app/example/issue/SHA-5", "", "", state); err != nil {
+			s.Close()
+			t.Fatal(err)
+		}
+	}
+	newDescription := "new authoritative description"
+	if err := s.RecordLinearLink(ctx, "stale-retry-work", "remote-stale-retry", "SHA-5", "https://linear.app/example/issue/SHA-5", "", linearContentHash("new title", newDescription), store.LinearLinkConfirmed); err != nil {
+		s.Close()
+		t.Fatal(err)
+	}
+	oldPayload, err := json.Marshal(map[string]any{"client_uuid": "old-client-id", "product_id": "stale-retry-product", "title": "old title", "description": "old description", "team_id": "team-uuid-1", "connection_version": 1, "lifecycle": "needed", "status_id": "state-needed"})
+	if err != nil {
+		s.Close()
+		t.Fatal(err)
+	}
+	newPayload, err := json.Marshal(map[string]any{"client_uuid": "new-client-id", "product_id": "stale-retry-product", "title": "new title", "description": newDescription, "team_id": "team-uuid-1", "connection_version": 1, "lifecycle": "needed", "status_id": "state-needed"})
+	if err != nil {
+		s.Close()
+		t.Fatal(err)
+	}
+	if err := s.EnqueueLinearOperation(ctx, store.LinearOutboxEntry{OperationID: "a-old-operation", WorkID: "stale-retry-work", OpKind: store.LinearOpIssueUpdate, IdempotencyKey: "a-old-idempotency", Payload: oldPayload}); err != nil {
+		s.Close()
+		t.Fatal(err)
+	}
+	if err := s.EnqueueLinearOperation(ctx, store.LinearOutboxEntry{OperationID: "z-new-operation", WorkID: "stale-retry-work", OpKind: store.LinearOpIssueUpdate, IdempotencyKey: "z-new-idempotency", Payload: newPayload}); err != nil {
+		s.Close()
+		t.Fatal(err)
+	}
+	if err := s.ClaimLinearOperation(ctx, "z-new-operation"); err != nil {
+		s.Close()
+		t.Fatal(err)
+	}
+	if err := s.CompleteLinearOperation(ctx, "z-new-operation", store.LinearRemoteIdentity{RemoteUUID: "remote-stale-retry", HumanKey: "SHA-5", URL: "https://linear.app/example/issue/SHA-5", RemoteUpdatedAt: "2026-09-09T12:00:00Z", ContentHash: linearContentHash("new title", newDescription)}); err != nil {
+		s.Close()
+		t.Fatal(err)
+	}
+	s.Close()
+
+	calls := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer server.Close()
+	t.Setenv(linearclient.EnvEndpoint, server.URL)
+	t.Setenv(linearclient.EnvAPIKey, "lin_api_stale_retry_test")
+	t.Setenv(dbOverrideEnv, dbPath)
+	var out, errOut strings.Builder
+	if code := runWithInput([]string{"linear", "outbox-drain"}, strings.NewReader(`{"product_id":"stale-retry-product"}`), &out, &errOut); code != 0 {
+		t.Fatalf("drain exit=%d stderr=%q", code, errOut.String())
+	}
+	if calls != 0 {
+		t.Fatalf("stale retry reached Linear %d times", calls)
+	}
+	var oldState, linkHash string
+	s, err = store.Open(ctx, dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	if err := s.DatabaseForTesting().QueryRow(`SELECT state FROM linear_outbox WHERE operation_id='a-old-operation'`).Scan(&oldState); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.DatabaseForTesting().QueryRow(`SELECT content_hash FROM linear_issue_links WHERE work_id='stale-retry-work'`).Scan(&linkHash); err != nil {
+		t.Fatal(err)
+	}
+	if oldState != store.LinearOutboxDone || linkHash != linearContentHash("new title", newDescription) {
+		t.Fatalf("stale retry state = %s/%s, want done and newer content hash", oldState, linkHash)
+	}
+}
+
 func TestLinearDrainRefusesQueuedOperationAfterConnectionChange(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "concord.db")
 	seedCLIProduct(t, dbPath, "stale-product", "stale-project")

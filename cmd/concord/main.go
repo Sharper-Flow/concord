@@ -1000,6 +1000,25 @@ func runLinearOutboxDrain(ctx context.Context, s *store.Store, raw []byte, comma
 		if teamID == "" {
 			teamID = connection.TeamID
 		}
+		if op.OpKind == store.LinearOpIssueUpdate {
+			stale, staleErr := s.HasNewerLinearIssueUpdate(ctx, op.OperationID)
+			if staleErr != nil {
+				const detail = "cannot inspect newer Linear updates before sending the operation"
+				_ = s.FailLinearOperation(ctx, op.OperationID, "retryable", detail)
+				results = append(results, drained{OperationID: op.OperationID, Outcome: "retryable", Detail: detail})
+				continue
+			}
+			if stale {
+				const detail = "older Linear update was superseded by a newer queued update"
+				if err := s.CompleteSupersededLinearOperation(ctx, op.OperationID); err != nil {
+					_ = s.FailLinearOperation(ctx, op.OperationID, "retryable", err.Error())
+					results = append(results, drained{OperationID: op.OperationID, Outcome: "retryable", Detail: err.Error()})
+					continue
+				}
+				results = append(results, drained{OperationID: op.OperationID, Outcome: "done", Detail: detail})
+				continue
+			}
+		}
 		var (
 			issue linearclient.Issue
 			derr  error
@@ -1059,7 +1078,12 @@ func drainUpdate(ctx context.Context, s *store.Store, client *linearclient.Clien
 	if link.RemoteIssueUUID == "" || link.RemoteIssueUUID == payload.ClientUUID {
 		return linearclient.Issue{}, fmt.Errorf("link has no confirmed remote issue to update")
 	}
-	return client.UpdateIssue(ctx, link.RemoteIssueUUID, linearclient.UpdateIssueInput{Title: payload.Title, Description: payload.Description, ProjectID: payload.ProjectID, StatusID: payload.StatusID})
+	input := linearclient.UpdateIssueInput{ProjectID: payload.ProjectID, StatusID: payload.StatusID}
+	if link.ContentHash != linearContentHash(payload.Title, payload.Description) {
+		input.Title = payload.Title
+		input.Description = payload.Description
+	}
+	return client.UpdateIssue(ctx, link.RemoteIssueUUID, input)
 }
 
 // linearContentHash digests the synchronized content so a later reconciliation

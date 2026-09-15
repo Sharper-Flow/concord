@@ -319,6 +319,19 @@ def parse_version(value: str) -> str:
     return value
 
 
+def release_download_base_url(base_url: str, version: str | None) -> str:
+    """Select the asset endpoint for a pinned or source-selected release."""
+    if version is None:
+        return base_url
+    parsed = urllib.parse.urlsplit(base_url)
+    latest_suffix = "/releases/latest/download"
+    path = parsed.path.rstrip("/")
+    if not path.endswith(latest_suffix):
+        return base_url
+    tag_path = path[: -len(latest_suffix)] + f"/releases/download/{urllib.parse.quote(version, safe='')}"
+    return urllib.parse.urlunsplit(parsed._replace(path=tag_path))
+
+
 def resolve_latest_version(artifact_dir: Path | None, base_url: str) -> str:
     """Resolve the latest release the configured source can serve.
 
@@ -2186,6 +2199,7 @@ def recover_transactions(paths: Paths) -> None:
 
 def install(args: argparse.Namespace) -> int:
     version = parse_version(args.version) if args.version else resolve_latest_version(Path(args.artifact_dir).resolve() if args.artifact_dir else None, args.base_url)
+    download_base_url = release_download_base_url(args.base_url, version) if args.version else args.base_url
     paths = paths_for(args.root)
     recover_transactions(paths)
     manifest = load_manifest(paths)
@@ -2250,7 +2264,7 @@ def install(args: argparse.Namespace) -> int:
         extracted, _checksums = extract_verified_artifact(
             version,
             Path(args.artifact_dir).resolve() if args.artifact_dir else None,
-            args.base_url,
+            download_base_url,
             workspace,
         )
         source_stage = workspace / "version"
@@ -2473,7 +2487,7 @@ def repair(args: argparse.Namespace) -> int:
         extracted, _checksums = extract_verified_artifact(
             installed,
             Path(args.artifact_dir).resolve() if args.artifact_dir else None,
-            args.base_url,
+            release_download_base_url(args.base_url, installed),
             workspace,
         )
         source_stage = workspace / "version"

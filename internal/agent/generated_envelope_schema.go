@@ -260,6 +260,7 @@ const GeneratedEnvelopeSchemaDocument = `{
             "unlink",
             "unprocessed",
             "workflow_action",
+            "worker_abandon",
             "worktree_audit",
             "worktree_audit_reclaim",
             "worktree_claim",
@@ -846,6 +847,7 @@ const GeneratedEnvelopeSchemaDocument = `{
             "unlink",
             "unprocessed",
             "workflow_action",
+            "worker_abandon",
             "worktree_audit",
             "worktree_audit_reclaim",
             "worktree_claim",
@@ -1731,6 +1733,7 @@ const GeneratedEnvelopeSchemaDocument = `{
               "enum": [
                 "lifecycle",
                 "workflow_action",
+                "worker_abandon",
                 "worktree_claim",
                 "session_vacate",
                 "worktree_destroy",

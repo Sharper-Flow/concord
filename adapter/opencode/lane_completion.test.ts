@@ -194,12 +194,14 @@ describe("completeDispatchedWorker", () => {
     windows.open(SESSION, packet(), PACKET_DIGEST)
     windows.bind(TASK_TOOL_ID, SESSION, {})
     const verbs: string[] = []
+    let failureInput: Record<string, unknown> | undefined
     const runner: DispatchRunner = {
-      async run(argv) {
+      async run(argv, input) {
         if (argv[1] === "export") return { exitCode: 0, stdout: exportedSession(), stderr: "" }
         if (argv[1] === "session") return { exitCode: 0, stdout: sessionIndex(), stderr: "" }
         verbs.push(argv[1])
         if (argv[1] === "worker-complete") return { exitCode: 1, stdout: "", stderr: "store: worker_dispatch: unauthorized_dispatch: refused" }
+        if (argv[1] === "worker-fail") failureInput = JSON.parse(input) as Record<string, unknown>
         return { exitCode: 0, stdout: "", stderr: "" }
       },
     }
@@ -211,7 +213,37 @@ describe("completeDispatchedWorker", () => {
       concordBinary: "concord",
     })
     expect(verbs).toEqual(["worker-dispatch", "worker-complete", "worker-fail"])
+    expect(failureInput?.failure_kind).toBe("abandoned")
+    expect(failureInput?.observed_session_directories).toEqual([
+      { session_ref: "ses_other", directory: "/somewhere/else" },
+      { session_ref: SESSION, directory: "/claimed/worktree" },
+    ])
     expect(output.output).toContain("worker-complete refused")
+  })
+
+  test("a refused completion stays open when host liveness is unreadable", async () => {
+    const windows = new DispatchWindows()
+    windows.open(SESSION, packet(), PACKET_DIGEST)
+    windows.bind(TASK_TOOL_ID, SESSION, {})
+    const verbs: string[] = []
+    const runner: DispatchRunner = {
+      async run(argv) {
+        if (argv[1] === "export") return { exitCode: 0, stdout: exportedSession(), stderr: "" }
+        if (argv[1] === "session") return { exitCode: 1, stdout: "", stderr: "session list unavailable" }
+        verbs.push(argv[1])
+        if (argv[1] === "worker-complete") return { exitCode: 1, stdout: "", stderr: "completion refused" }
+        return { exitCode: 0, stdout: "", stderr: "" }
+      },
+    }
+    const output = { title: "verify lane", output: taskWrap(JSON.stringify(report())), metadata: {} }
+    await completeDispatchedWorker({ tool: TASK_TOOL_ID, sessionID: SESSION, callID: "call-unreadable", args: {} }, output, {
+      windows,
+      credentials: testCredentials,
+      runner,
+      concordBinary: "concord",
+    })
+    expect(verbs).toEqual(["worker-dispatch", "worker-complete"])
+    expect(output.output).toContain("live host sessions could not be observed")
   })
 
   test("adds the dispatch WorkPin state line to the lane report", async () => {

@@ -141,7 +141,8 @@ var commandSpecs = []commandSpec{
 	{Canonical: "invoke", RequiredFields: requiredFields(nestedField("call_envelope", "schema_version", "request_id", "client_ref", "principal_ref", "session_ref", "agent_ref", "directory", "worktree", "ambient_project_id", "scope_version", "manifest_digest"), field("tool"), field("operation"), field("input")), Optional: "call_envelope.selected_product_id, call_envelope.host_assertion_digest, call_envelope.host_approval_assertion", Enums: "tool.operation: concord_product_view.resolve | concord_product_view.snapshot | concord_product_view.portfolio | concord_work_browse.list | concord_work_browse.blocked | concord_work_browse.ready | concord_work_browse.scope | concord_work_trace.history | concord_work_trace.continuity | concord_work_trace.relations | concord_knowledge.search | concord_knowledge.resolve_note | concord_knowledge.unprocessed | concord_work_define.capture | concord_work_define.revise_intent | concord_work_transition.lifecycle | concord_work_transition.workflow_action | concord_work_transition.session_vacate | concord_work_relate.set_memberships | concord_work_relate.link | concord_work_relate.unlink | concord_work_relate.supersede | concord_work_compact.publish | concord_work_compact.reconcile"},
 	{Canonical: "worker-dispatch", RequiredFields: requiredFields(field("event_id"), field("work_id"), field("attempt_id"), field("lane_id"), field("lane_version"), field("lane_digest"), field("packet_schema_version"), field("report_schema_version"), field("packet_digest")), Optional: "readback_model (host-reported executing model); terminal ('failed') with terminal_failure_kind and terminal_detail for an attempt born failed, such as a lost or ambiguous readback; host_provenance.digest (sha256), host_provenance.sources[] (kind: agent_definition | agents_md | instruction_file | unenumerated; path; sha256) — required for v3 evidence (CD-0034)", Enums: "none"},
 	{Canonical: "worker-complete", RequiredFields: requiredFields(field("event_id"), field("work_id"), field("attempt_id"), field("readback_model"), field("report_schema_version"), field("evidence_origin")), Optional: "worker_directory, evidence[] — required when evidence_origin is reported", Enums: "evidence_origin: reported | legacy_unavailable; evidence[].obligation: bounded_findings | commands | contract_findings | exit_codes | failure_classification | files_touched | severity | source_citations | uncertainties | unresolved_issues | verification_commands | visual_artifacts; reported evidence must discharge every obligation the dispatching lane declares"},
-	{Canonical: "worker-fail", RequiredFields: requiredFields(field("event_id"), field("work_id"), field("attempt_id"), field("readback_model"), field("failure_kind"), field("detail")), Optional: "none", Enums: "failure_kind: fallback_blocked | worker_error | invalid_report"},
+	{Canonical: "worker-fail", RequiredFields: requiredFields(field("event_id"), field("work_id"), field("attempt_id"), field("readback_model"), field("failure_kind"), field("detail")), Optional: "observed_session_directories[] when failure_kind is abandoned — the host's live session and directory observation", Enums: "failure_kind: fallback_blocked | worker_error | invalid_report | abandoned"},
+	{Canonical: "worker-abandon", RequiredFields: requiredFields(field("event_id"), field("work_id"), field("attempt_id"), field("detail"), field("observed_session_directories")), Optional: "none", Enums: "the host signs a worker-fail assertion with failure_kind abandoned; readback_model is derived from the dispatched attempt"},
 	{Canonical: "client-register", TwoWord: "client register", RequiredFields: requiredFields(field("client_ref"), field("key_id"), field("principal_ref"), field("public_key"), field("capabilities"), field("product_scope"), field("project_scope"), field("agent_scope")), Optional: "none", Enums: "capabilities: product_read | work_define | work_transition | work_relate | work_compact | work_initiative | cross_scope | research | worker_evidence | worker_dispatch; public_key: base64 Ed25519; agent_scope: the agent references this client may present"},
 	{Canonical: "client-policy-update", TwoWord: "client policy-update", RequiredFields: requiredFields(field("client_ref"), field("principal_ref"), field("capabilities"), field("product_scope"), field("project_scope"), field("agent_scope")), Optional: "none", Enums: "capabilities: product_read | work_define | work_transition | work_relate | work_compact | work_initiative | cross_scope | research | worker_evidence | worker_dispatch; agent_scope: the agent references this client may present"},
 	{Canonical: "client-policy-expand", TwoWord: "client policy-expand", RequiredFields: requiredFields(field("client_ref")), Optional: "capabilities, product_scope, project_scope, agent_scope — additive union; every existing grant and the stored principal are preserved (CD-0097 D6)", Enums: "capabilities: product_read | work_define | work_transition | work_relate | work_compact | work_initiative | cross_scope | research | worker_evidence | worker_dispatch"},
@@ -462,7 +463,7 @@ func runJSONCommand(command string, args []string, in io.Reader, out, errOut io.
 	switch command {
 	case "invoke":
 		return runInvoke(raw, s, service, out, errOut)
-	case "worker-dispatch", "worker-complete", "worker-fail":
+	case "worker-dispatch", "worker-complete", "worker-fail", "worker-abandon":
 		return runWorkerCommand(command, raw, s, service, clock, out, errOut)
 	case "work-bootstrap":
 		return runWorkBootstrap(raw, s, out, errOut)
@@ -528,13 +529,27 @@ type workerCompleteRequest struct {
 }
 
 type workerFailRequest struct {
-	EventID       string                        `json:"event_id"`
-	WorkID        string                        `json:"work_id"`
-	AttemptID     string                        `json:"attempt_id"`
-	ReadbackModel string                        `json:"readback_model"`
-	FailureKind   string                        `json:"failure_kind"`
-	Detail        string                        `json:"detail"`
-	Assertion     agent.WorkerEvidenceAssertion `json:"assertion"`
+	EventID                    string                        `json:"event_id"`
+	WorkID                     string                        `json:"work_id"`
+	AttemptID                  string                        `json:"attempt_id"`
+	ReadbackModel              string                        `json:"readback_model"`
+	FailureKind                string                        `json:"failure_kind"`
+	Detail                     string                        `json:"detail"`
+	ObservedSessionDirectories *[]store.SessionDirectory     `json:"observed_session_directories,omitempty"`
+	Assertion                  agent.WorkerEvidenceAssertion `json:"assertion"`
+}
+
+// workerAbandonRequest is the host-only close route for a dispatched attempt
+// whose lane never returned a report. The core derives readback_model from the
+// attempt projection, while the host still signs the existing worker-fail
+// assertion and supplies the live session observation.
+type workerAbandonRequest struct {
+	EventID                    string                        `json:"event_id"`
+	WorkID                     string                        `json:"work_id"`
+	AttemptID                  string                        `json:"attempt_id"`
+	Detail                     string                        `json:"detail"`
+	ObservedSessionDirectories *[]store.SessionDirectory     `json:"observed_session_directories"`
+	Assertion                  agent.WorkerEvidenceAssertion `json:"assertion"`
 }
 
 // runWorkerCommand records worker attempt evidence. Every verb authenticates
@@ -633,8 +648,23 @@ func runWorkerCommand(command string, raw []byte, s *store.Store, service *agent
 			ReadbackModel: request.ReadbackModel,
 			FailureKind:   request.FailureKind,
 		}
-		payload := store.WorkerFailedPayload{AttemptID: request.AttemptID, ReadbackModel: request.ReadbackModel, FailureKind: request.FailureKind, Detail: request.Detail}
+		payload := store.WorkerFailedPayload{AttemptID: request.AttemptID, ReadbackModel: request.ReadbackModel, FailureKind: request.FailureKind, Detail: request.Detail, ObservedSessionDirectories: request.ObservedSessionDirectories}
 		return applyWorkerEvidence(ctx, command, s, service, request.Assertion, binding, nil, store.Event{EventID: request.EventID, Kind: store.WorkerFailed, SubjectType: store.SubjectWorkItem, SubjectID: request.WorkID, OccurredAt: clock().UTC(), PayloadVersion: 1, Payload: mustMarshalWorkerPayload(payload)}, out, errOut)
+	case "worker-abandon":
+		var request workerAbandonRequest
+		if err := decodeObject(raw, &request); err != nil {
+			writeOperatorDiagnostic(errOut, command, err.Error())
+			return 1
+		}
+		binding := agent.WorkerEvidenceBinding{
+			Verb:        agent.WorkerEvidenceVerbFail,
+			WorkID:      request.WorkID,
+			AttemptID:   request.AttemptID,
+			FailureKind: store.WorkerFailureAbandoned,
+		}
+		payload := store.WorkerFailedPayload{AttemptID: request.AttemptID, FailureKind: store.WorkerFailureAbandoned, Detail: request.Detail, ObservedSessionDirectories: request.ObservedSessionDirectories}
+		event := store.Event{EventID: request.EventID, Kind: store.WorkerFailed, SubjectType: store.SubjectWorkItem, SubjectID: request.WorkID, OccurredAt: clock().UTC(), PayloadVersion: 1, Payload: mustMarshalWorkerPayload(payload)}
+		return applyWorkerEvidence(ctx, command, s, service, request.Assertion, binding, nil, event, out, errOut)
 	}
 	writeOperatorDiagnostic(errOut, command, "unsupported command")
 	return 2
@@ -656,6 +686,21 @@ func applyWorkerEvidence(ctx context.Context, command string, s *store.Store, se
 	var eventIDs []string
 	var recorded error
 	err := s.Transact(ctx, func(tx *store.Transaction) error {
+		if command == "worker-abandon" {
+			existing, found, lookupErr := store.EventByIDTx(ctx, tx, event.EventID)
+			if lookupErr != nil {
+				return lookupErr
+			}
+			if found {
+				var prior store.WorkerFailedPayload
+				var requested store.WorkerFailedPayload
+				if existing.Kind != store.WorkerFailed || existing.SubjectType != store.SubjectWorkItem || existing.SubjectID != event.SubjectID || json.Unmarshal(existing.Payload, &prior) != nil || json.Unmarshal(event.Payload, &requested) != nil || prior.AttemptID != binding.AttemptID || prior.FailureKind != store.WorkerFailureAbandoned || prior.Detail != requested.Detail {
+					return errors.New("worker abandonment event identity conflicts with an existing event")
+				}
+				eventIDs = []string{existing.EventID}
+				return nil
+			}
+		}
 		if binding.Verb != agent.WorkerEvidenceVerbDispatch {
 			attempt, err := store.WorkerAttemptByIDTx(ctx, tx, binding.AttemptID)
 			if err != nil {

@@ -23,7 +23,7 @@ func TestWorkerCLIRequiredFieldsMatchTheSharedFile(t *testing.T) {
 	if err := json.Unmarshal(raw, &shared); err != nil {
 		t.Fatal(err)
 	}
-	for _, verb := range []string{"worker-dispatch", "worker-complete", "worker-fail"} {
+	for _, verb := range []string{"worker-dispatch", "worker-complete", "worker-fail", "worker-abandon"} {
 		var spec *commandSpec
 		for i := range commandSpecs {
 			if commandSpecs[i].Canonical == verb {

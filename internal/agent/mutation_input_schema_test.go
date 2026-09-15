@@ -57,6 +57,7 @@ func TestMutationInputSchemasBindDecodingStructs(t *testing.T) {
 		"concord_work_relate.unlink":                     unlinkMutationInput{},
 		"concord_work_transition.lifecycle":              lifecycleMutationInput{},
 		"concord_work_transition.workflow_action":        actionMutationInput{},
+		"concord_work_transition.worker_abandon":         workerAbandonInput{},
 		"concord_work_transition.worktree_audit_reclaim": worktreeAuditReclaimInput{},
 		"concord_work_transition.worktree_claim":         worktreeClaimInput{},
 		"concord_work_transition.session_vacate":         sessionVacateInput{},

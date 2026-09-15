@@ -276,6 +276,68 @@ func TestWorkerModelReadbackFailureIsDurableWithoutModelValue(t *testing.T) {
 	}
 }
 
+func TestAbandonedWorkerFailureRequiresAnUnoccupiedActiveWorktree(t *testing.T) {
+	s, git, _ := worktreeFixture(t)
+	claim := baseClaim(git)
+	if _, err := s.ClaimWorktree(context.Background(), claim); err != nil {
+		t.Fatal(err)
+	}
+	lane := BuiltinLaneDefinitions()[0]
+	attemptID := "abandoned-attempt"
+	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent("work-w", attemptID, lane, nil)}}); err != nil {
+		t.Fatal(err)
+	}
+
+	observed := []SessionDirectory{{SessionRef: "session-live", Directory: claim.Path}}
+	closeEvent := Event{
+		EventID: "abandoned-close", Kind: WorkerFailed, SubjectType: SubjectWorkItem, SubjectID: "work-w",
+		Actor: "worker:test", OccurredAt: time.Unix(3, 0).UTC(), PayloadVersion: 1,
+		Payload: mustJSONValue(WorkerFailedPayload{
+			AttemptID: attemptID, ReadbackModel: preferredModelForLane(lane), FailureKind: WorkerFailureAbandoned,
+			Detail: "the host observed that the lane never reported", ObservedSessionDirectories: &observed,
+		}),
+	}
+	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{closeEvent}}); !hasFailureKind(err, KindWorktreeOwnershipConflict) {
+		t.Fatalf("live session close error = %v, want %s", err, KindWorktreeOwnershipConflict)
+	}
+	var state string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT lifecycle_state FROM worker_attempts WHERE attempt_id=?`, attemptID).Scan(&state); err != nil {
+		t.Fatal(err)
+	}
+	if state != "dispatched" {
+		t.Fatalf("live session close state = %q, want dispatched", state)
+	}
+
+	empty := []SessionDirectory{}
+	closeEvent.EventID = "abandoned-close-empty"
+	closeEvent.Payload = mustJSONValue(WorkerFailedPayload{
+		AttemptID: attemptID, ReadbackModel: preferredModelForLane(lane), FailureKind: WorkerFailureAbandoned,
+		Detail: "the host observed that the lane never reported", ObservedSessionDirectories: &empty,
+	})
+	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{closeEvent}}); err != nil {
+		t.Fatalf("unoccupied abandoned close: %v", err)
+	}
+	var failure string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT lifecycle_state,failure_kind FROM worker_attempts WHERE attempt_id=?`, attemptID).Scan(&state, &failure); err != nil {
+		t.Fatal(err)
+	}
+	if state != "failed" || failure != WorkerFailureAbandoned {
+		t.Fatalf("abandoned close projection = %q/%q, want failed/%s", state, failure, WorkerFailureAbandoned)
+	}
+	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{closeEvent}}); err == nil {
+		t.Fatal("replayed abandoned close unexpectedly succeeded")
+	}
+}
+
+func failAbandonedWorkerAttempt(t *testing.T, s *Store, workID, attemptID string) {
+	t.Helper()
+	empty := []SessionDirectory{}
+	fail := Event{EventID: "abandoned-" + workID + "-" + attemptID, Kind: WorkerFailed, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(3, 0).UTC(), PayloadVersion: 1, Payload: mustJSONValue(WorkerFailedPayload{AttemptID: attemptID, ReadbackModel: preferredModelForLane(BuiltinLaneDefinitions()[0]), FailureKind: WorkerFailureAbandoned, Detail: "the host observed that the lane never reported", ObservedSessionDirectories: &empty})}
+	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{fail}}); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func workerDispatchEvent(workID, eventID string, lane LaneDefinition, overrides map[string]any) Event {
 	payload := map[string]any{
 		"attempt_id": eventID,

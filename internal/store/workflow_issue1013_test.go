@@ -96,7 +96,7 @@ func TestIssue1013ContractCorrectionAtFailedWorkerDispatch(t *testing.T) {
 		t.Fatal("contract correction resolved while the worker attempt was live")
 	}
 
-	failWorkerAttempt(t, s, workID, attemptID)
+	failAbandonedWorkerAttempt(t, s, workID, attemptID)
 	if _, _, err := WorkflowActionDefinitionFor(ctx, s, BuiltinWorkflowRegistry(), workID, "supersede_contract"); err == nil {
 		t.Fatal("contract correction resolved before record_worker_failure put the failure in the record")
 	}

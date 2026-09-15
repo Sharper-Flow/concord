@@ -1010,6 +1010,9 @@
         },
         "architecture_binding": {
           "$ref": "#/$defs/architecture_binding"
+        },
+        "self_repair": {
+          "$ref": "#/$defs/workflow_self_repair"
         }
       }
     },
@@ -11680,6 +11683,9 @@
                   "architecture_binding": {
                     "$ref": "#/$defs/architecture_binding"
                   },
+                  "self_repair": {
+                    "$ref": "#/$defs/workflow_self_repair"
+                  },
                   "design_record": {
                     "$ref": "#/$defs/workflow_design_content"
                   },
@@ -11922,6 +11928,64 @@
         "decisions",
         "touched_refs"
       ]
+    },
+    "workflow_self_repair": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "refusal_kind",
+        "blocked_operation",
+        "evidence_refs"
+      ],
+      "properties": {
+        "refusal_kind": {
+          "type": "string",
+          "enum": [
+            "unknown_scope",
+            "ambiguous_scope",
+            "stale_context",
+            "unauthorized",
+            "approval_required",
+            "approval_invalid",
+            "version_conflict",
+            "idempotency_conflict",
+            "operation_conflict",
+            "resource_busy",
+            "invalid_transition",
+            "invalid_relation",
+            "invariant_violation",
+            "missing_evidence",
+            "not_terminal",
+            "outcome_mismatch",
+            "stale_requires_review",
+            "stale_law_revision",
+            "domain_overlap",
+            "degraded_not_allowed",
+            "unreachable",
+            "invalid_cursor",
+            "limit_exceeded",
+            "budget_refused",
+            "invalid_input",
+            "cancelled",
+            "timeout",
+            "transport_failure",
+            "malformed_response",
+            "internal_error"
+          ]
+        },
+        "blocked_operation": {
+          "$ref": "#/$defs/reference"
+        },
+        "evidence_refs": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 32,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/reference"
+          }
+        }
+      }
     }
   }
 }

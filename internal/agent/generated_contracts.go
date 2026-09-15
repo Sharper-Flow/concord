@@ -6,7 +6,7 @@ import (
 	"fmt"
 )
 
-const ManifestDigest = "sha256:dfed58f59e43ab80c26da77f898234d5c5e7ed54b630e02bc09128e99cb32ad1"
+const ManifestDigest = "sha256:7cac677f4b60ef3a681f82670d91c561fa0e3997d1d4db510cd4c15cd273bdaa"
 
 type OperationKind string
 
@@ -271,7 +271,7 @@ var GeneratedPayloadRules = map[string]GeneratedPayloadRule{
 	"work_transition_worktree_verify_input":        {Required: []string{"work_id", "command", "idempotency_key"}, Properties: []string{"work_id", "command", "idempotency_key", "requested_budget_seconds"}},
 	"worker_packet":                                {Required: []string{"schema_version", "attempt_id", "lane_id", "lane_version", "lane_digest", "work_id", "step_id", "inputs"}, Properties: []string{"schema_version", "attempt_id", "lane_id", "lane_version", "lane_digest", "work_id", "step_id", "inputs"}},
 	"workflow_completion_payload":                  {Required: []string{}, Properties: []string{"evidence_commit", "current_commit", "staleness"}},
-	"workflow_contract":                            {Required: []string{"version", "premise", "outcome_predicates", "required_evidence", "route_conventions", "spec_mandate", "changes_product_truth"}, Properties: []string{"version", "premise", "outcome_predicates", "required_evidence", "route_conventions", "spec_mandate", "law_revisions", "law_modifies", "rigor_class", "changes_product_truth", "architecture_binding"}},
+	"workflow_contract":                            {Required: []string{"version", "premise", "outcome_predicates", "required_evidence", "route_conventions", "spec_mandate", "changes_product_truth"}, Properties: []string{"version", "premise", "outcome_predicates", "required_evidence", "route_conventions", "spec_mandate", "law_revisions", "law_modifies", "rigor_class", "changes_product_truth", "architecture_binding", "self_repair"}},
 	"workflow_correction_context":                  {Required: []string{"disposition", "attempt_count", "attempt_limit", "escalated", "predicate_ids", "evidence_refs"}, Properties: []string{"disposition", "attempt_count", "attempt_limit", "escalated", "predicate_ids", "evidence_refs", "diagnosis", "strategy", "failure_kind", "failure_detail", "failed_attempt_id", "failed_attempt_epoch"}},
 	"workflow_design_content":                      {Required: []string{"approach", "decisions", "touched_refs"}, Properties: []string{"approach", "decisions", "touched_refs"}},
 	"workflow_design_decision":                     {Required: []string{"id", "question", "choice", "rationale", "rejected"}, Properties: []string{"id", "question", "choice", "rationale", "rejected"}},
@@ -283,6 +283,7 @@ var GeneratedPayloadRules = map[string]GeneratedPayloadRule{
 	"workflow_outcome_exists":                      {Required: []string{"kind", "surface", "subjects"}, Properties: []string{"kind", "surface", "subjects"}},
 	"workflow_outcome_outcome":                     {Required: []string{"kind", "allowed"}, Properties: []string{"kind", "allowed", "decision_record"}},
 	"workflow_read":                                {Required: []string{"work_id", "state", "current_step", "definition", "conditions", "unresolved_conditions", "unreadable_conditions", "ready", "blocking_conditions", "impact_notices", "completion_warnings"}, Properties: []string{"work_id", "state", "current_step", "definition", "contract", "operator_question", "candidate_ids", "conditions", "unresolved_conditions", "unreadable_conditions", "ready", "blocking_conditions", "impact_notices", "completion_warnings", "stale_law_revision"}},
+	"workflow_self_repair":                         {Required: []string{"refusal_kind", "blocked_operation", "evidence_refs"}, Properties: []string{"refusal_kind", "blocked_operation", "evidence_refs"}},
 	"worktree_audit_page":                          {Required: []string{"root", "drift"}, Properties: []string{"root", "drift"}},
 	"worktree_audit_reclaim_result":                {Required: []string{"root", "rows", "report_only", "changed_refs", "next_valid_intents"}, Properties: []string{"root", "rows", "report_only", "changed_refs", "next_valid_intents", "work_pins"}},
 	"worktree_inspect_result":                      {Required: []string{"work_id", "project_id", "branch", "path", "mode", "content", "truncated"}, Properties: []string{"work_id", "project_id", "branch", "path", "mode", "content", "truncated"}},

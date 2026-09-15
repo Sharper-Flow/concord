@@ -82,6 +82,7 @@ type workflowContractApprovedPayload struct {
 	LawModifies         []string                           `json:"law_modifies"`
 	LawRevisions        []WorkflowLawRevision              `json:"law_revisions"`
 	ArchitectureBinding *WorkflowArchitectureBinding       `json:"architecture_binding,omitempty"`
+	SelfRepair          *WorkflowSelfRepair                `json:"self_repair,omitempty"`
 	LawBoundaryVersion  int                                `json:"law_boundary_version,omitempty"`
 	RigorClass          string                             `json:"rigor_class"`
 	ConsequenceClass    string                             `json:"consequence_class,omitempty"`
@@ -787,7 +788,10 @@ func foldWorkflowContractApproved(ctx context.Context, tx *sql.Tx, event Event) 
 	if err := requireActor(ctx, tx, event.Actor); err != nil {
 		return err
 	}
-	_, err := tx.ExecContext(ctx, `INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`, event.SubjectID, p.ContractVersion, p.Premise, p.ConsequenceClass, workflowJSON(p.RequiredEvidence), workflowJSON(p.RouteConventions), event.OccurredAt.UTC().Format(time.RFC3339Nano), event.Actor, workflowJSON(p.SpecMandate), workflowJSON(p.LawModifies), p.LawBoundaryVersion, p.RigorClass)
+	if err := validateWorkflowSelfRepairAuthorityTx(ctx, tx, event.SubjectID, event.Actor, p.SelfRepair); err != nil {
+		return err
+	}
+	_, err := tx.ExecContext(ctx, `INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class,self_repair_json) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`, event.SubjectID, p.ContractVersion, p.Premise, p.ConsequenceClass, workflowJSON(p.RequiredEvidence), workflowJSON(p.RouteConventions), event.OccurredAt.UTC().Format(time.RFC3339Nano), event.Actor, workflowJSON(p.SpecMandate), workflowJSON(p.LawModifies), p.LawBoundaryVersion, p.RigorClass, workflowJSON(p.SelfRepair))
 	if err != nil {
 		return workflowProjectionError(err, "cannot record immutable workflow contract")
 	}
@@ -875,7 +879,7 @@ func foldWorkflowContractSuperseded(ctx context.Context, tx *sql.Tx, event Event
 		successorEvent := event
 		successorEvent.EventID = event.EventID + ":successor"
 		successorEvent.Kind = WorkflowContractApproved
-		successorEvent.PayloadVersion = 3
+		successorEvent.PayloadVersion = 4
 		successorEvent.Payload = successorPayload
 		if err := foldWorkflowContractApproved(ctx, tx, successorEvent); err != nil {
 			return err
@@ -2264,6 +2268,53 @@ func upcastWorkflowContractApprovedV2(event Event) (Event, error) {
 	}
 	event.Payload = payload
 	event.PayloadVersion = 3
+	return event, nil
+}
+
+func upcastWorkflowContractApprovedV3(event Event) (Event, error) {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(event.Payload, &fields); err != nil || fields == nil {
+		return Event{}, newFailure(KindInvalidPayload, "upcast_event", "workflow.contract_approved v3 payload is not a JSON object", false, "repair the stored workflow contract")
+	}
+	if _, present := fields["self_repair"]; present {
+		return Event{}, newFailure(KindInvalidPayload, "upcast_event", "workflow.contract_approved v3 cannot carry self-repair authority", false, "use workflow.contract_approved v4 for self-repair authority")
+	}
+	fields["self_repair"] = json.RawMessage("null")
+	payload, err := json.Marshal(fields)
+	if err != nil {
+		return Event{}, wrapFailure(KindInvalidPayload, "upcast_event", "cannot normalize workflow.contract_approved v3 payload", false, "repair the stored workflow contract", err)
+	}
+	event.Payload = payload
+	event.PayloadVersion = 4
+	return event, nil
+}
+
+func upcastWorkflowContractSupersededV1(event Event) (Event, error) {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(event.Payload, &fields); err != nil || fields == nil {
+		return Event{}, newFailure(KindInvalidPayload, "upcast_event", "workflow.contract_superseded v1 payload is not a JSON object", false, "repair the stored workflow contract supersession")
+	}
+	if successorRaw, present := fields["successor_contract"]; present && string(successorRaw) != "null" {
+		var successor map[string]json.RawMessage
+		if err := json.Unmarshal(successorRaw, &successor); err != nil || successor == nil {
+			return Event{}, newFailure(KindInvalidPayload, "upcast_event", "workflow.contract_superseded v1 successor is not a JSON object", false, "repair the stored workflow contract supersession")
+		}
+		if _, present := successor["self_repair"]; present {
+			return Event{}, newFailure(KindInvalidPayload, "upcast_event", "workflow.contract_superseded v1 cannot carry self-repair authority", false, "use workflow.contract_superseded v2 for self-repair authority")
+		}
+		successor["self_repair"] = json.RawMessage("null")
+		encoded, err := json.Marshal(successor)
+		if err != nil {
+			return Event{}, wrapFailure(KindInvalidPayload, "upcast_event", "cannot normalize workflow.contract_superseded v1 successor", false, "repair the stored workflow contract supersession", err)
+		}
+		fields["successor_contract"] = encoded
+	}
+	payload, err := json.Marshal(fields)
+	if err != nil {
+		return Event{}, wrapFailure(KindInvalidPayload, "upcast_event", "cannot normalize workflow.contract_superseded v1 payload", false, "repair the stored workflow contract supersession", err)
+	}
+	event.Payload = payload
+	event.PayloadVersion = 2
 	return event, nil
 }
 

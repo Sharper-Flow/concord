@@ -64,7 +64,7 @@ func workflowFailedWorkerRetryBinding(ctx context.Context, q queryer, workID str
 		return nil, wrapFailure(KindUnavailable, "workflow_correction", "cannot read the current workflow step", true, "retry once the workflow projection is readable", err)
 	}
 	correction, err := workflowCorrectionContextForDispatch(ctx, q, workID, stepID, "")
-	if err != nil || correction == nil || correction.FailedAttemptID == "" {
+	if err != nil || correction == nil || correction.Disposition != "failed" || correction.FailedAttemptID == "" {
 		return nil, err
 	}
 	contractVersion, err := latestWorkflowContractVersion(ctx, q, workID)

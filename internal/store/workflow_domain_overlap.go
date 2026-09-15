@@ -378,6 +378,13 @@ func CheckWorkflowDomainOverlapTx(ctx context.Context, tx *sql.Tx, workID string
 	if tx == nil {
 		return newFailure(KindUnavailable, "workflow_domain_overlap", "transaction is not open", false, "open a mutation transaction")
 	}
+	exempt, err := workflowSelfRepairExemptTx(ctx, tx, workID)
+	if err != nil {
+		return err
+	}
+	if exempt {
+		return nil
+	}
 	self, others, err := readWorkflowDomainOverlapCandidatesTx(ctx, tx, workID)
 	if err != nil || self.WorkID == "" || self.ProductID == "" {
 		return err

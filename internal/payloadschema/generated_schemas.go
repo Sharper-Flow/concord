@@ -9996,6 +9996,9 @@ const GeneratedPayloadSchemaDocument = `{
                     "type": "array",
                     "uniqueItems": true
                   },
+                  "self_repair": {
+                    "$ref": "#/$defs/workflow_self_repair"
+                  },
                   "spec_mandate": {
                     "items": {
                       "$ref": "#/$defs/id"
@@ -10692,6 +10695,9 @@ const GeneratedPayloadSchemaDocument = `{
           "maxItems": 16,
           "type": "array",
           "uniqueItems": true
+        },
+        "self_repair": {
+          "$ref": "#/$defs/workflow_self_repair"
         },
         "spec_mandate": {
           "items": {
@@ -11441,6 +11447,64 @@ const GeneratedPayloadSchemaDocument = `{
         "blocking_conditions",
         "impact_notices",
         "completion_warnings"
+      ],
+      "type": "object"
+    },
+    "workflow_self_repair": {
+      "additionalProperties": false,
+      "properties": {
+        "blocked_operation": {
+          "$ref": "#/$defs/reference"
+        },
+        "evidence_refs": {
+          "items": {
+            "$ref": "#/$defs/reference"
+          },
+          "maxItems": 32,
+          "minItems": 1,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "refusal_kind": {
+          "enum": [
+            "unknown_scope",
+            "ambiguous_scope",
+            "stale_context",
+            "unauthorized",
+            "approval_required",
+            "approval_invalid",
+            "version_conflict",
+            "idempotency_conflict",
+            "operation_conflict",
+            "resource_busy",
+            "invalid_transition",
+            "invalid_relation",
+            "invariant_violation",
+            "missing_evidence",
+            "not_terminal",
+            "outcome_mismatch",
+            "stale_requires_review",
+            "stale_law_revision",
+            "domain_overlap",
+            "degraded_not_allowed",
+            "unreachable",
+            "invalid_cursor",
+            "limit_exceeded",
+            "budget_refused",
+            "invalid_input",
+            "cancelled",
+            "timeout",
+            "transport_failure",
+            "malformed_response",
+            "internal_error"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "refusal_kind",
+        "blocked_operation",
+        "evidence_refs"
       ],
       "type": "object"
     },

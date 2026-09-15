@@ -9,6 +9,33 @@ import (
 	"time"
 )
 
+func TestWorkflowSelfRepairUpcastersPreserveHistoricalContractsAsUnclassified(t *testing.T) {
+	for _, event := range []Event{
+		{Kind: WorkflowContractApproved, PayloadVersion: 3, Payload: json.RawMessage(`{"work_id":"historical-approved"}`)},
+		{Kind: WorkflowContractSuperseded, PayloadVersion: 1, Payload: json.RawMessage(`{"work_id":"historical-superseded","successor_contract":{"contract_version":2}}`)},
+	} {
+		upcast, err := upcastEvent(event)
+		if err != nil {
+			t.Fatalf("upcast %s: %v", event.Kind, err)
+		}
+		var fields map[string]json.RawMessage
+		if err := json.Unmarshal(upcast.Payload, &fields); err != nil {
+			t.Fatal(err)
+		}
+		classification := fields["self_repair"]
+		if event.Kind == WorkflowContractSuperseded {
+			var successor map[string]json.RawMessage
+			if err := json.Unmarshal(fields["successor_contract"], &successor); err != nil {
+				t.Fatal(err)
+			}
+			classification = successor["self_repair"]
+		}
+		if string(classification) != "null" {
+			t.Fatalf("%s historical classification = %s, want null", event.Kind, classification)
+		}
+	}
+}
+
 func TestWorkCreatedV1UpcasterIsDeterministic(t *testing.T) {
 	event := workCreatedEvent("work-v1", "event-v1")
 	event.PayloadVersion = 1

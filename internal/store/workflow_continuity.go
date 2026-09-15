@@ -226,6 +226,10 @@ func ReadWorkflowContinuity(ctx context.Context, s *Store, req ContinuityRequest
 		if err != nil {
 			return out, err
 		}
+		contract.SelfRepair, err = readWorkflowSelfRepair(ctx, tx, req.Work, contract.Version)
+		if err != nil {
+			return out, err
+		}
 		out.ArchitectureBinding = contract.ArchitectureBinding
 		out.Contract = &contract
 		contract.LawRevisions, err = readWorkflowLawRevisions(ctx, tx, req.Work, contract.Version)

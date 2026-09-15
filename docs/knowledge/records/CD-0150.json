@@ -1,0 +1,43 @@
+{
+  "date": "2026-09-14T00:00:00Z",
+  "evidence": [
+    "internal/store/workflow_self_repair.go",
+    "internal/store/workflow_self_repair_test.go",
+    "internal/store/workflow_domain_overlap.go",
+    "internal/agent/supersede_contract_dispatch_test.go",
+    "contracts/agent-tool-surface-payloads.schema.json"
+  ],
+  "home_domain_id": "product-root:concord",
+  "id": "CD-0150",
+  "kind": "decision",
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "CD-0145"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0147"
+    }
+  ],
+  "path": "docs/decisions/CD-0150-operator-approved-self-repair-overlap-exemption.md",
+  "product_wide_rationale": "The exemption changes Product-wide concurrency admission for Concord's own workflow repair, so no child Domain can define or widen it independently.",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:689e5bea9836ba5b902727c6d1bdc6604c6f76e28d08d68c3c35e8edca6ba686",
+  "status": "accepted",
+  "summary": "A signed operator-approved successor contract can classify Concord workflow repair with a typed refusal, blocked operation, and evidence references. The classification bypasses only Domain-overlap admission, keeps overlaps visible, and gives no exemption to ordinary work.",
+  "tags": [
+    "workflow",
+    "self-repair",
+    "operator-approval",
+    "domain-overlap",
+    "authority"
+  ],
+  "title": "Operator-approved self-repair bypasses overlap admission"
+}

@@ -1,0 +1,22 @@
+{
+  "evidence": [
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestWorkflowSelfRepairBypassesOverlapForClassifiedWorkOnly"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestWorkflowSelfRepairRequiresConcordAndOperatorAuthority"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/agent.TestSupersedeContractDispatchChallengesThenBindsApprovalOperator"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestMigrateV81AddsWorkflowSelfRepairClassification"
+    }
+  ],
+  "id": "CD-0150",
+  "state": "satisfied"
+}

@@ -12,7 +12,7 @@ import (
 )
 
 func TestSupersedeContractDispatchChallengesThenBindsApprovalOperator(t *testing.T) {
-	for _, stage := range []string{"before-start", "after-start", "acceptance", "overlap", "pending-dispatch", "pending-dispatch-overlap", "shared-domain"} {
+	for _, stage := range []string{"before-start", "after-start", "acceptance", "overlap", "pending-dispatch", "pending-dispatch-overlap", "shared-domain", "self-repair"} {
 		t.Run(stage, func(t *testing.T) {
 			testSupersedeContractDispatch(t, stage)
 		})
@@ -34,7 +34,7 @@ func testSupersedeContractDispatch(t *testing.T, stage string) {
 		version = workflowIssue31Version(t, s)
 	}
 	binding := workflowArchitectureBindingFixture()
-	if stage == "overlap" || stage == "pending-dispatch-overlap" {
+	if stage == "overlap" || stage == "pending-dispatch-overlap" || stage == "self-repair" {
 		binding["domain_modifies"] = []string{"root"}
 	}
 	contractFields := workflowContractFieldsFixture()
@@ -61,8 +61,13 @@ func testSupersedeContractDispatch(t *testing.T, stage string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if stage == "overlap" || stage == "shared-domain" {
+	if stage == "overlap" || stage == "shared-domain" || stage == "self-repair" {
 		seedContractCorrectionPeer(t, s)
+	}
+	if stage == "self-repair" {
+		if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE domain_registries SET product_key='concord' WHERE product_id='product-1'; DELETE FROM fold_guard`); err != nil {
+			t.Fatal(err)
+		}
 	}
 	if strings.HasPrefix(stage, "pending-dispatch") {
 		env = workflowDispatchWorktreeFixture(t, s, env)
@@ -126,6 +131,9 @@ func testSupersedeContractDispatch(t *testing.T, stage string) {
 			"decisions":    []map[string]any{{"id": "decision:corrected", "question": "Which approach?", "choice": "corrected", "rationale": "Matches the approved objective", "rejected": []string{"original"}}},
 			"touched_refs": []string{"src/work.go"},
 		},
+	}
+	if stage == "self-repair" {
+		fields["self_repair"] = map[string]any{"refusal_kind": "domain_overlap", "blocked_operation": "workflow_action.dispatch_worker", "evidence_refs": []string{"obs:0000000000000001"}}
 	}
 	input := map[string]any{"work_id": "work-1", "expected_version": version, "action_id": "supersede_contract", "fields": fields, "idempotency_key": "supersede-contract-dispatch"}
 	raw, err := json.Marshal(input)
@@ -232,6 +240,19 @@ func testSupersedeContractDispatch(t *testing.T, stage string) {
 			return store.CheckWorkflowConsequentialBoundaryTx(context.Background(), tx, "work-1")
 		}); err != nil {
 			t.Fatalf("shared Domain without shared writes blocked execution: %v", err)
+		}
+	}
+	if stage == "self-repair" {
+		if continuity.Contract == nil || continuity.Contract.SelfRepair == nil {
+			t.Fatalf("approved correction omitted self-repair classification: %+v", continuity.Contract)
+		}
+		if len(continuity.UnresolvedOverlaps) == 0 {
+			t.Fatal("self-repair classification hid the unresolved overlap")
+		}
+		if err := s.Transact(context.Background(), func(tx *store.Transaction) error {
+			return store.CheckWorkflowConsequentialBoundaryTx(context.Background(), tx, "work-1")
+		}); err != nil {
+			t.Fatalf("self-repair stayed overlap-blocked: %v", err)
 		}
 	}
 	committedVersion := workflowIssue31Version(t, s)

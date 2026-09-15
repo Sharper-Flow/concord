@@ -84,6 +84,13 @@ func ComputeWorkflowDecisionContextDigest(workID string, workVersion int64, defi
 			}{"outcome_payload", []byte(predicate.OutcomePayload)},
 		)
 	}
+	if contract.SelfRepair != nil {
+		encoded, _ := json.Marshal(contract.SelfRepair)
+		values = append(values, struct {
+			name  string
+			value []byte
+		}{"self_repair", encoded})
+	}
 	var canonical strings.Builder
 	canonical.WriteString("workflow-operator-question-v1\x00")
 	for _, field := range values {
@@ -130,6 +137,10 @@ func ReadWorkflowOperatorQuestion(ctx context.Context, s *Store, workID string) 
 	}
 	var predicateErr error
 	contract.OutcomePredicates, predicateErr = readWorkflowContractPredicates(ctx, s.db, workID, contract.Version)
+	if predicateErr != nil {
+		return nil, predicateErr
+	}
+	contract.SelfRepair, predicateErr = readWorkflowSelfRepair(ctx, s.db, workID, contract.Version)
 	if predicateErr != nil {
 		return nil, predicateErr
 	}
@@ -378,6 +389,10 @@ func validateWorkflowOperatorSelectionTx(ctx context.Context, tx *sql.Tx, regist
 	contract.OutcomePredicates, err = readWorkflowContractPredicates(ctx, tx, request.WorkID, contract.Version)
 	if err != nil {
 		return newFailure(KindInvariantViolation, "workflow_operator_question", "workflow contract predicates are unavailable", false, "rebuild projections from the event log")
+	}
+	contract.SelfRepair, err = readWorkflowSelfRepair(ctx, tx, request.WorkID, contract.Version)
+	if err != nil {
+		return newFailure(KindInvariantViolation, "workflow_operator_question", "workflow self-repair classification is unavailable", false, "rebuild projections from the event log")
 	}
 	step := workflowStep(entry.Definition, currentStep)
 	if step == nil || step.Kind != WorkflowStepHumanCheckpoint {

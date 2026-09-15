@@ -37,6 +37,7 @@ type WorkflowReadContract struct {
 	RigorClass          string                       `json:"rigor_class"`
 	ChangesProductTruth bool                         `json:"changes_product_truth"`
 	ArchitectureBinding *WorkflowArchitectureBinding `json:"architecture_binding,omitempty"`
+	SelfRepair          *WorkflowSelfRepair          `json:"self_repair,omitempty"`
 }
 
 type WorkflowReadPredicate struct {
@@ -206,6 +207,10 @@ func ReadWorkflowProjection(ctx context.Context, s *Store, request WorkflowReadR
 		}
 		contract.ChangesProductTruth = out.ChangesProductTruth
 		contract.ArchitectureBinding, err = readWorkflowArchitectureBinding(ctx, s.db, request.WorkID, contract.Version)
+		if err != nil {
+			return out, err
+		}
+		contract.SelfRepair, err = readWorkflowSelfRepair(ctx, s.db, request.WorkID, contract.Version)
 		if err != nil {
 			return out, err
 		}
@@ -437,6 +442,10 @@ func readWorkflowSummaryTx(ctx context.Context, tx *sql.Tx, workID string) (*Wor
 		}
 		contract.ChangesProductTruth = out.ChangesProductTruth
 		contract.ArchitectureBinding, err = readWorkflowArchitectureBinding(ctx, tx, workID, contract.Version)
+		if err != nil {
+			return nil, err
+		}
+		contract.SelfRepair, err = readWorkflowSelfRepair(ctx, tx, workID, contract.Version)
 		if err != nil {
 			return nil, err
 		}

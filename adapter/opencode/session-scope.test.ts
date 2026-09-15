@@ -150,7 +150,7 @@ test("an authorized Task binds once and the managed session stays protected", as
   const fixture = host([session("scope-window", true), session("scope-other", true)])
   const plugin = await fixture.plugin()
   const packet = { schema_version: "1.0" as const, attempt_id: "scope-attempt", lane_id: "implement", lane_version: 1, lane_digest: "sha256:" + "a".repeat(64), work_id: "scope-work", step_id: "repair", inputs: { task: "Approved task" } }
-  dispatchWindows().open("scope-window", packet)
+  dispatchWindows().open("scope-window", packet, "", undefined, process.cwd())
   await expect(plugin["tool.execute.before"](task("scope-other"), { args: args() })).rejects.toThrow("no authorized dispatch window")
   expect(dispatchWindows().has("scope-window")).toBe(true)
   const output = { args: args() }

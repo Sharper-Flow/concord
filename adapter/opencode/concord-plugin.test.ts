@@ -105,7 +105,7 @@ describe("plugin entry registers the dispatch window hook", () => {
     }
     expect(typeof plugin["tool.execute.before"]).toBe("function")
 
-    dispatchWindows().open("session-plugin", packet)
+    dispatchWindows().open("session-plugin", packet, "", undefined, process.cwd())
     const output = { args: { subagent_type: "general", prompt: "whatever I like", task_id: "old" } }
     await plugin["tool.execute.before"]({ tool: TASK_TOOL_ID, sessionID: "session-plugin", callID: "call-1" }, output)
 

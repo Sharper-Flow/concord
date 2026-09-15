@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto"
-import { realpathSync } from "node:fs"
+import fs, { realpathSync } from "node:fs"
 import { tmpdir } from "node:os"
+import path from "node:path"
 import { describe, expect, test } from "bun:test"
 import { DispatchWindows, TASK_TOOL_ID } from "./dispatch-window"
 
@@ -137,6 +138,27 @@ describe("dispatch authorization window", () => {
     await windows.bind(TASK_TOOL_ID, "session-a", { subagent_type: "general", prompt: "model input" }, undefined, here)
 
     expect(process.cwd()).toBe(before)
+  })
+
+  test("pins the resolved claimed directory before the host task call", async () => {
+    const root = fs.mkdtempSync(path.join(process.cwd(), "concord-dispatch-"))
+    const claimed = path.join(root, "claimed")
+    const other = path.join(root, "other")
+    const alias = path.join(root, "alias")
+    for (const directory of [claimed, other]) fs.mkdirSync(directory)
+    fs.symlinkSync(claimed, alias)
+    try {
+      const windows = new DispatchWindows()
+      windows.open("session-a", packet, "", undefined, alias)
+      fs.unlinkSync(alias)
+      fs.symlinkSync(other, alias)
+
+      await expect(
+        windows.bind(TASK_TOOL_ID, "session-a", { subagent_type: "general", prompt: "model input" }, undefined, async () => alias),
+      ).rejects.toThrow(/does not match the active claimed worktree/i)
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true })
+    }
   })
 })
 

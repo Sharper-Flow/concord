@@ -14,6 +14,7 @@ import (
 )
 
 func TestProductRowsC14ReturnsFiveGroups(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	seedProductRowFixture(t, s)
 
@@ -134,6 +135,7 @@ func addProductRowProduct(t *testing.T, s *Store, id, name string) {
 }
 
 func TestProductRowsC14AuthoritativeEmptyAndTerminalOnly(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	addProductRowProduct(t, s, "empty", "Empty")
 	result, err := s.QueryProductRows(context.Background(), ProductRowRequest{})
@@ -155,6 +157,7 @@ func TestProductRowsC14AuthoritativeEmptyAndTerminalOnly(t *testing.T) {
 }
 
 func TestProductRowsC14TerminalWorkCannotEnterAnyFocusTier(t *testing.T) {
+	t.Parallel()
 	for _, lifecycle := range []string{"completed", "cancelled", "superseded"} {
 		work := productRowWork{Lifecycle: lifecycle, ApprovalRequired: true, ActiveProblem: true, Blocked: true, Ready: true}
 		if got := work.attentionKind(); got != "" {
@@ -164,6 +167,7 @@ func TestProductRowsC14TerminalWorkCannotEnterAnyFocusTier(t *testing.T) {
 }
 
 func TestProductRowsC14FocusTiersStageContextAndCrossProjectDedupe(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	seedProductRowFixture(t, s)
 	productRowExec(t, s, `
@@ -200,6 +204,7 @@ func TestProductRowsC14FocusTiersStageContextAndCrossProjectDedupe(t *testing.T)
 }
 
 func TestProductRowsC14SingleProjectStageOverride(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	seedProductRowFixture(t, s)
 	productRowExec(t, s, `
@@ -224,6 +229,7 @@ func TestProductRowsC14SingleProjectStageOverride(t *testing.T) {
 }
 
 func TestProductRowsC14FiveTierCompetitionChoosesFirstNonemptyTier(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	productRowExec(t, s, `
 		INSERT INTO products(id,display_name,stage_maturity,stage_audience_commitment,version,created_at,updated_at) VALUES ('tiers','Tiers','prototype','operator_only',1,?,?);
@@ -255,6 +261,7 @@ func TestProductRowsC14FiveTierCompetitionChoosesFirstNonemptyTier(t *testing.T)
 }
 
 func TestProductRowsC14UnavailableRequiredSourceNeverBecomesZero(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	seedProductRowFixture(t, s)
 	for _, tc := range []struct {
@@ -286,6 +293,7 @@ func TestProductRowsC14UnavailableRequiredSourceNeverBecomesZero(t *testing.T) {
 }
 
 func TestProductRowsC14DuplicateNamesAndCursorBinding(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	for i := 0; i < 25; i++ {
 		name := "Product"
@@ -326,6 +334,7 @@ func TestProductRowsC14DuplicateNamesAndCursorBinding(t *testing.T) {
 }
 
 func TestProductRowsC14HundredPageAndQueryPlan(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	for i := 0; i < 105; i++ {
 		addProductRowProduct(t, s, "page-"+fmtProductRowID(i), "Page "+fmtProductRowID(i))
@@ -369,6 +378,7 @@ func TestProductRowsC14HundredPageAndQueryPlan(t *testing.T) {
 }
 
 func TestProductRowsC14RepresentativeP99(t *testing.T) {
+	t.Parallel()
 	if productRowSkipPerformanceUnderRace {
 		t.Skip("representative latency threshold is measured without race instrumentation")
 	}

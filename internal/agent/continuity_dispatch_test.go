@@ -15,6 +15,7 @@ import (
 // place that drives the engine to an approved contract through
 // AuthorizeWorkflowActionAtBoundaryTx rather than seeding rows.
 func TestContinuityDispatchReadsAPinnedContract(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s, service, execKey, _ := verdictScopeFixture(t)
 

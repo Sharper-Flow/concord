@@ -27,6 +27,7 @@ import (
 // translates each store.RelationEdge into the agent-facing shape before
 // building the result map.
 func TestRegressionDefect1_RelationEnvelopeShapeIsFromToKind(t *testing.T) {
+	t.Parallel()
 	s, service, grant, _ := agentJobsPM1Fixture(t)
 
 	env := agentJobsEnvelope(grant, "proj-web", "prod-alpha")
@@ -93,6 +94,7 @@ func TestRegressionDefect1_RelationEnvelopeShapeIsFromToKind(t *testing.T) {
 // result shape returns an enum-mismatch error whenever any item carries
 // lifecycle=superseded.
 func TestRegressionDefect2_SupersededLifecycleInWorkSummaryValidates(t *testing.T) {
+	t.Parallel()
 	payload := []byte(`{"items":[{"id":"work-old","kind":"task","title":"Old","lifecycle":"superseded","version":3}],"next_cursor":null}`)
 	// work_browse.list returns work_page which is a list of work_summary.
 	if err := ValidateOperationPayload("concord_work_browse", "list", payload, true); err != nil {
@@ -114,6 +116,7 @@ func TestRegressionDefect2_SupersededLifecycleInWorkSummaryValidates(t *testing.
 // atomic with its supersedes relation. The split restores the structural
 // guarantee; the runtime guard in mutations.go remains as defense-in-depth.
 func TestRegressionDefect2_TransitionTargetRejectsSuperseded(t *testing.T) {
+	t.Parallel()
 	payload := []byte(`{"work_id":"work-x","expected_version":1,"target":"superseded","reason":"probe","idempotency_key":"probe-superseded"}`)
 	err := ValidateOperationPayload("concord_work_transition", "lifecycle", payload, false)
 	if err == nil {
@@ -135,6 +138,7 @@ func TestRegressionDefect2_TransitionTargetRejectsSuperseded(t *testing.T) {
 // re-narrowing of the shared def that would re-break defect 2 only on the
 // read-filter side.
 func TestRegressionDefect2_LifecycleFilterAcceptsSuperseded(t *testing.T) {
+	t.Parallel()
 	payload := []byte(`{"page":{"cursor":null,"limit":20},"lifecycle":"superseded"}`)
 	if err := ValidateOperationPayload("concord_work_browse", "list", payload, false); err != nil {
 		t.Fatalf("work_browse_list_input with lifecycle=superseded must validate, got %v", err)
@@ -166,6 +170,7 @@ func TestRegressionDefect2_LifecycleFilterAcceptsSuperseded(t *testing.T) {
 // provide_evidence, and no approval_ref should be surfaced (because the
 // agent has nothing to approve until it supplies evidence).
 func TestRegressionDefect3_TerminalWithoutEvidenceReturnsMissingEvidence(t *testing.T) {
+	t.Parallel()
 	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_transition"})
 	scopeVersion, _, err := s.ScopeVersion(context.Background(), "project-1")
 	if err != nil {
@@ -206,6 +211,7 @@ func TestRegressionDefect3_TerminalWithoutEvidenceReturnsMissingEvidence(t *test
 // is permanently unable to complete work even when it does supply the
 // correct evidence — the entire lifecycle workflow is unreachable.
 func TestRegressionDefect3_TerminalWithEvidenceMintsApprovalChallenge(t *testing.T) {
+	t.Parallel()
 	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_transition"})
 	scopeVersion, _, err := s.ScopeVersion(context.Background(), "project-1")
 	if err != nil {
@@ -255,6 +261,7 @@ func TestRegressionDefect3_TerminalWithEvidenceMintsApprovalChallenge(t *testing
 // asserts that the resulting TypedError carries a structurally typed
 // CurrentVersions entry the agent can read without parsing prose.
 func TestRegressionDefect4_VersionConflictCarriesTypedCurrentVersion(t *testing.T) {
+	t.Parallel()
 	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_transition"})
 	scopeVersion, _, err := s.ScopeVersion(context.Background(), "project-1")
 	if err != nil {
@@ -301,6 +308,7 @@ func TestRegressionDefect4_VersionConflictCarriesTypedCurrentVersion(t *testing.
 // test pins the validator's coupling so a future regression is
 // detected.
 func TestRegressionDefect4_VersionConflictEnvelopeValidates(t *testing.T) {
+	t.Parallel()
 	// Force-build an envelope whose kind/recovery are coupled to the
 	// rule. The pre-fix runtime would have produced exactly this
 	// shape, so this test acts as a forward guard on the coupling.
@@ -358,6 +366,7 @@ func TestRegressionDefect4_VersionConflictEnvelopeValidates(t *testing.T) {
 // names the offending edge structurally — without that the runner has
 // no machine-readable way to know which edge caused the cycle.
 func TestRegressionDefect5_CycleRefusalCarriesTypedViolations(t *testing.T) {
+	t.Parallel()
 	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_relate"})
 	// Seed work-2 so the cycle has two distinct endpoints, and seed
 	// the work-1 → work-2 blocks edge so a reverse edge would cycle.

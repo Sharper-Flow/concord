@@ -12,6 +12,7 @@ import (
 )
 
 func TestSupersedeContractDispatchChallengesThenBindsApprovalOperator(t *testing.T) {
+	t.Parallel()
 	for _, stage := range []string{"before-start", "after-start", "acceptance", "overlap", "pending-dispatch", "pending-dispatch-overlap", "shared-domain", "self-repair"} {
 		t.Run(stage, func(t *testing.T) {
 			testSupersedeContractDispatch(t, stage)

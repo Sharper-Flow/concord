@@ -10,6 +10,7 @@ import (
 )
 
 func TestRecordedInvestigationArtifactRequiresResolvableDomainAndWorkRefs(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	workID := "investigation-gate-work"
 	otherWorkID := "investigation-gate-other"
@@ -33,6 +34,7 @@ func TestRecordedInvestigationArtifactRequiresResolvableDomainAndWorkRefs(t *tes
 }
 
 func TestPendingQuestionsRequireBoundResearchRevision(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	workID := "investigation-gate-research"
 	actor, version := continuityTestWorkflow(t, s, workID)
@@ -210,6 +212,7 @@ func insertInvestigationGateObservation(t *testing.T, s *Store, workID, observat
 }
 
 func TestOperatorQuestionWithheldForAnyApprovalRequiredAction(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	workID := "investigation-gate-question"
 	seedWork(t, s, workID)

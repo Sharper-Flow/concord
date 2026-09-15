@@ -26,6 +26,7 @@ func seedInitiativeForNarrative(t *testing.T, s *Store) {
 }
 
 func TestInitiativeNarrativeRevisedFoldAndAudit(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openTemp(t)
 	seedInitiativeForNarrative(t, s)
@@ -83,6 +84,7 @@ func TestInitiativeNarrativeRevisedFoldAndAudit(t *testing.T) {
 }
 
 func TestInitiativeNarrativeRejectsNonInitiative(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openTemp(t)
 	seedInitiativeForNarrative(t, s)
@@ -98,6 +100,7 @@ func TestInitiativeNarrativeRejectsNonInitiative(t *testing.T) {
 }
 
 func TestInitiativeNarrativeVersionFenceAndPayload(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openTemp(t)
 	seedInitiativeForNarrative(t, s)
@@ -148,6 +151,7 @@ func TestInitiativeNarrativeVersionFenceAndPayload(t *testing.T) {
 }
 
 func TestInitiativeNarrativeRevisionRefusesTerminalInitiative(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openTemp(t)
 	seedInitiativeForNarrative(t, s)

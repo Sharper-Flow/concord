@@ -25,6 +25,7 @@ func domainEventCount(t *testing.T, s *store.Store) int {
 }
 
 func TestStaleUnchangedScopePermitsReadAndRejectsMutationBeforeAnyEffect(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"product_read", "work_define"})
 	current, _, err := s.ScopeVersion(ctx, "project-1")
@@ -63,6 +64,7 @@ func TestStaleUnchangedScopePermitsReadAndRejectsMutationBeforeAnyEffect(t *test
 }
 
 func TestInvalidSelectedProductFailsAsContextNotAuthorization(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s, service, authority, _ := mutationDispatchFixture(t, []Capability{"product_read"})
 	version, _, err := s.ScopeVersion(ctx, "project-1")
@@ -101,6 +103,7 @@ func TestInvalidSelectedProductFailsAsContextNotAuthorization(t *testing.T) {
 }
 
 func TestInvalidSelectedProductUnderAmbiguousScopeResolvesByCandidate(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s, service, authority, _ := mutationDispatchFixture(t, []Capability{"product_read"})
 	events := []store.Event{

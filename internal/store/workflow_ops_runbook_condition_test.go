@@ -9,6 +9,7 @@ import (
 )
 
 func TestOpsRunbookConditionResolutionAcrossHealthDispatch(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openTemp(t)
 	workID := "ops-runbook-condition-dispatch"

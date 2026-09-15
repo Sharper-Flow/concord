@@ -13,6 +13,7 @@ import (
 // marshal, so the caller sees a marshal fault instead of the refusal the core
 // decided (issue #768).
 func TestUnavailableStoreRefusalMarshalsAsUnreachable(t *testing.T) {
+	t.Parallel()
 	failure := &store.Failure{
 		Kind:           store.KindUnavailable,
 		Op:             "rebuild_knowledge_index",
@@ -44,6 +45,7 @@ func TestUnavailableStoreRefusalMarshalsAsUnreachable(t *testing.T) {
 // Every other core error keeps the authoritative claim: the core answered, and
 // the answer is a typed refusal.
 func TestCoreErrorKeepsAuthoritativeForOtherKinds(t *testing.T) {
+	t.Parallel()
 	out := coreError(NewBase("other-1", "concord_domain", "list"), "unknown_scope", "no Product", "contact_operator", false)
 	if out.Authority != AuthorityAuthoritative {
 		t.Fatalf("authority=%q, want authoritative", out.Authority)

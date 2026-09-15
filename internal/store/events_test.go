@@ -43,6 +43,7 @@ func appendInTx(t *testing.T, s *Store, e Event) (int64, error) {
 }
 
 func TestAppendEventAssignsMonotonicSequence(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 
 	first := testEvent()
@@ -69,6 +70,7 @@ func TestAppendEventAssignsMonotonicSequence(t *testing.T) {
 // The event log is the sole authority, so an append that is part of a rolled
 // back transaction must leave nothing behind.
 func TestAppendEventIsTransactional(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	ctx := context.Background()
 
@@ -93,6 +95,7 @@ func TestAppendEventIsTransactional(t *testing.T) {
 }
 
 func TestAppendEventRejectsDuplicateEventID(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 
 	if _, err := appendInTx(t, s, testEvent()); err != nil {
@@ -113,6 +116,7 @@ func TestAppendEventRejectsDuplicateEventID(t *testing.T) {
 }
 
 func TestAppendEventRejectsInvalidEvents(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name   string
 		mutate func(*Event)
@@ -148,6 +152,7 @@ func TestAppendEventRejectsInvalidEvents(t *testing.T) {
 }
 
 func TestAppendEventRejectsUnregisteredEventsBeforeMutation(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name   string
 		mutate func(*Event)
@@ -196,6 +201,7 @@ func TestAppendEventRejectsUnregisteredEventsBeforeMutation(t *testing.T) {
 // PM3 requires an append-only log. Convention is not enough: the database must
 // refuse rewrites even when a caller reaches past the append boundary.
 func TestDomainEventsRejectUpdateAndDelete(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	ctx := context.Background()
 
@@ -227,6 +233,7 @@ func TestDomainEventsRejectUpdateAndDelete(t *testing.T) {
 }
 
 func TestAppendEventRoundTripsEveryField(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	ctx := context.Background()
 
@@ -263,6 +270,7 @@ func TestAppendEventRoundTripsEveryField(t *testing.T) {
 // Timestamps are stored in a single normalized form so ordering and comparison
 // never depend on the caller's location.
 func TestAppendEventNormalizesTimeZone(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	ctx := context.Background()
 
@@ -285,6 +293,7 @@ func TestAppendEventNormalizesTimeZone(t *testing.T) {
 }
 
 func TestSubjectTypeValidation(t *testing.T) {
+	t.Parallel()
 	for _, st := range knownSubjectTypes() {
 		if !st.valid() {
 			t.Errorf("registered subject type %q reports invalid", st)

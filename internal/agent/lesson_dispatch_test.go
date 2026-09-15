@@ -77,6 +77,7 @@ func lessonInput() json.RawMessage {
 }
 
 func TestDispatchLessonPublishApprovalRoundTripAndReplay(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s, service, grant, privateKey, repo := lessonDispatchFixture(t)
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
@@ -136,6 +137,7 @@ func TestDispatchLessonPublishApprovalRoundTripAndReplay(t *testing.T) {
 }
 
 func TestDispatchLessonPublishReflectionTagRidesTheSamePath(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s, service, grant, privateKey, _ := lessonDispatchFixture(t)
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")

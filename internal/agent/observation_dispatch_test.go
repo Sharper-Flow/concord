@@ -13,6 +13,7 @@ import (
 // no authority.
 
 func TestObservationRecordDispatchContinuityAndNonAuthority(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s, service, grant := claimsFixture(t)
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")

@@ -18,9 +18,9 @@ import (
 // named and the qualifying form stated. The durable-binding requirement
 // itself is unchanged.
 func TestUnboundVerdictEvidenceRefusalNamesTheRef(t *testing.T) {
+	t.Parallel()
 	const workID = "issue974-named-refusal"
-	s, _ := seedItemAtAcceptance(t, workID, false)
-	reviewer := verdictReviewer(t, workID)
+	s, _, reviewer := seedItemAtAcceptance(t, workID, false)
 	unbound := "https://github.com/Sharper-Flow/concord/issues/952#issuecomment-5594041977"
 
 	payload, _ := json.Marshal(map[string]any{"predicate_id": "predicate:primary", "verdict_kind": "ok", "evaluation_evidence": []string{unbound, "attempt:" + workID}})
@@ -42,6 +42,7 @@ func TestUnboundVerdictEvidenceRefusalNamesTheRef(t *testing.T) {
 // The WorkPin exposes the bound evidence set with kinds at a step that
 // declares record_verdict, and stays empty at a step that does not.
 func TestWorkPinExposesBoundVerdictEvidenceAtVerdictSteps(t *testing.T) {
+	t.Parallel()
 	const workID = "issue974-pin-evidence"
 	s, _ := seedLanelessResearchItem(t, workID)
 

@@ -14,6 +14,7 @@ import (
 // observation id, which named neither the real cause nor a usable recovery.
 
 func TestObservationAcceptsAbsentRefsAndTags(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 
 	work := observationFixture(t)
@@ -54,6 +55,7 @@ func TestObservationAcceptsAbsentRefsAndTags(t *testing.T) {
 }
 
 func TestMarshalStringsRendersNilAsEmptyArray(t *testing.T) {
+	t.Parallel()
 	if got := marshalStrings(nil); got != "[]" {
 		t.Fatalf("marshalStrings(nil) = %q, want []", got)
 	}

@@ -6,6 +6,7 @@ import (
 )
 
 func TestResolveKnowledgeHeadRejectsHostileRefs(t *testing.T) {
+	t.Parallel()
 	repo := initKnowledgeRepo(t)
 	writeKnowledgeFile(t, repo, "README.md", "knowledge\n")
 	commitKnowledgeRepo(t, repo, "seed")

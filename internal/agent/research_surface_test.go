@@ -53,6 +53,7 @@ func researchSurfaceFixtureWithCapabilities(t *testing.T, capabilities []Capabil
 }
 
 func TestResearchAuthorBindProveAndRead(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s, service, grant, _ := researchSurfaceFixture(t)
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
@@ -153,6 +154,7 @@ func TestResearchAuthorBindProveAndRead(t *testing.T) {
 // A grant scoped to only the research capability must execute research
 // mutations; a grant without research must be refused for them.
 func TestResearchMutationCapabilityFollowsContract(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 
 	scopedInvoke := func(capabilities []Capability, op string, input any) Envelope {

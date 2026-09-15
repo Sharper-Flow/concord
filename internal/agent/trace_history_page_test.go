@@ -14,6 +14,7 @@ import (
 // field fails the generated result schema and refuses the whole page
 // (issue #383).
 func TestTraceHistoryPageAcceptsReasonlessEvents(t *testing.T) {
+	t.Parallel()
 	q := store.Q7Result{
 		ResultMeta: store.ResultMeta{QueryID: "q7", ContractVersion: "1.0", ResolvedScope: store.ResolvedScope{ProductID: "product-1"}, Authority: "authoritative"},
 		Events: []store.TimelineEvent{

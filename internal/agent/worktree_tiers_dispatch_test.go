@@ -111,6 +111,7 @@ func tiersInspect(t *testing.T, s *store.Store, service *Service, grant Authorit
 }
 
 func TestWorktreeInspectReadsSameProjectWorktree(t *testing.T) {
+	t.Parallel()
 	s, service, grant, _, _, _ := tiersFixture(t)
 	worktreePath := filepath.Join(filepath.Dir(s.Path()), "worktrees", "project-1", "work-2")
 
@@ -153,6 +154,7 @@ func TestWorktreeInspectReadsSameProjectWorktree(t *testing.T) {
 }
 
 func TestWorktreeInspectRefusesWithoutActiveEntry(t *testing.T) {
+	t.Parallel()
 	s, service, grant, _, _, _ := tiersFixture(t)
 	// A third work item exists in the same Project with no worktree.
 	events := []store.Event{
@@ -169,6 +171,7 @@ func TestWorktreeInspectRefusesWithoutActiveEntry(t *testing.T) {
 }
 
 func TestWorktreeVerifyRunsUnderLeaseThroughToolSurface(t *testing.T) {
+	t.Parallel()
 	s, service, grant, _, _, _ := tiersFixture(t)
 	worktreePath := filepath.Join(filepath.Dir(s.Path()), "worktrees", "project-1", "work-2")
 
@@ -208,6 +211,7 @@ func TestWorktreeVerifyRunsUnderLeaseThroughToolSurface(t *testing.T) {
 }
 
 func TestWorktreeVerifyRefusesTrackedFileMutation(t *testing.T) {
+	t.Parallel()
 	s, service, grant, _, _, _ := tiersFixture(t)
 	worktreePath := filepath.Join(filepath.Dir(s.Path()), "worktrees", "project-1", "work-2")
 
@@ -242,6 +246,7 @@ func TestWorktreeVerifyRefusesTrackedFileMutation(t *testing.T) {
 }
 
 func TestWorktreeVerifyConcurrentLeaseRefusesTyped(t *testing.T) {
+	t.Parallel()
 	s, service, grant, _, secondGrant, _ := tiersFixture(t)
 	worktreePath := filepath.Join(filepath.Dir(s.Path()), "worktrees", "project-1", "work-2")
 

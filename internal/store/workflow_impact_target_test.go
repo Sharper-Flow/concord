@@ -68,6 +68,7 @@ func invokeDeclareImpact(ctx context.Context, t *testing.T, s *Store, workID str
 }
 
 func TestDeclareImpactWithoutTargetIsRefusedAtTheBoundary(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openTemp(t)
 	actor := seedImpactTargetFixture(t, s, "work-impact-source", "work-impact-target")
@@ -82,6 +83,7 @@ func TestDeclareImpactWithoutTargetIsRefusedAtTheBoundary(t *testing.T) {
 }
 
 func TestDeclareImpactWithUnknownTargetIsRefused(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openTemp(t)
 	actor := seedImpactTargetFixture(t, s, "work-impact-source-2", "work-impact-target-2")
@@ -96,6 +98,7 @@ func TestDeclareImpactWithUnknownTargetIsRefused(t *testing.T) {
 }
 
 func TestDeclareImpactWithRealTargetRecordsTheEdge(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openTemp(t)
 	actor := seedImpactTargetFixture(t, s, "work-impact-source-3", "work-impact-target-3")

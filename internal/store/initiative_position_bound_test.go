@@ -12,6 +12,7 @@ import (
 // position inside the reorder staging band (position+1000000) and a later
 // reorder collides on the unique index, misclassified as retryable unavailability.
 func TestInitiativeEntryPositionIsBoundedAtFoldTime(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openTemp(t)
 	seedInitiativeForNarrative(t, s)

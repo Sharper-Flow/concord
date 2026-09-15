@@ -23,6 +23,7 @@ import (
 // validating accept_worker_result, but only the distinct workflow owner can
 // append the step-advancing workflow.action_completed event.
 func TestWorkerAuthorityBoundaryHoldsInBothDirections(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openTemp(t)
 	seedWork(t, s, "authority-work")
@@ -98,6 +99,7 @@ func TestWorkerAuthorityBoundaryHoldsInBothDirections(t *testing.T) {
 }
 
 func TestWorkerCannotAdvanceItsStepWithAnUndeclaredCompletionAction(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s, workerRef := seedDispatchedWorkerAtExecution(t, "authority-step-transition")
 	completed := workflowEventWithActor("authority-step-transition-completed", WorkflowActionCompleted, "authority-step-transition", workerRef, map[string]any{
@@ -125,6 +127,7 @@ func TestWorkerCannotAdvanceItsStepWithAnUndeclaredCompletionAction(t *testing.T
 // accept_worker_result satisfies CD-0013 D5 against the actor that actually
 // executed.
 func TestAcceptWorkerResultSucceedsWhenLaneIsExecutingActor(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	workID := "authority-lane-executing"
 	s := openTemp(t)
@@ -204,6 +207,7 @@ func TestAcceptWorkerResultSucceedsWhenLaneIsExecutingActor(t *testing.T) {
 }
 
 func TestWorkerCannotRecordItsOwnVerdict(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s, workerRef := seedDispatchedWorkerAtExecution(t, "authority-self-verdict")
 	verdict := workflowEventWithActor("authority-self-verdict-recorded", WorkflowVerdictRecorded, "authority-self-verdict", workerRef, map[string]any{
@@ -223,6 +227,7 @@ func TestWorkerCannotRecordItsOwnVerdict(t *testing.T) {
 }
 
 func TestWorkflowActionStartedV2AuthorizesActorStepAndEpoch(t *testing.T) {
+	t.Parallel()
 	s, workerRef, owner, _ := seedWorkerAtExecution(t, "authority-start-guards")
 	currentVersion := int64(10)
 	wantCurrentStep := "execution"
@@ -308,6 +313,7 @@ func countWorkflowActionStarts(t *testing.T, s *Store, workID string) int {
 }
 
 func TestWorkflowActionCheckpointedV2BindsActorStepKindAndEpoch(t *testing.T) {
+	t.Parallel()
 	workID := "authority-checkpoint-guards"
 	s, workerRef, owner, _ := seedWorkerAtExecution(t, workID)
 	ownerRef, err := WorkflowActorRef(owner)
@@ -384,6 +390,7 @@ func countWorkflowCheckpoints(t *testing.T, s *Store, workID string) int {
 }
 
 func TestWorkflowActionCompletedV2BindsPayloadActorToEventActor(t *testing.T) {
+	t.Parallel()
 	workID := "authority-completed-actor"
 	s, workerRef, owner, _ := seedWorkerAtExecution(t, workID)
 	ownerRef, err := WorkflowActorRef(owner)
@@ -423,6 +430,7 @@ func TestWorkflowActionCompletedV2BindsPayloadActorToEventActor(t *testing.T) {
 }
 
 func TestWorkflowActionFailedV2BindsCurrentExecutorAttempt(t *testing.T) {
+	t.Parallel()
 	t.Run("forged actor", func(t *testing.T) {
 		s, workerRef, owner, _ := seedWorkerAtExecution(t, "authority-failed-forged-actor")
 		ownerRef, err := WorkflowActorRef(owner)
@@ -480,6 +488,7 @@ func TestWorkflowActionFailedV2BindsCurrentExecutorAttempt(t *testing.T) {
 // Drive the real fold rather than the closure predicate, so the assertion binds
 // to the layer where the defect bit.
 func TestWorkflowActionFailedAcceptsLawFailureKinds(t *testing.T) {
+	t.Parallel()
 	for _, failureKind := range []FailureKind{KindStaleLawRevision, KindDomainOverlap} {
 		t.Run(string(failureKind), func(t *testing.T) {
 			workID := "authority-failed-" + string(failureKind)
@@ -534,6 +543,7 @@ func countWorkflowActionCompleted(t *testing.T, s *Store, workID string) int {
 }
 
 func TestWorkflowCompletedV2RejectsExecutorAfterIndependentVerdict(t *testing.T) {
+	t.Parallel()
 	workID := "authority-completed-executor"
 	s, workerRef, owner, _ := seedWorkerAtExecution(t, workID)
 	ownerRef, err := WorkflowActorRef(owner)
@@ -578,6 +588,7 @@ func TestWorkflowCompletedV2RejectsExecutorAfterIndependentVerdict(t *testing.T)
 }
 
 func TestWorkflowCompletedV2AllowsDistinctOwnerFold(t *testing.T) {
+	t.Parallel()
 	workID := "authority-completed-owner"
 	s, _, owner, _ := seedWorkerAtExecution(t, workID)
 	ownerRef, err := WorkflowActorRef(owner)
@@ -607,6 +618,7 @@ func TestWorkflowCompletedV2AllowsDistinctOwnerFold(t *testing.T) {
 }
 
 func TestWorkflowCompletedV2AllowsDistinctOwnerThroughOrderedGate(t *testing.T) {
+	t.Parallel()
 	workID := "authority-ordered-owner"
 	s, completion := seedV2CompletionReady(t, workID)
 	if err := CompleteWorkflow(context.Background(), s, completion); err != nil {
@@ -671,6 +683,7 @@ func seedV2CompletionReady(t *testing.T, workID string) (*Store, Event) {
 }
 
 func TestDistinctWorkflowOwnerAcceptsCompletedWorkerResult(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s, worker, owner, attemptID := seedCompletedWorkerAtExecution(t, "authority-accept")
 	request := WorkflowActionExecutionRequest{
@@ -723,6 +736,7 @@ func TestDistinctWorkflowOwnerAcceptsCompletedWorkerResult(t *testing.T) {
 }
 
 func TestAcceptWorkerResultAdvancesCurrentNonExternalDispatchStep(t *testing.T) {
+	t.Parallel()
 	const workID = "authority-accept-internal-step"
 	ctx := context.Background()
 	s := openTemp(t)
@@ -797,6 +811,7 @@ func TestAcceptWorkerResultAdvancesCurrentNonExternalDispatchStep(t *testing.T) 
 }
 
 func TestWorkerCannotInvokeAcceptWorkerResultAsItsOwnOwner(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s, worker, _, attemptID := seedCompletedWorkerAtExecution(t, "authority-worker-accept")
 	request := WorkflowActionExecutionRequest{
@@ -833,6 +848,7 @@ func TestWorkerCannotInvokeAcceptWorkerResultAsItsOwnOwner(t *testing.T) {
 }
 
 func TestAcceptWorkerResultRejectsWithoutMutation(t *testing.T) {
+	t.Parallel()
 	const (
 		wantStep    = "execution"
 		wantVersion = int64(10)
@@ -944,6 +960,7 @@ func assertRejectedWorkerAcceptance(t *testing.T, s *Store, workID string, owner
 }
 
 func TestRecordWorkerFailureHoldsStepAndAllowsFreshStart(t *testing.T) {
+	t.Parallel()
 	const workID = "authority-record-failed-worker"
 	s, _, owner, attemptID := seedWorkerAtExecution(t, workID)
 	failWorkerAttempt(t, s, workID, attemptID)
@@ -978,6 +995,7 @@ func TestRecordWorkerFailureHoldsStepAndAllowsFreshStart(t *testing.T) {
 }
 
 func TestRecordWorkerFailureRejectsInvalidAttemptsWithoutMutation(t *testing.T) {
+	t.Parallel()
 	const (
 		wantStep    = "execution"
 		wantVersion = int64(10)
@@ -1294,6 +1312,7 @@ func instanceState(t *testing.T, s *Store, workID string) string {
 // separately from workflow authority kinds, and the worker kinds are namespaced
 // so no worker event can be routed to a workflow fold.
 func TestWorkerEventKindsAreNotWorkflowAuthority(t *testing.T) {
+	t.Parallel()
 	registry := map[string]bool{}
 	for kind := range eventKindRegistry {
 		registry[kind] = true
@@ -1319,6 +1338,7 @@ func TestWorkerEventKindsAreNotWorkflowAuthority(t *testing.T) {
 // record. Asserted against the live DDL so a later migration that adds such a
 // column fails here rather than silently widening worker authority.
 func TestWorkerAttemptProjectionHasNoWorkflowAuthorityColumns(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	rows, err := s.DatabaseForTesting().Query(`PRAGMA table_info(worker_attempts)`)
 	if err != nil {
@@ -1351,6 +1371,7 @@ func TestWorkerAttemptProjectionHasNoWorkflowAuthorityColumns(t *testing.T) {
 // verdict can cite the attempt and the completion gate's requirement is met
 // by the lane that produced it.
 func TestAcceptWorkerResultBindsTheAttemptAsEvidence(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s, _, owner, attemptID := seedCompletedWorkerAtExecution(t, "authority-bind")
 	request := WorkflowActionExecutionRequest{

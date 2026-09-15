@@ -64,6 +64,7 @@ func domainDismissEvent(id, domain string, at time.Time) Event {
 func observationID(n int) string { return fmt.Sprintf("dob:%016x", n) }
 
 func TestDomainObservationSurvivesRebuildAndStaysVisible(t *testing.T) {
+	t.Parallel()
 	s := domainObservationFixture(t)
 	ctx := context.Background()
 	at := time.Date(2026, 8, 24, 12, 0, 0, 0, time.UTC)
@@ -95,6 +96,7 @@ func TestDomainObservationSurvivesRebuildAndStaysVisible(t *testing.T) {
 }
 
 func TestDomainObservationRefusesBadShapesAndUnknownDomain(t *testing.T) {
+	t.Parallel()
 	s := domainObservationFixture(t)
 	at := time.Date(2026, 8, 24, 12, 0, 0, 0, time.UTC)
 	if err := foldDomainEvent(t, s, domainObservationEvent(observationID(2), "obs-domain", strings.Repeat("x", 513), at)); err == nil || !strings.Contains(err.Error(), "bounded") {
@@ -110,6 +112,7 @@ func TestDomainObservationRefusesBadShapesAndUnknownDomain(t *testing.T) {
 
 // CD-0068 D2: the window refuses when full and never evicts.
 func TestDomainObservationWindowRefusesWhenFullAndNeverEvicts(t *testing.T) {
+	t.Parallel()
 	s := domainObservationFixture(t)
 	ctx := context.Background()
 	base := time.Date(2026, 8, 24, 12, 0, 0, 0, time.UTC)
@@ -155,6 +158,7 @@ func TestDomainObservationWindowRefusesWhenFullAndNeverEvicts(t *testing.T) {
 
 // CD-0068 D3: dismissal flips state, never deletes, and frees the window.
 func TestDomainObservationDismissalFlipsStateAndFreesWindow(t *testing.T) {
+	t.Parallel()
 	s := domainObservationFixture(t)
 	ctx := context.Background()
 	base := time.Date(2026, 8, 24, 12, 0, 0, 0, time.UTC)
@@ -197,6 +201,7 @@ func TestDomainObservationDismissalFlipsStateAndFreesWindow(t *testing.T) {
 // CD-0068 D6: the open observations reach the operator through the existing
 // Domain detail surface, and dismissed rows do not.
 func TestDomainDetailCarriesOpenObservations(t *testing.T) {
+	t.Parallel()
 	s := domainObservationFixture(t)
 	ctx := context.Background()
 	base := time.Date(2026, 8, 24, 12, 0, 0, 0, time.UTC)

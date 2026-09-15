@@ -198,6 +198,7 @@ func attemptD7BoundaryAction(ctx context.Context, s *Store, workID, actionID str
 // dispatch, checkpoint and evidence binding, worker-result acceptance, verdict
 // and premise confirmation, merge/ship successor linkage, and completion.
 func TestD7ConsequentialBoundariesRefuseUnresolvedOverlap(t *testing.T) {
+	t.Parallel()
 	for _, testCase := range []struct {
 		boundary string
 		step     string
@@ -275,6 +276,7 @@ func TestD7ConsequentialBoundariesRefuseUnresolvedOverlap(t *testing.T) {
 // claim boundary, which is owned by the durable fence transaction rather than
 // by the workflow action coordinator.
 func TestD7ExecutionClaimBoundaryRefusesUnresolvedOverlap(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	const workID = "d7-claim"
 	const otherID = "d7-claim-other"

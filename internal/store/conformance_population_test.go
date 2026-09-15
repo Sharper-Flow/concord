@@ -24,6 +24,7 @@ func representativeP99WithinTarget(t *testing.T, name string, p99, target time.D
 	return authority != populationAuthorityAccepted || p99 <= target
 }
 
+// Serial: t.Setenv mutates the process environment, which t.Parallel forbids.
 func TestRepresentativeP99PopulationGate(t *testing.T) {
 	const (
 		p99        = 101 * time.Millisecond

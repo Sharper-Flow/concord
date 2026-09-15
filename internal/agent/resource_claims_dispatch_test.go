@@ -43,6 +43,7 @@ func claimsFixture(t *testing.T) (*store.Store, *Service, Authority) {
 }
 
 func TestResourceClaimLifecycle(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s, service, grant := claimsFixture(t)
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
@@ -123,6 +124,7 @@ func TestResourceClaimLifecycle(t *testing.T) {
 }
 
 func TestResourceClaimGrantsNoAuthority(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s, service, grant := claimsFixture(t)
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")

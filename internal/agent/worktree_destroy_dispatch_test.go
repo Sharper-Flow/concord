@@ -43,6 +43,7 @@ func completeWork(t *testing.T, s *store.Store, workID string, version int64) {
 }
 
 func TestWorktreeDestroyDispatchReclaimsMergedTerminalWork(t *testing.T) {
+	t.Parallel()
 	s, _, _, second, secondGrant, _ := tiersFixture(t)
 	worktreePath := filepath.Join(filepath.Dir(s.Path()), "worktrees", "project-1", "work-2")
 	completeWork(t, s, "work-2", 3)
@@ -62,6 +63,7 @@ func TestWorktreeDestroyDispatchReclaimsMergedTerminalWork(t *testing.T) {
 }
 
 func TestWorktreeDestroyDispatchRoutesNonTerminalThroughApproval(t *testing.T) {
+	t.Parallel()
 	s, service, grant, _, _, _ := tiersFixture(t)
 	worktreePath := filepath.Join(filepath.Dir(s.Path()), "worktrees", "project-1", "work-1")
 
@@ -105,6 +107,7 @@ func TestWorktreeDestroyDispatchRoutesNonTerminalThroughApproval(t *testing.T) {
 }
 
 func TestWorktreeDestroyDispatchDestructiveUnderApproval(t *testing.T) {
+	t.Parallel()
 	s, service, grant, _, _, _ := tiersFixture(t)
 	worktreePath := filepath.Join(filepath.Dir(s.Path()), "worktrees", "project-1", "work-1")
 	completeWork(t, s, "work-1", 3)
@@ -169,6 +172,7 @@ func seedContinuityWorkflow(t *testing.T, s *store.Store, workID string) {
 }
 
 func TestContinuityDispatchRePinsHeldLease(t *testing.T) {
+	t.Parallel()
 	s, service, grant, _, _, _ := tiersFixture(t)
 	seedContinuityWorkflow(t, s, "work-1")
 	worktreePath := filepath.Join(filepath.Dir(s.Path()), "worktrees", "project-1", "work-1")

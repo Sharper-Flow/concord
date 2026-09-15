@@ -17,6 +17,7 @@ import (
 // field changed; the test asserts the rejection kind and that the recorded
 // row is byte-identical (no update, no delete, no second row).
 func TestAppendEventRejectsDivergentReuseOfEventID(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name   string
 		mutate func(*Event)
@@ -79,6 +80,7 @@ func TestAppendEventRejectsDivergentReuseOfEventID(t *testing.T) {
 // because product.created and project.renamed accept different payload shapes;
 // the test asserts the rejection kind and that the Detail names the kind.
 func TestAppendEventRejectsDivergentKind(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	ctx := context.Background()
 
@@ -167,6 +169,7 @@ func assertEventRowCount(t *testing.T, ctx context.Context, s *Store, eventID st
 // the caller-supplied payload_version and payload, so the readback exposes the
 // difference directly.
 func TestAppendEventRejectsDifferentPayloadVersion(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	ctx := context.Background()
 
@@ -205,6 +208,7 @@ func TestAppendEventRejectsDifferentPayloadVersion(t *testing.T) {
 // canonicalJSON float64 defect. Two integers beyond float64's exact range that
 // used to collapse to the same float must still be classified as divergent.
 func TestAppendEventRejectsLargeIntegerDifference(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 
 	first := largeIntegerEvent("large-int-evt", 9007199254740993)
@@ -230,6 +234,7 @@ func TestAppendEventRejectsLargeIntegerDifference(t *testing.T) {
 // reported as KindDuplicateEvent: byte-identical retry, re-ordered object keys,
 // insignificant whitespace, and a fresh occurred_at clock reading.
 func TestAppendEventAcceptsEquivalentRetry(t *testing.T) {
+	t.Parallel()
 	t.Run("byte identical", func(t *testing.T) {
 		assertEquivalentRetry(t, testEvent(), testEvent())
 	})
@@ -294,6 +299,7 @@ func assertEquivalentRetry(t *testing.T, first, second Event) {
 // durable effect regardless of how many goroutines race to append an
 // equivalent retry.
 func TestAppendEventConcurrentEquivalentAppends(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	ctx := context.Background()
 
@@ -366,6 +372,7 @@ func TestAppendEventConcurrentEquivalentAppends(t *testing.T) {
 // the same event_id with different content each surface a typed conflict and
 // never overwrite the recorded row.
 func TestAppendEventConcurrentDivergentAppends(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	ctx := context.Background()
 
@@ -439,6 +446,7 @@ func TestAppendEventConcurrentDivergentAppends(t *testing.T) {
 // fails inside a transaction, a follow-up SELECT on the same tx must still
 // succeed and read the row that already holds the event_id.
 func TestAppendEventUniqueViolationLeavesTransactionUsable(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	ctx := context.Background()
 
@@ -476,6 +484,7 @@ func TestAppendEventUniqueViolationLeavesTransactionUsable(t *testing.T) {
 // the canonicalJSON UseNumber fix. The two integers are equal as float64 and
 // must still compare as distinct strings after canonicalization.
 func TestCanonicalJSONPreservesLargeIntegers(t *testing.T) {
+	t.Parallel()
 	a := json.RawMessage(`{"n":9007199254740993}`)
 	b := json.RawMessage(`{"n":9007199254740994}`)
 
@@ -555,6 +564,7 @@ func jsonIntLiteral(n int64) string {
 // with a streaming decoder would otherwise stop at the first value and let two
 // inputs differing only after it compare equal.
 func TestCanonicalJSONRejectsTrailingContent(t *testing.T) {
+	t.Parallel()
 	for _, raw := range []string{`{"a":1} {"b":2}`, `{"a":1}[]`, `{"a":1}garbage`} {
 		if _, err := canonicalJSON([]byte(raw)); err == nil {
 			t.Errorf("canonicalJSON(%q) = nil error, want rejection of trailing content", raw)

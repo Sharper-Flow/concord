@@ -101,6 +101,7 @@ func projectionSnapshot(t *testing.T, s *Store) string {
 }
 
 func TestRebuildFromLogPreservesCompleteProjectionContent(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	ctx := context.Background()
 
@@ -132,6 +133,7 @@ func TestRebuildFromLogPreservesCompleteProjectionContent(t *testing.T) {
 }
 
 func TestProjectionTablesRejectIndependentWrites(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	ctx := context.Background()
 	if err := ApplyOperation(ctx, s, Operation{
@@ -167,6 +169,7 @@ func TestProjectionTablesRejectIndependentWrites(t *testing.T) {
 }
 
 func TestFoldGuardIsEmptyAfterSuccessfulFolds(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	ctx := context.Background()
 
@@ -181,6 +184,7 @@ func TestFoldGuardIsEmptyAfterSuccessfulFolds(t *testing.T) {
 }
 
 func TestFailedOperationRollsBackLogProjectionAndGuard(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	ctx := context.Background()
 
@@ -195,6 +199,7 @@ func TestFailedOperationRollsBackLogProjectionAndGuard(t *testing.T) {
 }
 
 func TestStaleExpectedVersionRollsBackWithoutMutation(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	ctx := context.Background()
 	if err := ApplyOperation(ctx, s, Operation{Events: []Event{productCreatedEvent("product-1", "event-1"), projectCreatedEvent("project-1", "event-2"), operationEvent("event-3", "product_project.added", SubjectProduct, "product-1", map[string]any{"product_id": "product-1", "project_id": "project-1", "role": "primary", "reason": "test", "expected_version": 1, "resulting_version": 2})}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectProduct, "product-1"): 0, VersionRef(SubjectProject, "project-1"): 0}}); err != nil {
@@ -218,6 +223,7 @@ func TestStaleExpectedVersionRollsBackWithoutMutation(t *testing.T) {
 }
 
 func TestRebuildRejectsUnknownEventKind(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	e := operationEvent("event-1", "future.created", SubjectProduct, "product-1", map[string]string{"display_name": "future"})
 	result, err := s.DatabaseForTesting().ExecContext(context.Background(), `
@@ -242,6 +248,7 @@ func TestRebuildRejectsUnknownEventKind(t *testing.T) {
 }
 
 func TestRebuildRejectsMalformedEventPayload(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	e := operationEvent("event-1", "product.created", SubjectProduct, "product-1", map[string]int{"display_name": 7})
 	result, err := s.DatabaseForTesting().ExecContext(context.Background(), `
@@ -266,6 +273,7 @@ func TestRebuildRejectsMalformedEventPayload(t *testing.T) {
 }
 
 func TestMultiEventOperationRollsBackWhenSecondEventFails(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	operation := Operation{Events: []Event{
 		productCreatedEvent("product-1", "event-1"),
@@ -316,6 +324,7 @@ func assertTableCount(t *testing.T, s *Store, table string, want int) {
 // agent envelope refuses and cannot marshal. No version can satisfy a missing
 // subject, so the refusal names the absence instead.
 func TestExpectedVersionAgainstAbsentSubjectRefusesAsAbsent(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	err := ApplyOperation(context.Background(), s, Operation{
 		Events:           []Event{workCreatedEvent("work-absent", "event-absent-1")},
@@ -338,6 +347,7 @@ func TestExpectedVersionAgainstAbsentSubjectRefusesAsAbsent(t *testing.T) {
 // optimistic-concurrency conflict, it can name the live version, and it must
 // not follow the absent-subject path.
 func TestExpectedVersionZeroAgainstPresentSubjectStaysAVersionConflict(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	ctx := context.Background()
 	seedWork(t, s, "work-present")

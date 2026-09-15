@@ -7,6 +7,7 @@ import (
 )
 
 func TestUnopenedStoreScopeMethods(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	assertUnopenedStoreTypedFailure(t, []nilStoreCase{
 		{"ResourceClaims", func(s *Store) error {

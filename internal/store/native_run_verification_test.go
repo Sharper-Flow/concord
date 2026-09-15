@@ -10,6 +10,7 @@ import (
 )
 
 func TestVerificationStateChecksMatchTypedVocabulary(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s, err := Open(ctx, t.TempDir()+"/concord.db")
 	if err != nil {
@@ -70,6 +71,7 @@ func joinStrings(values []string) string {
 // workflow.evidence_bound(native_run) until — and only until — the record is
 // verified.
 func TestNativeRunVerificationParticipationAndEvidenceGate(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s, err := Open(ctx, t.TempDir()+"/concord.db")
 	if err != nil {

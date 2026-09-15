@@ -14,6 +14,7 @@ import (
 // them, so completion becomes unreachable. The corpus scenario WF04's setup
 // history is replayed with the verdict and premise events removed.
 func TestConfirmPremiseRequiresVerdictAndRequiredEvidence(t *testing.T) {
+	t.Parallel()
 	corpus := readWorkflowScenarioCorpus(t)
 	var scenario workflowScenario
 	for _, candidate := range corpus.Scenarios {

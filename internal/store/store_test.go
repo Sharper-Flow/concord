@@ -26,6 +26,7 @@ func openTemp(t *testing.T) *Store {
 // edges. Each is per-connection in SQLite, so read them back from the live
 // connection rather than trusting the data source name.
 func TestOpenAppliesRequiredPragmas(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 
 	for _, tc := range []struct {
@@ -50,6 +51,7 @@ func TestOpenAppliesRequiredPragmas(t *testing.T) {
 // A pragma readback proves the declaration, not the behavior. The slice requires
 // evidence that foreign keys are actually enforced.
 func TestOpenEnforcesForeignKeysBehaviorally(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	ctx := context.Background()
 
@@ -67,6 +69,7 @@ func TestOpenEnforcesForeignKeysBehaviorally(t *testing.T) {
 }
 
 func TestOpenIsIdempotentAcrossProcesses(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "concord.db")
 	ctx := context.Background()
 
@@ -87,6 +90,7 @@ func TestOpenIsIdempotentAcrossProcesses(t *testing.T) {
 	}
 }
 
+// Serial: t.Setenv mutates the process environment, which t.Parallel forbids.
 func TestDefaultPathHonorsDataHome(t *testing.T) {
 	t.Setenv("XDG_DATA_HOME", "/xdg-data")
 	got, err := DefaultPath()
@@ -98,6 +102,7 @@ func TestDefaultPathHonorsDataHome(t *testing.T) {
 	}
 }
 
+// Serial: t.Setenv mutates the process environment, which t.Parallel forbids.
 func TestDefaultPathFallsBackToHome(t *testing.T) {
 	t.Setenv("XDG_DATA_HOME", "")
 	t.Setenv("HOME", "/fallback-home")
@@ -110,6 +115,7 @@ func TestDefaultPathFallsBackToHome(t *testing.T) {
 	}
 }
 
+// Serial: t.Setenv mutates the process environment, which t.Parallel forbids.
 func TestOpenRejectsUnknownDataHome(t *testing.T) {
 	t.Setenv("XDG_DATA_HOME", "")
 	t.Setenv("HOME", "")
@@ -120,6 +126,7 @@ func TestOpenRejectsUnknownDataHome(t *testing.T) {
 
 // A failure must classify itself so callers do not parse message strings.
 func TestFailureCarriesTypedClassification(t *testing.T) {
+	t.Parallel()
 	var f *Failure
 	err := newFailure(KindInvalidSubject, "append", "unknown subject type", false, "use a registered subject type")
 	if !errors.As(err, &f) {

@@ -7,8 +7,9 @@ import (
 )
 
 func TestContractApprovalRefusesDuplicateActiveProjection(t *testing.T) {
+	t.Parallel()
 	const workID = "duplicate-active-approval"
-	s, owner := seedItemAtAcceptance(t, workID, false)
+	s, owner, _ := seedItemAtAcceptance(t, workID, false)
 	ownerRef, err := WorkflowActorRef(owner)
 	if err != nil {
 		t.Fatal(err)
@@ -54,8 +55,9 @@ DELETE FROM fold_guard`, workID, workID); err != nil {
 }
 
 func TestDuplicateActiveContractsRecoverWithExactPredecessorSet(t *testing.T) {
+	t.Parallel()
 	const workID = "duplicate-active-recovery"
-	s, owner := seedItemAtAcceptance(t, workID, false)
+	s, owner, _ := seedItemAtAcceptance(t, workID, false)
 	ownerRef, err := WorkflowActorRef(owner)
 	if err != nil {
 		t.Fatal(err)

@@ -11,6 +11,7 @@ import (
 // Issue #765, CD-0090 D3: empty peer signals stay out of the pinned
 // projection, and an unchanged snapshot renders identical bytes.
 func TestContinuityPayloadOmitsEmptyPeerSignals(t *testing.T) {
+	t.Parallel()
 	payload := ContinuityPayload(store.ContinuitySnapshot{})
 	pinned, ok := payload["pinned"].(map[string]any)
 	if !ok {
@@ -24,6 +25,7 @@ func TestContinuityPayloadOmitsEmptyPeerSignals(t *testing.T) {
 }
 
 func TestContinuityRepinBytesAreStableAcrossRenders(t *testing.T) {
+	t.Parallel()
 	snapshot := store.ContinuitySnapshot{WorkID: "work-1", ProductIdentity: []string{"product-1"}, WorkflowStep: "execution", StepActions: []string{}, Boundaries: []store.ContextBoundary{}, SpecMandate: []string{}}
 	first, err := json.Marshal(ContinuityPayload(snapshot))
 	if err != nil {

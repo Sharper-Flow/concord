@@ -305,6 +305,7 @@ func repeatHex(n int) string {
 // value through the same validator the envelope uses, so a Go field added
 // without its schema entry fails here rather than at an agent read.
 func TestFullyPopulatedResultPayloadsValidate(t *testing.T) {
+	t.Parallel()
 	domain := fullyPopulatedDomainPayloads(t)
 	for _, testCase := range []struct {
 		name      string

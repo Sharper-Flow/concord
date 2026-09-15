@@ -84,6 +84,7 @@ func lessonRepoFixture(t *testing.T) string {
 }
 
 func TestPublishLessonRecordCommitsManifestAndNoteIdempotently(t *testing.T) {
+	t.Parallel()
 	repo := lessonRepoFixture(t)
 	ctx := context.Background()
 	home := KnowledgeHome{RepoPath: repo}
@@ -145,6 +146,7 @@ func TestPublishLessonRecordCommitsManifestAndNoteIdempotently(t *testing.T) {
 }
 
 func TestPublishLessonRecordUsesOneInjectedPublicationDate(t *testing.T) {
+	t.Parallel()
 	repo := lessonRepoFixture(t)
 	want := time.Date(2042, 12, 31, 23, 59, 59, 0, time.UTC)
 	published, err := PublishLessonRecord(context.Background(), KnowledgeHome{RepoPath: repo}, LessonPublication{
@@ -169,6 +171,7 @@ func commitCount(t *testing.T, repo string) int {
 }
 
 func TestPublishLessonRecordValidatesScopesAndBounds(t *testing.T) {
+	t.Parallel()
 	repo := lessonRepoFixture(t)
 	home := KnowledgeHome{RepoPath: repo}
 	base := LessonPublication{LessonID: "lesson-bounds", Title: "Bounds", Summary: "Bounds.", Content: "body", Now: time.Date(2026, 8, 15, 0, 0, 0, 0, time.UTC)}
@@ -193,6 +196,7 @@ func TestPublishLessonRecordValidatesScopesAndBounds(t *testing.T) {
 }
 
 func TestPublishLessonRecordPreservesV12DomainManifest(t *testing.T) {
+	t.Parallel()
 	repo := lessonRepoFixture(t)
 
 	req := LessonPublication{
@@ -220,6 +224,7 @@ func TestPublishLessonRecordPreservesV12DomainManifest(t *testing.T) {
 // TestShardRoundTripPreservesV12LawHomes proves a law record written as a
 // shard composes back with its Domain home intact.
 func TestShardRoundTripPreservesV12LawHomes(t *testing.T) {
+	t.Parallel()
 	repo := t.TempDir()
 	manifest := KnowledgeManifest{
 		SchemaVersion: "1.2", SupportedKinds: []string{"decision", "lesson"}, IndexedKinds: []string{"decision", "lesson"},
@@ -248,6 +253,7 @@ func TestShardRoundTripPreservesV12LawHomes(t *testing.T) {
 // TestShardTreeComposesIdenticallyInGoAndPython proves the store and
 // scripts/knowledge_index.py compose the same manifest from the same shards.
 func TestShardTreeComposesIdenticallyInGoAndPython(t *testing.T) {
+	t.Parallel()
 	repoRoot := repositoryRootForTest(t)
 	goManifest := composeWorkingTreeManifest(t, repoRoot)
 	cmd := exec.Command("python3", "-c", "import sys, json; sys.path.insert(0, 'scripts'); import knowledge_index; sys.stdout.write(knowledge_index.compose_manifest_bytes().decode('utf-8'))")
@@ -338,6 +344,7 @@ func eightKeyLessonRepoFixture(t *testing.T) string {
 }
 
 func TestPublishLessonRecordPreservesEveryTopLevelManifestKey(t *testing.T) {
+	t.Parallel()
 	repo := eightKeyLessonRepoFixture(t)
 	headFile := filepath.Join(repo, filepath.FromSlash(knowledgeHeadPath))
 	before := map[string]json.RawMessage{}

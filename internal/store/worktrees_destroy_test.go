@@ -27,6 +27,7 @@ func seedWorktreeLifecycle(t *testing.T, s *Store, workID, to string, expected i
 }
 
 func TestDestroyMergedTerminalWorkReclaims(t *testing.T) {
+	t.Parallel()
 	s, worktreePath := realGitTiersFixture(t)
 	seedWorktreeLifecycle(t, s, "work-w", "completed", 3)
 
@@ -46,6 +47,7 @@ func TestDestroyMergedTerminalWorkReclaims(t *testing.T) {
 }
 
 func TestDestroyRefusesNonTerminalWithoutApproval(t *testing.T) {
+	t.Parallel()
 	s, _ := realGitTiersFixture(t)
 	_, err := s.DestroyWorktree(context.Background(), WorktreeDestroyRequest{
 		WorkID: "work-w", ProjectID: "project-w", DefaultRef: "main",
@@ -64,6 +66,7 @@ func TestDestroyRefusesNonTerminalWithoutApproval(t *testing.T) {
 }
 
 func TestDestroyNonTerminalWithApprovalKeepsGitGates(t *testing.T) {
+	t.Parallel()
 	s, worktreePath := realGitTiersFixture(t)
 	// The approval satisfies the terminal gate; the git gates still run, and
 	// a clean merged tree passes them.
@@ -83,6 +86,7 @@ func TestDestroyNonTerminalWithApprovalKeepsGitGates(t *testing.T) {
 }
 
 func TestDestroyRefusesDirtyTreeAndNamesDestructiveRoute(t *testing.T) {
+	t.Parallel()
 	s, worktreePath := realGitTiersFixture(t)
 	seedWorktreeLifecycle(t, s, "work-w", "completed", 3)
 	if err := writeFile(filepath.Join(worktreePath, "tracked.txt"), "dirty\n"); err != nil {
@@ -101,6 +105,7 @@ func TestDestroyRefusesDirtyTreeAndNamesDestructiveRoute(t *testing.T) {
 }
 
 func TestDestroyDestructiveWithApprovalForcesRemoval(t *testing.T) {
+	t.Parallel()
 	s, worktreePath := realGitTiersFixture(t)
 	seedWorktreeLifecycle(t, s, "work-w", "completed", 3)
 	if err := writeFile(filepath.Join(worktreePath, "tracked.txt"), "dirty\n"); err != nil {
@@ -123,6 +128,7 @@ func TestDestroyDestructiveWithApprovalForcesRemoval(t *testing.T) {
 }
 
 func TestDestroyDestructiveWithoutApprovalRefuses(t *testing.T) {
+	t.Parallel()
 	s, _ := realGitTiersFixture(t)
 	seedWorktreeLifecycle(t, s, "work-w", "completed", 3)
 	_, err := s.DestroyWorktree(context.Background(), WorktreeDestroyRequest{
@@ -136,6 +142,7 @@ func TestDestroyDestructiveWithoutApprovalRefuses(t *testing.T) {
 }
 
 func TestDestroyRefusesUnmergedBranch(t *testing.T) {
+	t.Parallel()
 	s, worktreePath := realGitTiersFixture(t)
 	seedWorktreeLifecycle(t, s, "work-w", "completed", 3)
 	// A clean tree whose content the default branch does not hold.
@@ -188,6 +195,7 @@ func seedWorktreeContinuityWorkflow(t *testing.T, s *Store, workID string) {
 }
 
 func TestContinuityRePinsHeldLease(t *testing.T) {
+	t.Parallel()
 	s, _, _ := worktreeFixture(t)
 	seedWorktreeContinuityWorkflow(t, s, "work-w")
 	owner := SessionWorktreeOwner{ClientRef: "client-1", AgentRef: "agent-1", SessionRef: "session-1"}

@@ -41,6 +41,7 @@ func workVersionForWorkflow(t *testing.T, s *store.Store) (int64, error) {
 }
 
 func TestWorkflowActionDispatchUsesStrictPreflightAuthApprovalAndReplayPath(t *testing.T) {
+	t.Parallel()
 	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_transition"})
 	version := seedAgentWorkflow(t, s, grant)
 	if version != 4 {
@@ -124,6 +125,7 @@ func TestWorkflowActionDispatchUsesStrictPreflightAuthApprovalAndReplayPath(t *t
 }
 
 func TestWorkflowActionAvailabilityPrecedesPayloadAndAuthorityValidation(t *testing.T) {
+	t.Parallel()
 	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_transition"})
 	scopeVersion, _, err := s.ScopeVersion(context.Background(), "project-1")
 	if err != nil {
@@ -144,6 +146,7 @@ func TestWorkflowActionAvailabilityPrecedesPayloadAndAuthorityValidation(t *test
 }
 
 func TestWorkflowActionReplayVectorsUseInvokeAndAuthoritativeDurableResults(t *testing.T) {
+	t.Parallel()
 	for _, vector := range []struct {
 		name           string
 		resultKind     string
@@ -226,6 +229,7 @@ func TestWorkflowActionReplayVectorsUseInvokeAndAuthoritativeDurableResults(t *t
 }
 
 func TestWorkflowActionRejectsLegacyEventReplay(t *testing.T) {
+	t.Parallel()
 	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_transition"})
 	if got := seedAgentWorkflow(t, s, grant); got != 4 {
 		t.Fatalf("workflow seed version=%d, want 4", got)
@@ -247,6 +251,7 @@ func TestWorkflowActionRejectsLegacyEventReplay(t *testing.T) {
 }
 
 func TestWorkflowActionReplayRejectsOldSurfaceResultShapeAndDigest(t *testing.T) {
+	t.Parallel()
 	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_transition"})
 	if got := seedAgentWorkflow(t, s, grant); got != 4 {
 		t.Fatalf("workflow seed version=%d, want 4", got)
@@ -342,6 +347,7 @@ func countWorkflowApprovalChallenges(t *testing.T, s *store.Store) int {
 }
 
 func TestWorkflowActionDispatchUsesDefinitionApprovalChallenge(t *testing.T) {
+	t.Parallel()
 	s, service, grant, privateKey := mutationDispatchFixture(t, []Capability{"work_transition"})
 	if got := seedAgentWorkflow(t, s, grant); got != 4 {
 		t.Fatalf("workflow seed version=%d, want 4", got)

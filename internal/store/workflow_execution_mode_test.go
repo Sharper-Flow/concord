@@ -6,6 +6,7 @@ import (
 )
 
 func TestBuiltinWorkflowDefinitionsCarryTypedExecutionModes(t *testing.T) {
+	t.Parallel()
 	registry := NewBuiltinWorkflowRegistry()
 	for _, definition := range builtinWorkflowDefinitionsWithHistory() {
 		for _, action := range definition.ActionDefinitions {
@@ -20,6 +21,7 @@ func TestBuiltinWorkflowDefinitionsCarryTypedExecutionModes(t *testing.T) {
 }
 
 func TestWorkflowDefinitionEncodingCarriesModesAndProductTruth(t *testing.T) {
+	t.Parallel()
 	registry := NewBuiltinWorkflowRegistry()
 	registered, ok := registry.Lookup("workflow.implementation", 1)
 	if !ok {
@@ -38,6 +40,7 @@ func TestWorkflowDefinitionEncodingCarriesModesAndProductTruth(t *testing.T) {
 }
 
 func TestWorkflowExecutionModesPreserveCurrentTransitionSemantics(t *testing.T) {
+	t.Parallel()
 	definition := BuiltinWorkflowDefinitions()[0]
 	want := map[string]ActionExecutionMode{
 		"record_proposal":        ActionAdvance,
@@ -67,6 +70,7 @@ func TestWorkflowExecutionModesPreserveCurrentTransitionSemantics(t *testing.T) 
 // An action the definition does not declare has no execution mode. The registry
 // infers nothing from the action ID.
 func TestUndeclaredActionHasNoExecutionMode(t *testing.T) {
+	t.Parallel()
 	definition := BuiltinWorkflowDefinitions()[0]
 	if mode, ok := workflowActionExecutionMode(definition, "record_report"); ok {
 		t.Fatalf("undeclared action resolved mode=%q, want no mode", mode)
@@ -74,6 +78,7 @@ func TestUndeclaredActionHasNoExecutionMode(t *testing.T) {
 }
 
 func TestDefinitionRejectsMissingExecutionMode(t *testing.T) {
+	t.Parallel()
 	definition := BuiltinWorkflowDefinitions()[0]
 	definition.ActionDefinitions[0].ExecutionMode = ""
 	if err := ValidateWorkflowDefinition(definition); err == nil {

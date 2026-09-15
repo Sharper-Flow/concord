@@ -26,6 +26,7 @@ func rootHomeRecord(t *testing.T, extra map[string]any) []byte {
 // A root home without a stated reason is refused. This is the direction that
 // matters: it is the shape every silently-defaulted record takes.
 func TestRootHomeRequiresProductWideRationale(t *testing.T) {
+	t.Parallel()
 	manifest := rootHomeRecord(t, map[string]any{"home_domain_id": "product-root:concord"})
 	if _, err := parseKnowledgeManifest(manifest); err == nil {
 		t.Fatal("a record homed to the root Domain was accepted without a product-wide rationale")
@@ -33,6 +34,7 @@ func TestRootHomeRequiresProductWideRationale(t *testing.T) {
 }
 
 func TestRootHomeAcceptsAStatedProductWideRationale(t *testing.T) {
+	t.Parallel()
 	manifest := rootHomeRecord(t, map[string]any{
 		"home_domain_id":         "product-root:concord",
 		"product_wide_rationale": "Binds every child Domain; no single child owns the constraint.",
@@ -46,6 +48,7 @@ func TestRootHomeAcceptsAStatedProductWideRationale(t *testing.T) {
 // decided, so a rationale there would assert a Product-wide reach the home
 // contradicts.
 func TestChildHomeCannotCarryProductWideRationale(t *testing.T) {
+	t.Parallel()
 	registry := `{"schema_version":"1.0","product_key":"concord","root_domain_id":"product-root:concord","domains":[` +
 		`{"domain_id":"product-root:concord","name":"Concord","purpose":"Product-wide Concord law","status":"current","architecture_relations":[]},` +
 		`{"domain_id":"workflow-engine","name":"Workflow engine","purpose":"Work lifecycle","parent_domain_id":"product-root:concord","status":"current","architecture_relations":[]}]}`
@@ -64,6 +67,7 @@ func TestChildHomeCannotCarryProductWideRationale(t *testing.T) {
 
 // An empty or whitespace rationale is omission wearing the field's name.
 func TestRootHomeRationaleMustCarryContent(t *testing.T) {
+	t.Parallel()
 	for _, blank := range []string{"", "   ", "\t\n"} {
 		manifest := rootHomeRecord(t, map[string]any{
 			"home_domain_id":         "product-root:concord",
@@ -81,6 +85,7 @@ func TestRootHomeRationaleMustCarryContent(t *testing.T) {
 // into a Q10 failure against its own declaration. law_domain_homes carried no
 // rationale column before migration 45.
 func TestRootHomeRationaleSurvivesTheQ10Projection(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	repo := initKnowledgeRepo(t)
 	decision := "docs/decisions/CD-0001.md"

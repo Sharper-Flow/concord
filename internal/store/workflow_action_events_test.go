@@ -44,6 +44,7 @@ func issue31WorkflowActionWithPayload(t *testing.T, s *Store, workID string, ver
 }
 
 func TestGenericApplyOperationRejectsEveryReservedWorkflowEvent(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	var reserved []string
 	for kind, registration := range eventKindRegistry {
@@ -70,6 +71,7 @@ func TestGenericApplyOperationRejectsEveryReservedWorkflowEvent(t *testing.T) {
 }
 
 func TestWorkflowActionSemanticEventsAreFollowedByUniversalCompletion(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	seedWork(t, s, "workflow-issue31-actions")
 	seedWorkflowLaw(t, s)
@@ -141,6 +143,7 @@ func TestWorkflowActionSemanticEventsAreFollowedByUniversalCompletion(t *testing
 }
 
 func TestApproveContractPersistsEvidenceAndRigor(t *testing.T) {
+	t.Parallel()
 	for _, testCase := range []struct {
 		name             string
 		extraFields      string
@@ -219,6 +222,7 @@ func seedIssue31DomainRegistry(t *testing.T, s *Store) {
 }
 
 func TestWorkflowContractApprovalPinsLawBoundaryForLegacySurface(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	workID := "workflow-law-pin-legacy-surface"
 	seedWork(t, s, workID)
@@ -289,6 +293,7 @@ func issue31ActorSetup(t *testing.T, workID string) (*Store, WorkflowActor, Work
 }
 
 func TestWorkflowAuthenticatedActorBindingRejectsSpoofedVerdictAndPremise(t *testing.T) {
+	t.Parallel()
 	spoofed := []struct {
 		name  string
 		actor WorkflowActor

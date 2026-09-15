@@ -46,6 +46,7 @@ func mustJSONBytes(value any) []byte {
 }
 
 func TestActiveResearchRevisionAndIdempotencyBoundary(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openTemp(t)
 	seedResearchWork(t, s, "owner", "consumer")
@@ -157,6 +158,7 @@ func TestActiveResearchRevisionAndIdempotencyBoundary(t *testing.T) {
 }
 
 func TestActiveResearchNonrequiredConsumerDoesNotBlock(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openTemp(t)
 	seedResearchWork(t, s, "owner", "optional")
@@ -180,6 +182,7 @@ func TestActiveResearchNonrequiredConsumerDoesNotBlock(t *testing.T) {
 }
 
 func TestResearchFreshnessReturnsOnlyFirstFailingConsumer(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openTemp(t)
 	seedResearchWork(t, s, "owner", "consumer-c", "consumer-a", "consumer-b")
@@ -231,6 +234,7 @@ func linkArchivedResearchOwner(t *testing.T, s *Store, id string) {
 }
 
 func TestActiveResearchPersistsAcrossCloseAndReopen(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "concord.db")
 	s, err := Open(ctx, path)
@@ -254,6 +258,7 @@ func TestActiveResearchPersistsAcrossCloseAndReopen(t *testing.T) {
 }
 
 func TestResearchConsumersPinDifferentRevisions(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openTemp(t)
 	seedResearchWork(t, s, "owner", "consumer-a", "consumer-b")
@@ -274,6 +279,7 @@ func TestResearchConsumersPinDifferentRevisions(t *testing.T) {
 }
 
 func TestResearchPruneKeepsCurrentAndConsumedRevisions(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openTemp(t)
 	seedResearchWork(t, s, "owner", "consumer")
@@ -297,6 +303,7 @@ func TestResearchPruneKeepsCurrentAndConsumedRevisions(t *testing.T) {
 }
 
 func TestTerminalResearchCleanupRefusesRequiredCompaction(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openTemp(t)
 	seedResearchWork(t, s, "owner", "consumer")
@@ -318,6 +325,7 @@ func TestTerminalResearchCleanupRefusesRequiredCompaction(t *testing.T) {
 }
 
 func TestTerminalResearchCleanupDeletesUnblockedPack(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openTemp(t)
 	seedResearchWork(t, s, "owner")
@@ -334,6 +342,7 @@ func TestTerminalResearchCleanupDeletesUnblockedPack(t *testing.T) {
 }
 
 func TestInterruptedTerminalCleanupFinishesAtNextPackMutation(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openTemp(t)
 	seedResearchWork(t, s, "owner")
@@ -350,6 +359,7 @@ func TestInterruptedTerminalCleanupFinishesAtNextPackMutation(t *testing.T) {
 }
 
 func TestTerminalUnlinkedPackRemainsReadable(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openTemp(t)
 	seedResearchWork(t, s, "owner", "other")
@@ -365,6 +375,7 @@ func TestTerminalUnlinkedPackRemainsReadable(t *testing.T) {
 }
 
 func TestBlockedLinkedOwnerDoesNotBlockUnrelatedPackMutation(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openTemp(t)
 	seedResearchWork(t, s, "owner-a", "consumer-a", "owner-b")
@@ -381,6 +392,7 @@ func TestBlockedLinkedOwnerDoesNotBlockUnrelatedPackMutation(t *testing.T) {
 }
 
 func TestTerminalConsumerTransitionRemovesBindingAndAdvancesPack(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name string
 		kind string
@@ -459,6 +471,7 @@ func compactionRequest(home KnowledgeHome, commit, path, eventID string, expecte
 }
 
 func TestPublishCompactionLinkPreflightsRequiredResearchConsumer(t *testing.T) {
+	t.Parallel()
 	s, home, pack, commit, path := compactionFixture(t, true)
 	beforeEvents := countRows(t, s, "domain_events")
 	if err := PublishCompactionLink(context.Background(), s, compactionRequest(home, commit, path, "blocked-compaction", 3)); err == nil {
@@ -482,6 +495,7 @@ func TestPublishCompactionLinkPreflightsRequiredResearchConsumer(t *testing.T) {
 }
 
 func TestCompactionFoldRejectsRequiredConsumerAtomically(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s, home, _, commit, path := compactionFixture(t, true)
 	note, err := VerifyCommittedNote(ctx, home.RepoPath, commit, path, "")
@@ -505,6 +519,7 @@ func TestCompactionFoldRejectsRequiredConsumerAtomically(t *testing.T) {
 }
 
 func TestProofBackedCompactionDeletesResearchAndNeverStoresBody(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s, home, pack, commit, path := compactionFixture(t, true)
 	secret := "SECRET-RESEARCH-PACK-BODY"
@@ -540,6 +555,7 @@ func TestProofBackedCompactionDeletesResearchAndNeverStoresBody(t *testing.T) {
 }
 
 func TestCompactionRetryReconcilesCrashWindow(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s, home, pack, commit, path := compactionFixture(t, false)
 	note, err := VerifyCommittedNote(ctx, home.RepoPath, commit, path, "")
@@ -566,6 +582,7 @@ func TestCompactionRetryReconcilesCrashWindow(t *testing.T) {
 }
 
 func TestArchiveFailureBeforeGitProofLeavesPackIntact(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	seedResearchWork(t, s, "owner")
 	pack := createSimplePack(t, s, "proof-failure", "owner")
@@ -581,6 +598,7 @@ func TestArchiveFailureBeforeGitProofLeavesPackIntact(t *testing.T) {
 }
 
 func TestResearchFindingSourceReadRejectsGlobalOverflow(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openTemp(t)
 	seedResearchWork(t, s, "owner")
@@ -612,6 +630,7 @@ func TestResearchFindingSourceReadRejectsGlobalOverflow(t *testing.T) {
 }
 
 func TestArchitectureSpikeCompletionFailsClosedBeforeDecisionWorkflow(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openTemp(t)
 	events := []Event{
@@ -646,6 +665,7 @@ func TestArchitectureSpikeCompletionFailsClosedBeforeDecisionWorkflow(t *testing
 }
 
 func TestActiveResearchSchemaEnforcesForeignKeysAndChecks(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	seedResearchWork(t, s, "owner", "consumer")
 	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO active_research_packs(pack_id,owner_work_id,current_revision,freshness,expected_version,created_at,updated_at) VALUES('bad-owner','missing',1,'current',1,'now','now')`); err == nil {
@@ -666,6 +686,7 @@ func TestActiveResearchSchemaEnforcesForeignKeysAndChecks(t *testing.T) {
 }
 
 func TestInitiativeEntriesFoldAndCompletionGate(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	guarded := openTemp(t)
 	seedResearchWork(t, guarded, "guarded")
@@ -746,6 +767,7 @@ func TestInitiativeEntriesFoldAndCompletionGate(t *testing.T) {
 }
 
 func TestReadInitiativeEntriesRejectsOverflow(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	tx, err := s.DatabaseForTesting().Begin()
 	if err != nil {
@@ -790,6 +812,7 @@ func TestReadInitiativeEntriesRejectsOverflow(t *testing.T) {
 }
 
 func TestInitiativeRejectsNestedAndCrossProductEntries(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openTemp(t)
 	events := []Event{
@@ -828,6 +851,7 @@ func TestInitiativeRejectsNestedAndCrossProductEntries(t *testing.T) {
 }
 
 func TestObsoleteEpicEventsAreNotRegistered(t *testing.T) {
+	t.Parallel()
 	if _, err := InitiativeEntryEvent("obsolete", "epic_entry.added", "initiative", InitiativeEntry{ChildWorkID: "child"}, "test", time.Unix(4, 2).UTC(), 2); err == nil {
 		t.Fatal("obsolete Epic event remained registered")
 	} else {
@@ -850,6 +874,7 @@ func operationEventForResearch(id, kind string, subject SubjectType, subjectID s
 // gathered. Content now carries forward, and freshness follows whether the brief
 // was actually restated.
 func TestAppendRevisionCarriesContentForward(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 
 	seed := func(t *testing.T) (*Store, ResearchPack) {
@@ -965,6 +990,7 @@ func revisionByNumber(t *testing.T, pack ResearchPack, revision int64) ResearchR
 // Owner work says where the research was found; this scope says what one finding
 // applies to, which can be a different component, project, or tag.
 func TestResearchFindingScopesAreValidatedReadBackAndCopied(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openTemp(t)
 	seedResearchWork(t, s, "owner")

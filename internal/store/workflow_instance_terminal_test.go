@@ -13,6 +13,7 @@ import (
 // instance records the abandoned workflow as cancelled while the item's
 // lifecycle carries the outcome.
 func TestTerminalLifecycleClosesTheWorkflowInstance(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name          string
 		terminal      func(t *testing.T, s *Store, workID string)
@@ -83,6 +84,7 @@ func TestTerminalLifecycleClosesTheWorkflowInstance(t *testing.T) {
 // item's lifecycle reaches a terminal state afterwards. The terminal fold
 // closes only a live instance.
 func TestTerminalLifecycleLeavesACompletedInstanceAlone(t *testing.T) {
+	t.Parallel()
 	workID := "completed-then-lifecycle"
 	s, completion := seedCompletionGateCase(t, workID, completionGateCase{requiredEvidence: []string{"verification", "review"}, includeSpec: true, includeVerdict: true, includePremise: true, verdictKind: "ok"})
 	if err := CompleteWorkflow(context.Background(), s, completion); err != nil {
@@ -110,6 +112,7 @@ func TestTerminalLifecycleLeavesACompletedInstanceAlone(t *testing.T) {
 // stamp. A log rebuild reproduces the same row, so the repaired projection
 // and the replayed projection agree.
 func TestMigrationClosesInstancesOfTerminalWorkItems(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "concord-orphans.db")
 	db, err := sql.Open(driverName, dataSourceName(path))

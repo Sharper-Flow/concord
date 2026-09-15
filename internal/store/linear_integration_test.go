@@ -18,6 +18,7 @@ func setupLinearProduct(t *testing.T, s *Store, productID string) {
 }
 
 func TestPlanningModeDefaultsToLocalOnlyAndSetIsEventBacked(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	ctx := context.Background()
 	setupLinearProduct(t, s, "mode-product")
@@ -66,6 +67,7 @@ func TestPlanningModeDefaultsToLocalOnlyAndSetIsEventBacked(t *testing.T) {
 }
 
 func TestPlanningModeResolutionRefusesAmbiguityAndMissingSetup(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	ctx := context.Background()
 	setupLinearProduct(t, s, "resolve-product")
@@ -129,6 +131,7 @@ func setupLinearConnectionResourceAtVersion(t *testing.T, s *Store, productID st
 }
 
 func TestLinearConnectionResolutionStates(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	ctx := context.Background()
 	setupLinearProduct(t, s, "conn-product")
@@ -302,6 +305,7 @@ func TestLinearIssueEnqueueRefusesAnUnmappedOwningProject(t *testing.T) {
 }
 
 func TestLinearOutboxTypedSurface(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	ctx := context.Background()
 	setupLinearProduct(t, s, "outbox-product")
@@ -356,6 +360,7 @@ func TestLinearOutboxTypedSurface(t *testing.T) {
 }
 
 func TestLinearLinkTypedTransitions(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	ctx := context.Background()
 	seedWorkItem(t, s, "link-work")
@@ -384,6 +389,7 @@ func TestLinearLinkTypedTransitions(t *testing.T) {
 }
 
 func TestLinearIntegrationHealthRead(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	ctx := context.Background()
 	setupLinearProduct(t, s, "health-product")

@@ -18,6 +18,7 @@ func budgetOpFor(t *testing.T) ContractOperation {
 }
 
 func TestApplyBudgetParsesRequestedSecondsAndCeiling(t *testing.T) {
+	t.Parallel()
 	op := budgetOpFor(t)
 	if op.SupportedBudgetSeconds != 30 {
 		t.Fatalf("workflow_action ceiling must be the TS1-fixed 30, got %d", op.SupportedBudgetSeconds)
@@ -32,6 +33,7 @@ func TestApplyBudgetParsesRequestedSecondsAndCeiling(t *testing.T) {
 }
 
 func TestApplyBudgetUniformCeilingCoversTheSurface(t *testing.T) {
+	t.Parallel()
 	byID := map[string]int{}
 	for _, op := range ContractOperations {
 		byID[op.ID] = op.SupportedBudgetSeconds
@@ -47,6 +49,7 @@ func TestApplyBudgetUniformCeilingCoversTheSurface(t *testing.T) {
 }
 
 func TestApplyBudgetMarksOverCeilingWithoutActing(t *testing.T) {
+	t.Parallel()
 	_, _, budget, failure := applyBudget(context.Background(), budgetOpFor(t), []byte(`{"requested_budget_seconds":60}`))
 	if failure != nil {
 		t.Fatalf("ceiling flag must not be an admission failure at parse time: %v", failure)
@@ -57,6 +60,7 @@ func TestApplyBudgetMarksOverCeilingWithoutActing(t *testing.T) {
 }
 
 func TestApplyBudgetInstallsSecondsDeadline(t *testing.T) {
+	t.Parallel()
 	ctx, cancel, _, failure := applyBudget(context.Background(), budgetOpFor(t), []byte(`{"requested_budget_seconds":2}`))
 	defer cancel()
 	if failure != nil {
@@ -72,6 +76,7 @@ func TestApplyBudgetInstallsSecondsDeadline(t *testing.T) {
 }
 
 func TestApplyBudgetOmissionMeansNoDeadline(t *testing.T) {
+	t.Parallel()
 	// CD-0038 D4: omission is not a request for the maximum. Internal bounds
 	// remain; the operation itself runs without a Concord-installed deadline.
 	ctx, cancel, _, failure := applyBudget(context.Background(), budgetOpFor(t), []byte(`{}`))
@@ -85,6 +90,7 @@ func TestApplyBudgetOmissionMeansNoDeadline(t *testing.T) {
 }
 
 func TestApplyBudgetRejectsNonPositiveSeconds(t *testing.T) {
+	t.Parallel()
 	_, _, _, failure := applyBudget(context.Background(), budgetOpFor(t), []byte(`{"requested_budget_seconds":-5}`))
 	if failure == nil || failure.kind != "invalid_input" {
 		t.Fatalf("negative seconds must be invalid_input, got %#v", failure)
@@ -92,6 +98,7 @@ func TestApplyBudgetRejectsNonPositiveSeconds(t *testing.T) {
 }
 
 func TestApplyBudgetEnforcesMillisecondAgreement(t *testing.T) {
+	t.Parallel()
 	// CD-0038 D6: both denominations may be sent only when they express one
 	// exact duration. No rounding, no preference rule.
 	_, _, _, mismatch := applyBudget(context.Background(), budgetOpFor(t), []byte(`{"requested_budget_seconds":30,"budget":{"max_millis":29999}}`))
@@ -109,6 +116,7 @@ func TestApplyBudgetEnforcesMillisecondAgreement(t *testing.T) {
 }
 
 func TestApplyBudgetKeepsLegacyMillisecondBound(t *testing.T) {
+	t.Parallel()
 	_, _, _, failure := applyBudget(context.Background(), budgetOpFor(t), []byte(`{"budget":{"max_millis":300001}}`))
 	if failure == nil || failure.kind != "budget_refused" {
 		t.Fatalf("legacy millisecond bound lost: %#v", failure)
@@ -116,6 +124,7 @@ func TestApplyBudgetKeepsLegacyMillisecondBound(t *testing.T) {
 }
 
 func TestBudgetRefusalCarriesTheTypedCeiling(t *testing.T) {
+	t.Parallel()
 	r := runtime{Tool: "concord_work_transition", Operation: "workflow_action", Budget: budgetInput{CeilingRefused: true, RequestedSeconds: 60, SupportedSeconds: 30}}
 	out := r.budgetRefusal(NewBase("request", r.Tool, r.Operation), "requested_budget_seconds 60 exceeds supported 30")
 	if out.Error == nil || out.Error.Kind != "budget_refused" || out.Error.SupportedBudgetSeconds != 30 {
@@ -130,6 +139,7 @@ func TestBudgetRefusalCarriesTheTypedCeiling(t *testing.T) {
 }
 
 func TestValidateErrorRequiresTypedCeilingOnEveryBudgetRefusal(t *testing.T) {
+	t.Parallel()
 	base := TypedError{Kind: "budget_refused", RecoveryAction: RecoveryAction{Kind: "adjust_budget"}, EffectState: EffectNone}
 	if err := validateError(base); err == nil {
 		t.Fatal("budget_refused without the typed ceiling passed validation")
@@ -141,6 +151,7 @@ func TestValidateErrorRequiresTypedCeilingOnEveryBudgetRefusal(t *testing.T) {
 }
 
 func TestRequestedBudgetSecondsJoinsTheCanonicalDigest(t *testing.T) {
+	t.Parallel()
 	// CD-0038 D1: changing the requested budget changes the canonical request.
 	// The digest is over the raw input, so the field participates structurally;
 	// this pins that property before anything learns to strip it.

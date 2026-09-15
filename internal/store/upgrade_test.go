@@ -85,6 +85,7 @@ func TestOpenStopsBeforeAPendingBreakingMigration(t *testing.T) {
 }
 
 func TestOpenAppliesEveryMigrationToAFreshDatabase(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "fresh.db")
 	s, err := Open(context.Background(), path)
 	if err != nil {

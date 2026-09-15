@@ -16,6 +16,7 @@ func enableLinearForImport(t *testing.T, s *Store, productID string) {
 }
 
 func TestLinearInitiativeImportGuards(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	ctx := context.Background()
 	setupLinearProduct(t, s, "import-product")
@@ -41,6 +42,7 @@ func TestLinearInitiativeImportGuards(t *testing.T) {
 }
 
 func TestLinearInitiativeImportIsOnce(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	ctx := context.Background()
 	setupLinearProduct(t, s, "import-once-product")

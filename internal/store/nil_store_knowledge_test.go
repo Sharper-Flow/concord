@@ -6,6 +6,7 @@ import (
 )
 
 func TestUnopenedStoreKnowledgeMethods(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	assertUnopenedStoreTypedFailure(t, []nilStoreCase{
 		{"KnowledgeIndexWatermark", func(s *Store) error {

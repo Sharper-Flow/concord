@@ -40,6 +40,7 @@ func readWorkflowBoundaryScenario(t *testing.T, id string) workflowBoundaryScena
 }
 
 func TestWorkflowCorpusWF56CarriesVacateReclaimBoundary(t *testing.T) {
+	t.Parallel()
 	scenario := readWorkflowBoundaryScenario(t, "WF56-session-vacate-then-reclaim-passes-gate")
 	if scenario.Action != "session_vacate" {
 		t.Fatalf("WF56 action=%q, want session_vacate", scenario.Action)
@@ -63,6 +64,7 @@ func invokeWorkflowBoundary(t *testing.T, s *store.Store, service *Service, env 
 }
 
 func TestWorkflowCorpusWF37UsesAgentAvailabilityBeforePayloadOrAuth(t *testing.T) {
+	t.Parallel()
 	scenario := readWorkflowBoundaryScenario(t, "WF37-action-availability-before-register")
 	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_transition"})
 	if got := seedAgentWorkflow(t, s, grant); got != 4 {
@@ -133,6 +135,7 @@ func advanceWorkflowBoundaryToExecution(t *testing.T, s *store.Store, service *S
 }
 
 func TestWorkflowCorpusWF38UsesStrictInvokeBoundaryForStepActorAndPayload(t *testing.T) {
+	t.Parallel()
 	scenario := readWorkflowBoundaryScenario(t, "WF38-action-payload-step-actor")
 	s, service, grant, privateKey := mutationDispatchFixture(t, []Capability{"work_transition"})
 	seedAgentWorkflow(t, s, grant)
@@ -169,6 +172,7 @@ func TestWorkflowCorpusWF38UsesStrictInvokeBoundaryForStepActorAndPayload(t *tes
 }
 
 func TestWorkflowCorpusWF46RejectsRemovedAgentReplayShape(t *testing.T) {
+	t.Parallel()
 	scenario := readWorkflowBoundaryScenario(t, "WF46-event-version-fail-closed")
 	if scenario.Action != "replay" {
 		t.Fatalf("WF46 no longer declares the historical replay action: %q", scenario.Action)

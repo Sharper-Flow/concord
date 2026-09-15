@@ -72,6 +72,7 @@ func startWorkflowPinnedTo(t *testing.T, s *Store, workID string, definition Reg
 // registry property, so it is proven against the test fixture family, which
 // carries two versions; the shipped built-ins carry exactly one version each.
 func TestInFlightWorkflowSurvivesDefinitionVersionSupersession(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	const workID = "definition-evolution-work"
 	registry := BuiltinWorkflowRegistry()
@@ -141,6 +142,7 @@ func TestInFlightWorkflowSurvivesDefinitionVersionSupersession(t *testing.T) {
 // A schema migration applied while an item is mid-flight must leave it advanceable
 // and its history readable.
 func TestInFlightWorkflowSurvivesSchemaMigration(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "concord-inflight.db")
 	db, err := sql.Open(driverName, dataSourceName(path))

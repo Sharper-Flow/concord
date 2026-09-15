@@ -76,6 +76,7 @@ var workflowDefinitionVersionPins = map[[2]string]string{
 }
 
 func TestWorkflowDefinitionVersionPinsHold(t *testing.T) {
+	t.Parallel()
 	for pin, digest := range workflowDefinitionVersionPins {
 		ref, version := pin[0], pin[1]
 		entry, ok := builtinWorkflowRegistry.Lookup(ref, pinVersion(t, version))
@@ -98,6 +99,7 @@ func TestWorkflowDefinitionVersionPinsHold(t *testing.T) {
 }
 
 func TestBuiltinDefinitionsCoverExactlyThePinnedVersions(t *testing.T) {
+	t.Parallel()
 	seen := map[[2]string]bool{}
 	for _, definition := range builtinWorkflowDefinitionsWithHistory() {
 		pin := [2]string{definition.Ref, versionString(definition.Version)}
@@ -117,6 +119,7 @@ func TestBuiltinDefinitionsCoverExactlyThePinnedVersions(t *testing.T) {
 }
 
 func TestBuiltinDefinitionForRefResolvesTheLatestVersion(t *testing.T) {
+	t.Parallel()
 	cases := map[string]int64{
 		"workflow.break_fix":          8,
 		"workflow.implementation":     10,

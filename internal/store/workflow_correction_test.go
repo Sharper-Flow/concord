@@ -28,9 +28,10 @@ func issue1013Preflight(t *testing.T, s *Store, workID, action string, payload j
 // holds a healthy verdict (#1013). The same journey shows the supersede
 // refusal outside a recovery state names the stale-contract recovery route.
 func TestIssue1013LateVerdictRecoveryPassesReadOnlyPreflight(t *testing.T) {
+	t.Parallel()
 	const workID = "issue1013-late-verdict-preflight"
-	s, owner := seedItemAtAcceptance(t, workID, false)
-	reviewer := verdictReviewer(t, workID)
+	s, owner, _ := seedItemAtAcceptance(t, workID, false)
+	reviewer := verdictReviewer(t, s, workID)
 	if err := runVerdictActionAs(t, s, workID, "record_verdict", json.RawMessage(`{"contract_version":1,"predicate_id":"predicate:primary","verdict_kind":"outcome_mismatch","incomparable_with_approved":true}`), 0, reviewer); err != nil {
 		t.Fatalf("record mismatch verdict: %v", err)
 	}

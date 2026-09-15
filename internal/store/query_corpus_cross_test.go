@@ -11,6 +11,7 @@ import (
 // package-private event constructors; the corpus driver itself now lives in
 // package store_test so it can consume internal/pm1fixture.
 func TestExtraCrossProductFixture(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	ctx := context.Background()
 	events := []Event{productCreatedEvent("cross-a", "cross-product-a"), projectCreatedEvent("cross-project", "cross-project-create"), operationEvent("cross-a-project", "product_project.added", SubjectProduct, "cross-a", map[string]any{"product_id": "cross-a", "project_id": "cross-project", "role": "primary", "reason": "cross fixture", "expected_version": 1, "resulting_version": 2}), productCreatedEvent("cross-b", "cross-product-b"), operationEvent("cross-b-project", "product_project.added", SubjectProduct, "cross-b", map[string]any{"product_id": "cross-b", "project_id": "cross-project", "role": "primary", "reason": "cross fixture", "expected_version": 1, "resulting_version": 2})}

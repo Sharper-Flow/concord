@@ -24,6 +24,7 @@ func workItemProjectionVersion(t *testing.T, s *store.Store, workID string) int6
 // work item, so a caller that pinned expected_version from a read conflicted on
 // any work item past its first folded event.
 func TestReadPublishesProjectionVersion(t *testing.T) {
+	t.Parallel()
 	s, service, grant, _ := agentJobsPM1Fixture(t)
 	env := agentJobsEnvelope(grant, "proj-web", "prod-alpha")
 
@@ -91,6 +92,7 @@ func transitionFixture(t *testing.T) (*store.Store, *Service, CallEnvelope, stri
 // caller received a transport-shaped operation_conflict with effect_state
 // possible in place of a readable version_conflict.
 func TestVersionConflictOnExistingWorkMarshals(t *testing.T) {
+	t.Parallel()
 	s, service, env, workID := transitionFixture(t)
 
 	current := workItemProjectionVersion(t, s, workID)
@@ -134,6 +136,7 @@ func TestVersionConflictOnExistingWorkMarshals(t *testing.T) {
 // cannot describe a subject that holds no version, and the envelope refuses
 // exactly that pairing.
 func TestVersionConflictOnMissingWorkIsUnknownScope(t *testing.T) {
+	t.Parallel()
 	s, service, env, _ := transitionFixture(t)
 
 	action := InvokeRequest{

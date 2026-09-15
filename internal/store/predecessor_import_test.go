@@ -11,6 +11,7 @@ import (
 // not a typed failure, so the operator verb can use it as a precondition
 // without special-casing projection-not-found.
 func TestProductMembershipOnFreshDatabaseIsEmpty(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	ctx := context.Background()
 	membership, err := s.ProductMembership(ctx, "absent-product")
@@ -25,6 +26,7 @@ func TestProductMembershipOnFreshDatabaseIsEmpty(t *testing.T) {
 // TestProductMembershipReflectsProjectSet pins the happy path: a Product
 // with two Projects reports them in sorted order.
 func TestProductMembershipReflectsProjectSet(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	ctx := context.Background()
 	when := time.Now().UTC()
@@ -65,6 +67,7 @@ func TestProductMembershipReflectsProjectSet(t *testing.T) {
 // so the operator verb cannot accidentally pass an empty string and read
 // another Product's membership.
 func TestProductMembershipRejectsEmptyID(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	_, err := s.ProductMembership(context.Background(), "")
 	if err == nil {
@@ -79,6 +82,7 @@ func TestProductMembershipRejectsEmptyID(t *testing.T) {
 // TestEventIDExistsFalseForUnknownID pins the absence case: a never-recorded
 // event id reports false, not an error.
 func TestEventIDExistsFalseForUnknownID(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	exists, err := s.EventIDExists(context.Background(), "never-recorded")
 	if err != nil {
@@ -92,6 +96,7 @@ func TestEventIDExistsFalseForUnknownID(t *testing.T) {
 // TestEventIDExistsTrueAfterAppend pins the happy path: an event that has
 // been appended reports true on the next read.
 func TestEventIDExistsTrueAfterAppend(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	ctx := context.Background()
 	if err := ApplyOperation(ctx, s, Operation{
@@ -128,6 +133,7 @@ func TestEventIDExistsTrueAfterAppend(t *testing.T) {
 // TestEventIDExistsRejectsEmptyID fails closed on an empty event id so the
 // operator verb cannot accidentally probe for a malformed identifier.
 func TestEventIDExistsRejectsEmptyID(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	_, err := s.EventIDExists(context.Background(), "")
 	if err == nil {

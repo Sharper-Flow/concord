@@ -46,6 +46,7 @@ func closedKnowledgeKinds(t *testing.T) []string {
 // unreachable by name, which is how reference and constitution records hid
 // from every targeted search.
 func TestKnowledgeSearchKindsEnumSpansTheClosedVocabulary(t *testing.T) {
+	t.Parallel()
 	var document struct {
 		Defs map[string]struct {
 			Properties map[string]struct {
@@ -80,6 +81,7 @@ func TestKnowledgeSearchKindsEnumSpansTheClosedVocabulary(t *testing.T) {
 }
 
 func TestKnowledgeSearchInputAdmitsReferenceAndConstitution(t *testing.T) {
+	t.Parallel()
 	payload := []byte(`{"product_id":"concord","kinds":["reference","constitution"],"page":{"cursor":null,"limit":5}}`)
 	if err := ValidateOperationPayload("concord_knowledge", "search", payload, false); err != nil {
 		t.Fatalf("reference and constitution refused by the search input: %v", err)

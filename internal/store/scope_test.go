@@ -6,6 +6,7 @@ import (
 )
 
 func TestResolveCompactionHomeUsesProductThenPrimaryMembership(t *testing.T) {
+	t.Parallel()
 	s := seedQueryFixture(t)
 	repo := initKnowledgeRepo(t)
 	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT INTO project_locators(locator_id,project_id,kind,locator_value,normalized_value,created_at,updated_at) VALUES('locator-1','proj','canonical_path',?,?,'now','now'); DELETE FROM fold_guard`, repo, repo); err != nil {

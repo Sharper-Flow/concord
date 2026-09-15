@@ -25,6 +25,7 @@ var transportOnlyInputFields = map[string]bool{
 }
 
 func TestMutationInputSchemasBindDecodingStructs(t *testing.T) {
+	t.Parallel()
 	decodeTargets := map[string]any{
 		"concord_domain.observation_dismiss":             domainObservationDismissInput{},
 		"concord_domain.observation_record":              domainObservationRecordInput{},
@@ -147,6 +148,7 @@ func structTagsMap(names []string) map[string]bool {
 // lacked: a revise_intent input carrying the evidence field the published
 // schema declares, strict-decoded through the same path the runtime uses.
 func TestReviseIntentEvidenceFixtureDecodes(t *testing.T) {
+	t.Parallel()
 	raw := json.RawMessage(`{"work_id":"work-1","expected_version":4,"title":"Need revised","value_statement":"Revised value","kind":"task","priority":3,"tags":[],"reason":"clarified","evidence":[{"kind":"commit","authority":"git","locator_kind":"commit","locator":"commit:7b83cbf41af2f9fa7990294a41a50cb75a1d6d1e"}],"idempotency_key":"revise-fixture-1"}`)
 	var in reviseMutationInput
 	if err := decodeOperationInput(raw, &in); err != nil {

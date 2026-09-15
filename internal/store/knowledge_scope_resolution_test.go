@@ -9,6 +9,7 @@ import (
 )
 
 func TestResolveKnowledgeQueryHomeOwnsProductAndProjectAuthority(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openTemp(t)
 	repo := initKnowledgeRepo(t)
@@ -59,6 +60,7 @@ func TestResolveKnowledgeQueryHomeOwnsProductAndProjectAuthority(t *testing.T) {
 }
 
 func TestResolveKnowledgeQueryHomeProjectOnlyRequiresOneCanonicalLocator(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openTemp(t)
 	repo := initKnowledgeRepo(t)
@@ -91,6 +93,7 @@ func TestResolveKnowledgeQueryHomeProjectOnlyRequiresOneCanonicalLocator(t *test
 }
 
 func TestQ10RejectsCallerHomeMismatchBeforeHistoricalRead(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	repo := initKnowledgeRepo(t)
 	authoritative := KnowledgeHome{HomeProjectID: "product-home", HomeLocatorID: "product-locator", RepoPath: repo, HeadRef: "HEAD"}
@@ -114,6 +117,7 @@ func TestQ10RejectsCallerHomeMismatchBeforeHistoricalRead(t *testing.T) {
 }
 
 func TestQ10HomeScopeUsesCurrentMembershipAndRecordedLocator(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	repo := initKnowledgeRepo(t)
 	writeManifestFixture(t, repo, manifestFixture{ID: "historical-home", Kind: "lesson", Path: "docs/lessons/historical-home.md", Status: "published", Date: "2026-08-10T00:00:00Z", Title: "Historical home", Summary: "Historical summary", Scopes: KnowledgeRecordScopes{Mode: "home"}})
@@ -167,6 +171,7 @@ func TestQ10HomeScopeUsesCurrentMembershipAndRecordedLocator(t *testing.T) {
 }
 
 func TestQ10WorkNoteProductScopeRemainsFrozenAfterMembershipMove(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	repo := initKnowledgeRepo(t)
 	path := "docs/work/2026-08-10-frozen-work.md"
@@ -213,6 +218,7 @@ func TestQ10WorkNoteProductScopeRemainsFrozenAfterMembershipMove(t *testing.T) {
 }
 
 func TestQ10MissingCurrentLocatorIsUnavailableAndProofCanDegrade(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	repo := initKnowledgeRepo(t)
 	writeKnowledgeFile(t, repo, "README.md", "historical proof\n")

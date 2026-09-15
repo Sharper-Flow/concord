@@ -14,6 +14,7 @@ import (
 // through record_delivery, and a hand-off summary never moves the step. The
 // mandatory refinement pass also needs its own fenced start and delivery.
 func TestRecordDeliveryExitsTheStepTheSessionExecuted(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s, _, _, _, _ := workflowEngineFixture(t, "")
 	execActor := store.WorkflowActor{PrincipalRef: "human-1", ClientRef: "client-session-exec-aaaa", AgentRef: "agent-exec", SessionRef: "session-exec-aaaa", ActorClass: store.ActorAgent}
@@ -94,6 +95,7 @@ func TestRecordDeliveryExitsTheStepTheSessionExecuted(t *testing.T) {
 
 // Delivery on a step that never started has nothing to deliver.
 func TestRecordDeliveryRequiresTheFencedStart(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_define", "work_transition"})
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")

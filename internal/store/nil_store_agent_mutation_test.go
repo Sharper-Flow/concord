@@ -6,6 +6,7 @@ import (
 )
 
 func TestUnopenedStoreAgentMutationMethods(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	assertUnopenedStoreTypedFailure(t, []nilStoreCase{
 		{"LookupMutationIdempotency", func(s *Store) error {

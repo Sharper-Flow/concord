@@ -109,6 +109,7 @@ func TestWorkflowDomainOverlapWriteIntersectionBlocks(t *testing.T) {
 }
 
 func TestWorkflowDomainOverlapDerivesTypedIntersectionsAndCompatibleResolution(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s, actor := seedOverlapProjection(t, "overlap-left", "overlap-right", true)
 	err := CheckWorkflowDomainOverlap(ctx, s, "overlap-left")
@@ -151,6 +152,7 @@ func TestWorkflowDomainOverlapDerivesTypedIntersectionsAndCompatibleResolution(t
 }
 
 func TestWorkflowDomainOverlapCompatibleResolutionUsesCanonicalPair(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s, actor := seedOverlapProjection(t, "canonical-left", "canonical-right", false)
 	if err := s.Transact(ctx, func(tx *Transaction) error {
@@ -176,6 +178,7 @@ func TestWorkflowDomainOverlapCompatibleResolutionUsesCanonicalPair(t *testing.T
 }
 
 func TestWorkflowDomainOverlapSequencingUsesExplicitStateAndEventOrder(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s, actor := seedOverlapProjection(t, "sequence-left", "sequence-right", false)
 	now := time.Date(2026, 8, 19, 2, 0, 0, 0, time.UTC)
@@ -218,6 +221,7 @@ func TestWorkflowDomainOverlapSequencingUsesExplicitStateAndEventOrder(t *testin
 }
 
 func TestWorkflowDomainOverlapReopenInvalidatesSameVersionResolution(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s, actor := seedOverlapProjection(t, "reopen-left", "reopen-right", false)
 	if err := s.Transact(ctx, func(tx *Transaction) error {
@@ -254,6 +258,7 @@ func TestWorkflowDomainOverlapReopenInvalidatesSameVersionResolution(t *testing.
 }
 
 func TestWorkflowDomainOverlapClassifiesLawDomainAndRelationWrites(t *testing.T) {
+	t.Parallel()
 	s, _ := seedOverlapProjection(t, "classes-left", "classes-right", true)
 	ctx := context.Background()
 	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
@@ -306,6 +311,7 @@ func TestWorkflowDomainOverlapClassifiesLawDomainAndRelationWrites(t *testing.T)
 }
 
 func TestWorkflowDomainOverlapOrdinaryRelationsCannotResolveOrForgeAuthority(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s, _ := seedOverlapProjection(t, "ordinary-left", "ordinary-right", false)
 	if err := applyWorkEvent(t, s, relationAddedEvent("ordinary-blocks", "blocks", "ordinary-left", "ordinary-right", 2, 3), workVersion("ordinary-right", 2)); err != nil {
@@ -323,6 +329,7 @@ func TestWorkflowDomainOverlapOrdinaryRelationsCannotResolveOrForgeAuthority(t *
 }
 
 func TestWorkflowDomainOverlapSequenceTerminalUnblocksFollower(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s, actor := seedOverlapProjection(t, "terminal-left", "terminal-right", false)
 	if err := s.Transact(ctx, func(tx *Transaction) error {
@@ -347,6 +354,7 @@ func TestWorkflowDomainOverlapSequenceTerminalUnblocksFollower(t *testing.T) {
 }
 
 func TestWorkflowDomainOverlapGuardsLifecycleExecutionEntry(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s, actor := seedOverlapProjection(t, "lifecycle-left", "lifecycle-right", false)
 	// CD-0144: the claim attaches as the item enters execution, so the subject
@@ -376,6 +384,7 @@ func TestWorkflowDomainOverlapGuardsLifecycleExecutionEntry(t *testing.T) {
 }
 
 func TestWorkflowDomainOverlapMergeAndSupersessionAreAtomicAndReopenStale(t *testing.T) {
+	t.Parallel()
 	for _, testCase := range []struct {
 		name, kind, terminalID, survivorID string
 	}{
@@ -512,6 +521,7 @@ func setWorkLifecycleForTesting(t *testing.T, s *Store, workID, lifecycle string
 }
 
 func TestWorkflowDomainOverlapContractRevisionStalesResolutionAndRebuilds(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s, _, binding, _, _, _ := architectureValidationFixture(t, "revision-left")
 	seedWork(t, s, "revision-right")
@@ -635,6 +645,7 @@ func seedCompletedWorkerOverlap(t *testing.T, workID, otherID string) (*Store, W
 }
 
 func TestWorkflowDomainOverlapBlocksWorkerResultAcceptanceWithoutKillingReads(t *testing.T) {
+	t.Parallel()
 	const workID = "overlap-result-work"
 	s, owner, attemptID, version := seedCompletedWorkerOverlap(t, workID, "overlap-result-other")
 	ctx := context.Background()
@@ -670,6 +681,7 @@ func TestWorkflowDomainOverlapBlocksWorkerResultAcceptanceWithoutKillingReads(t 
 }
 
 func TestWorkflowDomainOverlapResolutionCommitsBeforeCrossProcessResultAcceptance(t *testing.T) {
+	t.Parallel()
 	const workID = "overlap-race-work"
 	const otherID = "overlap-race-other"
 	s, _, attemptID, version := seedCompletedWorkerOverlap(t, workID, otherID)
@@ -730,6 +742,7 @@ func TestWorkflowDomainOverlapResolutionCommitsBeforeCrossProcessResultAcceptanc
 }
 
 func TestWorkflowDomainOverlapCrossProcessWorker(t *testing.T) {
+	t.Parallel()
 	role := os.Getenv("CONCORD_OVERLAP_RACE_ROLE")
 	if role == "" {
 		return

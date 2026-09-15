@@ -84,6 +84,7 @@ func continuityAction(t *testing.T, s *Store, workID string, version int64, acti
 }
 
 func TestContinuityStepActions(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	continuityTestWorkflow(t, s, "continuity-actions")
 
@@ -110,6 +111,7 @@ func TestContinuityStepActions(t *testing.T) {
 }
 
 func TestContextContinuityCheckpointBoundaryAndCanonicalRead(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	actor, version := continuityTestWorkflow(t, s, "continuity-work")
 	checkpointVersion, err := continuityAction(t, s, "continuity-work", version, "checkpoint_context", "continuity-checkpoint", map[string]any{
@@ -158,6 +160,7 @@ func TestContextContinuityCheckpointBoundaryAndCanonicalRead(t *testing.T) {
 }
 
 func TestContextContinuityRejectsRestartAndPendingDecisionBoundary(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	actor, version := continuityTestWorkflow(t, s, "continuity-reject")
 	checkpointVersion, err := continuityAction(t, s, "continuity-reject", version, "checkpoint_context", "reject-checkpoint", map[string]any{
@@ -201,6 +204,7 @@ func TestContextContinuityRejectsRestartAndPendingDecisionBoundary(t *testing.T)
 }
 
 func TestContextContinuityUsesRegisteredPayloadAndExactCheckpointVersion(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	actor, version := continuityTestWorkflow(t, s, "continuity-binding")
 	checkpointVersion, err := continuityAction(t, s, "continuity-binding", version, "checkpoint_context", "binding-checkpoint", map[string]any{
@@ -224,6 +228,7 @@ func TestContextContinuityUsesRegisteredPayloadAndExactCheckpointVersion(t *test
 }
 
 func TestContextContinuityUnresolvedFailureRequiresNoLaterCompletion(t *testing.T) {
+	t.Parallel()
 	for _, testCase := range []struct {
 		name        string
 		completed   bool
@@ -265,6 +270,7 @@ func TestContextContinuityUnresolvedFailureRequiresNoLaterCompletion(t *testing.
 }
 
 func TestContextContinuitySummaryCannotPoisonPinnedProjection(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	actor, version := continuityTestWorkflow(t, s, "continuity-poison")
 	checkpointVersion, err := continuityAction(t, s, "continuity-poison", version, "checkpoint_context", "poison-checkpoint", map[string]any{
@@ -294,6 +300,7 @@ func TestContextContinuitySummaryCannotPoisonPinnedProjection(t *testing.T) {
 }
 
 func TestV22ContinuityTablesAreFoldOnlyAndImmutable(t *testing.T) {
+	t.Parallel()
 	s := openTemp(t)
 	actor, version := continuityTestWorkflow(t, s, "continuity-v22-guards")
 	if _, err := continuityAction(t, s, "continuity-v22-guards", version, "checkpoint_context", "v22-checkpoint", map[string]any{

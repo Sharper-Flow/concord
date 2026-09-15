@@ -248,6 +248,7 @@ func claimPath(s *Store) string {
 }
 
 func TestClaimWorktreeCreatesVerifiesAndFolds(t *testing.T) {
+	t.Parallel()
 	s, git, _ := worktreeFixture(t)
 	result, err := s.ClaimWorktree(context.Background(), baseClaim(git))
 	if err != nil {
@@ -269,6 +270,7 @@ func TestClaimWorktreeCreatesVerifiesAndFolds(t *testing.T) {
 }
 
 func TestClaimWorktreeReconcilesInterruptedCreateWithoutSecondWorktree(t *testing.T) {
+	t.Parallel()
 	s, git, _ := worktreeFixture(t)
 	req := baseClaim(git)
 
@@ -299,6 +301,7 @@ func TestClaimWorktreeReconcilesInterruptedCreateWithoutSecondWorktree(t *testin
 }
 
 func TestClaimWorktreeRetryFromPendingWithoutNativeCreateProbesFirst(t *testing.T) {
+	t.Parallel()
 	s, git, _ := worktreeFixture(t)
 	req := baseClaim(git)
 	if err := s.insertPendingClaim(req); err != nil {
@@ -355,6 +358,7 @@ func TestClaimWorktreeRefusesDivergentExistingBranch(t *testing.T) {
 }
 
 func TestClaimWorktreeRefusesSecondActiveAndIntentMismatch(t *testing.T) {
+	t.Parallel()
 	s, git, _ := worktreeFixture(t)
 	req := baseClaim(git)
 	_, err := s.ClaimWorktree(context.Background(), req)
@@ -374,6 +378,7 @@ func TestClaimWorktreeRefusesSecondActiveAndIntentMismatch(t *testing.T) {
 }
 
 func TestClaimWorktreeVerifiedReplayIsIdempotent(t *testing.T) {
+	t.Parallel()
 	s, git, _ := worktreeFixture(t)
 	req := baseClaim(git)
 	first, err := s.ClaimWorktree(context.Background(), req)
@@ -394,6 +399,7 @@ func TestClaimWorktreeVerifiedReplayIsIdempotent(t *testing.T) {
 }
 
 func TestReclaimWorktreeDerivesFromGitFacts(t *testing.T) {
+	t.Parallel()
 	s, git, _ := worktreeFixture(t)
 	req := baseClaim(git)
 	claimed, err := s.ClaimWorktree(context.Background(), req)
@@ -477,6 +483,7 @@ func TestReclaimWorktreeDerivesFromGitFacts(t *testing.T) {
 }
 
 func TestReclaimWorktreeReplaysVersionOnePayload(t *testing.T) {
+	t.Parallel()
 	s, git, _ := worktreeFixture(t)
 	req := baseClaim(git)
 	if _, err := s.ClaimWorktree(context.Background(), req); err != nil {
@@ -504,6 +511,7 @@ func TestReclaimWorktreeReplaysVersionOnePayload(t *testing.T) {
 // git gates read git only, so a clean merged worktree passed every one of them
 // while a session was still inside it.
 func TestReclaimWorktreeRefusesOccupiedWorktree(t *testing.T) {
+	t.Parallel()
 	s, git, _ := worktreeFixture(t)
 	req := baseClaim(git)
 	claimed, err := s.ClaimWorktree(context.Background(), req)
@@ -565,6 +573,7 @@ func TestReclaimWorktreeRefusesOccupiedWorktree(t *testing.T) {
 // covers discarding the clean-tree and merged-branch gates, which protect
 // committed and uncommitted work. It does not authorize stranding a session.
 func TestDestroyRefusesOccupiedWorktreeDespiteApproval(t *testing.T) {
+	t.Parallel()
 	s, git, _ := worktreeFixture(t)
 	req := baseClaim(git)
 	claimed, err := s.ClaimWorktree(context.Background(), req)
@@ -597,6 +606,7 @@ func TestDestroyRefusesOccupiedWorktreeDespiteApproval(t *testing.T) {
 // reclamation only reconciles the projection: there is no directory left to
 // remove and no session left to strand.
 func TestReclaimAbsentWorktreeIgnoresOccupancy(t *testing.T) {
+	t.Parallel()
 	s, git, _ := worktreeFixture(t)
 	req := baseClaim(git)
 	if _, err := s.ClaimWorktree(context.Background(), req); err != nil {
@@ -624,6 +634,7 @@ func TestReclaimAbsentWorktreeIgnoresOccupancy(t *testing.T) {
 // an ancestry probe refuses every branch that actually merged and no worktree
 // can ever be reclaimed (issue #628).
 func TestReclaimWorktreeAcceptsSquashMergedBranch(t *testing.T) {
+	t.Parallel()
 	s, git, _ := worktreeFixture(t)
 	req := baseClaim(git)
 	if _, err := s.ClaimWorktree(context.Background(), req); err != nil {
@@ -652,6 +663,7 @@ func TestReclaimWorktreeAcceptsSquashMergedBranch(t *testing.T) {
 }
 
 func TestWorktreeEntriesRebuildFromLog(t *testing.T) {
+	t.Parallel()
 	s, git, _ := worktreeFixture(t)
 	req := baseClaim(git)
 	if _, err := s.ClaimWorktree(context.Background(), req); err != nil {
@@ -714,6 +726,7 @@ func auditRowsByClass(rows []WorktreeDrift) map[string][]WorktreeDrift {
 }
 
 func TestWorktreeAuditClassifiesEachDriftClass(t *testing.T) {
+	t.Parallel()
 	s, git, _ := worktreeFixture(t)
 	ctx := context.Background()
 	root := filepath.Join(filepath.Dir(s.Path()), "worktrees")
@@ -781,6 +794,7 @@ func TestWorktreeAuditClassifiesEachDriftClass(t *testing.T) {
 // directory is reconciled by retrying the claim, so the audit must not
 // classify it as drift.
 func TestWorktreeAuditIgnoresPendingClaims(t *testing.T) {
+	t.Parallel()
 	s, git, _ := worktreeFixture(t)
 	req := baseClaim(git)
 	if err := s.insertPendingClaim(req); err != nil {
@@ -798,6 +812,7 @@ func TestWorktreeAuditIgnoresPendingClaims(t *testing.T) {
 }
 
 func TestWorktreeAuditChangesNoDurableState(t *testing.T) {
+	t.Parallel()
 	s, git, _ := worktreeFixture(t)
 	ctx := context.Background()
 	auditWork(t, s, git, "work-gone", false)
@@ -835,6 +850,7 @@ func TestWorktreeAuditChangesNoDurableState(t *testing.T) {
 }
 
 func TestWorktreeAuditRequiresProductScopeAndBoundsLimit(t *testing.T) {
+	t.Parallel()
 	s, _, _ := worktreeFixture(t)
 	if _, err := s.WorktreeAudit(context.Background(), WorktreeAuditRequest{}); err == nil {
 		t.Fatal("empty Product scope must be refused")

@@ -28,7 +28,7 @@ func TestWorktreeAuditReclaimDispatchReclaimsTerminalWorkOnly(t *testing.T) {
 	gitRun(t, livePath, "-c", "user.email=fixture@example.com", "-c", "user.name=fixture", "commit", "-m", "work in flight")
 
 	response := authorityInvoke(t, s, second, secondGrant, "concord_work_transition", "worktree_audit_reclaim", map[string]any{
-		"product_id": "product-1", "default_ref": "main", "idempotency_key": "audit-reclaim-1",
+		"product_id": "product-1", "default_ref": "main", "idempotency_key": "audit-reclaim-1", "observed_session_directories": []map[string]any{},
 	})
 	if response.Outcome != OutcomeOK {
 		t.Fatalf("audit reclaim response=%+v", response.Error)
@@ -64,7 +64,7 @@ func TestWorktreeAuditReclaimDispatchReclaimsTerminalWorkOnly(t *testing.T) {
 
 	// Replay: same key, recorded result, no second pass.
 	replay := authorityInvoke(t, s, second, secondGrant, "concord_work_transition", "worktree_audit_reclaim", map[string]any{
-		"product_id": "product-1", "default_ref": "main", "idempotency_key": "audit-reclaim-1",
+		"product_id": "product-1", "default_ref": "main", "idempotency_key": "audit-reclaim-1", "observed_session_directories": []map[string]any{},
 	})
 	if replay.Outcome != OutcomeOK || !replay.Replayed {
 		t.Fatalf("replay=%+v err=%+v", replay.Replayed, replay.Error)
@@ -121,7 +121,7 @@ func TestWorktreeAuditReclaimDispatchReclaimsUnstartedWork(t *testing.T) {
 	completeWork(t, s, "work-2", 3)
 
 	response := authorityInvoke(t, s, second, secondGrant, "concord_work_transition", "worktree_audit_reclaim", map[string]any{
-		"product_id": "product-1", "default_ref": "main", "idempotency_key": "unstarted-reclaim-1",
+		"product_id": "product-1", "default_ref": "main", "idempotency_key": "unstarted-reclaim-1", "observed_session_directories": []map[string]any{},
 	})
 	if response.Outcome != OutcomeOK {
 		t.Fatalf("audit reclaim response=%+v err=%+v", response, response.Error)

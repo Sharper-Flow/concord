@@ -554,7 +554,11 @@ func advanceWorkflowVersion(ctx context.Context, tx *sql.Tx, event Event, fields
 		if !exists {
 			return absentSubject(SubjectWorkItem, event.SubjectID)
 		}
-		return versionConflict(SubjectWorkItem, event.SubjectID, *fields.ExpectedVersion, current, true)
+		conflict, conflictErr := versionConflictForQuery(ctx, tx, SubjectWorkItem, event.SubjectID, *fields.ExpectedVersion, current, true)
+		if conflictErr != nil {
+			return conflictErr
+		}
+		return conflict
 	}
 	return nil
 }

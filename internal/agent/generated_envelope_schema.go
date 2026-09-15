@@ -774,6 +774,26 @@ const GeneratedEnvelopeSchemaDocument = `{
       ],
       "type": "object"
     },
+    "interveningAction": {
+      "additionalProperties": false,
+      "properties": {
+        "action_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "session_ref": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "action_id",
+        "session_ref"
+      ],
+      "type": "object"
+    },
     "nextIntent": {
       "additionalProperties": false,
       "allOf": [
@@ -2717,6 +2737,13 @@ const GeneratedEnvelopeSchemaDocument = `{
             "external_ref"
           ],
           "type": "object"
+        },
+        "intervening_actions": {
+          "items": {
+            "$ref": "#/$defs/interveningAction"
+          },
+          "maxItems": 20,
+          "type": "array"
         },
         "kind": {
           "enum": [

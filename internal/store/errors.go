@@ -214,6 +214,9 @@ type Failure struct {
 	// version conflict produced this failure. Higher layers surface this
 	// structurally so callers do not have to regex the human detail string.
 	CurrentVersions []SubjectCurrentVersion `json:"current_versions,omitempty"`
+	// InterveningActions names the workflow actions and coordinator sessions
+	// that advanced a work item after the caller's expected version.
+	InterveningActions []InterveningAction `json:"intervening_actions,omitempty"`
 	// CommittedRefs carries subjects whose effects committed before a later
 	// failure. Higher layers use it to report possible effects without
 	// confusing them with current-version conflicts.
@@ -249,6 +252,13 @@ type Failure struct {
 	Stage          FailureStage `json:"stage,omitempty"`
 	// Err is the underlying cause, when one exists.
 	Err error `json:"-"`
+}
+
+// InterveningAction identifies the workflow action and coordinator session that
+// advanced a work item after a caller's expected version.
+type InterveningAction struct {
+	ActionID   string `json:"action_id"`
+	SessionRef string `json:"session_ref"`
 }
 
 // SubjectCurrentVersion is the typed current-version carrier for an optimistic

@@ -169,7 +169,11 @@ func WorkflowActionPreflightWithRegistry(ctx context.Context, s *Store, registry
 		return workflowPinFailure("workflow action request does not match the current definition step")
 	}
 	if request.ExpectedVersion > 0 && request.ExpectedVersion != version {
-		return versionConflict(SubjectWorkItem, request.WorkID, request.ExpectedVersion, version, true)
+		conflict, conflictErr := versionConflictForQuery(ctx, s.db, SubjectWorkItem, request.WorkID, request.ExpectedVersion, version, true)
+		if conflictErr != nil {
+			return conflictErr
+		}
+		return conflict
 	}
 	if state == "completed" || state == "cancelled" || state == "superseded" {
 		return newFailure(KindInvalidOperation, "workflow_action_preflight", "terminal workflow instance is immutable", false, "start a successor workflow")
@@ -425,7 +429,11 @@ func workflowActionPreflightTx(ctx context.Context, tx *sql.Tx, registry Definit
 		return RegisteredDefinition{}, workflowPinFailure("workflow action request does not match the current definition step")
 	}
 	if request.ExpectedVersion > 0 && request.ExpectedVersion != version {
-		return RegisteredDefinition{}, versionConflict(SubjectWorkItem, request.WorkID, request.ExpectedVersion, version, true)
+		conflict, conflictErr := versionConflictForQuery(ctx, tx, SubjectWorkItem, request.WorkID, request.ExpectedVersion, version, true)
+		if conflictErr != nil {
+			return RegisteredDefinition{}, conflictErr
+		}
+		return RegisteredDefinition{}, conflict
 	}
 	if state == "completed" || state == "cancelled" || state == "superseded" {
 		return RegisteredDefinition{}, newFailure(KindInvalidOperation, "workflow_action_preflight", "terminal workflow instance is immutable", false, "start a successor workflow")

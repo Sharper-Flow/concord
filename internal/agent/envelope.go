@@ -158,6 +158,11 @@ type ExternalRefConflict struct {
 	ExternalRef    string `json:"external_ref"`
 }
 
+type InterveningAction struct {
+	ActionID   string `json:"action_id"`
+	SessionRef string `json:"session_ref"`
+}
+
 // MaxNotices bounds each notice collection on an envelope. Producers that merge
 // notices from more than one stage must respect it before validation runs.
 const MaxNotices = 16
@@ -170,6 +175,7 @@ type TypedError struct {
 	AdapterReason       string               `json:"adapter_reason,omitempty"`
 	Message             string               `json:"message,omitempty"`
 	CurrentVersions     []ChangedRef         `json:"current_versions,omitempty"`
+	InterveningActions  []InterveningAction  `json:"intervening_actions,omitempty"`
 	Candidates          []string             `json:"candidates,omitempty"`
 	Violations          []string             `json:"violations,omitempty"`
 	Options             []string             `json:"options,omitempty"`
@@ -812,6 +818,14 @@ func validateError(err TypedError) error {
 	}
 	if err.Kind == "version_conflict" && len(err.CurrentVersions) == 0 {
 		return errors.New("version conflict must carry current versions")
+	}
+	if len(err.InterveningActions) > 20 {
+		return errors.New("invalid intervening workflow actions")
+	}
+	for _, action := range err.InterveningActions {
+		if !bounded(action.ActionID, 1, 128) || !bounded(action.SessionRef, 1, 128) {
+			return errors.New("invalid intervening workflow action")
+		}
 	}
 	// CD-0038 D3: the ceiling is a typed field, required wherever the kind
 	// appears. Byte and item overruns carry it too — the coupling is on the

@@ -215,7 +215,11 @@ func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, registry Definiti
 		return result, wrapFailure(KindUnavailable, "workflow_action", "cannot read workflow state", true, "retry once the database is readable", err)
 	}
 	if request.ExpectedVersion != version {
-		return result, versionConflict(SubjectWorkItem, request.WorkID, request.ExpectedVersion, version, true)
+		conflict, conflictErr := versionConflictForQuery(ctx, tx, SubjectWorkItem, request.WorkID, request.ExpectedVersion, version, true)
+		if conflictErr != nil {
+			return result, conflictErr
+		}
+		return result, conflict
 	}
 	if state == "completed" || state == "cancelled" || state == "superseded" {
 		return result, newFailure(KindInvalidOperation, "workflow_action", "terminal workflow instance is immutable", false, "start a successor workflow")

@@ -448,7 +448,11 @@ func applyOperationTx(ctx context.Context, tx *sql.Tx, operation Operation, ownF
 				return output, absentSubject(event.SubjectType, event.SubjectID)
 			}
 			if (expected == 0 && exists) || got != expected {
-				return output, versionConflict(event.SubjectType, event.SubjectID, expected, got, exists)
+				actions, actionErr := interveningWorkflowActions(ctx, tx, event.SubjectType, event.SubjectID, expected, got)
+				if actionErr != nil {
+					return output, actionErr
+				}
+				return output, versionConflictWithActions(event.SubjectType, event.SubjectID, expected, got, exists, actions)
 			}
 			checked[ref] = true
 		}
@@ -562,7 +566,11 @@ func applyOperationObserved(ctx context.Context, s *Store, operation Operation, 
 				return output, rollback(absentSubject(event.SubjectType, event.SubjectID))
 			}
 			if (expected == 0 && exists) || got != expected {
-				return output, rollback(versionConflict(event.SubjectType, event.SubjectID, expected, got, exists))
+				actions, actionErr := interveningWorkflowActions(ctx, tx, event.SubjectType, event.SubjectID, expected, got)
+				if actionErr != nil {
+					return output, rollback(actionErr)
+				}
+				return output, rollback(versionConflictWithActions(event.SubjectType, event.SubjectID, expected, got, exists, actions))
 			}
 			checked[ref] = true
 		}
@@ -762,6 +770,18 @@ func absentSubject(subjectType SubjectType, subjectID string) *Failure {
 }
 
 func versionConflict(subjectType SubjectType, subjectID string, expected, got int64, exists bool) *Failure {
+	return versionConflictWithActions(subjectType, subjectID, expected, got, exists, nil)
+}
+
+func versionConflictForQuery(ctx context.Context, q queryer, subjectType SubjectType, subjectID string, expected, got int64, exists bool) (*Failure, error) {
+	actions, err := interveningWorkflowActions(ctx, q, subjectType, subjectID, expected, got)
+	if err != nil {
+		return nil, err
+	}
+	return versionConflictWithActions(subjectType, subjectID, expected, got, exists, actions), nil
+}
+
+func versionConflictWithActions(subjectType SubjectType, subjectID string, expected, got int64, exists bool, actions []InterveningAction) *Failure {
 	// A version conflict promises the caller a live version to re-read, and
 	// every layer above depends on that promise: the agent envelope refuses a
 	// version_conflict that names no current version. An absent subject has no
@@ -779,7 +799,49 @@ func versionConflict(subjectType SubjectType, subjectID string, expected, got in
 	// Carry the typed current version so higher layers can surface
 	// error.current_version structurally instead of regexing the detail string.
 	f.CurrentVersions = []SubjectCurrentVersion{{SubjectType: subjectType, SubjectID: subjectID, Version: got}}
+	f.InterveningActions = actions
 	return f
+}
+
+// interveningWorkflowActions reads the distinct workflow actions that advanced
+// a work item after the caller's pin. It reads both action phases because a
+// concurrent action can be started before it completes.
+func interveningWorkflowActions(ctx context.Context, q queryer, subjectType SubjectType, subjectID string, expected, got int64) ([]InterveningAction, error) {
+	actions := []InterveningAction{}
+	if subjectType != SubjectWorkItem || got <= expected {
+		return actions, nil
+	}
+	rows, err := q.QueryContext(ctx, `
+		SELECT json_extract(e.payload,'$.action_id'), a.session_ref
+		FROM domain_events e
+		JOIN workflow_actors a ON a.actor_ref=e.actor
+		WHERE e.subject_type=? AND e.subject_id=?
+		  AND kind IN (?,?)
+		  AND CAST(json_extract(e.payload,'$.resulting_version') AS INTEGER)>?
+		  AND CAST(json_extract(e.payload,'$.resulting_version') AS INTEGER)<=?
+		  AND json_extract(e.payload,'$.action_id') IS NOT NULL
+		  AND json_extract(e.payload,'$.action_id')<>''
+		GROUP BY json_extract(e.payload,'$.action_id'), a.session_ref
+		ORDER BY MIN(e.seq)
+		LIMIT 21`, string(subjectType), subjectID, WorkflowActionStarted, WorkflowActionCompleted, expected, got)
+	if err != nil {
+		return nil, wrapFailure(KindUnavailable, "apply_operation", "cannot read intervening workflow actions", true, "retry once the database is readable", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var action InterveningAction
+		if err := rows.Scan(&action.ActionID, &action.SessionRef); err != nil {
+			return nil, wrapFailure(KindUnavailable, "apply_operation", "cannot scan intervening workflow action", true, "retry once the database is readable", err)
+		}
+		actions = append(actions, action)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, wrapFailure(KindUnavailable, "apply_operation", "cannot enumerate intervening workflow actions", true, "retry once the database is readable", err)
+	}
+	if len(actions) > 20 {
+		return nil, newFailure(KindLimitExceeded, "apply_operation", "intervening workflow actions exceed the conflict bound", false, "reread the work item before retrying")
+	}
+	return actions, nil
 }
 
 func projectionVersion(ctx context.Context, tx *sql.Tx, subjectType SubjectType, subjectID string) (int64, bool, error) {

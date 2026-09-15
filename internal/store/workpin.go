@@ -25,7 +25,11 @@ type WorkPin struct {
 	WithheldOperatorDecision *WorkflowOperatorQuestionWithheld `json:"withheld_operator_decision,omitempty"`
 	Watermark                string                            `json:"watermark"`
 	NextValidIntents         []WorkPinIntent                   `json:"next_valid_intents"`
-	Correction               *WorkflowCorrectionContext        `json:"correction,omitempty"`
+	// DrivingSessions lists the distinct agent sessions that have driven this
+	// workflow, with each session's most recent action and action time. It is
+	// derived from workflow actors and actions, not session identity evidence.
+	DrivingSessions []WorkPinDrivingSession    `json:"driving_sessions"`
+	Correction      *WorkflowCorrectionContext `json:"correction,omitempty"`
 	// VerdictEvidence exposes the bound immutable evidence set at steps where
 	// record_verdict is declarable, so a caller cites qualifying refs without
 	// a raw store read (#974). It stays nil at every other step.
@@ -42,6 +46,12 @@ type WorkPinAttempt struct {
 type WorkPinEvidence struct {
 	EvidenceKind        string `json:"evidence_kind"`
 	ImmutableSubjectRef string `json:"immutable_subject_ref"`
+}
+
+type WorkPinDrivingSession struct {
+	SessionRef   string `json:"session_ref"`
+	LastActionID string `json:"last_action_id"`
+	LastActedAt  string `json:"last_acted_at"`
 }
 
 type WorkPinIntent struct {
@@ -94,6 +104,11 @@ func ReadWorkPinTx(ctx context.Context, tx *sql.Tx, workID string) (WorkPin, err
 		return pin, wrapFailure(KindUnavailable, "work_pin", "cannot read work item", true, "retry once the database is readable", err)
 	}
 	pin.WorkID = workID
+	var sessionsErr error
+	pin.DrivingSessions, sessionsErr = workPinDrivingSessionsTx(ctx, tx, workID)
+	if sessionsErr != nil {
+		return pin, sessionsErr
+	}
 	var definition WorkflowReadDefinition
 	var instanceState string
 	if err := tx.QueryRowContext(ctx, `SELECT definition_ref,definition_version,definition_digest,current_step,instance_state FROM workflow_instances WHERE work_id=?`, workID).Scan(&definition.Ref, &definition.Version, &definition.Digest, &pin.Step, &instanceState); err != nil {
@@ -233,6 +248,59 @@ func ReadWorkPinTx(ctx context.Context, tx *sql.Tx, workID string) (WorkPin, err
 	}
 	pin.Watermark = "seq:" + strconv.FormatInt(watermark, 10)
 	return pin, nil
+}
+
+// workPinDrivingSessionsTx returns the bounded set of agent sessions that have
+// driven the work item, most recent first. The execution actor preserves the
+// session that initialized the workflow, while action events identify later
+// coordinator sessions that took over the item.
+func workPinDrivingSessionsTx(ctx context.Context, tx *sql.Tx, workID string) ([]WorkPinDrivingSession, error) {
+	rows, err := tx.QueryContext(ctx, `
+		SELECT a.session_ref,
+		       COALESCE((SELECT COALESCE(json_extract(e.payload,'$.action_id'),e.kind)
+		                    FROM domain_events e
+		                   WHERE e.subject_type=? AND e.subject_id=?
+		                     AND e.actor=a.actor_ref AND e.kind IN (?,?,?,?)
+		                   ORDER BY e.occurred_at DESC,e.seq DESC LIMIT 1),
+		                'workflow.actor_recorded'),
+		       COALESCE((SELECT e.occurred_at
+		                    FROM domain_events e
+		                   WHERE e.subject_type=? AND e.subject_id=?
+		                     AND e.actor=a.actor_ref AND e.kind IN (?,?,?,?)
+		                   ORDER BY e.occurred_at DESC,e.seq DESC LIMIT 1),
+		                a.first_seen_at) AS last_acted_at
+		FROM workflow_actors a
+		WHERE a.actor_class=?
+		  AND (
+			 a.actor_ref=(SELECT execution_actor_ref FROM workflow_instances WHERE work_id=?)
+			 OR EXISTS (
+				SELECT 1 FROM domain_events e
+			WHERE e.subject_type=? AND e.subject_id=? AND e.kind IN (?,?,?,?) AND e.actor=a.actor_ref
+			 )
+		  )
+		ORDER BY last_acted_at DESC,a.session_ref
+		LIMIT 17`, string(SubjectWorkItem), workID, WorkflowActionStarted, WorkflowActionCompleted, WorkflowActionCheckpointed, WorkflowActionFailed,
+		string(SubjectWorkItem), workID, WorkflowActionStarted, WorkflowActionCompleted, WorkflowActionCheckpointed, WorkflowActionFailed,
+		string(ActorAgent), workID, string(SubjectWorkItem), workID, WorkflowActionStarted, WorkflowActionCompleted, WorkflowActionCheckpointed, WorkflowActionFailed)
+	if err != nil {
+		return nil, wrapFailure(KindUnavailable, "work_pin", "cannot read driving coordinator sessions", true, "retry once the database is readable", err)
+	}
+	defer rows.Close()
+	sessions := make([]WorkPinDrivingSession, 0, 4)
+	for rows.Next() {
+		var session WorkPinDrivingSession
+		if err := rows.Scan(&session.SessionRef, &session.LastActionID, &session.LastActedAt); err != nil {
+			return nil, wrapFailure(KindUnavailable, "work_pin", "cannot scan driving coordinator session", true, "retry once the database is readable", err)
+		}
+		sessions = append(sessions, session)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, wrapFailure(KindUnavailable, "work_pin", "cannot enumerate driving coordinator sessions", true, "retry once the database is readable", err)
+	}
+	if len(sessions) > 16 {
+		return nil, newFailure(KindLimitExceeded, "work_pin", "driving coordinator sessions exceed the pin bound", false, "reduce the number of active coordinator sessions")
+	}
+	return sessions, nil
 }
 
 // workPinVerdictEvidenceTx reads the distinct bound evidence pairs for a

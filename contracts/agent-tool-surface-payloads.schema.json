@@ -409,6 +409,27 @@
         }
       }
     },
+    "work_pin_driving_session": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "session_ref",
+        "last_action_id",
+        "last_acted_at"
+      ],
+      "properties": {
+        "session_ref": {
+          "$ref": "#/$defs/reference"
+        },
+        "last_action_id": {
+          "$ref": "#/$defs/reference"
+        },
+        "last_acted_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    },
     "work_pin_evidence": {
       "type": "object",
       "additionalProperties": false,
@@ -550,6 +571,7 @@
         "step",
         "attempt",
         "pending_operator_decision",
+        "driving_sessions",
         "watermark",
         "next_valid_intents"
       ],
@@ -595,6 +617,14 @@
               "type": "null"
             }
           ]
+        },
+        "driving_sessions": {
+          "type": "array",
+          "maxItems": 16,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/work_pin_driving_session"
+          }
         },
         "withheld_operator_decision": {
           "$ref": "#/$defs/operator_decision_withheld"

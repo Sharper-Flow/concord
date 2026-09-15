@@ -475,7 +475,11 @@ func validateRemovalGatesQ(ctx context.Context, q queryer, req WorkRemovalReques
 		return err
 	}
 	if got != req.ExpectedVersion {
-		return versionConflict(SubjectWorkItem, req.WorkID, req.ExpectedVersion, got, true)
+		conflict, conflictErr := versionConflictForQuery(ctx, q, SubjectWorkItem, req.WorkID, req.ExpectedVersion, got, true)
+		if conflictErr != nil {
+			return conflictErr
+		}
+		return conflict
 	}
 	checks := []struct{ query, detail string }{
 		{`SELECT count(*) FROM relations WHERE work_id_from=? OR work_id_to=?`, "work has unresolved relation dependencies"},

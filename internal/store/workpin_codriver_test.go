@@ -33,6 +33,12 @@ func TestReadWorkPinReportsEveryCoordinatorSessionDrivingTheItem(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if len(pin.DrivingSessions) != 2 || pin.DrivingSessions[0].SessionRef != second.SessionRef || pin.DrivingSessions[1].SessionRef != first.SessionRef {
+		t.Fatalf("driving sessions=%v, want the two coordinator sessions in order", pin.DrivingSessions)
+	}
+	if pin.DrivingSessions[0].LastActionID != "record_proposal" || pin.DrivingSessions[0].LastActedAt != "2026-08-11T00:00:00Z" || pin.DrivingSessions[1].LastActionID != "record_proposal" || pin.DrivingSessions[1].LastActedAt != "2026-08-07T12:00:00Z" {
+		t.Fatalf("driving sessions=%+v, want each latest action and time", pin.DrivingSessions)
+	}
 	encoded, err := json.Marshal(pin)
 	if err != nil {
 		t.Fatal(err)

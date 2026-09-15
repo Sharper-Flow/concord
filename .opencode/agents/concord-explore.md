@@ -62,7 +62,9 @@ question from the working directory.
 3. Read only the files and sections that answer the question.
 4. Use the declared read-only Git commands when the parent asks about history,
    status, or the current diff.
-5. Stop when the question has a source-backed answer or the time cap is near.
+5. Stop when the question has a source-backed answer, or after 10 minutes of
+   total wall time, whichever comes first. Report the findings you hold when
+   the cap stops you.
 
 State the paths, line ranges, and commands that support each finding. Separate
 observed facts from inferences. State the missing evidence when the question

@@ -628,6 +628,50 @@ test("host publication round-trips check predicate payloads unchanged", async ()
   expect(sentInput).toEqual(input)
 })
 
+test("predicate host-round-trip asks and resubmits the exact restore challenge once", async () => {
+  const input = {
+    predecessor_id: "work-a",
+    predecessor_expected_version: 3,
+    successor_id: "work-b",
+    successor_expected_version: 3,
+    reason: "restore superseded work",
+    idempotency_key: "restore-adapter-1",
+  }
+  const digest = `sha256:${"d".repeat(64)}`
+  const challenge = coreEnvelope("concord_work_relate", "restore_superseded", "error", {
+    error: {
+      kind: "approval_required", retry_safe: false,
+      recovery_action: { kind: "request_approval" }, effect_state: "none",
+      consequence_summary: {
+        tool: "concord_work_relate", operation: "restore_superseded", consequence: "supersession",
+        operation_digest: digest,
+        scope: ["product_id:product-a", "product_ids:product-a", "product_ids:product-b", "project_ids:ambient", "work_ids:work-a", "work_ids:work-b", "scope_version:1"],
+        versions: ["predecessor:3", "successor:3"], expires_at: "2026-09-14T12:10:00Z",
+      },
+      details: {
+        approval_ref: "e".repeat(64), operation_digest: digest,
+        scope: ["product_id:product-a", "product_ids:product-a", "product_ids:product-b", "project_ids:ambient", "work_ids:work-a", "work_ids:work-b", "scope_version:1"],
+        versions: ["predecessor:3", "successor:3"],
+      },
+    },
+  })
+  const success = coreEnvelope("concord_work_relate", "restore_superseded", "ok", {
+    result: { changed_refs: [], next_valid_intents: [] },
+    changed_refs: [],
+    next_valid_intents: [],
+  })
+  const sentInputs: unknown[] = []
+  let approvals = 0
+  adapter.configureConcordAdapter({ runner: runnerWithContext((_argv: string[], raw: string, _signal: AbortSignal, calls: number) => {
+    if (calls > 1) sentInputs.push(JSON.parse(raw).input)
+    return calls === 2 ? challenge : success
+  }) })
+  const result: any = await rawHostResult(adapter.work_relate.execute(hostCall("restore_superseded", input), contextFor(async () => { approvals++ })))
+  expect(result.outcome).toBe("ok")
+  expect(approvals).toBe(1)
+  expect(sentInputs).toEqual([input, { ...input, approval: { approval_ref: "e".repeat(64) } }])
+})
+
 test("confirm_premise still binds the selection it carries", async () => {
   // The one action whose schema admits a selection must still agree with the
   // core, or an operator could approve a choice they did not make.

@@ -232,6 +232,149 @@ func TestDispatchRejectsInvalidHostApprovalAssertions(t *testing.T) {
 	}
 }
 
+func TestPredicateFirstCallChallengeRestoreSuperseded(t *testing.T) {
+	ctx := context.Background()
+	s, service, grant, privateKey := restoreSupersededDispatchFixture(t)
+	scopeVersion, _, err := s.ScopeVersion(ctx, "ambient")
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := disjointEnvelope(grant, scopeVersion)
+	raw := json.RawMessage(`{"predecessor_id":"work-a","predecessor_expected_version":3,"successor_id":"work-b","successor_expected_version":3,"reason":"restore superseded work","idempotency_key":"restore-first-call"}`)
+	request := InvokeRequest{Tool: "concord_work_relate", Operation: "restore_superseded", Input: raw}
+	first, err := Dispatch(ctx, s, service, request, env)
+	if err != nil || first.Outcome != OutcomeError || first.Error == nil || first.Error.Kind != "approval_required" {
+		t.Fatalf("first restore response=%+v err=%v", first, err)
+	}
+	challengeRef, ok := first.Error.Details["approval_ref"].(string)
+	if !ok || len(challengeRef) != 64 {
+		t.Fatalf("restore challenge=%v", first.Error.Details)
+	}
+
+	approvedRaw, err := injectApproval(raw, challengeRef)
+	if err != nil {
+		t.Fatal(err)
+	}
+	scope := map[string]any{"product_id": "product-a", "product_ids": []string{"product-a", "product-b"}, "project_ids": []string{"ambient"}, "work_ids": []string{"work-a", "work-b"}, "scope_version": scopeVersion}
+	versions := map[string]any{"predecessor": int64(3), "successor": int64(3)}
+	digest := mutationDigest(request.Tool, request.Operation, env, raw)
+	env.HostApproval = signedHostApproval(privateKey, challengeRef, digest, scope, versions, env.SessionRef, env.AgentRef, env.Worktree, fixedTime(), nonceForChallenge(challengeRef))
+	approved, err := Dispatch(ctx, s, service, InvokeRequest{Tool: request.Tool, Operation: request.Operation, Input: approvedRaw}, env)
+	if err != nil || approved.Outcome != OutcomeOK {
+		t.Fatalf("approved restore response=%+v err=%v", approved, err)
+	}
+	if workLifecycle(t, s, "work-a") != "needed" || workVersion(t, s, "work-a") != 4 || workVersion(t, s, "work-b") != 4 {
+		t.Fatalf("restore effect did not land atomically: predecessor=%s/%d successor=%d", workLifecycle(t, s, "work-a"), workVersion(t, s, "work-a"), workVersion(t, s, "work-b"))
+	}
+	if countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM relations WHERE kind='supersedes' AND work_id_from='work-b' AND work_id_to='work-a'`) != 0 {
+		t.Fatal("restore retained the supersession relation")
+	}
+
+	beforeEvents := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM domain_events`)
+	replay, err := Dispatch(ctx, s, service, InvokeRequest{Tool: request.Tool, Operation: request.Operation, Input: approvedRaw}, env)
+	if err != nil || replay.Outcome != OutcomeOK || !replay.Replayed {
+		t.Fatalf("restore replay=%+v err=%v", replay, err)
+	}
+	if afterEvents := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM domain_events`); afterEvents != beforeEvents {
+		t.Fatalf("restore replay created effects: before=%d after=%d", beforeEvents, afterEvents)
+	}
+}
+
+func TestPredicateFailClosedApprovalRefsHaveNoRestoreEffect(t *testing.T) {
+	for _, name := range []string{"fabricated", "expired", "mismatched-digest"} {
+		t.Run(name, func(t *testing.T) {
+			ctx := context.Background()
+			s, service, grant, privateKey := restoreSupersededDispatchFixture(t)
+			scopeVersion, _, err := s.ScopeVersion(ctx, "ambient")
+			if err != nil {
+				t.Fatal(err)
+			}
+			env := disjointEnvelope(grant, scopeVersion)
+			raw := []byte(`{"predecessor_id":"work-a","predecessor_expected_version":3,"successor_id":"work-b","successor_expected_version":3,"reason":"restore superseded work","idempotency_key":"restore-` + name + `"}`)
+			request := InvokeRequest{Tool: "concord_work_relate", Operation: "restore_superseded", Input: raw}
+			first, err := Dispatch(ctx, s, service, request, env)
+			if err != nil || first.Error == nil || first.Error.Kind != "approval_required" {
+				t.Fatalf("first restore=%+v err=%v", first, err)
+			}
+			challengeRef := first.Error.Details["approval_ref"].(string)
+			if name == "expired" {
+				if _, err := s.DatabaseForTesting().Exec(`UPDATE agent_approval_challenges SET issued_at=?, expires_at=? WHERE challenge_ref=?`, fixedTime().Add(-2*time.Hour).Format(time.RFC3339Nano), fixedTime().Add(-time.Hour).Format(time.RFC3339Nano), challengeRef); err != nil {
+					t.Fatal(err)
+				}
+			}
+			approvedRaw, err := injectApproval(raw, challengeRef)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if name == "fabricated" {
+				approvedRaw, err = injectApproval(raw, strings.Repeat("f", 64))
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+			if name == "mismatched-digest" {
+				approvedRaw, err = injectApproval([]byte(`{"predecessor_id":"work-a","predecessor_expected_version":3,"successor_id":"work-b","successor_expected_version":3,"reason":"different restore intent","idempotency_key":"restore-mismatched-digest"}`), challengeRef)
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+			digest := mutationDigest(request.Tool, request.Operation, env, approvedRaw)
+			scope := map[string]any{"product_id": "product-a", "product_ids": []string{"product-a", "product-b"}, "project_ids": []string{"ambient"}, "work_ids": []string{"work-a", "work-b"}, "scope_version": scopeVersion}
+			versions := map[string]any{"predecessor": int64(3), "successor": int64(3)}
+			env.HostApproval = signedHostApproval(privateKey, challengeRef, digest, scope, versions, env.SessionRef, env.AgentRef, env.Worktree, fixedTime(), nonceForChallenge(challengeRef))
+			response, err := Dispatch(ctx, s, service, InvokeRequest{Tool: request.Tool, Operation: request.Operation, Input: approvedRaw}, env)
+			if err != nil || response.Outcome != OutcomeError || response.Error == nil || response.Error.Kind != "approval_invalid" {
+				t.Fatalf("%s response=%+v err=%v", name, response, err)
+			}
+			if workVersion(t, s, "work-a") != 3 || workVersion(t, s, "work-b") != 3 || countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM relations WHERE kind='supersedes' AND work_id_from='work-b' AND work_id_to='work-a'`) != 1 {
+				t.Fatalf("%s approval refusal changed restore state", name)
+			}
+		})
+	}
+
+	t.Run("reused", func(t *testing.T) {
+		ctx := context.Background()
+		s, service, grant, privateKey := restoreSupersededDispatchFixture(t)
+		scopeVersion, _, err := s.ScopeVersion(ctx, "ambient")
+		if err != nil {
+			t.Fatal(err)
+		}
+		env := disjointEnvelope(grant, scopeVersion)
+		raw := []byte(`{"predecessor_id":"work-a","predecessor_expected_version":3,"successor_id":"work-b","successor_expected_version":3,"reason":"restore superseded work","idempotency_key":"restore-reused-first"}`)
+		request := InvokeRequest{Tool: "concord_work_relate", Operation: "restore_superseded", Input: raw}
+		first, err := Dispatch(ctx, s, service, request, env)
+		if err != nil || first.Error == nil || first.Error.Kind != "approval_required" {
+			t.Fatalf("first restore=%+v err=%v", first, err)
+		}
+		challengeRef := first.Error.Details["approval_ref"].(string)
+		approvedRaw, err := injectApproval(raw, challengeRef)
+		if err != nil {
+			t.Fatal(err)
+		}
+		scope := map[string]any{"product_id": "product-a", "product_ids": []string{"product-a", "product-b"}, "project_ids": []string{"ambient"}, "work_ids": []string{"work-a", "work-b"}, "scope_version": scopeVersion}
+		versions := map[string]any{"predecessor": int64(3), "successor": int64(3)}
+		digest := mutationDigest(request.Tool, request.Operation, env, raw)
+		env.HostApproval = signedHostApproval(privateKey, challengeRef, digest, scope, versions, env.SessionRef, env.AgentRef, env.Worktree, fixedTime(), nonceForChallenge(challengeRef))
+		approved, err := Dispatch(ctx, s, service, InvokeRequest{Tool: request.Tool, Operation: request.Operation, Input: approvedRaw}, env)
+		if err != nil || approved.Outcome != OutcomeOK {
+			t.Fatalf("approved restore=%+v err=%v", approved, err)
+		}
+		reusedRaw, err := injectApproval([]byte(`{"predecessor_id":"work-a","predecessor_expected_version":3,"successor_id":"work-b","successor_expected_version":3,"reason":"restore superseded work","idempotency_key":"restore-reused-second"}`), challengeRef)
+		if err != nil {
+			t.Fatal(err)
+		}
+		env.RequestID = "restore-reused"
+		env.HostApproval = signedHostApproval(privateKey, challengeRef, digest, scope, versions, env.SessionRef, env.AgentRef, env.Worktree, fixedTime(), nonceForChallenge(challengeRef))
+		reused, err := Dispatch(ctx, s, service, InvokeRequest{Tool: request.Tool, Operation: request.Operation, Input: reusedRaw}, env)
+		if err != nil || reused.Outcome != OutcomeError || reused.Error == nil || reused.Error.Kind != "approval_invalid" {
+			t.Fatalf("reused response=%+v err=%v", reused, err)
+		}
+		if workVersion(t, s, "work-a") != 4 || workVersion(t, s, "work-b") != 4 || countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM domain_events WHERE kind='work.reopened_from_superseded'`) != 1 {
+			t.Fatal("reused approval changed restore state")
+		}
+	})
+}
+
 func TestDispatchFailedDomainEffectRollsBackGrantAndApproval(t *testing.T) {
 	ctx := context.Background()
 	s, service, grant, privateKey := mutationDispatchFixture(t, []Capability{"work_relate"})
@@ -731,6 +874,25 @@ func disjointEnvelope(grant Authority, scopeVersion string) CallEnvelope {
 	env.AmbientProjectID = "ambient"
 	env.SelectedProductID = "product-a"
 	return env
+}
+
+func restoreSupersededDispatchFixture(t *testing.T) (*store.Store, *Service, Authority, ed25519.PrivateKey) {
+	t.Helper()
+	ctx := context.Background()
+	s, service, grant, privateKey := disjointRelationFixture(t, []Capability{"work_relate", "cross_scope"})
+	if err := store.ApplyOperation(ctx, s, store.Operation{Events: []store.Event{{
+		EventID:        "restore-fixture-supersede",
+		Kind:           "work.superseded",
+		SubjectType:    store.SubjectWorkItem,
+		SubjectID:      "work-a",
+		Actor:          "operator",
+		OccurredAt:     fixedTime(),
+		PayloadVersion: 1,
+		Payload:        json.RawMessage(`{"successor":"work-b","superseded":"work-a","reason":"restore fixture","expected_version":2,"resulting_version":3,"successor_expected_version":2,"successor_resulting_version":3}`),
+	}}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, "work-a"): 2, store.VersionRef(store.SubjectWorkItem, "work-b"): 2}}); err != nil {
+		t.Fatal(err)
+	}
+	return s, service, grant, privateKey
 }
 
 func countRows(t *testing.T, db *sql.DB, query string) int {

@@ -47,6 +47,7 @@ const laneRunner: DispatchRunner = {
   async run(argv) {
     if (argv[1] === "run") return { exitCode: 0, stdout: runOutput(), stderr: "" }
     if (argv[1] === "export") return { exitCode: 0, stdout: exportedSession(), stderr: "" }
+    if (argv[1] === "session") return { exitCode: 0, stdout: JSON.stringify([{ id: "session-1", directory: "/claimed/worktree" }]), stderr: "" }
     return { exitCode: 0, stdout: "", stderr: "" }
   },
 }
@@ -63,6 +64,7 @@ const failingLaneRunner: DispatchRunner = {
   async run(argv) {
     if (argv[1] === "run") return { exitCode: 0, stdout: failedRunOutput(), stderr: "" }
     if (argv[1] === "export") return { exitCode: 0, stdout: exportedSession(), stderr: "" }
+    if (argv[1] === "session") return { exitCode: 0, stdout: JSON.stringify([{ id: "session-1", directory: "/claimed/worktree" }]), stderr: "" }
     return { exitCode: 0, stdout: "", stderr: "" }
   },
 }
@@ -157,6 +159,7 @@ test("the signing proof never reaches the worker packet or prompt", async () => 
     async run(argv) {
       if (argv[1] === "run") { spawnedArgv = argv; return { exitCode: 0, stdout: runOutput(), stderr: "" } }
       if (argv[1] === "export") return { exitCode: 0, stdout: exportedSession(), stderr: "" }
+      if (argv[1] === "session") return { exitCode: 0, stdout: JSON.stringify([{ id: "session-1", directory: "/claimed/worktree" }]), stderr: "" }
       return { exitCode: 0, stdout: "", stderr: "" }
     },
   }

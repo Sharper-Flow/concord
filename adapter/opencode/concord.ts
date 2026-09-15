@@ -9,6 +9,7 @@ import { concordBinaryPath, CoreBinaryUnavailable } from "./dispatch"
 import { createWorkStateReporter, formatGateBrief } from "./workflow-status"
 import { hostLeaseFault } from "./host-lease"
 import { armTurnMoveBoundary } from "./turn-move-boundary"
+import { ensureConductLink } from "./project-link"
 
 type ToolContext = {
   sessionID: string
@@ -886,6 +887,11 @@ async function executeWorkStart(args: WorkStartArgs, context: ToolContext): Prom
     }
 
     if (context.abort.aborted) throw new AdapterFailure("cancelled", "cancelled_after_bootstrap", `work_start was cancelled after ${resume ? "the resume read" : "bootstrap"}; replay the same idempotency_key to resume`, "none", "retry_same_request")
+    try {
+      await ensureConductLink(target.worktree.path, context.abort)
+    } catch (error) {
+      throw new AdapterFailure("transport_failure", "conduct_link_failed", error instanceof Error ? error.message : String(error), "none", "contact_operator")
+    }
     // session-prepare verifies the ACTIVE host agent: the request carries the
     // agent this session runs as (context.agent), the core resolves that
     // agent's definition and registry entry, and the read-back must name the
@@ -1081,6 +1087,7 @@ export async function moveSessionToClaimedWorktree(args: HostToolArgs, context: 
   if (typeof path !== "string" || path.length === 0) return envelope
   const requestID = `${context.sessionID}-${context.messageID}`
   try {
+    await ensureConductLink(path, context.abort)
     await hostControlPlane().moveSession(context.sessionID, path, context.abort)
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)

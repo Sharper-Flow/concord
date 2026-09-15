@@ -126,6 +126,13 @@ esac''',
         environment["CONCORD_INSTALLER_STOP_AFTER_PHASE"] = phase
         return self.run_installer(*arguments, env=environment)
 
+    def run_real_git(self, directory: Path, *arguments: str) -> subprocess.CompletedProcess[str]:
+        git = shutil.which("git", path=os.defpath)
+        self.assertIsNotNone(git)
+        environment = self.env.copy()
+        environment["PATH"] = os.defpath
+        return subprocess.run([git, *arguments], cwd=directory, text=True, capture_output=True, env=environment)
+
     def reset_config(self) -> None:
         self.config.write_text(
             '{\n  "$schema": "https://opencode.ai/config.json",\n  "keep": true\n}\n',
@@ -515,28 +522,65 @@ esac''',
         self.assertIn("no repair needed", result.stdout)
         self.assertEqual(manifest_path.read_bytes(), before)
 
-    def test_repair_restores_a_missing_worktrees_root_link(self) -> None:
+    def test_repair_restores_a_missing_worktree_project_link(self) -> None:
         self.make_release("v1.0.0")
+        worktree = self.root / "data" / "concord" / "worktrees" / "project" / "work"
+        worktree.mkdir(parents=True)
         first = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
         self.assertEqual(first.returncode, 0, first.stderr)
-        worktrees_root = self.root / "data" / "concord" / "worktrees"
-        shutil.rmtree(worktrees_root / ".opencode")
+        shutil.rmtree(worktree / ".opencode")
 
         repaired = self.run_installer("repair", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
 
         self.assertEqual(repaired.returncode, 0, repaired.stderr)
-        worktrees_config = worktrees_root / ".opencode" / "opencode.json"
+        worktrees_config = worktree / ".opencode" / "opencode.json"
         self.assertEqual(
             json.loads(worktrees_config.read_text(encoding="utf-8")),
             {"instructions": [str(self.root / "data" / "concord" / "current" / "instructions" / "*.md")]},
         )
 
+    def test_repair_restores_every_missing_worktree_project_link(self) -> None:
+        self.make_release("v1.0.0")
+        first = self.root / "data" / "concord" / "worktrees" / "project-a" / "work"
+        second = self.root / "data" / "concord" / "worktrees" / "project-b" / "work"
+        first.mkdir(parents=True)
+        second.mkdir(parents=True)
+        installed = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
+        self.assertEqual(installed.returncode, 0, installed.stderr)
+        shutil.rmtree(first / ".opencode")
+        shutil.rmtree(second / ".opencode")
+
+        repaired = self.run_installer("repair", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
+
+        self.assertEqual(repaired.returncode, 0, repaired.stderr)
+        expected = {"instructions": [str(self.root / "data" / "concord" / "current" / "instructions" / "*.md")]}
+        self.assertEqual(json.loads((first / ".opencode" / "opencode.json").read_text(encoding="utf-8")), expected)
+        self.assertEqual(json.loads((second / ".opencode" / "opencode.json").read_text(encoding="utf-8")), expected)
+
+    def test_repair_refuses_to_adopt_a_modified_owned_worktree_config(self) -> None:
+        self.make_release("v1.0.0")
+        worktree = self.root / "data" / "concord" / "worktrees" / "project" / "work"
+        config = worktree / ".opencode" / "opencode.json"
+        config.parent.mkdir(parents=True)
+        config.write_text('{"keep": true}\n', encoding="utf-8")
+        installed = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
+        self.assertEqual(installed.returncode, 0, installed.stderr)
+        config.write_text('{"keep": false}\n', encoding="utf-8")
+
+        repaired = self.run_installer("repair", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
+
+        self.assertNotEqual(repaired.returncode, 0)
+        self.assertIn("user-modified", repaired.stderr)
+        self.assertEqual(config.read_text(encoding="utf-8"), '{"keep": false}\n')
+        self.assertTrue((self.root / "data" / "concord" / "current").is_symlink())
+
     def test_uninstall_refuses_a_symlinked_worktrees_config_parent(self) -> None:
         self.make_release("v1.0.0")
+        worktree = self.root / "data" / "concord" / "worktrees" / "project" / "work"
+        worktree.mkdir(parents=True)
         installed = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
         self.assertEqual(installed.returncode, 0, installed.stderr)
 
-        worktrees_root = self.root / "data" / "concord" / "worktrees"
         outside_config = self.root / "outside" / "opencode.json"
         outside_config.parent.mkdir()
         outside_config.write_text(
@@ -546,13 +590,13 @@ esac''',
             + "\n",
             encoding="utf-8",
         )
-        shutil.rmtree(worktrees_root / ".opencode")
-        (worktrees_root / ".opencode").symlink_to(outside_config.parent, target_is_directory=True)
+        shutil.rmtree(worktree / ".opencode")
+        (worktree / ".opencode").symlink_to(outside_config.parent, target_is_directory=True)
 
         result = self.run_installer("uninstall")
 
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn(str(worktrees_root / ".opencode"), result.stderr)
+        self.assertIn(str(worktree / ".opencode"), result.stderr)
         self.assertEqual(
             outside_config.read_text(encoding="utf-8"),
             json.dumps(
@@ -852,7 +896,7 @@ esac''',
                 self.assertEqual(recovered.returncode, 0, recovered.stderr)
                 if phase in {"manifest_committed", "cleanup"}:
                     pointer = self.root / "data" / "concord" / "worktrees" / ".opencode" / "opencode.json"
-                    self.assertTrue(pointer.is_file(), f"{phase}: worktrees root conduct link was not restored")
+                    self.assertFalse(pointer.exists(), f"{phase}: legacy worktrees root conduct link survived")
                 installed = self.run_installer("install", "--version", version, "--artifact-dir", str(self.artifacts))
                 self.assertEqual(installed.returncode, 0, installed.stderr)
                 self.assertIn(f'"version": "{version}"', self.run_installer("status").stdout)
@@ -1091,6 +1135,120 @@ esac''',
         self.assertIn(expected_entry, config["instructions"])
         self.assertEqual(len(config["instructions"]), 2)
 
+    def test_link_preserves_jsonc_comments_and_uses_existing_jsonc_config(self) -> None:
+        self.make_release("v1.0.0")
+        installed = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
+        self.assertEqual(installed.returncode, 0, installed.stderr)
+        project_dir = self.root / "consumer"
+        project_file = project_dir / ".opencode" / "opencode.jsonc"
+        project_file.parent.mkdir(parents=True)
+        project_file.write_text(
+            '{\n  // keep this operator comment\n  "theme": "dark",\n  "instructions": [\n    "/operator/rules.md", // keep this entry\n  ],\n}\n',
+            encoding="utf-8",
+        )
+
+        result = self.run_installer("link", "--project", str(project_dir))
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(project_file.exists())
+        self.assertFalse((project_dir / ".opencode" / "opencode.json").exists())
+        content = project_file.read_text(encoding="utf-8")
+        self.assertIn("keep this operator comment", content)
+        self.assertIn("/operator/rules.md", content)
+        self.assertIn(str(self.root / "data" / "concord" / "current" / "instructions" / "*.md"), content)
+
+    def test_link_handles_empty_whitespace_and_trailing_comma_instruction_arrays(self) -> None:
+        self.make_release("v1.0.0")
+        installed = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
+        self.assertEqual(installed.returncode, 0, installed.stderr)
+        cases = (
+            ("opencode.json", '{\n  "instructions": []\n}\n'),
+            ("opencode.jsonc", '{\n  "instructions": [   ]\n}\n'),
+            ("opencode.jsonc", '{\n  "instructions": [\n    "/operator/rules.md",\n  ],\n}\n'),
+            ("opencode.jsonc", '{\n  "theme": "dark",\n}\n'),
+        )
+        expected_entry = str(self.root / "data" / "concord" / "current" / "instructions" / "*.md")
+        for index, (name, source) in enumerate(cases):
+            with self.subTest(name=name, index=index):
+                project_dir = self.root / f"consumer-{index}"
+                project_file = project_dir / ".opencode" / name
+                project_file.parent.mkdir(parents=True)
+                project_file.write_text(source, encoding="utf-8")
+
+                result = self.run_installer("link", "--project", str(project_dir))
+
+                self.assertEqual(result.returncode, 0, result.stderr)
+                parsed = json.loads(project_file.read_text(encoding="utf-8")) if name == "opencode.json" else installer.jsonc_data(project_file.read_text(encoding="utf-8"))
+                self.assertIn(expected_entry, parsed["instructions"])
+
+    def test_uninstall_preserves_a_preexisting_identical_worktree_config(self) -> None:
+        self.make_release("v1.0.0")
+        worktree = self.root / "data" / "concord" / "worktrees" / "project" / "work"
+        config = worktree / ".opencode" / "opencode.json"
+        config.parent.mkdir(parents=True)
+        entry = str(self.root / "data" / "concord" / "current" / "instructions" / "*.md")
+        original = json.dumps({"instructions": [entry]}, indent=2) + "\n"
+        config.write_text(original, encoding="utf-8")
+
+        installed = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
+        self.assertEqual(installed.returncode, 0, installed.stderr)
+        removed = self.run_installer("uninstall")
+
+        self.assertEqual(removed.returncode, 0, removed.stderr)
+        self.assertEqual(config.read_text(encoding="utf-8"), original)
+
+    def test_uninstall_restores_a_preexisting_jsonc_worktree_config_exactly(self) -> None:
+        self.make_release("v1.0.0")
+        worktree = self.root / "data" / "concord" / "worktrees" / "project" / "work"
+        config = worktree / ".opencode" / "opencode.jsonc"
+        config.parent.mkdir(parents=True)
+        original = '{\n  // operator-owned comment\n  "theme": "dark",\n}\n'
+        config.write_text(original, encoding="utf-8")
+
+        installed = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
+        self.assertEqual(installed.returncode, 0, installed.stderr)
+        removed = self.run_installer("uninstall")
+
+        self.assertEqual(removed.returncode, 0, removed.stderr)
+        self.assertEqual(config.read_text(encoding="utf-8"), original)
+
+    def test_uninstall_refuses_a_modified_owned_worktree_before_release_changes(self) -> None:
+        self.make_release("v1.0.0")
+        worktree = self.root / "data" / "concord" / "worktrees" / "project" / "work"
+        config = worktree / ".opencode" / "opencode.json"
+        config.parent.mkdir(parents=True)
+        config.write_text('{"theme": "dark"}\n', encoding="utf-8")
+
+        installed = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
+        self.assertEqual(installed.returncode, 0, installed.stderr)
+        modified = json.loads(config.read_text(encoding="utf-8"))
+        modified["theme"] = "light"
+        config.write_text(json.dumps(modified, indent=2) + "\n", encoding="utf-8")
+
+        removed = self.run_installer("uninstall")
+
+        self.assertNotEqual(removed.returncode, 0)
+        self.assertIn("user-modified", removed.stderr)
+        self.assertTrue((self.root / "data" / "concord" / "current").is_symlink())
+
+    def test_unlink_preserves_existing_config_and_removes_created_config(self) -> None:
+        self.make_release("v1.0.0")
+        installed = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
+        self.assertEqual(installed.returncode, 0, installed.stderr)
+        existing = self.root / "existing-project" / ".opencode" / "opencode.json"
+        existing.parent.mkdir(parents=True)
+        original = '{\n  "keep": true\n}\n'
+        existing.write_text(original, encoding="utf-8")
+        created_project = self.root / "created-project"
+
+        self.assertEqual(self.run_installer("link", "--project", str(self.root / "existing-project")).returncode, 0)
+        self.assertEqual(self.run_installer("link", "--project", str(created_project)).returncode, 0)
+        self.assertEqual(self.run_installer("unlink", "--project", str(self.root / "existing-project")).returncode, 0)
+        self.assertEqual(self.run_installer("unlink", "--project", str(created_project)).returncode, 0)
+
+        self.assertEqual(existing.read_text(encoding="utf-8"), original)
+        self.assertFalse((created_project / ".opencode").exists())
+
     def test_link_refuses_non_array_instructions(self) -> None:
         self.make_release("v1.0.0")
         installed = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
@@ -1264,18 +1422,75 @@ esac''',
             self.assertFalse((self.root / "config" / "opencode" / "agents" / name).exists())
         self.assertFalse((self.root / "data" / "concord" / "current").exists())
 
-    def test_install_links_the_worktrees_root_to_the_conduct_corpus(self) -> None:
+    def test_install_links_each_existing_worktree_to_the_conduct_corpus(self) -> None:
         self.make_release("v1.0.0")
+        worktree = self.root / "data" / "concord" / "worktrees" / "project" / "work"
+        worktree.mkdir(parents=True)
         installed = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
         self.assertEqual(installed.returncode, 0, installed.stderr)
 
-        worktrees_config = self.root / "data" / "concord" / "worktrees" / ".opencode" / "opencode.json"
+        worktrees_config = worktree / ".opencode" / "opencode.json"
         self.assertEqual(
             json.loads(worktrees_config.read_text(encoding="utf-8")),
             {"instructions": [str(self.root / "data" / "concord" / "current" / "instructions" / "*.md")]},
         )
 
-    def test_uninstall_unlinks_the_worktrees_root_and_preserves_worktrees(self) -> None:
+    def test_legacy_ancestor_registration_is_removed_without_restore_on_uninstall(self) -> None:
+        self.make_release("v1.0.0")
+        legacy = self.root / "data" / "concord" / "worktrees" / ".opencode" / "opencode.json"
+        entry = str(self.root / "data" / "concord" / "current" / "instructions" / "*.md")
+        legacy.parent.mkdir(parents=True)
+        legacy.write_text(json.dumps({"keep": True, "instructions": [entry]}, indent=2) + "\n", encoding="utf-8")
+
+        installed = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
+
+        self.assertEqual(installed.returncode, 0, installed.stderr)
+        self.assertEqual(json.loads(legacy.read_text(encoding="utf-8")), {"keep": True})
+        removed = self.run_installer("uninstall")
+        self.assertEqual(removed.returncode, 0, removed.stderr)
+        self.assertEqual(json.loads(legacy.read_text(encoding="utf-8")), {"keep": True})
+        self.assertNotIn(entry, legacy.read_text(encoding="utf-8"))
+
+    def test_worktree_links_preserve_tracked_and_untracked_config_state(self) -> None:
+        self.make_release("v1.0.0")
+        tracked = self.root / "data" / "concord" / "worktrees" / "tracked" / "work"
+        untracked = self.root / "data" / "concord" / "worktrees" / "untracked" / "work"
+        tracked.mkdir(parents=True)
+        untracked.mkdir(parents=True)
+        for worktree in (tracked, untracked):
+            self.assertEqual(self.run_real_git(worktree, "init", "--quiet").returncode, 0)
+        tracked_config = tracked / ".opencode" / "opencode.json"
+        tracked_config.parent.mkdir()
+        tracked_original = '{\n  "keep": true\n}\n'
+        tracked_config.write_text(tracked_original, encoding="utf-8")
+        self.assertEqual(self.run_real_git(tracked, "add", ".opencode/opencode.json").returncode, 0)
+        self.assertEqual(
+            self.run_real_git(
+                tracked,
+                "-c",
+                "user.name=Concord Test",
+                "-c",
+                "user.email=concord-test@example.invalid",
+                "commit",
+                "--quiet",
+                "-m",
+                "initial",
+            ).returncode,
+            0,
+        )
+
+        installed = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
+        self.assertEqual(installed.returncode, 0, installed.stderr)
+        self.assertIn(" M .opencode/opencode.json", self.run_real_git(tracked, "status", "--short").stdout)
+        self.assertIn("?? .opencode/", self.run_real_git(untracked, "status", "--short").stdout)
+
+        removed = self.run_installer("uninstall")
+        self.assertEqual(removed.returncode, 0, removed.stderr)
+        self.assertEqual(tracked_config.read_text(encoding="utf-8"), tracked_original)
+        self.assertEqual(self.run_real_git(tracked, "status", "--short").stdout, "")
+        self.assertEqual(self.run_real_git(untracked, "status", "--short").stdout, "")
+
+    def test_uninstall_unlinks_worktree_pointers_and_preserves_worktrees(self) -> None:
         self.make_release("v1.0.0")
         installed = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
         self.assertEqual(installed.returncode, 0, installed.stderr)
@@ -1286,8 +1501,31 @@ esac''',
         removed = self.run_installer("uninstall")
 
         self.assertEqual(removed.returncode, 0, removed.stderr)
-        self.assertFalse((self.root / "data" / "concord" / "worktrees" / ".opencode").exists())
+        self.assertFalse((worktree / ".opencode").exists())
         self.assertEqual((worktree / "operator-note.txt").read_text(encoding="utf-8"), "keep\n")
+
+    def test_uninstall_preserves_jsonc_comments_in_worktree_config(self) -> None:
+        self.make_release("v1.0.0")
+        worktree = self.root / "data" / "concord" / "worktrees" / "project" / "work"
+        worktree.mkdir(parents=True)
+        config = worktree / ".opencode" / "opencode.jsonc"
+        config.parent.mkdir(parents=True)
+        config.write_text(
+            '{\n  // operator-owned comment\n  "theme": "dark",\n  "instructions": [\n    "/operator/rules.md",\n  ],\n}\n',
+            encoding="utf-8",
+        )
+        installed = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
+        self.assertEqual(installed.returncode, 0, installed.stderr)
+        linked = config.read_text(encoding="utf-8")
+        self.assertIn(str(self.root / "data" / "concord" / "current" / "instructions" / "*.md"), linked)
+
+        removed = self.run_installer("uninstall")
+
+        self.assertEqual(removed.returncode, 0, removed.stderr)
+        restored = config.read_text(encoding="utf-8")
+        self.assertIn("operator-owned comment", restored)
+        self.assertIn("/operator/rules.md", restored)
+        self.assertNotIn("current/instructions", restored)
 
     def test_install_refuses_modified_central_agent_file(self) -> None:
         self.make_release("v1.0.0")

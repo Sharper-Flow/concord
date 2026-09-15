@@ -746,14 +746,14 @@ async function recordWorkerEvent(childRunner: DispatchRunner, binary: string, co
 // waiting for a failure that was not written. The detail names the refusing
 // predicate and the export digest so the failure is diagnosable from the
 // store alone.
-async function recordModelReadbackFailure(lane: AgentLane, packet: AgentLanePacket, refusal: { predicate: ReadbackRefusal; export_digest: string; export_bytes: number; message: string }, options: { runner?: DispatchRunner; evidenceRunner?: DispatchRunner; concordBinary?: string; credentials?: CredentialStore; packetDigest?: string }, signal: AbortSignal, onRecorded?: () => void): Promise<string | null> {
+async function recordModelReadbackFailure(lane: AgentLane, packet: AgentLanePacket, refusal: { predicate: ReadbackRefusal; export_digest: string; export_bytes: number; message: string }, workerDirectory: string, options: { runner?: DispatchRunner; evidenceRunner?: DispatchRunner; concordBinary?: string; credentials?: CredentialStore; packetDigest?: string }, signal: AbortSignal, onRecorded?: () => void): Promise<string | null> {
   if (!options.packetDigest) return "model readback failure cannot be recorded without the dispatch packet digest"
   const cliRunner = options.evidenceRunner ?? options.runner ?? defaultRunner
   const binary = concordBinaryPath(options.concordBinary)
   const credentials = options.credentials ?? defaultCredentials
   const failureKind = refusal.predicate === "export_model_ambiguous" ? "model_readback_ambiguous" : "model_readback_missing"
   const detail = `readback predicate ${refusal.predicate} refused: ${refusal.message} (export_digest ${refusal.export_digest}, export_bytes ${refusal.export_bytes})`.slice(0, MAX_FAILURE_DETAIL_BYTES)
-  const provenance = await computeHostPromptProvenance(lane.id)
+  const provenance = await computeHostPromptProvenance(lane.id, workerDirectory)
   let assertion: Record<string, unknown>
   try {
     assertion = await signWorkerEvidence(credentials, {
@@ -864,6 +864,16 @@ function stripJsonc(text: string): string {
 const CONFIG_FILE_NAMES = ["config.json", "opencode.json", "opencode.jsonc"]
 const GLOB_METACHARACTERS = /[*?[\]{}]/
 
+function projectGitRoot(cwd: string): string {
+  let current = cwd
+  for (;;) {
+    if (fs.existsSync(`${current}/.git`)) return current
+    const parent = current.slice(0, current.lastIndexOf("/"))
+    if (!parent || parent === current) return cwd
+    current = parent
+  }
+}
+
 // Every config file OpenCode may merge an instructions array from, bounded so a
 // dispatch cost stays fixed: the global directory, an explicit OPENCODE_CONFIG
 // file, and the project walk from cwd toward the filesystem root.
@@ -872,14 +882,19 @@ function configFileCandidates(cwd: string): string[] {
   const candidates = CONFIG_FILE_NAMES.map(name => `${dir}/${name}`)
   if (process.env.OPENCODE_CONFIG) candidates.push(process.env.OPENCODE_CONFIG)
   let current = cwd
-  for (let depth = 0; depth < 8; depth++) {
+  for (let depth = 0; depth < 64; depth++) {
     candidates.push(`${current}/opencode.jsonc`, `${current}/opencode.json`)
     candidates.push(`${current}/.opencode/opencode.json`, `${current}/.opencode/opencode.jsonc`)
+    // OpenCode stops project configuration discovery at the Git worktree
+    // root. Reading parent files after this boundary records configuration
+    // that the host did not load and can bind unrelated projects into worker
+    // evidence.
+    if (fs.existsSync(`${current}/.git`)) break
     const parent = current.slice(0, current.lastIndexOf("/"))
     if (!parent || parent === current) break
     current = parent
   }
-  return candidates.slice(0, 48)
+  return candidates.slice(0, 260)
 }
 
 async function configInstructionEntries(cwd: string): Promise<{ entries: string[]; unreadable: string[] }> {
@@ -911,6 +926,7 @@ async function configInstructionEntries(cwd: string): Promise<{ entries: string[
 async function instructionSources(cwd: string): Promise<HostProvenanceSource[]> {
   const sources: HostProvenanceSource[] = []
   const { entries, unreadable } = await configInstructionEntries(cwd)
+  const root = projectGitRoot(cwd)
   for (const path of unreadable) sources.push({ kind: "unenumerated", path })
   for (const entry of entries) {
     if (entry.startsWith("http://") || entry.startsWith("https://")) {
@@ -948,9 +964,10 @@ async function instructionSources(cwd: string): Promise<HostProvenanceSource[]> 
     // is still named.
     let matched = false
     let dir = cwd
-    for (let depth = 0; depth < 8; depth++) {
+    for (let depth = 0; depth < 64; depth++) {
       const source = await fileProvenance("instruction_file", `${dir}/${expanded}`)
       if (source) { sources.push(source); matched = true }
+      if (dir === root) break
       const parent = dir.slice(0, dir.lastIndexOf("/"))
       if (!parent || parent === dir) break
       dir = parent
@@ -963,8 +980,10 @@ async function instructionSources(cwd: string): Promise<HostProvenanceSource[]> 
 export async function computeHostPromptProvenance(laneId: string, cwd = process.cwd()): Promise<HostProvenance> {
   const sources: HostProvenanceSource[] = []
   const configDir = opencodeConfigDir()
+  const root = projectGitRoot(cwd)
   const agentCandidates = [
     `${cwd}/.opencode/agents/concord-${laneId}.md`,
+    `${root}/.opencode/agents/concord-${laneId}.md`,
     `${configDir}/agents/concord-${laneId}.md`,
   ]
   for (const candidate of agentCandidates) {
@@ -980,12 +999,13 @@ export async function computeHostPromptProvenance(laneId: string, cwd = process.
   const globalAgents = await fileProvenance("agents_md", globalAgentsPath)
   if (globalAgents) sources.push(globalAgents)
   let dir = cwd
-  for (let depth = 0; depth < 8 && sources.filter(s => s.kind === "agents_md").length < 5; depth++) {
+  for (let depth = 0; depth < 64 && sources.filter(s => s.kind === "agents_md").length < 5; depth++) {
     // A spawn directory at or under the config directory would meet the
     // global file again on the walk; one surface is named once.
     const candidate = `${dir}/AGENTS.md`
     const source = candidate === globalAgentsPath ? null : await fileProvenance("agents_md", candidate)
     if (source) sources.push(source)
+    if (dir === root) break
     const parent = dir.slice(0, dir.lastIndexOf("/"))
     if (!parent || parent === dir) break
     dir = parent
@@ -1112,6 +1132,9 @@ async function completeWorkerSession(
 ): Promise<AgentResultEnvelope> {
   const binary = options.binary ?? "opencode"
   const readbackRunner = options.readbackRunner ?? options.runner ?? defaultExportRunner
+  // Resolve the worker's indexed directory at completion. The coordinator's
+  // directory is not a worker claim and must never stand in for this value.
+  const indexedWorkerDirectory = await readWorkerSessionDirectory(readbackRunner, binary, workerSessionID, signal, null)
   let exported: { exitCode: number; stdout: string; stderr: string }
   try { exported = await readbackRunner.run([binary, "export", workerSessionID, "--sanitize"], "", signal) } catch (error) {
     return errorEnvelope(lane, packet, "error", "error", String(error), "reconcile_operation")
@@ -1123,15 +1146,21 @@ async function completeWorkerSession(
       export_bytes: Buffer.byteLength(exported.stdout),
       message: exported.stderr.slice(0, MAX_ERROR_BYTES) || "OpenCode session export failed without diagnostic output",
     }
-    const recorded = await recordModelReadbackFailure(lane, packet, refusal, options, signal, onRecorded)
+    const recorded = indexedWorkerDirectory === null
+      ? "worker session directory could not be resolved before readback"
+      : await recordModelReadbackFailure(lane, packet, refusal, indexedWorkerDirectory, options, signal, onRecorded)
     const failure = readbackRefusalEnvelope(lane, packet, refusal)
     if (recorded) failure.error!.message = `${failure.error!.message}; terminal evidence write failed: ${recorded}`.slice(0, MAX_ERROR_BYTES)
     failure.session_id = workerSessionID
     return failure
   }
   const readbackResult = readExportSession(exported.stdout, workerSessionID)
+  const workerDirectory = indexedWorkerDirectory ?? await readWorkerSessionDirectory(readbackRunner, binary, workerSessionID, signal, readSessionParent(exported.stdout, workerSessionID))
+  if (workerDirectory === null) {
+    return errorEnvelope(lane, packet, "error", "invalid_input", "worker session directory could not be resolved; refusing to record provenance for an unknown prompt corpus", "reconcile_operation")
+  }
   if (!readbackResult.ok) {
-    const recorded = await recordModelReadbackFailure(lane, packet, readbackResult, options, signal, onRecorded)
+    const recorded = await recordModelReadbackFailure(lane, packet, readbackResult, workerDirectory, options, signal, onRecorded)
     const failure = readbackRefusalEnvelope(lane, packet, readbackResult)
     if (recorded) failure.error!.message = `${failure.error!.message}; terminal evidence write failed: ${recorded}`.slice(0, MAX_ERROR_BYTES)
     failure.session_id = workerSessionID
@@ -1168,8 +1197,7 @@ async function completeWorkerSession(
   const cliRunner = options.evidenceRunner ?? options.runner ?? defaultRunner
   const cli = concordBinaryPath(options.concordBinary)
   const credentials = options.credentials ?? defaultCredentials
-  const provenance = await computeHostPromptProvenance(lane.id)
-  const workerDirectory = await readWorkerSessionDirectory(readbackRunner, binary, workerSessionID, signal, readSessionParent(exported.stdout, workerSessionID))
+  const provenance = await computeHostPromptProvenance(lane.id, workerDirectory)
 
   // CD-0056 D7: the adapter is the only component that sees worker output, so
   // the report is admitted here. A report that is absent, unparseable, invalid,

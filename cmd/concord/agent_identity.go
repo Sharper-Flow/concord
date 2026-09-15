@@ -256,11 +256,15 @@ func collectOrchestratorArtifactSources(definition, dir string) []store.Orchestr
 	if src, ok := hashOrchestratorSource("orchestrator_definition", definition); ok {
 		sources = append(sources, src)
 	}
+	root := hostGitRoot(dir)
 	walk := dir
-	for depth := 0; depth < 8 && countKind(sources, "agents_md") < 4; depth++ {
+	for depth := 0; depth < 64 && countKind(sources, "agents_md") < 4; depth++ {
 		candidate := filepath.Join(walk, "AGENTS.md")
 		if src, ok := hashOrchestratorSource("agents_md", candidate); ok {
 			sources = append(sources, src)
+		}
+		if walk == root {
+			break
 		}
 		parent := filepath.Dir(walk)
 		if parent == "" || parent == walk {
@@ -281,6 +285,23 @@ func collectOrchestratorArtifactSources(definition, dir string) []store.Orchestr
 		}
 	}
 	return sources
+}
+
+// hostGitRoot returns the worktree root that bounds project configuration and
+// AGENTS.md discovery. A missing .git marker leaves the supplied directory as
+// the conservative boundary instead of importing files from its ancestors.
+func hostGitRoot(dir string) string {
+	walk := filepath.Clean(dir)
+	for {
+		if info, err := os.Stat(filepath.Join(walk, ".git")); err == nil && (info.IsDir() || info.Mode().IsRegular()) {
+			return walk
+		}
+		parent := filepath.Dir(walk)
+		if parent == walk {
+			return filepath.Clean(dir)
+		}
+		walk = parent
+	}
 }
 
 // hashOrchestratorSource reads path and returns its kind+path+sha256 triple

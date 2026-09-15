@@ -319,10 +319,8 @@ def parse_version(value: str) -> str:
     return value
 
 
-def release_download_base_url(base_url: str, version: str | None) -> str:
+def release_download_base_url(base_url: str, version: str) -> str:
     """Select the asset endpoint for a pinned or source-selected release."""
-    if version is None:
-        return base_url
     parsed = urllib.parse.urlsplit(base_url)
     latest_suffix = "/releases/latest/download"
     path = parsed.path.rstrip("/")

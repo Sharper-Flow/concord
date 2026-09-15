@@ -1,0 +1,18 @@
+{
+  "date": "2026-09-15T00:00:00Z",
+  "id": "lesson-shared-refusal-kind-hides-nonfalsifiable-test",
+  "kind": "lesson",
+  "path": "docs/lessons/2026-09-15-two-gates-sharing-one-refusal-kind-hide-a-test-t.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:3a5c681b99152c1fc6f50cafe53e4b76773a0bed61d4eb14bc4e41311dc492a1",
+  "status": "published",
+  "summary": "A test asserted that a removal refused with KindWorktreeOwnershipConflict and was accepted as proof of a new scope guard. It passed with that guard disabled, because an older occupancy gate refused first and emitted the identical kind. The assertion could not name which gate answered, so it proved only that something refused. Disabling the new guard and re-running was what exposed it: a passing test is not evidence that it exercises the obligation it claims. When a new guard shares a refusal kind with an existing one, construct the case so only the new guard can fire, then prove it by removing the guard and watching the test fail.",
+  "tags": [],
+  "title": "Two gates sharing one refusal kind hide a test that proves nothing"
+}

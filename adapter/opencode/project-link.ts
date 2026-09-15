@@ -285,9 +285,7 @@ function appendInstructionJSONC(original: string, entry: string): string {
   if (parsed.instructions.includes(entry)) return original
   const end = jsoncArrayEnd(original, "instructions")
   const before = original.slice(0, end)
-  const arrayStart = before.lastIndexOf("[")
-  const trailing = before.slice(arrayStart + 1)
-  const hasTrailingComma = lastJSONCSignificantCharacter(trailing) === ","
+  const hasTrailingComma = lastJSONCSignificantCharacter(before) === ","
   const separator = hasTrailingComma ? "\n  " : "\n  ,\n  "
   const arraySeparator = parsed.instructions.length === 0 ? "\n  " : separator
   return before + arraySeparator + marker + "\n" + original.slice(end)

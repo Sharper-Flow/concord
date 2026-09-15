@@ -124,6 +124,27 @@ describe("worktree_claim moves the session into the claimed worktree", () => {
     }
   })
 
+  test("parses an instructions entry that contains an open bracket", async () => {
+    await mkdir("worktrees", { recursive: true })
+    for (const [suffix, comma] of [["without-comma", ""], ["with-comma", ","]]) {
+      const worktree = await mkdtemp(join("worktrees", `adapter-jsonc-array-string-bracket-${suffix}-`))
+      const config = join(worktree, ".opencode", "opencode.jsonc")
+      try {
+        await mkdir(join(worktree, ".git"))
+        await mkdir(join(worktree, ".opencode"), { recursive: true })
+        await Bun.write(config, `{\n  "instructions": ["contains [ an open bracket"${comma}]\n}\n`)
+
+        await ensureConductLink(resolve(worktree), new AbortController().signal)
+
+        const linked = await Bun.file(config).text()
+        const parsed = JSON.parse(linked.replaceAll(",]", "]").replaceAll(",}", "}")) as { instructions: string[] }
+        expect(parsed.instructions).toContain("current/instructions/*.md")
+      } finally {
+        await rm(worktree, { recursive: true, force: true })
+      }
+    }
+  })
+
   test("keeps object trailing-comma detection bounded for repeated block comments", async () => {
     await mkdir("worktrees", { recursive: true })
     const worktree = await mkdtemp(join("worktrees", "adapter-jsonc-adversarial-"))

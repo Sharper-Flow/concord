@@ -12,6 +12,7 @@ import (
 type Transaction struct {
 	tx    *sql.Tx
 	clock func() time.Time
+	path  string
 }
 
 func (t *Transaction) now() time.Time {
@@ -42,7 +43,7 @@ func (s *Store) Transact(ctx context.Context, fn func(*Transaction) error) error
 	if err != nil {
 		return wrapFailure(KindUnavailable, "transaction", "cannot begin transaction", true, "retry once the database is writable", err)
 	}
-	transaction := &Transaction{tx: tx, clock: s.Clock}
+	transaction := &Transaction{tx: tx, clock: s.Clock, path: s.Path()}
 	committed := false
 	defer func() {
 		if !committed {

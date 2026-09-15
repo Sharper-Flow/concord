@@ -10527,22 +10527,11 @@ const GeneratedPayloadSchemaDocument = `{
           "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$",
           "type": "string"
         },
-        "branch": {
-          "maxLength": 128,
-          "minLength": 1,
-          "pattern": "^[A-Za-z0-9][A-Za-z0-9._/-]{0,127}$",
-          "type": "string"
-        },
         "expected_version": {
           "$ref": "#/$defs/version"
         },
         "idempotency_key": {
           "$ref": "#/$defs/id"
-        },
-        "path": {
-          "maxLength": 4096,
-          "minLength": 1,
-          "type": "string"
         },
         "project_id": {
           "$ref": "#/$defs/id"
@@ -10557,9 +10546,7 @@ const GeneratedPayloadSchemaDocument = `{
       "required": [
         "work_id",
         "project_id",
-        "branch",
         "base_sha",
-        "path",
         "expected_version",
         "idempotency_key"
       ],

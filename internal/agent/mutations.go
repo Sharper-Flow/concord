@@ -146,9 +146,7 @@ type workRemovalMutationInput struct {
 type worktreeClaimInput struct {
 	WorkID          string `json:"work_id"`
 	ProjectID       string `json:"project_id"`
-	Branch          string `json:"branch"`
 	BaseSHA         string `json:"base_sha"`
-	Path            string `json:"path"`
 	ExpectedVersion int64  `json:"expected_version"`
 	IdempotencyKey  string `json:"idempotency_key"`
 }
@@ -1985,7 +1983,7 @@ func (r runtime) planWorktreeClaim(ctx context.Context, base Envelope, raw []byt
 		opID := digest + ":worktree-claim:" + in.ProjectID
 		if _, err := store.ClaimWorktreeTx(ctx, tx, store.WorktreeClaimRequest{
 			OpID: opID, WorkID: in.WorkID, ProjectID: in.ProjectID,
-			Branch: in.Branch, BaseSHA: in.BaseSHA, Path: in.Path,
+			BaseSHA:      in.BaseSHA,
 			PrincipalRef: grant.PrincipalRef, RequestID: in.IdempotencyKey,
 			ExpectedVersion: in.ExpectedVersion, Now: r.Authority.now(),
 		}); err != nil {

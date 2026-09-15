@@ -75,11 +75,11 @@ func TestWorktreeClaimAndReclaimThroughToolSurface(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	worktreePath := filepath.Join(t.TempDir(), "linked-wt")
+	worktreePath := filepath.Join(filepath.Dir(s.Path()), "worktrees", "project-1", "work-1")
 
 	claimInput, _ := json.Marshal(map[string]any{
 		"work_id": "work-1", "project_id": "project-1",
-		"branch": "work/dispatch-1", "base_sha": baseSHA, "path": worktreePath,
+		"base_sha":         baseSHA,
 		"expected_version": 2, "idempotency_key": "wt-claim-1",
 	})
 	request := InvokeRequest{Tool: "concord_work_transition", Operation: "worktree_claim", Input: claimInput}
@@ -88,11 +88,11 @@ func TestWorktreeClaimAndReclaimThroughToolSurface(t *testing.T) {
 		t.Fatalf("claim response=%+v err=%v", response, err)
 	}
 	entries, err := s.WorktreeEntries(ctx, "work-1")
-	if err != nil || len(entries) != 1 || entries[0].State != "active" || entries[0].Branch != "work/dispatch-1" {
+	if err != nil || len(entries) != 1 || entries[0].State != "active" || entries[0].Branch != "work/work-1" {
 		t.Fatalf("entries=%+v err=%v", entries, err)
 	}
 	listing := gitRun(t, repoRoot, "worktree", "list", "--porcelain")
-	if !strings.Contains(listing, "linked-wt") {
+	if !strings.Contains(listing, "work-1") {
 		t.Fatalf("native worktree missing:\n%s", listing)
 	}
 
@@ -101,7 +101,7 @@ func TestWorktreeClaimAndReclaimThroughToolSurface(t *testing.T) {
 	if err != nil || replay.Outcome != OutcomeOK {
 		t.Fatalf("replay response=%+v err=%v", replay, err)
 	}
-	if got := strings.Count(gitRun(t, repoRoot, "worktree", "list"), "linked-wt"); got != 1 {
+	if got := strings.Count(gitRun(t, repoRoot, "worktree", "list"), worktreePath); got != 1 {
 		t.Fatalf("expected one linked worktree line, got %d", got)
 	}
 
@@ -132,7 +132,7 @@ func TestWorktreeClaimAndReclaimThroughToolSurface(t *testing.T) {
 	if err != nil || len(entries) != 1 || entries[0].State != "reclaimed" {
 		t.Fatalf("entries after reclaim=%+v err=%v", entries, err)
 	}
-	if strings.Contains(gitRun(t, repoRoot, "worktree", "list"), "linked-wt") {
+	if strings.Contains(gitRun(t, repoRoot, "worktree", "list"), "work-1") {
 		t.Fatal("native worktree still present after reclaim")
 	}
 }
@@ -154,7 +154,7 @@ func claimLinkedWorktree(t *testing.T, s *store.Store, service *Service, grant A
 	t.Helper()
 	claimInput, _ := json.Marshal(map[string]any{
 		"work_id": "work-1", "project_id": "project-1",
-		"branch": branch, "base_sha": baseSHA, "path": worktreePath,
+		"base_sha":         baseSHA,
 		"expected_version": 2, "idempotency_key": key,
 	})
 	scopeVersion, _, err := s.ScopeVersion(context.Background(), "project-1")
@@ -198,7 +198,7 @@ func TestWorktreeReclaimFromMainCheckoutRequiresTerminalWork(t *testing.T) {
 	t.Run("non-terminal work refuses", func(t *testing.T) {
 		ctx := context.Background()
 		s, service, grant, repoRoot, baseSHA := worktreeDispatchFixture(t)
-		worktreePath := filepath.Join(t.TempDir(), "linked-wt")
+		worktreePath := filepath.Join(filepath.Dir(s.Path()), "worktrees", "project-1", "work-1")
 		claimLinkedWorktree(t, s, service, grant, worktreePath, baseSHA, "work/main-inprogress", "claim-inprogress")
 		seedWorkTransition(t, s, "work-1", "needed", "in_progress", 3)
 		service.ProjectResolver = mainCheckoutResolver
@@ -217,7 +217,7 @@ func TestWorktreeReclaimFromMainCheckoutRequiresTerminalWork(t *testing.T) {
 		if err != nil || len(entries) != 1 || entries[0].State != "active" {
 			t.Fatalf("entries after refusal=%+v err=%v, want the active claim untouched", entries, err)
 		}
-		if !strings.Contains(gitRun(t, repoRoot, "worktree", "list"), "linked-wt") {
+		if !strings.Contains(gitRun(t, repoRoot, "worktree", "list"), "work-1") {
 			t.Fatal("native worktree missing after a refused reclaim")
 		}
 	})
@@ -225,7 +225,7 @@ func TestWorktreeReclaimFromMainCheckoutRequiresTerminalWork(t *testing.T) {
 	t.Run("terminal work reclaims", func(t *testing.T) {
 		ctx := context.Background()
 		s, service, grant, repoRoot, baseSHA := worktreeDispatchFixture(t)
-		worktreePath := filepath.Join(t.TempDir(), "linked-wt")
+		worktreePath := filepath.Join(filepath.Dir(s.Path()), "worktrees", "project-1", "work-1")
 		claimLinkedWorktree(t, s, service, grant, worktreePath, baseSHA, "work/main-terminal", "claim-terminal")
 		seedWorkTransition(t, s, "work-1", "needed", "completed", 3)
 		service.ProjectResolver = mainCheckoutResolver
@@ -238,7 +238,7 @@ func TestWorktreeReclaimFromMainCheckoutRequiresTerminalWork(t *testing.T) {
 		if err != nil || len(entries) != 1 || entries[0].State != "reclaimed" {
 			t.Fatalf("entries after reclaim=%+v err=%v", entries, err)
 		}
-		if strings.Contains(gitRun(t, repoRoot, "worktree", "list"), "linked-wt") {
+		if strings.Contains(gitRun(t, repoRoot, "worktree", "list"), "work-1") {
 			t.Fatal("native worktree still present after reclaim")
 		}
 		if _, statErr := os.Stat(worktreePath); !os.IsNotExist(statErr) {
@@ -249,7 +249,7 @@ func TestWorktreeReclaimFromMainCheckoutRequiresTerminalWork(t *testing.T) {
 	t.Run("cancelled work reclaims", func(t *testing.T) {
 		ctx := context.Background()
 		s, service, grant, _, baseSHA := worktreeDispatchFixture(t)
-		worktreePath := filepath.Join(t.TempDir(), "linked-wt")
+		worktreePath := filepath.Join(filepath.Dir(s.Path()), "worktrees", "project-1", "work-1")
 		claimLinkedWorktree(t, s, service, grant, worktreePath, baseSHA, "work/main-cancelled", "claim-cancelled")
 		seedWorkTransition(t, s, "work-1", "needed", "cancelled", 3)
 		service.ProjectResolver = mainCheckoutResolver
@@ -278,7 +278,7 @@ func TestWorktreeReclaimRefusesOccupiedWorktreeThroughToolSurface(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	worktreePath := filepath.Join(t.TempDir(), "linked-wt")
+	worktreePath := filepath.Join(filepath.Dir(s.Path()), "worktrees", "project-1", "work-1")
 	claimLinkedWorktree(t, s, service, grant, worktreePath, baseSHA, "work/dispatch-1", "wt-claim-occupied")
 
 	reclaimWith := func(key string, observed []map[string]any) Envelope {
@@ -311,7 +311,7 @@ func TestWorktreeReclaimRefusesOccupiedWorktreeThroughToolSurface(t *testing.T) 
 	if !strings.Contains(occupied.Error.Message, "ses_live") || !strings.Contains(occupied.Error.Message, worktreePath) {
 		t.Fatalf("refusal %q must name the occupying session and the worktree", occupied.Error.Message)
 	}
-	if !strings.Contains(gitRun(t, repoRoot, "worktree", "list"), "linked-wt") {
+	if !strings.Contains(gitRun(t, repoRoot, "worktree", "list"), "work-1") {
 		t.Fatal("a refused reclaim must leave the native worktree in place")
 	}
 
@@ -322,7 +322,7 @@ func TestWorktreeReclaimRefusesOccupiedWorktreeThroughToolSurface(t *testing.T) 
 	if free.Outcome != OutcomeOK {
 		t.Fatalf("response=%+v, want the reclaim to proceed", free)
 	}
-	if strings.Contains(gitRun(t, repoRoot, "worktree", "list"), "linked-wt") {
+	if strings.Contains(gitRun(t, repoRoot, "worktree", "list"), "work-1") {
 		t.Fatal("native worktree still present after reclaim")
 	}
 }
@@ -330,7 +330,7 @@ func TestWorktreeReclaimRefusesOccupiedWorktreeThroughToolSurface(t *testing.T) 
 func TestSessionVacateSucceedsFromLinkedWorktreeMutation(t *testing.T) {
 	ctx := context.Background()
 	s, service, grant, repoRoot, baseSHA := worktreeDispatchFixture(t)
-	worktreePath := filepath.Join(t.TempDir(), "linked-wt")
+	worktreePath := filepath.Join(filepath.Dir(s.Path()), "worktrees", "project-1", "work-1")
 	claimLinkedWorktree(t, s, service, grant, worktreePath, baseSHA, "work/vacate", "claim-vacate")
 
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
@@ -385,7 +385,7 @@ func TestSecondSessionVacateRecordsItsOwnEvent(t *testing.T) {
 	ctx := context.Background()
 	s, service, grant, _, baseSHA := worktreeDispatchFixture(t)
 
-	worktreeA := filepath.Join(t.TempDir(), "wt-session-a")
+	worktreeA := filepath.Join(filepath.Dir(s.Path()), "worktrees", "project-1", "work-1")
 	claimLinkedWorktree(t, s, service, grant, worktreeA, baseSHA, "work/vacate-a", "claim-vacate-a")
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
 	if err != nil {
@@ -410,10 +410,10 @@ func TestSecondSessionVacateRecordsItsOwnEvent(t *testing.T) {
 
 	grantB := grant
 	grantB.SessionRef = "session/vacate-b"
-	worktreeB := filepath.Join(t.TempDir(), "wt-session-b")
+	worktreeB := filepath.Join(filepath.Dir(s.Path()), "worktrees", "project-1", "work-2")
 	claimB, _ := json.Marshal(map[string]any{
 		"work_id": "work-2", "project_id": "project-1",
-		"branch": "work/vacate-b", "base_sha": baseSHA, "path": worktreeB,
+		"base_sha":         baseSHA,
 		"expected_version": 2, "idempotency_key": "claim-vacate-b",
 	})
 	scopeVersionB, _, err := s.ScopeVersion(ctx, "project-1")

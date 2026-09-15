@@ -48,6 +48,8 @@ func tiersRepoFixture(t *testing.T) (*store.Store, *Service, Authority, string) 
 	}
 	gitRun(t, repoRoot, "add", "README.md")
 	gitRun(t, repoRoot, "commit", "-m", "fixture base")
+	gitRun(t, repoRoot, "update-ref", "refs/remotes/origin/main", "HEAD")
+	gitRun(t, repoRoot, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main")
 	if err := s.AddProjectLocator(ctx, "project-1", store.ProjectLocator{ID: "path-1", Kind: store.LocatorCanonicalPath, Value: repoRoot}, 1); err != nil {
 		t.Fatal(err)
 	}
@@ -78,15 +80,14 @@ func tiersFixture(t *testing.T) (*store.Store, *Service, Authority, *Service, Au
 	t.Helper()
 	s, service, grant, repoRoot := tiersRepoFixture(t)
 	baseSHA := gitRun(t, repoRoot, "rev-parse", "HEAD")
-	worktreeRoot := filepath.Join(filepath.Dir(s.Path()), "worktrees", "project-1")
 	if response := tiersInvoke(t, s, service, grant, "concord_work_transition", "worktree_claim", map[string]any{
-		"work_id": "work-1", "project_id": "project-1", "branch": "work/work-1", "base_sha": baseSHA, "path": filepath.Join(worktreeRoot, "work-1"), "expected_version": 2, "idempotency_key": "tiers-claim-1",
+		"work_id": "work-1", "project_id": "project-1", "base_sha": baseSHA, "expected_version": 2, "idempotency_key": "tiers-claim-1",
 	}); response.Outcome != OutcomeOK {
 		t.Fatalf("claim work-1 response=%+v err=%+v", response, response.Error)
 	}
 	second, _, secondGrant := newAuthorizedService(t, s, "client-2", "human-2", []Capability{"work_transition", "product_read"}, []string{"product-1"}, []string{"project-1"}, store.ProjectResolution{ProjectID: "project-1"})
 	if response := tiersInvoke(t, s, second, secondGrant, "concord_work_transition", "worktree_claim", map[string]any{
-		"work_id": "work-2", "project_id": "project-1", "branch": "work/work-2", "base_sha": baseSHA, "path": filepath.Join(worktreeRoot, "work-2"), "expected_version": 2, "idempotency_key": "tiers-claim-2",
+		"work_id": "work-2", "project_id": "project-1", "base_sha": baseSHA, "expected_version": 2, "idempotency_key": "tiers-claim-2",
 	}); response.Outcome != OutcomeOK {
 		t.Fatalf("claim work-2 response=%+v err=%+v", response, response.Error)
 	}

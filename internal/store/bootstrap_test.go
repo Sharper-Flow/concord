@@ -175,7 +175,7 @@ func TestPrepareBootstrapReplayUsesTransactionPinnedLocation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	first, err := s.prepareBootstrap(context.Background(), req, operationID, workID, digest, firstLocation, ExecGitRunner{})
+	first, err := s.prepareBootstrapMode(context.Background(), req, operationID, workID, digest, false, req, firstLocation, ExecGitRunner{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -192,7 +192,7 @@ func TestPrepareBootstrapReplayUsesTransactionPinnedLocation(t *testing.T) {
 	if firstLocation.BaseSHA == secondLocation.BaseSHA {
 		t.Fatal("moving ref did not change")
 	}
-	second, err := s.prepareBootstrap(context.Background(), req, operationID, workID, digest, secondLocation, ExecGitRunner{})
+	second, err := s.prepareBootstrapMode(context.Background(), req, operationID, workID, digest, false, req, secondLocation, ExecGitRunner{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -485,7 +485,7 @@ func TestBootstrapWithoutWorkflowTypeRefStillInitializesContinuity(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.prepareBootstrap(context.Background(), req, operationID, workID, digest, location, ExecGitRunner{}); err != nil {
+	if _, err := s.prepareBootstrapMode(context.Background(), req, operationID, workID, digest, false, req, location, ExecGitRunner{}); err != nil {
 		t.Fatal(err)
 	}
 	continuity, err := ReadWorkflowContinuity(context.Background(), s, ContinuityRequest{Work: workID, Limit: 1})

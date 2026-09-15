@@ -4995,9 +4995,7 @@
       "required": [
         "work_id",
         "project_id",
-        "branch",
         "base_sha",
-        "path",
         "expected_version",
         "idempotency_key"
       ],
@@ -5008,22 +5006,11 @@
         "project_id": {
           "$ref": "#/$defs/id"
         },
-        "branch": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 128,
-          "pattern": "^[A-Za-z0-9][A-Za-z0-9._/-]{0,127}$"
-        },
         "base_sha": {
           "type": "string",
           "minLength": 40,
           "maxLength": 64,
           "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$"
-        },
-        "path": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 4096
         },
         "expected_version": {
           "$ref": "#/$defs/version"

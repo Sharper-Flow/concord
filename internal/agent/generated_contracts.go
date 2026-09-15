@@ -6,7 +6,7 @@ import (
 	"fmt"
 )
 
-const ManifestDigest = "sha256:55fa6599214fa519b8ec0b8d1c237b9aa47f4b467165a6dcda52363c7ff67c6a"
+const ManifestDigest = "sha256:6dcecd3f9f403b8bc58c743336876a93d1374202ab96ae369bf736cadeb11620"
 
 type OperationKind string
 
@@ -269,7 +269,7 @@ var GeneratedPayloadRules = map[string]GeneratedPayloadRule{
 	"work_transition_session_vacate_input":         {Required: []string{"idempotency_key"}, Properties: []string{"idempotency_key", "requested_budget_seconds"}},
 	"work_transition_worker_abandon_input":         {Required: []string{"work_id", "attempt_id", "lane_id", "detail", "idempotency_key"}, Properties: []string{"work_id", "attempt_id", "lane_id", "detail", "idempotency_key", "requested_budget_seconds"}},
 	"work_transition_worktree_audit_reclaim_input": {Required: []string{"idempotency_key"}, Properties: []string{"product_id", "default_ref", "limit", "idempotency_key", "observed_session_directories", "requested_budget_seconds"}},
-	"work_transition_worktree_claim_input":         {Required: []string{"work_id", "project_id", "branch", "base_sha", "path", "expected_version", "idempotency_key"}, Properties: []string{"work_id", "project_id", "branch", "base_sha", "path", "expected_version", "idempotency_key", "requested_budget_seconds"}},
+	"work_transition_worktree_claim_input":         {Required: []string{"work_id", "project_id", "base_sha", "expected_version", "idempotency_key"}, Properties: []string{"work_id", "project_id", "base_sha", "expected_version", "idempotency_key", "requested_budget_seconds"}},
 	"work_transition_worktree_destroy_input":       {Required: []string{"work_id", "expected_version", "idempotency_key"}, Properties: []string{"work_id", "expected_version", "default_ref", "destructive", "approval", "idempotency_key", "observed_session_directories", "requested_budget_seconds"}},
 	"work_transition_worktree_reclaim_input":       {Required: []string{"work_id", "project_id", "expected_version", "idempotency_key"}, Properties: []string{"work_id", "project_id", "default_ref", "expected_version", "idempotency_key", "observed_session_directories", "requested_budget_seconds"}},
 	"work_transition_worktree_verify_input":        {Required: []string{"work_id", "command", "idempotency_key"}, Properties: []string{"work_id", "command", "idempotency_key", "requested_budget_seconds"}},

@@ -4471,6 +4471,18 @@ ALTER TABLE work_removal_operations ADD COLUMN linear_confirmation_json TEXT NOT
     CHECK(json_valid(linear_confirmation_json) AND json_type(linear_confirmation_json)='object');
 `,
 	},
+	{
+		Version:  84,
+		Name:     "worktree_claim_identity_uniqueness",
+		Breaking: true,
+		SQL: `
+-- CD-0151: active claims cannot reuse one native path or branch.
+CREATE UNIQUE INDEX worktree_claims_one_active_path ON worktree_claims(pinned_path)
+    WHERE state IN ('pending','verified');
+CREATE UNIQUE INDEX worktree_claims_one_active_branch ON worktree_claims(pinned_branch)
+    WHERE state IN ('pending','verified');
+`,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any

@@ -307,6 +307,8 @@ func realGitTiersFixture(t *testing.T) (*Store, string) {
 	}
 	gitRunStore(t, repoRoot, "add", "tracked.txt")
 	gitRunStore(t, repoRoot, "commit", "-m", "base")
+	gitRunStore(t, repoRoot, "update-ref", "refs/remotes/origin/main", "HEAD")
+	gitRunStore(t, repoRoot, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main")
 	if err := s.AddProjectLocator(ctx, "project-w", ProjectLocator{ID: "path-w", Kind: LocatorCanonicalPath, Value: repoRoot}, 1); err != nil {
 		t.Fatal(err)
 	}
@@ -315,10 +317,9 @@ func realGitTiersFixture(t *testing.T) (*Store, string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	worktreePath := filepath.Join(filepath.Dir(s.Path()), "worktrees", "project-w", "work-w")
 	result, err := s.ClaimWorktree(ctx, WorktreeClaimRequest{
 		OpID: "tiers-op-1", WorkID: "work-w", ProjectID: "project-w",
-		Branch: "work/work-w", BaseSHA: strings.TrimSpace(string(baseOut)), Path: worktreePath,
+		BaseSHA:      strings.TrimSpace(string(baseOut)),
 		PrincipalRef: "principal-1", RequestID: "req-tiers-1",
 		ExpectedVersion: 2, Now: time.Unix(10, 0).UTC(),
 	})

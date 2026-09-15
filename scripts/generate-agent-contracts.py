@@ -266,6 +266,7 @@ def workflow_supersede_fields_schema(outcome_payload: dict) -> dict:
         "required": ["contract_version", "premise", "required_evidence", "route_conventions", "spec_mandate", "law_modifies", "rigor_class", "supersede_reason", "audit_evidence"],
         "properties": {
             "contract_version": {"$ref": "#/$defs/version"}, "premise": {"type": "string", "minLength": 1, "maxLength": 4096},
+            "predecessor_contract_versions": {"type": "array", "minItems": 1, "maxItems": 32, "uniqueItems": True, "items": {"$ref": "#/$defs/version"}},
             "outcome_kind": {"type": "string", "enum": ["exists", "absent", "outcome", "check"]}, "outcome_payload": copy.deepcopy(outcome_payload),
             "outcome_predicates": {"$ref": "#/$defs/workflow_action_outcome_predicates"},
             "required_evidence": copy.deepcopy(string_list), "route_conventions": copy.deepcopy(string_list),

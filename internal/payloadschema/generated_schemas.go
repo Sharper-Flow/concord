@@ -10115,6 +10115,15 @@ const GeneratedPayloadSchemaDocument = `{
                   "outcome_predicates": {
                     "$ref": "#/$defs/workflow_action_outcome_predicates"
                   },
+                  "predecessor_contract_versions": {
+                    "items": {
+                      "$ref": "#/$defs/version"
+                    },
+                    "maxItems": 32,
+                    "minItems": 1,
+                    "type": "array",
+                    "uniqueItems": true
+                  },
                   "premise": {
                     "maxLength": 4096,
                     "minLength": 1,

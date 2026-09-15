@@ -98,8 +98,11 @@ func WorkflowActionDefinitionFor(ctx context.Context, s *Store, registry Definit
 		if err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL`, workID).Scan(&activeCount); err != nil {
 			return RegisteredDefinition{}, WorkflowActionDefinition{}, wrapFailure(KindUnavailable, "workflow_action", "cannot inspect active workflow contract", true, "retry once the workflow projection is readable", err)
 		}
-		if activeCount != 1 {
-			return RegisteredDefinition{}, WorkflowActionDefinition{}, newFailure(KindInvariantViolation, "workflow_action", "contract recovery requires exactly one active workflow contract", false, "rebuild the workflow contract projection")
+		if activeCount == 0 {
+			return RegisteredDefinition{}, WorkflowActionDefinition{}, newFailure(KindInvariantViolation, "workflow_action", "contract recovery requires an active workflow contract", false, "rebuild the workflow contract projection")
+		}
+		if activeCount > 1 {
+			return entry, workflowContractRecoveryActionDefinition(), nil
 		}
 		if err := checkWorkflowLawRevisionStalenessReadTx(ctx, s.db, workID); err != nil {
 			var failure *Failure
@@ -535,7 +538,11 @@ func workflowActionEvidenceRefs(request WorkflowActionExecutionRequest, payload 
 // review default the fold historically minted.
 func bornBoundEvidenceKinds(ctx context.Context, tx *sql.Tx, workID string, definition WorkflowDefinition) ([]string, error) {
 	var required string
-	if err := tx.QueryRowContext(ctx, `SELECT required_evidence FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL ORDER BY contract_version DESC LIMIT 1`, workID).Scan(&required); err != nil {
+	contractVersion, activeErr := activeWorkflowContractVersion(ctx, tx, workID, "workflow_action")
+	if activeErr != nil {
+		return nil, activeErr
+	}
+	if err := tx.QueryRowContext(ctx, `SELECT required_evidence FROM workflow_contracts WHERE work_id=? AND contract_version=?`, workID, contractVersion).Scan(&required); err != nil {
 		return nil, wrapFailure(KindUnavailable, "workflow_action", "cannot read the approved workflow contract", true, "retry once the database is readable", err)
 	}
 	var kinds []string
@@ -755,6 +762,16 @@ func workflowSemanticActionEvents(ctx context.Context, tx *sql.Tx, definition Wo
 	case "record_proposal":
 		return workflowProposalRecordedEvents(definition, request, actor, raw, eventID, expected)
 	case "approve_contract":
+		_, activeErr := activeWorkflowContractVersion(ctx, tx, request.WorkID, "workflow_action")
+		if activeErr != sql.ErrNoRows {
+			if activeErr == nil {
+				return nil, newFailure(KindInvalidOperation, "workflow_action", "approve_contract cannot replace an existing workflow contract", false, "use supersede_contract with the typed successor contract")
+			}
+			return nil, activeErr
+		}
+		if workflowFieldInt(fields, "contract_version", 1) != 1 {
+			return nil, newFailure(KindInvalidPayload, "workflow_action", "initial workflow contract approval must be version 1", false, "approve the initial contract as version 1")
+		}
 		if err := requireResearchForPendingQuestions(ctx, tx, request.WorkID); err != nil {
 			return nil, err
 		}
@@ -859,14 +876,55 @@ func workflowSemanticActionEvents(ctx context.Context, tx *sql.Tx, definition Wo
 		if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL`, request.WorkID).Scan(&activeCount); err != nil {
 			return nil, workflowProjectionError(err, "cannot inspect active workflow contract")
 		}
-		if activeCount != 1 {
-			return nil, newFailure(KindInvariantViolation, "workflow_action", "stale-law recovery requires exactly one active workflow contract", false, "rebuild the workflow contract projection")
+		if activeCount == 0 {
+			return nil, newFailure(KindInvariantViolation, "workflow_action", "contract recovery requires an active workflow contract", false, "rebuild the workflow contract projection")
 		}
-		if err := tx.QueryRowContext(ctx, `SELECT contract_version FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL`, request.WorkID).Scan(&previous); err != nil {
-			return nil, workflowProjectionError(err, "cannot read active workflow contract")
+		predecessors, supplied, listErr := workflowFieldInt64List(fields, "predecessor_contract_versions")
+		if listErr != nil {
+			return nil, listErr
 		}
+		if !supplied {
+			if activeCount != 1 {
+				return nil, newFailure(KindInvalidPayload, "workflow_action", "duplicate active contracts require predecessor_contract_versions", false, "supply the exact active contract versions")
+			}
+			if err := tx.QueryRowContext(ctx, `SELECT contract_version FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL`, request.WorkID).Scan(&previous); err != nil {
+				return nil, workflowProjectionError(err, "cannot read active workflow contract")
+			}
+			predecessors = []int64{previous}
+		} else {
+			previous = predecessors[0]
+		}
+		if int64(len(predecessors)) != activeCount {
+			return nil, newFailure(KindInvariantViolation, "workflow_action", "predecessor_contract_versions does not match active workflow contracts", false, "supply every exact active contract version")
+		}
+		rows, rowsErr := tx.QueryContext(ctx, `SELECT contract_version FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL`, request.WorkID)
+		if rowsErr != nil {
+			return nil, workflowProjectionError(rowsErr, "cannot inspect active workflow contract versions")
+		}
+		for rows.Next() {
+			var version int64
+			if scanErr := rows.Scan(&version); scanErr != nil {
+				rows.Close()
+				return nil, workflowProjectionError(scanErr, "cannot scan active workflow contract version")
+			}
+			if !containsInt64(predecessors, version) {
+				rows.Close()
+				return nil, newFailure(KindInvariantViolation, "workflow_action", "predecessor_contract_versions names a non-active contract set", false, "supply the exact active contract versions")
+			}
+		}
+		if rowsErr := rows.Err(); rowsErr != nil {
+			rows.Close()
+			return nil, workflowProjectionError(rowsErr, "cannot scan active workflow contract versions")
+		}
+		rows.Close()
 		next := workflowFieldInt(fields, "contract_version", 0)
-		if next != previous+1 {
+		maxPredecessor := predecessors[0]
+		for _, version := range predecessors[1:] {
+			if version > maxPredecessor {
+				maxPredecessor = version
+			}
+		}
+		if next != maxPredecessor+1 {
 			return nil, newFailure(KindInvalidPayload, "workflow_action", "successor contract version must immediately follow the active contract", false, "supply the next contract version")
 		}
 		audit := workflowFieldStrings(fields, "audit_evidence")
@@ -925,7 +983,7 @@ func workflowSemanticActionEvents(ctx context.Context, tx *sql.Tx, definition Wo
 		if selfRepairPresent && selfRepair != nil {
 			successor["self_repair"] = selfRepair
 		}
-		events := []Event{workflowTypedEvent(eventID, WorkflowContractSuperseded, request.WorkID, actor, request.Now, expected, map[string]any{"previous_contract_version": previous, "new_contract_version": next, "supersede_reason": workflowFieldStringDefault(fields, "supersede_reason", "contract revision"), "audit_evidence": audit, "successor_contract": successor})}
+		events := []Event{workflowTypedEvent(eventID, WorkflowContractSuperseded, request.WorkID, actor, request.Now, expected, map[string]any{"previous_contract_version": previous, "predecessor_contract_versions": predecessors, "new_contract_version": next, "supersede_reason": workflowFieldStringDefault(fields, "supersede_reason", "contract revision"), "audit_evidence": audit, "successor_contract": successor})}
 		return appendWorkflowDesignCorrection(ctx, tx, definition, request, actor, fields["design_record"], eventID, expected, events)
 	case "accept_worker_result":
 		// Acceptance binds the attempt it certifies (#865). The evidence kind

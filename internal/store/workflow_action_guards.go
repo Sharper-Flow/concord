@@ -133,7 +133,14 @@ func guardMandatedWorkflowLawBound(ctx context.Context, q queryer, workID string
 
 func workflowSpecMandate(ctx context.Context, q queryer, workID, subject string) ([]string, error) {
 	var mandateJSON string
-	if err := q.QueryRowContext(ctx, `SELECT spec_mandate FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL ORDER BY contract_version DESC LIMIT 1`, workID).Scan(&mandateJSON); err != nil {
+	version, activeErr := activeWorkflowContractVersion(ctx, q, workID, subject)
+	if activeErr == sql.ErrNoRows {
+		return nil, nil
+	}
+	if activeErr != nil {
+		return nil, activeErr
+	}
+	if err := q.QueryRowContext(ctx, `SELECT spec_mandate FROM workflow_contracts WHERE work_id=? AND contract_version=?`, workID, version).Scan(&mandateJSON); err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
 		}
@@ -217,6 +224,9 @@ func workflowContractCorrectionAvailable(ctx context.Context, q queryer, workID 
 	var contracts int
 	if err := q.QueryRowContext(ctx, `SELECT count(*) FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL`, workID).Scan(&contracts); err != nil {
 		return false, wrapFailure(KindUnavailable, subject, "cannot inspect the active workflow contract", true, "retry once the workflow projection is readable", err)
+	}
+	if contracts > 1 {
+		return true, nil
 	}
 	if contracts != 1 {
 		return false, nil
@@ -859,8 +869,8 @@ func lateBindWorkflowEvidenceTx(ctx context.Context, tx *sql.Tx, request Workflo
 		return nil, err
 	}
 	refs := append([]string(nil), request.EvidenceRefs...)
-	var contractVersion int64
-	if err := tx.QueryRowContext(ctx, `SELECT contract_version FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL ORDER BY contract_version DESC LIMIT 1`, request.WorkID).Scan(&contractVersion); err == nil {
+	contractVersion, contractErr := activeWorkflowContractVersion(ctx, tx, request.WorkID, "complete_workflow")
+	if contractErr == nil {
 		verdicts, verdictErr := latestWorkflowVerdicts(ctx, tx, request.WorkID, contractVersion)
 		if verdictErr != nil {
 			return nil, verdictErr
@@ -872,8 +882,8 @@ func lateBindWorkflowEvidenceTx(ctx context.Context, tx *sql.Tx, request Workflo
 				}
 			}
 		}
-	} else if err != sql.ErrNoRows {
-		return nil, wrapFailure(KindUnavailable, "complete_workflow", "cannot read active workflow contract", true, "retry once the database is readable", err)
+	} else if contractErr != sql.ErrNoRows {
+		return nil, contractErr
 	}
 	if len(refs) == 0 {
 		return nil, nil

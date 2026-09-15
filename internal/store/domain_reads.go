@@ -475,6 +475,9 @@ func (s *Store) QueryDomainActiveWork(ctx context.Context, req DomainActiveWorkR
 
 func queryDomainActiveWork(ctx context.Context, q queryer, req DomainActiveWorkRequest) (DomainActiveWorkResult, error) {
 	var out DomainActiveWorkResult
+	if err := ensureNoDuplicateActiveWorkflowContracts(ctx, q, "C22.DomainActiveWork"); err != nil {
+		return out, err
+	}
 	registry, err := readDomainRegistry(ctx, q, req.Product)
 	if err != nil {
 		return out, err
@@ -635,6 +638,9 @@ func (s *Store) QueryDomainOverlaps(ctx context.Context, req DomainOverlapsReque
 
 func queryDomainOverlaps(ctx context.Context, q queryer, req DomainOverlapsRequest) (DomainOverlapsResult, error) {
 	var out DomainOverlapsResult
+	if err := ensureNoDuplicateActiveWorkflowContracts(ctx, q, "C22.DomainOverlaps"); err != nil {
+		return out, err
+	}
 	registry, err := readDomainRegistry(ctx, q, req.Product)
 	if err != nil {
 		return out, err

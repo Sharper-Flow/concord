@@ -311,7 +311,17 @@ func workflowCompletionVersion(ctx context.Context, tx *sql.Tx, workID string, e
 func workflowCompletionContract(ctx context.Context, tx *sql.Tx, registry DefinitionRegistry, workID string) (workflowCompletionContractData, WorkflowDefinition, error) {
 	var result workflowCompletionContractData
 	var required, mandates, modifies string
-	if err := tx.QueryRowContext(ctx, `SELECT contract_version,required_evidence,spec_mandate,law_modifies,law_boundary_version FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL ORDER BY contract_version DESC LIMIT 1`, workID).Scan(&result.Version, &required, &mandates, &modifies, &result.LawBoundaryVersion); err != nil {
+	activeVersion, activeErr := activeWorkflowContractVersion(ctx, tx, workID, "complete_workflow")
+	if activeErr == nil {
+		result.Version = activeVersion
+	}
+	if activeErr != nil {
+		if activeErr == sql.ErrNoRows {
+			return result, WorkflowDefinition{}, newFailure(KindInvariantViolation, "complete_workflow", "approved workflow contract is missing or ambiguous", false, "reread_entities")
+		}
+		return result, WorkflowDefinition{}, activeErr
+	}
+	if err := tx.QueryRowContext(ctx, `SELECT required_evidence,spec_mandate,law_modifies,law_boundary_version FROM workflow_contracts WHERE work_id=? AND contract_version=?`, workID, result.Version).Scan(&required, &mandates, &modifies, &result.LawBoundaryVersion); err != nil {
 		if err == sql.ErrNoRows {
 			return result, WorkflowDefinition{}, newFailure(KindInvariantViolation, "complete_workflow", "approved workflow contract is missing or ambiguous", false, "reread_entities")
 		}
@@ -418,7 +428,14 @@ type workflowEvidenceRequirement struct {
 
 func workflowEvidenceRequirementInputs(ctx context.Context, q queryer, workID string) ([]string, []string, []WorkflowVerificationObligation, error) {
 	var requiredJSON, mandateJSON string
-	if err := q.QueryRowContext(ctx, `SELECT required_evidence,spec_mandate FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL ORDER BY contract_version DESC LIMIT 1`, workID).Scan(&requiredJSON, &mandateJSON); err != nil {
+	contractVersion, activeErr := activeWorkflowContractVersion(ctx, q, workID, "workflow_action")
+	if activeErr != nil {
+		if activeErr == sql.ErrNoRows {
+			return nil, nil, nil, newFailure(KindInvariantViolation, "workflow_action", "approved workflow contract is missing", false, "reread_entities")
+		}
+		return nil, nil, nil, activeErr
+	}
+	if err := q.QueryRowContext(ctx, `SELECT required_evidence,spec_mandate FROM workflow_contracts WHERE work_id=? AND contract_version=?`, workID, contractVersion).Scan(&requiredJSON, &mandateJSON); err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil, nil, newFailure(KindInvariantViolation, "workflow_action", "approved workflow contract is missing", false, "reread_entities")
 		}
@@ -431,7 +448,7 @@ func workflowEvidenceRequirementInputs(ctx context.Context, q queryer, workID st
 	if err := json.Unmarshal([]byte(mandateJSON), &mandates); err != nil {
 		return nil, nil, nil, newFailure(KindInvariantViolation, "workflow_action", "approved workflow contract law mandates are malformed", false, "reread_entities")
 	}
-	rows, err := q.QueryContext(ctx, `SELECT law_id,obligation_id FROM workflow_contract_verification_obligations WHERE work_id=? AND contract_version=(SELECT MAX(contract_version) FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL) ORDER BY law_id,obligation_id`, workID, workID)
+	rows, err := q.QueryContext(ctx, `SELECT law_id,obligation_id FROM workflow_contract_verification_obligations WHERE work_id=? AND contract_version=? ORDER BY law_id,obligation_id`, workID, contractVersion)
 	if err != nil {
 		return nil, nil, nil, wrapFailure(KindUnavailable, "workflow_action", "cannot read workflow verification obligations", true, "retry once the workflow contract is readable", err)
 	}
@@ -960,8 +977,8 @@ func workflowLateVerdictRecoveryForPredicate(ctx context.Context, q queryer, wor
 	if !verified {
 		return false, nil
 	}
-	var contractVersion int64
-	if err := q.QueryRowContext(ctx, `SELECT contract_version FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL ORDER BY contract_version DESC LIMIT 1`, workID).Scan(&contractVersion); err != nil {
+	contractVersion, err := activeWorkflowContractVersion(ctx, q, workID, "workflow_action")
+	if err != nil {
 		if err == sql.ErrNoRows {
 			return false, nil
 		}

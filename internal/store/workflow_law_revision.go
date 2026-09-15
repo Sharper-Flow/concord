@@ -9,6 +9,8 @@ import (
 
 type workflowReplayContextKey struct{}
 
+type workflowContractSupersessionContextKey struct{}
+
 // A replay folds events serially in one transaction. The running identity
 // count therefore matches the event-log order without a query for each edge.
 type workflowReplayState struct {
@@ -22,6 +24,15 @@ func workflowReplayContext(ctx context.Context) context.Context {
 func isWorkflowReplay(ctx context.Context) bool {
 	_, ok := ctx.Value(workflowReplayContextKey{}).(*workflowReplayState)
 	return ok
+}
+
+func workflowContractSupersessionContext(ctx context.Context) context.Context {
+	return context.WithValue(ctx, workflowContractSupersessionContextKey{}, true)
+}
+
+func inWorkflowContractSupersessionContext(ctx context.Context) bool {
+	value, _ := ctx.Value(workflowContractSupersessionContextKey{}).(bool)
+	return value
 }
 
 func advanceWorkflowReplay(ctx context.Context, event Event) {
@@ -91,6 +102,7 @@ func workflowContractRecoveryActionDefinition() WorkflowActionDefinition {
 func workflowContractRecoveryPayloadFields() []WorkflowPayloadField {
 	return []WorkflowPayloadField{
 		actionIntegerField("contract_version", true, 1, 2147483647),
+		actionArrayField("predecessor_contract_versions", false, 1, 32, "workflow_contract_version"),
 		actionStringField("premise", true, WorkflowPremiseMaxLength),
 		actionArrayField("outcome_predicates", false, 1, 8, "workflow_action_outcome_predicates"),
 		actionEnumField("outcome_kind", false, "exists", "absent", "outcome", "check"),
@@ -344,9 +356,14 @@ func readWorkflowLawRevisions(ctx context.Context, q queryer, workID string, con
 func checkWorkflowLawRevisionStalenessTx(ctx context.Context, tx *sql.Tx, workID string) error {
 	var contractVersion int64
 	var mandateJSON string
-	if err := tx.QueryRowContext(ctx, `SELECT contract_version,spec_mandate FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL ORDER BY contract_version DESC LIMIT 1`, workID).Scan(&contractVersion, &mandateJSON); err == sql.ErrNoRows {
+	activeVersion, err := activeWorkflowContractVersion(ctx, tx, workID, "check_workflow_law_revision")
+	if err == sql.ErrNoRows {
 		return nil
 	} else if err != nil {
+		return err
+	}
+	contractVersion = activeVersion
+	if err := tx.QueryRowContext(ctx, `SELECT spec_mandate FROM workflow_contracts WHERE work_id=? AND contract_version=?`, workID, contractVersion).Scan(&mandateJSON); err != nil {
 		return wrapFailure(KindUnavailable, "check_workflow_law_revision", "cannot read active workflow contract", true, "retry once the workflow projection is readable", err)
 	}
 	var mandated []string

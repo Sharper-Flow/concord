@@ -7,7 +7,7 @@
     "internal/store/workflow_action_guards.go",
     "internal/store/worker_lanes.go",
     "internal/store/workflow.go",
-    "internal/store/cd0059_dispatch_action_test.go",
+    "internal/store/worker_dispatch_window_test.go",
     "scripts/generate-agent-contracts.py"
   ],
   "home_domain_id": "agent-surface",

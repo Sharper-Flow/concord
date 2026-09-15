@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test"
-import { createHash } from "node:crypto"
+import { createHash, randomUUID } from "node:crypto"
 import { agentLanes } from "./generated-agent-lanes"
 import { completeWorkerAttempt, concordBinaryPath, configureCoreBinary, defaultExportRunner, dispatchWorker, MAX_EXPORT_BYTES, readExportSession, readExportSessionMetadata, readRunSessionMetadata, resolveCoreBinary, validateAgentLanePacket, type AgentLanePacket, type CanonicalLaneReport, type DispatchAuthorizer, type DispatchRunner } from "./dispatch"
 
@@ -118,6 +118,7 @@ const readbackRunner = (model = READBACK_MODEL, agent = "concord-research"): Dis
 
 const SIGNAL = new AbortController().signal
 const SESSION = "session-parent"
+const WORKER_DIRECTORY = process.cwd()
 
 type CompleteOptions = Parameters<typeof completeWorkerAttempt>[3]
 const acceptingEvidence = (): DispatchRunner => ({ async run() { return { exitCode: 0, stdout: "", stderr: "" } } })
@@ -134,6 +135,25 @@ test("packet validation is closed before any runner call", async () => {
   expect(calls).toBe(0)
 })
 
+test("an omitted or nonexistent worker directory refuses before authorization", async () => {
+  for (const workerDirectory of [undefined, `${process.cwd()}/concord-dispatch-nonexistent-${randomUUID()}`]) {
+    let authorizeCalls = 0
+    const windows = new DispatchWindows()
+    const result = await dispatchWorker(packet(), {
+      authorize: async () => { authorizeCalls++; return coreOk() },
+      packetDigest: PACKET_DIGEST,
+      sessionID: SESSION,
+      windows,
+      ...(workerDirectory === undefined ? {} : { workerDirectory }),
+    })
+    expect(result.outcome).toBe("error")
+    expect(result.error?.kind).toBe("invalid_input")
+    expect(result.error?.message).toMatch(/resolvable worker directory/)
+    expect(authorizeCalls).toBe(0)
+    expect(windows.has(SESSION)).toBe(false)
+  }
+})
+
 test("unknown lane identity fails closed before a window opens", async () => {
   const windows = new DispatchWindows()
   const unknown = { ...packet(), lane_id: "unknown" }
@@ -148,7 +168,7 @@ test("unknown lane identity fails closed before a window opens", async () => {
 // and asserts no model here.
 test("an authorized dispatch opens one window and returns a directive", async () => {
   const windows = new DispatchWindows()
-  const result = await dispatchWorker(packet(), { credentials: testCredentials, authorize: permissiveAuthorizer(), packetDigest: PACKET_DIGEST, sessionID: SESSION, windows })
+  const result = await dispatchWorker(packet(), { credentials: testCredentials, authorize: permissiveAuthorizer(), packetDigest: PACKET_DIGEST, sessionID: SESSION, windows, workerDirectory: WORKER_DIRECTORY })
   expect(result.outcome).toBe("ok")
   expect(result.dispatch_state).toBe("awaiting_worker")
   expect(result.agent).toBe("concord-research")
@@ -158,7 +178,7 @@ test("an authorized dispatch opens one window and returns a directive", async ()
 
 test("a dispatch that cannot name its calling session opens no window", async () => {
   const windows = new DispatchWindows()
-  const result = await dispatchWorker(packet(), { credentials: testCredentials, authorize: permissiveAuthorizer(), packetDigest: PACKET_DIGEST, windows })
+  const result = await dispatchWorker(packet(), { credentials: testCredentials, authorize: permissiveAuthorizer(), packetDigest: PACKET_DIGEST, windows, workerDirectory: WORKER_DIRECTORY })
   expect(result.outcome).toBe("error")
   expect(result.error?.kind).toBe("invalid_input")
   expect(windows.has(SESSION)).toBe(false)
@@ -168,9 +188,9 @@ test("a dispatch that cannot name its calling session opens no window", async ()
 // next Task call happened to name.
 test("a second dispatch on one session is refused while a window is open", async () => {
   const windows = new DispatchWindows()
-  const first = await dispatchWorker(packet(), { credentials: testCredentials, authorize: permissiveAuthorizer(), packetDigest: PACKET_DIGEST, sessionID: SESSION, windows })
+  const first = await dispatchWorker(packet(), { credentials: testCredentials, authorize: permissiveAuthorizer(), packetDigest: PACKET_DIGEST, sessionID: SESSION, windows, workerDirectory: WORKER_DIRECTORY })
   expect(first.outcome).toBe("ok")
-  const second = await dispatchWorker(packet(), { credentials: testCredentials, authorize: permissiveAuthorizer(), packetDigest: PACKET_DIGEST, sessionID: SESSION, windows })
+  const second = await dispatchWorker(packet(), { credentials: testCredentials, authorize: permissiveAuthorizer(), packetDigest: PACKET_DIGEST, sessionID: SESSION, windows, workerDirectory: WORKER_DIRECTORY })
   expect(second.outcome).toBe("error")
   expect(second.error?.message).toMatch(/already holds an open dispatch window/)
 })
@@ -403,7 +423,7 @@ test("generic host agents are not dispatchable and never spawn or record", async
     const result = await dispatchWorker({ ...packet(), lane_id: generic }, { credentials: testCredentials,
       runner: { async run() { spawned++; return { exitCode: 0, stdout: runOutput(), stderr: "" } } },
       evidenceRunner: { async run() { recorded++; return { exitCode: 0, stdout: "", stderr: "" } } },
-      authorize: permissiveAuthorizer(), packetDigest: PACKET_DIGEST,
+      authorize: permissiveAuthorizer(), packetDigest: PACKET_DIGEST, workerDirectory: WORKER_DIRECTORY,
     })
     expect(result.outcome).toBe("error")
     expect(result.error?.kind).toBe("invalid_input")
@@ -419,7 +439,7 @@ test("the registered lane set is closed and every agent name is Concord-owned", 
 
 test("the adapter does not declare a model — argv carries no --model", async () => {
   let argv: string[] = []
-  await dispatchWorker(packet(), { credentials: testCredentials, runner: { async run(args) { argv = args; return { exitCode: 0, stdout: runOutput(), stderr: "" } } }, evidenceRunner: { async run() { return { exitCode: 0, stdout: "", stderr: "" } } }, authorize: permissiveAuthorizer(), packetDigest: PACKET_DIGEST })
+  await dispatchWorker(packet(), { credentials: testCredentials, runner: { async run(args) { argv = args; return { exitCode: 0, stdout: runOutput(), stderr: "" } } }, evidenceRunner: { async run() { return { exitCode: 0, stdout: "", stderr: "" } } }, authorize: permissiveAuthorizer(), packetDigest: PACKET_DIGEST, workerDirectory: WORKER_DIRECTORY })
   expect(argv).not.toContain("--model")
 })
 
@@ -1130,6 +1150,7 @@ test("dispatchWorker aborts when dispatch_worker authorization is refused", asyn
   let authorizeCalls = 0
   const result = await dispatchWorker(packet(), {
     credentials: testCredentials,
+    workerDirectory: WORKER_DIRECTORY,
     runner: { async run() { spawned++; return { exitCode: 0, stdout: runOutput(), stderr: "" } } },
     evidenceRunner: { async run() { spawned++; return { exitCode: 0, stdout: "", stderr: "" } } },
     async authorize(request) {
@@ -1161,6 +1182,7 @@ test("a transport fault is not reported as an authorization refusal", async () =
     let spawned = 0
     const result = await dispatchWorker(packet(), {
       credentials: testCredentials,
+      workerDirectory: WORKER_DIRECTORY,
       runner: { async run() { spawned++; return { exitCode: 0, stdout: runOutput(), stderr: "" } } },
       evidenceRunner: { async run() { spawned++; return { exitCode: 0, stdout: "", stderr: "" } } },
       ...item.options,

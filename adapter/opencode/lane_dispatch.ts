@@ -19,6 +19,7 @@ import type { ToolContext } from "@opencode-ai/plugin"
 import type { ConcordInvoke } from "./packet"
 import type { CredentialStore } from "./credentials"
 import type { DispatchWindows } from "./dispatch-window"
+import { dispatchDirectoryMismatch } from "./dispatch-window"
 import { dispatchWorker, errorEnvelopeForLane, type AgentLanePacket, type AgentResultEnvelope, type DispatchRunner } from "./dispatch"
 import { agentLanes, type AgentLane } from "./generated-agent-lanes"
 import { buildAgentLanePacket, type AgentLanePacketFailureKind } from "./packet"
@@ -43,6 +44,9 @@ export interface LaneDispatchDeps {
   // unset and the dispatch path uses the per-instance store the plugin hook
   // reads; tests supply an isolated one.
   windows?: DispatchWindows
+  // Tests may model a host whose process directory differs from this adapter's
+  // directory. Production uses the host process directory by default.
+  executionDirectory?: () => string
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -134,6 +138,19 @@ export async function dispatchLaneWorker(input: LaneDispatchInput, deps: LaneDis
     return errorEnvelopeForLane(laneForId(packet.lane_id), packet, "blocked", "transport_failure", error instanceof Error ? error.message : String(error), "contact_operator")
   }
 
+  // The host session route is the source for the claimed directory. The
+  // ToolContext directory is a projection and cannot prove where Task runs.
+  let workerDirectory: string
+  try {
+    workerDirectory = await hostControlPlane().sessionDirectory(deps.context.sessionID, deps.context.abort)
+  } catch (error) {
+    return errorEnvelopeForLane(laneForId(packet.lane_id), packet, "error", "transport_failure", error instanceof Error ? error.message : String(error), "reconcile_operation")
+  }
+  const directoryFailure = dispatchDirectoryMismatch(workerDirectory, deps.executionDirectory?.())
+  if (directoryFailure) {
+    return errorEnvelopeForLane(laneForId(packet.lane_id), packet, "error", "unauthorized_dispatch", directoryFailure, "reconcile_operation")
+  }
+
   // Core invoke: the dispatch_worker action with the enriched fields. The
   // core records the packet digest (CD-0067 D2) and returns a typed
   // envelope; any non-ok response is an authorization boundary refusal,
@@ -182,5 +199,5 @@ export async function dispatchLaneWorker(input: LaneDispatchInput, deps: LaneDis
   // The window binds to the calling session, because that is the session whose
   // next Task call the plugin hook rewrites (CD-0102 D1).
   const workPins = resultRecord && Array.isArray(resultRecord.work_pins) ? resultRecord.work_pins : undefined
-  return dispatchWorker(packet, { authorize: async () => coreResponse, credentials: deps.credentials, runner: deps.runner, evidenceRunner: deps.evidenceRunner, concordBinary: deps.concordBinary, packetDigest, sessionID: deps.context.sessionID, windows: deps.windows, workPins })
+  return dispatchWorker(packet, { authorize: async () => coreResponse, credentials: deps.credentials, runner: deps.runner, evidenceRunner: deps.evidenceRunner, concordBinary: deps.concordBinary, packetDigest, sessionID: deps.context.sessionID, windows: deps.windows, workPins, workerDirectory })
 }

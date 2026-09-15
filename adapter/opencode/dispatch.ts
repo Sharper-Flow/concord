@@ -6,7 +6,7 @@ import { agentLanePacketSchema, agentLaneReportSchema, agentLanes, type AgentLan
 import { maxEnvelopeBytes } from "./generated-contracts"
 import { coreBinary } from "./generated-release"
 import { SecretToolCredentialStore, b64, clientRef, privateKeyObject, randomNonce, type CredentialStore } from "./credentials"
-import { dispatchWindows, DispatchWindowError, type DispatchWindows } from "./dispatch-window"
+import { dispatchWindows, DispatchWindowError, isResolvableDirectory, type DispatchWindows } from "./dispatch-window"
 import { hostControlPlane } from "./move-session"
 import { readTaskResult } from "./task-result"
 
@@ -1056,11 +1056,15 @@ function unresolvedWorkerPromptProvenance(): HostProvenance {
   return { digest: "sha256:" + Bun.SHA256.hash(manifest, "hex"), sources }
 }
 
-export async function dispatchWorker(packet: unknown, options: { signal?: AbortSignal; runner?: DispatchRunner; readbackRunner?: DispatchRunner; evidenceRunner?: DispatchRunner; binary?: string; concordBinary?: string; credentials?: CredentialStore; authorize?: DispatchAuthorizer; packetDigest?: string; sessionID?: string; windows?: DispatchWindows; workPins?: unknown[] } = {}): Promise<AgentResultEnvelope> {
+export async function dispatchWorker(packet: unknown, options: { signal?: AbortSignal; runner?: DispatchRunner; readbackRunner?: DispatchRunner; evidenceRunner?: DispatchRunner; binary?: string; concordBinary?: string; credentials?: CredentialStore; authorize?: DispatchAuthorizer; packetDigest?: string; sessionID?: string; windows?: DispatchWindows; workPins?: unknown[]; workerDirectory?: string } = {}): Promise<AgentResultEnvelope> {
   if (!validateAgentLanePacket(packet)) return errorEnvelope(null, isRecord(packet) ? packet as Partial<AgentLanePacket> : {}, "error", "invalid_input", "agent lane packet failed the closed packet schema", "retry_same_request")
   const lane = laneForPacket(packet)
   if (!lane) return errorEnvelope(null, packet, "error", "invalid_input", "lane identity or digest is not registered", "retry_same_request")
   const signal = options.signal ?? new AbortController().signal
+  const workerDirectory = options.workerDirectory
+  if (!isResolvableDirectory(workerDirectory)) {
+    return errorEnvelope(lane, packet as Partial<AgentLanePacket>, "error", "invalid_input", "dispatch requires a non-empty, resolvable worker directory before authorization", "reconcile_operation")
+  }
 
   // CD-0059 D1: authorize before the worker starts, unconditionally. The dispatch_worker
   // workflow action opens the worker attempt window against the current step
@@ -1105,7 +1109,7 @@ export async function dispatchWorker(packet: unknown, options: { signal?: AbortS
   }
   const windows = options.windows ?? dispatchWindows()
   try {
-    windows.open(sessionID, packet, options.packetDigest ?? "", options.workPins)
+    windows.open(sessionID, packet, options.packetDigest ?? "", options.workPins, workerDirectory)
   } catch (error) {
     const detail = error instanceof DispatchWindowError ? error.message : String(error)
     return errorEnvelope(lane, packet as Partial<AgentLanePacket>, "error", "error", detail.slice(0, MAX_ERROR_BYTES), "reconcile_operation")

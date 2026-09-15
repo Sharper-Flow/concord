@@ -176,6 +176,28 @@ func TestWorktreeAuditReclaimRefusesOccupiedWorktree(t *testing.T) {
 	}
 }
 
+// A reclaim that carries no occupancy observation has not shown the worktree
+// unoccupied; it has shown nothing. The gate must refuse rather than read an
+// absent observation as a safe one, because the caller that supplies no list
+// is exactly the caller that cannot see the sessions it would strand.
+func TestWorktreeAuditReclaimRefusesUnobservedOccupancy(t *testing.T) {
+	s, git, _ := worktreeFixture(t)
+	ctx := context.Background()
+	donePath := auditWork(t, s, git, "work-done", true)
+	completeAuditWork(t, s, "work-done", 3)
+
+	result, err := s.WorktreeAuditReclaim(ctx, WorktreeAuditReclaimRequest{ProductID: "product-w", DefaultRef: "origin/main", PrincipalRef: "principal-1", RequestID: "audit-reclaim-unobserved", Now: time.Unix(40, 0).UTC(), Runner: git, Limit: 100})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Rows) != 1 || result.Rows[0].Outcome != WorktreeAuditRefused {
+		t.Fatalf("a reclaim with no occupancy observation must be refused, got %+v", result.Rows)
+	}
+	if _, kept := git.worktrees[donePath]; !kept {
+		t.Fatal("a worktree whose occupancy was never observed must remain")
+	}
+}
+
 // A needed work item whose claimed worktree is present, clean, and holds no
 // commit beyond the default ref is unstarted drift (CD-0118): the checkout
 // cost is real, nothing a merge could lose exists, and the audit names the

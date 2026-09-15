@@ -65,7 +65,14 @@ func TestWorkflowSelfRepairBypassesOverlapForClassifiedWorkOnly(t *testing.T) {
 	if err := CheckWorkflowDomainOverlap(ctx, s, "self-repair"); err != nil {
 		t.Fatalf("classified self-repair stayed overlap-blocked: %v", err)
 	}
-	err := CheckWorkflowDomainOverlap(ctx, s, "ordinary-peer")
+	pin, err := ReadWorkPin(ctx, s, "self-repair")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pin.SelfRepair == nil || pin.SelfRepair.RefusalKind != string(KindDomainOverlap) || pin.SelfRepair.BlockedOperation != "workflow_action.dispatch_worker" {
+		t.Fatalf("work pin omitted active self-repair classification: %#v", pin.SelfRepair)
+	}
+	err = CheckWorkflowDomainOverlap(ctx, s, "ordinary-peer")
 	var failure *Failure
 	if !errors.As(err, &failure) || failure.Kind != KindDomainOverlap {
 		t.Fatalf("ordinary peer escaped overlap authority: %v", err)
@@ -84,6 +91,32 @@ func TestWorkflowSelfRepairBypassesOverlapForClassifiedWorkOnly(t *testing.T) {
 	}
 	if len(continuity.UnresolvedOverlaps) == 0 {
 		t.Fatal("self-repair exemption hid the unresolved overlap")
+	}
+}
+
+func TestWorkflowSelfRepairStillRequiresCurrentDomainRegistry(t *testing.T) {
+	ctx := context.Background()
+	s, _, binding, _, _, _ := architectureValidationFixtureWithProductKey(t, "self-repair-stale", "concord")
+	seedWork(t, s, "ordinary-peer-stale")
+	_, selfVersion := seedProductChangingContract(t, s, "self-repair-stale", binding)
+	_, _ = seedProductChangingContract(t, s, "ordinary-peer-stale", binding)
+	operator := seedSelfRepairOperator(t, s)
+	supersede := workflowEventWithActor("self-repair-stale-contract-v2", WorkflowContractSuperseded, "self-repair-stale", operator, map[string]any{
+		"work_id": "self-repair-stale", "expected_version": selfVersion, "resulting_version": selfVersion + 1,
+		"previous_contract_version": int64(1), "new_contract_version": int64(2), "supersede_reason": "classify workflow self-repair",
+		"audit_evidence": []string{"obs:0000000000000001"}, "successor_contract": selfRepairSuccessorContract(binding),
+	})
+	supersede.PayloadVersion = 2
+	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{supersede}, ExpectedVersions: workVersion("self-repair-stale", selfVersion)}); err != nil {
+		t.Fatalf("classify self-repair: %v", err)
+	}
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE domains SET status='deprecated' WHERE product_id='product' AND domain_id='child'; DELETE FROM fold_guard`); err != nil {
+		t.Fatal(err)
+	}
+	err := CheckWorkflowDomainOverlap(ctx, s, "self-repair-stale")
+	var failure *Failure
+	if !errors.As(err, &failure) || failure.Kind != KindStaleRequiresReview {
+		t.Fatalf("self-repair bypassed stale Domain registry validation: %v", err)
 	}
 }
 

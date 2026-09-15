@@ -38,7 +38,7 @@ func TestSessionVacateRepeatsWithinOneSession(t *testing.T) {
 		t.Helper()
 		input, _ := json.Marshal(map[string]any{
 			"work_id": workID, "project_id": "project-1",
-			"branch": branch, "base_sha": baseSHA, "path": worktreePath,
+			"base_sha":         baseSHA,
 			"expected_version": 2, "idempotency_key": key,
 		})
 		response, dispatchErr := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "worktree_claim", Input: input}, mutationEnvelope(grant, scopeVersion))
@@ -60,8 +60,8 @@ func TestSessionVacateRepeatsWithinOneSession(t *testing.T) {
 		return response
 	}
 
-	first := filepath.Join(t.TempDir(), "linked-wt-1")
-	second := filepath.Join(t.TempDir(), "linked-wt-2")
+	first := filepath.Join(filepath.Dir(s.Path()), "worktrees", "project-1", "work-1")
+	second := filepath.Join(filepath.Dir(s.Path()), "worktrees", "project-1", "work-2")
 	claim("work-1", first, "work/vacate-1", "claim-vacate-1")
 	claim("work-2", second, "work/vacate-2", "claim-vacate-2")
 

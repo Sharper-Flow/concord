@@ -51,6 +51,18 @@ def test_go_test_anchor_rejects_a_missing_test() -> None:
     assert not anchor_findings("go_test", "internal/store.TestOpenAppliesRequiredPragmas")
 
 
+def test_go_test_anchor_rejects_an_assertion_free_test() -> None:
+    fixture = ROOT / "internal" / "store" / "zz_assertion_free_anchor_test.go"
+    fixture.write_text(
+        "package store\n\nimport \"testing\"\n\nfunc TestAssertionFreeAnchor(t *testing.T) {}\n",
+        encoding="utf-8",
+    )
+    try:
+        assert anchor_findings("go_test", "internal/store.TestAssertionFreeAnchor")
+    finally:
+        fixture.unlink()
+
+
 def test_go_test_anchor_rejects_a_test_in_a_different_package() -> None:
     # The test exists, but not in the package the anchor names.
     assert anchor_findings("go_test", "internal/agent.TestOpenAppliesRequiredPragmas")

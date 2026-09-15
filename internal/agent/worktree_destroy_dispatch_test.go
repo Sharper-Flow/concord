@@ -48,7 +48,7 @@ func TestWorktreeDestroyDispatchReclaimsMergedTerminalWork(t *testing.T) {
 	completeWork(t, s, "work-2", 3)
 
 	response := authorityInvoke(t, s, second, secondGrant, "concord_work_transition", "worktree_destroy", map[string]any{
-		"work_id": "work-2", "expected_version": 4, "default_ref": "main", "idempotency_key": "destroy-2",
+		"work_id": "work-2", "expected_version": 4, "default_ref": "main", "idempotency_key": "destroy-2", "observed_session_directories": []map[string]any{},
 	})
 	if response.Outcome != OutcomeOK {
 		t.Fatalf("destroy response=%+v err=%+v", response, response.Error)
@@ -66,7 +66,7 @@ func TestWorktreeDestroyDispatchRoutesNonTerminalThroughApproval(t *testing.T) {
 	worktreePath := filepath.Join(filepath.Dir(s.Path()), "worktrees", "project-1", "work-1")
 
 	refused := authorityInvoke(t, s, service, grant, "concord_work_transition", "worktree_destroy", map[string]any{
-		"work_id": "work-1", "expected_version": 3, "default_ref": "main", "idempotency_key": "destroy-nt",
+		"work_id": "work-1", "expected_version": 3, "default_ref": "main", "idempotency_key": "destroy-nt", "observed_session_directories": []map[string]any{},
 	})
 	if refused.Outcome != OutcomeError || refused.Error == nil || refused.Error.Kind != "approval_required" {
 		t.Fatalf("refused response=%+v err=%+v, want approval_required", refused, refused.Error)
@@ -84,12 +84,12 @@ func TestWorktreeDestroyDispatchRoutesNonTerminalThroughApproval(t *testing.T) {
 		t.Fatal(err)
 	}
 	env := mutationEnvelope(grant, scopeVersion)
-	raw, _ := json.Marshal(map[string]any{"work_id": "work-1", "expected_version": 3, "default_ref": "main", "idempotency_key": "destroy-nt"})
+	raw, _ := json.Marshal(map[string]any{"work_id": "work-1", "expected_version": 3, "default_ref": "main", "idempotency_key": "destroy-nt", "observed_session_directories": []map[string]any{}})
 	digest := mutationDigest("concord_work_transition", "worktree_destroy", env, raw)
 	scope := map[string]any{"product_id": "product-1", "product_ids": []string{"product-1"}, "project_ids": []string{"project-1"}, "work_ids": []string{"work-1"}, "scope_version": scopeVersion}
 	versions := map[string]any{"work": 3}
 	env.HostApproval = signedHostApproval(mustKey(t), challengeRef, digest, scope, versions, grant.SessionRef, grant.AgentRef, grant.Worktree, fixedTime(), "destroy-nt-1")
-	approvedRaw, _ := json.Marshal(map[string]any{"work_id": "work-1", "expected_version": 3, "default_ref": "main", "idempotency_key": "destroy-nt", "approval": map[string]any{"approval_ref": challengeRef}})
+	approvedRaw, _ := json.Marshal(map[string]any{"work_id": "work-1", "expected_version": 3, "default_ref": "main", "idempotency_key": "destroy-nt", "observed_session_directories": []map[string]any{}, "approval": map[string]any{"approval_ref": challengeRef}})
 	approved, approvalErr := Dispatch(context.Background(), s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "worktree_destroy", Input: approvedRaw}, env)
 	if approvalErr != nil {
 		t.Fatal(approvalErr)
@@ -114,7 +114,7 @@ func TestWorktreeDestroyDispatchDestructiveUnderApproval(t *testing.T) {
 
 	// The safe path refuses the dirty tree and names the destructive route.
 	refused := authorityInvoke(t, s, service, grant, "concord_work_transition", "worktree_destroy", map[string]any{
-		"work_id": "work-1", "expected_version": 4, "default_ref": "main", "idempotency_key": "destroy-dirty",
+		"work_id": "work-1", "expected_version": 4, "default_ref": "main", "idempotency_key": "destroy-dirty", "observed_session_directories": []map[string]any{},
 	})
 	if refused.Outcome != OutcomeError || refused.Error == nil || refused.Error.Kind != "invalid_input" {
 		t.Fatalf("refused response=%+v err=%+v, want the dirty-tree refusal", refused, refused.Error)
@@ -122,7 +122,7 @@ func TestWorktreeDestroyDispatchDestructiveUnderApproval(t *testing.T) {
 
 	// Destructive intent mints the operator challenge.
 	challenge := authorityInvoke(t, s, service, grant, "concord_work_transition", "worktree_destroy", map[string]any{
-		"work_id": "work-1", "expected_version": 4, "default_ref": "main", "destructive": true, "idempotency_key": "destroy-dirty",
+		"work_id": "work-1", "expected_version": 4, "default_ref": "main", "destructive": true, "idempotency_key": "destroy-dirty", "observed_session_directories": []map[string]any{},
 	})
 	if challenge.Outcome != OutcomeError || challenge.Error == nil || challenge.Error.Kind != "approval_required" {
 		t.Fatalf("challenge response=%+v err=%+v, want approval_required", challenge, challenge.Error)
@@ -134,12 +134,12 @@ func TestWorktreeDestroyDispatchDestructiveUnderApproval(t *testing.T) {
 		t.Fatal(err)
 	}
 	env := mutationEnvelope(grant, scopeVersion)
-	raw, _ := json.Marshal(map[string]any{"work_id": "work-1", "expected_version": 4, "default_ref": "main", "destructive": true, "idempotency_key": "destroy-dirty"})
+	raw, _ := json.Marshal(map[string]any{"work_id": "work-1", "expected_version": 4, "default_ref": "main", "destructive": true, "idempotency_key": "destroy-dirty", "observed_session_directories": []map[string]any{}})
 	digest := mutationDigest("concord_work_transition", "worktree_destroy", env, raw)
 	scope := map[string]any{"product_id": "product-1", "product_ids": []string{"product-1"}, "project_ids": []string{"project-1"}, "work_ids": []string{"work-1"}, "scope_version": scopeVersion}
 	versions := map[string]any{"work": 4}
 	env.HostApproval = signedHostApproval(mustKey(t), challengeRef, digest, scope, versions, grant.SessionRef, grant.AgentRef, grant.Worktree, fixedTime(), "destroy-force-1")
-	approvedRaw, _ := json.Marshal(map[string]any{"work_id": "work-1", "expected_version": 4, "default_ref": "main", "destructive": true, "idempotency_key": "destroy-dirty", "approval": map[string]any{"approval_ref": challengeRef}})
+	approvedRaw, _ := json.Marshal(map[string]any{"work_id": "work-1", "expected_version": 4, "default_ref": "main", "destructive": true, "idempotency_key": "destroy-dirty", "observed_session_directories": []map[string]any{}, "approval": map[string]any{"approval_ref": challengeRef}})
 	approved, approvalErr := Dispatch(context.Background(), s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "worktree_destroy", Input: approvedRaw}, env)
 	if approvalErr != nil {
 		t.Fatal(approvalErr)

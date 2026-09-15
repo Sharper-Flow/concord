@@ -51,6 +51,7 @@ func newFakeWorktreeGit(repoRoot string) *fakeWorktreeGit {
 		ahead:      map[string]int{},
 		unpushed:   map[string]int{},
 		headBranch: "main",
+		defaultRef: "origin/main",
 	}
 }
 
@@ -160,7 +161,7 @@ func (g *fakeWorktreeGit) Run(_ context.Context, dir string, args ...string) ([]
 			return []byte("M file\n"), nil
 		}
 		return nil, nil
-	case join == "symbolic-ref refs/remotes/origin/HEAD":
+	case join == "symbolic-ref refs/remotes/origin/HEAD" || join == "symbolic-ref --quiet refs/remotes/origin/HEAD":
 		if g.defaultRef == "" {
 			return nil, fmt.Errorf("no origin HEAD")
 		}
@@ -186,6 +187,7 @@ func (g *fakeWorktreeGit) Run(_ context.Context, dir string, args ...string) ([]
 }
 
 func (g *fakeWorktreeGit) resolveRef(ref string) string {
+	ref = strings.TrimPrefix(ref, "refs/remotes/")
 	if sha, ok := g.branches[ref]; ok {
 		return sha
 	}
@@ -233,11 +235,16 @@ func jsonRaw(s string) []byte { return []byte(s) }
 func baseClaim(git *fakeWorktreeGit) WorktreeClaimRequest {
 	return WorktreeClaimRequest{
 		OpID: "wt-op-1", WorkID: "work-w", ProjectID: "project-w",
-		Branch: "work/w-1", BaseSHA: git.branches["main"],
-		Path:         filepath.Join(git.repoRoot, "..", "w-1"),
+		BaseSHA:      git.branches["main"],
 		PrincipalRef: "principal-1", RequestID: "req-1",
 		ExpectedVersion: 2, Now: time.Unix(10, 0).UTC(), Runner: git,
 	}
+}
+
+func claimBranch() string { return "work/work-w" }
+
+func claimPath(s *Store) string {
+	return filepath.Join(filepath.Dir(s.Path()), "worktrees", "project-w", "work-w")
 }
 
 func TestClaimWorktreeCreatesVerifiesAndFolds(t *testing.T) {
@@ -246,7 +253,7 @@ func TestClaimWorktreeCreatesVerifiesAndFolds(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Entry.State != worktreeEntryActive || result.Entry.Branch != "work/w-1" || result.Entry.ClaimOpID != "wt-op-1" {
+	if result.Entry.State != worktreeEntryActive || result.Entry.Branch != claimBranch() || result.Entry.ClaimOpID != "wt-op-1" {
 		t.Fatalf("entry=%+v", result.Entry)
 	}
 	if result.Entry.SetID != WorktreeSetID("work-w") {
@@ -271,7 +278,8 @@ func TestClaimWorktreeReconcilesInterruptedCreateWithoutSecondWorktree(t *testin
 	if err := s.insertPendingClaim(req); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := git.Run(context.Background(), git.repoRoot, "worktree", "add", req.Path, "-b", req.Branch, req.BaseSHA); err != nil {
+	path := filepath.Join(filepath.Dir(s.Path()), "worktrees", req.ProjectID, req.WorkID)
+	if _, err := git.Run(context.Background(), git.repoRoot, "worktree", "add", path, "-b", claimBranch(), req.BaseSHA); err != nil {
 		t.Fatal(err)
 	}
 
@@ -312,7 +320,7 @@ func TestClaimWorktreeRetryFromPendingWithoutNativeCreateProbesFirst(t *testing.
 func TestClaimWorktreeReusesOrphanedBranchAtPinnedBase(t *testing.T) {
 	s, git, _ := worktreeFixture(t)
 	req := baseClaim(git)
-	git.branches[req.Branch] = req.BaseSHA
+	git.branches[claimBranch()] = req.BaseSHA
 
 	result, err := s.ClaimWorktree(context.Background(), req)
 	if err != nil {
@@ -325,7 +333,7 @@ func TestClaimWorktreeReusesOrphanedBranchAtPinnedBase(t *testing.T) {
 		t.Fatalf("expected one native add, got %d", git.countCalls("worktree add"))
 	}
 	for _, call := range git.calls {
-		if strings.Join(call[1:], " ") == "worktree add "+req.Path+" "+req.Branch {
+		if strings.Join(call[1:], " ") == "worktree add "+claimPath(s)+" "+claimBranch() {
 			return
 		}
 	}
@@ -335,7 +343,7 @@ func TestClaimWorktreeReusesOrphanedBranchAtPinnedBase(t *testing.T) {
 func TestClaimWorktreeRefusesDivergentExistingBranch(t *testing.T) {
 	s, git, _ := worktreeFixture(t)
 	req := baseClaim(git)
-	git.branches[req.Branch] = strings.Repeat("b", 40)
+	git.branches[claimBranch()] = strings.Repeat("b", 40)
 
 	_, err := s.ClaimWorktree(context.Background(), req)
 	if failureKind(err) != KindProjectionConflict {
@@ -349,7 +357,8 @@ func TestClaimWorktreeRefusesDivergentExistingBranch(t *testing.T) {
 func TestClaimWorktreeRefusesSecondActiveAndIntentMismatch(t *testing.T) {
 	s, git, _ := worktreeFixture(t)
 	req := baseClaim(git)
-	if _, err := s.ClaimWorktree(context.Background(), req); err != nil {
+	_, err := s.ClaimWorktree(context.Background(), req)
+	if err != nil {
 		t.Fatal(err)
 	}
 	second := req
@@ -358,9 +367,9 @@ func TestClaimWorktreeRefusesSecondActiveAndIntentMismatch(t *testing.T) {
 		t.Fatal("second active worktree for one Project must be refused")
 	}
 	mismatched := req
-	mismatched.Branch = "work/different"
+	mismatched.BaseSHA = strings.Repeat("b", 40)
 	if _, err := s.ClaimWorktree(context.Background(), mismatched); err == nil {
-		t.Fatal("retry with different intent must be refused")
+		t.Fatal("retry with different base intent must be refused")
 	}
 }
 
@@ -387,23 +396,24 @@ func TestClaimWorktreeVerifiedReplayIsIdempotent(t *testing.T) {
 func TestReclaimWorktreeDerivesFromGitFacts(t *testing.T) {
 	s, git, _ := worktreeFixture(t)
 	req := baseClaim(git)
-	if _, err := s.ClaimWorktree(context.Background(), req); err != nil {
+	claimed, err := s.ClaimWorktree(context.Background(), req)
+	if err != nil {
 		t.Fatal(err)
 	}
-	reclaim := WorktreeReclaimRequest{WorkID: "work-w", ProjectID: "project-w", DefaultRef: "origin/main", PrincipalRef: "principal-1", RequestID: "req-2", ExpectedVersion: 3, Now: time.Unix(20, 0).UTC(), Runner: git}
+	reclaim := WorktreeReclaimRequest{WorkID: "work-w", ProjectID: "project-w", DefaultRef: "origin/main", PrincipalRef: "principal-1", RequestID: "req-2", ExpectedVersion: 3, Now: time.Unix(20, 0).UTC(), Runner: git, ObservedSessionDirectories: emptySessionObservation()}
 
-	git.dirty[req.Path] = true
+	git.dirty[claimed.Entry.Path] = true
 	if _, err := s.ReclaimWorktree(context.Background(), reclaim); err == nil || !strings.Contains(err.Error(), "dirty") {
 		t.Fatalf("dirty tree must be refused, got %v", err)
 	}
-	git.dirty[req.Path] = false
+	git.dirty[claimed.Entry.Path] = false
 
 	// Unmerged: the branch head moves beyond the default ref's history.
-	git.branches["work/w-1"] = strings.Repeat("b", 40)
+	git.branches[claimBranch()] = strings.Repeat("b", 40)
 	if _, err := s.ReclaimWorktree(context.Background(), reclaim); err == nil || !strings.Contains(err.Error(), "not merged") {
 		t.Fatalf("unmerged head must be refused, got %v", err)
 	}
-	git.branches["work/w-1"] = req.BaseSHA
+	git.branches[claimBranch()] = req.BaseSHA
 
 	entry, err := s.ReclaimWorktree(context.Background(), reclaim)
 	if err != nil {
@@ -412,10 +422,10 @@ func TestReclaimWorktreeDerivesFromGitFacts(t *testing.T) {
 	if entry.State != worktreeEntryReclaimed {
 		t.Fatalf("entry=%+v", entry)
 	}
-	if _, still := git.worktrees[req.Path]; still {
+	if _, still := git.worktrees[claimed.Entry.Path]; still {
 		t.Fatal("native worktree was not removed")
 	}
-	if _, still := git.branches[req.Branch]; still {
+	if _, still := git.branches[claimBranch()]; still {
 		t.Fatal("reclaimed branch was not deleted")
 	}
 	replay, err := s.ReclaimWorktree(context.Background(), reclaim)
@@ -496,7 +506,8 @@ func TestReclaimWorktreeReplaysVersionOnePayload(t *testing.T) {
 func TestReclaimWorktreeRefusesOccupiedWorktree(t *testing.T) {
 	s, git, _ := worktreeFixture(t)
 	req := baseClaim(git)
-	if _, err := s.ClaimWorktree(context.Background(), req); err != nil {
+	claimed, err := s.ClaimWorktree(context.Background(), req)
+	if err != nil {
 		t.Fatal(err)
 	}
 	reclaim := WorktreeReclaimRequest{
@@ -507,9 +518,9 @@ func TestReclaimWorktreeRefusesOccupiedWorktree(t *testing.T) {
 
 	// A session sitting in a subdirectory of the worktree occupies it just as
 	// one sitting at its root does.
-	for _, directory := range []string{req.Path, filepath.Join(req.Path, "internal", "store")} {
+	for _, directory := range []string{claimed.Entry.Path, filepath.Join(claimed.Entry.Path, "internal", "store")} {
 		occupied := reclaim
-		occupied.ObservedSessionDirectories = []SessionDirectory{{SessionRef: "ses_live", Directory: directory}}
+		occupied.ObservedSessionDirectories = &[]SessionDirectory{{SessionRef: "ses_live", Directory: directory}}
 		_, err := s.ReclaimWorktree(context.Background(), occupied)
 		if err == nil {
 			t.Fatalf("a session in %q must refuse the removal", directory)
@@ -518,10 +529,10 @@ func TestReclaimWorktreeRefusesOccupiedWorktree(t *testing.T) {
 		if !ok || failure.Kind != KindWorktreeOwnershipConflict {
 			t.Fatalf("err=%v, want worktree_ownership_conflict", err)
 		}
-		if !strings.Contains(failure.Detail, "ses_live") || !strings.Contains(failure.Detail, req.Path) {
+		if !strings.Contains(failure.Detail, "ses_live") || !strings.Contains(failure.Detail, claimed.Entry.Path) {
 			t.Fatalf("refusal %q must name the session and the worktree", failure.Detail)
 		}
-		if _, still := git.worktrees[req.Path]; !still {
+		if _, still := git.worktrees[claimed.Entry.Path]; !still {
 			t.Fatal("a refused removal must leave the native worktree in place")
 		}
 		entries, entriesErr := s.WorktreeEntries(context.Background(), "work-w")
@@ -533,9 +544,9 @@ func TestReclaimWorktreeRefusesOccupiedWorktree(t *testing.T) {
 	// A session elsewhere, and a path that merely shares a prefix with the
 	// worktree name, leave the removal alone.
 	unoccupied := reclaim
-	unoccupied.ObservedSessionDirectories = []SessionDirectory{
+	unoccupied.ObservedSessionDirectories = &[]SessionDirectory{
 		{SessionRef: "ses_other", Directory: filepath.Join(git.repoRoot, "..", "w-2")},
-		{SessionRef: "ses_sibling", Directory: req.Path + "-sibling"},
+		{SessionRef: "ses_sibling", Directory: claimed.Entry.Path + "-sibling"},
 	}
 	entry, err := s.ReclaimWorktree(context.Background(), unoccupied)
 	if err != nil {
@@ -544,7 +555,7 @@ func TestReclaimWorktreeRefusesOccupiedWorktree(t *testing.T) {
 	if entry.State != worktreeEntryReclaimed {
 		t.Fatalf("entry=%+v", entry)
 	}
-	if _, still := git.worktrees[req.Path]; still {
+	if _, still := git.worktrees[claimed.Entry.Path]; still {
 		t.Fatal("native worktree was not removed")
 	}
 }
@@ -556,17 +567,18 @@ func TestReclaimWorktreeRefusesOccupiedWorktree(t *testing.T) {
 func TestDestroyRefusesOccupiedWorktreeDespiteApproval(t *testing.T) {
 	s, git, _ := worktreeFixture(t)
 	req := baseClaim(git)
-	if _, err := s.ClaimWorktree(context.Background(), req); err != nil {
+	claimed, err := s.ClaimWorktree(context.Background(), req)
+	if err != nil {
 		t.Fatal(err)
 	}
 	seedWorktreeLifecycle(t, s, "work-w", "completed", 3)
-	_, err := s.DestroyWorktree(context.Background(), WorktreeDestroyRequest{
+	_, err = s.DestroyWorktree(context.Background(), WorktreeDestroyRequest{
 		WorkID: "work-w", ProjectID: "project-w", DefaultRef: "origin/main",
 		ExpectedVersion: 4, PrincipalRef: "principal-1", RequestID: "destroy-occupied",
 		Now: time.Unix(30, 0).UTC(), Runner: git,
 		OperatorApprovalRef:        "approval:destroy-forced",
 		Destructive:                true,
-		ObservedSessionDirectories: []SessionDirectory{{SessionRef: "ses_live", Directory: req.Path}},
+		ObservedSessionDirectories: &[]SessionDirectory{{SessionRef: "ses_live", Directory: claimed.Entry.Path}},
 	})
 	if err == nil {
 		t.Fatal("a destructive destroy must still refuse an occupied worktree")
@@ -575,7 +587,7 @@ func TestDestroyRefusesOccupiedWorktreeDespiteApproval(t *testing.T) {
 	if !ok || failure.Kind != KindWorktreeOwnershipConflict {
 		t.Fatalf("err=%v, want worktree_ownership_conflict", err)
 	}
-	if _, still := git.worktrees[req.Path]; !still {
+	if _, still := git.worktrees[claimed.Entry.Path]; !still {
 		t.Fatal("a refused destroy must leave the native worktree in place")
 	}
 }
@@ -590,12 +602,12 @@ func TestReclaimAbsentWorktreeIgnoresOccupancy(t *testing.T) {
 	if _, err := s.ClaimWorktree(context.Background(), req); err != nil {
 		t.Fatal(err)
 	}
-	delete(git.worktrees, req.Path)
+	delete(git.worktrees, claimPath(s))
 	entry, err := s.ReclaimWorktree(context.Background(), WorktreeReclaimRequest{
 		WorkID: "work-w", ProjectID: "project-w", DefaultRef: "origin/main",
 		PrincipalRef: "principal-1", RequestID: "req-absent", ExpectedVersion: 3,
 		Now: time.Unix(20, 0).UTC(), Runner: git,
-		ObservedSessionDirectories: []SessionDirectory{{SessionRef: "ses_live", Directory: req.Path}},
+		ObservedSessionDirectories: &[]SessionDirectory{{SessionRef: "ses_live", Directory: claimPath(s)}},
 	})
 	if err != nil {
 		t.Fatalf("an absent worktree must reconcile, got %v", err)
@@ -623,10 +635,10 @@ func TestReclaimWorktreeAcceptsSquashMergedBranch(t *testing.T) {
 	const squashedTree = "squashed-content-tree"
 	git.branches["main"] = strings.Repeat("c", 40)
 	git.content["main"] = squashedTree
-	git.branches["work/w-1"] = strings.Repeat("b", 40)
-	git.content["work/w-1"] = squashedTree
+	git.branches[claimBranch()] = strings.Repeat("b", 40)
+	git.content[claimBranch()] = squashedTree
 
-	reclaim := WorktreeReclaimRequest{WorkID: "work-w", ProjectID: "project-w", DefaultRef: "origin/main", PrincipalRef: "principal-1", RequestID: "req-2", ExpectedVersion: 3, Now: time.Unix(20, 0).UTC(), Runner: git}
+	reclaim := WorktreeReclaimRequest{WorkID: "work-w", ProjectID: "project-w", DefaultRef: "origin/main", PrincipalRef: "principal-1", RequestID: "req-2", ExpectedVersion: 3, Now: time.Unix(20, 0).UTC(), Runner: git, ObservedSessionDirectories: emptySessionObservation()}
 	entry, err := s.ReclaimWorktree(context.Background(), reclaim)
 	if err != nil {
 		t.Fatalf("a squash-merged branch must reclaim, got %v", err)
@@ -634,7 +646,7 @@ func TestReclaimWorktreeAcceptsSquashMergedBranch(t *testing.T) {
 	if entry.State != worktreeEntryReclaimed {
 		t.Fatalf("entry=%+v", entry)
 	}
-	if _, still := git.worktrees[req.Path]; still {
+	if _, still := git.worktrees[claimPath(s)]; still {
 		t.Fatal("native worktree was not removed")
 	}
 }
@@ -658,7 +670,7 @@ func TestWorktreeEntriesRebuildFromLog(t *testing.T) {
 // state an interrupted operation leaves behind.
 func (s *Store) insertPendingClaim(req WorktreeClaimRequest) error {
 	_, err := s.db.Exec(`INSERT INTO worktree_claims(op_id,work_id,project_id,set_id,pinned_branch,pinned_base_sha,pinned_path,state,principal_ref,request_id,observed_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`,
-		req.OpID, req.WorkID, req.ProjectID, WorktreeSetID(req.WorkID), req.Branch, req.BaseSHA, req.Path, worktreeStatePending, req.PrincipalRef, req.RequestID, req.Now.Format(time.RFC3339Nano), req.Now.Format(time.RFC3339Nano))
+		req.OpID, req.WorkID, req.ProjectID, WorktreeSetID(req.WorkID), "work/"+req.WorkID, req.BaseSHA, filepath.Join(filepath.Dir(s.Path()), "worktrees", req.ProjectID, req.WorkID), worktreeStatePending, req.PrincipalRef, req.RequestID, req.Now.Format(time.RFC3339Nano), req.Now.Format(time.RFC3339Nano))
 	return err
 }
 
@@ -678,8 +690,7 @@ func auditWork(t *testing.T, s *Store, git *fakeWorktreeGit, workID string, onDi
 	path := filepath.Join(filepath.Dir(s.Path()), "worktrees", "project-w", workID)
 	req := WorktreeClaimRequest{
 		OpID: "wt-" + workID, WorkID: workID, ProjectID: "project-w",
-		Branch: "work/" + workID, BaseSHA: git.branches["main"],
-		Path:         path,
+		BaseSHA:      git.branches["main"],
 		PrincipalRef: "principal-1", RequestID: "req-" + workID,
 		ExpectedVersion: 2, Now: time.Unix(10, 0).UTC(), Runner: git,
 	}
@@ -771,9 +782,7 @@ func TestWorktreeAuditClassifiesEachDriftClass(t *testing.T) {
 // classify it as drift.
 func TestWorktreeAuditIgnoresPendingClaims(t *testing.T) {
 	s, git, _ := worktreeFixture(t)
-	path := filepath.Join(filepath.Dir(s.Path()), "worktrees", "project-w", "work-w")
 	req := baseClaim(git)
-	req.Path = path
 	if err := s.insertPendingClaim(req); err != nil {
 		t.Fatal(err)
 	}

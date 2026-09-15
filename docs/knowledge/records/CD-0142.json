@@ -1,0 +1,50 @@
+{
+  "date": "2026-09-14T00:00:00Z",
+  "evidence": [
+    "internal/store/work_removal.go",
+    "internal/store/work_removal_test.go",
+    "internal/store/product_row.go",
+    "internal/store/domain_reads.go",
+    "internal/agent/mutations.go",
+    "cmd/concord/main.go",
+    "contracts/agent-tool-surface-payloads.schema.json"
+  ],
+  "home_domain_id": "product-root:concord",
+  "id": "CD-0142",
+  "kind": "decision",
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "PM4"
+    },
+    {
+      "kind": "refines",
+      "target_id": "PM7"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0066"
+    }
+  ],
+  "path": "docs/decisions/CD-0142-operator-directed-execution-removal.md",
+  "product_wide_rationale": "Defines the Product-wide boundary that removes an execution identity only after preservation and reconciliation, so no Domain can retain an actionable shelved or cancelled execution.",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:dc07650c4cc8af04ec469a804ac7c3f1b92f076a2d9f6688f6a22937c6330a26",
+  "status": "accepted",
+  "summary": "Shelving and cancellation use a typed, fenced, replay-safe removal operation that preserves the planning handoff and exact event history, removes owned execution projections, keeps Linear issues open, and gives renewed work a fresh identity. Liveness remains read-time evidence and never authorizes removal.",
+  "tags": [
+    "product-law",
+    "workflow",
+    "removal",
+    "shelving",
+    "liveness",
+    "linear"
+  ],
+  "title": "Operator-directed execution removal preserves the planning record"
+}

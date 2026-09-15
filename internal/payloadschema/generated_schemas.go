@@ -1035,6 +1035,9 @@ const GeneratedPayloadSchemaDocument = `{
         "lifecycle": {
           "$ref": "#/$defs/lifecycle"
         },
+        "liveness": {
+          "$ref": "#/$defs/work_liveness"
+        },
         "priority": {
           "type": "integer"
         },
@@ -2939,11 +2942,31 @@ const GeneratedPayloadSchemaDocument = `{
           "minimum": 0,
           "type": "integer"
         },
+        "live": {
+          "maximum": 100,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "needs_attention": {
+          "maximum": 100,
+          "minimum": 0,
+          "type": "integer"
+        },
         "overdue_awaits": {
           "minimum": 0,
           "type": "integer"
         },
         "ready": {
+          "maximum": 100,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "unknown": {
+          "maximum": 100,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "waiting": {
           "maximum": 100,
           "minimum": 0,
           "type": "integer"
@@ -2955,7 +2978,11 @@ const GeneratedPayloadSchemaDocument = `{
         "ready",
         "active_problems",
         "approval_required",
-        "overdue_awaits"
+        "overdue_awaits",
+        "live",
+        "waiting",
+        "needs_attention",
+        "unknown"
       ],
       "type": "object"
     },
@@ -3036,6 +3063,9 @@ const GeneratedPayloadSchemaDocument = `{
         },
         "lifecycle": {
           "$ref": "#/$defs/lifecycle"
+        },
+        "liveness": {
+          "$ref": "#/$defs/work_liveness"
         },
         "priority": {
           "type": "integer"
@@ -5512,6 +5542,53 @@ const GeneratedPayloadSchemaDocument = `{
       ],
       "type": "string"
     },
+    "work_liveness": {
+      "additionalProperties": false,
+      "properties": {
+        "attempts": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "evidence": {
+          "items": {
+            "maxLength": 512,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 64,
+          "minItems": 1,
+          "type": "array"
+        },
+        "last_progress": {
+          "maxLength": 64,
+          "type": "string"
+        },
+        "open_waits": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "state": {
+          "enum": [
+            "live",
+            "waiting",
+            "needs_attention",
+            "unknown"
+          ],
+          "type": "string"
+        },
+        "work_id": {
+          "$ref": "#/$defs/id"
+        }
+      },
+      "required": [
+        "work_id",
+        "state",
+        "evidence",
+        "attempts",
+        "open_waits"
+      ],
+      "type": "object"
+    },
     "work_messages_page": {
       "additionalProperties": false,
       "properties": {
@@ -6369,6 +6446,69 @@ const GeneratedPayloadSchemaDocument = `{
       ],
       "type": "object"
     },
+    "work_removal_handoff": {
+      "additionalProperties": false,
+      "properties": {
+        "artifacts": {
+          "items": {
+            "maxLength": 4096,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 64,
+          "minItems": 1,
+          "type": "array"
+        },
+        "blockers": {
+          "items": {
+            "maxLength": 4096,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 64,
+          "minItems": 1,
+          "type": "array"
+        },
+        "findings": {
+          "items": {
+            "maxLength": 4096,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 64,
+          "minItems": 1,
+          "type": "array"
+        },
+        "remaining_scope": {
+          "items": {
+            "maxLength": 4096,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 64,
+          "minItems": 1,
+          "type": "array"
+        },
+        "renewal_conditions": {
+          "items": {
+            "maxLength": 4096,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 64,
+          "minItems": 1,
+          "type": "array"
+        }
+      },
+      "required": [
+        "findings",
+        "remaining_scope",
+        "blockers",
+        "artifacts",
+        "renewal_conditions"
+      ],
+      "type": "object"
+    },
     "work_scope": {
       "additionalProperties": false,
       "anyOf": [
@@ -6488,6 +6628,9 @@ const GeneratedPayloadSchemaDocument = `{
         },
         "lifecycle": {
           "$ref": "#/$defs/lifecycle"
+        },
+        "liveness": {
+          "$ref": "#/$defs/work_liveness"
         },
         "narrative": {
           "maxLength": 16384,
@@ -10157,6 +10300,129 @@ const GeneratedPayloadSchemaDocument = `{
       ],
       "type": "object"
     },
+    "work_transition_remove_input": {
+      "additionalProperties": false,
+      "properties": {
+        "actor": {
+          "$ref": "#/$defs/id"
+        },
+        "approval": {
+          "$ref": "#/$defs/approval"
+        },
+        "artifacts_verified": {
+          "type": "boolean"
+        },
+        "dependencies_resolved": {
+          "type": "boolean"
+        },
+        "effects_reconciled": {
+          "type": "boolean"
+        },
+        "execution_relinquished": {
+          "type": "boolean"
+        },
+        "expected_version": {
+          "$ref": "#/$defs/version"
+        },
+        "handoff": {
+          "$ref": "#/$defs/work_removal_handoff"
+        },
+        "idempotency_key": {
+          "$ref": "#/$defs/id"
+        },
+        "linear": {
+          "additionalProperties": false,
+          "properties": {
+            "creation_intent": {
+              "maxLength": 256,
+              "type": "string"
+            },
+            "destination": {
+              "const": "linear",
+              "type": "string"
+            },
+            "handoff_digest": {
+              "$ref": "#/$defs/digest"
+            },
+            "product_id": {
+              "$ref": "#/$defs/id"
+            },
+            "remote_issue_uuid": {
+              "$ref": "#/$defs/id"
+            }
+          },
+          "required": [
+            "product_id",
+            "remote_issue_uuid",
+            "destination",
+            "handoff_digest"
+          ],
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "operation_id": {
+          "$ref": "#/$defs/id"
+        },
+        "product_id": {
+          "$ref": "#/$defs/id"
+        },
+        "reason": {
+          "enum": [
+            "shelved",
+            "cancelled"
+          ],
+          "type": "string"
+        },
+        "sessions": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "session_ref": {
+                "$ref": "#/$defs/id"
+              },
+              "state": {
+                "enum": [
+                  "active",
+                  "unknown",
+                  "vacated"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "session_ref",
+              "state"
+            ],
+            "type": "object"
+          },
+          "maxItems": 64,
+          "type": "array"
+        },
+        "work_id": {
+          "$ref": "#/$defs/id"
+        },
+        "writes_reconciled": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "operation_id",
+        "idempotency_key",
+        "work_id",
+        "expected_version",
+        "reason",
+        "actor",
+        "handoff",
+        "execution_relinquished",
+        "writes_reconciled",
+        "effects_reconciled",
+        "dependencies_resolved",
+        "artifacts_verified"
+      ],
+      "type": "object"
+    },
     "work_transition_session_vacate_input": {
       "additionalProperties": false,
       "properties": {
@@ -10218,7 +10484,7 @@ const GeneratedPayloadSchemaDocument = `{
           "type": "integer"
         },
         "observed_session_directories": {
-          "description": "CD-0096 D3, issue #722: the live host sessions the caller observed, each with the directory it runs in. The removal refuses when one of them is the worktree or sits beneath it, because removing that directory leaves the session unable to send another prompt. The store owns the worktree path and the host owns session liveness, so the caller that sees both supplies the observation and the core decides on it. A caller with no host omits the field and reaches the git gates alone.",
+          "description": "CD-0096 D3, issue #722: the live host sessions the caller observed, each with the directory it runs in. The removal refuses when one of them is the worktree or sits beneath it, because removing that directory leaves the session unable to send another prompt. The store owns the worktree path and the host owns session liveness, so the caller that sees both supplies the observation and the core decides on it. The caller must supply the field. An empty list proves that no live session occupies the worktree; an absent list is not evidence.",
           "items": {
             "additionalProperties": false,
             "properties": {
@@ -10261,22 +10527,11 @@ const GeneratedPayloadSchemaDocument = `{
           "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$",
           "type": "string"
         },
-        "branch": {
-          "maxLength": 128,
-          "minLength": 1,
-          "pattern": "^[A-Za-z0-9][A-Za-z0-9._/-]{0,127}$",
-          "type": "string"
-        },
         "expected_version": {
           "$ref": "#/$defs/version"
         },
         "idempotency_key": {
           "$ref": "#/$defs/id"
-        },
-        "path": {
-          "maxLength": 4096,
-          "minLength": 1,
-          "type": "string"
         },
         "project_id": {
           "$ref": "#/$defs/id"
@@ -10291,9 +10546,7 @@ const GeneratedPayloadSchemaDocument = `{
       "required": [
         "work_id",
         "project_id",
-        "branch",
         "base_sha",
-        "path",
         "expected_version",
         "idempotency_key"
       ],
@@ -10325,7 +10578,7 @@ const GeneratedPayloadSchemaDocument = `{
           "$ref": "#/$defs/id"
         },
         "observed_session_directories": {
-          "description": "CD-0096 D3, issue #722: the live host sessions the caller observed, each with the directory it runs in. The removal refuses when one of them is the worktree or sits beneath it, because removing that directory leaves the session unable to send another prompt. The store owns the worktree path and the host owns session liveness, so the caller that sees both supplies the observation and the core decides on it. A caller with no host omits the field and reaches the git gates alone.",
+          "description": "CD-0096 D3, issue #722: the live host sessions the caller observed, each with the directory it runs in. The removal refuses when one of them is the worktree or sits beneath it, because removing that directory leaves the session unable to send another prompt. The store owns the worktree path and the host owns session liveness, so the caller that sees both supplies the observation and the core decides on it. The caller must supply the field. An empty list proves that no live session occupies the worktree; an absent list is not evidence.",
           "items": {
             "additionalProperties": false,
             "properties": {
@@ -10375,7 +10628,7 @@ const GeneratedPayloadSchemaDocument = `{
           "$ref": "#/$defs/id"
         },
         "observed_session_directories": {
-          "description": "CD-0096 D3, issue #722: the live host sessions the caller observed, each with the directory it runs in. The removal refuses when one of them is the worktree or sits beneath it, because removing that directory leaves the session unable to send another prompt. The store owns the worktree path and the host owns session liveness, so the caller that sees both supplies the observation and the core decides on it. A caller with no host omits the field and reaches the git gates alone.",
+          "description": "CD-0096 D3, issue #722: the live host sessions the caller observed, each with the directory it runs in. The removal refuses when one of them is the worktree or sits beneath it, because removing that directory leaves the session unable to send another prompt. The store owns the worktree path and the host owns session liveness, so the caller that sees both supplies the observation and the core decides on it. The caller must supply the field. An empty list proves that no live session occupies the worktree; an absent list is not evidence.",
           "items": {
             "additionalProperties": false,
             "properties": {

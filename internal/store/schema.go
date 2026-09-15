@@ -4424,15 +4424,63 @@ DELETE FROM fold_guard WHERE active = 1;
 `,
 	},
 	{
-		// A nullable JSON object would let SQL NULL and JSON null describe the
-		// same state. The non-null JSON default keeps one canonical unclassified
-		// representation while older binaries continue to omit the new column.
-		Version: 81,
-		Name:    "workflow_self_repair_classification",
+		Version:  81,
+		Name:     "workflow_self_repair_classification",
+		Breaking: false,
 		SQL: `
 ALTER TABLE workflow_contracts
 ADD COLUMN self_repair_json TEXT NOT NULL DEFAULT 'null'
 CHECK(json_valid(self_repair_json) AND json_type(self_repair_json) IN ('null','object'));
+`,
+	},
+	{
+		Version:  82,
+		Name:     "replay_safe_work_removal_receipts",
+		Breaking: false,
+		SQL: `
+-- Operator-directed shelving and cancellation remove the execution projection,
+-- but retain a typed receipt and the append-only removal event. The receipt has
+-- no foreign key to work_items because it must survive that row's removal.
+CREATE TABLE work_removal_operations (
+    operation_id     TEXT PRIMARY KEY CHECK(length(operation_id) BETWEEN 2 AND 128),
+    idempotency_key  TEXT NOT NULL UNIQUE CHECK(length(idempotency_key) BETWEEN 2 AND 128),
+    work_id          TEXT NOT NULL UNIQUE CHECK(length(work_id) BETWEEN 2 AND 128),
+    expected_version INTEGER NOT NULL CHECK(expected_version > 0),
+    reason           TEXT NOT NULL CHECK(reason IN ('shelved','cancelled')),
+    actor            TEXT NOT NULL CHECK(length(actor) BETWEEN 2 AND 128),
+    product_id       TEXT NOT NULL DEFAULT '',
+    handoff_json     TEXT NOT NULL CHECK(json_valid(handoff_json) AND json_type(handoff_json)='object'),
+    handoff_digest   TEXT NOT NULL CHECK(length(handoff_digest)=71 AND substr(handoff_digest,1,7)='sha256:'),
+    state            TEXT NOT NULL CHECK(state IN ('prepared','committed')),
+    event_id         TEXT NOT NULL DEFAULT '',
+    created_at       TEXT NOT NULL,
+    updated_at       TEXT NOT NULL
+);
+CREATE INDEX work_removal_operations_work ON work_removal_operations(work_id);
+CREATE TRIGGER work_removal_operations_guard_insert BEFORE INSERT ON work_removal_operations FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'work_removal_operations is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER work_removal_operations_guard_update BEFORE UPDATE ON work_removal_operations FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'work_removal_operations is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER work_removal_operations_guard_delete BEFORE DELETE ON work_removal_operations FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'work_removal_operations is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+`,
+	},
+	{
+		Version:  83,
+		Name:     "work_removal_linear_confirmation",
+		Breaking: false,
+		SQL: `
+ALTER TABLE work_removal_operations ADD COLUMN linear_confirmation_json TEXT NOT NULL DEFAULT '{}'
+    CHECK(json_valid(linear_confirmation_json) AND json_type(linear_confirmation_json)='object');
+`,
+	},
+	{
+		Version:  84,
+		Name:     "worktree_claim_identity_uniqueness",
+		Breaking: true,
+		SQL: `
+-- CD-0151: active claims cannot reuse one native path or branch.
+CREATE UNIQUE INDEX worktree_claims_one_active_path ON worktree_claims(pinned_path)
+    WHERE state IN ('pending','verified');
+CREATE UNIQUE INDEX worktree_claims_one_active_branch ON worktree_claims(pinned_branch)
+    WHERE state IN ('pending','verified');
 `,
 	},
 }

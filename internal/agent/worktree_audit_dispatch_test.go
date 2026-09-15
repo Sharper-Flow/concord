@@ -28,7 +28,7 @@ func TestWorktreeAuditReadClassifiesDriftThroughToolSurface(t *testing.T) {
 	}
 	claimInput, _ := json.Marshal(map[string]any{
 		"work_id": "work-1", "project_id": "project-1",
-		"branch": location.Branch, "base_sha": location.BaseSHA, "path": location.Path,
+		"base_sha":         location.BaseSHA,
 		"expected_version": 2, "idempotency_key": "wt-audit-claim",
 	})
 	claim, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "worktree_claim", Input: claimInput}, mutationEnvelope(grant, scopeVersion))

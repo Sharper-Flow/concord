@@ -62,10 +62,10 @@ func TestCommittedReclaimEnvelopeSatisfiesGeneratedContract(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	worktreePath := filepath.Join(t.TempDir(), "linked-wt")
+	worktreePath := filepath.Join(filepath.Dir(s.Path()), "worktrees", "project-1", "work-1")
 	claimInput, _ := json.Marshal(map[string]any{
 		"work_id": "work-1", "project_id": "project-1",
-		"branch": "work/contract-701", "base_sha": baseSHA, "path": worktreePath,
+		"base_sha":         baseSHA,
 		"expected_version": 2, "idempotency_key": "701-claim",
 	})
 	claim, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "worktree_claim", Input: claimInput}, mutationEnvelope(grant, scopeVersion))
@@ -74,7 +74,7 @@ func TestCommittedReclaimEnvelopeSatisfiesGeneratedContract(t *testing.T) {
 	}
 	reclaimInput, _ := json.Marshal(map[string]any{
 		"work_id": "work-1", "project_id": "project-1",
-		"default_ref": "main", "expected_version": 3, "idempotency_key": "701-reclaim",
+		"default_ref": "main", "expected_version": 3, "idempotency_key": "701-reclaim", "observed_session_directories": []map[string]any{},
 	})
 	reclaim := InvokeRequest{Tool: "concord_work_transition", Operation: "worktree_reclaim", Input: reclaimInput}
 	committed, err := Dispatch(ctx, s, service, reclaim, mutationEnvelope(grant, scopeVersion))

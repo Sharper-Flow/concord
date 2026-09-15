@@ -88,13 +88,14 @@ type DomainDetailResult struct {
 }
 
 type DomainActiveWorkItem struct {
-	WorkID          string `json:"work_id"`
-	Kind            string `json:"kind"`
-	Title           string `json:"title"`
-	Lifecycle       string `json:"lifecycle"`
-	Priority        int64  `json:"priority"`
-	ContractVersion int64  `json:"contract_version"`
-	HomeDomain      bool   `json:"home_domain"`
+	WorkID          string       `json:"work_id"`
+	Kind            string       `json:"kind"`
+	Title           string       `json:"title"`
+	Lifecycle       string       `json:"lifecycle"`
+	Priority        int64        `json:"priority"`
+	ContractVersion int64        `json:"contract_version"`
+	HomeDomain      bool         `json:"home_domain"`
+	Liveness        WorkLiveness `json:"liveness"`
 }
 
 type DomainActiveWorkRequest struct {
@@ -527,6 +528,15 @@ func queryDomainActiveWork(ctx context.Context, q queryer, req DomainActiveWorkR
 	}
 	if err := rows.Err(); err != nil {
 		return out, wrapFailure(KindUnavailable, "C22.DomainActiveWork", "cannot enumerate Domain-bound work", true, "retry once the workflow projection is readable", err)
+	}
+	if err := rows.Close(); err != nil {
+		return out, wrapFailure(KindUnavailable, "C22.DomainActiveWork", "cannot close Domain-bound work read", true, "retry once the workflow projection is readable", err)
+	}
+	for i := range out.Work {
+		out.Work[i].Liveness, err = deriveWorkLivenessQ(ctx, q, out.Work[i].WorkID)
+		if err != nil {
+			return out, err
+		}
 	}
 	if len(out.Work) > limit {
 		out.Work = out.Work[:limit]

@@ -511,6 +511,7 @@
             "operation": {
               "enum": [
                 "lifecycle",
+                "remove",
                 "workflow_action",
                 "worker_abandon",
                 "worktree_claim",
@@ -801,6 +802,7 @@
             "supersede",
             "unlink",
             "unprocessed",
+            "remove",
             "workflow_action",
             "worker_abandon",
             "worktree_audit",
@@ -1251,6 +1253,7 @@
             "supersede",
             "unlink",
             "unprocessed",
+            "remove",
             "workflow_action",
             "worker_abandon",
             "worktree_audit",

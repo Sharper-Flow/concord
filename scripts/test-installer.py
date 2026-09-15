@@ -13,6 +13,7 @@ import sys
 import tarfile
 import tempfile
 import unittest
+from types import SimpleNamespace
 from unittest import mock
 from pathlib import Path
 
@@ -1559,6 +1560,33 @@ esac''',
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("--version", result.stderr)
 
+    def test_pinned_install_passes_the_tag_download_base_to_artifact_fetch(self) -> None:
+        base_url = "https://github.com/Sharper-Flow/concord/releases/latest/download"
+        args = SimpleNamespace(
+            version="v7.10.2", artifact_dir=None, base_url=base_url, root=self.root
+        )
+        with mock.patch.dict(os.environ, self.env, clear=True), mock.patch.object(
+            installer, "extract_verified_artifact", side_effect=installer.InstallerError("stop after routing")
+        ) as extract:
+            with self.assertRaises(installer.InstallerError):
+                installer.install(args)
+        self.assertEqual(
+            extract.call_args.args[2],
+            "https://github.com/Sharper-Flow/concord/releases/download/v7.10.2",
+        )
+
+    def test_unpinned_install_passes_the_latest_download_base_to_artifact_fetch(self) -> None:
+        base_url = "https://github.com/Sharper-Flow/concord/releases/latest/download"
+        args = SimpleNamespace(version=None, artifact_dir=None, base_url=base_url, root=self.root)
+        with mock.patch.dict(os.environ, self.env, clear=True), mock.patch.object(
+            installer, "resolve_latest_version", return_value="v7.10.2"
+        ), mock.patch.object(
+            installer, "extract_verified_artifact", side_effect=installer.InstallerError("stop after routing")
+        ) as extract:
+            with self.assertRaises(installer.InstallerError):
+                installer.install(args)
+        self.assertEqual(extract.call_args.args[2], base_url)
+
     def test_install_extracts_without_deprecation_warning(self) -> None:
         self.make_release("v7.10.2")
         environment = self.env.copy()
@@ -1657,6 +1685,18 @@ class StandaloneInstallerTest(unittest.TestCase):
 
 
 class ResolveLatestVersionTest(unittest.TestCase):
+    def test_pinned_version_changes_the_default_download_base_to_tag_path(self) -> None:
+        self.assertEqual(
+            installer.release_download_base_url(
+                "https://github.com/Sharper-Flow/concord/releases/latest/download", "v9.9.9"
+            ),
+            "https://github.com/Sharper-Flow/concord/releases/download/v9.9.9",
+        )
+
+    def test_non_release_download_base_stays_unchanged(self) -> None:
+        base_url = "https://downloads.example.test/concord"
+        self.assertEqual(installer.release_download_base_url(base_url, "v9.9.9"), base_url)
+
     def test_download_base_follows_the_latest_redirect_to_its_tag(self) -> None:
         class Response:
             def geturl(self):

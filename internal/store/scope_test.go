@@ -26,3 +26,36 @@ func TestResolveCompactionHomeUsesProductThenPrimaryMembership(t *testing.T) {
 		t.Fatalf("primary fallback=%#v err=%v", fallback, err)
 	}
 }
+
+func TestScopeVersionMovesWhenProductMembershipChanges(t *testing.T) {
+	s := seedQueryFixture(t)
+	ctx := context.Background()
+	before, products, err := s.ScopeVersion(ctx, "proj")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(products) != 1 || products[0] != "prod" {
+		t.Fatalf("initial products = %v, want [prod]", products)
+	}
+	if err := ApplyOperation(ctx, s, Operation{Events: []Event{
+		operationEvent("q-project-sibling", "project.created", SubjectProject, "proj-2", map[string]any{"display_name": "Sibling"}),
+		operationEvent("q-membership-sibling", "product_project.added", SubjectProduct, "prod", map[string]any{
+			"product_id": "prod", "project_id": "proj-2", "role": "secondary", "reason": "scope test", "expected_version": 2, "resulting_version": 3,
+		}),
+	}, ExpectedVersions: map[SubjectRef]int64{
+		VersionRef(SubjectProject, "proj-2"): 0,
+		VersionRef(SubjectProduct, "prod"):   2,
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	after, products, err := s.ScopeVersion(ctx, "proj")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if before == after {
+		t.Fatal("adding a Product sibling did not change the scope version")
+	}
+	if len(products) != 1 || products[0] != "prod" {
+		t.Fatalf("products after sibling add = %v, want [prod]", products)
+	}
+}

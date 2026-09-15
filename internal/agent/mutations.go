@@ -115,6 +115,7 @@ type lifecycleMutationInput struct {
 	Evidence        []EvidenceRef  `json:"evidence"`
 	Approval        *approvalInput `json:"approval"`
 }
+
 type workerAbandonInput struct {
 	WorkID         string `json:"work_id"`
 	AttemptID      string `json:"attempt_id"`
@@ -122,12 +123,30 @@ type workerAbandonInput struct {
 	Detail         string `json:"detail"`
 	IdempotencyKey string `json:"idempotency_key"`
 }
+
+type workRemovalMutationInput struct {
+	OperationID           string                           `json:"operation_id"`
+	IdempotencyKey        string                           `json:"idempotency_key"`
+	WorkID                string                           `json:"work_id"`
+	ExpectedVersion       int64                            `json:"expected_version"`
+	Reason                string                           `json:"reason"`
+	Actor                 string                           `json:"actor"`
+	ProductID             string                           `json:"product_id"`
+	Handoff               store.WorkRemovalHandoff         `json:"handoff"`
+	Linear                *store.LinearHandoffConfirmation `json:"linear"`
+	ExecutionRelinquished bool                             `json:"execution_relinquished"`
+	WritesReconciled      bool                             `json:"writes_reconciled"`
+	EffectsReconciled     bool                             `json:"effects_reconciled"`
+	DependenciesResolved  bool                             `json:"dependencies_resolved"`
+	ArtifactsVerified     bool                             `json:"artifacts_verified"`
+	Sessions              []store.WorkRemovalSession       `json:"sessions"`
+	Approval              *approvalInput                   `json:"approval"`
+}
+
 type worktreeClaimInput struct {
 	WorkID          string `json:"work_id"`
 	ProjectID       string `json:"project_id"`
-	Branch          string `json:"branch"`
 	BaseSHA         string `json:"base_sha"`
-	Path            string `json:"path"`
 	ExpectedVersion int64  `json:"expected_version"`
 	IdempotencyKey  string `json:"idempotency_key"`
 }
@@ -144,19 +163,20 @@ type worktreeReclaimInput struct {
 	IdempotencyKey  string `json:"idempotency_key"`
 	// ObservedSessionDirectories carries the caller's live host sessions
 	// (issue #722). The store refuses the removal when one of them occupies
-	// the worktree it is about to delete.
-	ObservedSessionDirectories []observedSessionDirectoryInput `json:"observed_session_directories"`
+	// the worktree it is about to delete. A nil pointer means that the caller
+	// supplied no observation; a pointer to an empty list is an observation.
+	ObservedSessionDirectories *[]observedSessionDirectoryInput `json:"observed_session_directories"`
 }
 
 // observedSessionDirectoryInput is one live host session the caller observed,
 // and the directory it runs in. Session liveness is host truth, so the caller
 // that can reach the host reports it and the core decides on it.
 type worktreeAuditReclaimInput struct {
-	ProductID                  string                          `json:"product_id"`
-	DefaultRef                 string                          `json:"default_ref"`
-	Limit                      int                             `json:"limit"`
-	IdempotencyKey             string                          `json:"idempotency_key"`
-	ObservedSessionDirectories []observedSessionDirectoryInput `json:"observed_session_directories"`
+	ProductID                  string                           `json:"product_id"`
+	DefaultRef                 string                           `json:"default_ref"`
+	Limit                      int                              `json:"limit"`
+	IdempotencyKey             string                           `json:"idempotency_key"`
+	ObservedSessionDirectories *[]observedSessionDirectoryInput `json:"observed_session_directories"`
 }
 
 type observedSessionDirectoryInput struct {
@@ -166,15 +186,15 @@ type observedSessionDirectoryInput struct {
 
 // storeSessionDirectories converts the reported observations into the store's
 // shape. It is the only crossing point, so both removal planners share it.
-func storeSessionDirectories(in []observedSessionDirectoryInput) []store.SessionDirectory {
-	if len(in) == 0 {
+func storeSessionDirectories(in *[]observedSessionDirectoryInput) *[]store.SessionDirectory {
+	if in == nil {
 		return nil
 	}
-	out := make([]store.SessionDirectory, 0, len(in))
-	for _, observed := range in {
+	out := make([]store.SessionDirectory, 0, len(*in))
+	for _, observed := range *in {
 		out = append(out, store.SessionDirectory{SessionRef: observed.SessionRef, Directory: observed.Directory})
 	}
-	return out
+	return &out
 }
 
 type worktreeVerifyInput struct {
@@ -199,7 +219,7 @@ type worktreeDestroyInput struct {
 	// ObservedSessionDirectories carries the caller's live host sessions
 	// (issue #722). The destructive approval covers the git gates, never the
 	// occupancy gate.
-	ObservedSessionDirectories []observedSessionDirectoryInput `json:"observed_session_directories"`
+	ObservedSessionDirectories *[]observedSessionDirectoryInput `json:"observed_session_directories"`
 }
 type researchRevisionInput struct {
 	Question string `json:"question"`
@@ -1963,7 +1983,7 @@ func (r runtime) planWorktreeClaim(ctx context.Context, base Envelope, raw []byt
 		opID := digest + ":worktree-claim:" + in.ProjectID
 		if _, err := store.ClaimWorktreeTx(ctx, tx, store.WorktreeClaimRequest{
 			OpID: opID, WorkID: in.WorkID, ProjectID: in.ProjectID,
-			Branch: in.Branch, BaseSHA: in.BaseSHA, Path: in.Path,
+			BaseSHA:      in.BaseSHA,
 			PrincipalRef: grant.PrincipalRef, RequestID: in.IdempotencyKey,
 			ExpectedVersion: in.ExpectedVersion, Now: r.Authority.now(),
 		}); err != nil {
@@ -2186,6 +2206,61 @@ func worktreeVerifyPostLeaseFailure(failure Envelope, changed []ChangedRef) Enve
 		failure.ChangedRefs = &refs
 	}
 	return failure
+}
+
+// planWorkRemoval plans the operator-controlled, per-item removal operation.
+func (r runtime) planWorkRemoval(ctx context.Context, base Envelope, raw []byte, digest string, grant Authority, op ContractOperation, plan *mutationPlan) (Envelope, error, bool) {
+	var in workRemovalMutationInput
+	if err := decodeOperationInput(raw, &in); err != nil {
+		return base, err, true
+	}
+	product := in.ProductID
+	if product == "" {
+		product = r.Envelope.SelectedProductID
+	}
+	if product != "" {
+		products, err := r.Store.ProductsForWorkIDs(ctx, []string{in.WorkID})
+		if err != nil {
+			return failureEnvelope(base, err), nil, true
+		}
+		if !contains(products[in.WorkID], product) {
+			return coreError(base, "ambiguous_scope", "removal Product is not an authorized Product of the work item", "resolve_ambiguity", false), nil, true
+		}
+	}
+	removalRequest := store.WorkRemovalRequest{
+		OperationID: in.OperationID, IdempotencyKey: in.IdempotencyKey, WorkID: in.WorkID,
+		ExpectedVersion: in.ExpectedVersion, Reason: in.Reason, Actor: grant.PrincipalRef,
+		ProductID: product, Handoff: in.Handoff, Linear: in.Linear,
+		ExecutionRelinquished: in.ExecutionRelinquished, WritesReconciled: in.WritesReconciled,
+		EffectsReconciled: in.EffectsReconciled, DependenciesResolved: in.DependenciesResolved,
+		ArtifactsVerified: in.ArtifactsVerified, Sessions: in.Sessions,
+	}
+	if in.Approval != nil {
+		plan.approval = in.Approval.ApprovalRef
+	}
+	plan.scope["work_ids"] = []string{in.WorkID}
+	plan.scope["product_ids"] = nonEmpty(product)
+	plan.versions["work"] = in.ExpectedVersion
+	plan.intents = []NextIntent{{Tool: "concord_work_trace", Operation: "history", QueryID: "PM1.Q3", ReasonCode: "audit_removed_work"}}
+	plan.effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
+		removalRequest.Actor = grant.PrincipalRef
+		prepared, err := store.PrepareWorkRemovalTx(ctx, tx, removalRequest)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		payload, err := json.Marshal(map[string]any{"operation_id": in.OperationID, "idempotency_key": in.IdempotencyKey, "work_id": in.WorkID, "expected_version": in.ExpectedVersion, "reason": in.Reason, "actor": grant.PrincipalRef, "product_id": product, "handoff": in.Handoff, "handoff_digest": prepared.HandoffDigest})
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		result, err := store.ApplyOperationTx(ctx, tx, store.Operation{Events: []store.Event{{EventID: "work.removed:" + in.OperationID, Kind: store.WorkRemoved, SubjectType: store.SubjectWorkItem, SubjectID: in.WorkID, Actor: grant.PrincipalRef, OccurredAt: r.Authority.now(), PayloadVersion: 1, Payload: payload}}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, in.WorkID): in.ExpectedVersion}})
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		changed := []ChangedRef{{EntityKind: "work_item", ID: in.WorkID, Version: strconv.FormatInt(in.ExpectedVersion+1, 10)}}
+		return mutationPayload(changed, plan.intents), result.EventIDs, changed, nil
+	}
+	_ = digest
+	return Envelope{}, nil, false
 }
 
 // mutateWorktreeAuditReclaim plans concord_work_transition.worktree_audit_reclaim.
@@ -2529,6 +2604,8 @@ func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Au
 		answer, err, handled = r.planLifecycle(ctx, base, raw, digest, grant, op, plan)
 	case "concord_work_transition.worker_abandon":
 		answer, err, handled = r.planWorkerAbandon(ctx, base, raw, digest, grant, op, plan)
+	case "concord_work_transition.remove":
+		answer, err, handled = r.planWorkRemoval(ctx, base, raw, digest, grant, op, plan)
 	case "concord_work_define.research_pack_create":
 		answer, err, handled = r.planResearchPackCreate(ctx, base, raw, digest, grant, op, plan)
 	case "concord_work_define.research_revision_append":

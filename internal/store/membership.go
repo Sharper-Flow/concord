@@ -397,6 +397,14 @@ func (s *Store) ProjectsForProduct(ctx context.Context, productID string) ([]Pro
 	return projectsForProduct(ctx, s.db, productID)
 }
 
+func ProjectsForProductTx(ctx context.Context, transaction *Transaction, productID string) ([]ProjectMembership, error) {
+	tx, err := transactionSQL(transaction, "projects_for_product")
+	if err != nil {
+		return nil, err
+	}
+	return projectsForProduct(ctx, tx, productID)
+}
+
 func projectsForProduct(ctx context.Context, q queryer, productID string) ([]ProjectMembership, error) {
 	rows, err := q.QueryContext(ctx, `
 		SELECT projects.id, projects.display_name, product_projects.role

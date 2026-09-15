@@ -2,6 +2,7 @@ import { afterAll, afterEach, describe, expect, test } from "bun:test"
 import ConcordAdapterPlugin from "./concord-plugin"
 import { configureHostLease } from "./host-lease"
 import { moveSessionToRegisteredMainCheckout } from "./concord"
+import { HostControlPlane, SESSION_LIST_ROUTE } from "./move-session"
 
 const context = () => ({
   sessionID: "session-1",
@@ -69,6 +70,28 @@ describe("session_vacate moves only to the core-derived checkout", () => {
     expect(envelope.outcome).toBe("error")
     if (envelope.outcome === "error") expect((envelope.error as { adapter_reason?: string }).adapter_reason).toBe("vacate_destination_mismatch")
   })
+})
+
+test("liveSessionDirectories returns the complete host session population", async () => {
+  const sessions = [
+    { id: "session-in-worktree", directory: "/worktree" },
+    { id: "session-elsewhere", directory: "/elsewhere" },
+  ]
+  let requestedRoute = ""
+  const controlPlane = new HostControlPlane()
+  controlPlane.bind({
+    get: async ({ url }) => {
+      requestedRoute = url
+      return { data: sessions, response: new Response(null, { status: 200 }) }
+    },
+    post: async () => ({ response: new Response(null, { status: 404 }) }),
+  })
+
+  await expect(controlPlane.liveSessionDirectories()).resolves.toEqual([
+    { session_ref: "session-in-worktree", directory: "/worktree" },
+    { session_ref: "session-elsewhere", directory: "/elsewhere" },
+  ])
+  expect(requestedRoute).toBe(SESSION_LIST_ROUTE)
 })
 
 // The factory's host-lease claim fails against the unstamped repository

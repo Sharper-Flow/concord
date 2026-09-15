@@ -221,15 +221,10 @@ func worktreeEntriesTx(ctx context.Context, tx *sql.Tx, workID string) ([]Worktr
 // or not at all, and an interruption is reconciled by retrying with the same
 // OpID.
 type WorktreeClaimRequest struct {
-	OpID      string
-	WorkID    string
-	ProjectID string
-	Branch    string
-	BaseSHA   string
-	Path      string
-	// RepoRoot is the repository to create from. When empty it is derived
-	// from the Project's canonical_path locator.
-	RepoRoot        string
+	OpID            string
+	WorkID          string
+	ProjectID       string
+	BaseSHA         string
 	PrincipalRef    string
 	RequestID       string
 	ExpectedVersion int64
@@ -251,7 +246,7 @@ func (s *Store) ClaimWorktree(ctx context.Context, req WorktreeClaimRequest) (Wo
 		return WorktreeClaimResult{}, wrapFailure(KindUnavailable, "worktree_claim", "cannot begin claim", true, "retry once the database is writable", err)
 	}
 	defer tx.Rollback()
-	out, err := claimWorktreeRawTx(ctx, tx, req)
+	out, err := claimWorktreeRawTx(ctx, tx, s.Path(), req)
 	if err != nil {
 		return WorktreeClaimResult{}, err
 	}
@@ -271,22 +266,16 @@ func ClaimWorktreeTx(ctx context.Context, transaction *Transaction, req Worktree
 	if req.Now.IsZero() {
 		req.Now = transaction.now()
 	}
-	return claimWorktreeRawTx(ctx, tx, req)
+	return claimWorktreeRawTx(ctx, tx, transaction.path, req)
 }
 
-func claimWorktreeRawTx(ctx context.Context, tx *sql.Tx, req WorktreeClaimRequest) (WorktreeClaimResult, error) {
+func claimWorktreeRawTx(ctx context.Context, tx *sql.Tx, dataPath string, req WorktreeClaimRequest) (WorktreeClaimResult, error) {
 	out := WorktreeClaimResult{}
 	if req.OpID == "" || req.WorkID == "" || req.ProjectID == "" || req.PrincipalRef == "" || req.RequestID == "" {
 		return out, newFailure(KindInvalidOperation, "worktree_claim", "claim operation is missing identity fields", false, "supply op, work, project, principal, and request ids")
 	}
-	if !worktreeBranchPattern.MatchString(req.Branch) {
-		return out, newFailure(KindInvalidOperation, "worktree_claim", "branch is not a bounded git ref name", false, "supply a plain branch name without spaces or shell characters")
-	}
 	if !worktreeSHAPattern.MatchString(req.BaseSHA) {
 		return out, newFailure(KindInvalidOperation, "worktree_claim", "base is not a full commit SHA", false, "pin the exact base commit SHA")
-	}
-	if !filepath.IsAbs(req.Path) {
-		return out, newFailure(KindInvalidOperation, "worktree_claim", "worktree path must be absolute", false, "supply an absolute filesystem path")
 	}
 	runner := req.Runner
 	if runner == nil {
@@ -297,16 +286,21 @@ func claimWorktreeRawTx(ctx context.Context, tx *sql.Tx, req WorktreeClaimReques
 		now = nowFromClock(nil)
 	}
 	setID := WorktreeSetID(req.WorkID)
+	location, err := locateWorktree(ctx, tx, filepath.Dir(dataPath), req.ProjectID, req.WorkID, "HEAD", runner)
+	if err != nil {
+		return out, err
+	}
+	derivedBranch, derivedPath, repoRoot := location.Branch, location.Path, location.Repo
 
 	// Phase 1: the durable claim. An existing row for this OpID reconciles
 	// with its pinned intent; the pinned values win over later arguments so
 	// a retry can never redirect the operation.
 	var state, pinnedBranch, pinnedBase, pinnedPath string
-	err := tx.QueryRowContext(ctx, `SELECT state,pinned_branch,pinned_base_sha,pinned_path FROM worktree_claims WHERE op_id=?`, req.OpID).Scan(&state, &pinnedBranch, &pinnedBase, &pinnedPath)
+	err = tx.QueryRowContext(ctx, `SELECT state,pinned_branch,pinned_base_sha,pinned_path FROM worktree_claims WHERE op_id=?`, req.OpID).Scan(&state, &pinnedBranch, &pinnedBase, &pinnedPath)
 	switch {
 	case err == nil:
-		if pinnedBranch != req.Branch || pinnedBase != req.BaseSHA || pinnedPath != req.Path {
-			return out, newFailure(KindInvalidOperation, "worktree_claim", "retry does not match the pinned intent", false, "retry with the same op, branch, base, and path")
+		if pinnedBranch != derivedBranch || pinnedBase != req.BaseSHA || pinnedPath != derivedPath {
+			return out, newFailure(KindInvalidOperation, "worktree_claim", "retry does not match the derived pinned intent", false, "retry with the same work and Project identity")
 		}
 		if state == worktreeStateVerified || state == worktreeStateReclaimed {
 			// Idempotent replay: return the folded state without side effects.
@@ -333,17 +327,12 @@ func claimWorktreeRawTx(ctx context.Context, tx *sql.Tx, req WorktreeClaimReques
 			return out, newFailure(KindProjectionConflict, "worktree_claim", "work already holds an active worktree for this Project", false, "reclaim the existing worktree before claiming another")
 		}
 		if _, err := tx.ExecContext(ctx, `INSERT INTO worktree_claims(op_id,work_id,project_id,set_id,pinned_branch,pinned_base_sha,pinned_path,state,principal_ref,request_id,observed_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`,
-			req.OpID, req.WorkID, req.ProjectID, setID, req.Branch, req.BaseSHA, req.Path, worktreeStatePending, req.PrincipalRef, req.RequestID, now.Format(time.RFC3339Nano), now.Format(time.RFC3339Nano)); err != nil {
+			req.OpID, req.WorkID, req.ProjectID, setID, derivedBranch, req.BaseSHA, derivedPath, worktreeStatePending, req.PrincipalRef, req.RequestID, now.Format(time.RFC3339Nano), now.Format(time.RFC3339Nano)); err != nil {
 			return out, wrapFailure(KindUnavailable, "worktree_claim", "cannot persist claim", true, "retry once the database is writable", err)
 		}
-		pinnedBranch, pinnedBase, pinnedPath = req.Branch, req.BaseSHA, req.Path
+		pinnedBranch, pinnedBase, pinnedPath = derivedBranch, req.BaseSHA, derivedPath
 	default:
 		return out, wrapFailure(KindUnavailable, "worktree_claim", "cannot read claim", true, "retry once the database is readable", err)
-	}
-
-	repoRoot, resErr := worktreeRepoRootTx(ctx, tx, req)
-	if resErr != nil {
-		return out, resErr
 	}
 
 	// Phase 2: probe before creating or retrying. Git worktree creation is
@@ -432,9 +421,9 @@ type WorktreeReclaimRequest struct {
 	// host reported for its live sessions (issue #722). The store owns the
 	// worktree path and the host owns session liveness, so the caller that
 	// can see both supplies the observation and the removal decides on it.
-	// A caller with no host, such as the CLI, supplies none and reaches the
-	// git gates alone.
-	ObservedSessionDirectories []SessionDirectory
+	// The caller must supply an observation. A present empty list proves that
+	// no live session occupies the worktree; an absent list is not evidence.
+	ObservedSessionDirectories *[]SessionDirectory
 }
 
 // SessionDirectory is one live host session and the directory it runs in, as
@@ -466,7 +455,7 @@ type WorktreeDestroyRequest struct {
 	Runner       GitRunner
 	// ObservedSessionDirectories carries the caller's live host sessions. The
 	// destructive approval covers the git gates, never the occupancy gate.
-	ObservedSessionDirectories []SessionDirectory
+	ObservedSessionDirectories *[]SessionDirectory
 }
 
 // DestroyWorktree reclaims the work item's worktree under the Destroy tier's
@@ -565,6 +554,9 @@ func reclaimWorktreeRawTx(ctx context.Context, tx *sql.Tx, req WorktreeReclaimRe
 	if req.RequireTerminal {
 		op = "worktree_destroy"
 	}
+	if req.ObservedSessionDirectories == nil {
+		return out, newFailure(KindWorktreeOwnershipConflict, op, "worktree occupancy was not observed", false, "provide the host's live session directory observation before removing the worktree")
+	}
 
 	// CD-0096 D3 Destroy: merged terminal work reclaims without approval.
 	// Non-terminal work refuses typed unless the operator approved this
@@ -647,10 +639,10 @@ func reclaimWorktreeRawTx(ctx context.Context, tx *sql.Tx, req WorktreeReclaimRe
 	// leaves that session alive but unable to answer another prompt. This gate
 	// sits above the tier split because the destructive approval covers the
 	// git gates, which protect committed and uncommitted work, and never
-	// authorizes stranding a session. It sits below the already-absent branch
-	// because a directory that is already gone strands nobody, and stale-claim
-	// recovery must stay reachable.
-	if occupant, occupied := occupyingSession(entry.Path, req.ObservedSessionDirectories); occupied {
+	// authorizes stranding a session. It also requires an observation before
+	// stale-claim reconciliation, so an absent observation cannot authorize any
+	// removal path.
+	if occupant, occupied := occupyingSession(entry.Path, *req.ObservedSessionDirectories); occupied {
 		return out, newFailure(KindWorktreeOwnershipConflict, op,
 			fmt.Sprintf("session %s runs in worktree %s; removing it would leave that session unable to send another prompt", occupant.SessionRef, entry.Path),
 			false, "end that session, or move it out of the worktree, then remove it")
@@ -747,14 +739,11 @@ func occupyingSession(worktreePath string, observed []SessionDirectory) (Session
 	return SessionDirectory{}, false
 }
 
-// worktreeRepoRootTx resolves the repository to create from: the explicit
-// override or the Project's canonical_path locator. It reads through the
-// claim's own transaction; the outer write lock makes a second connection's
-// read deadlock on SQLite's single writer.
+// worktreeRepoRootTx resolves the repository to create from the Project's
+// canonical_path locator. It reads through the claim's own transaction; the
+// outer write lock makes a second connection's read deadlock on SQLite's
+// single writer.
 func worktreeRepoRootTx(ctx context.Context, tx queryer, req WorktreeClaimRequest) (string, error) {
-	if req.RepoRoot != "" {
-		return req.RepoRoot, nil
-	}
 	var normalized string
 	err := tx.QueryRowContext(ctx, `SELECT normalized_value FROM project_locators WHERE kind=? AND project_id=? ORDER BY locator_id LIMIT 1`, LocatorCanonicalPath, req.ProjectID).Scan(&normalized)
 	if err == sql.ErrNoRows {
@@ -766,11 +755,8 @@ func worktreeRepoRootTx(ctx context.Context, tx queryer, req WorktreeClaimReques
 	return normalized, nil
 }
 
-// ValidateWorktreeClaimIntent is the exported form of the claim's own intent
-// validation, for callers that derive a claim's inputs and must know the
-// claim will accept them before attempting it. The store owns the validation;
-// it never owns the derivation (issue #316: the claim verifies intent, it
-// does not author it).
+// ValidateWorktreeClaimIntent validates a derived claim locator for callers
+// that need a preflight check before native worktree creation.
 func ValidateWorktreeClaimIntent(branch, baseSHA, path string) error {
 	if !worktreeBranchPattern.MatchString(branch) {
 		return newFailure(KindInvalidOperation, "worktree_claim", "branch is not a bounded git ref name", false, "supply a plain branch name without spaces or shell characters")
@@ -1329,7 +1315,7 @@ type WorktreeAuditReclaimRequest struct {
 	Now                        time.Time
 	Runner                     GitRunner
 	Limit                      int
-	ObservedSessionDirectories []SessionDirectory
+	ObservedSessionDirectories *[]SessionDirectory
 }
 
 // WorktreeAuditReclaimRow is the outcome of one terminal-present worktree.

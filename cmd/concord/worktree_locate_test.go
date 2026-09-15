@@ -101,7 +101,7 @@ func TestWorktreeLocateOutputIsAcceptedByClaimOnFirstAttempt(t *testing.T) {
 
 	result, err := s.ClaimWorktree(context.Background(), store.WorktreeClaimRequest{
 		OpID: "wl-claim-1", WorkID: "work-wl", ProjectID: "project-wl",
-		Branch: located.Branch, BaseSHA: located.BaseSHA, Path: located.Path,
+		BaseSHA:      located.BaseSHA,
 		PrincipalRef: "principal-wl", RequestID: "wl-req-1",
 		ExpectedVersion: 2, Now: time.Unix(20, 0).UTC(),
 	})

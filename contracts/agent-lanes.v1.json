@@ -69,6 +69,7 @@
       "id": "ci-wait",
       "version": 1,
       "purpose": "Wait for GitHub CI to reach a terminal state and report the result.",
+      "allowed_tools": ["bash"],
       "allowed_commands": [
         "gh pr checks *",
         "gh pr view *",
@@ -78,6 +79,21 @@
         "date *"
       ],
       "time_seconds_max": 1800
+    },
+    {
+      "id": "explore",
+      "version": 1,
+      "purpose": "Inspect a repository and return bounded source-backed findings.",
+      "allowed_tools": ["bash", "read", "glob", "grep", "execute"],
+      "allowed_commands": [
+        "git diff *",
+        "git log *",
+        "git show *",
+        "git status *",
+        "git ls-files *",
+        "git rev-parse *"
+      ],
+      "time_seconds_max": 600
     }
   ]
 }

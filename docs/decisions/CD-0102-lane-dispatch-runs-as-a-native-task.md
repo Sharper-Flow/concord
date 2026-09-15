@@ -83,10 +83,10 @@ permission checks. It creates no Concord attempt or evidence. Unmanaged calls
 cannot start a registered Concord lane without a window or resume a managed
 session. A missing unmanaged resume target keeps the native host behavior.
 
-The generated `concord-ci-wait` utility is a narrow exception. A coordinator
-may call it without a dispatch window when its session has no managed parent.
-The hook passes the call through unchanged. A lane session has a managed parent,
-so the hook refuses the utility call before the host starts it.
+Generated utilities are a narrow exception. A coordinator may call one without
+a dispatch window when its session has no managed parent. The hook passes the
+call through unchanged. A lane session has a managed parent, so the hook
+refuses the utility call before the host starts it.
 
 The scope decision uses host session identity and recorded participation, not
 agent names, prompts, repository names, or path conventions. Invalid metadata,

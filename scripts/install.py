@@ -122,6 +122,7 @@ INSTRUCTION_FILES = (
 AGENT_FILES = (
     "concord-design.md",
     "concord-ci-wait.md",
+    "concord-explore.md",
     "concord-implement.md",
     "concord-research.md",
     "concord-review.md",

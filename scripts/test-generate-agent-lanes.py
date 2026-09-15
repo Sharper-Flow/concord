@@ -47,20 +47,39 @@ class AgentProjectionTests(unittest.TestCase):
         self.assertIn("maxItems=11", projection)
         self.assertIn("maxLength=23", projection)
 
-    def test_utility_projection_is_bash_only_and_uses_declared_permissions(self):
+    def test_utility_projection_projects_declared_tools_and_permissions(self):
         utility = {
             "id": "ci-wait",
             "purpose": "Wait for CI.",
+            "allowed_tools": ["bash"],
             "allowed_commands": ["gh run view *", "sleep *"],
             "time_seconds_max": 1800,
         }
         projection = generator.utility_projection(utility)
         self.assertIn("mode: all", projection)
         self.assertIn("  bash: true", projection)
+        self.assertIn("  read: false", projection)
         self.assertIn("  task: false", projection)
         self.assertIn('"*": deny', projection)
         self.assertIn('"gh run view *": allow', projection)
         self.assertIn("30 minutes", projection)
+
+    def test_exploration_projection_uses_read_only_tools_and_body(self):
+        utility = {
+            "id": "explore",
+            "purpose": "Inspect a repository.",
+            "allowed_tools": ["bash", "read", "glob", "grep"],
+            "allowed_commands": ["git status *"],
+            "time_seconds_max": 600,
+        }
+        projection = generator.utility_projection(utility)
+        self.assertIn("  bash: true", projection)
+        self.assertIn("  read: true", projection)
+        self.assertIn("  glob: true", projection)
+        self.assertIn("  grep: true", projection)
+        self.assertIn("  edit: false", projection)
+        self.assertIn("# concord-explore", projection)
+        self.assertIn("Do not edit files", projection)
 
 
 class EvalPacketProjectionTests(unittest.TestCase):

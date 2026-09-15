@@ -20,14 +20,18 @@ import (
 
 const (
 	knowledgeManifestPath = "docs/concord-knowledge-index.v1.json"
-	maxKnowledgeManifest  = 256 * 1024
-	maxManifestRecords    = 1000
-	maxManifestArray      = 64
-	maxManifestID         = 256
-	maxManifestTitle      = 256
-	maxManifestSummary    = 4096
-	maxManifestPath       = 512
-	maxManifestDomains    = 64
+	// The composed manifest carries one entry per accepted law, so it grows
+	// with the Product's law corpus rather than staying at a fixed shape.
+	// At 256 KiB the composition had 758 bytes of headroom, which one new
+	// decision record consumed.
+	maxKnowledgeManifest = 512 * 1024
+	maxManifestRecords   = 1000
+	maxManifestArray     = 64
+	maxManifestID        = 256
+	maxManifestTitle     = 256
+	maxManifestSummary   = 4096
+	maxManifestPath      = 512
+	maxManifestDomains   = 64
 	// maxManifestRootHomeRationale bounds the claim to a stated reason rather
 	// than an essay. A rationale that needs more room is describing law that
 	// belongs in a child Domain.

@@ -1,0 +1,31 @@
+{
+  "date": "2026-09-14T00:00:00Z",
+  "evidence": [
+    "internal/store/project_locator.go",
+    "internal/store/worktrees.go",
+    "internal/store/schema.go",
+    "internal/store/worktrees_test.go"
+  ],
+  "home_domain_id": "product-root:concord",
+  "id": "CD-0151",
+  "kind": "decision",
+  "law_relations": [],
+  "path": "docs/decisions/CD-0151-worktree-claims-derive-native-identity.md",
+  "product_wide_rationale": "The claim identity invariant spans the store, agent surface, native Git boundary, and every Project locator. No child Domain owns the complete invariant.",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:88ff237cee86e296b81e85d752582c34260c2fe1aa7b9ee6fe3bb26506009d26",
+  "status": "accepted",
+  "summary": "Worktree claims derive branch and path identity from the registered Project locator and work identity, and partial unique indexes reserve each active native branch and path.",
+  "tags": [
+    "worktree",
+    "identity",
+    "law"
+  ],
+  "title": "worktree claims derive native identity"
+}

@@ -37,6 +37,8 @@ func worktreeReclamationRepo(t *testing.T) (string, string) {
 	}
 	gitRun(t, repoRoot, "add", "README.md")
 	gitRun(t, repoRoot, "commit", "-m", "reclamation base")
+	gitRun(t, repoRoot, "update-ref", "refs/remotes/origin/main", "HEAD")
+	gitRun(t, repoRoot, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main")
 	return repoRoot, gitRun(t, repoRoot, "rev-parse", "HEAD")
 }
 
@@ -89,7 +91,7 @@ func bindAJ8GroundTruthReclamation(t *testing.T, sc jobScenario) jobObservation 
 	}
 
 	env := agentJobsMutationEnvelope(t, s, grant, "proj-web", "prod-alpha")
-	worktreePath := filepath.Join(t.TempDir(), "work-done-wt")
+	worktreePath := filepath.Join(filepath.Dir(s.Path()), "worktrees", "proj-web", "work-done")
 
 	// History that must survive the reclamation: PM1 seeds work-done with its
 	// full created → in_progress → completed lifecycle.
@@ -100,7 +102,7 @@ func bindAJ8GroundTruthReclamation(t *testing.T, sc jobScenario) jobObservation 
 
 	claimInput, _ := json.Marshal(map[string]any{
 		"work_id": "work-done", "project_id": "proj-web",
-		"branch": "work/reclaim-done", "base_sha": baseSHA, "path": worktreePath,
+		"base_sha":         baseSHA,
 		"expected_version": workItemVersion(t, s, "work-done"), "idempotency_key": "aj8-reclaim-claim",
 	})
 	claim := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "worktree_claim", Input: claimInput}, env)
@@ -115,7 +117,7 @@ func bindAJ8GroundTruthReclamation(t *testing.T, sc jobScenario) jobObservation 
 	}
 	gitRun(t, worktreePath, "add", "done.md")
 	gitRun(t, worktreePath, "commit", "-m", "work-done change")
-	gitRun(t, repoRoot, "merge", "--ff-only", "work/reclaim-done")
+	gitRun(t, repoRoot, "merge", "--ff-only", "work/work-done")
 	if dirty := gitRun(t, worktreePath, "status", "--porcelain"); dirty != "" {
 		t.Fatalf("worktree is not clean before reclamation: %q", dirty)
 	}
@@ -141,7 +143,7 @@ func bindAJ8GroundTruthReclamation(t *testing.T, sc jobScenario) jobObservation 
 	if err != nil || len(after) != 1 || after[0].State != "reclaimed" {
 		t.Fatalf("worktree entry after reclamation=%+v err=%v", after, err)
 	}
-	if strings.Contains(gitRun(t, repoRoot, "worktree", "list"), "work-done-wt") {
+	if strings.Contains(gitRun(t, repoRoot, "worktree", "list"), "work-done") {
 		t.Fatal("native worktree still present after reclamation")
 	}
 	if _, statErr := os.Stat(worktreePath); !os.IsNotExist(statErr) {

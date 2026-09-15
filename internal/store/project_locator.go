@@ -225,6 +225,10 @@ func (s *Store) LocateWorktree(ctx context.Context, projectID, workID, ref strin
 }
 
 func (s *Store) locateWorktreeWithRunner(ctx context.Context, projectID, workID, ref string, runner GitRunner) (WorktreeLocation, error) {
+	return locateWorktree(ctx, s.db, filepath.Dir(s.Path()), projectID, workID, ref, runner)
+}
+
+func locateWorktree(ctx context.Context, q queryer, dataDir, projectID, workID, ref string, runner GitRunner) (WorktreeLocation, error) {
 	var out WorktreeLocation
 	if projectID == "" || workID == "" {
 		return out, newFailure(KindInvalidOperation, "worktree_locate", "project and work IDs are required", false, "supply one Project and one work item")
@@ -232,9 +236,13 @@ func (s *Store) locateWorktreeWithRunner(ctx context.Context, projectID, workID,
 	if ref == "" {
 		ref = "HEAD"
 	}
-	repo, err := s.ProjectCanonicalPath(ctx, projectID)
+	var repo string
+	err := q.QueryRowContext(ctx, `SELECT normalized_value FROM project_locators WHERE kind=? AND project_id=? ORDER BY locator_id LIMIT 1`, LocatorCanonicalPath, projectID).Scan(&repo)
+	if err == sql.ErrNoRows {
+		return out, newFailure(KindUnknownScope, "worktree_locate", "Project has no canonical_path locator", false, "register the repository's canonical path locator")
+	}
 	if err != nil {
-		return out, err
+		return out, wrapFailure(KindUnavailable, "worktree_locate", "cannot read Project locators", true, "retry once the database is readable", err)
 	}
 	baseRef := ref
 	if ref == "HEAD" {
@@ -249,10 +257,14 @@ func (s *Store) locateWorktreeWithRunner(ctx context.Context, projectID, workID,
 	if err != nil {
 		return out, err
 	}
-	out = WorktreeLocation{
+	return deriveWorktreeLocation(dataDir, projectID, workID, ref, repo, sha)
+}
+
+func deriveWorktreeLocation(dataDir, projectID, workID, ref, repo, sha string) (WorktreeLocation, error) {
+	out := WorktreeLocation{
 		Branch:  "work/" + workID,
 		BaseSHA: sha,
-		Path:    filepath.Join(filepath.Dir(s.Path()), "worktrees", projectID, workID),
+		Path:    filepath.Join(dataDir, "worktrees", projectID, workID),
 		Repo:    repo,
 		Ref:     ref,
 	}

@@ -1,0 +1,18 @@
+{
+  "evidence": [
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestClaimWorktreeCreatesVerifiesAndFolds"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestClaimWorktreeRefusesSecondActiveAndIntentMismatch"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestMigrationChecksumPinsMatchDefinitions"
+    }
+  ],
+  "id": "CD-0151",
+  "state": "satisfied"
+}

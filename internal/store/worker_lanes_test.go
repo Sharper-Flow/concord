@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -288,7 +289,7 @@ func TestAbandonedWorkerFailureRequiresAnUnoccupiedActiveWorktree(t *testing.T) 
 		t.Fatal(err)
 	}
 
-	observed := []SessionDirectory{{SessionRef: "session-live", Directory: claim.Path}}
+	observed := []SessionDirectory{{SessionRef: "session-live", Directory: filepath.Join(filepath.Dir(s.Path()), "worktrees", claim.ProjectID, claim.WorkID)}}
 	closeEvent := Event{
 		EventID: "abandoned-close", Kind: WorkerFailed, SubjectType: SubjectWorkItem, SubjectID: "work-w",
 		Actor: "worker:test", OccurredAt: time.Unix(3, 0).UTC(), PayloadVersion: 1,

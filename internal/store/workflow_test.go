@@ -676,11 +676,6 @@ func TestWorkflowContractRevisionEmitsBreakingNoticeForConsumedActiveDependent(t
 	if err := applyWorkflowTestOperation(context.Background(), source, Operation{Events: []Event{edge}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "revision-dependent"): dependentVersion}}); err != nil {
 		t.Fatal(err)
 	}
-	newContract := workflowEventWithActor("revision-new-contract", WorkflowContractApproved, "revision-source", actor, map[string]any{"work_id": "revision-source", "expected_version": sourceVersion, "resulting_version": sourceVersion + 1, "contract_version": 2, "premise": "refresh the checked change", "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:workflow", "immutable_subject_ref": "commit:revision-new", "expected_result": "pass"}, "required_evidence": []string{"verification", "review"}, "route_conventions": []string{}, "spec_mandate": []string{}, "rigor_class": "prototype_internal", "consequence_class": "internal_sqlite"})
-	if err := applyWorkflowTestOperation(context.Background(), source, Operation{Events: []Event{newContract}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "revision-source"): sourceVersion}}); err != nil {
-		t.Fatal(err)
-	}
-	sourceVersion++
 	supersede := workflowEventWithActor("revision-supersede", WorkflowContractSuperseded, "revision-source", actor, map[string]any{"work_id": "revision-source", "expected_version": sourceVersion, "resulting_version": sourceVersion + 1, "previous_contract_version": 1, "new_contract_version": 2, "supersede_reason": "refresh approved contract", "audit_evidence": []string{"evidence:audit"}})
 	if err := SupersedeWorkflowContract(context.Background(), source, supersede); err != nil {
 		t.Fatal(err)
@@ -736,11 +731,7 @@ func TestWorkflowContractRevisionEmitsAdvisoryNoticesForOtherDependents(t *testi
 			if err := s.DatabaseForTesting().QueryRow(`SELECT version FROM work_items WHERE id=?`, sourceID).Scan(&sourceVersion); err != nil {
 				t.Fatal(err)
 			}
-			newContract := workflowEventWithActor("new-contract-"+sourceID, WorkflowContractApproved, sourceID, actor, map[string]any{"work_id": sourceID, "expected_version": sourceVersion, "resulting_version": sourceVersion + 1, "contract_version": 2, "premise": "refresh", "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:workflow", "immutable_subject_ref": "commit:" + sourceID, "expected_result": "pass"}, "required_evidence": []string{"verification", "review"}, "route_conventions": []string{}, "spec_mandate": []string{}, "rigor_class": "prototype_internal", "consequence_class": "internal_sqlite"})
-			if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{newContract}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, sourceID): sourceVersion}}); err != nil {
-				t.Fatal(err)
-			}
-			supersede := workflowEventWithActor("supersede-"+sourceID, WorkflowContractSuperseded, sourceID, actor, map[string]any{"work_id": sourceID, "expected_version": sourceVersion + 1, "resulting_version": sourceVersion + 2, "previous_contract_version": 1, "new_contract_version": 2, "supersede_reason": "refresh", "audit_evidence": []string{"evidence:audit"}})
+			supersede := workflowEventWithActor("supersede-"+sourceID, WorkflowContractSuperseded, sourceID, actor, map[string]any{"work_id": sourceID, "expected_version": sourceVersion, "resulting_version": sourceVersion + 1, "previous_contract_version": 1, "new_contract_version": 2, "supersede_reason": "refresh", "audit_evidence": []string{"evidence:audit"}})
 			if err := SupersedeWorkflowContract(context.Background(), s, supersede); err != nil {
 				t.Fatal(err)
 			}

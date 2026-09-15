@@ -150,8 +150,8 @@ func workflowCorrectionVerdicts(ctx context.Context, q queryer, workID string, d
 	if !workflowCorrectionWorkflow(definition) || workflowCorrectionTargetStep(definition, currentStep) == "" {
 		return nil, 0, 0, nil
 	}
-	var contractVersion int64
-	if err := q.QueryRowContext(ctx, `SELECT contract_version FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL ORDER BY contract_version DESC LIMIT 1`, workID).Scan(&contractVersion); err != nil {
+	contractVersion, err := activeWorkflowContractVersion(ctx, q, workID, subject)
+	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, 0, 0, nil
 		}
@@ -302,8 +302,8 @@ func workflowVerdictCorrectionContext(ctx context.Context, q queryer, workID str
 	if err != nil || len(verdicts) == 0 {
 		return nil, err
 	}
-	var contractVersion int64
-	if err := q.QueryRowContext(ctx, `SELECT contract_version FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL ORDER BY contract_version DESC LIMIT 1`, workID).Scan(&contractVersion); err != nil {
+	contractVersion, err := activeWorkflowContractVersion(ctx, q, workID, subject)
+	if err != nil {
 		return nil, wrapFailure(KindUnavailable, subject, "cannot read the active workflow contract", true, "retry once the workflow contract is readable", err)
 	}
 	var lastHealthySeq int64

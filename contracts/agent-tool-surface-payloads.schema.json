@@ -11870,6 +11870,15 @@
                     "minLength": 1,
                     "maxLength": 4096
                   },
+                  "predecessor_contract_versions": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 32,
+                    "uniqueItems": true,
+                    "items": {
+                      "$ref": "#/$defs/version"
+                    }
+                  },
                   "outcome_kind": {
                     "type": "string",
                     "enum": [

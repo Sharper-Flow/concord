@@ -184,10 +184,12 @@ func (s *Store) LatestWorkflowContractVersion(ctx context.Context, workID string
 }
 
 func latestWorkflowContractVersion(ctx context.Context, q queryer, workID string) (int64, error) {
-	var version int64
-	err := q.QueryRowContext(ctx, `SELECT COALESCE((SELECT contract_version FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL ORDER BY contract_version DESC LIMIT 1),0)`, workID).Scan(&version)
+	version, err := activeWorkflowContractVersion(ctx, q, workID, "workflow_contract")
+	if err == sql.ErrNoRows {
+		return 0, nil
+	}
 	if err != nil {
-		return 0, wrapFailure(KindUnavailable, "workflow_contract", "cannot read active workflow contract version", true, "retry once the database is readable", err)
+		return 0, err
 	}
 	return version, nil
 }
@@ -201,11 +203,14 @@ func (s *Store) ActiveWorkflowContract(ctx context.Context, workID string) (Work
 
 func activeWorkflowContract(ctx context.Context, q queryer, workID string) (WorkflowContractSnapshot, error) {
 	var contract WorkflowContractSnapshot
-	err := q.QueryRowContext(ctx, `SELECT contract_version,premise FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL ORDER BY contract_version DESC LIMIT 1`, workID).Scan(&contract.Version, &contract.Premise)
+	version, err := activeWorkflowContractVersion(ctx, q, workID, "workflow_contract")
 	if err == sql.ErrNoRows {
 		return WorkflowContractSnapshot{}, newFailure(KindProjectionNotFound, "workflow_contract", "active workflow contract does not exist", false, "approve a workflow contract first")
 	}
 	if err != nil {
+		return WorkflowContractSnapshot{}, err
+	}
+	if err := q.QueryRowContext(ctx, `SELECT contract_version,premise FROM workflow_contracts WHERE work_id=? AND contract_version=?`, workID, version).Scan(&contract.Version, &contract.Premise); err != nil {
 		return WorkflowContractSnapshot{}, wrapFailure(KindUnavailable, "workflow_contract", "cannot read active workflow contract", true, "retry once the database is readable", err)
 	}
 	return contract, nil

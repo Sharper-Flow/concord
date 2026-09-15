@@ -148,14 +148,21 @@ func domainRelationTupleKey(value WorkflowDomainRelationTuple) string {
 func readWorkflowOverlapFootprintTx(ctx context.Context, tx *sql.Tx, workID string) (workflowOverlapFootprint, error) {
 	var footprint workflowOverlapFootprint
 	footprint.WorkID = workID
+	activeVersion, activeErr := activeWorkflowContractVersion(ctx, tx, workID, "workflow_domain_overlap")
+	if activeErr == sql.ErrNoRows {
+		return footprint, nil
+	}
+	if activeErr != nil {
+		return footprint, activeErr
+	}
 	err := tx.QueryRowContext(ctx, `
 		SELECT b.product_id,b.domain_registry_content_hash,c.contract_version
 		FROM workflow_contracts c
 		JOIN workflow_architecture_bindings b ON b.work_id=c.work_id AND b.contract_version=c.contract_version
 		JOIN work_items w ON w.id=c.work_id
-		WHERE c.work_id=? AND c.superseded_by IS NULL
+		WHERE c.work_id=? AND c.contract_version=? AND c.superseded_by IS NULL
 		  AND w.lifecycle NOT IN ('completed','cancelled','superseded')
-		ORDER BY c.contract_version DESC LIMIT 1`, workID).Scan(&footprint.ProductID, &footprint.RegistryHash, &footprint.ContractVersion)
+		`, workID, activeVersion).Scan(&footprint.ProductID, &footprint.RegistryHash, &footprint.ContractVersion)
 	if err == sql.ErrNoRows {
 		return footprint, nil
 	}

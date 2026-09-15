@@ -169,6 +169,10 @@ func ReadWorkflowProjection(ctx context.Context, s *Store, request WorkflowReadR
 	if err != nil {
 		return out, err
 	}
+	activeContractVersion, contractErr := activeWorkflowContractVersion(ctx, s.db, request.WorkID, "workflow_read")
+	if contractErr != nil && contractErr != sql.ErrNoRows {
+		return out, contractErr
+	}
 	out.ChangesProductTruth = registered.Definition.ChangesProductTruth != nil && *registered.Definition.ChangesProductTruth
 	out.CandidateIDs = []string{}
 	out.Conditions = []WorkflowReadCondition{}
@@ -192,7 +196,7 @@ func ReadWorkflowProjection(ctx context.Context, s *Store, request WorkflowReadR
 
 	var contract WorkflowReadContract
 	var required, routes, mandates, modifies string
-	err = s.db.QueryRowContext(ctx, `SELECT contract_version,premise,required_evidence,route_conventions,spec_mandate,law_modifies,rigor_class FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL ORDER BY contract_version DESC LIMIT 1`, request.WorkID).Scan(&contract.Version, &contract.Premise, &required, &routes, &mandates, &modifies, &contract.RigorClass)
+	err = s.db.QueryRowContext(ctx, `SELECT contract_version,premise,required_evidence,route_conventions,spec_mandate,law_modifies,rigor_class FROM workflow_contracts WHERE work_id=? AND contract_version=? AND superseded_by IS NULL`, request.WorkID, activeContractVersion).Scan(&contract.Version, &contract.Premise, &required, &routes, &mandates, &modifies, &contract.RigorClass)
 	if err == nil {
 		if json.Unmarshal([]byte(required), &contract.RequiredEvidence) != nil || json.Unmarshal([]byte(routes), &contract.RouteConventions) != nil || json.Unmarshal([]byte(mandates), &contract.SpecMandate) != nil || json.Unmarshal([]byte(modifies), &contract.LawModifies) != nil {
 			return out, newFailure(KindInvariantViolation, "workflow_read", "workflow contract projection contains malformed arrays", false, "rebuild projections from the event log")
@@ -244,7 +248,7 @@ func ReadWorkflowProjection(ctx context.Context, s *Store, request WorkflowReadR
 		}
 	}
 
-	rows, err := s.db.QueryContext(ctx, `SELECT candidate_ref FROM workflow_candidate_sets WHERE work_id=? AND contract_version=COALESCE((SELECT contract_version FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL ORDER BY contract_version DESC LIMIT 1),0) ORDER BY candidate_ref LIMIT ?`, request.WorkID, request.WorkID, request.Limit)
+	rows, err := s.db.QueryContext(ctx, `SELECT candidate_ref FROM workflow_candidate_sets WHERE work_id=? AND contract_version=COALESCE(?,0) ORDER BY candidate_ref LIMIT ?`, request.WorkID, activeContractVersion, request.Limit)
 	if err != nil {
 		return out, wrapFailure(KindUnavailable, "workflow_read", "cannot read workflow candidates", true, "retry once the database is readable", err)
 	}
@@ -425,10 +429,14 @@ func readWorkflowSummaryTx(ctx context.Context, tx *sql.Tx, workID string) (*Wor
 	out.BlockingConditions = []string{}
 	out.ImpactNotices = []WorkflowReadNotice{}
 	out.CompletionWarnings = []string{}
+	activeContractVersion, contractErr := activeWorkflowContractVersion(ctx, tx, workID, "workflow_read")
+	if contractErr != nil && contractErr != sql.ErrNoRows {
+		return nil, contractErr
+	}
 	var contract WorkflowReadContract
 	var required, routes, mandates string
 	var modifies string
-	if err := tx.QueryRowContext(ctx, `SELECT contract_version,premise,required_evidence,route_conventions,spec_mandate,law_modifies FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL ORDER BY contract_version DESC LIMIT 1`, workID).Scan(&contract.Version, &contract.Premise, &required, &routes, &mandates, &modifies); err == nil {
+	if err := tx.QueryRowContext(ctx, `SELECT contract_version,premise,required_evidence,route_conventions,spec_mandate,law_modifies FROM workflow_contracts WHERE work_id=? AND contract_version=? AND superseded_by IS NULL`, workID, activeContractVersion).Scan(&contract.Version, &contract.Premise, &required, &routes, &mandates, &modifies); err == nil {
 		if json.Unmarshal([]byte(required), &contract.RequiredEvidence) != nil || json.Unmarshal([]byte(routes), &contract.RouteConventions) != nil || json.Unmarshal([]byte(mandates), &contract.SpecMandate) != nil || json.Unmarshal([]byte(modifies), &contract.LawModifies) != nil {
 			return nil, newFailure(KindInvariantViolation, "workflow_read", "workflow history contract arrays are malformed", false, "rebuild projections from the event log")
 		}

@@ -124,9 +124,16 @@ func ReadWorkflowOperatorQuestion(ctx context.Context, s *Store, workID string) 
 		}
 		return nil, wrapFailure(KindUnavailable, "workflow_operator_question", "cannot read workflow question context", true, "retry once the database is readable", err)
 	}
+	activeContractVersion, contractErr := activeWorkflowContractVersion(ctx, s.db, workID, "workflow_operator_question")
+	if contractErr != nil {
+		if contractErr == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, contractErr
+	}
 	var contract WorkflowReadContract
 	var required, routes, mandates, modifies string
-	if err := s.db.QueryRowContext(ctx, `SELECT contract_version,premise,required_evidence,route_conventions,spec_mandate,law_modifies FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL ORDER BY contract_version DESC LIMIT 1`, workID).Scan(&contract.Version, &contract.Premise, &required, &routes, &mandates, &modifies); err != nil {
+	if err := s.db.QueryRowContext(ctx, `SELECT contract_version,premise,required_evidence,route_conventions,spec_mandate,law_modifies FROM workflow_contracts WHERE work_id=? AND contract_version=? AND superseded_by IS NULL`, workID, activeContractVersion).Scan(&contract.Version, &contract.Premise, &required, &routes, &mandates, &modifies); err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
 		}
@@ -374,13 +381,20 @@ func validateWorkflowOperatorSelectionTx(ctx context.Context, tx *sql.Tx, regist
 	if err := tx.QueryRowContext(ctx, `SELECT current_step,definition_ref,definition_version,definition_digest,(SELECT version FROM work_items WHERE id=workflow_instances.work_id) FROM workflow_instances WHERE work_id=?`, request.WorkID).Scan(&currentStep, &definition.Ref, &definition.Version, &definition.Digest, &workVersion); err != nil {
 		return wrapFailure(KindUnavailable, "workflow_operator_question", "cannot read workflow question context", true, "retry once the database is readable", err)
 	}
+	activeContractVersion, contractErr := activeWorkflowContractVersion(ctx, tx, request.WorkID, "workflow_operator_question")
+	if contractErr != nil {
+		if contractErr == sql.ErrNoRows {
+			return newFailure(KindStaleRequiresReview, "workflow_operator_question", "the operator question contract is no longer available", false, "refresh_context")
+		}
+		return contractErr
+	}
 	entry, err := VerifyWorkflowDefinitionPin(registry, WorkflowDefinitionPin(definition))
 	if err != nil {
 		return err
 	}
 	var contract WorkflowReadContract
 	var required, routes, mandates, modifies string
-	if err := tx.QueryRowContext(ctx, `SELECT contract_version,premise,required_evidence,route_conventions,spec_mandate,law_modifies FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL ORDER BY contract_version DESC LIMIT 1`, request.WorkID).Scan(&contract.Version, &contract.Premise, &required, &routes, &mandates, &modifies); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT contract_version,premise,required_evidence,route_conventions,spec_mandate,law_modifies FROM workflow_contracts WHERE work_id=? AND contract_version=? AND superseded_by IS NULL`, request.WorkID, activeContractVersion).Scan(&contract.Version, &contract.Premise, &required, &routes, &mandates, &modifies); err != nil {
 		return newFailure(KindStaleRequiresReview, "workflow_operator_question", "the operator question contract is no longer available", false, "refresh_context")
 	}
 	if json.Unmarshal([]byte(required), &contract.RequiredEvidence) != nil || json.Unmarshal([]byte(routes), &contract.RouteConventions) != nil || json.Unmarshal([]byte(mandates), &contract.SpecMandate) != nil || json.Unmarshal([]byte(modifies), &contract.LawModifies) != nil {

@@ -1,4 +1,6 @@
 import { test, expect, mock, beforeEach, afterEach } from "bun:test"
+import fs from "node:fs"
+import path from "node:path"
 import { hostControlPlane, MANAGED_TASK_SCOPE_KEY } from "./move-session"
 
 beforeEach(() => {
@@ -237,6 +239,49 @@ test("an unreadable session directory refuses before core dispatch authorization
   expect(result.error?.kind).toBe("transport_failure")
   expect(result.error?.message).toContain("directory")
   expect(seen).not.toContain("concord_work_transition.workflow_action")
+})
+
+test("production dispatch refuses a session retargeted during core authorization", async () => {
+  const root = fs.mkdtempSync(path.join(process.cwd(), "concord-dispatch-"))
+  const claimed = path.join(root, "claimed")
+  const other = path.join(root, "other")
+  const alias = path.join(root, "alias")
+  for (const directory of [claimed, other]) fs.mkdirSync(directory)
+  fs.symlinkSync(claimed, alias)
+  try {
+    hostControlPlane().bind({
+      get: async ({ path: routePath }) => ({
+        data: { id: routePath?.id, directory: alias, metadata: { [MANAGED_TASK_SCOPE_KEY]: "managed" } },
+        response: new Response(null, { status: 200 }),
+      }),
+      post: async () => { throw new Error("dispatch does not move the host session") },
+    })
+    let transitionCalls = 0
+    const invoke = async (toolName: string, args: { operation: string }): Promise<unknown> => {
+      const key = `${toolName}.${args.operation}`
+      if (key === "concord_work_trace.continuity") return continuityEnvelope()
+      if (key === "concord_work_browse.scope") return scopeEnvelope()
+      if (key === "concord_work_transition.workflow_action") {
+        transitionCalls++
+        fs.unlinkSync(alias)
+        fs.symlinkSync(other, alias)
+        return coreOkEnvelope()
+      }
+      throw new Error(`unscripted ${key}`)
+    }
+    const windows = new DispatchWindows()
+    const result = await dispatchLaneWorker(
+      { work_id: WORK_ID, expected_version: 3, idempotency_key: "directory-race", lane_id: lane.id },
+      { context: contextFor(), invoke: invoke as any, credentials: testCredentials, windows },
+    )
+    expect(result.outcome).toBe("error")
+    expect(result.error?.kind).toBe("unauthorized_dispatch")
+    expect(result.error?.message).toMatch(/does not match the active claimed worktree/i)
+    expect(transitionCalls).toBe(1)
+    expect(windows.has("session-1")).toBe(false)
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
 })
 
 test("unregistered lane refuses before any core invoke or spawn", async () => {

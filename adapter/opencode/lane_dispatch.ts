@@ -18,7 +18,7 @@ import { createHash } from "node:crypto"
 import type { ToolContext } from "@opencode-ai/plugin"
 import type { ConcordInvoke } from "./packet"
 import type { CredentialStore } from "./credentials"
-import type { DispatchWindows } from "./dispatch-window"
+import { canonicalDirectory, type DispatchWindows } from "./dispatch-window"
 import { dispatchWorker, errorEnvelopeForLane, type AgentLanePacket, type AgentResultEnvelope, type DispatchRunner } from "./dispatch"
 import { agentLanes, type AgentLane } from "./generated-agent-lanes"
 import { buildAgentLanePacket, type AgentLanePacketFailureKind } from "./packet"
@@ -140,8 +140,12 @@ export async function dispatchLaneWorker(input: LaneDispatchInput, deps: LaneDis
   // worker will start. The window re-reads it at bind time and refuses if the
   // session moved between authorization and use.
   let workerDirectory: string
+  let pinnedWorkerDirectory: string
   try {
     workerDirectory = await hostControlPlane().sessionDirectory(deps.context.sessionID, deps.context.abort)
+    const canonical = canonicalDirectory(workerDirectory)
+    if (canonical === null) throw new Error("host session worktree identity cannot be resolved")
+    pinnedWorkerDirectory = canonical
   } catch (error) {
     return errorEnvelopeForLane(laneForId(packet.lane_id), packet, "error", "transport_failure", error instanceof Error ? error.message : String(error), "reconcile_operation")
   }
@@ -194,5 +198,5 @@ export async function dispatchLaneWorker(input: LaneDispatchInput, deps: LaneDis
   // The window binds to the calling session, because that is the session whose
   // next Task call the plugin hook rewrites (CD-0102 D1).
   const workPins = resultRecord && Array.isArray(resultRecord.work_pins) ? resultRecord.work_pins : undefined
-  return dispatchWorker(packet, { authorize: async () => coreResponse, credentials: deps.credentials, runner: deps.runner, evidenceRunner: deps.evidenceRunner, concordBinary: deps.concordBinary, packetDigest, sessionID: deps.context.sessionID, windows: deps.windows, workPins, workerDirectory })
+  return dispatchWorker(packet, { authorize: async () => coreResponse, credentials: deps.credentials, runner: deps.runner, evidenceRunner: deps.evidenceRunner, concordBinary: deps.concordBinary, packetDigest, sessionID: deps.context.sessionID, windows: deps.windows, workPins, workerDirectory, pinnedWorkerDirectory, resolveWorkerDirectory: () => hostControlPlane().sessionDirectory(deps.context.sessionID, deps.context.abort) })
 }

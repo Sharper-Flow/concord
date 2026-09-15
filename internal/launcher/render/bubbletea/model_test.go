@@ -346,6 +346,9 @@ func TestS2BackRestoresPortfolioRowsCursorAndScroll(t *testing.T) {
 	if m.Cursor() != 1 || m.scroll != 1 {
 		t.Fatalf("restored portfolio position cursor=%d scroll=%d", m.Cursor(), m.scroll)
 	}
+	if !strings.Contains(m.Render(), "> Beta") {
+		t.Fatalf("restored portfolio position is not visible: %q", m.Render())
+	}
 }
 
 func TestS1HelpHasNoSemanticQueryBinding(t *testing.T) {
@@ -917,5 +920,40 @@ func TestS2TabFocusAndS3TabSectionBehaviour(t *testing.T) {
 	m.UpdateKey("tab")
 	if got := core.Section(); got != launcher.SectionRanked {
 		t.Fatalf("S3 Tab changed to %q, want next existing section", got)
+	}
+}
+
+func TestViewportWindowFollowsCursorPastPaneBoundary(t *testing.T) {
+	rows := make([]launcher.ProductRow, 32)
+	for i := range rows {
+		rows[i] = launcher.ProductRow{ID: fmt.Sprintf("p-%d", i+1), Name: fmt.Sprintf("Product %d", i+1), Stage: "in_progress", Actions: 1}
+	}
+	core := launcher.New(nil)
+	core.RestoreSnapshot(launcher.Snapshot{Screen: launcher.ScreenPortfolio, Coverage: "authoritative", Rows: rows})
+	m := New(core, context.Background(), Profile{})
+	m.Update(tea.WindowSizeMsg{Width: 80, Height: 12})
+	m.Sync()
+	for i := 0; i < 20; i++ {
+		m.UpdateKey("j")
+	}
+	rendered := m.Render()
+	if !strings.Contains(rendered, "> Product 21") {
+		t.Fatalf("selected row is not visible after scrolling: %q", rendered)
+	}
+	if strings.Contains(rendered, "Product 1 | ") {
+		t.Fatalf("viewport remained at the top: %q", rendered)
+	}
+}
+
+func TestPaneOffsetIgnoresGreaterThanContent(t *testing.T) {
+	rendered := pane(renderedPane{
+		header: []string{"HEADER"},
+		rows:   [][]string{{"> literal content"}, {"row 2"}, {"row 3"}, {"row 4"}},
+	}, 40, 5, 2)
+	if strings.Contains(rendered, "> literal content") {
+		t.Fatalf("content glyph changed the viewport offset: %q", rendered)
+	}
+	if !strings.Contains(rendered, "row 3") {
+		t.Fatalf("viewport did not follow the row offset: %q", rendered)
 	}
 }

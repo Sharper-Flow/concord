@@ -92,7 +92,7 @@ export default async function ConcordAdapterPlugin(input?: Partial<PluginInput>)
       const windows = dispatchWindows()
       const concordLane = agentLanes.some((lane) => output.args.subagent_type === `concord-${lane.id}`)
       if (windows.has(input.sessionID) || concordLane) {
-        windows.bind(input.tool, input.sessionID, output.args, input.callID)
+        await windows.bind(input.tool, input.sessionID, output.args, input.callID, () => hostControlPlane().sessionDirectory(input.sessionID))
         return
       }
       const concordUtility = agentUtilities.some((utility) => output.args.subagent_type === `concord-${utility.id}`)
@@ -105,7 +105,7 @@ export default async function ConcordAdapterPlugin(input?: Partial<PluginInput>)
       const scope = await hostControlPlane().taskScope(input.sessionID)
       if (scope === null) throw new SessionScopeUnavailable("cannot resolve managed Task scope: the calling host session does not exist")
       if (scope === "managed") {
-        windows.bind(input.tool, input.sessionID, output.args, input.callID)
+        await windows.bind(input.tool, input.sessionID, output.args, input.callID, () => hostControlPlane().sessionDirectory(input.sessionID))
         return
       }
       // A native Task may resume a session that belongs to another parent.

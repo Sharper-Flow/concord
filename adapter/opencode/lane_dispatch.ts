@@ -19,7 +19,6 @@ import type { ToolContext } from "@opencode-ai/plugin"
 import type { ConcordInvoke } from "./packet"
 import type { CredentialStore } from "./credentials"
 import type { DispatchWindows } from "./dispatch-window"
-import { dispatchDirectoryMismatch } from "./dispatch-window"
 import { dispatchWorker, errorEnvelopeForLane, type AgentLanePacket, type AgentResultEnvelope, type DispatchRunner } from "./dispatch"
 import { agentLanes, type AgentLane } from "./generated-agent-lanes"
 import { buildAgentLanePacket, type AgentLanePacketFailureKind } from "./packet"
@@ -44,9 +43,6 @@ export interface LaneDispatchDeps {
   // unset and the dispatch path uses the per-instance store the plugin hook
   // reads; tests supply an isolated one.
   windows?: DispatchWindows
-  // Tests may model a host whose process directory differs from this adapter's
-  // directory. Production uses the host process directory by default.
-  executionDirectory?: () => string
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -138,17 +134,16 @@ export async function dispatchLaneWorker(input: LaneDispatchInput, deps: LaneDis
     return errorEnvelopeForLane(laneForId(packet.lane_id), packet, "blocked", "transport_failure", error instanceof Error ? error.message : String(error), "contact_operator")
   }
 
-  // The host session route is the source for the claimed directory. The
-  // ToolContext directory is a projection and cannot prove where Task runs.
+  // The host session route is the source for the claimed directory, read per
+  // call rather than stored (CD-0104 D1). Task creates the worker session in
+  // this same directory, so the value recorded on the window is where the
+  // worker will start. The window re-reads it at bind time and refuses if the
+  // session moved between authorization and use.
   let workerDirectory: string
   try {
     workerDirectory = await hostControlPlane().sessionDirectory(deps.context.sessionID, deps.context.abort)
   } catch (error) {
     return errorEnvelopeForLane(laneForId(packet.lane_id), packet, "error", "transport_failure", error instanceof Error ? error.message : String(error), "reconcile_operation")
-  }
-  const directoryFailure = dispatchDirectoryMismatch(workerDirectory, deps.executionDirectory?.())
-  if (directoryFailure) {
-    return errorEnvelopeForLane(laneForId(packet.lane_id), packet, "error", "unauthorized_dispatch", directoryFailure, "reconcile_operation")
   }
 
   // Core invoke: the dispatch_worker action with the enriched fields. The

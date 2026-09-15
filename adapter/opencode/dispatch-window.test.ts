@@ -1,4 +1,6 @@
 import { randomUUID } from "node:crypto"
+import { realpathSync } from "node:fs"
+import { tmpdir } from "node:os"
 import { describe, expect, test } from "bun:test"
 import { DispatchWindows, TASK_TOOL_ID } from "./dispatch-window"
 
@@ -13,51 +15,63 @@ const packet = {
   inputs: { task: "do the bounded thing", context: "", constraints: [] },
 }
 
+const here = async () => process.cwd()
+
 describe("dispatch authorization window", () => {
-  test("refuses a task call when no window is open for the session", () => {
+  test("refuses a task call when no window is open for the session", async () => {
     const windows = new DispatchWindows()
     const args = { subagent_type: "general", prompt: "whatever I like", description: "x" }
-    expect(() => windows.bind(TASK_TOOL_ID, "session-a", args)).toThrow(/no authorized dispatch/i)
+    await expect(windows.bind(TASK_TOOL_ID, "session-a", args, undefined, here)).rejects.toThrow(/no authorized dispatch/i)
     expect(args.subagent_type).toBe("general")
   })
 
-  test("replaces caller arguments with the recorded packet", () => {
+  // An unauthorized call is refused on the window alone, so the host is never
+  // asked where the session runs.
+  test("refuses an unauthorized call without reading the session directory", async () => {
+    const windows = new DispatchWindows()
+    let reads = 0
+    const counted = async () => { reads++; return process.cwd() }
+    await expect(windows.bind(TASK_TOOL_ID, "session-a", {}, undefined, counted)).rejects.toThrow(/no authorized dispatch/i)
+    expect(reads).toBe(0)
+  })
+
+  test("replaces caller arguments with the recorded packet", async () => {
     const windows = new DispatchWindows()
     windows.open("session-a", packet, "", undefined, process.cwd())
     const args = { subagent_type: "general", prompt: "whatever I like", description: "x" }
-    windows.bind(TASK_TOOL_ID, "session-a", args)
+    await windows.bind(TASK_TOOL_ID, "session-a", args, undefined, here)
     expect(args.subagent_type).toBe("concord-implement")
     expect(JSON.parse(args.prompt).attempt_id).toBe("attempt-1")
   })
 
-  test("consumes the window exactly once", () => {
+  test("consumes the window exactly once", async () => {
     const windows = new DispatchWindows()
     windows.open("session-a", packet, "", undefined, process.cwd())
-    windows.bind(TASK_TOOL_ID, "session-a", { subagent_type: "x", prompt: "y", description: "z" })
-    expect(() => windows.bind(TASK_TOOL_ID, "session-a", { subagent_type: "x", prompt: "y", description: "z" })).toThrow(
-      /no authorized dispatch/i,
-    )
+    await windows.bind(TASK_TOOL_ID, "session-a", { subagent_type: "x", prompt: "y", description: "z" }, undefined, here)
+    await expect(
+      windows.bind(TASK_TOOL_ID, "session-a", { subagent_type: "x", prompt: "y", description: "z" }, undefined, here),
+    ).rejects.toThrow(/no authorized dispatch/i)
   })
 
-  test("scopes a window to the session that requested it", () => {
+  test("scopes a window to the session that requested it", async () => {
     const windows = new DispatchWindows()
     windows.open("session-a", packet, "", undefined, process.cwd())
-    expect(() => windows.bind(TASK_TOOL_ID, "session-b", { subagent_type: "x", prompt: "y", description: "z" })).toThrow(
-      /no authorized dispatch/i,
-    )
+    await expect(
+      windows.bind(TASK_TOOL_ID, "session-b", { subagent_type: "x", prompt: "y", description: "z" }, undefined, here),
+    ).rejects.toThrow(/no authorized dispatch/i)
     const args = { subagent_type: "x", prompt: "y", description: "z" }
-    windows.bind(TASK_TOOL_ID, "session-a", args)
+    await windows.bind(TASK_TOOL_ID, "session-a", args, undefined, here)
     expect(args.subagent_type).toBe("concord-implement")
   })
 
-  test("ignores tools other than the task tool", () => {
+  test("ignores tools other than the task tool", async () => {
     const windows = new DispatchWindows()
     windows.open("session-a", packet, "", undefined, process.cwd())
     const args = { subagent_type: "general", prompt: "untouched" }
-    windows.bind("bash", "session-a", args)
+    await windows.bind("bash", "session-a", args, undefined, here)
     expect(args.prompt).toBe("untouched")
     const taskArgs = { subagent_type: "x", prompt: "y", description: "z" }
-    windows.bind(TASK_TOOL_ID, "session-a", taskArgs)
+    await windows.bind(TASK_TOOL_ID, "session-a", taskArgs, undefined, here)
     expect(taskArgs.subagent_type).toBe("concord-implement")
   })
 
@@ -67,20 +81,40 @@ describe("dispatch authorization window", () => {
     expect(() => windows.open("session-a", packet, "", undefined, process.cwd())).toThrow(/already holds an open dispatch/i)
   })
 
-  test("refuses to resume a prior worker session", () => {
+  test("refuses to resume a prior worker session", async () => {
     const windows = new DispatchWindows()
     windows.open("session-a", packet, "", undefined, process.cwd())
     const args = { subagent_type: "x", prompt: "y", description: "z", task_id: "session-prior" }
-    windows.bind(TASK_TOOL_ID, "session-a", args)
+    await windows.bind(TASK_TOOL_ID, "session-a", args, undefined, here)
     expect(args.task_id).toBeUndefined()
   })
 
-  test("refuses a worker when the host execution directory differs from the claim", () => {
-    const windows = new DispatchWindows(() => "/tmp")
+  // The host process keeps the directory it launched in, while a session moves
+  // to its claimed worktree. Comparing the claim against the process directory
+  // refused every dispatch from a host launched anywhere else, although Task
+  // creates the worker session in the session's directory and never in the
+  // process directory.
+  test("binds when the session directory differs from the host process directory", async () => {
+    const windows = new DispatchWindows()
+    const claimed = realpathSync(tmpdir())
+    expect(claimed).not.toBe(process.cwd())
+    windows.open("session-a", packet, "", undefined, claimed)
+    const args = { subagent_type: "general", prompt: "model input", description: "model task" }
+
+    await windows.bind(TASK_TOOL_ID, "session-a", args, undefined, async () => claimed)
+    expect(args.subagent_type).toBe("concord-implement")
+  })
+
+  // A session that moved between authorization and the Task call would start
+  // the worker outside the worktree the core authorized.
+  test("refuses a worker when the session moved away from the claimed worktree", async () => {
+    const windows = new DispatchWindows()
     windows.open("session-a", packet, "", undefined, process.cwd())
     const args = { subagent_type: "general", prompt: "model input", description: "model task" }
 
-    expect(() => windows.bind(TASK_TOOL_ID, "session-a", args)).toThrow(/does not match the active claimed worktree/i)
+    await expect(
+      windows.bind(TASK_TOOL_ID, "session-a", args, undefined, async () => realpathSync(tmpdir())),
+    ).rejects.toThrow(/does not match the active claimed worktree/i)
     expect(args.subagent_type).toBe("general")
     expect(windows.has("session-a")).toBe(false)
   })
@@ -93,22 +127,24 @@ describe("dispatch authorization window", () => {
     }
   })
 
-  test("keeps the host execution directory unchanged when binding a worker", () => {
+  // Binding must never relocate the host process. A dispatch that changed the
+  // process directory would move every other session sharing this process.
+  test("keeps the host process directory unchanged when binding a worker", async () => {
     const directory = process.cwd()
     const before = process.cwd()
-    const windows = new DispatchWindows(() => directory)
+    const windows = new DispatchWindows()
     windows.open("session-a", packet, "", undefined, directory)
-    windows.bind(TASK_TOOL_ID, "session-a", { subagent_type: "general", prompt: "model input" })
+    await windows.bind(TASK_TOOL_ID, "session-a", { subagent_type: "general", prompt: "model input" }, undefined, here)
 
     expect(process.cwd()).toBe(before)
   })
 })
 
 describe("in-flight retention across the host task call", () => {
-  test("bind moves the record to in flight and completion takes it once", () => {
+  test("bind moves the record to in flight and completion takes it once", async () => {
     const windows = new DispatchWindows()
     windows.open("session-a", packet, "sha256:" + "c".repeat(64), undefined, process.cwd())
-    windows.bind(TASK_TOOL_ID, "session-a", { subagent_type: "general", prompt: "x" })
+    await windows.bind(TASK_TOOL_ID, "session-a", { subagent_type: "general", prompt: "x" }, undefined, here)
     expect(windows.has("session-a")).toBe(false)
 
     const record = windows.takeInFlight("session-a")

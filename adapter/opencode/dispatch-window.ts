@@ -54,8 +54,6 @@ export class DispatchWindows {
   readonly #inFlight = new Map<string, DispatchRecord>()
   readonly #settling = new Set<string>()
 
-  constructor(private readonly executionDirectory: () => string = () => process.cwd()) {}
-
   open(sessionID: string, packet: AgentLanePacket, packetDigest = "", workPins: unknown[] | undefined = undefined, workerDirectory?: string): void {
     if (this.#open.has(sessionID) || this.#inFlight.has(sessionID)) {
       throw new DispatchWindowError(`session ${sessionID} already holds an open dispatch window or an in-flight attempt`)
@@ -109,7 +107,18 @@ export class DispatchWindows {
 
   // bind is the `tool.execute.before` body. It mutates the caller's arguments in
   // place, which is the only channel the host hook contract offers.
-  bind(tool: string, sessionID: string, args: MutableToolArgs, callID?: string): void {
+  //
+  // resolveSessionDirectory reads where the host runs this session now, per call
+  // from the host session route rather than from storage (CD-0104 D1). The
+  // window recorded that same value when the core authorized the dispatch, so a
+  // difference means the session moved in between and the worker would no longer
+  // start in the worktree the core authorized.
+  //
+  // It is a resolver rather than a value because an unauthorized call must be
+  // refused on the window alone. Resolving first would spend a host round-trip
+  // on a call that is already refused, and would report the host's answer in
+  // place of the authorization failure that actually stopped it.
+  async bind(tool: string, sessionID: string, args: MutableToolArgs, callID: string | undefined, resolveSessionDirectory: () => Promise<string>): Promise<void> {
     if (tool !== TASK_TOOL_ID) return
     const record = this.#open.get(sessionID)
     if (!record) {
@@ -117,14 +126,10 @@ export class DispatchWindows {
         `no authorized dispatch window is open for session ${sessionID}; start a worker through dispatch_worker`,
       )
     }
-    const expected = canonicalDirectory(record.workerDirectory)
-    const actualValue = this.executionDirectory()
-    const actual = canonicalDirectory(actualValue)
-    if (expected === null || actual === null || expected !== actual) {
+    const mismatch = dispatchDirectoryMismatch(record.workerDirectory, await resolveSessionDirectory())
+    if (mismatch) {
       this.#open.delete(sessionID)
-      throw new DispatchWindowError(
-        `worker dispatch directory does not match the active claimed worktree (expected ${JSON.stringify(record.workerDirectory)}, actual ${JSON.stringify(actualValue)})`,
-      )
+      throw new DispatchWindowError(mismatch)
     }
     this.#open.delete(sessionID)
     record.callID = callID
@@ -139,9 +144,10 @@ export class DispatchWindows {
   }
 }
 
-// The native Task uses the host process directory when it creates the worker
-// session. Resolve both sides before comparison so a symlink cannot make the
-// host run a worker outside the claimed worktree.
+// The native Task creates the worker session in the directory the host reports
+// for the calling session, not in the host process directory. Resolve both sides
+// before comparison so a symlink cannot make the host run a worker outside the
+// claimed worktree.
 function canonicalDirectory(value: unknown): string | null {
   if (typeof value !== "string" || value.length === 0 || !path.isAbsolute(value)) return null
   try {
@@ -156,11 +162,11 @@ export function isResolvableDirectory(value: unknown): value is string {
   return canonicalDirectory(value) !== null
 }
 
-export function dispatchDirectoryMismatch(expected: unknown, executionDirectory = process.cwd()): string | null {
+export function dispatchDirectoryMismatch(expected: unknown, sessionDirectory: unknown): string | null {
   const expectedCanonical = canonicalDirectory(expected)
-  const actualCanonical = canonicalDirectory(executionDirectory)
+  const actualCanonical = canonicalDirectory(sessionDirectory)
   return expectedCanonical !== null && expectedCanonical === actualCanonical ? null :
-    `worker dispatch directory does not match the active claimed worktree (expected ${JSON.stringify(expected)}, actual ${JSON.stringify(executionDirectory)})`
+    `worker dispatch directory does not match the active claimed worktree (expected ${JSON.stringify(expected)}, actual ${JSON.stringify(sessionDirectory)})`
 }
 
 const shared = new DispatchWindows()

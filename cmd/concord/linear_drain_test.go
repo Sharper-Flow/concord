@@ -49,6 +49,16 @@ func seedLinearCLIWork(t *testing.T, dbPath, workID, projectID, title string) {
 
 func enableLinearProduct(t *testing.T, dbPath, productID string) {
 	t.Helper()
+	s, err := store.Open(context.Background(), dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var projectID string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT project_id FROM product_projects WHERE product_id=? AND role='primary'`, productID).Scan(&projectID); err != nil {
+		s.Close()
+		t.Fatal(err)
+	}
+	s.Close()
 	runOperatorJSON(t, dbPath, []string{"product-mode-set"}, map[string]any{
 		"product_id": productID, "planning_mode": "linear_enabled",
 		"reason": "CD-0121 activation for the drain test", "expected_version": 2,
@@ -58,7 +68,7 @@ func enableLinearProduct(t *testing.T, dbPath, productID string) {
 		"display_name": "Linear connection", "class": "saas", "kind": "saas_account", "purpose": "Linear planning connection",
 		"stage_maturity": "prototype", "stage_audience_commitment": "operator_only", "environments": []string{"production"},
 		"metadata_schema_version":  "linear-connection-v1",
-		"metadata":                 map[string]any{"linear": map[string]any{"workspace_url": "https://linear.app/example", "team_id": "68d52710-76d9-4b41-ba45-778511d0e2ed", "project_id": "project-uuid-1", "auth_mode": "personal_api_key", "status_ids": map[string]string{"cancelled": "state-cancelled", "completed": "state-completed", "superseded": "state-superseded"}}},
+		"metadata":                 map[string]any{"linear": map[string]any{"workspace_url": "https://linear.app/example", "team_id": "68d52710-76d9-4b41-ba45-778511d0e2ed", "project_ids": map[string]string{projectID: "project-uuid-1"}, "auth_mode": "personal_api_key", "status_ids": map[string]string{"cancelled": "state-cancelled", "completed": "state-completed", "superseded": "state-superseded"}}},
 		"expected_product_version": 3,
 	})
 }
@@ -371,7 +381,7 @@ func TestLinearDrainRefusesQueuedOperationAfterConnectionChange(t *testing.T) {
 	runOperatorJSON(t, dbPath, []string{"linear-issue-enqueue"}, map[string]any{"product_id": "stale-product", "work_id": "stale-work", "op_kind": "issue_create"})
 	runOperatorJSON(t, dbPath, []string{"linear-connection-update"}, map[string]any{
 		"event_id": "stale-connection-update", "resource_id": "drain-conn-stale-product", "product_id": "stale-product",
-		"team_id": "new-team", "project_id": "new-project", "status_ids": map[string]string{"needed": "new-needed", "in_progress": "new-in-progress", "cancelled": "new-cancelled", "completed": "new-completed", "superseded": "new-superseded"}, "expected_resource_version": 1,
+		"team_id": "new-team", "project_ids": map[string]string{"stale-project": "new-project"}, "status_ids": map[string]string{"needed": "new-needed", "in_progress": "new-in-progress", "cancelled": "new-cancelled", "completed": "new-completed", "superseded": "new-superseded"}, "expected_resource_version": 1,
 	})
 
 	calls := 0
@@ -435,7 +445,7 @@ func TestLinearDrainRefusesLegacyQueuedOperationAfterConnectionChange(t *testing
 
 	runOperatorJSON(t, dbPath, []string{"linear-connection-update"}, map[string]any{
 		"event_id": "legacy-stale-connection-update", "resource_id": "drain-conn-legacy-stale-product", "product_id": "legacy-stale-product",
-		"team_id": "new-team", "project_id": "new-project", "status_ids": map[string]string{"needed": "new-needed", "in_progress": "new-in-progress", "cancelled": "new-cancelled", "completed": "new-completed", "superseded": "new-superseded"}, "expected_resource_version": 1,
+		"team_id": "new-team", "project_ids": map[string]string{"legacy-stale-project": "new-project"}, "status_ids": map[string]string{"needed": "new-needed", "in_progress": "new-in-progress", "cancelled": "new-cancelled", "completed": "new-completed", "superseded": "new-superseded"}, "expected_resource_version": 1,
 	})
 
 	calls := 0
@@ -489,7 +499,7 @@ func TestLinearDrainRefreshesConnectionPerClaimedOperation(t *testing.T) {
 			}
 			err = s.UpdateLinearConnection(context.Background(), store.LinearConnectionUpdateRequest{
 				EventID: "refresh-connection-update", ResourceID: "drain-conn-refresh-product", ProductID: "refresh-product",
-				TeamID: "refresh-team", ProjectID: "refresh-new-project", StatusIDs: map[string]string{"needed": "refresh-needed", "in_progress": "refresh-in-progress", "cancelled": "refresh-cancelled", "completed": "refresh-completed", "superseded": "refresh-superseded"},
+				TeamID: "refresh-team", ProjectIDs: map[string]string{"refresh-project": "refresh-new-project"}, StatusIDs: map[string]string{"needed": "refresh-needed", "in_progress": "refresh-in-progress", "cancelled": "refresh-cancelled", "completed": "refresh-completed", "superseded": "refresh-superseded"},
 				ExpectedResourceVersion: 1, Actor: "operator", OccurredAt: fixedLinearTestTime(),
 			})
 			s.Close()

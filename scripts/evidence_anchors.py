@@ -10,8 +10,8 @@ other — the same defect restated in two syntaxes (CD-0047 D3).
 
 What an anchor is:
 - `go_test`: a Go test identified as `<package>.<TestName>`; resolves when the
-  test is declared in that package. `go test ./...` is a required CI step, so
-  package membership is the executability question.
+  test is declared in that package and its body, or a same-package helper it
+  calls, reaches a testing failure call. `go test ./...` is a required CI step.
 - `scenario`: a corpus scenario id; resolves when the id appears in a corpus
   file under `scenarios/` and nothing in `internal/` defers it. A deferred
   scenario is executed by nothing and accepting it as evidence would assert a
@@ -37,6 +37,7 @@ from __future__ import annotations
 import ast
 import json
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -59,22 +60,56 @@ REQUIRED_WORKFLOWS = (
     ROOT / ".github/workflows/release.yml",
 )
 
+GO_TEST_PROJECTOR = ROOT / "scripts/go-test-assertions/main.go"
+_GO_TEST_SIGNATURE: tuple[tuple[str, int, int], ...] | None = None
+_GO_TEST_FACTS: dict[str, dict[str, bool]] = {}
 
-def go_test_exists(package: str, test: str) -> bool:
-    """A Go test anchor resolves when the named test is declared in that package.
 
-    `go test ./...` is a required CI step and covers every package in the
-    module, so package membership is the whole of the executability question
-    for this kind — there is no per-package opt-in that could exclude it.
+def _go_test_source_signature() -> tuple[tuple[str, int, int], ...]:
+    files: list[tuple[str, int, int]] = []
+    for path in ROOT.rglob("*.go"):
+        if ".git" in path.parts or "vendor" in path.parts:
+            continue
+        try:
+            stat = path.stat()
+        except OSError:
+            continue
+        files.append((path.relative_to(ROOT).as_posix(), stat.st_mtime_ns, stat.st_size))
+    return tuple(sorted(files))
+
+
+def _load_go_test_facts() -> dict[str, dict[str, bool]]:
+    global _GO_TEST_SIGNATURE, _GO_TEST_FACTS
+    signature = _go_test_source_signature()
+    if signature == _GO_TEST_SIGNATURE:
+        return _GO_TEST_FACTS
+    try:
+        result = subprocess.run(
+            ["go", "run", str(GO_TEST_PROJECTOR), str(ROOT)],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        document = json.loads(result.stdout) if result.returncode == 0 else {}
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        document = {}
+    packages = document.get("packages") if isinstance(document, dict) else None
+    _GO_TEST_FACTS = packages if isinstance(packages, dict) else {}
+    _GO_TEST_SIGNATURE = signature
+    return _GO_TEST_FACTS
+
+
+def go_test_asserts(package: str, test: str) -> bool:
+    """A Go test anchor resolves only when its AST fact says the test can fail.
+
+    The projector parses every Go test file and admits one level of
+    same-package helper delegation. A declaration without a failure-producing
+    call is presence, not proof.
     """
-    directory = ROOT / package
-    if not directory.is_dir():
-        return False
-    declaration = re.compile(rf"^func {re.escape(test)}\(", re.MULTILINE)
-    return any(
-        declaration.search(path.read_text(encoding="utf-8", errors="replace"))
-        for path in directory.glob("*_test.go")
-    )
+    facts = _load_go_test_facts()
+    package_facts = facts.get(package)
+    return isinstance(package_facts, dict) and package_facts.get(test) is True
 
 
 DEFERRAL = re.compile(r"""Deferrals\[\s*["'](?P<id>[^"']+)["']\s*\]\s*=""")
@@ -295,7 +330,7 @@ def check_anchor(anchor: object, prefix: str, findings: list[str]) -> None:
         match = GO_TEST_ANCHOR.fullmatch(value)
         if not match:
             findings.append(f"{prefix}: go_test anchor must read <package>.<TestName>: {value!r}")
-        elif not go_test_exists(match.group("package"), match.group("test")):
+        elif not go_test_asserts(match.group("package"), match.group("test")):
             findings.append(f"{prefix}: go_test anchor does not resolve: {value!r}")
     elif kind == "scenario":
         if not scenario_exists(value):

@@ -1,14 +1,9 @@
 #!/usr/bin/env bash
 #
-# Repository-local test throttle wrapper.
+# Repository-local conformance throttle wrapper.
 #
-# Tiers:
-#   targeted  Ungated. Runs `go test` with caller-supplied arguments.
-#   smoke     Gated. Go sweep: gofmt, go vet, go test ./...
+# Tier:
 #   conformance Gated production-like ten-process conformance harness.
-#   full      Gated, bounded workers and wall-clock bound. Continuous-integration
-#             parity: repository validators, gofmt, module tidiness, go vet, and
-#             the race-detector test run.
 #
 # Host admission control is provided by `oc-test-gate` when it is installed.
 # When it is missing the tier still runs, unthrottled, after a warning. The
@@ -20,71 +15,48 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root"
 
-# `go test -p` caps how many package test binaries run at once; without it Go
-# defaults to GOMAXPROCS, which saturates the machine when several agents run
-# the full tier concurrently.
-full_workers="${OC_TEST_GO_WORKERS:-4}"
-# Measured under this tier's own admission control (-p 4, nice 10) on the
-# shared development host (2026-09-15, roughly 3x CPU oversubscription): the
-# uncached race suite took 42m47s on main and 30m42s after store and agent test
-# parallelization; internal/agent took 3m00s and 1m20s. The default must clear
-# both the gate bound and the per-package go test timeout. CI is not affected;
-# it invokes the underlying commands natively.
-full_timeout="${OC_TEST_FULL_TIMEOUT:-45m}"
-
 usage() {
   cat >&2 <<'USAGE'
-Usage: bin/oc-test <targeted|smoke|conformance|full> [-- <go test args...>]
+Usage: bin/oc-test conformance
 
-  targeted   Ungated go test; defaults to ./... when no arguments are given.
-             Example: bin/oc-test targeted -- -run TestRunVersion ./cmd/concord
-  smoke      gofmt, go vet, go test ./...
   conformance  long uninstrumented ten-process SQLite harness under host admission control
-  full       Validators, gofmt, module tidiness, go vet, go test -race,
-             with bounded workers and a wall-clock bound.
-
-Environment:
-  OC_TEST_GO_WORKERS     full-tier `go test -p` value (default 4)
-  OC_TEST_FULL_TIMEOUT   full-tier wall-clock bound (default 45m)
 USAGE
   exit 64
 }
 
-# Run one tier, wrapped in host admission control when it is available.
+# Run the conformance workload, wrapped in host admission control when it is available.
 run_tier() {
   local tier="$1"
   shift
 
   local -a gate=()
   if command -v oc-test-gate >/dev/null 2>&1; then
-    gate=(oc-test-gate "$tier")
-    if [[ "$tier" == "full" ]]; then
-      gate+=(--timeout "$full_timeout")
-    fi
-    gate+=(--)
-  elif [[ "$tier" != "targeted" ]]; then
+    gate=(oc-test-gate "$tier" --)
+  else
     printf 'bin/oc-test: oc-test-gate not found on PATH; running the %s tier unthrottled.\n' "$tier" >&2
     printf 'bin/oc-test: concurrent runs on this machine are not admission-controlled.\n' >&2
   fi
 
+  printf 'START %s\n' "$tier"
   local rc=0
-  if [[ "$tier" != "targeted" && ${#gate[@]} -gt 0 ]]; then
+  if [[ ${#gate[@]} -gt 0 ]]; then
     printf 'WAIT admission: %s (shared heavy-test slot)\n' "$tier"
   fi
   set +e
-  "${gate[@]+"${gate[@]}"}" "$@"
+  if [[ ${#gate[@]} -gt 0 ]]; then
+    "${gate[@]}" "$@"
+  else
+    "$@"
+  fi
   rc=$?
   set -e
+  if [[ "$rc" -eq 0 ]]; then
+    printf 'PASS %s\n' "$tier"
+  else
+    printf 'FAIL %s (exit %s)\n' "$tier" "$rc" >&2
+  fi
   exit "$rc"
 }
-
-check_gofmt='
-unformatted="$(gofmt -l .)"
-if [ -n "$unformatted" ]; then
-  printf "gofmt: files need formatting:\n%s\n" "$unformatted" >&2
-  exit 1
-fi
-'
 
 tier="${1:-}"
 [[ -n "$tier" ]] || usage
@@ -92,54 +64,9 @@ shift || true
 [[ "${1:-}" != "--" ]] || shift
 
 case "$tier" in
-  targeted)
-    if [[ $# -eq 0 ]]; then
-      set -- ./...
-    fi
-    run_tier targeted go test "$@"
-    ;;
-  smoke)
-    [[ $# -eq 0 ]] || usage
-    run_tier smoke bash -c "
-set -euo pipefail
-printf 'START gofmt\n'
-${check_gofmt}
-printf 'PASS gofmt\nSTART vet\n'
-go vet ./...
-printf 'PASS vet\nSTART go-tests\n'
-go test -v ./...
-printf 'PASS go-tests\n'
-"
-    ;;
-  full)
-    [[ $# -eq 0 ]] || usage
-    run_tier full bash -c "
-set -euo pipefail
-phase() {
-  local label=\"\$1\" started=\$SECONDS rc
-  shift
-  printf 'START %s\n' \"\$label\"
-  if \"\$@\"; then
-    printf 'PASS %s (%ss)\n' \"\$label\" \"\$((SECONDS-started))\"
-  else
-    rc=\$?
-    printf 'FAIL %s (%ss, exit %s)\n' \"\$label\" \"\$((SECONDS-started))\" \"\$rc\" >&2
-    return \"\$rc\"
-  fi
-}
-phase public-content python3 scripts/check-public-content.py
-phase doc-links python3 scripts/check-doc-links.py
-phase json python3 scripts/check-json.py
-phase gofmt bash -e -u -o pipefail -c '${check_gofmt}'
-phase module-tidiness go mod tidy -diff
-phase module-diff git diff --exit-code -- go.mod go.sum
-phase vet go vet ./...
-phase race-tests go test -v -race -p \"\$1\" -timeout \"\$2\" ./...
-" bash "$full_workers" "$full_timeout"
-    ;;
   conformance)
     [[ $# -eq 0 ]] || usage
-    run_tier full env CONCORD_CONFORMANCE_LONG=1 go test -count=1 -run '^TestTenProcessConformance$' ./internal/store -v
+    run_tier conformance env CONCORD_CONFORMANCE_LONG=1 go test -count=1 -run '^TestTenProcessConformance$' ./internal/store -v
     ;;
   *)
     usage

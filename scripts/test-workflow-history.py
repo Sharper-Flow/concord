@@ -80,8 +80,8 @@ class HistoricalReplayTest(unittest.TestCase):
                     (root / "internal" / owner / "zz_workflow_history_test.go").write_bytes(adapted)
                 else:
                     adapted = source
-                command = ["bin/oc-test", "targeted", "--", "./internal/" + owner,
-                           "-run", selected, "-count=1", "-json", "-timeout=3m"]
+                command = ["go", "test", "./internal/" + owner, "-run", selected,
+                           "-count=1", "-json", "-timeout=3m"]
                 result = self.execute(Path(relative).stem + "-" + label, root, command, adapted, owner, failing)
                 passed, failed, assertions = set(), set(), set()
                 for line in result.stdout.splitlines():

@@ -4,12 +4,12 @@
   "tools": [
     {
       "id": "bin-oc-test",
-      "purpose": "Local verification throttle; routes smoke, full, and targeted test tiers.",
-      "invocation": "bin/oc-test full",
+      "purpose": "Local ten-process conformance throttle.",
+      "invocation": "bin/oc-test conformance",
       "tier": "slow",
-      "cost_hint": "About 38 minutes under the local throttle.",
+      "cost_hint": "Expected to complete in minutes.",
       "config_path": "bin/oc-test",
-      "notes": "Sanctioned local entry for the Go suite; the full tier for this repository measures about 38 minutes under throttle."
+      "notes": "Sanctioned local entry for the ten-process SQLite conformance harness."
     },
     {
       "id": "go-test-race",

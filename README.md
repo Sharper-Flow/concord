@@ -90,15 +90,15 @@ concord launcher
 
 ## Build and verify from source
 
-Source development uses the Go toolchain pinned in [`go.mod`](go.mod) and
-Python 3 for repository validators. The [CI workflow](.github/workflows/ci.yml)
-shows the repository checks, and [`bin/oc-test`](bin/oc-test) documents local
-test tiers.
+Source development uses the Go toolchain pinned in [`go.mod`](go.mod). Run
+plain `go test` on changed packages during the edit loop. The [CI
+workflow](.github/workflows/ci.yml) shows the repository checks, and
+[`bin/oc-test`](bin/oc-test) documents the local conformance workload.
 
 ```sh
 go run ./cmd/concord --version
-bin/oc-test targeted -- -run TestRunVersion ./cmd/concord
-bin/oc-test full
+go test ./cmd/concord
+bin/oc-test conformance
 bun test adapter/opencode/
 ```
 

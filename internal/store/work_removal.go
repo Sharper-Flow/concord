@@ -368,8 +368,6 @@ func PrepareWorkRemovalTx(ctx context.Context, transaction *Transaction, req Wor
 	return WorkRemovalReceipt{OperationID: req.OperationID, IdempotencyKey: req.IdempotencyKey, WorkID: req.WorkID, ExpectedVersion: req.ExpectedVersion, Reason: req.Reason, Actor: req.Actor, ProductID: req.ProductID, Linear: req.Linear, Handoff: req.Handoff, HandoffDigest: digest, State: "prepared"}, nil
 }
 
-func WorkRemovalHandoffDigest(h WorkRemovalHandoff) string { return removalHandoffDigest(h) }
-
 func (s *Store) validateRemovalDestination(ctx context.Context, req WorkRemovalRequest) error {
 	return validateRemovalDestinationQ(ctx, s.db, req)
 }

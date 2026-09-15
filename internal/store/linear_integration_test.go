@@ -237,7 +237,25 @@ func TestLinearIssueEnqueueUsesTheOwningProjectMapping(t *testing.T) {
 	s := openTemp(t)
 	ctx := context.Background()
 	setupLinearProduct(t, s, "routing-product")
-	setupLinearConnectionResource(t, s, "routing-product", map[string]any{
+	if err := ApplyOperation(ctx, s, Operation{
+		Events: []Event{
+			projectCreatedEvent("other-project", "routing-secondary-project"),
+			membershipEvent("routing-secondary-membership", "product_project.added", SubjectProduct, "routing-product", map[string]any{
+				"product_id": "routing-product", "project_id": "other-project", "role": "secondary", "reason": "test",
+				"expected_version": 2, "resulting_version": 3,
+			}),
+		},
+		ExpectedVersions: map[SubjectRef]int64{
+			VersionRef(SubjectProduct, "routing-product"): 2,
+			VersionRef(SubjectProject, "other-project"):   0,
+		},
+	}); err != nil {
+		t.Fatalf("add routing Product project: %v", err)
+	}
+	if _, err := s.SetProductPlanningMode(ctx, "routing-product", PlanningModeLinear, "pilot", "operator", 3); err != nil {
+		t.Fatal(err)
+	}
+	setupLinearConnectionResourceAtVersion(t, s, "routing-product", map[string]any{
 		"linear": map[string]any{
 			"workspace_url": "https://linear.app/example",
 			"team_id":       "team-uuid-1",
@@ -247,11 +265,8 @@ func TestLinearIssueEnqueueUsesTheOwningProjectMapping(t *testing.T) {
 				"other-project":           "linear-project-two",
 			},
 		},
-	})
-	if _, err := s.SetProductPlanningMode(ctx, "routing-product", PlanningModeLinear, "pilot", "operator", 2); err != nil {
-		t.Fatal(err)
-	}
-	seedLinearWorkItem(t, s, "routing-work", "routing-product-project", "Routing title", "Routing value")
+	}, 4)
+	seedLinearWorkItem(t, s, "routing-work", "other-project", "Routing title", "Routing value")
 	op, err := s.EnqueueLinearIssueForWork(ctx, "routing-work", LinearOpIssueCreate)
 	if err != nil {
 		t.Fatalf("EnqueueLinearIssueForWork() error = %v", err)
@@ -260,8 +275,8 @@ func TestLinearIssueEnqueueUsesTheOwningProjectMapping(t *testing.T) {
 	if err := json.Unmarshal(op.Payload, &payload); err != nil {
 		t.Fatal(err)
 	}
-	if payload.ProjectID != "linear-project-one" {
-		t.Fatalf("payload project id = %q, want linear-project-one", payload.ProjectID)
+	if payload.ProjectID != "linear-project-two" {
+		t.Fatalf("payload project id = %q, want linear-project-two", payload.ProjectID)
 	}
 }
 

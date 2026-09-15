@@ -418,8 +418,9 @@ function confirmPremiseInputFault(input: any): string {
 // invokeConcordOperation is the single `concord project-resolve` + `concord invoke`
 // transport for every adapter surface, including host-side callers outside the
 // tool exports below. It owns envelope construction, the closed core-response
-// contract check, and the approval_required resubmission.
-async function invokeConcordOperationRaw(toolName: string, args: HostToolArgs, context: ToolContext): Promise<CoreConcordEnvelope> {
+// contract check, and the approval_required resubmission. Native worker
+// dispatch can supply the canonical session directory that its window pins.
+async function invokeConcordOperationRaw(toolName: string, args: HostToolArgs, context: ToolContext, sessionDirectoryOverride?: string): Promise<CoreConcordEnvelope> {
   const operation = args.operation
   const requestID = `${context.sessionID}-${context.messageID}`
   // CD-0111 D2: a session that could not claim its host lease runs closed.
@@ -433,7 +434,7 @@ async function invokeConcordOperationRaw(toolName: string, args: HostToolArgs, c
   }
   let ambient: AmbientContext
   let sessionDirectory: string
-  try { sessionDirectory = await resolveSessionDirectory(context) } catch (error) { return failureEnvelope(toolName, operation, requestID, error, "context_resolution_failed") }
+  try { sessionDirectory = sessionDirectoryOverride ?? await resolveSessionDirectory(context) } catch (error) { return failureEnvelope(toolName, operation, requestID, error, "context_resolution_failed") }
   try { ambient = await resolveAmbientContext(context, sessionDirectory) } catch (error) { return failureEnvelope(toolName, operation, requestID, error, "context_resolution_failed") }
   const selectedProduct = selectedProductID() || (ambient.productIDs.length === 1 ? ambient.productIDs[0] : "")
   const envelope: any = { schema_version: "1.0", request_id: requestID, client_ref: clientRef(), principal_ref: "", session_ref: context.sessionID, agent_ref: context.agent, directory: sessionDirectory, worktree: sessionDirectory, ambient_project_id: ambient.projectID, selected_product_id: selectedProduct, scope_version: ambient.scopeVersion, manifest_digest: activeManifestDigest() }
@@ -567,8 +568,8 @@ async function reconcileUnknownEffect(toolName: string, args: HostToolArgs, cont
   }
 }
 
-export async function invokeConcordOperation(toolName: string, args: HostToolArgs, context: ToolContext): Promise<CoreConcordEnvelope> {
-  return reconcileUnknownEffect(toolName, args, context, await invokeConcordOperationRaw(toolName, args, context))
+export async function invokeConcordOperation(toolName: string, args: HostToolArgs, context: ToolContext, sessionDirectoryOverride?: string): Promise<CoreConcordEnvelope> {
+  return reconcileUnknownEffect(toolName, args, context, await invokeConcordOperationRaw(toolName, args, context, sessionDirectoryOverride))
 }
 
 const workStateReporter = createWorkStateReporter(

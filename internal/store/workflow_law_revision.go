@@ -204,37 +204,55 @@ func validateCurrentWorkflowLawRevisionsTx(ctx context.Context, tx *sql.Tx, work
 // escaping a cutover by dropping the accepted successor law from its mandate.
 // It is deliberately a live-transaction check: event replay validates recorded
 // pin shape without consulting today's Git-derived law projection.
-func validateStaleWorkflowContractRecoverySuccessorTx(ctx context.Context, tx *sql.Tx, workID string, previousContractVersion int64, successor []WorkflowLawRevision) error {
-	var mandateJSON string
-	if err := tx.QueryRowContext(ctx, `SELECT spec_mandate FROM workflow_contracts WHERE work_id=? AND contract_version=? AND superseded_by IS NULL`, workID, previousContractVersion).Scan(&mandateJSON); err != nil {
-		if err == sql.ErrNoRows {
-			return newFailure(KindProjectionNotFound, "validate_stale_workflow_recovery", "previous active workflow contract is unavailable", false, "reload the current contract")
+func validateStaleWorkflowContractRecoverySuccessorTx(ctx context.Context, tx *sql.Tx, workID string, predecessors []int64, successor []WorkflowLawRevision) error {
+	var homeProjectID, homeLocatorID string
+	homeResolved := false
+	var err error
+	for _, predecessor := range predecessors {
+		var mandateJSON string
+		if err := tx.QueryRowContext(ctx, `SELECT spec_mandate FROM workflow_contracts WHERE work_id=? AND contract_version=? AND superseded_by IS NULL`, workID, predecessor).Scan(&mandateJSON); err != nil {
+			if err == sql.ErrNoRows {
+				return newFailure(KindProjectionNotFound, "validate_stale_workflow_recovery", "previous active workflow contract is unavailable", false, "reload the current contract")
+			}
+			return wrapFailure(KindUnavailable, "validate_stale_workflow_recovery", "cannot read the stale workflow contract", true, "retry once the workflow projection is readable", err)
 		}
-		return wrapFailure(KindUnavailable, "validate_stale_workflow_recovery", "cannot read the stale workflow contract", true, "retry once the workflow projection is readable", err)
-	}
-	var mandated []string
-	if err := json.Unmarshal([]byte(mandateJSON), &mandated); err != nil {
-		return newFailure(KindInvariantViolation, "validate_stale_workflow_recovery", "previous workflow contract law mandate is malformed", false, "rebuild projections from the event log")
-	}
-	var mandateErr error
-	mandated, mandateErr = currentWorkflowLawMandateFromProjection(ctx, tx, workID, previousContractVersion, mandated)
-	if mandateErr != nil {
-		return mandateErr
-	}
-	homeProjectID, homeLocatorID, err := workflowLawHome(ctx, tx, workID)
-	if err != nil {
-		return err
-	}
-	stale, err := findStaleWorkflowLawRevision(ctx, tx, homeProjectID, homeLocatorID, workID, previousContractVersion, mandated)
-	if err != nil || stale == nil {
-		return err
-	}
-	for _, revision := range successor {
-		if revision.LawID == stale.AcceptedSuccessorLawID && revision.ContentHash == stale.AcceptedSuccessorContentHash {
-			return nil
+		var mandated []string
+		if err := json.Unmarshal([]byte(mandateJSON), &mandated); err != nil {
+			return newFailure(KindInvariantViolation, "validate_stale_workflow_recovery", "previous workflow contract law mandate is malformed", false, "rebuild projections from the event log")
+		}
+		mandated, err = currentWorkflowLawMandateFromProjection(ctx, tx, workID, predecessor, mandated)
+		if err != nil {
+			return err
+		}
+		if len(mandated) == 0 {
+			continue
+		}
+		if !homeResolved {
+			homeProjectID, homeLocatorID, err = workflowLawHome(ctx, tx, workID)
+			if err != nil {
+				return err
+			}
+			homeResolved = true
+		}
+		stale, err := findStaleWorkflowLawRevision(ctx, tx, homeProjectID, homeLocatorID, workID, predecessor, mandated)
+		if err != nil || stale == nil {
+			if err != nil {
+				return err
+			}
+			continue
+		}
+		found := false
+		for _, revision := range successor {
+			if revision.LawID == stale.AcceptedSuccessorLawID && revision.ContentHash == stale.AcceptedSuccessorContentHash {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return newFailure(KindInvalidPayload, "validate_stale_workflow_recovery", "successor contract must pin every accepted successor law revision", false, "include every accepted successor law and current content hash in spec_mandate")
 		}
 	}
-	return newFailure(KindInvalidPayload, "validate_stale_workflow_recovery", "successor contract must pin the accepted successor law revision", false, "include the accepted successor law and current content hash in spec_mandate")
+	return nil
 }
 
 // findStaleWorkflowLawRevision is read-only and accepts either *sql.DB or

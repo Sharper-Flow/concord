@@ -508,7 +508,7 @@ func queryDomainActiveWork(ctx context.Context, q queryer, req DomainActiveWorkR
 	out.Work = []DomainActiveWorkItem{}
 	rows, err := q.QueryContext(ctx, `
 		SELECT w.id,w.kind,w.title,w.lifecycle,w.priority,c.contract_version,
-			(b.home_domain_id=? AND c.contract_version=(SELECT MAX(c2.contract_version) FROM workflow_contracts c2 WHERE c2.work_id=c.work_id AND c2.superseded_by IS NULL)) AS is_home
+			(b.home_domain_id=?) AS is_home
 		FROM workflow_contracts c
 		JOIN workflow_architecture_bindings b ON b.work_id=c.work_id AND b.contract_version=c.contract_version
 		JOIN work_items w ON w.id=c.work_id

@@ -1309,7 +1309,7 @@ func executeStructuredWorkflowAction(t *testing.T, name string, initial map[stri
 			delete(payload, "successor_contract")
 		}
 		event := workflowEventWithActor(request.Operation.OpID+":supersede", WorkflowContractSuperseded, workID, actorRef, payload)
-		actionErr := SupersedeWorkflowContract(ctx, s, event)
+		actionErr := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): expectedVersion}})
 		return observeWorkflowStore(ctx, s, workID, beforeSeq, actionErr, nil)
 	}
 	if action == string(corpusActionComplete) && hasCorpusFault(setup, "commit_after_verdict_fails") {

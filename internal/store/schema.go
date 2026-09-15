@@ -4494,6 +4494,16 @@ ALTER TABLE worktree_entries ADD COLUMN occupant_session_ref TEXT NOT NULL DEFAU
     CHECK(length(occupant_session_ref) <= 128);
 `,
 	},
+	{
+		Version:  86,
+		Name:     "workflow_contract_definition_authority_pin",
+		Breaking: false,
+		SQL: `
+ALTER TABLE workflow_contracts ADD COLUMN definition_ref TEXT NOT NULL DEFAULT '';
+ALTER TABLE workflow_contracts ADD COLUMN definition_version INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE workflow_contracts ADD COLUMN definition_digest TEXT NOT NULL DEFAULT '';
+`,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any

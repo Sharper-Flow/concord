@@ -6,6 +6,15 @@ import (
 	"encoding/json"
 )
 
+// ActiveWorkflowContractVersions returns every active contract version so the
+// recovery authority can bind an ambiguous projection without selecting one.
+func (s *Store) ActiveWorkflowContractVersions(ctx context.Context, workID string) ([]int64, error) {
+	if s == nil || s.db == nil {
+		return nil, newFailure(KindUnavailable, "workflow_contract", "store is not open", false, "open the authority database")
+	}
+	return activeWorkflowContractVersions(ctx, s.db, workID)
+}
+
 // activeWorkflowContractVersion returns the only contract that can authorize
 // work. It never selects a contract from an ambiguous projection.
 func activeWorkflowContractVersion(ctx context.Context, q queryer, workID, subject string) (int64, error) {
@@ -24,6 +33,14 @@ func activeWorkflowContractVersion(ctx context.Context, q queryer, workID, subje
 		return 0, wrapFailure(KindUnavailable, subject, "cannot read the active workflow contract", true, "retry once the workflow contract projection is readable", err)
 	}
 	return version, nil
+}
+
+func activeWorkflowContractCount(ctx context.Context, q queryer, workID, subject string) (int64, error) {
+	var count int64
+	if err := q.QueryRowContext(ctx, `SELECT count(*) FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL`, workID).Scan(&count); err != nil {
+		return 0, wrapFailure(KindUnavailable, subject, "cannot inspect active workflow contracts", true, "retry once the workflow contract projection is readable", err)
+	}
+	return count, nil
 }
 
 func validWorkflowContractVersionList(versions []int64) bool {

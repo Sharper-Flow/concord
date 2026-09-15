@@ -468,7 +468,15 @@ func workflowActionPreflightTx(ctx context.Context, tx *sql.Tx, registry Definit
 		}
 	}
 	if request.ActionID == "supersede_contract" {
-		if err := checkWorkflowLawRevisionStalenessTx(ctx, tx, request.WorkID); err != nil {
+		activeContracts, countErr := activeWorkflowContractCount(ctx, tx, request.WorkID, "workflow_action_preflight")
+		if countErr != nil {
+			return RegisteredDefinition{}, countErr
+		}
+		if activeContracts > 1 {
+			// A duplicate projection is the recovery subject. Do not ask the
+			// ordinary single-contract reader to classify it first.
+			staleRecovery = true
+		} else if err := checkWorkflowLawRevisionStalenessTx(ctx, tx, request.WorkID); err != nil {
 			var failure *Failure
 			if !failureAs(err, &failure) || (failure.Kind != KindStaleLawRevision && failure.Kind != KindDomainOverlap) {
 				return RegisteredDefinition{}, err

@@ -26,10 +26,11 @@ type WorkflowActionExecutionRequest struct {
 	// worktree matches its active claim. It binds later worker evidence to that
 	// claim without placing a machine path in a public event.
 	SessionWorktreeIdentity string
-	// OperatorActor is populated only after the signed approval for
-	// confirm_premise has been verified and consumed by the agent boundary.
+	// OperatorActor and OperatorApprovalRef are populated only after the signed
+	// approval for an operator-authorized action has been verified and consumed.
 	// It is never decoded from workflow action payload.
 	OperatorActor        *WorkflowActor
+	OperatorApprovalRef  string
 	AcceptedInputsDigest string
 	IdempotencyIdentity  string
 	OperationID          string
@@ -40,7 +41,14 @@ type WorkflowActionExecutionRequest struct {
 	AcceptedScope        string
 	LawModifies          []string
 	ContractDigest       string
-	Now                  time.Time
+	// Approval binding is copied from the authenticated mutation boundary into
+	// a recovery event. The fold compares these values with the consumed
+	// approval record instead of trusting the approval reference alone.
+	ApprovalOperationDigest string
+	ApprovalScopeJSON       string
+	ApprovalVersionsJSON    string
+	ApprovalConsequence     string
+	Now                     time.Time
 	// ResearchBindings declares the pack revisions this action's work item
 	// starts relying on (CD-0025). The engine binds each consumer and proves
 	// freshness fail-closed inside this action's transaction; there is no
@@ -387,7 +395,7 @@ func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, registry Definiti
 	result.EventIDs = operationResult.EventIDs
 	result.ChangedRefs = []string{request.WorkID}
 	result.OperationID = request.OperationID
-	resultVersion := request.ExpectedVersion + int64(len(assembly.events))
+	resultVersion := request.ExpectedVersion + int64(len(operationResult.EventIDs))
 	result.ResultingVersion = resultVersion
 	changedRef := map[string]any{"entity_kind": "work_item", "id": request.WorkID, "version": resultVersion}
 	resultMap := map[string]any{"changed_refs": []any{changedRef}, "next_valid_intents": []any{}, "operation_id": request.OperationID}
@@ -933,7 +941,7 @@ func workflowSemanticActionEvents(ctx context.Context, tx *sql.Tx, definition Wo
 		if selfRepairPresent && selfRepair != nil {
 			successor["self_repair"] = selfRepair
 		}
-		events := []Event{workflowTypedEvent(eventID, WorkflowContractSuperseded, request.WorkID, actor, request.Now, expected, map[string]any{"previous_contract_version": previous, "predecessor_contract_versions": predecessors, "new_contract_version": next, "supersede_reason": workflowFieldStringDefault(fields, "supersede_reason", "contract revision"), "audit_evidence": audit, "successor_contract": successor})}
+		events := []Event{workflowTypedEvent(eventID, WorkflowContractSuperseded, request.WorkID, actor, request.Now, expected, map[string]any{"previous_contract_version": previous, "predecessor_contract_versions": predecessors, "new_contract_version": next, "supersede_reason": workflowFieldStringDefault(fields, "supersede_reason", "contract revision"), "audit_evidence": audit, "approval_ref": request.OperatorApprovalRef, "approval_operation_digest": request.ApprovalOperationDigest, "approval_scope_json": request.ApprovalScopeJSON, "approval_versions_json": request.ApprovalVersionsJSON, "approval_consequence": request.ApprovalConsequence, "successor_contract": successor})}
 		return appendWorkflowDesignCorrection(ctx, tx, definition, request, actor, fields["design_record"], eventID, expected, events)
 	case "accept_worker_result":
 		// Acceptance binds the attempt it certifies (#865). The evidence kind
@@ -1033,9 +1041,14 @@ func workflowSemanticActionEvents(ctx context.Context, tx *sql.Tx, definition Wo
 		}
 		contractVersion := workflowFieldInt(fields, "contract_version", 0)
 		if contractVersion == 0 {
-			if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(contract_version),1) FROM workflow_contracts WHERE work_id=?`, request.WorkID).Scan(&contractVersion); err != nil {
-				return nil, wrapFailure(KindUnavailable, "workflow_action", "cannot read the approved workflow contract", true, "retry once the workflow contract is readable", err)
+			activeVersion, err := activeWorkflowContractVersion(ctx, tx, request.WorkID, "workflow_action")
+			if err != nil {
+				if err == sql.ErrNoRows {
+					return nil, newFailure(KindInvariantViolation, "workflow_action", "approved workflow contract is missing", false, "reread_entities")
+				}
+				return nil, err
 			}
+			contractVersion = activeVersion
 		}
 		// The acceptance step's deliverables are prerequisites of completion:
 		// the recorded verdict and every contract-required evidence kind.

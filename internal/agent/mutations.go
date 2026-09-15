@@ -938,12 +938,23 @@ func (r runtime) mutateWorkflowAction(ctx context.Context, base Envelope, raw []
 		versions["contract"] = contractVersion
 	}
 	if in.ActionID == "supersede_contract" {
-		contract, err := r.Store.ActiveWorkflowContract(ctx, in.WorkID)
+		contractVersions, err := r.Store.ActiveWorkflowContractVersions(ctx, in.WorkID)
 		if err != nil {
 			return failureEnvelope(base, err), nil
 		}
-		contractVersion = contract.Version
-		versions["contract"] = contractVersion
+		if len(contractVersions) == 0 {
+			return coreError(base, "invalid_input", "supersede_contract requires an active workflow contract", "reread_entities", false), nil
+		}
+		if len(contractVersions) == 1 {
+			contractVersion = contractVersions[0]
+			versions["contract"] = contractVersion
+		} else {
+			// The request digest binds the complete predecessor list. The
+			// highest active version remains the scalar contract snapshot used
+			// by the existing approval schema without selecting authority.
+			contractVersion = contractVersions[len(contractVersions)-1]
+			versions["contract"] = contractVersion
+		}
 	}
 	if in.ActionID == "request_correction" {
 		version, err := r.Store.LatestWorkflowContractVersion(ctx, in.WorkID)
@@ -1055,10 +1066,16 @@ func (r runtime) mutateWorkflowAction(ctx context.Context, base Envelope, raw []
 
 	var execution store.WorkflowActionExecutionResult
 	var operatorActor *store.WorkflowActor
+	var operatorApprovalRef string
 	var result Envelope
 	var resultRejected bool
 	scopeJSON, _ := json.Marshal(scope)
+	versionsJSON, _ := json.Marshal(versions)
 	actionRequest := store.WorkflowActionExecutionRequest{WorkID: in.WorkID, ExpectedVersion: in.ExpectedVersion, ActionID: in.ActionID, SelectedChoice: in.SelectedChoice, DecisionContextDigest: in.DecisionContextDigest, Payload: payload, EvidenceRefs: evidenceLocators(in.Evidence), Actor: store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}, SessionWorktree: r.Envelope.Worktree, ResearchBindings: researchBindingDeclarations(in.ResearchBindings), AcceptedInputsDigest: digest, IdempotencyIdentity: in.IdempotencyKey, OperationID: operationID, PrincipalRef: grant.PrincipalRef, Tool: r.Tool, IdempotencyKey: in.IdempotencyKey, RequestID: r.Envelope.RequestID, AcceptedScope: string(scopeJSON), ContractDigest: ManifestDigest, Now: r.Authority.now()}
+	actionRequest.ApprovalOperationDigest = digest
+	actionRequest.ApprovalScopeJSON = string(scopeJSON)
+	actionRequest.ApprovalVersionsJSON = string(versionsJSON)
+	actionRequest.ApprovalConsequence = approvalConsequence
 	err = store.AuthorizeWorkflowActionAtBoundaryTx(ctx, r.Store, registry, store.WorkflowActionPreflightRequest{WorkID: in.WorkID, ExpectedVersion: in.ExpectedVersion, ActionID: in.ActionID, SelectedChoice: in.SelectedChoice, DecisionContextDigest: in.DecisionContextDigest, Payload: payload, Actor: actionRequest.Actor, SessionWorktree: r.Envelope.Worktree}, nil, time.Time{}, func(tx *store.Transaction) error {
 		if retryApproval {
 			failedID, idOK := scope["failed_attempt_id"].(string)
@@ -1076,10 +1093,11 @@ func (r runtime) mutateWorkflowAction(ctx context.Context, base Envelope, raw []
 			return err
 		}
 		if requiresApproval || (operatorVerdict && approval != "") {
-			verifiedOperator, _, err := r.consumeApprovalTx(ctx, tx, inv, grant, ApprovalCheck{ApprovalRef: approval, OperationDigest: digest, Scope: boundedApprovalScope(scope), Versions: versions, Consequence: approvalConsequence, ClientRef: grant.ClientRef, SessionRef: grant.SessionRef, RequireOperatorIdentity: in.ActionID == "confirm_premise" || operatorVerdict || in.ActionID == "supersede_contract" || retryApproval})
+			verifiedOperator, consumedApprovalRef, err := r.consumeApprovalTx(ctx, tx, inv, grant, ApprovalCheck{ApprovalRef: approval, OperationDigest: digest, Scope: boundedApprovalScope(scope), Versions: versions, Consequence: approvalConsequence, ClientRef: grant.ClientRef, SessionRef: grant.SessionRef, RequireOperatorIdentity: in.ActionID == "confirm_premise" || operatorVerdict || in.ActionID == "supersede_contract" || retryApproval})
 			if err != nil {
 				return err
 			}
+			operatorApprovalRef = consumedApprovalRef
 			if in.ActionID == "confirm_premise" || operatorVerdict || in.ActionID == "supersede_contract" {
 				operatorActor = &verifiedOperator
 			}
@@ -1087,6 +1105,7 @@ func (r runtime) mutateWorkflowAction(ctx context.Context, base Envelope, raw []
 		return store.InsertMutationIdempotencyTx(ctx, tx, store.MutationIdempotencyInsert{Key: store.MutationIdempotencyKey{PrincipalRef: grant.PrincipalRef, Tool: r.Tool, OperationKind: "workflow_action", IdempotencyKey: in.IdempotencyKey}, CanonicalDigest: digest, OperationID: operationID, ResultEventIDs: "[]", ResultPayload: "{}", ChangedRefs: "[]", AuthorizedScopeSnapshot: string(scopeJSON), ObservedAt: r.Authority.now()})
 	}, func(tx *store.Transaction) error {
 		actionRequest.OperatorActor = operatorActor
+		actionRequest.OperatorApprovalRef = operatorApprovalRef
 		var err error
 		execution, err = store.ApplyWorkflowActionTx(ctx, tx, registry, actionRequest)
 		if err != nil {

@@ -9,6 +9,12 @@
 # When it is missing the tier still runs, unthrottled, after a warning. The
 # continuous-integration workflow does not use this wrapper; it calls the same
 # underlying commands natively so its behavior stays deterministic.
+#
+# The tier above and the gate's admission class are separate vocabularies. A
+# tier names a workload this repository owns. An admission class names a
+# throttling behavior the host tool owns, and `oc-test-gate` accepts only
+# `targeted`, `smoke`, and `full`. Passing a tier name where a class belongs
+# makes the gate exit 2 with `unknown tier`.
 
 set -euo pipefail
 
@@ -25,13 +31,16 @@ USAGE
 }
 
 # Run the conformance workload, wrapped in host admission control when it is available.
+# The first argument is the tier this wrapper reports. The second is the
+# admission class the host gate understands.
 run_tier() {
   local tier="$1"
-  shift
+  local admission_class="$2"
+  shift 2
 
   local -a gate=()
   if command -v oc-test-gate >/dev/null 2>&1; then
-    gate=(oc-test-gate "$tier" --)
+    gate=(oc-test-gate "$admission_class" --)
   else
     printf 'bin/oc-test: oc-test-gate not found on PATH; running the %s tier unthrottled.\n' "$tier" >&2
     printf 'bin/oc-test: concurrent runs on this machine are not admission-controlled.\n' >&2
@@ -66,7 +75,7 @@ shift || true
 case "$tier" in
   conformance)
     [[ $# -eq 0 ]] || usage
-    run_tier conformance env CONCORD_CONFORMANCE_LONG=1 go test -count=1 -run '^TestTenProcessConformance$' ./internal/store -v
+    run_tier conformance full env CONCORD_CONFORMANCE_LONG=1 go test -count=1 -run '^TestTenProcessConformance$' ./internal/store -v
     ;;
   *)
     usage

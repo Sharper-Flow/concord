@@ -863,6 +863,38 @@ type linearIssueEnqueuePlan struct {
 	createLink bool
 }
 
+// composeLinearIssueBody renders the issue Description at the single point
+// both enqueue paths share. Each source is omitted when absent so the body
+// never shows an empty label. The footer carries the Concord work id and the
+// documented resume line `concord zl <work id> --` from the CLI help.
+func composeLinearIssueBody(valueStatement, premise, workID string) string {
+	sections := make([]string, 0, 3)
+	if trimmed := strings.TrimSpace(valueStatement); trimmed != "" {
+		sections = append(sections, trimmed)
+	}
+	if trimmed := strings.TrimSpace(premise); trimmed != "" {
+		sections = append(sections, "## Premise\n\n"+trimmed)
+	}
+	sections = append(sections, "Concord work: "+workID+"\nResume: `concord zl "+workID+" --`")
+	return strings.Join(sections, "\n\n")
+}
+
+// readCurrentWorkflowPremiseCore reads the newest unsuperseded contract
+// premise through the caller's queryer so it stays inside the caller's
+// transaction. A work item without a current contract yields an empty
+// premise, which composeLinearIssueBody omits.
+func readCurrentWorkflowPremiseCore(ctx context.Context, q queryer, workID string) (string, error) {
+	var premise string
+	err := q.QueryRowContext(ctx, `SELECT premise FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL ORDER BY contract_version DESC LIMIT 1`, workID).Scan(&premise)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	if err != nil {
+		return "", wrapFailure(KindUnavailable, "linear_issue_enqueue", "cannot read workflow contract", true, "retry once the database is readable", err)
+	}
+	return premise, nil
+}
+
 func enqueueLinearIssueForWorkCore(ctx context.Context, q queryer, expectedProductID, workID, opKind string) (linearIssueEnqueuePlan, error) {
 	if opKind != LinearOpIssueCreate && opKind != LinearOpIssueUpdate {
 		return linearIssueEnqueuePlan{}, newFailure(KindInvalidPayload, "linear_issue_enqueue", "operation kind is not recognized", false, "use issue_create or issue_update")
@@ -923,7 +955,12 @@ func enqueueLinearIssueForWorkCore(ctx context.Context, q queryer, expectedProdu
 			return linearIssueEnqueuePlan{}, wrapFailure(KindUnavailable, "linear_issue_enqueue", "cannot read link", true, "retry once the database is readable", err)
 		}
 	}
-	payload, err := json.Marshal(linearPayload{ClientUUID: clientUUID, ProductID: productID, Title: title, Description: valueStatement, TeamID: connection.TeamID, ProjectID: connection.ProjectID, ConnectionVersion: connection.Version, Lifecycle: lifecycle, StatusID: statusID})
+	premise, err := readCurrentWorkflowPremiseCore(ctx, q, workID)
+	if err != nil {
+		return linearIssueEnqueuePlan{}, err
+	}
+	description := composeLinearIssueBody(valueStatement, premise, workID)
+	payload, err := json.Marshal(linearPayload{ClientUUID: clientUUID, ProductID: productID, Title: title, Description: description, TeamID: connection.TeamID, ProjectID: connection.ProjectID, ConnectionVersion: connection.Version, Lifecycle: lifecycle, StatusID: statusID})
 	if err != nil {
 		return linearIssueEnqueuePlan{}, wrapFailure(KindUnavailable, "linear_issue_enqueue", "cannot encode payload", true, "retry the enqueue", err)
 	}

@@ -257,12 +257,14 @@ test("production dispatch refuses a session retargeted during core authorization
       post: async () => { throw new Error("dispatch does not move the host session") },
     })
     let transitionCalls = 0
-    const invoke = async (toolName: string, args: { operation: string }): Promise<unknown> => {
+    let authorizedDirectory = ""
+    const invoke = async (toolName: string, args: { operation: string }, _context: unknown, sessionDirectory?: string): Promise<unknown> => {
       const key = `${toolName}.${args.operation}`
       if (key === "concord_work_trace.continuity") return continuityEnvelope()
       if (key === "concord_work_browse.scope") return scopeEnvelope()
       if (key === "concord_work_transition.workflow_action") {
         transitionCalls++
+        authorizedDirectory = sessionDirectory ?? ""
         fs.unlinkSync(alias)
         fs.symlinkSync(other, alias)
         return coreOkEnvelope()
@@ -278,6 +280,7 @@ test("production dispatch refuses a session retargeted during core authorization
     expect(result.error?.kind).toBe("unauthorized_dispatch")
     expect(result.error?.message).toMatch(/does not match the active claimed worktree/i)
     expect(transitionCalls).toBe(1)
+    expect(authorizedDirectory).toBe(fs.realpathSync(claimed))
     expect(windows.has("session-1")).toBe(false)
   } finally {
     fs.rmSync(root, { recursive: true, force: true })

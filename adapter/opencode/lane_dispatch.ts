@@ -146,8 +146,8 @@ export async function dispatchLaneWorker(input: LaneDispatchInput, deps: LaneDis
     const canonical = canonicalDirectory(workerDirectory)
     if (canonical === null) throw new Error("host session worktree identity cannot be resolved")
     pinnedWorkerDirectory = canonical
-  } catch (error) {
-    return errorEnvelopeForLane(laneForId(packet.lane_id), packet, "error", "transport_failure", error instanceof Error ? error.message : String(error), "reconcile_operation")
+  } catch {
+    return errorEnvelopeForLane(laneForId(packet.lane_id), packet, "error", "transport_failure", "host session directory identity cannot be resolved", "reconcile_operation")
   }
 
   // Core invoke: the dispatch_worker action with the enriched fields. The
@@ -158,7 +158,7 @@ export async function dispatchLaneWorker(input: LaneDispatchInput, deps: LaneDis
   let coreResponse: unknown
   try {
     const approval = input.approval_ref ? { approval: { approval_ref: input.approval_ref } } : {}
-    coreResponse = await deps.invoke("concord_work_transition", { operation: "workflow_action", input: { work_id: input.work_id, expected_version: input.expected_version, action_id: "dispatch_worker", idempotency_key: input.idempotency_key, fields: { attempt_id: packet.attempt_id, worker_packet: packet }, ...approval } }, deps.context)
+    coreResponse = await deps.invoke("concord_work_transition", { operation: "workflow_action", input: { work_id: input.work_id, expected_version: input.expected_version, action_id: "dispatch_worker", idempotency_key: input.idempotency_key, fields: { attempt_id: packet.attempt_id, worker_packet: packet }, ...approval } }, deps.context, pinnedWorkerDirectory)
   } catch (error) {
     return errorEnvelopeForLane(laneForId(packet.lane_id), packet as Partial<AgentLanePacket>, "error", "transport_failure", `concord_work_transition.workflow_action threw before reaching the core: ${String(error)}`, "reconcile_operation")
   }

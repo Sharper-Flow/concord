@@ -1090,8 +1090,8 @@ export async function dispatchWorker(packet: unknown, options: { signal?: AbortS
     let liveWorkerDirectory: string
     try {
       liveWorkerDirectory = await options.resolveWorkerDirectory()
-    } catch (error) {
-      return errorEnvelope(lane, packet as Partial<AgentLanePacket>, "error", "transport_failure", `dispatch could not re-read the host session directory before opening its authorization window: ${error instanceof Error ? error.message : String(error)}`, "reconcile_operation")
+    } catch {
+      return errorEnvelope(lane, packet as Partial<AgentLanePacket>, "error", "transport_failure", "dispatch could not re-read the host session directory before opening its authorization window", "reconcile_operation")
     }
     const mismatch = dispatchDirectoryMismatch(canonicalWorkerDirectory, liveWorkerDirectory)
     if (mismatch) {

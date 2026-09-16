@@ -6,6 +6,7 @@
 // authorized `dispatch_worker` action. The next Task call from the same session
 // has its agent selection and prompt overwritten by the recorded packet, and the
 // window closes. A Task call with no open window fails.
+import { createHash } from "node:crypto"
 import fs from "node:fs"
 import path from "node:path"
 import type { AgentLanePacket } from "./dispatch"
@@ -27,6 +28,7 @@ export interface DispatchRecord {
   packetDigest: string
   workPins?: unknown[]
   workerDirectory: string
+  workerDirectoryIdentity: string
   callID?: string
 }
 
@@ -54,14 +56,26 @@ export class DispatchWindows {
   readonly #inFlight = new Map<string, DispatchRecord>()
   readonly #settling = new Set<string>()
 
-  open(sessionID: string, packet: AgentLanePacket, packetDigest = "", workPins: unknown[] | undefined = undefined, workerDirectory?: string): void {
+  open(sessionID: string, packet: AgentLanePacket, packetDigest = "", workPins: unknown[] | undefined = undefined, workerDirectory?: string, pinnedWorkerDirectory?: string): void {
     if (this.#open.has(sessionID) || this.#inFlight.has(sessionID)) {
       throw new DispatchWindowError(`session ${sessionID} already holds an open dispatch window or an in-flight attempt`)
     }
-    if (!isResolvableDirectory(workerDirectory)) {
+    // The dispatch path resolves the host-reported directory before
+    // authorization. Verify that the same caller path still resolves to that
+    // pinned identity after authorization, before the window can open.
+    const canonicalWorkerDirectory = pinnedWorkerDirectory ?? canonicalDirectory(workerDirectory)
+    if (canonicalWorkerDirectory === null) {
       throw new DispatchWindowError("worker dispatch requires a non-empty, resolvable worker directory")
     }
-    this.#open.set(sessionID, { packet, packetDigest, workPins, workerDirectory })
+    if (pinnedWorkerDirectory !== undefined) {
+      const mismatch = dispatchDirectoryMismatch(canonicalWorkerDirectory, workerDirectory)
+      if (mismatch) throw new DispatchWindowError(mismatch)
+    }
+    const workerDirectoryIdentity = canonicalDirectoryIdentity(canonicalWorkerDirectory)
+    if (workerDirectoryIdentity === null) {
+      throw new DispatchWindowError("worker dispatch requires a resolvable worker directory identity")
+    }
+    this.#open.set(sessionID, { packet, packetDigest, workPins, workerDirectory: canonicalWorkerDirectory, workerDirectoryIdentity })
   }
 
   // close discards a window whose dispatch failed before the worker started, so
@@ -126,7 +140,14 @@ export class DispatchWindows {
         `no authorized dispatch window is open for session ${sessionID}; start a worker through dispatch_worker`,
       )
     }
-    const mismatch = dispatchDirectoryMismatch(record.workerDirectory, await resolveSessionDirectory())
+    let sessionDirectory: string
+    try {
+      sessionDirectory = await resolveSessionDirectory()
+    } catch {
+      this.#open.delete(sessionID)
+      throw new DispatchWindowError("worker dispatch could not resolve the host session directory")
+    }
+    const mismatch = dispatchDirectoryIdentityMismatch(record.workerDirectoryIdentity, sessionDirectory)
     if (mismatch) {
       this.#open.delete(sessionID)
       throw new DispatchWindowError(mismatch)
@@ -148,7 +169,7 @@ export class DispatchWindows {
 // for the calling session, not in the host process directory. Resolve both sides
 // before comparison so a symlink cannot make the host run a worker outside the
 // claimed worktree.
-function canonicalDirectory(value: unknown): string | null {
+export function canonicalDirectory(value: unknown): string | null {
   if (typeof value !== "string" || value.length === 0 || !path.isAbsolute(value)) return null
   try {
     const resolved = fs.realpathSync(value)
@@ -162,11 +183,28 @@ export function isResolvableDirectory(value: unknown): value is string {
   return canonicalDirectory(value) !== null
 }
 
+function canonicalDirectoryIdentity(value: string): string | null {
+  if (!path.isAbsolute(value)) return null
+  return "sha256:" + createHash("sha256").update(value, "utf8").digest("hex")
+}
+
+export function directoryIdentity(value: unknown): string | null {
+  const canonical = canonicalDirectory(value)
+  return canonical === null ? null : canonicalDirectoryIdentity(canonical)
+}
+
+export function dispatchDirectoryIdentityMismatch(expectedIdentity: string, sessionDirectory: unknown): string | null {
+  const actualIdentity = directoryIdentity(sessionDirectory)
+  return actualIdentity !== expectedIdentity
+    ? `worker dispatch directory does not match the active claimed worktree (expected identity ${expectedIdentity}, session identity ${actualIdentity ?? "unresolved"})`
+    : null
+}
+
 export function dispatchDirectoryMismatch(expected: unknown, sessionDirectory: unknown): string | null {
-  const expectedCanonical = canonicalDirectory(expected)
-  const actualCanonical = canonicalDirectory(sessionDirectory)
-  return expectedCanonical !== null && expectedCanonical === actualCanonical ? null :
-    `worker dispatch directory does not match the active claimed worktree (expected ${JSON.stringify(expected)}, actual ${JSON.stringify(sessionDirectory)})`
+  const expectedIdentity = directoryIdentity(expected)
+  const actualIdentity = directoryIdentity(sessionDirectory)
+  return expectedIdentity !== null && expectedIdentity === actualIdentity ? null :
+    `worker dispatch directory does not match the active claimed worktree (expected identity ${expectedIdentity ?? "unresolved"}, session identity ${actualIdentity ?? "unresolved"})`
 }
 
 const shared = new DispatchWindows()

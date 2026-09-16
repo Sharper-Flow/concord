@@ -6,7 +6,7 @@ import { agentLanePacketSchema, agentLaneReportSchema, agentLanes, type AgentLan
 import { maxEnvelopeBytes } from "./generated-contracts"
 import { coreBinary } from "./generated-release"
 import { SecretToolCredentialStore, b64, clientRef, privateKeyObject, randomNonce, type CredentialStore } from "./credentials"
-import { dispatchWindows, DispatchWindowError, isResolvableDirectory, type DispatchWindows } from "./dispatch-window"
+import { canonicalDirectory, dispatchDirectoryMismatch, dispatchWindows, DispatchWindowError, type DispatchWindows } from "./dispatch-window"
 import { hostControlPlane } from "./move-session"
 import { readTaskResult } from "./task-result"
 
@@ -1034,13 +1034,14 @@ export async function computeHostPromptProvenance(laneId: string, cwd = process.
   return { digest: "sha256:" + Bun.SHA256.hash(manifest, "hex"), sources: sources.slice(0, 64) }
 }
 
-export async function dispatchWorker(packet: unknown, options: { signal?: AbortSignal; runner?: DispatchRunner; readbackRunner?: DispatchRunner; evidenceRunner?: DispatchRunner; binary?: string; concordBinary?: string; credentials?: CredentialStore; authorize?: DispatchAuthorizer; packetDigest?: string; sessionID?: string; windows?: DispatchWindows; workPins?: unknown[]; workerDirectory?: string } = {}): Promise<AgentResultEnvelope> {
+export async function dispatchWorker(packet: unknown, options: { signal?: AbortSignal; runner?: DispatchRunner; readbackRunner?: DispatchRunner; evidenceRunner?: DispatchRunner; binary?: string; concordBinary?: string; credentials?: CredentialStore; authorize?: DispatchAuthorizer; packetDigest?: string; sessionID?: string; windows?: DispatchWindows; workPins?: unknown[]; workerDirectory?: string; pinnedWorkerDirectory?: string; resolveWorkerDirectory?: () => Promise<string> } = {}): Promise<AgentResultEnvelope> {
   if (!validateAgentLanePacket(packet)) return errorEnvelope(null, isRecord(packet) ? packet as Partial<AgentLanePacket> : {}, "error", "invalid_input", "agent lane packet failed the closed packet schema", "retry_same_request")
   const lane = laneForPacket(packet)
   if (!lane) return errorEnvelope(null, packet, "error", "invalid_input", "lane identity or digest is not registered", "retry_same_request")
   const signal = options.signal ?? new AbortController().signal
   const workerDirectory = options.workerDirectory
-  if (!isResolvableDirectory(workerDirectory)) {
+  const canonicalWorkerDirectory = canonicalDirectory(options.pinnedWorkerDirectory ?? workerDirectory)
+  if (canonicalWorkerDirectory === null) {
     return errorEnvelope(lane, packet as Partial<AgentLanePacket>, "error", "invalid_input", "dispatch requires a non-empty, resolvable worker directory before authorization", "reconcile_operation")
   }
 
@@ -1085,9 +1086,21 @@ export async function dispatchWorker(packet: unknown, options: { signal?: AbortS
   if (!sessionID) {
     return errorEnvelope(lane, packet as Partial<AgentLanePacket>, "error", "invalid_input", "dispatch requires the calling session identifier to open an authorization window", "contact_operator")
   }
+  if (options.resolveWorkerDirectory) {
+    let liveWorkerDirectory: string
+    try {
+      liveWorkerDirectory = await options.resolveWorkerDirectory()
+    } catch {
+      return errorEnvelope(lane, packet as Partial<AgentLanePacket>, "error", "transport_failure", "dispatch could not re-read the host session directory before opening its authorization window", "reconcile_operation")
+    }
+    const mismatch = dispatchDirectoryMismatch(canonicalWorkerDirectory, liveWorkerDirectory)
+    if (mismatch) {
+      return errorEnvelope(lane, packet as Partial<AgentLanePacket>, "error", "unauthorized_dispatch", mismatch, "reconcile_operation")
+    }
+  }
   const windows = options.windows ?? dispatchWindows()
   try {
-    windows.open(sessionID, packet, options.packetDigest ?? "", options.workPins, workerDirectory)
+    windows.open(sessionID, packet, options.packetDigest ?? "", options.workPins, workerDirectory, canonicalWorkerDirectory)
   } catch (error) {
     const detail = error instanceof DispatchWindowError ? error.message : String(error)
     return errorEnvelope(lane, packet as Partial<AgentLanePacket>, "error", "error", detail.slice(0, MAX_ERROR_BYTES), "reconcile_operation")

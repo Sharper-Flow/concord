@@ -18,7 +18,7 @@ import { createHash } from "node:crypto"
 import type { ToolContext } from "@opencode-ai/plugin"
 import type { ConcordInvoke } from "./packet"
 import type { CredentialStore } from "./credentials"
-import type { DispatchWindows } from "./dispatch-window"
+import { canonicalDirectory, type DispatchWindows } from "./dispatch-window"
 import { dispatchWorker, errorEnvelopeForLane, type AgentLanePacket, type AgentResultEnvelope, type DispatchRunner } from "./dispatch"
 import { agentLanes, type AgentLane } from "./generated-agent-lanes"
 import { buildAgentLanePacket, type AgentLanePacketFailureKind } from "./packet"
@@ -140,10 +140,14 @@ export async function dispatchLaneWorker(input: LaneDispatchInput, deps: LaneDis
   // worker will start. The window re-reads it at bind time and refuses if the
   // session moved between authorization and use.
   let workerDirectory: string
+  let pinnedWorkerDirectory: string
   try {
     workerDirectory = await hostControlPlane().sessionDirectory(deps.context.sessionID, deps.context.abort)
-  } catch (error) {
-    return errorEnvelopeForLane(laneForId(packet.lane_id), packet, "error", "transport_failure", error instanceof Error ? error.message : String(error), "reconcile_operation")
+    const canonical = canonicalDirectory(workerDirectory)
+    if (canonical === null) throw new Error("host session worktree identity cannot be resolved")
+    pinnedWorkerDirectory = canonical
+  } catch {
+    return errorEnvelopeForLane(laneForId(packet.lane_id), packet, "error", "transport_failure", "host session directory identity cannot be resolved", "reconcile_operation")
   }
 
   // Core invoke: the dispatch_worker action with the enriched fields. The
@@ -154,7 +158,7 @@ export async function dispatchLaneWorker(input: LaneDispatchInput, deps: LaneDis
   let coreResponse: unknown
   try {
     const approval = input.approval_ref ? { approval: { approval_ref: input.approval_ref } } : {}
-    coreResponse = await deps.invoke("concord_work_transition", { operation: "workflow_action", input: { work_id: input.work_id, expected_version: input.expected_version, action_id: "dispatch_worker", idempotency_key: input.idempotency_key, fields: { attempt_id: packet.attempt_id, worker_packet: packet }, ...approval } }, deps.context)
+    coreResponse = await deps.invoke("concord_work_transition", { operation: "workflow_action", input: { work_id: input.work_id, expected_version: input.expected_version, action_id: "dispatch_worker", idempotency_key: input.idempotency_key, fields: { attempt_id: packet.attempt_id, worker_packet: packet }, ...approval } }, deps.context, pinnedWorkerDirectory)
   } catch (error) {
     return errorEnvelopeForLane(laneForId(packet.lane_id), packet as Partial<AgentLanePacket>, "error", "transport_failure", `concord_work_transition.workflow_action threw before reaching the core: ${String(error)}`, "reconcile_operation")
   }
@@ -194,5 +198,5 @@ export async function dispatchLaneWorker(input: LaneDispatchInput, deps: LaneDis
   // The window binds to the calling session, because that is the session whose
   // next Task call the plugin hook rewrites (CD-0102 D1).
   const workPins = resultRecord && Array.isArray(resultRecord.work_pins) ? resultRecord.work_pins : undefined
-  return dispatchWorker(packet, { authorize: async () => coreResponse, credentials: deps.credentials, runner: deps.runner, evidenceRunner: deps.evidenceRunner, concordBinary: deps.concordBinary, packetDigest, sessionID: deps.context.sessionID, windows: deps.windows, workPins, workerDirectory })
+  return dispatchWorker(packet, { authorize: async () => coreResponse, credentials: deps.credentials, runner: deps.runner, evidenceRunner: deps.evidenceRunner, concordBinary: deps.concordBinary, packetDigest, sessionID: deps.context.sessionID, windows: deps.windows, workPins, workerDirectory, pinnedWorkerDirectory, resolveWorkerDirectory: () => hostControlPlane().sessionDirectory(deps.context.sessionID, deps.context.abort) })
 }

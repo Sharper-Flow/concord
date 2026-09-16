@@ -818,29 +818,65 @@ func (s *Store) prepareBootstrapMode(ctx context.Context, req BootstrapRequest, 
 	defer tx.Rollback()
 	var storedDigest, state string
 	replayed := false
+	restarted := false
+	journalMissing := false
 	expectedVersion := int64(0)
 	err = tx.QueryRowContext(ctx, `SELECT request_digest,state FROM bootstrap_operations WHERE idempotency_key=?`, req.IdempotencyKey).Scan(&storedDigest, &state)
+	journalMissing = err == sql.ErrNoRows
 	if err == nil {
 		replayed = true
 		if storedDigest != digest {
 			return out, newFailure(KindInvalidOperation, "work_bootstrap", "idempotency key is bound to different input", false, "use the original request or a new idempotency key")
 		}
-		if err := tx.QueryRowContext(ctx, `SELECT b.repo_path,c.pinned_branch,c.pinned_base_sha,c.pinned_path FROM bootstrap_operations b JOIN worktree_claims c ON c.op_id=b.operation_id WHERE b.operation_id=?`, operationID).Scan(&location.Repo, &location.Branch, &location.BaseSHA, &location.Path); err != nil {
+		var claimState string
+		if err := tx.QueryRowContext(ctx, `SELECT b.repo_path,c.pinned_branch,c.pinned_base_sha,c.pinned_path,c.state FROM bootstrap_operations b JOIN worktree_claims c ON c.op_id=b.operation_id WHERE b.operation_id=?`, operationID).Scan(&location.Repo, &location.Branch, &location.BaseSHA, &location.Path, &claimState); err != nil {
 			return out, wrapFailure(KindInvariantViolation, "work_bootstrap", "bootstrap journal has no pinned worktree intent", false, "contact_operator", err)
 		}
 		if state == "completed" {
-			entry, entryErr := worktreeEntryByClaim(ctx, tx, operationID)
-			if entryErr != nil {
-				return out, entryErr
+			switch claimState {
+			case worktreeStatePending, worktreeStateVerified:
+				entry, entryErr := worktreeEntryByClaim(ctx, tx, operationID)
+				if entryErr != nil {
+					return out, entryErr
+				}
+				version, versionErr := workVersionTx(ctx, tx, workID)
+				if versionErr != nil {
+					return out, versionErr
+				}
+				if err := tx.Commit(); err != nil {
+					return out, err
+				}
+				return bootstrapPrepared{Result: BootstrapResult{OperationID: operationID, Replayed: true, ProductID: req.ProductID, ProjectID: req.ProjectID, WorkID: workID, WorkVersion: version, Entry: entry}, State: state, Location: location}, nil
+			case worktreeStateReclaimed:
+				version, versionErr := workVersionTx(ctx, tx, workID)
+				if versionErr != nil {
+					return out, versionErr
+				}
+				branchSHA, branchExists, branchErr := bootstrapBranchHead(ctx, runner, location.Repo, location.Branch)
+				if branchErr != nil {
+					return out, branchErr
+				}
+				if branchExists {
+					location.BaseSHA = branchSHA
+				}
+				now := s.now().Format(time.RFC3339Nano)
+				if result, updateErr := tx.ExecContext(ctx, `UPDATE bootstrap_operations SET state='pending',expected_version=?,updated_at=? WHERE operation_id=? AND state='completed'`, version, now, operationID); updateErr != nil {
+					return out, updateErr
+				} else if affected, affectedErr := result.RowsAffected(); affectedErr != nil || affected != 1 {
+					return out, newFailure(KindInvariantViolation, "work_bootstrap", "completed bootstrap journal could not be reopened", false, "contact_operator")
+				}
+				if result, updateErr := tx.ExecContext(ctx, `UPDATE worktree_claims SET pinned_base_sha=?,state='pending',updated_at=? WHERE op_id=? AND state='reclaimed'`, location.BaseSHA, now, operationID); updateErr != nil {
+					return out, updateErr
+				} else if affected, affectedErr := result.RowsAffected(); affectedErr != nil || affected != 1 {
+					return out, newFailure(KindInvariantViolation, "work_bootstrap", "reclaimed bootstrap claim could not be reopened", false, "contact_operator")
+				}
+				expectedVersion = version
+				state = "pending"
+				restarted = true
+				err = sql.ErrNoRows
+			default:
+				return out, newFailure(KindInvariantViolation, "work_bootstrap", "completed bootstrap journal has an invalid claim state", false, "contact_operator")
 			}
-			version, versionErr := workVersionTx(ctx, tx, workID)
-			if versionErr != nil {
-				return out, versionErr
-			}
-			if err := tx.Commit(); err != nil {
-				return out, err
-			}
-			return bootstrapPrepared{Result: BootstrapResult{OperationID: operationID, Replayed: true, ProductID: req.ProductID, ProjectID: req.ProjectID, WorkID: workID, WorkVersion: version, Entry: entry}, State: state, Location: location}, nil
 		}
 	} else if err != sql.ErrNoRows {
 		return out, wrapFailure(KindUnavailable, "work_bootstrap", "cannot read bootstrap journal", true, "retry once the database is readable", err)
@@ -872,10 +908,12 @@ func (s *Store) prepareBootstrapMode(ctx context.Context, req BootstrapRequest, 
 				return out, newFailure(KindUnknownScope, "work_bootstrap", "work item has an active worktree in another Project", false, "resume from the Project that owns the active worktree")
 			}
 		}
-		if err := validateBootstrapNativeAbsent(ctx, runner, location); err != nil {
-			return out, err
+		if !restarted {
+			if err := validateBootstrapNativeAbsent(ctx, runner, location); err != nil {
+				return out, err
+			}
 		}
-		if existing {
+		if existing && !restarted {
 			var priorOperation bool
 			if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM bootstrap_operations WHERE work_id=?)`, workID).Scan(&priorOperation); err != nil {
 				return out, err
@@ -912,11 +950,11 @@ func (s *Store) prepareBootstrapMode(ctx context.Context, req BootstrapRequest, 
 			if err := tx.QueryRowContext(ctx, `SELECT version FROM work_items WHERE id=?`, workID).Scan(&expectedVersion); err != nil {
 				return out, err
 			}
-		} else if exists {
+		} else if exists && !restarted {
 			return out, newFailure(KindProjectionConflict, "work_bootstrap", "derived work ID already exists without its journal", false, "use a new idempotency key")
 		}
 		now := s.now()
-		if !existing {
+		if !existing && !restarted {
 			priority := req.Priority
 			workPayload, _ := json.Marshal(workCreatedPayload{WorkID: workID, WorkKind: req.Kind, Title: req.Title, ValueStatement: req.ValueStatement, Priority: &priority, Urgency: req.Urgency, Tags: req.Tags, WorkflowTypeRef: req.WorkflowTypeRef, ExternalRef: req.ExternalRef, RaisedFromWorkID: req.RaisedFromWorkID})
 			membershipPayload, _ := json.Marshal(workMembershipsPayload{Memberships: []workMembershipPayload{{ProjectID: req.ProjectID, Role: "primary"}}, ExpectedVersion: 1, ResultingVersion: 2})
@@ -945,11 +983,13 @@ func (s *Store) prepareBootstrapMode(ctx context.Context, req BootstrapRequest, 
 			}
 			expectedVersion = 4
 		}
-		if _, err := tx.ExecContext(ctx, `INSERT INTO bootstrap_operations(idempotency_key,operation_id,request_digest,request_json,product_id,project_id,work_id,repo_path,expected_version,state,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`, req.IdempotencyKey, operationID, digest, bootstrapJSON(journalRequest), req.ProductID, req.ProjectID, workID, location.Repo, expectedVersion, "pending", now.Format(time.RFC3339Nano), now.Format(time.RFC3339Nano)); err != nil {
-			return out, err
-		}
-		if err := pinBootstrapClaimTx(ctx, tx, operationID, workID, req.ProjectID, location, expectedVersion, now); err != nil {
-			return out, err
+		if journalMissing {
+			if _, err := tx.ExecContext(ctx, `INSERT INTO bootstrap_operations(idempotency_key,operation_id,request_digest,request_json,product_id,project_id,work_id,repo_path,expected_version,state,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`, req.IdempotencyKey, operationID, digest, bootstrapJSON(journalRequest), req.ProductID, req.ProjectID, workID, location.Repo, expectedVersion, "pending", now.Format(time.RFC3339Nano), now.Format(time.RFC3339Nano)); err != nil {
+				return out, err
+			}
+			if err := pinBootstrapClaimTx(ctx, tx, operationID, workID, req.ProjectID, location, expectedVersion, now); err != nil {
+				return out, err
+			}
 		}
 	}
 	if err := tx.Commit(); err != nil {
@@ -1227,7 +1267,15 @@ func (s *Store) finalizeBootstrap(ctx context.Context, req BootstrapRequest, ope
 		return BootstrapResult{}, newFailure(KindInvariantViolation, "work_bootstrap", "bootstrap native facts do not match the pinned finalization state", false, "contact_operator")
 	}
 	payload, _ := json.Marshal(worktreeCreatedPayload{ExpectedVersion: expected, ResultingVersion: expected + 1, SetID: WorktreeSetID(workID), ProjectID: req.ProjectID, ClaimOpID: operationID, Branch: location.Branch, BaseSHA: location.BaseSHA, Path: location.Path, RepositoryID: facts.repositoryID, GitFacts: facts.raw()})
-	if _, err := applyOperationTx(ctx, tx, Operation{Events: []Event{{EventID: operationID + ":worktree-created", Kind: "work.worktree_created", SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "operator", OccurredAt: s.now(), PayloadVersion: 1, Payload: payload}}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): expected}}, true, false); err != nil {
+	eventID := operationID + ":worktree-created"
+	var priorCreation bool
+	if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM domain_events WHERE event_id=?)`, eventID).Scan(&priorCreation); err != nil {
+		return BootstrapResult{}, err
+	}
+	if priorCreation {
+		eventID = fmt.Sprintf("%s:%d", eventID, expected)
+	}
+	if _, err := applyOperationTx(ctx, tx, Operation{Events: []Event{{EventID: eventID, Kind: "work.worktree_created", SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "operator", OccurredAt: s.now(), PayloadVersion: 1, Payload: payload}}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): expected}}, true, false); err != nil {
 		return BootstrapResult{}, err
 	}
 	if _, err := tx.ExecContext(ctx, `UPDATE worktree_claims SET state=?,updated_at=? WHERE op_id=? AND state=?`, worktreeStateVerified, s.now().Format(time.RFC3339Nano), operationID, worktreeStatePending); err != nil {

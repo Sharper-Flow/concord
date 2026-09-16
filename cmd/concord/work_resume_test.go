@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -132,6 +133,106 @@ func TestWorkResumeBootstrapsExistingIdentityAndRecoversAfterNativeCreate(t *tes
 	}
 	if afterEvents != beforeEvents+1 {
 		t.Fatalf("existing bootstrap event count=%d want %d", afterEvents, beforeEvents+1)
+	}
+}
+
+func TestWorkResumeReclaimsCompletedBootstrapAndStartsAgain(t *testing.T) {
+	repo := initLocatorRepo(t)
+	s := mustOpenStore(t, filepath.Join(t.TempDir(), "concord.db"))
+	seedLocatorAuthority(t, s, repo)
+	ctx := context.Background()
+	req := store.ExistingBootstrapRequest{ProductID: "product-wl", ProjectID: "project-wl", WorkID: "work-wl"}
+	first, err := s.BootstrapExistingWorktree(ctx, req, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	observed := []store.SessionDirectory{}
+	if _, err := s.ReclaimWorktree(ctx, store.WorktreeReclaimRequest{
+		WorkID: first.WorkID, ProjectID: first.ProjectID, DefaultRef: "origin/main",
+		PrincipalRef: "principal/operator", RequestID: "reclaim-work-wl",
+		ExpectedVersion: first.WorkVersion, Runner: store.ExecGitRunner{},
+		ObservedSessionDirectories: &observed, ObservedProjectID: first.ProjectID,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	second, err := s.BootstrapExistingWorktree(ctx, req, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.WorkID != first.WorkID || second.OperationID != first.OperationID || second.WorkVersion != first.WorkVersion+2 || second.Entry.State != "active" {
+		t.Fatalf("restarted bootstrap=%+v first=%+v", second, first)
+	}
+	var activeClaims, activeEntries int
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM worktree_claims WHERE work_id=? AND state IN ('pending','verified')`, first.WorkID).Scan(&activeClaims); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM worktree_entries WHERE set_id=? AND state='active'`, store.WorktreeSetID(first.WorkID)).Scan(&activeEntries); err != nil {
+		t.Fatal(err)
+	}
+	if activeClaims != 1 || activeEntries != 1 {
+		t.Fatalf("active claims=%d entries=%d", activeClaims, activeEntries)
+	}
+}
+
+func TestWorkResumeReclaimsBootstrapAndAdoptsAdvancedCanonicalBranch(t *testing.T) {
+	repo := initLocatorRepo(t)
+	s := mustOpenStore(t, filepath.Join(t.TempDir(), "concord.db"))
+	seedLocatorAuthority(t, s, repo)
+	ctx := context.Background()
+	req := store.ExistingBootstrapRequest{ProductID: "product-wl", ProjectID: "project-wl", WorkID: "work-wl"}
+	first, err := s.BootstrapExistingWorktree(ctx, req, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	baseTree := strings.TrimSpace(gitOutput(t, repo, "rev-parse", first.Entry.BaseSHA+"^{tree}"))
+	commit := exec.Command("git", "-C", repo, "commit-tree", baseTree, "-p", first.Entry.BaseSHA, "-m", "advanced canonical branch")
+	commit.Env = append(os.Environ(), "GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t")
+	advancedOutput, err := commit.CombinedOutput()
+	if err != nil {
+		t.Fatalf("advance canonical branch: %v\n%s", err, advancedOutput)
+	}
+	advancedSHA := strings.TrimSpace(string(advancedOutput))
+	for _, ref := range []string{"refs/heads/" + first.Entry.Branch, "refs/remotes/origin/main"} {
+		if output, err := exec.Command("git", "-C", repo, "update-ref", ref, advancedSHA).CombinedOutput(); err != nil {
+			t.Fatalf("advance %s: %v\n%s", ref, err, output)
+		}
+	}
+	observed := []store.SessionDirectory{}
+	if _, err := s.ReclaimWorktree(ctx, store.WorktreeReclaimRequest{
+		WorkID: first.WorkID, ProjectID: first.ProjectID, DefaultRef: "origin/main",
+		PrincipalRef: "principal/operator", RequestID: "reclaim-advanced-work-wl",
+		ExpectedVersion: first.WorkVersion, Runner: store.ExecGitRunner{},
+		ObservedSessionDirectories: &observed, ObservedProjectID: first.ProjectID,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if output, err := exec.Command("git", "-C", repo, "update-ref", "refs/heads/"+first.Entry.Branch, advancedSHA).CombinedOutput(); err != nil {
+		t.Fatalf("advance canonical branch: %v\n%s", err, output)
+	}
+	var beforeEvents int
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=?`, first.WorkID).Scan(&beforeEvents); err != nil {
+		t.Fatal(err)
+	}
+
+	second, err := s.BootstrapExistingWorktree(ctx, req, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.WorkID != first.WorkID || second.OperationID != first.OperationID || second.Entry.State != "active" {
+		t.Fatalf("restarted bootstrap=%+v first=%+v", second, first)
+	}
+	if second.Entry.BaseSHA != advancedSHA {
+		t.Fatalf("restarted base=%s want advanced branch head %s", second.Entry.BaseSHA, advancedSHA)
+	}
+	if head := strings.TrimSpace(gitOutput(t, second.Entry.Path, "rev-parse", "HEAD")); head != advancedSHA {
+		t.Fatalf("restarted worktree head=%s want %s", head, advancedSHA)
+	}
+	var afterEvents int
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=?`, first.WorkID).Scan(&afterEvents); err != nil {
+		t.Fatal(err)
+	}
+	if afterEvents != beforeEvents+1 {
+		t.Fatalf("restart events=%d want %d", afterEvents, beforeEvents+1)
 	}
 }
 

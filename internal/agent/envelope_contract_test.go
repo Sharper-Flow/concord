@@ -74,6 +74,14 @@ func TestCommittedReclaimEnvelopeSatisfiesGeneratedContract(t *testing.T) {
 	if err != nil || claim.Outcome != OutcomeOK {
 		t.Fatalf("claim response=%+v err=%v", claim, err)
 	}
+	// The claim recorded this session as the worktree occupant, and the
+	// removal gate refuses while a recorded occupant remains. Vacate first.
+	vacateEnv := mutationEnvelope(grant, scopeVersion)
+	vacateEnv.Worktree = worktreePath
+	vacate, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "session_vacate", Input: json.RawMessage(`{"idempotency_key":"701-vacate"}`)}, vacateEnv)
+	if err != nil || vacate.Outcome != OutcomeOK {
+		t.Fatalf("vacate response=%+v err=%v", vacate, err)
+	}
 	reclaimInput, _ := json.Marshal(map[string]any{
 		"work_id": "work-1", "project_id": "project-1",
 		"default_ref": "main", "expected_version": 3, "idempotency_key": "701-reclaim", "observed_session_directories": []map[string]any{},

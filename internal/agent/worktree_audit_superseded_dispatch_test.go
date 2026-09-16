@@ -72,6 +72,7 @@ func TestWorktreeAuditReclaimReturnsSupersededRowsAndReportOnly(t *testing.T) {
 	s, _, _, second, secondGrant, repoRoot := tiersFixture(t)
 	root := filepath.Join(filepath.Dir(s.Path()), "worktrees", "project-1")
 	supersedeWork(t, s, "work-2", "work-1", 3)
+	vacateLinkedWorktree(t, s, second, secondGrant, filepath.Join(root, "work-2"), "audit-superseded-vacate-2")
 
 	// A native removal behind Concord's back strands the needed work item,
 	// which is the report_only class that carries a lifecycle of its own.
@@ -119,8 +120,10 @@ func TestWorktreeAuditReclaimResultCarriesWorkPins(t *testing.T) {
 	t.Parallel()
 	s, _, _, second, secondGrant, _ := tiersFixture(t)
 	root := filepath.Join(filepath.Dir(s.Path()), "worktrees", "project-1")
+	// work-2 is the reclaimed row, so its claiming session vacates first;
 	// work-1 stays needed with in-flight work on its branch, so the same
 	// sweep never probes it as drift.
+	vacateLinkedWorktree(t, s, second, secondGrant, filepath.Join(root, "work-2"), "audit-work-pins-vacate-2")
 	livePath := filepath.Join(root, "work-1")
 	if err := os.WriteFile(filepath.Join(livePath, "live-work.md"), []byte("# in flight\n"), 0o644); err != nil {
 		t.Fatal(err)

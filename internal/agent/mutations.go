@@ -156,21 +156,14 @@ type sessionVacateInput struct {
 }
 
 type worktreeReclaimInput struct {
-	WorkID          string `json:"work_id"`
-	ProjectID       string `json:"project_id"`
-	DefaultRef      string `json:"default_ref"`
-	ExpectedVersion int64  `json:"expected_version"`
-	IdempotencyKey  string `json:"idempotency_key"`
-	// ObservedSessionDirectories carries the caller's live host sessions
-	// (issue #722). The store refuses the removal when one of them occupies
-	// the worktree it is about to delete. A nil pointer means that the caller
-	// supplied no observation; a pointer to an empty list is an observation.
+	WorkID                     string                           `json:"work_id"`
+	ProjectID                  string                           `json:"project_id"`
+	DefaultRef                 string                           `json:"default_ref"`
+	ExpectedVersion            int64                            `json:"expected_version"`
+	IdempotencyKey             string                           `json:"idempotency_key"`
 	ObservedSessionDirectories *[]observedSessionDirectoryInput `json:"observed_session_directories"`
 }
 
-// observedSessionDirectoryInput is one live host session the caller observed,
-// and the directory it runs in. Session liveness is host truth, so the caller
-// that can reach the host reports it and the core decides on it.
 type worktreeAuditReclaimInput struct {
 	ProductID                  string                           `json:"product_id"`
 	DefaultRef                 string                           `json:"default_ref"`
@@ -182,19 +175,6 @@ type worktreeAuditReclaimInput struct {
 type observedSessionDirectoryInput struct {
 	SessionRef string `json:"session_ref"`
 	Directory  string `json:"directory"`
-}
-
-// storeSessionDirectories converts the reported observations into the store's
-// shape. It is the only crossing point, so both removal planners share it.
-func storeSessionDirectories(in *[]observedSessionDirectoryInput) *[]store.SessionDirectory {
-	if in == nil {
-		return nil
-	}
-	out := make([]store.SessionDirectory, 0, len(*in))
-	for _, observed := range *in {
-		out = append(out, store.SessionDirectory{SessionRef: observed.SessionRef, Directory: observed.Directory})
-	}
-	return &out
 }
 
 type worktreeVerifyInput struct {
@@ -213,12 +193,9 @@ type worktreeDestroyInput struct {
 	// Destructive declares intent to remove without the clean-tree and
 	// merged-branch gates. It requires operator approval (CD-0096 D3
 	// Destroy).
-	Destructive    bool           `json:"destructive"`
-	Approval       *approvalInput `json:"approval"`
-	IdempotencyKey string         `json:"idempotency_key"`
-	// ObservedSessionDirectories carries the caller's live host sessions
-	// (issue #722). The destructive approval covers the git gates, never the
-	// occupancy gate.
+	Destructive                bool                             `json:"destructive"`
+	Approval                   *approvalInput                   `json:"approval"`
+	IdempotencyKey             string                           `json:"idempotency_key"`
 	ObservedSessionDirectories *[]observedSessionDirectoryInput `json:"observed_session_directories"`
 }
 type researchRevisionInput struct {
@@ -1985,6 +1962,7 @@ func (r runtime) planWorktreeClaim(ctx context.Context, base Envelope, raw []byt
 			OpID: opID, WorkID: in.WorkID, ProjectID: in.ProjectID,
 			BaseSHA:      in.BaseSHA,
 			PrincipalRef: grant.PrincipalRef, RequestID: in.IdempotencyKey,
+			SessionRef:      grant.SessionRef,
 			ExpectedVersion: in.ExpectedVersion, Now: r.Authority.now(),
 		}); err != nil {
 			return nil, nil, nil, err
@@ -2009,7 +1987,7 @@ func (r runtime) planSessionVacate(ctx context.Context, base Envelope, raw []byt
 	plan.scope["project_ids"] = []string{project}
 	plan.intents = []NextIntent{{Tool: "concord_work_trace", Operation: "history", QueryID: "PM1.Q7", ReasonCode: "verify_session_vacated", RequiredFields: []string{"work_id"}}}
 	plan.effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
-		target, err := store.ResolveSessionVacateTargetTx(ctx, tx, project, grant.Worktree)
+		target, err := store.ResolveSessionVacateTargetTx(ctx, tx, project, grant.Worktree, grant.SessionRef)
 		if err != nil {
 			return nil, nil, nil, err
 		}
@@ -2103,7 +2081,10 @@ func (r runtime) planWorktreeDestroy(ctx context.Context, base Envelope, raw []b
 			PrincipalRef: grant.PrincipalRef, RequestID: in.IdempotencyKey,
 			ExpectedVersion: in.ExpectedVersion, Now: r.Authority.now(),
 			RequireTerminal: true, OperatorApprovalRef: approvalRef, Destructive: in.Destructive,
-			ObservedSessionDirectories: storeSessionDirectories(in.ObservedSessionDirectories), ObservedProjectID: project,
+			// The consumed operator approval is the declared route that
+			// releases a recorded occupancy that no longer holds; the store
+			// refuses the release without the approval pairing.
+			ReleaseOccupancy: in.Destructive || in.Approval != nil,
 		}); err != nil {
 			return nil, nil, nil, err
 		}
@@ -2301,14 +2282,12 @@ func (r runtime) mutateWorktreeAuditReclaim(ctx context.Context, base Envelope, 
 	scope := map[string]any{"product_ids": []string{product}}
 	intents := []NextIntent{{Tool: "concord_work_browse", Operation: "worktree_audit", QueryID: "PM1.Q16", ReasonCode: "audit_after_reclaim", RequiredFields: []string{"product_id"}}}
 	result, err := r.Store.WorktreeAuditReclaim(ctx, store.WorktreeAuditReclaimRequest{
-		ProductID:                  product,
-		DefaultRef:                 in.DefaultRef,
-		PrincipalRef:               grant.PrincipalRef,
-		RequestID:                  in.IdempotencyKey,
-		Now:                        r.Authority.now(),
-		Limit:                      r.boundedLimit(in.Limit),
-		ObservedSessionDirectories: storeSessionDirectories(in.ObservedSessionDirectories),
-		ObservedProjectID:          r.Envelope.AmbientProjectID,
+		ProductID:    product,
+		DefaultRef:   in.DefaultRef,
+		PrincipalRef: grant.PrincipalRef,
+		RequestID:    in.IdempotencyKey,
+		Now:          r.Authority.now(),
+		Limit:        r.boundedLimit(in.Limit),
 	})
 	if err != nil {
 		return auditReclaimPostCommitFailure(base, auditReclaimChangedRefs(result.Rows), failureEnvelope(base, err)), nil
@@ -2412,7 +2391,6 @@ func (r runtime) planWorktreeReclaim(ctx context.Context, base Envelope, raw []b
 			WorkID: in.WorkID, ProjectID: in.ProjectID, DefaultRef: in.DefaultRef,
 			PrincipalRef: grant.PrincipalRef, RequestID: in.IdempotencyKey,
 			ExpectedVersion: in.ExpectedVersion, Now: r.Authority.now(),
-			ObservedSessionDirectories: storeSessionDirectories(in.ObservedSessionDirectories), ObservedProjectID: r.Envelope.AmbientProjectID,
 		}); err != nil {
 			return nil, nil, nil, err
 		}

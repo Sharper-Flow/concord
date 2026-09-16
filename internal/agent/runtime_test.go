@@ -28,6 +28,7 @@ func TestAuditReclaimResponseFailureReportsCommittedEffect(t *testing.T) {
 	t.Parallel()
 	s, _, _, service, grant, _ := tiersFixture(t)
 	completeWork(t, s, "work-2", 3)
+	vacateLinkedWorktree(t, s, service, grant, filepath.Join(filepath.Dir(s.Path()), "worktrees", "project-1", "work-2"), "post-commit-vacate-2")
 	livePath := filepath.Join(filepath.Dir(s.Path()), "worktrees", "project-1", "work-1")
 	if err := os.WriteFile(filepath.Join(livePath, "in-flight.md"), []byte("# in flight\n"), 0o644); err != nil {
 		t.Fatal(err)

@@ -241,12 +241,9 @@ export class HostControlPlane {
   }
 
   // liveSessionDirectories reports every session the host holds and the
-  // directory each runs in. A worktree removal cannot decide
-  // safety without it, and the store cannot hold it: no event records a
-  // session leaving a directory, so a stored answer would go stale silently.
-  // A failure throws rather than answering with an empty list, because "no
-  // session occupies this worktree" and "I could not look" must not read the
-  // same to the caller that is about to delete a directory.
+  // directory each runs in. Worker abandonment uses this observation to
+  // confirm that the failed worker session no longer occupies its worktree.
+  // A failure throws rather than answering with an empty list.
   async liveSessionDirectories(signal?: AbortSignal): Promise<ObservedSessionDirectory[]> {
     const prefix = "cannot read the host session list"
     const client = this.#require(`${prefix}: this host handed the plugin no client`)

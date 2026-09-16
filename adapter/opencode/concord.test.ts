@@ -1659,10 +1659,8 @@ test("work start leaves a resumable claim when the move is refused", async () =>
   expect(calls.map(({ argv }) => argv[1])).toEqual(["project-resolve", "work-bootstrap", "session-prepare"])
 })
 
-// Issue #722: a worktree removal is safe only when no live session runs in the
-// directory it deletes. The store owns the worktree path and refuses on it;
-// the adapter owns the only truthful answer to which sessions are live and
-// where, because no event records a session leaving a directory.
+// Worktree occupancy is recorded when Concord claims the worktree. Removal
+// does not ask the host for a second, non-authoritative session population.
 const bindSessionRoutes = (options: { sessions?: unknown; listStatus?: number; unbound?: boolean; toastStatus?: number } = {}) => {
   const toasts: Array<Record<string, unknown>> = []
   if (options.unbound) {
@@ -1716,7 +1714,7 @@ test("worktree removal operations derive from contract inputs", () => {
   expect([...adapter.WORKTREE_REMOVAL_OPERATIONS].sort()).toEqual(["worktree_audit_reclaim", "worktree_destroy", "worktree_reclaim"])
 })
 
-test("a worktree removal carries the host's live session directories to the core", async () => {
+test("a worktree removal does not carry host session observations to the core", async () => {
   for (const operation of ["worktree_reclaim", "worktree_destroy", "worktree_audit_reclaim"]) {
     bindSessionRoutes({ sessions: [
       { id: "ses_alpha", directory: "/worktrees/work-1" },
@@ -1730,10 +1728,7 @@ test("a worktree removal carries the host's live session directories to the core
     const request = operation === "worktree_audit_reclaim" ? auditRemovalRequest() : removalRequest(operation)
     const envelope: any = await rawHostResult(adapter.work_transition.execute(request, contextFor()))
     expect(envelope.outcome, operation).toBe("ok")
-    expect(JSON.parse(seen[0]).input.observed_session_directories, operation).toEqual([
-      { session_ref: "ses_alpha", directory: "/worktrees/work-1" },
-      { session_ref: "ses_beta", directory: "/elsewhere" },
-    ])
+    expect(JSON.parse(seen[0]).input.observed_session_directories, operation).toBeUndefined()
   }
 })
 
@@ -1749,14 +1744,11 @@ test("audit reclaim refuses an occupied worktree through the core", async () => 
   const envelope: any = await rawHostResult(adapter.work_transition.execute(auditRemovalRequest(), contextFor()))
   expect(envelope.outcome).toBe("error")
   expect(envelope.error.kind).toBe("unauthorized")
-  expect(JSON.parse(seen).input.observed_session_directories).toEqual([{ session_ref: "ses_alpha", directory: "/worktrees/work-1" }])
+  expect(JSON.parse(seen).input.observed_session_directories).toBeUndefined()
 })
 
-test("a worktree removal refuses when the host session list cannot be read", async () => {
-  // "No session occupies this worktree" and "I could not look" are different
-  // answers. Only one of them makes a removal safe, so an unreadable host
-  // refuses rather than reporting an empty list.
-  for (const options of [{ unbound: true }, { listStatus: 500 }, { sessions: { not: "an array" } }, { sessions: [{ id: "ses_alpha" }] }]) {
+test("a worktree removal does not depend on the host session list", async () => {
+  for (const options of [{ listStatus: 500 }, { sessions: { not: "an array" } }, { sessions: [{ id: "ses_alpha" }] }]) {
     bindSessionRoutes(options)
     let coreCalls = 0
     adapter.configureConcordAdapter({ runner: runnerWithContext(() => {
@@ -1764,11 +1756,8 @@ test("a worktree removal refuses when the host session list cannot be read", asy
       return removalOk("worktree_reclaim")
     }) })
     const envelope: any = await rawHostResult(adapter.work_transition.execute(removalRequest("worktree_reclaim"), contextFor()))
-    assertAdapterEnvelope(envelope)
-    expect(envelope.error.adapter_reason, JSON.stringify(options)).toBe("session_occupancy_unreadable")
-    expect(envelope.error.effect_state).toBe("none")
-    expect(envelope.error.message).toContain("Nothing was removed")
-    expect(coreCalls, JSON.stringify(options)).toBe(0)
+    expect(envelope.outcome, JSON.stringify(options)).toBe("ok")
+    expect(coreCalls, JSON.stringify(options)).toBe(1)
   }
 })
 

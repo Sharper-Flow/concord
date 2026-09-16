@@ -4483,6 +4483,17 @@ CREATE UNIQUE INDEX worktree_claims_one_active_branch ON worktree_claims(pinned_
     WHERE state IN ('pending','verified');
 `,
 	},
+	{
+		Version:  85,
+		Name:     "worktree_session_occupancy",
+		Breaking: false,
+		SQL: `
+-- Worktree occupancy is a Concord projection. The host cannot provide a
+-- complete, authoritative session population at removal time.
+ALTER TABLE worktree_entries ADD COLUMN occupant_session_ref TEXT NOT NULL DEFAULT ''
+    CHECK(length(occupant_session_ref) <= 128);
+`,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any

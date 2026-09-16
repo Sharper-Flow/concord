@@ -10693,7 +10693,7 @@ const GeneratedPayloadSchemaDocument = `{
           "type": "integer"
         },
         "observed_session_directories": {
-          "description": "CD-0096 D3, issue #722: the live host sessions the caller observed, each with the directory it runs in. The removal refuses when one of them is the worktree or sits beneath it, because removing that directory leaves the session unable to send another prompt. The store owns the worktree path and the host owns session liveness, so the caller that sees both supplies the observation and the core decides on it. The caller must supply the field. An empty list proves that no live session occupies the worktree; an absent list is not evidence.",
+          "description": "Accepted for compatibility. Worktree removal ignores this host observation and uses the recorded Concord occupancy projection.",
           "items": {
             "additionalProperties": false,
             "properties": {
@@ -10787,7 +10787,7 @@ const GeneratedPayloadSchemaDocument = `{
           "$ref": "#/$defs/id"
         },
         "observed_session_directories": {
-          "description": "CD-0096 D3, issue #722: the live host sessions the caller observed, each with the directory it runs in. The removal refuses when one of them is the worktree or sits beneath it, because removing that directory leaves the session unable to send another prompt. The store owns the worktree path and the host owns session liveness, so the caller that sees both supplies the observation and the core decides on it. The caller must supply the field. An empty list proves that no live session occupies the worktree; an absent list is not evidence.",
+          "description": "Accepted for compatibility. Worktree removal ignores this host observation and uses the recorded Concord occupancy projection.",
           "items": {
             "additionalProperties": false,
             "properties": {
@@ -10837,7 +10837,7 @@ const GeneratedPayloadSchemaDocument = `{
           "$ref": "#/$defs/id"
         },
         "observed_session_directories": {
-          "description": "CD-0096 D3, issue #722: the live host sessions the caller observed, each with the directory it runs in. The removal refuses when one of them is the worktree or sits beneath it, because removing that directory leaves the session unable to send another prompt. The store owns the worktree path and the host owns session liveness, so the caller that sees both supplies the observation and the core decides on it. The caller must supply the field. An empty list proves that no live session occupies the worktree; an absent list is not evidence.",
+          "description": "Accepted for compatibility. Worktree removal ignores this host observation and uses the recorded Concord occupancy projection.",
           "items": {
             "additionalProperties": false,
             "properties": {

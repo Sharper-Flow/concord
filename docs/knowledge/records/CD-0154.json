@@ -1,0 +1,48 @@
+{
+  "date": "2026-09-16T00:00:00Z",
+  "evidence": [
+    "examples/opencode/README.md",
+    "examples/opencode/agents/concord-0.md",
+    "examples/opencode/agents/concord-1.md",
+    "examples/opencode/agents/concord-2.md",
+    "scripts/install.py",
+    "scripts/test-installer.py",
+    "scripts/check-primary-prompts.py",
+    "scripts/test-primary-prompts.py",
+    ".github/workflows/release.yml",
+    "instructions/evidence.md"
+  ],
+  "home_domain_id": "product-root:concord",
+  "id": "CD-0154",
+  "kind": "decision",
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "CD-0063"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0043"
+    }
+  ],
+  "path": "docs/decisions/CD-0154-numbered-primary-agents-remain-host-owned.md",
+  "product_wide_rationale": "The numbered primary agents combine coordinator behavior with machine policy, so Concord provides portable examples while each host retains its live definitions.",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:11c4cac318368ea7a1b7a0aa4c372ddb505d02cbe21e93ae8deb6d965d7b68ec",
+  "status": "accepted",
+  "summary": "Concord keeps concord-0, concord-1, and concord-2 host-owned, supplies inert portable examples, and leaves live numbered definitions unchanged through every installer operation.",
+  "tags": [
+    "primary-agents",
+    "examples",
+    "host-ownership",
+    "installer",
+    "conduct"
+  ],
+  "title": "Numbered primary agents remain host-owned"
+}

@@ -1,0 +1,18 @@
+{
+  "evidence": [
+    {
+      "kind": "validator",
+      "value": "scripts/test-installer.py"
+    },
+    {
+      "kind": "validator",
+      "value": "scripts/test-primary-prompts.py"
+    },
+    {
+      "kind": "validator",
+      "value": "scripts/check-primary-prompts.py"
+    }
+  ],
+  "id": "CD-0154",
+  "state": "satisfied"
+}

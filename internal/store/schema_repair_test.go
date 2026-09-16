@@ -197,6 +197,72 @@ func TestManifestAdmitsLaterAdditiveMigrations(t *testing.T) {
 	}
 }
 
+// One database that has not changed must produce one refusal, whichever order
+// the range happens to take. checkManifest reads a map, and Go randomizes map
+// order, so a refusal built from the first entry reached names a different
+// migration between runs and reads as the database advancing under the
+// operator. Repetition is the assertion here: a single call cannot tell a
+// stable answer from a lucky one.
+func TestManifestRefusalNamesTheSameMigrationEveryTime(t *testing.T) {
+	t.Parallel()
+
+	baseline := func() map[int]appliedMigration {
+		applied := map[int]appliedMigration{}
+		for _, m := range migrations {
+			applied[m.Version] = appliedMigration{Checksum: m.checksum(), Breaking: m.Breaking}
+		}
+		return applied
+	}
+	const attempts = 200
+
+	t.Run("drift names the earliest divergence", func(t *testing.T) {
+		t.Parallel()
+		applied := baseline()
+		// Two historical migrations drift at once. The earliest is the point
+		// where the live schema and this binary parted, so it is the one the
+		// operator must restore first.
+		early, late := migrations[1].Version, migrations[len(migrations)-1].Version
+		applied[early] = appliedMigration{Checksum: "forged-early", Breaking: applied[early].Breaking}
+		applied[late] = appliedMigration{Checksum: "forged-late", Breaking: applied[late].Breaking}
+
+		want := "migration " + strconv.Itoa(early) + " "
+		for i := 0; i < attempts; i++ {
+			err := checkManifest(applied)
+			var failure *Failure
+			if !failureAs(err, &failure) || failure.Kind != KindSchemaDrift {
+				t.Fatalf("attempt %d: err=%v, want schema_drift", i, err)
+			}
+			if !strings.Contains(failure.Detail, want) {
+				t.Fatalf("attempt %d: refusal %q must name migration %d, the earliest drift", i, failure.Detail, early)
+			}
+		}
+	})
+
+	t.Run("unsupported names the highest breaking version", func(t *testing.T) {
+		t.Parallel()
+		applied := baseline()
+		// Several breaking migrations this binary does not define. The highest
+		// is the floor: a binary defining it defines every earlier one too.
+		lower := CurrentSchemaVersion() + 1
+		highest := CurrentSchemaVersion() + 5
+		for version := lower; version <= highest; version++ {
+			applied[version] = appliedMigration{Checksum: "future-breaking", Breaking: true}
+		}
+
+		want := "schema version " + strconv.Itoa(highest)
+		for i := 0; i < attempts; i++ {
+			err := checkManifest(applied)
+			var failure *Failure
+			if !failureAs(err, &failure) || failure.Kind != KindSchemaUnsupported {
+				t.Fatalf("attempt %d: err=%v, want schema_unsupported", i, err)
+			}
+			if !strings.Contains(failure.Detail, want) {
+				t.Fatalf("attempt %d: refusal %q must name schema version %d, the highest breaking migration", i, failure.Detail, highest)
+			}
+		}
+	})
+}
+
 // A manifest written before the compatibility column existed carries no bits.
 // Absent must read as breaking, so such a database keeps exactly the refusal
 // it had before this mechanism landed.

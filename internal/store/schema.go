@@ -5127,6 +5127,13 @@ func shippedVariantAccepted(version int, checksum string) bool {
 // closes the door for every binary older than it, and later additive
 // migrations do not move it further. Nothing here blocks an upgrade; a newer
 // binary defines everything the database records and migrates forward.
+//
+// Either refusal names a version chosen across the whole map rather than the
+// first one the range happens to reach: the earliest drifted migration, and
+// the highest breaking version this binary does not define. Go randomizes map
+// order, so returning from inside the range made the reported number vary
+// between runs against one unchanged database, and the operator read that as
+// the database moving under them.
 func checkManifest(applied map[int]appliedMigration) error {
 	known := make(map[int]migration, len(migrations))
 	for _, m := range migrations {
@@ -5134,6 +5141,7 @@ func checkManifest(applied map[int]appliedMigration) error {
 	}
 
 	floor := 0
+	drifted := 0
 	for version, row := range applied {
 		m, ok := known[version]
 		if !ok {
@@ -5143,10 +5151,15 @@ func checkManifest(applied map[int]appliedMigration) error {
 			continue
 		}
 		if m.checksum() != row.Checksum && !shippedVariantAccepted(version, row.Checksum) {
-			return newFailure(KindSchemaDrift, "migrate",
-				fmt.Sprintf("migration %d (%s) no longer matches its recorded checksum", version, m.Name),
-				false, "restore the original migration definition; applied migrations are immutable")
+			if drifted == 0 || version < drifted {
+				drifted = version
+			}
 		}
+	}
+	if drifted > 0 {
+		return newFailure(KindSchemaDrift, "migrate",
+			fmt.Sprintf("migration %d (%s) no longer matches its recorded checksum", drifted, known[drifted].Name),
+			false, "restore the original migration definition; applied migrations are immutable")
 	}
 	if floor > 0 {
 		return newFailure(KindSchemaUnsupported, "migrate",

@@ -3175,13 +3175,17 @@ def project_link_record(
     linked: str,
     changed: bool,
     scope: str,
+    conduct_entry: str,
     previous: dict[str, object] | None = None,
 ) -> dict[str, object]:
     """Describe how uninstall must handle one project config."""
     expected = {"exists": True, "sha256": hashlib.sha256(linked.encode("utf-8")).hexdigest()}
     if previous and previous.get("action") in {"remove", "restore"}:
         previous_expected = previous.get("expected")
-        if not isinstance(previous_expected, dict) or not ownership_state_allows_update(project_file, previous_expected):
+        if (
+            not isinstance(previous_expected, dict)
+            or not ownership_state_matches(project_file, previous_expected, conduct_entry)
+        ):
             raise InstallerError(f"refusing to adopt user-modified project OpenCode config {project_file}")
         action = previous["action"]
         record: dict[str, object] = {"action": action, "scope": scope, "expected": expected}
@@ -3206,26 +3210,48 @@ def project_file_state(path: Path) -> dict[str, object]:
     return {"exists": True, "sha256": sha256(path)}
 
 
-def ownership_state_matches(path: Path, expected: dict[str, object]) -> bool:
-    actual = project_file_state(path)
-    return actual == expected
+def project_config_contains_entry(path: Path, conduct_entry: str) -> bool:
+    """Return whether a parseable project config carries the managed entry."""
+    try:
+        parsed = project_config_data(path, path.read_text(encoding="utf-8"))
+    except (InstallerError, OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return False
+    if not isinstance(parsed, dict):
+        return False
+    instructions = parsed.get("instructions")
+    return isinstance(instructions, list) and conduct_entry in instructions
 
 
-def ownership_state_allows_update(path: Path, expected: dict[str, object]) -> bool:
-    """Allow a repair only for the recorded bytes or a missing target."""
+def ownership_state_matches(path: Path, expected: dict[str, object], conduct_entry: str) -> bool:
+    """Decide on the entry the installer owns, not on the whole file.
+
+    The writer preserves keys the installer does not own, so the guard must
+    too: a config that still carries the conduct entry and still parses is
+    owned state, whatever else a host tool wrote into it. A missing file is
+    nothing left to protect.
+    """
     actual = project_file_state(path)
     if not expected.get("exists"):
         return not actual["exists"]
-    return not actual["exists"] or actual == expected
+    if not actual["exists"]:
+        return True
+    return project_config_contains_entry(path, conduct_entry)
 
 
 def validate_project_link_ownership_for_uninstall(paths: Paths) -> None:
-    """Validate owned project states before uninstall changes release files."""
+    """Validate owned project states before uninstall changes release files.
+
+    A legacy record is excluded because its expected state is the state
+    *after* the conduct entry was removed, so the entry is absent by design.
+    The owned-entry test applies only to a record whose expected state still
+    carries the entry, which is every worktree-scoped record.
+    """
+    conduct_entry = conduct_instruction_entry(paths)
     for raw_path, record in load_project_link_ownership(paths).items():
-        if record["action"] == "preserve":
+        if record["action"] == "preserve" or record.get("scope") == "legacy":
             continue
         expected = record["expected"]
-        if not isinstance(expected, dict) or not ownership_state_matches(Path(raw_path), expected):
+        if not isinstance(expected, dict) or not ownership_state_matches(Path(raw_path), expected, conduct_entry):
             raise InstallerError(f"refusing to restore user-modified project OpenCode config {raw_path}")
 
 
@@ -3239,7 +3265,7 @@ def plan_worktree_links(paths: Paths) -> list[tuple[Path, str, bool]]:
         previous = ownership.get(str(project_file.resolve(strict=False)))
         if previous and previous.get("action") in {"remove", "restore"}:
             expected = previous.get("expected")
-            if not isinstance(expected, dict) or not ownership_state_allows_update(project_file, expected):
+            if not isinstance(expected, dict) or not ownership_state_matches(project_file, expected, entry):
                 raise InstallerError(f"refusing to adopt user-modified project OpenCode config {project_file}")
         new_text, changed = plan_project_link(project_file, entry)
         planned.append((project_file, new_text, changed))
@@ -3256,23 +3282,26 @@ def sync_worktree_links(paths: Paths, remove: bool = False) -> bool:
         pending: dict[str, dict[str, object]] = {}
         for raw_path, record in sorted(links.items()):
             project_file = Path(raw_path)
-            if record["action"] == "preserve":
+            if record["action"] == "preserve" or record.get("scope") == "legacy":
                 continue
             expected = record["expected"]
-            if not isinstance(expected, dict) or not ownership_state_matches(project_file, expected):
+            if not isinstance(expected, dict) or not ownership_state_matches(project_file, expected, entry):
                 raise InstallerError(f"refusing to restore user-modified project OpenCode config {project_file}")
-            if record.get("scope") == "legacy":
-                continue
             before = project_file.read_text(encoding="utf-8") if project_file.exists() else None
             if before is None:
                 continue
+            new_text, removed = remove_conduct_entry(project_file, entry)
+            if not removed:
+                raise InstallerError(f"refusing to remove the managed conduct path from {project_file}")
             action = record["action"]
+            if action == "restore" and expected.get("sha256") == hashlib.sha256(before.encode("utf-8")).hexdigest():
+                new_text = str(record["original"])
             pending[raw_path] = {
                 "scope": record["scope"],
                 "action": action,
                 "before": before,
                 "original": record.get("original") if action == "restore" else None,
-                "updated": "" if action == "remove" else str(record["original"]),
+                "updated": new_text,
             }
         pending_path = project_link_pending_path(paths)
         if pending:
@@ -3284,16 +3313,18 @@ def sync_worktree_links(paths: Paths, remove: bool = False) -> bool:
             project_file = Path(raw_path)
             if record["action"] == "preserve" or record.get("scope") == "legacy":
                 continue
-            if record["action"] == "remove":
-                if project_file.exists():
-                    project_file.unlink()
-                    changed = True
+            if raw_path not in pending:
+                continue
+            updated = str(pending[raw_path]["updated"])
+            if updated == "":
+                project_file.unlink()
+                changed = True
                 try:
                     project_file.parent.rmdir()
                 except OSError:
                     pass
             else:
-                write_atomic(project_file, str(record["original"]).encode("utf-8"))
+                write_atomic(project_file, updated.encode("utf-8"))
                 changed = True
         save_project_link_ownership(paths, {})
         if pending:
@@ -3308,11 +3339,6 @@ def sync_worktree_links(paths: Paths, remove: bool = False) -> bool:
     if legacy.exists():
         legacy_original = legacy.read_text(encoding="utf-8")
         legacy_key = str(legacy.resolve(strict=False))
-        previous_legacy = links.get(legacy_key)
-        if previous_legacy and previous_legacy.get("action") in {"remove", "restore"}:
-            expected = previous_legacy.get("expected")
-            if not isinstance(expected, dict) or not ownership_state_allows_update(legacy, expected):
-                raise InstallerError(f"refusing to adopt user-modified legacy worktree config {legacy}")
         new_text, planned = remove_conduct_entry(legacy, entry)
         if planned:
             legacy_text = new_text
@@ -3339,7 +3365,7 @@ def sync_worktree_links(paths: Paths, remove: bool = False) -> bool:
         key = str(project_file.resolve(strict=False))
         seen.add(key)
         original = project_file.read_text(encoding="utf-8") if project_file.exists() else None
-        links[key] = project_link_record(project_file, original, new_text, planned, "worktree", links.get(key))
+        links[key] = project_link_record(project_file, original, new_text, planned, "worktree", entry, links.get(key))
         if planned:
             pending[key] = {
                 "scope": "worktree",
@@ -3385,12 +3411,6 @@ def plan_worktrees_root_unlink(paths: Paths) -> tuple[Path, str, bool]:
     """Compatibility wrapper that validates legacy pointer removal."""
     plan_worktree_links(paths)
     project_file = worktrees_project_file(paths)
-    ownership = load_project_link_ownership(paths)
-    previous = ownership.get(str(project_file.resolve(strict=False)))
-    if previous and previous.get("action") in {"remove", "restore"}:
-        expected = previous.get("expected")
-        if not isinstance(expected, dict) or not ownership_state_allows_update(project_file, expected):
-            raise InstallerError(f"refusing to adopt user-modified legacy worktree config {project_file}")
     if not project_file.exists():
         return project_file, "", False
     new_text, changed = remove_conduct_entry(project_file, conduct_instruction_entry(paths))

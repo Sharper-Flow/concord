@@ -918,8 +918,15 @@ func composeLinearIssueBody(valueStatement, premise, workID string) string {
 // transaction. A work item without a current contract yields an empty
 // premise, which composeLinearIssueBody omits.
 func readCurrentWorkflowPremiseCore(ctx context.Context, q queryer, workID string) (string, error) {
+	contractVersion, err := activeWorkflowContractVersion(ctx, q, workID, "linear_issue_enqueue")
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
 	var premise string
-	err := q.QueryRowContext(ctx, `SELECT premise FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL ORDER BY contract_version DESC LIMIT 1`, workID).Scan(&premise)
+	err = q.QueryRowContext(ctx, `SELECT premise FROM workflow_contracts WHERE work_id=? AND contract_version=? AND superseded_by IS NULL`, workID, contractVersion).Scan(&premise)
 	if err == sql.ErrNoRows {
 		return "", nil
 	}

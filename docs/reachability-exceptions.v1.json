@@ -46,7 +46,6 @@
         "internal/store.ResolveWorkflowCondition",
         "internal/store.ResolveWorkflowConditionsAtBoundary",
         "internal/store.ResumeWorkflow",
-        "internal/store.SupersedeWorkflowContract",
         "internal/store.WorkflowActionAvailable",
         "internal/store.WorkflowActionPreflight",
         "internal/store.WorkflowProjectionHash",

@@ -218,7 +218,7 @@ states.
 |---|---|
 | `workflow.definition_selected` | `work_id`, `ref`, `version`, `digest`, `work_kind` (closed family enum) |
 | `workflow.contract_approved` | `work_id`, `contract_version`, `premise` (1–4096), `outcome_kind`, `outcome_payload` (strict outcome schema), `required_evidence` (0–7 unique), `route_conventions` (0–16 unique refs), `spec_mandate` (0–32 unique refs), `law_revisions` (one `{law_id, content_hash}` pin per mandated ID for current approvals; absent on legacy events), `rigor_class` (1–64), `consequence_class` (`internal_sqlite`, `cross_authority`, or `external_effect`) |
-| `workflow.contract_superseded` | `work_id`, `previous_contract_version`, `new_contract_version`, `supersede_reason` (1–4096), `audit_evidence` (1–32 evidence refs), optional `successor_contract` containing the fully validated contract fields and one current `law_revisions` pin per mandated law; recovery installs this successor and marks the prior active contract superseded in one transaction |
+| `workflow.contract_superseded` v2 | `work_id`, `previous_contract_version`, optional unique `predecessor_contract_versions` (1–32), `new_contract_version`, `supersede_reason` (1–4096), `audit_evidence` (1–32 evidence refs), optional `approval_ref` with the exact `approval_operation_digest`, `approval_scope_json`, `approval_versions_json`, and `approval_consequence` binding, and optional `successor_contract` containing the fully validated contract fields and one current `law_revisions` pin per mandated law; v1 upcasts without the v2 approval binding; recovery installs this successor and marks every named predecessor superseded in one transaction |
 | `workflow.candidate_set_revised` | `work_id`, `contract_version`, `candidate_kind` (exactly `work_item`, `product`, or `project`), `candidate_ref`, `added` (0–100 refs), `removed` (0–100 refs); `added` and `removed` are disjoint and not both empty |
 | `workflow.actor_recorded` | `work_id`, `actor_ref`, `principal_ref`, `client_ref`, `agent_ref`, `session_ref`, `actor_class` (`agent` or `operator`) |
 | `workflow.action_started` | `work_id`, `step_id`, `action_id`, `attempt_epoch`, `accepted_inputs_digest`, `idempotency_identity` (2–128), `actor_ref` |
@@ -259,7 +259,7 @@ existing `work_items(id)` key; actor references point to `workflow_actors`.
 | Table | Columns (types) | Keys, foreign keys, and closed checks |
 |---|---|---|
 | `workflow_instances` | `work_id TEXT`, `definition_ref TEXT`, `definition_version INTEGER`, `definition_digest TEXT`, `current_step TEXT`, `instance_state TEXT`, `execution_actor_ref TEXT NULL`, `started_at TEXT NULL`, `completed_at TEXT NULL`, `last_checkpoint_at TEXT NULL` | PK `work_id`; FK work; FK actor nullable; checks positive version, digest, state enum |
-| `workflow_contracts` | `work_id TEXT`, `contract_version INTEGER`, `premise TEXT`, `outcome_kind TEXT`, `outcome_payload TEXT`, `consequence_class TEXT`, `required_evidence TEXT`, `route_conventions TEXT`, `approved_at TEXT`, `approved_by TEXT`, `superseded_by INTEGER NULL`, `spec_mandate TEXT` | PK `(work_id,contract_version)`; FK work and approved actor; self-FK superseded contract; checks nonempty premise, closed outcome/evidence/consequence |
+| `workflow_contracts` | `work_id TEXT`, `contract_version INTEGER`, `premise TEXT`, `outcome_kind TEXT`, `outcome_payload TEXT`, `consequence_class TEXT`, `required_evidence TEXT`, `route_conventions TEXT`, `approved_at TEXT`, `approved_by TEXT`, `superseded_by INTEGER NULL`, `spec_mandate TEXT`, `definition_ref TEXT`, `definition_version INTEGER`, `definition_digest TEXT` | PK `(work_id,contract_version)`; FK work and approved actor; self-FK superseded contract; checks nonempty premise, closed outcome/evidence/consequence; every contract approval records the exact selected definition pin |
 | `workflow_contract_law_revisions` | `work_id TEXT`, `contract_version INTEGER`, `law_id TEXT`, `content_hash TEXT` | PK `(work_id,contract_version,law_id)`; FK contract; reverse index by law ID; fold-only and rebuildable from approval event pins |
 | `workflow_candidate_sets` | `work_id TEXT`, `contract_version INTEGER`, `candidate_kind TEXT`, `candidate_ref TEXT`, `candidate_role TEXT`, `candidate_scope TEXT`, `recorded_at TEXT`, `recorded_by TEXT` | PK `(work_id,contract_version,candidate_kind,candidate_ref)`; composite FK contract; FK actor; checks closed candidate kind/role |
 | `workflow_actors` | `actor_ref TEXT`, `principal_ref TEXT`, `client_ref TEXT`, `agent_ref TEXT`, `session_ref TEXT`, `actor_class TEXT`, `first_seen_at TEXT` | PK `actor_ref`; UNIQUE tuple `(principal_ref,client_ref,agent_ref,session_ref)`; checks nonempty tuple and `actor_class IN ('agent','operator')` |
@@ -282,7 +282,8 @@ are not silently represented by a work foreign key.
 JSON-encoded columns above are typed arrays or the referenced strict schema, not
 arbitrary JSON objects. SQLite `CHECK` constraints validate the closed scalar
 values; application validation validates the bounded array payload before the
-transaction. No projection stores workflow definition authority.
+transaction. Contract rows retain the exact definition pin that authorized each
+approval, so replay cannot treat a contract from another definition as compatible.
 
 `workflow.evidence_bound` does not create a second evidence authority. Its
 `producer_run_ref` must identify an existing `durable_operations` row with
@@ -296,8 +297,8 @@ workflow-only metadata or an operation from another work item.
 
 | Event family | Fold effect |
 |---|---|
-| definition selected | upsert the one instance definition pin; reject a change once an action has started |
-| contract approved/superseded | insert the immutable contract version and its recorded law pins; mark only the previous version superseded |
+| definition selected | upsert the one instance definition pin; reject a change once an action has started; replay retains a recorded change with distinct contract definition pins so the ambiguous history remains diagnosable |
+| contract approved/superseded | insert the immutable contract version and its recorded law and definition pins; mark every exact predecessor named by a recovery event superseded |
 | candidate set revised | insert added candidates and delete only the named removed candidates for that contract; premise and outcome bytes are untouched |
 | actor recorded | insert once; a different tuple for an existing `actor_ref` is event poison |
 | action started/checkpointed/completed/failed | update current step/state/checkpoint timestamps and insert/update checkpoint rows; `record_decision` extracts its typed decision-record checkpoint into `workflow_decision_records`; idempotency replay is a no-op |

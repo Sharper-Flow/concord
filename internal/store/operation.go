@@ -408,6 +408,10 @@ func applyOperationTx(ctx context.Context, tx *sql.Tx, operation Operation, ownF
 	if len(operation.Events) == 0 {
 		return output, newFailure(KindInvalidOperation, "apply_operation", "operation has no events", false, "supply at least one accepted event")
 	}
+	startSeq, err := operationEventSequence(ctx, tx)
+	if err != nil {
+		return output, err
+	}
 	for subject, expected := range operation.ExpectedVersions {
 		if !subject.Type.valid() || subject.ID == "" || expected < 0 {
 			return output, newFailure(KindInvalidOperation, "apply_operation", "expected versions must use recognized typed subjects, non-empty IDs, and non-negative versions", false, "supply a typed subject reference")
@@ -457,7 +461,6 @@ func applyOperationTx(ctx context.Context, tx *sql.Tx, operation Operation, ownF
 			checked[ref] = true
 		}
 		var seq Sequence
-		var err error
 		if workflowAuthority {
 			seq, err = appendEvent(ctx, tx, event, true)
 		} else {
@@ -470,9 +473,11 @@ func applyOperationTx(ctx context.Context, tx *sql.Tx, operation Operation, ownF
 		if err := foldRegisteredEvent(ctx, tx, event); err != nil {
 			return output, err
 		}
-		output.EventIDs = append(output.EventIDs, event.EventID)
 	}
-	var err error
+	output.EventIDs, err = operationEventIDsSince(ctx, tx, startSeq)
+	if err != nil {
+		return output, err
+	}
 	output.Impact, err = membershipImpact(ctx, tx, operation)
 	if err != nil {
 		return output, err
@@ -533,6 +538,10 @@ func applyOperationObserved(ctx context.Context, s *Store, operation Operation, 
 	if err := enterFold(ctx, tx); err != nil {
 		return output, rollback(err)
 	}
+	startSeq, err := operationEventSequence(ctx, tx)
+	if err != nil {
+		return output, rollback(err)
+	}
 
 	for _, event := range operation.Events {
 		if isWorkflowAdvancementEvent(event.Kind) {
@@ -582,7 +591,10 @@ func applyOperationObserved(ctx context.Context, s *Store, operation Operation, 
 		if err := foldRegisteredEvent(ctx, tx, event); err != nil {
 			return output, rollback(err)
 		}
-		output.EventIDs = append(output.EventIDs, event.EventID)
+	}
+	output.EventIDs, err = operationEventIDsSince(ctx, tx, startSeq)
+	if err != nil {
+		return output, rollback(err)
 	}
 	if err := validateMembershipInvariantsTx(ctx, tx); err != nil {
 		return output, rollback(err)
@@ -610,6 +622,34 @@ func applyOperationObserved(ctx context.Context, s *Store, operation Operation, 
 			"retry once the database is writable", err)
 	}
 	return output, nil
+}
+
+func operationEventSequence(ctx context.Context, tx *sql.Tx) (int64, error) {
+	var sequence int64
+	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(seq),0) FROM domain_events`).Scan(&sequence); err != nil {
+		return 0, wrapFailure(KindUnavailable, "apply_operation", "cannot establish the operation event boundary", true, "retry once the database is readable", err)
+	}
+	return sequence, nil
+}
+
+func operationEventIDsSince(ctx context.Context, tx *sql.Tx, startSeq int64) ([]string, error) {
+	rows, err := tx.QueryContext(ctx, `SELECT event_id FROM domain_events WHERE seq>? ORDER BY seq`, startSeq)
+	if err != nil {
+		return nil, wrapFailure(KindUnavailable, "apply_operation", "cannot read the operation events", true, "retry once the database is readable", err)
+	}
+	defer rows.Close()
+	eventIDs := []string{}
+	for rows.Next() {
+		var eventID string
+		if err := rows.Scan(&eventID); err != nil {
+			return nil, wrapFailure(KindUnavailable, "apply_operation", "cannot scan the operation event", true, "retry once the database is readable", err)
+		}
+		eventIDs = append(eventIDs, eventID)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, wrapFailure(KindUnavailable, "apply_operation", "cannot scan the operation events", true, "retry once the database is readable", err)
+	}
+	return eventIDs, nil
 }
 
 // RebuildFromLog replaces every live projection with a fold of the complete

@@ -132,8 +132,11 @@ The workflow engine emits the following new typed events, all with
 - `workflow.definition_selected` — `ref`, `version`, `digest`, `work_kind`;
 - `workflow.contract_approved` — `premise`, `outcome_kind`, `outcome_payload`,
   `required_evidence`, `route_conventions`, `spec_mandate`, `rigor_class`;
-- `workflow.contract_superseded` — `previous_contract_version`,
-  `new_contract_version`, `supersede_reason`, `audit_evidence`;
+- `workflow.contract_superseded` v2 — `previous_contract_version`, optional
+  `predecessor_contract_versions`, `new_contract_version`, `supersede_reason`,
+  `audit_evidence`, and the exact consumed approval binding. V1 events upcast
+  without that binding. The fold marks every named predecessor superseded and
+  installs one validated successor in the same transaction;
 - `workflow.candidate_set_revised` — `candidate_kind`, `candidate_ref`, `added`,
   `removed`;
 - `workflow.actor_recorded` — `actor_ref`, `principal_ref`, `client_ref`,

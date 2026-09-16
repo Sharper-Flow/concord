@@ -334,6 +334,20 @@ func AuthorizeWorkflowActionAtBoundary(ctx context.Context, s *Store, registry D
 // the persisted action callback all share one transaction and one fold guard.
 // A callback error or mutation failure rolls back every condition event.
 func AuthorizeWorkflowActionAtBoundaryTx(ctx context.Context, s *Store, registry DefinitionRegistry, request WorkflowActionPreflightRequest, resolver ConditionResolver, now time.Time, authorize func(*Transaction) error, mutate func(*Transaction) error) error {
+	return authorizeWorkflowActionAtBoundaryCore(ctx, s, registry, request, resolver, now, nil, authorize, mutate)
+}
+
+// AuthorizeWorkflowActionAtBoundaryWithPreflightTx lets an owning dispatcher
+// inspect durable idempotency before the version-sensitive preflight. This
+// preserves exact replay when concurrent requests share one action key.
+func AuthorizeWorkflowActionAtBoundaryWithPreflightTx(ctx context.Context, s *Store, registry DefinitionRegistry, request WorkflowActionPreflightRequest, resolver ConditionResolver, now time.Time, beforePreflight func(*Transaction) (bool, error), authorize func(*Transaction) error, mutate func(*Transaction) error) error {
+	if beforePreflight == nil {
+		return AuthorizeWorkflowActionAtBoundaryTx(ctx, s, registry, request, resolver, now, authorize, mutate)
+	}
+	return authorizeWorkflowActionAtBoundaryCore(ctx, s, registry, request, resolver, now, beforePreflight, authorize, mutate)
+}
+
+func authorizeWorkflowActionAtBoundaryCore(ctx context.Context, s *Store, registry DefinitionRegistry, request WorkflowActionPreflightRequest, resolver ConditionResolver, now time.Time, beforePreflight func(*Transaction) (bool, error), authorize func(*Transaction) error, mutate func(*Transaction) error) error {
 	if s == nil || s.db == nil {
 		return newFailure(KindUnavailable, "workflow_action_boundary", "store is not open", false, "open the authority database")
 	}
@@ -354,6 +368,21 @@ func AuthorizeWorkflowActionAtBoundaryTx(ctx context.Context, s *Store, registry
 		return rollback(err)
 	}
 	defer func() { _ = leaveFold(ctx, tx) }()
+	if beforePreflight != nil {
+		handled, err := beforePreflight(transaction)
+		if err != nil {
+			return rollback(err)
+		}
+		if handled {
+			if err := leaveFold(ctx, tx); err != nil {
+				return rollback(err)
+			}
+			if err := tx.Commit(); err != nil {
+				return wrapFailure(KindUnavailable, "workflow_action_boundary", "cannot commit owning action replay", true, "retry once the database is writable", err)
+			}
+			return s.SyncDurable(ctx)
+		}
+	}
 	entry, err := workflowActionPreflightTx(ctx, tx, registry, request, false)
 	if err != nil {
 		return rollback(err)
@@ -468,7 +497,15 @@ func workflowActionPreflightTx(ctx context.Context, tx *sql.Tx, registry Definit
 		}
 	}
 	if request.ActionID == "supersede_contract" {
-		if err := checkWorkflowLawRevisionStalenessTx(ctx, tx, request.WorkID); err != nil {
+		activeContracts, countErr := activeWorkflowContractCount(ctx, tx, request.WorkID, "workflow_action_preflight")
+		if countErr != nil {
+			return RegisteredDefinition{}, countErr
+		}
+		if activeContracts > 1 {
+			// A duplicate projection is the recovery subject. Do not ask the
+			// ordinary single-contract reader to classify it first.
+			staleRecovery = true
+		} else if err := checkWorkflowLawRevisionStalenessTx(ctx, tx, request.WorkID); err != nil {
 			var failure *Failure
 			if !failureAs(err, &failure) || (failure.Kind != KindStaleLawRevision && failure.Kind != KindDomainOverlap) {
 				return RegisteredDefinition{}, err

@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"sort"
 	"strings"
 	"time"
 )
@@ -120,6 +121,11 @@ type workflowContractSupersededPayload struct {
 	PredecessorContractVersions []int64  `json:"predecessor_contract_versions,omitempty"`
 	SupersedeReason             string   `json:"supersede_reason"`
 	AuditEvidence               []string `json:"audit_evidence"`
+	ApprovalRef                 string   `json:"approval_ref,omitempty"`
+	ApprovalOperationDigest     string   `json:"approval_operation_digest,omitempty"`
+	ApprovalScopeJSON           string   `json:"approval_scope_json,omitempty"`
+	ApprovalVersionsJSON        string   `json:"approval_versions_json,omitempty"`
+	ApprovalConsequence         string   `json:"approval_consequence,omitempty"`
 	// SuccessorContract is present for the operator-approved stale-law
 	// recovery route. When present, the event installs the fully supplied
 	// successor instead of cloning the prior contract.
@@ -659,7 +665,7 @@ func foldWorkflowDefinitionSelected(ctx context.Context, tx *sql.Tx, event Event
 		if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL`, event.SubjectID).Scan(&activeContracts); err != nil {
 			return workflowProjectionError(err, "cannot inspect contracts before changing the workflow definition")
 		}
-		if activeContracts != 0 {
+		if activeContracts != 0 && !isWorkflowReplay(ctx) {
 			return newFailure(KindInvalidOperation, "fold_event", "workflow definition change would leave an existing contract authoritative", false, "supersede the contract with the replacement definition")
 		}
 	}
@@ -723,7 +729,10 @@ func foldWorkflowContractApproved(ctx context.Context, tx *sql.Tx, event Event) 
 	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL`, event.SubjectID).Scan(&activeCount); err != nil {
 		return workflowProjectionError(err, "cannot inspect active workflow contracts")
 	}
-	if activeCount != 0 && !inWorkflowContractSupersessionContext(ctx) {
+	// Replay retains a malformed non-initial approval so the typed recovery can
+	// diagnose and repair it. Live writes remain strict.
+	legacyDuplicateApproval := isWorkflowReplay(ctx) && p.ContractVersion > 1 && activeCount > 0
+	if activeCount != 0 && !inWorkflowContractSupersessionContext(ctx) && !legacyDuplicateApproval {
 		return newFailure(KindInvariantViolation, "fold_event", "contract approval requires no active workflow contract", false, "supersede the active contract through the typed recovery route")
 	}
 	if activeCount == 0 && p.ContractVersion != 1 && !inWorkflowContractSupersessionContext(ctx) {
@@ -822,7 +831,7 @@ func foldWorkflowContractApproved(ctx context.Context, tx *sql.Tx, event Event) 
 	if err := validateWorkflowSelfRepairAuthorityTx(ctx, tx, event.SubjectID, event.Actor, p.SelfRepair); err != nil {
 		return err
 	}
-	_, err := tx.ExecContext(ctx, `INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class,self_repair_json) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`, event.SubjectID, p.ContractVersion, p.Premise, p.ConsequenceClass, workflowJSON(p.RequiredEvidence), workflowJSON(p.RouteConventions), event.OccurredAt.UTC().Format(time.RFC3339Nano), event.Actor, workflowJSON(p.SpecMandate), workflowJSON(p.LawModifies), p.LawBoundaryVersion, p.RigorClass, workflowJSON(p.SelfRepair))
+	_, err := tx.ExecContext(ctx, `INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class,self_repair_json,definition_ref,definition_version,definition_digest) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, event.SubjectID, p.ContractVersion, p.Premise, p.ConsequenceClass, workflowJSON(p.RequiredEvidence), workflowJSON(p.RouteConventions), event.OccurredAt.UTC().Format(time.RFC3339Nano), event.Actor, workflowJSON(p.SpecMandate), workflowJSON(p.LawModifies), p.LawBoundaryVersion, p.RigorClass, workflowJSON(p.SelfRepair), registered.Definition.Ref, registered.Definition.Version, registered.Digest)
 	if err != nil {
 		return workflowProjectionError(err, "cannot record immutable workflow contract")
 	}
@@ -866,6 +875,9 @@ func foldWorkflowContractSuperseded(ctx context.Context, tx *sql.Tx, event Event
 	if !validWorkflowContractVersionList(predecessors) || !workflowString(p.SupersedeReason, 4096) || !workflowList(p.AuditEvidence, 32, 1) {
 		return newFailure(KindInvalidPayload, "fold_event", "contract_superseded has invalid version, reason, or audit evidence", false, "supersede one contract with a consecutive version and evidence")
 	}
+	predecessors = append([]int64(nil), predecessors...)
+	sort.Slice(predecessors, func(i, j int) bool { return predecessors[i] < predecessors[j] })
+	p.PredecessorContractVersions = predecessors
 	if !containsInt64(predecessors, p.PreviousContractVersion) {
 		return newFailure(KindInvalidPayload, "fold_event", "contract supersession predecessor list does not contain the previous contract", false, "supply every exact predecessor contract version")
 	}
@@ -882,8 +894,53 @@ func foldWorkflowContractSuperseded(ctx context.Context, tx *sql.Tx, event Event
 	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL`, event.SubjectID).Scan(&activeCount); err != nil {
 		return workflowProjectionError(err, "cannot inspect active workflow contracts")
 	}
-	if activeCount != len(predecessors) {
+	legacyReplacement := isWorkflowReplay(ctx) && p.SuccessorContract == nil && activeCount > len(predecessors)
+	if activeCount != len(predecessors) && !legacyReplacement {
 		return newFailure(KindInvariantViolation, "fold_event", "contract supersession predecessor list does not match active workflow contracts", false, "rebuild the workflow contract projection or supply the exact duplicate recovery set")
+	}
+	if activeCount > 1 && !isWorkflowReplay(ctx) {
+		var actorClass ActorClass
+		var agentRef, actorClientRef string
+		if err := tx.QueryRowContext(ctx, `SELECT actor_class,agent_ref,client_ref FROM workflow_actors WHERE actor_ref=?`, event.Actor).Scan(&actorClass, &agentRef, &actorClientRef); err != nil {
+			if err == sql.ErrNoRows {
+				return newFailure(KindUnauthorized, "fold_event", "duplicate contract recovery requires a recorded operator approval actor", false, "submit the recovery through the approved operator route")
+			}
+			return workflowProjectionError(err, "cannot read the contract recovery actor")
+		}
+		approvalRef := strings.TrimPrefix(agentRef, "approval:")
+		if actorClass != ActorOperator || approvalRef == agentRef || p.ApprovalRef == "" || p.ApprovalRef != approvalRef {
+			return newFailure(KindUnauthorized, "fold_event", "duplicate contract recovery requires a recorded operator approval actor", false, "submit the recovery through the approved operator route")
+		}
+		var usedCount, maxUses int
+		var approvalDigest, approvalScopeJSON, approvalVersionsJSON, approvalConsequence, approvalClientRef string
+		if err := tx.QueryRowContext(ctx, `SELECT operation_digest,scope_json,version_json,consequence,client_ref,used_count,max_uses FROM agent_approvals WHERE approval_ref=? AND revoked_at IS NULL`, p.ApprovalRef).Scan(&approvalDigest, &approvalScopeJSON, &approvalVersionsJSON, &approvalConsequence, &approvalClientRef, &usedCount, &maxUses); err != nil {
+			if err == sql.ErrNoRows {
+				return newFailure(KindApprovalRequired, "fold_event", "duplicate contract recovery requires a consumed operator approval", false, "submit the recovery through the approved operator route")
+			}
+			return workflowProjectionError(err, "cannot read the contract recovery approval")
+		}
+		if usedCount != 1 || maxUses != 1 {
+			return newFailure(KindApprovalRequired, "fold_event", "duplicate contract recovery requires a consumed operator approval", false, "submit the recovery through the approved operator route")
+		}
+		mismatches := make([]string, 0, 5)
+		if !validDigest(p.ApprovalOperationDigest) || p.ApprovalOperationDigest != approvalDigest {
+			mismatches = append(mismatches, "digest")
+		}
+		if p.ApprovalScopeJSON == "" || p.ApprovalScopeJSON != approvalScopeJSON {
+			mismatches = append(mismatches, "scope")
+		}
+		if p.ApprovalVersionsJSON == "" || p.ApprovalVersionsJSON != approvalVersionsJSON {
+			mismatches = append(mismatches, "versions")
+		}
+		if p.ApprovalConsequence == "" || p.ApprovalConsequence != approvalConsequence {
+			mismatches = append(mismatches, "consequence")
+		}
+		if approvalClientRef != actorClientRef {
+			mismatches = append(mismatches, "client")
+		}
+		if len(mismatches) != 0 {
+			return newFailure(KindUnauthorized, "fold_event", "duplicate contract recovery approval is not bound to the exact operation, scope, versions, or consequence: "+strings.Join(mismatches, ","), false, "request a fresh approval for the exact recovery operation")
+		}
 	}
 	for _, predecessor := range predecessors {
 		var active int
@@ -923,7 +980,7 @@ func foldWorkflowContractSuperseded(ctx context.Context, tx *sql.Tx, event Event
 					return err
 				}
 			}
-			if err := validateStaleWorkflowContractRecoverySuccessorTx(ctx, tx, event.SubjectID, p.PreviousContractVersion, p.SuccessorContract.LawRevisions); err != nil {
+			if err := validateStaleWorkflowContractRecoverySuccessorTx(ctx, tx, event.SubjectID, predecessors, p.SuccessorContract.LawRevisions); err != nil {
 				return err
 			}
 		}
@@ -954,6 +1011,11 @@ func foldWorkflowContractSuperseded(ctx context.Context, tx *sql.Tx, event Event
 		if len(predecessors) != 1 {
 			return newFailure(KindInvariantViolation, "fold_event", "duplicate active contracts require a fully supplied successor contract", false, "supply the typed successor contract")
 		}
+		if !isWorkflowReplay(ctx) {
+			if err := validateStaleWorkflowContractRecoverySuccessorTx(ctx, tx, event.SubjectID, predecessors, nil); err != nil {
+				return err
+			}
+		}
 		if _, err := tx.ExecContext(ctx, `INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,rigor_class,law_modifies,law_boundary_version) SELECT work_id,?,premise,consequence_class,required_evidence,route_conventions,?,?,spec_mandate,rigor_class,law_modifies,law_boundary_version FROM workflow_contracts WHERE work_id=? AND contract_version=? AND NOT EXISTS (SELECT 1 FROM workflow_contracts WHERE work_id=? AND contract_version=?)`, p.NewContractVersion, event.OccurredAt.UTC().Format(time.RFC3339Nano), event.Actor, event.SubjectID, p.PreviousContractVersion, event.SubjectID, p.NewContractVersion); err != nil {
 			// Legacy revision events remain replayable; new stale-law recovery
 			// events always carry a fully supplied successor contract above.
@@ -983,7 +1045,84 @@ func foldWorkflowContractSuperseded(ctx context.Context, tx *sql.Tx, event Event
 	if p.SuccessorContract != nil {
 		// The successor was folded before this update so the contract foreign
 		// key remains valid; both writes commit or roll back together.
+		if isWorkflowReplay(ctx) {
+			return nil
+		}
+		return appendWorkflowContractImpactNoticesTx(ctx, tx, event, p, *p.ResultingVersion)
+	}
+	if isWorkflowReplay(ctx) {
 		return nil
+	}
+	return appendWorkflowContractImpactNoticesTx(ctx, tx, event, p, *p.ResultingVersion)
+}
+
+func appendWorkflowContractImpactNoticesTx(ctx context.Context, tx *sql.Tx, event Event, payload workflowContractSupersededPayload, version int64) error {
+	rows, err := tx.QueryContext(ctx, `SELECT work_id,edge_id,edge_class FROM workflow_impact_edges WHERE target_work_id=? AND edge_kind='depends_on' AND edge_class IN ('hard','soft') ORDER BY work_id,edge_id`, event.SubjectID)
+	if err != nil {
+		return workflowProjectionError(err, "cannot inspect hard dependents")
+	}
+	type dependent struct{ workID, edgeID, edgeClass string }
+	var dependents []dependent
+	for rows.Next() {
+		var item dependent
+		if err := rows.Scan(&item.workID, &item.edgeID, &item.edgeClass); err != nil {
+			rows.Close()
+			return workflowProjectionError(err, "cannot read hard dependent")
+		}
+		dependents = append(dependents, item)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return workflowProjectionError(err, "cannot scan hard dependents")
+	}
+	rows.Close()
+	selected := make(map[string]dependent, len(dependents))
+	for _, candidate := range dependents {
+		current, exists := selected[candidate.workID]
+		if !exists || candidate.edgeClass == "hard" && current.edgeClass != "hard" || candidate.edgeClass == current.edgeClass && candidate.edgeID < current.edgeID {
+			selected[candidate.workID] = candidate
+		}
+	}
+	owners := make([]string, 0, len(selected))
+	for owner := range selected {
+		owners = append(owners, owner)
+	}
+	sort.Strings(owners)
+	for _, predecessor := range payload.PredecessorContractVersions {
+		for _, owner := range owners {
+			item := selected[owner]
+			var consumed, active int
+			if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM workflow_contracts WHERE work_id=? AND contract_version=?`, item.workID, predecessor).Scan(&consumed); err != nil {
+				return workflowProjectionError(err, "cannot inspect dependent contract consumption")
+			}
+			if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM workflow_instances WHERE work_id=? AND instance_state NOT IN ('completed','cancelled','superseded')`, item.workID).Scan(&active); err != nil {
+				return workflowProjectionError(err, "cannot inspect dependent lifecycle")
+			}
+			severity := "non-breaking"
+			if item.edgeClass == "hard" && consumed != 0 && active != 0 {
+				severity = "breaking"
+			}
+			entityRef := fmt.Sprintf("contract:%d", predecessor)
+			noticeID := WorkflowNoticeID(event.SubjectID, payload.NewContractVersion, "workflow_contract", entityRef, item.workID, severity)
+			noticePayload := map[string]any{"work_id": event.SubjectID, "expected_version": version, "resulting_version": version + 1, "notice_id": noticeID, "source_contract_version": payload.NewContractVersion, "entity_kind": "workflow_contract", "entity_ref": entityRef, "target_work_id": item.workID, "edge_owner_work_id": item.workID, "edge_id": item.edgeID, "old_hash": nil, "new_hash": nil, "severity": severity}
+			raw, err := json.Marshal(noticePayload)
+			if err != nil {
+				return newFailure(KindInvalidPayload, "fold_event", "workflow impact notice payload cannot be encoded", false, "repair the workflow impact notice")
+			}
+			notice := Event{EventID: "notice-event:" + noticeID, Kind: WorkflowImpactNoticeRecorded, SubjectType: SubjectWorkItem, SubjectID: event.SubjectID, Actor: event.Actor, OccurredAt: event.OccurredAt, PayloadVersion: 2, Payload: raw}
+			result, err := tx.ExecContext(ctx, `INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES(?,?,?,?,?,?,?,?)`, notice.EventID, notice.Kind, notice.SubjectType, notice.SubjectID, notice.Actor, notice.OccurredAt.UTC().Format(time.RFC3339Nano), notice.PayloadVersion, string(notice.Payload))
+			if err != nil {
+				return newFailure(KindOperationConflict, "fold_event", "dependent impact notice conflicted", false, "reconcile the workflow operation")
+			}
+			notice.Seq, err = result.LastInsertId()
+			if err != nil {
+				return workflowProjectionError(err, "cannot read dependent impact notice sequence")
+			}
+			if err := foldWorkflowImpactNoticeRecorded(ctx, tx, notice); err != nil {
+				return err
+			}
+			version++
+		}
 	}
 	return nil
 }

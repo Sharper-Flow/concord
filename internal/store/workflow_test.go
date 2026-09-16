@@ -694,8 +694,32 @@ func TestWorkflowContractRevisionEmitsBreakingNoticeForConsumedActiveDependent(t
 		t.Fatal(err)
 	}
 	supersede := workflowEventWithActor("revision-supersede", WorkflowContractSuperseded, "revision-source", actor, map[string]any{"work_id": "revision-source", "expected_version": sourceVersion, "resulting_version": sourceVersion + 1, "previous_contract_version": 1, "new_contract_version": 2, "supersede_reason": "refresh approved contract", "audit_evidence": []string{"evidence:audit"}})
-	if err := SupersedeWorkflowContract(context.Background(), source, supersede); err != nil {
+	tx, err := source.db.BeginTx(context.Background(), nil)
+	if err != nil {
 		t.Fatal(err)
+	}
+	if err := enterFold(context.Background(), tx); err != nil {
+		_ = tx.Rollback()
+		t.Fatal(err)
+	}
+	result, err := applyWorkflowOperationTx(context.Background(), tx, Operation{Events: []Event{supersede}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "revision-source"): sourceVersion}})
+	_ = leaveFold(context.Background(), tx)
+	if err != nil {
+		_ = tx.Rollback()
+		t.Fatal(err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	if len(result.EventIDs) != 2 {
+		t.Fatalf("supersession event IDs = %v, want the contract event and dependent impact notice", result.EventIDs)
+	}
+	var resultingVersion int64
+	if err := source.DatabaseForTesting().QueryRow(`SELECT version FROM work_items WHERE id='revision-source'`).Scan(&resultingVersion); err != nil {
+		t.Fatal(err)
+	}
+	if resultingVersion != sourceVersion+2 {
+		t.Fatalf("supersession committed version=%d, want %d", resultingVersion, sourceVersion+2)
 	}
 	var severity, entityKind string
 	if err := source.DatabaseForTesting().QueryRow(`SELECT severity,entity_kind FROM workflow_impact_notices WHERE source_work_id='revision-source' AND target_work_id='revision-dependent'`).Scan(&severity, &entityKind); err != nil {
@@ -750,7 +774,7 @@ func TestWorkflowContractRevisionEmitsAdvisoryNoticesForOtherDependents(t *testi
 				t.Fatal(err)
 			}
 			supersede := workflowEventWithActor("supersede-"+sourceID, WorkflowContractSuperseded, sourceID, actor, map[string]any{"work_id": sourceID, "expected_version": sourceVersion, "resulting_version": sourceVersion + 1, "previous_contract_version": 1, "new_contract_version": 2, "supersede_reason": "refresh", "audit_evidence": []string{"evidence:audit"}})
-			if err := SupersedeWorkflowContract(context.Background(), s, supersede); err != nil {
+			if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{supersede}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, sourceID): sourceVersion}}); err != nil {
 				t.Fatal(err)
 			}
 			var severity string
@@ -1025,7 +1049,7 @@ func TestWorkflowProjectionSchemaHasClosedChecksForeignKeysAndFoldGuards(t *test
 	s := openTemp(t)
 	expectedColumns := map[string][]string{
 		"workflow_instances":             {"work_id", "definition_ref", "definition_version", "definition_digest", "current_step", "instance_state", "execution_actor_ref", "started_at", "completed_at", "last_checkpoint_at", "execution_model"},
-		"workflow_contracts":             {"work_id", "contract_version", "premise", "consequence_class", "required_evidence", "route_conventions", "approved_at", "approved_by", "superseded_by", "spec_mandate", "rigor_class", "law_modifies", "law_boundary_version", "self_repair_json"},
+		"workflow_contracts":             {"work_id", "contract_version", "premise", "consequence_class", "required_evidence", "route_conventions", "approved_at", "approved_by", "superseded_by", "spec_mandate", "rigor_class", "law_modifies", "law_boundary_version", "self_repair_json", "definition_ref", "definition_version", "definition_digest"},
 		"workflow_contract_predicates":   {"work_id", "contract_version", "predicate_id", "ordinal", "outcome_kind", "outcome_payload"},
 		"workflow_candidate_sets":        {"work_id", "contract_version", "candidate_kind", "candidate_ref", "candidate_role", "candidate_scope", "recorded_at", "recorded_by"},
 		"workflow_actors":                {"actor_ref", "principal_ref", "client_ref", "agent_ref", "session_ref", "actor_class", "first_seen_at"},

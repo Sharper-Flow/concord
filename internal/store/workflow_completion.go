@@ -947,7 +947,7 @@ func latestWorkflowVerdicts(ctx context.Context, q queryer, workID string, contr
 		if verdict.ContractVersion <= 0 || verdict.ContractVersion > contractVersion || seen[verdict.PredicateID] {
 			continue
 		}
-		if verdict.ContractVersion < contractVersion && !workflowPredicateHistoryCompatible(contracts, verdict.ContractVersion, contractVersion, verdict.PredicateID, verdict) {
+		if verdict.ContractVersion < contractVersion && (!workflowPredicateHistoryCompatible(contracts, verdict.ContractVersion, contractVersion, verdict.PredicateID, verdict) || !workflowContractDefinitionPinsCompatible(ctx, q, workID, verdict.ContractVersion, contractVersion)) {
 			continue
 		}
 		seen[verdict.PredicateID] = true
@@ -1017,6 +1017,37 @@ func workflowLateVerdictRecoveryForPredicate(ctx context.Context, q queryer, wor
 		return false, wrapFailure(KindUnavailable, "workflow_action", "cannot enumerate active workflow predicates", true, "retry once the workflow contract is readable", err)
 	}
 	return false, nil
+}
+
+func workflowContractDefinitionPinsCompatible(ctx context.Context, q queryer, workID string, from, to int64) bool {
+	if from <= 0 || to < from {
+		return false
+	}
+	rows, err := q.QueryContext(ctx, `SELECT contract_version,definition_ref,definition_version,definition_digest FROM workflow_contracts WHERE work_id=? AND contract_version BETWEEN ? AND ? ORDER BY contract_version`, workID, from, to)
+	if err != nil {
+		return false
+	}
+	defer rows.Close()
+	var expectedRef, expectedDigest string
+	var expectedVersion int64
+	seen := from
+	for rows.Next() {
+		var version, definitionVersion int64
+		var definitionRef, definitionDigest string
+		if err := rows.Scan(&version, &definitionRef, &definitionVersion, &definitionDigest); err != nil {
+			return false
+		}
+		if version != seen || definitionRef == "" || definitionVersion <= 0 || !validDigest(definitionDigest) {
+			return false
+		}
+		if expectedRef == "" {
+			expectedRef, expectedVersion, expectedDigest = definitionRef, definitionVersion, definitionDigest
+		} else if definitionRef != expectedRef || definitionVersion != expectedVersion || definitionDigest != expectedDigest {
+			return false
+		}
+		seen++
+	}
+	return rows.Err() == nil && seen == to+1
 }
 
 type workflowContractPredicateHistoryData map[int64]map[string]WorkflowReadPredicate

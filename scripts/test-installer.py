@@ -199,6 +199,11 @@ esac''',
         self.env["TEST_CREDENTIAL_STATE"] = str(state)
         self.env["TEST_CREDENTIAL_LOG"] = str(command_log)
         self.env["TEST_KEYRINGS"] = str(keyrings)
+        legacy_unit = self.root / "config" / "systemd" / "user" / installer.CREDENTIAL_UNIT_NAME
+        legacy_unit.parent.mkdir(parents=True)
+        legacy_unit.write_text(
+            installer.legacy_credential_unit_text(str(self.commands / "gnome-keyring-daemon")), encoding="utf-8"
+        )
         self.write_command(
             "busctl",
             r'''printf '%s\n' "$*" >>"$TEST_CREDENTIAL_LOG"
@@ -211,7 +216,7 @@ case "$*" in
       printf 'o "/"\n'
     fi ;;
   *" Collections") printf 'ao 1 "/org/freedesktop/secrets/collection/session"\n' ;;
-  *" Items") printf 'ao 0\n' ;;
+  *" Items") printf 'ao 1 "/org/freedesktop/secrets/collection/session/1"\n' ;;
   *" Locked")
     if [ "$(cat "$TEST_CREDENTIAL_STATE" 2>/dev/null)" = ready ]; then printf 'b false\n'; else printf 'b true\n'; fi ;;
   *"status org.freedesktop.secrets") printf 'PID=0\n' ;;
@@ -233,53 +238,181 @@ printf 'created\n' >"$TEST_CREDENTIAL_STATE"''',
             r'''printf '%s\n' "$*" >>"$TEST_CREDENTIAL_LOG"
 case "$*" in
   *"show"*) printf '0\n' ;;
-  *"enable --now concord-keyring-unlock.service"*) printf 'ready\n' >"$TEST_CREDENTIAL_STATE" ;;
+  *"restart gnome-keyring-daemon.service"*) printf 'ready\n' >"$TEST_CREDENTIAL_STATE" ;;
 esac''',
         )
 
         first = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
         self.assertEqual(first.returncode, 0, first.stderr)
-        unit = self.root / "config" / "systemd" / "user" / "concord-keyring-unlock.service"
+        unit = (
+            self.root
+            / "config"
+            / "systemd"
+            / "user"
+            / "gnome-keyring-daemon.service.d"
+            / installer.CREDENTIAL_DROPIN_NAME
+        )
         self.assertTrue(unit.is_file())
         self.assertEqual(unit.stat().st_mode & 0o777, 0o644)
         self.assertEqual(keyrings.stat().st_mode & 0o777, 0o700)
         self.assertEqual((keyrings / "login.keyring").stat().st_mode & 0o777, 0o600)
         self.assertEqual((keyrings / "user.keystore").stat().st_mode & 0o777, 0o600)
         combined = first.stdout + first.stderr + unit.read_text(encoding="utf-8")
+        manifest = json.loads(
+            (self.root / "data" / "concord" / installer.MANIFEST_NAME).read_text(encoding="utf-8")
+        )
+        self.assertEqual(manifest["credential_directory"], str(keyrings))
+        unit_text = unit.read_text(encoding="utf-8")
+        self.assertIn("[Service]", unit_text)
+        self.assertIn("ExecStart=\n", unit_text)
+        self.assertIn("--unlock --foreground --components=pkcs11,secrets", unit_text)
+        self.assertIn("StandardInputData=Cg==", unit_text)
+        self.assertNotIn("concord-keyring-unlock.service", unit_text)
         self.assertNotIn("base64:", combined)
         self.assertNotIn("private_key", combined)
         self.assertEqual(state.read_text(encoding="utf-8").strip(), "ready")
-        commands = command_log.read_text(encoding="utf-8")
+        commands = command_log.read_text(encoding="utf-8") if command_log.exists() else ""
         self.assertIn("dbus-run-session", commands)
-        self.assertIn("enable --now concord-keyring-unlock.service", commands)
+        self.assertIn(f"disable --now {installer.CREDENTIAL_UNIT_NAME}", commands)
+        self.assertIn("restart gnome-keyring-daemon.service", commands)
 
         second = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
         self.assertEqual(second.returncode, 0, second.stderr)
         self.assertIn("already installed", second.stdout)
 
+        unit.unlink()
+        state.write_text("created\n", encoding="utf-8")
+        repaired = self.run_installer("repair", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
+        self.assertEqual(repaired.returncode, 0, repaired.stderr)
+        self.assertTrue(unit.is_file())
+        self.assertEqual(state.read_text(encoding="utf-8").strip(), "ready")
+
+        restart_marker = self.root / "credential-restart-marker"
+        self.env["TEST_RESTART_MARKER"] = str(restart_marker)
+        self.write_command(
+            "systemctl",
+            r'''printf '%s\n' "$*" >>"$TEST_CREDENTIAL_LOG"
+case "$*" in
+  *"restart gnome-keyring-daemon.service"*)
+    if [ -f "$TEST_RESTART_MARKER" ]; then printf 'ready\n' >"$TEST_CREDENTIAL_STATE"; else touch "$TEST_RESTART_MARKER"; fi ;;
+esac''',
+        )
+        state.write_text("created\n", encoding="utf-8")
+        unit.unlink()
+        refused = self.run_installer("repair", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
+        self.assertNotEqual(refused.returncode, 0)
+        self.assertIn("remained locked", refused.stderr)
+        self.assertIn("Check the user service", refused.stderr)
+        self.assertFalse(unit.exists())
+        commands = command_log.read_text(encoding="utf-8")
+        self.assertGreaterEqual(commands.count("restart gnome-keyring-daemon.service"), 2)
+
     def test_install_keeps_an_existing_compatible_secret_service(self) -> None:
         self.make_release("v1.0.0")
         result = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
         self.assertEqual(result.returncode, 0, result.stderr)
-        unit = self.root / "config" / "systemd" / "user" / "concord-keyring-unlock.service"
+        unit = (
+            self.root
+            / "config"
+            / "systemd"
+            / "user"
+            / "gnome-keyring-daemon.service.d"
+            / installer.CREDENTIAL_DROPIN_NAME
+        )
         self.assertFalse(unit.exists())
 
-    def test_headless_install_refuses_to_discard_session_credentials(self) -> None:
+    def test_install_keeps_an_existing_unlocked_gnome_keyring(self) -> None:
+        self.make_release("v1.0.0")
+        keyrings = self.root / "data" / "keyrings"
+        keyrings.mkdir(parents=True)
+        login_keyring = keyrings / "login.keyring"
+        login_keyring.write_text("encrypted", encoding="utf-8")
+
+        result = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(login_keyring.read_text(encoding="utf-8"), "encrypted")
+        self.assertFalse(
+            (
+                self.root
+                / "config"
+                / "systemd"
+                / "user"
+                / "gnome-keyring-daemon.service.d"
+                / installer.CREDENTIAL_DROPIN_NAME
+            ).exists()
+        )
+
+    def test_install_refuses_a_user_authored_legacy_credential_unit(self) -> None:
+        self.make_release("v1.0.0")
+        unit = self.root / "config" / "systemd" / "user" / installer.CREDENTIAL_UNIT_NAME
+        unit.parent.mkdir(parents=True)
+        unit.write_text("[Service]\nExecStart=/usr/local/bin/custom-keyring\n", encoding="utf-8")
+
+        result = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("user-authored legacy credential unit", result.stderr)
+        self.assertEqual(unit.read_text(encoding="utf-8"), "[Service]\nExecStart=/usr/local/bin/custom-keyring\n")
+
+    def test_install_refuses_an_unowned_encrypted_login_collection(self) -> None:
+        self.make_release("v1.0.0")
+        keyrings = self.root / "data" / "keyrings"
+        keyrings.mkdir(parents=True)
+        login_keyring = keyrings / "login.keyring"
+        login_keyring.write_text("encrypted", encoding="utf-8")
+        self.write_command(
+            "busctl",
+            r'''case "$*" in
+  "--user --list") printf 'org.freedesktop.secrets\n' ;;
+  *"ReadAlias"*) printf 'o "/org/freedesktop/secrets/collection/login"\n' ;;
+  *" Locked") printf 'b true\n' ;;
+  *) exit 2 ;;
+esac''',
+        )
+        command_log = self.root / "credential-commands.log"
+        self.env["TEST_CREDENTIAL_LOG"] = str(command_log)
+        self.write_command("systemctl", "printf '%s\\n' \"$*\" >>\"$TEST_CREDENTIAL_LOG\"; exit 0")
+
+        result = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("not owned by Concord", result.stderr)
+        self.assertIn("Unlock it with the desktop login", result.stderr)
+        self.assertFalse(
+            (
+                self.root
+                / "config"
+                / "systemd"
+                / "user"
+                / "gnome-keyring-daemon.service.d"
+                / installer.CREDENTIAL_DROPIN_NAME
+            ).exists()
+        )
+        self.assertEqual(login_keyring.read_text(encoding="utf-8"), "encrypted")
+        commands = command_log.read_text(encoding="utf-8") if command_log.exists() else ""
+        self.assertNotIn("daemon-reload", commands)
+        self.assertNotIn("restart gnome-keyring-daemon.service", commands)
+
+    def test_headless_install_refuses_to_discard_persistent_credentials(self) -> None:
         self.make_release("v1.0.0")
         self.write_command(
             "busctl",
             r'''case "$*" in
   "--user --list") printf 'org.freedesktop.secrets\n' ;;
   *"ReadAlias"*) printf 'o "/"\n' ;;
-  *" Collections") printf 'ao 1 "/org/freedesktop/secrets/collection/session"\n' ;;
-  *" Items") printf 'ao 1 "/org/freedesktop/secrets/collection/session/1"\n' ;;
+  *" Collections") printf 'ao 1 "/org/freedesktop/secrets/collection/login"\n' ;;
+  *" Items") printf 'ao 1 "/org/freedesktop/secrets/collection/login/1"\n' ;;
   *) exit 2 ;;
 esac''',
         )
         result = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn("session items", result.stderr)
-        self.assertFalse((self.root / "config" / "systemd" / "user" / installer.CREDENTIAL_UNIT_NAME).exists())
+        self.assertIn("persistent collection", result.stderr)
+        self.assertIn("Remove or migrate", result.stderr)
+        self.assertFalse(
+            (self.root / "config" / "systemd" / "user" / "gnome-keyring-daemon.service.d" / installer.CREDENTIAL_DROPIN_NAME).exists()
+        )
         self.assertFalse((self.root / "data" / "concord").exists())
 
     def test_install_is_idempotent(self) -> None:

@@ -137,9 +137,11 @@ PROJECT_LINK_OWNERSHIP_NAME = "project-link-ownership.json"
 PROJECT_LINK_PENDING_NAME = "project-link-pending.json"
 MAX_PROJECT_LINKS = 1024
 CREDENTIAL_UNIT_NAME = "concord-keyring-unlock.service"
+CREDENTIAL_DROPIN_NAME = "concord-login.conf"
 SECRET_SERVICE_DESTINATION = "org.freedesktop.secrets"
 SECRET_SERVICE_PATH = "/org/freedesktop/secrets"
 SECRET_SERVICE_INTERFACE = "org.freedesktop.Secret.Service"
+SECRET_SERVICE_SESSION_COLLECTION = f"{SECRET_SERVICE_PATH}/collection/session"
 
 # An activating operation places a release; uninstall removes one. Repair
 # activates the installed release again from verified assets, so every
@@ -164,6 +166,7 @@ class Paths:
     agents_dir: Path
     systemd_user_dir: Path
     credential_unit: Path
+    credential_dropin: Path
     launcher: Path
     stable_root: Path
 
@@ -213,6 +216,13 @@ def paths_for(root: Path | None) -> Paths:
         agents_dir=config_home / "opencode" / "agents",
         systemd_user_dir=config_home / "systemd" / "user",
         credential_unit=config_home / "systemd" / "user" / CREDENTIAL_UNIT_NAME,
+        credential_dropin=(
+            config_home
+            / "systemd"
+            / "user"
+            / "gnome-keyring-daemon.service.d"
+            / CREDENTIAL_DROPIN_NAME
+        ),
         launcher=bin_dir / "concord",
         stable_root=data_home / "concord" / STABLE_ROOT_NAME,
     )
@@ -798,9 +808,9 @@ def validate_manifest(paths: Paths, manifest: dict[str, object]) -> None:
         "launcher_target",
         "config_path",
     }
-    # A manifest written before CD-0111 retained no release, so the field is
-    # optional on read and always written on install.
-    optional = {"retained_releases"}
+    # Older manifests have no retained release or credential ownership record.
+    # Both fields remain optional on read so those manifests can be upgraded safely.
+    optional = {"credential_directory", "retained_releases"}
     if not required <= set(manifest) <= required | optional or manifest.get("managed_by") != "concord-installer-v1":
         missing = required - set(manifest)
         if manifest.get("managed_by") == "concord-installer-v1" and missing and missing <= {"agent_files", "stable_root"}:
@@ -908,6 +918,10 @@ def validate_manifest(paths: Paths, manifest: dict[str, object]) -> None:
     if not isinstance(config_path, str) or config_path != str(paths.config_file.resolve(strict=False)):
         raise InstallerError("installer manifest has a redirected OpenCode config path")
     safe_relative_target(paths.config_file.parent, paths.config_file.name, "OpenCode config")
+    if "credential_directory" in manifest:
+        credential_directory = manifest.get("credential_directory")
+        if not isinstance(credential_directory, str) or credential_directory != str(paths.data_home / "keyrings"):
+            raise InstallerError("installer manifest has a redirected Secret Service credential directory")
 
 
 def load_manifest(paths: Paths) -> dict[str, object] | None:
@@ -991,6 +1005,10 @@ def secret_service_collections() -> list[str]:
     return words[2:]
 
 
+def persistent_secret_service_collections() -> list[str]:
+    return [path for path in secret_service_collections() if path != SECRET_SERVICE_SESSION_COLLECTION]
+
+
 def secret_service_collection_locked(path: str) -> bool:
     words = secret_service_property(path, "org.freedesktop.Secret.Collection", "Locked")
     if words == ["b", "true"]:
@@ -1021,7 +1039,19 @@ def secret_service_owner_pid() -> int:
     return 0
 
 
-def credential_unit_text(daemon: str) -> str:
+def credential_dropin_text(daemon: str) -> str:
+    if any(character.isspace() for character in daemon):
+        raise InstallerError(f"gnome-keyring-daemon path contains whitespace: {daemon}")
+    return f"""# Unlock the login keyring when the GNOME Keyring daemon starts.
+[Service]
+ExecStart=
+ExecStart={daemon} --unlock --foreground --components=pkcs11,secrets --control-directory=%t/keyring
+StandardInput=data
+StandardInputData=Cg==
+"""
+
+
+def legacy_credential_unit_text(daemon: str) -> str:
     if any(character.isspace() for character in daemon):
         raise InstallerError(f"gnome-keyring-daemon path contains whitespace: {daemon}")
     return f"""[Unit]
@@ -1032,7 +1062,7 @@ PartOf=gnome-keyring-daemon.service
 
 [Service]
 Type=oneshot
-ExecStart=/bin/sh -c 'printf "\\n" | {daemon} --unlock --control-directory=%t/keyring'
+ExecStart=/bin/sh -c 'printf \"\\n\" | {daemon} --unlock --control-directory=%t/keyring'
 
 [Install]
 WantedBy=default.target gnome-keyring-daemon.service
@@ -1049,7 +1079,7 @@ def verify_credential_permissions(keyrings: Path) -> None:
             raise InstallerError(f"Secret Service credential path grants group or other access: {path}")
 
 
-def initialize_login_collection(paths: Paths, daemon: str) -> None:
+def initialize_login_collection(paths: Paths, daemon: str) -> bool:
     keyrings = paths.data_home / "keyrings"
     if keyrings.is_symlink():
         raise InstallerError(f"refusing symlinked Secret Service credential directory {keyrings}")
@@ -1061,7 +1091,7 @@ def initialize_login_collection(paths: Paths, daemon: str) -> None:
                 f"Secret Service has no login alias but {keyrings} contains unknown state; refusing to replace it"
             )
         verify_credential_permissions(keyrings)
-        return
+        return False
     dbus_run_session = command_status("dbus-run-session")
     if dbus_run_session is None:
         raise InstallerError("dbus-run-session is required to initialize the headless Secret Service collection")
@@ -1086,6 +1116,7 @@ def initialize_login_collection(paths: Paths, daemon: str) -> None:
             env=environment,
         )
     verify_credential_permissions(keyrings)
+    return True
 
 
 def stop_unmanaged_secret_service(systemctl: str, daemon: str) -> None:
@@ -1096,10 +1127,11 @@ def stop_unmanaged_secret_service(systemctl: str, daemon: str) -> None:
     )
     main_pid = int(main_result.stdout.strip() or "0")
     if owner and owner != main_pid:
-        for collection in secret_service_collections():
+        for collection in persistent_secret_service_collections():
             if secret_service_collection_has_items(collection):
                 raise InstallerError(
-                    "the active non-systemd Secret Service contains session items; refusing to stop it during setup"
+                    "the active non-systemd Secret Service contains items in a persistent collection; "
+                    "refusing to stop it during setup. Remove or migrate those credentials, then re-run install or repair"
                 )
         executable = (Path("/proc") / str(owner) / "exe").resolve()
         if executable.name != Path(daemon).name or executable.stat().st_uid != os.getuid():
@@ -1115,40 +1147,110 @@ def stop_unmanaged_secret_service(systemctl: str, daemon: str) -> None:
     run_checked([systemctl, "--user", "restart", "gnome-keyring-daemon.service"])
 
 
-def ensure_secret_service_ready(paths: Paths) -> None:
+def remove_legacy_credential_unit(paths: Paths, systemctl: str) -> None:
+    unit = paths.credential_unit
+    if not unit.exists() and not unit.is_symlink():
+        return
+    daemon = command_status("gnome-keyring-daemon")
+    if daemon is None:
+        raise InstallerError("gnome-keyring-daemon is required to validate the legacy credential unit")
+    if (
+        unit.is_symlink()
+        or not unit.is_file()
+        or unit.read_text(encoding="utf-8") != legacy_credential_unit_text(daemon)
+    ):
+        raise InstallerError(f"refusing to remove user-authored legacy credential unit {unit}")
+    run_checked([systemctl, "--user", "disable", "--now", CREDENTIAL_UNIT_NAME])
+    unit.unlink()
+    fsync_directory(paths.systemd_user_dir)
+
+
+def legacy_credential_unit_owned(paths: Paths, daemon: str) -> bool:
+    unit = paths.credential_unit
+    if not unit.exists() and not unit.is_symlink():
+        return False
+    if (
+        unit.is_symlink()
+        or not unit.is_file()
+        or unit.read_text(encoding="utf-8") != legacy_credential_unit_text(daemon)
+    ):
+        raise InstallerError(f"refusing to remove user-authored legacy credential unit {unit}")
+    return True
+
+
+def rollback_created_credential_dropin(paths: Paths, systemctl: str) -> None:
+    paths.credential_dropin.unlink()
+    fsync_directory(paths.credential_dropin.parent)
+    run_checked([systemctl, "--user", "daemon-reload"])
+    run_checked([systemctl, "--user", "restart", "gnome-keyring-daemon.service"])
+
+
+def ensure_secret_service_ready(paths: Paths, old_manifest: dict[str, object] | None) -> bool:
     daemon = command_status("gnome-keyring-daemon")
     systemctl = command_status("systemctl")
     if daemon is None or systemctl is None:
         raise InstallerError("gnome-keyring-daemon and systemctl are required for credential setup")
+    legacy_owned = legacy_credential_unit_owned(paths, daemon)
     login = secret_service_alias("login")
     keyrings = paths.data_home / "keyrings"
-    if login is not None and not secret_service_collection_locked(login) and not keyrings.exists():
+    manifest_owns_keyrings = old_manifest is not None and old_manifest.get("credential_directory") == str(keyrings)
+    if login is not None and not secret_service_collection_locked(login) and not manifest_owns_keyrings and not legacy_owned:
         # A compatible provider such as KeePassXC can own Secret Service
         # without GNOME Keyring files. It already satisfies the contract, so
         # do not start a competing provider or install an unrelated unit.
-        return
+        remove_legacy_credential_unit(paths, systemctl)
+        return False
+    if login is not None and (manifest_owns_keyrings or legacy_owned) and not keyrings.exists():
+        raise InstallerError(
+            f"Secret Service credential directory is missing: {keyrings}; "
+            "restore the Concord keyring, then re-run install or repair"
+        )
+    initialized = False
     if login is None:
-        for collection in secret_service_collections():
+        for collection in persistent_secret_service_collections():
             if secret_service_collection_has_items(collection):
-                raise InstallerError("Secret Service contains session items; refusing headless collection initialization")
-        initialize_login_collection(paths, daemon)
-    unit_text = credential_unit_text(daemon)
-    if paths.credential_unit.exists():
-        if not paths.credential_unit.is_file() or paths.credential_unit.read_text(encoding="utf-8") != unit_text:
-            raise InstallerError(f"refusing to overwrite user-authored credential unit {paths.credential_unit}")
-    else:
-        write_atomic(paths.credential_unit, unit_text.encode("utf-8"), 0o644)
-
-    if login is None:
-        stop_unmanaged_secret_service(systemctl, daemon)
-
-    run_checked([systemctl, "--user", "daemon-reload"])
-    run_checked([systemctl, "--user", "enable", "--now", CREDENTIAL_UNIT_NAME])
-    login = secret_service_alias("login")
-    if login is None or secret_service_collection_locked(login):
-        raise InstallerError("Secret Service login collection is unavailable after noninteractive setup")
+                raise InstallerError(
+                    f"Secret Service persistent collection {collection} contains items; "
+                    "refusing headless collection initialization. Remove or migrate those credentials, "
+                    "then re-run install or repair"
+                )
+        initialized = initialize_login_collection(paths, daemon)
+    if not initialized and not manifest_owns_keyrings and not legacy_owned:
+        raise InstallerError(
+            f"Secret Service login collection at {keyrings} is not owned by Concord; refusing to write the unlock drop-in "
+            "or restart the daemon. Unlock it with the desktop login, then re-run install or repair"
+        )
     if keyrings.exists():
         verify_credential_permissions(keyrings)
+    dropin_text = credential_dropin_text(daemon)
+    created_dropin = False
+    if paths.credential_dropin.exists():
+        if (
+            not paths.credential_dropin.is_file()
+            or paths.credential_dropin.read_text(encoding="utf-8") != dropin_text
+        ):
+            raise InstallerError(
+                f"refusing to overwrite user-authored credential drop-in {paths.credential_dropin}"
+            )
+    else:
+        write_atomic(paths.credential_dropin, dropin_text.encode("utf-8"), 0o644)
+        created_dropin = True
+
+    remove_legacy_credential_unit(paths, systemctl)
+    run_checked([systemctl, "--user", "daemon-reload"])
+    if login is None:
+        stop_unmanaged_secret_service(systemctl, daemon)
+    else:
+        run_checked([systemctl, "--user", "restart", "gnome-keyring-daemon.service"])
+    login = secret_service_alias("login")
+    if login is None or secret_service_collection_locked(login):
+        if created_dropin:
+            rollback_created_credential_dropin(paths, systemctl)
+        raise InstallerError(
+            "Secret Service login collection remained locked after the gnome-keyring-daemon restart; "
+            "the unlock drop-in did not unlock it. Check the user service and re-run install or repair"
+        )
+    return True
 
 
 
@@ -1166,6 +1268,7 @@ def preflight(paths: Paths, version: str, old_manifest: dict[str, object] | None
         paths.tools_dir,
         paths.agents_dir,
         paths.systemd_user_dir,
+        paths.credential_dropin.parent,
         paths.bin_dir,
         paths.config_file.parent,
     ):
@@ -1207,13 +1310,18 @@ def preflight(paths: Paths, version: str, old_manifest: dict[str, object] | None
             failures.append(f"refusing to overwrite user-authored launcher {paths.launcher}")
     daemon = command_status("gnome-keyring-daemon")
     if daemon and (paths.credential_unit.exists() or paths.credential_unit.is_symlink()):
-        expected_unit = credential_unit_text(daemon)
+        try:
+            legacy_credential_unit_owned(paths, daemon)
+        except InstallerError as error:
+            failures.append(str(error))
+    if daemon and (paths.credential_dropin.exists() or paths.credential_dropin.is_symlink()):
+        expected_dropin = credential_dropin_text(daemon)
         if (
-            paths.credential_unit.is_symlink()
-            or not paths.credential_unit.is_file()
-            or paths.credential_unit.read_text(encoding="utf-8") != expected_unit
+            paths.credential_dropin.is_symlink()
+            or not paths.credential_dropin.is_file()
+            or paths.credential_dropin.read_text(encoding="utf-8") != expected_dropin
         ):
-            failures.append(f"refusing to overwrite user-authored credential unit {paths.credential_unit}")
+            failures.append(f"refusing to overwrite user-authored credential drop-in {paths.credential_dropin}")
     adapter_records = managed_adapter_records(old_manifest)
     manifest_note = unmanaged_manifest_note(old_manifest, paths)
     for name in ADAPTER_FILES:
@@ -2388,7 +2496,7 @@ def install(args: argparse.Namespace) -> int:
         skill_path = stable_skill_path(paths)
         if config_plan.changed or manifest.get("skill_path") != skill_path:
             raise InstallerError("existing installation registration is incomplete; refusing an unsafe repair")
-        ensure_secret_service_ready(paths)
+        ensure_secret_service_ready(paths, manifest)
         # An unchanged install still retries the release cleanup a previous
         # install skipped: a held release stays a candidate, so the removal
         # is retried at the next install (CD-0111 D2). The manifest keeps the
@@ -2472,6 +2580,8 @@ def install(args: argparse.Namespace) -> int:
         if manifest and old_version != version and isinstance(old_version, str) and isinstance(old_records, dict):
             validate_owned_tree(paths.data_root / old_version, old_records)
             retained[old_version] = old_records
+        plan_worktree_links(paths)
+        credential_directory_owned = ensure_secret_service_ready(paths, manifest)
         new_manifest = {
             "managed_by": "concord-installer-v1",
             "version": version,
@@ -2484,9 +2594,9 @@ def install(args: argparse.Namespace) -> int:
             "config_path": str(paths.config_file.resolve()),
             "retained_releases": retained,
         }
+        if credential_directory_owned:
+            new_manifest["credential_directory"] = str(paths.data_home / "keyrings")
         new_manifest_bytes = (json.dumps(new_manifest, indent=2, sort_keys=True) + "\n").encode("utf-8")
-        plan_worktree_links(paths)
-        ensure_secret_service_ready(paths)
         transaction_root, journal = make_transaction(
             paths,
             "install",
@@ -2674,6 +2784,7 @@ def repair(args: argparse.Namespace) -> int:
         }
         config_plan = preflight(paths, installed, manifest, staged_adapters=adapter_stage_records)
         repairs = plan_repair(paths, manifest, config_plan, version_records, adapter_stage_records, agent_stage_records)
+        credential_directory_owned = ensure_secret_service_ready(paths, manifest)
         new_manifest = {
             "managed_by": "concord-installer-v1",
             "version": installed,
@@ -2686,6 +2797,8 @@ def repair(args: argparse.Namespace) -> int:
             "config_path": str(paths.config_file.resolve()),
             "retained_releases": retained_release_records(manifest),
         }
+        if credential_directory_owned:
+            new_manifest["credential_directory"] = str(paths.data_home / "keyrings")
         new_manifest_bytes = (json.dumps(new_manifest, indent=2, sort_keys=True) + "\n").encode("utf-8")
         manifest_target = paths.data_root / MANIFEST_NAME
         if not repairs and manifest_target.is_file() and manifest_target.read_bytes() == new_manifest_bytes:
@@ -2697,7 +2810,6 @@ def repair(args: argparse.Namespace) -> int:
             return 0
         if not repairs:
             repairs.add("refreshed the installer manifest")
-        ensure_secret_service_ready(paths)
         transaction_root, journal = make_transaction(
             paths,
             "repair",

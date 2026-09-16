@@ -199,17 +199,61 @@ func (s *Store) BootstrapExistingWorktree(ctx context.Context, req ExistingBoots
 		if versionErr := s.db.QueryRowContext(ctx, `SELECT version FROM work_items WHERE id=?`, req.WorkID).Scan(&version); versionErr != nil {
 			return BootstrapResult{}, wrapFailure(KindUnavailable, "work_resume", "cannot read the existing work version", true, "retry once the database is readable", versionErr)
 		}
-		return BootstrapResult{Replayed: true, ProductID: req.ProductID, ProjectID: req.ProjectID, WorkID: req.WorkID, WorkVersion: version, Entry: entry}, nil
+		return BootstrapResult{OperationID: entry.ClaimOpID, Replayed: true, ProductID: req.ProductID, ProjectID: req.ProjectID, WorkID: req.WorkID, WorkVersion: version, Entry: entry}, nil
 	}
 	var failure *Failure
 	if !errors.As(err, &failure) || failure.Kind != KindProjectionNotFound {
 		return BootstrapResult{}, err
+	}
+	identity, found, err := s.existingBootstrapIdentity(ctx, req.WorkID, req.ProductID, req.ProjectID)
+	if err != nil {
+		return BootstrapResult{}, err
+	}
+	if found {
+		return s.bootstrapWorktreeMode(ctx, BootstrapRequest{
+			ProductID: req.ProductID, ProjectID: req.ProjectID, GoverningRequirements: identity.GoverningRequirements,
+			IdempotencyKey: identity.IdempotencyKey, Ref: req.Ref,
+		}, identity.OperationID, req.WorkID, identity.Digest, true, req, phaseHook, ExecGitRunner{})
 	}
 	operationID, workID, digest, err := CanonicalExistingBootstrapIdentity(req)
 	if err != nil {
 		return BootstrapResult{}, wrapFailure(KindInvalidOperation, "work_bootstrap", "cannot derive existing bootstrap identity", false, "supply bounded work identity", err)
 	}
 	return s.bootstrapWorktreeMode(ctx, BootstrapRequest{ProductID: req.ProductID, ProjectID: req.ProjectID, IdempotencyKey: "bootstrap-existing-" + digest[7:55], Ref: req.Ref}, operationID, workID, digest, true, req, phaseHook, ExecGitRunner{})
+}
+
+type existingBootstrapIdentity struct {
+	IdempotencyKey        string
+	OperationID           string
+	Digest                string
+	GoverningRequirements []string
+}
+
+func (s *Store) existingBootstrapIdentity(ctx context.Context, workID, productID, projectID string) (existingBootstrapIdentity, bool, error) {
+	var identity existingBootstrapIdentity
+	var storedProductID, storedProjectID, requestJSON, operationState, claimState string
+	err := s.db.QueryRowContext(ctx, `SELECT b.idempotency_key,b.operation_id,b.request_digest,b.request_json,b.product_id,b.project_id,b.state,coalesce(c.state,'') FROM bootstrap_operations b LEFT JOIN worktree_claims c ON c.op_id=b.operation_id WHERE b.work_id=?`, workID).
+		Scan(&identity.IdempotencyKey, &identity.OperationID, &identity.Digest, &requestJSON, &storedProductID, &storedProjectID, &operationState, &claimState)
+	if err == sql.ErrNoRows {
+		return identity, false, nil
+	}
+	if err != nil {
+		return identity, false, wrapFailure(KindUnavailable, "work_resume", "cannot read the existing bootstrap identity", true, "retry once the database is readable", err)
+	}
+	if storedProductID != productID || storedProjectID != projectID {
+		return identity, false, newFailure(KindUnknownScope, "work_resume", "existing bootstrap identity is outside the requested Product and Project scope", false, "resume from the Product and Project that created the worktree")
+	}
+	if operationState != "completed" || claimState != worktreeStateReclaimed {
+		return identity, false, nil
+	}
+	var storedRequest struct {
+		GoverningRequirements []string `json:"governing_requirements"`
+	}
+	if err := json.Unmarshal([]byte(requestJSON), &storedRequest); err != nil {
+		return identity, false, newFailure(KindInvariantViolation, "work_resume", "existing bootstrap identity has invalid durable request data", false, "contact_operator")
+	}
+	identity.GoverningRequirements = storedRequest.GoverningRequirements
+	return identity, true, nil
 }
 
 func bootstrapOriginHasOpenDispatchWindow(ctx context.Context, tx *sql.Tx, workID string) (bool, error) {

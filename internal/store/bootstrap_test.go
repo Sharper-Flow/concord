@@ -698,3 +698,123 @@ func TestResumeWorktreeLocationRefusals(t *testing.T) {
 		t.Fatalf("terminal refusal=%v", err)
 	}
 }
+
+func TestBootstrapExistingWorktreeReusesReclaimedCaptureIdentity(t *testing.T) {
+	t.Parallel()
+	repo := initBootstrapStoreRepo(t)
+	s, err := Open(context.Background(), filepath.Join(t.TempDir(), "concord.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	seedBootstrapStoreAuthority(t, s, repo)
+	ctx := context.Background()
+
+	capture := bootstrapStoreRequest()
+	capture.IdempotencyKey = "bootstrap-capture-reclaimed"
+	first, err := s.BootstrapWorktree(ctx, capture, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.ReclaimWorktree(ctx, WorktreeReclaimRequest{
+		WorkID: first.WorkID, ProjectID: first.ProjectID, DefaultRef: "origin/main",
+		PrincipalRef: "principal/operator", RequestID: "reclaim-capture-reclaimed",
+		ExpectedVersion: first.WorkVersion, Runner: ExecGitRunner{},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	second, err := s.BootstrapExistingWorktree(ctx, ExistingBootstrapRequest{
+		ProductID: first.ProductID, ProjectID: first.ProjectID, WorkID: first.WorkID,
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.OperationID != first.OperationID || second.WorkID != first.WorkID || second.Entry.State != worktreeEntryActive || second.WorkVersion != first.WorkVersion+2 {
+		t.Fatalf("restarted bootstrap=%+v first=%+v", second, first)
+	}
+	retry, err := s.BootstrapExistingWorktree(ctx, ExistingBootstrapRequest{
+		ProductID: first.ProductID, ProjectID: first.ProjectID, WorkID: first.WorkID,
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if retry.OperationID != second.OperationID || !retry.Replayed || retry.WorkID != second.WorkID || retry.WorkVersion != second.WorkVersion || retry.Entry.ClaimOpID != second.Entry.ClaimOpID || retry.Entry.Path != second.Entry.Path || retry.Entry.State != second.Entry.State {
+		t.Fatalf("convergent retry=%+v first resume=%+v", retry, second)
+	}
+
+	var operations, activeClaims, activeEntries int
+	if err := s.db.QueryRow(`SELECT count(*) FROM bootstrap_operations WHERE work_id=?`, first.WorkID).Scan(&operations); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.db.QueryRow(`SELECT count(*) FROM worktree_claims WHERE work_id=? AND state IN ('pending','verified')`, first.WorkID).Scan(&activeClaims); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.db.QueryRow(`SELECT count(*) FROM worktree_entries WHERE set_id=? AND state='active'`, WorktreeSetID(first.WorkID)).Scan(&activeEntries); err != nil {
+		t.Fatal(err)
+	}
+	if operations != 1 || activeClaims != 1 || activeEntries != 1 {
+		t.Fatalf("operations=%d active claims=%d active entries=%d", operations, activeClaims, activeEntries)
+	}
+}
+
+func TestBootstrapExistingWorktreeRefusesBootstrapIdentityOutsideScope(t *testing.T) {
+	t.Parallel()
+	repo := initBootstrapStoreRepo(t)
+	s, err := Open(context.Background(), filepath.Join(t.TempDir(), "concord.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	seedBootstrapStoreAuthority(t, s, repo)
+	capture := bootstrapStoreRequest()
+	capture.IdempotencyKey = "bootstrap-capture-scope"
+	first, err := s.BootstrapWorktree(context.Background(), capture, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.BootstrapExistingWorktree(context.Background(), ExistingBootstrapRequest{
+		ProductID: "product-other", ProjectID: first.ProjectID, WorkID: first.WorkID,
+	}, nil); failureKind(err) != KindUnknownScope {
+		t.Fatalf("scope refusal=%v", err)
+	}
+}
+
+func TestBootstrapExistingWorktreeRefusesNonEligibleBootstrapIdentity(t *testing.T) {
+	t.Parallel()
+	repo := initBootstrapStoreRepo(t)
+	s, err := Open(context.Background(), filepath.Join(t.TempDir(), "concord.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	seedBootstrapStoreAuthority(t, s, repo)
+	ctx := context.Background()
+	capture := bootstrapStoreRequest()
+	capture.IdempotencyKey = "bootstrap-capture-interrupted"
+	_, err = s.BootstrapWorktree(ctx, capture, func(phase string) error {
+		if phase == "after_prepare" {
+			return errors.New("injected prepare interruption")
+		}
+		return nil
+	})
+	if err == nil {
+		t.Fatal("interrupted capture was accepted")
+	}
+	operationID, workID, _, err := CanonicalBootstrapIdentity(capture)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var operationState, claimState string
+	if err := s.db.QueryRow(`SELECT b.state,c.state FROM bootstrap_operations b JOIN worktree_claims c ON c.op_id=b.operation_id WHERE b.operation_id=?`, operationID).Scan(&operationState, &claimState); err != nil {
+		t.Fatal(err)
+	}
+	if operationState != "pending" || claimState != worktreeStatePending {
+		t.Fatalf("operation=%s claim=%s", operationState, claimState)
+	}
+	if _, err := s.BootstrapExistingWorktree(ctx, ExistingBootstrapRequest{
+		ProductID: capture.ProductID, ProjectID: capture.ProjectID, WorkID: workID,
+	}, nil); failureKind(err) != KindProjectionConflict {
+		t.Fatalf("non-eligible bootstrap refusal=%v", err)
+	}
+}

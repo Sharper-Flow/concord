@@ -12,6 +12,11 @@ Interrogate the source rather than a description of it. Running a command,
 reading the code that implements it, or writing a failing case is more reliable
 than prose about any of them, and far more reliable than memory.
 
+Documentation states what a thing offers. It does not state what its users
+adopt. Where working code that depends on it is reachable, read that code
+before you design against it. Report a disagreement between the two rather
+than settling it silently.
+
 Say when you do not know. If the lookup is blocked or the tool is unavailable,
 report that plainly. Never fill the gap with a plausible answer presented as a
 fact.

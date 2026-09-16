@@ -685,9 +685,11 @@ func queryLauncherDomains(ctx context.Context, q queryer, req LauncherProductReq
 	if overlaps.Truncated {
 		out.Truncated = true
 	}
-	out.ResultMeta = ResultMeta{QueryID: "C14.DomainNav", ContractVersion: "C14/1.0", ResolvedScope: ResolvedScope{ProductID: req.Product}, Authority: "authoritative", OrderingKeys: []string{"name", "domain_id", "kind", "source_domain_id", "target_domain_id"}}
+	omissions := append([]string{}, list.Omissions...)
+	omissions = append(omissions, overlaps.Omissions...)
+	out.ResultMeta = ResultMeta{QueryID: "C14.DomainNav", ContractVersion: "C14/1.0", ResolvedScope: ResolvedScope{ProductID: req.Product}, Authority: "authoritative", OrderingKeys: []string{"name", "domain_id", "kind", "source_domain_id", "target_domain_id"}, Omissions: omissions}
 	if out.Truncated {
-		out.Omissions = []string{"domain_relations_bounded"}
+		out.Omissions = append(out.Omissions, "domain_relations_bounded")
 	}
 	return out, nil
 }

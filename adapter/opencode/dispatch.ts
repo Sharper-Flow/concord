@@ -474,21 +474,25 @@ export function readExportSessionMetadata(stdout: string, expectedSessionID: str
 // the same packet object the window recorded, so byte equality is exact on the
 // authorized path and refuses every substitution — caller-composed prose, a
 // packet for another attempt, or a session opened by anything else.
+//
+// The authorized opening message carries exactly one text part, so any further
+// part is unauthorized content the worker also received. Concatenating the text
+// parts and ignoring the rest would admit the packet with arbitrary extra
+// content beside it, which is the identity this predicate exists to refuse.
 export function readExportOpeningPacket(stdout: string, expectedSessionID: string, packet: AgentLanePacket): { ok: true } | { ok: false; predicate: ReadbackRefusal; message: string } {
+  if (Buffer.byteLength(stdout) > MAX_EXPORT_BYTES) return { ok: false, predicate: "export_size_bound", message: `export body exceeded ${MAX_EXPORT_BYTES} bytes` }
   let value: unknown
   try { value = JSON.parse(stdout) } catch { return { ok: false, predicate: "export_json", message: "export body was not valid JSON" } }
   if (!isRecord(value) || !isRecord(value.info) || value.info.id !== expectedSessionID || !Array.isArray(value.messages) || value.messages.length === 0) return { ok: false, predicate: "export_shape", message: "export body did not match the session shape" }
   const first = value.messages[0]
   if (!isRecord(first) || !isRecord(first.info) || !Array.isArray(first.parts)) return { ok: false, predicate: "export_message_shape", message: "export message did not match the message shape" }
   if (first.info.role !== "user") return { ok: false, predicate: "dispatched_packet_identity", message: "worker session opened with a non-user message instead of the authorized dispatch packet" }
-  let text = ""
-  for (const part of first.parts) {
-    if (!isRecord(part)) return { ok: false, predicate: "export_message_shape", message: "export message did not match the message shape" }
-    if (part.type !== "text") continue
-    if (typeof part.text !== "string") return { ok: false, predicate: "export_message_shape", message: "export message did not match the message shape" }
-    text += part.text
-  }
-  if (text !== JSON.stringify(packet)) return { ok: false, predicate: "dispatched_packet_identity", message: "worker session opened with a message that is not the authorized dispatch packet" }
+  if (first.parts.length !== 1) return { ok: false, predicate: "dispatched_packet_identity", message: `worker session opened with ${first.parts.length} message parts instead of the single authorized dispatch packet` }
+  const part = first.parts[0]
+  if (!isRecord(part)) return { ok: false, predicate: "export_message_shape", message: "export message did not match the message shape" }
+  if (part.type !== "text") return { ok: false, predicate: "dispatched_packet_identity", message: `worker session opened with a ${typeof part.type === "string" ? part.type : "malformed"} part instead of the authorized dispatch packet` }
+  if (typeof part.text !== "string") return { ok: false, predicate: "export_message_shape", message: "export message did not match the message shape" }
+  if (part.text !== JSON.stringify(packet)) return { ok: false, predicate: "dispatched_packet_identity", message: "worker session opened with a message that is not the authorized dispatch packet" }
   return { ok: true }
 }
 

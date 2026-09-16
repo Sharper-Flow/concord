@@ -379,6 +379,40 @@ test("readExportOpeningPacket admits the exact packet and refuses every substitu
   expect(readExportOpeningPacket(JSON.stringify({ info: { id: "session-1" }, messages: [] }), "session-1", packet())).toEqual({ ok: false, predicate: "export_shape", message: "export body did not match the session shape" })
 })
 
+// The authorized dispatch writes the packet as one text part. Content beside
+// it reached the worker and was never authorized, so the packet text alone
+// cannot establish identity.
+test("readExportOpeningPacket refuses content beside the exact packet", () => {
+  const openingParts = (parts: unknown[]) => JSON.stringify({
+    info: { id: "session-1" },
+    messages: [{ info: { id: "message-1", sessionID: "session-1", role: "user", time: { created: 1 } }, parts }],
+  })
+  const withFile = readExportOpeningPacket(openingParts([
+    { type: "text", text: JSON.stringify(packet()) },
+    { type: "file", filename: "notes.md", url: "file:///notes.md" },
+  ]), "session-1", packet())
+  expect(withFile).toEqual({ ok: false, predicate: "dispatched_packet_identity", message: "worker session opened with 2 message parts instead of the single authorized dispatch packet" })
+  const splitText = readExportOpeningPacket(openingParts([
+    { type: "text", text: JSON.stringify(packet()).slice(0, 10) },
+    { type: "text", text: JSON.stringify(packet()).slice(10) },
+  ]), "session-1", packet())
+  expect(splitText).toEqual({ ok: false, predicate: "dispatched_packet_identity", message: "worker session opened with 2 message parts instead of the single authorized dispatch packet" })
+  const fileOnly = readExportOpeningPacket(openingParts([{ type: "file", filename: "notes.md", url: "file:///notes.md" }]), "session-1", packet())
+  expect(fileOnly).toEqual({ ok: false, predicate: "dispatched_packet_identity", message: "worker session opened with a file part instead of the authorized dispatch packet" })
+  expect(readExportOpeningPacket(openingParts([]), "session-1", packet())).toEqual({ ok: false, predicate: "dispatched_packet_identity", message: "worker session opened with 0 message parts instead of the single authorized dispatch packet" })
+})
+
+// The sanitized readback bounds its own export. This predicate reads a second,
+// unsanitized export of the same session, so it carries the same bound.
+test("readExportOpeningPacket refuses an export above the size bound", () => {
+  const oversize = JSON.stringify({
+    info: { id: "session-1", padding: "p".repeat(MAX_EXPORT_BYTES) },
+    messages: [{ info: { id: "message-1", sessionID: "session-1", role: "user", time: { created: 1 } }, parts: [{ type: "text", text: JSON.stringify(packet()) }] }],
+  })
+  expect(Buffer.byteLength(oversize)).toBeGreaterThan(MAX_EXPORT_BYTES)
+  expect(readExportOpeningPacket(oversize, "session-1", packet())).toEqual({ ok: false, predicate: "export_size_bound", message: `export body exceeded ${MAX_EXPORT_BYTES} bytes` })
+})
+
 test("ambiguous model readback records one durable failed attempt", async () => {
   const calls: { argv: string[]; input: string }[] = []
   const exportRunner: DispatchRunner = { async run(argv) {

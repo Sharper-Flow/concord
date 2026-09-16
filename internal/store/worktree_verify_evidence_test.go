@@ -70,15 +70,22 @@ func verifyEvidenceFixture(t *testing.T, workID string) (*Store, *fakeWorktreeGi
 	return s, git, owner, reviewer
 }
 
+// verifyLeaseID matches the id produced by the worktree verify mutation.
+func verifyLeaseID(workID string) string {
+	return "sha256:" + strings.Repeat("a", 64) + ":worktree-verify:" + workID
+}
+
+func verifyRequestID(workID string) string { return "req-v-" + workID }
+
 // verifyOperationRef states the durable-operation identity a green verify
-// run claims, spelled out so the test proves the convention end to end.
-func verifyOperationRef(leaseID string) string { return "worktree_verify:" + leaseID }
+// run claims, including the compact production-shaped lease convention.
+func verifyOperationRef(leaseID string) string { return worktreeVerifyOperationRef(leaseID) }
 
 // verifyEvidenceRun drives one worktree-verify run for the fixture work.
 func verifyEvidenceRun(git *fakeWorktreeGit, workID, leaseID string, exitCode int) WorktreeVerifyRequest {
 	return WorktreeVerifyRequest{
 		Owner: SessionWorktreeOwner{ClientRef: "client-1", AgentRef: "agent-1", SessionRef: "session-1"}, WorkID: workID, ProjectID: "project-w",
-		Command: []string{"go", "test", "./..."}, LeaseID: leaseID, PrincipalRef: "principal-1", RequestID: "req-v-" + leaseID,
+		Command: []string{"go", "test", "./..."}, LeaseID: leaseID, PrincipalRef: "principal-1", RequestID: verifyRequestID(workID),
 		Now: time.Unix(20, 0).UTC(), Runner: git,
 		RunCommand: func(_ context.Context, _ string, _ []string, _ int) (int, []byte, bool, error) {
 			return exitCode, []byte("verify output"), false, nil
@@ -113,29 +120,33 @@ func TestGreenVerifyRunBindsAsVerificationEvidence(t *testing.T) {
 		t.Fatal("verification evidence is bound before any verify run ran")
 	}
 
-	result, err := s.VerifyWorktree(ctx, verifyEvidenceRun(git, workID, "lease-route", 0))
+	leaseID := verifyLeaseID(workID)
+	if len(verifyOperationRef(leaseID)) != 87 {
+		t.Fatalf("compact verify operation reference length=%d, want 87", len(verifyOperationRef(leaseID)))
+	}
+	result, err := s.VerifyWorktree(ctx, verifyEvidenceRun(git, workID, leaseID, 0))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if result.ExitCode != 0 || result.TrackedFilesChanged {
 		t.Fatalf("green run result=%+v", result)
 	}
-	if durableVerifyOperationCount(t, s, "lease-route") != 1 {
+	if durableVerifyOperationCount(t, s, leaseID) != 1 {
 		t.Fatal("the green run claimed no durable producer operation")
 	}
 	var resultKind, evidenceRefs string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT result_kind,evidence_refs FROM durable_operations WHERE op_id=? AND work_id=? AND principal_ref='principal-1' AND request_id='req-v-lease-route'`, verifyOperationRef("lease-route"), workID).Scan(&resultKind, &evidenceRefs); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT result_kind,evidence_refs FROM durable_operations WHERE op_id=? AND work_id=? AND principal_ref='principal-1' AND request_id=?`, verifyOperationRef(leaseID), workID, verifyRequestID(workID)).Scan(&resultKind, &evidenceRefs); err != nil {
 		t.Fatal(err)
 	}
-	if resultKind != "completed" || !strings.Contains(evidenceRefs, verifyOperationRef("lease-route")) {
+	if resultKind != "completed" || !strings.Contains(evidenceRefs, verifyOperationRef(leaseID)) {
 		t.Fatalf("verify authority result_kind=%q evidence_refs=%q", resultKind, evidenceRefs)
 	}
 
-	bindPayload := json.RawMessage(`{"evidence_kind":"verification","evidence_ref":"` + verifyOperationRef("lease-route") + `","immutable_subject_ref":"` + verifyOperationRef("lease-route") + `","producer_id":"principal-1","producer_run_ref":"` + verifyOperationRef("lease-route") + `","producer_watermark":"req-v-lease-route"}`)
+	bindPayload := json.RawMessage(`{"evidence_kind":"verification","evidence_ref":"` + verifyOperationRef(leaseID) + `","immutable_subject_ref":"` + verifyOperationRef(leaseID) + `","producer_id":"principal-1","producer_run_ref":"` + verifyOperationRef(leaseID) + `","producer_watermark":"` + verifyRequestID(workID) + `"}`)
 	if err := runVerdictAction(t, s, workID, "bind_evidence", bindPayload, 0); err != nil {
 		t.Fatalf("bind_evidence naming the verify run refused: %v", err)
 	}
-	if got := countEvidenceBinding(t, s, workID, "verification", verifyOperationRef("lease-route")); got != 1 {
+	if got := countEvidenceBinding(t, s, workID, "verification", verifyOperationRef(leaseID)); got != 1 {
 		t.Fatalf("verify-run binding count=%d, want 1", got)
 	}
 	// The fixture family's definition also requires review, which the verify
@@ -205,21 +216,22 @@ func TestRedVerifyRunNamesNoAuthority(t *testing.T) {
 	s, git, _, _ := verifyEvidenceFixture(t, workID)
 	defer s.Close()
 
-	result, err := s.VerifyWorktree(ctx, verifyEvidenceRun(git, workID, "lease-red", 1))
+	leaseID := verifyLeaseID(workID)
+	result, err := s.VerifyWorktree(ctx, verifyEvidenceRun(git, workID, leaseID, 1))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if result.ExitCode != 1 {
 		t.Fatalf("red run result=%+v", result)
 	}
-	if got := durableVerifyOperationCount(t, s, "lease-red"); got != 0 {
+	if got := durableVerifyOperationCount(t, s, leaseID); got != 0 {
 		t.Fatalf("red run durable operations=%d, want 0", got)
 	}
 
-	bindPayload := json.RawMessage(`{"evidence_kind":"verification","evidence_ref":"` + verifyOperationRef("lease-red") + `","immutable_subject_ref":"` + verifyOperationRef("lease-red") + `","producer_id":"principal-1","producer_run_ref":"` + verifyOperationRef("lease-red") + `","producer_watermark":"req-v-lease-red"}`)
+	bindPayload := json.RawMessage(`{"evidence_kind":"verification","evidence_ref":"` + verifyOperationRef(leaseID) + `","immutable_subject_ref":"` + verifyOperationRef(leaseID) + `","producer_id":"principal-1","producer_run_ref":"` + verifyOperationRef(leaseID) + `","producer_watermark":"` + verifyRequestID(workID) + `"}`)
 	bindErr := runVerdictAction(t, s, workID, "bind_evidence", bindPayload, 0)
 	requireRecoveryFailure(t, bindErr, KindInvariantViolation, "bind naming a red verify run")
-	if got := countEvidenceBinding(t, s, workID, "verification", verifyOperationRef("lease-red")); got != 0 {
+	if got := countEvidenceBinding(t, s, workID, "verification", verifyOperationRef(leaseID)); got != 0 {
 		t.Fatalf("refused red-run binding count=%d, want 0", got)
 	}
 	authoritative, err := workflowEvidenceKindBound(ctx, s.DatabaseForTesting(), workID, "verification")
@@ -251,7 +263,7 @@ func TestVerifyAuthorityLeavesWorkflowReplayUntouched(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := s.VerifyWorktree(ctx, verifyEvidenceRun(git, workID, "lease-replay", 0)); err != nil {
+	if _, err := s.VerifyWorktree(ctx, verifyEvidenceRun(git, workID, verifyLeaseID(workID), 0)); err != nil {
 		t.Fatal(err)
 	}
 

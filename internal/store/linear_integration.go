@@ -58,6 +58,7 @@ type LinearConnection struct {
 	AuthMode     string            `json:"auth_mode"`
 	ProjectIDs   map[string]string `json:"project_ids,omitempty"`
 	StatusIDs    map[string]string `json:"status_ids,omitempty"`
+	LabelIDs     map[string]string `json:"label_ids,omitempty"`
 	State        string            `json:"state"` // declared | partial | absent
 }
 
@@ -298,6 +299,27 @@ ORDER BY r.resource_id`, productID)
 				return LinearConnection{}, err
 			}
 		}
+		if encoded, exists := linear["label_ids"]; exists {
+			rawLabels, marshalErr := json.Marshal(encoded)
+			var labelIDs map[string]json.RawMessage
+			if marshalErr != nil || json.Unmarshal(rawLabels, &labelIDs) != nil || labelIDs == nil {
+				return LinearConnection{}, newFailure(KindInvalidPayload, "linear_connection_read", "Linear label_ids must be an object", false, "supply work kind and urgency to Linear label id mappings")
+			}
+			candidate.LabelIDs = make(map[string]string, len(labelIDs))
+			for key, value := range labelIDs {
+				if !linearLabelMappingKeys[key] {
+					return LinearConnection{}, newFailure(KindInvalidPayload, "linear_connection_read", "Linear label mapping key is not recognized", false, "map task, bug, decision, research, other, or expedite")
+				}
+				var labelID string
+				if err := json.Unmarshal(value, &labelID); err != nil {
+					return LinearConnection{}, newFailure(KindInvalidPayload, "linear_connection_read", "Linear label id must be a string", false, "supply work kind and urgency to Linear label id mappings")
+				}
+				if err := validateLinearConnectionID(labelID, "label id"); err != nil {
+					return LinearConnection{}, err
+				}
+				candidate.LabelIDs[key] = labelID
+			}
+		}
 		connection = &candidate
 		break
 	}
@@ -315,7 +337,7 @@ ORDER BY r.resource_id`, productID)
 	return *connection, nil
 }
 
-// LinearConnectionUpdateRequest changes the destination and status mapping
+// LinearConnectionUpdateRequest changes the destination, status mapping, and label mapping
 // owned by one Product's managed Linear resource. Nil maps keep their existing
 // values. Non-nil maps replace the complete mapping.
 type LinearConnectionUpdateRequest struct {
@@ -325,6 +347,7 @@ type LinearConnectionUpdateRequest struct {
 	TeamID                  string
 	ProjectIDs              map[string]string
 	StatusIDs               map[string]string
+	LabelIDs                map[string]string
 	ExpectedResourceVersion int64
 	Actor                   string
 	OccurredAt              time.Time
@@ -354,6 +377,11 @@ func (s *Store) UpdateLinearConnection(ctx context.Context, req LinearConnection
 	}
 	if req.StatusIDs != nil {
 		if err := validateLinearStatusMapping(req.StatusIDs, "linear_connection_update"); err != nil {
+			return err
+		}
+	}
+	if req.LabelIDs != nil {
+		if err := validateLinearLabelMapping(req.LabelIDs, "linear_connection_update"); err != nil {
 			return err
 		}
 	}
@@ -409,6 +437,9 @@ func (s *Store) UpdateLinearConnection(ctx context.Context, req LinearConnection
 	if req.StatusIDs != nil {
 		linear["status_ids"], _ = json.Marshal(req.StatusIDs)
 	}
+	if req.LabelIDs != nil {
+		linear["label_ids"], _ = json.Marshal(req.LabelIDs)
+	}
 	metadata["linear"], _ = json.Marshal(linear)
 	merged, err := json.Marshal(metadata)
 	if err != nil {
@@ -460,6 +491,22 @@ func validateLinearStatusMappingRead(statusIDs map[string]string, operation stri
 			return newFailure(KindInvalidPayload, operation, "status mapping lifecycle is not persistable", false, "map only persistable lifecycles")
 		}
 		if err := validateLinearConnectionID(statusID, "status id"); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+var linearLabelMappingKeys = map[string]bool{
+	"task": true, "bug": true, "decision": true, "research": true, "other": true, "expedite": true,
+}
+
+func validateLinearLabelMapping(labelIDs map[string]string, operation string) error {
+	for key, labelID := range labelIDs {
+		if !linearLabelMappingKeys[key] {
+			return newFailure(KindInvalidPayload, operation, "label mapping key is not recognized", false, "map task, bug, decision, research, other, or expedite")
+		}
+		if err := validateLinearConnectionID(labelID, "label id"); err != nil {
 			return err
 		}
 	}
@@ -779,15 +826,16 @@ type ClaimedLinearOperation struct {
 // client UUID is the idempotency identity: Linear's IssueCreateInput.id, so a
 // re-drain after an ambiguous outcome converges on the same remote issue.
 type linearPayload struct {
-	ClientUUID        string `json:"client_uuid"`
-	ProductID         string `json:"product_id"`
-	Title             string `json:"title"`
-	Description       string `json:"description"`
-	TeamID            string `json:"team_id"`
-	ProjectID         string `json:"project_id,omitempty"`
-	ConnectionVersion int64  `json:"connection_version"`
-	Lifecycle         string `json:"lifecycle,omitempty"`
-	StatusID          string `json:"status_id,omitempty"`
+	ClientUUID        string   `json:"client_uuid"`
+	ProductID         string   `json:"product_id"`
+	Title             string   `json:"title"`
+	Description       string   `json:"description"`
+	LabelIDs          []string `json:"label_ids,omitempty"`
+	TeamID            string   `json:"team_id"`
+	ProjectID         string   `json:"project_id,omitempty"`
+	ConnectionVersion int64    `json:"connection_version"`
+	Lifecycle         string   `json:"lifecycle,omitempty"`
+	StatusID          string   `json:"status_id,omitempty"`
 	// RemoteIssueUUID names the existing issue an issue_adopt operation
 	// resolves at drain time. Create and update leave it empty.
 	RemoteIssueUUID string `json:"remote_issue_uuid,omitempty"`
@@ -923,18 +971,41 @@ type linearIssueEnqueuePlan struct {
 
 // composeLinearIssueBody renders the issue Description at the single point
 // both enqueue paths share. Each source is omitted when absent so the body
-// never shows an empty label. The footer carries the Concord work id and the
-// documented resume line `concord zl <work id> --` from the CLI help.
-func composeLinearIssueBody(valueStatement, premise, workID string) string {
+// never shows an empty label. Heading the value statement stops a reader
+// taking it for a description of the work. The single footer line carries the
+// kind and the documented resume line `concord zl <work id> --` from the CLI
+// help. The kind rides the footer rather than its own section because it is
+// one word, and a heading above one word costs two lines to say it.
+func composeLinearIssueBody(valueStatement, premise, workID, kind string) string {
 	sections := make([]string, 0, 3)
 	if trimmed := strings.TrimSpace(valueStatement); trimmed != "" {
-		sections = append(sections, trimmed)
+		sections = append(sections, "## Value statement\n\n"+trimmed)
 	}
 	if trimmed := strings.TrimSpace(premise); trimmed != "" {
 		sections = append(sections, "## Premise\n\n"+trimmed)
 	}
-	sections = append(sections, "Concord work: "+workID+"\nResume: `concord zl "+workID+" --`")
+	footer := "Resume: `concord zl " + workID + " --`"
+	if trimmed := strings.TrimSpace(kind); trimmed != "" {
+		footer = trimmed + " · " + footer
+	}
+	sections = append(sections, footer)
 	return strings.Join(sections, "\n\n")
+}
+
+func linearIssueLabelIDs(connection LinearConnection, kind, urgency string) []string {
+	keys := []string{kind}
+	if urgency == "expedite" {
+		keys = append(keys, "expedite")
+	}
+	labels := make([]string, 0, len(keys))
+	seen := make(map[string]bool, len(keys))
+	for _, key := range keys {
+		if labelID := connection.LabelIDs[key]; labelID != "" && !seen[labelID] {
+			labels = append(labels, labelID)
+			seen[labelID] = true
+		}
+	}
+	return labels
 }
 
 // readCurrentWorkflowPremiseCore reads the newest unsuperseded contract
@@ -970,8 +1041,8 @@ func enqueueLinearIssueForWorkCore(ctx context.Context, q queryer, expectedProdu
 	if len(workID) < 2 || len(workID) > 128 {
 		return linearIssueEnqueuePlan{}, newFailure(KindInvalidPayload, "linear_issue_enqueue", "work id must be 2 to 128 characters", false, "supply a bounded work id")
 	}
-	var title, valueStatement, lifecycle string
-	err := q.QueryRowContext(ctx, `SELECT title, coalesce(json_extract(intent_json, '$.value_statement'), ''), lifecycle FROM work_items WHERE id=?`, workID).Scan(&title, &valueStatement, &lifecycle)
+	var title, valueStatement, kind, lifecycle, urgency string
+	err := q.QueryRowContext(ctx, `SELECT title, coalesce(json_extract(intent_json, '$.value_statement'), ''), kind, lifecycle, urgency FROM work_items WHERE id=?`, workID).Scan(&title, &valueStatement, &kind, &lifecycle, &urgency)
 	if err == sql.ErrNoRows {
 		return linearIssueEnqueuePlan{}, newFailure(KindUnknownScope, "linear_issue_enqueue", "work item does not exist", false, "supply an existing work item")
 	} else if err != nil {
@@ -1035,8 +1106,8 @@ func enqueueLinearIssueForWorkCore(ctx context.Context, q queryer, expectedProdu
 	if err != nil {
 		return linearIssueEnqueuePlan{}, err
 	}
-	description := composeLinearIssueBody(valueStatement, premise, workID)
-	payload, err := json.Marshal(linearPayload{ClientUUID: clientUUID, ProductID: productID, Title: title, Description: description, TeamID: connection.TeamID, ProjectID: linearProjectID, ConnectionVersion: connection.Version, Lifecycle: lifecycle, StatusID: statusID})
+	description := composeLinearIssueBody(valueStatement, premise, workID, kind)
+	payload, err := json.Marshal(linearPayload{ClientUUID: clientUUID, ProductID: productID, Title: title, Description: description, LabelIDs: linearIssueLabelIDs(connection, kind, urgency), TeamID: connection.TeamID, ProjectID: linearProjectID, ConnectionVersion: connection.Version, Lifecycle: lifecycle, StatusID: statusID})
 	if err != nil {
 		return linearIssueEnqueuePlan{}, wrapFailure(KindUnavailable, "linear_issue_enqueue", "cannot encode payload", true, "retry the enqueue", err)
 	}

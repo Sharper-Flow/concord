@@ -81,18 +81,22 @@ func TestLinearEnqueueForWorkGuards(t *testing.T) {
 		t.Fatalf("outbox state = %s, want queued", state)
 	}
 	var decoded struct {
-		ClientUUID  string `json:"client_uuid"`
-		Title       string `json:"title"`
-		Description string `json:"description"`
-		ProductID   string `json:"product_id"`
-		TeamID      string `json:"team_id"`
-		ProjectID   string `json:"project_id"`
+		ClientUUID  string   `json:"client_uuid"`
+		Title       string   `json:"title"`
+		Description string   `json:"description"`
+		LabelIDs    []string `json:"label_ids"`
+		ProductID   string   `json:"product_id"`
+		TeamID      string   `json:"team_id"`
+		ProjectID   string   `json:"project_id"`
 	}
 	if err := json.Unmarshal([]byte(payload), &decoded); err != nil {
 		t.Fatal(err)
 	}
-	if decoded.ClientUUID == "" || decoded.Title != "Enqueue title" || decoded.Description != composeLinearIssueBody("Enqueue value statement", "", "enq-work") || decoded.ProductID != "enq-product" || decoded.TeamID != "team-uuid-1" || decoded.ProjectID != "project-uuid-1" {
+	if decoded.ClientUUID == "" || decoded.Title != "Enqueue title" || decoded.Description != composeLinearIssueBody("Enqueue value statement", "", "enq-work", "task") || decoded.ProductID != "enq-product" || decoded.TeamID != "team-uuid-1" || decoded.ProjectID != "project-uuid-1" {
 		t.Fatalf("payload = %+v", decoded)
+	}
+	if len(decoded.LabelIDs) != 0 {
+		t.Fatalf("unconfigured labels = %v, want none", decoded.LabelIDs)
 	}
 	if len(decoded.ClientUUID) != 36 || !strings.Contains(decoded.ClientUUID, "-") {
 		t.Fatalf("client uuid %q is not a UUID", decoded.ClientUUID)
@@ -103,6 +107,42 @@ func TestLinearEnqueueForWorkGuards(t *testing.T) {
 	}
 	if linkState != LinearLinkUnpublished || linkUUID != decoded.ClientUUID {
 		t.Fatalf("link = %s/%s, want unpublished with client UUID", linkState, linkUUID)
+	}
+}
+
+func TestLinearEnqueueMapsKindAndExpediteLabels(t *testing.T) {
+	s := openTemp(t)
+	ctx := context.Background()
+	setupLinearProduct(t, s, "label-product")
+	setupLinearConnectionResource(t, s, "label-product", map[string]any{"linear": map[string]any{
+		"workspace_url": "https://linear.app/example", "team_id": "team-uuid-1", "auth_mode": "personal_api_key",
+		"project_ids": map[string]string{"label-product-project": "project-uuid-1"},
+		"label_ids":   map[string]string{"bug": "label-bug", "expedite": "label-expedite"},
+	}})
+	if _, err := s.SetProductPlanningMode(ctx, "label-product", PlanningModeLinear, "pilot", "operator", 2); err != nil {
+		t.Fatal(err)
+	}
+	seedLinearWorkItem(t, s, "label-work", "label-product-project", "Label title", "Label value")
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE work_items SET kind='bug', urgency='expedite' WHERE id='label-work'; DELETE FROM fold_guard`); err != nil {
+		t.Fatal(err)
+	}
+
+	op, err := s.EnqueueLinearIssueForWork(ctx, "label-work", LinearOpIssueCreate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload struct {
+		LabelIDs []string `json:"label_ids"`
+	}
+	var raw string
+	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT payload FROM linear_outbox WHERE operation_id=?`, op.OperationID).Scan(&raw); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal([]byte(raw), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(payload.LabelIDs, ",") != "label-bug,label-expedite" {
+		t.Fatalf("mapped labels = %v, want bug then expedite", payload.LabelIDs)
 	}
 }
 
@@ -544,7 +584,7 @@ func TestLinearEnqueueBodyComposesPremiseAndResume(t *testing.T) {
 		t.Fatal(err)
 	}
 	createDescription := decodeLinearDescription(t, s, create.OperationID)
-	for _, want := range []string{"Body value statement", "## Premise\n\nBody premise text", "Concord work: body-work", "Resume: `concord zl body-work --`"} {
+	for _, want := range []string{"## Value statement\n\nBody value statement", "## Premise\n\nBody premise text", "task · Resume: `concord zl body-work --`"} {
 		if !strings.Contains(createDescription, want) {
 			t.Fatalf("create description = %q, want substring %q", createDescription, want)
 		}
@@ -570,7 +610,7 @@ func TestLinearEnqueueBodyComposesPremiseAndResume(t *testing.T) {
 	if strings.Contains(plainDescription, "## Premise") {
 		t.Fatalf("plain description = %q, want no Premise section", plainDescription)
 	}
-	for _, want := range []string{"Plain value", "Concord work: plain-work", "Resume: `concord zl plain-work --`"} {
+	for _, want := range []string{"## Value statement\n\nPlain value", "task · Resume: `concord zl plain-work --`"} {
 		if !strings.Contains(plainDescription, want) {
 			t.Fatalf("plain description = %q, want substring %q", plainDescription, want)
 		}
@@ -578,12 +618,12 @@ func TestLinearEnqueueBodyComposesPremiseAndResume(t *testing.T) {
 }
 
 func TestComposeLinearIssueBodyOmitsAbsentSections(t *testing.T) {
-	body := composeLinearIssueBody("", "", "work-x")
-	want := "Concord work: work-x\nResume: `concord zl work-x --`"
+	body := composeLinearIssueBody("", "", "work-x", "task")
+	want := "task · Resume: `concord zl work-x --`"
 	if body != want {
 		t.Fatalf("body = %q, want %q", body, want)
 	}
-	if got := composeLinearIssueBody("  value ", " premise ", "work-y"); !strings.Contains(got, "value\n\n## Premise\n\npremise\n\nConcord work: work-y") {
+	if got := composeLinearIssueBody("  value ", " premise ", "work-y", "task"); !strings.Contains(got, "## Value statement\n\nvalue\n\n## Premise\n\npremise\n\ntask · Resume: `concord zl work-y --`") {
 		t.Fatalf("body = %q, want trimmed sections", got)
 	}
 }

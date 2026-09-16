@@ -78,14 +78,19 @@ func TestLinearEnqueueAndDrainCLI(t *testing.T) {
 	seedCLIProduct(t, dbPath, "drain-product", "drain-product-project")
 	enableLinearProduct(t, dbPath, "drain-product")
 	seedLinearCLIWork(t, dbPath, "drain-work", "drain-product-project", "Drain title")
+	runOperatorJSON(t, dbPath, []string{"linear-connection-update"}, map[string]any{
+		"event_id": "drain-label-update", "resource_id": "drain-conn-drain-product", "product_id": "drain-product",
+		"label_ids": map[string]string{"task": "label-task"}, "expected_resource_version": 1,
+	})
 
-	var sawAuth, sawProject bool
+	var sawAuth, sawProject, sawLabels bool
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
 		if r.Header.Get("Authorization") == "lin_api_cli_test" {
 			sawAuth = true
 		}
 		sawProject = strings.Contains(string(body), `"projectId":"project-uuid-1"`)
+		sawLabels = strings.Contains(string(body), `"labelIds":["label-task"]`)
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"data":{"issueCreate":{"success":true,"issue":{"id":"68d52710-76d9-4b41-ba45-778511d0e2ed","identifier":"SHA-1","url":"https://linear.app/example/issue/SHA-1","updatedAt":"2026-09-09T12:00:00Z"}}}}`))
 	}))
@@ -112,8 +117,8 @@ func TestLinearEnqueueAndDrainCLI(t *testing.T) {
 	if code := runWithInput([]string{"linear", "outbox-drain"}, strings.NewReader(`{"product_id":"drain-product"}`), &out, &errOut); code != 0 {
 		t.Fatalf("drain exit=%d stderr=%q", code, errOut.String())
 	}
-	if !sawAuth || !sawProject {
-		t.Fatalf("the drain request lacked authorization or project routing: auth=%t project=%t", sawAuth, sawProject)
+	if !sawAuth || !sawProject || !sawLabels {
+		t.Fatalf("the drain request lacked authorization, project routing, or labels: auth=%t project=%t labels=%t", sawAuth, sawProject, sawLabels)
 	}
 	var drained struct {
 		OK         bool `json:"ok"`
@@ -165,6 +170,10 @@ func TestLinearIssueUpdateDrainReportsDoneAndMirrorsTerminalStatus(t *testing.T)
 	seedCLIProduct(t, dbPath, "update-drain-product", "update-drain-project")
 	enableLinearProduct(t, dbPath, "update-drain-product")
 	seedLinearCLIWork(t, dbPath, "update-drain-work", "update-drain-project", "Cancelled title")
+	runOperatorJSON(t, dbPath, []string{"linear-connection-update"}, map[string]any{
+		"event_id": "update-drain-label-update", "resource_id": "drain-conn-update-drain-product", "product_id": "update-drain-product",
+		"label_ids": map[string]string{"task": "label-task"}, "expected_resource_version": 1,
+	})
 
 	s, err := store.Open(context.Background(), dbPath)
 	if err != nil {
@@ -191,10 +200,11 @@ func TestLinearIssueUpdateDrainReportsDoneAndMirrorsTerminalStatus(t *testing.T)
 	}
 	s.Close()
 
-	var sawStatus bool
+	var sawStatus, sawLabels bool
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
 		sawStatus = strings.Contains(string(body), `"stateId":"state-cancelled"`)
+		sawLabels = strings.Contains(string(body), `"addedLabelIds":["label-task"]`)
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"data":{"issueUpdate":{"success":true,"issue":{"id":"remote-update","identifier":"SHA-3","url":"https://linear.app/example/issue/SHA-3","updatedAt":"2026-09-09T12:00:00Z"}}}}`))
 	}))
@@ -207,8 +217,8 @@ func TestLinearIssueUpdateDrainReportsDoneAndMirrorsTerminalStatus(t *testing.T)
 	if code := runWithInput([]string{"linear", "outbox-drain"}, strings.NewReader(`{"product_id":"update-drain-product"}`), &out, &errOut); code != 0 {
 		t.Fatalf("drain exit=%d stderr=%q", code, errOut.String())
 	}
-	if !sawStatus {
-		t.Fatal("drain did not send the declared terminal status")
+	if !sawStatus || !sawLabels {
+		t.Fatalf("drain did not send the declared status and label: status=%t labels=%t", sawStatus, sawLabels)
 	}
 	var drained struct {
 		Operations []struct {
@@ -244,7 +254,7 @@ func TestLinearIssueUpdateDrainOmitsUnchangedContent(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	description := "CLI drain value statement\n\nConcord work: unchanged-work\nResume: `concord zl unchanged-work --`"
+	description := "## Value statement\n\nCLI drain value statement\n\ntask · Resume: `concord zl unchanged-work --`"
 	if err := s.RecordLinearLink(ctx, "unchanged-work", "remote-unchanged", "SHA-4", "https://linear.app/example/issue/SHA-4", "", linearContentHash("Unchanged title", description), store.LinearLinkConfirmed); err != nil {
 		s.Close()
 		t.Fatal(err)

@@ -1017,13 +1017,11 @@ func enqueueLinearIssueForWorkCore(ctx context.Context, q queryer, expectedProdu
 		}
 	}
 	clientUUID := newLinearClientUUID()
-	statusID := ""
-	if opKind == LinearOpIssueUpdate {
-		statusID, err = linearLifecycleStatusID(connection, lifecycle)
-		if err != nil {
-			return linearIssueEnqueuePlan{}, err
-		}
-	} else {
+	statusID, err := linearLifecycleStatusID(connection, lifecycle)
+	if err != nil {
+		return linearIssueEnqueuePlan{}, err
+	}
+	if opKind == LinearOpIssueCreate {
 		var linkState string
 		if err := q.QueryRowContext(ctx, `SELECT link_state FROM linear_issue_links WHERE work_id=?`, workID).Scan(&linkState); err == sql.ErrNoRows {
 			createLink = true

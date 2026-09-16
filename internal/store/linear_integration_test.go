@@ -116,6 +116,13 @@ func setupLinearConnectionResourceAtVersion(t *testing.T, s *Store, productID st
 		if _, exists := linear["project_ids"]; !exists {
 			linear["project_ids"] = map[string]string{productID + "-project": "linear-project-1"}
 		}
+		if _, exists := linear["status_ids"]; !exists {
+			linear["status_ids"] = map[string]string{
+				"needed": "linear-status-needed", "in_progress": "linear-status-in-progress",
+				"completed": "linear-status-completed", "cancelled": "linear-status-cancelled",
+				"superseded": "linear-status-superseded",
+			}
+		}
 	}
 	now := time.Date(2026, 9, 9, 0, 0, 0, 0, time.UTC)
 	raw, _ := json.Marshal(metadata)

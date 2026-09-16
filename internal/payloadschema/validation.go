@@ -160,6 +160,7 @@ func validateSchemaValueWithEvaluated(value any, schema map[string]any, root map
 			continue
 		}
 		matches := 0
+		failures := make([]string, 0)
 		matchedEvaluated := map[string]bool{}
 		for _, raw := range branches {
 			branch, ok := raw.(map[string]any)
@@ -172,11 +173,16 @@ func validateSchemaValueWithEvaluated(value any, schema map[string]any, root map
 				for key := range branchEvaluated {
 					matchedEvaluated[key] = true
 				}
+			} else {
+				failures = append(failures, err.Error())
 			}
 		}
 		if keyword == "allOf" && matches != len(branches) || keyword == "anyOf" && matches < 1 || keyword == "oneOf" && matches != 1 {
 			if keyword == "oneOf" {
 				return nil, fmt.Errorf("oneOf mismatch at %s: expected exactly one accepted variant {%s}", path, strings.Join(schemaVariantDescriptions(branches), "; "))
+			}
+			if len(failures) > 0 {
+				return nil, fmt.Errorf("%s mismatch at %s: %s", keyword, path, strings.Join(failures, "; "))
 			}
 			return nil, fmt.Errorf("%s mismatch at %s", keyword, path)
 		}

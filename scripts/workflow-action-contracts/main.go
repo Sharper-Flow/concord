@@ -24,19 +24,25 @@ type contractProjection struct {
 
 func main() {
 	payloads := map[string]actionContract{}
+	addAction := func(action store.WorkflowActionDefinition) {
+		publicPayload := action.Payload
+		if action.PublicPayload != nil {
+			publicPayload = *action.PublicPayload
+		}
+		contract := actionContract{ID: action.ID, Payload: action.Payload, PublicPayload: publicPayload, LegacyPayloads: []store.WorkflowPayloadDefinition{}}
+		if previous, ok := payloads[action.ID]; ok && !reflect.DeepEqual(previous, contract) {
+			fmt.Fprintf(os.Stderr, "action %s has inconsistent current payload contracts\n", action.ID)
+			os.Exit(1)
+		}
+		payloads[action.ID] = contract
+	}
 	for _, definition := range store.BuiltinWorkflowDefinitions() {
 		for _, action := range definition.ActionDefinitions {
-			publicPayload := action.Payload
-			if action.PublicPayload != nil {
-				publicPayload = *action.PublicPayload
-			}
-			contract := actionContract{ID: action.ID, Payload: action.Payload, PublicPayload: publicPayload, LegacyPayloads: []store.WorkflowPayloadDefinition{}}
-			if previous, ok := payloads[action.ID]; ok && !reflect.DeepEqual(previous, contract) {
-				fmt.Fprintf(os.Stderr, "action %s has inconsistent current payload contracts\n", action.ID)
-				os.Exit(1)
-			}
-			payloads[action.ID] = contract
+			addAction(action)
 		}
+	}
+	for _, action := range store.BuiltinWorkflowRecoveryActionDefinitions() {
+		addAction(action)
 	}
 	for _, definition := range store.BuiltinWorkflowDefinitionsWithHistory() {
 		for _, action := range definition.ActionDefinitions {

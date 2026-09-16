@@ -3,6 +3,7 @@ package agent
 import (
 	"encoding/json"
 	"os"
+	"strings"
 	"testing"
 )
 
@@ -85,6 +86,44 @@ func TestWorkflowActionSchemaIsActionSpecificAndUsesPublicDispatchFields(t *test
 	crossAction := json.RawMessage(`{"work_id":"work-1","expected_version":1,"action_id":"bind_evidence","idempotency_key":"bind-1","fields":{"edge_id":"edge:wrong-action"}}`)
 	if err := ValidatePayloadSchema("work_transition_action_public_input", crossAction); err == nil {
 		t.Fatal("public schema accepted a field from another action")
+	}
+}
+
+func TestRecoveryWorkflowActionSchemasRejectUnknownFieldsAtBoundary(t *testing.T) {
+	t.Parallel()
+	for _, action := range []struct {
+		id     string
+		fields string
+	}{
+		{id: "reject_worker_result", fields: `{"attempt_id":"attempt-1","attempt_epoch":1,"diagnosis":"bad result","strategy":"retry the worker","predicate_ids":["predicate-1"],"evidence_refs":["evidence-1"]}`},
+		{id: "request_correction", fields: `{"diagnosis":"bad result","strategy":"retry the worker","predicate_ids":["predicate-1"],"evidence_refs":["evidence-1"]}`},
+	} {
+		payload := json.RawMessage(`{"work_id":"work-1","expected_version":1,"action_id":"` + action.id + `","idempotency_key":"action-1","fields":` + action.fields + `}`)
+		for _, schema := range []string{"work_transition_action_input", "work_transition_action_public_input"} {
+			if err := ValidatePayloadSchema(schema, payload); err != nil {
+				t.Fatalf("%s rejected by %s: %v", action.id, schema, err)
+			}
+		}
+
+		var malformed map[string]any
+		if err := json.Unmarshal(payload, &malformed); err != nil {
+			t.Fatal(err)
+		}
+		malformedFields := malformed["fields"].(map[string]any)
+		malformedFields["unexpected"] = true
+		malformedPayload, err := json.Marshal(malformed)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, schema := range []string{"work_transition_action_input", "work_transition_action_public_input"} {
+			err := ValidatePayloadSchema(schema, malformedPayload)
+			if err == nil {
+				t.Fatalf("%s accepted by %s", action.id, schema)
+			}
+			if !strings.Contains(err.Error(), "fields.unexpected") {
+				t.Fatalf("%s refusal from %s did not name fields.unexpected: %v", action.id, schema, err)
+			}
+		}
 	}
 }
 

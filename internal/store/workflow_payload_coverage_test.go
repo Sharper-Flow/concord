@@ -13,8 +13,7 @@ import (
 // This test derives the action-to-field reads from dispatcher control flow and
 // compares them with the current registry contracts. It contains no duplicate
 // expected field inventory. The only exclusions are the singular approval
-// compatibility fields and stale-law recovery, whose public contracts are
-// explicitly outside issue #776.
+// compatibility fields and stale-law recovery.
 func TestDispatcherFieldReadsHaveActionPayloadDeclarations(t *testing.T) {
 	t.Parallel()
 	files := map[string]*ast.File{}
@@ -108,7 +107,6 @@ func TestDispatcherFieldReadsHaveActionPayloadDeclarations(t *testing.T) {
 		delete(reads["approve_contract"], field)
 	}
 	delete(reads, "supersede_contract")
-	delete(reads, "reject_worker_result")
 
 	declared := map[string]map[string]bool{}
 	for _, definition := range BuiltinWorkflowDefinitions() {
@@ -119,6 +117,14 @@ func TestDispatcherFieldReadsHaveActionPayloadDeclarations(t *testing.T) {
 			for _, field := range action.Payload.Fields {
 				declared[action.ID][field.Name] = true
 			}
+		}
+	}
+	for _, action := range BuiltinWorkflowRecoveryActionDefinitions() {
+		if declared[action.ID] == nil {
+			declared[action.ID] = map[string]bool{}
+		}
+		for _, field := range action.Payload.Fields {
+			declared[action.ID][field.Name] = true
 		}
 	}
 	var missing []string

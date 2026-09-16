@@ -1336,12 +1336,23 @@ func workflowRecoveryActionDefinition(actionID string) (WorkflowActionDefinition
 		return currentActionDefinition(actionID, true), true
 	case "record_worker_failure":
 		return workerFailureRecoveryActionDefinition(), true
-	case "reject_worker_result":
-		return workflowCorrectionActionDefinition(), true
-	case "request_correction":
-		return workflowCorrectionRequestActionDefinition(), true
-	default:
-		return WorkflowActionDefinition{}, false
+	}
+	for _, action := range BuiltinWorkflowRecoveryActionDefinitions() {
+		if action.ID == actionID {
+			return action, true
+		}
+	}
+	return WorkflowActionDefinition{}, false
+}
+
+// BuiltinWorkflowRecoveryActionDefinitions is the single list of correction
+// payloads the engine admits off a pinned step. The registry resolves them
+// here, and the contract projection reads the same list, so neither carries a
+// second copy.
+func BuiltinWorkflowRecoveryActionDefinitions() []WorkflowActionDefinition {
+	return []WorkflowActionDefinition{
+		workflowCorrectionActionDefinition(),
+		workflowCorrectionRequestActionDefinition(),
 	}
 }
 

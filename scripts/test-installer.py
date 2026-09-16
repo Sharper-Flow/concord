@@ -140,6 +140,65 @@ esac''',
             encoding="utf-8",
         )
 
+    def configure_managed_credential_fixture(self) -> tuple[Path, Path, Path, Path]:
+        state = self.root / "credential-state"
+        command_log = self.root / "credential-commands.log"
+        keyrings = self.root / "data" / "keyrings"
+        self.env["TEST_CREDENTIAL_STATE"] = str(state)
+        self.env["TEST_CREDENTIAL_LOG"] = str(command_log)
+        self.env["TEST_KEYRINGS"] = str(keyrings)
+        legacy_unit = self.root / "config" / "systemd" / "user" / installer.CREDENTIAL_UNIT_NAME
+        legacy_unit.parent.mkdir(parents=True)
+        legacy_unit.write_text(
+            installer.legacy_credential_unit_text(str(self.commands / "gnome-keyring-daemon")), encoding="utf-8"
+        )
+        self.write_command(
+            "busctl",
+            r'''printf '%s\n' "$*" >>"$TEST_CREDENTIAL_LOG"
+case "$*" in
+  "--user --list") printf 'org.freedesktop.secrets\n' ;;
+  *"ReadAlias"*)
+    if [ -f "$TEST_CREDENTIAL_STATE" ]; then
+      printf 'o "/org/freedesktop/secrets/collection/login"\n'
+    else
+      printf 'o "/"\n'
+    fi ;;
+  *" Collections") printf 'ao 1 "/org/freedesktop/secrets/collection/session"\n' ;;
+  *" Items") printf 'ao 1 "/org/freedesktop/secrets/collection/session/1"\n' ;;
+  *" Locked")
+    if [ "$(cat "$TEST_CREDENTIAL_STATE" 2>/dev/null)" = ready ]; then printf 'b false\n'; else printf 'b true\n'; fi ;;
+  *"status org.freedesktop.secrets") printf 'PID=0\n' ;;
+  *) exit 2 ;;
+esac''',
+        )
+        self.write_command(
+            "dbus-run-session",
+            r'''printf 'dbus-run-session %s\n' "$*" >>"$TEST_CREDENTIAL_LOG"
+mkdir -p "$TEST_KEYRINGS"
+printf 'store' >"$TEST_KEYRINGS/user.keystore"
+printf 'login' >"$TEST_KEYRINGS/login.keyring"
+chmod 700 "$TEST_KEYRINGS"
+chmod 600 "$TEST_KEYRINGS/user.keystore" "$TEST_KEYRINGS/login.keyring"
+printf 'created\n' >"$TEST_CREDENTIAL_STATE"''',
+        )
+        self.write_command(
+            "systemctl",
+            r'''printf '%s\n' "$*" >>"$TEST_CREDENTIAL_LOG"
+case "$*" in
+  *"show"*) printf '0\n' ;;
+  *"restart gnome-keyring-daemon.service"*) printf 'ready\n' >"$TEST_CREDENTIAL_STATE" ;;
+esac''',
+        )
+        dropin = (
+            self.root
+            / "config"
+            / "systemd"
+            / "user"
+            / "gnome-keyring-daemon.service.d"
+            / installer.CREDENTIAL_DROPIN_NAME
+        )
+        return state, command_log, keyrings, dropin
+
     def test_fresh_home_without_a_launcher_bin_dir_installs(self) -> None:
         # A PATH entry can name a directory that does not exist yet: a fresh
         # HOME has exactly that shape. The install must create the bin dir
@@ -193,65 +252,10 @@ esac''',
 
     def test_headless_install_creates_noninteractive_persistent_credential_collection(self) -> None:
         self.make_release("v1.0.0")
-        state = self.root / "credential-state"
-        command_log = self.root / "credential-commands.log"
-        keyrings = self.root / "data" / "keyrings"
-        self.env["TEST_CREDENTIAL_STATE"] = str(state)
-        self.env["TEST_CREDENTIAL_LOG"] = str(command_log)
-        self.env["TEST_KEYRINGS"] = str(keyrings)
-        legacy_unit = self.root / "config" / "systemd" / "user" / installer.CREDENTIAL_UNIT_NAME
-        legacy_unit.parent.mkdir(parents=True)
-        legacy_unit.write_text(
-            installer.legacy_credential_unit_text(str(self.commands / "gnome-keyring-daemon")), encoding="utf-8"
-        )
-        self.write_command(
-            "busctl",
-            r'''printf '%s\n' "$*" >>"$TEST_CREDENTIAL_LOG"
-case "$*" in
-  "--user --list") printf 'org.freedesktop.secrets\n' ;;
-  *"ReadAlias"*)
-    if [ -f "$TEST_CREDENTIAL_STATE" ]; then
-      printf 'o "/org/freedesktop/secrets/collection/login"\n'
-    else
-      printf 'o "/"\n'
-    fi ;;
-  *" Collections") printf 'ao 1 "/org/freedesktop/secrets/collection/session"\n' ;;
-  *" Items") printf 'ao 1 "/org/freedesktop/secrets/collection/session/1"\n' ;;
-  *" Locked")
-    if [ "$(cat "$TEST_CREDENTIAL_STATE" 2>/dev/null)" = ready ]; then printf 'b false\n'; else printf 'b true\n'; fi ;;
-  *"status org.freedesktop.secrets") printf 'PID=0\n' ;;
-  *) exit 2 ;;
-esac''',
-        )
-        self.write_command(
-            "dbus-run-session",
-            r'''printf 'dbus-run-session %s\n' "$*" >>"$TEST_CREDENTIAL_LOG"
-mkdir -p "$TEST_KEYRINGS"
-printf 'store' >"$TEST_KEYRINGS/user.keystore"
-printf 'login' >"$TEST_KEYRINGS/login.keyring"
-chmod 700 "$TEST_KEYRINGS"
-chmod 600 "$TEST_KEYRINGS/user.keystore" "$TEST_KEYRINGS/login.keyring"
-printf 'created\n' >"$TEST_CREDENTIAL_STATE"''',
-        )
-        self.write_command(
-            "systemctl",
-            r'''printf '%s\n' "$*" >>"$TEST_CREDENTIAL_LOG"
-case "$*" in
-  *"show"*) printf '0\n' ;;
-  *"restart gnome-keyring-daemon.service"*) printf 'ready\n' >"$TEST_CREDENTIAL_STATE" ;;
-esac''',
-        )
+        state, command_log, keyrings, unit = self.configure_managed_credential_fixture()
 
         first = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
         self.assertEqual(first.returncode, 0, first.stderr)
-        unit = (
-            self.root
-            / "config"
-            / "systemd"
-            / "user"
-            / "gnome-keyring-daemon.service.d"
-            / installer.CREDENTIAL_DROPIN_NAME
-        )
         self.assertTrue(unit.is_file())
         self.assertEqual(unit.stat().st_mode & 0o777, 0o644)
         self.assertEqual(keyrings.stat().st_mode & 0o777, 0o700)
@@ -299,13 +303,49 @@ esac''',
         )
         state.write_text("created\n", encoding="utf-8")
         unit.unlink()
+        before_refusal_commands = command_log.read_text(encoding="utf-8").splitlines()
         refused = self.run_installer("repair", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
         self.assertNotEqual(refused.returncode, 0)
         self.assertIn("remained locked", refused.stderr)
         self.assertIn("Check the user service", refused.stderr)
         self.assertFalse(unit.exists())
-        commands = command_log.read_text(encoding="utf-8")
-        self.assertGreaterEqual(commands.count("restart gnome-keyring-daemon.service"), 2)
+        commands = command_log.read_text(encoding="utf-8").splitlines()
+        refusal_commands = commands[len(before_refusal_commands) :]
+        self.assertEqual(refusal_commands.count("--user daemon-reload"), 2)
+        self.assertEqual(refusal_commands.count("--user restart gnome-keyring-daemon.service"), 2)
+
+    def test_repair_keeps_a_preexisting_credential_dropin_when_unlock_fails(self) -> None:
+        self.make_release("v1.0.0")
+        state, command_log, keyrings, dropin = self.configure_managed_credential_fixture()
+
+        installed = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
+        self.assertEqual(installed.returncode, 0, installed.stderr)
+        original_dropin = dropin.read_bytes()
+
+        restart_marker = self.root / "credential-restart-marker"
+        self.env["TEST_RESTART_MARKER"] = str(restart_marker)
+        self.write_command(
+            "systemctl",
+            r'''printf '%s\n' "$*" >>"$TEST_CREDENTIAL_LOG"
+case "$*" in
+  *"restart gnome-keyring-daemon.service"*)
+    touch "$TEST_RESTART_MARKER" ;;
+esac''',
+        )
+        state.write_text("created\n", encoding="utf-8")
+        before_refusal_commands = command_log.read_text(encoding="utf-8").splitlines()
+
+        refused = self.run_installer("repair", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
+
+        self.assertNotEqual(refused.returncode, 0)
+        self.assertIn("remained locked", refused.stderr)
+        self.assertIn("Check the user service", refused.stderr)
+        self.assertEqual(dropin.read_bytes(), original_dropin)
+        self.assertEqual(keyrings.joinpath("login.keyring").read_text(encoding="utf-8"), "login")
+        commands = command_log.read_text(encoding="utf-8").splitlines()
+        refusal_commands = commands[len(before_refusal_commands) :]
+        self.assertEqual(refusal_commands.count("--user daemon-reload"), 1)
+        self.assertEqual(refusal_commands.count("--user restart gnome-keyring-daemon.service"), 1)
 
     def test_install_keeps_an_existing_compatible_secret_service(self) -> None:
         self.make_release("v1.0.0")

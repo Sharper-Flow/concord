@@ -47,7 +47,7 @@ func TestWorkflowSelfRepairBypassesOverlapForClassifiedWorkOnly(t *testing.T) {
 	_, selfVersion := seedProductChangingContract(t, s, "self-repair", binding)
 	_, _ = seedProductChangingContract(t, s, "ordinary-peer", binding)
 
-	if err := CheckWorkflowDomainOverlap(ctx, s, "self-repair"); err == nil {
+	if err := InspectWorkflowDomainOverlap(ctx, s, "self-repair"); err == nil {
 		t.Fatal("precondition: self-repair work has no unresolved overlap")
 	}
 	operator := seedSelfRepairOperator(t, s)
@@ -62,7 +62,7 @@ func TestWorkflowSelfRepairBypassesOverlapForClassifiedWorkOnly(t *testing.T) {
 		t.Fatalf("classify self-repair: %v", err)
 	}
 
-	if err := CheckWorkflowDomainOverlap(ctx, s, "self-repair"); err != nil {
+	if err := InspectWorkflowDomainOverlap(ctx, s, "self-repair"); err != nil {
 		t.Fatalf("classified self-repair stayed overlap-blocked: %v", err)
 	}
 	pin, err := ReadWorkPin(ctx, s, "self-repair")
@@ -72,7 +72,7 @@ func TestWorkflowSelfRepairBypassesOverlapForClassifiedWorkOnly(t *testing.T) {
 	if pin.SelfRepair == nil || pin.SelfRepair.RefusalKind != string(KindDomainOverlap) || pin.SelfRepair.BlockedOperation != "workflow_action.dispatch_worker" {
 		t.Fatalf("work pin omitted active self-repair classification: %#v", pin.SelfRepair)
 	}
-	err = CheckWorkflowDomainOverlap(ctx, s, "ordinary-peer")
+	err = InspectWorkflowDomainOverlap(ctx, s, "ordinary-peer")
 	var failure *Failure
 	if !errors.As(err, &failure) || failure.Kind != KindDomainOverlap {
 		t.Fatalf("ordinary peer escaped overlap authority: %v", err)
@@ -113,7 +113,7 @@ func TestWorkflowSelfRepairStillRequiresCurrentDomainRegistry(t *testing.T) {
 	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE domains SET status='deprecated' WHERE product_id='product' AND domain_id='child'; DELETE FROM fold_guard`); err != nil {
 		t.Fatal(err)
 	}
-	err := CheckWorkflowDomainOverlap(ctx, s, "self-repair-stale")
+	err := InspectWorkflowDomainOverlap(ctx, s, "self-repair-stale")
 	var failure *Failure
 	if !errors.As(err, &failure) || failure.Kind != KindStaleRequiresReview {
 		t.Fatalf("self-repair bypassed stale Domain registry validation: %v", err)

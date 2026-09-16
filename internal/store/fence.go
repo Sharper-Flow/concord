@@ -283,12 +283,6 @@ func completeStepObserved(ctx context.Context, s *Store, req CompleteRequest, ob
 		ResultEventIDs: append([]string(nil), req.ResultEventIDs...)}, nil
 }
 
-// AbortStep records a failed result through the same fenced completion path.
-func AbortStep(ctx context.Context, s *Store, req CompleteRequest) (FenceResult, error) {
-	req.ResultKind = ResultFailed
-	return CompleteStep(ctx, s, req)
-}
-
 // OperatorTakeover is the only recovery path that advances an attempt after a
 // prior claim. No expiry, heartbeat, hostname, or liveness inference exists.
 func OperatorTakeover(ctx context.Context, s *Store, req ClaimRequest, approvalRef string) (FenceResult, error) {

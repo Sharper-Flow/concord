@@ -97,16 +97,6 @@ func DecodeWorkflowPredicate(data []byte) (OutcomePredicate, error) {
 	return predicate, nil
 }
 
-// DecodeOutcomePredicate is an explicit alias for callers that use the schema
-// name rather than the engine's shorter predicate name.
-func DecodeOutcomePredicate(data []byte) (OutcomePredicate, error) {
-	return DecodeWorkflowPredicate(data)
-}
-
-func DecodeWorkflowOutcome(data []byte) (OutcomePredicate, error) {
-	return DecodeWorkflowPredicate(data)
-}
-
 func ValidateWorkflowPredicate(predicate OutcomePredicate) error {
 	if !validPredicateKind(predicate.Kind) {
 		return workflowOutcomeFailure("predicate kind is unknown")
@@ -614,15 +604,6 @@ func workflowOutcomeDefinition(context WorkflowOutcomeEvaluationContext) (Workfl
 		return WorkflowDefinition{}, err
 	}
 	return registered.Definition, nil
-}
-
-// CompareCheckResults adapts a registered check's closed result to the
-// engine's strength vocabulary without coercing incomparable outcomes.
-func CompareCheckResults(strength WorkflowStrength) error {
-	if strength != StrengthStrongerOrEqual && strength != StrengthWeaker && strength != StrengthIncomparable {
-		return workflowOutcomeFailure("check evaluator returned an unknown strength")
-	}
-	return nil
 }
 
 type ActorClass string

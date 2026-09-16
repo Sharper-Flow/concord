@@ -1,0 +1,25 @@
+{
+  "date": "2026-09-15T00:00:00Z",
+  "evidence": [
+    "bin/oc-test",
+    "scripts/test-oc-test.py"
+  ],
+  "id": "lesson-test-fake-models-dependency-contract",
+  "kind": "lesson",
+  "path": "docs/lessons/2026-09-15-a-test-fake-must-model-the-dependency-s-contract.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:7cde8332165b05fccbc91d73fdde1ff47655584ea4ebfe653af669babcd335ff",
+  "status": "published",
+  "summary": "A repository script test whose fake is derived from the code under test asserts self-consistency, not conformance. It certifies an invocation the real dependency rejects.",
+  "tags": [
+    "testing",
+    "fakes"
+  ],
+  "title": "A test fake must model the dependency's contract, not the caller's code"
+}

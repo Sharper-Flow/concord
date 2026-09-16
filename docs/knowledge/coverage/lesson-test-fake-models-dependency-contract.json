@@ -1,0 +1,5 @@
+{
+  "id": "lesson-test-fake-models-dependency-contract",
+  "reason": "This lesson records a test-design rule from a completed incident. It does not define required Product behavior.",
+  "state": "out_of_scope"
+}

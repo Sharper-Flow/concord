@@ -2,6 +2,8 @@
 
 `bin/oc-test` was reduced to one tier. The change passed the tier name `conformance` to `oc-test-gate` as its admission class. The deployed gate accepts `targeted`, `smoke`, and `full` and exits 2 on anything else, so the sole remaining tier -- and the exact invocation `.concord/tooling.v1.json` declares -- failed on every host that has the gate installed:
 
+The wrapper reports start (START), wait (WAIT), and failure (FAIL) states. It also reads the executable search path (PATH).
+
     START conformance
     WAIT admission: conformance (shared heavy-test slot)
     unknown tier: conformance

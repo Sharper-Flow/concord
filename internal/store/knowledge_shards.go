@@ -130,10 +130,10 @@ func readKnowledgeShardsAtCommit(ctx context.Context, repo, commit string) (know
 			continue
 		}
 		name := path.Clean(header.Name)
-		if header.Size > maxKnowledgeManifest {
+		if header.Size > maxKnowledgeRecord {
 			return knowledgeShards{}, true, newFailure(KindInvalidNoteProof, "read_knowledge_manifest", "knowledge shard exceeds the bounded size: "+name, false, "publish a bounded shard")
 		}
-		content, err := io.ReadAll(io.LimitReader(reader, maxKnowledgeManifest+1))
+		content, err := io.ReadAll(io.LimitReader(reader, maxKnowledgeRecord+1))
 		if err != nil {
 			return knowledgeShards{}, true, wrapFailure(KindInvalidNoteProof, "read_knowledge_manifest", "cannot read a knowledge shard from the archive", false, "repair the canonical git tree", err)
 		}

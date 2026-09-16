@@ -1997,11 +1997,14 @@ func (s *Store) VerifyWorktree(ctx context.Context, req WorktreeVerifyRequest) (
 }
 
 // worktreeVerifyOperationRef is the durable-operation identity of one
-// worktree-verify run. A green released run claims a completed
-// durable_operations row under this identity whose authoritative evidence_refs
-// name the run, so a workflow evidence binding can name a core-run
-// verification as its producer through the one durable-operation authority.
+// worktree-verify run. Production lease ids append the work identity after the
+// digest, but durable_operations already stores work_id. Keep only the digest
+// in the operation reference so producer_run_ref stays within its 128-byte
+// workflow bound.
 func worktreeVerifyOperationRef(leaseID string) string {
+	if digest, _, ok := strings.Cut(leaseID, ":worktree-verify:"); ok {
+		return "worktree_verify:" + digest
+	}
 	return "worktree_verify:" + leaseID
 }
 

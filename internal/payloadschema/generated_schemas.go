@@ -5041,6 +5041,31 @@ const GeneratedPayloadSchemaDocument = `{
       ],
       "type": "object"
     },
+    "work_define_issue_adopt_input": {
+      "additionalProperties": false,
+      "properties": {
+        "idempotency_key": {
+          "$ref": "#/$defs/id"
+        },
+        "remote_issue_uuid": {
+          "maxLength": 128,
+          "minLength": 2,
+          "type": "string"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
+        },
+        "work_id": {
+          "$ref": "#/$defs/id"
+        }
+      },
+      "required": [
+        "work_id",
+        "remote_issue_uuid",
+        "idempotency_key"
+      ],
+      "type": "object"
+    },
     "work_define_observation_record_input": {
       "additionalProperties": false,
       "oneOf": [

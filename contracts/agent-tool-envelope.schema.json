@@ -443,7 +443,8 @@
                 "research_finding_record",
                 "research_source_record",
                 "research_freshness_set",
-                "observation_record"
+                "observation_record",
+                "issue_adopt"
               ],
               "type": "string"
             }
@@ -761,6 +762,7 @@
             "entries",
             "external_observations",
             "history",
+            "issue_adopt",
             "lesson_publish",
             "lifecycle",
             "link",
@@ -1232,6 +1234,7 @@
             "entries",
             "external_observations",
             "history",
+            "issue_adopt",
             "lesson_publish",
             "lifecycle",
             "link",

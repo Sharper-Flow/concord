@@ -151,7 +151,7 @@ var commandSpecs = []commandSpec{
 	{Canonical: "product-create", TwoWord: "product create", RequiredFields: requiredFields(field("product_id"), field("display_name"), field("stage_maturity"), field("stage_audience_commitment"), field("project_id"), field("project_display_name"), field("role")), Optional: "reason", Enums: "stage_maturity: prototype | alpha | beta | production | deprecated; stage_audience_commitment: operator_only | limited | public; role: primary | secondary"},
 	{Canonical: "product-mode-set", TwoWord: "product mode-set", RequiredFields: requiredFields(field("product_id"), field("planning_mode"), field("expected_version"), field("reason")), Optional: "none", Enums: "planning_mode: local_only | linear_enabled"},
 	{Canonical: "linear-health", TwoWord: "linear health", RequiredFields: requiredFields(field("product_id")), Optional: "none", Enums: "none"},
-	{Canonical: "linear-issue-enqueue", TwoWord: "linear issue-enqueue", RequiredFields: requiredFields(field("product_id"), field("work_id"), field("op_kind")), Optional: "none", Enums: "op_kind: issue_create | issue_update"},
+	{Canonical: "linear-issue-enqueue", TwoWord: "linear issue-enqueue", RequiredFields: requiredFields(field("product_id"), field("work_id"), field("op_kind")), Optional: "remote_issue_uuid (required for issue_adopt)", Enums: "op_kind: issue_create | issue_update | issue_adopt"},
 	{Canonical: "linear-outbox-drain", TwoWord: "linear outbox-drain", RequiredFields: requiredFields(field("product_id")), Optional: "max_operations", Enums: "none"},
 	{Canonical: "linear-connection-update", TwoWord: "linear connection-update", RequiredFields: requiredFields(field("event_id"), field("resource_id"), field("product_id"), field("expected_resource_version")), Optional: "team_id, project_ids, status_ids", Enums: "status_ids keys: needed | in_progress | completed | cancelled | superseded"},
 	{Canonical: "linear-initiative-import", TwoWord: "linear initiative-import", RequiredFields: requiredFields(field("product_id"), field("initiative_id")), Optional: "none", Enums: "none"},
@@ -963,17 +963,36 @@ func runLinearHealth(ctx context.Context, s *store.Store, raw []byte, command st
 // issue operation for a work item under the Product's planning authority.
 func runLinearIssueEnqueue(ctx context.Context, s *store.Store, raw []byte, command string, out, errOut io.Writer) int {
 	var request struct {
-		ProductID string `json:"product_id"`
-		WorkID    string `json:"work_id"`
-		OpKind    string `json:"op_kind"`
+		ProductID       string `json:"product_id"`
+		WorkID          string `json:"work_id"`
+		OpKind          string `json:"op_kind"`
+		RemoteIssueUUID string `json:"remote_issue_uuid"`
 	}
 	if err := decodeObject(raw, &request); err != nil {
 		writeOperatorDiagnostic(errOut, command, err.Error())
 		return 1
 	}
-	if request.OpKind != store.LinearOpIssueCreate && request.OpKind != store.LinearOpIssueUpdate {
-		writeOperatorDiagnostic(errOut, command, "accepted values: op_kind: issue_create | issue_update")
+	if request.OpKind != store.LinearOpIssueCreate && request.OpKind != store.LinearOpIssueUpdate && request.OpKind != store.LinearOpIssueAdopt {
+		writeOperatorDiagnostic(errOut, command, "accepted values: op_kind: issue_create | issue_update | issue_adopt")
 		return 1
+	}
+	if request.OpKind == store.LinearOpIssueAdopt {
+		if request.RemoteIssueUUID == "" {
+			writeOperatorDiagnostic(errOut, command, "issue_adopt requires the remote_issue_uuid of the existing Linear issue")
+			return 1
+		}
+		if _, err := s.ResolveLinearPlanningTarget(ctx, request.ProductID); err != nil {
+			writeOperatorDiagnostic(errOut, command, err.Error())
+			return 1
+		}
+		entry, err := s.EnqueueLinearIssueAdoption(ctx, request.ProductID, request.WorkID, request.RemoteIssueUUID)
+		if err != nil {
+			writeOperatorDiagnostic(errOut, command, err.Error())
+			return 1
+		}
+		return writeJSON(out, map[string]any{"ok": true, "operation": map[string]any{
+			"operation_id": entry.OperationID, "work_id": entry.WorkID, "op_kind": entry.OpKind, "state": "queued",
+		}}, errOut)
 	}
 	if _, err := s.ResolveLinearPlanningTarget(ctx, request.ProductID); err != nil {
 		writeOperatorDiagnostic(errOut, command, err.Error())
@@ -1089,6 +1108,8 @@ func runLinearOutboxDrain(ctx context.Context, s *store.Store, raw []byte, comma
 		)
 		if op.OpKind == store.LinearOpIssueUpdate {
 			issue, derr = drainUpdate(ctx, s, client, op, payload)
+		} else if op.OpKind == store.LinearOpIssueAdopt {
+			issue, derr = drainAdopt(ctx, client, payload, teamID)
 		} else {
 			issue, derr = client.CreateIssue(ctx, linearclient.CreateIssueInput{
 				ID: payload.ClientUUID, TeamID: teamID, ProjectID: payload.ProjectID, Title: payload.Title, Description: payload.Description,
@@ -1109,6 +1130,11 @@ func runLinearOutboxDrain(ctx context.Context, s *store.Store, raw []byte, comma
 			URL:             issue.URL,
 			RemoteUpdatedAt: issue.UpdatedAt.UTC().Format(time.RFC3339Nano),
 			ContentHash:     linearContentHash(payload.Title, payload.Description),
+		}
+		if op.OpKind == store.LinearOpIssueAdopt {
+			// Adoption records an issue Concord has never authored; no
+			// synchronized content exists to hash yet.
+			identity.ContentHash = ""
 		}
 		if err := s.CompleteLinearOperation(ctx, op.OperationID, identity); err != nil {
 			_ = s.FailLinearOperation(ctx, op.OperationID, "retryable", err.Error())
@@ -1131,6 +1157,7 @@ type linearDrainPayload struct {
 	ConnectionVersion int64  `json:"connection_version"`
 	Lifecycle         string `json:"lifecycle,omitempty"`
 	StatusID          string `json:"status_id,omitempty"`
+	RemoteIssueUUID   string `json:"remote_issue_uuid,omitempty"`
 }
 
 // drainUpdate resolves the linked remote identity and executes issueUpdate.
@@ -1148,6 +1175,25 @@ func drainUpdate(ctx context.Context, s *store.Store, client *linearclient.Clien
 		input.Description = payload.Description
 	}
 	return client.UpdateIssue(ctx, link.RemoteIssueUUID, input)
+}
+
+// drainAdopt resolves the named existing issue and verifies it belongs to the
+// Product's configured team before the completion records the link.
+func drainAdopt(ctx context.Context, client *linearclient.Client, payload linearDrainPayload, teamID string) (linearclient.Issue, error) {
+	if payload.RemoteIssueUUID == "" {
+		return linearclient.Issue{}, fmt.Errorf("adoption names no remote issue to resolve")
+	}
+	resolved, err := client.GetIssue(ctx, payload.RemoteIssueUUID)
+	if err != nil {
+		return linearclient.Issue{}, err
+	}
+	if teamID == "" {
+		return linearclient.Issue{}, fmt.Errorf("adoption cannot verify issue %s because the Product declares no Linear team", resolved.Identifier)
+	}
+	if resolved.TeamID != teamID {
+		return linearclient.Issue{}, fmt.Errorf("issue %s belongs to team %s, not the Product's configured team %s", resolved.Identifier, resolved.TeamID, teamID)
+	}
+	return resolved.Issue, nil
 }
 
 // linearContentHash digests the synchronized content so a later reconciliation

@@ -78,7 +78,8 @@
         "concord_work_define.research_finding_record",
         "concord_work_define.research_source_record",
         "concord_work_define.research_freshness_set",
-        "concord_work_define.observation_record"
+        "concord_work_define.observation_record",
+        "concord_work_define.issue_adopt"
       ]
     },
     {
@@ -765,6 +766,27 @@
       "kind": "mutation",
       "query_id": null,
       "input_schema": "#/schemas/work_define_observation_record_input",
+      "result_schema": "#/schemas/mutation_result",
+      "capability": "work_define",
+      "consequence": "intent",
+      "approval": "none",
+      "metadata": {
+        "context": "ambient",
+        "idempotency": "required",
+        "pagination": "none",
+        "output_bytes": 51200,
+        "versions": [
+          "1.0"
+        ]
+      },
+      "supported_budget_seconds": 300
+    },
+    {
+      "id": "concord_work_define.issue_adopt",
+      "tool": "concord_work_define",
+      "kind": "mutation",
+      "query_id": null,
+      "input_schema": "#/schemas/work_define_issue_adopt_input",
       "result_schema": "#/schemas/mutation_result",
       "capability": "work_define",
       "consequence": "intent",
@@ -1900,6 +1922,10 @@
       "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_define_observation_record_input",
       "closed": true
     },
+    "work_define_issue_adopt_input": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_define_issue_adopt_input",
+      "closed": true
+    },
     "domain_list_input": {
       "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/domain_list_input",
       "closed": true
@@ -2009,6 +2035,6 @@
       "digest"
     ]
   },
-  "payload_digest": "sha256:ab6c9528baff26a4fcf536e09d51b756c9f5f8de2418358a13d81864aeadb792",
-  "digest": "sha256:78c5997a7f5b1471fdc13578f11f6a415c1185fd9582a118b908fef6a390b1af"
+  "payload_digest": "sha256:b7f6d67a26d61689f08ef6bf6ff1300994cab94a7f58dc5ef905968ecb0ee5e4",
+  "digest": "sha256:fe19b0e31db52b3806773b0a1e568826e6094fa5f7d626cf908b659876778f67"
 }

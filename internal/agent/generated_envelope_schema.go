@@ -218,6 +218,7 @@ const GeneratedEnvelopeSchemaDocument = `{
             "entries",
             "external_observations",
             "history",
+            "issue_adopt",
             "lesson_publish",
             "lifecycle",
             "link",
@@ -826,6 +827,7 @@ const GeneratedEnvelopeSchemaDocument = `{
             "entries",
             "external_observations",
             "history",
+            "issue_adopt",
             "lesson_publish",
             "lifecycle",
             "link",
@@ -1686,7 +1688,8 @@ const GeneratedEnvelopeSchemaDocument = `{
                 "research_finding_record",
                 "research_source_record",
                 "research_freshness_set",
-                "observation_record"
+                "observation_record",
+                "issue_adopt"
               ],
               "type": "string"
             },

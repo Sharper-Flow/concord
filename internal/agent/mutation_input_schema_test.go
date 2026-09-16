@@ -33,6 +33,7 @@ func TestMutationInputSchemasBindDecodingStructs(t *testing.T) {
 		"concord_work_compact.publish":                   compactPublishInput{},
 		"concord_work_compact.reconcile":                 compactReconcileInput{},
 		"concord_work_define.capture":                    captureMutationInput{},
+		"concord_work_define.issue_adopt":                issueAdoptInput{},
 		"concord_work_define.observation_record":         observationRecordInput{},
 		"concord_work_define.research_finding_record":    researchFindingMutation{},
 		"concord_work_define.research_freshness_set":     researchFreshnessMutation{},

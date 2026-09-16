@@ -161,3 +161,46 @@ func failureAs(err error, target **Failure) bool {
 	}
 	return false
 }
+
+func TestGetIssueResolvesIdentityAndTeam(t *testing.T) {
+	var gotBody string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		buf := make([]byte, r.ContentLength)
+		_, _ = r.Body.Read(buf)
+		gotBody = string(buf)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":{"issue":{"id":"68d52710-76d9-4b41-ba45-778511d0e2ed","identifier":"SHA-7","url":"https://linear.app/example/issue/SHA-7","updatedAt":"2026-09-15T08:00:00Z","team":{"id":"team-uuid-1"}}}}`))
+	}))
+	defer server.Close()
+	client, err := New("lin_api_test", WithEndpoint(server.URL))
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := client.GetIssue(context.Background(), "68d52710-76d9-4b41-ba45-778511d0e2ed")
+	if err != nil {
+		t.Fatalf("GetIssue() error = %v", err)
+	}
+	if !strings.Contains(gotBody, `"query":"query($id: String!) { issue(id: $id) { id identifier url updatedAt team { id } } }"`) {
+		t.Fatalf("request body %q lacks the issue query", gotBody)
+	}
+	if resolved.ID != "68d52710-76d9-4b41-ba45-778511d0e2ed" || resolved.Identifier != "SHA-7" || resolved.TeamID != "team-uuid-1" {
+		t.Fatalf("resolved issue = %+v", resolved.Issue)
+	}
+}
+
+func TestGetIssueMapsUnknownIssueToPermanentFailure(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"errors":[{"message":"Issue not found"}]}`))
+	}))
+	defer server.Close()
+	client, err := New("lin_api_test", WithEndpoint(server.URL))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.GetIssue(context.Background(), "00000000-0000-0000-0000-000000000000"); err == nil {
+		t.Fatal("GetIssue() for an unknown issue = nil error, want failure")
+	} else if IsRetryable(err) {
+		t.Fatalf("unknown issue error %v is retryable, want permanent", err)
+	}
+}

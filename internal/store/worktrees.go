@@ -3,7 +3,9 @@ package store
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -1976,6 +1978,14 @@ func (s *Store) VerifyWorktree(ctx context.Context, req WorktreeVerifyRequest) (
 		releasedAt.Format(time.RFC3339Nano), exitCode, outcome, string(resultJSON), req.LeaseID); err != nil {
 		return WorktreeVerifyResult{}, annotateCommittedEffect(wrapFailure(KindUnavailable, "worktree_verify", "cannot release the verify lease", true, "retry the same operation with the same lease id", err), leaseRef)
 	}
+	if !changed && exitCode == 0 {
+		// Only a passing run may stand as verification authority. A failed or
+		// mutated run stays history in worktree_verify_leases and names no
+		// producer operation, so the completion gate cannot consume it.
+		if err := recordWorktreeVerifyAuthorityTx(ctx, releaseTx, req, string(commandJSON), now, releasedAt, string(resultJSON)); err != nil {
+			return WorktreeVerifyResult{}, annotateCommittedEffect(err, leaseRef)
+		}
+	}
 	if err := releaseTx.Commit(); err != nil {
 		return WorktreeVerifyResult{}, annotateCommittedEffect(wrapFailure(KindUnavailable, "worktree_verify", "cannot commit the verify release", true, "retry the same operation with the same lease id", err), leaseRef)
 	}
@@ -1984,6 +1994,41 @@ func (s *Store) VerifyWorktree(ctx context.Context, req WorktreeVerifyRequest) (
 			"tracked files changed in "+entry.Path+" while the verify command ran; a verifier that edits its subject verifies nothing (CD-0096 D3)", false, "reconcile_operation"), leaseRef)
 	}
 	return result, nil
+}
+
+// worktreeVerifyOperationRef is the durable-operation identity of one
+// worktree-verify run. A green released run claims a completed
+// durable_operations row under this identity whose authoritative evidence_refs
+// name the run, so a workflow evidence binding can name a core-run
+// verification as its producer through the one durable-operation authority.
+func worktreeVerifyOperationRef(leaseID string) string {
+	return "worktree_verify:" + leaseID
+}
+
+// recordWorktreeVerifyAuthorityTx claims the green run's durable producer
+// operation in the lease release transaction, so the run and its authority
+// commit together or not at all. The binding authority checks read only
+// durable_operations, and the run claims epoch 1 so it never raises the
+// work's MAX(attempt_epoch) that context checkpoints bind. workflow_type_ref
+// names the verify tier rather than a workflow family, step_id stays empty
+// because the tier runs outside the step graph, and the closed step_kind
+// enum's external_effect member is the honest class for a command run.
+func recordWorktreeVerifyAuthorityTx(ctx context.Context, tx *sql.Tx, req WorktreeVerifyRequest, commandJSON string, acquired, released time.Time, resultJSON string) error {
+	commandDigest := sha256.Sum256([]byte(commandJSON))
+	_, err := tx.ExecContext(ctx, `INSERT INTO durable_operations
+		(op_id,attempt_epoch,work_id,workflow_type_ref,workflow_type_version,step_id,step_kind,
+		 accepted_inputs_digest,accepted_scope_snapshot,principal_ref,request_id,observed_at,contract_digest,
+		 result_kind,result_payload,evidence_refs,changed_refs,completed_at)
+		VALUES(?, 1, ?, 'worktree.verify', 1, '', 'external_effect', ?, '{}', ?, ?, ?, '', 'completed', ?, ?, '[]', ?)`,
+		worktreeVerifyOperationRef(req.LeaseID), req.WorkID,
+		"sha256:"+hex.EncodeToString(commandDigest[:]), req.PrincipalRef, req.RequestID,
+		acquired.UTC().Format(time.RFC3339Nano),
+		resultJSON, workflowJSON([]string{worktreeVerifyOperationRef(req.LeaseID)}),
+		released.UTC().Format(time.RFC3339Nano))
+	if err != nil {
+		return wrapFailure(KindUnavailable, "worktree_verify", "cannot record the verify run's evidence authority", true, "retry the same operation with the same lease id", err)
+	}
+	return nil
 }
 
 // worktreeVerifyCompleted carries the durable outcome of an already-released

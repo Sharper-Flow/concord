@@ -71,19 +71,21 @@ func (f *Failure) Error() string {
 // is the client UUID: Linear's IssueCreateInput.id, which makes a repeated
 // create converge on the existing issue instead of duplicating it.
 type CreateIssueInput struct {
-	ID          string `json:"id"`
-	TeamID      string `json:"teamId"`
-	ProjectID   string `json:"projectId,omitempty"`
-	Title       string `json:"title"`
-	Description string `json:"description"`
+	ID          string   `json:"id"`
+	TeamID      string   `json:"teamId"`
+	ProjectID   string   `json:"projectId,omitempty"`
+	Title       string   `json:"title"`
+	Description string   `json:"description"`
+	LabelIDs    []string `json:"labelIds,omitempty"`
 }
 
 // UpdateIssueInput carries the mutable fields the drain synchronizes.
 type UpdateIssueInput struct {
-	Title       string `json:"title,omitempty"`
-	Description string `json:"description,omitempty"`
-	ProjectID   string `json:"projectId,omitempty"`
-	StatusID    string `json:"stateId,omitempty"`
+	Title         string   `json:"title,omitempty"`
+	Description   string   `json:"description,omitempty"`
+	ProjectID     string   `json:"projectId,omitempty"`
+	StatusID      string   `json:"stateId,omitempty"`
+	AddedLabelIDs []string `json:"addedLabelIds,omitempty"`
 }
 
 // Issue is the remote identity a completed operation records.

@@ -154,7 +154,7 @@ var commandSpecs = []commandSpec{
 	{Canonical: "linear-issue-enqueue", TwoWord: "linear issue-enqueue", RequiredFields: requiredFields(field("product_id"), field("work_id"), field("op_kind")), Optional: "remote_issue_uuid (required for issue_adopt)", Enums: "op_kind: issue_create | issue_update | issue_adopt"},
 	{Canonical: "linear-outbox-drain", TwoWord: "linear outbox-drain", RequiredFields: requiredFields(field("product_id")), Optional: "max_operations", Enums: "none"},
 	{Canonical: "linear-backfill", TwoWord: "linear backfill", RequiredFields: requiredFields(field("product_id")), Optional: "none", Enums: "none"},
-	{Canonical: "linear-connection-update", TwoWord: "linear connection-update", RequiredFields: requiredFields(field("event_id"), field("resource_id"), field("product_id"), field("expected_resource_version")), Optional: "team_id, project_ids, status_ids", Enums: "status_ids keys: needed | in_progress | completed | cancelled | superseded"},
+	{Canonical: "linear-connection-update", TwoWord: "linear connection-update", RequiredFields: requiredFields(field("event_id"), field("resource_id"), field("product_id"), field("expected_resource_version")), Optional: "team_id, project_ids, status_ids, label_ids", Enums: "status_ids keys: needed | in_progress | completed | cancelled | superseded; label_ids keys: task | bug | decision | research | other | expedite"},
 	{Canonical: "linear-initiative-import", TwoWord: "linear initiative-import", RequiredFields: requiredFields(field("product_id"), field("initiative_id")), Optional: "none", Enums: "none"},
 	{Canonical: "resource-create", TwoWord: "resource create", RequiredFields: requiredFields(field("event_id"), field("resource_id"), field("product_id"), field("display_name"), field("class"), field("kind"), field("purpose"), field("stage_maturity"), field("stage_audience_commitment"), field("environments"), field("expected_product_version")), Optional: "locator_absence_reason, metadata_schema_version, metadata, owner_purpose, owner_environments", Enums: "stage_maturity: prototype | alpha | beta | production | deprecated; stage_audience_commitment: operator_only | limited | public"},
 	{Canonical: "resource-share", TwoWord: "resource share", RequiredFields: requiredFields(field("event_id"), field("resource_id"), field("product_id"), field("expected_resource_version")), Optional: "purpose, environments", Enums: "none"},
@@ -925,6 +925,7 @@ func runLinearConnectionUpdate(ctx context.Context, s *store.Store, raw []byte, 
 		TeamID                  string            `json:"team_id"`
 		ProjectIDs              map[string]string `json:"project_ids"`
 		StatusIDs               map[string]string `json:"status_ids"`
+		LabelIDs                map[string]string `json:"label_ids"`
 		ExpectedResourceVersion int64             `json:"expected_resource_version"`
 	}
 	if err := decodeObject(raw, &request); err != nil {
@@ -933,7 +934,7 @@ func runLinearConnectionUpdate(ctx context.Context, s *store.Store, raw []byte, 
 	}
 	if err := s.UpdateLinearConnection(ctx, store.LinearConnectionUpdateRequest{
 		EventID: request.EventID, ResourceID: request.ResourceID, ProductID: request.ProductID,
-		TeamID: request.TeamID, ProjectIDs: request.ProjectIDs, StatusIDs: request.StatusIDs,
+		TeamID: request.TeamID, ProjectIDs: request.ProjectIDs, StatusIDs: request.StatusIDs, LabelIDs: request.LabelIDs,
 		ExpectedResourceVersion: request.ExpectedResourceVersion, Actor: "operator", OccurredAt: clock().UTC(),
 	}); err != nil {
 		writeOperatorDiagnostic(errOut, command, err.Error())
@@ -1136,7 +1137,7 @@ func runLinearOutboxDrain(ctx context.Context, s *store.Store, raw []byte, comma
 			issue, derr = drainAdopt(ctx, client, payload, teamID)
 		} else {
 			issue, derr = client.CreateIssue(ctx, linearclient.CreateIssueInput{
-				ID: payload.ClientUUID, TeamID: teamID, ProjectID: payload.ProjectID, Title: payload.Title, Description: payload.Description,
+				ID: payload.ClientUUID, TeamID: teamID, ProjectID: payload.ProjectID, Title: payload.Title, Description: payload.Description, LabelIDs: payload.LabelIDs,
 			})
 		}
 		if derr != nil {
@@ -1172,16 +1173,17 @@ func runLinearOutboxDrain(ctx context.Context, s *store.Store, raw []byte, comma
 
 // linearDrainPayload is the JSON convention every outbox payload carries.
 type linearDrainPayload struct {
-	ClientUUID        string `json:"client_uuid"`
-	ProductID         string `json:"product_id"`
-	Title             string `json:"title"`
-	Description       string `json:"description"`
-	TeamID            string `json:"team_id"`
-	ProjectID         string `json:"project_id,omitempty"`
-	ConnectionVersion int64  `json:"connection_version"`
-	Lifecycle         string `json:"lifecycle,omitempty"`
-	StatusID          string `json:"status_id,omitempty"`
-	RemoteIssueUUID   string `json:"remote_issue_uuid,omitempty"`
+	ClientUUID        string   `json:"client_uuid"`
+	ProductID         string   `json:"product_id"`
+	Title             string   `json:"title"`
+	Description       string   `json:"description"`
+	TeamID            string   `json:"team_id"`
+	ProjectID         string   `json:"project_id,omitempty"`
+	ConnectionVersion int64    `json:"connection_version"`
+	Lifecycle         string   `json:"lifecycle,omitempty"`
+	StatusID          string   `json:"status_id,omitempty"`
+	LabelIDs          []string `json:"label_ids,omitempty"`
+	RemoteIssueUUID   string   `json:"remote_issue_uuid,omitempty"`
 }
 
 // drainUpdate resolves the linked remote identity and executes issueUpdate.
@@ -1193,7 +1195,7 @@ func drainUpdate(ctx context.Context, s *store.Store, client *linearclient.Clien
 	if link.RemoteIssueUUID == "" || link.RemoteIssueUUID == payload.ClientUUID {
 		return linearclient.Issue{}, fmt.Errorf("link has no confirmed remote issue to update")
 	}
-	input := linearclient.UpdateIssueInput{ProjectID: payload.ProjectID, StatusID: payload.StatusID}
+	input := linearclient.UpdateIssueInput{ProjectID: payload.ProjectID, StatusID: payload.StatusID, AddedLabelIDs: payload.LabelIDs}
 	if link.ContentHash != linearContentHash(payload.Title, payload.Description) {
 		input.Title = payload.Title
 		input.Description = payload.Description

@@ -94,6 +94,13 @@ type Issue struct {
 	UpdatedAt  time.Time `json:"updatedAt"`
 }
 
+// ResolvedIssue is one fetched issue together with the team that owns it, so
+// an adoption can verify the issue belongs to the Product's configured team.
+type ResolvedIssue struct {
+	Issue
+	TeamID string
+}
+
 // Client talks to one Linear workspace over GraphQL with Bearer auth.
 type Client struct {
 	endpoint string
@@ -172,6 +179,27 @@ func (c *Client) UpdateIssue(ctx context.Context, remoteUUID string, input Updat
 		return Issue{}, &Failure{Kind: KindGraphqlError, Detail: "issueUpdate reported success=false"}
 	}
 	return payload.IssueUpdate.Issue, nil
+}
+
+// GetIssue fetches one existing issue by its remote UUID. Linear answers an
+// unknown issue with a GraphQL error, which maps to the permanent
+// KindGraphqlError failure.
+func (c *Client) GetIssue(ctx context.Context, remoteUUID string) (ResolvedIssue, error) {
+	var payload struct {
+		Issue struct {
+			Issue
+			Team struct {
+				ID string `json:"id"`
+			} `json:"team"`
+		} `json:"issue"`
+	}
+	if err := c.call(ctx, "query($id: String!) { issue(id: $id) { id identifier url updatedAt team { id } } }", map[string]any{"id": remoteUUID}, &payload); err != nil {
+		return ResolvedIssue{}, err
+	}
+	if payload.Issue.ID == "" {
+		return ResolvedIssue{}, &Failure{Kind: KindGraphqlError, Detail: "issue query returned no issue"}
+	}
+	return ResolvedIssue{Issue: payload.Issue.Issue, TeamID: payload.Issue.Team.ID}, nil
 }
 
 func (c *Client) call(ctx context.Context, query string, variables map[string]any, into any) error {

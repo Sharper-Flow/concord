@@ -12448,6 +12448,31 @@
           }
         }
       }
+    },
+    "work_define_issue_adopt_input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "work_id",
+        "remote_issue_uuid",
+        "idempotency_key"
+      ],
+      "properties": {
+        "work_id": {
+          "$ref": "#/$defs/id"
+        },
+        "remote_issue_uuid": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 128
+        },
+        "idempotency_key": {
+          "$ref": "#/$defs/id"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
+        }
+      }
     }
   }
 }

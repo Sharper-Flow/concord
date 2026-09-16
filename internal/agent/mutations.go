@@ -275,6 +275,11 @@ type messageWithdrawInput struct {
 	ExpectedVersion int64  `json:"expected_version"`
 	IdempotencyKey  string `json:"idempotency_key"`
 }
+type issueAdoptInput struct {
+	WorkID          string `json:"work_id"`
+	RemoteIssueUUID string `json:"remote_issue_uuid"`
+	IdempotencyKey  string `json:"idempotency_key"`
+}
 type observationRecordInput struct {
 	WorkID         string   `json:"work_id"`
 	ObservationID  string   `json:"observation_id"`
@@ -1963,6 +1968,32 @@ func (r runtime) planObservationRecord(ctx context.Context, base Envelope, raw [
 	return Envelope{}, nil, false
 }
 
+// planLinearIssueAdopt plans concord_work_define.issue_adopt: queue the
+// adoption of one existing Linear issue for an unlinked work item. The drain
+// owns every remote effect; the enqueue itself records no work version.
+func (r runtime) planLinearIssueAdopt(ctx context.Context, base Envelope, raw []byte, digest string, grant Authority, op ContractOperation, plan *mutationPlan) (Envelope, error, bool) {
+	var in issueAdoptInput
+	if err := decodeOperationInput(raw, &in); err != nil {
+		return base, err, true
+	}
+	if len(in.WorkID) < 2 || len(in.WorkID) > 128 {
+		return coreError(base, "invalid_input", "work id must be 2 to 128 characters", "reread_entities", false), nil, true
+	}
+	if len(in.RemoteIssueUUID) < 2 || len(in.RemoteIssueUUID) > 128 {
+		return coreError(base, "invalid_input", "remote issue uuid must be 2 to 128 characters", "reread_entities", false), nil, true
+	}
+	plan.scope["work_ids"] = []string{in.WorkID}
+	plan.effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
+		entry, err := store.EnqueueLinearIssueAdoptionTx(ctx, tx, in.WorkID, in.RemoteIssueUUID)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		changed := []ChangedRef{{EntityKind: "linear_outbox_operation", ID: entry.OperationID, Version: "1"}}
+		return mutationPayload(changed, plan.intents), []string{entry.OperationID}, changed, nil
+	}
+	return Envelope{}, nil, false
+}
+
 // planDomainObservationRecord plans concord_domain.observation_record.
 func (r runtime) planDomainObservationRecord(ctx context.Context, base Envelope, raw []byte, digest string, grant Authority, op ContractOperation, plan *mutationPlan) (Envelope, error, bool) {
 	var in domainObservationRecordInput
@@ -2682,6 +2713,8 @@ func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Au
 		answer, err, handled = r.planMessageWithdraw(ctx, base, raw, digest, grant, op, plan)
 	case "concord_work_define.observation_record":
 		answer, err, handled = r.planObservationRecord(ctx, base, raw, digest, grant, op, plan)
+	case "concord_work_define.issue_adopt":
+		answer, err, handled = r.planLinearIssueAdopt(ctx, base, raw, digest, grant, op, plan)
 	case "concord_domain.observation_record":
 		answer, err, handled = r.planDomainObservationRecord(ctx, base, raw, digest, grant, op, plan)
 	case "concord_domain.observation_dismiss":

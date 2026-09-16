@@ -4504,6 +4504,43 @@ ALTER TABLE workflow_contracts ADD COLUMN definition_version INTEGER NOT NULL DE
 ALTER TABLE workflow_contracts ADD COLUMN definition_digest TEXT NOT NULL DEFAULT '';
 `,
 	},
+	{
+		Version:  87,
+		Name:     "linear_issue_adoption",
+		Breaking: true,
+		SQL: `
+-- issue_adopt queues the adoption of an existing Linear issue for an unlinked
+-- work item, so an agent that identifies the correct issue can record it
+-- without forcing duplicate issue creation. The queue widens to carry it.
+ALTER TABLE linear_outbox RENAME TO linear_outbox_v87;
+CREATE TABLE linear_outbox (
+    operation_id     TEXT PRIMARY KEY CHECK(length(operation_id) BETWEEN 2 AND 128),
+    work_id          TEXT NOT NULL CHECK(length(work_id) BETWEEN 2 AND 128),
+    op_kind          TEXT NOT NULL CHECK(op_kind IN ('issue_create','issue_update','issue_adopt')),
+    idempotency_key  TEXT NOT NULL UNIQUE CHECK(length(idempotency_key) BETWEEN 2 AND 128),
+    payload          TEXT NOT NULL CHECK(json_valid(payload) AND json_type(payload) = 'object'),
+    state            TEXT NOT NULL DEFAULT 'queued' CHECK(state IN ('queued','in_flight','done','failed')),
+    attempts         INTEGER NOT NULL DEFAULT 0 CHECK(attempts >= 0),
+    last_error       TEXT NOT NULL DEFAULT '',
+    created_at       TEXT NOT NULL,
+    updated_at       TEXT NOT NULL,
+    CHECK((state = 'queued' AND attempts = 0) OR attempts > 0)
+);
+INSERT INTO linear_outbox
+    (operation_id, work_id, op_kind, idempotency_key, payload, state, attempts, last_error, created_at, updated_at)
+    SELECT operation_id, work_id, op_kind, idempotency_key, payload, state, attempts, last_error, created_at, updated_at
+    FROM linear_outbox_v87;
+DROP TABLE linear_outbox_v87;
+CREATE INDEX linear_outbox_state ON linear_outbox(state, created_at);
+CREATE TRIGGER linear_outbox_guard_insert BEFORE INSERT ON linear_outbox FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'linear_outbox is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER linear_outbox_guard_update BEFORE UPDATE ON linear_outbox FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'linear_outbox is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER linear_outbox_guard_delete BEFORE DELETE ON linear_outbox FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'linear_outbox is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+
+-- One Linear issue belongs to at most one work item. The stored rows already
+-- satisfy the constraint, so the index admits without repair.
+CREATE UNIQUE INDEX linear_issue_links_remote_uuid ON linear_issue_links(remote_issue_uuid);
+`,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any

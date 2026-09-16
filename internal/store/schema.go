@@ -4541,6 +4541,64 @@ CREATE TRIGGER linear_outbox_guard_delete BEFORE DELETE ON linear_outbox FOR EAC
 CREATE UNIQUE INDEX linear_issue_links_remote_uuid ON linear_issue_links(remote_issue_uuid);
 `,
 	},
+	{
+		Version:  88,
+		Name:     "workflow_contract_definition_authority_backfill",
+		Breaking: false,
+		SQL: `
+INSERT OR IGNORE INTO fold_guard(active) VALUES (1);
+WITH contract_authority_events AS (
+    SELECT c.rowid,
+           c.work_id,
+           i.definition_ref AS instance_ref,
+           i.definition_version AS instance_version,
+           i.definition_digest AS instance_digest,
+           COALESCE(
+               (SELECT MIN(e.seq) FROM domain_events e
+                WHERE e.subject_type='work_item' AND e.subject_id=c.work_id
+                  AND e.kind='workflow.contract_approved'
+                  AND json_extract(e.payload,'$.contract_version')=c.contract_version),
+               (SELECT MIN(e.seq) FROM domain_events e
+                WHERE e.subject_type='work_item' AND e.subject_id=c.work_id
+                  AND e.kind='workflow.contract_superseded'
+                  AND json_extract(e.payload,'$.successor_contract.contract_version')=c.contract_version),
+               (SELECT MIN(approved.seq) FROM domain_events supersession
+                JOIN domain_events approved
+                  ON approved.subject_type='work_item'
+                 AND approved.subject_id=c.work_id
+                 AND approved.kind='workflow.contract_approved'
+                 AND json_extract(approved.payload,'$.contract_version')=json_extract(supersession.payload,'$.previous_contract_version')
+                WHERE supersession.subject_type='work_item'
+                  AND supersession.subject_id=c.work_id
+                  AND supersession.kind='workflow.contract_superseded'
+                  AND json_extract(supersession.payload,'$.new_contract_version')=c.contract_version)
+           ) AS authority_seq
+    FROM workflow_contracts c
+    JOIN workflow_instances i ON i.work_id=c.work_id
+), contract_pins AS (
+    SELECT rowid,
+           COALESCE((SELECT json_extract(e.payload,'$.ref') FROM domain_events e
+                     WHERE e.subject_type='work_item' AND e.subject_id=contract_authority_events.work_id
+                       AND e.kind='workflow.definition_selected' AND e.seq < authority_seq
+                     ORDER BY e.seq DESC LIMIT 1), instance_ref) AS definition_ref,
+           COALESCE((SELECT json_extract(e.payload,'$.version') FROM domain_events e
+                     WHERE e.subject_type='work_item' AND e.subject_id=contract_authority_events.work_id
+                       AND e.kind='workflow.definition_selected' AND e.seq < authority_seq
+                     ORDER BY e.seq DESC LIMIT 1), instance_version) AS definition_version,
+           COALESCE((SELECT json_extract(e.payload,'$.digest') FROM domain_events e
+                     WHERE e.subject_type='work_item' AND e.subject_id=contract_authority_events.work_id
+                       AND e.kind='workflow.definition_selected' AND e.seq < authority_seq
+                     ORDER BY e.seq DESC LIMIT 1), instance_digest) AS definition_digest
+    FROM contract_authority_events
+)
+UPDATE workflow_contracts
+SET definition_ref = (SELECT definition_ref FROM contract_pins WHERE contract_pins.rowid=workflow_contracts.rowid),
+    definition_version = (SELECT definition_version FROM contract_pins WHERE contract_pins.rowid=workflow_contracts.rowid),
+    definition_digest = (SELECT definition_digest FROM contract_pins WHERE contract_pins.rowid=workflow_contracts.rowid)
+WHERE rowid IN (SELECT rowid FROM contract_pins);
+DELETE FROM fold_guard WHERE active = 1;
+`,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any

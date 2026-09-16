@@ -93,6 +93,7 @@ export type ReadbackRefusal =
   | "export_model_ambiguous"
   | "export_assistant_message"
   | "dispatched_agent_identity"
+  | "dispatched_packet_identity"
 
 export type SessionMetadataRead =
   | { ok: true; metadata: Pick<SessionMetadata, "readback_model" | "readback_agent" | "session_id">; export_digest: string; export_bytes: number }
@@ -464,6 +465,37 @@ export function readExportSessionMetadata(stdout: string, expectedSessionID: str
   return result.ok ? result.metadata : null
 }
 
+// readExportOpeningPacket verifies that the worker session opens with the
+// authorized dispatch packet (CD-0102). The sanitized export used for model
+// readback cannot serve here: the host's sanitizer replaces every non-empty
+// text part with a redaction placeholder, so the opening prompt survives only
+// in the unsanitized export this predicate reads. The authorized dispatch
+// writes the packet as the Task prompt verbatim, and completion re-serializes
+// the same packet object the window recorded, so byte equality is exact on the
+// authorized path and refuses every substitution — caller-composed prose, a
+// packet for another attempt, or a session opened by anything else.
+//
+// The authorized opening message carries exactly one text part, so any further
+// part is unauthorized content the worker also received. Concatenating the text
+// parts and ignoring the rest would admit the packet with arbitrary extra
+// content beside it, which is the identity this predicate exists to refuse.
+export function readExportOpeningPacket(stdout: string, expectedSessionID: string, packet: AgentLanePacket): { ok: true } | { ok: false; predicate: ReadbackRefusal; message: string } {
+  if (Buffer.byteLength(stdout) > MAX_EXPORT_BYTES) return { ok: false, predicate: "export_size_bound", message: `export body exceeded ${MAX_EXPORT_BYTES} bytes` }
+  let value: unknown
+  try { value = JSON.parse(stdout) } catch { return { ok: false, predicate: "export_json", message: "export body was not valid JSON" } }
+  if (!isRecord(value) || !isRecord(value.info) || value.info.id !== expectedSessionID || !Array.isArray(value.messages) || value.messages.length === 0) return { ok: false, predicate: "export_shape", message: "export body did not match the session shape" }
+  const first = value.messages[0]
+  if (!isRecord(first) || !isRecord(first.info) || !Array.isArray(first.parts)) return { ok: false, predicate: "export_message_shape", message: "export message did not match the message shape" }
+  if (first.info.role !== "user") return { ok: false, predicate: "dispatched_packet_identity", message: "worker session opened with a non-user message instead of the authorized dispatch packet" }
+  if (first.parts.length !== 1) return { ok: false, predicate: "dispatched_packet_identity", message: `worker session opened with ${first.parts.length} message parts instead of the single authorized dispatch packet` }
+  const part = first.parts[0]
+  if (!isRecord(part)) return { ok: false, predicate: "export_message_shape", message: "export message did not match the message shape" }
+  if (part.type !== "text") return { ok: false, predicate: "dispatched_packet_identity", message: `worker session opened with a ${typeof part.type === "string" ? part.type : "malformed"} part instead of the authorized dispatch packet` }
+  if (typeof part.text !== "string") return { ok: false, predicate: "export_message_shape", message: "export message did not match the message shape" }
+  if (part.text !== JSON.stringify(packet)) return { ok: false, predicate: "dispatched_packet_identity", message: "worker session opened with a message that is not the authorized dispatch packet" }
+  return { ok: true }
+}
+
 // The core compares the worker session's directory against the work item's
 // active worktree claim, so the value it receives must be a real path. The
 // session export runs with --sanitize, which replaces that directory with a
@@ -662,6 +694,18 @@ function readbackRefusalEnvelope(lane: AgentLane, packet: AgentLanePacket, refus
     export_bytes: refusal.export_bytes,
   })
   failure.error!.retry_safe = false
+  return failure
+}
+
+// refuseWorkerReadback closes a refused readback the one way the attempt can
+// end: the durable failed dispatch record first, then the typed refusal
+// envelope. Every export predicate refusal in the completion path routes
+// through here, so no readback outcome can sign completion evidence.
+async function refuseWorkerReadback(lane: AgentLane, packet: AgentLanePacket, refusal: { predicate: ReadbackRefusal; export_digest: string; export_bytes: number; message: string }, workerSessionID: string, workerDirectory: string, options: WorkerCompletionOptions, signal: AbortSignal, onRecorded?: () => void): Promise<AgentResultEnvelope> {
+  const recorded = await recordModelReadbackFailure(lane, packet, refusal, workerDirectory, options, signal, onRecorded)
+  const failure = readbackRefusalEnvelope(lane, packet, refusal)
+  if (recorded) failure.error!.message = `${failure.error!.message}; terminal evidence write failed: ${recorded}`.slice(0, MAX_ERROR_BYTES)
+  failure.session_id = workerSessionID
   return failure
 }
 
@@ -1219,30 +1263,47 @@ async function completeWorkerSession(
   const binary = options.binary ?? "opencode"
   const readbackRunner = options.readbackRunner ?? options.runner ?? defaultExportRunner
   const workerDirectory = options.workerDirectory
+  // CD-0102 completion identity: the attempt is refused before any model
+  // evidence is read unless the worker session opens with the packet the
+  // dispatch authorized. The sanitized export cannot carry that check — the
+  // host sanitizer redacts every text part — so the opening prompt is read
+  // from its own unsanitized export and compared byte-for-byte.
+  let opened: { exitCode: number; stdout: string; stderr: string }
+  try { opened = await readbackRunner.run([binary, "export", workerSessionID], "", signal) } catch (error) {
+    return errorEnvelope(lane, packet, "error", "error", String(error), "reconcile_operation")
+  }
+  if (opened.exitCode !== 0) {
+    return refuseWorkerReadback(lane, packet, {
+      predicate: "export_command",
+      export_digest: sha256Digest(opened.stdout),
+      export_bytes: Buffer.byteLength(opened.stdout),
+      message: opened.stderr.slice(0, MAX_ERROR_BYTES) || "OpenCode session export failed without diagnostic output",
+    }, workerSessionID, workerDirectory, options, signal, onRecorded)
+  }
+  const opening = readExportOpeningPacket(opened.stdout, workerSessionID, packet)
+  if (!opening.ok) {
+    return refuseWorkerReadback(lane, packet, {
+      predicate: opening.predicate,
+      export_digest: sha256Digest(opened.stdout),
+      export_bytes: Buffer.byteLength(opened.stdout),
+      message: opening.message,
+    }, workerSessionID, workerDirectory, options, signal, onRecorded)
+  }
   let exported: { exitCode: number; stdout: string; stderr: string }
   try { exported = await readbackRunner.run([binary, "export", workerSessionID, "--sanitize"], "", signal) } catch (error) {
     return errorEnvelope(lane, packet, "error", "error", String(error), "reconcile_operation")
   }
   if (exported.exitCode !== 0) {
-    const refusal = {
-      predicate: "export_command" as const,
+    return refuseWorkerReadback(lane, packet, {
+      predicate: "export_command",
       export_digest: sha256Digest(exported.stdout),
       export_bytes: Buffer.byteLength(exported.stdout),
       message: exported.stderr.slice(0, MAX_ERROR_BYTES) || "OpenCode session export failed without diagnostic output",
-    }
-    const recorded = await recordModelReadbackFailure(lane, packet, refusal, workerDirectory, options, signal, onRecorded)
-    const failure = readbackRefusalEnvelope(lane, packet, refusal)
-    if (recorded) failure.error!.message = `${failure.error!.message}; terminal evidence write failed: ${recorded}`.slice(0, MAX_ERROR_BYTES)
-    failure.session_id = workerSessionID
-    return failure
+    }, workerSessionID, workerDirectory, options, signal, onRecorded)
   }
   const readbackResult = readExportSession(exported.stdout, workerSessionID)
   if (!readbackResult.ok) {
-    const recorded = await recordModelReadbackFailure(lane, packet, readbackResult, workerDirectory, options, signal, onRecorded)
-    const failure = readbackRefusalEnvelope(lane, packet, readbackResult)
-    if (recorded) failure.error!.message = `${failure.error!.message}; terminal evidence write failed: ${recorded}`.slice(0, MAX_ERROR_BYTES)
-    failure.session_id = workerSessionID
-    return failure
+    return refuseWorkerReadback(lane, packet, readbackResult, workerSessionID, workerDirectory, options, signal, onRecorded)
   }
   const readback = readbackResult.metadata
   // The adapter names the lane executor; the host owns which model executes

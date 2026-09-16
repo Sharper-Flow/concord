@@ -67,9 +67,14 @@ test("worker-abandon observes sessions and sends a signed typed close request", 
   }
 })
 
+// CD-0102: the fixture session opens with the dispatch packet, so completion's
+// packet-identity readback admits it.
 const exportedSession = (model = READBACK_MODEL) => JSON.stringify({
   info: { id: "session-1" },
-  messages: [{ info: { id: "message-1", sessionID: "session-1", role: "assistant", agent: "concord-research", providerID: model.split("/")[0], modelID: model.split("/").slice(1).join("/"), time: { created: 1 } }, parts: [] }],
+  messages: [
+    { info: { id: "message-0", sessionID: "session-1", role: "user", agent: "concord-research", time: { created: 0 } }, parts: [{ type: "text", text: JSON.stringify(packet()) }] },
+    { info: { id: "message-1", sessionID: "session-1", role: "assistant", agent: "concord-research", providerID: model.split("/")[0], modelID: model.split("/").slice(1).join("/"), time: { created: 1 } }, parts: [] },
+  ],
 })
 
 const laneRunner: DispatchRunner = {

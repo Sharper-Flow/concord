@@ -53,10 +53,12 @@ const report = (status = "completed") => ({
 const taskWrap = (text: string, state = "completed") =>
   [`<task id="${WORKER_SESSION}" state="${state}">`, "<task_result>", text, "</task_result>", "</task>"].join("\n")
 
-const exportedSession = (agent = `concord-${lane.id}`, parentID: string | null = SESSION) => JSON.stringify({
+// CD-0102: an authorized worker session opens with the dispatch packet as its
+// first user message, so the completion fixtures open that way.
+const exportedSession = (agent = `concord-${lane.id}`, parentID: string | null = SESSION, opener: unknown = packet()) => JSON.stringify({
   info: { id: WORKER_SESSION, ...(parentID === null ? {} : { parentID }) },
   messages: [
-    { info: { id: "message-0", sessionID: WORKER_SESSION, role: "user", agent, time: { created: 0 } }, parts: [] },
+    { info: { id: "message-0", sessionID: WORKER_SESSION, role: "user", agent, time: { created: 0 } }, parts: [{ type: "text", text: typeof opener === "string" ? opener : JSON.stringify(opener) }] },
     { info: { id: "message-1", sessionID: WORKER_SESSION, role: "assistant", agent, providerID: "openai", modelID: "gpt-5.6-luna", time: { created: 1 } }, parts: [] },
   ],
 })
@@ -294,6 +296,34 @@ describe("completeDispatchedWorker", () => {
     await completeDispatchedWorker({ tool: TASK_TOOL_ID, sessionID: SESSION, callID: "call-1", args: {} }, output, deps(verbs, windows, "general"))
     expect(verbs).toEqual([])
     expect(output.output).toContain("agent_identity_mismatch")
+  })
+
+  // CD-0102 completion identity: a session that opened with caller-composed
+  // prose never ran the authorized packet. Completion closes the attempt with
+  // the typed refusal and records no completion evidence.
+  test("a worker session that opened without the packet is refused", async () => {
+    const windows = new DispatchWindows()
+    windows.open(SESSION, packet(), PACKET_DIGEST, undefined, process.cwd())
+    await windows.bind(TASK_TOOL_ID, SESSION, {}, undefined, async () => process.cwd())
+    const verbs: string[] = []
+    const runner: DispatchRunner = {
+      async run(argv) {
+        if (argv[1] === "export") return { exitCode: 0, stdout: exportedSession(`concord-${lane.id}`, SESSION, "Run the task described above and report back."), stderr: "" }
+        if (argv[1] === "session") return { exitCode: 0, stdout: sessionIndex(), stderr: "" }
+        verbs.push(argv[1])
+        return { exitCode: 0, stdout: "", stderr: "" }
+      },
+    }
+    const output = { title: "verify lane", output: taskWrap(JSON.stringify(report())), metadata: {} }
+    await completeDispatchedWorker({ tool: TASK_TOOL_ID, sessionID: SESSION, callID: "call-1", args: {} }, output, {
+      windows,
+      credentials: testCredentials,
+      runner,
+      concordBinary: "concord",
+    })
+    expect(verbs).toEqual(["worker-dispatch"])
+    expect(output.output).toContain("dispatched_packet_identity")
+    expect(output.output).toContain("readback_refusal")
   })
 
   // The packet pins lane_version and lane_digest so completion binds to the

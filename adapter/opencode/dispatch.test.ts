@@ -5,7 +5,7 @@ import fs from "node:fs"
 import * as os from "node:os"
 import path from "node:path"
 import { agentLanes } from "./generated-agent-lanes"
-import { completeWorkerAttempt, computeHostPromptProvenance, concordBinaryPath, configureCoreBinary, defaultExportRunner, dispatchWorker, MAX_EXPORT_BYTES, readExportSession, readExportSessionMetadata, readRunSessionMetadata, resolveCoreBinary, validateAgentLanePacket, type AgentLanePacket, type CanonicalLaneReport, type DispatchAuthorizer, type DispatchRunner } from "./dispatch"
+import { completeWorkerAttempt, computeHostPromptProvenance, concordBinaryPath, configureCoreBinary, defaultExportRunner, dispatchWorker, MAX_EXPORT_BYTES, readExportOpeningPacket, readExportSession, readExportSessionMetadata, readRunSessionMetadata, resolveCoreBinary, validateAgentLanePacket, type AgentLanePacket, type CanonicalLaneReport, type DispatchAuthorizer, type DispatchRunner } from "./dispatch"
 
 // Fake-runner suite: bind worker-evidence CLI calls to a nominal core path
 // instead of the unstamped repository placeholder (CD-0111 D1).
@@ -89,10 +89,14 @@ const runOutput = (extra = "", carried: unknown = report()) => [
   extra,
 ].filter(Boolean).join("\n")
 
-const exportedSession = (model = READBACK_MODEL, agent = "concord-research") => JSON.stringify({
+// CD-0102: an authorized worker session opens with the dispatch packet as its
+// first user message, so every fixture that reaches completion opens that way.
+// `opener` substitutes a foreign opening message to drive the packet-identity
+// refusal; it stays a string or a packet-shaped object for byte comparison.
+const exportedSession = (model = READBACK_MODEL, agent = "concord-research", opener: unknown = packet()) => JSON.stringify({
   info: { id: "session-1" },
   messages: [
-    { info: { id: "message-0", sessionID: "session-1", role: "user", agent, time: { created: 0 } }, parts: [] },
+    { info: { id: "message-0", sessionID: "session-1", role: "user", agent, time: { created: 0 } }, parts: [{ type: "text", text: typeof opener === "string" ? opener : JSON.stringify(opener) }] },
     { info: { id: "message-1", sessionID: "session-1", role: "assistant", agent, providerID: model.split("/")[0], modelID: model.split("/").slice(1).join("/"), time: { created: 1 } }, parts: [] },
   ],
 })
@@ -113,9 +117,9 @@ const workerBody = (carried: unknown = report()) =>
 // supplies the worker directory.
 const sessionIndex = (directory = "/claimed/worktree") => JSON.stringify([{ id: "session-1", directory }])
 
-const readbackRunner = (model = READBACK_MODEL, agent = "concord-research"): DispatchRunner => ({
+const readbackRunner = (model = READBACK_MODEL, agent = "concord-research", opener: unknown = packet()): DispatchRunner => ({
   async run(argv) {
-    if (argv[1] === "export") return { exitCode: 0, stdout: exportedSession(model, agent), stderr: "" }
+    if (argv[1] === "export") return { exitCode: 0, stdout: exportedSession(model, agent, opener), stderr: "" }
     if (argv[1] === "session") return { exitCode: 0, stdout: sessionIndex(), stderr: "" }
     return { exitCode: 0, stdout: "", stderr: "" }
   },
@@ -127,8 +131,10 @@ const WORKER_DIRECTORY = process.cwd()
 
 type CompleteOptions = Parameters<typeof completeWorkerAttempt>[3]
 const acceptingEvidence = (): DispatchRunner => ({ async run() { return { exitCode: 0, stdout: "", stderr: "" } } })
+// The fixture session opens with the packet under test, so the completion
+// path verifies packet identity against the same dispatch it admits.
 const complete = (body: string, options: Partial<CompleteOptions> = {}, dispatched: AgentLanePacket = packet()) =>
-  completeWorkerAttempt(lane, dispatched, body, { credentials: testCredentials, readbackRunner: readbackRunner(), evidenceRunner: acceptingEvidence(), packetDigest: PACKET_DIGEST, workerDirectory: WORKER_DIRECTORY, ...options }, SIGNAL)
+  completeWorkerAttempt(lane, dispatched, body, { credentials: testCredentials, readbackRunner: readbackRunner(READBACK_MODEL, "concord-research", dispatched), evidenceRunner: acceptingEvidence(), packetDigest: PACKET_DIGEST, workerDirectory: WORKER_DIRECTORY, ...options }, SIGNAL)
 
 test("packet validation is closed before any runner call", async () => {
   let calls = 0
@@ -250,9 +256,12 @@ test("completion obtains readback from a sanitized session export", async () => 
     evidenceRunner: { async run() { return { exitCode: 0, stdout: "", stderr: "" } } },
   })
   expect(result.outcome).toBe("ok")
-  expect(calls.map((argv) => argv.slice(0, 2))).toEqual([["opencode", "export"], ["opencode", "session"]])
-  expect(calls[0]).toEqual(["opencode", "export", "session-1", "--sanitize"])
-  expect(calls[1]).toEqual(["opencode", "session", "list", "--format", "json"])
+  expect(calls.map((argv) => argv.slice(0, 2))).toEqual([["opencode", "export"], ["opencode", "export"], ["opencode", "session"]])
+  // The opening packet read runs first and unsanitized — the sanitized body
+  // redacts every text part — then the sanitized export for model readback.
+  expect(calls[0]).toEqual(["opencode", "export", "session-1"])
+  expect(calls[1]).toEqual(["opencode", "export", "session-1", "--sanitize"])
+  expect(calls[2]).toEqual(["opencode", "session", "list", "--format", "json"])
 })
 
 test("readback accepts a large sanitized session export", () => {
@@ -311,12 +320,106 @@ test("readback refusal is typed and does not change valid completion", async () 
   expect(accepted.readback_model).toBe(READBACK_MODEL)
 })
 
+// CD-0102 completion identity: a worker session that did not open with the
+// authorized packet is refused through the typed readback predicate, records
+// one durable failed attempt, and signs no completion evidence.
+const packetRefusalRunner = (opener: string): DispatchRunner => ({ async run(argv) {
+  if (argv[1] === "export") return { exitCode: 0, stdout: exportedSession(READBACK_MODEL, "concord-research", opener), stderr: "" }
+  if (argv[1] === "session") return { exitCode: 0, stdout: sessionIndex(), stderr: "" }
+  return { exitCode: 0, stdout: "", stderr: "" }
+} })
+
+test("caller-composed prose as the first user message refuses the attempt", async () => {
+  const calls: { argv: string[]; input: string }[] = []
+  const result = await complete(workerBody(), {
+    readbackRunner: packetRefusalRunner("Fix the bug in the adapter, then summarize what you changed."),
+    evidenceRunner: { async run(argv, input) { calls.push({ argv, input }); return { exitCode: 0, stdout: "", stderr: "" } } },
+  })
+  expect(result.outcome).toBe("error")
+  expect(result.error?.kind).toBe("readback_refusal")
+  expect(result.error?.predicate).toBe("dispatched_packet_identity")
+  expect(result.error?.retry_safe).toBe(false)
+  expect(result.error?.message).toContain("readback predicate dispatched_packet_identity refused")
+  expect(result.error?.message).not.toContain("Fix the bug")
+  expect(result.session_id).toBe("session-1")
+  // One durable failed dispatch event; no model evidence, no completion.
+  expect(calls.map((call) => call.argv[1])).toEqual(["worker-dispatch"])
+  expect(JSON.parse(calls[0].input).terminal).toBe("failed")
+  expect(JSON.parse(calls[0].input).terminal_failure_kind).toBe("model_readback_missing")
+  expect(JSON.parse(calls[0].input).readback_model).toBe("")
+  expect(JSON.parse(calls[0].input).terminal_detail).toContain("readback predicate dispatched_packet_identity refused")
+})
+
+test("a packet for another attempt refuses the attempt the same way", async () => {
+  const foreign = { ...packet(), attempt_id: "attempt-other" }
+  const calls: string[] = []
+  const result = await complete(workerBody(), {
+    readbackRunner: packetRefusalRunner(JSON.stringify(foreign)),
+    evidenceRunner: { async run(argv) { calls.push(argv[1]); return { exitCode: 0, stdout: "", stderr: "" } } },
+  })
+  expect(result.outcome).toBe("error")
+  expect(result.error?.predicate).toBe("dispatched_packet_identity")
+  expect(calls).toEqual(["worker-dispatch"])
+})
+
+test("readExportOpeningPacket admits the exact packet and refuses every substitute", () => {
+  expect(readExportOpeningPacket(exportedSession(), "session-1", packet())).toEqual({ ok: true })
+  const prose = readExportOpeningPacket(exportedSession(READBACK_MODEL, "concord-research", "do the work described in this prose"), "session-1", packet())
+  expect(prose).toEqual({ ok: false, predicate: "dispatched_packet_identity", message: "worker session opened with a message that is not the authorized dispatch packet" })
+  const otherAttempt = readExportOpeningPacket(exportedSession(READBACK_MODEL, "concord-research", JSON.stringify({ ...packet(), work_id: "work-2" })), "session-1", packet())
+  expect(otherAttempt).toEqual({ ok: false, predicate: "dispatched_packet_identity", message: "worker session opened with a message that is not the authorized dispatch packet" })
+  const assistantFirst = readExportOpeningPacket(JSON.stringify({
+    info: { id: "session-1" },
+    messages: [
+      { info: { id: "message-1", sessionID: "session-1", role: "assistant", agent: "concord-research", providerID: "openai", modelID: "gpt-5.6-luna", time: { created: 1 } }, parts: [{ type: "text", text: JSON.stringify(packet()) }] },
+    ],
+  }), "session-1", packet())
+  expect(assistantFirst).toEqual({ ok: false, predicate: "dispatched_packet_identity", message: "worker session opened with a non-user message instead of the authorized dispatch packet" })
+  expect(readExportOpeningPacket("not-json", "session-1", packet())).toEqual({ ok: false, predicate: "export_json", message: "export body was not valid JSON" })
+  expect(readExportOpeningPacket(JSON.stringify({ info: { id: "session-1" }, messages: [] }), "session-1", packet())).toEqual({ ok: false, predicate: "export_shape", message: "export body did not match the session shape" })
+})
+
+// The authorized dispatch writes the packet as one text part. Content beside
+// it reached the worker and was never authorized, so the packet text alone
+// cannot establish identity.
+test("readExportOpeningPacket refuses content beside the exact packet", () => {
+  const openingParts = (parts: unknown[]) => JSON.stringify({
+    info: { id: "session-1" },
+    messages: [{ info: { id: "message-1", sessionID: "session-1", role: "user", time: { created: 1 } }, parts }],
+  })
+  const withFile = readExportOpeningPacket(openingParts([
+    { type: "text", text: JSON.stringify(packet()) },
+    { type: "file", filename: "notes.md", url: "file:///notes.md" },
+  ]), "session-1", packet())
+  expect(withFile).toEqual({ ok: false, predicate: "dispatched_packet_identity", message: "worker session opened with 2 message parts instead of the single authorized dispatch packet" })
+  const splitText = readExportOpeningPacket(openingParts([
+    { type: "text", text: JSON.stringify(packet()).slice(0, 10) },
+    { type: "text", text: JSON.stringify(packet()).slice(10) },
+  ]), "session-1", packet())
+  expect(splitText).toEqual({ ok: false, predicate: "dispatched_packet_identity", message: "worker session opened with 2 message parts instead of the single authorized dispatch packet" })
+  const fileOnly = readExportOpeningPacket(openingParts([{ type: "file", filename: "notes.md", url: "file:///notes.md" }]), "session-1", packet())
+  expect(fileOnly).toEqual({ ok: false, predicate: "dispatched_packet_identity", message: "worker session opened with a file part instead of the authorized dispatch packet" })
+  expect(readExportOpeningPacket(openingParts([]), "session-1", packet())).toEqual({ ok: false, predicate: "dispatched_packet_identity", message: "worker session opened with 0 message parts instead of the single authorized dispatch packet" })
+})
+
+// The sanitized readback bounds its own export. This predicate reads a second,
+// unsanitized export of the same session, so it carries the same bound.
+test("readExportOpeningPacket refuses an export above the size bound", () => {
+  const oversize = JSON.stringify({
+    info: { id: "session-1", padding: "p".repeat(MAX_EXPORT_BYTES) },
+    messages: [{ info: { id: "message-1", sessionID: "session-1", role: "user", time: { created: 1 } }, parts: [{ type: "text", text: JSON.stringify(packet()) }] }],
+  })
+  expect(Buffer.byteLength(oversize)).toBeGreaterThan(MAX_EXPORT_BYTES)
+  expect(readExportOpeningPacket(oversize, "session-1", packet())).toEqual({ ok: false, predicate: "export_size_bound", message: `export body exceeded ${MAX_EXPORT_BYTES} bytes` })
+})
+
 test("ambiguous model readback records one durable failed attempt", async () => {
   const calls: { argv: string[]; input: string }[] = []
   const exportRunner: DispatchRunner = { async run(argv) {
     if (argv[1] === "export") return { exitCode: 0, stdout: JSON.stringify({
       info: { id: "session-1" },
       messages: [
+        { info: { id: "message-0", sessionID: "session-1", role: "user", agent: "concord-research", time: { created: 0 } }, parts: [{ type: "text", text: JSON.stringify(packet()) }] },
         { info: { id: "message-1", sessionID: "session-1", role: "assistant", agent: "concord-research", providerID: "openai", modelID: "first", time: { created: 1 } }, parts: [] },
         { info: { id: "message-2", sessionID: "session-1", role: "assistant", agent: "concord-research", providerID: "openai", modelID: "second", time: { created: 2 } }, parts: [] },
       ],
@@ -343,7 +446,9 @@ test("ambiguous model readback records one durable failed attempt", async () => 
 test("missing model readback records one durable failed attempt", async () => {
   const calls: { argv: string[]; input: string }[] = []
   const exportRunner: DispatchRunner = { async run(argv) {
-    if (argv[1] === "export") return { exitCode: 0, stdout: JSON.stringify({ info: { id: "session-1" }, messages: [] }), stderr: "" }
+    if (argv[1] === "export") return { exitCode: 0, stdout: JSON.stringify({ info: { id: "session-1" }, messages: [
+      { info: { id: "message-0", sessionID: "session-1", role: "user", agent: "concord-research", time: { created: 0 } }, parts: [{ type: "text", text: JSON.stringify(packet()) }] },
+    ] }), stderr: "" }
     if (argv[1] === "session") return { exitCode: 0, stdout: sessionIndex(), stderr: "" }
     return { exitCode: 0, stdout: "", stderr: "" }
   } }
@@ -861,7 +966,7 @@ async function laneTerminalEvidence(laneID: string, evidence: LaneEvidence[]) {
   const body = workerBody({ schema_version: "1.0", readback_model: READBACK_MODEL, status: "completed", evidence })
   const result = await completeWorkerAttempt(target, lanePacketFor(laneID), body, {
     credentials: testCredentials,
-    readbackRunner: readbackRunner(READBACK_MODEL, `concord-${target.id}`),
+    readbackRunner: readbackRunner(READBACK_MODEL, `concord-${target.id}`, lanePacketFor(laneID)),
     packetDigest: PACKET_DIGEST,
     workerDirectory: process.cwd(),
     concordBinary: "concord-test",
@@ -1229,8 +1334,11 @@ test("a transport fault is not reported as an authorization refusal", async () =
 const largeSanitizedExport = () => JSON.stringify({
   info: { id: "session-1" },
   messages: [
-    { info: { id: "message-0", sessionID: "session-1", role: "user", agent: "concord-research", time: { created: 0 } }, parts: [{ type: "text", text: "x".repeat(70_000) }] },
-    { info: { id: "message-1", sessionID: "session-1", role: "assistant", agent: "concord-research", providerID: "openai", modelID: "gpt-5.6-luna", time: { created: 1 } }, parts: [] },
+    // The opening user message is exactly the dispatch packet, so completion's
+    // packet-identity readback admits the fixture; the size lives on the
+    // assistant text, which the readback does not parse.
+    { info: { id: "message-0", sessionID: "session-1", role: "user", agent: "concord-research", time: { created: 0 } }, parts: [{ type: "text", text: JSON.stringify(packet()) }] },
+    { info: { id: "message-1", sessionID: "session-1", role: "assistant", agent: "concord-research", providerID: "openai", modelID: "gpt-5.6-luna", time: { created: 1 } }, parts: [{ type: "text", text: "x".repeat(70_000) }] },
   ],
 })
 

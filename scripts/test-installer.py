@@ -1542,25 +1542,48 @@ esac''',
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertFalse((project_dir / ".opencode" / "opencode.json").exists())
 
-    def test_uninstall_preserves_user_owned_concord_agents(self) -> None:
-        self.make_release("v1.0.0")
+    def test_numbered_primary_agents_survive_install_upgrade_repair_and_uninstall(self) -> None:
         agents_dir = self.root / "config" / "opencode" / "agents"
         agents_dir.mkdir(parents=True)
-        user_agents = {
+        primary_agents = {
             "concord-0.md": b"operator intake\n",
-            "concord-orchestrator.md": b"operator shaping\n",
+            "concord-1.md": b"operator shaping\n",
             "concord-2.md": b"operator driving\n",
         }
-        for name, content in user_agents.items():
+        for name, content in primary_agents.items():
             (agents_dir / name).write_bytes(content)
 
+        def assert_primary_agents_unchanged() -> None:
+            for name, content in primary_agents.items():
+                self.assertEqual((agents_dir / name).read_bytes(), content)
+
+        self.make_release("v1.0.0", marker="old")
         installed = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
         self.assertEqual(installed.returncode, 0, installed.stderr)
+        assert_primary_agents_unchanged()
+
+        managed_worker = agents_dir / installer.AGENT_FILES[0]
+        self.assertEqual(managed_worker.read_text(encoding="utf-8"), f"agent:{installer.AGENT_FILES[0]}:old\n")
+
+        self.make_release("v2.0.0", marker="new")
+        upgraded = self.run_installer("install", "--version", "v2.0.0", "--artifact-dir", str(self.artifacts))
+        self.assertEqual(upgraded.returncode, 0, upgraded.stderr)
+        assert_primary_agents_unchanged()
+        self.assertEqual(managed_worker.read_text(encoding="utf-8"), f"agent:{installer.AGENT_FILES[0]}:new\n")
+
+        managed_worker.unlink()
+        repaired = self.run_installer("repair", "--version", "v2.0.0", "--artifact-dir", str(self.artifacts))
+        self.assertEqual(repaired.returncode, 0, repaired.stderr)
+        assert_primary_agents_unchanged()
+        self.assertEqual(managed_worker.read_text(encoding="utf-8"), f"agent:{installer.AGENT_FILES[0]}:new\n")
+
+        manifest = json.loads((self.root / "data" / "concord" / installer.MANIFEST_NAME).read_text(encoding="utf-8"))
+        self.assertEqual(set(manifest["agent_files"]), set(installer.AGENT_FILES))
+        self.assertTrue(set(primary_agents).isdisjoint(manifest["agent_files"]))
+
         removed = self.run_installer("uninstall")
         self.assertEqual(removed.returncode, 0, removed.stderr)
-
-        for name, content in user_agents.items():
-            self.assertEqual((agents_dir / name).read_bytes(), content)
+        assert_primary_agents_unchanged()
         for name in installer.AGENT_FILES:
             self.assertFalse((agents_dir / name).exists())
 

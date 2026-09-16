@@ -642,6 +642,112 @@ esac''',
 
         self.assertEqual(removed.returncode, 0, removed.stderr)
 
+    def test_neutral_key_absorbed_survives_relink_then_uninstall(self) -> None:
+        """check: neutral-key-absorbed — a relink must not hand the host key
+        to the uninstall's whole-file restore."""
+        self.make_release("v1.0.0")
+        worktree = self.root / "data" / "concord" / "worktrees" / "project" / "work"
+        config = worktree / ".opencode" / "opencode.json"
+        config.parent.mkdir(parents=True)
+        config.write_text('{"theme": "dark"}\n', encoding="utf-8")
+        installed = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
+        self.assertEqual(installed.returncode, 0, installed.stderr)
+
+        updated = json.loads(config.read_text(encoding="utf-8"))
+        updated["$schema"] = "https://opencode.ai/config.json"
+        config.write_text(json.dumps(updated, indent=2) + "\n", encoding="utf-8")
+        relinked = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
+        self.assertEqual(relinked.returncode, 0, relinked.stderr)
+        removed = self.run_installer("uninstall")
+
+        self.assertEqual(removed.returncode, 0, removed.stderr)
+        self.assertEqual(
+            json.loads(config.read_text(encoding="utf-8")),
+            {"theme": "dark", "$schema": "https://opencode.ai/config.json"},
+        )
+
+    def test_uninstall_recovers_a_pending_removal_write_that_never_landed(self) -> None:
+        self.make_release("v1.0.0")
+        worktree = self.root / "data" / "concord" / "worktrees" / "project" / "work"
+        worktree.mkdir(parents=True)
+        installed = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
+        self.assertEqual(installed.returncode, 0, installed.stderr)
+        config = worktree / ".opencode" / "opencode.json"
+        updated = json.loads(config.read_text(encoding="utf-8"))
+        updated["$schema"] = "https://opencode.ai/config.json"
+        drifted = json.dumps(updated, indent=2) + "\n"
+        config.write_text(drifted, encoding="utf-8")
+        stripped = json.dumps({"$schema": "https://opencode.ai/config.json"}, indent=2) + "\n"
+        pending = self.root / "data" / "concord" / installer.PROJECT_LINK_PENDING_NAME
+        pending.write_text(
+            json.dumps({"schema": 1, "links": {str(config.resolve()): {
+                "scope": "worktree",
+                "action": "remove",
+                "before": drifted,
+                "original": None,
+                "updated": stripped,
+            }}}) + "\n",
+            encoding="utf-8",
+        )
+
+        removed = self.run_installer("uninstall")
+
+        self.assertEqual(removed.returncode, 0, removed.stderr)
+        self.assertEqual(
+            json.loads(config.read_text(encoding="utf-8")),
+            {"$schema": "https://opencode.ai/config.json"},
+        )
+        self.assertFalse(pending.exists())
+
+    def test_uninstall_tolerates_an_applied_pending_removal(self) -> None:
+        self.make_release("v1.0.0")
+        worktree = self.root / "data" / "concord" / "worktrees" / "project" / "work"
+        config = worktree / ".opencode" / "opencode.json"
+        config.parent.mkdir(parents=True)
+        config.write_text('{"theme": "dark"}\n', encoding="utf-8")
+        installed = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
+        self.assertEqual(installed.returncode, 0, installed.stderr)
+        linked = config.read_text(encoding="utf-8")
+        stripped = '{"theme": "dark"}\n'
+        config.write_text(stripped, encoding="utf-8")
+        pending = self.root / "data" / "concord" / installer.PROJECT_LINK_PENDING_NAME
+        pending.write_text(
+            json.dumps({"schema": 1, "links": {str(config.resolve()): {
+                "scope": "worktree",
+                "action": "restore",
+                "before": linked,
+                "original": '{"theme": "dark"}\n',
+                "updated": stripped,
+            }}}) + "\n",
+            encoding="utf-8",
+        )
+
+        removed = self.run_installer("uninstall")
+
+        self.assertEqual(removed.returncode, 0, removed.stderr)
+        self.assertEqual(config.read_text(encoding="utf-8"), '{"theme": "dark"}\n')
+        self.assertFalse(pending.exists())
+        self.assertFalse((self.root / "data" / "concord" / installer.PROJECT_LINK_OWNERSHIP_NAME).exists())
+
+    def test_repeated_link_then_uninstall_restores_the_preexisting_config(self) -> None:
+        self.make_release("v1.0.0")
+        installed = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
+        self.assertEqual(installed.returncode, 0, installed.stderr)
+        project_dir = self.root / "consumer"
+        project_file = project_dir / ".opencode" / "opencode.json"
+        project_file.parent.mkdir(parents=True)
+        original = '{\n  "keep": true\n}\n'
+        project_file.write_text(original, encoding="utf-8")
+
+        first = self.run_installer("link", "--project", str(project_dir))
+        self.assertEqual(first.returncode, 0, first.stderr)
+        second = self.run_installer("link", "--project", str(project_dir))
+        self.assertEqual(second.returncode, 0, second.stderr)
+        removed = self.run_installer("uninstall")
+
+        self.assertEqual(removed.returncode, 0, removed.stderr)
+        self.assertEqual(project_file.read_text(encoding="utf-8"), original)
+
     def test_uninstall_refuses_a_symlinked_worktrees_config_parent(self) -> None:
         self.make_release("v1.0.0")
         worktree = self.root / "data" / "concord" / "worktrees" / "project" / "work"

@@ -3073,6 +3073,24 @@ def project_link_pending_path(paths: Paths) -> Path:
     return path
 
 
+def pending_write_removed_entry(project_file: Path, updated: str, conduct_entry: str) -> bool:
+    """Return whether a pending project write's target text lacks the entry.
+
+    An installer write always lands the conduct entry; an uninstall write
+    never keeps it. Recovery uses the distinction to retire an ownership
+    record whose removal already happened instead of retargeting it at an
+    entry-less state the uninstall guard would refuse.
+    """
+    if updated == "":
+        return True
+    try:
+        parsed = project_config_data(project_file, updated)
+    except (InstallerError, json.JSONDecodeError) as error:
+        raise InstallerError(f"cannot parse the pending project config write for {project_file}: {error}") from error
+    instructions = parsed.get("instructions") if isinstance(parsed, dict) else None
+    return not (isinstance(instructions, list) and conduct_entry in instructions)
+
+
 def recover_pending_project_links(paths: Paths) -> None:
     """Finish or discard project writes interrupted before ownership was saved."""
     path = project_link_pending_path(paths)
@@ -3088,6 +3106,7 @@ def recover_pending_project_links(paths: Paths) -> None:
     if len(pending) > MAX_PROJECT_LINKS:
         raise InstallerError(f"project link recovery record contains too many entries: {path}")
     ownership = load_project_link_ownership(paths)
+    conduct_entry = conduct_instruction_entry(paths)
     changed = False
     for raw_path, raw_record in pending.items():
         if (
@@ -3130,8 +3149,20 @@ def recover_pending_project_links(paths: Paths) -> None:
             if current == previous.get("expected"):
                 continue
             if current == expected:
-                previous["expected"] = expected
+                if pending_write_removed_entry(project_file, updated, conduct_entry):
+                    # The pending removal already landed, so the record has
+                    # nothing left to own; retargeting it would describe an
+                    # entry-less state the uninstall guard refuses.
+                    ownership.pop(raw_path, None)
+                else:
+                    previous["expected"] = expected
                 changed = True
+                continue
+            if current == before_state:
+                # The pending write never reached the file: the recorded
+                # before-state is still the live state, including any host
+                # keys outside the managed entry. Drop the recovery record
+                # and let the caller redo its own write.
                 continue
             raise InstallerError(f"refusing to recover a modified project OpenCode config {project_file}")
         if current == expected:
@@ -3187,8 +3218,14 @@ def project_link_record(
             or not ownership_state_matches(project_file, previous_expected, conduct_entry)
         ):
             raise InstallerError(f"refusing to adopt user-modified project OpenCode config {project_file}")
+        # Keep the adopted record's expected bytes instead of rehashing the
+        # current text: they are the bytes this installer wrote, so the
+        # uninstall restore shortcut's byte match still proves the file
+        # carries nothing beyond the managed edit. Refreshing the digest here
+        # would absorb host keys into "expected" and the uninstall's
+        # whole-file restore would then delete them.
         action = previous["action"]
-        record: dict[str, object] = {"action": action, "scope": scope, "expected": expected}
+        record: dict[str, object] = {"action": action, "scope": scope, "expected": previous_expected}
         if action == "restore":
             record["original"] = previous["original"]
         return record
@@ -3446,6 +3483,7 @@ def link(args: argparse.Namespace) -> int:
         new_text,
         changed,
         "project",
+        conduct_entry,
         ownership.get(str(project_file.resolve(strict=False))),
     )
     if not changed:

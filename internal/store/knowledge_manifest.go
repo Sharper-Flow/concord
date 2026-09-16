@@ -20,18 +20,17 @@ import (
 
 const (
 	knowledgeManifestPath = "docs/concord-knowledge-index.v1.json"
-	// The composed manifest carries one entry per accepted law, so it grows
-	// with the Product's law corpus rather than staying at a fixed shape.
-	// At 256 KiB the composition had 758 bytes of headroom, which one new
-	// decision record consumed.
-	maxKnowledgeManifest = 512 * 1024
-	maxManifestRecords   = 1000
-	maxManifestArray     = 64
-	maxManifestID        = 256
-	maxManifestTitle     = 256
-	maxManifestSummary   = 4096
-	maxManifestPath      = 512
-	maxManifestDomains   = 64
+	// maxKnowledgeRecord bounds one record shard. The caps test holds it
+	// against the per-field record caps, and the shard reader refuses an
+	// oversized shard while naming its path.
+	maxKnowledgeRecord = 16 * 1024
+	maxManifestRecords = 1000
+	maxManifestArray   = 64
+	maxManifestID      = 256
+	maxManifestTitle   = 256
+	maxManifestSummary = 4096
+	maxManifestPath    = 512
+	maxManifestDomains = 64
 	// maxManifestRootHomeRationale bounds the claim to a stated reason rather
 	// than an essay. A rationale that needs more room is describing law that
 	// belongs in a child Domain.
@@ -40,6 +39,15 @@ const (
 	maxCriterionBindings         = 1000
 	minCriterionExemption        = 12
 	maxCriterionExemption        = 512
+	// knowledgeManifestHeadAllowance bounds the head shard, the domain
+	// registry shard, and the composed record-list encoding overhead, none of
+	// which grow with the record corpus.
+	knowledgeManifestHeadAllowance = 256 * 1024
+	// maxKnowledgeManifest is derived from the record bound, never hand-set:
+	// the composed manifest carries at most maxManifestRecords record shards
+	// of maxKnowledgeRecord each plus one head allowance. The derivation test
+	// refuses any other value.
+	maxKnowledgeManifest = maxManifestRecords*maxKnowledgeRecord + knowledgeManifestHeadAllowance
 )
 
 var knowledgeKindsClosed = map[string]bool{

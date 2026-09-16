@@ -29,7 +29,7 @@ from coverage_state import (  # noqa: E402
 )
 
 
-def resolve(number: int) -> str | None:
+def resolve_github(number: int) -> str | None:
     result = subprocess.run(
         ["gh", "issue", "view", str(number), "--repo", ISSUE_REPO, "--json", "state"],
         capture_output=True,
@@ -49,6 +49,29 @@ def resolve(number: int) -> str | None:
     return state.lower()
 
 
+def resolve_linear(identifiers: list[str]) -> dict[str, str] | None:
+    result = subprocess.run(
+        ["go", "run", "./scripts/linear-issue-state", *identifiers],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        print(f"Linear issue lookup failed: {result.stderr.strip()}", file=sys.stderr)
+        return None
+    try:
+        states = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        print("Linear issue lookup returned unparseable output", file=sys.stderr)
+        return None
+    if not isinstance(states, dict) or set(states) != set(identifiers) or any(
+        state not in ("open", "closed") for state in states.values()
+    ):
+        print("Linear issue lookup returned an invalid state map", file=sys.stderr)
+        return None
+    return states
+
+
 def main() -> int:
     try:
         numbers = collect_outstanding_issues()
@@ -57,8 +80,14 @@ def main() -> int:
         return 1
 
     states: dict[str, str] = {}
-    for number in numbers:
-        state = resolve(number)
+    linear = [pointer for pointer in numbers if isinstance(pointer, str)]
+    if linear:
+        resolved = resolve_linear(linear)
+        if resolved is None:
+            return 1
+        states.update(resolved)
+    for number in (pointer for pointer in numbers if isinstance(pointer, int)):
+        state = resolve_github(number)
         if state is None:
             return 1
         states[str(number)] = state

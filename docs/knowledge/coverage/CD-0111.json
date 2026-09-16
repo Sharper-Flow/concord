@@ -1,5 +1,22 @@
 {
+  "evidence": [
+    {
+      "kind": "adapter_test",
+      "value": "adapter/opencode/concord.test.ts#core_binary_is_the_stamped_release_constant"
+    },
+    {
+      "kind": "adapter_test",
+      "value": "adapter/opencode/concord.test.ts#a session without a host lease refuses every core operation"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestOpenStopsBeforeAPendingBreakingMigration"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestUpgradeRefusesWhileALiveLeaseHoldsAnOlderSchema"
+    }
+  ],
   "id": "CD-0111",
-  "issue": 841,
-  "state": "outstanding"
+  "state": "satisfied"
 }

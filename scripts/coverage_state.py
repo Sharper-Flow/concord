@@ -36,6 +36,7 @@ that refreshes it (#324).
 from __future__ import annotations
 
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -69,6 +70,15 @@ ISSUE_STATE_MANIFESTS = (
     (ROOT / "docs/knowledge/coverage", "records"),
     (ROOT / "docs/reachability-exceptions.v1.json", "exceptions"),
 )
+
+LINEAR_ISSUE = re.compile(r"^[A-Z][A-Z0-9]*-[1-9][0-9]*$")
+
+
+def valid_issue_pointer(value: object) -> bool:
+    """Accept legacy GitHub numbers and provider-issued Linear identifiers."""
+    if isinstance(value, int) and not isinstance(value, bool):
+        return value >= 1
+    return isinstance(value, str) and LINEAR_ISSUE.fullmatch(value) is not None
 
 
 def load_plane(path: Path) -> dict:
@@ -138,8 +148,10 @@ def check_state_obligations(record: dict, prefix: str, findings: list[str]) -> b
             )
     if required == "issue" and "issue" in record:
         issue = record["issue"]
-        if not isinstance(issue, int) or isinstance(issue, bool) or issue < 1:
-            findings.append(f"{prefix}: issue must be a positive integer")
+        if not valid_issue_pointer(issue):
+            findings.append(
+                f"{prefix}: issue must be a positive integer or a Linear issue identifier"
+            )
 
     return True
 
@@ -174,10 +186,12 @@ def load_issue_states(findings: list[str]) -> dict[str, str] | None:
         return None
     states: dict[str, str] = {}
     for key, value in document["issues"].items():
-        if not isinstance(key, str) or not key.isdigit() or value not in ("open", "closed"):
+        if not isinstance(key, str) or (
+            not key.isdigit() and LINEAR_ISSUE.fullmatch(key) is None
+        ) or value not in ("open", "closed"):
             findings.append(
                 f"issue-state snapshot entry {key!r} must be a decimal issue number "
-                "mapped to open or closed"
+                "or Linear issue identifier mapped to open or closed"
             )
             continue
         states[key] = value
@@ -206,26 +220,34 @@ def check_outstanding_pointer(
         )
 
 
-def collect_outstanding_issues() -> list[int]:
-    """Every issue an outstanding record points at, across every declared plane."""
-    numbers: set[int] = set()
+def collect_outstanding_issues() -> list[int | str]:
+    """Every tracking record an outstanding record points at, across all planes."""
+    pointers: set[int | str] = set()
     for path, key in ISSUE_STATE_MANIFESTS:
         document = load_plane(path)
         for record in document.get(key, []):
             if (
                 isinstance(record, dict)
                 and record.get("state") == "outstanding"
-                and isinstance(record.get("issue"), int)
+                and valid_issue_pointer(record.get("issue"))
             ):
-                numbers.add(record["issue"])
-    return sorted(numbers)
+                pointers.add(record["issue"])
+    return sorted(pointers, key=lambda value: (isinstance(value, str), str(value)))
 
 
 def write_issue_state(states: dict[str, str], generated_at: str) -> None:
     snapshot = {
         "schema_version": "1.0",
         "generated_at": generated_at,
-        "issues": dict(sorted(states.items(), key=lambda item: int(item[0]))),
+        "issues": dict(
+            sorted(
+                states.items(),
+                key=lambda item: (
+                    not item[0].isdigit(),
+                    int(item[0]) if item[0].isdigit() else item[0],
+                ),
+            )
+        ),
     }
     ISSUE_STATE.write_text(json.dumps(snapshot, indent=2) + "\n", encoding="utf-8")
 

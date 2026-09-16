@@ -935,6 +935,51 @@ test("approval challenge is resubmitted once with the same idempotency key and u
   expect(requests[1].call_envelope.host_approval_assertion.nonce).toBeUndefined()
 })
 
+test("a challenge-free approval refusal reaches the operator unchanged", async () => {
+  // allOf[5] of the envelope schema binds approval_required to the
+  // request_approval recovery action and requires nothing else, so the store
+  // sites that refuse approval without minting a challenge are
+  // contract-conformant. Only the allOf[16]/allOf[17] consequence_summary
+  // and details.approval_ref pair marks a minted challenge.
+  const challengeFree = coreEnvelope("concord_work_transition", "workflow_action", "error", {
+    error: { kind: "approval_required", retry_safe: false, recovery_action: { kind: "request_approval" }, effect_state: "none", message: "operator takeover required" },
+  })
+  expect(validateGeneratedEnvelope(challengeFree)).toBe(true)
+  let calls = 0
+  let approvals = 0
+  const runner = { async run() {
+    calls++
+    if (calls === 1) return { exitCode: 0, stdout: JSON.stringify(contextResponse()), stderr: "" }
+    if (calls === 2) return { exitCode: 0, stdout: JSON.stringify(challengeFree), stderr: "" }
+    throw new Error("no resubmission may follow a challenge-free refusal")
+  } }
+  const result: any = await runWorkflowAction(
+    runner,
+    { work_id: "work-1", expected_version: 2, action_id: "approve_contract", idempotency_key: "idem-challenge-free-1" },
+    async () => { approvals++ },
+  )
+  expect(result.outcome).toBe("error")
+  expect(result.error.kind).toBe("approval_required")
+  expect(result.error.message).toBe("operator takeover required")
+  expect(result.error.recovery_action.kind).toBe("request_approval")
+  expect(approvals).toBe(0)
+  expect(calls).toBe(2)
+})
+
+test("a minted challenge without its workflow metadata still refuses as malformed", async () => {
+  const minted: any = workflowActionChallenge("approve_contract")
+  delete minted.error.details.operation_digest
+  const result: any = await runWorkflowAction(
+    challengeRunner(minted),
+    { work_id: "work-1", expected_version: 2, action_id: "approve_contract", idempotency_key: "idem-minted-1" },
+    async () => {},
+  )
+  expect(result.outcome).not.toBe("ok")
+  expect(result.error.kind).toBe("malformed_response")
+  expect(result.error.adapter_reason).toBe("malformed_core_response")
+  expect(result.error.message).toBe("core approval challenge lacked exact workflow metadata")
+})
+
 test("workflow premise approval asks with exact checkpoint metadata and no human identity", async () => {
   const requests: any[] = []
   const challenge = coreEnvelope("concord_work_transition", "workflow_action", "error", {

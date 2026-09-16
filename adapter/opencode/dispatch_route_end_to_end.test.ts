@@ -276,7 +276,10 @@ routeDeclaration("dispatches a real store route through Task completion and work
     }
     configureConcordAdapter({ runner: realRunner })
 
-    const invoke = (toolName: string, args: { operation: string; input: Record<string, unknown> }, callContext: any) => invokeConcordOperation(toolName, args as any, callContext)
+    const invoke = (toolName: string, args: { operation: string; input: Record<string, unknown> }, callContext: any, sessionDirectory?: string) => {
+      if (toolName === "concord_work_transition" && args.input.action_id === "dispatch_worker") expect(sessionDirectory).toBe(worktree)
+      return invokeConcordOperation(toolName, args as any, callContext, sessionDirectory)
+    }
     const transition = (version: number, actionID: string, idempotencyKey: string, fields: Record<string, unknown>) => invoke("concord_work_transition", { operation: "workflow_action", input: { work_id: workID, expected_version: version, action_id: actionID, idempotency_key: idempotencyKey, fields } }, context)
 
     let response = await transition(5, "record_reproduction", "e2e-reproduction", {})
@@ -314,11 +317,11 @@ routeDeclaration("dispatches a real store route through Task completion and work
     let dispatchResponse: JSONRecord | undefined
     const dispatchResult = await dispatchLaneWorker(routed as any, {
       context,
-      invoke: async (toolName, args, callContext) => {
+      invoke: async (toolName, args, callContext, sessionDirectory) => {
         if (toolName === "concord_work_transition" && args.input.action_id === "dispatch_worker") {
           expect(sessionMetadata).toEqual({ [MANAGED_TASK_SCOPE_KEY]: "managed" })
         }
-        const result = await invoke(toolName, args, callContext)
+        const result = await invoke(toolName, args, callContext, sessionDirectory)
         if (toolName === "concord_work_transition" && args.input.action_id === "dispatch_worker") dispatchResponse = result
         return result
       },
@@ -414,7 +417,11 @@ routeDeclaration("dispatches a real store route through Task completion and work
     requiredFields(workerDispatch ?? {}, ["event_id", "work_id", "attempt_id", "lane_id", "lane_version", "lane_digest", "packet_schema_version", "report_schema_version", "packet_digest", "host_provenance", "assertion"])
     requiredFields(workerComplete ?? {}, ["event_id", "work_id", "attempt_id", "readback_model", "report_schema_version", "evidence_origin", "evidence", "assertion"])
     const invokeCalls = realCalls.filter((call) => call.argv[1] === "invoke")
-    for (const call of invokeCalls) requiredFields(call.input.call_envelope, ["schema_version", "request_id", "client_ref", "principal_ref", "session_ref", "agent_ref", "directory", "worktree", "ambient_project_id", "scope_version", "manifest_digest"])
+    for (const call of invokeCalls) {
+      requiredFields(call.input.call_envelope, ["schema_version", "request_id", "client_ref", "principal_ref", "session_ref", "agent_ref", "directory", "worktree", "ambient_project_id", "scope_version", "manifest_digest"])
+      expect(call.input.call_envelope.directory).toBe(worktree)
+      expect(call.input.call_envelope.worktree).toBe(worktree)
+    }
   } finally {
     configureConcordAdapter({ reset: true })
     hostControlPlane().bind(undefined)

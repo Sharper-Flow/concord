@@ -485,6 +485,12 @@ async function invokeConcordOperationRaw(toolName: string, args: HostToolArgs, c
   }
   if (response?.outcome === "error" && response?.error?.kind === "approval_required") {
     const details = response.error.details ?? {}
+    // allOf[16] and allOf[17] of the envelope schema pair `consequence_summary`
+    // with `details.approval_ref`; that pair is the schema's only declaration
+    // that a challenge was minted. allOf[5] permits an approval_required
+    // refusal with no challenge, and one arrives here unchanged instead of
+    // failing challenge validation.
+    if (details.approval_ref === undefined && response.error.consequence_summary === undefined) return response as CoreConcordEnvelope
     const requiredChallengeFields = ["approval_ref", "operation_digest"]
     if (toolName === "concord_work_transition" && operation === "workflow_action") {
       requiredChallengeFields.push("work_id", "action_id", "contract_version", "premise_summary")

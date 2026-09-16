@@ -8,6 +8,8 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"net/url"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -1212,6 +1214,206 @@ func enqueueLinearIssueForLifecycleTx(ctx context.Context, tx *sql.Tx, workID, l
 	}
 	_, err = persistLinearIssueEnqueueTx(ctx, tx, plan, at.UTC().Format(time.RFC3339Nano))
 	return err
+}
+
+var linearIssueKeyPattern = regexp.MustCompile(`^[A-Z][A-Z0-9]*-[0-9]+$`)
+
+// normalizeLinearIssueExternalRef recognizes the supported Linear issue
+// identity forms and returns their canonical issue key or identity value.
+func normalizeLinearIssueExternalRef(value string) (string, bool) {
+	value = strings.TrimSpace(value)
+	if strings.HasPrefix(value, "linear:") {
+		identity := strings.TrimPrefix(value, "linear:")
+		if identity != "" && !strings.ContainsAny(identity, " \t\r\n") {
+			return identity, true
+		}
+		return "", false
+	}
+	if linearIssueKeyPattern.MatchString(value) {
+		return value, true
+	}
+	parsed, err := url.Parse(value)
+	if err != nil || parsed.Scheme != "https" || parsed.Hostname() != "linear.app" || parsed.User != nil {
+		return "", false
+	}
+	// Linear renders an issue as /<workspace>/issue/<KEY>/<slug>, and the slug
+	// is free text that may itself contain slashes. The key is the segment
+	// after "issue"; everything beyond it is presentation and carries no
+	// identity, so an exact segment count would reject the canonical form.
+	parts := strings.Split(strings.Trim(parsed.Path, "/"), "/")
+	if len(parts) >= 3 && parts[0] != "" && parts[1] == "issue" && linearIssueKeyPattern.MatchString(parts[2]) {
+		return parts[2], true
+	}
+	return "", false
+}
+
+// linearCaptureConfigurationRefusal reports whether a typed failure names a
+// Linear configuration shape the capture enqueue treats as a silent no-op
+// rather than a capture failure. Only availability failures propagate: a
+// misconfigured Linear connection can never fail a capture.
+func linearCaptureConfigurationRefusal(err error) bool {
+	f, ok := err.(*Failure)
+	if !ok {
+		return false
+	}
+	switch f.Kind {
+	case KindInvalidPayload, KindInvalidOperation, KindInvalidRelation, KindUnknownScope, KindAmbiguousScope:
+		return true
+	}
+	return false
+}
+
+// enqueueLinearIssueForCaptureTx queues the issue_create that puts a freshly
+// captured work item on the operator's Linear board from the instant its
+// capture transaction commits. The capture membership fold precedes this call,
+// so the owning Product resolves only here. Every configuration gap is a
+// silent no-op — local_only mode, a missing declared connection, an unmapped
+// owning Concord project, an unresolvable Product scope, an existing link row,
+// an initiative kind, and an external_ref that already names a Linear issue —
+// and terminal items are never published. It reports whether an operation was
+// queued, with the queued entry when it was.
+func enqueueLinearIssueForCaptureTx(ctx context.Context, tx *sql.Tx, workID string, at time.Time) (ClaimedLinearOperation, bool, error) {
+	var table string
+	if err := tx.QueryRowContext(ctx, `SELECT name FROM sqlite_schema WHERE type='table' AND name='linear_issue_links'`).Scan(&table); err == sql.ErrNoRows {
+		return ClaimedLinearOperation{}, false, nil
+	} else if err != nil {
+		return ClaimedLinearOperation{}, false, wrapFailure(KindUnavailable, "linear_issue_enqueue", "cannot inspect Linear link schema", true, "retry once the database is readable", err)
+	}
+	var kind, externalRef string
+	err := tx.QueryRowContext(ctx, `SELECT kind, coalesce(json_extract(intent_json, '$.external_ref'), '') FROM work_items WHERE id=? AND terminal_time IS NULL`, workID).Scan(&kind, &externalRef)
+	if err == sql.ErrNoRows {
+		return ClaimedLinearOperation{}, false, nil
+	} else if err != nil {
+		return ClaimedLinearOperation{}, false, wrapFailure(KindUnavailable, "linear_issue_enqueue", "cannot read work item", true, "retry once the database is readable", err)
+	}
+	if kind == "initiative" {
+		return ClaimedLinearOperation{}, false, nil
+	}
+	if _, exists := normalizeLinearIssueExternalRef(externalRef); exists {
+		return ClaimedLinearOperation{}, false, nil
+	}
+	var linked bool
+	if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM linear_issue_links WHERE work_id=?)`, workID).Scan(&linked); err != nil {
+		return ClaimedLinearOperation{}, false, wrapFailure(KindUnavailable, "linear_issue_enqueue", "cannot read link", true, "retry once the database is readable", err)
+	}
+	if linked {
+		return ClaimedLinearOperation{}, false, nil
+	}
+	productID, err := resolveLinearProductCore(ctx, tx, workID)
+	if err != nil {
+		if linearCaptureConfigurationRefusal(err) {
+			return ClaimedLinearOperation{}, false, nil
+		}
+		return ClaimedLinearOperation{}, false, err
+	}
+	mode, err := readProductPlanningModeCore(ctx, tx, productID)
+	if err != nil {
+		if linearCaptureConfigurationRefusal(err) {
+			return ClaimedLinearOperation{}, false, nil
+		}
+		return ClaimedLinearOperation{}, false, err
+	}
+	if mode.PlanningMode == PlanningModeLocalOnly {
+		return ClaimedLinearOperation{}, false, nil
+	}
+	connection, err := readLinearConnectionCore(ctx, tx, productID)
+	if err != nil {
+		if linearCaptureConfigurationRefusal(err) {
+			return ClaimedLinearOperation{}, false, nil
+		}
+		return ClaimedLinearOperation{}, false, err
+	}
+	if connection.State != LinearConnectionDeclared {
+		return ClaimedLinearOperation{}, false, nil
+	}
+	projectID, _, err := resolveLinearProjectCore(ctx, tx, workID, productID)
+	if err != nil {
+		if linearCaptureConfigurationRefusal(err) {
+			return ClaimedLinearOperation{}, false, nil
+		}
+		return ClaimedLinearOperation{}, false, err
+	}
+	if connection.ProjectIDs[projectID] == "" {
+		return ClaimedLinearOperation{}, false, nil
+	}
+	plan, err := enqueueLinearIssueForWorkCore(ctx, tx, productID, workID, LinearOpIssueCreate)
+	if err != nil {
+		return ClaimedLinearOperation{}, false, err
+	}
+	entry, err := persistLinearIssueEnqueueTx(ctx, tx, plan, at.UTC().Format(time.RFC3339Nano))
+	if err != nil {
+		return ClaimedLinearOperation{}, false, err
+	}
+	return entry, true, nil
+}
+
+// BackfillLinearIssueCreates queues issue_create operations for every work
+// item of one Product that a capture predating the capture-time enqueue left
+// unlinked. Eligibility matches the capture enqueue exactly: non-terminal,
+// not an initiative, no link row, and no Linear identity in the external_ref.
+// Configuration gaps skip an item instead of failing the backfill. Publication
+// stays with the operator-run linear outbox-drain command.
+func (s *Store) BackfillLinearIssueCreates(ctx context.Context, productID string) ([]ClaimedLinearOperation, error) {
+	mode, err := readProductPlanningModeCore(ctx, s.db, productID)
+	if err != nil {
+		return nil, err
+	}
+	if mode.PlanningMode == PlanningModeLocalOnly {
+		return nil, newFailure(KindInvalidOperation, "linear_backfill", "planning mode is local_only", false, "set planning_mode to linear_enabled before backfilling Linear issues")
+	}
+	if _, err := resolveLinearPlanningTargetCore(ctx, s.db, productID); err != nil {
+		return nil, err
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, wrapFailure(KindUnavailable, "linear_backfill", "cannot open backfill transaction", true, "retry once the database is writable", err)
+	}
+	defer tx.Rollback()
+	if err := enterFold(ctx, tx); err != nil {
+		return nil, err
+	}
+	rows, err := tx.QueryContext(ctx, `
+SELECT DISTINCT w.id
+FROM work_items w
+JOIN work_projects wp ON wp.work_id = w.id
+JOIN product_projects pp ON pp.project_id = wp.project_id
+WHERE pp.product_id = ? AND w.terminal_time IS NULL
+ORDER BY w.created_at, w.id`, productID)
+	if err != nil {
+		return nil, wrapFailure(KindUnavailable, "linear_backfill", "cannot read backfill candidates", true, "retry once the database is readable", err)
+	}
+	var workIDs []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return nil, wrapFailure(KindUnavailable, "linear_backfill", "cannot scan backfill candidates", true, "retry once the database is readable", err)
+		}
+		workIDs = append(workIDs, id)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return nil, wrapFailure(KindUnavailable, "linear_backfill", "cannot finish backfill candidate read", true, "retry once the database is readable", err)
+	}
+	rows.Close()
+	now := s.now()
+	enqueued := make([]ClaimedLinearOperation, 0, len(workIDs))
+	for _, workID := range workIDs {
+		entry, queued, err := enqueueLinearIssueForCaptureTx(ctx, tx, workID, now)
+		if err != nil {
+			return nil, err
+		}
+		if queued {
+			enqueued = append(enqueued, entry)
+		}
+	}
+	if err := leaveFold(ctx, tx); err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, wrapFailure(KindUnavailable, "linear_backfill", "cannot commit backfill", true, "retry once the database is writable", err)
+	}
+	return enqueued, nil
 }
 
 // ClaimLinearOperations moves up to limit queued operations to in_flight and

@@ -153,6 +153,7 @@ var commandSpecs = []commandSpec{
 	{Canonical: "linear-health", TwoWord: "linear health", RequiredFields: requiredFields(field("product_id")), Optional: "none", Enums: "none"},
 	{Canonical: "linear-issue-enqueue", TwoWord: "linear issue-enqueue", RequiredFields: requiredFields(field("product_id"), field("work_id"), field("op_kind")), Optional: "remote_issue_uuid (required for issue_adopt)", Enums: "op_kind: issue_create | issue_update | issue_adopt"},
 	{Canonical: "linear-outbox-drain", TwoWord: "linear outbox-drain", RequiredFields: requiredFields(field("product_id")), Optional: "max_operations", Enums: "none"},
+	{Canonical: "linear-backfill", TwoWord: "linear backfill", RequiredFields: requiredFields(field("product_id")), Optional: "none", Enums: "none"},
 	{Canonical: "linear-connection-update", TwoWord: "linear connection-update", RequiredFields: requiredFields(field("event_id"), field("resource_id"), field("product_id"), field("expected_resource_version")), Optional: "team_id, project_ids, status_ids", Enums: "status_ids keys: needed | in_progress | completed | cancelled | superseded"},
 	{Canonical: "linear-initiative-import", TwoWord: "linear initiative-import", RequiredFields: requiredFields(field("product_id"), field("initiative_id")), Optional: "none", Enums: "none"},
 	{Canonical: "resource-create", TwoWord: "resource create", RequiredFields: requiredFields(field("event_id"), field("resource_id"), field("product_id"), field("display_name"), field("class"), field("kind"), field("purpose"), field("stage_maturity"), field("stage_audience_commitment"), field("environments"), field("expected_product_version")), Optional: "locator_absence_reason, metadata_schema_version, metadata, owner_purpose, owner_environments", Enums: "stage_maturity: prototype | alpha | beta | production | deprecated; stage_audience_commitment: operator_only | limited | public"},
@@ -1008,6 +1009,29 @@ func runLinearIssueEnqueue(ctx context.Context, s *store.Store, raw []byte, comm
 	}}, errOut)
 }
 
+// runLinearBackfill handles the verb that queues issue_create operations for
+// work items a capture predating the capture-time enqueue left unlinked.
+// Publication stays with the operator-run linear outbox-drain command.
+func runLinearBackfill(ctx context.Context, s *store.Store, raw []byte, command string, out, errOut io.Writer) int {
+	var request struct {
+		ProductID string `json:"product_id"`
+	}
+	if err := decodeObject(raw, &request); err != nil {
+		writeOperatorDiagnostic(errOut, command, err.Error())
+		return 1
+	}
+	operations, err := s.BackfillLinearIssueCreates(ctx, request.ProductID)
+	if err != nil {
+		writeOperatorDiagnostic(errOut, command, err.Error())
+		return 1
+	}
+	queued := make([]map[string]any, 0, len(operations))
+	for _, entry := range operations {
+		queued = append(queued, map[string]any{"operation_id": entry.OperationID, "work_id": entry.WorkID, "op_kind": entry.OpKind, "state": "queued"})
+	}
+	return writeJSON(out, map[string]any{"ok": true, "enqueued": len(queued), "operations": queued}, errOut)
+}
+
 // runLinearOutboxDrain handles the Phase 1 verb that drains claimed outbox
 // operations to Linear. Credential custody (CD-0121 D3): the key comes from
 // CONCORD_LINEAR_API_KEY and never reaches the database, an event, or output.
@@ -1421,6 +1445,8 @@ func runInternal(command string, raw []byte, service *agent.Service, s *store.St
 		return runLinearIssueEnqueue(ctx, s, raw, command, out, errOut)
 	case "linear-outbox-drain":
 		return runLinearOutboxDrain(ctx, s, raw, command, out, errOut)
+	case "linear-backfill":
+		return runLinearBackfill(ctx, s, raw, command, out, errOut)
 	case "linear-initiative-import":
 		return runLinearInitiativeImport(ctx, s, raw, command, out, errOut)
 	case "resource-create":

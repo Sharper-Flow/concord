@@ -388,7 +388,19 @@ func foldWorkMembershipsReplaced(ctx context.Context, tx *sql.Tx, event Event) e
 			return wrapFailure(KindUnavailable, "fold_event", "cannot replace work memberships", true, "retry once the database is writable", err)
 		}
 	}
-	return updateWorkVersion(ctx, tx, event, current.version, payload.ResultingVersion)
+	if err := updateWorkVersion(ctx, tx, event, current.version, payload.ResultingVersion); err != nil {
+		return err
+	}
+	// A capture folds membership right after creation, and the owning Product
+	// resolves only once the membership rows exist, so the Linear issue_create
+	// enqueues here rather than in the creation fold. Every Linear
+	// configuration gap is a silent no-op inside.
+	if payload.ExpectedVersion == 1 {
+		if _, _, err := enqueueLinearIssueForCaptureTx(ctx, tx, event.SubjectID, event.OccurredAt); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func foldWorkTransitioned(ctx context.Context, tx *sql.Tx, event Event) error {

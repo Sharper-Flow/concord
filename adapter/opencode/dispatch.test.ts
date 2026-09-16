@@ -1352,27 +1352,29 @@ const writeExportFixture = (): { binary: string; body: string; cleanup: () => vo
   return { binary: script, body, cleanup: () => fs.rmSync(directory, { recursive: true, force: true }) }
 }
 
-const exportScratchDirectories = (): string[] =>
-  fs.readdirSync(os.tmpdir()).filter((entry) => entry.startsWith("concord-export-"))
-
 test("TestExportReadbackRunnerReadsFullExportThroughFile", async () => {
-  // The temporary directory is shared with every other process on the host,
-  // so the claim under test is that this run leaves nothing behind, not that
-  // the directory is empty. Asserting the latter made one abandoned export
-  // from a crashed run fail this test on every later run, which reads as a
-  // regression in the runner rather than as unrelated debris.
-  const before = new Set(exportScratchDirectories())
+  // The runner places its scratch directory under os.tmpdir(), which resolves
+  // TMPDIR on every call. Pointing TMPDIR at a directory this test creates
+  // makes the no-leak claim exact: whatever remains came from this run.
+  // Scanning the shared temporary directory instead could not tell the
+  // runner's leak from a concurrent session's export in flight, so an
+  // unrelated process failed this test.
   const { binary, body, cleanup } = writeExportFixture()
+  const scratchRoot = fs.mkdtempSync(path.join(os.tmpdir(), "concord-export-scope-"))
+  const inheritedTmpdir = process.env.TMPDIR
   try {
+    process.env.TMPDIR = scratchRoot
     const result = await defaultExportRunner.run([binary, "export", "session-1", "--sanitize"], "", SIGNAL)
     expect(result.exitCode).toBe(0)
     expect(result.stderr).toBe("")
     expect(result.stdout).toBe(body)
   } finally {
+    if (inheritedTmpdir === undefined) delete process.env.TMPDIR
+    else process.env.TMPDIR = inheritedTmpdir
     cleanup()
   }
-  const leaked = exportScratchDirectories().filter((entry) => !before.has(entry))
-  expect(leaked).toEqual([])
+  expect(fs.readdirSync(scratchRoot)).toEqual([])
+  fs.rmSync(scratchRoot, { recursive: true, force: true })
 })
 
 test("TestDispatchWorkerCompletesWithExportLargerThanPipeBuffer", async () => {

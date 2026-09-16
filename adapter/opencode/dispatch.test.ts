@@ -1,9 +1,11 @@
 import { test, expect } from "bun:test"
 import { createHash, randomUUID } from "node:crypto"
+import { mkdtemp } from "node:fs/promises"
 import fs from "node:fs"
+import * as os from "node:os"
 import path from "node:path"
 import { agentLanes } from "./generated-agent-lanes"
-import { completeWorkerAttempt, concordBinaryPath, configureCoreBinary, defaultExportRunner, dispatchWorker, MAX_EXPORT_BYTES, readExportSession, readExportSessionMetadata, readRunSessionMetadata, resolveCoreBinary, validateAgentLanePacket, type AgentLanePacket, type CanonicalLaneReport, type DispatchAuthorizer, type DispatchRunner } from "./dispatch"
+import { completeWorkerAttempt, computeHostPromptProvenance, concordBinaryPath, configureCoreBinary, defaultExportRunner, dispatchWorker, MAX_EXPORT_BYTES, readExportSession, readExportSessionMetadata, readRunSessionMetadata, resolveCoreBinary, validateAgentLanePacket, type AgentLanePacket, type CanonicalLaneReport, type DispatchAuthorizer, type DispatchRunner } from "./dispatch"
 
 // Fake-runner suite: bind worker-evidence CLI calls to a nominal core path
 // instead of the unstamped repository placeholder (CD-0111 D1).
@@ -590,11 +592,6 @@ test("worker evidence remains successful when the session index is unreadable", 
 
 // CD-0032 / issue #103: provenance is deterministic for the same inputs and
 // changes when an enumerated source changes.
-import { computeHostPromptProvenance } from "./dispatch"
-import { mkdtemp } from "node:fs/promises"
-import * as path from "node:path"
-import * as os from "node:os"
-import * as fs from "node:fs"
 
 test("host prompt provenance is deterministic and content-bound", async () => {
   const dir = await mkdtemp(path.join(os.tmpdir(), "provenance-"))

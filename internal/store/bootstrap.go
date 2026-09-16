@@ -835,42 +835,12 @@ func (s *Store) prepareBootstrapMode(ctx context.Context, req BootstrapRequest, 
 		if state == "completed" {
 			switch claimState {
 			case worktreeStatePending, worktreeStateVerified:
-				entry, entryErr := worktreeEntryByClaim(ctx, tx, operationID)
-				if entryErr != nil {
-					return out, entryErr
-				}
-				version, versionErr := workVersionTx(ctx, tx, workID)
-				if versionErr != nil {
-					return out, versionErr
-				}
-				if err := tx.Commit(); err != nil {
+				return replayCompletedBootstrapTx(ctx, tx, req, operationID, workID, state, location)
+			case worktreeStateReclaimed:
+				location, expectedVersion, err = reopenReclaimedBootstrapTx(ctx, tx, operationID, workID, location, s.Clock, runner)
+				if err != nil {
 					return out, err
 				}
-				return bootstrapPrepared{Result: BootstrapResult{OperationID: operationID, Replayed: true, ProductID: req.ProductID, ProjectID: req.ProjectID, WorkID: workID, WorkVersion: version, Entry: entry}, State: state, Location: location}, nil
-			case worktreeStateReclaimed:
-				version, versionErr := workVersionTx(ctx, tx, workID)
-				if versionErr != nil {
-					return out, versionErr
-				}
-				branchSHA, branchExists, branchErr := bootstrapBranchHead(ctx, runner, location.Repo, location.Branch)
-				if branchErr != nil {
-					return out, branchErr
-				}
-				if branchExists {
-					location.BaseSHA = branchSHA
-				}
-				now := s.now().Format(time.RFC3339Nano)
-				if result, updateErr := tx.ExecContext(ctx, `UPDATE bootstrap_operations SET state='pending',expected_version=?,updated_at=? WHERE operation_id=? AND state='completed'`, version, now, operationID); updateErr != nil {
-					return out, updateErr
-				} else if affected, affectedErr := result.RowsAffected(); affectedErr != nil || affected != 1 {
-					return out, newFailure(KindInvariantViolation, "work_bootstrap", "completed bootstrap journal could not be reopened", false, "contact_operator")
-				}
-				if result, updateErr := tx.ExecContext(ctx, `UPDATE worktree_claims SET pinned_base_sha=?,state='pending',updated_at=? WHERE op_id=? AND state='reclaimed'`, location.BaseSHA, now, operationID); updateErr != nil {
-					return out, updateErr
-				} else if affected, affectedErr := result.RowsAffected(); affectedErr != nil || affected != 1 {
-					return out, newFailure(KindInvariantViolation, "work_bootstrap", "reclaimed bootstrap claim could not be reopened", false, "contact_operator")
-				}
-				expectedVersion = version
 				state = "pending"
 				restarted = true
 				err = sql.ErrNoRows
@@ -885,27 +855,12 @@ func (s *Store) prepareBootstrapMode(ctx context.Context, req BootstrapRequest, 
 	if err == sql.ErrNoRows {
 		state = "pending"
 		if existing {
-			entry, activeErr := activeWorktreeEntryForProject(ctx, tx, "work_bootstrap", workID, req.ProjectID)
-			if activeErr == nil {
-				version, versionErr := workVersionTx(ctx, tx, workID)
-				if versionErr != nil {
-					return out, versionErr
-				}
-				if err := tx.Commit(); err != nil {
-					return out, err
-				}
-				return bootstrapPrepared{Result: BootstrapResult{Replayed: true, ProductID: req.ProductID, ProjectID: req.ProjectID, WorkID: workID, WorkVersion: version, Entry: entry}, State: "completed", Location: WorktreeLocation{Branch: entry.Branch, BaseSHA: entry.BaseSHA, Path: entry.Path}}, nil
+			replay, handled, existingErr := replayExistingBootstrapTx(ctx, tx, req, workID)
+			if existingErr != nil {
+				return out, existingErr
 			}
-			var activeFailure *Failure
-			if !errors.As(activeErr, &activeFailure) || activeFailure.Kind != KindProjectionNotFound {
-				return out, activeErr
-			}
-			var activeElsewhere bool
-			if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM worktree_entries e JOIN worktree_claims c ON c.op_id=e.claim_op_id WHERE c.work_id=? AND e.state='active')`, workID).Scan(&activeElsewhere); err != nil {
-				return out, err
-			}
-			if activeElsewhere {
-				return out, newFailure(KindUnknownScope, "work_bootstrap", "work item has an active worktree in another Project", false, "resume from the Project that owns the active worktree")
+			if handled {
+				return replay, nil
 			}
 		}
 		if !restarted {
@@ -999,6 +954,73 @@ func (s *Store) prepareBootstrapMode(ctx context.Context, req BootstrapRequest, 
 		return out, err
 	}
 	return bootstrapPrepared{Result: BootstrapResult{OperationID: operationID, Replayed: replayed, ProductID: req.ProductID, ProjectID: req.ProjectID, WorkID: workID}, State: state, Location: location}, nil
+}
+
+func replayCompletedBootstrapTx(ctx context.Context, tx *sql.Tx, req BootstrapRequest, operationID, workID, state string, location WorktreeLocation) (bootstrapPrepared, error) {
+	entry, err := worktreeEntryByClaim(ctx, tx, operationID)
+	if err != nil {
+		return bootstrapPrepared{}, err
+	}
+	version, err := workVersionTx(ctx, tx, workID)
+	if err != nil {
+		return bootstrapPrepared{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return bootstrapPrepared{}, err
+	}
+	return bootstrapPrepared{Result: BootstrapResult{OperationID: operationID, Replayed: true, ProductID: req.ProductID, ProjectID: req.ProjectID, WorkID: workID, WorkVersion: version, Entry: entry}, State: state, Location: location}, nil
+}
+
+func replayExistingBootstrapTx(ctx context.Context, tx *sql.Tx, req BootstrapRequest, workID string) (bootstrapPrepared, bool, error) {
+	entry, activeErr := activeWorktreeEntryForProject(ctx, tx, "work_bootstrap", workID, req.ProjectID)
+	if activeErr == nil {
+		version, versionErr := workVersionTx(ctx, tx, workID)
+		if versionErr != nil {
+			return bootstrapPrepared{}, false, versionErr
+		}
+		if err := tx.Commit(); err != nil {
+			return bootstrapPrepared{}, false, err
+		}
+		return bootstrapPrepared{Result: BootstrapResult{Replayed: true, ProductID: req.ProductID, ProjectID: req.ProjectID, WorkID: workID, WorkVersion: version, Entry: entry}, State: "completed", Location: WorktreeLocation{Branch: entry.Branch, BaseSHA: entry.BaseSHA, Path: entry.Path}}, true, nil
+	}
+	var activeFailure *Failure
+	if !errors.As(activeErr, &activeFailure) || activeFailure.Kind != KindProjectionNotFound {
+		return bootstrapPrepared{}, false, activeErr
+	}
+	var activeElsewhere bool
+	if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM worktree_entries e JOIN worktree_claims c ON c.op_id=e.claim_op_id WHERE c.work_id=? AND e.state='active')`, workID).Scan(&activeElsewhere); err != nil {
+		return bootstrapPrepared{}, false, err
+	}
+	if activeElsewhere {
+		return bootstrapPrepared{}, false, newFailure(KindUnknownScope, "work_bootstrap", "work item has an active worktree in another Project", false, "resume from the Project that owns the active worktree")
+	}
+	return bootstrapPrepared{}, false, nil
+}
+
+func reopenReclaimedBootstrapTx(ctx context.Context, tx *sql.Tx, operationID, workID string, location WorktreeLocation, clock func() time.Time, runner GitRunner) (WorktreeLocation, int64, error) {
+	version, err := workVersionTx(ctx, tx, workID)
+	if err != nil {
+		return location, 0, err
+	}
+	branchSHA, branchExists, err := bootstrapBranchHead(ctx, runner, location.Repo, location.Branch)
+	if err != nil {
+		return location, 0, err
+	}
+	if branchExists {
+		location.BaseSHA = branchSHA
+	}
+	now := nowFromClock(clock).Format(time.RFC3339Nano)
+	if result, err := tx.ExecContext(ctx, `UPDATE bootstrap_operations SET state='pending',expected_version=?,updated_at=? WHERE operation_id=? AND state='completed'`, version, now, operationID); err != nil {
+		return location, 0, err
+	} else if affected, affectedErr := result.RowsAffected(); affectedErr != nil || affected != 1 {
+		return location, 0, newFailure(KindInvariantViolation, "work_bootstrap", "completed bootstrap journal could not be reopened", false, "contact_operator")
+	}
+	if result, err := tx.ExecContext(ctx, `UPDATE worktree_claims SET pinned_base_sha=?,state='pending',updated_at=? WHERE op_id=? AND state='reclaimed'`, location.BaseSHA, now, operationID); err != nil {
+		return location, 0, err
+	} else if affected, affectedErr := result.RowsAffected(); affectedErr != nil || affected != 1 {
+		return location, 0, newFailure(KindInvariantViolation, "work_bootstrap", "reclaimed bootstrap claim could not be reopened", false, "contact_operator")
+	}
+	return location, version, nil
 }
 
 func (s *Store) setBootstrapState(ctx context.Context, operationID, from, to string) error {

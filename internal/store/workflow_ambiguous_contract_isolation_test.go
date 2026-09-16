@@ -116,3 +116,20 @@ func duplicateActiveContractForTest(ctx context.Context, t *testing.T, s *Store,
 		t.Fatalf("duplicate active contract: %v", err)
 	}
 }
+
+// Relaxing the law-revision gate keeps the operator recovery reachable. It must
+// not make an ambiguous projection ordinarily actionable: a normal action still
+// has no single contract to read, so it refuses.
+func TestNormalWorkflowActionRefusesAnAmbiguousProjection(t *testing.T) {
+	ctx := context.Background()
+	f := newAcceptanceRecoveryFixture(ctx, t)
+	duplicateActiveWorkflowContract(ctx, t, f.store, f.workID)
+	version := verdictItemVersion(t, f.store, f.workID)
+	err := WorkflowActionPreflight(ctx, f.store, WorkflowActionPreflightRequest{
+		WorkID: f.workID, ExpectedVersion: version, ActionID: "confirm_premise", Payload: []byte(`{}`),
+		Actor: WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/recovery", SessionRef: "session/recovery", ActorClass: ActorAgent},
+	})
+	if err == nil || !strings.Contains(err.Error(), "multiple active contracts") {
+		t.Fatalf("normal action error = %v, want duplicate-contract refusal", err)
+	}
+}

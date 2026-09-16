@@ -372,6 +372,53 @@ test("approval challenge and approved resubmission preserve the exact packet ide
   expect(packets[0].worker_packet).toEqual(packets[1].worker_packet)
 })
 
+// The core mints the standard approval challenge when a dispatch faces the
+// escalated correction wall (CD-0148). The lane refusal carries the challenge
+// bindings flattened onto error, so the orchestrator can obtain one operator
+// approval and re-invoke with its approval_ref. No spawn happens until the
+// approved resubmission returns ok.
+test("an escalated correction challenge forwards the failed attempt bindings for operator approval", async () => {
+  const challengeDetails = {
+    approval_ref: "challenge-1", operation_digest: "sha256:" + "a".repeat(64),
+    scope: ["product:product-dispatch", "work:work-dispatch", "failed_attempt_id:attempt:work-dispatch:3"],
+    versions: ["work:3", "contract:1", "failed_attempt_epoch:3"],
+    work_id: WORK_ID, action_id: "dispatch_worker", contract_version: "1", selected_choice: "", premise_summary: "approved retry objective",
+  }
+  let spawned = 0
+  const invoke = async (toolName: string, args: { operation: string; input?: Record<string, unknown> }): Promise<unknown> => {
+    if (toolName === "concord_work_trace") return continuityEnvelope()
+    if (toolName === "concord_work_browse") return scopeEnvelope()
+    if (toolName === "concord_work_transition") {
+      if (args.input?.approval) return coreOkEnvelope()
+      return envelope({
+        tool: "concord_work_transition", operation: "workflow_action", outcome: "error", authority: "authoritative", freshness: null,
+        error: { kind: "approval_required", retry_safe: false, recovery_action: { kind: "request_approval" }, effect_state: "none", message: "core approval is required for this workflow action", details: challengeDetails },
+      })
+    }
+    throw new Error(`unscripted ${toolName}.${args.operation}`)
+  }
+  const runner: DispatchRunner = { async run() { spawned++; return { exitCode: 0, stdout: "", stderr: "" } } }
+  const windows = new DispatchWindows()
+  const request = { work_id: WORK_ID, expected_version: 3, idempotency_key: "escalated-approval", lane_id: lane.id }
+  const first = await dispatchLaneWorker(request, { context: contextFor(), invoke: invoke as any, runner, windows })
+  expect(first.outcome).toBe("error")
+  expect(first.error?.kind).toBe("approval_required")
+  expect(first.error?.recovery_action).toBe("request_approval")
+  // The lane refusal flattens the core challenge details onto error; the
+  // envelope type does not enumerate the forwarded challenge keys.
+  const forwarded = (first.error ?? {}) as Record<string, unknown>
+  expect(forwarded.approval_ref).toBe("challenge-1")
+  expect(forwarded.operation_digest).toBe("sha256:" + "a".repeat(64))
+  expect(forwarded.work_id).toBe(WORK_ID)
+  expect(forwarded.action_id).toBe("dispatch_worker")
+  expect(forwarded.contract_version).toBe("1")
+  expect(forwarded.premise_summary).toBe("approved retry objective")
+  expect(spawned).toBe(0)
+  const second = await dispatchLaneWorker({ ...request, approval_ref: "challenge-1" }, { context: contextFor(), invoke: invoke as any, runner, windows })
+  expect(second.outcome).toBe("ok")
+  expect(spawned).toBe(0)
+})
+
 // product_identity is the distinct product set across the work item's
 // projects: zero or several is valid core state that dispatch cannot project
 // from, so the refusal is blocked with a reconcile action, never a transport

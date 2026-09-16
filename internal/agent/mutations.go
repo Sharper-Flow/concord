@@ -662,64 +662,6 @@ func scopeFromMap(scope map[string]any) *Scope {
 	return result
 }
 
-func (r runtime) preflightWorkflowAction(ctx context.Context, raw []byte, grant Authority) error {
-	var in actionMutationInput
-	if err := decodeOperationInput(raw, &in); err != nil {
-		return err
-	}
-	payload, err := workflowActionFields(in.Fields)
-	if err != nil {
-		return err
-	}
-	return store.AuthorizeWorkflowAction(ctx, r.Store, nil, store.WorkflowActionPreflightRequest{
-		WorkID:                in.WorkID,
-		ExpectedVersion:       in.ExpectedVersion,
-		ActionID:              in.ActionID,
-		SelectedChoice:        in.SelectedChoice,
-		DecisionContextDigest: in.DecisionContextDigest,
-		Payload:               payload,
-		Actor: store.WorkflowActor{
-			PrincipalRef: grant.PrincipalRef,
-			ClientRef:    grant.ClientRef,
-			AgentRef:     grant.AgentRef,
-			SessionRef:   grant.SessionRef,
-			ActorClass:   store.ActorAgent,
-		},
-		SessionWorktree: r.Envelope.Worktree,
-	}, nil)
-}
-
-func (r runtime) authorizeWorkflowAction(ctx context.Context, raw []byte, grant Authority, authorize func() error) error {
-	var in actionMutationInput
-	if err := decodeOperationInput(raw, &in); err != nil {
-		return err
-	}
-	payload, err := workflowActionFields(in.Fields)
-	if err != nil {
-		return err
-	}
-	return store.AuthorizeWorkflowAction(ctx, r.Store, nil, store.WorkflowActionPreflightRequest{
-		WorkID:                in.WorkID,
-		ExpectedVersion:       in.ExpectedVersion,
-		ActionID:              in.ActionID,
-		SelectedChoice:        in.SelectedChoice,
-		DecisionContextDigest: in.DecisionContextDigest,
-		Payload:               payload,
-		Actor: store.WorkflowActor{
-			PrincipalRef: grant.PrincipalRef,
-			ClientRef:    grant.ClientRef,
-			AgentRef:     grant.AgentRef,
-			SessionRef:   grant.SessionRef,
-			ActorClass:   store.ActorAgent,
-		},
-		SessionWorktree: r.Envelope.Worktree,
-	}, authorize)
-}
-
-func preflightWorkflowActionRequest(ctx context.Context, s *store.Store, raw []byte, env CallEnvelope, actor Authority) error {
-	return preflightWorkflowActionRequestWithRegistry(ctx, s, raw, env, actor, store.BuiltinWorkflowRegistry())
-}
-
 // preflightWorkflowActionRequestWithRegistry takes the authorized actor
 // separately from the envelope. CD-0080 D1 derives principal_ref from the
 // registered client, so the envelope carries no principal to build an actor
@@ -1031,11 +973,16 @@ func (r runtime) mutateWorkflowAction(ctx context.Context, base Envelope, raw []
 		if bindingErr != nil {
 			return failureEnvelope(base, bindingErr), nil
 		}
-		if binding != nil && !binding.Escalated {
+		if binding != nil {
+			// A failed disposition below the limit and an escalated correction
+			// both dispatch only behind an operator approval bound
+			// to the failed attempt identity. The escalation wall is operator
+			// approvable; it is not a dead end.
 			retryApproval = true
 			scope["failed_attempt_id"] = binding.FailedAttemptID
 			versions["failed_attempt_epoch"] = binding.FailedAttemptEpoch
 			versions["contract"] = binding.ContractVersion
+			contractVersion = binding.ContractVersion
 		}
 	}
 	approval := ""
@@ -1104,7 +1051,7 @@ func (r runtime) mutateWorkflowAction(ctx context.Context, base Envelope, raw []
 		// summary derived from the same spec the challenge binds.
 		response.Error.ConsequenceSummary = consequenceSummaryFor(r.Tool, r.Operation, spec)
 		premiseSummary := ""
-		if in.ActionID == "confirm_premise" {
+		if in.ActionID == "confirm_premise" || retryApproval {
 			if contract, err := r.Store.ActiveWorkflowContract(ctx, in.WorkID); err == nil {
 				premiseSummary = contract.Premise
 			}
@@ -1132,7 +1079,7 @@ func (r runtime) mutateWorkflowAction(ctx context.Context, base Envelope, raw []
 	var resultRejected bool
 	scopeJSON, _ := json.Marshal(scope)
 	versionsJSON, _ := json.Marshal(versions)
-	actionRequest := store.WorkflowActionExecutionRequest{WorkID: in.WorkID, ExpectedVersion: in.ExpectedVersion, ActionID: in.ActionID, SelectedChoice: in.SelectedChoice, DecisionContextDigest: in.DecisionContextDigest, Payload: payload, EvidenceRefs: evidenceLocators(in.Evidence), Actor: store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}, SessionWorktree: r.Envelope.Worktree, ResearchBindings: researchBindingDeclarations(in.ResearchBindings), AcceptedInputsDigest: digest, IdempotencyIdentity: in.IdempotencyKey, OperationID: operationID, PrincipalRef: grant.PrincipalRef, Tool: r.Tool, IdempotencyKey: in.IdempotencyKey, RequestID: r.Envelope.RequestID, AcceptedScope: string(scopeJSON), ContractDigest: ManifestDigest, Now: r.Authority.now()}
+	actionRequest := store.WorkflowActionExecutionRequest{WorkID: in.WorkID, ExpectedVersion: in.ExpectedVersion, ActionID: in.ActionID, SelectedChoice: in.SelectedChoice, DecisionContextDigest: in.DecisionContextDigest, Payload: payload, EvidenceRefs: evidenceLocators(in.Evidence), Actor: store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}, SessionWorktree: r.Envelope.Worktree, EscalatedRetryApproved: retryApproval, ResearchBindings: researchBindingDeclarations(in.ResearchBindings), AcceptedInputsDigest: digest, IdempotencyIdentity: in.IdempotencyKey, OperationID: operationID, PrincipalRef: grant.PrincipalRef, Tool: r.Tool, IdempotencyKey: in.IdempotencyKey, RequestID: r.Envelope.RequestID, AcceptedScope: string(scopeJSON), ContractDigest: ManifestDigest, Now: r.Authority.now()}
 	actionRequest.ApprovalOperationDigest = digest
 	actionRequest.ApprovalScopeJSON = string(scopeJSON)
 	actionRequest.ApprovalVersionsJSON = string(versionsJSON)
@@ -1146,7 +1093,7 @@ func (r runtime) mutateWorkflowAction(ctx context.Context, base Envelope, raw []
 			if bindingErr != nil {
 				return bindingErr
 			}
-			if !idOK || !epochOK || !contractOK || binding == nil || binding.Escalated || binding.FailedAttemptID != failedID || binding.FailedAttemptEpoch != expectedEpoch || binding.ContractVersion != expectedContract {
+			if !idOK || !epochOK || !contractOK || binding == nil || binding.FailedAttemptID != failedID || binding.FailedAttemptEpoch != expectedEpoch || binding.ContractVersion != expectedContract {
 				return newRuntimeFailure("approval_invalid", "failed worker attempt or contract changed after approval challenge", "request_approval", false)
 			}
 		}

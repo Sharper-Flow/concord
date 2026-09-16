@@ -27,16 +27,19 @@ type WorkflowCorrectionContext struct {
 }
 
 // WorkflowRetryApprovalBinding is the durable identity that an operator
-// approval must bind before a failed worker attempt can run again.
+// approval must bind before a failed worker attempt can run again. It also
+// names the one correction an escalated wall admission may consume.
 type WorkflowRetryApprovalBinding struct {
 	FailedAttemptID    string
 	FailedAttemptEpoch int64
 	ContractVersion    int64
-	Escalated          bool
 }
 
 // WorkflowFailedWorkerRetryBinding reads the current failed worker attempt
-// and active contract without opening a nested store connection.
+// and active contract without opening a nested store connection. An escalated
+// rejected result carries the same failed attempt identity, so its wall
+// admission binds it exactly like a failed disposition. A rejected result
+// below the limit keeps its ordinary approval-free correction dispatch.
 func WorkflowFailedWorkerRetryBinding(ctx context.Context, s *Store, workID string) (*WorkflowRetryApprovalBinding, error) {
 	if s == nil || s.db == nil {
 		return nil, newFailure(KindUnavailable, "workflow_correction", "store is not open", false, "open the authority database")
@@ -64,8 +67,11 @@ func workflowFailedWorkerRetryBinding(ctx context.Context, q queryer, workID str
 		return nil, wrapFailure(KindUnavailable, "workflow_correction", "cannot read the current workflow step", true, "retry once the workflow projection is readable", err)
 	}
 	correction, err := workflowCorrectionContextForDispatch(ctx, q, workID, stepID, "")
-	if err != nil || correction == nil || correction.Disposition != "failed" || correction.FailedAttemptID == "" {
+	if err != nil || correction == nil || correction.FailedAttemptID == "" {
 		return nil, err
+	}
+	if correction.Disposition != "failed" && !(correction.Escalated && correction.Disposition == "rejected") {
+		return nil, nil
 	}
 	contractVersion, err := latestWorkflowContractVersion(ctx, q, workID)
 	if err != nil {
@@ -73,7 +79,7 @@ func workflowFailedWorkerRetryBinding(ctx context.Context, q queryer, workID str
 	}
 	return &WorkflowRetryApprovalBinding{
 		FailedAttemptID: correction.FailedAttemptID, FailedAttemptEpoch: correction.FailedAttemptEpoch,
-		ContractVersion: contractVersion, Escalated: correction.Escalated,
+		ContractVersion: contractVersion,
 	}, nil
 }
 
@@ -574,7 +580,11 @@ func workflowRejectedWorkerResultAvailable(ctx context.Context, q queryer, workI
 	return attemptID != "" && lifecycle == "completed", nil
 }
 
-func validateWorkerPacketCorrection(ctx context.Context, q queryer, workID, currentStep string, packetRaw json.RawMessage) error {
+// validateWorkerPacketCorrection refuses a packet that does not consume the
+// current correction context. An escalated correction is admissible only
+// through the approval-gated boundary, which sets escalatedRetryApproved after
+// it consumed the operator approval bound to this correction.
+func validateWorkerPacketCorrection(ctx context.Context, q queryer, workID, currentStep string, packetRaw json.RawMessage, escalatedRetryApproved bool) error {
 	var packet struct {
 		AttemptID string `json:"attempt_id"`
 		Inputs    struct {
@@ -594,7 +604,7 @@ func validateWorkerPacketCorrection(ctx context.Context, q queryer, workID, curr
 		}
 		return nil
 	}
-	if correction.Escalated {
+	if correction.Escalated && !escalatedRetryApproved {
 		return newFailure(KindApprovalRequired, "workflow_action", "worker retry reached the three-attempt limit", false, "escalate the correction to the operator")
 	}
 	if packet.Inputs.Correction == nil || !sameWorkflowCorrection(packet.Inputs.Correction, correction) {

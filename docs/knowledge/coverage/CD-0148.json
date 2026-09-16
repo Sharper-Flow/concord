@@ -6,7 +6,27 @@
     },
     {
       "kind": "go_test",
+      "value": "internal/agent.TestEscalatedCorrectionRetryMintsBindableChallengeAndAdmitsOneAttempt"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/agent.TestEscalatedCorrectionRetryRefusesStaleAndReusedApproval"
+    },
+    {
+      "kind": "go_test",
       "value": "internal/store.TestWorkflowFourthCorrectionDispatchRefusesWithApprovalRequired"
+    },
+    {
+      "kind": "adapter_test",
+      "value": "adapter/opencode/lane_dispatch.test.ts#an escalated correction challenge forwards the failed attempt bindings for operator approval"
+    },
+    {
+      "kind": "adapter_test",
+      "value": "adapter/opencode/concord.test.ts#escalated correction challenge round-trips with the failed attempt bindings"
+    },
+    {
+      "kind": "adapter_test",
+      "value": "adapter/opencode/concord.test.ts#a metadata-less escalation refusal fail-closes instead of asking the operator"
     }
   ],
   "id": "CD-0148",

@@ -359,15 +359,34 @@ func TestWorkflowFourthCorrectionDispatchRefusesWithApprovalRequired(t *testing.
 
 	attemptID := "attempt:" + workID + ":4"
 	payload := issue1013CorrectionDispatchPayload(t, workID, "repair", attemptID, pin.Correction)
-	err := WorkflowActionPreflight(context.Background(), s, WorkflowActionPreflightRequest{
-		WorkID: workID, ExpectedVersion: pin.Version, ActionID: "dispatch_worker", Payload: payload, Actor: owner,
-	})
-	if err == nil {
-		t.Fatal("fourth correction dispatch passed preflight")
+	base := WorkflowActionExecutionRequest{
+		WorkID: workID, ExpectedVersion: pin.Version, ActionID: "dispatch_worker", Payload: payload, SessionWorktree: dispatchSessionWorktree(t, s, workID),
+		Actor: owner, AcceptedInputsDigest: "sha256:" + strings.Repeat("e", 64), IdempotencyIdentity: "issue1013-escalated-dispatch", OperationID: "issue1013-escalated-dispatch",
+		PrincipalRef: owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "issue1013-escalated-dispatch", RequestID: "request:issue1013-escalated-dispatch", ContractDigest: testManifestDigest, Now: time.Unix(50, 0).UTC(),
 	}
+	_, err := invokeWorkflowActionForCD0059(context.Background(), t, s, base)
 	var failure *Failure
 	if !errors.As(err, &failure) || failure.Kind != KindApprovalRequired {
 		t.Fatalf("fourth correction dispatch failure=%v, want approval_required", err)
+	}
+
+	// The wall admits exactly one dispatch behind the boundary-consumed
+	// approval representation. Nothing else opens it.
+	approved := base
+	approved.EscalatedRetryApproved = true
+	approved.IdempotencyIdentity = "issue1013-escalated-dispatch-approved"
+	approved.OperationID = approved.IdempotencyIdentity
+	approved.IdempotencyKey = approved.IdempotencyIdentity
+	approved.RequestID = "request:" + approved.IdempotencyIdentity
+	if _, err := invokeWorkflowActionForCD0059(context.Background(), t, s, approved); err != nil {
+		t.Fatalf("approved fourth correction dispatch: %v", err)
+	}
+	var dispatched int
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.worker_attempt_id')=?`, workID, WorkflowActionCompleted, attemptID).Scan(&dispatched); err != nil {
+		t.Fatal(err)
+	}
+	if dispatched != 1 {
+		t.Fatalf("approved escalated dispatch recorded %d completions for %s, want 1", dispatched, attemptID)
 	}
 }
 

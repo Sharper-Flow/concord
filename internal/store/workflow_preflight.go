@@ -205,15 +205,11 @@ func WorkflowActionPreflightWithRegistry(ctx context.Context, s *Store, registry
 			return newFailure(KindInvalidOperation, "workflow_action_preflight", "correction request is unavailable without a current non-ok verification verdict", false, "reread the current work pin")
 		}
 	}
-	if request.ActionID == "dispatch_worker" {
-		correction, correctionErr := workflowCorrectionContext(ctx, s.db, request.WorkID, currentStep)
-		if correctionErr != nil {
-			return correctionErr
-		}
-		if correction != nil && correction.Escalated {
-			return newFailure(KindApprovalRequired, "workflow_action_preflight", "worker correction reached the three-attempt limit", false, "escalate the failed or rejected result to the operator")
-		}
-	}
+	// An escalated correction is not refused here. This preflight runs before
+	// the approval-gated mutation boundary, so a refusal on this surface would
+	// dead-end the correction before any operator challenge could be minted.
+	// The dispatch fold owns the escalated wall, and it admits a dispatch only
+	// behind the boundary-consumed operator approval.
 	if request.ActionID == "request_correction" {
 		if err := validateCorrectionRequestPayload(ctx, s.db, request.WorkID, entry.Definition, currentStep, request.Payload, "workflow_action_preflight"); err != nil {
 			return err

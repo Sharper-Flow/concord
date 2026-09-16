@@ -848,7 +848,7 @@ func appendGenericWorkflowCompletion(in workflowActionAssemblyInput, attemptEpoc
 			return events, "", newFailure(KindUnauthorizedDispatch, "workflow_action", "lane capability class "+lane.CapabilityClass+" is not dispatchable at a "+string(in.step.Kind)+" step", false, "dispatch the lane at a step kind the lane-step dispatch join admits")
 		}
 		if in.tx != nil {
-			if err := validateWorkerPacketCorrection(in.ctx, in.tx, in.request.WorkID, in.currentStep, packetRaw); err != nil {
+			if err := validateWorkerPacketCorrection(in.ctx, in.tx, in.request.WorkID, in.currentStep, packetRaw, in.request.EscalatedRetryApproved); err != nil {
 				return events, "", err
 			}
 		}

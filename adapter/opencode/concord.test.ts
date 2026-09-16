@@ -1006,6 +1006,62 @@ test("workflow premise approval asks with exact checkpoint metadata and no human
   expect(requests[1].call_envelope.host_approval_assertion.operator_session_ref).toBeUndefined()
 })
 
+// The host tool routes dispatch_worker to the lane dispatcher, so the generic
+// transport below meets the escalated dispatch challenge through the lane
+// path's internal invoke. The challenge the core mints for an escalated
+// dispatch_worker carries the failed attempt bindings; this test drives that
+// exact challenge shape through the generic approval round trip the lane path
+// depends on.
+test("escalated correction challenge round-trips with the failed attempt bindings", async () => {
+  const challenge = coreEnvelope("concord_work_transition", "workflow_action", "error", {
+    error: { kind: "approval_required", retry_safe: false, recovery_action: { kind: "request_approval" }, effect_state: "none", details: {
+      approval_ref: "challenge-1", operation_digest: "sha256:" + "a".repeat(64),
+      scope: ["product:product-1", "project:project-1", "work:work-1", "failed_attempt_id:attempt:work-1:3"],
+      versions: ["work:7", "contract:1", "failed_attempt_epoch:3"],
+      work_id: "work-1", action_id: "dispatch_worker", contract_version: "1", selected_choice: "", decision_context_digest: "", premise_summary: "approved retry objective",
+    } },
+  })
+  const success = coreEnvelope("concord_work_transition", "workflow_action", "ok", { result: { changed_refs: [], next_valid_intents: [] }, changed_refs: [], next_valid_intents: [] })
+  const requests: any[] = []
+  let calls = 0
+  const runner = { async run(_argv: string[], input: string) {
+    calls++
+    if (calls > 1) requests.push(JSON.parse(input))
+    if (calls === 1) return { exitCode: 0, stdout: JSON.stringify(contextResponse()), stderr: "" }
+    return { exitCode: 0, stdout: JSON.stringify(calls === 2 ? challenge : success), stderr: "" }
+  } }
+  let askMetadata: any
+  adapter.configureConcordAdapter({ runner })
+  const result: any = await rawHostResult(adapter.work_transition.execute(hostCall("workflow_action", { work_id: "work-1", expected_version: 7, action_id: "approve_contract", idempotency_key: "escalated-challenge-transport" }), contextFor(async (request: any) => { askMetadata = request.metadata })))
+  expect(result.outcome).toBe("ok")
+  expect(askMetadata).toEqual({ approval_ref: "challenge-1", operation_digest: "sha256:" + "a".repeat(64), work_id: "work-1", action_id: "dispatch_worker", contract_version: "1", selected_choice: "", decision_context_digest: "", premise_summary: "approved retry objective" })
+  expect(requests[1].call_envelope.host_approval_assertion.scope).toEqual(["product:product-1", "project:project-1", "work:work-1", "failed_attempt_id:attempt:work-1:3"])
+  expect(requests[1].call_envelope.host_approval_assertion.versions).toEqual(["work:7", "contract:1", "failed_attempt_epoch:3"])
+})
+
+test("a metadata-less escalation refusal fail-closes instead of asking the operator", async () => {
+  // The pre-repair core answered an escalated dispatch with approval_required
+  // and no challenge details. The adapter must not put an unbindable approval
+  // in front of the operator, so it fail-closes without an ask.
+  const refusal = coreEnvelope("concord_work_transition", "workflow_action", "error", {
+    error: { kind: "approval_required", retry_safe: false, recovery_action: { kind: "request_approval" }, effect_state: "none" },
+  })
+  let calls = 0
+  const runner = { async run() {
+    calls++
+    if (calls === 1) return { exitCode: 0, stdout: JSON.stringify(contextResponse()), stderr: "" }
+    return { exitCode: 0, stdout: JSON.stringify(refusal), stderr: "" }
+  } }
+  let asks = 0
+  adapter.configureConcordAdapter({ runner })
+  const result: any = await rawHostResult(adapter.work_transition.execute(hostCall("workflow_action", { work_id: "work-1", expected_version: 7, action_id: "approve_contract", idempotency_key: "escalated-dead-end" }), contextFor(async () => { asks++ })))
+  assertAdapterEnvelope(result)
+  expect(result.error.kind).toBe("malformed_response")
+  expect(result.error.adapter_reason).toBe("malformed_core_response")
+  expect(asks).toBe(0)
+  expect(calls).toBe(2)
+})
+
 test("fake seams exercise context resolution and malformed-response handling", async () => {
   const calls: string[][] = []
   adapter.configureConcordAdapter({

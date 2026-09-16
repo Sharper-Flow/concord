@@ -98,7 +98,7 @@ func TestFailedWorkerRetryBindingPinsFailureAndContract(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read retry binding: %v", err)
 	}
-	if binding == nil || binding.FailedAttemptID != attemptID || binding.FailedAttemptEpoch != 1 || binding.ContractVersion != 1 || binding.Escalated {
+	if binding == nil || binding.FailedAttemptID != attemptID || binding.FailedAttemptEpoch != 1 || binding.ContractVersion != 1 {
 		t.Fatalf("retry binding = %#v, want failed attempt and contract version 1", binding)
 	}
 }

@@ -29,18 +29,25 @@ type WorkflowActionExecutionRequest struct {
 	// OperatorActor and OperatorApprovalRef are populated only after the signed
 	// approval for an operator-authorized action has been verified and consumed.
 	// It is never decoded from workflow action payload.
-	OperatorActor        *WorkflowActor
-	OperatorApprovalRef  string
-	AcceptedInputsDigest string
-	IdempotencyIdentity  string
-	OperationID          string
-	PrincipalRef         string
-	Tool                 string
-	IdempotencyKey       string
-	RequestID            string
-	AcceptedScope        string
-	LawModifies          []string
-	ContractDigest       string
+	OperatorActor       *WorkflowActor
+	OperatorApprovalRef string
+	// EscalatedRetryApproved is set only by the approval-gated mutation
+	// boundary, in the same transaction where it consumed the operator
+	// approval bound to this escalated correction. A boundary callback error
+	// rolls the transaction back, so the dispatch fold sees the flag only
+	// behind a consumed approval. It is never decoded from request input, and
+	// every other caller of the fold keeps the escalated wall closed.
+	EscalatedRetryApproved bool
+	AcceptedInputsDigest   string
+	IdempotencyIdentity    string
+	OperationID            string
+	PrincipalRef           string
+	Tool                   string
+	IdempotencyKey         string
+	RequestID              string
+	AcceptedScope          string
+	LawModifies            []string
+	ContractDigest         string
 	// Approval binding is copied from the authenticated mutation boundary into
 	// a recovery event. The fold compares these values with the consumed
 	// approval record instead of trusting the approval reference alone.
@@ -258,7 +265,7 @@ func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, registry Definiti
 			return result, correctionErr
 		}
 		retryCorrection = correction
-		if correction != nil && correction.Escalated {
+		if correction != nil && correction.Escalated && !request.EscalatedRetryApproved {
 			return result, newFailure(KindApprovalRequired, "workflow_action", "worker correction reached the three-attempt limit", false, "escalate the failed or rejected result to the operator")
 		}
 		if err := validateFailedWorkerRetryIdentity(ctx, tx, request.WorkID, currentStep, request.Payload); err != nil {

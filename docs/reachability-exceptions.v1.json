@@ -15,9 +15,6 @@
       "id": "workflow-action-surface-reserved",
       "state": "out_of_scope",
       "functions": [
-        "internal/agent.preflightWorkflowActionRequest",
-        "internal/agent.runtime.authorizeWorkflowAction",
-        "internal/agent.runtime.preflightWorkflowAction",
         "internal/store.AbortStep",
         "internal/store.AuthorizeWorkflowAction",
         "internal/store.AuthorizeWorkflowActionAtBoundary",

@@ -669,6 +669,25 @@ a fenced action first emits `workflow.action_started` and may emit
 | `accept_worker_result` | `workflow.evidence_bound` naming the accepted attempt as its `immutable_subject_ref`, with the lane's capability class as the evidence kind, then `workflow.action_completed` v2 bound to the exact completed attempt and current step epoch; the fold rechecks dispatch order, work ownership, lifecycle, model readback, and actor distinctness before advancing. The verdict on the next step cites the attempt id. |
 | `record_worker_failure` | `workflow.action_completed` v2 in hold mode, bound to the exact failed attempt and current step epoch; the fold rechecks dispatch order, work ownership, failed lifecycle, actor distinctness, and prior recording. A fresh fenced start opens the recovery attempt. |
 
+### 12.1 Correction escalation wall
+
+A failed or rejected worker correction consumes one correction attempt. When
+the count reaches the three-attempt limit, the correction is escalated: the
+work pin removes `dispatch_worker` from the ordinary intent set, and an
+unapproved dispatch refuses with `approval_required`. The wall is operator
+approvable, not terminal. A `dispatch_worker` against an escalated correction
+mints the standard approval challenge bound to the failed attempt ID, failed
+attempt epoch, active contract version, work version, scope, and request
+digest. One operator approval admits exactly one fresh fenced attempt of the
+unchanged approved contract; the dispatch fold opens the wall only behind the
+approval the mutation boundary consumed in the same transaction. A missing,
+stale, expired, or reused approval has no effect, and the wall re-arms after
+each admitted attempt fails. Below the limit nothing changes: a failed
+disposition requires the same approval-gated retry (CD-0148), and a rejected
+completed result dispatches through its ordinary correction without a second
+approval. The store-level preflight surface never opens the wall; it reports
+the escalated correction, and the approval-gated boundary owns every admission.
+
 `action_definitions` carry closed payload field definitions and execution modes
 for each ID. Every registered definition declares an explicit `execution_mode`
 for every action; the registry infers no mode from an action ID, and an action

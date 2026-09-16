@@ -1187,7 +1187,10 @@ func drainAdopt(ctx context.Context, client *linearclient.Client, payload linear
 	if err != nil {
 		return linearclient.Issue{}, err
 	}
-	if teamID != "" && resolved.TeamID != teamID {
+	if teamID == "" {
+		return linearclient.Issue{}, fmt.Errorf("adoption cannot verify issue %s because the Product declares no Linear team", resolved.Identifier)
+	}
+	if resolved.TeamID != teamID {
 		return linearclient.Issue{}, fmt.Errorf("issue %s belongs to team %s, not the Product's configured team %s", resolved.Identifier, resolved.TeamID, teamID)
 	}
 	return resolved.Issue, nil

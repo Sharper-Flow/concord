@@ -1,11 +1,12 @@
 {
   "schema_version": "1.0",
-  "generated_at": "2026-09-06T03:07:33Z",
+  "generated_at": "2026-09-16T18:03:43Z",
   "issues": {
-    "705": "open",
-    "706": "open",
-    "803": "open",
-    "841": "open",
-    "857": "open"
+    "705": "closed",
+    "706": "closed",
+    "803": "closed",
+    "841": "closed",
+    "857": "closed",
+    "1191": "open"
   }
 }

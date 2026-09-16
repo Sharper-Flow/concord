@@ -2,6 +2,7 @@ package bubbletea
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -26,7 +27,7 @@ func TestFrameHasTerminalGeometryAndStableHeader(t *testing.T) {
 			snapshot: launcher.Snapshot{
 				Screen: launcher.ScreenPortfolio, AmbientProduct: "Concord",
 				Watermark: "w42", ObservedAt: "2m", Reliance: "clear", Coverage: "authoritative",
-				Rows: []launcher.ProductRow{{ID: "p-1", Name: "Launcher", Stage: "in_progress", Reliance: "clear", Actions: 3, Focus: "Fix frame"}},
+				Rows: fixturePortfolioRows(28),
 			},
 			golden: "frame-80x24.golden",
 		},
@@ -34,11 +35,11 @@ func TestFrameHasTerminalGeometryAndStableHeader(t *testing.T) {
 			name:  "120x40",
 			width: 120, height: 40,
 			snapshot: launcher.Snapshot{
-				Screen: launcher.ScreenProduct, AmbientProduct: "Concord", Section: launcher.SectionDomains,
+				Screen: launcher.ScreenProduct, AmbientProduct: "Concord", Section: launcher.SectionRanked, PanelFocus: launcher.S2PanelNext,
 				Coverage: "authoritative", Domains: launcher.DomainSection{
 					Read: true, State: "authoritative", Domains: []launcher.DomainRow{{ID: "operator-surface", Name: "Operator surface", Home: true}},
 				},
-				Ranked: []launcher.RankedWork{{ID: "work-1", Kind: "task", Title: "Frame launcher", Lifecycle: "in_progress", Ready: true}},
+				Ranked: fixtureRankedWorks(45),
 			},
 			golden: "frame-120x40.golden",
 		},
@@ -51,6 +52,7 @@ func TestFrameHasTerminalGeometryAndStableHeader(t *testing.T) {
 			model := New(core, context.Background(), Profile{})
 			model.Update(tea.WindowSizeMsg{Width: tc.width, Height: tc.height})
 			model.Sync()
+			model.UpdateKey("G")
 			if !model.View().AltScreen {
 				t.Fatal("launcher view does not use the alternate screen")
 			}
@@ -71,6 +73,12 @@ func TestFrameHasTerminalGeometryAndStableHeader(t *testing.T) {
 			if !strings.Contains(frame, "╭") || !strings.Contains(frame, "╰") {
 				t.Fatal("frame does not contain a rounded pane")
 			}
+			if tc.name == "80x24" && !strings.Contains(frame, "Product  Stage  Reliance  Actions  Focus") {
+				t.Fatal("scrolled portfolio frame lost the column header")
+			}
+			if tc.name == "120x40" && !strings.Contains(frame, "S2 PRODUCT COORDINATION") {
+				t.Fatal("scrolled S2 frame lost its section label")
+			}
 
 			path := filepath.Join("testdata", tc.golden)
 			if os.Getenv("UPDATE_GOLDEN") == "1" {
@@ -87,4 +95,20 @@ func TestFrameHasTerminalGeometryAndStableHeader(t *testing.T) {
 			}
 		})
 	}
+}
+
+func fixturePortfolioRows(count int) []launcher.ProductRow {
+	rows := make([]launcher.ProductRow, count)
+	for i := range rows {
+		rows[i] = launcher.ProductRow{ID: "p-" + fmt.Sprint(i+1), Name: "Product " + fmt.Sprint(i+1), Stage: "in_progress", Reliance: "clear", Actions: 1, Focus: "Focus " + fmt.Sprint(i+1)}
+	}
+	return rows
+}
+
+func fixtureRankedWorks(count int) []launcher.RankedWork {
+	rows := make([]launcher.RankedWork, count)
+	for i := range rows {
+		rows[i] = launcher.RankedWork{ID: "work-" + fmt.Sprint(i+1), Kind: "task", Title: "Work " + fmt.Sprint(i+1), Lifecycle: "in_progress", Ready: true}
+	}
+	return rows
 }

@@ -11,6 +11,7 @@ import (
 	"charm.land/bubbles/v2/help"
 	"charm.land/bubbles/v2/key"
 	"charm.land/bubbles/v2/textinput"
+	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
@@ -22,6 +23,13 @@ type Profile struct{ Color bool }
 type navigationPosition struct {
 	cursor int
 	scroll int
+}
+
+type renderedPane struct {
+	header []string
+	rows   [][]string
+	tail   []string
+	footer []string
 }
 
 type keyMap struct {
@@ -496,10 +504,14 @@ func (m *Model) move(delta int) {
 }
 
 func (m *Model) pageSize() int {
-	if m.height < 8 {
+	if m.width < 3 || m.height < 3 {
 		return 1
 	}
-	return max(1, m.height-8)
+	content := m.renderContent(m.snapshot, m.cursor)
+	innerWidth := m.width - 2
+	headerLines := len(wrapPaneLines(content.header, innerWidth))
+	footerLines := len(wrapPaneLines(content.footer, innerWidth))
+	return max(1, m.height-5-headerLines-footerLines)
 }
 
 func (m *Model) adjustScroll() {
@@ -577,7 +589,7 @@ func (m *Model) Render() string {
 	m.keys.Section.SetEnabled(snapshot.Screen != launcher.ScreenPortfolio)
 	m.keys.Launch.SetEnabled(snapshot.Screen != launcher.ScreenPortfolio)
 
-	content := m.renderContent(snapshot)
+	content := m.renderContent(snapshot, m.cursor)
 	header := "CONCORD LAUNCHER"
 	if snapshot.AmbientProduct != "" {
 		header += " | PRODUCT: " + snapshot.AmbientProduct
@@ -598,45 +610,46 @@ func (m *Model) Render() string {
 		lipgloss.JoinVertical(lipgloss.Left,
 			fixedLine(header, m.width),
 			statusBar,
-			pane(content, m.width, max(1, m.height-3)),
+			pane(content, m.width, max(1, m.height-3), m.scroll),
 			fixedLine(footer, m.width),
 		), m.width, m.height)
 }
 
-func (m *Model) renderContent(snapshot launcher.Snapshot) string {
+func (m *Model) renderContent(snapshot launcher.Snapshot, cursor int) renderedPane {
 	if len(snapshot.Candidates) > 0 {
-		return m.renderCandidates(snapshot)
+		return m.renderCandidates(snapshot, cursor)
 	}
 	if snapshot.Screen == launcher.ScreenProduct {
-		return m.renderS2(m.projection.Header)
+		return m.renderS2(m.projection.Header, cursor)
 	}
 	if snapshot.Screen == launcher.ScreenWork {
-		return m.renderS3(m.projection.Header)
+		return m.renderS3(m.projection.Header, cursor)
 	}
-	return m.renderPortfolio(snapshot)
+	return m.renderPortfolio(snapshot, cursor)
 }
 
-func (m *Model) renderPortfolio(snapshot launcher.Snapshot) string {
+func (m *Model) renderPortfolio(snapshot launcher.Snapshot, cursor int) renderedPane {
 	projection := m.projection
-	rows := snapshot.Rows
+	rows := m.filteredRows()
 	widths := columnWidths(m.width)
-	lines := []string{strings.Join(projection.Header, " | ")}
-	lines = append(lines, probeLines(snapshot.Probes)...)
+	header := []string{strings.Join(projection.Header, " | ")}
+	header = append(header, probeLines(snapshot.Probes)...)
 	if m.filterMode {
-		lines = append(lines, m.input.View())
+		header = append(header, m.input.View())
 	} else if m.filterValue != "" {
 		hidden := len(snapshot.Rows) - len(rows)
-		lines = append(lines, "FILTERED: "+m.filterValue+" (hidden: "+fmtInt(hidden)+")")
+		header = append(header, "FILTERED: "+m.filterValue+" (hidden: "+fmtInt(hidden)+")")
 	}
 	if len(snapshot.Rows) == 0 && snapshot.Coverage == "first_run" {
-		lines = append(lines, "FIRST RUN: no database; initialize through the operator setup")
+		header = append(header, "FIRST RUN: no database; initialize through the operator setup")
 	} else if len(snapshot.Rows) == 0 && snapshot.Coverage == "authoritative" {
-		lines = append(lines, "PORTFOLIO: authoritative-empty")
+		header = append(header, "PORTFOLIO: authoritative-empty")
 	} else if snapshot.StatusMessage != "" {
-		lines = append(lines, "STATUS: "+snapshot.StatusMessage)
+		header = append(header, "STATUS: "+snapshot.StatusMessage)
 	}
-	lines = append(lines, strings.Join(projection.Columns, "  "))
-	for _, row := range rows {
+	header = append(header, strings.Join(projection.Columns, "  "))
+	renderedRows := make([][]string, 0, len(rows))
+	for i, row := range rows {
 		values := []string{row.Name + row.NameSuffix, row.Stage, relianceText(row), actionText(row), row.Focus}
 		parts := make([][]string, len(values))
 		multiline := false
@@ -647,81 +660,91 @@ func (m *Model) renderPortfolio(snapshot launcher.Snapshot) string {
 			}
 		}
 		if !multiline {
-			lines = append(lines, strings.Join(values, " | "))
+			renderedRows = append(renderedRows, []string{selectedRow(i, cursor, strings.Join(values, " | "), m.profile.Color)})
 			continue
 		}
-		for _, valueParts := range parts {
-			lines = append(lines, valueParts...)
+		rowLines := make([]string, 0, len(values))
+		for partIndex, valueParts := range parts {
+			if partIndex == 0 && len(valueParts) > 0 {
+				valueParts[0] = selectedRow(i, cursor, valueParts[0], m.profile.Color)
+			}
+			rowLines = append(rowLines, valueParts...)
 		}
+		renderedRows = append(renderedRows, rowLines)
 	}
-	if m.showHelp {
-		lines = append(lines, helpLines("HELP: "+m.help.View(m.keys), m.width)...)
-	} else {
-		lines = append(lines, helpLines(m.help.View(m.keys), m.width)...)
-	}
-	return strings.Join(lines, "\n")
+	footer := m.footerLines()
+	return renderedPane{header: header, rows: renderedRows, footer: footer}
 }
 
-func (m *Model) renderS2(headers []string) string {
-	lines := append([]string{}, headers...)
+func (m *Model) renderS2(headers []string, cursor int) renderedPane {
+	header := append([]string{}, headers...)
 	s := m.snapshot
-	lines = append(lines, probeLines(s.Probes)...)
+	header = append(header, probeLines(s.Probes)...)
 	stack := s.S2AnswerStack()
-	lines = append(lines, "S2 PRODUCT COORDINATION")
+	header = append(header, "S2 PRODUCT COORDINATION")
 	if s.StatusMessage != "" {
-		lines = append(lines, "STATUS: "+s.StatusMessage)
+		header = append(header, "STATUS: "+s.StatusMessage)
 	}
 	if m.filterMode {
-		lines = append(lines, m.input.View())
+		header = append(header, m.input.View())
 	} else if m.filterValue != "" {
-		lines = append(lines, "FILTERED: "+m.filterValue+" (hidden: "+fmtInt(len(s.Ranked)-len(m.filteredRanked()))+")")
+		header = append(header, "FILTERED: "+m.filterValue+" (hidden: "+fmtInt(len(s.Ranked)-len(m.filteredRanked()))+")")
 	}
+	var rows [][]string
+	var tail []string
+	focusedSeen := false
 	for _, panel := range stack.Panels {
 		focused := s.PanelFocus == panel || (s.PanelFocus == "" && panel == launcher.S2PanelDomain)
-		lines = append(lines, s2PanelLines(panel, focused, stack, s, filterRanked(s.Ranked, m.filterValue))...)
+		panelHeader, panelRows, panelTail := s2PanelContent(panel, focused, stack, s, filterRanked(s.Ranked, m.filterValue), cursor, m.profile.Color)
+		if !focusedSeen && !focused {
+			header = append(header, panelHeader...)
+			continue
+		}
+		if focusedSeen {
+			tail = append(tail, panelHeader...)
+			tail = append(tail, panelTail...)
+			continue
+		}
+		header = append(header, panelHeader...)
+		rows = append(rows, panelRows...)
+		tail = append(tail, panelTail...)
+		focusedSeen = true
 	}
 	if s.QueryResult {
-		lines = append(lines, "KNOWLEDGE WATERMARK: "+s.Knowledge.Watermark+" STATE: "+s.Knowledge.State)
+		tail = append(tail, "KNOWLEDGE WATERMARK: "+s.Knowledge.Watermark+" STATE: "+s.Knowledge.State)
 	}
 	if s.QueryResult && len(s.Knowledge.Items) > 0 {
-		lines = append(lines, "KNOWLEDGE MATCHES:")
+		tail = append(tail, "KNOWLEDGE MATCHES:")
 		for _, item := range s.Knowledge.Items {
-			lines = append(lines, "  "+item.Kind+" "+item.ID+" "+item.Title)
+			tail = append(tail, "  "+item.Kind+" "+item.ID+" "+item.Title)
 		}
 	}
 	if s.QueryResult {
-		lines = append(lines, "QUERY RESULT: "+s.QuerySubmitted+" (Esc restores prior view)")
+		tail = append(tail, "QUERY RESULT: "+s.QuerySubmitted+" (Esc restores prior view)")
 	}
-	if m.showHelp {
-		lines = append(lines, helpLines("HELP: "+m.help.View(m.keys), m.width)...)
-	} else {
-		lines = append(lines, helpLines(m.help.View(m.keys), m.width)...)
-	}
-	return strings.Join(wrapHeaders(lines, m.width), "\n")
+	footer := m.footerLines()
+	return renderedPane{header: header, rows: rows, tail: tail, footer: footer}
 }
 
-func s2PanelLines(panel launcher.S2Panel, expanded bool, stack launcher.S2AnswerStack, snapshot launcher.Snapshot, ranked []launcher.RankedWork) []string {
+func s2PanelContent(panel launcher.S2Panel, expanded bool, stack launcher.S2AnswerStack, snapshot launcher.Snapshot, ranked []launcher.RankedWork, cursor int, color bool) (header []string, rows [][]string, tail []string) {
 	if !expanded {
 		switch panel {
 		case launcher.S2PanelDomain:
-			return domainSummaryLines(stack.Domain.Domain)
+			return domainSummaryLines(stack.Domain.Domain), nil, nil
 		case launcher.S2PanelBlocked:
-			return blockedSummaryLines(stack.Blocked.Work, snapshot)
+			return blockedSummaryLines(stack.Blocked.Work, snapshot), nil, nil
 		case launcher.S2PanelNext:
-			return nextSummaryLines(stack.Next.Work, snapshot)
+			return nextSummaryLines(stack.Next.Work, snapshot), nil, nil
 		}
 	}
 	switch panel {
 	case launcher.S2PanelDomain:
-		lines := []string{"DOMAIN:"}
-		lines = append(lines, domainLines(snapshot.Domains)...)
-		lines = append(lines, knowledgeLines(snapshot.Knowledge)...)
-		lines = append(lines, relationLines(snapshot.Relations)...)
-		return lines
+		domainHeader, domainRows := domainLines(snapshot.Domains, cursor, color)
+		return append([]string{"DOMAIN:"}, domainHeader...), domainRows, append(knowledgeLines(snapshot.Knowledge), relationLines(snapshot.Relations)...)
 	case launcher.S2PanelBlocked, launcher.S2PanelNext:
-		return append([]string{"BLOCKED/BLOCKERS:"}, rankedLines(ranked, snapshot)...)
+		return []string{"BLOCKED/BLOCKERS:"}, rankedLines(ranked, snapshot, cursor, color), nil
 	default:
-		return nil
+		return nil, nil, nil
 	}
 }
 
@@ -814,11 +837,11 @@ func relationLines(relations launcher.RelationTree) []string {
 	return lines
 }
 
-func rankedLines(ranked []launcher.RankedWork, snapshot launcher.Snapshot) []string {
+func rankedLines(ranked []launcher.RankedWork, snapshot launcher.Snapshot, cursor int, color bool) [][]string {
 	if len(ranked) == 0 {
-		return []string{"WORK: " + drillDownEmptyState(snapshot)}
+		return [][]string{{"WORK: " + drillDownEmptyState(snapshot)}}
 	}
-	lines := make([]string, 0, len(ranked))
+	rows := make([][]string, 0, len(ranked))
 	for i, item := range ranked {
 		urgency := item.Urgency
 		if urgency == "" {
@@ -832,94 +855,91 @@ func rankedLines(ranked []launcher.RankedWork, snapshot launcher.Snapshot) []str
 		if kind == "" {
 			kind = "-"
 		}
-		lines = append(lines, fmtInt(i+1)+" "+rankedMarker(&item)+" "+item.ID+" "+item.Title+" kind="+kind+" priority="+fmtInt64(item.Priority)+" urgency="+urgency+" lifecycle="+item.Lifecycle+terminal+" projects="+fmtInt(item.ProjectCount))
+		row := []string{selectedRow(i, cursor, fmtInt(i+1)+" "+rankedMarker(&item)+" "+item.ID+" "+item.Title+" kind="+kind+" priority="+fmtInt64(item.Priority)+" urgency="+urgency+" lifecycle="+item.Lifecycle+terminal+" projects="+fmtInt(item.ProjectCount), color)}
 		for _, blocker := range item.Blockers {
 			external := ""
 			if blocker.External {
 				external = " external"
 			}
-			lines = append(lines, "  BLOCKER "+blocker.ID+" "+blocker.Title+" authority="+blocker.Authority+" age="+blocker.Age+external)
+			row = append(row, "  BLOCKER "+blocker.ID+" "+blocker.Title+" authority="+blocker.Authority+" age="+blocker.Age+external)
 		}
+		rows = append(rows, row)
 	}
-	return lines
+	return rows
 }
 
-func (m *Model) renderS3(headers []string) string {
-	lines := append([]string{}, headers...)
+func (m *Model) renderS3(headers []string, cursor int) renderedPane {
+	header := append([]string{}, headers...)
 	s := m.snapshot
-	lines = append(lines, probeLines(s.Probes)...)
+	header = append(header, probeLines(s.Probes)...)
 	if s.QueryResult {
-		lines = append(lines, "S3 WORK SEARCH", "QUERY RESULT: "+s.QuerySubmitted+" (Esc restores prior view)")
+		header = append(header, "S3 WORK SEARCH", "QUERY RESULT: "+s.QuerySubmitted+" (Esc restores prior view)")
 		for _, item := range s.Ranked {
-			lines = append(lines, "WORK MATCH: "+item.ID+" "+item.Title+" lifecycle="+item.Lifecycle)
+			header = append(header, "WORK MATCH: "+item.ID+" "+item.Title+" lifecycle="+item.Lifecycle)
 		}
-		lines = append(lines, "KNOWLEDGE WATERMARK: "+s.Knowledge.Watermark+" STATE: "+s.Knowledge.State)
-		lines = append(lines, knowledgeLines(s.Knowledge)...)
-		if m.showHelp {
-			lines = append(lines, helpLines("HELP: "+m.help.View(m.keys), m.width)...)
-		} else {
-			lines = append(lines, helpLines(m.help.View(m.keys), m.width)...)
-		}
-		return strings.Join(wrapHeaders(lines, m.width), "\n")
+		header = append(header, "KNOWLEDGE WATERMARK: "+s.Knowledge.Watermark+" STATE: "+s.Knowledge.State)
+		header = append(header, knowledgeLines(s.Knowledge)...)
+		footer := m.footerLines()
+		return renderedPane{header: header, footer: footer}
 	}
 	d := s.Detail
 	urgency := d.Item.Urgency
 	if urgency == "" {
 		urgency = "standard"
 	}
-	lines = append(lines, "S3 WORK DETAIL", "WORK: "+d.Item.ID+" "+d.Item.Title, "LIFECYCLE: "+d.Item.Lifecycle+" PRIORITY: "+fmtInt64(d.Item.Priority)+" URGENCY: "+urgency, "SECTION: "+string(s.Section), "PROJECTS: "+strings.Join(d.Projects, ", "), "WORKFLOW: "+d.Workflow)
+	header = append(header, "S3 WORK DETAIL", "WORK: "+d.Item.ID+" "+d.Item.Title, "LIFECYCLE: "+d.Item.Lifecycle+" PRIORITY: "+fmtInt64(d.Item.Priority)+" URGENCY: "+urgency, "SECTION: "+string(s.Section), "PROJECTS: "+strings.Join(d.Projects, ", "), "WORKFLOW: "+d.Workflow)
 	if s.StatusMessage != "" {
-		lines = append(lines, "STATUS: "+s.StatusMessage)
+		header = append(header, "STATUS: "+s.StatusMessage)
 	}
 	if d.Item.Blocked {
 		for _, b := range d.Item.Blockers {
-			lines = append(lines, "BLOCKER: "+b.ID+" "+b.Title+" authority="+b.Authority+" age="+b.Age)
+			header = append(header, "BLOCKER: "+b.ID+" "+b.Title+" authority="+b.Authority+" age="+b.Age)
 		}
 	} else {
-		lines = append(lines, "BLOCKED: no")
+		header = append(header, "BLOCKED: no")
 	}
+	var rows [][]string
 	switch s.Section {
 	case launcher.SectionKnowledge:
-		lines = append(lines, knowledgeLines(s.Knowledge)...)
+		header = append(header, knowledgeLines(s.Knowledge)...)
 	case launcher.SectionRelations:
 		for _, e := range d.Edges {
-			lines = append(lines, "EDGE "+e.Kind+": "+e.Source+" -> "+e.Target)
+			header = append(header, "EDGE "+e.Kind+": "+e.Source+" -> "+e.Target)
 		}
 	case launcher.SectionRanked:
-		for _, h := range d.History {
-			lines = append(lines, "HISTORY: "+h)
+		rows = make([][]string, 0, len(d.History))
+		for i, h := range d.History {
+			rows = append(rows, []string{selectedRow(i, cursor, "HISTORY: "+h, m.profile.Color)})
 		}
 	}
+	tail := []string{}
 	if s.QueryResult && len(s.Knowledge.Items) > 0 {
-		lines = append(lines, "KNOWLEDGE MATCHES:")
+		tail = append(tail, "KNOWLEDGE MATCHES:")
 		for _, item := range s.Knowledge.Items {
-			lines = append(lines, "  "+item.Kind+" "+item.ID+" "+item.Title)
+			tail = append(tail, "  "+item.Kind+" "+item.ID+" "+item.Title)
 		}
 	}
-	if m.showHelp {
-		lines = append(lines, helpLines("HELP: "+m.help.View(m.keys), m.width)...)
-	} else {
-		lines = append(lines, helpLines(m.help.View(m.keys), m.width)...)
-	}
-	return strings.Join(wrapHeaders(lines, m.width), "\n")
+	footer := m.footerLines()
+	return renderedPane{header: header, rows: rows, tail: tail, footer: footer}
 }
 
-func domainLines(section launcher.DomainSection) []string {
+func domainLines(section launcher.DomainSection, cursor int, color bool) ([]string, [][]string) {
 	if !section.Read {
-		return []string{"DOMAINS: unavailable: not_read"}
+		return []string{"DOMAINS: unavailable: not_read"}, nil
 	}
 	if section.State == "unavailable" {
 		reason := section.Reason
 		if reason == "" {
 			reason = "unavailable"
 		}
-		return []string{"DOMAINS: unavailable: " + reason}
+		return []string{"DOMAINS: unavailable: " + reason}, nil
 	}
-	var lines []string
+	var header []string
+	var rows [][]string
 	if len(section.Domains) == 0 {
-		lines = append(lines, "DOMAINS: authoritative-empty")
+		header = append(header, "DOMAINS: authoritative-empty")
 	}
-	for _, domain := range section.Domains {
+	for i, domain := range section.Domains {
 		marker := "DOMAIN"
 		if domain.Home {
 			marker = "HOME"
@@ -928,22 +948,22 @@ func domainLines(section launcher.DomainSection) []string {
 		if domain.ParentID != "" {
 			parent = " parent=" + domain.ParentID
 		}
-		lines = append(lines, marker+" "+domain.ID+" "+domain.Name+parent+" law="+fmtInt(domain.CurrentLawCount)+" active="+fmtInt(domain.ActiveWorkCount))
+		rows = append(rows, []string{selectedRow(i, cursor, marker+" "+domain.ID+" "+domain.Name+parent+" law="+fmtInt(domain.CurrentLawCount)+" active="+fmtInt(domain.ActiveWorkCount), color)})
 	}
 	for _, relation := range section.Relations {
-		lines = append(lines, "RELATION "+relation.Kind+": "+relation.Source+" -> "+relation.Target+" state="+relation.State)
+		header = append(header, "RELATION "+relation.Kind+": "+relation.Source+" -> "+relation.Target+" state="+relation.State)
 	}
 	for _, pair := range section.Overlaps {
 		resolution := pair.State
 		if resolution == "" {
 			resolution = "absent"
 		}
-		lines = append(lines, "OVERLAP "+pair.From+" & "+pair.To+" domains="+strings.Join(pair.SharedDomains, ",")+" resolution="+resolution)
+		header = append(header, "OVERLAP "+pair.From+" & "+pair.To+" domains="+strings.Join(pair.SharedDomains, ",")+" resolution="+resolution)
 	}
 	if section.Truncated {
-		lines = append(lines, "DOMAINS: truncated: bounded read reached")
+		header = append(header, "DOMAINS: truncated: bounded read reached")
 	}
-	return lines
+	return header, rows
 }
 
 func knowledgeLines(section launcher.KnowledgeSection) []string {
@@ -980,6 +1000,14 @@ func probeLines(probes []launcher.ProbeStatus) []string {
 }
 
 func helpLines(value string, width int) []string { return splitDisplay(value, width) }
+
+func (m *Model) footerLines() []string {
+	value := m.help.View(m.keys)
+	if m.showHelp {
+		value = "HELP: " + value
+	}
+	return helpLines(value, m.width)
+}
 
 func actionText(row launcher.ProductRow) string {
 	if row.CountsState == "unavailable" {
@@ -1093,36 +1121,6 @@ func columnWidths(width int) []int {
 	return []int{18, 14, 18, 12, width - 18 - 14 - 18 - 12}
 }
 
-func wrapHeaders(headers []string, width int) []string {
-	wrapped := make([]string, 0, len(headers))
-	for _, header := range headers {
-		parts := strings.SplitN(header, ": ", 2)
-		if len(parts) == 2 {
-			wrapped = append(wrapped, wrapLabeled(parts[0], parts[1], width)...)
-		} else {
-			wrapped = append(wrapped, splitDisplay(header, width)...)
-		}
-	}
-	return wrapped
-}
-
-func wrapLabeled(label, value string, width int) []string {
-	prefix := label + ": "
-	available := width - lipgloss.Width(prefix)
-	if available < 1 {
-		return []string{label}
-	}
-	chunks := splitDisplay(value, available)
-	if len(chunks) == 0 {
-		chunks = []string{""}
-	}
-	wrapped := make([]string, len(chunks))
-	for i, chunk := range chunks {
-		wrapped[i] = prefix + chunk
-	}
-	return wrapped
-}
-
 func splitDisplay(value string, width int) []string {
 	if value == "" {
 		return nil
@@ -1151,16 +1149,27 @@ func max(a, b int) int {
 	return b
 }
 
-func (m *Model) renderCandidates(snapshot launcher.Snapshot) string {
-	lines := []string{"CANDIDATES", "STATUS: " + snapshot.Coverage}
-	if snapshot.StatusMessage != "" {
-		lines = append(lines, "MESSAGE: "+snapshot.StatusMessage)
+func selectedRow(index, cursor int, value string, color bool) string {
+	if index != cursor {
+		return "  " + value
 	}
-	lines = append(lines, probeLines(snapshot.Probes)...)
+	if color {
+		return "> " + lipgloss.NewStyle().Bold(true).Render(value)
+	}
+	return "> " + value
+}
+
+func (m *Model) renderCandidates(snapshot launcher.Snapshot, cursor int) renderedPane {
+	header := []string{"CANDIDATES", "STATUS: " + snapshot.Coverage}
+	if snapshot.StatusMessage != "" {
+		header = append(header, "MESSAGE: "+snapshot.StatusMessage)
+	}
+	header = append(header, probeLines(snapshot.Probes)...)
 	values := launcher.FilterCandidates(snapshot.Candidates, m.filterValue)
 	if m.cursor >= 0 && m.cursor < len(values) {
-		lines = append(lines, candidatePreviewLines(values[m.cursor])...)
+		header = append(header, candidatePreviewLines(values[m.cursor])...)
 	}
+	rows := make([][]string, 0, len(values))
 	for i, candidate := range values {
 		marker := " "
 		if candidate.Pinned {
@@ -1182,20 +1191,16 @@ func (m *Model) renderCandidates(snapshot launcher.Snapshot) string {
 		if candidate.Blocked {
 			blocked = " blocked=true"
 		}
-		lines = append(lines, fmtInt(i+1)+" "+marker+" "+string(candidate.Kind)+" "+name+" state="+state+blocked+" live="+fmtInt(candidate.Live))
+		rows = append(rows, []string{selectedRow(i, cursor, fmtInt(i+1)+" "+marker+" "+string(candidate.Kind)+" "+name+" state="+state+blocked+" live="+fmtInt(candidate.Live), m.profile.Color)})
 	}
 	if len(values) == 0 {
-		lines = append(lines, "CANDIDATES: authoritative-empty")
+		header = append(header, "CANDIDATES: authoritative-empty")
 	}
 	if m.filterMode {
-		lines = append(lines, m.input.View())
+		header = append(header, m.input.View())
 	}
-	if m.showHelp {
-		lines = append(lines, helpLines("HELP: "+m.help.View(m.keys), m.width)...)
-	} else {
-		lines = append(lines, helpLines(m.help.View(m.keys), m.width)...)
-	}
-	return strings.Join(wrapHeaders(lines, m.width), "\n")
+	footer := m.footerLines()
+	return renderedPane{header: header, rows: rows, footer: footer}
 }
 
 func filterRanked(values []launcher.RankedWork, query string) []launcher.RankedWork {
@@ -1229,28 +1234,57 @@ func coverageValue(value string) string {
 	return value
 }
 
-func pane(content string, width, height int) string {
+func pane(content renderedPane, width, height, offset int) string {
 	if width < 3 || height < 3 {
-		return fixedBlock(content, width, height)
+		lines := append([]string{}, content.header...)
+		for _, row := range content.rows {
+			lines = append(lines, row...)
+		}
+		lines = append(lines, content.tail...)
+		lines = append(lines, content.footer...)
+		return fixedBlock(strings.Join(lines, "\n"), width, height)
 	}
 	innerWidth := width - 2
-	lines := strings.Split(content, "\n")
+	header := wrapPaneLines(content.header, innerWidth)
+	tail := wrapPaneLines(content.tail, innerWidth)
+	footer := wrapPaneLines(content.footer, innerWidth)
+	rows := make([]string, 0)
+	rowOffsets := make([]int, 0, len(content.rows))
+	for _, row := range content.rows {
+		rowOffsets = append(rowOffsets, len(rows))
+		rows = append(rows, wrapPaneLines(row, innerWidth)...)
+	}
+	rows = append(rows, tail...)
+	available := height - 2 - len(header) - len(footer)
+	if available < 1 {
+		available = 1
+	}
+	window := viewport.New(viewport.WithWidth(innerWidth), viewport.WithHeight(available))
+	window.SoftWrap = false
+	window.SetContentLines(rows)
+	if offset >= 0 && offset < len(rowOffsets) {
+		window.SetYOffset(rowOffsets[offset])
+	}
+	lines := append([]string{}, header...)
+	lines = append(lines, strings.Split(window.View(), "\n")...)
+	lines = append(lines, footer...)
+	return lipgloss.NewStyle().
+		Width(width).
+		Height(height).
+		Border(lipgloss.RoundedBorder()).
+		Render(strings.Join(lines, "\n"))
+}
+
+func wrapPaneLines(lines []string, width int) []string {
 	wrapped := make([]string, 0, len(lines))
 	for _, line := range lines {
-		parts := wrapPaneLine(line, innerWidth)
+		parts := wrapPaneLine(line, width)
 		if len(parts) == 0 {
 			parts = []string{""}
 		}
 		wrapped = append(wrapped, parts...)
 	}
-	if len(wrapped) > height-2 {
-		wrapped = wrapped[:height-2]
-	}
-	return lipgloss.NewStyle().
-		Width(width).
-		Height(height).
-		Border(lipgloss.RoundedBorder()).
-		Render(strings.Join(wrapped, "\n"))
+	return wrapped
 }
 
 func wrapPaneLine(line string, width int) []string {

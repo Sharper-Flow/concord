@@ -4,21 +4,21 @@ FOCUS: product/Concord                  COVERAGE: authoritative
 │PRODUCT: Concord | WATERMARK: w42 | AGE: 2m | SCREEN: portfolio | RELIANCE:   │
 │clear | COVERAGE: authoritative                                               │
 │Product  Stage  Reliance  Actions  Focus                                      │
-│Launcher | in_progress | clear | 3 | Fix frame                                │
+│  Product 14 | in_progress | clear | 1 | Focus 14                             │
+│  Product 15 | in_progress | clear | 1 | Focus 15                             │
+│  Product 16 | in_progress | clear | 1 | Focus 16                             │
+│  Product 17 | in_progress | clear | 1 | Focus 17                             │
+│  Product 18 | in_progress | clear | 1 | Focus 18                             │
+│  Product 19 | in_progress | clear | 1 | Focus 19                             │
+│  Product 20 | in_progress | clear | 1 | Focus 20                             │
+│  Product 21 | in_progress | clear | 1 | Focus 21                             │
+│  Product 22 | in_progress | clear | 1 | Focus 22                             │
+│  Product 23 | in_progress | clear | 1 | Focus 23                             │
+│  Product 24 | in_progress | clear | 1 | Focus 24                             │
+│  Product 25 | in_progress | clear | 1 | Focus 25                             │
+│  Product 26 | in_progress | clear | 1 | Focus 26                             │
+│  Product 27 | in_progress | clear | 1 | Focus 27                             │
+│> Product 28 | in_progress | clear | 1 | Focus 28                             │
 │arrows move • / filter • r refresh • enter open • ctrl-p pin • ctrl-u unpin … │
-│                                                                              │
-│                                                                              │
-│                                                                              │
-│                                                                              │
-│                                                                              │
-│                                                                              │
-│                                                                              │
-│                                                                              │
-│                                                                              │
-│                                                                              │
-│                                                                              │
-│                                                                              │
-│                                                                              │
-│                                                                              │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 arrows move • / filter • r refresh • enter open • ctrl-p pin • ctrl-u unpin …   

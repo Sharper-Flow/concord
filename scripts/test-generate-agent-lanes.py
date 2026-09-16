@@ -47,6 +47,18 @@ class AgentProjectionTests(unittest.TestCase):
         self.assertIn("maxItems=11", projection)
         self.assertIn("maxLength=23", projection)
 
+    def test_projection_instructs_the_lane_to_refuse_a_non_packet_first_message(self):
+        # CD-0102 heuristic control: with no adapter plugin nothing
+        # adapter-side runs, so every generated lane definition must itself
+        # refuse a first message that is not a well-formed packet and return
+        # the report with status failed.
+        projection = generator.agent_projection(self.LANE, REPORT_SCHEMA)
+        self.assertIn("verify the first message you received", projection)
+        self.assertIn("`agent-lane-packet.v1` packet", projection)
+        for field in ("schema_version", "attempt_id", "lane_id", "lane_version", "lane_digest", "work_id", "step_id", "inputs"):
+            self.assertIn(f"`{field}`", projection)
+        self.assertIn("`status` `failed`", projection)
+
     def test_utility_projection_projects_declared_tools_and_permissions(self):
         utility = {
             "id": "ci-wait",

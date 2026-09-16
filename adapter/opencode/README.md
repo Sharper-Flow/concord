@@ -122,10 +122,12 @@ card, child session, progress, and cancellation. See
 The adapter selects the registered `concord-<lane>` agent, not a model.
 OpenCode resolves the model from host configuration. The worker ends with its
 closed `agent-lane-report.v1` report as its final text part. The host's Task
-result supplies the child session identity. The completion hook exports that
-session with `opencode export <session> --sanitize`, verifies the executing
-agent, and records host-derived model readback. Worker-supplied identity is not
-a substitute for that readback.
+result supplies the child session identity. The completion hook first exports
+that session unsanitized and refuses the attempt unless it opens with the exact
+authorized packet; the sanitizer redacts text parts, so only the unsanitized
+export can carry that check. It then exports with `opencode export <session>
+--sanitize`, verifies the executing agent, and records host-derived model
+readback. Worker-supplied identity is not a substitute for that readback.
 
 The adapter derives `attempt_id`, `lane_id`, `lane_version`, and `lane_digest`
 from the authorized dispatch packet. A model report cannot supply them: a report

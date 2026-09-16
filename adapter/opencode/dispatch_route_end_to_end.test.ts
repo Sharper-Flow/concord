@@ -135,10 +135,16 @@ function taskResult(report: JSONRecord): string {
   ].join("\n")
 }
 
-function exportedSession(): string {
+// CD-0102: an authorized worker session opens with the dispatch packet as its
+// first user message, so the fixture takes the bound packet once the test
+// captures it from the rewritten Task call.
+function exportedSession(opening: JSONRecord | null = null): string {
   return JSON.stringify({
     info: { id: "worker-session" },
-    messages: [{ info: { id: "worker-message", sessionID: "worker-session", role: "assistant", agent: "concord-implement", providerID: "openai", modelID: "gpt-5.6-luna", time: { created: 1 } }, parts: [] }],
+    messages: [
+      ...(opening ? [{ info: { id: "worker-message-open", sessionID: "worker-session", role: "user", agent: "concord-implement", time: { created: 0 } }, parts: [{ type: "text", text: JSON.stringify(opening) }] }] : []),
+      { info: { id: "worker-message", sessionID: "worker-session", role: "assistant", agent: "concord-implement", providerID: "openai", modelID: "gpt-5.6-luna", time: { created: 1 } }, parts: [] },
+    ],
   })
 }
 
@@ -259,9 +265,10 @@ routeDeclaration("dispatches a real store route through Task completion and work
       post: async () => { throw new Error("dispatch scope must not change host permissions or directory") },
     })
     const realCalls: Array<{ argv: string[]; input: JSONRecord }> = []
+    let boundPacket: JSONRecord | null = null
     const realRunner: DispatchRunner = {
       async run(argv, input, signal) {
-        if (argv[1] === "export") return { exitCode: 0, stdout: exportedSession(), stderr: "" }
+        if (argv[1] === "export") return { exitCode: 0, stdout: exportedSession(boundPacket), stderr: "" }
         if (argv[1] === "session") return { exitCode: 0, stdout: JSON.stringify([{ id: "worker-session", directory: worktree, parentID: SESSION_ID }, { id: SESSION_ID, directory: worktree }]), stderr: "" }
         if (argv[1] === "worker-dispatch" || argv[1] === "worker-complete" || argv[1] === "worker-fail" || argv[1] === "invoke") {
           realCalls.push({ argv, input: JSON.parse(input) as JSONRecord })
@@ -336,6 +343,7 @@ routeDeclaration("dispatches a real store route through Task completion and work
     const taskArgs: Record<string, unknown> = { subagent_type: "general", prompt: "model input", description: "model task" }
     await windows.bind(TASK_TOOL_ID, SESSION_ID, taskArgs, undefined, async () => worktree)
     const packet = JSON.parse(taskArgs.prompt as string) as JSONRecord
+    boundPacket = packet
     expect(taskArgs.subagent_type).toBe("concord-implement")
     expect(packet.step_id).toBe("repair")
     // This non-Initiative fixture has no narrative. The task still carries

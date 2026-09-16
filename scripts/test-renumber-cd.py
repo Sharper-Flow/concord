@@ -136,11 +136,22 @@ class RenumberTests(unittest.TestCase):
         self.assertEqual(self.move(), [])
         self.assertEqual(renumber.survivors(self.root, "CD-0061"), [])
 
-    def test_untracked_file_is_not_edited(self) -> None:
+    def test_untracked_file_is_edited_and_checked(self) -> None:
         self.write("docs/scratch.md", "CD-0061 lives in an untracked note.\n")
 
         self.assertEqual(self.move(), [])
-        self.assertIn("CD-0061", (self.root / "docs/scratch.md").read_text())
+        self.assertIn("CD-0062", (self.root / "docs/scratch.md").read_text())
+        self.assertEqual(renumber.survivors(self.root, "CD-0061"), [])
+
+    def test_untracked_file_blocks_a_target_collision(self) -> None:
+        self.write("docs/scratch.md", "CD-0062 is mentioned already.\n")
+
+        findings, prepared = renumber.plan(
+            self.root, "CD-0061", "CD-0062", against="missing-ref"
+        )
+
+        self.assertIsNone(prepared)
+        self.assertTrue(any("already references CD-0062" in finding for finding in findings))
 
     def test_refuses_when_the_target_number_is_taken(self) -> None:
         self.seed("CD-0062", "another-decision")

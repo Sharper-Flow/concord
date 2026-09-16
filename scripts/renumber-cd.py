@@ -93,8 +93,15 @@ def git(root: Path, *arguments: str) -> subprocess.CompletedProcess[bytes]:
     )
 
 
-def tracked_files(root: Path) -> list[Path]:
-    result = git(root, "ls-files", "-z")
+def repository_files(root: Path) -> list[Path]:
+    """Every file the repository carries, whether or not it is staged yet.
+
+    A CD is authored before it is committed, so an untracked document is the
+    normal state at renumber time. This population feeds the rewrite set, the
+    collision precondition, and the survivor proof alike; restricting it to the
+    index makes all three blind to the document being renamed.
+    """
+    result = git(root, "ls-files", "-z", "--cached", "--others", "--exclude-standard")
     if result.returncode != 0:
         return []
     names = result.stdout.decode("utf-8").split("\0")
@@ -184,7 +191,7 @@ def plan(
     old_re = occurrence_re(old)
     new_re = occurrence_re(new)
     edits: list[Path] = []
-    for path in tracked_files(root):
+    for path in repository_files(root):
         text = read_text(root / path)
         if text is None:
             continue
@@ -256,7 +263,7 @@ def run_generators(root: Path, findings: list[str]) -> None:
 def survivors(root: Path, identifier: str) -> list[str]:
     pattern = occurrence_re(identifier)
     found: list[str] = []
-    for path in tracked_files(root):
+    for path in repository_files(root):
         text = read_text(root / path)
         if text is not None and pattern.search(text):
             found.append(path.as_posix())

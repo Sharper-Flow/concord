@@ -2,6 +2,7 @@ package linearclient
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -89,6 +90,137 @@ func TestUpdateIssueAddressesRemoteIdentity(t *testing.T) {
 		if !strings.Contains(gotBody, want) {
 			t.Fatalf("request body %q lacks %q", gotBody, want)
 		}
+	}
+}
+
+func TestGetInitiativeByIdentifier(t *testing.T) {
+	var requestBody struct {
+		Query     string         `json:"query"`
+		Variables map[string]any `json:"variables"`
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&requestBody); err != nil {
+			t.Fatal(err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":{"initiative":{"id":"68d52710-76d9-4b41-ba45-778511d0e2ed","name":"Example initiative","slugId":"example-initiative","description":"Example description","url":"https://linear.app/example/initiative/example-initiative","updatedAt":"2026-09-09T12:00:00Z"}}}`))
+	}))
+	defer server.Close()
+	client, err := New("lin_api_test", WithEndpoint(server.URL))
+	if err != nil {
+		t.Fatal(err)
+	}
+	initiative, err := client.GetInitiative(context.Background(), "68d52710-76d9-4b41-ba45-778511d0e2ed")
+	if err != nil {
+		t.Fatalf("GetInitiative() error = %v", err)
+	}
+	if !strings.Contains(requestBody.Query, "initiative(id: $id)") || requestBody.Variables["id"] != "68d52710-76d9-4b41-ba45-778511d0e2ed" {
+		t.Fatalf("request = %+v", requestBody)
+	}
+	if initiative.ID != "68d52710-76d9-4b41-ba45-778511d0e2ed" || initiative.Name != "Example initiative" || initiative.SlugID != "example-initiative" || initiative.Description != "Example description" || initiative.URL == "" {
+		t.Fatalf("initiative = %+v", initiative)
+	}
+	if !initiative.UpdatedAt.Equal(time.Date(2026, 9, 9, 12, 0, 0, 0, time.UTC)) {
+		t.Fatalf("updatedAt = %v", initiative.UpdatedAt)
+	}
+}
+
+func TestGetInitiativeByExactName(t *testing.T) {
+	var gotQuery string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var request struct {
+			Query string `json:"query"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Fatal(err)
+		}
+		gotQuery = request.Query
+		_, _ = w.Write([]byte(`{"data":{"initiatives":{"nodes":[{"id":"ini-1","name":"Other initiative","slugId":"other","description":"Other description","url":"https://linear.app/example/initiative/other","updatedAt":"2026-09-09T11:00:00Z"},{"id":"ini-2","name":"Example initiative","slugId":"example-initiative","description":"Example description","url":"https://linear.app/example/initiative/example-initiative","updatedAt":"2026-09-09T12:00:00Z"}]}}}`))
+	}))
+	defer server.Close()
+	client, err := New("lin_api_test", WithEndpoint(server.URL))
+	if err != nil {
+		t.Fatal(err)
+	}
+	initiative, err := client.GetInitiative(context.Background(), "Example initiative")
+	if err != nil {
+		t.Fatalf("GetInitiative() error = %v", err)
+	}
+	for _, field := range []string{"initiatives(first: 100)", "id", "name", "slugId", "description", "url", "updatedAt"} {
+		if !strings.Contains(gotQuery, field) {
+			t.Fatalf("query = %q, want %q", gotQuery, field)
+		}
+	}
+	if initiative.ID != "ini-2" || initiative.Name != "Example initiative" || initiative.SlugID != "example-initiative" || initiative.Description != "Example description" || initiative.URL != "https://linear.app/example/initiative/example-initiative" {
+		t.Fatalf("initiative = %+v", initiative)
+	}
+	if !initiative.UpdatedAt.Equal(time.Date(2026, 9, 9, 12, 0, 0, 0, time.UTC)) {
+		t.Fatalf("updatedAt = %v", initiative.UpdatedAt)
+	}
+}
+
+func TestGetInitiativeByNameReturnsNotFound(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"data":{"initiatives":{"nodes":[{"id":"ini-1","name":"Other initiative","slugId":"other"}]}}}`))
+	}))
+	defer server.Close()
+	client, err := New("lin_api_test", WithEndpoint(server.URL))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = client.GetInitiative(context.Background(), "Missing initiative")
+	var failure *Failure
+	if !failureAs(err, &failure) || failure.Kind != KindInitiativeNotFound || IsRetryable(err) {
+		t.Fatalf("error = %v, want permanent initiative_not_found", err)
+	}
+}
+
+func TestGetInitiativeByNameReturnsAmbiguity(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"data":{"initiatives":{"nodes":[{"id":"ini-1","name":"Example initiative","slugId":"example-one"},{"id":"ini-2","name":"Example initiative","slugId":"example-two"}]}}}`))
+	}))
+	defer server.Close()
+	client, err := New("lin_api_test", WithEndpoint(server.URL))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = client.GetInitiative(context.Background(), "Example initiative")
+	var failure *Failure
+	if !failureAs(err, &failure) || failure.Kind != KindInitiativeAmbiguous || IsRetryable(err) {
+		t.Fatalf("error = %v, want permanent initiative_ambiguous", err)
+	}
+	if !strings.Contains(failure.Detail, "ini-1") || !strings.Contains(failure.Detail, "ini-2") {
+		t.Fatalf("detail = %q, want both candidates", failure.Detail)
+	}
+}
+
+func TestGetInitiativeGraphQLErrorIsTyped(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"errors":[{"message":"initiative access denied"}]}`))
+	}))
+	defer server.Close()
+	client, err := New("lin_api_test", WithEndpoint(server.URL))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = client.GetInitiative(context.Background(), "Example initiative")
+	var failure *Failure
+	if !failureAs(err, &failure) || failure.Kind != KindGraphqlError || IsRetryable(err) {
+		t.Fatalf("error = %v, want permanent graphql_error", err)
+	}
+}
+
+func TestGetInitiativeTransportFailureIsTyped(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	server.Close()
+	client, err := New("lin_api_test", WithEndpoint(server.URL))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = client.GetInitiative(context.Background(), "Example initiative")
+	var failure *Failure
+	if !failureAs(err, &failure) || failure.Kind != KindTransport || !IsRetryable(err) {
+		t.Fatalf("error = %v, want retryable transport", err)
 	}
 }
 

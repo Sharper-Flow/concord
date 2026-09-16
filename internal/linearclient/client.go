@@ -7,10 +7,9 @@
 // which is the durable retry owner; a transport failure here means the outcome
 // is unknown, and the drain re-claims the operation on its next pass.
 //
-// Credential custody (CD-0121 D3): the API key is read from the process
-// environment at client construction and never logged, persisted, or echoed in
-// an error. The endpoint default is the public Linear GraphQL URL and may be
-// overridden for tests.
+// The API key is read from the process environment at client construction and
+// never logged, persisted, or echoed in an error. The endpoint default is the
+// public Linear GraphQL URL and may be overridden for tests.
 package linearclient
 
 import (
@@ -54,6 +53,10 @@ const (
 	// KindGraphqlError means Linear answered with a GraphQL-level error or a
 	// mutation that reported success=false.
 	KindGraphqlError FailureKind = "graphql_error"
+	// KindInitiativeNotFound means no initiative matched the requested query.
+	KindInitiativeNotFound FailureKind = "initiative_not_found"
+	// KindInitiativeAmbiguous means multiple initiatives matched the name.
+	KindInitiativeAmbiguous FailureKind = "initiative_ambiguous"
 )
 
 // Failure is the typed client error. Detail never contains key material.
@@ -99,6 +102,16 @@ type Issue struct {
 type ResolvedIssue struct {
 	Issue
 	TeamID string
+}
+
+// Initiative is the remote identity and content returned by a read.
+type Initiative struct {
+	ID          string    `json:"id"`
+	Name        string    `json:"name"`
+	SlugID      string    `json:"slugId"`
+	Description string    `json:"description"`
+	URL         string    `json:"url"`
+	UpdatedAt   time.Time `json:"updatedAt"`
 }
 
 // Client talks to one Linear workspace over GraphQL with Bearer auth.
@@ -202,6 +215,65 @@ func (c *Client) GetIssue(ctx context.Context, remoteUUID string) (ResolvedIssue
 	return ResolvedIssue{Issue: payload.Issue.Issue, TeamID: payload.Issue.Team.ID}, nil
 }
 
+// GetInitiative reads an initiative by UUID or resolves an exact name from the
+// workspace initiative list.
+func (c *Client) GetInitiative(ctx context.Context, query string) (Initiative, error) {
+	if isUUID(query) {
+		var payload struct {
+			Initiative Initiative `json:"initiative"`
+		}
+		if err := c.call(ctx, "query($id: String!) { initiative(id: $id) { id name slugId description url updatedAt } }", map[string]any{"id": query}, &payload); err != nil {
+			return Initiative{}, err
+		}
+		if payload.Initiative.ID == "" {
+			return Initiative{}, &Failure{Kind: KindInitiativeNotFound, Detail: fmt.Sprintf("initiative %q was not found", query)}
+		}
+		return payload.Initiative, nil
+	}
+
+	var payload struct {
+		Initiatives struct {
+			Nodes []Initiative `json:"nodes"`
+		} `json:"initiatives"`
+	}
+	if err := c.call(ctx, "query { initiatives(first: 100) { nodes { id name slugId description url updatedAt } } }", nil, &payload); err != nil {
+		return Initiative{}, err
+	}
+	var matches []Initiative
+	for _, node := range payload.Initiatives.Nodes {
+		if node.Name == query {
+			matches = append(matches, node)
+		}
+	}
+	switch len(matches) {
+	case 0:
+		return Initiative{}, &Failure{Kind: KindInitiativeNotFound, Detail: fmt.Sprintf("initiative %q was not found", query)}
+	case 1:
+		return matches[0], nil
+	default:
+		candidates := make([]string, 0, len(matches))
+		for _, match := range matches {
+			candidates = append(candidates, fmt.Sprintf("%s (%s)", match.ID, match.SlugID))
+		}
+		return Initiative{}, &Failure{Kind: KindInitiativeAmbiguous, Detail: fmt.Sprintf("initiative name %q matched multiple candidates: %s", query, strings.Join(candidates, ", "))}
+	}
+}
+
+func isUUID(value string) bool {
+	if len(value) != 36 || value[8] != '-' || value[13] != '-' || value[18] != '-' || value[23] != '-' {
+		return false
+	}
+	for index, character := range value {
+		if index == 8 || index == 13 || index == 18 || index == 23 {
+			continue
+		}
+		if !((character >= '0' && character <= '9') || (character >= 'a' && character <= 'f') || (character >= 'A' && character <= 'F')) {
+			return false
+		}
+	}
+	return true
+}
+
 func (c *Client) call(ctx context.Context, query string, variables map[string]any, into any) error {
 	body, err := json.Marshal(map[string]any{"query": query, "variables": variables})
 	if err != nil {
@@ -284,7 +356,7 @@ func IsRetryable(err error) bool {
 		return false
 	}
 	switch failure.Kind {
-	case KindAuthRefused, KindGraphqlError:
+	case KindAuthRefused, KindGraphqlError, KindInitiativeNotFound, KindInitiativeAmbiguous:
 		return false
 	case KindRateLimited, KindTransport, KindMalformedResponse:
 		return true

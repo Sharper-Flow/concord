@@ -18,6 +18,7 @@ func TestWorktreeAuditReclaimDispatchReclaimsTerminalWorkOnly(t *testing.T) {
 	s, _, _, second, secondGrant, _ := tiersFixture(t)
 	root := filepath.Join(filepath.Dir(s.Path()), "worktrees", "project-1")
 	completeWork(t, s, "work-2", 3)
+	vacateLinkedWorktree(t, s, second, secondGrant, filepath.Join(root, "work-2"), "audit-vacate-2")
 	// work-1 stays needed, so it is live only while its branch holds work:
 	// a commit beyond the default ref keeps it out of the unstarted class
 	// the same pass reclaims (CD-0118).
@@ -80,6 +81,9 @@ func TestWorktreeAuditReclaimDispatchReportsMixedEffects(t *testing.T) {
 	s, _, _, second, secondGrant, _ := tiersFixture(t)
 	completeWork(t, s, "work-2", 3)
 	workOnePath := filepath.Join(filepath.Dir(s.Path()), "worktrees", "project-1", "work-1")
+	// work-1 stays occupied in the Concord projection, while work-2 vacates
+	// and can reclaim.
+	vacateLinkedWorktree(t, s, second, secondGrant, filepath.Join(filepath.Dir(s.Path()), "worktrees", "project-1", "work-2"), "audit-mixed-vacate-2")
 
 	response := authorityInvoke(t, s, second, secondGrant, "concord_work_transition", "worktree_audit_reclaim", map[string]any{
 		"product_id": "product-1", "default_ref": "main", "idempotency_key": "audit-reclaim-mixed",
@@ -119,9 +123,11 @@ func TestWorktreeAuditReclaimDispatchReportsMixedEffects(t *testing.T) {
 // row the pass returns.
 func TestWorktreeAuditReclaimDispatchReclaimsUnstartedWork(t *testing.T) {
 	t.Parallel()
-	s, _, _, second, secondGrant, _ := tiersFixture(t)
+	s, service, grant, second, secondGrant, _ := tiersFixture(t)
 	root := filepath.Join(filepath.Dir(s.Path()), "worktrees", "project-1")
 	completeWork(t, s, "work-2", 3)
+	vacateLinkedWorktree(t, s, service, grant, filepath.Join(root, "work-1"), "unstarted-vacate-1")
+	vacateLinkedWorktree(t, s, second, secondGrant, filepath.Join(root, "work-2"), "unstarted-vacate-2")
 
 	response := authorityInvoke(t, s, second, secondGrant, "concord_work_transition", "worktree_audit_reclaim", map[string]any{
 		"product_id": "product-1", "default_ref": "main", "idempotency_key": "unstarted-reclaim-1", "observed_session_directories": []map[string]any{},

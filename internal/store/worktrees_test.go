@@ -149,7 +149,11 @@ func (g *fakeWorktreeGit) Run(_ context.Context, dir string, args ...string) ([]
 		delete(g.branches, branch)
 		return nil, nil
 	case strings.HasPrefix(join, "worktree remove"):
-		path := strings.Fields(join)[2]
+		fields := strings.Fields(join)
+		path := fields[2]
+		if path == "--force" {
+			path = fields[3]
+		}
 		if _, ok := g.worktrees[path]; !ok {
 			return nil, fmt.Errorf("no such worktree")
 		}
@@ -254,11 +258,13 @@ func claimPath(s *Store) string {
 func TestClaimWorktreeCreatesVerifiesAndFolds(t *testing.T) {
 	t.Parallel()
 	s, git, _ := worktreeFixture(t)
-	result, err := s.ClaimWorktree(context.Background(), baseClaim(git))
+	req := baseClaim(git)
+	req.SessionRef = "ses-claim"
+	result, err := s.ClaimWorktree(context.Background(), req)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Entry.State != worktreeEntryActive || result.Entry.Branch != claimBranch() || result.Entry.ClaimOpID != "wt-op-1" {
+	if result.Entry.State != worktreeEntryActive || result.Entry.Branch != claimBranch() || result.Entry.ClaimOpID != "wt-op-1" || result.Entry.OccupantSessionRef != "ses-claim" {
 		t.Fatalf("entry=%+v", result.Entry)
 	}
 	if result.Entry.SetID != WorktreeSetID("work-w") {
@@ -514,16 +520,12 @@ func TestReclaimWorktreeReplaysVersionOnePayload(t *testing.T) {
 	}
 }
 
-// TestReclaimWorktreeRefusesOccupiedWorktree pins the occupancy gate (issue
-// #722). Removing a directory a live session runs in strands that session:
-// the host resolves the session directory once per prompt, so the session
-// survives until the operator types again and then fails on every prompt. The
-// git gates read git only, so a clean merged worktree passed every one of them
-// while a session was still inside it.
+// TestReclaimWorktreeRefusesOccupiedWorktree pins the stored occupancy gate.
 func TestReclaimWorktreeRefusesOccupiedWorktree(t *testing.T) {
 	t.Parallel()
 	s, git, _ := worktreeFixture(t)
 	req := baseClaim(git)
+	req.SessionRef = "ses_live"
 	claimed, err := s.ClaimWorktree(context.Background(), req)
 	if err != nil {
 		t.Fatal(err)
@@ -531,56 +533,28 @@ func TestReclaimWorktreeRefusesOccupiedWorktree(t *testing.T) {
 	reclaim := WorktreeReclaimRequest{
 		WorkID: "work-w", ProjectID: "project-w", DefaultRef: "origin/main",
 		PrincipalRef: "principal-1", RequestID: "req-occupied", ExpectedVersion: 3,
-		Now: time.Unix(20, 0).UTC(), Runner: git, ObservedProjectID: "project-w",
+		Now: time.Unix(20, 0).UTC(), Runner: git,
 	}
 
-	// A session sitting in a subdirectory of the worktree occupies it just as
-	// one sitting at its root does.
-	for _, directory := range []string{claimed.Entry.Path, filepath.Join(claimed.Entry.Path, "internal", "store")} {
-		occupied := reclaim
-		occupied.ObservedSessionDirectories = &[]SessionDirectory{{SessionRef: "ses_live", Directory: directory}}
-		_, err := s.ReclaimWorktree(context.Background(), occupied)
-		if err == nil {
-			t.Fatalf("a session in %q must refuse the removal", directory)
-		}
-		failure, ok := err.(*Failure)
-		if !ok || failure.Kind != KindWorktreeOwnershipConflict {
-			t.Fatalf("err=%v, want worktree_ownership_conflict", err)
-		}
-		if !strings.Contains(failure.Detail, "ses_live") || !strings.Contains(failure.Detail, claimed.Entry.Path) {
-			t.Fatalf("refusal %q must name the session and the worktree", failure.Detail)
-		}
-		if _, still := git.worktrees[claimed.Entry.Path]; !still {
-			t.Fatal("a refused removal must leave the native worktree in place")
-		}
-		entries, entriesErr := s.WorktreeEntries(context.Background(), "work-w")
-		if entriesErr != nil || len(entries) != 1 || entries[0].State != worktreeEntryActive {
-			t.Fatalf("entries=%+v err=%v, want the claim untouched", entries, entriesErr)
-		}
+	_, err = s.ReclaimWorktree(context.Background(), reclaim)
+	if err == nil {
+		t.Fatal("a recorded occupant must refuse the removal")
 	}
-
-	// A session elsewhere, and a path that merely shares a prefix with the
-	// worktree name, leave the removal alone.
-	unoccupied := reclaim
-	unoccupied.ObservedSessionDirectories = &[]SessionDirectory{
-		{SessionRef: "ses_other", Directory: filepath.Join(git.repoRoot, "..", "w-2")},
-		{SessionRef: "ses_sibling", Directory: claimed.Entry.Path + "-sibling"},
+	failure, ok := err.(*Failure)
+	if !ok || failure.Kind != KindWorktreeOwnershipConflict {
+		t.Fatalf("err=%v, want worktree_ownership_conflict", err)
 	}
-	entry, err := s.ReclaimWorktree(context.Background(), unoccupied)
-	if err != nil {
-		t.Fatalf("no session occupies the worktree, got %v", err)
+	if !strings.Contains(failure.Detail, "ses_live") || !strings.Contains(failure.Detail, claimed.Entry.Path) {
+		t.Fatalf("refusal %q must name the session and the worktree", failure.Detail)
 	}
-	if entry.State != worktreeEntryReclaimed {
-		t.Fatalf("entry=%+v", entry)
-	}
-	if _, still := git.worktrees[claimed.Entry.Path]; still {
-		t.Fatal("native worktree was not removed")
+	if _, still := git.worktrees[claimed.Entry.Path]; !still {
+		t.Fatal("a refused removal must leave the native worktree in place")
 	}
 }
 
-// A session observation without Project scope cannot prove that the target
-// Project is unoccupied, so direct reclaim refuses before any effect.
-func TestReclaimWorktreeRefusesUnscopedOccupancy(t *testing.T) {
+// A host observation without Project scope does not affect the authoritative
+// Concord occupancy projection.
+func TestReclaimWorktreeIgnoresUnscopedOccupancyObservation(t *testing.T) {
 	t.Parallel()
 	s, git, _ := worktreeFixture(t)
 	req := baseClaim(git)
@@ -593,21 +567,17 @@ func TestReclaimWorktreeRefusesUnscopedOccupancy(t *testing.T) {
 		WorkID: "work-w", ProjectID: "project-w", DefaultRef: "origin/main",
 		PrincipalRef: "principal-1", RequestID: "req-unscoped", ExpectedVersion: 3,
 		Now: time.Unix(20, 0).UTC(), Runner: git,
-		ObservedSessionDirectories: &[]SessionDirectory{{SessionRef: "ses-live", Directory: "/unrelated-project/session"}},
+		ObservedSessionDirectories: &[]SessionDirectory{{SessionRef: "ses-live", Directory: claimed.Entry.Path}},
 	})
-	if err == nil {
-		t.Fatal("an unscoped occupancy observation must refuse the removal")
+	if err != nil {
+		t.Fatalf("an unscoped observation must not block an unoccupied worktree: %v", err)
 	}
-	failure, ok := err.(*Failure)
-	if !ok || failure.Kind != KindWorktreeOwnershipConflict {
-		t.Fatalf("err=%v, want worktree_ownership_conflict", err)
-	}
-	if _, still := git.worktrees[claimed.Entry.Path]; !still {
-		t.Fatal("an unscoped occupancy refusal must leave the native worktree in place")
+	if _, still := git.worktrees[claimed.Entry.Path]; still {
+		t.Fatal("an unoccupied worktree must be removed")
 	}
 	entries, entriesErr := s.WorktreeEntries(context.Background(), "work-w")
-	if entriesErr != nil || len(entries) != 1 || entries[0].State != worktreeEntryActive {
-		t.Fatalf("entries=%+v err=%v, want the claim untouched", entries, entriesErr)
+	if entriesErr != nil || len(entries) != 1 || entries[0].State != worktreeEntryReclaimed {
+		t.Fatalf("entries=%+v err=%v, want the claim reclaimed", entries, entriesErr)
 	}
 }
 
@@ -619,6 +589,7 @@ func TestDestroyRefusesOccupiedWorktreeDespiteApproval(t *testing.T) {
 	t.Parallel()
 	s, git, _ := worktreeFixture(t)
 	req := baseClaim(git)
+	req.SessionRef = "ses_live"
 	claimed, err := s.ClaimWorktree(context.Background(), req)
 	if err != nil {
 		t.Fatal(err)
@@ -628,10 +599,8 @@ func TestDestroyRefusesOccupiedWorktreeDespiteApproval(t *testing.T) {
 		WorkID: "work-w", ProjectID: "project-w", DefaultRef: "origin/main",
 		ExpectedVersion: 4, PrincipalRef: "principal-1", RequestID: "destroy-occupied",
 		Now: time.Unix(30, 0).UTC(), Runner: git,
-		OperatorApprovalRef:        "approval:destroy-forced",
-		Destructive:                true,
-		ObservedSessionDirectories: &[]SessionDirectory{{SessionRef: "ses_live", Directory: claimed.Entry.Path}},
-		ObservedProjectID:          "project-w",
+		OperatorApprovalRef: "approval:destroy-forced",
+		Destructive:         true,
 	})
 	if err == nil {
 		t.Fatal("a destructive destroy must still refuse an occupied worktree")
@@ -642,6 +611,33 @@ func TestDestroyRefusesOccupiedWorktreeDespiteApproval(t *testing.T) {
 	}
 	if _, still := git.worktrees[claimed.Entry.Path]; !still {
 		t.Fatal("a refused destroy must leave the native worktree in place")
+	}
+}
+
+func TestDestroyReleasesRecordedStaleOccupancyWithApproval(t *testing.T) {
+	t.Parallel()
+	s, git, _ := worktreeFixture(t)
+	req := baseClaim(git)
+	req.SessionRef = "ses_stale"
+	claimed, err := s.ClaimWorktree(context.Background(), req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	seedWorktreeLifecycle(t, s, "work-w", "completed", 3)
+	entry, err := s.DestroyWorktree(context.Background(), WorktreeDestroyRequest{
+		WorkID: "work-w", ProjectID: "project-w", DefaultRef: "origin/main",
+		ExpectedVersion: 4, PrincipalRef: "principal-1", RequestID: "destroy-stale-occupancy",
+		Now: time.Unix(30, 0).UTC(), Runner: git,
+		OperatorApprovalRef: "approval:destroy-stale", Destructive: true, ReleaseOccupancy: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if entry.State != worktreeEntryReclaimed || entry.OccupantSessionRef != "" {
+		t.Fatalf("entry=%+v, want reclaimed and unoccupied", entry)
+	}
+	if _, still := git.worktrees[claimed.Entry.Path]; still {
+		t.Fatal("native worktree was not removed")
 	}
 }
 
@@ -760,6 +756,13 @@ func auditWork(t *testing.T, s *Store, git *fakeWorktreeGit, workID string, onDi
 		}
 	}
 	return path
+}
+
+func setWorktreeOccupant(t *testing.T, s *Store, workID, sessionRef string) {
+	t.Helper()
+	if _, err := s.DatabaseForTesting().Exec(`UPDATE worktree_entries SET occupant_session_ref=? WHERE set_id=? AND state='active'`, sessionRef, WorktreeSetID(workID)); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func auditRowsByClass(rows []WorktreeDrift) map[string][]WorktreeDrift {

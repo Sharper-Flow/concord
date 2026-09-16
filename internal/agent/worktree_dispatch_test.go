@@ -106,6 +106,10 @@ func TestWorktreeClaimAndReclaimThroughToolSurface(t *testing.T) {
 		t.Fatalf("expected one linked worktree line, got %d", got)
 	}
 
+	// The claiming session vacates before the reclaim; the removal gate
+	// refuses while a recorded occupant remains.
+	vacateLinkedWorktree(t, s, service, grant, worktreePath, "wt-vacate-1")
+
 	// Dirty tree is refused; clean tree reclaims.
 	if err := os.WriteFile(filepath.Join(worktreePath, "README.md"), []byte("# dirty\n"), 0o644); err != nil {
 		t.Fatal(err)
@@ -168,6 +172,25 @@ func claimLinkedWorktree(t *testing.T, s *store.Store, service *Service, grant A
 	}
 }
 
+// vacateLinkedWorktree records that the claiming session left its linked
+// worktree. The removal gate refuses while a recorded occupant remains, so
+// every test that claims and then removes must vacate in between.
+func vacateLinkedWorktree(t *testing.T, s *store.Store, service *Service, grant Authority, worktreePath, key string) {
+	t.Helper()
+	scopeVersion, _, err := s.ScopeVersion(context.Background(), "project-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := mutationEnvelope(grant, scopeVersion)
+	env.Worktree = worktreePath
+	env.Directory = worktreePath
+	input, _ := json.Marshal(map[string]any{"idempotency_key": key})
+	vacate, err := Dispatch(context.Background(), s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "session_vacate", Input: input}, env)
+	if err != nil || vacate.Outcome != OutcomeOK {
+		t.Fatalf("vacate response=%+v err=%v", vacate, err)
+	}
+}
+
 // issue #674: worktree_reclaim from the main checkout is conditional. The
 // authorization boundary admits the operation and records the main-checkout
 // grant; the planner refuses it unless the addressed work item is terminal
@@ -202,6 +225,7 @@ func TestWorktreeReclaimFromMainCheckoutRequiresTerminalWork(t *testing.T) {
 		s, service, grant, repoRoot, baseSHA := worktreeDispatchFixture(t)
 		worktreePath := filepath.Join(filepath.Dir(s.Path()), "worktrees", "project-1", "work-1")
 		claimLinkedWorktree(t, s, service, grant, worktreePath, baseSHA, "work/main-inprogress", "claim-inprogress")
+		vacateLinkedWorktree(t, s, service, grant, worktreePath, "vacate-inprogress")
 		seedWorkTransition(t, s, "work-1", "needed", "in_progress", 3)
 		service.ProjectResolver = mainCheckoutResolver
 
@@ -229,6 +253,7 @@ func TestWorktreeReclaimFromMainCheckoutRequiresTerminalWork(t *testing.T) {
 		s, service, grant, repoRoot, baseSHA := worktreeDispatchFixture(t)
 		worktreePath := filepath.Join(filepath.Dir(s.Path()), "worktrees", "project-1", "work-1")
 		claimLinkedWorktree(t, s, service, grant, worktreePath, baseSHA, "work/main-terminal", "claim-terminal")
+		vacateLinkedWorktree(t, s, service, grant, worktreePath, "vacate-terminal")
 		seedWorkTransition(t, s, "work-1", "needed", "completed", 3)
 		service.ProjectResolver = mainCheckoutResolver
 
@@ -253,6 +278,7 @@ func TestWorktreeReclaimFromMainCheckoutRequiresTerminalWork(t *testing.T) {
 		s, service, grant, _, baseSHA := worktreeDispatchFixture(t)
 		worktreePath := filepath.Join(filepath.Dir(s.Path()), "worktrees", "project-1", "work-1")
 		claimLinkedWorktree(t, s, service, grant, worktreePath, baseSHA, "work/main-cancelled", "claim-cancelled")
+		vacateLinkedWorktree(t, s, service, grant, worktreePath, "vacate-cancelled")
 		seedWorkTransition(t, s, "work-1", "needed", "cancelled", 3)
 		service.ProjectResolver = mainCheckoutResolver
 
@@ -267,12 +293,8 @@ func TestWorktreeReclaimFromMainCheckoutRequiresTerminalWork(t *testing.T) {
 	})
 }
 
-// TestWorktreeReclaimRefusesOccupiedWorktreeThroughToolSurface pins issue #722
-// end to end at the typed boundary: the adapter's observation of the host's
-// live sessions reaches the store, and the store refuses the removal that
-// would strand one. The observation is an input rather than stored state
-// because no event records a session leaving a directory, so a stored answer
-// would go stale with nothing to clear it.
+// TestWorktreeReclaimRefusesOccupiedWorktreeThroughToolSurface pins the
+// stored occupancy gate end to end at the typed boundary.
 func TestWorktreeReclaimRefusesOccupiedWorktreeThroughToolSurface(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -311,12 +333,13 @@ func TestWorktreeReclaimRefusesOccupiedWorktreeThroughToolSurface(t *testing.T) 
 	if occupied.Error == nil || occupied.Error.Kind != "unauthorized" {
 		t.Fatalf("error=%+v, want unauthorized", occupied.Error)
 	}
-	if !strings.Contains(occupied.Error.Message, "ses_live") || !strings.Contains(occupied.Error.Message, worktreePath) {
+	if !strings.Contains(occupied.Error.Message, grant.SessionRef) || !strings.Contains(occupied.Error.Message, worktreePath) {
 		t.Fatalf("refusal %q must name the occupying session and the worktree", occupied.Error.Message)
 	}
 	if !strings.Contains(gitRun(t, repoRoot, "worktree", "list"), "work-1") {
 		t.Fatal("a refused reclaim must leave the native worktree in place")
 	}
+	vacateLinkedWorktree(t, s, service, grant, worktreePath, "wt-vacate-occupied")
 
 	// The same worktree with every live session elsewhere reclaims normally.
 	free := reclaimWith("wt-reclaim-free", []map[string]any{

@@ -164,16 +164,16 @@ func TestWorktreeAuditTreatsEveryStoreTerminalLifecycleAsTerminal(t *testing.T) 
 	}
 }
 
-// A session observed inside a terminal worktree keeps the stranding gate:
-// the audit must not remove the directory a live session runs in.
+// A recorded session occupant keeps the stranding gate.
 func TestWorktreeAuditReclaimRefusesOccupiedWorktree(t *testing.T) {
 	t.Parallel()
 	s, git, _ := worktreeFixture(t)
 	ctx := context.Background()
 	donePath := auditWork(t, s, git, "work-done", true)
 	completeAuditWork(t, s, "work-done", 3)
+	setWorktreeOccupant(t, s, "work-done", "ses-1")
 
-	result, err := s.WorktreeAuditReclaim(ctx, WorktreeAuditReclaimRequest{ProductID: "product-w", DefaultRef: "origin/main", PrincipalRef: "principal-1", RequestID: "audit-reclaim-occupied", Now: time.Unix(40, 0).UTC(), Runner: git, Limit: 100, ObservedSessionDirectories: &[]SessionDirectory{{SessionRef: "ses-1", Directory: donePath}}, ObservedProjectID: "project-w"})
+	result, err := s.WorktreeAuditReclaim(ctx, WorktreeAuditReclaimRequest{ProductID: "product-w", DefaultRef: "origin/main", PrincipalRef: "principal-1", RequestID: "audit-reclaim-occupied", Now: time.Unix(40, 0).UTC(), Runner: git, Limit: 100})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -185,10 +185,8 @@ func TestWorktreeAuditReclaimRefusesOccupiedWorktree(t *testing.T) {
 	}
 }
 
-// A host observation is scoped to the Project that supplied it. A non-empty
-// list from another Project cannot prove that this target is unoccupied, so
-// the audit refuses before it opens a reclaim transaction or removes a path.
-func TestWorktreeAuditReclaimRefusesUncoveredTarget(t *testing.T) {
+// Host observations do not affect the stored occupancy decision.
+func TestWorktreeAuditReclaimIgnoresUncoveredObservation(t *testing.T) {
 	s, git, _ := worktreeFixture(t)
 	ctx := context.Background()
 	donePath := auditWork(t, s, git, "work-done", true)
@@ -202,17 +200,16 @@ func TestWorktreeAuditReclaimRefusesUncoveredTarget(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(result.Rows) != 1 || result.Rows[0].Outcome != WorktreeAuditRefused || result.Rows[0].RefusalKind != string(KindWorktreeOwnershipConflict) {
-		t.Fatalf("uncovered target must be refused typed, got %+v", result.Rows)
+	if len(result.Rows) != 1 || result.Rows[0].Outcome != WorktreeAuditReclaimed {
+		t.Fatalf("uncovered observation must not block reclaim, got %+v", result.Rows)
 	}
-	if _, kept := git.worktrees[donePath]; !kept {
-		t.Fatal("an uncovered target must remain on disk")
+	if _, kept := git.worktrees[donePath]; kept {
+		t.Fatal("an uncovered observation must not keep the worktree")
 	}
 }
 
-// A session observation without Project scope cannot prove that the target
-// Project is unoccupied, so the audit refuses before removing a path.
-func TestWorktreeAuditReclaimRefusesUnscopedOccupancy(t *testing.T) {
+// An unscoped host observation does not affect the stored occupancy decision.
+func TestWorktreeAuditReclaimIgnoresUnscopedObservation(t *testing.T) {
 	s, git, _ := worktreeFixture(t)
 	ctx := context.Background()
 	donePath := auditWork(t, s, git, "work-done", true)
@@ -226,19 +223,17 @@ func TestWorktreeAuditReclaimRefusesUnscopedOccupancy(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(result.Rows) != 1 || result.Rows[0].Outcome != WorktreeAuditRefused || result.Rows[0].RefusalKind != string(KindWorktreeOwnershipConflict) {
-		t.Fatalf("unscoped occupancy must be refused typed, got %+v", result.Rows)
+	if len(result.Rows) != 1 || result.Rows[0].Outcome != WorktreeAuditReclaimed {
+		t.Fatalf("unscoped observation must not block reclaim, got %+v", result.Rows)
 	}
-	if _, kept := git.worktrees[donePath]; !kept {
-		t.Fatal("an unscoped occupancy observation must leave the worktree on disk")
+	if _, kept := git.worktrees[donePath]; kept {
+		t.Fatal("an unscoped observation must not keep the worktree")
 	}
 }
 
-// A reclaim that carries no occupancy observation has not shown the worktree
-// unoccupied; it has shown nothing. The gate must refuse rather than read an
-// absent observation as a safe one, because the caller that supplies no list
-// is exactly the caller that cannot see the sessions it would strand.
-func TestWorktreeAuditReclaimRefusesUnobservedOccupancy(t *testing.T) {
+// A reclaim with no recorded occupant does not require a host session
+// observation. The Concord projection is the removal gate's authority.
+func TestWorktreeAuditReclaimUsesRecordedOccupancy(t *testing.T) {
 	s, git, _ := worktreeFixture(t)
 	ctx := context.Background()
 	donePath := auditWork(t, s, git, "work-done", true)
@@ -248,11 +243,11 @@ func TestWorktreeAuditReclaimRefusesUnobservedOccupancy(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(result.Rows) != 1 || result.Rows[0].Outcome != WorktreeAuditRefused || result.Rows[0].RefusalKind != string(KindWorktreeOwnershipConflict) {
-		t.Fatalf("a reclaim with no occupancy observation must be refused, got %+v", result.Rows)
+	if len(result.Rows) != 1 || result.Rows[0].Outcome != WorktreeAuditReclaimed {
+		t.Fatalf("a reclaim with no recorded occupancy must proceed, got %+v", result.Rows)
 	}
-	if _, kept := git.worktrees[donePath]; !kept {
-		t.Fatal("a worktree whose occupancy was never observed must remain")
+	if _, kept := git.worktrees[donePath]; kept {
+		t.Fatal("a worktree with no recorded occupancy must be removed")
 	}
 }
 
@@ -425,16 +420,15 @@ func TestWorktreeAuditReclaimRefusesUnstartedWorktreeWithEquivalentTree(t *testi
 	}
 }
 
-// A session observed inside an unstarted worktree keeps the stranding gate:
-// the pass must not remove the directory a live session runs in, even though
-// the branch holds nothing.
+// A recorded occupant keeps the stranding gate for an unstarted worktree.
 func TestWorktreeAuditReclaimRefusesOccupiedUnstartedWorktree(t *testing.T) {
 	t.Parallel()
 	s, git, _ := worktreeFixture(t)
 	ctx := context.Background()
 	path := auditWork(t, s, git, "work-unstarted-occupied", true)
+	setWorktreeOccupant(t, s, "work-unstarted-occupied", "ses-1")
 
-	result, err := s.WorktreeAuditReclaim(ctx, WorktreeAuditReclaimRequest{ProductID: "product-w", DefaultRef: "origin/main", PrincipalRef: "principal-1", RequestID: "unstarted-occupied", Now: time.Unix(40, 0).UTC(), Runner: git, Limit: 100, ObservedSessionDirectories: &[]SessionDirectory{{SessionRef: "ses-1", Directory: path}}, ObservedProjectID: "project-w"})
+	result, err := s.WorktreeAuditReclaim(ctx, WorktreeAuditReclaimRequest{ProductID: "product-w", DefaultRef: "origin/main", PrincipalRef: "principal-1", RequestID: "unstarted-occupied", Now: time.Unix(40, 0).UTC(), Runner: git, Limit: 100})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -1028,9 +1028,6 @@ export function laneDispatchRequest(args: any): LaneDispatchInput | { error: str
 // falls through to the generic core transport. The dispatch path shares the
 // same transport seam as every other adapter tool, so a host-side caller
 // receives the same envelope shape on either branch.
-// WORKTREE_REMOVAL_OPERATIONS derives every typed operation that accepts the
-// occupancy observation from the generated contract. The core owns the set of
-// removal operations, so this stays complete as the contract grows (issue #722).
 export const WORKTREE_REMOVAL_OPERATIONS = new Set(
   contractOperations
     .filter((operation) => operation.tool === "concord_work_transition" && operation.input_schema.startsWith("#/schemas/"))
@@ -1041,32 +1038,6 @@ export const WORKTREE_REMOVAL_OPERATIONS = new Set(
     })
     .map((operation) => operation.id.slice("concord_work_transition.".length)),
 )
-
-// observeSessionsForRemoval attaches the host's live session directories to a
-// worktree removal. The store owns the worktree path and refuses on it; this
-// side owns the only truthful answer to which sessions are live and where.
-//
-// A host it cannot read refuses the removal rather than reporting an empty
-// list. "No session occupies this worktree" and "I could not look" are
-// different answers, and only one of them makes a removal safe.
-async function observeSessionsForRemoval(args: HostToolArgs, context: ToolContext): Promise<HostToolArgs | CoreConcordEnvelope> {
-  try {
-    const observed = await hostControlPlane().liveSessionDirectories(context.abort)
-    return { ...args, input: { ...args.input, observed_session_directories: observed } }
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error)
-    return adapterError(
-      "concord_work_transition",
-      args.operation,
-      `${context.sessionID}-${context.messageID}`,
-      "transport_failure",
-      "session_occupancy_unreadable",
-      `${message}; the removal was refused because it cannot be shown safe. Nothing was removed`,
-      "none",
-      "contact_operator",
-    )
-  }
-}
 
 // reportWorktreeRemoval puts the completed removal in front of the operator.
 // The agent that made the call may end its turn without relaying anything, and
@@ -1188,13 +1159,8 @@ export async function moveSessionToRegisteredMainCheckout(args: HostToolArgs, co
 async function executeWorkTransition(args: HostToolArgs, context: ToolContext): Promise<HostConcordEnvelope> {
   if (args?.operation === WORKER_ABANDON_OPERATION) return executeWorkerAbandon(args, context)
   if (WORKTREE_REMOVAL_OPERATIONS.has(args?.operation)) {
-    const observed = await observeSessionsForRemoval(args, context)
-    // An unreadable host answers with the refusal itself, so nothing reaches
-    // the core and nothing is reported.
-    if (!("operation" in observed && "input" in observed)) return observed as CoreConcordEnvelope
-    const request = observed as HostToolArgs
-    const envelope = await invokeConcordOperation("concord_work_transition", request, context)
-    await reportWorktreeRemoval(request, context, envelope)
+    const envelope = await invokeConcordOperation("concord_work_transition", args, context)
+    await reportWorktreeRemoval(args, context, envelope)
     return envelope
   }
   if (args?.operation === "workflow_action") {

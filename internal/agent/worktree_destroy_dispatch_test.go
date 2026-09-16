@@ -47,6 +47,7 @@ func TestWorktreeDestroyDispatchReclaimsMergedTerminalWork(t *testing.T) {
 	s, _, _, second, secondGrant, _ := tiersFixture(t)
 	worktreePath := filepath.Join(filepath.Dir(s.Path()), "worktrees", "project-1", "work-2")
 	completeWork(t, s, "work-2", 3)
+	vacateLinkedWorktree(t, s, second, secondGrant, worktreePath, "destroy-2-vacate")
 
 	response := authorityInvoke(t, s, second, secondGrant, "concord_work_transition", "worktree_destroy", map[string]any{
 		"work_id": "work-2", "expected_version": 4, "default_ref": "main", "idempotency_key": "destroy-2", "observed_session_directories": []map[string]any{},
@@ -66,6 +67,7 @@ func TestWorktreeDestroyDispatchRoutesNonTerminalThroughApproval(t *testing.T) {
 	t.Parallel()
 	s, service, grant, _, _, _ := tiersFixture(t)
 	worktreePath := filepath.Join(filepath.Dir(s.Path()), "worktrees", "project-1", "work-1")
+	vacateLinkedWorktree(t, s, service, grant, worktreePath, "destroy-nt-vacate")
 
 	refused := authorityInvoke(t, s, service, grant, "concord_work_transition", "worktree_destroy", map[string]any{
 		"work_id": "work-1", "expected_version": 3, "default_ref": "main", "idempotency_key": "destroy-nt", "observed_session_directories": []map[string]any{},
@@ -111,6 +113,7 @@ func TestWorktreeDestroyDispatchDestructiveUnderApproval(t *testing.T) {
 	s, service, grant, _, _, _ := tiersFixture(t)
 	worktreePath := filepath.Join(filepath.Dir(s.Path()), "worktrees", "project-1", "work-1")
 	completeWork(t, s, "work-1", 3)
+	vacateLinkedWorktree(t, s, service, grant, worktreePath, "destroy-dirty-vacate")
 	if err := os.WriteFile(filepath.Join(worktreePath, "README.md"), []byte("# dirty\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -152,6 +155,45 @@ func TestWorktreeDestroyDispatchDestructiveUnderApproval(t *testing.T) {
 	}
 	if _, err := os.Stat(worktreePath); !os.IsNotExist(err) {
 		t.Fatalf("dirty worktree still present at %s", worktreePath)
+	}
+}
+
+// A session that ends without vacating leaves its occupancy recorded. The
+// operator-approved destroy is the declared route that releases the stale
+// record, and the approval does not need to discard the git safety gates.
+func TestWorktreeDestroyDispatchApprovedReleasesStaleOccupancy(t *testing.T) {
+	t.Parallel()
+	s, service, grant, _, _, _ := tiersFixture(t)
+	worktreePath := filepath.Join(filepath.Dir(s.Path()), "worktrees", "project-1", "work-1")
+
+	refused := authorityInvoke(t, s, service, grant, "concord_work_transition", "worktree_destroy", map[string]any{
+		"work_id": "work-1", "expected_version": 3, "default_ref": "main", "idempotency_key": "destroy-stale", "observed_session_directories": []map[string]any{},
+	})
+	if refused.Outcome != OutcomeError || refused.Error == nil || refused.Error.Kind != "approval_required" {
+		t.Fatalf("refused response=%+v err=%+v, want approval_required", refused, refused.Error)
+	}
+	challengeRef, _ := refused.Error.Details["approval_ref"].(string)
+
+	scopeVersion, _, err := s.ScopeVersion(context.Background(), "project-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := mutationEnvelope(grant, scopeVersion)
+	raw, _ := json.Marshal(map[string]any{"work_id": "work-1", "expected_version": 3, "default_ref": "main", "idempotency_key": "destroy-stale", "observed_session_directories": []map[string]any{}})
+	digest := mutationDigest("concord_work_transition", "worktree_destroy", env, raw)
+	scope := map[string]any{"product_id": "product-1", "product_ids": []string{"product-1"}, "project_ids": []string{"project-1"}, "work_ids": []string{"work-1"}, "scope_version": scopeVersion}
+	versions := map[string]any{"work": 3}
+	env.HostApproval = signedHostApproval(mustKey(t), challengeRef, digest, scope, versions, grant.SessionRef, grant.AgentRef, grant.Worktree, fixedTime(), "destroy-stale-1")
+	approvedRaw, _ := json.Marshal(map[string]any{"work_id": "work-1", "expected_version": 3, "default_ref": "main", "idempotency_key": "destroy-stale", "observed_session_directories": []map[string]any{}, "approval": map[string]any{"approval_ref": challengeRef}})
+	approved, approvalErr := Dispatch(context.Background(), s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "worktree_destroy", Input: approvedRaw}, env)
+	if approvalErr != nil {
+		t.Fatal(approvalErr)
+	}
+	if approved.Outcome != OutcomeOK {
+		t.Fatalf("approved response=%+v err=%+v, want the stale occupancy released", approved, approved.Error)
+	}
+	if _, err := os.Stat(worktreePath); !os.IsNotExist(err) {
+		t.Fatalf("worktree still present at %s", worktreePath)
 	}
 }
 

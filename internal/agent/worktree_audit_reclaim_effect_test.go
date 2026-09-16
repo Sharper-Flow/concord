@@ -19,6 +19,9 @@ func TestWorktreeAuditReclaimPostCommitFailurePreservesCommittedRefs(t *testing.
 	root := filepath.Join(filepath.Dir(s.Path()), "worktrees", "project-1")
 	completeWork(t, s, "work-1", 3)
 	completeWork(t, s, "work-2", 3)
+	// work-2 reclaims, so its claiming session vacates first; work-1 stays
+	// occupied, so its row refuses.
+	vacateLinkedWorktree(t, s, second, secondGrant, filepath.Join(root, "work-2"), "audit-effect-vacate-2")
 	ctx := context.Background()
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
 	if err != nil {
@@ -29,7 +32,9 @@ func TestWorktreeAuditReclaimPostCommitFailurePreservesCommittedRefs(t *testing.
 	if !ok {
 		t.Fatal("worktree_audit_reclaim operation is not registered")
 	}
-	// work-1 stays occupied, so its row refuses; work-2 reclaims.
+	// work-1 stays occupied, so its row refuses; work-2 reclaims. The
+	// recorded Concord occupant is the refusal authority; the observation
+	// below also places a session in work-1.
 	raw, _ := json.Marshal(map[string]any{
 		"product_id": "product-1", "default_ref": "main", "idempotency_key": "audit-effect-1",
 		"observed_session_directories": []map[string]any{

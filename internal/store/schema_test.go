@@ -43,6 +43,62 @@ func TestOpenAppliesSchemaManifest(t *testing.T) {
 	}
 }
 
+func TestMigration88BackfillsWorkflowContractDefinitionAuthorityPins(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "concord-v87.db")
+	db, err := sql.Open(driverName, dataSourceName(path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	db.SetMaxOpenConns(1)
+	defer db.Close()
+	if _, err := db.ExecContext(ctx, schemaManifestDDL); err != nil {
+		t.Fatal(err)
+	}
+	for _, migration := range migrations[:len(migrations)-1] {
+		if err := applyMigration(ctx, db, migration); err != nil {
+			t.Fatalf("migration %d: %v", migration.Version, err)
+		}
+		if _, err := db.ExecContext(ctx, `INSERT INTO schema_migrations(version,name,checksum,applied_at) VALUES(?,?,?,?)`, migration.Version, migration.Name, migration.checksum(), "2026-09-16T00:00:00Z"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	const workID = "migration-88-contract-pins"
+	actorRef := DeriveWorkflowActorRef("principal:migration-88", "client:migration-88", "agent:migration-88", "session:migration-88")
+	const definitionRef = "workflow.test"
+	const definitionDigest = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	const historicalDefinitionDigest = "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+	for _, statement := range []struct {
+		query string
+		args  []any
+	}{
+		{`INSERT INTO fold_guard(active) VALUES(1)`, nil},
+		{`INSERT INTO work_items(id,kind,title,lifecycle,priority,version,created_at,updated_at) VALUES(?,?,?,'needed',0,1,?,?)`, []any{workID, "task", "Migration contract", "now", "now"}},
+		{`INSERT INTO workflow_actors(actor_ref,principal_ref,client_ref,agent_ref,session_ref,actor_class,first_seen_at) VALUES(?,?,?,?,?,'agent',?)`, []any{actorRef, "principal:migration-88", "client:migration-88", "agent:migration-88", "session:migration-88", "now"}},
+		{`INSERT INTO workflow_instances(work_id,definition_ref,definition_version,definition_digest,current_step,instance_state) VALUES(?,?,?,?,?,'ready')`, []any{workID, definitionRef, 7, definitionDigest, "planning"}},
+		{`INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES(?,?,?,?,?,?,?,?)`, []any{"definition-selected-migration-88", WorkflowDefinitionSelected, SubjectWorkItem, workID, actorRef, "2026-09-16T00:00:00Z", 1, `{"ref":"workflow.test","version":6,"digest":"` + historicalDefinitionDigest + `","work_kind":"generic_one_off"}`}},
+		{`INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES(?,?,?,?,?,?,?,?)`, []any{"contract-approved-migration-88", WorkflowContractApproved, SubjectWorkItem, workID, actorRef, "2026-09-16T00:00:01Z", 1, `{"contract_version":1}`}},
+		{`INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class,self_repair_json,definition_ref,definition_version,definition_digest) VALUES(?,1,'migration pin','internal_sqlite','[]','[]',?,?, '[]','[]',0,'prototype_internal','null','','','')`, []any{workID, "now", actorRef}},
+		{`DELETE FROM fold_guard`, nil},
+	} {
+		if _, err := db.ExecContext(ctx, statement.query, statement.args...); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := Migrate(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+	var ref, digest string
+	var version int
+	if err := db.QueryRowContext(ctx, `SELECT definition_ref,definition_version,definition_digest FROM workflow_contracts WHERE work_id=? AND contract_version=1`, workID).Scan(&ref, &version, &digest); err != nil {
+		t.Fatal(err)
+	}
+	if ref != definitionRef || version != 6 || digest != historicalDefinitionDigest {
+		t.Fatalf("migration 88 pins = %q, %d, %q", ref, version, digest)
+	}
+}
+
 func TestMigrateV60ToV61PreservesWorkflowContractForeignKeys(t *testing.T) {
 	t.Parallel()
 	path := filepath.Join(t.TempDir(), "concord-v60.db")

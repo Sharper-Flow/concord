@@ -213,6 +213,21 @@ func TestReplayPreservesLegacyApprovalBeforeSupersession(t *testing.T) {
 	if err := RebuildFromLog(context.Background(), s); err != nil {
 		t.Fatal(err)
 	}
+	var instanceRef, contractRef, successorRef string
+	var instanceVersion, contractVersion, successorVersion int64
+	var instanceDigest, contractDigest, successorDigest string
+	if err := db.QueryRow(`SELECT definition_ref,definition_version,definition_digest FROM workflow_instances WHERE work_id=?`, workID).Scan(&instanceRef, &instanceVersion, &instanceDigest); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.QueryRow(`SELECT definition_ref,definition_version,definition_digest FROM workflow_contracts WHERE work_id=? AND contract_version=1`, workID).Scan(&contractRef, &contractVersion, &contractDigest); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.QueryRow(`SELECT definition_ref,definition_version,definition_digest FROM workflow_contracts WHERE work_id=? AND contract_version=2`, workID).Scan(&successorRef, &successorVersion, &successorDigest); err != nil {
+		t.Fatal(err)
+	}
+	if contractRef != instanceRef || contractVersion != instanceVersion || contractDigest != instanceDigest || successorRef != instanceRef || successorVersion != instanceVersion || successorDigest != instanceDigest {
+		t.Fatalf("legacy supersession pins do not carry the recorded definition: instance=%q/%d/%q predecessor=%q/%d/%q successor=%q/%d/%q", instanceRef, instanceVersion, instanceDigest, contractRef, contractVersion, contractDigest, successorRef, successorVersion, successorDigest)
+	}
 	var active, v1Superseded, v2 int
 	if err := db.QueryRow(`SELECT count(*) FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL`, workID).Scan(&active); err != nil {
 		t.Fatal(err)

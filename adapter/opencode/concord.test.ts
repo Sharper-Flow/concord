@@ -1039,10 +1039,11 @@ test("escalated correction challenge round-trips with the failed attempt binding
   expect(requests[1].call_envelope.host_approval_assertion.versions).toEqual(["work:7", "contract:1", "failed_attempt_epoch:3"])
 })
 
-test("a metadata-less escalation refusal fail-closes instead of asking the operator", async () => {
+test("a metadata-less escalation refusal stays a core refusal without asking the operator", async () => {
   // The pre-repair core answered an escalated dispatch with approval_required
   // and no challenge details. The adapter must not put an unbindable approval
-  // in front of the operator, so it fail-closes without an ask.
+  // in front of the operator, so it preserves the typed core refusal without
+  // an ask.
   const refusal = coreEnvelope("concord_work_transition", "workflow_action", "error", {
     error: { kind: "approval_required", retry_safe: false, recovery_action: { kind: "request_approval" }, effect_state: "none" },
   })
@@ -1055,9 +1056,9 @@ test("a metadata-less escalation refusal fail-closes instead of asking the opera
   let asks = 0
   adapter.configureConcordAdapter({ runner })
   const result: any = await rawHostResult(adapter.work_transition.execute(hostCall("workflow_action", { work_id: "work-1", expected_version: 7, action_id: "approve_contract", idempotency_key: "escalated-dead-end" }), contextFor(async () => { asks++ })))
-  assertAdapterEnvelope(result)
-  expect(result.error.kind).toBe("malformed_response")
-  expect(result.error.adapter_reason).toBe("malformed_core_response")
+  expect(validateGeneratedEnvelope(result), JSON.stringify(result)).toBe(true)
+  expect(result.origin).toBe("core")
+  expect(result.error.kind).toBe("approval_required")
   expect(asks).toBe(0)
   expect(calls).toBe(2)
 })

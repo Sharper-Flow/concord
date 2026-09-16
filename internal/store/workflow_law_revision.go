@@ -205,9 +205,8 @@ func validateCurrentWorkflowLawRevisionsTx(ctx context.Context, tx *sql.Tx, work
 // It is deliberately a live-transaction check: event replay validates recorded
 // pin shape without consulting today's Git-derived law projection.
 func validateStaleWorkflowContractRecoverySuccessorTx(ctx context.Context, tx *sql.Tx, workID string, predecessors []int64, successor []WorkflowLawRevision) error {
-	var homeProjectID, homeLocatorID string
 	homeResolved := false
-	var err error
+	var homeProjectID, homeLocatorID string
 	for _, predecessor := range predecessors {
 		var mandateJSON string
 		if err := tx.QueryRowContext(ctx, `SELECT spec_mandate FROM workflow_contracts WHERE work_id=? AND contract_version=? AND superseded_by IS NULL`, workID, predecessor).Scan(&mandateJSON); err != nil {
@@ -220,6 +219,7 @@ func validateStaleWorkflowContractRecoverySuccessorTx(ctx context.Context, tx *s
 		if err := json.Unmarshal([]byte(mandateJSON), &mandated); err != nil {
 			return newFailure(KindInvariantViolation, "validate_stale_workflow_recovery", "previous workflow contract law mandate is malformed", false, "rebuild projections from the event log")
 		}
+		var err error
 		mandated, err = currentWorkflowLawMandateFromProjection(ctx, tx, workID, predecessor, mandated)
 		if err != nil {
 			return err
@@ -235,10 +235,10 @@ func validateStaleWorkflowContractRecoverySuccessorTx(ctx context.Context, tx *s
 			homeResolved = true
 		}
 		stale, err := findStaleWorkflowLawRevision(ctx, tx, homeProjectID, homeLocatorID, workID, predecessor, mandated)
-		if err != nil || stale == nil {
-			if err != nil {
-				return err
-			}
+		if err != nil {
+			return err
+		}
+		if stale == nil {
 			continue
 		}
 		found := false

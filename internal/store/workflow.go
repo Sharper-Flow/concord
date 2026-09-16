@@ -731,7 +731,7 @@ func foldWorkflowContractApproved(ctx context.Context, tx *sql.Tx, event Event) 
 	}
 	// Replay retains a malformed non-initial approval so the typed recovery can
 	// diagnose and repair it. Live writes remain strict.
-	legacyDuplicateApproval := isWorkflowReplay(ctx) && p.ContractVersion > 1
+	legacyDuplicateApproval := isWorkflowReplay(ctx) && p.ContractVersion > 1 && activeCount > 0
 	if activeCount != 0 && !inWorkflowContractSupersessionContext(ctx) && !legacyDuplicateApproval {
 		return newFailure(KindInvariantViolation, "fold_event", "contract approval requires no active workflow contract", false, "supersede the active contract through the typed recovery route")
 	}
@@ -1010,6 +1010,11 @@ func foldWorkflowContractSuperseded(ctx context.Context, tx *sql.Tx, event Event
 		}
 		if len(predecessors) != 1 {
 			return newFailure(KindInvariantViolation, "fold_event", "duplicate active contracts require a fully supplied successor contract", false, "supply the typed successor contract")
+		}
+		if !isWorkflowReplay(ctx) {
+			if err := validateStaleWorkflowContractRecoverySuccessorTx(ctx, tx, event.SubjectID, predecessors, nil); err != nil {
+				return err
+			}
 		}
 		if _, err := tx.ExecContext(ctx, `INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,rigor_class,law_modifies,law_boundary_version) SELECT work_id,?,premise,consequence_class,required_evidence,route_conventions,?,?,spec_mandate,rigor_class,law_modifies,law_boundary_version FROM workflow_contracts WHERE work_id=? AND contract_version=? AND NOT EXISTS (SELECT 1 FROM workflow_contracts WHERE work_id=? AND contract_version=?)`, p.NewContractVersion, event.OccurredAt.UTC().Format(time.RFC3339Nano), event.Actor, event.SubjectID, p.PreviousContractVersion, event.SubjectID, p.NewContractVersion); err != nil {
 			// Legacy revision events remain replayable; new stale-law recovery

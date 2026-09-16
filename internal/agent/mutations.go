@@ -761,7 +761,7 @@ func preflightWorkflowActionRequestWithRegistry(ctx context.Context, s *store.St
 			return err
 		}
 	}
-	return store.WorkflowActionPreflightWithRegistry(ctx, s, registry, store.WorkflowActionPreflightRequest{
+	preflightErr := store.WorkflowActionPreflightWithRegistry(ctx, s, registry, store.WorkflowActionPreflightRequest{
 		WorkID:                in.WorkID,
 		ExpectedVersion:       in.ExpectedVersion,
 		ActionID:              in.ActionID,
@@ -771,6 +771,20 @@ func preflightWorkflowActionRequestWithRegistry(ctx context.Context, s *store.St
 		Actor:                 store.WorkflowActor{PrincipalRef: actor.PrincipalRef, ClientRef: actor.ClientRef, AgentRef: actor.AgentRef, SessionRef: actor.SessionRef, ActorClass: store.ActorAgent},
 		SessionWorktree:       env.Worktree,
 	})
+	if preflightErr == nil {
+		return nil
+	}
+	// A concurrent exact request can commit between the idempotency read above
+	// and this version-sensitive preflight. Recheck the durable receipt once so
+	// that the later mutation transaction can return its stored result.
+	prior, found, lookupErr := s.LookupMutationIdempotency(ctx, store.MutationIdempotencyKey{PrincipalRef: actor.PrincipalRef, Tool: "concord_work_transition", OperationKind: "workflow_action", IdempotencyKey: key})
+	if lookupErr != nil || !found {
+		return preflightErr
+	}
+	if prior.CanonicalDigest != mutationDigest("concord_work_transition", "workflow_action", env, raw) {
+		return store.IdempotencyConflict("workflow_action", key)
+	}
+	return nil
 }
 
 // evidenceBindingFamily names the actions whose caller-supplied evidence
@@ -894,6 +908,48 @@ func workflowActionFields(raw json.RawMessage) (json.RawMessage, error) {
 		return nil, err
 	}
 	return encoded, nil
+}
+
+func (r runtime) replayWorkflowActionTx(ctx context.Context, tx *store.Transaction, base Envelope, prior store.MutationIdempotencyRecord, scope map[string]any) (Envelope, error) {
+	var changed []ChangedRef
+	if err := json.Unmarshal([]byte(prior.ChangedRefs), &changed); err != nil {
+		return Envelope{}, newRuntimeFailure("invariant_violation", "stored workflow action changed references are unreadable", "contact_operator", false)
+	}
+	base.Replayed = true
+	base.ResolvedScope = scopeFromMap(scope)
+	replayedPayload, derivedIntents, err := r.enrichMutationPayloadTx(ctx, tx, json.RawMessage(prior.ResultPayload), changed)
+	if err != nil {
+		return Envelope{}, err
+	}
+	return r.mutationResult(base, replayedPayload, changed, derivedIntents), nil
+}
+
+func (r runtime) workflowActionReplayPreflight(ctx context.Context, base Envelope, digest string, scope map[string]any, grant Authority, in actionMutationInput, result *Envelope, resultRejected *bool) func(*store.Transaction) (bool, error) {
+	return func(tx *store.Transaction) (bool, error) {
+		prior, found, err := store.LookupMutationIdempotencyTx(ctx, tx, store.MutationIdempotencyKey{PrincipalRef: grant.PrincipalRef, Tool: r.Tool, OperationKind: "workflow_action", IdempotencyKey: in.IdempotencyKey})
+		if err != nil {
+			return false, err
+		}
+		if !found {
+			return false, nil
+		}
+		if prior.CanonicalDigest != digest {
+			return false, store.IdempotencyConflict("workflow_action", in.IdempotencyKey)
+		}
+		replayed, err := r.replayWorkflowActionTx(ctx, tx, base, prior, scope)
+		if err != nil {
+			return false, err
+		}
+		*result = replayed
+		if result.Outcome == OutcomeError {
+			*resultRejected = true
+			return true, errors.New("mutation result rejected")
+		}
+		if err := store.TouchMutationIdempotencyTx(ctx, tx, store.MutationIdempotencyKey{PrincipalRef: grant.PrincipalRef, Tool: r.Tool, OperationKind: "workflow_action", IdempotencyKey: in.IdempotencyKey}, r.Authority.now()); err != nil {
+			return false, err
+		}
+		return true, nil
+	}
 }
 
 func (r runtime) mutateWorkflowAction(ctx context.Context, base Envelope, raw []byte, grant Authority, op ContractOperation) (Envelope, error) {
@@ -1076,7 +1132,7 @@ func (r runtime) mutateWorkflowAction(ctx context.Context, base Envelope, raw []
 	actionRequest.ApprovalScopeJSON = string(scopeJSON)
 	actionRequest.ApprovalVersionsJSON = string(versionsJSON)
 	actionRequest.ApprovalConsequence = approvalConsequence
-	err = store.AuthorizeWorkflowActionAtBoundaryTx(ctx, r.Store, registry, store.WorkflowActionPreflightRequest{WorkID: in.WorkID, ExpectedVersion: in.ExpectedVersion, ActionID: in.ActionID, SelectedChoice: in.SelectedChoice, DecisionContextDigest: in.DecisionContextDigest, Payload: payload, Actor: actionRequest.Actor, SessionWorktree: r.Envelope.Worktree}, nil, time.Time{}, func(tx *store.Transaction) error {
+	err = store.AuthorizeWorkflowActionAtBoundaryWithPreflightTx(ctx, r.Store, registry, store.WorkflowActionPreflightRequest{WorkID: in.WorkID, ExpectedVersion: in.ExpectedVersion, ActionID: in.ActionID, SelectedChoice: in.SelectedChoice, DecisionContextDigest: in.DecisionContextDigest, Payload: payload, Actor: actionRequest.Actor, SessionWorktree: r.Envelope.Worktree}, nil, time.Time{}, r.workflowActionReplayPreflight(ctx, base, digest, scope, grant, in, &result, &resultRejected), func(tx *store.Transaction) error {
 		if retryApproval {
 			failedID, idOK := scope["failed_attempt_id"].(string)
 			expectedEpoch, epochOK := versions["failed_attempt_epoch"].(int64)

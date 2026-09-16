@@ -638,6 +638,7 @@ func queryLauncherDomains(ctx context.Context, q queryer, req LauncherProductReq
 		JOIN workflow_architecture_bindings b ON b.work_id=c.work_id AND b.contract_version=c.contract_version
 		JOIN work_items w ON w.id=c.work_id
 		WHERE c.superseded_by IS NULL AND w.lifecycle NOT IN ('completed','cancelled','superseded') AND b.product_id=?
+		  AND (SELECT count(*) FROM workflow_contracts c2 WHERE c2.work_id=c.work_id AND c2.superseded_by IS NULL)=1
 		GROUP BY b.home_domain_id`, req.Product)
 	if err != nil {
 		return out, wrapFailure(KindUnavailable, "launcher.domains", "cannot read Domain-bound work", true, "retry once the workflow projection is readable", err)

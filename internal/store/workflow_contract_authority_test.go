@@ -66,13 +66,16 @@ func TestDuplicateActiveContractsRecoverWithExactPredecessorSet(t *testing.T) {
 	}
 	db := s.DatabaseForTesting()
 	version := verdictItemVersion(t, s, workID)
-	legacyApproval, err := json.Marshal(map[string]any{
+	legacyApproval, marshalErr := json.Marshal(map[string]any{
 		"work_id": workID, "expected_version": version, "resulting_version": version + 1,
 		"contract_version": 2, "premise": "legacy duplicate approval", "outcome_kind": "check",
 		"outcome_payload":   map[string]any{"kind": "check", "check_ref": "check:duplicate", "immutable_subject_ref": "commit:" + workID, "expected_result": "pass"},
 		"required_evidence": []string{"verification"}, "route_conventions": []string{}, "spec_mandate": []string{},
 		"rigor_class": "prototype_internal", "consequence_class": "internal_sqlite",
 	})
+	if marshalErr != nil {
+		t.Fatal(marshalErr)
+	}
 	if _, err := db.Exec(`INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES(?,?,?,?,?,?,?,?)`,
 		"legacy-duplicate-approval", WorkflowContractApproved, SubjectWorkItem, workID, ownerRef, "2026-09-10T00:00:00Z", 2, legacyApproval); err != nil {
 		t.Fatal(err)
@@ -181,13 +184,16 @@ func TestReplayPreservesLegacyApprovalBeforeSupersession(t *testing.T) {
 	}
 	db := s.DatabaseForTesting()
 	version := verdictItemVersion(t, s, workID)
-	approval, err := json.Marshal(map[string]any{
+	approval, marshalErr := json.Marshal(map[string]any{
 		"work_id": workID, "expected_version": version, "resulting_version": version + 1,
 		"contract_version": 2, "premise": "legacy replacement contract", "outcome_kind": "check",
 		"outcome_payload":   map[string]any{"kind": "check", "check_ref": "check:legacy", "immutable_subject_ref": "commit:" + workID, "expected_result": "pass"},
 		"required_evidence": []string{"verification"}, "route_conventions": []string{}, "spec_mandate": []string{},
 		"rigor_class": "prototype_internal", "consequence_class": "internal_sqlite",
 	})
+	if marshalErr != nil {
+		t.Fatal(marshalErr)
+	}
 	if _, err := db.Exec(`INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES(?,?,?,?,?,?,?,?)`,
 		"legacy-approval", WorkflowContractApproved, SubjectWorkItem, workID, ownerRef, "2026-09-10T00:00:00Z", 2, approval); err != nil {
 		t.Fatal(err)

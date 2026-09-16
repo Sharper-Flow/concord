@@ -9554,6 +9554,166 @@ const GeneratedPayloadSchemaDocument = `{
           "if": {
             "properties": {
               "action_id": {
+                "const": "reject_worker_result"
+              }
+            },
+            "required": [
+              "action_id"
+            ]
+          },
+          "then": {
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "selected_choice"
+                  ]
+                },
+                {
+                  "required": [
+                    "decision_context_digest"
+                  ]
+                }
+              ]
+            },
+            "properties": {
+              "fields": {
+                "additionalProperties": false,
+                "maxProperties": 32,
+                "properties": {
+                  "attempt_epoch": {
+                    "maximum": 2147483647,
+                    "minimum": 1,
+                    "type": "integer"
+                  },
+                  "attempt_id": {
+                    "$ref": "#/$defs/reference",
+                    "maxLength": 128,
+                    "minLength": 2
+                  },
+                  "diagnosis": {
+                    "maxLength": 4096,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "evidence_refs": {
+                    "items": {
+                      "$ref": "#/$defs/reference"
+                    },
+                    "maxItems": 32,
+                    "minItems": 1,
+                    "type": "array",
+                    "uniqueItems": true
+                  },
+                  "predicate_ids": {
+                    "items": {
+                      "$ref": "#/$defs/reference"
+                    },
+                    "maxItems": 8,
+                    "minItems": 1,
+                    "type": "array",
+                    "uniqueItems": true
+                  },
+                  "strategy": {
+                    "maxLength": 4096,
+                    "minLength": 1,
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "attempt_id",
+                  "attempt_epoch",
+                  "diagnosis",
+                  "strategy",
+                  "predicate_ids",
+                  "evidence_refs"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "fields"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "action_id": {
+                "const": "request_correction"
+              }
+            },
+            "required": [
+              "action_id"
+            ]
+          },
+          "then": {
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "selected_choice"
+                  ]
+                },
+                {
+                  "required": [
+                    "decision_context_digest"
+                  ]
+                }
+              ]
+            },
+            "properties": {
+              "fields": {
+                "additionalProperties": false,
+                "maxProperties": 32,
+                "properties": {
+                  "diagnosis": {
+                    "maxLength": 4096,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "evidence_refs": {
+                    "items": {
+                      "$ref": "#/$defs/reference"
+                    },
+                    "maxItems": 32,
+                    "minItems": 1,
+                    "type": "array",
+                    "uniqueItems": true
+                  },
+                  "predicate_ids": {
+                    "items": {
+                      "$ref": "#/$defs/reference"
+                    },
+                    "maxItems": 8,
+                    "minItems": 1,
+                    "type": "array",
+                    "uniqueItems": true
+                  },
+                  "strategy": {
+                    "maxLength": 4096,
+                    "minLength": 1,
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "diagnosis",
+                  "strategy",
+                  "predicate_ids",
+                  "evidence_refs"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "fields"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "action_id": {
                 "const": "resolve_condition"
               }
             },

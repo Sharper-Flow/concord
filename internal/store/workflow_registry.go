@@ -1345,6 +1345,15 @@ func workflowRecoveryActionDefinition(actionID string) (WorkflowActionDefinition
 	}
 }
 
+// BuiltinWorkflowRecoveryActionDefinitions exposes current recovery payloads
+// to the contract projection without adding them to pinned workflow actions.
+func BuiltinWorkflowRecoveryActionDefinitions() []WorkflowActionDefinition {
+	return []WorkflowActionDefinition{
+		workflowCorrectionActionDefinition(),
+		workflowCorrectionRequestActionDefinition(),
+	}
+}
+
 func workflowActionExecutionMode(definition WorkflowDefinition, actionID string) (ActionExecutionMode, bool) {
 	for _, action := range definition.ActionDefinitions {
 		if action.ID != actionID {

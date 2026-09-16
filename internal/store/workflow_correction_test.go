@@ -152,6 +152,13 @@ func TestRejectWorkerResultRecordsCorrectionContext(t *testing.T) {
 	const workID = "issue1013-rejected-worker-result"
 	s, workerRef, owner, attemptID := seedCompletedWorkerAtExecution(t, workID)
 	defer s.Close()
+	ownerRef, err := WorkflowActorRef(owner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class) VALUES(?,1,'rejected worker contract','internal_sqlite','["verification"]','[]','now',?,'[]','[]',1,'prototype_internal'); INSERT INTO workflow_contract_predicates(work_id,contract_version,predicate_id,ordinal,outcome_kind,outcome_payload) VALUES(?,1,'predicate:primary',0,'check','{"kind":"check","check_ref":"check:workflow","immutable_subject_ref":"commit:old","expected_result":"pass"}'); DELETE FROM fold_guard`, workID, ownerRef, workID); err != nil {
+		t.Fatal(err)
+	}
 
 	_, action, err := WorkflowActionDefinitionFor(context.Background(), s, BuiltinWorkflowRegistry(), workID, "reject_worker_result")
 	if err != nil {
@@ -202,6 +209,22 @@ func TestRejectWorkerResultRecordsCorrectionContext(t *testing.T) {
 	}
 	if pin.Correction == nil || pin.Correction.Disposition != "rejected" || pin.Correction.Diagnosis != "the result misses the boundary case" {
 		t.Fatalf("correction pin = %#v, want the recorded rejection context", pin.Correction)
+	}
+	_, correctionAction, err := WorkflowActionDefinitionFor(ctx, s, BuiltinWorkflowRegistry(), workID, "supersede_contract")
+	if err != nil {
+		t.Fatalf("resolve contract correction after rejected result: %v", err)
+	}
+	if correctionAction.ID != "supersede_contract" || correctionAction.Approval != ActionApprovalRequired {
+		t.Fatalf("rejected-result correction action = %#v, want operator-approved supersession", correctionAction)
+	}
+	var correctionIntent bool
+	for _, intent := range pin.NextValidIntents {
+		if intent.ActionID == "supersede_contract" && intent.ExpectedVersion == pin.Version && intent.ReasonCode == "operator_contract_correction" {
+			correctionIntent = true
+		}
+	}
+	if !correctionIntent {
+		t.Fatalf("work pin has no rejected-result correction intent: %#v", pin.NextValidIntents)
 	}
 	if binding, err := WorkflowFailedWorkerRetryBinding(ctx, s, workID); err != nil {
 		t.Fatalf("read retry binding after rejected result: %v", err)
@@ -257,6 +280,9 @@ func TestRejectWorkerResultRecordsCorrectionContext(t *testing.T) {
 		t.Fatal(err)
 	} else if pin.Correction != nil {
 		t.Fatalf("fresh dispatch did not consume correction context: %#v", pin.Correction)
+	}
+	if _, _, err = WorkflowActionDefinitionFor(ctx, s, BuiltinWorkflowRegistry(), workID, "supersede_contract"); err == nil {
+		t.Fatal("contract correction remained available after a later dispatch consumed the rejection")
 	}
 }
 

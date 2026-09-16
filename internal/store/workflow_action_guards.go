@@ -211,7 +211,7 @@ func workflowFailedWorkerAttempt(ctx context.Context, q queryer, workID, current
 // workflowContractCorrectionAvailable reports whether operator-approved
 // contract correction is open on the current step. A human checkpoint carries
 // the route unconditionally. A worker-dispatch step admits correction before
-// dispatch or after the dispatched worker's failure has been recorded. An
+// dispatch, after a worker failure, or after a worker result rejection. An
 // authorized dispatch window counts even before a worker report exists.
 func workflowContractCorrectionAvailable(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, currentStep, subject string) (bool, error) {
 	if !workflowContractCorrectionCheckpoint(definition, currentStep) {
@@ -230,6 +230,13 @@ func workflowContractCorrectionAvailable(ctx context.Context, q queryer, workID 
 	}
 	if contracts != 1 {
 		return false, nil
+	}
+	correction, correctionErr := workflowCorrectionContextForDispatch(ctx, q, workID, currentStep, "")
+	if correctionErr != nil {
+		return false, correctionErr
+	}
+	if correction != nil && correction.Disposition == "rejected" {
+		return true, nil
 	}
 	startSeq, _, started, err := latestWorkflowActionStart(ctx, q, workID, currentStep)
 	if err != nil {

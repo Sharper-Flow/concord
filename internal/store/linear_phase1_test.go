@@ -36,6 +36,65 @@ func seedLinearWorkItem(t *testing.T, s *Store, workID, projectID, title, valueS
 	}
 }
 
+func TestLinearIssueCreateUsesLifecycleStatus(t *testing.T) {
+	t.Parallel()
+	s := openTemp(t)
+	ctx := context.Background()
+	setupLinearProduct(t, s, "create-status-product")
+	setupLinearConnectionResource(t, s, "create-status-product", map[string]any{"linear": map[string]any{
+		"workspace_url": "https://linear.app/example", "team_id": "team-uuid-1", "auth_mode": "personal_api_key",
+		"status_ids": map[string]string{"needed": "state-needed"},
+	}})
+	if _, err := s.SetProductPlanningMode(ctx, "create-status-product", PlanningModeLinear, "pilot", "operator", 2); err != nil {
+		t.Fatal(err)
+	}
+	seedLinearWorkItem(t, s, "create-status-work", "create-status-product-project", "Create title", "Create value")
+
+	op, err := s.EnqueueLinearIssueForWork(ctx, "create-status-work", LinearOpIssueCreate)
+	if err != nil {
+		t.Fatalf("EnqueueLinearIssueForWork() error = %v", err)
+	}
+	var payload linearPayload
+	if err := json.Unmarshal(op.Payload, &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.StatusID != "state-needed" {
+		t.Fatalf("create status id = %q, want state-needed", payload.StatusID)
+	}
+}
+
+func TestLinearIssueCreateRefusesUnmappedLifecycle(t *testing.T) {
+	t.Parallel()
+	s := openTemp(t)
+	ctx := context.Background()
+	setupLinearProduct(t, s, "create-unmapped-product")
+	setupLinearConnectionResource(t, s, "create-unmapped-product", map[string]any{"linear": map[string]any{
+		"workspace_url": "https://linear.app/example", "team_id": "team-uuid-1", "auth_mode": "personal_api_key",
+		"status_ids": map[string]string{"needed": "state-needed"},
+	}})
+	if _, err := s.SetProductPlanningMode(ctx, "create-unmapped-product", PlanningModeLinear, "pilot", "operator", 2); err != nil {
+		t.Fatal(err)
+	}
+	seedLinearWorkItem(t, s, "create-unmapped-work", "create-unmapped-product-project", "Create title", "Create value")
+	if err := ApplyOperation(ctx, s, Operation{Events: []Event{{
+		EventID: "create-unmapped-work-in-progress", Kind: "work.transitioned", SubjectType: SubjectWorkItem, SubjectID: "create-unmapped-work", Actor: "operator", OccurredAt: time.Unix(1, 0).UTC(), PayloadVersion: 1,
+		Payload: json.RawMessage(`{"from":"needed","to":"in_progress","reason":"start execution","expected_version":1,"resulting_version":2}`),
+	}}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "create-unmapped-work"): 1}}); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := s.EnqueueLinearIssueForWork(ctx, "create-unmapped-work", LinearOpIssueCreate); err == nil || !strings.Contains(err.Error(), "no declared Linear status id for lifecycle in_progress") {
+		t.Fatalf("unmapped create error = %v, want typed refusal", err)
+	}
+	var count int
+	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT count(*) FROM linear_outbox WHERE work_id=?`, "create-unmapped-work").Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 0 {
+		t.Fatalf("unmapped create queued %d operations, want 0", count)
+	}
+}
+
 func TestLinearEnqueueForWorkGuards(t *testing.T) {
 	t.Parallel()
 	s := openTemp(t)

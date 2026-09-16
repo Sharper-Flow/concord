@@ -67,8 +67,11 @@ func enableLinearProduct(t *testing.T, dbPath, productID string) {
 		"event_id": "drain-conn-" + productID, "resource_id": "drain-conn-" + productID, "product_id": productID,
 		"display_name": "Linear connection", "class": "saas", "kind": "saas_account", "purpose": "Linear planning connection",
 		"stage_maturity": "prototype", "stage_audience_commitment": "operator_only", "environments": []string{"production"},
-		"metadata_schema_version":  "linear-connection-v1",
-		"metadata":                 map[string]any{"linear": map[string]any{"workspace_url": "https://linear.app/example", "team_id": "68d52710-76d9-4b41-ba45-778511d0e2ed", "project_ids": map[string]string{projectID: "project-uuid-1"}, "auth_mode": "personal_api_key", "status_ids": map[string]string{"cancelled": "state-cancelled", "completed": "state-completed", "superseded": "state-superseded"}}},
+		"metadata_schema_version": "linear-connection-v1",
+		"metadata": map[string]any{"linear": map[string]any{
+			"workspace_url": "https://linear.app/example", "team_id": "68d52710-76d9-4b41-ba45-778511d0e2ed", "project_ids": map[string]string{projectID: "project-uuid-1"}, "auth_mode": "personal_api_key",
+			"status_ids": map[string]string{"needed": "state-needed", "in_progress": "state-in-progress", "cancelled": "state-cancelled", "completed": "state-completed", "superseded": "state-superseded"},
+		}},
 		"expected_product_version": 3,
 	})
 }

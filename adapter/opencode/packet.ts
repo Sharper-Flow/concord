@@ -1,6 +1,7 @@
 import type { ToolContext } from "@opencode-ai/plugin"
 import { validateAgentLanePacket, type AgentLanePacket, type AgentLanePacketCorrection } from "./dispatch"
 import { agentLanePacketSchema, agentLaneReportConstraints, agentLanes, type AgentLane } from "./generated-agent-lanes"
+import { laneStepDispatchKinds } from "./generated-lane-step-dispatch"
 
 // The packet bounds are read off the generated contract rather than restated,
 // so a contract move cannot leave the builder enforcing a stale limit.
@@ -120,6 +121,10 @@ function projectCorrectionContext(value: unknown): AgentLanePacketCorrection | u
   return { disposition, attempt_count: attemptCount, attempt_limit: 3, escalated, diagnosis, strategy, predicate_ids: predicateIDs, evidence_refs: evidenceRefs }
 }
 
+function isReadOnlyCapabilityClass(capabilityClass: AgentLane["capability_class"]): boolean {
+  return laneStepDispatchKinds[capabilityClass].some((kind) => kind === "internal_sqlite" || kind === "cross_authority")
+}
+
 // readOperation refuses anything that is not an ok core read with an object
 // result. A degraded, pending, partial, or error-enveloped response carries no
 // approved state, so projecting from it would produce a packet that asserts
@@ -149,13 +154,13 @@ async function readOperation(
 // from recorded state, which is the point — a dispatched worker's goal must not
 // be retyped prose.
 //
-// The pinned contract is the mandate's authority (#903): its premise is the
-// approved objective the worker must deliver, and its version plus the work
-// item version bind the packet to the exact recorded state it projected. A
-// packet built from a contract with no objective would let baseline-passing
-// predicates masquerade as delivery, so a contentless premise is a typed
-// refusal, never an omitted field. Numbered constraints carry the complete
-// serialized mandate, with boundaries that preserve Unicode characters.
+// The pinned contract is the mandate's authority whenever one is present
+// (#903): its premise is the approved objective the worker must deliver, and
+// its version plus the work item version bind the packet to the exact recorded
+// state it projected. Read-only classes without a contract use the recorded
+// work question and narrative at a joined step instead. Numbered constraints
+// carry the complete serialized delivery mandate, with boundaries that preserve
+// Unicode characters.
 export async function buildAgentLanePacket(request: AgentLanePacketRequest, deps: AgentLanePacketDeps): Promise<AgentLanePacketBuild> {
   const lane: AgentLane | undefined = agentLanes.find((candidate) => candidate.id === request.laneId)
   if (!lane) {
@@ -169,6 +174,7 @@ export async function buildAgentLanePacket(request: AgentLanePacketRequest, deps
     return failure("missing_work_item", `concord_work_browse.scope returned no work item for ${request.workId}`)
   }
   const narrative = typeof work.narrative === "string" ? work.narrative : ""
+  const title = typeof work.title === "string" ? work.title : ""
   const workVersion = typeof work.version === "number" ? work.version : null
 
   const continuity = await readOperation("concord_work_trace", "continuity", { work_id: request.workId, page: { cursor: null, limit: 1 } }, deps)
@@ -177,29 +183,51 @@ export async function buildAgentLanePacket(request: AgentLanePacketRequest, deps
   if (!isRecord(pinned)) {
     return failure("transport_failure", `concord_work_trace.continuity returned no pinned continuity for ${request.workId}`)
   }
+  const workflowStep = pinned.workflow_step
+  if (typeof workflowStep !== "string") {
+    return failure("transport_failure", `work ${request.workId} pinned continuity did not carry workflow_step`)
+  }
   const contract = pinned.contract
-  if (!isRecord(contract)) {
+  const readOnly = isReadOnlyCapabilityClass(lane.capability_class)
+  let outcomePredicates: unknown[] = []
+  let task: string
+  if (isRecord(contract)) {
+    const premise = typeof contract.premise === "string" ? contract.premise : ""
+    const contractVersion = typeof contract.version === "number" ? contract.version : null
+    outcomePredicates = contract.outcome_predicates as unknown[]
+    if (!Array.isArray(outcomePredicates) || outcomePredicates.length === 0) {
+      return failure("transport_failure", `work ${request.workId} pinned contract did not carry typed outcome_predicates`)
+    }
+    if (premise.trim().length === 0) {
+      return failure("mandate_unapproved", `work ${request.workId} pinned contract carries no approved objective, so there is no recorded change to dispatch against`)
+    }
+    if (workVersion === null || contractVersion === null) {
+      return failure("transport_failure", `work ${request.workId} pinned state did not carry the typed work and contract versions the packet must bind to`)
+    }
+    task = [
+      `Deliver the approved objective for work ${request.workId}, at workflow step "${workflowStep}" (work v${workVersion}, contract v${contractVersion}).`,
+      "",
+      "Approved objective:",
+      premise,
+    ].join("\n")
+  } else if (readOnly) {
+    if (workVersion === null) {
+      return failure("transport_failure", `work ${request.workId} pinned state did not carry the typed work version the packet must bind to`)
+    }
+    if (title.trim().length === 0 && narrative.trim().length === 0) {
+      return failure("mandate_unapproved", `work ${request.workId} carries no recorded question or narrative for the read-only dispatch`)
+    }
+    const question = title.trim().length > 0 ? title : narrative
+    task = [
+      `Answer the recorded question for work ${request.workId}, at workflow step "${workflowStep}" (work v${workVersion}).`,
+      "",
+      "Step question:",
+      question,
+      ...(narrative.trim().length > 0 && narrative !== question ? ["", "Work narrative:", narrative] : []),
+    ].join("\n")
+  } else {
     return failure("mandate_unapproved", `work ${request.workId} has no pinned workflow contract, so no required end-state has been approved to dispatch against`)
   }
-  const premise = typeof contract.premise === "string" ? contract.premise : ""
-  const contractVersion = typeof contract.version === "number" ? contract.version : null
-  const outcomePredicates = contract.outcome_predicates
-  const workflowStep = pinned.workflow_step
-  if (!Array.isArray(outcomePredicates) || outcomePredicates.length === 0 || typeof workflowStep !== "string") {
-    return failure("transport_failure", `work ${request.workId} pinned contract did not carry typed outcome_predicates and workflow_step`)
-  }
-  if (premise.trim().length === 0) {
-    return failure("mandate_unapproved", `work ${request.workId} pinned contract carries no approved objective, so there is no recorded change to dispatch against`)
-  }
-  if (workVersion === null || contractVersion === null) {
-    return failure("transport_failure", `work ${request.workId} pinned state did not carry the typed work and contract versions the packet must bind to`)
-  }
-  const task = [
-    `Deliver the approved objective for work ${request.workId}, at workflow step "${workflowStep}" (work v${workVersion}, contract v${contractVersion}).`,
-    "",
-    "Approved objective:",
-    premise,
-  ].join("\n")
   if (task.length > TASK_MAX_LENGTH) {
     return failure("projection_overflow", `the approved objective does not fit inputs.task: ${task.length} characters against a limit of ${TASK_MAX_LENGTH}`, { field: "task", limit: TASK_MAX_LENGTH, actual: task.length })
   }
@@ -219,7 +247,7 @@ export async function buildAgentLanePacket(request: AgentLanePacketRequest, deps
   const partLimit = CONSTRAINT_MAX_LENGTH - `${mandateLabel}${CONSTRAINTS_MAX_ITEMS}/${CONSTRAINTS_MAX_ITEMS}: `.length
   const mandateParts: string[] = []
   let part = ""
-  for (const character of JSON.stringify(outcomePredicates)) {
+  for (const character of outcomePredicates.length > 0 ? JSON.stringify(outcomePredicates) : "") {
     if (part.length + character.length > partLimit) {
       mandateParts.push(part)
       part = ""

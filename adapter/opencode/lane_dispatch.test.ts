@@ -32,7 +32,7 @@ mock.module("@opencode-ai/plugin", () => ({ tool: fakeTool }))
 const { agentLanes } = await import("./generated-agent-lanes")
 const { validateAgentLanePacket } = await import("./dispatch")
 import { DispatchWindows, TASK_TOOL_ID } from "./dispatch-window"
-import type { DispatchRunner } from "./dispatch"
+import type { AgentLanePacket, DispatchRunner } from "./dispatch"
 import type { CredentialStore } from "./credentials"
 const { dispatchAttemptID, dispatchLaneWorker } = await import("./lane_dispatch")
 const { laneDispatchRequest } = await import("./concord")
@@ -205,6 +205,34 @@ test("happy path: continuity → packet → core ok → spawn with stubbed runne
   // The host runs the worker, so dispatch starts no process and records no
   // evidence. Both belong to completion (CD-0102 D5).
   expect(evidenceCalls).toBe(0)
+  expect(windows.has("session-1")).toBe(true)
+})
+
+test("pre-contract research dispatch builds a question mandate before core authorization", async () => {
+  const research = agentLanes.find((candidate) => candidate.id === "research")!
+  const workflowInput: { value?: Record<string, unknown> } = {}
+  const invoke = async (toolName: string, args: { operation: string; input?: Record<string, unknown> }): Promise<unknown> => {
+    const key = `${toolName}.${args.operation}`
+    if (key === "concord_work_trace.continuity") return continuityEnvelope({ pinned: { contract: null, workflow_step: "reproduce" } })
+    if (key === "concord_work_browse.scope") return scopeEnvelope()
+    if (key === "concord_work_transition.workflow_action") {
+      workflowInput.value = args.input
+      return coreOkEnvelope()
+    }
+    throw new Error(`unscripted ${key}`)
+  }
+  const windows = new DispatchWindows()
+  const result = await dispatchLaneWorker(
+    { work_id: WORK_ID, expected_version: 3, idempotency_key: "pre-contract-research", lane_id: research.id },
+    { context: contextFor(), invoke: invoke as any, credentials: testCredentials, windows },
+  )
+  expect(result.outcome).toBe("ok")
+  const fields = workflowInput.value!.fields as Record<string, unknown>
+  const packet = fields.worker_packet as AgentLanePacket
+  expect(packet.lane_id).toBe(research.id)
+  expect(packet.inputs.task).toContain(NARRATIVE)
+  expect(packet.inputs.task).toContain("Step question:")
+  expect(packet.inputs.constraints!.some((entry) => entry.startsWith("Approved end-state mandate"))).toBe(false)
   expect(windows.has("session-1")).toBe(true)
 })
 

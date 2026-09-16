@@ -198,6 +198,38 @@ test("the task carries the approved objective and binds to the work and contract
   expect(task).toContain(`(work v1, contract v1)`)
 })
 
+test("a read-only lane uses the recorded question and narrative before contract approval", async () => {
+  const built = await build(
+    { ...defaultScript(), "concord_work_trace.continuity": continuityEnvelope(null) },
+    { laneId: "research", stepId: "investigate" },
+  )
+  expect(built.failure, JSON.stringify(built.failure)).toBeUndefined()
+  const packet = built.packet!
+  expect(validateAgentLanePacket(packet)).toBe(true)
+  expect(packet.inputs.task).toContain("Step question:")
+  expect(packet.inputs.task).toContain("Project dispatch inputs from durable state")
+  expect(packet.inputs.task).toContain("Work narrative:")
+  expect(packet.inputs.task).toContain(NARRATIVE)
+  expect(packet.inputs.task).toContain(`at workflow step "${WORKFLOW_STEP}"`)
+  expect(packet.inputs.task).not.toContain("Approved objective:")
+  expect(packet.inputs.constraints!.some((entry) => entry.startsWith("Approved end-state mandate"))).toBe(false)
+})
+
+test("a review lane keeps the pinned contract mandate after read-only classification", async () => {
+  const contract = pinnedContract()
+  const built = await build(
+    { ...defaultScript(), "concord_work_trace.continuity": continuityEnvelope(contract) },
+    { laneId: "review", stepId: "review" },
+  )
+  expect(built.failure, JSON.stringify(built.failure)).toBeUndefined()
+  const packet = built.packet!
+  expect(validateAgentLanePacket(packet)).toBe(true)
+  expect(packet.inputs.task).toContain("Approved objective:")
+  expect(packet.inputs.task).toContain(contract.premise)
+  expect(packet.inputs.task).toContain("(work v1, contract v1)")
+  expect(JSON.parse(mandateParts(packet).join(""))).toEqual(contract.outcome_predicates)
+})
+
 test("the context carries the pinned design before the work narrative", async () => {
   const built = await build({ ...defaultScript(), "concord_work_trace.continuity": continuityEnvelope(pinnedContract(), DESIGN_RECORD) })
   expect(built.failure).toBeUndefined()

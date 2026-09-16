@@ -94,11 +94,12 @@ type Issue struct {
 	UpdatedAt  time.Time `json:"updatedAt"`
 }
 
-// ResolvedIssue is one fetched issue together with the team that owns it, so
-// an adoption can verify the issue belongs to the Product's configured team.
+// ResolvedIssue is one fetched issue together with its owning team and state,
+// so callers can verify its identity, ownership, and liveness.
 type ResolvedIssue struct {
 	Issue
-	TeamID string
+	TeamID    string
+	StateType string
 }
 
 // Client talks to one Linear workspace over GraphQL with Bearer auth.
@@ -181,25 +182,28 @@ func (c *Client) UpdateIssue(ctx context.Context, remoteUUID string, input Updat
 	return payload.IssueUpdate.Issue, nil
 }
 
-// GetIssue fetches one existing issue by its remote UUID. Linear answers an
-// unknown issue with a GraphQL error, which maps to the permanent
+// GetIssue fetches one existing issue by its UUID or human identifier. Linear
+// answers an unknown issue with a GraphQL error, which maps to the permanent
 // KindGraphqlError failure.
 func (c *Client) GetIssue(ctx context.Context, remoteUUID string) (ResolvedIssue, error) {
 	var payload struct {
 		Issue struct {
 			Issue
+			State struct {
+				Type string `json:"type"`
+			} `json:"state"`
 			Team struct {
 				ID string `json:"id"`
 			} `json:"team"`
 		} `json:"issue"`
 	}
-	if err := c.call(ctx, "query($id: String!) { issue(id: $id) { id identifier url updatedAt team { id } } }", map[string]any{"id": remoteUUID}, &payload); err != nil {
+	if err := c.call(ctx, "query($id: String!) { issue(id: $id) { id identifier url updatedAt state { type } team { id } } }", map[string]any{"id": remoteUUID}, &payload); err != nil {
 		return ResolvedIssue{}, err
 	}
 	if payload.Issue.ID == "" {
 		return ResolvedIssue{}, &Failure{Kind: KindGraphqlError, Detail: "issue query returned no issue"}
 	}
-	return ResolvedIssue{Issue: payload.Issue.Issue, TeamID: payload.Issue.Team.ID}, nil
+	return ResolvedIssue{Issue: payload.Issue.Issue, TeamID: payload.Issue.Team.ID, StateType: payload.Issue.State.Type}, nil
 }
 
 func (c *Client) call(ctx context.Context, query string, variables map[string]any, into any) error {

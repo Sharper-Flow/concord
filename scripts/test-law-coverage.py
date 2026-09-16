@@ -196,6 +196,52 @@ def test_state_obligations_are_exclusive_in_both_directions() -> None:
     assert findings
 
 
+def test_linear_issue_identifier_is_a_valid_outstanding_pointer() -> None:
+    findings: list[str] = []
+    guard.check_state_obligations(
+        {"state": "outstanding", "issue": "CON-34"}, "r", findings
+    )
+    assert not findings
+
+
+def test_outstanding_linear_pointer_must_be_live() -> None:
+    """A Linear pointer dies with its issue exactly as a GitHub number does."""
+    shard = ROOT / "docs/knowledge/coverage/CD-0006.json"
+    snapshot = ROOT / "docs/issue-state.v1.json"
+    originals = (
+        shard.read_text(encoding="utf-8"),
+        snapshot.read_text(encoding="utf-8"),
+    )
+    try:
+        snapshot_document = json.loads(originals[1])
+        snapshot_document["issues"]["CON-901"] = "closed"
+        snapshot.write_text(json.dumps(snapshot_document, indent=2) + "\n", encoding="utf-8")
+
+        def run_with_issue(identifier: str) -> subprocess.CompletedProcess:
+            record = json.loads(shard.read_text(encoding="utf-8"))
+            record["state"] = "outstanding"
+            record["issue"] = identifier
+            record.pop("evidence", None)
+            record.pop("reason", None)
+            shard.write_text(json.dumps(record, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+            return subprocess.run(
+                [sys.executable, str(ROOT / "scripts/check-law-coverage.py")],
+                capture_output=True,
+                text=True,
+            )
+
+        closed = run_with_issue("CON-901")
+        assert closed.returncode == 1, closed.stdout
+        assert "outstanding issue CON-901 is closed" in closed.stdout
+
+        absent = run_with_issue("CON-902")
+        assert absent.returncode == 1, absent.stdout
+        assert "absent from the issue-state snapshot" in absent.stdout
+    finally:
+        for target, content in zip((shard, snapshot), originals):
+            target.write_text(content, encoding="utf-8")
+
+
 def test_outstanding_issue_pointer_must_be_live() -> None:
     """An outstanding record dies with its issue: closed and absent pointers fail (issue #324)."""
     shard = ROOT / "docs/knowledge/coverage/CD-0006.json"

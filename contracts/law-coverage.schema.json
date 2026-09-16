@@ -98,9 +98,17 @@
             }
           },
           "issue": {
-            "description": "Public issue tracking an outstanding record. Required when outstanding; forbidden otherwise.",
-            "type": "integer",
-            "minimum": 1
+            "description": "Tracking issue number or Linear issue identifier for an outstanding record. Required when outstanding; forbidden otherwise.",
+            "oneOf": [
+              {
+                "type": "integer",
+                "minimum": 1
+              },
+              {
+                "type": "string",
+                "pattern": "^[A-Z][A-Z0-9]*-[1-9][0-9]*$"
+              }
+            ]
           },
           "reason": {
             "description": "Why a record is unmeasured or out of scope. Required for those states; forbidden otherwise.",

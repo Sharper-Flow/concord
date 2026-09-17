@@ -138,6 +138,7 @@ PROJECT_LINK_PENDING_NAME = "project-link-pending.json"
 MAX_PROJECT_LINKS = 1024
 CREDENTIAL_UNIT_NAME = "concord-keyring-unlock.service"
 CREDENTIAL_DROPIN_NAME = "concord-login.conf"
+CREDENTIAL_SERVICE_NAME = "org.freedesktop.secrets.service"
 SECRET_SERVICE_DESTINATION = "org.freedesktop.secrets"
 SECRET_SERVICE_PATH = "/org/freedesktop/secrets"
 SECRET_SERVICE_INTERFACE = "org.freedesktop.Secret.Service"
@@ -167,6 +168,7 @@ class Paths:
     systemd_user_dir: Path
     credential_unit: Path
     credential_dropin: Path
+    credential_service: Path
     launcher: Path
     stable_root: Path
 
@@ -223,6 +225,7 @@ def paths_for(root: Path | None) -> Paths:
             / "gnome-keyring-daemon.service.d"
             / CREDENTIAL_DROPIN_NAME
         ),
+        credential_service=data_home / "dbus-1" / "services" / CREDENTIAL_SERVICE_NAME,
         launcher=bin_dir / "concord",
         stable_root=data_home / "concord" / STABLE_ROOT_NAME,
     )
@@ -1051,6 +1054,16 @@ StandardInputData=Cg==
 """
 
 
+def credential_service_text(daemon: str) -> str:
+    if any(character.isspace() for character in daemon):
+        raise InstallerError(f"gnome-keyring-daemon path contains whitespace: {daemon}")
+    return f'''[D-BUS Service]
+Name={SECRET_SERVICE_DESTINATION}
+SystemdService=gnome-keyring-daemon.service
+Exec=/bin/sh -c 'printf "\\n" | {daemon} --unlock --foreground --components=pkcs11,secrets --control-directory=$XDG_RUNTIME_DIR/keyring'
+'''
+
+
 def legacy_credential_unit_text(daemon: str) -> str:
     if any(character.isspace() for character in daemon):
         raise InstallerError(f"gnome-keyring-daemon path contains whitespace: {daemon}")
@@ -1179,10 +1192,21 @@ def legacy_credential_unit_owned(paths: Paths, daemon: str) -> bool:
 
 
 def rollback_created_credential_dropin(paths: Paths, systemctl: str) -> None:
-    paths.credential_dropin.unlink()
-    fsync_directory(paths.credential_dropin.parent)
+    if paths.credential_dropin.exists() or paths.credential_dropin.is_symlink():
+        paths.credential_dropin.unlink()
+        fsync_directory(paths.credential_dropin.parent)
     run_checked([systemctl, "--user", "daemon-reload"])
     run_checked([systemctl, "--user", "restart", "gnome-keyring-daemon.service"])
+
+
+def rollback_created_credential_files(
+    paths: Paths, systemctl: str, created_dropin: bool, created_service: bool
+) -> None:
+    if created_service and (paths.credential_service.exists() or paths.credential_service.is_symlink()):
+        paths.credential_service.unlink()
+        fsync_directory(paths.credential_service.parent)
+    if created_dropin:
+        rollback_created_credential_dropin(paths, systemctl)
 
 
 def ensure_secret_service_ready(paths: Paths, old_manifest: dict[str, object] | None) -> bool:
@@ -1223,33 +1247,51 @@ def ensure_secret_service_ready(paths: Paths, old_manifest: dict[str, object] | 
     if keyrings.exists():
         verify_credential_permissions(keyrings)
     dropin_text = credential_dropin_text(daemon)
+    service_text = credential_service_text(daemon)
     created_dropin = False
-    if paths.credential_dropin.exists():
-        if (
-            not paths.credential_dropin.is_file()
-            or paths.credential_dropin.read_text(encoding="utf-8") != dropin_text
-        ):
-            raise InstallerError(
-                f"refusing to overwrite user-authored credential drop-in {paths.credential_dropin}"
-            )
-    else:
-        write_atomic(paths.credential_dropin, dropin_text.encode("utf-8"), 0o644)
-        created_dropin = True
+    created_service = False
+    try:
+        if paths.credential_dropin.exists() or paths.credential_dropin.is_symlink():
+            if (
+                not paths.credential_dropin.is_file()
+                or paths.credential_dropin.read_text(encoding="utf-8") != dropin_text
+            ):
+                raise InstallerError(
+                    f"refusing to overwrite user-authored credential drop-in {paths.credential_dropin}"
+                )
+        else:
+            created_dropin = True
+            write_atomic(paths.credential_dropin, dropin_text.encode("utf-8"), 0o644)
+        if paths.credential_service.exists() or paths.credential_service.is_symlink():
+            if (
+                not paths.credential_service.is_file()
+                or paths.credential_service.read_text(encoding="utf-8") != service_text
+            ):
+                raise InstallerError(
+                    f"refusing to overwrite user-authored Secret Service activation file {paths.credential_service}"
+                )
+        else:
+            created_service = True
+            write_atomic(paths.credential_service, service_text.encode("utf-8"), 0o644)
 
-    remove_legacy_credential_unit(paths, systemctl)
-    run_checked([systemctl, "--user", "daemon-reload"])
-    if login is None:
-        stop_unmanaged_secret_service(systemctl, daemon)
-    else:
-        run_checked([systemctl, "--user", "restart", "gnome-keyring-daemon.service"])
-    login = secret_service_alias("login")
-    if login is None or secret_service_collection_locked(login):
-        if created_dropin:
-            rollback_created_credential_dropin(paths, systemctl)
-        raise InstallerError(
-            "Secret Service login collection remained locked after the gnome-keyring-daemon restart; "
-            "the unlock drop-in did not unlock it. Check the user service and re-run install or repair"
-        )
+        remove_legacy_credential_unit(paths, systemctl)
+        run_checked([systemctl, "--user", "daemon-reload"])
+        if login is None:
+            stop_unmanaged_secret_service(systemctl, daemon)
+        else:
+            run_checked([systemctl, "--user", "restart", "gnome-keyring-daemon.service"])
+        login = secret_service_alias("login")
+        if login is None or secret_service_collection_locked(login):
+            raise InstallerError(
+                "Secret Service login collection remained locked after the gnome-keyring-daemon restart; "
+                "the unlock drop-in did not unlock it. Check the user service and re-run install or repair"
+            )
+    except Exception:
+        try:
+            rollback_created_credential_files(paths, systemctl, created_dropin, created_service)
+        except Exception:
+            pass
+        raise
     return True
 
 
@@ -1269,6 +1311,7 @@ def preflight(paths: Paths, version: str, old_manifest: dict[str, object] | None
         paths.agents_dir,
         paths.systemd_user_dir,
         paths.credential_dropin.parent,
+        paths.credential_service.parent,
         paths.bin_dir,
         paths.config_file.parent,
     ):
@@ -1322,6 +1365,14 @@ def preflight(paths: Paths, version: str, old_manifest: dict[str, object] | None
             or paths.credential_dropin.read_text(encoding="utf-8") != expected_dropin
         ):
             failures.append(f"refusing to overwrite user-authored credential drop-in {paths.credential_dropin}")
+    if daemon and (paths.credential_service.exists() or paths.credential_service.is_symlink()):
+        expected_service = credential_service_text(daemon)
+        if (
+            paths.credential_service.is_symlink()
+            or not paths.credential_service.is_file()
+            or paths.credential_service.read_text(encoding="utf-8") != expected_service
+        ):
+            failures.append(f"refusing to overwrite user-authored Secret Service activation file {paths.credential_service}")
     adapter_records = managed_adapter_records(old_manifest)
     manifest_note = unmanaged_manifest_note(old_manifest, paths)
     for name in ADAPTER_FILES:
@@ -2496,12 +2547,13 @@ def install(args: argparse.Namespace) -> int:
         skill_path = stable_skill_path(paths)
         if config_plan.changed or manifest.get("skill_path") != skill_path:
             raise InstallerError("existing installation registration is incomplete; refusing an unsafe repair")
-        ensure_secret_service_ready(paths, manifest)
+        credential_directory_owned = ensure_secret_service_ready(paths, manifest)
         # An unchanged install still retries the release cleanup a previous
         # install skipped: a held release stays a candidate, so the removal
         # is retried at the next install (CD-0111 D2). The manifest keeps the
         # entries whose directory survives.
         retained = retained_release_records(manifest)
+        manifest_changed = False
         if retained:
             held = observe_held_releases(paths, version)
             survivors = {}
@@ -2518,7 +2570,13 @@ def install(args: argparse.Namespace) -> int:
                     raise InstallerError(f"transaction conflict at retained release cleanup target {root}")
                 shutil.rmtree(root)
                 fsync_directory(paths.data_root)
-            manifest["retained_releases"] = survivors
+            if survivors != retained:
+                manifest["retained_releases"] = survivors
+                manifest_changed = True
+        if credential_directory_owned and manifest.get("credential_directory") != str(paths.data_home / "keyrings"):
+            manifest["credential_directory"] = str(paths.data_home / "keyrings")
+            manifest_changed = True
+        if manifest_changed:
             manifest_bytes = json.dumps(manifest, indent=2, sort_keys=True) + "\n"
             write_atomic(paths.data_root / MANIFEST_NAME, manifest_bytes.encode("utf-8"))
         linked_worktrees = link_worktrees_root(paths)

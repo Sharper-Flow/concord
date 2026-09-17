@@ -272,6 +272,12 @@ esac''',
         self.assertIn("--unlock --foreground --components=pkcs11,secrets", unit_text)
         self.assertIn("StandardInputData=Cg==", unit_text)
         self.assertNotIn("concord-keyring-unlock.service", unit_text)
+        service = self.root / "data" / "dbus-1" / "services" / installer.CREDENTIAL_SERVICE_NAME
+        self.assertTrue(service.is_file())
+        service_text = service.read_text(encoding="utf-8")
+        self.assertIn("Name=org.freedesktop.secrets", service_text)
+        self.assertIn("SystemdService=gnome-keyring-daemon.service", service_text)
+        self.assertIn("--unlock --foreground --components=pkcs11,secrets", service_text)
         self.assertNotIn("base64:", combined)
         self.assertNotIn("private_key", combined)
         self.assertEqual(state.read_text(encoding="utf-8").strip(), "ready")
@@ -313,6 +319,41 @@ esac''',
         refusal_commands = commands[len(before_refusal_commands) :]
         self.assertEqual(refusal_commands.count("--user daemon-reload"), 2)
         self.assertEqual(refusal_commands.count("--user restart gnome-keyring-daemon.service"), 2)
+
+    def test_setup_failure_rolls_back_a_new_dropin(self) -> None:
+        self.make_release("v1.0.0")
+        state, command_log, keyrings, dropin = self.configure_managed_credential_fixture()
+        installed = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
+        self.assertEqual(installed.returncode, 0, installed.stderr)
+        dropin.unlink()
+        state.write_text("created\n", encoding="utf-8")
+        self.write_command("systemctl", 'case "$*" in *"daemon-reload"*) exit 1 ;; esac')
+
+        refused = self.run_installer("repair", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
+
+        self.assertNotEqual(refused.returncode, 0)
+        self.assertFalse(dropin.exists())
+
+    def test_same_version_install_records_credential_ownership_during_migration(self) -> None:
+        self.make_release("v1.0.0")
+        _state, _command_log, keyrings, _dropin = self.configure_managed_credential_fixture()
+        installed = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
+        self.assertEqual(installed.returncode, 0, installed.stderr)
+
+        manifest_path = self.root / "data" / "concord" / installer.MANIFEST_NAME
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        del manifest["credential_directory"]
+        manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+        legacy_unit = self.root / "config" / "systemd" / "user" / installer.CREDENTIAL_UNIT_NAME
+        legacy_unit.write_text(
+            installer.legacy_credential_unit_text(str(self.commands / "gnome-keyring-daemon")), encoding="utf-8"
+        )
+
+        migrated = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
+
+        self.assertEqual(migrated.returncode, 0, migrated.stderr)
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        self.assertEqual(manifest["credential_directory"], str(keyrings))
 
     def test_repair_keeps_a_preexisting_credential_dropin_when_unlock_fails(self) -> None:
         self.make_release("v1.0.0")

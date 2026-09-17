@@ -45,4 +45,9 @@ Report contract constraints:
 
 A successful report must carry at least one entry for every obligation below, and may name no other obligation.
 
+One obligation may span several entries. Where your content for an obligation
+exceeds the 512-character `detail` cap, continue it in further entries naming
+that same obligation, up to 64 entries. Split the content. Do not drop it, and
+do not truncate a citation, a command, or an error string to fit.
+
 Evidence obligations: `contract_findings`, `severity`, `verification_commands`.

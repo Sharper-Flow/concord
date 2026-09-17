@@ -163,6 +163,8 @@ with `status` `failed`, and name the missing packet fields in the evidence.
 def agent_projection(lane: dict, report_schema: dict) -> str:
     agent_name = f"concord-{lane['id']}"
     evidence = ", ".join(f"`{item}`" for item in lane["evidence_obligations"])
+    detail_max = report_schema["$defs"]["evidence_entry"]["properties"]["detail"]["maxLength"]
+    evidence_max = report_schema["properties"]["evidence"]["maxItems"]
     report_properties = report_schema["properties"]
     report_version = json.dumps(report_properties["schema_version"]["const"], ensure_ascii=False)
     report_statuses = ", ".join(f"`{item}`" for item in report_properties["status"]["enum"])
@@ -199,6 +201,11 @@ Report contract constraints:
 {report_constraints}
 
 A successful report must carry at least one entry for every obligation below, and may name no other obligation.
+
+One obligation may span several entries. Where your content for an obligation
+exceeds the {detail_max}-character `detail` cap, continue it in further entries naming
+that same obligation, up to {evidence_max} entries. Split the content. Do not drop it, and
+do not truncate a citation, a command, or an error string to fit.
 
 Evidence obligations: {evidence}.
 """

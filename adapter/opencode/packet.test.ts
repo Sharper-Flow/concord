@@ -360,6 +360,37 @@ test("every registered lane projects its own obligation set and nothing else", a
   }
 })
 
+// Two research attempts failed agent-lane-report.v1 on an oversized detail with
+// the cap already in the packet. Repeating the cap is not the repair: a lane
+// that reads one entry per obligation compresses the obligation into that entry
+// whatever the cap says. The packet must carry the remedy.
+test("every lane packet states that one obligation may span several entries", async () => {
+  const detailMax = agentLaneReportSchema.$defs.evidence_entry.properties.detail.maxLength
+  const evidenceMax = agentLaneReportSchema.properties.evidence.maxItems
+  for (const lane of agentLanes) {
+    const built = await build(defaultScript(), { laneId: lane.id })
+    expect(built.failure, `${lane.id}: ${JSON.stringify(built.failure)}`).toBeUndefined()
+    const constraints = built.packet!.inputs.constraints!
+    const remedy = constraints.filter((entry) => entry.startsWith("One obligation may span several entries"))
+    expect(remedy, `${lane.id} omitted the multi-entry remedy`).toHaveLength(1)
+    expect(remedy[0]!).toContain(`${detailMax}-character`)
+    expect(remedy[0]!).toContain(`up to ${evidenceMax} entries`)
+    // The remedy is worthless if it does not survive the per-constraint cap.
+    expect(remedy[0]!.length).toBeLessThanOrEqual(512)
+  }
+})
+
+// The installed lane definition is the other surface a worker reads. A remedy
+// present in only one of the two leaves the other telling the lane to compress.
+test("every installed lane definition states the multi-entry remedy", async () => {
+  const detailMax = agentLaneReportSchema.$defs.evidence_entry.properties.detail.maxLength
+  for (const lane of agentLanes) {
+    const agent = await Bun.file(`${import.meta.dir}/../../.opencode/agents/concord-${lane.id}.md`).text()
+    expect(agent, `${lane.id} omitted the multi-entry remedy`).toContain("One obligation may span several entries")
+    expect(agent).toContain(`${detailMax}-character`)
+  }
+})
+
 test("an unregistered lane is a typed failure", async () => {
   const built = await build(defaultScript(), { laneId: "summarize" })
   expect(built.packet).toBeUndefined()
@@ -460,7 +491,12 @@ test("the task bound rejects only the next character", async () => {
 test("the combined mandate and report guidance bound admits exactly 64 entries", async () => {
   const contract = pinnedContract("")
   const partLimit = 512 - "Approved end-state mandate (join parts in order) 64/64: ".length
-  const reportCount = agentLanes.find((lane) => lane.id === "implement")!.evidence_obligations.length + agentLaneReportConstraints.implement.length
+  // Count what the builder emits beside the mandate rather than naming the
+  // categories. Adding a category to the builder must move this bound, and a
+  // hand-listed count leaves the new constraint outside the budget instead.
+  const probe = await build(defaultScript())
+  expect(probe.failure).toBeUndefined()
+  const reportCount = probe.packet!.inputs.constraints!.filter((entry) => !entry.startsWith("Approved end-state mandate ")).length
   const payloadLength = (64 - reportCount) * partLimit - JSON.stringify(contract.outcome_predicates).length
   contract.outcome_predicates[0].outcome_payload = "p".repeat(payloadLength)
   const exact = await build({ ...defaultScript(), "concord_work_trace.continuity": continuityEnvelope(contract) })

@@ -1,6 +1,6 @@
 import type { ToolContext } from "@opencode-ai/plugin"
 import { validateAgentLanePacket, type AgentLanePacket, type AgentLanePacketCorrection } from "./dispatch"
-import { agentLanePacketSchema, agentLaneReportConstraints, agentLanes, type AgentLane } from "./generated-agent-lanes"
+import { agentLanePacketSchema, agentLaneReportConstraints, agentLaneReportSchema, agentLanes, type AgentLane } from "./generated-agent-lanes"
 import { laneStepDispatchKinds } from "./generated-lane-step-dispatch"
 
 // The packet bounds are read off the generated contract rather than restated,
@@ -10,6 +10,8 @@ const TASK_MAX_LENGTH: number = INPUT_BOUNDS.task.maxLength
 const CONTEXT_MAX_LENGTH: number = INPUT_BOUNDS.context.maxLength
 const CONSTRAINT_MAX_LENGTH: number = INPUT_BOUNDS.constraints.items.maxLength
 const CONSTRAINTS_MAX_ITEMS: number = INPUT_BOUNDS.constraints.maxItems
+const REPORT_DETAIL_MAX_LENGTH: number = agentLaneReportSchema.$defs.evidence_entry.properties.detail.maxLength
+const REPORT_EVIDENCE_MAX_ITEMS: number = agentLaneReportSchema.properties.evidence.maxItems
 const PACKET_SCHEMA_VERSION = agentLanePacketSchema.properties.schema_version.const
 
 export type AgentLanePacketFailureKind =
@@ -257,15 +259,19 @@ export async function buildAgentLanePacket(request: AgentLanePacketRequest, deps
   if (part.length > 0) mandateParts.push(part)
   const predicateConstraints = mandateParts.map((text, index) => `${mandateLabel}${index + 1}/${mandateParts.length}: ${text}`)
 
+  // The detail cap binds one entry, and the report holds many. A lane told only
+  // the cap compresses a whole obligation into one entry and overflows it, so
+  // the packet states the remedy next to the obligation it applies to.
   const constraints = [
     ...predicateConstraints,
     ...lane.evidence_obligations.map(
       (obligation) => `Evidence obligation "${obligation}": your agent-lane-report.v1 report must carry an evidence entry whose obligation is "${obligation}". An undischarged obligation is refused.`,
     ),
+    `One obligation may span several entries. Where your content for an obligation exceeds the ${REPORT_DETAIL_MAX_LENGTH}-character detail cap, continue it in further entries naming that same obligation, up to ${REPORT_EVIDENCE_MAX_ITEMS} entries. Split the content. Do not drop it, and do not truncate a citation, a command, or an error string to fit.`,
     ...agentLaneReportConstraints[lane.id],
   ]
   if (constraints.length > CONSTRAINTS_MAX_ITEMS) {
-    return failure("projection_overflow", `lane ${lane.id} declares ${constraints.length} evidence obligations, above the inputs.constraints limit of ${CONSTRAINTS_MAX_ITEMS}`, { field: "constraints", limit: CONSTRAINTS_MAX_ITEMS, actual: constraints.length })
+    return failure("projection_overflow", `lane ${lane.id} projects ${constraints.length} constraints, above the inputs.constraints limit of ${CONSTRAINTS_MAX_ITEMS}`, { field: "constraints", limit: CONSTRAINTS_MAX_ITEMS, actual: constraints.length })
   }
   const oversized = constraints.find((entry) => entry.length > CONSTRAINT_MAX_LENGTH)
   if (oversized !== undefined) {

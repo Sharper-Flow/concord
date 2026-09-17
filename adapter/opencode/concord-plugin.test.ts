@@ -7,7 +7,6 @@ import ConcordAdapterPlugin from "./concord-plugin"
 import { dispatchWindows, TASK_TOOL_ID } from "./dispatch-window"
 import { hostControlPlane, MOVE_SESSION_ROUTE, MoveSessionUnavailable } from "./move-session"
 import { hostToolSchemas } from "./generated-contracts"
-import { createWorkStateReporter } from "./workflow-status"
 
 test("work start publishes optional fields through the host definition hook", async () => {
   const plugin = await ConcordAdapterPlugin()
@@ -31,29 +30,12 @@ test("work start publishes optional fields through the host definition hook", as
   expect(output.description).toBe(plugin.tool.concord_work_start.description)
 })
 
-test("plugin appends pending work-state lines to completed text", async () => {
+test("plugin does not append work-state lines to completed text", async () => {
   const plugin = await ConcordAdapterPlugin()
   const complete = Reflect.get(plugin, "experimental.text.complete") as ((input: unknown, output: { text: string }) => Promise<void>) | undefined
-  expect(typeof complete).toBe("function")
-
-  await createWorkStateReporter(async () => true).report({
-    outcome: "ok",
-    result: {
-      work_pins: [{
-        work_id: "work-plugin",
-        title: "Plugin work",
-        linear_issue_key: "",
-        version: 1,
-        lifecycle: "in_progress",
-        workflow_type: "workflow.break_fix",
-        step: "execution",
-        pending_operator_decision: null,
-      }],
-    },
-  }, { sessionID: "session-plugin", abort: new AbortController().signal })
+  expect(complete).toBeUndefined()
   const output = { text: "assistant text" }
-  await complete!({ sessionID: "session-plugin", messageID: "message-1", partID: "part-1" }, output)
-  expect(output.text).toContain("assistant text\n◆ CONCORD WORK STATE | work-plugin | title=Plugin work")
+  expect(output.text).toBe("assistant text")
 })
 
 test("work start definition hook leaves other tool definitions unchanged", async () => {

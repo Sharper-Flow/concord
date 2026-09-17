@@ -5,6 +5,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestReadWorkPinUsesOneTransactionAndDeclaredStepActions(t *testing.T) {
@@ -16,8 +17,8 @@ func TestReadWorkPinUsesOneTransactionAndDeclaredStepActions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if pin.WorkID != "workpin-reader" || pin.Title == "" || pin.LinearIssueKey != "" || pin.Version != version || pin.Step != "proposal" {
-		t.Fatalf("pin=%+v, want work, title, no unconfirmed key, version, and step", pin)
+	if pin.WorkID != "workpin-reader" || pin.Title == "" || pin.LinearIssueKey != "" || pin.ProjectID != "project" || pin.ProjectDisplayName != "Core" || pin.Version != version || pin.Step != "proposal" {
+		t.Fatalf("pin=%+v, want work, title, project, no unconfirmed key, version, and step", pin)
 	}
 	if !strings.HasPrefix(pin.Watermark, "seq:") {
 		t.Fatalf("watermark=%q, want sequence watermark", pin.Watermark)
@@ -79,6 +80,63 @@ func TestReadWorkPinIncludesConfirmedLinearIssueKeyInTheSameTransaction(t *testi
 	}
 	if pin.Title == "" || pin.LinearIssueKey != "CON-42" {
 		t.Fatalf("pin=%+v, want title and confirmed Linear key", pin)
+	}
+}
+
+func TestReadWorkPinAllowsWorkWithoutPrimaryProject(t *testing.T) {
+	t.Parallel()
+	s := openTemp(t)
+	ctx := context.Background()
+	workID := "workpin-no-primary"
+	seedWorkWithUrgency(t, s, workID, "standard", 10)
+	registered, err := BuiltinWorkflowDefinitionForRef("workflow.implementation")
+	if err != nil {
+		t.Fatal(err)
+	}
+	actor := WorkflowActor{PrincipalRef: "principal:workpin", ClientRef: "client:workpin", AgentRef: "agent:workpin", SessionRef: "session:workpin", ActorClass: ActorAgent}
+	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := enterFold(ctx, tx); err != nil {
+		tx.Rollback()
+		t.Fatal(err)
+	}
+	if err := initializeWorkflowRawTx(ctx, tx, WorkflowInitializationRequest{WorkID: workID, Definition: registered, Actor: actor, Now: time.Date(2026, 8, 11, 0, 0, 0, 0, time.UTC)}); err != nil {
+		tx.Rollback()
+		t.Fatal(err)
+	}
+	if err := leaveFold(ctx, tx); err != nil {
+		tx.Rollback()
+		t.Fatal(err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	var version int64
+	if err := s.DatabaseForTesting().QueryRow(`SELECT version FROM work_items WHERE id=?`, workID).Scan(&version); err != nil {
+		t.Fatal(err)
+	}
+	actorRef, err := WorkflowActorRef(actor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	start := workflowEventWithActor("workpin-no-primary-start", WorkflowActionStarted, workID, actorRef, map[string]any{
+		"work_id": workID, "expected_version": version, "resulting_version": version + 1,
+		"step_id": "proposal", "action_id": "record_proposal", "attempt_epoch": 1,
+		"accepted_inputs_digest": "sha256:workpin-no-primary", "idempotency_identity": "workpin-no-primary:start",
+		"actor_ref": actorRef, "execution_model": preferredModelForLane(BuiltinLaneDefinitions()[0]),
+	})
+	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{start}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}}); err != nil {
+		t.Fatal(err)
+	}
+
+	pin, err := ReadWorkPin(ctx, s, workID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pin.WorkID != workID || pin.ProjectID != "" || pin.ProjectDisplayName != "" {
+		t.Fatalf("pin=%+v, want an empty project identity", pin)
 	}
 }
 

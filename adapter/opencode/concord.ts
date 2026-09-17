@@ -579,7 +579,7 @@ export async function invokeConcordOperation(toolName: string, args: HostToolArg
 }
 
 const workStateReporter = createWorkStateReporter(
-  (message, context) => hostControlPlane().showToast(message, "info", context.abort),
+  { runner: { run: (argv, input, signal) => runner.run(argv, input, signal) } },
 )
 
 function encodeHostResult(toolName: string, operation: string, requestID: string, envelope: HostConcordEnvelope): ToolResult {
@@ -600,13 +600,13 @@ async function encodeHostToolResult(toolName: string, args: HostToolArgs, contex
 
 async function executeHostTool(toolName: string, args: HostToolArgs, context: ToolContext): Promise<ToolResult> {
   const envelope = await invokeConcordOperation(toolName, args, context)
-  if (operationIsMutation(toolName, args.operation) && hostControlPlane().available()) await workStateReporter.report(envelope, context)
+  if (operationIsMutation(toolName, args.operation)) await workStateReporter.report(envelope, context)
   return encodeHostToolResult(toolName, args, context, envelope)
 }
 
 async function executeHostTransition(args: HostToolArgs, context: ToolContext): Promise<ToolResult> {
   const envelope = await executeWorkTransition(args, context)
-  if (hostControlPlane().available()) await workStateReporter.report(envelope, context)
+  await workStateReporter.report(envelope, context)
   return encodeHostToolResult("concord_work_transition", args, context, envelope)
 }
 

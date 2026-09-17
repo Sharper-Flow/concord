@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { formatWorkClosureReceipt, workStatePins } from "./workflow-status"
+import { formatWorkClosureReceipt } from "./workflow-status"
 
 // The closure receipt reads two facts from ONE response: the pin's lifecycle
 // and the envelope's evidence_refs. These fixtures reproduce the shape the
@@ -26,6 +26,8 @@ function lifecycleCompletionEnvelope() {
         {
           work_id: "work-cross",
           linear_issue_key: "",
+          project_id: "project-1",
+          project_display_name: "Concord",
           title: "Emit an operator-facing closure receipt on completion",
           version: 66,
           lifecycle: "completed",
@@ -44,17 +46,9 @@ function lifecycleCompletionEnvelope() {
 describe("workflow_status_receipt_runtime_shape", () => {
   test("renders the receipt from the runtime lifecycle-completion envelope", () => {
     const envelope = lifecycleCompletionEnvelope()
-    const pins = workStatePins(envelope)
-    expect(pins).toHaveLength(1)
-    expect(pins[0].receipt).toBe(
+    expect(formatWorkClosureReceipt(envelope.result.work_pins[0], envelope)).toBe(
       "◆ CONCORD WORK CLOSURE | work-cross | title=Emit an operator-facing closure receipt on completion | release=pending | evidence=verification-pass,https://github.com/Sharper-Flow/concord/pull/1063",
     )
-  })
-
-  test("still reports the state line alongside the receipt", () => {
-    const pins = workStatePins(lifecycleCompletionEnvelope())
-    expect(pins[0].line).toContain("lifecycle=completed")
-    expect(pins[0].work_id).toBe("work-cross")
   })
 
   test("withholds the receipt when the envelope carries no evidence", () => {
@@ -62,21 +56,19 @@ describe("workflow_status_receipt_runtime_shape", () => {
     // empty evidence_refs because the binding sat on a non-lifecycle action.
     const envelope = lifecycleCompletionEnvelope()
     envelope.evidence_refs = []
-    const pins = workStatePins(envelope)
-    expect(pins).toHaveLength(1)
-    expect(pins[0].receipt).toBeUndefined()
+    expect(formatWorkClosureReceipt(envelope.result.work_pins[0], envelope)).toBeNull()
   })
 
   test("withholds the receipt for a non-terminal lifecycle", () => {
     const envelope = lifecycleCompletionEnvelope()
     envelope.result.work_pins[0].lifecycle = "in_progress"
-    expect(workStatePins(envelope)[0].receipt).toBeUndefined()
+    expect(formatWorkClosureReceipt(envelope.result.work_pins[0], envelope)).toBeNull()
   })
 
   test("prefers the Linear issue key as the receipt identifier", () => {
     const envelope = lifecycleCompletionEnvelope()
     envelope.result.work_pins[0].linear_issue_key = "SHA-188"
-    expect(workStatePins(envelope)[0].receipt).toContain("| SHA-188 |")
+    expect(formatWorkClosureReceipt(envelope.result.work_pins[0], envelope)).toContain("| SHA-188 |")
   })
 
   test("withholds the receipt when an evidence ref carries no locator", () => {
@@ -88,6 +80,6 @@ describe("workflow_status_receipt_runtime_shape", () => {
   test("withholds the receipt on a refused envelope", () => {
     const envelope = lifecycleCompletionEnvelope()
     envelope.outcome = "error"
-    expect(workStatePins(envelope)).toHaveLength(0)
+    expect(formatWorkClosureReceipt(envelope.result.work_pins[0], envelope)).toBeNull()
   })
 })

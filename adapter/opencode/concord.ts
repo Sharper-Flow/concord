@@ -41,13 +41,30 @@ type HostToolCall = { request: HostToolArgs | { request: HostToolArgs } }
 // `request` property, so that key is the discriminator. Both host shapes
 // normalize here, at the single boundary between host delivery and the
 // shared transport.
+//
+// The bridge can also deliver that wrapper without the published top-level
+// `operation`, which leaves a caller's copy inside `input` as the only
+// surviving name. No tool input payload declares an `operation` property, so
+// the key names the operation and never the payload: it is recovered when the
+// top-level name is absent, and always removed before the payload reaches the
+// core, which keeps sole authority over whether the named operation is
+// admissible.
 function hostRequest(args: HostToolCall): HostToolArgs {
   const outer: unknown = args["request"]
+  let delivered = outer
   if (outer !== null && typeof outer === "object" && "request" in outer) {
     const inner: unknown = (outer as { request: unknown }).request
-    if (inner !== null && typeof inner === "object" && "operation" in inner && "input" in inner) return inner as HostToolArgs
+    if (inner !== null && typeof inner === "object") delivered = inner
   }
-  return outer as HostToolArgs
+  return withOperationNamed(delivered as HostToolArgs)
+}
+
+function withOperationNamed(delivered: HostToolArgs): HostToolArgs {
+  const input: unknown = delivered?.input
+  if (input === null || typeof input !== "object" || !("operation" in input)) return delivered
+  const { operation: named, ...payload } = input as Record<string, unknown>
+  const operation = typeof delivered.operation === "string" ? delivered.operation : named
+  return { ...delivered, ...(typeof operation === "string" ? { operation } : {}), input: payload }
 }
 type JSONSchema = Record<string, unknown>
 type CoreConcordEnvelope = Record<string, unknown>

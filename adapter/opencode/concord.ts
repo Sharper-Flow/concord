@@ -879,7 +879,7 @@ async function executeWorkStart(args: WorkStartArgs, context: ToolContext): Prom
     let prepareTask: string
     if (resume) {
       const workID = (args as { work_id: string }).work_id
-      const resumed = await runWorkStartChild([concordBinaryPath(), "work-resume"], JSON.stringify({ product_id: productID, project_id: ambient.projectID, work_id: workID }), context.abort, { cwd: context.directory })
+      const resumed = await runWorkStartChild([concordBinaryPath(), "work-resume"], JSON.stringify({ product_id: productID, project_id: ambient.projectID, work_id: workID, session_ref: context.sessionID }), context.abort, { cwd: context.directory })
       if (resumed.exitCode !== 0) throw new AdapterFailure("resume_failure", "resume_refused", resumed.stderr.slice(0, MAX_STDERR), "none", "retry_same_request")
       let resumedValue: unknown
       try { resumedValue = singleJSON(resumed.stdout) } catch (error) { throw new AdapterFailure("malformed_response", "malformed_resume_response", String(error), "none", "retry_same_request") }
@@ -888,7 +888,7 @@ async function executeWorkStart(args: WorkStartArgs, context: ToolContext): Prom
       prepareTask = ""
     } else {
       const capture = args as WorkStartCaptureArgs
-      const bootstrapInput = { product_id: productID, project_id: ambient.projectID, ...capture }
+      const bootstrapInput = { product_id: productID, project_id: ambient.projectID, ...capture, session_ref: context.sessionID }
       const boot = await runWorkStartChild([concordBinaryPath(), "work-bootstrap"], JSON.stringify(bootstrapInput), context.abort, { cwd: context.directory })
       if (boot.exitCode !== 0) throw new AdapterFailure("bootstrap_failure", "bootstrap_failed", boot.stderr.slice(0, MAX_STDERR), "none", "retry_same_request")
       let bootValue: unknown

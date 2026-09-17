@@ -10,9 +10,10 @@ import (
 )
 
 type workResumeInput struct {
-	ProductID string `json:"product_id"`
-	ProjectID string `json:"project_id"`
-	WorkID    string `json:"work_id"`
+	ProductID  string `json:"product_id"`
+	ProjectID  string `json:"project_id"`
+	WorkID     string `json:"work_id"`
+	SessionRef string `json:"session_ref"`
 }
 
 type workResumeOutput struct {
@@ -69,7 +70,7 @@ func runWorkResume(raw []byte, s *store.Store, out, errOut io.Writer) int {
 			}
 		}
 		result, bootstrapErr := s.BootstrapExistingWorktree(ctx, store.ExistingBootstrapRequest{
-			ProductID: input.ProductID, ProjectID: input.ProjectID, WorkID: input.WorkID, Ref: ref,
+			ProductID: input.ProductID, ProjectID: input.ProjectID, WorkID: input.WorkID, Ref: ref, SessionRef: input.SessionRef,
 		}, nil)
 		if bootstrapErr != nil {
 			writeOperatorDiagnostic(errOut, "work-resume", bootstrapErr.Error())

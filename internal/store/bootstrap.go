@@ -40,6 +40,11 @@ type BootstrapRequest struct {
 	RaisedFromWorkID      string   `json:"raised_from_work_id,omitempty"`
 	GoverningRequirements []string `json:"governing_requirements"`
 	Ref                   string   `json:"ref"`
+	// SessionRef is the session that will occupy the claimed worktree. It
+	// stays out of the marshalled request because the canonical identity
+	// digest is built from it: the same capture asked for by two sessions is
+	// one work item, not two.
+	SessionRef string `json:"-"`
 }
 
 // BootstrapResult is the durable result of a bootstrap operation.
@@ -71,6 +76,10 @@ type ExistingBootstrapRequest struct {
 	ProjectID string `json:"project_id"`
 	WorkID    string `json:"work_id"`
 	Ref       string `json:"ref"`
+	// SessionRef is the session that will occupy the recovered worktree. The
+	// identity digest names an explicit field set that excludes it, so a
+	// resume from a second session recovers the same operation.
+	SessionRef string `json:"-"`
 }
 
 // ValidateBootstrapOrigin validates a clean Concord worktree with no
@@ -212,14 +221,14 @@ func (s *Store) BootstrapExistingWorktree(ctx context.Context, req ExistingBoots
 	if found {
 		return s.bootstrapWorktreeMode(ctx, BootstrapRequest{
 			ProductID: req.ProductID, ProjectID: req.ProjectID, GoverningRequirements: identity.GoverningRequirements,
-			IdempotencyKey: identity.IdempotencyKey, Ref: req.Ref,
+			IdempotencyKey: identity.IdempotencyKey, Ref: req.Ref, SessionRef: req.SessionRef,
 		}, identity.OperationID, req.WorkID, identity.Digest, true, req, phaseHook, ExecGitRunner{})
 	}
 	operationID, workID, digest, err := CanonicalExistingBootstrapIdentity(req)
 	if err != nil {
 		return BootstrapResult{}, wrapFailure(KindInvalidOperation, "work_bootstrap", "cannot derive existing bootstrap identity", false, "supply bounded work identity", err)
 	}
-	return s.bootstrapWorktreeMode(ctx, BootstrapRequest{ProductID: req.ProductID, ProjectID: req.ProjectID, IdempotencyKey: "bootstrap-existing-" + digest[7:55], Ref: req.Ref}, operationID, workID, digest, true, req, phaseHook, ExecGitRunner{})
+	return s.bootstrapWorktreeMode(ctx, BootstrapRequest{ProductID: req.ProductID, ProjectID: req.ProjectID, IdempotencyKey: "bootstrap-existing-" + digest[7:55], Ref: req.Ref, SessionRef: req.SessionRef}, operationID, workID, digest, true, req, phaseHook, ExecGitRunner{})
 }
 
 type existingBootstrapIdentity struct {
@@ -1332,7 +1341,7 @@ func (s *Store) finalizeBootstrap(ctx context.Context, req BootstrapRequest, ope
 	if state != "native_ready" || facts.branch != location.Branch || facts.headSHA != location.BaseSHA || facts.repositoryID == "" {
 		return BootstrapResult{}, newFailure(KindInvariantViolation, "work_bootstrap", "bootstrap native facts do not match the pinned finalization state", false, "contact_operator")
 	}
-	payload, _ := json.Marshal(worktreeCreatedPayload{ExpectedVersion: expected, ResultingVersion: expected + 1, SetID: WorktreeSetID(workID), ProjectID: req.ProjectID, ClaimOpID: operationID, Branch: location.Branch, BaseSHA: location.BaseSHA, Path: location.Path, RepositoryID: facts.repositoryID, GitFacts: facts.raw()})
+	payload := marshalWorktreeCreated(expected, WorktreeSetID(workID), req.ProjectID, operationID, location, facts, req.SessionRef)
 	eventID := operationID + ":worktree-created"
 	var priorCreation bool
 	if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM domain_events WHERE event_id=?)`, eventID).Scan(&priorCreation); err != nil {

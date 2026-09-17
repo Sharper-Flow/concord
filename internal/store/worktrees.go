@@ -74,6 +74,28 @@ type worktreeCreatedPayload struct {
 	GitFacts           json.RawMessage `json:"git_facts"`
 }
 
+// marshalWorktreeCreated builds the one worktree_created payload every claim
+// route records. Occupancy is a parameter rather than a struct field each
+// caller fills in, so a route cannot record a claim and silently omit the
+// occupant: the removal gate reads that field as the sole occupancy authority,
+// and an empty one leaves the worktree unprotected.
+func marshalWorktreeCreated(expected int64, setID, projectID, claimOpID string, location WorktreeLocation, facts worktreeFacts, occupantSessionRef string) []byte {
+	payload, _ := json.Marshal(worktreeCreatedPayload{
+		ExpectedVersion:    expected,
+		ResultingVersion:   expected + 1,
+		SetID:              setID,
+		ProjectID:          projectID,
+		ClaimOpID:          claimOpID,
+		Branch:             location.Branch,
+		BaseSHA:            location.BaseSHA,
+		Path:               location.Path,
+		RepositoryID:       facts.repositoryID,
+		OccupantSessionRef: occupantSessionRef,
+		GitFacts:           facts.raw(),
+	})
+	return payload
+}
+
 type worktreeReclaimedPayload struct {
 	ExpectedVersion  int64           `json:"expected_version"`
 	ResultingVersion int64           `json:"resulting_version"`
@@ -430,7 +452,7 @@ func claimWorktreeRawTx(ctx context.Context, tx *sql.Tx, dataPath string, req Wo
 
 	// Phase 3: append the verified locator as domain state and complete the
 	// claim in the same transaction.
-	payload, _ := json.Marshal(worktreeCreatedPayload{ExpectedVersion: req.ExpectedVersion, ResultingVersion: req.ExpectedVersion + 1, SetID: setID, ProjectID: req.ProjectID, ClaimOpID: req.OpID, Branch: pinnedBranch, BaseSHA: pinnedBase, Path: pinnedPath, RepositoryID: facts.repositoryID, OccupantSessionRef: req.SessionRef, GitFacts: facts.raw()})
+	payload := marshalWorktreeCreated(req.ExpectedVersion, setID, req.ProjectID, req.OpID, WorktreeLocation{Branch: pinnedBranch, BaseSHA: pinnedBase, Path: pinnedPath}, facts, req.SessionRef)
 	if _, err := applyOperationTx(ctx, tx, Operation{Events: []Event{{
 		EventID: fmt.Sprintf("%s:worktree-created", req.OpID), Kind: "work.worktree_created", SubjectType: SubjectWorkItem, SubjectID: req.WorkID, Actor: req.PrincipalRef, OccurredAt: now, PayloadVersion: 1, Payload: payload,
 	}}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, req.WorkID): req.ExpectedVersion}}, true, false); err != nil {

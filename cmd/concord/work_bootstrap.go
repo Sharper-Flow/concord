@@ -29,6 +29,7 @@ type workBootstrapInput struct {
 	RaisedFromWorkID      string   `json:"raised_from_work_id"`
 	GoverningRequirements []string `json:"governing_requirements"`
 	Ref                   string   `json:"ref"`
+	SessionRef            string   `json:"session_ref"`
 }
 
 type workBootstrapOutput struct {
@@ -85,7 +86,7 @@ func runWorkBootstrap(raw []byte, s *store.Store, out, errOut io.Writer) int {
 		ValueStatement: input.ValueStatement, Kind: input.Kind, Task: input.Task,
 		IdempotencyKey: input.IdempotencyKey, Priority: input.Priority, Urgency: input.Urgency,
 		Tags: input.Tags, WorkflowTypeRef: input.WorkflowTypeRef, ExternalRef: input.ExternalRef, RaisedFromWorkID: input.RaisedFromWorkID,
-		GoverningRequirements: input.GoverningRequirements, Ref: input.Ref,
+		GoverningRequirements: input.GoverningRequirements, Ref: input.Ref, SessionRef: input.SessionRef,
 	}, nil)
 	if err != nil {
 		writeOperatorDiagnostic(errOut, "work-bootstrap", err.Error())

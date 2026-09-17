@@ -818,3 +818,100 @@ func TestBootstrapExistingWorktreeRefusesNonEligibleBootstrapIdentity(t *testing
 		t.Fatalf("non-eligible bootstrap refusal=%v", err)
 	}
 }
+
+// Bootstrap builds its own worktree creation payload. Migration 85 gave the
+// removal gate an occupant to read, and the claim route began supplying one,
+// but bootstrap kept constructing the payload without that field: every
+// worktree Concord bootstraps recorded an empty occupant, so the gate that
+// refuses to strand a live session protected none of them. Both bootstrap
+// routes are asserted here because they build the claim through the same
+// finalization and would regress together.
+func TestBootstrapRecordsOccupantSession(t *testing.T) {
+	t.Parallel()
+	repo := initBootstrapStoreRepo(t)
+	s, err := Open(context.Background(), filepath.Join(t.TempDir(), "concord.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	seedBootstrapStoreAuthority(t, s, repo)
+	ctx := context.Background()
+
+	capture := bootstrapStoreRequest()
+	capture.IdempotencyKey = "bootstrap-occupancy-capture"
+	capture.SessionRef = "ses-bootstrap-occupant"
+	first, err := s.BootstrapWorktree(ctx, capture, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.Entry.OccupantSessionRef != "ses-bootstrap-occupant" {
+		t.Fatalf("captured bootstrap occupant = %q, want ses-bootstrap-occupant", first.Entry.OccupantSessionRef)
+	}
+
+	// The resume route rebuilds a missing worktree under the existing work
+	// identity, so it claims a worktree too and owes the same occupant. The
+	// reclaim that frees it now has to release the occupant it just recorded,
+	// which is the operator-approved route a stale occupant takes.
+	if _, err := s.ReclaimWorktree(ctx, WorktreeReclaimRequest{
+		WorkID: first.WorkID, ProjectID: first.ProjectID, DefaultRef: "origin/main",
+		PrincipalRef: "principal/operator", RequestID: "reclaim-occupancy-capture",
+		ExpectedVersion: first.WorkVersion, Runner: ExecGitRunner{},
+		ReleaseOccupancy: true, OperatorApprovalRef: "approval/occupancy-capture",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	resumed, err := s.BootstrapExistingWorktree(ctx, ExistingBootstrapRequest{
+		ProductID: first.ProductID, ProjectID: first.ProjectID, WorkID: first.WorkID,
+		SessionRef: "ses-resume-occupant",
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resumed.Entry.OccupantSessionRef != "ses-resume-occupant" {
+		t.Fatalf("resumed bootstrap occupant = %q, want ses-resume-occupant", resumed.Entry.OccupantSessionRef)
+	}
+}
+
+// The occupancy gate already refused an occupied removal. It never fired for a
+// bootstrapped worktree, because the occupant it reads was never written. This
+// asserts the gate end to end from the bootstrap route: the refusal names the
+// occupying session, and the entry survives the attempt.
+func TestReclaimRefusesBootstrapClaimedWorktreeHeldBySession(t *testing.T) {
+	t.Parallel()
+	repo := initBootstrapStoreRepo(t)
+	s, err := Open(context.Background(), filepath.Join(t.TempDir(), "concord.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	seedBootstrapStoreAuthority(t, s, repo)
+	ctx := context.Background()
+
+	capture := bootstrapStoreRequest()
+	capture.IdempotencyKey = "bootstrap-occupancy-gate"
+	capture.SessionRef = "ses-holds-worktree"
+	created, err := s.BootstrapWorktree(ctx, capture, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = s.ReclaimWorktree(ctx, WorktreeReclaimRequest{
+		WorkID: created.WorkID, ProjectID: created.ProjectID, DefaultRef: "origin/main",
+		PrincipalRef: "principal/operator", RequestID: "reclaim-occupancy-gate",
+		ExpectedVersion: created.WorkVersion, Runner: ExecGitRunner{},
+	})
+	var failure *Failure
+	if !errors.As(err, &failure) || failure.Kind != KindWorktreeOwnershipConflict {
+		t.Fatalf("reclaim of an occupied bootstrap worktree err = %v, want %s", err, KindWorktreeOwnershipConflict)
+	}
+	if !strings.Contains(failure.Detail, "ses-holds-worktree") {
+		t.Fatalf("refusal %q must name the occupying session", failure.Detail)
+	}
+	entries, err := s.WorktreeEntries(ctx, created.WorkID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 || entries[0].State != worktreeEntryActive {
+		t.Fatalf("refused removal must leave the worktree active, got %+v", entries)
+	}
+}

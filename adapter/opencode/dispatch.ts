@@ -781,6 +781,15 @@ async function signWorkerEvidence(credentials: CredentialStore, fields: Record<s
   return { ...assertion, signature: b64(signBytes(null, Buffer.from(canonicalWorkerEvidence(assertion)), privateKey)) }
 }
 
+async function probeWorkerEvidenceCredential(credentials: CredentialStore): Promise<string | null> {
+  try {
+    privateKeyObject(await credentials.getPrivateKey(clientRef()))
+    return null
+  } catch (error) {
+    return String(error).slice(0, MAX_ERROR_BYTES)
+  }
+}
+
 // recordWorkerEvent appends one worker evidence event through the short-lived
 // JSON CLI, the same transport concord.ts uses for every tool invocation. The
 // adapter stays envelope-thin per CD-0017 D2 and never writes the event log
@@ -1099,6 +1108,11 @@ export async function dispatchWorker(packet: unknown, options: { signal?: AbortS
   // other operation uses.
   if (typeof options.authorize !== "function") {
     return errorEnvelope(lane, packet as Partial<AgentLanePacket>, "error", "transport_failure", "dispatch authorizer is not configured; dispatch_worker authorization is mandatory before spawn", "contact_operator")
+  }
+  const credentials = options.credentials ?? defaultCredentials
+  const credentialFailure = await probeWorkerEvidenceCredential(credentials)
+  if (credentialFailure) {
+    return errorEnvelope(lane, packet as Partial<AgentLanePacket>, "error", "error", `credential probe failed before worker execution: ${credentialFailure}`, "contact_operator")
   }
   let response: unknown
   try {

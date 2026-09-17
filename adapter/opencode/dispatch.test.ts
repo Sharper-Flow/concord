@@ -1302,6 +1302,26 @@ test("dispatchWorker aborts when dispatch_worker authorization is refused", asyn
   expect(authorizeCalls).toBe(1)
 })
 
+test("a credential probe failure refuses before authorization or worker execution", async () => {
+  const events: string[] = []
+  const windows = new DispatchWindows()
+  const result = await dispatchWorker(packet(), {
+    credentials: { async getPrivateKey() { events.push("credential"); throw new Error("credential service unavailable") } },
+    workerDirectory: WORKER_DIRECTORY,
+    sessionID: SESSION,
+    windows,
+    runner: { async run() { events.push("run"); return { exitCode: 0, stdout: runOutput(), stderr: "" } } },
+    evidenceRunner: { async run() { events.push("evidence"); return { exitCode: 0, stdout: "", stderr: "" } } },
+    async authorize() { events.push("authorize"); return coreOk() },
+  })
+
+  expect(result.outcome).toBe("error")
+  expect(result.error?.kind).toBe("error")
+  expect(result.error?.message).toContain("credential service unavailable")
+  expect(events).toEqual(["credential"])
+  expect(windows.has(SESSION)).toBe(false)
+})
+
 // Issue #436: a refusal and a broken authorizer are different outcomes. The
 // adapter previously probed an optional ToolContext method that no host
 // declares, so an absent transport was indistinguishable from the core saying

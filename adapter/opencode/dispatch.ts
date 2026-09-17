@@ -1109,11 +1109,6 @@ export async function dispatchWorker(packet: unknown, options: { signal?: AbortS
   if (typeof options.authorize !== "function") {
     return errorEnvelope(lane, packet as Partial<AgentLanePacket>, "error", "transport_failure", "dispatch authorizer is not configured; dispatch_worker authorization is mandatory before spawn", "contact_operator")
   }
-  const credentials = options.credentials ?? defaultCredentials
-  const credentialFailure = await probeWorkerEvidenceCredential(credentials)
-  if (credentialFailure) {
-    return errorEnvelope(lane, packet as Partial<AgentLanePacket>, "error", "error", `credential probe failed before worker execution: ${credentialFailure}`, "contact_operator")
-  }
   let response: unknown
   try {
     response = await options.authorize({
@@ -1162,6 +1157,18 @@ export async function dispatchWorker(packet: unknown, options: { signal?: AbortS
   } catch (error) {
     const detail = error instanceof DispatchWindowError ? error.message : String(error)
     return errorEnvelope(lane, packet as Partial<AgentLanePacket>, "error", "error", detail.slice(0, MAX_ERROR_BYTES), "reconcile_operation")
+  }
+  // The credential is an admission dependency of execution, not of dispatch.
+  // Every refusal above returns without a worker, and the window itself still
+  // validates the packet and the claimed worktree, so those refusals keep their
+  // own diagnosis. Once the window is open the host may spawn, which makes this
+  // the last point where an unreadable credential costs nothing. A failed probe
+  // closes the window so no spawn can follow it. Signing is unchanged and still
+  // binds the readback after the run; this checks availability alone.
+  const credentialFailure = await probeWorkerEvidenceCredential(options.credentials ?? defaultCredentials)
+  if (credentialFailure) {
+    windows.close(sessionID)
+    return errorEnvelope(lane, packet as Partial<AgentLanePacket>, "error", "error", `credential probe failed before worker execution: ${credentialFailure}`, "contact_operator")
   }
   const directive = baseEnvelope(lane, packet, "ok")
   directive.dispatch_state = "awaiting_worker"

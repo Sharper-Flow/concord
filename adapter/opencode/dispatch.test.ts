@@ -1302,7 +1302,11 @@ test("dispatchWorker aborts when dispatch_worker authorization is refused", asyn
   expect(authorizeCalls).toBe(1)
 })
 
-test("a credential probe failure refuses before authorization or worker execution", async () => {
+// The probe guards execution, not dispatch. Authorization runs first, because
+// an approval challenge or a refused dispatch returns without a worker and must
+// not require a credential. Once authorization passes, a spawn is imminent, so
+// an unreadable credential refuses here rather than after a wasted lane run.
+test("a credential probe failure refuses after authorization and before worker execution", async () => {
   const events: string[] = []
   const windows = new DispatchWindows()
   const result = await dispatchWorker(packet(), {
@@ -1318,7 +1322,7 @@ test("a credential probe failure refuses before authorization or worker executio
   expect(result.outcome).toBe("error")
   expect(result.error?.kind).toBe("error")
   expect(result.error?.message).toContain("credential service unavailable")
-  expect(events).toEqual(["credential"])
+  expect(events).toEqual(["authorize", "credential"])
   expect(windows.has(SESSION)).toBe(false)
 })
 

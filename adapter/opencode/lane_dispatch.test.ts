@@ -365,7 +365,7 @@ test("approval challenge and approved resubmission preserve the exact packet ide
   const request = { work_id: WORK_ID, expected_version: 1, idempotency_key: "retry-approval", lane_id: lane.id }
   const first = await dispatchLaneWorker(request, { context: contextFor(), invoke: invoke as any })
   expect(first.error?.kind).toBe("approval_required")
-  const second = await dispatchLaneWorker({ ...request, approval_ref: "challenge-1" }, { context: contextFor(), invoke: invoke as any })
+  const second = await dispatchLaneWorker({ ...request, approval_ref: "challenge-1" }, { context: contextFor(), invoke: invoke as any, credentials: testCredentials })
   expect(second.outcome).toBe("ok")
   expect(packets).toHaveLength(2)
   expect(packets[0].attempt_id).toBe(packets[1].attempt_id)
@@ -414,7 +414,7 @@ test("an escalated correction challenge forwards the failed attempt bindings for
   expect(forwarded.contract_version).toBe("1")
   expect(forwarded.premise_summary).toBe("approved retry objective")
   expect(spawned).toBe(0)
-  const second = await dispatchLaneWorker({ ...request, approval_ref: "challenge-1" }, { context: contextFor(), invoke: invoke as any, runner, windows })
+  const second = await dispatchLaneWorker({ ...request, approval_ref: "challenge-1" }, { context: contextFor(), invoke: invoke as any, runner, windows, credentials: testCredentials })
   expect(second.outcome).toBe("ok")
   expect(spawned).toBe(0)
 })

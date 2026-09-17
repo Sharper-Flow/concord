@@ -149,6 +149,20 @@ fields itself, whatever value it names. Exact opaque identity is structural at
 the boundary instead of probabilistic in the model: three live attempts failed
 on one-character transcription drift before this amendment.
 
+Amended 2026-09-17 for the lane-report envelope failure across seven
+models ([Linear](https://linear.app/sharper-flow/issue/CON-203/lane-report-envelope-refuses-valid-worker-output-across-seven-models)):
+the adapter strips dispatch-owned fields (`attempt_id`, `lane_id`,
+`lane_version`, `lane_digest`, `work_id`, `step_id`) from a worker-authored
+report before validation instead of refusing the report. Identity still
+reaches the canonical terminal report exclusively from the authorized dispatch
+packet, and the closed schema still refuses every other property the worker
+was not asked for, so admission is unchanged for everything except the echo
+itself. The 2026-09-09 amendment made an echo fatal at a cost it did not
+price: 18 of 48 `invalid_report` failures across seven models were reports
+whose only fault was supplying a field the adapter overwrites anyway, and
+each refusal discarded a full lane run. Stripping keeps the guarantee — the
+model's value never reaches the canonical report — without charging the run.
+
 ### D8. What this decision does not do
 
 It does not connect lane evidence to the workflow `EvidenceKind` enum. Those

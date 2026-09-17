@@ -910,7 +910,7 @@ test("the AGENTS.md walk names the global file once when the spawn directory is 
 // CD-0056 D7 / issue #333: the adapter parses the report it already receives,
 // carries its evidence into worker-complete, and turns anything it cannot admit
 // into a typed worker-fail rather than a completion.
-import { readWorkerReport, resolveWorkerReport, resolveWorkerReportFromText, validateAgentLaneReport, validateAgainstSchema } from "./dispatch"
+import { readWorkerReport, resolveWorkerReport, resolveWorkerReportFromText, scanReportTexts, validateAgentLaneReport, validateAgainstSchema } from "./dispatch"
 
 async function terminalEvidence(carried: unknown = report()) {
   const calls: { argv: string[]; input: string }[] = []
@@ -1069,7 +1069,10 @@ test("an unknown report top-level field is worker-fail with invalid_report", asy
   expect(payloads[1].detail).toContain("carries undeclared property unexpected")
 })
 
-test("model-supplied identity is refused, however near-identical", () => {
+// CD-0056 D7 as amended 2026-09-17: a near-identical echoed attempt id is
+// stripped and the packet value wins — one-character transcription drift no
+// longer costs the run, because identity is never taken from the model.
+test("model-supplied identity is stripped, however near-identical", () => {
   const cases = [
     {
       packetAttempt: "attempt-work-4c23eeda61b1bf31fa61e58e-implement-01a07f5d6291",
@@ -1083,11 +1086,11 @@ test("model-supplied identity is refused, however near-identical", () => {
   for (const testCase of cases) {
     const dispatched = { ...packet(), attempt_id: testCase.packetAttempt }
     const resolved = resolveWorkerReport(runOutput("", report({ attempt_id: testCase.reportedAttempt })), dispatched)
-    expect(resolved).toEqual({ detail: "worker report supplied dispatch-owned field(s) attempt_id; identity belongs to the authorized dispatch window" })
+    expect(resolved).toEqual({ report: canonicalReport({}, dispatched) })
   }
 })
 
-test("each dispatch-owned identity field is refused when the model supplies it", () => {
+test("each dispatch-owned identity field is stripped when the model supplies it", () => {
   const conflicts: Record<string, unknown> = {
     attempt_id: "attempt-work-1-other",
     lane_id: "review",
@@ -1096,7 +1099,7 @@ test("each dispatch-owned identity field is refused when the model supplies it",
   }
   for (const [field, value] of Object.entries(conflicts)) {
     const resolved = resolveWorkerReport(runOutput("", report({ [field]: value })), packet())
-    expect("detail" in resolved && resolved.detail).toContain(`supplied dispatch-owned field(s) ${field}`)
+    expect(resolved).toEqual({ report: canonicalReport() })
   }
 })
 
@@ -1178,14 +1181,15 @@ test("the last text part wins when an earlier part is working prose", async () =
   expect(readWorkerReport(stdout)).toEqual({ report: report(), malformed: false })
 })
 
-test("a fenced report is admitted and a fence around prose is not salvaged", async () => {
+test("a fenced report is admitted and prose around the JSON no longer discards it", async () => {
   const fenced = "```json\n" + JSON.stringify(report()) + "\n```"
   expect(readWorkerReport(runOutput("", fenced)).report).toEqual(report())
   expect(readWorkerReport(runOutput("", "```\n" + JSON.stringify(report()) + "\n```")).report).toEqual(report())
   const { verbs } = await terminalEvidence(fenced)
   expect(verbs).toEqual(["worker-dispatch", "worker-complete"])
-  // Prose around the JSON is not mined for a report; it fails closed.
-  expect(readWorkerReport(runOutput("", `Here is the report: ${JSON.stringify(report())} — done.`))).toEqual({ report: null, malformed: false })
+  // CON-203: one lead-in and one trailing sentence around the JSON is an
+  // answer, not a failure; admission stays closed at the schema.
+  expect(readWorkerReport(runOutput("", `Here is the report: ${JSON.stringify(report())} — done.`)).report).toEqual(report())
 })
 
 test("a run with no text part at all carries no report", async () => {
@@ -1198,16 +1202,18 @@ test("a run with no text part at all carries no report", async () => {
 
 test("report resolution composes packet identity over closed worker content", () => {
   expect(resolveWorkerReport(runOutput(), packet())).toEqual({ report: canonicalReport() })
-  const conflicting = resolveWorkerReport(runOutput("", report({ lane_digest: "sha256:" + "0".repeat(64) })), packet())
-  expect("detail" in conflicting && conflicting.detail).toContain("supplied dispatch-owned field(s) lane_digest")
+  // CD-0056 D7 as amended 2026-09-17: an echoed dispatch-owned field is
+  // stripped, not refused; the packet value still wins.
+  const echoed = resolveWorkerReport(runOutput("", report({ lane_digest: "sha256:" + "0".repeat(64) })), packet())
+  expect(echoed).toEqual({ report: canonicalReport() })
   const missing = resolveWorkerReport(runOutput("", report({ status: undefined })), packet())
   expect("detail" in missing && missing.detail).toContain("missing required property status")
 })
 
-test("the native-text admission path composes packet identity and refuses supplied identity", () => {
+test("the native-text admission path composes packet identity over echoed identity", () => {
   expect(resolveWorkerReportFromText(JSON.stringify(report()), packet())).toEqual({ report: canonicalReport() })
-  const refused = resolveWorkerReportFromText(JSON.stringify(report({ attempt_id: "attempt-work-1-other" })), packet())
-  expect("detail" in refused && refused.detail).toContain("supplied dispatch-owned field(s) attempt_id")
+  const echoed = resolveWorkerReportFromText(JSON.stringify(report({ attempt_id: "attempt-work-1-other" })), packet())
+  expect(echoed).toEqual({ report: canonicalReport() })
   const malformed = resolveWorkerReportFromText("the worker returned prose", packet())
   expect("detail" in malformed && malformed.detail).toContain("carried no agent-lane-report.v1 report")
 })
@@ -1437,4 +1443,50 @@ test("resolveCoreBinary falls through an unbound override to the stamped constan
   expect(resolveCoreBinary(undefined, "/test-bin/concord", "/release/bin/concord")).toBe("/test-bin/concord")
   expect(resolveCoreBinary("/call-override/concord", "/test-bin/concord", "/release/bin/concord")).toBe("/call-override/concord")
   expect(resolveCoreBinary(undefined, null, "")).toBe("")
+})
+
+// CON-203: a worker that wraps its report in prose is answering, not
+// failing. The scan admits the last parseable JSON object across every
+// fenced block and brace candidate, because admission stays closed at the
+// schema and the last-parseable rule already decides between candidates.
+test("scanReportTexts admits a report wrapped in surrounding prose", () => {
+  const json = JSON.stringify(report())
+  const cases: [string, string][] = [
+    ["lead-in sentence then fence", `Here is my report:\n\n\`\`\`json\n${json}\n\`\`\``],
+    ["fence then trailing sentence", `\`\`\`json\n${json}\n\`\`\`\n\nLet me know if more is needed.`],
+    ["unfenced json after prose", `Working... final answer follows.\n${json}`],
+    ["whole-text fence", "```json\n" + json + "\n```"],
+    ["bare json", json],
+  ]
+  for (const [name, text] of cases) {
+    const scan = scanReportTexts([text])
+    expect(scan.report, name).toEqual(report())
+    expect(scan.malformed, name).toBe(false)
+  }
+})
+
+test("scanReportTexts still distinguishes broken announced json from prose", () => {
+  expect(scanReportTexts(["prose with a stray { brace and no report"])).toEqual({ report: null, malformed: false })
+  const corrupt = "```json\n{\"schema_version\": \"1.0\", \"truncated\n```"
+  expect(scanReportTexts([corrupt])).toEqual({ report: null, malformed: true })
+  const lastWins = scanReportTexts([`earlier superseded answer ${JSON.stringify(report({ status: "failed" }))}`, `final answer:\n\`\`\`json\n${JSON.stringify(report())}\n\`\`\``])
+  expect(lastWins.report).toEqual(report())
+})
+
+// CD-0056 D7 as amended 2026-09-17: the adapter strips dispatch-owned fields
+// from the worker-authored surface instead of refusing the report. Identity
+// still reaches the canonical report exclusively from the packet, and the
+// closed schema still refuses every other unknown field.
+test("an echoed dispatch-owned field is stripped, and the schema stays closed", () => {
+  const echoed = resolveWorkerReportFromText(JSON.stringify(report({
+    attempt_id: "attempt-forged",
+    lane_id: "lane-forged",
+    lane_version: 99,
+    lane_digest: "sha256:" + "0".repeat(64),
+    work_id: "work-forged",
+    step_id: "step-forged",
+  })), packet())
+  expect(echoed).toEqual({ report: canonicalReport() })
+  const unknown = resolveWorkerReportFromText(JSON.stringify(report({ mood: "confident" })), packet())
+  expect("detail" in unknown && unknown.detail).toContain("failed the closed agent-lane-report.v1 schema")
 })

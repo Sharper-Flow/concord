@@ -14,7 +14,19 @@ import (
 // the deleted watermark forces the demand-driven knowledge rebuild.
 func TestMigrateV80WidensLawSubjectsAndInvalidatesWatermark(t *testing.T) {
 	ctx := context.Background()
-	db := openMigratedTo(t, filepath.Join(t.TempDir(), "concord-v79.db"), 79)
+	// The constitution migration is proven in isolation on a pre-v80
+	// database, so later migrations must not move it out of reach.
+	constitution := -1
+	for i, m := range migrations {
+		if m.Version == 80 {
+			constitution = i
+			break
+		}
+	}
+	if constitution < 0 {
+		t.Fatal("migration 80 is not defined")
+	}
+	db := openMigratedTo(t, filepath.Join(t.TempDir(), "concord-v79.db"), constitution-1)
 
 	if _, err := db.ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
@@ -42,9 +54,9 @@ func TestMigrateV80WidensLawSubjectsAndInvalidatesWatermark(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	last := migrations[79]
+	last := migrations[constitution]
 	if last.Version != 80 {
-		t.Fatalf("migration index 79 = %d, want 80", last.Version)
+		t.Fatalf("constitution migration version = %d, want 80", last.Version)
 	}
 	if err := applyMigration(ctx, db, last); err != nil {
 		t.Fatalf("apply migration 80: %v", err)

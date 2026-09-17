@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -359,6 +360,15 @@ func runZLForwarding(args []string, in io.Reader, out, errOut io.Writer) int {
 		}
 		prompt = strings.Join(args[2:], " ")
 	}
+	if issueKey, issueURL, ok := linearIssueReference(work); ok {
+		resolvedWork, resolvedProduct, err := resolveZLLinearReference(issueKey, issueURL)
+		if err != nil {
+			writeDiagnostic(errOut, "concord zl: "+err.Error())
+			return 1
+		}
+		work, product := resolvedWork, resolvedProduct
+		return launchForwardedSession(product, work, prompt, in, out, errOut)
+	}
 	product := os.Getenv(selectedProductEnv)
 	if product == "" {
 		product = os.Getenv("CONCORD_PRODUCT_ID")
@@ -372,6 +382,75 @@ func runZLForwarding(args []string, in io.Reader, out, errOut io.Writer) int {
 		product = resolved
 	}
 	return launchForwardedSession(product, work, prompt, in, out, errOut)
+}
+
+var linearIssueKeyPattern = regexp.MustCompile(`^[A-Z][A-Z0-9]*-[0-9]+$`)
+
+func linearIssueReference(reference string) (key, issueURL string, ok bool) {
+	reference = strings.TrimSpace(reference)
+	if linearIssueKeyPattern.MatchString(reference) {
+		return reference, "", true
+	}
+	parsed, err := url.Parse(reference)
+	if err != nil || parsed.Scheme != "https" || parsed.Hostname() != "linear.app" || parsed.User != nil {
+		return "", "", false
+	}
+	segments := strings.Split(strings.Trim(parsed.Path, "/"), "/")
+	for i := 0; i+1 < len(segments); i++ {
+		if strings.EqualFold(segments[i], "issue") && linearIssueKeyPattern.MatchString(segments[i+1]) {
+			return segments[i+1], reference, true
+		}
+	}
+	return "", "", false
+}
+
+func resolveZLLinearReference(issueKey, issueURL string) (string, string, error) {
+	path, err := databasePath()
+	if err != nil {
+		return "", "", err
+	}
+	if _, statErr := os.Stat(path); statErr != nil {
+		if os.IsNotExist(statErr) {
+			return "", "", errors.New("no authority database is available")
+		}
+		return "", "", fmt.Errorf("database path is unavailable: %w", statErr)
+	}
+	s, err := store.Open(context.Background(), path)
+	if err != nil {
+		return "", "", err
+	}
+	defer func() { _ = s.Close() }()
+	linked, err := s.ResolveLauncherLinearIssue(context.Background(), issueKey, issueURL)
+	if err == nil {
+		return linked.WorkID, linked.ProductID, nil
+	}
+	var failure *store.Failure
+	if !errors.As(err, &failure) || failure.Kind != store.KindUnknownScope {
+		return "", "", err
+	}
+	product := os.Getenv(selectedProductEnv)
+	if product == "" {
+		product = os.Getenv("CONCORD_PRODUCT_ID")
+	}
+	if product == "" {
+		return "", "", errors.New("an unlinked Linear issue requires CONCORD_PRODUCT_ID")
+	}
+	client, err := linearclient.FromEnv()
+	if err != nil {
+		return "", "", err
+	}
+	issue, err := client.GetIssue(context.Background(), issueKey)
+	if err != nil {
+		return "", "", err
+	}
+	work, err := s.EnsureLinearIssueWork(context.Background(), product, issue.ID, issue.Title, issue.Description)
+	if err != nil {
+		return "", "", err
+	}
+	if _, err := s.EnqueueLinearIssueAdoption(context.Background(), product, work, issue.ID); err != nil {
+		return "", "", err
+	}
+	return work, product, nil
 }
 
 func resolveForwardedProduct(work string) (string, error) {
@@ -394,7 +473,7 @@ func resolveForwardedProduct(work string) (string, error) {
 }
 
 func launchForwardedSession(product, work, prompt string, in io.Reader, out, errOut io.Writer) int {
-	cmd, err := bubbletea.SessionCommand(launcher.SessionHandoff{ProductID: product, WorkID: work, Prompt: prompt})
+	cmd, err := bubbletea.SessionCommand(launcher.SessionHandoff{ProductID: product, WorkID: work, Prompt: prompt, Agent: launcher.DefaultSessionAgent})
 	if err != nil {
 		writeDiagnostic(errOut, "concord zl: "+err.Error())
 		return 1

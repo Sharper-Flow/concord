@@ -25,7 +25,7 @@ func TestLinearAdoptionEnqueueAndDrainCLI(t *testing.T) {
 	var sawIssueQuery bool
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
-		sawIssueQuery = strings.Contains(string(body), `"query":"query($id: String!) { issue(id: $id) { id identifier url updatedAt state { type } team { id } } }"`)
+		sawIssueQuery = strings.Contains(string(body), `"query":"query($id: String!) { issue(id: $id) { id identifier url title description updatedAt state { type } team { id } } }"`)
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"data":{"issue":{"id":"cccccccc-0000-0000-0000-000000000003","identifier":"EX-3","url":"https://linear.app/example/issue/EX-3","updatedAt":"2026-09-16T00:00:00Z","team":{"id":"68d52710-76d9-4b41-ba45-778511d0e2ed"}}}}`))
 	}))

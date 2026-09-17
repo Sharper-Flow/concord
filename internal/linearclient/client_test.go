@@ -170,7 +170,7 @@ func TestGetIssueResolvesIdentityAndTeam(t *testing.T) {
 		_, _ = r.Body.Read(buf)
 		gotBody = string(buf)
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"data":{"issue":{"id":"68d52710-76d9-4b41-ba45-778511d0e2ed","identifier":"SHA-7","url":"https://linear.app/example/issue/SHA-7","updatedAt":"2026-09-15T08:00:00Z","state":{"type":"unstarted"},"team":{"id":"team-uuid-1"}}}}`))
+		_, _ = w.Write([]byte(`{"data":{"issue":{"id":"68d52710-76d9-4b41-ba45-778511d0e2ed","identifier":"SHA-7","url":"https://linear.app/example/issue/SHA-7","title":"Fetched title","description":"Fetched description","updatedAt":"2026-09-15T08:00:00Z","state":{"type":"unstarted"},"team":{"id":"team-uuid-1"}}}}`))
 	}))
 	defer server.Close()
 	client, err := New("lin_api_test", WithEndpoint(server.URL))
@@ -181,10 +181,10 @@ func TestGetIssueResolvesIdentityAndTeam(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetIssue() error = %v", err)
 	}
-	if !strings.Contains(gotBody, `"query":"query($id: String!) { issue(id: $id) { id identifier url updatedAt state { type } team { id } } }"`) {
+	if !strings.Contains(gotBody, `"query":"query($id: String!) { issue(id: $id) { id identifier url title description updatedAt state { type } team { id } } }"`) {
 		t.Fatalf("request body %q lacks the issue query", gotBody)
 	}
-	if resolved.ID != "68d52710-76d9-4b41-ba45-778511d0e2ed" || resolved.Identifier != "SHA-7" || resolved.TeamID != "team-uuid-1" || resolved.StateType != "unstarted" {
+	if resolved.ID != "68d52710-76d9-4b41-ba45-778511d0e2ed" || resolved.Identifier != "SHA-7" || resolved.Title != "Fetched title" || resolved.Description != "Fetched description" || resolved.TeamID != "team-uuid-1" || resolved.StateType != "unstarted" {
 		t.Fatalf("resolved issue = %+v", resolved.Issue)
 	}
 }

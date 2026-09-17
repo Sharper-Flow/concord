@@ -27,20 +27,21 @@ type LauncherBlocker struct {
 }
 
 type LauncherWork struct {
-	ID           string
-	Kind         string
-	Title        string
-	Lifecycle    string
-	Priority     int64
-	Urgency      string
-	CreatedAt    string
-	UpdatedAt    string
-	TerminalAt   string
-	ProjectCount int
-	Blocked      bool
-	Ready        bool
-	Terminal     bool
-	Blockers     []LauncherBlocker
+	ID             string
+	Kind           string
+	Title          string
+	LinearIssueKey string
+	Lifecycle      string
+	Priority       int64
+	Urgency        string
+	CreatedAt      string
+	UpdatedAt      string
+	TerminalAt     string
+	ProjectCount   int
+	Blocked        bool
+	Ready          bool
+	Terminal       bool
+	Blockers       []LauncherBlocker
 }
 
 type LauncherProductResult struct {
@@ -112,6 +113,36 @@ func (s *Store) ResolveLauncherWorkProduct(ctx context.Context, workID string) (
 		return "", wrapFailure(KindUnavailable, "launcher.forward", "cannot resolve work Product", true, "retry once the database is readable", err)
 	}
 	return productID, nil
+}
+
+// LauncherLinearIssue resolves a confirmed Linear issue link without a remote
+// read. The launcher uses the owning Product as the session scope.
+type LauncherLinearIssue struct {
+	WorkID    string
+	ProductID string
+}
+
+func (s *Store) ResolveLauncherLinearIssue(ctx context.Context, humanKey, issueURL string) (LauncherLinearIssue, error) {
+	tx, err := beginRead(ctx, s, "launcher.forward")
+	if err != nil {
+		return LauncherLinearIssue{}, err
+	}
+	defer tx.Rollback()
+	var resolved LauncherLinearIssue
+	err = tx.QueryRowContext(ctx, `SELECT l.work_id, pp.product_id
+		FROM linear_issue_links l
+		JOIN work_projects wp ON wp.work_id=l.work_id
+		JOIN product_projects pp ON pp.project_id=wp.project_id
+		WHERE l.link_state='confirmed' AND (l.human_key=? OR l.url=?)
+		ORDER BY pp.product_id
+		LIMIT 1`, humanKey, issueURL).Scan(&resolved.WorkID, &resolved.ProductID)
+	if err == sql.ErrNoRows {
+		return LauncherLinearIssue{}, unknownScope("launcher.forward", "Linear issue is not linked to a work")
+	}
+	if err != nil {
+		return LauncherLinearIssue{}, wrapFailure(KindUnavailable, "launcher.forward", "cannot resolve Linear issue link", true, "retry once the database is readable", err)
+	}
+	return resolved, nil
 }
 
 func (s *Store) QueryLauncherSearch(ctx context.Context, req LauncherSearchRequest) (LauncherSearchResult, error) {
@@ -280,10 +311,10 @@ func (s *Store) QueryLauncherProduct(ctx context.Context, req LauncherProductReq
 	if _, err := readProduct(ctx, tx, req.Product); err != nil {
 		return out, err
 	}
-	q := `SELECT w.id,w.kind,w.title,w.lifecycle,w.priority,w.urgency,w.created_at,w.updated_at,
+	q := `SELECT w.id,w.kind,w.title,COALESCE(l.human_key,''),w.lifecycle,w.priority,w.urgency,w.created_at,w.updated_at,
 		(SELECT count(DISTINCT wp2.project_id) FROM work_projects wp2 JOIN product_projects pp2 ON pp2.project_id=wp2.project_id WHERE wp2.work_id=w.id AND pp2.product_id=?),
 		EXISTS (SELECT 1 FROM relations br JOIN work_items b ON b.id=br.work_id_from WHERE br.work_id_to=w.id AND br.kind='blocks' AND b.lifecycle IN ('needed','in_progress'))
-		FROM work_items w WHERE EXISTS (SELECT 1 FROM work_projects wp JOIN product_projects pp ON pp.project_id=wp.project_id WHERE wp.work_id=w.id AND pp.product_id=? AND w.lifecycle IN ('needed','in_progress'))
+		FROM work_items w LEFT JOIN linear_issue_links l ON l.work_id=w.id AND l.link_state='confirmed' WHERE EXISTS (SELECT 1 FROM work_projects wp JOIN product_projects pp ON pp.project_id=wp.project_id WHERE wp.work_id=w.id AND pp.product_id=? AND w.lifecycle IN ('needed','in_progress'))
 		ORDER BY w.urgency ASC,w.priority,w.created_at DESC,w.id LIMIT ?`
 	rows, err := tx.QueryContext(ctx, q, req.Product, req.Product, limit+1)
 	if err != nil {
@@ -291,7 +322,7 @@ func (s *Store) QueryLauncherProduct(ctx context.Context, req LauncherProductReq
 	}
 	for rows.Next() {
 		var item LauncherWork
-		if err := rows.Scan(&item.ID, &item.Kind, &item.Title, &item.Lifecycle, &item.Priority, &item.Urgency, &item.CreatedAt, &item.UpdatedAt, &item.ProjectCount, &item.Blocked); err != nil {
+		if err := rows.Scan(&item.ID, &item.Kind, &item.Title, &item.LinearIssueKey, &item.Lifecycle, &item.Priority, &item.Urgency, &item.CreatedAt, &item.UpdatedAt, &item.ProjectCount, &item.Blocked); err != nil {
 			rows.Close()
 			return out, err
 		}
@@ -311,16 +342,16 @@ func (s *Store) QueryLauncherProduct(ctx context.Context, req LauncherProductReq
 	// The completed-history drill-down segment. It is one grouped read in the
 	// same transaction, not a per-work fan-out, and readiness is not computed
 	// for terminal items: their marker is the terminal state itself.
-	trows, err := tx.QueryContext(ctx, `SELECT w.id,w.kind,w.title,w.lifecycle,w.priority,w.urgency,w.created_at,w.updated_at,coalesce(w.terminal_time,''),
+	trows, err := tx.QueryContext(ctx, `SELECT w.id,w.kind,w.title,COALESCE(l.human_key,''),w.lifecycle,w.priority,w.urgency,w.created_at,w.updated_at,coalesce(w.terminal_time,''),
 		(SELECT count(DISTINCT wp2.project_id) FROM work_projects wp2 JOIN product_projects pp2 ON pp2.project_id=wp2.project_id WHERE wp2.work_id=w.id AND pp2.product_id=?)
-		FROM work_items w WHERE EXISTS (SELECT 1 FROM work_projects wp JOIN product_projects pp ON pp.project_id=wp.project_id WHERE wp.work_id=w.id AND pp.product_id=? AND w.lifecycle IN ('completed','cancelled','superseded'))
+		FROM work_items w LEFT JOIN linear_issue_links l ON l.work_id=w.id AND l.link_state='confirmed' WHERE EXISTS (SELECT 1 FROM work_projects wp JOIN product_projects pp ON pp.project_id=wp.project_id WHERE wp.work_id=w.id AND pp.product_id=? AND w.lifecycle IN ('completed','cancelled','superseded'))
 		ORDER BY w.terminal_time DESC,w.id LIMIT ?`, req.Product, req.Product, limit+1)
 	if err != nil {
 		return out, wrapFailure(KindUnavailable, "launcher.product", "cannot read Product terminal work", true, "retry once the database is readable", err)
 	}
 	for trows.Next() {
 		var item LauncherWork
-		if err := trows.Scan(&item.ID, &item.Kind, &item.Title, &item.Lifecycle, &item.Priority, &item.Urgency, &item.CreatedAt, &item.UpdatedAt, &item.TerminalAt, &item.ProjectCount); err != nil {
+		if err := trows.Scan(&item.ID, &item.Kind, &item.Title, &item.LinearIssueKey, &item.Lifecycle, &item.Priority, &item.Urgency, &item.CreatedAt, &item.UpdatedAt, &item.TerminalAt, &item.ProjectCount); err != nil {
 			trows.Close()
 			return out, err
 		}

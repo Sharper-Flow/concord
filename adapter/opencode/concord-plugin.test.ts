@@ -93,7 +93,7 @@ describe("plugin entry registers the dispatch window hook", () => {
       get: async () => ({ data: { id: "session-plugin", directory: process.cwd() }, response: new Response(null, { status: 200 }) }),
       post: async () => { throw new Error("Task admission cannot write host state") },
     })
-    dispatchWindows().open("session-plugin", packet, "", undefined, process.cwd())
+    dispatchWindows().open("session-plugin", packet, "", process.cwd())
     const output = { args: { subagent_type: "general", prompt: "whatever I like", task_id: "old" } }
     await plugin["tool.execute.before"]({ tool: TASK_TOOL_ID, sessionID: "session-plugin", callID: "call-1" }, output)
 

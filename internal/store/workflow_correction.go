@@ -622,7 +622,7 @@ func validateWorkerPacketCorrection(ctx context.Context, q queryer, workID, curr
 }
 
 func sameWorkflowCorrection(left, right *WorkflowCorrectionContext) bool {
-	return left.Disposition == right.Disposition && left.AttemptCount == right.AttemptCount && left.AttemptLimit == right.AttemptLimit && left.Escalated == right.Escalated && left.Diagnosis == right.Diagnosis && left.Strategy == right.Strategy && sameCorrectionStrings(left.PredicateIDs, right.PredicateIDs) && sameCorrectionStrings(left.EvidenceRefs, right.EvidenceRefs)
+	return left.Disposition == right.Disposition && left.AttemptCount == right.AttemptCount && left.AttemptLimit == right.AttemptLimit && left.Escalated == right.Escalated && left.Diagnosis == right.Diagnosis && left.Strategy == right.Strategy && left.FailureKind == right.FailureKind && left.FailureDetail == right.FailureDetail && sameCorrectionStrings(left.PredicateIDs, right.PredicateIDs) && sameCorrectionStrings(left.EvidenceRefs, right.EvidenceRefs)
 }
 
 func sameCorrectionStrings(left, right []string) bool {

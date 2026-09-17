@@ -31,6 +31,8 @@
             "escalated": {"type": "boolean"},
             "diagnosis": {"type": "string", "minLength": 1, "maxLength": 4096},
             "strategy": {"type": "string", "minLength": 1, "maxLength": 4096},
+            "failure_kind": {"type": "string", "minLength": 1, "maxLength": 64},
+            "failure_detail": {"type": "string", "minLength": 1, "maxLength": 4096},
             "predicate_ids": {"type": "array", "minItems": 0, "maxItems": 8, "items": {"type": "string", "minLength": 1, "maxLength": 128}},
             "evidence_refs": {"type": "array", "minItems": 0, "maxItems": 32, "items": {"type": "string", "minLength": 1, "maxLength": 256}}
           }

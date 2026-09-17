@@ -10,6 +10,26 @@ import (
 	"time"
 )
 
+func TestSameWorkflowCorrectionIncludesFailureDetails(t *testing.T) {
+	base := &WorkflowCorrectionContext{
+		Disposition: "failed", AttemptCount: 1, AttemptLimit: 3, Diagnosis: "diagnosis", Strategy: "strategy",
+		PredicateIDs: []string{"predicate:test"}, EvidenceRefs: []string{"evidence:test"},
+	}
+	for name, mutate := range map[string]func(*WorkflowCorrectionContext){
+		"failure kind":   func(value *WorkflowCorrectionContext) { value.FailureKind = "transport_failure" },
+		"failure detail": func(value *WorkflowCorrectionContext) { value.FailureDetail = "worker could not reach the service" },
+	} {
+		t.Run(name, func(t *testing.T) {
+			left := *base
+			right := *base
+			mutate(&right)
+			if sameWorkflowCorrection(&left, &right) {
+				t.Fatalf("sameWorkflowCorrection treated %s as equal", name)
+			}
+		})
+	}
+}
+
 // issue1013SuccessorContract is a complete recovery payload: the correction
 // replaces the wrong subject the pinned contract named with the delivered one.
 func issue1013SuccessorContract() json.RawMessage {
@@ -257,7 +277,7 @@ func TestRejectWorkerResultRecordsCorrectionContext(t *testing.T) {
 	correction := pin.Correction
 	correctionPayload := map[string]any{
 		"disposition": correction.Disposition, "attempt_count": correction.AttemptCount, "attempt_limit": correction.AttemptLimit, "escalated": correction.Escalated,
-		"diagnosis": correction.Diagnosis, "strategy": correction.Strategy, "predicate_ids": correction.PredicateIDs, "evidence_refs": correction.EvidenceRefs,
+		"diagnosis": correction.Diagnosis, "strategy": correction.Strategy, "failure_kind": correction.FailureKind, "failure_detail": correction.FailureDetail, "predicate_ids": correction.PredicateIDs, "evidence_refs": correction.EvidenceRefs,
 	}
 	packet := dispatchWorkerPacket(workID, "execution", "attempt:fresh-"+workID)
 	packet["inputs"].(map[string]any)["correction"] = correctionPayload
@@ -496,7 +516,7 @@ func issue1013CorrectionDispatchPayload(t *testing.T, workID, stepID, attemptID 
 	packet := dispatchWorkerPacket(workID, stepID, attemptID)
 	packet["inputs"].(map[string]any)["correction"] = map[string]any{
 		"disposition": correction.Disposition, "attempt_count": correction.AttemptCount, "attempt_limit": correction.AttemptLimit, "escalated": correction.Escalated,
-		"diagnosis": correction.Diagnosis, "strategy": correction.Strategy, "predicate_ids": correction.PredicateIDs, "evidence_refs": correction.EvidenceRefs,
+		"diagnosis": correction.Diagnosis, "strategy": correction.Strategy, "failure_kind": correction.FailureKind, "failure_detail": correction.FailureDetail, "predicate_ids": correction.PredicateIDs, "evidence_refs": correction.EvidenceRefs,
 	}
 	packetPayload, err := json.Marshal(packet)
 	if err != nil {

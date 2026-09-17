@@ -474,7 +474,15 @@ func workflowSuccessorFamily(ctx context.Context, tx *sql.Tx, source WorkflowDef
 	return successorKind, pin.Ref, nil
 }
 
+// workflowActionEvidenceRefs merges the operation's evidence locators with the
+// refs an action derives from its own payload, and returns that merge as a set.
+// An evidence array may legally name one locator twice, once per evidence kind
+// — a pull request is both the commit and the review evidence — and the stored
+// result_evidence_refs records each subject once. Every derived ref below is
+// appended through a contains guard, so normalizing the request's own refs here
+// makes the whole merged list a set.
 func workflowActionEvidenceRefs(request WorkflowActionExecutionRequest, payload json.RawMessage) ([]string, bool, error) {
+	request.EvidenceRefs = dedupeWorkflowRefs(request.EvidenceRefs)
 	if request.ActionID == "complete" {
 		fields, err := workflowActionObject(payload)
 		if err != nil {
@@ -482,7 +490,7 @@ func workflowActionEvidenceRefs(request WorkflowActionExecutionRequest, payload 
 		}
 		refs := append([]string(nil), request.EvidenceRefs...)
 		if len(refs) == 0 {
-			refs = workflowFieldStrings(fields, "evidence_refs")
+			refs = dedupeWorkflowRefs(workflowFieldStrings(fields, "evidence_refs"))
 		}
 		return refs, false, nil
 	}
@@ -542,6 +550,25 @@ func workflowActionEvidenceRefs(request WorkflowActionExecutionRequest, payload 
 		return append([]string(nil), request.EvidenceRefs...), false, nil
 	}
 	return []string{"evidence:" + request.OperationID}, true, nil
+}
+
+// dedupeWorkflowRefs keeps the first occurrence of each reference and preserves
+// order, so the merged evidence list stays a set without reordering the refs a
+// caller supplied.
+func dedupeWorkflowRefs(values []string) []string {
+	if len(values) < 2 {
+		return values
+	}
+	seen := make(map[string]bool, len(values))
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		if seen[value] {
+			continue
+		}
+		seen[value] = true
+		out = append(out, value)
+	}
+	return out
 }
 
 // workflowSemanticActionEvents constructs only typed, foldable events. Empty

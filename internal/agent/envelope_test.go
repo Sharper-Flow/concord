@@ -345,6 +345,26 @@ func TestOperationPayloadValidationUsesGeneratedClosedSchemas(t *testing.T) {
 	}
 }
 
+func TestOperationPayloadValidationNamesSiblingOperationForUnknownField(t *testing.T) {
+	t.Parallel()
+	for _, testCase := range []struct {
+		tool, operation, payload, owner string
+	}{
+		{"concord_work_browse", "scope", `{"product_id":"p-1","detail":"summary"}`, "concord_work_browse.list"},
+		{"concord_work_transition", "workflow_action", `{"work_id":"w-1","expected_version":1,"action_id":"do_work","idempotency_key":"i-1","actor":"actor-1"}`, "concord_work_transition.remove"},
+	} {
+		t.Run(testCase.tool+"."+testCase.operation, func(t *testing.T) {
+			err := ValidateOperationPayload(testCase.tool, testCase.operation, []byte(testCase.payload), false)
+			if err == nil {
+				t.Fatal("unknown sibling operation field accepted")
+			}
+			if !strings.Contains(err.Error(), testCase.owner) {
+				t.Fatalf("unknown field error = %q, want owning operation", err)
+			}
+		})
+	}
+}
+
 func TestMutationResultProducerAcceptsCanonicalPayload(t *testing.T) {
 	t.Parallel()
 	for _, operation := range []struct{ tool, operation string }{

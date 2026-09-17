@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -523,6 +524,45 @@ func workflowBase(event Event, fields WorkflowVersionFields) error {
 }
 
 func workflowString(value string, max int) bool { return len(value) >= 2 && len(value) <= max }
+
+// workflowEvidenceRef bounds one evidence reference. An entry of this kind
+// carries a declared evidence locator or immutable subject ref, which the tool
+// surface admits at 1 to 2048 bytes, so the 2-to-128 reference bound that
+// governs work ids and touched refs does not apply to it.
+func workflowEvidenceRef(value string) bool { return len(value) >= 1 && len(value) <= 2048 }
+
+// workflowEvidenceRefsFault names the entry that fails the evidence reference
+// bound, and returns the empty string when the list holds. A caller correcting
+// the call learns which locator to change instead of learning only that some
+// field of the payload was wrong. The list is a set: workflowActionEvidenceRefs
+// normalizes the merged refs before the event is written, so a duplicate here
+// is a projection fault rather than ordinary caller input.
+func workflowEvidenceRefsFault(values []string, max, min int) string {
+	if len(values) < min || len(values) > max {
+		return fmt.Sprintf("the list holds %d references and the bound is %d to %d", len(values), min, max)
+	}
+	seen := make(map[string]bool, len(values))
+	for _, value := range values {
+		if !workflowEvidenceRef(value) {
+			return fmt.Sprintf("entry %s is %d bytes and the declared evidence locator bound is 1 to 2048", workflowRefExcerpt(value), len(value))
+		}
+		if seen[value] {
+			return fmt.Sprintf("entry %s is named twice", workflowRefExcerpt(value))
+		}
+		seen[value] = true
+	}
+	return ""
+}
+
+// workflowRefExcerpt renders a reference for a refusal message. A locator runs
+// to 2048 bytes, and the refusal has to stay readable, so a long value is cut.
+func workflowRefExcerpt(value string) string {
+	const limit = 96
+	if len(value) <= limit {
+		return strconv.Quote(value)
+	}
+	return strconv.Quote(value[:limit]) + "..."
+}
 func workflowList(values []string, max, min int) bool {
 	if len(values) < min || len(values) > max {
 		return false
@@ -1634,7 +1674,10 @@ func foldWorkflowContextBoundaryCrossed(ctx context.Context, tx *sql.Tx, event E
 // worker_attempt_id belongs to the worker result actions and to dispatch_worker
 // alone, and a rejected result carries its full correction record or none.
 func validateWorkflowActionCompletedShape(p workflowActionCompletedPayload) error {
-	if (p.ActionID != "" && !workflowString(p.ActionID, 128)) || !workflowString(p.StepID, 128) || p.AttemptEpoch <= 0 || p.AttemptEpoch > 2147483647 || (p.WorkerAttemptID != "" && !workflowString(p.WorkerAttemptID, 128)) || !workflowList(p.ResultEvidenceRefs, 32, 0) || !workflowList(p.ChangedRefs, 32, 0) {
+	if fault := workflowEvidenceRefsFault(p.ResultEvidenceRefs, 32, 0); fault != "" {
+		return newFailure(KindInvalidPayload, "fold_event", "action_completed result_evidence_refs is invalid: "+fault, false, "correct the named evidence locator")
+	}
+	if (p.ActionID != "" && !workflowString(p.ActionID, 128)) || !workflowString(p.StepID, 128) || p.AttemptEpoch <= 0 || p.AttemptEpoch > 2147483647 || (p.WorkerAttemptID != "" && !workflowString(p.WorkerAttemptID, 128)) || !workflowList(p.ChangedRefs, 32, 0) {
 		return newFailure(KindInvalidPayload, "fold_event", "action_completed has invalid result fields", false, "supply bounded action result references")
 	}
 	if p.ActionID != "accept_worker_result" && p.ActionID != "record_worker_failure" && p.ActionID != "reject_worker_result" && p.ActionID != "dispatch_worker" && p.WorkerAttemptID != "" {
@@ -2118,7 +2161,7 @@ func foldWorkflowEvidenceBound(ctx context.Context, tx *sql.Tx, event Event) err
 	if err := workflowBase(event, p.WorkflowVersionFields); err != nil {
 		return err
 	}
-	if !contains([]string{"verification", "review", "approval", "commit", "durable_note", "native_run", "artifact"}, p.EvidenceKind) || !workflowString(p.ImmutableSubjectRef, 256) || !workflowString(p.ProducerID, 128) || !workflowString(p.ProducerRunRef, 128) || !workflowString(p.ProducerWatermark, 128) || p.ObservedAt == "" {
+	if !contains([]string{"verification", "review", "approval", "commit", "durable_note", "native_run", "artifact"}, p.EvidenceKind) || !workflowEvidenceRef(p.ImmutableSubjectRef) || !workflowString(p.ProducerID, 128) || !workflowString(p.ProducerRunRef, 128) || !workflowString(p.ProducerWatermark, 128) || p.ObservedAt == "" {
 		return newFailure(KindInvalidPayload, "fold_event", "evidence_bound has invalid evidence identity", false, "supply a complete immutable evidence binding")
 	}
 	var authoritative int

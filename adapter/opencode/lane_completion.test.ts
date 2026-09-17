@@ -265,14 +265,14 @@ describe("completeDispatchedWorker", () => {
     expect(output.output).toContain("live host sessions could not be observed")
   })
 
-  test("adds the dispatch WorkPin state line to the lane report", async () => {
+  test("does not add a WorkPin state line to the lane report", async () => {
     const windows = new DispatchWindows()
     windows.open(SESSION, packet(), PACKET_DIGEST, [workPin], process.cwd())
     await windows.bind(TASK_TOOL_ID, SESSION, {}, undefined, async () => process.cwd())
     const verbs: string[] = []
     const output = { title: "verify lane", output: taskWrap(JSON.stringify(report())), metadata: {} }
     await completeDispatchedWorker({ tool: TASK_TOOL_ID, sessionID: SESSION, callID: "call-1", args: {} }, output, deps(verbs, windows))
-    expect(output.output).toContain("◆ CONCORD WORK STATE | work-1 | title=Repair the adapter | version=4 | lifecycle=in_progress | step=repair | decision=none")
+    expect(output.output).not.toContain("◆ CONCORD WORK STATE")
   })
 
   test("a failed report records worker-fail and surfaces the refusal on the tool output", async () => {

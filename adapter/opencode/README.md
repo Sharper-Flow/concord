@@ -160,26 +160,27 @@ cannot persist or read scope, the affected operation refuses instead of
 starting unmanaged work. The host must support session metadata through its
 documented session API.
 
-### Operator work-state line
+### Operator work-state tab
 
-The adapter uses one glyph-signed line for every successful mutation result that
-carries a `WorkPin`. The line is rendered from the returned post-state pin, not
-from request fields or a second database read:
+The adapter renames the zellij tab for every successful mutation result that
+carries a `WorkPin`. The name uses the returned post-state pin, not request
+fields or a second database read:
 
 ```text
-◆ CONCORD WORK STATE | work-1 | title=Repair the adapter | version=4 | lifecycle=in_progress | step=repair | decision=none
+Concord | CON-42 | execution
 ```
 
-When `pending_operator_decision` is present, `decision` is
-`pending:<action_id>`. The fixed field order is `work`, `version`, `lifecycle`,
-`workflow`, `step`, and `decision`; the renderer emits no control bytes.
-The session-start gate brief uses the same `◆ CONCORD` prefix and fixed field
-separators. The adapter uses the same line in mutation toasts, lane reports, and
-the continuity block that supplies agent chat context.
-The plugin also appends pending lines to the completed assistant text part, so
-the transcript keeps every transition when a toast expires or is replaced.
+The tab mapping reads `ZELLIJ_PANE_ID` from `zellij action list-panes -a -j`,
+then calls `zellij action rename-tab-by-id` with the matching `tab_id`. The
+adapter caches the mapping briefly per session and strips control bytes and
+pipe characters from the name.
 
-When a mutation completes a work item, the adapter also appends a closure receipt
+The adapter does not write the work-state name to mutation toasts, lane
+reports, system prompts, or completed assistant text. A closure receipt stays
+in the operator channel because it carries evidence locators that a `WorkPin`
+does not hold.
+
+When a mutation completes a work item, the adapter also shows a closure receipt
 with the WorkPin identity, title, bound evidence locators, and `release=pending`.
 The release value stays pending because publication occurs after completion.
 

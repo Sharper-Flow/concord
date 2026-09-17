@@ -87,7 +87,7 @@ func seedWork(t *testing.T, s *Store, id string) {
 		Events: []Event{
 			workCreatedEvent(id, "create-"+id),
 			operationEvent("membership-"+id, "work_project.added", SubjectWorkItem, id, map[string]any{
-				"work_id": id, "project_id": "project", "role": "secondary", "reason": "test",
+				"work_id": id, "project_id": "project", "role": "primary", "reason": "test",
 				"expected_version": 1, "resulting_version": 2,
 			}),
 		},

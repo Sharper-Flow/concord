@@ -1,10 +1,13 @@
-import { expect, test } from "bun:test"
-import { appendPendingWorkStateLines, createPendingWorkStateLineBuffer, createWorkStateReporter, formatGateBrief, formatWorkClosureReceipt, formatWorkStateLine, workStateLines } from "./workflow-status"
+import { afterEach, expect, test } from "bun:test"
+import { createWorkStateReporter, formatGateBrief, formatWorkClosureReceipt, formatWorkTabName } from "./workflow-status"
+import { hostControlPlane } from "./move-session"
 
 const pin = {
   work_id: "work-1",
   title: "Repair the adapter",
   linear_issue_key: "",
+  project_id: "project-1",
+  project_display_name: "Concord",
   version: 4,
   lifecycle: "in_progress",
   workflow_type: "workflow.break_fix",
@@ -12,18 +15,28 @@ const pin = {
   pending_operator_decision: null,
 }
 
-test("formats the fixed WorkPin state line", () => {
-  expect(formatWorkStateLine(pin)).toBe("◆ CONCORD WORK STATE | work-1 | title=Repair the adapter | version=4 | lifecycle=in_progress | step=repair | decision=none")
-  expect(formatWorkStateLine({ ...pin, linear_issue_key: "CON-42" })).toContain("◆ CONCORD WORK STATE | CON-42 | title=Repair the adapter")
-  expect(formatWorkStateLine({ ...pin, title: "bad|title\nwith control" })).toContain("title=bad title with control")
-  expect(formatWorkStateLine({ ...pin, title: "x".repeat(65) })).toContain(`title=${"x".repeat(63)}…`)
-  expect(formatWorkStateLine({ ...pin, pending_operator_decision: { action_id: "approve-repair" } })).toContain("decision=pending:approve-repair")
+afterEach(() => {
+  delete process.env.ZELLIJ_PANE_ID
+  hostControlPlane().bind(undefined)
 })
 
-test("rejects an incomplete or unsafe WorkPin", () => {
-  expect(formatWorkStateLine({ ...pin, version: 0 })).toBeNull()
-  expect(formatWorkStateLine({ ...pin, step: "repair|unsafe" })).toBeNull()
-  expect(formatWorkStateLine({ ...pin, pending_operator_decision: {} })).toBeNull()
+function response(status = 200): Response {
+  return new Response(null, { status })
+}
+
+test("formats a bounded WorkPin tab name", () => {
+  expect(formatWorkTabName(pin)).toBe("Concord | 1 | repair")
+  expect(formatWorkTabName({ ...pin, project_id: "", project_display_name: "" })).toBe("1 | repair")
+  expect(formatWorkTabName({ ...pin, linear_issue_key: "CON-42" })).toBe("Concord | CON-42 | repair")
+  expect(formatWorkTabName({ ...pin, project_display_name: "bad|name\nwith control" })).toBe("badnamewith control | 1 | repair")
+  expect(formatWorkTabName({ ...pin, linear_issue_key: "CON\u0085-42", step: "repair|verify" })).toBe("Concord | CON-42 | repairverify")
+  expect([...formatWorkTabName({ ...pin, project_display_name: "x".repeat(100) })!]).toHaveLength(64)
+})
+
+test("rejects an incomplete WorkPin tab name", () => {
+  expect(formatWorkTabName({ ...pin, project_id: undefined })).toBeNull()
+  expect(formatWorkTabName({ ...pin, project_display_name: "\u0000" })).toBe("1 | repair")
+  expect(formatWorkTabName({ ...pin, step: "|" })).toBeNull()
 })
 
 test("formats a completed WorkPin as a closure receipt", () => {
@@ -31,110 +44,47 @@ test("formats a completed WorkPin as a closure receipt", () => {
   const envelope = { outcome: "ok", evidence_refs: [{ kind: "commit", authority: "git", locator_kind: "commit", locator: "commit:abc123" }] }
   expect(formatWorkClosureReceipt(completed, envelope)).toBe("◆ CONCORD WORK CLOSURE | work-1 | title=Repair the adapter | release=pending | evidence=commit:abc123")
   expect(formatWorkClosureReceipt(pin, envelope)).toBeNull()
-  expect(formatWorkClosureReceipt(completed, { outcome: "ok", evidence_refs: [] })).toBeNull()
 })
 
-test("renders every mutation WorkPin in stable order", () => {
-  const second = { ...pin, work_id: "work-2", version: 5, step: "verify" }
-  expect(workStateLines({ outcome: "ok", result: { work_pins: [second, pin] } })).toEqual([
-    "◆ CONCORD WORK STATE | work-1 | title=Repair the adapter | version=4 | lifecycle=in_progress | step=repair | decision=none",
-    "◆ CONCORD WORK STATE | work-2 | title=Repair the adapter | version=5 | lifecycle=in_progress | step=verify | decision=none",
-  ])
-  expect(workStateLines({ outcome: "ok", result: { work_pins: [pin, { ...pin, step: "unsafe|step" }] } })).toEqual([])
-})
-
-test("reports one toast for each mutation result", async () => {
-  const messages: string[] = []
-  const context = { sessionID: "session-toast", abort: new AbortController().signal }
-  const reporter = createWorkStateReporter(async (message) => { messages.push(message); return true })
-  await reporter.report({ outcome: "ok", result: { work_pins: [pin] } }, context)
-  await reporter.report({ outcome: "ok", result: { work_pins: [pin] } }, context)
-  expect(messages).toHaveLength(2)
-  expect(messages[0]).toContain("◆ CONCORD WORK STATE")
-})
-
-test("buffers lines per session and appends them to completed text", async () => {
+test("renames the tab mapped from the session pane", async () => {
+  process.env.ZELLIJ_PANE_ID = "42"
+  const calls: string[][] = []
+  const runner = { async run(argv: string[]) {
+    calls.push(argv)
+    if (argv[2] === "list-panes") return { exitCode: 0, stdout: JSON.stringify([{ id: 42, is_plugin: false, tab_id: 21 }, { id: 99, is_plugin: false, tab_id: 30 }]), stderr: "" }
+    return { exitCode: 0, stdout: "", stderr: "" }
+  } }
+  const reporter = createWorkStateReporter({ runner })
   const context = { sessionID: "session-1", abort: new AbortController().signal }
-  const reporter = createWorkStateReporter(async () => true)
   await reporter.report({ outcome: "ok", result: { work_pins: [pin] } }, context)
-
-  expect(appendPendingWorkStateLines("session-2", "assistant text")).toBe("assistant text")
-  expect(appendPendingWorkStateLines("session-1", "assistant text")).toBe(
-    "assistant text\n◆ CONCORD WORK STATE | work-1 | title=Repair the adapter | version=4 | lifecycle=in_progress | step=repair | decision=none",
-  )
-  expect(appendPendingWorkStateLines("session-1", "next text")).toBe("next text")
+  await reporter.report({ outcome: "ok", result: { work_pins: [{ ...pin, step: "verify" }] } }, context)
+  expect(calls).toEqual([
+    ["zellij", "action", "list-panes", "-a", "-j"],
+    ["zellij", "action", "rename-tab-by-id", "21", "Concord | 1 | repair"],
+    ["zellij", "action", "rename-tab-by-id", "21", "Concord | 1 | verify"],
+  ])
 })
 
-test("appends a completed receipt with the state line to the transcript", async () => {
-  const context = { sessionID: "session-closure", abort: new AbortController().signal }
-  const reporter = createWorkStateReporter(async () => true)
+test("keeps a closure receipt in the operator channel", async () => {
+  process.env.ZELLIJ_PANE_ID = "42"
+  const messages: string[] = []
+  hostControlPlane().bind({
+    get: async () => ({ response: response(), data: {} }),
+    post: async ({ body }) => { messages.push(String((body as { message: string }).message)); return { response: response(204) } },
+  })
+  const reporter = createWorkStateReporter({ runner: { async run() { return { exitCode: 0, stdout: JSON.stringify([{ id: 42, is_plugin: false, tab_id: 21 }]), stderr: "" } } } })
   await reporter.report({
     outcome: "ok",
     evidence_refs: [{ kind: "pull_request", authority: "github", locator_kind: "url", locator: "https://github.com/example/repo/pull/7" }],
     result: { work_pins: [{ ...pin, lifecycle: "completed", step: "complete" }] },
-  }, context)
-
-  expect(appendPendingWorkStateLines("session-closure", "assistant text")).toBe(
-    "assistant text\n◆ CONCORD WORK STATE | work-1 | title=Repair the adapter | version=4 | lifecycle=completed | step=complete | decision=none\n◆ CONCORD WORK CLOSURE | work-1 | title=Repair the adapter | release=pending | evidence=https://github.com/example/repo/pull/7",
-  )
+  }, { sessionID: "session-closure", abort: new AbortController().signal })
+  expect(messages).toEqual(["◆ CONCORD WORK CLOSURE | work-1 | title=Repair the adapter | release=pending | evidence=https://github.com/example/repo/pull/7"])
 })
 
-test("keeps one closure receipt for each completed WorkPin", async () => {
-  const context = { sessionID: "session-closures", abort: new AbortController().signal }
-  const reporter = createWorkStateReporter(async () => true)
-  const evidence_refs = [{ kind: "commit", authority: "git", locator_kind: "commit", locator: "commit:abc123" }]
-  await reporter.report({
-    outcome: "ok",
-    evidence_refs,
-    result: { work_pins: [
-      { ...pin, work_id: "work-1", lifecycle: "completed", step: "complete" },
-      { ...pin, work_id: "work-2", lifecycle: "completed", step: "complete" },
-    ] },
-  }, context)
-
-  const text = appendPendingWorkStateLines("session-closures", "")
-  expect(text.match(/◆ CONCORD WORK CLOSURE/g)).toHaveLength(2)
-  expect(text).toContain("◆ CONCORD WORK CLOSURE | work-1")
-  expect(text).toContain("◆ CONCORD WORK CLOSURE | work-2")
-})
-
-test("keeps a bounded pending buffer and drains one line", () => {
-  const buffer = createPendingWorkStateLineBuffer()
-  buffer.append("session-1", Array.from({ length: 129 }, (_, index) => ({ work_id: `work-${index}`, line: `line-${index}` })))
-  expect(buffer.drain("session-1")).toEqual(["line-128"])
-  expect(buffer.drain("session-1")).toEqual([])
-})
-
-test("emits one line for the session work item a turn touches most", async () => {
-  const context = { sessionID: "session-many", abort: new AbortController().signal }
-  const reporter = createWorkStateReporter(async () => true)
-  const peer = (index: number) => ({ ...pin, work_id: `peer-${index}`, version: 9 })
-  // A turn that resolves twenty overlaps records the session item in every
-  // mutation and each peer once.
-  for (let index = 0; index < 20; index += 1) {
-    await reporter.report({ outcome: "ok", result: { work_pins: [pin, peer(index)] } }, context)
-  }
-
-  const text = appendPendingWorkStateLines("session-many", "assistant text")
-  expect(text.split("\n").filter((line) => line.startsWith("◆ CONCORD WORK STATE"))).toEqual([
-    "◆ CONCORD WORK STATE | work-1 | title=Repair the adapter | version=4 | lifecycle=in_progress | step=repair | decision=none",
-  ])
-})
-
-test("prefers the launcher-selected work item over the turn count", async () => {
-  const context = { sessionID: "session-selected", abort: new AbortController().signal }
-  const reporter = createWorkStateReporter(async () => true)
-  process.env.CONCORD_SELECTED_WORK_ID = "work-2"
-  try {
-    const selected = { ...pin, work_id: "work-2", version: 5, step: "verify" }
-    await reporter.report({ outcome: "ok", result: { work_pins: [pin, selected] } }, context)
-    await reporter.report({ outcome: "ok", result: { work_pins: [pin] } }, context)
-    expect(appendPendingWorkStateLines("session-selected", "")).toBe(
-      "◆ CONCORD WORK STATE | work-2 | title=Repair the adapter | version=5 | lifecycle=in_progress | step=verify | decision=none",
-    )
-  } finally {
-    delete process.env.CONCORD_SELECTED_WORK_ID
-  }
+test("keeps tab rename failure best effort", async () => {
+  process.env.ZELLIJ_PANE_ID = "42"
+  const reporter = createWorkStateReporter({ runner: { async run() { throw new Error("zellij is absent") } } })
+  await expect(reporter.report({ outcome: "ok", result: { work_pins: [pin] } }, { sessionID: "session-failure", abort: new AbortController().signal })).resolves.toBeUndefined()
 })
 
 test("formats the gate brief from focused portfolio rows", () => {

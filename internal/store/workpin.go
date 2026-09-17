@@ -13,6 +13,8 @@ type WorkPin struct {
 	WorkID                  string                    `json:"work_id"`
 	Title                   string                    `json:"title"`
 	LinearIssueKey          string                    `json:"linear_issue_key"`
+	ProjectID               string                    `json:"project_id"`
+	ProjectDisplayName      string                    `json:"project_display_name"`
 	Version                 int64                     `json:"version"`
 	Lifecycle               string                    `json:"lifecycle"`
 	WorkflowType            string                    `json:"workflow_type"`
@@ -98,7 +100,7 @@ func ReadWorkPinTx(ctx context.Context, tx *sql.Tx, workID string) (WorkPin, err
 	if len(workID) < 2 || len(workID) > 128 {
 		return pin, newFailure(KindInvalidOperation, "work_pin", "work ID is out of bounds", false, "supply one bounded work ID")
 	}
-	if err := tx.QueryRowContext(ctx, `SELECT w.version,w.lifecycle,w.title,COALESCE(l.human_key,'') FROM work_items w LEFT JOIN linear_issue_links l ON l.work_id=w.id AND l.link_state='confirmed' WHERE w.id=?`, workID).Scan(&pin.Version, &pin.Lifecycle, &pin.Title, &pin.LinearIssueKey); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT w.version,w.lifecycle,w.title,COALESCE(l.human_key,''),COALESCE(p.id,''),COALESCE(p.display_name,'') FROM work_items w LEFT JOIN linear_issue_links l ON l.work_id=w.id AND l.link_state='confirmed' LEFT JOIN work_projects wp ON wp.work_id=w.id AND wp.role='primary' LEFT JOIN projects p ON p.id=wp.project_id WHERE w.id=?`, workID).Scan(&pin.Version, &pin.Lifecycle, &pin.Title, &pin.LinearIssueKey, &pin.ProjectID, &pin.ProjectDisplayName); err != nil {
 		if err == sql.ErrNoRows {
 			return pin, newFailure(KindProjectionNotFound, "work_pin", "work item is not recorded", false, "reread_entities")
 		}

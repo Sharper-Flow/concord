@@ -14,7 +14,6 @@ import { completeWorkerAttempt, failWorkerAttempt, type AgentResultEnvelope, typ
 import type { CredentialStore } from "./credentials"
 import { dispatchWindows, DispatchWindows, TASK_TOOL_ID } from "./dispatch-window"
 import { agentLanes } from "./generated-agent-lanes"
-import { workStateLines } from "./workflow-status"
 
 export interface LaneCompletionInput {
   tool: string
@@ -42,7 +41,7 @@ export interface LaneCompletionDeps {
 // the completion envelope so a refusal names its kind and recovery action.
 const ATTEMPT_ELEMENT = "concord_attempt"
 
-function renderAttempt(envelope: AgentResultEnvelope, stateLines: string[]): string {
+function renderAttempt(envelope: AgentResultEnvelope): string {
   const summary: Record<string, unknown> = {
     outcome: envelope.outcome,
     lane: envelope.lane,
@@ -50,8 +49,7 @@ function renderAttempt(envelope: AgentResultEnvelope, stateLines: string[]): str
     session_id: envelope.session_id,
   }
   if (envelope.error) summary.error = envelope.error
-  const state = stateLines.length > 0 ? `\n${stateLines.join("\n")}` : ""
-  return `\n<${ATTEMPT_ELEMENT}>\n${JSON.stringify(summary)}\n</${ATTEMPT_ELEMENT}>${state}`
+  return `\n<${ATTEMPT_ELEMENT}>\n${JSON.stringify(summary)}\n</${ATTEMPT_ELEMENT}>`
 }
 
 export async function completeDispatchedWorker(input: LaneCompletionInput, output: LaneCompletionOutput, deps: LaneCompletionDeps = {}): Promise<void> {
@@ -68,7 +66,7 @@ export async function completeDispatchedWorker(input: LaneCompletionInput, outpu
   // downstream can catch the substitution.
   const lane = agentLanes.find((candidate) => candidate.id === record.packet.lane_id && candidate.version === record.packet.lane_version && candidate.digest === record.packet.lane_digest)
   if (!lane) {
-    output.output += renderAttempt({ schema_version: "1.0", outcome: "error", lane: { id: record.packet.lane_id, version: record.packet.lane_version, digest: record.packet.lane_digest }, agent: `concord-${record.packet.lane_id}`, readback_model: null, session_id: null, error: { kind: "invalid_input", retry_safe: false, recovery_action: "contact_operator", message: "in-flight attempt names a lane at a version and digest the registry does not carry" } }, [])
+    output.output += renderAttempt({ schema_version: "1.0", outcome: "error", lane: { id: record.packet.lane_id, version: record.packet.lane_version, digest: record.packet.lane_digest }, agent: `concord-${record.packet.lane_id}`, readback_model: null, session_id: null, error: { kind: "invalid_input", retry_safe: false, recovery_action: "contact_operator", message: "in-flight attempt names a lane at a version and digest the registry does not carry" } })
     return
   }
   const signal = deps.signal ?? new AbortController().signal
@@ -78,8 +76,7 @@ export async function completeDispatchedWorker(input: LaneCompletionInput, outpu
   } catch (error) {
     envelope = { schema_version: "1.0", outcome: "error", lane: { id: lane.id, version: lane.version, digest: lane.digest }, agent: `concord-${lane.id}`, readback_model: null, session_id: null, error: { kind: "error", retry_safe: false, recovery_action: "reconcile_operation", message: String(error).slice(0, 2048) } }
   }
-  const stateLines = record.workPins ? workStateLines({ outcome: "ok", work_pins: record.workPins }) : []
-  output.output += renderAttempt(envelope, stateLines)
+  output.output += renderAttempt(envelope)
 }
 
 function object(value: unknown): value is Record<string, unknown> {

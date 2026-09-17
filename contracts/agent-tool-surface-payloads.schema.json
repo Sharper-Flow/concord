@@ -565,6 +565,8 @@
         "work_id",
         "title",
         "linear_issue_key",
+        "project_id",
+        "project_display_name",
         "version",
         "lifecycle",
         "workflow_type",
@@ -585,6 +587,12 @@
         "linear_issue_key": {
           "type": "string",
           "maxLength": 64
+        },
+        "project_id": {
+          "$ref": "#/$defs/id"
+        },
+        "project_display_name": {
+          "$ref": "#/$defs/short"
         },
         "version": {
           "$ref": "#/$defs/version"

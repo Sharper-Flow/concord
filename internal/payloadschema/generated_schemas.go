@@ -5864,6 +5864,12 @@ const GeneratedPayloadSchemaDocument = `{
             }
           ]
         },
+        "project_display_name": {
+          "$ref": "#/$defs/short"
+        },
+        "project_id": {
+          "$ref": "#/$defs/id"
+        },
         "self_repair": {
           "oneOf": [
             {
@@ -5907,6 +5913,8 @@ const GeneratedPayloadSchemaDocument = `{
         "work_id",
         "title",
         "linear_issue_key",
+        "project_id",
+        "project_display_name",
         "version",
         "lifecycle",
         "workflow_type",

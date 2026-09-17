@@ -1,9 +1,14 @@
+import { defaultRunner, type DispatchRunner } from "./dispatch"
+import { hostControlPlane } from "./move-session"
+
 export type WorkflowStatusContext = { sessionID: string; abort: AbortSignal }
 
 type WorkPin = {
   work_id: string
   title: string
   linear_issue_key: string
+  project_id: string
+  project_display_name: string
   version: number
   lifecycle: string
   workflow_type: string
@@ -12,88 +17,9 @@ type WorkPin = {
 }
 
 type MutationEnvelope = { outcome?: unknown; result?: unknown; evidence_refs?: unknown }
-type Toast = (message: string, context: WorkflowStatusContext) => Promise<boolean>
 
-const MAX_PENDING_SESSIONS = 512
-const MAX_PENDING_WORK_ITEMS_PER_SESSION = 64
-
-// A turn touches the session's own work item in every mutation it records, and
-// a peer item only in the mutations that name it. The most-seen item is
-// therefore the session's, which identifies it without an environment
-// variable. A launcher-booted session exports CONCORD_SELECTED_WORK_ID and
-// overrides the count.
-export type WorkStatePin = { work_id: string; line: string; receipt?: string }
-type PendingEntry = { line: string; receipt?: string; count: number; seq: number }
-
-export type PendingWorkStateLineBuffer = {
-  append: (sessionID: string, pins: WorkStatePin[]) => void
-  drain: (sessionID: string) => string[]
-}
-
-function selectedWorkID(): string {
-  const value = process.env.CONCORD_SELECTED_WORK_ID ?? ""
-  return /^[A-Za-z0-9][A-Za-z0-9._:-]{1,127}$/.test(value) ? value : ""
-}
-
-export function createPendingWorkStateLineBuffer(): PendingWorkStateLineBuffer {
-  const pending = new Map<string, Map<string, PendingEntry>>()
-  let clock = 0
-
-  function touch(sessionID: string): Map<string, PendingEntry> {
-    const entries = pending.get(sessionID) ?? new Map<string, PendingEntry>()
-    pending.delete(sessionID)
-    pending.set(sessionID, entries)
-    while (pending.size > MAX_PENDING_SESSIONS) {
-      const oldest = pending.keys().next()
-      if (oldest.done) break
-      pending.delete(oldest.value)
-    }
-    return entries
-  }
-
-  return {
-    append(sessionID, pins) {
-      if (!sessionID || pins.length === 0) return
-      const entries = touch(sessionID)
-      for (const pin of pins) {
-        clock += 1
-        const existing = entries.get(pin.work_id)
-        entries.set(pin.work_id, { line: pin.line, receipt: pin.receipt, count: (existing?.count ?? 0) + 1, seq: clock })
-      }
-      while (entries.size > MAX_PENDING_WORK_ITEMS_PER_SESSION) {
-        let coldest: string | undefined
-        for (const [workID, entry] of entries) {
-          const held = coldest === undefined ? undefined : entries.get(coldest)
-          if (!held || entry.count < held.count || (entry.count === held.count && entry.seq < held.seq)) coldest = workID
-        }
-        if (coldest === undefined) break
-        entries.delete(coldest)
-      }
-    },
-    // CD-0134: one session, one current state, one line. The buffer holds the
-    // latest pin per work item so a turn reports where the session stands, not
-    // every transition it passed through.
-    drain(sessionID) {
-      const entries = pending.get(sessionID)
-      pending.delete(sessionID)
-      if (!entries || entries.size === 0) return []
-      const selected = selectedWorkID()
-      const pinned = selected ? entries.get(selected) : undefined
-      const chosenLine = pinned?.line
-      let chosen: PendingEntry | undefined
-      for (const entry of entries.values()) {
-        if (!chosen || entry.count > chosen.count || (entry.count === chosen.count && entry.seq > chosen.seq)) chosen = entry
-      }
-      const lines = chosenLine ? [chosenLine] : chosen ? [chosen.line] : []
-      for (const entry of [...entries.values()].sort((left, right) => left.seq - right.seq)) {
-        if (entry.receipt) lines.push(entry.receipt)
-      }
-      return lines
-    },
-  }
-}
-
-export const pendingWorkStateLineBuffer = createPendingWorkStateLineBuffer()
+const TAB_MAPPING_TTL_MS = 10_000
+const MAX_TAB_NAME_CODE_POINTS = 64
 
 function record(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value)
@@ -103,6 +29,17 @@ function safeText(value: unknown): value is string {
   return typeof value === "string" && value.length > 0 && !/[\u0000-\u001f\u007f|]/u.test(value)
 }
 
+function sanitizeTabField(value: string): string {
+  return [...value].filter((character) => {
+    const code = character.codePointAt(0) ?? 0
+    return code > 0x1f && !(code >= 0x7f && code <= 0x9f) && character !== "|"
+  }).join("")
+}
+
+function sanitizeTabName(value: string): string {
+  return [...value].slice(0, MAX_TAB_NAME_CODE_POINTS).join("")
+}
+
 function safeTitle(value: unknown): string | null {
   if (typeof value !== "string" || value.length === 0) return null
   const sanitized = value.replace(/[\u0000-\u001f\u007f|]/gu, " ")
@@ -110,22 +47,31 @@ function safeTitle(value: unknown): string | null {
 }
 
 function workPin(value: unknown): WorkPin | null {
-  if (!record(value) || !safeText(value.work_id) || !safeText(value.lifecycle) || !safeText(value.step)) return null
+  if (!record(value) || typeof value.work_id !== "string" || typeof value.lifecycle !== "string" || typeof value.step !== "string") return null
   const title = safeTitle(value.title)
-  if (title === null || typeof value.linear_issue_key !== "string" || (!safeText(value.linear_issue_key) && value.linear_issue_key !== "")) return null
+  const workID = sanitizeTabField(value.work_id)
+  const lifecycle = sanitizeTabField(value.lifecycle)
+  const step = sanitizeTabField(value.step)
+  const projectID = typeof value.project_id === "string" ? sanitizeTabField(value.project_id) : ""
+  const projectDisplayName = typeof value.project_display_name === "string" ? sanitizeTabField(value.project_display_name) : ""
+  const linearIssueKey = typeof value.linear_issue_key === "string" ? sanitizeTabField(value.linear_issue_key) : ""
+  if (title === null || workID === "" || lifecycle === "" || step === "" || typeof value.project_id !== "string" || typeof value.project_display_name !== "string" || typeof value.linear_issue_key !== "string") return null
   if (typeof value.version !== "number" || !Number.isInteger(value.version) || value.version < 1) return null
   if (value.pending_operator_decision !== null) {
     if (!record(value.pending_operator_decision) || !safeText(value.pending_operator_decision.action_id)) return null
   }
-  return { ...value, title } as unknown as WorkPin
+  return { ...value, work_id: workID, lifecycle, step, project_id: projectID, project_display_name: projectDisplayName, linear_issue_key: linearIssueKey, title } as unknown as WorkPin
 }
 
-export function formatWorkStateLine(value: unknown): string | null {
+function workIDSegment(workID: string): string {
+  return workID.split(/[-/:]/u).pop() || workID
+}
+
+export function formatWorkTabName(value: unknown): string | null {
   const pin = workPin(value)
   if (!pin) return null
-  const decision = pin.pending_operator_decision === null ? "none" : `pending:${pin.pending_operator_decision.action_id}`
-  const identifier = pin.linear_issue_key || pin.work_id
-  return `◆ CONCORD WORK STATE | ${identifier} | title=${pin.title} | version=${pin.version} | lifecycle=${pin.lifecycle} | step=${pin.step} | decision=${decision}`
+  const identifier = pin.linear_issue_key || workIDSegment(pin.work_id)
+  return sanitizeTabName([pin.project_display_name, identifier, pin.step].filter(Boolean).join(" | ")) || null
 }
 
 function evidenceLocators(envelope: MutationEnvelope): string[] | null {
@@ -143,45 +89,59 @@ export function formatWorkClosureReceipt(value: unknown, envelope: MutationEnvel
   return `◆ CONCORD WORK CLOSURE | ${identifier} | title=${pin.title} | release=pending | evidence=${locators.join(",")}`
 }
 
-export function workStatePins(envelope: unknown): WorkStatePin[] {
+function workPins(envelope: unknown): WorkPin[] {
   if (!record(envelope) || envelope.outcome !== "ok") return []
   const payload = record(envelope.result) ? envelope.result : envelope
   if (!Array.isArray(payload.work_pins)) return []
-  const pins = payload.work_pins.map((value) => ({ pin: workPin(value), line: formatWorkStateLine(value) }))
-  if (pins.some((item) => item.pin === null || item.line === null)) return []
-  return pins
-    .map((item) => {
-      const result: WorkStatePin = { work_id: item.pin!.work_id, line: item.line! }
-      const receipt = formatWorkClosureReceipt(item.pin, envelope as MutationEnvelope)
-      if (receipt) result.receipt = receipt
-      return result
-    })
-    .sort((left, right) => left.line < right.line ? -1 : left.line > right.line ? 1 : 0)
+  const pins = payload.work_pins.map(workPin)
+  return pins.every((pin): pin is WorkPin => pin !== null) ? pins : []
 }
 
-export function workStateLines(envelope: unknown): string[] {
-  return workStatePins(envelope).map((pin) => pin.line)
+type TabMapping = { attemptedAt: number; tabID?: string }
+type WorkStateReporterOptions = { runner?: DispatchRunner; now?: () => number }
+
+async function renameZellijTab(pin: WorkPin, context: WorkflowStatusContext, runner: DispatchRunner, now: () => number, mappings: Map<string, TabMapping>): Promise<void> {
+  const paneID = process.env.ZELLIJ_PANE_ID
+  if (!paneID) return
+  const name = formatWorkTabName(pin)
+  if (!name) return
+  const cached = mappings.get(context.sessionID)
+  const attemptedAt = now()
+  let tabID = cached && attemptedAt >= cached.attemptedAt && attemptedAt - cached.attemptedAt < TAB_MAPPING_TTL_MS ? cached.tabID : undefined
+  try {
+    if (!tabID) {
+      const listing = await runner.run(["zellij", "action", "list-panes", "-a", "-j"], "", context.abort)
+      if (listing.exitCode !== 0) throw new Error(`list-panes exited ${listing.exitCode}`)
+      const panes = JSON.parse(listing.stdout)
+      const pane = Array.isArray(panes) ? panes.find((candidate) => record(candidate) && String(candidate.id) === paneID && candidate.is_plugin === false) : undefined
+      if (!record(pane) || (typeof pane.tab_id !== "string" && typeof pane.tab_id !== "number") || String(pane.tab_id) === "") throw new Error("the pane is absent from the zellij listing")
+      tabID = String(pane.tab_id)
+      mappings.set(context.sessionID, { attemptedAt: now(), tabID })
+    }
+    const result = await runner.run(["zellij", "action", "rename-tab-by-id", tabID, name], "", context.abort)
+    if (result.exitCode !== 0) throw new Error(`rename-tab-by-id exited ${result.exitCode}`)
+  } catch (error) {
+    mappings.set(context.sessionID, { attemptedAt: now(), ...(tabID ? { tabID } : {}) })
+    try { await hostControlPlane().showToast(`Concord could not rename the work tab: ${error instanceof Error ? error.message : String(error)}.`, "warning", context.abort) } catch { /* best effort */ }
+  }
 }
 
-export function createWorkStateReporter(toast: Toast) {
+export function createWorkStateReporter(options: WorkStateReporterOptions = {}) {
+  const runner = options.runner ?? defaultRunner
+  const now = options.now ?? Date.now
+  const mappings = new Map<string, TabMapping>()
   return {
     async report(envelope: MutationEnvelope, context: WorkflowStatusContext): Promise<void> {
-      const pins = workStatePins(envelope)
-      pendingWorkStateLineBuffer.append(context.sessionID, pins)
+      const pins = workPins(envelope)
       for (const pin of pins) {
-        try { await toast(pin.line, context) } catch { /* state delivery is best effort */ }
-        if (pin.receipt) {
-          try { await toast(pin.receipt, context) } catch { /* closure delivery is best effort */ }
+        await renameZellijTab(pin, context, runner, now, mappings)
+        const receipt = formatWorkClosureReceipt(pin, envelope)
+        if (receipt) {
+          try { await hostControlPlane().showToast(receipt, "info", context.abort) } catch { /* closure delivery is best effort */ }
         }
       }
     },
   }
-}
-
-export function appendPendingWorkStateLines(sessionID: string, text: string): string {
-  const lines = pendingWorkStateLineBuffer.drain(sessionID)
-  if (lines.length === 0) return text
-  return text.length === 0 ? lines.join("\n") : `${text}\n${lines.join("\n")}`
 }
 
 export type GateBriefRow = { work_id: string; workflow_step: string; decision: "pending" | "none" }

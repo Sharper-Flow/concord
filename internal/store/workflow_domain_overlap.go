@@ -229,20 +229,27 @@ func readWorkflowDomainOverlapCandidatesTx(ctx context.Context, tx *sql.Tx, work
 		return self, nil, wrapFailure(KindUnavailable, "workflow_domain_overlap", "cannot enumerate active Product-changing workflows", true, "retry once the workflow projection is readable", err)
 	}
 	defer rows.Close()
-	others := []workflowOverlapFootprint{}
+	var otherIDs []string
 	for rows.Next() {
 		var otherID string
 		if err := rows.Scan(&otherID); err != nil {
 			return self, nil, wrapFailure(KindUnavailable, "workflow_domain_overlap", "cannot decode active workflow identity", true, "retry once the workflow projection is readable", err)
 		}
+		otherIDs = append(otherIDs, otherID)
+	}
+	if err := rows.Err(); err != nil {
+		return self, nil, wrapFailure(KindUnavailable, "workflow_domain_overlap", "cannot enumerate active workflow overlap", true, "retry once the workflow projection is readable", err)
+	}
+	if err := rows.Close(); err != nil {
+		return self, nil, wrapFailure(KindUnavailable, "workflow_domain_overlap", "cannot close active workflow overlap", true, "retry once the workflow projection is readable", err)
+	}
+	others := []workflowOverlapFootprint{}
+	for _, otherID := range otherIDs {
 		other, err := readWorkflowOverlapFootprintTx(ctx, tx, otherID)
 		if err != nil {
 			return self, nil, err
 		}
 		others = append(others, other)
-	}
-	if err := rows.Err(); err != nil {
-		return self, nil, wrapFailure(KindUnavailable, "workflow_domain_overlap", "cannot enumerate active workflow overlap", true, "retry once the workflow projection is readable", err)
 	}
 	return self, others, nil
 }

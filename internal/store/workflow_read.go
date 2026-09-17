@@ -481,6 +481,15 @@ func readWorkflowSummaryTx(ctx context.Context, tx *sql.Tx, workID string) (*Wor
 			return nil, wrapFailure(KindUnavailable, "workflow_read", "cannot scan workflow history condition", true, "retry once the database is readable", err)
 		}
 		out.Conditions = append(out.Conditions, condition)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return nil, wrapFailure(KindUnavailable, "workflow_read", "cannot finish reading workflow history conditions", true, "retry once the database is readable", err)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, wrapFailure(KindUnavailable, "workflow_read", "cannot close workflow history conditions", true, "retry once the database is readable", err)
+	}
+	for _, condition := range out.Conditions {
 		if condition.State != "open" {
 			continue
 		}
@@ -493,11 +502,6 @@ func readWorkflowSummaryTx(ctx context.Context, tx *sql.Tx, workID string) (*Wor
 			out.UnreadableConditions = append(out.UnreadableConditions, condition.ID)
 		}
 	}
-	if err := rows.Err(); err != nil {
-		rows.Close()
-		return nil, wrapFailure(KindUnavailable, "workflow_read", "cannot finish reading workflow history conditions", true, "retry once the database is readable", err)
-	}
-	rows.Close()
 	if out.Conditions == nil {
 		out.Ready = true
 	}

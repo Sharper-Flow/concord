@@ -331,11 +331,21 @@ func validateInitiativeInvariantsTx(ctx context.Context, tx *sql.Tx) error {
 		return wrapFailure(KindUnavailable, "initiative_invariants", "cannot read Initiatives", true, "retry once the database is readable", err)
 	}
 	defer rows.Close()
+	var initiatives []string
 	for rows.Next() {
 		var initiative string
 		if err := rows.Scan(&initiative); err != nil {
 			return wrapFailure(KindUnavailable, "initiative_invariants", "cannot decode Initiative", true, "retry once the database is readable", err)
 		}
+		initiatives = append(initiatives, initiative)
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	for _, initiative := range initiatives {
 		products, err := workProductIDs(ctx, tx, initiative)
 		if err != nil {
 			return err
@@ -367,7 +377,7 @@ func validateInitiativeInvariantsTx(ctx context.Context, tx *sql.Tx) error {
 			}
 		}
 	}
-	return rows.Err()
+	return nil
 }
 func readInitiativeEntriesTx(ctx context.Context, tx *sql.Tx, initiative string) ([]InitiativeEntry, error) {
 	rows, err := tx.QueryContext(ctx, `SELECT initiative_work_id,child_work_id,position,required FROM initiative_entries WHERE initiative_work_id=? ORDER BY position,child_work_id`, initiative)

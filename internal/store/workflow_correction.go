@@ -240,6 +240,10 @@ func workflowLatestComparableHealthySequence(ctx context.Context, q queryer, wor
 	if err != nil {
 		return 0, err
 	}
+	pins, err := workflowContractDefinitionPins(ctx, q, workID, contractVersion)
+	if err != nil {
+		return 0, err
+	}
 	type verdictAtSequence struct {
 		seq     int64
 		verdict workflowVerdictRecordedPayload
@@ -267,7 +271,7 @@ func workflowLatestComparableHealthySequence(ctx context.Context, q queryer, wor
 		if !predicates[verdict.PredicateID] || verdict.ContractVersion <= 0 || verdict.ContractVersion > contractVersion {
 			continue
 		}
-		if verdict.ContractVersion < contractVersion && (!workflowPredicateHistoryCompatible(history, verdict.ContractVersion, contractVersion, verdict.PredicateID, verdict) || !workflowContractDefinitionPinsCompatible(ctx, q, workID, verdict.ContractVersion, contractVersion)) {
+		if verdict.ContractVersion < contractVersion && (!workflowPredicateHistoryCompatible(history, verdict.ContractVersion, contractVersion, verdict.PredicateID, verdict) || !workflowContractDefinitionPinsCompatible(pins, verdict.ContractVersion, contractVersion)) {
 			continue
 		}
 		latest[verdict.PredicateID] = verdictAtSequence{seq: seq, verdict: verdict}
@@ -363,6 +367,10 @@ func workflowLatestVerdictSequences(ctx context.Context, q queryer, workID strin
 	if err != nil {
 		return nil, err
 	}
+	pins, err := workflowContractDefinitionPins(ctx, q, workID, contractVersion)
+	if err != nil {
+		return nil, err
+	}
 	wantedIDs := make(map[string]bool, len(wanted))
 	for _, verdict := range wanted {
 		wantedIDs[verdict.PredicateID] = true
@@ -392,7 +400,7 @@ func workflowLatestVerdictSequences(ctx context.Context, q queryer, workID strin
 		if verdict.ContractVersion <= 0 || verdict.ContractVersion > contractVersion || seen[verdict.PredicateID] {
 			continue
 		}
-		if verdict.ContractVersion < contractVersion && (!workflowPredicateHistoryCompatible(history, verdict.ContractVersion, contractVersion, verdict.PredicateID, verdict) || !workflowContractDefinitionPinsCompatible(ctx, q, workID, verdict.ContractVersion, contractVersion)) {
+		if verdict.ContractVersion < contractVersion && (!workflowPredicateHistoryCompatible(history, verdict.ContractVersion, contractVersion, verdict.PredicateID, verdict) || !workflowContractDefinitionPinsCompatible(pins, verdict.ContractVersion, contractVersion)) {
 			continue
 		}
 		seen[verdict.PredicateID] = true

@@ -6,7 +6,7 @@ import (
 	"fmt"
 )
 
-const ManifestDigest = "sha256:df6d458c6866d96c84fcc7aedd9ce8614096520cc641c047f06300f04dc44dd1"
+const ManifestDigest = "sha256:23987107ac27d89f4e3ce7864db79b3d1bc29bc1b69bb5183b4dfecfb9eb97af"
 
 type OperationKind string
 
@@ -234,7 +234,7 @@ var GeneratedPayloadRules = map[string]GeneratedPayloadRule{
 	"work_define_research_pack_create_input":       {Required: []string{"owner_work_id", "revision", "idempotency_key"}, Properties: []string{"owner_work_id", "revision", "freshness", "idempotency_key", "requested_budget_seconds"}},
 	"work_define_research_revision_append_input":   {Required: []string{"pack_id", "expected_version", "revision", "idempotency_key"}, Properties: []string{"pack_id", "expected_version", "revision", "idempotency_key", "requested_budget_seconds"}},
 	"work_define_research_source_record_input":     {Required: []string{"pack_id", "expected_version", "source", "idempotency_key"}, Properties: []string{"pack_id", "expected_version", "source", "idempotency_key", "requested_budget_seconds"}},
-	"work_define_revise_input":                     {Required: []string{"work_id", "expected_version", "title", "value_statement", "kind", "reason", "idempotency_key"}, Properties: []string{"work_id", "expected_version", "title", "value_statement", "kind", "priority", "urgency", "tags", "workflow_type_ref", "reason", "idempotency_key", "evidence", "requested_budget_seconds"}},
+	"work_define_revise_input":                     {Required: []string{"work_id", "expected_version", "title", "value_statement", "kind", "reason", "idempotency_key"}, Properties: []string{"work_id", "expected_version", "title", "task", "value_statement", "kind", "priority", "urgency", "tags", "workflow_type_ref", "reason", "idempotency_key", "evidence", "requested_budget_seconds"}},
 	"work_event_page":                              {Required: []string{"events"}, Properties: []string{"events", "next_cursor", "workflow"}},
 	"work_liveness":                                {Required: []string{"work_id", "state", "evidence", "attempts", "open_waits"}, Properties: []string{"work_id", "state", "evidence", "attempts", "open_waits", "last_progress"}},
 	"work_messages_page":                           {Required: []string{"messages"}, Properties: []string{"messages"}},
@@ -259,7 +259,7 @@ var GeneratedPayloadRules = map[string]GeneratedPayloadRule{
 	"work_relation_graph":                          {Required: []string{"nodes", "edges"}, Properties: []string{"nodes", "edges", "replacement_state"}},
 	"work_removal_handoff":                         {Required: []string{"findings", "remaining_scope", "blockers", "artifacts", "renewal_conditions"}, Properties: []string{"findings", "remaining_scope", "blockers", "artifacts", "renewal_conditions"}},
 	"work_scope":                                   {Required: []string{"items"}, Properties: []string{"work", "memberships", "items", "next_cursor", "verdict"}},
-	"work_summary":                                 {Required: []string{"id", "kind", "title", "lifecycle", "version"}, Properties: []string{"id", "kind", "title", "lifecycle", "version", "priority", "urgency", "project_ids", "ready", "narrative", "terminal_at", "work_pin", "liveness"}},
+	"work_summary":                                 {Required: []string{"id", "kind", "title", "lifecycle", "version"}, Properties: []string{"id", "kind", "title", "task", "lifecycle", "version", "priority", "urgency", "project_ids", "ready", "narrative", "terminal_at", "work_pin", "liveness"}},
 	"work_trace_continuity_input":                  {Required: []string{"work_id", "page"}, Properties: []string{"work_id", "page", "budget", "requested_budget_seconds"}},
 	"work_trace_history_input":                     {Required: []string{"work_id", "page"}, Properties: []string{"work_id", "direction", "event_kinds", "page", "budget", "requested_budget_seconds"}},
 	"work_trace_relations_input":                   {Required: []string{"work_id"}, Properties: []string{"work_id", "relation_kinds", "direction", "depth", "budget", "requested_budget_seconds"}},

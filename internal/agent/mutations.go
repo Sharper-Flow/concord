@@ -44,6 +44,7 @@ type reviseMutationInput struct {
 	WorkID          string        `json:"work_id"`
 	ExpectedVersion int64         `json:"expected_version"`
 	Title           string        `json:"title"`
+	Task            *string       `json:"task"`
 	ValueStatement  string        `json:"value_statement"`
 	Kind            string        `json:"kind"`
 	Priority        int64         `json:"priority"`
@@ -1327,7 +1328,11 @@ func (r runtime) planReviseIntent(ctx context.Context, base Envelope, raw []byte
 		if urgency == "" {
 			urgency = "standard"
 		}
-		payload, _ := json.Marshal(map[string]any{"title": in.Title, "value_statement": in.ValueStatement, "kind": in.Kind, "priority": in.Priority, "urgency": urgency, "tags": in.Tags, "workflow_type_ref": in.WorkflowTypeRef, "reason": in.Reason, "evidence_refs": evidenceLocators(in.Evidence), "expected_version": in.ExpectedVersion, "resulting_version": in.ExpectedVersion + 1})
+		payloadFields := map[string]any{"title": in.Title, "value_statement": in.ValueStatement, "kind": in.Kind, "priority": in.Priority, "urgency": urgency, "tags": in.Tags, "workflow_type_ref": in.WorkflowTypeRef, "reason": in.Reason, "evidence_refs": evidenceLocators(in.Evidence), "expected_version": in.ExpectedVersion, "resulting_version": in.ExpectedVersion + 1}
+		if in.Task != nil {
+			payloadFields["task"] = *in.Task
+		}
+		payload, _ := json.Marshal(payloadFields)
 		result, err := store.ApplyOperationTx(ctx, tx, store.Operation{Events: []store.Event{{EventID: digest + ":revise", Kind: "work.intent_revised", SubjectType: store.SubjectWorkItem, SubjectID: in.WorkID, Actor: grant.PrincipalRef, OccurredAt: r.Authority.now(), PayloadVersion: 1, Payload: payload}}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, in.WorkID): in.ExpectedVersion}})
 		if err != nil {
 			return nil, nil, nil, err

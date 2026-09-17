@@ -166,6 +166,7 @@ type WorkItem struct {
 	CreatedAt  string              `json:"created_at"`
 	UpdatedAt  string              `json:"updated_at"`
 	TerminalAt string              `json:"terminal_at,omitempty"`
+	Task       string              `json:"task,omitempty"`
 	Narrative  string              `json:"narrative,omitempty"`
 	Projects   []ProjectMembership `json:"projects,omitempty"`
 	Blocked    bool                `json:"blocked"`
@@ -755,6 +756,9 @@ func (s *Store) QueryQ3(ctx context.Context, req Q3Request) (Q3Result, error) {
 		return out, err
 	}
 	if req.Detail == "full" {
+		if err := attachWorkTasks(ctx, tx, items); err != nil {
+			return out, err
+		}
 		for i := range items {
 			pin, pinErr := ReadWorkPinTx(ctx, tx, items[i].ID)
 			if pinErr != nil {
@@ -791,6 +795,35 @@ func (s *Store) QueryQ3(ctx context.Context, req Q3Request) (Q3Result, error) {
 	}
 	out.NextCursor = nextCursor
 	return out, nil
+}
+
+func attachWorkTasks(ctx context.Context, tx *sql.Tx, items []WorkItem) error {
+	if len(items) == 0 {
+		return nil
+	}
+	placeholders := make([]string, len(items))
+	args := make([]any, len(items))
+	byID := make(map[string]int, len(items))
+	for i := range items {
+		placeholders[i] = "?"
+		args[i] = items[i].ID
+		byID[items[i].ID] = i
+	}
+	rows, err := tx.QueryContext(ctx, `SELECT id, coalesce(json_extract(intent_json, '$.task'), '') FROM work_items WHERE id IN (`+strings.Join(placeholders, ",")+`)`, args...) //nolint:gosec // the fragment contains only generated question-mark placeholders and every work ID stays parameter-bound.
+	if err != nil {
+		return wrapFailure(KindUnavailable, "query", "cannot read work tasks", true, "retry once the database is readable", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id, task string
+		if err := rows.Scan(&id, &task); err != nil {
+			return wrapFailure(KindInvariantViolation, "query", "cannot decode work task", false, "repair the live projection from its event log", err)
+		}
+		if i, ok := byID[id]; ok {
+			items[i].Task = task
+		}
+	}
+	return rows.Err()
 }
 
 func nonEmptyStrings(values []string) []string {

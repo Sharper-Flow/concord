@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 )
@@ -145,6 +146,9 @@ func TestCaptureEnqueuesIssueCreateInTheCaptureTransaction(t *testing.T) {
 	}
 	if invisible := countLinearInvisibleWorkItems(t, s); invisible != 0 {
 		t.Fatalf("%d captured items stay invisible to Linear after capture", invisible)
+	}
+	if _, err := s.EnqueueLinearIssueAdoption(ctx, "cap-product", "cap-work", "adopt-existing-issue"); err == nil || !strings.Contains(err.Error(), "pending Linear link") {
+		t.Fatalf("adoption after capture error = %v, want pending Linear link refusal", err)
 	}
 }
 

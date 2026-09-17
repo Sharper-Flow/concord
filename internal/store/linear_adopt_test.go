@@ -136,10 +136,10 @@ func TestLinearIssueAdoptionRefusesConfirmedAndForeignLinks(t *testing.T) {
 		t.Fatalf("foreign-link error = %v, want invalid_relation", err)
 	}
 
-	// Adoption is still available to the unlinked placeholder state: a work
-	// item whose create never landed may adopt instead of duplicating.
-	if _, err := s.EnqueueLinearIssueAdoption(ctx, "conf-product", "other-work", "11111111-2222-3333-4444-555555555555"); err != nil {
-		t.Fatalf("adoption over unpublished link error = %v", err)
+	// An unpublished link reserves the work item while its create is queued, so
+	// adoption must refuse instead of creating a duplicate issue.
+	if _, err := s.EnqueueLinearIssueAdoption(ctx, "conf-product", "other-work", "11111111-2222-3333-4444-555555555555"); err == nil || !strings.Contains(err.Error(), "pending Linear link") {
+		t.Fatalf("adoption over unpublished link error = %v, want pending Linear link refusal", err)
 	}
 }
 

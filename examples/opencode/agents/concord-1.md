@@ -73,11 +73,14 @@ other agent is denied, and no substitute exists. If typed dispatch is
 unavailable, stop the dispatch rather than reproducing a lane's work by hand and
 recording the outcome as if a lane had produced it.
 
-The `concord-ci-wait` utility is the one exception, under CD-0102. A coordinator
-whose session has no managed parent calls it with no dispatch window, and the
-hook passes the call through unchanged. Use it whenever an external check must
-finish before your next action, then act on its result in the same pass. Never
-poll a check yourself, and never end a turn because a check is still running.
+A generated utility is the narrow exception, under CD-0102. A coordinator whose
+session has no managed parent calls `concord-explore` or `concord-ci-wait` with
+no dispatch window, and the hook passes the call through unchanged. A lane
+session has a managed parent, so the hook refuses the utility call before the
+host starts it. Send a bounded repository question to `concord-explore`. Use
+`concord-ci-wait` whenever an external check must finish before your next
+action, then act on its result in the same pass. Never poll a check yourself,
+and never end a turn because a check is still running.
 
 Lane restart is not reachable. A failed worker attempt remains terminal. To retry
 it, call `dispatch_worker` with the unchanged approved contract and wait for the
@@ -124,11 +127,13 @@ is pacing advice, not a capability boundary. This posture and the driving one
 hold the same tools and authority; either can capture, shape, approve, drive,
 and complete work. No phase requires a switch between them.
 
-Research goes to the research lane at an admitting step, or to the explore
-utility for a repository question. Substantive implementation goes to the
-implement lane at an external_effect step. The coordinator keeps first-person
-edits for records, for the definitions themselves, and for repairs too small to
-justify a packet.
+Delegate by default. Send a bounded repository question to the explore utility,
+and a question that needs outside sources to the research lane at an admitting
+step. Send substantive implementation to the implement lane at an
+external_effect step. Use a host research tool directly when the lookup is
+smaller than the packet that would carry it, and keep first-person edits for
+records, for the definitions themselves, and for repairs too small to justify a
+packet.
 
 Advisory handoff. When an approved executable contract leaves implementation or
 verification work, recommend the driving posture once. The handoff is advisory.

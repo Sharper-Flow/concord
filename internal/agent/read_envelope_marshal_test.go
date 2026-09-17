@@ -73,6 +73,53 @@ func TestDomainReadEnvelopeMarshalsWithoutFreshness(t *testing.T) {
 	}
 }
 
+func TestDomainReadsMarshalWithAmbiguousContractOmission(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s, service, env := domainEvidenceFixture(t)
+	db := s.DatabaseForTesting()
+	if _, err := db.ExecContext(ctx, `
+		INSERT INTO fold_guard(active) VALUES(1);
+		INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class)
+		SELECT work_id,2,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class
+		FROM workflow_contracts WHERE work_id='work-1' AND contract_version=1;
+		DELETE FROM fold_guard`); err != nil {
+		t.Fatalf("seed duplicate active contract: %v", err)
+	}
+	for _, tc := range []struct {
+		operation string
+		input     string
+	}{
+		{"active_work", `{"product_id":"product-1","domain_id":"` + singleDomainRootID + `","page":{"cursor":null,"limit":10}}`},
+		{"overlaps", `{"product_id":"product-1"}`},
+	} {
+		resp := dispatchRead(t, s, service, InvokeRequest{Tool: "concord_domain", Operation: tc.operation, Input: json.RawMessage(tc.input)}, env)
+		if resp.Outcome != OutcomeOK {
+			t.Fatalf("concord_domain.%s: %+v", tc.operation, resp.Error)
+		}
+		if !containsNoticeKind(resp.Omissions, "ambiguous-contract:work-1") {
+			t.Fatalf("concord_domain.%s does not report the ambiguous work item: %#v", tc.operation, resp.Omissions)
+		}
+		for _, notice := range resp.Omissions {
+			if len(notice.Kind) > 64 {
+				t.Fatalf("concord_domain.%s emits a notice kind of %d bytes: %q", tc.operation, len(notice.Kind), notice.Kind)
+			}
+		}
+		if _, err := json.Marshal(resp); err != nil {
+			t.Fatalf("concord_domain.%s does not marshal: %v", tc.operation, err)
+		}
+	}
+}
+
+func containsNoticeKind(notices []Notice, want string) bool {
+	for _, notice := range notices {
+		if notice.Kind == want {
+			return true
+		}
+	}
+	return false
+}
+
 // A tool may carry reads and mutations. The envelope validator once asked
 // whether the tool was a mutation tool, so every read on a mixed tool was
 // validated as a mutation and refused at marshal. This enumerates the

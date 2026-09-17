@@ -395,8 +395,11 @@ func VerifyWorkflowInstanceDefinitionTx(ctx context.Context, tx *sql.Tx, registr
 }
 
 // missingPredicateVerdicts lists the approved contract predicates that have
-// no recorded verdict. The verdict join mirrors the completion clause: one
-// verdict per predicate id, latest per predicate.
+// no recorded verdict. The join deliberately does NOT mirror completion
+// clause 6: any verdict kind counts here, because a weaker or incomparable
+// verdict at confirm_premise follows the declared failure edge to refine
+// (#1062) rather than wedging the item, while clause 6 still refuses such
+// verdicts at complete. One verdict per predicate id, latest per predicate.
 func missingPredicateVerdicts(ctx context.Context, tx *sql.Tx, workID string) ([]string, error) {
 	contract, _, err := workflowCompletionContract(ctx, tx, BuiltinWorkflowRegistry(), workID)
 	if err != nil {

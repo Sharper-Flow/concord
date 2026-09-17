@@ -21,9 +21,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:68f7dd35a25677c63b45ce536b16eee3b1ba1f7ea1940250d590b406661d4851",
+  "sha256": "sha256:9787688d4fadd8b9a7da48cd5e5e95e0b7a1c0794164d34e64500caa1534da9f",
   "status": "accepted",
-  "summary": "A lane report discharges its lane's declared evidence obligations: report evidence entries become typed obligation and detail pairs over one closed vocabulary shared by the lane and report contracts, the discharged evidence joins the worker.completed payload at version 2 with an explicit reported or legacy_unavailable origin, and a completion leaving any declared obligation undischarged is refused in the fold and recorded as a typed invalid_report failure instead.",
+  "summary": "A lane report discharges its lane's declared evidence obligations: report evidence entries become typed obligation and detail pairs over one closed vocabulary shared by the lane and report contracts, the discharged evidence joins the worker.completed payload at version 2 with an explicit reported or legacy_unavailable origin, and a completion leaving any declared obligation undischarged is refused in the fold and recorded as a typed invalid_report failure instead. Amended 2026-09-17: the adapter strips dispatch-owned report fields (attempt_id, lane_id, lane_version, lane_digest, work_id, step_id) before validation instead of refusing the report, while identity still reaches the canonical report exclusively from the authorized dispatch packet and the closed schema still refuses every other undeclared property.",
   "tags": [
     "lanes",
     "evidence",

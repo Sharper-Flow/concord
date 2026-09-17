@@ -1,0 +1,36 @@
+{
+  "date": "2026-09-16T00:00:00Z",
+  "evidence": [
+    "docs/development-authority.md",
+    "docs/decisions/CD-0121-product-scoped-planning-authority.md",
+    "docs/decisions/CD-0155-work-for-another-product-leaves-concord.md"
+  ],
+  "home_domain_id": "product-root:concord",
+  "id": "CD-0155",
+  "kind": "decision",
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "CD-0121"
+    }
+  ],
+  "path": "docs/decisions/CD-0155-work-for-another-product-leaves-concord.md",
+  "product_wide_rationale": "Product identity is a Product-wide planning boundary. No child Domain may assign work found for another Product to the serving Product's backlog, and foreign-session routing must preserve the other Product's recorded authority.",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:a33bfa917ef13833bce476b416c4d4ff3a8ccbfbead3c68175b30821a643c7f7",
+  "status": "accepted",
+  "summary": "Requires foreign-session work to route by the other Product's recorded mode, use a path-scoped todo.md commit for local-only Products, refuse without a Product record, and create no serving-Product Concord work item.",
+  "tags": [
+    "authority",
+    "planning",
+    "product-scope",
+    "routing"
+  ],
+  "title": "Work for another Product leaves Concord"
+}

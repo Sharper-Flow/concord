@@ -4642,6 +4642,24 @@ WHERE state = 'active'
   );
 `,
 	},
+	{
+		// Freshness compares a content digest the running binary recomputes,
+		// so a digest algorithm or covered-path change turns every watermark
+		// written by another release into a mismatch. A stale release then
+		// rebuilt the projection with its older semantics and stamped the row
+		// fresh again, which no later check could distinguish from authority.
+		//
+		// The watermark now records the projection-semantics version of the
+		// binary that wrote it. A binary that sees a higher stamped version
+		// refuses the rebuild instead of overwriting the newer projection,
+		// the same rule the schema manifest applies to the database itself.
+		// Existing rows were written by binaries at most as new as this one,
+		// and their digests already encode current semantics, so they keep
+		// their freshness verdict under version 1.
+		Version: 90,
+		Name:    "knowledge_index_watermark_carries_a_projection_version",
+		SQL:     `ALTER TABLE knowledge_index_watermark ADD COLUMN projection_version INTEGER NOT NULL DEFAULT 1;`,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any

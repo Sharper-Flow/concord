@@ -493,11 +493,40 @@ func insertDomainProjection(ctx context.Context, tx *sql.Tx, home KnowledgeHome,
 	return nil
 }
 
+// knowledgeProjectionVersion names the semantics of the projection this
+// binary writes: the digest algorithm and the set of git objects it covers.
+// Bump it when either changes, in the same change that changes the semantics.
+// A binary that reads a watermark stamped with a higher version refuses the
+// rebuild rather than overwrite a newer projection, the rule the schema
+// manifest (checkManifest) applies to the database itself.
+const knowledgeProjectionVersion = 1
+
+// refuseWatermarkFromNewerBinary is the rebuild admission rule. The store
+// pools one connection, so this read against s.db must precede the rebuild
+// transaction; nothing can interleave between the two on this pool.
+func refuseWatermarkFromNewerBinary(ctx context.Context, q queryer, home KnowledgeHome) error {
+	var stamped int
+	err := q.QueryRowContext(ctx, `SELECT projection_version FROM knowledge_index_watermark WHERE home_project_id = ? AND home_locator_id = ? AND head_ref = ?`, home.HomeProjectID, home.HomeLocatorID, home.HeadRef).Scan(&stamped)
+	if err == sql.ErrNoRows {
+		return nil
+	}
+	if err != nil {
+		return wrapFailure(KindUnavailable, "rebuild_knowledge_index", "cannot read the knowledge watermark version", true, "retry once the database is readable", err)
+	}
+	if stamped > knowledgeProjectionVersion {
+		return newFailure(KindSchemaUnsupported, "rebuild_knowledge_index", fmt.Sprintf("the knowledge index was written by a newer binary (projection version %d); this binary defines projection version %d and must not overwrite it", stamped, knowledgeProjectionVersion), false, "upgrade this binary, or remove the newer watermark deliberately to rebuild under older semantics")
+	}
+	return nil
+}
+
 // RebuildKnowledgeIndex replaces only the git-derived tables for one home.
 // RebuildFromLog intentionally does not call this method.
 func (s *Store) RebuildKnowledgeIndex(ctx context.Context, home KnowledgeHome) error {
 	if s == nil || s.db == nil {
 		return newFailure(KindUnavailable, "rebuild_knowledge_index", "store is not open", false, "open a store before rebuilding the knowledge index")
+	}
+	if err := refuseWatermarkFromNewerBinary(ctx, s.db, home); err != nil {
+		return err
 	}
 	commit, err := resolveKnowledgeHead(ctx, home)
 	if err != nil {
@@ -691,8 +720,10 @@ func rebuildKnowledgeIndexTx(ctx context.Context, tx *sql.Tx, home KnowledgeHome
 	// rebuild-only wall-clock churn while the query result still exposes the
 	// current observation time in its transient envelope. The content digest
 	// is what freshness compares: it names the projected objects, so a later
-	// commit that changes none of them leaves this row authoritative.
-	if _, err := tx.ExecContext(ctx, `INSERT INTO knowledge_index_watermark (home_project_id,home_locator_id,head_ref,scanned_commit_oid,scanned_content_digest,scanned_at,complete) VALUES (?,?,?,?,?,?,1)`, home.HomeProjectID, home.HomeLocatorID, home.HeadRef, commit, digest, commit); err != nil {
+	// commit that changes none of them leaves this row authoritative. The
+	// projection version is what admission compares: a binary older than the
+	// one that stamped this row refuses to rebuild over it.
+	if _, err := tx.ExecContext(ctx, `INSERT INTO knowledge_index_watermark (home_project_id,home_locator_id,head_ref,scanned_commit_oid,scanned_content_digest,scanned_at,complete,projection_version) VALUES (?,?,?,?,?,?,1,?)`, home.HomeProjectID, home.HomeLocatorID, home.HeadRef, commit, digest, commit, knowledgeProjectionVersion); err != nil {
 		return wrapFailure(KindUnavailable, "rebuild_knowledge_index", "cannot write the knowledge watermark", true, "retry once the database is writable", err)
 	}
 	if err := leaveFold(ctx, tx); err != nil {

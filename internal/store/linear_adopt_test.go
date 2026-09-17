@@ -2,6 +2,7 @@ package store
 
 import (
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 )
@@ -200,6 +201,9 @@ func TestLinearIssueAdoptionCompletesConfirmedLinkAndRefusesConflicts(t *testing
 	if err == nil || !failureKindIs(err, KindInvalidTransition) || !strings.Contains(err.Error(), "an adopt operation cannot complete an already confirmed link") {
 		t.Fatalf("adopt-over-confirmed error = %v, want invalid_transition", err)
 	}
+	if !completionFailureIsPermanent(t, err) {
+		t.Fatalf("adopt-over-confirmed error = %v, want RetrySafe false", err)
+	}
 
 	// A create still cannot complete a confirmed link; its wording stays.
 	seedLinearWorkItem(t, s, "create-work", "done-product-project", "Create title", "Create value")
@@ -220,4 +224,19 @@ func TestLinearIssueAdoptionCompletesConfirmedLinkAndRefusesConflicts(t *testing
 	if err == nil || !failureKindIs(err, KindInvalidTransition) || !strings.Contains(err.Error(), "a create operation cannot complete an already confirmed link") {
 		t.Fatalf("create-over-confirmed error = %v, want invalid_transition", err)
 	}
+	if !completionFailureIsPermanent(t, err) {
+		t.Fatalf("create-over-confirmed error = %v, want RetrySafe false", err)
+	}
+}
+
+// completionFailureIsPermanent asserts the failure the drain consumes after a
+// successful provider call declares a repeat unsafe, so the drain must not
+// requeue the operation onto another provider call.
+func completionFailureIsPermanent(t *testing.T, err error) bool {
+	t.Helper()
+	var failure *Failure
+	if !errors.As(err, &failure) {
+		return false
+	}
+	return !failure.RetrySafe
 }

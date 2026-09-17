@@ -148,12 +148,62 @@ func TestIssue933PremiseRevisionUsesTypedContractSupersession(t *testing.T) {
 	if len(verdicts) != 1 || verdicts[0].PredicateID != "predicate:primary" {
 		t.Fatalf("compatible verdicts after correction = %+v, want the preserved primary verdict", verdicts)
 	}
+	if binding, err := WorkflowFailedWorkerRetryBinding(context.Background(), s, workID); err != nil {
+		t.Fatalf("public correction path after contract supersession: %v", err)
+	} else if binding != nil {
+		t.Fatalf("correction path returned a retry binding without a failed worker: %#v", binding)
+	}
 	question, err = ReadWorkflowOperatorQuestion(context.Background(), s, workID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if question == nil || question.PremiseSummary != "corrected premise" {
 		t.Fatalf("post-correction question = %+v, want corrected premise", question)
+	}
+}
+
+func TestIssue933CorrectionPreflightAfterContractSupersession(t *testing.T) {
+	t.Parallel()
+	const workID = "issue933-correction-preflight"
+	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.implementation", "execution")
+	s, owner := fixture.store, fixture.owner
+	ownerRef, err := WorkflowActorRef(owner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reviewer := acceptReturnRouteWorker(t, fixture, workID, ownerRef)
+	if err := runVerdictActionAs(t, s, workID, "record_verdict", json.RawMessage(`{"contract_version":1,"predicate_id":"predicate:return-route","verdict_kind":"outcome_mismatch","evaluation_evidence":["evidence:return-route-verification"],"incomparable_with_approved":true}`), 0, reviewer); err != nil {
+		t.Fatalf("record return-route mismatch verdict: %v", err)
+	}
+	seedComparisonObservation(t, s, workID)
+	question, err := ReadWorkflowOperatorQuestion(context.Background(), s, workID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if question == nil || question.ActionID != "confirm_premise" {
+		t.Fatalf("operator question = %+v, want confirm_premise", question)
+	}
+	successor := json.RawMessage(`{"contract_version":2,"premise":"corrected premise","outcome_predicates":[{"predicate_id":"predicate:return-route","ordinal":0,"outcome_kind":"check","outcome_payload":{"kind":"check","check_ref":"check:return-route","immutable_subject_ref":"commit:` + workID + `","expected_result":"pass"}}],"required_evidence":["verification"],"route_conventions":[],"spec_mandate":[],"law_modifies":[],"rigor_class":"prototype_internal","architecture_binding":{"domain_registry_content_hash":"sha256:` + strings.Repeat("b", 64) + `","home_domain_id":"root","affected_domain_ids":["root"],"domain_modifies":[],"domain_relation_modifies":[],"law_additions":[],"verification_obligations":[]},"supersede_reason":"correct the accepted premise","audit_evidence":["evidence:issue933-correction"]}`)
+	if err := runIssue933OperatorAction(t, s, workID, "supersede_contract", successor, owner, fixture.operator); err != nil {
+		t.Fatalf("supersede contract at premise checkpoint: %v", err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	payload := json.RawMessage(`{"diagnosis":"the delivered subject still fails","strategy":"repeat the external effect","predicate_ids":["predicate:return-route"],"evidence_refs":["evidence:return-route-verification"]}`)
+	if err := InspectWorkflowActionAdmission(ctx, s, WorkflowActionPreflightRequest{
+		WorkID: workID, ActionID: "request_correction", Payload: payload, Actor: owner,
+	}); err != nil {
+		t.Fatalf("public correction preflight after contract supersession: %v", err)
+	}
+	_, action, err := WorkflowActionDefinitionFor(ctx, s, BuiltinWorkflowRegistry(), workID, "request_correction")
+	if err != nil {
+		t.Fatalf("public correction action after contract supersession: %v", err)
+	}
+	if action.ID != "request_correction" {
+		t.Fatalf("public correction action = %q, want request_correction", action.ID)
+	}
+	if err := runIssue933OperatorAction(t, s, workID, "request_correction", payload, owner, fixture.operator); err != nil {
+		t.Fatalf("public correction path after contract supersession: %v", err)
 	}
 }
 

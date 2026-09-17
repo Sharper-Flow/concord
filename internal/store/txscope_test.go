@@ -63,6 +63,7 @@ func TestTxScopePropertiesBite(t *testing.T) {
 		{"transaction handle and store", 1, `package store; func violates(q queryer, s *Store) { _ = q }`},
 		{"multi-statement transaction closure", 2, `package store; func violates(s *Store) { s.Transact(nil, func(tx *Transaction) error { x := 1; _ = x; return nil }) }`},
 		{"queryer nil comparison", 3, `package store; func violates(q queryer) { if q == nil { return } }`},
+		{"query under open cursor", 4, `package store; func violates(q queryer) { rows, _ := q.QueryContext(nil, ""); for rows.Next() { helper(q) } }`},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -207,7 +208,131 @@ func scanTxScopeFunction(path string, body *ast.BlockStmt, params []txScopeParam
 		return true
 	})
 	findings = append(findings, scanTxScopeNilChecks(path, body, params, fset)...)
+	findings = append(findings, scanTxScopeCursorQueries(path, body, params, fset)...)
 	return findings
+}
+
+func scanTxScopeCursorQueries(path string, body *ast.BlockStmt, params []txScopeParam, fset *token.FileSet) []txScopeFinding {
+	handles := txScopeQueryHandleNames(params)
+	cursors := txScopeCursorNames(body, handles)
+	if len(cursors) == 0 {
+		return nil
+	}
+	var findings []txScopeFinding
+	seen := make(map[token.Pos]bool)
+	ast.Inspect(body, func(node ast.Node) bool {
+		loop, ok := node.(*ast.ForStmt)
+		if !ok || txScopeLoopCursor(loop.Cond, cursors) == "" || loop.Body == nil {
+			return true
+		}
+		ast.Inspect(loop.Body, func(child ast.Node) bool {
+			if child == nil {
+				return false
+			}
+			if _, nested := child.(*ast.FuncLit); nested {
+				return false
+			}
+			call, ok := child.(*ast.CallExpr)
+			if !ok || !txScopeCallUsesQueryHandle(call, handles) || seen[call.Pos()] {
+				return true
+			}
+			seen[call.Pos()] = true
+			findings = append(findings, txScopeFinding{path, fset.Position(call.Pos()).Line, txScopeCallIdentifier(call), 4, "query handle is used while a query cursor is open; materialize the cursor before the nested query"})
+			return true
+		})
+		return true
+	})
+	return findings
+}
+
+func txScopeQueryHandleNames(params []txScopeParam) map[string]bool {
+	handles := make(map[string]bool)
+	for _, param := range params {
+		if param.kind == txScopeQueryer || param.kind == txScopeTx {
+			handles[param.name] = true
+		}
+	}
+	return handles
+}
+
+func txScopeCursorNames(body *ast.BlockStmt, handles map[string]bool) map[string]bool {
+	cursors := make(map[string]bool)
+	ast.Inspect(body, func(node ast.Node) bool {
+		assign, ok := node.(*ast.AssignStmt)
+		if !ok {
+			return true
+		}
+		for index, rhs := range assign.Rhs {
+			call, ok := rhs.(*ast.CallExpr)
+			if !ok || !txScopeQueryRowsCall(call, handles) || index >= len(assign.Lhs) {
+				continue
+			}
+			if ident, ok := assign.Lhs[index].(*ast.Ident); ok {
+				cursors[ident.Name] = true
+			}
+		}
+		return true
+	})
+	return cursors
+}
+
+func txScopeQueryRowsCall(call *ast.CallExpr, handles map[string]bool) bool {
+	selector, ok := call.Fun.(*ast.SelectorExpr)
+	if !ok || selector.Sel.Name != "QueryContext" {
+		return false
+	}
+	receiver, ok := selector.X.(*ast.Ident)
+	return ok && handles[receiver.Name]
+}
+
+func txScopeLoopCursor(condition ast.Expr, cursors map[string]bool) string {
+	call, ok := condition.(*ast.CallExpr)
+	if !ok || len(call.Args) != 0 {
+		return ""
+	}
+	selector, ok := call.Fun.(*ast.SelectorExpr)
+	if !ok || selector.Sel.Name != "Next" {
+		return ""
+	}
+	receiver, ok := selector.X.(*ast.Ident)
+	if !ok || !cursors[receiver.Name] {
+		return ""
+	}
+	return receiver.Name
+}
+
+func txScopeCallUsesQueryHandle(call *ast.CallExpr, handles map[string]bool) bool {
+	selector, ok := call.Fun.(*ast.SelectorExpr)
+	if ok && (selector.Sel.Name == "QueryContext" || selector.Sel.Name == "QueryRowContext") {
+		if receiver, receiverOK := selector.X.(*ast.Ident); receiverOK && handles[receiver.Name] {
+			return true
+		}
+	}
+	for _, arg := range call.Args {
+		found := false
+		ast.Inspect(arg, func(node ast.Node) bool {
+			ident, ok := node.(*ast.Ident)
+			if ok && handles[ident.Name] {
+				found = true
+				return false
+			}
+			return true
+		})
+		if found {
+			return true
+		}
+	}
+	return false
+}
+
+func txScopeCallIdentifier(call *ast.CallExpr) string {
+	if selector, ok := call.Fun.(*ast.SelectorExpr); ok {
+		return selector.Sel.Name
+	}
+	if ident, ok := call.Fun.(*ast.Ident); ok {
+		return ident.Name
+	}
+	return "call"
 }
 
 func scanTxScopeNilChecks(path string, body *ast.BlockStmt, params []txScopeParam, fset *token.FileSet) []txScopeFinding {

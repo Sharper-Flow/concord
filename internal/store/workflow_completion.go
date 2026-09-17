@@ -640,11 +640,21 @@ func verifyCompletionScopeAndMandates(ctx context.Context, tx *sql.Tx, workID st
 		return wrapFailure(KindUnavailable, "complete_workflow", "cannot inspect workflow impact scope", true, "retry once the database is readable", err)
 	}
 	defer rows.Close()
+	var targets []string
 	for rows.Next() {
 		var target string
 		if err := rows.Scan(&target); err != nil {
 			return wrapFailure(KindUnavailable, "complete_workflow", "cannot read workflow impact scope", true, "retry once the database is readable", err)
 		}
+		targets = append(targets, target)
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	for _, target := range targets {
 		if target == workID {
 			continue
 		}
@@ -656,7 +666,7 @@ func verifyCompletionScopeAndMandates(ctx context.Context, tx *sql.Tx, workID st
 			return newFailure(KindInvariantViolation, "complete_workflow", "modifying edge target is outside the declared scope", false, "reread_entities")
 		}
 	}
-	return rows.Err()
+	return nil
 }
 
 // workflowCompletionActorDistinct enforces CD-0013 D5 actor distinctness and,
@@ -927,6 +937,10 @@ func latestWorkflowVerdicts(ctx context.Context, q queryer, workID string, contr
 	if err != nil {
 		return nil, err
 	}
+	pins, err := workflowContractDefinitionPins(ctx, q, workID, contractVersion)
+	if err != nil {
+		return nil, err
+	}
 	rows, err := q.QueryContext(ctx, `SELECT payload,payload_version FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? ORDER BY seq DESC`, workID, WorkflowVerdictRecorded)
 	if err != nil {
 		return nil, wrapFailure(KindUnavailable, "complete_workflow", "cannot read workflow verdicts", true, "retry once the database is readable", err)
@@ -950,7 +964,7 @@ func latestWorkflowVerdicts(ctx context.Context, q queryer, workID string, contr
 		if verdict.ContractVersion <= 0 || verdict.ContractVersion > contractVersion || seen[verdict.PredicateID] {
 			continue
 		}
-		if verdict.ContractVersion < contractVersion && (!workflowPredicateHistoryCompatible(contracts, verdict.ContractVersion, contractVersion, verdict.PredicateID, verdict) || !workflowContractDefinitionPinsCompatible(ctx, q, workID, verdict.ContractVersion, contractVersion)) {
+		if verdict.ContractVersion < contractVersion && (!workflowPredicateHistoryCompatible(contracts, verdict.ContractVersion, contractVersion, verdict.PredicateID, verdict) || !workflowContractDefinitionPinsCompatible(pins, verdict.ContractVersion, contractVersion)) {
 			continue
 		}
 		seen[verdict.PredicateID] = true
@@ -1022,35 +1036,59 @@ func workflowLateVerdictRecoveryForPredicate(ctx context.Context, q queryer, wor
 	return false, nil
 }
 
-func workflowContractDefinitionPinsCompatible(ctx context.Context, q queryer, workID string, from, to int64) bool {
+type workflowContractDefinitionPin struct {
+	definitionRef     string
+	definitionVersion int64
+	definitionDigest  string
+}
+
+type workflowContractDefinitionPinsData map[int64]workflowContractDefinitionPin
+
+func workflowContractDefinitionPins(ctx context.Context, q queryer, workID string, currentVersion int64) (workflowContractDefinitionPinsData, error) {
+	rows, err := q.QueryContext(ctx, `SELECT contract_version,definition_ref,definition_version,definition_digest FROM workflow_contracts WHERE work_id=? AND contract_version<=? ORDER BY contract_version`, workID, currentVersion)
+	if err != nil {
+		return nil, wrapFailure(KindUnavailable, "complete_workflow", "cannot read workflow contract definition pins", true, "retry once the database is readable", err)
+	}
+	pins := make(workflowContractDefinitionPinsData)
+	for rows.Next() {
+		var version int64
+		var pin workflowContractDefinitionPin
+		if err := rows.Scan(&version, &pin.definitionRef, &pin.definitionVersion, &pin.definitionDigest); err != nil {
+			rows.Close()
+			return nil, wrapFailure(KindUnavailable, "complete_workflow", "cannot scan workflow contract definition pins", true, "retry once the database is readable", err)
+		}
+		pins[version] = pin
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return nil, wrapFailure(KindUnavailable, "complete_workflow", "cannot enumerate workflow contract definition pins", true, "retry once the database is readable", err)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, wrapFailure(KindUnavailable, "complete_workflow", "cannot close workflow contract definition pins", true, "retry once the database is readable", err)
+	}
+	return pins, nil
+}
+
+func workflowContractDefinitionPinsCompatible(pins workflowContractDefinitionPinsData, from, to int64) bool {
 	if from <= 0 || to < from {
 		return false
 	}
-	rows, err := q.QueryContext(ctx, `SELECT contract_version,definition_ref,definition_version,definition_digest FROM workflow_contracts WHERE work_id=? AND contract_version BETWEEN ? AND ? ORDER BY contract_version`, workID, from, to)
-	if err != nil {
-		return false
-	}
-	defer rows.Close()
 	var expectedRef, expectedDigest string
 	var expectedVersion int64
 	seen := from
-	for rows.Next() {
-		var version, definitionVersion int64
-		var definitionRef, definitionDigest string
-		if err := rows.Scan(&version, &definitionRef, &definitionVersion, &definitionDigest); err != nil {
-			return false
-		}
-		if version != seen || definitionRef == "" || definitionVersion <= 0 || !validDigest(definitionDigest) {
+	for version := from; version <= to; version++ {
+		pin, ok := pins[version]
+		if !ok || version != seen || pin.definitionRef == "" || pin.definitionVersion <= 0 || !validDigest(pin.definitionDigest) {
 			return false
 		}
 		if expectedRef == "" {
-			expectedRef, expectedVersion, expectedDigest = definitionRef, definitionVersion, definitionDigest
-		} else if definitionRef != expectedRef || definitionVersion != expectedVersion || definitionDigest != expectedDigest {
+			expectedRef, expectedVersion, expectedDigest = pin.definitionRef, pin.definitionVersion, pin.definitionDigest
+		} else if pin.definitionRef != expectedRef || pin.definitionVersion != expectedVersion || pin.definitionDigest != expectedDigest {
 			return false
 		}
 		seen++
 	}
-	return rows.Err() == nil && seen == to+1
+	return seen == to+1
 }
 
 type workflowContractPredicateHistoryData map[int64]map[string]WorkflowReadPredicate

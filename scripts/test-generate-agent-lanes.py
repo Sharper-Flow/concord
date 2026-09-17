@@ -59,6 +59,11 @@ class AgentProjectionTests(unittest.TestCase):
             self.assertIn(f"`{field}`", projection)
         self.assertIn("`status` `failed`", projection)
 
+    def test_projection_requires_the_first_shell_action_to_record_cwd(self):
+        projection = generator.agent_projection(self.LANE, REPORT_SCHEMA)
+        self.assertIn("Before any other shell action, run `pwd`.", projection)
+        self.assertIn("report's `cwd` field", projection)
+
     def test_utility_projection_projects_declared_tools_and_permissions(self):
         utility = {
             "id": "ci-wait",

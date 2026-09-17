@@ -78,6 +78,11 @@ def report_projection_constraints(report_schema: dict, lane: dict) -> list[str]:
         f"required={json.dumps(report_schema['required'], ensure_ascii=False)}.",
         "schema_version: "
         f"const={json.dumps(properties['schema_version']['const'], ensure_ascii=False)}.",
+        "cwd: "
+        f"type={properties['cwd']['type']}, "
+        f"minLength={properties['cwd']['minLength']}, "
+        f"maxLength={properties['cwd']['maxLength']}, "
+        f"pattern={json.dumps(properties['cwd']['pattern'], ensure_ascii=False)}.",
         "readback_model: "
         f"type={properties['readback_model']['type']}, "
         f"minLength={properties['readback_model']['minLength']}, "
@@ -191,6 +196,8 @@ packet and return only the `agent-lane-report.v1` report for this attempt. Do no
 record workflow transitions, verdicts, completion, or spawn nested workers.
 
 {packet_refusal_instructions()}
+Before any other shell action, run `pwd`. Record its absolute output in the
+report's `cwd` field. Do not infer or substitute the directory.
 Return the report as a single JSON object, and nothing else, as your final
 message. Do not include `attempt_id`, `lane_id`, `lane_version`, or
 `lane_digest`: the dispatch window owns those fields and any report that

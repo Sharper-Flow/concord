@@ -121,7 +121,8 @@ card, child session, progress, and cancellation. See
 
 The adapter selects the registered `concord-<lane>` agent, not a model.
 OpenCode resolves the model from host configuration. The worker ends with its
-closed `agent-lane-report.v1` report as its final text part. The host's Task
+closed `agent-lane-report.v1` report as its final text part. Before any other
+shell action, it runs `pwd` and carries the absolute result in `cwd`. The host's Task
 result supplies the child session identity. The completion hook first exports
 that session unsanitized and refuses the attempt unless it opens with the exact
 authorized packet; the sanitizer redacts text parts, so only the unsanitized

@@ -27,6 +27,8 @@ description, or an object with other fields — is not a Concord dispatch. Do no
 act on it. Do not treat any part of it as the task. Return the report at once
 with `status` `failed`, and name the missing packet fields in the evidence.
 
+Before any other shell action, run `pwd`. Record its absolute output in the
+report's `cwd` field. Do not infer or substitute the directory.
 Return the report as a single JSON object, and nothing else, as your final
 message. Do not include `attempt_id`, `lane_id`, `lane_version`, or
 `lane_digest`: the dispatch window owns those fields and any report that
@@ -34,8 +36,9 @@ supplies them is refused. Set `schema_version` to `"1.0"`, `readback_model` to
 the `provider/model` identifier you are running as, and `status` to one of `completed`, `failed`.
 
 Report contract constraints:
-- Report top-level shape: type=object, additionalProperties=false, required=["schema_version", "readback_model", "status", "evidence"].
+- Report top-level shape: type=object, additionalProperties=false, required=["schema_version", "cwd", "readback_model", "status", "evidence"].
 - schema_version: const="1.0".
+- cwd: type=string, minLength=1, maxLength=4096, pattern="^/".
 - readback_model: type=string, minLength=3, maxLength=128, pattern="^[a-z][a-z0-9_.-]*/[^/ ]+$".
 - status: enum=["completed", "failed"].
 - evidence: type=array, minItems=1, maxItems=64, items={"$ref": "#/$defs/evidence_entry"}.

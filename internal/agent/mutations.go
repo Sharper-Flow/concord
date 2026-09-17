@@ -2351,6 +2351,10 @@ func (r runtime) mutateWorktreeAuditReclaim(ctx context.Context, base Envelope, 
 		return auditReclaimPostCommitFailure(base, auditReclaimChangedRefs(result.Rows), failureEnvelope(base, err)), nil
 	}
 	changed := auditReclaimChangedRefs(result.Rows)
+	changed, truncation := boundResultChangedRefs(changed)
+	if truncation != nil {
+		base.Omissions = append(base.Omissions, *truncation)
+	}
 	payload, _ := json.Marshal(map[string]any{
 		"root": result.Root, "rows": result.Rows, "report_only": result.ReportOnly,
 		"changed_refs":       mutationResultChangedRefs(changed),
@@ -2389,15 +2393,21 @@ func (r runtime) mutateWorktreeAuditReclaim(ctx context.Context, base Envelope, 
 // auditReclaimPostCommitFailure classifies a failure that fired after the
 // audit's row transactions committed. The reclaimed rows in changed already
 // applied, so the envelope keeps the failure's kind and coupled recovery,
-// marks effects possible, and carries exactly the committed refs — refused
-// rows never ride along. A valid failure keeps its kind and recovery action.
-// An invalid failure becomes malformed_response, while an empty commit set
-// leaves the no-effect classification truthful.
+// marks effects possible, and carries the committed refs bounded to the
+// envelope's changed-reference capacity, with a notice accounting for any
+// drop — refused rows never ride along, and the report must stay
+// deliverable whatever the pass size. A valid failure keeps its kind and
+// recovery action. An invalid failure becomes malformed_response, while an
+// empty commit set leaves the no-effect classification truthful.
 func auditReclaimPostCommitFailure(base Envelope, changed []ChangedRef, failure Envelope) Envelope {
 	refs := append([]ChangedRef(nil), changed...)
+	refs, truncation := boundResultChangedRefs(refs)
 	if len(refs) > 0 && failure.Outcome == OutcomeError && failure.Error != nil {
 		failure.Error.EffectState = EffectPossible
 		failure.ChangedRefs = &refs
+		if truncation != nil {
+			failure.Omissions = append(failure.Omissions, *truncation)
+		}
 	}
 	if err := failure.Validate(); err == nil {
 		return failure
@@ -2406,8 +2416,32 @@ func auditReclaimPostCommitFailure(base Envelope, changed []ChangedRef, failure 
 	if len(refs) > 0 {
 		validated.Error.EffectState = EffectPossible
 		validated.ChangedRefs = &refs
+		if truncation != nil {
+			validated.Omissions = append(validated.Omissions, *truncation)
+		}
 	}
 	return validated
+}
+
+// boundResultChangedRefs bounds a committed change list to the result
+// envelope's changed-reference capacity. Single-transaction mutations never
+// need this: their over-capacity results roll back and refuse before the
+// effect lands. Audit reclaim is the one mutation whose rows commit in their
+// own transactions ahead of the result, so a pass larger than the capacity
+// cannot refuse its way back to a truthful no-effect report — the list is
+// bounded instead, and the returned notice accounts for the dropped tail so
+// the caller can still reconcile by replaying the pass.
+func boundResultChangedRefs(changed []ChangedRef) ([]ChangedRef, *Notice) {
+	if len(changed) <= MaxChangedRefs {
+		return changed, nil
+	}
+	bounded := append([]ChangedRef(nil), changed[:MaxChangedRefs]...)
+	notice := Notice{
+		Kind:    "changed_refs_truncated",
+		Count:   int64(len(changed) - MaxChangedRefs),
+		Details: map[string]any{"committed": int64(len(changed)), "reported": int64(MaxChangedRefs)},
+	}
+	return bounded, &notice
 }
 
 func auditReclaimChangedRefs(rows []store.WorktreeAuditReclaimRow) []ChangedRef {

@@ -8,6 +8,8 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -21,6 +23,7 @@ import (
 	"github.com/sharper-flow/concord/internal/launcher"
 	"github.com/sharper-flow/concord/internal/launcher/render/bubbletea"
 	"github.com/sharper-flow/concord/internal/launcher/storeport"
+	"github.com/sharper-flow/concord/internal/linearclient"
 	"github.com/sharper-flow/concord/internal/store"
 	"github.com/sharper-flow/concord/internal/store/storetest"
 )
@@ -44,6 +47,101 @@ func TestRunVersion(t *testing.T) {
 	}
 	if errOut.Len() != 0 {
 		t.Fatalf("version error output = %q, want empty", errOut.String())
+	}
+}
+
+func TestLinearIssueReferenceAcceptsKeyAndURL(t *testing.T) {
+	for _, test := range []struct {
+		input string
+		want  string
+	}{
+		{input: "CON-30", want: "CON-30"},
+		{input: "https://linear.app/example/issue/CON-30/adopt-me", want: "CON-30"},
+	} {
+		key, issueURL, ok := linearIssueReference(test.input)
+		if !ok || key != test.want || (strings.HasPrefix(test.input, "http") && issueURL != test.input) {
+			t.Fatalf("linearIssueReference(%q) = %q, %q, %v", test.input, key, issueURL, ok)
+		}
+	}
+	if _, _, ok := linearIssueReference("https://example.com/issue/CON-30"); ok {
+		t.Fatal("non-Linear URL was classified as a Linear issue reference")
+	}
+	if _, _, ok := linearIssueReference("work-3b42fe43cb9d1c9816a8043b"); ok {
+		t.Fatal("work id was classified as a Linear issue reference")
+	}
+}
+
+func TestResolveZLLinearReferenceUsesConfirmedLink(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "concord.db")
+	seedCLIProduct(t, dbPath, "linear-product", "linear-project")
+	seedLinearCLIWork(t, dbPath, "linear-work", "linear-project", "Linear work")
+	s, err := store.Open(context.Background(), dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.RecordLinearLink(context.Background(), "linear-work", "issue-uuid", "CON-30", "https://linear.app/example/issue/CON-30", "", "", store.LinearLinkPending); err != nil {
+		s.Close()
+		t.Fatal(err)
+	}
+	if err := s.RecordLinearLink(context.Background(), "linear-work", "issue-uuid", "CON-30", "https://linear.app/example/issue/CON-30", "", "", store.LinearLinkConfirmed); err != nil {
+		s.Close()
+		t.Fatal(err)
+	}
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(dbOverrideEnv, dbPath)
+	work, product, err := resolveZLLinearReference("CON-30", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if work != "linear-work" || product != "linear-product" {
+		t.Fatalf("resolved work/product = %q/%q", work, product)
+	}
+}
+
+func TestResolveZLLinearReferenceQueuesIssueAdoptionForUnlinkedIssue(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "concord.db")
+	seedCLIProduct(t, dbPath, "adopt-product", "adopt-project")
+	enableLinearProduct(t, dbPath, "adopt-product")
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":{"issue":{"id":"issue-uuid-30","identifier":"CON-30","url":"https://linear.app/example/issue/CON-30","title":"Adopted issue title","description":"Adopted issue description","updatedAt":"2026-09-16T00:00:00Z","state":{"type":"unstarted"},"team":{"id":"team-uuid-1"}}}}`))
+	}))
+	defer server.Close()
+	t.Setenv(dbOverrideEnv, dbPath)
+	t.Setenv(selectedProductEnv, "adopt-product")
+	t.Setenv("CONCORD_PRODUCT_ID", "adopt-product")
+	t.Setenv(linearclient.EnvEndpoint, server.URL)
+	t.Setenv(linearclient.EnvAPIKey, "lin_api_test")
+	work, product, err := resolveZLLinearReference("CON-30", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if product != "adopt-product" || work == "" {
+		t.Fatalf("resolved work/product = %q/%q", work, product)
+	}
+	s, err := store.Open(context.Background(), dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	var adopts, creates int
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM linear_outbox WHERE work_id=? AND op_kind=?`, work, store.LinearOpIssueAdopt).Scan(&adopts); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM linear_outbox WHERE work_id=? AND op_kind=?`, work, store.LinearOpIssueCreate).Scan(&creates); err != nil {
+		t.Fatal(err)
+	}
+	if adopts != 1 || creates != 0 {
+		t.Fatalf("outbox adoption/create counts = %d/%d", adopts, creates)
+	}
+	var title string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT title FROM work_items WHERE id=?`, work).Scan(&title); err != nil {
+		t.Fatal(err)
+	}
+	if title != "Adopted issue title" {
+		t.Fatalf("adopted work title = %q, want %q", title, "Adopted issue title")
 	}
 }
 

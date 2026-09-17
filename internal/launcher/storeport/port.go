@@ -94,7 +94,7 @@ func (p *Port) Candidates(ctx context.Context, limit int) ([]launcher.Candidate,
 			if state == "" {
 				state = "unavailable"
 			}
-			candidate := launcher.Candidate{ID: item.ID, Kind: launcher.CandidateWork, Name: item.Title, ProductID: row.ProductID, WorkID: item.ID, Rank: workRank, State: state, Blocked: item.Blocked, Available: false}
+			candidate := launcher.Candidate{ID: item.ID, Kind: launcher.CandidateWork, Name: item.Title, LinearIssueKey: item.LinearIssueKey, ProductID: row.ProductID, WorkID: item.ID, Rank: workRank, State: state, Blocked: item.Blocked, Available: false}
 			worktrees, treeErr := p.Store.WorktreeEntries(ctx, item.ID)
 			if treeErr != nil {
 				candidates = append(candidates, candidate)

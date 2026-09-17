@@ -1714,6 +1714,68 @@ type ImportedLinearInitiative struct {
 	Title       string `json:"title"`
 }
 
+// EnsureLinearIssueWork creates the local work identity needed by the shipped
+// issue_adopt enqueue path. The external reference suppresses issue_create.
+func (s *Store) EnsureLinearIssueWork(ctx context.Context, productID, remoteUUID, title, description string) (string, error) {
+	if len(remoteUUID) < 2 || len(remoteUUID) > 128 {
+		return "", newFailure(KindInvalidPayload, "linear_issue_adopt", "remote issue uuid must be 2 to 128 characters", false, "supply the Linear issue uuid")
+	}
+	if strings.TrimSpace(title) == "" || len(title) > 256 {
+		return "", newFailure(KindInvalidPayload, "linear_issue_adopt", "issue title must be 1 to 256 characters", false, "supply the Linear issue title")
+	}
+	if _, err := s.ResolveLinearPlanningTarget(ctx, productID); err != nil {
+		return "", err
+	}
+	externalRef := "linear:" + remoteUUID
+	var existing string
+	err := s.db.QueryRowContext(ctx, `SELECT id FROM work_items WHERE json_extract(intent_json, '$.external_ref')=? LIMIT 1`, externalRef).Scan(&existing)
+	if err == nil {
+		return existing, nil
+	}
+	if err != sql.ErrNoRows {
+		return "", wrapFailure(KindUnavailable, "linear_issue_adopt", "cannot read existing issue work", true, "retry once the database is readable", err)
+	}
+	var projectID string
+	err = s.db.QueryRowContext(ctx, `SELECT project_id FROM product_projects WHERE product_id=? AND role='primary'`, productID).Scan(&projectID)
+	if err == sql.ErrNoRows {
+		return "", newFailure(KindAmbiguousScope, "linear_issue_adopt", "Product has no primary Project", false, "give the Product a primary Project before adopting Linear issues")
+	}
+	if err != nil {
+		return "", wrapFailure(KindUnavailable, "linear_issue_adopt", "cannot read the primary Project", true, "retry once the database is readable", err)
+	}
+	valueStatement := strings.TrimSpace(description)
+	if valueStatement == "" {
+		valueStatement = "Adopted from Linear issue " + strings.TrimSpace(title)
+	}
+	if len(valueStatement) > 256 {
+		valueStatement = valueStatement[:253] + "..."
+	}
+	digest := sha256.Sum256([]byte("linear-issue-adopt:" + externalRef))
+	workID := "linear-issue-" + hex.EncodeToString(digest[:])[7:31]
+	payload, err := json.Marshal(map[string]any{
+		"work_kind": "task", "title": strings.TrimSpace(title), "value_statement": valueStatement,
+		"priority": 0, "urgency": "standard", "tags": []string{"linear-adopted"}, "external_ref": externalRef,
+	})
+	if err != nil {
+		return "", wrapFailure(KindUnavailable, "linear_issue_adopt", "cannot encode issue work", true, "retry the adoption", err)
+	}
+	membershipPayload, err := json.Marshal(map[string]any{
+		"memberships":      []map[string]any{{"project_id": projectID, "role": "primary"}},
+		"expected_version": 1, "resulting_version": 2,
+	})
+	if err != nil {
+		return "", wrapFailure(KindUnavailable, "linear_issue_adopt", "cannot encode issue membership", true, "retry the adoption", err)
+	}
+	now := s.now().UTC()
+	if err := ApplyOperation(ctx, s, Operation{Events: []Event{
+		{EventID: "linear-issue-adopt:" + externalRef + ":create", Kind: "work.created", SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "operator", OccurredAt: now, PayloadVersion: 2, Payload: payload},
+		{EventID: "linear-issue-adopt:" + externalRef + ":memberships", Kind: "work.memberships_replaced", SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "operator", OccurredAt: now, PayloadVersion: 1, Payload: membershipPayload},
+	}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 0}}); err != nil {
+		return "", err
+	}
+	return workID, nil
+}
+
 // ImportLinearInitiative imports one Linear initiative as a Concord initiative
 // work item with external_ref linear:<uuid>. The import is one-way and once:
 // a repeated import of the same remote identity refuses with a typed

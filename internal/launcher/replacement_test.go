@@ -26,9 +26,12 @@ func TestReplacementCandidateOrderUsesPinsMRUThenRank(t *testing.T) {
 }
 
 func TestReplacementCandidateFilterIsExactSubstringOnly(t *testing.T) {
-	values := []Candidate{{ID: "concord", Name: "Concord"}, {ID: "project", Path: "/tmp/project"}}
+	values := []Candidate{{ID: "concord", Name: "Concord"}, {ID: "project", Path: "/tmp/project"}, {ID: "work", LinearIssueKey: "CON-30"}}
 	if got := FilterCandidates(values, "cord"); len(got) != 1 || got[0].ID != "concord" {
 		t.Fatalf("filter result = %#v", got)
+	}
+	if got := FilterCandidates(values, "con-30"); len(got) != 1 || got[0].ID != "work" {
+		t.Fatalf("Linear key filter result = %#v", got)
 	}
 	if got := FilterCandidates(values, "cncrd"); len(got) != 0 {
 		t.Fatalf("typo-tolerant match entered the first build: %#v", got)

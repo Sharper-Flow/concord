@@ -739,7 +739,7 @@ func TestLaunchHandoffIsIdentityOnlyAndS1CannotReachWork(t *testing.T) {
 	m.SetSessionLauncher(func(handoff launcher.SessionHandoff) tea.Cmd { called = handoff; return func() tea.Msg { return nil } })
 	m.UpdateKey("enter")
 	m.UpdateKey("l")
-	if called != (launcher.SessionHandoff{ProductID: "product-1"}) {
+	if called != (launcher.SessionHandoff{ProductID: "product-1", Agent: launcher.DefaultSessionAgent}) {
 		t.Fatalf("S2 handoff=%#v", called)
 	}
 	// S2 opens on the Domain panel; two tabs reach the ranked work mode.
@@ -747,13 +747,13 @@ func TestLaunchHandoffIsIdentityOnlyAndS1CannotReachWork(t *testing.T) {
 	m.UpdateKey("tab")
 	m.UpdateKey("enter")
 	m.UpdateKey("l")
-	if called.ProductID != "product-1" || called.WorkID != "work-1" {
+	if called.ProductID != "product-1" || called.WorkID != "work-1" || called.Agent != launcher.DefaultSessionAgent {
 		t.Fatalf("S3 handoff=%#v", called)
 	}
 }
 
 func TestDefaultSessionLauncherHandsOnlyIdentityToCoreBootstrap(t *testing.T) {
-	cmd, err := sessionProcess(launcher.SessionHandoff{ProductID: "product-1", WorkID: "work-1"})
+	cmd, err := sessionProcess(launcher.SessionHandoff{ProductID: "product-1", WorkID: "work-1", Agent: launcher.DefaultSessionAgent})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -762,6 +762,9 @@ func TestDefaultSessionLauncherHandsOnlyIdentityToCoreBootstrap(t *testing.T) {
 	}
 	selected := map[string]string{}
 	for _, value := range cmd.Env {
+		if strings.HasPrefix(value, "CONCORD_SELECTED_AGENT=") {
+			selected["agent"] = strings.TrimPrefix(value, "CONCORD_SELECTED_AGENT=")
+		}
 		if strings.HasPrefix(value, "CONCORD_SELECTED_PRODUCT_ID=") {
 			selected["product"] = strings.TrimPrefix(value, "CONCORD_SELECTED_PRODUCT_ID=")
 		}
@@ -772,10 +775,13 @@ func TestDefaultSessionLauncherHandsOnlyIdentityToCoreBootstrap(t *testing.T) {
 	if selected["product"] != "product-1" || selected["work"] != "work-1" {
 		t.Fatalf("session env identity=%v", selected)
 	}
+	if selected["agent"] != "concord-1" {
+		t.Fatalf("session env agent=%q, want concord-1", selected["agent"])
+	}
 }
 
 func TestSessionCommandPassesPromptThroughEnvironment(t *testing.T) {
-	cmd, err := sessionProcess(launcher.SessionHandoff{ProductID: "product-1", WorkID: "work-1", Prompt: "inspect the failing test"})
+	cmd, err := sessionProcess(launcher.SessionHandoff{ProductID: "product-1", WorkID: "work-1", Prompt: "inspect the failing test", Agent: launcher.DefaultSessionAgent})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -785,6 +791,20 @@ func TestSessionCommandPassesPromptThroughEnvironment(t *testing.T) {
 		}
 	}
 	t.Fatalf("prompt was not passed through session environment: %v", cmd.Env)
+}
+
+func TestSessionCommandPreservesInheritedAgentOverride(t *testing.T) {
+	t.Setenv("CONCORD_SELECTED_AGENT", "operator-agent")
+	cmd, err := sessionProcess(launcher.SessionHandoff{ProductID: "product-1", Agent: launcher.DefaultSessionAgent})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, value := range cmd.Env {
+		if value == "CONCORD_SELECTED_AGENT=operator-agent" {
+			return
+		}
+	}
+	t.Fatalf("inherited agent override was not preserved: %v", cmd.Env)
 }
 
 func TestProjectCandidateStartsAPlainSession(t *testing.T) {

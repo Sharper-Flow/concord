@@ -88,12 +88,14 @@ type UpdateIssueInput struct {
 	AddedLabelIDs []string `json:"addedLabelIds,omitempty"`
 }
 
-// Issue is the remote identity a completed operation records.
+// Issue is the remote issue identity and content returned by Linear.
 type Issue struct {
-	ID         string    `json:"id"`
-	Identifier string    `json:"identifier"`
-	URL        string    `json:"url"`
-	UpdatedAt  time.Time `json:"updatedAt"`
+	ID          string    `json:"id"`
+	Identifier  string    `json:"identifier"`
+	URL         string    `json:"url"`
+	Title       string    `json:"title"`
+	Description string    `json:"description"`
+	UpdatedAt   time.Time `json:"updatedAt"`
 }
 
 // ResolvedIssue is one fetched issue together with its owning team and state,
@@ -199,7 +201,7 @@ func (c *Client) GetIssue(ctx context.Context, remoteUUID string) (ResolvedIssue
 			} `json:"team"`
 		} `json:"issue"`
 	}
-	if err := c.call(ctx, "query($id: String!) { issue(id: $id) { id identifier url updatedAt state { type } team { id } } }", map[string]any{"id": remoteUUID}, &payload); err != nil {
+	if err := c.call(ctx, "query($id: String!) { issue(id: $id) { id identifier url title description updatedAt state { type } team { id } } }", map[string]any{"id": remoteUUID}, &payload); err != nil {
 		return ResolvedIssue{}, err
 	}
 	if payload.Issue.ID == "" {

@@ -364,11 +364,11 @@ func (m *Model) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 						m.Sync()
 						return m, nil
 					}
-					m.core.RestoreSnapshot(launcher.Snapshot{Screen: launcher.ScreenProduct, AmbientProduct: candidate.ProductID, SelectedWorkID: candidate.WorkID, Session: launcher.SessionHandoff{ProductID: candidate.ProductID, WorkID: candidate.WorkID}, Coverage: "authoritative", Section: launcher.SectionRanked})
+					m.core.RestoreSnapshot(launcher.Snapshot{Screen: launcher.ScreenProduct, AmbientProduct: candidate.ProductID, SelectedWorkID: candidate.WorkID, Session: launcher.SessionHandoff{ProductID: candidate.ProductID, WorkID: candidate.WorkID, Agent: launcher.DefaultSessionAgent}, Coverage: "authoritative", Section: launcher.SectionRanked})
 					return m, m.launch(m.core.Handoff())
 				}
 				if candidate.Kind == launcher.CandidateProject {
-					m.core.RestoreSnapshot(launcher.Snapshot{Screen: launcher.ScreenPortfolio, Session: launcher.SessionHandoff{ProjectPath: candidate.Path}, Coverage: "authoritative"})
+					m.core.RestoreSnapshot(launcher.Snapshot{Screen: launcher.ScreenPortfolio, Session: launcher.SessionHandoff{ProjectPath: candidate.Path, Agent: launcher.DefaultSessionAgent}, Coverage: "authoritative"})
 					return m, m.launch(m.core.Handoff())
 				}
 			}
@@ -1093,12 +1093,21 @@ func SessionCommand(handoff launcher.SessionHandoff) (*exec.Cmd, error) {
 }
 
 func handoffEnv(handoff launcher.SessionHandoff) []string {
-	env := make([]string, 0, len(os.Environ())+4)
+	env := make([]string, 0, len(os.Environ())+5)
+	inheritedAgent := ""
 	for _, value := range os.Environ() {
+		if strings.HasPrefix(value, "CONCORD_SELECTED_AGENT=") {
+			inheritedAgent = strings.TrimPrefix(value, "CONCORD_SELECTED_AGENT=")
+			env = append(env, value)
+			continue
+		}
 		if strings.HasPrefix(value, "CONCORD_SELECTED_PRODUCT_ID=") || strings.HasPrefix(value, "CONCORD_SELECTED_WORK_ID=") || strings.HasPrefix(value, "CONCORD_SELECTED_PROMPT=") || strings.HasPrefix(value, "CONCORD_SELECTED_PROJECT_PATH=") {
 			continue
 		}
 		env = append(env, value)
+	}
+	if inheritedAgent == "" && handoff.Agent != "" {
+		env = append(env, "CONCORD_SELECTED_AGENT="+handoff.Agent)
 	}
 	if handoff.ProjectPath != "" {
 		env = append(env, "CONCORD_SELECTED_PROJECT_PATH="+handoff.ProjectPath)

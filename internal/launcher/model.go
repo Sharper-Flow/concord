@@ -224,7 +224,10 @@ type SessionHandoff struct {
 	WorkID      string
 	Prompt      string
 	ProjectPath string
+	Agent       string
 }
+
+const DefaultSessionAgent = "concord-1"
 
 type CandidateKind string
 
@@ -237,20 +240,21 @@ const (
 // Candidate is one launcher entry. It contains display data only. The launcher
 // never treats a candidate as a second store authority.
 type Candidate struct {
-	ID        string        `json:"id"`
-	Kind      CandidateKind `json:"kind"`
-	Name      string        `json:"name"`
-	State     string        `json:"state,omitempty"`
-	Blocked   bool          `json:"blocked"`
-	Path      string        `json:"path,omitempty"`
-	ProductID string        `json:"product_id,omitempty"`
-	WorkID    string        `json:"work_id,omitempty"`
-	Worktree  string        `json:"worktree,omitempty"`
-	Pinned    bool          `json:"pinned"`
-	LastUsed  string        `json:"last_used,omitempty"`
-	Rank      int           `json:"rank"`
-	Live      int           `json:"live_sessions"`
-	Available bool          `json:"available"`
+	ID             string        `json:"id"`
+	Kind           CandidateKind `json:"kind"`
+	Name           string        `json:"name"`
+	LinearIssueKey string        `json:"linear_issue_key,omitempty"`
+	State          string        `json:"state,omitempty"`
+	Blocked        bool          `json:"blocked"`
+	Path           string        `json:"path,omitempty"`
+	ProductID      string        `json:"product_id,omitempty"`
+	WorkID         string        `json:"work_id,omitempty"`
+	Worktree       string        `json:"worktree,omitempty"`
+	Pinned         bool          `json:"pinned"`
+	LastUsed       string        `json:"last_used,omitempty"`
+	Rank           int           `json:"rank"`
+	Live           int           `json:"live_sessions"`
+	Available      bool          `json:"available"`
 }
 
 type ProbeStatus struct {
@@ -340,7 +344,7 @@ func (m *Model) SelectProduct(ctx context.Context, product string) error {
 			// Product snapshot rather than costing navigation, which is why the
 			// error is discarded.
 			_ = m.EnsureKnowledge(ctx)
-			m.snapshot.Session = SessionHandoff{ProductID: product}
+			m.snapshot.Session = SessionHandoff{ProductID: product, Agent: DefaultSessionAgent}
 			m.snapshot.PanelFocus = S2PanelDomain
 			m.snapshot.Section = SectionDomains
 			m.section = SectionDomains
@@ -365,7 +369,7 @@ func (m *Model) SelectWork(ctx context.Context, work string) error {
 		m.snapshot.Ranked, m.snapshot.Relations = nil, RelationTree{}
 		return err
 	}
-	m.snapshot.Session = SessionHandoff{ProductID: m.snapshot.AmbientProduct, WorkID: work}
+	m.snapshot.Session = SessionHandoff{ProductID: m.snapshot.AmbientProduct, WorkID: work, Agent: DefaultSessionAgent}
 	return err
 }
 
@@ -665,7 +669,7 @@ func FilterCandidates(values []Candidate, query string) []Candidate {
 	}
 	out := make([]Candidate, 0, len(values))
 	for _, candidate := range values {
-		if strings.Contains(strings.ToLower(candidate.ID), needle) || strings.Contains(strings.ToLower(candidate.Name), needle) || strings.Contains(strings.ToLower(candidate.Path), needle) {
+		if strings.Contains(strings.ToLower(candidate.ID), needle) || strings.Contains(strings.ToLower(candidate.Name), needle) || strings.Contains(strings.ToLower(candidate.Path), needle) || strings.Contains(strings.ToLower(candidate.LinearIssueKey), needle) {
 			out = append(out, candidate)
 		}
 	}

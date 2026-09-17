@@ -126,6 +126,7 @@ AGENT_FILES = (
     "concord-ci-wait.md",
     "concord-explore.md",
     "concord-implement.md",
+    "concord-lookup.md",
     "concord-research.md",
     "concord-review.md",
     "concord-verify.md",

@@ -781,6 +781,15 @@ async function signWorkerEvidence(credentials: CredentialStore, fields: Record<s
   return { ...assertion, signature: b64(signBytes(null, Buffer.from(canonicalWorkerEvidence(assertion)), privateKey)) }
 }
 
+async function probeWorkerEvidenceCredential(credentials: CredentialStore): Promise<string | null> {
+  try {
+    privateKeyObject(await credentials.getPrivateKey(clientRef()))
+    return null
+  } catch (error) {
+    return String(error).slice(0, MAX_ERROR_BYTES)
+  }
+}
+
 // recordWorkerEvent appends one worker evidence event through the short-lived
 // JSON CLI, the same transport concord.ts uses for every tool invocation. The
 // adapter stays envelope-thin per CD-0017 D2 and never writes the event log
@@ -1148,6 +1157,18 @@ export async function dispatchWorker(packet: unknown, options: { signal?: AbortS
   } catch (error) {
     const detail = error instanceof DispatchWindowError ? error.message : String(error)
     return errorEnvelope(lane, packet as Partial<AgentLanePacket>, "error", "error", detail.slice(0, MAX_ERROR_BYTES), "reconcile_operation")
+  }
+  // The credential is an admission dependency of execution, not of dispatch.
+  // Every refusal above returns without a worker, and the window itself still
+  // validates the packet and the claimed worktree, so those refusals keep their
+  // own diagnosis. Once the window is open the host may spawn, which makes this
+  // the last point where an unreadable credential costs nothing. A failed probe
+  // closes the window so no spawn can follow it. Signing is unchanged and still
+  // binds the readback after the run; this checks availability alone.
+  const credentialFailure = await probeWorkerEvidenceCredential(options.credentials ?? defaultCredentials)
+  if (credentialFailure) {
+    windows.close(sessionID)
+    return errorEnvelope(lane, packet as Partial<AgentLanePacket>, "error", "error", `credential probe failed before worker execution: ${credentialFailure}`, "contact_operator")
   }
   const directive = baseEnvelope(lane, packet, "ok")
   directive.dispatch_state = "awaiting_worker"

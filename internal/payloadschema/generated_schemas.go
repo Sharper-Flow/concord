@@ -5473,6 +5473,11 @@ const GeneratedPayloadSchemaDocument = `{
           "type": "array",
           "uniqueItems": true
         },
+        "task": {
+          "maxLength": 8192,
+          "minLength": 1,
+          "type": "string"
+        },
         "title": {
           "$ref": "#/$defs/short"
         },
@@ -6724,6 +6729,11 @@ const GeneratedPayloadSchemaDocument = `{
         },
         "ready": {
           "type": "boolean"
+        },
+        "task": {
+          "maxLength": 8192,
+          "minLength": 1,
+          "type": "string"
         },
         "terminal_at": {
           "maxLength": 64,

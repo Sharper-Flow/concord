@@ -7,12 +7,14 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 type workCreatedPayload struct {
 	WorkID           string   `json:"work_id,omitempty"`
 	WorkKind         string   `json:"work_kind"`
 	Title            string   `json:"title"`
+	Task             string   `json:"task,omitempty"`
 	From             string   `json:"from,omitempty"`
 	To               string   `json:"to,omitempty"`
 	ValueStatement   string   `json:"value_statement,omitempty"`
@@ -69,6 +71,7 @@ type workIntentPayload struct {
 	Title            string   `json:"title"`
 	ValueStatement   string   `json:"value_statement"`
 	Kind             string   `json:"kind"`
+	Task             *string  `json:"task,omitempty"`
 	Priority         int64    `json:"priority"`
 	Urgency          string   `json:"urgency,omitempty"`
 	Tags             []string `json:"tags"`
@@ -86,6 +89,7 @@ type workIntentPayload struct {
 // enters the projection, and revision carries external_ref forward unchanged.
 type workIntentProjection struct {
 	Title           string   `json:"title"`
+	Task            string   `json:"task,omitempty"`
 	ValueStatement  string   `json:"value_statement"`
 	Kind            string   `json:"kind"`
 	Priority        int64    `json:"priority"`
@@ -248,7 +252,7 @@ func foldWorkCreated(ctx context.Context, tx *sql.Tx, event Event) error {
 	}
 	now := event.OccurredAt.UTC().Format(time.RFC3339Nano)
 	intent, err := json.Marshal(workIntentProjection{
-		Title: payload.Title, ValueStatement: payload.ValueStatement, Kind: payload.WorkKind,
+		Title: payload.Title, Task: payload.Task, ValueStatement: payload.ValueStatement, Kind: payload.WorkKind,
 		Priority: *payload.Priority, Urgency: urgency, Tags: payload.Tags,
 		ComponentID: payload.ComponentID, WorkflowTypeRef: payload.WorkflowTypeRef, ExternalRef: payload.ExternalRef,
 	})
@@ -286,6 +290,9 @@ func foldWorkIntentRevised(ctx context.Context, tx *sql.Tx, event Event) error {
 	if payload.Title == "" || payload.ValueStatement == "" || payload.Kind == "" || payload.Reason == "" {
 		return newFailure(KindInvalidPayload, "fold_event", "work.intent_revised payload is incomplete", false, "supply the complete mutable intent and reason")
 	}
+	if payload.Task != nil && (*payload.Task == "" || len(*payload.Task) > 8192 || strings.ContainsRune(*payload.Task, '\x00') || !utf8.ValidString(*payload.Task)) {
+		return newFailure(KindInvalidPayload, "fold_event", "work.intent_revised task is empty, too long, or contains NUL", false, "supply bounded UTF-8 task text")
+	}
 	if !WorkKindFoldReviseAllowed(payload.Kind) {
 		message, recovery, ok := WorkKindRefusalFor(payload.Kind)
 		if !ok {
@@ -320,6 +327,9 @@ func foldWorkIntentRevised(ctx context.Context, tx *sql.Tx, event Event) error {
 	}
 	// external_ref is capture-owned; revision carries it forward unchanged.
 	intent.Title = payload.Title
+	if payload.Task != nil {
+		intent.Task = *payload.Task
+	}
 	intent.ValueStatement = payload.ValueStatement
 	intent.Kind = payload.Kind
 	intent.Priority = payload.Priority

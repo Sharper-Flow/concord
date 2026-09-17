@@ -1047,6 +1047,11 @@
         "title": {
           "$ref": "#/$defs/short"
         },
+        "task": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 8192
+        },
         "lifecycle": {
           "$ref": "#/$defs/lifecycle"
         },
@@ -3611,6 +3616,11 @@
         },
         "title": {
           "$ref": "#/$defs/short"
+        },
+        "task": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 8192
         },
         "value_statement": {
           "$ref": "#/$defs/short"

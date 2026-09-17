@@ -728,42 +728,39 @@ test("confirm_premise still binds the selection it carries", async () => {
   expect(approvals).toBe(1)
 })
 
-test("the confirm_premise gate names the one input that failed", async () => {
-  // The gate holds two independent requirements. A message naming both leaves
-  // a caller who satisfied one guessing which half refused, so each fault
-  // carries the field it is about.
+test("confirm_premise refusals come from the core, not the adapter", async () => {
+  // The core owns question admission. It validates selected_choice and
+  // decision_context_digest itself, one field per refusal, and when the
+  // investigation-artifact gate withholds the question it names the missing
+  // artifact — a state the adapter cannot see. Any adapter-authored
+  // confirm_premise refusal can only mask the authoritative one, so every
+  // call reaches the core and the caller sees the core's own message.
+  const artifactRefusal = coreEnvelope("concord_work_transition", "workflow_action", "error", {
+    error: { kind: "missing_evidence", retry_safe: false, recovery_action: { kind: "provide_evidence" }, effect_state: "none", message: "operator question requires a recorded investigation artifact naming a current Domain of the Product and another work item" },
+  })
+  const first = runnerWithContext(artifactRefusal)
+  const result: any = await runWorkflowAction(first,
+    { work_id: "work-1", expected_version: 2, action_id: "confirm_premise", idempotency_key: "idem-gate" })
+  expect(first.calls()).toBe(2)
+  expect(result.outcome).toBe("error")
+  expect(result.origin).toBe("core")
+  expect(result.error.message).toContain("investigation artifact")
+
   const digest = "sha256:" + "b".repeat(64)
-  const failing = async (input: Record<string, unknown>) => {
-    const result: any = await runWorkflowAction({ async run() { throw new Error("no core call may leave") } },
+  for (const input of [
+    { decision_context_digest: digest },
+    { selected_choice: "revise", decision_context_digest: digest },
+    { selected_choice: "confirm" },
+    { selected_choice: "confirm", decision_context_digest: 7 },
+    { selected_choice: "confirm", decision_context_digest: "sha256:NOTHEX" },
+  ]) {
+    const runner = runnerWithContext(artifactRefusal)
+    const perCase: any = await runWorkflowAction(runner,
       { work_id: "work-1", expected_version: 2, action_id: "confirm_premise", idempotency_key: "idem-gate", ...input })
-    expect(result.outcome).not.toBe("ok")
-    expect(result.error.kind).toBe("invalid_input")
-    expect(result.error.adapter_reason).toBe("missing_question_selection")
-    return result.error.message as string
+    expect(runner.calls(), JSON.stringify(input)).toBe(2)
+    expect(perCase.origin, JSON.stringify(input)).toBe("core")
+    expect(perCase.error.message, JSON.stringify(input)).toContain("investigation artifact")
   }
-
-  const noChoice = await failing({ decision_context_digest: digest })
-  expect(noChoice).toContain("selected_choice")
-  expect(noChoice).not.toContain("decision_context_digest")
-
-  const wrongChoice = await failing({ selected_choice: "revise", decision_context_digest: digest })
-  expect(wrongChoice).toContain("selected_choice")
-  expect(wrongChoice).toContain("\"revise\"")
-  expect(wrongChoice).not.toContain("decision_context_digest")
-
-  const noDigest = await failing({ selected_choice: "confirm" })
-  expect(noDigest).toContain("decision_context_digest")
-  expect(noDigest).toContain("pending_operator_decision")
-  expect(noDigest).not.toContain("selected_choice")
-
-  const wrongType = await failing({ selected_choice: "confirm", decision_context_digest: 7 })
-  expect(wrongType).toContain("decision_context_digest")
-  expect(wrongType).toContain("string")
-
-  const wrongShape = await failing({ selected_choice: "confirm", decision_context_digest: "sha256:NOTHEX" })
-  expect(wrongShape).toContain("64 lowercase hex")
-  expect(wrongShape).toContain("sha256:NOTHEX")
-  expect(wrongShape).not.toContain("selected_choice")
 })
 
 const coreEnvelope = (tool: string, operation: string, outcome: string, fields: Record<string, unknown> = {}) => ({

@@ -180,6 +180,41 @@ test("request-wrapped tools accept the Code Mode double-wrapped argument shape",
   expect(sent.tool).toBe("concord_work_browse")
 })
 
+test("a dropped top-level operation is recovered from the input copy", async () => {
+  let invokeStdin = ""
+  const core = coreEnvelope("concord_work_browse", "list", "error", {
+    error: { kind: "internal_error", retry_safe: false, recovery_action: { kind: "contact_operator" }, effect_state: "none" },
+  })
+  adapter.configureConcordAdapter({ runner: runnerWithContext((_argv: string[], input: string) => {
+    invokeStdin = input
+    return core
+  }) })
+  // The bridge can deliver the wrapper without the published top-level
+  // operation, leaving the caller's input copy as the only surviving name.
+  const hostResult: any = await adapter.work_browse.execute({ request: { request: { input: { operation: "list", product_id: "concord" } } } } as any, contextFor())
+  const envelope = JSON.parse(hostResult.output)
+  expect(envelope.origin).toBe("core")
+  const sent = JSON.parse(invokeStdin)
+  expect(sent.operation).toBe("list")
+  expect(sent.input).toEqual({ product_id: "concord" })
+})
+
+test("an echoed operation copy never reaches the core payload", async () => {
+  let invokeStdin = ""
+  const core = coreEnvelope("concord_work_browse", "list", "error", {
+    error: { kind: "internal_error", retry_safe: false, recovery_action: { kind: "contact_operator" }, effect_state: "none" },
+  })
+  adapter.configureConcordAdapter({ runner: runnerWithContext((_argv: string[], input: string) => {
+    invokeStdin = input
+    return core
+  }) })
+  const hostResult: any = await adapter.work_browse.execute({ request: { operation: "list", input: { operation: "list", product_id: "concord" } } } as any, contextFor())
+  JSON.parse(hostResult.output)
+  const sent = JSON.parse(invokeStdin)
+  expect(sent.operation).toBe("list")
+  expect(sent.input).toEqual({ product_id: "concord" })
+})
+
 test("oversize core results become bounded ToolResult error envelopes", async () => {
   const oversized = coreEnvelope("concord_product_view", "resolve", "error", {
     evidence_refs: Array.from({ length: 32 }, (_, index) => ({

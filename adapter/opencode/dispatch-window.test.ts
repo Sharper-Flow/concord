@@ -38,7 +38,7 @@ describe("dispatch authorization window", () => {
 
   test("replaces caller arguments with the recorded packet", async () => {
     const windows = new DispatchWindows()
-    windows.open("session-a", packet, "", undefined, process.cwd())
+    windows.open("session-a", packet, "", process.cwd())
     const args = { subagent_type: "general", prompt: "whatever I like", description: "x" }
     await windows.bind(TASK_TOOL_ID, "session-a", args, undefined, here)
     expect(args.subagent_type).toBe("concord-implement")
@@ -47,7 +47,7 @@ describe("dispatch authorization window", () => {
 
   test("consumes the window exactly once", async () => {
     const windows = new DispatchWindows()
-    windows.open("session-a", packet, "", undefined, process.cwd())
+    windows.open("session-a", packet, "", process.cwd())
     await windows.bind(TASK_TOOL_ID, "session-a", { subagent_type: "x", prompt: "y", description: "z" }, undefined, here)
     await expect(
       windows.bind(TASK_TOOL_ID, "session-a", { subagent_type: "x", prompt: "y", description: "z" }, undefined, here),
@@ -56,7 +56,7 @@ describe("dispatch authorization window", () => {
 
   test("scopes a window to the session that requested it", async () => {
     const windows = new DispatchWindows()
-    windows.open("session-a", packet, "", undefined, process.cwd())
+    windows.open("session-a", packet, "", process.cwd())
     await expect(
       windows.bind(TASK_TOOL_ID, "session-b", { subagent_type: "x", prompt: "y", description: "z" }, undefined, here),
     ).rejects.toThrow(/no authorized dispatch/i)
@@ -67,7 +67,7 @@ describe("dispatch authorization window", () => {
 
   test("ignores tools other than the task tool", async () => {
     const windows = new DispatchWindows()
-    windows.open("session-a", packet, "", undefined, process.cwd())
+    windows.open("session-a", packet, "", process.cwd())
     const args = { subagent_type: "general", prompt: "untouched" }
     await windows.bind("bash", "session-a", args, undefined, here)
     expect(args.prompt).toBe("untouched")
@@ -78,13 +78,13 @@ describe("dispatch authorization window", () => {
 
   test("refuses a second open window for one session", () => {
     const windows = new DispatchWindows()
-    windows.open("session-a", packet, "", undefined, process.cwd())
-    expect(() => windows.open("session-a", packet, "", undefined, process.cwd())).toThrow(/already holds an open dispatch/i)
+    windows.open("session-a", packet, "", process.cwd())
+    expect(() => windows.open("session-a", packet, "", process.cwd())).toThrow(/already holds an open dispatch/i)
   })
 
   test("refuses to resume a prior worker session", async () => {
     const windows = new DispatchWindows()
-    windows.open("session-a", packet, "", undefined, process.cwd())
+    windows.open("session-a", packet, "", process.cwd())
     const args = { subagent_type: "x", prompt: "y", description: "z", task_id: "session-prior" }
     await windows.bind(TASK_TOOL_ID, "session-a", args, undefined, here)
     expect(args.task_id).toBeUndefined()
@@ -99,7 +99,7 @@ describe("dispatch authorization window", () => {
     const windows = new DispatchWindows()
     const claimed = realpathSync(tmpdir())
     expect(claimed).not.toBe(process.cwd())
-    windows.open("session-a", packet, "", undefined, claimed)
+    windows.open("session-a", packet, "", claimed)
     const args = { subagent_type: "general", prompt: "model input", description: "model task" }
 
     await windows.bind(TASK_TOOL_ID, "session-a", args, undefined, async () => claimed)
@@ -110,7 +110,7 @@ describe("dispatch authorization window", () => {
   // the worker outside the worktree the core authorized.
   test("refuses a worker when the session moved away from the claimed worktree", async () => {
     const windows = new DispatchWindows()
-    windows.open("session-a", packet, "", undefined, process.cwd())
+    windows.open("session-a", packet, "", process.cwd())
     const args = { subagent_type: "general", prompt: "model input", description: "model task" }
 
     await expect(
@@ -122,7 +122,7 @@ describe("dispatch authorization window", () => {
 
   test("does not expose paths in a directory mismatch", async () => {
     const windows = new DispatchWindows()
-    windows.open("session-a", packet, "", undefined, process.cwd())
+    windows.open("session-a", packet, "", process.cwd())
     const result = await windows.bind(TASK_TOOL_ID, "session-a", { subagent_type: "general", prompt: "model input" }, undefined, async () => realpathSync(tmpdir())).catch(error => String(error))
 
     expect(result).not.toContain(process.cwd())
@@ -132,7 +132,7 @@ describe("dispatch authorization window", () => {
   test("closes the window when the bind-time directory read fails", async () => {
     const windows = new DispatchWindows()
     const secretPath = path.join(process.cwd(), "private-session-path")
-    windows.open("session-a", packet, "", undefined, process.cwd())
+    windows.open("session-a", packet, "", process.cwd())
 
     await expect(
       windows.bind(TASK_TOOL_ID, "session-a", { subagent_type: "general", prompt: "model input" }, undefined, async () => {
@@ -145,7 +145,7 @@ describe("dispatch authorization window", () => {
   test("refuses a window without a resolvable worker directory", () => {
     for (const workerDirectory of [undefined, `${process.cwd()}/concord-dispatch-nonexistent-${randomUUID()}`]) {
       const windows = new DispatchWindows()
-      expect(() => windows.open("session-a", packet, "", undefined, workerDirectory)).toThrow(/resolvable worker directory/)
+      expect(() => windows.open("session-a", packet, "", workerDirectory)).toThrow(/resolvable worker directory/)
       expect(windows.has("session-a")).toBe(false)
     }
   })
@@ -156,7 +156,7 @@ describe("dispatch authorization window", () => {
     const directory = process.cwd()
     const before = process.cwd()
     const windows = new DispatchWindows()
-    windows.open("session-a", packet, "", undefined, directory)
+    windows.open("session-a", packet, "", directory)
     await windows.bind(TASK_TOOL_ID, "session-a", { subagent_type: "general", prompt: "model input" }, undefined, here)
 
     expect(process.cwd()).toBe(before)
@@ -171,7 +171,7 @@ describe("dispatch authorization window", () => {
     fs.symlinkSync(claimed, alias)
     try {
       const windows = new DispatchWindows()
-      windows.open("session-a", packet, "", undefined, alias)
+      windows.open("session-a", packet, "", alias)
       fs.unlinkSync(alias)
       fs.symlinkSync(other, alias)
 
@@ -187,7 +187,7 @@ describe("dispatch authorization window", () => {
 describe("in-flight retention across the host task call", () => {
   test("bind moves the record to in flight and completion takes it once", async () => {
     const windows = new DispatchWindows()
-    windows.open("session-a", packet, "sha256:" + "c".repeat(64), undefined, process.cwd())
+    windows.open("session-a", packet, "sha256:" + "c".repeat(64), process.cwd())
     await windows.bind(TASK_TOOL_ID, "session-a", { subagent_type: "general", prompt: "x" }, undefined, here)
     expect(windows.has("session-a")).toBe(false)
 

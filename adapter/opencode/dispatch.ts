@@ -49,6 +49,8 @@ export interface AgentLanePacketCorrection {
   escalated: boolean
   diagnosis: string
   strategy: string
+  failure_kind?: string
+  failure_detail?: string
   predicate_ids: string[]
   evidence_refs: string[]
 }
@@ -1192,7 +1194,7 @@ export async function dispatchWorker(packet: unknown, options: { signal?: AbortS
   }
   const windows = options.windows ?? dispatchWindows()
   try {
-    windows.open(sessionID, packet, options.packetDigest ?? "", options.workPins, workerDirectory, canonicalWorkerDirectory)
+    windows.open(sessionID, packet, options.packetDigest ?? "", workerDirectory, canonicalWorkerDirectory)
   } catch (error) {
     const detail = error instanceof DispatchWindowError ? error.message : String(error)
     return errorEnvelope(lane, packet as Partial<AgentLanePacket>, "error", "error", detail.slice(0, MAX_ERROR_BYTES), "reconcile_operation")

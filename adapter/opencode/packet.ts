@@ -1,6 +1,6 @@
 import type { ToolContext } from "@opencode-ai/plugin"
 import { validateAgentLanePacket, type AgentLanePacket, type AgentLanePacketCorrection } from "./dispatch"
-import { agentLanePacketSchema, agentLaneReportConstraints, agentLaneReportSchema, agentLanes, type AgentLane } from "./generated-agent-lanes"
+import { agentLanePacketSchema, agentLanes, type AgentLane } from "./generated-agent-lanes"
 import { laneStepDispatchKinds } from "./generated-lane-step-dispatch"
 
 // The packet bounds are read off the generated contract rather than restated,
@@ -10,8 +10,6 @@ const TASK_MAX_LENGTH: number = INPUT_BOUNDS.task.maxLength
 const CONTEXT_MAX_LENGTH: number = INPUT_BOUNDS.context.maxLength
 const CONSTRAINT_MAX_LENGTH: number = INPUT_BOUNDS.constraints.items.maxLength
 const CONSTRAINTS_MAX_ITEMS: number = INPUT_BOUNDS.constraints.maxItems
-const REPORT_DETAIL_MAX_LENGTH: number = agentLaneReportSchema.$defs.evidence_entry.properties.detail.maxLength
-const REPORT_EVIDENCE_MAX_ITEMS: number = agentLaneReportSchema.properties.evidence.maxItems
 const PACKET_SCHEMA_VERSION = agentLanePacketSchema.properties.schema_version.const
 
 export type AgentLanePacketFailureKind =
@@ -85,30 +83,6 @@ function renderDesignRecord(value: unknown): string {
   return lines.join("\n")
 }
 
-function renderCorrectionContext(value: unknown): string {
-  if (!isRecord(value)) return ""
-  const disposition = typeof value.disposition === "string" ? value.disposition : ""
-  const attemptCount = typeof value.attempt_count === "number" ? value.attempt_count : null
-  const attemptLimit = typeof value.attempt_limit === "number" ? value.attempt_limit : null
-  const diagnosis = typeof value.diagnosis === "string" ? value.diagnosis : ""
-  const strategy = typeof value.strategy === "string" ? value.strategy : ""
-  const predicateIDs = Array.isArray(value.predicate_ids) ? value.predicate_ids.filter((item): item is string => typeof item === "string") : []
-  const evidenceRefs = Array.isArray(value.evidence_refs) ? value.evidence_refs.filter((item): item is string => typeof item === "string") : []
-  const failureKind = typeof value.failure_kind === "string" ? value.failure_kind : ""
-  const failureDetail = typeof value.failure_detail === "string" ? value.failure_detail : ""
-  if (!disposition && attemptCount === null && !diagnosis && !strategy && predicateIDs.length === 0 && evidenceRefs.length === 0) return ""
-  const lines = ["Durable correction context:", `Disposition: ${disposition || "recorded correction"}.`]
-  if (attemptCount !== null && attemptLimit !== null) lines.push(`Execution attempts: ${attemptCount}/${attemptLimit}.`)
-  if (failureKind) lines.push(`Failure kind: ${failureKind}.`)
-  if (failureDetail) lines.push(`Failure detail: ${failureDetail}`)
-  if (predicateIDs.length > 0) lines.push(`Affected predicates: ${predicateIDs.join(", ")}.`)
-  if (evidenceRefs.length > 0) lines.push(`Bound evidence: ${evidenceRefs.join(", ")}.`)
-  if (diagnosis) lines.push(`Diagnosis: ${diagnosis}`)
-  if (strategy) lines.push(`Changed strategy: ${strategy}`)
-  lines.push("")
-  return lines.join("\n")
-}
-
 function projectCorrectionContext(value: unknown): AgentLanePacketCorrection | undefined {
   if (!isRecord(value)) return undefined
   const disposition = value.disposition === "failed" || value.disposition === "rejected" || value.disposition === "verification" ? value.disposition : null
@@ -117,10 +91,23 @@ function projectCorrectionContext(value: unknown): AgentLanePacketCorrection | u
   const diagnosis = typeof value.diagnosis === "string" ? value.diagnosis : ""
   const strategy = typeof value.strategy === "string" ? value.strategy : ""
   const escalated = typeof value.escalated === "boolean" ? value.escalated : null
+  const failureKind = typeof value.failure_kind === "string" ? value.failure_kind : ""
+  const failureDetail = typeof value.failure_detail === "string" ? value.failure_detail : ""
   const predicateIDs = Array.isArray(value.predicate_ids) ? value.predicate_ids.filter((item): item is string => typeof item === "string") : []
   const evidenceRefs = Array.isArray(value.evidence_refs) ? value.evidence_refs.filter((item): item is string => typeof item === "string") : []
   if (disposition === null || attemptCount === null || attemptLimit !== 3 || escalated === null || diagnosis.length === 0 || strategy.length === 0 || attemptCount > 3) return undefined
-  return { disposition, attempt_count: attemptCount, attempt_limit: 3, escalated, diagnosis, strategy, predicate_ids: predicateIDs, evidence_refs: evidenceRefs }
+  return {
+    disposition,
+    attempt_count: attemptCount,
+    attempt_limit: 3,
+    escalated,
+    diagnosis,
+    strategy,
+    ...(failureKind.length > 0 ? { failure_kind: failureKind } : {}),
+    ...(failureDetail.length > 0 ? { failure_detail: failureDetail } : {}),
+    predicate_ids: predicateIDs,
+    evidence_refs: evidenceRefs,
+  }
 }
 
 function isReadOnlyCapabilityClass(capabilityClass: AgentLane["capability_class"]): boolean {
@@ -237,14 +224,14 @@ export async function buildAgentLanePacket(request: AgentLanePacketRequest, deps
   const design = renderDesignRecord(pinned.design_record)
   const workPin = isRecord(pinned.work_pin) ? pinned.work_pin : null
   const correctionValue = workPin ? projectCorrectionContext(workPin.correction) : undefined
-  const correction = correctionValue ? renderCorrectionContext(correctionValue) : ""
-  const context = design + correction + narrative
+  const context = design + narrative
   if (context.length > CONTEXT_MAX_LENGTH) {
     return failure("projection_overflow", `the pinned design and work item narrative do not fit inputs.context: ${context.length} characters against a limit of ${CONTEXT_MAX_LENGTH}`, { field: "context", limit: CONTEXT_MAX_LENGTH, actual: context.length })
   }
 
   // CD-0056: the fold refuses a report that leaves a declared obligation
-  // undischarged, so the obligation set travels with the packet by name.
+  // undischarged. The lane definition carries the report contract and
+  // obligations because a malformed first message has no packet constraints.
   const mandateLabel = "Approved end-state mandate (join parts in order) "
   const partLimit = CONSTRAINT_MAX_LENGTH - `${mandateLabel}${CONSTRAINTS_MAX_ITEMS}/${CONSTRAINTS_MAX_ITEMS}: `.length
   const mandateParts: string[] = []
@@ -259,17 +246,7 @@ export async function buildAgentLanePacket(request: AgentLanePacketRequest, deps
   if (part.length > 0) mandateParts.push(part)
   const predicateConstraints = mandateParts.map((text, index) => `${mandateLabel}${index + 1}/${mandateParts.length}: ${text}`)
 
-  // The detail cap binds one entry, and the report holds many. A lane told only
-  // the cap compresses a whole obligation into one entry and overflows it, so
-  // the packet states the remedy next to the obligation it applies to.
-  const constraints = [
-    ...predicateConstraints,
-    ...lane.evidence_obligations.map(
-      (obligation) => `Evidence obligation "${obligation}": your agent-lane-report.v1 report must carry an evidence entry whose obligation is "${obligation}". An undischarged obligation is refused.`,
-    ),
-    `One obligation may span several entries. Where your content for an obligation exceeds the ${REPORT_DETAIL_MAX_LENGTH}-character detail cap, continue it in further entries naming that same obligation, up to ${REPORT_EVIDENCE_MAX_ITEMS} entries. Split the content. Do not drop it, and do not truncate a citation, a command, or an error string to fit.`,
-    ...agentLaneReportConstraints[lane.id],
-  ]
+  const constraints = predicateConstraints
   if (constraints.length > CONSTRAINTS_MAX_ITEMS) {
     return failure("projection_overflow", `lane ${lane.id} projects ${constraints.length} constraints, above the inputs.constraints limit of ${CONSTRAINTS_MAX_ITEMS}`, { field: "constraints", limit: CONSTRAINTS_MAX_ITEMS, actual: constraints.length })
   }

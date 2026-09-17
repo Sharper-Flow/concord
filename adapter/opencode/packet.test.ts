@@ -1,8 +1,8 @@
 import { test, expect, mock } from "bun:test"
 import { manifestDigest } from "./generated-contracts"
 import { validateGeneratedEnvelope, validateGeneratedPayload } from "./generated-contract-tests"
-import { configureCoreBinary, validateAgentLanePacket } from "./dispatch"
-import { agentLaneReportSchema, agentLaneReportConstraints, agentLanes } from "./generated-agent-lanes"
+import { configureCoreBinary, validateAgentLanePacket, type AgentLanePacketCorrection } from "./dispatch"
+import { agentLaneReportSchema, agentLanes } from "./generated-agent-lanes"
 
 // The builder reaches core through the adapter transport in concord.ts, which
 // imports the host plugin surface. The stub mirrors concord.test.ts so the
@@ -78,7 +78,7 @@ function pinnedContract(outcomePayload: string = OUTCOME_PAYLOAD, premise: strin
   }
 }
 
-const continuityEnvelope = (contract: unknown = pinnedContract(), designRecord: unknown = null) => coreEnvelope("concord_work_trace", "continuity", "C19.Continuity", "ok", {
+const continuityEnvelope = (contract: unknown = pinnedContract(), designRecord: unknown = null, workPin: unknown = null) => coreEnvelope("concord_work_trace", "continuity", "C19.Continuity", "ok", {
   result: {
     work_id: WORK_ID,
     pinned: {
@@ -90,6 +90,7 @@ const continuityEnvelope = (contract: unknown = pinnedContract(), designRecord: 
       pending_operator_decision: null,
       latest_checkpoint: null,
       design_record: designRecord,
+       ...(workPin === null ? {} : { work_pin: workPin }),
       unresolved_failure: null,
     },
     latest_checkpoint: null,
@@ -133,17 +134,13 @@ function mandateParts(packet: { inputs: { constraints?: string[] } }): string[] 
   return entries.map((entry) => entry.slice(entry.indexOf(": ") + 2))
 }
 
-test("packet and installed agent advertise only their lane's evidence vocabulary", async () => {
+test("installed agents advertise only their lane's evidence vocabulary", async () => {
   for (const lane of agentLanes) {
     const built = await build(defaultScript(), { laneId: lane.id })
     expect(built.failure).toBeUndefined()
-    const constraints = built.packet!.inputs.constraints!
-    const enums = constraints.filter((entry) => entry.startsWith("evidence_entry.obligation: enum="))
-    expect(enums).toHaveLength(1)
-    const declared = JSON.parse(enums[0]!.slice("evidence_entry.obligation: enum=".length, -1))
-    expect(declared).toEqual([...lane.evidence_obligations])
     const agent = await Bun.file(new URL(`../../.opencode/agents/concord-${lane.id}.md`, import.meta.url)).text()
-    expect(agent).toContain(enums[0]!)
+    for (const obligation of lane.evidence_obligations) expect(agent).toContain("`" + obligation + "`")
+    expect(built.packet!.inputs.constraints!.some((entry) => entry.startsWith("evidence_entry.obligation: enum="))).toBe(false)
   }
 })
 
@@ -164,25 +161,48 @@ test("a well-formed build projects mandate, narrative, and obligations into a va
   expect(packet.inputs.task).not.toContain(OUTCOME_PAYLOAD)
   expect(JSON.parse(mandateParts(packet).join(""))).toEqual(pinnedContract().outcome_predicates)
   expect(packet.inputs.context).toBe(NARRATIVE)
+  const agent = await Bun.file(new URL("../../.opencode/agents/concord-implement.md", import.meta.url)).text()
   for (const obligation of agentLanes[1].evidence_obligations) {
-    expect(packet.inputs.constraints!.some((entry) => entry.includes(`"${obligation}"`))).toBe(true)
+    expect(agent).toContain(`"${obligation}"`)
   }
+  expect(packet.inputs.constraints).toHaveLength(1)
 })
 
-test("a packet projects the report schema bounds into worker constraints", async () => {
+test("a correction projects recorded failure fields into the packet", async () => {
+  const correction: AgentLanePacketCorrection = {
+    disposition: "failed",
+    attempt_count: 1,
+    attempt_limit: 3,
+    escalated: false,
+    diagnosis: "worker attempt failed",
+    strategy: "retry with a fresh fenced attempt",
+    failure_kind: "transport_failure",
+    failure_detail: "the worker could not reach the service",
+    predicate_ids: [],
+    evidence_refs: [],
+  }
+  const built = await build({
+    ...defaultScript(),
+    "concord_work_trace.continuity": continuityEnvelope(pinnedContract(), null, { correction }),
+  })
+  expect(built.failure).toBeUndefined()
+  expect(built.packet!.inputs.correction).toEqual(correction)
+  expect(built.packet!.inputs.context).toBe(NARRATIVE)
+})
+
+test("installed agents project the report schema bounds", async () => {
   const built = await build(defaultScript())
   expect(built.failure).toBeUndefined()
-  const constraints = built.packet!.inputs.constraints!
+  const agent = await Bun.file(new URL("../../.opencode/agents/concord-implement.md", import.meta.url)).text()
   const reportProperties = agentLaneReportSchema.properties
   const reportEntry = agentLaneReportSchema.$defs.evidence_entry
-  expect(constraints.some((entry) => entry.includes(`additionalProperties=${agentLaneReportSchema.additionalProperties}`))).toBe(true)
-  expect(constraints.some((entry) => entry.includes(`maxItems=${reportProperties.evidence.maxItems}`))).toBe(true)
-  expect(constraints.some((entry) => entry.includes(`maxLength=${reportEntry.properties.detail.maxLength}`))).toBe(true)
-  expect(constraints.some((entry) => entry.includes(`maxLength=${reportProperties.readback_model.maxLength}`))).toBe(true)
-  expect(constraints.some((entry) => entry.includes(reportProperties.readback_model.pattern))).toBe(true)
-  const statusConstraint = constraints.find((entry) => entry.startsWith("status: enum="))
-  expect(statusConstraint).toBeDefined()
-  for (const status of reportProperties.status.enum) expect(statusConstraint).toContain(JSON.stringify(status))
+  expect(agent).toContain(`additionalProperties=${agentLaneReportSchema.additionalProperties}`)
+  expect(agent).toContain(`maxItems=${reportProperties.evidence.maxItems}`)
+  expect(agent).toContain(`maxLength=${reportEntry.properties.detail.maxLength}`)
+  expect(agent).toContain(`maxLength=${reportProperties.readback_model.maxLength}`)
+  expect(agent).toContain(reportProperties.readback_model.pattern)
+  const statusConstraint = `status: enum=[${reportProperties.status.enum.map((status) => JSON.stringify(status)).join(", ")}]`
+  expect(agent).toContain(statusConstraint)
 })
 
 // #903: the approved premise is the objective a dispatched worker must
@@ -239,7 +259,7 @@ test("the context carries the pinned design before the work narrative", async ()
   expect(context).toContain("The typed design record.")
 })
 
-test("the context carries bounded correction evidence from the work pin", async () => {
+test("the packet carries bounded correction data outside the narrative", async () => {
   const continuity = continuityEnvelope()
   const pinned = (continuity as any).result.pinned
   pinned.work_pin = {
@@ -267,10 +287,9 @@ test("the context carries bounded correction evidence from the work pin", async 
   }
   const built = await build({ ...defaultScript(), "concord_work_trace.continuity": continuity })
   expect(built.failure).toBeUndefined()
-  const context = built.packet!.inputs.context!
-  expect(context).toContain("Durable correction context:")
-  expect(context).toContain("predicate:primary")
-  expect(context).toContain("change the helper and add a test")
+  expect(built.packet!.inputs.correction).toEqual(pinned.work_pin.correction)
+  expect(built.packet!.inputs.context).toBe(NARRATIVE)
+  expect(built.packet!.inputs.context).not.toContain("change the helper and add a test")
 })
 
 // #903: non-Initiative work items carry no narrative, and a missing
@@ -338,7 +357,7 @@ test("every core read this builder performs satisfies the generated envelope and
   }
 })
 
-test("every registered lane projects its own obligation set and nothing else", async () => {
+test("every registered lane packet projects only its serialized mandate", async () => {
   for (const lane of agentLanes) {
     const built = await build(defaultScript(), { laneId: lane.id })
     expect(built.failure, `${lane.id}: ${JSON.stringify(built.failure)}`).toBeUndefined()
@@ -347,41 +366,10 @@ test("every registered lane projects its own obligation set and nothing else", a
     expect(packet.lane_id).toBe(lane.id)
     expect(packet.lane_version).toBe(lane.version)
     expect(packet.lane_digest).toBe(lane.digest)
-    expect(packet.inputs.constraints!.length).toBeGreaterThan(lane.evidence_obligations.length)
-    const laneConstraints = packet.inputs.constraints!.filter((entry) => entry.startsWith("Evidence obligation "))
-    for (const obligation of lane.evidence_obligations) {
-      expect(laneConstraints.some((entry) => entry.includes(`"${obligation}"`)), `${lane.id} omitted ${obligation}`).toBe(true)
-    }
-    const own = new Set<string>(lane.evidence_obligations)
-    const foreign = [...new Set(agentLanes.flatMap((other) => other.evidence_obligations as readonly string[]))].filter((obligation) => !own.has(obligation))
-    for (const obligation of foreign) {
-      expect(laneConstraints.some((entry) => entry.includes(`"${obligation}"`)), `${lane.id} leaked ${obligation}`).toBe(false)
-    }
+    expect(packet.inputs.constraints!.every((entry) => entry.startsWith("Approved end-state mandate "))).toBe(true)
   }
 })
 
-// Two research attempts failed agent-lane-report.v1 on an oversized detail with
-// the cap already in the packet. Repeating the cap is not the repair: a lane
-// that reads one entry per obligation compresses the obligation into that entry
-// whatever the cap says. The packet must carry the remedy.
-test("every lane packet states that one obligation may span several entries", async () => {
-  const detailMax = agentLaneReportSchema.$defs.evidence_entry.properties.detail.maxLength
-  const evidenceMax = agentLaneReportSchema.properties.evidence.maxItems
-  for (const lane of agentLanes) {
-    const built = await build(defaultScript(), { laneId: lane.id })
-    expect(built.failure, `${lane.id}: ${JSON.stringify(built.failure)}`).toBeUndefined()
-    const constraints = built.packet!.inputs.constraints!
-    const remedy = constraints.filter((entry) => entry.startsWith("One obligation may span several entries"))
-    expect(remedy, `${lane.id} omitted the multi-entry remedy`).toHaveLength(1)
-    expect(remedy[0]!).toContain(`${detailMax}-character`)
-    expect(remedy[0]!).toContain(`up to ${evidenceMax} entries`)
-    // The remedy is worthless if it does not survive the per-constraint cap.
-    expect(remedy[0]!.length).toBeLessThanOrEqual(512)
-  }
-})
-
-// The installed lane definition is the other surface a worker reads. A remedy
-// present in only one of the two leaves the other telling the lane to compress.
 test("every installed lane definition states the multi-entry remedy", async () => {
   const detailMax = agentLaneReportSchema.$defs.evidence_entry.properties.detail.maxLength
   for (const lane of agentLanes) {
@@ -488,16 +476,13 @@ test("the task bound rejects only the next character", async () => {
 
 })
 
-test("the combined mandate and report guidance bound admits exactly 64 entries", async () => {
+test("the serialized mandate bound admits exactly 64 entries", async () => {
   const contract = pinnedContract("")
   const partLimit = 512 - "Approved end-state mandate (join parts in order) 64/64: ".length
-  // Count what the builder emits beside the mandate rather than naming the
-  // categories. Adding a category to the builder must move this bound, and a
-  // hand-listed count leaves the new constraint outside the budget instead.
   const probe = await build(defaultScript())
   expect(probe.failure).toBeUndefined()
-  const reportCount = probe.packet!.inputs.constraints!.filter((entry) => !entry.startsWith("Approved end-state mandate ")).length
-  const payloadLength = (64 - reportCount) * partLimit - JSON.stringify(contract.outcome_predicates).length
+  expect(probe.packet!.inputs.constraints).toHaveLength(1)
+  const payloadLength = 64 * partLimit - JSON.stringify(contract.outcome_predicates).length
   contract.outcome_predicates[0].outcome_payload = "p".repeat(payloadLength)
   const exact = await build({ ...defaultScript(), "concord_work_trace.continuity": continuityEnvelope(contract) })
   expect(exact.failure).toBeUndefined()

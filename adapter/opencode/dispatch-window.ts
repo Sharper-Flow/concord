@@ -26,7 +26,6 @@ export class DispatchWindowError extends Error {}
 export interface DispatchRecord {
   packet: AgentLanePacket
   packetDigest: string
-  workPins?: unknown[]
   workerDirectory: string
   workerDirectoryIdentity: string
   callID?: string
@@ -56,7 +55,7 @@ export class DispatchWindows {
   readonly #inFlight = new Map<string, DispatchRecord>()
   readonly #settling = new Set<string>()
 
-  open(sessionID: string, packet: AgentLanePacket, packetDigest = "", workPins: unknown[] | undefined = undefined, workerDirectory?: string, pinnedWorkerDirectory?: string): void {
+  open(sessionID: string, packet: AgentLanePacket, packetDigest = "", workerDirectory?: string, pinnedWorkerDirectory?: string): void {
     if (this.#open.has(sessionID) || this.#inFlight.has(sessionID)) {
       throw new DispatchWindowError(`session ${sessionID} already holds an open dispatch window or an in-flight attempt`)
     }
@@ -75,7 +74,7 @@ export class DispatchWindows {
     if (workerDirectoryIdentity === null) {
       throw new DispatchWindowError("worker dispatch requires a resolvable worker directory identity")
     }
-    this.#open.set(sessionID, { packet, packetDigest, workPins, workerDirectory: canonicalWorkerDirectory, workerDirectoryIdentity })
+    this.#open.set(sessionID, { packet, packetDigest, workerDirectory: canonicalWorkerDirectory, workerDirectoryIdentity })
   }
 
   // close discards a window whose dispatch failed before the worker started, so

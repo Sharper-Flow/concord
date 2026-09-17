@@ -63,6 +63,18 @@
     {
       "criterion": 16,
       "exemption": "Policy-only host-role preservation under CD-0122 D3. This amendment changes no host-owned permission, session, directory, or participation rule."
+    },
+    {
+      "criterion": 17,
+      "exemption": "Policy-only Product routing boundary under CD-0155. Runtime routing and the absence of a serving-Product work item require separate implementation evidence."
+    },
+    {
+      "criterion": 18,
+      "exemption": "Policy-only foreign-session override under CD-0155. A session serving a local-only Product retains Concord's local planning authority."
+    },
+    {
+      "criterion": 19,
+      "exemption": "Policy-only scope declaration under CD-0155. No typed operation, schema, or validator is added by this amendment."
     }
   ],
   "date": "2026-09-09T00:00:00Z",
@@ -90,6 +102,10 @@
     {
       "kind": "subordinate_to",
       "target_id": "CD-0122"
+    },
+    {
+      "kind": "subordinate_to",
+      "target_id": "CD-0155"
     }
   ],
   "path": "docs/development-authority.md",
@@ -100,15 +116,16 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:98634bbe19b860013d1f98556fdd3962c4559f4dd68d489e41d38ccb6e28c350",
+  "sha256": "sha256:42c136d5c7a68f37c37c0e7140da7c35e417ae15272b278bf371b1a21e3de1d1",
   "status": "accepted",
-  "summary": "Defines Product-scoped planning, explicit Concord workflow participation, authorized outside-work defect repair, truthful activation and cutover, and separate repository and host authority.",
+  "summary": "Defines Product-scoped planning, foreign-session routing by recorded mode, explicit Concord workflow participation, authorized outside-work defect repair, truthful activation and cutover, and separate repository and host authority.",
   "tags": [
     "authority",
     "process",
     "cd-0089",
     "cd-0121",
     "cd-0122",
+    "cd-0155",
     "linear",
     "local-only",
     "defect-repair",

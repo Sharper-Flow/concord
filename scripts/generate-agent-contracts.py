@@ -212,6 +212,10 @@ def workflow_payload_field_schema(field: dict, defs: dict) -> dict:
             continue
         if source in field:
             schema[target] = field[source]
+    if field.get("non_blank"):
+        schema["pattern"] = r"\S"
+    if field.get("forbidden_values"):
+        schema["not"] = {"type": "string", "enum": field["forbidden_values"]}
     return schema
 
 
@@ -259,28 +263,13 @@ def install_workflow_self_repair_schema(defs: dict) -> None:
     contract["properties"]["self_repair"] = {"$ref": "#/$defs/workflow_self_repair"}
 
 
-def workflow_supersede_fields_schema(outcome_payload: dict) -> dict:
-    string_list = {"type": "array", "maxItems": 32, "uniqueItems": True, "items": {"$ref": "#/$defs/id"}}
-    return {
-        "type": "object", "additionalProperties": False,
-        "required": ["contract_version", "premise", "required_evidence", "route_conventions", "spec_mandate", "law_modifies", "rigor_class", "supersede_reason", "audit_evidence"],
-        "properties": {
-            "contract_version": {"$ref": "#/$defs/version"}, "premise": {"type": "string", "minLength": 1, "maxLength": 4096},
-            "predecessor_contract_versions": {"type": "array", "minItems": 1, "maxItems": 32, "uniqueItems": True, "items": {"$ref": "#/$defs/version"}},
-            "outcome_kind": {"type": "string", "enum": ["exists", "absent", "outcome", "check"]}, "outcome_payload": copy.deepcopy(outcome_payload),
-            "outcome_predicates": {"$ref": "#/$defs/workflow_action_outcome_predicates"},
-            "required_evidence": copy.deepcopy(string_list), "route_conventions": copy.deepcopy(string_list),
-            "spec_mandate": copy.deepcopy(string_list), "law_modifies": copy.deepcopy(string_list),
-            "rigor_class": {"$ref": "#/$defs/rigor_class"}, "architecture_binding": {"$ref": "#/$defs/architecture_binding"},
-            "self_repair": {"$ref": "#/$defs/workflow_self_repair"},
-            "design_record": {"$ref": "#/$defs/workflow_design_content"},
-            "supersede_reason": {"type": "string", "minLength": 1, "maxLength": 4096}, "audit_evidence": copy.deepcopy(string_list),
-        },
-        "oneOf": [
-            {"required": ["outcome_predicates"]},
-            {"required": ["outcome_kind", "outcome_payload"]},
-        ],
-    }
+def workflow_supersede_fields_schema(defs: dict, payload: dict) -> dict:
+    result = workflow_payload_object_schema(payload, defs)
+    result["oneOf"] = [
+        {"required": ["outcome_predicates"]},
+        {"required": ["outcome_kind", "outcome_payload"]},
+    ]
+    return result
 
 
 def workflow_payload_object_schema(payload: dict, defs: dict) -> dict:
@@ -315,6 +304,8 @@ def project_workflow_action_schema(document: dict, actions: list[dict]) -> dict:
     common_required = ["work_id", "expected_version", "action_id", "idempotency_key"]
 
     outcome_payload = install_workflow_outcome_schema(defs)
+    defs["workflow_action_outcome"] = copy.deepcopy(outcome_payload)
+    defs["workflow_contract_version"] = {"$ref": "#/$defs/version"}
     defs["workflow_action_outcome_predicates"] = {
         "type": "array", "minItems": 1, "maxItems": 8,
         "items": {"type": "object", "additionalProperties": False, "required": ["predicate_id", "ordinal", "outcome_kind", "outcome_payload"], "properties": {
@@ -356,7 +347,8 @@ def project_workflow_action_schema(document: dict, actions: list[dict]) -> dict:
     shared_actions = [action for action in actions if action["payload"] == action["public_payload"]]
     divergent_actions = [action for action in actions if action["payload"] != action["public_payload"]]
     shared_conditions = [action_condition(action, "payload") for action in shared_actions]
-    shared_conditions.append({"if": {"properties": {"action_id": {"const": "supersede_contract"}}, "required": ["action_id"]}, "then": {"required": ["fields"], "properties": {"fields": workflow_supersede_fields_schema(outcome_payload)}, "not": {"anyOf": [{"required": ["selected_choice"]}, {"required": ["decision_context_digest"]}]}}})
+    supersede_action = next(action for action in actions if action["id"] == "supersede_contract")
+    shared_conditions.append({"if": {"properties": {"action_id": {"const": "supersede_contract"}}, "required": ["action_id"]}, "then": {"required": ["fields"], "properties": {"fields": workflow_supersede_fields_schema(defs, supersede_action["payload"])}, "not": {"anyOf": [{"required": ["selected_choice"]}, {"required": ["decision_context_digest"]}]}}})
     defs["work_transition_action_shared_input"] = {"type": "object", "additionalProperties": False, "required": common_required, "properties": copy.deepcopy(outer_properties), "allOf": shared_conditions}
     wrapper = {"type": "object", "additionalProperties": False, "required": common_required, "properties": copy.deepcopy(outer_properties)}
     defs["work_transition_action_input"] = copy.deepcopy(wrapper) | {"allOf": [{"$ref": "#/$defs/work_transition_action_shared_input"}] + [action_condition(action, "payload") for action in divergent_actions]}

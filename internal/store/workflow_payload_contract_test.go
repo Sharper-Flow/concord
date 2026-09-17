@@ -87,6 +87,24 @@ func TestCurrentActionPayloadContractsRefuseCrossActionAndInvalidFields(t *testi
 	}
 }
 
+func TestContractPremiseRejectsBlankAndFallbackText(t *testing.T) {
+	t.Parallel()
+	definition := currentWorkflowDefinition(t, "workflow.implementation")
+	valid := `{"premise":"The operator stated this premise.","outcome_predicates":[{"predicate_id":"predicate:one","ordinal":0,"outcome_kind":"check","outcome_payload":{"kind":"check","check_ref":"check:test","immutable_subject_ref":"commit:test","expected_result":"pass"}}]}`
+	for _, premise := range []string{"", "   ", "workflow premise"} {
+		payload := strings.Replace(valid, "The operator stated this premise.", premise, 1)
+		if err := validateWorkflowActionPayload(definition, "approve_contract", json.RawMessage(payload)); err == nil {
+			t.Fatalf("approve_contract accepted premise %q", premise)
+		}
+	}
+	for _, premise := range []string{"   ", "workflow premise"} {
+		payload := `{"contract_version":2,"premise":"` + premise + `","outcome_predicates":[{"predicate_id":"predicate:one","ordinal":0,"outcome_kind":"check","outcome_payload":{"kind":"check","check_ref":"check:test","immutable_subject_ref":"commit:test","expected_result":"pass"}}],"required_evidence":[],"route_conventions":[],"spec_mandate":[],"law_modifies":[],"rigor_class":"prototype_internal","supersede_reason":"replace the contract","audit_evidence":["evidence:test"]}`
+		if err := validateWorkflowContractRecoveryPayload(json.RawMessage(payload)); err == nil {
+			t.Fatalf("supersede_contract accepted premise %q", premise)
+		}
+	}
+}
+
 func TestRecordDesignPayloadContractsRemainVersioned(t *testing.T) {
 	registry := BuiltinWorkflowRegistry()
 	historical, ok := registry.Lookup("workflow.implementation", 5)
@@ -157,14 +175,14 @@ func TestMissingRequiredActionFieldHasNoDurableEffect(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, actionErr := applyWorkflowActionRawTx(context.Background(), tx, BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
-		WorkID: workID, ExpectedVersion: beforeVersion, ActionID: "approve_contract", Payload: json.RawMessage(`{}`), Actor: actor,
+		WorkID: workID, ExpectedVersion: beforeVersion, ActionID: "approve_contract", Payload: json.RawMessage(`{"outcome_predicates":[{"predicate_id":"predicate:required-payload","ordinal":0,"outcome_kind":"check","outcome_payload":{"kind":"check","check_ref":"check:required-payload","immutable_subject_ref":"commit:required-payload","expected_result":"pass"}}]}`), Actor: actor,
 		AcceptedInputsDigest: "sha256:required-payload", IdempotencyIdentity: "required-payload", OperationID: "required-payload",
 		PrincipalRef: actor.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "required-payload",
 		RequestID: "request:required-payload", ContractDigest: testManifestDigest, Now: time.Date(2026, 9, 8, 0, 0, 0, 0, time.UTC),
 	})
 	_ = leaveFold(context.Background(), tx)
 	_ = tx.Rollback()
-	_ = requirePayloadFailure(t, actionErr, "outcome_predicates", "required")
+	_ = requirePayloadFailure(t, actionErr, "premise", "required")
 
 	var afterVersion, afterEvents int64
 	if err := s.db.QueryRow(`SELECT version FROM work_items WHERE id=?`, workID).Scan(&afterVersion); err != nil {
@@ -201,11 +219,11 @@ func TestActionPayloadListItemSchemasMatchPreflight(t *testing.T) {
 		t.Fatalf("workflow reference accepted by the generated reference schema was refused: %v", err)
 	}
 	longLawID := "spec:" + strings.Repeat("a", 124)
-	payload := json.RawMessage(`{"outcome_predicates":[{"predicate_id":"predicate:one","ordinal":0,"outcome_kind":"check","outcome_payload":{"kind":"check","check_ref":"check:test","immutable_subject_ref":"commit:test","expected_result":"pass"}}],"spec_mandate":["` + longLawID + `"]}`)
+	payload := json.RawMessage(`{"premise":"The operator stated this premise.","outcome_predicates":[{"predicate_id":"predicate:one","ordinal":0,"outcome_kind":"check","outcome_payload":{"kind":"check","check_ref":"check:test","immutable_subject_ref":"commit:test","expected_result":"pass"}}],"spec_mandate":["` + longLawID + `"]}`)
 	if err := validateWorkflowActionPayload(definition, "approve_contract", payload); err != nil {
 		t.Fatalf("bounded law ID accepted by the generated law schema was refused: %v", err)
 	}
-	invalid := json.RawMessage(`{"outcome_predicates":[{"predicate_id":"predicate:one","ordinal":0,"outcome_kind":"check","outcome_payload":{"kind":"check","check_ref":"check:test","immutable_subject_ref":"commit:test","expected_result":"pass"}}],"spec_mandate":[" spec:one"]}`)
+	invalid := json.RawMessage(`{"premise":"The operator stated this premise.","outcome_predicates":[{"predicate_id":"predicate:one","ordinal":0,"outcome_kind":"check","outcome_payload":{"kind":"check","check_ref":"check:test","immutable_subject_ref":"commit:test","expected_result":"pass"}}],"spec_mandate":[" spec:one"]}`)
 	_ = requirePayloadFailure(t, validateWorkflowActionPayload(definition, "approve_contract", invalid), "spec_mandate", "item_ref=law_id")
 }
 

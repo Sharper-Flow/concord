@@ -97,6 +97,8 @@ type WorkflowPayloadField struct {
 	Name      string           `json:"name"`
 	ValueType PayloadValueType `json:"value_type"`
 	Required  bool             `json:"required"`
+	NonBlank  bool             `json:"non_blank,omitempty"`
+	Forbidden []string         `json:"forbidden_values,omitempty"`
 	MinLength *int64           `json:"min_length,omitempty"`
 	MaxLength *int64           `json:"max_length,omitempty"`
 	MinItems  *int64           `json:"min_items,omitempty"`
@@ -550,7 +552,7 @@ func normalizeWorkflowDefinition(definition WorkflowDefinition) WorkflowDefiniti
 // workflow_registry_versions.go and never acquire current payload contracts.
 func BuiltinWorkflowDefinitions() []WorkflowDefinition {
 	return []WorkflowDefinition{
-		implementationDesignItemSchemaV10(), breakFixRefinementV8(), withWorkerActions(builtinResearch(true), true), architectureSpikeDecisionBoundsV6(), opsRunbookTimestampV7(), withWorkerActions(builtinStaticAnalysis(true), true), withWorkerActions(builtinGenericOneOff(true), true),
+		implementationPremiseContractV11(), breakFixPremiseContractV9(), withWorkerActions(builtinResearch(true), true), architecturePremiseContractV7(), opsRunbookPremiseContractV8(), withWorkerActions(builtinStaticAnalysis(true), true), withWorkerActions(builtinGenericOneOff(true), true),
 	}
 }
 
@@ -559,20 +561,22 @@ func BuiltinWorkflowDefinitions() []WorkflowDefinition {
 // Registration enforces ascending versions per reference, so the order is
 // load-bearing (#861).
 func builtinWorkflowDefinitionsWithHistory() []WorkflowDefinition {
-	return append(
-		[]WorkflowDefinition{
-			withLegacyWorkerActions(legacyImplementationV1()), withLegacyWorkerActions(legacyBreakFixV1()), withLegacyWorkerActions(legacyResearchV1()), withLegacyWorkerActions(legacyGenericOneOffV1()),
-			preJoinImplementationV2(), preJoinBreakFixV2(), preJoinGenericOneOffV2(), preJoinResearchV2(), preJoinArchitectureSpikeV1(), preJoinOpsRunbookV1(), preJoinStaticAnalysisV1(),
-			prePayloadImplementationV3(), prePayloadBreakFixV3(), prePayloadGenericOneOffV3(), prePayloadResearchV3(), prePayloadArchitectureSpikeV2(), prePayloadOpsRunbookV2(), prePayloadStaticAnalysisV2(),
-			preFailureImplementationV4(), preFailureBreakFixV4(), preFailureGenericOneOffV4(), preFailureResearchV4(), preFailureArchitectureSpikeV3(), preFailureOpsRunbookV3(), preFailureStaticAnalysisV3(),
-			releasedBreakFixV5(), breakFixEvidenceRecoveryV6(), breakFixRefinementV7(),
-			preDesignImplementationV5(),
-			preProposalImplementationV6(),
-			releasedImplementationV7(), implementationRefinementV8(), implementationRefinementV9(),
-			releasedOpsRunbookV4(), preDecisionPayloadArchitectureSpikeV4(), preCancellationContractOpsRunbookV5(), opsRunbookConditionContractV6(), releasedArchitectureSpikeV5(),
-		},
-		BuiltinWorkflowDefinitions()...,
-	)
+	history := []WorkflowDefinition{
+		withLegacyWorkerActions(legacyImplementationV1()), withLegacyWorkerActions(legacyBreakFixV1()), withLegacyWorkerActions(legacyResearchV1()), withLegacyWorkerActions(legacyGenericOneOffV1()),
+		preJoinImplementationV2(), preJoinBreakFixV2(), preJoinGenericOneOffV2(), preJoinResearchV2(), preJoinArchitectureSpikeV1(), preJoinOpsRunbookV1(), preJoinStaticAnalysisV1(),
+		prePayloadImplementationV3(), prePayloadBreakFixV3(), prePayloadGenericOneOffV3(), prePayloadResearchV3(), prePayloadArchitectureSpikeV2(), prePayloadOpsRunbookV2(), prePayloadStaticAnalysisV2(),
+		preFailureImplementationV4(), preFailureBreakFixV4(), preFailureGenericOneOffV4(), preFailureResearchV4(), preFailureArchitectureSpikeV3(), preFailureOpsRunbookV3(), preFailureStaticAnalysisV3(),
+		releasedBreakFixV5(), breakFixEvidenceRecoveryV6(), breakFixRefinementV7(), breakFixRefinementV8(),
+		preDesignImplementationV5(),
+		preProposalImplementationV6(),
+		releasedImplementationV7(), implementationRefinementV8(), implementationRefinementV9(), implementationDesignItemSchemaV10(),
+		releasedOpsRunbookV4(), preDecisionPayloadArchitectureSpikeV4(), preCancellationContractOpsRunbookV5(), opsRunbookConditionContractV6(), opsRunbookTimestampV7(), releasedArchitectureSpikeV5(), architectureSpikeDecisionBoundsV6(),
+		releasedResearchV5(), releasedStaticAnalysisV4(), releasedGenericOneOffV5(),
+	}
+	for i := range history {
+		history[i] = withLegacyPremiseContract(history[i])
+	}
+	return append(history, BuiltinWorkflowDefinitions()...)
 }
 
 // BuiltinWorkflowDefinitionsWithHistory returns the immutable built-in
@@ -932,7 +936,7 @@ func validatePayloadFields(fields []WorkflowPayloadField) bool {
 			return false
 		}
 		seen[field.Name] = true
-		if field.MinLength != nil && (*field.MinLength < 0 || *field.MinLength > 16384) || field.MaxLength != nil && (*field.MaxLength < 0 || *field.MaxLength > 16384) || field.MinItems != nil && (*field.MinItems < 0 || *field.MinItems > 64) || field.MaxItems != nil && (*field.MaxItems < 0 || *field.MaxItems > 64) || field.Minimum != nil && (*field.Minimum < -2147483648 || *field.Minimum > 2147483647) || field.Maximum != nil && (*field.Maximum < -2147483648 || *field.Maximum > 2147483647) {
+		if field.NonBlank && field.ValueType != PayloadString && field.ValueType != PayloadRef && field.ValueType != PayloadDigest || len(field.Forbidden) > 32 || !uniqueStrings(field.Forbidden) || len(field.Forbidden) != 0 && field.ValueType != PayloadString && field.ValueType != PayloadRef && field.ValueType != PayloadDigest || field.MinLength != nil && (*field.MinLength < 0 || *field.MinLength > 16384) || field.MaxLength != nil && (*field.MaxLength < 0 || *field.MaxLength > 16384) || field.MinItems != nil && (*field.MinItems < 0 || *field.MinItems > 64) || field.MaxItems != nil && (*field.MaxItems < 0 || *field.MaxItems > 64) || field.Minimum != nil && (*field.Minimum < -2147483648 || *field.Minimum > 2147483647) || field.Maximum != nil && (*field.Maximum < -2147483648 || *field.Maximum > 2147483647) {
 			return false
 		}
 		if field.MinLength != nil && field.MaxLength != nil && *field.MinLength > *field.MaxLength || field.MinItems != nil && field.MaxItems != nil && *field.MinItems > *field.MaxItems || field.Minimum != nil && field.Maximum != nil && *field.Minimum > *field.Maximum {
@@ -1149,6 +1153,12 @@ func evidenceBindingActionFields() []WorkflowPayloadField {
 	}
 }
 
+const workflowPremiseFallback = "workflow premise"
+
+func actionPremiseField() WorkflowPayloadField {
+	return WorkflowPayloadField{Name: "premise", ValueType: PayloadString, Required: true, NonBlank: true, Forbidden: []string{workflowPremiseFallback}, MinLength: workflowInt(1), MaxLength: workflowInt(WorkflowPremiseMaxLength)}
+}
+
 func nativeRunActionFields(statuses ...string) []WorkflowPayloadField {
 	return []WorkflowPayloadField{
 		actionRefField("run_id", true),
@@ -1181,7 +1191,7 @@ var builtinActionPolicies = map[string]builtinActionPolicy{
 		actionListField("proposed_route_conventions", false, 0, 16),
 		actionListField("required_route_conventions", false, 0, 16),
 		actionIntegerField("contract_version", false, 1, 2147483647),
-		actionStringField("premise", false, WorkflowPremiseMaxLength),
+		actionPremiseField(),
 		actionArrayField("outcome_predicates", true, 1, 8, "workflow_action_outcome_predicates"),
 		actionEnumListField("required_evidence", false, 0, 7, "verification", "review", "approval", "commit", "durable_note", "native_run", "artifact"),
 		actionLawListField("spec_mandate", false, 0, 32),
@@ -1351,6 +1361,7 @@ func workflowRecoveryActionDefinition(actionID string) (WorkflowActionDefinition
 // second copy.
 func BuiltinWorkflowRecoveryActionDefinitions() []WorkflowActionDefinition {
 	return []WorkflowActionDefinition{
+		workflowContractRecoveryActionDefinition(),
 		workflowCorrectionActionDefinition(),
 		workflowCorrectionRequestActionDefinition(),
 	}
@@ -1438,7 +1449,7 @@ func builtinImplementation(payloadContracts bool) WorkflowDefinition {
 	edges = addEdge(edges, "execution", "execution", WorkflowEdgeRetry)
 	actions := []string{"record_proposal", "record_discovery", "record_design", "approve_contract", "start_execution", "checkpoint_execution", "bind_evidence", "declare_impact", "link_successor", "record_delivery", "record_verdict", "confirm_premise", "complete"}
 	d := baseDefinition("workflow.implementation", WorkKindImplementation, graph(steps, edges, "release"), actions, []EvidenceKind{EvidenceVerification, EvidenceReview}, WorkflowOutcomeSchema{DefaultKind: PredicateCheck, AllowedKinds: []PredicateKind{PredicateExists, PredicateAbsent, PredicateCheck}, AllowedOutcomeTokens: []string{}, DecisionRecordRequired: false}, []WorkKind{WorkKindBreakFix, WorkKindResearch}, payloadContracts)
-	d.Version = 7
+	d.Version = 11
 	return withContinuityActions(d, payloadContracts)
 }
 func builtinBreakFix(payloadContracts bool) WorkflowDefinition {
@@ -1450,7 +1461,7 @@ func builtinBreakFix(payloadContracts bool) WorkflowDefinition {
 	edges = addEdge(edges, "repair", "repair", WorkflowEdgeRetry)
 	actions := []string{"record_reproduction", "record_root_cause", "approve_contract", "start_repair", "checkpoint_repair", "bind_evidence", "link_successor", "record_delivery", "record_verdict", "confirm_premise", "complete"}
 	d := baseDefinition("workflow.break_fix", WorkKindBreakFix, graph(steps, edges, "complete"), actions, []EvidenceKind{EvidenceVerification}, WorkflowOutcomeSchema{DefaultKind: PredicateAbsent, AllowedKinds: []PredicateKind{PredicateExists, PredicateAbsent, PredicateCheck}, AllowedOutcomeTokens: []string{}, DecisionRecordRequired: false}, []WorkKind{WorkKindImplementation, WorkKindResearch}, payloadContracts)
-	d.Version = 5
+	d.Version = 9
 	return withContinuityActions(d, payloadContracts)
 }
 func builtinResearch(payloadContracts bool) WorkflowDefinition {
@@ -1458,7 +1469,7 @@ func builtinResearch(payloadContracts bool) WorkflowDefinition {
 	steps := []WorkflowStep{step("frame", WorkflowStepHumanCheckpoint, "frame_research", "approve_contract"), step("investigate", WorkflowStepCrossAuthority, "record_finding", "revise_candidates", "bind_evidence"), step("findings", WorkflowStepInternalSQLite, "record_report", "link_successor"), step("conclude", WorkflowStepHumanCheckpoint, "record_conclusion", "record_verdict", "confirm_premise"), step("complete", WorkflowStepInternalSQLite, "complete")}
 	actions := []string{"frame_research", "approve_contract", "record_finding", "revise_candidates", "bind_evidence", "record_report", "link_successor", "record_conclusion", "record_verdict", "confirm_premise", "complete"}
 	d := baseDefinition("workflow.research", WorkKindResearch, graph(steps, forward(ids...), "complete"), actions, []EvidenceKind{EvidenceArtifact}, WorkflowOutcomeSchema{DefaultKind: PredicateOutcome, AllowedKinds: []PredicateKind{PredicateOutcome}, AllowedOutcomeTokens: []string{"no_change", "resolved", "report_recorded"}, DecisionRecordRequired: false}, []WorkKind{WorkKindBreakFix, WorkKindArchitectureSpike, WorkKindStaticAnalysis}, payloadContracts)
-	d.Version = 5
+	d.Version = 6
 	return withContinuityActions(d, payloadContracts)
 }
 func builtinArchitectureSpike(payloadContracts bool) WorkflowDefinition {
@@ -1469,7 +1480,7 @@ func builtinArchitectureSpike(payloadContracts bool) WorkflowDefinition {
 	edges = addEdge(edges, "poc_optional", "poc_optional", WorkflowEdgeRetry)
 	actions := []string{"frame_question", "approve_contract", "record_research", "bind_evidence", "record_option", "start_poc", "checkpoint_poc", "discard_poc", "record_delivery", "record_decision", "record_verdict", "accept_decision", "confirm_premise", "complete"}
 	d := baseDefinition("workflow.architecture_spike", WorkKindArchitectureSpike, graph(steps, edges, "complete"), actions, []EvidenceKind{EvidenceReview, EvidenceApproval, EvidenceArtifact}, WorkflowOutcomeSchema{DefaultKind: PredicateOutcome, AllowedKinds: []PredicateKind{PredicateOutcome}, AllowedOutcomeTokens: []string{"accepted_decision", "insufficient_evidence"}, DecisionRecordRequired: true}, []WorkKind{WorkKindImplementation, WorkKindResearch, WorkKindStaticAnalysis}, payloadContracts)
-	d.Version = 5
+	d.Version = 7
 	return withContinuityActions(d, payloadContracts)
 }
 func builtinOpsRunbook(payloadContracts bool) WorkflowDefinition {
@@ -1480,7 +1491,7 @@ func builtinOpsRunbook(payloadContracts bool) WorkflowDefinition {
 	edges = addEdge(edges, "execute", "execute", WorkflowEdgeRetry)
 	actions := []string{"approve_contract", "approve_operation", "start_run", "checkpoint_run", "bind_evidence", "add_condition", "resolve_condition", "cancel_condition", "record_delivery", "record_health", "record_verdict", "rollback_run", "cleanup_run", "confirm_premise", "complete"}
 	d := baseDefinition("workflow.ops_runbook", WorkKindOpsRunbook, graph(steps, edges, "complete"), actions, []EvidenceKind{EvidenceApproval, EvidenceNativeRun}, WorkflowOutcomeSchema{DefaultKind: PredicateCheck, AllowedKinds: []PredicateKind{PredicateExists, PredicateAbsent, PredicateCheck}, AllowedOutcomeTokens: []string{}, DecisionRecordRequired: false}, []WorkKind{WorkKindImplementation, WorkKindBreakFix, WorkKindResearch}, payloadContracts)
-	d.Version = 4
+	d.Version = 8
 	return withContinuityActions(d, payloadContracts)
 }
 func builtinStaticAnalysis(payloadContracts bool) WorkflowDefinition {
@@ -1490,7 +1501,7 @@ func builtinStaticAnalysis(payloadContracts bool) WorkflowDefinition {
 	edges = addEdge(edges, "analyze", "analyze", WorkflowEdgeRetry)
 	actions := []string{"approve_contract", "declare_scope", "run_analysis", "checkpoint_analysis", "record_delivery", "record_report", "bind_evidence", "record_verdict", "confirm_premise", "complete"}
 	d := baseDefinition("workflow.static_analysis", WorkKindStaticAnalysis, graph(steps, edges, "complete"), actions, []EvidenceKind{EvidenceArtifact, EvidenceReview}, WorkflowOutcomeSchema{DefaultKind: PredicateCheck, AllowedKinds: []PredicateKind{PredicateExists, PredicateAbsent, PredicateCheck}, AllowedOutcomeTokens: []string{}, DecisionRecordRequired: false}, []WorkKind{WorkKindImplementation, WorkKindBreakFix, WorkKindResearch}, payloadContracts)
-	d.Version = 4
+	d.Version = 5
 	return withContinuityActions(d, payloadContracts)
 }
 func builtinGenericOneOff(payloadContracts bool) WorkflowDefinition {
@@ -1500,6 +1511,6 @@ func builtinGenericOneOff(payloadContracts bool) WorkflowDefinition {
 	edges = addEdge(edges, "execute", "execute", WorkflowEdgeRetry)
 	actions := []string{"approve_contract", "start_action", "checkpoint_action", "bind_evidence", "link_successor", "record_delivery", "record_verdict", "confirm_premise", "complete"}
 	d := baseDefinition("workflow.generic_one_off", WorkKindGenericOneOff, graph(steps, edges, "complete"), actions, []EvidenceKind{EvidenceArtifact}, WorkflowOutcomeSchema{DefaultKind: PredicateOutcome, AllowedKinds: []PredicateKind{PredicateExists, PredicateAbsent, PredicateOutcome, PredicateCheck}, AllowedOutcomeTokens: []string{"no_change", "accepted_decision", "insufficient_evidence", "resolved", "remediated", "report_recorded", "completed", "operator_defined"}, DecisionRecordRequired: false}, []WorkKind{WorkKindImplementation, WorkKindBreakFix, WorkKindResearch, WorkKindArchitectureSpike, WorkKindOpsRunbook, WorkKindStaticAnalysis, WorkKindGenericOneOff}, payloadContracts)
-	d.Version = 5
+	d.Version = 6
 	return withContinuityActions(d, payloadContracts)
 }

@@ -662,6 +662,12 @@ func workflowPayloadFieldRule(field WorkflowPayloadField) string {
 	if field.ItemRef != "" {
 		parts = append(parts, "item_ref="+field.ItemRef)
 	}
+	if field.NonBlank {
+		parts = append(parts, "non_blank=true")
+	}
+	if len(field.Forbidden) != 0 {
+		parts = append(parts, "forbidden_values="+strings.Join(field.Forbidden, ","))
+	}
 	return strings.Join(parts, ",")
 }
 
@@ -686,6 +692,9 @@ func validateWorkflowPayloadValue(field WorkflowPayloadField, raw json.RawMessag
 			return false
 		}
 		if field.ValueType == PayloadDigest && !workflowDigestPattern.MatchString(text) {
+			return false
+		}
+		if field.NonBlank && strings.TrimSpace(text) == "" || containsString(field.Forbidden, text) {
 			return false
 		}
 		if len(field.Enum) != 0 && !containsString(field.Enum, text) {

@@ -103,7 +103,7 @@ func workflowContractRecoveryPayloadFields() []WorkflowPayloadField {
 	return []WorkflowPayloadField{
 		actionIntegerField("contract_version", true, 1, 2147483647),
 		actionArrayField("predecessor_contract_versions", false, 1, 32, "workflow_contract_version"),
-		actionStringField("premise", true, WorkflowPremiseMaxLength),
+		actionPremiseField(),
 		actionArrayField("outcome_predicates", false, 1, 8, "workflow_action_outcome_predicates"),
 		actionEnumField("outcome_kind", false, "exists", "absent", "outcome", "check"),
 		actionObjectField("outcome_payload", false, "workflow_action_outcome"),

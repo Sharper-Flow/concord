@@ -7404,6 +7404,13 @@ const GeneratedPayloadSchemaDocument = `{
                   "premise": {
                     "maxLength": 4096,
                     "minLength": 1,
+                    "not": {
+                      "enum": [
+                        "workflow premise"
+                      ],
+                      "type": "string"
+                    },
+                    "pattern": "\\S",
                     "type": "string"
                   },
                   "proposed_route_conventions": {
@@ -7485,6 +7492,7 @@ const GeneratedPayloadSchemaDocument = `{
                   }
                 },
                 "required": [
+                  "premise",
                   "outcome_predicates"
                 ],
                 "type": "object"
@@ -10281,6 +10289,185 @@ const GeneratedPayloadSchemaDocument = `{
             "properties": {
               "fields": {
                 "additionalProperties": false,
+                "maxProperties": 32,
+                "properties": {
+                  "architecture_binding": {
+                    "$ref": "#/$defs/architecture_binding"
+                  },
+                  "audit_evidence": {
+                    "items": {
+                      "$ref": "#/$defs/reference"
+                    },
+                    "maxItems": 32,
+                    "minItems": 1,
+                    "type": "array",
+                    "uniqueItems": true
+                  },
+                  "contract_version": {
+                    "maximum": 2147483647,
+                    "minimum": 1,
+                    "type": "integer"
+                  },
+                  "design_record": {
+                    "$ref": "#/$defs/workflow_design_content"
+                  },
+                  "law_modifies": {
+                    "items": {
+                      "$ref": "#/$defs/law_id"
+                    },
+                    "maxItems": 32,
+                    "minItems": 0,
+                    "type": "array",
+                    "uniqueItems": true
+                  },
+                  "outcome_kind": {
+                    "enum": [
+                      "exists",
+                      "absent",
+                      "outcome",
+                      "check"
+                    ],
+                    "type": "string"
+                  },
+                  "outcome_payload": {
+                    "$ref": "#/$defs/workflow_action_outcome"
+                  },
+                  "outcome_predicates": {
+                    "$ref": "#/$defs/workflow_action_outcome_predicates",
+                    "maxItems": 8,
+                    "minItems": 1
+                  },
+                  "predecessor_contract_versions": {
+                    "items": {
+                      "$ref": "#/$defs/workflow_contract_version"
+                    },
+                    "maxItems": 32,
+                    "minItems": 1,
+                    "type": "array"
+                  },
+                  "premise": {
+                    "maxLength": 4096,
+                    "minLength": 1,
+                    "not": {
+                      "enum": [
+                        "workflow premise"
+                      ],
+                      "type": "string"
+                    },
+                    "pattern": "\\S",
+                    "type": "string"
+                  },
+                  "required_evidence": {
+                    "items": {
+                      "enum": [
+                        "verification",
+                        "review",
+                        "approval",
+                        "commit",
+                        "durable_note",
+                        "native_run",
+                        "artifact"
+                      ],
+                      "type": "string"
+                    },
+                    "maxItems": 7,
+                    "minItems": 0,
+                    "type": "array",
+                    "uniqueItems": true
+                  },
+                  "rigor_class": {
+                    "enum": [
+                      "prototype_internal",
+                      "prototype_trusted",
+                      "prototype_public",
+                      "prototype_safety_critical",
+                      "production_internal",
+                      "production_trusted",
+                      "production_public",
+                      "production_safety_critical",
+                      "critical_internal",
+                      "critical_trusted",
+                      "critical_public",
+                      "critical_safety_critical"
+                    ],
+                    "type": "string"
+                  },
+                  "route_conventions": {
+                    "items": {
+                      "$ref": "#/$defs/reference"
+                    },
+                    "maxItems": 16,
+                    "minItems": 0,
+                    "type": "array",
+                    "uniqueItems": true
+                  },
+                  "self_repair": {
+                    "$ref": "#/$defs/workflow_self_repair"
+                  },
+                  "spec_mandate": {
+                    "items": {
+                      "$ref": "#/$defs/law_id"
+                    },
+                    "maxItems": 32,
+                    "minItems": 0,
+                    "type": "array",
+                    "uniqueItems": true
+                  },
+                  "supersede_reason": {
+                    "maxLength": 4096,
+                    "minLength": 1,
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "contract_version",
+                  "premise",
+                  "required_evidence",
+                  "route_conventions",
+                  "spec_mandate",
+                  "law_modifies",
+                  "rigor_class",
+                  "supersede_reason",
+                  "audit_evidence"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "fields"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "action_id": {
+                "const": "supersede_contract"
+              }
+            },
+            "required": [
+              "action_id"
+            ]
+          },
+          "then": {
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "selected_choice"
+                  ]
+                },
+                {
+                  "required": [
+                    "decision_context_digest"
+                  ]
+                }
+              ]
+            },
+            "properties": {
+              "fields": {
+                "additionalProperties": false,
+                "maxProperties": 32,
                 "oneOf": [
                   {
                     "required": [
@@ -10300,23 +10487,27 @@ const GeneratedPayloadSchemaDocument = `{
                   },
                   "audit_evidence": {
                     "items": {
-                      "$ref": "#/$defs/id"
+                      "$ref": "#/$defs/reference"
                     },
                     "maxItems": 32,
+                    "minItems": 1,
                     "type": "array",
                     "uniqueItems": true
                   },
                   "contract_version": {
-                    "$ref": "#/$defs/version"
+                    "maximum": 2147483647,
+                    "minimum": 1,
+                    "type": "integer"
                   },
                   "design_record": {
                     "$ref": "#/$defs/workflow_design_content"
                   },
                   "law_modifies": {
                     "items": {
-                      "$ref": "#/$defs/id"
+                      "$ref": "#/$defs/law_id"
                     },
                     "maxItems": 32,
+                    "minItems": 0,
                     "type": "array",
                     "uniqueItems": true
                   },
@@ -10330,54 +10521,74 @@ const GeneratedPayloadSchemaDocument = `{
                     "type": "string"
                   },
                   "outcome_payload": {
-                    "oneOf": [
-                      {
-                        "$ref": "#/$defs/workflow_outcome_exists"
-                      },
-                      {
-                        "$ref": "#/$defs/workflow_outcome_absent"
-                      },
-                      {
-                        "$ref": "#/$defs/workflow_outcome_outcome"
-                      },
-                      {
-                        "$ref": "#/$defs/workflow_outcome_check"
-                      }
-                    ]
+                    "$ref": "#/$defs/workflow_action_outcome"
                   },
                   "outcome_predicates": {
-                    "$ref": "#/$defs/workflow_action_outcome_predicates"
+                    "$ref": "#/$defs/workflow_action_outcome_predicates",
+                    "maxItems": 8,
+                    "minItems": 1
                   },
                   "predecessor_contract_versions": {
                     "items": {
-                      "$ref": "#/$defs/version"
+                      "$ref": "#/$defs/workflow_contract_version"
                     },
                     "maxItems": 32,
                     "minItems": 1,
-                    "type": "array",
-                    "uniqueItems": true
+                    "type": "array"
                   },
                   "premise": {
                     "maxLength": 4096,
                     "minLength": 1,
+                    "not": {
+                      "enum": [
+                        "workflow premise"
+                      ],
+                      "type": "string"
+                    },
+                    "pattern": "\\S",
                     "type": "string"
                   },
                   "required_evidence": {
                     "items": {
-                      "$ref": "#/$defs/id"
+                      "enum": [
+                        "verification",
+                        "review",
+                        "approval",
+                        "commit",
+                        "durable_note",
+                        "native_run",
+                        "artifact"
+                      ],
+                      "type": "string"
                     },
-                    "maxItems": 32,
+                    "maxItems": 7,
+                    "minItems": 0,
                     "type": "array",
                     "uniqueItems": true
                   },
                   "rigor_class": {
-                    "$ref": "#/$defs/rigor_class"
+                    "enum": [
+                      "prototype_internal",
+                      "prototype_trusted",
+                      "prototype_public",
+                      "prototype_safety_critical",
+                      "production_internal",
+                      "production_trusted",
+                      "production_public",
+                      "production_safety_critical",
+                      "critical_internal",
+                      "critical_trusted",
+                      "critical_public",
+                      "critical_safety_critical"
+                    ],
+                    "type": "string"
                   },
                   "route_conventions": {
                     "items": {
-                      "$ref": "#/$defs/id"
+                      "$ref": "#/$defs/reference"
                     },
-                    "maxItems": 32,
+                    "maxItems": 16,
+                    "minItems": 0,
                     "type": "array",
                     "uniqueItems": true
                   },
@@ -10386,9 +10597,10 @@ const GeneratedPayloadSchemaDocument = `{
                   },
                   "spec_mandate": {
                     "items": {
-                      "$ref": "#/$defs/id"
+                      "$ref": "#/$defs/law_id"
                     },
                     "maxItems": 32,
+                    "minItems": 0,
                     "type": "array",
                     "uniqueItems": true
                   },
@@ -11014,6 +11226,22 @@ const GeneratedPayloadSchemaDocument = `{
       ],
       "type": "object"
     },
+    "workflow_action_outcome": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/workflow_outcome_exists"
+        },
+        {
+          "$ref": "#/$defs/workflow_outcome_absent"
+        },
+        {
+          "$ref": "#/$defs/workflow_outcome_outcome"
+        },
+        {
+          "$ref": "#/$defs/workflow_outcome_check"
+        }
+      ]
+    },
     "workflow_action_outcome_predicates": {
       "items": {
         "additionalProperties": false,
@@ -11216,6 +11444,9 @@ const GeneratedPayloadSchemaDocument = `{
         "changes_product_truth"
       ],
       "type": "object"
+    },
+    "workflow_contract_version": {
+      "$ref": "#/$defs/version"
     },
     "workflow_correction_context": {
       "additionalProperties": false,

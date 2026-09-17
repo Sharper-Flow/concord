@@ -557,10 +557,14 @@ func validateWorkflowActionPayload(definition WorkflowDefinition, actionID strin
 			return err
 		}
 	}
-	for name, field := range allowed {
+	// The declared slice carries the registry's declaration order, so the
+	// required-field scan walks it and reports the first declared field that
+	// is absent. A map walk here names whichever field the runtime yields
+	// first, so the same empty payload reports a different field per run.
+	for _, field := range definitionFields {
 		if field.Required {
-			if _, ok := fields[name]; !ok {
-				return newFailure(KindInvalidPayload, "workflow_action_preflight", fmt.Sprintf("workflow action payload field %q is required for action %q", name, actionID), false, "supply every required registered action field")
+			if _, ok := fields[field.Name]; !ok {
+				return newFailure(KindInvalidPayload, "workflow_action_preflight", fmt.Sprintf("workflow action payload field %q is required for action %q", field.Name, actionID), false, "supply every required registered action field")
 			}
 		}
 	}

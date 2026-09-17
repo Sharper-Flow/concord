@@ -167,6 +167,14 @@ type InterveningAction struct {
 // notices from more than one stage must respect it before validation runs.
 const MaxNotices = 16
 
+// MaxChangedRefs is the changed-reference capacity of one result envelope.
+// A mutation whose effect sits inside one transaction can never exceed it:
+// an over-capacity result rolls back and refuses before the effect lands.
+// Only a producer whose rows commit outside the result transaction can
+// cross the bound, and it must bound its report here rather than emit an
+// envelope validation refuses.
+const MaxChangedRefs = 32
+
 type TypedError struct {
 	Kind                string               `json:"kind"`
 	RetrySafe           bool                 `json:"retry_safe"`
@@ -389,7 +397,7 @@ func (e Envelope) validateInvariants() error {
 		return err
 	}
 	if e.ChangedRefs != nil {
-		if len(*e.ChangedRefs) > 32 {
+		if len(*e.ChangedRefs) > MaxChangedRefs {
 			return errors.New("changed reference bound exceeded")
 		}
 		for _, ref := range *e.ChangedRefs {
@@ -436,7 +444,7 @@ func (e Envelope) validateOK() error {
 	if hasItems == hasResult {
 		return errors.New("ok envelope requires exactly one payload")
 	}
-	if len(e.Items) > 100 || e.changedRefCount() > 32 || e.nextIntentCount() > 16 {
+	if len(e.Items) > 100 || e.changedRefCount() > MaxChangedRefs || e.nextIntentCount() > 16 {
 		return errors.New("ok payload bound exceeded")
 	}
 	if e.NextValidIntents != nil {

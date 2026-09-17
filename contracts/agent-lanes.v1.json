@@ -94,6 +94,14 @@
         "git rev-parse *"
       ],
       "time_seconds_max": 600
+    },
+    {
+      "id": "lookup",
+      "version": 1,
+      "purpose": "Research bounded external questions and return source-backed findings.",
+      "allowed_tools": ["webfetch", "execute"],
+      "allowed_commands": [],
+      "time_seconds_max": 600
     }
   ]
 }

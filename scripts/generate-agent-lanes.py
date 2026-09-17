@@ -315,6 +315,31 @@ State the paths, line ranges, and commands that support each finding. Separate
 observed facts from inferences. State the missing evidence when the question
 cannot be answered from the repository.
 """,
+    "lookup": """This is a read-only external lookup utility. Return source-backed findings for
+the parent. Do not inspect or edit the repository, mutate Concord state, mutate
+GitHub, or start another agent.
+
+## Input
+
+The parent gives you one bounded external question and may give you source URLs.
+If it gives you no question, report that the request is refused. Do not guess a
+question from the working directory or from prior context.
+
+## Method
+
+1. Fetch each supplied source URL with `webfetch`.
+2. If the parent does not supply enough sources, use `execute` to search the
+   connected external research services.
+3. Prefer authoritative documentation, source code, or a primary publisher.
+4. Compare sources when they report different versions, dates, or behavior.
+5. Stop when the question has a source-backed answer, or after {duration} of
+   total wall time, whichever comes first. Report the findings you hold when
+   the cap stops you.
+
+For each finding, state the publisher or author, title, URL, version or date
+when available, and access date. Separate observed facts from inferences. State
+the missing evidence when the question cannot be answered from public sources.
+""",
 }
 
 

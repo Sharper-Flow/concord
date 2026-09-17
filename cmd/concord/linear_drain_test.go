@@ -89,13 +89,19 @@ func TestLinearEnqueueAndDrainCLI(t *testing.T) {
 	var sawAuth, sawProject, sawLabels bool
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
-		if r.Header.Get("Authorization") == "lin_api_cli_test" {
-			sawAuth = true
+		if strings.Contains(string(body), "issueCreate") {
+			if r.Header.Get("Authorization") == "lin_api_cli_test" {
+				sawAuth = true
+			}
+			sawProject = strings.Contains(string(body), `"projectId":"project-uuid-1"`)
+			sawLabels = strings.Contains(string(body), `"labelIds":["label-task"]`)
 		}
-		sawProject = strings.Contains(string(body), `"projectId":"project-uuid-1"`)
-		sawLabels = strings.Contains(string(body), `"labelIds":["label-task"]`)
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"data":{"issueCreate":{"success":true,"issue":{"id":"68d52710-76d9-4b41-ba45-778511d0e2ed","identifier":"SHA-1","url":"https://linear.app/example/issue/SHA-1","updatedAt":"2026-09-09T12:00:00Z"}}}}`))
+		if strings.Contains(string(body), "issueCreate") {
+			_, _ = w.Write([]byte(`{"data":{"issueCreate":{"success":true,"issue":{"id":"68d52710-76d9-4b41-ba45-778511d0e2ed","identifier":"SHA-1","url":"https://linear.app/example/issue/SHA-1","updatedAt":"2026-09-09T12:00:00Z"}}}}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"data":{"issue":{"id":"68d52710-76d9-4b41-ba45-778511d0e2ed","identifier":"SHA-1","url":"https://linear.app/example/issue/SHA-1","updatedAt":"2026-09-09T12:00:00Z","state":{"type":"unstarted"},"team":{"id":"68d52710-76d9-4b41-ba45-778511d0e2ed"}}}}`))
 	}))
 	defer server.Close()
 	t.Setenv(linearclient.EnvEndpoint, server.URL)
@@ -206,10 +212,16 @@ func TestLinearIssueUpdateDrainReportsDoneAndMirrorsTerminalStatus(t *testing.T)
 	var sawStatus, sawLabels bool
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
-		sawStatus = strings.Contains(string(body), `"stateId":"state-cancelled"`)
-		sawLabels = strings.Contains(string(body), `"addedLabelIds":["label-task"]`)
+		if strings.Contains(string(body), "issueUpdate") {
+			sawStatus = strings.Contains(string(body), `"stateId":"state-cancelled"`)
+			sawLabels = strings.Contains(string(body), `"addedLabelIds":["label-task"]`)
+		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"data":{"issueUpdate":{"success":true,"issue":{"id":"remote-update","identifier":"SHA-3","url":"https://linear.app/example/issue/SHA-3","updatedAt":"2026-09-09T12:00:00Z"}}}}`))
+		if strings.Contains(string(body), "issueUpdate") {
+			_, _ = w.Write([]byte(`{"data":{"issueUpdate":{"success":true,"issue":{"id":"remote-update","identifier":"SHA-3","url":"https://linear.app/example/issue/SHA-3","updatedAt":"2026-09-09T12:00:00Z"}}}}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"data":{"issue":{"id":"remote-update","identifier":"SHA-3","url":"https://linear.app/example/issue/SHA-3","updatedAt":"2026-09-09T12:00:00Z","state":{"type":"started"},"team":{"id":"68d52710-76d9-4b41-ba45-778511d0e2ed"}}}}`))
 	}))
 	defer server.Close()
 	t.Setenv(linearclient.EnvEndpoint, server.URL)
@@ -270,11 +282,20 @@ func TestLinearIssueUpdateDrainOmitsUnchangedContent(t *testing.T) {
 
 	var requestBody map[string]any
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if err := json.NewDecoder(r.Body).Decode(&requestBody); err != nil {
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
 			t.Errorf("decode request: %v", err)
+		} else if strings.Contains(string(body), "issueUpdate") {
+			if err := json.Unmarshal(body, &requestBody); err != nil {
+				t.Errorf("decode request: %v", err)
+			}
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"data":{"issueUpdate":{"success":true,"issue":{"id":"remote-unchanged","identifier":"SHA-4","url":"https://linear.app/example/issue/SHA-4","updatedAt":"2026-09-09T12:00:00Z"}}}}`))
+		if strings.Contains(string(body), "issueUpdate") {
+			_, _ = w.Write([]byte(`{"data":{"issueUpdate":{"success":true,"issue":{"id":"remote-unchanged","identifier":"SHA-4","url":"https://linear.app/example/issue/SHA-4","updatedAt":"2026-09-09T12:00:00Z"}}}}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"data":{"issue":{"id":"remote-unchanged","identifier":"SHA-4","url":"https://linear.app/example/issue/SHA-4","updatedAt":"2026-09-09T12:00:00Z","state":{"type":"unstarted"},"team":{"id":"team-uuid-1"}}}}`))
 	}))
 	defer server.Close()
 	t.Setenv(linearclient.EnvEndpoint, server.URL)
@@ -355,7 +376,10 @@ func TestLinearDrainSuppressesStaleRetry(t *testing.T) {
 
 	calls := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		calls++
+		body, _ := io.ReadAll(r.Body)
+		if strings.Contains(string(body), "issueUpdate") {
+			calls++
+		}
 		w.WriteHeader(http.StatusInternalServerError)
 	}))
 	defer server.Close()
@@ -399,7 +423,10 @@ func TestLinearDrainRefusesQueuedOperationAfterConnectionChange(t *testing.T) {
 
 	calls := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		calls++
+		body, _ := io.ReadAll(r.Body)
+		if strings.Contains(string(body), "issueCreate") {
+			calls++
+		}
 		w.WriteHeader(http.StatusInternalServerError)
 	}))
 	defer server.Close()
@@ -502,6 +529,12 @@ func TestLinearDrainRefreshesConnectionPerClaimedOperation(t *testing.T) {
 
 	calls := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		if !strings.Contains(string(body), "issueCreate") {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"data":{"issue":{"id":"refresh-remote","identifier":"SHA-9","url":"https://linear.app/example/issue/SHA-9","updatedAt":"2026-09-09T12:00:00Z","state":{"type":"unstarted"},"team":{"id":"refresh-team"}}}}`))
+			return
+		}
 		calls++
 		if calls == 1 {
 			s, err := store.Open(context.Background(), dbPath)

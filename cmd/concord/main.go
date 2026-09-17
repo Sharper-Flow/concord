@@ -1247,7 +1247,57 @@ func runLinearOutboxDrain(ctx context.Context, s *store.Store, raw []byte, comma
 		}
 		results = append(results, drained{OperationID: op.OperationID, Outcome: "done", Identifier: issue.Identifier})
 	}
-	return writeJSON(out, map[string]any{"ok": true, "drained": len(results), "operations": results}, errOut)
+	linkRefreshes := refreshLinearLinkIdentities(ctx, s, client, request.ProductID)
+	return writeJSON(out, map[string]any{"ok": true, "drained": len(results), "operations": results, "link_refreshes": linkRefreshes}, errOut)
+}
+
+type linearLinkRefreshResult struct {
+	WorkID          string `json:"work_id,omitempty"`
+	RemoteIssueUUID string `json:"remote_issue_uuid,omitempty"`
+	Outcome         string `json:"outcome"`
+	HumanKey        string `json:"human_key,omitempty"`
+	URL             string `json:"url,omitempty"`
+	Detail          string `json:"detail,omitempty"`
+}
+
+func refreshLinearLinkIdentities(ctx context.Context, s *store.Store, client *linearclient.Client, productID string) []linearLinkRefreshResult {
+	links, err := s.ReadConfirmedLinearLinksForProduct(ctx, productID)
+	if err != nil {
+		return []linearLinkRefreshResult{{Outcome: "failed", Detail: err.Error()}}
+	}
+	results := make([]linearLinkRefreshResult, 0, len(links))
+	for _, link := range links {
+		result := linearLinkRefreshResult{WorkID: link.WorkID, RemoteIssueUUID: link.RemoteIssueUUID}
+		issue, err := client.GetIssue(ctx, link.RemoteIssueUUID)
+		if err != nil {
+			result.Outcome = "failed"
+			result.Detail = err.Error()
+			results = append(results, result)
+			continue
+		}
+		if issue.ID != link.RemoteIssueUUID {
+			result.Outcome = "failed"
+			result.Detail = fmt.Sprintf("Linear issue lookup for %s returned UUID %s", link.RemoteIssueUUID, issue.ID)
+			results = append(results, result)
+			continue
+		}
+		if issue.Identifier == link.HumanKey && issue.URL == link.URL {
+			result.Outcome = "unchanged"
+			results = append(results, result)
+			continue
+		}
+		if err := s.RefreshConfirmedLinearLink(ctx, link.WorkID, issue.Identifier, issue.URL); err != nil {
+			result.Outcome = "failed"
+			result.Detail = err.Error()
+			results = append(results, result)
+			continue
+		}
+		result.Outcome = "updated"
+		result.HumanKey = issue.Identifier
+		result.URL = issue.URL
+		results = append(results, result)
+	}
+	return results
 }
 
 // linearDrainPayload is the JSON convention every outbox payload carries.

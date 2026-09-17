@@ -809,7 +809,7 @@ func attachWorkTasks(ctx context.Context, tx *sql.Tx, items []WorkItem) error {
 		args[i] = items[i].ID
 		byID[items[i].ID] = i
 	}
-	rows, err := tx.QueryContext(ctx, `SELECT id, coalesce(json_extract(intent_json, '$.task'), '') FROM work_items WHERE id IN (`+strings.Join(placeholders, ",")+")", args...)
+	rows, err := tx.QueryContext(ctx, `SELECT id, coalesce(json_extract(intent_json, '$.task'), '') FROM work_items WHERE id IN (`+strings.Join(placeholders, ",")+`)`, args...) //nolint:gosec // the fragment contains only generated question-mark placeholders and every work ID stays parameter-bound.
 	if err != nil {
 		return wrapFailure(KindUnavailable, "query", "cannot read work tasks", true, "retry once the database is readable", err)
 	}

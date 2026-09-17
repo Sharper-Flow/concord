@@ -6,7 +6,7 @@ import (
 	"fmt"
 )
 
-const ManifestDigest = "sha256:b01925e482b1a21ad0f98fa242f6de8614d1970164b54a684f003b4a80f6cf6d"
+const ManifestDigest = "sha256:df6d458c6866d96c84fcc7aedd9ce8614096520cc641c047f06300f04dc44dd1"
 
 type OperationKind string
 

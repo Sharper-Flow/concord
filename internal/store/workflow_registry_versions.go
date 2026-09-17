@@ -312,7 +312,7 @@ func breakFixRefinementV7() WorkflowDefinition {
 func breakFixRefinementV8() WorkflowDefinition {
 	d := breakFixRefinementV7()
 	d.Version = 8
-	return withRefinementFailureEdge(d, "repair", "verify")
+	return withLegacyPremiseContract(withRefinementFailureEdge(d, "repair", "verify"))
 }
 
 // releasedOpsRunbookV4 keeps the released version-4 ops-runbook content
@@ -384,7 +384,7 @@ func withDesignDecisionItemSchema(definition WorkflowDefinition) WorkflowDefinit
 func implementationDesignItemSchemaV10() WorkflowDefinition {
 	d := implementationRefinementV9()
 	d.Version = 10
-	return withDesignDecisionItemSchema(d)
+	return withLegacyPremiseContract(withDesignDecisionItemSchema(d))
 }
 
 // withoutDecisionRecordPayload restores record_decision's empty declared
@@ -441,7 +441,7 @@ func preCancellationContractOpsRunbookV5() WorkflowDefinition {
 func opsRunbookConditionContractV6() WorkflowDefinition {
 	d := opsRunbookCleanupCheckpointV5()
 	d.Version = 6
-	return d
+	return withLegacyPremiseContract(d)
 }
 
 func opsRunbookTimestampV7() WorkflowDefinition {
@@ -455,11 +455,88 @@ func opsRunbookTimestampV7() WorkflowDefinition {
 			}
 		}
 	}
+	return withLegacyPremiseContract(d)
+}
+
+func withLegacyPremiseContract(definition WorkflowDefinition) WorkflowDefinition {
+	definition = cloneWorkflowDefinition(definition)
+	for i := range definition.ActionDefinitions {
+		if definition.ActionDefinitions[i].ID != "approve_contract" {
+			continue
+		}
+		for j := range definition.ActionDefinitions[i].Payload.Fields {
+			field := &definition.ActionDefinitions[i].Payload.Fields[j]
+			if field.Name == "premise" {
+				field.Required = false
+				field.NonBlank = false
+				field.Forbidden = nil
+			}
+		}
+	}
+	return definition
+}
+
+func withCurrentPremiseContract(definition WorkflowDefinition) WorkflowDefinition {
+	definition = cloneWorkflowDefinition(definition)
+	for i := range definition.ActionDefinitions {
+		if definition.ActionDefinitions[i].ID != "approve_contract" {
+			continue
+		}
+		for j := range definition.ActionDefinitions[i].Payload.Fields {
+			if definition.ActionDefinitions[i].Payload.Fields[j].Name == "premise" {
+				definition.ActionDefinitions[i].Payload.Fields[j] = actionPremiseField()
+			}
+		}
+	}
+	return definition
+}
+
+func releasedResearchV5() WorkflowDefinition {
+	d := withWorkerActions(builtinResearch(true), true)
+	d.Version = 5
+	return withLegacyPremiseContract(d)
+}
+
+func implementationPremiseContractV11() WorkflowDefinition {
+	d := withCurrentPremiseContract(implementationDesignItemSchemaV10())
+	d.Version = 11
 	return d
 }
 
+func breakFixPremiseContractV9() WorkflowDefinition {
+	d := withCurrentPremiseContract(breakFixRefinementV8())
+	d.Version = 9
+	return d
+}
+
+func architecturePremiseContractV7() WorkflowDefinition {
+	d := withCurrentPremiseContract(architectureSpikeDecisionBoundsV6())
+	d.Version = 7
+	return d
+}
+
+func opsRunbookPremiseContractV8() WorkflowDefinition {
+	d := withCurrentPremiseContract(opsRunbookTimestampV7())
+	d.Version = 8
+	return d
+}
+
+func releasedStaticAnalysisV4() WorkflowDefinition {
+	d := withWorkerActions(builtinStaticAnalysis(true), true)
+	d.Version = 4
+	return withLegacyPremiseContract(d)
+}
+
+func releasedGenericOneOffV5() WorkflowDefinition {
+	d := withWorkerActions(builtinGenericOneOff(true), true)
+	d.Version = 5
+	return withLegacyPremiseContract(d)
+}
+
 func releasedArchitectureSpikeV5() WorkflowDefinition {
-	return withWorkerActions(builtinArchitectureSpike(true), true)
+	d := withWorkerActions(builtinArchitectureSpike(true), true)
+	d.Version = 5
+	return withLegacyPremiseContract(d)
 }
 
 func architectureSpikeDecisionBoundsV6() WorkflowDefinition {
@@ -476,5 +553,5 @@ func architectureSpikeDecisionBoundsV6() WorkflowDefinition {
 			}
 		}
 	}
-	return d
+	return withLegacyPremiseContract(d)
 }

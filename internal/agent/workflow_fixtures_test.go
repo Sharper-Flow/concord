@@ -36,6 +36,7 @@ func addWorkflowContractApprovalFields(input map[string]any) {
 func workflowContractFieldsFixture() map[string]any {
 	return map[string]any{
 		"architecture_binding": workflowArchitectureBindingFixture(),
+		"premise":              "The operator stated this premise.",
 		"outcome_predicates":   []map[string]any{{"predicate_id": "predicate:primary", "ordinal": 0, "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:fixture", "immutable_subject_ref": "commit:fixture", "expected_result": "pass"}}},
 		"spec_mandate":         []string{},
 		"law_modifies":         []string{},
@@ -78,6 +79,7 @@ func TestArchitectureBindingSchemaPreservesCurrentIdentifierBounds(t *testing.T)
 		"action_id":        "approve_contract",
 		"fields": map[string]any{
 			"architecture_binding": binding,
+			"premise":              "The operator stated this premise.",
 			"outcome_predicates":   workflowContractFieldsFixture()["outcome_predicates"],
 			"spec_mandate":         []string{lawID},
 			"law_modifies":         []string{lawID},
@@ -96,7 +98,7 @@ func TestArchitectureBindingSchemaPreservesCurrentIdentifierBounds(t *testing.T)
 		invalid["affected_domain_ids"] = []string{invalidDomainID}
 		payload, err := json.Marshal(map[string]any{
 			"work_id": "work-1", "expected_version": 7, "action_id": "approve_contract",
-			"fields":          map[string]any{"architecture_binding": invalid, "outcome_predicates": workflowContractFieldsFixture()["outcome_predicates"], "spec_mandate": []string{}, "law_modifies": []string{}},
+			"fields":          map[string]any{"architecture_binding": invalid, "premise": "The operator stated this premise.", "outcome_predicates": workflowContractFieldsFixture()["outcome_predicates"], "spec_mandate": []string{}, "law_modifies": []string{}},
 			"idempotency_key": "invalid-domain-id",
 		})
 		if err != nil {

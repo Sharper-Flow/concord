@@ -83,6 +83,9 @@ func testApprovalPayload(actionID string, payload json.RawMessage) json.RawMessa
 	if _, present := fields["outcome_predicates"]; !present {
 		fields["outcome_predicates"] = []map[string]any{{"predicate_id": "predicate:primary", "ordinal": 0, "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:test", "immutable_subject_ref": "commit:" + strings.Repeat("a", 64), "expected_result": "pass"}}}
 	}
+	if _, present := fields["premise"]; !present {
+		fields["premise"] = "The operator stated this premise."
+	}
 	encoded, _ := json.Marshal(fields)
 	return encoded
 }

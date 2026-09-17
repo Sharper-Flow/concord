@@ -807,7 +807,7 @@ func workflowSemanticActionEvents(ctx context.Context, tx *sql.Tx, definition Wo
 			}
 		}
 		contractVersion := workflowFieldInt(fields, "contract_version", 1)
-		premise := workflowFieldStringDefault(fields, "premise", "workflow premise")
+		premise, _ := workflowFieldString(fields, "premise")
 		outcomeKind := workflowFieldStringDefault(fields, "outcome_kind", string(definition.OutcomeSchema.DefaultKind))
 		outcome := workflowFieldRaw(fields, "outcome_payload")
 		if len(outcome) == 0 {
@@ -934,8 +934,9 @@ func workflowSemanticActionEvents(ctx context.Context, tx *sql.Tx, definition Wo
 		if revisionErr != nil {
 			return nil, revisionErr
 		}
+		premise, _ := workflowFieldString(fields, "premise")
 		successor := map[string]any{
-			"contract_version": next, "premise": workflowFieldStringDefault(fields, "premise", ""), "outcome_predicates": workflowFieldRaw(fields, "outcome_predicates"), "outcome_kind": workflowFieldStringDefault(fields, "outcome_kind", ""),
+			"contract_version": next, "premise": premise, "outcome_predicates": workflowFieldRaw(fields, "outcome_predicates"), "outcome_kind": workflowFieldStringDefault(fields, "outcome_kind", ""),
 			"outcome_payload": workflowFieldRaw(fields, "outcome_payload"), "required_evidence": workflowFieldStrings(fields, "required_evidence"),
 			"route_conventions": workflowFieldStrings(fields, "route_conventions"), "spec_mandate": specMandate, "law_modifies": lawModifies,
 			"law_revisions": revisions, "law_boundary_version": 1, "rigor_class": workflowFieldStringDefault(fields, "rigor_class", ""), "consequence_class": string(ActionInternalSQLite),

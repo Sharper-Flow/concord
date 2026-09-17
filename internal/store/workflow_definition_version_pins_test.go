@@ -29,7 +29,9 @@ import (
 // that already holds a digest.
 var workflowDefinitionVersionPins = map[[2]string]string{
 	{"workflow.architecture_spike", "6"}: "sha256:7c734ff4bcb0c0f7881b0101779c576ff39535432148e031a7b984a28802fa83",
+	{"workflow.architecture_spike", "7"}: "sha256:420e3a67cfbc314ebbcc9ab921bdf4459f7a7df73bdea91c8aea327998302468",
 	{"workflow.ops_runbook", "7"}:        "sha256:5fbe2710a20464f0bb56167fb1c803d4956b5b1c804424a86014f6c67e6ccb03",
+	{"workflow.ops_runbook", "8"}:        "sha256:d291c90b582c6e825590db9dcf789f7c8e35bb373c32f6b2430839943043bb1f",
 	{"workflow.break_fix", "1"}:          "sha256:aefce865f350345dc41fc1e2e988e7d5e246fa7fd560335399cf8c826e4cc35a",
 	{"workflow.break_fix", "2"}:          "sha256:d7f8d8cc8b951e74751ddafe95c7b9c9d65e606cd73c41b2ceadd5fa2cdf29cb",
 	{"workflow.break_fix", "3"}:          "sha256:3a406e35712a33dcab245ab93c77d51e0811ef51fbefb1a54c2fb40ae6b1f8b6",
@@ -38,6 +40,7 @@ var workflowDefinitionVersionPins = map[[2]string]string{
 	{"workflow.break_fix", "6"}:          "sha256:ba1d605ecaa729f6ac729f6fc06733404875e2c45c90061c8d6c01b5e785eebc",
 	{"workflow.break_fix", "7"}:          "sha256:7ba7c722550e96e45f98ffd6de41cf6fc8d14baca3d400abe9f8a68b700bc667",
 	{"workflow.break_fix", "8"}:          "sha256:91a04421b1935cfb1d5600eda9a55b7c3791cc25527ba1007416d57ebae74368",
+	{"workflow.break_fix", "9"}:          "sha256:d2e5be89e2f0b15e152709915c56f104d89a511aeadeb34b245bcc1f5004c177",
 	{"workflow.implementation", "1"}:     "sha256:deaeec1077f5360b23b4c6ca78328d45a620668c503760855ec28e7bf6ecf155",
 	{"workflow.implementation", "2"}:     "sha256:e16dfed665a50ece82f33040d2cb0e4a6abfd72dbc5b4743098eab22f0faab89",
 	{"workflow.implementation", "3"}:     "sha256:12ecaeb8b7947387905b0354f131308586635e61a553eba25deb1564179cbcd4",
@@ -48,16 +51,19 @@ var workflowDefinitionVersionPins = map[[2]string]string{
 	{"workflow.implementation", "8"}:     "sha256:15028d1f2b1d00df2ea0c0649f72dc9fb6151fb05bc88e3a6002eb5a93568f7c",
 	{"workflow.implementation", "9"}:     "sha256:787ae3f02df30630408ef1c12badcd280eb604e71909fe7227b3c08b94cb71ca",
 	{"workflow.implementation", "10"}:    "sha256:9335bd4830c5592240e578528582a26b51702f3f6d0b4f20916c47267fd160ac",
+	{"workflow.implementation", "11"}:    "sha256:8a205e8b43f537caa650e72c667051017d9b26f77f675d1f5c14511743ef6462",
 	{"workflow.generic_one_off", "1"}:    "sha256:c2b8b4c8ef11b2de08912f7c82faa91dffe6a2fbe4ddcef924ff4b393da578b3",
 	{"workflow.generic_one_off", "2"}:    "sha256:273c82c0a0cf6c17d231f1be898ff74c6158f8036985cb3e1666b8f12c1b7895",
 	{"workflow.generic_one_off", "3"}:    "sha256:a639d5a41e09ed2b2f1543912c4dc8686fb6d5cc97d945d4c3f6705df4f1165f",
 	{"workflow.generic_one_off", "4"}:    "sha256:88f23cc8d70671d864cd8def4e100e1d029ffc6fdd4cbd2e4cc52f581958309c",
 	{"workflow.generic_one_off", "5"}:    "sha256:9e98c10d52300d01ed1462ab48e3c880368c94a696072edd5301150e6d677b76",
+	{"workflow.generic_one_off", "6"}:    "sha256:1db199cb3ac9967fc42f0105018e10c13ab96e87141381febfe45a819c550309",
 	{"workflow.research", "1"}:           "sha256:adeb334ee4eb08e1907b2f36c618d809675a81f325266733142e697a90c108b9",
 	{"workflow.research", "2"}:           "sha256:7a987b5e2cbc9bafd7a80e92345efa35b331ccaa533aefe4722024485be57e4a",
 	{"workflow.research", "3"}:           "sha256:c8708cf194d2b5d4ac4421c3ee0eff09bc4074b5efe34bbab7ff546df0fd1256",
 	{"workflow.research", "4"}:           "sha256:5f78eff3f315cf8b11a6489bba557666992b654bbcf15663fc3707ada0c52a0c",
 	{"workflow.research", "5"}:           "sha256:256b8a088e395fd1ec5d263a35e3f60ee51b1465db58eb12f68ca4e0ef458209",
+	{"workflow.research", "6"}:           "sha256:9510bd915cdd12d35c3c69c36e7834eb298cb03745a395c65d2c76da13d73a3d",
 	{"workflow.architecture_spike", "1"}: "sha256:97d09dd24f80750dfa403ac2ccb9bf17b046cbd04981358b7ebaf1b1076aef5e",
 	{"workflow.architecture_spike", "2"}: "sha256:99ecb21ccfbf263d61f44c43730a2e0945b721082fd8c8a40e50df143b5fffcc",
 	{"workflow.architecture_spike", "3"}: "sha256:3b8d63a48c2bdcd008eb69dcf0322b0b1c40b0566ab0c4157283d9282789f720",
@@ -73,6 +79,7 @@ var workflowDefinitionVersionPins = map[[2]string]string{
 	{"workflow.static_analysis", "2"}:    "sha256:9b3f7159c5346ee1d5d8f7a6f7ff21bfb3ae7babfb08243d7a0f49f16624f522",
 	{"workflow.static_analysis", "3"}:    "sha256:fdad8adff22cff5e2d1d1bcf73aeb5748f7bf3a65f45cc58eda399ae3a365704",
 	{"workflow.static_analysis", "4"}:    "sha256:cc9f3aaa93e5b3f145939624431c81970386ed5aed0d03d4dffb52c06bd53b26",
+	{"workflow.static_analysis", "5"}:    "sha256:3fcb33421b001caa7900a42698812d83b53529abf7a4e22ff001fb8bb80421dc",
 }
 
 func TestWorkflowDefinitionVersionPinsHold(t *testing.T) {
@@ -121,13 +128,13 @@ func TestBuiltinDefinitionsCoverExactlyThePinnedVersions(t *testing.T) {
 func TestBuiltinDefinitionForRefResolvesTheLatestVersion(t *testing.T) {
 	t.Parallel()
 	cases := map[string]int64{
-		"workflow.break_fix":          8,
-		"workflow.implementation":     10,
-		"workflow.generic_one_off":    5,
-		"workflow.research":           5,
-		"workflow.architecture_spike": 6,
-		"workflow.ops_runbook":        7,
-		"workflow.static_analysis":    4,
+		"workflow.break_fix":          9,
+		"workflow.implementation":     11,
+		"workflow.generic_one_off":    6,
+		"workflow.research":           6,
+		"workflow.architecture_spike": 7,
+		"workflow.ops_runbook":        8,
+		"workflow.static_analysis":    5,
 	}
 	for ref, version := range cases {
 		registered, err := BuiltinWorkflowDefinitionForRef(ref)

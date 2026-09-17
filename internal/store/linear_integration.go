@@ -1098,6 +1098,12 @@ func enqueueLinearIssueForWorkCore(ctx context.Context, q queryer, expectedProdu
 			createLink = true
 		} else if err != nil {
 			return linearIssueEnqueuePlan{}, wrapFailure(KindUnavailable, "linear_issue_enqueue", "cannot read link", true, "retry once the database is readable", err)
+		} else {
+			// One issue per work item is enforced where the create is
+			// requested, not where the drain meets Linear's insert conflict.
+			// Every link state means a create was already queued or already
+			// confirmed; the capture path keeps its silent skip.
+			return linearIssueEnqueuePlan{}, newFailure(KindInvalidOperation, "linear_issue_enqueue", fmt.Sprintf("work item already links Linear issue state %s", linkState), false, "enqueue issue_update to address the linked issue")
 		}
 	}
 	premise, err := readCurrentWorkflowPremiseCore(ctx, q, workID)

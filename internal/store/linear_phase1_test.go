@@ -63,6 +63,67 @@ func TestLinearIssueCreateUsesLifecycleStatus(t *testing.T) {
 	}
 }
 
+// CON-250: one Linear issue per work item is enforced where the operator
+// asks for it, not where the drain discovers the duplicate. Every link
+// state means a create was already queued or already confirmed, so an
+// existing link row refuses issue_create at enqueue time. Both reachable
+// states are driven through public APIs: unpublished is the row the first
+// enqueue leaves behind, confirmed is the state the observed duplicate
+// drained against. The capture path keeps its silent skip.
+func TestLinearIssueCreateRefusesAnExistingLink(t *testing.T) {
+	t.Parallel()
+	for _, testCase := range []struct {
+		name      string
+		confirmed bool
+	}{
+		{name: "unpublished link row", confirmed: false},
+		{name: "confirmed link row", confirmed: true},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+			s := openTemp(t)
+			ctx := context.Background()
+			setupLinearProduct(t, s, "create-linked-product")
+			setupLinearConnectionResource(t, s, "create-linked-product", map[string]any{"linear": map[string]any{
+				"workspace_url": "https://linear.app/example", "team_id": "team-uuid-1", "auth_mode": "personal_api_key",
+				"status_ids": map[string]string{"needed": "state-needed"},
+			}})
+			if _, err := s.SetProductPlanningMode(ctx, "create-linked-product", PlanningModeLinear, "pilot", "operator", 2); err != nil {
+				t.Fatal(err)
+			}
+			seedLinearWorkItem(t, s, "create-linked-work", "create-linked-product-project", "Create title", "Create value")
+			first, err := s.EnqueueLinearIssueForWork(ctx, "create-linked-work", LinearOpIssueCreate)
+			if err != nil {
+				t.Fatalf("first enqueue error = %v", err)
+			}
+			if testCase.confirmed {
+				claimed, err := s.ClaimLinearOperations(ctx, 25)
+				if err != nil {
+					t.Fatalf("claim first create: %v", err)
+				}
+				if len(claimed) != 1 || claimed[0].OperationID != first.OperationID {
+					t.Fatalf("claim returned %+v, want the first create", claimed)
+				}
+				if err := s.CompleteLinearOperation(ctx, first.OperationID, LinearRemoteIdentity{RemoteUUID: "cccccccc-0000-0000-0000-000000000003", HumanKey: "EX-3"}); err != nil {
+					t.Fatalf("complete first create: %v", err)
+				}
+			}
+
+			_, err = s.EnqueueLinearIssueForWork(ctx, "create-linked-work", LinearOpIssueCreate)
+			if err == nil || !failureKindIs(err, KindInvalidOperation) || !strings.Contains(err.Error(), "already links") {
+				t.Fatalf("duplicate create error = %v, want KindInvalidOperation naming the existing link", err)
+			}
+			var count int
+			if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT count(*) FROM linear_outbox WHERE work_id=?`, "create-linked-work").Scan(&count); err != nil {
+				t.Fatal(err)
+			}
+			if count != 1 {
+				t.Fatalf("outbox holds %d operations, want the single first create", count)
+			}
+		})
+	}
+}
+
 func TestLinearIssueCreateRefusesUnmappedLifecycle(t *testing.T) {
 	t.Parallel()
 	s := openTemp(t)

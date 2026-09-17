@@ -571,18 +571,47 @@ export function readRunTextParts(stdout: string): string[] {
   return texts
 }
 
-// stripReportFence removes one Markdown code fence wrapping the whole text. A
-// model instructed to return only JSON frequently fences it. Nothing beyond a
-// single enclosing fence is unwrapped: extracting JSON out of surrounding prose
-// is heuristic salvage, and a report that needs salvaging fails closed.
-function stripReportFence(text: string): string {
+// reportCandidates returns, in document order, every substring of one text
+// part that could be the worker's report: the whole text (which for a
+// report-only message is the report itself), the content of each Markdown
+// code fence, and each brace-delimited blob. Admission is decided by
+// JSON.parse and the closed schema downstream, not by this scan: a candidate
+// that is prose simply does not parse. `announced` marks candidates that
+// presented themselves as JSON — the whole text when it opens with a fence
+// or a brace, and every fenced block whose content opens with a brace — so
+// a broken announcement still reads as malformed rather than as silence.
+function reportCandidates(text: string): { candidate: string; announced: boolean }[] {
   const trimmed = text.trim()
-  if (!trimmed.startsWith("```") || !trimmed.endsWith("```") || trimmed.length < 6) return trimmed
-  const firstBreak = trimmed.indexOf("\n")
-  if (firstBreak < 0) return trimmed
-  const info = trimmed.slice(3, firstBreak).trim()
-  if (info.length > 0 && !/^[A-Za-z0-9_-]+$/.test(info)) return trimmed
-  return trimmed.slice(firstBreak + 1, trimmed.length - 3).trim()
+  const result: { candidate: string; announced: boolean }[] = []
+  const fencePattern = /```[A-Za-z0-9_-]*\r?\n([\s\S]*?)```/g
+  let match: RegExpExecArray | null
+  while ((match = fencePattern.exec(text)) !== null) {
+    const body = match[1].trim()
+    result.push({ candidate: body, announced: body.startsWith("{") })
+  }
+  if (trimmed.startsWith("```")) {
+    // The whole-text fence unwraps even when the closing fence is missing or
+    // distant prose follows: the report scan treats content, not framing, as
+    // the candidate (CON-203).
+    const firstBreak = trimmed.indexOf("\n")
+    if (firstBreak > 0) {
+      const info = trimmed.slice(3, firstBreak).trim()
+      if (info.length === 0 || /^[A-Za-z0-9_-]+$/.test(info)) {
+        const withoutOpening = trimmed.slice(firstBreak + 1)
+        const closing = withoutOpening.lastIndexOf("```")
+        const body = (closing >= 0 ? withoutOpening.slice(0, closing) : withoutOpening).trim()
+        if (!result.some((entry) => entry.candidate === body)) result.push({ candidate: body, announced: body.startsWith("{") })
+      }
+    }
+  }
+  for (let start = text.indexOf("{"); start >= 0; start = text.indexOf("{", start + 1)) {
+    const end = text.lastIndexOf("}")
+    if (end <= start) break
+    const blob = text.slice(start, end + 1)
+    if (!result.some((entry) => entry.candidate === blob)) result.push({ candidate: blob, announced: false })
+  }
+  if (result.length === 0) result.push({ candidate: trimmed, announced: trimmed.startsWith("{") })
+  return result
 }
 
 export type WorkerReportScan = { report: Record<string, unknown> | null; malformed: boolean }
@@ -600,43 +629,52 @@ export function readWorkerReport(stdout: string): WorkerReportScan {
 
 // scanReportTexts holds the scan itself, over message texts in emission order.
 // The native task route supplies the worker's single final body and the run
-// stream supplies every text part, and both admit a report the same way.
+// stream supplies every text part, and both admit a report the same way: the
+// last candidate anywhere in the stream that parses as a JSON object wins
+// (CON-203 — one lead-in or trailing sentence no longer discards a report).
 export function scanReportTexts(texts: string[]): WorkerReportScan {
   let malformed = false
   const found: Record<string, unknown>[] = []
   for (const text of texts) {
-    const candidate = stripReportFence(text)
-    if (!candidate.startsWith("{")) continue
-    let parsed: unknown
-    try { parsed = JSON.parse(candidate) } catch { malformed = true; continue }
-    if (isRecord(parsed)) found.push(parsed)
-    else malformed = true
+    for (const { candidate, announced } of reportCandidates(text)) {
+      if (!candidate.startsWith("{")) continue
+      let parsed: unknown
+      try { parsed = JSON.parse(candidate) } catch {
+        if (announced) malformed = true
+        continue
+      }
+      if (isRecord(parsed)) found.push(parsed)
+      else if (announced) malformed = true
+    }
   }
   return { report: found.at(-1) ?? null, malformed }
 }
 
-const REPORT_IDENTITY_FIELDS = ["attempt_id", "lane_id", "lane_version", "lane_digest"] as const
+// Dispatch-owned fields the adapter strips from a worker-authored report
+// instead of refusing it (CD-0056 D7, amended 2026-09-17). The canonical
+// report still receives identity exclusively from the authorized dispatch
+// packet, so whatever the worker echoes is discarded, not trusted.
+const DISPATCH_OWNED_REPORT_FIELDS = ["attempt_id", "lane_id", "lane_version", "lane_digest", "work_id", "step_id"] as const
 
 // admitWorkerReport is the CD-0056 D7 admission boundary. The model-authored
-// report carries worker-owned content only: the closed schema has no identity
-// properties, so additionalProperties:false refuses any report that supplies
-// them, whatever value it names. Identity reaches the canonical terminal
-// report exclusively from the authorized dispatch packet.
+// report carries worker-owned content only: dispatch-owned fields are stripped
+// before validation, and the closed schema's additionalProperties:false still
+// refuses every other property the worker was not asked for. Identity reaches
+// the canonical terminal report exclusively from the authorized dispatch
+// packet.
 function admitWorkerReport(scan: WorkerReportScan, packet: AgentLanePacket): { report: CanonicalLaneReport } | { detail: string } {
   if (!scan.report) {
     return { detail: scan.malformed
       ? "worker output carried a malformed JSON document and no agent-lane-report.v1 report"
       : "worker output carried no agent-lane-report.v1 report" }
   }
-  const supplied = REPORT_IDENTITY_FIELDS.filter((field) => scan.report![field] !== undefined)
-  if (supplied.length > 0) {
-    return { detail: `worker report supplied dispatch-owned field(s) ${supplied.join(", ")}; identity belongs to the authorized dispatch window` }
-  }
+  const stripped: Record<string, unknown> = { ...scan.report }
+  for (const field of DISPATCH_OWNED_REPORT_FIELDS) delete stripped[field]
   const failures: string[] = []
-  if (!validateAgentLaneReport(scan.report, failures)) {
+  if (!validateAgentLaneReport(stripped, failures)) {
     return { detail: `worker report failed the closed agent-lane-report.v1 schema: ${failures[0] ?? "unknown field"}` }
   }
-  const admitted = scan.report
+  const admitted = stripped
   const lane = laneForPacket(packet)
   if (!lane) return { detail: "worker report packet names an unregistered lane identity or digest" }
   if (admitted.status === "completed") {

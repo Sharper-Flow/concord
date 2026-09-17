@@ -20,6 +20,31 @@ func currentWorkflowDefinition(t *testing.T, ref string) WorkflowDefinition {
 	return WorkflowDefinition{}
 }
 
+func TestBuiltinWorkflowRegistryStringFieldsRequireNonBlank(t *testing.T) {
+	t.Parallel()
+	registry := BuiltinWorkflowRegistry()
+	for _, current := range BuiltinWorkflowDefinitions() {
+		registered, ok := registry.Lookup(current.Ref, current.Version)
+		if !ok {
+			t.Errorf("current workflow definition %q version %d is not registered", current.Ref, current.Version)
+			continue
+		}
+		for _, action := range registered.Definition.ActionDefinitions {
+			payloads := []*WorkflowPayloadDefinition{&action.Payload}
+			if action.PublicPayload != nil {
+				payloads = append(payloads, action.PublicPayload)
+			}
+			for _, payload := range payloads {
+				for _, field := range payload.Fields {
+					if field.ValueType == PayloadString && len(field.Enum) == 0 && !field.NonBlank {
+						t.Errorf("%s version %d action %s field %s does not declare NonBlank", current.Ref, current.Version, action.ID, field.Name)
+					}
+				}
+			}
+		}
+	}
+}
+
 func requirePayloadFailure(t *testing.T, err error, field, rule string) *Failure {
 	t.Helper()
 	if err == nil {

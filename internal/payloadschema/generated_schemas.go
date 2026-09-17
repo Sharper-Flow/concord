@@ -7209,11 +7209,13 @@ const GeneratedPayloadSchemaDocument = `{
                   "evidence_ref": {
                     "maxLength": 2048,
                     "minLength": 1,
+                    "pattern": "\\S",
                     "type": "string"
                   },
                   "immutable_subject_ref": {
                     "maxLength": 2048,
                     "minLength": 1,
+                    "pattern": "\\S",
                     "type": "string"
                   },
                   "producer_id": {
@@ -7559,11 +7561,13 @@ const GeneratedPayloadSchemaDocument = `{
                   "evidence_ref": {
                     "maxLength": 2048,
                     "minLength": 1,
+                    "pattern": "\\S",
                     "type": "string"
                   },
                   "immutable_subject_ref": {
                     "maxLength": 2048,
                     "minLength": 1,
+                    "pattern": "\\S",
                     "type": "string"
                   },
                   "producer_id": {
@@ -7633,11 +7637,13 @@ const GeneratedPayloadSchemaDocument = `{
                   "evidence_ref": {
                     "maxLength": 2048,
                     "minLength": 1,
+                    "pattern": "\\S",
                     "type": "string"
                   },
                   "immutable_subject_ref": {
                     "maxLength": 2048,
                     "minLength": 1,
+                    "pattern": "\\S",
                     "type": "string"
                   },
                   "producer_id": {
@@ -7838,6 +7844,7 @@ const GeneratedPayloadSchemaDocument = `{
                   "active_unit": {
                     "maxLength": 256,
                     "minLength": 1,
+                    "pattern": "\\S",
                     "type": "string"
                   },
                   "checkpoint_id": {
@@ -7853,6 +7860,7 @@ const GeneratedPayloadSchemaDocument = `{
                   "diagnosis": {
                     "maxLength": 4096,
                     "minLength": 1,
+                    "pattern": "\\S",
                     "type": "string"
                   },
                   "evidence_refs": {
@@ -7867,6 +7875,7 @@ const GeneratedPayloadSchemaDocument = `{
                   "hypothesis": {
                     "maxLength": 4096,
                     "minLength": 1,
+                    "pattern": "\\S",
                     "type": "string"
                   },
                   "pending_decisions": {
@@ -7890,6 +7899,7 @@ const GeneratedPayloadSchemaDocument = `{
                   "strategy": {
                     "maxLength": 4096,
                     "minLength": 1,
+                    "pattern": "\\S",
                     "type": "string"
                   },
                   "touched_refs": {
@@ -8134,7 +8144,8 @@ const GeneratedPayloadSchemaDocument = `{
                   "asserted_at": {
                     "$ref": "#/$defs/native_report_timestamp",
                     "maxLength": 64,
-                    "minLength": 1
+                    "minLength": 1,
+                    "pattern": "\\S"
                   },
                   "evidence_digest": {
                     "$ref": "#/$defs/digest"
@@ -8142,11 +8153,13 @@ const GeneratedPayloadSchemaDocument = `{
                   "evidence_ref": {
                     "maxLength": 2048,
                     "minLength": 1,
+                    "pattern": "\\S",
                     "type": "string"
                   },
                   "native_subject_ref": {
                     "maxLength": 2048,
                     "minLength": 1,
+                    "pattern": "\\S",
                     "type": "string"
                   },
                   "run_id": {
@@ -8211,11 +8224,13 @@ const GeneratedPayloadSchemaDocument = `{
                   "current_commit": {
                     "maxLength": 128,
                     "minLength": 1,
+                    "pattern": "\\S",
                     "type": "string"
                   },
                   "evidence_commit": {
                     "maxLength": 128,
                     "minLength": 1,
+                    "pattern": "\\S",
                     "type": "string"
                   },
                   "evidence_kind": {
@@ -8252,6 +8267,7 @@ const GeneratedPayloadSchemaDocument = `{
                   "verdict_actor_ref": {
                     "maxLength": 70,
                     "minLength": 1,
+                    "pattern": "\\S",
                     "type": "string"
                   }
                 },
@@ -8355,6 +8371,7 @@ const GeneratedPayloadSchemaDocument = `{
                   "summary": {
                     "maxLength": 16384,
                     "minLength": 1,
+                    "pattern": "\\S",
                     "type": "string"
                   }
                 },
@@ -8756,16 +8773,19 @@ const GeneratedPayloadSchemaDocument = `{
                       "poc_findings": {
                         "maxLength": 4096,
                         "minLength": 2,
+                        "pattern": "\\S",
                         "type": "string"
                       },
                       "question": {
                         "maxLength": 4096,
                         "minLength": 2,
+                        "pattern": "\\S",
                         "type": "string"
                       },
                       "rationale": {
                         "maxLength": 4096,
                         "minLength": 2,
+                        "pattern": "\\S",
                         "type": "string"
                       }
                     },
@@ -8884,6 +8904,7 @@ const GeneratedPayloadSchemaDocument = `{
                       "approach": {
                         "maxLength": 4096,
                         "minLength": 2,
+                        "pattern": "\\S",
                         "type": "string"
                       },
                       "decisions": {
@@ -9049,7 +9070,8 @@ const GeneratedPayloadSchemaDocument = `{
                   "asserted_at": {
                     "$ref": "#/$defs/native_report_timestamp",
                     "maxLength": 64,
-                    "minLength": 1
+                    "minLength": 1,
+                    "pattern": "\\S"
                   },
                   "evidence_digest": {
                     "$ref": "#/$defs/digest"
@@ -9057,11 +9079,13 @@ const GeneratedPayloadSchemaDocument = `{
                   "evidence_ref": {
                     "maxLength": 2048,
                     "minLength": 1,
+                    "pattern": "\\S",
                     "type": "string"
                   },
                   "native_subject_ref": {
                     "maxLength": 2048,
                     "minLength": 1,
+                    "pattern": "\\S",
                     "type": "string"
                   },
                   "run_id": {
@@ -9192,11 +9216,13 @@ const GeneratedPayloadSchemaDocument = `{
                       "problem": {
                         "maxLength": 4096,
                         "minLength": 1,
+                        "pattern": "\\S",
                         "type": "string"
                       },
                       "stakes": {
                         "maxLength": 2048,
                         "minLength": 1,
+                        "pattern": "\\S",
                         "type": "string"
                       },
                       "user_outcomes": {
@@ -9295,11 +9321,13 @@ const GeneratedPayloadSchemaDocument = `{
                   "evidence_ref": {
                     "maxLength": 2048,
                     "minLength": 1,
+                    "pattern": "\\S",
                     "type": "string"
                   },
                   "immutable_subject_ref": {
                     "maxLength": 2048,
                     "minLength": 1,
+                    "pattern": "\\S",
                     "type": "string"
                   },
                   "producer_id": {
@@ -9405,11 +9433,13 @@ const GeneratedPayloadSchemaDocument = `{
                   "evidence_ref": {
                     "maxLength": 2048,
                     "minLength": 1,
+                    "pattern": "\\S",
                     "type": "string"
                   },
                   "immutable_subject_ref": {
                     "maxLength": 2048,
                     "minLength": 1,
+                    "pattern": "\\S",
                     "type": "string"
                   },
                   "producer_id": {
@@ -9525,6 +9555,7 @@ const GeneratedPayloadSchemaDocument = `{
                   "verdict_actor_ref": {
                     "maxLength": 70,
                     "minLength": 1,
+                    "pattern": "\\S",
                     "type": "string"
                   },
                   "verdict_kind": {
@@ -9645,6 +9676,7 @@ const GeneratedPayloadSchemaDocument = `{
                   "diagnosis": {
                     "maxLength": 4096,
                     "minLength": 1,
+                    "pattern": "\\S",
                     "type": "string"
                   },
                   "evidence_refs": {
@@ -9668,6 +9700,7 @@ const GeneratedPayloadSchemaDocument = `{
                   "strategy": {
                     "maxLength": 4096,
                     "minLength": 1,
+                    "pattern": "\\S",
                     "type": "string"
                   }
                 },
@@ -9721,6 +9754,7 @@ const GeneratedPayloadSchemaDocument = `{
                   "diagnosis": {
                     "maxLength": 4096,
                     "minLength": 1,
+                    "pattern": "\\S",
                     "type": "string"
                   },
                   "evidence_refs": {
@@ -9744,6 +9778,7 @@ const GeneratedPayloadSchemaDocument = `{
                   "strategy": {
                     "maxLength": 4096,
                     "minLength": 1,
+                    "pattern": "\\S",
                     "type": "string"
                   }
                 },
@@ -9933,7 +9968,8 @@ const GeneratedPayloadSchemaDocument = `{
                   "asserted_at": {
                     "$ref": "#/$defs/native_report_timestamp",
                     "maxLength": 64,
-                    "minLength": 1
+                    "minLength": 1,
+                    "pattern": "\\S"
                   },
                   "evidence_digest": {
                     "$ref": "#/$defs/digest"
@@ -9941,11 +9977,13 @@ const GeneratedPayloadSchemaDocument = `{
                   "evidence_ref": {
                     "maxLength": 2048,
                     "minLength": 1,
+                    "pattern": "\\S",
                     "type": "string"
                   },
                   "native_subject_ref": {
                     "maxLength": 2048,
                     "minLength": 1,
+                    "pattern": "\\S",
                     "type": "string"
                   },
                   "run_id": {
@@ -10227,7 +10265,8 @@ const GeneratedPayloadSchemaDocument = `{
                   "asserted_at": {
                     "$ref": "#/$defs/native_report_timestamp",
                     "maxLength": 64,
-                    "minLength": 1
+                    "minLength": 1,
+                    "pattern": "\\S"
                   },
                   "evidence_digest": {
                     "$ref": "#/$defs/digest"
@@ -10235,11 +10274,13 @@ const GeneratedPayloadSchemaDocument = `{
                   "evidence_ref": {
                     "maxLength": 2048,
                     "minLength": 1,
+                    "pattern": "\\S",
                     "type": "string"
                   },
                   "native_subject_ref": {
                     "maxLength": 2048,
                     "minLength": 1,
+                    "pattern": "\\S",
                     "type": "string"
                   },
                   "run_id": {
@@ -10426,6 +10467,7 @@ const GeneratedPayloadSchemaDocument = `{
                   "supersede_reason": {
                     "maxLength": 4096,
                     "minLength": 1,
+                    "pattern": "\\S",
                     "type": "string"
                   }
                 },
@@ -10617,6 +10659,7 @@ const GeneratedPayloadSchemaDocument = `{
                   "supersede_reason": {
                     "maxLength": 4096,
                     "minLength": 1,
+                    "pattern": "\\S",
                     "type": "string"
                   }
                 },
@@ -11536,6 +11579,7 @@ const GeneratedPayloadSchemaDocument = `{
         "approach": {
           "maxLength": 4096,
           "minLength": 2,
+          "pattern": "\\S",
           "type": "string"
         },
         "decisions": {

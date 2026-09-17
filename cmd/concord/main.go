@@ -1241,8 +1241,9 @@ func runLinearOutboxDrain(ctx context.Context, s *store.Store, raw []byte, comma
 			identity.ContentHash = ""
 		}
 		if err := s.CompleteLinearOperation(ctx, op.OperationID, identity); err != nil {
-			_ = s.FailLinearOperation(ctx, op.OperationID, "retryable", err.Error())
-			results = append(results, drained{OperationID: op.OperationID, Outcome: "retryable", Detail: err.Error()})
+			class := linearCompletionFailureClass(err)
+			_ = s.FailLinearOperation(ctx, op.OperationID, class, err.Error())
+			results = append(results, drained{OperationID: op.OperationID, Outcome: class, Detail: err.Error()})
 			continue
 		}
 		results = append(results, drained{OperationID: op.OperationID, Outcome: "done", Identifier: issue.Identifier})
@@ -1258,6 +1259,19 @@ type linearLinkRefreshResult struct {
 	HumanKey        string `json:"human_key,omitempty"`
 	URL             string `json:"url,omitempty"`
 	Detail          string `json:"detail,omitempty"`
+}
+
+// linearCompletionFailureClass classifies a CompleteLinearOperation error
+// after the provider effect already succeeded. The provider call cannot be
+// undone, so an unknown failure kind must not requeue the operation onto
+// another provider call: only a typed store failure that declares its own
+// repeat safe is retryable.
+func linearCompletionFailureClass(err error) string {
+	var failure *store.Failure
+	if errors.As(err, &failure) && failure.RetrySafe {
+		return "retryable"
+	}
+	return "permanent"
 }
 
 func refreshLinearLinkIdentities(ctx context.Context, s *store.Store, client *linearclient.Client, productID string) []linearLinkRefreshResult {

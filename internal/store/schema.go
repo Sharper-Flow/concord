@@ -4599,6 +4599,49 @@ WHERE rowid IN (SELECT rowid FROM contract_pins);
 DELETE FROM fold_guard WHERE active = 1;
 `,
 	},
+	{
+		Version:  89,
+		Name:     "worktree_occupancy_backfill",
+		Breaking: false,
+		SQL: `
+-- Migration 85 added the occupancy column, and the claim route began writing
+-- it. The bootstrap route built its own creation payload and omitted the
+-- occupant, so every worktree bootstrap claimed after 85 recorded an empty
+-- occupant and the removal gate read it as unoccupied. The code defect is
+-- fixed; these rows were written before the fix and carry no occupant.
+--
+-- The occupant is recovered from recorded history rather than invented: the
+-- agent session that acted on the work item most recently is the session the
+-- store last saw driving it. Only active entries for in_progress work are
+-- touched. Terminal work is meant to be reapable, and an entry that already
+-- names an occupant is left exactly as it is.
+--
+-- A recovered occupant can name a session that has since died. That is the
+-- same stale-occupancy state a crashed live claim leaves behind, and it has
+-- the same two exits: session vacation, or the operator-approved occupancy
+-- release on the destroy route.
+UPDATE worktree_entries
+SET occupant_session_ref = COALESCE((
+        SELECT a.session_ref
+          FROM domain_events e
+          JOIN workflow_actors a ON a.actor_ref = e.actor
+         WHERE e.subject_type = 'work_item'
+           AND e.subject_id = substr(worktree_entries.set_id, 5)
+           AND a.actor_class = 'agent'
+           AND a.session_ref <> ''
+         ORDER BY e.occurred_at DESC, e.seq DESC
+         LIMIT 1
+    ), '')
+WHERE state = 'active'
+  AND occupant_session_ref = ''
+  AND substr(set_id, 1, 4) = 'wts:'
+  AND EXISTS (
+        SELECT 1 FROM work_items w
+         WHERE w.id = substr(worktree_entries.set_id, 5)
+           AND w.lifecycle = 'in_progress'
+  );
+`,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any

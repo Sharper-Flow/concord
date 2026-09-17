@@ -56,7 +56,14 @@ func TestMigration88BackfillsWorkflowContractDefinitionAuthorityPins(t *testing.
 	if _, err := db.ExecContext(ctx, schemaManifestDDL); err != nil {
 		t.Fatal(err)
 	}
-	for _, migration := range migrations[:len(migrations)-1] {
+	// The fixture is the v87 database this migration was written against, so
+	// it is built from the migrations before 88 by version rather than by
+	// position. Selecting "every migration but the last" would silently stop
+	// exercising migration 88 the moment a later one is added.
+	for _, migration := range migrations {
+		if migration.Version >= 88 {
+			break
+		}
 		if err := applyMigration(ctx, db, migration); err != nil {
 			t.Fatalf("migration %d: %v", migration.Version, err)
 		}
@@ -2195,5 +2202,113 @@ func TestMigrationReplayFromScratchReachesHead(t *testing.T) {
 	}
 	if want := migrations[len(migrations)-1].Version; latest != want {
 		t.Fatalf("replay ended at version %d, want %d", latest, want)
+	}
+}
+
+// Migration 85 added the occupancy column and the claim route filled it, but
+// the bootstrap route omitted it until this change. Rows written in that window
+// name no occupant, so the removal gate reads them as free. Migration 89
+// recovers the occupant from the last agent session recorded against the work
+// item, and only for active entries of in_progress work: terminal work is meant
+// to be reapable, and an entry that already names an occupant is authority the
+// migration must not overwrite.
+func TestMigration89BackfillsWorktreeOccupancyForInProgressWork(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "concord-v88.db")
+	db, err := sql.Open(driverName, dataSourceName(path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	db.SetMaxOpenConns(1)
+	defer db.Close()
+	if _, err := db.ExecContext(ctx, schemaManifestDDL); err != nil {
+		t.Fatal(err)
+	}
+	for _, migration := range migrations {
+		if migration.Version >= 89 {
+			break
+		}
+		if err := applyMigration(ctx, db, migration); err != nil {
+			t.Fatalf("migration %d: %v", migration.Version, err)
+		}
+		if _, err := db.ExecContext(ctx, `INSERT INTO schema_migrations(version,name,checksum,applied_at) VALUES(?,?,?,?)`, migration.Version, migration.Name, migration.checksum(), "2026-09-16T00:00:00Z"); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	const (
+		driven    = "migration-89-driven"
+		terminal  = "migration-89-terminal"
+		attested  = "migration-89-attested"
+		sessionA  = "ses-migration-89-latest"
+		sessionB  = "ses-migration-89-terminal"
+		preserved = "ses-migration-89-already-recorded"
+	)
+	actorA := DeriveWorkflowActorRef("principal:m89", "client:m89", "agent:m89", sessionA)
+	actorB := DeriveWorkflowActorRef("principal:m89", "client:m89", "agent:m89", sessionB)
+	statements := []struct {
+		query string
+		args  []any
+	}{
+		{`INSERT INTO fold_guard(active) VALUES(1)`, nil},
+		{`INSERT INTO workflow_actors(actor_ref,principal_ref,client_ref,agent_ref,session_ref,actor_class,first_seen_at) VALUES(?,?,?,?,?,'agent',?)`, []any{actorA, "principal:m89", "client:m89", "agent:m89", sessionA, "now"}},
+		{`INSERT INTO workflow_actors(actor_ref,principal_ref,client_ref,agent_ref,session_ref,actor_class,first_seen_at) VALUES(?,?,?,?,?,'agent',?)`, []any{actorB, "principal:m89", "client:m89", "agent:m89", sessionB, "now"}},
+	}
+	for _, item := range []struct {
+		id        string
+		lifecycle string
+		actor     string
+		occupant  string
+	}{
+		{driven, "in_progress", actorA, ""},
+		{terminal, "completed", actorB, ""},
+		{attested, "in_progress", actorA, preserved},
+	} {
+		statements = append(statements,
+			struct {
+				query string
+				args  []any
+			}{`INSERT INTO work_items(id,kind,title,lifecycle,priority,version,created_at,updated_at) VALUES(?,?,?,?,0,1,?,?)`, []any{item.id, "task", "Migration 89", item.lifecycle, "now", "now"}},
+			struct {
+				query string
+				args  []any
+			}{`INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES(?,?,?,?,?,?,?,?)`, []any{"m89-event-" + item.id, WorkflowActionCompleted, SubjectWorkItem, item.id, item.actor, "2026-09-16T00:00:01Z", 1, `{}`}},
+			struct {
+				query string
+				args  []any
+			}{`INSERT INTO worktree_entries(set_id,project_id,claim_op_id,branch,base_sha,path,repository_id,state,verified_at,git_facts,occupant_session_ref) VALUES(?,?,?,?,?,?,?,'active',?,?,?)`, []any{WorktreeSetID(item.id), "project-m89", "claim-" + item.id, "work/" + item.id, "0000000000000000000000000000000000000000", "/tmp/" + item.id, "repo-m89", "now", `{}`, item.occupant}},
+		)
+	}
+	statements = append(statements, struct {
+		query string
+		args  []any
+	}{`DELETE FROM fold_guard`, nil})
+	for _, statement := range statements {
+		if _, err := db.ExecContext(ctx, statement.query, statement.args...); err != nil {
+			t.Fatalf("%s: %v", statement.query, err)
+		}
+	}
+
+	if err := Migrate(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, want := range []struct {
+		workID   string
+		occupant string
+		reason   string
+	}{
+		{driven, sessionA, "an in_progress entry recovers the last agent session that acted on it"},
+		{terminal, "", "terminal work stays reapable"},
+		{attested, preserved, "a recorded occupant is authority the migration must not overwrite"},
+	} {
+		var got string
+		if err := db.QueryRowContext(ctx, `SELECT occupant_session_ref FROM worktree_entries WHERE set_id=?`, WorktreeSetID(want.workID)).Scan(&got); err != nil {
+			t.Fatal(err)
+		}
+		if got != want.occupant {
+			t.Errorf("%s: occupant = %q, want %q (%s)", want.workID, got, want.occupant, want.reason)
+		}
 	}
 }

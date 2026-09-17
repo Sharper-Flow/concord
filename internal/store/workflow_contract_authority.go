@@ -185,7 +185,7 @@ func duplicateActiveContractOmissions(ctx context.Context, q queryer, productID 
 		if err := rows.Scan(&workID); err != nil {
 			return nil, workflowProjectionError(err, "cannot scan an ambiguous workflow contract projection")
 		}
-		omissions = append(omissions, workID+": omitted because its workflow contract projection has multiple active contracts; use the typed operator recovery")
+		omissions = append(omissions, "ambiguous-contract:"+workID)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, workflowProjectionError(err, "cannot enumerate ambiguous workflow contract projections")

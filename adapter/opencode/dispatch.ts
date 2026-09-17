@@ -56,8 +56,8 @@ export interface AgentLanePacketCorrection {
 // AgentLaneReport mirrors contracts/agent-lane-report.schema.json, which the
 // generator embeds as agentLaneReportSchema. The schema, not this type, is what
 // a worker's output is validated against (CD-0056 D7). The worker-authored
-// surface carries no identity: the admitted canonical report composes the
-// transport-owned identity fields from the authorized dispatch packet.
+// surface carries its cwd attestation, while the admitted canonical report
+// composes dispatch identity from the authorized dispatch packet.
 export interface AgentLaneReportEvidence {
   obligation: string
   detail: string
@@ -65,6 +65,7 @@ export interface AgentLaneReportEvidence {
 
 export interface AgentLaneReport {
   schema_version: AgentLaneReportSchemaVersion
+  cwd: string
   readback_model: string
   status: AgentLaneReportStatus
   evidence: AgentLaneReportEvidence[]
@@ -1404,6 +1405,12 @@ async function completeWorkerSession(
   // the report is admitted here. A report that is absent, unparseable, invalid,
   // or bound to another packet is a typed failure, never a completion.
   const resolution = resolveWorkerReportFromText(resultBody, packet)
+  if ("report" in resolution) {
+    const cwdMismatch = dispatchDirectoryMismatch(workerDirectory, resolution.report.cwd)
+    if (cwdMismatch) {
+      return errorEnvelope(lane, packet, "error", "agent_identity_mismatch", `worker report cwd does not match the packet's pinned worktree: ${cwdMismatch}`, "reconcile_operation")
+    }
+  }
   const terminal: { verb: "worker-complete"; report: CanonicalLaneReport } | { verb: "worker-fail"; failure_kind: string; detail: string } =
     hostFailure !== undefined
       ? { verb: "worker-fail", failure_kind: "worker_error", detail: hostFailure.slice(0, MAX_FAILURE_DETAIL_BYTES) }

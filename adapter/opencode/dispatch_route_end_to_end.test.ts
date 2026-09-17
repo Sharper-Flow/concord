@@ -364,6 +364,7 @@ routeDeclaration("dispatches a real store route through Task completion and work
     expect(dispatchResponse?.result?.worker_packet_digest).toMatch(/^sha256:[0-9a-f]{64}$/)
     const report = {
       schema_version: "1.0",
+      cwd: worktree,
       readback_model: READBACK_MODEL,
       status: "completed",
       evidence: lane.evidence_obligations.map((obligation) => ({ obligation, detail: `discharged ${obligation}` })),

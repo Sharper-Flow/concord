@@ -28,9 +28,10 @@ function packet(): AgentLanePacket {
 
 // A completion is only reachable when the worker returns an admissible
 // agent-lane-report.v1 report (CD-0056 D7), so the fixture stream carries one.
-// The worker-authored surface carries no identity: the dispatch window owns it.
+// The dispatch window owns attempt and lane identity. The report carries cwd
+// as a worker attestation.
 const laneReport = () => ({
-  schema_version: "1.0", readback_model: READBACK_MODEL, status: "completed",
+  schema_version: "1.0", cwd: WORKER_DIRECTORY, readback_model: READBACK_MODEL, status: "completed",
   evidence: lane.evidence_obligations.map((obligation) => ({ obligation, detail: `discharged ${obligation}` })),
 })
 

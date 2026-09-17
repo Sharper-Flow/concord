@@ -41,10 +41,11 @@ const workPin = {
   pending_operator_decision: null,
 }
 
-// The worker-authored report surface carries no identity: the dispatch window
-// owns attempt and lane identity and the adapter composes it at admission.
+// The dispatch window owns attempt and lane identity. The report carries cwd
+// as a worker attestation, and the adapter checks it at admission.
 const report = (status = "completed") => ({
   schema_version: "1.0",
+  cwd: process.cwd(),
   readback_model: READBACK_MODEL,
   status,
   evidence: lane.evidence_obligations.map((obligation) => ({ obligation, detail: `${obligation} discharged` })),

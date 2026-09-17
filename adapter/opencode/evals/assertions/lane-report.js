@@ -25,11 +25,12 @@ const CONTRACT = JSON.parse(
 
 const REPORT_REQUIRED = CONTRACT.required;
 const STATUSES = CONTRACT.properties.status.enum;
-// The worker-authored surface is closed: identity is transport-owned, so any
-// field outside CONTRACT.properties — including attempt_id, lane_id,
-// lane_version, and lane_digest — is refused here exactly as the adapter
-// refuses it at the admission boundary (CD-0056 D7).
+// The worker-authored surface is closed: dispatch identity is transport-owned,
+// while cwd is a worker attestation. Any field outside CONTRACT.properties —
+// including attempt_id, lane_id, lane_version, and lane_digest — is refused
+// here exactly as the adapter refuses it at the admission boundary (CD-0056 D7).
 const CLOSED_FIELDS = new Set(Object.keys(CONTRACT.properties));
+const CWD = new RegExp(CONTRACT.properties.cwd.pattern);
 const MODEL = new RegExp(CONTRACT.properties.readback_model.pattern);
 const EVIDENCE_MIN = CONTRACT.properties.evidence.minItems;
 const EVIDENCE_MAX = CONTRACT.properties.evidence.maxItems;
@@ -158,6 +159,9 @@ export default function (output, context) {
   if (!STATUSES.includes(report.status)) {
     return { pass: false, score: 0, reason: `report status ${JSON.stringify(report.status)} is outside the declared lifecycle` };
   }
+  if (typeof report.cwd !== "string" || report.cwd.length < CONTRACT.properties.cwd.minLength || report.cwd.length > CONTRACT.properties.cwd.maxLength || !CWD.test(report.cwd)) {
+    return { pass: false, score: 0, reason: `report cwd ${JSON.stringify(report.cwd)} is not an absolute working directory` };
+  }
   if (typeof report.readback_model !== "string" || !MODEL.test(report.readback_model)) {
     return { pass: false, score: 0, reason: `report readback_model ${JSON.stringify(report.readback_model)} is not a provider/model identifier` };
   }
@@ -179,11 +183,9 @@ export default function (output, context) {
     }
   }
 
-  // The worker-authored surface carries no identity: the dispatch window owns
-  // attempt and lane identity, and the adapter composes it at the admission
-  // boundary (CD-0056 D7). A report that supplies any dispatch-owned field is
-  // refused; the packet binding itself is verified structurally by the
-  // adapter, not re-judged here.
+  // The dispatch window owns attempt and lane identity, and the adapter
+  // composes them at the admission boundary (CD-0056 D7). A report that
+  // supplies any dispatch-owned field is refused.
   const supplied = Object.keys(report).filter((field) => !CLOSED_FIELDS.has(field));
   if (supplied.length > 0) {
     return {

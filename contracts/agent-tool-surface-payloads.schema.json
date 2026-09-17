@@ -8961,7 +8961,8 @@
                   "evidence_ref": {
                     "type": "string",
                     "minLength": 1,
-                    "maxLength": 2048
+                    "maxLength": 2048,
+                    "pattern": "\\S"
                   },
                   "evidence_kind": {
                     "type": "string",
@@ -8978,7 +8979,8 @@
                   "immutable_subject_ref": {
                     "type": "string",
                     "minLength": 1,
-                    "maxLength": 2048
+                    "maxLength": 2048,
+                    "pattern": "\\S"
                   },
                   "producer_id": {
                     "$ref": "#/$defs/reference",
@@ -9311,7 +9313,8 @@
                   "evidence_ref": {
                     "type": "string",
                     "minLength": 1,
-                    "maxLength": 2048
+                    "maxLength": 2048,
+                    "pattern": "\\S"
                   },
                   "evidence_kind": {
                     "type": "string",
@@ -9328,7 +9331,8 @@
                   "immutable_subject_ref": {
                     "type": "string",
                     "minLength": 1,
-                    "maxLength": 2048
+                    "maxLength": 2048,
+                    "pattern": "\\S"
                   },
                   "producer_id": {
                     "$ref": "#/$defs/reference",
@@ -9385,7 +9389,8 @@
                   "evidence_ref": {
                     "type": "string",
                     "minLength": 1,
-                    "maxLength": 2048
+                    "maxLength": 2048,
+                    "pattern": "\\S"
                   },
                   "evidence_kind": {
                     "type": "string",
@@ -9402,7 +9407,8 @@
                   "immutable_subject_ref": {
                     "type": "string",
                     "minLength": 1,
-                    "maxLength": 2048
+                    "maxLength": 2048,
+                    "pattern": "\\S"
                   },
                   "producer_id": {
                     "$ref": "#/$defs/reference",
@@ -9612,22 +9618,26 @@
                   "active_unit": {
                     "type": "string",
                     "minLength": 1,
-                    "maxLength": 256
+                    "maxLength": 256,
+                    "pattern": "\\S"
                   },
                   "hypothesis": {
                     "type": "string",
                     "minLength": 1,
-                    "maxLength": 4096
+                    "maxLength": 4096,
+                    "pattern": "\\S"
                   },
                   "diagnosis": {
                     "type": "string",
                     "minLength": 1,
-                    "maxLength": 4096
+                    "maxLength": 4096,
+                    "pattern": "\\S"
                   },
                   "strategy": {
                     "type": "string",
                     "minLength": 1,
-                    "maxLength": 4096
+                    "maxLength": 4096,
+                    "pattern": "\\S"
                   },
                   "touched_refs": {
                     "type": "array",
@@ -9903,7 +9913,8 @@
                   "native_subject_ref": {
                     "type": "string",
                     "minLength": 1,
-                    "maxLength": 2048
+                    "maxLength": 2048,
+                    "pattern": "\\S"
                   },
                   "status": {
                     "type": "string",
@@ -9915,7 +9926,8 @@
                   "evidence_ref": {
                     "type": "string",
                     "minLength": 1,
-                    "maxLength": 2048
+                    "maxLength": 2048,
+                    "pattern": "\\S"
                   },
                   "evidence_digest": {
                     "$ref": "#/$defs/digest"
@@ -9923,7 +9935,8 @@
                   "asserted_at": {
                     "$ref": "#/$defs/native_report_timestamp",
                     "minLength": 1,
-                    "maxLength": 64
+                    "maxLength": 64,
+                    "pattern": "\\S"
                   }
                 },
                 "required": [
@@ -9975,12 +9988,14 @@
                   "evidence_commit": {
                     "type": "string",
                     "minLength": 1,
-                    "maxLength": 128
+                    "maxLength": 128,
+                    "pattern": "\\S"
                   },
                   "current_commit": {
                     "type": "string",
                     "minLength": 1,
-                    "maxLength": 128
+                    "maxLength": 128,
+                    "pattern": "\\S"
                   },
                   "payload": {
                     "$ref": "#/$defs/workflow_completion_payload"
@@ -9988,7 +10003,8 @@
                   "verdict_actor_ref": {
                     "type": "string",
                     "minLength": 1,
-                    "maxLength": 70
+                    "maxLength": 70,
+                    "pattern": "\\S"
                   },
                   "impact_verdict": {
                     "type": "string",
@@ -10116,7 +10132,8 @@
                   "summary": {
                     "type": "string",
                     "minLength": 1,
-                    "maxLength": 16384
+                    "maxLength": 16384,
+                    "pattern": "\\S"
                   },
                   "restart": {
                     "type": "boolean"
@@ -10486,7 +10503,8 @@
                       "question": {
                         "type": "string",
                         "minLength": 2,
-                        "maxLength": 4096
+                        "maxLength": 4096,
+                        "pattern": "\\S"
                       },
                       "options_considered": {
                         "type": "array",
@@ -10507,7 +10525,8 @@
                       "rationale": {
                         "type": "string",
                         "minLength": 2,
-                        "maxLength": 4096
+                        "maxLength": 4096,
+                        "pattern": "\\S"
                       },
                       "consequences": {
                         "type": "array",
@@ -10530,7 +10549,8 @@
                       "poc_findings": {
                         "type": "string",
                         "minLength": 2,
-                        "maxLength": 4096
+                        "maxLength": 4096,
+                        "pattern": "\\S"
                       }
                     },
                     "required": [
@@ -10648,7 +10668,8 @@
                       "approach": {
                         "type": "string",
                         "minLength": 2,
-                        "maxLength": 4096
+                        "maxLength": 4096,
+                        "pattern": "\\S"
                       },
                       "decisions": {
                         "type": "array",
@@ -10818,7 +10839,8 @@
                   "native_subject_ref": {
                     "type": "string",
                     "minLength": 1,
-                    "maxLength": 2048
+                    "maxLength": 2048,
+                    "pattern": "\\S"
                   },
                   "status": {
                     "type": "string",
@@ -10831,7 +10853,8 @@
                   "evidence_ref": {
                     "type": "string",
                     "minLength": 1,
-                    "maxLength": 2048
+                    "maxLength": 2048,
+                    "pattern": "\\S"
                   },
                   "evidence_digest": {
                     "$ref": "#/$defs/digest"
@@ -10839,7 +10862,8 @@
                   "asserted_at": {
                     "$ref": "#/$defs/native_report_timestamp",
                     "minLength": 1,
-                    "maxLength": 64
+                    "maxLength": 64,
+                    "pattern": "\\S"
                   }
                 },
                 "required": [
@@ -10929,7 +10953,8 @@
                       "problem": {
                         "type": "string",
                         "minLength": 1,
-                        "maxLength": 4096
+                        "maxLength": 4096,
+                        "pattern": "\\S"
                       },
                       "affected": {
                         "type": "array",
@@ -10943,7 +10968,8 @@
                       "stakes": {
                         "type": "string",
                         "minLength": 1,
-                        "maxLength": 2048
+                        "maxLength": 2048,
+                        "pattern": "\\S"
                       },
                       "user_outcomes": {
                         "type": "array",
@@ -11047,7 +11073,8 @@
                   "evidence_ref": {
                     "type": "string",
                     "minLength": 1,
-                    "maxLength": 2048
+                    "maxLength": 2048,
+                    "pattern": "\\S"
                   },
                   "evidence_kind": {
                     "type": "string",
@@ -11064,7 +11091,8 @@
                   "immutable_subject_ref": {
                     "type": "string",
                     "minLength": 1,
-                    "maxLength": 2048
+                    "maxLength": 2048,
+                    "pattern": "\\S"
                   },
                   "producer_id": {
                     "$ref": "#/$defs/reference",
@@ -11157,7 +11185,8 @@
                   "evidence_ref": {
                     "type": "string",
                     "minLength": 1,
-                    "maxLength": 2048
+                    "maxLength": 2048,
+                    "pattern": "\\S"
                   },
                   "evidence_kind": {
                     "type": "string",
@@ -11174,7 +11203,8 @@
                   "immutable_subject_ref": {
                     "type": "string",
                     "minLength": 1,
-                    "maxLength": 2048
+                    "maxLength": 2048,
+                    "pattern": "\\S"
                   },
                   "producer_id": {
                     "$ref": "#/$defs/reference",
@@ -11285,7 +11315,8 @@
                   "verdict_actor_ref": {
                     "type": "string",
                     "minLength": 1,
-                    "maxLength": 70
+                    "maxLength": 70,
+                    "pattern": "\\S"
                   },
                   "evaluation_evidence": {
                     "type": "array",
@@ -11409,12 +11440,14 @@
                   "diagnosis": {
                     "type": "string",
                     "minLength": 1,
-                    "maxLength": 4096
+                    "maxLength": 4096,
+                    "pattern": "\\S"
                   },
                   "strategy": {
                     "type": "string",
                     "minLength": 1,
-                    "maxLength": 4096
+                    "maxLength": 4096,
+                    "pattern": "\\S"
                   },
                   "predicate_ids": {
                     "type": "array",
@@ -11485,12 +11518,14 @@
                   "diagnosis": {
                     "type": "string",
                     "minLength": 1,
-                    "maxLength": 4096
+                    "maxLength": 4096,
+                    "pattern": "\\S"
                   },
                   "strategy": {
                     "type": "string",
                     "minLength": 1,
-                    "maxLength": 4096
+                    "maxLength": 4096,
+                    "pattern": "\\S"
                   },
                   "predicate_ids": {
                     "type": "array",
@@ -11702,7 +11737,8 @@
                   "native_subject_ref": {
                     "type": "string",
                     "minLength": 1,
-                    "maxLength": 2048
+                    "maxLength": 2048,
+                    "pattern": "\\S"
                   },
                   "status": {
                     "type": "string",
@@ -11715,7 +11751,8 @@
                   "evidence_ref": {
                     "type": "string",
                     "minLength": 1,
-                    "maxLength": 2048
+                    "maxLength": 2048,
+                    "pattern": "\\S"
                   },
                   "evidence_digest": {
                     "$ref": "#/$defs/digest"
@@ -11723,7 +11760,8 @@
                   "asserted_at": {
                     "$ref": "#/$defs/native_report_timestamp",
                     "minLength": 1,
-                    "maxLength": 64
+                    "maxLength": 64,
+                    "pattern": "\\S"
                   }
                 },
                 "required": [
@@ -11996,7 +12034,8 @@
                   "native_subject_ref": {
                     "type": "string",
                     "minLength": 1,
-                    "maxLength": 2048
+                    "maxLength": 2048,
+                    "pattern": "\\S"
                   },
                   "status": {
                     "type": "string",
@@ -12008,7 +12047,8 @@
                   "evidence_ref": {
                     "type": "string",
                     "minLength": 1,
-                    "maxLength": 2048
+                    "maxLength": 2048,
+                    "pattern": "\\S"
                   },
                   "evidence_digest": {
                     "$ref": "#/$defs/digest"
@@ -12016,7 +12056,8 @@
                   "asserted_at": {
                     "$ref": "#/$defs/native_report_timestamp",
                     "minLength": 1,
-                    "maxLength": 64
+                    "maxLength": 64,
+                    "pattern": "\\S"
                   }
                 },
                 "required": [
@@ -12172,7 +12213,8 @@
                   "supersede_reason": {
                     "type": "string",
                     "minLength": 1,
-                    "maxLength": 4096
+                    "maxLength": 4096,
+                    "pattern": "\\S"
                   },
                   "audit_evidence": {
                     "type": "array",
@@ -12353,7 +12395,8 @@
                   "supersede_reason": {
                     "type": "string",
                     "minLength": 1,
-                    "maxLength": 4096
+                    "maxLength": 4096,
+                    "pattern": "\\S"
                   },
                   "audit_evidence": {
                     "type": "array",
@@ -12585,7 +12628,8 @@
         "approach": {
           "type": "string",
           "minLength": 2,
-          "maxLength": 4096
+          "maxLength": 4096,
+          "pattern": "\\S"
         },
         "decisions": {
           "type": "array",

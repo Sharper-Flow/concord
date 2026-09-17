@@ -551,8 +551,22 @@ func normalizeWorkflowDefinition(definition WorkflowDefinition) WorkflowDefiniti
 // the shape they run in. Frozen prior versions live in
 // workflow_registry_versions.go and never acquire current payload contracts.
 func BuiltinWorkflowDefinitions() []WorkflowDefinition {
+	implementation := withCurrentNonBlankContract(implementationPremiseContractV11())
+	implementation.Version = 12
+	breakFix := withCurrentNonBlankContract(breakFixPremiseContractV9())
+	breakFix.Version = 10
+	research := withCurrentNonBlankContract(withWorkerActions(builtinResearch(true), true))
+	research.Version = 7
+	architectureSpike := withCurrentNonBlankContract(architecturePremiseContractV7())
+	architectureSpike.Version = 8
+	opsRunbook := withCurrentNonBlankContract(opsRunbookPremiseContractV8())
+	opsRunbook.Version = 9
+	staticAnalysis := withCurrentNonBlankContract(withWorkerActions(builtinStaticAnalysis(true), true))
+	staticAnalysis.Version = 6
+	genericOneOff := withCurrentNonBlankContract(withWorkerActions(builtinGenericOneOff(true), true))
+	genericOneOff.Version = 7
 	return []WorkflowDefinition{
-		implementationPremiseContractV11(), breakFixPremiseContractV9(), withWorkerActions(builtinResearch(true), true), architecturePremiseContractV7(), opsRunbookPremiseContractV8(), withWorkerActions(builtinStaticAnalysis(true), true), withWorkerActions(builtinGenericOneOff(true), true),
+		implementation, breakFix, research, architectureSpike, opsRunbook, staticAnalysis, genericOneOff,
 	}
 }
 
@@ -574,8 +588,12 @@ func builtinWorkflowDefinitionsWithHistory() []WorkflowDefinition {
 		releasedResearchV5(), releasedStaticAnalysisV4(), releasedGenericOneOffV5(),
 	}
 	for i := range history {
-		history[i] = withLegacyPremiseContract(history[i])
+		history[i] = withLegacyNonBlankContract(withLegacyPremiseContract(history[i]))
 	}
+	history = append(history,
+		withLegacyNonBlankContract(implementationPremiseContractV11()), withLegacyNonBlankContract(breakFixPremiseContractV9()), withLegacyNonBlankContract(withWorkerActions(builtinResearch(true), true)),
+		withLegacyNonBlankContract(architecturePremiseContractV7()), withLegacyNonBlankContract(opsRunbookPremiseContractV8()), withLegacyNonBlankContract(withWorkerActions(builtinStaticAnalysis(true), true)), withLegacyNonBlankContract(withWorkerActions(builtinGenericOneOff(true), true)),
+	)
 	return append(history, BuiltinWorkflowDefinitions()...)
 }
 
@@ -713,7 +731,7 @@ func withRefinementFailureEdge(definition WorkflowDefinition, producingStep, ver
 }
 
 func withWorkerActionsBeforeFailure(definition WorkflowDefinition, payloadContracts bool) WorkflowDefinition {
-	return withWorkerActionsForVersion(definition, payloadContracts, false)
+	return withLegacyNonBlankContract(withWorkerActionsForVersion(definition, payloadContracts, false))
 }
 
 // withWorkerActionsForVersion lands worker actions on every non-terminal step
@@ -815,7 +833,7 @@ func withWorkerActionsForVersion(definition WorkflowDefinition, payloadContracts
 func withLegacyWorkerActions(definition WorkflowDefinition) WorkflowDefinition {
 	definition = cloneWorkflowDefinition(definition)
 	if definition.WorkKind == WorkKindResearch {
-		return definition
+		return withLegacyNonBlankContract(definition)
 	}
 	acceptance := WorkflowActionDefinition{
 		ID: "accept_worker_result", Consequence: ActionInternalSQLite, Approval: ActionApprovalNone, ExecutionMode: ActionAdvance, RequiredCapability: "work_transition",
@@ -838,7 +856,7 @@ func withLegacyWorkerActions(definition WorkflowDefinition) WorkflowDefinition {
 			definition.StepGraph.Steps[i].Actions = append(definition.StepGraph.Steps[i].Actions, acceptance.ID, dispatch.ID)
 		}
 	}
-	return definition
+	return withLegacyNonBlankContract(definition)
 }
 
 func validWorkKind(kind WorkKind) bool {
@@ -1097,7 +1115,7 @@ func publicActionPolicy(policy builtinActionPolicy, fields ...WorkflowPayloadFie
 }
 
 func actionStringField(name string, required bool, max int64) WorkflowPayloadField {
-	return WorkflowPayloadField{Name: name, ValueType: PayloadString, Required: required, MinLength: workflowInt(1), MaxLength: workflowInt(max)}
+	return WorkflowPayloadField{Name: name, ValueType: PayloadString, Required: required, NonBlank: true, MinLength: workflowInt(1), MaxLength: workflowInt(max)}
 }
 
 func actionRefField(name string, required bool) WorkflowPayloadField {
@@ -1181,7 +1199,7 @@ var builtinActionPolicies = map[string]builtinActionPolicy{
 	),
 	"record_discovery": actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance, ActionEventGeneric),
 	"record_design": actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance, ActionEventTyped,
-		WorkflowPayloadField{Name: "approach", ValueType: PayloadString, Required: true, MinLength: workflowInt(2), MaxLength: workflowInt(4096)},
+		WorkflowPayloadField{Name: "approach", ValueType: PayloadString, Required: true, NonBlank: true, MinLength: workflowInt(2), MaxLength: workflowInt(4096)},
 		actionArrayField("decisions", true, 1, 16, "workflow_design_decision"),
 		actionListField("touched_refs", true, 1, 64),
 	),
@@ -1248,13 +1266,13 @@ var builtinActionPolicies = map[string]builtinActionPolicy{
 	"checkpoint_poc":    actionPolicy(ActionExternalEffect, ActionApprovalNone, ActionCheckpoint, ActionEventCheckpoint),
 	"discard_poc":       actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance, ActionEventGeneric),
 	"record_decision": actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance, ActionEventCheckpoint,
-		WorkflowPayloadField{Name: "question", ValueType: PayloadString, Required: true, MinLength: workflowInt(2), MaxLength: workflowInt(4096)},
+		WorkflowPayloadField{Name: "question", ValueType: PayloadString, Required: true, NonBlank: true, MinLength: workflowInt(2), MaxLength: workflowInt(4096)},
 		actionProseListField("options_considered", true, 1, 16, "proposal_text"),
 		actionEnumField("decision", true, "accepted_decision", "insufficient_evidence"),
-		WorkflowPayloadField{Name: "rationale", ValueType: PayloadString, Required: true, MinLength: workflowInt(2), MaxLength: workflowInt(4096)},
+		WorkflowPayloadField{Name: "rationale", ValueType: PayloadString, Required: true, NonBlank: true, MinLength: workflowInt(2), MaxLength: workflowInt(4096)},
 		actionProseListField("consequences", true, 1, 16, "proposal_text"),
 		actionProseListField("inputs", true, 1, 32, "proposal_text"),
-		WorkflowPayloadField{Name: "poc_findings", ValueType: PayloadString, Required: true, MinLength: workflowInt(2), MaxLength: workflowInt(4096)},
+		WorkflowPayloadField{Name: "poc_findings", ValueType: PayloadString, Required: true, NonBlank: true, MinLength: workflowInt(2), MaxLength: workflowInt(4096)},
 	),
 	"accept_decision":   actionPolicy(ActionInternalSQLite, ActionApprovalRequired, ActionAdvance, ActionEventTyped, evidenceBindingActionFields()...),
 	"approve_operation": actionPolicy(ActionInternalSQLite, ActionApprovalRequired, ActionAdvance, ActionEventTyped, evidenceBindingActionFields()...),

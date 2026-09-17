@@ -242,7 +242,7 @@ func preFailureStaticAnalysisV3() WorkflowDefinition {
 func releasedBreakFixV5() WorkflowDefinition {
 	d := builtinBreakFix(true)
 	d.Version = 5
-	return withWorkerActions(d, true)
+	return withLegacyNonBlankContract(withWorkerActions(d, true))
 }
 
 // breakFixEvidenceRecoveryV6 adds the CD-0124 hold route without changing the
@@ -256,7 +256,7 @@ func breakFixEvidenceRecoveryV6() WorkflowDefinition {
 			break
 		}
 	}
-	return withWorkerActions(d, true)
+	return withLegacyNonBlankContract(withWorkerActions(d, true))
 }
 
 // preDesignImplementationV5 freezes the implementation definition immediately
@@ -278,7 +278,7 @@ func preProposalImplementationV6() WorkflowDefinition {
 func releasedImplementationV7() WorkflowDefinition {
 	d := builtinImplementation(true)
 	d.Version = 7
-	return withWorkerActions(d, true)
+	return withLegacyNonBlankContract(withWorkerActions(d, true))
 }
 
 func implementationRefinementV8() WorkflowDefinition {
@@ -286,7 +286,7 @@ func implementationRefinementV8() WorkflowDefinition {
 	d.Version = 8
 	d.RequiredEvidenceKinds = append(d.RequiredEvidenceKinds, EvidenceArtifact)
 	d = withRefinementStep(d, "execution", "acceptance")
-	return withWorkerActions(d, true)
+	return withLegacyNonBlankContract(withWorkerActions(d, true))
 }
 
 func implementationRefinementV9() WorkflowDefinition {
@@ -306,7 +306,7 @@ func breakFixRefinementV7() WorkflowDefinition {
 		}
 	}
 	d = withRefinementStep(d, "repair", "verify")
-	return withWorkerActions(d, true)
+	return withLegacyNonBlankContract(withWorkerActions(d, true))
 }
 
 func breakFixRefinementV8() WorkflowDefinition {
@@ -337,7 +337,7 @@ func opsRunbookCleanupCheckpointV5() WorkflowDefinition {
 			break
 		}
 	}
-	return withWorkerActions(d, true)
+	return withLegacyNonBlankContract(withWorkerActions(d, true))
 }
 
 func withLegacyRecordDesign(definition WorkflowDefinition) WorkflowDefinition {
@@ -346,7 +346,7 @@ func withLegacyRecordDesign(definition WorkflowDefinition) WorkflowDefinition {
 			definition.ActionDefinitions[i].Payload = WorkflowPayloadDefinition{Closed: true, Fields: []WorkflowPayloadField{}}
 		}
 	}
-	return definition
+	return withLegacyNonBlankContract(definition)
 }
 
 func withLegacyRecordProposal(definition WorkflowDefinition) WorkflowDefinition {
@@ -355,7 +355,7 @@ func withLegacyRecordProposal(definition WorkflowDefinition) WorkflowDefinition 
 			definition.ActionDefinitions[i].Payload = WorkflowPayloadDefinition{Closed: true, Fields: []WorkflowPayloadField{}}
 		}
 	}
-	return definition
+	return withLegacyNonBlankContract(definition)
 }
 
 // withDesignDecisionItemSchema restates the record_design decisions field so it
@@ -407,7 +407,7 @@ func withoutDecisionRecordPayload(definition WorkflowDefinition) WorkflowDefinit
 func preDecisionPayloadArchitectureSpikeV4() WorkflowDefinition {
 	d := builtinArchitectureSpike(true)
 	d.Version = 4
-	return withoutDecisionRecordPayload(withWorkerActions(d, true))
+	return withLegacyNonBlankContract(withoutDecisionRecordPayload(withWorkerActions(d, true)))
 }
 
 // withOptionalConditionCancellation restores cancel_condition's all-optional
@@ -470,6 +470,48 @@ func withLegacyPremiseContract(definition WorkflowDefinition) WorkflowDefinition
 				field.Required = false
 				field.NonBlank = false
 				field.Forbidden = nil
+			}
+		}
+	}
+	return withLegacyNonBlankContract(definition)
+}
+
+func withLegacyNonBlankContract(definition WorkflowDefinition) WorkflowDefinition {
+	definition = cloneWorkflowDefinition(definition)
+	for i := range definition.ActionDefinitions {
+		for j := range definition.ActionDefinitions[i].Payload.Fields {
+			field := &definition.ActionDefinitions[i].Payload.Fields[j]
+			if field.ValueType == PayloadString && len(field.Enum) == 0 && field.Name != "premise" {
+				field.NonBlank = false
+			}
+		}
+		if definition.ActionDefinitions[i].PublicPayload != nil {
+			for j := range definition.ActionDefinitions[i].PublicPayload.Fields {
+				field := &definition.ActionDefinitions[i].PublicPayload.Fields[j]
+				if field.ValueType == PayloadString && len(field.Enum) == 0 && field.Name != "premise" {
+					field.NonBlank = false
+				}
+			}
+		}
+	}
+	return definition
+}
+
+func withCurrentNonBlankContract(definition WorkflowDefinition) WorkflowDefinition {
+	definition = cloneWorkflowDefinition(definition)
+	for i := range definition.ActionDefinitions {
+		for j := range definition.ActionDefinitions[i].Payload.Fields {
+			field := &definition.ActionDefinitions[i].Payload.Fields[j]
+			if field.ValueType == PayloadString && len(field.Enum) == 0 {
+				field.NonBlank = true
+			}
+		}
+		if definition.ActionDefinitions[i].PublicPayload != nil {
+			for j := range definition.ActionDefinitions[i].PublicPayload.Fields {
+				field := &definition.ActionDefinitions[i].PublicPayload.Fields[j]
+				if field.ValueType == PayloadString && len(field.Enum) == 0 {
+					field.NonBlank = true
+				}
 			}
 		}
 	}

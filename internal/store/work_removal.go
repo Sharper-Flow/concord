@@ -90,6 +90,24 @@ type workRemovedPayload struct {
 	HandoffDigest   string                     `json:"handoff_digest"`
 }
 
+// MarshalWorkRemovedPayload encodes the payload for a work.removed event.
+// Keep this schema beside the fold that validates it so event producers do not
+// maintain a second, incomplete payload shape.
+func MarshalWorkRemovedPayload(req WorkRemovalRequest, handoffDigest string) ([]byte, error) {
+	return json.Marshal(workRemovedPayload{
+		OperationID:     req.OperationID,
+		IdempotencyKey:  req.IdempotencyKey,
+		WorkID:          req.WorkID,
+		ExpectedVersion: req.ExpectedVersion,
+		Reason:          req.Reason,
+		ProductID:       req.ProductID,
+		Actor:           req.Actor,
+		Linear:          req.Linear,
+		Handoff:         req.Handoff,
+		HandoffDigest:   handoffDigest,
+	})
+}
+
 func validateRemovalHandoff(h WorkRemovalHandoff) error {
 	for name, values := range map[string][]string{
 		"findings": h.Findings, "remaining scope": h.RemainingScope,

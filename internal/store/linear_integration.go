@@ -1227,8 +1227,11 @@ func enqueueLinearIssueAdoptionCore(ctx context.Context, q queryer, expectedProd
 	}
 	var linkState string
 	err = q.QueryRowContext(ctx, `SELECT link_state FROM linear_issue_links WHERE work_id=?`, workID).Scan(&linkState)
-	if err == nil && linkState == LinearLinkConfirmed {
-		return ClaimedLinearOperation{}, newFailure(KindInvalidOperation, "linear_issue_adopt_enqueue", "the work item already holds a confirmed link", false, "record updates through issue_update instead of adopting another issue")
+	if err == nil {
+		if linkState == LinearLinkConfirmed {
+			return ClaimedLinearOperation{}, newFailure(KindInvalidOperation, "linear_issue_adopt_enqueue", "the work item already holds a confirmed link", false, "record updates through issue_update instead of adopting another issue")
+		}
+		return ClaimedLinearOperation{}, newFailure(KindInvalidOperation, "linear_issue_adopt_enqueue", "the work item already holds a pending Linear link", false, "wait for the queued Linear operation to reconcile")
 	} else if err != nil && err != sql.ErrNoRows {
 		return ClaimedLinearOperation{}, wrapFailure(KindUnavailable, "linear_issue_adopt_enqueue", "cannot read link", true, "retry once the database is readable", err)
 	}

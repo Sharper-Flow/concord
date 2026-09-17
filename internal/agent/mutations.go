@@ -2275,14 +2275,14 @@ func (r runtime) planWorkRemoval(ctx context.Context, base Envelope, raw []byte,
 	plan.scope["work_ids"] = []string{in.WorkID}
 	plan.scope["product_ids"] = nonEmpty(product)
 	plan.versions["work"] = in.ExpectedVersion
-	plan.intents = []NextIntent{{Tool: "concord_work_trace", Operation: "history", QueryID: "PM1.Q3", ReasonCode: "audit_removed_work"}}
+	plan.intents = []NextIntent{{Tool: "concord_work_trace", Operation: "history", QueryID: "PM1.Q7", ReasonCode: "audit_removed_work"}}
 	plan.effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
 		removalRequest.Actor = grant.PrincipalRef
 		prepared, err := store.PrepareWorkRemovalTx(ctx, tx, removalRequest)
 		if err != nil {
 			return nil, nil, nil, err
 		}
-		payload, err := json.Marshal(map[string]any{"operation_id": in.OperationID, "idempotency_key": in.IdempotencyKey, "work_id": in.WorkID, "expected_version": in.ExpectedVersion, "reason": in.Reason, "actor": grant.PrincipalRef, "product_id": product, "handoff": in.Handoff, "handoff_digest": prepared.HandoffDigest})
+		payload, err := store.MarshalWorkRemovedPayload(removalRequest, prepared.HandoffDigest)
 		if err != nil {
 			return nil, nil, nil, err
 		}

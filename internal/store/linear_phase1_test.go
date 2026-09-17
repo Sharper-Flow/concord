@@ -738,3 +738,64 @@ func TestHasNewerLinearIssueUpdateUsesEnqueueOrderOnEqualTimestamps(t *testing.T
 		t.Fatal("last-enqueued operation with equal created_at must not report a newer update")
 	}
 }
+
+// CON-109 reported that Linear sync refused every terminal lifecycle because
+// cancelled and superseded carried no declared status id. The write path now
+// requires every lifecycle, so the symptom is gone. The coverage that would
+// have caught it is not: the refusal above exercises one lifecycle, and a
+// resolver that dropped the terminal states again would pass the suite. This
+// drives the resolver over the lifecycle set itself, so adding a lifecycle
+// without mapping it fails here rather than at an operator's drain.
+func TestLinearLifecycleStatusIDResolvesEveryPersistableLifecycle(t *testing.T) {
+	t.Parallel()
+
+	statusIDs := make(map[string]string, len(lifecycleStates))
+	for lifecycle := range lifecycleStates {
+		statusIDs[lifecycle] = "state-" + lifecycle
+	}
+	connection := LinearConnection{State: LinearConnectionDeclared, StatusIDs: statusIDs}
+
+	for lifecycle := range lifecycleStates {
+		resolved, err := linearLifecycleStatusID(connection, lifecycle)
+		if err != nil {
+			t.Fatalf("lifecycle %s: error = %v, want its declared status id", lifecycle, err)
+		}
+		if resolved != "state-"+lifecycle {
+			t.Fatalf("lifecycle %s resolved to %q, want %q", lifecycle, resolved, "state-"+lifecycle)
+		}
+	}
+
+	// Every terminal lifecycle travels this path when work closes, and the
+	// report named them as the states that refused.
+	for _, lifecycle := range terminalLifecycles {
+		if !lifecycleStates[lifecycle] {
+			t.Fatalf("terminal lifecycle %s is not persistable, so no status id can map it", lifecycle)
+		}
+	}
+}
+
+// A mapping that omits one lifecycle must name that lifecycle. An operator
+// reading "no declared Linear status id" without the name cannot tell which of
+// five entries to declare.
+func TestLinearLifecycleStatusIDNamesTheUnmappedLifecycle(t *testing.T) {
+	t.Parallel()
+
+	for missing := range lifecycleStates {
+		statusIDs := make(map[string]string, len(lifecycleStates))
+		for lifecycle := range lifecycleStates {
+			if lifecycle == missing {
+				continue
+			}
+			statusIDs[lifecycle] = "state-" + lifecycle
+		}
+		connection := LinearConnection{State: LinearConnectionDeclared, StatusIDs: statusIDs}
+
+		resolved, err := linearLifecycleStatusID(connection, missing)
+		if err == nil {
+			t.Fatalf("lifecycle %s resolved to %q against a mapping that omits it", missing, resolved)
+		}
+		if !strings.Contains(err.Error(), "no declared Linear status id for lifecycle "+missing) {
+			t.Fatalf("lifecycle %s refusal = %v, want the lifecycle named", missing, err)
+		}
+	}
+}

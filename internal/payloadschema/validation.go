@@ -160,42 +160,8 @@ func validateSchemaValueWithEvaluated(value any, schema map[string]any, root map
 		if !ok {
 			continue
 		}
-		matches := 0
-		branchFailures := make([]error, 0)
-		matchedEvaluated := map[string]bool{}
-		for _, raw := range branches {
-			branch, ok := raw.(map[string]any)
-			if !ok {
-				continue
-			}
-			branchEvaluated, err := validateSchemaValueWithEvaluated(value, branch, root, path)
-			if err == nil {
-				matches++
-				for key := range branchEvaluated {
-					matchedEvaluated[key] = true
-				}
-			} else {
-				branchFailures = append(branchFailures, err)
-			}
-		}
-		if keyword == "allOf" && matches != len(branches) || keyword == "anyOf" && matches < 1 || keyword == "oneOf" && matches != 1 {
-			if keyword == "oneOf" {
-				return nil, fmt.Errorf("oneOf mismatch at %s: expected exactly one accepted variant {%s}", path, strings.Join(schemaVariantDescriptions(branches, root), "; "))
-			}
-			// allOf requires every branch, so the first branch failure is the
-			// whole reason. Returning it unwrapped keeps the offending field at
-			// the front of the message, where a schema factored through $defs
-			// would otherwise stack one identical frame per composition level.
-			if keyword == "allOf" && len(branchFailures) > 0 {
-				return nil, branchFailures[0]
-			}
-			if len(branchFailures) > 0 {
-				return nil, fmt.Errorf("%s mismatch at %s: %s", keyword, path, strings.Join(errorStrings(branchFailures), "; "))
-			}
-			return nil, fmt.Errorf("%s mismatch at %s", keyword, path)
-		}
-		for key := range matchedEvaluated {
-			evaluated[key] = true
+		if err := validateCombinatorBranches(value, keyword, branches, root, path, evaluated); err != nil {
+			return nil, err
 		}
 	}
 	if condition, ok := schema["if"].(map[string]any); ok {
@@ -238,6 +204,61 @@ func validateSchemaValueWithEvaluated(value any, schema map[string]any, root map
 		}
 	}
 	return evaluated, nil
+}
+
+// validateCombinatorBranches enforces one allOf, anyOf, or oneOf keyword and
+// folds the properties its matching branches evaluated into the caller's set.
+func validateCombinatorBranches(value any, keyword string, branches []any, root map[string]any, path string, evaluated map[string]bool) error {
+	matches := 0
+	branchFailures := make([]error, 0)
+	matchedEvaluated := map[string]bool{}
+	for _, raw := range branches {
+		branch, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+		branchEvaluated, err := validateSchemaValueWithEvaluated(value, branch, root, path)
+		if err == nil {
+			matches++
+			for key := range branchEvaluated {
+				matchedEvaluated[key] = true
+			}
+		} else {
+			branchFailures = append(branchFailures, err)
+		}
+	}
+	if !combinatorSatisfied(keyword, matches, branches) {
+		if keyword == "oneOf" {
+			return fmt.Errorf("oneOf mismatch at %s: expected exactly one accepted variant {%s}", path, strings.Join(schemaVariantDescriptions(branches, root), "; "))
+		}
+		// allOf requires every branch, so the first branch failure is the
+		// whole reason. Returning it unwrapped keeps the offending field at
+		// the front of the message, where a schema factored through $defs
+		// would otherwise stack one identical frame per composition level.
+		if keyword == "allOf" && len(branchFailures) > 0 {
+			return branchFailures[0]
+		}
+		if len(branchFailures) > 0 {
+			return fmt.Errorf("%s mismatch at %s: %s", keyword, path, strings.Join(errorStrings(branchFailures), "; "))
+		}
+		return fmt.Errorf("%s mismatch at %s", keyword, path)
+	}
+	for key := range matchedEvaluated {
+		evaluated[key] = true
+	}
+	return nil
+}
+
+func combinatorSatisfied(keyword string, matches int, branches []any) bool {
+	switch keyword {
+	case "allOf":
+		return matches == len(branches)
+	case "anyOf":
+		return matches >= 1
+	case "oneOf":
+		return matches == 1
+	}
+	return true
 }
 
 func validateValueKeywords(value any, schema map[string]any, path string) error {

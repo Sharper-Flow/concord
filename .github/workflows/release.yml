@@ -165,13 +165,49 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git tag --annotate "$VERSION" "${{ github.event.workflow_run.head_sha }}" --message "Release $VERSION"
-          git push origin "$VERSION"
+          if git rev-parse --verify --quiet "refs/tags/$VERSION" >/dev/null; then
+            tagged="$(git rev-parse "$VERSION^{commit}")"
+            if [ "$tagged" != "${{ github.event.workflow_run.head_sha }}" ]; then
+              echo "::error::tag $VERSION exists at $tagged but this run is for ${{ github.event.workflow_run.head_sha }}"
+              exit 1
+            fi
+            echo "tag $VERSION already points at $tagged; nothing to push"
+          else
+            git tag --annotate "$VERSION" "${{ github.event.workflow_run.head_sha }}" --message "Release $VERSION"
+            git push origin "$VERSION"
+          fi
+      - name: Reconcile an existing release for this version
+        id: existing
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPOSITORY: ${{ github.repository }}
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          # A publish that fails partway leaves a draft holding some of the
+          # assets. A draft is not addressable by tag, so the publish step
+          # cannot find that draft and adds a second one on every retry, which
+          # is how v8.28.0, v8.28.5, v9.0.0 and v9.0.1 accumulated. Delete the
+          # partial draft here, and report a release that already published so
+          # the publish step stays a no-op when a completed release is rerun.
+          for id in $(gh api --paginate "repos/$REPOSITORY/releases" \
+            --jq '.[] | select(.draft and .tag_name == env.VERSION) | .id'); do
+            echo "Deleting partial draft release $id for $VERSION."
+            gh api --method DELETE "repos/$REPOSITORY/releases/$id"
+          done
+          published="$(gh api --paginate "repos/$REPOSITORY/releases" \
+            --jq '.[] | select((.draft | not) and .tag_name == env.VERSION) | .id' | wc -l | tr -d ' ')"
+          echo "published=$published" >> "$GITHUB_OUTPUT"
       - name: Publish GitHub Release
+        if: steps.existing.outputs.published == '0'
         uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           tag_name: ${{ steps.release.outputs.version }}
           name: Concord ${{ steps.release.outputs.version }}
           body_path: release/upload/CHANGELOG.md
+          # Six assets uploaded concurrently is what the GitHub asset API failed
+          # on across four runs, with "Error saving asset", "Error creating
+          # asset temp dir" and "Error uploading". Sequential uploads remove
+          # that concurrency.
+          preserve_order: true
           files: release/upload/*

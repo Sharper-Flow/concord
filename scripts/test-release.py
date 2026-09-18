@@ -437,6 +437,12 @@ class ReleaseTests(unittest.TestCase):
         self.assertIn("install.ADAPTER_FILES", workflow)
         self.assertIn("omits files the installer requires", workflow)
 
+    def test_release_workflow_tag_step_tolerates_an_existing_tag_at_head(self) -> None:
+        """A retried publish must not fail because the tag already exists."""
+        workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
+        self.assertIn('git rev-parse --verify --quiet "refs/tags/$VERSION"', workflow)
+        self.assertIn("already points at", workflow)
+
     def test_workflow_validator_rejects_missing_input(self) -> None:
         workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
         mutated = replace_once(workflow, "          fetch-depth: 0\n", "")
@@ -502,6 +508,65 @@ class ReleaseTests(unittest.TestCase):
         result = release.compute(self.repo)
         self.assertEqual(result["base_tag"], "v1.2.3")
         self.assertEqual(result["version"], "v1.3.0")
+
+    def annotate(self, tag: str) -> None:
+        self.git("tag", "--annotate", tag, "--message", f"Release {tag}")
+
+    def test_rerun_with_release_tag_at_head_reenters_the_release(self) -> None:
+        """A retried publish re-emits the tagged release instead of refusing.
+
+        Once the annotated release tag is pushed, a rerun finds no commits
+        since it. The computation must re-emit that tag as the release, with
+        its changelog against the boundary it was first computed from, so the
+        asset upload can converge.
+        """
+        self.commit("fix: first released fix")
+        self.annotate("v0.0.1")
+
+        result = release.compute(self.repo)
+
+        self.assertTrue(result["release"])
+        self.assertEqual(result["version"], "v0.0.1")
+        self.assertEqual(result["tag"], "v0.0.1")
+        self.assertIsNone(result["base_tag"])
+        self.assertEqual(result["commit_boundary"], "constitutional-bootstrap")
+        self.assertIn("fix: first released fix", result["changelog"])
+
+    def test_rerun_between_releases_uses_the_previous_release_boundary(self) -> None:
+        self.commit("fix: first released fix")
+        self.annotate("v0.0.1")
+        self.commit("feat: follow-up feature")
+        self.annotate("v0.1.0")
+
+        result = release.compute(self.repo)
+
+        self.assertTrue(result["release"])
+        self.assertEqual(result["version"], "v0.1.0")
+        self.assertEqual(result["base_tag"], "v0.0.1")
+        self.assertIsNone(result["bump"])
+        self.assertIn("feat: follow-up feature", result["changelog"])
+        self.assertNotIn("fix: first released fix", result["changelog"])
+
+    def test_releasable_commits_after_the_tag_still_bump_normally(self) -> None:
+        self.commit("fix: first released fix")
+        self.annotate("v0.0.1")
+        self.commit("fix: follow-up fix")
+
+        result = release.compute(self.repo)
+
+        self.assertTrue(result["release"])
+        self.assertEqual(result["version"], "v0.0.2")
+        self.assertEqual(result["bump"], "patch")
+
+    def test_nonconventional_commits_after_the_tag_have_no_release(self) -> None:
+        self.commit("fix: first released fix")
+        self.annotate("v0.0.1")
+        self.commit("docs: explain the release")
+
+        result = release.compute(self.repo)
+
+        self.assertFalse(result["release"])
+        self.assertIsNone(result["version"])
 
 
 if __name__ == "__main__":

@@ -3379,24 +3379,22 @@ def project_link_record(
     linked: str,
     changed: bool,
     scope: str,
-    conduct_entry: str,
     previous: dict[str, object] | None = None,
 ) -> dict[str, object]:
     """Describe how uninstall must handle one project config."""
     expected = {"exists": True, "sha256": hashlib.sha256(linked.encode("utf-8")).hexdigest()}
     if previous and previous.get("action") in {"remove", "restore"}:
         previous_expected = previous.get("expected")
-        if (
-            not isinstance(previous_expected, dict)
-            or not ownership_state_matches(project_file, previous_expected, conduct_entry)
-        ):
-            raise InstallerError(f"refusing to adopt user-modified project OpenCode config {project_file}")
+        if not isinstance(previous_expected, dict):
+            raise InstallerError(f"refusing malformed project link ownership record for {project_file}")
         # Keep the adopted record's expected bytes instead of rehashing the
         # current text: they are the bytes this installer wrote, so the
         # uninstall restore shortcut's byte match still proves the file
         # carries nothing beyond the managed edit. Refreshing the digest here
         # would absorb host keys into "expected" and the uninstall's
-        # whole-file restore would then delete them.
+        # whole-file restore would then delete them. A config that lost the
+        # managed entry is replanned by the caller's planning pass; the
+        # recorded base kept here still governs what uninstall restores.
         action = previous["action"]
         record: dict[str, object] = {"action": action, "scope": scope, "expected": previous_expected}
         if action == "restore":
@@ -3474,9 +3472,8 @@ def plan_worktree_links(paths: Paths) -> list[tuple[Path, str, bool]]:
         project_file = project_opencode_json(worktree)
         previous = ownership.get(str(project_file.resolve(strict=False)))
         if previous and previous.get("action") in {"remove", "restore"}:
-            expected = previous.get("expected")
-            if not isinstance(expected, dict) or not ownership_state_matches(project_file, expected, entry):
-                raise InstallerError(f"refusing to adopt user-modified project OpenCode config {project_file}")
+            if not isinstance(previous.get("expected"), dict):
+                raise InstallerError(f"refusing malformed project link ownership record for {project_file}")
         new_text, changed = plan_project_link(project_file, entry)
         planned.append((project_file, new_text, changed))
     return planned
@@ -3575,7 +3572,7 @@ def sync_worktree_links(paths: Paths, remove: bool = False) -> bool:
         key = str(project_file.resolve(strict=False))
         seen.add(key)
         original = project_file.read_text(encoding="utf-8") if project_file.exists() else None
-        links[key] = project_link_record(project_file, original, new_text, planned, "worktree", entry, links.get(key))
+        links[key] = project_link_record(project_file, original, new_text, planned, "worktree", links.get(key))
         if planned:
             pending[key] = {
                 "scope": "worktree",
@@ -3656,7 +3653,6 @@ def link(args: argparse.Namespace) -> int:
         new_text,
         changed,
         "project",
-        conduct_entry,
         ownership.get(str(project_file.resolve(strict=False))),
     )
     if not changed:

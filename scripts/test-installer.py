@@ -772,7 +772,7 @@ esac''',
         self.assertEqual(json.loads((first / ".opencode" / "opencode.json").read_text(encoding="utf-8")), expected)
         self.assertEqual(json.loads((second / ".opencode" / "opencode.json").read_text(encoding="utf-8")), expected)
 
-    def test_repair_refuses_a_worktree_config_that_lost_the_conduct_entry(self) -> None:
+    def test_repair_replans_a_worktree_config_that_lost_the_conduct_entry(self) -> None:
         self.make_release("v1.0.0")
         worktree = self.root / "data" / "concord" / "worktrees" / "project" / "work"
         config = worktree / ".opencode" / "opencode.json"
@@ -780,14 +780,30 @@ esac''',
         config.write_text('{"keep": true}\n', encoding="utf-8")
         installed = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
         self.assertEqual(installed.returncode, 0, installed.stderr)
+        linked = config.read_text(encoding="utf-8")
         config.write_text('{"keep": false}\n', encoding="utf-8")
 
         repaired = self.run_installer("repair", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
 
-        self.assertNotEqual(repaired.returncode, 0)
-        self.assertIn("user-modified", repaired.stderr)
-        self.assertEqual(config.read_text(encoding="utf-8"), '{"keep": false}\n')
+        self.assertEqual(repaired.returncode, 0, repaired.stderr)
+        replanned = json.loads(config.read_text(encoding="utf-8"))
+        self.assertEqual(replanned["keep"], False)
+        self.assertIn(str(self.root / "data" / "concord" / "current" / "instructions" / "*.md"), replanned["instructions"])
+        # The record keeps the bytes it owned before the host drifted, so
+        # uninstall still reasons from what this installer wrote.
+        ownership = json.loads((self.root / "data" / "concord" / installer.PROJECT_LINK_OWNERSHIP_NAME).read_text(encoding="utf-8"))
+        record = ownership["links"][str(config.resolve())]
+        self.assertEqual(record["action"], "restore")
+        self.assertEqual(record["original"], '{"keep": true}\n')
+        self.assertEqual(record["expected"], {"exists": True, "sha256": hashlib.sha256(linked.encode("utf-8")).hexdigest()})
         self.assertTrue((self.root / "data" / "concord" / "current").is_symlink())
+
+        # Uninstall stays surgical: the drifted host keys survive and only
+        # the managed entry leaves.
+        removed = self.run_installer("uninstall")
+
+        self.assertEqual(removed.returncode, 0, removed.stderr)
+        self.assertEqual(json.loads(config.read_text(encoding="utf-8")), {"keep": False})
 
     def test_install_accepts_a_neutral_worktree_config_key(self) -> None:
         self.make_release("v1.0.0")

@@ -24,8 +24,13 @@ caller-supplied branch or path.
 
 ### D2. Active native identity is unique
 
-The store permits at most one pending or verified claim for each pinned path
-and each pinned branch. Reclaimed historical claims do not occupy either slot.
+The pinned path is globally unique: the store permits at most one pending or
+verified claim for each pinned path, so one repository cannot stand behind two
+Projects. The pinned branch is unique per repository: a branch is native state
+of one repository, and one work item claiming worktrees in two Projects derives
+the same branch name in each repository, so the store permits at most one
+pending or verified claim for each repository and branch pair. Reclaimed
+historical claims occupy neither slot.
 
 ## Acceptance Criteria
 
@@ -38,9 +43,19 @@ Scenario: A claim derives its native identity
   And caller input cannot replace either value
 
 Scenario: Active native identity is unique
-  Given an active claim for a branch or path
-  When another claim names the same derived branch or path
+  Given an active claim for a pinned path
+  When another claim names the same derived path
   Then the store refuses the second active claim
+
+Scenario: Active branch identity is unique within one repository
+  Given an active claim for a branch in a repository
+  When another claim names the same derived branch in the same repository
+  Then the store refuses the second active claim
+
+Scenario: Two repositories may hold the same derived branch
+  Given an active claim for a branch in one repository
+  When another claim names the same derived branch in another repository
+  Then the store admits the second claim
 ```
 
 ## Verification

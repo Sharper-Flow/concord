@@ -574,3 +574,42 @@ test("the default transport is the adapter transport, and its refusals stay type
   expect(built.failure!.kind).toBe("transport_failure")
   expect(built.failure!.message).toContain("concord_work_browse.scope")
 })
+
+// The persisted work task is the operator's recorded instruction for the
+// worker. The scope read carries it on the work summary, and the packet must
+// project it: the read-only question prefers it over the bare title, and the
+// context carries it ahead of the narrative so a contract-mandated worker
+// receives the concrete instructions, not only the approved premise.
+const PERSISTED_TASK = "Reproduce the refusal, extract the combinator loop, and keep the complexity budget green."
+
+test("the context carries the persisted work task ahead of the narrative", async () => {
+  const withTask = coreEnvelope("concord_work_browse", "scope", "PM1.Q6", "ok", {
+    result: {
+      work: { id: WORK_ID, kind: "task", title: "Project dispatch inputs from durable state", lifecycle: "in_progress", version: 1, priority: 0, project_ids: [PRODUCT_ID], ready: true, narrative: NARRATIVE, task: PERSISTED_TASK, terminal_at: null },
+      memberships: [{ project_id: PRODUCT_ID, role: "primary" }],
+      items: [],
+    },
+  })
+  const built = await build({ ...defaultScript(), "concord_work_browse.scope": withTask })
+  expect(built.failure, JSON.stringify(built.failure)).toBeUndefined()
+  const packet = built.packet!
+  expect(packet.inputs.context).toContain(PERSISTED_TASK)
+  expect(packet.inputs.context.indexOf(PERSISTED_TASK)).toBeLessThan(packet.inputs.context.indexOf(NARRATIVE))
+})
+
+test("a read-only lane prefers the persisted work task as the recorded question", async () => {
+  const withTask = coreEnvelope("concord_work_browse", "scope", "PM1.Q6", "ok", {
+    result: {
+      work: { id: WORK_ID, kind: "task", title: "Project dispatch inputs from durable state", lifecycle: "in_progress", version: 1, priority: 0, project_ids: [PRODUCT_ID], ready: true, narrative: NARRATIVE, task: PERSISTED_TASK, terminal_at: null },
+      memberships: [{ project_id: PRODUCT_ID, role: "primary" }],
+      items: [],
+    },
+  })
+  const built = await build(
+    { "concord_work_browse.scope": withTask, "concord_work_trace.continuity": continuityEnvelope(null) },
+    { laneId: "research", stepId: "investigate" },
+  )
+  expect(built.failure, JSON.stringify(built.failure)).toBeUndefined()
+  const packet = built.packet!
+  expect(packet.inputs.task).toContain(PERSISTED_TASK)
+})

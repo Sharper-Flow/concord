@@ -7,6 +7,7 @@ import { contractOperations, hostToolSchemas, manifestDigest, payloadSchemas } f
 import { configureCoreBinary } from "./dispatch"
 import { dispatchWindows, TASK_TOOL_ID } from "./dispatch-window"
 import { claimHostLease, configureHostLease } from "./host-lease"
+import { armedClaimedWorktree, clearClaimedWorktree } from "./claimed-worktree"
 import { validateGeneratedEnvelope, envelopeFailurePath } from "./generated-contract-tests"
 import { hostControlPlane, SESSION_LIST_ROUTE, SESSION_ROUTE, SHOW_TOAST_ROUTE } from "./move-session"
 
@@ -1322,6 +1323,37 @@ test("work start moves the calling session into the claimed worktree", async () 
   expect(JSON.parse(calls[2].input)).toEqual({ product_id: "product-1", work_id: "work-1", task: bootstrapArgs.task, agent: "agent-1" })
   // No launch: the adapter never spawns a host session for the work.
   expect(calls.some(({ argv }) => argv[1] === "session-exec" || argv[0] === "opencode")).toBe(false)
+})
+
+// The confirmed landing arms the session's active claimed worktree, so a later
+// dispatch compares the host's answer against a record the host does not own.
+test("work start arms the claimed worktree after the confirmed landing", async () => {
+  try {
+    bindRetargetRoute()
+    const calls: RetargetCall[] = []
+    adapter.configureConcordAdapter({ runner: retargetRunner(calls) })
+    const result: any = await rawHostResult(adapter.work_start.execute(bootstrapArgs, contextFor()))
+    expect(result.outcome).toBe("ok")
+    expect(armedClaimedWorktree("session-1")).toBe(WORKTREE)
+  } finally {
+    clearClaimedWorktree("session-1")
+  }
+})
+
+// A refused move never landed, so nothing may be armed: the dispatch check
+// must stay exactly as it was for this session.
+test("work start arms nothing when the landing mismatch refuses", async () => {
+  try {
+    bindRetargetRoute({ landedDirectory: "/elsewhere" })
+    const calls: RetargetCall[] = []
+    adapter.configureConcordAdapter({ runner: retargetRunner(calls) })
+    const result: any = await rawHostResult(adapter.work_start.execute(bootstrapArgs, contextFor()))
+    expect(result.outcome).toBe("error")
+    expect(result.error.kind).toBe("session_directory_mismatch")
+    expect(armedClaimedWorktree("session-1")).toBeNull()
+  } finally {
+    clearClaimedWorktree("session-1")
+  }
 })
 
 // A core that answers session-prepare with any agent other than the one this

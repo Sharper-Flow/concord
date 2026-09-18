@@ -2,6 +2,7 @@ import { afterAll, afterEach, describe, expect, test } from "bun:test"
 import ConcordAdapterPlugin from "./concord-plugin"
 import { configureHostLease } from "./host-lease"
 import { moveSessionToRegisteredMainCheckout } from "./concord"
+import { armedClaimedWorktree, armClaimedWorktree, clearClaimedWorktree } from "./claimed-worktree"
 import { HostControlPlane, SESSION_LIST_ROUTE } from "./move-session"
 
 const context = () => ({
@@ -69,6 +70,25 @@ describe("session_vacate moves only to the core-derived checkout", () => {
     const envelope = await moveSessionToRegisteredMainCheckout(args({ idempotency_key: "vacate-3" }), context(), okEnvelope())
     expect(envelope.outcome).toBe("error")
     if (envelope.outcome === "error") expect((envelope.error as { adapter_reason?: string }).adapter_reason).toBe("vacate_destination_mismatch")
+  })
+
+  // The confirmed vacate landing drops the armed claim, so a later dispatch
+  // from the main checkout runs the no-claim path exactly as before.
+  test("clears the armed claimed worktree once the vacate landing is confirmed", async () => {
+    let moved = ""
+    await fakeHost((body) => {
+      moved = body.destination.directory
+      return { status: 204, body: null }
+    }, () => ({ status: 200, body: { directory: "/main" } }))
+    try {
+      armClaimedWorktree("session-1", "/worktree")
+      const envelope = await moveSessionToRegisteredMainCheckout(args({ idempotency_key: "vacate-armed" }), context(), okEnvelope())
+      expect(envelope.outcome).toBe("ok")
+      expect(moved).toBe("/main")
+      expect(armedClaimedWorktree("session-1")).toBeNull()
+    } finally {
+      clearClaimedWorktree("session-1")
+    }
   })
 })
 

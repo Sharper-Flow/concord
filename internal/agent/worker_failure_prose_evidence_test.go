@@ -68,10 +68,10 @@ func TestRecordWorkerFailureAdmitsProseEvidenceLocators(t *testing.T) {
 		t.Fatal(err)
 	}
 	record := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: retryJSON(map[string]any{
-		"work_id":         "work-1",
+		"work_id":          "work-1",
 		"expected_version": failureVersion,
-		"action_id":       "record_worker_failure",
-		"fields":          map[string]any{"attempt_id": attemptID, "attempt_epoch": 1},
+		"action_id":        "record_worker_failure",
+		"fields":           map[string]any{"attempt_id": attemptID, "attempt_epoch": 1},
 		"evidence": []map[string]string{
 			{"kind": "durable_note", "locator": "lane report refused at closed agent-lane-report.v1 schema: readback_model carried two slashes where the pattern admits one", "locator_kind": "chat_transcript", "authority": "adapter gate"},
 			{"kind": "durable_note", "locator": "git:873d3af04", "locator_kind": "git_commit", "authority": "git"},

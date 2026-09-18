@@ -446,7 +446,7 @@
         "immutable_subject_ref": {
           "type": "string",
           "minLength": 1,
-          "maxLength": 256
+          "maxLength": 2048
         }
       }
     },

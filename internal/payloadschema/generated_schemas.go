@@ -5986,7 +5986,7 @@ const GeneratedPayloadSchemaDocument = `{
           "type": "string"
         },
         "immutable_subject_ref": {
-          "maxLength": 256,
+          "maxLength": 2048,
           "minLength": 1,
           "type": "string"
         }

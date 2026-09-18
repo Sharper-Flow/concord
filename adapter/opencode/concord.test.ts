@@ -2012,6 +2012,26 @@ test("a session without a host lease refuses every core operation", async () => 
   configureHostLease({ reset: true })
 })
 
+// A breaking-migration outage names the terminal behind each blocking pid, so
+// the lease claim carries the session's directory and worktree alongside it.
+test("the host lease claim names the session directory and worktree", async () => {
+  const claimed: any[] = []
+  configureHostLease({
+    release: { coreBinary: "concord", releaseRoot: "/releases/v11.0.0" },
+    runner: { async run(argv: string[], input: string) {
+      claimed.push({ argv, input: JSON.parse(input) })
+      return { exitCode: 0, stdout: JSON.stringify({ pid: 4242, pid_start: 1, release_root: "/releases/v11.0.0", core_binary: "concord", schema_version: 93, manifest_digest: manifestDigest, directory: "/home/operator/card-site", worktree: "/wt" }), stderr: "" }
+    } },
+  })
+  await claimHostLease(4242, { directory: "/home/operator/card-site", worktree: "/wt" })
+  expect(claimed).toHaveLength(1)
+  expect(claimed[0].argv[1]).toBe("host-lease")
+  expect(claimed[0].input.pid).toBe(4242)
+  expect(claimed[0].input.directory).toBe("/home/operator/card-site")
+  expect(claimed[0].input.worktree).toBe("/wt")
+  configureHostLease({ reset: true })
+})
+
 test("the host-owned tool description publishes the native dispatch route", () => {
   const description = (adapter.work_transition as any).description
   expect(description).toContain("operation workflow_action")

@@ -2,10 +2,12 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/sharper-flow/concord/internal/agent"
@@ -42,7 +44,9 @@ func selfRelease() (root string, binary string, err error) {
 
 func runHostLeaseCommand(args []string, in io.Reader, out, errOut io.Writer) int {
 	var request struct {
-		PID int `json:"pid"`
+		PID       int    `json:"pid"`
+		Directory string `json:"directory"`
+		Worktree  string `json:"worktree"`
 	}
 	if code := decodeReleaseInput(args, in, out, errOut, "host-lease", &request); code != 0 {
 		return code
@@ -50,6 +54,14 @@ func runHostLeaseCommand(args []string, in io.Reader, out, errOut io.Writer) int
 	if request.PID <= 0 {
 		writeOperatorDiagnostic(errOut, "host-lease", "pid must be a positive integer")
 		return 1
+	}
+	// The session location is advisory identity, not authority input: it is
+	// bounded and never interpreted, only named back by a refusal.
+	for name, value := range map[string]string{"directory": request.Directory, "worktree": request.Worktree} {
+		if len(value) > 4096 {
+			writeOperatorDiagnostic(errOut, "host-lease", name+" must not exceed 4096 characters")
+			return 1
+		}
 	}
 	start, err := hostlease.ProcessStart(request.PID)
 	if err != nil {
@@ -74,6 +86,8 @@ func runHostLeaseCommand(args []string, in io.Reader, out, errOut io.Writer) int
 		SchemaVersion:  store.CurrentSchemaVersion(),
 		ManifestDigest: agent.ManifestDigest,
 		RecordedAt:     nowUTC(),
+		Directory:      request.Directory,
+		Worktree:       request.Worktree,
 	}
 	if err := hostlease.Write(dataRoot, lease); err != nil {
 		writeOperatorDiagnostic(errOut, "host-lease", err.Error())
@@ -103,6 +117,52 @@ func runHostLeasesCommand(args []string, in io.Reader, out, errOut io.Writer) in
 	return writeJSON(out, map[string]any{"leases": live}, errOut)
 }
 
+// openStoreForCommand opens the store for a command route. When open stops
+// before a pending breaking migration, the refusal is turned actionable: it
+// names every live session holding an older schema, with its directory, so
+// the operator ends the right terminals instead of correlating pids by hand.
+func openStoreForCommand(ctx context.Context, path string) (*store.Store, error) {
+	s, err := store.Open(ctx, path)
+	if err == nil {
+		return s, nil
+	}
+	dataRoot, rootErr := leaseDataRoot()
+	if rootErr != nil {
+		return nil, err
+	}
+	live, listErr := hostlease.List(dataRoot)
+	if listErr != nil {
+		return nil, err
+	}
+	return nil, actionableUpgradeRefusal(err, live, store.CurrentSchemaVersion())
+}
+
+// actionableUpgradeRefusal appends the older-holding sessions to an
+// upgrade-required refusal. Every other error, and an upgrade-required
+// refusal with no older holder observable, passes through unchanged.
+func actionableUpgradeRefusal(err error, leases []hostlease.Lease, current int) error {
+	var failure *store.Failure
+	if !errors.As(err, &failure) || failure.Kind != store.KindUpgradeRequired {
+		return err
+	}
+	var older []string
+	for _, lease := range leases {
+		if lease.SchemaVersion >= current {
+			continue
+		}
+		holder := fmt.Sprintf("pid %d holds %s at schema version %d", lease.PID, lease.ReleaseRoot, lease.SchemaVersion)
+		if lease.Directory != "" {
+			holder += ", directory " + lease.Directory
+		}
+		older = append(older, holder)
+	}
+	if len(older) == 0 {
+		return err
+	}
+	return fmt.Errorf("%s\nlive session(s) holding an older schema: %s\nend or move those sessions to the installed release, then run concord upgrade",
+		err.Error(), strings.Join(older, "; "))
+}
+
 func runUpgradeCommand(args []string, in io.Reader, out, errOut io.Writer) int {
 	var ignored struct{}
 	if code := decodeReleaseInput(args, in, out, errOut, "upgrade", &ignored); code != 0 {
@@ -125,7 +185,7 @@ func runUpgradeCommand(args []string, in io.Reader, out, errOut io.Writer) int {
 	}
 	held := make([]store.HeldSchema, 0, len(live))
 	for _, lease := range live {
-		held = append(held, store.HeldSchema{PID: lease.PID, ReleaseRoot: lease.ReleaseRoot, SchemaVersion: lease.SchemaVersion})
+		held = append(held, store.HeldSchema{PID: lease.PID, ReleaseRoot: lease.ReleaseRoot, SchemaVersion: lease.SchemaVersion, Directory: lease.Directory, Worktree: lease.Worktree})
 	}
 	report, err := store.Upgrade(context.Background(), path, held)
 	if err != nil {

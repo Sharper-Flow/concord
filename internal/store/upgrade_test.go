@@ -106,7 +106,7 @@ func TestUpgradeRefusesWhileALiveLeaseHoldsAnOlderSchema(t *testing.T) {
 	if err := openMigratedTo(t, path, applied).Close(); err != nil {
 		t.Fatal(err)
 	}
-	older := HeldSchema{PID: 4242, ReleaseRoot: "/releases/v1.2.3", SchemaVersion: breaking.Version - 1}
+	older := HeldSchema{PID: 4242, ReleaseRoot: "/releases/v1.2.3", SchemaVersion: breaking.Version - 1, Directory: "/home/operator/card-site"}
 	current := HeldSchema{PID: 4343, ReleaseRoot: "/releases/v2.0.0", SchemaVersion: CurrentSchemaVersion()}
 
 	_, err := Upgrade(context.Background(), path, []HeldSchema{current, older})
@@ -114,7 +114,7 @@ func TestUpgradeRefusesWhileALiveLeaseHoldsAnOlderSchema(t *testing.T) {
 	if !failureAs(err, &failure) || failure.Kind != KindUpgradeBlocked {
 		t.Fatalf("Upgrade() error = %v, want %s", err, KindUpgradeBlocked)
 	}
-	for _, want := range []string{"pid 4242", older.ReleaseRoot, strconv.Itoa(breaking.Version)} {
+	for _, want := range []string{"pid 4242", older.ReleaseRoot, strconv.Itoa(breaking.Version), older.Directory} {
 		if !strings.Contains(failure.Detail, want) {
 			t.Fatalf("refusal %q must name %q", failure.Detail, want)
 		}

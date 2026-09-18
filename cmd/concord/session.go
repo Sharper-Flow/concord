@@ -90,7 +90,7 @@ func hostSessionDirectory(ctx context.Context, workID string) (dirResult string,
 	if err != nil {
 		return "", err
 	}
-	s, err := store.Open(ctx, path)
+	s, err := openStoreForCommand(ctx, path)
 	if err != nil {
 		return "", err
 	}
@@ -186,7 +186,7 @@ func recordOrchestratorIdentity(ctx context.Context, home string, probe hostRegi
 	if err != nil {
 		return "", err
 	}
-	s, err := store.Open(ctx, path)
+	s, err := openStoreForCommand(ctx, path)
 	if err != nil {
 		return "", err
 	}
@@ -219,7 +219,7 @@ func orchestratorAssertionEventID(productID, workID string) string {
 // DeriveSessionBoot reads the canonical continuity projection and renders the
 // deterministic session boot packet shared by session transports.
 func DeriveSessionBoot(ctx context.Context, database, productID, workID string) (packet []byte, errResult error) {
-	s, err := store.Open(ctx, database)
+	s, err := openStoreForCommand(ctx, database)
 	if err != nil {
 		return nil, err
 	}

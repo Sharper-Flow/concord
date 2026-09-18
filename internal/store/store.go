@@ -143,6 +143,11 @@ type HeldSchema struct {
 	PID           int    `json:"pid"`
 	ReleaseRoot   string `json:"release_root"`
 	SchemaVersion int    `json:"schema_version"`
+	// Directory and Worktree locate the holding session so the refusal names
+	// the terminal to end, not only its pid. Both may be empty when the
+	// caller's lease predates session locations.
+	Directory string `json:"directory,omitempty"`
+	Worktree  string `json:"worktree,omitempty"`
 }
 
 // UpgradeReport states what one Upgrade call applied.
@@ -225,8 +230,12 @@ func refuseHeldOlderSchemas(pending []migration, held []HeldSchema) error {
 	for _, h := range held {
 		for _, m := range pending {
 			if h.SchemaVersion < m.Version {
-				older = append(older, fmt.Sprintf("pid %d holds %s at schema version %d, before migration %d (%s)",
-					h.PID, h.ReleaseRoot, h.SchemaVersion, m.Version, m.Name))
+				holder := fmt.Sprintf("pid %d holds %s at schema version %d, before migration %d (%s)",
+					h.PID, h.ReleaseRoot, h.SchemaVersion, m.Version, m.Name)
+				if h.Directory != "" {
+					holder += fmt.Sprintf(", directory %s", h.Directory)
+				}
+				older = append(older, holder)
 				break
 			}
 		}

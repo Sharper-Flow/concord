@@ -128,7 +128,11 @@ def schema_validate(value, schema, root, path="$"):
             count = sum(results)
             detail = f": {'; '.join(errors)}" if errors else ""
             if keyword == "allOf" and count != len(results):
-                fail(f"allOf mismatch at {path}{detail}")
+                # allOf requires every branch, so the first branch failure is
+                # the whole reason. Reporting it unwrapped keeps the offending
+                # field at the front, where a schema factored through $defs
+                # would otherwise stack one frame per composition level.
+                fail(errors[0] if errors else f"allOf mismatch at {path}")
             if keyword == "oneOf" and count != 1:
                 fail(f"oneOf mismatch at {path}{detail}")
     if "if" in schema:

@@ -14,6 +14,7 @@ import (
 	"io"
 	"reflect"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -160,7 +161,7 @@ func validateSchemaValueWithEvaluated(value any, schema map[string]any, root map
 			continue
 		}
 		matches := 0
-		failures := make([]string, 0)
+		branchFailures := make([]error, 0)
 		matchedEvaluated := map[string]bool{}
 		for _, raw := range branches {
 			branch, ok := raw.(map[string]any)
@@ -174,15 +175,22 @@ func validateSchemaValueWithEvaluated(value any, schema map[string]any, root map
 					matchedEvaluated[key] = true
 				}
 			} else {
-				failures = append(failures, err.Error())
+				branchFailures = append(branchFailures, err)
 			}
 		}
 		if keyword == "allOf" && matches != len(branches) || keyword == "anyOf" && matches < 1 || keyword == "oneOf" && matches != 1 {
 			if keyword == "oneOf" {
-				return nil, fmt.Errorf("oneOf mismatch at %s: expected exactly one accepted variant {%s}", path, strings.Join(schemaVariantDescriptions(branches), "; "))
+				return nil, fmt.Errorf("oneOf mismatch at %s: expected exactly one accepted variant {%s}", path, strings.Join(schemaVariantDescriptions(branches, root), "; "))
 			}
-			if len(failures) > 0 {
-				return nil, fmt.Errorf("%s mismatch at %s: %s", keyword, path, strings.Join(failures, "; "))
+			// allOf requires every branch, so the first branch failure is the
+			// whole reason. Returning it unwrapped keeps the offending field at
+			// the front of the message, where a schema factored through $defs
+			// would otherwise stack one identical frame per composition level.
+			if keyword == "allOf" && len(branchFailures) > 0 {
+				return nil, branchFailures[0]
+			}
+			if len(branchFailures) > 0 {
+				return nil, fmt.Errorf("%s mismatch at %s: %s", keyword, path, strings.Join(errorStrings(branchFailures), "; "))
 			}
 			return nil, fmt.Errorf("%s mismatch at %s", keyword, path)
 		}
@@ -409,7 +417,15 @@ func validateNumberKeywords(number json.Number, schema map[string]any, path stri
 	return nil
 }
 
-func schemaVariantDescriptions(branches []any) []string {
+func errorStrings(errs []error) []string {
+	messages := make([]string, 0, len(errs))
+	for _, err := range errs {
+		messages = append(messages, err.Error())
+	}
+	return messages
+}
+
+func schemaVariantDescriptions(branches []any, root map[string]any) []string {
 	descriptions := make([]string, 0, len(branches))
 	for _, raw := range branches {
 		branch, ok := raw.(map[string]any)
@@ -417,7 +433,11 @@ func schemaVariantDescriptions(branches []any) []string {
 			descriptions = append(descriptions, "schema variant")
 			continue
 		}
+		branch = resolveSchemaRef(branch, root)
 		parts := []string{}
+		if discriminator := schemaDiscriminator(branch); discriminator != "" {
+			parts = append(parts, discriminator)
+		}
 		if fields := schemaFieldList(branch["required"]); len(fields) > 0 {
 			parts = append(parts, "requires ["+strings.Join(fields, ", ")+"]")
 		} else {
@@ -429,6 +449,51 @@ func schemaVariantDescriptions(branches []any) []string {
 		descriptions = append(descriptions, strings.Join(parts, " "))
 	}
 	return descriptions
+}
+
+// resolveSchemaRef follows a "$ref" so a variant declared as a bare reference
+// into $defs describes itself by its own required fields rather than by the
+// empty reference object that names it. A ref that does not resolve leaves the
+// branch as it stands, because describing a refusal must not itself refuse.
+func resolveSchemaRef(branch map[string]any, root map[string]any) map[string]any {
+	for depth := 0; depth < 8; depth++ {
+		ref, ok := branch["$ref"].(string)
+		if !ok || !strings.HasPrefix(ref, "#/$defs/") {
+			return branch
+		}
+		defs, _ := root["$defs"].(map[string]any)
+		target, ok := defs[strings.TrimPrefix(ref, "#/$defs/")].(map[string]any)
+		if !ok {
+			return branch
+		}
+		branch = target
+	}
+	return branch
+}
+
+// schemaDiscriminator reports the constant property that tells one variant of
+// a oneOf from its siblings, so a caller reads which variant it aimed at
+// instead of counting required-field lists.
+func schemaDiscriminator(branch map[string]any) string {
+	properties, ok := branch["properties"].(map[string]any)
+	if !ok {
+		return ""
+	}
+	names := make([]string, 0, len(properties))
+	for name := range properties {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		property, ok := properties[name].(map[string]any)
+		if !ok {
+			continue
+		}
+		if constant, ok := property["const"].(string); ok {
+			return fmt.Sprintf("%s=%q", name, constant)
+		}
+	}
+	return ""
 }
 
 func schemaFieldList(raw any) []string {

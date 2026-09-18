@@ -93,7 +93,11 @@ test("the reporter refreshes the session goal title from the pin", async () => {
   })
   const reporter = createWorkStateReporter({ runner: { async run() { return { exitCode: 0, stdout: JSON.stringify([{ id: 42, is_plugin: false, tab_id: 21 }]), stderr: "" } } } })
   await reporter.report({ outcome: "ok", result: { work_pins: [{ ...pin, title: "Revised intent" }] } }, { sessionID: "session-goal", abort: new AbortController().signal })
-  expect(titles).toEqual([{ url: "/session/{id}", path: { id: "session-goal" }, body: { title: "Goal: Revised intent" }, signal: expect.any(AbortSignal) }])
+  expect(titles.length).toBe(1)
+  expect(titles[0]?.url).toBe("/session/{id}")
+  expect(titles[0]?.path).toEqual({ id: "session-goal" })
+  expect(titles[0]?.body).toEqual({ title: "Goal: Revised intent" })
+  expect(titles[0]?.signal).toBeInstanceOf(AbortSignal)
 })
 
 test("a failed session goal title write stays best effort", async () => {

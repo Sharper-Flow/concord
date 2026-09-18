@@ -166,7 +166,11 @@ type WorkerAttempt struct {
 	FailedAt            string `json:"failed_at,omitempty"`
 }
 
-var workerModelPattern = regexp.MustCompile(`^[a-z][a-z0-9_.-]*/[^/ ]+$`)
+// workerModelPattern admits a lowercase provider prefix followed by one or
+// more model path segments, because hosted model identifiers arrive as
+// provider/sub-family/model (for example commandcode/z-ai/glm-5.3-flash).
+// Whitespace and a trailing slash stay refused.
+var workerModelPattern = regexp.MustCompile(`^[a-z][a-z0-9_.-]*(/[a-zA-Z0-9][a-zA-Z0-9._-]*)+$`)
 var workerVersionPattern = regexp.MustCompile(`^[a-zA-Z0-9._-]{1,64}$`)
 
 func validateWorkerDispatchedPayload(event Event, payload WorkerDispatchedPayload) error {

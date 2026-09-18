@@ -515,7 +515,7 @@ ORDER BY d.seq DESC LIMIT 1`
 		}
 		return &WorkflowCorrectionContext{
 			Disposition: "verification", AttemptCount: attempts, AttemptLimit: workflowCorrectionAttemptLimit, Escalated: attempts > workflowCorrectionAttemptLimit,
-			PredicateIDs: nonNilStrings(fields.CorrectionPredicates), EvidenceRefs: nonNilStrings(fields.CorrectionEvidence), Diagnosis: fields.CorrectionDiagnosis, Strategy: fields.CorrectionStrategy,
+			PredicateIDs: correctionReferenceStrings(fields.CorrectionPredicates), EvidenceRefs: correctionReferenceStrings(fields.CorrectionEvidence), Diagnosis: fields.CorrectionDiagnosis, Strategy: fields.CorrectionStrategy,
 		}, nil
 	}
 	if fields.AttemptID == "" && fields.ActionID != "request_correction" {
@@ -551,10 +551,32 @@ ORDER BY d.seq DESC LIMIT 1`
 	}
 	return &WorkflowCorrectionContext{
 		Disposition: dispositionForCorrection(fields.ActionID), AttemptCount: count, AttemptLimit: workflowCorrectionAttemptLimit, Escalated: count >= workflowCorrectionAttemptLimit,
-		PredicateIDs: nonNilStrings(fields.CorrectionPredicates), EvidenceRefs: nonNilStrings(append(fields.CorrectionEvidence, fields.ResultEvidence...)),
+		PredicateIDs: correctionReferenceStrings(fields.CorrectionPredicates), EvidenceRefs: correctionReferenceStrings(append(fields.CorrectionEvidence, fields.ResultEvidence...)),
 		Diagnosis: fields.CorrectionDiagnosis, Strategy: fields.CorrectionStrategy, FailureKind: failureKind, FailureDetail: failureDetail,
 		FailedAttemptID: fields.AttemptID, FailedAttemptEpoch: fields.AttemptEpoch,
 	}, nil
+}
+
+// correctionReferenceStrings keeps only the entries a work pin correction may
+// carry. Evidence locators are admissible at 1 to 2048 bytes on the tool
+// surface, while the correction projection's predicate and evidence lists must
+// satisfy the reference rule the closed pin schema states. Entries outside
+// that rule stay in the durable completion payload and drop out of the bounded
+// pin view instead of failing the whole mutation result.
+func correctionReferenceStrings(values []string) []string {
+	out := make([]string, 0, len(values))
+	seen := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		if !ValidReference(value) {
+			continue
+		}
+		if _, duplicate := seen[value]; duplicate {
+			continue
+		}
+		seen[value] = struct{}{}
+		out = append(out, value)
+	}
+	return out
 }
 
 func dispositionForCorrection(actionID string) string {

@@ -36,7 +36,7 @@ the `provider/model` identifier you are running as, and `status` to one of `comp
 Report contract constraints:
 - Report top-level shape: type=object, additionalProperties=false, required=["schema_version", "readback_model", "status", "evidence"].
 - schema_version: const="1.0".
-- readback_model: type=string, minLength=3, maxLength=128, pattern="^[a-z][a-z0-9_.-]*/[^/ ]+$".
+- readback_model: type=string, minLength=3, maxLength=128, pattern="^[a-z][a-z0-9_.-]*(/[a-zA-Z0-9][a-zA-Z0-9._-]*)+$".
 - status: enum=["completed", "failed"].
 - evidence: type=array, minItems=1, maxItems=64, items={"$ref": "#/$defs/evidence_entry"}.
 - evidence_entry shape: type=object, additionalProperties=false, required=["obligation", "detail"].

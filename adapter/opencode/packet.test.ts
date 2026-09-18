@@ -593,8 +593,9 @@ test("the context carries the persisted work task ahead of the narrative", async
   const built = await build({ ...defaultScript(), "concord_work_browse.scope": withTask })
   expect(built.failure, JSON.stringify(built.failure)).toBeUndefined()
   const packet = built.packet!
-  expect(packet.inputs.context).toContain(PERSISTED_TASK)
-  expect(packet.inputs.context.indexOf(PERSISTED_TASK)).toBeLessThan(packet.inputs.context.indexOf(NARRATIVE))
+  const context = packet.inputs.context!
+  expect(context).toContain(PERSISTED_TASK)
+  expect(context.indexOf(PERSISTED_TASK)).toBeLessThan(context.indexOf(NARRATIVE))
 })
 
 test("a read-only lane prefers the persisted work task as the recorded question", async () => {

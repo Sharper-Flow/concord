@@ -228,3 +228,33 @@ func TestWorkflowActionPreflightResolvesContractCorrectionAtCheckpoint(t *testin
 		t.Fatal("undeclared action passed preflight")
 	}
 }
+
+// A verdict that omits contract_version must resolve the active contract,
+// not contract 1. After any supersession a caller that does not name a
+// version records against the successor, so verdict and confirmation read
+// one approval set instead of deadlocking between versions.
+func TestVerdictOmittingContractVersionResolvesActiveContract(t *testing.T) {
+	t.Parallel()
+	const workID = "verdict-version-default-supersede"
+	s, owner, _ := seedItemAtAcceptance(t, workID, false)
+	reviewer := verdictReviewer(t, s, workID)
+	if err := runVerdictActionAs(t, s, workID, "record_verdict", json.RawMessage(`{"contract_version":1,"predicate_id":"predicate:primary","verdict_kind":"ok"}`), 0, reviewer); err != nil {
+		t.Fatalf("record compatible verdict: %v", err)
+	}
+	seedComparisonObservation(t, s, workID)
+	operator := operatorVerdictActor(t, workID)
+	successor := json.RawMessage(`{"contract_version":2,"premise":"corrected premise","outcome_predicates":[{"predicate_id":"predicate:primary","ordinal":0,"outcome_kind":"check","outcome_payload":{"kind":"check","check_ref":"check:workflow","immutable_subject_ref":"commit:` + workID + `","expected_result":"pass"}},{"predicate_id":"predicate:added","ordinal":1,"outcome_kind":"check","outcome_payload":{"kind":"check","check_ref":"check:added","immutable_subject_ref":"commit:` + workID + `-added","expected_result":"pass"}}],"required_evidence":["verification"],"route_conventions":[],"spec_mandate":[],"law_modifies":[],"rigor_class":"prototype_internal","supersede_reason":"add a successor predicate","audit_evidence":["evidence:verdict-default"]}`)
+	if err := runIssue933OperatorAction(t, s, workID, "supersede_contract", successor, owner, operator); err != nil {
+		t.Fatalf("supersede contract: %v", err)
+	}
+	if err := runVerdictActionAs(t, s, workID, "record_verdict", json.RawMessage(`{"predicate_id":"predicate:added","verdict_kind":"ok"}`), 0, reviewer); err != nil {
+		t.Fatalf("verdict without contract_version must resolve the active contract: %v", err)
+	}
+	var recorded int64
+	if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.contract_version') FROM domain_events WHERE subject_id=? AND kind='workflow.verdict_recorded' ORDER BY seq DESC LIMIT 1`, workID).Scan(&recorded); err != nil {
+		t.Fatal(err)
+	}
+	if recorded != 2 {
+		t.Fatalf("verdict contract_version=%d, want 2", recorded)
+	}
+}

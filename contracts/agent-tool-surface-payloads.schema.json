@@ -11454,7 +11454,7 @@
                     "type": "array",
                     "uniqueItems": true,
                     "items": {
-                      "$ref": "#/$defs/reference"
+                      "$ref": "#/$defs/id"
                     },
                     "minItems": 1,
                     "maxItems": 8

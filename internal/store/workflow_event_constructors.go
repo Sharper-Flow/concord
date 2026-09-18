@@ -340,10 +340,25 @@ func workflowRecordVerdictEvents(ctx context.Context, tx *sql.Tx, definition Wor
 		}
 		evidence = effective
 	}
+	// An omitted contract_version resolves the active contract exactly as
+	// confirm_premise does, so a verdict recorded after any supersession
+	// lands on the contract the confirmation reads instead of deadlocking
+	// between versions.
+	contractVersion := workflowFieldInt(fields, "contract_version", 0)
+	if contractVersion == 0 {
+		activeVersion, activeErr := activeWorkflowContractVersion(ctx, tx, request.WorkID, "workflow_action")
+		if activeErr != nil {
+			if activeErr == sql.ErrNoRows {
+				return nil, newFailure(KindInvariantViolation, "workflow_action", "approved workflow contract is missing", false, "reread_entities")
+			}
+			return nil, activeErr
+		}
+		contractVersion = activeVersion
+	}
 	events := make([]Event, 0, len(mintedEvents)+1)
 	events = append(events, mintedEvents...)
 	verdictExpected := expected + int64(len(events))
-	events = append(events, workflowTypedEvent(eventID, WorkflowVerdictRecorded, request.WorkID, actor, request.Now, verdictExpected, map[string]any{"contract_version": workflowFieldInt(fields, "contract_version", 1), "predicate_id": predicateID, "verdict_kind": workflowFieldStringDefault(fields, "verdict_kind", "ok"), "verdict_actor_ref": verdictActor, "evaluation_evidence": evidence, "incomparable_with_approved": workflowFieldBool(fields, "incomparable_with_approved")}))
+	events = append(events, workflowTypedEvent(eventID, WorkflowVerdictRecorded, request.WorkID, actor, request.Now, verdictExpected, map[string]any{"contract_version": contractVersion, "predicate_id": predicateID, "verdict_kind": workflowFieldStringDefault(fields, "verdict_kind", "ok"), "verdict_actor_ref": verdictActor, "evaluation_evidence": evidence, "incomparable_with_approved": workflowFieldBool(fields, "incomparable_with_approved")}))
 	return events, nil
 }
 

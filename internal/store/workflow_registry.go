@@ -1126,6 +1126,13 @@ func actionListField(name string, required bool, min, max int64) WorkflowPayload
 	return WorkflowPayloadField{Name: name, ValueType: PayloadStringList, Required: required, MinItems: workflowInt(min), MaxItems: workflowInt(max), ItemRef: "reference"}
 }
 
+// actionIDListField declares a string list whose entries answer to the
+// generated id schema, which forbids the slashes a repository path reference
+// allows.
+func actionIDListField(name string, required bool, min, max int64) WorkflowPayloadField {
+	return WorkflowPayloadField{Name: name, ValueType: PayloadStringList, Required: required, MinItems: workflowInt(min), MaxItems: workflowInt(max), ItemRef: "id"}
+}
+
 func actionEnumListField(name string, required bool, min, max int64, values ...string) WorkflowPayloadField {
 	return WorkflowPayloadField{Name: name, ValueType: PayloadStringList, Required: required, MinItems: workflowInt(min), MaxItems: workflowInt(max), Enum: values}
 }
@@ -1315,7 +1322,7 @@ var builtinActionPolicies = map[string]builtinActionPolicy{
 		actionRefField("attempt_id", true), actionIntegerField("attempt_epoch", true, 1, 2147483647),
 	),
 	"reject_worker_result": actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionHold, ActionEventGeneric,
-		actionRefField("attempt_id", true), actionIntegerField("attempt_epoch", true, 1, 2147483647), actionStringField("diagnosis", true, 4096), actionStringField("strategy", true, 4096), actionListField("predicate_ids", true, 1, 8), actionListField("evidence_refs", true, 1, 32),
+		actionRefField("attempt_id", true), actionIntegerField("attempt_epoch", true, 1, 2147483647), actionStringField("diagnosis", true, 4096), actionStringField("strategy", true, 4096), actionIDListField("predicate_ids", true, 1, 8), actionListField("evidence_refs", true, 1, 32),
 	),
 	"request_correction": actionPolicy(ActionInternalSQLite, ActionApprovalRequired, ActionHold, ActionEventGeneric,
 		actionStringField("diagnosis", true, 4096), actionStringField("strategy", true, 4096), actionListField("predicate_ids", true, 1, 8), actionListField("evidence_refs", true, 1, 32),

@@ -277,6 +277,11 @@ func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, registry Definiti
 			return result, err
 		}
 	}
+	if request.ActionID == "reject_worker_result" {
+		if err := validateRejectCorrectionPinValues(request.Payload, request.EvidenceRefs); err != nil {
+			return result, err
+		}
+	}
 	if err := runWorkflowActionGuard(guards, guardPhaseRecovery); err != nil {
 		return result, err
 	} else if request.ActionID == "record_verdict" && !definitionStepAllows(entry.Definition, currentStep, request.ActionID) {

@@ -128,6 +128,35 @@ func bootstrapStoreRequest() BootstrapRequest {
 	return BootstrapRequest{ProductID: "product-bootstrap", ProjectID: "project-bootstrap", Title: "Bootstrap", ValueStatement: "Work starts in one worktree", Kind: "task", Task: "run", IdempotencyKey: "bootstrap-store", Priority: 1, Urgency: "standard", Ref: "HEAD"}
 }
 
+// seedBootstrapProject joins one more Project to product-bootstrap, which the
+// authority seed leaves at version 2, and registers repo as its canonical
+// path. Each test store seeds at most one extra Project.
+func seedBootstrapProject(t *testing.T, s *Store, projectID, repo string) {
+	t.Helper()
+	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{
+		{EventID: "bootstrap-project-" + projectID, Kind: "project.created", SubjectType: SubjectProject, SubjectID: projectID, Actor: "operator", OccurredAt: time.Unix(1, 0).UTC(), PayloadVersion: 1, Payload: json.RawMessage(`{"display_name":"` + projectID + `"}`)},
+		{EventID: "bootstrap-membership-" + projectID, Kind: "product_project.added", SubjectType: SubjectProduct, SubjectID: "product-bootstrap", Actor: "operator", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: 1, Payload: json.RawMessage(`{"product_id":"product-bootstrap","project_id":"` + projectID + `","role":"secondary","reason":"fixture","expected_version":2,"resulting_version":3}`)},
+	}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectProduct, "product-bootstrap"): 2, VersionRef(SubjectProject, projectID): 0}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.AddProjectLocator(context.Background(), projectID, ProjectLocator{ID: "bootstrap-path-" + projectID, Kind: LocatorCanonicalPath, Value: repo}, 1); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// replaceBootstrapMemberships folds one primary membership replacement, the
+// same work.memberships_replaced event the relate surface applies.
+func replaceBootstrapMemberships(t *testing.T, s *Store, workID string, version int64, projectID string) {
+	t.Helper()
+	payload, err := json.Marshal(workMembershipsPayload{Memberships: []workMembershipPayload{{ProjectID: projectID, Role: "primary"}}, ExpectedVersion: version, ResultingVersion: version + 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{{EventID: "bootstrap-memberships-" + projectID, Kind: "work.memberships_replaced", SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "operator", OccurredAt: time.Unix(3, 0).UTC(), PayloadVersion: 1, Payload: payload}}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}}); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func bootstrapTestOwner(t *testing.T) (int64, string) {
 	t.Helper()
 	pid := int64(os.Getpid())
@@ -834,6 +863,232 @@ func TestBootstrapExistingWorktreeRefusesNonEligibleBootstrapIdentity(t *testing
 		ProductID: capture.ProductID, ProjectID: capture.ProjectID, WorkID: workID,
 	}, nil); failureKind(err) != KindProjectionConflict {
 		t.Fatalf("non-eligible bootstrap refusal=%v", err)
+	}
+}
+
+// A work item whose captured bootstrap names Project A must still resume into
+// a second Project it is later moved to. The first bootstrap operation stays
+// bound to A (one bootstrap journal row per work identity), so the resume
+// claims B's worktree through the ordinary per-Project claim: the
+// per-repository branch slot carries the same work-derived branch in B's
+// repository, and the claim records the resuming session as the occupant.
+func TestCrossProjectResumeBootstrapsBWorktree(t *testing.T) {
+	t.Parallel()
+	repoA := initBootstrapStoreRepo(t)
+	repoB := initBootstrapStoreRepo(t)
+	s, err := Open(context.Background(), filepath.Join(t.TempDir(), "concord.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	seedBootstrapStoreAuthority(t, s, repoA)
+	seedBootstrapProject(t, s, "project-bootstrap-b", repoB)
+	ctx := context.Background()
+
+	capture := bootstrapStoreRequest()
+	capture.IdempotencyKey = "bootstrap-cross-capture"
+	first, err := s.BootstrapWorktree(ctx, capture, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	replaceBootstrapMemberships(t, s, first.WorkID, first.WorkVersion, "project-bootstrap-b")
+
+	request := ExistingBootstrapRequest{
+		ProductID: "product-bootstrap", ProjectID: "project-bootstrap-b", WorkID: first.WorkID, SessionRef: "ses-cross-resume",
+	}
+	resumed, err := s.BootstrapExistingWorktree(ctx, request, nil)
+	if err != nil {
+		t.Fatalf("cross-project resume failed: %v", err)
+	}
+	operationID, _, _, err := CanonicalExistingBootstrapIdentity(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resumed.OperationID != operationID || resumed.ProductID != "product-bootstrap" || resumed.ProjectID != "project-bootstrap-b" {
+		t.Fatalf("cross-project resume identity=%+v want operation %s in project-bootstrap-b", resumed, operationID)
+	}
+	if resumed.Entry.State != worktreeEntryActive || resumed.Entry.OccupantSessionRef != "ses-cross-resume" {
+		t.Fatalf("resumed entry=%+v want active with the resuming session as occupant", resumed.Entry)
+	}
+	if expected := filepath.Join(filepath.Dir(s.Path()), "worktrees", "project-bootstrap-b", first.WorkID); resumed.Entry.Path != expected {
+		t.Fatalf("resumed path=%s want %s", resumed.Entry.Path, expected)
+	}
+	if resumed.Entry.RepositoryID != repoB {
+		t.Fatalf("resumed repository=%s want %s", resumed.Entry.RepositoryID, repoB)
+	}
+	if resumed.WorkVersion != first.WorkVersion+2 {
+		t.Fatalf("work version=%d want %d", resumed.WorkVersion, first.WorkVersion+2)
+	}
+
+	var journalRows int
+	if err := s.db.QueryRow(`SELECT count(*) FROM bootstrap_operations WHERE work_id=?`, first.WorkID).Scan(&journalRows); err != nil {
+		t.Fatal(err)
+	}
+	if journalRows != 1 {
+		t.Fatalf("bootstrap journal rows=%d want 1", journalRows)
+	}
+	var activeClaimProjects int
+	if err := s.db.QueryRow(`SELECT count(DISTINCT project_id) FROM worktree_claims WHERE work_id=? AND state IN ('pending','verified')`, first.WorkID).Scan(&activeClaimProjects); err != nil {
+		t.Fatal(err)
+	}
+	if activeClaimProjects != 2 {
+		t.Fatalf("Projects holding an active claim=%d want 2", activeClaimProjects)
+	}
+	entries, err := s.WorktreeEntries(ctx, first.WorkID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 2 {
+		t.Fatalf("worktree entries=%d want one per Project", len(entries))
+	}
+	replay, err := s.BootstrapExistingWorktree(ctx, request, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !replay.Replayed || replay.Entry.Path != resumed.Entry.Path || replay.Entry.ClaimOpID != resumed.Entry.ClaimOpID {
+		t.Fatalf("convergent replay entry=%+v want the claimed B entry", replay.Entry)
+	}
+}
+
+// The resume keeps its read first: a Project the work item does not hold
+// refuses with the unchanged message before any claim, journal row, or native
+// worktree exists.
+func TestUnheldProjectRefusalMessageUnchanged(t *testing.T) {
+	t.Parallel()
+	repo := initBootstrapStoreRepo(t)
+	s, err := Open(context.Background(), filepath.Join(t.TempDir(), "concord.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	seedBootstrapStoreAuthority(t, s, repo)
+	ctx := context.Background()
+	if err := ApplyOperation(ctx, s, Operation{Events: []Event{
+		{EventID: "bootstrap-project-c", Kind: "project.created", SubjectType: SubjectProject, SubjectID: "project-bootstrap-c", Actor: "operator", OccurredAt: time.Unix(1, 0).UTC(), PayloadVersion: 1, Payload: json.RawMessage(`{"display_name":"bootstrap-c"}`)},
+		{EventID: "bootstrap-membership-c", Kind: "product_project.added", SubjectType: SubjectProduct, SubjectID: "product-bootstrap", Actor: "operator", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: 1, Payload: json.RawMessage(`{"product_id":"product-bootstrap","project_id":"project-bootstrap-c","role":"secondary","reason":"fixture","expected_version":2,"resulting_version":3}`)},
+	}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectProduct, "product-bootstrap"): 2, VersionRef(SubjectProject, "project-bootstrap-c"): 0}}); err != nil {
+		t.Fatal(err)
+	}
+
+	capture := bootstrapStoreRequest()
+	capture.IdempotencyKey = "bootstrap-unheld-capture"
+	first, err := s.BootstrapWorktree(ctx, capture, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	request := ExistingBootstrapRequest{ProductID: "product-bootstrap", ProjectID: "project-bootstrap-c", WorkID: first.WorkID}
+	_, err = s.BootstrapExistingWorktree(ctx, request, nil)
+	var failure *Failure
+	if !errors.As(err, &failure) || failure.Kind != KindUnknownScope {
+		t.Fatalf("unheld Project refusal=%v", err)
+	}
+	want := "work item " + first.WorkID + " does not hold Project project-bootstrap-c"
+	if failure.Detail != want {
+		t.Fatalf("refusal detail=%q want %q", failure.Detail, want)
+	}
+	if _, readErr := s.ResumeWorktreeLocation(ctx, request.ProductID, request.ProjectID, request.WorkID); !errors.As(readErr, &failure) || failure.Detail != want {
+		t.Fatalf("resume read refusal=%v want %q", readErr, want)
+	}
+	var claims int
+	if err := s.db.QueryRow(`SELECT count(*) FROM worktree_claims WHERE work_id=? AND project_id='project-bootstrap-c'`, first.WorkID).Scan(&claims); err != nil {
+		t.Fatal(err)
+	}
+	if claims != 0 {
+		t.Fatalf("unheld Project claims=%d want 0", claims)
+	}
+}
+
+// The same-project replay keeps its route through the captured bootstrap
+// identity, including the governing requirements the capture declared: the
+// Project requires req-replay, and only the stored request's declared set
+// lets the replayed scope check pass, so a replay that dropped the stored
+// requirements would refuse.
+func TestSameProjectReclaimedReplayUnchanged(t *testing.T) {
+	t.Parallel()
+	repo := initBootstrapStoreRepo(t)
+	s, err := Open(context.Background(), filepath.Join(t.TempDir(), "concord.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	seedBootstrapStoreAuthority(t, s, repo)
+	ctx := context.Background()
+	requirement, err := json.Marshal(GoverningRequirement{ProjectID: "project-bootstrap", RequirementRef: "req-replay", Reason: "fixture", ExpectedVersion: 2, ResultingVersion: 3})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ApplyOperation(ctx, s, Operation{Events: []Event{{EventID: "bootstrap-requirement-replay", Kind: "project.governing_requirement_declared", SubjectType: SubjectProject, SubjectID: "project-bootstrap", Actor: "operator", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: 1, Payload: requirement}}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectProject, "project-bootstrap"): 2}}); err != nil {
+		t.Fatal(err)
+	}
+
+	capture := bootstrapStoreRequest()
+	capture.IdempotencyKey = "bootstrap-replay-capture"
+	capture.GoverningRequirements = []string{"req-replay"}
+	first, err := s.BootstrapWorktree(ctx, capture, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.ReclaimWorktree(ctx, WorktreeReclaimRequest{
+		WorkID: first.WorkID, ProjectID: first.ProjectID, DefaultRef: "origin/main",
+		PrincipalRef: "principal/operator", RequestID: "reclaim-replay-capture",
+		ExpectedVersion: first.WorkVersion, Runner: ExecGitRunner{},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	resumed, err := s.BootstrapExistingWorktree(ctx, ExistingBootstrapRequest{
+		ProductID: first.ProductID, ProjectID: first.ProjectID, WorkID: first.WorkID,
+	}, nil)
+	if err != nil {
+		t.Fatalf("same-project replay failed: %v", err)
+	}
+	if resumed.OperationID != first.OperationID || resumed.Entry.State != worktreeEntryActive || resumed.WorkVersion != first.WorkVersion+2 {
+		t.Fatalf("replayed bootstrap=%+v want operation %s active", resumed, first.OperationID)
+	}
+}
+
+// The cross-project claim keeps the default-branch precondition of the
+// Project it claims into: a target checkout off its default branch refuses
+// the fall-through before any claim or native worktree exists.
+func TestTargetDefaultBranchPreconditionRefusal(t *testing.T) {
+	t.Parallel()
+	repoA := initBootstrapStoreRepo(t)
+	repoB := initBootstrapStoreRepo(t)
+	s, err := Open(context.Background(), filepath.Join(t.TempDir(), "concord.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	seedBootstrapStoreAuthority(t, s, repoA)
+	seedBootstrapProject(t, s, "project-bootstrap-b", repoB)
+	ctx := context.Background()
+
+	capture := bootstrapStoreRequest()
+	capture.IdempotencyKey = "bootstrap-default-branch-capture"
+	first, err := s.BootstrapWorktree(ctx, capture, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	replaceBootstrapMemberships(t, s, first.WorkID, first.WorkVersion, "project-bootstrap-b")
+	runBootstrapGit(t, repoB, "checkout", "-q", "-b", "feature")
+
+	_, err = s.BootstrapExistingWorktree(ctx, ExistingBootstrapRequest{
+		ProductID: "product-bootstrap", ProjectID: "project-bootstrap-b", WorkID: first.WorkID,
+	}, nil)
+	var failure *Failure
+	if !errors.As(err, &failure) || failure.Kind != KindInvalidOperation || !strings.Contains(failure.Detail, "not on its default branch") {
+		t.Fatalf("target default-branch refusal=%v", err)
+	}
+	var claims int
+	if err := s.db.QueryRow(`SELECT count(*) FROM worktree_claims WHERE work_id=? AND project_id='project-bootstrap-b'`, first.WorkID).Scan(&claims); err != nil {
+		t.Fatal(err)
+	}
+	if claims != 0 {
+		t.Fatalf("refused fall-through claims=%d want 0", claims)
+	}
+	if _, statErr := os.Stat(filepath.Join(filepath.Dir(s.Path()), "worktrees", "project-bootstrap-b", first.WorkID)); !os.IsNotExist(statErr) {
+		t.Fatalf("refused fall-through must not create the B worktree: %v", statErr)
 	}
 }
 

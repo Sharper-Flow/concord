@@ -191,7 +191,10 @@ func (s *Store) ResumeWorktreeLocation(ctx context.Context, productID, projectID
 }
 
 // BootstrapExistingWorktree claims the first canonical worktree for an
-// existing live item. An active entry is returned as a read-only resume.
+// existing live item. An active entry is returned as a read-only resume. A
+// work item whose captured bootstrap names a different Product or Project
+// claims the requested Project's worktree through the ordinary claim route,
+// so one work item holds one worktree per Project it lives in.
 func (s *Store) BootstrapExistingWorktree(ctx context.Context, req ExistingBootstrapRequest, phaseHook BootstrapPhaseHook) (BootstrapResult, error) {
 	if s == nil || s.db == nil {
 		return BootstrapResult{}, newFailure(KindUnavailable, "work_bootstrap", "store is not open", false, "open the authority database")
@@ -214,7 +217,7 @@ func (s *Store) BootstrapExistingWorktree(ctx context.Context, req ExistingBoots
 	if !errors.As(err, &failure) || failure.Kind != KindProjectionNotFound {
 		return BootstrapResult{}, err
 	}
-	identity, found, err := s.existingBootstrapIdentity(ctx, req.WorkID, req.ProductID, req.ProjectID)
+	identity, found, crossProject, err := s.existingBootstrapIdentity(ctx, req.WorkID, req.ProductID, req.ProjectID)
 	if err != nil {
 		return BootstrapResult{}, err
 	}
@@ -223,6 +226,9 @@ func (s *Store) BootstrapExistingWorktree(ctx context.Context, req ExistingBoots
 			ProductID: req.ProductID, ProjectID: req.ProjectID, GoverningRequirements: identity.GoverningRequirements,
 			IdempotencyKey: identity.IdempotencyKey, Ref: req.Ref, SessionRef: req.SessionRef,
 		}, identity.OperationID, req.WorkID, identity.Digest, true, req, phaseHook, ExecGitRunner{})
+	}
+	if crossProject {
+		return s.claimCrossProjectWorktree(ctx, req, identity.GoverningRequirements)
 	}
 	operationID, workID, digest, err := CanonicalExistingBootstrapIdentity(req)
 	if err != nil {
@@ -238,31 +244,96 @@ type existingBootstrapIdentity struct {
 	GoverningRequirements []string
 }
 
-func (s *Store) existingBootstrapIdentity(ctx context.Context, workID, productID, projectID string) (existingBootstrapIdentity, bool, error) {
-	var identity existingBootstrapIdentity
+// existingBootstrapIdentity resolves the durable identity of the work item's
+// first bootstrap operation. found reports the same-project reclaimed-claim
+// replay: the stored operation and idempotency key replay with the stored
+// governing requirements. crossProject reports that the first bootstrap is
+// bound to a different Product or Project, and the resume falls through to
+// the per-Project claim route with the stored requirements as the declared
+// set.
+func (s *Store) existingBootstrapIdentity(ctx context.Context, workID, productID, projectID string) (identity existingBootstrapIdentity, found bool, crossProject bool, err error) {
 	var storedProductID, storedProjectID, requestJSON, operationState, claimState string
-	err := s.db.QueryRowContext(ctx, `SELECT b.idempotency_key,b.operation_id,b.request_digest,b.request_json,b.product_id,b.project_id,b.state,coalesce(c.state,'') FROM bootstrap_operations b LEFT JOIN worktree_claims c ON c.op_id=b.operation_id WHERE b.work_id=?`, workID).
+	err = s.db.QueryRowContext(ctx, `SELECT b.idempotency_key,b.operation_id,b.request_digest,b.request_json,b.product_id,b.project_id,b.state,coalesce(c.state,'') FROM bootstrap_operations b LEFT JOIN worktree_claims c ON c.op_id=b.operation_id WHERE b.work_id=?`, workID).
 		Scan(&identity.IdempotencyKey, &identity.OperationID, &identity.Digest, &requestJSON, &storedProductID, &storedProjectID, &operationState, &claimState)
 	if err == sql.ErrNoRows {
-		return identity, false, nil
+		return identity, false, false, nil
 	}
 	if err != nil {
-		return identity, false, wrapFailure(KindUnavailable, "work_resume", "cannot read the existing bootstrap identity", true, "retry once the database is readable", err)
-	}
-	if storedProductID != productID || storedProjectID != projectID {
-		return identity, false, newFailure(KindUnknownScope, "work_resume", "existing bootstrap identity is outside the requested Product and Project scope", false, "resume from the Product and Project that created the worktree")
-	}
-	if operationState != "completed" || claimState != worktreeStateReclaimed {
-		return identity, false, nil
+		return identity, false, false, wrapFailure(KindUnavailable, "work_resume", "cannot read the existing bootstrap identity", true, "retry once the database is readable", err)
 	}
 	var storedRequest struct {
 		GoverningRequirements []string `json:"governing_requirements"`
 	}
 	if err := json.Unmarshal([]byte(requestJSON), &storedRequest); err != nil {
-		return identity, false, newFailure(KindInvariantViolation, "work_resume", "existing bootstrap identity has invalid durable request data", false, "contact_operator")
+		return identity, false, false, newFailure(KindInvariantViolation, "work_resume", "existing bootstrap identity has invalid durable request data", false, "contact_operator")
 	}
 	identity.GoverningRequirements = storedRequest.GoverningRequirements
-	return identity, true, nil
+	if storedProductID != productID || storedProjectID != projectID {
+		return identity, false, true, nil
+	}
+	if operationState != "completed" || claimState != worktreeStateReclaimed {
+		return identity, false, false, nil
+	}
+	return identity, true, false, nil
+}
+
+// claimCrossProjectWorktree routes a resume that names a Project other than
+// the one that captured the work through the ordinary per-Project claim. The
+// first bootstrap operation stays bound to its original Product and Project:
+// bootstrap_operations pins one journal row per work identity, and the second
+// claim needs no journal row, because migration 93 scopes the branch slot to
+// one repository and the work-derived branch name holds in each Project's own
+// repository. The route pins location and base from the requested ref through
+// LocateWorktree, requires the target Project checkout on its default branch,
+// applies the same scope semantics as a first bootstrap with the stored
+// governing requirements as the declared set, and derives the operation
+// identity from the Product, Project, and work identities alone, so a retry
+// reconciles the same claim.
+func (s *Store) claimCrossProjectWorktree(ctx context.Context, req ExistingBootstrapRequest, declared []string) (BootstrapResult, error) {
+	operationID, _, _, err := CanonicalExistingBootstrapIdentity(req)
+	if err != nil {
+		return BootstrapResult{}, wrapFailure(KindInvalidOperation, "work_bootstrap", "cannot derive existing bootstrap identity", false, "supply bounded work identity", err)
+	}
+	location, err := s.LocateWorktree(ctx, req.ProjectID, req.WorkID, req.Ref)
+	if err != nil {
+		return BootstrapResult{}, err
+	}
+	if err := validateBootstrapDefaultBranch(ctx, ExecGitRunner{}, location.Repo); err != nil {
+		return BootstrapResult{}, err
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return BootstrapResult{}, wrapFailure(KindUnavailable, "work_bootstrap", "cannot read the resume scope", true, "retry the same operation", err)
+	}
+	defer tx.Rollback()
+	if err := validateBootstrapScopeTx(ctx, tx, req.ProductID, req.ProjectID, declared); err != nil {
+		return BootstrapResult{}, err
+	}
+	var version int64
+	if err := tx.QueryRowContext(ctx, `SELECT version FROM work_items WHERE id=?`, req.WorkID).Scan(&version); err != nil {
+		if err == sql.ErrNoRows {
+			return BootstrapResult{}, newFailure(KindUnknownScope, "work_resume", "work item does not exist", false, "check the work identity before resuming")
+		}
+		return BootstrapResult{}, wrapFailure(KindUnavailable, "work_resume", "cannot read the existing work version", true, "retry once the database is readable", err)
+	}
+	// The scope read closes before the claim opens its own transaction: the
+	// store pools one connection, and an open transaction would park the
+	// claim on the pool forever.
+	if err := tx.Rollback(); err != nil {
+		return BootstrapResult{}, wrapFailure(KindUnavailable, "work_bootstrap", "cannot close the resume scope read", true, "retry the same operation", err)
+	}
+	claim, err := s.ClaimWorktree(ctx, WorktreeClaimRequest{
+		OpID: operationID, WorkID: req.WorkID, ProjectID: req.ProjectID, BaseSHA: location.BaseSHA,
+		PrincipalRef: "operator", RequestID: operationID, SessionRef: req.SessionRef,
+		ExpectedVersion: version, Runner: ExecGitRunner{},
+	})
+	if err != nil {
+		return BootstrapResult{}, err
+	}
+	if err := s.SyncDurable(ctx); err != nil {
+		return BootstrapResult{}, err
+	}
+	return BootstrapResult{OperationID: operationID, ProductID: req.ProductID, ProjectID: req.ProjectID, WorkID: req.WorkID, WorkVersion: version + 1, Entry: claim.Entry}, nil
 }
 
 func bootstrapOriginHasOpenDispatchWindow(ctx context.Context, tx *sql.Tx, workID string) (bool, error) {

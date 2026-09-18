@@ -77,6 +77,10 @@ type CreateIssueInput struct {
 	Title       string   `json:"title"`
 	Description string   `json:"description"`
 	LabelIDs    []string `json:"labelIds,omitempty"`
+	// StatusID lands the card in the workflow state its work item holds at
+	// creation. Linear documents an unspecified state as the team's default
+	// (or Triage); stateId is the field name issueUpdate already uses.
+	StatusID string `json:"stateId,omitempty"`
 }
 
 // UpdateIssueInput carries the mutable fields the drain synchronizes.

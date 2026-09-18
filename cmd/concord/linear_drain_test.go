@@ -86,7 +86,7 @@ func TestLinearEnqueueAndDrainCLI(t *testing.T) {
 		"label_ids": map[string]string{"task": "label-task"}, "expected_resource_version": 1,
 	})
 
-	var sawAuth, sawProject, sawLabels bool
+	var sawAuth, sawProject, sawLabels, sawStatus bool
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
 		if strings.Contains(string(body), "issueCreate") {
@@ -95,6 +95,7 @@ func TestLinearEnqueueAndDrainCLI(t *testing.T) {
 			}
 			sawProject = strings.Contains(string(body), `"projectId":"project-uuid-1"`)
 			sawLabels = strings.Contains(string(body), `"labelIds":["label-task"]`)
+			sawStatus = strings.Contains(string(body), `"stateId":"state-needed"`)
 		}
 		w.Header().Set("Content-Type", "application/json")
 		if strings.Contains(string(body), "issueCreate") {
@@ -126,8 +127,8 @@ func TestLinearEnqueueAndDrainCLI(t *testing.T) {
 	if code := runWithInput([]string{"linear", "outbox-drain"}, strings.NewReader(`{"product_id":"drain-product"}`), &out, &errOut); code != 0 {
 		t.Fatalf("drain exit=%d stderr=%q", code, errOut.String())
 	}
-	if !sawAuth || !sawProject || !sawLabels {
-		t.Fatalf("the drain request lacked authorization, project routing, or labels: auth=%t project=%t labels=%t", sawAuth, sawProject, sawLabels)
+	if !sawAuth || !sawProject || !sawLabels || !sawStatus {
+		t.Fatalf("the drain request lacked authorization, project routing, labels, or the birth status: auth=%t project=%t labels=%t status=%t", sawAuth, sawProject, sawLabels, sawStatus)
 	}
 	var drained struct {
 		OK         bool `json:"ok"`

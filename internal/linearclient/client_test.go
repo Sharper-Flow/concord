@@ -46,6 +46,7 @@ func TestCreateIssueSendsBearerAndClientUUID(t *testing.T) {
 		Title:       "Example issue",
 		Description: "Example description",
 		LabelIDs:    []string{"label-task", "label-expedite"},
+		StatusID:    "state-needed",
 	})
 	if err != nil {
 		t.Fatalf("CreateIssue() error = %v", err)
@@ -53,7 +54,7 @@ func TestCreateIssueSendsBearerAndClientUUID(t *testing.T) {
 	if gotAuth != "lin_api_test" {
 		t.Fatalf("Authorization = %q, want the raw key without a Bearer prefix", gotAuth)
 	}
-	for _, want := range []string{`"id":"0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0"`, `"teamId":"68d52710-76d9-4b41-ba45-778511d0e2ed"`, `"projectId":"project-uuid-1"`, `"title":"Example issue"`, `"labelIds":["label-task","label-expedite"]`, "issueCreate"} {
+	for _, want := range []string{`"id":"0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0"`, `"teamId":"68d52710-76d9-4b41-ba45-778511d0e2ed"`, `"projectId":"project-uuid-1"`, `"title":"Example issue"`, `"labelIds":["label-task","label-expedite"]`, `"stateId":"state-needed"`, "issueCreate"} {
 		if !strings.Contains(gotBody, want) {
 			t.Fatalf("request body %q lacks %q", gotBody, want)
 		}

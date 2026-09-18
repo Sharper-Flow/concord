@@ -85,7 +85,7 @@ test("renames the tab and pane frame mapped from the session pane", async () => 
 
 test("the reporter refreshes the session goal title from the pin", async () => {
   process.env.ZELLIJ_PANE_ID = "42"
-  const titles: Array<{ url: string; path?: Record<string, unknown>; body?: unknown }> = []
+  const titles: Array<{ url: string; path?: Record<string, unknown>; body?: unknown; signal?: unknown }> = []
   hostControlPlane().bind({
     get: async () => ({ response: response(), data: {} }),
     post: async () => ({ response: response(204) }),

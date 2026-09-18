@@ -768,6 +768,39 @@ func workflowSemanticActionEvents(ctx context.Context, tx *sql.Tx, definition Wo
 	}
 }
 
+// workflowNativeRunPhaseEvents stays in this file: the native-run status
+// vocabulary guard pins NativeRunStatusAllowed(phase, status) to the
+// dispatch surface (scripts/check-native-run-statuses.py).
+func workflowNativeRunPhaseEvents(request WorkflowActionExecutionRequest, fields map[string]json.RawMessage, eventID string, expected int64) ([]Event, error) {
+	// CD-0039 D5/D6: the native-run actions carry typed phase payloads.
+	// The action ID fixes the phase; callers never choose it.
+	phaseByAction := map[string]string{"start_run": "start", "record_health": "health", "rollback_run": "rollback", "cleanup_run": "cleanup"}
+	phase := phaseByAction[request.ActionID]
+	runID, runOK := workflowFieldString(fields, "run_id")
+	subjectRef, subjectOK := workflowFieldString(fields, "native_subject_ref")
+	status, statusOK := workflowFieldString(fields, "status")
+	evidenceRef, evidenceOK := workflowFieldString(fields, "evidence_ref")
+	evidenceDigest, digestOK := workflowFieldString(fields, "evidence_digest")
+	assertedAt := workflowFieldStringDefault(fields, "asserted_at", request.Now.Format(time.RFC3339Nano))
+	missing := []string{}
+	for name, ok := range map[string]bool{"run_id": runOK, "native_subject_ref": subjectOK, "status": statusOK, "evidence_ref": evidenceOK, "evidence_digest": digestOK} {
+		if !ok {
+			missing = append(missing, name)
+		}
+	}
+	if len(missing) > 0 || runID == "" || subjectRef == "" || status == "" || evidenceRef == "" || evidenceDigest == "" {
+		return nil, newFailure(KindInvalidPayload, "workflow_action", request.ActionID+" requires typed native-run fields: run_id, native_subject_ref, status, evidence_ref, evidence_digest", false, "supply the native authority's attributed report fields")
+	}
+	if !NativeRunStatusAllowed(phase, status) {
+		return nil, newFailure(KindInvalidPayload, "workflow_action", status+" is not a "+phase+" status", false, "use the closed status vocabulary for this phase")
+	}
+	nativeEvent, err := buildNativeRunEvent(eventID+":native-run", request.WorkID, request.Actor, request.Now, expected, phase, runID, subjectRef, status, evidenceRef, evidenceDigest, assertedAt)
+	if err != nil {
+		return nil, err
+	}
+	return []Event{nativeEvent}, nil
+}
+
 func workflowCompletionEvent(ctx context.Context, tx *sql.Tx, request WorkflowActionExecutionRequest, definition WorkflowDefinition, stepID, actor string, raw json.RawMessage) (Event, error) {
 	fields, err := workflowActionObject(raw)
 	if err != nil {

@@ -64,6 +64,37 @@ def is_ancestor(repo: Path, boundary: str) -> bool:
     return True
 
 
+def tag_commit(repo: Path, tag: str) -> str:
+    """Return the commit a tag names, dereferencing an annotated tag."""
+    return run_git(repo, "rev-parse", f"{tag}^{{commit}}").strip()
+
+
+def head_commit(repo: Path) -> str:
+    return run_git(repo, "rev-parse", "HEAD").strip()
+
+
+def previous_semver_boundary(repo: Path, tag: str) -> str:
+    """Return the boundary the tagged release was first computed against.
+
+    A rerun of a release whose tag already sits at HEAD must recompute the
+    changelog against the tag's own boundary, not against the tag itself.
+    That boundary is the highest strict-semver tag reachable from the tagged
+    commit's parent, or the constitutional boundary for the first release.
+    """
+    reachable = []
+    for candidate in run_git(repo, "tag", "--list").splitlines():
+        if not SEMVER_TAG.fullmatch(candidate):
+            continue
+        try:
+            run_git(repo, "merge-base", "--is-ancestor", candidate, f"{tag}^")
+        except subprocess.CalledProcessError:
+            continue
+        reachable.append(candidate)
+    if reachable:
+        return max(reachable, key=lambda candidate: (version_tuple(candidate), candidate))
+    return constitutional_tag(repo)
+
+
 def latest_semver_tag(repo: Path) -> str | None:
     """Return the highest reachable strict-semver tag.
 
@@ -192,17 +223,28 @@ def compute(repo: Path) -> dict[str, object]:
     boundary = tag or constitutional_tag(repo)
     if tag is not None and not is_ancestor(repo, tag):
         raise ReleaseError(f"release boundary is not an ancestor of HEAD: {tag}")
+    base_tag = tag
     commits = commits_since(repo, boundary)
     bump = select_bump(commits)
-    base = version_tuple(tag) if tag else (0, 0, 0)
+    base = version_tuple(base_tag) if base_tag else (0, 0, 0)
     released = next_version(base, bump) if bump else None
     version = f"v{released[0]}.{released[1]}.{released[2]}" if released else None
+    if version is None and tag is not None and head_commit(repo) == tag_commit(repo, tag):
+        # Rerun re-entry: the release tag already sits at HEAD, so nothing
+        # bumps. Re-emit that tagged release against the boundary it was
+        # first computed from, so a retried publish converges instead of
+        # recomputing an empty version and refusing to publish.
+        boundary = previous_semver_boundary(repo, tag)
+        base_tag = boundary if SEMVER_TAG.fullmatch(boundary) else None
+        base = version_tuple(base_tag) if base_tag else (0, 0, 0)
+        commits = commits_since(repo, boundary)
+        version = tag
     return {
-        "base_tag": tag,
+        "base_tag": base_tag,
         "commit_boundary": boundary,
         "base_version": f"v{base[0]}.{base[1]}.{base[2]}",
         "bump": bump,
-        "release": bump is not None,
+        "release": version is not None,
         "tag": version,
         "version": version,
         "commits": [dataclasses.asdict(commit) for commit in commits],

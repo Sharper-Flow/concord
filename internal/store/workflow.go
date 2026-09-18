@@ -2165,11 +2165,18 @@ func foldWorkflowEvidenceBound(ctx context.Context, tx *sql.Tx, event Event) err
 		return newFailure(KindInvalidPayload, "fold_event", "evidence_bound has invalid evidence identity", false, "supply a complete immutable evidence binding")
 	}
 	var authoritative int
-	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM durable_operations WHERE op_id=? AND work_id=? AND principal_ref=? AND request_id=? AND result_kind='completed' AND EXISTS (SELECT 1 FROM json_each(durable_operations.evidence_refs) WHERE value=?)`, p.ProducerRunRef, event.SubjectID, p.ProducerID, p.ProducerWatermark, p.ImmutableSubjectRef).Scan(&authoritative); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM durable_operations WHERE op_id=? AND work_id=? AND principal_ref=? AND request_id=? AND result_kind='completed'`, p.ProducerRunRef, event.SubjectID, p.ProducerID, p.ProducerWatermark).Scan(&authoritative); err != nil {
 		return wrapFailure(KindUnavailable, "fold_event", "cannot verify evidence authority", true, "retry once the evidence authority is readable", err)
 	}
 	if authoritative != 1 {
-		return newFailure(KindInvariantViolation, "fold_event", "evidence binding is not backed by the existing durable-operation evidence authority", false, "complete the producer operation with the immutable evidence reference first")
+		return newFailure(KindInvariantViolation, "fold_event", "named producer operation "+workflowRefExcerpt(p.ProducerRunRef)+" is not a completed durable operation for this work and actor", false, "name the producer operation that recorded the evidence reference")
+	}
+	var recorded int
+	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM durable_operations WHERE op_id=? AND attempt_epoch=1 AND EXISTS (SELECT 1 FROM json_each(durable_operations.evidence_refs) WHERE value=?)`, p.ProducerRunRef, p.ImmutableSubjectRef).Scan(&recorded); err != nil {
+		return wrapFailure(KindUnavailable, "fold_event", "cannot verify evidence authority", true, "retry once the evidence authority is readable", err)
+	}
+	if recorded != 1 {
+		return newFailure(KindInvariantViolation, "fold_event", "locator mismatch: producer operation "+workflowRefExcerpt(p.ProducerRunRef)+" completed without "+workflowRefExcerpt(p.ImmutableSubjectRef)+" among its recorded evidence", false, "bind a locator the producer operation recorded, or rerun the producer with this evidence reference")
 	}
 	// CD-0040 D9 via CD-0039 D4/D11: a native-run report may back completion
 	// evidence only through this explicit binding, and only while its

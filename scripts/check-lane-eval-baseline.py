@@ -33,7 +33,7 @@ from pathlib import Path
 
 DEFAULT_ROOT = Path(__file__).resolve().parents[1]
 MIN_SEEDED = 3
-READBACK_MODEL = re.compile(r"^[a-z][a-z0-9_.-]*/[^/ ]+$")
+READBACK_MODEL = re.compile(r"^[a-z][a-z0-9_.-]*(/[a-zA-Z0-9][a-zA-Z0-9._-]*)+$")
 
 
 def canonical_digest(lane: dict) -> str:

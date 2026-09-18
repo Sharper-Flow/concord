@@ -2,8 +2,12 @@ import { test, expect, mock, beforeEach, afterEach } from "bun:test"
 import fs from "node:fs"
 import path from "node:path"
 import { hostControlPlane, MANAGED_TASK_SCOPE_KEY } from "./move-session"
+import { resetClaimedWorktrees } from "./claimed-worktree"
 
 beforeEach(() => {
+  // Another file's landing tests can arm a claim that leaks into this run;
+  // dispatch checks here must not depend on file order.
+  resetClaimedWorktrees()
   hostControlPlane().bind({
     get: async ({ path }) => ({ data: { id: path?.id, directory: process.cwd(), metadata: { [MANAGED_TASK_SCOPE_KEY]: "managed" } }, response: new Response(null, { status: 200 }) }),
     post: async () => { throw new Error("dispatch does not move the host session") },

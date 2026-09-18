@@ -90,6 +90,7 @@ def derive_adapter_files(adapter_dir: Path) -> tuple[str, ...]:
 # against the live import graph and fails when the two drift.
 ADAPTER_FILES = (
     "agent-switch-hook.ts",
+    "claimed-worktree.ts",
     "concord-plugin.ts",
     "concord.ts",
     "continuity-hook.ts",

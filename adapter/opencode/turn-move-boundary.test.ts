@@ -5,6 +5,7 @@ import { configureCoreBinary } from "./dispatch"
 import { configureConcordAdapter } from "./concord"
 import { hostControlPlane } from "./move-session"
 import { moveSessionToClaimedWorktree, moveSessionToRegisteredMainCheckout, work_start } from "./concord"
+import { resetClaimedWorktrees } from "./claimed-worktree"
 import { armTurnMoveBoundary, clearTurnMoveBoundary, questionRequiresNormalChat, TURN_MOVE_QUESTION_REFUSAL } from "./turn-move-boundary"
 
 configureCoreBinary("concord")
@@ -32,12 +33,14 @@ let plugin: any
 
 beforeEach(async () => {
   clearTurnMoveBoundary(sessionID)
+  resetClaimedWorktrees()
   hostControlPlane().bind(undefined)
   plugin = await ConcordAdapterPlugin({})
 })
 
 afterEach(() => {
   clearTurnMoveBoundary(sessionID)
+  resetClaimedWorktrees()
   hostControlPlane().bind(undefined)
   configureConcordAdapter({ reset: true })
 })

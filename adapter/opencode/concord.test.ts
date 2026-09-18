@@ -7,7 +7,7 @@ import { contractOperations, hostToolSchemas, manifestDigest, payloadSchemas } f
 import { configureCoreBinary } from "./dispatch"
 import { dispatchWindows, TASK_TOOL_ID } from "./dispatch-window"
 import { claimHostLease, configureHostLease } from "./host-lease"
-import { armedClaimedWorktree, clearClaimedWorktree } from "./claimed-worktree"
+import { armedClaimedWorktree, clearClaimedWorktree, resetClaimedWorktrees } from "./claimed-worktree"
 import { validateGeneratedEnvelope, envelopeFailurePath } from "./generated-contract-tests"
 import { hostControlPlane, SESSION_LIST_ROUTE, SESSION_ROUTE, SHOW_TOAST_ROUTE } from "./move-session"
 
@@ -52,9 +52,11 @@ beforeEach(() => {
     get: async () => ({ data: { id: "session-1", directory: "/worktree" }, response: new Response(null, { status: 200 }) }),
     post: async () => ({ response: new Response(null, { status: 204 }) }),
   })
+  resetClaimedWorktrees()
   delete process.env.ZELLIJ_PANE_ID
 })
 afterEach(() => {
+  resetClaimedWorktrees()
   if (outerPaneID === undefined) delete process.env.ZELLIJ_PANE_ID
   else process.env.ZELLIJ_PANE_ID = outerPaneID
 })

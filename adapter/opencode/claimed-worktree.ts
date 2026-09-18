@@ -30,6 +30,14 @@ export function clearClaimedWorktree(sessionID: string): void {
   if (sessionID) armedClaims.delete(sessionID)
 }
 
+// resetClaimedWorktrees drops every record. Production code never calls it:
+// a host process restart is the production equivalent. It exists so a test
+// file cannot leak an armed claim into another file's dispatch checks, which
+// share this module instance inside one test run.
+export function resetClaimedWorktrees(): void {
+  armedClaims.clear()
+}
+
 // armedClaimedWorktree answers the armed directory for one session, or null
 // when nothing is armed. Null dispatches exactly as before the record existed,
 // which is also the state after a host process restart.

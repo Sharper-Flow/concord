@@ -2,7 +2,7 @@ import { afterAll, afterEach, describe, expect, test } from "bun:test"
 import ConcordAdapterPlugin from "./concord-plugin"
 import { configureHostLease } from "./host-lease"
 import { moveSessionToRegisteredMainCheckout } from "./concord"
-import { armedClaimedWorktree, armClaimedWorktree, clearClaimedWorktree } from "./claimed-worktree"
+import { armedClaimedWorktree, armClaimedWorktree, clearClaimedWorktree, resetClaimedWorktrees } from "./claimed-worktree"
 import { HostControlPlane, SESSION_LIST_ROUTE } from "./move-session"
 
 const context = () => ({
@@ -38,6 +38,7 @@ async function fakeHost(post: (body: any) => { status: number; body: any }, get:
 }
 
 afterEach(async () => {
+  resetClaimedWorktrees()
   await ConcordAdapterPlugin({})
 })
 

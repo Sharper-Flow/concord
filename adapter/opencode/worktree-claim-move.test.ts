@@ -9,7 +9,7 @@ import { configureHostLease } from "./host-lease"
 import ConcordAdapterPlugin from "./concord-plugin"
 import { hostControlPlane } from "./move-session"
 import { moveSessionToClaimedWorktree } from "./concord"
-import { armedClaimedWorktree, clearClaimedWorktree } from "./claimed-worktree"
+import { armedClaimedWorktree, clearClaimedWorktree, resetClaimedWorktrees } from "./claimed-worktree"
 import { ensureConductLink } from "./project-link"
 
 const context = (overrides: Partial<Parameters<typeof moveSessionToClaimedWorktree>[1]> = {}) =>
@@ -34,6 +34,7 @@ async function fakeHost(handlers: { post?: (url: string, body: any) => { status:
 }
 
 afterEach(async () => {
+  resetClaimedWorktrees()
   await ConcordAdapterPlugin({})
 })
 

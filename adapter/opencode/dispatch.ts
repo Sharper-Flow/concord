@@ -7,6 +7,7 @@ import { maxEnvelopeBytes } from "./generated-contracts"
 import { coreBinary } from "./generated-release"
 import { SecretToolCredentialStore, b64, clientRef, privateKeyObject, randomNonce, type CredentialStore } from "./credentials"
 import { canonicalDirectory, dispatchDirectoryMismatch, dispatchWindows, DispatchWindowError, type DispatchWindows } from "./dispatch-window"
+import { armedClaimedWorktree } from "./claimed-worktree"
 import { hostControlPlane } from "./move-session"
 import { readTaskResult } from "./task-result"
 
@@ -1188,6 +1189,21 @@ export async function dispatchWorker(packet: unknown, options: { signal?: AbortS
     const mismatch = dispatchDirectoryMismatch(canonicalWorkerDirectory, liveWorkerDirectory)
     if (mismatch) {
       return errorEnvelope(lane, packet as Partial<AgentLanePacket>, "error", "unauthorized_dispatch", mismatch, "reconcile_operation")
+    }
+    // The two guards above compare host answers with each other, so a session
+    // directory that regressed after its move converged answers stale on both
+    // reads and passes both. The armed claim is the adapter's own record of the
+    // last confirmed landing (work_start, worktree_claim), so a disagreement
+    // with the host's fresh answer names both directories and stops before the
+    // window opens. Replaying worktree_claim re-runs the move and its read-back,
+    // which re-arms the record. A session with no armed claim, such as one whose
+    // host process restarted after the claim, dispatches exactly as before.
+    const armedClaim = armedClaimedWorktree(sessionID)
+    if (armedClaim !== null) {
+      const claimMismatch = dispatchDirectoryMismatch(armedClaim, liveWorkerDirectory)
+      if (claimMismatch) {
+        return errorEnvelope(lane, packet as Partial<AgentLanePacket>, "error", "unauthorized_dispatch", `the host runs this session in ${JSON.stringify(liveWorkerDirectory)} but the armed claimed worktree is ${JSON.stringify(armedClaim)}; replay worktree_claim to retry the move, then dispatch again`, "reconcile_operation")
+      }
     }
   }
   const windows = options.windows ?? dispatchWindows()

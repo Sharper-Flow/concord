@@ -9,6 +9,7 @@ import { configureHostLease } from "./host-lease"
 import ConcordAdapterPlugin from "./concord-plugin"
 import { hostControlPlane } from "./move-session"
 import { moveSessionToClaimedWorktree } from "./concord"
+import { armedClaimedWorktree, clearClaimedWorktree, resetClaimedWorktrees } from "./claimed-worktree"
 import { ensureConductLink } from "./project-link"
 
 const context = (overrides: Partial<Parameters<typeof moveSessionToClaimedWorktree>[1]> = {}) =>
@@ -33,6 +34,7 @@ async function fakeHost(handlers: { post?: (url: string, body: any) => { status:
 }
 
 afterEach(async () => {
+  resetClaimedWorktrees()
   await ConcordAdapterPlugin({})
 })
 
@@ -41,6 +43,32 @@ describe("worktree_claim moves the session into the claimed worktree", () => {
     await fakeHost({})
     const envelope = await moveSessionToClaimedWorktree(claimArgs("/claimed"), context(), okEnvelope())
     expect(envelope.outcome).toBe("ok")
+  })
+
+  // The confirmed landing arms the session's active claimed worktree, so the
+  // dispatch path can compare the host's answer against a record the host
+  // does not own.
+  test("arms the session's claimed worktree once the landing is confirmed", async () => {
+    await fakeHost({})
+    try {
+      const envelope = await moveSessionToClaimedWorktree(claimArgs("/claimed"), context(), okEnvelope())
+      expect(envelope.outcome).toBe("ok")
+      expect(armedClaimedWorktree("session-1")).toBe("/claimed")
+    } finally {
+      clearClaimedWorktree("session-1")
+    }
+  })
+
+  // A refused landing never happened, so nothing may be armed for dispatch.
+  test("arms nothing when the landing mismatch refuses", async () => {
+    await fakeHost({ get: () => ({ status: 200, body: { directory: "/elsewhere" } }) })
+    try {
+      const envelope = await moveSessionToClaimedWorktree(claimArgs("/claimed"), context(), okEnvelope())
+      expect(envelope.outcome).toBe("error")
+      expect(armedClaimedWorktree("session-1")).toBeNull()
+    } finally {
+      clearClaimedWorktree("session-1")
+    }
   })
 
   test("adds the conduct entry to an empty instructions array", async () => {

@@ -17,6 +17,7 @@ configureCoreBinary("concord-test")
 import { hostControlPlane } from "./move-session"
 hostControlPlane().bind(undefined)
 import { DispatchWindows } from "./dispatch-window"
+import { armClaimedWorktree, clearClaimedWorktree } from "./claimed-worktree"
 import type { CredentialStore } from "./credentials"
 
 const isRecord = (value: unknown): value is Record<string, unknown> => value !== null && typeof value === "object" && !Array.isArray(value)
@@ -200,6 +201,63 @@ test("unknown lane identity fails closed before a window opens", async () => {
   expect(result.outcome).toBe("error")
   expect(result.error?.kind).toBe("invalid_input")
   expect(windows.has(SESSION)).toBe(false)
+})
+
+// The armed claim is the adapter's own record of the last confirmed landing.
+// A host answer that regressed to the previous directory is stable, so it
+// agrees with the pinned directory on both reads; only the armed claim can
+// see the disagreement, and the refusal must name both directories with the
+// replay recovery before any window opens.
+test("dispatch refuses when the host answer disagrees with the armed claimed worktree", async () => {
+  const root = fs.mkdtempSync(path.join(process.cwd(), "concord-dispatch-"))
+  fs.mkdirSync(path.join(root, "claimed"))
+  fs.mkdirSync(path.join(root, "stale"))
+  const claimed = fs.realpathSync(path.join(root, "claimed"))
+  const stale = fs.realpathSync(path.join(root, "stale"))
+  const windows = new DispatchWindows()
+  try {
+    armClaimedWorktree(SESSION, claimed)
+    const result = await dispatchWorker(packet(), {
+      credentials: testCredentials,
+      authorize: permissiveAuthorizer(),
+      packetDigest: PACKET_DIGEST,
+      sessionID: SESSION,
+      windows,
+      workerDirectory: stale,
+      resolveWorkerDirectory: async () => stale,
+    })
+    expect(result.outcome).toBe("error")
+    expect(result.error?.kind).toBe("unauthorized_dispatch")
+    expect(result.error?.recovery_action).toBe("reconcile_operation")
+    expect(result.error?.message).toContain(claimed)
+    expect(result.error?.message).toContain(stale)
+    expect(result.error?.message).toMatch(/worktree_claim/)
+    expect(windows.has(SESSION)).toBe(false)
+  } finally {
+    clearClaimedWorktree(SESSION)
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test("dispatch proceeds when the host answer agrees with the armed claimed worktree", async () => {
+  const windows = new DispatchWindows()
+  try {
+    armClaimedWorktree(SESSION, WORKER_DIRECTORY)
+    const result = await dispatchWorker(packet(), {
+      credentials: testCredentials,
+      authorize: permissiveAuthorizer(),
+      packetDigest: PACKET_DIGEST,
+      sessionID: SESSION,
+      windows,
+      workerDirectory: WORKER_DIRECTORY,
+      resolveWorkerDirectory: async () => WORKER_DIRECTORY,
+    })
+    expect(result.outcome).toBe("ok")
+    expect(result.dispatch_state).toBe("awaiting_worker")
+    expect(windows.has(SESSION)).toBe(true)
+  } finally {
+    clearClaimedWorktree(SESSION)
+  }
 })
 
 // CD-0102 D1: an authorized dispatch opens the window and returns before the

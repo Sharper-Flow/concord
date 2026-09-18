@@ -2,8 +2,12 @@ import { test, expect, mock, beforeEach, afterEach } from "bun:test"
 import fs from "node:fs"
 import path from "node:path"
 import { hostControlPlane, MANAGED_TASK_SCOPE_KEY } from "./move-session"
+import { resetClaimedWorktrees } from "./claimed-worktree"
 
 beforeEach(() => {
+  // Another file's landing tests can arm a claim that leaks into this run;
+  // dispatch checks here must not depend on file order.
+  resetClaimedWorktrees()
   hostControlPlane().bind({
     get: async ({ path }) => ({ data: { id: path?.id, directory: process.cwd(), metadata: { [MANAGED_TASK_SCOPE_KEY]: "managed" } }, response: new Response(null, { status: 200 }) }),
     post: async () => { throw new Error("dispatch does not move the host session") },
@@ -313,6 +317,27 @@ test("production dispatch refuses a session retargeted during core authorization
   } finally {
     fs.rmSync(root, { recursive: true, force: true })
   }
+})
+
+// A session with no armed claimed worktree — including one whose host process
+// restarted after a claim — must dispatch exactly as before the armed-claim
+// check existed. The absence of a record never becomes a refusal.
+test("a session with no armed claimed worktree dispatches exactly as before", async () => {
+  const seen: string[] = []
+  const invoke = async (toolName: string, args: { operation: string }): Promise<unknown> => {
+    const key = `${toolName}.${args.operation}`
+    seen.push(key)
+    if (key === "concord_work_trace.continuity") return continuityEnvelope()
+    if (key === "concord_work_browse.scope") return scopeEnvelope()
+    if (key === "concord_work_transition.workflow_action") return coreOkEnvelope()
+    throw new Error(`unscripted ${key}`)
+  }
+  const windows = new DispatchWindows()
+  const result = await dispatchLaneWorker({ work_id: WORK_ID, expected_version: 3, idempotency_key: "no-armed-claim", lane_id: lane.id }, { context: contextFor(), invoke: invoke as any, credentials: testCredentials, windows })
+  expect(result.outcome).toBe("ok")
+  expect(result.dispatch_state).toBe("awaiting_worker")
+  expect(seen).toContain("concord_work_transition.workflow_action")
+  expect(windows.has("session-1")).toBe(true)
 })
 
 test("unregistered lane refuses before any core invoke or spawn", async () => {

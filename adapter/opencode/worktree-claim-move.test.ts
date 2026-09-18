@@ -11,6 +11,9 @@ import { hostControlPlane } from "./move-session"
 import { moveSessionToClaimedWorktree } from "./concord"
 import { armedClaimedWorktree, clearClaimedWorktree, resetClaimedWorktrees } from "./claimed-worktree"
 import { ensureConductLink } from "./project-link"
+import { createHash } from "node:crypto"
+
+const sha256 = (text: string): string => createHash("sha256").update(text).digest("hex")
 
 const context = (overrides: Partial<Parameters<typeof moveSessionToClaimedWorktree>[1]> = {}) =>
   ({ sessionID: "session-1", messageID: "message-1", abort: new AbortController().signal, directory: "/old", ...overrides }) as Parameters<typeof moveSessionToClaimedWorktree>[1]
@@ -249,6 +252,33 @@ describe("worktree_claim moves the session into the claimed worktree", () => {
       expect(envelope.outcome).toBe("ok")
       const ownership = JSON.parse(await Bun.file("project-link-ownership.json").text()) as { links: Record<string, { action: string; scope: string }> }
       expect(ownership.links[resolve(config)]).toMatchObject({ action: "remove", scope: "worktree" })
+    } finally {
+      await rm(worktree, { recursive: true, force: true })
+    }
+  })
+
+  test("re-adds the conduct entry to a recorded config that lost it and keeps the recorded restore base", async () => {
+    await mkdir("worktrees", { recursive: true })
+    const worktree = await mkdtemp(join("worktrees", "adapter-readopt-"))
+    const config = join(worktree, ".opencode", "opencode.json")
+    try {
+      await mkdir(join(worktree, ".git"))
+      await mkdir(join(worktree, ".opencode"), { recursive: true })
+      const original = '{\n  "theme": "dark"\n}\n'
+      await Bun.write(config, original)
+      await fakeHost({ get: () => ({ status: 200, body: { directory: worktree } }) })
+      expect((await moveSessionToClaimedWorktree(claimArgs(worktree), context(), okEnvelope())).outcome).toBe("ok")
+      const linked = await Bun.file(config).text()
+      await Bun.write(config, '{\n  "theme": "light"\n}\n')
+
+      await ensureConductLink(resolve(worktree), new AbortController().signal)
+
+      const replanned = JSON.parse(await Bun.file(config).text()) as { instructions: string[]; theme: string }
+      expect(replanned.theme).toBe("light")
+      expect(replanned.instructions).toContain("current/instructions/*.md")
+      const ownership = JSON.parse(await Bun.file("project-link-ownership.json").text()) as { links: Record<string, { action: string; expected?: { sha256?: string }; original?: string }> }
+      expect(ownership.links[resolve(config)]).toMatchObject({ action: "restore", original })
+      expect(ownership.links[resolve(config)]?.expected?.sha256).toBe(sha256(linked))
     } finally {
       await rm(worktree, { recursive: true, force: true })
     }

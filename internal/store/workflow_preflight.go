@@ -839,6 +839,20 @@ func preflightWorkflowClaimTx(ctx context.Context, tx *sql.Tx, req ClaimRequest)
 	if err := checkWorkflowLawRevisionStalenessTx(ctx, tx, req.WorkID); err != nil {
 		return err
 	}
+	// Every registered item workflow definition lives under the workflow.*
+	// namespace (validWorkflowRef). A claim naming such a ref claims a step of
+	// the item's own workflow, so its identity and step must match the stored
+	// pin. A claim naming anything else (the compaction publish's
+	// concord.pm6.compaction) is an auxiliary operation layered over the item:
+	// the item's pin already verified above, and the auxiliary claim is not a
+	// step of that workflow, so the identity and current-step equalities do
+	// not apply to it (#204 replaced the namespace guard with an
+	// item-has-workflow-instance guard and dragged auxiliary claims into this
+	// comparison, which refused compaction publish on every workflow-bearing
+	// work item by construction).
+	if !validWorkflowRef(req.WorkflowTypeRef) {
+		return nil
+	}
 	if entry.Definition.Ref != req.WorkflowTypeRef || entry.Definition.Version != int64(req.WorkflowTypeVersion) {
 		return workflowPinFailure("workflow claim identity does not match the stored definition pin")
 	}

@@ -105,6 +105,7 @@ func TestFailureClassificationIsTyped(t *testing.T) {
 		{"auth refused", http.StatusUnauthorized, `{"errors":[{"message":"unauthorized"}]}`, "", KindAuthRefused},
 		{"rate limited", http.StatusTooManyRequests, ``, "7", KindRateLimited},
 		{"rate limited as 400", http.StatusBadRequest, `{"errors":[{"message":"You have exceeded your request quota. RATELIMITED"}]}`, "", KindRateLimited},
+		{"rate limited on HTTP 200", http.StatusOK, `{"errors":[{"message":"Rate limit exceeded. Only 2500 requests are allowed per 1 hour. RATELIMITED"}]}`, "", KindRateLimited},
 		{"graphql error", http.StatusOK, `{"errors":[{"message":"team not found"}]}`, "", KindGraphqlError},
 		{"mutation reported failure", http.StatusOK, `{"data":{"issueCreate":{"success":false}}}`, "", KindGraphqlError},
 		{"error body surfaces", http.StatusBadRequest, `{"errors":[{"message":"an API key is not a Bearer token"}]}`, "", KindGraphqlError},

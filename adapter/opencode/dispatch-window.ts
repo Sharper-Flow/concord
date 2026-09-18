@@ -56,8 +56,19 @@ export class DispatchWindows {
   readonly #settling = new Set<string>()
 
   open(sessionID: string, packet: AgentLanePacket, packetDigest = "", workerDirectory?: string, pinnedWorkerDirectory?: string): void {
-    if (this.#open.has(sessionID) || this.#inFlight.has(sessionID)) {
-      throw new DispatchWindowError(`session ${sessionID} already holds an open dispatch window or an in-flight attempt`)
+    const running = this.#inFlight.get(sessionID)
+    if (running) {
+      // The in-flight refusal names its recovery route. A record that stays
+      // in-flight has no settle left to wait for, and without the named route
+      // an agent that hits this refusal restarts the host instead of closing
+      // the attempt through worker_abandon, whose accepted receipt releases
+      // the retained record.
+      throw new DispatchWindowError(
+        `session ${sessionID} already holds an in-flight dispatch attempt (${running.packet.lane_id} lane, attempt ${running.packet.attempt_id}, work ${running.packet.work_id}) that never settled; close it with concord_work_transition operation worker_abandon naming that work_id, attempt_id, and lane_id, then dispatch again`,
+      )
+    }
+    if (this.#open.has(sessionID)) {
+      throw new DispatchWindowError(`session ${sessionID} already holds an open dispatch window; the next Task call consumes it`)
     }
     // The dispatch path resolves the host-reported directory before
     // authorization. Verify that the same caller path still resolves to that
@@ -104,17 +115,32 @@ export class DispatchWindows {
     return record?.callID === callID ? record : null
   }
 
-  claimSettlement(sessionID: string, callID: string): DispatchRecord | null {
+  // The spawn-failure settle path observes the retained attempt by session
+  // alone: a host session.error names no tool call, and one session holds at
+  // most one attempt.
+  inFlightAttempt(sessionID: string): DispatchRecord | null {
+    return this.#inFlight.get(sessionID) ?? null
+  }
+
+  claimSettlement(sessionID: string, callID?: string): DispatchRecord | null {
     if (this.#settling.has(sessionID)) return null
-    const record = this.inFlight(sessionID, callID)
+    const record = callID === undefined ? this.#inFlight.get(sessionID) ?? null : this.inFlight(sessionID, callID)
     if (!record) return null
     this.#settling.add(sessionID)
     return record
   }
 
-  finishSettlement(sessionID: string, callID: string): void {
-    if (!this.inFlight(sessionID, callID)) return
+  finishSettlement(sessionID: string, callID?: string): void {
+    const record = callID === undefined ? this.#inFlight.get(sessionID) : this.inFlight(sessionID, callID)
+    if (!record) return
     this.#inFlight.delete(sessionID)
+    this.#settling.delete(sessionID)
+  }
+
+  // unclaimSettlement releases a settlement claim without dropping the
+  // retained record, so a refused settlement keeps the record and leaves the
+  // worker_abandon release route live for the coordinator.
+  unclaimSettlement(sessionID: string): void {
     this.#settling.delete(sessionID)
   }
 

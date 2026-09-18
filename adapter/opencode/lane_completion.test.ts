@@ -3,13 +3,14 @@
 // hook is where a finished lane's result reaches completeWorkerAttempt. Without
 // that wire the window opens, the worker runs, and no attempt is recorded, so
 // accept_worker_result refuses with "worker attempt does not exist" (issue #781).
-import { afterAll, describe, expect, test } from "bun:test"
+import { afterAll, afterEach, describe, expect, test } from "bun:test"
 import { configureHostLease } from "./host-lease"
 import ConcordAdapterPlugin from "./concord-plugin"
 import { computeHostPromptProvenance, type AgentLanePacket, type DispatchRunner } from "./dispatch"
 import { DispatchWindows, TASK_TOOL_ID } from "./dispatch-window"
 import { agentLanes } from "./generated-agent-lanes"
 import { completeDispatchedWorker, failDispatchedWorker, type LaneCompletionDeps } from "./lane_completion"
+import { hostControlPlane, SESSION_LIST_ROUTE } from "./move-session"
 import type { CredentialStore } from "./credentials"
 
 const testCredentials: CredentialStore = { async getPrivateKey() { return new Uint8Array(32).fill(7) } }
@@ -503,6 +504,116 @@ describe("host task failure", () => {
     expect(verbs).toEqual(["worker-dispatch"])
     expect(windows.inFlight(SESSION, "call-cancel")).not.toBeNull()
     expect(() => windows.open(SESSION, packet(), PACKET_DIGEST, process.cwd())).toThrow()
+  })
+})
+
+// A spawn that dies before any result or error part fires neither the
+// completion hook nor an error part: the host publishes session.error on the
+// parent session and leaves the tool part running. That event is the settle
+// trigger, and the abandonment route is the settle path because the record
+// names no child session.
+describe("spawn failure without a part event", () => {
+  afterEach(() => hostControlPlane().bind(undefined))
+
+  const spawnFailureEvent = (sessionID = SESSION, error: unknown = { name: "UnknownAgentError", data: { message: 'Agent not found: "concord-verify"' } }) => ({
+    type: "session.error",
+    properties: { sessionID, error },
+  })
+
+  const bindSessionList = (status = 200) => {
+    hostControlPlane().bind({
+      post: async () => ({ response: new Response(null, { status: 404 }) }),
+      get: async ({ url }) => {
+        if (url !== SESSION_LIST_ROUTE) return { response: new Response(null, { status: 404 }) }
+        if (status !== 200) return { response: new Response("host is unwell", { status }) }
+        return { data: [{ id: "ses_other", directory: "/somewhere/else" }], response: new Response(null, { status: 200 }) }
+      },
+    })
+  }
+
+  const withInFlightAttempt = async (windows: DispatchWindows, callID: string) => {
+    windows.open(SESSION, packet(), PACKET_DIGEST, process.cwd())
+    await windows.bind(TASK_TOOL_ID, SESSION, {}, callID, async () => process.cwd())
+  }
+
+  test("settles the attempt by abandonment and releases the session", async () => {
+    bindSessionList()
+    const windows = new DispatchWindows()
+    await withInFlightAttempt(windows, "call-spawn")
+    const verbs: string[] = []
+    let abandonInput: Record<string, unknown> | undefined
+    const options = deps(verbs, windows)
+    options.evidenceRunner = { async run(argv, raw) {
+      verbs.push(argv[1])
+      if (argv[1] === "worker-abandon") {
+        abandonInput = JSON.parse(raw) as Record<string, unknown>
+        expect((abandonInput.assertion as Record<string, unknown>).failure_kind).toBe("abandoned")
+        expect((abandonInput.assertion as Record<string, unknown>).readback_model).toBe("")
+        expect(abandonInput.detail).toContain("spawn failed before any result or error part")
+        expect(abandonInput.detail).toContain('Agent not found: "concord-verify"')
+      }
+      return { exitCode: 0, stdout: "", stderr: "" }
+    } }
+    const result = await failDispatchedWorker(spawnFailureEvent(), options)
+    expect(verbs).toEqual(["worker-abandon"])
+    expect(result?.error?.retry_safe).toBe(false)
+    expect(result?.error?.message).toContain("spawn failed before any result or error part")
+    expect(windows.inFlightAttempt(SESSION)).toBeNull()
+    expect(() => windows.open(SESSION, packet(), PACKET_DIGEST, process.cwd())).not.toThrow()
+    windows.close(SESSION)
+  })
+
+  test("a refused abandonment records why and keeps the release route live", async () => {
+    bindSessionList()
+    const windows = new DispatchWindows()
+    await withInFlightAttempt(windows, "call-spawn")
+    const verbs: string[] = []
+    const options = deps(verbs, windows)
+    options.runner = { async run() { return { exitCode: 1, stdout: "", stderr: "write unavailable" } } }
+    const result = await failDispatchedWorker(spawnFailureEvent(), options)
+    expect(result?.error?.message).toContain("worker attempt remains open because abandonment could not be recorded")
+    expect(windows.inFlightAttempt(SESSION)).not.toBeNull()
+    // The settlement claim released with the record retained, so the named
+    // worker_abandon route still releases the retained attempt.
+    expect(windows.releaseRetained(SESSION, packet().attempt_id, lane.id)).toBe(true)
+    expect(() => windows.open(SESSION, packet(), PACKET_DIGEST, process.cwd())).not.toThrow()
+    windows.close(SESSION)
+  })
+
+  test("unreadable host liveness retains the attempt with the recorded reason", async () => {
+    bindSessionList(500)
+    const windows = new DispatchWindows()
+    await withInFlightAttempt(windows, "call-spawn")
+    const verbs: string[] = []
+    const result = await failDispatchedWorker(spawnFailureEvent(), deps(verbs, windows))
+    expect(verbs).toEqual([])
+    expect(result?.error?.message).toContain("live host sessions could not be observed")
+    expect(windows.inFlightAttempt(SESSION)).not.toBeNull()
+    expect(windows.releaseRetained(SESSION, packet().attempt_id, lane.id)).toBe(true)
+    windows.close(SESSION)
+  })
+
+  test("a session with no in-flight attempt is ignored", async () => {
+    bindSessionList()
+    const windows = new DispatchWindows()
+    const verbs: string[] = []
+    const result = await failDispatchedWorker(spawnFailureEvent(), deps(verbs, windows))
+    expect(result).toBeNull()
+    expect(verbs).toEqual([])
+  })
+
+  // An aborted worker is cancellation, not a spawn failure: the host moves the
+  // tool part to an error state and the part-event path settles it with the
+  // child session identity.
+  test("an aborted spawn is left to the part-event path", async () => {
+    bindSessionList()
+    const windows = new DispatchWindows()
+    await withInFlightAttempt(windows, "call-spawn")
+    const verbs: string[] = []
+    const result = await failDispatchedWorker(spawnFailureEvent(SESSION, { name: "MessageAbortedError" }), deps(verbs, windows))
+    expect(result).toBeNull()
+    expect(verbs).toEqual([])
+    expect(windows.inFlightAttempt(SESSION)).not.toBeNull()
   })
 })
 

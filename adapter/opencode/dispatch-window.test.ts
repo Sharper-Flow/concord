@@ -82,6 +82,28 @@ describe("dispatch authorization window", () => {
     expect(() => windows.open("session-a", packet, "", process.cwd())).toThrow(/already holds an open dispatch/i)
   })
 
+  // The in-flight refusal is the wedge an agent cannot cross: the record has
+  // no settle left to wait for, so the refusal must carry the route that
+  // closes the attempt and releases the retained record.
+  test("the in-flight refusal names the worker_abandon route and the retained identity", async () => {
+    const windows = new DispatchWindows()
+    windows.open("session-a", packet, "", process.cwd())
+    await windows.bind(TASK_TOOL_ID, "session-a", { subagent_type: "x", prompt: "y", description: "z" }, "call-1", here)
+    const refusal = (() => {
+      try {
+        windows.open("session-a", packet, "", process.cwd())
+        return ""
+      } catch (error) {
+        return error instanceof Error ? error.message : String(error)
+      }
+    })()
+    expect(refusal).toContain("worker_abandon")
+    expect(refusal).toContain("attempt-1")
+    expect(refusal).toContain("implement")
+    expect(refusal).toContain("work-1")
+    expect(refusal).toContain("session-a")
+  })
+
   test("refuses to resume a prior worker session", async () => {
     const windows = new DispatchWindows()
     windows.open("session-a", packet, "", process.cwd())

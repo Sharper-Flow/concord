@@ -679,10 +679,16 @@ func foldWorkflowOverlapResolved(ctx context.Context, tx *sql.Tx, event Event) e
 	if err := decodeWorkflowPayload(event, &payload); err != nil {
 		return err
 	}
+	// A depends_on resolution records pure sequencing: the declarer waits,
+	// the peer proceeds, and no other item's admission changes, so it is the
+	// one kind the fold accepts without an operator approval reference.
+	// Every other kind changes another item's admission or identity and
+	// requires the approval the plan layer demands.
+	approvalRequired := payload.ResolutionKind != ResolutionDependsOn
 	if err := workflowBase(event, payload.WorkflowVersionFields); err != nil {
 		return err
 	}
-	if payload.ToWorkID == "" || payload.ToWorkID == event.SubjectID || payload.ExpectedVersion == nil || payload.ResultingVersion == nil || payload.FromContractVersion <= 0 || payload.ToContractVersion <= 0 || payload.ToExpectedVersion <= 0 || payload.ToResultingVersion != payload.ToExpectedVersion+1 || payload.ResolutionKind == "" || !validateWorkflowOverlapResolutionKind(payload.ResolutionKind) || !workflowString(payload.Reason, 4096) || payload.ApprovalRef == "" {
+	if payload.ToWorkID == "" || payload.ToWorkID == event.SubjectID || payload.ExpectedVersion == nil || payload.ResultingVersion == nil || payload.FromContractVersion <= 0 || payload.ToContractVersion <= 0 || payload.ToExpectedVersion <= 0 || payload.ToResultingVersion != payload.ToExpectedVersion+1 || payload.ResolutionKind == "" || !validateWorkflowOverlapResolutionKind(payload.ResolutionKind) || !workflowString(payload.Reason, 4096) || (approvalRequired && payload.ApprovalRef == "") {
 		return overlapResolutionFailure("overlap resolution has invalid endpoint, version, kind, or reason")
 	}
 	fromExpected, fromResulting := *payload.ExpectedVersion, *payload.ResultingVersion

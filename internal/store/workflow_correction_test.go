@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/sharper-flow/concord/internal/payloadschema"
 )
 
 func TestSameWorkflowCorrectionIncludesFailureDetails(t *testing.T) {
@@ -229,6 +231,11 @@ func TestRejectWorkerResultRecordsCorrectionContext(t *testing.T) {
 	}
 	if pin.Correction == nil || pin.Correction.Disposition != "rejected" || pin.Correction.Diagnosis != "the result misses the boundary case" {
 		t.Fatalf("correction pin = %#v, want the recorded rejection context", pin.Correction)
+	}
+	if marshaled, marshalErr := json.Marshal(pin); marshalErr != nil {
+		t.Fatal(marshalErr)
+	} else if validErr := payloadschema.Validate("work_pin", marshaled); validErr != nil {
+		t.Fatalf("clean reject work pin does not satisfy the closed response schema: %v", validErr)
 	}
 	_, correctionAction, err := WorkflowActionDefinitionFor(ctx, s, BuiltinWorkflowRegistry(), workID, "supersede_contract")
 	if err != nil {
@@ -541,4 +548,77 @@ func issue1013HasIntent(pin WorkPin, actionID string) bool {
 		}
 	}
 	return false
+}
+
+// The fold must refuse correction refs the response schema cannot carry:
+// the correction pin serializes predicate_ids as ids (no slashes) and
+// evidence_refs as whitespace-free references. Input rules and fold checks
+// accept values those types forbid, so a reject can commit and then fail
+// its own closed response schema, which the caller sees as a
+// malformed_response after the effect.
+func TestRejectWorkerResultRefusesSchemaBreakingCorrectionRefs(t *testing.T) {
+	const workID = "reject-correction-refs-charset"
+	s, _, owner, attemptID := seedCompletedWorkerAtExecution(t, workID)
+	ownerRef, err := WorkflowActorRef(owner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class) VALUES(?,1,'rejected worker contract','internal_sqlite','["verification"]','[]','now',?,'[]','[]',1,'prototype_internal'); INSERT INTO workflow_contract_predicates(work_id,contract_version,predicate_id,ordinal,outcome_kind,outcome_payload) VALUES(?,1,'predicate:primary',0,'check','{"kind":"check","check_ref":"check:workflow","immutable_subject_ref":"commit:old","expected_result":"pass"}'); DELETE FROM fold_guard`, workID, ownerRef, workID); err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := enterFold(ctx, tx); err != nil {
+		tx.Rollback()
+		t.Fatal(err)
+	}
+	_, err = applyWorkflowActionRawTx(ctx, tx, BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
+		WorkID: workID, ExpectedVersion: 10, ActionID: "reject_worker_result", Payload: mustJSONValue(map[string]any{
+			"attempt_id": attemptID, "attempt_epoch": 1, "diagnosis": "the result misses the boundary case", "strategy": "change the helper and add a test",
+			"predicate_ids": []string{"predicate:primary/slash"}, "evidence_refs": []string{"evidence:review"},
+		}), Actor: owner, EvidenceRefs: []string{"evidence:mutation envelope locator with spaces and a length far beyond the one hundred twenty eight byte response bound"},
+		AcceptedInputsDigest: "sha256:" + strings.Repeat("f", 64), IdempotencyIdentity: "rejectcharset:" + workID, OperationID: "rejectcharset:" + workID,
+		PrincipalRef: owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "rejectcharset:" + workID, RequestID: "request:rejectcharset:" + workID, ContractDigest: testManifestDigest, Now: time.Unix(4, 0).UTC(),
+	})
+	_ = leaveFold(ctx, tx)
+	if err == nil {
+		err = tx.Commit()
+		if err != nil {
+			t.Fatal(err)
+		}
+		pin, pinErr := ReadWorkPin(ctx, s, workID)
+		if pinErr != nil {
+			t.Fatal(pinErr)
+		}
+		if pin.Correction == nil {
+			t.Fatal("fold accepted the reject but the pin carries no correction context")
+		}
+		marshaled, marshalErr := json.Marshal(pin)
+		if marshalErr != nil {
+			t.Fatal(marshalErr)
+		}
+		if validErr := payloadschema.Validate("work_pin", marshaled); validErr != nil {
+			t.Fatalf("fold committed a reject whose work pin fails the closed response schema (caller sees malformed_response): %v", validErr)
+		}
+		t.Fatal("fold accepted correction values without any schema disagreement to report")
+	}
+	tx.Rollback()
+	var failure *Failure
+	if !errors.As(err, &failure) || failure.Kind != KindInvalidPayload || !strings.Contains(failure.Detail, "correction") {
+		t.Fatalf("reject failure=%v, want an invalid-payload refusal naming the correction values", err)
+	}
+}
+
+// The declared payload gate is the input surface that names the field: a
+// predicate id outside the id charset must be refused by the payload
+// declaration itself, before any correction-specific check runs.
+func TestRejectPayloadDeclarationRefusesNonIDPredicateID(t *testing.T) {
+	err := validateWorkflowActionPayload(WorkflowDefinition{}, "reject_worker_result", json.RawMessage(`{"predicate_ids":["predicate:primary/slash"]}`))
+	var failure *Failure
+	if !errors.As(err, &failure) || failure.Kind != KindInvalidPayload || !strings.Contains(failure.Detail, `"predicate_ids"`) {
+		t.Fatalf("payload gate failure=%v, want an invalid-payload refusal naming predicate_ids", err)
+	}
 }

@@ -9681,7 +9681,7 @@ const GeneratedPayloadSchemaDocument = `{
                   },
                   "predicate_ids": {
                     "items": {
-                      "$ref": "#/$defs/reference"
+                      "$ref": "#/$defs/id"
                     },
                     "maxItems": 8,
                     "minItems": 1,

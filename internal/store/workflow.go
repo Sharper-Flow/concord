@@ -12,6 +12,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/sharper-flow/concord/internal/payloadschema"
 )
 
 // Workflow event names are deliberately closed. Adding one is a contract change.
@@ -1698,7 +1700,54 @@ func validateWorkflowActionCompletedShape(p workflowActionCompletedPayload) erro
 	if (p.ActionID == "reject_worker_result" || p.ActionID == "request_correction") && (!workflowString(p.CorrectionDiagnosis, 4096) || !workflowString(p.CorrectionStrategy, 4096) || !workflowList(p.CorrectionPredicateIDs, 8, 1) || !workflowList(p.CorrectionEvidenceRefs, 32, 1)) {
 		return newFailure(KindInvalidPayload, "fold_event", "rejected worker result has incomplete correction fields", false, "supply diagnosis, strategy, predicate IDs, and evidence references")
 	}
+	// The fold is the last line before a reject commits. The correction pin
+	// serializes predicate ids with the generated id rules and evidence refs
+	// with the generated reference rules, so a reject carrying a value
+	// outside either type would fail its own closed response schema after
+	// the effect, which the caller reads as a malformed response.
+	if p.ActionID == "reject_worker_result" {
+		if fault := workflowCorrectionSchemaValuesFault(p.CorrectionPredicateIDs, p.CorrectionEvidenceRefs, p.ResultEvidenceRefs); fault != "" {
+			return newFailure(KindInvalidPayload, "fold_event", "rejected worker result carries correction values the closed response schema cannot represent: "+fault, false, "supply correction values the closed work_pin response schema accepts")
+		}
+	}
 	return nil
+}
+
+// workflowCorrectionID reports whether one correction predicate id fits the
+// generated id schema the correction pin serializes.
+func workflowCorrectionID(value string) bool {
+	raw, err := json.Marshal(value)
+	return err == nil && payloadschema.Validate("id", raw) == nil
+}
+
+// workflowCorrectionRef reports whether one reference destined for the
+// correction pin fits the generated reference schema: whitespace-free and at
+// most 128 bytes.
+func workflowCorrectionRef(value string) bool {
+	raw, err := json.Marshal(value)
+	return err == nil && payloadschema.Validate("reference", raw) == nil
+}
+
+// workflowCorrectionSchemaValuesFault returns the first correction value the
+// closed work_pin response schema cannot represent, or the empty string when
+// every value fits.
+func workflowCorrectionSchemaValuesFault(predicateIDs, correctionRefs, resultRefs []string) string {
+	for _, id := range predicateIDs {
+		if !workflowCorrectionID(id) {
+			return "correction_predicate_ids entry " + workflowRefExcerpt(id)
+		}
+	}
+	for _, ref := range correctionRefs {
+		if !workflowCorrectionRef(ref) {
+			return "correction_evidence_refs entry " + workflowRefExcerpt(ref)
+		}
+	}
+	for _, ref := range resultRefs {
+		if !workflowCorrectionRef(ref) {
+			return "result_evidence_refs entry " + workflowRefExcerpt(ref)
+		}
+	}
+	return ""
 }
 
 // admitWorkflowActionOffStep decides whether an action the pinned step does

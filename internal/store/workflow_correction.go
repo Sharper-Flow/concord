@@ -105,14 +105,26 @@ func validateFailedWorkerRetryIdentity(ctx context.Context, q queryer, workID, c
 }
 
 func workflowCorrectionActionDefinition() WorkflowActionDefinition {
-	return WorkflowActionDefinition{
-		ID: "reject_worker_result", Consequence: ActionInternalSQLite, Approval: ActionApprovalNone, ExecutionMode: ActionHold, RequiredCapability: "work_transition",
-		Payload: WorkflowPayloadDefinition{Closed: true, Fields: []WorkflowPayloadField{
-			{Name: "attempt_id", ValueType: PayloadRef, Required: true, MinLength: workflowInt(2), MaxLength: workflowInt(128)},
-			{Name: "attempt_epoch", ValueType: PayloadInteger, Required: true, Minimum: workflowInt(1), Maximum: workflowInt(2147483647)},
-			actionStringField("diagnosis", true, 4096), actionStringField("strategy", true, 4096), actionListField("predicate_ids", true, 1, 8), actionListField("evidence_refs", true, 1, 32),
-		}},
+	action := currentActionDefinition("reject_worker_result", true)
+	action.RequiredCapability = "work_transition"
+	return action
+}
+
+// validateRejectCorrectionPinValues refuses a reject whose correction values
+// the closed response schema cannot represent. The request-level evidence
+// refs are not payload fields, so the payload declaration alone cannot cover
+// every value the correction pin will carry; the apply boundary checks the
+// full set here before any effect is recorded.
+func validateRejectCorrectionPinValues(payload json.RawMessage, evidenceRefs []string) error {
+	fields, err := workflowActionObject(payload)
+	if err != nil {
+		return err
 	}
+	fault := workflowCorrectionSchemaValuesFault(workflowFieldStrings(fields, "predicate_ids"), workflowFieldStrings(fields, "evidence_refs"), evidenceRefs)
+	if fault == "" {
+		return nil
+	}
+	return newFailure(KindInvalidPayload, "workflow_action", "reject_worker_result carries correction values the closed response schema cannot represent: "+fault, false, "supply correction values the closed work_pin response schema accepts")
 }
 
 func workflowCorrectionRequestActionDefinition() WorkflowActionDefinition {

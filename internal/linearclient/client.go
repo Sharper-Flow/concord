@@ -279,7 +279,16 @@ func (c *Client) call(ctx context.Context, query string, variables map[string]an
 		for _, item := range envelope.Errors {
 			messages = append(messages, item.Message)
 		}
-		return &Failure{Kind: KindGraphqlError, Detail: strings.Join(messages, "; ")}
+		detail := strings.Join(messages, "; ")
+		// Linear reports rate limiting as HTTP 400 with a RATELIMITED
+		// extension code and also as a GraphQL error on an otherwise
+		// successful HTTP 200. Both shapes answer the same refusal.
+		for _, item := range envelope.Errors {
+			if strings.Contains(strings.ToUpper(item.Message), "RATELIMITED") {
+				return &Failure{Kind: KindRateLimited, Detail: detail}
+			}
+		}
+		return &Failure{Kind: KindGraphqlError, Detail: detail}
 	}
 	if err := json.Unmarshal(envelope.Data, into); err != nil {
 		return &Failure{Kind: KindMalformedResponse, Detail: "response data does not match the expected shape"}

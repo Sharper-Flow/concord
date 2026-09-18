@@ -1274,19 +1274,37 @@ func linearCompletionFailureClass(err error) string {
 	return "permanent"
 }
 
+// linearLinkRefreshInterval bounds how often one confirmed link's identity is
+// re-checked against Linear. Linear allows 2500 requests per hour; an
+// interval-aligned sweep costs about one request per link per hour, so the
+// sweep stays a small fraction of the quota however often the drain runs.
+const linearLinkRefreshInterval = time.Hour
+
 func refreshLinearLinkIdentities(ctx context.Context, s *store.Store, client *linearclient.Client, productID string) []linearLinkRefreshResult {
-	links, err := s.ReadConfirmedLinearLinksForProduct(ctx, productID)
+	staleBefore := time.Now().UTC().Add(-linearLinkRefreshInterval).Format(time.RFC3339Nano)
+	links, err := s.ReadConfirmedLinearLinksForProduct(ctx, productID, staleBefore)
 	if err != nil {
 		return []linearLinkRefreshResult{{Outcome: "failed", Detail: err.Error()}}
 	}
 	results := make([]linearLinkRefreshResult, 0, len(links))
-	for _, link := range links {
+	for i, link := range links {
 		result := linearLinkRefreshResult{WorkID: link.WorkID, RemoteIssueUUID: link.RemoteIssueUUID}
 		issue, err := client.GetIssue(ctx, link.RemoteIssueUUID)
 		if err != nil {
 			result.Outcome = "failed"
 			result.Detail = err.Error()
 			results = append(results, result)
+			// A rate-limit refusal answers for every request this sweep would
+			// make next. Spending more of the drained quota on the same
+			// refusal cannot refresh a link, so the sweep stops and the links
+			// it never attempted report skipped.
+			var failure *linearclient.Failure
+			if errors.As(err, &failure) && failure.Kind == linearclient.KindRateLimited {
+				for _, remaining := range links[i+1:] {
+					results = append(results, linearLinkRefreshResult{WorkID: remaining.WorkID, RemoteIssueUUID: remaining.RemoteIssueUUID, Outcome: "skipped", Detail: "Linear rate limit reached; refresh deferred to a later drain"})
+				}
+				return results
+			}
 			continue
 		}
 		if issue.ID != link.RemoteIssueUUID {
@@ -1296,6 +1314,12 @@ func refreshLinearLinkIdentities(ctx context.Context, s *store.Store, client *li
 			continue
 		}
 		if issue.Identifier == link.HumanKey && issue.URL == link.URL {
+			if err := s.MarkLinearLinkRefreshed(ctx, link.WorkID); err != nil {
+				result.Outcome = "failed"
+				result.Detail = err.Error()
+				results = append(results, result)
+				continue
+			}
 			result.Outcome = "unchanged"
 			results = append(results, result)
 			continue

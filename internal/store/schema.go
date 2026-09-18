@@ -4706,6 +4706,17 @@ CREATE TRIGGER workflow_overlap_resolutions_guard_delete BEFORE DELETE ON workfl
 DELETE FROM fold_guard;
 `,
 	},
+	{
+		// The drain's link-refresh sweep is bounded by a refresh interval:
+		// a link whose identity was checked inside the interval is not
+		// checked again, so a drain's Linear cost stops scaling with the
+		// Product's total link count. Existing rows carry no check time and
+		// read as never checked, so the first drain after this migration
+		// checks every confirmed link once and stamps the column.
+		Version: 92,
+		Name:    "linear_issue_links_refresh_interval",
+		SQL:     `ALTER TABLE linear_issue_links ADD COLUMN refreshed_at TEXT NOT NULL DEFAULT '';`,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any

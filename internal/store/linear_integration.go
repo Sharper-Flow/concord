@@ -796,25 +796,26 @@ func (s *Store) ReadLinearLink(ctx context.Context, workID string) (LinearIssueL
 }
 
 // ReadConfirmedLinearLinksForProduct returns the confirmed issue links whose
-// work items belong to the Product through any project membership.
-func (s *Store) ReadConfirmedLinearLinksForProduct(ctx context.Context, productID string) ([]LinearIssueLink, error) {
+// work items belong to the Product through any project membership and whose
+// last identity check is older than staleBefore (or was never recorded).
+func (s *Store) ReadConfirmedLinearLinksForProduct(ctx context.Context, productID, staleBefore string) ([]LinearIssueLink, error) {
 	if _, err := readProductPlanningModeCore(ctx, s.db, productID); err != nil {
 		return nil, err
 	}
-	return readConfirmedLinearLinksForProductCore(ctx, s.db, productID)
+	return readConfirmedLinearLinksForProductCore(ctx, s.db, productID, staleBefore)
 }
 
-func readConfirmedLinearLinksForProductCore(ctx context.Context, q queryer, productID string) ([]LinearIssueLink, error) {
+func readConfirmedLinearLinksForProductCore(ctx context.Context, q queryer, productID, staleBefore string) ([]LinearIssueLink, error) {
 	rows, err := q.QueryContext(ctx, `
 SELECT l.work_id, l.remote_issue_uuid, l.human_key, l.url, l.link_state, l.content_hash
 FROM linear_issue_links l
-WHERE l.link_state=? AND EXISTS (
+WHERE l.link_state=? AND (l.refreshed_at='' OR l.refreshed_at<?) AND EXISTS (
 	SELECT 1
 	FROM work_projects wp
 	JOIN product_projects pp ON pp.project_id=wp.project_id
 	WHERE wp.work_id=l.work_id AND pp.product_id=?
 )
-ORDER BY l.work_id`, LinearLinkConfirmed, productID)
+ORDER BY l.work_id`, LinearLinkConfirmed, staleBefore, productID)
 	if err != nil {
 		return nil, wrapFailure(KindUnavailable, "linear_link_identity_refresh", "cannot read confirmed Linear links", true, "retry once the database is readable", err)
 	}
@@ -834,8 +835,9 @@ ORDER BY l.work_id`, LinearLinkConfirmed, productID)
 }
 
 // RefreshConfirmedLinearLink rewrites only the presentation identity on a
-// confirmed link. The remote timestamp and synchronized content hash stay
-// unchanged because this operation does not reconcile remote content.
+// confirmed link and records that the identity was checked now. The remote
+// timestamp and synchronized content hash stay unchanged because this
+// operation does not reconcile remote content.
 func (s *Store) RefreshConfirmedLinearLink(ctx context.Context, workID, humanKey, url string) error {
 	if len(workID) < 2 || len(workID) > 128 {
 		return newFailure(KindInvalidPayload, "linear_link_identity_refresh", "work id must be 2 to 128 characters", false, "supply a bounded work id")
@@ -865,7 +867,8 @@ func (s *Store) RefreshConfirmedLinearLink(ctx context.Context, workID, humanKey
 	if state != LinearLinkConfirmed {
 		return newFailure(KindInvalidTransition, "linear_link_identity_refresh", "only a confirmed link can refresh its Linear identity", false, "wait for the linked issue operation to complete")
 	}
-	result, err := tx.ExecContext(ctx, `UPDATE linear_issue_links SET human_key=?, url=?, updated_at=? WHERE work_id=? AND link_state=?`, humanKey, url, s.now().UTC().Format(time.RFC3339Nano), workID, LinearLinkConfirmed)
+	checkedAt := s.now().UTC().Format(time.RFC3339Nano)
+	result, err := tx.ExecContext(ctx, `UPDATE linear_issue_links SET human_key=?, url=?, refreshed_at=?, updated_at=? WHERE work_id=? AND link_state=?`, humanKey, url, checkedAt, checkedAt, workID, LinearLinkConfirmed)
 	if err != nil {
 		return wrapFailure(KindUnavailable, "linear_link_identity_refresh", "cannot refresh Linear link identity", true, "retry once the database is writable", err)
 	}
@@ -879,6 +882,39 @@ func (s *Store) RefreshConfirmedLinearLink(ctx context.Context, workID, humanKey
 	}
 	if err := tx.Commit(); err != nil {
 		return wrapFailure(KindUnavailable, "linear_link_identity_refresh", "cannot commit Linear link identity refresh", true, "retry once the database is writable", err)
+	}
+	return nil
+}
+
+// MarkLinearLinkRefreshed records that a confirmed link's Linear identity was
+// checked now and matched, so the refresh interval can skip it until it is
+// due again. The identity itself is unchanged and stays untouched.
+func (s *Store) MarkLinearLinkRefreshed(ctx context.Context, workID string) error {
+	if len(workID) < 2 || len(workID) > 128 {
+		return newFailure(KindInvalidPayload, "linear_link_identity_refresh", "work id must be 2 to 128 characters", false, "supply a bounded work id")
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return wrapFailure(KindUnavailable, "linear_link_identity_refresh", "cannot open link refresh transaction", true, "retry once the database is writable", err)
+	}
+	defer tx.Rollback()
+	if err := enterFold(ctx, tx); err != nil {
+		return err
+	}
+	result, err := tx.ExecContext(ctx, `UPDATE linear_issue_links SET refreshed_at=? WHERE work_id=? AND link_state=?`, s.now().UTC().Format(time.RFC3339Nano), workID, LinearLinkConfirmed)
+	if err != nil {
+		return wrapFailure(KindUnavailable, "linear_link_identity_refresh", "cannot record Linear link identity check", true, "retry once the database is writable", err)
+	}
+	if affected, err := result.RowsAffected(); err != nil {
+		return wrapFailure(KindUnavailable, "linear_link_identity_refresh", "cannot verify Linear link identity check", true, "retry once the database is readable", err)
+	} else if affected != 1 {
+		return newFailure(KindInvalidTransition, "linear_link_identity_refresh", "confirmed Linear link disappeared during refresh", false, "reload the confirmed Linear links")
+	}
+	if err := leaveFold(ctx, tx); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return wrapFailure(KindUnavailable, "linear_link_identity_refresh", "cannot commit Linear link identity check", true, "retry once the database is writable", err)
 	}
 	return nil
 }

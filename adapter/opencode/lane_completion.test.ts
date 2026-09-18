@@ -445,6 +445,8 @@ describe("host task failure", () => {
     expect(verbs).toEqual(["worker-dispatch"])
     expect(windows.inFlight(SESSION, "call-cancel")).not.toBeNull()
     expect(() => windows.open(SESSION, packet(), PACKET_DIGEST, process.cwd())).toThrow()
+    // The attempt is mid-settlement, so the release route refuses it too.
+    expect(windows.releaseRetained(SESSION, packet().attempt_id, lane.id)).toBe(false)
   })
 
   test("foreign calls and unbound sessions cannot consume an attempt", async () => {
@@ -468,6 +470,11 @@ describe("host task failure", () => {
     expect(verbs).toEqual([])
     expect(result?.error?.recovery_action).toBe("reconcile_operation")
     expect(() => windows.open(SESSION, packet(), PACKET_DIGEST, process.cwd())).toThrow()
+    // The refused abandonment names the reconcile route, and the retained
+    // record releases only to that attempt's identity.
+    expect(windows.releaseRetained(SESSION, "attempt-other", lane.id)).toBe(false)
+    expect(windows.releaseRetained(SESSION, packet().attempt_id, lane.id)).toBe(true)
+    expect(() => windows.open(SESSION, packet(), PACKET_DIGEST, process.cwd())).not.toThrow()
   })
 
   test("a substituted executor still fails identity verification", async () => {

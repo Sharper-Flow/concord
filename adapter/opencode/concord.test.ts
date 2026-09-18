@@ -5,6 +5,7 @@ import { join } from "node:path"
 import { tmpdir } from "node:os"
 import { contractOperations, hostToolSchemas, manifestDigest, payloadSchemas } from "./generated-contracts"
 import { configureCoreBinary } from "./dispatch"
+import { dispatchWindows, TASK_TOOL_ID } from "./dispatch-window"
 import { claimHostLease, configureHostLease } from "./host-lease"
 import { validateGeneratedEnvelope, envelopeFailurePath } from "./generated-contract-tests"
 import { hostControlPlane, SESSION_LIST_ROUTE, SESSION_ROUTE, SHOW_TOAST_ROUTE } from "./move-session"
@@ -1993,6 +1994,51 @@ test("worker_abandon routes through the signed worker-abandon command", async ()
   expect(calls[0].input.assertion).toMatchObject({ verb: "worker-fail", failure_kind: "abandoned", readback_model: "" })
   expect(typeof calls[0].input.assertion.signature).toBe("string")
   expect(calls.map(({ argv }) => argv[1])).toEqual(["worker-abandon", "project-resolve", "invoke"])
+})
+
+// The spawn-failure wedge: a terminal Task error with no child session identity
+// retains the in-flight record, and no clearing path can consume it. The
+// abandoned-attempt receipt is the named reconciliation route, so an ok abandon
+// must release the retained record and both an abandon accepted now and a
+// replay answered already terminal must land there.
+test("an ok worker_abandon releases the session's retained in-flight record", async () => {
+  bindSessionRoutes({ sessions: [{ id: "ses_other", directory: "/elsewhere" }] })
+  const windows = dispatchWindows()
+  // The suite shares one window registry across files, so this test owns a
+  // session identity no other test touches.
+  const context = { ...contextFor(), sessionID: "session-abandon-release" }
+  const retained = {
+    schema_version: "1.0" as const,
+    attempt_id: "attempt-1",
+    lane_id: "implement",
+    lane_version: 1,
+    lane_digest: "sha256:" + "a".repeat(64),
+    work_id: "work-1",
+    step_id: "repair",
+    inputs: { task: "do the bounded thing", context: "", constraints: [] },
+  }
+  windows.open(context.sessionID, retained, "sha256:" + "c".repeat(64), process.cwd())
+  await windows.bind(TASK_TOOL_ID, context.sessionID, { subagent_type: "x", prompt: "y", description: "z" }, "call-cancel", async () => process.cwd())
+  expect(windows.inFlight(context.sessionID, "call-cancel")).not.toBeNull()
+  adapter.configureConcordAdapter({
+    credentials: { async getPrivateKey() { return new Uint8Array(32).fill(7) } },
+    runner: { async run(argv) {
+      if (argv[1] === "project-resolve") return { exitCode: 0, stdout: JSON.stringify(contextResponse()), stderr: "" }
+      if (argv[1] === "invoke") return { exitCode: 0, stdout: JSON.stringify(coreEnvelope("concord_work_transition", "worker_abandon", "ok", { result: { changed_refs: [], next_valid_intents: [] }, changed_refs: [], next_valid_intents: [] })), stderr: "" }
+      return { exitCode: 0, stdout: "", stderr: "" }
+    } },
+  })
+  const input = { work_id: "work-1", attempt_id: "attempt-1", lane_id: "implement", detail: "the host never spawned the worker", idempotency_key: "worker-abandon-release-1" }
+  const accepted: any = await rawHostResult(adapter.work_transition.execute(hostCall("worker_abandon", input), context))
+  expect(accepted.outcome).toBe("ok")
+  expect(windows.inFlight(context.sessionID, "call-cancel")).toBeNull()
+  // The recovered session dispatches again without a host restart.
+  expect(() => windows.open(context.sessionID, retained, "", process.cwd())).not.toThrow()
+  windows.close(context.sessionID)
+  // A replay of the same abandon is answered already terminal and stays ok.
+  const replayed: any = await rawHostResult(adapter.work_transition.execute(hostCall("worker_abandon", input), context))
+  expect(replayed.outcome).toBe("ok")
+  expect(windows.has(context.sessionID)).toBe(false)
 })
 
 test("portable continuation posture leaves host protocol names to the host surface", () => {

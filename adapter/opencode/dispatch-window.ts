@@ -118,6 +118,22 @@ export class DispatchWindows {
     this.#settling.delete(sessionID)
   }
 
+  // releaseRetained is the reconciliation route a retained authorization
+  // names: the coordinator abandons the unrecorded attempt, and the retained
+  // record drops so the session can dispatch again without a host restart.
+  // The drop requires the caller to name the exact attempt identity the
+  // record holds, and requires no settlement to be in progress, so a foreign
+  // identity or a settling attempt leaves the retention guard exactly as it
+  // was.
+  releaseRetained(sessionID: string, attemptID: string, laneID: string): boolean {
+    if (this.#settling.has(sessionID)) return false
+    const record = this.#inFlight.get(sessionID)
+    if (!record) return false
+    if (record.packet.attempt_id !== attemptID || record.packet.lane_id !== laneID) return false
+    this.#inFlight.delete(sessionID)
+    return true
+  }
+
   // bind is the `tool.execute.before` body. It mutates the caller's arguments in
   // place, which is the only channel the host hook contract offers.
   //

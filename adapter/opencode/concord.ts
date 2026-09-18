@@ -5,6 +5,7 @@ import { activeManifestDigest, adoptManifestDigest, resolveDiskManifestDigest } 
 import { validateGeneratedEnvelope, validateGeneratedPayload, envelopeFailurePath, payloadFailurePath } from "./generated-contract-tests"
 import { dispatchLaneWorker, type LaneDispatchInput } from "./lane_dispatch"
 import { abandonWorkerAttempt } from "./dispatch"
+import { dispatchWindows } from "./dispatch-window"
 import { agentLanes } from "./generated-agent-lanes"
 import { hostControlPlane, MoveSessionUnavailable } from "./move-session"
 import { createRunSessionObservation, errorEnvelopeForLane, MAX_OUTPUT_BYTES, observeRunSessionLine, readExportSessionMetadata, readRunSessionMetadata, readRunTextParts, runStreamRefusalMessage, runStreamRefusalRecovery, validateAgainstSchema, type AgentResultEnvelope, type RunLineMetadata, type RunSessionObservation } from "./dispatch"
@@ -1079,7 +1080,17 @@ async function executeWorkerAbandon(args: HostToolArgs, context: ToolContext): P
   }, context.abort)
   if (result.error?.retry_safe === false) {
     const receipt = await invokeConcordOperation("concord_work_transition", args, context)
-    if (receipt.outcome === "ok") return receipt
+    if (receipt.outcome === "ok") {
+      // The attempt is closed at the core, so a retained in-flight record this
+      // session still holds for it has no settlement left to wait for.
+      // Releasing it here makes the reconciliation route the failure
+      // envelopes name real: an abandon accepted now and an idempotent replay
+      // answered already terminal both reach this receipt, and the session
+      // dispatches again without a host restart. A record naming a different
+      // attempt stays retained.
+      dispatchWindows().releaseRetained(context.sessionID, abandonInput.attempt_id, abandonInput.lane_id)
+      return receipt
+    }
     return adapterError("concord_work_transition", WORKER_ABANDON_OPERATION, requestID, "operation_conflict", "worker_abandon_receipt_failed", `the worker attempt was closed, but the durable replay receipt was not recorded: ${JSON.stringify(receipt.error ?? receipt)}`, "possible", "reconcile_operation")
   }
   const message = result.error?.message ?? "worker abandonment returned no diagnostic"

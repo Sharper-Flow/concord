@@ -202,3 +202,40 @@ describe("in-flight retention across the host task call", () => {
     expect(new DispatchWindows().takeInFlight("session-none")).toBeNull()
   })
 })
+
+describe("retained attempt release", () => {
+  const bindInFlight = async (windows: DispatchWindows, session = "session-a") => {
+    windows.open(session, packet, "sha256:" + "c".repeat(64), process.cwd())
+    await windows.bind(TASK_TOOL_ID, session, { subagent_type: "x", prompt: "y", description: "z" }, "call-cancel", here)
+  }
+
+  test("drops the retained record when the caller names its attempt identity", async () => {
+    const windows = new DispatchWindows()
+    await bindInFlight(windows)
+    expect(windows.releaseRetained("session-a", "attempt-1", "implement")).toBe(true)
+    expect(windows.inFlight("session-a", "call-cancel")).toBeNull()
+    // The recovered session can dispatch again.
+    expect(() => windows.open("session-a", packet, "", process.cwd())).not.toThrow()
+  })
+
+  test("refuses a foreign attempt identity and leaves the guard intact", async () => {
+    const windows = new DispatchWindows()
+    await bindInFlight(windows)
+    expect(windows.releaseRetained("session-a", "attempt-2", "implement")).toBe(false)
+    expect(windows.releaseRetained("session-a", "attempt-1", "research")).toBe(false)
+    expect(windows.inFlight("session-a", "call-cancel")).not.toBeNull()
+    expect(() => windows.open("session-a", packet, "", process.cwd())).toThrow()
+  })
+
+  test("refuses while a settlement is in progress", async () => {
+    const windows = new DispatchWindows()
+    await bindInFlight(windows)
+    expect(windows.claimSettlement("session-a", "call-cancel")).not.toBeNull()
+    expect(windows.releaseRetained("session-a", "attempt-1", "implement")).toBe(false)
+    expect(windows.inFlight("session-a", "call-cancel")).not.toBeNull()
+  })
+
+  test("reports nothing to release for a session without a retained record", () => {
+    expect(new DispatchWindows().releaseRetained("session-none", "attempt-1", "implement")).toBe(false)
+  })
+})

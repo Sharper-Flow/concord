@@ -103,7 +103,7 @@ const READBACK_MODEL = "openai/gpt-5.6-luna"
 const expectedAttemptId = "attempt-9dfc7234904d484b85fa07dbbc26db6fab196964c5bcfa6e071dd26be21d469f"
 const reportEvent = () => JSON.stringify({ type: "text", timestamp: 2, sessionID: "session-1", part: { type: "text", text: JSON.stringify({
   schema_version: "1.0", attempt_id: expectedAttemptId, lane_id: lane.id, lane_version: lane.version, lane_digest: lane.digest,
-  cwd: process.cwd(), readback_model: READBACK_MODEL, status: "completed",
+  readback_model: READBACK_MODEL, status: "completed",
   evidence: lane.evidence_obligations.map((obligation) => ({ obligation, detail: `discharged ${obligation}` })),
 }) } })
 const runOutput = () => [

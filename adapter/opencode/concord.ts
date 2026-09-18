@@ -10,7 +10,7 @@ import { agentLanes } from "./generated-agent-lanes"
 import { hostControlPlane, MoveSessionUnavailable } from "./move-session"
 import { createRunSessionObservation, errorEnvelopeForLane, MAX_OUTPUT_BYTES, observeRunSessionLine, readExportSessionMetadata, readRunSessionMetadata, readRunTextParts, runStreamRefusalMessage, runStreamRefusalRecovery, validateAgainstSchema, type AgentResultEnvelope, type RunLineMetadata, type RunSessionObservation } from "./dispatch"
 import { concordBinaryPath, CoreBinaryUnavailable } from "./dispatch"
-import { createWorkStateReporter, formatGateBrief } from "./workflow-status"
+import { createWorkStateReporter, formatGateBrief, formatWorkPaneName } from "./workflow-status"
 import { hostLeaseFault } from "./host-lease"
 import { armTurnMoveBoundary } from "./turn-move-boundary"
 import { armClaimedWorktree, clearClaimedWorktree } from "./claimed-worktree"
@@ -787,26 +787,19 @@ async function runWorkStartChild(argv: string[], input: string, signal: AbortSig
   try { return await runner.run(argv, input, signal, options) } catch (error) { throw runnerFailure(error, signal.aborted) }
 }
 
-// sanitizePaneTitle strips the C0, C1, and DEL control characters and cuts the
-// text at 64 code points, so a pane name stays one line of readable text
-// (issue #917).
-function sanitizePaneTitle(title: string): string {
-  const kept = [...title].filter((character) => {
-    const code = character.codePointAt(0) ?? 0
-    return code > 0x1f && !(code >= 0x7f && code <= 0x9f)
-  })
-  return kept.slice(0, 64).join("")
-}
-
-// renameZellijPaneFrame names the zellij pane after the work a successful
-// work_start just entered (issue #917). One bounded fork per success; the pane
-// belongs to the host, so no ZELLIJ_PANE_ID, a sanitized-empty name, or a
-// failed fork is a warning that never changes the completed start.
+// renameZellijPaneFrame names the zellij pane frame after the work a
+// successful work_start just entered (issue #917). The session-prepare
+// contract returns the title alone, and the adapter does not add a database
+// read for a cosmetic name, so it renders the shared pane formatter with the
+// title alone; the first mutation replaces it with the full work state. One
+// bounded fork per success; the pane belongs to the host, so no
+// ZELLIJ_PANE_ID, an empty name, or a failed fork is a warning that never
+// changes the completed start.
 async function renameZellijPaneFrame(title: string, context: ToolContext): Promise<void> {
   const paneID = process.env.ZELLIJ_PANE_ID
   if (paneID === undefined || paneID === "") return
-  const name = sanitizePaneTitle(title)
-  if (name === "") return
+  const name = formatWorkPaneName({ title })
+  if (name === null) return
   try {
     const result = await runner.run(["zellij", "action", "rename-pane", "-p", paneID, name], "", context.abort)
     if (result.exitCode !== 0) await warnPaneRename(context, `exit ${result.exitCode}`)
@@ -821,6 +814,21 @@ async function warnPaneRename(context: ToolContext, detail: string): Promise<voi
   } catch {
     // The pane name is an operator aid; a warning that cannot be shown
     // still cannot fail the completed start.
+  }
+}
+
+// writeSessionGoalTitle names the host session "Goal: <title>" with the title
+// session-prepare derived, so the session list states the objective and the
+// plugin's compaction hook can restate it. The write is best effort: an
+// absent route, an empty title, or a failed call warns and never changes the
+// completed start.
+async function writeSessionGoalTitle(sessionID: string, title: string, context: ToolContext): Promise<void> {
+  if (await hostControlPlane().setSessionTitle(sessionID, `Goal: ${title}`, context.abort)) return
+  try {
+    await hostControlPlane().showToast("Concord could not write the session goal title: the session title route is absent or refused the write.", "warning", context.abort)
+  } catch {
+    // The title is an operator aid; a warning that cannot be shown still
+    // cannot fail the completed start.
   }
 }
 
@@ -949,6 +957,10 @@ async function executeWorkStart(args: WorkStartArgs, context: ToolContext): Prom
     // rename sits after every refusal point, so it fires once per success and
     // never changes the outcome the envelope reports.
     await renameZellijPaneFrame(preparedValue.title, context)
+    // The session title names the goal the session-prepare contract derived.
+    // Like the pane frame it sits after every refusal point and never changes
+    // the outcome the envelope reports.
+    await writeSessionGoalTitle(context.sessionID, preparedValue.title, context)
     return {
       schema_version: "1.0",
       outcome: "ok",

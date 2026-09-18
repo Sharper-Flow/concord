@@ -44,6 +44,26 @@ import { clearTurnMoveBoundary, questionRequiresNormalChat, TURN_MOVE_QUESTION_R
 // imported rather than restated, so a member the adapter needs cannot go
 // missing from a local description of it. The import is type-only and erases,
 // which keeps the adapter free of a runtime dependency on a host package.
+// The session title is the single source of the goal text, and compaction
+// never reads it: the summary runs over conversation history alone. The host
+// joins the strings this hook pushes onto the context into the compaction
+// prompt, so a title that names the goal anchors the summary. A session
+// started by work_start carries no exported Product and work selection, so
+// the continuity block alone cannot carry the goal there.
+const GOAL_TITLE_PREFIX = "Goal: "
+
+async function pushSessionGoalTitle(input: unknown, output: { context: string[] }): Promise<void> {
+  try {
+    const sessionID = (input as { sessionID?: unknown } | null | undefined)?.sessionID
+    if (typeof sessionID !== "string" || sessionID.length === 0 || !Array.isArray(output.context)) return
+    const title = await hostControlPlane().sessionTitle(sessionID)
+    if (title === null || !title.startsWith(GOAL_TITLE_PREFIX)) return
+    output.context.push(title)
+  } catch {
+    return
+  }
+}
+
 export default async function ConcordAdapterPlugin(input?: Partial<PluginInput>) {
   hostControlPlane().bind(input)
   // CD-0111 D1/D2: claim the session's release lease before any tool can
@@ -131,5 +151,6 @@ export default async function ConcordAdapterPlugin(input?: Partial<PluginInput>)
       await continuityTransform(input, output)
       await agentSwitch.transform(input, output)
     },
+    "experimental.session.compacting": pushSessionGoalTitle,
   }
 }

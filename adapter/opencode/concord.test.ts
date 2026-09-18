@@ -1282,12 +1282,16 @@ const retargetRunner = (calls: RetargetCall[], overrides: Record<string, () => {
 
 // bindRetargetRoute stands in for the host's control plane. A test drives the
 // route's answers directly, so the contract is exercised without a server.
-const bindRetargetRoute = (options: { moveStatus?: number; moveBody?: string; landedDirectory?: string; unbound?: boolean } = {}) => {
+// The patch carries two body shapes: manageSession writes metadata, and the
+// session goal title writes { title }; `titleStatus` turns the title write
+// into a refusal so its best-effort branch stays observable.
+const bindRetargetRoute = (options: { moveStatus?: number; moveBody?: string; landedDirectory?: string; titleStatus?: number; unbound?: boolean } = {}) => {
   const moved: Array<Record<string, unknown>> = []
+  const titles: string[] = []
   let metadata: Record<string, unknown> = {}
   if (options.unbound) {
     hostControlPlane().bind(undefined)
-    return moved
+    return { moved, titles }
   }
   hostControlPlane().bind({
     post: async ({ body }) => {
@@ -1302,15 +1306,21 @@ const bindRetargetRoute = (options: { moveStatus?: number; moveBody?: string; la
     patch: async ({ url, path, body }) => {
       expect(url).toBe("/session/{id}")
       expect(path).toEqual({ id: "session-1" })
-      metadata = (body as { metadata: Record<string, unknown> }).metadata
+      const patchBody = body as { metadata?: Record<string, unknown>; title?: string }
+      if (typeof patchBody.title === "string") {
+        if (options.titleStatus !== undefined) return { response: new Response(null, { status: options.titleStatus }) }
+        titles.push(patchBody.title)
+        return { response: new Response(null, { status: 200 }) }
+      }
+      metadata = patchBody.metadata as Record<string, unknown>
       return { response: new Response(null, { status: 200 }) }
     },
   })
-  return moved
+  return { moved, titles }
 }
 
 test("work start moves the calling session into the claimed worktree", async () => {
-  const moved = bindRetargetRoute()
+  const { moved, titles } = bindRetargetRoute()
   const calls: RetargetCall[] = []
   adapter.configureConcordAdapter({ runner: retargetRunner(calls) })
   const result: any = await rawHostResult(adapter.work_start.execute(bootstrapArgs, contextFor()))
@@ -1320,6 +1330,9 @@ test("work start moves the calling session into the claimed worktree", async () 
   // resumable claim rather than a moved session with none.
   expect(calls.map(({ argv }) => argv[1])).toEqual(["project-resolve", "work-bootstrap", "session-prepare", "project-resolve", "invoke"])
   expect(moved).toEqual([{ sessionID: "session-1", destination: { directory: WORKTREE } }])
+  // The landing is confirmed, so the session title names the goal the
+  // session-prepare contract derived.
+  expect(titles).toEqual(["Goal: Add atomic start"])
   // session-prepare verifies the ACTIVE host agent and derives; it carries
   // no process identity and records nothing.
   expect(JSON.parse(calls[2].input)).toEqual({ product_id: "product-1", work_id: "work-1", task: bootstrapArgs.task, agent: "agent-1" })
@@ -1362,7 +1375,7 @@ test("work start arms nothing when the landing mismatch refuses", async () => {
 // session runs as fails the strict read-back: the move must not happen on an
 // agent identity the session does not hold.
 test("work start refuses a session-prepare read-back that names another agent", async () => {
-  const moved = bindRetargetRoute()
+  const { moved } = bindRetargetRoute()
   const calls: RetargetCall[] = []
   adapter.configureConcordAdapter({ runner: retargetRunner(calls, {
       "session-prepare": () => ({ exitCode: 0, stdout: JSON.stringify(preparedContract("concord-orchestrator")), stderr: "" }),
@@ -1374,9 +1387,11 @@ test("work start refuses a session-prepare read-back that names another agent", 
   expect(moved).toEqual([])
 })
 
-// Issue #917: a successful work_start names the zellij pane frame after the
-// work title. The fork sits after every refusal point, so a success without
-// ZELLIJ_PANE_ID stays fork-free and a failed fork stays a warning.
+// Issue #917: a successful work_start names the zellij pane frame. The
+// session-prepare contract carries the title alone, so the start-time name is
+// the shared pane rendering with fewer fields. The fork sits after every
+// refusal point, so a success without ZELLIJ_PANE_ID stays fork-free and a
+// failed fork stays a warning.
 test("work start renames the zellij pane frame to the work title on success", async () => {
   process.env.ZELLIJ_PANE_ID = "402"
   bindRetargetRoute()
@@ -1449,6 +1464,20 @@ test("a failed pane rename is a warning and never fails work_start", async () =>
   expect(thrown.work_id).toBe("work-1")
 })
 
+// The session title names the goal for the session list and the compaction
+// hook. The write sits after the confirmed landing, so an absent route or a
+// failed call is a warning that leaves the completed start untouched.
+test("a refused session goal title write never fails work_start", async () => {
+  for (const titleStatus of [404, 405, 500]) {
+    bindRetargetRoute({ titleStatus })
+    const calls: RetargetCall[] = []
+    adapter.configureConcordAdapter({ runner: retargetRunner(calls) })
+    const result: any = await rawHostResult(adapter.work_start.execute(bootstrapArgs, contextFor()))
+    expect(result.outcome).toBe("ok")
+    expect(result.work_id).toBe("work-1")
+  }
+})
+
 test("work start forwards a core terminal-origin refusal", async () => {
   bindRetargetRoute()
   const calls: RetargetCall[] = []
@@ -1489,7 +1518,7 @@ const resumeRunner = (calls: RetargetCall[], overrides: Record<string, () => { e
 })
 
 test("work start resume derives the entry by work_id and moves the session", async () => {
-  const moved = bindRetargetRoute()
+  const { moved } = bindRetargetRoute()
   const calls: RetargetCall[] = []
   adapter.configureConcordAdapter({ runner: resumeRunner(calls) })
   const result: any = await rawHostResult(adapter.work_start.execute({ work_id: "work-1" }, contextFor()))
@@ -1505,7 +1534,7 @@ test("work start resume derives the entry by work_id and moves the session", asy
 })
 
 test("work start resume forwards the typed core refusal and reads the landing back", async () => {
-  const moved = bindRetargetRoute()
+  const { moved } = bindRetargetRoute()
   const calls: RetargetCall[] = []
   adapter.configureConcordAdapter({ runner: resumeRunner(calls, {
     "work-resume": () => ({ exitCode: 1, stdout: "", stderr: "concord work-resume: invalid_operation: cannot resume terminal work item work-1 (completed)" }),
@@ -1519,7 +1548,7 @@ test("work start resume forwards the typed core refusal and reads the landing ba
   expect(calls.map(({ argv }) => argv[1])).toEqual(["project-resolve", "work-resume"])
   expect(moved).toEqual([])
 
-  const offTarget = bindRetargetRoute({ landedDirectory: "/somewhere-else" })
+  const { moved: offTarget } = bindRetargetRoute({ landedDirectory: "/somewhere-else" })
   adapter.configureConcordAdapter({ runner: resumeRunner(calls) })
   const mismatch: any = await rawHostResult(adapter.work_start.execute({ work_id: "work-1" }, contextFor()))
   expect(mismatch.outcome).toBe("error")
@@ -1703,7 +1732,7 @@ test("work start accepts minimal capture and exact declared bounds in a resolved
     urgency: "expedite",
   }
   for (const args of [minimal, { ...bounded, priority: -100 }, { ...bounded, priority: 100 }]) {
-    const moved = bindRetargetRoute()
+    const { moved } = bindRetargetRoute()
     const calls: RetargetCall[] = []
     adapter.configureConcordAdapter({ runner: retargetRunner(calls) })
     const result = await rawHostResult(adapter.work_start.execute(args, contextFor()))
@@ -1800,7 +1829,7 @@ test("work start replays to convergence after an interrupted step", async () => 
 
   // Second attempt, same key: bootstrap replays (the core reports replayed:
   // true), prepare succeeds, the move lands, and the answer is ok.
-  const moved = bindRetargetRoute()
+  const { moved } = bindRetargetRoute()
   const second: RetargetCall[] = []
   adapter.configureConcordAdapter({
     runner: retargetRunner(second, {

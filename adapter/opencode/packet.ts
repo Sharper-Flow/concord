@@ -164,6 +164,7 @@ export async function buildAgentLanePacket(request: AgentLanePacketRequest, deps
   }
   const narrative = typeof work.narrative === "string" ? work.narrative : ""
   const title = typeof work.title === "string" ? work.title : ""
+  const recordedTask = typeof work.task === "string" ? work.task.trim() : ""
   const workVersion = typeof work.version === "number" ? work.version : null
 
   const continuity = await readOperation("concord_work_trace", "continuity", { work_id: request.workId, page: { cursor: null, limit: 1 } }, deps)
@@ -206,7 +207,7 @@ export async function buildAgentLanePacket(request: AgentLanePacketRequest, deps
     if (title.trim().length === 0 && narrative.trim().length === 0) {
       return failure("mandate_unapproved", `work ${request.workId} carries no recorded question or narrative for the read-only dispatch`)
     }
-    const question = title.trim().length > 0 ? title : narrative
+    const question = recordedTask.length > 0 ? recordedTask : title.trim().length > 0 ? title : narrative
     task = [
       `Answer the recorded question for work ${request.workId}, at workflow step "${workflowStep}" (work v${workVersion}).`,
       "",
@@ -224,7 +225,11 @@ export async function buildAgentLanePacket(request: AgentLanePacketRequest, deps
   const design = renderDesignRecord(pinned.design_record)
   const workPin = isRecord(pinned.work_pin) ? pinned.work_pin : null
   const correctionValue = workPin ? projectCorrectionContext(workPin.correction) : undefined
-  const context = design + narrative
+  // The persisted work task is the operator's recorded instruction for the
+  // worker. The premise stays the approved objective in inputs.task; the
+  // recorded task rides context ahead of the narrative so a contract-mandated
+  // worker receives the concrete instructions too, not only the premise.
+  const context = design + (recordedTask.length > 0 ? `Recorded task:\n${recordedTask}\n\n` : "") + narrative
   if (context.length > CONTEXT_MAX_LENGTH) {
     return failure("projection_overflow", `the pinned design and work item narrative do not fit inputs.context: ${context.length} characters against a limit of ${CONTEXT_MAX_LENGTH}`, { field: "context", limit: CONTEXT_MAX_LENGTH, actual: context.length })
   }

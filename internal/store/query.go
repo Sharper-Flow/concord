@@ -1230,11 +1230,13 @@ func readOneWork(ctx context.Context, tx *sql.Tx, id string) (WorkItem, error) {
 	if len(items) == 0 {
 		return WorkItem{}, unknownScope("query", "work item does not exist")
 	}
-	// The bounded narrative rides the single-record read only; list queries keep
-	// their eight-column shape.
-	if err := tx.QueryRowContext(ctx, `SELECT narrative FROM work_items WHERE id=?`, id).Scan(&items[0].Narrative); err != nil {
+	// The bounded narrative and the persisted task ride the single-record read
+	// only; list queries keep their eight-column shape.
+	var task string
+	if err := tx.QueryRowContext(ctx, `SELECT narrative, coalesce(json_extract(intent_json, '$.task'), '') FROM work_items WHERE id=?`, id).Scan(&items[0].Narrative, &task); err != nil {
 		return WorkItem{}, wrapFailure(KindUnavailable, "query", "cannot read work narrative", true, "retry once the database is readable", err)
 	}
+	items[0].Task = task
 	return items[0], nil
 }
 func readWorkProjects(ctx context.Context, tx *sql.Tx, id string) ([]ProjectMembership, error) {

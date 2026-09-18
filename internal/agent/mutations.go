@@ -900,6 +900,33 @@ func (r runtime) workflowActionReplayPreflight(ctx context.Context, base Envelop
 	}
 }
 
+// applyRetryApprovalBinding installs the failed-attempt scope bindings a
+// retry approval binds to, and returns the bound contract version. A contract
+// version of zero is the absence of a contract, not a version: pre-contract
+// retries bind the attempt identity, the attempt epoch, and the work version,
+// and the contract key travels only when a contract is pinned.
+func applyRetryApprovalBinding(scope map[string]any, versions map[string]any, binding *store.WorkflowRetryApprovalBinding) int64 {
+	scope["failed_attempt_id"] = binding.FailedAttemptID
+	versions["failed_attempt_epoch"] = binding.FailedAttemptEpoch
+	if binding.ContractVersion > 0 {
+		versions["contract"] = binding.ContractVersion
+		return binding.ContractVersion
+	}
+	return 0
+}
+
+// retryApprovalContractBound reports whether the reread retry binding still
+// matches the contract binding the approved challenge carried. An absent
+// contract key is the approved pre-contract shape; a present one must equal
+// the binding's contract version.
+func retryApprovalContractBound(versions map[string]any, binding *store.WorkflowRetryApprovalBinding) bool {
+	expectedContract, contractOK := versions["contract"].(int64)
+	if contractOK {
+		return binding.ContractVersion == expectedContract
+	}
+	return binding.ContractVersion == 0
+}
+
 func (r runtime) mutateWorkflowAction(ctx context.Context, base Envelope, raw []byte, grant Authority, op ContractOperation) (Envelope, error) {
 	if r.Store == nil {
 		return coreError(base, "invalid_input", "workflow action requires a registered workflow authority", "contact_operator", false), nil
@@ -980,17 +1007,7 @@ func (r runtime) mutateWorkflowAction(ctx context.Context, base Envelope, raw []
 			// to the failed attempt identity. The escalation wall is operator
 			// approvable; it is not a dead end.
 			retryApproval = true
-			scope["failed_attempt_id"] = binding.FailedAttemptID
-			versions["failed_attempt_epoch"] = binding.FailedAttemptEpoch
-			// A contract version of zero is the absence of a contract, not a
-			// version. Pre-contract retries bind the attempt identity, the
-			// attempt epoch, and the work version; challenge versions must
-			// stay positive, so the contract key travels only when a contract
-			// is pinned.
-			if binding.ContractVersion > 0 {
-				versions["contract"] = binding.ContractVersion
-				contractVersion = binding.ContractVersion
-			}
+			contractVersion = applyRetryApprovalBinding(scope, versions, binding)
 		}
 	}
 	approval := ""
@@ -1096,15 +1113,11 @@ func (r runtime) mutateWorkflowAction(ctx context.Context, base Envelope, raw []
 		if retryApproval {
 			failedID, idOK := scope["failed_attempt_id"].(string)
 			expectedEpoch, epochOK := versions["failed_attempt_epoch"].(int64)
-			expectedContract, contractOK := versions["contract"].(int64)
 			binding, bindingErr := store.WorkflowFailedWorkerRetryBindingTx(ctx, tx, in.WorkID)
 			if bindingErr != nil {
 				return bindingErr
 			}
-			// An absent contract key is the approved pre-contract shape; a
-			// present one must equal the binding's contract version.
-			contractBound := (contractOK && binding.ContractVersion == expectedContract) || (!contractOK && binding.ContractVersion == 0)
-			if !idOK || !epochOK || binding == nil || binding.FailedAttemptID != failedID || binding.FailedAttemptEpoch != expectedEpoch || !contractBound {
+			if !idOK || !epochOK || binding == nil || binding.FailedAttemptID != failedID || binding.FailedAttemptEpoch != expectedEpoch || !retryApprovalContractBound(versions, binding) {
 				return newRuntimeFailure("approval_invalid", "failed worker attempt or contract changed after approval challenge", "request_approval", false)
 			}
 		}

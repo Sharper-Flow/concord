@@ -16,14 +16,14 @@ import (
 func TestActionableUpgradeRefusalNamesOlderHoldingSessions(t *testing.T) {
 	refusal := &store.Failure{Kind: store.KindUpgradeRequired, Op: "open",
 		Detail: "the database stops before breaking migration 93 (example); this binary defines schema version 94 and never applies a breaking migration at open"}
-	older := hostlease.Lease{PID: 164135, ReleaseRoot: "/releases/v10.0.5", SchemaVersion: 92, Directory: "/home/operator/card-site"}
+	older := hostlease.Lease{PID: 164135, ReleaseRoot: "/releases/v10.0.5", SchemaVersion: 92, Directory: "/workspace/card-site"}
 	olderNoLocation := hostlease.Lease{PID: 81206, ReleaseRoot: "/releases/v9.0.4", SchemaVersion: 90}
-	current := hostlease.Lease{PID: 822725, ReleaseRoot: "/releases/v11.0.0", SchemaVersion: 93, Directory: "/home/operator/toolbox"}
+	current := hostlease.Lease{PID: 822725, ReleaseRoot: "/releases/v11.0.0", SchemaVersion: 93, Directory: "/workspace/toolbox"}
 
 	err := actionableUpgradeRefusal(refusal, []hostlease.Lease{current, older, olderNoLocation}, 93)
 	message := err.Error()
 	for _, want := range []string{
-		"pid 164135 holds /releases/v10.0.5 at schema version 92, directory /home/operator/card-site",
+		"pid 164135 holds /releases/v10.0.5 at schema version 92, directory /workspace/card-site",
 		"pid 81206 holds /releases/v9.0.4 at schema version 90",
 		"end or move those sessions to the installed release, then run concord upgrade",
 	} {

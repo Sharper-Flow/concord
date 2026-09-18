@@ -83,8 +83,8 @@ func TestLeaseCarriesSessionLocationAndReadsOlderFiles(t *testing.T) {
 		SchemaVersion:  73,
 		ManifestDigest: "sha256:" + strings.Repeat("b", 64),
 		RecordedAt:     "2026-09-18T00:00:00Z",
-		Directory:      "/home/operator/card-site",
-		Worktree:       "/home/operator/.local/share/concord/worktrees/card/work-1",
+		Directory:      "/workspace/card-site",
+		Worktree:       "/workspace/concord/worktrees/card/work-1",
 	}
 	if err := Write(root, located); err != nil {
 		t.Fatalf("Write() error = %v", err)

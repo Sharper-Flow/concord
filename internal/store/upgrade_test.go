@@ -106,7 +106,7 @@ func TestUpgradeRefusesWhileALiveLeaseHoldsAnOlderSchema(t *testing.T) {
 	if err := openMigratedTo(t, path, applied).Close(); err != nil {
 		t.Fatal(err)
 	}
-	older := HeldSchema{PID: 4242, ReleaseRoot: "/releases/v1.2.3", SchemaVersion: breaking.Version - 1, Directory: "/home/operator/card-site"}
+	older := HeldSchema{PID: 4242, ReleaseRoot: "/releases/v1.2.3", SchemaVersion: breaking.Version - 1, Directory: "/workspace/card-site"}
 	current := HeldSchema{PID: 4343, ReleaseRoot: "/releases/v2.0.0", SchemaVersion: CurrentSchemaVersion()}
 
 	_, err := Upgrade(context.Background(), path, []HeldSchema{current, older})

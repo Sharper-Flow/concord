@@ -501,8 +501,12 @@ type WorktreeReclaimRequest struct {
 	// ReleaseOccupancy permits an operator-approved destroy to clear a stale
 	// recorded occupant before the removal gate runs.
 	ReleaseOccupancy bool
-	// These fields remain accepted at the boundary but do not affect removal.
-	// OccupantSessionRef is the sole occupancy authority.
+	// ObservedSessionDirectories is the host's live session observation and
+	// the typed handoff that releases a dead occupant: present and naming no
+	// live session with the recorded occupant's ref, and no directory inside
+	// the worktree, it clears the recorded occupancy. An absent observation
+	// attests nothing. ObservedProjectID scopes the observation and does not
+	// affect removal on its own.
 	ObservedSessionDirectories *[]SessionDirectory
 	ObservedProjectID          string
 }
@@ -535,7 +539,8 @@ type WorktreeDestroyRequest struct {
 	RequestID        string
 	Now              time.Time
 	Runner           GitRunner
-	// These fields remain accepted at the boundary but do not affect removal.
+	// ObservedSessionDirectories is the host's live session observation and
+	// releases a dead recorded occupant; see releaseDeadOccupantByObservation.
 	ObservedSessionDirectories *[]SessionDirectory
 	ObservedProjectID          string
 }
@@ -548,7 +553,7 @@ func (s *Store) DestroyWorktree(ctx context.Context, req WorktreeDestroyRequest)
 		PrincipalRef: req.PrincipalRef, RequestID: req.RequestID,
 		ExpectedVersion: req.ExpectedVersion, Now: req.Now, Runner: req.Runner,
 		RequireTerminal: true, OperatorApprovalRef: req.OperatorApprovalRef, Destructive: req.Destructive,
-		ReleaseOccupancy: req.ReleaseOccupancy,
+		ReleaseOccupancy: req.ReleaseOccupancy, ObservedSessionDirectories: req.ObservedSessionDirectories,
 	}
 	if s == nil || s.db == nil {
 		return WorktreeEntry{}, newFailure(KindUnavailable, "worktree_destroy", "store is not open", false, "open the authority database")
@@ -712,11 +717,16 @@ func reclaimWorktreeRawTx(ctx context.Context, tx *sql.Tx, req WorktreeReclaimRe
 		return worktreeEntryAfterReclaimTx(ctx, tx, req.WorkID, req.ProjectID)
 	}
 
-	// A recorded session occupant is not safe to remove. The store owns this
-	// projection, so host session observations cannot authorize or refuse the
-	// removal.
+	// A recorded session occupant is not safe to remove while it may be live.
+	// The store owns this projection; the host owns session liveness. The
+	// caller's observed_session_directories is the typed handoff between them:
+	// when it names no live session with the recorded occupant's ref and no
+	// live directory inside the worktree, the recorded occupancy is stale and
+	// releases without an operator approval. An observation naming the
+	// occupant, or any other session inside the worktree, keeps this gate, and
+	// CD-0135's relocation step keeps its subjects.
 	if entry.OccupantSessionRef != "" {
-		if req.ReleaseOccupancy && req.OperatorApprovalRef != "" {
+		if (req.ReleaseOccupancy && req.OperatorApprovalRef != "") || releaseDeadOccupantByObservation(entry, req.ObservedSessionDirectories) {
 			if err := releaseWorktreeOccupancyTx(ctx, tx, req, setID, entry.ClaimOpID, now); err != nil {
 				return out, err
 			}
@@ -987,6 +997,45 @@ func releaseWorktreeOccupancyTx(ctx context.Context, tx *sql.Tx, req WorktreeRec
 		Actor: req.PrincipalRef, OccurredAt: now, PayloadVersion: 1, Payload: payload,
 	}}}, true, false)
 	return err
+}
+
+// releaseDeadOccupantByObservation reports whether the caller's host session
+// observation attests that the recorded occupant is gone. The host owns
+// session liveness and the store owns the occupancy projection, so the
+// observation is the typed handoff between them. It releases only when the
+// observation is present and names no live session carrying the occupant's
+// ref and no live directory inside the worktree: a live occupant anywhere, or
+// any other session rooted inside the tree, keeps the strand-guard. An absent
+// observation attests nothing and never releases.
+func releaseDeadOccupantByObservation(entry WorktreeEntry, observed *[]SessionDirectory) bool {
+	if observed == nil {
+		return false
+	}
+	for _, session := range *observed {
+		if session.SessionRef == entry.OccupantSessionRef {
+			return false
+		}
+		if directoryInsideWorktree(session.Directory, entry.Path) {
+			return false
+		}
+	}
+	return true
+}
+
+// directoryInsideWorktree reports whether one observed directory is the
+// worktree itself or lives beneath it. Both sides are cleaned, and the
+// worktree prefix is compared with a trailing separator so a sibling path
+// sharing a prefix cannot pass.
+func directoryInsideWorktree(directory, worktreePath string) bool {
+	if directory == "" || worktreePath == "" {
+		return false
+	}
+	cleanDirectory := filepath.Clean(directory)
+	cleanWorktree := filepath.Clean(worktreePath)
+	if cleanDirectory == cleanWorktree {
+		return true
+	}
+	return strings.HasPrefix(cleanDirectory, cleanWorktree+string(filepath.Separator))
 }
 
 // occupyingSession matches a worker-abandon observation to a worktree path.
@@ -1400,7 +1449,8 @@ type WorktreeAuditReclaimRequest struct {
 	Now          time.Time
 	Runner       GitRunner
 	Limit        int
-	// These fields remain accepted at the boundary but do not affect removal.
+	// ObservedSessionDirectories is the host's live session observation; the
+	// audit pass threads it into every reclaim it performs.
 	ObservedSessionDirectories *[]SessionDirectory
 	ObservedProjectID          string
 }
@@ -1471,6 +1521,7 @@ func (s *Store) WorktreeAuditReclaim(ctx context.Context, req WorktreeAuditRecla
 			WorkID: drift.WorkID, ProjectID: drift.ProjectID, DefaultRef: req.DefaultRef,
 			PrincipalRef: req.PrincipalRef, RequestID: req.RequestID + ":" + drift.WorkID,
 			ExpectedVersion: version, Now: req.Now, Runner: runner, RequireTerminal: requireTerminal, RequireUnstarted: requireUnstarted,
+			ObservedSessionDirectories: req.ObservedSessionDirectories,
 		})
 		if reclaimErr == nil {
 			row.Outcome, row.Version = WorktreeAuditReclaimed, version+1

@@ -11,6 +11,8 @@ not package or install them. This check proves the example contract in CD-0154:
                      between the shaping and driving definitions
   advisory handoffs  each coordinator carries its advisory switch rule, with
                      no mandatory switch and no repeat-after-decline
+  delegation anchor  both coordinators bind lane delegation to the core's
+                     per-step dispatch admission, not to a phase
   conduct ownership  technical-unknown evidence stays in the installed
                      conduct corpus, not in the portable examples
   intake restriction the intake definition keeps its write and workflow
@@ -55,6 +57,11 @@ LOOKUP_OBLIGATION_MARKERS = (
     "Recall is not evidence",
     "source to fit the surface",
     "blocked, unavailable, or inconclusive",
+)
+DELEGATION_ANCHOR_MARKERS = (
+    "`dispatch_worker` among the next valid intents",
+    "Size is not an exemption",
+    "steps the core does not admit for dispatch",
 )
 
 
@@ -154,6 +161,10 @@ def check_primary_prompts(root: Path) -> list[str]:
                 for marker in ADVISORY_HANDOFF_MARKERS[name]:
                     if marker not in flat:
                         findings.append(f"{name} is missing its advisory handoff marker {marker!r}")
+            if name in {"concord-1.md", "concord-2.md"}:
+                for marker in DELEGATION_ANCHOR_MARKERS:
+                    if marker not in flat:
+                        findings.append(f"{name} lost the delegation anchor marker {marker!r}")
         except ValueError as error:
             findings.append(f"{name} is malformed: {error}")
 

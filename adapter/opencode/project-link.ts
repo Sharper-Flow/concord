@@ -465,31 +465,24 @@ function currentProjectState(file: string): { exists: boolean; sha256?: string }
   return { exists: true, sha256: sha256(fs.readFileSync(file, "utf8")) }
 }
 
-function ownershipAllowsRepair(file: string, expected: { exists: boolean; sha256?: string }): boolean {
-  const actual = currentProjectState(file)
-  if (!expected.exists) return !actual.exists
-  return !actual.exists || actual.sha256 === expected.sha256
-}
-
 function recordProjectLink(file: string, original: string | null, updated: string, scope: "worktree"): void {
   const ownership = readProjectLinkOwnership()
   const key = path.resolve(file)
   const previous = ownership.links[key]
-  const action = previous?.action === "remove" || previous?.action === "restore"
-    ? previous.action
-    : original === null ? "remove" : "restore"
-  const next: ProjectLinkRecord = { action, scope, expected: { exists: true, sha256: sha256(updated) } }
+  const adopted = previous?.action === "remove" || previous?.action === "restore"
+  const action = adopted ? previous.action : original === null ? "remove" : "restore"
+  // An adopted record keeps its expected bytes instead of rehashing the
+  // current text: the installer's uninstall restore shortcut byte-matches
+  // against them, and refreshing would absorb host drift into "expected"
+  // so the shortcut would restore a stale base over it.
+  const next: ProjectLinkRecord = {
+    action,
+    scope,
+    expected: adopted && previous ? previous.expected : { exists: true, sha256: sha256(updated) },
+  }
   if (action === "restore") next.original = previous?.original ?? original ?? ""
   ownership.links[key] = next
   writeProjectLinkOwnership(ownership)
-}
-
-function validateProjectLinkAdoption(file: string): void {
-  const ownership = readProjectLinkOwnership()
-  const previous = ownership.links[path.resolve(file)]
-  if (previous && !ownershipAllowsRepair(file, previous.expected)) {
-    throw new ProjectLinkError("project_config_modified", `refusing to adopt operator-modified worktree OpenCode config ${file}`)
-  }
 }
 
 function recoverPendingProjectLink(): void {
@@ -620,7 +613,6 @@ async function ensureConductLinkLocked(directory: string, signal: AbortSignal): 
   if (!lstatIfPresent(target)) {
     const created = JSON.stringify({ instructions: [CONDUCT_ENTRY] }, null, 2) + "\n"
     validateProjectConfig(target, created)
-    validateProjectLinkAdoption(target)
     writePendingProjectLink(target, null, created)
     await Bun.write(target, created)
     recordProjectLink(target, null, created, "worktree")
@@ -638,7 +630,6 @@ async function ensureConductLinkLocked(directory: string, signal: AbortSignal): 
   const updated = appendInstructionJSONC(original, CONDUCT_ENTRY)
   if (updated !== original) {
     validateProjectConfig(target, updated)
-    validateProjectLinkAdoption(target)
     writePendingProjectLink(target, original, updated)
     await Bun.write(target, updated)
     recordProjectLink(target, original, updated, "worktree")

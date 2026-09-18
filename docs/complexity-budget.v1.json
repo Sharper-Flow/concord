@@ -16,24 +16,5 @@
     ]
   },
   "threshold": 100,
-  "allowances": [
-    {
-      "function": "internal/agent.(runtime).read",
-      "measured": 235,
-      "state": "unmeasured",
-      "reason": "Flat dispatch over 31 read kinds: arms delegating rather than inlining. This is the shape #406 asks whether mutate should adopt. No decision has assessed the read surface's breadth. Score moved 220 to 224 when the CD-0096 takeover authority state read joined the dispatch, and 224 to 223 when CD-0104 removed the continuity target pin. Score moved 223 to 228 when the Domain reads gained the demand-driven registry freshen (#708). Score moved 228 to 235 when the C15 resources read joined the dispatch (CD-0106 D4)."
-    },
-    {
-      "function": "internal/store.workflowSemanticActionEvents",
-      "measured": 213,
-      "state": "unmeasured",
-      "reason": "Flat dispatch over the workflow action vocabulary constructs typed events. Design validation and correction assembly belong to workflow_design.go. The verdict arm checks evaluator authority through the shared store query, admits operator identity only after a recorded delivery exit, and handles evidence binding and bounded evaluation references. The accepted-attempt arm binds evidence under the lane capability's evidence kind. Contract approval checks recorded questions against research bindings. Score moved 209 to 213 when contract authority recovery added typed predecessor and successor fields."
-    },
-    {
-      "function": "internal/store.foldWorkflowContractSuperseded",
-      "measured": 115,
-      "state": "unmeasured",
-      "reason": "The fold owns one atomic contract replacement path. It validates exact active predecessors, operator approval binding, successor law and architecture authority, then writes the successor and dispositions every predecessor in one transaction."
-    }
-  ]
+  "allowances": []
 }

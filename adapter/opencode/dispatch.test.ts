@@ -63,7 +63,6 @@ const reportEvidence = () => [
 
 const report = (overrides: Record<string, unknown> = {}, model = READBACK_MODEL) => ({
   schema_version: "1.0",
-  cwd: WORKER_DIRECTORY,
   readback_model: model,
   status: "completed",
   evidence: reportEvidence(),
@@ -650,7 +649,7 @@ test("worker evidence uses the supplied worker directory for provenance", async 
     await Bun.write(`${worker}/opencode.json`, JSON.stringify({ instructions: ["worker-rules.md"] }))
     await Bun.write(`${worker}/worker-rules.md`, "# worker rules\n")
     let dispatchPayload: Record<string, unknown> | undefined
-    const result = await complete(workerBody(report({ cwd: worker })), {
+    const result = await complete(workerBody(report()), {
       workerDirectory: worker,
       readbackRunner: {
         async run(argv) {
@@ -931,20 +930,24 @@ test("a valid completed report carries its reported evidence into worker-complet
   expect(payloads[1].report_schema_version).toBe("1.0")
 })
 
-test("a foreign worker cwd refuses completion admission", async () => {
-  const { result, verbs, payloads } = await terminalEvidence(report({ cwd: fs.realpathSync(os.tmpdir()) }))
-  expect(result.outcome).toBe("error")
-  expect(result.error?.kind).toBe("agent_identity_mismatch")
-  expect(result.error?.message).toContain("worker report cwd")
-  expect(verbs).toEqual([])
-  expect(payloads).toEqual([])
-})
-
-test("a matching worker cwd admits completion", async () => {
-  const { result, verbs, payloads } = await terminalEvidence(report({ cwd: WORKER_DIRECTORY }))
+// The dispatch window owns the worker directory; the report no longer carries
+// it. A report that omits cwd admits completion, and a worker that echoes the
+// field anyway is refused by the closed schema.
+test("report-admits-without-cwd: a report omitting the worker directory admits completion", async () => {
+  expect(Object.keys(report())).not.toContain("cwd")
+  const { result, verbs, payloads } = await terminalEvidence(report())
   expect(result.outcome).toBe("ok")
   expect(verbs).toEqual(["worker-dispatch", "worker-complete"])
   expect(payloads[1].evidence).toEqual(reportEvidence())
+  expect(payloads[1].report_schema_version).toBe("1.0")
+})
+
+test("a report echoing the retired cwd field is an invalid report", async () => {
+  const { result, verbs, payloads } = await terminalEvidence(report({ cwd: WORKER_DIRECTORY }))
+  expect(result.outcome).toBe("error")
+  expect(result.error?.kind).toBe("invalid_report")
+  expect(verbs).toEqual(["worker-dispatch", "worker-fail"])
+  expect(payloads[1].failure_kind).toBe("invalid_report")
 })
 
 // CD-0056 D4 binds each lane to its own evidence obligations, while
@@ -980,7 +983,7 @@ const foreignObligation = (laneID: string): { lane: string; obligation: string }
 async function laneTerminalEvidence(laneID: string, evidence: LaneEvidence[]) {
   const target = laneOf(laneID)
   const calls: { argv: string[]; input: string }[] = []
-  const body = workerBody({ schema_version: "1.0", cwd: WORKER_DIRECTORY, readback_model: READBACK_MODEL, status: "completed", evidence })
+  const body = workerBody({ schema_version: "1.0", readback_model: READBACK_MODEL, status: "completed", evidence })
   const result = await completeWorkerAttempt(target, lanePacketFor(laneID), body, {
     credentials: testCredentials,
     readbackRunner: readbackRunner(READBACK_MODEL, `concord-${target.id}`, lanePacketFor(laneID)),

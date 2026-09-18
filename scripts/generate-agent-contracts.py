@@ -98,7 +98,10 @@ def schema_validate(value, schema, root, path="$"):
                 except ValueError as exc: results.append(False); errors.append(str(exc))
             count=sum(results)
             detail = f": {'; '.join(errors)}" if errors else ""
-            if keyword=="allOf" and count != len(results): fail(f"allOf mismatch at {path}{detail}")
+            # allOf requires every branch, so the first branch failure is the
+            # whole reason. Reporting it unwrapped keeps the offending field at
+            # the front of the message.
+            if keyword=="allOf" and count != len(results): fail(errors[0] if errors else f"allOf mismatch at {path}")
             if keyword=="anyOf" and count < 1: fail(f"anyOf mismatch at {path}{detail}")
             if keyword=="oneOf" and count != 1: fail(f"oneOf mismatch at {path}{detail}")
             for branch_result in branch_evaluated: evaluated.update(branch_result)

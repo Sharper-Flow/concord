@@ -180,7 +180,7 @@ var commandSpecs = []commandSpec{
 	{Canonical: "restore", RequiredFields: requiredFields(field("source"), field("destination")), Optional: "none", Enums: "source: existing verified backup snapshot path; destination: absolute clean path that does not yet exist and is not the live database"},
 	{Canonical: "predecessor-inventory", TwoWord: "predecessor inventory", RequiredFields: requiredFields(field("snapshot_path")), Optional: "none", Enums: "snapshot_path: absolute path to a predecessor snapshot file (CD-0097)"},
 	{Canonical: "predecessor-import", TwoWord: "predecessor import", RequiredFields: requiredFields(field("snapshot_path"), nestedField("product", "product_id", "display_name", "stage_maturity", "stage_audience_commitment"), field("projects"), field("select_change_ids")), Optional: "dry_run, surfaces", Enums: "stage_maturity: prototype | alpha | beta | production | deprecated; stage_audience_commitment: operator_only | limited | public; projects[].role: primary | secondary; select_change_ids: change ids the snapshot enumerates as active and that belong to a declared snapshot_project_id, or already-imported ids that turned terminal or left the active set since the previous harvest; surfaces: specifications | active_work | terminal_history | wisdom | reflections; only active_work imports, a surface outside this set refuses before import (CD-0097)"},
-	{Canonical: "host-lease", RequiredFields: requiredFields(field("pid")), Optional: "none", Enums: "pid: the host process that holds this release; the core writes the lease under the data root"},
+	{Canonical: "host-lease", RequiredFields: requiredFields(field("pid")), Optional: "directory, worktree: session location, named by a breaking-migration refusal; advisory, never interpreted", Enums: "pid: the host process that holds this release; the core writes the lease under the data root"},
 	{Canonical: "host-leases", RequiredFields: requiredFields(), Optional: "none", Enums: "prints the live host leases and prunes stale ones (CD-0111 D2)"},
 	{Canonical: "upgrade", RequiredFields: requiredFields(), Optional: "none", Enums: "applies pending store migrations, breaking steps included; refuses while a live session holds a release that predates one (CD-0111 D3)"},
 }
@@ -287,7 +287,7 @@ func runLauncherCommand(args []string, in io.Reader, out, errOut io.Writer, term
 		writeDiagnostic(errOut, "concord launcher: database path is unavailable: "+statErr.Error())
 		return 1
 	} else {
-		s, openErr := store.Open(context.Background(), path)
+		s, openErr := openStoreForCommand(context.Background(), path)
 		if openErr != nil {
 			writeDiagnostic(errOut, openErr.Error())
 			return 1
@@ -321,7 +321,7 @@ func runLauncherList(out, errOut io.Writer) int {
 		writeDiagnostic(errOut, "concord launcher: database path is unavailable: "+statErr.Error())
 		return 1
 	}
-	s, err := store.Open(context.Background(), path)
+	s, err := openStoreForCommand(context.Background(), path)
 	if err != nil {
 		writeDiagnostic(errOut, err.Error())
 		return 1
@@ -415,7 +415,7 @@ func resolveZLLinearReference(issueKey, issueURL string) (string, string, error)
 		}
 		return "", "", fmt.Errorf("database path is unavailable: %w", statErr)
 	}
-	s, err := store.Open(context.Background(), path)
+	s, err := openStoreForCommand(context.Background(), path)
 	if err != nil {
 		return "", "", err
 	}
@@ -464,7 +464,7 @@ func resolveForwardedProduct(work string) (string, error) {
 		}
 		return "", fmt.Errorf("database path is unavailable: %w", statErr)
 	}
-	s, err := store.Open(context.Background(), path)
+	s, err := openStoreForCommand(context.Background(), path)
 	if err != nil {
 		return "", err
 	}
@@ -521,7 +521,7 @@ func runJSONCommand(command string, args []string, in io.Reader, out, errOut io.
 		writeDiagnostic(errOut, err.Error())
 		return 1
 	}
-	s, err := store.Open(context.Background(), path)
+	s, err := openStoreForCommand(context.Background(), path)
 	if err != nil {
 		writeDiagnostic(errOut, err.Error())
 		return 1

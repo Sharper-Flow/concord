@@ -22,6 +22,8 @@ type HostLease = {
   core_binary: string
   schema_version: number
   manifest_digest: string
+  directory?: string
+  worktree?: string
 }
 
 let leaseFault: string | null = null
@@ -30,25 +32,38 @@ export function hostLeaseFault(): string | null {
   return leaseFault
 }
 
-/** Test seam: clear a recorded fault, or claim against an injected runner. */
-export function configureHostLease(options: { runner?: DispatchRunner; reset?: boolean } = {}) {
+/** Test seam: clear a recorded fault, claim against an injected runner, or
+ * stamp a release identity the way the installer would. */
+export function configureHostLease(options: { runner?: DispatchRunner; reset?: boolean; release?: { coreBinary: string; releaseRoot: string } } = {}) {
   if (options.reset) {
     leaseFault = null
     runner = defaultRunner
+    claimedCoreBinary = coreBinary
+    claimedReleaseRoot = releaseRoot
   }
   if (options.runner) runner = options.runner
+  if (options.release) {
+    claimedCoreBinary = options.release.coreBinary
+    claimedReleaseRoot = options.release.releaseRoot
+  }
 }
 
 let runner: DispatchRunner = defaultRunner
+let claimedCoreBinary: string = coreBinary
+let claimedReleaseRoot: string = releaseRoot
 
-export async function claimHostLease(pid: number): Promise<void> {
+/** Session location named in the lease so a breaking-migration refusal can
+ * point the operator at the exact terminal to end. */
+export type LeaseLocation = { directory?: string; worktree?: string }
+
+export async function claimHostLease(pid: number, location: LeaseLocation = {}): Promise<void> {
   try {
-    if (!coreBinary || !releaseRoot) {
+    if (!claimedCoreBinary || !claimedReleaseRoot) {
       leaseFault = "this adapter copy is not bound to a release, so the session cannot claim a host lease; the tools stay closed until the adapter runs from an installed release (CD-0111 D1)"
       return
     }
     const abort = new AbortController()
-    const result = await runner.run([concordBinaryPath(), "host-lease"], JSON.stringify({ pid }), abort.signal)
+    const result = await runner.run([concordBinaryPath(), "host-lease"], JSON.stringify({ pid, directory: location.directory ?? "", worktree: location.worktree ?? "" }), abort.signal)
     if (result.exitCode !== 0) {
       leaseFault = `host lease claim failed with exit ${result.exitCode}: ${result.stderr.slice(0, 400)}`
       return
@@ -60,8 +75,8 @@ export async function claimHostLease(pid: number): Promise<void> {
       leaseFault = `host lease claim returned an unreadable response: ${result.stdout.slice(0, 200)}`
       return
     }
-    if (lease.release_root !== releaseRoot || lease.core_binary !== coreBinary) {
-      leaseFault = `host lease names ${lease.release_root} but this adapter is stamped against ${releaseRoot}; the paired release constants disagree (CD-0111 D1)`
+    if (lease.release_root !== claimedReleaseRoot || lease.core_binary !== claimedCoreBinary) {
+      leaseFault = `host lease names ${lease.release_root} but this adapter is stamped against ${claimedReleaseRoot}; the paired release constants disagree (CD-0111 D1)`
       return
     }
     if (lease.manifest_digest !== manifestDigest) {

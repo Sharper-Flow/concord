@@ -49,8 +49,9 @@ export default async function ConcordAdapterPlugin(input?: Partial<PluginInput>)
   // CD-0111 D1/D2: claim the session's release lease before any tool can
   // run. The claim fails closed: a session that cannot claim a lease keeps
   // the release it runs visible to the installer, so the tools refuse rather
-  // than run unprotected.
-  await claimHostLease(process.pid)
+  // than run unprotected. The lease names the session's directory and
+  // worktree so a breaking-migration refusal points at the exact terminal.
+  await claimHostLease(process.pid, { directory: input?.directory, worktree: input?.worktree })
   const continuityTransform = createContinuityTransform()
   const agentSwitch = createAgentSwitchNotice()
   return {

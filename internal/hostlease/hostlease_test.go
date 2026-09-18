@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -62,6 +63,52 @@ func TestLeaseRoundTripKeepsALiveProcessAndPrunesAStaleOne(t *testing.T) {
 	}
 	if _, err := List(root); err == nil || !strings.Contains(err.Error(), "malformed") {
 		t.Fatalf("List() with a malformed lease = %v, want a refusal", err)
+	}
+}
+
+// A lease file written before session locations existed still reads, and a
+// lease that carries them round-trips both fields, so a breaking-migration
+// refusal can name the terminal behind the pid.
+func TestLeaseCarriesSessionLocationAndReadsOlderFiles(t *testing.T) {
+	root := t.TempDir()
+	start, err := ProcessStart(os.Getpid())
+	if err != nil {
+		t.Fatalf("ProcessStart(self) error = %v", err)
+	}
+	located := Lease{
+		PID:            os.Getpid(),
+		PidStart:       start,
+		ReleaseRoot:    "/releases/v2.0.0",
+		CoreBinary:     "/releases/v2.0.0/bin/concord",
+		SchemaVersion:  73,
+		ManifestDigest: "sha256:" + strings.Repeat("b", 64),
+		RecordedAt:     "2026-09-18T00:00:00Z",
+		Directory:      "/workspace/card-site",
+		Worktree:       "/workspace/concord/worktrees/card/work-1",
+	}
+	if err := Write(root, located); err != nil {
+		t.Fatalf("Write() error = %v", err)
+	}
+	live, err := List(root)
+	if err != nil {
+		t.Fatalf("List() error = %v", err)
+	}
+	if len(live) != 1 || live[0] != located {
+		t.Fatalf("List() = %+v, want the located lease", live)
+	}
+	if err := os.Remove(filepath.Join(Directory(root), strconv.Itoa(os.Getpid())+".json")); err != nil {
+		t.Fatal(err)
+	}
+	legacy := Lease{PID: os.Getpid(), PidStart: start, ReleaseRoot: "/releases/v1.2.3", SchemaVersion: 72}
+	if err := os.WriteFile(filepath.Join(Directory(root), strconv.Itoa(os.Getpid())+".json"), mustJSON(t, legacy), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	live, err = List(root)
+	if err != nil {
+		t.Fatalf("List() over a legacy lease error = %v", err)
+	}
+	if len(live) != 1 || live[0].Directory != "" || live[0].Worktree != "" {
+		t.Fatalf("List() over a legacy lease = %+v, want empty location fields", live)
 	}
 }
 

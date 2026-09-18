@@ -29,6 +29,12 @@ type Lease struct {
 	SchemaVersion  int    `json:"schema_version"`
 	ManifestDigest string `json:"manifest_digest"`
 	RecordedAt     string `json:"recorded_at"`
+	// Directory and Worktree locate the host session that holds the lease.
+	// A breaking-migration outage names them so the operator can end the
+	// right sessions without correlating pids by hand. Both are optional:
+	// a lease file written before they existed still reads with both empty.
+	Directory string `json:"directory,omitempty"`
+	Worktree  string `json:"worktree,omitempty"`
 }
 
 // ErrStaleLease marks a lease whose process no longer matches. Write uses it

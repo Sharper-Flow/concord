@@ -4717,6 +4717,29 @@ DELETE FROM fold_guard;
 		Name:    "linear_issue_links_refresh_interval",
 		SQL:     `ALTER TABLE linear_issue_links ADD COLUMN refreshed_at TEXT NOT NULL DEFAULT '';`,
 	},
+	{
+		Version: 93,
+		Name:    "worktree_claim_branch_slot_per_repository",
+		// Breaking: the replacement unique index constrains the pre-existing
+		// table, so a binary predating this migration can have a write
+		// rejected that it would have accepted.
+		Breaking: true,
+		SQL: `
+-- CD-0151 pinned one active branch slot globally, but the branch name
+-- derives from the work identity alone: two Projects of one work item derive
+-- the same branch in two different repositories, and the global slot refused
+-- the second per-Project claim. A branch is native state of one repository,
+-- so the slot is unique per repository. The pinned path keeps its global
+-- slot, and the canonical-path locator stays globally unique, so one
+-- repository still cannot stand behind two Projects. Rows pinned before this
+-- migration read as one bucket, which the previous global slot already kept
+-- branch-unique, so the replacement index never refuses existing active rows.
+ALTER TABLE worktree_claims ADD COLUMN repository_id TEXT NOT NULL DEFAULT '';
+DROP INDEX worktree_claims_one_active_branch;
+CREATE UNIQUE INDEX worktree_claims_one_active_branch ON worktree_claims(repository_id, pinned_branch)
+    WHERE state IN ('pending','verified');
+`,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any

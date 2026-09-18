@@ -12,11 +12,14 @@ import (
 	"time"
 )
 
-// fakeWorktreeGit models one repository: branches with heads, existing linked
-// worktrees keyed by path, ancestry, durability, dirtiness, and the default ref. It
-// records every invocation so tests can assert what git was asked to do.
+// fakeWorktreeGit models one primary repository plus any further roots a test
+// registers: branches with heads, existing linked worktrees keyed by path,
+// ancestry, durability, dirtiness, and the default ref. It records every
+// invocation so tests can assert what git was asked to do.
 type fakeWorktreeGit struct {
 	repoRoot      string
+	extraRoots    map[string]bool   // further repository roots this fake answers for
+	worktreeRepos map[string]string // worktree path -> repository root
 	branches      map[string]string // branch -> head sha
 	worktrees     map[string]string // path -> branch
 	dirty         map[string]bool   // path -> dirty
@@ -28,6 +31,13 @@ type fakeWorktreeGit struct {
 	mergeConflict bool
 	failAdd       bool
 	calls         [][]string
+}
+
+// addRepository registers a further repository root the fake answers for.
+// Branch state stays shared across roots; the store's own per-repository slot
+// is what the tests exercise, and each root reports itself as its toplevel.
+func (g *fakeWorktreeGit) addRepository(root string) {
+	g.extraRoots[root] = true
 }
 
 // treeOf models the tree a ref resolves to. Content is normally keyed to the
@@ -44,15 +54,17 @@ func (g *fakeWorktreeGit) treeOf(ref string) string {
 
 func newFakeWorktreeGit(repoRoot string) *fakeWorktreeGit {
 	return &fakeWorktreeGit{
-		repoRoot:   repoRoot,
-		branches:   map[string]string{"main": strings.Repeat("a", 40)},
-		worktrees:  map[string]string{},
-		dirty:      map[string]bool{},
-		content:    map[string]string{},
-		ahead:      map[string]int{},
-		unpushed:   map[string]int{},
-		headBranch: "main",
-		defaultRef: "origin/main",
+		repoRoot:      repoRoot,
+		extraRoots:    map[string]bool{},
+		worktreeRepos: map[string]string{},
+		branches:      map[string]string{"main": strings.Repeat("a", 40)},
+		worktrees:     map[string]string{},
+		dirty:         map[string]bool{},
+		content:       map[string]string{},
+		ahead:         map[string]int{},
+		unpushed:      map[string]int{},
+		headBranch:    "main",
+		defaultRef:    "origin/main",
 	}
 }
 
@@ -61,10 +73,10 @@ func (g *fakeWorktreeGit) Run(_ context.Context, dir string, args ...string) ([]
 	join := strings.Join(args, " ")
 	switch {
 	case join == "rev-parse --show-toplevel":
-		if dir != g.repoRoot {
+		if dir != g.repoRoot && !g.extraRoots[dir] {
 			return nil, fmt.Errorf("not the repository root")
 		}
-		return []byte(g.repoRoot + "\n"), nil
+		return []byte(dir + "\n"), nil
 	case join == "rev-parse --abbrev-ref HEAD":
 		branch, ok := g.worktrees[dir]
 		if !ok {
@@ -78,10 +90,11 @@ func (g *fakeWorktreeGit) Run(_ context.Context, dir string, args ...string) ([]
 		}
 		return []byte(g.branches[branch] + "\n"), nil
 	case join == "rev-parse --git-common-dir":
-		if _, ok := g.worktrees[dir]; !ok {
+		root, ok := g.worktreeRepos[dir]
+		if !ok {
 			return nil, fmt.Errorf("not a worktree")
 		}
-		return []byte(filepath.Join(g.repoRoot, ".git") + "\n"), nil
+		return []byte(filepath.Join(root, ".git") + "\n"), nil
 	case strings.HasPrefix(join, "merge-tree --write-tree"):
 		if g.mergeConflict {
 			return nil, fmt.Errorf("merge conflict")
@@ -139,6 +152,7 @@ func (g *fakeWorktreeGit) Run(_ context.Context, dir string, args ...string) ([]
 			return nil, fmt.Errorf("worktree already exists")
 		}
 		g.worktrees[path] = branch
+		g.worktreeRepos[path] = dir
 		g.branches[branch] = base
 		return nil, nil
 	case strings.HasPrefix(join, "branch -D "):
@@ -287,7 +301,7 @@ func TestClaimWorktreeReconcilesInterruptedCreateWithoutSecondWorktree(t *testin
 	// Simulate an interruption after the claim row but before Concord could
 	// append the verified locator: git created the worktree, the fold never
 	// ran.
-	if err := s.insertPendingClaim(req); err != nil {
+	if err := s.insertPendingClaim(req, git.repoRoot); err != nil {
 		t.Fatal(err)
 	}
 	path := filepath.Join(filepath.Dir(s.Path()), "worktrees", req.ProjectID, req.WorkID)
@@ -314,7 +328,7 @@ func TestClaimWorktreeRetryFromPendingWithoutNativeCreateProbesFirst(t *testing.
 	t.Parallel()
 	s, git, _ := worktreeFixture(t)
 	req := baseClaim(git)
-	if err := s.insertPendingClaim(req); err != nil {
+	if err := s.insertPendingClaim(req, git.repoRoot); err != nil {
 		t.Fatal(err)
 	}
 	// Nothing was created; the retry probes, finds nothing, then creates.
@@ -384,6 +398,109 @@ func TestClaimWorktreeRefusesSecondActiveAndIntentMismatch(t *testing.T) {
 	mismatched.BaseSHA = strings.Repeat("b", 40)
 	if _, err := s.ClaimWorktree(context.Background(), mismatched); err == nil {
 		t.Fatal("retry with different base intent must be refused")
+	}
+}
+
+// addFixtureProject creates a Project in product-w, the membership invariant
+// the fold demands. The fixture's product holds version 2 after project-w.
+func addFixtureProject(t *testing.T, s *Store, id string) {
+	t.Helper()
+	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{
+		locatorProjectEvent(id),
+		{EventID: "membership-product-w-" + id, Kind: "product_project.added", SubjectType: SubjectProduct, SubjectID: "product-w", Actor: "operator", OccurredAt: time.Unix(1, 0).UTC(), PayloadVersion: 1, Payload: jsonRaw(`{"product_id":"product-w","project_id":"` + id + `","role":"secondary","reason":"fixture","expected_version":2,"resulting_version":3}`)},
+	}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectProject, id): 0, VersionRef(SubjectProduct, "product-w"): 2}}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// secondWorktreeProject adds project-w2 on its own repository and gives work-w
+// a secondary membership in it, so one work item holds one Project per
+// repository (CD-0008 D1). Returns project-w2's canonical path.
+func secondWorktreeProject(t *testing.T, s *Store, git *fakeWorktreeGit) string {
+	t.Helper()
+	addFixtureProject(t, s, "project-w2")
+	repoRoot := t.TempDir()
+	if err := s.AddProjectLocator(context.Background(), "project-w2", ProjectLocator{ID: "path-w2", Kind: LocatorCanonicalPath, Value: repoRoot}, 1); err != nil {
+		t.Fatal(err)
+	}
+	git.addRepository(repoRoot)
+	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{{EventID: "work-w-memberships-w2", Kind: "work.memberships_replaced", SubjectType: SubjectWorkItem, SubjectID: "work-w", Actor: "operator", OccurredAt: time.Unix(3, 0).UTC(), PayloadVersion: 1, Payload: jsonRaw(`{"memberships":[{"project_id":"project-w","role":"primary"},{"project_id":"project-w2","role":"secondary"}],"expected_version":2,"resulting_version":3}`)}}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "work-w"): 2}}); err != nil {
+		t.Fatal(err)
+	}
+	return repoRoot
+}
+
+// The branch slot is unique per repository, not globally: two Projects of one
+// work item derive the same branch work/<work_id> in two repositories, and
+// both claims must hold (CD-0008 D1; CD-0151 D2 scoped to the repository).
+func TestStoreTwoProjectClaimsConcurrent(t *testing.T) {
+	t.Parallel()
+	s, git, _ := worktreeFixture(t)
+	secondRoot := secondWorktreeProject(t, s, git)
+	ctx := context.Background()
+	first := baseClaim(git)
+	first.ExpectedVersion = 3
+	if _, err := s.ClaimWorktree(ctx, first); err != nil {
+		t.Fatalf("first Project claim: %v", err)
+	}
+	second := first
+	second.ProjectID = "project-w2"
+	second.OpID = "wt-op-2"
+	second.RequestID = "req-2"
+	second.ExpectedVersion = 4
+	result, err := s.ClaimWorktree(ctx, second)
+	if err != nil {
+		t.Fatalf("second per-Project claim in another repository refused: %v", err)
+	}
+	if result.Entry.ProjectID != "project-w2" || result.Entry.Branch != claimBranch() || result.Entry.State != worktreeEntryActive {
+		t.Fatalf("entry=%+v", result.Entry)
+	}
+	if result.Entry.RepositoryID != secondRoot {
+		t.Fatalf("second claim repository=%q, want %q", result.Entry.RepositoryID, secondRoot)
+	}
+	entries, err := s.WorktreeEntries(ctx, "work-w")
+	if err != nil || len(entries) != 2 {
+		t.Fatalf("entries=%+v err=%v", entries, err)
+	}
+	for _, entry := range entries {
+		if entry.State != worktreeEntryActive {
+			t.Fatalf("entry=%+v", entry)
+		}
+	}
+}
+
+// One repository cannot stand behind two Projects: the canonical-path locator
+// is globally unique, so the same-repo cross-project claim is refused before
+// any worktree identity is derived.
+func TestStoreSameRepoCrossProjectRefusal(t *testing.T) {
+	t.Parallel()
+	s, _, repoRoot := worktreeFixture(t)
+	addFixtureProject(t, s, "project-w2")
+	err := s.AddProjectLocator(context.Background(), "project-w2", ProjectLocator{ID: "path-w2", Kind: LocatorCanonicalPath, Value: repoRoot}, 1)
+	if failureKind(err) != KindMembershipConflict {
+		t.Fatalf("err=%v, want membership conflict for the shared repository locator", err)
+	}
+}
+
+// A claim that loses the race for its repository's branch slot is a typed
+// conflict: the store classifies the unique-index refusal instead of
+// reporting a retryable storage failure.
+func TestStoreClaimViolationTypedConflict(t *testing.T) {
+	t.Parallel()
+	s, git, repoRoot := worktreeFixture(t)
+	stamp := time.Unix(9, 0).UTC().Format(time.RFC3339Nano)
+	// The concurrent winner's committed row: it appeared after this claim
+	// passed every check it can see, so the fixture writes it directly.
+	if _, err := s.db.Exec(`INSERT INTO worktree_claims(op_id,work_id,project_id,set_id,repository_id,pinned_branch,pinned_base_sha,pinned_path,state,principal_ref,request_id,observed_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		"wt-ghost", "work-w", "project-ghost", WorktreeSetID("work-w"), repoRoot, claimBranch(), git.branches["main"], filepath.Join(filepath.Dir(s.Path()), "worktrees", "project-ghost", "work-w"), worktreeStatePending, "principal-1", "req-ghost", stamp, stamp); err != nil {
+		t.Fatal(err)
+	}
+	req := baseClaim(git)
+	req.OpID = "wt-op-9"
+	req.RequestID = "req-9"
+	_, err := s.ClaimWorktree(context.Background(), req)
+	if failureKind(err) != KindProjectionConflict {
+		t.Fatalf("err=%v, want projection conflict for the held branch slot", err)
 	}
 }
 
@@ -836,10 +953,11 @@ func TestWorktreeEntriesRebuildFromLog(t *testing.T) {
 }
 
 // insertPendingClaim writes the durable claim row without running git, the
-// state an interrupted operation leaves behind.
-func (s *Store) insertPendingClaim(req WorktreeClaimRequest) error {
-	_, err := s.db.Exec(`INSERT INTO worktree_claims(op_id,work_id,project_id,set_id,pinned_branch,pinned_base_sha,pinned_path,state,principal_ref,request_id,observed_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`,
-		req.OpID, req.WorkID, req.ProjectID, WorktreeSetID(req.WorkID), "work/"+req.WorkID, req.BaseSHA, filepath.Join(filepath.Dir(s.Path()), "worktrees", req.ProjectID, req.WorkID), worktreeStatePending, req.PrincipalRef, req.RequestID, req.Now.Format(time.RFC3339Nano), req.Now.Format(time.RFC3339Nano))
+// state an interrupted operation leaves behind. repoRoot is the Project's
+// canonical-path locator value, the repository identity the claim pins.
+func (s *Store) insertPendingClaim(req WorktreeClaimRequest, repoRoot string) error {
+	_, err := s.db.Exec(`INSERT INTO worktree_claims(op_id,work_id,project_id,set_id,repository_id,pinned_branch,pinned_base_sha,pinned_path,state,principal_ref,request_id,observed_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		req.OpID, req.WorkID, req.ProjectID, WorktreeSetID(req.WorkID), repoRoot, "work/"+req.WorkID, req.BaseSHA, filepath.Join(filepath.Dir(s.Path()), "worktrees", req.ProjectID, req.WorkID), worktreeStatePending, req.PrincipalRef, req.RequestID, req.Now.Format(time.RFC3339Nano), req.Now.Format(time.RFC3339Nano))
 	return err
 }
 
@@ -961,7 +1079,7 @@ func TestWorktreeAuditIgnoresPendingClaims(t *testing.T) {
 	t.Parallel()
 	s, git, _ := worktreeFixture(t)
 	req := baseClaim(git)
-	if err := s.insertPendingClaim(req); err != nil {
+	if err := s.insertPendingClaim(req, git.repoRoot); err != nil {
 		t.Fatal(err)
 	}
 	audit, err := s.WorktreeAudit(context.Background(), WorktreeAuditRequest{ProductID: "product-w", Limit: 100, Runner: git, DefaultRef: "origin/main"})

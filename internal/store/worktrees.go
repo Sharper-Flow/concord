@@ -407,8 +407,16 @@ func claimWorktreeRawTx(ctx context.Context, tx *sql.Tx, dataPath string, req Wo
 		if active > 0 {
 			return out, newFailure(KindProjectionConflict, "worktree_claim", "work already holds an active worktree for this Project", false, "reclaim the existing worktree before claiming another")
 		}
-		if _, err := tx.ExecContext(ctx, `INSERT INTO worktree_claims(op_id,work_id,project_id,set_id,pinned_branch,pinned_base_sha,pinned_path,state,principal_ref,request_id,observed_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`,
-			req.OpID, req.WorkID, req.ProjectID, setID, derivedBranch, req.BaseSHA, derivedPath, worktreeStatePending, req.PrincipalRef, req.RequestID, now.Format(time.RFC3339Nano), now.Format(time.RFC3339Nano)); err != nil {
+		// The branch slot is unique per repository: the branch name derives
+		// from the work identity alone, so two Projects of one work item on
+		// two repositories share it and both claims must hold. A lost race
+		// against a committed slot holder is a typed conflict, not a retryable
+		// storage failure.
+		if _, err := tx.ExecContext(ctx, `INSERT INTO worktree_claims(op_id,work_id,project_id,set_id,repository_id,pinned_branch,pinned_base_sha,pinned_path,state,principal_ref,request_id,observed_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+			req.OpID, req.WorkID, req.ProjectID, setID, repoRoot, derivedBranch, req.BaseSHA, derivedPath, worktreeStatePending, req.PrincipalRef, req.RequestID, now.Format(time.RFC3339Nano), now.Format(time.RFC3339Nano)); err != nil {
+			if isUniqueViolation(err) {
+				return out, newFailure(KindProjectionConflict, "worktree_claim", "another active claim already pins this repository's branch or this native path", false, "reclaim the holding worktree before claiming again")
+			}
 			return out, wrapFailure(KindUnavailable, "worktree_claim", "cannot persist claim", true, "retry once the database is writable", err)
 		}
 		pinnedBranch, pinnedBase, pinnedPath = derivedBranch, req.BaseSHA, derivedPath

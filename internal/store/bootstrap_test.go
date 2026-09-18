@@ -265,19 +265,37 @@ func TestMigration59PreservesPopulatedBootstrapOperation(t *testing.T) {
 	s := &Store{db: db, path: path}
 	repo := initBootstrapStoreRepo(t)
 	seedBootstrapStoreAuthority(t, s, repo)
-	result, err := s.BootstrapWorktree(ctx, bootstrapStoreRequest(), nil)
+	req := bootstrapStoreRequest()
+	operationID, workID, digest, err := CanonicalBootstrapIdentity(req)
 	if err != nil {
+		t.Fatal(err)
+	}
+	// The populated row a completed bootstrap leaves behind, written at the
+	// seeded schema. The row shape, not the write route, is what the migration
+	// must preserve: the current binary's bootstrap route pins worktree claim
+	// columns the pre-migration schema does not carry yet.
+	stamp := time.Unix(10, 0).UTC().Format(time.RFC3339Nano)
+	// work_items is fold-only, so the referenced work item folds in through
+	// its event; the journal table itself has no fold guard.
+	if err := ApplyOperation(ctx, s, Operation{Events: []Event{
+		{EventID: "migration59-work", Kind: "work.created", SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "operator", OccurredAt: time.Unix(1, 0).UTC(), PayloadVersion: 2, Payload: json.RawMessage(`{"work_kind":"task","title":"Bootstrap","priority":1}`)},
+		{EventID: "migration59-memberships", Kind: "work.memberships_replaced", SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "operator", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: 1, Payload: json.RawMessage(`{"memberships":[{"project_id":"project-bootstrap","role":"primary"}],"expected_version":1,"resulting_version":2}`)},
+	}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 0}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.ExecContext(ctx, `INSERT INTO bootstrap_operations(idempotency_key,operation_id,request_digest,request_json,product_id,project_id,work_id,repo_path,expected_version,state,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`,
+		req.IdempotencyKey, operationID, digest, bootstrapJSON(req), req.ProductID, req.ProjectID, workID, repo, 2, "completed", stamp, stamp); err != nil {
 		t.Fatal(err)
 	}
 	if err := Migrate(ctx, db); err != nil {
 		t.Fatal(err)
 	}
-	var operationID, state string
-	if err := db.QueryRowContext(ctx, `SELECT operation_id,state FROM bootstrap_operations WHERE work_id=?`, result.WorkID).Scan(&operationID, &state); err != nil {
+	var persistedID, state string
+	if err := db.QueryRowContext(ctx, `SELECT operation_id,state FROM bootstrap_operations WHERE work_id=?`, workID).Scan(&persistedID, &state); err != nil {
 		t.Fatal(err)
 	}
-	if operationID != result.OperationID || state != "completed" {
-		t.Fatalf("operation=%s state=%s", operationID, state)
+	if persistedID != operationID || state != "completed" {
+		t.Fatalf("operation=%s state=%s", persistedID, state)
 	}
 }
 

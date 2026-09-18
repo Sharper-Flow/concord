@@ -16,12 +16,5 @@
     ]
   },
   "threshold": 100,
-  "allowances": [
-    {
-      "function": "internal/store.foldWorkflowContractSuperseded",
-      "measured": 115,
-      "state": "unmeasured",
-      "reason": "The fold owns one atomic contract replacement path. It validates exact active predecessors, operator approval binding, successor law and architecture authority, then writes the successor and dispositions every predecessor in one transaction."
-    }
-  ]
+  "allowances": []
 }

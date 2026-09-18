@@ -2923,32 +2923,26 @@ const GeneratedPayloadSchemaDocument = `{
       "additionalProperties": false,
       "properties": {
         "active_problems": {
-          "maximum": 100,
           "minimum": 0,
           "type": "integer"
         },
         "approval_required": {
-          "maximum": 100,
           "minimum": 0,
           "type": "integer"
         },
         "blocked": {
-          "maximum": 100,
           "minimum": 0,
           "type": "integer"
         },
         "in_progress": {
-          "maximum": 100,
           "minimum": 0,
           "type": "integer"
         },
         "live": {
-          "maximum": 100,
           "minimum": 0,
           "type": "integer"
         },
         "needs_attention": {
-          "maximum": 100,
           "minimum": 0,
           "type": "integer"
         },
@@ -2957,17 +2951,14 @@ const GeneratedPayloadSchemaDocument = `{
           "type": "integer"
         },
         "ready": {
-          "maximum": 100,
           "minimum": 0,
           "type": "integer"
         },
         "unknown": {
-          "maximum": 100,
           "minimum": 0,
           "type": "integer"
         },
         "waiting": {
-          "maximum": 100,
           "minimum": 0,
           "type": "integer"
         }

@@ -4830,28 +4830,23 @@
       "properties": {
         "in_progress": {
           "type": "integer",
-          "minimum": 0,
-          "maximum": 100
+          "minimum": 0
         },
         "blocked": {
           "type": "integer",
-          "minimum": 0,
-          "maximum": 100
+          "minimum": 0
         },
         "ready": {
           "type": "integer",
-          "minimum": 0,
-          "maximum": 100
+          "minimum": 0
         },
         "active_problems": {
           "type": "integer",
-          "minimum": 0,
-          "maximum": 100
+          "minimum": 0
         },
         "approval_required": {
           "type": "integer",
-          "minimum": 0,
-          "maximum": 100
+          "minimum": 0
         },
         "overdue_awaits": {
           "type": "integer",
@@ -4859,23 +4854,19 @@
         },
         "live": {
           "type": "integer",
-          "minimum": 0,
-          "maximum": 100
+          "minimum": 0
         },
         "waiting": {
           "type": "integer",
-          "minimum": 0,
-          "maximum": 100
+          "minimum": 0
         },
         "needs_attention": {
           "type": "integer",
-          "minimum": 0,
-          "maximum": 100
+          "minimum": 0
         },
         "unknown": {
           "type": "integer",
-          "minimum": 0,
-          "maximum": 100
+          "minimum": 0
         }
       }
     },

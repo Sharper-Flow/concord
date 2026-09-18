@@ -77,6 +77,29 @@ func TestProductRowsC14BlockedSessionFocusMatchesPayloadSchema(t *testing.T) {
 	}
 }
 
+func TestProductRowsC14CountsAbove100MatchPayloadSchema(t *testing.T) {
+	// A count of a Product's non-terminal work items is bounded only by the
+	// Product's item cardinality; a mature Product exceeds 100 in a counted
+	// state, and the payload schema must admit its own projection.
+	result := ProductRowResult{
+		ObservedAt: "2026-09-18T00:00:00Z",
+		Rows: []ProductRow{{
+			ProductID:    "product-row",
+			DisplayName:  "Portfolio",
+			Stage:        ProductRowStage{Maturity: "production", AudienceCommitment: "operator_only"},
+			Reliance:     ProductRowReliance{Authority: ProductRowAuthorityAuthoritative, ObservedAt: "2026-09-18T00:00:00Z", Omissions: []string{}},
+			ActionCounts: ProductRowActionCounts{State: ProductRowCountsKnown, Values: &ProductRowActionCountValues{InProgress: 101, Blocked: 101, Ready: 101, ActiveProblems: 101, ApprovalRequired: 101, Live: 101, Waiting: 101, NeedsAttention: 101, Unknown: 101, OverdueAwaits: 101}},
+		}},
+	}
+	payload, err := ProductRowPagePayload(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := payloadschema.Validate("product_row_page", payload); err != nil {
+		t.Fatalf("portfolio payload with counts above 100 is invalid: %v", err)
+	}
+}
+
 func seedProductRowFixture(t *testing.T, s *Store) {
 	t.Helper()
 	ctx := context.Background()

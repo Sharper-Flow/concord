@@ -1848,7 +1848,7 @@ test("worktree removal operations derive from contract inputs", () => {
   expect([...adapter.WORKTREE_REMOVAL_OPERATIONS].sort()).toEqual(["worktree_audit_reclaim", "worktree_destroy", "worktree_reclaim"])
 })
 
-test("a worktree removal does not carry host session observations to the core", async () => {
+test("a worktree removal attaches the host session observation the caller omitted", async () => {
   for (const operation of ["worktree_reclaim", "worktree_destroy", "worktree_audit_reclaim"]) {
     bindSessionRoutes({ sessions: [
       { id: "ses_alpha", directory: "/worktrees/work-1" },
@@ -1862,8 +1862,25 @@ test("a worktree removal does not carry host session observations to the core", 
     const request = operation === "worktree_audit_reclaim" ? auditRemovalRequest() : removalRequest(operation)
     const envelope: any = await rawHostResult(adapter.work_transition.execute(request, contextFor()))
     expect(envelope.outcome, operation).toBe("ok")
-    expect(JSON.parse(seen[0]).input.observed_session_directories, operation).toBeUndefined()
+    expect(JSON.parse(seen[0]).input.observed_session_directories, operation).toEqual([
+      { session_ref: "ses_alpha", directory: "/worktrees/work-1" },
+      { session_ref: "ses_beta", directory: "/elsewhere" },
+    ])
   }
+})
+
+test("a caller-supplied session observation passes through untouched", async () => {
+  bindSessionRoutes({ sessions: [{ id: "ses_alpha", directory: "/worktrees/work-1" }] })
+  let seen = ""
+  adapter.configureConcordAdapter({ runner: runnerWithContext((_argv: string[], input: string) => {
+    seen = input
+    return removalOk("worktree_reclaim")
+  }) })
+  const request = removalRequest("worktree_reclaim")
+  request.request.input.observed_session_directories = [{ session_ref: "ses_caller", directory: "/caller-sees" }]
+  const envelope: any = await rawHostResult(adapter.work_transition.execute(request, contextFor()))
+  expect(envelope.outcome).toBe("ok")
+  expect(JSON.parse(seen).input.observed_session_directories).toEqual([{ session_ref: "ses_caller", directory: "/caller-sees" }])
 })
 
 test("audit reclaim refuses an occupied worktree through the core", async () => {
@@ -1878,7 +1895,7 @@ test("audit reclaim refuses an occupied worktree through the core", async () => 
   const envelope: any = await rawHostResult(adapter.work_transition.execute(auditRemovalRequest(), contextFor()))
   expect(envelope.outcome).toBe("error")
   expect(envelope.error.kind).toBe("unauthorized")
-  expect(JSON.parse(seen).input.observed_session_directories).toBeUndefined()
+  expect(JSON.parse(seen).input.observed_session_directories).toEqual([{ session_ref: "ses_alpha", directory: "/worktrees/work-1" }])
 })
 
 test("a worktree removal does not depend on the host session list", async () => {

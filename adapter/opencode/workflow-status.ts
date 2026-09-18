@@ -19,7 +19,8 @@ type WorkPin = {
 type MutationEnvelope = { outcome?: unknown; result?: unknown; evidence_refs?: unknown }
 
 const TAB_MAPPING_TTL_MS = 10_000
-const MAX_TAB_NAME_CODE_POINTS = 64
+const MAX_NAME_CODE_POINTS = 64
+const IDENTIFIER_CODE_POINTS = 8
 
 function record(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value)
@@ -36,8 +37,12 @@ function sanitizeTabField(value: string): string {
   }).join("")
 }
 
-function sanitizeTabName(value: string): string {
-  return [...value].slice(0, MAX_TAB_NAME_CODE_POINTS).join("")
+function capCodePoints(value: string): string {
+  return [...value].slice(0, MAX_NAME_CODE_POINTS).join("")
+}
+
+function shortWorkID(workID: string): string {
+  return [...workIDSegment(workID)].slice(0, IDENTIFIER_CODE_POINTS).join("")
 }
 
 function safeTitle(value: unknown): string | null {
@@ -67,11 +72,29 @@ function workIDSegment(workID: string): string {
   return workID.split(/[-/:]/u).pop() || workID
 }
 
+// The tab carries one stub: the linear_issue_key when the Product is
+// Linear-enabled, otherwise the project stub. The full work state moves to the
+// pane frame, which spans the pane width and holds what the tab bar cannot.
 export function formatWorkTabName(value: unknown): string | null {
   const pin = workPin(value)
   if (!pin) return null
-  const identifier = pin.linear_issue_key || workIDSegment(pin.work_id)
-  return sanitizeTabName([pin.project_display_name, identifier, pin.step].filter(Boolean).join(" | ")) || null
+  return capCodePoints(pin.linear_issue_key || pin.project_id) || null
+}
+
+function paneField(value: unknown): string {
+  return typeof value === "string" ? sanitizeTabField(value) : ""
+}
+
+// formatWorkPaneName renders the pane frame name: project display name,
+// identifier, step, and work title joined with " | " and cut at 64 code
+// points. It reads each field leniently and drops the absent ones, so the
+// mutation reporter can pass a whole WorkPin while work_start passes the
+// session-prepare title alone, and both produce the same shape.
+export function formatWorkPaneName(value: unknown): string | null {
+  if (!record(value)) return null
+  const identifier = paneField(value.linear_issue_key) || shortWorkID(paneField(value.work_id))
+  const fields = [paneField(value.project_display_name), identifier, paneField(value.step), paneField(value.title)]
+  return capCodePoints(fields.filter(Boolean).join(" | ")) || null
 }
 
 function evidenceLocators(envelope: MutationEnvelope): string[] | null {
@@ -120,9 +143,29 @@ async function renameZellijTab(pin: WorkPin, context: WorkflowStatusContext, run
     }
     const result = await runner.run(["zellij", "action", "rename-tab-by-id", tabID, name], "", context.abort)
     if (result.exitCode !== 0) throw new Error(`rename-tab-by-id exited ${result.exitCode}`)
+    const paneName = formatWorkPaneName(pin)
+    if (paneName) {
+      const paneResult = await runner.run(["zellij", "action", "rename-pane", "-p", paneID, paneName], "", context.abort)
+      if (paneResult.exitCode !== 0) throw new Error(`rename-pane exited ${paneResult.exitCode}`)
+    }
   } catch (error) {
     mappings.set(context.sessionID, { attemptedAt: now(), ...(tabID ? { tabID } : {}) })
-    try { await hostControlPlane().showToast(`Concord could not rename the work tab: ${error instanceof Error ? error.message : String(error)}.`, "warning", context.abort) } catch { /* best effort */ }
+    try { await hostControlPlane().showToast(`Concord could not rename the work tab or pane frame: ${error instanceof Error ? error.message : String(error)}.`, "warning", context.abort) } catch { /* best effort */ }
+  }
+}
+
+// The session title carries the goal, and the reporter refreshes it from the
+// post-state pin so a revised intent reaches the title the compaction hook
+// restates. The write is best effort: an absent route, an empty title, or a
+// failed call warns and never changes the reported outcome.
+async function refreshSessionGoalTitle(pin: WorkPin, context: WorkflowStatusContext): Promise<void> {
+  const wrote = await hostControlPlane().setSessionTitle(context.sessionID, `Goal: ${pin.title}`, context.abort)
+  if (wrote) return
+  try {
+    await hostControlPlane().showToast("Concord could not write the session goal title: the session title route is absent or refused the write.", "warning", context.abort)
+  } catch {
+    // The title is an operator aid; a warning that cannot be shown still
+    // cannot fail the reported outcome.
   }
 }
 
@@ -135,6 +178,7 @@ export function createWorkStateReporter(options: WorkStateReporterOptions = {}) 
       const pins = workPins(envelope)
       for (const pin of pins) {
         await renameZellijTab(pin, context, runner, now, mappings)
+        await refreshSessionGoalTitle(pin, context)
         const receipt = formatWorkClosureReceipt(pin, envelope)
         if (receipt) {
           try { await hostControlPlane().showToast(receipt, "info", context.abort) } catch { /* closure delivery is best effort */ }

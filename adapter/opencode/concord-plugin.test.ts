@@ -38,6 +38,51 @@ test("plugin does not append work-state lines to completed text", async () => {
   expect(output.text).toBe("assistant text")
 })
 
+// The session title is the single source of the goal text, and the compaction
+// prompt is where that goal must survive: the host joins the strings this hook
+// pushes onto the context into the prompt it summarizes with. Only a title the
+// adapter wrote carries the goal prefix, so a generated title never reaches it.
+describe("plugin entry registers the session compacting hook", () => {
+  const compactingHook = async () => {
+    const plugin = await ConcordAdapterPlugin() as unknown as {
+      "experimental.session.compacting"?: (input: { sessionID: string }, output: { context: string[] }) => Promise<void>
+    }
+    expect(typeof plugin["experimental.session.compacting"]).toBe("function")
+    return plugin["experimental.session.compacting"] as (input: { sessionID: string }, output: { context: string[] }) => Promise<void>
+  }
+
+  test("pushes the goal title onto the compaction context", async () => {
+    // The factory re-binds the control plane, so the fake client binds after
+    // the hook is resolved.
+    const hook = await compactingHook()
+    hostControlPlane().bind({
+      get: async () => ({ data: { id: "session-compact", title: "Goal: Ship the tab stub" }, response: new Response(null, { status: 200 }) }),
+      post: async () => ({ response: new Response(null, { status: 204 }) }),
+    })
+    const output = { context: [] as string[] }
+    await hook({ sessionID: "session-compact" }, output)
+    expect(output.context).toEqual(["Goal: Ship the tab stub"])
+  })
+
+  test("leaves a title without the goal prefix out of the compaction context", async () => {
+    const hook = await compactingHook()
+    hostControlPlane().bind({
+      get: async () => ({ data: { id: "session-compact", title: "Fix login redirect" }, response: new Response(null, { status: 200 }) }),
+      post: async () => ({ response: new Response(null, { status: 204 }) }),
+    })
+    const output = { context: ["existing"] }
+    await hook({ sessionID: "session-compact" }, output)
+    expect(output.context).toEqual(["existing"])
+  })
+
+  test("leaves the compaction context alone when the title route is absent", async () => {
+    const hook = await compactingHook()
+    const output = { context: ["existing"] }
+    await hook({ sessionID: "session-compact" }, output)
+    expect(output.context).toEqual(["existing"])
+  })
+})
+
 test("work start definition hook leaves other tool definitions unchanged", async () => {
   const plugin = await ConcordAdapterPlugin()
   const output = { description: "another tool", parameters: {}, jsonSchema: { type: "object" } }

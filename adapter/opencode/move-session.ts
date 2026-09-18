@@ -19,7 +19,8 @@
 // such dependency, so the route path stays a constant here.
 //
 // `GET /session` reports live session directories for worktree occupancy.
-// `GET/PATCH /session/{id}` owns persistent Task participation metadata.
+// `GET/PATCH /session/{id}` owns persistent Task participation metadata and
+// the session title.
 // `POST /tui/show-toast` delivers operator text without an agent relay.
 
 import { execFileSync } from "node:child_process"
@@ -228,6 +229,39 @@ export class HostControlPlane {
     if (!result.response.ok) throw new SessionScopeUnavailable(`the host refused the managed Task scope metadata update with status ${result.response.status}`)
     const saved = await this.#scopeSession(sessionID, signal)
     if (saved.metadata[MANAGED_TASK_SCOPE_KEY] !== "managed") throw new SessionScopeUnavailable("the host did not persist the managed Task scope")
+  }
+
+  // setSessionTitle writes the host session title through PATCH /session/{id}
+  // with a { title } body. The title names the work goal, so the write is best
+  // effort by construction: no bound client, a client without a patch surface,
+  // a 404 or 405, or a failed call answers false rather than throwing, and an
+  // empty title writes nothing. The caller warns and keeps its recorded
+  // outcome either way.
+  async setSessionTitle(sessionID: string, title: string, signal: AbortSignal = AbortSignal.timeout(5_000)): Promise<boolean> {
+    if (title.length === 0) return false
+    if (!this.#client || typeof this.#client.patch !== "function") return false
+    try {
+      const result = await this.#client.patch({ url: SESSION_ROUTE, path: { id: sessionID }, body: { title }, signal })
+      if (result.response.status === 404 || result.response.status === 405) return false
+      return result.response.ok
+    } catch {
+      return false
+    }
+  }
+
+  // sessionTitle reads the host session title back through GET /session/{id}.
+  // It is best effort like the write: any absent route, refusal, or record
+  // without a title answers null, so a caller that reads the title for
+  // context decides on what the host actually holds.
+  async sessionTitle(sessionID: string, signal: AbortSignal = AbortSignal.timeout(5_000)): Promise<string | null> {
+    if (!this.#client) return null
+    try {
+      const result = await this.#client.get({ url: SESSION_ROUTE, path: { id: sessionID }, signal })
+      const title = (result.data as { title?: unknown } | null | undefined)?.title
+      return typeof title === "string" && title.length > 0 ? title : null
+    } catch {
+      return null
+    }
   }
 
   async #scopeSession(sessionID: string, signal: AbortSignal): Promise<{ metadata: Record<string, unknown>; parentID?: string }> {

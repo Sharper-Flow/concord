@@ -164,18 +164,33 @@ documented session API.
 
 ### Operator work-state tab
 
-The adapter renames the zellij tab for every successful mutation result that
-carries a `WorkPin`. The name uses the returned post-state pin, not request
-fields or a second database read:
+The adapter renames the zellij tab and pane frame for every successful mutation
+result that carries a `WorkPin`. The names use the returned post-state pin, not
+request fields or a second database read:
 
 ```text
-Concord | CON-42 | execution
+tab:  CON-42
+pane: Concord | CON-42 | execution | Shorten the zellij tab name
 ```
 
+The tab carries one stub: the `linear_issue_key` when the Product is
+Linear-enabled, for example `CON-304`, and the project stub otherwise, for
+example `toolbox`. The pane frame carries the full work state: project display
+name, identifier, step, and work title joined with ` | ` and cut at 64 code
+points. Absent fields drop from the pane name.
+
 The tab mapping reads `ZELLIJ_PANE_ID` from `zellij action list-panes -a -j`,
-then calls `zellij action rename-tab-by-id` with the matching `tab_id`. The
-adapter caches the mapping briefly per session and strips control bytes and
-pipe characters from the name.
+then calls `zellij action rename-tab-by-id` with the matching `tab_id` and
+`zellij action rename-pane` with the pane id. The adapter caches the mapping
+briefly per session and strips control bytes and pipe characters from both
+names.
+
+`work_start` names the pane frame with the work title alone, because the
+session-prepare contract carries no step or project display name and the
+adapter does not add a database read for a cosmetic name. The first mutation
+replaces it with the full work state. Both renames stay best effort: no
+`ZELLIJ_PANE_ID`, an empty name, or a failed zellij call warns and never
+changes a recorded outcome.
 
 The adapter does not write the work-state name to mutation toasts, lane
 reports, system prompts, or completed assistant text. A closure receipt stays
@@ -185,6 +200,25 @@ does not hold.
 When a mutation completes a work item, the adapter also shows a closure receipt
 with the WorkPin identity, title, bound evidence locators, and `release=pending`.
 The release value stays pending because publication occurs after completion.
+
+### Session goal title
+
+A successful `work_start` writes the host session title to `Goal: <work title>`
+through `PATCH /session/{id}` with a `{ title }` body after the confirmed
+landing, and the work-state reporter refreshes the same title from the
+post-state pin so a revised intent reaches it. OpenCode replaces a session
+title automatically only while it is still the generated default, so the
+Concord title persists.
+
+The plugin registers `experimental.session.compacting` and reads the session
+title through the control plane. When the title starts with `Goal: `, the hook
+pushes that one line onto the compaction context, and the host joins it into
+the compaction prompt so the anchored summary restates the goal. The hook is
+required because the title alone never reaches the model and the continuity
+block injects only when the launcher exported the selected Product and work.
+
+Every title write stays best effort: an absent route, an empty title, or a
+failed call warns and never changes a recorded outcome.
 
 ### Recommended host permission and fallback configuration
 

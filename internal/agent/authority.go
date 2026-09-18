@@ -646,8 +646,11 @@ func (s *Service) CreateApprovalChallengeTx(ctx context.Context, tx *store.Trans
 	if err != nil {
 		return "", err
 	}
-	if !validChallengeScope(spec.Scope) || !validChallengeVersions(spec.Versions) || !scopeWithinAuthority(spec.Scope, authority) {
+	if !validChallengeScope(spec.Scope) || !scopeWithinAuthority(spec.Scope, authority) {
 		return "", errors.New("approval scope exceeds authorized scope")
+	}
+	if !validChallengeVersions(spec.Versions) {
+		return "", errors.New("approval challenge versions invalid")
 	}
 	now := s.now()
 	if !spec.ExpiresAt.After(now) || spec.ExpiresAt.Sub(now) > 24*time.Hour {

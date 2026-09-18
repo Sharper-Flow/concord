@@ -2522,6 +2522,15 @@ func (r runtime) planSetMemberships(ctx context.Context, base Envelope, raw []by
 }
 
 // planResolveOverlap plans concord_work_relate.resolve_overlap.
+//
+// A depends_on resolution is the one kind an agent may record without an
+// operator challenge: it constrains only the declaring work (the from side
+// waits while the peer proceeds), so a false declaration delays the
+// declarer and nothing else — the same trust planLink already grants an
+// agent-writable depends_on relation. Every other kind changes another
+// item's admission or identity — blocks frees the declarer and holds the
+// peer, compatible_with releases the gate for both sides, merged_into and
+// supersedes terminalize an item — and keeps the approval demand.
 func (r runtime) planResolveOverlap(ctx context.Context, base Envelope, raw []byte, digest string, grant Authority, op ContractOperation, plan *mutationPlan) (Envelope, error, bool) {
 	var in resolveOverlapMutationInput
 	if err := decodeOperationInput(raw, &in); err != nil {
@@ -2530,7 +2539,7 @@ func (r runtime) planResolveOverlap(ctx context.Context, base Envelope, raw []by
 	if in.Approval != nil {
 		plan.approval = in.Approval.ApprovalRef
 	}
-	plan.requiresApproval = true
+	plan.requiresApproval = in.ResolutionKind != "depends_on"
 	plan.versions["from"] = in.FromExpectedVersion
 	plan.versions["to"] = in.ToExpectedVersion
 	plan.versions["from_contract"] = in.FromContractVersion

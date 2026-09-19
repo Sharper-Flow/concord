@@ -90,4 +90,8 @@ collision refusal, or the other five workflow types.
   advances.
 - `TestPriorPinnedDefinitionVersionsReplayUnchanged` proves every pinned prior
   version verifies and carries no alignment step.
+- `TestWorkRemovalClearsBacklogAlignmentAtBothEnds` proves work removal clears
+  rows naming the removed item in either column. Both foreign keys are
+  `RESTRICT`, so a projection delete covering only `work_id` would strand the
+  related-item row and fail the final work-item delete.
 - The workflow contract documents the new event, table, and graphs.

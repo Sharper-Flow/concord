@@ -4759,7 +4759,7 @@ CREATE UNIQUE INDEX worktree_claims_one_active_branch ON worktree_claims(reposit
 CREATE TABLE workflow_backlog_alignment (
     work_id         TEXT NOT NULL REFERENCES work_items(id) ON DELETE RESTRICT,
     related_work_id TEXT REFERENCES work_items(id) ON DELETE RESTRICT,
-    searched        TEXT NOT NULL CHECK(length(searched) BETWEEN 1 AND 4096),
+    searched        TEXT NOT NULL CHECK(length(searched) BETWEEN 2 AND 4096),
     outcome         TEXT NOT NULL CHECK(outcome IN ('related_found','none_found')),
     recorded_at     TEXT NOT NULL,
     recorded_by     TEXT NOT NULL REFERENCES workflow_actors(actor_ref) ON DELETE RESTRICT,

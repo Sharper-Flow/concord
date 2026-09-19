@@ -1317,7 +1317,11 @@ var builtinActionPolicies = map[string]builtinActionPolicy{
 	// never-checked; the guard refuses an outcome that contradicts the id
 	// list. The action records the candidate set only and creates no relation.
 	"record_alignment": actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance, ActionEventTyped,
-		actionStringField("searched", true, 4096),
+		// The shared actionStringField helper declares a minimum of one, but
+		// every fold bounds a workflow string at two bytes through
+		// workflowString. searched declares the floor it is actually held to,
+		// so a schema-valid payload cannot be refused by the fold.
+		WorkflowPayloadField{Name: "searched", ValueType: PayloadString, Required: true, NonBlank: true, MinLength: workflowInt(2), MaxLength: workflowInt(4096)},
 		actionEnumField("outcome", true, "related_found", "none_found"),
 		actionIDListField("related_ids", false, 1, 64),
 	),

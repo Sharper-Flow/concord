@@ -276,6 +276,85 @@ func TestPriorPinnedDefinitionVersionsReplayUnchanged(t *testing.T) {
 	}
 }
 
+// TestWorkRemovalClearsBacklogAlignmentAtBothEnds proves removal succeeds for
+// the item that recorded the search and for an item the search named. Both
+// columns of workflow_backlog_alignment carry a RESTRICT foreign key, so a
+// projection delete that covered only work_id would leave the related-item row
+// behind and the final work-item delete would fail.
+func TestWorkRemovalClearsBacklogAlignmentAtBothEnds(t *testing.T) {
+	ctx := context.Background()
+	for _, testCase := range []struct{ name, removed, survivor string }{
+		{"searching item", "align-searcher", "align-related"},
+		{"related item", "align-related", "align-searcher"},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			s := openTemp(t)
+			seedWork(t, s, "align-searcher")
+			seedWork(t, s, "align-related")
+			seedBacklogAlignmentRows(t, s, "align-searcher", "align-related")
+			request := removalTestRequest()
+			request.WorkID = testCase.removed
+			request.OperationID = "remove-align-" + testCase.removed
+			request.IdempotencyKey = "remove-align-key-" + testCase.removed
+			if _, err := s.ShelveWork(ctx, request); err != nil {
+				t.Fatalf("removing %s left a backlog alignment row behind: %v", testCase.removed, err)
+			}
+			var rows int
+			if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT count(*) FROM workflow_backlog_alignment WHERE work_id=? OR related_work_id=?`, testCase.removed, testCase.removed).Scan(&rows); err != nil {
+				t.Fatal(err)
+			}
+			if rows != 0 {
+				t.Fatalf("removing %s left %d alignment rows naming it", testCase.removed, rows)
+			}
+			if err := RebuildFromLog(ctx, s); err != nil {
+				t.Fatalf("replay after removing %s: %v", testCase.removed, err)
+			}
+			var survivors int
+			if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT count(*) FROM work_items WHERE id=?`, testCase.survivor).Scan(&survivors); err != nil {
+				t.Fatal(err)
+			}
+			if survivors != 1 {
+				t.Fatalf("replay dropped the surviving item %s", testCase.survivor)
+			}
+		})
+	}
+}
+
+// seedBacklogAlignmentRows writes the declaration row and one related-item row
+// a related_found search produces, so a removal test holds a row at each end of
+// the foreign-key pair.
+func seedBacklogAlignmentRows(t *testing.T, s *Store, workID, relatedID string) {
+	t.Helper()
+	ctx := context.Background()
+	const actorRef = "actor:0000000000000000000000000000000000000000000000000000000000000001"
+	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := enterFold(ctx, tx); err != nil {
+		tx.Rollback()
+		t.Fatal(err)
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO workflow_actors(actor_ref,principal_ref,client_ref,agent_ref,session_ref,actor_class,first_seen_at) VALUES(?,?,?,?,?,'agent','2026-09-19T00:00:00Z')`, actorRef, "principal:alignment-removal", "client:alignment-removal", "agent:alignment-removal", "session:alignment-removal"); err != nil {
+		tx.Rollback()
+		t.Fatal(err)
+	}
+	searched := "Searched open work for items covering the same surface."
+	for _, related := range []any{nil, relatedID} {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO workflow_backlog_alignment(work_id,related_work_id,searched,outcome,recorded_at,recorded_by) VALUES(?,?,?,'related_found','2026-09-19T00:00:00Z',?)`, workID, related, searched, actorRef); err != nil {
+			tx.Rollback()
+			t.Fatal(err)
+		}
+	}
+	if err := leaveFold(ctx, tx); err != nil {
+		tx.Rollback()
+		t.Fatal(err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func jsonString(t *testing.T, value string) string {
 	t.Helper()
 	encoded, err := json.Marshal(value)

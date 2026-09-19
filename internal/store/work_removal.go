@@ -594,6 +594,12 @@ func deleteWorkOwnedProjections(ctx context.Context, tx *sql.Tx, workID string) 
 	if _, err := tx.ExecContext(ctx, `DELETE FROM workflow_overlap_resolutions WHERE from_work_id=? OR to_work_id=?`, workID, workID); err != nil {
 		return projectionDeleteFailure("workflow_overlap_resolutions", err)
 	}
+	// An alignment row names the searching item and, for a related_found
+	// outcome, one item the search found. Both columns carry a RESTRICT
+	// foreign key, so removing either end must clear the row first.
+	if _, err := tx.ExecContext(ctx, `DELETE FROM workflow_backlog_alignment WHERE work_id=? OR related_work_id=?`, workID, workID); err != nil {
+		return projectionDeleteFailure("workflow_backlog_alignment", err)
+	}
 	tables := []string{"workflow_impact_notices", "workflow_candidate_sets", "workflow_contract_predicates", "workflow_contract_law_revisions", "workflow_contract_law_modifications", "workflow_contract_verification_obligations", "workflow_contract_law_additions", "workflow_contract_domain_relation_modifications", "workflow_contract_domain_modifications", "workflow_contract_affected_domains", "workflow_law_addition_reservations", "workflow_architecture_bindings", "workflow_premise_confirmations", "workflow_context_boundaries", "workflow_context_checkpoints", "workflow_impact_edges", "workflow_external_conditions", "workflow_checkpoints", "workflow_decision_records", "workflow_native_runs", "workflow_contracts", "workflow_design_records", "workflow_proposal_records", "workflow_instances", "resource_claims", "work_messages", "work_observations", "external_observations", "worker_attempts", "initiative_entries", "relations", "work_projects", "linear_outbox", "linear_issue_links"}
 	for _, table := range tables {
 		_, deleteErr := tx.ExecContext(ctx, `DELETE FROM `+table+` WHERE work_id=?`, workID) //nolint:gosec // table comes only from the closed FK-order projection list above and the work ID stays parameter-bound.

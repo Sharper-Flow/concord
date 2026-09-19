@@ -28,7 +28,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:56df1e8d6d7fc96e92f5db468824a0b20e0a472b724352c7ccdf176a02de54cb",
+  "sha256": "sha256:99b10747b9c69ed50c060b87a582b8a3cc7aba407d61f884ad87c0bba0c1572c",
   "status": "accepted",
   "summary": "Splices a mandatory alignment step into implementation and break-fix whose single advance action records the backlog search and its closed outcome in a new fold-only projection table, shipping new frozen definition versions 13 and 11.",
   "tags": [

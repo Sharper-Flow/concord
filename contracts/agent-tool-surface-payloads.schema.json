@@ -10465,7 +10465,7 @@
                 "properties": {
                   "searched": {
                     "type": "string",
-                    "minLength": 1,
+                    "minLength": 2,
                     "maxLength": 4096,
                     "pattern": "\\S"
                   },

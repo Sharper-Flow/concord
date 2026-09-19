@@ -8707,7 +8707,7 @@ const GeneratedPayloadSchemaDocument = `{
                   },
                   "searched": {
                     "maxLength": 4096,
-                    "minLength": 1,
+                    "minLength": 2,
                     "pattern": "\\S",
                     "type": "string"
                   }

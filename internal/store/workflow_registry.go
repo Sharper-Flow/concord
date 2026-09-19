@@ -724,7 +724,7 @@ func withAlignmentStep(definition WorkflowDefinition, afterStep, nextStep string
 	definition = cloneWorkflowDefinition(definition)
 	alignment := WorkflowStep{ID: "alignment", Kind: WorkflowStepInternalSQLite, Actions: []string{"record_alignment", "checkpoint_context", "cross_context_boundary"}}
 
-	steps := make([]WorkflowStep, 0, len(definition.StepGraph.Steps)+1)
+	steps := make([]WorkflowStep, 0, len(definition.StepGraph.Steps))
 	for _, existing := range definition.StepGraph.Steps {
 		steps = append(steps, existing)
 		if existing.ID == afterStep {
@@ -733,7 +733,7 @@ func withAlignmentStep(definition WorkflowDefinition, afterStep, nextStep string
 	}
 	definition.StepGraph.Steps = steps
 
-	edges := make([]WorkflowEdge, 0, len(definition.StepGraph.Edges)+2)
+	edges := make([]WorkflowEdge, 0, len(definition.StepGraph.Edges))
 	for _, edge := range definition.StepGraph.Edges {
 		if edge.From == afterStep && edge.To == nextStep && edge.Kind == WorkflowEdgeForward {
 			edges = append(edges, WorkflowEdge{From: afterStep, To: alignment.ID, Kind: WorkflowEdgeForward}, WorkflowEdge{From: alignment.ID, To: nextStep, Kind: WorkflowEdgeForward})
@@ -765,7 +765,7 @@ func insertAfterStepAction(definition WorkflowDefinition, stepID, actionID strin
 			}
 		}
 	}
-	available := make([]string, 0, len(definition.AvailableActions)+1)
+	available := make([]string, 0, len(definition.AvailableActions))
 	available = append(available, definition.AvailableActions[:insertAt]...)
 	available = append(available, actionID)
 	available = append(available, definition.AvailableActions[insertAt:]...)

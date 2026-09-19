@@ -1,0 +1,36 @@
+{
+  "date": "2026-09-19T00:00:00Z",
+  "evidence": [
+    "contracts/agent-lanes.v1.json",
+    "adapter/opencode/generated-agent-lanes.ts",
+    "scripts/generate-agent-lanes.py",
+    "scripts/install.py"
+  ],
+  "home_domain_id": "agent-surface",
+  "id": "CD-0157",
+  "kind": "decision",
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "CD-0149"
+    }
+  ],
+  "path": "docs/decisions/CD-0157-the-registry-gains-an-advisory-utility.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:288c6c80e5746d42f0fb1c2a2da8afa707dd7d42b91ffcbc975aa3c67e05aff9",
+  "status": "accepted",
+  "summary": "Admits an advisor utility with an explore-matching read-only evidence channel, a collaborative body that refuses a supplied conclusion, permits a no-concerns result, and requires the adviser to state its serving model. Advisory output stays outside worker evidence and gates nothing.",
+  "tags": [
+    "agent-surface",
+    "utilities",
+    "advisory",
+    "independence"
+  ],
+  "title": "The registry gains an advisory utility"
+}

@@ -102,6 +102,21 @@
       "allowed_tools": ["webfetch", "execute"],
       "allowed_commands": [],
       "time_seconds_max": 600
+    },
+    {
+      "id": "advisor",
+      "version": 1,
+      "purpose": "Give an independent reasoned opinion on a bounded problem and cite the evidence for it.",
+      "allowed_tools": ["bash", "read", "glob", "grep", "execute"],
+      "allowed_commands": [
+        "git diff *",
+        "git log *",
+        "git show *",
+        "git status *",
+        "git ls-files *",
+        "git rev-parse *"
+      ],
+      "time_seconds_max": 600
     }
   ]
 }

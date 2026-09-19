@@ -131,6 +131,7 @@ AGENT_FILES = (
     "concord-research.md",
     "concord-review.md",
     "concord-verify.md",
+    "concord-advisor.md",
 )
 STABLE_ROOT_NAME = "current"
 AGENT_GLOB = "concord-*.md"

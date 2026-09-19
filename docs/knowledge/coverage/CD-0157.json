@@ -1,0 +1,22 @@
+{
+  "evidence": [
+    {
+      "kind": "validator",
+      "value": "scripts/test-generate-agent-lanes.py"
+    },
+    {
+      "kind": "validator",
+      "value": "scripts/check-agent-contracts.py"
+    },
+    {
+      "kind": "adapter_test",
+      "value": "adapter/opencode/session-scope.test.ts#a lane session cannot auto-start the CI wait utility"
+    },
+    {
+      "kind": "generated",
+      "value": "adapter/opencode/generated-agent-lanes.ts#agentUtilities"
+    }
+  ],
+  "id": "CD-0157",
+  "state": "satisfied"
+}

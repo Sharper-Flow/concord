@@ -101,6 +101,29 @@ class AgentProjectionTests(unittest.TestCase):
         self.assertIn("# concord-explore", projection)
         self.assertIn("Do not edit files", projection)
 
+    def test_advisory_projection_uses_collaborative_body_with_model_statement(self):
+        # CD-0157 D2-D4. The adviser receives a problem, never a proposed
+        # answer; it reaches the repository tools; it may report no concerns;
+        # it names the model that served it; and each finding carries a path,
+        # a line range, or a command.
+        utility = {
+            "id": "advisor",
+            "purpose": "Give an independent reasoned opinion.",
+            "allowed_tools": ["bash", "read", "glob", "grep", "execute"],
+            "allowed_commands": ["git status *"],
+            "time_seconds_max": 600,
+        }
+        projection = generator.utility_projection(utility)
+        self.assertIn("# concord-advisor", projection)
+        self.assertIn("  execute: true", projection)
+        self.assertIn("  webfetch: false", projection)
+        self.assertIn("  edit: false", projection)
+        self.assertIn("preferred option", projection)
+        self.assertIn("No concerns", projection)
+        self.assertIn("model that served this opinion", projection)
+        self.assertIn("line range", projection)
+        self.assertIn("10 minutes", projection)
+
 
 class EvalPacketProjectionTests(unittest.TestCase):
     def test_projection_replaces_lane_digest_without_manual_edit(self):

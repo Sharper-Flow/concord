@@ -256,7 +256,7 @@ func CompleteWorkflowTxWithRegistry(ctx context.Context, tx *sql.Tx, registry De
 		}
 		notice.Seq = 0
 		if err := foldRegisteredEvent(ctx, tx, notice); err != nil {
-			return workflowClauseFailure(KindOperationConflict, 7, "impact notice fold conflicted", "reconcile_operation")
+			return workflowClauseError(err, 7)
 		}
 	}
 
@@ -276,7 +276,7 @@ func CompleteWorkflowTxWithRegistry(ctx context.Context, tx *sql.Tx, registry De
 	}
 	completion.Seq = 0
 	if err := foldRegisteredEvent(ctx, tx, completion); err != nil {
-		return workflowClauseFailure(KindOperationConflict, 7, "completion fold conflicted", "reconcile_operation")
+		return workflowClauseError(err, 7)
 	}
 	return nil
 }

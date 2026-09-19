@@ -238,7 +238,7 @@ states.
 | `workflow.condition_added` | `work_id`, `condition_id`, `await_type` (`pr_merge`, `ci_result`, `timer`, `human_approval`, `remote_work_state`), `await_ref`, `resolution_authority` |
 | `workflow.condition_resolved` | `work_id`, `condition_id`, `resolution_evidence` (1–32 evidence refs), `resolved_by_event`; the stored `resolution_authority` is exactly `durable_operation:<op_id>`, and every evidence ref must be present in that completed operation's authoritative `evidence_refs` for this work item |
 | `workflow.condition_cancelled` | `work_id`, `condition_id`, `cancellation_authority` (`operator`), `cancellation_evidence` (1–32 evidence refs), `cancelled_by_event`; the event-envelope actor must resolve to an `operator` actor tuple, and every cancellation evidence ref must be present in the stored durable authority operation |
-| `workflow.completed` | `work_id`, `terminal_state` (`completed`, `cancelled`, `superseded`), `final_verdict_kind`, `verdict_actor_ref`, `premise_confirmed` (boolean), `evidence_count` (0–32), `changed_refs_digest` (digest), `impact_verdict` (`breaking` or `non-breaking`), `warnings` (0–16 staleness-rule IDs) |
+| `workflow.completed` | `work_id`, `terminal_state` (`completed`, `cancelled`, `superseded`), `final_verdict_kind`, `verdict_actor_ref`, `premise_confirmed` (boolean), `evidence_count` (non-negative, derived from the item's bound evidence history), `changed_refs_digest` (digest), `impact_verdict` (`breaking` or `non-breaking`), `warnings` (0–16 staleness-rule IDs) |
 
 Upcasters are registered by `(kind, payload_version)`, ordered, deterministic,
 side-effect-free, and run before folding. A newer-than-supported version fails

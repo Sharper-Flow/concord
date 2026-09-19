@@ -148,11 +148,53 @@ func FromEnv() (*Client, error) {
 	return New(os.Getenv(EnvAPIKey), WithEndpoint(endpoint))
 }
 
+// graphError is one entry of a GraphQL errors array. Linear attaches a typed
+// code in extensions for recognized failures such as rate limiting
+// (https://linear.app/developers/rate-limiting).
+type graphError struct {
+	Message    string `json:"message"`
+	Extensions struct {
+		Code string `json:"code"`
+	} `json:"extensions"`
+}
+
 type graphResponse struct {
 	Data   json.RawMessage `json:"data"`
-	Errors []struct {
-		Message string `json:"message"`
-	} `json:"errors"`
+	Errors []graphError    `json:"errors"`
+}
+
+// isRateLimitError reports whether one GraphQL error carries Linear's
+// rate-limit evidence: the RATELIMITED extension code, or a documented
+// rate-limit message shape. Linear documents the extension code on an HTTP
+// 400 body, and quota refusals such as "Rate limit exceeded. Only 2500
+// requests are allowed per 1 hour." can arrive on either status path without
+// the code.
+func isRateLimitError(item graphError) bool {
+	if strings.Contains(strings.ToUpper(item.Extensions.Code), "RATELIMITED") {
+		return true
+	}
+	message := strings.ToUpper(item.Message)
+	return strings.Contains(message, "RATELIMITED") ||
+		strings.Contains(message, "RATE LIMIT EXCEEDED") ||
+		strings.Contains(message, "EXCEEDED YOUR REQUEST QUOTA")
+}
+
+// classifyGraphErrors returns a rate-limited failure when any error carries
+// rate-limit evidence, otherwise a GraphQL failure carrying every message.
+// Both classification paths (a 4xx body and an HTTP 200 envelope) share it so
+// they cannot drift.
+func classifyGraphErrors(envelope graphResponse) *Failure {
+	messages := make([]string, 0, len(envelope.Errors))
+	for _, item := range envelope.Errors {
+		messages = append(messages, item.Message)
+	}
+	detail := strings.Join(messages, "; ")
+	for _, item := range envelope.Errors {
+		if isRateLimitError(item) {
+			return &Failure{Kind: KindRateLimited, Detail: detail}
+		}
+	}
+	return &Failure{Kind: KindGraphqlError, Detail: detail}
 }
 
 // CreateIssue executes issueCreate with the client UUID and returns the remote
@@ -252,17 +294,7 @@ func (c *Client) call(ctx context.Context, query string, variables map[string]an
 		}
 		var envelope graphResponse
 		if json.Unmarshal(raw, &envelope) == nil && len(envelope.Errors) > 0 {
-			messages := make([]string, 0, len(envelope.Errors))
-			for _, item := range envelope.Errors {
-				messages = append(messages, item.Message)
-			}
-			detail := strings.Join(messages, "; ")
-			for _, item := range envelope.Errors {
-				if strings.Contains(strings.ToUpper(item.Message), "RATELIMITED") {
-					return &Failure{Kind: KindRateLimited, Detail: detail}
-				}
-			}
-			return &Failure{Kind: KindGraphqlError, Detail: detail}
+			return classifyGraphErrors(envelope)
 		}
 		return &Failure{Kind: KindGraphqlError, Detail: fmt.Sprintf("linear answered HTTP %d", response.StatusCode)}
 	}
@@ -275,20 +307,10 @@ func (c *Client) call(ctx context.Context, query string, variables map[string]an
 		return &Failure{Kind: KindMalformedResponse, Detail: "response is not JSON"}
 	}
 	if len(envelope.Errors) > 0 {
-		messages := make([]string, 0, len(envelope.Errors))
-		for _, item := range envelope.Errors {
-			messages = append(messages, item.Message)
-		}
-		detail := strings.Join(messages, "; ")
 		// Linear reports rate limiting as HTTP 400 with a RATELIMITED
 		// extension code and also as a GraphQL error on an otherwise
 		// successful HTTP 200. Both shapes answer the same refusal.
-		for _, item := range envelope.Errors {
-			if strings.Contains(strings.ToUpper(item.Message), "RATELIMITED") {
-				return &Failure{Kind: KindRateLimited, Detail: detail}
-			}
-		}
-		return &Failure{Kind: KindGraphqlError, Detail: detail}
+		return classifyGraphErrors(envelope)
 	}
 	if err := json.Unmarshal(envelope.Data, into); err != nil {
 		return &Failure{Kind: KindMalformedResponse, Detail: "response data does not match the expected shape"}

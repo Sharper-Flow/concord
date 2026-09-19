@@ -54,6 +54,11 @@ export class DispatchWindows {
   // completion still needs the packet and the digest the core recorded.
   readonly #inFlight = new Map<string, DispatchRecord>()
   readonly #settling = new Set<string>()
+  // Sessions whose settle attempt ended with the terminal write refused. The
+  // record stays retained, no route may re-attempt the write, and only the
+  // worker_abandon release (releaseRetained) or the record's own settle
+  // receipt clears it.
+  readonly #refused = new Set<string>()
 
   open(sessionID: string, packet: AgentLanePacket, packetDigest = "", workerDirectory?: string, pinnedWorkerDirectory?: string): void {
     const running = this.#inFlight.get(sessionID)
@@ -102,7 +107,7 @@ export class DispatchWindows {
   // completion for one dispatch finds nothing, so a result cannot be admitted
   // twice against a single authorization.
   takeInFlight(sessionID: string, callID?: string): DispatchRecord | null {
-    if (this.#settling.has(sessionID)) return null
+    if (this.#settling.has(sessionID) || this.#refused.has(sessionID)) return null
     const record = this.#inFlight.get(sessionID)
     if (!record) return null
     if (callID !== undefined && record.callID !== undefined && record.callID !== callID) return null
@@ -123,7 +128,7 @@ export class DispatchWindows {
   }
 
   claimSettlement(sessionID: string, callID?: string): DispatchRecord | null {
-    if (this.#settling.has(sessionID)) return null
+    if (this.#settling.has(sessionID) || this.#refused.has(sessionID)) return null
     const record = callID === undefined ? this.#inFlight.get(sessionID) ?? null : this.inFlight(sessionID, callID)
     if (!record) return null
     this.#settling.add(sessionID)
@@ -135,13 +140,26 @@ export class DispatchWindows {
     if (!record) return
     this.#inFlight.delete(sessionID)
     this.#settling.delete(sessionID)
+    this.#refused.delete(sessionID)
   }
 
   // unclaimSettlement releases a settlement claim without dropping the
   // retained record, so a refused settlement keeps the record and leaves the
-  // worker_abandon release route live for the coordinator.
+  // worker_abandon release route live for the coordinator. A later settle
+  // attempt may run again; the spawn route relies on that for its idempotent
+  // abandonment replay.
   unclaimSettlement(sessionID: string): void {
     this.#settling.delete(sessionID)
+  }
+
+  // refuseSettlement ends a settle attempt whose terminal write was refused.
+  // The retained record stays, a repeat event cannot re-attempt the write (the
+  // terminal evidence verbs are not idempotent), and the worker_abandon release
+  // route the in-flight refusal names stays live: releaseRetained ignores this
+  // state and drops the record.
+  refuseSettlement(sessionID: string): void {
+    this.#settling.delete(sessionID)
+    this.#refused.add(sessionID)
   }
 
   // releaseRetained is the reconciliation route a retained authorization
@@ -157,6 +175,7 @@ export class DispatchWindows {
     if (!record) return false
     if (record.packet.attempt_id !== attemptID || record.packet.lane_id !== laneID) return false
     this.#inFlight.delete(sessionID)
+    this.#refused.delete(sessionID)
     return true
   }
 

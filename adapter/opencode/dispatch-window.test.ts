@@ -257,6 +257,23 @@ describe("retained attempt release", () => {
     expect(windows.inFlight("session-a", "call-cancel")).not.toBeNull()
   })
 
+  // A refused write leaves the record retained with its claim converted to the
+  // refused state: no settle or completion route may re-attempt, and only the
+  // worker_abandon release clears the retention.
+  test("a refused settlement blocks re-settle and completion but not the release", async () => {
+    const windows = new DispatchWindows()
+    await bindInFlight(windows)
+    expect(windows.claimSettlement("session-a", "call-cancel")).not.toBeNull()
+    windows.refuseSettlement("session-a")
+    expect(windows.claimSettlement("session-a", "call-cancel")).toBeNull()
+    expect(windows.takeInFlight("session-a")).toBeNull()
+    expect(windows.inFlight("session-a", "call-cancel")).not.toBeNull()
+    expect(windows.releaseRetained("session-a", "attempt-1", "implement")).toBe(true)
+    expect(windows.releaseRetained("session-a", "attempt-1", "implement")).toBe(false)
+    // The recovered session can dispatch again.
+    expect(() => windows.open("session-a", packet, "", process.cwd())).not.toThrow()
+  })
+
   test("reports nothing to release for a session without a retained record", () => {
     expect(new DispatchWindows().releaseRetained("session-none", "attempt-1", "implement")).toBe(false)
   })

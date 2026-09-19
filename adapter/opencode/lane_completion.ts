@@ -122,10 +122,18 @@ export async function failDispatchedWorker(event: unknown, deps: LaneCompletionD
   const sessionID = part.sessionID
   const callID = part.callID
   try {
-    return await failWorkerAttempt(lane, pending.packet, metadata.sessionId, state.error, {
+    const envelope = await failWorkerAttempt(lane, pending.packet, metadata.sessionId, state.error, {
       credentials: deps.credentials, runner: deps.runner, evidenceRunner: deps.evidenceRunner, concordBinary: deps.concordBinary, packetDigest: pending.packetDigest, workerDirectory: pending.workerDirectory,
     }, deps.signal ?? new AbortController().signal, () => windows.finishSettlement(sessionID, callID))
+    // A recorded failure already dropped the record with its claim. A refused
+    // write left the record retained: the claim releases into the refused
+    // state, so a repeat event cannot re-attempt the write and the
+    // worker_abandon route the in-flight refusal names stays live for the
+    // coordinator.
+    if (windows.inFlight(sessionID, callID) !== null) windows.refuseSettlement(sessionID)
+    return envelope
   } catch (error) {
+    windows.refuseSettlement(sessionID)
     return unavailableEnvelope(pending, String(error).slice(0, 2048))
   }
 }

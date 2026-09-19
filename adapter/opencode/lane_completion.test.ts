@@ -446,8 +446,11 @@ describe("host task failure", () => {
     expect(verbs).toEqual(["worker-dispatch"])
     expect(windows.inFlight(SESSION, "call-cancel")).not.toBeNull()
     expect(() => windows.open(SESSION, packet(), PACKET_DIGEST, process.cwd())).toThrow()
-    // The attempt is mid-settlement, so the release route refuses it too.
-    expect(windows.releaseRetained(SESSION, packet().attempt_id, lane.id)).toBe(false)
+    // The in-flight refusal names worker_abandon as the recovery route, so the
+    // refused write releases its claim and that route reaches the retained
+    // record. A held claim would wedge the session against its own remedy.
+    expect(windows.releaseRetained(SESSION, packet().attempt_id, lane.id)).toBe(true)
+    expect(() => windows.open(SESSION, packet(), PACKET_DIGEST, process.cwd())).not.toThrow()
   })
 
   test("foreign calls and unbound sessions cannot consume an attempt", async () => {

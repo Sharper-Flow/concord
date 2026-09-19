@@ -73,7 +73,7 @@ func TestCaptureWorkflowTypeInitializesAndDispatchesFirstAction(t *testing.T) {
 	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=?`, workID, store.WorkflowActionCompleted).Scan(&completed); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM workflow_instances WHERE work_id=? AND current_step='discovery'`, workID).Scan(&currentStep); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM workflow_instances WHERE work_id=? AND current_step='alignment'`, workID).Scan(&currentStep); err != nil {
 		t.Fatal(err)
 	}
 	if completed != 1 || currentStep != 1 {
@@ -146,10 +146,10 @@ func TestConfirmPremiseInvokeDerivesOperatorFromSignedApproval(t *testing.T) {
 	}
 	env := mutationEnvelope(grant, scopeVersion)
 	evaluatorEnv := mutationEnvelope(issue31EvaluatorGrant(t, service, privateKey), scopeVersion)
-	for _, actionID := range []string{"record_proposal", "record_discovery", "record_design"} {
+	for _, actionID := range []string{"record_proposal", "record_alignment", "record_discovery", "record_design"} {
 		invokeWorkflowIssue31Action(t, s, service, env, "work-1", actionID, workflowIssue31Version(t, s), "issue31-"+actionID)
 	}
-	approve := workflowContractActionInput(t, "work-1", 9, "issue31-approve", "")
+	approve := workflowContractActionInput(t, "work-1", 11, "issue31-approve", "")
 	challenge := invokeWorkflowIssue31(t, s, service, env, "concord_work_transition", "workflow_action", approve)
 	if challenge.Outcome != OutcomeError || challenge.Error == nil || challenge.Error.Kind != "approval_required" {
 		t.Fatalf("approval challenge=%+v", challenge)
@@ -157,9 +157,9 @@ func TestConfirmPremiseInvokeDerivesOperatorFromSignedApproval(t *testing.T) {
 	challengeRef, _ := challenge.Error.Details["approval_ref"].(string)
 	digest := mutationDigest("concord_work_transition", "workflow_action", env, approve)
 	scope := map[string]any{"product_id": "product-1", "project_ids": []string{"project-1"}, "work_ids": []string{"work-1"}, "scope_version": scopeVersion}
-	versions := map[string]any{"work": 9}
+	versions := map[string]any{"work": 11}
 	env.HostApproval = signedHostApproval(privateKey, challengeRef, digest, scope, versions, grant.SessionRef, grant.AgentRef, grant.Worktree, fixedTime(), "issue31-approve-nonce")
-	approved := workflowContractActionInput(t, "work-1", 9, "issue31-approve", challengeRef)
+	approved := workflowContractActionInput(t, "work-1", 11, "issue31-approve", challengeRef)
 	response := invokeWorkflowIssue31(t, s, service, env, "concord_work_transition", "workflow_action", approved)
 	if response.Outcome != OutcomeOK {
 		t.Fatalf("approved contract=%+v", response)
@@ -240,10 +240,10 @@ func TestConfirmPremiseInvokeToleratesEmptyHostPrincipal(t *testing.T) {
 	}
 	env := mutationEnvelope(grant, scopeVersion)
 	evaluatorEnv := mutationEnvelope(issue31EvaluatorGrant(t, service, privateKey), scopeVersion)
-	for _, actionID := range []string{"record_proposal", "record_discovery", "record_design"} {
+	for _, actionID := range []string{"record_proposal", "record_alignment", "record_discovery", "record_design"} {
 		invokeWorkflowIssue31Action(t, s, service, env, "work-1", actionID, workflowIssue31Version(t, s), "empty-principal-"+actionID)
 	}
-	approve := workflowContractActionInput(t, "work-1", 9, "empty-principal-approve", "")
+	approve := workflowContractActionInput(t, "work-1", 11, "empty-principal-approve", "")
 	challenge := invokeWorkflowIssue31(t, s, service, env, "concord_work_transition", "workflow_action", approve)
 	if challenge.Outcome != OutcomeError || challenge.Error == nil || challenge.Error.Kind != "approval_required" {
 		t.Fatalf("approval challenge=%+v", challenge)
@@ -251,9 +251,9 @@ func TestConfirmPremiseInvokeToleratesEmptyHostPrincipal(t *testing.T) {
 	challengeRef, _ := challenge.Error.Details["approval_ref"].(string)
 	digest := mutationDigest("concord_work_transition", "workflow_action", env, approve)
 	scope := map[string]any{"product_id": "product-1", "project_ids": []string{"project-1"}, "work_ids": []string{"work-1"}, "scope_version": scopeVersion}
-	versions := map[string]any{"work": 9}
+	versions := map[string]any{"work": 11}
 	env.HostApproval = signedHostApproval(privateKey, challengeRef, digest, scope, versions, grant.SessionRef, grant.AgentRef, grant.Worktree, fixedTime(), "empty-principal-approve-nonce")
-	approved := workflowContractActionInput(t, "work-1", 9, "empty-principal-approve", challengeRef)
+	approved := workflowContractActionInput(t, "work-1", 11, "empty-principal-approve", challengeRef)
 	if response := invokeWorkflowIssue31(t, s, service, env, "concord_work_transition", "workflow_action", approved); response.Outcome != OutcomeOK {
 		t.Fatalf("approved contract=%+v", response)
 	}
@@ -293,6 +293,9 @@ func TestConfirmPremiseInvokeToleratesEmptyHostPrincipal(t *testing.T) {
 func invokeWorkflowIssue31Action(t *testing.T, s *store.Store, service *Service, env CallEnvelope, workID, actionID string, version int64, key string) {
 	t.Helper()
 	fields := ""
+	if actionID == "record_alignment" {
+		fields = `,"fields":{"searched":"The bounded backlog search statement.","outcome":"none_found"}`
+	}
 	if actionID == "record_design" {
 		fields = `,"fields":{"approach":"The recorded approach is the implementation boundary.","decisions":[{"id":"decision:issue31","question":"What crosses into execution?","choice":"The typed design record.","rationale":"The worker must receive the approved decision.","rejected":[]}],"touched_refs":["path:issue31"]}`
 	}
@@ -592,10 +595,10 @@ func prepareIssue31Confirm(t *testing.T) (*store.Store, *Service, Authority, ed2
 		t.Fatal(err)
 	}
 	env := mutationEnvelope(grant, scopeVersion)
-	for _, actionID := range []string{"record_proposal", "record_discovery", "record_design"} {
+	for _, actionID := range []string{"record_proposal", "record_alignment", "record_discovery", "record_design"} {
 		invokeWorkflowIssue31Action(t, s, service, env, "work-1", actionID, workflowIssue31Version(t, s), "prepare-"+actionID)
 	}
-	approve := workflowContractActionInput(t, "work-1", 9, "prepare-approve", "")
+	approve := workflowContractActionInput(t, "work-1", 11, "prepare-approve", "")
 	challenge := invokeWorkflowIssue31(t, s, service, env, "concord_work_transition", "workflow_action", approve)
 	if challenge.Error == nil {
 		t.Fatalf("missing contract approval challenge: %+v", challenge)
@@ -603,8 +606,8 @@ func prepareIssue31Confirm(t *testing.T) (*store.Store, *Service, Authority, ed2
 	challengeRef, _ := challenge.Error.Details["approval_ref"].(string)
 	scope := map[string]any{"product_id": "product-1", "project_ids": []string{"project-1"}, "work_ids": []string{"work-1"}, "scope_version": scopeVersion}
 	approveDigest := mutationDigest("concord_work_transition", "workflow_action", env, approve)
-	env.HostApproval = signedHostApproval(privateKey, challengeRef, approveDigest, scope, map[string]any{"work": 9}, grant.SessionRef, grant.AgentRef, grant.Worktree, fixedTime(), "prepare-approve-nonce")
-	approved := workflowContractActionInput(t, "work-1", 9, "prepare-approve", challengeRef)
+	env.HostApproval = signedHostApproval(privateKey, challengeRef, approveDigest, scope, map[string]any{"work": 11}, grant.SessionRef, grant.AgentRef, grant.Worktree, fixedTime(), "prepare-approve-nonce")
+	approved := workflowContractActionInput(t, "work-1", 11, "prepare-approve", challengeRef)
 	if response := invokeWorkflowIssue31(t, s, service, env, "concord_work_transition", "workflow_action", approved); response.Outcome != OutcomeOK {
 		t.Fatalf("contract approval response=%+v", response)
 	}

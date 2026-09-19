@@ -291,13 +291,15 @@ routeDeclaration("dispatches a real store route through Task completion and work
 
     let response = await transition(5, "record_reproduction", "e2e-reproduction", {})
     expect(response.outcome).toBe("ok")
-    response = await transition(7, "record_root_cause", "e2e-root-cause", {})
+    response = await transition(7, "record_alignment", "e2e-alignment", { searched: "Searched the backlog for duplicate defect work.", outcome: "none_found" })
+    expect(response.outcome).toBe("ok")
+    response = await transition(9, "record_root_cause", "e2e-root-cause", {})
     expect(response.outcome).toBe("ok")
     const domainList = await invoke("concord_domain", { operation: "list", input: { product_id: PRODUCT_ID, page: { cursor: null, limit: 10 } } }, context)
     expect(domainList.outcome).toBe("ok")
     const registry = domainList.result as JSONRecord
     const registryHash = (registry.registry as JSONRecord).content_hash as string
-    response = await transition(8, "approve_contract", "e2e-approve-contract", {
+    response = await transition(10, "approve_contract", "e2e-approve-contract", {
       premise: APPROVED_OBJECTIVE,
       outcome_predicates: [WORKFLOW_PREDICATE],
       required_evidence: [],
@@ -318,8 +320,8 @@ routeDeclaration("dispatches a real store route through Task completion and work
     const stepRead = (await invoke("concord_work_trace", { operation: "continuity", input: { work_id: workID, page: { cursor: null, limit: 1 } } }, context)).result as JSONRecord
     expect((stepRead.pinned as JSONRecord).workflow_step).toBe("repair")
 
-    const routed = laneDispatchRequest({ operation: "workflow_action", input: { work_id: workID, expected_version: 10, action_id: "dispatch_worker", idempotency_key: "e2e-dispatch", fields: { lane_id: "implement" } } })
-    expect(routed).toEqual({ work_id: workID, expected_version: 10, idempotency_key: "e2e-dispatch", lane_id: "implement" })
+    const routed = laneDispatchRequest({ operation: "workflow_action", input: { work_id: workID, expected_version: 12, action_id: "dispatch_worker", idempotency_key: "e2e-dispatch", fields: { lane_id: "implement" } } })
+    expect(routed).toEqual({ work_id: workID, expected_version: 12, idempotency_key: "e2e-dispatch", lane_id: "implement" })
     const windows = new DispatchWindows()
     let dispatchResponse: JSONRecord | undefined
     const dispatchResult = await dispatchLaneWorker(routed as any, {
@@ -351,7 +353,7 @@ routeDeclaration("dispatches a real store route through Task completion and work
     expect(packet.inputs).not.toHaveProperty("context")
     expect(packet.inputs.task).toContain("Approved objective:")
     expect(packet.inputs.task).toContain(APPROVED_OBJECTIVE)
-    expect(packet.inputs.task).toContain("(work v10, contract v1)")
+    expect(packet.inputs.task).toContain("(work v12, contract v1)")
     expect(packet.inputs.task).not.toContain(WORKFLOW_PREDICATE.predicate_id)
     const mandate = packet.inputs.constraints
       .filter((entry: string) => entry.startsWith("Approved end-state mandate (join parts in order) "))
@@ -387,7 +389,7 @@ routeDeclaration("dispatches a real store route through Task completion and work
     const refineStartVersion = dbValue(dbPath, `SELECT version FROM work_items WHERE id='${workID}'`).version as number
     response = await transition(refineStartVersion, "start_refine", "e2e-start-refine", {})
     expect(response.outcome).toBe("ok")
-    expect(dbValue(dbPath, `SELECT definition_version FROM workflow_instances WHERE work_id='${workID}'`).definition_version).toBe(10)
+    expect(dbValue(dbPath, `SELECT definition_version FROM workflow_instances WHERE work_id='${workID}'`).definition_version).toBe(11)
     expect(dbValue(dbPath, `SELECT current_step FROM workflow_instances WHERE work_id='${workID}'`).current_step).toBe("refine")
     const refineEvidenceVersion = dbValue(dbPath, `SELECT version FROM work_items WHERE id='${workID}'`).version as number
     response = await transition(refineEvidenceVersion, "bind_evidence", "e2e-bind-refine-artifact", { evidence_kind: "artifact" })

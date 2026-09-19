@@ -597,3 +597,37 @@ func architectureSpikeDecisionBoundsV6() WorkflowDefinition {
 	}
 	return withLegacyPremiseContract(d)
 }
+
+// implementationPreAlignmentV12 reproduces the implementation definition that
+// was current before CD-0156, registered in the exact shape it shipped so the
+// instances pinned at it replay their original graph unchanged.
+func implementationPreAlignmentV12() WorkflowDefinition {
+	d := withCurrentNonBlankContract(implementationPremiseContractV11())
+	d.Version = 12
+	return d
+}
+
+// breakFixPreAlignmentV10 reproduces the break-fix definition that was
+// current before CD-0156, registered in the exact shape it shipped.
+func breakFixPreAlignmentV10() WorkflowDefinition {
+	d := withCurrentNonBlankContract(breakFixPremiseContractV9())
+	d.Version = 10
+	return d
+}
+
+// implementationAlignmentV13 splices the CD-0156 mandatory alignment step
+// after proposal. record_alignment is the step's only advance exit, so the
+// backlog search cannot be skipped.
+func implementationAlignmentV13() WorkflowDefinition {
+	d := implementationPreAlignmentV12()
+	d.Version = 13
+	return withAlignmentStep(d, "proposal", "discovery")
+}
+
+// breakFixAlignmentV11 splices the CD-0156 mandatory alignment step after
+// reproduce, on the same terms as the implementation graph.
+func breakFixAlignmentV11() WorkflowDefinition {
+	d := breakFixPreAlignmentV10()
+	d.Version = 11
+	return withAlignmentStep(d, "reproduce", "diagnose")
+}

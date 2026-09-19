@@ -100,6 +100,10 @@ func TestRecordDeliveryCommitsWithABoundLocatorPastTheEchoBound(t *testing.T) {
 	if response.Outcome != OutcomeOK {
 		t.Fatalf("record_reproduction: %+v", response.Error)
 	}
+	response, after = ekbDispatch(t, ctx, s, service, env, grant, privateKey, workID, after, "record_alignment", map[string]any{"searched": "The bounded backlog search statement.", "outcome": "none_found"}, nil, "wpeb-align")
+	if response.Outcome != OutcomeOK {
+		t.Fatalf("record_alignment: %+v", response.Error)
+	}
 	response, after = ekbDispatch(t, ctx, s, service, env, grant, privateKey, workID, after, "record_root_cause", map[string]any{}, nil, "wpeb-diagnose")
 	if response.Outcome != OutcomeOK {
 		t.Fatalf("record_root_cause: %+v", response.Error)

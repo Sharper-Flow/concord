@@ -18,31 +18,32 @@ import (
 
 // Workflow event names are deliberately closed. Adding one is a contract change.
 const (
-	WorkflowDefinitionSelected     = "workflow.definition_selected"
-	WorkflowContractApproved       = "workflow.contract_approved"
-	WorkflowOverlapResolved        = "workflow.overlap_resolved"
-	WorkflowContractSuperseded     = "workflow.contract_superseded"
-	WorkflowCandidateSetRevised    = "workflow.candidate_set_revised"
-	WorkflowActorRecorded          = "workflow.actor_recorded"
-	WorkflowActionStarted          = "workflow.action_started"
-	WorkflowActionCheckpointed     = "workflow.action_checkpointed"
-	WorkflowActionCompleted        = "workflow.action_completed"
-	WorkflowActionFailed           = "workflow.action_failed"
-	WorkflowEvidenceBound          = "workflow.evidence_bound"
-	WorkflowStalenessObserved      = "workflow.staleness_observed"
-	WorkflowVerdictRecorded        = "workflow.verdict_recorded"
-	WorkflowPremiseConfirmed       = "workflow.premise_confirmed"
-	WorkflowSuccessorLinked        = "workflow.successor_linked"
-	WorkflowImpactDeclared         = "workflow.impact_declared"
-	WorkflowImpactNoticeRecorded   = "workflow.impact_notice_recorded"
-	WorkflowConditionAdded         = "workflow.condition_added"
-	WorkflowConditionResolved      = "workflow.condition_resolved"
-	WorkflowConditionCancelled     = "workflow.condition_cancelled"
-	WorkflowContextCheckpointed    = "workflow.context_checkpointed"
-	WorkflowContextBoundaryCrossed = "workflow.context_boundary_crossed"
-	WorkflowProposalRecorded       = "workflow.proposal_recorded"
-	WorkflowDesignRecorded         = "workflow.design_recorded"
-	WorkflowCompleted              = "workflow.completed"
+	WorkflowDefinitionSelected       = "workflow.definition_selected"
+	WorkflowContractApproved         = "workflow.contract_approved"
+	WorkflowOverlapResolved          = "workflow.overlap_resolved"
+	WorkflowContractSuperseded       = "workflow.contract_superseded"
+	WorkflowCandidateSetRevised      = "workflow.candidate_set_revised"
+	WorkflowActorRecorded            = "workflow.actor_recorded"
+	WorkflowActionStarted            = "workflow.action_started"
+	WorkflowActionCheckpointed       = "workflow.action_checkpointed"
+	WorkflowActionCompleted          = "workflow.action_completed"
+	WorkflowActionFailed             = "workflow.action_failed"
+	WorkflowEvidenceBound            = "workflow.evidence_bound"
+	WorkflowStalenessObserved        = "workflow.staleness_observed"
+	WorkflowVerdictRecorded          = "workflow.verdict_recorded"
+	WorkflowPremiseConfirmed         = "workflow.premise_confirmed"
+	WorkflowSuccessorLinked          = "workflow.successor_linked"
+	WorkflowImpactDeclared           = "workflow.impact_declared"
+	WorkflowImpactNoticeRecorded     = "workflow.impact_notice_recorded"
+	WorkflowConditionAdded           = "workflow.condition_added"
+	WorkflowConditionResolved        = "workflow.condition_resolved"
+	WorkflowConditionCancelled       = "workflow.condition_cancelled"
+	WorkflowContextCheckpointed      = "workflow.context_checkpointed"
+	WorkflowContextBoundaryCrossed   = "workflow.context_boundary_crossed"
+	WorkflowProposalRecorded         = "workflow.proposal_recorded"
+	WorkflowDesignRecorded           = "workflow.design_recorded"
+	WorkflowBacklogAlignmentRecorded = "workflow.backlog_alignment_recorded"
+	WorkflowCompleted                = "workflow.completed"
 )
 
 type WorkflowVersionFields struct {
@@ -142,6 +143,17 @@ type workflowCandidateSetRevisedPayload struct {
 	CandidateRef    string   `json:"candidate_ref"`
 	Added           []string `json:"added"`
 	Removed         []string `json:"removed"`
+}
+
+// workflowBacklogAlignmentRecordedPayload carries the CD-0156 mandatory
+// backlog-alignment search result. related_ids is present only when outcome
+// is related_found; an omitted optional list and a deliberate empty result
+// must stay distinguishable, so none_found records no list at all.
+type workflowBacklogAlignmentRecordedPayload struct {
+	WorkflowVersionFields
+	Searched   string   `json:"searched"`
+	Outcome    string   `json:"outcome"`
+	RelatedIDs []string `json:"related_ids,omitempty"`
 }
 
 type workflowActorRecordedPayload struct {
@@ -1220,6 +1232,46 @@ func overlap(a, b []string) bool {
 		}
 	}
 	return false
+}
+
+// foldWorkflowBacklogAlignmentRecorded writes the CD-0156 fold-only alignment
+// projection: one declaration row and, when the search found related work,
+// one row per named work id. It does not reuse workflow_candidate_sets, whose
+// foreign key binds to workflow_contracts(work_id, contract_version) and
+// which therefore cannot hold a row before planning approves a contract. The
+// guard refusing an outcome that contradicts the id list runs at the action
+// boundary; the fold repeats the check because replay applies events without
+// the boundary.
+func foldWorkflowBacklogAlignmentRecorded(ctx context.Context, tx *sql.Tx, event Event) error {
+	var p workflowBacklogAlignmentRecordedPayload
+	if err := decodeWorkflowPayload(event, &p); err != nil {
+		return err
+	}
+	if err := workflowBase(event, p.WorkflowVersionFields); err != nil {
+		return err
+	}
+	if !workflowString(p.Searched, 4096) || !contains([]string{"related_found", "none_found"}, p.Outcome) {
+		return newFailure(KindInvalidPayload, "fold_event", "backlog_alignment_recorded has invalid search or outcome fields", false, "supply the search scope and a closed outcome")
+	}
+	if p.Outcome == "related_found" && !workflowList(p.RelatedIDs, 64, 1) {
+		return newFailure(KindInvalidPayload, "fold_event", "backlog_alignment_recorded outcome related_found requires one to sixty-four unique related ids", false, "name the related work items the search found")
+	}
+	if p.Outcome == "none_found" && len(p.RelatedIDs) != 0 {
+		return newFailure(KindInvalidPayload, "fold_event", "backlog_alignment_recorded outcome none_found cannot carry related_ids", false, "drop related_ids or record outcome related_found")
+	}
+	if err := advanceWorkflowVersion(ctx, tx, event, p.WorkflowVersionFields); err != nil {
+		return err
+	}
+	recordedAt := event.OccurredAt.UTC().Format(time.RFC3339Nano)
+	if _, err := tx.ExecContext(ctx, `INSERT INTO workflow_backlog_alignment(work_id,related_work_id,searched,outcome,recorded_at,recorded_by) VALUES(?,NULL,?,?,?,?)`, event.SubjectID, p.Searched, p.Outcome, recordedAt, event.Actor); err != nil {
+		return workflowProjectionError(err, "cannot record workflow backlog alignment")
+	}
+	for _, relatedID := range p.RelatedIDs {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO workflow_backlog_alignment(work_id,related_work_id,searched,outcome,recorded_at,recorded_by) VALUES(?,?,?,?,?,?)`, event.SubjectID, relatedID, p.Searched, p.Outcome, recordedAt, event.Actor); err != nil {
+			return workflowProjectionError(err, "cannot record a workflow backlog alignment match")
+		}
+	}
+	return nil
 }
 
 func foldWorkflowActorRecorded(ctx context.Context, tx *sql.Tx, event Event) error {

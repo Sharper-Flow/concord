@@ -91,7 +91,7 @@ func TestWorkflowCorpusWF37UsesAgentAvailabilityBeforePayloadOrAuth(t *testing.T
 
 func advanceWorkflowBoundaryToExecution(t *testing.T, s *store.Store, service *Service, grant Authority, privateKey ed25519.PrivateKey, env CallEnvelope) (CallEnvelope, int64) {
 	t.Helper()
-	for index, action := range []string{"record_proposal", "record_discovery", "record_design"} {
+	for index, action := range []string{"record_proposal", "record_alignment", "record_discovery", "record_design"} {
 		fields := map[string]any{}
 		if action == "record_design" {
 			fields = map[string]any{"approach": "The recorded approach is the implementation boundary.", "decisions": []map[string]any{{"id": "decision:boundary", "question": "What crosses into execution?", "choice": "The typed design record.", "rationale": "The worker must receive the approved decision.", "rejected": []string{}}}, "touched_refs": []string{"path:boundary"}}
@@ -99,17 +99,19 @@ func advanceWorkflowBoundaryToExecution(t *testing.T, s *store.Store, service *S
 		if action == "record_proposal" {
 			fields = map[string]any{"problem": "The bounded problem statement.", "affected": []string{"The affected system."}, "stakes": "The bounded stakes statement.", "user_outcomes": []string{"The expected user outcome."}}
 		}
-		expectedVersion := 4 + index
-		if index > 0 {
-			expectedVersion++
+		if action == "record_alignment" {
+			fields = map[string]any{"searched": "The bounded backlog search statement.", "outcome": "none_found"}
 		}
+		// Cumulative expected versions: proposal and alignment consume two
+		// events each, discovery one, design two.
+		expectedVersion := []int{4, 6, 8, 9}[index]
 		input := map[string]any{"work_id": "work-1", "expected_version": int64(expectedVersion), "action_id": action, "fields": fields, "idempotency_key": "boundary-" + action}
 		response := invokeWorkflowBoundary(t, s, service, env, input, store.BuiltinWorkflowRegistry())
 		if response.Outcome != OutcomeOK {
 			t.Fatalf("advance action=%s response=%+v", action, response)
 		}
 	}
-	challengeInput := map[string]any{"work_id": "work-1", "expected_version": int64(9), "action_id": "approve_contract", "fields": map[string]any{}, "idempotency_key": "boundary-approve"}
+	challengeInput := map[string]any{"work_id": "work-1", "expected_version": int64(11), "action_id": "approve_contract", "fields": map[string]any{}, "idempotency_key": "boundary-approve"}
 	addWorkflowContractApprovalFields(challengeInput)
 	challenge := invokeWorkflowBoundary(t, s, service, env, challengeInput, store.BuiltinWorkflowRegistry())
 	if challenge.Error == nil || challenge.Error.Kind != "approval_required" {
@@ -118,7 +120,7 @@ func advanceWorkflowBoundaryToExecution(t *testing.T, s *store.Store, service *S
 	challengeRef, _ := challenge.Error.Details["approval_ref"].(string)
 	digest := mutationDigest("concord_work_transition", "workflow_action", env, mustJSON(t, challengeInput))
 	scope := map[string]any{"product_id": "product-1", "project_ids": []string{"project-1"}, "work_ids": []string{"work-1"}, "scope_version": env.ScopeVersion}
-	versions := map[string]any{"work": int64(9)}
+	versions := map[string]any{"work": int64(11)}
 	approvalEnv := env
 	approvalEnv.HostApproval = signedHostApproval(privateKey, challengeRef, digest, scope, versions, grant.SessionRef, grant.AgentRef, grant.Worktree, fixedTime(), "boundary-approval")
 	approved := challengeInput

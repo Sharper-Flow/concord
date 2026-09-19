@@ -357,7 +357,7 @@ func TestWorkflowActionDispatchUsesDefinitionApprovalChallenge(t *testing.T) {
 		t.Fatal(err)
 	}
 	env := mutationEnvelope(grant, scopeVersion)
-	for i, action := range []string{"record_proposal", "record_discovery", "record_design"} {
+	for i, action := range []string{"record_proposal", "record_alignment", "record_discovery", "record_design"} {
 		fields := ""
 		if action == "record_design" {
 			fields = `,"fields":{"approach":"The recorded approach is the implementation boundary.","decisions":[{"id":"decision:dispatch","question":"What crosses into execution?","choice":"The typed design record.","rationale":"The worker must receive the approved decision.","rejected":[]}],"touched_refs":["path:dispatch"]}`
@@ -365,20 +365,22 @@ func TestWorkflowActionDispatchUsesDefinitionApprovalChallenge(t *testing.T) {
 		if action == "record_proposal" {
 			fields = `,"fields":{"problem":"The bounded problem statement.","affected":["The affected system."],"stakes":"The bounded stakes statement.","user_outcomes":["The expected user outcome."]}`
 		}
+		if action == "record_alignment" {
+			fields = `,"fields":{"searched":"The bounded backlog search statement.","outcome":"none_found"}`
+		}
 		if action == "record_discovery" {
 			fields = `,"fields":{}`
 		}
-		expectedVersion := 4 + i
-		if i > 0 {
-			expectedVersion++
-		}
+		// Cumulative expected versions: proposal and design each consume two
+		// events, alignment consumes two, discovery one.
+		expectedVersion := []int{4, 6, 8, 9}[i]
 		input := json.RawMessage(`{"work_id":"work-1","expected_version":` + strconv.Itoa(expectedVersion) + `,"action_id":"` + action + `"` + fields + `,"idempotency_key":"wf-advance-` + action + `"}`)
 		response, dispatchErr := Dispatch(context.Background(), s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: input}, env)
 		if dispatchErr != nil || response.Outcome != OutcomeOK {
 			t.Fatalf("advance action=%s response=%+v err=%v", action, response, dispatchErr)
 		}
 	}
-	input := workflowContractActionInput(t, "work-1", 9, "wf-approve-contract", "")
+	input := workflowContractActionInput(t, "work-1", 11, "wf-approve-contract", "")
 	challenge, err := Dispatch(context.Background(), s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: input}, env)
 	if err != nil || challenge.Outcome != OutcomeError || challenge.Error == nil || challenge.Error.Kind != "approval_required" {
 		t.Fatalf("approval challenge response=%+v err=%v", challenge, err)
@@ -386,16 +388,16 @@ func TestWorkflowActionDispatchUsesDefinitionApprovalChallenge(t *testing.T) {
 	challengeRef, _ := challenge.Error.Details["approval_ref"].(string)
 	digest := mutationDigest("concord_work_transition", "workflow_action", env, input)
 	scope := map[string]any{"product_id": "product-1", "project_ids": []string{"project-1"}, "work_ids": []string{"work-1"}, "scope_version": scopeVersion}
-	versions := map[string]any{"work": 9}
+	versions := map[string]any{"work": 11}
 	env.HostApproval = signedHostApproval(privateKey, challengeRef, digest, scope, versions, grant.SessionRef, grant.AgentRef, grant.Worktree, fixedTime(), "workflow-approval-0001")
 	var durableBefore int
 	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM durable_operations WHERE workflow_type_ref LIKE 'workflow.%'`).Scan(&durableBefore); err != nil {
 		t.Fatal(err)
 	}
-	if durableBefore != 3 {
-		t.Fatalf("approval challenge durable operation count=%d, want 3 prior actions", durableBefore)
+	if durableBefore != 4 {
+		t.Fatalf("approval challenge durable operation count=%d, want 4 prior actions", durableBefore)
 	}
-	approvedInput := workflowContractActionInput(t, "work-1", 9, "wf-approve-contract", challengeRef)
+	approvedInput := workflowContractActionInput(t, "work-1", 11, "wf-approve-contract", challengeRef)
 	approved, err := Dispatch(context.Background(), s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: approvedInput}, env)
 	if err != nil || approved.Outcome != OutcomeOK {
 		if approved.Error != nil {

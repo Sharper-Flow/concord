@@ -119,7 +119,7 @@ func TestApproveContractResearchBindingTakesEffectBeforeItsGate(t *testing.T) {
 		t.Fatal(err)
 	}
 	version := int64(4)
-	for _, action := range []string{"record_proposal", "record_discovery", "record_design"} {
+	for _, action := range []string{"record_proposal", "record_alignment", "record_discovery", "record_design"} {
 		version = issue31WorkflowAction(t, s, workID, version, action, "same-action-"+action, actor)
 	}
 	version, err = continuityAction(t, s, workID, version, "checkpoint_context", "same-action-checkpoint", map[string]any{

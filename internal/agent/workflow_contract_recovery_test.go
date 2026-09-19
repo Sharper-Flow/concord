@@ -21,26 +21,27 @@ func TestPublicDuplicateContractRecoveryConsumesApprovalAndKeepsWorkID(t *testin
 	if got := seedAgentWorkflow(t, s, grant); got != 4 {
 		t.Fatalf("workflow seed version=%d, want 4", got)
 	}
-	for i, action := range []string{"record_proposal", "record_discovery", "record_design"} {
+	for i, action := range []string{"record_proposal", "record_alignment", "record_discovery", "record_design"} {
 		fields := ""
 		if action == "record_proposal" {
 			fields = `,"fields":{"problem":"The bounded problem statement.","affected":["The affected system."],"stakes":"The bounded stakes statement.","user_outcomes":["The expected user outcome."]}`
+		} else if action == "record_alignment" {
+			fields = `,"fields":{"searched":"The bounded backlog search statement.","outcome":"none_found"}`
 		} else if action == "record_design" {
 			fields = `,"fields":{"approach":"The recorded approach is the implementation boundary.","decisions":[{"id":"decision:dispatch","question":"What crosses into execution?","choice":"The typed design record.","rationale":"The worker must receive the approved decision.","rejected":[]}],"touched_refs":["path:dispatch"]}`
 		} else {
 			fields = `,"fields":{}`
 		}
-		expectedVersion := 4 + i
-		if i > 0 {
-			expectedVersion++
-		}
+		// Cumulative expected versions: proposal and design each consume two
+		// events, alignment consumes two, discovery one.
+		expectedVersion := []int{4, 6, 8, 9}[i]
 		input := json.RawMessage(`{"work_id":"work-1","expected_version":` + strconv.Itoa(expectedVersion) + `,"action_id":"` + action + `"` + fields + `,"idempotency_key":"public-recovery-` + action + `"}`)
 		response, dispatchErr := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: input}, env)
 		if dispatchErr != nil || response.Outcome != OutcomeOK {
 			t.Fatalf("advance action=%s response=%+v err=%v", action, response, dispatchErr)
 		}
 	}
-	initialInput := workflowContractActionInput(t, "work-1", 9, "public-recovery-approve", "")
+	initialInput := workflowContractActionInput(t, "work-1", 11, "public-recovery-approve", "")
 	challenge, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: initialInput}, env)
 	if err != nil || challenge.Outcome != OutcomeError || challenge.Error == nil || challenge.Error.Kind != "approval_required" {
 		t.Fatalf("initial approval challenge response=%+v err=%v", challenge, err)
@@ -48,8 +49,8 @@ func TestPublicDuplicateContractRecoveryConsumesApprovalAndKeepsWorkID(t *testin
 	challengeRef, _ := challenge.Error.Details["approval_ref"].(string)
 	env.HostApproval = signedHostApproval(privateKey, challengeRef, mutationDigest("concord_work_transition", "workflow_action", env, initialInput), map[string]any{
 		"product_id": "product-1", "project_ids": []string{"project-1"}, "work_ids": []string{"work-1"}, "scope_version": scopeVersion,
-	}, map[string]any{"work": 9}, grant.SessionRef, grant.AgentRef, grant.Worktree, fixedTime(), "public-recovery-initial")
-	if approved, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: workflowContractActionInput(t, "work-1", 9, "public-recovery-approve", challengeRef)}, env); err != nil || approved.Outcome != OutcomeOK {
+	}, map[string]any{"work": 11}, grant.SessionRef, grant.AgentRef, grant.Worktree, fixedTime(), "public-recovery-initial")
+	if approved, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: workflowContractActionInput(t, "work-1", 11, "public-recovery-approve", challengeRef)}, env); err != nil || approved.Outcome != OutcomeOK {
 		t.Fatalf("initial approval response=%+v err=%v", approved, err)
 	}
 

@@ -8662,6 +8662,72 @@ const GeneratedPayloadSchemaDocument = `{
           "if": {
             "properties": {
               "action_id": {
+                "const": "record_alignment"
+              }
+            },
+            "required": [
+              "action_id"
+            ]
+          },
+          "then": {
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "selected_choice"
+                  ]
+                },
+                {
+                  "required": [
+                    "decision_context_digest"
+                  ]
+                }
+              ]
+            },
+            "properties": {
+              "fields": {
+                "additionalProperties": false,
+                "maxProperties": 32,
+                "properties": {
+                  "outcome": {
+                    "enum": [
+                      "related_found",
+                      "none_found"
+                    ],
+                    "type": "string"
+                  },
+                  "related_ids": {
+                    "items": {
+                      "$ref": "#/$defs/id"
+                    },
+                    "maxItems": 64,
+                    "minItems": 1,
+                    "type": "array",
+                    "uniqueItems": true
+                  },
+                  "searched": {
+                    "maxLength": 4096,
+                    "minLength": 1,
+                    "pattern": "\\S",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "searched",
+                  "outcome"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "fields"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "action_id": {
                 "const": "record_conclusion"
               }
             },

@@ -551,10 +551,8 @@ func normalizeWorkflowDefinition(definition WorkflowDefinition) WorkflowDefiniti
 // the shape they run in. Frozen prior versions live in
 // workflow_registry_versions.go and never acquire current payload contracts.
 func BuiltinWorkflowDefinitions() []WorkflowDefinition {
-	implementation := withCurrentNonBlankContract(implementationPremiseContractV11())
-	implementation.Version = 12
-	breakFix := withCurrentNonBlankContract(breakFixPremiseContractV9())
-	breakFix.Version = 10
+	implementation := implementationAlignmentV13()
+	breakFix := breakFixAlignmentV11()
 	research := withCurrentNonBlankContract(withWorkerActions(builtinResearch(true), true))
 	research.Version = 7
 	architectureSpike := withCurrentNonBlankContract(architecturePremiseContractV7())
@@ -593,6 +591,7 @@ func builtinWorkflowDefinitionsWithHistory() []WorkflowDefinition {
 	history = append(history,
 		withLegacyNonBlankContract(implementationPremiseContractV11()), withLegacyNonBlankContract(breakFixPremiseContractV9()), withLegacyNonBlankContract(withWorkerActions(builtinResearch(true), true)),
 		withLegacyNonBlankContract(architecturePremiseContractV7()), withLegacyNonBlankContract(opsRunbookPremiseContractV8()), withLegacyNonBlankContract(withWorkerActions(builtinStaticAnalysis(true), true)), withLegacyNonBlankContract(withWorkerActions(builtinGenericOneOff(true), true)),
+		implementationPreAlignmentV12(), breakFixPreAlignmentV10(),
 	)
 	return append(history, BuiltinWorkflowDefinitions()...)
 }
@@ -711,6 +710,66 @@ func withRefinementStep(definition WorkflowDefinition, producingStep, verdictSte
 	definition.AvailableActions = available
 	definition.ActionDefinitions = actionDefinitions
 	return definition
+}
+
+// withAlignmentStep splices the CD-0156 mandatory alignment step immediately
+// after afterStep, splitting the forward edge afterStep→nextStep into
+// afterStep→alignment→nextStep. The step declares record_alignment plus the
+// two continuity holds and nothing else: record_alignment is the step's only
+// action whose execution mode advances, so the single forward edge out of the
+// step cannot be crossed without recording the backlog search, and the
+// worker-action set stays off the step so no dispatched attempt can accept
+// its way past the search.
+func withAlignmentStep(definition WorkflowDefinition, afterStep, nextStep string) WorkflowDefinition {
+	definition = cloneWorkflowDefinition(definition)
+	alignment := WorkflowStep{ID: "alignment", Kind: WorkflowStepInternalSQLite, Actions: []string{"record_alignment", "checkpoint_context", "cross_context_boundary"}}
+
+	steps := make([]WorkflowStep, 0, len(definition.StepGraph.Steps)+1)
+	for _, existing := range definition.StepGraph.Steps {
+		steps = append(steps, existing)
+		if existing.ID == afterStep {
+			steps = append(steps, alignment)
+		}
+	}
+	definition.StepGraph.Steps = steps
+
+	edges := make([]WorkflowEdge, 0, len(definition.StepGraph.Edges)+2)
+	for _, edge := range definition.StepGraph.Edges {
+		if edge.From == afterStep && edge.To == nextStep && edge.Kind == WorkflowEdgeForward {
+			edges = append(edges, WorkflowEdge{From: afterStep, To: alignment.ID, Kind: WorkflowEdgeForward}, WorkflowEdge{From: alignment.ID, To: nextStep, Kind: WorkflowEdgeForward})
+			continue
+		}
+		edges = append(edges, edge)
+	}
+	definition.StepGraph.Edges = edges
+
+	definition.AvailableActions = insertAfterStepAction(definition, afterStep, "record_alignment")
+	if definition.ActionDefinitions == nil {
+		definition.ActionDefinitions = []WorkflowActionDefinition{}
+	}
+	definition.ActionDefinitions = append(definition.ActionDefinitions, currentActionDefinition("record_alignment", true))
+	return definition
+}
+
+// insertAfterStepAction returns the available-action list with actionID
+// inserted directly after the first action the named step declares, so the
+// root action list reads in step order like the graph it serves.
+func insertAfterStepAction(definition WorkflowDefinition, stepID, actionID string) []string {
+	step := workflowStep(definition, stepID)
+	insertAt := len(definition.AvailableActions)
+	if step != nil && len(step.Actions) > 0 {
+		for i, available := range definition.AvailableActions {
+			if available == step.Actions[0] {
+				insertAt = i + 1
+				break
+			}
+		}
+	}
+	available := make([]string, 0, len(definition.AvailableActions)+1)
+	available = append(available, definition.AvailableActions[:insertAt]...)
+	available = append(available, actionID)
+	available = append(available, definition.AvailableActions[insertAt:]...)
+	return available
 }
 
 func withRefinementFailureEdge(definition WorkflowDefinition, producingStep, verdictStep string) WorkflowDefinition {
@@ -1253,12 +1312,21 @@ var builtinActionPolicies = map[string]builtinActionPolicy{
 	),
 	"record_reproduction": actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance, ActionEventGeneric),
 	"record_root_cause":   actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance, ActionEventGeneric),
-	"start_repair":        actionPolicy(ActionExternalEffect, ActionApprovalNone, ActionFenced, ActionEventGeneric),
-	"checkpoint_repair":   actionPolicy(ActionExternalEffect, ActionApprovalNone, ActionCheckpoint, ActionEventCheckpoint),
-	"start_refine":        actionPolicy(ActionExternalEffect, ActionApprovalNone, ActionFenced, ActionEventGeneric),
-	"checkpoint_refine":   actionPolicy(ActionExternalEffect, ActionApprovalNone, ActionCheckpoint, ActionEventCheckpoint),
-	"frame_research":      actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionHold, ActionEventGeneric),
-	"record_finding":      actionPolicy(ActionCrossAuthority, ActionApprovalNone, ActionAdvance, ActionEventGeneric),
+	// CD-0156: the mandatory backlog-alignment search. outcome is a required
+	// closed enum so a later reader can tell checked-and-found-nothing from
+	// never-checked; the guard refuses an outcome that contradicts the id
+	// list. The action records the candidate set only and creates no relation.
+	"record_alignment": actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance, ActionEventTyped,
+		actionStringField("searched", true, 4096),
+		actionEnumField("outcome", true, "related_found", "none_found"),
+		actionIDListField("related_ids", false, 1, 64),
+	),
+	"start_repair":      actionPolicy(ActionExternalEffect, ActionApprovalNone, ActionFenced, ActionEventGeneric),
+	"checkpoint_repair": actionPolicy(ActionExternalEffect, ActionApprovalNone, ActionCheckpoint, ActionEventCheckpoint),
+	"start_refine":      actionPolicy(ActionExternalEffect, ActionApprovalNone, ActionFenced, ActionEventGeneric),
+	"checkpoint_refine": actionPolicy(ActionExternalEffect, ActionApprovalNone, ActionCheckpoint, ActionEventCheckpoint),
+	"frame_research":    actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionHold, ActionEventGeneric),
+	"record_finding":    actionPolicy(ActionCrossAuthority, ActionApprovalNone, ActionAdvance, ActionEventGeneric),
 	"revise_candidates": actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance, ActionEventTyped,
 		actionIntegerField("contract_version", false, 1, 2147483647),
 		actionEnumField("candidate_kind", false, "work_item", "product", "project"), actionRefField("candidate_ref", false),

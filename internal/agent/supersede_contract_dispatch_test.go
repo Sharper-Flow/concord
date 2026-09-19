@@ -30,7 +30,7 @@ func testSupersedeContractDispatch(t *testing.T, stage string) {
 	}
 	env := mutationEnvelope(grant, scopeVersion)
 
-	for _, actionID := range []string{"record_proposal", "record_discovery", "record_design"} {
+	for _, actionID := range []string{"record_proposal", "record_alignment", "record_discovery", "record_design"} {
 		invokeWorkflowIssue31Action(t, s, service, env, "work-1", actionID, version, "supersede-"+actionID)
 		version = workflowIssue31Version(t, s)
 	}

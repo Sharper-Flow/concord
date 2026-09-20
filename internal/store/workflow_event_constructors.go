@@ -191,6 +191,40 @@ func workflowReviseCandidatesEvents(request WorkflowActionExecutionRequest, acto
 	return []Event{workflowTypedEvent(eventID, WorkflowCandidateSetRevised, request.WorkID, actor, request.Now, expected, map[string]any{"contract_version": workflowFieldInt(fields, "contract_version", 1), "candidate_kind": workflowFieldStringDefault(fields, "candidate_kind", "work_item"), "candidate_ref": workflowFieldStringDefault(fields, "candidate_ref", request.WorkID), "added": added, "removed": removed})}, nil
 }
 
+// workflowRecordAlignmentEvents builds the typed CD-0156 alignment event. The
+// action records the candidate set only: it creates no relation, so the
+// related ids travel as recorded search output, and relation creation stays
+// with concord_work_relate.link and resolve_overlap. Each related id names a
+// real work item, refused here at the boundary rather than at the fold's
+// foreign key, matching the declare_impact target rule (issue #823).
+func workflowRecordAlignmentEvents(ctx context.Context, tx *sql.Tx, request WorkflowActionExecutionRequest, actor string, fields map[string]json.RawMessage, eventID string, expected int64) ([]Event, error) {
+	outcome, ok := workflowFieldString(fields, "outcome")
+	if !ok || (outcome != "related_found" && outcome != "none_found") {
+		return nil, newFailure(KindInvalidPayload, "workflow_action", "record_alignment requires outcome related_found or none_found", false, "record the closed search outcome")
+	}
+	relatedIDs := workflowFieldStrings(fields, "related_ids")
+	if outcome == "related_found" && len(relatedIDs) == 0 {
+		return nil, newFailure(KindInvalidPayload, "workflow_action", "record_alignment outcome related_found requires related_ids", false, "name the related work items the search found")
+	}
+	if outcome == "none_found" && len(relatedIDs) != 0 {
+		return nil, newFailure(KindInvalidPayload, "workflow_action", "record_alignment outcome none_found cannot carry related_ids", false, "drop related_ids or record outcome related_found")
+	}
+	for _, relatedID := range relatedIDs {
+		var exists int
+		err := tx.QueryRowContext(ctx, `SELECT 1 FROM work_items WHERE id=?`, relatedID).Scan(&exists)
+		if err == sql.ErrNoRows {
+			return nil, newFailure(KindInvalidPayload, "workflow_action", "record_alignment related id "+workflowRefExcerpt(relatedID)+" does not name a work item", false, "supply a real related work item id")
+		} else if err != nil {
+			return nil, workflowProjectionError(err, "cannot read the alignment related work item")
+		}
+	}
+	values := map[string]any{"searched": workflowFieldStringDefault(fields, "searched", ""), "outcome": outcome}
+	if len(relatedIDs) != 0 {
+		values["related_ids"] = relatedIDs
+	}
+	return []Event{workflowTypedEvent(eventID, WorkflowBacklogAlignmentRecorded, request.WorkID, actor, request.Now, expected, values)}, nil
+}
+
 func workflowSupersedeContractEvents(ctx context.Context, tx *sql.Tx, definition WorkflowDefinition, request WorkflowActionExecutionRequest, actor string, raw json.RawMessage, fields map[string]json.RawMessage, eventID string, expected int64) ([]Event, error) {
 	if err := validateWorkflowContractRecoveryPayload(raw); err != nil {
 		return nil, err

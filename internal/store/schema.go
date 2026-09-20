@@ -4740,6 +4740,39 @@ CREATE UNIQUE INDEX worktree_claims_one_active_branch ON worktree_claims(reposit
     WHERE state IN ('pending','verified');
 `,
 	},
+	// CD-0156: the mandatory backlog-alignment step records its search
+	// here. The table holds one declaration row per work item and, when
+	// the search found related work, one row per named work id. It does
+	// not reuse workflow_candidate_sets: that table's composite foreign
+	// key binds to workflow_contracts(work_id, contract_version), and the
+	// alignment step runs before planning approves a contract, so no
+	// parent row would exist. The related id is nullable: a none_found
+	// outcome records the declaration alone, and the closed check keeps
+	// a found outcome from recording a match-less row. It creates no
+	// relation: the relation kind is a semantic judgement that stays
+	// with concord_work_relate.link and resolve_overlap.
+	{
+		Version:  94,
+		Name:     "workflow_backlog_alignment_projection",
+		Breaking: false,
+		SQL: `
+CREATE TABLE workflow_backlog_alignment (
+    work_id         TEXT NOT NULL REFERENCES work_items(id) ON DELETE RESTRICT,
+    related_work_id TEXT REFERENCES work_items(id) ON DELETE RESTRICT,
+    searched        TEXT NOT NULL CHECK(length(searched) BETWEEN 2 AND 4096),
+    outcome         TEXT NOT NULL CHECK(outcome IN ('related_found','none_found')),
+    recorded_at     TEXT NOT NULL,
+    recorded_by     TEXT NOT NULL REFERENCES workflow_actors(actor_ref) ON DELETE RESTRICT,
+    PRIMARY KEY(work_id, related_work_id),
+    CHECK(related_work_id IS NULL OR outcome <> 'none_found'),
+    CHECK(related_work_id IS NULL OR related_work_id <> work_id)
+);
+CREATE INDEX workflow_backlog_alignment_related ON workflow_backlog_alignment(related_work_id);
+CREATE TRIGGER workflow_backlog_alignment_guard_insert BEFORE INSERT ON workflow_backlog_alignment FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_backlog_alignment is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER workflow_backlog_alignment_guard_update BEFORE UPDATE ON workflow_backlog_alignment FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_backlog_alignment is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER workflow_backlog_alignment_guard_delete BEFORE DELETE ON workflow_backlog_alignment FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_backlog_alignment is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+`,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any

@@ -517,6 +517,19 @@ func livenessPayload(definition WorkflowDefinition, action WorkflowActionDefinit
 			fields[field.Name] = livenessSubjectRef
 			continue
 		}
+		// The CD-0156 alignment search names the peer work item, which the
+		// fixture commits, because the constructor joins every related id
+		// against the work table like the other reference fields here. The
+		// cross-field outcome rule stays off the declared contract, so the
+		// none_found variant drops the list here the same way the
+		// non-Product-changing approval drops its architecture binding.
+		if field.Name == "related_ids" && field.ValueType == PayloadStringList {
+			if variant["outcome"] == "none_found" {
+				continue
+			}
+			fields[field.Name] = []string{livenessPeerWorkID}
+			continue
+		}
 		// architecture_binding is required when the definition changes Product
 		// truth and refused when it does not. The declaration says only that
 		// the field is optional, so the condition is applied here; it is the

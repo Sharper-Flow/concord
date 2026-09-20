@@ -25,6 +25,7 @@ var guardedActions = map[string]workflowActionGuardPhase{
 	"complete":               guardPhaseBoundary,
 	"dispatch_worker":        guardPhaseBoundary,
 	"link_successor":         guardPhasePostValidation,
+	"record_alignment":       guardPhasePostValidation,
 	"cross_context_boundary": guardPhaseClaim,
 	"record_delivery":        guardPhaseClaim,
 }

@@ -221,8 +221,8 @@ func TestLivenessExecutesAndRejectsUnapprovedCompletion(t *testing.T) {
 // cannot substitute for the success path each builtin promises to support.
 func TestBuiltinWorkflowCompletionWitnesses(t *testing.T) {
 	paths := map[string]string{
-		"workflow.implementation":     "record_proposal record_discovery record_design approve_contract start_execution bind record_delivery start_refine bind record_delivery record_verdict confirm_premise complete",
-		"workflow.break_fix":          "record_reproduction record_root_cause approve_contract start_repair bind record_delivery start_refine bind record_delivery record_verdict confirm_premise complete",
+		"workflow.implementation":     "record_proposal record_alignment record_discovery record_design approve_contract start_execution bind record_delivery start_refine bind record_delivery record_verdict confirm_premise complete",
+		"workflow.break_fix":          "record_reproduction record_alignment record_root_cause approve_contract start_repair bind record_delivery start_refine bind record_delivery record_verdict confirm_premise complete",
 		"workflow.research":           "frame_research approve_contract bind record_finding record_report record_conclusion record_verdict confirm_premise complete",
 		"workflow.architecture_spike": "frame_question approve_contract bind record_research record_option discard_poc record_decision record_verdict accept_decision confirm_premise complete",
 		"workflow.ops_runbook":        "approve_contract approve_operation start_run bind record_delivery record_verdict record_health rollback_run record_delivery cleanup_run confirm_premise complete",
@@ -321,7 +321,7 @@ func TestLivenessReplayCacheIsolatesBranches(t *testing.T) {
 	restored, _ := cache.replay(t, definition, []livenessMove{proposal})
 	defer restored.Close()
 	step, err = livenessStep(ctx, restored, workID)
-	if err != nil || step != "discovery" {
+	if err != nil || step != "alignment" {
 		t.Fatalf("prefix did not retain committed state: %s, %v", step, err)
 	}
 }

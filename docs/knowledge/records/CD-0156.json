@@ -1,0 +1,41 @@
+{
+  "date": "2026-09-19T00:00:00Z",
+  "evidence": [
+    "internal/store/workflow_registry.go",
+    "internal/store/workflow_registry_versions.go",
+    "internal/store/workflow_definition_version_pins_test.go",
+    "internal/store/workflow_backlog_alignment_test.go",
+    "docs/workflow-engine-contract.md"
+  ],
+  "home_domain_id": "workflow-engine",
+  "id": "CD-0156",
+  "kind": "decision",
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "CD-0013"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0115"
+    }
+  ],
+  "path": "docs/decisions/CD-0156-mandatory-backlog-alignment-step.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:99b10747b9c69ed50c060b87a582b8a3cc7aba407d61f884ad87c0bba0c1572c",
+  "status": "accepted",
+  "summary": "Splices a mandatory alignment step into implementation and break-fix whose single advance action records the backlog search and its closed outcome in a new fold-only projection table, shipping new frozen definition versions 13 and 11.",
+  "tags": [
+    "workflow",
+    "alignment",
+    "definition",
+    "planning"
+  ],
+  "title": "Mandatory backlog alignment step in planned and defect work"
+}

@@ -805,8 +805,11 @@ func TestAcceptWorkerResultAdvancesCurrentNonExternalDispatchStep(t *testing.T) 
 	if result.ResultingVersion != 8 {
 		t.Fatalf("accept result version=%d, want 8", result.ResultingVersion)
 	}
-	if got := currentStep(t, s, workID); got != "diagnose" {
-		t.Fatalf("accepted worker result current_step=%q, want diagnose", got)
+	// The acceptance advances reproduce to its next step, which CD-0156 makes
+	// the alignment step; the item still cannot reach diagnose without
+	// record_alignment.
+	if got := currentStep(t, s, workID); got != "alignment" {
+		t.Fatalf("accepted worker result current_step=%q, want alignment", got)
 	}
 }
 

@@ -130,6 +130,15 @@ func TestResearchAuthorBindProveAndRead(t *testing.T) {
 		t.Fatalf("binding freshness=%v err=%v", freshness, err)
 	}
 
+	// The alignment step records the backlog search before diagnose.
+	aligned := invoke("workflow_action", map[string]any{
+		"work_id": "work-1", "expected_version": 5, "action_id": "record_alignment", "idempotency_key": "rs-action-align",
+		"fields": map[string]any{"searched": "The bounded backlog search statement.", "outcome": "none_found"},
+	})
+	if aligned.Outcome != OutcomeOK {
+		t.Fatalf("alignment with fresh required binding failed: %+v", aligned.Error)
+	}
+
 	// 5. Stale the pack; a second required reliance on the stale revision is
 	// refused fail-closed at the boundary (CD-0009 D6 / CD-0025).
 	if r := invoke("research_freshness_set", map[string]any{
@@ -138,7 +147,7 @@ func TestResearchAuthorBindProveAndRead(t *testing.T) {
 		t.Fatalf("freshness set failed: %+v", r.Error)
 	}
 	refused := invoke("workflow_action", map[string]any{
-		"work_id": "work-1", "expected_version": 5, "action_id": "record_root_cause", "idempotency_key": "rs-action-2",
+		"work_id": "work-1", "expected_version": 7, "action_id": "record_root_cause", "idempotency_key": "rs-action-2",
 		"fields":            map[string]any{},
 		"research_bindings": []map[string]any{{"pack_id": packID, "revision": 1, "use_role": "context", "required": true}},
 	})

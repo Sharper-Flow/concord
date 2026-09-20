@@ -1,0 +1,22 @@
+{
+  "evidence": [
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestAlignmentStepHasOnlyRecordAlignmentAsItsAdvanceExit"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestRecordAlignmentRefusesInconsistentOutcomeAndRelatedIds"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestPriorPinnedDefinitionVersionsReplayUnchanged"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestWorkflowDefinitionVersionPinsHold"
+    }
+  ],
+  "id": "CD-0156",
+  "state": "satisfied"
+}

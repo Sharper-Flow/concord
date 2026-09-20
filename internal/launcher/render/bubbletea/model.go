@@ -238,123 +238,123 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m *Model) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
-	key := msg.String()
-	keyValue := msg.Key()
 	if m.confirmWork {
-		switch key {
-		case "enter":
-			m.confirmWork = false
-			return m.openSelectedWork()
-		case "esc", "q":
-			m.confirmWork = false
-			return m, nil
-		default:
-			return m, nil
-		}
+		return m.updateConfirmKey(msg)
 	}
 	if m.filterMode || m.queryMode || m.issueMode {
-		switch {
-		case keyValue.Mod&tea.ModCtrl != 0 && keyValue.Code == 'l':
-			m.input.Reset()
-			m.storeInputValue()
-			m.clampCursor()
-			return m, nil
-		case key == "enter":
-			if m.issueMode {
-				value := strings.TrimSpace(m.input.Value())
-				m.issueMode = false
-				m.input.Blur()
-				if value == "" {
-					if err := m.core.SelectProjects(m.ctx); err != nil {
-						m.setError(err)
-					}
-					m.Sync()
-					return m, nil
-				}
-				handoff, err := m.core.ResolveIssue(m.ctx, value)
-				if err == nil && handoff.WorkID != "" {
-					snapshot := m.core.Snapshot()
-					snapshot.Session = handoff
-					m.core.RestoreSnapshot(snapshot)
-					return m, m.launch(handoff)
-				}
-				if projectErr := m.core.SelectProjects(m.ctx); projectErr != nil {
-					m.setError(projectErr)
-				}
-				m.Sync()
-				return m, nil
-			}
-			wasQuery := m.queryMode
-			value := m.input.Value()
-			m.filterMode, m.queryMode = false, false
-			m.input.Blur()
-			if wasQuery {
-				m.queryValue = value
-				if err := m.core.SubmitQuery(m.ctx, value); err != nil {
-					m.setError(err)
-				} else {
-					m.queryDisplayed = true
-				}
-			} else {
-				m.filterValue = value
-			}
-			m.clampCursor()
-			m.Sync()
-			return m, nil
-		case key == "esc":
-			if m.issueMode {
-				m.issueMode = false
-				m.input.Blur()
-				m.input.Reset()
-				return m, nil
-			}
-			wasQuery := m.queryMode
-			m.filterMode, m.queryMode = false, false
-			m.input.Blur()
-			if wasQuery {
-				m.core.RestoreSnapshot(m.queryBase)
-				m.cursor, m.scroll = m.queryCursor, m.queryScroll
-				m.queryDisplayed = m.queryBase.QueryResult
-				m.queryValue = ""
-				m.Sync()
-			}
-			m.clampCursor()
-			return m, nil
-		}
-		var cmd tea.Cmd
-		m.input, cmd = m.input.Update(msg)
+		return m.updateInputKey(msg)
+	}
+	return m.updateCommandKey(msg)
+}
+
+func (m *Model) updateConfirmKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "enter":
+		m.confirmWork = false
+		return m.openSelectedWork()
+	case "esc", "q":
+		m.confirmWork = false
+		return m, nil
+	default:
+		return m, nil
+	}
+}
+
+func (m *Model) updateInputKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	key := msg.String()
+	keyValue := msg.Key()
+	switch {
+	case keyValue.Mod&tea.ModCtrl != 0 && keyValue.Code == 'l':
+		m.input.Reset()
 		m.storeInputValue()
 		m.clampCursor()
-		return m, cmd
+		return m, nil
+	case key == "enter":
+		if m.issueMode {
+			return m.submitIssueKey()
+		}
+		wasQuery := m.queryMode
+		value := m.input.Value()
+		m.filterMode, m.queryMode = false, false
+		m.input.Blur()
+		if wasQuery {
+			m.queryValue = value
+			if err := m.core.SubmitQuery(m.ctx, value); err != nil {
+				m.setError(err)
+			} else {
+				m.queryDisplayed = true
+			}
+		} else {
+			m.filterValue = value
+		}
+		m.clampCursor()
+		m.Sync()
+		return m, nil
+	case key == "esc":
+		if m.issueMode {
+			m.issueMode = false
+			m.input.Blur()
+			m.input.Reset()
+			return m, nil
+		}
+		wasQuery := m.queryMode
+		m.filterMode, m.queryMode = false, false
+		m.input.Blur()
+		if wasQuery {
+			m.core.RestoreSnapshot(m.queryBase)
+			m.cursor, m.scroll = m.queryCursor, m.queryScroll
+			m.queryDisplayed = m.queryBase.QueryResult
+			m.queryValue = ""
+			m.Sync()
+		}
+		m.clampCursor()
+		return m, nil
 	}
+	var cmd tea.Cmd
+	m.input, cmd = m.input.Update(msg)
+	m.storeInputValue()
+	m.clampCursor()
+	return m, cmd
+}
 
+// submitIssueKey closes the New/Backlog prompt. An empty value or a key that
+// resolves to nothing degrades to the Project select; a resolved key launches
+// the session where that work item lives.
+func (m *Model) submitIssueKey() (tea.Model, tea.Cmd) {
+	value := strings.TrimSpace(m.input.Value())
+	m.issueMode = false
+	m.input.Blur()
+	if value == "" {
+		if err := m.core.SelectProjects(m.ctx); err != nil {
+			m.setError(err)
+		}
+		m.Sync()
+		return m, nil
+	}
+	handoff, err := m.core.ResolveIssue(m.ctx, value)
+	if err == nil && handoff.WorkID != "" {
+		snapshot := m.core.Snapshot()
+		snapshot.Session = handoff
+		m.core.RestoreSnapshot(snapshot)
+		return m, m.launch(handoff)
+	}
+	if projectErr := m.core.SelectProjects(m.ctx); projectErr != nil {
+		m.setError(projectErr)
+	}
+	m.Sync()
+	return m, nil
+}
+
+func (m *Model) updateCommandKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	key := msg.String()
 	switch key {
 	case "/":
 		return m, m.OpenFilter()
 	case "s":
 		return m, m.openQuery()
 	case "tab":
-		if m.core.Snapshot().Screen == launcher.ScreenProduct {
-			_ = m.core.CyclePanelFocus()
-			m.Sync()
-		} else if m.core.Snapshot().Screen == launcher.ScreenWork {
-			next := launcher.SectionDomains
-			switch m.core.Section() {
-			case launcher.SectionDomains:
-				next = launcher.SectionRelations
-			case launcher.SectionRelations:
-				next = launcher.SectionRanked
-			case launcher.SectionRanked:
-				next = launcher.SectionKnowledge
-			}
-			if next == launcher.SectionKnowledge {
-				if err := m.core.EnsureKnowledge(m.ctx); err != nil {
-					m.setError(err)
-				}
-			}
-			_ = m.core.SetSection(next)
-			m.Sync()
-		}
+		m.tabKey()
+		return m, nil
 	case "?":
 		m.showHelp = !m.showHelp
 		return m, nil
@@ -388,86 +388,9 @@ func (m *Model) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "p":
 		m.move(-m.pageSize())
 	case "enter":
-		if m.core.Snapshot().ProjectSelect {
-			projects := m.core.Snapshot().Projects
-			if len(projects) > 0 && m.cursor < len(projects) {
-				m.core.SelectProject(projects[m.cursor])
-				m.Sync()
-				return m, m.launch(m.core.Handoff())
-			}
-		} else if m.core.Snapshot().Screen == launcher.ScreenPortfolio {
-			candidates := m.filteredCandidates()
-			if len(candidates) > 0 {
-				candidate := candidates[m.cursor]
-				if candidate.Kind == launcher.CandidateProduct {
-					previousScreen := m.core.Snapshot().Screen
-					if err := m.core.SelectProduct(m.ctx, candidate.ProductID); err != nil {
-						m.setError(err)
-					} else if m.core.Snapshot().Screen != previousScreen {
-						m.navigation = append(m.navigation, navigationPosition{cursor: m.cursor, scroll: m.scroll})
-					}
-					m.Sync()
-					return m, nil
-				}
-				if candidate.Kind == launcher.CandidateWork {
-					if !candidate.Available {
-						m.setError(fmt.Errorf("work item %s has no claimed worktree", candidate.ID))
-						m.Sync()
-						return m, nil
-					}
-					m.core.RestoreSnapshot(launcher.Snapshot{Screen: launcher.ScreenProduct, AmbientProduct: candidate.ProductID, SelectedWorkID: candidate.WorkID, Session: launcher.SessionHandoff{ProductID: candidate.ProductID, WorkID: candidate.WorkID, Agent: launcher.DefaultSessionAgent}, Coverage: "authoritative", Section: launcher.SectionRanked})
-					return m, m.launch(m.core.Handoff())
-				}
-				if candidate.Kind == launcher.CandidateProject {
-					m.core.RestoreSnapshot(launcher.Snapshot{Screen: launcher.ScreenPortfolio, Session: launcher.SessionHandoff{ProjectPath: candidate.Path, Agent: launcher.DefaultSessionAgent}, Coverage: "authoritative"})
-					return m, m.launch(m.core.Handoff())
-				}
-			}
-			rows := m.filteredRows()
-			if len(rows) > 0 && m.cursor < len(rows) {
-				previousScreen := m.core.Snapshot().Screen
-				if err := m.core.SelectProduct(m.ctx, rows[m.cursor].ID); err != nil {
-					m.setError(err)
-				} else if m.core.Snapshot().Screen != previousScreen {
-					m.navigation = append(m.navigation, navigationPosition{cursor: m.cursor, scroll: m.scroll})
-				}
-				m.filterValue = ""
-				m.input.Reset()
-				m.Sync()
-			}
-		} else if m.core.Snapshot().Screen == launcher.ScreenProduct && m.core.Section() == launcher.SectionRanked {
-			rows := m.filteredRanked()
-			if len(rows) > 0 && m.cursor < len(rows) {
-				selected := rows[m.cursor]
-				if selected.Backlog {
-					m.issueMode = true
-					m.input.Prompt = "ISSUE KEY: "
-					m.input.Reset()
-					return m, m.input.Focus()
-				}
-				if selected.Live > 0 {
-					m.confirmWork = true
-					return m, nil
-				}
-				return m.openSelectedWork()
-			}
-		}
+		return m.enterKey()
 	case "esc", "h", "left":
-		if m.core.Snapshot().ProjectSelect {
-			m.core.BackProjects()
-			m.Sync()
-			return m, nil
-		}
-		if m.queryDisplayed {
-			m.core.RestoreSnapshot(m.queryBase)
-			m.cursor, m.scroll = m.queryCursor, m.queryScroll
-			m.queryDisplayed = m.queryBase.QueryResult
-			m.queryValue = ""
-			m.input.Reset()
-			m.Sync()
-			return m, nil
-		}
-		m.back()
+		return m.escapeKey()
 	case "q", "ctrl+c":
 		if m.core.Snapshot().Screen == launcher.ScreenProduct || m.core.Snapshot().Screen == launcher.ScreenWork {
 			m.back()
@@ -475,6 +398,142 @@ func (m *Model) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, tea.Quit
 	}
+	return m, nil
+}
+
+func (m *Model) tabKey() {
+	if m.core.Snapshot().Screen == launcher.ScreenProduct {
+		_ = m.core.CyclePanelFocus()
+		m.Sync()
+	} else if m.core.Snapshot().Screen == launcher.ScreenWork {
+		next := launcher.SectionDomains
+		switch m.core.Section() {
+		case launcher.SectionDomains:
+			next = launcher.SectionRelations
+		case launcher.SectionRelations:
+			next = launcher.SectionRanked
+		case launcher.SectionRanked:
+			next = launcher.SectionKnowledge
+		}
+		if next == launcher.SectionKnowledge {
+			if err := m.core.EnsureKnowledge(m.ctx); err != nil {
+				m.setError(err)
+			}
+		}
+		_ = m.core.SetSection(next)
+		m.Sync()
+	}
+}
+
+func (m *Model) enterKey() (tea.Model, tea.Cmd) {
+	if m.core.Snapshot().ProjectSelect {
+		return m.enterProjectSelect()
+	}
+	if m.core.Snapshot().Screen == launcher.ScreenPortfolio {
+		return m.enterPortfolio()
+	}
+	if m.core.Snapshot().Screen == launcher.ScreenProduct && m.core.Section() == launcher.SectionRanked {
+		return m.enterRanked()
+	}
+	return m, nil
+}
+
+func (m *Model) enterProjectSelect() (tea.Model, tea.Cmd) {
+	projects := m.core.Snapshot().Projects
+	if len(projects) > 0 && m.cursor < len(projects) {
+		m.core.SelectProject(projects[m.cursor])
+		m.Sync()
+		return m, m.launch(m.core.Handoff())
+	}
+	return m, nil
+}
+
+func (m *Model) enterPortfolio() (tea.Model, tea.Cmd) {
+	candidates := m.filteredCandidates()
+	if len(candidates) > 0 {
+		if cmd, handled := m.activateCandidate(candidates[min(m.cursor, len(candidates)-1)]); handled {
+			return m, cmd
+		}
+	}
+	rows := m.filteredRows()
+	if len(rows) > 0 && m.cursor < len(rows) {
+		previousScreen := m.core.Snapshot().Screen
+		if err := m.core.SelectProduct(m.ctx, rows[m.cursor].ID); err != nil {
+			m.setError(err)
+		} else if m.core.Snapshot().Screen != previousScreen {
+			m.navigation = append(m.navigation, navigationPosition{cursor: m.cursor, scroll: m.scroll})
+		}
+		m.filterValue = ""
+		m.input.Reset()
+		m.Sync()
+	}
+	return m, nil
+}
+
+// activateCandidate runs the first-run action for the selected scan-root
+// candidate. The bool reports whether the candidate produced an action; an
+// unknown kind falls through to the portfolio rows.
+func (m *Model) activateCandidate(candidate launcher.Candidate) (tea.Cmd, bool) {
+	switch candidate.Kind {
+	case launcher.CandidateProduct:
+		previousScreen := m.core.Snapshot().Screen
+		if err := m.core.SelectProduct(m.ctx, candidate.ProductID); err != nil {
+			m.setError(err)
+		} else if m.core.Snapshot().Screen != previousScreen {
+			m.navigation = append(m.navigation, navigationPosition{cursor: m.cursor, scroll: m.scroll})
+		}
+		m.Sync()
+		return nil, true
+	case launcher.CandidateWork:
+		if !candidate.Available {
+			m.setError(fmt.Errorf("work item %s has no claimed worktree", candidate.ID))
+			m.Sync()
+			return nil, true
+		}
+		m.core.RestoreSnapshot(launcher.Snapshot{Screen: launcher.ScreenProduct, AmbientProduct: candidate.ProductID, SelectedWorkID: candidate.WorkID, Session: launcher.SessionHandoff{ProductID: candidate.ProductID, WorkID: candidate.WorkID, Agent: launcher.DefaultSessionAgent}, Coverage: "authoritative", Section: launcher.SectionRanked})
+		return m.launch(m.core.Handoff()), true
+	case launcher.CandidateProject:
+		m.core.RestoreSnapshot(launcher.Snapshot{Screen: launcher.ScreenPortfolio, Session: launcher.SessionHandoff{ProjectPath: candidate.Path, Agent: launcher.DefaultSessionAgent}, Coverage: "authoritative"})
+		return m.launch(m.core.Handoff()), true
+	}
+	return nil, false
+}
+
+func (m *Model) enterRanked() (tea.Model, tea.Cmd) {
+	rows := m.filteredRanked()
+	if len(rows) == 0 || m.cursor >= len(rows) {
+		return m, nil
+	}
+	selected := rows[m.cursor]
+	if selected.Backlog {
+		m.issueMode = true
+		m.input.Prompt = "ISSUE KEY: "
+		m.input.Reset()
+		return m, m.input.Focus()
+	}
+	if selected.Live > 0 {
+		m.confirmWork = true
+		return m, nil
+	}
+	return m.openSelectedWork()
+}
+
+func (m *Model) escapeKey() (tea.Model, tea.Cmd) {
+	if m.core.Snapshot().ProjectSelect {
+		m.core.BackProjects()
+		m.Sync()
+		return m, nil
+	}
+	if m.queryDisplayed {
+		m.core.RestoreSnapshot(m.queryBase)
+		m.cursor, m.scroll = m.queryCursor, m.queryScroll
+		m.queryDisplayed = m.queryBase.QueryResult
+		m.queryValue = ""
+		m.input.Reset()
+		m.Sync()
+		return m, nil
+	}
+	m.back()
 	return m, nil
 }
 

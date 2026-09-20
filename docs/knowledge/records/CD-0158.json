@@ -1,0 +1,36 @@
+{
+  "date": "2026-09-20T00:00:00Z",
+  "evidence": [
+    "scripts/check-domain-registry.py",
+    "docs/knowledge/domain-registry.json",
+    "internal/launcher/render/bubbletea/model.go",
+    "internal/store/domain_reads.go"
+  ],
+  "home_domain_id": "product-memory",
+  "id": "CD-0158",
+  "kind": "decision",
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "CD-0060"
+    }
+  ],
+  "path": "docs/decisions/CD-0158-the-domain-graph-earns-its-place-through-an-authoring-obligation.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:8aacdd56c3fadcf292478fefde39387590f5d2d447a0d0bdf06650ed9c5b148d",
+  "status": "accepted",
+  "summary": "Keeps the Domain graph and names the operator's launcher panel as its consumer. Requires every Domain in a registry of two or more to participate in at least one relation, leaves applies_to_domain_ids optional, warns before it refuses under a --strict flag, and carries the validator into each Product repository.",
+  "tags": [
+    "domains",
+    "knowledge",
+    "registry",
+    "validation"
+  ],
+  "title": "The Domain graph earns its place through an authoring obligation"
+}

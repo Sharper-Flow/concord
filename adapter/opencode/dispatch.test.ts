@@ -204,19 +204,19 @@ test("unknown lane identity fails closed before a window opens", async () => {
 })
 
 // The armed claim is the adapter's own record of the last confirmed landing.
-// A host answer that regressed to the previous directory is stable, so it
-// agrees with the pinned directory on both reads; only the armed claim can
-// see the disagreement, and the refusal must name both directories with the
-// replay recovery before any window opens.
+// The host's fresh session-directory answer must match it, and a process cwd
+// inside a foreign managed worktree refuses before the window opens.
 test("dispatch refuses when the host answer disagrees with the armed claimed worktree", async () => {
   const root = fs.mkdtempSync(path.join(process.cwd(), "concord-dispatch-"))
   fs.mkdirSync(path.join(root, "claimed"))
   fs.mkdirSync(path.join(root, "stale"))
   const claimed = fs.realpathSync(path.join(root, "claimed"))
   const stale = fs.realpathSync(path.join(root, "stale"))
+  const previousDirectory = process.cwd()
   const windows = new DispatchWindows()
   try {
     armClaimedWorktree(SESSION, claimed)
+    process.chdir(claimed)
     const result = await dispatchWorker(packet(), {
       credentials: testCredentials,
       authorize: permissiveAuthorizer(),
@@ -234,6 +234,81 @@ test("dispatch refuses when the host answer disagrees with the armed claimed wor
     expect(result.error?.message).toMatch(/worktree_claim/)
     expect(windows.has(SESSION)).toBe(false)
   } finally {
+    process.chdir(previousDirectory)
+    clearClaimedWorktree(SESSION)
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+// The observed dispatch failure is a host booted inside one item's managed
+// worktree that then claims another item's worktree: every host metadata check
+// passes and spawned lanes run in the boot worktree. The guard refuses exactly
+// that state — a process cwd inside the armed claim's managed worktrees (the
+// claim's parent directory) that is not the claim itself.
+test("dispatch refuses when the process cwd is a foreign sibling worktree of the armed claim", async () => {
+  const root = fs.mkdtempSync(path.join(process.cwd(), "concord-dispatch-"))
+  fs.mkdirSync(path.join(root, "managed", "claimed"), { recursive: true })
+  fs.mkdirSync(path.join(root, "managed", "sibling"))
+  const claimed = fs.realpathSync(path.join(root, "managed", "claimed"))
+  const sibling = fs.realpathSync(path.join(root, "managed", "sibling"))
+  const previousDirectory = process.cwd()
+  const windows = new DispatchWindows()
+  try {
+    armClaimedWorktree(SESSION, claimed)
+    process.chdir(sibling)
+    const result = await dispatchWorker(packet(), {
+      credentials: testCredentials,
+      authorize: permissiveAuthorizer(),
+      packetDigest: PACKET_DIGEST,
+      sessionID: SESSION,
+      windows,
+      workerDirectory: claimed,
+      resolveWorkerDirectory: async () => claimed,
+    })
+    expect(result.outcome).toBe("error")
+    expect(result.error?.kind).toBe("unauthorized_dispatch")
+    expect(result.error?.recovery_action).toBe("reconcile_operation")
+    expect(result.error?.message).toContain(claimed)
+    expect(result.error?.message).toContain(sibling)
+    expect(result.error?.message).toMatch(/restart the host process from the project trunk or in the claimed worktree/i)
+    expect(result.error?.message).not.toMatch(/replay worktree_claim/i)
+    expect(windows.has(SESSION)).toBe(false)
+  } finally {
+    process.chdir(previousDirectory)
+    clearClaimedWorktree(SESSION)
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+// The operator's launch route boots the host in the project trunk and relies
+// on the work_start move; children of a trunk-booted host follow the claimed
+// worktree. A trunk cwd sits outside the armed claim's managed worktrees, so
+// it must never trip the sibling-worktree refusal.
+test("dispatch proceeds when the process cwd is the project trunk with an armed claim", async () => {
+  const root = fs.mkdtempSync(path.join(process.cwd(), "concord-dispatch-"))
+  fs.mkdirSync(path.join(root, "managed", "claimed"), { recursive: true })
+  fs.mkdirSync(path.join(root, "trunk"))
+  const claimed = fs.realpathSync(path.join(root, "managed", "claimed"))
+  const trunk = fs.realpathSync(path.join(root, "trunk"))
+  const previousDirectory = process.cwd()
+  const windows = new DispatchWindows()
+  try {
+    armClaimedWorktree(SESSION, claimed)
+    process.chdir(trunk)
+    const result = await dispatchWorker(packet(), {
+      credentials: testCredentials,
+      authorize: permissiveAuthorizer(),
+      packetDigest: PACKET_DIGEST,
+      sessionID: SESSION,
+      windows,
+      workerDirectory: claimed,
+      resolveWorkerDirectory: async () => claimed,
+    })
+    expect(result.outcome).toBe("ok")
+    expect(result.dispatch_state).toBe("awaiting_worker")
+    expect(windows.has(SESSION)).toBe(true)
+  } finally {
+    process.chdir(previousDirectory)
     clearClaimedWorktree(SESSION)
     fs.rmSync(root, { recursive: true, force: true })
   }
@@ -265,12 +340,29 @@ test("dispatch proceeds when the host answer agrees with the armed claimed workt
 // and asserts no model here.
 test("an authorized dispatch opens one window and returns a directive", async () => {
   const windows = new DispatchWindows()
-  const result = await dispatchWorker(packet(), { credentials: testCredentials, authorize: permissiveAuthorizer(), packetDigest: PACKET_DIGEST, sessionID: SESSION, windows, workerDirectory: WORKER_DIRECTORY })
-  expect(result.outcome).toBe("ok")
-  expect(result.dispatch_state).toBe("awaiting_worker")
-  expect(result.agent).toBe("concord-research")
-  expect(result.readback_model).toBe(null)
-  expect(windows.has(SESSION)).toBe(true)
+  clearClaimedWorktree(SESSION)
+  const root = fs.mkdtempSync(path.join(process.cwd(), "concord-dispatch-"))
+  const claimed = path.join(root, "unarmed")
+  fs.mkdirSync(claimed)
+  try {
+    const result = await dispatchWorker(packet(), {
+      credentials: testCredentials,
+      authorize: permissiveAuthorizer(),
+      packetDigest: PACKET_DIGEST,
+      sessionID: SESSION,
+      windows,
+      workerDirectory: claimed,
+      resolveWorkerDirectory: async () => claimed,
+    })
+    expect(result.outcome).toBe("ok")
+    expect(result.dispatch_state).toBe("awaiting_worker")
+    expect(result.agent).toBe("concord-research")
+    expect(result.readback_model).toBe(null)
+    expect(windows.has(SESSION)).toBe(true)
+  } finally {
+    clearClaimedWorktree(SESSION)
+    fs.rmSync(root, { recursive: true, force: true })
+  }
 })
 
 test("a dispatch that cannot name its calling session opens no window", async () => {

@@ -70,7 +70,7 @@ func TestBindEvidenceRefusesLocatorPastReferenceBound(t *testing.T) {
 	if response.Outcome != OutcomeOK {
 		t.Fatalf("start_repair: %+v", response.Error)
 	}
-	bound, after := ekbDispatch(t, ctx, s, service, env, grant, privateKey, workID, after, "bind_evidence", map[string]any{"evidence_kind": "artifact", "immutable_subject_ref": long}, nil, "wpeb-bind")
+	bound, _ := ekbDispatch(t, ctx, s, service, env, grant, privateKey, workID, after, "bind_evidence", map[string]any{"evidence_kind": "artifact", "immutable_subject_ref": long}, nil, "wpeb-bind")
 	if bound.Outcome == OutcomeOK || bound.Error == nil || bound.Error.Kind != "invalid_input" {
 		t.Fatalf("bind_evidence accepted the %d-byte locator: %+v", len(long), bound.Error)
 	}

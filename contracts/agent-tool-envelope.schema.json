@@ -1857,10 +1857,10 @@
           }
         },
         "supported_budget_seconds": {
-          "description": "CD-0038 D3: the operation's declared seconds ceiling, typed on every budget_refused error so the recovery value a caller needs is never buried in details. Carried on no other kind.",
+          "description": "CD-0038 D3: the operation's declared seconds ceiling, typed on every budget_refused error so the recovery value a caller needs is never buried in details. Carried on no other kind. The maximum tracks the agent-tool-surface ceiling (CD-0038 D2 evidence-fixed exceptions; CON-317 fixes worktree_verify at 1800).",
           "type": "integer",
           "minimum": 1,
-          "maximum": 300
+          "maximum": 1800
         },
         "consequence_summary": {
           "$ref": "#/$defs/consequenceSummary"

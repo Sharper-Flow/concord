@@ -37,6 +37,61 @@ class ManifestTamperTests(unittest.TestCase):
         value=copy.deepcopy(manifest); value["tools"][0]["operations"].append("concord_product_view.missing")
         with self.assertRaises(ValueError): generator.validate(value)
 
+class EvidenceFixedBudgetCeilingTests(unittest.TestCase):
+    """CD-0038 D2: the surface ceiling is uniform except where accepted
+    evidence fixes a different value. The generator admits only the
+    declared exceptions (workflow_action TS1 30; worktree_verify CON-317
+    1800); any other non-uniform value, including one that mimics an
+    evidence-fixed value on a different operation, must fail closed so the
+    rule cannot erode by accretion.
+    """
+
+    def _replace_supported_budget(self, operation_id, value):
+        value_dict = copy.deepcopy(manifest)
+        for op in value_dict["operations"]:
+            if op["id"] == operation_id:
+                op["supported_budget_seconds"] = value
+        return value_dict
+
+    def test_shipped_manifest_admits_only_declared_evidence_fixed_ceilings(self):
+        # The shipped manifest declares exactly two non-uniform ceilings
+        # (workflow_action 30 and worktree_verify 1800); validate() enforces
+        # that, and the rest of the surface must stay at the uniform 300.
+        try:
+            generator.validate(manifest)
+        except ValueError as err:
+            self.fail(f"shipped manifest violates its own uniformity rule: {err}")
+        non_uniform = {op["id"]: op["supported_budget_seconds"] for op in manifest["operations"]
+                       if op["supported_budget_seconds"] != 300}
+        self.assertEqual(non_uniform, {
+            "concord_work_transition.workflow_action": 30,
+            "concord_work_transition.worktree_verify": 1800,
+        })
+
+    def test_a_uniform_seven_minute_ceiling_is_rejected(self):
+        # A budget value no evidence pins is still over the uniform 300 and
+        # the generator refuses it before the rule reach can widen.
+        drifted = self._replace_supported_budget("concord_work_transition.lifecycle", 420)
+        with self.assertRaises(ValueError):
+            generator.validate(drifted)
+
+    def test_an_undeclared_non_uniform_ceiling_is_rejected(self):
+        # A ceiling the evidence list does not admit (one operation, a value
+        # no rule fixes) breaks the uniformity discipline even when the
+        # value would otherwise lie in range.
+        drifted = self._replace_supported_budget("concord_work_transition.lifecycle", 600)
+        with self.assertRaises(ValueError):
+            generator.validate(drifted)
+
+    def test_an_evidence_value_on_an_undeclared_operation_is_rejected(self):
+        # 1800 is a declared ceiling for worktree_verify only. Putting it on
+        # another operation copies the value without the evidence that
+        # names the operation; the rule's job is to refuse that copy.
+        drifted = self._replace_supported_budget("concord_work_transition.lifecycle", 1800)
+        with self.assertRaises(ValueError):
+            generator.validate(drifted)
+
+
 class EnvelopeOperationCoverageTests(unittest.TestCase):
     """The manifest is the source of truth for what `toolOperation` must pair.
 

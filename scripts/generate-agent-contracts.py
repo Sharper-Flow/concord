@@ -414,8 +414,8 @@ def validate(manifest: dict) -> str:
             fail(f"operation section is not closed: {op.get('id')}")
         if set(op["metadata"]) != {"context", "idempotency", "pagination", "output_bytes", "versions"}:
             fail(f"operation metadata is not closed: {op.get('id')}")
-        if not isinstance(op.get("supported_budget_seconds"), int) or not 1 <= op["supported_budget_seconds"] <= 300:
-            fail(f"operation budget ceiling is not an integer in [1, 300]: {op.get('id')}")
+        if not isinstance(op.get("supported_budget_seconds"), int) or not 1 <= op["supported_budget_seconds"] <= 1800:
+            fail(f"operation budget ceiling is not an integer in [1, 1800]: {op.get('id')}")
         if not re.fullmatch(r"concord_[a-z0-9_]+\.[a-z0-9_]+", op["id"]): fail(f"invalid operation id {op.get('id')}")
         if op["id"].split(".", 1)[0] != op["tool"]: fail(f"operation/tool pairing mismatch: {op['id']}")
         if op["capability"] not in capabilities or op["consequence"] not in consequences: fail(f"operation classification is not declared: {op['id']}")
@@ -426,13 +426,21 @@ def validate(manifest: dict) -> str:
             fail(f"operation schema reference missing: {op['id']}")
     # CD-0038 D2: one ceiling value serves the whole surface. Per-operation
     # proliferation is what this rule exists to prevent: a ceiling may only
-    # differ where accepted scenario evidence fixes it, and today that is
-    # workflow_action alone (TS1 fixes 30). New distinct values arrive with
-    # accepted evidence and this rule failing loudly, not by quiet accretion.
-    uniform = {o["supported_budget_seconds"] for o in operations if o["id"] != "concord_work_transition.workflow_action"}
-    exceptions = {o["supported_budget_seconds"] for o in operations if o["id"] == "concord_work_transition.workflow_action"}
-    if len(uniform) != 1 or len(exceptions) > 1 or (exceptions and exceptions == uniform):
-        fail("supported_budget_seconds must be one uniform value across all operations except the evidence-fixed workflow_action ceiling")
+    # differ where accepted scenario evidence fixes it. Two operations are
+    # evidence-fixed today: workflow_action at 30 (TS1) and worktree_verify
+    # at 1800 (the 367.08s verification lane measured in CON-317). This rule
+    # pins both operations to their evidence-fixed values, so a new distinct
+    # value arrives only with accepted evidence and this rule failing loudly,
+    # never by quiet accretion.
+    evidence_fixed = {
+        "concord_work_transition.workflow_action": 30,
+        "concord_work_transition.worktree_verify": 1800,
+    }
+    uniform = {o["supported_budget_seconds"] for o in operations if o["id"] not in evidence_fixed}
+    if (len(uniform) != 1
+            or uniform & set(evidence_fixed.values())
+            or any(o["supported_budget_seconds"] != evidence_fixed[o["id"]] for o in operations if o["id"] in evidence_fixed)):
+        fail("supported_budget_seconds must be one uniform value across all operations except the evidence-fixed ceilings (workflow_action TS1 30, worktree_verify CON-317 1800)")
     if any(set(value) != {"ref", "closed"} or value["closed"] is not True for value in manifest.get("schemas", {}).values()):
         fail("schema references must be closed")
     if manifest.get("envelope", {}).get("max_bytes") != 51200 or manifest.get("bounds", {}).get("max_output_bytes") != 51200:

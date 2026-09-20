@@ -209,10 +209,10 @@
             "$ref": "#/$defs/metadata"
           },
           "supported_budget_seconds": {
-            "description": "CD-0038 D2: the seconds-denominated budget ceiling this operation supports. Uniform across the surface except where accepted scenario evidence fixes a different value; the manifest digest covers it. Values change only with accepted scenario or TS9 measurement evidence.",
+            "description": "CD-0038 D2: the seconds-denominated budget ceiling this operation supports. Uniform across the surface except where accepted scenario evidence fixes a different value; the manifest digest covers it. Values change only with accepted scenario or TS9 measurement evidence. The surface maximum is the evidence-fixed worktree_verify ceiling (CON-317, 1800).",
             "type": "integer",
             "minimum": 1,
-            "maximum": 300
+            "maximum": 1800
           }
         }
       }

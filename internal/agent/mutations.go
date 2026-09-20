@@ -752,12 +752,26 @@ func evidenceBindingFamily(actionID string) bool {
 // payload of the evidence-binding action family when the fields omit it. The
 // store derives the durable event's evidence_kind from the payload alone, so
 // without this mapping a commit-kind evidence array silently records as
-// verification and the completion gate reads the kind as unbound.
+// verification and the completion gate reads the kind as unbound. The default
+// applies only when the array states one kind: an array carrying several
+// kinds threads them per entry into the store, and stamping the first kind
+// into the fields would contradict the rest and refuse the binding.
 func withEvidenceKindDefault(actionID string, payload json.RawMessage, evidence []EvidenceRef) json.RawMessage {
 	if !evidenceBindingFamily(actionID) {
 		return payload
 	}
-	if len(evidence) == 0 || evidence[0].Kind == "" || len(payload) == 0 {
+	kind := ""
+	for _, entry := range evidence {
+		if entry.Kind == "" {
+			continue
+		}
+		if kind == "" {
+			kind = entry.Kind
+		} else if entry.Kind != kind {
+			return payload
+		}
+	}
+	if kind == "" || len(payload) == 0 {
 		return payload
 	}
 	var fields map[string]json.RawMessage
@@ -767,11 +781,11 @@ func withEvidenceKindDefault(actionID string, payload json.RawMessage, evidence 
 	if _, present := fields["evidence_kind"]; present {
 		return payload
 	}
-	kind, err := json.Marshal(evidence[0].Kind)
+	kindJSON, err := json.Marshal(kind)
 	if err != nil {
 		return payload
 	}
-	fields["evidence_kind"] = kind
+	fields["evidence_kind"] = kindJSON
 	encoded, err := json.Marshal(fields)
 	if err != nil {
 		return payload
@@ -779,29 +793,27 @@ func withEvidenceKindDefault(actionID string, payload json.RawMessage, evidence 
 	return encoded
 }
 
-// validateEvidenceKindBinding refuses an evidence array that carries more
-// than one kind, and an explicit fields.evidence_kind that contradicts the
-// array. One bind-family action records one durable evidence_kind, so a
-// mixed array would silently drop every kind but the first and could wedge
-// a later step that declares no bind_evidence (#945).
+// validateEvidenceKindBinding refuses an evidence array that carries
+// different kinds under different locators, and an explicit
+// fields.evidence_kind that contradicts any entry's kind. Kinds submitted for
+// one locator thread into the store per entry and bind one event per kind;
+// kinds spread over several locators name several subjects, which the store
+// refuses, so the boundary refuses first and names both kinds (#945).
 func validateEvidenceKindBinding(actionID string, payload json.RawMessage, evidence []EvidenceRef) error {
 	if !evidenceBindingFamily(actionID) || len(evidence) == 0 {
 		return nil
 	}
-	kind := ""
-	for _, entry := range evidence {
+	for i, entry := range evidence {
 		if entry.Kind == "" {
 			continue
 		}
-		if kind == "" {
-			kind = entry.Kind
-			continue
-		}
-		if entry.Kind != kind {
-			return fmt.Errorf("evidence array carries more than one kind (%s, %s); issue one bind per evidence kind", kind, entry.Kind)
+		for _, prior := range evidence[:i] {
+			if prior.Kind != "" && entry.Kind != prior.Kind && entry.Locator != prior.Locator {
+				return fmt.Errorf("evidence array carries more than one kind (%s, %s); issue one bind per evidence kind", prior.Kind, entry.Kind)
+			}
 		}
 	}
-	if kind == "" || len(payload) == 0 {
+	if len(payload) == 0 {
 		return nil
 	}
 	var fields struct {
@@ -810,8 +822,10 @@ func validateEvidenceKindBinding(actionID string, payload json.RawMessage, evide
 	if err := json.Unmarshal(payload, &fields); err != nil || fields.EvidenceKind == "" {
 		return nil
 	}
-	if fields.EvidenceKind != kind {
-		return fmt.Errorf("fields.evidence_kind %q contradicts evidence array kind %q; issue one bind per evidence kind", fields.EvidenceKind, kind)
+	for _, entry := range evidence {
+		if entry.Kind != "" && entry.Kind != fields.EvidenceKind {
+			return fmt.Errorf("fields.evidence_kind %q contradicts evidence array kind %q; issue one bind per evidence kind", fields.EvidenceKind, entry.Kind)
+		}
 	}
 	return nil
 }
@@ -1104,7 +1118,7 @@ func (r runtime) mutateWorkflowAction(ctx context.Context, base Envelope, raw []
 	var resultRejected bool
 	scopeJSON, _ := json.Marshal(scope)
 	versionsJSON, _ := json.Marshal(versions)
-	actionRequest := store.WorkflowActionExecutionRequest{WorkID: in.WorkID, ExpectedVersion: in.ExpectedVersion, ActionID: in.ActionID, SelectedChoice: in.SelectedChoice, DecisionContextDigest: in.DecisionContextDigest, Payload: payload, EvidenceRefs: evidenceLocators(in.Evidence), Actor: store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}, SessionWorktree: r.Envelope.Worktree, EscalatedRetryApproved: retryApproval, ResearchBindings: researchBindingDeclarations(in.ResearchBindings), AcceptedInputsDigest: digest, IdempotencyIdentity: in.IdempotencyKey, OperationID: operationID, PrincipalRef: grant.PrincipalRef, Tool: r.Tool, IdempotencyKey: in.IdempotencyKey, RequestID: r.Envelope.RequestID, AcceptedScope: string(scopeJSON), ContractDigest: ManifestDigest, Now: r.Authority.now()}
+	actionRequest := store.WorkflowActionExecutionRequest{WorkID: in.WorkID, ExpectedVersion: in.ExpectedVersion, ActionID: in.ActionID, SelectedChoice: in.SelectedChoice, DecisionContextDigest: in.DecisionContextDigest, Payload: payload, EvidenceRefs: evidenceLocators(in.Evidence), EvidenceKinds: evidenceKinds(in.Evidence), Actor: store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}, SessionWorktree: r.Envelope.Worktree, EscalatedRetryApproved: retryApproval, ResearchBindings: researchBindingDeclarations(in.ResearchBindings), AcceptedInputsDigest: digest, IdempotencyIdentity: in.IdempotencyKey, OperationID: operationID, PrincipalRef: grant.PrincipalRef, Tool: r.Tool, IdempotencyKey: in.IdempotencyKey, RequestID: r.Envelope.RequestID, AcceptedScope: string(scopeJSON), ContractDigest: ManifestDigest, Now: r.Authority.now()}
 	actionRequest.ApprovalOperationDigest = digest
 	actionRequest.ApprovalScopeJSON = string(scopeJSON)
 	actionRequest.ApprovalVersionsJSON = string(versionsJSON)
@@ -3421,6 +3435,19 @@ func evidenceLocators(refs []EvidenceRef) []string {
 	}
 	return out
 }
+
+// evidenceKinds extracts each entry's evidence kind in submission order, so
+// the store can bind one durable event per (locator, kind) pair instead of
+// reading a single kind out of the payload fields. An entry without a kind
+// stays empty and takes the payload's evidence_kind default in the store.
+func evidenceKinds(refs []EvidenceRef) []string {
+	out := make([]string, len(refs))
+	for i, ref := range refs {
+		out[i] = ref.Kind
+	}
+	return out
+}
+
 func membershipIDs(values []mutationMembership) []string {
 	out := make([]string, len(values))
 	for i, value := range values {

@@ -20,8 +20,15 @@ type WorkflowActionExecutionRequest struct {
 	DecisionContextDigest string
 	Payload               json.RawMessage
 	EvidenceRefs          []string
-	Actor                 WorkflowActor
-	SessionWorktree       string
+	// EvidenceKinds carries the per-entry evidence kind for each locator the
+	// caller submitted, in submission order. The bind-family event
+	// constructors read it so one locator submitted under two kinds binds two
+	// events, one per kind; an empty entry takes the payload's evidence_kind
+	// default. It stays aligned to the submitted array, not to the merged set
+	// the dispatch writes back into EvidenceRefs.
+	EvidenceKinds   []string
+	Actor           WorkflowActor
+	SessionWorktree string
 	// SessionWorktreeIdentity is computed by the core after the session
 	// worktree matches its active claim. It binds later worker evidence to that
 	// claim without placing a machine path in a public event.

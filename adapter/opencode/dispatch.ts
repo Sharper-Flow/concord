@@ -1127,6 +1127,15 @@ export async function computeHostPromptProvenance(laneId: string, cwd = process.
   return { digest: "sha256:" + Bun.SHA256.hash(manifest, "hex"), sources: sources.slice(0, 64) }
 }
 
+// sitsUnder reports whether child is the prefix itself or a path under it.
+// Both inputs are canonicalized directories, so the comparison is lexical and
+// exact: a path outside the prefix cannot share its leading segments.
+function sitsUnder(child: string, prefix: string): boolean {
+  const relative = path.relative(prefix, child)
+  if (relative === "") return true
+  return !relative.startsWith(`..${path.sep}`) && relative !== ".." && !path.isAbsolute(relative)
+}
+
 export async function dispatchWorker(packet: unknown, options: { signal?: AbortSignal; runner?: DispatchRunner; readbackRunner?: DispatchRunner; evidenceRunner?: DispatchRunner; binary?: string; concordBinary?: string; credentials?: CredentialStore; authorize?: DispatchAuthorizer; packetDigest?: string; sessionID?: string; windows?: DispatchWindows; workPins?: unknown[]; workerDirectory?: string; pinnedWorkerDirectory?: string; resolveWorkerDirectory?: () => Promise<string> } = {}): Promise<AgentResultEnvelope> {
   if (!validateAgentLanePacket(packet)) return errorEnvelope(null, isRecord(packet) ? packet as Partial<AgentLanePacket> : {}, "error", "invalid_input", "agent lane packet failed the closed packet schema", "retry_same_request")
   const lane = laneForPacket(packet)
@@ -1179,8 +1188,8 @@ export async function dispatchWorker(packet: unknown, options: { signal?: AbortS
   if (!sessionID) {
     return errorEnvelope(lane, packet as Partial<AgentLanePacket>, "error", "invalid_input", "dispatch requires the calling session identifier to open an authorization window", "contact_operator")
   }
+  let liveWorkerDirectory: string | undefined
   if (options.resolveWorkerDirectory) {
-    let liveWorkerDirectory: string
     try {
       liveWorkerDirectory = await options.resolveWorkerDirectory()
     } catch {
@@ -1190,16 +1199,35 @@ export async function dispatchWorker(packet: unknown, options: { signal?: AbortS
     if (mismatch) {
       return errorEnvelope(lane, packet as Partial<AgentLanePacket>, "error", "unauthorized_dispatch", mismatch, "reconcile_operation")
     }
-    // The two guards above compare host answers with each other, so a session
-    // directory that regressed after its move converged answers stale on both
-    // reads and passes both. The armed claim is the adapter's own record of the
-    // last confirmed landing (work_start, worktree_claim), so a disagreement
-    // with the host's fresh answer names both directories and stops before the
-    // window opens. Replaying worktree_claim re-runs the move and its read-back,
-    // which re-arms the record. A session with no armed claim, such as one whose
-    // host process restarted after the claim, dispatches exactly as before.
-    const armedClaim = armedClaimedWorktree(sessionID)
-    if (armedClaim !== null) {
+  }
+  // The host-answer guards above compare host answers with each other, so a
+  // session directory that regressed after its move converged answers stale on
+  // both reads and passes both. The armed claim is the adapter's own record of
+  // the last confirmed landing (work_start, worktree_claim), and the host's
+  // fresh answer must agree with it. A session with no armed claim, such as one
+  // whose host process restarted after the claim, dispatches exactly as before.
+  const armedClaim = armedClaimedWorktree(sessionID)
+  if (armedClaim !== null) {
+    // The physical process cwd is the directory a spawned task child actually
+    // inherits: the host's move updates session metadata alone. The one broken
+    // configuration no host check exposes is a host booted inside one item's
+    // managed worktree that then claims another item's worktree: every metadata
+    // answer passes, and every lane runs in the boot worktree. A cwd inside the
+    // armed claim's managed worktrees (the claim's parent directory) that is
+    // not the claim itself is exactly that state, so it refuses. The operator's
+    // launch route boots the host in the project trunk, and children of a
+    // trunk-booted host follow the claimed worktree after the move, so a trunk
+    // cwd proceeds. No host answer supplies the process cwd, and only a host
+    // restart from the trunk or in the claimed worktree moves it once the
+    // process runs inside the managed area, so that is the remedy named.
+    const physicalWorkerDirectory = canonicalDirectory(process.cwd())
+    const managedWorktreesPrefix = path.dirname(armedClaim)
+    if (physicalWorkerDirectory !== null && sitsUnder(physicalWorkerDirectory, managedWorktreesPrefix) && physicalWorkerDirectory !== armedClaim) {
+      return errorEnvelope(lane, packet as Partial<AgentLanePacket>, "error", "unauthorized_dispatch", `the adapter process runs in ${JSON.stringify(physicalWorkerDirectory)} inside the managed worktrees of ${JSON.stringify(managedWorktreesPrefix)} but the armed claimed worktree is ${JSON.stringify(armedClaim)}; restart the host process from the project trunk or in the claimed worktree, then dispatch again`, "reconcile_operation")
+    }
+    // The host's fresh answer is checked second: it catches a move that never
+    // landed, which replaying worktree_claim can repair.
+    if (liveWorkerDirectory !== undefined) {
       const claimMismatch = dispatchDirectoryMismatch(armedClaim, liveWorkerDirectory)
       if (claimMismatch) {
         return errorEnvelope(lane, packet as Partial<AgentLanePacket>, "error", "unauthorized_dispatch", `the host runs this session in ${JSON.stringify(liveWorkerDirectory)} but the armed claimed worktree is ${JSON.stringify(armedClaim)}; replay worktree_claim to retry the move, then dispatch again`, "reconcile_operation")

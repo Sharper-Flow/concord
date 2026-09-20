@@ -115,6 +115,7 @@ type Issue struct {
 type ResolvedIssue struct {
 	Issue
 	TeamID    string
+	StateID   string
 	StateType string
 }
 
@@ -248,6 +249,7 @@ func (c *Client) GetIssue(ctx context.Context, remoteUUID string) (ResolvedIssue
 		Issue struct {
 			Issue
 			State struct {
+				ID   string `json:"id"`
 				Type string `json:"type"`
 			} `json:"state"`
 			Team struct {
@@ -255,13 +257,68 @@ func (c *Client) GetIssue(ctx context.Context, remoteUUID string) (ResolvedIssue
 			} `json:"team"`
 		} `json:"issue"`
 	}
-	if err := c.call(ctx, "query($id: String!) { issue(id: $id) { id identifier url title description updatedAt state { type } team { id } } }", map[string]any{"id": remoteUUID}, &payload); err != nil {
+	if err := c.call(ctx, "query($id: String!) { issue(id: $id) { id identifier url title description updatedAt state { id type } team { id } } }", map[string]any{"id": remoteUUID}, &payload); err != nil {
 		return ResolvedIssue{}, err
 	}
 	if payload.Issue.ID == "" {
 		return ResolvedIssue{}, &Failure{Kind: KindGraphqlError, Detail: "issue query returned no issue"}
 	}
-	return ResolvedIssue{Issue: payload.Issue.Issue, TeamID: payload.Issue.Team.ID, StateType: payload.Issue.State.Type}, nil
+	return ResolvedIssue{Issue: payload.Issue.Issue, TeamID: payload.Issue.Team.ID, StateID: payload.Issue.State.ID, StateType: payload.Issue.State.Type}, nil
+}
+
+// startedIssuesPageSize is the page size the started-issue sweep requests.
+// Linear caps a connection page at 250; a smaller page keeps one team's In
+// Progress set streaming predictably.
+const startedIssuesPageSize = 100
+
+// maxStartedIssuePages bounds the pagination loop so a server that keeps
+// reporting a next page cannot spin forever. It holds 10,000 issues.
+const maxStartedIssuePages = 100
+
+// ListTeamStartedIssues returns every issue of one team whose workflow state
+// type is started, following the connection cursor until a page reports no
+// next page. Each issue carries its state identity so a caller can reason
+// about liveness without a second fetch per issue.
+func (c *Client) ListTeamStartedIssues(ctx context.Context, teamID string) ([]ResolvedIssue, error) {
+	var payload struct {
+		Issues struct {
+			Nodes []struct {
+				Issue
+				State struct {
+					ID   string `json:"id"`
+					Type string `json:"type"`
+				} `json:"state"`
+			} `json:"nodes"`
+			PageInfo struct {
+				HasNextPage bool   `json:"hasNextPage"`
+				EndCursor   string `json:"endCursor"`
+			} `json:"pageInfo"`
+		} `json:"issues"`
+	}
+	query := fmt.Sprintf(`query($teamId: ID!, $after: String) { issues(first: %d, after: $after, filter: { team: { id: { eq: $teamId } }, state: { type: { eq: "started" } } }) { nodes { id identifier url title updatedAt state { id type } } pageInfo { hasNextPage endCursor } } }`, startedIssuesPageSize)
+	issues := make([]ResolvedIssue, 0)
+	cursor := ""
+	for page := 0; ; page++ {
+		if page >= maxStartedIssuePages {
+			return nil, &Failure{Kind: KindMalformedResponse, Detail: fmt.Sprintf("issues pagination exceeded %d pages", maxStartedIssuePages)}
+		}
+		if err := c.call(ctx, query, map[string]any{"teamId": teamID, "after": cursor}, &payload); err != nil {
+			return nil, err
+		}
+		for _, node := range payload.Issues.Nodes {
+			if node.ID == "" {
+				return nil, &Failure{Kind: KindMalformedResponse, Detail: "issues page returned a node without an id"}
+			}
+			issues = append(issues, ResolvedIssue{Issue: node.Issue, TeamID: teamID, StateID: node.State.ID, StateType: node.State.Type})
+		}
+		if !payload.Issues.PageInfo.HasNextPage {
+			return issues, nil
+		}
+		if payload.Issues.PageInfo.EndCursor == "" {
+			return nil, &Failure{Kind: KindMalformedResponse, Detail: "issues page reported a next page without an end cursor"}
+		}
+		cursor = payload.Issues.PageInfo.EndCursor
+	}
 }
 
 func (c *Client) call(ctx context.Context, query string, variables map[string]any, into any) error {

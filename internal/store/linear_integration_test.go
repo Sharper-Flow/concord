@@ -473,3 +473,27 @@ func seedWorkItem(t *testing.T, s *Store, workID string) {
 		t.Fatal(err)
 	}
 }
+
+func TestLinkedRemoteIssueUUIDsAntiJoin(t *testing.T) {
+	t.Parallel()
+	s := openTemp(t)
+	defer s.Close()
+	ctx := context.Background()
+	seedWorkItem(t, s, "sweep-work")
+	// A pending row also counts as known: the sweep must not report an issue
+	// Concord is adopting in flight.
+	if err := s.RecordLinearLink(ctx, "sweep-work", "remote-known", "CON-1", "https://linear.app/example/issue/CON-1", "", "", LinearLinkPending); err != nil {
+		t.Fatalf("RecordLinearLink() error = %v", err)
+	}
+	linked, err := s.LinkedRemoteIssueUUIDs(ctx, []string{"remote-known", "remote-unknown"})
+	if err != nil {
+		t.Fatalf("LinkedRemoteIssueUUIDs() error = %v", err)
+	}
+	if len(linked) != 1 || !linked["remote-known"] || linked["remote-unknown"] {
+		t.Fatalf("linked = %+v, want exactly remote-known", linked)
+	}
+	empty, err := s.LinkedRemoteIssueUUIDs(ctx, nil)
+	if err != nil || len(empty) != 0 {
+		t.Fatalf("empty sweep = %+v, %v; want an empty map", empty, err)
+	}
+}

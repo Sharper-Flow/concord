@@ -4915,6 +4915,27 @@ DELETE FROM knowledge_index_watermark;
 DELETE FROM fold_guard WHERE active = 1;
 `,
 	},
+	{
+		Version: 97,
+		Name:    "linear_outbox_failure_dispositions",
+		SQL: `
+-- A failed outbound operation remains failed. This projection records the
+-- operator's disposition without changing the retry state or the authority.
+CREATE TABLE linear_outbox_dispositions (
+    operation_id TEXT PRIMARY KEY REFERENCES linear_outbox(operation_id) ON DELETE RESTRICT,
+    work_id      TEXT NOT NULL REFERENCES work_items(id) ON DELETE RESTRICT,
+    disposition  TEXT NOT NULL CHECK(disposition IN ('acknowledged')),
+    reason       TEXT NOT NULL CHECK(length(reason) BETWEEN 1 AND 4096),
+    created_at   TEXT NOT NULL,
+    CHECK(length(operation_id) BETWEEN 2 AND 128),
+    CHECK(length(work_id) BETWEEN 2 AND 128)
+);
+CREATE INDEX linear_outbox_dispositions_work ON linear_outbox_dispositions(work_id);
+CREATE TRIGGER linear_outbox_dispositions_guard_insert BEFORE INSERT ON linear_outbox_dispositions FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'linear_outbox_dispositions is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER linear_outbox_dispositions_guard_update BEFORE UPDATE ON linear_outbox_dispositions FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'linear_outbox_dispositions is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER linear_outbox_dispositions_guard_delete BEFORE DELETE ON linear_outbox_dispositions FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'linear_outbox_dispositions is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+`,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any

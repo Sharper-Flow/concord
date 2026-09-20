@@ -302,7 +302,13 @@ func (c *Client) ListTeamStartedIssues(ctx context.Context, teamID string) ([]Re
 		if page >= maxStartedIssuePages {
 			return nil, &Failure{Kind: KindMalformedResponse, Detail: fmt.Sprintf("issues pagination exceeded %d pages", maxStartedIssuePages)}
 		}
-		if err := c.call(ctx, query, map[string]any{"teamId": teamID, "after": cursor}, &payload); err != nil {
+		variables := map[string]any{"teamId": teamID}
+		// Linear rejects an empty `after` as an invalid pagination argument,
+		// so the first page must omit the cursor rather than send "".
+		if cursor != "" {
+			variables["after"] = cursor
+		}
+		if err := c.call(ctx, query, variables, &payload); err != nil {
 			return nil, err
 		}
 		for _, node := range payload.Issues.Nodes {

@@ -9,7 +9,7 @@ import { dispatchWindows, TASK_TOOL_ID } from "./dispatch-window"
 import { claimHostLease, configureHostLease } from "./host-lease"
 import { armedClaimedWorktree, clearClaimedWorktree, resetClaimedWorktrees } from "./claimed-worktree"
 import { validateGeneratedEnvelope, envelopeFailurePath } from "./generated-contract-tests"
-import { hostControlPlane, SESSION_LIST_ROUTE, SESSION_ROUTE, SHOW_TOAST_ROUTE } from "./move-session"
+import { hostControlPlane, SESSION_LIST_ROUTE, SESSION_ROUTE } from "./move-session"
 
 function schemaBuilder(kind: string, ...args: unknown[]) {
   return {
@@ -53,6 +53,9 @@ beforeEach(() => {
     post: async () => ({ response: new Response(null, { status: 204 }) }),
   })
   resetClaimedWorktrees()
+  // The text-part queue is adapter module state; drain it so one test's
+  // notices never leak into the next test's assertions.
+  adapter.takeWorkNotices("session-1")
   delete process.env.ZELLIJ_PANE_ID
 })
 afterEach(() => {
@@ -511,10 +514,18 @@ test("oversized mutation envelopes reconcile the request work ID", async () => {
 
 const contextResponse = (main_worktree = true, product_ids = ["product-1"]) => ({ project_id: "project-1", product_ids, scope_version: "1", main_worktree })
 const contextFor = (ask: (...args: unknown[]) => unknown = () => {}, controller = new AbortController(), directory = "/worktree", worktree = directory): any => ({ sessionID: "session-1", messageID: "message-1", agent: "agent-1", worktree, directory, abort: controller.signal, ask })
+// The envelope is the first line of the tool output. Failed best-effort side
+// effects append warning lines after it, so a test that owns a warning parses
+// this line alone and asserts on the raw output around it.
+const envelopeLine = (output: string) => JSON.parse(output.slice(0, output.indexOf("\n") === -1 ? output.length : output.indexOf("\n")))
+// The envelope is the first line of the tool output. Failed best-effort side
+// effects append warning lines after it, so the JSON parse reads the first
+// line alone and a test that owns a warning asserts on the raw output.
 const rawHostResult = async (result: Promise<string | { output: string }>) => {
   const value = await result
   if (typeof value === "string") throw new Error("adapter returned a string ToolResult")
-  return JSON.parse(value.output)
+  const newline = value.output.indexOf("\n")
+  return JSON.parse(newline === -1 ? value.output : value.output.slice(0, newline))
 }
 const assertAdapterEnvelope = (value: any) => {
   expect(validateGeneratedEnvelope(value), JSON.stringify(value)).toBe(true)
@@ -1439,42 +1450,44 @@ test("work start without ZELLIJ_PANE_ID renames nothing", async () => {
   expect(calls.some(({ argv }) => argv[0] === "zellij")).toBe(false)
 })
 
-test("a failed pane rename is a warning and never fails work_start", async () => {
+test("a failed pane rename is a warning in the tool output and never fails work_start", async () => {
   process.env.ZELLIJ_PANE_ID = "9"
   bindRetargetRoute()
   const calls: RetargetCall[] = []
   // The exitCode-1 fork and the throwing fork are both warnings: the envelope
-  // reports the completed start unchanged in either mode.
+  // reports the completed start unchanged in either mode, and the warning
+  // rides the tool result output where the agent can respond to it.
   const failing = { async run(argv: string[], input: string, signal: AbortSignal, options?: any) {
     if (argv[0] === "zellij") return { exitCode: 1, stdout: "", stderr: "no such pane" }
     return retargetRunner(calls).run(argv, input, signal, options)
   } }
   adapter.configureConcordAdapter({ runner: failing })
-  const refused: any = await rawHostResult(adapter.work_start.execute(bootstrapArgs, contextFor()))
-  expect(refused.outcome).toBe("ok")
-  expect(refused.work_id).toBe("work-1")
+  const refused: any = await adapter.work_start.execute(bootstrapArgs, contextFor())
+  expect(envelopeLine(refused.output)).toMatchObject({ outcome: "ok", work_id: "work-1" })
+  expect(refused.output).toContain("Concord could not rename the pane frame to the work title: exit 1.")
 
   const throwing = { async run(argv: string[], input: string, signal: AbortSignal, options?: any) {
     if (argv[0] === "zellij") throw new Error("zellij is absent")
     return retargetRunner(calls).run(argv, input, signal, options)
   } }
   adapter.configureConcordAdapter({ runner: throwing })
-  const thrown: any = await rawHostResult(adapter.work_start.execute(bootstrapArgs, contextFor()))
-  expect(thrown.outcome).toBe("ok")
-  expect(thrown.work_id).toBe("work-1")
+  const thrown: any = await adapter.work_start.execute(bootstrapArgs, contextFor())
+  expect(envelopeLine(thrown.output)).toMatchObject({ outcome: "ok", work_id: "work-1" })
+  expect(thrown.output).toContain("Concord could not rename the pane frame to the work title: the fork failed.")
 })
 
 // The session title names the goal for the session list and the compaction
 // hook. The write sits after the confirmed landing, so an absent route or a
-// failed call is a warning that leaves the completed start untouched.
-test("a refused session goal title write never fails work_start", async () => {
+// failed call is a warning in the tool output that leaves the completed start
+// untouched.
+test("a refused session goal title write warns in the tool output and never fails work_start", async () => {
   for (const titleStatus of [404, 405, 500]) {
     bindRetargetRoute({ titleStatus })
     const calls: RetargetCall[] = []
     adapter.configureConcordAdapter({ runner: retargetRunner(calls) })
-    const result: any = await rawHostResult(adapter.work_start.execute(bootstrapArgs, contextFor()))
-    expect(result.outcome).toBe("ok")
-    expect(result.work_id).toBe("work-1")
+    const result: any = await adapter.work_start.execute(bootstrapArgs, contextFor())
+    expect(envelopeLine(result.output)).toMatchObject({ outcome: "ok", work_id: "work-1" })
+    expect(result.output).toContain("Concord could not write the session goal title: the session title route is absent or refused the write.")
   }
 })
 
@@ -1859,20 +1872,13 @@ test("work start leaves a resumable claim when the move is refused", async () =>
 
 // Worktree occupancy is recorded when Concord claims the worktree. Removal
 // does not ask the host for a second, non-authoritative session population.
-const bindSessionRoutes = (options: { sessions?: unknown; listStatus?: number; unbound?: boolean; toastStatus?: number } = {}) => {
-  const toasts: Array<Record<string, unknown>> = []
+const bindSessionRoutes = (options: { sessions?: unknown; listStatus?: number; unbound?: boolean } = {}) => {
   if (options.unbound) {
     hostControlPlane().bind(undefined)
-    return toasts
+    return
   }
   hostControlPlane().bind({
-    post: async ({ url, body }) => {
-      if (url === SHOW_TOAST_ROUTE) {
-        toasts.push(body as Record<string, unknown>)
-        return { response: new Response("true", { status: options.toastStatus ?? 200 }) }
-      }
-      return { response: new Response(null, { status: 404 }) }
-    },
+    post: async () => ({ response: new Response(null, { status: 404 }) }),
     get: async ({ url }) => {
       if (url === SESSION_ROUTE) return { data: { id: "session-1", directory: "/worktree" }, response: new Response(null, { status: 200 }) }
       if (url !== SESSION_LIST_ROUTE) return { response: new Response(null, { status: 404 }) }
@@ -1881,7 +1887,6 @@ const bindSessionRoutes = (options: { sessions?: unknown; listStatus?: number; u
       return { data: options.sessions ?? [], response: new Response(null, { status }) }
     },
   })
-  return toasts
 }
 
 const removalRequest = (operation: string) => hostCall(operation, {
@@ -1976,34 +1981,45 @@ test("a worktree removal does not depend on the host session list", async () => 
   }
 })
 
-test("a completed worktree removal reports itself to the operator", async () => {
-  const toasts = bindSessionRoutes({ sessions: [{ id: "ses_alpha", directory: "/elsewhere" }] })
+test("a completed worktree removal queues its notice for the text-part channel", async () => {
+  bindSessionRoutes({ sessions: [{ id: "ses_alpha", directory: "/elsewhere" }] })
   adapter.configureConcordAdapter({ runner: runnerWithContext(removalOk("worktree_reclaim")) })
   const envelope: any = await rawHostResult(adapter.work_transition.execute(removalRequest("worktree_reclaim"), contextFor()))
   expect(envelope.outcome).toBe("ok")
-  expect(toasts).toHaveLength(1)
-  expect(toasts[0]).toMatchObject({ variant: "info" })
-  expect(String(toasts[0].message)).toContain("work-1")
+  const notices = adapter.takeWorkNotices("session-1")
+  expect(notices).toHaveLength(1)
+  expect(notices[0]).toContain("work-1")
 })
 
-test("a refused worktree removal reports nothing, and a failed toast does not fail the removal", async () => {
+test("a refused worktree removal queues nothing, and the notice makes no host round-trip", async () => {
   // Your rule: an unsafe removal does not happen, and needs no notice because
   // nothing was lost. A notice for a removal that did not happen would be a
-  // lie, and a host with no attached TUI must not turn a completed removal
-  // into a failure.
-  const refused = bindSessionRoutes({ sessions: [{ id: "ses_alpha", directory: "/elsewhere" }] })
+  // lie.
+  bindSessionRoutes({ sessions: [{ id: "ses_alpha", directory: "/elsewhere" }] })
   adapter.configureConcordAdapter({ runner: runnerWithContext(coreEnvelope(
     "concord_work_transition", "worktree_reclaim", "error",
     { error: { kind: "worktree_ownership_conflict", retry_safe: false, recovery_action: { kind: "contact_operator" }, effect_state: "none" } },
   )) })
   const refusal: any = await rawHostResult(adapter.work_transition.execute(removalRequest("worktree_reclaim"), contextFor()))
   expect(refusal.outcome).toBe("error")
-  expect(refused).toHaveLength(0)
+  expect(adapter.takeWorkNotices("session-1")).toEqual([])
 
-  bindSessionRoutes({ sessions: [], toastStatus: 500 })
+  // The old failure mode — a delivery the host refuses — cannot fail a
+  // completed removal any more, because the notice queue is adapter process
+  // state and the plugin drains it into the assistant text. A host whose
+  // every write route throws still completes the removal and still queues
+  // the notice.
+  hostControlPlane().bind({
+    post: async () => { throw new Error("the host serves no write route") },
+    get: async ({ url }) => {
+      if (url === SESSION_ROUTE) return { data: { id: "session-1", directory: "/worktree" }, response: new Response(null, { status: 200 }) }
+      return { response: new Response(null, { status: 404 }) }
+    },
+  })
   adapter.configureConcordAdapter({ runner: runnerWithContext(removalOk("worktree_reclaim")) })
   const delivered: any = await rawHostResult(adapter.work_transition.execute(removalRequest("worktree_reclaim"), contextFor()))
   expect(delivered.outcome).toBe("ok")
+  expect(adapter.takeWorkNotices("session-1")).toEqual(["Concord removed the worktree of work-1."])
 })
 
 // CD-0111 D1: the core path is the stamped release constant, never a PATH

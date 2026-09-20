@@ -6,6 +6,7 @@ import { configureHostLease } from "./host-lease"
 import ConcordAdapterPlugin from "./concord-plugin"
 import { dispatchWindows, TASK_TOOL_ID } from "./dispatch-window"
 import { hostControlPlane, MOVE_SESSION_ROUTE, MoveSessionUnavailable } from "./move-session"
+import { enqueueWorkNotice } from "./concord"
 import { hostToolSchemas } from "./generated-contracts"
 
 test("work start publishes optional fields through the host definition hook", async () => {
@@ -30,12 +31,57 @@ test("work start publishes optional fields through the host definition hook", as
   expect(output.description).toBe(plugin.tool.concord_work_start.description)
 })
 
-test("plugin does not append work-state lines to completed text", async () => {
-  const plugin = await ConcordAdapterPlugin()
-  const complete = Reflect.get(plugin, "experimental.text.complete") as ((input: unknown, output: { text: string }) => Promise<void>) | undefined
-  expect(complete).toBeUndefined()
-  const output = { text: "assistant text" }
-  expect(output.text).toBe("assistant text")
+// The text-part channel. The work-state reporter queues operator-facing
+// blocks per session, and this hook drains them into the assistant's own
+// message as the text part completes, so the transcript holds them without a
+// tool-result expansion and the agent spends no tokens forming them.
+describe("plugin entry registers the text-completion hook", () => {
+  const completeHook = async () => {
+    const plugin = await ConcordAdapterPlugin() as unknown as {
+      "experimental.text.complete"?: (input: { sessionID: string; messageID: string; partID: string }, output: { text: string }) => Promise<void>
+    }
+    expect(typeof plugin["experimental.text.complete"]).toBe("function")
+    return plugin["experimental.text.complete"] as (input: { sessionID: string; messageID: string; partID: string }, output: { text: string }) => Promise<void>
+  }
+
+  test("appends the queued notice blocks to the assistant text and clears the queue", async () => {
+    const hook = await completeHook()
+    enqueueWorkNotice("session-text", "◆ CONCORD GATE BRIEF | product=product-1 | work=work-1 | step=planning | decision=pending")
+    enqueueWorkNotice("session-text", "```\n◆◆◆ QUEST COMPLETE ◆◆◆\nwork-1 | Concord\nRepair the adapter\nlifecycle=completed | evidence=none\n```")
+    const output = { text: "assistant text" }
+    await hook({ sessionID: "session-text", messageID: "message-1", partID: "part-1" }, output)
+    expect(output.text).toBe([
+      "assistant text",
+      "◆ CONCORD GATE BRIEF | product=product-1 | work=work-1 | step=planning | decision=pending",
+      "```\n◆◆◆ QUEST COMPLETE ◆◆◆\nwork-1 | Concord\nRepair the adapter\nlifecycle=completed | evidence=none\n```",
+    ].join("\n\n"))
+    // The queue drained, so a later completion in the same session carries
+    // no notice and other sessions stay untouched.
+    const second = { text: "more assistant text" }
+    await hook({ sessionID: "session-text", messageID: "message-2", partID: "part-2" }, second)
+    expect(second.text).toBe("more assistant text")
+    const untouched = { text: "unrelated session text" }
+    await hook({ sessionID: "session-text-other", messageID: "message-3", partID: "part-3" }, untouched)
+    expect(untouched.text).toBe("unrelated session text")
+  })
+
+  test("leaves an empty session's text alone", async () => {
+    const hook = await completeHook()
+    const output = { text: "assistant text" }
+    await hook({ sessionID: "session-no-notices", messageID: "message-1", partID: "part-1" }, output)
+    expect(output.text).toBe("assistant text")
+  })
+
+  test("swallows a failed write so a display can never damage an assistant message", async () => {
+    const hook = await completeHook()
+    enqueueWorkNotice("session-throw", "```\n◆◆◆ QUEST COMPLETE ◆◆◆\nwork-1 | Concord\nRepair the adapter\nlifecycle=completed | evidence=none\n```")
+    const output = { text: "assistant text" }
+    Object.defineProperty(output, "text", {
+      get: () => "assistant text",
+      set: () => { throw new Error("the host refused the replacement") },
+    })
+    await expect(hook({ sessionID: "session-throw", messageID: "message-1", partID: "part-1" }, output)).resolves.toBeUndefined()
+  })
 })
 
 // The session title is the single source of the goal text, and the compaction

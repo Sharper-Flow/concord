@@ -1,0 +1,30 @@
+{
+  "evidence": [
+    {
+      "kind": "validator",
+      "value": "scripts/test-ci-wait-contract.py"
+    },
+    {
+      "kind": "validator",
+      "value": "scripts/test-generate-agent-lanes.py"
+    },
+    {
+      "kind": "adapter_test",
+      "value": "adapter/opencode/session-scope.test.ts#a coordinator can auto-start the CI wait utility without a dispatch window"
+    },
+    {
+      "kind": "go_test",
+      "value": "cmd/concord.TestCiWaitTerminalOutcomes"
+    },
+    {
+      "kind": "generated",
+      "value": "adapter/opencode/generated-agent-lanes.ts#agentUtilities"
+    },
+    {
+      "kind": "generated",
+      "value": "internal/store/generated_agent_lanes.go#LaneRegistryManifestDigest"
+    }
+  ],
+  "id": "CD-0160",
+  "state": "satisfied"
+}

@@ -219,6 +219,10 @@ func ciWaitPoll(state *ciWaitState) (ciWaitReport, bool, error) {
 }
 
 func ciWaitGH(ctx context.Context, args ...string) ([]byte, error) {
+	//nolint:gosec // G204: subcommands are a fixed read-only query set, and every
+	// variable arg is validated before this call: selector values are
+	// digits-only or hex-40, and repo is a token the gh binary parses, never a
+	// shell input.
 	cmd := exec.CommandContext(ctx, "gh", args...)
 	// The gh process becomes its own process group leader, so the kill below
 	// reaches every child it spawned. Without this, a hung `gh` child keeps
@@ -618,7 +622,7 @@ func ciWaitStatePath(requested string) (string, error) {
 		base = filepath.Join(home, ".local", "state")
 	}
 	dir := filepath.Join(base, ciWaitStateDir)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, 0o750); err != nil { //nolint:gosec // G703: dir is composed of an operator-resolved state root (XDG_STATE_HOME or UserHomeDir) and a constant subdirectory name; the hello path never crosses a caller string.
 		return "", fmt.Errorf("cannot create the state directory: %w", err)
 	}
 	return filepath.Join(dir, fmt.Sprintf("%s%d.json", ciWaitStateFilePrefix, os.Getpid())), nil
@@ -682,7 +686,10 @@ func ciWaitLoadOrCreate(request ciWaitRequest) (*ciWaitState, string, error) {
 }
 
 func ciWaitReadState(path string) (*ciWaitState, bool) {
-	raw, err := os.ReadFile(path)
+	raw, err := os.ReadFile(path) //nolint:gosec // G304: the path is this CLI's own state location — built by ciWaitStatePath under the operator's state directory, or an absolute caller path whose unreadable content answers false below.
+	if err != nil {
+		return nil, false
+	}
 	if err != nil {
 		return nil, false
 	}
@@ -700,7 +707,7 @@ func ciWaitSaveState(state *ciWaitState, path string) {
 	if path == "" {
 		return
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 		return
 	}
 	encoded, err := json.Marshal(state)

@@ -552,18 +552,18 @@ func normalizeWorkflowDefinition(definition WorkflowDefinition) WorkflowDefiniti
 // the shape they run in. Frozen prior versions live in
 // workflow_registry_versions.go and never acquire current payload contracts.
 func BuiltinWorkflowDefinitions() []WorkflowDefinition {
-	implementation := implementationAlignmentV13()
-	breakFix := breakFixAlignmentV11()
+	implementation := implementationAlignmentV14()
+	breakFix := breakFixAlignmentV12()
 	research := withCurrentNonBlankContract(withWorkerActions(builtinResearch(true), true))
-	research.Version = 7
-	architectureSpike := withCurrentNonBlankContract(architecturePremiseContractV7())
-	architectureSpike.Version = 8
+	research.Version = 8
+	architectureSpike := withCurrentEvidenceBindingReferences(withCurrentNonBlankContract(architecturePremiseContractV7()))
+	architectureSpike.Version = 9
 	opsRunbook := withCurrentNonBlankContract(opsRunbookPremiseContractV8())
-	opsRunbook.Version = 9
+	opsRunbook.Version = 10
 	staticAnalysis := withCurrentNonBlankContract(withWorkerActions(builtinStaticAnalysis(true), true))
-	staticAnalysis.Version = 6
+	staticAnalysis.Version = 7
 	genericOneOff := withCurrentNonBlankContract(withWorkerActions(builtinGenericOneOff(true), true))
-	genericOneOff.Version = 7
+	genericOneOff.Version = 8
 	return []WorkflowDefinition{
 		implementation, breakFix, research, architectureSpike, opsRunbook, staticAnalysis, genericOneOff,
 	}
@@ -587,12 +587,15 @@ func builtinWorkflowDefinitionsWithHistory() []WorkflowDefinition {
 		releasedResearchV5(), releasedStaticAnalysisV4(), releasedGenericOneOffV5(),
 	}
 	for i := range history {
-		history[i] = withLegacyNonBlankContract(withLegacyPremiseContract(history[i]))
+		history[i] = withLegacyNonBlankContract(withLegacyEvidenceBindingReferences(withLegacyPremiseContract(history[i])))
 	}
 	history = append(history,
-		withLegacyNonBlankContract(implementationPremiseContractV11()), withLegacyNonBlankContract(breakFixPremiseContractV9()), withLegacyNonBlankContract(withWorkerActions(builtinResearch(true), true)),
-		withLegacyNonBlankContract(architecturePremiseContractV7()), withLegacyNonBlankContract(opsRunbookPremiseContractV8()), withLegacyNonBlankContract(withWorkerActions(builtinStaticAnalysis(true), true)), withLegacyNonBlankContract(withWorkerActions(builtinGenericOneOff(true), true)),
-		implementationPreAlignmentV12(), breakFixPreAlignmentV10(),
+		withLegacyNonBlankContract(withLegacyEvidenceBindingReferences(implementationPremiseContractV11())), withLegacyNonBlankContract(withLegacyEvidenceBindingReferences(breakFixPremiseContractV9())), withLegacyNonBlankContract(withLegacyEvidenceBindingReferences(withWorkerActions(builtinResearch(true), true))),
+		withLegacyNonBlankContract(withLegacyEvidenceBindingReferences(architecturePremiseContractV7())), withLegacyNonBlankContract(withLegacyEvidenceBindingReferences(opsRunbookPremiseContractV8())), withLegacyNonBlankContract(withLegacyEvidenceBindingReferences(withWorkerActions(builtinStaticAnalysis(true), true))), withLegacyNonBlankContract(withLegacyEvidenceBindingReferences(withWorkerActions(builtinGenericOneOff(true), true))),
+		previousWorkflowVersion(implementationPreAlignmentV12(), 12), previousWorkflowVersion(breakFixPreAlignmentV10(), 10),
+		previousWorkflowVersion(implementationAlignmentV14(), 13), previousWorkflowVersion(breakFixAlignmentV12(), 11),
+		previousWorkflowVersion(withCurrentNonBlankContract(withWorkerActions(builtinResearch(true), true)), 7), previousWorkflowVersion(withCurrentNonBlankContract(architecturePremiseContractV7()), 8),
+		previousWorkflowVersion(withCurrentNonBlankContract(opsRunbookPremiseContractV8()), 9), previousWorkflowVersion(withCurrentNonBlankContract(withWorkerActions(builtinStaticAnalysis(true), true)), 6), previousWorkflowVersion(withCurrentNonBlankContract(withWorkerActions(builtinGenericOneOff(true), true)), 7),
 	)
 	return append(history, BuiltinWorkflowDefinitions()...)
 }
@@ -1248,9 +1251,9 @@ func actionItemArrayField(name string, required bool, min, max int64, itemRef st
 
 func evidenceBindingActionFields() []WorkflowPayloadField {
 	return []WorkflowPayloadField{
-		actionStringField("evidence_ref", false, 2048),
+		actionRefField("evidence_ref", false),
 		actionEnumField("evidence_kind", false, "verification", "review", "approval", "commit", "durable_note", "native_run", "artifact"),
-		actionStringField("immutable_subject_ref", false, 2048),
+		actionRefField("immutable_subject_ref", false),
 		actionRefField("producer_id", false),
 		actionRefField("producer_run_ref", false),
 		actionRefField("producer_watermark", false),

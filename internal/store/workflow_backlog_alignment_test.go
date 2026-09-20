@@ -43,8 +43,8 @@ func TestAlignmentStepHasOnlyRecordAlignmentAsItsAdvanceExit(t *testing.T) {
 		nextStep    string
 		wantVersion int64
 	}{
-		{"workflow.implementation", "proposal", "discovery", 13},
-		{"workflow.break_fix", "reproduce", "diagnose", 11},
+		{"workflow.implementation", "proposal", "discovery", 14},
+		{"workflow.break_fix", "reproduce", "diagnose", 12},
 	}
 	for _, testCase := range cases {
 		registered, err := BuiltinWorkflowDefinitionForRef(testCase.ref)
@@ -251,8 +251,11 @@ func TestPriorPinnedDefinitionVersionsReplayUnchanged(t *testing.T) {
 			continue
 		}
 		definition := entry.Definition
-		if stepDeclaresAction(definition, "alignment", "record_alignment") {
+		if stepDeclaresAction(definition, "alignment", "record_alignment") && pinVersion(t, version) != current[ref]-1 {
 			t.Fatalf("%s version %s declares the alignment step; a pinned in-flight item would replay a changed graph", ref, version)
+		}
+		if pinVersion(t, version) == current[ref]-1 {
+			continue
 		}
 		for _, step := range definition.StepGraph.Steps {
 			if step.ID == "alignment" {

@@ -7198,16 +7198,14 @@ const GeneratedPayloadSchemaDocument = `{
                     "type": "string"
                   },
                   "evidence_ref": {
-                    "maxLength": 2048,
-                    "minLength": 1,
-                    "pattern": "\\S",
-                    "type": "string"
+                    "$ref": "#/$defs/reference",
+                    "maxLength": 128,
+                    "minLength": 2
                   },
                   "immutable_subject_ref": {
-                    "maxLength": 2048,
-                    "minLength": 1,
-                    "pattern": "\\S",
-                    "type": "string"
+                    "$ref": "#/$defs/reference",
+                    "maxLength": 128,
+                    "minLength": 2
                   },
                   "producer_id": {
                     "$ref": "#/$defs/reference",
@@ -7550,16 +7548,14 @@ const GeneratedPayloadSchemaDocument = `{
                     "type": "string"
                   },
                   "evidence_ref": {
-                    "maxLength": 2048,
-                    "minLength": 1,
-                    "pattern": "\\S",
-                    "type": "string"
+                    "$ref": "#/$defs/reference",
+                    "maxLength": 128,
+                    "minLength": 2
                   },
                   "immutable_subject_ref": {
-                    "maxLength": 2048,
-                    "minLength": 1,
-                    "pattern": "\\S",
-                    "type": "string"
+                    "$ref": "#/$defs/reference",
+                    "maxLength": 128,
+                    "minLength": 2
                   },
                   "producer_id": {
                     "$ref": "#/$defs/reference",
@@ -7626,16 +7622,14 @@ const GeneratedPayloadSchemaDocument = `{
                     "type": "string"
                   },
                   "evidence_ref": {
-                    "maxLength": 2048,
-                    "minLength": 1,
-                    "pattern": "\\S",
-                    "type": "string"
+                    "$ref": "#/$defs/reference",
+                    "maxLength": 128,
+                    "minLength": 2
                   },
                   "immutable_subject_ref": {
-                    "maxLength": 2048,
-                    "minLength": 1,
-                    "pattern": "\\S",
-                    "type": "string"
+                    "$ref": "#/$defs/reference",
+                    "maxLength": 128,
+                    "minLength": 2
                   },
                   "producer_id": {
                     "$ref": "#/$defs/reference",
@@ -9376,16 +9370,14 @@ const GeneratedPayloadSchemaDocument = `{
                     "type": "string"
                   },
                   "evidence_ref": {
-                    "maxLength": 2048,
-                    "minLength": 1,
-                    "pattern": "\\S",
-                    "type": "string"
+                    "$ref": "#/$defs/reference",
+                    "maxLength": 128,
+                    "minLength": 2
                   },
                   "immutable_subject_ref": {
-                    "maxLength": 2048,
-                    "minLength": 1,
-                    "pattern": "\\S",
-                    "type": "string"
+                    "$ref": "#/$defs/reference",
+                    "maxLength": 128,
+                    "minLength": 2
                   },
                   "producer_id": {
                     "$ref": "#/$defs/reference",
@@ -9488,16 +9480,14 @@ const GeneratedPayloadSchemaDocument = `{
                     "type": "string"
                   },
                   "evidence_ref": {
-                    "maxLength": 2048,
-                    "minLength": 1,
-                    "pattern": "\\S",
-                    "type": "string"
+                    "$ref": "#/$defs/reference",
+                    "maxLength": 128,
+                    "minLength": 2
                   },
                   "immutable_subject_ref": {
-                    "maxLength": 2048,
-                    "minLength": 1,
-                    "pattern": "\\S",
-                    "type": "string"
+                    "$ref": "#/$defs/reference",
+                    "maxLength": 128,
+                    "minLength": 2
                   },
                   "producer_id": {
                     "$ref": "#/$defs/reference",

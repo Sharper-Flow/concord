@@ -88,6 +88,15 @@ func TestWorktreeClaimAndReclaimThroughToolSurface(t *testing.T) {
 	if err != nil || response.Outcome != OutcomeOK {
 		t.Fatalf("claim response=%+v err=%v", response, err)
 	}
+	var claimResult struct {
+		Path string `json:"path"`
+	}
+	if err := json.Unmarshal(response.Result, &claimResult); err != nil {
+		t.Fatal(err)
+	}
+	if claimResult.Path != worktreePath {
+		t.Fatalf("claim result path=%q, want %q", claimResult.Path, worktreePath)
+	}
 	entries, err := s.WorktreeEntries(ctx, "work-1")
 	if err != nil || len(entries) != 1 || entries[0].State != "active" || entries[0].Branch != "work/work-1" {
 		t.Fatalf("entries=%+v err=%v", entries, err)
@@ -139,6 +148,190 @@ func TestWorktreeClaimAndReclaimThroughToolSurface(t *testing.T) {
 	}
 	if strings.Contains(gitRun(t, repoRoot, "worktree", "list"), "work-1") {
 		t.Fatal("native worktree still present after reclaim")
+	}
+}
+
+// TestWorktreeClaimRefusesWhenSessionOccupiesAnotherWorktree pins the rule that
+// a claim never clears another worktree's occupancy. The clear would commit with
+// the claim transaction, while the host relocation that makes it true runs
+// afterwards and outside it, so a refused relocation would leave this session in
+// a directory the removal gate reads as empty. The claim refuses, and both the
+// source occupancy row and the destination durable state stay unchanged.
+func TestWorktreeClaimRefusesWhenSessionOccupiesAnotherWorktree(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s, service, grant, _, baseSHA := worktreeDispatchFixture(t)
+	seed := []store.Event{
+		{EventID: "wt-dispatch-transfer-work-2", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: "work-2", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 2, Payload: json.RawMessage(`{"work_kind":"task","title":"Occupancy Refusal","priority":1}`)},
+		{EventID: "wt-dispatch-transfer-work-2-membership", Kind: "work.memberships_replaced", SubjectType: store.SubjectWorkItem, SubjectID: "work-2", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"memberships":[{"project_id":"project-1","role":"primary"}],"expected_version":1,"resulting_version":2}`)},
+	}
+	if err := store.ApplyOperation(ctx, s, store.Operation{Events: seed, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, "work-2"): 0}}); err != nil {
+		t.Fatal(err)
+	}
+	claim := func(workID, key string) (Envelope, error) {
+		t.Helper()
+		scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
+		if err != nil {
+			t.Fatal(err)
+		}
+		input, _ := json.Marshal(map[string]any{"work_id": workID, "project_id": "project-1", "base_sha": baseSHA, "expected_version": 2, "idempotency_key": key})
+		return Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "worktree_claim", Input: input}, mutationEnvelope(grant, scopeVersion))
+	}
+	first, err := claim("work-1", "occupancy-refusal-1")
+	if err != nil || first.Outcome != OutcomeOK {
+		t.Fatalf("first claim response=%+v err=%v", first, err)
+	}
+	second, err := claim("work-2", "occupancy-refusal-2")
+	if err == nil && second.Outcome == OutcomeOK {
+		t.Fatalf("claim by an occupying session must refuse: response=%+v", second)
+	}
+
+	entries, err := s.WorktreeEntries(ctx, "work-1")
+	if err != nil || len(entries) != 1 || entries[0].OccupantSessionRef != grant.SessionRef {
+		t.Fatalf("source occupancy must survive the refusal: entries=%+v err=%v", entries, err)
+	}
+	entries, err = s.WorktreeEntries(ctx, "work-2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range entries {
+		if entry.State == "active" {
+			t.Fatalf("refused claim left an active destination entry: %+v", entry)
+		}
+	}
+	if err := store.RebuildFromLog(ctx, s); err != nil {
+		t.Fatal(err)
+	}
+	entries, err = s.WorktreeEntries(ctx, "work-1")
+	if err != nil || len(entries) != 1 || entries[0].OccupantSessionRef != grant.SessionRef {
+		t.Fatalf("source occupancy after rebuild=%+v err=%v", entries, err)
+	}
+}
+
+// seedSecondProjectFixture adds Product product-2 with Project project-2 over
+// its own repository. The ambient Project stays single-Product, so only the
+// claimed Project can make the mutation cross-Product, and the returned base
+// commit pins the second repository.
+func seedSecondProjectFixture(t *testing.T, s *store.Store) string {
+	t.Helper()
+	ctx := context.Background()
+	events := []store.Event{
+		{EventID: "wt-scope-product-2", Kind: "product.created", SubjectType: store.SubjectProduct, SubjectID: "product-2", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"display_name":"WT Scope Two","stage_maturity":"prototype","stage_audience_commitment":"operator_only"}`)},
+		{EventID: "wt-scope-project-2", Kind: "project.created", SubjectType: store.SubjectProject, SubjectID: "project-2", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"display_name":"WT Project Two"}`)},
+		{EventID: "wt-scope-membership-2", Kind: "product_project.added", SubjectType: store.SubjectProduct, SubjectID: "product-2", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"product_id":"product-2","project_id":"project-2","role":"primary","reason":"cross scope fixture","expected_version":1,"resulting_version":2}`)},
+	}
+	if err := store.ApplyOperation(ctx, s, store.Operation{Events: events, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectProduct, "product-2"): 0, store.VersionRef(store.SubjectProject, "project-2"): 0}}); err != nil {
+		t.Fatal(err)
+	}
+	repoRoot := t.TempDir()
+	seedFixtureRepo(t, repoRoot, "# fixture two\n", "fixture base two")
+	if err := s.AddProjectLocator(ctx, "project-2", store.ProjectLocator{ID: "path-2", Kind: store.LocatorCanonicalPath, Value: repoRoot}, 1); err != nil {
+		t.Fatal(err)
+	}
+	return gitRun(t, repoRoot, "rev-parse", "HEAD")
+}
+
+// seedSiblingProjectFixture adds Project project-1b under product-1 over its
+// own repository and extends work-1 to hold it beside project-1, so a claim
+// may name a Project other than the ambient one within the same Product. The
+// returned base commit pins the sibling repository.
+func seedSiblingProjectFixture(t *testing.T, s *store.Store) string {
+	t.Helper()
+	ctx := context.Background()
+	events := []store.Event{
+		{EventID: "wt-sibling-project", Kind: "project.created", SubjectType: store.SubjectProject, SubjectID: "project-1b", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"display_name":"WT Project One B"}`)},
+		{EventID: "wt-sibling-membership", Kind: "product_project.added", SubjectType: store.SubjectProduct, SubjectID: "product-1", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"product_id":"product-1","project_id":"project-1b","role":"secondary","reason":"sibling project fixture","expected_version":2,"resulting_version":3}`)},
+		{EventID: "wt-sibling-work-memberships", Kind: "work.memberships_replaced", SubjectType: store.SubjectWorkItem, SubjectID: "work-1", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"memberships":[{"project_id":"project-1","role":"primary"},{"project_id":"project-1b","role":"secondary"}],"expected_version":2,"resulting_version":3}`)},
+	}
+	if err := store.ApplyOperation(ctx, s, store.Operation{Events: events, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectProduct, "product-1"): 2, store.VersionRef(store.SubjectProject, "project-1b"): 0, store.VersionRef(store.SubjectWorkItem, "work-1"): 2}}); err != nil {
+		t.Fatal(err)
+	}
+	repoRoot := t.TempDir()
+	seedFixtureRepo(t, repoRoot, "# fixture sibling\n", "fixture base sibling")
+	if err := s.AddProjectLocator(ctx, "project-1b", store.ProjectLocator{ID: "path-1b", Kind: store.LocatorCanonicalPath, Value: repoRoot}, 1); err != nil {
+		t.Fatal(err)
+	}
+	return gitRun(t, repoRoot, "rev-parse", "HEAD")
+}
+
+func seedFixtureRepo(t *testing.T, dir, readme, message string) {
+	t.Helper()
+	gitRun(t, dir, "init", "-b", "main")
+	gitRun(t, dir, "config", "user.email", "concord@example.invalid")
+	gitRun(t, dir, "config", "user.name", "Concord Worktree Test")
+	if err := os.WriteFile(filepath.Join(dir, "README.md"), []byte(readme), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitRun(t, dir, "add", "README.md")
+	gitRun(t, dir, "commit", "-m", message)
+	gitRun(t, dir, "update-ref", "refs/remotes/origin/main", "HEAD")
+	gitRun(t, dir, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main")
+}
+
+// A claim that names a Project outside the envelope's selected Product is a
+// cross-Product mutation: the claimed Project joins the plan scope, so the
+// scope gate evaluates its Product exactly as for every other mutation and
+// refuses it without an authorized cross-Product grant.
+func TestWorktreeClaimCrossScopeGate(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s, _, _, _, _ := worktreeDispatchFixture(t)
+	baseSHA := seedSecondProjectFixture(t, s)
+	// The client policy names both Products, so the refusal below is the
+	// mutation scope gate and not the client's own Product policy.
+	service, _, crossGrant := newAuthorizedService(t, s, "client-cross", "human-cross", []Capability{"work_transition", "product_read"}, []string{"product-1", "product-2"}, []string{"project-1"}, store.ProjectResolution{ProjectID: "project-1"})
+	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	input, _ := json.Marshal(map[string]any{"work_id": "work-1", "project_id": "project-2", "base_sha": baseSHA, "expected_version": 2, "idempotency_key": "cross-scope-claim"})
+	response, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "worktree_claim", Input: input}, mutationEnvelope(crossGrant, scopeVersion))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if response.Outcome != OutcomeError || response.Error == nil || response.Error.Kind != "unauthorized" {
+		t.Fatalf("claim response=%+v, want an unauthorized refusal", response)
+	}
+	if !strings.Contains(response.Error.Message, "product-2") || !strings.Contains(response.Error.Message, "outside grant Product scope") {
+		t.Fatalf("error.message=%q, want the scope gate refusal naming product-2", response.Error.Message)
+	}
+	entries, err := s.WorktreeEntries(ctx, "work-1")
+	if err != nil || len(entries) != 0 {
+		t.Fatalf("entries after refused claim=%+v err=%v, want no durable claim", entries, err)
+	}
+}
+
+// A multi-Project work item may claim a worktree under its second Project:
+// project_id need not equal the ambient Project, and the claim result carries
+// the derived destination for the session move. The follow-up dispatch
+// attempt resolves, so the claim strands neither the session nor the surface.
+func TestWorktreeClaimCrossProjectCarriesDestination(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s, service, grant, _, _ := worktreeDispatchFixture(t)
+	baseSHA := seedSiblingProjectFixture(t, s)
+	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	input, _ := json.Marshal(map[string]any{"work_id": "work-1", "project_id": "project-1b", "base_sha": baseSHA, "expected_version": 3, "idempotency_key": "cross-project-claim"})
+	response, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "worktree_claim", Input: input}, mutationEnvelope(grant, scopeVersion))
+	if err != nil || response.Outcome != OutcomeOK {
+		t.Fatalf("claim response=%+v err=%v", response, err)
+	}
+	var claimResult struct {
+		Path string `json:"path"`
+	}
+	if err := json.Unmarshal(response.Result, &claimResult); err != nil {
+		t.Fatal(err)
+	}
+	wantPath := filepath.Join(filepath.Dir(s.Path()), "worktrees", "project-1b", "work-1")
+	if claimResult.Path != wantPath {
+		t.Fatalf("claim result path=%q, want %q", claimResult.Path, wantPath)
+	}
+	browse, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_browse", Operation: "scope", Input: json.RawMessage(`{"product_id":"product-1","work_id":"work-1"}`)}, mutationEnvelope(grant, scopeVersion))
+	if err != nil || browse.Outcome != OutcomeOK {
+		t.Fatalf("follow-up dispatch response=%+v err=%v", browse, err)
 	}
 }
 

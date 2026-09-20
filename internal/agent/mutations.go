@@ -2036,20 +2036,27 @@ func (r runtime) planWorktreeClaim(ctx context.Context, base Envelope, raw []byt
 	}
 	plan.versions["work"] = in.ExpectedVersion
 	plan.scope["work_ids"] = []string{in.WorkID}
+	plan.scope["project_ids"] = []string{in.ProjectID}
 	plan.intents = []NextIntent{{Tool: "concord_work_browse", Operation: "scope", QueryID: "PM1.Q6", ReasonCode: "refresh_work_version", RequiredFields: []string{"work_id"}}}
 	plan.effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
 		opID := digest + ":worktree-claim:" + in.ProjectID
-		if _, err := store.ClaimWorktreeTx(ctx, tx, store.WorktreeClaimRequest{
+		claimed, err := store.ClaimWorktreeTx(ctx, tx, store.WorktreeClaimRequest{
 			OpID: opID, WorkID: in.WorkID, ProjectID: in.ProjectID,
 			BaseSHA:      in.BaseSHA,
 			PrincipalRef: grant.PrincipalRef, RequestID: in.IdempotencyKey,
 			SessionRef:      grant.SessionRef,
 			ExpectedVersion: in.ExpectedVersion, Now: r.Authority.now(),
-		}); err != nil {
+		})
+		if err != nil {
 			return nil, nil, nil, err
 		}
 		changed := []ChangedRef{{EntityKind: "work_item", ID: in.WorkID, Version: strconv.FormatInt(in.ExpectedVersion+1, 10)}}
-		return mutationPayload(changed, plan.intents), []string{opID + ":worktree-created"}, changed, nil
+		result, err := json.Marshal(map[string]any{
+			"changed_refs":       mutationResultChangedRefs(changed),
+			"next_valid_intents": mutationResultIntents(plan.intents),
+			"path":               claimed.Entry.Path,
+		})
+		return result, []string{opID + ":worktree-created"}, changed, err
 	}
 	return Envelope{}, nil, false
 }
@@ -2485,6 +2492,7 @@ func (r runtime) planWorktreeReclaim(ctx context.Context, base Envelope, raw []b
 	}
 	plan.versions["work"] = in.ExpectedVersion
 	plan.scope["work_ids"] = []string{in.WorkID}
+	plan.scope["project_ids"] = []string{in.ProjectID}
 	plan.intents = []NextIntent{{Tool: "concord_work_browse", Operation: "scope", QueryID: "PM1.Q6", ReasonCode: "refresh_work_version", RequiredFields: []string{"work_id"}}}
 	plan.effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
 		// Issue #674 amends the CD-0092 D2 surface for this operation only:

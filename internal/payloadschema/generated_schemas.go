@@ -12646,6 +12646,34 @@ const GeneratedPayloadSchemaDocument = `{
       ],
       "type": "object"
     },
+    "worktree_claim_result": {
+      "additionalProperties": false,
+      "properties": {
+        "changed_refs": {
+          "items": {
+            "$ref": "#/$defs/mutation_changed_ref"
+          },
+          "maxItems": 32,
+          "type": "array"
+        },
+        "next_valid_intents": {
+          "items": {
+            "$ref": "#/$defs/next_valid_intent"
+          },
+          "maxItems": 16,
+          "type": "array"
+        },
+        "path": {
+          "$ref": "#/$defs/absolute_path"
+        }
+      },
+      "required": [
+        "changed_refs",
+        "next_valid_intents",
+        "path"
+      ],
+      "type": "object"
+    },
     "worktree_inspect_result": {
       "additionalProperties": false,
       "properties": {

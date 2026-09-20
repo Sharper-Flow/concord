@@ -67,16 +67,12 @@
   "utilities": [
     {
       "id": "ci-wait",
-      "version": 1,
+      "version": 2,
       "purpose": "Wait for GitHub CI to reach a terminal state and report the result.",
       "allowed_tools": ["bash"],
       "allowed_commands": [
-        "gh pr checks *",
-        "gh pr view *",
-        "gh run list *",
-        "gh run view *",
-        "sleep *",
-        "date *"
+        "concord ci-wait",
+        "concord ci-wait *"
       ],
       "time_seconds_max": 1800
     },

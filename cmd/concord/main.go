@@ -91,6 +91,12 @@ func runWithInput(args []string, in io.Reader, out, errOut io.Writer) int {
 	if len(args) > 0 && args[0] == "repair" {
 		return runRepairCommand(args[1:], in, out, errOut)
 	}
+	// ci-wait is store-free (CD-0160): it queries GitHub through gh and a
+	// state file, never Concord authority, so it routes around the database
+	// open like the release verbs and consumes its JSON body directly.
+	if len(args) > 0 && args[0] == "ci-wait" {
+		return runStoreFreeJSONCommand("ci-wait", args[1:], in, out, errOut, runCiWait)
+	}
 	command, commandArgs, ok := routeCommand(args)
 	if ok {
 		return runJSONCommand(command, commandArgs, in, out, errOut)
@@ -175,6 +181,7 @@ var commandSpecs = []commandSpec{
 	{Canonical: "work-resume", RequiredFields: requiredFields(field("product_id"), field("project_id"), field("work_id")), Optional: "none", Enums: "none"},
 	{Canonical: "work-shelve", RequiredFields: requiredFields(field("operation_id"), field("idempotency_key"), field("work_id"), field("expected_version"), field("handoff")), Optional: "product_id, linear, actor, safety evidence", Enums: "reason is fixed to shelved; no sixth lifecycle state"},
 	{Canonical: "work-cancel", RequiredFields: requiredFields(field("operation_id"), field("idempotency_key"), field("work_id"), field("expected_version"), field("handoff")), Optional: "product_id, linear, actor, safety evidence", Enums: "reason is fixed to cancelled; removal is not archival"},
+	{Canonical: "ci-wait", RequiredFields: requiredFields(field("selector"), field("repo")), Optional: "time_seconds_max (cap 1800), state_file (absolute; resumes the deadline)", Enums: "selector.kind: pr | sha | run"},
 	{Canonical: "session-prepare", RequiredFields: requiredFields(field("product_id"), field("work_id"), field("agent")), Optional: "task (bounded to 8192 bytes; a resume supplies none); agent is the active agent", Enums: "none"},
 	{Canonical: "project-resolve", TwoWord: "project resolve", RequiredFields: requiredFields(field("directory")), Optional: "worktree (defaults to directory)", Enums: "none"},
 	{Canonical: "restore", RequiredFields: requiredFields(field("source"), field("destination")), Optional: "none", Enums: "source: existing verified backup snapshot path; destination: absolute clean path that does not yet exist and is not the live database"},
@@ -214,6 +221,7 @@ func writeUsage(out io.Writer) {
 	_, _ = fmt.Fprintln(out, "  concord host-leases                  # print live release leases; prunes stale ones")
 	_, _ = fmt.Fprintln(out, "  concord upgrade                      # apply pending migrations; refuses under an older live session")
 	_, _ = fmt.Fprintln(out, "  concord repair < JSON stdin          # verify assets, back up the database, repair the installed release (#912)")
+	_, _ = fmt.Fprintln(out, "  concord ci-wait < JSON stdin         # one bounded slice of a GitHub CI wait (CD-0160)")
 	_, _ = fmt.Fprintln(out, "")
 	_, _ = fmt.Fprintln(out, "Commands read one strict JSON object from stdin:")
 	for _, spec := range commandSpecs {
@@ -493,6 +501,29 @@ const dbOverrideEnv = "CONCORD_DB_PATH"
 // enforces it at the worker-dispatch boundary; the store gate enforces the
 // same value against the digest the dispatch_worker completion recorded.
 var workerPacketDigestPattern = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
+
+// runStoreFreeJSONCommand reads and validates a JSON command body for a verb
+// that never opens the store, then hands the raw bytes to its handler. It
+// mirrors runJSONCommand's input bounds and required-field gate without the
+// store open.
+func runStoreFreeJSONCommand(name string, args []string, in io.Reader, out, errOut io.Writer, handler func([]byte, io.Writer, io.Writer) int) int {
+	if len(args) != 0 {
+		writeDiagnostic(errOut, fmt.Sprintf("concord: unsupported arguments: %s", strings.Join(append([]string{name}, args...), " ")))
+		writeUsage(errOut)
+		return 2
+	}
+	inputLimit := int64(agent.MaxEnvelopeBytes)
+	raw, err := io.ReadAll(io.LimitReader(in, inputLimit+1))
+	if err != nil || int64(len(raw)) > inputLimit {
+		writeDiagnostic(errOut, fmt.Sprintf("input exceeds %d bytes", inputLimit))
+		return 1
+	}
+	if err := validateRequiredCommandFields(name, raw); err != nil {
+		writeOperatorDiagnostic(errOut, name, err.Error())
+		return 1
+	}
+	return handler(raw, out, errOut)
+}
 
 func runJSONCommand(command string, args []string, in io.Reader, out, errOut io.Writer) (exitCode int) {
 	if len(args) != 0 {

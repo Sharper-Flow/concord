@@ -72,7 +72,7 @@ class AgentProjectionTests(unittest.TestCase):
             "id": "ci-wait",
             "purpose": "Wait for CI.",
             "allowed_tools": ["bash"],
-            "allowed_commands": ["gh run view *", "sleep *"],
+            "allowed_commands": ["concord ci-wait", "concord ci-wait *"],
             "time_seconds_max": 1800,
         }
         projection = generator.utility_projection(utility)
@@ -81,8 +81,26 @@ class AgentProjectionTests(unittest.TestCase):
         self.assertIn("  read: false", projection)
         self.assertIn("  task: false", projection)
         self.assertIn('"*": deny', projection)
-        self.assertIn('"gh run view *": allow', projection)
+        self.assertIn('"concord ci-wait": allow', projection)
+        self.assertIn('"concord ci-wait *": allow', projection)
         self.assertIn("30 minutes", projection)
+
+    def test_ci_wait_projection_delegates_the_wait_to_the_verb(self):
+        # CD-0160. The wait is enforced by the concord ci-wait verb, not by
+        # this prompt: the body must not ask the model to poll, sleep, or
+        # count iterations.
+        utility = {
+            "id": "ci-wait",
+            "purpose": "Wait for CI.",
+            "allowed_tools": ["bash"],
+            "allowed_commands": ["concord ci-wait"],
+            "time_seconds_max": 1800,
+        }
+        projection = generator.utility_projection(utility)
+        self.assertIn("concord ci-wait <<'EOF'", projection)
+        self.assertIn("`state_file`", projection)
+        self.assertNotIn("sleep 15", projection)
+        self.assertNotIn("Count your iterations", projection)
 
     def test_exploration_projection_uses_read_only_tools_and_body(self):
         utility = {

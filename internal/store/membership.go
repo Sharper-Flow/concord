@@ -397,6 +397,37 @@ func (s *Store) ProjectsForProduct(ctx context.Context, productID string) ([]Pro
 	return projectsForProduct(ctx, s.db, productID)
 }
 
+// ProjectLaunchPath returns the repository path recorded by bootstrap or by a
+// prior Project locator. It is a read-only launch hint, not a new Project fact.
+func (s *Store) ProjectLaunchPath(ctx context.Context, projectID string) (string, error) {
+	if s == nil || s.db == nil {
+		return "", newFailure(KindUnavailable, "project_launch_path", "store is not open", false, "open the authority database")
+	}
+	var path string
+	err := s.db.QueryRowContext(ctx, `SELECT normalized_value FROM project_locators WHERE project_id=? AND kind='canonical_path' ORDER BY locator_id LIMIT 1`, projectID).Scan(&path)
+	if err == nil {
+		return path, nil
+	}
+	if err != sql.ErrNoRows {
+		return "", wrapFailure(KindUnavailable, "project_launch_path", "cannot read Project path", true, "retry once the database is readable", err)
+	}
+	err = s.db.QueryRowContext(ctx, `SELECT repo_path FROM bootstrap_operations WHERE project_id=? AND repo_path <> '' ORDER BY updated_at DESC LIMIT 1`, projectID).Scan(&path)
+	if err == nil {
+		return path, nil
+	}
+	if err != sql.ErrNoRows {
+		return "", wrapFailure(KindUnavailable, "project_launch_path", "cannot read bootstrap path", true, "retry once the database is readable", err)
+	}
+	err = s.db.QueryRowContext(ctx, `SELECT repository_id FROM worktree_claims WHERE project_id=? AND repository_id <> '' ORDER BY updated_at DESC LIMIT 1`, projectID).Scan(&path)
+	if err == sql.ErrNoRows {
+		return "", newFailure(KindUnknownScope, "project_launch_path", "Project has no recorded repository path", false, "bootstrap the Project before launching it")
+	}
+	if err != nil {
+		return "", wrapFailure(KindUnavailable, "project_launch_path", "cannot read worktree repository path", true, "retry once the database is readable", err)
+	}
+	return path, nil
+}
+
 func ProjectsForProductTx(ctx context.Context, transaction *Transaction, productID string) ([]ProjectMembership, error) {
 	tx, err := transactionSQL(transaction, "projects_for_product")
 	if err != nil {

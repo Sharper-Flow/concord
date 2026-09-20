@@ -37,6 +37,8 @@ type LauncherWork struct {
 	CreatedAt      string
 	UpdatedAt      string
 	TerminalAt     string
+	Worktree       string
+	Live           int
 	ProjectCount   int
 	Blocked        bool
 	Ready          bool
@@ -311,7 +313,7 @@ func (s *Store) QueryLauncherProduct(ctx context.Context, req LauncherProductReq
 	if _, err := readProduct(ctx, tx, req.Product); err != nil {
 		return out, err
 	}
-	q := `SELECT w.id,w.kind,w.title,COALESCE(l.human_key,''),w.lifecycle,w.priority,w.urgency,w.created_at,w.updated_at,
+	q := `SELECT w.id,w.kind,w.title,COALESCE(NULLIF(l.human_key,''),json_extract(w.intent_json,'$.external_ref'),''),w.lifecycle,w.priority,w.urgency,w.created_at,w.updated_at,
 		(SELECT count(DISTINCT wp2.project_id) FROM work_projects wp2 JOIN product_projects pp2 ON pp2.project_id=wp2.project_id WHERE wp2.work_id=w.id AND pp2.product_id=?),
 		EXISTS (SELECT 1 FROM relations br JOIN work_items b ON b.id=br.work_id_from WHERE br.work_id_to=w.id AND br.kind='blocks' AND b.lifecycle IN ('needed','in_progress'))
 		FROM work_items w LEFT JOIN linear_issue_links l ON l.work_id=w.id AND l.link_state='confirmed' WHERE EXISTS (SELECT 1 FROM work_projects wp JOIN product_projects pp ON pp.project_id=wp.project_id WHERE wp.work_id=w.id AND pp.product_id=? AND w.lifecycle IN ('needed','in_progress'))
@@ -342,7 +344,7 @@ func (s *Store) QueryLauncherProduct(ctx context.Context, req LauncherProductReq
 	// The completed-history drill-down segment. It is one grouped read in the
 	// same transaction, not a per-work fan-out, and readiness is not computed
 	// for terminal items: their marker is the terminal state itself.
-	trows, err := tx.QueryContext(ctx, `SELECT w.id,w.kind,w.title,COALESCE(l.human_key,''),w.lifecycle,w.priority,w.urgency,w.created_at,w.updated_at,coalesce(w.terminal_time,''),
+	trows, err := tx.QueryContext(ctx, `SELECT w.id,w.kind,w.title,COALESCE(NULLIF(l.human_key,''),json_extract(w.intent_json,'$.external_ref'),''),w.lifecycle,w.priority,w.urgency,w.created_at,w.updated_at,coalesce(w.terminal_time,''),
 		(SELECT count(DISTINCT wp2.project_id) FROM work_projects wp2 JOIN product_projects pp2 ON pp2.project_id=wp2.project_id WHERE wp2.work_id=w.id AND pp2.product_id=?)
 		FROM work_items w LEFT JOIN linear_issue_links l ON l.work_id=w.id AND l.link_state='confirmed' WHERE EXISTS (SELECT 1 FROM work_projects wp JOIN product_projects pp ON pp.project_id=wp.project_id WHERE wp.work_id=w.id AND pp.product_id=? AND w.lifecycle IN ('completed','cancelled','superseded'))
 		ORDER BY w.terminal_time DESC,w.id LIMIT ?`, req.Product, req.Product, limit+1)

@@ -1,0 +1,41 @@
+{
+  "date": "2026-09-20T00:00:00Z",
+  "evidence": [
+    "docs/decisions/CD-0078-terminal-placement-belongs-to-the-host.md",
+    "docs/decisions/CD-0108-the-launcher-is-the-zlauncher-replacement.md",
+    "internal/launcher/host_boundary_test.go",
+    "internal/launcher/render/bubbletea/acceptance_screens_test.go",
+    "internal/launcher/storeport/acceptance_store_test.go",
+    "cmd/concord/launcher_bare_test.go"
+  ],
+  "home_domain_id": "operator-surface",
+  "id": "CD-0162",
+  "kind": "decision",
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "CD-0078"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0108"
+    }
+  ],
+  "path": "docs/decisions/CD-0162-the-launcher-carries-no-terminal-placement.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:e5caaf0c924f26a86651c9d61eed3ffe75cf4439d155ec9817b2e9bc71657588",
+  "status": "accepted",
+  "summary": "Corrects the zellij-tab clause of CD-0108 D1 against CD-0078 D1. The launcher's launch action starts the OpenCode session for the selected work inside the work's Project through the session bootstrap and hands session identity only. The operator provides the terminal and places it; the launcher never creates, names, splits, focuses, or destroys a tab, pane, window, or session. Resume and prompt pass-through keep their CD-0108 meaning and the launcher stays read-only for the store.",
+  "tags": [
+    "launcher",
+    "operator-surface",
+    "boundary"
+  ],
+  "title": "The launcher carries no terminal placement"
+}

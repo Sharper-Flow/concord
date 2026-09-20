@@ -847,19 +847,43 @@ ORDER BY l.work_id`, LinearLinkConfirmed, productID)
 	return linked, nil
 }
 
-// FindLinearLinkByRemoteIssue reports whether a remote issue has a local link.
-// A missing link is a valid observation for the unlinked remote report.
-func (s *Store) FindLinearLinkByRemoteIssue(ctx context.Context, remoteIssueUUID string) (LinearIssueLink, bool, error) {
-	var link LinearIssueLink
-	row := s.db.QueryRowContext(ctx, `SELECT work_id, remote_issue_uuid, human_key, url, link_state, content_hash FROM linear_issue_links WHERE remote_issue_uuid=?`, remoteIssueUUID)
-	err := row.Scan(&link.WorkID, &link.RemoteIssueUUID, &link.HumanKey, &link.URL, &link.LinkState, &link.ContentHash)
-	if err == sql.ErrNoRows {
-		return LinearIssueLink{}, false, nil
+// sweepLinkBatch bounds one anti-join statement's JSON payload. The statement
+// text is a compile-time constant with one bound parameter, so no SQL text is
+// ever composed at runtime.
+const sweepLinkBatch = 100
+
+const linkedRemoteIssueQuery = `SELECT DISTINCT j.value FROM json_each(?) j JOIN linear_issue_links l ON l.remote_issue_uuid = j.value`
+
+// LinkedRemoteIssueUUIDs reports which of the given remote issue UUIDs hold a
+// link row in any state. The unlinked remote sweep uses it as the inner side
+// of its anti-join: an enumerated remote issue absent from the result holds no
+// link and is unknown to Concord.
+func (s *Store) LinkedRemoteIssueUUIDs(ctx context.Context, remoteIssueUUIDs []string) (map[string]bool, error) {
+	linked := make(map[string]bool)
+	for start := 0; start < len(remoteIssueUUIDs); start += sweepLinkBatch {
+		encoded, err := json.Marshal(remoteIssueUUIDs[start:min(start+sweepLinkBatch, len(remoteIssueUUIDs))])
+		if err != nil {
+			return nil, wrapFailure(KindInvalidPayload, "linear_unlinked_remote_read", "cannot encode the remote issue uuids", false, "supply plain remote issue uuids", err)
+		}
+		rows, err := s.db.QueryContext(ctx, linkedRemoteIssueQuery, string(encoded))
+		if err != nil {
+			return nil, wrapFailure(KindUnavailable, "linear_unlinked_remote_read", "cannot read link rows for the remote issues", true, "retry once the database is readable", err)
+		}
+		for rows.Next() {
+			var uuid string
+			if err := rows.Scan(&uuid); err != nil {
+				rows.Close()
+				return nil, wrapFailure(KindUnavailable, "linear_unlinked_remote_read", "cannot scan link rows for the remote issues", true, "retry once the database is readable", err)
+			}
+			linked[uuid] = true
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return nil, wrapFailure(KindUnavailable, "linear_unlinked_remote_read", "cannot finish link row read", true, "retry once the database is readable", err)
+		}
+		rows.Close()
 	}
-	if err != nil {
-		return LinearIssueLink{}, false, wrapFailure(KindUnavailable, "linear_link_read", "cannot read link by remote issue", true, "retry once the database is readable", err)
-	}
-	return link, true, nil
+	return linked, nil
 }
 
 // ReadConfirmedLinearLinksForProduct returns the confirmed issue links whose

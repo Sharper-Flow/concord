@@ -2,6 +2,7 @@ package linearclient
 
 import (
 	"context"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -226,6 +227,71 @@ func TestTransportFailureIsTyped(t *testing.T) {
 	var failure *Failure
 	if !failureAs(err, &failure) || failure.Kind != KindTransport {
 		t.Fatalf("error = %v, want transport", err)
+	}
+}
+
+func TestListTeamStartedIssuesFollowsCursor(t *testing.T) {
+	var bodies []string
+	page := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		bodies = append(bodies, string(body))
+		w.Header().Set("Content-Type", "application/json")
+		if page == 0 {
+			page++
+			_, _ = w.Write([]byte(`{"data":{"issues":{"nodes":[{"id":"issue-1","identifier":"CON-22","url":"https://linear.app/example/issue/CON-22","title":"First","updatedAt":"2026-09-18T00:00:00Z","state":{"id":"state-in-progress","type":"started"}}],"pageInfo":{"hasNextPage":true,"endCursor":"cursor-1"}}}}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"data":{"issues":{"nodes":[{"id":"issue-2","identifier":"POKE-179","url":"https://linear.app/example/issue/POKE-179","title":"Second","updatedAt":"2026-09-19T00:00:00Z","state":{"id":"state-in-progress","type":"started"}}],"pageInfo":{"hasNextPage":false,"endCursor":""}}}}`))
+	}))
+	defer server.Close()
+	client, err := New("lin_api_test", WithEndpoint(server.URL))
+	if err != nil {
+		t.Fatal(err)
+	}
+	issues, err := client.ListTeamStartedIssues(context.Background(), "team-uuid-1")
+	if err != nil {
+		t.Fatalf("ListTeamStartedIssues() error = %v", err)
+	}
+	if len(issues) != 2 {
+		t.Fatalf("issues = %+v, want two across two pages", issues)
+	}
+	if issues[0].ID != "issue-1" || issues[0].Identifier != "CON-22" || issues[0].StateID != "state-in-progress" || issues[0].StateType != "started" || issues[0].TeamID != "team-uuid-1" {
+		t.Fatalf("first issue = %+v", issues[0])
+	}
+	if issues[1].ID != "issue-2" || issues[1].Identifier != "POKE-179" {
+		t.Fatalf("second issue = %+v", issues[1])
+	}
+	if len(bodies) != 2 {
+		t.Fatalf("requests = %d, want one per page", len(bodies))
+	}
+	for _, want := range []string{`"teamId":"team-uuid-1"`, `state: { type: { eq: \"started\" } }`} {
+		if !strings.Contains(bodies[0], want) {
+			t.Fatalf("first request %q lacks %q", bodies[0], want)
+		}
+	}
+	if !strings.Contains(bodies[0], `"after":""`) || !strings.Contains(bodies[1], `"after":"cursor-1"`) {
+		t.Fatalf("cursor flow broken: first %q then %q", bodies[0], bodies[1])
+	}
+}
+
+func TestListTeamStartedIssuesRefusesCursorlessNextPage(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":{"issues":{"nodes":[],"pageInfo":{"hasNextPage":true,"endCursor":""}}}}`))
+	}))
+	defer server.Close()
+	client, err := New("lin_api_test", WithEndpoint(server.URL))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.ListTeamStartedIssues(context.Background(), "team-uuid-1"); err == nil {
+		t.Fatal("ListTeamStartedIssues() = nil error, want malformed-response failure")
+	} else {
+		var failure *Failure
+		if !failureAs(err, &failure) || failure.Kind != KindMalformedResponse {
+			t.Fatalf("error = %v, want malformed_response", err)
+		}
 	}
 }
 

@@ -34,20 +34,34 @@ func TestLinearDivergenceAndUnlinkedInProgressRoutes(t *testing.T) {
 	seedCLIProduct(t, dbPath, "divergence-product", "divergence-project")
 	enableLinearProduct(t, dbPath, "divergence-product")
 	seedLinearCLIWork(t, dbPath, "divergence-work", "divergence-project", "Divergence title")
+	seedLinearCLIWork(t, dbPath, "divergence-work-2", "divergence-project", "Second title")
+	seedLinearCLIWork(t, dbPath, "divergence-work-3", "divergence-project", "Third title")
 	confirmCLIWorkLink(t, dbPath, "divergence-work", "remote-linked")
+	confirmCLIWorkLink(t, dbPath, "divergence-work-2", "remote-linked-started")
+	confirmCLIWorkLink(t, dbPath, "divergence-work-3", "remote-matched")
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
+		w.Header().Set("Content-Type", "application/json")
+		if strings.Contains(string(body), "issues(") {
+			_, _ = w.Write([]byte(`{"data":{"issues":{"nodes":[` +
+				`{"id":"remote-unlinked","identifier":"CON-22","url":"https://linear.app/example/issue/CON-22","title":"Pre-cutover import","updatedAt":"2026-09-16T00:00:00Z","state":{"id":"state-in-progress","type":"started"}},` +
+				`{"id":"remote-linked-started","identifier":"CON-26","url":"https://linear.app/example/issue/CON-26","title":"Adopted card","updatedAt":"2026-09-16T00:00:00Z","state":{"id":"state-in-progress","type":"started"}}` +
+				`],"pageInfo":{"hasNextPage":false,"endCursor":""}}}}`))
+			return
+		}
 		var request struct {
 			Variables struct {
 				ID string `json:"id"`
 			} `json:"variables"`
 		}
 		_ = json.Unmarshal(body, &request)
-		w.Header().Set("Content-Type", "application/json")
 		stateID, stateType := "state-in-progress", "started"
-		if request.Variables.ID == "remote-linked" {
+		switch request.Variables.ID {
+		case "remote-linked":
 			stateID, stateType = "state-completed", "completed"
+		case "remote-matched":
+			stateID, stateType = "state-needed", "unstarted"
 		}
 		_, _ = w.Write([]byte(`{"data":{"issue":{"id":"` + request.Variables.ID + `","identifier":"CON-1","url":"https://linear.app/example/issue/CON-1","updatedAt":"2026-09-16T00:00:00Z","state":{"id":"` + stateID + `","type":"` + stateType + `"},"team":{"id":"team-uuid-1"}}}}`))
 	}))
@@ -71,26 +85,37 @@ func TestLinearDivergenceAndUnlinkedInProgressRoutes(t *testing.T) {
 	if err := json.Unmarshal([]byte(out.String()), &divergence); err != nil {
 		t.Fatal(err)
 	}
-	if len(divergence.Divergences) != 1 || divergence.Divergences[0].WorkID != "divergence-work" || divergence.Divergences[0].Expected != "state-needed" || divergence.Divergences[0].Actual != "state-completed" || divergence.Divergences[0].Outcome != "diverged" {
+	if len(divergence.Divergences) != 2 ||
+		divergence.Divergences[0].WorkID != "divergence-work" || divergence.Divergences[0].Expected != "state-needed" || divergence.Divergences[0].Actual != "state-completed" || divergence.Divergences[0].Outcome != "diverged" ||
+		divergence.Divergences[1].WorkID != "divergence-work-2" || divergence.Divergences[1].Actual != "state-in-progress" {
 		t.Fatalf("divergence report = %+v", divergence)
 	}
 
 	out.Reset()
 	errOut.Reset()
-	if code := runWithInput([]string{"linear", "unlinked-remote-in-progress"}, strings.NewReader(`{"product_id":"divergence-product","remote_issue_uuid":"remote-unlinked"}`), &out, &errOut); code != 0 {
-		t.Fatalf("unlinked report exit=%d stderr=%q", code, errOut.String())
+	if code := runWithInput([]string{"linear", "unlinked-remote-in-progress"}, strings.NewReader(`{"product_id":"divergence-product"}`), &out, &errOut); code != 0 {
+		t.Fatalf("unlinked sweep exit=%d stderr=%q", code, errOut.String())
 	}
-	var unlinked struct {
-		Report struct {
-			Reported bool `json:"reported"`
-			Linked   bool `json:"linked"`
-		} `json:"report"`
+	var sweep struct {
+		OK       bool   `json:"ok"`
+		TeamID   string `json:"team_id"`
+		Checked  int    `json:"checked"`
+		Unlinked []struct {
+			RemoteIssueUUID string `json:"remote_issue_uuid"`
+			HumanKey        string `json:"human_key"`
+			StateType       string `json:"state_type"`
+		} `json:"unlinked"`
 	}
-	if err := json.Unmarshal([]byte(out.String()), &unlinked); err != nil {
+	if err := json.Unmarshal([]byte(out.String()), &sweep); err != nil {
 		t.Fatal(err)
 	}
-	if !unlinked.Report.Reported || unlinked.Report.Linked {
-		t.Fatalf("unlinked report = %+v", unlinked.Report)
+	if !sweep.OK || sweep.TeamID != "68d52710-76d9-4b41-ba45-778511d0e2ed" || sweep.Checked != 2 {
+		t.Fatalf("unlinked sweep = %+v", sweep)
+	}
+	// The enumerated issue holding a confirmed link row stays out of the
+	// report; only the pre-cutover import with no link row is reported.
+	if len(sweep.Unlinked) != 1 || sweep.Unlinked[0].RemoteIssueUUID != "remote-unlinked" || sweep.Unlinked[0].HumanKey != "CON-22" || sweep.Unlinked[0].StateType != "started" {
+		t.Fatalf("unlinked list = %+v", sweep.Unlinked)
 	}
 }
 

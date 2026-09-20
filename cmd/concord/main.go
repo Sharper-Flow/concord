@@ -159,7 +159,7 @@ var commandSpecs = []commandSpec{
 	{Canonical: "product-mode-set", TwoWord: "product mode-set", RequiredFields: requiredFields(field("product_id"), field("planning_mode"), field("expected_version"), field("reason")), Optional: "none", Enums: "planning_mode: local_only | linear_enabled"},
 	{Canonical: "linear-health", TwoWord: "linear health", RequiredFields: requiredFields(field("product_id")), Optional: "none", Enums: "none"},
 	{Canonical: "linear-divergence", TwoWord: "linear divergence", RequiredFields: requiredFields(field("product_id")), Optional: "none", Enums: "none"},
-	{Canonical: "linear-unlinked-remote-in-progress", TwoWord: "linear unlinked-remote-in-progress", RequiredFields: requiredFields(field("product_id"), field("remote_issue_uuid")), Optional: "none", Enums: "none"},
+	{Canonical: "linear-unlinked-remote-in-progress", TwoWord: "linear unlinked-remote-in-progress", RequiredFields: requiredFields(field("product_id")), Optional: "none", Enums: "none"},
 	{Canonical: "linear-issue-enqueue", TwoWord: "linear issue-enqueue", RequiredFields: requiredFields(field("product_id"), field("work_id"), field("op_kind")), Optional: "remote_issue_uuid (required for issue_adopt)", Enums: "op_kind: issue_create | issue_update | issue_adopt"},
 	{Canonical: "linear-outbox-drain", TwoWord: "linear outbox-drain", RequiredFields: requiredFields(field("product_id")), Optional: "max_operations", Enums: "none"},
 	{Canonical: "linear-outbox-disposition", TwoWord: "linear outbox-disposition", RequiredFields: requiredFields(field("product_id"), field("reason")), Optional: "operation_ids (defaults to all undisposed failed rows)", Enums: "disposition: acknowledged"},
@@ -1151,12 +1151,15 @@ func runLinearDivergence(ctx context.Context, s *store.Store, raw []byte, comman
 	}, errOut)
 }
 
-// runLinearUnlinkedRemoteInProgress reports an In Progress remote issue that
-// has no local link. It does not adopt the issue or infer a local work item.
+// runLinearUnlinkedRemoteInProgress sweeps every In Progress issue on the
+// Product's Linear team and reports each one that holds no local link row.
+// The sweep answers without the caller naming an issue, so an issue created
+// directly in Linear or left by a pre-cutover import is detectable. It never
+// adopts an issue and never writes lifecycle: Concord stays authoritative and
+// Linear stays the mirror.
 func runLinearUnlinkedRemoteInProgress(ctx context.Context, s *store.Store, raw []byte, command string, out, errOut io.Writer) int {
 	var request struct {
-		ProductID       string `json:"product_id"`
-		RemoteIssueUUID string `json:"remote_issue_uuid"`
+		ProductID string `json:"product_id"`
 	}
 	if err := decodeObject(raw, &request); err != nil {
 		writeOperatorDiagnostic(errOut, command, err.Error())
@@ -1166,39 +1169,52 @@ func runLinearUnlinkedRemoteInProgress(ctx context.Context, s *store.Store, raw 
 		writeOperatorDiagnostic(errOut, command, err.Error())
 		return 1
 	}
+	connection, err := s.ReadLinearConnection(ctx, request.ProductID)
+	if err != nil {
+		writeOperatorDiagnostic(errOut, command, err.Error())
+		return 1
+	}
+	if connection.State != store.LinearConnectionDeclared || connection.TeamID == "" {
+		writeOperatorDiagnostic(errOut, command, "the sweep reads one Linear team; declare the Product's Linear connection with a team id first")
+		return 1
+	}
 	client, err := linearclient.FromEnv()
 	if err != nil {
 		writeOperatorDiagnostic(errOut, command, err.Error()+"; set CONCORD_LINEAR_API_KEY in the process environment")
 		return 1
 	}
-	link, linked, err := s.FindLinearLinkByRemoteIssue(ctx, request.RemoteIssueUUID)
+	issues, err := client.ListTeamStartedIssues(ctx, connection.TeamID)
 	if err != nil {
 		writeOperatorDiagnostic(errOut, command, err.Error())
 		return 1
 	}
-	issue, err := client.GetIssue(ctx, request.RemoteIssueUUID)
+	uuids := make([]string, 0, len(issues))
+	for _, issue := range issues {
+		uuids = append(uuids, issue.ID)
+	}
+	linked, err := s.LinkedRemoteIssueUUIDs(ctx, uuids)
 	if err != nil {
 		writeOperatorDiagnostic(errOut, command, err.Error())
 		return 1
 	}
-	report := map[string]any{
-		"remote_issue_uuid": request.RemoteIssueUUID,
-		"human_key":         issue.Identifier,
-		"url":               issue.URL,
-		"state_id":          issue.StateID,
-		"state_type":        issue.StateType,
-		"linked":            linked,
-		"reported":          !linked && issue.StateType == "started",
+	unlinked := make([]map[string]any, 0)
+	for _, issue := range issues {
+		if linked[issue.ID] {
+			continue
+		}
+		unlinked = append(unlinked, map[string]any{
+			"remote_issue_uuid": issue.ID,
+			"human_key":         issue.Identifier,
+			"url":               issue.URL,
+			"title":             issue.Title,
+			"state_id":          issue.StateID,
+			"state_type":        issue.StateType,
+		})
 	}
-	if linked {
-		report["work_id"] = link.WorkID
-		report["detail"] = "the remote issue already has a local link"
-	} else if issue.StateType != "started" {
-		report["detail"] = "the remote issue is not In Progress"
-	} else {
-		report["detail"] = "In Progress remote issue has no local link"
-	}
-	return writeJSON(out, map[string]any{"ok": true, "report": report}, errOut)
+	return writeJSON(out, map[string]any{
+		"ok": true, "product_id": request.ProductID, "team_id": connection.TeamID,
+		"checked": len(issues), "unlinked": unlinked,
+	}, errOut)
 }
 
 func runLinearOutboxDisposition(ctx context.Context, s *store.Store, raw []byte, command string, out, errOut io.Writer) int {

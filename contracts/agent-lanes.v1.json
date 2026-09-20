@@ -67,8 +67,8 @@
   "utilities": [
     {
       "id": "ci-wait",
-      "version": 2,
-      "purpose": "Wait for GitHub CI to reach a terminal state and report the result.",
+      "version": 3,
+      "purpose": "Wait for GitHub CI: the caller passes a repository and one selector (a PR number, a commit SHA, or a run id; a PR may add mode checks or merge), and this utility owns all polling through the concord ci-wait verb.",
       "allowed_tools": ["bash"],
       "allowed_commands": [
         "concord ci-wait",

@@ -308,6 +308,109 @@ func TestCiWaitEmptyCheckSetIsNeverSuccess(t *testing.T) {
 	}
 }
 
+func TestCiWaitPRMergeModeUsesGitHubMergeState(t *testing.T) {
+	ghStubPath(t, ghStubDir(t, `case "$*" in
+		*"pr view"*) echo '{"headRefOid":"aabb","url":"u","state":"OPEN","mergedAt":null,"mergeStateStatus":"CLEAN"}';;
+		*"pr checks"*) exit 97;;
+	esac`))
+	_, report, _ := runCiWaitStdin(t, ciWaitJSON(t, ciWaitRequest{
+		Selector: &ciWaitSelector{Kind: "pr", Value: "5"}, Repo: "o/r", Mode: "merge", TimeSecondsMax: ciWaitBudget(1800),
+	}))
+	if report.Status != "success" || report.MergeState != "CLEAN" {
+		t.Fatalf("merge mode must succeed from CLEAN without reading checks, got %+v", report)
+	}
+}
+
+func TestCiWaitPRChecksModeMergeStates(t *testing.T) {
+	// CD-0161: in checks mode only DIRTY is evidence about the merge itself.
+	// GitHub computes mergeability lazily and commonly answers UNKNOWN, so the
+	// non-verdict states must not block a complete passing check set.
+	cases := []struct {
+		mergeState string
+		wantStatus string
+	}{
+		{"UNKNOWN", "success"},
+		{"BEHIND", "success"},
+		{"BLOCKED", "success"},
+		{"UNSTABLE", "success"},
+		{"DRAFT", "success"},
+		{"", "success"},
+		{"CLEAN", "success"},
+		{"DIRTY", "pending"},
+	}
+	for _, tc := range cases {
+		t.Run("merge_state_"+tc.mergeState, func(t *testing.T) {
+			ghStubPath(t, ghStubDir(t, `case "$*" in
+				*"pr view"*) echo '{"headRefOid":"aabb","url":"u","state":"OPEN","mergedAt":null,"mergeStateStatus":"`+tc.mergeState+`"}';;
+				*"pr checks"*) echo '[{"name":"c","state":"SUCCESS","link":"l","bucket":"pass"}]';;
+			esac`))
+			code, report, _ := runCiWaitStdin(t, ciWaitJSON(t, ciWaitRequest{
+				Selector: &ciWaitSelector{Kind: "pr", Value: "5"}, Repo: "o/r", TimeSecondsMax: ciWaitBudget(8),
+			}))
+			if report.Status != tc.wantStatus {
+				t.Fatalf("mergeState=%q: status=%s want %s (report=%+v)", tc.mergeState, report.Status, tc.wantStatus, report)
+			}
+			if report.MergeState != tc.mergeState {
+				t.Fatalf("mergeState=%q: report must carry the observed merge state, got %q", tc.mergeState, report.MergeState)
+			}
+			if tc.wantStatus == "success" && code != 0 {
+				t.Fatalf("mergeState=%q: success must exit 0, got %d", tc.mergeState, code)
+			}
+		})
+	}
+}
+
+func TestCiWaitPRMergeModeStaysPendingOnUnknown(t *testing.T) {
+	// Merge mode gates on GitHub's own mergeability assertion (CLEAN or
+	// HAS_HOOKS). The lazy UNKNOWN means "not computed", so the wait keeps
+	// polling instead of reporting success or failure.
+	ghStubPath(t, ghStubDir(t, `case "$*" in
+		*"pr view"*) echo '{"headRefOid":"aabb","url":"u","state":"OPEN","mergedAt":null,"mergeStateStatus":"UNKNOWN"}';;
+		*"pr checks"*) exit 97;;
+	esac`))
+	_, report, _ := runCiWaitStdin(t, ciWaitJSON(t, ciWaitRequest{
+		Selector: &ciWaitSelector{Kind: "pr", Value: "5"}, Repo: "o/r", Mode: "merge", TimeSecondsMax: ciWaitBudget(8),
+	}))
+	if report.Status != "pending" || report.MergeState != "UNKNOWN" {
+		t.Fatalf("merge mode must keep UNKNOWN pending, got %+v", report)
+	}
+}
+
+func TestCiWaitPRMergedAndClosedAreTerminal(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		state     string
+		mergedAt  string
+		wantState string
+	}{
+		{name: "merged", state: "CLOSED", mergedAt: "2026-09-20T00:00:00Z", wantState: "merged"},
+		{name: "closed", state: "CLOSED", wantState: "closed"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ghStubPath(t, ghStubDir(t, `case "$*" in
+				*"pr view"*) echo '{"headRefOid":"aabb","url":"u","state":"`+tc.state+`","mergedAt":"`+tc.mergedAt+`","mergeStateStatus":"`+tc.name+`"}';;
+				*"pr checks"*) exit 97;;
+			esac`))
+			_, report, _ := runCiWaitStdin(t, ciWaitJSON(t, ciWaitRequest{
+				Selector: &ciWaitSelector{Kind: "pr", Value: "5"}, Repo: "o/r", TimeSecondsMax: ciWaitBudget(1800),
+			}))
+			if report.Status != tc.wantState {
+				t.Fatalf("status=%s want %s, report=%+v", report.Status, tc.wantState, report)
+			}
+		})
+	}
+}
+
+func TestCiWaitMergeModeRequiresPRSelector(t *testing.T) {
+	ghStubPath(t, ghStubDir(t, "exit 97"))
+	code, report, _ := runCiWaitStdin(t, ciWaitJSON(t, ciWaitRequest{
+		Selector: &ciWaitSelector{Kind: "run", Value: "42"}, Repo: "o/r", Mode: "merge",
+	}))
+	if code != 1 || report.Status != "refused" {
+		t.Fatalf("merge mode on a run selector must refuse, got code=%d report=%+v", code, report)
+	}
+}
+
 func TestCiWaitHeadSHAChangeSupersedes(t *testing.T) {
 	ghStubPath(t, ghStubDir(t, `case "$*" in
 		*"pr view"*) echo '{"headRefOid":"newsha","url":"u"}';;

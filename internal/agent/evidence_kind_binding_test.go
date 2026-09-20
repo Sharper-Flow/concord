@@ -11,9 +11,10 @@ import (
 	"github.com/sharper-flow/concord/internal/store"
 )
 
-// One bind-family action records one durable evidence_kind. A mixed-kind
-// evidence array used to bind only the first entry's kind and silently drop
-// the rest, wedging later steps that declare no bind_evidence (#945).
+// One bind-family action binds one immutable subject per call: kinds
+// submitted for one locator thread into the store per entry and bind one
+// durable event per kind, while kinds spread over several locators name
+// several subjects and are refused at the boundary (#945).
 const ekbMixed = "evidence array carries more than one kind"
 
 func ekbDispatch(t *testing.T, ctx context.Context, s *store.Store, service *Service, env CallEnvelope, grant Authority, privateKey ed25519.PrivateKey, workID string, version int64, actionID string, fields map[string]any, evidence []EvidenceRef, key string) (Envelope, int64) {
@@ -124,7 +125,7 @@ func TestBindEvidenceRefusesMixedKindEvidenceArray(t *testing.T) {
 	}
 }
 
-func TestBindEvidenceRecordsOneKindForHomogeneousArray(t *testing.T) {
+func TestBindEvidenceRefusesSeveralSubmittedSubjects(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	s, service, grant, privateKey := mutationDispatchFixture(t, []Capability{"work_define", "work_transition"})
@@ -133,29 +134,84 @@ func TestBindEvidenceRecordsOneKindForHomogeneousArray(t *testing.T) {
 		t.Fatal(err)
 	}
 	env := mutationEnvelope(grant, scopeVersion)
-	workID, version := ekbWorkAtExecute(t, ctx, s, service, env, grant, privateKey, "homogeneous")
+	workID, version := ekbWorkAtExecute(t, ctx, s, service, env, grant, privateKey, "subjects")
 
 	homogeneous := []EvidenceRef{
 		{Kind: "artifact", Authority: "github", LocatorKind: "pull_request", Locator: "pr:one"},
 		{Kind: "artifact", Authority: "github", LocatorKind: "pull_request", Locator: "pr:two"},
 	}
-	response, after := ekbDispatch(t, ctx, s, service, env, grant, privateKey, workID, version, "bind_evidence", nil, homogeneous, "ekb-homogeneous")
+	response, after := ekbDispatch(t, ctx, s, service, env, grant, privateKey, workID, version, "bind_evidence", nil, homogeneous, "ekb-subjects")
+	if response.Outcome != OutcomeError || response.Error == nil || response.Error.Kind != "invalid_input" {
+		t.Fatalf("multi-subject bind outcome=%q error=%+v, want invalid_input", response.Outcome, response.Error)
+	}
+	if !strings.Contains(response.Error.Message, "one immutable subject per call") {
+		t.Fatalf("multi-subject bind message=%q, want the one-subject-per-call rule", response.Error.Message)
+	}
+	for _, locator := range []string{"pr:one", "pr:two"} {
+		if !strings.Contains(response.Error.Message, locator) {
+			t.Fatalf("multi-subject bind message=%q omits submitted subject %s", response.Error.Message, locator)
+		}
+	}
+	if !strings.Contains(response.Error.Message, "split the submission") {
+		t.Fatalf("multi-subject bind message=%q, want the split instruction", response.Error.Message)
+	}
+	if after != version {
+		t.Fatalf("refused multi-subject bind changed version from %d to %d", version, after)
+	}
+	if kinds := ekbEvidenceBoundEvents(t, s, workID); len(kinds) != 0 {
+		t.Fatalf("refused multi-subject bind recorded evidence kinds %v", kinds)
+	}
+}
+
+func TestBindEvidenceRecordsOneEventPerKindForOneLocator(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s, service, grant, privateKey := mutationDispatchFixture(t, []Capability{"work_define", "work_transition"})
+	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := mutationEnvelope(grant, scopeVersion)
+	workID, version := ekbWorkAtExecute(t, ctx, s, service, env, grant, privateKey, "per-kind")
+
+	perKind := []EvidenceRef{
+		{Kind: "verification", Authority: "github-actions", LocatorKind: "check_run", Locator: "check:one"},
+		{Kind: "review", Authority: "concord-1", LocatorKind: "pull_request_review", Locator: "check:one"},
+	}
+	response, after := ekbDispatch(t, ctx, s, service, env, grant, privateKey, workID, version, "bind_evidence", nil, perKind, "ekb-per-kind")
 	if response.Outcome != OutcomeOK {
-		t.Fatalf("homogeneous bind: %+v", response.Error)
+		t.Fatalf("per-kind bind: %+v", response.Error)
 	}
-	if after == version {
-		t.Fatal("homogeneous bind did not advance the work version")
+	if after <= version {
+		t.Fatal("per-kind bind did not advance the work version")
 	}
-	kinds := ekbEvidenceBoundEvents(t, s, workID)
-	if len(kinds) != 1 || kinds[0] != "artifact" {
-		t.Fatalf("homogeneous bind recorded kinds %v, want exactly one artifact", kinds)
+	rows, err := s.DatabaseForTesting().Query(`SELECT json_extract(payload,'$.evidence_kind'), json_extract(payload,'$.immutable_subject_ref') FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? ORDER BY seq`, workID, store.WorkflowEvidenceBound)
+	if err != nil {
+		t.Fatal(err)
 	}
-	var boundRefs int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM durable_operations WHERE work_id=? AND result_kind='completed' AND EXISTS (SELECT 1 FROM json_each(durable_operations.evidence_refs) WHERE value IN ('pr:one','pr:two'))`, workID).Scan(&boundRefs); err != nil {
-		t.Fatalf("read durable operation evidence refs: %v", err)
+	defer rows.Close()
+	type binding struct {
+		kind, subject string
 	}
-	if boundRefs != 1 {
-		t.Fatalf("homogeneous bind durable operations with both locators=%d, want 1", boundRefs)
+	var bound []binding
+	for rows.Next() {
+		var item binding
+		if err := rows.Scan(&item.kind, &item.subject); err != nil {
+			t.Fatal(err)
+		}
+		bound = append(bound, item)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	if len(bound) != 2 {
+		t.Fatalf("one locator under two kinds bound %d events (%v), want 2", len(bound), bound)
+	}
+	wantKinds := []string{"verification", "review"}
+	for i, want := range wantKinds {
+		if bound[i].kind != want || bound[i].subject != "check:one" {
+			t.Fatalf("bound event %d = (%s, %s), want (%s, check:one)", i, bound[i].kind, bound[i].subject, want)
+		}
 	}
 }
 

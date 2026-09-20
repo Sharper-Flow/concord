@@ -700,23 +700,38 @@ func livenessApply(ctx context.Context, s *Store, workID string, move livenessMo
 	if bindErr != nil {
 		return bindErr
 	}
+	evidenceRefs := []string{livenessSubjectRef}
+	switch move.action {
+	case "start_run", "record_health", "rollback_run", "cleanup_run":
+		digest := sha256.Sum256([]byte(livenessSubjectRef))
+		evidenceRefs = append(evidenceRefs, nativeRunObservationID(fmt.Sprintf("sha256:%x", digest)))
+	}
+	// bind_evidence binds one immutable subject per call, so the evidence
+	// array names the subject the payload declares instead of the ambient
+	// commit: a merged submission naming two subjects is refused by the
+	// registered contract this explorer models.
+	if move.action == "bind_evidence" {
+		var declared map[string]json.RawMessage
+		if err := json.Unmarshal(payload, &declared); err != nil {
+			return err
+		}
+		subject := workflowFieldStringDefault(declared, "immutable_subject_ref", workflowFieldStringDefault(declared, "evidence_ref", ""))
+		if subject != "" {
+			evidenceRefs = []string{subject}
+		}
+	}
 	request := WorkflowActionExecutionRequest{
 		WorkID: workID, ExpectedVersion: version, ActionID: move.action,
 		SelectedChoice: selectedChoice, DecisionContextDigest: decisionDigest,
 		OperatorActor: operator,
 		Payload:       payload, Actor: actor,
-		EvidenceRefs:         []string{livenessSubjectRef},
+		EvidenceRefs:         evidenceRefs,
 		AcceptedInputsDigest: "sha256:" + strings.Repeat("b", 64),
 		ContractDigest:       testManifestDigest,
 		Tool:                 "concord_work_transition",
 		IdempotencyKey:       label, RequestID: label, IdempotencyIdentity: label, OperationID: label,
 		PrincipalRef: actor.PrincipalRef,
 		Now:          time.Unix(int64(100+sequence), 0).UTC(),
-	}
-	switch move.action {
-	case "start_run", "record_health", "rollback_run", "cleanup_run":
-		digest := sha256.Sum256([]byte(livenessSubjectRef))
-		request.EvidenceRefs = append(request.EvidenceRefs, nativeRunObservationID(fmt.Sprintf("sha256:%x", digest)))
 	}
 	preflight := WorkflowActionPreflightRequest{
 		WorkID: request.WorkID, ExpectedVersion: request.ExpectedVersion, ActionID: request.ActionID,

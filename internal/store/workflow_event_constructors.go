@@ -4,6 +4,8 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
+	"strings"
 	"time"
 )
 
@@ -308,18 +310,73 @@ func workflowAcceptWorkerResultEvents(ctx context.Context, tx *sql.Tx, request W
 	})}, nil
 }
 
+// workflowEvidenceBindingEvents binds the evidence the call submitted, one
+// WorkflowEvidenceBound event per distinct (subject, evidence kind) pair. The
+// merged submissions of one call — the evidence array, the declared payload
+// fields, and the generated fallback — must name one immutable subject: ok is
+// a claim about what the call durably bound, and a call naming several
+// subjects could bind at most the first and silently drop the rest, so the
+// store refuses and the caller splits the submission into one bind per
+// subject. One locator submitted under two kinds binds two events, one per
+// kind. Every candidate subject satisfies the same reference rule the
+// declared payload fields already enforce, so an array-derived subject cannot
+// mint evidence that no verdict or completion can name.
 func workflowEvidenceBindingEvents(request WorkflowActionExecutionRequest, actor string, fields map[string]json.RawMessage, eventID string, expected int64) ([]Event, error) {
-	evidenceRef := "evidence:" + request.OperationID
-	if len(request.EvidenceRefs) != 0 {
-		evidenceRef = request.EvidenceRefs[0]
+	declaredRef := workflowFieldStringDefault(fields, "immutable_subject_ref", workflowFieldStringDefault(fields, "evidence_ref", ""))
+	defaultKind := workflowFieldStringDefault(fields, "evidence_kind", "verification")
+	producerID := workflowFieldStringDefault(fields, "producer_id", request.PrincipalRef)
+	producerRunRef := workflowFieldStringDefault(fields, "producer_run_ref", request.OperationID)
+	producerWatermark := workflowFieldStringDefault(fields, "producer_watermark", request.RequestID)
+	subjects := dedupeWorkflowRefs(request.EvidenceRefs)
+	if len(subjects) == 0 {
+		subjects = []string{"evidence:" + request.OperationID}
 	}
-	// fields.evidence_ref is the declared route for naming the immutable
-	// subject; the top-level evidence array remains the alternative.
-	// Without this the declared key is accepted and silently discarded.
-	if declared, ok := workflowFieldString(fields, "evidence_ref"); ok && declared != "" {
-		evidenceRef = declared
+	for _, subject := range subjects {
+		if !ValidReference(subject) {
+			return nil, newFailure(KindInvalidPayload, "workflow_action", fmt.Sprintf("%s immutable subject %s must satisfy the reference rule: 2 to 128 bytes with no whitespace", request.ActionID, workflowRefExcerpt(subject)), false, "supply a whitespace-free reference no longer than 128 bytes")
+		}
 	}
-	return []Event{workflowTypedEvent(eventID, WorkflowEvidenceBound, request.WorkID, actor, request.Now, expected, map[string]any{"evidence_kind": workflowFieldStringDefault(fields, "evidence_kind", "verification"), "immutable_subject_ref": workflowFieldStringDefault(fields, "immutable_subject_ref", evidenceRef), "producer_id": workflowFieldStringDefault(fields, "producer_id", request.PrincipalRef), "producer_run_ref": workflowFieldStringDefault(fields, "producer_run_ref", request.OperationID), "producer_watermark": workflowFieldStringDefault(fields, "producer_watermark", request.RequestID), "observed_at": request.Now.UTC().Format(time.RFC3339Nano)})}, nil
+	if len(subjects) > 1 {
+		named := make([]string, 0, len(subjects))
+		for _, subject := range subjects {
+			named = append(named, workflowRefExcerpt(subject))
+		}
+		return nil, newFailure(KindInvalidPayload, "workflow_action", fmt.Sprintf("%s binds one immutable subject per call; the call names %d distinct subjects (%s); split the submission into one bind per subject", request.ActionID, len(subjects), strings.Join(named, ", ")), false, "split the submission into one bind per subject")
+	}
+	subject := subjects[0]
+	kinds := make([]string, 0, len(request.EvidenceKinds)+1)
+	seenKinds := make(map[string]bool, len(request.EvidenceKinds)+1)
+	addKind := func(kind string) error {
+		if kind == "" || seenKinds[kind] {
+			return nil
+		}
+		if !validEvidence(EvidenceKind(kind)) {
+			return newFailure(KindInvalidPayload, "workflow_action", fmt.Sprintf("%s evidence kind %q is not a declared evidence kind", request.ActionID, kind), false, "use verification, review, approval, commit, durable_note, native_run, or artifact")
+		}
+		seenKinds[kind] = true
+		kinds = append(kinds, kind)
+		return nil
+	}
+	for _, kind := range request.EvidenceKinds {
+		if err := addKind(kind); err != nil {
+			return nil, err
+		}
+	}
+	if declaredRef == subject {
+		if err := addKind(defaultKind); err != nil {
+			return nil, err
+		}
+	}
+	if len(kinds) == 0 {
+		if err := addKind(defaultKind); err != nil {
+			return nil, err
+		}
+	}
+	events := make([]Event, 0, len(kinds))
+	for i, kind := range kinds {
+		events = append(events, workflowTypedEvent(eventID+":evidence:"+fmt.Sprint(i), WorkflowEvidenceBound, request.WorkID, actor, request.Now, expected+int64(i), map[string]any{"evidence_kind": kind, "immutable_subject_ref": subject, "producer_id": producerID, "producer_run_ref": producerRunRef, "producer_watermark": producerWatermark, "observed_at": request.Now.UTC().Format(time.RFC3339Nano)}))
+	}
+	return events, nil
 }
 
 func workflowRecordVerdictEvents(ctx context.Context, tx *sql.Tx, definition WorkflowDefinition, request WorkflowActionExecutionRequest, actor string, fields map[string]json.RawMessage, eventID string, expected int64, defaultVerdictEvidence bool) ([]Event, error) {

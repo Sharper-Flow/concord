@@ -344,8 +344,8 @@ func workflowEvidenceBindingEvents(request WorkflowActionExecutionRequest, actor
 		return nil, newFailure(KindInvalidPayload, "workflow_action", fmt.Sprintf("%s binds one immutable subject per call; the call names %d distinct subjects (%s); split the submission into one bind per subject", request.ActionID, len(subjects), strings.Join(named, ", ")), false, "split the submission into one bind per subject")
 	}
 	subject := subjects[0]
-	kinds := make([]string, 0, len(request.EvidenceKinds)+1)
-	seenKinds := make(map[string]bool, len(request.EvidenceKinds)+1)
+	var kinds []string
+	seenKinds := make(map[string]bool)
 	addKind := func(kind string) error {
 		if kind == "" || seenKinds[kind] {
 			return nil

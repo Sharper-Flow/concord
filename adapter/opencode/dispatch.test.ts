@@ -1224,12 +1224,12 @@ test("an oversized evidence array is worker-fail with invalid_report", async () 
   expect(payloads[1].detail).toContain("evidence: carries more than 64 item(s)")
 })
 
-test("an oversized evidence detail is worker-fail with invalid_report", async () => {
-  const evidence = [{ obligation: "uncertainties", detail: "x".repeat(513) }]
+test("an oversized evidence detail is normalized before admission", async () => {
+  const evidence = [{ ...reportEvidence()[0], detail: "x".repeat(513) }, ...reportEvidence().slice(1)]
   const { verbs, payloads } = await terminalEvidence(report({ evidence }))
-  expect(verbs).toEqual(["worker-dispatch", "worker-fail"])
-  expect(payloads[1].failure_kind).toBe("invalid_report")
-  expect(payloads[1].detail).toContain("evidence[0].detail: is longer than 512 characters")
+  expect(verbs).toEqual(["worker-dispatch", "worker-complete"])
+  expect(payloads[1].evidence[0].detail).toBe("x".repeat(500) + " [truncated]")
+  expect(payloads[1].evidence[1]).toEqual(reportEvidence()[1])
 })
 
 test("an unknown report top-level field is worker-fail with invalid_report", async () => {
@@ -1399,6 +1399,22 @@ test("the report schema refuses oversized evidence arrays and details", () => {
   const oversizedEvidence = Array.from({ length: 65 }, (_, index) => ({ obligation: "source_citations", detail: String(index + 1) }))
   expect(validateAgentLaneReport(report({ evidence: oversizedEvidence }))).toBe(false)
   expect(validateAgentLaneReport(report({ evidence: [{ obligation: "source_citations", detail: "x".repeat(513) }] }))).toBe(false)
+})
+
+test("an over-length evidence detail is truncated at admission, not refused", () => {
+  const long = "x".repeat(900)
+  const admitted = resolveWorkerReportFromText(JSON.stringify(report({
+    evidence: [{ obligation: "source_citations", detail: long }, ...reportEvidence().slice(1)],
+  })), packet())
+  expect("detail" in admitted).toBe(false)
+  const entry = ("report" in admitted ? admitted.report.evidence[0] : null) as { obligation: string, detail: string }
+  expect(entry.obligation).toBe("source_citations")
+  expect(entry.detail.length).toBe(512)
+  expect(entry.detail.endsWith(" [truncated]")).toBe(true)
+  expect(entry.detail.startsWith("x".repeat(500))).toBe(true)
+  // An entry inside the cap is carried through byte for byte.
+  const untouched = ("report" in admitted ? admitted.report.evidence[1] : null) as { detail: string }
+  expect(untouched.detail).toBe(reportEvidence()[1].detail)
 })
 
 test("validateSchema resolves a local $ref and fails closed on an unresolvable one", () => {

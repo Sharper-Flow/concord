@@ -118,9 +118,11 @@ the one canonical locator for a known terminal work/knowledge item.
 | `search` | Q9 | Product scope; optional Project/domain; closed knowledge kinds (every manifest kind, with `specification` and `note` as aliases for `spec` and `work_note`); tags; bounded text; time window; cursor/limit | `knowledge_page`: summaries, canonical locators, commit/content identity, and index watermark |
 | `resolve_note` | Q10 | exactly one work or knowledge reference | `canonical_note_result`: one locator or typed not-compacted/missing/ambiguous outcome |
 
-Search never returns an unbounded artifact body. A canonical locator identifies the
-git authority; the accepted client may then read that authority through its normal
-bounded file/resource path. Index lag and canonical-git reachability remain explicit.
+Search never returns an unbounded artifact body. Bounded text may match a
+fold-only projected law body, but that match remains ranked discovery data and
+never law authority. A canonical locator identifies the Git authority; the
+accepted client may then read that authority through its normal bounded
+file/resource path. Index lag and canonical-Git reachability remain explicit.
 
 ## 3. Shared read-input constraints
 

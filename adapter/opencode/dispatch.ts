@@ -22,14 +22,36 @@ const MAX_CLI_INPUT_BYTES = 65_536
 // worker.failed detail is bounded at 1..4096 by validateWorkerFailedPayload in
 // internal/store/worker_lanes.go; a longer detail would be refused at the fold.
 const MAX_FAILURE_DETAIL_BYTES = 4_096
+// A refused readback retains diagnostics on the recorded failed attempt: a
+// prefix of the received export body, what ran, how the child ended, and a
+// prefix of the result the worker produced. The bounds keep the assembled
+// terminal_detail inside MAX_FAILURE_DETAIL_BYTES with every part intact:
+// 256 (message) + 71 (digest) + 32 (bytes) + ~120 (command/exit/signal)
+// + 1024 (export body) + 1536 (worker result) + labels < 4096.
+const MAX_DIAGNOSTIC_MESSAGE_BYTES = 256
+const MAX_EXPORT_BODY_DIAGNOSTIC_BYTES = 1_024
+const MAX_WORK_RESULT_DIAGNOSTIC_BYTES = 1_536
 type AgentLanePacketSchemaVersion = typeof agentLanePacketSchema.properties.schema_version.const
 type AgentLaneReportSchemaVersion = typeof agentLaneReportSchema.properties.schema_version.const
 type AgentLaneReportStatus = (typeof agentLaneReportSchema.properties.status.enum)[number]
 const PACKET_SCHEMA_VERSION: AgentLanePacketSchemaVersion = agentLanePacketSchema.properties.schema_version.const
 const REPORT_SCHEMA_VERSION: AgentLaneReportSchemaVersion = agentLaneReportSchema.properties.schema_version.const
 
+// DispatchRunnerResult is one child process outcome. `exited` resolves to the
+// wait status number for both a clean exit and a killed child, so exitCode
+// alone cannot distinguish the two; signal_state carries the terminating
+// signal (for example "SIGTERM") or null when the child exited on its own.
+// The field is optional so a test runner that does not model the child can
+// omit it; both production runners always populate it.
+export interface DispatchRunnerResult {
+  exitCode: number
+  stdout: string
+  stderr: string
+  signal_state?: string | null
+}
+
 export interface DispatchRunner {
-  run(argv: string[], input: string, signal: AbortSignal): Promise<{ exitCode: number; stdout: string; stderr: string }>
+  run(argv: string[], input: string, signal: AbortSignal): Promise<DispatchRunnerResult>
 }
 
 export interface AgentLanePacket {
@@ -100,6 +122,17 @@ export type ReadbackRefusal =
 export type SessionMetadataRead =
   | { ok: true; metadata: Pick<SessionMetadata, "readback_model" | "readback_agent" | "session_id">; export_digest: string; export_bytes: number }
   | { ok: false; predicate: ReadbackRefusal; export_digest: string; export_bytes: number; message: string }
+
+// ReadbackRefusalDiagnostics is what a refused readback retains about the
+// child that produced the export: the exact command, the wait status, the
+// terminating signal when there was one, and the body the command received.
+// Without it a corrupt export is terminal evidence with no diagnosis.
+export interface ReadbackRefusalDiagnostics {
+  command: string[]
+  exit_code: number
+  signal_state: string | null
+  export_body: string
+}
 
 export interface RunSessionMetadata {
   session_id: string
@@ -192,6 +225,49 @@ function withHostBoundedOutput(envelope: AgentResultEnvelope, output: string): A
   return Buffer.byteLength(JSON.stringify(candidate)) <= maxEnvelopeBytes ? candidate : null
 }
 
+// boundedTextPrefix returns a prefix of text that is at most maxBytes UTF-8
+// bytes and never splits a multi-byte sequence, so a bounded diagnostic
+// carries a decodable prefix of an arbitrary body.
+export function boundedTextPrefix(text: string, maxBytes: number): string {
+  const buffer = Buffer.from(text, "utf8")
+  if (buffer.byteLength <= maxBytes) return text
+  let cut = maxBytes
+  while (cut > 0 && (buffer[cut] & 0xc0) === 0x80) cut -= 1
+  return buffer.subarray(0, cut).toString("utf8")
+}
+
+// exportRefusalDiagnostics captures what the completion path knows about the
+// child that produced a refused export: the exact argv, the wait status, the
+// terminating signal when there was one, and the received body.
+function exportRefusalDiagnostics(command: string[], result: DispatchRunnerResult): ReadbackRefusalDiagnostics {
+  return { command, exit_code: result.exitCode, signal_state: result.signal_state ?? null, export_body: result.stdout }
+}
+
+// readbackFailureDetail renders the durable diagnostic a refused readback
+// retains on the recorded failed attempt: the refusing predicate, what ran
+// and how the child ended, a bounded prefix of the received export body, and
+// a bounded prefix of the result the worker produced. The last part is what
+// keeps the lane's completed work from being orphaned by the refusal: the
+// attempt still fails closed, but the store alone carries enough of the work
+// and the corrupt export to diagnose and recover both.
+function readbackFailureDetail(refusal: { predicate: ReadbackRefusal; export_digest: string; export_bytes: number; message: string; diagnostics?: ReadbackRefusalDiagnostics }, workerResult: string): string {
+  const parts = [
+    `readback predicate ${refusal.predicate} refused: ${boundedTextPrefix(refusal.message, MAX_DIAGNOSTIC_MESSAGE_BYTES)}`,
+    `export_digest ${refusal.export_digest}`,
+    `export_bytes ${refusal.export_bytes}`,
+  ]
+  if (refusal.diagnostics) {
+    parts.push(
+      `command ${refusal.diagnostics.command.join(" ")}`,
+      `exit_code ${refusal.diagnostics.exit_code}`,
+      `signal_state ${refusal.diagnostics.signal_state ?? "none"}`,
+      `export_body_prefix ${boundedTextPrefix(refusal.diagnostics.export_body, MAX_EXPORT_BODY_DIAGNOSTIC_BYTES)}`,
+    )
+  }
+  if (workerResult) parts.push(`worker_result_prefix ${boundedTextPrefix(workerResult, MAX_WORK_RESULT_DIAGNOSTIC_BYTES)}`)
+  return parts.join("; ")
+}
+
 export const defaultRunner: DispatchRunner = {
   async run(argv, input, signal) {
     const child = Bun.spawn(argv, { stdin: "pipe", stdout: "pipe", stderr: "pipe" })
@@ -202,7 +278,7 @@ export const defaultRunner: DispatchRunner = {
     await child.stdin.end()
     const [stdout, stderr, exitCode] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited])
     signal.removeEventListener("abort", abort)
-    return { exitCode, stdout, stderr }
+    return { exitCode, stdout, stderr, signal_state: child.signalCode ?? null }
   },
 }
 
@@ -236,7 +312,7 @@ export const defaultExportRunner: DispatchRunner = {
         signal.removeEventListener("abort", abort)
       }
       const stdout = await fs.promises.readFile(target, "utf8")
-      return { exitCode, stdout, stderr }
+      return { exitCode, stdout, stderr, signal_state: child.signalCode ?? null }
     } finally {
       fs.rmSync(directory, { recursive: true, force: true })
     }
@@ -760,12 +836,25 @@ function readbackRefusalEnvelope(lane: AgentLane, packet: AgentLanePacket, refus
 // refuseWorkerReadback closes a refused readback the one way the attempt can
 // end: the durable failed dispatch record first, then the typed refusal
 // envelope. Every export predicate refusal in the completion path routes
-// through here, so no readback outcome can sign completion evidence.
-async function refuseWorkerReadback(lane: AgentLane, packet: AgentLanePacket, refusal: { predicate: ReadbackRefusal; export_digest: string; export_bytes: number; message: string }, workerSessionID: string, workerDirectory: string, options: WorkerCompletionOptions, signal: AbortSignal, onRecorded?: () => void): Promise<AgentResultEnvelope> {
-  const recorded = await recordModelReadbackFailure(lane, packet, refusal, workerDirectory, options, signal, onRecorded)
+// through here, so no readback outcome can sign completion evidence. The
+// refusal stays terminal, but nothing the lane produced is discarded with it:
+// the recorded failed attempt retains the export diagnostics and a bounded
+// prefix of the worker's result, and the envelope carries the same bounded
+// result so the work survives the refusal on both surfaces.
+async function refuseWorkerReadback(lane: AgentLane, packet: AgentLanePacket, refusal: { predicate: ReadbackRefusal; export_digest: string; export_bytes: number; message: string; diagnostics?: ReadbackRefusalDiagnostics }, workerSessionID: string, workerDirectory: string, workerResult: string, options: WorkerCompletionOptions, signal: AbortSignal, onRecorded?: () => void): Promise<AgentResultEnvelope> {
+  const recorded = await recordModelReadbackFailure(lane, packet, refusal, workerResult, workerDirectory, options, signal, onRecorded)
   const failure = readbackRefusalEnvelope(lane, packet, refusal)
   if (recorded) failure.error!.message = `${failure.error!.message}; terminal evidence write failed: ${recorded}`.slice(0, MAX_ERROR_BYTES)
   failure.session_id = workerSessionID
+  // The worker-fail path carries the full result body on its envelope, so the
+  // refusal path preserves the same work the same way: whole when the host
+  // envelope bound admits it, else the same bounded prefix the store record
+  // retains — never dropped.
+  if (workerResult) {
+    const carried = withHostBoundedOutput(failure, workerResult)
+    if (carried) return carried
+    failure.output = boundedTextPrefix(workerResult, MAX_WORK_RESULT_DIAGNOSTIC_BYTES)
+  }
   return failure
 }
 
@@ -869,15 +958,16 @@ async function recordWorkerEvent(childRunner: DispatchRunner, binary: string, co
 // that says whether the identity was missing or ambiguous. One event means
 // one transaction, so a stopped process can never leave a dispatched attempt
 // waiting for a failure that was not written. The detail names the refusing
-// predicate and the export digest so the failure is diagnosable from the
-// store alone.
-async function recordModelReadbackFailure(lane: AgentLane, packet: AgentLanePacket, refusal: { predicate: ReadbackRefusal; export_digest: string; export_bytes: number; message: string }, workerDirectory: string, options: { runner?: DispatchRunner; evidenceRunner?: DispatchRunner; concordBinary?: string; credentials?: CredentialStore; packetDigest?: string }, signal: AbortSignal, onRecorded?: () => void): Promise<string | null> {
+// predicate, what ran and how the child ended, a bounded prefix of the
+// received export body, and a bounded prefix of the worker's result, so the
+// failure is diagnosable from the store alone.
+async function recordModelReadbackFailure(lane: AgentLane, packet: AgentLanePacket, refusal: { predicate: ReadbackRefusal; export_digest: string; export_bytes: number; message: string; diagnostics?: ReadbackRefusalDiagnostics }, workerResult: string, workerDirectory: string, options: { runner?: DispatchRunner; evidenceRunner?: DispatchRunner; concordBinary?: string; credentials?: CredentialStore; packetDigest?: string }, signal: AbortSignal, onRecorded?: () => void): Promise<string | null> {
   if (!options.packetDigest) return "model readback failure cannot be recorded without the dispatch packet digest"
   const cliRunner = options.evidenceRunner ?? options.runner ?? defaultRunner
   const binary = concordBinaryPath(options.concordBinary)
   const credentials = options.credentials ?? defaultCredentials
   const failureKind = refusal.predicate === "export_model_ambiguous" ? "model_readback_ambiguous" : "model_readback_missing"
-  const detail = `readback predicate ${refusal.predicate} refused: ${refusal.message} (export_digest ${refusal.export_digest}, export_bytes ${refusal.export_bytes})`.slice(0, MAX_FAILURE_DETAIL_BYTES)
+  const detail = readbackFailureDetail(refusal, workerResult).slice(0, MAX_FAILURE_DETAIL_BYTES)
   const provenance = await computeHostPromptProvenance(lane.id, workerDirectory)
   let assertion: Record<string, unknown>
   try {
@@ -1392,8 +1482,10 @@ async function completeWorkerSession(
   // dispatch authorized. The sanitized export cannot carry that check — the
   // host sanitizer redacts every text part — so the opening prompt is read
   // from its own unsanitized export and compared byte-for-byte.
-  let opened: { exitCode: number; stdout: string; stderr: string }
-  try { opened = await readbackRunner.run([binary, "export", workerSessionID], "", signal) } catch (error) {
+  const openingCommand = [binary, "export", workerSessionID]
+  const sanitizedCommand = [binary, "export", workerSessionID, "--sanitize"]
+  let opened: DispatchRunnerResult
+  try { opened = await readbackRunner.run(openingCommand, "", signal) } catch (error) {
     return errorEnvelope(lane, packet, "error", "error", String(error), "reconcile_operation")
   }
   if (opened.exitCode !== 0) {
@@ -1402,7 +1494,8 @@ async function completeWorkerSession(
       export_digest: sha256Digest(opened.stdout),
       export_bytes: Buffer.byteLength(opened.stdout),
       message: opened.stderr.slice(0, MAX_ERROR_BYTES) || "OpenCode session export failed without diagnostic output",
-    }, workerSessionID, workerDirectory, options, signal, onRecorded)
+      diagnostics: exportRefusalDiagnostics(openingCommand, opened),
+    }, workerSessionID, workerDirectory, resultBody, options, signal, onRecorded)
   }
   const opening = readExportOpeningPacket(opened.stdout, workerSessionID, packet)
   if (!opening.ok) {
@@ -1411,10 +1504,11 @@ async function completeWorkerSession(
       export_digest: sha256Digest(opened.stdout),
       export_bytes: Buffer.byteLength(opened.stdout),
       message: opening.message,
-    }, workerSessionID, workerDirectory, options, signal, onRecorded)
+      diagnostics: exportRefusalDiagnostics(openingCommand, opened),
+    }, workerSessionID, workerDirectory, resultBody, options, signal, onRecorded)
   }
-  let exported: { exitCode: number; stdout: string; stderr: string }
-  try { exported = await readbackRunner.run([binary, "export", workerSessionID, "--sanitize"], "", signal) } catch (error) {
+  let exported: DispatchRunnerResult
+  try { exported = await readbackRunner.run(sanitizedCommand, "", signal) } catch (error) {
     return errorEnvelope(lane, packet, "error", "error", String(error), "reconcile_operation")
   }
   if (exported.exitCode !== 0) {
@@ -1423,11 +1517,18 @@ async function completeWorkerSession(
       export_digest: sha256Digest(exported.stdout),
       export_bytes: Buffer.byteLength(exported.stdout),
       message: exported.stderr.slice(0, MAX_ERROR_BYTES) || "OpenCode session export failed without diagnostic output",
-    }, workerSessionID, workerDirectory, options, signal, onRecorded)
+      diagnostics: exportRefusalDiagnostics(sanitizedCommand, exported),
+    }, workerSessionID, workerDirectory, resultBody, options, signal, onRecorded)
   }
   const readbackResult = readExportSession(exported.stdout, workerSessionID)
   if (!readbackResult.ok) {
-    return refuseWorkerReadback(lane, packet, readbackResult, workerSessionID, workerDirectory, options, signal, onRecorded)
+    return refuseWorkerReadback(lane, packet, {
+      predicate: readbackResult.predicate,
+      export_digest: readbackResult.export_digest,
+      export_bytes: readbackResult.export_bytes,
+      message: readbackResult.message,
+      diagnostics: exportRefusalDiagnostics(sanitizedCommand, exported),
+    }, workerSessionID, workerDirectory, resultBody, options, signal, onRecorded)
   }
   const readback = readbackResult.metadata
   // The adapter names the lane executor; the host owns which model executes

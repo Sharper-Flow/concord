@@ -5,7 +5,7 @@ import fs from "node:fs"
 import * as os from "node:os"
 import path from "node:path"
 import { agentLanes } from "./generated-agent-lanes"
-import { completeWorkerAttempt, computeHostPromptProvenance, concordBinaryPath, configureCoreBinary, defaultExportRunner, dispatchWorker, MAX_EXPORT_BYTES, readExportOpeningPacket, readExportSession, readExportSessionMetadata, readRunSessionMetadata, resolveCoreBinary, validateAgentLanePacket, type AgentLanePacket, type CanonicalLaneReport, type DispatchAuthorizer, type DispatchRunner } from "./dispatch"
+import { boundedTextPrefix, completeWorkerAttempt, computeHostPromptProvenance, concordBinaryPath, configureCoreBinary, defaultExportRunner, defaultRunner, dispatchWorker, MAX_EXPORT_BYTES, readExportOpeningPacket, readExportSession, readExportSessionMetadata, readRunSessionMetadata, resolveCoreBinary, validateAgentLanePacket, type AgentLanePacket, type CanonicalLaneReport, type DispatchAuthorizer, type DispatchRunner } from "./dispatch"
 
 // Fake-runner suite: bind worker-evidence CLI calls to a nominal core path
 // instead of the unstamped repository placeholder (CD-0111 D1).
@@ -468,6 +468,134 @@ test("readback refusal is typed and does not change valid completion", async () 
   const accepted = await complete(workerBody())
   expect(accepted.outcome).toBe("ok")
   expect(accepted.readback_model).toBe(READBACK_MODEL)
+})
+
+// A refused readback stays terminal, but the corrupt export it refused and the
+// work the lane produced are retained: the recorded failed attempt carries the
+// command, the wait status, the terminating signal, and bounded prefixes of
+// both bodies, so the store alone is enough to diagnose and recover.
+test("a refused readback retains export diagnostics on the recorded failed attempt", async () => {
+  const calls: string[] = []
+  const corrupt = '{"info":'
+  const result = await complete(workerBody(), {
+    readbackRunner: { async run(argv) {
+      if (argv[1] === "session") return { exitCode: 0, stdout: sessionIndex(), stderr: "" }
+      if (argv.includes("--sanitize")) return { exitCode: 0, stdout: corrupt, stderr: "" }
+      return { exitCode: 0, stdout: exportedSession(), stderr: "" }
+    } },
+    evidenceRunner: { async run(argv, input) { calls.push(input); return { exitCode: 0, stdout: "", stderr: "" } } },
+  })
+  expect(result.outcome).toBe("error")
+  expect(result.error?.kind).toBe("readback_refusal")
+  expect(calls.map((input) => JSON.parse(input).terminal)).toEqual(["failed"])
+  const detail = JSON.parse(calls[0]).terminal_detail as string
+  expect(detail).toContain("readback predicate export_json refused")
+  expect(detail).toContain(`export_digest sha256:${createHash("sha256").update(corrupt, "utf8").digest("hex")}`)
+  expect(detail).toContain(`export_bytes ${Buffer.byteLength(corrupt)}`)
+  expect(detail).toContain("command opencode export session-1 --sanitize")
+  expect(detail).toContain("exit_code 0")
+  expect(detail).toContain("signal_state none")
+  expect(detail).toContain(`export_body_prefix ${corrupt}`)
+  expect(Buffer.byteLength(detail, "utf8")).toBeLessThanOrEqual(4096)
+})
+
+test("a killed export retains the terminating signal in the failure diagnostic", async () => {
+  const calls: string[] = []
+  const result = await complete(workerBody(), {
+    readbackRunner: { async run(argv) {
+      if (argv[1] === "session") return { exitCode: 0, stdout: sessionIndex(), stderr: "" }
+      return { exitCode: 143, stdout: "", stderr: "killed", signal_state: "SIGTERM" }
+    } },
+    evidenceRunner: { async run(argv, input) { calls.push(input); return { exitCode: 0, stdout: "", stderr: "" } } },
+  })
+  expect(result.outcome).toBe("error")
+  expect(result.error?.predicate).toBe("export_command")
+  const detail = JSON.parse(calls[0]).terminal_detail as string
+  expect(detail).toContain("command opencode export session-1")
+  expect(detail).toContain("exit_code 143")
+  expect(detail).toContain("signal_state SIGTERM")
+})
+
+test("a refused readback preserves the completed work it would have carried", async () => {
+  const calls: string[] = []
+  // The completion window owns the unwrapped worker text, so that is the work
+  // the refusal must preserve.
+  const carried = JSON.stringify(report())
+  const result = await complete(taskWrap(carried), {
+    readbackRunner: { async run(argv) {
+      if (argv[1] === "session") return { exitCode: 0, stdout: sessionIndex(), stderr: "" }
+      return { exitCode: 0, stdout: "not-json", stderr: "" }
+    } },
+    evidenceRunner: { async run(argv, input) { calls.push(input); return { exitCode: 0, stdout: "", stderr: "" } } },
+  })
+  expect(result.outcome).toBe("error")
+  expect(result.error?.kind).toBe("readback_refusal")
+  expect(result.error?.retry_safe).toBe(false)
+  // The work rides out the refusal on the envelope and on the durable record.
+  expect(result.output).toBe(carried)
+  expect(JSON.parse(calls[0]).terminal_detail).toContain(`worker_result_prefix ${carried}`)
+  // The refusal stays terminal: one failed dispatch, no completion evidence.
+  expect(calls).toHaveLength(1)
+  expect(JSON.parse(calls[0]).terminal).toBe("failed")
+  expect(JSON.parse(calls[0]).readback_model).toBe("")
+})
+
+test("the retained worker result prefix stays inside the failure detail bound", async () => {
+  const calls: string[] = []
+  const result = await complete(taskWrap("x".repeat(20_000)), {
+    readbackRunner: { async run(argv) {
+      if (argv[1] === "session") return { exitCode: 0, stdout: sessionIndex(), stderr: "" }
+      return { exitCode: 0, stdout: "not-json", stderr: "" }
+    } },
+    evidenceRunner: { async run(argv, input) { calls.push(input); return { exitCode: 0, stdout: "", stderr: "" } } },
+  })
+  expect(result.outcome).toBe("error")
+  // The envelope carries the whole body; the store record retains the prefix.
+  expect(result.output).toBe("x".repeat(20_000))
+  const detail = JSON.parse(calls[0]).terminal_detail as string
+  expect(detail).toContain(`worker_result_prefix ${"x".repeat(1536)}`)
+  expect(detail).not.toContain("x".repeat(1537))
+  expect(Buffer.byteLength(detail, "utf8")).toBeLessThanOrEqual(4096)
+})
+
+// Fail-closed is unchanged: the refused sanitized export is never completed
+// from a second read. Exactly one sanitized export runs, and the attempt ends
+// in the typed refusal with no retry and no alternate readback source.
+test("a corrupt sanitized export is never completed from a second read", async () => {
+  const sanitized: string[][] = []
+  const result = await complete(workerBody(), {
+    readbackRunner: { async run(argv) {
+      if (argv[1] === "session") return { exitCode: 0, stdout: sessionIndex(), stderr: "" }
+      if (argv.includes("--sanitize")) { sanitized.push(argv); return { exitCode: 0, stdout: "not-json", stderr: "" } }
+      return { exitCode: 0, stdout: exportedSession(), stderr: "" }
+    } },
+  })
+  expect(result.outcome).toBe("error")
+  expect(result.error?.predicate).toBe("export_json")
+  expect(result.error?.retry_safe).toBe(false)
+  expect(sanitized).toEqual([["opencode", "export", "session-1", "--sanitize"]])
+})
+
+test("defaultExportRunner and defaultRunner report the terminating signal", async () => {
+  const killedExport = await defaultExportRunner.run(["sh", "-c", "kill -TERM $$"], "", SIGNAL)
+  expect(killedExport.signal_state).toBe("SIGTERM")
+  expect(killedExport.exitCode).not.toBe(0)
+  const cleanExport = await defaultExportRunner.run(["sh", "-c", "exit 0"], "", SIGNAL)
+  expect(cleanExport.exitCode).toBe(0)
+  expect(cleanExport.signal_state).toBeNull()
+  const killed = await defaultRunner.run(["sh", "-c", "kill -TERM $$"], "", SIGNAL)
+  expect(killed.signal_state).toBe("SIGTERM")
+  const clean = await defaultRunner.run(["sh", "-c", "exit 0"], "", SIGNAL)
+  expect(clean.exitCode).toBe(0)
+  expect(clean.signal_state).toBeNull()
+})
+
+test("boundedTextPrefix cuts on a UTF-8 boundary and under the bound", () => {
+  const text = `${"x".repeat(10)}${"é".repeat(5)}`
+  expect(Buffer.byteLength(text, "utf8")).toBe(20)
+  expect(boundedTextPrefix(text, 11)).toBe("x".repeat(10))
+  expect(boundedTextPrefix(text, 12)).toBe(`${"x".repeat(10)}é`)
+  expect(boundedTextPrefix("short", 100)).toBe("short")
 })
 
 // CD-0102 completion identity: a worker session that did not open with the

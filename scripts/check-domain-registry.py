@@ -24,6 +24,8 @@ The checks:
   D5  every relation target resolves, is not the Domain itself, and every
       governing_law_ids entry names a current law record
   D2  the root Domain has no parent and every child parents to the root
+  CD-0158 D2  every Domain in a registry with two or more Domains participates
+              in at least one relation as a source or target
 
 The subject set comes from the aggregate manifest rather than the registry
 shard, so a Domain cannot escape the emptiness check by being declared only in
@@ -32,6 +34,7 @@ agreement separately.
 """
 from __future__ import annotations
 
+import argparse
 import json
 import sys
 from pathlib import Path
@@ -40,25 +43,27 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 import knowledge_index  # noqa: E402
 
-def report(findings: list[str], subject: str) -> int:
+def report(findings: list[str], subject: str, blocking: list[str] | None = None) -> int:
+    blocking = findings if blocking is None else blocking
     if findings:
-        print(f"{subject} check failed: {len(findings)} finding(s)")
+        state = "failed" if blocking else "passed with advisory findings"
+        print(f"{subject} check {state}: {len(findings)} finding(s)")
         for finding in findings:
             print(f"  {finding}")
-        return 1
+        return 1 if blocking else 0
     print(f"{subject} check passed")
     return 0
 
 
-def main() -> int:
+def validate(root: Path) -> tuple[list[str], list[str]]:
     findings: list[str] = []
     try:
-        manifest = knowledge_index.compose_manifest(ROOT)
+        manifest = knowledge_index.compose_manifest(root)
     except knowledge_index.ComposeError as exc:
-        return report(list(exc.findings), "domain registry")
+        return list(exc.findings), []
     registry = manifest.get("domain_registry")
     if not isinstance(registry, dict):
-        return report(["docs/knowledge: no domain_registry"], "domain registry")
+        return ["docs/knowledge: no domain_registry"], []
 
     root_id = registry.get("root_domain_id")
     domains = registry.get("domains", [])
@@ -98,6 +103,7 @@ def main() -> int:
                     "applicability does not create another owner (CD-0041 D3)"
                 )
 
+    participating: set[str] = set()
     for domain in domains:
         domain_id = domain.get("domain_id")
         prefix = f"domain {domain_id}"
@@ -117,7 +123,10 @@ def main() -> int:
 
         for position, relation in enumerate(domain.get("architecture_relations", [])):
             anchor = f"{prefix} relation {position}"
+            participating.add(domain_id)
             target = relation.get("target_domain_id")
+            if target in declared:
+                participating.add(target)
             if target not in declared:
                 findings.append(f"{anchor}: target {target!r} is not a declared Domain")
             if target == domain_id:
@@ -128,7 +137,28 @@ def main() -> int:
                         f"{anchor}: governing_law_ids names {law_id!r}, which is not a current law record"
                     )
 
-    return report(findings, "domain registry")
+    participation_findings: list[str] = []
+    if len(declared) > 1:
+        for domain_id in sorted(declared):
+            if domain_id not in participating:
+                participation_findings.append(
+                    f"domain {domain_id}: declared but participates in no architecture relation; "
+                    "a registry with multiple Domains must name each Domain as a relation source or target (CD-0158 D2)"
+                )
+
+    return findings, participation_findings
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("--strict", action="store_true", help="fail when a Domain does not participate in a relation")
+    parser.add_argument("--root", type=Path, default=ROOT, help="repository root")
+    args = parser.parse_args()
+
+    findings, participation_findings = validate(args.root.resolve())
+    all_findings = findings + participation_findings
+    blocking = findings + (participation_findings if args.strict else [])
+    return report(all_findings, "domain registry", blocking)
 
 
 if __name__ == "__main__":

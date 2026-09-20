@@ -1144,9 +1144,12 @@ async function executeWorkerAbandon(args: HostToolArgs, context: ToolContext): P
 export async function moveSessionToClaimedWorktree(args: HostToolArgs, context: ToolContext, envelope: HostConcordEnvelope): Promise<HostConcordEnvelope> {
   if (args?.operation !== "worktree_claim") return envelope
   if (!record(envelope) || envelope.outcome !== "ok") return envelope
-  const path = args?.input?.path
-  if (typeof path !== "string" || path.length === 0) return envelope
   const requestID = `${context.sessionID}-${context.messageID}`
+  const result = envelope.result
+  const path = record(result) ? result.path : undefined
+  if (typeof path !== "string" || !path.startsWith("/")) {
+    return adapterError("concord_work_transition", "worktree_claim", requestID, "malformed_response", "claim_destination_unreadable", "core worktree_claim response did not carry an absolute derived destination", "none", "retry_same_request")
+  }
   try {
     await ensureConductLink(path, context.abort)
     await hostControlPlane().moveSession(context.sessionID, path, context.abort)

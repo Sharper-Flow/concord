@@ -64,7 +64,6 @@ func TestSessionVacateRepeatsWithinOneSession(t *testing.T) {
 	first := filepath.Join(filepath.Dir(s.Path()), "worktrees", "project-1", "work-1")
 	second := filepath.Join(filepath.Dir(s.Path()), "worktrees", "project-1", "work-2")
 	claim("work-1", first, "work/vacate-1", "claim-vacate-1")
-	claim("work-2", second, "work/vacate-2", "claim-vacate-2")
 
 	if response := vacate(first, "vacate-key-1"); response.Outcome != OutcomeOK {
 		t.Fatalf("first vacate response=%+v error=%+v", response, response.Error)
@@ -72,6 +71,10 @@ func TestSessionVacateRepeatsWithinOneSession(t *testing.T) {
 	if response := vacate(first, "vacate-key-1"); response.Outcome != OutcomeOK || !response.Replayed {
 		t.Fatalf("same-key vacate retry response=%+v error=%+v", response, response.Error)
 	}
+
+	// The second claim follows the first vacate, because a claim refuses while
+	// the calling session still occupies another active worktree.
+	claim("work-2", second, "work/vacate-2", "claim-vacate-2")
 
 	// One session vacates a second linked worktree after the first. This is a
 	// different relocation, so it records its own event rather than colliding

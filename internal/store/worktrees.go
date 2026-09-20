@@ -358,6 +358,12 @@ func claimWorktreeRawTx(ctx context.Context, tx *sql.Tx, dataPath string, req Wo
 	if !worktreeSHAPattern.MatchString(req.BaseSHA) {
 		return out, newFailure(KindInvalidOperation, "worktree_claim", "base is not a full commit SHA", false, "pin the exact base commit SHA")
 	}
+	if err := validateWorktreeProjectMembershipTx(ctx, tx, req.WorkID, req.ProjectID, "worktree_claim"); err != nil {
+		return out, err
+	}
+	if err := refuseWhenSessionOccupiesAnotherWorktreeTx(ctx, tx, req.SessionRef, WorktreeSetID(req.WorkID), req.ProjectID); err != nil {
+		return out, err
+	}
 	runner := req.Runner
 	if runner == nil {
 		runner = ExecGitRunner{}
@@ -634,6 +640,9 @@ func reclaimWorktreeRawTx(ctx context.Context, tx *sql.Tx, req WorktreeReclaimRe
 	if req.WorkID == "" || req.ProjectID == "" || req.PrincipalRef == "" || req.RequestID == "" {
 		return out, newFailure(KindInvalidOperation, "worktree_reclaim", "reclaim operation is missing identity fields", false, "supply work, project, principal, and request ids")
 	}
+	if err := validateWorktreeProjectMembershipTx(ctx, tx, req.WorkID, req.ProjectID, "worktree_reclaim"); err != nil {
+		return out, err
+	}
 	runner := req.Runner
 	if runner == nil {
 		runner = ExecGitRunner{}
@@ -817,12 +826,63 @@ func reclaimWorktreeRawTx(ctx context.Context, tx *sql.Tx, req WorktreeReclaimRe
 	return worktreeEntryAfterReclaimTx(ctx, tx, req.WorkID, req.ProjectID)
 }
 
-// occupyingSession reports the first observed session whose directory is the
-// worktree or sits beneath it. The comparison is lexical on cleaned absolute
-// paths: the worktree directory still exists at this point, but an observed
-// session directory need not, so resolving symlinks here would refuse on the
-// filesystem rather than on the question asked. The separator test keeps a
-// sibling that merely shares a name prefix out of the match.
+func validateWorktreeProjectMembershipTx(ctx context.Context, tx *sql.Tx, workID, projectID, operation string) error {
+	var member bool
+	if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM work_projects WHERE work_id=? AND project_id=?)`, workID, projectID).Scan(&member); err != nil {
+		return wrapFailure(KindUnavailable, operation, "cannot read work Project membership", true, "retry once the database is readable", err)
+	}
+	if !member {
+		return newFailure(KindUnknownScope, operation, "work item does not hold Project "+projectID, false, "use a Project the work item belongs to")
+	}
+	return nil
+}
+
+func releaseSessionWorktreeOccupancyTx(ctx context.Context, tx *sql.Tx, operation, workID, projectID, sourceDirectory, sessionRef string) error {
+	var occupant string
+	err := tx.QueryRowContext(ctx, `SELECT occupant_session_ref FROM worktree_entries WHERE set_id=? AND project_id=? AND path=? AND state='active'`, WorktreeSetID(workID), projectID, filepath.Clean(sourceDirectory)).Scan(&occupant)
+	if err == sql.ErrNoRows {
+		return newFailure(KindProjectionNotFound, operation, "the worktree is not active", false, "use the active linked worktree")
+	}
+	if err != nil {
+		return err
+	}
+	if occupant == "" {
+		return nil
+	}
+	if occupant != sessionRef {
+		return newFailure(KindWorktreeOwnershipConflict, operation, "session vacate does not own the recorded worktree occupancy", false, "release the worktree from the session recorded as the occupant")
+	}
+	_, err = tx.ExecContext(ctx, `UPDATE worktree_entries SET occupant_session_ref='' WHERE set_id=? AND project_id=? AND path=? AND state='active' AND occupant_session_ref=?`, WorktreeSetID(workID), projectID, filepath.Clean(sourceDirectory), sessionRef)
+	return err
+}
+
+// refuseWhenSessionOccupiesAnotherWorktreeTx keeps the occupancy projection
+// truthful across the claim. occupant_session_ref is the sole authority for the
+// removal gate, and a claim cannot clear it safely: the clear would commit with
+// this transaction, while the host relocation that makes it true runs afterwards
+// and outside it. A refused relocation would then leave a live session in a
+// directory recorded as empty, which is the stranding the gate exists to
+// prevent. The claim refuses instead, and session_vacate stays the only route
+// that clears occupancy, because it clears only after its own move lands.
+func refuseWhenSessionOccupiesAnotherWorktreeTx(ctx context.Context, tx *sql.Tx, sessionRef, destinationSetID, destinationProjectID string) error {
+	if sessionRef == "" {
+		return nil
+	}
+	hasOccupancy, err := worktreeOccupancyColumnAvailable(ctx, tx)
+	if err != nil || !hasOccupancy {
+		return err
+	}
+	var occupiedPath string
+	err = tx.QueryRowContext(ctx, `SELECT path FROM worktree_entries WHERE state='active' AND occupant_session_ref=? AND NOT (set_id=? AND project_id=?) ORDER BY path LIMIT 1`, sessionRef, destinationSetID, destinationProjectID).Scan(&occupiedPath)
+	if err == sql.ErrNoRows {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	return newFailure(KindWorktreeOwnershipConflict, "worktree_claim", fmt.Sprintf("the calling session still occupies another active worktree at %s", occupiedPath), false, "vacate the occupied worktree with session_vacate before claiming another")
+}
+
 // worktreeRepoRootTx resolves the repository to create from the Project's
 // canonical_path locator. It reads through the claim's own transaction; the
 // outer write lock makes a second connection's read deadlock on SQLite's

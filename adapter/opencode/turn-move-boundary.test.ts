@@ -26,7 +26,8 @@ const successfulEnvelope = (destination = "/destination") => ({
   result: { destination_directory: destination },
 }) as any
 
-const claimArgs = (path: string) => ({ operation: "worktree_claim", input: { work_id: "work-1", path } }) as any
+const successfulClaimEnvelope = (path = "/destination") => ({ schema_version: "1.0", outcome: "ok", result: { path } }) as any
+const claimArgs = () => ({ operation: "worktree_claim", input: { work_id: "work-1" } }) as any
 const vacateArgs = () => ({ operation: "session_vacate", input: { idempotency_key: "vacate-1" } }) as any
 
 let plugin: any
@@ -91,23 +92,23 @@ describe("same-turn session move boundary", () => {
 
   test("arms only after a successful cross-directory worktree claim", async () => {
     bindMoveRoutes("/claimed")
-    const result = await moveSessionToClaimedWorktree(claimArgs("/claimed"), context(), successfulEnvelope())
+    const result = await moveSessionToClaimedWorktree(claimArgs(), context(), successfulClaimEnvelope("/claimed"))
     expect(result.outcome).toBe("ok")
     await expectQuestionBlocked()
 
     clearTurnMoveBoundary(sessionID)
     bindMoveRoutes("/origin")
-    await moveSessionToClaimedWorktree(claimArgs("/origin"), context("/origin"), successfulEnvelope("/origin"))
+    await moveSessionToClaimedWorktree(claimArgs(), context("/origin"), successfulClaimEnvelope("/origin"))
     await expectQuestionAllowed()
   })
 
   test("does not arm after a refused or mismatched claim", async () => {
     bindMoveRoutes("/claimed", { moveStatus: 409 })
-    expect((await moveSessionToClaimedWorktree(claimArgs("/claimed"), context(), successfulEnvelope())).outcome).toBe("error")
+    expect((await moveSessionToClaimedWorktree(claimArgs(), context(), successfulClaimEnvelope())).outcome).toBe("error")
     await expectQuestionAllowed()
 
     bindMoveRoutes("/claimed", { landed: "/other" })
-    expect((await moveSessionToClaimedWorktree(claimArgs("/claimed"), context(), successfulEnvelope())).outcome).toBe("error")
+    expect((await moveSessionToClaimedWorktree(claimArgs(), context(), successfulClaimEnvelope())).outcome).toBe("error")
     await expectQuestionAllowed()
   })
 

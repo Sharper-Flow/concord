@@ -18,9 +18,9 @@ const sha256 = (text: string): string => createHash("sha256").update(text).diges
 const context = (overrides: Partial<Parameters<typeof moveSessionToClaimedWorktree>[1]> = {}) =>
   ({ sessionID: "session-1", messageID: "message-1", abort: new AbortController().signal, directory: "/old", ...overrides }) as Parameters<typeof moveSessionToClaimedWorktree>[1]
 
-const claimArgs = (path: string) => ({ operation: "worktree_claim", input: { work_id: "work-1", path } }) as Parameters<typeof moveSessionToClaimedWorktree>[0]
+const claimArgs = () => ({ operation: "worktree_claim", input: { work_id: "work-1" } }) as Parameters<typeof moveSessionToClaimedWorktree>[0]
 
-const okEnvelope = () => ({ schema_version: "1.0", outcome: "ok" }) as Parameters<typeof moveSessionToClaimedWorktree>[2]
+const okEnvelope = (path = "/claimed") => ({ schema_version: "1.0", outcome: "ok", result: { path } }) as Parameters<typeof moveSessionToClaimedWorktree>[2]
 
 async function fakeHost(handlers: { post?: (url: string, body: any) => { status: number; body: any }; get?: (url: string) => { status: number; body: any } }) {
   const raw = {
@@ -44,7 +44,7 @@ afterEach(async () => {
 describe("worktree_claim moves the session into the claimed worktree", () => {
   test("returns the successful envelope when the session lands in the claimed path", async () => {
     await fakeHost({})
-    const envelope = await moveSessionToClaimedWorktree(claimArgs("/claimed"), context(), okEnvelope())
+    const envelope = await moveSessionToClaimedWorktree(claimArgs(), context(), okEnvelope())
     expect(envelope.outcome).toBe("ok")
   })
 
@@ -54,7 +54,7 @@ describe("worktree_claim moves the session into the claimed worktree", () => {
   test("arms the session's claimed worktree once the landing is confirmed", async () => {
     await fakeHost({})
     try {
-      const envelope = await moveSessionToClaimedWorktree(claimArgs("/claimed"), context(), okEnvelope())
+      const envelope = await moveSessionToClaimedWorktree(claimArgs(), context(), okEnvelope())
       expect(envelope.outcome).toBe("ok")
       expect(armedClaimedWorktree("session-1")).toBe("/claimed")
     } finally {
@@ -66,7 +66,7 @@ describe("worktree_claim moves the session into the claimed worktree", () => {
   test("arms nothing when the landing mismatch refuses", async () => {
     await fakeHost({ get: () => ({ status: 200, body: { directory: "/elsewhere" } }) })
     try {
-      const envelope = await moveSessionToClaimedWorktree(claimArgs("/claimed"), context(), okEnvelope())
+      const envelope = await moveSessionToClaimedWorktree(claimArgs(), context(), okEnvelope())
       expect(envelope.outcome).toBe("error")
       expect(armedClaimedWorktree("session-1")).toBeNull()
     } finally {
@@ -82,9 +82,9 @@ describe("worktree_claim moves the session into the claimed worktree", () => {
       await mkdir(join(worktree, ".git"))
       await mkdir(join(worktree, ".opencode"), { recursive: true })
       await Bun.write(config, '{\n  "instructions": []\n}\n')
-      await fakeHost({ get: () => ({ status: 200, body: { directory: worktree } }) })
+      await fakeHost({ get: () => ({ status: 200, body: { directory: resolve(worktree) } }) })
 
-      const envelope = await moveSessionToClaimedWorktree(claimArgs(worktree), context(), okEnvelope())
+      const envelope = await moveSessionToClaimedWorktree(claimArgs(), context(), okEnvelope(resolve(worktree)))
 
       expect(envelope.outcome).toBe("ok")
       expect(JSON.parse(await Bun.file(config).text())).toEqual({ instructions: ["current/instructions/*.md"] })
@@ -103,9 +103,9 @@ describe("worktree_claim moves the session into the claimed worktree", () => {
       await mkdir(join(worktree, ".git"))
       await mkdir(join(worktree, ".opencode"), { recursive: true })
       await Bun.write(config, '{\n  "theme": "dark",\n}\n')
-      await fakeHost({ get: () => ({ status: 200, body: { directory: worktree } }) })
+      await fakeHost({ get: () => ({ status: 200, body: { directory: resolve(worktree) } }) })
 
-      const envelope = await moveSessionToClaimedWorktree(claimArgs(worktree), context(), okEnvelope())
+      const envelope = await moveSessionToClaimedWorktree(claimArgs(), context(), okEnvelope(resolve(worktree)))
 
       expect(envelope.outcome).toBe("ok")
       const text = await Bun.file(config).text()
@@ -225,9 +225,9 @@ describe("worktree_claim moves the session into the claimed worktree", () => {
       await mkdir(join(worktree, ".git"))
       await mkdir(join(worktree, ".opencode"), { recursive: true })
       await Bun.write(config, '{\n  "description": "https://example.test//instructions",\n  "comment-text": "/* not a comment */",\n  "decoy": [],\n  "instructions" // comment one\n  /* comment two */ : [\n    "/operator/rules.md"\n  ]\n}\n')
-      await fakeHost({ get: () => ({ status: 200, body: { directory: worktree } }) })
+      await fakeHost({ get: () => ({ status: 200, body: { directory: resolve(worktree) } }) })
 
-      const envelope = await moveSessionToClaimedWorktree(claimArgs(worktree), context(), okEnvelope())
+      const envelope = await moveSessionToClaimedWorktree(claimArgs(), context(), okEnvelope(resolve(worktree)))
 
       expect(envelope.outcome).toBe("ok")
       const linked = await Bun.file(config).text()
@@ -245,9 +245,9 @@ describe("worktree_claim moves the session into the claimed worktree", () => {
     const config = join(worktree, ".opencode", "opencode.json")
     try {
       await mkdir(join(worktree, ".git"))
-      await fakeHost({ get: () => ({ status: 200, body: { directory: worktree } }) })
+      await fakeHost({ get: () => ({ status: 200, body: { directory: resolve(worktree) } }) })
 
-      const envelope = await moveSessionToClaimedWorktree(claimArgs(worktree), context(), okEnvelope())
+      const envelope = await moveSessionToClaimedWorktree(claimArgs(), context(), okEnvelope(resolve(worktree)))
 
       expect(envelope.outcome).toBe("ok")
       const ownership = JSON.parse(await Bun.file("project-link-ownership.json").text()) as { links: Record<string, { action: string; scope: string }> }
@@ -266,8 +266,8 @@ describe("worktree_claim moves the session into the claimed worktree", () => {
       await mkdir(join(worktree, ".opencode"), { recursive: true })
       const original = '{\n  "theme": "dark"\n}\n'
       await Bun.write(config, original)
-      await fakeHost({ get: () => ({ status: 200, body: { directory: worktree } }) })
-      expect((await moveSessionToClaimedWorktree(claimArgs(worktree), context(), okEnvelope())).outcome).toBe("ok")
+      await fakeHost({ get: () => ({ status: 200, body: { directory: resolve(worktree) } }) })
+      expect((await moveSessionToClaimedWorktree(claimArgs(), context(), okEnvelope(resolve(worktree)))).outcome).toBe("ok")
       const linked = await Bun.file(config).text()
       await Bun.write(config, '{\n  "theme": "light"\n}\n')
 
@@ -294,9 +294,9 @@ describe("worktree_claim moves the session into the claimed worktree", () => {
       await mkdir(join(worktree, ".opencode"), { recursive: true })
       await Bun.write(config, updated)
       await Bun.write("project-link-pending.json", JSON.stringify({ schema: 1, links: { [resolve(config)]: { action: "remove", before: null, original: null, updated, scope: "worktree" } } }) + "\n")
-      await fakeHost({ get: () => ({ status: 200, body: { directory: worktree } }) })
+      await fakeHost({ get: () => ({ status: 200, body: { directory: resolve(worktree) } }) })
 
-      const envelope = await moveSessionToClaimedWorktree(claimArgs(worktree), context(), okEnvelope())
+      const envelope = await moveSessionToClaimedWorktree(claimArgs(), context(), okEnvelope(resolve(worktree)))
 
       expect(envelope.outcome).toBe("ok")
       const ownership = JSON.parse(await Bun.file("project-link-ownership.json").text()) as { links: Record<string, { action: string; scope: string }> }
@@ -359,9 +359,9 @@ describe("worktree_claim moves the session into the claimed worktree", () => {
       await mkdir(join(worktree, ".opencode"), { recursive: true })
       await Bun.write(outside, '{"keep":true}\n')
       await symlink(`${outside}/missing`, config)
-      await fakeHost({ get: () => ({ status: 200, body: { directory: worktree } }) })
+      await fakeHost({ get: () => ({ status: 200, body: { directory: resolve(worktree) } }) })
 
-      const envelope = await moveSessionToClaimedWorktree(claimArgs(worktree), context(), okEnvelope())
+      const envelope = await moveSessionToClaimedWorktree(claimArgs(), context(), okEnvelope(resolve(worktree)))
 
       expect(envelope.outcome).toBe("error")
       if (envelope.outcome === "error") expect((envelope.error as { message?: string }).message).toContain("symlink")
@@ -380,9 +380,9 @@ describe("worktree_claim moves the session into the claimed worktree", () => {
     try {
       await mkdir(join(outside, ".git"))
       await symlink(resolve(outside), worktree)
-      await fakeHost({ get: () => ({ status: 200, body: { directory: worktree } }) })
+      await fakeHost({ get: () => ({ status: 200, body: { directory: resolve(worktree) } }) })
 
-      const envelope = await moveSessionToClaimedWorktree(claimArgs(worktree), context(), okEnvelope())
+      const envelope = await moveSessionToClaimedWorktree(claimArgs(), context(), okEnvelope(resolve(worktree)))
 
       expect(envelope.outcome).toBe("error")
       if (envelope.outcome === "error") expect((envelope.error as { message?: string }).message).toContain("outside the managed worktree root")
@@ -395,7 +395,7 @@ describe("worktree_claim moves the session into the claimed worktree", () => {
 
   test("refuses when the host lands the session elsewhere", async () => {
     await fakeHost({ get: () => ({ status: 200, body: { directory: "/somewhere-else" } }) })
-    const envelope = await moveSessionToClaimedWorktree(claimArgs("/claimed"), context(), okEnvelope())
+    const envelope = await moveSessionToClaimedWorktree(claimArgs(), context(), okEnvelope())
     expect(envelope.outcome).toBe("error")
     if (envelope.outcome === "error") {
       const error = envelope.error as { adapter_reason?: string; recovery_action?: { kind?: string }; message?: string }
@@ -407,7 +407,7 @@ describe("worktree_claim moves the session into the claimed worktree", () => {
 
   test("refuses with the host's own words when the move is rejected", async () => {
     await fakeHost({ post: () => ({ status: 409, body: { data: { message: "worktree /claimed is held by another session" } } }) })
-    const envelope = await moveSessionToClaimedWorktree(claimArgs("/claimed"), context(), okEnvelope())
+    const envelope = await moveSessionToClaimedWorktree(claimArgs(), context(), okEnvelope())
     expect(envelope.outcome).toBe("error")
     if (envelope.outcome === "error") {
       const error = envelope.error as { adapter_reason?: string; message?: string }
@@ -422,7 +422,7 @@ describe("worktree_claim moves the session into the claimed worktree", () => {
     const other = { operation: "lifecycle", input: { work_id: "work-1" } } as Parameters<typeof moveSessionToClaimedWorktree>[0]
     expect(await moveSessionToClaimedWorktree(other, context(), okEnvelope())).toEqual(okEnvelope())
     const refused = { schema_version: "1.0", outcome: "error", error: { kind: "version_conflict" } } as unknown as Parameters<typeof moveSessionToClaimedWorktree>[2]
-    expect(await moveSessionToClaimedWorktree(claimArgs("/claimed"), context(), refused)).toEqual(refused)
+    expect(await moveSessionToClaimedWorktree(claimArgs(), context(), refused)).toEqual(refused)
   })
 })
 

@@ -5140,6 +5140,34 @@
         }
       }
     },
+    "worktree_claim_result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "changed_refs",
+        "next_valid_intents",
+        "path"
+      ],
+      "properties": {
+        "changed_refs": {
+          "type": "array",
+          "maxItems": 32,
+          "items": {
+            "$ref": "#/$defs/mutation_changed_ref"
+          }
+        },
+        "next_valid_intents": {
+          "type": "array",
+          "maxItems": 16,
+          "items": {
+            "$ref": "#/$defs/next_valid_intent"
+          }
+        },
+        "path": {
+          "$ref": "#/$defs/absolute_path"
+        }
+      }
+    },
     "session_vacate_result": {
       "type": "object",
       "additionalProperties": false,

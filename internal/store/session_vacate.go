@@ -76,20 +76,5 @@ func foldSessionVacated(ctx context.Context, tx *sql.Tx, event Event) error {
 	if p.WorkID == "" || p.WorkID != event.SubjectID || p.ProjectID == "" || p.SessionRef == "" || p.SourceDirectory == "" {
 		return newFailure(KindInvalidPayload, "fold_event", "session vacated payload is missing required fields", false, "supply work, project, session, and source directory")
 	}
-	var occupant string
-	err := tx.QueryRowContext(ctx, `SELECT occupant_session_ref FROM worktree_entries WHERE set_id=? AND project_id=? AND path=? AND state='active'`, WorktreeSetID(p.WorkID), p.ProjectID, filepath.Clean(p.SourceDirectory)).Scan(&occupant)
-	if err == sql.ErrNoRows {
-		return newFailure(KindProjectionNotFound, "fold_event", "the vacated worktree is not active", false, "vacate the active linked worktree")
-	}
-	if err != nil {
-		return err
-	}
-	if occupant == "" {
-		return nil
-	}
-	if occupant != p.SessionRef {
-		return newFailure(KindWorktreeOwnershipConflict, "fold_event", "session vacate does not own the recorded worktree occupancy", false, "vacate from the session recorded as the occupant")
-	}
-	_, err = tx.ExecContext(ctx, `UPDATE worktree_entries SET occupant_session_ref='' WHERE set_id=? AND project_id=? AND path=? AND state='active' AND occupant_session_ref=?`, WorktreeSetID(p.WorkID), p.ProjectID, filepath.Clean(p.SourceDirectory), p.SessionRef)
-	return err
+	return releaseSessionWorktreeOccupancyTx(ctx, tx, "fold_event", p.WorkID, p.ProjectID, p.SourceDirectory, p.SessionRef)
 }

@@ -1040,7 +1040,7 @@
       "kind": "mutation",
       "query_id": null,
       "input_schema": "#/schemas/work_transition_worktree_claim_input",
-      "result_schema": "#/schemas/mutation_result",
+      "result_schema": "#/schemas/worktree_claim_result",
       "capability": "work_transition",
       "consequence": "lifecycle",
       "approval": "none",
@@ -1590,6 +1590,10 @@
       "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/mutation_result",
       "closed": true
     },
+    "worktree_claim_result": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/worktree_claim_result",
+      "closed": true
+    },
     "product_view_resolve_input": {
       "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/product_view_resolve_input",
       "closed": true
@@ -2035,6 +2039,6 @@
       "digest"
     ]
   },
-  "payload_digest": "sha256:c944f83c49226ae600befa93b3aa814c61eecef5ea078f3787cc01fb1a335b8b",
-  "digest": "sha256:9d8687aa97003d2b7280a2b7a6805d882c1cc9c3be5be6699219087904caacd4"
+  "payload_digest": "sha256:d1e222e1aa1cea407fbc2827b75ec7b7fd6bb2ef2b2c75bb07c55ba55a807003",
+  "digest": "sha256:4b0335488856479dc115661adb3f67d207c9d186419d4003ed93143a350f58f5"
 }

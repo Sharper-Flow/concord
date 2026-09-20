@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -290,6 +291,37 @@ func TestClaimWorktreeCreatesVerifiesAndFolds(t *testing.T) {
 	entries, err := s.WorktreeEntries(context.Background(), "work-w")
 	if err != nil || len(entries) != 1 || entries[0].State != worktreeEntryActive {
 		t.Fatalf("entries=%+v err=%v", entries, err)
+	}
+}
+
+func TestClaimWorktreeRefusesNonMemberProjectBeforeDurableWrite(t *testing.T) {
+	t.Parallel()
+	s, git, _ := worktreeFixture(t)
+	// The second Project is fully valid on its own: Product, membership, and a
+	// canonical-path locator over a registered repository root. The only thing
+	// missing is work-w's membership, so the refusal below names membership
+	// alone and not a missing locator or an unreachable repository.
+	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{locatorProductEvent("product-w2"), locatorProjectEvent("project-w2"), locatorMembershipEvent("product-w2", "project-w2")}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectProduct, "product-w2"): 0, VersionRef(SubjectProject, "project-w2"): 0}}); err != nil {
+		t.Fatal(err)
+	}
+	repo2 := t.TempDir()
+	git.addRepository(repo2)
+	if err := s.AddProjectLocator(context.Background(), "project-w2", ProjectLocator{ID: "path-w2", Kind: LocatorCanonicalPath, Value: repo2}, 1); err != nil {
+		t.Fatal(err)
+	}
+	req := baseClaim(git)
+	req.ProjectID = "project-w2"
+	_, err := s.ClaimWorktree(context.Background(), req)
+	var failure *Failure
+	if !errors.As(err, &failure) || failure.Kind != KindUnknownScope {
+		t.Fatalf("claim error=%v, want unknown scope", err)
+	}
+	var claims int
+	if err := s.db.QueryRow(`SELECT count(*) FROM worktree_claims`).Scan(&claims); err != nil {
+		t.Fatal(err)
+	}
+	if claims != 0 {
+		t.Fatalf("claims=%d, want no durable claim", claims)
 	}
 }
 

@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"encoding/json"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -261,5 +262,47 @@ func TestJoinRefusesLaneAtUnadmittedStepKind(t *testing.T) {
 	failure, ok = err.(*Failure)
 	if !ok || failure.Kind != KindUnauthorizedDispatch {
 		t.Fatalf("refusal = %v, want unauthorized_dispatch", err)
+	}
+	// The refused class alone leaves the caller to guess again. The refusal
+	// carries the classes this step kind does admit, so one read replaces the
+	// guess.
+	for _, admitted := range []string{"design", "implementation", "review", "verification"} {
+		if !strings.Contains(failure.Detail, admitted) {
+			t.Fatalf("refusal %q omits admitted class %q", failure.Detail, admitted)
+		}
+	}
+}
+
+func TestLaneStepDispatchClassesInvertsTheJoin(t *testing.T) {
+	t.Parallel()
+	// Each step kind exposes exactly the classes whose generated bindings
+	// name it, sorted by name.
+	got := LaneStepDispatchClasses(WorkflowStepExternalEffect)
+	want := []string{"design", "implementation", "review", "verification"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("external_effect admits %v, want %v", got, want)
+	}
+	got = LaneStepDispatchClasses(WorkflowStepInternalSQLite)
+	want = []string{"research", "review"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("internal_sqlite admits %v, want %v", got, want)
+	}
+	got = LaneStepDispatchClasses(WorkflowStepCrossAuthority)
+	want = []string{"research", "review"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("cross_authority admits %v, want %v", got, want)
+	}
+	if classes := LaneStepDispatchClasses(WorkflowStepHumanCheckpoint); len(classes) != 0 {
+		t.Fatalf("human_checkpoint admits %v, want none", classes)
+	}
+	// The inverse read agrees with the forward read for every class and kind.
+	for class := range laneStepDispatchKinds {
+		for _, kind := range []WorkflowStepKind{WorkflowStepInternalSQLite, WorkflowStepCrossAuthority, WorkflowStepExternalEffect, WorkflowStepHumanCheckpoint} {
+			allowed := LaneStepDispatchAllowed(class, kind)
+			contained := slices.Contains(LaneStepDispatchClasses(kind), class)
+			if allowed != contained {
+				t.Errorf("class %s at %s: allowed=%t, inverse read=%t", class, kind, allowed, contained)
+			}
+		}
 	}
 }

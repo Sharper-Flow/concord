@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
+	"sort"
 	"strings"
 	"sync"
 )
@@ -665,6 +666,25 @@ func LaneStepDispatchAllowed(capabilityClass string, kind WorkflowStepKind) bool
 		}
 	}
 	return false
+}
+
+// LaneStepDispatchClasses returns the lane capability classes the generated
+// lane-step dispatch join admits at a step of the given kind, sorted by name.
+// It is the inverse read of LaneStepDispatchAllowed: the dispatch refusal
+// carries this set so a refused caller reads the admitted lanes instead of
+// guessing at them.
+func LaneStepDispatchClasses(kind WorkflowStepKind) []string {
+	var classes []string
+	for class, kinds := range laneStepDispatchKinds {
+		for _, allowed := range kinds {
+			if WorkflowStepKind(allowed) == kind {
+				classes = append(classes, class)
+				break
+			}
+		}
+	}
+	sort.Strings(classes)
+	return classes
 }
 
 // withWorkerActions composes the current worker actions onto a shipped

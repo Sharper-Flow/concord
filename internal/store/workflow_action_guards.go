@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -877,7 +878,11 @@ func appendGenericWorkflowCompletion(in workflowActionAssemblyInput, attemptEpoc
 			return events, "", laneErr
 		}
 		if in.step != nil && !LaneStepDispatchAllowed(lane.CapabilityClass, in.step.Kind) {
-			return events, "", newFailure(KindUnauthorizedDispatch, "workflow_action", "lane capability class "+lane.CapabilityClass+" is not dispatchable at a "+string(in.step.Kind)+" step", false, "dispatch the lane at a step kind the lane-step dispatch join admits")
+			// The inverse read of the join turns the refusal into a read:
+			// the caller sees the classes this step kind admits and can
+			// pick one instead of guessing.
+			admitted := strings.Join(LaneStepDispatchClasses(in.step.Kind), ", ")
+			return events, "", newFailure(KindUnauthorizedDispatch, "workflow_action", "lane capability class "+lane.CapabilityClass+" is not dispatchable at a "+string(in.step.Kind)+" step; the step admits capability classes "+admitted, false, "dispatch the lane at a step kind the lane-step dispatch join admits")
 		}
 		if in.tx != nil {
 			if err := validateWorkerPacketCorrection(in.ctx, in.tx, in.request.WorkID, in.currentStep, packetRaw, in.request.EscalatedRetryApproved); err != nil {

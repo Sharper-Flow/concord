@@ -657,6 +657,23 @@ export function scanReportTexts(texts: string[]): WorkerReportScan {
 // report still receives identity exclusively from the authorized dispatch
 // packet, so whatever the worker echoes is discarded, not trusted.
 const DISPATCH_OWNED_REPORT_FIELDS = ["attempt_id", "lane_id", "lane_version", "lane_digest", "work_id", "step_id"] as const
+const MAX_REPORT_DETAIL_LENGTH = 512
+const TRUNCATED_REPORT_DETAIL_SUFFIX = " [truncated]"
+
+function normalizeWorkerReport(report: Record<string, unknown>): Record<string, unknown> {
+  if (!Array.isArray(report.evidence)) return report
+  let normalized = report.evidence
+  for (let index = 0; index < normalized.length; index++) {
+    const entry = normalized[index]
+    if (!isRecord(entry) || typeof entry.detail !== "string" || entry.detail.length <= MAX_REPORT_DETAIL_LENGTH) continue
+    if (normalized === report.evidence) normalized = [...normalized]
+    normalized[index] = {
+      ...entry,
+      detail: entry.detail.slice(0, MAX_REPORT_DETAIL_LENGTH - TRUNCATED_REPORT_DETAIL_SUFFIX.length) + TRUNCATED_REPORT_DETAIL_SUFFIX,
+    }
+  }
+  return normalized === report.evidence ? report : { ...report, evidence: normalized }
+}
 
 // admitWorkerReport is the CD-0056 D7 admission boundary. The model-authored
 // report carries worker-owned content only: dispatch-owned fields are stripped
@@ -672,11 +689,12 @@ function admitWorkerReport(scan: WorkerReportScan, packet: AgentLanePacket): { r
   }
   const stripped: Record<string, unknown> = { ...scan.report }
   for (const field of DISPATCH_OWNED_REPORT_FIELDS) delete stripped[field]
+  const normalized = normalizeWorkerReport(stripped)
   const failures: string[] = []
-  if (!validateAgentLaneReport(stripped, failures)) {
+  if (!validateAgentLaneReport(normalized, failures)) {
     return { detail: `worker report failed the closed agent-lane-report.v1 schema: ${failures[0] ?? "unknown field"}` }
   }
-  const admitted = stripped
+  const admitted = normalized
   const lane = laneForPacket(packet)
   if (!lane) return { detail: "worker report packet names an unregistered lane identity or digest" }
   if (admitted.status === "completed") {

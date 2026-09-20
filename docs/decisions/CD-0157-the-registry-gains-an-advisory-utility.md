@@ -2,6 +2,9 @@
 
 - **Status:** Accepted
 - **Date:** 2026-09-19
+- **Amended:** 2026-09-20. D4 reclassified the model self-report from a
+  control to a disclosure for post-hoc audit, and the Consequences bullet now
+  claims audit, not detection.
 - **Scope:** The closed utility registry; the generated advisory body and tool
   allowance; the installer agent file list; [Concord (CON) issue
   315](https://linear.app/sharper-flow/issue/CON-315/add-a-concord-advisor-utility-for-coordinator-second-opinions)
@@ -70,13 +73,33 @@ explicitly permitted and is not a failure.
 
 ### D4. The adviser states the model that served it
 
-The generated body requires the adviser to name its serving model in its output.
+The generated body requires the adviser to name its serving model in its
+output. Amended 2026-09-20: the self-report is a disclosure for post-hoc
+audit, not a control.
 
 Concord cannot enforce that the adviser and the caller differ in model family.
 The adapter admits the call at `tool.execute.before`, and the host routing layer
-picks a model after that point. Detection is the available control. A caller
-that sees a same-family consult can discount it. A caller that sees nothing
-cannot.
+picks a model after that point.
+
+No mechanism instructs a caller to compare the disclosed model against its own
+serving model, or to discount on a match. The coordinator definitions, the
+conduct corpus, and the adapter carry no such rule. A disclosure with no
+comparing consumer is not detection.
+
+The routing layer computes the family collision mechanically. When no disjoint
+rung exists, it serves the same-family model and cites this record's
+self-report as the reason that is safe. Its own schema calls the bias hard to
+detect downstream.
+
+An unsatisfiable disjointness constraint therefore yields a contaminated
+consult that no mechanism detects in-band. A human auditing a transcript after
+the fact can compare the disclosure. The same-turn agent consumer cannot be
+relied on to: in the first live consult the coordinator performed the
+comparison by hand and reached the wrong answer.
+
+Observed evidence, routing log of 2026-09-20: two live consults, and each
+self-report matched the model the log shows serving it. Neither consult ran
+under a rollover. Disclosure accuracy under rollover is unverified.
 
 ### D5. Advisory output is not evidence
 
@@ -94,7 +117,8 @@ carries that objection into the work record itself.
   session with a managed parent.
 - The value of a consult depends on host routing this registry cannot verify.
   An operator who points the adviser at the caller's own model family gets a
-  weaker result, and D4 makes that case visible rather than silent.
+  weaker result, and D4 makes that case auditable after the fact, not detected
+  in-band.
 
 ## Verification
 

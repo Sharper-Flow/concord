@@ -393,7 +393,12 @@ func (s *Service) authorizeResolved(ctx context.Context, tx *store.Transaction, 
 		_, operationAllowed := mainCheckoutAllowedOperations[in.RequiredCapability][in.RequiredOperation]
 		_, terminalWorkAllowed := mainCheckoutTerminalWorkOperations[in.RequiredCapability][in.RequiredOperation]
 		if !capabilityAllowed && !operationAllowed && !terminalWorkAllowed {
-			return Authority{}, authorityRefusal("implementation-bearing authority requires a linked worktree; the main checkout refuses it (CD-0092 D2)")
+			// The route is the one the workflow already admits for a clean
+			// merged worktree: vacate the occupying session, then reclaim the
+			// worktree from the main checkout, where worktree_reclaim is a
+			// terminal-work operation. contact_operator named no operation and
+			// stopped the agent mid-cleanup.
+			return Authority{}, authorityRouteRefusal("implementation-bearing authority requires a linked worktree; the main checkout refuses it (CD-0092 D2)", "session_vacate", "worktree_reclaim")
 		}
 	}
 	if !containsCapability(capabilityValues(policyCaps), in.RequiredCapability) {
@@ -435,6 +440,16 @@ func (s *Service) authorizeResolved(ctx context.Context, tx *store.Transaction, 
 // authorityRefusal marks the authorization boundary as a typed refusal.
 func authorityRefusal(detail string) error {
 	return newRuntimeFailure("unauthorized", detail, "contact_operator", false)
+}
+
+// authorityRouteRefusal marks an authorization refusal whose remedy is a
+// declared route of workflow actions. route is ordered: the caller executes
+// it front to back. unauthorized is deliberately absent from
+// enforcedRecoveryCouplings, so the refusal carries the route it admits in
+// RecoveryAction.RequiredRefs instead of the standing contact_operator
+// default that names no operation.
+func authorityRouteRefusal(detail string, route ...string) error {
+	return newRouteFailure("unauthorized", detail, route...)
 }
 
 func intersect(left, right []string) []string {

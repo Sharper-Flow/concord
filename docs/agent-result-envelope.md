@@ -140,6 +140,7 @@ reread_entities
 request_approval
 provide_evidence
 reduce_limit
+use_declared_route
 use_next_cursor
 restart_query
 adjust_budget
@@ -178,8 +179,10 @@ Error kind structurally constrains recovery: ambiguity resolves candidates; stal
 context refreshes; version/domain conflicts reread entities; approval/evidence errors
 request their missing proof; limit errors reduce the limit; budget refusal adjusts
 the budget; invalid cursors restart the query; operation conflicts reconcile;
-unreachable/unauthorized/internal failures contact the operator or use their
-explicitly allowed same-request retry. Cancellation/timeout may
+unreachable and internal failures contact the operator or use their
+explicitly allowed same-request retry. An unauthorized refusal contacts the
+operator or names a declared route: `required_refs` lists the workflow
+actions in execution order. Cancellation/timeout may
 use an `error` outcome only when `effect_state=none`; possible effects become
 `operation_conflict` with reconciliation.
 

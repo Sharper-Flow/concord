@@ -739,9 +739,14 @@ func reclaimWorktreeRawTx(ctx context.Context, tx *sql.Tx, req WorktreeReclaimRe
 				return out, err
 			}
 		} else {
-			return out, newFailure(KindWorktreeOwnershipConflict, op,
+			// The recorded occupant may be the caller's own session. The
+			// declared route is the one the workflow already admits for a
+			// clean merged worktree: vacate the session, then reclaim the
+			// worktree. The route rides RecoveryRefs so the caller acts on
+			// operations, not on prose.
+			return out, newRouteFailure(KindWorktreeOwnershipConflict, op,
 				fmt.Sprintf("session %s occupies worktree %s; removing it would strand that session", entry.OccupantSessionRef, entry.Path),
-				false, "vacate the session, or use the operator-approved stale-occupancy release route")
+				false, "session_vacate", "worktree_reclaim")
 		}
 	}
 

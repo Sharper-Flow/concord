@@ -81,9 +81,17 @@ type CreateIssueInput struct {
 	// creation. Linear documents an unspecified state as the team's default
 	// (or Triage); stateId is the field name issueUpdate already uses.
 	StatusID string `json:"stateId,omitempty"`
+	// Priority seeds Linear's triage ordering exactly once, at creation, from
+	// the work item's declared urgency band: expedite sends 1 (Urgent) and
+	// standard sends 3 (Medium). Linear owns the priority after creation, so
+	// no update path resends it. The work item's local -100..100 priority
+	// integer is separate sequencing (CD-0018) and never rides this field.
+	Priority int `json:"priority,omitempty"`
 }
 
-// UpdateIssueInput carries the mutable fields the drain synchronizes.
+// UpdateIssueInput carries the mutable fields the drain synchronizes. It has
+// no priority field by design: creation seeded the priority once, and Linear
+// owns backlog triage from then on.
 type UpdateIssueInput struct {
 	Title         string   `json:"title,omitempty"`
 	Description   string   `json:"description,omitempty"`

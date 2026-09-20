@@ -960,6 +960,10 @@ type linearPayload struct {
 	ConnectionVersion int64    `json:"connection_version"`
 	Lifecycle         string   `json:"lifecycle,omitempty"`
 	StatusID          string   `json:"status_id,omitempty"`
+	// Priority is the Linear priority seeded at issue creation from the
+	// work item's urgency band (expedite 1, standard 3). Update payloads
+	// leave it empty: Linear owns backlog triage after creation.
+	Priority int `json:"priority,omitempty"`
 	// RemoteIssueUUID names the existing issue an issue_adopt operation
 	// resolves at drain time. Create and update leave it empty.
 	RemoteIssueUUID string `json:"remote_issue_uuid,omitempty"`
@@ -1132,6 +1136,18 @@ func linearIssueLabelIDs(connection LinearConnection, kind, urgency string) []st
 	return labels
 }
 
+// linearPriorityForUrgency maps the work item's declared urgency band to the
+// Linear priority seeded at issue creation: expedite seeds 1 (Urgent) and
+// standard seeds 3 (Medium). The work item's -100..100 priority integer is
+// local sequencing only (CD-0018) and never becomes a Linear priority, and
+// update drains never resend the value: Linear owns triage after creation.
+func linearPriorityForUrgency(urgency string) int {
+	if urgency == "expedite" {
+		return 1
+	}
+	return 3
+}
+
 // readCurrentWorkflowPremiseCore reads the newest unsuperseded contract
 // premise through the caller's queryer so it stays inside the caller's
 // transaction. A work item without a current contract yields an empty
@@ -1235,7 +1251,13 @@ func enqueueLinearIssueForWorkCore(ctx context.Context, q queryer, expectedProdu
 		return linearIssueEnqueuePlan{}, err
 	}
 	description := composeLinearIssueBody(valueStatement, premise, workID, kind)
-	payload, err := json.Marshal(linearPayload{ClientUUID: clientUUID, ProductID: productID, Title: title, Description: description, LabelIDs: linearIssueLabelIDs(connection, kind, urgency), TeamID: connection.TeamID, ProjectID: linearProjectID, ConnectionVersion: connection.Version, Lifecycle: lifecycle, StatusID: statusID})
+	// The priority rides the create payload only: seeding happens once, at
+	// creation, from the urgency the work item holds at enqueue time.
+	priority := 0
+	if opKind == LinearOpIssueCreate {
+		priority = linearPriorityForUrgency(urgency)
+	}
+	payload, err := json.Marshal(linearPayload{ClientUUID: clientUUID, ProductID: productID, Title: title, Description: description, LabelIDs: linearIssueLabelIDs(connection, kind, urgency), TeamID: connection.TeamID, ProjectID: linearProjectID, ConnectionVersion: connection.Version, Lifecycle: lifecycle, StatusID: statusID, Priority: priority})
 	if err != nil {
 		return linearIssueEnqueuePlan{}, wrapFailure(KindUnavailable, "linear_issue_enqueue", "cannot encode payload", true, "retry the enqueue", err)
 	}

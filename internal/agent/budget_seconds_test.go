@@ -38,13 +38,56 @@ func TestApplyBudgetUniformCeilingCoversTheSurface(t *testing.T) {
 	for _, op := range ContractOperations {
 		byID[op.ID] = op.SupportedBudgetSeconds
 	}
+	// CD-0038 D2: every operation shares the uniform 300 ceiling except the
+	// evidence-fixed exceptions the contract generator pins by name.
+	evidenceFixed := map[string]int{
+		"concord_work_transition.workflow_action": 30,
+		"concord_work_transition.worktree_verify": 1800,
+	}
 	for id, ceiling := range byID {
-		if id != "concord_work_transition.workflow_action" && ceiling != 300 {
+		if fixed, ok := evidenceFixed[id]; ok {
+			if ceiling != fixed {
+				t.Fatalf("%s declares %d; the evidence-fixed ceiling is %d", id, ceiling, fixed)
+			}
+			continue
+		}
+		if ceiling != 300 {
 			t.Fatalf("%s declares %d; the uniform surface ceiling is 300", id, ceiling)
 		}
 	}
-	if byID["concord_work_transition.workflow_action"] != 30 {
-		t.Fatalf("workflow_action ceiling drifted: %d", byID["concord_work_transition.workflow_action"])
+}
+
+func TestWorktreeVerifyAdmitsThe1800SecondBudget(t *testing.T) {
+	t.Parallel()
+	// CON-317: the measured 367.08s verification lane fixes the
+	// worktree_verify ceiling at 1800 under the CD-0038 D2 evidence clause.
+	// The legacy max_millis cap stays where it was.
+	op := contractOpFor(t, "concord_work_transition", "worktree_verify")
+	if op.SupportedBudgetSeconds != 1800 {
+		t.Fatalf("worktree_verify ceiling = %d, want the CON-317-evidenced 1800", op.SupportedBudgetSeconds)
+	}
+	ctx, cancel, budget, failure := applyBudget(context.Background(), op, []byte(`{"requested_budget_seconds":1800}`))
+	defer cancel()
+	if failure != nil {
+		t.Fatalf("the measured lane's budget refused: %v", failure)
+	}
+	if budget.CeilingRefused {
+		t.Fatalf("1800s marked over-ceiling: %#v", budget)
+	}
+	deadline, ok := ctx.Deadline()
+	if !ok {
+		t.Fatal("accepted budget installed no deadline")
+	}
+	if remaining := time.Until(deadline); remaining <= 0 || remaining > 1800*time.Second+100*time.Millisecond {
+		t.Fatalf("deadline is not the accepted budget: %v", remaining)
+	}
+	_, _, over, _ := applyBudget(context.Background(), op, []byte(`{"requested_budget_seconds":1801}`))
+	if !over.CeilingRefused {
+		t.Fatalf("1801s not marked over-ceiling: %#v", over)
+	}
+	_, _, _, legacy := applyBudget(context.Background(), op, []byte(`{"budget":{"max_millis":300001}}`))
+	if legacy == nil || legacy.kind != "budget_refused" {
+		t.Fatalf("legacy millisecond bound moved: %#v", legacy)
 	}
 }
 

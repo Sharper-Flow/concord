@@ -2090,6 +2090,13 @@ func (s *Store) VerifyWorktree(ctx context.Context, req WorktreeVerifyRequest) (
 		return WorktreeVerifyResult{}, annotateCommittedEffect(wrapFailure(KindUnavailable, "worktree_verify", "cannot commit the verify lease", true, "retry the same operation with the same lease id", err), SubjectCurrentVersion{SubjectType: "worktree_verify_lease", SubjectID: req.LeaseID, Version: 1})
 	}
 	leaseRef := SubjectCurrentVersion{SubjectType: "worktree_verify_lease", SubjectID: req.LeaseID, Version: 1}
+	// From here to the committed release the lease is durably held: every
+	// exit from this window must leave it released, or the one-held index
+	// refuses every later verify on the worktree. The deferred release
+	// covers cancellation, the intervening error returns, and panic; the
+	// normal path marks the window closed once its own release commits.
+	released := false
+	defer releaseAbandonedVerifyLease(s, ctx, req.LeaseID, &released)
 
 	exitCode, output, truncated, runErr := runCommand(ctx, entry.Path, req.Command, maxOutput)
 	if runErr != nil {
@@ -2135,11 +2142,104 @@ func (s *Store) VerifyWorktree(ctx context.Context, req WorktreeVerifyRequest) (
 	if err := releaseTx.Commit(); err != nil {
 		return WorktreeVerifyResult{}, annotateCommittedEffect(wrapFailure(KindUnavailable, "worktree_verify", "cannot commit the verify release", true, "retry the same operation with the same lease id", err), leaseRef)
 	}
+	released = true
 	if changed {
 		return result, annotateCommittedEffect(newFailure(KindWorktreeVerifyMutated, "worktree_verify",
 			"tracked files changed in "+entry.Path+" while the verify command ran; a verifier that edits its subject verifies nothing (CD-0096 D3)", false, "reconcile_operation"), leaseRef)
 	}
 	return result, nil
+}
+
+// abandonedVerifyReleaseTimeout bounds the deferred release of a lease the
+// verify window is leaving behind. The caller's context may already be
+// cancelled, so the release runs on its own bounded one.
+const abandonedVerifyReleaseTimeout = 5 * time.Second
+
+// releaseAbandonedVerifyLease releases the lease on every exit from the
+// window between the committed acquire and the committed release: context
+// cancellation, an intervening error return, or a panic. The release is
+// unconditional because a held lease refuses every later verify on the
+// worktree, and the run it names never reached its durable outcome, so the
+// abandoned row records outcome 'aborted' — which no completion gate can
+// consume as verification authority. When even this release fails, the lease
+// stays held and recoverable through the owner-process reclaim in
+// acquireVerifyLeaseTx. Defers run after the release transaction's own
+// rollback defer, so no other transaction is open here.
+func releaseAbandonedVerifyLease(s *Store, ctx context.Context, leaseID string, released *bool) {
+	if *released {
+		return
+	}
+	releaseCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), abandonedVerifyReleaseTimeout)
+	defer cancel()
+	tx, err := s.db.BeginTx(releaseCtx, nil)
+	if err != nil {
+		return
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(releaseCtx, `UPDATE worktree_verify_leases SET state='released', released_at=?, outcome='aborted' WHERE lease_id=? AND state='held'`,
+		nowFromClock(nil).Format(time.RFC3339Nano), leaseID); err != nil {
+		return
+	}
+	_ = tx.Commit()
+}
+
+// verifyLeaseOwnerProcess is the process identity of the invoke that
+// acquired a verify lease. A pid alone is not unique across reboot or
+// wraparound; the process start time read from procfs pins the identity, so
+// a pid reused by a later process cannot make an older lease look live or a
+// live one look dead.
+type verifyLeaseOwnerProcess struct {
+	pid     int
+	started string
+}
+
+// currentProcessIdentity observes this process's identity from procfs. An
+// empty start time means the identity could not be observed; the reclaim
+// reads that as "cannot prove the holder dead" and keeps the refusal.
+func currentProcessIdentity() verifyLeaseOwnerProcess {
+	pid := os.Getpid()
+	started, ok := procfsStartTime(pid)
+	if !ok {
+		return verifyLeaseOwnerProcess{pid: pid}
+	}
+	return verifyLeaseOwnerProcess{pid: pid, started: started}
+}
+
+// procfsStartTime reads field 22 (starttime, in clock ticks) of
+// /proc/<pid>/stat. comm (field 2) may contain spaces and parentheses, so
+// the fields after the final ') ' are fields 3..N and starttime is index 19
+// of that remainder.
+func procfsStartTime(pid int) (string, bool) {
+	data, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/stat")
+	if err != nil {
+		return "", false
+	}
+	_, rest, ok := strings.Cut(string(data), ") ")
+	if !ok {
+		return "", false
+	}
+	fields := strings.Fields(rest)
+	if len(fields) < 20 {
+		return "", false
+	}
+	return fields[19], true
+}
+
+// verifyOwnerProcessGone reports whether the recorded owner process no
+// longer exists. pid plus start time is unique on Linux, the sole release
+// platform: a readable stat with a different start time is a different,
+// later process holding the recycled pid, so the recorded owner is gone. An
+// unobservable identity (no procfs, unparseable stat) stays alive, and the
+// acquire keeps its refusal rather than guessing.
+func verifyOwnerProcessGone(identity verifyLeaseOwnerProcess) bool {
+	if identity.pid <= 0 || identity.started == "" {
+		return false
+	}
+	started, ok := procfsStartTime(identity.pid)
+	if !ok {
+		return true
+	}
+	return started != identity.started
 }
 
 // worktreeVerifyOperationRef is the durable-operation identity of one
@@ -2216,6 +2316,12 @@ func acquireVerifyLeaseTx(ctx context.Context, tx *sql.Tx, req WorktreeVerifyReq
 	switch {
 	case err == nil:
 		if state != "held" {
+			if outcome == "aborted" {
+				// The window abandoned this run before it recorded an
+				// outcome: nothing is replayable and the id is spent.
+				return newFailure(KindInvalidOperation, "worktree_verify",
+					"verify lease "+req.LeaseID+" was abandoned before it recorded an outcome", false, "retry with a new lease id (a new idempotency key)")
+			}
 			var recorded WorktreeVerifyResult
 			var failure error
 			if json.Unmarshal([]byte(resultJSON), &recorded) == nil {
@@ -2236,12 +2342,29 @@ func acquireVerifyLeaseTx(ctx context.Context, tx *sql.Tx, req WorktreeVerifyReq
 		}
 		return nil
 	case err == sql.ErrNoRows:
-		if _, insertErr := tx.ExecContext(ctx, `INSERT INTO worktree_verify_leases(lease_id,work_id,project_id,path,state,client_ref,agent_ref,session_ref,principal_ref,command_json,acquired_at,outcome) VALUES(?,?,?,?, 'held', ?,?,?,?,?,?, 'running')`,
-			req.LeaseID, req.WorkID, req.ProjectID, entry.Path, req.Owner.ClientRef, req.Owner.AgentRef, req.Owner.SessionRef, req.PrincipalRef, commandJSON, now.Format(time.RFC3339Nano)); insertErr != nil {
-			// The one-held partial index refused: name the actual holder.
-			holder, held, holderErr := heldWorktreeVerifyLeaseTx(ctx, tx, entry.Path)
+		owner := currentProcessIdentity()
+		insertLease := func() error {
+			_, insertErr := tx.ExecContext(ctx, `INSERT INTO worktree_verify_leases(lease_id,work_id,project_id,path,state,client_ref,agent_ref,session_ref,principal_ref,command_json,acquired_at,outcome,owner_pid,owner_started) VALUES(?,?,?,?, 'held', ?,?,?,?,?,?, 'running', ?, ?)`,
+				req.LeaseID, req.WorkID, req.ProjectID, entry.Path, req.Owner.ClientRef, req.Owner.AgentRef, req.Owner.SessionRef, req.PrincipalRef, commandJSON, now.Format(time.RFC3339Nano), owner.pid, owner.started)
+			return insertErr
+		}
+		if insertErr := insertLease(); insertErr != nil {
+			// The one-held partial index refused: name the actual holder,
+			// and reclaim the lease when that holder's process is provably
+			// gone (crash, SIGKILL). A live holder keeps the typed refusal.
+			holderLeaseID, holder, holderOwner, held, holderErr := heldWorktreeVerifyLeaseTx(ctx, tx, entry.Path)
 			if holderErr != nil {
 				return holderErr
+			}
+			if held && verifyOwnerProcessGone(holderOwner) {
+				if _, reclaimErr := tx.ExecContext(ctx, `UPDATE worktree_verify_leases SET state='released', released_at=?, outcome='aborted' WHERE lease_id=? AND state='held'`,
+					now.Format(time.RFC3339Nano), holderLeaseID); reclaimErr != nil {
+					return wrapFailure(KindUnavailable, "worktree_verify", "cannot reclaim the verify lease of a dead holder process", true, "retry the same operation with the same lease id", reclaimErr)
+				}
+				if insertErr := insertLease(); insertErr != nil {
+					return wrapFailure(KindUnavailable, "worktree_verify", "cannot persist the reclaimed verify lease", true, "retry the same operation with the same lease id", insertErr)
+				}
+				return nil
 			}
 			if held {
 				return newFailure(KindWorktreeLeaseHeld, "worktree_verify",
@@ -2255,19 +2378,22 @@ func acquireVerifyLeaseTx(ctx context.Context, tx *sql.Tx, req WorktreeVerifyReq
 	}
 }
 
-// heldWorktreeVerifyLeaseTx reports the session holding the worktree's
-// active verify lease, for the typed contention refusal.
-func heldWorktreeVerifyLeaseTx(ctx context.Context, tx *sql.Tx, path string) (SessionWorktreeOwner, bool, error) {
+// heldWorktreeVerifyLeaseTx reports the lease and the session holding the
+// worktree's active verify lease, with the holder's recorded process
+// identity, for the typed contention refusal and the dead-owner reclaim.
+func heldWorktreeVerifyLeaseTx(ctx context.Context, tx *sql.Tx, path string) (string, SessionWorktreeOwner, verifyLeaseOwnerProcess, bool, error) {
+	var leaseID string
 	var holder SessionWorktreeOwner
-	err := tx.QueryRowContext(ctx, `SELECT client_ref,agent_ref,session_ref FROM worktree_verify_leases WHERE path=? AND state='held'`, path).
-		Scan(&holder.ClientRef, &holder.AgentRef, &holder.SessionRef)
+	var owner verifyLeaseOwnerProcess
+	err := tx.QueryRowContext(ctx, `SELECT lease_id,client_ref,agent_ref,session_ref,owner_pid,owner_started FROM worktree_verify_leases WHERE path=? AND state='held'`, path).
+		Scan(&leaseID, &holder.ClientRef, &holder.AgentRef, &holder.SessionRef, &owner.pid, &owner.started)
 	if err == sql.ErrNoRows {
-		return SessionWorktreeOwner{}, false, nil
+		return "", SessionWorktreeOwner{}, verifyLeaseOwnerProcess{}, false, nil
 	}
 	if err != nil {
-		return SessionWorktreeOwner{}, false, wrapFailure(KindUnavailable, "worktree_verify", "cannot read held verify leases", true, "retry once the database is readable", err)
+		return "", SessionWorktreeOwner{}, verifyLeaseOwnerProcess{}, false, wrapFailure(KindUnavailable, "worktree_verify", "cannot read held verify leases", true, "retry once the database is readable", err)
 	}
-	return holder, true, nil
+	return leaseID, holder, owner, true, nil
 }
 
 // ActiveWorktreeVerifyLease is one held verify lease of the reading

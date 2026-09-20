@@ -2197,9 +2197,12 @@ func (r runtime) mutateWorktreeVerify(ctx context.Context, base Envelope, raw []
 	}
 	// CD-0038 D3: the ceiling is admitted after the idempotency lookup the
 	// Invoke path already ran, so a refused budget records no effect and
-	// never starts the command.
+	// never starts the command. The refusal states the supported route, not
+	// only the violated bound: a lane that outlives the ceiling can still run
+	// by omitting requested_budget_seconds, which installs no caller deadline
+	// (CD-0038 D4).
 	if r.Budget.CeilingRefused {
-		return r.budgetRefusal(base, fmt.Sprintf("requested_budget_seconds %d exceeds supported %d", r.Budget.RequestedSeconds, r.Budget.SupportedSeconds)), nil
+		return r.budgetRefusal(base, fmt.Sprintf("requested_budget_seconds %d exceeds supported %d; rerun with a value at or below the supported ceiling, or omit requested_budget_seconds to run without a caller deadline", r.Budget.RequestedSeconds, r.Budget.SupportedSeconds)), nil
 	}
 	project := r.Envelope.AmbientProjectID
 	if project == "" {

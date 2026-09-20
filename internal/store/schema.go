@@ -4773,6 +4773,50 @@ CREATE TRIGGER workflow_backlog_alignment_guard_update BEFORE UPDATE ON workflow
 CREATE TRIGGER workflow_backlog_alignment_guard_delete BEFORE DELETE ON workflow_backlog_alignment FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_backlog_alignment is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
 `,
 	},
+	{
+		// The verify lease must outlive no run. Two additions make every
+		// exit from the verify window recoverable. The aborted outcome
+		// separates a run abandoned before it recorded an outcome from a
+		// pass, so the completion gate can never consume an abandoned run
+		// as verification authority. The owner process identity (pid plus
+		// procfs start time, unique together on Linux) lets a later
+		// acquire prove a held lease's owner is gone and reclaim it, which
+		// a deferred release cannot reach because crash and SIGKILL run no
+		// code. Existing rows keep their outcomes and migrate with no
+		// recorded identity, which the reclaim reads as alive, so every
+		// refusal a database carries into this migration stays in force.
+		Version:  95,
+		Name:     "verify_lease_aborted_outcome_and_owner_process",
+		Breaking: false,
+		SQL: `
+CREATE TABLE worktree_verify_leases_v95 (
+    lease_id      TEXT PRIMARY KEY,
+    work_id       TEXT NOT NULL REFERENCES work_items(id) ON DELETE RESTRICT,
+    project_id    TEXT NOT NULL,
+    path          TEXT NOT NULL,
+    state         TEXT NOT NULL CHECK(state IN ('held','released')),
+    client_ref    TEXT NOT NULL CHECK(length(client_ref) BETWEEN 2 AND 128),
+    agent_ref     TEXT NOT NULL CHECK(length(agent_ref) BETWEEN 2 AND 128),
+    session_ref   TEXT NOT NULL CHECK(length(session_ref) BETWEEN 2 AND 128),
+    principal_ref TEXT NOT NULL,
+    command_json  TEXT NOT NULL,
+    acquired_at   TEXT NOT NULL,
+    released_at   TEXT,
+    exit_code     INTEGER,
+    outcome       TEXT NOT NULL CHECK(outcome IN ('running','completed','refused_mutated','aborted')),
+    result_json   TEXT,
+    owner_pid     INTEGER NOT NULL DEFAULT 0,
+    owner_started TEXT NOT NULL DEFAULT ''
+);
+INSERT INTO worktree_verify_leases_v95
+    (lease_id,work_id,project_id,path,state,client_ref,agent_ref,session_ref,principal_ref,command_json,acquired_at,released_at,exit_code,outcome,result_json)
+    SELECT lease_id,work_id,project_id,path,state,client_ref,agent_ref,session_ref,principal_ref,command_json,acquired_at,released_at,exit_code,outcome,result_json
+    FROM worktree_verify_leases;
+DROP TABLE worktree_verify_leases;
+ALTER TABLE worktree_verify_leases_v95 RENAME TO worktree_verify_leases;
+CREATE UNIQUE INDEX worktree_verify_leases_one_held ON worktree_verify_leases(path) WHERE state='held';
+`,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any

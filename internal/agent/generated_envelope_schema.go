@@ -2849,8 +2849,8 @@ const GeneratedEnvelopeSchemaDocument = `{
           "type": "object"
         },
         "supported_budget_seconds": {
-          "description": "CD-0038 D3: the operation's declared seconds ceiling, typed on every budget_refused error so the recovery value a caller needs is never buried in details. Carried on no other kind.",
-          "maximum": 300,
+          "description": "CD-0038 D3: the operation's declared seconds ceiling, typed on every budget_refused error so the recovery value a caller needs is never buried in details. Carried on no other kind. The maximum tracks the agent-tool-surface ceiling (CD-0038 D2 evidence-fixed exceptions; CON-317 fixes worktree_verify at 1800).",
+          "maximum": 1800,
           "minimum": 1,
           "type": "integer"
         },

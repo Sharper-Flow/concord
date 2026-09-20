@@ -4818,7 +4818,105 @@ CREATE UNIQUE INDEX worktree_verify_leases_one_held ON worktree_verify_leases(pa
 `,
 	},
 	{
+		// The amended CD-0020 D2 names ranked law-body discovery as a distinct
+		// non-authoritative job: law whose title and summary omit the sought
+		// words must still be discoverable through text search. The body a
+		// law record's blob carries lives nowhere in the projection, so the
+		// knowledge-index rebuild projects it into this fold-only companion
+		// table. It is keyed like law_subjects and hash-bound to the accepted
+		// law row it describes, so a row can never outlive or mismatch the
+		// projection it was derived from; the rebuild replaces it wholesale.
+		// No authority path reads it: admission stays a strictly-lowest
+		// ranked match class, and a zero-hit search stays non-proof of
+		// absence. Creating a table leaves an older binary unaffected.
 		Version: 96,
+		Name:    "law_bodies",
+		SQL: `
+CREATE TABLE law_bodies (
+    home_project_id    TEXT NOT NULL,
+    home_locator_id    TEXT NOT NULL,
+    law_id             TEXT NOT NULL,
+    body               TEXT NOT NULL,
+    content_hash       TEXT NOT NULL,
+    scanned_commit_oid TEXT NOT NULL,
+    PRIMARY KEY(home_project_id, home_locator_id, law_id),
+    FOREIGN KEY(home_project_id, home_locator_id, law_id, content_hash)
+        REFERENCES law_subjects(home_project_id, home_locator_id, law_id, content_hash)
+        ON DELETE RESTRICT
+);
+
+CREATE TRIGGER law_bodies_guard_insert BEFORE INSERT ON law_bodies FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'law_bodies is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER law_bodies_guard_update BEFORE UPDATE ON law_bodies FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'law_bodies is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER law_bodies_guard_delete BEFORE DELETE ON law_bodies FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'law_bodies is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+
+CREATE TRIGGER law_bodies_home_pair_bound_insert
+BEFORE INSERT ON law_bodies FOR EACH ROW
+WHEN NOT EXISTS (SELECT 1 FROM project_locators pl
+                 WHERE pl.project_id = NEW.home_project_id AND pl.locator_id = NEW.home_locator_id)
+BEGIN
+    SELECT RAISE(ABORT, 'law_bodies home pair does not reference a Project locator');
+END;
+
+CREATE TRIGGER law_bodies_home_pair_bound_update
+BEFORE UPDATE OF home_project_id, home_locator_id ON law_bodies FOR EACH ROW
+WHEN NOT EXISTS (SELECT 1 FROM project_locators pl
+                 WHERE pl.project_id = NEW.home_project_id AND pl.locator_id = NEW.home_locator_id)
+BEGIN
+    SELECT RAISE(ABORT, 'law_bodies home pair does not reference a Project locator');
+END;
+
+-- The migration-52 locator delete guard enumerates the Git-derived tables it
+-- protects, so law_bodies joins it here: a locator a body projection still
+-- references cannot be removed behind the Go-side refusal.
+DROP TRIGGER IF EXISTS project_locators_referenced_by_knowledge_no_delete;
+CREATE TRIGGER project_locators_referenced_by_knowledge_no_delete
+BEFORE DELETE ON project_locators FOR EACH ROW
+WHEN     EXISTS (SELECT 1 FROM archived_work k
+            WHERE k.home_project_id = OLD.project_id AND k.home_locator_id = OLD.locator_id)
+ OR
+    EXISTS (SELECT 1 FROM knowledge_index_watermark k
+            WHERE k.home_project_id = OLD.project_id AND k.home_locator_id = OLD.locator_id)
+ OR
+    EXISTS (SELECT 1 FROM knowledge_kind_coverage k
+            WHERE k.home_project_id = OLD.project_id AND k.home_locator_id = OLD.locator_id)
+ OR
+    EXISTS (SELECT 1 FROM law_subjects k
+            WHERE k.home_project_id = OLD.project_id AND k.home_locator_id = OLD.locator_id)
+ OR
+    EXISTS (SELECT 1 FROM law_bodies k
+            WHERE k.home_project_id = OLD.project_id AND k.home_locator_id = OLD.locator_id)
+ OR
+    EXISTS (SELECT 1 FROM law_relations k
+            WHERE k.home_project_id = OLD.project_id AND k.home_locator_id = OLD.locator_id)
+ OR
+    EXISTS (SELECT 1 FROM domains k
+            WHERE k.home_project_id = OLD.project_id AND k.home_locator_id = OLD.locator_id)
+ OR
+    EXISTS (SELECT 1 FROM domain_registries k
+            WHERE k.home_project_id = OLD.project_id AND k.home_locator_id = OLD.locator_id)
+ OR
+    EXISTS (SELECT 1 FROM domain_architecture_relations k
+            WHERE k.home_project_id = OLD.project_id AND k.home_locator_id = OLD.locator_id)
+ OR
+    EXISTS (SELECT 1 FROM domain_relation_governing_laws k
+            WHERE k.home_project_id = OLD.project_id AND k.home_locator_id = OLD.locator_id)
+ OR
+    EXISTS (SELECT 1 FROM law_domain_homes k
+            WHERE k.home_project_id = OLD.project_id AND k.home_locator_id = OLD.locator_id)
+ OR
+    EXISTS (SELECT 1 FROM law_domain_applicability k
+            WHERE k.home_project_id = OLD.project_id AND k.home_locator_id = OLD.locator_id)
+BEGIN
+    SELECT RAISE(ABORT, 'Project locator is referenced by Git-derived knowledge');
+END;
+
+INSERT OR IGNORE INTO fold_guard(active) VALUES (1);
+DELETE FROM knowledge_index_watermark;
+DELETE FROM fold_guard WHERE active = 1;
+`,
+	},
+	{
+		Version: 97,
 		Name:    "linear_outbox_failure_dispositions",
 		SQL: `
 -- A failed outbound operation remains failed. This projection records the

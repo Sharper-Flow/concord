@@ -55,6 +55,7 @@ var ciWaitCommandTimeout = 45 * time.Second
 type ciWaitRequest struct {
 	Selector       *ciWaitSelector `json:"selector"`
 	Repo           string          `json:"repo"`
+	Mode           string          `json:"mode"`
 	TimeSecondsMax *int            `json:"time_seconds_max"`
 	StateFile      string          `json:"state_file"`
 }
@@ -72,6 +73,7 @@ type ciWaitReport struct {
 	SHA        string         `json:"sha,omitempty"`
 	HeadSHA    string         `json:"head_sha,omitempty"`
 	RunURL     string         `json:"run_url,omitempty"`
+	MergeState string         `json:"merge_state,omitempty"`
 	Checks     *ciWaitChecks  `json:"checks,omitempty"`
 	Failures   []ciWaitDetail `json:"failures,omitempty"`
 	Iterations int            `json:"iterations"`
@@ -98,15 +100,17 @@ type ciWaitDetail struct {
 // ciWaitState is the durable slice of one wait: the deadline anchor plus the
 // counters the CLI owns. The model never supplies these values.
 type ciWaitState struct {
-	SchemaVersion int            `json:"schema_version"`
-	Selector      ciWaitSelector `json:"selector"`
-	Repo          string         `json:"repo"`
-	BudgetSeconds int            `json:"budget_seconds"`
-	StartedAt     time.Time      `json:"started_at"`
-	DeadlineAt    time.Time      `json:"deadline_at"`
-	Iterations    int            `json:"iterations"`
-	LastSHA       string         `json:"last_sha,omitempty"`
-	HeadSHA       string         `json:"head_sha,omitempty"`
+	SchemaVersion  int            `json:"schema_version"`
+	Selector       ciWaitSelector `json:"selector"`
+	Repo           string         `json:"repo"`
+	BudgetSeconds  int            `json:"budget_seconds"`
+	StartedAt      time.Time      `json:"started_at"`
+	DeadlineAt     time.Time      `json:"deadline_at"`
+	Iterations     int            `json:"iterations"`
+	LastSHA        string         `json:"last_sha,omitempty"`
+	HeadSHA        string         `json:"head_sha,omitempty"`
+	LastMergeState string         `json:"last_merge_state,omitempty"`
+	Mode           string         `json:"mode,omitempty"`
 }
 
 func runCiWait(raw []byte, out, errOut io.Writer) int {
@@ -154,6 +158,7 @@ func runCiWait(raw []byte, out, errOut io.Writer) int {
 			report.Deadline = state.BudgetSeconds
 			report.SHA = state.LastSHA
 			report.HeadSHA = state.HeadSHA
+			report.MergeState = state.LastMergeState
 			report.StateFile = stateFile
 			ciWaitSaveState(state, stateFile)
 			return ciWaitEmit(out, report, 1)
@@ -179,6 +184,7 @@ func runCiWait(raw []byte, out, errOut io.Writer) int {
 		SHA:        lastObservation.SHA,
 		HeadSHA:    lastObservation.HeadSHA,
 		RunURL:     lastObservation.RunURL,
+		MergeState: lastObservation.MergeState,
 		Checks:     lastObservation.Checks,
 		Iterations: state.Iterations,
 		Elapsed:    int(time.Since(state.StartedAt).Seconds()),
@@ -259,12 +265,15 @@ type ghPRCheck struct {
 }
 
 type ghPRHead struct {
-	HeadRefOid string `json:"headRefOid"`
-	URL        string `json:"url"`
+	HeadRefOid       string `json:"headRefOid"`
+	URL              string `json:"url"`
+	State            string `json:"state"`
+	MergedAt         string `json:"mergedAt"`
+	MergeStateStatus string `json:"mergeStateStatus"`
 }
 
 func ciWaitPollPR(ctx context.Context, state *ciWaitState) (ciWaitReport, bool, error) {
-	headBody, err := ciWaitGH(ctx, "pr", "view", state.Selector.Value, "--repo", state.Repo, "--json", "headRefOid,url")
+	headBody, err := ciWaitGH(ctx, "pr", "view", state.Selector.Value, "--repo", state.Repo, "--json", "headRefOid,url,state,mergedAt,mergeStateStatus")
 	if err != nil {
 		return ciWaitReport{}, false, err
 	}
@@ -272,6 +281,7 @@ func ciWaitPollPR(ctx context.Context, state *ciWaitState) (ciWaitReport, bool, 
 	if err := ciWaitDecode(headBody, &head); err != nil {
 		return ciWaitReport{}, false, err
 	}
+	state.LastMergeState = head.MergeStateStatus
 	if head.HeadRefOid == "" {
 		return ciWaitReport{}, false, fmt.Errorf("gh pr view returned no head SHA")
 	}
@@ -284,13 +294,41 @@ func ciWaitPollPR(ctx context.Context, state *ciWaitState) (ciWaitReport, bool, 
 		state.LastSHA = head.HeadRefOid
 	} else if head.HeadRefOid != state.HeadSHA {
 		report := ciWaitReport{
-			Status:  "superseded",
-			Reason:  "the pull request head changed during the wait",
-			HeadSHA: head.HeadRefOid,
-			SHA:     state.HeadSHA,
-			RunURL:  head.URL,
+			Status:     "superseded",
+			Reason:     "the pull request head changed during the wait",
+			HeadSHA:    head.HeadRefOid,
+			SHA:        state.HeadSHA,
+			RunURL:     head.URL,
+			MergeState: head.MergeStateStatus,
 		}
 		return report, true, nil
+	}
+
+	report := ciWaitReport{
+		Status:     "pending",
+		SHA:        state.LastSHA,
+		HeadSHA:    state.HeadSHA,
+		RunURL:     head.URL,
+		MergeState: head.MergeStateStatus,
+	}
+	if head.MergedAt != "" {
+		report.Status = "merged"
+		report.Reason = "the pull request is merged"
+		return report, true, nil
+	}
+	if strings.EqualFold(head.State, "CLOSED") {
+		report.Status = "closed"
+		report.Reason = "the pull request is closed without a merge"
+		return report, true, nil
+	}
+	if state.Mode == "merge" {
+		if ciWaitMergeable(head.MergeStateStatus) {
+			report.Status = "success"
+			report.Reason = "the pull request can merge"
+			return report, true, nil
+		}
+		report.Reason = "the pull request is not mergeable yet"
+		return report, false, nil
 	}
 
 	checksBody, err := ciWaitGH(ctx, "pr", "checks", state.Selector.Value,
@@ -322,12 +360,7 @@ func ciWaitPollPR(ctx context.Context, state *ciWaitState) (ciWaitReport, bool, 
 			counts.Pending++
 		}
 	}
-	report := ciWaitReport{
-		Status:  "pending",
-		SHA:     state.LastSHA,
-		HeadSHA: state.HeadSHA,
-		Checks:  counts,
-	}
+	report.Checks = counts
 	// An empty check set is never success: a PR with no checks yet stays
 	// pending until the deadline, and the timeout report says so.
 	if counts.Total == 0 {
@@ -340,13 +373,36 @@ func ciWaitPollPR(ctx context.Context, state *ciWaitState) (ciWaitReport, bool, 
 			report.Failures = failures
 			report.RunURL = ciWaitFirstRunURL(checks)
 			ciWaitCollectFailureExcerpts(ctx, state, report.Failures)
+		} else if ciWaitMergeConflict(head.MergeStateStatus) {
+			report.Reason = "the pull request checks passed but GitHub reports a merge conflict"
+			return report, false, nil
 		} else {
 			report.Status = "success"
-			report.RunURL = head.URL
 		}
 		return report, true, nil
 	}
 	return report, false, nil
+}
+
+// ciWaitMergeConflict reports whether GitHub's merge state is direct evidence
+// that the merge commit cannot be created. DIRTY is that evidence. The lazy
+// UNKNOWN, BEHIND, BLOCKED, UNSTABLE, and DRAFT values, and an empty value,
+// carry no verdict about check completeness, so in checks mode they never
+// block a green check set (CD-0161).
+func ciWaitMergeConflict(status string) bool {
+	return strings.EqualFold(status, "DIRTY")
+}
+
+// ciWaitMergeable is the merge-mode success gate: GitHub asserts that the
+// pull request can merge only for CLEAN or HAS_HOOKS. Every other value,
+// including the lazy UNKNOWN, stays pending (CD-0160 D4, CD-0161).
+func ciWaitMergeable(status string) bool {
+	switch strings.ToUpper(status) {
+	case "CLEAN", "HAS_HOOKS":
+		return true
+	default:
+		return false
+	}
 }
 
 // --- SHA selector ---
@@ -620,6 +676,9 @@ func ciWaitStatePath(requested string) (string, error) {
 func ciWaitLoadOrCreate(request ciWaitRequest) (*ciWaitState, string, error) {
 	if request.StateFile != "" {
 		if state, ok := ciWaitReadState(request.StateFile); ok {
+			if state.Mode == "" {
+				state.Mode = "checks"
+			}
 			return state, request.StateFile, nil
 		}
 		// A named state file that exists but cannot be read back is a caller
@@ -650,6 +709,16 @@ func ciWaitLoadOrCreate(request ciWaitRequest) (*ciWaitState, string, error) {
 	default:
 		return nil, "", fmt.Errorf("selector.kind must be one of pr, sha, or run")
 	}
+	mode := request.Mode
+	if mode == "" {
+		mode = "checks"
+	}
+	if mode != "checks" && mode != "merge" {
+		return nil, "", fmt.Errorf("mode must be checks or merge")
+	}
+	if mode == "merge" && request.Selector.Kind != "pr" {
+		return nil, "", fmt.Errorf("mode merge requires a pr selector")
+	}
 
 	budget := ciWaitDefaultBudget
 	if request.TimeSecondsMax != nil {
@@ -666,6 +735,7 @@ func ciWaitLoadOrCreate(request ciWaitRequest) (*ciWaitState, string, error) {
 		BudgetSeconds: budget,
 		StartedAt:     now,
 		DeadlineAt:    now.Add(time.Duration(budget) * time.Second),
+		Mode:          mode,
 	}
 	path, err := ciWaitStatePath(request.StateFile)
 	if err != nil {
@@ -751,6 +821,7 @@ func ciWaitFinishTimeout(state *ciWaitState, stateFile string, out io.Writer) in
 		Deadline:   state.BudgetSeconds,
 		SHA:        state.LastSHA,
 		HeadSHA:    state.HeadSHA,
+		MergeState: state.LastMergeState,
 	}
 	return ciWaitEmit(out, report, 1)
 }

@@ -377,6 +377,11 @@ type domainProjectionRelation struct {
 	GoverningLawIDs []string
 }
 
+type indexedLaw struct {
+	record KnowledgeRecord
+	body   []byte
+}
+
 func prepareDomainProjection(ctx context.Context, s *Store, home KnowledgeHome, manifest KnowledgeManifest) (domainProjection, error) {
 	registry := manifest.DomainRegistry
 	result := domainProjection{ProductKey: registry.ProductKey, RegistryHash: domainRegistryContentHash(registry), RootDomainID: registry.RootDomainID}
@@ -499,7 +504,7 @@ func insertDomainProjection(ctx context.Context, tx *sql.Tx, home KnowledgeHome,
 // A binary that reads a watermark stamped with a higher version refuses the
 // rebuild rather than overwrite a newer projection, the rule the schema
 // manifest (checkManifest) applies to the database itself.
-const knowledgeProjectionVersion = 1
+const knowledgeProjectionVersion = 2
 
 // refuseWatermarkFromNewerBinary is the rebuild admission rule. The store
 // pools one connection, so this read against s.db must precede the rebuild
@@ -545,7 +550,7 @@ func (s *Store) RebuildKnowledgeIndex(ctx context.Context, home KnowledgeHome) e
 		return err
 	}
 	notes := make([]VerifiedNote, 0, len(paths))
-	laws := make([]KnowledgeRecord, 0)
+	laws := make([]indexedLaw, 0)
 	seen := map[string]bool{}
 	seenPaths := map[string]bool{}
 	for _, notePath := range paths {
@@ -573,13 +578,14 @@ func (s *Store) RebuildKnowledgeIndex(ctx context.Context, home KnowledgeHome) e
 			if seenPaths[record.Path] {
 				return newFailure(KindKnowledgeAmbiguous, "rebuild_knowledge_index", "manifest and work-note populations claim the same canonical path", false, "assign distinct canonical paths across knowledge populations")
 			}
-			if err := verifyManifestBlob(ctx, home.RepoPath, commit, record); err != nil {
+			body, err := verifyManifestBlob(ctx, home.RepoPath, commit, record)
+			if err != nil {
 				return err
 			}
 			seen[record.ID], seenPaths[record.Path] = true, true
 			notes = append(notes, manifestRecordNote(record, commit, manifest.SchemaVersion))
 			if manifestLawBearingKinds[record.Kind] {
-				laws = append(laws, record)
+				laws = append(laws, indexedLaw{record: record, body: body})
 			}
 		}
 	}
@@ -610,6 +616,7 @@ func (s *Store) RebuildKnowledgeIndex(ctx context.Context, home KnowledgeHome) e
 // TestDerivedKnowledgeClearOrderRespectsForeignKeys derives the same order
 // from the schema and refuses a drift.
 var derivedKnowledgeClearOrder = []string{
+	"law_bodies",
 	"law_relations",
 	"domain_relation_governing_laws",
 	"law_domain_applicability",
@@ -620,7 +627,7 @@ var derivedKnowledgeClearOrder = []string{
 	"domain_registries",
 }
 
-func rebuildKnowledgeIndexTx(ctx context.Context, tx *sql.Tx, home KnowledgeHome, commit, digest string, notes []VerifiedNote, laws []KnowledgeRecord, manifestMissing bool, manifest KnowledgeManifest, domainProjectionData domainProjection) error {
+func rebuildKnowledgeIndexTx(ctx context.Context, tx *sql.Tx, home KnowledgeHome, commit, digest string, notes []VerifiedNote, laws []indexedLaw, manifestMissing bool, manifest KnowledgeManifest, domainProjectionData domainProjection) error {
 	if err := enterFold(ctx, tx); err != nil {
 		return err
 	}
@@ -656,7 +663,10 @@ func rebuildKnowledgeIndexTx(ctx context.Context, tx *sql.Tx, home KnowledgeHome
 		}
 	}
 	for _, law := range laws {
-		if err := insertLawSubject(ctx, tx, home, law, commit); err != nil {
+		if err := insertLawSubject(ctx, tx, home, law.record, commit); err != nil {
+			return err
+		}
+		if err := insertLawBody(ctx, tx, home, law, commit); err != nil {
 			return err
 		}
 	}
@@ -665,23 +675,23 @@ func rebuildKnowledgeIndexTx(ctx context.Context, tx *sql.Tx, home KnowledgeHome
 			return err
 		}
 		for _, law := range laws {
-			homeDomain, hasHome := domainProjectionData.LawHomes[law.ID]
+			homeDomain, hasHome := domainProjectionData.LawHomes[law.record.ID]
 			if !hasHome {
 				continue
 			}
-			if _, err := tx.ExecContext(ctx, `INSERT INTO law_domain_homes(home_project_id,home_locator_id,law_id,product_id,domain_id,law_content_hash,scanned_commit_oid,product_wide_rationale) VALUES(?,?,?,?,?,?,?,?)`, home.HomeProjectID, home.HomeLocatorID, law.ID, domainProjectionData.ProductID, homeDomain, law.SHA256, commit, law.ProductWideRationale); err != nil {
+			if _, err := tx.ExecContext(ctx, `INSERT INTO law_domain_homes(home_project_id,home_locator_id,law_id,product_id,domain_id,law_content_hash,scanned_commit_oid,product_wide_rationale) VALUES(?,?,?,?,?,?,?,?)`, home.HomeProjectID, home.HomeLocatorID, law.record.ID, domainProjectionData.ProductID, homeDomain, law.record.SHA256, commit, law.record.ProductWideRationale); err != nil {
 				return wrapFailure(KindUnavailable, "rebuild_knowledge_index", "cannot write law Domain home", true, "retry once the database is writable", err)
 			}
-			for _, domainID := range domainProjectionData.LawApplicability[law.ID] {
-				if _, err := tx.ExecContext(ctx, `INSERT INTO law_domain_applicability(home_project_id,home_locator_id,law_id,product_id,domain_id,scanned_commit_oid) VALUES(?,?,?,?,?,?)`, home.HomeProjectID, home.HomeLocatorID, law.ID, domainProjectionData.ProductID, domainID, commit); err != nil {
+			for _, domainID := range domainProjectionData.LawApplicability[law.record.ID] {
+				if _, err := tx.ExecContext(ctx, `INSERT INTO law_domain_applicability(home_project_id,home_locator_id,law_id,product_id,domain_id,scanned_commit_oid) VALUES(?,?,?,?,?,?)`, home.HomeProjectID, home.HomeLocatorID, law.record.ID, domainProjectionData.ProductID, domainID, commit); err != nil {
 					return wrapFailure(KindUnavailable, "rebuild_knowledge_index", "cannot write law Domain applicability", true, "retry once the database is writable", err)
 				}
 			}
 		}
 	}
 	for _, law := range laws {
-		for _, relation := range law.LawRelations {
-			source, target := law.ID, relation.TargetID
+		for _, relation := range law.record.LawRelations {
+			source, target := law.record.ID, relation.TargetID
 			if relation.Kind == "conflicts_with" && source > target {
 				source, target = target, source
 			}
@@ -811,20 +821,27 @@ func manifestRecordNote(record KnowledgeRecord, commit, schemaVersion string) Ve
 	}
 }
 
-func verifyManifestBlob(ctx context.Context, repo, commit string, record KnowledgeRecord) error {
+func insertLawBody(ctx context.Context, tx *sql.Tx, home KnowledgeHome, law indexedLaw, commit string) error {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO law_bodies(home_project_id,home_locator_id,law_id,body,content_hash,scanned_commit_oid) VALUES(?,?,?,?,?,?)`, home.HomeProjectID, home.HomeLocatorID, law.record.ID, string(law.body), law.record.SHA256, commit); err != nil {
+		return wrapFailure(KindUnavailable, "rebuild_knowledge_index", "cannot insert a derived law body", true, "retry once the database is writable", err)
+	}
+	return nil
+}
+
+func verifyManifestBlob(ctx context.Context, repo, commit string, record KnowledgeRecord) ([]byte, error) {
 	entry, err := gitTreeEntry(ctx, repo, commit, record.Path)
 	if err != nil || entry.kind != "blob" || entry.mode != "100644" {
-		return newFailure(KindInvalidNoteProof, "rebuild_knowledge_index", "manifest record blob is missing or not regular: "+record.Path, false, "restore the referenced regular markdown blob")
+		return nil, newFailure(KindInvalidNoteProof, "rebuild_knowledge_index", "manifest record blob is missing or not regular: "+record.Path, false, "restore the referenced regular markdown blob")
 	}
 	content, err := runGit(ctx, repo, "cat-file", "blob", commit+":"+record.Path)
 	if err != nil {
-		return wrapFailure(KindInvalidNoteProof, "rebuild_knowledge_index", "cannot read manifest record blob: "+record.Path, true, "restore the git object and retry", err)
+		return nil, wrapFailure(KindInvalidNoteProof, "rebuild_knowledge_index", "cannot read manifest record blob: "+record.Path, true, "restore the git object and retry", err)
 	}
 	sum := sha256.Sum256(content)
 	if got := "sha256:" + hex.EncodeToString(sum[:]); got != record.SHA256 {
-		return newFailure(KindInvalidNoteProof, "rebuild_knowledge_index", "manifest record hash does not match blob: "+record.Path, false, "recompute the authored sha256 proof")
+		return nil, newFailure(KindInvalidNoteProof, "rebuild_knowledge_index", "manifest record hash does not match blob: "+record.Path, false, "recompute the authored sha256 proof")
 	}
-	return nil
+	return content, nil
 }
 
 // knowledgeWatermark is the freshness verdict for one home. Scanned is the
@@ -847,15 +864,16 @@ func readKnowledgeWatermark(ctx context.Context, q queryer, home KnowledgeHome, 
 		return knowledgeWatermark{}, err
 	}
 	var scanned, scannedDigest string
+	var projectionVersion int
 	var complete bool
-	err = q.QueryRowContext(ctx, `SELECT scanned_commit_oid, scanned_content_digest, complete FROM knowledge_index_watermark WHERE home_project_id = ? AND home_locator_id = ? AND head_ref = ?`, home.HomeProjectID, home.HomeLocatorID, home.HeadRef).Scan(&scanned, &scannedDigest, &complete)
+	err = q.QueryRowContext(ctx, `SELECT scanned_commit_oid, scanned_content_digest, complete, projection_version FROM knowledge_index_watermark WHERE home_project_id = ? AND home_locator_id = ? AND head_ref = ?`, home.HomeProjectID, home.HomeLocatorID, home.HeadRef).Scan(&scanned, &scannedDigest, &complete, &projectionVersion)
 	if err == sql.ErrNoRows {
 		return knowledgeWatermark{}, nil
 	}
 	if err != nil {
 		return knowledgeWatermark{}, wrapFailure(KindUnavailable, "knowledge_index", "cannot read the knowledge watermark", true, "retry once the database is readable", err)
 	}
-	return knowledgeWatermark{Scanned: scanned, Fresh: complete && scannedDigest != "" && scannedDigest == currentDigest}, nil
+	return knowledgeWatermark{Scanned: scanned, Fresh: complete && scannedDigest != "" && scannedDigest == currentDigest && projectionVersion == knowledgeProjectionVersion}, nil
 }
 
 func validateKnowledgeHomeForQuery(ctx context.Context, s *Store, home KnowledgeHome, allowDegraded bool, op string) (string, string, error) {

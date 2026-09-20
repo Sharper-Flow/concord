@@ -592,9 +592,15 @@ export function takeWorkNotices(sessionID: string): string[] {
   return workStateReporter.takeNotices(sessionID)
 }
 
+// appendWarnings puts a failed best-effort side effect where an actor can read
+// it. `ToolResult` is a union with a bare-string arm, so both arms are handled
+// here rather than assumed away: the envelope stays the first line, and each
+// warning follows on its own.
 function appendWarnings(result: ToolResult, warnings: string[]): ToolResult {
   if (warnings.length === 0) return result
-  return { ...result, output: `${result.output}\n${warnings.join("\n")}` }
+  const suffix = `\n${warnings.join("\n")}`
+  if (typeof result === "string") return `${result}${suffix}`
+  return { ...result, output: `${result.output}${suffix}` }
 }
 
 function encodeHostResult(toolName: string, operation: string, requestID: string, envelope: HostConcordEnvelope): ToolResult {

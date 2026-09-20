@@ -657,7 +657,9 @@ export function scanReportTexts(texts: string[]): WorkerReportScan {
 // report still receives identity exclusively from the authorized dispatch
 // packet, so whatever the worker echoes is discarded, not trusted.
 const DISPATCH_OWNED_REPORT_FIELDS = ["attempt_id", "lane_id", "lane_version", "lane_digest", "work_id", "step_id"] as const
-const MAX_REPORT_DETAIL_LENGTH = 512
+// The cap is read from the closed schema rather than repeated here, so the
+// normalization below cannot drift from the bound it exists to satisfy.
+const MAX_REPORT_DETAIL_LENGTH = agentLaneReportSchema.$defs.evidence_entry.properties.detail.maxLength
 const TRUNCATED_REPORT_DETAIL_SUFFIX = " [truncated]"
 
 function normalizeWorkerReport(report: Record<string, unknown>): Record<string, unknown> {

@@ -220,6 +220,42 @@ func TestMainCheckoutRefusesImplementationOperations(t *testing.T) {
 	}
 }
 
+func TestMainCheckoutDispatchRefusalNamesVacateRoute(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_transition"})
+	service.ProjectResolver = func(context.Context, *store.Transaction, string, string) (store.ProjectResolution, error) {
+		return store.ProjectResolution{ProjectID: "project-1", MainWorktree: true}, nil
+	}
+	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	response, err := Dispatch(ctx, s, service, InvokeRequest{
+		Tool:      "concord_work_transition",
+		Operation: "worktree_destroy",
+		Input:     json.RawMessage(`{"work_id":"work-1","expected_version":2,"default_ref":"main","idempotency_key":"main-destroy-route","observed_session_directories":[]}`),
+	}, mutationEnvelope(grant, scopeVersion))
+	if err != nil || response.Outcome != OutcomeError || response.Error == nil {
+		t.Fatalf("response=%+v err=%v, want an authorization refusal", response, err)
+	}
+	if response.Error.Kind != "unauthorized" {
+		t.Fatalf("error.kind=%q, want unauthorized", response.Error.Kind)
+	}
+	if response.Error.RecoveryAction.Kind != "use_declared_route" {
+		t.Fatalf("recovery action=%q, want use_declared_route", response.Error.RecoveryAction.Kind)
+	}
+	wantRefs := []string{"session_vacate", "worktree_reclaim"}
+	if len(response.Error.RecoveryAction.RequiredRefs) != len(wantRefs) {
+		t.Fatalf("required refs=%v, want %v", response.Error.RecoveryAction.RequiredRefs, wantRefs)
+	}
+	for i, want := range wantRefs {
+		if response.Error.RecoveryAction.RequiredRefs[i] != want {
+			t.Fatalf("required refs=%v, want %v", response.Error.RecoveryAction.RequiredRefs, wantRefs)
+		}
+	}
+}
+
 func TestMainCheckoutAllowlistDeclaresBothSides(t *testing.T) {
 	t.Parallel()
 	for _, capability := range []Capability{"product_read", "work_define"} {

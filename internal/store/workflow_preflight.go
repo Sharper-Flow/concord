@@ -511,6 +511,9 @@ func validateWorkflowActionPayload(definition WorkflowDefinition, actionID strin
 	if err := decodePredicateStrict(payload, &fields); err != nil {
 		return newFailure(KindInvalidPayload, "workflow_action_preflight", "workflow action payload is not one strict JSON object", false, "supply the registered action payload")
 	}
+	if err := validateEvidenceBindingReferences(actionID, fields); err != nil {
+		return err
+	}
 	var payloadDefinition WorkflowPayloadDefinition
 	found := false
 	for _, action := range definition.ActionDefinitions {
@@ -574,6 +577,23 @@ func validateWorkflowActionPayload(definition WorkflowDefinition, actionID strin
 	if _, typed := allowed["problem"]; typed && actionID == "record_proposal" {
 		_, err := decodeWorkflowProposalContent(payload)
 		return err
+	}
+	return nil
+}
+
+func validateEvidenceBindingReferences(actionID string, fields map[string]json.RawMessage) error {
+	if actionID != "bind_evidence" {
+		return nil
+	}
+	for _, name := range []string{"evidence_ref", "immutable_subject_ref"} {
+		raw, present := fields[name]
+		if !present {
+			continue
+		}
+		var value string
+		if json.Unmarshal(raw, &value) != nil || !ValidReference(value) {
+			return newFailure(KindInvalidPayload, "workflow_action_preflight", fmt.Sprintf("workflow action payload field %q must satisfy the reference rule: 2 to 128 bytes with no whitespace", name), false, "supply a whitespace-free reference no longer than 128 bytes")
+		}
 	}
 	return nil
 }

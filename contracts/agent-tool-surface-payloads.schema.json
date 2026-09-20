@@ -8988,10 +8988,9 @@
                 "maxProperties": 32,
                 "properties": {
                   "evidence_ref": {
-                    "type": "string",
-                    "minLength": 1,
-                    "maxLength": 2048,
-                    "pattern": "\\S"
+                    "$ref": "#/$defs/reference",
+                    "minLength": 2,
+                    "maxLength": 128
                   },
                   "evidence_kind": {
                     "type": "string",
@@ -9006,10 +9005,9 @@
                     ]
                   },
                   "immutable_subject_ref": {
-                    "type": "string",
-                    "minLength": 1,
-                    "maxLength": 2048,
-                    "pattern": "\\S"
+                    "$ref": "#/$defs/reference",
+                    "minLength": 2,
+                    "maxLength": 128
                   },
                   "producer_id": {
                     "$ref": "#/$defs/reference",
@@ -9340,10 +9338,9 @@
                 "maxProperties": 32,
                 "properties": {
                   "evidence_ref": {
-                    "type": "string",
-                    "minLength": 1,
-                    "maxLength": 2048,
-                    "pattern": "\\S"
+                    "$ref": "#/$defs/reference",
+                    "minLength": 2,
+                    "maxLength": 128
                   },
                   "evidence_kind": {
                     "type": "string",
@@ -9358,10 +9355,9 @@
                     ]
                   },
                   "immutable_subject_ref": {
-                    "type": "string",
-                    "minLength": 1,
-                    "maxLength": 2048,
-                    "pattern": "\\S"
+                    "$ref": "#/$defs/reference",
+                    "minLength": 2,
+                    "maxLength": 128
                   },
                   "producer_id": {
                     "$ref": "#/$defs/reference",
@@ -9416,10 +9412,9 @@
                 "maxProperties": 32,
                 "properties": {
                   "evidence_ref": {
-                    "type": "string",
-                    "minLength": 1,
-                    "maxLength": 2048,
-                    "pattern": "\\S"
+                    "$ref": "#/$defs/reference",
+                    "minLength": 2,
+                    "maxLength": 128
                   },
                   "evidence_kind": {
                     "type": "string",
@@ -9434,10 +9429,9 @@
                     ]
                   },
                   "immutable_subject_ref": {
-                    "type": "string",
-                    "minLength": 1,
-                    "maxLength": 2048,
-                    "pattern": "\\S"
+                    "$ref": "#/$defs/reference",
+                    "minLength": 2,
+                    "maxLength": 128
                   },
                   "producer_id": {
                     "$ref": "#/$defs/reference",
@@ -11166,10 +11160,9 @@
                 "maxProperties": 32,
                 "properties": {
                   "evidence_ref": {
-                    "type": "string",
-                    "minLength": 1,
-                    "maxLength": 2048,
-                    "pattern": "\\S"
+                    "$ref": "#/$defs/reference",
+                    "minLength": 2,
+                    "maxLength": 128
                   },
                   "evidence_kind": {
                     "type": "string",
@@ -11184,10 +11177,9 @@
                     ]
                   },
                   "immutable_subject_ref": {
-                    "type": "string",
-                    "minLength": 1,
-                    "maxLength": 2048,
-                    "pattern": "\\S"
+                    "$ref": "#/$defs/reference",
+                    "minLength": 2,
+                    "maxLength": 128
                   },
                   "producer_id": {
                     "$ref": "#/$defs/reference",
@@ -11278,10 +11270,9 @@
                 "maxProperties": 32,
                 "properties": {
                   "evidence_ref": {
-                    "type": "string",
-                    "minLength": 1,
-                    "maxLength": 2048,
-                    "pattern": "\\S"
+                    "$ref": "#/$defs/reference",
+                    "minLength": 2,
+                    "maxLength": 128
                   },
                   "evidence_kind": {
                     "type": "string",
@@ -11296,10 +11287,9 @@
                     ]
                   },
                   "immutable_subject_ref": {
-                    "type": "string",
-                    "minLength": 1,
-                    "maxLength": 2048,
-                    "pattern": "\\S"
+                    "$ref": "#/$defs/reference",
+                    "minLength": 2,
+                    "maxLength": 128
                   },
                   "producer_id": {
                     "$ref": "#/$defs/reference",

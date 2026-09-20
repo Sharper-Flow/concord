@@ -358,6 +358,58 @@ func withLegacyRecordProposal(definition WorkflowDefinition) WorkflowDefinition 
 	return withLegacyNonBlankContract(definition)
 }
 
+func withLegacyEvidenceBindingReferences(definition WorkflowDefinition) WorkflowDefinition {
+	definition = cloneWorkflowDefinition(definition)
+	for actionIndex := range definition.ActionDefinitions {
+		switch definition.ActionDefinitions[actionIndex].ID {
+		case "bind_evidence", "record_report", "record_research", "accept_decision", "approve_operation":
+			for fieldIndex := range definition.ActionDefinitions[actionIndex].Payload.Fields {
+				field := &definition.ActionDefinitions[actionIndex].Payload.Fields[fieldIndex]
+				if field.Name != "evidence_ref" && field.Name != "immutable_subject_ref" {
+					continue
+				}
+				field.ValueType = PayloadString
+				field.NonBlank = false
+				field.MinLength = workflowInt(1)
+				field.MaxLength = workflowInt(2048)
+			}
+		}
+	}
+	return definition
+}
+
+func withCurrentEvidenceBindingReferences(definition WorkflowDefinition) WorkflowDefinition {
+	definition = cloneWorkflowDefinition(definition)
+	for actionIndex := range definition.ActionDefinitions {
+		switch definition.ActionDefinitions[actionIndex].ID {
+		case "bind_evidence", "record_report", "record_research", "accept_decision", "approve_operation":
+			for fieldIndex := range definition.ActionDefinitions[actionIndex].Payload.Fields {
+				field := &definition.ActionDefinitions[actionIndex].Payload.Fields[fieldIndex]
+				if field.Name != "evidence_ref" && field.Name != "immutable_subject_ref" {
+					continue
+				}
+				*field = actionRefField(field.Name, field.Required)
+			}
+		}
+	}
+	return definition
+}
+
+func previousWorkflowVersion(definition WorkflowDefinition, version int64) WorkflowDefinition {
+	definition = cloneWorkflowDefinition(definition)
+	definition.Version = version
+	definition = withLegacyEvidenceBindingReferences(definition)
+	for actionIndex := range definition.ActionDefinitions {
+		for fieldIndex := range definition.ActionDefinitions[actionIndex].Payload.Fields {
+			field := &definition.ActionDefinitions[actionIndex].Payload.Fields[fieldIndex]
+			if (field.Name == "evidence_ref" || field.Name == "immutable_subject_ref") && field.ValueType == PayloadString {
+				field.NonBlank = true
+			}
+		}
+	}
+	return definition
+}
+
 // withDesignDecisionItemSchema restates the record_design decisions field so it
 // names its element contract through item_ref. The frozen versions declare the
 // same schema through schema_ref, where an array field naming a non-array
@@ -578,7 +630,7 @@ func releasedGenericOneOffV5() WorkflowDefinition {
 func releasedArchitectureSpikeV5() WorkflowDefinition {
 	d := withWorkerActions(builtinArchitectureSpike(true), true)
 	d.Version = 5
-	return withLegacyPremiseContract(d)
+	return withLegacyEvidenceBindingReferences(withLegacyPremiseContract(d))
 }
 
 func architectureSpikeDecisionBoundsV6() WorkflowDefinition {
@@ -595,7 +647,7 @@ func architectureSpikeDecisionBoundsV6() WorkflowDefinition {
 			}
 		}
 	}
-	return withLegacyPremiseContract(d)
+	return withLegacyEvidenceBindingReferences(withLegacyPremiseContract(d))
 }
 
 // implementationPreAlignmentV12 reproduces the implementation definition that
@@ -615,19 +667,19 @@ func breakFixPreAlignmentV10() WorkflowDefinition {
 	return d
 }
 
-// implementationAlignmentV13 splices the CD-0156 mandatory alignment step
-// after proposal. record_alignment is the step's only advance exit, so the
-// backlog search cannot be skipped.
-func implementationAlignmentV13() WorkflowDefinition {
+// implementationAlignmentV14 adds the evidence-reference payload contract
+// after proposal. record_alignment remains the step's only advance exit, so
+// the backlog search cannot be skipped.
+func implementationAlignmentV14() WorkflowDefinition {
 	d := implementationPreAlignmentV12()
-	d.Version = 13
+	d.Version = 14
 	return withAlignmentStep(d, "proposal", "discovery")
 }
 
-// breakFixAlignmentV11 splices the CD-0156 mandatory alignment step after
-// reproduce, on the same terms as the implementation graph.
-func breakFixAlignmentV11() WorkflowDefinition {
+// breakFixAlignmentV12 adds the evidence-reference payload contract after the
+// CD-0156 mandatory alignment step.
+func breakFixAlignmentV12() WorkflowDefinition {
 	d := breakFixPreAlignmentV10()
-	d.Version = 11
+	d.Version = 12
 	return withAlignmentStep(d, "reproduce", "diagnose")
 }

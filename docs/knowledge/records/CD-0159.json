@@ -11,7 +11,7 @@
     "internal/store/workflow_registry.go"
   ],
   "home_domain_id": "product-memory",
-  "id": "CD-0158",
+  "id": "CD-0159",
   "kind": "decision",
   "law_relations": [
     {
@@ -23,7 +23,7 @@
       "target_id": "CD-0041"
     }
   ],
-  "path": "docs/decisions/CD-0158-authority-tier-for-product-law.md",
+  "path": "docs/decisions/CD-0159-authority-tier-for-product-law.md",
   "scopes": {
     "domain_ids": [],
     "mode": "home",
@@ -31,7 +31,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:9b030124473d99544f0e2746ae93b6d1c87efc9f0c3c11987d2b4b65863e1b5a",
+  "sha256": "sha256:b1ea0f34cb03b824e94c4a490cf0e51a8095d689d0849f7d8cbaf9ad770e0be1",
   "status": "accepted",
   "summary": "Gives each Product law record an authority tier of legislated or derived, fixed at write time. A law is legislated only when an operator-approved contract names it in an outcome predicate; law named only in law_additions is derived. A conflict with derived law is revised inside the contract with no separate approval turn, while legislated law keeps the legislative moment. Sets kind defaults for the existing records and lands every predecessor spec import as derived.",
   "tags": [

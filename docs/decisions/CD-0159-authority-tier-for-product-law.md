@@ -1,4 +1,4 @@
-# CD-0158: Authority tier for Product law
+# CD-0159: Authority tier for Product law
 
 - **Status:** Accepted
 - **Date:** 2026-09-20

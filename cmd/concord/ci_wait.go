@@ -189,17 +189,6 @@ func runCiWait(raw []byte, out, errOut io.Writer) int {
 	return ciWaitEmit(out, pending, 0)
 }
 
-// ghContext bounds one gh invocation. A hung command cannot prevent deadline
-// termination: the context kills it at the command timeout, the slice end, or
-// the wait deadline, whichever lands first.
-func ghContext(sliceEnd time.Time) (context.Context, context.CancelFunc) {
-	bound := ciWaitCommandTimeout
-	if d := time.Until(sliceEnd); d < bound {
-		bound = d
-	}
-	return context.WithTimeout(context.Background(), bound)
-}
-
 // ciWaitPoll reads the current state once and classifies it. The observation
 // comes from gh; the classification derives from it and nothing else.
 func ciWaitPoll(state *ciWaitState) (ciWaitReport, bool, error) {

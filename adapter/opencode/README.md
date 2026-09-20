@@ -192,14 +192,36 @@ replaces it with the full work state. Both renames stay best effort: no
 `ZELLIJ_PANE_ID`, an empty name, or a failed zellij call warns and never
 changes a recorded outcome.
 
-The adapter does not write the work-state name to mutation toasts, lane
-reports, system prompts, or completed assistant text. A closure receipt stays
-in the operator channel because it carries evidence locators that a `WorkPin`
-does not hold.
+A failed best-effort side effect — a zellij rename, or a session title write
+the host refused — appends a warning line to the tool result output after the
+envelope, because the agent is the only reader that can respond to it.
 
-When a mutation completes a work item, the adapter also shows a closure receipt
-with the WorkPin identity, title, bound evidence locators, and `release=pending`.
-The release value stays pending because publication occurs after completion.
+### The text-part channel
+
+When a mutation completes, cancels, or supersedes a work item, the adapter
+renders one closure banner from the terminal pin: a celebratory
+`QUEST COMPLETE` banner for a completion, and a visibly plainer
+`CONCORD WORK CLOSED` marker for a cancellation or a supersession. The banner
+carries the Linear key and work id, the title, the terminal lifecycle, the
+project display name, and the evidence locator count. Evidence is not a
+precondition: an envelope with no evidence renders `evidence=none` instead of
+closing the item in silence. The `work_start` gate brief and the
+worktree-removal notice ride the same channel.
+
+The banner rides the assistant's own message. The work-state reporter queues
+one block per session and suppresses a second emission of the same session,
+work, and terminal lifecycle triple, and the plugin's
+`experimental.text.complete` hook drains the queue into the text part before
+the host persists it. The agent spends no tokens forming the banner and
+cannot omit it. A host that never calls the hook produces no banner and no
+error, and the hook swallows every throw so a display can never damage an
+assistant message.
+
+The block is fenced. The host renders an assistant text part as markdown
+through `marked` with its default `breaks: false`, so a single newline is a
+soft break and collapses to a space. An unfenced banner would reach the
+operator as one run-on line, and the fence also holds the glyph columns in a
+monospace block.
 
 ### Session goal title
 

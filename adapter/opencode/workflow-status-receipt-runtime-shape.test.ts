@@ -1,11 +1,11 @@
 import { describe, expect, test } from "bun:test"
-import { formatWorkClosureReceipt } from "./workflow-status"
+import { formatQuestComplete } from "./workflow-status"
 
-// The closure receipt reads two facts from ONE response: the pin's lifecycle
-// and the envelope's evidence_refs. These fixtures reproduce the shape the
-// core actually returns for concord_work_transition.lifecycle with
+// The closure banner reads two facts from ONE response: the pin's terminal
+// lifecycle and the envelope's evidence_refs. These fixtures reproduce the
+// shape the core actually returns for concord_work_transition.lifecycle with
 // target "completed", rather than a hand-built pairing, because the shipped
-// receipt was unreachable precisely where those two facts were carried by
+// banner was unreachable precisely where those two facts were carried by
 // different responses.
 function lifecycleCompletionEnvelope() {
   return {
@@ -44,42 +44,39 @@ function lifecycleCompletionEnvelope() {
 }
 
 describe("workflow_status_receipt_runtime_shape", () => {
-  test("renders the receipt from the runtime lifecycle-completion envelope", () => {
+  test("renders the banner from the runtime lifecycle-completion envelope", () => {
     const envelope = lifecycleCompletionEnvelope()
-    expect(formatWorkClosureReceipt(envelope.result.work_pins[0], envelope)).toBe(
-      "◆ CONCORD WORK CLOSURE | work-cross | title=Emit an operator-facing closure receipt on completion | release=pending | evidence=verification-pass,https://github.com/Sharper-Flow/concord/pull/1063",
+    expect(formatQuestComplete(envelope.result.work_pins[0], envelope)).toBe(
+      "```\n◆◆◆ QUEST COMPLETE ◆◆◆\nwork-cross | Concord\nEmit an operator-facing closure receipt on completion\nlifecycle=completed | evidence=2\n```",
     )
   })
 
-  test("withholds the receipt when the envelope carries no evidence", () => {
+  test("an envelope without evidence renders evidence=none instead of going silent", () => {
     // This is the exact pre-repair runtime shape: lifecycle completed, and an
     // empty evidence_refs because the binding sat on a non-lifecycle action.
+    // Evidence left the gate and moved into the rendering.
     const envelope = lifecycleCompletionEnvelope()
     envelope.evidence_refs = []
-    expect(formatWorkClosureReceipt(envelope.result.work_pins[0], envelope)).toBeNull()
+    expect(formatQuestComplete(envelope.result.work_pins[0], envelope)).toBe(
+      "```\n◆◆◆ QUEST COMPLETE ◆◆◆\nwork-cross | Concord\nEmit an operator-facing closure receipt on completion\nlifecycle=completed | evidence=none\n```",
+    )
   })
 
-  test("withholds the receipt for a non-terminal lifecycle", () => {
+  test("withholds the banner for a non-terminal lifecycle", () => {
     const envelope = lifecycleCompletionEnvelope()
     envelope.result.work_pins[0].lifecycle = "in_progress"
-    expect(formatWorkClosureReceipt(envelope.result.work_pins[0], envelope)).toBeNull()
+    expect(formatQuestComplete(envelope.result.work_pins[0], envelope)).toBeNull()
   })
 
-  test("prefers the Linear issue key as the receipt identifier", () => {
+  test("prefers the Linear issue key as the banner identifier", () => {
     const envelope = lifecycleCompletionEnvelope()
     envelope.result.work_pins[0].linear_issue_key = "SHA-188"
-    expect(formatWorkClosureReceipt(envelope.result.work_pins[0], envelope)).toContain("| SHA-188 |")
+    expect(formatQuestComplete(envelope.result.work_pins[0], envelope)).toContain("\nSHA-188 (work-cross) | Concord\n")
   })
 
-  test("withholds the receipt when an evidence ref carries no locator", () => {
+  test("an evidence ref without a locator renders evidence=none", () => {
     const envelope = lifecycleCompletionEnvelope()
     envelope.evidence_refs = [{ kind: "verification", authority: "agent-verifier", locator_kind: "test" } as never]
-    expect(formatWorkClosureReceipt(envelope.result.work_pins[0], envelope as never)).toBeNull()
-  })
-
-  test("withholds the receipt on a refused envelope", () => {
-    const envelope = lifecycleCompletionEnvelope()
-    envelope.outcome = "error"
-    expect(formatWorkClosureReceipt(envelope.result.work_pins[0], envelope)).toBeNull()
+    expect(formatQuestComplete(envelope.result.work_pins[0], envelope as never)).toContain("lifecycle=completed | evidence=none")
   })
 })

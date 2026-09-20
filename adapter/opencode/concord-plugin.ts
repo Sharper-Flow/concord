@@ -27,6 +27,7 @@ import {
   work_compact,
   work_start,
   publishWorkStartDefinition,
+  takeWorkNotices,
 } from "./concord"
 import type { PluginInput } from "@opencode-ai/plugin"
 import { createContinuityTransform } from "./continuity-hook"
@@ -146,6 +147,23 @@ export default async function ConcordAdapterPlugin(input?: Partial<PluginInput>)
       output: { title: string; output: string; metadata: unknown },
     ) => {
       await completeDispatchedWorker(input, output)
+    },
+    // The text-part channel. The work-state reporter queues operator-facing
+    // blocks per session — the closure banner, the gate brief, the
+    // worktree-removal notice — and this hook drains them into the
+    // assistant's own message as the text part completes, so the transcript
+    // holds them and the agent spends no tokens forming them. The hook
+    // swallows every throw: a display can never damage an assistant message.
+    "experimental.text.complete": async (
+      input: { sessionID: string; messageID: string; partID: string },
+      output: { text: string },
+    ) => {
+      try {
+        const blocks = takeWorkNotices(input.sessionID)
+        if (blocks.length > 0) output.text = `${output.text}${output.text ? "\n\n" : ""}${blocks.join("\n\n")}`
+      } catch {
+        // A display can never damage an assistant message.
+      }
     },
     "experimental.chat.system.transform": async (input: unknown, output: { system: string[] }) => {
       await continuityTransform(input, output)

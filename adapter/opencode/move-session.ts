@@ -21,14 +21,12 @@
 // `GET /session` reports live session directories for worktree occupancy.
 // `GET/PATCH /session/{id}` owns persistent Task participation metadata and
 // the session title.
-// `POST /tui/show-toast` delivers operator text without an agent relay.
 
 import { execFileSync } from "node:child_process"
 
 export const MOVE_SESSION_ROUTE = "/experimental/control-plane/move-session"
 export const SESSION_ROUTE = "/session/{id}"
 export const SESSION_LIST_ROUTE = "/session"
-export const SHOW_TOAST_ROUTE = "/tui/show-toast"
 export const MANAGED_TASK_SCOPE_KEY = "concord.task_scope"
 
 // ObservedSessionDirectory is one live host session and the directory it runs
@@ -308,24 +306,6 @@ export class HostControlPlane {
       return { session_ref: id, directory }
     })
     return observed
-  }
-
-  // showToast puts one line in front of the operator. Delivery is best effort
-  // by construction: every caller reports an effect that already happened, so
-  // a host without an attached TUI must not turn a completed operation into a
-  // failure. The caller keeps the same text in its own result.
-  async showToast(message: string, variant: "info" | "warning", signal?: AbortSignal): Promise<boolean> {
-    if (!this.#client) return false
-    try {
-      const result = await this.#client.post({
-        url: SHOW_TOAST_ROUTE,
-        body: { title: "Concord", message, variant },
-        signal,
-      })
-      return result.response.ok
-    } catch {
-      return false
-    }
   }
 
   #require(message: string): RouteClient {

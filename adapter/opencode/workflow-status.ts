@@ -104,12 +104,29 @@ function evidenceLocators(envelope: MutationEnvelope): string[] | null {
   return locators as string[]
 }
 
-export function formatWorkClosureReceipt(value: unknown, envelope: MutationEnvelope): string | null {
+const TERMINAL_LIFECYCLES: ReadonlySet<string> = new Set(["completed", "cancelled", "superseded"])
+
+// formatQuestComplete renders the one closure banner a terminal work pin
+// produces. The gate is the terminal lifecycle alone: evidence moved out of
+// the gate and into the rendering, so a closure with no readable evidence
+// prints `evidence=none` instead of closing the item in silence. A completed
+// pin gets the celebratory banner; a cancelled or superseded pin gets a
+// visibly plainer marker with no celebration. The exact bytes are fixed by
+// the golden tests.
+//
+// The block is fenced. The host renders an assistant text part as markdown
+// through `marked` with its default `breaks: false`, so a single newline is a
+// soft break and collapses to a space: an unfenced banner would reach the
+// operator as one run-on line. The fence also holds the glyph columns in a
+// monospace block, which is the whole point of a banner.
+export function formatQuestComplete(value: unknown, envelope: MutationEnvelope): string | null {
   const pin = workPin(value)
+  if (!pin || !TERMINAL_LIFECYCLES.has(pin.lifecycle)) return null
   const locators = evidenceLocators(envelope)
-  if (!pin || pin.lifecycle !== "completed" || !locators || locators.length === 0) return null
-  const identifier = pin.linear_issue_key || pin.work_id
-  return `◆ CONCORD WORK CLOSURE | ${identifier} | title=${pin.title} | release=pending | evidence=${locators.join(",")}`
+  const evidence = locators !== null && locators.length > 0 ? `evidence=${locators.length}` : "evidence=none"
+  const identifier = pin.linear_issue_key ? `${pin.linear_issue_key} (${pin.work_id})` : pin.work_id
+  const head = pin.lifecycle === "completed" ? "◆◆◆ QUEST COMPLETE ◆◆◆" : "◆ CONCORD WORK CLOSED"
+  return `\`\`\`\n${head}\n${identifier} | ${pin.project_display_name}\n${pin.title}\nlifecycle=${pin.lifecycle} | ${evidence}\n\`\`\``
 }
 
 function workPins(envelope: unknown): WorkPin[] {
@@ -123,7 +140,7 @@ function workPins(envelope: unknown): WorkPin[] {
 type TabMapping = { attemptedAt: number; tabID?: string }
 type WorkStateReporterOptions = { runner?: DispatchRunner; now?: () => number }
 
-async function renameZellijTab(pin: WorkPin, context: WorkflowStatusContext, runner: DispatchRunner, now: () => number, mappings: Map<string, TabMapping>): Promise<void> {
+async function renameZellijTab(pin: WorkPin, context: WorkflowStatusContext, runner: DispatchRunner, now: () => number, mappings: Map<string, TabMapping>, warnings: string[]): Promise<void> {
   const paneID = process.env.ZELLIJ_PANE_ID
   if (!paneID) return
   const name = formatWorkTabName(pin)
@@ -150,40 +167,69 @@ async function renameZellijTab(pin: WorkPin, context: WorkflowStatusContext, run
     }
   } catch (error) {
     mappings.set(context.sessionID, { attemptedAt: now(), ...(tabID ? { tabID } : {}) })
-    try { await hostControlPlane().showToast(`Concord could not rename the work tab or pane frame: ${error instanceof Error ? error.message : String(error)}.`, "warning", context.abort) } catch { /* best effort */ }
+    warnings.push(`Concord could not rename the work tab or pane frame: ${error instanceof Error ? error.message : String(error)}.`)
   }
 }
 
 // The session title carries the goal, and the reporter refreshes it from the
 // post-state pin so a revised intent reaches the title the compaction hook
 // restates. The write is best effort: an absent route, an empty title, or a
-// failed call warns and never changes the reported outcome.
-async function refreshSessionGoalTitle(pin: WorkPin, context: WorkflowStatusContext): Promise<void> {
+// failed call adds a warning and never changes the reported outcome.
+async function refreshSessionGoalTitle(pin: WorkPin, context: WorkflowStatusContext, warnings: string[]): Promise<void> {
   const wrote = await hostControlPlane().setSessionTitle(context.sessionID, `Goal: ${pin.title}`, context.abort)
   if (wrote) return
-  try {
-    await hostControlPlane().showToast("Concord could not write the session goal title: the session title route is absent or refused the write.", "warning", context.abort)
-  } catch {
-    // The title is an operator aid; a warning that cannot be shown still
-    // cannot fail the reported outcome.
-  }
+  warnings.push("Concord could not write the session goal title: the session title route is absent or refused the write.")
 }
 
 export function createWorkStateReporter(options: WorkStateReporterOptions = {}) {
   const runner = options.runner ?? defaultRunner
   const now = options.now ?? Date.now
   const mappings = new Map<string, TabMapping>()
+  // A terminal pin reappears in the pins of any later mutation that touches
+  // the same item, so the closure banner is emitted once per sessionID,
+  // work_id, and terminal lifecycle triple.
+  const emittedClosures = new Map<string, Set<string>>()
+  // The text-part channel. The plugin's experimental.text.complete hook
+  // drains these blocks into the assistant's own message, so they reach the
+  // transcript while the agent spends no tokens forming them.
+  const notices = new Map<string, string[]>()
+  const emitClosure = (sessionID: string, pin: WorkPin): boolean => {
+    const key = `${pin.work_id}\u0000${pin.lifecycle}`
+    let seen = emittedClosures.get(sessionID)
+    if (!seen) {
+      seen = new Set()
+      emittedClosures.set(sessionID, seen)
+    }
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  }
+  const enqueueNotice = (sessionID: string, block: string): void => {
+    const queue = notices.get(sessionID) ?? []
+    queue.push(block)
+    notices.set(sessionID, queue)
+  }
   return {
-    async report(envelope: MutationEnvelope, context: WorkflowStatusContext): Promise<void> {
-      const pins = workPins(envelope)
-      for (const pin of pins) {
-        await renameZellijTab(pin, context, runner, now, mappings)
-        await refreshSessionGoalTitle(pin, context)
-        const receipt = formatWorkClosureReceipt(pin, envelope)
-        if (receipt) {
-          try { await hostControlPlane().showToast(receipt, "info", context.abort) } catch { /* closure delivery is best effort */ }
-        }
+    // report refreshes the tab, pane, and session title from each returned
+    // pin, queues the closure banner for every terminal pin, and returns the
+    // warnings for failed best-effort side effects. The caller appends the
+    // warnings to the tool result output, because the agent is the only
+    // reader that can respond to them.
+    async report(envelope: MutationEnvelope, context: WorkflowStatusContext): Promise<string[]> {
+      const warnings: string[] = []
+      for (const pin of workPins(envelope)) {
+        await renameZellijTab(pin, context, runner, now, mappings, warnings)
+        await refreshSessionGoalTitle(pin, context, warnings)
+        const block = formatQuestComplete(pin, envelope)
+        if (block !== null && emitClosure(context.sessionID, pin)) enqueueNotice(context.sessionID, block)
       }
+      return warnings
+    },
+    enqueueNotice,
+    takeNotices(sessionID: string): string[] {
+      const queue = notices.get(sessionID)
+      notices.delete(sessionID)
+      return queue ?? []
     },
   }
 }

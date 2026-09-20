@@ -581,6 +581,22 @@ const workStateReporter = createWorkStateReporter(
   { runner: { run: (argv, input, signal) => runner.run(argv, input, signal) } },
 )
 
+// The text-part queue's public face. The plugin's experimental.text.complete
+// hook drains it into the assistant's own message; the tests seed it the same
+// way the gate brief and the worktree-removal notice enqueue.
+export function enqueueWorkNotice(sessionID: string, block: string): void {
+  workStateReporter.enqueueNotice(sessionID, block)
+}
+
+export function takeWorkNotices(sessionID: string): string[] {
+  return workStateReporter.takeNotices(sessionID)
+}
+
+function appendWarnings(result: ToolResult, warnings: string[]): ToolResult {
+  if (warnings.length === 0) return result
+  return { ...result, output: `${result.output}\n${warnings.join("\n")}` }
+}
+
 function encodeHostResult(toolName: string, operation: string, requestID: string, envelope: HostConcordEnvelope): ToolResult {
   let output = JSON.stringify(envelope)
   if (Buffer.byteLength(output) > maxEnvelopeBytes) {
@@ -599,14 +615,14 @@ async function encodeHostToolResult(toolName: string, args: HostToolArgs, contex
 
 async function executeHostTool(toolName: string, args: HostToolArgs, context: ToolContext): Promise<ToolResult> {
   const envelope = await invokeConcordOperation(toolName, args, context)
-  if (operationIsMutation(toolName, args.operation)) await workStateReporter.report(envelope, context)
-  return encodeHostToolResult(toolName, args, context, envelope)
+  const warnings = operationIsMutation(toolName, args.operation) ? await workStateReporter.report(envelope, context) : []
+  return appendWarnings(await encodeHostToolResult(toolName, args, context, envelope), warnings)
 }
 
 async function executeHostTransition(args: HostToolArgs, context: ToolContext): Promise<ToolResult> {
   const envelope = await executeWorkTransition(args, context)
-  await workStateReporter.report(envelope, context)
-  return encodeHostToolResult("concord_work_transition", args, context, envelope)
+  const warnings = await workStateReporter.report(envelope, context)
+  return appendWarnings(await encodeHostToolResult("concord_work_transition", args, context, envelope), warnings)
 }
 
 type WorkStartCaptureArgs = {
@@ -793,43 +809,30 @@ async function runWorkStartChild(argv: string[], input: string, signal: AbortSig
 // read for a cosmetic name, so it renders the shared pane formatter with the
 // title alone; the first mutation replaces it with the full work state. One
 // bounded fork per success; the pane belongs to the host, so no
-// ZELLIJ_PANE_ID, an empty name, or a failed fork is a warning that never
-// changes the completed start.
-async function renameZellijPaneFrame(title: string, context: ToolContext): Promise<void> {
+// ZELLIJ_PANE_ID, an empty name, or a failed fork returns a warning message
+// that never changes the completed start.
+async function renameZellijPaneFrame(title: string, context: ToolContext): Promise<string | null> {
   const paneID = process.env.ZELLIJ_PANE_ID
-  if (paneID === undefined || paneID === "") return
+  if (paneID === undefined || paneID === "") return null
   const name = formatWorkPaneName({ title })
-  if (name === null) return
+  if (name === null) return null
   try {
     const result = await runner.run(["zellij", "action", "rename-pane", "-p", paneID, name], "", context.abort)
-    if (result.exitCode !== 0) await warnPaneRename(context, `exit ${result.exitCode}`)
+    if (result.exitCode !== 0) return `Concord could not rename the pane frame to the work title: exit ${result.exitCode}.`
   } catch {
-    await warnPaneRename(context, "the fork failed")
+    return "Concord could not rename the pane frame to the work title: the fork failed."
   }
-}
-
-async function warnPaneRename(context: ToolContext, detail: string): Promise<void> {
-  try {
-    await hostControlPlane().showToast(`Concord could not rename the pane frame to the work title: ${detail}.`, "warning", context.abort)
-  } catch {
-    // The pane name is an operator aid; a warning that cannot be shown
-    // still cannot fail the completed start.
-  }
+  return null
 }
 
 // writeSessionGoalTitle names the host session "Goal: <title>" with the title
 // session-prepare derived, so the session list states the objective and the
 // plugin's compaction hook can restate it. The write is best effort: an
-// absent route, an empty title, or a failed call warns and never changes the
-// completed start.
-async function writeSessionGoalTitle(sessionID: string, title: string, context: ToolContext): Promise<void> {
-  if (await hostControlPlane().setSessionTitle(sessionID, `Goal: ${title}`, context.abort)) return
-  try {
-    await hostControlPlane().showToast("Concord could not write the session goal title: the session title route is absent or refused the write.", "warning", context.abort)
-  } catch {
-    // The title is an operator aid; a warning that cannot be shown still
-    // cannot fail the completed start.
-  }
+// absent route, an empty title, or a failed call returns a warning message
+// that never changes the completed start.
+async function writeSessionGoalTitle(sessionID: string, title: string, context: ToolContext): Promise<string | null> {
+  if (await hostControlPlane().setSessionTitle(sessionID, `Goal: ${title}`, context.abort)) return null
+  return "Concord could not write the session goal title: the session title route is absent or refused the write."
 }
 
 // executeWorkStart replays to convergence. Each step is idempotent on the
@@ -849,7 +852,7 @@ async function writeSessionGoalTitle(sessionID: string, title: string, context: 
 // No step records intent ahead of its effect, so there is no partial state.
 // The session's worktree is the directory it runs in, and the host owns that
 // answer (CD-0098 D3).
-async function executeWorkStart(args: WorkStartArgs, context: ToolContext): Promise<WorkStartEnvelope> {
+async function executeWorkStart(args: WorkStartArgs, context: ToolContext, warnings: string[]): Promise<WorkStartEnvelope> {
   let target: { product_id: string; project_id: string; work_id: string; worktree: { path: string } } | null = null
   const resume = record(args) && isWorkStartResumeArgs(args)
   try {
@@ -955,12 +958,15 @@ async function executeWorkStart(args: WorkStartArgs, context: ToolContext): Prom
     if (!samePath(context.directory, target.worktree.path)) armTurnMoveBoundary(context.sessionID)
     // Issue #917: the pane frame now names the work this session runs. The
     // rename sits after every refusal point, so it fires once per success and
-    // never changes the outcome the envelope reports.
-    await renameZellijPaneFrame(preparedValue.title, context)
+    // never changes the outcome the envelope reports. A failure returns a
+    // warning the tool result carries to the agent.
+    const paneWarning = await renameZellijPaneFrame(preparedValue.title, context)
+    if (paneWarning) warnings.push(paneWarning)
     // The session title names the goal the session-prepare contract derived.
     // Like the pane frame it sits after every refusal point and never changes
     // the outcome the envelope reports.
-    await writeSessionGoalTitle(context.sessionID, preparedValue.title, context)
+    const titleWarning = await writeSessionGoalTitle(context.sessionID, preparedValue.title, context)
+    if (titleWarning) warnings.push(titleWarning)
     return {
       schema_version: "1.0",
       outcome: "ok",
@@ -983,7 +989,10 @@ async function reportGateBrief(envelope: WorkStartEnvelope, context: ToolContext
     const portfolio = await invokeConcordOperation("concord_product_view", { operation: "portfolio", input: { product_id: envelope.product_id, page: { cursor: null, limit: 20 } } }, context)
     if (portfolio.outcome !== "ok" || !record(portfolio.result)) return
     const message = formatGateBrief(envelope.product_id, portfolio.result.rows)
-    if (message) await hostControlPlane().showToast(message, "info", context.abort)
+    // The gate brief rides the text-part channel: the plugin's
+    // experimental.text.complete hook appends it to the assistant's own
+    // message, so the agent sees it without a tool-result expansion.
+    if (message) workStateReporter.enqueueNotice(context.sessionID, message)
   } catch {
     // A gate brief is an operator aid. It cannot change a completed start.
   }
@@ -1000,11 +1009,12 @@ export const work_transition = tool({ description: "Concord work transition. Use
 export const work_relate = tool({ description: "Concord work relate", args: argsSchema("concord_work_relate"), execute: (args: HostToolCall, context: ToolContext): Promise<ToolResult> => executeHostTool("concord_work_relate", hostRequest(args), context) })
 export const work_compact = tool({ description: "Concord work compact", args: argsSchema("concord_work_compact"), execute: (args: HostToolCall, context: ToolContext): Promise<ToolResult> => executeHostTool("concord_work_compact", hostRequest(args), context) })
 export const work_start = tool({ description: `${hostToolDescriptions.concord_work_start} ${workStartUsage}`, args: workStartArgsSchema(), execute: async (args: any, context: ToolContext): Promise<ToolResult> => {
-  const envelope = await executeWorkStart(args as WorkStartArgs, context)
+  const warnings: string[] = []
+  const envelope = await executeWorkStart(args as WorkStartArgs, context, warnings)
   await reportGateBrief(envelope, context)
   let output = JSON.stringify(envelope)
   if (Buffer.byteLength(output) > maxEnvelopeBytes) output = JSON.stringify(workStartError("output_exceeded", `work_start result exceeds ${maxEnvelopeBytes} bytes`, { product_id: envelope.product_id, project_id: envelope.project_id, work_id: envelope.work_id, worktree_path: envelope.worktree_path }))
-  return { title: "concord_work_start", output, metadata: {} }
+  return appendWarnings({ title: "concord_work_start", output, metadata: {} }, warnings)
 } })
 
 // laneDispatchRequest decides whether a work_transition invocation routes to
@@ -1081,12 +1091,13 @@ async function attachLiveSessionObservation(args: HostToolArgs, context: ToolCon
 // reportWorktreeRemoval puts the completed removal in front of the operator.
 // The agent that made the call may end its turn without relaying anything, and
 // the session that was running in a neighbouring worktree has no other way to
-// learn the directory is gone. Delivery is best effort: the removal already
-// happened, and a host with no attached TUI must not turn it into a failure.
+// learn the directory is gone. The notice rides the text-part channel: the
+// plugin's experimental.text.complete hook appends it to the assistant's own
+// message, so delivery needs no host route at all.
 async function reportWorktreeRemoval(args: HostToolArgs, context: ToolContext, envelope: HostConcordEnvelope): Promise<void> {
   if (!record(envelope) || envelope.outcome !== "ok") return
   const workID = typeof args.input?.work_id === "string" ? args.input.work_id : "unknown work"
-  await hostControlPlane().showToast(`Concord removed the worktree of ${workID}.`, "info", context.abort)
+  workStateReporter.enqueueNotice(context.sessionID, `Concord removed the worktree of ${workID}.`)
 }
 
 const WORKER_ABANDON_OPERATION = "worker_abandon"

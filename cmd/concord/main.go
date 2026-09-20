@@ -58,6 +58,9 @@ func runWithInput(args []string, in io.Reader, out, errOut io.Writer) int {
 	if len(args) > 0 && args[0] == "launcher" {
 		return runLauncherCommand(args[1:], in, out, errOut, terminalStreams(in, out))
 	}
+	if len(args) == 0 {
+		return runBareInvocation(in, out, errOut, terminalStreams(in, out))
+	}
 	if len(args) > 0 && args[0] == "zl" {
 		return runZLForwarding(args[1:], in, out, errOut)
 	}
@@ -261,6 +264,18 @@ func terminalStreams(in io.Reader, out io.Writer) bool {
 	inInfo, inErr := input.Stat()
 	outInfo, outErr := output.Stat()
 	return inErr == nil && outErr == nil && inInfo.Mode()&os.ModeCharDevice != 0 && outInfo.Mode()&os.ModeCharDevice != 0
+}
+
+// runBareInvocation is the bare `concord` dispatch. The launcher is the
+// operator's daily entry surface, so bare invocation starts it on a TTY. Off a
+// TTY there is no interactive surface to hand over, so it prints usage and
+// exits 2 instead of reading stdin as JSON.
+func runBareInvocation(in io.Reader, out, errOut io.Writer, terminal bool) int {
+	if !terminal {
+		writeUsage(errOut)
+		return 2
+	}
+	return runLauncherCommand(nil, in, out, errOut, terminal)
 }
 
 func runLauncherCommand(args []string, in io.Reader, out, errOut io.Writer, terminal bool) int {

@@ -12,25 +12,55 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/sharper-flow/concord/internal/hostlease"
 	"github.com/sharper-flow/concord/internal/launcher"
 	"github.com/sharper-flow/concord/internal/portfolio"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
 type Port struct {
-	Store       *store.Store
-	VisionProbe ProbeFunc
-	LgrepProbe  ProbeFunc
+	Store        *store.Store
+	VisionProbe  ProbeFunc
+	LgrepProbe   ProbeFunc
+	SessionProbe func(context.Context, store.WorktreeEntry) bool
 }
 
 type ProbeFunc func(context.Context) (bool, string)
 
 func New(s *store.Store) *Port {
-	return &Port{
+	port := &Port{
 		Store:       s,
 		VisionProbe: commandProbe("vision", "daemon", "status"),
 		LgrepProbe:  commandProbe("lgrep", "--version"),
 	}
+	port.SessionProbe = port.hostSessionProbe
+	return port
+}
+
+func (p *Port) hostSessionProbe(_ context.Context, entry store.WorktreeEntry) bool {
+	if entry.OccupantSessionRef == "" || entry.Path == "" {
+		return false
+	}
+	if p.Store == nil {
+		return false
+	}
+	leases, err := hostlease.List(filepath.Dir(p.Store.Path()))
+	if err != nil {
+		return false
+	}
+	for _, lease := range leases {
+		if filepath.Clean(lease.Worktree) == filepath.Clean(entry.Path) {
+			return true
+		}
+	}
+	return false
+}
+
+func (p *Port) liveSession(ctx context.Context, entry store.WorktreeEntry) bool {
+	if p == nil || p.SessionProbe == nil {
+		return false
+	}
+	return p.SessionProbe(ctx, entry)
 }
 
 func commandProbe(name string, args ...string) ProbeFunc {
@@ -106,6 +136,9 @@ func (p *Port) Candidates(ctx context.Context, limit int) ([]launcher.Candidate,
 				}
 				candidate.Worktree = worktree.Path
 				candidate.Available = true
+				if p.liveSession(ctx, worktree) {
+					candidate.Live = 1
+				}
 				break
 			}
 			candidates = append(candidates, candidate)
@@ -171,6 +204,7 @@ func (p *Port) Read(ctx context.Context, request launcher.ReadRequest) (launcher
 		if err != nil {
 			return launcher.Snapshot{Screen: launcher.ScreenProduct, AmbientProduct: request.Product, Coverage: "unreachable", StatusMessage: err.Error()}, err
 		}
+		p.decorateProduct(ctx, &result)
 		return snapshotFromProduct(result, request.Product, request.Section), nil
 	case launcher.ReadDomains:
 		domains, err := p.Store.QueryLauncherDomains(ctx, store.LauncherProductRequest{Product: request.Product, Limit: request.Limit, Depth: 3})
@@ -187,6 +221,7 @@ func (p *Port) Read(ctx context.Context, request launcher.ReadRequest) (launcher
 		if err != nil {
 			return launcher.Snapshot{Screen: launcher.ScreenProduct, AmbientProduct: request.Product, Section: launcher.SectionDomains, Coverage: "unreachable", StatusMessage: err.Error()}, err
 		}
+		p.decorateProduct(ctx, &product)
 		return snapshotFromDomains(domains, product, request.Product), nil
 	case launcher.ReadWork:
 		result, err := p.Store.QueryLauncherWork(ctx, store.LauncherWorkRequest{Product: request.Product, Work: request.Work, Limit: request.Limit})
@@ -209,14 +244,65 @@ func (p *Port) Read(ctx context.Context, request launcher.ReadRequest) (launcher
 	}
 }
 
+func (p *Port) Projects(ctx context.Context, productID string) ([]launcher.ProjectOption, error) {
+	if p == nil || p.Store == nil {
+		return nil, nil
+	}
+	memberships, err := p.Store.ProjectsForProduct(ctx, productID)
+	if err != nil {
+		return nil, err
+	}
+	projects := make([]launcher.ProjectOption, 0, len(memberships))
+	for _, membership := range memberships {
+		path, pathErr := p.Store.ProjectLaunchPath(ctx, membership.ID)
+		if pathErr != nil {
+			continue
+		}
+		projects = append(projects, launcher.ProjectOption{ID: membership.ID, Name: membership.DisplayName, Role: membership.Role, Path: path})
+	}
+	return projects, nil
+}
+
+func (p *Port) ResolveIssue(ctx context.Context, key, issueURL string) (launcher.SessionHandoff, error) {
+	if p == nil || p.Store == nil {
+		return launcher.SessionHandoff{}, errors.New("launcher store is not open")
+	}
+	linked, err := p.Store.ResolveLauncherLinearIssue(ctx, key, issueURL)
+	if err != nil {
+		return launcher.SessionHandoff{}, err
+	}
+	return launcher.SessionHandoff{ProductID: linked.ProductID, WorkID: linked.WorkID, Agent: launcher.DefaultSessionAgent}, nil
+}
+
+func (p *Port) decorateProduct(ctx context.Context, result *store.LauncherProductResult) {
+	for i := range result.Works {
+		entries, err := p.Store.WorktreeEntries(ctx, result.Works[i].ID)
+		if err != nil {
+			continue
+		}
+		for _, entry := range entries {
+			if entry.State != "active" {
+				continue
+			}
+			result.Works[i].Worktree = entry.Path
+			if p.liveSession(ctx, entry) {
+				result.Works[i].Live = 1
+			}
+			break
+		}
+	}
+}
+
 func snapshotFromProduct(result store.LauncherProductResult, product string, section launcher.Section) launcher.Snapshot {
 	s := launcher.Snapshot{Screen: launcher.ScreenProduct, AmbientProduct: product, Section: section, QueryID: result.QueryID, ContractVersion: result.ContractVersion, SourceVersionWatermark: result.SourceVersionWatermark, Watermark: strconv.FormatInt(result.SourceVersionWatermark, 10), ObservedAt: result.Freshness.ObservedAt, Reliance: result.Authority, Coverage: result.Authority, OrderingKeys: append([]string(nil), result.OrderingKeys...)}
 	s.Ranked = make([]launcher.RankedWork, 0, len(result.Works)+len(result.TerminalWorks))
 	for _, item := range result.Works {
 		s.Ranked = append(s.Ranked, mapWork(item))
 	}
-	// The terminal drill-down tail follows the active segment in the store's
-	// deterministic order; both segments are already ordered per read.
+	s.ActiveWorkOnly = true
+	s.Backlog = true
+	// Terminal history remains in the shared read projection, but the launcher
+	// filters it from the active picker.
 	for _, item := range result.TerminalWorks {
 		s.Ranked = append(s.Ranked, mapWork(item))
 	}
@@ -270,7 +356,7 @@ func snapshotFromWork(result store.LauncherWorkResult, product, work string, sec
 }
 
 func mapWork(item store.LauncherWork) launcher.RankedWork {
-	out := launcher.RankedWork{ID: item.ID, Kind: item.Kind, Title: item.Title, Lifecycle: item.Lifecycle, Priority: item.Priority, Urgency: item.Urgency, CreatedAt: item.CreatedAt, UpdatedAt: item.UpdatedAt, TerminalAt: item.TerminalAt, ProjectCount: item.ProjectCount, Blocked: item.Blocked, Ready: item.Ready, Terminal: item.Terminal}
+	out := launcher.RankedWork{ID: item.ID, Kind: item.Kind, Title: item.Title, Lifecycle: item.Lifecycle, LinearIssueKey: item.LinearIssueKey, Worktree: item.Worktree, Live: item.Live, Priority: item.Priority, Urgency: item.Urgency, CreatedAt: item.CreatedAt, UpdatedAt: item.UpdatedAt, TerminalAt: item.TerminalAt, ProjectCount: item.ProjectCount, Blocked: item.Blocked, Ready: item.Ready, Terminal: item.Terminal}
 	for _, blocker := range item.Blockers {
 		out.Blockers = append(out.Blockers, launcher.Blocker{ID: blocker.ID, Title: blocker.Title, Authority: blocker.Authority, Age: blocker.Age, External: blocker.External, ConditionID: blocker.ConditionID})
 	}

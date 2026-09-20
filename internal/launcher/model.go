@@ -12,6 +12,7 @@ type ReadKind string
 const (
 	ReadPortfolio  ReadKind = "portfolio"
 	ReadProduct    ReadKind = "product"
+	ReadProjects   ReadKind = "projects"
 	ReadDomains    ReadKind = "domains"
 	ReadWork       ReadKind = "work"
 	ReadKnowledge  ReadKind = "knowledge"
@@ -124,6 +125,11 @@ type Blocker struct {
 
 type RankedWork struct {
 	ID, Kind, Title, Lifecycle string
+	LinearIssueKey             string
+	Worktree                   string
+	ProjectID                  string
+	Live                       int
+	Backlog                    bool
 	Priority                   int64
 	Urgency                    string
 	CreatedAt, UpdatedAt       string
@@ -227,6 +233,10 @@ type SessionHandoff struct {
 	Agent       string
 }
 
+type ProjectOption struct {
+	ID, Name, Role, Path string
+}
+
 const DefaultSessionAgent = "concord-1"
 
 type CandidateKind string
@@ -294,6 +304,7 @@ type Snapshot struct {
 	OrderingKeys           []string
 	NextCursor             *string
 	Rows                   []ProductRow
+	Projects               []ProjectOption
 	Candidates             []Candidate
 	Preview                CandidatePreview
 	Probes                 []ProbeStatus
@@ -310,6 +321,20 @@ type Snapshot struct {
 	QuerySubmitted         string
 	SelectedWorkID         string
 	Session                SessionHandoff
+	ProjectSelect          bool
+	ActiveWorkOnly         bool
+	Backlog                bool
+}
+
+// ProjectPort supplies the Product's locally registered Projects. It is a
+// read-only extension of ReadPort so the launcher can omit Projects without a
+// recorded repository path.
+type ProjectPort interface {
+	Projects(context.Context, string) ([]ProjectOption, error)
+}
+
+type IssuePort interface {
+	ResolveIssue(context.Context, string, string) (SessionHandoff, error)
 }
 
 type Model struct {
@@ -326,14 +351,14 @@ func New(port ReadPort) *Model {
 }
 
 func (m *Model) Enter(ctx context.Context) error {
-	return m.read(ctx, ReadRequest{Kind: ReadPortfolio, Limit: 20})
+	return m.read(ctx, ReadRequest{Kind: ReadPortfolio, Limit: 100})
 }
 
 func (m *Model) SelectProduct(ctx context.Context, product string) error {
 	for _, row := range m.snapshot.Rows {
 		if row.ID == product {
 			m.navigation = append(m.navigation, m.Snapshot())
-			err := m.read(ctx, ReadRequest{Kind: ReadDomains, Product: product, Limit: 20, Section: SectionDomains})
+			err := m.read(ctx, ReadRequest{Kind: ReadDomains, Product: product, Limit: 100, Section: SectionDomains})
 			if err != nil {
 				m.navigation = m.navigation[:len(m.navigation)-1]
 				m.snapshot = Snapshot{Screen: SurfacePortfolio, Coverage: "unreachable", Reliance: "unreachable", StatusMessage: err.Error()}
@@ -373,6 +398,39 @@ func (m *Model) SelectWork(ctx context.Context, work string) error {
 	return err
 }
 
+func (m *Model) SelectProjects(ctx context.Context) error {
+	port, ok := m.port.(ProjectPort)
+	if !ok || m.snapshot.AmbientProduct == "" {
+		return nil
+	}
+	projects, err := port.Projects(ctx, m.snapshot.AmbientProduct)
+	if err != nil {
+		return err
+	}
+	m.snapshot.Projects = append([]ProjectOption(nil), projects...)
+	m.snapshot.ProjectSelect = true
+	return nil
+}
+
+func (m *Model) SelectProject(project ProjectOption) {
+	m.snapshot.ProjectSelect = false
+	m.snapshot.Projects = nil
+	m.snapshot.Session = SessionHandoff{ProjectPath: project.Path, Agent: DefaultSessionAgent}
+}
+
+func (m *Model) BackProjects() {
+	m.snapshot.ProjectSelect = false
+	m.snapshot.Projects = nil
+}
+
+func (m *Model) ResolveIssue(ctx context.Context, key string) (SessionHandoff, error) {
+	port, ok := m.port.(IssuePort)
+	if !ok {
+		return SessionHandoff{}, nil
+	}
+	return port.ResolveIssue(ctx, key, "")
+}
+
 func (m *Model) SubmitQuery(ctx context.Context, query string) error {
 	// S1 carries no semantic-query binding, so a query submitted against the
 	// portfolio issues no read. The ambient guard below is not a substitute: an
@@ -390,15 +448,18 @@ func (m *Model) Refresh(ctx context.Context) error {
 	s := m.snapshot
 	switch s.Screen {
 	case SurfacePortfolio:
-		return m.read(ctx, ReadRequest{Kind: ReadPortfolio, Limit: 20})
+		return m.read(ctx, ReadRequest{Kind: ReadPortfolio, Limit: 100})
 	case SurfaceProduct:
+		if s.ProjectSelect {
+			return m.SelectProjects(ctx)
+		}
 		if s.Section == SectionKnowledge {
 			return m.read(ctx, ReadRequest{Kind: ReadKnowledge, Product: s.AmbientProduct, Limit: 20, Section: SectionKnowledge})
 		}
 		if s.Section == SectionDomains {
-			return m.read(ctx, ReadRequest{Kind: ReadDomains, Product: s.AmbientProduct, Limit: 20, Section: SectionDomains})
+			return m.read(ctx, ReadRequest{Kind: ReadDomains, Product: s.AmbientProduct, Limit: 100, Section: SectionDomains})
 		}
-		return m.read(ctx, ReadRequest{Kind: ReadProduct, Product: s.AmbientProduct, Limit: 20, Section: s.Section})
+		return m.read(ctx, ReadRequest{Kind: ReadProduct, Product: s.AmbientProduct, Limit: 100, Section: s.Section})
 	case SurfaceWork:
 		if s.Section == SectionKnowledge {
 			return m.read(ctx, ReadRequest{Kind: ReadKnowledge, Product: s.AmbientProduct, Work: s.SelectedWorkID, Limit: 20, Section: SectionKnowledge})
@@ -600,6 +661,7 @@ func cloneSnapshot(snapshot Snapshot) Snapshot {
 		cloned.NextCursor = &cursor
 	}
 	cloned.Candidates = append([]Candidate(nil), snapshot.Candidates...)
+	cloned.Projects = append([]ProjectOption(nil), snapshot.Projects...)
 	cloned.Probes = append([]ProbeStatus(nil), snapshot.Probes...)
 	cloned.Preview.Sessions = cloneStrings(snapshot.Preview.Sessions)
 	return cloned

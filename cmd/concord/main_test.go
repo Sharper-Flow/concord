@@ -470,6 +470,12 @@ func TestRunHelpListsExactCommandFormsAndStdinShapes(t *testing.T) {
 		"concord product create < JSON stdin",
 		"concord linear-connection-update < JSON stdin",
 		"concord linear connection-update < JSON stdin",
+		"concord linear-divergence < JSON stdin",
+		"concord linear divergence < JSON stdin",
+		"concord linear-unlinked-remote-in-progress < JSON stdin",
+		"concord linear unlinked-remote-in-progress < JSON stdin",
+		"concord linear-outbox-disposition < JSON stdin",
+		"concord linear outbox-disposition < JSON stdin",
 		"concord resource-create < JSON stdin",
 		"concord resource create < JSON stdin",
 		"concord resource-share < JSON stdin",
@@ -497,7 +503,7 @@ func TestRunHelpListsExactCommandFormsAndStdinShapes(t *testing.T) {
 	if errOut.Len() != 0 {
 		t.Fatalf("help stderr = %q, want empty", errOut.String())
 	}
-	if out.Len() > 14091 {
+	if out.Len() > 15000 {
 		t.Fatalf("help output is unbounded: %d bytes", out.Len())
 	}
 }
@@ -883,8 +889,11 @@ func TestCommandRouterAcceptsCanonicalAndTwoWordFormsWithoutPanicking(t *testing
 		{"project-resolve"}, {"project", "resolve"},
 		{"product-create"}, {"product", "create"},
 		{"linear-connection-update"}, {"linear", "connection-update"},
+		{"linear-divergence"}, {"linear", "divergence"},
+		{"linear-unlinked-remote-in-progress"}, {"linear", "unlinked-remote-in-progress"},
 		{"linear-issue-enqueue"}, {"linear", "issue-enqueue"},
 		{"linear-outbox-drain"}, {"linear", "outbox-drain"},
+		{"linear-outbox-disposition"}, {"linear", "outbox-disposition"},
 		{"resource-create"}, {"resource", "create"},
 		{"resource-share"}, {"resource", "share"},
 		{"domain-project-attachments-replace"}, {"domain", "project-attachments-replace"},

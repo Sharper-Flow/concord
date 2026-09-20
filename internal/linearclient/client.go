@@ -115,6 +115,7 @@ type Issue struct {
 type ResolvedIssue struct {
 	Issue
 	TeamID    string
+	StateID   string
 	StateType string
 }
 
@@ -248,6 +249,7 @@ func (c *Client) GetIssue(ctx context.Context, remoteUUID string) (ResolvedIssue
 		Issue struct {
 			Issue
 			State struct {
+				ID   string `json:"id"`
 				Type string `json:"type"`
 			} `json:"state"`
 			Team struct {
@@ -255,13 +257,13 @@ func (c *Client) GetIssue(ctx context.Context, remoteUUID string) (ResolvedIssue
 			} `json:"team"`
 		} `json:"issue"`
 	}
-	if err := c.call(ctx, "query($id: String!) { issue(id: $id) { id identifier url title description updatedAt state { type } team { id } } }", map[string]any{"id": remoteUUID}, &payload); err != nil {
+	if err := c.call(ctx, "query($id: String!) { issue(id: $id) { id identifier url title description updatedAt state { id type } team { id } } }", map[string]any{"id": remoteUUID}, &payload); err != nil {
 		return ResolvedIssue{}, err
 	}
 	if payload.Issue.ID == "" {
 		return ResolvedIssue{}, &Failure{Kind: KindGraphqlError, Detail: "issue query returned no issue"}
 	}
-	return ResolvedIssue{Issue: payload.Issue.Issue, TeamID: payload.Issue.Team.ID, StateType: payload.Issue.State.Type}, nil
+	return ResolvedIssue{Issue: payload.Issue.Issue, TeamID: payload.Issue.Team.ID, StateID: payload.Issue.State.ID, StateType: payload.Issue.State.Type}, nil
 }
 
 func (c *Client) call(ctx context.Context, query string, variables map[string]any, into any) error {

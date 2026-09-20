@@ -783,6 +783,24 @@ type LinearIssueLink struct {
 	ContentHash     string `json:"content_hash"`
 }
 
+// LinearLinkedWork is the local state paired with one confirmed Linear link.
+// The remote state is deliberately absent. The divergence route owns that
+// comparison after it reads the remote issue.
+type LinearLinkedWork struct {
+	LinearIssueLink
+	Lifecycle string `json:"lifecycle"`
+}
+
+// LinearOutboxDisposition records an operator decision about a failed
+// operation. It does not change the failed outbox row or create a retry path.
+type LinearOutboxDisposition struct {
+	OperationID string `json:"operation_id"`
+	WorkID      string `json:"work_id"`
+	Disposition string `json:"disposition"`
+	Reason      string `json:"reason"`
+	CreatedAt   string `json:"created_at"`
+}
+
 // ReadLinearLink returns one work item's link, refusing when none exists.
 func (s *Store) ReadLinearLink(ctx context.Context, workID string) (LinearIssueLink, error) {
 	var link LinearIssueLink
@@ -793,6 +811,55 @@ func (s *Store) ReadLinearLink(ctx context.Context, workID string) (LinearIssueL
 		return LinearIssueLink{}, wrapFailure(KindUnavailable, "linear_link_read", "cannot read link", true, "retry once the database is readable", err)
 	}
 	return link, nil
+}
+
+// ReadConfirmedLinearLinkedWorkForProduct returns confirmed links and the
+// authoritative local lifecycle for one Product.
+func (s *Store) ReadConfirmedLinearLinkedWorkForProduct(ctx context.Context, productID string) ([]LinearLinkedWork, error) {
+	if _, err := readProductPlanningModeCore(ctx, s.db, productID); err != nil {
+		return nil, err
+	}
+	rows, err := s.db.QueryContext(ctx, `
+SELECT l.work_id, l.remote_issue_uuid, l.human_key, l.url, l.link_state, l.content_hash, w.lifecycle
+FROM linear_issue_links l
+JOIN work_items w ON w.id=l.work_id
+WHERE l.link_state=? AND EXISTS (
+    SELECT 1 FROM work_projects wp
+    JOIN product_projects pp ON pp.project_id=wp.project_id
+    WHERE wp.work_id=l.work_id AND pp.product_id=?
+)
+ORDER BY l.work_id`, LinearLinkConfirmed, productID)
+	if err != nil {
+		return nil, wrapFailure(KindUnavailable, "linear_divergence_read", "cannot read confirmed Linear links", true, "retry once the database is readable", err)
+	}
+	defer rows.Close()
+	linked := make([]LinearLinkedWork, 0)
+	for rows.Next() {
+		var item LinearLinkedWork
+		if err := rows.Scan(&item.WorkID, &item.RemoteIssueUUID, &item.HumanKey, &item.URL, &item.LinkState, &item.ContentHash, &item.Lifecycle); err != nil {
+			return nil, wrapFailure(KindUnavailable, "linear_divergence_read", "cannot scan confirmed Linear link", true, "retry once the database is readable", err)
+		}
+		linked = append(linked, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, wrapFailure(KindUnavailable, "linear_divergence_read", "cannot finish confirmed Linear link read", true, "retry once the database is readable", err)
+	}
+	return linked, nil
+}
+
+// FindLinearLinkByRemoteIssue reports whether a remote issue has a local link.
+// A missing link is a valid observation for the unlinked remote report.
+func (s *Store) FindLinearLinkByRemoteIssue(ctx context.Context, remoteIssueUUID string) (LinearIssueLink, bool, error) {
+	var link LinearIssueLink
+	row := s.db.QueryRowContext(ctx, `SELECT work_id, remote_issue_uuid, human_key, url, link_state, content_hash FROM linear_issue_links WHERE remote_issue_uuid=?`, remoteIssueUUID)
+	err := row.Scan(&link.WorkID, &link.RemoteIssueUUID, &link.HumanKey, &link.URL, &link.LinkState, &link.ContentHash)
+	if err == sql.ErrNoRows {
+		return LinearIssueLink{}, false, nil
+	}
+	if err != nil {
+		return LinearIssueLink{}, false, wrapFailure(KindUnavailable, "linear_link_read", "cannot read link by remote issue", true, "retry once the database is readable", err)
+	}
+	return link, true, nil
 }
 
 // ReadConfirmedLinearLinksForProduct returns the confirmed issue links whose
@@ -1851,6 +1918,90 @@ func (s *Store) FailLinearOperation(ctx context.Context, operationID, class, det
 		target = LinearOutboxQueued
 	}
 	return s.linearOutboxTransition(ctx, operationID, LinearOutboxInFlight, target, detail)
+}
+
+// AcknowledgeFailedLinearOperations records a disposition for failed rows in
+// one Product. Failed rows stay failed, so this route cannot silently retry or
+// change the one-way authority boundary.
+func (s *Store) AcknowledgeFailedLinearOperations(ctx context.Context, productID string, operationIDs []string, reason string) ([]LinearOutboxDisposition, error) {
+	if strings.TrimSpace(reason) == "" || len(reason) > 4096 {
+		return nil, newFailure(KindInvalidPayload, "linear_outbox_disposition", "disposition reason is empty or longer than 4096 characters", false, "state why the failed operations are acknowledged")
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, wrapFailure(KindUnavailable, "linear_outbox_disposition", "cannot open disposition transaction", true, "retry once the database is writable", err)
+	}
+	defer tx.Rollback()
+	if err := enterFold(ctx, tx); err != nil {
+		return nil, err
+	}
+	if _, err := readProductPlanningModeCore(ctx, tx, productID); err != nil {
+		return nil, err
+	}
+	ids := append([]string(nil), operationIDs...)
+	if len(ids) == 0 {
+		rows, queryErr := tx.QueryContext(ctx, `
+SELECT o.operation_id
+FROM linear_outbox o
+JOIN work_projects wp ON wp.work_id=o.work_id
+JOIN product_projects pp ON pp.project_id=wp.project_id
+WHERE o.state=? AND pp.product_id=?
+  AND NOT EXISTS (SELECT 1 FROM linear_outbox_dispositions d WHERE d.operation_id=o.operation_id)
+ORDER BY o.created_at, o.operation_id`, LinearOutboxFailed, productID)
+		if queryErr != nil {
+			return nil, wrapFailure(KindUnavailable, "linear_outbox_disposition", "cannot read failed operations", true, "retry once the database is readable", queryErr)
+		}
+		for rows.Next() {
+			var operationID string
+			if scanErr := rows.Scan(&operationID); scanErr != nil {
+				rows.Close()
+				return nil, wrapFailure(KindUnavailable, "linear_outbox_disposition", "cannot scan failed operation", true, "retry once the database is readable", scanErr)
+			}
+			ids = append(ids, operationID)
+		}
+		if rowsErr := rows.Err(); rowsErr != nil {
+			rows.Close()
+			return nil, wrapFailure(KindUnavailable, "linear_outbox_disposition", "cannot finish failed operation read", true, "retry once the database is readable", rowsErr)
+		}
+		rows.Close()
+	}
+	now := s.now().UTC().Format(time.RFC3339Nano)
+	result := make([]LinearOutboxDisposition, 0, len(ids))
+	for _, operationID := range ids {
+		if len(operationID) < 2 || len(operationID) > 128 {
+			return nil, newFailure(KindInvalidPayload, "linear_outbox_disposition", "operation id must be 2 to 128 characters", false, "supply a failed operation id")
+		}
+		var workID, state string
+		err := tx.QueryRowContext(ctx, `
+SELECT o.work_id, o.state
+FROM linear_outbox o
+JOIN work_projects wp ON wp.work_id=o.work_id
+JOIN product_projects pp ON pp.project_id=wp.project_id
+WHERE o.operation_id=? AND pp.product_id=?`, operationID, productID).Scan(&workID, &state)
+		if err == sql.ErrNoRows {
+			return nil, newFailure(KindUnknownScope, "linear_outbox_disposition", "failed operation does not belong to the Product", false, "supply a failed operation from the requested Product")
+		}
+		if err != nil {
+			return nil, wrapFailure(KindUnavailable, "linear_outbox_disposition", "cannot read failed operation", true, "retry once the database is readable", err)
+		}
+		if state != LinearOutboxFailed {
+			return nil, newFailure(KindInvalidTransition, "linear_outbox_disposition", fmt.Sprintf("outbox state is %s, not %s", state, LinearOutboxFailed), false, "acknowledge only failed operations")
+		}
+		if _, err := tx.ExecContext(ctx, `INSERT INTO linear_outbox_dispositions(operation_id, work_id, disposition, reason, created_at) VALUES(?,?,?,?,?)`, operationID, workID, "acknowledged", reason, now); err != nil {
+			if strings.Contains(err.Error(), "UNIQUE constraint failed") {
+				return nil, newFailure(KindIdempotencyConflict, "linear_outbox_disposition", "failed operation already has a disposition", false, "reuse the existing disposition")
+			}
+			return nil, wrapFailure(KindUnavailable, "linear_outbox_disposition", "cannot record failed operation disposition", true, "retry once the database is writable", err)
+		}
+		result = append(result, LinearOutboxDisposition{OperationID: operationID, WorkID: workID, Disposition: "acknowledged", Reason: reason, CreatedAt: now})
+	}
+	if err := leaveFold(ctx, tx); err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, wrapFailure(KindUnavailable, "linear_outbox_disposition", "cannot commit failed operation dispositions", true, "retry once the database is writable", err)
+	}
+	return result, nil
 }
 
 // ImportedLinearInitiative is the result of a one-way drafting-pad import.

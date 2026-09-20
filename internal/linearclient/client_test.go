@@ -255,7 +255,7 @@ func TestGetIssueResolvesIdentityAndTeam(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetIssue() error = %v", err)
 	}
-	if !strings.Contains(gotBody, `"query":"query($id: String!) { issue(id: $id) { id identifier url title description updatedAt state { type } team { id } } }"`) {
+	if !strings.Contains(gotBody, `"query":"query($id: String!) { issue(id: $id) { id identifier url title description updatedAt state { id type } team { id } } }"`) {
 		t.Fatalf("request body %q lacks the issue query", gotBody)
 	}
 	if resolved.ID != "68d52710-76d9-4b41-ba45-778511d0e2ed" || resolved.Identifier != "SHA-7" || resolved.Title != "Fetched title" || resolved.Description != "Fetched description" || resolved.TeamID != "team-uuid-1" || resolved.StateType != "unstarted" {

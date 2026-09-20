@@ -158,8 +158,11 @@ var commandSpecs = []commandSpec{
 	{Canonical: "product-create", TwoWord: "product create", RequiredFields: requiredFields(field("product_id"), field("display_name"), field("stage_maturity"), field("stage_audience_commitment"), field("project_id"), field("project_display_name"), field("role")), Optional: "reason", Enums: "stage_maturity: prototype | alpha | beta | production | deprecated; stage_audience_commitment: operator_only | limited | public; role: primary | secondary"},
 	{Canonical: "product-mode-set", TwoWord: "product mode-set", RequiredFields: requiredFields(field("product_id"), field("planning_mode"), field("expected_version"), field("reason")), Optional: "none", Enums: "planning_mode: local_only | linear_enabled"},
 	{Canonical: "linear-health", TwoWord: "linear health", RequiredFields: requiredFields(field("product_id")), Optional: "none", Enums: "none"},
+	{Canonical: "linear-divergence", TwoWord: "linear divergence", RequiredFields: requiredFields(field("product_id")), Optional: "none", Enums: "none"},
+	{Canonical: "linear-unlinked-remote-in-progress", TwoWord: "linear unlinked-remote-in-progress", RequiredFields: requiredFields(field("product_id"), field("remote_issue_uuid")), Optional: "none", Enums: "none"},
 	{Canonical: "linear-issue-enqueue", TwoWord: "linear issue-enqueue", RequiredFields: requiredFields(field("product_id"), field("work_id"), field("op_kind")), Optional: "remote_issue_uuid (required for issue_adopt)", Enums: "op_kind: issue_create | issue_update | issue_adopt"},
 	{Canonical: "linear-outbox-drain", TwoWord: "linear outbox-drain", RequiredFields: requiredFields(field("product_id")), Optional: "max_operations", Enums: "none"},
+	{Canonical: "linear-outbox-disposition", TwoWord: "linear outbox-disposition", RequiredFields: requiredFields(field("product_id"), field("reason")), Optional: "operation_ids (defaults to all undisposed failed rows)", Enums: "disposition: acknowledged"},
 	{Canonical: "linear-backfill", TwoWord: "linear backfill", RequiredFields: requiredFields(field("product_id")), Optional: "none", Enums: "none"},
 	{Canonical: "linear-connection-update", TwoWord: "linear connection-update", RequiredFields: requiredFields(field("event_id"), field("resource_id"), field("product_id"), field("expected_resource_version")), Optional: "team_id, project_ids, status_ids, label_ids", Enums: "status_ids keys: needed | in_progress | completed | cancelled | superseded; label_ids keys: task | bug | decision | research | other | expedite"},
 	{Canonical: "linear-initiative-import", TwoWord: "linear initiative-import", RequiredFields: requiredFields(field("product_id"), field("initiative_id")), Optional: "none", Enums: "none"},
@@ -1071,6 +1074,159 @@ func runLinearHealth(ctx context.Context, s *store.Store, raw []byte, command st
 	return writeJSON(out, map[string]any{"ok": true, "health": health}, errOut)
 }
 
+type linearDivergenceResult struct {
+	WorkID          string `json:"work_id"`
+	RemoteIssueUUID string `json:"remote_issue_uuid"`
+	Lifecycle       string `json:"lifecycle"`
+	ExpectedStatus  string `json:"expected_status_id,omitempty"`
+	ActualStatus    string `json:"actual_status_id,omitempty"`
+	RemoteStateType string `json:"remote_state_type,omitempty"`
+	Outcome         string `json:"outcome"`
+	Detail          string `json:"detail,omitempty"`
+}
+
+// runLinearDivergence reads each confirmed link once and reports remote state
+// that does not match the Product's declared local-to-Linear status mapping.
+// It never writes either lifecycle and it stays separate from local health.
+func runLinearDivergence(ctx context.Context, s *store.Store, raw []byte, command string, out, errOut io.Writer) int {
+	var request struct {
+		ProductID string `json:"product_id"`
+	}
+	if err := decodeObject(raw, &request); err != nil {
+		writeOperatorDiagnostic(errOut, command, err.Error())
+		return 1
+	}
+	if _, err := s.ResolveLinearPlanningTarget(ctx, request.ProductID); err != nil {
+		writeOperatorDiagnostic(errOut, command, err.Error())
+		return 1
+	}
+	connection, err := s.ReadLinearConnection(ctx, request.ProductID)
+	if err != nil {
+		writeOperatorDiagnostic(errOut, command, err.Error())
+		return 1
+	}
+	client, err := linearclient.FromEnv()
+	if err != nil {
+		writeOperatorDiagnostic(errOut, command, err.Error()+"; set CONCORD_LINEAR_API_KEY in the process environment")
+		return 1
+	}
+	linked, err := s.ReadConfirmedLinearLinkedWorkForProduct(ctx, request.ProductID)
+	if err != nil {
+		writeOperatorDiagnostic(errOut, command, err.Error())
+		return 1
+	}
+	results := make([]linearDivergenceResult, 0, len(linked))
+	divergences := make([]linearDivergenceResult, 0)
+	for _, item := range linked {
+		result := linearDivergenceResult{
+			WorkID: item.WorkID, RemoteIssueUUID: item.RemoteIssueUUID, Lifecycle: item.Lifecycle,
+			ExpectedStatus: connection.StatusIDs[item.Lifecycle],
+		}
+		if result.ExpectedStatus == "" {
+			result.Outcome = "unmapped"
+			result.Detail = "the Product has no Linear status mapping for the local lifecycle"
+			results = append(results, result)
+			continue
+		}
+		issue, issueErr := client.GetIssue(ctx, item.RemoteIssueUUID)
+		if issueErr != nil {
+			result.Outcome = "failed"
+			result.Detail = issueErr.Error()
+			results = append(results, result)
+			continue
+		}
+		result.ActualStatus = issue.StateID
+		result.RemoteStateType = issue.StateType
+		if issue.StateID != result.ExpectedStatus {
+			result.Outcome = "diverged"
+			divergences = append(divergences, result)
+		} else {
+			result.Outcome = "matched"
+		}
+		results = append(results, result)
+	}
+	return writeJSON(out, map[string]any{
+		"ok": true, "product_id": request.ProductID, "checked": len(linked),
+		"divergences": divergences, "results": results,
+	}, errOut)
+}
+
+// runLinearUnlinkedRemoteInProgress reports an In Progress remote issue that
+// has no local link. It does not adopt the issue or infer a local work item.
+func runLinearUnlinkedRemoteInProgress(ctx context.Context, s *store.Store, raw []byte, command string, out, errOut io.Writer) int {
+	var request struct {
+		ProductID       string `json:"product_id"`
+		RemoteIssueUUID string `json:"remote_issue_uuid"`
+	}
+	if err := decodeObject(raw, &request); err != nil {
+		writeOperatorDiagnostic(errOut, command, err.Error())
+		return 1
+	}
+	if _, err := s.ResolveLinearPlanningTarget(ctx, request.ProductID); err != nil {
+		writeOperatorDiagnostic(errOut, command, err.Error())
+		return 1
+	}
+	client, err := linearclient.FromEnv()
+	if err != nil {
+		writeOperatorDiagnostic(errOut, command, err.Error()+"; set CONCORD_LINEAR_API_KEY in the process environment")
+		return 1
+	}
+	link, linked, err := s.FindLinearLinkByRemoteIssue(ctx, request.RemoteIssueUUID)
+	if err != nil {
+		writeOperatorDiagnostic(errOut, command, err.Error())
+		return 1
+	}
+	issue, err := client.GetIssue(ctx, request.RemoteIssueUUID)
+	if err != nil {
+		writeOperatorDiagnostic(errOut, command, err.Error())
+		return 1
+	}
+	report := map[string]any{
+		"remote_issue_uuid": request.RemoteIssueUUID,
+		"human_key":         issue.Identifier,
+		"url":               issue.URL,
+		"state_id":          issue.StateID,
+		"state_type":        issue.StateType,
+		"linked":            linked,
+		"reported":          !linked && issue.StateType == "started",
+	}
+	if linked {
+		report["work_id"] = link.WorkID
+		report["detail"] = "the remote issue already has a local link"
+	} else if issue.StateType != "started" {
+		report["detail"] = "the remote issue is not In Progress"
+	} else {
+		report["detail"] = "In Progress remote issue has no local link"
+	}
+	return writeJSON(out, map[string]any{"ok": true, "report": report}, errOut)
+}
+
+func runLinearOutboxDisposition(ctx context.Context, s *store.Store, raw []byte, command string, out, errOut io.Writer) int {
+	var request struct {
+		ProductID    string   `json:"product_id"`
+		Disposition  string   `json:"disposition"`
+		OperationIDs []string `json:"operation_ids"`
+		Reason       string   `json:"reason"`
+	}
+	if err := decodeObject(raw, &request); err != nil {
+		writeOperatorDiagnostic(errOut, command, err.Error())
+		return 1
+	}
+	if request.Disposition == "" {
+		request.Disposition = "acknowledged"
+	}
+	if request.Disposition != "acknowledged" {
+		writeOperatorDiagnostic(errOut, command, "accepted values: disposition: acknowledged")
+		return 1
+	}
+	dispositions, err := s.AcknowledgeFailedLinearOperations(ctx, request.ProductID, request.OperationIDs, request.Reason)
+	if err != nil {
+		writeOperatorDiagnostic(errOut, command, err.Error())
+		return 1
+	}
+	return writeJSON(out, map[string]any{"ok": true, "disposition": request.Disposition, "count": len(dispositions), "operations": dispositions}, errOut)
+}
+
 // runLinearIssueEnqueue handles the Phase 1 verb that queues one outbound
 // issue operation for a work item under the Product's planning authority.
 func runLinearIssueEnqueue(ctx context.Context, s *store.Store, raw []byte, command string, out, errOut io.Writer) int {
@@ -1642,10 +1798,16 @@ func runInternal(command string, raw []byte, service *agent.Service, s *store.St
 		return runLinearConnectionUpdate(ctx, s, raw, command, clock, out, errOut)
 	case "linear-health":
 		return runLinearHealth(ctx, s, raw, command, out, errOut)
+	case "linear-divergence":
+		return runLinearDivergence(ctx, s, raw, command, out, errOut)
+	case "linear-unlinked-remote-in-progress":
+		return runLinearUnlinkedRemoteInProgress(ctx, s, raw, command, out, errOut)
 	case "linear-issue-enqueue":
 		return runLinearIssueEnqueue(ctx, s, raw, command, out, errOut)
 	case "linear-outbox-drain":
 		return runLinearOutboxDrain(ctx, s, raw, command, out, errOut)
+	case "linear-outbox-disposition":
+		return runLinearOutboxDisposition(ctx, s, raw, command, out, errOut)
 	case "linear-backfill":
 		return runLinearBackfill(ctx, s, raw, command, out, errOut)
 	case "linear-initiative-import":

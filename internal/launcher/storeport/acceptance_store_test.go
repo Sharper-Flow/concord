@@ -47,7 +47,7 @@ func seedLauncherStoreFixture(t *testing.T, s *store.Store) {
 		INSERT INTO linear_issue_links(work_id,remote_issue_uuid,human_key,url,link_state,created_at,updated_at) VALUES
 		('scope-live','uuid-con-153','CON-153','https://linear.app/example/issue/CON-153','confirmed','2026-08-01T00:00:00Z','2026-08-01T00:00:00Z');
 		INSERT INTO worktree_entries(set_id,project_id,claim_op_id,branch,base_sha,path,repository_id,state,verified_at,git_facts,occupant_session_ref) VALUES
-		('` + store.WorktreeSetID("scope-live") + `','proj-a1','claim-op-1','work/scope-live','0000000000000000000000000000000000000000','/wt/scope-live','repo-1','active','2026-08-01T00:00:00Z','{}','session-1');
+		('`+store.WorktreeSetID("scope-live")+`','proj-a1','claim-op-1','work/scope-live','0000000000000000000000000000000000000000','/wt/scope-live','repo-1','active','2026-08-01T00:00:00Z','{}','session-1');
 		INSERT INTO project_locators(locator_id,project_id,kind,locator_value,normalized_value,created_at,updated_at) VALUES
 		('loc-a1','proj-a1','canonical_path','/src/proj-a1','/src/proj-a1','2026-08-01T00:00:00Z','2026-08-01T00:00:00Z');
 	`); err != nil {

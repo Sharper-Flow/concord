@@ -2936,7 +2936,7 @@ func (r runtime) mutateCompaction(ctx context.Context, base Envelope, raw []byte
 	}
 	grant, err := r.Authority.Authorize(ctx, inv)
 	if err != nil {
-		return coreError(base, "unauthorized", err.Error(), "contact_operator", false), nil
+		return failureEnvelope(base, err), nil
 	}
 	if op.ID == "concord_work_compact.publish" {
 		if publish.Approval == nil || publish.Approval.ApprovalRef == "" {

@@ -320,7 +320,7 @@ func DispatchWithRegistry(ctx context.Context, s *store.Store, authority *Servic
 		actorInv := Invocation{ClientRef: env.ClientRef, SessionRef: env.SessionRef, AgentRef: env.AgentRef, Directory: env.Directory, Worktree: env.Worktree, ManifestDigest: env.ManifestDigest, HostAssertionDigest: env.HostAssertionDigest, RequiredCapability: op.Capability, RequiredOperation: request.Operation}
 		actor, actorErr := authority.Authorize(ctx, actorInv)
 		if actorErr != nil {
-			return coreError(base, "unauthorized", actorErr.Error(), "contact_operator", false), nil
+			return failureEnvelope(base, actorErr), nil
 		}
 		available, availabilityErr := store.WorkflowActionAvailableWithRegistry(ctx, s, registry, strictAction.WorkID)
 		if availabilityErr != nil {
@@ -372,7 +372,7 @@ func DispatchWithRegistry(ctx context.Context, s *store.Store, authority *Servic
 		identityInv.ProductID, identityInv.ProjectID = "", ""
 		identityGrant, identityErr := authority.Authorize(ctx, identityInv)
 		if identityErr != nil {
-			return coreError(base, "unauthorized", identityErr.Error(), "contact_operator", false), nil
+			return failureEnvelope(base, identityErr), nil
 		}
 		r := runtime{Store: s, Authority: authority, Envelope: env, Tool: request.Tool, Operation: request.Operation, Budget: budget, Reader: identityGrant}
 		if replay, handled, replayErr := r.replayMutationBeforeScope(ctx, base, request.Input, identityGrant, op); replayErr != nil || handled {
@@ -387,7 +387,7 @@ func DispatchWithRegistry(ctx context.Context, s *store.Store, authority *Servic
 	}
 	grant, err := authority.Authorize(ctx, inv)
 	if err != nil {
-		return coreError(base, "unauthorized", err.Error(), "contact_operator", false), nil
+		return failureEnvelope(base, err), nil
 	}
 	if resolvedProject, ok := grant.ScopeSnapshot["project_id"].(string); ok && resolvedProject != env.AmbientProjectID {
 		return coreError(base, "stale_context", "ambient Project no longer matches the signed worktree", "refresh_context", false), nil

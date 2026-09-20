@@ -1,4 +1,4 @@
-# CD-0162: The launcher carries no terminal placement
+# CD-0163: The launcher carries no terminal placement
 
 - **Status:** Accepted
 - **Date:** 2026-09-20

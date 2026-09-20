@@ -11,9 +11,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:12453953291c367a97323572be62deacb094421f8b64a67d3ffbae2f0ad3bd45",
+  "sha256": "sha256:5416370457c35d8acd9607ac8bf72b2de82b2b678b5cdb8d027dc7fb73095bc0",
   "status": "accepted",
-  "summary": "Retains the Git-authoritative, SQLite-derived knowledge-index shape, bounded Q9/Q10 query boundary, independent code intelligence, and separate conformance repair path.",
+  "summary": "Retains the Git-authoritative, SQLite-derived knowledge-index shape and the bounded Q9/Q10 boundary; names exact lookup, closed filters, and ranked body discovery as distinct non-authoritative retrieval jobs; reconciles the record-kind vocabulary and the CD-0159 authority-tier interaction.",
   "tags": [
     "knowledge-index",
     "query",

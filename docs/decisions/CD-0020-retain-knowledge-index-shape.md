@@ -1,6 +1,9 @@
 # CD-0020: Retain the Manifest-Primary Knowledge-Index Shape
 
 **Status:** Accepted under operator approval.
+**Amended:** 2026-09-20. D2 names exact lookup, closed filters, and ranked
+body discovery as distinct retrieval jobs with a listed falsifier, and
+reconciles record-kind vocabulary and the CD-0159 tier interaction.
 **Approval date:** 2026-08-13.
 **Approval:** Operator-approved review and continuation for GitHub issue #92.
 **Type:** Architecture decision (CD-0019 shape review).
@@ -52,13 +55,63 @@ index. CD-0020 does not authorize a replacement index.
 ### D2. Retain PM1.Q9 and Q10 as the knowledge-query boundary
 
 Q9 remains the bounded search job for durable Product knowledge. Its accepted
-surface includes Product/Project/component scope, closed kinds, tags, bounded
+surface includes Product/Project/Domain scope, closed kinds, tags, bounded
 text, time window, cursor/limit, canonical locator, commit/content identity, and
-index watermark. Q10 remains the single canonical-locator resolution job.
+index watermark. Q10 remains the single canonical-locator resolution job and
+keeps its typed negative: an absent canonical locator resolves to the typed
+`knowledge_missing` answer through `resolve_note`, never to a ranked
+substitute.
 
 No FTS, semantic/vector retrieval, arbitrary query language, unbounded artifact
 body, or generic graph traversal is added. A new operation or query shape requires
 a named unmet Product-memory job and the PM1/TS3 amendment path.
+
+Amended 2026-09-20 through that path, with ranked body discovery as the named
+unmet job. This section names three distinct retrieval jobs:
+
+- **Exact lookup.** Resolve one record from identity the caller already holds:
+  a stable ID or a canonical locator. Q10 owns this job, and its typed negative
+  stands.
+- **Closed filters.** Select records with conjunctive closed inputs: kinds,
+  tags, Product/Project/Domain scope, and a time window, with no text. Q9 owns
+  this job.
+- **Ranked body discovery.** Admit records whose Git-stored body matches the
+  bounded text, ranked after exact structured matches, inside the existing Q9
+  envelope, bounds, and watermark semantics. This is the named unmet job: the
+  live search admitted only ID, title, tags, and summary, so an accepted law
+  record whose title and summary omit the sought words stayed invisible to
+  text search. Accepted research observed the gap live
+  (`work-d9df5a8a07c69f6e1ef85d70`, observation `obs:c8685c173cf8558a`).
+
+Ranked body discovery stays non-authoritative under Invariant 4. Rank order
+and match evidence never become law authority, and a body match never
+substitutes for Q10 identity resolution. The D1 split is unchanged: a body is
+read from the Git blob the manifest already references, and the SQLite
+projection may carry derived admission data but cannot author it. No
+replacement index, vector, FTS, or graph authority is added.
+
+The record-kind vocabulary is canonical as of 2026-09-20. The stored kinds are
+`work_note`, `constitution`, `decision`, `spec`, `lesson`, `reference`, and
+`research`: the set `docs/knowledge/manifest.json` declares, the store
+enforces, and the typed knowledge-record draft schema uses. The TS3 agent
+surface accepts `note` and `specification` as input aliases for `work_note`
+and `spec`, and translates results back. An alias lives at the agent boundary
+only and never enters stored data or law text. The draft schema also admits
+`external` in its reference-kinds enum. That is a reference kind, not a record
+kind.
+
+The CD-0159 authority-tier interaction is reconciled as of 2026-09-20. A
+record's `authority.tier` value, `legislated` or `derived`, is a recorded fact
+about the write. It is not a retrieval input, a rank factor, or an authority
+upgrade. Ranked body discovery over a `derived` record never promotes it. The
+CD-0159 tier defaults by kind compose with closed kind filters through the one
+canonical vocabulary above.
+
+Falsifier for the named job, under Invariant 6: ranked body discovery fails if
+representative-scale evidence cannot hold the PM1 latency bound (P99 at or
+under 100 ms locally at 10× the measured dataset). It also fails if any caller
+consumes rank or match evidence as law authority. Either outcome reopens this
+section, not D1.
 
 ### D3. Preserve the existing proof and freshness semantics
 
@@ -121,6 +174,9 @@ new read operation. Architecture expansion and conformance repair remain separat
   graph inside Concord.
 - Conformance defects remain visible as defects rather than being laundered into
   a new architecture.
+- Named retrieval jobs give ranked body discovery a lawful route: accepted law
+  records become discoverable through text search even when title and summary
+  omit the sought words.
 
 ### Cost
 
@@ -128,13 +184,17 @@ new read operation. Architecture expansion and conformance repair remain separat
   than semantic/vector retrieval or a general graph API.
 - Cross-surface code/knowledge journeys depend on Product-scoped composition until
   a measured unmet job justifies deeper integration.
+- Body admission widens the text surface Q9 serves; the bounded admission and
+  ranking implementation, its evaluation protocol, and its measured results
+  are successor work.
 - Manifest maintenance and explicit rebuilds remain costs to measure against the
   reopen conditions below.
 
 ## Rejected alternatives
 
-- **Add SQLite FTS or embeddings now:** no named unmet job; conflicts with PM1's
-  bounded-query discipline.
+- **Add SQLite FTS or embeddings now:** the named body-discovery job is served
+  by bounded derived admission, not a new index authority. This conflicts with
+  PM1's bounded-query discipline.
 - **Add law-relation traversal to Q9:** mixes search with consequential law graph
   semantics and bypasses the PM1/TS3 amendment rule.
 - **Build a full knowledge graph:** duplicates code intelligence and creates
@@ -154,6 +214,8 @@ new read operation. Architecture expansion and conformance repair remain separat
 - [`../terminal-launcher-contract.md`](../terminal-launcher-contract.md)
 - `internal/store/knowledge_index_projection.go`
 - `internal/store/knowledge_query.go`
+- `internal/agent/runtime.go` (TS3 kind aliases)
+- `.concord/schemas/knowledge-record.v1.schema.json` (typed record kinds)
 - GitHub issue [#93](https://github.com/Sharper-Flow/concord/issues/93)
 
 ## Public comparison evidence

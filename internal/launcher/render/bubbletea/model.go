@@ -717,6 +717,9 @@ func (m *Model) renderContent(snapshot launcher.Snapshot, cursor int) renderedPa
 func (m *Model) renderPortfolio(snapshot launcher.Snapshot, cursor int) renderedPane {
 	projection := m.projection
 	rows := m.filteredRows()
+	if len(rows) == 0 && len(snapshot.Candidates) > 0 {
+		return m.renderCandidates(snapshot, cursor)
+	}
 	widths := columnWidths(m.width)
 	header := []string{strings.Join(projection.Header, " | ")}
 	header = append(header, probeLines(snapshot.Probes)...)
@@ -1318,20 +1321,6 @@ func (m *Model) renderProjects(snapshot launcher.Snapshot, cursor int) renderedP
 		header = append(header, "PROJECTS: authoritative-empty")
 	}
 	return renderedPane{header: header, rows: rows, footer: m.footerLines()}
-}
-
-func filterRanked(values []launcher.RankedWork, query string) []launcher.RankedWork {
-	needle := strings.ToLower(query)
-	if needle == "" {
-		return values
-	}
-	out := make([]launcher.RankedWork, 0, len(values))
-	for _, value := range values {
-		if strings.Contains(strings.ToLower(value.ID+" "+value.Title+" "+value.Kind+" "+value.Lifecycle), needle) {
-			out = append(out, value)
-		}
-	}
-	return out
 }
 
 func focusText(snapshot launcher.Snapshot) string {

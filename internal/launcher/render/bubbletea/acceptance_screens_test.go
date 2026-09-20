@@ -280,3 +280,26 @@ func TestNewBacklogResolvesIssueKeyOrDegradesToProjects(t *testing.T) {
 		}
 	})
 }
+
+// TestPortfolioRendersCandidateFeedWhenEmpty proves the demoted half of the
+// screen precedence: with no portfolio rows to render, the Portfolio screen
+// shows the candidate feed, so the first-run scan-root view survives the
+// screen-first renderContent ordering.
+func TestPortfolioRendersCandidateFeedWhenEmpty(t *testing.T) {
+	stub := &screenStub{state: launcher.Snapshot{
+		Screen: launcher.ScreenPortfolio, Coverage: "first_run",
+		Candidates: []launcher.Candidate{
+			{ID: "/scan/root", Kind: launcher.CandidateProject, Name: "Scan Root", Path: "/scan/root", Available: true},
+		},
+	}}
+	core := launcher.New(stub)
+	core.RestoreSnapshot(stub.state)
+	m := New(core, context.Background(), Profile{})
+	rendered := m.Render()
+	if !strings.Contains(rendered, "CANDIDATES") || !strings.Contains(rendered, "Scan Root") {
+		t.Fatalf("empty portfolio must render the candidate feed, got %q", rendered)
+	}
+	if !strings.Contains(rendered, "STATUS: first_run") {
+		t.Fatalf("first-run coverage banner lost: %q", rendered)
+	}
+}

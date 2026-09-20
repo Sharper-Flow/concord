@@ -1216,7 +1216,7 @@ func runLinearOutboxDrain(ctx context.Context, s *store.Store, raw []byte, comma
 			issue, derr = drainAdopt(ctx, client, payload, teamID)
 		} else {
 			issue, derr = client.CreateIssue(ctx, linearclient.CreateIssueInput{
-				ID: payload.ClientUUID, TeamID: teamID, ProjectID: payload.ProjectID, Title: payload.Title, Description: payload.Description, LabelIDs: payload.LabelIDs, StatusID: payload.StatusID,
+				ID: payload.ClientUUID, TeamID: teamID, ProjectID: payload.ProjectID, Title: payload.Title, Description: payload.Description, LabelIDs: payload.LabelIDs, StatusID: payload.StatusID, Priority: payload.Priority,
 			})
 		}
 		if derr != nil {
@@ -1349,6 +1349,7 @@ type linearDrainPayload struct {
 	ConnectionVersion int64    `json:"connection_version"`
 	Lifecycle         string   `json:"lifecycle,omitempty"`
 	StatusID          string   `json:"status_id,omitempty"`
+	Priority          int      `json:"priority,omitempty"`
 	LabelIDs          []string `json:"label_ids,omitempty"`
 	RemoteIssueUUID   string   `json:"remote_issue_uuid,omitempty"`
 }

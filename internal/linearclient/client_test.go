@@ -67,6 +67,73 @@ func TestCreateIssueSendsBearerAndClientUUID(t *testing.T) {
 	}
 }
 
+func TestCreateIssueSendsPrioritySeedOnce(t *testing.T) {
+	cases := []struct {
+		name       string
+		priority   int
+		wantInBody string
+		wantAbsent bool
+	}{
+		{name: "expedite seeds urgent", priority: 1, wantInBody: `"priority":1`},
+		{name: "standard seeds medium", priority: 3, wantInBody: `"priority":3`},
+		{name: "unset omits the field", priority: 0, wantAbsent: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var gotBody string
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				buf := make([]byte, r.ContentLength)
+				_, _ = r.Body.Read(buf)
+				gotBody = string(buf)
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(`{"data":{"issueCreate":{"success":true,"issue":{"id":"68d52710-76d9-4b41-ba45-778511d0e2ed","identifier":"SHA-1","url":"https://linear.app/example/issue/SHA-1","updatedAt":"2026-09-09T12:00:00Z"}}}}`))
+			}))
+			defer server.Close()
+			client, err := New("lin_api_test", WithEndpoint(server.URL))
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = client.CreateIssue(context.Background(), CreateIssueInput{
+				ID: "0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0", TeamID: "team-uuid-1", Title: "Example issue", Priority: tc.priority,
+			})
+			if err != nil {
+				t.Fatalf("CreateIssue() error = %v", err)
+			}
+			if tc.wantAbsent {
+				if strings.Contains(gotBody, `"priority":`) {
+					t.Fatalf("request body %q must not carry a priority", gotBody)
+				}
+				return
+			}
+			if !strings.Contains(gotBody, tc.wantInBody) {
+				t.Fatalf("request body %q lacks %q", gotBody, tc.wantInBody)
+			}
+		})
+	}
+}
+
+func TestUpdateIssueNeverSendsPriority(t *testing.T) {
+	var gotBody string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		buf := make([]byte, r.ContentLength)
+		_, _ = r.Body.Read(buf)
+		gotBody = string(buf)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":{"issueUpdate":{"success":true,"issue":{"id":"68d52710-76d9-4b41-ba45-778511d0e2ed","identifier":"SHA-1","url":"https://linear.app/example/issue/SHA-1","updatedAt":"2026-09-09T12:01:00Z"}}}}`))
+	}))
+	defer server.Close()
+	client, err := New("lin_api_test", WithEndpoint(server.URL))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.UpdateIssue(context.Background(), "68d52710-76d9-4b41-ba45-778511d0e2ed", UpdateIssueInput{Title: "Revised title", Description: "Revised description", ProjectID: "project-uuid-1", StatusID: "state-cancelled", AddedLabelIDs: []string{"label-task"}}); err != nil {
+		t.Fatalf("UpdateIssue() error = %v", err)
+	}
+	if strings.Contains(gotBody, `"priority":`) {
+		t.Fatalf("issueUpdate body %q must never resend a priority: Linear owns triage after creation", gotBody)
+	}
+}
+
 func TestUpdateIssueAddressesRemoteIdentity(t *testing.T) {
 	var gotBody string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

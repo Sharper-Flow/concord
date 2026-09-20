@@ -86,7 +86,7 @@ func TestLinearEnqueueAndDrainCLI(t *testing.T) {
 		"label_ids": map[string]string{"task": "label-task"}, "expected_resource_version": 1,
 	})
 
-	var sawAuth, sawProject, sawLabels, sawStatus bool
+	var sawAuth, sawProject, sawLabels, sawStatus, sawPriority bool
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
 		if strings.Contains(string(body), "issueCreate") {
@@ -96,6 +96,7 @@ func TestLinearEnqueueAndDrainCLI(t *testing.T) {
 			sawProject = strings.Contains(string(body), `"projectId":"project-uuid-1"`)
 			sawLabels = strings.Contains(string(body), `"labelIds":["label-task"]`)
 			sawStatus = strings.Contains(string(body), `"stateId":"state-needed"`)
+			sawPriority = strings.Contains(string(body), `"priority":3`)
 		}
 		w.Header().Set("Content-Type", "application/json")
 		if strings.Contains(string(body), "issueCreate") {
@@ -127,8 +128,8 @@ func TestLinearEnqueueAndDrainCLI(t *testing.T) {
 	if code := runWithInput([]string{"linear", "outbox-drain"}, strings.NewReader(`{"product_id":"drain-product"}`), &out, &errOut); code != 0 {
 		t.Fatalf("drain exit=%d stderr=%q", code, errOut.String())
 	}
-	if !sawAuth || !sawProject || !sawLabels || !sawStatus {
-		t.Fatalf("the drain request lacked authorization, project routing, labels, or the birth status: auth=%t project=%t labels=%t status=%t", sawAuth, sawProject, sawLabels, sawStatus)
+	if !sawAuth || !sawProject || !sawLabels || !sawStatus || !sawPriority {
+		t.Fatalf("the drain request lacked authorization, project routing, labels, the birth status, or the seeded priority: auth=%t project=%t labels=%t status=%t priority=%t", sawAuth, sawProject, sawLabels, sawStatus, sawPriority)
 	}
 	var drained struct {
 		OK         bool `json:"ok"`
@@ -210,12 +211,15 @@ func TestLinearIssueUpdateDrainReportsDoneAndMirrorsTerminalStatus(t *testing.T)
 	}
 	s.Close()
 
-	var sawStatus, sawLabels bool
+	var sawStatus, sawLabels, sawResentPriority bool
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
 		if strings.Contains(string(body), "issueUpdate") {
 			sawStatus = strings.Contains(string(body), `"stateId":"state-cancelled"`)
 			sawLabels = strings.Contains(string(body), `"addedLabelIds":["label-task"]`)
+			if strings.Contains(string(body), `"priority":`) {
+				sawResentPriority = true
+			}
 		}
 		w.Header().Set("Content-Type", "application/json")
 		if strings.Contains(string(body), "issueUpdate") {
@@ -235,6 +239,9 @@ func TestLinearIssueUpdateDrainReportsDoneAndMirrorsTerminalStatus(t *testing.T)
 	}
 	if !sawStatus || !sawLabels {
 		t.Fatalf("drain did not send the declared status and label: status=%t labels=%t", sawStatus, sawLabels)
+	}
+	if sawResentPriority {
+		t.Fatal("an issueUpdate drain resent a priority; Linear owns triage after creation")
 	}
 	var drained struct {
 		Operations []struct {

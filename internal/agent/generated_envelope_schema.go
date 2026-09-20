@@ -1244,6 +1244,7 @@ const GeneratedEnvelopeSchemaDocument = `{
             "request_approval",
             "provide_evidence",
             "reduce_limit",
+            "use_declared_route",
             "use_next_cursor",
             "restart_query",
             "adjust_budget",

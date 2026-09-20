@@ -662,7 +662,7 @@ func unique(values []string) bool {
 	return true
 }
 func validateRecovery(kind string) error {
-	allowed := map[string]bool{"none": true, "retry_same_request": true, "refresh_context": true, "reread_entities": true, "request_approval": true, "provide_evidence": true, "reduce_limit": true, "use_next_cursor": true, "restart_query": true, "adjust_budget": true, "reconcile_operation": true, "resolve_ambiguity": true, "contact_operator": true}
+	allowed := map[string]bool{"none": true, "retry_same_request": true, "refresh_context": true, "reread_entities": true, "request_approval": true, "provide_evidence": true, "reduce_limit": true, "use_declared_route": true, "use_next_cursor": true, "restart_query": true, "adjust_budget": true, "reconcile_operation": true, "resolve_ambiguity": true, "contact_operator": true}
 	if !allowed[kind] {
 		return fmt.Errorf("unknown recovery action %q", kind)
 	}
@@ -826,6 +826,14 @@ func validateError(err TypedError) error {
 	}
 	if err.Kind == "version_conflict" && len(err.CurrentVersions) == 0 {
 		return errors.New("version conflict must carry current versions")
+	}
+	// A declared route names the workflow actions that resolve the refusal, in
+	// execution order. The action naming a route without carrying one is the
+	// names-no-operation defect in typed form, so the refs are mandatory
+	// wherever the action appears. This constrains the action's payload, not
+	// which kind may carry it, so it is not a recovery coupling.
+	if err.RecoveryAction.Kind == "use_declared_route" && len(err.RecoveryAction.RequiredRefs) == 0 {
+		return errors.New("use_declared_route must carry required refs")
 	}
 	if len(err.InterveningActions) > 20 {
 		return errors.New("invalid intervening workflow actions")

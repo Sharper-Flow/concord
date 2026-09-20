@@ -707,8 +707,12 @@ func validateRuntimeScope(ctx context.Context, s *store.Store, env CallEnvelope,
 type runtimeFailure struct {
 	kind, message, recovery string
 	retry                   bool
-	Candidates              []string
-	CurrentScopeVersion     string
+	// recoveryRefs carries the ordered workflow actions of a declared-route
+	// remedy. It pairs with the use_declared_route action and stays empty for
+	// every other recovery action.
+	recoveryRefs        []string
+	Candidates          []string
+	CurrentScopeVersion string
 	// Refreshable marks the one stale_context cause a read may proceed through
 	// under TS5 §3: the scope version moved while the resolved scope did not.
 	// Every other stale_context describes scope the caller must actually change,
@@ -719,6 +723,15 @@ type runtimeFailure struct {
 func (f *runtimeFailure) Error() string { return f.message }
 func newRuntimeFailure(kind, message, recovery string, retry bool) *runtimeFailure {
 	return &runtimeFailure{kind: kind, message: message, recovery: recovery, retry: retry}
+}
+
+// newRouteFailure mints a refusal whose remedy is a declared route of
+// workflow actions rather than an operator. route is ordered: the caller
+// executes it front to back. unauthorized is deliberately absent from
+// enforcedRecoveryCouplings, so a refusal of that kind may name the route it
+// admits instead of the standing contact_operator default.
+func newRouteFailure(kind, message string, route ...string) *runtimeFailure {
+	return &runtimeFailure{kind: kind, message: message, recovery: "use_declared_route", retry: false, recoveryRefs: route}
 }
 func failureEnvelope(base Envelope, err error) Envelope {
 	if errors.Is(err, context.DeadlineExceeded) {
@@ -731,14 +744,27 @@ func failureEnvelope(base Envelope, err error) Envelope {
 	}
 	var f *runtimeFailure
 	if errors.As(err, &f) {
-		out := coreError(base, f.kind, f.message, f.recovery, f.retry)
+		action := RecoveryAction{Kind: f.recovery, RequiredRefs: f.recoveryRefs}
+		out := coreErrorAction(base, f.kind, f.message, action, f.retry)
 		out.Error.Candidates = f.Candidates
 		return out
 	}
 	var sf *store.Failure
 	if errors.As(err, &sf) {
 		kind := mapFailureKind(sf.Kind)
-		out := coreError(base, kind, sf.Detail, publicRecovery(kind, sf.RecoveryAction), sf.RetrySafe)
+		recovery := publicRecovery(kind, sf.RecoveryAction)
+		refs := sf.RecoveryRefs
+		if recovery != "use_declared_route" {
+			// Route refs ride the declared-route action alone; any other
+			// action would carry refs the envelope contract never asked for.
+			refs = nil
+		} else if len(refs) == 0 {
+			// A route naming no action cannot marshal. The kind's standing
+			// default keeps the refusal the core decided deliverable.
+			recovery = publicRecovery(kind, "")
+			refs = nil
+		}
+		out := coreErrorAction(base, kind, sf.Detail, RecoveryAction{Kind: recovery, RequiredRefs: refs}, sf.RetrySafe)
 		// Carry typed current-version carriers into the agent envelope so
 		// callers can recover the live projection version structurally without
 		// having to parse the human detail string. Mirrors the same path for
@@ -799,6 +825,12 @@ func nonNilStrings(values []string) []string {
 }
 
 func coreError(base Envelope, kind, message, recovery string, retry bool) Envelope {
+	return coreErrorAction(base, kind, message, RecoveryAction{Kind: recovery}, retry)
+}
+
+// coreErrorAction is coreError with a fully built recovery action, for the
+// refusals whose remedy is a declared route of workflow actions.
+func coreErrorAction(base Envelope, kind, message string, action RecoveryAction, retry bool) Envelope {
 	message = boundedErrorMessage(message)
 	// An unreachable refusal says the core could not answer, so the envelope
 	// carries no authoritative claim, freshness, or watermark; the contract
@@ -811,7 +843,7 @@ func coreError(base Envelope, kind, message, recovery string, retry bool) Envelo
 	}
 	base.Authority = authority
 	base.Outcome = OutcomeError
-	base.Error = &TypedError{Kind: kind, RetrySafe: retry, RecoveryAction: RecoveryAction{Kind: recovery}, EffectState: EffectNone, Message: message}
+	base.Error = &TypedError{Kind: kind, RetrySafe: retry, RecoveryAction: action, EffectState: EffectNone, Message: message}
 	if _, err := base.Encode(); err == nil {
 		return base
 	}
@@ -823,7 +855,7 @@ func coreError(base Envelope, kind, message, recovery string, retry bool) Envelo
 	errorBase.ResolvedScope = base.ResolvedScope
 	errorBase.Authority = authority
 	errorBase.Outcome = OutcomeError
-	errorBase.Error = &TypedError{Kind: kind, RetrySafe: retry, RecoveryAction: RecoveryAction{Kind: recovery}, EffectState: EffectNone, Message: message}
+	errorBase.Error = &TypedError{Kind: kind, RetrySafe: retry, RecoveryAction: action, EffectState: EffectNone, Message: message}
 	if _, err := errorBase.Encode(); err != nil {
 		// Scope is useful when it remains deliverable, but never at the expense
 		// of the limit error itself crossing the agent boundary.
@@ -918,9 +950,10 @@ func mapFailureKind(kind store.FailureKind) string {
 		return "unreachable"
 	case store.KindWorktreeOwnershipConflict:
 		// CD-0096 D3 Destroy: a removal refused because a live session runs in
-		// the worktree. The remedy is ending or moving that session, so this
-		// is an authority refusal and carries the contact_operator route the
-		// store already proposes. It is not an operation to reconcile.
+		// the worktree. The remedy is ending that session and retiring the
+		// worktree, so this is an authority refusal and the store names the
+		// declared vacate-then-reclaim route the caller acts on. It is not an
+		// operation to reconcile.
 		return "unauthorized"
 	case store.KindUnauthorizedDispatch:
 		// A worker dispatch refused at the admission boundary: no active
@@ -979,7 +1012,7 @@ func publicRecovery(kind, proposed string) string {
 	if coupled, ok := enforcedRecoveryCouplings[kind]; ok {
 		return coupled
 	}
-	allowed := map[string]bool{"none": true, "retry_same_request": true, "refresh_context": true, "reread_entities": true, "request_approval": true, "provide_evidence": true, "reduce_limit": true, "use_next_cursor": true, "restart_query": true, "adjust_budget": true, "reconcile_operation": true, "resolve_ambiguity": true, "contact_operator": true}
+	allowed := map[string]bool{"none": true, "retry_same_request": true, "refresh_context": true, "reread_entities": true, "request_approval": true, "provide_evidence": true, "reduce_limit": true, "use_declared_route": true, "use_next_cursor": true, "restart_query": true, "adjust_budget": true, "reconcile_operation": true, "resolve_ambiguity": true, "contact_operator": true}
 	if allowed[proposed] {
 		return proposed
 	}

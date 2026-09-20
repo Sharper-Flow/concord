@@ -1,0 +1,35 @@
+{
+  "date": "2026-09-20T00:00:00Z",
+  "evidence": [
+    "cmd/concord/ci_wait.go",
+    "cmd/concord/ci_wait_test.go",
+    "contracts/agent-lanes.v1.json"
+  ],
+  "home_domain_id": "agent-surface",
+  "id": "CD-0161",
+  "kind": "decision",
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "CD-0160"
+    }
+  ],
+  "path": "docs/decisions/CD-0161-the-ci-wait-checks-verdict-blocks-only-on-a-dirty-merge-state.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:958b3d10c8c4814c81bf2a00a9c100970625bff2a31f6f847569288a67c88447",
+  "status": "accepted",
+  "summary": "Amends CD-0160 D4: in checks mode only a DIRTY merge state blocks the success verdict, while UNKNOWN, BEHIND, BLOCKED, UNSTABLE, DRAFT, and empty never do, because none is evidence about check completeness. The request gains a mode of checks or merge with checks as the default; merge mode gates success on CLEAN or HAS_HOOKS and keeps UNKNOWN pending. Merged and closed pull requests are terminal statuses, every report carries merge_state, and the utility entry moves to version 3 with a purpose that states the repo-plus-selector input contract.",
+  "tags": [
+    "agent-surface",
+    "utilities",
+    "ci-wait",
+    "determinism"
+  ],
+  "title": "The ci-wait checks verdict blocks only on a dirty merge state"
+}

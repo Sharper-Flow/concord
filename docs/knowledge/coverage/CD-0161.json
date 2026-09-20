@@ -1,0 +1,34 @@
+{
+  "evidence": [
+    {
+      "kind": "go_test",
+      "value": "cmd/concord.TestCiWaitPRChecksModeMergeStates"
+    },
+    {
+      "kind": "go_test",
+      "value": "cmd/concord.TestCiWaitPRMergeModeUsesGitHubMergeState"
+    },
+    {
+      "kind": "go_test",
+      "value": "cmd/concord.TestCiWaitPRMergeModeStaysPendingOnUnknown"
+    },
+    {
+      "kind": "go_test",
+      "value": "cmd/concord.TestCiWaitPRMergedAndClosedAreTerminal"
+    },
+    {
+      "kind": "go_test",
+      "value": "cmd/concord.TestCiWaitMergeModeRequiresPRSelector"
+    },
+    {
+      "kind": "validator",
+      "value": "scripts/test-ci-wait-contract.py"
+    },
+    {
+      "kind": "generated",
+      "value": "internal/store/generated_agent_lanes.go#LaneRegistryManifestDigest"
+    }
+  ],
+  "id": "CD-0161",
+  "state": "satisfied"
+}

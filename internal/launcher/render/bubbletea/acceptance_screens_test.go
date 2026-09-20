@@ -228,6 +228,9 @@ func TestNewBacklogResolvesIssueKeyOrDegradesToProjects(t *testing.T) {
 		})
 		m.UpdateKey("j") // cursor onto the appended New/Backlog row
 		m.UpdateKey("enter")
+		if rendered := m.Render(); !strings.Contains(rendered, "ISSUE KEY:") {
+			t.Fatalf("issue mode lost its prompt: %q", rendered)
+		}
 		typeString(t, m, "CON-153")
 		m.UpdateKey("enter")
 		if len(launched) != 1 || launched[0].WorkID != "work-linked" {

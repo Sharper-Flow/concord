@@ -771,7 +771,7 @@ func (m *Model) renderS2(headers []string, cursor int) renderedPane {
 	if s.StatusMessage != "" {
 		header = append(header, "STATUS: "+s.StatusMessage)
 	}
-	if m.filterMode {
+	if m.filterMode || m.issueMode {
 		header = append(header, m.input.View())
 	} else if m.filterValue != "" {
 		header = append(header, "FILTERED: "+m.filterValue+" (hidden: "+fmtInt(len(s.Ranked)-len(m.filteredRanked()))+")")

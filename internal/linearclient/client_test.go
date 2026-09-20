@@ -270,8 +270,8 @@ func TestListTeamStartedIssuesFollowsCursor(t *testing.T) {
 			t.Fatalf("first request %q lacks %q", bodies[0], want)
 		}
 	}
-	if !strings.Contains(bodies[0], `"after":""`) || !strings.Contains(bodies[1], `"after":"cursor-1"`) {
-		t.Fatalf("cursor flow broken: first %q then %q", bodies[0], bodies[1])
+	if strings.Contains(bodies[0], `"after":`) || !strings.Contains(bodies[1], `"after":"cursor-1"`) {
+		t.Fatalf("first page must omit the after cursor; cursor flow: first %q then %q", bodies[0], bodies[1])
 	}
 }
 

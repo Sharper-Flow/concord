@@ -17,6 +17,7 @@ var knowledgeHomePairTables = []string{
 	"knowledge_index_watermark",
 	"knowledge_kind_coverage",
 	"law_subjects",
+	"law_bodies",
 	"law_relations",
 	"domains",
 	"domain_registries",

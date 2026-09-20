@@ -192,6 +192,7 @@ func TestConstitutionProjectionConvergesAfterWatermarkInvalidation(t *testing.T)
 	for _, stmt := range []string{
 		`DELETE FROM law_domain_applicability WHERE home_project_id=? AND home_locator_id=? AND law_id=?`,
 		`DELETE FROM law_domain_homes WHERE home_project_id=? AND home_locator_id=? AND law_id=?`,
+		`DELETE FROM law_bodies WHERE home_project_id=? AND home_locator_id=? AND law_id=?`,
 		`DELETE FROM law_subjects WHERE home_project_id=? AND home_locator_id=? AND law_id=?`,
 	} {
 		if _, err := db.Exec(stmt, home.HomeProjectID, home.HomeLocatorID, constitutionID); err != nil {

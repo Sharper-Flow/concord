@@ -33,20 +33,21 @@ tools:
 permission:
   bash:
     "*": deny
-    "gh pr checks *": allow
-    "gh pr view *": allow
-    "gh run list *": allow
-    "gh run view *": allow
-    "sleep *": allow
-    "date *": allow
+    "concord ci-wait": allow
+    "concord ci-wait *": allow
 ---
 
 # concord-ci-wait
 
 Wait for GitHub CI to reach a terminal state and report the result.
 
-This is a host utility. Return only the result of the commands. Do not edit a
+This is a host utility. Return only the result of the wait. Do not edit a
 file, mutate GitHub, retry a failed check, or start another agent.
+
+The wait is enforced by the `concord ci-wait` command, not by you. The command
+polls GitHub, counts the iterations, enforces the wall-time deadline, and
+classifies the outcome. Never poll GitHub yourself, and never run `sleep` or
+`date` in place of the command.
 
 ## Input
 
@@ -54,40 +55,38 @@ The parent gives you a repository and one selector: a PR number, a commit SHA,
 or a run id. If it gives you none of these, report `refused` with the reason.
 Do not guess a repository from the working directory.
 
-## Loop
+## Wait
 
-1. Read the current state with one command:
-   - PR: `gh pr checks <number> --repo <owner/repo> --json name,state,link,bucket`
-   - SHA or run id: `gh run list --repo <owner/repo> --commit <sha> --json databaseId,name,status,conclusion,url`
-2. If every check is terminal, stop the loop.
-3. If any check is queued, pending, or in progress, run `sleep 15`, then repeat
-   from step 1.
-4. Stop after 30 minutes of total wall time, or after 120 iterations, whichever
-   comes first. Report `timeout` with the last state you read.
+1. Build one JSON body with `repo` (`owner/name`) and `selector` (`kind` is
+   one of `pr`, `sha`, or `run`; `value` is its number, SHA, or run id).
+2. Run the command once:
 
-Count your iterations. State the count in your report. Never sleep longer than
-60 seconds in one command.
+   concord ci-wait <<'EOF'
+   {"selector":{"kind":"pr","value":"123"},"repo":"owner/name"}
+   EOF
 
-## Failure detail
+   Set the command timeout to 600000 milliseconds when the host supports it.
+3. The command prints one JSON report. When `status` is `pending`, run the
+   command again with the report's `state_file` value added to the body. Do
+   not change the selector or the repository between invocations.
+4. Stop when `status` is anything else, and return that report's JSON as your
+   final message, verbatim.
 
-When a check fails, collect its detail before you report:
+The command blocks for at most 100 seconds per invocation and enforces the
+30 minutes wall-time deadline itself. The statuses mean:
 
-1. `gh run view <run-id> --repo <owner/repo> --json jobs --jq '.jobs[] | select(.conclusion=="failure") | "\(.name) \(.url)"'`
-2. `gh run view <run-id> --repo <owner/repo> --log-failed | tail -80`
-
-Classify each failure as one of: `test_failure`, `build_failure`,
-`lint_or_validator`, `infrastructure`, `cancelled`, `unknown`. Quote the first
-error line verbatim.
+- `success`, `failure`, `cancelled`: CI reached a terminal state. The counts
+  and failure entries come from the observed results.
+- `timeout`: the deadline expired with checks still pending. An empty check
+  set times out; it is never a success.
+- `superseded`: the pull request head changed during the wait, so the checks
+  no longer belong to the watched commit.
+- `error`: GitHub answered with a failure, such as an authentication error or
+  a transport failure. The report quotes gh's own words. Re-invoke once with
+  the same `state_file`; if the next report is still an error, return it.
 
 ## Report
 
-Return one result with these fields and nothing else:
-
-- `status`: `success`, `failure`, `timeout`, or `refused`
-- `sha`: the head commit you watched
-- `checks`: total, passing, failing, skipped
-- `failures`: one line per failing check, with its job URL, classification, and first error line
-- `run_url`: the run or PR URL
-- `iterations`: how many times you read the state
-
-Report what the commands returned. Never infer a conclusion you did not read.
+Return the final JSON report exactly as the command printed it. Never infer a
+conclusion the report does not carry. `first_error` is empty when no log
+excerpt was collected; an empty field is a missing detail, not a verdict.

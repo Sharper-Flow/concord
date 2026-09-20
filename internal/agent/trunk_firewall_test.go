@@ -273,11 +273,58 @@ func TestMainCheckoutAllowlistDeclaresBothSides(t *testing.T) {
 	if _, ok := operations["lifecycle"]; !ok || len(operations) != 1 {
 		t.Fatalf("work_transition operation allowlist=%v, want lifecycle only", operations)
 	}
-	terminalWork, ok := mainCheckoutTerminalWorkOperations[Capability("work_transition")]
+	retirement, ok := mainCheckoutWorktreeRetirementOperations[Capability("work_transition")]
 	if !ok {
-		t.Fatal("work_transition terminal-work operation set is missing")
+		t.Fatal("work_transition worktree-retirement operation set is missing")
 	}
-	if _, ok := terminalWork["worktree_reclaim"]; !ok || len(terminalWork) != 1 {
-		t.Fatalf("work_transition terminal-work operations=%v, want worktree_reclaim only", terminalWork)
+	for _, operation := range []string{"worktree_audit_reclaim", "worktree_reclaim"} {
+		if _, ok := retirement[operation]; !ok {
+			t.Fatalf("operation %q is missing from the main-checkout retirement allowlist", operation)
+		}
 	}
+	if len(retirement) != 2 {
+		t.Fatalf("work_transition retirement operations=%v, want worktree_audit_reclaim and worktree_reclaim only", retirement)
+	}
+}
+
+// CD-0162: worktree_audit_reclaim resolves from the main checkout. The store
+// pass applies the tier gates per row (CD-0105 D2 terminal tier, CD-0118 D3
+// unstarted tier), so the firewall admits the operation without a worktree
+// anchor. The dispatch subtest runs a real audit pass, proving the response
+// no longer dies at the main-checkout boundary.
+func TestAuditReclaimResolvesFromMainCheckout(t *testing.T) {
+	t.Parallel()
+	t.Run("authorization grants", func(t *testing.T) {
+		service := trunkFirewallFixture(t, true)
+		authority, err := service.Authorize(context.Background(), Invocation{ClientRef: "client-1", PrincipalRef: "human-1", SessionRef: "session-1", AgentRef: "agent-1", Directory: "/repo", Worktree: "/repo-wt", ManifestDigest: ManifestDigest, RequiredCapability: "work_transition", RequiredOperation: "worktree_audit_reclaim", ProductID: "product-1", ProjectID: "project-1"})
+		if err != nil {
+			t.Fatalf("worktree_audit_reclaim must resolve from the main checkout, got err=%v", err)
+		}
+		if !authority.MainWorktree {
+			t.Fatal("authority must carry the main-checkout grant")
+		}
+	})
+
+	t.Run("dispatch runs the pass", func(t *testing.T) {
+		s, service, grant, _ := tiersRepoFixture(t)
+		service.ProjectResolver = func(context.Context, *store.Transaction, string, string) (store.ProjectResolution, error) {
+			return store.ProjectResolution{ProjectID: "project-1", MainWorktree: true}, nil
+		}
+		response := tiersInvoke(t, s, service, grant, "concord_work_transition", "worktree_audit_reclaim", map[string]any{
+			"product_id": "product-1", "default_ref": "main", "idempotency_key": "main-audit-reclaim",
+		})
+		if response.Outcome != OutcomeOK {
+			t.Fatalf("audit reclaim response=%+v err=%+v", response, response.Error)
+		}
+		var result struct {
+			Rows       []map[string]any `json:"rows"`
+			ReportOnly []map[string]any `json:"report_only"`
+		}
+		if err := json.Unmarshal(response.Result, &result); err != nil {
+			t.Fatal(err)
+		}
+		if len(result.Rows) != 0 || len(result.ReportOnly) != 0 {
+			t.Fatalf("a repository with no drift must reclaim nothing: %+v", result)
+		}
+	})
 }

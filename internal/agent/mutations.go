@@ -2359,8 +2359,10 @@ func (r runtime) planWorkRemoval(ctx context.Context, base Envelope, raw []byte,
 // the envelope and the idempotency record. A replay under the same key
 // returns the recorded pass and does not run the audit again.
 //
-// The pass reclaims only terminal work, which #674 already opened to a
-// main-checkout grant, so no worktree anchor is required to run it.
+// The pass reclaims only rows whose tier gate establishes no live
+// implementation surface (CD-0162): the terminal tier retires a merged tree,
+// the unstarted tier (CD-0118) a clean tree with no commit beyond the
+// default ref. That is why no worktree anchor is required to run it.
 //
 // A failure after the audit ran must not claim no effect: the reclaimed rows
 // in changed already committed, and a replay converges without re-executing
@@ -2512,12 +2514,14 @@ func (r runtime) planWorktreeReclaim(ctx context.Context, base Envelope, raw []b
 	plan.scope["project_ids"] = []string{in.ProjectID}
 	plan.intents = []NextIntent{{Tool: "concord_work_browse", Operation: "scope", QueryID: "PM1.Q6", ReasonCode: "refresh_work_version", RequiredFields: []string{"work_id"}}}
 	plan.effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
-		// Issue #674 amends the CD-0092 D2 surface for this operation only:
-		// a main-checkout grant may reclaim once the work item is terminal,
+		// Issue #674 amends the CD-0092 D2 surface for this operation: a
+		// main-checkout grant may reclaim once the work item is terminal,
 		// because terminal work holds no live implementation surface. The
 		// lifecycle read is tx-scoped and the grant is the in-transaction
 		// re-authorization, so the condition holds atomically with the
-		// reclamation; non-terminal work keeps the CD-0092 D2 refusal.
+		// reclamation; non-terminal work keeps the CD-0092 D2 refusal. The
+		// audit pass carries the same admission on its per-row tier gates
+		// (CD-0162).
 		if grant.MainWorktree {
 			lifecycle, err := currentLifecycle(ctx, tx, in.WorkID)
 			if err != nil {

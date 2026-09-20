@@ -1,0 +1,30 @@
+{
+  "date": "2026-09-20T00:00:00Z",
+  "home_domain_id": "product-root:concord",
+  "id": "CD-0162",
+  "kind": "decision",
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "CD-0105"
+    }
+  ],
+  "path": "docs/decisions/CD-0162-main-checkout-admission-follows-the-reclaim-tiers.md",
+  "product_wide_rationale": "Names when the main checkout may run a worktree retirement operation, which every Domain that reclaims a worktree relies on, so it binds Product-wide rather than owning a runtime Domain.",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:3a007ec3e9123a0339e4cbf06a4a617b92e17c732f33341f129b9004abcc9404",
+  "status": "accepted",
+  "summary": "The main-checkout admission for the worktree retirement operations rests on the per-row tier gates, not on terminality: the terminal tier retires a merged tree and the unstarted tier retires a clean tree with zero commits beyond the default ref, and per-row eligibility admits no other class. worktree_audit_reclaim resolves from the main checkout beside worktree_reclaim, the allowlist map is renamed to state that ground, and the direct reclaim keeps its planner-side terminality condition. Amends CD-0105 D4 at its rationale.",
+  "tags": [
+    "worktree-isolation",
+    "authority",
+    "recovery"
+  ],
+  "title": "The main-checkout admission follows the reclaim tiers"
+}

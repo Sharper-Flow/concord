@@ -41,18 +41,21 @@ var mainCheckoutAllowedOperations = map[Capability]map[string]struct{}{
 	},
 }
 
-// mainCheckoutTerminalWorkOperations names the closed set of operations that
-// resolve from a registered Project's default checkout only when the work
-// item they address is terminal. worktree_reclaim joins it because a
-// terminal item holds no live implementation surface: reclaiming its
-// worktree retires an already-merged branch, so the main checkout may
-// retire it too (issue #674, amending CD-0092 D2 scope). Authorization
-// admits the operation and records the main-checkout grant; the planner
-// enforces terminality and refuses non-terminal work with the same
-// CD-0092 D2 refusal.
-var mainCheckoutTerminalWorkOperations = map[Capability]map[string]struct{}{
+// mainCheckoutWorktreeRetirementOperations names the closed set of worktree
+// retirement operations that resolve from a registered Project's default
+// checkout. The ground is the tier gate each reclaimed row passes, not the
+// work item's terminality: the terminal tier retires a merged tree, the
+// unstarted tier (CD-0118) retires a clean tree whose branch holds no commit
+// beyond the default ref, and per-row eligibility in the store admits no
+// other class. Neither tier can strand implementation work, which is the
+// surface CD-0092 D2 protects (CD-0162). worktree_reclaim keeps its
+// planner-side terminality check, because its one addressed row may hold any
+// lifecycle; worktree_audit_reclaim adds no check here, because the store
+// pass applies the tier gates to every row it reclaims.
+var mainCheckoutWorktreeRetirementOperations = map[Capability]map[string]struct{}{
 	Capability("work_transition"): {
-		"worktree_reclaim": {},
+		"worktree_audit_reclaim": {},
+		"worktree_reclaim":       {},
 	},
 }
 
@@ -391,8 +394,8 @@ func (s *Service) authorizeResolved(ctx context.Context, tx *store.Transaction, 
 	if resolved.MainWorktree {
 		_, capabilityAllowed := mainCheckoutAllowedCapabilities[in.RequiredCapability]
 		_, operationAllowed := mainCheckoutAllowedOperations[in.RequiredCapability][in.RequiredOperation]
-		_, terminalWorkAllowed := mainCheckoutTerminalWorkOperations[in.RequiredCapability][in.RequiredOperation]
-		if !capabilityAllowed && !operationAllowed && !terminalWorkAllowed {
+		_, retirementAllowed := mainCheckoutWorktreeRetirementOperations[in.RequiredCapability][in.RequiredOperation]
+		if !capabilityAllowed && !operationAllowed && !retirementAllowed {
 			// The route is the one the workflow already admits for a clean
 			// merged worktree: vacate the occupying session, then reclaim the
 			// worktree from the main checkout, where worktree_reclaim is a

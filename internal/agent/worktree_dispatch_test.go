@@ -546,6 +546,72 @@ func TestWorktreeReclaimRefusesOccupiedWorktreeThroughToolSurface(t *testing.T) 
 	}
 }
 
+// The direct reclaim's planner forwards the host session observation to the
+// store request: an observation naming the recorded occupant keeps the
+// strand-guard refusal, and an observation proving the occupant gone
+// reclaims the row. The store owns the release semantics; this pins that
+// the agent surface carries the field through.
+func TestReclaimForwardsObservedSessionDirectories(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s, service, grant, repoRoot, baseSHA := worktreeDispatchFixture(t)
+	worktreePath := filepath.Join(filepath.Dir(s.Path()), "worktrees", "project-1", "work-1")
+	claimLinkedWorktree(t, s, service, grant, worktreePath, baseSHA, "work/reclaim-observation", "reclaim-observation-claim")
+	seedWorkTransition(t, s, "work-1", "needed", "completed", 3)
+	service.ProjectResolver = func(context.Context, *store.Transaction, string, string) (store.ProjectResolution, error) {
+		return store.ProjectResolution{ProjectID: "project-1", MainWorktree: true}, nil
+	}
+	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	reclaimWith := func(key string, observed []map[string]any) Envelope {
+		t.Helper()
+		input, _ := json.Marshal(map[string]any{
+			"work_id": "work-1", "project_id": "project-1", "default_ref": "main",
+			"expected_version": 4, "idempotency_key": key,
+			"observed_session_directories": observed,
+		})
+		response, dispatchErr := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "worktree_reclaim", Input: input}, mutationEnvelope(grant, scopeVersion))
+		if dispatchErr != nil {
+			t.Fatalf("dispatch err=%v", dispatchErr)
+		}
+		return response
+	}
+
+	// The observation names the recorded occupant's own ref: the occupant
+	// counts as live, so the strand-guard refusal stays.
+	naming := reclaimWith("reclaim-observation-naming", []map[string]any{
+		{"session_ref": grant.SessionRef, "directory": repoRoot},
+	})
+	if naming.Outcome == OutcomeOK {
+		t.Fatal("an observation naming the recorded occupant must keep the refusal")
+	}
+	if naming.Error == nil || naming.Error.Kind != "unauthorized" {
+		t.Fatalf("error=%+v, want unauthorized", naming.Error)
+	}
+	if !strings.Contains(naming.Error.Message, grant.SessionRef) || !strings.Contains(naming.Error.Message, worktreePath) {
+		t.Fatalf("refusal %q must name the occupying session and the worktree", naming.Error.Message)
+	}
+
+	// A live session exists elsewhere and carries no recorded ref, so the
+	// observation proves the recorded occupant gone and the reclaim proceeds.
+	gone := reclaimWith("reclaim-observation-gone", []map[string]any{
+		{"session_ref": "session-elsewhere", "directory": repoRoot},
+	})
+	if gone.Outcome != OutcomeOK {
+		t.Fatalf("response=%+v, want the observation-proven-gone reclaim to proceed", gone)
+	}
+	entries, err := s.WorktreeEntries(ctx, "work-1")
+	if err != nil || len(entries) != 1 || entries[0].State != "reclaimed" {
+		t.Fatalf("entries after reclaim=%+v err=%v", entries, err)
+	}
+	if strings.Contains(gitRun(t, repoRoot, "worktree", "list"), "work-1") {
+		t.Fatal("native worktree still present after reclaim")
+	}
+}
+
 func TestSessionVacateSucceedsFromLinkedWorktreeMutation(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

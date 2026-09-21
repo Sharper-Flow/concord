@@ -447,7 +447,7 @@ func TestCiWaitPRMergedAndClosedAreTerminal(t *testing.T) {
 				*"pr checks"*) exit 97;;
 			esac`))
 			_, report, _ := runCiWaitStdin(t, ciWaitJSON(t, ciWaitRequest{
-		Selector: &ciWaitSelector{Kind: "pr", Value: "5"}, Repo: "o/r", Mode: "merge", TimeSecondsMax: ciWaitBudget(8),
+				Selector: &ciWaitSelector{Kind: "pr", Value: "5"}, Repo: "o/r", Mode: "merge", TimeSecondsMax: ciWaitBudget(8),
 			}))
 			if report.Status != tc.wantState {
 				t.Fatalf("status=%s want %s, report=%+v", report.Status, tc.wantState, report)

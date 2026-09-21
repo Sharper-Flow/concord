@@ -591,6 +591,8 @@ func builtinWorkflowDefinitionsWithHistory() []WorkflowDefinition {
 		previousWorkflowVersion(implementationAlignmentV14(), 13), previousWorkflowVersion(breakFixAlignmentV12(), 11),
 		previousWorkflowVersion(withCurrentNonBlankContract(withWorkerActions(builtinResearch(true), true)), 7), previousWorkflowVersion(withCurrentNonBlankContract(architecturePremiseContractV7()), 8),
 		previousWorkflowVersion(withCurrentNonBlankContract(opsRunbookPremiseContractV8()), 9), previousWorkflowVersion(withCurrentNonBlankContract(withWorkerActions(builtinStaticAnalysis(true), true)), 6), previousWorkflowVersion(withCurrentNonBlankContract(withWorkerActions(builtinGenericOneOff(true), true)), 7),
+		implementationAlignmentV14(), breakFixAlignmentV12(), researchPreDeliveryV8(), architecturePreDeliveryV9(),
+		opsRunbookPreDeliveryV10(), staticAnalysisPreDeliveryV7(), genericOneOffPreDeliveryV8(),
 	)
 	for i := range history {
 		history[i] = withLegacyDeliveryPayload(history[i])
@@ -604,9 +606,40 @@ func BuiltinWorkflowDefinitionsWithHistory() []WorkflowDefinition {
 	return builtinWorkflowDefinitionsWithHistory()
 }
 
+func validateBuiltinWorkflowVersionContinuity(definitions []WorkflowDefinition) error {
+	versions := make(map[string]map[int64]struct{})
+	maxVersions := make(map[string]int64)
+	for _, definition := range definitions {
+		familyVersions := versions[definition.Ref]
+		if familyVersions == nil {
+			familyVersions = make(map[int64]struct{})
+			versions[definition.Ref] = familyVersions
+		}
+		if _, exists := familyVersions[definition.Version]; exists {
+			return fmt.Errorf("builtin workflow definition %s version %d is registered twice", definition.Ref, definition.Version)
+		}
+		familyVersions[definition.Version] = struct{}{}
+		if definition.Version > maxVersions[definition.Ref] {
+			maxVersions[definition.Ref] = definition.Version
+		}
+	}
+	for ref, maxVersion := range maxVersions {
+		for version := int64(1); version <= maxVersion; version++ {
+			if _, exists := versions[ref][version]; !exists {
+				return fmt.Errorf("builtin workflow definition %s has a gap at version %d", ref, version)
+			}
+		}
+	}
+	return nil
+}
+
 func NewBuiltinWorkflowRegistry() DefinitionRegistry {
 	registry := NewWorkflowDefinitionRegistry()
-	for _, definition := range builtinWorkflowDefinitionsWithHistory() {
+	definitions := builtinWorkflowDefinitionsWithHistory()
+	if err := validateBuiltinWorkflowVersionContinuity(definitions); err != nil {
+		panic(err)
+	}
+	for _, definition := range definitions {
 		if _, err := registry.Register(definition); err != nil {
 			panic(err)
 		}

@@ -31,16 +31,19 @@ import (
 // the new content as a new version and add its digest here; never edit a row
 // that already holds a digest.
 var workflowDefinitionVersionPins = map[[2]string]string{
+	{"workflow.architecture_spike", "9"}:  "sha256:f7a4e6054573c2afaafea8293b298f9590bbfc7a6ede183fe00b6f58874a15e1",
 	{"workflow.architecture_spike", "10"}: "sha256:940f65530981b1f56299c3f06329a00b0ef4c61a35beca62e05f2c6b576db133",
 	{"workflow.architecture_spike", "8"}:  "sha256:4b39c8b14753ec0cdc9f66444a980f77cc802b60fafa343974483149c4c71758",
 	{"workflow.architecture_spike", "6"}:  "sha256:7c734ff4bcb0c0f7881b0101779c576ff39535432148e031a7b984a28802fa83",
 	{"workflow.architecture_spike", "7"}:  "sha256:420e3a67cfbc314ebbcc9ab921bdf4459f7a7df73bdea91c8aea327998302468",
 	{"workflow.ops_runbook", "9"}:         "sha256:d3ecda770e1f818dee63f420d400a582d07ff6e77e7401bbc2754b9fd045fa9b",
+	{"workflow.ops_runbook", "10"}:        "sha256:bc1e035506c499b0f1e05d7655a92254c32000cb24a9117da52b252da791bada",
 	{"workflow.ops_runbook", "11"}:        "sha256:800de23f8a6b35f13b898366a1d2a3087ffabe6a05bcacc095c031a2b705cc36",
 	{"workflow.ops_runbook", "7"}:         "sha256:5fbe2710a20464f0bb56167fb1c803d4956b5b1c804424a86014f6c67e6ccb03",
 	{"workflow.ops_runbook", "8"}:         "sha256:d291c90b582c6e825590db9dcf789f7c8e35bb373c32f6b2430839943043bb1f",
 	{"workflow.break_fix", "10"}:          "sha256:dad5a4de999f2a2f946702fe3f7aee012acda8fdc283d0a123f50662d6cf310d",
 	{"workflow.break_fix", "11"}:          "sha256:2c13955de3099ab12072d1cc450f2fe37a99027903facc11690ad1ea42d2d7a8",
+	{"workflow.break_fix", "12"}:          "sha256:ad0d90e5e531160fea75094a38dcbac00b4ca33bafdc346ea02ccfe2fe44f7d2",
 	{"workflow.break_fix", "13"}:          "sha256:c11469369d6aa689997e0f3c801938fd05ee47d7b1eac37e46de91e26eba1573",
 	{"workflow.break_fix", "1"}:           "sha256:aefce865f350345dc41fc1e2e988e7d5e246fa7fd560335399cf8c826e4cc35a",
 	{"workflow.break_fix", "2"}:           "sha256:d7f8d8cc8b951e74751ddafe95c7b9c9d65e606cd73c41b2ceadd5fa2cdf29cb",
@@ -64,8 +67,10 @@ var workflowDefinitionVersionPins = map[[2]string]string{
 	{"workflow.implementation", "11"}:     "sha256:8a205e8b43f537caa650e72c667051017d9b26f77f675d1f5c14511743ef6462",
 	{"workflow.implementation", "12"}:     "sha256:26340249dcc709a625db60711bc980acb2c8bdfb8be1588b1b1b80839b8d6f33",
 	{"workflow.implementation", "13"}:     "sha256:a17d5afc3ee430aeaf406a004e93489daafea7138eb178c8e0ae63506496d341",
+	{"workflow.implementation", "14"}:     "sha256:609beef3fda073435d22fcba81e9661b64979c77561d485e6c60268a243056cf",
 	{"workflow.implementation", "15"}:     "sha256:e67484ab82967317470b819b1efe8c0af71448fa8a6c1eb1dd0b2989a4b5f996",
 	{"workflow.generic_one_off", "7"}:     "sha256:11a397de86d2d4ef98acc345a2ed91a14b0c45c1a0054b140e40a45b9a6127b7",
+	{"workflow.generic_one_off", "8"}:     "sha256:c5e07368f5d906a6c0996ea2041c488ce282fb9ce82f3e5f4acc559d4a0fec7e",
 	{"workflow.generic_one_off", "9"}:     "sha256:b8b85e67bf052cdf90a774b9ff7f050fa15f814b4cbb7108df55525235bd46e0",
 	{"workflow.generic_one_off", "1"}:     "sha256:c2b8b4c8ef11b2de08912f7c82faa91dffe6a2fbe4ddcef924ff4b393da578b3",
 	{"workflow.generic_one_off", "2"}:     "sha256:273c82c0a0cf6c17d231f1be898ff74c6158f8036985cb3e1666b8f12c1b7895",
@@ -80,6 +85,7 @@ var workflowDefinitionVersionPins = map[[2]string]string{
 	{"workflow.research", "5"}:            "sha256:256b8a088e395fd1ec5d263a35e3f60ee51b1465db58eb12f68ca4e0ef458209",
 	{"workflow.research", "6"}:            "sha256:9510bd915cdd12d35c3c69c36e7834eb298cb03745a395c65d2c76da13d73a3d",
 	{"workflow.research", "7"}:            "sha256:9398812339c38d67d70bf19abf2752541e84d7ebd29c4d6063f11a9408c9eeda",
+	{"workflow.research", "8"}:            "sha256:47afbd04d70dadf08cecaccb964927580d034c5fee1c595feb4518c973ff2276",
 	{"workflow.research", "9"}:            "sha256:502865be8c2805bbf7e33a133714df6790bf5fc68e8c10370d73d68fb63d98da",
 	{"workflow.architecture_spike", "1"}:  "sha256:97d09dd24f80750dfa403ac2ccb9bf17b046cbd04981358b7ebaf1b1076aef5e",
 	{"workflow.architecture_spike", "2"}:  "sha256:99ecb21ccfbf263d61f44c43730a2e0945b721082fd8c8a40e50df143b5fffcc",
@@ -98,6 +104,7 @@ var workflowDefinitionVersionPins = map[[2]string]string{
 	{"workflow.static_analysis", "4"}:     "sha256:cc9f3aaa93e5b3f145939624431c81970386ed5aed0d03d4dffb52c06bd53b26",
 	{"workflow.static_analysis", "5"}:     "sha256:3fcb33421b001caa7900a42698812d83b53529abf7a4e22ff001fb8bb80421dc",
 	{"workflow.static_analysis", "6"}:     "sha256:bb4eeec6f44116e19b47b1f910f19d5407c3964651be9595a1e519f9b9a54663",
+	{"workflow.static_analysis", "7"}:     "sha256:e028a8ff55dd0517046c9620868506ba7ceb401e3ac0757a29cbbfe229782fd9",
 	{"workflow.static_analysis", "8"}:     "sha256:b49180f83820b36f622e0e2426515f60a1d136e2c8ff0711609d6baa2cf4e462",
 }
 
@@ -141,6 +148,28 @@ func TestBuiltinDefinitionsCoverExactlyThePinnedVersions(t *testing.T) {
 		if !seen[pin] {
 			t.Errorf("%s version %s holds a digest pin but is not registered", pin[0], pin[1])
 		}
+	}
+}
+
+func TestBuiltinDefinitionVersionsAreGapless(t *testing.T) {
+	t.Parallel()
+	if err := validateBuiltinWorkflowVersionContinuity(builtinWorkflowDefinitionsWithHistory()); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestBuiltinDefinitionVersionContinuityRejectsGap(t *testing.T) {
+	t.Parallel()
+	definitions := builtinWorkflowDefinitionsWithHistory()
+	for index, definition := range definitions {
+		if definition.Ref != "workflow.implementation" || definition.Version != 14 {
+			continue
+		}
+		definitions = append(definitions[:index], definitions[index+1:]...)
+		break
+	}
+	if err := validateBuiltinWorkflowVersionContinuity(definitions); err == nil {
+		t.Fatal("version continuity check accepted a missing built-in version")
 	}
 }
 

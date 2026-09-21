@@ -741,6 +741,36 @@ func genericOneOffDeliveryPayloadV9() WorkflowDefinition {
 	return d
 }
 
+func researchPreDeliveryV8() WorkflowDefinition {
+	d := withCurrentNonBlankContract(withWorkerActions(builtinResearch(true), true))
+	d.Version = 8
+	return d
+}
+
+func architecturePreDeliveryV9() WorkflowDefinition {
+	d := withCurrentEvidenceBindingReferences(withCurrentNonBlankContract(architecturePremiseContractV7()))
+	d.Version = 9
+	return d
+}
+
+func opsRunbookPreDeliveryV10() WorkflowDefinition {
+	d := withCurrentNonBlankContract(opsRunbookPremiseContractV8())
+	d.Version = 10
+	return d
+}
+
+func staticAnalysisPreDeliveryV7() WorkflowDefinition {
+	d := withCurrentNonBlankContract(withWorkerActions(builtinStaticAnalysis(true), true))
+	d.Version = 7
+	return d
+}
+
+func genericOneOffPreDeliveryV8() WorkflowDefinition {
+	d := withCurrentNonBlankContract(withWorkerActions(builtinGenericOneOff(true), true))
+	d.Version = 8
+	return d
+}
+
 // implementationAlignmentV14 adds the evidence-reference payload contract
 // after proposal. record_alignment remains the step's only advance exit, so
 // the backlog search cannot be skipped.

@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"reflect"
@@ -9,6 +10,105 @@ import (
 	"testing"
 	"unicode/utf8"
 )
+
+// tierlessManifestBytes builds a valid manifest at the given schema version
+// and strips the authority object from every record, which is the shape a
+// corpus authored before CD-0159 actually has on disk. The Go struct cannot
+// express that absence — KnowledgeAuthority carries no omitempty, so a zero
+// value marshals as an empty tier rather than a missing key — so the fixture
+// edits the encoded document.
+func tierlessManifestBytes(t *testing.T, schemaVersion string) []byte {
+	t.Helper()
+	manifest := KnowledgeManifest{
+		SchemaVersion:  schemaVersion,
+		SupportedKinds: []string{"lesson", "decision", "spec"},
+		IndexedKinds:   []string{"lesson", "decision", "spec"},
+		DomainRegistry: KnowledgeDomainRegistry{
+			SchemaVersion: "1.0", ProductKey: "concord", RootDomainID: "product-root:concord",
+			Domains: []KnowledgeDomain{{DomainID: "product-root:concord", Name: "Concord", Purpose: "Product-wide law", Status: "current", ArchitectureRelations: []KnowledgeArchitectureRelation{}}},
+		},
+		Records: []KnowledgeRecord{{
+			ID: "CD-0001", Kind: "decision", Path: "docs/decisions/CD-0001-legacy.md", Status: "accepted",
+			Date: "2026-08-10T00:00:00Z", Title: "Legacy decision", Summary: "summary", Tags: []string{},
+			Authority:    KnowledgeAuthority{Tier: "legislated", LegislatedBy: "fixture-authority", ContractVersion: 1},
+			Scopes:       KnowledgeRecordScopes{Mode: "home", ProductIDs: []string{}, ProjectIDs: []string{}, DomainIDs: []string{}, TagIDs: []string{}},
+			HomeDomainID: "product-root:concord", ProductWideRationale: "Fixture law binds every child Domain.",
+			SHA256: "sha256:" + strings.Repeat("a", 64),
+		}},
+	}
+	encoded, err := json.Marshal(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var document map[string]any
+	if err := json.Unmarshal(encoded, &document); err != nil {
+		t.Fatal(err)
+	}
+	records, ok := document["records"].([]any)
+	if !ok {
+		t.Fatalf("fixture records are not an array: %T", document["records"])
+	}
+	for _, entry := range records {
+		record, ok := entry.(map[string]any)
+		if !ok {
+			t.Fatalf("fixture record is not an object: %T", entry)
+		}
+		delete(record, "authority")
+	}
+	stripped, err := json.Marshal(document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return stripped
+}
+
+// TestParseAcceptsSchema12WithoutAuthorityAndReadsItAsDerived holds the
+// migration path CD-0159 needs. The tier became a required field inside the
+// published 1.2 shape, so every corpus authored before it refused to parse.
+// Reading an absent tier as derived reproduces the admission the conflict gate
+// had before the tier existed: the gate's revisesLegislated term is false when
+// no row is legislated, which is exactly the pre-enactment decision.
+func TestParseAcceptsSchema12WithoutAuthorityAndReadsItAsDerived(t *testing.T) {
+	t.Parallel()
+	manifest, err := parseKnowledgeManifest(tierlessManifestBytes(t, "1.2"))
+	if err != nil {
+		t.Fatalf("a schema 1.2 corpus without an authority object was refused: %v", err)
+	}
+	if len(manifest.Records) != 1 {
+		t.Fatalf("record count = %d", len(manifest.Records))
+	}
+	if got := manifest.Records[0].Authority.Tier; got != "derived" {
+		t.Fatalf("an absent tier read as %q, want derived", got)
+	}
+	if got := manifest.Records[0].Authority.LegislatedBy; got != "" {
+		t.Fatalf("a defaulted tier carried legislative field %q", got)
+	}
+}
+
+// TestParseKeepsADeclaredTierAtSchema12 holds that the default fills only what
+// the corpus leaves absent. A 1.2 corpus that already classified its records
+// keeps those classifications, so the default cannot silently demote law.
+func TestParseKeepsADeclaredTierAtSchema12(t *testing.T) {
+	t.Parallel()
+	document := tierlessManifestBytes(t, "1.2")
+	var value map[string]any
+	if err := json.Unmarshal(document, &value); err != nil {
+		t.Fatal(err)
+	}
+	records := value["records"].([]any)
+	records[0].(map[string]any)["authority"] = map[string]any{"tier": "legislated", "legislated_by": "fixture-authority", "contract_version": 1}
+	declared, err := json.Marshal(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest, err := parseKnowledgeManifest(declared)
+	if err != nil {
+		t.Fatalf("a schema 1.2 corpus with a declared tier was refused: %v", err)
+	}
+	if got := manifest.Records[0].Authority.Tier; got != "legislated" {
+		t.Fatalf("a declared tier read as %q, want legislated", got)
+	}
+}
 
 func TestManifestPathBoundUsesUnicodeScalarsAtSchemaLimit(t *testing.T) {
 	t.Parallel()

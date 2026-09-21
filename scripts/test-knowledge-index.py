@@ -232,11 +232,32 @@ def test_v12_requires_domain_registry_domain_scopes_and_law_home() -> None:
 
 
 def test_legacy_manifest_versions_are_rejected() -> None:
-    for version in ("1.0", "1.1"):
+    for version in ("1.0", "1.1", "1.4"):
         value = fixture()
         value["schema_version"] = version
         findings = checker.validate(value, check_hashes=False)
-        assert "manifest: schema_version must be 1.2" in findings
+        assert any("schema_version must be one of" in finding for finding in findings)
+
+
+def test_schema_1_2_record_needs_no_authority_object() -> None:
+    # CD-0159 arrived after 1.2 was published. A 1.2 corpus declares no
+    # authority object and the parser supplies the derived tier, so the
+    # validator must not demand a field that version never carried.
+    value = fixture()
+    value["schema_version"] = "1.2"
+    for record in value["records"]:
+        record.pop("authority", None)
+    findings = checker.validate(value, check_hashes=False)
+    assert not any("authority" in finding for finding in findings), findings
+
+
+def test_schema_1_3_record_requires_an_authority_object() -> None:
+    value = fixture()
+    value["schema_version"] = "1.3"
+    for record in value["records"]:
+        record.pop("authority", None)
+    findings = checker.validate(value, check_hashes=False)
+    assert any("authority" in finding for finding in findings), findings
 
 
 def test_v12_rejects_historical_law_applicability_without_home() -> None:

@@ -122,6 +122,35 @@ func repositoryRootForTest(t *testing.T) string {
 // TestComposeKnowledgeManifestReadsTheLiveShards proves the committed shard
 // tree composes under the store's strict parser and carries one record per
 // shard file.
+// TestParseRefusesSchema13WithoutAuthority holds the other half of the
+// migration. 1.3 is the version a corpus adopts once it has classified every
+// record, so an absent tier there is an authoring defect and not a legacy
+// shape. Defaulting it would let a corpus claim the current version while
+// leaving its law unclassified.
+func TestParseRefusesSchema13WithoutAuthority(t *testing.T) {
+	t.Parallel()
+	_, err := parseKnowledgeManifest(tierlessManifestBytes(t, "1.3"))
+	if err == nil {
+		t.Fatal("a schema 1.3 corpus without an authority object was accepted")
+	}
+	assertFailureKind(t, err, KindInvalidNoteProof)
+}
+
+// TestParseRefusesAnUnknownSchemaVersion holds that the accepted set stays
+// closed. The declared version is the only signal that separates a corpus
+// carrying tiers from one that predates them, so an unrecognized version is
+// refused rather than guessed at.
+func TestParseRefusesAnUnknownSchemaVersion(t *testing.T) {
+	t.Parallel()
+	for _, version := range []string{"1.1", "1.4", "2.0", ""} {
+		t.Run(version, func(t *testing.T) {
+			if _, err := parseKnowledgeManifest(tierlessManifestBytes(t, version)); err == nil {
+				t.Fatalf("schema version %q was accepted", version)
+			}
+		})
+	}
+}
+
 func TestComposeKnowledgeManifestReadsTheLiveShards(t *testing.T) {
 	t.Parallel()
 	root := repositoryRootForTest(t)

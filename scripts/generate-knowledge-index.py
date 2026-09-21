@@ -23,6 +23,13 @@ SHARD_DIR = Path("docs/knowledge/records")
 DOMAIN_REGISTRY = Path("docs/knowledge/domain-registry.json")
 HEAD = Path("docs/knowledge/manifest.json")
 
+# The bounded set the parser reads, mirroring knowledgeManifestSchemaAccepted in
+# internal/store/knowledge_manifest.go. 1.2 predates the authority tier and 1.3
+# requires it on every record.
+SCHEMA_VERSION_LEGACY = "1.2"
+SCHEMA_VERSION_CURRENT = "1.3"
+SCHEMA_VERSIONS = {SCHEMA_VERSION_LEGACY, SCHEMA_VERSION_CURRENT}
+
 ALLOWED_ROOT = {
     "schema_version",
     "supported_kinds",
@@ -342,8 +349,8 @@ def template_for(root: Path, findings: list[str], template: dict[str, object] | 
     unknown = set(template) - (ALLOWED_ROOT - {"domain_registry", "records"})
     if unknown:
         findings.append(f"manifest head has unknown keys: {sorted(unknown)}")
-    if template.get("schema_version") != "1.2":
-        findings.append("manifest head schema_version must be 1.2")
+    if template.get("schema_version") not in SCHEMA_VERSIONS:
+        findings.append(f"manifest head schema_version must be one of {sorted(SCHEMA_VERSIONS)}")
     if not isinstance(template.get("supported_kinds"), list) or not isinstance(template.get("indexed_kinds"), list):
         findings.append("manifest head is missing kind arrays")
     return dict(template)

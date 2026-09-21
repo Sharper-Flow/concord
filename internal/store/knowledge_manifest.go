@@ -48,7 +48,27 @@ const (
 	// of maxKnowledgeRecord each plus one head allowance. The derivation test
 	// refuses any other value.
 	maxKnowledgeManifest = maxManifestRecords*maxKnowledgeRecord + knowledgeManifestHeadAllowance
+
+	// knowledgeManifestSchemaLegacy is the version published before CD-0159
+	// gave a law record an authority tier. Its records declare no authority
+	// object, so the parser supplies the derived tier and the conflict gate
+	// treats that corpus exactly as it did before the tier existed.
+	knowledgeManifestSchemaLegacy = "1.2"
+
+	// knowledgeManifestSchemaCurrent is the version that carries the authority
+	// tier as a required record field. A corpus adopts it by classifying every
+	// record, which is the moment the tier starts to protect that Product.
+	knowledgeManifestSchemaCurrent = "1.3"
 )
+
+// knowledgeManifestSchemaAccepted reports whether the parser reads a manifest
+// at this declared version. The set is bounded and closed: an unknown version
+// is refused rather than guessed at, because the version is the only signal
+// that distinguishes a corpus carrying authority tiers from one that predates
+// them.
+func knowledgeManifestSchemaAccepted(version string) bool {
+	return version == knowledgeManifestSchemaLegacy || version == knowledgeManifestSchemaCurrent
+}
 
 var knowledgeKindsClosed = map[string]bool{
 	"work_note":    true,
@@ -468,15 +488,37 @@ func parseKnowledgeManifest(data []byte) (KnowledgeManifest, error) {
 	if err := decoder.Decode(&extra); err != io.EOF {
 		return KnowledgeManifest{}, newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "manifest contains trailing JSON values", false, "publish exactly one JSON object")
 	}
+	applyLegacyAuthorityTier(&manifest)
 	if err := validateKnowledgeManifest(manifest); err != nil {
 		return KnowledgeManifest{}, err
 	}
 	return manifest, nil
 }
 
+// applyLegacyAuthorityTier gives a schema 1.2 record the derived tier when it
+// declares none. CD-0159 arrived after 1.2 was published, so a corpus authored
+// against 1.2 carries no authority object and cannot be classified by reading
+// it. Derived is the tier that reproduces the admission the conflict gate had
+// before the tier existed, so a 1.2 corpus keeps the behavior it already had
+// rather than gaining or losing a protection its records never declared.
+//
+// The default is applied here, on the manifest this function returns, because
+// validateKnowledgeRecordForSchema takes its record by value and law_subjects
+// constrains the projected tier to a closed two-value set.
+func applyLegacyAuthorityTier(manifest *KnowledgeManifest) {
+	if manifest.SchemaVersion != knowledgeManifestSchemaLegacy {
+		return
+	}
+	for i := range manifest.Records {
+		if manifest.Records[i].Authority.Tier == "" {
+			manifest.Records[i].Authority = KnowledgeAuthority{Tier: "derived"}
+		}
+	}
+}
+
 func validateKnowledgeManifest(manifest KnowledgeManifest) error {
-	if manifest.SchemaVersion != "1.2" || manifest.SupportedKinds == nil || manifest.IndexedKinds == nil || manifest.Records == nil {
-		return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "manifest schema version or required root fields are invalid", false, "publish strict schema 1.2 root fields")
+	if !knowledgeManifestSchemaAccepted(manifest.SchemaVersion) || manifest.SupportedKinds == nil || manifest.IndexedKinds == nil || manifest.Records == nil {
+		return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "manifest schema version or required root fields are invalid", false, "publish strict schema 1.2 or 1.3 root fields")
 	}
 	hasRegistry := manifest.domainRegistryPresent || !knowledgeDomainRegistryZero(manifest.DomainRegistry)
 	if !hasRegistry {
@@ -1103,8 +1145,8 @@ func manifestIneligibleHint() string {
 }
 
 func validateManifestScopesForSchema(scopes KnowledgeRecordScopes, schemaVersion string) error {
-	if schemaVersion != "1.2" || scopes.Mode != "home" && scopes.Mode != "explicit" || scopes.ProductIDs == nil || scopes.ProjectIDs == nil || scopes.DomainIDs == nil || scopes.TagIDs == nil {
-		return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "schema 1.2 scopes are invalid", false, "use schema 1.2 with home or explicit scope mode and domain_ids")
+	if !knowledgeManifestSchemaAccepted(schemaVersion) || scopes.Mode != "home" && scopes.Mode != "explicit" || scopes.ProductIDs == nil || scopes.ProjectIDs == nil || scopes.DomainIDs == nil || scopes.TagIDs == nil {
+		return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "record scopes are invalid", false, "use an accepted schema version with home or explicit scope mode and domain_ids")
 	}
 	valuesByName := map[string][]string{
 		"product_ids": scopes.ProductIDs,

@@ -107,6 +107,17 @@ func ReadWorkPinTx(ctx context.Context, tx *sql.Tx, workID string) (WorkPin, err
 		return pin, wrapFailure(KindUnavailable, "work_pin", "cannot read work item", true, "retry once the database is readable", err)
 	}
 	pin.WorkID = workID
+	// The watermark belongs on every pin this function returns with a nil
+	// error, including the partial pin the ambiguity escape hatch below
+	// returns. Assigning it last left that pin with an empty watermark, and
+	// the mutation-result schema refuses an empty watermark, so every
+	// mutation naming the ambiguous item failed at response validation even
+	// though the mutation itself was sound.
+	var watermark int64
+	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(seq),0) FROM domain_events WHERE subject_type='work_item' AND subject_id=?`, workID).Scan(&watermark); err != nil {
+		return pin, wrapFailure(KindUnavailable, "work_pin", "cannot read work watermark", true, "retry once the database is readable", err)
+	}
+	pin.Watermark = "seq:" + strconv.FormatInt(watermark, 10)
 	var sessionsErr error
 	pin.DrivingSessions, sessionsErr = workPinDrivingSessionsTx(ctx, tx, workID)
 	if sessionsErr != nil {
@@ -262,11 +273,6 @@ func ReadWorkPinTx(ctx context.Context, tx *sql.Tx, workID string) (WorkPin, err
 		pin.NextValidIntents = []WorkPinIntent{}
 	}
 
-	var watermark int64
-	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(seq),0) FROM domain_events WHERE subject_type='work_item' AND subject_id=?`, workID).Scan(&watermark); err != nil {
-		return pin, wrapFailure(KindUnavailable, "work_pin", "cannot read work watermark", true, "retry once the database is readable", err)
-	}
-	pin.Watermark = "seq:" + strconv.FormatInt(watermark, 10)
 	return pin, nil
 }
 

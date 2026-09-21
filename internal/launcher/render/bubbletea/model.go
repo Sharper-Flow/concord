@@ -100,6 +100,33 @@ type Model struct {
 	launch                   func(launcher.SessionHandoff) tea.Cmd
 	navigation               []navigationPosition
 	queryCursor, queryScroll int
+	detailFocus              bool
+	detailFocusScreen        launcher.Surface
+}
+
+const (
+	// detailPaneWidth is the fixed detail pane budget. Its content is bounded
+	// label and value rows, so a fixed width leaves every remaining column to
+	// the primary pane's table.
+	detailPaneWidth = 34
+	// primaryPaneMinWidth is the narrowest primary pane that stays usable. The
+	// frame splits only when the remainder after the detail pane meets it, so
+	// the split threshold is computed from the two declared minima.
+	primaryPaneMinWidth = 46
+)
+
+// splitAfforded reports whether the frame width seats both panes at their
+// declared minima.
+func splitAfforded(width int) bool {
+	return width-detailPaneWidth >= primaryPaneMinWidth
+}
+
+// primaryPaneWidth is the primary pane's share of the frame width.
+func primaryPaneWidth(width int) int {
+	if splitAfforded(width) {
+		return width - detailPaneWidth
+	}
+	return width
 }
 
 func New(core *launcher.Model, ctx context.Context, profile Profile) *Model {
@@ -120,7 +147,7 @@ func New(core *launcher.Model, ctx context.Context, profile Profile) *Model {
 			Quit:    key.NewBinding(key.WithKeys("q", "ctrl+c"), key.WithHelp("q", "quit")),
 			Clear:   key.NewBinding(key.WithKeys("ctrl+l"), key.WithHelp("ctrl+l", "clear")),
 			Search:  key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "search")),
-			Section: key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "panel/section")),
+			Section: key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "pane/section")),
 			Launch:  key.NewBinding(key.WithKeys("l"), key.WithHelp("l", "launch")),
 			Pin:     key.NewBinding(key.WithKeys("ctrl+p"), key.WithHelp("ctrl-p", "pin")),
 			Unpin:   key.NewBinding(key.WithKeys("ctrl+u"), key.WithHelp("ctrl-u", "unpin")),
@@ -139,8 +166,18 @@ func New(core *launcher.Model, ctx context.Context, profile Profile) *Model {
 // or UI event. Render never reads the core or its read port.
 func (m *Model) Sync() {
 	m.snapshot = m.core.Snapshot()
-	m.projection = launcher.Project(m.snapshot, m.width)
+	m.projection = launcher.Project(m.snapshot, m.primaryColumnBudget())
+	if m.detailFocus && (!splitAfforded(m.width) || m.detailFocusScreen != m.snapshot.Screen) {
+		m.detailFocus = false
+	}
 	m.clampCursor()
+}
+
+// primaryColumnBudget is the width budget the primary pane's projected table
+// may span: the pane's inner width after its border, less the cursor gutter
+// the table renders inside itself.
+func (m *Model) primaryColumnBudget() int {
+	return max(1, primaryPaneWidth(m.width)-4)
 }
 
 // OpenFilter enters S1's read-free local filter mode.
@@ -422,7 +459,35 @@ func (m *Model) updateCommandKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m *Model) tabKey() {
+	if m.detailFocus {
+		// The detail pane is the outer stop of the Tab cycle; Tab returns pane
+		// focus to the primary pane and restarts the section movement.
+		m.detailFocus = false
+		if m.core.Snapshot().Screen == launcher.ScreenProduct {
+			_ = m.core.SetPanelFocus(launcher.S2PanelDomain)
+		} else if m.core.Snapshot().Screen == launcher.ScreenWork {
+			if err := m.core.SetSection(launcher.SectionDomains); err != nil {
+				m.setError(err)
+			}
+		}
+		m.Sync()
+		return
+	}
 	if m.core.Snapshot().Screen == launcher.ScreenProduct {
+		// Leaving the last panel moves pane focus to the detail pane instead
+		// of wrapping the section cycle; section movement stays the inner
+		// level of the same key.
+		order := launcher.S2PanelOrder()
+		if m.core.PanelFocus() == order[len(order)-1] {
+			if splitAfforded(m.width) {
+				m.detailFocus = true
+				m.detailFocusScreen = m.core.Snapshot().Screen
+			} else {
+				_ = m.core.SetPanelFocus(launcher.S2PanelDomain)
+			}
+			m.Sync()
+			return
+		}
 		_ = m.core.CyclePanelFocus()
 		m.Sync()
 	} else if m.core.Snapshot().Screen == launcher.ScreenWork {
@@ -434,6 +499,13 @@ func (m *Model) tabKey() {
 			next = launcher.SectionRanked
 		case launcher.SectionRanked:
 			next = launcher.SectionKnowledge
+		case launcher.SectionKnowledge:
+			if splitAfforded(m.width) {
+				m.detailFocus = true
+				m.detailFocusScreen = m.core.Snapshot().Screen
+				m.Sync()
+				return
+			}
 		}
 		if next == launcher.SectionKnowledge {
 			if err := m.core.EnsureKnowledge(m.ctx); err != nil {
@@ -772,15 +844,96 @@ func (m *Model) Render() string {
 		lipgloss.NewStyle().Width(m.width-m.width/2).Render(status),
 	)
 	// The pane owns the help footer; the frame carries only the header and
-	// status bar above it.
+	// the status bar above the body. When the width seats both panes the body
+	// becomes a horizontal join of the primary pane and the focus detail pane
+	// (CD-0108 D2: panes, everything visible at once).
+	bodyHeight := max(1, m.height-2)
+	body := pane(content, primaryPaneWidth(m.width), bodyHeight, m.scroll)
+	if splitAfforded(m.width) {
+		body = lipgloss.JoinHorizontal(lipgloss.Top, body, m.detailPane(bodyHeight))
+	}
 	return lipgloss.NewStyle().
 		Width(max(1, m.width)).
 		Height(max(1, m.height)).
 		Render(lipgloss.JoinVertical(lipgloss.Left,
 			lipgloss.NewStyle().Width(m.width).Render(header),
 			statusBar,
-			pane(content, m.width, max(1, m.height-2), m.scroll),
+			body,
 		))
+}
+
+type detailField struct{ label, value string }
+
+// focusFields types the twelve focus fields the core already computes per
+// Product row into label and value detail rows. The status bar's focusText
+// discards all of them for one identifier string.
+func focusFields(row launcher.ProductRow) []detailField {
+	return []detailField{
+		{"WORK", orDash(row.FocusID)},
+		{"KIND", orDash(row.FocusWorkKind)},
+		{"LIFECYCLE", orDash(row.FocusLifecycle)},
+		{"ATTENTION", orDash(row.FocusAttentionKind)},
+		{"BLOCKED SESSIONS", fmtInt(row.FocusBlockedSessionCount)},
+		{"OLDEST BLOCKED", orDash(row.FocusOldestBlockedSession)},
+		{"PRIORITY", fmtInt64(row.FocusPriority)},
+		{"WORKFLOW", orDash(row.FocusWorkflowStepLabel)},
+		{"PROJECTS", fmtInt(row.FocusProjectCount)},
+		{"STAGE", orDash(row.FocusStageContext)},
+		{"STAGE MATURITY", orDash(row.FocusStageOverrideMaturity)},
+		{"STAGE AUDIENCE", orDash(row.FocusStageOverrideAudience)},
+	}
+}
+
+func orDash(value string) string {
+	if value == "" {
+		return "-"
+	}
+	return value
+}
+
+// detailFocusRow returns the Product row whose focus feeds the detail pane:
+// the row under the portfolio cursor, or the ambient product's row when the
+// screen keeps portfolio rows alongside its own list.
+func (m *Model) detailFocusRow() *launcher.ProductRow {
+	if m.snapshot.Screen == launcher.ScreenPortfolio && !m.snapshot.ProjectSelect {
+		rows := m.filteredRows()
+		if m.cursor >= 0 && m.cursor < len(rows) {
+			return &rows[m.cursor]
+		}
+		return nil
+	}
+	if m.snapshot.AmbientProduct == "" {
+		return nil
+	}
+	for i := range m.snapshot.Rows {
+		if m.snapshot.Rows[i].ID == m.snapshot.AmbientProduct {
+			return &m.snapshot.Rows[i]
+		}
+	}
+	return nil
+}
+
+// detailPane renders the fixed-width focus detail pane beside the primary
+// pane. Its content is bounded label and value rows, so the pane holds one
+// declared width and the table keeps every remaining column.
+func (m *Model) detailPane(height int) string {
+	lines := []string{"DETAIL"}
+	if m.detailFocus {
+		lines[0] = "DETAIL *"
+	}
+	if row := m.detailFocusRow(); row != nil {
+		if row.Focus != "" {
+			lines = append(lines, "FOCUS: "+row.Focus)
+		} else {
+			lines = append(lines, "FOCUS: none: "+row.FocusAbsentReason)
+		}
+		for _, field := range focusFields(*row) {
+			lines = append(lines, field.label+": "+field.value)
+		}
+	} else {
+		lines = append(lines, "FOCUS: absent: no product row")
+	}
+	return pane(renderedPane{header: lines}, detailPaneWidth, height, 0)
 }
 
 func (m *Model) renderContent(snapshot launcher.Snapshot, cursor int) renderedPane {
@@ -820,12 +973,28 @@ func (m *Model) renderPortfolio(snapshot launcher.Snapshot, cursor int) rendered
 	renderedRows := make([][]string, 0, len(rows))
 	severities := make([]rowSeverity, 0, len(rows))
 	for _, row := range rows {
-		values := []string{row.Name + row.NameSuffix, row.Stage, relianceText(row), actionText(row), row.Focus}
+		cells := portfolioCells(row)
+		values := make([]string, 0, len(projection.Columns))
+		for _, column := range projection.Columns {
+			values = append(values, cells[column])
+		}
 		renderedRows = append(renderedRows, values)
 		severities = append(severities, productRowSeverity(row))
 	}
 	footer := m.footerLines()
 	return renderedPane{header: header, tableHeaders: projection.Columns, rows: renderedRows, severities: severities, footer: footer, cursor: cursor, color: m.profile.Color}
+}
+
+// portfolioCells types each projected column's cell text so the rendered rows
+// stay parallel to the projection's possibly narrowed column set.
+func portfolioCells(row launcher.ProductRow) map[string]string {
+	return map[string]string{
+		"Product":  row.Name + row.NameSuffix,
+		"Stage":    row.Stage,
+		"Reliance": relianceText(row),
+		"Actions":  actionText(row),
+		"Focus":    row.Focus,
+	}
 }
 
 func (m *Model) renderS2(headers []string, cursor int) renderedPane {
@@ -1209,7 +1378,10 @@ func probeLines(probes []launcher.ProbeStatus) []string {
 }
 
 func (m *Model) footerLines() []string {
-	m.help.SetWidth(max(1, m.width-2))
+	// Two columns of slack beyond the pane's border: the help model elides
+	// whole bindings at this width, and the text rows must never truncate a
+	// binding label the help model already fit.
+	m.help.SetWidth(max(1, primaryPaneWidth(m.width)-4))
 	value := m.help.View(m.keys)
 	if m.showHelp {
 		value = "HELP: " + value

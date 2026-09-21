@@ -3,6 +3,7 @@ package launcher
 import (
 	"fmt"
 	"strings"
+	"unicode/utf8"
 )
 
 type Projection struct {
@@ -14,8 +15,15 @@ type Projection struct {
 
 // Project is a deterministic, terminal-independent projection. It performs
 // no reads and emits textual reliance markers so meaning survives no-color
-// output and screen-reader consumption.
-func Project(snapshot Snapshot, _ int) Projection {
+// output and screen-reader consumption. Width is the terminal budget the
+// projected table may span: when the set does not fit, columns drop from the
+// per-screen priority order until it does, so a narrowed pane sheds whole
+// columns instead of truncating all of them.
+func Project(snapshot Snapshot, width int) Projection {
+	return applyColumnBudget(project(snapshot), width)
+}
+
+func project(snapshot Snapshot) Projection {
 	columns := []string{"Product", "Stage", "Reliance", "Actions", "Focus"}
 	rows := make([][]string, 0, len(snapshot.Rows))
 	markers := make([]string, 0, len(snapshot.Rows))
@@ -138,6 +146,62 @@ func watermarkText(value string) string {
 		return "unknown"
 	}
 	return value
+}
+
+const (
+	// projectedColumnPadding mirrors the renderer's inter-column padding, so
+	// the budget estimates the rendered table without importing it.
+	projectedColumnPadding = 2
+	// projectedCursorGutter reserves the two-column cursor gutter the renderer
+	// places inside every data table.
+	projectedCursorGutter = 2
+)
+
+// applyColumnBudget drops the lowest-priority columns until the projected
+// table fits the width budget. Priority is the declared display order: the
+// rightmost column is the first dropped, and the first column never drops.
+// Cells drop in parallel so every row stays aligned with the surviving
+// columns, and rune counts (not bytes) estimate the rendered cell width.
+func applyColumnBudget(projection Projection, width int) Projection {
+	if width <= 0 || len(projection.Columns) <= 1 {
+		return projection
+	}
+	widths := make([]int, len(projection.Columns))
+	for i, header := range projection.Columns {
+		widths[i] = utf8.RuneCountInString(header)
+		for _, row := range projection.Rows {
+			if i < len(row) {
+				if cells := utf8.RuneCountInString(row[i]); cells > widths[i] {
+					widths[i] = cells
+				}
+			}
+		}
+	}
+	fits := func(keep int) bool {
+		total := projectedCursorGutter
+		for i := 0; i < keep; i++ {
+			total += widths[i] + projectedColumnPadding
+		}
+		return total <= width
+	}
+	keep := len(projection.Columns)
+	for keep > 1 && !fits(keep) {
+		keep--
+	}
+	if keep == len(projection.Columns) {
+		return projection
+	}
+	projection.Columns = append([]string(nil), projection.Columns[:keep]...)
+	rows := make([][]string, 0, len(projection.Rows))
+	for _, row := range projection.Rows {
+		cells := make([]string, 0, keep)
+		for i := 0; i < keep && i < len(row); i++ {
+			cells = append(cells, row[i])
+		}
+		rows = append(rows, cells)
+	}
+	projection.Rows = rows
+	return projection
 }
 
 // rankedSectionState types the drill-down list state so a degraded source

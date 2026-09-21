@@ -1,24 +1,24 @@
 CONCORD LAUNCHER | PRODUCT: Concord                                             
 FOCUS: product/Concord                  COVERAGE: authoritative                 
-╭──────────────────────────────────────────────────────────────────────────────╮
-│PRODUCT: Concord                                                              │
-│WATERMARK: w42                                                                │
-│AGE: 2m                                                                       │
-│SCREEN: portfolio                                                             │
-│RELIANCE: clear                                                               │
-│COVERAGE: authoritative                                                       │
-│  Product         Stage          Reliance       Actions        Focus          │
-│  Product 17      in_progress    clear          1              Focus 17       │
-│  Product 18      in_progress    clear          1              Focus 18       │
-│  Product 19      in_progress    clear          1              Focus 19       │
-│  Product 20      in_progress    clear          1              Focus 20       │
-│  Product 21      in_progress    clear          1              Focus 21       │
-│  Product 22      in_progress    clear          1              Focus 22       │
-│  Product 23      in_progress    clear          1              Focus 23       │
-│  Product 24      in_progress    clear          1              Focus 24       │
-│  Product 25      in_progress    clear          1              Focus 25       │
-│  Product 26      in_progress    clear          1              Focus 26       │
-│  Product 27      in_progress    clear          1              Focus 27       │
-│> Product 28      in_progress    clear          1              Focus 28       │
-│arrows move • / filter • r refresh • enter open • ctrl-p pin • ctrl-u unpin … │
-╰──────────────────────────────────────────────────────────────────────────────╯
+╭────────────────────────────────────────────╮╭────────────────────────────────╮
+│PRODUCT: Concord                            ││DETAIL                          │
+│WATERMARK: w42                              ││FOCUS: Focus 28                 │
+│AGE: 2m                                     ││WORK: -                         │
+│SCREEN: portfolio                           ││KIND: -                         │
+│RELIANCE: clear                             ││LIFECYCLE: -                    │
+│COVERAGE: authoritative                     ││ATTENTION: -                    │
+│  Product       Stage         Reliance      ││BLOCKED SESSIONS: 0             │
+│  Product 17    in_progress   clear         ││OLDEST BLOCKED: -               │
+│  Product 18    in_progress   clear         ││PRIORITY: 0                     │
+│  Product 19    in_progress   clear         ││WORKFLOW: -                     │
+│  Product 20    in_progress   clear         ││PROJECTS: 0                     │
+│  Product 21    in_progress   clear         ││STAGE: -                        │
+│  Product 22    in_progress   clear         ││STAGE MATURITY: -               │
+│  Product 23    in_progress   clear         ││STAGE AUDIENCE: -               │
+│  Product 24    in_progress   clear         ││                                │
+│  Product 25    in_progress   clear         ││                                │
+│  Product 26    in_progress   clear         ││                                │
+│  Product 27    in_progress   clear         ││                                │
+│> Product 28    in_progress   clear         ││                                │
+│arrows move • / filter • r refresh …        ││                                │
+╰────────────────────────────────────────────╯╰────────────────────────────────╯

@@ -1112,16 +1112,21 @@ func convergeRecordedReclaimTx(ctx context.Context, tx *sql.Tx, req WorktreeRecl
 	var kind, subjectType, subjectID string
 	var payloadVersion int
 	var payload []byte
+	var occurredAt string
 	err := tx.QueryRowContext(ctx,
-		`SELECT kind,subject_type,subject_id,payload_version,payload FROM domain_events WHERE event_id=?`, eventID).
-		Scan(&kind, &subjectType, &subjectID, &payloadVersion, &payload)
+		`SELECT kind,subject_type,subject_id,payload_version,payload,occurred_at FROM domain_events WHERE event_id=?`, eventID).
+		Scan(&kind, &subjectType, &subjectID, &payloadVersion, &payload, &occurredAt)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return appendErr
 		}
 		return err
 	}
-	stored := Event{EventID: eventID, Kind: kind, SubjectType: SubjectType(subjectType), SubjectID: subjectID, PayloadVersion: payloadVersion, Payload: payload}
+	storedAt, err := time.Parse(time.RFC3339Nano, occurredAt)
+	if err != nil {
+		return newFailure(KindInvalidPayload, "converge_recorded_reclaim", "stored reclaim event has an unparsable occurred_at", false, "repair the stored event timestamp")
+	}
+	stored := Event{EventID: eventID, Kind: kind, SubjectType: SubjectType(subjectType), SubjectID: subjectID, PayloadVersion: payloadVersion, Payload: payload, OccurredAt: storedAt}
 	if stored.Kind != "work.worktree_reclaimed" || stored.SubjectType != SubjectWorkItem || stored.SubjectID != req.WorkID {
 		return appendErr
 	}

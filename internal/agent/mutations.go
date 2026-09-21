@@ -178,6 +178,21 @@ type observedSessionDirectoryInput struct {
 	Directory  string `json:"directory"`
 }
 
+// observedSessionDirectories converts the decoded host observation to the
+// store's typed handoff. Nil stays nil: an absent observation attests
+// nothing and releases no recorded occupant. A present empty slice stays
+// present: it attests that no live session exists anywhere.
+func observedSessionDirectories(in *[]observedSessionDirectoryInput) *[]store.SessionDirectory {
+	if in == nil {
+		return nil
+	}
+	observed := make([]store.SessionDirectory, len(*in))
+	for i, session := range *in {
+		observed[i] = store.SessionDirectory{SessionRef: session.SessionRef, Directory: session.Directory}
+	}
+	return &observed
+}
+
 type worktreeVerifyInput struct {
 	WorkID string `json:"work_id"`
 	// Command is the bounded argv that runs in the derived worktree under
@@ -2389,12 +2404,13 @@ func (r runtime) mutateWorktreeAuditReclaim(ctx context.Context, base Envelope, 
 	scope := map[string]any{"product_ids": []string{product}}
 	intents := []NextIntent{{Tool: "concord_work_browse", Operation: "worktree_audit", QueryID: "PM1.Q16", ReasonCode: "audit_after_reclaim", RequiredFields: []string{"product_id"}}}
 	result, err := r.Store.WorktreeAuditReclaim(ctx, store.WorktreeAuditReclaimRequest{
-		ProductID:    product,
-		DefaultRef:   in.DefaultRef,
-		PrincipalRef: grant.PrincipalRef,
-		RequestID:    in.IdempotencyKey,
-		Now:          r.Authority.now(),
-		Limit:        r.boundedLimit(in.Limit),
+		ProductID:                  product,
+		DefaultRef:                 in.DefaultRef,
+		PrincipalRef:               grant.PrincipalRef,
+		RequestID:                  in.IdempotencyKey,
+		Now:                        r.Authority.now(),
+		Limit:                      r.boundedLimit(in.Limit),
+		ObservedSessionDirectories: observedSessionDirectories(in.ObservedSessionDirectories),
 	})
 	if err != nil {
 		return auditReclaimPostCommitFailure(base, auditReclaimChangedRefs(result.Rows), failureEnvelope(base, err)), nil
@@ -2535,6 +2551,7 @@ func (r runtime) planWorktreeReclaim(ctx context.Context, base Envelope, raw []b
 			WorkID: in.WorkID, ProjectID: in.ProjectID, DefaultRef: in.DefaultRef,
 			PrincipalRef: grant.PrincipalRef, RequestID: in.IdempotencyKey,
 			ExpectedVersion: in.ExpectedVersion, Now: r.Authority.now(),
+			ObservedSessionDirectories: observedSessionDirectories(in.ObservedSessionDirectories),
 		}); err != nil {
 			return nil, nil, nil, err
 		}

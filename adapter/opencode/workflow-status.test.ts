@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test"
-import { createWorkStateReporter, formatGateBrief, formatQuestComplete, formatWorkPaneName, formatWorkTabName } from "./workflow-status"
+import { createWorkStateReporter, formatWorkClosureBox, formatWorkPaneName, formatWorkTabName } from "./workflow-status"
 import { hostControlPlane } from "./move-session"
 
 const pin = {
@@ -55,29 +55,45 @@ test("formats the pane name from a title alone", () => {
   expect(formatWorkPaneName(42)).toBeNull()
 })
 
-// Golden test: the closure banner's exact bytes are fixed here, not in prose.
-// A completed pin is celebratory; a cancelled or superseded pin is a visibly
-// plainer marker; the gate is the terminal lifecycle alone, so an envelope
-// with no evidence renders `evidence=none` instead of suppressing the signal.
+// Golden test: the closure box's exact bytes are fixed here, not in prose.
+// A completed pin is headed `Concord Work Item Complete` over `=` rules; a
+// cancelled or superseded pin is headed `Concord Work Item Closed` over `-`
+// rules, which keeps closure without completion visibly plainer. The gate is
+// the terminal lifecycle alone, so an envelope with no evidence renders
+// `evidence=none` instead of suppressing the signal.
 // The fence is required, not decoration: the host renders an assistant text
 // part with `marked` under its default `breaks: false`, which collapses every
-// single newline to a space, so an unfenced banner reaches the operator as one
+// single newline to a space, so an unfenced box reaches the operator as one
 // run-on line.
-test("renders the terminal closure banners byte-exactly", () => {
+test("renders the terminal closure boxes byte-exactly", () => {
   const envelope = { outcome: "ok", evidence_refs: [{ kind: "commit", locator: "commit:abc123" }, { kind: "pull_request", locator: "pr:7" }] }
-  expect(formatQuestComplete({ ...pin, lifecycle: "completed", step: "complete" }, envelope)).toBe(
-    "```\n◆◆◆ QUEST COMPLETE ◆◆◆\nwork-1 | Concord\nRepair the adapter\nlifecycle=completed | evidence=2\n```",
+  expect(formatWorkClosureBox({ ...pin, lifecycle: "completed", step: "complete" }, envelope)).toBe(
+    "```\n+====================================+\n|     Concord Work Item Complete     |\n+====================================+\n|  work-1 | Concord                  |\n|  Repair the adapter                |\n|  lifecycle=completed | evidence=2  |\n+====================================+\n```",
   )
-  expect(formatQuestComplete({ ...pin, lifecycle: "cancelled" }, envelope)).toBe(
-    "```\n◆ CONCORD WORK CLOSED\nwork-1 | Concord\nRepair the adapter\nlifecycle=cancelled | evidence=2\n```",
+  expect(formatWorkClosureBox({ ...pin, lifecycle: "cancelled" }, envelope)).toBe(
+    "```\n+------------------------------------+\n|      Concord Work Item Closed      |\n+------------------------------------+\n|  work-1 | Concord                  |\n|  Repair the adapter                |\n|  lifecycle=cancelled | evidence=2  |\n+------------------------------------+\n```",
   )
-  expect(formatQuestComplete({ ...pin, lifecycle: "superseded" }, { outcome: "ok" })).toBe(
-    "```\n◆ CONCORD WORK CLOSED\nwork-1 | Concord\nRepair the adapter\nlifecycle=superseded | evidence=none\n```",
+  expect(formatWorkClosureBox({ ...pin, lifecycle: "superseded" }, { outcome: "ok" })).toBe(
+    "```\n+----------------------------------------+\n|        Concord Work Item Closed        |\n+----------------------------------------+\n|  work-1 | Concord                      |\n|  Repair the adapter                    |\n|  lifecycle=superseded | evidence=none  |\n+----------------------------------------+\n```",
   )
-  expect(formatQuestComplete({ ...pin, lifecycle: "completed", linear_issue_key: "CON-42" }, envelope)).toBe(
-    "```\n◆◆◆ QUEST COMPLETE ◆◆◆\nCON-42 (work-1) | Concord\nRepair the adapter\nlifecycle=completed | evidence=2\n```",
+  expect(formatWorkClosureBox({ ...pin, lifecycle: "completed", linear_issue_key: "CON-42" }, envelope)).toBe(
+    "```\n+====================================+\n|     Concord Work Item Complete     |\n+====================================+\n|  CON-42 (work-1) | Concord         |\n|  Repair the adapter                |\n|  lifecycle=completed | evidence=2  |\n+====================================+\n```",
   )
-  expect(formatQuestComplete(pin, envelope)).toBeNull()
+  expect(formatWorkClosureBox(pin, envelope)).toBeNull()
+})
+
+// A work title may reach 256 characters. The cell cap keeps the box inside a
+// terminal, and equal line width is the property that makes the border read as
+// a border, so both are asserted rather than assumed.
+test("truncates an over-long cell and holds every box line at one width", () => {
+  const envelope = { outcome: "ok", evidence_refs: [{ kind: "commit", locator: "commit:abc123" }, { kind: "pull_request", locator: "pr:7" }] }
+  const title = "Repair the adapter closure box renderer so that an unreasonably long work item title is truncated rather than wrapped onto several lines inside the border of the box"
+  const block = formatWorkClosureBox({ ...pin, lifecycle: "completed", step: "complete", title }, envelope)
+  expect(block).toBe(
+    "```\n+====================================================================+\n|                     Concord Work Item Complete                     |\n+====================================================================+\n|  work-1 | Concord                                                  |\n|  Repair the adapter closure box renderer so that an unreasonably\u2026  |\n|  lifecycle=completed | evidence=2                                  |\n+====================================================================+\n```",
+  )
+  const lines = (block as string).split("\n").slice(1, -1)
+  expect(new Set(lines.map((line) => line.length))).toEqual(new Set([70]))
 })
 
 test("renames the tab and pane frame mapped from the session pane", async () => {
@@ -148,7 +164,7 @@ test("a completed pin queues the celebratory closure banner", async () => {
     result: { work_pins: [{ ...pin, lifecycle: "completed", step: "complete" }] },
   }, { sessionID: "session-closure", abort: new AbortController().signal })
   expect(reporter.takeNotices("session-closure")).toEqual([
-    "```\n◆◆◆ QUEST COMPLETE ◆◆◆\nwork-1 | Concord\nRepair the adapter\nlifecycle=completed | evidence=1\n```",
+    "```\n+====================================+\n|     Concord Work Item Complete     |\n+====================================+\n|  work-1 | Concord                  |\n|  Repair the adapter                |\n|  lifecycle=completed | evidence=1  |\n+====================================+\n```",
   ])
   expect(reporter.takeNotices("session-closure")).toEqual([])
 })
@@ -157,7 +173,7 @@ test("a cancelled pin queues the plainer closure marker", async () => {
   const reporter = createWorkStateReporter({ runner: { async run() { return { exitCode: 0, stdout: "", stderr: "" } } } })
   await reporter.report({ outcome: "ok", result: { work_pins: [{ ...pin, lifecycle: "cancelled" }] } }, { sessionID: "session-cancelled", abort: new AbortController().signal })
   expect(reporter.takeNotices("session-cancelled")).toEqual([
-    "```\n◆ CONCORD WORK CLOSED\nwork-1 | Concord\nRepair the adapter\nlifecycle=cancelled | evidence=none\n```",
+    "```\n+---------------------------------------+\n|       Concord Work Item Closed        |\n+---------------------------------------+\n|  work-1 | Concord                     |\n|  Repair the adapter                   |\n|  lifecycle=cancelled | evidence=none  |\n+---------------------------------------+\n```",
   ])
 })
 
@@ -177,7 +193,7 @@ test("the closure banner emits once per session, work, and terminal lifecycle", 
   const blocks = reporter.takeNotices("session-dedupe")
   expect(blocks).toHaveLength(1)
   expect(blocks[0]).toContain("lifecycle=superseded")
-  expect(reporter.takeNotices("session-other")[0]).toContain("QUEST COMPLETE")
+  expect(reporter.takeNotices("session-other")[0]).toContain("Concord Work Item Complete")
 })
 
 test("a refused envelope emits no closure banner", async () => {
@@ -206,9 +222,3 @@ test("keeps a pane rename failure best effort", async () => {
   expect(warnings).toEqual(["Concord could not rename the work tab or pane frame: rename-pane exited 1.", "Concord could not write the session goal title: the session title route is absent or refused the write."])
 })
 
-test("formats the gate brief from focused portfolio rows", () => {
-  expect(formatGateBrief("product-1", [
-    { focus: { work_id: "work-1", workflow_step_label: "planning", attention_kind: "approval_required" } },
-    { focus: { work_id: "work-2", workflow_step_label: "execution", attention_kind: "in_progress" } },
-  ])).toBe("◆ CONCORD GATE BRIEF | product=product-1 | work=work-1 | step=planning | decision=pending || work=work-2 | step=execution | decision=none")
-})

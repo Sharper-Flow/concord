@@ -106,27 +106,62 @@ function evidenceLocators(envelope: MutationEnvelope): string[] | null {
 
 const TERMINAL_LIFECYCLES: ReadonlySet<string> = new Set(["completed", "cancelled", "superseded"])
 
-// formatQuestComplete renders the one closure banner a terminal work pin
-// produces. The gate is the terminal lifecycle alone: evidence moved out of
-// the gate and into the rendering, so a closure with no readable evidence
-// prints `evidence=none` instead of closing the item in silence. A completed
-// pin gets the celebratory banner; a cancelled or superseded pin gets a
-// visibly plainer marker with no celebration. The exact bytes are fixed by
-// the golden tests.
+// A closure box is at most this wide inside its borders. A work title may
+// reach 256 characters, and a box sized to one would exceed the terminal and
+// wrap, which destroys the alignment the borders exist to provide.
+const CLOSURE_CELL_MAX = 100
+
+const CLOSURE_HEADINGS: Readonly<Record<"complete" | "closed", string>> = {
+  complete: "Concord Work Item Complete",
+  closed: "Concord Work Item Closed",
+}
+
+// Content cells sit two columns inside each pipe, so the box reads roomier
+// than a flush table. Every cell is padded to one width, so each border and
+// content line of a box is the same length. An over-long cell is truncated
+// with a single-column marker rather than wrapped, which keeps the width
+// computation total.
+function closureCell(text: string, width: number): string {
+  const cell = text.length > width ? `${text.slice(0, width - 1)}…` : text.padEnd(width)
+  return `|  ${cell}  |`
+}
+
+// The heading is centred rather than flush left, because it is the one line
+// the operator scans for. Odd padding goes to the right, so the centring is
+// deterministic and the golden bytes stay fixed.
+function closureHeadingCell(text: string, width: number): string {
+  const pad = width - text.length
+  const cell = `${" ".repeat(Math.floor(pad / 2))}${text}${" ".repeat(Math.ceil(pad / 2))}`
+  return `|  ${cell}  |`
+}
+
+// formatWorkClosureBox renders the one closure box a terminal work pin
+// produces. The gate is the terminal lifecycle alone: evidence is not a
+// precondition, so a closure with no readable evidence prints `evidence=none`
+// rather than closing the item in silence. A completed pin is headed
+// `Concord Work Item Complete` over `=` rules; a cancelled or superseded pin
+// is headed `Concord Work Item Closed` over `-` rules, which keeps closure
+// without completion visibly plainer. The exact bytes are fixed by the golden
+// tests.
 //
 // The block is fenced. The host renders an assistant text part as markdown
 // through `marked` with its default `breaks: false`, so a single newline is a
-// soft break and collapses to a space: an unfenced banner would reach the
-// operator as one run-on line. The fence also holds the glyph columns in a
-// monospace block, which is the whole point of a banner.
-export function formatQuestComplete(value: unknown, envelope: MutationEnvelope): string | null {
+// soft break and collapses to a space: an unfenced box would reach the
+// operator as one run-on line. The fence also holds the border columns in a
+// monospace block, which is the whole point of a box.
+export function formatWorkClosureBox(value: unknown, envelope: MutationEnvelope): string | null {
   const pin = workPin(value)
   if (!pin || !TERMINAL_LIFECYCLES.has(pin.lifecycle)) return null
   const locators = evidenceLocators(envelope)
   const evidence = locators !== null && locators.length > 0 ? `evidence=${locators.length}` : "evidence=none"
   const identifier = pin.linear_issue_key ? `${pin.linear_issue_key} (${pin.work_id})` : pin.work_id
-  const head = pin.lifecycle === "completed" ? "◆◆◆ QUEST COMPLETE ◆◆◆" : "◆ CONCORD WORK CLOSED"
-  return `\`\`\`\n${head}\n${identifier} | ${pin.project_display_name}\n${pin.title}\nlifecycle=${pin.lifecycle} | ${evidence}\n\`\`\``
+  const completed = pin.lifecycle === "completed"
+  const heading = completed ? CLOSURE_HEADINGS.complete : CLOSURE_HEADINGS.closed
+  const body = [`${identifier} | ${pin.project_display_name}`, pin.title, `lifecycle=${pin.lifecycle} | ${evidence}`]
+  const width = Math.min(CLOSURE_CELL_MAX, Math.max(heading.length, ...body.map((cell) => cell.length)))
+  const rule = `+${(completed ? "=" : "-").repeat(width + 4)}+`
+  const lines = [rule, closureHeadingCell(heading, width), rule, ...body.map((cell) => closureCell(cell, width)), rule]
+  return `\`\`\`\n${lines.join("\n")}\n\`\`\``
 }
 
 function workPins(envelope: unknown): WorkPin[] {
@@ -220,7 +255,7 @@ export function createWorkStateReporter(options: WorkStateReporterOptions = {}) 
       for (const pin of workPins(envelope)) {
         await renameZellijTab(pin, context, runner, now, mappings, warnings)
         await refreshSessionGoalTitle(pin, context, warnings)
-        const block = formatQuestComplete(pin, envelope)
+        const block = formatWorkClosureBox(pin, envelope)
         if (block !== null && emitClosure(context.sessionID, pin)) enqueueNotice(context.sessionID, block)
       }
       return warnings
@@ -232,17 +267,4 @@ export function createWorkStateReporter(options: WorkStateReporterOptions = {}) 
       return queue ?? []
     },
   }
-}
-
-export type GateBriefRow = { work_id: string; workflow_step: string; decision: "pending" | "none" }
-
-export function formatGateBrief(productID: string, rows: unknown): string | null {
-  if (!productID || !Array.isArray(rows) || rows.length === 0) return null
-  const items: GateBriefRow[] = []
-  for (const row of rows) {
-    if (!record(row) || !record(row.focus) || typeof row.focus.work_id !== "string" || typeof row.focus.workflow_step_label !== "string") continue
-    items.push({ work_id: row.focus.work_id, workflow_step: row.focus.workflow_step_label, decision: row.focus.attention_kind === "approval_required" ? "pending" : "none" })
-  }
-  if (items.length === 0) return null
-  return `◆ CONCORD GATE BRIEF | product=${productID} | ${items.map((item) => `work=${item.work_id} | step=${item.workflow_step} | decision=${item.decision}`).join(" || ")}`
 }

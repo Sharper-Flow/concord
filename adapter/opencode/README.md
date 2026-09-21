@@ -199,28 +199,31 @@ envelope, because the agent is the only reader that can respond to it.
 ### The text-part channel
 
 When a mutation completes, cancels, or supersedes a work item, the adapter
-renders one closure banner from the terminal pin: a celebratory
-`QUEST COMPLETE` banner for a completion, and a visibly plainer
-`CONCORD WORK CLOSED` marker for a cancellation or a supersession. The banner
-carries the Linear key and work id, the title, the terminal lifecycle, the
-project display name, and the evidence locator count. Evidence is not a
-precondition: an envelope with no evidence renders `evidence=none` instead of
-closing the item in silence. The `work_start` gate brief and the
-worktree-removal notice ride the same channel.
+renders one closure box from the terminal pin, bordered with horizontal rules
+and pipes: a completion is headed `Concord Work Item Complete` over `=` rules,
+and a cancellation or a supersession is headed `Concord Work Item Closed` over
+visibly plainer `-` rules. The heading is centred and content cells sit two
+columns inside each pipe. The box carries the Linear key and work id, the
+title, the terminal lifecycle, the project display name, and the evidence
+locator count. Every line holds one width, floored at the heading and capped at
+100 columns, so an over-long title truncates rather than wrapping the border.
+Evidence is not a precondition: an envelope with no evidence renders
+`evidence=none` instead of closing the item in silence. The worktree-removal
+notice rides the same channel.
 
-The banner rides the assistant's own message. The work-state reporter queues
+The box rides the assistant's own message. The work-state reporter queues
 one block per session and suppresses a second emission of the same session,
 work, and terminal lifecycle triple, and the plugin's
 `experimental.text.complete` hook drains the queue into the text part before
-the host persists it. The agent spends no tokens forming the banner and
-cannot omit it. A host that never calls the hook produces no banner and no
+the host persists it. The agent spends no tokens forming the box and
+cannot omit it. A host that never calls the hook produces no box and no
 error, and the hook swallows every throw so a display can never damage an
 assistant message.
 
 The block is fenced. The host renders an assistant text part as markdown
 through `marked` with its default `breaks: false`, so a single newline is a
-soft break and collapses to a space. An unfenced banner would reach the
-operator as one run-on line, and the fence also holds the glyph columns in a
+soft break and collapses to a space. An unfenced box would reach the
+operator as one run-on line, and the fence also holds the border columns in a
 monospace block.
 
 ### Session goal title

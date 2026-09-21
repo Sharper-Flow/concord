@@ -97,6 +97,16 @@ func TestReclaimWorktreeConvergesOnUnfoldedReclaimEvent(t *testing.T) {
 	if got := convergeClaimState(t, s, "wt-work-unfolded"); got != worktreeStateReclaimed {
 		t.Fatalf("claim state=%q", got)
 	}
+	var entryReclaimedAt, claimUpdatedAt string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT reclaimed_at FROM worktree_entries WHERE set_id=? AND project_id=?`, WorktreeSetID("work-unfolded"), "project-w").Scan(&entryReclaimedAt); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.DatabaseForTesting().QueryRow(`SELECT updated_at FROM worktree_claims WHERE op_id=?`, "wt-work-unfolded").Scan(&claimUpdatedAt); err != nil {
+		t.Fatal(err)
+	}
+	if want := time.Unix(35, 0).UTC().Format(time.RFC3339Nano); entryReclaimedAt != want || claimUpdatedAt != want {
+		t.Fatalf("converged reclaim must stamp the stored event time %s, got entry=%s claim=%s", want, entryReclaimedAt, claimUpdatedAt)
+	}
 	var foldGuardRows int
 	if err := s.DatabaseForTesting().QueryRow(`SELECT COUNT(*) FROM fold_guard`).Scan(&foldGuardRows); err != nil {
 		t.Fatal(err)

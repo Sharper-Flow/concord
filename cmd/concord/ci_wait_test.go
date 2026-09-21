@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -103,12 +104,12 @@ func TestCiWaitZeroBudgetTerminatesWithTimeout(t *testing.T) {
 
 func TestCiWaitHungCommandCannotPreventDeadline(t *testing.T) {
 	// One slice against a gh that sleeps forever: the command context must
-	// kill the whole process group, and the report must be an explicit error
-	// (never success, never a hang). The command timeout is shrunk for the
+	// kill the whole process group, retry once, and report a stalled pending
+	// result (never success, never a hang). The command timeout is shrunk for the
 	// test binary; the released bound stays 45 seconds.
 	ghStubPath(t, ghStubDir(t, "sleep 500"))
 	saved := ciWaitCommandTimeout
-	ciWaitCommandTimeout = 2 * time.Second
+	ciWaitCommandTimeout = 50 * time.Millisecond
 	t.Cleanup(func() { ciWaitCommandTimeout = saved })
 	start := time.Now()
 	code, report, _ := runCiWaitStdin(t, ciWaitJSON(t, ciWaitRequest{
@@ -117,19 +118,19 @@ func TestCiWaitHungCommandCannotPreventDeadline(t *testing.T) {
 	if elapsed := time.Since(start); elapsed > 10*time.Second {
 		t.Fatalf("a hung gh prevented termination (took %v)", elapsed)
 	}
-	if report.Status != "error" {
-		t.Fatalf("want explicit error from hung gh, got %s", report.Status)
+	if report.Status != "pending" {
+		t.Fatalf("want pending from a stalled gh, got %s", report.Status)
 	}
-	if code != 1 {
-		t.Fatalf("error report must exit 1, got %d", code)
+	if code != 0 {
+		t.Fatalf("pending report must exit 0, got %d", code)
 	}
-	if !strings.Contains(report.Reason, "command timeout") {
-		t.Fatalf("reason must name the command timeout: %q", report.Reason)
+	if !strings.Contains(report.Reason, "stalled") {
+		t.Fatalf("reason must name the stall: %q", report.Reason)
 	}
 }
 
 func TestCiWaitDeadlineCarriedAcrossInvocations(t *testing.T) {
-	ghStubPath(t, ghStubDir(t, `case "$*" in *"pr view"*) echo '{"headRefOid":"aabb","url":"u"}';; *"pr checks"*) echo '[{"name":"c","state":"PENDING","link":"l","bucket":"pending"}]';; esac`))
+	ghStubPath(t, ghStubDir(t, `case "$*" in *"pr view"*) echo '{"headRefOid":"aabb","url":"u","statusCheckRollup":[{"name":"c","status":"IN_PROGRESS"}] }';; *"pr checks"*) echo '[{"name":"c","state":"PENDING","link":"l","bucket":"pending"}]';; esac`))
 	_, first, _ := runCiWaitStdin(t, ciWaitJSON(t, ciWaitRequest{
 		Selector: &ciWaitSelector{Kind: "pr", Value: "1"}, Repo: "o/r", TimeSecondsMax: ciWaitBudget(8),
 	}))
@@ -172,7 +173,7 @@ func TestCiWaitSelectorsQueryTheIntendedSubject(t *testing.T) {
 	capture := filepath.Join(t.TempDir(), "args")
 	stub := `echo "$*" >> "` + capture + `"
 case "$*" in
-	*"pr view"*) echo '{"headRefOid":"aabb","url":"u"}';;
+	*"pr view"*) echo '{"headRefOid":"aabb","url":"u","statusCheckRollup":[{"name":"c","status":"COMPLETED","conclusion":"SUCCESS"}] }';;
 	*"pr checks"*) echo '[{"name":"c","state":"SUCCESS","link":"l","bucket":"pass"}]';;
 	*"run list"*) echo '[{"databaseId":1,"name":"n","status":"completed","conclusion":"success","url":"u"}]';;
 	*"run view"*) echo '{"status":"completed","conclusion":"success","url":"u","headSha":"s"}';;
@@ -183,7 +184,7 @@ esac`
 		value string
 		want  string
 	}{
-		{"pr", "5", "pr checks 5 --repo o/r"},
+		{"pr", "5", "pr view 5 --repo o/r"},
 		{"sha", sha, "run list --repo o/r --commit " + sha},
 		{"run", "42", "run view 42 --repo o/r"},
 	}
@@ -215,20 +216,131 @@ esac`
 func prChecksFixture(total, passing, failing, skipped, pending int) string {
 	checks := []map[string]string{}
 	for i := 0; i < passing; i++ {
-		checks = append(checks, map[string]string{"name": "pass", "state": "SUCCESS", "link": "https://github.com/o/r/actions/runs/10/job/1", "bucket": "pass"})
+		checks = append(checks, map[string]string{"name": fmt.Sprintf("pass-%d", i), "state": "SUCCESS", "link": "https://github.com/o/r/actions/runs/10/job/1", "bucket": "pass"})
 	}
 	for i := 0; i < failing; i++ {
-		checks = append(checks, map[string]string{"name": "test", "state": "FAILURE", "link": "https://github.com/o/r/actions/runs/10/job/2", "bucket": "fail"})
+		checks = append(checks, map[string]string{"name": fmt.Sprintf("test-%d", i), "state": "FAILURE", "link": "https://github.com/o/r/actions/runs/10/job/2", "bucket": "fail"})
 	}
 	for i := 0; i < skipped; i++ {
-		checks = append(checks, map[string]string{"name": "skip", "state": "SKIPPED", "link": "https://github.com/o/r/actions/runs/10/job/3", "bucket": "skipping"})
+		checks = append(checks, map[string]string{"name": fmt.Sprintf("skip-%d", i), "state": "SKIPPED", "link": "https://github.com/o/r/actions/runs/10/job/3", "bucket": "skipping"})
 	}
 	for i := 0; i < pending; i++ {
-		checks = append(checks, map[string]string{"name": "run", "state": "IN_PROGRESS", "link": "l", "bucket": "pending"})
+		checks = append(checks, map[string]string{"name": fmt.Sprintf("run-%d", i), "state": "IN_PROGRESS", "link": "l", "bucket": "pending"})
 	}
 	_ = total
 	encoded, _ := json.Marshal(checks)
 	return string(encoded)
+}
+
+func prRollupFixture(checks string) string {
+	var snapshots []ghPRCheck
+	if err := json.Unmarshal([]byte(checks), &snapshots); err != nil {
+		panic(err)
+	}
+	rollup := make([]ghPRRollup, 0, len(snapshots))
+	for _, check := range snapshots {
+		entry := ghPRRollup{Name: check.Name, DetailsURL: check.Link, Status: "COMPLETED"}
+		switch check.Bucket {
+		case "pass":
+			entry.Conclusion = "SUCCESS"
+		case "fail":
+			entry.Conclusion = "FAILURE"
+		case "skipping":
+			entry.Conclusion = "SKIPPED"
+		default:
+			entry.Status = "IN_PROGRESS"
+		}
+		rollup = append(rollup, entry)
+	}
+	encoded, _ := json.Marshal(rollup)
+	return string(encoded)
+}
+
+func TestCiWaitChecksModePollsOnceBelowThePageCap(t *testing.T) {
+	capture := filepath.Join(t.TempDir(), "args")
+	ghStubPath(t, ghStubDir(t, `echo "$*" >> "`+capture+`"
+case "$*" in
+	*"pr view"*) echo '{"headRefOid":"aabb","url":"u","statusCheckRollup":[{"name":"c","status":"COMPLETED","conclusion":"SUCCESS"}] }';;
+	*"pr checks"*) exit 97;;
+esac`))
+	code, report, _ := runCiWaitStdin(t, ciWaitJSON(t, ciWaitRequest{
+		Selector: &ciWaitSelector{Kind: "pr", Value: "5"}, Repo: "o/r", TimeSecondsMax: ciWaitBudget(8),
+	}))
+	if code != 0 || report.Status != "success" {
+		t.Fatalf("a short rollup must decide without pr checks, got code=%d report=%+v", code, report)
+	}
+	raw, err := os.ReadFile(capture)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), "pr checks") {
+		t.Fatalf("a rollup below the page cap must not query pr checks, calls=%q", raw)
+	}
+}
+
+func TestCiWaitFullRollupPageStillReadsThePaginatedSource(t *testing.T) {
+	capture := filepath.Join(t.TempDir(), "args")
+	rollup := make([]ghPRRollup, ciWaitPRRollupPageSize)
+	for i := range rollup {
+		rollup[i] = ghPRRollup{Name: fmt.Sprintf("check-%d", i), Status: "COMPLETED", Conclusion: "SUCCESS"}
+	}
+	encoded, err := json.Marshal(rollup)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ghStubPath(t, ghStubDir(t, `echo "$*" >> "`+capture+`"
+case "$*" in
+	*"pr view"*) echo '{"headRefOid":"aabb","url":"u","statusCheckRollup":`+string(encoded)+`}';;
+	*"pr checks"*) echo '[]';;
+esac`))
+	_, report, _ := runCiWaitStdin(t, ciWaitJSON(t, ciWaitRequest{
+		Selector: &ciWaitSelector{Kind: "pr", Value: "5"}, Repo: "o/r", TimeSecondsMax: ciWaitBudget(8),
+	}))
+	if report.Status != "success" || report.Checks == nil || report.Checks.Total != ciWaitPRRollupPageSize {
+		t.Fatalf("a full rollup page must preserve the complete population, got %+v", report)
+	}
+	raw, err := os.ReadFile(capture)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), "pr checks") {
+		t.Fatalf("a full rollup page must query the paginated source, calls=%q", raw)
+	}
+}
+
+func TestCiWaitPollIntervalStagesOnElapsedWaitTime(t *testing.T) {
+	for _, tc := range []struct {
+		elapsed time.Duration
+		want    time.Duration
+	}{
+		{0, 15 * time.Second},
+		{59 * time.Second, 15 * time.Second},
+		{60 * time.Second, 30 * time.Second},
+		{299 * time.Second, 30 * time.Second},
+		{300 * time.Second, 60 * time.Second},
+	} {
+		if got := ciWaitPollInterval(tc.elapsed); got != tc.want {
+			t.Fatalf("elapsed=%s: interval=%s want %s", tc.elapsed, got, tc.want)
+		}
+	}
+}
+
+func TestCiWaitTimedOutCommandRetriesOnceThenReportsPending(t *testing.T) {
+	marker := filepath.Join(t.TempDir(), "first-attempt")
+	ghStubPath(t, ghStubDir(t, `case "$*" in
+	*"pr view"*)
+		if [ ! -f "`+marker+`" ]; then touch "`+marker+`"; sleep 500; fi
+		echo '{"headRefOid":"aabb","url":"u","statusCheckRollup":[{"name":"c","status":"COMPLETED","conclusion":"SUCCESS"}] }';;
+	esac`))
+	saved := ciWaitCommandTimeout
+	ciWaitCommandTimeout = 50 * time.Millisecond
+	t.Cleanup(func() { ciWaitCommandTimeout = saved })
+	code, report, _ := runCiWaitStdin(t, ciWaitJSON(t, ciWaitRequest{
+		Selector: &ciWaitSelector{Kind: "pr", Value: "5"}, Repo: "o/r", TimeSecondsMax: ciWaitBudget(8),
+	}))
+	if code != 0 || report.Status != "success" {
+		t.Fatalf("a timed-out command must retry before classifying the poll, got code=%d report=%+v", code, report)
+	}
 }
 
 func TestCiWaitTerminalOutcomes(t *testing.T) {
@@ -250,7 +362,7 @@ func TestCiWaitTerminalOutcomes(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			ghStubPath(t, ghStubDir(t, `case "$*" in
-				*"pr view"*) echo '{"headRefOid":"aabbccdd","url":"u"}';;
+				*"pr view"*) echo '{"headRefOid":"aabbccdd","url":"u","statusCheckRollup":`+prRollupFixture(tc.checks)+`}' ;;
 				*"pr checks"*) cat <<'EOC'
 `+tc.checks+`
 EOC
@@ -294,7 +406,7 @@ EOL
 
 func TestCiWaitEmptyCheckSetIsNeverSuccess(t *testing.T) {
 	ghStubPath(t, ghStubDir(t, `case "$*" in
-		*"pr view"*) echo '{"headRefOid":"aabb","url":"u"}';;
+		*"pr view"*) echo '{"headRefOid":"aabb","url":"u","statusCheckRollup":[]}';;
 		*"pr checks"*) echo '[]';;
 	esac`))
 	_, report, _ := runCiWaitStdin(t, ciWaitJSON(t, ciWaitRequest{
@@ -396,7 +508,7 @@ func TestCiWaitPRChecksModeMergeStates(t *testing.T) {
 	for _, tc := range cases {
 		t.Run("merge_state_"+tc.mergeState, func(t *testing.T) {
 			ghStubPath(t, ghStubDir(t, `case "$*" in
-				*"pr view"*) echo '{"headRefOid":"aabb","url":"u","state":"OPEN","mergedAt":null,"mergeStateStatus":"`+tc.mergeState+`"}';;
+				*"pr view"*) echo '{"headRefOid":"aabb","url":"u","state":"OPEN","mergedAt":null,"mergeStateStatus":"`+tc.mergeState+`","statusCheckRollup":[{"name":"c","status":"COMPLETED","conclusion":"SUCCESS"}]}';;
 				*"pr checks"*) echo '[{"name":"c","state":"SUCCESS","link":"l","bucket":"pass"}]';;
 			esac`))
 			code, report, _ := runCiWaitStdin(t, ciWaitJSON(t, ciWaitRequest{
@@ -651,7 +763,7 @@ func TestCiWaitClassifyName(t *testing.T) {
 
 func TestCiWaitIterationsCounted(t *testing.T) {
 	ghStubPath(t, ghStubDir(t, `case "$*" in
-		*"pr view"*) echo '{"headRefOid":"aabb","url":"u"}';;
+		*"pr view"*) echo '{"headRefOid":"aabb","url":"u","statusCheckRollup":[{"name":"c","status":"IN_PROGRESS"}] }';;
 		*"pr checks"*) echo '[{"name":"c","state":"IN_PROGRESS","link":"l","bucket":"pending"}]';;
 	esac`))
 	_, report, _ := runCiWaitStdin(t, ciWaitJSON(t, ciWaitRequest{
@@ -673,7 +785,7 @@ func TestCiWaitSliceBoundedByShutdownSlack(t *testing.T) {
 	// A caller whose remaining budget is under the slice must terminate
 	// within the shutdown tolerance, not overshoot by a whole slice.
 	ghStubPath(t, ghStubDir(t, `case "$*" in
-		*"pr view"*) echo '{"headRefOid":"aabb","url":"u"}';;
+		*"pr view"*) echo '{"headRefOid":"aabb","url":"u","statusCheckRollup":[{"name":"c","status":"IN_PROGRESS"}] }';;
 		*"pr checks"*) echo '[{"name":"c","state":"IN_PROGRESS","link":"l","bucket":"pending"}]';;
 	esac`))
 	start := time.Now()

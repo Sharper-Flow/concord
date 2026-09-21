@@ -1,0 +1,30 @@
+{
+  "evidence": [
+    {
+      "kind": "go_test",
+      "value": "cmd/concord.TestCiWaitChecksModePollsOnceBelowThePageCap"
+    },
+    {
+      "kind": "go_test",
+      "value": "cmd/concord.TestCiWaitFullRollupPageStillReadsThePaginatedSource"
+    },
+    {
+      "kind": "go_test",
+      "value": "cmd/concord.TestCiWaitPollIntervalStagesOnElapsedWaitTime"
+    },
+    {
+      "kind": "go_test",
+      "value": "cmd/concord.TestCiWaitTimedOutCommandRetriesOnceThenReportsPending"
+    },
+    {
+      "kind": "go_test",
+      "value": "cmd/concord.TestCiWaitPRPartialPopulationNeverSucceeds"
+    },
+    {
+      "kind": "go_test",
+      "value": "cmd/concord.TestCiWaitPRMergeModeCleanCanMergeIsNotSuccess"
+    }
+  ],
+  "id": "CD-0168",
+  "state": "satisfied"
+}

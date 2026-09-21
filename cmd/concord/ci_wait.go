@@ -748,19 +748,6 @@ func ciWaitTrimLine(line string) string {
 	return line
 }
 
-// ciWaitFirstRunURL picks one run URL from the observed check links so the
-// failure report names where the failure lives. A run URL resolves only when
-// it carries the repository, so the composed form needs both the repository
-// and a run id in the link; without either, the report names the observed
-// link itself rather than a URL that leads nowhere.
-func ciWaitFirstRunURL(repo string, checks []ghPRCheck) string {
-	population := make([]ciWaitCheck, 0, len(checks))
-	for _, check := range checks {
-		population = append(population, ciWaitCheck{Name: check.Name, URL: check.Link, Bucket: check.Bucket})
-	}
-	return ciWaitFirstRunURLForPopulation(repo, population)
-}
-
 func ciWaitFirstRunURLForPopulation(repo string, checks []ciWaitCheck) string {
 	for _, check := range checks {
 		if check.Bucket == "fail" {

@@ -26,30 +26,30 @@ func TestGHRunIDFromURLReadsTheRunIDFromAJobLink(t *testing.T) {
 	}
 }
 
-// ciWaitFirstRunURL reaches the extractor with whatever link the failing check
-// carries. A failing CodeQL check made the whole wait crash instead of
-// reporting the failure it had just observed.
+// ciWaitFirstRunURLForPopulation reaches the extractor with whatever link the
+// failing check carries. A failing CodeQL check made the whole wait crash
+// instead of reporting the failure it had just observed.
 func TestCIWaitFirstRunURLSurvivesAFailingCheckRunLink(t *testing.T) {
-	checks := []ghPRCheck{
-		{Name: "verify-go", State: "SUCCESS", Link: "https://github.com/Sharper-Flow/concord/actions/runs/35539060175/job/106153252385", Bucket: "pass"},
-		{Name: "CodeQL", State: "FAILURE", Link: "https://github.com/Sharper-Flow/concord/runs/106153335208", Bucket: "fail"},
+	checks := []ciWaitCheck{
+		{Name: "verify-go", URL: "https://github.com/Sharper-Flow/concord/actions/runs/35539060175/job/106153252385", Bucket: "pass"},
+		{Name: "CodeQL", URL: "https://github.com/Sharper-Flow/concord/runs/106153335208", Bucket: "fail"},
 	}
-	if got := ciWaitFirstRunURL("Sharper-Flow/concord", checks); got != "https://github.com/Sharper-Flow/concord/runs/106153335208" {
-		t.Fatalf("ciWaitFirstRunURL() = %q, want the observed check link", got)
+	if got := ciWaitFirstRunURLForPopulation("Sharper-Flow/concord", checks); got != "https://github.com/Sharper-Flow/concord/runs/106153335208" {
+		t.Fatalf("ciWaitFirstRunURLForPopulation() = %q, want the observed check link", got)
 	}
 }
 
 // The composed run URL must name the repository. An owner-less run URL does
 // not resolve, so a failure report built from one sends the reader nowhere.
 func TestCIWaitFirstRunURLNamesTheRepository(t *testing.T) {
-	checks := []ghPRCheck{
-		{Name: "verify-go", State: "FAILURE", Link: "https://github.com/Sharper-Flow/concord/actions/runs/35539060175/job/106153252385", Bucket: "fail"},
+	checks := []ciWaitCheck{
+		{Name: "verify-go", URL: "https://github.com/Sharper-Flow/concord/actions/runs/35539060175/job/106153252385", Bucket: "fail"},
 	}
 	const want = "https://github.com/Sharper-Flow/concord/actions/runs/35539060175"
-	if got := ciWaitFirstRunURL("Sharper-Flow/concord", checks); got != want {
-		t.Fatalf("ciWaitFirstRunURL() = %q, want %q", got, want)
+	if got := ciWaitFirstRunURLForPopulation("Sharper-Flow/concord", checks); got != want {
+		t.Fatalf("ciWaitFirstRunURLForPopulation() = %q, want %q", got, want)
 	}
-	if got := ciWaitFirstRunURL("", checks); got != checks[0].Link {
-		t.Fatalf("ciWaitFirstRunURL() with no repository = %q, want the observed link", got)
+	if got := ciWaitFirstRunURLForPopulation("", checks); got != checks[0].URL {
+		t.Fatalf("ciWaitFirstRunURLForPopulation() with no repository = %q, want the observed link", got)
 	}
 }

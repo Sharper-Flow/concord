@@ -164,6 +164,54 @@ func cellStarts(line string, cells []string) []int {
 	return starts
 }
 
+// TestHelpToggleShowsFullKeyListAndHoldsFrameHeight proves
+// check:go.test.launcher.help: the ? key assigns help.ShowAll, the existing
+// help view then renders the full key list the short footer elides, the
+// taller footer is absorbed by the table, and the frame stays exactly the
+// requested height at every width.
+func TestHelpToggleShowsFullKeyListAndHoldsFrameHeight(t *testing.T) {
+	snapshot := launcher.Snapshot{
+		Screen: launcher.ScreenPortfolio, Coverage: "authoritative",
+		Rows: []launcher.ProductRow{{ID: "p-1", Name: "Alpha", Stage: "in_progress", Reliance: "clear", Actions: 1, Focus: "Hold"}},
+	}
+	m := New(launcher.New(&port{state: snapshot}), context.Background(), Profile{})
+	for _, width := range []int{80, 100, 120, 200} {
+		m.Update(tea.WindowSizeMsg{Width: width, Height: 24})
+		m.Sync()
+		short := m.footerLines()
+		m.UpdateKey("?")
+		full := m.footerLines()
+		fullFrame := m.Render()
+		if len(full) <= len(short) {
+			t.Fatalf("width %d: toggling help did not grow the footer: short=%d full=%d", width, len(short), len(full))
+		}
+		// Full help lays bindings out in key/description columns, so the
+		// check collapses whitespace runs before matching.
+		joined := strings.Join(strings.Fields(strings.Join(full, " ")), " ")
+		for _, elided := range []string{"esc back", "ctrl+l clear"} {
+			if !strings.Contains(joined, elided) {
+				t.Fatalf("width %d: full help lost the short-elided binding %q: %q", width, elided, joined)
+			}
+		}
+		lines := strings.Split(fullFrame, "\n")
+		if len(lines) != 24 {
+			t.Fatalf("width %d: frame height=%d, want 24", width, len(lines))
+		}
+		for i, line := range lines {
+			if got := lipgloss.Width(line); got != width {
+				t.Fatalf("width %d: line %d width=%d, want %d: %q", width, i, got, width, line)
+			}
+		}
+		if !strings.Contains(strings.Join(strings.Fields(fullFrame), " "), "esc back") {
+			t.Fatalf("width %d: full help bindings missing from the rendered frame", width)
+		}
+		m.UpdateKey("?")
+		if restored := m.footerLines(); len(restored) != len(short) {
+			t.Fatalf("width %d: second toggle did not restore the short footer: %d lines", width, len(restored))
+		}
+	}
+}
+
 func TestLauncherOperatorFlowUsesSizedTables(t *testing.T) {
 	stub := &screenStub{
 		state: launcher.Snapshot{

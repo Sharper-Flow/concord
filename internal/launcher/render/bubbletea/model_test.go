@@ -141,6 +141,75 @@ func TestNoColorOutputIsPlainTextAndKeepsAllSemanticMarkers(t *testing.T) {
 	}
 }
 
+// TestAttentionRowsRenderForegroundAndPlainRowsDoNot proves
+// check:go.test.launcher.colour: a row whose projection carries an attention
+// state renders with an ANSI-index foreground, a row without one renders
+// plain, and the same frame under NO_COLOR keeps every byte free of terminal
+// controls. lipgloss v2 Render emits full-fidelity ANSI and downsamples only
+// at print, so the escape-sequence assertion does not depend on the TTY.
+func TestAttentionRowsRenderForegroundAndPlainRowsDoNot(t *testing.T) {
+	state := launcher.Snapshot{
+		Screen: launcher.ScreenPortfolio, AmbientProduct: "Concord", Coverage: "authoritative",
+		Rows: []launcher.ProductRow{
+			{Name: "Blocked Product", Stage: "in_progress", Reliance: "blocked", Actions: 3, Focus: "Fix colour"},
+			{Name: "Clear Product", Stage: "in_progress", Reliance: "clear", Actions: 1, Focus: "Hold steady"},
+		},
+	}
+	core := launcher.New(&port{state: state})
+	if err := core.Enter(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	m := New(core, context.Background(), Profile{Color: true})
+	m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	m.Sync()
+	pane := m.renderPortfolio(m.snapshot, m.cursor)
+	if len(pane.severities) != len(pane.rows) || pane.severities[0] != severityAttention || pane.severities[1] != severityNone {
+		t.Fatalf("projection severities not parallel to rows: %#v", pane.severities)
+	}
+	rendered := m.Render()
+	coloured := 0
+	// Bold on the cursor row combines with the foreground into one SGR
+	// sequence, so the red index arrives as "1;31" there and as "31" alone
+	// elsewhere.
+	hasForeground := func(line string) bool {
+		return strings.Contains(line, "\x1b[31m") || strings.Contains(line, ";31m")
+	}
+	for _, line := range strings.Split(rendered, "\n") {
+		hasColour := hasForeground(line)
+		if strings.Contains(line, "Blocked Product") && !hasColour {
+			t.Fatalf("attention row rendered without a foreground: %q", line)
+		}
+		if strings.Contains(line, "Clear Product") && hasColour {
+			t.Fatalf("plain row rendered with a foreground: %q", line)
+		}
+		if hasColour {
+			coloured++
+		}
+	}
+	if coloured == 0 {
+		t.Fatalf("no line rendered an ANSI-index foreground: %q", rendered)
+	}
+	// The table colour stays on the ANSI-index palette. The bubbles help
+	// footer keeps its own pre-existing adaptive styles, so the palette
+	// check is scoped to the data rows this change colours.
+	for _, line := range strings.Split(rendered, "\n") {
+		if !strings.Contains(line, "Blocked Product") && !strings.Contains(line, "Clear Product") {
+			continue
+		}
+		for _, downsampled := range []string{"\x1b[38;5;", "\x1b[38;2;"} {
+			if strings.Contains(line, downsampled) {
+				t.Fatalf("colour left the ANSI-index palette: %q found in %q", downsampled, line)
+			}
+		}
+	}
+	plain := New(core, context.Background(), Profile{})
+	plain.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	plain.Sync()
+	if err := rejectTerminalControls(plain.Render()); err != nil {
+		t.Fatalf("NO_COLOR path emitted terminal controls: %v", err)
+	}
+}
+
 func TestPortfolioRendersDegradedProbesWithoutCandidates(t *testing.T) {
 	core := launcher.New(nil)
 	core.RestoreSnapshot(launcher.Snapshot{
@@ -1120,11 +1189,11 @@ func TestRankedRowsCollapseConstantColumnsAndTruncateToOneLine(t *testing.T) {
 	}
 	// The over-width row truncates to the row budget on its single line. The
 	// direct render carries the production gutter: cursor 0 marks row 0.
-	headers, rows := rankedTable(ranked, snapshot)
+	headers, rows, _ := rankedTable(ranked, snapshot)
 	if len(rows) != 3 {
 		t.Fatalf("ranked row count=%d, want 3", len(rows))
 	}
-	renderedRows := renderTable(headers, rows, 78, 4, 0, 0, false)
+	renderedRows := renderTable(headers, rows, nil, 78, 4, 0, 0, false)
 	for _, line := range strings.Split(renderedRows, "\n") {
 		if got := lipgloss.Width(line); got > 78 {
 			t.Fatalf("ranked row exceeds 78 display columns: %d: %q", got, line)
@@ -1136,7 +1205,7 @@ func TestRankedRowsCollapseConstantColumnsAndTruncateToOneLine(t *testing.T) {
 	// A column whose value varies on any visible row survives everywhere it
 	// has a value.
 	ranked[1].Kind = "bug"
-	headers, rows = rankedTable(ranked, snapshot)
+	headers, rows, _ = rankedTable(ranked, snapshot)
 	if !strings.Contains(strings.Join(headers, " "), "kind") || !strings.Contains(rows[0][1], "task") || !strings.Contains(rows[1][1], "bug") {
 		t.Fatalf("varying kind column collapsed: %#v / %#v", headers, rows)
 	}

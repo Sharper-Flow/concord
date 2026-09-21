@@ -197,19 +197,7 @@ func ReadWorkflowProjection(ctx context.Context, s *Store, request WorkflowReadR
 	out.BlockingConditions = []string{}
 	out.ImpactNotices = []WorkflowReadNotice{}
 	out.CompletionWarnings = []string{}
-	if workflowStepIsDeliveryGate(workflowStep(registered.Definition, out.CurrentStep)) {
-		parked := &WorkflowReadParkedDelivery{WorkID: request.WorkID, StepID: out.CurrentStep, ResumeAction: "record_delivery"}
-		var updatedAt string
-		if err := s.db.QueryRowContext(ctx, `SELECT updated_at FROM work_items WHERE id=?`, request.WorkID).Scan(&updatedAt); err == nil {
-			if touched, parseErr := time.Parse(time.RFC3339, updatedAt); parseErr == nil {
-				if age := int64(time.Now().UTC().Sub(touched).Seconds()); age > 0 {
-					parked.ParkedSeconds = age
-				}
-			}
-		}
-		parked.Unreconciled = out.State == "cancelled" || out.State == "superseded"
-		out.ParkedDelivery = parked
-	}
+	out.ParkedDelivery = parkedDeliveryRead(ctx, s, registered.Definition, request.WorkID, out.CurrentStep, out.State)
 	var proposal WorkflowProposalRecord
 	var proposalAffected, proposalOutcomes, proposalConstraints, proposalQuestions string
 	if err := s.db.QueryRowContext(ctx, `SELECT work_version,problem,affected,stakes,user_outcomes,constraints,open_questions,recorded_at FROM workflow_proposal_records WHERE work_id=? ORDER BY work_version DESC LIMIT 1`, request.WorkID).Scan(&proposal.WorkVersion, &proposal.Problem, &proposalAffected, &proposal.Stakes, &proposalOutcomes, &proposalConstraints, &proposalQuestions, &proposal.RecordedAt); err == nil {
@@ -533,4 +521,27 @@ func readWorkflowSummaryTx(ctx context.Context, tx *sql.Tx, workID string) (*Wor
 		out.Ready = true
 	}
 	return &out, nil
+}
+
+// parkedDeliveryRead derives the CD-0166 parked-delivery observation for a
+// work item whose current step is the delivery gate. ParkedSeconds is a
+// read-time display age taken from the work item's last update; elapsed time
+// holds no authority here, matching the await-health boundary, so an old park
+// is labeled and never resolved by clock. A terminal instance that left the
+// gate uncrossed reads as unreconciled.
+func parkedDeliveryRead(ctx context.Context, s *Store, definition WorkflowDefinition, workID, currentStep, state string) *WorkflowReadParkedDelivery {
+	if !workflowStepIsDeliveryGate(workflowStep(definition, currentStep)) {
+		return nil
+	}
+	parked := &WorkflowReadParkedDelivery{WorkID: workID, StepID: currentStep, ResumeAction: "record_delivery"}
+	var updatedAt string
+	if err := s.db.QueryRowContext(ctx, `SELECT updated_at FROM work_items WHERE id=?`, workID).Scan(&updatedAt); err == nil {
+		if touched, parseErr := time.Parse(time.RFC3339, updatedAt); parseErr == nil {
+			if age := int64(time.Now().UTC().Sub(touched).Seconds()); age > 0 {
+				parked.ParkedSeconds = age
+			}
+		}
+	}
+	parked.Unreconciled = state == "cancelled" || state == "superseded"
+	return parked
 }

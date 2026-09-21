@@ -97,6 +97,21 @@ func TestReclaimWorktreeConvergesOnUnfoldedReclaimEvent(t *testing.T) {
 	if got := convergeClaimState(t, s, "wt-work-unfolded"); got != worktreeStateReclaimed {
 		t.Fatalf("claim state=%q", got)
 	}
+	var foldGuardRows int
+	if err := s.DatabaseForTesting().QueryRow(`SELECT COUNT(*) FROM fold_guard`).Scan(&foldGuardRows); err != nil {
+		t.Fatal(err)
+	}
+	if foldGuardRows != 0 {
+		t.Fatalf("convergence left %d fold guard rows", foldGuardRows)
+	}
+	if err := ApplyOperation(ctx, s, Operation{Events: []Event{{
+		EventID: "post-convergence-fold",
+		Kind:    "work.transitioned", SubjectType: SubjectWorkItem, SubjectID: "work-w",
+		Actor: "operator", OccurredAt: time.Unix(41, 0).UTC(), PayloadVersion: 1,
+		Payload: jsonRaw(`{"from":"needed","to":"in_progress","reason":"guard regression","expected_version":2,"resulting_version":3}`),
+	}}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "work-w"): 2}}); err != nil {
+		t.Fatalf("second fold-bearing operation failed: %v", err)
+	}
 	if _, kept := git.worktrees[path]; kept {
 		t.Fatal("native removal did not proceed after convergence")
 	}

@@ -402,8 +402,7 @@ func applyWorkflowOperationTx(ctx context.Context, tx *sql.Tx, operation Operati
 	return applyOperationTx(ctx, tx, operation, false, true)
 }
 
-func applyOperationTx(ctx context.Context, tx *sql.Tx, operation Operation, ownFoldGuard bool, workflowAuthority bool) (ApplyOperationResult, error) {
-	var output ApplyOperationResult
+func applyOperationTx(ctx context.Context, tx *sql.Tx, operation Operation, ownFoldGuard bool, workflowAuthority bool) (output ApplyOperationResult, err error) {
 	if tx == nil {
 		return output, newFailure(KindUnavailable, "apply_operation", "transaction is not open", false, "open a mutation transaction")
 	}
@@ -431,6 +430,15 @@ func applyOperationTx(ctx context.Context, tx *sql.Tx, operation Operation, ownF
 			return output, err
 		}
 	}
+	foldGuardEntered := ownFoldGuard
+	defer func() {
+		if !foldGuardEntered {
+			return
+		}
+		if leaveErr := leaveFold(ctx, tx); err == nil {
+			err = leaveErr
+		}
+	}()
 	checked := make(map[SubjectRef]bool, len(operation.ExpectedVersions))
 	for _, event := range operation.Events {
 		if err := event.validate(); err != nil {
@@ -492,11 +500,6 @@ func applyOperationTx(ctx context.Context, tx *sql.Tx, operation Operation, ownF
 	}
 	if err := validateInitiativeInvariantsTx(ctx, tx); err != nil {
 		return output, err
-	}
-	if ownFoldGuard {
-		if err := leaveFold(ctx, tx); err != nil {
-			return output, err
-		}
 	}
 	return output, nil
 }

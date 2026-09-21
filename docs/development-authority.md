@@ -1,6 +1,7 @@
 # Concord development authority
 
-**Status:** Accepted under CD-0089, amended by CD-0121, CD-0122, and CD-0155.
+**Status:** Accepted under CD-0089, amended by CD-0121, CD-0122, CD-0155,
+and CD-0167.
 **Approval date:** 2026-09-09.
 **Approval:** Operator approval for the Product-scoped development policy.
 
@@ -20,6 +21,11 @@ clarifies that project work may proceed outside Concord workflow. It also
 defines a defect-repair application when the workflow blocks safe repair.
 Repository evidence and host-role boundaries remain unchanged.
 
+[CD-0167](decisions/CD-0167-backlog-never-resides-in-git.md) amends the
+foreign-session local-only route of CD-0155. A planning backlog never
+resides in a git repository. Active work resides in git, and a backlog
+belongs to the Product's confirmed Linear destination or to Concord's store.
+
 ## Contract
 
 The operator selects Linear-enabled or local-only operation for each Product.
@@ -30,17 +36,16 @@ an agent creates planned work.
 
 A session records work only for the Product it serves. Work that belongs to
 another Product routes by that Product's recorded planning mode. A
-Linear-enabled Product uses its confirmed Linear destination. A local-only
-Product receives an appended entry in `todo.md` at the Project's recorded
-canonical path. The commit is scoped to that path and leaves unrelated modified
-files untouched.
+Linear-enabled Product uses its confirmed Linear destination. Work found for
+a local-only Product records in Concord's store scoped to that Product's
+Projects. No route commits a planning backlog entry into a repository.
 
-The local-only route is a foreign-session-only override to the local-only
-planning clause. A session that serves the local-only Product continues to use
-Concord's local planning authority. Routing requires a Concord Product record.
-If the record, destination, or mode is missing, the session refuses and creates
-no work item or backlog entry. This policy adds no typed operation, schema, or
-validator.
+The cross-Product recording route is a foreign-session-only application of
+the store boundary. A session that serves the local-only Product continues to
+use Concord's local planning authority. Routing requires a Concord Product
+record. If the record, destination, or mode is missing, the session refuses
+and creates no work item or backlog entry. This policy adds no typed
+operation, schema, or validator.
 
 This contract defines policy. It does not claim that Product-mode configuration,
 Linear setup, or synchronization is implemented by the installed software.
@@ -65,7 +70,7 @@ participation remain host-owned. This contract does not change host roles.
 | Planned work and defects for a Linear-enabled Product | Linear | Confirmed issue identity and the Product's selected destination |
 | Planned work and defects for a local-only Product | Concord | Durable local work identity and intent |
 | Work found for another Linear-enabled Product | The other Product's confirmed Linear destination | Concord Product record, resolved destination, and no serving-Product Concord work item |
-| Work found for another local-only Product | `todo.md` at the Project's recorded canonical path | Concord Product record, canonical path, path-scoped commit, and untouched unrelated files |
+| Work found for another local-only Product | Concord's store scoped to the owning Product's Projects | Concord Product record, owning-Product scope, and no serving-Product Concord work item |
 | Workflow transitions, verdicts, and completion | Concord | Session identity and typed operation records |
 | Review and merge | Repository pull requests and required checks | Review decisions, check results, merge record, and changed files |
 | Implementation isolation | Git branches and worktrees | Branch ancestry, worktree boundaries, and commits |
@@ -84,23 +89,18 @@ The Product requires no Linear connection, credentials, or API access. A GitHub
 issue is not a prerequisite for a local work item or development session.
 
 For a session that serves another Product, a Linear-enabled Product still uses
-its confirmed Linear destination. A local-only Product uses the foreign-session
-route in this contract: append to `todo.md` at the Project's recorded canonical
-path and commit only that path. This route overrides the local-only destination
-clause only for the foreign session. A session that serves the local-only Product
+its confirmed Linear destination. Work for a local-only Product records in
+Concord's store scoped to that Product's Projects under the foreign-session
+route in this contract. A session that serves the local-only Product
 continues to use Concord's local database.
 
 The other Product must have a Concord Product record. If the record, mode, or
 destination is missing, the session refuses before it creates a work item or
-backlog entry. This policy adds no typed operation, schema, or validator.
-Code and selected documents can use a private Git repository. That choice does
-not authorize publication of the database, credentials, sessions, or every
-generated document.
-
-Products with different modes can share one installation. A Linear-enabled
-Product does not impose its destination, credentials, or publication rules on
-another Product. An unavailable Linear connection does not change the affected
-Product to local-only operation.
+backlog entry. This policy adds no typed operation, schema, or validator. Code
+and selected documents can use a private Git repository. That choice does not
+authorize publication of the database, credentials, sessions, or every
+generated document. A planning backlog never resides in that repository
+regardless of the Product's mode.
 
 Work found for another Product follows that Product's recorded mode. The
 serving session does not create a Concord work item for it. An unresolved
@@ -151,14 +151,17 @@ not a live-file patch or an agent bypass.
    review evidence without changing host roles or Product law.
 10. A session records only work for its serving Product. Work for another
     Linear-enabled Product routes to its confirmed Linear destination.
-11. Work for another local-only Product appends to `todo.md` at the Project's
-    recorded canonical path and commits only that path. Unrelated modified files
-    remain untouched.
-12. A foreign-session route requires a Concord Product record. A missing record,
-    mode, or destination causes refusal and creates no work item or backlog entry.
-13. The local-only route overrides the local-only destination clause only for a
-    foreign session. A session serving that Product continues to use Concord.
-14. CD-0155 adds no typed operation, schema, or validator.
+11. Work for another local-only Product records in Concord's store scoped to
+    that Product's Projects. No route commits a backlog entry into a
+    repository, and unrelated modified files stay untouched because no
+    repository write occurs.
+12. A foreign-session route requires a Concord Product record. A missing
+    record, mode, or destination causes refusal and creates no work item or
+    backlog entry.
+13. The cross-Product recording route applies only to a foreign session. A
+    session serving that Product continues to use Concord's local planning
+    authority.
+14. CD-0155 and CD-0167 add no typed operation, schema, or validator.
 
 Document placement, synchronization protocols, and credential mechanisms require
 their own approved contracts. Choosing Linear does not transfer workflow or
@@ -194,7 +197,7 @@ Product-law authority to it, or require every document to live there.
 - Given a session that serves one Product and finds work owned by another
   local-only Product
   When the session records the work
-  Then it appends to `todo.md` at the Project's recorded canonical path, commits only that path, and creates no serving-Product Concord work item.
+  Then it records the item in Concord's store scoped to the owning Product's Projects and creates no serving-Product Concord work item.
 
 - Given a foreign-session route without a Concord Product record
   When the session records the work
@@ -244,6 +247,10 @@ Product-law authority to it, or require every document to live there.
   When host roles are checked
   Then host permissions, session directories, and managed participation remain unchanged.
 
+- Given any route that records planning-backlog state
+  When the route is examined
+  Then it writes no backlog entry into a git repository.
+
 ## Verification
 
 These are process-authority requirements, not evidence of implemented Linear
@@ -288,10 +295,17 @@ mechanisms retain their own verification contracts.
   Repository isolation and public review evidence remain required.
 - Criterion 16: review host-role preservation against CD-0122 D3. This policy
   changes no host-owned permission, session, directory, or participation rule.
-- Criterion 17: review CD-0155 and the Product boundary above. Runtime routing
-  must separately prove both recorded-mode destinations, the canonical `todo.md`
-  path, the path-scoped commit, preservation of unrelated modifications, the
-  missing-Product refusal, and the absence of a serving-Product work-item effect.
-- Criterion 18: review the foreign-session-only override. A session serving a
-  local-only Product still uses Concord's local planning authority.
-- Criterion 19: review that CD-0155 adds no typed operation, schema, or validator.
+- Criterion 17: review the CD-0155 boundary as amended by CD-0167 and the
+  Product boundary above. Runtime routing must separately prove both
+  recorded-mode destinations, owning-Product scoping in the store, the
+  missing-Product refusal, and the absence of a serving-Product work-item
+  effect.
+- Criterion 18: review the foreign-session-only application of the scoped
+  route. A session serving a local-only Product still uses Concord's local
+  planning authority.
+- Criterion 19: review that CD-0155 and CD-0167 add no typed operation,
+  schema, or validator.
+- Criterion 20: review the git-backlog prohibition against CD-0167 D1. The
+  store's structural refusal of in-repository database paths carries existing
+  enforcement, and any backlog sync route would need its own implementation
+  evidence.

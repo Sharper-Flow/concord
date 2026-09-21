@@ -37,46 +37,50 @@
     },
     {
       "criterion": 9,
-      "exemption": "Normative Product-isolation and local-only scenario. No Linear runtime is introduced here; credential independence and cross-Product isolation need executable evidence in the integration implementation."
+      "exemption": "Policy-only storage prohibition under CD-0167 D1. The store refuses an in-repository database path structurally, and any backlog sync route would require its own implementation evidence."
     },
     {
       "criterion": 10,
-      "exemption": "Normative remote-creation identity requirement. A confirmed Linear issue must be proved by the later integration route, not by these document or knowledge checks."
+      "exemption": "Normative Product-isolation and local-only scenario. No Linear runtime is introduced here; credential independence and cross-Product isolation need executable evidence in the integration implementation."
     },
     {
       "criterion": 11,
-      "exemption": "Normative outage and planning-authority requirement. Failure and queue semantics need separately scoped runtime tests; this amendment does not claim a synchronization mechanism exists."
+      "exemption": "Normative remote-creation identity requirement. A confirmed Linear issue must be proved by the later integration route, not by these document or knowledge checks."
     },
     {
       "criterion": 12,
-      "exemption": "Normative distinction between selected mode and verified activation. The supported setup route must supply activation evidence; policy adoption and structural document checks do not supply it."
+      "exemption": "Normative outage and planning-authority requirement. Failure and queue semantics need separately scoped runtime tests; this amendment does not claim a synchronization mechanism exists."
     },
     {
       "criterion": 13,
-      "exemption": "Normative cutover and identity-preservation requirement. Any migration requires explicit approval and executable evidence under its own contract; this policy does not migrate existing records."
+      "exemption": "Normative distinction between selected mode and verified activation. The supported setup route must supply activation evidence; policy adoption and structural document checks do not supply it."
     },
     {
       "criterion": 14,
-      "exemption": "Policy-only outside-work boundary under CD-0122 D1. Host permissions remain authoritative, and outside work creates no Concord workflow evidence."
+      "exemption": "Normative cutover and identity-preservation requirement. Any migration requires explicit approval and executable evidence under its own contract; this policy does not migrate existing records."
     },
     {
       "criterion": 15,
-      "exemption": "Policy-only defect-repair application under CD-0122 D2. Repository isolation and public review evidence remain required; no runtime repair route is added here."
+      "exemption": "Policy-only outside-work boundary under CD-0122 D1. Host permissions remain authoritative, and outside work creates no Concord workflow evidence."
     },
     {
       "criterion": 16,
-      "exemption": "Policy-only host-role preservation under CD-0122 D3. This amendment changes no host-owned permission, session, directory, or participation rule."
+      "exemption": "Policy-only defect-repair application under CD-0122 D2. Repository isolation and public review evidence remain required; no runtime repair route is added here."
     },
     {
       "criterion": 17,
-      "exemption": "Policy-only Product routing boundary under CD-0155. Runtime routing and the absence of a serving-Product work item require separate implementation evidence."
+      "exemption": "Policy-only host-role preservation under CD-0122 D3. This amendment changes no host-owned permission, session, directory, or participation rule."
     },
     {
       "criterion": 18,
-      "exemption": "Policy-only foreign-session override under CD-0155. A session serving a local-only Product retains Concord's local planning authority."
+      "exemption": "Policy-only Product routing boundary under CD-0155. Runtime routing and the absence of a serving-Product work item require separate implementation evidence."
     },
     {
       "criterion": 19,
+      "exemption": "Policy-only foreign-session override under CD-0155. A session serving a local-only Product retains Concord's local planning authority."
+    },
+    {
+      "criterion": 20,
       "exemption": "Policy-only scope declaration under CD-0155. No typed operation, schema, or validator is added by this amendment."
     }
   ],
@@ -109,6 +113,10 @@
     {
       "kind": "subordinate_to",
       "target_id": "CD-0155"
+    },
+    {
+      "kind": "subordinate_to",
+      "target_id": "CD-0167"
     }
   ],
   "path": "docs/development-authority.md",
@@ -119,7 +127,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:42c136d5c7a68f37c37c0e7140da7c35e417ae15272b278bf371b1a21e3de1d1",
+  "sha256": "sha256:788e6facf37d91c7afba42d297b8273416fc1d80fc245d5a69036447b1b4882a",
   "status": "accepted",
   "summary": "Defines Product-scoped planning, foreign-session routing by recorded mode, explicit Concord workflow participation, authorized outside-work defect repair, truthful activation and cutover, and separate repository and host authority.",
   "tags": [
@@ -132,7 +140,8 @@
     "linear",
     "local-only",
     "defect-repair",
-    "coordination"
+    "coordination",
+    "cd-0167"
   ],
   "title": "development authority"
 }

@@ -19,11 +19,14 @@ import (
 // workflowContractProductGuard enforces the Product-truth boundary the
 // approve_contract and supersede_contract arms share: the architecture
 // binding must parse, a Product-changing contract requires one, and a
-// non-Product-changing contract carries none and modifies no Product law.
+// non-Product-changing contract carries none. A non-Product-changing contract
+// may name law_modifies only when every named law is derived (CD-0041 D5 as
+// amended by the CON-336 decision, obs:fb9642cbd1700ec6); the tier-scoped
+// check runs against the same transaction the caller already holds.
 // role names the contract side in the refusal messages; completeRecovery is
 // the Product-changing refusal's recovery hint. The parsed binding returns
 // for the caller's payload assembly.
-func workflowContractProductGuard(fields map[string]json.RawMessage, lawModifies []string, productChanging bool, role, completeRecovery string) (*WorkflowArchitectureBinding, error) {
+func workflowContractProductGuard(ctx context.Context, tx *sql.Tx, workID string, fields map[string]json.RawMessage, lawModifies []string, productChanging bool, role, completeRecovery string) (*WorkflowArchitectureBinding, error) {
 	bindingRaw, bindingPresent := fields["architecture_binding"]
 	binding, err := parseWorkflowArchitectureBinding(bindingRaw)
 	if err != nil {
@@ -38,8 +41,8 @@ func workflowContractProductGuard(fields map[string]json.RawMessage, lawModifies
 	if bindingPresent && string(bindingRaw) != "null" {
 		return nil, newFailure(KindInvalidPayload, "workflow_action", "non-Product-changing "+role+" cannot carry architecture_binding", false, "select a registered Product-changing workflow")
 	}
-	if len(lawModifies) != 0 {
-		return nil, newFailure(KindInvalidPayload, "workflow_action", "non-Product-changing "+role+" cannot modify Product law", false, "leave law_modifies empty")
+	if err := validateDerivedLawModification(ctx, tx, workID, lawModifies); err != nil {
+		return nil, err
 	}
 	return binding, nil
 }
@@ -152,14 +155,20 @@ func workflowApproveContractEvents(ctx context.Context, tx *sql.Tx, definition W
 	rigor := workflowFieldStringDefault(fields, "rigor_class", "prototype_internal")
 	contract := map[string]any{"contract_version": contractVersion, "premise": premise, "outcome_predicates": outcomePredicates, "outcome_kind": outcomeKind, "outcome_payload": outcome, "required_evidence": required, "route_conventions": routes, "spec_mandate": spec, "law_modifies": lawModifies, "rigor_class": rigor, "consequence_class": string(ActionInternalSQLite)}
 	productChanging := definition.ChangesProductTruth != nil && *definition.ChangesProductTruth
-	binding, bindingErr := workflowContractProductGuard(fields, lawModifies, productChanging, "approval", "supply the complete architecture binding")
+	binding, bindingErr := workflowContractProductGuard(ctx, tx, request.WorkID, fields, lawModifies, productChanging, "approval", "supply the complete architecture binding")
 	if bindingErr != nil {
 		return nil, bindingErr
 	}
 	if productChanging {
 		contract["architecture_binding"] = binding
 	}
-	if !productChanging {
+	// law_modifies stays on non-Product-changing contracts that passed the
+	// tier-scoped guard: the derived revision lines are the visible record
+	// the operator approves (CD-0041 D5 as amended). An empty law_modifies is
+	// dropped only for non-Product-changing contracts, so a contract that
+	// touches no law keeps its old shape; the Product-changing fold requires
+	// the composed field to be present even when empty.
+	if len(lawModifies) == 0 && !productChanging {
 		delete(contract, "law_modifies")
 	}
 	revisionMandate := spec
@@ -246,7 +255,7 @@ func workflowSupersedeContractEvents(ctx context.Context, tx *sql.Tx, definition
 	lawModifies := workflowFieldStrings(fields, "law_modifies")
 	specMandate := workflowFieldStrings(fields, "spec_mandate")
 	productChanging := definition.ChangesProductTruth != nil && *definition.ChangesProductTruth
-	binding, bindingErr := workflowContractProductGuard(fields, lawModifies, productChanging, "successor", "supply the complete successor architecture binding")
+	binding, bindingErr := workflowContractProductGuard(ctx, tx, request.WorkID, fields, lawModifies, productChanging, "successor", "supply the complete successor architecture binding")
 	if bindingErr != nil {
 		return nil, bindingErr
 	}

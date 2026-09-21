@@ -196,6 +196,63 @@ func stringArgs(values []string) []any {
 	return args
 }
 
+// validateDerivedLawModification holds the tier-scoped half of the
+// Product-truth boundary that CD-0041 D5 states and the CON-336 decision
+// (obs:fb9642cbd1700ec6) resolved: a contract that does not change Product
+// truth may revise derived law in-contract, and nothing else. It reads each
+// modified law's authority_tier from the accepted Git law projection through
+// the work's canonical law home, so the approve path and the fold answer with
+// one query and cannot drift. A missing name or a non-derived tier is a
+// refusal; the caller's recovery hint names the Product-changing route.
+func validateDerivedLawModification(ctx context.Context, q queryer, workID string, modified []string) error {
+	if len(modified) == 0 {
+		return nil
+	}
+	homeProjectID, homeLocatorID, err := workflowLawHome(ctx, q, workID)
+	if err != nil {
+		return err
+	}
+	placeholders := strings.TrimRight(strings.Repeat("?,", len(modified)), ",")
+	args := []any{homeProjectID, homeLocatorID}
+	for _, id := range modified {
+		args = append(args, id)
+	}
+	rows, err := q.QueryContext(ctx, `SELECT law_id,authority_tier FROM law_subjects WHERE home_project_id=? AND home_locator_id=? AND law_id IN (`+placeholders+`) LIMIT 33`, args...)
+	if err != nil {
+		return wrapFailure(KindUnavailable, "check_derived_law_modification", "cannot read the law authority tiers", true, "retry once the law projection is readable", err)
+	}
+	tiers := map[string]string{}
+	for rows.Next() {
+		var id, tier string
+		if err := rows.Scan(&id, &tier); err != nil {
+			rows.Close()
+			return wrapFailure(KindUnavailable, "check_derived_law_modification", "cannot decode a law authority tier", true, "retry once the law projection is readable", err)
+		}
+		tiers[id] = tier
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return wrapFailure(KindUnavailable, "check_derived_law_modification", "cannot finish reading law authority tiers", true, "retry once the law projection is readable", err)
+	}
+	if err := rows.Close(); err != nil {
+		return wrapFailure(KindUnavailable, "check_derived_law_modification", "cannot finish reading law authority tiers", true, "retry once the law projection is readable", err)
+	}
+	nonDerived := make([]string, 0)
+	for _, id := range modified {
+		tier, ok := tiers[id]
+		if !ok {
+			return newFailure(KindProjectionNotFound, "check_derived_law_modification", "a modified law is unknown to the accepted Git law projection: "+id, false, "publish and rebuild the accepted Git law projection")
+		}
+		if tier != "derived" {
+			nonDerived = append(nonDerived, id)
+		}
+	}
+	if len(nonDerived) != 0 {
+		return newFailure(KindInvalidPayload, "check_derived_law_modification", "a contract that does not change Product truth may revise only derived law: "+strings.Join(nonDerived, ","), false, "leave law_modifies empty or select a Product-changing workflow")
+	}
+	return nil
+}
+
 func validateLawModificationSubset(mandated, modified []string) error {
 	mandate := make(map[string]bool, len(mandated))
 	for _, id := range mandated {

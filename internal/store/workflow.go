@@ -838,7 +838,16 @@ func foldWorkflowContractApproved(ctx context.Context, tx *sql.Tx, event Event) 
 			return newFailure(KindInvalidPayload, "fold_event", "non-Product-changing workflow cannot carry architecture_binding", false, "select a registered Product-changing workflow")
 		}
 		if len(p.LawModifies) != 0 {
-			return newFailure(KindInvalidPayload, "fold_event", "non-Product-changing workflow cannot modify Product law", false, "leave law_modifies empty or select a Product-changing workflow")
+			// CD-0041 D5 as amended by the CON-336 decision: a contract that
+			// does not change Product truth may revise derived law in-contract.
+			// The replay path skips the check because the approved contract
+			// already carried the tiers it named at approval time.
+			if isWorkflowReplay(ctx) {
+				return newFailure(KindInvalidPayload, "fold_event", "non-Product-changing workflow cannot modify Product law", false, "leave law_modifies empty or select a Product-changing workflow")
+			}
+			if err := validateDerivedLawModification(ctx, tx, event.SubjectID, p.LawModifies); err != nil {
+				return err
+			}
 		}
 		if p.LawRevisions != nil {
 			if err := validateWorkflowLawRevisions(p.SpecMandate, p.LawRevisions); err != nil {
@@ -989,7 +998,17 @@ func foldWorkflowContractSuperseded(ctx context.Context, tx *sql.Tx, event Event
 				return err
 			}
 		} else if len(p.SuccessorContract.LawModifies) != 0 || p.SuccessorContract.ArchitectureBinding != nil {
-			return newFailure(KindInvalidPayload, "fold_event", "non-Product-changing successor carries Product authority", false, "leave Product-changing fields empty")
+			// CD-0041 D5 as amended by the CON-336 decision: a successor that
+			// does not change Product truth may revise derived law in-contract.
+			// A binding still carries Product authority and is refused here.
+			if p.SuccessorContract.ArchitectureBinding != nil {
+				return newFailure(KindInvalidPayload, "fold_event", "non-Product-changing successor carries Product authority", false, "leave Product-changing fields empty")
+			}
+			if !isWorkflowReplay(ctx) {
+				if err := validateDerivedLawModification(ctx, tx, event.SubjectID, p.SuccessorContract.LawModifies); err != nil {
+					return err
+				}
+			}
 		}
 		if !isWorkflowReplay(ctx) {
 			if !productChanging {

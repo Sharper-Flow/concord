@@ -39,6 +39,7 @@
         "internal/store.compareSubjectSets",
         "internal/store.compareTokenSets",
         "internal/store.evaluateWorkflowOutcomePredicateCore",
+        "internal/store.parkedDeliveryRead",
         "internal/store.predicateStringSet",
         "internal/store.projectionColumns",
         "internal/store.quoteSQLiteIdentifier",

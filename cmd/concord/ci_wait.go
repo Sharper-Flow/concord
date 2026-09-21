@@ -35,14 +35,20 @@ import (
 // records started_at, later invocations resume the same deadline.
 
 const (
-	ciWaitSliceSeconds    = 100
-	ciWaitPollSeconds     = 15
-	ciWaitMaxIterations   = 120
-	ciWaitDefaultBudget   = 1800
-	ciWaitShutdownSlack   = 5 * time.Second
-	ciWaitStateDir        = "concord"
-	ciWaitStateFilePrefix = "ci-wait-"
-	ciWaitStateMaxAge     = 24 * time.Hour
+	ciWaitSliceSeconds      = 100
+	ciWaitPollFastSeconds   = 15
+	ciWaitPollMediumSeconds = 30
+	ciWaitPollSlowSeconds   = 60
+	ciWaitPollMediumAfter   = 60 * time.Second
+	ciWaitPollSlowAfter     = 300 * time.Second
+	ciWaitCommandRetryDelay = 2 * time.Second
+	ciWaitPRRollupPageSize  = 100
+	ciWaitMaxIterations     = 120
+	ciWaitDefaultBudget     = 1800
+	ciWaitShutdownSlack     = 5 * time.Second
+	ciWaitStateDir          = "concord"
+	ciWaitStateFilePrefix   = "ci-wait-"
+	ciWaitStateMaxAge       = 24 * time.Hour
 )
 
 // ciWaitCommandTimeout bounds one gh invocation. It is a variable so the test
@@ -147,14 +153,32 @@ func runCiWait(raw []byte, out, errOut io.Writer) int {
 		return ciWaitFinishTimeout(state, stateFile, out)
 	}
 	sliceEnd := time.Now().Add(slice)
+	sliceContext, cancel := context.WithDeadline(context.Background(), sliceEnd)
+	defer cancel()
 
 	// lastObservation carries the most recent poll's fields into the pending
 	// report, so a caller that re-invokes sees what the last slice saw.
 	var lastObservation ciWaitReport
 	for {
 		state.Iterations++
-		report, terminal, terr := ciWaitPoll(state)
+		report, terminal, terr := ciWaitPoll(sliceContext, state)
 		if terr != nil {
+			var stalled *ciWaitStallError
+			if errors.As(terr, &stalled) {
+				pending := ciWaitReport{
+					Status:     "pending",
+					Reason:     stalled.Error(),
+					Iterations: state.Iterations,
+					Elapsed:    int(time.Since(state.StartedAt).Seconds()),
+					Deadline:   state.BudgetSeconds,
+					SHA:        state.LastSHA,
+					HeadSHA:    state.HeadSHA,
+					MergeState: state.LastMergeState,
+					StateFile:  stateFile,
+				}
+				ciWaitSaveState(state, stateFile)
+				return ciWaitEmit(out, pending, 0)
+			}
 			// A provider, auth, or transport failure is an explicit error.
 			// It is never a success, and it keeps the state file so the wait
 			// can resume after the caller retries.
@@ -178,11 +202,12 @@ func runCiWait(raw []byte, out, errOut io.Writer) int {
 			return ciWaitEmit(out, report, 0)
 		}
 		lastObservation = report
-		if !time.Now().Add(ciWaitPollSeconds).Before(sliceEnd) {
+		interval := ciWaitPollInterval(time.Since(state.StartedAt))
+		if !time.Now().Add(interval).Before(sliceEnd) {
 			break
 		}
 		// Deterministic sleep inside the slice; the model issues no commands.
-		time.Sleep(ciWaitPollSeconds)
+		time.Sleep(interval)
 	}
 
 	pending := ciWaitReport{
@@ -204,10 +229,7 @@ func runCiWait(raw []byte, out, errOut io.Writer) int {
 
 // ciWaitPoll reads the current state once and classifies it. The observation
 // comes from gh; the classification derives from it and nothing else.
-func ciWaitPoll(state *ciWaitState) (ciWaitReport, bool, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), ciWaitCommandTimeout)
-	defer cancel()
-
+func ciWaitPoll(ctx context.Context, state *ciWaitState) (ciWaitReport, bool, error) {
 	switch state.Selector.Kind {
 	case "pr":
 		return ciWaitPollPR(ctx, state)
@@ -220,12 +242,49 @@ func ciWaitPoll(state *ciWaitState) (ciWaitReport, bool, error) {
 	}
 }
 
+var errCiWaitCommandTimeout = errors.New("gh command timeout")
+
+type ciWaitStallError struct {
+	command string
+}
+
+func (e *ciWaitStallError) Error() string {
+	return fmt.Sprintf("gh command stalled after two timeout attempts: %s", e.command)
+}
+
 func ciWaitGH(ctx context.Context, args ...string) ([]byte, error) {
+	for attempt := 0; attempt < 2; attempt++ {
+		body, err := ciWaitGHOnce(ctx, args...)
+		if err == nil {
+			return body, nil
+		}
+		if !errors.Is(err, errCiWaitCommandTimeout) {
+			return nil, err
+		}
+		if attempt == 1 {
+			return nil, &ciWaitStallError{command: strings.Join(args[:min(2, len(args))], " ")}
+		}
+		timer := time.NewTimer(ciWaitCommandRetryDelay)
+		select {
+		case <-ctx.Done():
+			if !timer.Stop() {
+				<-timer.C
+			}
+			return nil, &ciWaitStallError{command: strings.Join(args[:min(2, len(args))], " ")}
+		case <-timer.C:
+		}
+	}
+	return nil, &ciWaitStallError{command: strings.Join(args[:min(2, len(args))], " ")}
+}
+
+func ciWaitGHOnce(ctx context.Context, args ...string) ([]byte, error) {
+	commandContext, cancel := context.WithTimeout(ctx, ciWaitCommandTimeout)
+	defer cancel()
 	//nolint:gosec // G204: subcommands are a fixed read-only query set, and every
 	// variable arg is validated before this call: selector values are
 	// digits-only or hex-40, and repo is a token the gh binary parses, never a
 	// shell input.
-	cmd := exec.CommandContext(ctx, "gh", args...)
+	cmd := exec.CommandContext(commandContext, "gh", args...)
 	// The gh process becomes its own process group leader, so the kill below
 	// reaches every child it spawned. Without this, a hung `gh` child keeps
 	// the stdout pipe open and outlives the command timeout.
@@ -244,8 +303,8 @@ func ciWaitGH(ctx context.Context, args ...string) ([]byte, error) {
 	runErr := cmd.Run()
 	if runErr != nil {
 		detail := strings.TrimSpace(stderr.String())
-		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
-			return nil, fmt.Errorf("gh did not answer within its command timeout")
+		if errors.Is(commandContext.Err(), context.DeadlineExceeded) {
+			return nil, errCiWaitCommandTimeout
 		}
 		if detail == "" {
 			detail = runErr.Error()
@@ -253,6 +312,17 @@ func ciWaitGH(ctx context.Context, args ...string) ([]byte, error) {
 		return nil, fmt.Errorf("gh %s: %s", strings.Join(args[:min(2, len(args))], " "), detail)
 	}
 	return stdout.Bytes(), nil
+}
+
+func ciWaitPollInterval(elapsed time.Duration) time.Duration {
+	switch {
+	case elapsed < ciWaitPollMediumAfter:
+		return ciWaitPollFastSeconds * time.Second
+	case elapsed < ciWaitPollSlowAfter:
+		return ciWaitPollMediumSeconds * time.Second
+	default:
+		return ciWaitPollSlowSeconds * time.Second
+	}
 }
 
 func ciWaitDecode(body []byte, target any) error {
@@ -350,17 +420,21 @@ func ciWaitPollPR(ctx context.Context, state *ciWaitState) (ciWaitReport, bool, 
 		return report, false, nil
 	}
 
-	checksBody, err := ciWaitGH(ctx, "pr", "checks", state.Selector.Value,
-		"--repo", state.Repo, "--json", "name,state,link,bucket")
-	if err != nil {
-		return ciWaitReport{}, false, err
+	var population []ciWaitCheck
+	if len(head.StatusCheckRollup) == ciWaitPRRollupPageSize {
+		checksBody, err := ciWaitGH(ctx, "pr", "checks", state.Selector.Value,
+			"--repo", state.Repo, "--json", "name,state,link,bucket")
+		if err != nil {
+			return ciWaitReport{}, false, err
+		}
+		var checks []ghPRCheck
+		if err := ciWaitDecode(checksBody, &checks); err != nil {
+			return ciWaitReport{}, false, err
+		}
+		population = ciWaitPRCheckPopulation(checks, head.StatusCheckRollup)
+	} else {
+		population = ciWaitPRCheckPopulation(nil, head.StatusCheckRollup)
 	}
-	var checks []ghPRCheck
-	if err := ciWaitDecode(checksBody, &checks); err != nil {
-		return ciWaitReport{}, false, err
-	}
-
-	population := ciWaitPRCheckPopulation(checks, head.StatusCheckRollup)
 	counts := &ciWaitChecks{Total: len(population), Entries: make([]ciWaitCheck, 0, len(population))}
 	var failures []ciWaitDetail
 	for _, check := range population {
@@ -386,10 +460,6 @@ func ciWaitPollPR(ctx context.Context, state *ciWaitState) (ciWaitReport, bool, 
 	// pending until the deadline, and the timeout report says so.
 	if counts.Total == 0 {
 		report.Reason = "no checks reported for this pull request yet"
-		return report, false, nil
-	}
-	if head.StatusCheckRollup != nil && len(checks) > 0 && len(head.StatusCheckRollup) == 0 {
-		report.Reason = "the pull request status check rollup is not available yet"
 		return report, false, nil
 	}
 	if head.StatusCheckRollup != nil && !ciWaitRollupTerminal(head.StatusCheckRollup) {

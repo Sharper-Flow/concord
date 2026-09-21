@@ -1,0 +1,36 @@
+{
+  "authority": {
+    "contract_version": 1,
+    "legislated_by": "work-881afe9a6028de9128786350",
+    "tier": "legislated"
+  },
+  "date": "2026-09-21T00:00:00Z",
+  "home_domain_id": "operator-surface",
+  "id": "CD-0168",
+  "kind": "decision",
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "CD-0160"
+    }
+  ],
+  "path": "docs/decisions/CD-0168-the-ci-wait-pr-population-follows-the-rollup-page-boundary.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:26ff60dcf6dd50570e613aa9354fc9839f736510df83d8551fa4aa6bf39eeb55",
+  "status": "accepted",
+  "summary": "Checks-mode ci-wait builds its PR check population from the gh pr view status-check rollup and queries gh pr checks only when that rollup holds the full 100-context page, where pagination still decides the set. This amends CD-0160 D4, which named gh pr checks as the PR selector's query. The poll interval stages on the elapsed time the state file already carries: 15 seconds for the first minute, 30 seconds until five minutes, and 60 seconds after. A gh command that reaches its timeout retries once after two seconds and then reports pending with a stall reason, because a stall carries no verdict about the checks; a non-timeout transport, authentication, or decode failure still reports error. The bounded slice, the state-carried deadline, merge mode, and the checks-mode and merge-mode terminal rules are unchanged.",
+  "tags": [
+    "ci-wait",
+    "cli",
+    "github",
+    "polling",
+    "operator-surface"
+  ],
+  "title": "The ci-wait PR population follows the rollup page boundary"
+}

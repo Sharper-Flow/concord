@@ -659,7 +659,10 @@ test("readExportOpeningPacket admits the exact packet and refuses every substitu
 
 // The authorized dispatch writes the packet as one text part. Content beside
 // it reached the worker and was never authorized, so the packet text alone
-// cannot establish identity.
+// cannot establish identity. The host's own wrapper parts — the agent part
+// and the synthetic instruction the host derives when the packet text
+// mentions the lane agent — are the one exception, and they must match the
+// host's deterministic bytes for this lane's agent.
 test("readExportOpeningPacket refuses content beside the exact packet", () => {
   const openingParts = (parts: unknown[]) => JSON.stringify({
     info: { id: "session-1" },
@@ -669,15 +672,62 @@ test("readExportOpeningPacket refuses content beside the exact packet", () => {
     { type: "text", text: JSON.stringify(packet()) },
     { type: "file", filename: "notes.md", url: "file:///notes.md" },
   ]), "session-1", packet())
-  expect(withFile).toEqual({ ok: false, predicate: "dispatched_packet_identity", message: "worker session opened with 2 message parts instead of the single authorized dispatch packet" })
+  expect(withFile).toEqual({ ok: false, predicate: "dispatched_packet_identity", message: "worker session opened with a file part instead of the authorized dispatch packet" })
   const splitText = readExportOpeningPacket(openingParts([
     { type: "text", text: JSON.stringify(packet()).slice(0, 10) },
     { type: "text", text: JSON.stringify(packet()).slice(10) },
   ]), "session-1", packet())
-  expect(splitText).toEqual({ ok: false, predicate: "dispatched_packet_identity", message: "worker session opened with 2 message parts instead of the single authorized dispatch packet" })
+  expect(splitText).toEqual({ ok: false, predicate: "dispatched_packet_identity", message: "worker session opened with an unauthorized text part beside the authorized dispatch packet" })
   const fileOnly = readExportOpeningPacket(openingParts([{ type: "file", filename: "notes.md", url: "file:///notes.md" }]), "session-1", packet())
   expect(fileOnly).toEqual({ ok: false, predicate: "dispatched_packet_identity", message: "worker session opened with a file part instead of the authorized dispatch packet" })
   expect(readExportOpeningPacket(openingParts([]), "session-1", packet())).toEqual({ ok: false, predicate: "dispatched_packet_identity", message: "worker session opened with 0 message parts instead of the single authorized dispatch packet" })
+})
+
+// The host splits the opening message into [packet text, agent part, synthetic
+// instruction] when the packet text mentions the lane agent — observed in
+// production when a retry's correction block quotes the prior attempt's
+// session title. The wrapper parts are the host's own bytes for the lane
+// agent, so they admit the packet; a wrapper for another agent, a wrapper with
+// unexpected bytes, or worker-composed content beside the packet refuses.
+test("readExportOpeningPacket admits the host wrapper beside the packet and refuses every substitute", () => {
+  const openingParts = (parts: unknown[]) => JSON.stringify({
+    info: { id: "session-1" },
+    messages: [{ info: { id: "message-1", sessionID: "session-1", role: "user", time: { created: 1 } }, parts }],
+  })
+  const laneAgent = "concord-" + packet().lane_id
+  const wrapper = " Use the above message and context to generate a prompt and call the task tool with subagent: " + laneAgent
+  const production = openingParts([
+    { type: "text", text: JSON.stringify(packet()) },
+    { type: "agent", name: laneAgent, id: "prt-1", sessionID: "session-1", messageID: "message-1" },
+    { type: "text", text: wrapper + " . Invoked by user; guaranteed to exist." },
+  ])
+  expect(readExportOpeningPacket(production, "session-1", packet())).toEqual({ ok: true })
+  const plainWrapper = openingParts([
+    { type: "text", text: JSON.stringify(packet()) },
+    { type: "agent", name: laneAgent },
+    { type: "text", text: wrapper },
+  ])
+  expect(readExportOpeningPacket(plainWrapper, "session-1", packet())).toEqual({ ok: true })
+  const wrongAgent = readExportOpeningPacket(openingParts([
+    { type: "text", text: JSON.stringify(packet()) },
+    { type: "agent", name: "concord-review" },
+  ]), "session-1", packet())
+  expect(wrongAgent).toEqual({ ok: false, predicate: "dispatched_packet_identity", message: `worker session opened with a host agent part for concord-review instead of ${laneAgent}` })
+  const foreignWrapper = readExportOpeningPacket(openingParts([
+    { type: "text", text: JSON.stringify(packet()) },
+    { type: "text", text: wrapper + " plus worker-composed instructions" },
+  ]), "session-1", packet())
+  expect(foreignWrapper).toEqual({ ok: false, predicate: "dispatched_packet_identity", message: "worker session opened with an unauthorized text part beside the authorized dispatch packet" })
+  const duplicatedPacket = readExportOpeningPacket(openingParts([
+    { type: "text", text: JSON.stringify(packet()) },
+    { type: "text", text: JSON.stringify(packet()) },
+  ]), "session-1", packet())
+  expect(duplicatedPacket).toEqual({ ok: false, predicate: "dispatched_packet_identity", message: "worker session opened with the authorized dispatch packet repeated beside itself" })
+  const packetMissing = readExportOpeningPacket(openingParts([
+    { type: "agent", name: laneAgent },
+    { type: "text", text: wrapper },
+  ]), "session-1", packet())
+  expect(packetMissing).toEqual({ ok: false, predicate: "dispatched_packet_identity", message: "worker session opened with a message that is not the authorized dispatch packet" })
 })
 
 // The sanitized readback bounds its own export. This predicate reads a second,

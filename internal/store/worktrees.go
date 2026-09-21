@@ -1132,7 +1132,15 @@ func convergeRecordedReclaimTx(ctx context.Context, tx *sql.Tx, req WorktreeRecl
 		}
 		return err
 	}
-	return foldWorktreeReclaimedTx(ctx, tx, stored, p, current < p.ResultingVersion)
+	if err := enterFold(ctx, tx); err != nil {
+		return err
+	}
+	foldErr := foldWorktreeReclaimedTx(ctx, tx, stored, p, current < p.ResultingVersion)
+	leaveErr := leaveFold(ctx, tx)
+	if foldErr != nil {
+		return foldErr
+	}
+	return leaveErr
 }
 
 func releaseWorktreeOccupancyTx(ctx context.Context, tx *sql.Tx, req WorktreeReclaimRequest, setID, claimOpID string, now time.Time) error {

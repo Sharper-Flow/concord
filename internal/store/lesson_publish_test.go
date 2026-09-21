@@ -415,3 +415,49 @@ func sortedKeys(value map[string]json.RawMessage) []string {
 	sort.Strings(keys)
 	return keys
 }
+
+// TestPublishLessonRecordAssignsTheDerivedTier holds the one runtime writer of
+// a knowledge record at the tier its standing earns. A lesson an agent writes
+// while delivering a change is derived, so a later contract may revise it
+// without an operator checkpoint. Only a legislated record keeps that gate.
+func TestPublishLessonRecordAssignsTheDerivedTier(t *testing.T) {
+	t.Parallel()
+	repo := lessonRepoFixture(t)
+	published, err := PublishLessonRecord(context.Background(), KnowledgeHome{RepoPath: repo}, LessonPublication{
+		LessonID: "lesson-authority-tier", Title: "A published lesson is derived",
+		Summary: "The runtime writer assigns the derived tier at write time.",
+		Content: "# A published lesson is derived\n\nStanding is fixed at write time.\n",
+		Tags:    []string{"testing"},
+		Scopes:  KnowledgeRecordScopes{Mode: "explicit", ProjectIDs: []string{"project-1"}},
+		Now:     time.Date(2026, 8, 15, 0, 0, 0, 0, time.UTC),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if published.Record.Authority.Tier != "derived" {
+		t.Fatalf("a published lesson carries tier %q", published.Record.Authority.Tier)
+	}
+	if published.Record.Authority.LegislatedBy != "" || published.Record.Authority.ContractVersion != 0 {
+		t.Fatalf("a derived lesson carries legislation fields: %+v", published.Record.Authority)
+	}
+
+	shardBytes, err := os.ReadFile(filepath.Join(repo, lessonRecordDir, "lesson-authority-tier.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var shard struct {
+		Authority struct {
+			Tier         string `json:"tier"`
+			LegislatedBy string `json:"legislated_by"`
+		} `json:"authority"`
+	}
+	if err := json.Unmarshal(shardBytes, &shard); err != nil {
+		t.Fatal(err)
+	}
+	if shard.Authority.Tier != "derived" {
+		t.Fatalf("the committed shard carries tier %q", shard.Authority.Tier)
+	}
+	if shard.Authority.LegislatedBy != "" {
+		t.Fatalf("the committed shard carries legislated_by %q", shard.Authority.LegislatedBy)
+	}
+}

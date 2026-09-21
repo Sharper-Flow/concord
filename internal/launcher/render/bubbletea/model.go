@@ -650,7 +650,7 @@ func (m *Model) pageSize() int {
 	innerWidth := m.width - 2
 	headerLines := len(wrapPaneLines(content.header, innerWidth))
 	footerLines := len(wrapPaneLines(content.footer, innerWidth))
-	return max(1, m.height-5-headerLines-footerLines)
+	return max(1, m.height-4-headerLines-footerLines)
 }
 
 func (m *Model) adjustScroll() {
@@ -747,16 +747,13 @@ func (m *Model) Render() string {
 		fixedLine("FOCUS: "+focusText(snapshot), m.width/2),
 		fixedLine(status, m.width-m.width/2),
 	)
-	footer := m.help.View(m.keys)
-	if m.showHelp {
-		footer = "HELP: " + footer
-	}
+	// The pane owns the help footer; the frame carries only the header and
+	// status bar above it.
 	return fixedFrame(
 		lipgloss.JoinVertical(lipgloss.Left,
 			fixedLine(header, m.width),
 			statusBar,
-			pane(content, m.width, max(1, m.height-3), m.scroll),
-			fixedLine(footer, m.width),
+			pane(content, m.width, max(1, m.height-2), m.scroll),
 		), m.width, m.height)
 }
 
@@ -799,26 +796,18 @@ func (m *Model) renderPortfolio(snapshot launcher.Snapshot, cursor int) rendered
 	renderedRows := make([][]string, 0, len(rows))
 	for i, row := range rows {
 		values := []string{row.Name + row.NameSuffix, row.Stage, relianceText(row), actionText(row), row.Focus}
-		parts := make([][]string, len(values))
-		multiline := false
-		for i, value := range values {
-			parts[i] = splitDisplay(value, widths[i])
-			if len(parts[i]) > 1 {
-				multiline = true
+		cells := make([]string, 0, len(values))
+		for j, value := range values {
+			// A value that does not fit its column is truncated with an
+			// ellipsis so the row renders on exactly one line at every
+			// supported terminal width.
+			cell := truncateDisplay(value, widths[j])
+			if j < len(values)-1 {
+				cell = padDisplay(cell, widths[j])
 			}
+			cells = append(cells, cell)
 		}
-		if !multiline {
-			renderedRows = append(renderedRows, []string{selectedRow(i, cursor, strings.Join(values, " | "), m.profile.Color)})
-			continue
-		}
-		rowLines := make([]string, 0, len(values))
-		for partIndex, valueParts := range parts {
-			if partIndex == 0 && len(valueParts) > 0 {
-				valueParts[0] = selectedRow(i, cursor, valueParts[0], m.profile.Color)
-			}
-			rowLines = append(rowLines, valueParts...)
-		}
-		renderedRows = append(renderedRows, rowLines)
+		renderedRows = append(renderedRows, []string{selectedRow(i, cursor, strings.TrimRight(strings.Join(cells, " | "), " "), m.profile.Color)})
 	}
 	footer := m.footerLines()
 	return renderedPane{header: header, rows: renderedRows, footer: footer}
@@ -843,7 +832,7 @@ func (m *Model) renderS2(headers []string, cursor int) renderedPane {
 	focusedSeen := false
 	for _, panel := range stack.Panels {
 		focused := s.PanelFocus == panel || (s.PanelFocus == "" && panel == launcher.S2PanelDomain)
-		panelHeader, panelRows, panelTail := s2PanelContent(panel, focused, stack, s, m.filteredRanked(), cursor, m.profile.Color)
+		panelHeader, panelRows, panelTail := s2PanelContent(panel, focused, stack, s, m.filteredRanked(), cursor, m.profile.Color, m.width)
 		if !focusedSeen && !focused {
 			header = append(header, panelHeader...)
 			continue
@@ -874,7 +863,7 @@ func (m *Model) renderS2(headers []string, cursor int) renderedPane {
 	return renderedPane{header: header, rows: rows, tail: tail, footer: footer}
 }
 
-func s2PanelContent(panel launcher.S2Panel, expanded bool, stack launcher.S2AnswerStack, snapshot launcher.Snapshot, ranked []launcher.RankedWork, cursor int, color bool) (header []string, rows [][]string, tail []string) {
+func s2PanelContent(panel launcher.S2Panel, expanded bool, stack launcher.S2AnswerStack, snapshot launcher.Snapshot, ranked []launcher.RankedWork, cursor int, color bool, width int) (header []string, rows [][]string, tail []string) {
 	if !expanded {
 		switch panel {
 		case launcher.S2PanelDomain:
@@ -890,7 +879,7 @@ func s2PanelContent(panel launcher.S2Panel, expanded bool, stack launcher.S2Answ
 		domainHeader, domainRows := domainLines(snapshot.Domains, cursor, color)
 		return append([]string{"DOMAIN:"}, domainHeader...), domainRows, append(knowledgeLines(snapshot.Knowledge), relationLines(snapshot.Relations)...)
 	case launcher.S2PanelBlocked, launcher.S2PanelNext:
-		return []string{"BLOCKED/BLOCKERS:"}, rankedLines(ranked, snapshot, cursor, color), nil
+		return []string{"BLOCKED/BLOCKERS:"}, rankedLines(ranked, snapshot, cursor, color, width), nil
 	default:
 		return nil, nil, nil
 	}
@@ -985,35 +974,99 @@ func relationLines(relations launcher.RelationTree) []string {
 	return lines
 }
 
-func rankedLines(ranked []launcher.RankedWork, snapshot launcher.Snapshot, cursor int, color bool) [][]string {
+// rankedColumn is one key=value column of a ranked work row. The order here
+// is the column selection order of the work list.
+type rankedColumn struct {
+	key, value string
+}
+
+// rankedColumns renders the ranked work columns in their fixed order. Empty
+// values render nothing and only mark their key absent from the row.
+func rankedColumns(item launcher.RankedWork, snapshot launcher.Snapshot) []rankedColumn {
+	urgency := item.Urgency
+	if urgency == "" {
+		urgency = "standard"
+	}
+	kind := item.Kind
+	if kind == "" {
+		kind = "-"
+	}
+	live := ""
+	if item.Live > 0 {
+		live = "yes"
+	} else if snapshot.ActiveWorkOnly && !item.Backlog {
+		live = "no"
+	}
+	return []rankedColumn{
+		{key: "issue", value: item.LinearIssueKey},
+		{key: "live", value: live},
+		{key: "kind", value: kind},
+		{key: "priority", value: fmtInt64(item.Priority)},
+		{key: "urgency", value: urgency},
+		{key: "lifecycle", value: item.Lifecycle},
+		{key: "terminal", value: item.TerminalAt},
+		{key: "projects", value: fmtInt(item.ProjectCount)},
+	}
+}
+
+// collapsedRankedKeys returns the ranked column keys whose rendered value is
+// identical on every visible row. A column that never separates two visible
+// rows spends row width without carrying information, so it collapses and
+// the same facts stay reachable on the work detail screen.
+func collapsedRankedKeys(ranked []launcher.RankedWork, snapshot launcher.Snapshot) map[string]bool {
+	constant := map[string]bool{}
+	if len(ranked) == 0 {
+		return constant
+	}
+	valueOf := func(item launcher.RankedWork) map[string]string {
+		values := map[string]string{}
+		for _, column := range rankedColumns(item, snapshot) {
+			values[column.key] = column.value
+		}
+		return values
+	}
+	first := valueOf(ranked[0])
+	for key, value := range first {
+		same := true
+		for _, item := range ranked[1:] {
+			if valueOf(item)[key] != value {
+				same = false
+				break
+			}
+		}
+		if same {
+			constant[key] = true
+		}
+	}
+	return constant
+}
+
+// rankedLines renders one line per work item. Columns whose value is
+// constant across the visible rows are collapsed, and the surviving line is
+// truncated to the row budget (the pane inner width minus the selection
+// marker) so a work row never wraps.
+func rankedLines(ranked []launcher.RankedWork, snapshot launcher.Snapshot, cursor int, color bool, width int) [][]string {
 	if len(ranked) == 0 {
 		return [][]string{{"WORK: " + drillDownEmptyState(snapshot)}}
 	}
+	collapsed := collapsedRankedKeys(ranked, snapshot)
 	rows := make([][]string, 0, len(ranked))
 	for i, item := range ranked {
-		urgency := item.Urgency
-		if urgency == "" {
-			urgency = "standard"
+		var columns []string
+		for _, column := range rankedColumns(item, snapshot) {
+			if column.value == "" || collapsed[column.key] {
+				continue
+			}
+			columns = append(columns, column.key+"="+column.value)
 		}
-		terminal := ""
-		if item.TerminalAt != "" {
-			terminal = " terminal=" + item.TerminalAt
+		line := fmtInt(i+1) + " " + rankedMarker(&item) + " " + item.ID + " " + item.Title
+		if len(columns) > 0 {
+			line += " " + strings.Join(columns, " ")
 		}
-		kind := item.Kind
-		if kind == "" {
-			kind = "-"
+		if budget := width - 4; budget > 0 {
+			line = truncateDisplay(line, budget)
 		}
-		issue := item.LinearIssueKey
-		extra := ""
-		if issue != "" {
-			extra += " issue=" + issue
-		}
-		if item.Live > 0 {
-			extra += " live=yes"
-		} else if snapshot.ActiveWorkOnly && !item.Backlog {
-			extra += " live=no"
-		}
-		row := []string{selectedRow(i, cursor, fmtInt(i+1)+" "+rankedMarker(&item)+" "+item.ID+" "+item.Title+extra+" kind="+kind+" priority="+fmtInt64(item.Priority)+" urgency="+urgency+" lifecycle="+item.Lifecycle+terminal+" projects="+fmtInt(item.ProjectCount), color)}
+		row := []string{selectedRow(i, cursor, line, color)}
 		for _, blocker := range item.Blockers {
 			external := ""
 			if blocker.External {
@@ -1285,7 +1338,50 @@ func columnWidths(width int) []int {
 	if width < 80 {
 		width = 80
 	}
-	return []int{18, 14, 18, 12, width - 18 - 14 - 18 - 12}
+	// Four " | " separators, the two-character selection marker, and the two
+	// pane border columns ride inside the terminal width. Every column scales
+	// with the terminal width, so no column is starved at the 80-column floor
+	// this launcher supports, and the widths plus their separators fill the
+	// pane inner width exactly so a padded row never wraps.
+	available := width - len(" | ")*4 - len("> ") - 2
+	weights := []int{3, 2, 2, 2, 3}
+	total := 0
+	for _, weight := range weights {
+		total += weight
+	}
+	widths := make([]int, 0, len(weights))
+	used := 0
+	for _, weight := range weights {
+		w := available * weight / total
+		widths = append(widths, w)
+		used += w
+	}
+	// Distribute the rounding remainder from the first column so the widths
+	// always sum to the exact available budget.
+	for i := 0; used < available; i = (i + 1) % len(widths) {
+		widths[i]++
+		used++
+	}
+	return widths
+}
+
+// truncateDisplay cuts a value to the given display width and marks the cut
+// with an ellipsis, so a value that does not fit renders on one line instead
+// of wrapping. A value that already fits passes through unchanged.
+func truncateDisplay(value string, width int) string {
+	if width <= 0 || lipgloss.Width(value) <= width {
+		return value
+	}
+	limit := width - 1 // one display column carries the ellipsis
+	cut := ""
+	for _, r := range value {
+		candidate := cut + string(r)
+		if lipgloss.Width(candidate) > limit {
+			break
+		}
+		cut = candidate
+	}
+	return cut + "…"
 }
 
 func splitDisplay(value string, width int) []string {
@@ -1307,6 +1403,15 @@ func splitDisplay(value string, width int) []string {
 		chunks = append(chunks, current)
 	}
 	return chunks
+}
+
+// padDisplay right-pads a cell with spaces to the given display width so
+// every row keeps its " | " separators at the same column offsets.
+func padDisplay(value string, width int) string {
+	if gap := width - lipgloss.Width(value); gap > 0 {
+		return value + strings.Repeat(" ", gap)
+	}
+	return value
 }
 
 func max(a, b int) int {

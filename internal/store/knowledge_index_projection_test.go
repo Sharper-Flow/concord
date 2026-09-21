@@ -59,6 +59,73 @@ func seedAuthorityTierHome(t *testing.T) KnowledgeHome {
 	return KnowledgeHome{HomeProjectID: "project", HomeLocatorID: "locator", RepoPath: repo, HeadRef: "HEAD"}
 }
 
+// TestRebuildProjectsDerivedForALegacyCorpus holds the migration end to end.
+// The conflict path reads law_subjects and never opens a record file, so the
+// parser default is only worth something if it survives into the projection.
+// law_subjects constrains authority_tier to a closed two-value set, which an
+// unfilled default would violate at insert rather than at parse.
+func TestRebuildProjectsDerivedForALegacyCorpus(t *testing.T) {
+	ctx := context.Background()
+	repo := initKnowledgeRepo(t)
+	const decisionBody = "# Legacy decision\n\nAuthored before the tier existed.\n"
+	decisionPath := "docs/decisions/CD-0001-legacy.md"
+	writeKnowledgeFile(t, repo, decisionPath, decisionBody)
+	decisionSum := sha256.Sum256([]byte(decisionBody))
+
+	manifest := KnowledgeManifest{
+		SchemaVersion:  "1.2",
+		SupportedKinds: []string{"lesson", "decision", "spec"},
+		IndexedKinds:   []string{"lesson", "decision", "spec"},
+		DomainRegistry: KnowledgeDomainRegistry{
+			SchemaVersion: "1.0", ProductKey: "concord", RootDomainID: "product-root:concord",
+			Domains: []KnowledgeDomain{{DomainID: "product-root:concord", Name: "Concord", Purpose: "Product-wide law", Status: "current", ArchitectureRelations: []KnowledgeArchitectureRelation{}}},
+		},
+		Records: []KnowledgeRecord{{
+			ID: "CD-0001", Kind: "decision", Path: decisionPath, Status: "accepted", Date: "2026-08-18T00:00:00Z",
+			Title: "Legacy decision", Summary: "Authored before the tier existed", Tags: []string{},
+			Authority:    KnowledgeAuthority{Tier: "legislated", LegislatedBy: "fixture-authority", ContractVersion: 1},
+			Scopes:       homeScope(),
+			HomeDomainID: "product-root:concord", ProductWideRationale: "Fixture law binds every child Domain.",
+			SHA256: "sha256:" + hex.EncodeToString(decisionSum[:]),
+		}},
+	}
+	encoded, err := json.Marshal(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var document map[string]any
+	if err := json.Unmarshal(encoded, &document); err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range document["records"].([]any) {
+		delete(entry.(map[string]any), "authority")
+	}
+	stripped, err := json.Marshal(document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeKnowledgeFile(t, repo, knowledgeManifestPath, string(stripped)+"\n")
+	commitKnowledgeRepo(t, repo, "legacy knowledge")
+	home := KnowledgeHome{HomeProjectID: "project", HomeLocatorID: "locator", RepoPath: repo, HeadRef: "HEAD"}
+
+	s := openTemp(t)
+	defer s.Close()
+	authorizeKnowledgeProductHome(t, s, "concord", home)
+	if err := s.RebuildKnowledgeIndex(ctx, home); err != nil {
+		t.Fatalf("a legacy corpus failed to rebuild: %v", err)
+	}
+
+	var tier string
+	if err := s.DatabaseForTesting().QueryRowContext(ctx,
+		`SELECT authority_tier FROM law_subjects WHERE home_project_id=? AND home_locator_id=? AND law_id=?`,
+		home.HomeProjectID, home.HomeLocatorID, "CD-0001").Scan(&tier); err != nil {
+		t.Fatal(err)
+	}
+	if tier != "derived" {
+		t.Fatalf("a legacy record projected tier %q, want derived", tier)
+	}
+}
+
 // TestRebuildProjectsTheDeclaredAuthorityTierIntoLawSubjects holds that the
 // knowledge index rebuild carries each record's declared tier into the
 // law_subjects projection. The conflict path reads that projection and never

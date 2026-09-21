@@ -24,6 +24,12 @@ ALLOWED_DISPOSITION = {"path", "disposition", "reason"}
 ALLOWED_RECORD = {"id", "kind", "path", "status", "date", "title", "summary", "tags", "scopes", "successor", "sha256", "authority", "law_relations", "evidence", "criterion_bindings", "home_domain_id", "applies_to_domain_ids", "product_wide_rationale"}
 ALLOWED_AUTHORITY = {"tier", "legislated_by", "contract_version"}
 AUTHORITY_TIERS = {"legislated", "derived"}
+# The bounded set the parser reads, mirroring knowledgeManifestSchemaAccepted in
+# internal/store/knowledge_manifest.go. 1.2 predates the authority tier and 1.3
+# requires it; an unknown version is refused rather than guessed at.
+SCHEMA_VERSION_LEGACY = "1.2"
+SCHEMA_VERSION_CURRENT = "1.3"
+SCHEMA_VERSIONS = {SCHEMA_VERSION_LEGACY, SCHEMA_VERSION_CURRENT}
 ALLOWED_SCOPES_V12 = {"mode", "product_ids", "project_ids", "domain_ids", "tag_ids"}
 ALLOWED_DOMAIN_REGISTRY = {"schema_version", "product_key", "root_domain_id", "domains"}
 ALLOWED_DOMAIN = {"domain_id", "name", "purpose", "parent_domain_id", "status", "architecture_relations"}
@@ -303,8 +309,8 @@ def validate(data: object, *, check_hashes: bool = True) -> list[str]:
     if unknown:
         fail(findings, f"manifest: unknown fields: {sorted(unknown)}")
     schema_version = data.get("schema_version")
-    if schema_version != "1.2":
-        fail(findings, "manifest: schema_version must be 1.2")
+    if schema_version not in SCHEMA_VERSIONS:
+        fail(findings, f"manifest: schema_version must be one of {sorted(SCHEMA_VERSIONS)}")
     supported = data.get("supported_kinds")
     indexed = data.get("indexed_kinds")
     records = data.get("records")
@@ -337,6 +343,12 @@ def validate(data: object, *, check_hashes: bool = True) -> list[str]:
         if unknown:
             fail(findings, f"{prefix}: unknown fields: {sorted(unknown)}")
         required = ALLOWED_RECORD - {"successor", "law_relations", "evidence", "criterion_bindings", "home_domain_id", "applies_to_domain_ids", "product_wide_rationale"}
+        # CD-0159 arrived after schema 1.2 was published, so a 1.2 corpus
+        # declares no authority object and the parser supplies the derived
+        # tier. The field becomes required at 1.3, which is the version a
+        # corpus adopts once it has classified every record.
+        if schema_version == SCHEMA_VERSION_LEGACY:
+            required = required - {"authority"}
         missing = required - set(record)
         if missing:
             fail(findings, f"{prefix}: missing fields: {sorted(missing)}")
@@ -404,8 +416,10 @@ def validate(data: object, *, check_hashes: bool = True) -> list[str]:
         # check asserts tier presence, the closed two-value enum, and
         # legislated completeness — never the D5 kind table, which is a
         # one-time backfill rule; the operator promotes records afterward.
-        authority = record["authority"]
-        if not isinstance(authority, dict) or set(authority) - ALLOWED_AUTHORITY or authority.get("tier") not in AUTHORITY_TIERS:
+        authority = record.get("authority")
+        if authority is None and schema_version == SCHEMA_VERSION_LEGACY:
+            pass
+        elif not isinstance(authority, dict) or set(authority) - ALLOWED_AUTHORITY or authority.get("tier") not in AUTHORITY_TIERS:
             fail(findings, f"{prefix}: invalid authority object")
         else:
             legislated = authority["tier"] == "legislated"

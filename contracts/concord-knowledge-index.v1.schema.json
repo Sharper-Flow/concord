@@ -13,7 +13,10 @@
   ],
   "properties": {
     "schema_version": {
-      "const": "1.2"
+      "enum": [
+        "1.2",
+        "1.3"
+      ]
     },
     "supported_kinds": {
       "type": "array",
@@ -81,11 +84,16 @@
       "type": "object",
       "additionalProperties": false,
       "description": "CD-0159 D3: the standing of a law record, beside status. legislated_by and contract_version name the operator-approved work contract that fixed the legislated standing; they are required exactly when the tier is legislated.",
-      "required": ["tier"],
+      "required": [
+        "tier"
+      ],
       "properties": {
         "tier": {
           "type": "string",
-          "enum": ["legislated", "derived"]
+          "enum": [
+            "legislated",
+            "derived"
+          ]
         },
         "legislated_by": {
           "$ref": "#/$defs/id"
@@ -104,10 +112,15 @@
                 "const": "legislated"
               }
             },
-            "required": ["tier"]
+            "required": [
+              "tier"
+            ]
           },
           "then": {
-            "required": ["legislated_by", "contract_version"]
+            "required": [
+              "legislated_by",
+              "contract_version"
+            ]
           }
         },
         {
@@ -117,16 +130,22 @@
                 "const": "derived"
               }
             },
-            "required": ["tier"]
+            "required": [
+              "tier"
+            ]
           },
           "then": {
             "not": {
               "anyOf": [
                 {
-                  "required": ["legislated_by"]
+                  "required": [
+                    "legislated_by"
+                  ]
                 },
                 {
-                  "required": ["contract_version"]
+                  "required": [
+                    "contract_version"
+                  ]
                 }
               ]
             }
@@ -255,8 +274,7 @@
         "summary",
         "tags",
         "scopes",
-        "sha256",
-        "authority"
+        "sha256"
       ],
       "properties": {
         "id": {
@@ -1042,5 +1060,30 @@
         }
       }
     }
-  }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "schema_version": {
+            "const": "1.3"
+          }
+        },
+        "required": [
+          "schema_version"
+        ]
+      },
+      "then": {
+        "properties": {
+          "records": {
+            "items": {
+              "required": [
+                "authority"
+              ]
+            }
+          }
+        }
+      }
+    }
+  ]
 }

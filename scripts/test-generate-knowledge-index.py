@@ -138,7 +138,24 @@ def test_legacy_aggregate_template_is_rejected() -> None:
         }
         findings: list[str] = []
         assert generator.derive_aggregate(root, findings, template) is None
-        assert findings == ["manifest head schema_version must be 1.2"]
+        assert findings == ["manifest head schema_version must be one of ['1.2', '1.3']"]
+
+
+def test_head_accepts_every_supported_schema_version() -> None:
+    # The generator reads the bounded set the parser reads. Pinning one
+    # version here would refuse a corpus the store accepts.
+    for version in sorted(generator.SCHEMA_VERSIONS):
+        with tempfile.TemporaryDirectory() as directory:
+            root = build_root(directory)
+            write_shard(root, record("AA-0001"))
+            template = {
+                "schema_version": version,
+                "supported_kinds": ["lesson"],
+                "indexed_kinds": ["lesson"],
+            }
+            findings: list[str] = []
+            assert generator.derive_aggregate(root, findings, template) is not None
+            assert findings == []
 
 
 def test_generation_is_deterministic() -> None:

@@ -7,6 +7,9 @@ const MAX_ARMED_SESSIONS = 512
 export const TURN_MOVE_QUESTION_REFUSAL =
   "A cross-directory session move completed in this turn. Do not use the native question tool. Ask the operator in normal chat instead, then stop this turn."
 
+export const TURN_MOVE_DISPATCH_REFUSAL =
+  "A cross-directory session move completed in this turn. Dispatch is closed until the next operator turn. Dispatch again after the operator message clears the turn-move boundary."
+
 const armedSessions = new Set<string>()
 
 export function armTurnMoveBoundary(sessionID: string): void {
@@ -25,5 +28,9 @@ export function clearTurnMoveBoundary(sessionID: string): void {
 }
 
 export function questionRequiresNormalChat(sessionID: string): boolean {
+  return !!sessionID && armedSessions.has(sessionID)
+}
+
+export function dispatchRequiresNextTurn(sessionID: string): boolean {
   return !!sessionID && armedSessions.has(sessionID)
 }

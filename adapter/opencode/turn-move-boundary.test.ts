@@ -1,12 +1,16 @@
 import { afterAll, afterEach, beforeEach, describe, expect, test } from "bun:test"
+import fs from "node:fs"
+import path from "node:path"
+import { agentLanes } from "./generated-agent-lanes"
 import ConcordAdapterPlugin from "./concord-plugin"
 import { configureHostLease } from "./host-lease"
-import { configureCoreBinary } from "./dispatch"
+import { configureCoreBinary, dispatchWorker, type AgentLanePacket } from "./dispatch"
 import { configureConcordAdapter } from "./concord"
+import { DispatchWindows, TASK_TOOL_ID } from "./dispatch-window"
 import { hostControlPlane } from "./move-session"
 import { moveSessionToClaimedWorktree, moveSessionToRegisteredMainCheckout, work_start } from "./concord"
 import { resetClaimedWorktrees } from "./claimed-worktree"
-import { armTurnMoveBoundary, clearTurnMoveBoundary, questionRequiresNormalChat, TURN_MOVE_QUESTION_REFUSAL } from "./turn-move-boundary"
+import { armTurnMoveBoundary, clearTurnMoveBoundary, dispatchRequiresNextTurn, questionRequiresNormalChat, TURN_MOVE_DISPATCH_REFUSAL, TURN_MOVE_QUESTION_REFUSAL } from "./turn-move-boundary"
 
 configureCoreBinary("concord")
 
@@ -152,6 +156,79 @@ describe("same-turn session move boundary", () => {
     if (typeof result === "string") throw new Error("work_start returned a string ToolResult")
     expect(JSON.parse(result.output).outcome, result.output).toBe("ok")
     await expectQuestionBlocked()
+  })
+
+  test("refuses same-turn dispatch after work_start and proceeds after the next operator turn", async () => {
+    const root = fs.mkdtempSync(path.join(process.cwd(), "concord-turn-move-"))
+    const origin = path.join(root, "origin")
+    const claimed = path.join(root, "claimed")
+    fs.mkdirSync(origin)
+    fs.mkdirSync(claimed)
+    const previousDirectory = process.cwd()
+    const lane = agentLanes[0]
+    const packet: AgentLanePacket = {
+      schema_version: "1.0",
+      attempt_id: "attempt-turn-move",
+      lane_id: lane.id,
+      lane_version: lane.version,
+      lane_digest: lane.digest,
+      work_id: "work-turn-move",
+      step_id: "step-turn-move",
+      inputs: { task: "dispatch after the move" },
+    }
+    const windows = new DispatchWindows()
+    let authorizeCalls = 0
+    const authorize = async () => {
+      authorizeCalls++
+      return { outcome: "ok" }
+    }
+    const credentials = { async getPrivateKey() { return new Uint8Array(32).fill(7) } }
+    try {
+      bindMoveRoutes(claimed)
+      const moved = await moveSessionToClaimedWorktree(claimArgs(), context(origin), successfulClaimEnvelope(claimed))
+      expect(moved.outcome).toBe("ok")
+      expect(dispatchRequiresNextTurn(sessionID)).toBe(true)
+      expect(process.cwd()).toBe(previousDirectory)
+
+      const sameTurn = await dispatchWorker(packet, {
+        authorize,
+        credentials,
+        sessionID,
+        windows,
+        workerDirectory: claimed,
+        resolveWorkerDirectory: async () => claimed,
+      })
+      expect(sameTurn.error?.message).toBe(TURN_MOVE_DISPATCH_REFUSAL)
+      expect(sameTurn.error?.kind).toBe("unauthorized_dispatch")
+      expect(authorizeCalls).toBe(0)
+      expect(windows.has(sessionID)).toBe(false)
+
+      windows.open(sessionID, packet, "", claimed)
+      await expect(windows.bind(TASK_TOOL_ID, sessionID, { subagent_type: "general", prompt: "untrusted" }, "call-same-turn", async () => claimed))
+        .rejects.toThrow(TURN_MOVE_DISPATCH_REFUSAL)
+      expect(windows.has(sessionID)).toBe(false)
+
+      await chatHook()({ sessionID, agent: "agent-1" })
+      expect(dispatchRequiresNextTurn(sessionID)).toBe(false)
+      const nextTurn = await dispatchWorker(packet, {
+        authorize,
+        credentials,
+        sessionID,
+        windows,
+        workerDirectory: claimed,
+        resolveWorkerDirectory: async () => claimed,
+      })
+      expect(nextTurn.outcome).toBe("ok")
+      expect(authorizeCalls).toBe(1)
+      expect(windows.has(sessionID)).toBe(true)
+      const args = { subagent_type: "general", prompt: "untrusted", description: "untrusted" }
+      await windows.bind(TASK_TOOL_ID, sessionID, args, "call-turn-move", async () => claimed)
+      expect(JSON.parse(args.prompt).attempt_id).toBe(packet.attempt_id)
+      expect(process.cwd()).toBe(previousDirectory)
+    } finally {
+      process.chdir(previousDirectory)
+      fs.rmSync(root, { recursive: true, force: true })
+    }
   })
 })
 

@@ -12,6 +12,7 @@ FOCUS: product/Concord                                      COVERAGE: authoritat
 │DOMAIN: no unresolved overlaps                                                                                        │
 │BLOCKED: work-1 Work 1 marker=+READY blockers=                                                                        │
 │BLOCKED/BLOCKERS:                                                                                                     │
+│  Work                                                                                                                │
 │  23 +READY work-23 Work 23                                                                                           │
 │  24 +READY work-24 Work 24                                                                                           │
 │  25 +READY work-25 Work 25                                                                                           │
@@ -35,6 +36,5 @@ FOCUS: product/Concord                                      COVERAGE: authoritat
 │  43 +READY work-43 Work 43                                                                                           │
 │  44 +READY work-44 Work 44                                                                                           │
 │> 45 +READY work-45 Work 45                                                                                           │
-│arrows move • / filter • s search • tab panel/section • r refresh • enter open • l launch • ctrl-p pin • ctrl-u unpin │
-│…                                                                                                                     │
+│arrows move • / filter • s search • tab panel/section • r refresh • enter open • l launch • ctrl-p pin • ctrl-u unpin…│
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯

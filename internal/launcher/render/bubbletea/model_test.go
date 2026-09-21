@@ -126,11 +126,8 @@ func TestNoColorOutputIsPlainTextAndKeepsAllSemanticMarkers(t *testing.T) {
 		t.Fatalf("portfolio row count=%d, want 3", len(pane.rows))
 	}
 	for i, row := range pane.rows {
-		if len(row) != 1 {
-			t.Fatalf("portfolio row %d rendered %d lines, want 1: %#v", i, len(row), row)
-		}
-		if got := lipgloss.Width(row[0]); got > 118 {
-			t.Fatalf("portfolio row %d exceeds the pane inner width 118: %d: %q", i, got, row[0])
+		if len(row) != 5 {
+			t.Fatalf("portfolio row %d has %d cells, want 5: %#v", i, len(row), row)
 		}
 	}
 	for _, value := range []string{"stale: old watermark", "error: read failed"} {
@@ -139,11 +136,8 @@ func TestNoColorOutputIsPlainTextAndKeepsAllSemanticMarkers(t *testing.T) {
 		}
 	}
 	const degraded = "degraded: unavailable dependency"
-	if strings.Contains(rendered, degraded) {
-		t.Fatalf("over-width Focus value rendered untruncated: %q", rendered)
-	}
-	if !strings.Contains(rendered, truncateDisplay(degraded, columnWidths(120)[4])) {
-		t.Fatalf("truncated Focus prefix missing: %q", rendered)
+	if !strings.Contains(rendered, degraded) {
+		t.Fatalf("fitting Focus value missing: %q", rendered)
 	}
 }
 
@@ -222,24 +216,19 @@ func TestLongFieldsTruncateToOneLineAtThe80ColumnFloor(t *testing.T) {
 		}
 	}
 	pane := m.renderPortfolio(m.snapshot, m.cursor)
-	if len(pane.rows) != 1 || len(pane.rows[0]) != 1 {
-		t.Fatalf("the Product row must render on exactly one line: %#v", pane.rows)
+	if len(pane.rows) != 1 || len(pane.rows[0]) != 5 {
+		t.Fatalf("the Product row must have five table cells: %#v", pane.rows)
 	}
-	row := pane.rows[0][0]
-	if got := lipgloss.Width(row); got > 78 {
-		t.Fatalf("the row exceeds the pane inner width 78: %d: %q", got, row)
+	if !strings.Contains(rendered, "…") {
+		t.Fatalf("over-width values carry no ellipsis: %q", rendered)
 	}
-	if !strings.Contains(row, "…") {
-		t.Fatalf("over-width values carry no ellipsis: %q", row)
-	}
-	for _, label := range []string{"PRODUCT:", "WATERMARK:", "AGE:", "SCREEN:", "RELIANCE:", "COVERAGE:", "Product", "Stage", "Reliance", "Actions", "Focus"} {
+	for _, label := range []string{"PRODUCT:", "WATERMARK:", "AGE:", "SCREEN:", "RELIANCE:", "COVERAGE:", "Product", "Stage", "Reliance", "Focus"} {
 		if !strings.Contains(rendered, label) {
 			t.Fatalf("semantic label %q missing: %q", label, rendered)
 		}
 	}
-	truncated := "Product-" + strings.Repeat("A", 8) + "…"
-	if !strings.Contains(row, truncated) || strings.Contains(rendered, name) {
-		t.Fatalf("the long name neither truncated to %q nor stayed absent: %q", truncated, row)
+	if strings.Contains(rendered, name) {
+		t.Fatalf("the long name stayed untruncated: %q", rendered)
 	}
 }
 
@@ -873,7 +862,7 @@ func TestS2DomainSectionRendersHierarchyRelationsAndOverlap(t *testing.T) {
 	m := New(core, context.Background(), Profile{})
 	m.UpdateKey("enter")
 	rendered := m.Render()
-	for _, want := range []string{"HOME product-root:one Product One law=0 active=0", "DOMAIN work-nav Work navigation parent=product-root:one law=0 active=0", "RELATION depends_on: work-nav -> product-root:one state=active", "OVERLAP work-1 & work-2 domains=work-nav resolution=absent"} {
+	for _, want := range []string{"Domain", "HOME", "product-root:one Product One", "DOMAIN", "work-nav Work navigation", "RELATION depends_on: work-nav -> product-root:one state=active", "OVERLAP work-1 & work-2 domains=work-nav resolution=absent"} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("domains render missing %q: %q", want, rendered)
 		}
@@ -1000,7 +989,7 @@ func TestPaneOffsetIgnoresGreaterThanContent(t *testing.T) {
 		header: []string{"HEADER"},
 		rows:   [][]string{{"> literal content"}, {"row 2"}, {"row 3"}, {"row 4"}},
 	}, 40, 5, 2)
-	if strings.Contains(rendered, "> literal content") {
+	if strings.Contains(rendered, "literal content") {
 		t.Fatalf("content glyph changed the viewport offset: %q", rendered)
 	}
 	if !strings.Contains(rendered, "row 3") {
@@ -1023,70 +1012,36 @@ func TestPortfolioRowsRenderExactlyOneLineAtSupportedWidths(t *testing.T) {
 		t.Fatal(err)
 	}
 	m := New(core, context.Background(), Profile{})
+	const focusTail = "overflow its column"
 	for _, width := range []int{80, 100, 120, 200} {
 		m.Update(tea.WindowSizeMsg{Width: width, Height: 40})
-		pane := m.renderPortfolio(m.snapshot, m.cursor)
-		inner := width - 2
-		if len(pane.rows) != 2 {
-			t.Fatalf("width %d: row count=%d, want 2", width, len(pane.rows))
-		}
-		for i, row := range pane.rows {
-			if len(row) != 1 {
-				t.Fatalf("width %d: row %d rendered %d lines, want exactly one: %#v", width, i, len(row), row)
-			}
-			if got := lipgloss.Width(row[0]); got > inner {
-				t.Fatalf("width %d: row %d width %d exceeds the pane inner width %d: %q", width, i, got, inner, row[0])
-			}
-		}
-		// A value that fits renders in full; an over-width value truncates
-		// with an ellipsis instead of wrapping.
-		if !strings.Contains(pane.rows[0][0], "Ship the floor") {
-			t.Fatalf("width %d: fitting focus value lost: %q", width, pane.rows[0][0])
-		}
-		overflows := lipgloss.Width("operator_only_product_with_a_long_name") > columnWidths(width)[0]
-		if got := strings.Contains(pane.rows[1][0], "…"); got != overflows {
-			t.Fatalf("width %d: ellipsis=%v, want %v: %q", width, got, overflows, pane.rows[1][0])
-		}
-		// Padded cells keep the " | " separators of every row at the same
-		// display offsets, so the columns read as columns.
-		sepIndex := func(line []rune) int {
-			for i := 0; i+2 < len(line); i++ {
-				if line[i] == ' ' && line[i+1] == '|' && line[i+2] == ' ' {
-					return i
-				}
-			}
-			return -1
-		}
-		first, second := []rune(pane.rows[0][0]), []rune(pane.rows[1][0])
-		for j := 0; j < 3; j++ {
-			offset := sepIndex(first)
-			if offset < 0 || offset != sepIndex(second) {
-				t.Fatalf("width %d: separator %d drifted between rows: %q / %q", width, j, pane.rows[0][0], pane.rows[1][0])
-			}
-			first, second = first[offset+1:], second[offset+1:]
-		}
-	}
-}
-
-func TestColumnWidthsScaleWithTerminalWidth(t *testing.T) {
-	for width := 80; width <= 240; width++ {
-		widths := columnWidths(width)
-		used := len(" | ")*4 + len("> ") + 2
-		for i, w := range widths {
-			used += w
-			if w < 10 {
-				t.Fatalf("width %d: column %d is starved at %d display columns", width, i, w)
+		frame := m.Render()
+		lines := strings.Split(frame, "\n")
+		// The long row renders on exactly one line: at width 80 the Product
+		// column truncates to "operator_only_produ…", so the surviving
+		// 18-character prefix identifies the row line at every width.
+		rowLine, rowLines := "", 0
+		for _, line := range lines {
+			if strings.Contains(line, "operator_only_prod") {
+				rowLines++
+				rowLine = line
 			}
 		}
-		if used != width {
-			t.Fatalf("width %d: columns plus chrome fill %d display columns, want %d", width, used, width)
+		if rowLines != 1 {
+			t.Fatalf("width %d: the long product row renders on %d lines, want 1: %q", width, rowLines, frame)
 		}
-	}
-	// Below the supported floor the launcher keeps the 80-column widths.
-	floored := columnWidths(40)
-	for i, w := range columnWidths(80) {
-		if floored[i] != w {
-			t.Fatalf("sub-floor width scaled: %v, want %v", floored, columnWidths(80))
+		// The fitting row renders on exactly one line too.
+		if got := strings.Count(frame, "Ship the floor"); got != 1 {
+			t.Fatalf("width %d: fitting row renders on %d lines, want 1: %q", width, got, frame)
+		}
+		// The long Focus value ends in the ellipsis on the row's own line; it
+		// never continues onto a second line.
+		if strings.Contains(frame, focusTail) {
+			if !strings.Contains(rowLine, focusTail) {
+				t.Fatalf("width %d: focus value split across lines: %q", width, frame)
+			}
+		} else if !strings.Contains(rowLine, "…") {
+			t.Fatalf("width %d: truncated focus value carries no ellipsis: %q", width, frame)
 		}
 	}
 }
@@ -1102,6 +1057,36 @@ func TestHelpFooterRendersOncePerFrame(t *testing.T) {
 	rendered := m.Render()
 	if got := strings.Count(rendered, "arrows move"); got != 1 {
 		t.Fatalf("help footer count=%d, want 1: %q", got, rendered)
+	}
+}
+
+func TestHelpFooterUsesFullWidthBudgetAtEveryTerminalWidth(t *testing.T) {
+	snapshot := launcher.Snapshot{
+		Screen:   launcher.ScreenPortfolio,
+		Coverage: "authoritative",
+		Rows:     []launcher.ProductRow{{ID: "p-1", Name: "Alpha"}},
+	}
+	m := New(launcher.New(&port{state: snapshot}), context.Background(), Profile{})
+	for _, width := range []int{80, 100, 120, 200} {
+		m.Update(tea.WindowSizeMsg{Width: width, Height: 24})
+		frame := m.Render()
+		if !strings.Contains(frame, "ctrl-u unpin") {
+			t.Fatalf("width %d: footer lost the unpin binding: %q", width, frame)
+		}
+		// The help model may elide whole bindings that do not fit, and it
+		// marks that with an ellipsis. It must never cut a binding label
+		// mid-word, which is what a footer starved of width does.
+		for _, line := range strings.Split(frame, "\n") {
+			if !strings.Contains(line, "arrows move") {
+				continue
+			}
+			for _, cut := range strings.Split(line, "…")[:strings.Count(line, "…")] {
+				if tail := strings.TrimRight(cut, " "); tail != cut {
+					continue
+				}
+				t.Fatalf("width %d: footer cut a binding label mid-word before %q: %q", width, "…", line)
+			}
+		}
 	}
 }
 
@@ -1133,27 +1118,26 @@ func TestRankedRowsCollapseConstantColumnsAndTruncateToOneLine(t *testing.T) {
 			t.Fatalf("row identity %q missing: %q", identity, rendered)
 		}
 	}
-	// The over-width row truncates to the row budget on its single line.
-	rows := rankedLines(ranked, snapshot, -1, false, 80)
+	// The over-width row truncates to the row budget on its single line. The
+	// direct render carries the production gutter: cursor 0 marks row 0.
+	headers, rows := rankedTable(ranked, snapshot)
 	if len(rows) != 3 {
 		t.Fatalf("ranked row count=%d, want 3", len(rows))
 	}
-	for i, row := range rows {
-		if len(row) != 1 {
-			t.Fatalf("ranked row %d rendered %d lines, want 1: %#v", i, len(row), row)
-		}
-		if got := lipgloss.Width(row[0]); got > 78 {
-			t.Fatalf("ranked row %d exceeds 78 display columns: %d: %q", i, got, row[0])
+	renderedRows := renderTable(headers, rows, 78, 4, 0, 0, false)
+	for _, line := range strings.Split(renderedRows, "\n") {
+		if got := lipgloss.Width(line); got > 78 {
+			t.Fatalf("ranked row exceeds 78 display columns: %d: %q", got, line)
 		}
 	}
-	if !strings.HasSuffix(rows[2][0], "…") || !strings.Contains(rows[2][0], "work-3") {
-		t.Fatalf("the over-width ranked row did not truncate with an ellipsis: %q", rows[2][0])
+	if !strings.Contains(renderedRows, "…") || !strings.Contains(renderedRows, "work-3") {
+		t.Fatalf("the over-width ranked row did not truncate with an ellipsis: %q", renderedRows)
 	}
 	// A column whose value varies on any visible row survives everywhere it
 	// has a value.
 	ranked[1].Kind = "bug"
-	rows = rankedLines(ranked, snapshot, -1, false, 80)
-	if !strings.Contains(rows[0][0], "kind=task") || !strings.Contains(rows[1][0], "kind=bug") {
-		t.Fatalf("varying kind column collapsed: %q / %q", rows[0][0], rows[1][0])
+	headers, rows = rankedTable(ranked, snapshot)
+	if !strings.Contains(strings.Join(headers, " "), "kind") || !strings.Contains(rows[0][1], "task") || !strings.Contains(rows[1][1], "bug") {
+		t.Fatalf("varying kind column collapsed: %#v / %#v", headers, rows)
 	}
 }

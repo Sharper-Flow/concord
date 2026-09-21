@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"github.com/sharper-flow/concord/internal/launcher"
 	"github.com/sharper-flow/concord/internal/launcher/render/bubbletea"
@@ -377,6 +378,14 @@ func bindLauncherSession(t *testing.T, scenario launcherPortfolioCase) launcherP
 			t.Fatalf("unsupported launcher event %q", event)
 		}
 	}
+	for _, width := range []int{80, 100, 120, 200} {
+		ui.Update(tea.WindowSizeMsg{Width: width, Height: 24})
+		for lineNumber, line := range strings.Split(ui.Render(), "\n") {
+			if got := lipgloss.Width(line); got > width {
+				t.Fatalf("width %d line %d exceeds terminal: %d", width, lineNumber, got)
+			}
+		}
+	}
 	after := launcherDurableCounts(t, s)
 	return launcherPortfolioObservation{SessionReads: append([]launcher.ReadRequest(nil), port.requests...), SessionScreen: core.Snapshot().Screen, SessionReadsWant: 2, DurableBefore: before, DurableAfter: after}
 }
@@ -396,7 +405,9 @@ func bindFirstRun(t *testing.T, _ launcherPortfolioCase) launcherPortfolioObserv
 	if err := core.Enter(context.Background()); err != nil {
 		t.Fatalf("enter first-run renderer: %v", err)
 	}
-	rendered := bubbletea.New(core, context.Background(), bubbletea.Profile{}).Render()
+	ui := bubbletea.New(core, context.Background(), bubbletea.Profile{})
+	ui.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	rendered := ui.Render()
 	return launcherPortfolioObservation{FirstRun: firstRun, FirstRunOutput: rendered + out.String(), AuthorityPath: dbPath}
 }
 

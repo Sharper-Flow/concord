@@ -83,11 +83,18 @@ type ciWaitReport struct {
 }
 
 type ciWaitChecks struct {
-	Total   int `json:"total"`
-	Passing int `json:"passing"`
-	Failing int `json:"failing"`
-	Skipped int `json:"skipped"`
-	Pending int `json:"pending"`
+	Total   int           `json:"total"`
+	Passing int           `json:"passing"`
+	Failing int           `json:"failing"`
+	Skipped int           `json:"skipped"`
+	Pending int           `json:"pending"`
+	Entries []ciWaitCheck `json:"entries,omitempty"`
+}
+
+type ciWaitCheck struct {
+	Name   string `json:"name"`
+	URL    string `json:"url,omitempty"`
+	Bucket string `json:"bucket"`
 }
 
 type ciWaitDetail struct {
@@ -265,15 +272,28 @@ type ghPRCheck struct {
 }
 
 type ghPRHead struct {
-	HeadRefOid       string `json:"headRefOid"`
-	URL              string `json:"url"`
-	State            string `json:"state"`
-	MergedAt         string `json:"mergedAt"`
-	MergeStateStatus string `json:"mergeStateStatus"`
+	HeadRefOid        string       `json:"headRefOid"`
+	URL               string       `json:"url"`
+	State             string       `json:"state"`
+	MergedAt          string       `json:"mergedAt"`
+	MergeStateStatus  string       `json:"mergeStateStatus"`
+	StatusCheckRollup []ghPRRollup `json:"statusCheckRollup"`
+}
+
+type ghPRRollup struct {
+	TypeName   string `json:"__typename"`
+	Name       string `json:"name"`
+	Context    string `json:"context"`
+	State      string `json:"state"`
+	Status     string `json:"status"`
+	Conclusion string `json:"conclusion"`
+	DetailsURL string `json:"detailsUrl"`
+	TargetURL  string `json:"targetUrl"`
+	Bucket     string `json:"bucket"`
 }
 
 func ciWaitPollPR(ctx context.Context, state *ciWaitState) (ciWaitReport, bool, error) {
-	headBody, err := ciWaitGH(ctx, "pr", "view", state.Selector.Value, "--repo", state.Repo, "--json", "headRefOid,url,state,mergedAt,mergeStateStatus")
+	headBody, err := ciWaitGH(ctx, "pr", "view", state.Selector.Value, "--repo", state.Repo, "--json", "headRefOid,url,state,mergedAt,mergeStateStatus,statusCheckRollup")
 	if err != nil {
 		return ciWaitReport{}, false, err
 	}
@@ -323,9 +343,8 @@ func ciWaitPollPR(ctx context.Context, state *ciWaitState) (ciWaitReport, bool, 
 	}
 	if state.Mode == "merge" {
 		if ciWaitMergeable(head.MergeStateStatus) {
-			report.Status = "success"
-			report.Reason = "the pull request can merge"
-			return report, true, nil
+			report.Reason = "the pull request can merge but is not merged yet"
+			return report, false, nil
 		}
 		report.Reason = "the pull request is not mergeable yet"
 		return report, false, nil
@@ -341,9 +360,11 @@ func ciWaitPollPR(ctx context.Context, state *ciWaitState) (ciWaitReport, bool, 
 		return ciWaitReport{}, false, err
 	}
 
-	counts := &ciWaitChecks{Total: len(checks)}
+	population := ciWaitPRCheckPopulation(checks, head.StatusCheckRollup)
+	counts := &ciWaitChecks{Total: len(population), Entries: make([]ciWaitCheck, 0, len(population))}
 	var failures []ciWaitDetail
-	for _, check := range checks {
+	for _, check := range population {
+		counts.Entries = append(counts.Entries, check)
 		switch check.Bucket {
 		case "pass":
 			counts.Passing++
@@ -351,7 +372,7 @@ func ciWaitPollPR(ctx context.Context, state *ciWaitState) (ciWaitReport, bool, 
 			counts.Failing++
 			failures = append(failures, ciWaitDetail{
 				Name:           check.Name,
-				URL:            check.Link,
+				URL:            check.URL,
 				Classification: ciWaitClassifyName(check.Name),
 			})
 		case "skipping":
@@ -367,11 +388,19 @@ func ciWaitPollPR(ctx context.Context, state *ciWaitState) (ciWaitReport, bool, 
 		report.Reason = "no checks reported for this pull request yet"
 		return report, false, nil
 	}
+	if head.StatusCheckRollup != nil && len(checks) > 0 && len(head.StatusCheckRollup) == 0 {
+		report.Reason = "the pull request status check rollup is not available yet"
+		return report, false, nil
+	}
+	if head.StatusCheckRollup != nil && !ciWaitRollupTerminal(head.StatusCheckRollup) {
+		report.Reason = "the pull request status check rollup is not complete yet"
+		return report, false, nil
+	}
 	if counts.Pending == 0 {
 		if counts.Failing > 0 {
 			report.Status = "failure"
 			report.Failures = failures
-			report.RunURL = ciWaitFirstRunURL(state.Repo, checks)
+			report.RunURL = ciWaitFirstRunURLForPopulation(state.Repo, population)
 			ciWaitCollectFailureExcerpts(ctx, state, report.Failures)
 		} else if ciWaitMergeConflict(head.MergeStateStatus) {
 			report.Reason = "the pull request checks passed but GitHub reports a merge conflict"
@@ -384,6 +413,95 @@ func ciWaitPollPR(ctx context.Context, state *ciWaitState) (ciWaitReport, bool, 
 	return report, false, nil
 }
 
+// ciWaitPRCheckPopulation joins the gh pr checks snapshot with the pull
+// request status rollup. A rollup entry replaces a same-name snapshot entry,
+// because the rollup is the source that tells us whether GitHub registered the
+// check and reached a terminal conclusion.
+func ciWaitPRCheckPopulation(checks []ghPRCheck, rollup []ghPRRollup) []ciWaitCheck {
+	population := make([]ciWaitCheck, 0, len(checks)+len(rollup))
+	positions := make(map[string]int, len(checks)+len(rollup))
+	for _, check := range checks {
+		observed := ciWaitCheck{Name: check.Name, URL: check.Link, Bucket: check.Bucket}
+		key := ciWaitCheckKey(observed.Name)
+		if key == "" {
+			key = fmt.Sprintf("snapshot-%d", len(population))
+		}
+		positions[key] = len(population)
+		population = append(population, observed)
+	}
+	for _, entry := range rollup {
+		name := entry.Name
+		if name == "" {
+			name = entry.Context
+		}
+		if name == "" {
+			name = "unnamed status check"
+		}
+		bucket, _ := ciWaitRollupBucket(entry)
+		observed := ciWaitCheck{Name: name, URL: entry.DetailsURL}
+		if observed.URL == "" {
+			observed.URL = entry.TargetURL
+		}
+		observed.Bucket = bucket
+		key := ciWaitCheckKey(name)
+		if position, ok := positions[key]; ok {
+			population[position] = observed
+			continue
+		}
+		positions[key] = len(population)
+		population = append(population, observed)
+	}
+	return population
+}
+
+func ciWaitCheckKey(name string) string {
+	return strings.ToLower(strings.TrimSpace(name))
+}
+
+func ciWaitRollupTerminal(rollup []ghPRRollup) bool {
+	for _, entry := range rollup {
+		_, terminal := ciWaitRollupBucket(entry)
+		if !terminal {
+			return false
+		}
+	}
+	return true
+}
+
+func ciWaitRollupBucket(entry ghPRRollup) (string, bool) {
+	if entry.Bucket != "" {
+		bucket := strings.ToLower(entry.Bucket)
+		return bucket, bucket != "pending" && bucket != "cancel"
+	}
+	conclusion := strings.ToUpper(strings.TrimSpace(entry.Conclusion))
+	if conclusion != "" {
+		if entry.Status != "" && !strings.EqualFold(entry.Status, "COMPLETED") {
+			return "pending", false
+		}
+		switch conclusion {
+		case "SUCCESS":
+			return "pass", true
+		case "SKIPPED", "NEUTRAL":
+			return "skipping", true
+		case "FAILURE", "CANCELLED", "TIMED_OUT", "ACTION_REQUIRED", "STARTUP_FAILURE", "STALE":
+			return "fail", true
+		default:
+			return "pending", false
+		}
+	}
+	// StatusContext entries expose a terminal state instead of a CheckRun
+	// conclusion. Treat the known terminal states as their conclusion.
+	switch strings.ToUpper(strings.TrimSpace(entry.State)) {
+	case "SUCCESS":
+		return "pass", true
+	case "FAILURE", "ERROR":
+		return "fail", true
+	case "EXPECTED", "PENDING":
+		return "pending", false
+	}
+	return "pending", false
+}
+
 // ciWaitMergeConflict reports whether GitHub's merge state is direct evidence
 // that the merge commit cannot be created. DIRTY is that evidence. The lazy
 // UNKNOWN, BEHIND, BLOCKED, UNSTABLE, and DRAFT values, and an empty value,
@@ -393,9 +511,9 @@ func ciWaitMergeConflict(status string) bool {
 	return strings.EqualFold(status, "DIRTY")
 }
 
-// ciWaitMergeable is the merge-mode success gate: GitHub asserts that the
-// pull request can merge only for CLEAN or HAS_HOOKS. Every other value,
-// including the lazy UNKNOWN, stays pending (CD-0160 D4, CD-0161).
+// ciWaitMergeable reports whether GitHub says that the pull request can merge.
+// GitHub asserts this only for CLEAN or HAS_HOOKS. Every other value, including
+// the lazy UNKNOWN, stays pending (CD-0160 D4, CD-0161).
 func ciWaitMergeable(status string) bool {
 	switch strings.ToUpper(status) {
 	case "CLEAN", "HAS_HOOKS":
@@ -636,12 +754,20 @@ func ciWaitTrimLine(line string) string {
 // and a run id in the link; without either, the report names the observed
 // link itself rather than a URL that leads nowhere.
 func ciWaitFirstRunURL(repo string, checks []ghPRCheck) string {
+	population := make([]ciWaitCheck, 0, len(checks))
+	for _, check := range checks {
+		population = append(population, ciWaitCheck{Name: check.Name, URL: check.Link, Bucket: check.Bucket})
+	}
+	return ciWaitFirstRunURLForPopulation(repo, population)
+}
+
+func ciWaitFirstRunURLForPopulation(repo string, checks []ciWaitCheck) string {
 	for _, check := range checks {
 		if check.Bucket == "fail" {
-			if runID := ghRunIDFromURL(check.Link); runID != "" && repo != "" {
+			if runID := ghRunIDFromURL(check.URL); runID != "" && repo != "" {
 				return "https://github.com/" + repo + "/actions/runs/" + runID
 			}
-			return check.Link
+			return check.URL
 		}
 	}
 	return ""

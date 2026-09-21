@@ -314,10 +314,65 @@ func TestCiWaitPRMergeModeUsesGitHubMergeState(t *testing.T) {
 		*"pr checks"*) exit 97;;
 	esac`))
 	_, report, _ := runCiWaitStdin(t, ciWaitJSON(t, ciWaitRequest{
-		Selector: &ciWaitSelector{Kind: "pr", Value: "5"}, Repo: "o/r", Mode: "merge", TimeSecondsMax: ciWaitBudget(1800),
+		Selector: &ciWaitSelector{Kind: "pr", Value: "5"}, Repo: "o/r", Mode: "merge", TimeSecondsMax: ciWaitBudget(8),
 	}))
-	if report.Status != "success" || report.MergeState != "CLEAN" {
-		t.Fatalf("merge mode must succeed from CLEAN without reading checks, got %+v", report)
+	if report.Status != "pending" || report.MergeState != "CLEAN" || !strings.Contains(report.Reason, "can merge") {
+		t.Fatalf("merge mode must keep CLEAN pending until merged, got %+v", report)
+	}
+}
+
+func TestCiWaitPRPartialPopulationNeverSucceeds(t *testing.T) {
+	ghStubPath(t, ghStubDir(t, `case "$*" in
+		*"pr view"*) cat <<'EOC'
+{"headRefOid":"aabb","url":"u","state":"OPEN","mergedAt":null,"mergeStateStatus":"CLEAN","statusCheckRollup":[
+  {"__typename":"CheckRun","name":"verify-history","status":"COMPLETED","conclusion":"SUCCESS","detailsUrl":"history"},
+  {"__typename":"CheckRun","name":"title","status":"COMPLETED","conclusion":"SUCCESS","detailsUrl":"title"},
+  {"__typename":"CheckRun","name":"verify-go","status":"COMPLETED","conclusion":"SUCCESS","detailsUrl":"go"},
+  {"__typename":"CheckRun","name":"verify-tests","status":"COMPLETED","conclusion":"SUCCESS","detailsUrl":"tests"},
+  {"__typename":"CheckRun","name":"verify-race","status":"IN_PROGRESS","conclusion":null,"detailsUrl":"race"},
+  {"__typename":"CheckRun","name":"verify-acceptance","status":"QUEUED","conclusion":null,"detailsUrl":"acceptance"}
+]}
+EOC
+;;
+		*"pr checks"*) echo '[{"name":"verify-history","state":"SUCCESS","link":"history","bucket":"pass"},{"name":"title","state":"SUCCESS","link":"title","bucket":"pass"},{"name":"verify-go","state":"SUCCESS","link":"go","bucket":"pass"},{"name":"verify-tests","state":"SUCCESS","link":"tests","bucket":"pass"}]';;
+	esac`))
+	_, report, _ := runCiWaitStdin(t, ciWaitJSON(t, ciWaitRequest{
+		Selector: &ciWaitSelector{Kind: "pr", Value: "5"}, Repo: "o/r", TimeSecondsMax: ciWaitBudget(8),
+	}))
+	if report.Status != "pending" {
+		t.Fatalf("a partial checks snapshot must stay pending, got %+v", report)
+	}
+	if report.Checks == nil || report.Checks.Total != 6 || report.Checks.Pending != 2 {
+		t.Fatalf("report must count the union population, got %+v", report.Checks)
+	}
+	seen := make(map[string]string, len(report.Checks.Entries))
+	for _, check := range report.Checks.Entries {
+		seen[check.Name] = check.Bucket
+	}
+	for name, wantBucket := range map[string]string{
+		"verify-history": "pass", "title": "pass", "verify-go": "pass", "verify-tests": "pass",
+		"verify-race": "pending", "verify-acceptance": "pending",
+	} {
+		if got := seen[name]; got != wantBucket {
+			t.Fatalf("report entry %q bucket=%q want %q; entries=%+v", name, got, wantBucket, report.Checks.Entries)
+		}
+	}
+}
+
+func TestCiWaitPRReportNamesRollupOnlyChecks(t *testing.T) {
+	ghStubPath(t, ghStubDir(t, `case "$*" in
+		*"pr view"*) echo '{"headRefOid":"aabb","url":"u","state":"OPEN","mergedAt":null,"mergeStateStatus":"CLEAN","statusCheckRollup":[{"name":"rollup-only","status":"COMPLETED","conclusion":"SUCCESS","detailsUrl":"rollup"}]}' ;;
+		*"pr checks"*) echo '[]';;
+	esac`))
+	_, report, _ := runCiWaitStdin(t, ciWaitJSON(t, ciWaitRequest{
+		Selector: &ciWaitSelector{Kind: "pr", Value: "5"}, Repo: "o/r", TimeSecondsMax: ciWaitBudget(8),
+	}))
+	if report.Status != "success" || report.Checks == nil || len(report.Checks.Entries) != 1 {
+		t.Fatalf("a terminal rollup-only check must be reported, got %+v", report)
+	}
+	entry := report.Checks.Entries[0]
+	if entry.Name != "rollup-only" || entry.Bucket != "pass" {
+		t.Fatalf("report must name the rollup-only check and bucket, got %+v", entry)
 	}
 }
 
@@ -392,7 +447,7 @@ func TestCiWaitPRMergedAndClosedAreTerminal(t *testing.T) {
 				*"pr checks"*) exit 97;;
 			esac`))
 			_, report, _ := runCiWaitStdin(t, ciWaitJSON(t, ciWaitRequest{
-				Selector: &ciWaitSelector{Kind: "pr", Value: "5"}, Repo: "o/r", TimeSecondsMax: ciWaitBudget(1800),
+		Selector: &ciWaitSelector{Kind: "pr", Value: "5"}, Repo: "o/r", Mode: "merge", TimeSecondsMax: ciWaitBudget(8),
 			}))
 			if report.Status != tc.wantState {
 				t.Fatalf("status=%s want %s, report=%+v", report.Status, tc.wantState, report)
@@ -408,6 +463,22 @@ func TestCiWaitMergeModeRequiresPRSelector(t *testing.T) {
 	}))
 	if code != 1 || report.Status != "refused" {
 		t.Fatalf("merge mode on a run selector must refuse, got code=%d report=%+v", code, report)
+	}
+}
+
+func TestCiWaitPRMergeModeCleanCanMergeIsNotSuccess(t *testing.T) {
+	ghStubPath(t, ghStubDir(t, `case "$*" in
+		*"pr view"*) echo '{"headRefOid":"aabb","url":"u","state":"OPEN","mergedAt":"","mergeStateStatus":"CLEAN"}';;
+		*"pr checks"*) exit 97;;
+	esac`))
+	code, report, _ := runCiWaitStdin(t, ciWaitJSON(t, ciWaitRequest{
+		Selector: &ciWaitSelector{Kind: "pr", Value: "5"}, Repo: "o/r", Mode: "merge", TimeSecondsMax: ciWaitBudget(8),
+	}))
+	if report.Status != "pending" {
+		t.Fatalf("a CLEAN can-merge head must stay pending for a merge-mode wait, got code=%d report=%+v", code, report)
+	}
+	if !strings.Contains(report.Reason, "can merge") {
+		t.Fatalf("reason must name the can-merge state, got %q", report.Reason)
 	}
 }
 

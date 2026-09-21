@@ -27,6 +27,15 @@ export function clearTurnMoveBoundary(sessionID: string): void {
   if (sessionID) armedSessions.delete(sessionID)
 }
 
+// resetTurnMoveBoundaries drops every record. Production code never calls it:
+// the next operator message is the production equivalent, and per-session
+// clearTurnMoveBoundary covers typed recovery. It exists so a test file that
+// arms the boundary through a move route cannot leak the armed state into
+// another file's dispatch checks within one test run.
+export function resetTurnMoveBoundaries(): void {
+  armedSessions.clear()
+}
+
 export function questionRequiresNormalChat(sessionID: string): boolean {
   return !!sessionID && armedSessions.has(sessionID)
 }

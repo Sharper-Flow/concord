@@ -245,6 +245,13 @@ Product-changing contract. The generic workflow type is always
 `changes_product_truth=false`; a Product-changing one-off must use a registered
 Product-changing type. The generic type cannot bypass this split.
 
+One carve-out bounds that split: a `changes_product_truth=false` contract may
+revise `derived` law in-contract. Its `law_modifies` may name only records the
+accepted Git law projection carries as `derived`; every revision line stays
+visible in the contract the operator approves. `legislated` law remains
+reachable only through a Product-changing workflow type, and the architecture
+binding stays reserved for Product-changing contracts regardless of tier.
+
 ### D6. Architectural overlap is explicit before concurrent work proceeds
 
 For each nonterminal Product-changing work item that has started execution,

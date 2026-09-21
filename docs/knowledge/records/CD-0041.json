@@ -17,7 +17,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:34cf24d8a46e9946862bef65ea67f2f4b772ef997a0e3f8cef186dc1ea053156",
+  "sha256": "sha256:6163f260cb6d9eb91376df051842ad30300e7e4c0ae13553626b2631523255b0",
   "status": "accepted",
   "summary": "Makes Product law and architectural concordance Priority 1; canonical Domains own law and bind Product-changing work; shared Product writes require an overlap resolution, and revisions make it stale only when judged architecture content changes; architecture-only proximity does not block; Initiative remains secondary context; SQLite remains sole local authority. CD-0042 amends sequencing, CD-0144 moves the claim to execution start, CD-0145 narrows blocking writes, and CD-0153 refines staleness.",
   "tags": [

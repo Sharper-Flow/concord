@@ -516,11 +516,12 @@ type WorktreeReclaimRequest struct {
 	// recorded occupant before the removal gate runs.
 	ReleaseOccupancy bool
 	// ObservedSessionDirectories is the host's live session observation and
-	// the typed handoff that releases a dead occupant: present and naming no
-	// live session with the recorded occupant's ref, and no directory inside
-	// the worktree, it clears the recorded occupancy. An absent observation
-	// attests nothing. ObservedProjectID scopes the observation and does not
-	// affect removal on its own.
+	// the typed handoff that releases a stale occupant: present and naming
+	// no live directory inside the worktree, and observing the recorded
+	// occupant only with a readable directory elsewhere, it clears the
+	// recorded occupancy. An absent observation attests nothing.
+	// ObservedProjectID scopes the observation and does not affect removal
+	// on its own.
 	ObservedSessionDirectories *[]SessionDirectory
 	ObservedProjectID          string
 }
@@ -737,11 +738,12 @@ func reclaimWorktreeRawTx(ctx context.Context, tx *sql.Tx, req WorktreeReclaimRe
 	// A recorded session occupant is not safe to remove while it may be live.
 	// The store owns this projection; the host owns session liveness. The
 	// caller's observed_session_directories is the typed handoff between them:
-	// when it names no live session with the recorded occupant's ref and no
-	// live directory inside the worktree, the recorded occupancy is stale and
-	// releases without an operator approval. An observation naming the
-	// occupant, or any other session inside the worktree, keeps this gate, and
-	// CD-0135's relocation step keeps its subjects.
+	// when it names no live directory inside the worktree and every occupant
+	// sighting carries a readable directory elsewhere, the recorded occupancy
+	// is stale and releases without an operator approval. A session observed
+	// inside the worktree, or the occupant observed with no readable
+	// directory, keeps this gate, and CD-0135's relocation step keeps its
+	// subjects.
 	if entry.OccupantSessionRef != "" {
 		if (req.ReleaseOccupancy && req.OperatorApprovalRef != "") || releaseDeadOccupantByObservation(entry, req.ObservedSessionDirectories) {
 			if err := releaseWorktreeOccupancyTx(ctx, tx, req, setID, entry.ClaimOpID, now); err != nil {
@@ -1073,22 +1075,22 @@ func releaseWorktreeOccupancyTx(ctx context.Context, tx *sql.Tx, req WorktreeRec
 }
 
 // releaseDeadOccupantByObservation reports whether the caller's host session
-// observation attests that the recorded occupant is gone. The host owns
+// observation attests that the worktree holds no live session. The host owns
 // session liveness and the store owns the occupancy projection, so the
-// observation is the typed handoff between them. It releases only when the
-// observation is present and names no live session carrying the occupant's
-// ref and no live directory inside the worktree: a live occupant anywhere, or
-// any other session rooted inside the tree, keeps the strand-guard. An absent
+// observation is the typed handoff between them. The claim keeps while any
+// observed session's directory is the worktree or beneath it, and while the
+// recorded occupant is observed with no readable directory. An occupant the
+// host observes elsewhere has moved and no longer holds the claim. An absent
 // observation attests nothing and never releases.
 func releaseDeadOccupantByObservation(entry WorktreeEntry, observed *[]SessionDirectory) bool {
 	if observed == nil {
 		return false
 	}
 	for _, session := range *observed {
-		if session.SessionRef == entry.OccupantSessionRef {
+		if directoryInsideWorktree(session.Directory, entry.Path) {
 			return false
 		}
-		if directoryInsideWorktree(session.Directory, entry.Path) {
+		if session.SessionRef == entry.OccupantSessionRef && session.Directory == "" {
 			return false
 		}
 	}

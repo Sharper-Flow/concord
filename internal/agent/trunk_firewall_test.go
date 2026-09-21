@@ -331,10 +331,11 @@ func TestAuditReclaimResolvesFromMainCheckout(t *testing.T) {
 }
 
 // The audit planner forwards the host session observation into the store
-// pass: an observation naming the recorded occupant keeps the strand-guard
-// refusal, an observation proving the occupant gone lets the row reclaim,
-// and an absent observation attests nothing. The store owns the release
-// semantics; this pins that the agent surface carries the field through.
+// pass: an observation placing the recorded occupant inside the worktree
+// keeps the strand-guard refusal, an observation placing the occupant at a
+// readable directory elsewhere lets the row reclaim, and an absent
+// observation attests nothing. The store owns the release semantics; this
+// pins that the agent surface carries the field through.
 func TestAuditReclaimForwardsObservedSessionDirectories(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -383,18 +384,19 @@ func TestAuditReclaimForwardsObservedSessionDirectories(t *testing.T) {
 
 	// An absent observation attests nothing and releases no recorded occupant.
 	refused("absent observation", "audit-observation-absent", nil)
-	// An observation naming the occupant's own ref keeps the strand-guard.
-	refused("observation naming the occupant", "audit-observation-naming", []map[string]any{
-		{"session_ref": grant.SessionRef, "directory": repoRoot},
+	// An observation placing the occupant's own session inside the worktree
+	// keeps the strand-guard.
+	refused("observation placing the occupant inside", "audit-observation-naming", []map[string]any{
+		{"session_ref": grant.SessionRef, "directory": worktreePath},
 	})
 
-	// A live session exists elsewhere and carries no recorded ref, so the
-	// observation proves the recorded occupant gone and the row reclaims.
-	row := audit("audit-observation-gone", []map[string]any{
-		{"session_ref": "session-elsewhere", "directory": repoRoot},
+	// The same recorded occupant is observed at a readable directory outside
+	// the worktree: a work_start move has retargeted it, so the row reclaims.
+	row := audit("audit-observation-moved", []map[string]any{
+		{"session_ref": grant.SessionRef, "directory": repoRoot},
 	})
 	if row.Outcome != store.WorktreeAuditReclaimed {
-		t.Fatalf("row=%+v, want the observation-proven-gone row to reclaim", row)
+		t.Fatalf("row=%+v, want the occupant-observed-elsewhere row to reclaim", row)
 	}
 	entries, err := s.WorktreeEntries(ctx, "work-1")
 	if err != nil || len(entries) != 1 || entries[0].State != "reclaimed" {

@@ -97,12 +97,15 @@ func marshalWorktreeCreated(expected int64, setID, projectID, claimOpID string, 
 }
 
 type worktreeReclaimedPayload struct {
-	ExpectedVersion  int64           `json:"expected_version"`
-	ResultingVersion int64           `json:"resulting_version"`
-	SetID            string          `json:"set_id"`
-	ProjectID        string          `json:"project_id"`
-	ClaimOpID        string          `json:"claim_op_id,omitempty"`
-	GitFacts         json.RawMessage `json:"git_facts"`
+	ExpectedVersion  int64  `json:"expected_version"`
+	ResultingVersion int64  `json:"resulting_version"`
+	SetID            string `json:"set_id"`
+	ProjectID        string `json:"project_id"`
+	ClaimOpID        string `json:"claim_op_id,omitempty"`
+	// RequestID records the reclaim operation that produced the event. The
+	// claim-scoped event identity lets later removal converge on this record.
+	RequestID string          `json:"request_id,omitempty"`
+	GitFacts  json.RawMessage `json:"git_facts"`
 }
 
 type worktreeOccupancyReleasedPayload struct {
@@ -178,10 +181,8 @@ func foldWorktreeReclaimed(ctx context.Context, tx *sql.Tx, event Event) error {
 	return foldWorktreeReclaimedTx(ctx, tx, event, p, true)
 }
 
-// foldWorktreeReclaimedTx is the reclaim fold shared by live application,
-// rebuild, and reclaim convergence. A convergence fold may repair the
-// projection without advancing the work item's version when the stored
-// advance is already public history; the normal fold always advances.
+// foldWorktreeReclaimedTx can repair a recorded reclaim without advancing the
+// work version a second time when the event already advanced public history.
 func foldWorktreeReclaimedTx(ctx context.Context, tx *sql.Tx, event Event, p worktreeReclaimedPayload, advanceVersion bool) error {
 	if err := checkSubject(event, SubjectWorkItem); err != nil {
 		return err
@@ -720,11 +721,16 @@ func reclaimWorktreeRawTx(ctx context.Context, tx *sql.Tx, req WorktreeReclaimRe
 	if entry.ProjectID == "" {
 		return out, newFailure(KindProjectionNotFound, op, "no active worktree for this Project", false, "claim a worktree before reclaiming it")
 	}
-	if entry.State == worktreeEntryReclaimed {
-		return entry, nil
-	}
-	if entry.State != worktreeEntryActive {
+	if entry.State != worktreeEntryActive && entry.State != worktreeEntryReclaimed {
 		return out, newFailure(KindProjectionNotFound, op, "no active worktree for this Project", false, "claim a worktree before reclaiming it")
+	}
+	if entry.State == worktreeEntryReclaimed {
+		// A successful native removal leaves a reclaimed projection behind.
+		// Keep retries of that operation idempotent, while allowing a surviving
+		// directory to pass through the normal removal gates below.
+		if _, probeErr := runner.Run(ctx, entry.Path, "rev-parse", "--abbrev-ref", "HEAD"); probeErr != nil {
+			return entry, nil
+		}
 	}
 
 	repoRoot, resErr := worktreeRepoRootTx(ctx, tx, WorktreeClaimRequest{ProjectID: req.ProjectID})
@@ -1068,14 +1074,14 @@ func reclaimedEventID(workID, projectID, claimOpID string) string {
 }
 
 func appendReclaimedTx(ctx context.Context, tx *sql.Tx, req WorktreeReclaimRequest, setID, claimOpID string, now time.Time, facts json.RawMessage) error {
-	payload, _ := json.Marshal(worktreeReclaimedPayload{ExpectedVersion: req.ExpectedVersion, ResultingVersion: req.ExpectedVersion + 1, SetID: setID, ProjectID: req.ProjectID, ClaimOpID: claimOpID, GitFacts: facts})
+	payload, _ := json.Marshal(worktreeReclaimedPayload{ExpectedVersion: req.ExpectedVersion, ResultingVersion: req.ExpectedVersion + 1, SetID: setID, ProjectID: req.ProjectID, ClaimOpID: claimOpID, RequestID: req.RequestID, GitFacts: facts})
 	_, err := applyOperationTx(ctx, tx, Operation{Events: []Event{{
 		EventID: reclaimedEventID(req.WorkID, req.ProjectID, claimOpID), Kind: "work.worktree_reclaimed", SubjectType: SubjectWorkItem, SubjectID: req.WorkID, Actor: req.PrincipalRef, OccurredAt: now, PayloadVersion: 1, Payload: payload,
 	}}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, req.WorkID): req.ExpectedVersion}}, true, false)
-	if err == nil {
-		return nil
+	if err != nil {
+		return convergeRecordedReclaimTx(ctx, tx, req, setID, claimOpID, err)
 	}
-	return convergeRecordedReclaimTx(ctx, tx, req, setID, claimOpID, err)
+	return err
 }
 
 // convergeRecordedReclaimTx resolves a reclaim whose derived event_id is
@@ -1088,9 +1094,10 @@ func appendReclaimedTx(ctx context.Context, tx *sql.Tx, req WorktreeReclaimReque
 //
 // The interpretation is deliberately narrow: only a work.worktree_reclaimed
 // event for this work item whose payload names this set, Project, and claim
-// generation converges. Any other collision — another kind, another subject,
-// or another claim generation — keeps the divergent-reuse refusal
-// classifyEventIDConflict produced.
+// generation converges. The stored effect is the durable reclaim record, so
+// the fold may proceed for a later native removal. Any other collision —
+// another kind, another subject, or another claim generation — keeps the
+// divergent-reuse refusal classifyEventIDConflict produced.
 //
 // When the stored payload's resulting_version is at or below the work item's
 // current version, the fold repairs the projection without advancing the
@@ -1098,7 +1105,7 @@ func appendReclaimedTx(ctx context.Context, tx *sql.Tx, req WorktreeReclaimReque
 // advance is still pending and the fold's own version rule applies.
 func convergeRecordedReclaimTx(ctx context.Context, tx *sql.Tx, req WorktreeReclaimRequest, setID, claimOpID string, appendErr error) error {
 	var failure *Failure
-	if !failureAs(appendErr, &failure) || failure.Kind != KindIdempotencyConflict {
+	if !failureAs(appendErr, &failure) || (failure.Kind != KindIdempotencyConflict && failure.Kind != KindDuplicateEvent) {
 		return appendErr
 	}
 	eventID := reclaimedEventID(req.WorkID, req.ProjectID, claimOpID)

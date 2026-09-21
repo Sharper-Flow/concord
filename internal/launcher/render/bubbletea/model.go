@@ -20,6 +20,21 @@ import (
 
 type Profile struct{ Color bool }
 
+// rowSeverity marks an attention state the row already carries as text. The
+// projection computes it where the rows are built, so the renderer colours a
+// data fact and never sniffs a rendered string for its colour.
+type rowSeverity int
+
+const (
+	severityNone rowSeverity = iota
+	severityAttention
+)
+
+// attentionColor is ANSI index 1 (red). The operator's terminal theme owns
+// the actual hue, and the fixed index keeps the rendered escape sequence
+// deterministic for tests.
+var attentionColor = lipgloss.Color("1")
+
 type navigationPosition struct {
 	cursor int
 	scroll int
@@ -29,6 +44,7 @@ type renderedPane struct {
 	header       []string
 	tableHeaders []string
 	rows         [][]string
+	severities   []rowSeverity
 	tail         []string
 	footer       []string
 	cursor       int
@@ -360,6 +376,7 @@ func (m *Model) updateCommandKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "?":
 		m.showHelp = !m.showHelp
+		m.help.ShowAll = m.showHelp
 		return m, nil
 	case "r":
 		if err := m.core.Refresh(m.ctx); err != nil {
@@ -801,12 +818,14 @@ func (m *Model) renderPortfolio(snapshot launcher.Snapshot, cursor int) rendered
 		header = append(header, "STATUS: "+snapshot.StatusMessage)
 	}
 	renderedRows := make([][]string, 0, len(rows))
+	severities := make([]rowSeverity, 0, len(rows))
 	for _, row := range rows {
 		values := []string{row.Name + row.NameSuffix, row.Stage, relianceText(row), actionText(row), row.Focus}
 		renderedRows = append(renderedRows, values)
+		severities = append(severities, productRowSeverity(row))
 	}
 	footer := m.footerLines()
-	return renderedPane{header: header, tableHeaders: projection.Columns, rows: renderedRows, footer: footer, cursor: cursor, color: m.profile.Color}
+	return renderedPane{header: header, tableHeaders: projection.Columns, rows: renderedRows, severities: severities, footer: footer, cursor: cursor, color: m.profile.Color}
 }
 
 func (m *Model) renderS2(headers []string, cursor int) renderedPane {
@@ -824,12 +843,13 @@ func (m *Model) renderS2(headers []string, cursor int) renderedPane {
 		header = append(header, "FILTERED: "+m.filterValue+" (hidden: "+fmtInt(len(s.Ranked)-len(m.filteredRanked()))+")")
 	}
 	var rows [][]string
+	var severities []rowSeverity
 	var tableHeaders []string
 	var tail []string
 	focusedSeen := false
 	for _, panel := range stack.Panels {
 		focused := s.PanelFocus == panel || (s.PanelFocus == "" && panel == launcher.S2PanelDomain)
-		panelHeader, panelTableHeaders, panelRows, panelTail := s2PanelContent(panel, focused, stack, s, m.filteredRanked())
+		panelHeader, panelTableHeaders, panelRows, panelTail, panelSeverities := s2PanelContent(panel, focused, stack, s, m.filteredRanked())
 		if !focusedSeen && !focused {
 			header = append(header, panelHeader...)
 			continue
@@ -842,6 +862,7 @@ func (m *Model) renderS2(headers []string, cursor int) renderedPane {
 		header = append(header, panelHeader...)
 		tableHeaders = panelTableHeaders
 		rows = append(rows, panelRows...)
+		severities = append(severities, panelSeverities...)
 		tail = append(tail, panelTail...)
 		focusedSeen = true
 	}
@@ -858,29 +879,29 @@ func (m *Model) renderS2(headers []string, cursor int) renderedPane {
 		tail = append(tail, "QUERY RESULT: "+s.QuerySubmitted+" (Esc restores prior view)")
 	}
 	footer := m.footerLines()
-	return renderedPane{header: header, tableHeaders: tableHeaders, rows: rows, tail: tail, footer: footer, cursor: cursor, color: m.profile.Color}
+	return renderedPane{header: header, tableHeaders: tableHeaders, rows: rows, severities: severities, tail: tail, footer: footer, cursor: cursor, color: m.profile.Color}
 }
 
-func s2PanelContent(panel launcher.S2Panel, expanded bool, stack launcher.S2AnswerStack, snapshot launcher.Snapshot, ranked []launcher.RankedWork) (header []string, tableHeaders []string, rows [][]string, tail []string) {
+func s2PanelContent(panel launcher.S2Panel, expanded bool, stack launcher.S2AnswerStack, snapshot launcher.Snapshot, ranked []launcher.RankedWork) (header []string, tableHeaders []string, rows [][]string, tail []string, severities []rowSeverity) {
 	if !expanded {
 		switch panel {
 		case launcher.S2PanelDomain:
-			return domainSummaryLines(stack.Domain.Domain), nil, nil, nil
+			return domainSummaryLines(stack.Domain.Domain), nil, nil, nil, nil
 		case launcher.S2PanelBlocked:
-			return blockedSummaryLines(stack.Blocked.Work, snapshot), nil, nil, nil
+			return blockedSummaryLines(stack.Blocked.Work, snapshot), nil, nil, nil, nil
 		case launcher.S2PanelNext:
-			return nextSummaryLines(stack.Next.Work, snapshot), nil, nil, nil
+			return nextSummaryLines(stack.Next.Work, snapshot), nil, nil, nil, nil
 		}
 	}
 	switch panel {
 	case launcher.S2PanelDomain:
-		domainHeader, domainHeaders, domainRows := domainLines(snapshot.Domains)
-		return append([]string{"DOMAIN:"}, domainHeader...), domainHeaders, domainRows, append(knowledgeLines(snapshot.Knowledge), relationLines(snapshot.Relations)...)
+		domainHeader, domainHeaders, domainRows, domainSeverities := domainLines(snapshot.Domains)
+		return append([]string{"DOMAIN:"}, domainHeader...), domainHeaders, domainRows, append(knowledgeLines(snapshot.Knowledge), relationLines(snapshot.Relations)...), domainSeverities
 	case launcher.S2PanelBlocked, launcher.S2PanelNext:
-		rankedHeaders, rankedRows := rankedTable(ranked, snapshot)
-		return []string{"BLOCKED/BLOCKERS:"}, rankedHeaders, rankedRows, nil
+		rankedHeaders, rankedRows, rankedSeverities := rankedTable(ranked, snapshot)
+		return []string{"BLOCKED/BLOCKERS:"}, rankedHeaders, rankedRows, nil, rankedSeverities
 	default:
-		return nil, nil, nil, nil
+		return nil, nil, nil, nil, nil
 	}
 }
 
@@ -973,9 +994,9 @@ func relationLines(relations launcher.RelationTree) []string {
 	return lines
 }
 
-func rankedTable(ranked []launcher.RankedWork, snapshot launcher.Snapshot) ([]string, [][]string) {
+func rankedTable(ranked []launcher.RankedWork, snapshot launcher.Snapshot) ([]string, [][]string, []rowSeverity) {
 	if len(ranked) == 0 {
-		return []string{"Work"}, [][]string{{"WORK: " + drillDownEmptyState(snapshot)}}
+		return []string{"Work"}, [][]string{{"WORK: " + drillDownEmptyState(snapshot)}}, []rowSeverity{severityNone}
 	}
 	collapsed := launcher.CollapsedRankedKeys(ranked, snapshot)
 	keys := make([]launcher.RankedColumn, 0, len(launcher.RankedColumns(ranked[0], snapshot)))
@@ -998,6 +1019,7 @@ func rankedTable(ranked []launcher.RankedWork, snapshot launcher.Snapshot) ([]st
 		headers = append(headers, column.Key)
 	}
 	rows := make([][]string, 0, len(ranked))
+	severities := make([]rowSeverity, 0, len(ranked))
 	for i, item := range ranked {
 		line := fmtInt(i+1) + " " + rankedMarker(&item) + " " + item.ID + " " + item.Title
 		if len(item.Blockers) > 0 {
@@ -1012,6 +1034,7 @@ func rankedTable(ranked []launcher.RankedWork, snapshot launcher.Snapshot) ([]st
 			line += " blockers=" + strings.Join(blockers, ",")
 		}
 		row := []string{line}
+		severities = append(severities, rankedRowSeverity(&item))
 		values := launcher.RankedColumns(item, snapshot)
 		for _, key := range keys {
 			for _, column := range values {
@@ -1023,7 +1046,16 @@ func rankedTable(ranked []launcher.RankedWork, snapshot launcher.Snapshot) ([]st
 		}
 		rows = append(rows, row)
 	}
-	return headers, rows
+	return headers, rows, severities
+}
+
+// rankedRowSeverity colours the rows whose rendered text already carries the
+// "!BLOCKED" readiness marker.
+func rankedRowSeverity(item *launcher.RankedWork) rowSeverity {
+	if item.Readiness() == "blocked" {
+		return severityAttention
+	}
+	return severityNone
 }
 
 func (m *Model) renderS3(headers []string, cursor int) renderedPane {
@@ -1057,6 +1089,7 @@ func (m *Model) renderS3(headers []string, cursor int) renderedPane {
 		header = append(header, "BLOCKED: no")
 	}
 	var rows [][]string
+	severities := make([]rowSeverity, 0, len(d.History))
 	switch s.Section {
 	case launcher.SectionKnowledge:
 		header = append(header, knowledgeLines(s.Knowledge)...)
@@ -1068,6 +1101,7 @@ func (m *Model) renderS3(headers []string, cursor int) renderedPane {
 		rows = make([][]string, 0, len(d.History))
 		for _, h := range d.History {
 			rows = append(rows, []string{"HISTORY: " + h})
+			severities = append(severities, severityNone)
 		}
 	}
 	tail := []string{}
@@ -1082,22 +1116,23 @@ func (m *Model) renderS3(headers []string, cursor int) renderedPane {
 	if s.Section == launcher.SectionRanked {
 		tableHeaders = []string{"History"}
 	}
-	return renderedPane{header: header, tableHeaders: tableHeaders, rows: rows, tail: tail, footer: footer, cursor: cursor, color: m.profile.Color}
+	return renderedPane{header: header, tableHeaders: tableHeaders, rows: rows, severities: severities, tail: tail, footer: footer, cursor: cursor, color: m.profile.Color}
 }
 
-func domainLines(section launcher.DomainSection) ([]string, []string, [][]string) {
+func domainLines(section launcher.DomainSection) ([]string, []string, [][]string, []rowSeverity) {
 	if !section.Read {
-		return []string{"DOMAINS: unavailable: not_read"}, nil, nil
+		return []string{"DOMAINS: unavailable: not_read"}, nil, nil, nil
 	}
 	if section.State == "unavailable" {
 		reason := section.Reason
 		if reason == "" {
 			reason = "unavailable"
 		}
-		return []string{"DOMAINS: unavailable: " + reason}, nil, nil
+		return []string{"DOMAINS: unavailable: " + reason}, nil, nil, nil
 	}
 	var header []string
 	var rows [][]string
+	var severities []rowSeverity
 	if len(section.Domains) == 0 {
 		header = append(header, "DOMAINS: authoritative-empty")
 	}
@@ -1122,6 +1157,7 @@ func domainLines(section launcher.DomainSection) ([]string, []string, [][]string
 			parent,
 			fmt.Sprintf("r%d law%d act%d", relations, domain.CurrentLawCount, domain.ActiveWorkCount),
 		})
+		severities = append(severities, severityNone)
 	}
 	for _, relation := range section.Relations {
 		header = append(header, "RELATION "+relation.Kind+": "+relation.Source+" -> "+relation.Target+" state="+relation.State)
@@ -1136,7 +1172,7 @@ func domainLines(section launcher.DomainSection) ([]string, []string, [][]string
 	if section.Truncated {
 		header = append(header, "DOMAINS: truncated: bounded read reached")
 	}
-	return header, []string{"Domain", "Marker", "Parent", "Relations"}, rows
+	return header, []string{"Domain", "Marker", "Parent", "Relations"}, rows, severities
 }
 
 func knowledgeLines(section launcher.KnowledgeSection) []string {
@@ -1178,7 +1214,7 @@ func (m *Model) footerLines() []string {
 	if m.showHelp {
 		value = "HELP: " + value
 	}
-	return []string{value}
+	return strings.Split(value, "\n")
 }
 
 func actionText(row launcher.ProductRow) string {
@@ -1207,6 +1243,33 @@ func relianceText(row launcher.ProductRow) string {
 		text += ":" + row.RelianceReason
 	}
 	return "! " + text
+}
+
+// productRowSeverity reads the same row facts relianceText and actionText
+// read: a reliance that is not clear, ready or empty, a stale or
+// execution-blocking reliance, and unavailable counts all already carry a
+// text marker, so colour stays redundant with the words on screen.
+func productRowSeverity(row launcher.ProductRow) rowSeverity {
+	if row.CountsState == "unavailable" {
+		return severityAttention
+	}
+	reliance := row.Reliance
+	if row.RelianceStale || row.BlocksExecution {
+		reliance = "stale"
+	}
+	if reliance != "" && reliance != "clear" && reliance != "ready" {
+		return severityAttention
+	}
+	return severityNone
+}
+
+// candidateRowSeverity colours the rows whose rendered text already says
+// "unavailable" or "blocked=true".
+func candidateRowSeverity(candidate launcher.Candidate) rowSeverity {
+	if candidate.Blocked || (!candidate.Available && candidate.State == "") {
+		return severityAttention
+	}
+	return severityNone
 }
 
 func fmtInt(value int) string {
@@ -1306,6 +1369,7 @@ func (m *Model) renderCandidates(snapshot launcher.Snapshot, cursor int) rendere
 		header = append(header, candidatePreviewLines(values[m.cursor])...)
 	}
 	rows := make([][]string, 0, len(values))
+	severities := make([]rowSeverity, 0, len(values))
 	for i, candidate := range values {
 		marker := " "
 		if candidate.Pinned {
@@ -1328,6 +1392,7 @@ func (m *Model) renderCandidates(snapshot launcher.Snapshot, cursor int) rendere
 			blocked = " blocked=true"
 		}
 		rows = append(rows, []string{fmtInt(i+1) + " " + marker + " " + string(candidate.Kind) + " " + name + " state=" + state + blocked + " live=" + fmtInt(candidate.Live)})
+		severities = append(severities, candidateRowSeverity(candidate))
 	}
 	if len(values) == 0 {
 		header = append(header, "CANDIDATES: authoritative-empty")
@@ -1336,19 +1401,21 @@ func (m *Model) renderCandidates(snapshot launcher.Snapshot, cursor int) rendere
 		header = append(header, m.input.View())
 	}
 	footer := m.footerLines()
-	return renderedPane{header: header, tableHeaders: []string{"Candidate"}, rows: rows, footer: footer, cursor: cursor, color: m.profile.Color}
+	return renderedPane{header: header, tableHeaders: []string{"Candidate"}, rows: rows, severities: severities, footer: footer, cursor: cursor, color: m.profile.Color}
 }
 
 func (m *Model) renderProjects(snapshot launcher.Snapshot, cursor int) renderedPane {
 	header := []string{"PROJECTS", "PRODUCT: " + snapshot.AmbientProduct}
 	rows := make([][]string, 0, len(snapshot.Projects))
+	severities := make([]rowSeverity, 0, len(snapshot.Projects))
 	for _, project := range snapshot.Projects {
 		rows = append(rows, []string{project.Name + " role=" + project.Role + " path=" + project.Path})
+		severities = append(severities, severityNone)
 	}
 	if len(rows) == 0 {
 		header = append(header, "PROJECTS: authoritative-empty")
 	}
-	return renderedPane{header: header, tableHeaders: []string{"Project"}, rows: rows, footer: m.footerLines(), cursor: cursor, color: m.profile.Color}
+	return renderedPane{header: header, tableHeaders: []string{"Project"}, rows: rows, severities: severities, footer: m.footerLines(), cursor: cursor, color: m.profile.Color}
 }
 
 func focusText(snapshot launcher.Snapshot) string {
@@ -1380,7 +1447,7 @@ func pane(content renderedPane, width, height, offset int) string {
 	if len(content.rows) > 0 {
 		tableHeight = max(3, tableHeight)
 	}
-	data := renderTable(content.tableHeaders, content.rows, innerWidth, tableHeight, offset, content.cursor, content.color)
+	data := renderTable(content.tableHeaders, content.rows, content.severities, innerWidth, tableHeight, offset, content.cursor, content.color)
 	lines := make([]string, 0, len(header)+len(tail)+len(footer)+strings.Count(data, "\n")+1)
 	lines = append(lines, header...)
 	if data != "" {
@@ -1403,7 +1470,7 @@ func renderTextRows(lines []string, width int) []string {
 	for _, line := range lines {
 		rows = append(rows, []string{line})
 	}
-	renderedLines := strings.Split(renderTable([]string{""}, rows, width, len(rows)+2, 0, -1, false), "\n")
+	renderedLines := strings.Split(renderTable([]string{""}, rows, nil, width, len(rows)+2, 0, -1, false), "\n")
 	if len(renderedLines) > 0 {
 		return renderedLines[1:]
 	}
@@ -1415,7 +1482,7 @@ func renderTextRows(lines []string, width int) []string {
 // gutter. The gutter is its own leading column with no right padding, so a
 // header cell and its data cell share one left edge at every width and the
 // resizing pass allocates the remaining columns once for header and rows.
-func renderTable(headers []string, rows [][]string, width, height, offset, cursor int, color bool) string {
+func renderTable(headers []string, rows [][]string, severities []rowSeverity, width, height, offset, cursor int, color bool) string {
 	if len(headers) == 0 && len(rows) == 0 {
 		return ""
 	}
@@ -1458,17 +1525,27 @@ func renderTable(headers []string, rows [][]string, width, height, offset, curso
 				// A lone column has no right-hand neighbor, so its padding
 				// buys nothing and steals width from single-line text rows
 				// such as the help footer.
-				return lipgloss.NewStyle()
+				return attentionForeground(lipgloss.NewStyle(), color, row, severities)
 			}
 			style := lipgloss.NewStyle().PaddingRight(2)
 			if color && (row == table.HeaderRow || row == cursor) {
 				style = style.Bold(true)
 			}
-			return style
+			return attentionForeground(style, color, row, severities)
 		})
 	rendered := view.Render()
 	_, _ = view.FirstVisibleRowIndex(), view.LastVisibleRowIndex()
 	return rendered
+}
+
+// attentionForeground spends the colour flag on the row's projected severity.
+// It never inspects the rendered cells, and row < 0 (the header row) and a
+// shorter severities slice both render plain.
+func attentionForeground(style lipgloss.Style, color bool, row int, severities []rowSeverity) lipgloss.Style {
+	if color && row >= 0 && row < len(severities) && severities[row] == severityAttention {
+		return style.Foreground(attentionColor)
+	}
+	return style
 }
 
 func candidatePreviewLines(candidate launcher.Candidate) []string {

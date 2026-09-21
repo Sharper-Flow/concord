@@ -209,7 +209,7 @@ func validateWorkerReportEvidence(origin string, evidence []WorkerReportEvidence
 			return invalidWorkerPayload("worker.completed evidence names an obligation outside the closed lane evidence vocabulary")
 		}
 		if len(entry.Detail) < 1 || len(entry.Detail) > 512 {
-			return invalidWorkerPayload("worker.completed evidence detail must be between 1 and 512 characters")
+			return invalidWorkerPayload("worker.completed evidence detail must be between 1 and 512 UTF-8 bytes")
 		}
 		if _, exists := seen[entry]; exists {
 			return invalidWorkerPayload("worker.completed evidence repeats an identical obligation and detail pair")

@@ -779,8 +779,8 @@ func TestReclaimWorktreeReleasesDeadOccupantByObservation(t *testing.T) {
 }
 
 // The release path keeps every strand-guard for live state: an observation
-// naming the recorded occupant anywhere refuses, and so does an observation
-// naming any other live session inside the worktree.
+// naming any session inside the worktree refuses, and an occupant observed
+// with no readable directory refuses, because neither attests an empty tree.
 func TestReclaimWorktreeKeepsLiveOccupantRefusal(t *testing.T) {
 	t.Parallel()
 	s, git, _ := worktreeFixture(t)
@@ -794,7 +794,7 @@ func TestReclaimWorktreeKeepsLiveOccupantRefusal(t *testing.T) {
 
 	for name, observed := range map[string][]SessionDirectory{
 		"occupant live in the worktree": {{SessionRef: "ses_live", Directory: claimed.Entry.Path}},
-		"occupant live elsewhere":       {{SessionRef: "ses_live", Directory: filepath.Join(t.TempDir(), "elsewhere")}},
+		"occupant unreadable directory": {{SessionRef: "ses_live", Directory: ""}},
 		"other session inside":          {{SessionRef: "ses_other", Directory: filepath.Join(claimed.Entry.Path, "nested")}},
 	} {
 		_, err := s.ReclaimWorktree(context.Background(), WorktreeReclaimRequest{
@@ -813,6 +813,38 @@ func TestReclaimWorktreeKeepsLiveOccupantRefusal(t *testing.T) {
 	}
 	if _, still := git.worktrees[claimed.Entry.Path]; !still {
 		t.Fatal("no refused attempt may remove the worktree")
+	}
+}
+
+// TestReclaimWorktreeReleasesMovedOccupant pins the narrowed rule end to end:
+// a recorded occupant the host observes alive in a directory outside the
+// worktree has been retargeted by a work_start move and no longer holds the
+// claim, so the reclaim releases the occupancy and removes the tree.
+func TestReclaimWorktreeReleasesMovedOccupant(t *testing.T) {
+	t.Parallel()
+	s, git, _ := worktreeFixture(t)
+	req := baseClaim(git)
+	req.SessionRef = "ses_moved"
+	claimed, err := s.ClaimWorktree(context.Background(), req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	seedWorktreeLifecycle(t, s, "work-w", "completed", 3)
+
+	entry, err := s.ReclaimWorktree(context.Background(), WorktreeReclaimRequest{
+		WorkID: "work-w", ProjectID: "project-w", DefaultRef: "origin/main",
+		PrincipalRef: "principal-1", RequestID: "req-moved-release", ExpectedVersion: 4,
+		Now: time.Unix(20, 0).UTC(), Runner: git,
+		ObservedSessionDirectories: &[]SessionDirectory{{SessionRef: "ses_moved", Directory: filepath.Join(t.TempDir(), "moved-elsewhere")}},
+	})
+	if err != nil {
+		t.Fatalf("a host observation placing the occupant elsewhere must release the stale claim: %v", err)
+	}
+	if entry.State != worktreeEntryReclaimed {
+		t.Fatalf("entry=%+v, want reclaimed", entry)
+	}
+	if _, still := git.worktrees[claimed.Entry.Path]; still {
+		t.Fatal("the released worktree must be removed")
 	}
 }
 

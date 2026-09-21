@@ -547,10 +547,11 @@ func TestWorktreeReclaimRefusesOccupiedWorktreeThroughToolSurface(t *testing.T) 
 }
 
 // The direct reclaim's planner forwards the host session observation to the
-// store request: an observation naming the recorded occupant keeps the
-// strand-guard refusal, and an observation proving the occupant gone
-// reclaims the row. The store owns the release semantics; this pins that
-// the agent surface carries the field through.
+// store request: an observation placing the recorded occupant inside the
+// worktree keeps the strand-guard refusal, and an observation placing the
+// occupant at a readable directory elsewhere reclaims the row. The store owns
+// the release semantics; this pins that the agent surface carries the field
+// through.
 func TestReclaimForwardsObservedSessionDirectories(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -580,13 +581,13 @@ func TestReclaimForwardsObservedSessionDirectories(t *testing.T) {
 		return response
 	}
 
-	// The observation names the recorded occupant's own ref: the occupant
-	// counts as live, so the strand-guard refusal stays.
+	// The observation places the recorded occupant's own session inside the
+	// worktree: the strand-guard refusal stays.
 	naming := reclaimWith("reclaim-observation-naming", []map[string]any{
-		{"session_ref": grant.SessionRef, "directory": repoRoot},
+		{"session_ref": grant.SessionRef, "directory": worktreePath},
 	})
 	if naming.Outcome == OutcomeOK {
-		t.Fatal("an observation naming the recorded occupant must keep the refusal")
+		t.Fatal("an observation placing the recorded occupant inside the worktree must keep the refusal")
 	}
 	if naming.Error == nil || naming.Error.Kind != "unauthorized" {
 		t.Fatalf("error=%+v, want unauthorized", naming.Error)
@@ -595,13 +596,14 @@ func TestReclaimForwardsObservedSessionDirectories(t *testing.T) {
 		t.Fatalf("refusal %q must name the occupying session and the worktree", naming.Error.Message)
 	}
 
-	// A live session exists elsewhere and carries no recorded ref, so the
-	// observation proves the recorded occupant gone and the reclaim proceeds.
-	gone := reclaimWith("reclaim-observation-gone", []map[string]any{
-		{"session_ref": "session-elsewhere", "directory": repoRoot},
+	// The same recorded occupant is observed at a readable directory outside
+	// the worktree: a work_start move has retargeted it, so the reclaim
+	// proceeds.
+	moved := reclaimWith("reclaim-observation-moved", []map[string]any{
+		{"session_ref": grant.SessionRef, "directory": repoRoot},
 	})
-	if gone.Outcome != OutcomeOK {
-		t.Fatalf("response=%+v, want the observation-proven-gone reclaim to proceed", gone)
+	if moved.Outcome != OutcomeOK {
+		t.Fatalf("response=%+v, want the occupant-observed-elsewhere reclaim to proceed", moved)
 	}
 	entries, err := s.WorktreeEntries(ctx, "work-1")
 	if err != nil || len(entries) != 1 || entries[0].State != "reclaimed" {

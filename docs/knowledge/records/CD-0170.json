@@ -1,0 +1,36 @@
+{
+  "authority": {
+    "contract_version": 1,
+    "legislated_by": "work-b01435b6d552d2dc1a24b463",
+    "tier": "legislated"
+  },
+  "date": "2026-09-21T00:00:00Z",
+  "home_domain_id": "workflow-engine",
+  "id": "CD-0170",
+  "kind": "decision",
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "CD-0113"
+    }
+  ],
+  "path": "docs/decisions/CD-0170-completed-receipts-restatement-approved-predicates.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:45a3b517b6e81ba2e07bfec6a4b33bdaaab78866e22852e7c805601b03a3ae03",
+  "status": "accepted",
+  "summary": "Completed closure receipts restate only the active contract predicates that the completion gate verifies individually. A completed WorkPin carries each approved typed predicate with its latest verdict kind. Ambiguous, cancelled, and superseded projections omit the criteria, and the adapter renders bounded checkmarked typed labels only for completed boxes.",
+  "tags": [
+    "workflow",
+    "completion",
+    "work-pin",
+    "closure-receipt",
+    "adapter"
+  ],
+  "title": "Completed receipts restate approved predicates"
+}

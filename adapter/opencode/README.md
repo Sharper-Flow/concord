@@ -211,6 +211,11 @@ Evidence is not a precondition: an envelope with no evidence renders
 `evidence=none` instead of closing the item in silence. The worktree-removal
 notice rides the same channel.
 
+Completed pins may carry `verified_criteria`. The block prints one `✓` line
+for each active contract predicate, using only its typed outcome fields. The
+field stays absent for cancelled and superseded pins, and for ambiguous
+contract projections.
+
 The box rides the assistant's own message. The work-state reporter queues
 one block per session and suppresses a second emission of the same session,
 work, and terminal lifecycle triple, and the plugin's

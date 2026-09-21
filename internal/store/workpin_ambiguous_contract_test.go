@@ -30,6 +30,9 @@ func TestWorkPinNamesTheRecoveryWithDuplicateActiveContracts(t *testing.T) {
 	if !workPinContainsAction(pin.NextValidIntents, "supersede_contract") {
 		t.Fatalf("pin omits supersede_contract while the projection is ambiguous; intents = %v", intentActionIDs(pin.NextValidIntents))
 	}
+	if len(pin.VerifiedCriteria) != 0 {
+		t.Fatalf("ambiguous pin carries verified criteria = %v", pin.VerifiedCriteria)
+	}
 }
 
 // The strict selection still refuses for callers that must act on exactly one

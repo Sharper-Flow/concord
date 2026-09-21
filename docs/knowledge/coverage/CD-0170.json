@@ -1,0 +1,22 @@
+{
+  "evidence": [
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestReadWorkPinUsesOneTransactionAndDeclaredStepActions"
+    },
+    {
+      "kind": "adapter_test",
+      "value": "adapter/opencode/workflow-status.test.ts#renders the terminal closure boxes byte-exactly"
+    },
+    {
+      "kind": "generated",
+      "value": "internal/payloadschema/generated_schemas.go#GeneratedPayloadSchemaDocument"
+    },
+    {
+      "kind": "validator",
+      "value": "scripts/check-json.py"
+    }
+  ],
+  "id": "CD-0170",
+  "state": "satisfied"
+}

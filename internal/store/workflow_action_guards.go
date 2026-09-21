@@ -595,12 +595,21 @@ func guardNoRestartDispatch(g *workflowActionGuardContext) error {
 // own work finished, so a step that never started has nothing to deliver. The
 // fold refuses delivery after a worker dispatch in the current attempt.
 func guardDeliveryFollowsStart(g *workflowActionGuardContext) error {
-	_, _, found, err := latestWorkflowActionStart(g.ctx, g.tx, g.request.WorkID, g.currentStep)
+	startStep := g.currentStep
+	if workflowStepIsDeliveryGate(workflowStep(g.entry.Definition, g.currentStep)) {
+		for _, edge := range g.entry.Definition.StepGraph.Edges {
+			if edge.To == g.currentStep && edge.Kind == WorkflowEdgeForward {
+				startStep = edge.From
+				break
+			}
+		}
+	}
+	_, _, found, err := latestWorkflowActionStart(g.ctx, g.tx, g.request.WorkID, startStep)
 	if err != nil {
 		return err
 	}
 	if !found {
-		return newFailure(KindInvalidOperation, "workflow_action", "record_delivery requires the step's fenced start action in this attempt", false, "start the step, do its work, then record delivery")
+		return newFailure(KindInvalidOperation, "workflow_action", "record_delivery requires the delivery step's fenced start action in this attempt", false, "start the delivery-bearing step, do its work, then record delivery")
 	}
 	return nil
 }
@@ -820,6 +829,15 @@ func appendGenericWorkflowCompletion(in workflowActionAssemblyInput, attemptEpoc
 		"step_id": in.currentStep, "action_id": in.request.ActionID, "attempt_epoch": attemptEpoch, "result_evidence_refs": in.evidenceRefs,
 		"changed_refs": []string{in.request.WorkID}, "actor_ref": in.eventActor,
 	}
+	if in.request.ActionID == "record_delivery" && workflowDefinitionRequiresDeliveryPayload(in.entry.Definition) {
+		artifact := workflowFieldStringDefault(fields, "delivery_artifact", "")
+		state := workflowFieldStringDefault(fields, "delivery_state", "")
+		if artifact == "" || state == "" {
+			return events, "", newFailure(KindInvalidPayload, "workflow_action", "record_delivery requires delivery_artifact and delivery_state", false, "supply the asserted delivery artifact and state")
+		}
+		completionValues["delivery_artifact"] = artifact
+		completionValues["delivery_state"] = state
+	}
 	var workerPacketDigest string
 	if in.request.ActionID == "accept_worker_result" || in.request.ActionID == "record_worker_failure" || in.request.ActionID == "reject_worker_result" {
 		completionValues["attempt_epoch"] = workflowFieldInt(fields, "attempt_epoch", 0)
@@ -908,6 +926,20 @@ func appendGenericWorkflowCompletion(in workflowActionAssemblyInput, attemptEpoc
 	}
 	events = append(events, workflowTypedEvent(in.request.OperationID+":completed", WorkflowActionCompleted, in.request.WorkID, in.eventActor, in.request.Now, resultVersion-1, completionValues))
 	return events, workerPacketDigest, nil
+}
+
+func workflowDefinitionRequiresDeliveryPayload(definition WorkflowDefinition) bool {
+	for _, action := range definition.ActionDefinitions {
+		if action.ID != "record_delivery" {
+			continue
+		}
+		for _, field := range action.Payload.Fields {
+			if field.Name == "delivery_artifact" {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func lateBindWorkflowEvidenceTx(ctx context.Context, tx *sql.Tx, request WorkflowActionExecutionRequest, actor string, payload json.RawMessage, definition WorkflowDefinition) ([]Event, error) {

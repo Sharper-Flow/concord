@@ -19,8 +19,8 @@ func TestBuiltinWorkflowRegistryHasTheSevenContractFamilies(t *testing.T) {
 	}
 	registry := NewWorkflowDefinitionRegistry()
 	wantSteps := map[string][]string{
-		"workflow.implementation":     {"proposal", "alignment", "discovery", "design", "planning", "execution", "refine", "acceptance", "release"},
-		"workflow.break_fix":          {"reproduce", "alignment", "diagnose", "planning", "repair", "refine", "verify", "complete"},
+		"workflow.implementation":     {"proposal", "alignment", "discovery", "design", "planning", "execution", "refine", "delivery", "acceptance", "release"},
+		"workflow.break_fix":          {"reproduce", "alignment", "diagnose", "planning", "repair", "refine", "delivery", "verify", "complete"},
 		"workflow.research":           {"frame", "investigate", "findings", "conclude", "complete"},
 		"workflow.architecture_spike": {"frame", "research", "options", "poc_optional", "decision_record", "review", "acceptance", "complete"},
 		"workflow.ops_runbook":        {"plan", "approval", "execute", "health", "rollback_optional", "cleanup", "complete"},
@@ -40,8 +40,8 @@ func TestBuiltinWorkflowRegistryHasTheSevenContractFamilies(t *testing.T) {
 		"workflow.implementation": "release", "workflow.break_fix": "complete", "workflow.research": "complete", "workflow.architecture_spike": "complete", "workflow.ops_runbook": "complete", "workflow.static_analysis": "complete", "workflow.generic_one_off": "complete",
 	}
 	wantEdges := map[string][]WorkflowEdge{
-		"workflow.implementation":     {{"proposal", "alignment", WorkflowEdgeForward}, {"alignment", "discovery", WorkflowEdgeForward}, {"discovery", "design", WorkflowEdgeForward}, {"design", "planning", WorkflowEdgeForward}, {"planning", "execution", WorkflowEdgeForward}, {"execution", "refine", WorkflowEdgeForward}, {"refine", "acceptance", WorkflowEdgeForward}, {"acceptance", "release", WorkflowEdgeForward}, {"execution", "execution", WorkflowEdgeRetry}, {"acceptance", "refine", WorkflowEdgeFailure}},
-		"workflow.break_fix":          {{"reproduce", "alignment", WorkflowEdgeForward}, {"alignment", "diagnose", WorkflowEdgeForward}, {"diagnose", "planning", WorkflowEdgeForward}, {"planning", "repair", WorkflowEdgeForward}, {"repair", "refine", WorkflowEdgeForward}, {"refine", "verify", WorkflowEdgeForward}, {"verify", "complete", WorkflowEdgeForward}, {"repair", "repair", WorkflowEdgeRetry}, {"verify", "refine", WorkflowEdgeFailure}},
+		"workflow.implementation":     {{"proposal", "alignment", WorkflowEdgeForward}, {"alignment", "discovery", WorkflowEdgeForward}, {"discovery", "design", WorkflowEdgeForward}, {"design", "planning", WorkflowEdgeForward}, {"planning", "execution", WorkflowEdgeForward}, {"execution", "refine", WorkflowEdgeForward}, {"refine", "delivery", WorkflowEdgeForward}, {"delivery", "acceptance", WorkflowEdgeForward}, {"acceptance", "release", WorkflowEdgeForward}, {"execution", "execution", WorkflowEdgeRetry}, {"acceptance", "refine", WorkflowEdgeFailure}},
+		"workflow.break_fix":          {{"reproduce", "alignment", WorkflowEdgeForward}, {"alignment", "diagnose", WorkflowEdgeForward}, {"diagnose", "planning", WorkflowEdgeForward}, {"planning", "repair", WorkflowEdgeForward}, {"repair", "refine", WorkflowEdgeForward}, {"refine", "delivery", WorkflowEdgeForward}, {"delivery", "verify", WorkflowEdgeForward}, {"verify", "complete", WorkflowEdgeForward}, {"repair", "repair", WorkflowEdgeRetry}, {"verify", "refine", WorkflowEdgeFailure}},
 		"workflow.research":           {{"frame", "investigate", WorkflowEdgeForward}, {"investigate", "findings", WorkflowEdgeForward}, {"findings", "conclude", WorkflowEdgeForward}, {"conclude", "complete", WorkflowEdgeForward}},
 		"workflow.architecture_spike": {{"frame", "research", WorkflowEdgeForward}, {"research", "options", WorkflowEdgeForward}, {"options", "poc_optional", WorkflowEdgeForward}, {"poc_optional", "decision_record", WorkflowEdgeForward}, {"decision_record", "review", WorkflowEdgeForward}, {"review", "acceptance", WorkflowEdgeForward}, {"acceptance", "complete", WorkflowEdgeForward}, {"options", "decision_record", WorkflowEdgeOptional}, {"poc_optional", "poc_optional", WorkflowEdgeRetry}},
 		"workflow.ops_runbook":        {{"plan", "approval", WorkflowEdgeForward}, {"approval", "execute", WorkflowEdgeForward}, {"execute", "health", WorkflowEdgeForward}, {"health", "rollback_optional", WorkflowEdgeForward}, {"rollback_optional", "cleanup", WorkflowEdgeForward}, {"cleanup", "complete", WorkflowEdgeForward}, {"health", "cleanup", WorkflowEdgeOptional}, {"execute", "execute", WorkflowEdgeRetry}},
@@ -133,6 +133,15 @@ func TestRefinementStepsRequireArtifactEvidenceAndHaveNoSkipEdge(t *testing.T) {
 		if !reflect.DeepEqual(refine.Actions[:4], []string{"start_refine", "checkpoint_refine", "bind_evidence", "record_delivery"}) {
 			t.Fatalf("%s refine actions = %v, want fenced, checkpoint, evidence, delivery", definition.Ref, refine.Actions)
 		}
+		var delivery WorkflowStep
+		for _, candidate := range definition.StepGraph.Steps {
+			if candidate.ID == "delivery" {
+				delivery = candidate
+			}
+		}
+		if !reflect.DeepEqual(delivery.Actions[:1], []string{"record_delivery"}) || len(delivery.Actions) != 3 {
+			t.Fatalf("%s delivery actions = %v, want record_delivery and continuity holds", definition.Ref, delivery.Actions)
+		}
 		if bindingStep := workflowEvidenceRecoveryBindingStep(definition, refine.ID); bindingStep != "" {
 			t.Fatalf("%s refine recovery binding step = %q, want none", definition.Ref, bindingStep)
 		}
@@ -221,7 +230,7 @@ func TestBuiltinWorkflowResolverReturnsTheShippedDefinition(t *testing.T) {
 				}
 			}
 			kindAdmits := step.Kind == WorkflowStepInternalSQLite || step.Kind == WorkflowStepCrossAuthority || step.Kind == WorkflowStepExternalEffect
-			if admitted != (kindAdmits && !terminalStep && !gated && step.ID != "alignment") {
+			if admitted != (kindAdmits && !terminalStep && !gated && step.ID != "alignment" && step.ID != "delivery") {
 				t.Fatalf("%s step %s acceptance declaration=%t for kind %s", latest.Ref, step.ID, admitted, step.Kind)
 			}
 		}

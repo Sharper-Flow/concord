@@ -69,7 +69,7 @@ func TestOperatorVerdictChallengeAfterInSessionDelivery(t *testing.T) {
 	if bound := signedAction("bind_evidence", map[string]any{"evidence_kind": "verification", "evidence_ref": "evidence:operator-challenge"}, "operator-verdict-bind"); bound.Outcome != OutcomeOK {
 		t.Fatalf("bind_evidence refused: %+v", bound.Error)
 	}
-	if delivered := signedAction("record_delivery", map[string]any{}, "operator-verdict-delivery"); delivered.Outcome != OutcomeOK {
+	if delivered := signedAction("record_delivery", map[string]any{"delivery_artifact": "artifact:operator-verdict", "delivery_state": "asserted"}, "operator-verdict-delivery"); delivered.Outcome != OutcomeOK {
 		t.Fatalf("record_delivery refused: %+v", delivered.Error)
 	}
 

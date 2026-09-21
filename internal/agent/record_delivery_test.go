@@ -73,7 +73,8 @@ func TestRecordDeliveryExitsTheStepTheSessionExecuted(t *testing.T) {
 	}
 
 	// Delivery after the repair fenced start advances to the mandatory refine step.
-	if err := try("record_delivery", map[string]any{}); err != nil {
+	delivery := map[string]any{"delivery_artifact": "artifact:repair", "delivery_state": "asserted"}
+	if err := try("record_delivery", delivery); err != nil {
 		t.Fatalf("record_delivery after start_repair refused: %v", err)
 	}
 	if step := currentStep(); step != "refine" {
@@ -85,11 +86,17 @@ func TestRecordDeliveryExitsTheStepTheSessionExecuted(t *testing.T) {
 	if err := try("bind_evidence", map[string]any{"evidence_kind": "artifact"}); err != nil {
 		t.Fatalf("refine artifact binding refused: %v", err)
 	}
-	if err := try("record_delivery", map[string]any{}); err != nil {
+	if err := try("record_delivery", delivery); err != nil {
 		t.Fatalf("record_delivery after start_refine refused: %v", err)
 	}
+	if step := currentStep(); step != "delivery" {
+		t.Fatalf("refine record_delivery left the step at %q, want delivery", step)
+	}
+	if err := try("record_delivery", delivery); err != nil {
+		t.Fatalf("record_delivery at delivery gate refused: %v", err)
+	}
 	if step := currentStep(); step != "verify" {
-		t.Fatalf("refine record_delivery left the step at %q, want verify", step)
+		t.Fatalf("delivery gate left the step at %q, want verify", step)
 	}
 }
 
@@ -108,7 +115,7 @@ func TestRecordDeliveryRequiresTheFencedStart(t *testing.T) {
 		t.Fatal(err)
 	}
 	version := agentCompositionWorkVersion(t, s, workID)
-	raw, _ := json.Marshal(map[string]any{"work_id": workID, "expected_version": version, "action_id": "record_delivery", "fields": map[string]any{}, "idempotency_key": "delivery-no-start-action"})
+	raw, _ := json.Marshal(map[string]any{"work_id": workID, "expected_version": version, "action_id": "record_delivery", "fields": map[string]any{"delivery_artifact": "artifact:missing-start", "delivery_state": "asserted"}, "idempotency_key": "delivery-no-start-action"})
 	env.RequestID = "request:delivery-no-start"
 	response, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: raw}, env)
 	if err != nil {

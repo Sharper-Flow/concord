@@ -505,6 +505,14 @@ func livenessPayload(definition WorkflowDefinition, action WorkflowActionDefinit
 			fields[field.Name] = false
 			continue
 		}
+		if field.Name == "delivery_artifact" {
+			fields[field.Name] = "artifact:liveness-delivery"
+			continue
+		}
+		if field.Name == "delivery_state" {
+			fields[field.Name] = "asserted"
+			continue
+		}
 		// Evidence a verdict cites must equal a reference some earlier action
 		// durably bound. One subject reference runs through binding, the
 		// contract predicate, and the verdict so the explored path satisfies

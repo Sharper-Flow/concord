@@ -46,7 +46,7 @@ func TestOpsRunbookConditionResolutionAcrossHealthDispatch(t *testing.T) {
 	version = dispatchOpsRunbookAction(t, s, workID, version, "add_condition", "ops-add-condition", actor, json.RawMessage(`{"condition_id":"condition:health","await_type":"ci_result","await_ref":"health:ops","resolution_authority":"durable_operation:ops-add-condition"}`))
 	// Adding a condition holds the step; delivery is the exit.
 	assertOpsRunbookStep(t, s, workID, "execute")
-	version = dispatchOpsRunbookAction(t, s, workID, version, "record_delivery", "ops-record-delivery", actor, json.RawMessage(`{}`))
+	version = dispatchOpsRunbookAction(t, s, workID, version, "record_delivery", "ops-record-delivery", actor, json.RawMessage(`{"delivery_artifact":"artifact:ops","delivery_state":"asserted"}`))
 	assertOpsRunbookStep(t, s, workID, "health")
 
 	healthPayload := json.RawMessage(`{"run_id":"run:ops","native_subject_ref":"route:ops","status":"healthy","evidence_ref":"evidence:health","evidence_digest":"sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"}`)

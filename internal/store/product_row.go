@@ -79,6 +79,11 @@ type ProductRowActionCountValues struct {
 	// declared bound (issue #87): waiting-vs-never-completable made visible
 	// in the row the operator scans.
 	OverdueAwaits int `json:"overdue_awaits"`
+	// ParkedDeliveries counts live work items sitting on their CD-0166
+	// delivery gate with no recorded delivery: a session ended with the
+	// change not yet on the default branch, and the item waits for a
+	// coordinator to resume it rather than for a clock to resolve it.
+	ParkedDeliveries int `json:"parked_deliveries"`
 }
 
 type ProductRowActionCounts struct {
@@ -179,6 +184,7 @@ type productRowWork struct {
 	ActiveProblem     bool
 	ApprovalRequired  bool
 	OverdueAwaits     bool
+	ParkedDelivery    bool
 	WorkflowStepLabel string
 	Liveness          *WorkLiveness
 }
@@ -372,9 +378,9 @@ func productRowUnavailableReason(reliance ProductRowReliance) string {
 	return "source_lag"
 }
 
-func productRowStepRequiresApprovalCached(registry DefinitionRegistry, ref string, version int64, digest, currentStep, state string, cache map[string]RegisteredDefinition) (bool, string, error) {
+func productRowStepRequiresApprovalCached(registry DefinitionRegistry, ref string, version int64, digest, currentStep, state string, cache map[string]RegisteredDefinition) (bool, string, bool, error) {
 	if ref == "" || digest == "" || version == 0 || state == "completed" || state == "cancelled" || state == "superseded" {
-		return false, "", nil
+		return false, "", false, nil
 	}
 	key := fmt.Sprintf("%s\x00%d\x00%s", ref, version, digest)
 	entry, ok := cache[key]
@@ -382,24 +388,25 @@ func productRowStepRequiresApprovalCached(registry DefinitionRegistry, ref strin
 		var err error
 		entry, err = VerifyWorkflowDefinitionPin(registry, WorkflowDefinitionPin{Ref: ref, Version: version, Digest: digest})
 		if err != nil {
-			return false, "", err
+			return false, "", false, err
 		}
 		if cache != nil {
 			cache[key] = entry
 		}
 	}
 	step := workflowStep(entry.Definition, currentStep)
+	deliveryGate := workflowStepIsDeliveryGate(step)
 	if step == nil || step.Kind != WorkflowStepHumanCheckpoint {
-		return false, currentStep, nil
+		return false, currentStep, deliveryGate, nil
 	}
 	for _, candidate := range step.Actions {
 		for _, action := range entry.Definition.ActionDefinitions {
 			if action.ID == candidate && action.Approval == ActionApprovalRequired {
-				return true, currentStep, nil
+				return true, currentStep, deliveryGate, nil
 			}
 		}
 	}
-	return false, currentStep, nil
+	return false, currentStep, deliveryGate, nil
 }
 
 func (w productRowWork) attentionKind() string {
@@ -561,17 +568,18 @@ func (s *Store) QueryProductRows(ctx context.Context, req ProductRowRequest) (Pr
 		if !workID.Valid {
 			continue
 		}
-		approvalRequired, stepLabel, err := productRowStepRequiresApprovalCached(registry, definitionRef.String, definitionVersion.Int64, definitionDigest.String, currentStep.String, instanceState.String, definitionCache)
+		approvalRequired, stepLabel, deliveryGate, err := productRowStepRequiresApprovalCached(registry, definitionRef.String, definitionVersion.Int64, definitionDigest.String, currentStep.String, instanceState.String, definitionCache)
 		if err != nil {
 			return out, newFailure(KindInvariantViolation, productRowQueryID, "workflow definition pin cannot be verified for Product-row projection", false, "repair or rebuild the workflow projection")
 		}
 		if lifecycle.String == "completed" || lifecycle.String == "cancelled" || lifecycle.String == "superseded" {
 			approvalRequired = false
 		}
+		parkedDelivery := deliveryGate && (lifecycle.String == "needed" || lifecycle.String == "in_progress")
 		products[idx].works = append(products[idx].works, productRowWork{
 			ID: workID.String, Kind: workKind.String, Title: title.String, Lifecycle: lifecycle.String, Priority: priority.Int64, Urgency: urgency.String,
 			CreatedAt: createdAt.String, UpdatedAt: updatedAt.String, ProjectCount: int(projectCount.Int64), Blocked: blocked.Bool,
-			Ready: ready.Bool, ActiveProblem: activeProblem.Bool, ApprovalRequired: approvalRequired, OverdueAwaits: overdueAwaits.Bool, WorkflowStepLabel: stepLabel,
+			Ready: ready.Bool, ActiveProblem: activeProblem.Bool, ApprovalRequired: approvalRequired, OverdueAwaits: overdueAwaits.Bool, ParkedDelivery: parkedDelivery, WorkflowStepLabel: stepLabel,
 			StageOverrides: parseProductRowStageOverrides(stageOverrideMin.String, stageOverrideMax.String),
 			Liveness:       workLivenessPtrFromCounts(workID.String, livenessAttempts.Int64, livenessDispatched.Int64, livenessFailed.Int64, livenessOpenWaits.Int64, livenessUnboundedWaits.Int64, livenessDecisions.Int64, livenessLastProgress),
 		})
@@ -621,6 +629,9 @@ func (s *Store) QueryProductRows(ctx context.Context, req ProductRowRequest) (Pr
 			}
 			if work.OverdueAwaits {
 				values.OverdueAwaits++
+			}
+			if work.ParkedDelivery {
+				values.ParkedDeliveries++
 			}
 			if work.ApprovalRequired {
 				values.ApprovalRequired++

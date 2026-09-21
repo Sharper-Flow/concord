@@ -1,0 +1,31 @@
+{
+  "date": "2026-09-20T00:00:00Z",
+  "home_domain_id": "workflow-engine",
+  "id": "CD-0164",
+  "kind": "decision",
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "CD-0137"
+    }
+  ],
+  "path": "docs/decisions/CD-0164-correction-attempt-counting-population.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:3e22b8dcd01ef30964ecd63e0a8fe906a46117094a4007489d9df4f1ea664a9e",
+  "status": "accepted",
+  "summary": "One correction sequence counts every dispatched worker attempt on the work item since the last accepted worker result, whatever failure kind the attempt returned, and no kind is exempt. An accepted result resets the count, the count survives operator-approved contract supersession, and the successor inherits the bound. The failure and rejection comparator escalates when that dispatch count reaches the limit, while the verification comparator escalates when correction requests since the last healthy verdict pass it, because each path counts the population it can observe. Refines CD-0137 D3 by naming the population its three-attempt bound counts.",
+  "tags": [
+    "correction",
+    "dispatch",
+    "recovery",
+    "worker",
+    "workflow"
+  ],
+  "title": "Correction attempts count every dispatch"
+}

@@ -165,7 +165,15 @@ func checkMandatedLawsQuery(ctx context.Context, q queryer, homeProjectID, homeL
 			return LawBoundaryCheck{}, wrapFailure(KindUnavailable, "check_mandated_laws", "cannot decode a derived law conflict", true, "retry once the knowledge projection is readable", err)
 		}
 		result.Conflicts = append(result.Conflicts, LawConflict{SourceLawID: source, TargetLawID: target})
-		if !allowAmendment || (!modifiedSet[source] && !modifiedSet[target]) || authority[source] != "derived" || authority[target] != "derived" {
+		// The tier gates the law the contract revises, not the law it leaves
+		// alone. A contract that brings a derived record into conformance with
+		// an untouched legislated commitment resolves the conflict without
+		// changing anything the operator legislated, so it carries a contract
+		// revision line. Revising a legislated endpoint still meets the
+		// refusal that sends the conflict to an operator checkpoint.
+		revisesLegislated := (modifiedSet[source] && authority[source] != "derived") ||
+			(modifiedSet[target] && authority[target] != "derived")
+		if !allowAmendment || (!modifiedSet[source] && !modifiedSet[target]) || revisesLegislated {
 			_ = conflictRows.Close()
 			return result, newFailure(KindRelationConflict, "check_mandated_laws", fmt.Sprintf("mandated laws have an unresolved explicit conflict: %s and %s", source, target), false, "resolve the Git law conflict or declare and approve the amendment path")
 		}

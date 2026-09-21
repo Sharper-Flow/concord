@@ -107,24 +107,26 @@ func checkMandatedLawsQuery(ctx context.Context, q queryer, homeProjectID, homeL
 	for _, id := range mandated {
 		args = append(args, id)
 	}
-	rows, err := q.QueryContext(ctx, `SELECT law_id,status FROM law_subjects WHERE home_project_id=? AND home_locator_id=? AND law_id IN (`+placeholders+`) LIMIT 33`, args...)
+	rows, err := q.QueryContext(ctx, `SELECT law_id,status,authority_tier FROM law_subjects WHERE home_project_id=? AND home_locator_id=? AND law_id IN (`+placeholders+`) LIMIT 33`, args...)
 	if err != nil {
 		return LawBoundaryCheck{}, wrapFailure(KindUnavailable, "check_mandated_laws", "cannot read the derived law subjects", true, "retry once the knowledge projection is readable", err)
 	}
 	accepted := map[string]bool{}
+	authority := map[string]string{}
 	for rows.Next() {
 		if len(accepted) == 32 {
 			_ = rows.Close()
 			return LawBoundaryCheck{}, newFailure(KindInvalidPayload, "check_mandated_laws", "derived law subject query exceeds the bounded result size", false, "reduce the law mandate before retrying")
 		}
-		var id, status string
-		if err := rows.Scan(&id, &status); err != nil {
+		var id, status, tier string
+		if err := rows.Scan(&id, &status, &tier); err != nil {
 			rows.Close()
 			return LawBoundaryCheck{}, wrapFailure(KindUnavailable, "check_mandated_laws", "cannot decode a derived law subject", true, "retry once the knowledge projection is readable", err)
 		}
 		if status == "accepted" {
 			accepted[id] = true
 		}
+		authority[id] = tier
 	}
 	if err := rows.Err(); err != nil {
 		rows.Close()
@@ -163,7 +165,7 @@ func checkMandatedLawsQuery(ctx context.Context, q queryer, homeProjectID, homeL
 			return LawBoundaryCheck{}, wrapFailure(KindUnavailable, "check_mandated_laws", "cannot decode a derived law conflict", true, "retry once the knowledge projection is readable", err)
 		}
 		result.Conflicts = append(result.Conflicts, LawConflict{SourceLawID: source, TargetLawID: target})
-		if !allowAmendment || (!modifiedSet[source] && !modifiedSet[target]) {
+		if !allowAmendment || (!modifiedSet[source] && !modifiedSet[target]) || authority[source] != "derived" || authority[target] != "derived" {
 			_ = conflictRows.Close()
 			return result, newFailure(KindRelationConflict, "check_mandated_laws", fmt.Sprintf("mandated laws have an unresolved explicit conflict: %s and %s", source, target), false, "resolve the Git law conflict or declare and approve the amendment path")
 		}

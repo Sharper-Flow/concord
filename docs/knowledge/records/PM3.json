@@ -3,6 +3,9 @@
     "product-memory",
     "work-coordination"
   ],
+  "authority": {
+    "tier": "derived"
+  },
   "criterion_bindings": [
     {
       "criterion": 1,

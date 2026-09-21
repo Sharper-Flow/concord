@@ -111,11 +111,11 @@ the touched law carries.
 
 ### D5. Defaults for existing records and for an import
 
-The 195 records under `docs/knowledge/records` take a default tier by kind.
+The 197 records under `docs/knowledge/records` take a default tier by kind.
 
 | Kind | Count | Default tier |
 |---|---|---|
-| `decision` | 142 | `legislated` |
+| `decision` | 144 | `legislated` |
 | `constitution` | 3 | `legislated` |
 | `spec` | 26 | `derived` |
 | `reference` | 18 | `derived` |

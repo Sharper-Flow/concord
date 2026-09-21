@@ -77,6 +77,63 @@
       "maxLength": 256,
       "pattern": "^\\S(?:.*\\S)?$"
     },
+    "authority": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "CD-0159 D3: the standing of a law record, beside status. legislated_by and contract_version name the operator-approved work contract that fixed the legislated standing; they are required exactly when the tier is legislated.",
+      "required": ["tier"],
+      "properties": {
+        "tier": {
+          "type": "string",
+          "enum": ["legislated", "derived"]
+        },
+        "legislated_by": {
+          "$ref": "#/$defs/id"
+        },
+        "contract_version": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2147483647
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "tier": {
+                "const": "legislated"
+              }
+            },
+            "required": ["tier"]
+          },
+          "then": {
+            "required": ["legislated_by", "contract_version"]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "tier": {
+                "const": "derived"
+              }
+            },
+            "required": ["tier"]
+          },
+          "then": {
+            "not": {
+              "anyOf": [
+                {
+                  "required": ["legislated_by"]
+                },
+                {
+                  "required": ["contract_version"]
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
     "evidencePath": {
       "type": "string",
       "minLength": 1,
@@ -198,11 +255,15 @@
         "summary",
         "tags",
         "scopes",
-        "sha256"
+        "sha256",
+        "authority"
       ],
       "properties": {
         "id": {
           "$ref": "#/$defs/id"
+        },
+        "authority": {
+          "$ref": "#/$defs/authority"
         },
         "kind": {
           "enum": [

@@ -1,4 +1,7 @@
 {
+  "authority": {
+    "tier": "derived"
+  },
   "date": "2026-08-07T00:00:00Z",
   "evidence": [
     "docs/decisions/CD-0006-concord-root-product-policy.md",

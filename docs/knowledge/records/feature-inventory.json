@@ -1,4 +1,7 @@
 {
+  "authority": {
+    "tier": "derived"
+  },
   "date": "2026-08-24T00:00:00Z",
   "id": "feature-inventory",
   "kind": "reference",

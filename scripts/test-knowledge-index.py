@@ -45,6 +45,7 @@ def fixture(path: str = "docs/lesson.md", digest: str = "a" * 64) -> dict:
         "records": [{
             "id": "lesson-1", "kind": "lesson", "path": path, "status": "published",
             "date": "2026-08-10T00:00:00Z", "title": "Lesson", "summary": "Summary", "tags": [],
+            "authority": {"tier": "derived"},
             "scopes": {"mode": "home", "product_ids": [], "project_ids": [], "domain_ids": [], "tag_ids": []},
             "sha256": "sha256:" + digest,
         }],
@@ -85,6 +86,7 @@ def v12_fixture() -> dict:
         "records": [{
             "id": "spec-1", "kind": "spec", "path": "docs/spec.md", "status": "accepted",
             "date": "2026-08-10T00:00:00Z", "title": "Decision", "summary": "Summary", "tags": [],
+            "authority": {"tier": "legislated", "legislated_by": "fixture-authority", "contract_version": 1},
             "scopes": {"mode": "home", "product_ids": [], "project_ids": [], "domain_ids": [], "tag_ids": []},
             "home_domain_id": "product-root:concord", "product_wide_rationale": "Product-wide law binding every child Domain.",
             "sha256": "sha256:" + "a" * 64,
@@ -372,8 +374,9 @@ def test_duplicate_decision_id_files_are_rejected_deterministically() -> None:
                 "status": "accepted",
                 "date": "2026-08-10T00:00:00Z",
                 "title": "Decision",
-                "summary": "Summary",
-                "tags": [],
+                 "summary": "Summary",
+                 "tags": [],
+				"authority": {"tier": "legislated", "legislated_by": "fixture-authority", "contract_version": 1},
 				"scopes": {"mode": "home", "product_ids": [], "project_ids": [], "domain_ids": [], "tag_ids": []},
 				"home_domain_id": "product-root:concord",
 				"product_wide_rationale": "Fixture law binds every child Domain.",

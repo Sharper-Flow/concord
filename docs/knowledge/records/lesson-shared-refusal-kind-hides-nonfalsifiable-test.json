@@ -1,4 +1,7 @@
 {
+  "authority": {
+    "tier": "derived"
+  },
   "date": "2026-09-15T00:00:00Z",
   "id": "lesson-shared-refusal-kind-hides-nonfalsifiable-test",
   "kind": "lesson",

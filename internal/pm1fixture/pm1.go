@@ -660,17 +660,22 @@ func manifestRecordFromFile(id, kind, path, status, date, title, summary string,
 	scopes.ProjectIDs = append([]string{}, scopes.ProjectIDs...)
 	scopes.DomainIDs = append([]string{}, scopes.DomainIDs...)
 	scopes.TagIDs = append([]string{}, scopes.TagIDs...)
+	authority := store.KnowledgeAuthority{Tier: "derived"}
+	if kind == "constitution" || kind == "decision" {
+		authority = store.KnowledgeAuthority{Tier: "legislated", LegislatedBy: "fixture-authority", ContractVersion: 1}
+	}
 	return store.KnowledgeRecord{
-		ID:      id,
-		Kind:    kind,
-		Path:    path,
-		Status:  status,
-		Date:    date,
-		Title:   title,
-		Summary: summary,
-		Tags:    append([]string{}, tags...),
-		Scopes:  scopes,
-		SHA256:  "sha256:" + hex.EncodeToString(sum[:]),
+		ID:        id,
+		Kind:      kind,
+		Path:      path,
+		Status:    status,
+		Date:      date,
+		Title:     title,
+		Summary:   summary,
+		Tags:      append([]string{}, tags...),
+		Authority: authority,
+		Scopes:    scopes,
+		SHA256:    "sha256:" + hex.EncodeToString(sum[:]),
 	}
 }
 

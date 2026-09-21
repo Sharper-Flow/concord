@@ -1,4 +1,7 @@
 {
+  "authority": {
+    "tier": "derived"
+  },
   "date": "2026-08-30T00:00:00Z",
   "evidence": [
     "docs/priorities.md"

@@ -1,4 +1,7 @@
 {
+  "authority": {
+    "tier": "derived"
+  },
   "criterion_bindings": [
     {
       "criterion": 1,

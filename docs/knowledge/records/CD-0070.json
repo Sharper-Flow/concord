@@ -1,4 +1,9 @@
 {
+  "authority": {
+    "contract_version": 1,
+    "legislated_by": "work-8d7bd788b2890355460bb5b7",
+    "tier": "legislated"
+  },
   "date": "2026-08-24T00:00:00Z",
   "home_domain_id": "agent-surface",
   "id": "CD-0070",

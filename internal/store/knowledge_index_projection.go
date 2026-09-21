@@ -743,7 +743,7 @@ func rebuildKnowledgeIndexTx(ctx context.Context, tx *sql.Tx, home KnowledgeHome
 }
 
 func insertLawSubject(ctx context.Context, tx *sql.Tx, home KnowledgeHome, record KnowledgeRecord, commit string) error {
-	if _, err := tx.ExecContext(ctx, `INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES(?,?,?,?,?,?,?,?,?)`, home.HomeProjectID, home.HomeLocatorID, record.ID, record.Kind, record.Status, record.Path, record.Title, record.SHA256, commit); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid,authority_tier) VALUES(?,?,?,?,?,?,?,?,?,?)`, home.HomeProjectID, home.HomeLocatorID, record.ID, record.Kind, record.Status, record.Path, record.Title, record.SHA256, commit, record.Authority.Tier); err != nil {
 		return wrapFailure(KindUnavailable, "rebuild_knowledge_index", "cannot insert a derived law subject", true, "retry once the database is writable", err)
 	}
 	return nil

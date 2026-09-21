@@ -1,4 +1,7 @@
 {
+  "authority": {
+    "tier": "derived"
+  },
   "date": "2026-08-06T00:00:00Z",
   "evidence": [
     "internal/store/schema.go",

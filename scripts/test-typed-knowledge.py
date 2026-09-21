@@ -44,6 +44,12 @@ def test_normative_source_proof_and_element_integrity_are_required() -> None:
     assert any("does not prove requirement:constitution-source" in finding for finding in findings)
 
 
+def test_legislated_authority_requires_contract_proof() -> None:
+    record = copy.deepcopy(corpus()["valid_records"][0])
+    del record["authority"]["legislated_by"]
+    assert checker.validate_record(record, {record["id"]: record})
+
+
 def test_relevant_typed_reference_cycles_are_rejected() -> None:
     records = copy.deepcopy(corpus()["valid_records"])
     by_id = {record["id"]: record for record in records}

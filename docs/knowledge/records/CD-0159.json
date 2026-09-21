@@ -2,6 +2,11 @@
   "applies_to_domain_ids": [
     "workflow-engine"
   ],
+  "authority": {
+    "contract_version": 1,
+    "legislated_by": "work-8d7bd788b2890355460bb5b7",
+    "tier": "legislated"
+  },
   "date": "2026-09-20T00:00:00Z",
   "evidence": [
     ".concord/schemas/knowledge-record.v1.schema.json",
@@ -31,7 +36,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:b1ea0f34cb03b824e94c4a490cf0e51a8095d689d0849f7d8cbaf9ad770e0be1",
+  "sha256": "sha256:bf55d0658960db00c1f6af6a3ceb1534cd84df1c5cb12f005e26ed918ca85358",
   "status": "accepted",
   "summary": "Gives each Product law record an authority tier of legislated or derived, fixed at write time. A law is legislated only when an operator-approved contract names it in an outcome predicate; law named only in law_additions is derived. A conflict with derived law is revised inside the contract with no separate approval turn, while legislated law keeps the legislative moment. Sets kind defaults for the existing records and lands every predecessor spec import as derived.",
   "tags": [

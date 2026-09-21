@@ -58,6 +58,7 @@ def record(identifier: str) -> dict:
         "title": identifier,
         "summary": "A bounded lesson.",
         "tags": [],
+        "authority": {"tier": "derived"},
         "scopes": {"mode": "home", "product_ids": [], "project_ids": [], "domain_ids": [], "tag_ids": []},
         "sha256": "sha256:" + "a" * 64,
     }

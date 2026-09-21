@@ -2,6 +2,9 @@
   "applies_to_domain_ids": [
     "durable-authority"
   ],
+  "authority": {
+    "tier": "derived"
+  },
   "criterion_bindings": [
     {
       "criterion": 1,

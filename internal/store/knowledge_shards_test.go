@@ -63,6 +63,15 @@ func writeAggregateAsShards(t *testing.T, repo string, aggregate []byte) {
 		if id == "" {
 			t.Fatalf("record fixture has no id: %v", record)
 		}
+		if _, present := record["authority"]; !present {
+			tier := "derived"
+			if kind, _ := record["kind"].(string); kind == "constitution" || kind == "decision" {
+				tier = "legislated"
+				record["authority"] = map[string]any{"tier": tier, "legislated_by": "fixture-authority", "contract_version": 1}
+			} else {
+				record["authority"] = map[string]any{"tier": tier}
+			}
+		}
 		shard, err := json.MarshalIndent(record, "", "  ")
 		if err != nil {
 			t.Fatal(err)
@@ -74,6 +83,11 @@ func writeAggregateAsShards(t *testing.T, repo string, aggregate []byte) {
 // writeManifestShards writes a parsed manifest as the shard tree.
 func writeManifestShards(t *testing.T, repo string, manifest KnowledgeManifest) {
 	t.Helper()
+	for index := range manifest.Records {
+		if manifest.Records[index].Authority.Tier == "" {
+			manifest.Records[index].Authority = KnowledgeAuthority{Tier: "derived"}
+		}
+	}
 	encoded, err := json.Marshal(manifest)
 	if err != nil {
 		t.Fatal(err)

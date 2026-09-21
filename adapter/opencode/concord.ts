@@ -10,7 +10,7 @@ import { agentLanes } from "./generated-agent-lanes"
 import { hostControlPlane, MoveSessionUnavailable } from "./move-session"
 import { createRunSessionObservation, errorEnvelopeForLane, MAX_OUTPUT_BYTES, observeRunSessionLine, readExportSessionMetadata, readRunSessionMetadata, readRunTextParts, runStreamRefusalMessage, runStreamRefusalRecovery, validateAgainstSchema, type AgentResultEnvelope, type RunLineMetadata, type RunSessionObservation } from "./dispatch"
 import { concordBinaryPath, CoreBinaryUnavailable } from "./dispatch"
-import { createWorkStateReporter, formatGateBrief, formatWorkPaneName } from "./workflow-status"
+import { createWorkStateReporter, formatWorkPaneName } from "./workflow-status"
 import { hostLeaseFault } from "./host-lease"
 import { armTurnMoveBoundary } from "./turn-move-boundary"
 import { armClaimedWorktree, clearClaimedWorktree } from "./claimed-worktree"
@@ -989,21 +989,6 @@ async function executeWorkStart(args: WorkStartArgs, context: ToolContext, warni
   }
 }
 
-async function reportGateBrief(envelope: WorkStartEnvelope, context: ToolContext): Promise<void> {
-  if (envelope.outcome !== "ok" || typeof envelope.product_id !== "string") return
-  try {
-    const portfolio = await invokeConcordOperation("concord_product_view", { operation: "portfolio", input: { product_id: envelope.product_id, page: { cursor: null, limit: 20 } } }, context)
-    if (portfolio.outcome !== "ok" || !record(portfolio.result)) return
-    const message = formatGateBrief(envelope.product_id, portfolio.result.rows)
-    // The gate brief rides the text-part channel: the plugin's
-    // experimental.text.complete hook appends it to the assistant's own
-    // message, so the agent sees it without a tool-result expansion.
-    if (message) workStateReporter.enqueueNotice(context.sessionID, message)
-  } catch {
-    // A gate brief is an operator aid. It cannot change a completed start.
-  }
-}
-
 export const product_view = tool({ description: "Concord product view", args: argsSchema("concord_product_view"), execute: (args: HostToolCall, context: ToolContext): Promise<ToolResult> => executeHostTool("concord_product_view", hostRequest(args), context) })
 export const work_browse = tool({ description: "Concord work browse", args: argsSchema("concord_work_browse"), execute: (args: HostToolCall, context: ToolContext): Promise<ToolResult> => executeHostTool("concord_work_browse", hostRequest(args), context) })
 export const work_trace = tool({ description: "Concord work trace", args: argsSchema("concord_work_trace"), execute: (args: HostToolCall, context: ToolContext): Promise<ToolResult> => executeHostTool("concord_work_trace", hostRequest(args), context) })
@@ -1017,7 +1002,6 @@ export const work_compact = tool({ description: "Concord work compact", args: ar
 export const work_start = tool({ description: `${hostToolDescriptions.concord_work_start} ${workStartUsage}`, args: workStartArgsSchema(), execute: async (args: any, context: ToolContext): Promise<ToolResult> => {
   const warnings: string[] = []
   const envelope = await executeWorkStart(args as WorkStartArgs, context, warnings)
-  await reportGateBrief(envelope, context)
   let output = JSON.stringify(envelope)
   if (Buffer.byteLength(output) > maxEnvelopeBytes) output = JSON.stringify(workStartError("output_exceeded", `work_start result exceeds ${maxEnvelopeBytes} bytes`, { product_id: envelope.product_id, project_id: envelope.project_id, work_id: envelope.work_id, worktree_path: envelope.worktree_path }))
   return appendWarnings({ title: "concord_work_start", output, metadata: {} }, warnings)

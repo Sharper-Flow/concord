@@ -553,24 +553,51 @@ export function readExportSessionMetadata(stdout: string, expectedSessionID: str
 // authorized path and refuses every substitution — caller-composed prose, a
 // packet for another attempt, or a session opened by anything else.
 //
-// The authorized opening message carries exactly one text part, so any further
-// part is unauthorized content the worker also received. Concatenating the text
-// parts and ignoring the rest would admit the packet with arbitrary extra
-// content beside it, which is the identity this predicate exists to refuse.
+// The opening message may carry host-generated parts beside the packet text.
+// When the packet text contains an @-mention of the lane agent — observed in
+// production when a retry's correction block quotes the prior attempt's
+// session title, which ends in "(@concord-implement subagent)" — the host
+// splits the message into [packet text, agent part, synthetic instruction]
+// where the instruction is the host's own deterministic wrapper for that
+// agent. Those parts never carry worker-composed content: the dispatch
+// overwrites the Task prompt with the packet bytes, so the caller cannot add
+// parts, and the wrapper text is derived from the packet's own bytes. The
+// identity guarantee is therefore: exactly one text part equals the packet
+// bytes, and every other part is the host's agent part for the lane agent or
+// the host's synthetic instruction for it. Anything else is unauthorized
+// content and is refused.
 export function readExportOpeningPacket(stdout: string, expectedSessionID: string, packet: AgentLanePacket): { ok: true } | { ok: false; predicate: ReadbackRefusal; message: string } {
   if (Buffer.byteLength(stdout) > MAX_EXPORT_BYTES) return { ok: false, predicate: "export_size_bound", message: `export body exceeded ${MAX_EXPORT_BYTES} bytes` }
   let value: unknown
   try { value = JSON.parse(stdout) } catch { return { ok: false, predicate: "export_json", message: "export body was not valid JSON" } }
   if (!isRecord(value) || !isRecord(value.info) || value.info.id !== expectedSessionID || !Array.isArray(value.messages) || value.messages.length === 0) return { ok: false, predicate: "export_shape", message: "export body did not match the session shape" }
   const first = value.messages[0]
-  if (!isRecord(first) || !isRecord(first.info) || !Array.isArray(first.parts)) return { ok: false, predicate: "export_message_shape", message: "export message did not match the message shape" }
+  if (!isRecord(first) || !isRecord(first.info) || !Array.isArray(first.parts)) return { ok: false, predicate: "export_message_shape", message: "export body did not match the message shape" }
   if (first.info.role !== "user") return { ok: false, predicate: "dispatched_packet_identity", message: "worker session opened with a non-user message instead of the authorized dispatch packet" }
-  if (first.parts.length !== 1) return { ok: false, predicate: "dispatched_packet_identity", message: `worker session opened with ${first.parts.length} message parts instead of the single authorized dispatch packet` }
-  const part = first.parts[0]
-  if (!isRecord(part)) return { ok: false, predicate: "export_message_shape", message: "export message did not match the message shape" }
-  if (part.type !== "text") return { ok: false, predicate: "dispatched_packet_identity", message: `worker session opened with a ${typeof part.type === "string" ? part.type : "malformed"} part instead of the authorized dispatch packet` }
-  if (typeof part.text !== "string") return { ok: false, predicate: "export_message_shape", message: "export message did not match the message shape" }
-  if (part.text !== JSON.stringify(packet)) return { ok: false, predicate: "dispatched_packet_identity", message: "worker session opened with a message that is not the authorized dispatch packet" }
+  if (first.parts.length === 0) return { ok: false, predicate: "dispatched_packet_identity", message: "worker session opened with 0 message parts instead of the single authorized dispatch packet" }
+  const laneAgent = "concord-" + packet.lane_id
+  const wrapperPrefix = " Use the above message and context to generate a prompt and call the task tool with subagent: " + laneAgent
+  const wrapperDeniedSuffix = " . Invoked by user; guaranteed to exist."
+  let packetPartSeen = false
+  for (const part of first.parts) {
+    if (!isRecord(part)) return { ok: false, predicate: "export_message_shape", message: "export message did not match the message shape" }
+    if (part.type === "text" && typeof part.text === "string") {
+      if (part.text === JSON.stringify(packet)) {
+        if (packetPartSeen) return { ok: false, predicate: "dispatched_packet_identity", message: "worker session opened with the authorized dispatch packet repeated beside itself" }
+        packetPartSeen = true
+        continue
+      }
+      if (part.text === wrapperPrefix || part.text === wrapperPrefix + wrapperDeniedSuffix) continue
+      if (first.parts.length === 1) return { ok: false, predicate: "dispatched_packet_identity", message: "worker session opened with a message that is not the authorized dispatch packet" }
+      return { ok: false, predicate: "dispatched_packet_identity", message: "worker session opened with an unauthorized text part beside the authorized dispatch packet" }
+    }
+    if (part.type === "agent") {
+      if (part.name !== laneAgent) return { ok: false, predicate: "dispatched_packet_identity", message: `worker session opened with a host agent part for ${typeof part.name === "string" ? part.name : "an unknown agent"} instead of ${laneAgent}` }
+      continue
+    }
+    return { ok: false, predicate: "dispatched_packet_identity", message: `worker session opened with a ${typeof part.type === "string" ? part.type : "malformed"} part instead of the authorized dispatch packet` }
+  }
+  if (!packetPartSeen) return { ok: false, predicate: "dispatched_packet_identity", message: "worker session opened with a message that is not the authorized dispatch packet" }
   return { ok: true }
 }
 

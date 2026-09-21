@@ -11,9 +11,9 @@ import (
 	"charm.land/bubbles/v2/help"
 	"charm.land/bubbles/v2/key"
 	"charm.land/bubbles/v2/textinput"
-	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"charm.land/lipgloss/v2/table"
 
 	"github.com/sharper-flow/concord/internal/launcher"
 )
@@ -26,10 +26,13 @@ type navigationPosition struct {
 }
 
 type renderedPane struct {
-	header []string
-	rows   [][]string
-	tail   []string
-	footer []string
+	header       []string
+	tableHeaders []string
+	rows         [][]string
+	tail         []string
+	footer       []string
+	cursor       int
+	color        bool
 }
 
 type keyMap struct {
@@ -216,7 +219,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width, m.height = msg.Width, msg.Height
 		m.core.Resize(msg.Width, msg.Height)
 		m.input.SetWidth(max(1, msg.Width-8))
-		m.help.SetWidth(max(1, msg.Width))
+		m.help.SetWidth(max(1, msg.Width-2))
 		m.Sync()
 		return m, nil
 	case sessionLaunchError:
@@ -647,10 +650,14 @@ func (m *Model) pageSize() int {
 		return 1
 	}
 	content := m.renderContent(m.snapshot, m.cursor)
-	innerWidth := m.width - 2
-	headerLines := len(wrapPaneLines(content.header, innerWidth))
-	footerLines := len(wrapPaneLines(content.footer, innerWidth))
-	return max(1, m.height-4-headerLines-footerLines)
+	page := m.height - 4 - len(content.header) - len(content.tail) - len(content.footer)
+	if len(content.tableHeaders) > 0 {
+		page--
+	}
+	if len(content.rows) > 0 {
+		page--
+	}
+	return max(1, page)
 }
 
 func (m *Model) adjustScroll() {
@@ -744,17 +751,19 @@ func (m *Model) Render() string {
 		status = "STATUS: " + snapshot.StatusMessage
 	}
 	statusBar := lipgloss.JoinHorizontal(lipgloss.Top,
-		fixedLine("FOCUS: "+focusText(snapshot), m.width/2),
-		fixedLine(status, m.width-m.width/2),
+		lipgloss.NewStyle().Width(m.width/2).Render("FOCUS: "+focusText(snapshot)),
+		lipgloss.NewStyle().Width(m.width-m.width/2).Render(status),
 	)
 	// The pane owns the help footer; the frame carries only the header and
 	// status bar above it.
-	return fixedFrame(
-		lipgloss.JoinVertical(lipgloss.Left,
-			fixedLine(header, m.width),
+	return lipgloss.NewStyle().
+		Width(max(1, m.width)).
+		Height(max(1, m.height)).
+		Render(lipgloss.JoinVertical(lipgloss.Left,
+			lipgloss.NewStyle().Width(m.width).Render(header),
 			statusBar,
 			pane(content, m.width, max(1, m.height-2), m.scroll),
-		), m.width, m.height)
+		))
 }
 
 func (m *Model) renderContent(snapshot launcher.Snapshot, cursor int) renderedPane {
@@ -776,8 +785,7 @@ func (m *Model) renderPortfolio(snapshot launcher.Snapshot, cursor int) rendered
 	if len(rows) == 0 && len(snapshot.Candidates) > 0 {
 		return m.renderCandidates(snapshot, cursor)
 	}
-	widths := columnWidths(m.width)
-	header := []string{strings.Join(projection.Header, " | ")}
+	header := append([]string{}, projection.Header...)
 	header = append(header, probeLines(snapshot.Probes)...)
 	if m.filterMode {
 		header = append(header, m.input.View())
@@ -792,25 +800,13 @@ func (m *Model) renderPortfolio(snapshot launcher.Snapshot, cursor int) rendered
 	} else if snapshot.StatusMessage != "" {
 		header = append(header, "STATUS: "+snapshot.StatusMessage)
 	}
-	header = append(header, strings.Join(projection.Columns, "  "))
 	renderedRows := make([][]string, 0, len(rows))
-	for i, row := range rows {
+	for _, row := range rows {
 		values := []string{row.Name + row.NameSuffix, row.Stage, relianceText(row), actionText(row), row.Focus}
-		cells := make([]string, 0, len(values))
-		for j, value := range values {
-			// A value that does not fit its column is truncated with an
-			// ellipsis so the row renders on exactly one line at every
-			// supported terminal width.
-			cell := truncateDisplay(value, widths[j])
-			if j < len(values)-1 {
-				cell = padDisplay(cell, widths[j])
-			}
-			cells = append(cells, cell)
-		}
-		renderedRows = append(renderedRows, []string{selectedRow(i, cursor, strings.TrimRight(strings.Join(cells, " | "), " "), m.profile.Color)})
+		renderedRows = append(renderedRows, values)
 	}
 	footer := m.footerLines()
-	return renderedPane{header: header, rows: renderedRows, footer: footer}
+	return renderedPane{header: header, tableHeaders: projection.Columns, rows: renderedRows, footer: footer, cursor: cursor, color: m.profile.Color}
 }
 
 func (m *Model) renderS2(headers []string, cursor int) renderedPane {
@@ -828,11 +824,12 @@ func (m *Model) renderS2(headers []string, cursor int) renderedPane {
 		header = append(header, "FILTERED: "+m.filterValue+" (hidden: "+fmtInt(len(s.Ranked)-len(m.filteredRanked()))+")")
 	}
 	var rows [][]string
+	var tableHeaders []string
 	var tail []string
 	focusedSeen := false
 	for _, panel := range stack.Panels {
 		focused := s.PanelFocus == panel || (s.PanelFocus == "" && panel == launcher.S2PanelDomain)
-		panelHeader, panelRows, panelTail := s2PanelContent(panel, focused, stack, s, m.filteredRanked(), cursor, m.profile.Color, m.width)
+		panelHeader, panelTableHeaders, panelRows, panelTail := s2PanelContent(panel, focused, stack, s, m.filteredRanked())
 		if !focusedSeen && !focused {
 			header = append(header, panelHeader...)
 			continue
@@ -843,6 +840,7 @@ func (m *Model) renderS2(headers []string, cursor int) renderedPane {
 			continue
 		}
 		header = append(header, panelHeader...)
+		tableHeaders = panelTableHeaders
 		rows = append(rows, panelRows...)
 		tail = append(tail, panelTail...)
 		focusedSeen = true
@@ -860,28 +858,29 @@ func (m *Model) renderS2(headers []string, cursor int) renderedPane {
 		tail = append(tail, "QUERY RESULT: "+s.QuerySubmitted+" (Esc restores prior view)")
 	}
 	footer := m.footerLines()
-	return renderedPane{header: header, rows: rows, tail: tail, footer: footer}
+	return renderedPane{header: header, tableHeaders: tableHeaders, rows: rows, tail: tail, footer: footer, cursor: cursor, color: m.profile.Color}
 }
 
-func s2PanelContent(panel launcher.S2Panel, expanded bool, stack launcher.S2AnswerStack, snapshot launcher.Snapshot, ranked []launcher.RankedWork, cursor int, color bool, width int) (header []string, rows [][]string, tail []string) {
+func s2PanelContent(panel launcher.S2Panel, expanded bool, stack launcher.S2AnswerStack, snapshot launcher.Snapshot, ranked []launcher.RankedWork) (header []string, tableHeaders []string, rows [][]string, tail []string) {
 	if !expanded {
 		switch panel {
 		case launcher.S2PanelDomain:
-			return domainSummaryLines(stack.Domain.Domain), nil, nil
+			return domainSummaryLines(stack.Domain.Domain), nil, nil, nil
 		case launcher.S2PanelBlocked:
-			return blockedSummaryLines(stack.Blocked.Work, snapshot), nil, nil
+			return blockedSummaryLines(stack.Blocked.Work, snapshot), nil, nil, nil
 		case launcher.S2PanelNext:
-			return nextSummaryLines(stack.Next.Work, snapshot), nil, nil
+			return nextSummaryLines(stack.Next.Work, snapshot), nil, nil, nil
 		}
 	}
 	switch panel {
 	case launcher.S2PanelDomain:
-		domainHeader, domainRows := domainLines(snapshot.Domains, cursor, color)
-		return append([]string{"DOMAIN:"}, domainHeader...), domainRows, append(knowledgeLines(snapshot.Knowledge), relationLines(snapshot.Relations)...)
+		domainHeader, domainHeaders, domainRows := domainLines(snapshot.Domains)
+		return append([]string{"DOMAIN:"}, domainHeader...), domainHeaders, domainRows, append(knowledgeLines(snapshot.Knowledge), relationLines(snapshot.Relations)...)
 	case launcher.S2PanelBlocked, launcher.S2PanelNext:
-		return []string{"BLOCKED/BLOCKERS:"}, rankedLines(ranked, snapshot, cursor, color, width), nil
+		rankedHeaders, rankedRows := rankedTable(ranked, snapshot)
+		return []string{"BLOCKED/BLOCKERS:"}, rankedHeaders, rankedRows, nil
 	default:
-		return nil, nil, nil
+		return nil, nil, nil, nil
 	}
 }
 
@@ -974,109 +973,57 @@ func relationLines(relations launcher.RelationTree) []string {
 	return lines
 }
 
-// rankedColumn is one key=value column of a ranked work row. The order here
-// is the column selection order of the work list.
-type rankedColumn struct {
-	key, value string
-}
-
-// rankedColumns renders the ranked work columns in their fixed order. Empty
-// values render nothing and only mark their key absent from the row.
-func rankedColumns(item launcher.RankedWork, snapshot launcher.Snapshot) []rankedColumn {
-	urgency := item.Urgency
-	if urgency == "" {
-		urgency = "standard"
-	}
-	kind := item.Kind
-	if kind == "" {
-		kind = "-"
-	}
-	live := ""
-	if item.Live > 0 {
-		live = "yes"
-	} else if snapshot.ActiveWorkOnly && !item.Backlog {
-		live = "no"
-	}
-	return []rankedColumn{
-		{key: "issue", value: item.LinearIssueKey},
-		{key: "live", value: live},
-		{key: "kind", value: kind},
-		{key: "priority", value: fmtInt64(item.Priority)},
-		{key: "urgency", value: urgency},
-		{key: "lifecycle", value: item.Lifecycle},
-		{key: "terminal", value: item.TerminalAt},
-		{key: "projects", value: fmtInt(item.ProjectCount)},
-	}
-}
-
-// collapsedRankedKeys returns the ranked column keys whose rendered value is
-// identical on every visible row. A column that never separates two visible
-// rows spends row width without carrying information, so it collapses and
-// the same facts stay reachable on the work detail screen.
-func collapsedRankedKeys(ranked []launcher.RankedWork, snapshot launcher.Snapshot) map[string]bool {
-	constant := map[string]bool{}
+func rankedTable(ranked []launcher.RankedWork, snapshot launcher.Snapshot) ([]string, [][]string) {
 	if len(ranked) == 0 {
-		return constant
+		return []string{"Work"}, [][]string{{"WORK: " + drillDownEmptyState(snapshot)}}
 	}
-	valueOf := func(item launcher.RankedWork) map[string]string {
-		values := map[string]string{}
-		for _, column := range rankedColumns(item, snapshot) {
-			values[column.key] = column.value
+	collapsed := launcher.CollapsedRankedKeys(ranked, snapshot)
+	keys := make([]launcher.RankedColumn, 0, len(launcher.RankedColumns(ranked[0], snapshot)))
+	for _, column := range launcher.RankedColumns(ranked[0], snapshot) {
+		if collapsed[column.Key] {
+			continue
 		}
-		return values
-	}
-	first := valueOf(ranked[0])
-	for key, value := range first {
-		same := true
-		for _, item := range ranked[1:] {
-			if valueOf(item)[key] != value {
-				same = false
-				break
+		for _, item := range ranked {
+			for _, candidate := range launcher.RankedColumns(item, snapshot) {
+				if candidate.Key == column.Key && candidate.Value != "" {
+					keys = append(keys, column)
+					goto nextColumn
+				}
 			}
 		}
-		if same {
-			constant[key] = true
-		}
+	nextColumn:
 	}
-	return constant
-}
-
-// rankedLines renders one line per work item. Columns whose value is
-// constant across the visible rows are collapsed, and the surviving line is
-// truncated to the row budget (the pane inner width minus the selection
-// marker) so a work row never wraps.
-func rankedLines(ranked []launcher.RankedWork, snapshot launcher.Snapshot, cursor int, color bool, width int) [][]string {
-	if len(ranked) == 0 {
-		return [][]string{{"WORK: " + drillDownEmptyState(snapshot)}}
+	headers := []string{"Work"}
+	for _, column := range keys {
+		headers = append(headers, column.Key)
 	}
-	collapsed := collapsedRankedKeys(ranked, snapshot)
 	rows := make([][]string, 0, len(ranked))
 	for i, item := range ranked {
-		var columns []string
-		for _, column := range rankedColumns(item, snapshot) {
-			if column.value == "" || collapsed[column.key] {
-				continue
-			}
-			columns = append(columns, column.key+"="+column.value)
-		}
 		line := fmtInt(i+1) + " " + rankedMarker(&item) + " " + item.ID + " " + item.Title
-		if len(columns) > 0 {
-			line += " " + strings.Join(columns, " ")
-		}
-		if budget := width - 4; budget > 0 {
-			line = truncateDisplay(line, budget)
-		}
-		row := []string{selectedRow(i, cursor, line, color)}
-		for _, blocker := range item.Blockers {
-			external := ""
-			if blocker.External {
-				external = " external"
+		if len(item.Blockers) > 0 {
+			blockers := make([]string, 0, len(item.Blockers))
+			for _, blocker := range item.Blockers {
+				external := ""
+				if blocker.External {
+					external = " external"
+				}
+				blockers = append(blockers, blocker.ID+"/"+blocker.Title+" authority="+blocker.Authority+" age="+blocker.Age+external)
 			}
-			row = append(row, "  BLOCKER "+blocker.ID+" "+blocker.Title+" authority="+blocker.Authority+" age="+blocker.Age+external)
+			line += " blockers=" + strings.Join(blockers, ",")
+		}
+		row := []string{line}
+		values := launcher.RankedColumns(item, snapshot)
+		for _, key := range keys {
+			for _, column := range values {
+				if column.Key == key.Key {
+					row = append(row, column.Key+"="+column.Value)
+					break
+				}
+			}
 		}
 		rows = append(rows, row)
 	}
-	return rows
+	return headers, rows
 }
 
 func (m *Model) renderS3(headers []string, cursor int) renderedPane {
@@ -1091,7 +1038,7 @@ func (m *Model) renderS3(headers []string, cursor int) renderedPane {
 		header = append(header, "KNOWLEDGE WATERMARK: "+s.Knowledge.Watermark+" STATE: "+s.Knowledge.State)
 		header = append(header, knowledgeLines(s.Knowledge)...)
 		footer := m.footerLines()
-		return renderedPane{header: header, footer: footer}
+		return renderedPane{header: header, footer: footer, cursor: cursor, color: m.profile.Color}
 	}
 	d := s.Detail
 	urgency := d.Item.Urgency
@@ -1119,8 +1066,8 @@ func (m *Model) renderS3(headers []string, cursor int) renderedPane {
 		}
 	case launcher.SectionRanked:
 		rows = make([][]string, 0, len(d.History))
-		for i, h := range d.History {
-			rows = append(rows, []string{selectedRow(i, cursor, "HISTORY: "+h, m.profile.Color)})
+		for _, h := range d.History {
+			rows = append(rows, []string{"HISTORY: " + h})
 		}
 	}
 	tail := []string{}
@@ -1131,35 +1078,50 @@ func (m *Model) renderS3(headers []string, cursor int) renderedPane {
 		}
 	}
 	footer := m.footerLines()
-	return renderedPane{header: header, rows: rows, tail: tail, footer: footer}
+	tableHeaders := []string(nil)
+	if s.Section == launcher.SectionRanked {
+		tableHeaders = []string{"History"}
+	}
+	return renderedPane{header: header, tableHeaders: tableHeaders, rows: rows, tail: tail, footer: footer, cursor: cursor, color: m.profile.Color}
 }
 
-func domainLines(section launcher.DomainSection, cursor int, color bool) ([]string, [][]string) {
+func domainLines(section launcher.DomainSection) ([]string, []string, [][]string) {
 	if !section.Read {
-		return []string{"DOMAINS: unavailable: not_read"}, nil
+		return []string{"DOMAINS: unavailable: not_read"}, nil, nil
 	}
 	if section.State == "unavailable" {
 		reason := section.Reason
 		if reason == "" {
 			reason = "unavailable"
 		}
-		return []string{"DOMAINS: unavailable: " + reason}, nil
+		return []string{"DOMAINS: unavailable: " + reason}, nil, nil
 	}
 	var header []string
 	var rows [][]string
 	if len(section.Domains) == 0 {
 		header = append(header, "DOMAINS: authoritative-empty")
 	}
-	for i, domain := range section.Domains {
+	for _, domain := range section.Domains {
 		marker := "DOMAIN"
 		if domain.Home {
 			marker = "HOME"
 		}
-		parent := ""
-		if domain.ParentID != "" {
-			parent = " parent=" + domain.ParentID
+		parent := domain.ParentID
+		if parent == "" {
+			parent = "-"
 		}
-		rows = append(rows, []string{selectedRow(i, cursor, marker+" "+domain.ID+" "+domain.Name+parent+" law="+fmtInt(domain.CurrentLawCount)+" active="+fmtInt(domain.ActiveWorkCount), color)})
+		relations := 0
+		for _, relation := range section.Relations {
+			if relation.Source == domain.ID || relation.Target == domain.ID {
+				relations++
+			}
+		}
+		rows = append(rows, []string{
+			domain.ID + " " + domain.Name,
+			marker,
+			parent,
+			fmt.Sprintf("r%d law%d act%d", relations, domain.CurrentLawCount, domain.ActiveWorkCount),
+		})
 	}
 	for _, relation := range section.Relations {
 		header = append(header, "RELATION "+relation.Kind+": "+relation.Source+" -> "+relation.Target+" state="+relation.State)
@@ -1174,7 +1136,7 @@ func domainLines(section launcher.DomainSection, cursor int, color bool) ([]stri
 	if section.Truncated {
 		header = append(header, "DOMAINS: truncated: bounded read reached")
 	}
-	return header, rows
+	return header, []string{"Domain", "Marker", "Parent", "Relations"}, rows
 }
 
 func knowledgeLines(section launcher.KnowledgeSection) []string {
@@ -1210,14 +1172,13 @@ func probeLines(probes []launcher.ProbeStatus) []string {
 	return lines
 }
 
-func helpLines(value string, width int) []string { return splitDisplay(value, width) }
-
 func (m *Model) footerLines() []string {
+	m.help.SetWidth(max(1, m.width-2))
 	value := m.help.View(m.keys)
 	if m.showHelp {
 		value = "HELP: " + value
 	}
-	return helpLines(value, m.width)
+	return []string{value}
 }
 
 func actionText(row launcher.ProductRow) string {
@@ -1334,103 +1295,6 @@ func handoffEnv(handoff launcher.SessionHandoff) []string {
 	return env
 }
 
-func columnWidths(width int) []int {
-	if width < 80 {
-		width = 80
-	}
-	// Four " | " separators, the two-character selection marker, and the two
-	// pane border columns ride inside the terminal width. Every column scales
-	// with the terminal width, so no column is starved at the 80-column floor
-	// this launcher supports, and the widths plus their separators fill the
-	// pane inner width exactly so a padded row never wraps.
-	available := width - len(" | ")*4 - len("> ") - 2
-	weights := []int{3, 2, 2, 2, 3}
-	total := 0
-	for _, weight := range weights {
-		total += weight
-	}
-	widths := make([]int, 0, len(weights))
-	used := 0
-	for _, weight := range weights {
-		w := available * weight / total
-		widths = append(widths, w)
-		used += w
-	}
-	// Distribute the rounding remainder from the first column so the widths
-	// always sum to the exact available budget.
-	for i := 0; used < available; i = (i + 1) % len(widths) {
-		widths[i]++
-		used++
-	}
-	return widths
-}
-
-// truncateDisplay cuts a value to the given display width and marks the cut
-// with an ellipsis, so a value that does not fit renders on one line instead
-// of wrapping. A value that already fits passes through unchanged.
-func truncateDisplay(value string, width int) string {
-	if width <= 0 || lipgloss.Width(value) <= width {
-		return value
-	}
-	limit := width - 1 // one display column carries the ellipsis
-	cut := ""
-	for _, r := range value {
-		candidate := cut + string(r)
-		if lipgloss.Width(candidate) > limit {
-			break
-		}
-		cut = candidate
-	}
-	return cut + "…"
-}
-
-func splitDisplay(value string, width int) []string {
-	if value == "" {
-		return nil
-	}
-	var chunks []string
-	current := ""
-	for _, r := range value {
-		candidate := current + string(r)
-		if current != "" && lipgloss.Width(candidate) > width {
-			chunks = append(chunks, current)
-			current = string(r)
-			continue
-		}
-		current = candidate
-	}
-	if current != "" {
-		chunks = append(chunks, current)
-	}
-	return chunks
-}
-
-// padDisplay right-pads a cell with spaces to the given display width so
-// every row keeps its " | " separators at the same column offsets.
-func padDisplay(value string, width int) string {
-	if gap := width - lipgloss.Width(value); gap > 0 {
-		return value + strings.Repeat(" ", gap)
-	}
-	return value
-}
-
-func max(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
-}
-
-func selectedRow(index, cursor int, value string, color bool) string {
-	if index != cursor {
-		return "  " + value
-	}
-	if color {
-		return "> " + lipgloss.NewStyle().Bold(true).Render(value)
-	}
-	return "> " + value
-}
-
 func (m *Model) renderCandidates(snapshot launcher.Snapshot, cursor int) renderedPane {
 	header := []string{"CANDIDATES", "STATUS: " + snapshot.Coverage}
 	if snapshot.StatusMessage != "" {
@@ -1463,7 +1327,7 @@ func (m *Model) renderCandidates(snapshot launcher.Snapshot, cursor int) rendere
 		if candidate.Blocked {
 			blocked = " blocked=true"
 		}
-		rows = append(rows, []string{selectedRow(i, cursor, fmtInt(i+1)+" "+marker+" "+string(candidate.Kind)+" "+name+" state="+state+blocked+" live="+fmtInt(candidate.Live), m.profile.Color)})
+		rows = append(rows, []string{fmtInt(i+1) + " " + marker + " " + string(candidate.Kind) + " " + name + " state=" + state + blocked + " live=" + fmtInt(candidate.Live)})
 	}
 	if len(values) == 0 {
 		header = append(header, "CANDIDATES: authoritative-empty")
@@ -1472,19 +1336,19 @@ func (m *Model) renderCandidates(snapshot launcher.Snapshot, cursor int) rendere
 		header = append(header, m.input.View())
 	}
 	footer := m.footerLines()
-	return renderedPane{header: header, rows: rows, footer: footer}
+	return renderedPane{header: header, tableHeaders: []string{"Candidate"}, rows: rows, footer: footer, cursor: cursor, color: m.profile.Color}
 }
 
 func (m *Model) renderProjects(snapshot launcher.Snapshot, cursor int) renderedPane {
 	header := []string{"PROJECTS", "PRODUCT: " + snapshot.AmbientProduct}
 	rows := make([][]string, 0, len(snapshot.Projects))
-	for i, project := range snapshot.Projects {
-		rows = append(rows, []string{selectedRow(i, cursor, project.Name+" role="+project.Role+" path="+project.Path, m.profile.Color)})
+	for _, project := range snapshot.Projects {
+		rows = append(rows, []string{project.Name + " role=" + project.Role + " path=" + project.Path})
 	}
 	if len(rows) == 0 {
 		header = append(header, "PROJECTS: authoritative-empty")
 	}
-	return renderedPane{header: header, rows: rows, footer: m.footerLines()}
+	return renderedPane{header: header, tableHeaders: []string{"Project"}, rows: rows, footer: m.footerLines(), cursor: cursor, color: m.profile.Color}
 }
 
 func focusText(snapshot launcher.Snapshot) string {
@@ -1505,38 +1369,24 @@ func coverageValue(value string) string {
 }
 
 func pane(content renderedPane, width, height, offset int) string {
-	if width < 3 || height < 3 {
-		lines := append([]string{}, content.header...)
-		for _, row := range content.rows {
-			lines = append(lines, row...)
-		}
-		lines = append(lines, content.tail...)
-		lines = append(lines, content.footer...)
-		return fixedBlock(strings.Join(lines, "\n"), width, height)
-	}
+	width = max(3, width)
+	height = max(3, height)
 	innerWidth := width - 2
-	header := wrapPaneLines(content.header, innerWidth)
-	tail := wrapPaneLines(content.tail, innerWidth)
-	footer := wrapPaneLines(content.footer, innerWidth)
-	rows := make([]string, 0)
-	rowOffsets := make([]int, 0, len(content.rows))
-	for _, row := range content.rows {
-		rowOffsets = append(rowOffsets, len(rows))
-		rows = append(rows, wrapPaneLines(row, innerWidth)...)
+	innerHeight := height - 2
+	header := renderTextRows(content.header, innerWidth)
+	tail := renderTextRows(content.tail, innerWidth)
+	footer := renderTextRows(content.footer, innerWidth)
+	tableHeight := max(1, innerHeight-len(header)-len(tail)-len(footer))
+	if len(content.rows) > 0 {
+		tableHeight = max(3, tableHeight)
 	}
-	rows = append(rows, tail...)
-	available := height - 2 - len(header) - len(footer)
-	if available < 1 {
-		available = 1
+	data := renderTable(content.tableHeaders, content.rows, innerWidth, tableHeight, offset, content.cursor, content.color)
+	lines := make([]string, 0, len(header)+len(tail)+len(footer)+strings.Count(data, "\n")+1)
+	lines = append(lines, header...)
+	if data != "" {
+		lines = append(lines, strings.Split(data, "\n")...)
 	}
-	window := viewport.New(viewport.WithWidth(innerWidth), viewport.WithHeight(available))
-	window.SoftWrap = false
-	window.SetContentLines(rows)
-	if offset >= 0 && offset < len(rowOffsets) {
-		window.SetYOffset(rowOffsets[offset])
-	}
-	lines := append([]string{}, header...)
-	lines = append(lines, strings.Split(window.View(), "\n")...)
+	lines = append(lines, tail...)
 	lines = append(lines, footer...)
 	return lipgloss.NewStyle().
 		Width(width).
@@ -1545,83 +1395,80 @@ func pane(content renderedPane, width, height, offset int) string {
 		Render(strings.Join(lines, "\n"))
 }
 
-func wrapPaneLines(lines []string, width int) []string {
-	wrapped := make([]string, 0, len(lines))
+func renderTextRows(lines []string, width int) []string {
+	if len(lines) == 0 {
+		return nil
+	}
+	rows := make([][]string, 0, len(lines))
 	for _, line := range lines {
-		parts := wrapPaneLine(line, width)
-		if len(parts) == 0 {
-			parts = []string{""}
-		}
-		wrapped = append(wrapped, parts...)
+		rows = append(rows, []string{line})
 	}
-	return wrapped
+	renderedLines := strings.Split(renderTable([]string{""}, rows, width, len(rows)+2, 0, -1, false), "\n")
+	if len(renderedLines) > 0 {
+		return renderedLines[1:]
+	}
+	return nil
 }
 
-func wrapPaneLine(line string, width int) []string {
-	if lipgloss.Width(line) <= width {
-		return []string{line}
+// renderTable renders a data table through lipgloss. cursor selects the row
+// that carries the gutter marker; cursor < 0 renders plain text rows with no
+// gutter. The gutter is its own leading column with no right padding, so a
+// header cell and its data cell share one left edge at every width and the
+// resizing pass allocates the remaining columns once for header and rows.
+func renderTable(headers []string, rows [][]string, width, height, offset, cursor int, color bool) string {
+	if len(headers) == 0 && len(rows) == 0 {
+		return ""
 	}
-	var lines []string
-	current := ""
-	for _, word := range strings.Fields(line) {
-		candidate := word
-		if current != "" {
-			candidate = current + " " + word
-		}
-		if current != "" && lipgloss.Width(candidate) > width {
-			lines = append(lines, current)
-			current = word
-			continue
-		}
-		if current == "" && lipgloss.Width(candidate) > width {
-			parts := splitDisplay(candidate, width)
-			if len(parts) > 1 {
-				lines = append(lines, parts[:len(parts)-1]...)
-				current = parts[len(parts)-1]
-				continue
+	gutter := cursor >= 0
+	tableHeaders := headers
+	tableRows := rows
+	if gutter {
+		tableHeaders = append([]string{""}, headers...)
+		tableRows = make([][]string, 0, len(rows))
+		for i, row := range rows {
+			marker := "  "
+			if i == cursor {
+				marker = "> "
 			}
+			tableRows = append(tableRows, append([]string{marker}, row...))
 		}
-		current = candidate
 	}
-	if current != "" {
-		lines = append(lines, current)
-	}
-	return lines
-}
-
-func fixedBlock(content string, width, height int) string {
-	width = max(1, width)
-	height = max(1, height)
-	lines := strings.Split(content, "\n")
-	if len(lines) > height {
-		lines = lines[:height]
-	}
-	for len(lines) < height {
-		lines = append(lines, "")
-	}
-	for i := range lines {
-		lines[i] = fixedLine(lines[i], width)
-	}
-	return strings.Join(lines, "\n")
-}
-
-func fixedLine(value string, width int) string {
-	width = max(1, width)
-	parts := splitDisplay(value, width)
-	if len(parts) == 0 {
-		return strings.Repeat(" ", width)
-	}
-	line := parts[0]
-	if displayWidth := lipgloss.Width(line); displayWidth < width {
-		line += strings.Repeat(" ", width-displayWidth)
-	}
-	return line
-}
-
-func fixedFrame(content string, width, height int) string {
-	width = max(1, width)
-	height = max(1, height)
-	return fixedBlock(content, width, height)
+	view := table.New().
+		Headers(tableHeaders...).
+		Rows(tableRows...).
+		Width(max(1, width)).
+		Height(max(1, height)).
+		YOffset(max(0, offset)).
+		Wrap(false).
+		BorderTop(false).
+		BorderBottom(false).
+		BorderLeft(false).
+		BorderRight(false).
+		BorderHeader(false).
+		BorderColumn(false).
+		BorderRow(false).
+		StyleFunc(func(row, col int) lipgloss.Style {
+			if gutter && col == 0 {
+				// The gutter is a fixed two-column budget: the resizing pass
+				// must never grow or shrink it, or a single-column table
+				// would push its content to an arbitrary offset.
+				return lipgloss.NewStyle().Width(2)
+			}
+			if len(tableHeaders) == 1 {
+				// A lone column has no right-hand neighbor, so its padding
+				// buys nothing and steals width from single-line text rows
+				// such as the help footer.
+				return lipgloss.NewStyle()
+			}
+			style := lipgloss.NewStyle().PaddingRight(2)
+			if color && (row == table.HeaderRow || row == cursor) {
+				style = style.Bold(true)
+			}
+			return style
+		})
+	rendered := view.Render()
+	_, _ = view.FirstVisibleRowIndex(), view.LastVisibleRowIndex()
+	return rendered
 }
 
 func candidatePreviewLines(candidate launcher.Candidate) []string {

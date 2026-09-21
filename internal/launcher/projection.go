@@ -174,3 +174,66 @@ func coverageText(value string) string {
 	}
 	return value
 }
+
+// RankedColumn is one data column in the Product work projection.
+type RankedColumn struct {
+	Key, Value string
+}
+
+// RankedColumns returns the stable data columns for a work item.
+func RankedColumns(item RankedWork, snapshot Snapshot) []RankedColumn {
+	urgency := item.Urgency
+	if urgency == "" {
+		urgency = "standard"
+	}
+	kind := item.Kind
+	if kind == "" {
+		kind = "-"
+	}
+	live := ""
+	if item.Live > 0 {
+		live = "yes"
+	} else if snapshot.ActiveWorkOnly && !item.Backlog {
+		live = "no"
+	}
+	return []RankedColumn{
+		{Key: "issue", Value: item.LinearIssueKey},
+		{Key: "live", Value: live},
+		{Key: "kind", Value: kind},
+		{Key: "priority", Value: fmt.Sprintf("%d", item.Priority)},
+		{Key: "urgency", Value: urgency},
+		{Key: "lifecycle", Value: item.Lifecycle},
+		{Key: "terminal", Value: item.TerminalAt},
+		{Key: "projects", Value: fmt.Sprintf("%d", item.ProjectCount)},
+	}
+}
+
+// CollapsedRankedKeys returns columns that carry one value across visible rows.
+func CollapsedRankedKeys(ranked []RankedWork, snapshot Snapshot) map[string]bool {
+	constant := map[string]bool{}
+	if len(ranked) == 0 {
+		return constant
+	}
+	first := RankedColumns(ranked[0], snapshot)
+	for _, column := range first {
+		same := true
+		for _, item := range ranked[1:] {
+			values := RankedColumns(item, snapshot)
+			found := false
+			for _, value := range values {
+				if value.Key == column.Key {
+					found = value.Value == column.Value
+					break
+				}
+			}
+			if !found {
+				same = false
+				break
+			}
+		}
+		if same {
+			constant[column.Key] = true
+		}
+	}
+	return constant
+}

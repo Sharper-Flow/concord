@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"github.com/sharper-flow/concord/internal/launcher"
 )
@@ -49,6 +50,171 @@ func typeString(t *testing.T, m *Model, value string) {
 	for _, runeValue := range value {
 		m.Update(keyPress(runeValue, string(runeValue), 0))
 	}
+}
+
+func assertSizedFlowFrames(t *testing.T, m *Model, marker string) {
+	t.Helper()
+	for _, width := range []int{80, 100, 120, 200} {
+		m.Update(tea.WindowSizeMsg{Width: width, Height: 24})
+		frame := m.Render()
+		if !strings.Contains(frame, marker) {
+			t.Fatalf("width %d lost flow marker %q: %q", width, marker, frame)
+		}
+		for lineNumber, line := range strings.Split(frame, "\n") {
+			if got := lipgloss.Width(line); got > width {
+				t.Fatalf("width %d line %d exceeds terminal: %d", width, lineNumber, got)
+			}
+		}
+		content := m.renderContent(m.snapshot, m.cursor)
+		assertOneLinePerDataRow(t, width, frame, content)
+		assertHeaderCellAlignment(t, width, frame, content)
+		if got := strings.Count(frame, "arrows move"); got != 1 {
+			t.Fatalf("width %d footer count=%d, want 1", width, got)
+		}
+	}
+}
+
+// assertOneLinePerDataRow measures the frame, not the projection: each data
+// row the pane projects must render on exactly one terminal line, so a row
+// that stacks onto a second line fails here instead of reaching the operator.
+func assertOneLinePerDataRow(t *testing.T, width int, frame string, content renderedPane) {
+	t.Helper()
+	lines := strings.Split(frame, "\n")
+	for _, row := range content.rows {
+		identity := ""
+		for _, cell := range row {
+			if cell != "" {
+				identity = cell
+				break
+			}
+		}
+		if identity == "" {
+			continue
+		}
+		count := 0
+		for _, line := range lines {
+			if strings.Contains(line, identity) {
+				count++
+			}
+		}
+		if count != 1 {
+			t.Fatalf("width %d: data row %q renders on %d lines, want exactly one: %q", width, identity, count, frame)
+		}
+	}
+}
+
+// assertHeaderCellAlignment measures the frame: every header cell whose first
+// data cell carries content must start at the same display column as that
+// cell, so a gutter or padding shift between the header row and its rows
+// fails here.
+func assertHeaderCellAlignment(t *testing.T, width int, frame string, content renderedPane) {
+	t.Helper()
+	if len(content.tableHeaders) == 0 || len(content.rows) == 0 || len(content.rows[0]) == 0 {
+		return
+	}
+	lines := strings.Split(frame, "\n")
+	dataLine := -1
+	for i, line := range lines {
+		if cellStarts(line, content.rows[0]) != nil {
+			dataLine = i
+			break
+		}
+	}
+	if dataLine < 0 {
+		t.Fatalf("width %d: first data row not found in the frame: %q", width, frame)
+	}
+	for i := dataLine - 1; i >= 0; i-- {
+		headerStarts := cellStarts(lines[i], content.tableHeaders)
+		if headerStarts == nil {
+			continue
+		}
+		dataStarts := cellStarts(lines[dataLine], content.rows[0])
+		for col := range headerStarts {
+			if col >= len(content.rows[0]) || content.tableHeaders[col] == "" || content.rows[0][col] == "" {
+				continue
+			}
+			if headerStarts[col] != dataStarts[col] {
+				t.Fatalf("width %d: header %q starts at column %d but its data cell %q starts at %d: %q",
+					width, content.tableHeaders[col], headerStarts[col], content.rows[0][col], dataStarts[col], frame)
+			}
+		}
+		return
+	}
+	t.Fatalf("width %d: header row above the first data row not found: %q", width, frame)
+}
+
+// cellStarts locates each non-empty cell of a rendered table line, left to
+// right. It returns nil when any non-empty cell is missing, so callers can
+// use it both as a line-shape probe and as a column locator.
+func cellStarts(line string, cells []string) []int {
+	starts := make([]int, len(cells))
+	from := 0
+	for i, cell := range cells {
+		if cell == "" {
+			starts[i] = -1
+			continue
+		}
+		offset := strings.Index(line[from:], cell)
+		if offset < 0 {
+			return nil
+		}
+		starts[i] = from + offset
+		from = starts[i] + len(cell)
+	}
+	return starts
+}
+
+func TestLauncherOperatorFlowUsesSizedTables(t *testing.T) {
+	stub := &screenStub{
+		state: launcher.Snapshot{
+			Screen: launcher.ScreenPortfolio, Coverage: "authoritative",
+			Rows: []launcher.ProductRow{{ID: "product-1", Name: "Readable Product"}},
+		},
+		product: launcher.Snapshot{
+			Screen: launcher.ScreenProduct, AmbientProduct: "product-1", Section: launcher.SectionRanked,
+			PanelFocus: launcher.S2PanelBlocked, Coverage: "authoritative",
+			Ranked: []launcher.RankedWork{{ID: "work-1", Title: "Readable work", Lifecycle: "needed", Priority: 1}},
+		},
+		work: launcher.Snapshot{Screen: launcher.ScreenWork, AmbientProduct: "product-1", SelectedWorkID: "work-1", Coverage: "authoritative"},
+	}
+	core := launcher.New(stub)
+	if err := core.Enter(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	m := New(core, context.Background(), Profile{})
+	assertSizedFlowFrames(t, m, "Readable Product")
+	m.UpdateKey("enter")
+	m.Sync()
+	m.UpdateKey("tab")
+	m.Sync()
+	assertSizedFlowFrames(t, m, "Readable work")
+	var launched launcher.SessionHandoff
+	m.SetSessionLauncher(func(handoff launcher.SessionHandoff) tea.Cmd {
+		launched = handoff
+		return nil
+	})
+	m.UpdateKey("enter")
+	if launched.WorkID != "work-1" {
+		t.Fatalf("session handoff = %#v", launched)
+	}
+	assertSizedFlowFrames(t, m, "S3 WORK DETAIL")
+
+	degraded := &screenStub{
+		state: launcher.Snapshot{
+			Screen: launcher.ScreenProduct, AmbientProduct: "product-1", Section: launcher.SectionRanked,
+			PanelFocus: launcher.S2PanelBlocked, Coverage: "authoritative", Backlog: true,
+			Ranked: []launcher.RankedWork{{ID: "backlog", Title: "New / Backlog", Backlog: true}},
+		},
+		projects: []launcher.ProjectOption{{ID: "project-1", Name: "Project one", Role: "primary", Path: "/project-one"}},
+		resolve:  func(string) (launcher.SessionHandoff, error) { return launcher.SessionHandoff{}, nil },
+	}
+	degradedCore := launcher.New(degraded)
+	degradedCore.RestoreSnapshot(degraded.state)
+	degradedModel := New(degradedCore, context.Background(), Profile{})
+	degradedModel.UpdateKey("enter")
+	typeString(t, degradedModel, "UNKNOWN-1")
+	degradedModel.UpdateKey("enter")
+	assertSizedFlowFrames(t, degradedModel, "PROJECTS")
 }
 
 // TestProductSelectPrecedesWorkList proves

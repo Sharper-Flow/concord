@@ -149,8 +149,8 @@ export default async function ConcordAdapterPlugin(input?: Partial<PluginInput>)
       await completeDispatchedWorker(input, output)
     },
     // The text-part channel. The work-state reporter queues operator-facing
-    // blocks per session — the closure banner, the gate brief, the
-    // worktree-removal notice — and this hook drains them into the
+    // blocks per session — the closure banner and the worktree-removal notice
+    // — and this hook drains them into the
     // assistant's own message as the text part completes, so the transcript
     // holds them and the agent spends no tokens forming them. The hook
     // swallows every throw: a display can never damage an assistant message.

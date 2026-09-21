@@ -233,16 +233,3 @@ export function createWorkStateReporter(options: WorkStateReporterOptions = {}) 
     },
   }
 }
-
-export type GateBriefRow = { work_id: string; workflow_step: string; decision: "pending" | "none" }
-
-export function formatGateBrief(productID: string, rows: unknown): string | null {
-  if (!productID || !Array.isArray(rows) || rows.length === 0) return null
-  const items: GateBriefRow[] = []
-  for (const row of rows) {
-    if (!record(row) || !record(row.focus) || typeof row.focus.work_id !== "string" || typeof row.focus.workflow_step_label !== "string") continue
-    items.push({ work_id: row.focus.work_id, workflow_step: row.focus.workflow_step_label, decision: row.focus.attention_kind === "approval_required" ? "pending" : "none" })
-  }
-  if (items.length === 0) return null
-  return `◆ CONCORD GATE BRIEF | product=${productID} | ${items.map((item) => `work=${item.work_id} | step=${item.workflow_step} | decision=${item.decision}`).join(" || ")}`
-}

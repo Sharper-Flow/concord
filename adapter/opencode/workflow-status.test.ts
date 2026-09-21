@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test"
-import { createWorkStateReporter, formatGateBrief, formatQuestComplete, formatWorkPaneName, formatWorkTabName } from "./workflow-status"
+import { createWorkStateReporter, formatQuestComplete, formatWorkPaneName, formatWorkTabName } from "./workflow-status"
 import { hostControlPlane } from "./move-session"
 
 const pin = {
@@ -204,11 +204,4 @@ test("keeps a pane rename failure best effort", async () => {
   } } })
   const warnings = await reporter.report({ outcome: "ok", result: { work_pins: [pin] } }, { sessionID: "session-pane-failure", abort: new AbortController().signal })
   expect(warnings).toEqual(["Concord could not rename the work tab or pane frame: rename-pane exited 1.", "Concord could not write the session goal title: the session title route is absent or refused the write."])
-})
-
-test("formats the gate brief from focused portfolio rows", () => {
-  expect(formatGateBrief("product-1", [
-    { focus: { work_id: "work-1", workflow_step_label: "planning", attention_kind: "approval_required" } },
-    { focus: { work_id: "work-2", workflow_step_label: "execution", attention_kind: "in_progress" } },
-  ])).toBe("◆ CONCORD GATE BRIEF | product=product-1 | work=work-1 | step=planning | decision=pending || work=work-2 | step=execution | decision=none")
 })

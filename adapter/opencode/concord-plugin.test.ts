@@ -46,13 +46,11 @@ describe("plugin entry registers the text-completion hook", () => {
 
   test("appends the queued notice blocks to the assistant text and clears the queue", async () => {
     const hook = await completeHook()
-    enqueueWorkNotice("session-text", "◆ CONCORD GATE BRIEF | product=product-1 | work=work-1 | step=planning | decision=pending")
     enqueueWorkNotice("session-text", "```\n◆◆◆ QUEST COMPLETE ◆◆◆\nwork-1 | Concord\nRepair the adapter\nlifecycle=completed | evidence=none\n```")
     const output = { text: "assistant text" }
     await hook({ sessionID: "session-text", messageID: "message-1", partID: "part-1" }, output)
     expect(output.text).toBe([
       "assistant text",
-      "◆ CONCORD GATE BRIEF | product=product-1 | work=work-1 | step=planning | decision=pending",
       "```\n◆◆◆ QUEST COMPLETE ◆◆◆\nwork-1 | Concord\nRepair the adapter\nlifecycle=completed | evidence=none\n```",
     ].join("\n\n"))
     // The queue drained, so a later completion in the same session carries

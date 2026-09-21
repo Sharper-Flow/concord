@@ -205,8 +205,8 @@ renders one closure banner from the terminal pin: a celebratory
 carries the Linear key and work id, the title, the terminal lifecycle, the
 project display name, and the evidence locator count. Evidence is not a
 precondition: an envelope with no evidence renders `evidence=none` instead of
-closing the item in silence. The `work_start` gate brief and the
-worktree-removal notice ride the same channel.
+closing the item in silence. The worktree-removal notice rides the same
+channel.
 
 The banner rides the assistant's own message. The work-state reporter queues
 one block per session and suppresses a second emission of the same session,

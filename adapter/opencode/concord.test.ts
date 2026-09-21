@@ -1339,7 +1339,7 @@ test("work start moves the calling session into the claimed worktree", async () 
   expect(await hostControlPlane().taskScope("session-1")).toBe("managed")
   // The claim exists before the session moves, so a failed move leaves a
   // resumable claim rather than a moved session with none.
-  expect(calls.map(({ argv }) => argv[1])).toEqual(["project-resolve", "work-bootstrap", "session-prepare", "project-resolve", "invoke"])
+  expect(calls.map(({ argv }) => argv[1])).toEqual(["project-resolve", "work-bootstrap", "session-prepare"])
   expect(moved).toEqual([{ sessionID: "session-1", destination: { directory: WORKTREE } }])
   // The landing is confirmed, so the session title names the goal the
   // session-prepare contract derived.
@@ -1410,8 +1410,7 @@ test("work start renames the zellij pane frame to the work title on success", as
   adapter.configureConcordAdapter({ runner: retargetRunner(calls) })
   const result: any = await rawHostResult(adapter.work_start.execute(bootstrapArgs, contextFor()))
   expect(result.outcome).toBe("ok")
-  // One rename fork, after session-prepare supplied the title and before the
-  // gate brief's reads: exactly one per success.
+  // One rename fork follows the successful session-prepare response.
   const renames = calls.filter(({ argv }) => argv[0] === "zellij")
   expect(renames).toHaveLength(1)
   expect(renames[0].argv).toEqual(["zellij", "action", "rename-pane", "-p", "402", "Add atomic start"])
@@ -1538,7 +1537,7 @@ test("work start resume derives the entry by work_id and moves the session", asy
   expect(await hostControlPlane().taskScope("session-1")).toBe("managed")
   expect(result).toMatchObject({ outcome: "ok", product_id: "product-1", project_id: "project-1", work_id: "work-1", worktree_path: WORKTREE, agent: "agent-1", session_id: "session-1" })
   // An active resume is read-only, so the child sequence has no journal step.
-  expect(calls.map(({ argv }) => argv[1])).toEqual(["project-resolve", "work-resume", "session-prepare", "project-resolve", "invoke"])
+  expect(calls.map(({ argv }) => argv[1])).toEqual(["project-resolve", "work-resume", "session-prepare"])
   expect(JSON.parse(calls[1].input)).toEqual({ product_id: "product-1", project_id: "project-1", work_id: "work-1", session_ref: "session-1" })
   // A resume carries no task; session-prepare still verifies the active
   // agent and the worktree.
@@ -1851,7 +1850,7 @@ test("work start replays to convergence after an interrupted step", async () => 
   })
   const converged: any = await rawHostResult(adapter.work_start.execute(bootstrapArgs, contextFor()))
   expect(converged).toMatchObject({ outcome: "ok", work_id: "work-1", worktree_path: WORKTREE, session_id: "session-1" })
-  expect(second.map(({ argv }) => argv[1])).toEqual(["project-resolve", "work-bootstrap", "session-prepare", "project-resolve", "invoke"])
+  expect(second.map(({ argv }) => argv[1])).toEqual(["project-resolve", "work-bootstrap", "session-prepare"])
   expect(JSON.parse(second[1].input).idempotency_key).toBe(bootstrapArgs.idempotency_key)
   expect(moved).toEqual([{ sessionID: "session-1", destination: { directory: WORKTREE } }])
 })

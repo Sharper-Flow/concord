@@ -1,0 +1,42 @@
+{
+  "authority": {
+    "contract_version": 1,
+    "legislated_by": "work-d9e8d59b8ebc3d0a3991d318",
+    "tier": "legislated"
+  },
+  "date": "2026-09-21T00:00:00Z",
+  "evidence": [
+    "docs/development-authority.md",
+    "docs/decisions/CD-0121-product-scoped-planning-authority.md",
+    "docs/decisions/CD-0155-work-for-another-product-leaves-concord.md",
+    "docs/decisions/CD-0167-backlog-never-resides-in-git.md"
+  ],
+  "home_domain_id": "product-root:concord",
+  "id": "CD-0167",
+  "kind": "decision",
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "CD-0155"
+    }
+  ],
+  "path": "docs/decisions/CD-0167-backlog-never-resides-in-git.md",
+  "product_wide_rationale": "Backlog storage is a Product-wide boundary. Git holds active work and never holds a planning backlog: a Product's backlog lives in its confirmed Linear destination or in Concord's store, and a foreign session records other-Product work under the owning Product's scope.",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:2112ece9993ec091883a512ae4cb3743f049e7b0faabc3c9845f2eafae13c127",
+  "status": "accepted",
+  "summary": "Prohibits committing any planning backlog into a git repository. A local-only Product keeps Concord planning authority, and a foreign session records other-Product work under the owning Product's scope instead of the superseded todo.md commit route. GitHub Issues is not a backlog destination.",
+  "tags": [
+    "authority",
+    "planning",
+    "product-scope",
+    "routing"
+  ],
+  "title": "Backlog never resides in git"
+}

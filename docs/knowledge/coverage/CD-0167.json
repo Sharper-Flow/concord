@@ -1,0 +1,5 @@
+{
+  "id": "CD-0167",
+  "reason": "This is a policy amendment with no runtime implementation slice. The store's structural refusal of an in-repository database path carries existing enforcement, and the scoped foreign-session recording route requires separately delivered implementation evidence.",
+  "state": "out_of_scope"
+}

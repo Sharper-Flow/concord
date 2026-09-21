@@ -10,6 +10,7 @@ import { createHash } from "node:crypto"
 import fs from "node:fs"
 import path from "node:path"
 import type { AgentLanePacket } from "./dispatch"
+import { dispatchRequiresNextTurn, TURN_MOVE_DISPATCH_REFUSAL } from "./turn-move-boundary"
 
 // The host renders the worker card only for the tool with this id, so the lane
 // runs under it or it runs without operator progress, navigation, and cancel.
@@ -194,6 +195,10 @@ export class DispatchWindows {
   // place of the authorization failure that actually stopped it.
   async bind(tool: string, sessionID: string, args: MutableToolArgs, callID: string | undefined, resolveSessionDirectory: () => Promise<string>): Promise<void> {
     if (tool !== TASK_TOOL_ID) return
+    if (dispatchRequiresNextTurn(sessionID)) {
+      this.#open.delete(sessionID)
+      throw new DispatchWindowError(TURN_MOVE_DISPATCH_REFUSAL)
+    }
     const record = this.#open.get(sessionID)
     if (!record) {
       throw new DispatchWindowError(
@@ -225,10 +230,11 @@ export class DispatchWindows {
   }
 }
 
-// The native Task creates the worker session in the directory the host reports
-// for the calling session, not in the host process directory. Resolve both sides
-// before comparison so a symlink cannot make the host run a worker outside the
-// claimed worktree.
+// A native Task child runs in the directory the turn resolved at its start.
+// Across turns, that directory equals the host-reported session directory. A
+// moved turn still resolves its pre-move directory, so dispatch stays closed
+// until the next operator turn. Resolve the host directory before comparison
+// after that boundary so a symlink cannot move the worker outside the claim.
 export function canonicalDirectory(value: unknown): string | null {
   if (typeof value !== "string" || value.length === 0 || !path.isAbsolute(value)) return null
   try {

@@ -23,6 +23,7 @@ import { dispatchWorker, errorEnvelopeForLane, type AgentLanePacket, type AgentR
 import { agentLanes, type AgentLane } from "./generated-agent-lanes"
 import { buildAgentLanePacket, type AgentLanePacketFailureKind } from "./packet"
 import { hostControlPlane } from "./move-session"
+import { dispatchRequiresNextTurn, TURN_MOVE_DISPATCH_REFUSAL } from "./turn-move-boundary"
 
 export interface LaneDispatchInput {
   work_id: string
@@ -90,6 +91,9 @@ function mapPacketFailure(failure: { kind: AgentLanePacketFailureKind; message: 
 // adapter raises before spawn; the orchestrator-facing call site in
 // concord.ts forwards whichever one lands.
 export async function dispatchLaneWorker(input: LaneDispatchInput, deps: LaneDispatchDeps): Promise<AgentResultEnvelope> {
+  if (dispatchRequiresNextTurn(deps.context.sessionID)) {
+    return errorEnvelopeForLane(laneForId(input.lane_id), { work_id: input.work_id, lane_id: input.lane_id }, "error", "unauthorized_dispatch", TURN_MOVE_DISPATCH_REFUSAL, "retry_same_request", { details: { boundary: "turn_move" } })
+  }
   // The continuity read supplies the durable anchors: product identity and
   // workflow step. Anything else — narrative, mandate — is read once the
   // packet builder runs below. The strict-refusal style mirrors packet.ts's
@@ -135,10 +139,9 @@ export async function dispatchLaneWorker(input: LaneDispatchInput, deps: LaneDis
   }
 
   // The host session route is the source for the claimed directory, read per
-  // call rather than stored (CD-0104 D1). Task creates the worker session in
-  // this same directory, so the value recorded on the window is where the
-  // worker will start. The window re-reads it at bind time and refuses if the
-  // session moved between authorization and use.
+  // call rather than stored (CD-0104 D1). Across turns, the native Task child
+  // starts in that host-reported directory. The window re-reads it at bind time
+  // and refuses if the session moved between authorization and use.
   let workerDirectory: string
   let pinnedWorkerDirectory: string
   try {

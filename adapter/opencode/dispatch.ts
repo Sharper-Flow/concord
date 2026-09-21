@@ -10,6 +10,7 @@ import { canonicalDirectory, dispatchDirectoryMismatch, dispatchWindows, Dispatc
 import { armedClaimedWorktree } from "./claimed-worktree"
 import { hostControlPlane } from "./move-session"
 import { readTaskResult } from "./task-result"
+import { dispatchRequiresNextTurn, TURN_MOVE_DISPATCH_REFUSAL } from "./turn-move-boundary"
 
 export const MAX_OUTPUT_BYTES = 65_536
 // MAX_OUTPUT_BYTES bounds the worker result body the adapter keeps as
@@ -1277,6 +1278,10 @@ export async function dispatchWorker(packet: unknown, options: { signal?: AbortS
   if (!validateAgentLanePacket(packet)) return errorEnvelope(null, isRecord(packet) ? packet as Partial<AgentLanePacket> : {}, "error", "invalid_input", "agent lane packet failed the closed packet schema", "retry_same_request")
   const lane = laneForPacket(packet)
   if (!lane) return errorEnvelope(null, packet, "error", "invalid_input", "lane identity or digest is not registered", "retry_same_request")
+  const sessionID = options.sessionID
+  if (sessionID && dispatchRequiresNextTurn(sessionID)) {
+    return errorEnvelope(lane, packet as Partial<AgentLanePacket>, "error", "unauthorized_dispatch", TURN_MOVE_DISPATCH_REFUSAL, "retry_same_request", { details: { boundary: "turn_move" } })
+  }
   const signal = options.signal ?? new AbortController().signal
   const workerDirectory = options.workerDirectory
   const canonicalWorkerDirectory = canonicalDirectory(options.pinnedWorkerDirectory ?? workerDirectory)
@@ -1321,7 +1326,6 @@ export async function dispatchWorker(packet: unknown, options: { signal?: AbortS
   // CD-0058 D1 still holds and needs no model here. The adapter names the lane
   // executor and never asserts which model runs it; the executing model is read
   // back from the worker session at completion.
-  const sessionID = options.sessionID
   if (!sessionID) {
     return errorEnvelope(lane, packet as Partial<AgentLanePacket>, "error", "invalid_input", "dispatch requires the calling session identifier to open an authorization window", "contact_operator")
   }
@@ -1345,18 +1349,12 @@ export async function dispatchWorker(packet: unknown, options: { signal?: AbortS
   // whose host process restarted after the claim, dispatches exactly as before.
   const armedClaim = armedClaimedWorktree(sessionID)
   if (armedClaim !== null) {
-    // The physical process cwd is the directory a spawned task child actually
-    // inherits: the host's move updates session metadata alone. The one broken
-    // configuration no host check exposes is a host booted inside one item's
-    // managed worktree that then claims another item's worktree: every metadata
-    // answer passes, and every lane runs in the boot worktree. A cwd inside the
-    // armed claim's managed worktrees (the claim's parent directory) that is
-    // not the claim itself is exactly that state, so it refuses. The operator's
-    // launch route boots the host in the project trunk, and children of a
-    // trunk-booted host follow the claimed worktree after the move, so a trunk
-    // cwd proceeds. No host answer supplies the process cwd, and only a host
-    // restart from the trunk or in the claimed worktree moves it once the
-    // process runs inside the managed area, so that is the remedy named.
+    // A native Task child runs in the directory the turn resolved at its start.
+    // Across turns, that directory equals the host-reported session directory.
+    // Within a moved turn, it remains the pre-move directory, so the turn-move
+    // boundary above refuses dispatch until the next operator turn. This cwd
+    // guard still rejects a host booted in a sibling managed worktree, which is
+    // a separate process-start condition that host metadata cannot expose.
     const physicalWorkerDirectory = canonicalDirectory(process.cwd())
     const managedWorktreesPrefix = path.dirname(armedClaim)
     if (physicalWorkerDirectory !== null && sitsUnder(physicalWorkerDirectory, managedWorktreesPrefix) && physicalWorkerDirectory !== armedClaim) {

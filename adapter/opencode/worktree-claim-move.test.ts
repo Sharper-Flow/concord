@@ -10,6 +10,7 @@ import ConcordAdapterPlugin from "./concord-plugin"
 import { hostControlPlane } from "./move-session"
 import { moveSessionToClaimedWorktree } from "./concord"
 import { armedClaimedWorktree, clearClaimedWorktree, resetClaimedWorktrees } from "./claimed-worktree"
+import { resetTurnMoveBoundaries } from "./turn-move-boundary"
 import { ensureConductLink } from "./project-link"
 import { createHash } from "node:crypto"
 
@@ -38,6 +39,7 @@ async function fakeHost(handlers: { post?: (url: string, body: any) => { status:
 
 afterEach(async () => {
   resetClaimedWorktrees()
+  resetTurnMoveBoundaries()
   await ConcordAdapterPlugin({})
 })
 

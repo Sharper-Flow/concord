@@ -109,19 +109,30 @@ const TERMINAL_LIFECYCLES: ReadonlySet<string> = new Set(["completed", "cancelle
 // A closure box is at most this wide inside its borders. A work title may
 // reach 256 characters, and a box sized to one would exceed the terminal and
 // wrap, which destroys the alignment the borders exist to provide.
-const CLOSURE_CELL_MAX = 72
+const CLOSURE_CELL_MAX = 100
 
 const CLOSURE_HEADINGS: Readonly<Record<"complete" | "closed", string>> = {
   complete: "Concord Work Item Complete",
   closed: "Concord Work Item Closed",
 }
 
-// Every cell is padded to one width, so each border and content line of a box
-// is the same length. An over-long cell is truncated with a single-column
-// marker rather than wrapped, which keeps the width computation total.
+// Content cells sit two columns inside each pipe, so the box reads roomier
+// than a flush table. Every cell is padded to one width, so each border and
+// content line of a box is the same length. An over-long cell is truncated
+// with a single-column marker rather than wrapped, which keeps the width
+// computation total.
 function closureCell(text: string, width: number): string {
   const cell = text.length > width ? `${text.slice(0, width - 1)}…` : text.padEnd(width)
-  return `| ${cell} |`
+  return `|  ${cell}  |`
+}
+
+// The heading is centred rather than flush left, because it is the one line
+// the operator scans for. Odd padding goes to the right, so the centring is
+// deterministic and the golden bytes stay fixed.
+function closureHeadingCell(text: string, width: number): string {
+  const pad = width - text.length
+  const cell = `${" ".repeat(Math.floor(pad / 2))}${text}${" ".repeat(Math.ceil(pad / 2))}`
+  return `|  ${cell}  |`
 }
 
 // formatWorkClosureBox renders the one closure box a terminal work pin
@@ -148,8 +159,8 @@ export function formatWorkClosureBox(value: unknown, envelope: MutationEnvelope)
   const heading = completed ? CLOSURE_HEADINGS.complete : CLOSURE_HEADINGS.closed
   const body = [`${identifier} | ${pin.project_display_name}`, pin.title, `lifecycle=${pin.lifecycle} | ${evidence}`]
   const width = Math.min(CLOSURE_CELL_MAX, Math.max(heading.length, ...body.map((cell) => cell.length)))
-  const rule = `+${(completed ? "=" : "-").repeat(width + 2)}+`
-  const lines = [rule, closureCell(heading, width), rule, ...body.map((cell) => closureCell(cell, width)), rule]
+  const rule = `+${(completed ? "=" : "-").repeat(width + 4)}+`
+  const lines = [rule, closureHeadingCell(heading, width), rule, ...body.map((cell) => closureCell(cell, width)), rule]
   return `\`\`\`\n${lines.join("\n")}\n\`\`\``
 }
 

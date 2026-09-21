@@ -68,16 +68,16 @@ test("formats the pane name from a title alone", () => {
 test("renders the terminal closure boxes byte-exactly", () => {
   const envelope = { outcome: "ok", evidence_refs: [{ kind: "commit", locator: "commit:abc123" }, { kind: "pull_request", locator: "pr:7" }] }
   expect(formatWorkClosureBox({ ...pin, lifecycle: "completed", step: "complete" }, envelope)).toBe(
-    "```\n+==================================+\n| Concord Work Item Complete       |\n+==================================+\n| work-1 | Concord                 |\n| Repair the adapter               |\n| lifecycle=completed | evidence=2 |\n+==================================+\n```",
+    "```\n+====================================+\n|     Concord Work Item Complete     |\n+====================================+\n|  work-1 | Concord                  |\n|  Repair the adapter                |\n|  lifecycle=completed | evidence=2  |\n+====================================+\n```",
   )
   expect(formatWorkClosureBox({ ...pin, lifecycle: "cancelled" }, envelope)).toBe(
-    "```\n+----------------------------------+\n| Concord Work Item Closed         |\n+----------------------------------+\n| work-1 | Concord                 |\n| Repair the adapter               |\n| lifecycle=cancelled | evidence=2 |\n+----------------------------------+\n```",
+    "```\n+------------------------------------+\n|      Concord Work Item Closed      |\n+------------------------------------+\n|  work-1 | Concord                  |\n|  Repair the adapter                |\n|  lifecycle=cancelled | evidence=2  |\n+------------------------------------+\n```",
   )
   expect(formatWorkClosureBox({ ...pin, lifecycle: "superseded" }, { outcome: "ok" })).toBe(
-    "```\n+--------------------------------------+\n| Concord Work Item Closed             |\n+--------------------------------------+\n| work-1 | Concord                     |\n| Repair the adapter                   |\n| lifecycle=superseded | evidence=none |\n+--------------------------------------+\n```",
+    "```\n+----------------------------------------+\n|        Concord Work Item Closed        |\n+----------------------------------------+\n|  work-1 | Concord                      |\n|  Repair the adapter                    |\n|  lifecycle=superseded | evidence=none  |\n+----------------------------------------+\n```",
   )
   expect(formatWorkClosureBox({ ...pin, lifecycle: "completed", linear_issue_key: "CON-42" }, envelope)).toBe(
-    "```\n+==================================+\n| Concord Work Item Complete       |\n+==================================+\n| CON-42 (work-1) | Concord        |\n| Repair the adapter               |\n| lifecycle=completed | evidence=2 |\n+==================================+\n```",
+    "```\n+====================================+\n|     Concord Work Item Complete     |\n+====================================+\n|  CON-42 (work-1) | Concord         |\n|  Repair the adapter                |\n|  lifecycle=completed | evidence=2  |\n+====================================+\n```",
   )
   expect(formatWorkClosureBox(pin, envelope)).toBeNull()
 })
@@ -87,13 +87,13 @@ test("renders the terminal closure boxes byte-exactly", () => {
 // a border, so both are asserted rather than assumed.
 test("truncates an over-long cell and holds every box line at one width", () => {
   const envelope = { outcome: "ok", evidence_refs: [{ kind: "commit", locator: "commit:abc123" }, { kind: "pull_request", locator: "pr:7" }] }
-  const title = "Repair the adapter closure box renderer so that an unreasonably long work item title is truncated rather than wrapped"
+  const title = "Repair the adapter closure box renderer so that an unreasonably long work item title is truncated rather than wrapped onto several lines inside the border of the box"
   const block = formatWorkClosureBox({ ...pin, lifecycle: "completed", step: "complete", title }, envelope)
   expect(block).toBe(
-    "```\n+==================================================================+\n| Concord Work Item Complete                                       |\n+==================================================================+\n| work-1 | Concord                                                 |\n| Repair the adapter closure box renderer so that an unreasonably… |\n| lifecycle=completed | evidence=2                                 |\n+==================================================================+\n```",
+    "```\n+====================================================================+\n|                     Concord Work Item Complete                     |\n+====================================================================+\n|  work-1 | Concord                                                  |\n|  Repair the adapter closure box renderer so that an unreasonably\u2026  |\n|  lifecycle=completed | evidence=2                                  |\n+====================================================================+\n```",
   )
   const lines = (block as string).split("\n").slice(1, -1)
-  expect(new Set(lines.map((line) => line.length))).toEqual(new Set([68]))
+  expect(new Set(lines.map((line) => line.length))).toEqual(new Set([70]))
 })
 
 test("renames the tab and pane frame mapped from the session pane", async () => {
@@ -164,7 +164,7 @@ test("a completed pin queues the celebratory closure banner", async () => {
     result: { work_pins: [{ ...pin, lifecycle: "completed", step: "complete" }] },
   }, { sessionID: "session-closure", abort: new AbortController().signal })
   expect(reporter.takeNotices("session-closure")).toEqual([
-    "```\n+==================================+\n| Concord Work Item Complete       |\n+==================================+\n| work-1 | Concord                 |\n| Repair the adapter               |\n| lifecycle=completed | evidence=1 |\n+==================================+\n```",
+    "```\n+====================================+\n|     Concord Work Item Complete     |\n+====================================+\n|  work-1 | Concord                  |\n|  Repair the adapter                |\n|  lifecycle=completed | evidence=1  |\n+====================================+\n```",
   ])
   expect(reporter.takeNotices("session-closure")).toEqual([])
 })
@@ -173,7 +173,7 @@ test("a cancelled pin queues the plainer closure marker", async () => {
   const reporter = createWorkStateReporter({ runner: { async run() { return { exitCode: 0, stdout: "", stderr: "" } } } })
   await reporter.report({ outcome: "ok", result: { work_pins: [{ ...pin, lifecycle: "cancelled" }] } }, { sessionID: "session-cancelled", abort: new AbortController().signal })
   expect(reporter.takeNotices("session-cancelled")).toEqual([
-    "```\n+-------------------------------------+\n| Concord Work Item Closed            |\n+-------------------------------------+\n| work-1 | Concord                    |\n| Repair the adapter                  |\n| lifecycle=cancelled | evidence=none |\n+-------------------------------------+\n```",
+    "```\n+---------------------------------------+\n|       Concord Work Item Closed        |\n+---------------------------------------+\n|  work-1 | Concord                     |\n|  Repair the adapter                   |\n|  lifecycle=cancelled | evidence=none  |\n+---------------------------------------+\n```",
   ])
 })
 

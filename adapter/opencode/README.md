@@ -202,10 +202,11 @@ When a mutation completes, cancels, or supersedes a work item, the adapter
 renders one closure box from the terminal pin, bordered with horizontal rules
 and pipes: a completion is headed `Concord Work Item Complete` over `=` rules,
 and a cancellation or a supersession is headed `Concord Work Item Closed` over
-visibly plainer `-` rules. The box carries the Linear key and work id, the
+visibly plainer `-` rules. The heading is centred and content cells sit two
+columns inside each pipe. The box carries the Linear key and work id, the
 title, the terminal lifecycle, the project display name, and the evidence
 locator count. Every line holds one width, floored at the heading and capped at
-72 columns, so an over-long title truncates rather than wrapping the border.
+100 columns, so an over-long title truncates rather than wrapping the border.
 Evidence is not a precondition: an envelope with no evidence renders
 `evidence=none` instead of closing the item in silence. The worktree-removal
 notice rides the same channel.

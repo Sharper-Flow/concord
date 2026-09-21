@@ -47,13 +47,13 @@ describe("plugin entry registers the text-completion hook", () => {
   test("appends the queued notice blocks to the assistant text and clears the queue", async () => {
     const hook = await completeHook()
     enqueueWorkNotice("session-text", "Concord released the worktree for work-1.")
-    enqueueWorkNotice("session-text", "```\n+=====================================+\n| Concord Work Item Complete          |\n+=====================================+\n| work-1 | Concord                    |\n| Repair the adapter                  |\n| lifecycle=completed | evidence=none |\n+=====================================+\n```")
+    enqueueWorkNotice("session-text", "```\n+=======================================+\n|      Concord Work Item Complete       |\n+=======================================+\n|  work-1 | Concord                     |\n|  Repair the adapter                   |\n|  lifecycle=completed | evidence=none  |\n+=======================================+\n```")
     const output = { text: "assistant text" }
     await hook({ sessionID: "session-text", messageID: "message-1", partID: "part-1" }, output)
     expect(output.text).toBe([
       "assistant text",
       "Concord released the worktree for work-1.",
-      "```\n+=====================================+\n| Concord Work Item Complete          |\n+=====================================+\n| work-1 | Concord                    |\n| Repair the adapter                  |\n| lifecycle=completed | evidence=none |\n+=====================================+\n```",
+      "```\n+=======================================+\n|      Concord Work Item Complete       |\n+=======================================+\n|  work-1 | Concord                     |\n|  Repair the adapter                   |\n|  lifecycle=completed | evidence=none  |\n+=======================================+\n```",
     ].join("\n\n"))
     // The queue drained, so a later completion in the same session carries
     // no notice and other sessions stay untouched.
@@ -74,7 +74,7 @@ describe("plugin entry registers the text-completion hook", () => {
 
   test("swallows a failed write so a display can never damage an assistant message", async () => {
     const hook = await completeHook()
-    enqueueWorkNotice("session-throw", "```\n+=====================================+\n| Concord Work Item Complete          |\n+=====================================+\n| work-1 | Concord                    |\n| Repair the adapter                  |\n| lifecycle=completed | evidence=none |\n+=====================================+\n```")
+    enqueueWorkNotice("session-throw", "```\n+=======================================+\n|      Concord Work Item Complete       |\n+=======================================+\n|  work-1 | Concord                     |\n|  Repair the adapter                   |\n|  lifecycle=completed | evidence=none  |\n+=======================================+\n```")
     const output = { text: "assistant text" }
     Object.defineProperty(output, "text", {
       get: () => "assistant text",

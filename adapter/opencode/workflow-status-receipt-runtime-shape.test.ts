@@ -47,7 +47,7 @@ describe("workflow_status_receipt_runtime_shape", () => {
   test("renders the closure box from the runtime lifecycle-completion envelope", () => {
     const envelope = lifecycleCompletionEnvelope()
     expect(formatWorkClosureBox(envelope.result.work_pins[0], envelope)).toBe(
-      "```\n+=======================================================+\n| Concord Work Item Complete                            |\n+=======================================================+\n| work-cross | Concord                                  |\n| Emit an operator-facing closure receipt on completion |\n| lifecycle=completed | evidence=2                      |\n+=======================================================+\n```",
+      "```\n+=========================================================+\n|               Concord Work Item Complete                |\n+=========================================================+\n|  work-cross | Concord                                   |\n|  Emit an operator-facing closure receipt on completion  |\n|  lifecycle=completed | evidence=2                       |\n+=========================================================+\n```",
     )
   })
 
@@ -58,7 +58,7 @@ describe("workflow_status_receipt_runtime_shape", () => {
     const envelope = lifecycleCompletionEnvelope()
     envelope.evidence_refs = []
     expect(formatWorkClosureBox(envelope.result.work_pins[0], envelope)).toBe(
-      "```\n+=======================================================+\n| Concord Work Item Complete                            |\n+=======================================================+\n| work-cross | Concord                                  |\n| Emit an operator-facing closure receipt on completion |\n| lifecycle=completed | evidence=none                   |\n+=======================================================+\n```",
+      "```\n+=========================================================+\n|               Concord Work Item Complete                |\n+=========================================================+\n|  work-cross | Concord                                   |\n|  Emit an operator-facing closure receipt on completion  |\n|  lifecycle=completed | evidence=none                    |\n+=========================================================+\n```",
     )
   })
 
@@ -71,7 +71,7 @@ describe("workflow_status_receipt_runtime_shape", () => {
   test("prefers the Linear issue key as the closure box identifier", () => {
     const envelope = lifecycleCompletionEnvelope()
     envelope.result.work_pins[0].linear_issue_key = "SHA-188"
-    expect(formatWorkClosureBox(envelope.result.work_pins[0], envelope)).toContain("\n| SHA-188 (work-cross) | Concord ")
+    expect(formatWorkClosureBox(envelope.result.work_pins[0], envelope)).toContain("\n|  SHA-188 (work-cross) | Concord  ")
   })
 
   test("an evidence ref without a locator renders evidence=none", () => {

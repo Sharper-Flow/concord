@@ -78,6 +78,7 @@ func TestProductSelectPrecedesWorkList(t *testing.T) {
 		t.Fatal(err)
 	}
 	m := New(core, context.Background(), Profile{})
+	m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
 	rendered := m.Render()
 	if !strings.Contains(rendered, "Registered Product") {
 		t.Fatalf("Product select lost its Product rows to the candidate feed: %q", rendered)
@@ -148,6 +149,7 @@ func TestWorkRowRendersIssueKeyAndOccupancy(t *testing.T) {
 	core := launcher.New(stub)
 	core.RestoreSnapshot(stub.state)
 	m := New(core, context.Background(), Profile{})
+	m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
 	rendered := m.Render()
 	for _, want := range []string{"lifecycle=in_progress", "issue=CON-153", "live=yes", "live=no"} {
 		if !strings.Contains(rendered, want) {

@@ -12,29 +12,29 @@ FOCUS: product/Concord                                      COVERAGE: authoritat
 │DOMAIN: no unresolved overlaps                                                                                        │
 │BLOCKED: work-1 Work 1 marker=+READY blockers=                                                                        │
 │BLOCKED/BLOCKERS:                                                                                                     │
-│  24 +READY work-24 Work 24 kind=task priority=0 urgency=standard lifecycle=in_progress projects=0                    │
-│  25 +READY work-25 Work 25 kind=task priority=0 urgency=standard lifecycle=in_progress projects=0                    │
-│  26 +READY work-26 Work 26 kind=task priority=0 urgency=standard lifecycle=in_progress projects=0                    │
-│  27 +READY work-27 Work 27 kind=task priority=0 urgency=standard lifecycle=in_progress projects=0                    │
-│  28 +READY work-28 Work 28 kind=task priority=0 urgency=standard lifecycle=in_progress projects=0                    │
-│  29 +READY work-29 Work 29 kind=task priority=0 urgency=standard lifecycle=in_progress projects=0                    │
-│  30 +READY work-30 Work 30 kind=task priority=0 urgency=standard lifecycle=in_progress projects=0                    │
-│  31 +READY work-31 Work 31 kind=task priority=0 urgency=standard lifecycle=in_progress projects=0                    │
-│  32 +READY work-32 Work 32 kind=task priority=0 urgency=standard lifecycle=in_progress projects=0                    │
-│  33 +READY work-33 Work 33 kind=task priority=0 urgency=standard lifecycle=in_progress projects=0                    │
-│  34 +READY work-34 Work 34 kind=task priority=0 urgency=standard lifecycle=in_progress projects=0                    │
-│  35 +READY work-35 Work 35 kind=task priority=0 urgency=standard lifecycle=in_progress projects=0                    │
-│  36 +READY work-36 Work 36 kind=task priority=0 urgency=standard lifecycle=in_progress projects=0                    │
-│  37 +READY work-37 Work 37 kind=task priority=0 urgency=standard lifecycle=in_progress projects=0                    │
-│  38 +READY work-38 Work 38 kind=task priority=0 urgency=standard lifecycle=in_progress projects=0                    │
-│  39 +READY work-39 Work 39 kind=task priority=0 urgency=standard lifecycle=in_progress projects=0                    │
-│  40 +READY work-40 Work 40 kind=task priority=0 urgency=standard lifecycle=in_progress projects=0                    │
-│  41 +READY work-41 Work 41 kind=task priority=0 urgency=standard lifecycle=in_progress projects=0                    │
-│  42 +READY work-42 Work 42 kind=task priority=0 urgency=standard lifecycle=in_progress projects=0                    │
-│  43 +READY work-43 Work 43 kind=task priority=0 urgency=standard lifecycle=in_progress projects=0                    │
-│  44 +READY work-44 Work 44 kind=task priority=0 urgency=standard lifecycle=in_progress projects=0                    │
-│> 45 +READY work-45 Work 45 kind=task priority=0 urgency=standard lifecycle=in_progress projects=0                    │
+│  23 +READY work-23 Work 23                                                                                           │
+│  24 +READY work-24 Work 24                                                                                           │
+│  25 +READY work-25 Work 25                                                                                           │
+│  26 +READY work-26 Work 26                                                                                           │
+│  27 +READY work-27 Work 27                                                                                           │
+│  28 +READY work-28 Work 28                                                                                           │
+│  29 +READY work-29 Work 29                                                                                           │
+│  30 +READY work-30 Work 30                                                                                           │
+│  31 +READY work-31 Work 31                                                                                           │
+│  32 +READY work-32 Work 32                                                                                           │
+│  33 +READY work-33 Work 33                                                                                           │
+│  34 +READY work-34 Work 34                                                                                           │
+│  35 +READY work-35 Work 35                                                                                           │
+│  36 +READY work-36 Work 36                                                                                           │
+│  37 +READY work-37 Work 37                                                                                           │
+│  38 +READY work-38 Work 38                                                                                           │
+│  39 +READY work-39 Work 39                                                                                           │
+│  40 +READY work-40 Work 40                                                                                           │
+│  41 +READY work-41 Work 41                                                                                           │
+│  42 +READY work-42 Work 42                                                                                           │
+│  43 +READY work-43 Work 43                                                                                           │
+│  44 +READY work-44 Work 44                                                                                           │
+│> 45 +READY work-45 Work 45                                                                                           │
 │arrows move • / filter • s search • tab panel/section • r refresh • enter open • l launch • ctrl-p pin • ctrl-u unpin │
 │…                                                                                                                     │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
-arrows move • / filter • s search • tab panel/section • r refresh • enter open • l launch • ctrl-p pin • ctrl-u unpin … 

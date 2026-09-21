@@ -1096,6 +1096,53 @@ function workerAbandonToken(idempotencyKey: string): string {
   return createHash("sha256").update(`concord_work_transition.${WORKER_ABANDON_OPERATION}\0${idempotencyKey}`).digest("hex")
 }
 
+// The worker evidence transport answers with the CLI's operator diagnostic, so
+// the store's typed refusal arrives as text. A worker attempt row that does
+// not exist is kind projection_not_found with the detail that names the
+// missing worker dispatch row, and no other store refusal carries both
+// markers, so a refusal with any other cause keeps the existing behaviour.
+function workerAbandonFoundNothingDurable(message: string): boolean {
+  return message.includes("projection_not_found") && message.includes("worker dispatch row does not exist")
+}
+
+// nothing-durable-release composes the ok receipt for a worker_abandon whose
+// durable refusal says the named attempt never dispatched. The core writes no
+// event and produces no receipt of its own here — planWorkerAbandon refuses on
+// the same missing row — so the adapter composes the receipt the core's typed
+// refusal implies. The core is the origin because the generated contract
+// permits an ok outcome only on a core envelope, and the authority for the
+// statement is the core's own refusal.
+function nothingDurableReleaseEnvelope(requestID: string, abandonInput: { work_id: string; attempt_id: string }, releasedRetainedRecord: boolean): HostConcordEnvelope {
+  const queryID = (contractOperations.find((candidate: any) => candidate.tool === "concord_work_transition" && candidate.id.endsWith(`.${WORKER_ABANDON_OPERATION}`)) as any)?.query_id
+  return {
+    schema_version: "1.0",
+    manifest_digest: activeManifestDigest(),
+    request_id: requestID,
+    origin: "core",
+    tool: "concord_work_transition",
+    operation: WORKER_ABANDON_OPERATION,
+    ...(queryID ? { query_id: queryID } : {}),
+    outcome: "ok",
+    resolved_scope: null,
+    authority: "authoritative",
+    freshness: null,
+    source_version_watermark: [],
+    ordering_keys: [],
+    next_cursor: null,
+    omissions: [],
+    warnings: [],
+    evidence_refs: [],
+    replayed: false,
+    result: {
+      changed_refs: [],
+      next_valid_intents: [],
+      nothing_durable_to_abandon: `the core holds no worker attempt row for attempt ${abandonInput.attempt_id} on ${abandonInput.work_id}, so nothing durable existed to abandon and no worker.failed event was written${releasedRetainedRecord ? "; the retained in-flight dispatch record is released and the session can dispatch again" : ""}`,
+    },
+    changed_refs: [],
+    next_valid_intents: [],
+  }
+}
+
 async function executeWorkerAbandon(args: HostToolArgs, context: ToolContext): Promise<HostConcordEnvelope> {
   const requestID = `${context.sessionID}-${context.messageID}`
   const leaseFault = hostLeaseFault()
@@ -1114,6 +1161,16 @@ async function executeWorkerAbandon(args: HostToolArgs, context: ToolContext): P
     abandonEventID: `worker-abandon-${token}`,
     abandonNonce: token,
   }, context.abort)
+  const message = result.error?.message ?? "worker abandonment returned no diagnostic"
+  if (workerAbandonFoundNothingDurable(message)) {
+    // nothing-durable-release: the durable state refused because the attempt
+    // never dispatched, so the retained record this session still holds has no
+    // durable counterpart to wait for. The release demands the exact attempt
+    // and lane identity the record holds, so a record naming a different
+    // attempt stays retained.
+    const releasedRetainedRecord = dispatchWindows().releaseRetained(context.sessionID, abandonInput.attempt_id, abandonInput.lane_id)
+    return nothingDurableReleaseEnvelope(requestID, abandonInput, releasedRetainedRecord)
+  }
   if (result.error?.retry_safe === false) {
     const receipt = await invokeConcordOperation("concord_work_transition", args, context)
     if (receipt.outcome === "ok") {
@@ -1129,7 +1186,6 @@ async function executeWorkerAbandon(args: HostToolArgs, context: ToolContext): P
     }
     return adapterError("concord_work_transition", WORKER_ABANDON_OPERATION, requestID, "operation_conflict", "worker_abandon_receipt_failed", `the worker attempt was closed, but the durable replay receipt was not recorded: ${JSON.stringify(receipt.error ?? receipt)}`, "possible", "reconcile_operation")
   }
-  const message = result.error?.message ?? "worker abandonment returned no diagnostic"
   return adapterError("concord_work_transition", WORKER_ABANDON_OPERATION, requestID, "operation_conflict", "worker_abandon_refused", message, "none", "reconcile_operation")
 }
 

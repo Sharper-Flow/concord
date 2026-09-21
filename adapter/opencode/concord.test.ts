@@ -2157,6 +2157,91 @@ test("an ok worker_abandon releases the session's retained in-flight record", as
   expect(windows.has(context.sessionID)).toBe(false)
 })
 
+// The stranding wedge with no durable counterpart: a host Task call
+// interrupted before the worker starts leaves the record in-flight, and no
+// worker attempt row is ever written. Both durable routes refuse — the CLI
+// evidence write and the core receipt read the same missing worker attempt
+// row — so the owning repair is the adapter-side nothing-durable release: the
+// typed projection_not_found refusal drops the retained record and answers
+// with the ok receipt that states nothing durable existed to abandon.
+test("a worker_abandon refusal for a never-dispatched attempt releases the retained record", async () => {
+  bindSessionRoutes({ sessions: [{ id: "ses_other", directory: "/elsewhere" }] })
+  const windows = dispatchWindows()
+  // The suite shares one window registry across files, so this test owns a
+  // session identity no other test touches.
+  const context = { ...contextFor(), sessionID: "session-abandon-nothing-durable" }
+  const retained = {
+    schema_version: "1.0" as const,
+    attempt_id: "attempt-stranded",
+    lane_id: "implement",
+    lane_version: 1,
+    lane_digest: "sha256:" + "b".repeat(64),
+    work_id: "work-1",
+    step_id: "repair",
+    inputs: { task: "do the bounded thing", context: "", constraints: [] },
+  }
+  windows.open(context.sessionID, retained, "sha256:" + "d".repeat(64), process.cwd())
+  await windows.bind(TASK_TOOL_ID, context.sessionID, { subagent_type: "x", prompt: "y", description: "z" }, "call-stranded", async () => process.cwd())
+  expect(windows.inFlight(context.sessionID, "call-stranded")).not.toBeNull()
+  const calls: string[] = []
+  adapter.configureConcordAdapter({
+    credentials: { async getPrivateKey() { return new Uint8Array(32).fill(7) } },
+    runner: { async run(argv) {
+      calls.push(argv[1])
+      if (argv[1] === "worker-abandon") return { exitCode: 1, stdout: "", stderr: "concord worker-abandon: store: worker_attempt_read: projection_not_found: worker dispatch row does not exist" }
+      throw new Error(`no durable route may run for a never-dispatched attempt: ${argv[1]}`)
+    } },
+  })
+  const input = { work_id: "work-1", attempt_id: "attempt-stranded", lane_id: "implement", detail: "the host Task call was interrupted before the worker started", idempotency_key: "worker-abandon-nothing-durable-1" }
+  const released: any = await rawHostResult(adapter.work_transition.execute(hostCall("worker_abandon", input), context))
+  expect(released.outcome).toBe("ok")
+  expect(validateGeneratedEnvelope(released), JSON.stringify(released)).toBe(true)
+  expect(released.result.nothing_durable_to_abandon).toContain("attempt attempt-stranded")
+  expect(released.result.nothing_durable_to_abandon).toContain("nothing durable existed to abandon")
+  // The core receipt route never ran: the CLI refusal is the durable answer.
+  expect(calls).toEqual(["worker-abandon"])
+  // The retained record is released, so the session dispatches again without
+  // a host restart.
+  expect(windows.inFlight(context.sessionID, "call-stranded")).toBeNull()
+  expect(() => windows.open(context.sessionID, retained, "", process.cwd())).not.toThrow()
+  windows.close(context.sessionID)
+})
+
+// The release demands the exact attempt and lane identity the retained record
+// holds, so a nothing-durable abandon naming a different attempt still answers
+// ok — the core holds no row for that attempt either — while the retained
+// record stays.
+test("a nothing-durable abandon for a foreign attempt leaves the retained record", async () => {
+  bindSessionRoutes({ sessions: [{ id: "ses_other", directory: "/elsewhere" }] })
+  const windows = dispatchWindows()
+  const context = { ...contextFor(), sessionID: "session-abandon-nothing-durable-foreign" }
+  const retained = {
+    schema_version: "1.0" as const,
+    attempt_id: "attempt-stranded",
+    lane_id: "implement",
+    lane_version: 1,
+    lane_digest: "sha256:" + "b".repeat(64),
+    work_id: "work-1",
+    step_id: "repair",
+    inputs: { task: "do the bounded thing", context: "", constraints: [] },
+  }
+  windows.open(context.sessionID, retained, "sha256:" + "e".repeat(64), process.cwd())
+  await windows.bind(TASK_TOOL_ID, context.sessionID, { subagent_type: "x", prompt: "y", description: "z" }, "call-foreign", async () => process.cwd())
+  adapter.configureConcordAdapter({
+    credentials: { async getPrivateKey() { return new Uint8Array(32).fill(7) } },
+    runner: { async run(argv) {
+      if (argv[1] === "worker-abandon") return { exitCode: 1, stdout: "", stderr: "concord worker-abandon: store: worker_attempt_read: projection_not_found: worker dispatch row does not exist" }
+      throw new Error(`unexpected core call: ${argv[1]}`)
+    } },
+  })
+  const input = { work_id: "work-1", attempt_id: "attempt-elsewhere", lane_id: "implement", detail: "a foreign attempt identity", idempotency_key: "worker-abandon-nothing-durable-foreign" }
+  const result: any = await rawHostResult(adapter.work_transition.execute(hostCall("worker_abandon", input), context))
+  expect(result.outcome).toBe("ok")
+  expect(result.result.nothing_durable_to_abandon).toContain("attempt-elsewhere")
+  expect(windows.inFlight(context.sessionID, "call-foreign")).not.toBeNull()
+  expect(windows.releaseRetained(context.sessionID, "attempt-stranded", "implement")).toBe(true)
+})
+
 test("portable continuation posture leaves host protocol names to the host surface", () => {
   for (const hostTerm of [
     "Concord",

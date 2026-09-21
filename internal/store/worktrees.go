@@ -171,11 +171,19 @@ func worktreeOccupancyColumnAvailable(ctx context.Context, q queryer) (bool, err
 }
 
 func foldWorktreeReclaimed(ctx context.Context, tx *sql.Tx, event Event) error {
-	if err := checkSubject(event, SubjectWorkItem); err != nil {
-		return err
-	}
 	var p worktreeReclaimedPayload
 	if err := decodePayload(event, &p); err != nil {
+		return err
+	}
+	return foldWorktreeReclaimedTx(ctx, tx, event, p, true)
+}
+
+// foldWorktreeReclaimedTx is the reclaim fold shared by live application,
+// rebuild, and reclaim convergence. A convergence fold may repair the
+// projection without advancing the work item's version when the stored
+// advance is already public history; the normal fold always advances.
+func foldWorktreeReclaimedTx(ctx context.Context, tx *sql.Tx, event Event, p worktreeReclaimedPayload, advanceVersion bool) error {
+	if err := checkSubject(event, SubjectWorkItem); err != nil {
 		return err
 	}
 	if p.SetID == "" || p.ProjectID == "" {
@@ -231,6 +239,9 @@ func foldWorktreeReclaimed(ctx context.Context, tx *sql.Tx, event Event) error {
 	if _, err := tx.ExecContext(ctx, `UPDATE worktree_claims SET state=?, updated_at=? WHERE op_id=? AND state=?`,
 		worktreeStateReclaimed, event.OccurredAt.Format(time.RFC3339Nano), claimOpID, worktreeStateVerified); err != nil {
 		return err
+	}
+	if !advanceVersion {
+		return nil
 	}
 	return bumpVersion(ctx, tx, "work_items", event, p.ExpectedVersion, p.ResultingVersion, "work item")
 }
@@ -1047,12 +1058,79 @@ func jsonMustMarshal(v any) json.RawMessage {
 	return out
 }
 
+// reclaimedEventID is the one derivation of the reclaimed event's stable
+// identity. The identity binds the event to one claim generation, so a
+// re-reclaim of the same generation re-derives the same event_id.
+func reclaimedEventID(workID, projectID, claimOpID string) string {
+	return fmt.Sprintf("%s:%s:%s:worktree-reclaimed", workID, projectID, claimOpID)
+}
+
 func appendReclaimedTx(ctx context.Context, tx *sql.Tx, req WorktreeReclaimRequest, setID, claimOpID string, now time.Time, facts json.RawMessage) error {
 	payload, _ := json.Marshal(worktreeReclaimedPayload{ExpectedVersion: req.ExpectedVersion, ResultingVersion: req.ExpectedVersion + 1, SetID: setID, ProjectID: req.ProjectID, ClaimOpID: claimOpID, GitFacts: facts})
 	_, err := applyOperationTx(ctx, tx, Operation{Events: []Event{{
-		EventID: fmt.Sprintf("%s:%s:%s:worktree-reclaimed", req.WorkID, req.ProjectID, claimOpID), Kind: "work.worktree_reclaimed", SubjectType: SubjectWorkItem, SubjectID: req.WorkID, Actor: req.PrincipalRef, OccurredAt: now, PayloadVersion: 1, Payload: payload,
+		EventID: reclaimedEventID(req.WorkID, req.ProjectID, claimOpID), Kind: "work.worktree_reclaimed", SubjectType: SubjectWorkItem, SubjectID: req.WorkID, Actor: req.PrincipalRef, OccurredAt: now, PayloadVersion: 1, Payload: payload,
 	}}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, req.WorkID): req.ExpectedVersion}}, true, false)
-	return err
+	if err == nil {
+		return nil
+	}
+	return convergeRecordedReclaimTx(ctx, tx, req, setID, claimOpID, err)
+}
+
+// convergeRecordedReclaimTx resolves a reclaim whose derived event_id is
+// already recorded for the same claim generation. The stored row is the
+// durable reclaim record and its worktree projection never folded, so every
+// live reclaim of that claim re-derives the same identity and the append
+// refuses the payload divergence forever. The fold runs against the stored
+// event instead, and the reclaim proceeds to its native removal. The log row
+// itself is never touched.
+//
+// The interpretation is deliberately narrow: only a work.worktree_reclaimed
+// event for this work item whose payload names this set, Project, and claim
+// generation converges. Any other collision — another kind, another subject,
+// or another claim generation — keeps the divergent-reuse refusal
+// classifyEventIDConflict produced.
+//
+// When the stored payload's resulting_version is at or below the work item's
+// current version, the fold repairs the projection without advancing the
+// version: that advance is already public history. Above it, the stored
+// advance is still pending and the fold's own version rule applies.
+func convergeRecordedReclaimTx(ctx context.Context, tx *sql.Tx, req WorktreeReclaimRequest, setID, claimOpID string, appendErr error) error {
+	var failure *Failure
+	if !failureAs(appendErr, &failure) || failure.Kind != KindIdempotencyConflict {
+		return appendErr
+	}
+	eventID := reclaimedEventID(req.WorkID, req.ProjectID, claimOpID)
+	var kind, subjectType, subjectID string
+	var payloadVersion int
+	var payload []byte
+	err := tx.QueryRowContext(ctx,
+		`SELECT kind,subject_type,subject_id,payload_version,payload FROM domain_events WHERE event_id=?`, eventID).
+		Scan(&kind, &subjectType, &subjectID, &payloadVersion, &payload)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return appendErr
+		}
+		return err
+	}
+	stored := Event{EventID: eventID, Kind: kind, SubjectType: SubjectType(subjectType), SubjectID: subjectID, PayloadVersion: payloadVersion, Payload: payload}
+	if stored.Kind != "work.worktree_reclaimed" || stored.SubjectType != SubjectWorkItem || stored.SubjectID != req.WorkID {
+		return appendErr
+	}
+	var p worktreeReclaimedPayload
+	if err := decodePayload(stored, &p); err != nil {
+		return appendErr
+	}
+	if p.SetID != setID || p.ProjectID != req.ProjectID || p.ClaimOpID != claimOpID {
+		return appendErr
+	}
+	var current int64
+	if err := tx.QueryRowContext(ctx, `SELECT version FROM work_items WHERE id=?`, req.WorkID).Scan(&current); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return appendErr
+		}
+		return err
+	}
+	return foldWorktreeReclaimedTx(ctx, tx, stored, p, current < p.ResultingVersion)
 }
 
 func releaseWorktreeOccupancyTx(ctx context.Context, tx *sql.Tx, req WorktreeReclaimRequest, setID, claimOpID string, now time.Time) error {
@@ -1597,7 +1675,14 @@ func (s *Store) WorktreeAuditReclaim(ctx context.Context, req WorktreeAuditRecla
 			ObservedSessionDirectories: req.ObservedSessionDirectories,
 		})
 		if reclaimErr == nil {
-			row.Outcome, row.Version = WorktreeAuditReclaimed, version+1
+			// The row reports the work item's true post-reclaim version: a
+			// converged reclaim whose stored advance is already public
+			// history repairs the projection without another bump.
+			after, versionErr := currentWorkVersion(ctx, s.db, drift.WorkID)
+			if versionErr != nil {
+				return out, versionErr
+			}
+			row.Outcome, row.Version = WorktreeAuditReclaimed, after
 			out.Rows = append(out.Rows, row)
 			continue
 		}

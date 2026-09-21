@@ -389,14 +389,19 @@ routeDeclaration("dispatches a real store route through Task completion and work
     const refineStartVersion = dbValue(dbPath, `SELECT version FROM work_items WHERE id='${workID}'`).version as number
     response = await transition(refineStartVersion, "start_refine", "e2e-start-refine", {})
     expect(response.outcome).toBe("ok")
-    expect(dbValue(dbPath, `SELECT definition_version FROM workflow_instances WHERE work_id='${workID}'`).definition_version).toBe(12)
+    expect(dbValue(dbPath, `SELECT definition_version FROM workflow_instances WHERE work_id='${workID}'`).definition_version).toBe(13)
     expect(dbValue(dbPath, `SELECT current_step FROM workflow_instances WHERE work_id='${workID}'`).current_step).toBe("refine")
     const refineEvidenceVersion = dbValue(dbPath, `SELECT version FROM work_items WHERE id='${workID}'`).version as number
     response = await transition(refineEvidenceVersion, "bind_evidence", "e2e-bind-refine-artifact", { evidence_kind: "artifact" })
     expect(response.outcome, JSON.stringify(response)).toBe("ok")
     const refineDeliveryVersion = dbValue(dbPath, `SELECT version FROM work_items WHERE id='${workID}'`).version as number
-    response = await transition(refineDeliveryVersion, "record_delivery", "e2e-record-refine-delivery", {})
-    expect(response.outcome).toBe("ok")
+    response = await transition(refineDeliveryVersion, "record_delivery", "e2e-record-refine-delivery", { delivery_artifact: "docs/dispatch-marker.txt", delivery_state: "asserted" })
+    expect(response.outcome, JSON.stringify(response)).toBe("ok")
+    const gateVersion = dbValue(dbPath, `SELECT version FROM work_items WHERE id='${workID}'`).version as number
+    expect(dbValue(dbPath, `SELECT current_step FROM workflow_instances WHERE work_id='${workID}'`).current_step).toBe("delivery")
+    response = await transition(gateVersion, "record_delivery", "e2e-record-gate-delivery", { delivery_artifact: "docs/dispatch-marker.txt", delivery_state: "asserted" })
+    expect(response.outcome, JSON.stringify(response)).toBe("ok")
+    expect(dbValue(dbPath, `SELECT current_step FROM workflow_instances WHERE work_id='${workID}'`).current_step).toBe("verify")
     const verifyVersion = dbValue(dbPath, `SELECT version FROM work_items WHERE id='${workID}'`).version as number
     // CD-0116 after a lane exit: the session that accepted the worker result
     // submits its own verdict, the adapter mints the operator challenge, the

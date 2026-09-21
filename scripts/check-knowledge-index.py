@@ -21,7 +21,9 @@ ROOT = Path(__file__).resolve().parents[1]
 MAX_MANIFEST_PATH = 512  # JSON Schema maxLength and Python Unicode scalar count.
 ALLOWED_ROOT = {"schema_version", "supported_kinds", "indexed_kinds", "domain_registry", "knowledge_roots", "exclusions", "dispositions", "doc_contract", "records"}
 ALLOWED_DISPOSITION = {"path", "disposition", "reason"}
-ALLOWED_RECORD = {"id", "kind", "path", "status", "date", "title", "summary", "tags", "scopes", "successor", "sha256", "law_relations", "evidence", "criterion_bindings", "home_domain_id", "applies_to_domain_ids", "product_wide_rationale"}
+ALLOWED_RECORD = {"id", "kind", "path", "status", "date", "title", "summary", "tags", "scopes", "successor", "sha256", "authority", "law_relations", "evidence", "criterion_bindings", "home_domain_id", "applies_to_domain_ids", "product_wide_rationale"}
+ALLOWED_AUTHORITY = {"tier", "legislated_by", "contract_version"}
+AUTHORITY_TIERS = {"legislated", "derived"}
 ALLOWED_SCOPES_V12 = {"mode", "product_ids", "project_ids", "domain_ids", "tag_ids"}
 ALLOWED_DOMAIN_REGISTRY = {"schema_version", "product_key", "root_domain_id", "domains"}
 ALLOWED_DOMAIN = {"domain_id", "name", "purpose", "parent_domain_id", "status", "architecture_relations"}
@@ -397,6 +399,21 @@ def validate(data: object, *, check_hashes: bool = True) -> list[str]:
             fail(findings, f"{prefix}: superseded record requires a clean successor")
         if status != "superseded" and "successor" in record:
             fail(findings, f"{prefix}: successor is only valid for superseded records")
+
+        # CD-0159 D3/D5: every record carries its authority tier. The standing
+        # check asserts tier presence, the closed two-value enum, and
+        # legislated completeness — never the D5 kind table, which is a
+        # one-time backfill rule; the operator promotes records afterward.
+        authority = record["authority"]
+        if not isinstance(authority, dict) or set(authority) - ALLOWED_AUTHORITY or authority.get("tier") not in AUTHORITY_TIERS:
+            fail(findings, f"{prefix}: invalid authority object")
+        else:
+            legislated = authority["tier"] == "legislated"
+            complete = valid_id(authority.get("legislated_by")) and isinstance(authority.get("contract_version"), int) and not isinstance(authority.get("contract_version"), bool) and authority["contract_version"] >= 1
+            if legislated and not complete:
+                fail(findings, f"{prefix}: a legislated record requires clean legislated_by and a positive contract_version")
+            if not legislated and ("legislated_by" in authority or "contract_version" in authority):
+                fail(findings, f"{prefix}: a derived record carries no legislative fields")
 
         try:
             datetime.fromisoformat(record["date"].replace("Z", "+00:00"))

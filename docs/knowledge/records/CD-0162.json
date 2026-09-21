@@ -1,4 +1,9 @@
 {
+  "authority": {
+    "contract_version": 1,
+    "legislated_by": "work-8d7bd788b2890355460bb5b7",
+    "tier": "legislated"
+  },
   "date": "2026-09-20T00:00:00Z",
   "home_domain_id": "product-root:concord",
   "id": "CD-0162",

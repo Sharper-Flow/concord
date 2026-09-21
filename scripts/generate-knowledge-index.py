@@ -46,6 +46,7 @@ ALLOWED_RECORD = {
     "scopes",
     "successor",
     "sha256",
+    "authority",
     "law_relations",
     "evidence",
     "criterion_bindings",
@@ -210,6 +211,7 @@ def validate_record(record: object, schema_version: str, domain_ids: set[str], p
         findings.append(f"{prefix}: invalid tags")
     validate_scopes(record["scopes"], schema_version, prefix, findings)
     validate_criterion_bindings(record, prefix, findings)
+    validate_authority(record, prefix, findings)
 
     if not isinstance(record["sha256"], str) or len(record["sha256"]) != 71 or not record["sha256"].startswith("sha256:") or any(char not in "0123456789abcdef" for char in record["sha256"][7:]):
         findings.append(f"{prefix}: invalid sha256 proof")
@@ -236,6 +238,28 @@ def validate_record(record: object, schema_version: str, domain_ids: set[str], p
             findings.append(f"{prefix}: applies_to_domain_ids requires home_domain_id")
         elif record["home_domain_id"] in values:
             findings.append(f"{prefix}: applies_to_domain_ids repeats home_domain_id")
+
+
+AUTHORITY_TIERS = {"legislated", "derived"}
+AUTHORITY_FIELDS = {"tier", "legislated_by", "contract_version"}
+
+
+def validate_authority(record: dict[str, object], prefix: str, findings: list[str]) -> None:
+    """CD-0159 D3: a record carries its standing beside its lifecycle.
+
+    The same rule check-knowledge-index.py enforces over the composed
+    manifest, applied where the shards are validated before composition.
+    """
+    authority = record["authority"]
+    if not isinstance(authority, dict) or set(authority) - AUTHORITY_FIELDS or authority.get("tier") not in AUTHORITY_TIERS:
+        findings.append(f"{prefix}: invalid authority object")
+        return
+    if authority["tier"] == "legislated":
+        version = authority.get("contract_version")
+        if not clean_text(authority.get("legislated_by"), 256) or not isinstance(version, int) or isinstance(version, bool) or version < 1:
+            findings.append(f"{prefix}: a legislated record requires clean legislated_by and a positive contract_version")
+    elif "legislated_by" in authority or "contract_version" in authority:
+        findings.append(f"{prefix}: a derived record carries no legislative fields")
 
 
 def canonical_scopes(scopes: dict[str, object]) -> dict[str, object]:

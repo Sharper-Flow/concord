@@ -87,10 +87,15 @@ func writeManifestFixture(t *testing.T, repo string, fixtures ...manifestFixture
 		scopes.ProjectIDs = append([]string{}, scopes.ProjectIDs...)
 		scopes.DomainIDs = append([]string{}, scopes.DomainIDs...)
 		scopes.TagIDs = append([]string{}, scopes.TagIDs...)
+		authority := KnowledgeAuthority{Tier: "derived"}
+		if fixture.Kind == "constitution" || fixture.Kind == "decision" {
+			authority = KnowledgeAuthority{Tier: "legislated", LegislatedBy: "fixture-authority", ContractVersion: 1}
+		}
 		record := KnowledgeRecord{
 			ID: fixture.ID, Kind: fixture.Kind, Path: fixture.Path, Status: fixture.Status,
 			Date: fixture.Date, Title: fixture.Title, Summary: fixture.Summary, Tags: append([]string{}, fixture.Tags...),
-			Scopes: scopes, Successor: fixture.Successor, Evidence: append([]string{}, fixture.Evidence...), SHA256: "sha256:" + hex.EncodeToString(sum[:]),
+			Authority: authority,
+			Scopes:    scopes, Successor: fixture.Successor, Evidence: append([]string{}, fixture.Evidence...), SHA256: "sha256:" + hex.EncodeToString(sum[:]),
 		}
 		if manifestLawBearingKinds[record.Kind] && record.Status == "accepted" && record.HomeDomainID == "" {
 			if fixture.RootHomed {

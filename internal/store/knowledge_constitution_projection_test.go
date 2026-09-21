@@ -42,9 +42,9 @@ func seedConstitutionHome(t *testing.T) (KnowledgeHome, string, string, string) 
 			},
 		},
 		Records: []KnowledgeRecord{
-			{ID: "proc-1", Kind: "constitution", Path: constitutionPath, Status: "accepted", Date: "2026-08-24T00:00:00Z", Title: "Formalization procedure", Summary: "How documents become law", Tags: []string{}, Scopes: homeScope(), HomeDomainID: "product-memory", SHA256: "sha256:" + hex.EncodeToString(constitutionSum[:])},
-			{ID: "CD-0001", Kind: "decision", Path: decisionPath, Status: "accepted", Date: "2026-08-18T00:00:00Z", Title: "Domain law", Summary: "A domain law", Tags: []string{}, Scopes: homeScope(), HomeDomainID: "product-root:concord", ProductWideRationale: "cross-cutting law", SHA256: "sha256:" + hex.EncodeToString(decisionSum[:])},
-			{ID: "lesson-1", Kind: "lesson", Path: lessonPath, Status: "published", Date: "2026-08-10T00:00:00Z", Title: "Lesson", Summary: "A lesson", Tags: []string{}, Scopes: homeScope(), SHA256: "sha256:" + hex.EncodeToString(lessonSum[:])},
+			{ID: "proc-1", Kind: "constitution", Path: constitutionPath, Status: "accepted", Date: "2026-08-24T00:00:00Z", Title: "Formalization procedure", Summary: "How documents become law", Tags: []string{}, Authority: KnowledgeAuthority{Tier: "legislated", LegislatedBy: "fixture-authority", ContractVersion: 1}, Scopes: homeScope(), HomeDomainID: "product-memory", SHA256: "sha256:" + hex.EncodeToString(constitutionSum[:])},
+			{ID: "CD-0001", Kind: "decision", Path: decisionPath, Status: "accepted", Date: "2026-08-18T00:00:00Z", Title: "Domain law", Summary: "A domain law", Tags: []string{}, Authority: KnowledgeAuthority{Tier: "legislated", LegislatedBy: "fixture-authority", ContractVersion: 1}, Scopes: homeScope(), HomeDomainID: "product-root:concord", ProductWideRationale: "cross-cutting law", SHA256: "sha256:" + hex.EncodeToString(decisionSum[:])},
+			{ID: "lesson-1", Kind: "lesson", Path: lessonPath, Status: "published", Date: "2026-08-10T00:00:00Z", Title: "Lesson", Summary: "A lesson", Tags: []string{}, Authority: KnowledgeAuthority{Tier: "derived"}, Scopes: homeScope(), SHA256: "sha256:" + hex.EncodeToString(lessonSum[:])},
 		},
 	}
 	manifestBytes, err := json.Marshal(manifest)
@@ -138,7 +138,7 @@ func TestConstitutionCannotAuthorLawRelations(t *testing.T) {
 		},
 		Records: []KnowledgeRecord{{
 			ID: "proc-1", Kind: "constitution", Path: path, Status: "accepted", Date: "2026-08-24T00:00:00Z",
-			Title: "Constitution", Summary: "s", Tags: []string{}, Scopes: homeScope(), HomeDomainID: "product-root:concord", ProductWideRationale: "cross-cutting law",
+			Title: "Constitution", Summary: "s", Tags: []string{}, Authority: KnowledgeAuthority{Tier: "legislated", LegislatedBy: "fixture-authority", ContractVersion: 1}, Scopes: homeScope(), HomeDomainID: "product-root:concord", ProductWideRationale: "cross-cutting law",
 			SHA256:       "sha256:" + hex.EncodeToString(sum[:]),
 			LawRelations: []KnowledgeRelation{{Kind: "refines", TargetID: "CD-0001"}},
 		}},

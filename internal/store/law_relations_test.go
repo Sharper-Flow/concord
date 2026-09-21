@@ -10,9 +10,14 @@ import (
 )
 
 func lawTestRecord(id, kind, status, path string, relations ...KnowledgeRelation) KnowledgeRecord {
+	authority := KnowledgeAuthority{Tier: "derived"}
+	if kind == "constitution" || kind == "decision" {
+		authority = KnowledgeAuthority{Tier: "legislated", LegislatedBy: "fixture-authority", ContractVersion: 1}
+	}
 	return KnowledgeRecord{
 		ID: id, Kind: kind, Path: path, Status: status, Date: "2026-08-11T00:00:00Z",
-		Title: id, Summary: "law test record", Tags: []string{},
+		Authority: authority,
+		Title:     id, Summary: "law test record", Tags: []string{},
 		Scopes: KnowledgeRecordScopes{Mode: "home", ProductIDs: []string{}, ProjectIDs: []string{}, DomainIDs: []string{}, TagIDs: []string{}},
 		SHA256: "sha256:" + strings.Repeat("a", 64), LawRelations: relations,
 	}

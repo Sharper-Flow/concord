@@ -169,13 +169,15 @@ func domainPayloadRepo(dir string) (string, error) {
 			{
 				ID: PayloadLawID, Kind: "decision", Path: payloadLawPath, Status: "accepted", Date: "2026-08-18T00:00:00Z",
 				Title: "Synchronization authority", Summary: "The child Domain owns synchronization law", Tags: []string{},
+				Authority:    store.KnowledgeAuthority{Tier: "legislated", LegislatedBy: "fixture-authority", ContractVersion: 1},
 				LawRelations: []store.KnowledgeRelation{{Kind: "supersedes", TargetID: payloadSupersededID}},
 				Scopes:       store.KnowledgeRecordScopes{Mode: "explicit", ProductIDs: []string{}, ProjectIDs: []string{}, DomainIDs: []string{PayloadChildDomainID}, TagIDs: []string{}},
 				HomeDomainID: PayloadChildDomainID, AppliesToDomainIDs: []string{PayloadRootDomainID}, SHA256: ContentDigest(payloadLawBody),
 			},
 			{
 				ID: payloadSupersededID, Kind: "decision", Path: payloadSupersededPath, Status: "superseded", Date: "2026-08-17T00:00:00Z",
-				Title: "Root synchronization authority", Summary: "Retired synchronization law", Tags: []string{}, Successor: PayloadLawID,
+				Title: "Root synchronization authority", Summary: "Retired synchronization law", Tags: []string{},
+				Authority: store.KnowledgeAuthority{Tier: "legislated", LegislatedBy: "fixture-authority", ContractVersion: 1}, Successor: PayloadLawID,
 				Scopes:       store.KnowledgeRecordScopes{Mode: "explicit", ProductIDs: []string{}, ProjectIDs: []string{}, DomainIDs: []string{PayloadChildDomainID}, TagIDs: []string{}},
 				HomeDomainID: PayloadChildDomainID, SHA256: ContentDigest(payloadSupersededBody),
 			},

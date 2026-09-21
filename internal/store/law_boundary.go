@@ -107,24 +107,26 @@ func checkMandatedLawsQuery(ctx context.Context, q queryer, homeProjectID, homeL
 	for _, id := range mandated {
 		args = append(args, id)
 	}
-	rows, err := q.QueryContext(ctx, `SELECT law_id,status FROM law_subjects WHERE home_project_id=? AND home_locator_id=? AND law_id IN (`+placeholders+`) LIMIT 33`, args...)
+	rows, err := q.QueryContext(ctx, `SELECT law_id,status,authority_tier FROM law_subjects WHERE home_project_id=? AND home_locator_id=? AND law_id IN (`+placeholders+`) LIMIT 33`, args...)
 	if err != nil {
 		return LawBoundaryCheck{}, wrapFailure(KindUnavailable, "check_mandated_laws", "cannot read the derived law subjects", true, "retry once the knowledge projection is readable", err)
 	}
 	accepted := map[string]bool{}
+	authority := map[string]string{}
 	for rows.Next() {
 		if len(accepted) == 32 {
 			_ = rows.Close()
 			return LawBoundaryCheck{}, newFailure(KindInvalidPayload, "check_mandated_laws", "derived law subject query exceeds the bounded result size", false, "reduce the law mandate before retrying")
 		}
-		var id, status string
-		if err := rows.Scan(&id, &status); err != nil {
+		var id, status, tier string
+		if err := rows.Scan(&id, &status, &tier); err != nil {
 			rows.Close()
 			return LawBoundaryCheck{}, wrapFailure(KindUnavailable, "check_mandated_laws", "cannot decode a derived law subject", true, "retry once the knowledge projection is readable", err)
 		}
 		if status == "accepted" {
 			accepted[id] = true
 		}
+		authority[id] = tier
 	}
 	if err := rows.Err(); err != nil {
 		rows.Close()
@@ -163,7 +165,15 @@ func checkMandatedLawsQuery(ctx context.Context, q queryer, homeProjectID, homeL
 			return LawBoundaryCheck{}, wrapFailure(KindUnavailable, "check_mandated_laws", "cannot decode a derived law conflict", true, "retry once the knowledge projection is readable", err)
 		}
 		result.Conflicts = append(result.Conflicts, LawConflict{SourceLawID: source, TargetLawID: target})
-		if !allowAmendment || (!modifiedSet[source] && !modifiedSet[target]) {
+		// The tier gates the law the contract revises, not the law it leaves
+		// alone. A contract that brings a derived record into conformance with
+		// an untouched legislated commitment resolves the conflict without
+		// changing anything the operator legislated, so it carries a contract
+		// revision line. Revising a legislated endpoint still meets the
+		// refusal that sends the conflict to an operator checkpoint.
+		revisesLegislated := (modifiedSet[source] && authority[source] != "derived") ||
+			(modifiedSet[target] && authority[target] != "derived")
+		if !allowAmendment || (!modifiedSet[source] && !modifiedSet[target]) || revisesLegislated {
 			_ = conflictRows.Close()
 			return result, newFailure(KindRelationConflict, "check_mandated_laws", fmt.Sprintf("mandated laws have an unresolved explicit conflict: %s and %s", source, target), false, "resolve the Git law conflict or declare and approve the amendment path")
 		}

@@ -35,11 +35,13 @@ func seedDomainReadStore(t *testing.T) *Store {
 		Records: []KnowledgeRecord{
 			{ID: "CD-0001", Kind: "decision", Path: "docs/decisions/CD-0001.md", Status: "accepted", Date: "2026-08-18T00:00:00Z",
 				Title: "Domain law", Summary: "A domain law", Tags: []string{},
+				Authority:    KnowledgeAuthority{Tier: "derived"},
 				LawRelations: []KnowledgeRelation{{Kind: "supersedes", TargetID: "CD-0002"}},
 				Scopes:       KnowledgeRecordScopes{Mode: "explicit", ProductIDs: []string{}, ProjectIDs: []string{}, DomainIDs: []string{"sync"}, TagIDs: []string{}},
 				HomeDomainID: "sync", AppliesToDomainIDs: []string{"product-root:concord"}, SHA256: "sha256:" + hex.EncodeToString(sum[:])},
 			{ID: "CD-0002", Kind: "decision", Path: "docs/decisions/CD-0002.md", Status: "superseded", Date: "2026-08-18T00:00:00Z",
 				Title: "Retired law", Summary: "A retired law", Tags: []string{}, Successor: "CD-0001",
+				Authority:    KnowledgeAuthority{Tier: "derived"},
 				Scopes:       KnowledgeRecordScopes{Mode: "explicit", ProductIDs: []string{}, ProjectIDs: []string{}, DomainIDs: []string{"sync"}, TagIDs: []string{}},
 				HomeDomainID: "sync", SHA256: "sha256:" + hex.EncodeToString(legacySum[:])},
 		},

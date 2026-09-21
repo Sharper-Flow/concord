@@ -4,7 +4,7 @@
   "title": "Concord typed knowledge record v1 (proposed)",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema_version", "id", "kind", "scope", "provenance", "status", "version", "body", "references"],
+  "required": ["schema_version", "id", "kind", "scope", "provenance", "status", "authority", "version", "body", "references"],
   "properties": {
     "schema_version": {"const": "1.0"},
     "id": {"$ref": "#/$defs/recordId"},
@@ -12,6 +12,7 @@
     "scope": {"$ref": "#/$defs/scope"},
     "provenance": {"$ref": "#/$defs/provenance"},
     "status": {"$ref": "#/$defs/status"},
+    "authority": {"$ref": "#/$defs/authority"},
     "version": {"$ref": "#/$defs/version"},
     "body": {
       "oneOf": [
@@ -105,6 +106,21 @@
       "allOf": [
         {"if": {"properties": {"state": {"const": "superseded"}}, "required": ["state"]}, "then": {"required": ["successor_id"]}},
         {"if": {"properties": {"state": {"enum": ["current", "historical"]}}, "required": ["state"]}, "then": {"not": {"required": ["successor_id"]}}}
+      ]
+    },
+    "authority": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "CD-0159 D3: the standing of the record, a sibling of status. legislated_by carries the approving work id and contract_version the contract version that fixed legislated standing; both are required exactly when the tier is legislated.",
+      "required": ["tier"],
+      "properties": {
+        "tier": {"type": "string", "enum": ["legislated", "derived"]},
+        "legislated_by": {"$ref": "#/$defs/recordId"},
+        "contract_version": {"type": "integer", "minimum": 1, "maximum": 2147483647}
+      },
+      "allOf": [
+        {"if": {"properties": {"tier": {"const": "legislated"}}, "required": ["tier"]}, "then": {"required": ["legislated_by", "contract_version"]}},
+        {"if": {"properties": {"tier": {"const": "derived"}}, "required": ["tier"]}, "then": {"not": {"anyOf": [{"required": ["legislated_by"]}, {"required": ["contract_version"]}]}}}
       ]
     },
     "version": {

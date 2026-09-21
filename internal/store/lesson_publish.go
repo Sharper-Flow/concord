@@ -59,7 +59,8 @@ func (req LessonPublication) record(contentSHA string, date, notePath string) Kn
 	tags := nonNilIDs(req.Tags)
 	return KnowledgeRecord{
 		ID: req.LessonID, Kind: "lesson", Path: notePath, Status: "published",
-		Date: date, Title: req.Title, Summary: req.Summary, Tags: tags,
+		Authority: KnowledgeAuthority{Tier: "derived"},
+		Date:      date, Title: req.Title, Summary: req.Summary, Tags: tags,
 		Scopes: scopes, SHA256: contentSHA, Evidence: req.Evidence,
 	}
 }

@@ -24,12 +24,17 @@ const taxonomyRegistry = `{"schema_version":"1.0","product_key":"concord","root_
 
 func taxonomyRecord(t *testing.T, id, kind, path, status string, extra map[string]any) json.RawMessage {
 	t.Helper()
+	authority := map[string]any{"tier": "derived"}
+	if kind == "constitution" || kind == "decision" {
+		authority = map[string]any{"tier": "legislated", "legislated_by": "fixture-authority", "contract_version": 1}
+	}
 	record := map[string]any{
 		"id": id, "kind": kind, "path": path, "status": status,
 		"date": "2026-08-22T00:00:00Z", "title": "Record", "summary": "Summary",
-		"tags":   []string{},
-		"scopes": map[string]any{"mode": "home", "product_ids": []string{}, "project_ids": []string{}, "domain_ids": []string{}, "tag_ids": []string{}},
-		"sha256": "sha256:" + strings.Repeat("a", 64),
+		"tags":      []string{},
+		"authority": authority,
+		"scopes":    map[string]any{"mode": "home", "product_ids": []string{}, "project_ids": []string{}, "domain_ids": []string{}, "tag_ids": []string{}},
+		"sha256":    "sha256:" + strings.Repeat("a", 64),
 	}
 	for key, value := range extra {
 		record[key] = value

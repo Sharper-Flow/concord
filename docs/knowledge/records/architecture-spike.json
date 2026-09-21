@@ -1,4 +1,7 @@
 {
+  "authority": {
+    "tier": "derived"
+  },
   "date": "2026-08-07T00:00:00Z",
   "evidence": [
     "docs/workflows.md"

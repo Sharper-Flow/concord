@@ -4936,6 +4936,23 @@ CREATE TRIGGER linear_outbox_dispositions_guard_update BEFORE UPDATE ON linear_o
 CREATE TRIGGER linear_outbox_dispositions_guard_delete BEFORE DELETE ON linear_outbox_dispositions FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'linear_outbox_dispositions is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
 `,
 	},
+	{
+		// The conflict path reads law_subjects and never opens a record
+		// file, so the authority tier a record declares has to reach the
+		// projection to be readable at check time. No existing column is
+		// free: status carries lifecycle and kind carries taxonomy, and
+		// each is an asserted CHECK invariant. Existing rows default to
+		// derived, which is the tier that keeps the current refusal, so a
+		// database carrying this migration refuses exactly what it refused
+		// before until the rebuild writes the declared tiers.
+		Version:  98,
+		Name:     "law_subjects_carry_authority_tier",
+		Breaking: false,
+		SQL: `
+ALTER TABLE law_subjects ADD COLUMN authority_tier TEXT NOT NULL DEFAULT 'derived'
+    CHECK(authority_tier IN ('legislated','derived'));
+`,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any

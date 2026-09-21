@@ -179,6 +179,8 @@ def validate_generator(schema: object, generator: object, findings: list[str]) -
     """
     compare("generator ALLOWED_ROOT", schema_properties(schema, [], findings), generator.ALLOWED_ROOT, findings)
     compare("generator ALLOWED_RECORD", schema_properties(schema, ["$defs", "record"], findings), generator.ALLOWED_RECORD, findings)
+    compare("generator AUTHORITY_FIELDS", schema_properties(schema, ["$defs", "authority"], findings), generator.AUTHORITY_FIELDS, findings)
+    compare("generator AUTHORITY_TIERS", schema_enum(schema, ["$defs", "authority", "properties", "tier"], findings), generator.AUTHORITY_TIERS, findings)
     compare("generator SUPPORTED_KINDS", schema_enum(schema, ["properties", "supported_kinds", "items"], findings), generator.SUPPORTED_KINDS, findings)
     compare("generator KINDS", schema_enum(schema, ["$defs", "record", "properties", "kind"], findings), generator.KINDS, findings)
     compare("generator LAW_KINDS", schema_enum(schema, ["$defs", "lawRelation", "properties", "kind"], findings), generator.LAW_RELATION_KINDS, findings)
@@ -195,6 +197,8 @@ def validate(schema: object, checker: object, doc_contract: object = None, closu
     findings: list[str] = []
     compare("ALLOWED_ROOT", schema_properties(schema, [], findings), checker.ALLOWED_ROOT, findings)
     compare("ALLOWED_RECORD", schema_properties(schema, ["$defs", "record"], findings), checker.ALLOWED_RECORD, findings)
+    compare("AUTHORITY_FIELDS", schema_properties(schema, ["$defs", "authority"], findings), checker.ALLOWED_AUTHORITY, findings)
+    compare("AUTHORITY_TIERS", schema_enum(schema, ["$defs", "authority", "properties", "tier"], findings), checker.AUTHORITY_TIERS, findings)
     compare("ALLOWED_DISPOSITION", schema_properties(schema, ["$defs", "disposition"], findings), checker.ALLOWED_DISPOSITION, findings)
     compare("DISPOSITIONS", schema_enum(schema, ["$defs", "disposition", "properties", "disposition"], findings), checker.DISPOSITIONS, findings)
     compare_pattern(

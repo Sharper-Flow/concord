@@ -1,4 +1,7 @@
 {
+  "authority": {
+    "tier": "derived"
+  },
   "date": "2026-08-05T00:00:00Z",
   "id": "advance-predecessor-lessons",
   "kind": "lesson",

@@ -595,6 +595,16 @@ func assertRuntimeKnowledgeState(t *testing.T, response Envelope, want string) {
 	}
 }
 
+// recordAuthorityForKind gives a manifest fixture the authority object the
+// record shape requires. A law-bearing kind is legislated and names the
+// contract that fixed its standing; every other kind is derived.
+func recordAuthorityForKind(kind string) map[string]any {
+	if kind == "constitution" || kind == "decision" {
+		return map[string]any{"tier": "legislated", "legislated_by": "fixture-authority", "contract_version": 1}
+	}
+	return map[string]any{"tier": "derived"}
+}
+
 func runtimeKnowledgeStore(t *testing.T, id, kind, scopeMode string, frozenProducts []string, memberships map[string]string) *store.Store {
 	t.Helper()
 	repo := t.TempDir()
@@ -638,8 +648,9 @@ func runtimeKnowledgeStore(t *testing.T, id, kind, scopeMode string, frozenProdu
 			"records": []any{map[string]any{
 				"id": id, "kind": kind, "path": notePath, "status": "published", "date": "2026-08-10T00:00:00Z",
 				"title": "Durable lesson", "summary": "Durable summary", "tags": []string{},
-				"scopes": map[string]any{"mode": scopeMode, "product_ids": []string{}, "project_ids": []string{}, "domain_ids": []string{}, "tag_ids": []string{}},
-				"sha256": contentHash,
+				"authority": recordAuthorityForKind(kind),
+				"scopes":    map[string]any{"mode": scopeMode, "product_ids": []string{}, "project_ids": []string{}, "domain_ids": []string{}, "tag_ids": []string{}},
+				"sha256":    contentHash,
 			}},
 		}
 		manifestBytes, err := json.Marshal(manifest)

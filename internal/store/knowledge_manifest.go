@@ -185,6 +185,7 @@ type KnowledgeRecord struct {
 	Kind               string                `json:"kind"`
 	Path               string                `json:"path"`
 	Status             string                `json:"status"`
+	Authority          KnowledgeAuthority    `json:"authority"`
 	Date               string                `json:"date"`
 	Title              string                `json:"title"`
 	Summary            string                `json:"summary"`
@@ -210,6 +211,15 @@ type KnowledgeRecord struct {
 	homeDomainPresent           bool
 	appliesToDomainsPresent     bool
 	productWideRationalePresent bool
+}
+
+// KnowledgeAuthority records how a law-bearing statement entered Product law.
+// A derived record has no legislative provenance. A legislated record names the
+// approved work contract that fixed its standing.
+type KnowledgeAuthority struct {
+	Tier            string `json:"tier"`
+	LegislatedBy    string `json:"legislated_by,omitempty"`
+	ContractVersion int64  `json:"contract_version,omitempty"`
 }
 
 type KnowledgeCriterionBinding struct {
@@ -398,7 +408,8 @@ func (manifest KnowledgeManifest) MarshalJSON() ([]byte, error) {
 func manifestRecordEntry(record KnowledgeRecord) map[string]any {
 	entry := map[string]any{
 		"id": record.ID, "kind": record.Kind, "path": record.Path, "status": record.Status,
-		"date": record.Date, "title": record.Title, "summary": record.Summary,
+		"authority": record.Authority,
+		"date":      record.Date, "title": record.Title, "summary": record.Summary,
 		"tags": record.Tags, "scopes": manifestScopeEntry(record.Scopes), "sha256": record.SHA256,
 	}
 	if record.Successor != "" {
@@ -984,6 +995,16 @@ func validateKnowledgeRecordForSchema(record KnowledgeRecord, supported, indexed
 	}
 	if lawBearing := manifestLawBearingKinds[record.Kind]; lawBearing && record.Status == "published" || !lawBearing && record.Status == "accepted" {
 		return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "status is invalid for record kind", false, "law-bearing records are accepted; every other kind is published")
+	}
+	if record.Authority.Tier != "legislated" && record.Authority.Tier != "derived" {
+		return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "record authority tier is not closed", false, "use legislated or derived")
+	}
+	if record.Authority.Tier == "legislated" {
+		if !validManifestID(record.Authority.LegislatedBy) || record.Authority.ContractVersion < 1 {
+			return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "legislated record authority is incomplete", false, "name the approving work and positive contract version")
+		}
+	} else if record.Authority.LegislatedBy != "" || record.Authority.ContractVersion != 0 {
+		return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "derived record authority carries legislative fields", false, "remove legislated_by and contract_version")
 	}
 	if record.Status == "superseded" && record.Successor == "" {
 		return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "superseded record lacks successor", false, "declare the stable successor ID")

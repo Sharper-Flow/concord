@@ -1,4 +1,7 @@
 {
+  "authority": {
+    "tier": "derived"
+  },
   "date": "2026-09-04T00:00:00Z",
   "evidence": [
     "docs/decisions/CD-0108-the-launcher-is-the-zlauncher-replacement.md",

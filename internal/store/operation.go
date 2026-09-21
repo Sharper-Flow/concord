@@ -784,7 +784,13 @@ func RebuildFromLog(ctx context.Context, s *Store) error {
 }
 
 func enterFold(ctx context.Context, tx *sql.Tx) error {
-	if _, err := tx.ExecContext(ctx, `INSERT INTO fold_guard (active) VALUES (1)`); err != nil {
+	// A committed fold_guard row is always a strand, never a live fold:
+	// enterFold and leaveFold share one transaction, so any guard row that
+	// survives its transaction's commit belongs to a process that died
+	// mid-fold. Ignore it rather than wedge every later fold; SQLite's
+	// single-writer locking still serializes concurrent folds. The
+	// migrations arm the guard the same way.
+	if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO fold_guard (active) VALUES (1)`); err != nil {
 		return wrapFailure(KindUnavailable, "fold", "cannot enable projection fold guard", true,
 			"retry once the database is writable", err)
 	}

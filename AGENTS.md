@@ -134,7 +134,7 @@ inference. Conventional Commit titles are load-bearing for release semver.
 | How to move a CD number that collided with another branch | [`scripts/renumber-cd.py`](scripts/renumber-cd.py) `--dry-run` |
 | How a release is built and published | [`.github/workflows/release.yml`](.github/workflows/release.yml) |
 | Distance from the first-usable floor | [`docs/floor-readiness.md`](docs/floor-readiness.md) |
-| What is proved versus merely present | [`docs/knowledge/coverage/`](docs/knowledge/coverage/) composed by [`scripts/knowledge_index.py`](scripts/knowledge_index.py); [`docs/reachability-exceptions.v1.json`](docs/reachability-exceptions.v1.json) |
+| What is proved versus merely present | [`docs/knowledge/coverage/`](docs/knowledge/coverage/); [`docs/reachability-exceptions.v1.json`](docs/reachability-exceptions.v1.json) |
 | Predecessor operational coverage state | [`docs/predecessor-operational-coverage.md`](docs/predecessor-operational-coverage.md) |
-| Product law, priorities, and documentation rules | [`docs/README.md`](docs/README.md); [`docs/priorities.md`](docs/priorities.md) |
+| Product law, priorities, documentation rules, and release currency before capture | [`docs/README.md`](docs/README.md); [`docs/priorities.md`](docs/priorities.md); [`CD-0165`](docs/decisions/CD-0165-an-agent-begins-a-work-item-only-on-the-current-concord-release.md) |
 | Repository layout and component roles | [`docs/core-architecture.md`](docs/core-architecture.md) |

@@ -1,0 +1,36 @@
+{
+  "authority": {
+    "contract_version": 1,
+    "legislated_by": "work-471434ead56d66cf09071a66",
+    "tier": "legislated"
+  },
+  "date": "2026-09-21T00:00:00Z",
+  "home_domain_id": "product-memory",
+  "id": "CD-0165",
+  "kind": "decision",
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "CD-0111"
+    }
+  ],
+  "path": "docs/decisions/CD-0165-an-agent-begins-a-work-item-only-on-the-current-concord-release.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:746dee43786c161083fb8cdc2483adcce0ab3799e583ee3dbeba0f4897d01276",
+  "status": "accepted",
+  "summary": "An agent that develops Concord checks release currency before it captures or resumes a work item. The comparison reads the manifest digest and the store schema version of the held release against the release the current root names, and never reads the version string, because v11.9.2 and v11.9.3 share one digest and one schema version while v11.3.2 and v11.5.3 diverge on both. The obligation binds at the item boundary only, so a session finishes its item on the release it started with and CD-0111 D1 and D4 stand. Currency is measured locally against the installed current root and never against a remote latest release, which would mark a long session stale minutes after boot. A session that fails the check does not begin the item; it reports both digests and both schema versions and hands the remedy to the operator. Refines CD-0111 by naming the item boundary where release currency is decided.",
+  "tags": [
+    "adapter",
+    "agents",
+    "currency",
+    "release",
+    "session"
+  ],
+  "title": "Agents begin work items only on the current release"
+}

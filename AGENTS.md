@@ -138,3 +138,4 @@ inference. Conventional Commit titles are load-bearing for release semver.
 | Predecessor operational coverage state | [`docs/predecessor-operational-coverage.md`](docs/predecessor-operational-coverage.md) |
 | Product law, priorities, and documentation rules | [`docs/README.md`](docs/README.md); [`docs/priorities.md`](docs/priorities.md) |
 | Repository layout and component roles | [`docs/core-architecture.md`](docs/core-architecture.md) |
+| Release currency an agent checks before capture or resume | [`CD-0165`](docs/decisions/CD-0165-an-agent-begins-a-work-item-only-on-the-current-concord-release.md) |

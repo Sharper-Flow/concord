@@ -612,6 +612,262 @@ func TestRejectWorkerResultRefusesSchemaBreakingCorrectionRefs(t *testing.T) {
 	}
 }
 
+// failWorkerAttemptWithKind records a worker.failed event with an explicit
+// failure kind. The counting journeys use it to prove the attempt bound
+// consumes every dispatch whatever the attempt returned.
+func failWorkerAttemptWithKind(t *testing.T, s *Store, workID, attemptID, failureKind, detail string) {
+	t.Helper()
+	fail := Event{EventID: "failed-" + workID + "-" + attemptID, Kind: WorkerFailed, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(3, 0).UTC(), PayloadVersion: 1, Payload: mustJSONValue(WorkerFailedPayload{AttemptID: attemptID, ReadbackModel: preferredModelForLane(BuiltinLaneDefinitions()[0]), FailureKind: failureKind, Detail: detail})}
+	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{fail}}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// correctionCountingJourney drives one correction round against the counting
+// projection: record the failure of attemptID at attemptEpoch, start a fresh
+// repair, and when nextAttemptID is not empty dispatch it with the current
+// correction context. It returns the pin after the fresh start, while the
+// round's failure still holds the open correction context.
+func correctionCountingJourney(t *testing.T, s *Store, workID string, owner, worker WorkflowActor, attemptID, nextAttemptID string, attemptEpoch int64, operationID string) WorkPin {
+	t.Helper()
+	version := readWorkVersion(t, s, workID)
+	failWorkerAttemptWithKind(t, s, workID, attemptID, WorkerFailureFallbackBlocked, "lane fallback blocked before the model ran")
+	applyRecordWorkerFailureForTest(t, s, workID, owner, attemptID, attemptEpoch, version, operationID)
+	pin := issue1013Pin(t, s, workID)
+	issue1013StartRepair(t, s, workID, worker, pin.Version, attemptEpoch+1)
+	pin = issue1013Pin(t, s, workID)
+	if nextAttemptID == "" {
+		return pin
+	}
+	payload := issue1013CorrectionDispatchPayload(t, workID, "repair", nextAttemptID, pin.Correction)
+	key := operationID + "-dispatch"
+	if _, err := invokeWorkflowActionForCD0059(context.Background(), t, s, WorkflowActionExecutionRequest{
+		WorkID: workID, ExpectedVersion: pin.Version, ActionID: "dispatch_worker", Payload: payload, SessionWorktree: dispatchSessionWorktree(t, s, workID),
+		Actor: worker, AcceptedInputsDigest: "sha256:" + strings.Repeat("d", 64), IdempotencyIdentity: key, OperationID: key,
+		PrincipalRef: worker.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: key, RequestID: "request:" + key, ContractDigest: testManifestDigest, Now: time.Unix(10+attemptEpoch, 0).UTC(),
+	}); err != nil {
+		t.Fatalf("dispatch corrective attempt %s: %v", nextAttemptID, err)
+	}
+	issue1013RecordWorkerDispatch(t, s, workID, nextAttemptID)
+	return pin
+}
+
+// The bound counts every dispatched attempt since the last accepted result
+// (CD-0164), whatever the attempt returned. fallback_blocked is an
+// infrastructure failure kind: the lane never returned a judgeable result,
+// and each dispatch still consumes the bound. The third such failure
+// escalates and removes dispatch_worker.
+func TestInfrastructureFailureKindConsumesCorrectionAttemptBound(t *testing.T) {
+	const workID = "correction-count-infra"
+	s, owner, attemptID, _ := seedOldDefinitionWorker(t, workID)
+	defer s.Close()
+	worker := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/worker", SessionRef: "session/" + workID, ActorClass: ActorAgent}
+
+	pin := correctionCountingJourney(t, s, workID, owner, worker, attemptID, "attempt:"+workID+":2", 1, "infra-count-1")
+	if pin.Correction == nil || pin.Correction.AttemptCount != 1 || pin.Correction.Escalated || pin.Correction.FailureKind != WorkerFailureFallbackBlocked {
+		t.Fatalf("correction after one infrastructure failure = %#v, want one counted attempt", pin.Correction)
+	}
+
+	pin = correctionCountingJourney(t, s, workID, owner, worker, "attempt:"+workID+":2", "attempt:"+workID+":3", 3, "infra-count-2")
+	if pin.Correction == nil || pin.Correction.AttemptCount != 2 || pin.Correction.Escalated {
+		t.Fatalf("correction after two infrastructure failures = %#v, want two counted attempts without escalation", pin.Correction)
+	}
+	if !issue1013HasIntent(pin, "dispatch_worker") {
+		t.Fatalf("correction below the limit lost dispatch_worker: %#v", pin.NextValidIntents)
+	}
+
+	pin = correctionCountingJourney(t, s, workID, owner, worker, "attempt:"+workID+":3", "", 5, "infra-count-3")
+	if pin.Correction == nil || pin.Correction.AttemptCount != 3 || !pin.Correction.Escalated {
+		t.Fatalf("correction after three infrastructure failures = %#v, want three counted attempts and escalation", pin.Correction)
+	}
+	if issue1013HasIntent(pin, "dispatch_worker") {
+		t.Fatalf("escalated correction retained dispatch_worker: %#v", pin.NextValidIntents)
+	}
+	if workflowCorrectionAttemptLimit != 3 {
+		t.Fatalf("workflow correction attempt limit = %d, want 3", workflowCorrectionAttemptLimit)
+	}
+
+	payload := issue1013CorrectionDispatchPayload(t, workID, "repair", "attempt:"+workID+":4", pin.Correction)
+	_, err := invokeWorkflowActionForCD0059(context.Background(), t, s, WorkflowActionExecutionRequest{
+		WorkID: workID, ExpectedVersion: pin.Version, ActionID: "dispatch_worker", Payload: payload, SessionWorktree: dispatchSessionWorktree(t, s, workID),
+		Actor: worker, AcceptedInputsDigest: "sha256:" + strings.Repeat("e", 64), IdempotencyIdentity: "infra-count-4", OperationID: "infra-count-4",
+		PrincipalRef: worker.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "infra-count-4", RequestID: "request:infra-count-4", ContractDigest: testManifestDigest, Now: time.Unix(30, 0).UTC(),
+	})
+	var failure *Failure
+	if !errors.As(err, &failure) || failure.Kind != KindApprovalRequired {
+		t.Fatalf("fourth dispatch after infrastructure failures error=%v, want approval_required", err)
+	}
+}
+
+// latestStepStartEpoch reads the newest workflow action start epoch the step
+// recorded, so record payloads can bind the exact epoch the fold will check.
+func latestStepStartEpoch(t *testing.T, s *Store, workID, stepID string) int64 {
+	t.Helper()
+	var epoch int64
+	if err := s.DatabaseForTesting().QueryRow(`SELECT COALESCE(MAX(json_extract(payload,'$.attempt_epoch')),0) FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.step_id')=?`, workID, WorkflowActionStarted, stepID).Scan(&epoch); err != nil {
+		t.Fatal(err)
+	}
+	return epoch
+}
+
+// dispatchCountingAttempt dispatches one worker attempt on the named step and
+// records the worker.dispatched event, with the correction context when one
+// is open and a bare packet when none is.
+func dispatchCountingAttempt(t *testing.T, s *Store, workID, stepID, attemptID string, correction *WorkflowCorrectionContext, actor WorkflowActor, expectedVersion int64, key string) {
+	t.Helper()
+	var payload json.RawMessage
+	if correction == nil {
+		packetPayload, err := json.Marshal(dispatchWorkerPacket(workID, stepID, attemptID))
+		if err != nil {
+			t.Fatal(err)
+		}
+		payload = mustJSONValue(map[string]any{"attempt_id": attemptID, "worker_packet": json.RawMessage(packetPayload)})
+	} else {
+		payload = issue1013CorrectionDispatchPayload(t, workID, stepID, attemptID, correction)
+	}
+	if _, err := invokeWorkflowActionForCD0059(context.Background(), t, s, WorkflowActionExecutionRequest{
+		WorkID: workID, ExpectedVersion: expectedVersion, ActionID: "dispatch_worker", Payload: payload, SessionWorktree: dispatchSessionWorktree(t, s, workID),
+		Actor: actor, AcceptedInputsDigest: "sha256:" + strings.Repeat("d", 64), IdempotencyIdentity: key, OperationID: key,
+		PrincipalRef: actor.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: key, RequestID: "request:" + key, ContractDigest: testManifestDigest, Now: time.Unix(10, 0).UTC(),
+	}); err != nil {
+		t.Fatalf("dispatch attempt %s: %v", attemptID, err)
+	}
+	issue1013RecordWorkerDispatch(t, s, workID, attemptID)
+}
+
+// accept_worker_result is the reset condition (CD-0164): the counting window
+// opens after the last accepted result, so a fresh infrastructure failure on
+// the next attempt starts a new sequence at one instead of inheriting the
+// consumed bound.
+func TestAcceptedWorkerResultResetsCorrectionAttemptCount(t *testing.T) {
+	const workID = "correction-count-accept-reset"
+	ctx := context.Background()
+	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", "repair")
+	s, owner := fixture.store, fixture.owner
+	defer s.Close()
+	lane := BuiltinLaneDefinitions()[0]
+	worker := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/worker", SessionRef: "session/" + workID, ActorClass: ActorAgent}
+	workerRef, err := WorkflowActorRef(worker)
+	if err != nil {
+		t.Fatal(err)
+	}
+	workerVersion := verdictItemVersion(t, s, workID)
+	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{workflowEventWithActor("reset-count-worker-"+workID, WorkflowActorRecorded, workID, workerRef, map[string]any{
+		"work_id": workID, "expected_version": workerVersion, "resulting_version": workerVersion + 1,
+		"actor_ref": workerRef, "principal_ref": worker.PrincipalRef, "client_ref": worker.ClientRef,
+		"agent_ref": worker.AgentRef, "session_ref": worker.SessionRef, "actor_class": "agent",
+	})}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): workerVersion}}); err != nil {
+		t.Fatal(err)
+	}
+	acceptor := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/correction-acceptor", SessionRef: "session/" + workID + "-acceptor", ActorClass: ActorAgent}
+
+	attempt1 := "attempt:" + workID + ":1"
+	dispatchCountingAttempt(t, s, workID, "repair", attempt1, nil, worker, issue1013Pin(t, s, workID).Version, "reset-dispatch-1")
+	failWorkerAttemptWithKind(t, s, workID, attempt1, WorkerFailureFallbackBlocked, "lane fallback blocked before the model ran")
+	applyRecordWorkerFailureForTest(t, s, workID, owner, attempt1, latestStepStartEpoch(t, s, workID, "repair"), readWorkVersion(t, s, workID), "reset-count-1")
+	pin := issue1013Pin(t, s, workID)
+	if pin.Correction == nil || pin.Correction.AttemptCount != 1 || pin.Correction.Escalated || pin.Correction.FailureKind != WorkerFailureFallbackBlocked {
+		t.Fatalf("correction after one infrastructure failure = %#v, want one counted attempt", pin.Correction)
+	}
+
+	attempt2 := "attempt:" + workID + ":2"
+	issue1013StartRepair(t, s, workID, worker, pin.Version, latestStepStartEpoch(t, s, workID, "repair")+1)
+	pin = issue1013Pin(t, s, workID)
+	dispatchCountingAttempt(t, s, workID, "repair", attempt2, pin.Correction, worker, pin.Version, "reset-dispatch-2")
+	failWorkerAttemptWithKind(t, s, workID, attempt2, WorkerFailureFallbackBlocked, "lane fallback blocked before the model ran")
+	applyRecordWorkerFailureForTest(t, s, workID, owner, attempt2, latestStepStartEpoch(t, s, workID, "repair"), readWorkVersion(t, s, workID), "reset-count-2")
+	pin = issue1013Pin(t, s, workID)
+	if pin.Correction == nil || pin.Correction.AttemptCount != 2 || pin.Correction.Escalated {
+		t.Fatalf("correction after two infrastructure failures = %#v, want two counted attempts", pin.Correction)
+	}
+
+	attempt3 := "attempt:" + workID + ":3"
+	issue1013StartRepair(t, s, workID, worker, pin.Version, latestStepStartEpoch(t, s, workID, "repair")+1)
+	pin = issue1013Pin(t, s, workID)
+	dispatchCountingAttempt(t, s, workID, "repair", attempt3, pin.Correction, worker, pin.Version, "reset-dispatch-3")
+	completed := Event{EventID: "worker-completed-" + attempt3, Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(16, 0).UTC(), PayloadVersion: 1, Payload: mustJSONValue(WorkerCompletedPayload{AttemptID: attempt3, ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion})}
+	if err := ApplyOperation(ctx, s, Operation{Events: []Event{completed}}); err != nil {
+		t.Fatalf("complete corrective worker attempt: %v", err)
+	}
+	if err := runVerdictActionAs(t, s, workID, "accept_worker_result", mustJSONValue(map[string]any{"attempt_id": attempt3, "attempt_epoch": latestStepStartEpoch(t, s, workID, "repair")}), 0, acceptor); err != nil {
+		t.Fatalf("accept corrective worker result: %v", err)
+	}
+	pin = issue1013Pin(t, s, workID)
+	if pin.Correction != nil {
+		t.Fatalf("accepted result left correction context: %#v", pin.Correction)
+	}
+
+	attempt4 := "attempt:" + workID + ":4"
+	dispatchCountingAttempt(t, s, workID, "refine", attempt4, nil, worker, pin.Version, "reset-dispatch-4")
+	failWorkerAttemptWithKind(t, s, workID, attempt4, WorkerFailureFallbackBlocked, "lane fallback blocked before the model ran")
+	applyRecordWorkerFailureForTest(t, s, workID, owner, attempt4, latestStepStartEpoch(t, s, workID, "refine"), readWorkVersion(t, s, workID), "reset-count-4")
+	pin = issue1013Pin(t, s, workID)
+	if pin.Correction == nil || pin.Correction.AttemptCount != 1 || pin.Correction.Escalated {
+		t.Fatalf("correction after the accepted result = %#v, want one counted attempt in a fresh sequence", pin.Correction)
+	}
+}
+
+// The counting window is scoped to the work item's attempt history, not to a
+// contract version (CD-0164): operator-approved contract supersession keeps
+// the counted dispatches, and the bound still escalates under the successor.
+func TestCorrectionAttemptCountSurvivesContractSupersession(t *testing.T) {
+	const workID = "correction-count-supersede"
+	s, owner, attemptID, _ := seedOldDefinitionWorker(t, workID)
+	defer s.Close()
+	ownerRef, err := WorkflowActorRef(owner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	seedIssue31DomainRegistry(t, s)
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class) VALUES(?,1,'failed worker contract','internal_sqlite','["verification"]','[]','now',?,'[]','[]',1,'prototype_internal'); INSERT INTO workflow_contract_predicates(work_id,contract_version,predicate_id,ordinal,outcome_kind,outcome_payload) VALUES(?,1,'predicate:primary',0,'check','{"kind":"check","check_ref":"check:workflow","immutable_subject_ref":"commit:old","expected_result":"pass"}'); DELETE FROM fold_guard`, workID, ownerRef, workID); err != nil {
+		t.Fatal(err)
+	}
+	worker := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/worker", SessionRef: "session/" + workID, ActorClass: ActorAgent}
+
+	correctionCountingJourney(t, s, workID, owner, worker, attemptID, "attempt:"+workID+":2", 1, "supersede-count-1")
+	pin := correctionCountingJourney(t, s, workID, owner, worker, "attempt:"+workID+":2", "", 3, "supersede-count-2")
+	if pin.Correction == nil || pin.Correction.AttemptCount != 2 || pin.Correction.Escalated {
+		t.Fatalf("correction before supersession = %#v, want two counted attempts", pin.Correction)
+	}
+
+	successor := json.RawMessage(`{"contract_version":2,"premise":"corrected predicate subject","outcome_predicates":[{"predicate_id":"predicate:primary","ordinal":0,"outcome_kind":"check","outcome_payload":{"kind":"check","check_ref":"check:workflow","immutable_subject_ref":"commit:e3d7c6e6","expected_result":"pass"}}],"required_evidence":["verification"],"route_conventions":[],"spec_mandate":[],"law_modifies":[],"rigor_class":"prototype_internal","architecture_binding":{"domain_registry_content_hash":"sha256:` + strings.Repeat("b", 64) + `","home_domain_id":"root","affected_domain_ids":["root"],"domain_modifies":[],"domain_relation_modifies":[],"law_additions":[],"verification_obligations":[]},"supersede_reason":"the pinned subject named an unrelated commit","audit_evidence":["evidence:issue1013"]}`)
+	if err := runIssue933OperatorAction(t, s, workID, "supersede_contract", successor, owner, operatorVerdictActor(t, workID)); err != nil {
+		t.Fatalf("supersede the contract across the correction sequence: %v", err)
+	}
+	var activeVersion int
+	if err := s.DatabaseForTesting().QueryRow(`SELECT contract_version FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL`, workID).Scan(&activeVersion); err != nil {
+		t.Fatal(err)
+	}
+	if activeVersion != 2 {
+		t.Fatalf("active contract version = %d, want 2", activeVersion)
+	}
+	pin = issue1013Pin(t, s, workID)
+	if pin.Correction == nil || pin.Correction.AttemptCount != 2 || pin.Correction.Escalated {
+		t.Fatalf("correction across supersession = %#v, want the two pre-supersession dispatches still counted", pin.Correction)
+	}
+
+	correctiveAttempt := "attempt:" + workID + ":3"
+	payload := issue1013CorrectionDispatchPayload(t, workID, "repair", correctiveAttempt, pin.Correction)
+	if _, err := invokeWorkflowActionForCD0059(context.Background(), t, s, WorkflowActionExecutionRequest{
+		WorkID: workID, ExpectedVersion: pin.Version, ActionID: "dispatch_worker", Payload: payload, SessionWorktree: dispatchSessionWorktree(t, s, workID),
+		Actor: worker, AcceptedInputsDigest: "sha256:" + strings.Repeat("d", 64), IdempotencyIdentity: "supersede-count-3", OperationID: "supersede-count-3",
+		PrincipalRef: worker.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "supersede-count-3", RequestID: "request:supersede-count-3", ContractDigest: testManifestDigest, Now: time.Unix(24, 0).UTC(),
+	}); err != nil {
+		t.Fatalf("dispatch the corrective attempt under the successor contract: %v", err)
+	}
+	issue1013RecordWorkerDispatch(t, s, workID, correctiveAttempt)
+	version := readWorkVersion(t, s, workID)
+	failWorkerAttemptWithKind(t, s, workID, correctiveAttempt, WorkerFailureFallbackBlocked, "lane fallback blocked before the model ran")
+	applyRecordWorkerFailureForTest(t, s, workID, owner, correctiveAttempt, 5, version, "supersede-count-3-record")
+	pin = issue1013Pin(t, s, workID)
+	if pin.Correction == nil || pin.Correction.AttemptCount != 3 || !pin.Correction.Escalated {
+		t.Fatalf("correction under the successor contract = %#v, want three counted attempts and escalation", pin.Correction)
+	}
+	if issue1013HasIntent(pin, "dispatch_worker") {
+		t.Fatalf("escalated correction under the successor retained dispatch_worker: %#v", pin.NextValidIntents)
+	}
+}
+
 // The declared payload gate is the input surface that names the field: a
 // predicate id outside the id charset must be refused by the payload
 // declaration itself, before any correction-specific check runs.

@@ -371,7 +371,7 @@ func ciWaitPollPR(ctx context.Context, state *ciWaitState) (ciWaitReport, bool, 
 		if counts.Failing > 0 {
 			report.Status = "failure"
 			report.Failures = failures
-			report.RunURL = ciWaitFirstRunURL(checks)
+			report.RunURL = ciWaitFirstRunURL(state.Repo, checks)
 			ciWaitCollectFailureExcerpts(ctx, state, report.Failures)
 		} else if ciWaitMergeConflict(head.MergeStateStatus) {
 			report.Reason = "the pull request checks passed but GitHub reports a merge conflict"
@@ -583,9 +583,16 @@ func ciWaitCollectFailureExcerpts(ctx context.Context, state *ciWaitState, failu
 	}
 }
 
-// ghRunIDFromURL extracts the numeric run id from a check's job link.
+// ghRunIDFromURL extracts the numeric run id from a check's job link. Not
+// every check link carries one: GitHub Advanced Security reports CodeQL
+// through a check-run link of the form /<owner>/<repo>/runs/<check-run-id>.
+// The empty string means "this link names no run", which is what both callers
+// test for.
 func ghRunIDFromURL(link string) string {
 	match := ghRunURLPattern.FindStringSubmatch(link)
+	if match == nil {
+		return ""
+	}
 	return match[1]
 }
 
@@ -624,12 +631,15 @@ func ciWaitTrimLine(line string) string {
 }
 
 // ciWaitFirstRunURL picks one run URL from the observed check links so the
-// failure report names where the failure lives.
-func ciWaitFirstRunURL(checks []ghPRCheck) string {
+// failure report names where the failure lives. A run URL resolves only when
+// it carries the repository, so the composed form needs both the repository
+// and a run id in the link; without either, the report names the observed
+// link itself rather than a URL that leads nowhere.
+func ciWaitFirstRunURL(repo string, checks []ghPRCheck) string {
 	for _, check := range checks {
 		if check.Bucket == "fail" {
-			if runID := ghRunIDFromURL(check.Link); runID != "" {
-				return "https://github.com/actions/runs/" + runID
+			if runID := ghRunIDFromURL(check.Link); runID != "" && repo != "" {
+				return "https://github.com/" + repo + "/actions/runs/" + runID
 			}
 			return check.Link
 		}

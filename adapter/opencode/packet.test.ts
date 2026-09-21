@@ -190,6 +190,33 @@ test("a correction projects recorded failure fields into the packet", async () =
   expect(built.packet!.inputs.context).toBe(NARRATIVE)
 })
 
+// A correction counts every operator-authorized retry, so its count passes
+// attempt_limit once the operator allows work past the limit. Dropping such a
+// correction left the packet unable to consume it, and the core refuses a
+// dispatch that carries no correction while one is durable. Because a
+// correction clears only when a dispatch follows it, that stranded the work
+// item: no lane could ever be dispatched again, review and verify included.
+test("a correction past the attempt limit still projects into the packet", async () => {
+  const correction: AgentLanePacketCorrection = {
+    disposition: "rejected",
+    attempt_count: 6,
+    attempt_limit: 3,
+    escalated: true,
+    diagnosis: "the attempt did not repair the reported defects",
+    strategy: "repair the reported defects with a failing regression before each fix",
+    predicate_ids: [],
+    evidence_refs: [],
+  }
+  const built = await build({
+    ...defaultScript(),
+    "concord_work_trace.continuity": continuityEnvelope(pinnedContract(), null, { correction }),
+  })
+  expect(built.failure).toBeUndefined()
+  expect(built.packet!.inputs.correction).toEqual(correction)
+  expect(built.packet!.inputs.correction!.attempt_count).toBe(6)
+  expect(built.packet!.inputs.correction!.escalated).toBe(true)
+})
+
 test("installed agents project the report schema bounds", async () => {
   const built = await build(defaultScript())
   expect(built.failure).toBeUndefined()

@@ -95,7 +95,14 @@ function projectCorrectionContext(value: unknown): AgentLanePacketCorrection | u
   const failureDetail = typeof value.failure_detail === "string" ? value.failure_detail : ""
   const predicateIDs = Array.isArray(value.predicate_ids) ? value.predicate_ids.filter((item): item is string => typeof item === "string") : []
   const evidenceRefs = Array.isArray(value.evidence_refs) ? value.evidence_refs.filter((item): item is string => typeof item === "string") : []
-  if (disposition === null || attemptCount === null || attemptLimit !== 3 || escalated === null || diagnosis.length === 0 || strategy.length === 0 || attemptCount > 3) return undefined
+  // The count is not bounded by the limit. Each operator-authorized retry past
+  // the limit increments it, so a correction legitimately carries a count above
+  // attempt_limit, and `escalated` is what marks that state. Dropping the
+  // correction here would leave the packet unable to consume it, and the core
+  // refuses a dispatch whose packet carries no correction while one is durable
+  // — stranding the work item, because a correction clears only when a dispatch
+  // follows it.
+  if (disposition === null || attemptCount === null || attemptLimit !== 3 || escalated === null || diagnosis.length === 0 || strategy.length === 0) return undefined
   return {
     disposition,
     attempt_count: attemptCount,

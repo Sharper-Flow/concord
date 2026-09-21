@@ -552,18 +552,13 @@ func normalizeWorkflowDefinition(definition WorkflowDefinition) WorkflowDefiniti
 // the shape they run in. Frozen prior versions live in
 // workflow_registry_versions.go and never acquire current payload contracts.
 func BuiltinWorkflowDefinitions() []WorkflowDefinition {
-	implementation := implementationAlignmentV14()
-	breakFix := breakFixAlignmentV12()
-	research := withCurrentNonBlankContract(withWorkerActions(builtinResearch(true), true))
-	research.Version = 8
-	architectureSpike := withCurrentEvidenceBindingReferences(withCurrentNonBlankContract(architecturePremiseContractV7()))
-	architectureSpike.Version = 9
-	opsRunbook := withCurrentNonBlankContract(opsRunbookPremiseContractV8())
-	opsRunbook.Version = 10
-	staticAnalysis := withCurrentNonBlankContract(withWorkerActions(builtinStaticAnalysis(true), true))
-	staticAnalysis.Version = 7
-	genericOneOff := withCurrentNonBlankContract(withWorkerActions(builtinGenericOneOff(true), true))
-	genericOneOff.Version = 8
+	implementation := implementationDeliveryV15()
+	breakFix := breakFixDeliveryV13()
+	research := researchDeliveryPayloadV9()
+	architectureSpike := architectureDeliveryPayloadV10()
+	opsRunbook := opsRunbookDeliveryPayloadV11()
+	staticAnalysis := staticAnalysisDeliveryPayloadV8()
+	genericOneOff := genericOneOffDeliveryPayloadV9()
 	return []WorkflowDefinition{
 		implementation, breakFix, research, architectureSpike, opsRunbook, staticAnalysis, genericOneOff,
 	}
@@ -587,7 +582,7 @@ func builtinWorkflowDefinitionsWithHistory() []WorkflowDefinition {
 		releasedResearchV5(), releasedStaticAnalysisV4(), releasedGenericOneOffV5(),
 	}
 	for i := range history {
-		history[i] = withLegacyNonBlankContract(withLegacyEvidenceBindingReferences(withLegacyPremiseContract(history[i])))
+		history[i] = withLegacyDeliveryPayload(withLegacyNonBlankContract(withLegacyEvidenceBindingReferences(withLegacyPremiseContract(history[i]))))
 	}
 	history = append(history,
 		withLegacyNonBlankContract(withLegacyEvidenceBindingReferences(implementationPremiseContractV11())), withLegacyNonBlankContract(withLegacyEvidenceBindingReferences(breakFixPremiseContractV9())), withLegacyNonBlankContract(withLegacyEvidenceBindingReferences(withWorkerActions(builtinResearch(true), true))),
@@ -597,6 +592,9 @@ func builtinWorkflowDefinitionsWithHistory() []WorkflowDefinition {
 		previousWorkflowVersion(withCurrentNonBlankContract(withWorkerActions(builtinResearch(true), true)), 7), previousWorkflowVersion(withCurrentNonBlankContract(architecturePremiseContractV7()), 8),
 		previousWorkflowVersion(withCurrentNonBlankContract(opsRunbookPremiseContractV8()), 9), previousWorkflowVersion(withCurrentNonBlankContract(withWorkerActions(builtinStaticAnalysis(true), true)), 6), previousWorkflowVersion(withCurrentNonBlankContract(withWorkerActions(builtinGenericOneOff(true), true)), 7),
 	)
+	for i := range history {
+		history[i] = withLegacyDeliveryPayload(history[i])
+	}
 	return append(history, BuiltinWorkflowDefinitions()...)
 }
 
@@ -732,6 +730,33 @@ func withRefinementStep(definition WorkflowDefinition, producingStep, verdictSte
 	}
 	definition.AvailableActions = available
 	definition.ActionDefinitions = actionDefinitions
+	return definition
+}
+
+// withDeliveryStep adds a closed delivery gate after the refinement pass.
+// The refinement delivery action enters the gate, and its delivery action
+// advances to the following step.
+func withDeliveryStep(definition WorkflowDefinition, producingStep, nextStep string) WorkflowDefinition {
+	definition = cloneWorkflowDefinition(definition)
+	delivery := step("delivery", WorkflowStepInternalSQLite, "record_delivery", "checkpoint_context", "cross_context_boundary")
+	steps := make([]WorkflowStep, 0, len(definition.StepGraph.Steps))
+	for _, existing := range definition.StepGraph.Steps {
+		steps = append(steps, existing)
+		if existing.ID == producingStep {
+			steps = append(steps, delivery)
+		}
+	}
+	definition.StepGraph.Steps = steps
+
+	edges := make([]WorkflowEdge, 0, len(definition.StepGraph.Edges))
+	for _, edge := range definition.StepGraph.Edges {
+		if edge.From == producingStep && edge.To == nextStep && edge.Kind == WorkflowEdgeForward {
+			edges = append(edges, WorkflowEdge{From: producingStep, To: delivery.ID, Kind: WorkflowEdgeForward}, WorkflowEdge{From: delivery.ID, To: nextStep, Kind: WorkflowEdgeForward})
+			continue
+		}
+		edges = append(edges, edge)
+	}
+	definition.StepGraph.Edges = edges
 	return definition
 }
 
@@ -1409,7 +1434,8 @@ var builtinActionPolicies = map[string]builtinActionPolicy{
 		actionIntegerField("boundary_sequence", false, 1, 2147483647), actionIntegerField("checkpoint_sequence", false, 1, 2147483647), actionStringField("summary", true, 16384),
 		WorkflowPayloadField{Name: "restart", ValueType: PayloadBoolean},
 	),
-	"record_delivery": actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance, ActionEventGeneric),
+	"record_delivery": actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance, ActionEventGeneric,
+		actionRefField("delivery_artifact", true), actionEnumField("delivery_state", true, "asserted")),
 	"accept_worker_result": actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance, ActionEventTyped,
 		actionRefField("attempt_id", true), actionIntegerField("attempt_epoch", true, 1, 2147483647),
 	),

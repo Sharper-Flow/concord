@@ -1,0 +1,30 @@
+{
+  "evidence": [
+    {
+      "kind": "go_test",
+      "value": "internal/agent.TestRecordDeliveryExitsTheStepTheSessionExecuted"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestWorkflowDefinitionVersionPinsHold"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestWorkflowReadParksDeliveryAtGate"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestWorkflowReadMarksUnreconciledAfterCancellation"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestWorkflowCompletionRefusedAtDeliveryGate"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestProductRowsCountParkedDeliveries"
+    }
+  ],
+  "id": "CD-0166",
+  "state": "satisfied"
+}

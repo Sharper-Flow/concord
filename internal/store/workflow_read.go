@@ -112,6 +112,19 @@ type WorkflowReadNotice struct {
 	Severity              string  `json:"severity"`
 }
 
+type WorkflowReadParkedDelivery struct {
+	WorkID       string `json:"work_id"`
+	StepID       string `json:"step_id"`
+	ResumeAction string `json:"resume_action"`
+	// ParkedSeconds is a read-time display age derived from the work item's
+	// last update. Elapsed time holds no authority here, matching the
+	// await-health boundary: an old park is labeled, never resolved by clock.
+	ParkedSeconds int64 `json:"parked_seconds"`
+	// Unreconciled marks a terminal instance that left the delivery gate
+	// uncrossed: cancelled or superseded while a delivery was still owed.
+	Unreconciled bool `json:"unreconciled"`
+}
+
 // WorkflowReadProjection is the bounded observation exposed through existing
 // read surfaces. All values are derived from event-folded projections and the
 // pinned definition; it is intentionally not an authority for mutation.
@@ -139,6 +152,7 @@ type WorkflowReadProjection struct {
 	ChangesProductTruth  bool                         `json:"changes_product_truth"`
 	ArchitectureBinding  *WorkflowArchitectureBinding `json:"architecture_binding,omitempty"`
 	ProposalRecord       *WorkflowProposalRecord      `json:"proposal_record,omitempty"`
+	ParkedDelivery       *WorkflowReadParkedDelivery  `json:"parked_delivery,omitempty"`
 }
 
 // ReadWorkflowProjection returns one bounded, point-in-time workflow
@@ -183,6 +197,19 @@ func ReadWorkflowProjection(ctx context.Context, s *Store, request WorkflowReadR
 	out.BlockingConditions = []string{}
 	out.ImpactNotices = []WorkflowReadNotice{}
 	out.CompletionWarnings = []string{}
+	if workflowStepIsDeliveryGate(workflowStep(registered.Definition, out.CurrentStep)) {
+		parked := &WorkflowReadParkedDelivery{WorkID: request.WorkID, StepID: out.CurrentStep, ResumeAction: "record_delivery"}
+		var updatedAt string
+		if err := s.db.QueryRowContext(ctx, `SELECT updated_at FROM work_items WHERE id=?`, request.WorkID).Scan(&updatedAt); err == nil {
+			if touched, parseErr := time.Parse(time.RFC3339, updatedAt); parseErr == nil {
+				if age := int64(time.Now().UTC().Sub(touched).Seconds()); age > 0 {
+					parked.ParkedSeconds = age
+				}
+			}
+		}
+		parked.Unreconciled = out.State == "cancelled" || out.State == "superseded"
+		out.ParkedDelivery = parked
+	}
 	var proposal WorkflowProposalRecord
 	var proposalAffected, proposalOutcomes, proposalConstraints, proposalQuestions string
 	if err := s.db.QueryRowContext(ctx, `SELECT work_version,problem,affected,stakes,user_outcomes,constraints,open_questions,recorded_at FROM workflow_proposal_records WHERE work_id=? ORDER BY work_version DESC LIMIT 1`, request.WorkID).Scan(&proposal.WorkVersion, &proposal.Problem, &proposalAffected, &proposal.Stakes, &proposalOutcomes, &proposalConstraints, &proposalQuestions, &proposal.RecordedAt); err == nil {

@@ -399,7 +399,8 @@ func acceptReturnRouteWorker(t *testing.T, fixture workflowReturnRouteFixture, w
 	lane := BuiltinLaneDefinitions()[0]
 	attemptID := "attempt:" + workID
 	var definitionRef string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT definition_ref FROM workflow_instances WHERE work_id=?`, workID).Scan(&definitionRef); err != nil {
+	var definitionVersion int64
+	if err := s.DatabaseForTesting().QueryRow(`SELECT definition_ref, definition_version FROM workflow_instances WHERE work_id=?`, workID).Scan(&definitionRef, &definitionVersion); err != nil {
 		t.Fatal(err)
 	}
 	effectStep, startAction := "execution", "start_execution"
@@ -435,8 +436,21 @@ func acceptReturnRouteWorker(t *testing.T, fixture workflowReturnRouteFixture, w
 	if err := runVerdictActionAs(t, s, workID, "start_refine", json.RawMessage(`{}`), 0, acceptor); err != nil {
 		t.Fatalf("start refinement: %v", err)
 	}
-	if err := runVerdictActionAs(t, s, workID, "record_delivery", json.RawMessage(`{}`), 0, acceptor); err != nil {
+	deliveryPayload := json.RawMessage(`{}`)
+	registered, ok := BuiltinWorkflowRegistry().Lookup(definitionRef, definitionVersion)
+	if !ok {
+		t.Fatalf("workflow definition %s v%d is not registered", definitionRef, definitionVersion)
+	}
+	if workflowDefinitionRequiresDeliveryPayload(registered.Definition) {
+		deliveryPayload = json.RawMessage(`{"delivery_artifact":"artifact:return-route","delivery_state":"asserted"}`)
+	}
+	if err := runVerdictActionAs(t, s, workID, "record_delivery", deliveryPayload, 0, acceptor); err != nil {
 		t.Fatalf("record refinement delivery: %v", err)
+	}
+	if workflowDefinitionRequiresDeliveryPayload(registered.Definition) {
+		if err := runVerdictActionAs(t, s, workID, "record_delivery", deliveryPayload, 0, acceptor); err != nil {
+			t.Fatalf("record delivery gate: %v", err)
+		}
 	}
 	return WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/return-route-reviewer", SessionRef: "session/" + workID + "-reviewer", ActorClass: ActorAgent}
 }

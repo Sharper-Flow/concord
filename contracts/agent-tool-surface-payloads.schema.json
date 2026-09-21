@@ -1479,6 +1479,35 @@
             "$ref": "#/$defs/short"
           }
         },
+        "parked_delivery": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "work_id",
+            "step_id",
+            "resume_action",
+            "parked_seconds",
+            "unreconciled"
+          ],
+          "properties": {
+            "work_id": {
+              "$ref": "#/$defs/id"
+            },
+            "step_id": {
+              "$ref": "#/$defs/id"
+            },
+            "resume_action": {
+              "$ref": "#/$defs/id"
+            },
+            "parked_seconds": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "unreconciled": {
+              "type": "boolean"
+            }
+          }
+        },
         "stale_law_revision": {
           "type": [
             "object",
@@ -4822,6 +4851,7 @@
         "active_problems",
         "approval_required",
         "overdue_awaits",
+        "parked_deliveries",
         "live",
         "waiting",
         "needs_attention",
@@ -4849,6 +4879,10 @@
           "minimum": 0
         },
         "overdue_awaits": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "parked_deliveries": {
           "type": "integer",
           "minimum": 0
         },
@@ -10710,28 +10744,75 @@
             ]
           },
           "then": {
-            "properties": {
-              "fields": {
-                "type": "object",
-                "additionalProperties": false,
-                "maxProperties": 32,
-                "properties": {}
-              }
-            },
-            "not": {
-              "anyOf": [
-                {
-                  "required": [
-                    "selected_choice"
+            "anyOf": [
+              {
+                "properties": {
+                  "fields": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "maxProperties": 32,
+                    "properties": {
+                      "delivery_artifact": {
+                        "$ref": "#/$defs/reference",
+                        "minLength": 2,
+                        "maxLength": 128
+                      },
+                      "delivery_state": {
+                        "type": "string",
+                        "enum": [
+                          "asserted"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "delivery_artifact",
+                      "delivery_state"
+                    ]
+                  }
+                },
+                "not": {
+                  "anyOf": [
+                    {
+                      "required": [
+                        "selected_choice"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "decision_context_digest"
+                      ]
+                    }
                   ]
                 },
-                {
-                  "required": [
-                    "decision_context_digest"
+                "required": [
+                  "fields"
+                ]
+              },
+              {
+                "properties": {
+                  "fields": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "maxProperties": 32,
+                    "properties": {}
+                  }
+                },
+                "not": {
+                  "anyOf": [
+                    {
+                      "required": [
+                        "selected_choice"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "decision_context_digest"
+                      ]
+                    }
                   ]
                 }
-              ]
-            }
+              }
+            ]
           }
         },
         {

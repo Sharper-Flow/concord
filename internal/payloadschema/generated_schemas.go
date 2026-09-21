@@ -2950,6 +2950,10 @@ const GeneratedPayloadSchemaDocument = `{
           "minimum": 0,
           "type": "integer"
         },
+        "parked_deliveries": {
+          "minimum": 0,
+          "type": "integer"
+        },
         "ready": {
           "minimum": 0,
           "type": "integer"
@@ -2970,6 +2974,7 @@ const GeneratedPayloadSchemaDocument = `{
         "active_problems",
         "approval_required",
         "overdue_awaits",
+        "parked_deliveries",
         "live",
         "waiting",
         "needs_attention",
@@ -8895,28 +8900,75 @@ const GeneratedPayloadSchemaDocument = `{
             ]
           },
           "then": {
-            "not": {
-              "anyOf": [
-                {
-                  "required": [
-                    "selected_choice"
+            "anyOf": [
+              {
+                "not": {
+                  "anyOf": [
+                    {
+                      "required": [
+                        "selected_choice"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "decision_context_digest"
+                      ]
+                    }
                   ]
                 },
-                {
-                  "required": [
-                    "decision_context_digest"
+                "properties": {
+                  "fields": {
+                    "additionalProperties": false,
+                    "maxProperties": 32,
+                    "properties": {
+                      "delivery_artifact": {
+                        "$ref": "#/$defs/reference",
+                        "maxLength": 128,
+                        "minLength": 2
+                      },
+                      "delivery_state": {
+                        "enum": [
+                          "asserted"
+                        ],
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "delivery_artifact",
+                      "delivery_state"
+                    ],
+                    "type": "object"
+                  }
+                },
+                "required": [
+                  "fields"
+                ]
+              },
+              {
+                "not": {
+                  "anyOf": [
+                    {
+                      "required": [
+                        "selected_choice"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "decision_context_digest"
+                      ]
+                    }
                   ]
+                },
+                "properties": {
+                  "fields": {
+                    "additionalProperties": false,
+                    "maxProperties": 32,
+                    "properties": {},
+                    "type": "object"
+                  }
                 }
-              ]
-            },
-            "properties": {
-              "fields": {
-                "additionalProperties": false,
-                "maxProperties": 32,
-                "properties": {},
-                "type": "object"
               }
-            }
+            ]
           }
         },
         {
@@ -12202,6 +12254,35 @@ const GeneratedPayloadSchemaDocument = `{
             "object",
             "null"
           ]
+        },
+        "parked_delivery": {
+          "additionalProperties": false,
+          "properties": {
+            "parked_seconds": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "resume_action": {
+              "$ref": "#/$defs/id"
+            },
+            "step_id": {
+              "$ref": "#/$defs/id"
+            },
+            "unreconciled": {
+              "type": "boolean"
+            },
+            "work_id": {
+              "$ref": "#/$defs/id"
+            }
+          },
+          "required": [
+            "work_id",
+            "step_id",
+            "resume_action",
+            "parked_seconds",
+            "unreconciled"
+          ],
+          "type": "object"
         },
         "ready": {
           "type": "boolean"

@@ -1,0 +1,36 @@
+{
+  "authority": {
+    "contract_version": 1,
+    "legislated_by": "work-feae7152c7b3d0e9aaa77f1d",
+    "tier": "legislated"
+  },
+  "date": "2026-09-21T00:00:00Z",
+  "home_domain_id": "workflow-engine",
+  "id": "CD-0166",
+  "kind": "decision",
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "CD-0156"
+    }
+  ],
+  "path": "docs/decisions/CD-0166-coordinator-owned-delivery-gate.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:f7b424e6526ac52e309852d46225a85ac56b82f64bbe5aa6eb4de6e7bb198df3",
+  "status": "accepted",
+  "summary": "The record_delivery action carries an asserted delivery artifact and state, and workflow.implementation and workflow.break_fix cross a gated delivery step whose single forward edge requires that record, reusing the CD-0156 single-advance-action shape. The core records the assertion and never observes GitHub, acquires no client, and runs no prober. A completed transition refuses at the gate, while cancellation and supersession stay legal and mark the item unreconciled in the workflow read projection. Live items on the gate project a parked delivery with a read-time duration, and Product rows count them as parked_deliveries, so a session that ends before the merge leaves a findable, resumable item instead of an orphaned pull request. No session waits on a merge queue.",
+  "tags": [
+    "delivery",
+    "workflow",
+    "lifecycle",
+    "read-model",
+    "coordination"
+  ],
+  "title": "Coordinator-owned delivery gate"
+}

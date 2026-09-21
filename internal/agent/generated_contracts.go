@@ -7,7 +7,7 @@ import (
 	"strings"
 )
 
-const ManifestDigest = "sha256:b0b1e2077d5a82088edfc6f3cd160f494d49ce802fa6b6a2b2d53934927605d1"
+const ManifestDigest = "sha256:03a91856f53bc590ef2ce2c6528111f7d1fb003bd03089b8366e8b009d64500b"
 
 type OperationKind string
 
@@ -185,7 +185,7 @@ var GeneratedPayloadRules = map[string]GeneratedPayloadRule{
 	"product_context":                              {Required: []string{"product_id", "projects"}, Properties: []string{"product_id", "stage", "projects", "candidates", "next_cursor"}},
 	"product_row":                                  {Required: []string{"product_id", "display_name", "stage", "reliance", "action_counts"}, Properties: []string{"product_id", "display_name", "display_name_suffix", "stage", "reliance", "action_counts", "focus", "focus_absent_reason"}},
 	"product_row_action_counts":                    {Required: []string{"state"}, Properties: []string{"state", "values", "unavailable"}},
-	"product_row_action_values":                    {Required: []string{"in_progress", "blocked", "ready", "active_problems", "approval_required", "overdue_awaits", "live", "waiting", "needs_attention", "unknown"}, Properties: []string{"in_progress", "blocked", "ready", "active_problems", "approval_required", "overdue_awaits", "live", "waiting", "needs_attention", "unknown"}},
+	"product_row_action_values":                    {Required: []string{"in_progress", "blocked", "ready", "active_problems", "approval_required", "overdue_awaits", "parked_deliveries", "live", "waiting", "needs_attention", "unknown"}, Properties: []string{"in_progress", "blocked", "ready", "active_problems", "approval_required", "overdue_awaits", "parked_deliveries", "live", "waiting", "needs_attention", "unknown"}},
 	"product_row_blocked_session":                  {Required: []string{"session_ref", "agent_ref", "worktree", "directory", "consequence", "blocked_since", "block_age_seconds"}, Properties: []string{"session_ref", "agent_ref", "worktree", "directory", "consequence", "blocked_since", "block_age_seconds"}},
 	"product_row_focus":                            {Required: []string{"work_id", "title", "work_kind", "lifecycle", "attention_kind", "priority", "project_count", "stage_context"}, Properties: []string{"attention_kind", "blocked_sessions", "lifecycle", "liveness", "priority", "project_count", "stage_context", "title", "work_id", "work_kind", "workflow_step_label"}},
 	"product_row_page":                             {Required: []string{"observed_at", "rows"}, Properties: []string{"observed_at", "rows"}},
@@ -290,7 +290,7 @@ var GeneratedPayloadRules = map[string]GeneratedPayloadRule{
 	"workflow_outcome_decision_record":             {Required: []string{"question", "options_considered", "decision", "rationale", "consequences", "inputs", "poc_findings", "supersedes", "superseded_by", "unknowns", "required_to_decide", "reviewer_actor_ref", "operator_approval_ref"}, Properties: []string{"question", "options_considered", "decision", "rationale", "consequences", "inputs", "poc_findings", "supersedes", "superseded_by", "unknowns", "required_to_decide", "reviewer_actor_ref", "operator_approval_ref"}},
 	"workflow_outcome_exists":                      {Required: []string{"kind", "surface", "subjects"}, Properties: []string{"kind", "surface", "subjects"}},
 	"workflow_outcome_outcome":                     {Required: []string{"kind", "allowed"}, Properties: []string{"kind", "allowed", "decision_record"}},
-	"workflow_read":                                {Required: []string{"work_id", "state", "current_step", "definition", "conditions", "unresolved_conditions", "unreadable_conditions", "ready", "blocking_conditions", "impact_notices", "completion_warnings"}, Properties: []string{"work_id", "state", "current_step", "definition", "contract", "operator_question", "candidate_ids", "conditions", "unresolved_conditions", "unreadable_conditions", "ready", "blocking_conditions", "impact_notices", "completion_warnings", "stale_law_revision"}},
+	"workflow_read":                                {Required: []string{"work_id", "state", "current_step", "definition", "conditions", "unresolved_conditions", "unreadable_conditions", "ready", "blocking_conditions", "impact_notices", "completion_warnings"}, Properties: []string{"work_id", "state", "current_step", "definition", "contract", "operator_question", "candidate_ids", "conditions", "unresolved_conditions", "unreadable_conditions", "ready", "blocking_conditions", "impact_notices", "completion_warnings", "parked_delivery", "stale_law_revision"}},
 	"workflow_self_repair":                         {Required: []string{"refusal_kind", "blocked_operation", "evidence_refs"}, Properties: []string{"refusal_kind", "blocked_operation", "evidence_refs"}},
 	"worktree_audit_page":                          {Required: []string{"root", "drift"}, Properties: []string{"root", "drift"}},
 	"worktree_audit_reclaim_result":                {Required: []string{"root", "rows", "report_only", "changed_refs", "next_valid_intents"}, Properties: []string{"root", "rows", "report_only", "changed_refs", "next_valid_intents", "work_pins"}},

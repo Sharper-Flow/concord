@@ -213,6 +213,8 @@ type workflowActionCompletedPayload struct {
 	CorrectionStrategy     string   `json:"correction_strategy,omitempty"`
 	CorrectionEvidenceRefs []string `json:"correction_evidence_refs,omitempty"`
 	CorrectionPredicateIDs []string `json:"correction_predicate_ids,omitempty"`
+	DeliveryArtifact       string   `json:"delivery_artifact,omitempty"`
+	DeliveryState          string   `json:"delivery_state,omitempty"`
 	ResultEvidenceRefs     []string `json:"result_evidence_refs"`
 	ChangedRefs            []string `json:"changed_refs"`
 	ActorRef               string   `json:"actor_ref"`

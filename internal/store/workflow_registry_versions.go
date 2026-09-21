@@ -358,6 +358,32 @@ func withLegacyRecordProposal(definition WorkflowDefinition) WorkflowDefinition 
 	return withLegacyNonBlankContract(definition)
 }
 
+func withLegacyDeliveryPayload(definition WorkflowDefinition) WorkflowDefinition {
+	definition = cloneWorkflowDefinition(definition)
+	for i := range definition.ActionDefinitions {
+		if definition.ActionDefinitions[i].ID == "record_delivery" {
+			definition.ActionDefinitions[i].Payload = WorkflowPayloadDefinition{Closed: definition.ActionDefinitions[i].Payload.Closed, Fields: []WorkflowPayloadField{}}
+		}
+	}
+	return definition
+}
+
+func withCurrentDeliveryPayload(definition WorkflowDefinition) WorkflowDefinition {
+	definition = cloneWorkflowDefinition(definition)
+	for i := range definition.ActionDefinitions {
+		if definition.ActionDefinitions[i].ID == "record_delivery" {
+			definition.ActionDefinitions[i].Payload = WorkflowPayloadDefinition{
+				Closed: true,
+				Fields: []WorkflowPayloadField{
+					actionRefField("delivery_artifact", true),
+					actionEnumField("delivery_state", true, "asserted"),
+				},
+			}
+		}
+	}
+	return definition
+}
+
 func withLegacyEvidenceBindingReferences(definition WorkflowDefinition) WorkflowDefinition {
 	definition = cloneWorkflowDefinition(definition)
 	for actionIndex := range definition.ActionDefinitions {
@@ -630,7 +656,7 @@ func releasedGenericOneOffV5() WorkflowDefinition {
 func releasedArchitectureSpikeV5() WorkflowDefinition {
 	d := withWorkerActions(builtinArchitectureSpike(true), true)
 	d.Version = 5
-	return withLegacyEvidenceBindingReferences(withLegacyPremiseContract(d))
+	return withLegacyDeliveryPayload(withLegacyEvidenceBindingReferences(withLegacyPremiseContract(d)))
 }
 
 func architectureSpikeDecisionBoundsV6() WorkflowDefinition {
@@ -664,6 +690,54 @@ func implementationPreAlignmentV12() WorkflowDefinition {
 func breakFixPreAlignmentV10() WorkflowDefinition {
 	d := withCurrentNonBlankContract(breakFixPremiseContractV9())
 	d.Version = 10
+	return d
+}
+
+// implementationDeliveryV15 adds the coordinator-owned delivery gate after
+// the refinement pass. Earlier definitions keep their original graph and
+// payload shape for pinned instances.
+func implementationDeliveryV15() WorkflowDefinition {
+	d := implementationAlignmentV14()
+	d.Version = 15
+	return withDeliveryStep(d, "refine", "acceptance")
+}
+
+// breakFixDeliveryV13 adds the coordinator-owned delivery gate after the
+// refinement pass. Earlier definitions keep their original graph and payload
+// shape for pinned instances.
+func breakFixDeliveryV13() WorkflowDefinition {
+	d := breakFixAlignmentV12()
+	d.Version = 13
+	return withDeliveryStep(d, "refine", "verify")
+}
+
+func researchDeliveryPayloadV9() WorkflowDefinition {
+	d := withCurrentNonBlankContract(withWorkerActions(builtinResearch(true), true))
+	d.Version = 9
+	return d
+}
+
+func architectureDeliveryPayloadV10() WorkflowDefinition {
+	d := withCurrentEvidenceBindingReferences(withCurrentNonBlankContract(architecturePremiseContractV7()))
+	d.Version = 10
+	return withCurrentDeliveryPayload(d)
+}
+
+func opsRunbookDeliveryPayloadV11() WorkflowDefinition {
+	d := withCurrentNonBlankContract(opsRunbookPremiseContractV8())
+	d.Version = 11
+	return d
+}
+
+func staticAnalysisDeliveryPayloadV8() WorkflowDefinition {
+	d := withCurrentNonBlankContract(withWorkerActions(builtinStaticAnalysis(true), true))
+	d.Version = 8
+	return d
+}
+
+func genericOneOffDeliveryPayloadV9() WorkflowDefinition {
+	d := withCurrentNonBlankContract(withWorkerActions(builtinGenericOneOff(true), true))
+	d.Version = 9
 	return d
 }
 

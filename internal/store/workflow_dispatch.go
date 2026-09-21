@@ -1091,6 +1091,14 @@ func workflowStep(definition WorkflowDefinition, id string) *WorkflowStep {
 	return nil
 }
 
+// workflowStepIsDeliveryGate names the CD-0166 delivery-gate step shape: the
+// obligation action plus the two continuity holds and nothing else, so the
+// single forward edge out of the step cannot be crossed without a recorded
+// delivery. Read paths, guards, and folds must agree on this one predicate.
+func workflowStepIsDeliveryGate(step *WorkflowStep) bool {
+	return step != nil && len(step.Actions) == 3 && step.Actions[0] == "record_delivery"
+}
+
 func nullableWorkflowText(value string) any {
 	if value == "" {
 		return "{}"

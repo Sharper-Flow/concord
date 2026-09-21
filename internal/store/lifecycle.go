@@ -433,6 +433,9 @@ func foldWorkTransitioned(ctx context.Context, tx *sql.Tx, event Event) error {
 		return illegalTransition(payload.From, payload.To)
 	}
 	if payload.To == "completed" {
+		if err := refuseUnreconciledDelivery(ctx, tx, event.SubjectID); err != nil {
+			return err
+		}
 		kind, err := readWorkKind(ctx, tx, event.SubjectID)
 		if err != nil {
 			return err
@@ -481,6 +484,27 @@ func foldWorkTransitioned(ctx context.Context, tx *sql.Tx, event Event) error {
 		return foldTerminalReleasesResourceClaims(ctx, tx, event)
 	}
 	return nil
+}
+
+func refuseUnreconciledDelivery(ctx context.Context, tx *sql.Tx, workID string) error {
+	var definitionRef string
+	var definitionVersion int64
+	var currentStep string
+	if err := tx.QueryRowContext(ctx, `SELECT definition_ref,definition_version,current_step FROM workflow_instances WHERE work_id=?`, workID).Scan(&definitionRef, &definitionVersion, &currentStep); err != nil {
+		if err == sql.ErrNoRows {
+			return nil
+		}
+		return workflowProjectionError(err, "cannot read workflow delivery state")
+	}
+	registered, ok := BuiltinWorkflowRegistry().Lookup(definitionRef, definitionVersion)
+	if !ok {
+		return newFailure(KindDefinitionDigestMismatch, "fold_event", "pinned workflow definition is not registered", false, "restore the registered workflow definition")
+	}
+	step := workflowStep(registered.Definition, currentStep)
+	if !workflowStepIsDeliveryGate(step) {
+		return nil
+	}
+	return newFailure(KindNotTerminal, "fold_event", "workflow has an unreconciled delivery", false, "record_delivery")
 }
 
 func foldWorkReopened(ctx context.Context, tx *sql.Tx, event Event) error {

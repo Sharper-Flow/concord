@@ -171,6 +171,13 @@ func foldDomainResourceAttachmentsReplaced(ctx context.Context, tx *sql.Tx, even
 }
 
 func validateCurrentDomain(ctx context.Context, tx *sql.Tx, productID, domainID string) error {
+	if isWorkflowReplay(ctx) {
+		// The Git-derived registry is current state the log never carried: a
+		// replayed event may name a Domain the registry has since renamed or
+		// retired. The log stays the authority for what the event recorded,
+		// so the current-registry check runs on the live path only.
+		return nil
+	}
 	var status string
 	if err := tx.QueryRowContext(ctx, `SELECT status FROM domains WHERE product_id=? AND domain_id=?`, productID, domainID).Scan(&status); err == sql.ErrNoRows {
 		return newFailure(KindProjectionNotFound, "fold_event", "Domain does not exist in the current Product registry", false, "refresh the Git Domain projection before attaching local state")

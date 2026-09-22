@@ -69,7 +69,10 @@ func validateWorkflowSelfRepairShape(repair WorkflowSelfRepair) error {
 }
 
 func validateWorkflowSelfRepairAuthorityTx(ctx context.Context, tx *sql.Tx, workID, actorRef string, repair *WorkflowSelfRepair) error {
-	if repair == nil {
+	if repair == nil || isWorkflowReplay(ctx) {
+		// The authority check reads the current Git-derived registry and the
+		// actor projection to police a live classification. Replay records
+		// the classification the log already carries.
 		return nil
 	}
 	if err := validateWorkflowSelfRepairShape(*repair); err != nil {

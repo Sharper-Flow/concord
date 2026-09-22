@@ -674,6 +674,15 @@ func terminalizeWorkflowOverlapWork(ctx context.Context, tx *sql.Tx, event Event
 	return nil
 }
 
+// workflowOverlapReplayProductID resolves the Product a replayed resolution
+// records, from the item's contract bindings. The active-version footprint is
+// the live surface; replay only needs the Product identity the log carries.
+func workflowOverlapReplayProductID(ctx context.Context, tx *sql.Tx, workID string) string {
+	var productID string
+	_ = tx.QueryRowContext(ctx, `SELECT product_id FROM workflow_architecture_bindings WHERE work_id=? ORDER BY contract_version DESC LIMIT 1`, workID).Scan(&productID)
+	return productID
+}
+
 func foldWorkflowOverlapResolved(ctx context.Context, tx *sql.Tx, event Event) error {
 	var payload workflowOverlapResolvedPayload
 	if err := decodeWorkflowPayload(event, &payload); err != nil {
@@ -714,24 +723,52 @@ func foldWorkflowOverlapResolved(ctx context.Context, tx *sql.Tx, event Event) e
 	if err != nil {
 		return err
 	}
-	if left.ProductID == "" || right.ProductID == "" || left.ProductID != right.ProductID || left.ContractVersion != payload.FromContractVersion || right.ContractVersion != payload.ToContractVersion {
-		return overlapResolutionFailure("overlap resolution is not pinned to both current Product contract versions")
+	// The version pin is a live-path freshness guard: mid-replay the contract
+	// projections are the log's own prefix, and supersessions still to fold
+	// can leave the active versions ambiguous. Replay resolves the Product
+	// from the item's contract bindings instead.
+	if !isWorkflowReplay(ctx) {
+		if left.ProductID == "" || right.ProductID == "" || left.ProductID != right.ProductID || left.ContractVersion != payload.FromContractVersion || right.ContractVersion != payload.ToContractVersion {
+			return overlapResolutionFailure("overlap resolution is not pinned to both current Product contract versions")
+		}
+	} else {
+		if left.ProductID == "" {
+			left.ProductID = workflowOverlapReplayProductID(ctx, tx, event.SubjectID)
+		}
+		if right.ProductID == "" {
+			right.ProductID = workflowOverlapReplayProductID(ctx, tx, payload.ToWorkID)
+		}
 	}
 	overlap, ok := workflowDomainOverlapPair(left, right)
-	if !ok {
+	if !ok && !isWorkflowReplay(ctx) {
 		return newFailure(KindInvalidOperation, "workflow_domain_overlap", "overlap resolution names a pair with no current derived overlap", false, "reread the active Domain footprints")
 	}
 	resolutionFromWorkID, resolutionToWorkID := event.SubjectID, payload.ToWorkID
 	resolutionFromContractVersion, resolutionToContractVersion := payload.FromContractVersion, payload.ToContractVersion
 	if payload.ResolutionKind == ResolutionCompatibleWith {
-		resolutionFromWorkID, resolutionToWorkID = overlap.FromWorkID, overlap.ToWorkID
-		resolutionFromContractVersion, resolutionToContractVersion = overlap.FromContractVersion, overlap.ToContractVersion
+		if ok {
+			resolutionFromWorkID, resolutionToWorkID = overlap.FromWorkID, overlap.ToWorkID
+			resolutionFromContractVersion, resolutionToContractVersion = overlap.FromContractVersion, overlap.ToContractVersion
+		} else {
+			// The pair no longer derives under the current overlap rule, so
+			// replay records the resolution from its payload in the sorted
+			// pair order every recorded compatible_with resolution carries.
+			if payload.ToWorkID < event.SubjectID {
+				resolutionFromWorkID, resolutionToWorkID = payload.ToWorkID, event.SubjectID
+				resolutionFromContractVersion, resolutionToContractVersion = payload.ToContractVersion, payload.FromContractVersion
+			}
+		}
 	}
-	if err := currentWorkflowDomainRegistryCheckTx(ctx, tx, left); err != nil {
-		return err
-	}
-	if err := currentWorkflowDomainRegistryCheckTx(ctx, tx, right); err != nil {
-		return err
+	// The registry comparison pins the event against the current Git-derived
+	// registry. A replay re-derives the recorded resolution from the log, so
+	// the current registry, which the log never carries, is not its authority.
+	if !isWorkflowReplay(ctx) {
+		if err := currentWorkflowDomainRegistryCheckTx(ctx, tx, left); err != nil {
+			return err
+		}
+		if err := currentWorkflowDomainRegistryCheckTx(ctx, tx, right); err != nil {
+			return err
+		}
 	}
 	if err := invalidateWorkflowOverlapResolutionPairTx(ctx, tx, event.EventID, event.SubjectID, payload.ToWorkID); err != nil {
 		return err

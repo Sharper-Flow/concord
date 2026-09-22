@@ -1488,6 +1488,11 @@ func enqueueLinearIssueAdoptionCore(ctx context.Context, q queryer, expectedProd
 }
 
 func enqueueLinearIssueForLifecycleTx(ctx context.Context, tx *sql.Tx, workID, lifecycle string, at time.Time) error {
+	if isWorkflowReplay(ctx) {
+		// The outbox is direct authority the log never carries, and the
+		// Linear mapping is current configuration. Replay records no enqueue.
+		return nil
+	}
 	var table string
 	if err := tx.QueryRowContext(ctx, `SELECT name FROM sqlite_schema WHERE type='table' AND name='linear_issue_links'`).Scan(&table); err == sql.ErrNoRows {
 		return nil
@@ -1588,6 +1593,11 @@ func linearCaptureConfigurationRefusal(err error) bool {
 // and terminal items are never published. It reports whether an operation was
 // queued, with the queued entry when it was.
 func enqueueLinearIssueForCaptureTx(ctx context.Context, tx *sql.Tx, workID string, at time.Time) (ClaimedLinearOperation, bool, error) {
+	if isWorkflowReplay(ctx) {
+		// The outbox is direct authority the log never carries, and the
+		// Linear mapping is current configuration. Replay records no enqueue.
+		return ClaimedLinearOperation{}, false, nil
+	}
 	var table string
 	if err := tx.QueryRowContext(ctx, `SELECT name FROM sqlite_schema WHERE type='table' AND name='linear_issue_links'`).Scan(&table); err == sql.ErrNoRows {
 		return ClaimedLinearOperation{}, false, nil

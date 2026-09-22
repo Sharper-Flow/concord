@@ -120,7 +120,10 @@ func CompleteWorkflowTxWithRegistry(ctx context.Context, tx *sql.Tx, registry De
 	if err := workflowBase(event, payload.WorkflowVersionFields); err != nil {
 		return err
 	}
-	if !workflowExecutionAllowsStaleRecovery("complete", event.Payload) {
+	if !workflowExecutionAllowsStaleRecovery("complete", event.Payload) && !isWorkflowReplay(ctx) {
+		// The staleness boundary consults the current Git-derived law state,
+		// which the log never carried; replay owes only the projection folds
+		// below.
 		if err := checkWorkflowLawRevisionStalenessTx(ctx, tx, event.SubjectID); err != nil {
 			return err
 		}
@@ -404,7 +407,29 @@ func VerifyWorkflowInstanceDefinitionTx(ctx context.Context, tx *sql.Tx, registr
 		}
 		return RegisteredDefinition{}, wrapFailure(KindUnavailable, "complete_workflow", "cannot read workflow definition pin", true, "retry once the database is readable", err)
 	}
-	return VerifyWorkflowDefinitionPin(registry, pin)
+	return verifyWorkflowDefinitionPinForFold(ctx, registry, pin)
+}
+
+// verifyWorkflowDefinitionPinForFold validates a definition pin for a fold.
+// Under replay it tolerates digest drift: the registry is code, and code
+// moves on since the log pinned a definition. A drifted pin still names the
+// definition family and version, so the fold proceeds with the structure the
+// current registry supplies while the log stays the authority for what the
+// instance pinned. The live path keeps the strict digest check.
+func verifyWorkflowDefinitionPinForFold(ctx context.Context, registry DefinitionRegistry, pin WorkflowDefinitionPin) (RegisteredDefinition, error) {
+	entry, err := VerifyWorkflowDefinitionPin(registry, pin)
+	if err == nil {
+		return entry, nil
+	}
+	var failure *Failure
+	if !failureAs(err, &failure) || failure.Kind != KindInvariantViolation || !isWorkflowReplay(ctx) {
+		return RegisteredDefinition{}, err
+	}
+	current, ok := registry.Lookup(pin.Ref, pin.Version)
+	if !ok {
+		return RegisteredDefinition{}, err
+	}
+	return current, nil
 }
 
 // missingPredicateVerdicts lists the approved contract predicates that have

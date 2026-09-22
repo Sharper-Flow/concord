@@ -737,7 +737,7 @@ func assembleWorkflowActionEventsTx(ctx context.Context, tx *sql.Tx, in workflow
 	var workflowActionEpoch int64
 	var epochErr error
 	if builtinActionPolicies[in.request.ActionID].EventShape == ActionEventCheckpoint && executionMode != ActionFenced {
-		workflowActionEpoch, epochErr = workflowCheckpointAttemptEpoch(ctx, tx, in.entry.Definition, in.step, in.request.WorkID, in.currentStep)
+		workflowActionEpoch, epochErr = workflowCheckpointAttemptEpoch(ctx, tx, in.entry.Definition, in.step, in.request.WorkID, in.currentStep, 0)
 	} else {
 		workflowActionEpoch, epochErr = workflowActionStartEpochForDispatch(ctx, tx, in.request.WorkID, in.currentStep, executionMode == ActionFenced)
 	}

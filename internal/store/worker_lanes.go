@@ -673,8 +673,11 @@ func foldWorkerCompleted(ctx context.Context, tx *sql.Tx, event Event) error {
 	}
 	// The host session can retain its old process directory after the host moves
 	// the session record. Refuse a reported directory that is not an active claim
-	// before the completion event can make the attempt terminal.
-	if payload.WorkerDirectory != "" {
+	// before the completion event can make the attempt terminal. The boundary
+	// reads the live host filesystem, which replay neither owns nor can reach:
+	// reclaimed worktrees no longer resolve, so replay trusts the recorded
+	// dispatch evidence instead.
+	if payload.WorkerDirectory != "" && !isWorkflowReplay(ctx) {
 		if err := validateWorkerDispatchWorktree(ctx, tx, event.SubjectID, payload.WorkerDirectory); err != nil {
 			return err
 		}

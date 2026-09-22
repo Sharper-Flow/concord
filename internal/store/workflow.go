@@ -705,7 +705,7 @@ func foldWorkflowDefinitionSelected(ctx context.Context, tx *sql.Tx, event Event
 	if !workflowString(p.Ref, 128) || p.Version <= 0 || !workflowDigest(p.Digest, "sha256:") || !workflowKinds[p.WorkKind] {
 		return newFailure(KindInvalidPayload, "fold_event", "definition_selected contains an invalid definition pin", false, "supply a closed definition reference, version, digest, and family")
 	}
-	registered, err := VerifyWorkflowDefinitionPin(BuiltinWorkflowRegistry(), WorkflowDefinitionPin{Ref: p.Ref, Version: p.Version, Digest: p.Digest})
+	registered, err := verifyWorkflowDefinitionPinForFold(ctx, BuiltinWorkflowRegistry(), WorkflowDefinitionPin{Ref: p.Ref, Version: p.Version, Digest: p.Digest})
 	if err != nil {
 		return err
 	}
@@ -1370,10 +1370,13 @@ func foldWorkflowActionStarted(ctx context.Context, tx *sql.Tx, event Event) err
 	if p.ActorRef != event.Actor {
 		return newFailure(KindUnauthorized, "fold_event", "action start actor must match the authenticated event actor", false, "start the workflow action through the authenticated workflow actor")
 	}
-	if p.StepID != currentStep {
+	if p.StepID != currentStep && !isWorkflowReplay(ctx) {
+		// A replay realigns the instance to the step the event pins: fold
+		// tolerance for definitions whose structure moved on can leave the
+		// projected step behind the log. The log stays the authority.
 		return newFailure(KindIllegalLifecycleTransition, "fold_event", "action start does not match the pinned current workflow step", false, "start the pinned current workflow step")
 	}
-	if !definitionStepAllows(entry.Definition, currentStep, p.ActionID) {
+	if !definitionStepAllows(entry.Definition, currentStep, p.ActionID) && !isWorkflowReplay(ctx) {
 		return newFailure(KindIllegalLifecycleTransition, "fold_event", "action start is not declared on the pinned current workflow step", false, "start a declared action on the current workflow step")
 	}
 	latestEpoch, found, err := latestWorkflowActionStartEpoch(ctx, tx, event.SubjectID, p.StepID, event.Seq)
@@ -1472,10 +1475,10 @@ func foldWorkflowActionCheckpointed(ctx context.Context, tx *sql.Tx, event Event
 	if p.ActorRef != event.Actor {
 		return newFailure(KindUnauthorized, "fold_event", "checkpoint actor must match the authenticated event actor", false, "checkpoint through the authenticated workflow actor")
 	}
-	if p.StepID != currentStep || step == nil || p.StepKind != string(step.Kind) {
+	if (p.StepID != currentStep || step == nil || p.StepKind != string(step.Kind)) && !isWorkflowReplay(ctx) {
 		return newFailure(KindIllegalLifecycleTransition, "fold_event", "checkpoint does not match the pinned current workflow step kind", false, "checkpoint the pinned current workflow step and kind")
 	}
-	expectedEpoch, err := workflowCheckpointAttemptEpoch(ctx, tx, entry.Definition, step, event.SubjectID, currentStep)
+	expectedEpoch, err := workflowCheckpointAttemptEpoch(ctx, tx, entry.Definition, step, event.SubjectID, currentStep, event.Seq)
 	if err != nil {
 		return err
 	}
@@ -1628,14 +1631,17 @@ func foldWorkflowContextCheckpointed(ctx context.Context, tx *sql.Tx, event Even
 	if err := tx.QueryRowContext(ctx, `SELECT current_step,definition_ref,definition_digest,definition_version FROM workflow_instances WHERE work_id=?`, event.SubjectID).Scan(&currentStep, &workflowRef, &workflowDigestValue, &workflowVersion); err != nil {
 		return workflowProjectionError(err, "cannot read workflow identity for context checkpoint")
 	}
-	if currentStep != p.StepID || workflowRef != p.WorkflowRef || workflowDigestValue != p.WorkflowDefinitionDigest || workflowVersion != p.WorkflowDefinitionVersion {
+	// Both bindings read current state the replayed log never carried: the
+	// projected step and digest move as definitions move on, and the attempt
+	// epoch reads operational rows. Replay records the checkpoint it holds.
+	if (currentStep != p.StepID || workflowRef != p.WorkflowRef || workflowDigestValue != p.WorkflowDefinitionDigest || workflowVersion != p.WorkflowDefinitionVersion) && !isWorkflowReplay(ctx) {
 		return newFailure(KindStaleAttempt, "fold_event", "context checkpoint does not bind the current workflow step and definition", false, "reread the current workflow context")
 	}
 	var activeAttempt int64
 	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(attempt_epoch),1) FROM durable_operations WHERE work_id=?`, event.SubjectID).Scan(&activeAttempt); err != nil {
 		return workflowProjectionError(err, "cannot read workflow attempt epoch")
 	}
-	if activeAttempt != p.AttemptEpoch {
+	if activeAttempt != p.AttemptEpoch && !isWorkflowReplay(ctx) {
 		return newFailure(KindStaleAttempt, "fold_event", "context checkpoint does not bind the current attempt epoch", false, "reread the current workflow attempt")
 	}
 	if err := advanceWorkflowVersion(ctx, tx, event, p.WorkflowVersionFields); err != nil {
@@ -1862,6 +1868,12 @@ func admitWorkflowActionOffStep(ctx context.Context, tx *sql.Tx, event Event, p 
 		}
 	}
 	if p.ActionID == "request_correction" {
+		if isWorkflowReplay(ctx) {
+			// The admission consults the current verdict state, which replay
+			// derives only as its folds reach it. The log stays the authority
+			// for the recorded request, so replay admits it directly.
+			return nil
+		}
 		var recoveryErr error
 		correctionRecovery, recoveryErr = workflowCorrectionRequestAvailable(ctx, tx, event.SubjectID, entry.Definition, currentStep, "fold_event")
 		if recoveryErr != nil {
@@ -1873,7 +1885,15 @@ func admitWorkflowActionOffStep(ctx context.Context, tx *sql.Tx, event Event, p 
 		return nil
 	}
 	if !workerFailureRecovery && !correctionRecovery && p.ActionID != "request_correction" && (p.ActionID != "bind_evidence" || stepDeclaresAction(entry.Definition, currentStep, "bind_evidence")) {
-		return newFailure(KindIllegalLifecycleTransition, "fold_event", "completed action is not declared on the pinned current step", false, "reread_entities")
+		// The admission gate polices the live caller: a replayed event can
+		// name an action the moved-on definition no longer declares on the
+		// step, and the log stays the authority for what ran. Replay admits
+		// the off-step action and records its effects without the recovery
+		// routes this gate exists to police.
+		if !isWorkflowReplay(ctx) {
+			return newFailure(KindIllegalLifecycleTransition, "fold_event", "completed action is not declared on the pinned current step", false, "reread_entities")
+		}
+		return nil
 	}
 	if !workerFailureRecovery && !correctionRecovery {
 		bindingStep := workflowEvidenceBindingStep(entry.Definition, currentStep)
@@ -1945,7 +1965,7 @@ func foldWorkflowActionCompleted(ctx context.Context, tx *sql.Tx, event Event) e
 	if p.ActorRef != event.Actor {
 		return newFailure(KindUnauthorized, "fold_event", "completed action actor must match the authenticated event actor", false, "complete the workflow action through the authenticated workflow actor")
 	}
-	if p.ActionID == "" || p.StepID != currentStep {
+	if (p.ActionID == "" || p.StepID != currentStep) && !isWorkflowReplay(ctx) {
 		return newFailure(KindIllegalLifecycleTransition, "fold_event", "completed action is not declared on the pinned current step", false, "reread_entities")
 	}
 	if !definitionStepAllows(entry.Definition, currentStep, p.ActionID) {
@@ -1956,12 +1976,12 @@ func foldWorkflowActionCompleted(ctx context.Context, tx *sql.Tx, event Event) e
 	advancesStep := false
 	if p.ActionID != "" {
 		executionMode, ok := workflowActionExecutionMode(entry.Definition, p.ActionID)
-		if !ok {
+		if !ok && !isWorkflowReplay(ctx) {
 			return newFailure(KindInvariantViolation, "fold_event", "workflow action execution mode is not declared", false, "repair the pinned workflow definition")
 		}
-		advancesStep = executionMode == ActionAdvance
+		advancesStep = ok && executionMode == ActionAdvance
 		if advancesStep {
-			if err := rejectWorkerDispatchedStepAdvance(ctx, tx, event.SubjectID, currentStep, p.ActionID); err != nil {
+			if err := rejectWorkerDispatchedStepAdvance(ctx, tx, event.SubjectID, currentStep, p.ActionID, event.Seq); err != nil {
 				return err
 			}
 		}
@@ -1987,7 +2007,10 @@ func foldWorkflowActionCompleted(ctx context.Context, tx *sql.Tx, event Event) e
 				return newFailure(KindIllegalLifecycleTransition, "fold_event", "worker failure is already recorded", false, "start a fresh workflow attempt")
 			}
 		}
-		if p.ActionID == "request_correction" {
+		if p.ActionID == "request_correction" && !isWorkflowReplay(ctx) {
+			// The correction admission consults the current verdict state,
+			// which replay derives only as its folds reach it. The log stays
+			// the authority for the recorded request.
 			correctionPayload, _ := json.Marshal(map[string]any{"diagnosis": p.CorrectionDiagnosis, "strategy": p.CorrectionStrategy, "predicate_ids": p.CorrectionPredicateIDs, "evidence_refs": p.CorrectionEvidenceRefs})
 			if err := validateCorrectionRequestPayload(ctx, tx, event.SubjectID, entry.Definition, currentStep, correctionPayload, "fold_event"); err != nil {
 				return err
@@ -2028,23 +2051,31 @@ func foldWorkflowActionCompleted(ctx context.Context, tx *sql.Tx, event Event) e
 // rejectWorkerDispatchedStepAdvance refuses on this fact in the fold, and the
 // work pin reads it so the pin never offers an advance the fold will refuse
 // (CD-0133 D4). One owner keeps the two surfaces from drifting apart.
-func workflowDispatchHoldsStepAdvance(ctx context.Context, q queryer, workID, stepID string) (bool, error) {
-	startSeq, _, found, err := latestWorkflowActionStart(ctx, q, workID, stepID)
+// beforeSeq bounds the start search at the caller's own sequence position, so
+// a replay fold sees only the attempts that preceded its event.
+func workflowDispatchHoldsStepAdvance(ctx context.Context, q queryer, workID, stepID string, beforeSeq int64) (bool, error) {
+	startSeq, _, found, err := latestWorkflowActionStartAt(ctx, q, workID, stepID, beforeSeq)
 	if err != nil {
 		return false, err
 	}
 	if !found {
 		return false, nil
 	}
+	query := `SELECT count(*) FROM domain_events WHERE subject_id=? AND subject_type=? AND kind=? AND seq>?`
+	args := []any{workID, string(SubjectWorkItem), WorkerDispatched, startSeq}
+	if beforeSeq > 0 {
+		query += ` AND seq<?`
+		args = append(args, beforeSeq)
+	}
 	var dispatched int
-	if err := q.QueryRowContext(ctx, `SELECT count(*) FROM domain_events WHERE subject_id=? AND subject_type=? AND kind=? AND seq>?`, workID, string(SubjectWorkItem), WorkerDispatched, startSeq).Scan(&dispatched); err != nil {
+	if err := q.QueryRowContext(ctx, query, args...).Scan(&dispatched); err != nil {
 		return false, workflowProjectionError(err, "cannot inspect worker dispatches for the current workflow attempt")
 	}
 	return dispatched != 0, nil
 }
 
-func rejectWorkerDispatchedStepAdvance(ctx context.Context, tx *sql.Tx, workID, stepID, actionID string) error {
-	held, err := workflowDispatchHoldsStepAdvance(ctx, tx, workID, stepID)
+func rejectWorkerDispatchedStepAdvance(ctx context.Context, tx *sql.Tx, workID, stepID, actionID string, beforeSeq int64) error {
+	held, err := workflowDispatchHoldsStepAdvance(ctx, tx, workID, stepID, beforeSeq)
 	if err != nil {
 		return err
 	}
@@ -2072,8 +2103,12 @@ func latestWorkflowActionStartEpoch(ctx context.Context, tx *sql.Tx, workID, ste
 // checkpoint of an attempt that never ran. A step that declares no fenced
 // action opens no attempt at all, and CD-0112 D3 lets an action there append a
 // typed checkpoint and still advance, so the epoch is the first attempt.
-func workflowCheckpointAttemptEpoch(ctx context.Context, q queryer, definition WorkflowDefinition, step *WorkflowStep, workID, stepID string) (int64, error) {
-	_, latestEpoch, found, err := latestWorkflowActionStartAt(ctx, q, workID, stepID, 0)
+//
+// beforeSeq bounds the start search at the caller's own sequence position: the
+// fold passes its event's seq, so a replay reads only the starts that preceded
+// the checkpoint instead of the whole log.
+func workflowCheckpointAttemptEpoch(ctx context.Context, q queryer, definition WorkflowDefinition, step *WorkflowStep, workID, stepID string, beforeSeq int64) (int64, error) {
+	_, latestEpoch, found, err := latestWorkflowActionStartAt(ctx, q, workID, stepID, beforeSeq)
 	if err != nil {
 		return 0, err
 	}
@@ -2155,16 +2190,25 @@ func validateWorkerAttemptAction(ctx context.Context, tx *sql.Tx, event Event, p
 		}
 	}
 	if !allowed {
+		// The pinned definition is code and its step graph moves on, so a
+		// replayed event can name an action the current structure no longer
+		// declares on the step. The log stays the authority for what ran, so
+		// the structural gate binds the live path only.
+		if isWorkflowReplay(ctx) {
+			allowed = true
+		}
+	}
+	if !allowed {
 		return newFailure(KindIllegalLifecycleTransition, "fold_event", payload.ActionID+" is only valid on a worker-dispatch step", false, "record the worker attempt on its pinned step")
 	}
 	if payload.WorkerAttemptID == "" {
 		return newFailure(KindInvalidPayload, "fold_event", payload.ActionID+" requires worker_attempt_id", false, "supply the exact worker attempt identity")
 	}
-	startSeq, startEpoch, found, err := latestWorkflowActionStart(ctx, tx, event.SubjectID, currentStep)
+	startSeq, startEpoch, found, err := latestWorkflowActionStartAt(ctx, tx, event.SubjectID, currentStep, event.Seq)
 	if err != nil {
 		return err
 	}
-	if !found || payload.AttemptEpoch != startEpoch {
+	if (!found || payload.AttemptEpoch != startEpoch) && !isWorkflowReplay(ctx) {
 		return newFailure(KindIllegalLifecycleTransition, "fold_event", "worker attempt epoch does not match the latest workflow action start", false, "record the current workflow attempt")
 	}
 	var attemptWorkID, lifecycle, readback string
@@ -2278,14 +2322,14 @@ func foldWorkflowActionFailed(ctx context.Context, tx *sql.Tx, event Event) erro
 	if p.ActorRef != event.Actor {
 		return newFailure(KindUnauthorized, "fold_event", "action failure actor must match the authenticated event actor", false, "fail the workflow action through the authenticated workflow actor")
 	}
-	if p.StepID != currentStep {
+	if p.StepID != currentStep && !isWorkflowReplay(ctx) {
 		return newFailure(KindIllegalLifecycleTransition, "fold_event", "action failure does not match the pinned current workflow step", false, "fail the pinned current workflow step")
 	}
-	_, latestEpoch, found, err := latestWorkflowActionStart(ctx, tx, event.SubjectID, currentStep)
+	_, latestEpoch, found, err := latestWorkflowActionStartAt(ctx, tx, event.SubjectID, currentStep, event.Seq)
 	if err != nil {
 		return err
 	}
-	if !found || p.AttemptEpoch != latestEpoch {
+	if (!found || p.AttemptEpoch != latestEpoch) && !isWorkflowReplay(ctx) {
 		return newFailure(KindIllegalLifecycleTransition, "fold_event", "action failure does not match the latest workflow action start epoch", false, "fail the current workflow action attempt")
 	}
 	if executionActor == "" || p.ActorRef != executionActor {

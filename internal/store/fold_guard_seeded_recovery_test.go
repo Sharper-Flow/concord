@@ -167,7 +167,7 @@ func TestRecoverFoldGuardCompletesOnFullySeededStore(t *testing.T) {
 	// authority tables, or the untouched linear_outbox), and every
 	// RESTRICT-FK projection table must hold a seed.
 	snapshotSet := map[string]bool{}
-	for _, table := range rebuildSnapshotTables {
+	for _, table := range operationalRebuildTables {
 		snapshotSet[table] = true
 	}
 	for table := range seeded {

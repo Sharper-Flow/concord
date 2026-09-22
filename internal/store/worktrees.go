@@ -214,12 +214,21 @@ func foldWorktreeReclaimedTx(ctx context.Context, tx *sql.Tx, event Event, p wor
 				return newFailure(KindProjectionConflict, "fold_event", "reclaim event has no claim generation and targets a later worktree claim", false, "emit a reclaim event for the active claim generation")
 			}
 		}
-		var reclaimedClaims int
-		if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM worktree_claims WHERE set_id=? AND project_id=? AND state=?`, p.SetID, p.ProjectID, worktreeStateReclaimed).Scan(&reclaimedClaims); err != nil {
-			return err
-		}
-		if reclaimedClaims > 0 && state == worktreeEntryActive {
-			return newFailure(KindProjectionConflict, "fold_event", "reclaim event has no claim generation and cannot target the active worktree", false, "emit a reclaim event for the active claim generation")
+		// A fresh append cannot be disambiguated by ordering: the sequence is
+		// assigned before the fold runs, so it always sorts after every
+		// recorded claim, and a payload with no generation cannot prove which
+		// generation it targets. When an earlier generation sits reclaimed
+		// beside an active entry, refuse the append. A replay folds in log
+		// order, where the created-before check above proves the target from
+		// sequence position, so only the live path keeps this guard.
+		if !isWorkflowReplay(ctx) {
+			var reclaimedClaims int
+			if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM worktree_claims WHERE set_id=? AND project_id=? AND state=?`, p.SetID, p.ProjectID, worktreeStateReclaimed).Scan(&reclaimedClaims); err != nil {
+				return err
+			}
+			if reclaimedClaims > 0 && state == worktreeEntryActive {
+				return newFailure(KindProjectionConflict, "fold_event", "reclaim event has no claim generation and cannot target the active worktree", false, "emit a reclaim event for the active claim generation")
+			}
 		}
 		claimOpID = currentClaim
 	}
@@ -237,9 +246,15 @@ func foldWorktreeReclaimedTx(ctx context.Context, tx *sql.Tx, event Event, p wor
 	if n, _ := res.RowsAffected(); n != 1 {
 		return newFailure(KindProjectionNotFound, "fold_event", "no active worktree to reclaim for this Project", false, "claim a worktree before reclaiming it")
 	}
-	if _, err := tx.ExecContext(ctx, `UPDATE worktree_claims SET state=?, updated_at=? WHERE op_id=? AND state=?`,
-		worktreeStateReclaimed, event.OccurredAt.Format(time.RFC3339Nano), claimOpID, worktreeStateVerified); err != nil {
-		return err
+	// The claim row is operational state maintained by live operations, which
+	// include routes that revive a reclaimed claim. Replaying the log's
+	// reclaims must not regress that newer operational truth, so only the
+	// live reclaim keeps the claim row and the fold in lockstep.
+	if !isWorkflowReplay(ctx) {
+		if _, err := tx.ExecContext(ctx, `UPDATE worktree_claims SET state=?, updated_at=? WHERE op_id=? AND state=?`,
+			worktreeStateReclaimed, event.OccurredAt.Format(time.RFC3339Nano), claimOpID, worktreeStateVerified); err != nil {
+			return err
+		}
 	}
 	if !advanceVersion {
 		return nil

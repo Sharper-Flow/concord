@@ -15,7 +15,7 @@ import (
 var rebuildClearListExemptions = append([]string{
 	"active_research_packs",
 	"active_research_consumers",
-}, rebuildSnapshotTables...)
+}, operationalRebuildTables...)
 
 // TestLinearOutboxIsNeverCleared pins the one direct-authority table that has
 // no foreign key at all: a queued row is pending Linear work no event can
@@ -23,12 +23,12 @@ var rebuildClearListExemptions = append([]string{
 // snapshot, or otherwise touch it.
 func TestLinearOutboxIsNeverCleared(t *testing.T) {
 	t.Parallel()
-	for _, table := range rebuildClearTables {
+	for _, table := range replayProjectionClearTables {
 		if table == "linear_outbox" {
 			t.Fatal("linear_outbox is in the clear list: a rebuild would drop queued Linear operations the event log cannot restore")
 		}
 	}
-	for _, table := range rebuildSnapshotTables {
+	for _, table := range operationalRebuildTables {
 		if table == "linear_outbox" {
 			t.Fatal("linear_outbox is in the snapshot set: it holds no foreign key and must simply stay untouched")
 		}
@@ -37,8 +37,8 @@ func TestLinearOutboxIsNeverCleared(t *testing.T) {
 
 // rebuildClearTableSet indexes the clear list for membership checks.
 func rebuildClearTableSet() map[string]bool {
-	set := make(map[string]bool, len(rebuildClearTables))
-	for _, table := range rebuildClearTables {
+	set := make(map[string]bool, len(replayProjectionClearTables))
+	for _, table := range replayProjectionClearTables {
 		set[table] = true
 	}
 	return set
@@ -101,7 +101,7 @@ func TestRebuildClearListCoversWorkItemReferences(t *testing.T) {
 
 	position := map[string]int{}
 	seen := map[string]bool{}
-	for i, table := range rebuildClearTables {
+	for i, table := range replayProjectionClearTables {
 		if seen[table] {
 			t.Errorf("%s appears twice in the clear list", table)
 		}
@@ -148,8 +148,8 @@ func TestRebuildClearListCoversWorkItemReferences(t *testing.T) {
 			t.Errorf("exempt table %s no longer exists; retire the exemption", table)
 			continue
 		}
-		if !references[table]["work_items"] {
-			t.Errorf("exempt table %s no longer references work_items; retire the exemption", table)
+		if !references[table]["work_items"] && !references[table]["products"] && !references[table]["projects"] {
+			t.Errorf("exempt table %s no longer references a cleared projection root; retire the exemption", table)
 		}
 	}
 

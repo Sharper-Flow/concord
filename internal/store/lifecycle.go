@@ -231,7 +231,12 @@ func foldWorkCreated(ctx context.Context, tx *sql.Tx, event Event) error {
 		return newFailure(KindInvalidPayload, "fold_event", "raised_from_work_id requires an external_ref collision", false,
 			"supply raised_from_work_id only when acknowledging a live external reference conflict")
 	}
-	if payload.ExternalRef != "" {
+	// The live-owner check refuses a fresh append that claims an external
+	// reference a live work item already owns. A replay cannot run it: the
+	// work_items rows mid-replay are the log's own prefix, and events recorded
+	// before this check existed hold external references history resolved
+	// later, so the log's ordering is the replay's only authority.
+	if payload.ExternalRef != "" && !isWorkflowReplay(ctx) {
 		var existingWorkID string
 		err := tx.QueryRowContext(ctx, `SELECT id FROM work_items WHERE json_extract(intent_json, '$.external_ref')=? AND terminal_time IS NULL LIMIT 1`, payload.ExternalRef).Scan(&existingWorkID)
 		if err != nil && err != sql.ErrNoRows {
@@ -430,7 +435,14 @@ func foldWorkTransitioned(ctx context.Context, tx *sql.Tx, event Event) error {
 		return err
 	}
 	if payload.From != current.lifecycle || !ordinaryTransitions[payload.From][payload.To] {
-		return illegalTransition(payload.From, payload.To)
+		// A replay judges the transition by the mid-replay lifecycle: a fold
+		// that runs before this event, such as the execution-start lifecycle
+		// move, may have advanced the item past the state the payload's from
+		// field recorded, and the log's ordering is the replay's authority.
+		// An item already resting on the target state affirms the move.
+		if !isWorkflowReplay(ctx) || (current.lifecycle != payload.To && !ordinaryTransitions[current.lifecycle][payload.To]) {
+			return illegalTransition(payload.From, payload.To)
+		}
 	}
 	if payload.To == "completed" {
 		if err := refuseUnreconciledDelivery(ctx, tx, event.SubjectID); err != nil {
@@ -465,7 +477,10 @@ func foldWorkTransitioned(ctx context.Context, tx *sql.Tx, event Event) error {
 			}
 		}
 	}
-	if payload.To == "in_progress" {
+	if payload.To == "in_progress" && !isWorkflowReplay(ctx) {
+		// The staleness boundary consults the current Git-derived law state,
+		// which the log never carried. Replay reconstructs projections from
+		// the log, so only the live path runs the boundary here.
 		if err := checkWorkflowLawRevisionStalenessTx(ctx, tx, event.SubjectID); err != nil {
 			return err
 		}

@@ -10,7 +10,7 @@
     },
     {
       "kind": "go_test",
-      "value": "internal/receipt.TestRenderAbbreviatesLabelsToTheAnchorCellWidth"
+      "value": "internal/receipt.TestRenderAbbreviatesLabelsToTheCellWidth"
     },
     {
       "kind": "go_test",

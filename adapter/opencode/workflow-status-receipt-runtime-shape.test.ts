@@ -1,12 +1,14 @@
 import { describe, expect, test } from "bun:test"
-import { formatWorkClosureBox } from "./workflow-status"
+import { formatWorkClosureReceipt } from "./workflow-status"
 
-// The closure banner reads two facts from ONE response: the pin's terminal
-// lifecycle and the envelope's evidence_refs. These fixtures reproduce the
-// shape the core actually returns for concord_work_transition.lifecycle with
-// target "completed", rather than a hand-built pairing, because the shipped
-// banner was unreachable precisely where those two facts were carried by
-// different responses.
+// The closure receipt reads ONE fact from the lifecycle-completion response:
+// the terminal pin the core returns. These fixtures reproduce the shape the
+// core actually returns for concord_work_transition.lifecycle with target
+// "completed", rather than a hand-built pairing, because the shipped banner
+// was unreachable precisely where the pin was carried by a different
+// response than the mutation outcome. The receipt bytes themselves are owned
+// by the core's internal/receipt golden tests; this file pins the delegation
+// contract against the runtime shape.
 function lifecycleCompletionEnvelope() {
   return {
     schema_version: "1.0",
@@ -43,40 +45,48 @@ function lifecycleCompletionEnvelope() {
   }
 }
 
+const RECEIPT_BYTES = "| 🛫 CON-392 Complete (work-cross) |\n| :-- |\n| ✅ Delegate passes the verb bytes |\n| ✓ check check:repo:verify · pass |"
+
+function receiptRunner(calls: string[][], stdout: string) {
+  return { async run(argv: string[], stdin: string) {
+    calls.push([...argv, stdin])
+    return { exitCode: 0, stdout, stderr: "" }
+  } }
+}
+
 describe("workflow_status_receipt_runtime_shape", () => {
-  test("renders the closure box from the runtime lifecycle-completion envelope", () => {
+  test("delegates the completed pin to the core receipt verb and queues its bytes", async () => {
     const envelope = lifecycleCompletionEnvelope()
-    expect(formatWorkClosureBox(envelope.result.work_pins[0], envelope)).toBe(
-      "```\n+=========================================================+\n|               Concord Work Item Complete                |\n+=========================================================+\n|  work-cross | Concord                                   |\n|  Emit an operator-facing closure receipt on completion  |\n|  lifecycle=completed | evidence=2                       |\n+=========================================================+\n```",
-    )
+    const calls: string[][] = []
+    const receipt = await formatWorkClosureReceipt(envelope.result.work_pins[0], { runner: receiptRunner(calls, RECEIPT_BYTES), binary: "concord-test" })
+    expect(calls).toEqual([["concord-test", "receipt", JSON.stringify({ work_id: "work-cross" })]])
+    expect(receipt).toBe(RECEIPT_BYTES)
   })
 
-  test("an envelope without evidence renders evidence=none instead of going silent", () => {
-    // This is the exact pre-repair runtime shape: lifecycle completed, and an
-    // empty evidence_refs because the binding sat on a non-lifecycle action.
-    // Evidence left the gate and moved into the rendering.
-    const envelope = lifecycleCompletionEnvelope()
-    envelope.evidence_refs = []
-    expect(formatWorkClosureBox(envelope.result.work_pins[0], envelope)).toBe(
-      "```\n+=========================================================+\n|               Concord Work Item Complete                |\n+=========================================================+\n|  work-cross | Concord                                   |\n|  Emit an operator-facing closure receipt on completion  |\n|  lifecycle=completed | evidence=none                    |\n+=========================================================+\n```",
-    )
-  })
-
-  test("withholds the closure box for a non-terminal lifecycle", () => {
+  test("a non-terminal pin never reaches the receipt verb", async () => {
     const envelope = lifecycleCompletionEnvelope()
     envelope.result.work_pins[0].lifecycle = "in_progress"
-    expect(formatWorkClosureBox(envelope.result.work_pins[0], envelope)).toBeNull()
+    const calls: string[][] = []
+    const receipt = await formatWorkClosureReceipt(envelope.result.work_pins[0], { runner: receiptRunner(calls, RECEIPT_BYTES), binary: "concord-test" })
+    expect(calls).toEqual([])
+    expect(receipt).toBeNull()
   })
 
-  test("prefers the Linear issue key as the closure box identifier", () => {
+  test("the verb printing nothing leaves no notice: a non-completed closure is silent", async () => {
     const envelope = lifecycleCompletionEnvelope()
-    envelope.result.work_pins[0].linear_issue_key = "SHA-188"
-    expect(formatWorkClosureBox(envelope.result.work_pins[0], envelope)).toContain("\n|  SHA-188 (work-cross) | Concord  ")
+    envelope.result.work_pins[0].lifecycle = "cancelled"
+    const calls: string[][] = []
+    const receipt = await formatWorkClosureReceipt(envelope.result.work_pins[0], { runner: receiptRunner(calls, ""), binary: "concord-test" })
+    expect(calls).toHaveLength(1)
+    expect(receipt).toBeNull()
   })
 
-  test("an evidence ref without a locator renders evidence=none", () => {
+  test("a failed receipt verb is a warning, never a thrown mutation failure", async () => {
     const envelope = lifecycleCompletionEnvelope()
-    envelope.evidence_refs = [{ kind: "verification", authority: "agent-verifier", locator_kind: "test" } as never]
-    expect(formatWorkClosureBox(envelope.result.work_pins[0], envelope as never)).toContain("lifecycle=completed | evidence=none")
+    const warnings: string[] = []
+    const runner = { async run() { return { exitCode: 1, stdout: "", stderr: "work item is not recorded" } } }
+    const receipt = await formatWorkClosureReceipt(envelope.result.work_pins[0], { runner, binary: "concord-test", warnings })
+    expect(receipt).toBeNull()
+    expect(warnings).toEqual(["Concord could not render the work closure receipt: receipt exited 1."])
   })
 })

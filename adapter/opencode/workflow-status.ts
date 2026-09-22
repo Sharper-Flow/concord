@@ -1,4 +1,4 @@
-import { defaultRunner, type DispatchRunner } from "./dispatch"
+import { defaultRunner, concordBinaryPath, CoreBinaryUnavailable, type DispatchRunner } from "./dispatch"
 import { hostControlPlane } from "./move-session"
 
 export type WorkflowStatusContext = { sessionID: string; abort: AbortSignal }
@@ -25,7 +25,7 @@ type VerifiedCriterion = {
   verdict_kind: string
 }
 
-type MutationEnvelope = { outcome?: unknown; result?: unknown; evidence_refs?: unknown }
+type MutationEnvelope = { outcome?: unknown; result?: unknown }
 
 const TAB_MAPPING_TTL_MS = 10_000
 const MAX_NAME_CODE_POINTS = 64
@@ -106,88 +106,39 @@ export function formatWorkPaneName(value: unknown): string | null {
   return capCodePoints(fields.filter(Boolean).join(" | ")) || null
 }
 
-function evidenceLocators(envelope: MutationEnvelope): string[] | null {
-  if (envelope.outcome !== "ok" || !Array.isArray(envelope.evidence_refs)) return null
-  const locators = envelope.evidence_refs.map((value) => record(value) && safeText(value.locator) ? value.locator : null)
-  if (locators.some((locator) => locator === null)) return null
-  return locators as string[]
-}
-
 const TERMINAL_LIFECYCLES: ReadonlySet<string> = new Set(["completed", "cancelled", "superseded"])
 
-// A closure box is at most this wide inside its borders. A work title may
-// reach 256 characters, and a box sized to one would exceed the terminal and
-// wrap, which destroys the alignment the borders exist to provide.
-const CLOSURE_CELL_MAX = 100
-
-const CLOSURE_HEADINGS: Readonly<Record<"complete" | "closed", string>> = {
-  complete: "Concord Work Item Complete",
-  closed: "Concord Work Item Closed",
-}
-
-// Content cells sit two columns inside each pipe, so the box reads roomier
-// than a flush table. Every cell is padded to one width, so each border and
-// content line of a box is the same length. An over-long cell is truncated
-// with a single-column marker rather than wrapped, which keeps the width
-// computation total.
-function closureCell(text: string, width: number): string {
-  const cell = text.length > width ? `${text.slice(0, width - 1)}…` : text.padEnd(width)
-  return `|  ${cell}  |`
-}
-
-// The heading is centred rather than flush left, because it is the one line
-// the operator scans for. Odd padding goes to the right, so the centring is
-// deterministic and the golden bytes stay fixed.
-function closureHeadingCell(text: string, width: number): string {
-  const pad = width - text.length
-  const cell = `${" ".repeat(Math.floor(pad / 2))}${text}${" ".repeat(Math.ceil(pad / 2))}`
-  return `|  ${cell}  |`
-}
-
-function verifiedCriterionLine(value: unknown): string | null {
-  if (!record(value) || value.verdict_kind !== "ok" || !safeText(value.outcome_kind) || !record(value.outcome_payload)) return null
-  const payload = value.outcome_payload
-  let detail: string | null = null
-  if ((value.outcome_kind === "exists" || value.outcome_kind === "absent") && Array.isArray(payload.subjects) && safeText(payload.subjects[0]) && safeText(payload.surface)) {
-    detail = `${value.outcome_kind} ${sanitizeTabField(payload.subjects[0])} | ${sanitizeTabField(payload.surface)}`
-  } else if (value.outcome_kind === "outcome" && Array.isArray(payload.allowed) && safeText(payload.allowed[0])) {
-    detail = `${value.outcome_kind} ${sanitizeTabField(payload.allowed[0])}`
-  } else if (value.outcome_kind === "check" && safeText(payload.check_ref) && safeText(payload.expected_result)) {
-    detail = `${value.outcome_kind} ${sanitizeTabField(payload.check_ref)} | ${sanitizeTabField(payload.expected_result)}`
-  }
-  return detail === null ? null : `✓ ${detail}`
-}
-
-// formatWorkClosureBox renders the one closure box a terminal work pin
-// produces. The gate is the terminal lifecycle alone: evidence is not a
-// precondition, so a closure with no readable evidence prints `evidence=none`
-// rather than closing the item in silence. A completed pin is headed
-// `Concord Work Item Complete` over `=` rules; a cancelled or superseded pin
-// is headed `Concord Work Item Closed` over `-` rules, which keeps closure
-// without completion visibly plainer. The exact bytes are fixed by the golden
-// tests.
-//
-// The block is fenced. The host renders an assistant text part as markdown
-// through `marked` with its default `breaks: false`, so a single newline is a
-// soft break and collapses to a space: an unfenced box would reach the
-// operator as one run-on line. The fence also holds the border columns in a
-// monospace block, which is the whole point of a box.
-export function formatWorkClosureBox(value: unknown, envelope: MutationEnvelope): string | null {
+// formatWorkClosureReceipt renders the closure receipt for one terminal work
+// pin. The format is product-owned law (CD-0169): the core's `concord
+// receipt` verb renders it from the store, and this delegate keeps zero
+// formatting logic of its own. The call rides only at a terminal lifecycle,
+// because a non-terminal pin can never complete. The verb prints nothing for
+// a work item outside the completed lifecycle, and a failed call is a
+// best-effort warning, never a mutation failure: the receipt is a notice.
+export async function formatWorkClosureReceipt(value: unknown, options: { runner?: DispatchRunner; binary?: string; abort?: AbortSignal; warnings?: string[] } = {}): Promise<string | null> {
   const pin = workPin(value)
   if (!pin || !TERMINAL_LIFECYCLES.has(pin.lifecycle)) return null
-  const locators = evidenceLocators(envelope)
-  const evidence = locators !== null && locators.length > 0 ? `evidence=${locators.length}` : "evidence=none"
-  const identifier = pin.linear_issue_key ? `${pin.linear_issue_key} (${pin.work_id})` : pin.work_id
-  const completed = pin.lifecycle === "completed"
-  const heading = completed ? CLOSURE_HEADINGS.complete : CLOSURE_HEADINGS.closed
-  const body = [`${identifier} | ${pin.project_display_name}`, pin.title, `lifecycle=${pin.lifecycle} | ${evidence}`]
-  if (completed && pin.verified_criteria) {
-    body.push(...pin.verified_criteria.map(verifiedCriterionLine).filter((line): line is string => line !== null))
+  const runner = options.runner ?? defaultRunner
+  let binary: string
+  try {
+    binary = options.binary ?? concordBinaryPath()
+  } catch (error) {
+    if (error instanceof CoreBinaryUnavailable) return null
+    throw error
   }
-  const width = Math.min(CLOSURE_CELL_MAX, Math.max(heading.length, ...body.map((cell) => cell.length)))
-  const rule = `+${(completed ? "=" : "-").repeat(width + 4)}+`
-  const lines = [rule, closureHeadingCell(heading, width), rule, ...body.map((cell) => closureCell(cell, width)), rule]
-  return `\`\`\`\n${lines.join("\n")}\n\`\`\``
+  let result: { exitCode: number; stdout: string; stderr: string }
+  try {
+    result = await runner.run([binary, "receipt"], JSON.stringify({ work_id: pin.work_id }), options.abort ?? new AbortController().signal)
+  } catch (error) {
+    options.warnings?.push(`Concord could not render the work closure receipt: ${error instanceof Error ? error.message : String(error)}.`)
+    return null
+  }
+  if (result.exitCode !== 0) {
+    options.warnings?.push(`Concord could not render the work closure receipt: receipt exited ${result.exitCode}.`)
+    return null
+  }
+  const receipt = result.stdout.trim()
+  return receipt.length > 0 ? receipt : null
 }
 
 function workPins(envelope: unknown): WorkPin[] {
@@ -199,7 +150,7 @@ function workPins(envelope: unknown): WorkPin[] {
 }
 
 type TabMapping = { attemptedAt: number; tabID?: string }
-type WorkStateReporterOptions = { runner?: DispatchRunner; now?: () => number }
+type WorkStateReporterOptions = { runner?: DispatchRunner; now?: () => number; binary?: string }
 
 async function renameZellijTab(pin: WorkPin, context: WorkflowStatusContext, runner: DispatchRunner, now: () => number, mappings: Map<string, TabMapping>, warnings: string[]): Promise<void> {
   const paneID = process.env.ZELLIJ_PANE_ID
@@ -245,6 +196,7 @@ async function refreshSessionGoalTitle(pin: WorkPin, context: WorkflowStatusCont
 export function createWorkStateReporter(options: WorkStateReporterOptions = {}) {
   const runner = options.runner ?? defaultRunner
   const now = options.now ?? Date.now
+  const binary = options.binary
   const mappings = new Map<string, TabMapping>()
   // A terminal pin reappears in the pins of any later mutation that touches
   // the same item, so the closure banner is emitted once per sessionID,
@@ -281,7 +233,7 @@ export function createWorkStateReporter(options: WorkStateReporterOptions = {}) 
       for (const pin of workPins(envelope)) {
         await renameZellijTab(pin, context, runner, now, mappings, warnings)
         await refreshSessionGoalTitle(pin, context, warnings)
-        const block = formatWorkClosureBox(pin, envelope)
+        const block = await formatWorkClosureReceipt(pin, { runner, binary, abort: context.abort, warnings })
         if (block !== null && emitClosure(context.sessionID, pin)) enqueueNotice(context.sessionID, block)
       }
       return warnings

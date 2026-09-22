@@ -1,0 +1,36 @@
+{
+  "authority": {
+    "contract_version": 1,
+    "legislated_by": "work-6f97c48d3e6983bfb38b716d",
+    "tier": "legislated"
+  },
+  "date": "2026-09-21T00:00:00Z",
+  "home_domain_id": "workflow-engine",
+  "id": "CD-0169",
+  "kind": "decision",
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "CD-0170"
+    }
+  ],
+  "path": "docs/decisions/CD-0169-the-closure-receipt-format-is-product-owned.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:65a64e66c0c5eb307e1660d814f28b34e6f8c7a098011b5d96092d6813646abf",
+  "status": "accepted",
+  "summary": "The closure receipt format is product-owned law. One Go renderer in internal/receipt owns the bytes, the concord receipt verb in commandSpecs is its only render surface, and the adapter delegates at a terminal lifecycle with no formatting logic of its own. The receipt is an unfenced single-column markdown table: the header row is the plane line, the first body row is U+2705 with the work title, and one row per verified contract predicate follows, marked U+2713, with labels abbreviated to sixty-four code points. The host markdown renderer owns alignment. Content law stays CD-0170: completed lifecycle only, verified predicates only, and an ambiguous projection degrades by omission.",
+  "tags": [
+    "closure-receipt",
+    "cli",
+    "adapter",
+    "workflow",
+    "markdown"
+  ],
+  "title": "The closure receipt format is product-owned"
+}

@@ -548,56 +548,29 @@ func normalizeWorkflowDefinition(definition WorkflowDefinition) WorkflowDefiniti
 	return definition
 }
 
-// BuiltinWorkflowDefinitions authors the seven shipped workflow families in
-// the shape they run in. Frozen prior versions live in
-// workflow_registry_versions.go and never acquire current payload contracts.
+// BuiltinWorkflowDefinitions returns the current definition of each shipped
+// workflow family: the last element of its authored version chain. Frozen
+// version builders live in workflow_registry_versions.go and never acquire
+// current payload contracts.
 func BuiltinWorkflowDefinitions() []WorkflowDefinition {
-	implementation := implementationDeliveryV15()
-	breakFix := breakFixDeliveryV13()
-	research := researchDeliveryPayloadV9()
-	architectureSpike := architectureDeliveryPayloadV10()
-	opsRunbook := opsRunbookDeliveryPayloadV11()
-	staticAnalysis := staticAnalysisDeliveryPayloadV8()
-	genericOneOff := genericOneOffDeliveryPayloadV9()
-	return []WorkflowDefinition{
-		implementation, breakFix, research, architectureSpike, opsRunbook, staticAnalysis, genericOneOff,
+	chains := workflowDefinitionChains()
+	currents := make([]WorkflowDefinition, 0, len(chains))
+	for _, chain := range chains {
+		currents = append(currents, chain[len(chain)-1])
 	}
+	return currents
 }
 
 // builtinWorkflowDefinitionsWithHistory returns every registered built-in
-// definition: the frozen version-1 shapes first, then the shipped shapes.
-// Registration enforces ascending versions per reference, so the order is
-// load-bearing (#861).
+// definition: each family's authored version chain in ascending order.
+// Registration enforces ascending versions per reference, so the chain order
+// is load-bearing (#861).
 func builtinWorkflowDefinitionsWithHistory() []WorkflowDefinition {
-	history := []WorkflowDefinition{
-		withLegacyWorkerActions(legacyImplementationV1()), withLegacyWorkerActions(legacyBreakFixV1()), withLegacyWorkerActions(legacyResearchV1()), withLegacyWorkerActions(legacyGenericOneOffV1()),
-		preJoinImplementationV2(), preJoinBreakFixV2(), preJoinGenericOneOffV2(), preJoinResearchV2(), preJoinArchitectureSpikeV1(), preJoinOpsRunbookV1(), preJoinStaticAnalysisV1(),
-		prePayloadImplementationV3(), prePayloadBreakFixV3(), prePayloadGenericOneOffV3(), prePayloadResearchV3(), prePayloadArchitectureSpikeV2(), prePayloadOpsRunbookV2(), prePayloadStaticAnalysisV2(),
-		preFailureImplementationV4(), preFailureBreakFixV4(), preFailureGenericOneOffV4(), preFailureResearchV4(), preFailureArchitectureSpikeV3(), preFailureOpsRunbookV3(), preFailureStaticAnalysisV3(),
-		releasedBreakFixV5(), breakFixEvidenceRecoveryV6(), breakFixRefinementV7(), breakFixRefinementV8(),
-		preDesignImplementationV5(),
-		preProposalImplementationV6(),
-		releasedImplementationV7(), implementationRefinementV8(), implementationRefinementV9(), implementationDesignItemSchemaV10(),
-		releasedOpsRunbookV4(), preDecisionPayloadArchitectureSpikeV4(), preCancellationContractOpsRunbookV5(), opsRunbookConditionContractV6(), opsRunbookTimestampV7(), releasedArchitectureSpikeV5(), architectureSpikeDecisionBoundsV6(),
-		releasedResearchV5(), releasedStaticAnalysisV4(), releasedGenericOneOffV5(),
+	var history []WorkflowDefinition
+	for _, chain := range workflowDefinitionChains() {
+		history = append(history, chain...)
 	}
-	for i := range history {
-		history[i] = withLegacyDeliveryPayload(withLegacyNonBlankContract(withLegacyEvidenceBindingReferences(withLegacyPremiseContract(history[i]))))
-	}
-	history = append(history,
-		withLegacyNonBlankContract(withLegacyEvidenceBindingReferences(implementationPremiseContractV11())), withLegacyNonBlankContract(withLegacyEvidenceBindingReferences(breakFixPremiseContractV9())), withLegacyNonBlankContract(withLegacyEvidenceBindingReferences(withWorkerActions(builtinResearch(true), true))),
-		withLegacyNonBlankContract(withLegacyEvidenceBindingReferences(architecturePremiseContractV7())), withLegacyNonBlankContract(withLegacyEvidenceBindingReferences(opsRunbookPremiseContractV8())), withLegacyNonBlankContract(withLegacyEvidenceBindingReferences(withWorkerActions(builtinStaticAnalysis(true), true))), withLegacyNonBlankContract(withLegacyEvidenceBindingReferences(withWorkerActions(builtinGenericOneOff(true), true))),
-		previousWorkflowVersion(implementationPreAlignmentV12(), 12), previousWorkflowVersion(breakFixPreAlignmentV10(), 10),
-		previousWorkflowVersion(implementationAlignmentV14(), 13), previousWorkflowVersion(breakFixAlignmentV12(), 11),
-		previousWorkflowVersion(withCurrentNonBlankContract(withWorkerActions(builtinResearch(true), true)), 7), previousWorkflowVersion(withCurrentNonBlankContract(architecturePremiseContractV7()), 8),
-		previousWorkflowVersion(withCurrentNonBlankContract(opsRunbookPremiseContractV8()), 9), previousWorkflowVersion(withCurrentNonBlankContract(withWorkerActions(builtinStaticAnalysis(true), true)), 6), previousWorkflowVersion(withCurrentNonBlankContract(withWorkerActions(builtinGenericOneOff(true), true)), 7),
-		implementationAlignmentV14(), breakFixAlignmentV12(), researchPreDeliveryV8(), architecturePreDeliveryV9(),
-		opsRunbookPreDeliveryV10(), staticAnalysisPreDeliveryV7(), genericOneOffPreDeliveryV8(),
-	)
-	for i := range history {
-		history[i] = withLegacyDeliveryPayload(history[i])
-	}
-	return append(history, BuiltinWorkflowDefinitions()...)
+	return history
 }
 
 // BuiltinWorkflowDefinitionsWithHistory returns the immutable built-in

@@ -55,9 +55,11 @@ type WorkflowContractSnapshot struct {
 	Premise string
 }
 
-// WorkflowInstanceDefinition is the immutable workflow definition reference.
+// WorkflowInstanceDefinition is the immutable workflow definition pin: the
+// family reference and the version the instance is pinned to.
 type WorkflowInstanceDefinition struct {
-	DefinitionRef string
+	DefinitionRef     string
+	DefinitionVersion int64
 }
 
 // RelationRecord is the relation identity needed by unlink effects.
@@ -222,7 +224,7 @@ func WorkflowInstanceDefinitionTx(ctx context.Context, transaction *Transaction,
 		return WorkflowInstanceDefinition{}, false, err
 	}
 	var definition WorkflowInstanceDefinition
-	err = tx.QueryRowContext(ctx, `SELECT definition_ref FROM workflow_instances WHERE work_id=?`, workID).Scan(&definition.DefinitionRef)
+	err = tx.QueryRowContext(ctx, `SELECT definition_ref,definition_version FROM workflow_instances WHERE work_id=?`, workID).Scan(&definition.DefinitionRef, &definition.DefinitionVersion)
 	if err == sql.ErrNoRows {
 		return WorkflowInstanceDefinition{}, false, nil
 	}

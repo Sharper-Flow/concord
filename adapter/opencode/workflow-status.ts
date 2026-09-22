@@ -14,6 +14,15 @@ type WorkPin = {
   workflow_type: string
   step: string
   pending_operator_decision: { action_id: string } | null
+  verified_criteria?: VerifiedCriterion[]
+}
+
+type VerifiedCriterion = {
+  predicate_id: string
+  ordinal: number
+  outcome_kind: string
+  outcome_payload: unknown
+  verdict_kind: string
 }
 
 type MutationEnvelope = { outcome?: unknown; result?: unknown; evidence_refs?: unknown }
@@ -135,6 +144,20 @@ function closureHeadingCell(text: string, width: number): string {
   return `|  ${cell}  |`
 }
 
+function verifiedCriterionLine(value: unknown): string | null {
+  if (!record(value) || value.verdict_kind !== "ok" || !safeText(value.outcome_kind) || !record(value.outcome_payload)) return null
+  const payload = value.outcome_payload
+  let detail: string | null = null
+  if ((value.outcome_kind === "exists" || value.outcome_kind === "absent") && Array.isArray(payload.subjects) && safeText(payload.subjects[0]) && safeText(payload.surface)) {
+    detail = `${value.outcome_kind} ${sanitizeTabField(payload.subjects[0])} | ${sanitizeTabField(payload.surface)}`
+  } else if (value.outcome_kind === "outcome" && Array.isArray(payload.allowed) && safeText(payload.allowed[0])) {
+    detail = `${value.outcome_kind} ${sanitizeTabField(payload.allowed[0])}`
+  } else if (value.outcome_kind === "check" && safeText(payload.check_ref) && safeText(payload.expected_result)) {
+    detail = `${value.outcome_kind} ${sanitizeTabField(payload.check_ref)} | ${sanitizeTabField(payload.expected_result)}`
+  }
+  return detail === null ? null : `✓ ${detail}`
+}
+
 // formatWorkClosureBox renders the one closure box a terminal work pin
 // produces. The gate is the terminal lifecycle alone: evidence is not a
 // precondition, so a closure with no readable evidence prints `evidence=none`
@@ -158,6 +181,9 @@ export function formatWorkClosureBox(value: unknown, envelope: MutationEnvelope)
   const completed = pin.lifecycle === "completed"
   const heading = completed ? CLOSURE_HEADINGS.complete : CLOSURE_HEADINGS.closed
   const body = [`${identifier} | ${pin.project_display_name}`, pin.title, `lifecycle=${pin.lifecycle} | ${evidence}`]
+  if (completed && pin.verified_criteria) {
+    body.push(...pin.verified_criteria.map(verifiedCriterionLine).filter((line): line is string => line !== null))
+  }
   const width = Math.min(CLOSURE_CELL_MAX, Math.max(heading.length, ...body.map((cell) => cell.length)))
   const rule = `+${(completed ? "=" : "-").repeat(width + 4)}+`
   const lines = [rule, closureHeadingCell(heading, width), rule, ...body.map((cell) => closureCell(cell, width)), rule]

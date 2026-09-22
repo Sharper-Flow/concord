@@ -82,6 +82,30 @@ test("renders the terminal closure boxes byte-exactly", () => {
   expect(formatWorkClosureBox(pin, envelope)).toBeNull()
 })
 
+test("renders verified criteria only on the completed closure box", () => {
+  const criteria = [
+    {
+      predicate_id: "predicate:pin-carries-verified-criteria",
+      ordinal: 0,
+      outcome_kind: "exists",
+      outcome_payload: { kind: "exists", subjects: ["internal/store/workpin.go", "WorkPin.verified_criteria"], surface: "work_pin" },
+      verdict_kind: "ok",
+    },
+    {
+      predicate_id: "predicate:golden-tests-pin-new-bytes",
+      ordinal: 1,
+      outcome_kind: "check",
+      outcome_payload: { kind: "check", check_ref: "check:adapter:workflow-status-tests", immutable_subject_ref: "adapter/opencode/workflow-status.test.ts", expected_result: "pass" },
+      verdict_kind: "ok",
+    },
+  ]
+  const completed = formatWorkClosureBox({ ...pin, lifecycle: "completed", step: "complete", verified_criteria: criteria }, { outcome: "ok" })
+  expect(completed).toBe(
+    "```\n+======================================================+\n|              Concord Work Item Complete              |\n+======================================================+\n|  work-1 | Concord                                    |\n|  Repair the adapter                                  |\n|  lifecycle=completed | evidence=none                 |\n|  ✓ exists internal/store/workpin.go | work_pin       |\n|  ✓ check check:adapter:workflow-status-tests | pass  |\n+======================================================+\n```",
+  )
+  expect(formatWorkClosureBox({ ...pin, lifecycle: "cancelled", verified_criteria: criteria }, { outcome: "ok" })).not.toContain("verified")
+})
+
 // A work title may reach 256 characters. The cell cap keeps the box inside a
 // terminal, and equal line width is the property that makes the border read as
 // a border, so both are asserted rather than assumed.
@@ -221,4 +245,3 @@ test("keeps a pane rename failure best effort", async () => {
   const warnings = await reporter.report({ outcome: "ok", result: { work_pins: [pin] } }, { sessionID: "session-pane-failure", abort: new AbortController().signal })
   expect(warnings).toEqual(["Concord could not rename the work tab or pane frame: rename-pane exited 1.", "Concord could not write the session goal title: the session title route is absent or refused the write."])
 })
-

@@ -33,10 +33,21 @@ type WorkPin struct {
 	// derived from workflow actors and actions, not session identity evidence.
 	DrivingSessions []WorkPinDrivingSession    `json:"driving_sessions"`
 	Correction      *WorkflowCorrectionContext `json:"correction,omitempty"`
+	// VerifiedCriteria carries the approved contract predicates and their latest
+	// verdict kinds only after a workflow reaches completed.
+	VerifiedCriteria []WorkPinVerifiedCriterion `json:"verified_criteria,omitempty"`
 	// VerdictEvidence exposes the bound immutable evidence set at steps where
 	// record_verdict is declarable, so a caller cites qualifying refs without
 	// a raw store read (#974). It stays nil at every other step.
 	VerdictEvidence []WorkPinEvidence `json:"verdict_evidence,omitempty"`
+}
+
+type WorkPinVerifiedCriterion struct {
+	PredicateID    string          `json:"predicate_id"`
+	Ordinal        int             `json:"ordinal"`
+	OutcomeKind    string          `json:"outcome_kind"`
+	OutcomePayload json.RawMessage `json:"outcome_payload"`
+	VerdictKind    string          `json:"verdict_kind"`
 }
 
 type WorkPinAttempt struct {
@@ -179,6 +190,12 @@ func ReadWorkPinTx(ctx context.Context, tx *sql.Tx, workID string) (WorkPin, err
 		if err != nil {
 			return pin, err
 		}
+		if pin.Lifecycle == "completed" && instanceState == "completed" {
+			pin.VerifiedCriteria, err = workPinVerifiedCriteriaTx(ctx, tx, workID, contract)
+			if err != nil {
+				return pin, err
+			}
+		}
 		contract.SelfRepair, err = readWorkflowSelfRepair(ctx, tx, workID, contract.Version)
 		if err != nil {
 			return pin, err
@@ -274,6 +291,32 @@ func ReadWorkPinTx(ctx context.Context, tx *sql.Tx, workID string) (WorkPin, err
 	}
 
 	return pin, nil
+}
+
+func workPinVerifiedCriteriaTx(ctx context.Context, tx *sql.Tx, workID string, contract WorkflowReadContract) ([]WorkPinVerifiedCriterion, error) {
+	verdicts, err := latestWorkflowVerdicts(ctx, tx, workID, contract.Version)
+	if err != nil {
+		return nil, err
+	}
+	verdictByPredicate := make(map[string]workflowVerdictRecordedPayload, len(verdicts))
+	for _, verdict := range verdicts {
+		verdictByPredicate[verdict.PredicateID] = verdict
+	}
+	criteria := make([]WorkPinVerifiedCriterion, 0, len(contract.OutcomePredicates))
+	for _, predicate := range contract.OutcomePredicates {
+		verdict, ok := verdictByPredicate[predicate.PredicateID]
+		if !ok || !json.Valid([]byte(predicate.OutcomePayload)) {
+			return nil, nil
+		}
+		criteria = append(criteria, WorkPinVerifiedCriterion{
+			PredicateID:    predicate.PredicateID,
+			Ordinal:        predicate.Ordinal,
+			OutcomeKind:    predicate.OutcomeKind,
+			OutcomePayload: json.RawMessage(predicate.OutcomePayload),
+			VerdictKind:    verdict.VerdictKind,
+		})
+	}
+	return criteria, nil
 }
 
 // workPinDrivingSessionsTx returns the bounded set of agent sessions that have

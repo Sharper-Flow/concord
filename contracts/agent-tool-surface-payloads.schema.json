@@ -450,6 +450,60 @@
         }
       }
     },
+    "work_pin_verified_criterion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "predicate_id",
+        "ordinal",
+        "outcome_kind",
+        "outcome_payload",
+        "verdict_kind"
+      ],
+      "properties": {
+        "predicate_id": {
+          "$ref": "#/$defs/id"
+        },
+        "ordinal": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 7
+        },
+        "outcome_kind": {
+          "type": "string",
+          "enum": [
+            "exists",
+            "absent",
+            "outcome",
+            "check"
+          ]
+        },
+        "outcome_payload": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/workflow_outcome_exists"
+            },
+            {
+              "$ref": "#/$defs/workflow_outcome_absent"
+            },
+            {
+              "$ref": "#/$defs/workflow_outcome_outcome"
+            },
+            {
+              "$ref": "#/$defs/workflow_outcome_check"
+            }
+          ]
+        },
+        "verdict_kind": {
+          "type": "string",
+          "enum": [
+            "ok",
+            "outcome_mismatch",
+            "insufficient_evidence"
+          ]
+        }
+      }
+    },
     "workflow_correction_context": {
       "type": "object",
       "additionalProperties": false,
@@ -703,6 +757,14 @@
           "maxItems": 100,
           "items": {
             "$ref": "#/$defs/work_pin_evidence"
+          }
+        },
+        "verified_criteria": {
+          "type": "array",
+          "maxItems": 8,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/work_pin_verified_criterion"
           }
         }
       }

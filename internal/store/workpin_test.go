@@ -169,3 +169,31 @@ func TestReadWorkPinIncludesTheCurrentWorkerAttemptEpoch(t *testing.T) {
 	}
 	t.Fatal("continuity result has no dispatch_worker intent")
 }
+
+func TestReadWorkPinCompletedIncludesVerifiedCriteria(t *testing.T) {
+	t.Parallel()
+	s, completion := seedCompletionGateCase(t, "workpin-completed", completionGateCase{
+		requiredEvidence: []string{"verification", "review"},
+		includeSpec:      true,
+		includeVerdict:   true,
+		includePremise:   true,
+		verdictKind:      "ok",
+	})
+	if err := CompleteWorkflow(context.Background(), s, completion); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE work_items SET lifecycle='completed',terminal_time='2026-09-21T00:00:00Z' WHERE id='workpin-completed'; DELETE FROM fold_guard`); err != nil {
+		t.Fatal(err)
+	}
+	pin, err := ReadWorkPin(context.Background(), s, "workpin-completed")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pin.VerifiedCriteria) != 1 {
+		t.Fatalf("verified criteria=%+v, want one approved predicate", pin.VerifiedCriteria)
+	}
+	criterion := pin.VerifiedCriteria[0]
+	if criterion.PredicateID != "predicate:primary" || criterion.OutcomeKind != "check" || criterion.VerdictKind != "ok" {
+		t.Fatalf("verified criterion=%+v, want the approved check and ok verdict", criterion)
+	}
+}

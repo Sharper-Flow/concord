@@ -4,8 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -132,13 +130,10 @@ func TestReadKnowledgeManifestAtHeadParsesTheLiveCorpus(t *testing.T) {
 	if err != nil || missing {
 		t.Fatalf("live corpus at HEAD: missing=%t err=%v", missing, err)
 	}
-	entries, err := os.ReadDir(filepath.Join(root, filepath.FromSlash(knowledgeRecordTree)))
-	if err != nil {
-		t.Fatal(err)
-	}
+	entries := strings.Split(strings.TrimSpace(runKnowledgeGit(t, root, "ls-tree", "-r", "--name-only", head, knowledgeRecordTree)), "\n")
 	shardCount := 0
 	for _, entry := range entries {
-		if strings.HasSuffix(entry.Name(), ".json") {
+		if strings.HasSuffix(entry, ".json") {
 			shardCount++
 		}
 	}

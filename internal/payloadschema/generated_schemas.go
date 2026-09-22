@@ -5894,6 +5894,14 @@ const GeneratedPayloadSchemaDocument = `{
           "maxItems": 100,
           "type": "array"
         },
+        "verified_criteria": {
+          "items": {
+            "$ref": "#/$defs/work_pin_verified_criterion"
+          },
+          "maxItems": 8,
+          "type": "array",
+          "uniqueItems": true
+        },
         "version": {
           "$ref": "#/$defs/version"
         },
@@ -6027,6 +6035,60 @@ const GeneratedPayloadSchemaDocument = `{
         "action_id",
         "required_fields",
         "expected_version"
+      ],
+      "type": "object"
+    },
+    "work_pin_verified_criterion": {
+      "additionalProperties": false,
+      "properties": {
+        "ordinal": {
+          "maximum": 7,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "outcome_kind": {
+          "enum": [
+            "exists",
+            "absent",
+            "outcome",
+            "check"
+          ],
+          "type": "string"
+        },
+        "outcome_payload": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/workflow_outcome_exists"
+            },
+            {
+              "$ref": "#/$defs/workflow_outcome_absent"
+            },
+            {
+              "$ref": "#/$defs/workflow_outcome_outcome"
+            },
+            {
+              "$ref": "#/$defs/workflow_outcome_check"
+            }
+          ]
+        },
+        "predicate_id": {
+          "$ref": "#/$defs/id"
+        },
+        "verdict_kind": {
+          "enum": [
+            "ok",
+            "outcome_mismatch",
+            "insufficient_evidence"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "predicate_id",
+        "ordinal",
+        "outcome_kind",
+        "outcome_payload",
+        "verdict_kind"
       ],
       "type": "object"
     },

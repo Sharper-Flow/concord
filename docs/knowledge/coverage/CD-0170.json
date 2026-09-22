@@ -6,7 +6,7 @@
     },
     {
       "kind": "adapter_test",
-      "value": "adapter/opencode/workflow-status.test.ts#renders the terminal closure boxes byte-exactly"
+      "value": "adapter/opencode/workflow-status.test.ts#a completed pin queues the closure receipt the verb prints"
     },
     {
       "kind": "generated",

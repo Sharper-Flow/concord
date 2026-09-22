@@ -564,10 +564,70 @@ func TestDetailPaneCarriesFocusFieldsTheStatusBarDrops(t *testing.T) {
 	if strings.Contains(rendered, "DETAIL *") {
 		t.Fatalf("unfocused detail pane rendered the focus marker: %q", rendered)
 	}
-	// Pane focus is the outer stop of the Tab cycle: the marker follows it.
-	m.UpdateKey("tab") // portfolio screen: Tab is no-op, marker stays off
+}
+
+// TestPortfolioTabReachesDetailAndFocusedDetailOwnsThePrimaryKeys proves
+// pane focus on the portfolio screen: Tab joins the detail pane into the
+// Tab cycle there, the focused pane consumes movement and Enter without
+// moving or activating the primary selection, and focus leaves the pane on
+// Tab, on a narrow resize, and on a screen change.
+func TestPortfolioTabReachesDetailAndFocusedDetailOwnsThePrimaryKeys(t *testing.T) {
+	core := launcher.New(nil)
+	core.RestoreSnapshot(focusedDetailSnapshot())
+	m := New(core, context.Background(), Profile{})
+	m.Update(tea.WindowSizeMsg{Width: 120, Height: 24})
 	if strings.Contains(m.Render(), "DETAIL *") {
-		t.Fatalf("portfolio Tab focused the detail pane: %q", m.Render())
+		t.Fatalf("unfocused detail pane rendered the focus marker: %q", m.Render())
+	}
+	m.UpdateKey("tab")
+	if !m.detailFocus || !strings.Contains(m.Render(), "DETAIL *") {
+		t.Fatalf("portfolio Tab did not focus the detail pane: focus=%v render=%q", m.detailFocus, m.Render())
+	}
+	if got := core.Snapshot().Screen; got != launcher.ScreenPortfolio {
+		t.Fatalf("focusing the detail pane changed the screen: %q", got)
+	}
+	// The focused pane owns movement and Enter: the primary cursor stays
+	// put and Enter activates nothing.
+	m.UpdateKey("j")
+	m.UpdateKey("enter")
+	if m.cursor != 0 || m.scroll != 0 {
+		t.Fatalf("focused detail movement moved the primary cursor: cursor=%d scroll=%d", m.cursor, m.scroll)
+	}
+	if got := core.Snapshot().Screen; got != launcher.ScreenPortfolio {
+		t.Fatalf("focused detail Enter activated the primary row: screen=%q", got)
+	}
+	// Tab returns pane focus to the primary pane.
+	m.UpdateKey("tab")
+	if m.detailFocus || strings.Contains(m.Render(), "DETAIL *") {
+		t.Fatalf("Tab did not return pane focus to the primary pane: %q", m.Render())
+	}
+	// The minimum split width (the two declared pane minima) still seats the
+	// pane; one column below it does not, and Tab stays a no-op there.
+	m.Update(tea.WindowSizeMsg{Width: detailPaneWidth + primaryPaneMinWidth, Height: 24})
+	m.UpdateKey("tab")
+	if !m.detailFocus {
+		t.Fatal("minimum-split-width Tab did not focus the detail pane")
+	}
+	m.UpdateKey("tab")
+	m.Update(tea.WindowSizeMsg{Width: detailPaneWidth + primaryPaneMinWidth - 1, Height: 24})
+	m.UpdateKey("tab")
+	if m.detailFocus || strings.Contains(m.Render(), "DETAIL") {
+		t.Fatalf("narrow frame joined or focused the absent detail pane: %q", m.Render())
+	}
+	// A resize back into the split keeps the pane unfocused, and a screen
+	// change drops a focused pane with it.
+	m.Update(tea.WindowSizeMsg{Width: 120, Height: 24})
+	if m.detailFocus {
+		t.Fatal("resize kept the detail focus the narrow frame dropped")
+	}
+	m.UpdateKey("tab")
+	if !m.detailFocus {
+		t.Fatal("split-width Tab did not focus the detail pane")
+	}
+	core.RestoreSnapshot(launcher.Snapshot{Screen: launcher.ScreenProduct, AmbientProduct: "Concord", Section: launcher.SectionDomains, Coverage: "authoritative"})
+	m.Sync()
+	if m.detailFocus || strings.Contains(m.Render(), "DETAIL *") {
+		t.Fatalf("screen change kept the focused detail pane: %q", m.Render())
 	}
 }
 

@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/sharper-flow/concord/internal/launcher"
 	"github.com/sharper-flow/concord/internal/pm1fixture"
@@ -203,10 +204,11 @@ func TestS2ArchitectureRelationsAreAuthoritativeEmptyNotUnavailable(t *testing.T
 }
 
 // domainProjectionRow renders the snapshot through the terminal-independent
-// projection and returns its single Domain row.
+// projection and returns its single Domain row. The fixture text is ASCII,
+// so a rune count prices its display cells.
 func domainProjectionRow(t *testing.T, snapshot launcher.Snapshot) []string {
 	t.Helper()
-	projection := launcher.Project(snapshot, 120)
+	projection := launcher.Project(snapshot, 120, func(s string) int { return utf8.RuneCountInString(s) })
 	if len(projection.Rows) != 1 {
 		t.Fatalf("Domain projection rendered %d rows: %#v", len(projection.Rows), projection.Rows)
 	}

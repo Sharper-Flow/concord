@@ -36,5 +36,5 @@ FOCUS: product/Concord                                      COVERAGE: authoritat
 │  43 +READY work-43 Work 43                                                         ││                                │
 │  44 +READY work-44 Work 44                                                         ││                                │
 │> 45 +READY work-45 Work 45                                                         ││                                │
-│arrows move • / filter • s search • tab pane/section • r refresh • enter open …     ││                                │
 ╰────────────────────────────────────────────────────────────────────────────────────╯╰────────────────────────────────╯
+arrows move • / filter • s search • tab pane/section • r refresh • enter open • l launch • ctrl-p pin • ctrl-u unpin • ?

@@ -3,7 +3,6 @@ package launcher
 import (
 	"fmt"
 	"strings"
-	"unicode/utf8"
 )
 
 type Projection struct {
@@ -13,14 +12,22 @@ type Projection struct {
 	Markers []string
 }
 
+// CellMeasure prices a string in the display cells a terminal spends on it.
+// The renderer owns the measurement — it prices every table it draws with
+// its own measurement library — and supplies it through the projection
+// input, so the core keeps the column-priority policy without importing the
+// renderer, its Charm dependencies, or any width logic of its own.
+type CellMeasure func(string) int
+
 // Project is a deterministic, terminal-independent projection. It performs
 // no reads and emits textual reliance markers so meaning survives no-color
 // output and screen-reader consumption. Width is the terminal budget the
-// projected table may span: when the set does not fit, columns drop from the
+// projected table may span, and measure prices each cell in the display
+// cells a terminal spends: when the set does not fit, columns drop from the
 // per-screen priority order until it does, so a narrowed pane sheds whole
 // columns instead of truncating all of them.
-func Project(snapshot Snapshot, width int) Projection {
-	return applyColumnBudget(project(snapshot), width)
+func Project(snapshot Snapshot, width int, measure CellMeasure) Projection {
+	return applyColumnBudget(project(snapshot), width, measure)
 }
 
 func project(snapshot Snapshot) Projection {
@@ -159,21 +166,27 @@ const (
 
 // ColumnBudget returns how many leading columns of a projected table fit the
 // width budget: the cursor gutter plus each column's widest cell plus the
-// renderer's inter-column padding, all counted in runes so multi-byte text
-// prices its display width. The first column never drops, so a table under
-// any budget keeps one readable column. The renderer applies this same rule
-// to tables it composes outside Project, so a narrowed pane sheds whole
-// columns everywhere instead of truncating all of them.
-func ColumnBudget(headers []string, rows [][]string, width int) int {
+// renderer's inter-column padding, all priced by the supplied CellMeasure.
+// The measurements come from the renderer through the projection input: a
+// rune count misprices near the threshold in both directions, and the core
+// carries no width logic to misprice with. The first column never drops, so
+// a table under any budget keeps one readable column. The renderer applies
+// this same rule to tables it composes outside Project, so a narrowed pane
+// sheds whole columns everywhere instead of truncating all of them. A nil
+// measure is a caller bug and panics.
+func ColumnBudget(headers []string, rows [][]string, width int, measure CellMeasure) int {
+	if measure == nil {
+		panic("launcher: nil CellMeasure: supply the renderer's display measurement")
+	}
 	if width <= 0 || len(headers) == 0 {
 		return len(headers)
 	}
 	widths := make([]int, len(headers))
 	for i, header := range headers {
-		widths[i] = utf8.RuneCountInString(header)
+		widths[i] = measure(header)
 		for _, row := range rows {
 			if i < len(row) {
-				if cells := utf8.RuneCountInString(row[i]); cells > widths[i] {
+				if cells := measure(row[i]); cells > widths[i] {
 					widths[i] = cells
 				}
 			}
@@ -198,11 +211,11 @@ func ColumnBudget(headers []string, rows [][]string, width int) int {
 // rightmost column is the first dropped, and the first column never drops.
 // Cells drop in parallel so every row stays aligned with the surviving
 // columns.
-func applyColumnBudget(projection Projection, width int) Projection {
+func applyColumnBudget(projection Projection, width int, measure CellMeasure) Projection {
 	if width <= 0 || len(projection.Columns) <= 1 {
 		return projection
 	}
-	keep := ColumnBudget(projection.Columns, projection.Rows, width)
+	keep := ColumnBudget(projection.Columns, projection.Rows, width, measure)
 	if keep == len(projection.Columns) {
 		return projection
 	}

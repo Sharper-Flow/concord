@@ -698,12 +698,7 @@ func TestWorkflowContractRevisionEmitsBreakingNoticeForConsumedActiveDependent(t
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := enterFold(context.Background(), tx); err != nil {
-		_ = tx.Rollback()
-		t.Fatal(err)
-	}
-	result, err := applyWorkflowOperationTx(context.Background(), tx, Operation{Events: []Event{supersede}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "revision-source"): sourceVersion}})
-	_ = leaveFold(context.Background(), tx)
+	result, err := applyWorkflowOperationTx(context.Background(), tx, Operation{Events: []Event{supersede}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "revision-source"): sourceVersion}}, newFoldScope(tx))
 	if err != nil {
 		_ = tx.Rollback()
 		t.Fatal(err)

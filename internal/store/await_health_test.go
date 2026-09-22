@@ -57,15 +57,7 @@ func addAwaitCondition(t *testing.T, s *Store, conditionID string, boundSeconds 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := enterFold(ctx, tx); err != nil {
-		_ = tx.Rollback()
-		t.Fatal(err)
-	}
-	if _, err := applyWorkflowOperationTx(ctx, tx, Operation{Events: []Event{{EventID: "cond-" + conditionID, Kind: WorkflowConditionAdded, SubjectType: SubjectWorkItem, SubjectID: "work-await", Actor: "operator", OccurredAt: recordedAt, PayloadVersion: 1, Payload: raw}}}); err != nil {
-		_ = tx.Rollback()
-		t.Fatal(err)
-	}
-	if err := leaveFold(ctx, tx); err != nil {
+	if _, err := applyWorkflowOperationTx(ctx, tx, Operation{Events: []Event{{EventID: "cond-" + conditionID, Kind: WorkflowConditionAdded, SubjectType: SubjectWorkItem, SubjectID: "work-await", Actor: "operator", OccurredAt: recordedAt, PayloadVersion: 1, Payload: raw}}}, newFoldScope(tx)); err != nil {
 		_ = tx.Rollback()
 		t.Fatal(err)
 	}

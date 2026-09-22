@@ -194,11 +194,7 @@ func TestRejectWorkerResultRecordsCorrectionContext(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := enterFold(ctx, tx); err != nil {
-		tx.Rollback()
-		t.Fatal(err)
-	}
-	result, err := applyWorkflowActionRawTx(ctx, tx, BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
+	result, err := applyWorkflowActionRawTx(ctx, tx, newFoldScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
 		WorkID: workID, ExpectedVersion: 10, ActionID: "reject_worker_result", Payload: mustJSONValue(map[string]any{
 			"attempt_id": attemptID, "attempt_epoch": 1, "diagnosis": "the result misses the boundary case", "strategy": "change the helper and add a test",
 			"predicate_ids": []string{"predicate:primary"}, "evidence_refs": []string{"evidence:review"},
@@ -206,7 +202,6 @@ func TestRejectWorkerResultRecordsCorrectionContext(t *testing.T) {
 		AcceptedInputsDigest: "sha256:" + strings.Repeat("f", 64), IdempotencyIdentity: "reject:" + workID, OperationID: "reject:" + workID,
 		PrincipalRef: owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "reject:" + workID, RequestID: "request:reject:" + workID, ContractDigest: testManifestDigest, Now: time.Unix(4, 0).UTC(),
 	})
-	_ = leaveFold(ctx, tx)
 	if err != nil {
 		tx.Rollback()
 		t.Fatalf("reject worker result: %v", err)
@@ -571,11 +566,7 @@ func TestRejectWorkerResultRefusesSchemaBreakingCorrectionRefs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := enterFold(ctx, tx); err != nil {
-		tx.Rollback()
-		t.Fatal(err)
-	}
-	_, err = applyWorkflowActionRawTx(ctx, tx, BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
+	_, err = applyWorkflowActionRawTx(ctx, tx, newFoldScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
 		WorkID: workID, ExpectedVersion: 10, ActionID: "reject_worker_result", Payload: mustJSONValue(map[string]any{
 			"attempt_id": attemptID, "attempt_epoch": 1, "diagnosis": "the result misses the boundary case", "strategy": "change the helper and add a test",
 			"predicate_ids": []string{"predicate:primary/slash"}, "evidence_refs": []string{"evidence:review"},
@@ -583,7 +574,6 @@ func TestRejectWorkerResultRefusesSchemaBreakingCorrectionRefs(t *testing.T) {
 		AcceptedInputsDigest: "sha256:" + strings.Repeat("f", 64), IdempotencyIdentity: "rejectcharset:" + workID, OperationID: "rejectcharset:" + workID,
 		PrincipalRef: owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "rejectcharset:" + workID, RequestID: "request:rejectcharset:" + workID, ContractDigest: testManifestDigest, Now: time.Unix(4, 0).UTC(),
 	})
-	_ = leaveFold(ctx, tx)
 	if err == nil {
 		err = tx.Commit()
 		if err != nil {

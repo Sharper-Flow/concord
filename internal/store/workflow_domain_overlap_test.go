@@ -653,17 +653,12 @@ func TestWorkflowDomainOverlapBlocksWorkerResultAcceptanceWithoutKillingReads(t 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := enterFold(ctx, raw); err != nil {
-		raw.Rollback()
-		t.Fatal(err)
-	}
-	_, actionErr := applyWorkflowActionRawTx(ctx, raw, BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
+	_, actionErr := applyWorkflowActionRawTx(ctx, raw, newFoldScope(raw), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
 		WorkID: workID, ExpectedVersion: version, ActionID: "accept_worker_result",
 		Payload: mustJSONValue(map[string]any{"attempt_id": attemptID, "attempt_epoch": 1}), Actor: owner,
 		AcceptedInputsDigest: "sha256:" + strings.Repeat("e", 64), IdempotencyIdentity: "overlap-result-accept", OperationID: "overlap-result-accept",
 		PrincipalRef: owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "overlap-result-accept", RequestID: "request:overlap-result-accept", ContractDigest: testManifestDigest, Now: time.Date(2026, 8, 19, 0, 0, 0, 0, time.UTC),
 	})
-	_ = leaveFold(ctx, raw)
 	_ = raw.Rollback()
 	var failure *Failure
 	if !errors.As(actionErr, &failure) || failure.Kind != KindDomainOverlap {
@@ -787,12 +782,8 @@ func TestWorkflowDomainOverlapCrossProcessWorker(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := enterFold(context.Background(), raw); err != nil {
-			raw.Rollback()
-			t.Fatal(err)
-		}
 		owner := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/owner", SessionRef: "session/" + workID, ActorClass: ActorAgent}
-		_, actionErr := applyWorkflowActionRawTx(context.Background(), raw, BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
+		_, actionErr := applyWorkflowActionRawTx(context.Background(), raw, newFoldScope(raw), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
 			WorkID: workID, ExpectedVersion: version, ActionID: "accept_worker_result",
 			Payload: mustJSONValue(map[string]any{"attempt_id": os.Getenv("CONCORD_OVERLAP_RACE_ATTEMPT"), "attempt_epoch": 1}), Actor: owner,
 			AcceptedInputsDigest: "sha256:" + strings.Repeat("a", 64), IdempotencyIdentity: "overlap-race-accept", OperationID: "overlap-race-accept",
@@ -801,10 +792,6 @@ func TestWorkflowDomainOverlapCrossProcessWorker(t *testing.T) {
 		if actionErr != nil {
 			raw.Rollback()
 			t.Fatal(actionErr)
-		}
-		if err := leaveFold(context.Background(), raw); err != nil {
-			raw.Rollback()
-			t.Fatal(err)
 		}
 		if err := raw.Commit(); err != nil {
 			t.Fatal(err)

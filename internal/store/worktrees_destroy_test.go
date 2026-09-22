@@ -176,16 +176,8 @@ func seedWorktreeContinuityWorkflow(t *testing.T, s *Store, workID string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := enterFold(context.Background(), tx); err != nil {
-		tx.Rollback()
-		t.Fatal(err)
-	}
 	actor := WorkflowActor{PrincipalRef: "principal-1", ClientRef: "client-1", AgentRef: "agent-1", SessionRef: "session-1", ActorClass: ActorAgent}
 	if err := initializeWorkflowRawTx(context.Background(), tx, WorkflowInitializationRequest{WorkID: workID, Definition: registered, Actor: actor, Now: time.Unix(5, 0).UTC()}); err != nil {
-		tx.Rollback()
-		t.Fatal(err)
-	}
-	if err := leaveFold(context.Background(), tx); err != nil {
 		tx.Rollback()
 		t.Fatal(err)
 	}

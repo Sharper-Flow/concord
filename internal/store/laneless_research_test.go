@@ -116,20 +116,15 @@ func TestLanelessResearchCompletesWithoutFencedAction(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer tx.Rollback()
-	if err := enterFold(context.Background(), tx); err != nil {
-		t.Fatal(err)
-	}
 	payload, _ := json.Marshal(map[string]any{"impact_verdict": "non-breaking"})
-	_, err = applyWorkflowActionRawTx(context.Background(), tx, BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
+	_, err = applyWorkflowActionRawTx(context.Background(), tx, newFoldScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
 		WorkID: workID, ExpectedVersion: completeVersion, ActionID: "complete", Payload: payload, Actor: owner, OperatorActor: &operator,
 		AcceptedInputsDigest: "sha256:" + strings.Repeat("9", 64) + workID, IdempotencyIdentity: "issue970-complete-" + workID, OperationID: "issue970-complete-" + workID,
 		PrincipalRef: owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "issue970-complete-" + workID, RequestID: "request:issue970-complete-" + workID, ContractDigest: testManifestDigest, Now: time.Unix(9, 0).UTC(),
 	})
 	if err != nil {
-		_ = leaveFold(context.Background(), tx)
 		t.Fatalf("lane-less research completion refused: %v", err)
 	}
-	_ = leaveFold(context.Background(), tx)
 	if err := tx.Commit(); err != nil {
 		t.Fatal(err)
 	}

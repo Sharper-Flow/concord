@@ -7,12 +7,16 @@ import (
 )
 
 // Transaction is an opaque unit of work owned by Store. Callers can pass it
-// back to store-owned operations, but cannot execute SQL or control its
+// back to store-owned Tx methods, but cannot execute SQL or control its
 // lifecycle directly.
 type Transaction struct {
 	tx    *sql.Tx
 	clock func() time.Time
 	path  string
+	// fold is the transaction's fold scope while a fold region is open on it.
+	// A region owner sets it after beginFold and mutation seams reuse it, so
+	// nested folds stay depth-counted on one scope.
+	fold *foldScope
 }
 
 func (t *Transaction) now() time.Time {

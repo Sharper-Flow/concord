@@ -101,22 +101,12 @@ func repinWorkflowRawTx(ctx context.Context, tx *sql.Tx, request WorkflowRepinRe
 		"ref": request.Definition.Definition.Ref, "version": request.Definition.Definition.Version,
 		"digest": request.Definition.Digest, "work_kind": request.Definition.Definition.WorkKind,
 	})
-	var guardCount int
-	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM fold_guard WHERE active=1`).Scan(&guardCount); err != nil {
-		return wrapFailure(KindUnavailable, "workflow_repin", "cannot inspect projection fold guard", true, "retry once the database is readable", err)
-	}
-	if guardCount == 0 {
-		if err := enterFold(ctx, tx); err != nil {
-			return err
-		}
-		defer func() { _ = leaveFold(ctx, tx) }()
-	}
 	_, err = applyWorkflowOperationTx(ctx, tx, Operation{
 		Events: []Event{
 			{EventID: request.EventID, Kind: WorkflowDefinitionSelected, SubjectType: SubjectWorkItem, SubjectID: request.WorkID, Actor: actorRef, OccurredAt: request.Now.UTC(), PayloadVersion: 1, Payload: definitionPayload},
 		},
 		ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, request.WorkID): version},
-	})
+	}, newFoldScope(tx))
 	return err
 }
 
@@ -170,23 +160,12 @@ func initializeWorkflowRawTx(ctx context.Context, tx *sql.Tx, request WorkflowIn
 		"ref": request.Definition.Definition.Ref, "version": request.Definition.Definition.Version,
 		"digest": request.Definition.Digest, "work_kind": request.Definition.Definition.WorkKind,
 	})
-	var guardCount int
-	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM fold_guard WHERE active=1`).Scan(&guardCount); err != nil {
-		return wrapFailure(KindUnavailable, "workflow_initialize", "cannot inspect projection fold guard", true, "retry once the database is readable", err)
-	}
-	ownedGuard := guardCount == 0
-	if ownedGuard {
-		if err := enterFold(ctx, tx); err != nil {
-			return err
-		}
-		defer func() { _ = leaveFold(ctx, tx) }()
-	}
 	_, err = applyWorkflowOperationTx(ctx, tx, Operation{
 		Events: []Event{
 			{EventID: "workflow-init:" + request.WorkID + ":actor:" + actorRef, Kind: WorkflowActorRecorded, SubjectType: SubjectWorkItem, SubjectID: request.WorkID, Actor: actorRef, OccurredAt: request.Now.UTC(), PayloadVersion: 1, Payload: actorPayload},
 			{EventID: "workflow-init:" + request.WorkID + ":definition:" + request.Definition.Definition.Ref, Kind: WorkflowDefinitionSelected, SubjectType: SubjectWorkItem, SubjectID: request.WorkID, Actor: actorRef, OccurredAt: request.Now.UTC(), PayloadVersion: 1, Payload: definitionPayload},
 		},
 		ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, request.WorkID): version},
-	})
+	}, newFoldScope(tx))
 	return err
 }

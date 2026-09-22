@@ -173,13 +173,10 @@ func startStepFixtureAction(t *testing.T, s *Store, workID, actionID string) {
 		if err != nil {
 			return err
 		}
-		if err := enterFold(ctx, tx); err != nil {
-			return err
-		}
 		defer func() { _ = leaveFold(ctx, tx) }()
 		_, err = applyWorkflowOperationTx(ctx, tx, Operation{Events: []Event{
 			{EventID: workID + "-started", Kind: WorkflowActionStarted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: actorRef, OccurredAt: time.Unix(10, 0).UTC(), PayloadVersion: 1, Payload: jsonRaw(payload)},
-		}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}})
+		}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}}, newFoldScope(tx))
 		return err
 	}); err != nil {
 		t.Fatal(err)

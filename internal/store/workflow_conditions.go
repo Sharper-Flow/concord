@@ -253,19 +253,13 @@ func ResolveWorkflowCondition(ctx context.Context, s *Store, workID, conditionID
 		return wrapFailure(KindUnavailable, "resolve_workflow_condition", "cannot begin condition resolution", true, "retry once the database is writable", err)
 	}
 	rollback := func(cause error) error { _ = tx.Rollback(); return cause }
-	if err := enterFold(ctx, tx); err != nil {
-		return rollback(err)
-	}
 	// CD-0041 D7: accepting an external result is a consequential mutation, so
 	// the contract's law revision pins and its active Domain overlaps are
 	// revalidated in the transaction that folds the resolution.
 	if err := checkWorkflowLawRevisionStalenessTx(ctx, tx, workID); err != nil {
 		return rollback(err)
 	}
-	if _, err := applyWorkflowOperationTx(ctx, tx, Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}}); err != nil {
-		return rollback(err)
-	}
-	if err := leaveFold(ctx, tx); err != nil {
+	if _, err := applyWorkflowOperationTx(ctx, tx, Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}}, newFoldScope(tx)); err != nil {
 		return rollback(err)
 	}
 	if err := tx.Commit(); err != nil {
@@ -299,13 +293,7 @@ func CancelWorkflowCondition(ctx context.Context, s *Store, workID, conditionID,
 		return wrapFailure(KindUnavailable, "cancel_workflow_condition", "cannot begin condition cancellation", true, "retry once the database is writable", err)
 	}
 	rollback := func(cause error) error { _ = tx.Rollback(); return cause }
-	if err := enterFold(ctx, tx); err != nil {
-		return rollback(err)
-	}
-	if _, err := applyWorkflowOperationTx(ctx, tx, Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}}); err != nil {
-		return rollback(err)
-	}
-	if err := leaveFold(ctx, tx); err != nil {
+	if _, err := applyWorkflowOperationTx(ctx, tx, Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}}, newFoldScope(tx)); err != nil {
 		return rollback(err)
 	}
 	if err := tx.Commit(); err != nil {

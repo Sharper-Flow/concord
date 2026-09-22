@@ -2,16 +2,17 @@ package store
 
 import (
 	"context"
+	"errors"
+	"strings"
 	"testing"
 )
 
-// TestApplyOperationToleratesACommittedFoldGuardStrand reproduces the wedge
-// observed on 2026-09-21: a process that died between enterFold and leaveFold
-// left the guard row committed, and every later fold refused until an agent
-// deleted the row by hand. enterFold and leaveFold share one transaction, so
-// a committed row can never belong to a live fold; applying an operation must
-// ignore the strand rather than refuse.
-func TestApplyOperationToleratesACommittedFoldGuardStrand(t *testing.T) {
+// TestApplyOperationRefusesACommittedFoldGuardStrand seeds the stranded
+// guard row directly, the only way one can exist, and asserts the public
+// append route at the contract's semantics: the collision is an invariant
+// failure naming the offline recovery route, the strand is not absorbed,
+// and no projection row is folded while it guards the database.
+func TestApplyOperationRefusesACommittedFoldGuardStrand(t *testing.T) {
 	s := openTemp(t)
 	ctx := context.Background()
 	if _, err := s.db.Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
@@ -21,21 +22,31 @@ func TestApplyOperationToleratesACommittedFoldGuardStrand(t *testing.T) {
 		Events:           []Event{locatorProductEvent("p-strand"), locatorProjectEvent("pr-strand"), locatorMembershipEvent("p-strand", "pr-strand")},
 		ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectProduct, "p-strand"): 0, VersionRef(SubjectProject, "pr-strand"): 0},
 	})
-	if err != nil {
-		t.Fatalf("a committed fold_guard strand must not wedge a fold: %v", err)
+	var failure *Failure
+	if !errors.As(err, &failure) {
+		t.Fatalf("strand error = %v, want a typed failure", err)
+	}
+	if failure.Kind != KindInvariantViolation {
+		t.Fatalf("strand kind = %s, want %s", failure.Kind, KindInvariantViolation)
+	}
+	if failure.RetrySafe {
+		t.Fatal("strand reports retry_safe")
+	}
+	if !strings.Contains(failure.RecoveryAction, "recover-fold-guard") {
+		t.Fatalf("recovery action %q does not name the offline recovery route", failure.RecoveryAction)
 	}
 	var count int
 	if err := s.db.QueryRow(`SELECT count(*) FROM fold_guard`).Scan(&count); err != nil {
 		t.Fatal(err)
 	}
-	if count != 0 {
-		t.Fatalf("the fold's leaveFold must absorb the strand, got %d rows", count)
+	if count != 1 {
+		t.Fatalf("the refused fold must not absorb the strand, got %d rows", count)
 	}
-	var productName string
-	if err := s.db.QueryRow(`SELECT display_name FROM products WHERE id='p-strand'`).Scan(&productName); err != nil {
-		t.Fatalf("the folded product row is missing: %v", err)
+	var folded int
+	if err := s.db.QueryRow(`SELECT count(*) FROM products WHERE id='p-strand'`).Scan(&folded); err != nil {
+		t.Fatal(err)
 	}
-	if productName != "p-strand" {
-		t.Fatalf("unexpected product display name %q", productName)
+	if folded != 0 {
+		t.Fatal("a projection row folded while a stranded guard owns the fold window")
 	}
 }

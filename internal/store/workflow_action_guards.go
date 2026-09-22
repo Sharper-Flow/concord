@@ -1030,8 +1030,19 @@ func nativeRunFromSemanticEvents(semantic []Event) *NativeRunReport {
 
 // applyCompleteWorkflowActionTx completes the workflow in this transaction:
 // the ordered completion gate runs and workflow.completed is appended here.
-func applyCompleteWorkflowActionTx(ctx context.Context, tx *sql.Tx, registry DefinitionRegistry, entry RegisteredDefinition, request WorkflowActionExecutionRequest, currentStep, actor string, payload json.RawMessage, prefixEvents []Event) (WorkflowActionExecutionResult, error) {
+// The caller's fold scope guards the whole action region.
+func applyCompleteWorkflowActionTx(ctx context.Context, tx *sql.Tx, scope *foldScope, registry DefinitionRegistry, entry RegisteredDefinition, request WorkflowActionExecutionRequest, currentStep, actor string, payload json.RawMessage, prefixEvents []Event) (WorkflowActionExecutionResult, error) {
 	var result WorkflowActionExecutionResult
+	if scope == nil {
+		return result, newFailure(KindInvalidOperation, "complete_workflow", "fold scope is required", false, "open the fold scope with beginFold")
+	}
+	// The actor-recording prefix events fold before the completion gate opens
+	// its own level, so the action holds one guard level across the whole
+	// completion and the gate's enter and close stay balanced on top of it.
+	if err := scope.enter(ctx); err != nil {
+		return result, err
+	}
+	defer func() { _ = scope.close(ctx) }()
 	startSeq, err := operationEventSequence(ctx, tx)
 	if err != nil {
 		return result, err
@@ -1059,7 +1070,7 @@ func applyCompleteWorkflowActionTx(ctx context.Context, tx *sql.Tx, registry Def
 	if completionErr != nil {
 		return result, completionErr
 	}
-	if err := CompleteWorkflowTxWithRegistry(ctx, tx, registry, completion); err != nil {
+	if err := CompleteWorkflowTxWithRegistry(ctx, tx, registry, completion, scope); err != nil {
 		return result, err
 	}
 	result.EventIDs, err = operationEventIDsSince(ctx, tx, startSeq)

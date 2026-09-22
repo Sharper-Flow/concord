@@ -162,6 +162,23 @@ it matches neither the installed manifest nor the release. The refusal names
 the offending artifact or path. The work database, worktrees, credentials, and
 unrelated configuration are outside the managed paths and are never touched.
 
+## Fold-guard recovery
+
+When the core refuses to open the authority database because a committed
+`fold_guard` row stranded without its owning fold scope, recover offline from
+an ordinary shell:
+
+```sh
+concord recover-fold-guard
+```
+
+The verb runs without the network. It clears the stranded guard row and
+rebuilds every projection from the append-only event log in one transaction,
+so projection rows the log does not restore are discarded and the log itself
+is preserved. A failed recovery rolls back, which restores the stranded row
+and keeps the database refused; pass `{"path": "..."}` on JSON stdin to
+recover a database outside the default location.
+
 ## Uninstall
 
 Remove only files recorded as Concord-managed:

@@ -25,7 +25,8 @@ func ReplaceWorkflowOutcome(ctx context.Context, s *Store, workID string) error 
 // ReplaceWorkflowCheckTx is the evaluator-owned check replacement boundary.
 // It delegates to the authenticated verdict route, preserving actor fencing
 // and evidence validation instead of inventing a second check mutation path.
-func ReplaceWorkflowCheckTx(ctx context.Context, tx *sql.Tx, registry DefinitionRegistry, request WorkflowActionExecutionRequest) (WorkflowActionExecutionResult, error) {
+// The caller passes the fold scope its region owns.
+func ReplaceWorkflowCheckTx(ctx context.Context, tx *sql.Tx, scope *foldScope, registry DefinitionRegistry, request WorkflowActionExecutionRequest) (WorkflowActionExecutionResult, error) {
 	request.ActionID = "record_verdict"
-	return applyWorkflowActionRawTx(ctx, tx, registry, request)
+	return applyWorkflowActionRawTx(ctx, tx, scope, registry, request)
 }

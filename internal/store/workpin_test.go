@@ -98,15 +98,7 @@ func TestReadWorkPinAllowsWorkWithoutPrimaryProject(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := enterFold(ctx, tx); err != nil {
-		tx.Rollback()
-		t.Fatal(err)
-	}
 	if err := initializeWorkflowRawTx(ctx, tx, WorkflowInitializationRequest{WorkID: workID, Definition: registered, Actor: actor, Now: time.Date(2026, 8, 11, 0, 0, 0, 0, time.UTC)}); err != nil {
-		tx.Rollback()
-		t.Fatal(err)
-	}
-	if err := leaveFold(ctx, tx); err != nil {
 		tx.Rollback()
 		t.Fatal(err)
 	}

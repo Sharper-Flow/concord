@@ -280,6 +280,15 @@ func ReadWorkPinTx(ctx context.Context, tx *sql.Tx, workID string) (WorkPin, err
 			pin.NextValidIntents = append(pin.NextValidIntents, workPinIntentForAction(workflowCorrectionActionDefinition(), pin.Version, "worker_result_rejection"))
 		}
 	}
+	// An unavailable confirmation is not advertised. confirm_premise is
+	// answered only through an open operator question, so a pin without one
+	// hides the action instead of sending the caller into a guaranteed
+	// refusal. The gate closes the question both when the investigation
+	// precondition withholds it and when no approved contract exists, and
+	// neither state lets the selection guard through.
+	if pin.PendingOperatorDecision == nil && workPinContainsAction(pin.NextValidIntents, "confirm_premise") {
+		pin.NextValidIntents = workPinWithoutAction(pin.NextValidIntents, "confirm_premise")
+	}
 	// A closed instance admits no workflow action: the action preflight
 	// refuses every one against it. The pin states what the caller may do, so
 	// a terminal instance offers nothing. This clears the whole set after it

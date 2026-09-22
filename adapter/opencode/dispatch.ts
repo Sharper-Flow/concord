@@ -2,7 +2,7 @@ import { createHash, sign as signBytes } from "node:crypto"
 import fs from "node:fs"
 import os from "node:os"
 import path from "node:path"
-import { agentLanePacketSchema, agentLaneReportSchema, agentLanes, type AgentLane } from "./generated-agent-lanes"
+import { agentLanePacketSchema, agentLaneReportSchema, agentLanes, workerScopeAssignedResult, type AgentLane } from "./generated-agent-lanes"
 import { maxEnvelopeBytes } from "./generated-contracts"
 import { coreBinary } from "./generated-release"
 import { SecretToolCredentialStore, b64, clientRef, privateKeyObject, randomNonce, type CredentialStore } from "./credentials"
@@ -200,6 +200,11 @@ export interface AgentResultEnvelope {
   session_id: string | null
   output?: string
   work_pins?: unknown[]
+  // The one assigned result the worker-scope contract bounds the attempt to,
+  // carried on a completed attempt so the coordinator reads which single
+  // result the completion disposes. Every other required result stays
+  // explicit with the parent workflow.
+  assigned_result?: string
   // CD-0102 D1. A dispatch returns before the worker runs, so an authorized
   // dispatch reports that the window is open and the host must now issue the
   // Task call. A completed attempt never carries this field.
@@ -810,9 +815,20 @@ function admitWorkerReport(scan: WorkerReportScan, packet: AgentLanePacket): { r
     if (undeclared.length > 0) {
       return { detail: `worker report names evidence obligations the ${lane.id} lane does not declare: ${undeclared.join(", ")}` }
     }
+    // The worker-scope contract bounds the attempt to one assigned result, so
+    // a completed report must discharge it: completion disposes only that
+    // result, and every other required result stays explicit with the parent
+    // workflow. Contract/registry drift fails closed here rather than
+    // admitting an unbounded completion.
+    const assigned = workerScopeAssignedResult(lane.id)
+    if (assigned === null || !declared.has(assigned)) {
+      return { detail: `the ${lane.id} lane carries no dischargeable assigned result in the worker-scope contract, so no completed report can claim one` }
+    }
     const missing = [...declared].filter((obligation) => !reported.has(obligation))
     if (missing.length > 0) {
-      return { detail: `worker report leaves ${lane.id} lane evidence obligations undischarged: ${missing.join(", ")}` }
+      return missing.includes(assigned)
+        ? { detail: `worker report completes no assigned result: the ${lane.id} lane report leaves its assigned result ${assigned} undischarged; every other required result stays with the parent workflow` }
+        : { detail: `worker report leaves ${lane.id} lane evidence obligations undischarged: ${missing.join(", ")}` }
     }
   }
   return { report: { ...admitted, attempt_id: packet.attempt_id, lane_id: packet.lane_id, lane_version: packet.lane_version, lane_digest: packet.lane_digest } }
@@ -1573,6 +1589,10 @@ async function completeWorkerSession(
   const base = baseEnvelope(lane, packet, "ok")
   base.readback_model = readback.readback_model
   base.session_id = readback.session_id
+  // The assigned result rides the envelope inside the host output bound, so
+  // the coordinator reads which single result the completion disposes.
+  const envelopeAssignedResult = workerScopeAssignedResult(lane.id)
+  if (envelopeAssignedResult !== null) base.assigned_result = envelopeAssignedResult
   const envelope = withHostBoundedOutput(base, resultBody)
   if (!envelope) return errorEnvelope(lane, packet, "error", "error", "worker result exceeds the pinned host output limit", "adjust_budget")
 

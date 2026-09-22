@@ -2,7 +2,7 @@ import { test, expect, mock } from "bun:test"
 import { manifestDigest } from "./generated-contracts"
 import { validateGeneratedEnvelope, validateGeneratedPayload } from "./generated-contract-tests"
 import { configureCoreBinary, validateAgentLanePacket, type AgentLanePacketCorrection } from "./dispatch"
-import { agentLaneReportSchema, agentLanes } from "./generated-agent-lanes"
+import { agentLaneReportSchema, agentLanes, workerScopeAssignedResult } from "./generated-agent-lanes"
 
 // The builder reaches core through the adapter transport in concord.ts, which
 // imports the host plugin surface. The stub mirrors concord.test.ts so the
@@ -166,6 +166,36 @@ test("a well-formed build projects mandate, narrative, and obligations into a va
     expect(agent).toContain(`"${obligation}"`)
   }
   expect(packet.inputs.constraints).toHaveLength(1)
+})
+
+// The worker-scope contract bounds each attempt to its lane's one assigned
+// result, so every projected packet names that result and states that the
+// parent keeps every other required result explicit.
+const assignedResultSlice = (packet: { inputs: { task: string } }): string =>
+  packet.inputs.task.slice(packet.inputs.task.indexOf("Assigned result:"))
+
+test("each dispatch names its lane's one assigned result in the packet task", async () => {
+  for (const lane of agentLanes) {
+    const built = await build(defaultScript(), { laneId: lane.id })
+    expect(built.failure).toBeUndefined()
+    const assignment = assignedResultSlice(built.packet!)
+    expect(assignment).toContain(workerScopeAssignedResult(lane.id)!)
+    expect(assignment).toContain("the one evidence obligation whose discharge completes this attempt")
+    expect(assignment).toContain("The parent workflow keeps every other required result explicit and dispatches one further bounded attempt per remaining result")
+  }
+})
+
+// The parent dispatches sequential bounded attempts: each successive packet
+// for the same work binds its own attempt to its own lane's assigned result.
+test("sequential dispatches bound each attempt to its own lane's assigned result", async () => {
+  const first = await build(defaultScript(), { laneId: "research", attemptId: "attempt-1" })
+  const second = await build(defaultScript(), { laneId: "implement", attemptId: "attempt-2" })
+  expect(first.failure).toBeUndefined()
+  expect(second.failure).toBeUndefined()
+  expect(assignedResultSlice(first.packet!)).toContain("bounded_findings")
+  expect(assignedResultSlice(second.packet!)).toContain("files_touched")
+  expect(assignedResultSlice(first.packet!)).not.toContain("files_touched")
+  expect(second.packet!.attempt_id).toBe("attempt-2")
 })
 
 test("a correction projects recorded failure fields into the packet", async () => {
@@ -492,7 +522,13 @@ test("the task bound rejects only the next character", async () => {
     "",
     "Approved objective:",
   ].join("\n") + "\n"
-  const exactPremise = "o".repeat(4_096 - taskPrefix.length)
+  // The builder appends the assigned-result block after the premise, so the
+  // fixture derives that fixed overhead from a probe build instead of
+  // restating its wording here.
+  const probe = await build({ ...defaultScript(), "concord_work_trace.continuity": continuityEnvelope(pinnedContract(OUTCOME_PAYLOAD, "o")) })
+  expect(probe.failure).toBeUndefined()
+  const fixedOverhead = probe.packet!.inputs.task.length - taskPrefix.length - 1
+  const exactPremise = "o".repeat(4_096 - taskPrefix.length - fixedOverhead)
   const exactTask = await build({ ...defaultScript(), "concord_work_trace.continuity": continuityEnvelope(pinnedContract(OUTCOME_PAYLOAD, exactPremise)) })
   expect(exactTask.failure).toBeUndefined()
   expect(exactTask.packet!.inputs.task.length).toBe(4_096)

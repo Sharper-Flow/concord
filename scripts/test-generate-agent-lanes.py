@@ -159,5 +159,58 @@ class EvalPacketProjectionTests(unittest.TestCase):
                 generator.eval_packet_projection(path, {})
 
 
+class WorkerScopeProjectionTests(unittest.TestCase):
+    # The projection fixture carries only the fields worker_scope_assignments
+    # reads, so the test states the resolution rule rather than the registry.
+    MANIFEST = {
+        "lanes": [
+            {"id": "research", "evidence_obligations": ["source_citations", "bounded_findings"]},
+            {"id": "implement", "evidence_obligations": ["files_touched"]},
+        ]
+    }
+
+    @staticmethod
+    def contract(*entries):
+        return {"assignments": list(entries)}
+
+    def test_assignments_resolve_one_result_per_registered_lane(self):
+        assignments = generator.worker_scope_assignments(self.contract(
+            {"lane_id": "research", "result": "bounded_findings"},
+            {"lane_id": "implement", "result": "files_touched"},
+        ), self.MANIFEST)
+        self.assertEqual(assignments, {"research": "bounded_findings", "implement": "files_touched"})
+
+    def test_assignment_of_unregistered_lane_fails_generation(self):
+        with self.assertRaises(ValueError):
+            generator.worker_scope_assignments(self.contract({"lane_id": "ghost", "result": "files_touched"}), self.MANIFEST)
+
+    def test_assignment_of_undeclared_result_fails_generation(self):
+        with self.assertRaises(ValueError):
+            generator.worker_scope_assignments(self.contract({"lane_id": "implement", "result": "severity"}), self.MANIFEST)
+
+    def test_missing_lane_assignment_fails_generation(self):
+        with self.assertRaises(ValueError):
+            generator.worker_scope_assignments(self.contract({"lane_id": "implement", "result": "files_touched"}), self.MANIFEST)
+
+    def test_duplicate_lane_assignment_fails_generation(self):
+        with self.assertRaises(ValueError):
+            generator.worker_scope_assignments(self.contract(
+                {"lane_id": "implement", "result": "files_touched"},
+                {"lane_id": "implement", "result": "files_touched"},
+            ), self.MANIFEST)
+
+    def test_ts_projection_emits_the_assigned_result_surface(self):
+        projection = generator.ts_projection(
+            {"lanes": self.MANIFEST["lanes"], "utilities": []},
+            "sha256:" + "0" * 64,
+            {},
+            {},
+            {"research": "bounded_findings", "implement": "files_touched"},
+        )
+        self.assertIn('"research": "bounded_findings"', projection)
+        self.assertIn('"implement": "files_touched"', projection)
+        self.assertIn("export function workerScopeAssignedResult", projection)
+
+
 if __name__ == "__main__":
     unittest.main()

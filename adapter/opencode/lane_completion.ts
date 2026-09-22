@@ -49,6 +49,9 @@ function renderAttempt(envelope: AgentResultEnvelope): string {
     readback_model: envelope.readback_model,
     session_id: envelope.session_id,
   }
+  // A completed attempt names the one assigned result its completion
+  // disposes, so the coordinator reads the bounded disposition directly.
+  if (envelope.assigned_result) summary.assigned_result = envelope.assigned_result
   if (envelope.error) summary.error = envelope.error
   return `\n<${ATTEMPT_ELEMENT}>\n${JSON.stringify(summary)}\n</${ATTEMPT_ELEMENT}>`
 }

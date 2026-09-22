@@ -1,0 +1,18 @@
+{
+  "$schema": "contracts/worker-scope.schema.json",
+  "schema_version": "1.0",
+  "registry": "worker_scope",
+  "version": 1,
+  "summary": "Every registered lane declares the one assigned result a worker attempt completes: the closed evidence obligation whose discharge evidences that result. A dispatch that asks one attempt for any other result is out of scope. The parent workflow keeps every other required result explicit in its own pinned contract, and dispatches one further bounded attempt per remaining result. The design lane is scoped to visual results: its assigned result is visual_artifacts, and a design attempt completes only a visual result.",
+  "premise": {
+    "single_assigned_result": "Each worker attempt completes only its assigned result.",
+    "parent_explicit_sequential": "The parent workflow keeps other required results explicit and can dispatch sequential bounded attempts."
+  },
+  "assignments": [
+    {"lane_id": "research", "result": "bounded_findings"},
+    {"lane_id": "implement", "result": "files_touched"},
+    {"lane_id": "design", "result": "visual_artifacts"},
+    {"lane_id": "review", "result": "contract_findings"},
+    {"lane_id": "verify", "result": "exit_codes"}
+  ]
+}

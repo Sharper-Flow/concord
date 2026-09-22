@@ -354,29 +354,28 @@ func (m *Model) Enter(ctx context.Context) error {
 	return m.read(ctx, ReadRequest{Kind: ReadPortfolio, Limit: 100})
 }
 
+// SelectProduct carries the one Product-selection invariant shared by the
+// portfolio-row route and the candidate route: a selection by Product ID
+// reads that Product and shows it. Callers bound the selection to a visible
+// entry; visibility in a previous snapshot's rows is not required.
 func (m *Model) SelectProduct(ctx context.Context, product string) error {
-	for _, row := range m.snapshot.Rows {
-		if row.ID == product {
-			m.navigation = append(m.navigation, m.Snapshot())
-			err := m.read(ctx, ReadRequest{Kind: ReadDomains, Product: product, Limit: 100, Section: SectionDomains})
-			if err != nil {
-				m.navigation = m.navigation[:len(m.navigation)-1]
-				m.snapshot = Snapshot{Screen: SurfacePortfolio, Coverage: "unreachable", Reliance: "unreachable", StatusMessage: err.Error()}
-				return err
-			}
-			// The Domain panel is focused on entry, so its bounded knowledge
-			// section reads here. A failed knowledge read stays typed in the
-			// Product snapshot rather than costing navigation, which is why the
-			// error is discarded.
-			_ = m.EnsureKnowledge(ctx)
-			m.snapshot.Session = SessionHandoff{ProductID: product, Agent: DefaultSessionAgent}
-			m.snapshot.PanelFocus = S2PanelDomain
-			m.snapshot.Section = SectionDomains
-			m.section = SectionDomains
-			return err
-		}
+	m.navigation = append(m.navigation, m.Snapshot())
+	err := m.read(ctx, ReadRequest{Kind: ReadDomains, Product: product, Limit: 100, Section: SectionDomains})
+	if err != nil {
+		m.navigation = m.navigation[:len(m.navigation)-1]
+		m.snapshot = Snapshot{Screen: SurfacePortfolio, Coverage: "unreachable", Reliance: "unreachable", StatusMessage: err.Error()}
+		return err
 	}
-	return nil
+	// The Domain panel is focused on entry, so its bounded knowledge
+	// section reads here. A failed knowledge read stays typed in the
+	// Product snapshot rather than costing navigation, which is why the
+	// error is discarded.
+	_ = m.EnsureKnowledge(ctx)
+	m.snapshot.Session = SessionHandoff{ProductID: product, Agent: DefaultSessionAgent}
+	m.snapshot.PanelFocus = S2PanelDomain
+	m.snapshot.Section = SectionDomains
+	m.section = SectionDomains
+	return err
 }
 
 func (m *Model) SelectWork(ctx context.Context, work string) error {

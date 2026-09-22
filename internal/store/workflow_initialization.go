@@ -50,9 +50,13 @@ type WorkflowRepinRequest struct {
 }
 
 // RepinWorkflowTx replaces the definition pinned to an existing workflow
-// instance. Re-pinning is re-initialization, not an edit: the instance
-// restarts at the new definition's declared start step. The owning fold holds
-// the invariant, refusing any re-pin once an action has started.
+// instance. Re-pinning onto a different family is re-initialization, not an
+// edit: the instance restarts at the new definition's declared start step.
+// Re-pinning onto a newer version of the same family carries the instance
+// forward: the owning fold admits it while the instance keeps its current
+// step and refuses when the new definition does not declare that step. The
+// fold holds the invariants on both routes, refusing a family change once an
+// action has started or while a contract stays authoritative.
 func RepinWorkflowTx(ctx context.Context, transaction *Transaction, request WorkflowRepinRequest) error {
 	tx, err := transactionSQL(transaction, "workflow_repin")
 	if err != nil {

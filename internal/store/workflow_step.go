@@ -68,10 +68,11 @@ func pinnedWorkflowDefinitionTx(ctx context.Context, tx *sql.Tx, workID string) 
 }
 
 // pinWorkflowInstanceTx records the definition an instance follows and places
-// it on that definition's start step. Re-pinning before execution starts is
-// re-initialization: the instance takes the new definition's start step, so
-// the pair stays coherent rather than stranding a step the new definition
-// does not declare.
+// it on that definition's start step. Initialization and cross-family
+// re-pinning are re-initialization: the instance takes the new definition's
+// start step, so the pair stays coherent rather than stranding a step the new
+// definition does not declare. A same-family carry forward keeps the step the
+// instance holds instead and goes through pinWorkflowInstanceToStepTx.
 //
 // The selecting session is also pinned as the executing actor. A lane-less
 // instance never runs the fenced action that would otherwise assign one, so
@@ -84,7 +85,16 @@ func pinWorkflowInstanceTx(ctx context.Context, tx *sql.Tx, workID string, defin
 	if err != nil {
 		return err
 	}
-	_, err = tx.ExecContext(ctx, `INSERT INTO workflow_instances(work_id,definition_ref,definition_version,definition_digest,current_step,instance_state) VALUES(?,?,?,?,?,'planned') ON CONFLICT(work_id) DO UPDATE SET definition_ref=excluded.definition_ref,definition_version=excluded.definition_version,definition_digest=excluded.definition_digest,current_step=excluded.current_step`, workID, definition.Definition.Ref, definition.Definition.Version, definition.Digest, start)
+	return pinWorkflowInstanceToStepTx(ctx, tx, workID, definition, start, selectingActor)
+}
+
+// pinWorkflowInstanceToStepTx records the definition an instance follows and
+// places it on the given step of that definition. stepID must be declared by
+// the definition: the admitting callers resolve it from the definition's
+// start step, or from the instance's current step after the fold verified the
+// carried-forward definition declares it.
+func pinWorkflowInstanceToStepTx(ctx context.Context, tx *sql.Tx, workID string, definition RegisteredDefinition, stepID, selectingActor string) error {
+	_, err := tx.ExecContext(ctx, `INSERT INTO workflow_instances(work_id,definition_ref,definition_version,definition_digest,current_step,instance_state) VALUES(?,?,?,?,?,'planned') ON CONFLICT(work_id) DO UPDATE SET definition_ref=excluded.definition_ref,definition_version=excluded.definition_version,definition_digest=excluded.definition_digest,current_step=excluded.current_step`, workID, definition.Definition.Ref, definition.Definition.Version, definition.Digest, stepID)
 	if err != nil {
 		return workflowProjectionError(err, "cannot record workflow definition")
 	}

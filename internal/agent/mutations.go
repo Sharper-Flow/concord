@@ -1375,7 +1375,13 @@ func (r runtime) planReviseIntent(ctx context.Context, base Envelope, raw []byte
 		if existingErr != nil {
 			return nil, nil, nil, existingErr
 		}
-		repinning := definitionFound && in.WorkflowTypeRef != "" && definition.DefinitionRef != in.WorkflowTypeRef
+		switchingFamily := definitionFound && in.WorkflowTypeRef != "" && definition.DefinitionRef != in.WorkflowTypeRef
+		// Naming the pinned family again carries the instance forward onto
+		// that family's current definition, so an instance stranded behind a
+		// promotion has a route onto the current version. The store's fold
+		// admits the carry forward per instance and refuses when the current
+		// definition does not contain the instance's current step.
+		carryingForward := definitionFound && in.WorkflowTypeRef != "" && definition.DefinitionRef == in.WorkflowTypeRef && definition.DefinitionVersion < registeredDefinition.Definition.Version
 		urgency := in.Urgency
 		if urgency == "" {
 			urgency = "standard"
@@ -1397,7 +1403,7 @@ func (r runtime) planReviseIntent(ctx context.Context, base Envelope, raw []byte
 				return nil, nil, nil, err
 			}
 			changedVersion += 2
-		case repinning:
+		case switchingFamily || carryingForward:
 			if err := store.RepinWorkflowTx(ctx, tx, store.WorkflowRepinRequest{WorkID: in.WorkID, EventID: digest + ":repin", Definition: registeredDefinition, Actor: actor, Now: r.Authority.now()}); err != nil {
 				return nil, nil, nil, err
 			}

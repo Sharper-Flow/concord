@@ -253,7 +253,7 @@ func TestLauncherOperatorFlowUsesSizedTables(t *testing.T) {
 			PanelFocus: launcher.S2PanelBlocked, Coverage: "authoritative", Backlog: true,
 			Ranked: []launcher.RankedWork{{ID: "backlog", Title: "New / Backlog", Backlog: true}},
 		},
-		projects: []launcher.ProjectOption{{ID: "project-1", Name: "Project one", Role: "primary", Path: "/p1"}},
+		projects: []launcher.ProjectOption{{ID: "project-1", Name: "Project one", Role: "primary", Path: "/project-one"}},
 		resolve:  func(string) (launcher.SessionHandoff, error) { return launcher.SessionHandoff{}, nil },
 	}
 	degradedCore := launcher.New(degraded)
@@ -350,7 +350,10 @@ func TestWorkListExcludesTerminalItems(t *testing.T) {
 // TestWorkRowRendersIssueKeyAndOccupancy proves
 // check:launcher.work_row_issue_key_and_occupancy at the render boundary: a
 // work row carries its lifecycle, the correlated issue key when one exists,
-// and the host-attested occupancy state.
+// and the host-attested occupancy state. At 120 the split seats both panes
+// and the narrowed ranked table sheds its lowest-priority columns; the shed
+// lifecycle stays on screen in the selected work's detail pane, so the
+// operator reads it without leaving the list.
 func TestWorkRowRendersIssueKeyAndOccupancy(t *testing.T) {
 	stub := &screenStub{state: launcher.Snapshot{
 		Screen: launcher.ScreenProduct, AmbientProduct: "product-1", Section: launcher.SectionRanked,
@@ -363,14 +366,18 @@ func TestWorkRowRendersIssueKeyAndOccupancy(t *testing.T) {
 	core := launcher.New(stub)
 	core.RestoreSnapshot(stub.state)
 	m := New(core, context.Background(), Profile{})
-	// 200 keeps every ranked column visible beside the detail pane; the row
-	// identity cells under test exceed the split primary pane at 120.
-	m.Update(tea.WindowSizeMsg{Width: 200, Height: 40})
+	m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
 	rendered := m.Render()
-	for _, want := range []string{"lifecycle=in_progress", "issue=CON-153", "live=yes", "live=no"} {
+	// The narrowed ranked rows keep their identity, issue key and occupancy
+	// cells on one line each.
+	for _, want := range []string{"1 ~ACTIVE work-linked Linked work", "issue=CON-153", "live=yes", "live=no"} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("work row missing %q: %q", want, rendered)
 		}
+	}
+	// The shed lifecycle column's fact stays visible in the detail pane.
+	if !strings.Contains(rendered, "LIFECYCLE: in_progress") {
+		t.Fatalf("selected work detail lost the lifecycle: %q", rendered)
 	}
 }
 
@@ -460,7 +467,7 @@ func TestNewBacklogResolvesIssueKeyOrDegradesToProjects(t *testing.T) {
 	})
 	t.Run("unlinked key degrades to the Project select", func(t *testing.T) {
 		stub := &screenStub{state: product(), projects: []launcher.ProjectOption{
-			{ID: "proj-1", Name: "Pathed project", Role: "primary", Path: "/src/p1"},
+			{ID: "proj-1", Name: "Pathed project", Role: "primary", Path: "/src/proj-1"},
 		}, resolve: func(string) (launcher.SessionHandoff, error) {
 			return launcher.SessionHandoff{}, nil
 		}}
@@ -479,13 +486,13 @@ func TestNewBacklogResolvesIssueKeyOrDegradesToProjects(t *testing.T) {
 			t.Fatalf("Project select = %#v, want the launchable Project", snapshot.Projects)
 		}
 		rendered := m.Render()
-		if !strings.Contains(rendered, "Pathed project") || !strings.Contains(rendered, "path=/src/p1") {
+		if !strings.Contains(rendered, "Pathed project") || !strings.Contains(rendered, "path=/src/proj-1") {
 			t.Fatalf("Project select lost its row: %q", rendered)
 		}
 	})
 	t.Run("empty Enter degrades to the Project select", func(t *testing.T) {
 		stub := &screenStub{state: product(), projects: []launcher.ProjectOption{
-			{ID: "proj-1", Name: "Pathed project", Role: "primary", Path: "/src/p1"},
+			{ID: "proj-1", Name: "Pathed project", Role: "primary", Path: "/src/proj-1"},
 		}}
 		core := launcher.New(stub)
 		core.RestoreSnapshot(stub.state)
@@ -561,5 +568,66 @@ func TestDetailPaneCarriesFocusFieldsTheStatusBarDrops(t *testing.T) {
 	m.UpdateKey("tab") // portfolio screen: Tab is no-op, marker stays off
 	if strings.Contains(m.Render(), "DETAIL *") {
 		t.Fatalf("portfolio Tab focused the detail pane: %q", m.Render())
+	}
+}
+
+// TestDetailPaneFollowsTheSelectedWork proves the split frame's detail pane
+// renders the selected work's typed fields on the screens that seat a work
+// list, and follows the cursor as it moves. An ambient product's computed
+// focus is portfolio detail: it must never stand in for the selected work's
+// detail on the Product and Work screens.
+func TestDetailPaneFollowsTheSelectedWork(t *testing.T) {
+	snapshot := launcher.Snapshot{
+		Screen: launcher.ScreenProduct, AmbientProduct: "product-1", Section: launcher.SectionRanked,
+		PanelFocus: launcher.S2PanelBlocked, Coverage: "authoritative",
+		Rows: []launcher.ProductRow{{
+			ID: "product-1", Name: "Alpha", Stage: "in_progress",
+			Focus: "Ship the ambient focus", FocusID: "work-ambient", FocusWorkflowStepLabel: "execution",
+		}},
+		Ranked: []launcher.RankedWork{
+			{ID: "work-1", Kind: "task", Title: "Live", Lifecycle: "in_progress", Priority: 3, LinearIssueKey: "CON-9", Live: 1},
+			{ID: "work-2", Kind: "bug", Title: "Done", Lifecycle: "completed", Priority: 2, Terminal: true, TerminalAt: "2026-08-05T00:00:00Z"},
+		},
+	}
+	core := launcher.New(nil)
+	core.RestoreSnapshot(snapshot)
+	m := New(core, context.Background(), Profile{})
+	m.Update(tea.WindowSizeMsg{Width: 120, Height: 24})
+	rendered := m.Render()
+	for _, want := range []string{"WORK: work-1", "KIND: task", "LIFECYCLE: in_progress", "ISSUE: CON-9", "LIVE SESSIONS: 1", "PRIORITY: 3"} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("detail pane lost the selected work field %q: %q", want, rendered)
+		}
+	}
+	// The ambient product's focus fields are not selected-work detail.
+	for _, absent := range []string{"Ship the ambient focus", "work-ambient"} {
+		if strings.Contains(rendered, absent) {
+			t.Fatalf("detail pane rendered ambient product focus %q as work detail: %q", absent, rendered)
+		}
+	}
+	// The pane follows the cursor onto the second ranked row.
+	m.UpdateKey("j")
+	rendered = m.Render()
+	for _, want := range []string{"WORK: work-2", "KIND: bug", "TERMINAL: 2026-08-05T00:00:00Z"} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("detail pane did not follow the cursor to %q: %q", want, rendered)
+		}
+	}
+	// The Work screen feeds the pane from its loaded work detail.
+	core.RestoreSnapshot(launcher.Snapshot{
+		Screen: launcher.ScreenWork, AmbientProduct: "product-1", SelectedWorkID: "work-2", Section: launcher.SectionRelations,
+		Coverage: "authoritative",
+		Detail: launcher.WorkDetail{
+			Item:     launcher.RankedWork{ID: "work-2", Kind: "bug", Title: "Done", Lifecycle: "completed", Priority: 2},
+			Workflow: "execution",
+			Projects: []string{"core"},
+		},
+	})
+	m.Sync()
+	rendered = m.Render()
+	for _, want := range []string{"WORK: work-2", "WORKFLOW: execution"} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("Work screen detail pane lost %q: %q", want, rendered)
+		}
 	}
 }

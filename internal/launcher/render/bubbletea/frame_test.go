@@ -178,6 +178,45 @@ func TestFrameJoinsDetailPaneWhenWidthSeatsBothMinima(t *testing.T) {
 	}
 }
 
+// TestFrameSplitHoldsAtUnicodeDisplayWidths proves the split geometry at
+// Unicode display widths: a wide-rune work title clips inside its pane by
+// display width and neither the pane boundary nor the frame width moves.
+func TestFrameSplitHoldsAtUnicodeDisplayWidths(t *testing.T) {
+	snapshot := launcher.Snapshot{
+		Screen: launcher.ScreenProduct, AmbientProduct: "product-1", Section: launcher.SectionRanked,
+		PanelFocus: launcher.S2PanelBlocked, Coverage: "authoritative",
+		Ranked: []launcher.RankedWork{
+			{ID: "work-1", Kind: "task", Title: strings.Repeat("作業", 40), Lifecycle: "in_progress", Priority: 1, Ready: true},
+			{ID: "work-2", Kind: "bug", Title: "plain", Lifecycle: "needed", Priority: 2},
+		},
+	}
+	core := launcher.New(nil)
+	core.RestoreSnapshot(snapshot)
+	model := New(core, context.Background(), Profile{})
+	model.Update(tea.WindowSizeMsg{Width: 120, Height: 24})
+	frame := model.Render()
+	lines := strings.Split(frame, "\n")
+	if len(lines) != 24 {
+		t.Fatalf("unicode frame height=%d, want 24", len(lines))
+	}
+	if got := strings.Count(frame, "╭"); got != 2 {
+		t.Fatalf("unicode frame pane count=%d, want 2", got)
+	}
+	boundary := primaryPaneWidth(120)
+	top := []rune(lines[2])
+	if top[boundary-1] != '╮' || top[boundary] != '╭' {
+		t.Fatalf("unicode top border is not split at column %d: %q", boundary, lines[2])
+	}
+	for i, line := range lines {
+		if got := lipgloss.Width(line); got != 120 {
+			t.Fatalf("unicode frame line %d width=%d, want 120: %q", i, got, line)
+		}
+	}
+	if !strings.Contains(frame, "WORK: work-1") {
+		t.Fatalf("unicode frame lost the selected work detail: %q", frame)
+	}
+}
+
 func fixtureRankedWorks(count int) []launcher.RankedWork {
 	rows := make([]launcher.RankedWork, count)
 	for i := range rows {

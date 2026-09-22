@@ -665,14 +665,13 @@ func TestS2DrillDownRendersKindReadinessAndTerminalAt(t *testing.T) {
 	core := launcher.New(p)
 	core.RestoreSnapshot(snapshot)
 	m := New(core, context.Background(), Profile{})
-	// 200 keeps every ranked column visible beside the detail pane; the
-	// terminal= cell under test exceeds the split primary pane at 120.
-	m.Update(tea.WindowSizeMsg{Width: 200, Height: 40})
+	// At 120 the split seats both panes and the narrowed ranked table sheds
+	// its lowest-priority columns; the row assertions cover what survives.
+	m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
 	rendered := m.Render()
 	for _, want := range []string{
 		"kind=task", "kind=bug",
 		"+READY", "-TERMINAL",
-		"terminal=2026-08-05T00:00:00Z",
 		"lifecycle=completed",
 	} {
 		if !strings.Contains(rendered, want) {
@@ -681,6 +680,12 @@ func TestS2DrillDownRendersKindReadinessAndTerminalAt(t *testing.T) {
 	}
 	if again := m.Render(); again != rendered {
 		t.Fatalf("drill-down render changed between frames:\n%s\n%s", rendered, again)
+	}
+	// The shed terminal column's fact stays on screen: the cursor's work
+	// detail pane carries the terminal date beside the narrowed table.
+	m.UpdateKey("j")
+	if rendered := m.Render(); !strings.Contains(rendered, "TERMINAL: 2026-08-05T00:00:00Z") {
+		t.Fatalf("selected work detail lost the terminal date: %q", rendered)
 	}
 }
 
@@ -1261,8 +1266,10 @@ func TestRankedRowsCollapseConstantColumnsAndTruncateToOneLine(t *testing.T) {
 		}
 	}
 	// The over-width row truncates to the row budget on its single line. The
-	// direct render carries the production gutter: cursor 0 marks row 0.
-	headers, rows, _ := rankedTable(ranked, snapshot)
+	// direct render carries the production gutter: cursor 0 marks row 0. The
+	// width seats every surviving column so this call composes, and the
+	// render-path budget response is proven on the Model's own frames.
+	headers, rows, _ := rankedTable(ranked, snapshot, 400)
 	if len(rows) != 3 {
 		t.Fatalf("ranked row count=%d, want 3", len(rows))
 	}
@@ -1278,7 +1285,7 @@ func TestRankedRowsCollapseConstantColumnsAndTruncateToOneLine(t *testing.T) {
 	// A column whose value varies on any visible row survives everywhere it
 	// has a value.
 	ranked[1].Kind = "bug"
-	headers, rows, _ = rankedTable(ranked, snapshot)
+	headers, rows, _ = rankedTable(ranked, snapshot, 400)
 	if !strings.Contains(strings.Join(headers, " "), "kind") || !strings.Contains(rows[0][1], "task") || !strings.Contains(rows[1][1], "bug") {
 		t.Fatalf("varying kind column collapsed: %#v / %#v", headers, rows)
 	}

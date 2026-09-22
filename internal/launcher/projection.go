@@ -157,19 +157,21 @@ const (
 	projectedCursorGutter = 2
 )
 
-// applyColumnBudget drops the lowest-priority columns until the projected
-// table fits the width budget. Priority is the declared display order: the
-// rightmost column is the first dropped, and the first column never drops.
-// Cells drop in parallel so every row stays aligned with the surviving
-// columns, and rune counts (not bytes) estimate the rendered cell width.
-func applyColumnBudget(projection Projection, width int) Projection {
-	if width <= 0 || len(projection.Columns) <= 1 {
-		return projection
+// ColumnBudget returns how many leading columns of a projected table fit the
+// width budget: the cursor gutter plus each column's widest cell plus the
+// renderer's inter-column padding, all counted in runes so multi-byte text
+// prices its display width. The first column never drops, so a table under
+// any budget keeps one readable column. The renderer applies this same rule
+// to tables it composes outside Project, so a narrowed pane sheds whole
+// columns everywhere instead of truncating all of them.
+func ColumnBudget(headers []string, rows [][]string, width int) int {
+	if width <= 0 || len(headers) == 0 {
+		return len(headers)
 	}
-	widths := make([]int, len(projection.Columns))
-	for i, header := range projection.Columns {
+	widths := make([]int, len(headers))
+	for i, header := range headers {
 		widths[i] = utf8.RuneCountInString(header)
-		for _, row := range projection.Rows {
+		for _, row := range rows {
 			if i < len(row) {
 				if cells := utf8.RuneCountInString(row[i]); cells > widths[i] {
 					widths[i] = cells
@@ -177,17 +179,30 @@ func applyColumnBudget(projection Projection, width int) Projection {
 			}
 		}
 	}
-	fits := func(keep int) bool {
+	keep := len(headers)
+	for keep > 1 {
 		total := projectedCursorGutter
 		for i := 0; i < keep; i++ {
 			total += widths[i] + projectedColumnPadding
 		}
-		return total <= width
-	}
-	keep := len(projection.Columns)
-	for keep > 1 && !fits(keep) {
+		if total <= width {
+			break
+		}
 		keep--
 	}
+	return keep
+}
+
+// applyColumnBudget drops the lowest-priority columns until the projected
+// table fits the width budget. Priority is the declared display order: the
+// rightmost column is the first dropped, and the first column never drops.
+// Cells drop in parallel so every row stays aligned with the surviving
+// columns.
+func applyColumnBudget(projection Projection, width int) Projection {
+	if width <= 0 || len(projection.Columns) <= 1 {
+		return projection
+	}
+	keep := ColumnBudget(projection.Columns, projection.Rows, width)
 	if keep == len(projection.Columns) {
 		return projection
 	}

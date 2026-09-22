@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test"
-import { createWorkStateReporter, formatWorkClosureBox, formatWorkPaneName, formatWorkTabName } from "./workflow-status"
+import { createWorkStateReporter, formatWorkPaneName, formatWorkTabName } from "./workflow-status"
 import { hostControlPlane } from "./move-session"
 
 const pin = {
@@ -55,70 +55,18 @@ test("formats the pane name from a title alone", () => {
   expect(formatWorkPaneName(42)).toBeNull()
 })
 
-// Golden test: the closure box's exact bytes are fixed here, not in prose.
-// A completed pin is headed `Concord Work Item Complete` over `=` rules; a
-// cancelled or superseded pin is headed `Concord Work Item Closed` over `-`
-// rules, which keeps closure without completion visibly plainer. The gate is
-// the terminal lifecycle alone, so an envelope with no evidence renders
-// `evidence=none` instead of suppressing the signal.
-// The fence is required, not decoration: the host renders an assistant text
-// part with `marked` under its default `breaks: false`, which collapses every
-// single newline to a space, so an unfenced box reaches the operator as one
-// run-on line.
-test("renders the terminal closure boxes byte-exactly", () => {
-  const envelope = { outcome: "ok", evidence_refs: [{ kind: "commit", locator: "commit:abc123" }, { kind: "pull_request", locator: "pr:7" }] }
-  expect(formatWorkClosureBox({ ...pin, lifecycle: "completed", step: "complete" }, envelope)).toBe(
-    "```\n+====================================+\n|     Concord Work Item Complete     |\n+====================================+\n|  work-1 | Concord                  |\n|  Repair the adapter                |\n|  lifecycle=completed | evidence=2  |\n+====================================+\n```",
-  )
-  expect(formatWorkClosureBox({ ...pin, lifecycle: "cancelled" }, envelope)).toBe(
-    "```\n+------------------------------------+\n|      Concord Work Item Closed      |\n+------------------------------------+\n|  work-1 | Concord                  |\n|  Repair the adapter                |\n|  lifecycle=cancelled | evidence=2  |\n+------------------------------------+\n```",
-  )
-  expect(formatWorkClosureBox({ ...pin, lifecycle: "superseded" }, { outcome: "ok" })).toBe(
-    "```\n+----------------------------------------+\n|        Concord Work Item Closed        |\n+----------------------------------------+\n|  work-1 | Concord                      |\n|  Repair the adapter                    |\n|  lifecycle=superseded | evidence=none  |\n+----------------------------------------+\n```",
-  )
-  expect(formatWorkClosureBox({ ...pin, lifecycle: "completed", linear_issue_key: "CON-42" }, envelope)).toBe(
-    "```\n+====================================+\n|     Concord Work Item Complete     |\n+====================================+\n|  CON-42 (work-1) | Concord         |\n|  Repair the adapter                |\n|  lifecycle=completed | evidence=2  |\n+====================================+\n```",
-  )
-  expect(formatWorkClosureBox(pin, envelope)).toBeNull()
-})
-
-test("renders verified criteria only on the completed closure box", () => {
-  const criteria = [
-    {
-      predicate_id: "predicate:pin-carries-verified-criteria",
-      ordinal: 0,
-      outcome_kind: "exists",
-      outcome_payload: { kind: "exists", subjects: ["internal/store/workpin.go", "WorkPin.verified_criteria"], surface: "work_pin" },
-      verdict_kind: "ok",
-    },
-    {
-      predicate_id: "predicate:golden-tests-pin-new-bytes",
-      ordinal: 1,
-      outcome_kind: "check",
-      outcome_payload: { kind: "check", check_ref: "check:adapter:workflow-status-tests", immutable_subject_ref: "adapter/opencode/workflow-status.test.ts", expected_result: "pass" },
-      verdict_kind: "ok",
-    },
-  ]
-  const completed = formatWorkClosureBox({ ...pin, lifecycle: "completed", step: "complete", verified_criteria: criteria }, { outcome: "ok" })
-  expect(completed).toBe(
-    "```\n+======================================================+\n|              Concord Work Item Complete              |\n+======================================================+\n|  work-1 | Concord                                    |\n|  Repair the adapter                                  |\n|  lifecycle=completed | evidence=none                 |\n|  ✓ exists internal/store/workpin.go | work_pin       |\n|  ✓ check check:adapter:workflow-status-tests | pass  |\n+======================================================+\n```",
-  )
-  expect(formatWorkClosureBox({ ...pin, lifecycle: "cancelled", verified_criteria: criteria }, { outcome: "ok" })).not.toContain("verified")
-})
-
-// A work title may reach 256 characters. The cell cap keeps the box inside a
-// terminal, and equal line width is the property that makes the border read as
-// a border, so both are asserted rather than assumed.
-test("truncates an over-long cell and holds every box line at one width", () => {
-  const envelope = { outcome: "ok", evidence_refs: [{ kind: "commit", locator: "commit:abc123" }, { kind: "pull_request", locator: "pr:7" }] }
-  const title = "Repair the adapter closure box renderer so that an unreasonably long work item title is truncated rather than wrapped onto several lines inside the border of the box"
-  const block = formatWorkClosureBox({ ...pin, lifecycle: "completed", step: "complete", title }, envelope)
-  expect(block).toBe(
-    "```\n+====================================================================+\n|                     Concord Work Item Complete                     |\n+====================================================================+\n|  work-1 | Concord                                                  |\n|  Repair the adapter closure box renderer so that an unreasonably\u2026  |\n|  lifecycle=completed | evidence=2                                  |\n+====================================================================+\n```",
-  )
-  const lines = (block as string).split("\n").slice(1, -1)
-  expect(new Set(lines.map((line) => line.length))).toEqual(new Set([70]))
-})
+// The reporter renames the tab and pane, refreshes the session goal title,
+// and delegates the closure receipt to the core's `concord receipt` verb.
+// The receipt bytes are pinned by the core's internal/receipt golden tests;
+// here the verb's stdout is the fixture.
+function reporterRunner(options: { receipt: string; receiptExitCode?: number; calls?: string[][] } = { receipt: "" }) {
+  return { async run(argv: string[], stdin: string) {
+    options.calls?.push([...argv, stdin])
+    if (argv[0] === "zellij" && argv[2] === "list-panes") return { exitCode: 0, stdout: JSON.stringify([{ id: 42, is_plugin: false, tab_id: 21 }]), stderr: "" }
+    if (argv[0] === "concord-test") return { exitCode: options.receiptExitCode ?? 0, stdout: options.receipt, stderr: "" }
+    return { exitCode: 0, stdout: "", stderr: "" }
+  } }
+}
 
 test("renames the tab and pane frame mapped from the session pane", async () => {
   process.env.ZELLIJ_PANE_ID = "42"
@@ -128,10 +76,12 @@ test("renames the tab and pane frame mapped from the session pane", async () => 
     if (argv[2] === "list-panes") return { exitCode: 0, stdout: JSON.stringify([{ id: 42, is_plugin: false, tab_id: 21 }, { id: 99, is_plugin: false, tab_id: 30 }]), stderr: "" }
     return { exitCode: 0, stdout: "", stderr: "" }
   } }
-  const reporter = createWorkStateReporter({ runner })
+  const reporter = createWorkStateReporter({ runner, binary: "concord-test" })
   const context = { sessionID: "session-1", abort: new AbortController().signal }
   await reporter.report({ outcome: "ok", result: { work_pins: [pin] } }, context)
   await reporter.report({ outcome: "ok", result: { work_pins: [{ ...pin, step: "verify" }] } }, context)
+  // A non-terminal pin never reaches the receipt verb: the gate is the
+  // terminal lifecycle, and the completed-only law lives in the verb.
   expect(calls).toEqual([
     ["zellij", "action", "list-panes", "-a", "-j"],
     ["zellij", "action", "rename-tab-by-id", "21", "project-1"],
@@ -149,7 +99,7 @@ test("the reporter refreshes the session goal title from the pin", async () => {
     post: async () => ({ response: response(204) }),
     patch: async (options) => { titles.push(options); return { response: response() } },
   })
-  const reporter = createWorkStateReporter({ runner: { async run() { return { exitCode: 0, stdout: JSON.stringify([{ id: 42, is_plugin: false, tab_id: 21 }]), stderr: "" } } } })
+  const reporter = createWorkStateReporter({ runner: { async run() { return { exitCode: 0, stdout: JSON.stringify([{ id: 42, is_plugin: false, tab_id: 21 }]), stderr: "" } } }, binary: "concord-test" })
   await reporter.report({ outcome: "ok", result: { work_pins: [{ ...pin, title: "Revised intent" }] } }, { sessionID: "session-goal", abort: new AbortController().signal })
   expect(titles.length).toBe(1)
   expect(titles[0]?.url).toBe("/session/{id}")
@@ -165,14 +115,15 @@ test("a failed best-effort side effect returns a warning instead of failing the 
     post: async () => ({ response: response(204) }),
     patch: async () => { throw new Error("the route failed") },
   })
-  const reporter = createWorkStateReporter({ runner: { async run() { throw new Error("zellij is absent") } } })
-  await expect(reporter.report({ outcome: "ok", result: { work_pins: [pin] } }, { sessionID: "session-goal-failed", abort: new AbortController().signal })).resolves.toEqual([
+  const reporter = createWorkStateReporter({ runner: { async run() { throw new Error("zellij is absent") } }, binary: "concord-test" })
+  const warnings = await reporter.report({ outcome: "ok", result: { work_pins: [pin] } }, { sessionID: "session-goal-failed", abort: new AbortController().signal })
+  expect(warnings).toEqual([
     "Concord could not rename the work tab or pane frame: zellij is absent.",
     "Concord could not write the session goal title: the session title route is absent or refused the write.",
   ])
 })
 
-test("a completed pin queues the celebratory closure banner", async () => {
+test("a completed pin queues the closure receipt the verb prints", async () => {
   process.env.ZELLIJ_PANE_ID = "42"
   hostControlPlane().bind({
     get: async () => ({ response: response(), data: {} }),
@@ -181,47 +132,66 @@ test("a completed pin queues the celebratory closure banner", async () => {
     // that write off the warnings this test reads.
     patch: async () => ({ response: response() }),
   })
-  const reporter = createWorkStateReporter({ runner: { async run() { return { exitCode: 0, stdout: JSON.stringify([{ id: 42, is_plugin: false, tab_id: 21 }]), stderr: "" } } } })
+  const receipt = "| 🛫 CON-42 Complete (work-1) |\n| :-- |\n| ✅ Delegate passes the verb bytes |\n| ✓ check check:repo:verify · pass |"
+  const reporter = createWorkStateReporter({ runner: reporterRunner({ receipt }), binary: "concord-test" })
   await reporter.report({
     outcome: "ok",
-    evidence_refs: [{ kind: "pull_request", authority: "github", locator_kind: "url", locator: "https://github.com/example/repo/pull/7" }],
     result: { work_pins: [{ ...pin, lifecycle: "completed", step: "complete" }] },
   }, { sessionID: "session-closure", abort: new AbortController().signal })
-  expect(reporter.takeNotices("session-closure")).toEqual([
-    "```\n+====================================+\n|     Concord Work Item Complete     |\n+====================================+\n|  work-1 | Concord                  |\n|  Repair the adapter                |\n|  lifecycle=completed | evidence=1  |\n+====================================+\n```",
-  ])
+  expect(reporter.takeNotices("session-closure")).toEqual([receipt])
   expect(reporter.takeNotices("session-closure")).toEqual([])
 })
 
-test("a cancelled pin queues the plainer closure marker", async () => {
-  const reporter = createWorkStateReporter({ runner: { async run() { return { exitCode: 0, stdout: "", stderr: "" } } } })
+test("a cancelled pin stays silent: the verb prints nothing for a non-completed closure", async () => {
+  const reporter = createWorkStateReporter({ runner: reporterRunner({ receipt: "" }), binary: "concord-test" })
   await reporter.report({ outcome: "ok", result: { work_pins: [{ ...pin, lifecycle: "cancelled" }] } }, { sessionID: "session-cancelled", abort: new AbortController().signal })
-  expect(reporter.takeNotices("session-cancelled")).toEqual([
-    "```\n+---------------------------------------+\n|       Concord Work Item Closed        |\n+---------------------------------------+\n|  work-1 | Concord                     |\n|  Repair the adapter                   |\n|  lifecycle=cancelled | evidence=none  |\n+---------------------------------------+\n```",
-  ])
+  expect(reporter.takeNotices("session-cancelled")).toEqual([])
 })
 
-test("the closure banner emits once per session, work, and terminal lifecycle", async () => {
+test("a failed receipt verb queues no notice but names the failure in a warning", async () => {
+  process.env.ZELLIJ_PANE_ID = "42"
+  hostControlPlane().bind({
+    get: async () => ({ response: response(), data: {} }),
+    post: async () => ({ response: response(204) }),
+    patch: async () => ({ response: response() }),
+  })
+  const warnings = await createWorkStateReporter({ runner: reporterRunner({ receipt: "", receiptExitCode: 1 }), binary: "concord-test" })
+    .report({ outcome: "ok", result: { work_pins: [{ ...pin, lifecycle: "completed" }] } }, { sessionID: "session-receipt-failed", abort: new AbortController().signal })
+  expect(warnings).toEqual(["Concord could not render the work closure receipt: receipt exited 1."])
+})
+
+test("the closure notice emits once per session, work, and terminal lifecycle", async () => {
   const completed = { ...pin, lifecycle: "completed", step: "complete" }
   const envelope = { outcome: "ok", result: { work_pins: [completed] } }
-  const reporter = createWorkStateReporter({ runner: { async run() { return { exitCode: 0, stdout: "", stderr: "" } } } })
+  const calls: string[][] = []
+  // The real verb prints nothing for a non-completed closure; the fake models
+  // that gate with a flag the test flips before the superseded report.
+  let verbPrints = true
+  const runner = { async run(argv: string[], stdin: string) {
+    calls.push([...argv, stdin])
+    if (argv[0] === "zellij" && argv[2] === "list-panes") return { exitCode: 0, stdout: JSON.stringify([{ id: 42, is_plugin: false, tab_id: 21 }]), stderr: "" }
+    if (argv[0] === "concord-test") return { exitCode: 0, stdout: verbPrints ? "🛫 work-1 Complete" : "", stderr: "" }
+    return { exitCode: 0, stdout: "", stderr: "" }
+  } }
+  const reporter = createWorkStateReporter({ runner, binary: "concord-test" })
   const context = { sessionID: "session-dedupe", abort: new AbortController().signal }
   await reporter.report(envelope, context)
   // A later mutation touching the same item carries the same terminal pin.
   await reporter.report(envelope, context)
   expect(reporter.takeNotices("session-dedupe")).toHaveLength(1)
-  // A different terminal lifecycle on the same work emits its own marker, and
-  // a different session receives its own copy.
+  verbPrints = false
   await reporter.report({ outcome: "ok", result: { work_pins: [{ ...completed, lifecycle: "superseded" }] } }, context)
+  verbPrints = true
   await reporter.report(envelope, { sessionID: "session-other", abort: new AbortController().signal })
   const blocks = reporter.takeNotices("session-dedupe")
-  expect(blocks).toHaveLength(1)
-  expect(blocks[0]).toContain("lifecycle=superseded")
-  expect(reporter.takeNotices("session-other")[0]).toContain("Concord Work Item Complete")
+  expect(blocks).toEqual([])
+  expect(reporter.takeNotices("session-other")[0]).toBe("🛫 work-1 Complete")
+  const receiptCalls = calls.filter((argv) => argv[0] === "concord-test")
+  expect(receiptCalls).toHaveLength(4)
 })
 
-test("a refused envelope emits no closure banner", async () => {
-  const reporter = createWorkStateReporter({ runner: { async run() { return { exitCode: 0, stdout: "", stderr: "" } } } })
+test("a refused envelope emits no closure notice", async () => {
+  const reporter = createWorkStateReporter({ runner: reporterRunner({ receipt: "🛫 work-1 Complete" }), binary: "concord-test" })
   await reporter.report({
     outcome: "error",
     result: { work_pins: [{ ...pin, lifecycle: "completed", step: "complete" }] },
@@ -231,7 +201,7 @@ test("a refused envelope emits no closure banner", async () => {
 
 test("keeps tab rename failure best effort", async () => {
   process.env.ZELLIJ_PANE_ID = "42"
-  const reporter = createWorkStateReporter({ runner: { async run() { throw new Error("zellij is absent") } } })
+  const reporter = createWorkStateReporter({ runner: { async run() { throw new Error("zellij is absent") } }, binary: "concord-test" })
   const warnings = await reporter.report({ outcome: "ok", result: { work_pins: [pin] } }, { sessionID: "session-failure", abort: new AbortController().signal })
   expect(warnings).toEqual(["Concord could not rename the work tab or pane frame: zellij is absent.", "Concord could not write the session goal title: the session title route is absent or refused the write."])
 })
@@ -240,8 +210,9 @@ test("keeps a pane rename failure best effort", async () => {
   process.env.ZELLIJ_PANE_ID = "42"
   const reporter = createWorkStateReporter({ runner: { async run(argv: string[]) {
     if (argv[2] === "rename-pane") return { exitCode: 1, stdout: "", stderr: "no such pane" }
+    if (argv[0] === "concord-test") return { exitCode: 0, stdout: "", stderr: "" }
     return { exitCode: 0, stdout: JSON.stringify([{ id: 42, is_plugin: false, tab_id: 21 }]), stderr: "" }
-  } } })
+  } }, binary: "concord-test" })
   const warnings = await reporter.report({ outcome: "ok", result: { work_pins: [pin] } }, { sessionID: "session-pane-failure", abort: new AbortController().signal })
   expect(warnings).toEqual(["Concord could not rename the work tab or pane frame: rename-pane exited 1.", "Concord could not write the session goal title: the session title route is absent or refused the write."])
 })

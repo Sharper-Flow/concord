@@ -198,38 +198,30 @@ envelope, because the agent is the only reader that can respond to it.
 
 ### The text-part channel
 
-When a mutation completes, cancels, or supersedes a work item, the adapter
-renders one closure box from the terminal pin, bordered with horizontal rules
-and pipes: a completion is headed `Concord Work Item Complete` over `=` rules,
-and a cancellation or a supersession is headed `Concord Work Item Closed` over
-visibly plainer `-` rules. The heading is centred and content cells sit two
-columns inside each pipe. The box carries the Linear key and work id, the
-title, the terminal lifecycle, the project display name, and the evidence
-locator count. Every line holds one width, floored at the heading and capped at
-100 columns, so an over-long title truncates rather than wrapping the border.
-Evidence is not a precondition: an envelope with no evidence renders
-`evidence=none` instead of closing the item in silence. The worktree-removal
-notice rides the same channel.
+When a mutation completes, cancels, or supersedes a work item, the reporter
+delegates the closure receipt to the core: it shells `concord receipt` with
+the terminal pin's work ID through the same runner as every core call, and
+queues whatever bytes the verb prints. The receipt's format is product-owned
+law (CD-0169), rendered by the core's internal/receipt package as an
+unfenced markdown table — a plane header line and one row per verified
+contract predicate — so the adapter keeps zero formatting logic and the
+alignment belongs to the host markdown renderer. The verb prints nothing for
+a work item outside the completed lifecycle, so a cancellation or a
+supersession queues no notice, and an ambiguous contract projection
+degrades to the header alone.
 
-Completed pins may carry `verified_criteria`. The block prints one `✓` line
-for each active contract predicate, using only its typed outcome fields. The
-field stays absent for cancelled and superseded pins, and for ambiguous
-contract projections.
+A failed receipt call appends a warning line to the tool result output after
+the envelope, because the agent is the only reader that can respond to it.
+The worktree-removal notice rides the same channel.
 
-The box rides the assistant's own message. The work-state reporter queues
+The receipt rides the assistant's own message. The work-state reporter queues
 one block per session and suppresses a second emission of the same session,
 work, and terminal lifecycle triple, and the plugin's
 `experimental.text.complete` hook drains the queue into the text part before
-the host persists it. The agent spends no tokens forming the box and
-cannot omit it. A host that never calls the hook produces no box and no
+the host persists it. The agent spends no tokens forming the receipt and
+cannot omit it. A host that never calls the hook produces no receipt and no
 error, and the hook swallows every throw so a display can never damage an
 assistant message.
-
-The block is fenced. The host renders an assistant text part as markdown
-through `marked` with its default `breaks: false`, so a single newline is a
-soft break and collapses to a space. An unfenced box would reach the
-operator as one run-on line, and the fence also holds the border columns in a
-monospace block.
 
 ### Session goal title
 

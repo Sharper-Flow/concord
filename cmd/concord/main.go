@@ -185,6 +185,7 @@ var commandSpecs = []commandSpec{
 	{Canonical: "worktree-locate", RequiredFields: requiredFields(field("project_id"), field("work_id")), Optional: "ref (a rev-syntax ref; defaults to HEAD, the default branch under the trunk-stays-on-default rule)", Enums: "none"},
 	{Canonical: "work-bootstrap", RequiredFields: requiredFields(field("product_id"), field("project_id"), field("title"), field("value_statement"), field("kind"), field("task"), field("idempotency_key")), Optional: "priority, urgency, tags, workflow_type_ref, external_ref, governing_requirements, ref (defaults to HEAD)", Enums: "kind: task | bug | decision | research | other; urgency: standard | expedite"},
 	{Canonical: "work-resume", RequiredFields: requiredFields(field("product_id"), field("project_id"), field("work_id")), Optional: "none", Enums: "none"},
+	{Canonical: "receipt", RequiredFields: requiredFields(field("work_id")), Optional: "none", Enums: "prints the product-owned closure receipt markdown (CD-0169) for a completed work item; empty output when the item is not completed"},
 	{Canonical: "work-shelve", RequiredFields: requiredFields(field("operation_id"), field("idempotency_key"), field("work_id"), field("expected_version"), field("handoff")), Optional: "product_id, linear, actor, safety evidence", Enums: "reason is fixed to shelved; no sixth lifecycle state"},
 	{Canonical: "work-cancel", RequiredFields: requiredFields(field("operation_id"), field("idempotency_key"), field("work_id"), field("expected_version"), field("handoff")), Optional: "product_id, linear, actor, safety evidence", Enums: "reason is fixed to cancelled; removal is not archival"},
 	{Canonical: "ci-wait", RequiredFields: requiredFields(field("selector"), field("repo")), Optional: "mode (pr checks|merge), time_seconds_max, state_file", Enums: "selector.kind: pr|sha|run; mode: checks|merge"},
@@ -619,6 +620,8 @@ func runJSONCommand(command string, args []string, in io.Reader, out, errOut io.
 		return writeJSON(out, receipt, errOut)
 	case "session-prepare":
 		return runSessionPrepare(raw, s, out, errOut, hostLaneAgentIdentity, hostOrchestratorIdentity, DeriveSessionBoot)
+	case "receipt":
+		return runReceipt(raw, s, out, errOut)
 	default:
 		return runInternal(command, raw, service, s, clock, out, errOut)
 	}

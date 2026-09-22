@@ -1,0 +1,34 @@
+{
+  "evidence": [
+    {
+      "kind": "go_test",
+      "value": "internal/receipt.TestRenderPinsTheClosureReceiptBytes"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/receipt.TestRenderDegradesToTheHeaderAloneWithoutCriteria"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/receipt.TestRenderAbbreviatesLabelsToTheCellWidth"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestReadWorkPinCompletedIncludesVerifiedCriteria"
+    },
+    {
+      "kind": "adapter_test",
+      "value": "adapter/opencode/workflow-status-receipt-runtime-shape.test.ts#delegates the completed pin to the core receipt verb and queues its bytes"
+    },
+    {
+      "kind": "adapter_test",
+      "value": "adapter/opencode/workflow-status.test.ts#a completed pin queues the closure receipt the verb prints"
+    },
+    {
+      "kind": "validator",
+      "value": "scripts/check-json.py"
+    }
+  ],
+  "id": "CD-0169",
+  "state": "satisfied"
+}

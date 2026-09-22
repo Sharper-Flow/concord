@@ -125,6 +125,89 @@ func TestConfirmPremiseRefusalNamesTheMissingArtifact(t *testing.T) {
 	}
 }
 
+// TestUnavailableConfirmationIsNotAdvertised holds the intent-projection side
+// of the question gate. The pin states what the caller may do, and a
+// confirm_premise whose question is closed would refuse at the selection
+// guard, so the pin must not advertise it. A closed question is not only the
+// withheld gate: an absent contract leaves no question either, and both states
+// must hide the action. Once the question opens, the action returns.
+func TestUnavailableConfirmationIsNotAdvertised(t *testing.T) {
+	ctx := context.Background()
+	s := openTemp(t)
+	workID := "hidden-confirmation-work"
+	otherWorkID := "hidden-confirmation-other"
+	seedWork(t, s, workID)
+	seedWork(t, s, otherWorkID)
+	seedWorkflowLaw(t, s)
+	seedIssue31DomainRegistry(t, s)
+	seedWithheldQuestionWorkflow(t, s, workID, "verify")
+
+	pinIntents := func() (pin WorkPin) {
+		pin, err := ReadWorkPin(ctx, s, workID)
+		if err != nil {
+			t.Fatalf("pin read failed: %v", err)
+		}
+		return pin
+	}
+	advertised := func(pin WorkPin) bool {
+		return workPinContainsAction(pin.NextValidIntents, "confirm_premise")
+	}
+
+	// The withheld gate closes the question, so confirm_premise is unavailable
+	// and the intent projection must not offer it. record_verdict, which no
+	// approval gate holds, stays advertised.
+	withheld := pinIntents()
+	if withheld.PendingOperatorDecision != nil || withheld.WithheldOperatorDecision == nil {
+		t.Fatalf("withheld question = %+v / %+v, want withheld only", withheld.PendingOperatorDecision, withheld.WithheldOperatorDecision)
+	}
+	if advertised(withheld) {
+		t.Fatal("pin advertised confirm_premise while its question was withheld")
+	}
+	if !workPinContainsAction(withheld.NextValidIntents, "record_verdict") {
+		t.Fatal("pin dropped record_verdict, which the question gate does not hold")
+	}
+
+	// An absent contract leaves no question either; the confirmation is
+	// unavailable there for the same reason and must stay hidden.
+	db := s.DatabaseForTesting()
+	if _, err := db.Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`DELETE FROM workflow_contracts WHERE work_id=?`, workID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`DELETE FROM fold_guard`); err != nil {
+		t.Fatal(err)
+	}
+	contractless := pinIntents()
+	if contractless.PendingOperatorDecision != nil || contractless.WithheldOperatorDecision != nil {
+		t.Fatalf("contractless question = %+v / %+v, want none", contractless.PendingOperatorDecision, contractless.WithheldOperatorDecision)
+	}
+	if advertised(contractless) {
+		t.Fatal("pin advertised confirm_premise without an approved contract")
+	}
+
+	// With the contract restored and the investigation artifact recorded, the
+	// question opens and the confirmation is advertised again.
+	if _, err := db.Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class) VALUES(?,1,'withheld question premise','internal_sqlite','[]','[]','2026-08-01T00:00:00Z',(SELECT actor_ref FROM workflow_actors LIMIT 1),'[]','[]',1,'prototype_internal')`, workID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`DELETE FROM fold_guard`); err != nil {
+		t.Fatal(err)
+	}
+	insertInvestigationGateObservation(t, s, workID, "obs:"+strings.Repeat("6", 16), []string{"root", otherWorkID})
+	open := pinIntents()
+	if open.PendingOperatorDecision == nil || open.PendingOperatorDecision.ActionID != "confirm_premise" {
+		t.Fatalf("open question = %+v, want confirm_premise", open.PendingOperatorDecision)
+	}
+	if !advertised(open) {
+		t.Fatal("pin hid confirm_premise while its question was open")
+	}
+}
+
 // seedWithheldQuestionWorkflow puts a break-fix instance at one step with an
 // approved contract, which is the least state a pin read and the selection
 // guard both need.

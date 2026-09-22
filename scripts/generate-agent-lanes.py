@@ -357,12 +357,19 @@ question from the working directory.
 
 ## Method
 
-1. Read the repository structure with `glob`.
-2. Search for relevant symbols or text with `grep`.
-3. Read only the files and sections that answer the question.
-4. Use the declared read-only Git commands when the parent asks about history,
+1. Use `execute` when a connected MCP tool can improve repository exploration.
+   Inspect available tools with `Object.keys(tools)` or search for a relevant
+   tool by namespace. Call the exact tool path returned by discovery. For
+   example, use `tools.lgrep.search_semantic` for a bounded concept search.
+   MCP access depends on host connections. Use read-only tools only, and
+   verify their results against repository sources.
+2. Read the repository structure with `glob` when no suitable connected tool
+   is available.
+3. Search for relevant symbols or text with `grep` when needed.
+4. Read only the files and sections that answer the question.
+5. Use the declared read-only Git commands when the parent asks about history,
    status, or the current diff.
-5. Stop when the question has a source-backed answer, or after {duration} of
+6. Stop when the question has a source-backed answer, or after {duration} of
    total wall time, whichever comes first. Report the findings you hold when
    the cap stops you.
 

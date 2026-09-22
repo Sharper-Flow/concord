@@ -4,7 +4,7 @@ import { mkdtemp } from "node:fs/promises"
 import fs from "node:fs"
 import * as os from "node:os"
 import path from "node:path"
-import { agentLanes } from "./generated-agent-lanes"
+import { agentLanes, workerScopeAssignedResult } from "./generated-agent-lanes"
 import { boundedTextPrefix, completeWorkerAttempt, computeHostPromptProvenance, concordBinaryPath, configureCoreBinary, defaultExportRunner, defaultRunner, dispatchWorker, MAX_EXPORT_BYTES, readExportOpeningPacket, readExportSession, readExportSessionMetadata, readRunSessionMetadata, resolveCoreBinary, validateAgentLanePacket, type AgentLanePacket, type CanonicalLaneReport, type DispatchAuthorizer, type DispatchRunner } from "./dispatch"
 
 // Fake-runner suite: bind worker-evidence CLI calls to a nominal core path
@@ -1351,10 +1351,26 @@ for (const registered of agentLanes) {
     expect(result.error?.kind).toBe("invalid_report")
   })
 
+  // The worker-scope contract bounds the attempt to one assigned result, so a
+  // report missing that discharge is the assigned-result defect: it fails the
+  // attempt as invalid_report and names the result it did not complete.
+  test(`the ${laneID} lane fails a report that leaves its assigned result ${workerScopeAssignedResult(laneID)} undischargeable`, async () => {
+    const assigned = workerScopeAssignedResult(laneID)!
+    const evidence = dischargingEvidence(laneID).filter((entry) => entry.obligation !== assigned)
+    const { result, verbs, payloads } = await laneTerminalEvidence(laneID, evidence)
+    expect(verbs).toEqual(["worker-dispatch", "worker-fail"])
+    expect(payloads[1].failure_kind).toBe("invalid_report")
+    expect(payloads[1].detail).toContain("assigned result")
+    expect(payloads[1].detail).toContain(assigned)
+    expect(result.error?.kind).toBe("invalid_report")
+    expect(result.error?.retry_safe).toBe(false)
+  })
+
   test(`the ${laneID} lane admits a report that discharges exactly its declared obligations`, async () => {
     const evidence = dischargingEvidence(laneID)
     const { result, verbs, payloads } = await laneTerminalEvidence(laneID, evidence)
     expect(result.outcome).toBe("ok")
+    expect(result.assigned_result).toBe(workerScopeAssignedResult(laneID)!)
     expect(verbs).toEqual(["worker-dispatch", "worker-complete"])
     expect(payloads[1].evidence).toEqual(evidence)
   })

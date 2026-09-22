@@ -1,6 +1,6 @@
 import type { ToolContext } from "@opencode-ai/plugin"
 import { validateAgentLanePacket, type AgentLanePacket, type AgentLanePacketCorrection } from "./dispatch"
-import { agentLanePacketSchema, agentLanes, type AgentLane } from "./generated-agent-lanes"
+import { agentLanePacketSchema, agentLanes, workerScopeAssignedResult, type AgentLane } from "./generated-agent-lanes"
 import { laneStepDispatchKinds } from "./generated-lane-step-dispatch"
 
 // The packet bounds are read off the generated contract rather than restated,
@@ -14,6 +14,7 @@ const PACKET_SCHEMA_VERSION = agentLanePacketSchema.properties.schema_version.co
 
 export type AgentLanePacketFailureKind =
   | "unregistered_lane"
+  | "lane_unassigned"
   | "transport_failure"
   | "missing_work_item"
   | "mandate_unapproved"
@@ -162,6 +163,15 @@ export async function buildAgentLanePacket(request: AgentLanePacketRequest, deps
   if (!lane) {
     return failure("unregistered_lane", `lane ${request.laneId} is not in the generated lane registry (${agentLanes.map((candidate) => candidate.id).join(", ")})`)
   }
+  // The worker-scope contract bounds every attempt to the lane's one assigned
+  // result. A registered lane without an assignment is a contract/registry
+  // drift that generation refuses, so the dispatch fails closed here too: a
+  // packet without an assigned result would ask a worker to complete an
+  // unbounded result.
+  const assignedResult = workerScopeAssignedResult(lane.id)
+  if (assignedResult === null) {
+    return failure("lane_unassigned", `lane ${lane.id} carries no assigned result in the worker-scope contract, so no attempt can be bounded to one result`)
+  }
 
   const scope = await readOperation("concord_work_browse", "scope", { product_id: request.productId, work_id: request.workId }, deps)
   if (scope.failure) return scope
@@ -225,6 +235,17 @@ export async function buildAgentLanePacket(request: AgentLanePacketRequest, deps
   } else {
     return failure("mandate_unapproved", `work ${request.workId} has no pinned workflow contract, so no required end-state has been approved to dispatch against`)
   }
+  // The assigned result bounds the attempt to the one obligation whose
+  // discharge completes it. Completion disposes only that result: every other
+  // required result stays explicit with the parent workflow, which dispatches
+  // one further bounded attempt per remaining result.
+  task = [
+    task,
+    "",
+    "Assigned result:",
+    `${assignedResult} — the one evidence obligation whose discharge completes this attempt.`,
+    "Complete only this assigned result. The parent workflow keeps every other required result explicit and dispatches one further bounded attempt per remaining result.",
+  ].join("\n")
   if (task.length > TASK_MAX_LENGTH) {
     return failure("projection_overflow", `the approved objective does not fit inputs.task: ${task.length} characters against a limit of ${TASK_MAX_LENGTH}`, { field: "task", limit: TASK_MAX_LENGTH, actual: task.length })
   }

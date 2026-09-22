@@ -929,6 +929,31 @@ func TestProjectCandidateStartsAPlainSession(t *testing.T) {
 	}
 }
 
+func TestCandidateSnapshotProductEnterOpensTheProduct(t *testing.T) {
+	core := launcher.New(&coordinationPort{})
+	core.RestoreSnapshot(launcher.Snapshot{Screen: launcher.ScreenPortfolio, Coverage: "authoritative", Candidates: []launcher.Candidate{{
+		ID: "product-1", Kind: launcher.CandidateProduct, Name: "Product One", ProductID: "product-1", State: "available", Available: true,
+	}}})
+	m := New(core, context.Background(), Profile{})
+	m.UpdateKey("enter")
+	if got := core.Snapshot(); got.Screen != launcher.ScreenProduct || got.AmbientProduct != "product-1" {
+		t.Fatalf("candidate product enter = %#v", got)
+	}
+}
+
+func TestCandidateSnapshotProductEnterReadsTheSelectedProduct(t *testing.T) {
+	p := &coordinationPort{}
+	core := launcher.New(p)
+	core.RestoreSnapshot(launcher.Snapshot{Screen: launcher.ScreenPortfolio, Coverage: "authoritative", Candidates: []launcher.Candidate{{
+		ID: "product-1", Kind: launcher.CandidateProduct, Name: "Product One", ProductID: "product-1", State: "available", Available: true,
+	}}})
+	m := New(core, context.Background(), Profile{})
+	m.UpdateKey("enter")
+	if len(p.requests) != 2 || p.requests[0].Kind != launcher.ReadDomains || p.requests[0].Product != "product-1" || p.requests[1].Kind != launcher.ReadKnowledge || p.requests[1].Product != "product-1" {
+		t.Fatalf("candidate product reads = %#v", p.requests)
+	}
+}
+
 func TestSessionLauncherFailsClosedWithoutRunningBinaryIdentity(t *testing.T) {
 	original := executablePath
 	executablePath = func() (string, error) { return "", errors.New("unavailable") }

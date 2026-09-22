@@ -85,12 +85,7 @@ func TestWorkflowSuccessorWithoutWorkflowInstanceIsRejected(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := enterFold(ctx, tx); err != nil {
-		_ = tx.Rollback()
-		t.Fatal(err)
-	}
 	foldErr := foldWorkflowSuccessorLinked(ctx, tx, event)
-	_ = leaveFold(ctx, tx)
 	_ = tx.Rollback()
 	assertUndeterminedSuccessorFamily(t, foldErr, "fold_event")
 }
@@ -197,12 +192,7 @@ func TestWorkflowSuccessorLinkedCurrentVersionRequiresDefinitionRef(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := enterFold(ctx, tx); err != nil {
-		_ = tx.Rollback()
-		t.Fatal(err)
-	}
 	foldErr := foldRegisteredEvent(ctx, tx, event)
-	_ = leaveFold(ctx, tx)
 	_ = tx.Rollback()
 	if foldErr == nil {
 		t.Fatal("current workflow.successor_linked accepted an empty definition_ref")
@@ -240,11 +230,7 @@ func executeCompositionLink(ctx context.Context, s *Store, sourceID, successorID
 	if err != nil {
 		return WorkflowActionExecutionResult{}, err
 	}
-	if err := enterFold(ctx, tx); err != nil {
-		_ = tx.Rollback()
-		return WorkflowActionExecutionResult{}, err
-	}
-	result, err := applyWorkflowActionRawTx(ctx, tx, BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
+	result, err := applyWorkflowActionRawTx(ctx, tx, newFoldScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
 		WorkID: sourceID, ExpectedVersion: version, ActionID: "link_successor",
 		Payload: json.RawMessage(`{"successor_work_id":"` + successorID + `"}`), Actor: actor,
 		AcceptedInputsDigest: "sha256:" + strings.Repeat("a", 64), IdempotencyIdentity: "composition-link",
@@ -252,7 +238,6 @@ func executeCompositionLink(ctx context.Context, s *Store, sourceID, successorID
 		IdempotencyKey: "composition-link", RequestID: "request:composition-link", ContractDigest: testManifestDigest,
 		Now: time.Date(2026, 8, 25, 0, 0, 0, 0, time.UTC),
 	})
-	_ = leaveFold(ctx, tx)
 	if err != nil {
 		_ = tx.Rollback()
 		return WorkflowActionExecutionResult{}, err

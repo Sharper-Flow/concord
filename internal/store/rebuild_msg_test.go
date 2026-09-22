@@ -24,11 +24,9 @@ func TestRebuildSurvivesMessagesAndClaims(t *testing.T) {
 	}
 	ctx := context.Background()
 	tx, _ := s.DatabaseForTesting().BeginTx(ctx, nil)
-	_ = enterFold(ctx, tx)
-	if _, err := applyWorkflowOperationTx(ctx, tx, Operation{Events: []Event{{EventID: "msg-ev", Kind: "work.message_sent", SubjectType: SubjectWorkItem, SubjectID: "work-99", Actor: "p/a", OccurredAt: now, PayloadVersion: 1, Payload: msgPayload}}}); err != nil {
+	if _, err := applyWorkflowOperationTx(ctx, tx, Operation{Events: []Event{{EventID: "msg-ev", Kind: "work.message_sent", SubjectType: SubjectWorkItem, SubjectID: "work-99", Actor: "p/a", OccurredAt: now, PayloadVersion: 1, Payload: msgPayload}}}, newFoldScope(tx)); err != nil {
 		t.Fatal(err)
 	}
-	_ = leaveFold(ctx, tx)
 	if err := tx.Commit(); err != nil {
 		t.Fatal(err)
 	}

@@ -57,7 +57,16 @@ func CompleteWorkflowWithRegistry(ctx context.Context, s *Store, registry Defini
 	if err != nil {
 		return wrapFailure(KindUnavailable, "complete_workflow", "cannot begin workflow completion", true, "retry once the database is writable", err)
 	}
-	if err := CompleteWorkflowTxWithRegistry(ctx, tx, registry, event); err != nil {
+	scope, err := beginFold(ctx, tx)
+	if err != nil {
+		_ = tx.Rollback()
+		return err
+	}
+	if err := CompleteWorkflowTxWithRegistry(ctx, tx, registry, event, scope); err != nil {
+		_ = tx.Rollback()
+		return err
+	}
+	if err := scope.close(ctx); err != nil {
 		_ = tx.Rollback()
 		return err
 	}
@@ -72,14 +81,22 @@ func CompleteWorkflowWithRegistry(ctx context.Context, s *Store, registry Defini
 }
 
 // CompleteWorkflowTx evaluates the complete ordered gate using the built-in
-// v1 definitions.
+// v1 definitions. The scope's close runs at return, before the caller commits.
 func CompleteWorkflowTx(ctx context.Context, tx *sql.Tx, event Event) error {
-	return CompleteWorkflowTxWithRegistry(ctx, tx, BuiltinWorkflowRegistry(), event)
+	scope, err := beginFold(ctx, tx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = scope.close(ctx) }()
+	return CompleteWorkflowTxWithRegistry(ctx, tx, BuiltinWorkflowRegistry(), event, scope)
 }
 
 // CompleteWorkflowTxWithRegistry is the caller-owned transaction seam.  No
-// completion or notice is appended until every earlier clause has passed.
-func CompleteWorkflowTxWithRegistry(ctx context.Context, tx *sql.Tx, registry DefinitionRegistry, event Event) error {
+// completion or notice is appended until every earlier clause has passed. The
+// caller passes the fold scope its region owns; the completion enters and
+// releases one depth level on it, so a boundary-owned guard survives until the
+// boundary's own level closes.
+func CompleteWorkflowTxWithRegistry(ctx context.Context, tx *sql.Tx, registry DefinitionRegistry, event Event, scope *foldScope) error {
 	if tx == nil {
 		return newFailure(KindUnavailable, "complete_workflow", "transaction is not open", false, "open a mutation transaction")
 	}
@@ -111,20 +128,16 @@ func CompleteWorkflowTxWithRegistry(ctx context.Context, tx *sql.Tx, registry De
 	if registry == nil {
 		registry = BuiltinWorkflowRegistry()
 	}
-	// CompleteWorkflowTxWithRegistry is also called by the workflow_action
-	// boundary, which already owns fold_guard. Do not open a nested fold guard
-	// (or delete the caller's guard on return).
-	var guardCount int
-	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM fold_guard WHERE active=1`).Scan(&guardCount); err != nil {
-		return wrapFailure(KindUnavailable, "complete_workflow", "cannot inspect projection fold guard", true, "retry once the database is readable", err)
+	if scope == nil {
+		return newFailure(KindInvalidOperation, "complete_workflow", "fold scope is required", false, "open the fold scope with beginFold")
 	}
-	ownsFoldGuard := guardCount == 0
-	if ownsFoldGuard {
-		if err := enterFold(ctx, tx); err != nil {
-			return err
-		}
-		defer func() { _ = leaveFold(ctx, tx) }()
+	// The completion holds one depth level on the caller's scope for the whole
+	// gate: clause folds write fold-only projections, and a nested level must
+	// not drop the boundary's protection early.
+	if err := scope.enter(ctx); err != nil {
+		return err
 	}
+	defer func() { _ = scope.close(ctx) }()
 
 	// The expected version is checked before clause 1.  This is the lock/fence
 	// boundary described by the contract; every subsequent mutation uses the

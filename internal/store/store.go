@@ -111,12 +111,28 @@ func Open(ctx context.Context, path string) (*Store, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err := s.migrateOpen(ctx); err != nil {
+		_ = s.db.Close()
+		return nil, err
+	}
+	if err := s.finishOpen(ctx); err != nil {
+		_ = s.db.Close()
+		return nil, err
+	}
+	return s, nil
+}
+
+// migrateOpen applies the migration scope every opener shares: a stamped
+// release applies additive steps only, and an unstamped build migrates only a
+// fresh store. The offline fold-guard recovery reuses it, because it must
+// reach a stranded database that ordinary Open refuses.
+func (s *Store) migrateOpen(ctx context.Context) error {
+	var err error
 	unstampedFresh := false
 	if version.Value == version.Development {
 		_, unstampedFresh, err = unstampedStoreFresh(ctx, s.db)
 		if err != nil {
-			_ = s.db.Close()
-			return nil, err
+			return err
 		}
 	}
 	if version.Value != version.Development || unstampedFresh {
@@ -126,15 +142,10 @@ func Open(ctx context.Context, path string) (*Store, error) {
 			err = migrateAtOpen(ctx, s.db, s.Clock)
 		}
 		if err != nil {
-			_ = s.db.Close()
-			return nil, err
+			return err
 		}
 	}
-	if err := s.finishOpen(ctx); err != nil {
-		_ = s.db.Close()
-		return nil, err
-	}
-	return s, nil
+	return nil
 }
 
 // HeldSchema is one live host session's claim on the schema its release
@@ -338,9 +349,14 @@ func openUnmigrated(ctx context.Context, path string) (*Store, error) {
 	return s, nil
 }
 
-// finishOpen runs the post-migration steps every opener shares: private file
-// permissions, the installation key, and the membership invariants.
+// finishOpen runs the post-migration steps every opener shares: the stranded
+// fold-guard refusal, private file permissions, the installation key, and the
+// membership invariants. A committed fold_guard row means a fold scope never
+// closed cleanly, so ordinary use stays refused until offline recovery runs.
 func (s *Store) finishOpen(ctx context.Context) error {
+	if err := refuseStrandedFoldGuard(ctx, s.db); err != nil {
+		return err
+	}
 	if err := os.Chmod(s.path, 0o600); err != nil { //nolint:gosec // the explicit authority file is forced to private file permissions after migration.
 		return wrapFailure(KindUnavailable, "open", "cannot secure the database file", true,
 			"check database file permissions", err)
@@ -349,6 +365,24 @@ func (s *Store) finishOpen(ctx context.Context) error {
 		return err
 	}
 	return validateMembershipInvariants(ctx, s.db)
+}
+
+// refuseStrandedFoldGuard refuses an open whose database carries a committed
+// fold_guard row. The row is not retryable state: projections may have drifted
+// from the log while it stranded, so the operator must run the offline
+// recovery, which clears the row and rebuilds every projection from the log.
+func refuseStrandedFoldGuard(ctx context.Context, db *sql.DB) error {
+	var stranded int
+	if err := db.QueryRowContext(ctx, `SELECT count(*) FROM fold_guard`).Scan(&stranded); err != nil {
+		return wrapFailure(KindUnavailable, "open", "cannot inspect the fold guard", true,
+			"confirm the database is readable", err)
+	}
+	if stranded == 0 {
+		return nil
+	}
+	return newFailure(KindInvariantViolation, "open",
+		fmt.Sprintf("%d committed fold_guard row(s) guard the projections, and no fold scope owns them", stranded), false,
+		"stop concord processes and run concord recover-fold-guard offline to clear the stranded guard and rebuild projections from the event log")
 }
 
 // ensureInstallationKey creates the one authority-owned cursor signing key.

@@ -195,17 +195,12 @@ func TestMissingRequiredActionFieldHasNoDurableEffect(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := enterFold(context.Background(), tx); err != nil {
-		_ = tx.Rollback()
-		t.Fatal(err)
-	}
-	_, actionErr := applyWorkflowActionRawTx(context.Background(), tx, BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
+	_, actionErr := applyWorkflowActionRawTx(context.Background(), tx, newFoldScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
 		WorkID: workID, ExpectedVersion: beforeVersion, ActionID: "approve_contract", Payload: json.RawMessage(`{"outcome_predicates":[{"predicate_id":"predicate:required-payload","ordinal":0,"outcome_kind":"check","outcome_payload":{"kind":"check","check_ref":"check:required-payload","immutable_subject_ref":"commit:required-payload","expected_result":"pass"}}]}`), Actor: actor,
 		AcceptedInputsDigest: "sha256:required-payload", IdempotencyIdentity: "required-payload", OperationID: "required-payload",
 		PrincipalRef: actor.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "required-payload",
 		RequestID: "request:required-payload", ContractDigest: testManifestDigest, Now: time.Date(2026, 9, 8, 0, 0, 0, 0, time.UTC),
 	})
-	_ = leaveFold(context.Background(), tx)
 	_ = tx.Rollback()
 	_ = requirePayloadFailure(t, actionErr, "premise", "required")
 
@@ -268,17 +263,12 @@ func TestRecordProposalPersistsAndReadsAfterReplay(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := enterFold(context.Background(), tx); err != nil {
-		_ = tx.Rollback()
-		t.Fatal(err)
-	}
-	_, actionErr := applyWorkflowActionRawTx(context.Background(), tx, BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
+	_, actionErr := applyWorkflowActionRawTx(context.Background(), tx, newFoldScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
 		WorkID: workID, ExpectedVersion: version, ActionID: "record_proposal", Payload: payload, Actor: actor,
 		AcceptedInputsDigest: "sha256:proposal-read", IdempotencyIdentity: "proposal-read", OperationID: "proposal-read",
 		PrincipalRef: actor.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "proposal-read",
 		RequestID: "request:proposal-read", ContractDigest: testManifestDigest, Now: time.Date(2026, 9, 9, 0, 0, 0, 0, time.UTC),
 	})
-	_ = leaveFold(context.Background(), tx)
 	if actionErr != nil {
 		_ = tx.Rollback()
 		t.Fatal(actionErr)

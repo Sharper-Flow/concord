@@ -576,7 +576,7 @@ func ResolveWorkflowDomainOverlapTx(ctx context.Context, tx *Transaction, reques
 	if err != nil {
 		return ApplyOperationResult{}, err
 	}
-	return applyOperationTx(ctx, sqlTx, Operation{Events: []Event{{EventID: request.EventID, Kind: WorkflowOverlapResolved, SubjectType: SubjectWorkItem, SubjectID: request.FromWorkID, Actor: request.Actor, OccurredAt: request.OccurredAt.UTC(), PayloadVersion: 1, Payload: payload}}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, request.FromWorkID): request.FromExpectedVersion, VersionRef(SubjectWorkItem, request.ToWorkID): request.ToExpectedVersion}}, true, true)
+	return applyOperationTx(ctx, sqlTx, Operation{Events: []Event{{EventID: request.EventID, Kind: WorkflowOverlapResolved, SubjectType: SubjectWorkItem, SubjectID: request.FromWorkID, Actor: request.Actor, OccurredAt: request.OccurredAt.UTC(), PayloadVersion: 1, Payload: payload}}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, request.FromWorkID): request.FromExpectedVersion, VersionRef(SubjectWorkItem, request.ToWorkID): request.ToExpectedVersion}}, newFoldScope(sqlTx), true)
 }
 
 func validateWorkflowOverlapResolutionKind(kind string) bool {

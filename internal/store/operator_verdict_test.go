@@ -79,20 +79,15 @@ func runOperatorVerdictForPredicate(t *testing.T, s *Store, workID string, owner
 		return err
 	}
 	defer tx.Rollback()
-	if err := enterFold(context.Background(), tx); err != nil {
-		return err
-	}
 	payload, _ := json.Marshal(map[string]any{"predicate_id": predicateID, "verdict_kind": "ok", "evaluation_evidence": []string{evidenceRef}})
-	_, err = applyWorkflowActionRawTx(context.Background(), tx, BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
+	_, err = applyWorkflowActionRawTx(context.Background(), tx, newFoldScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
 		WorkID: workID, ExpectedVersion: version, ActionID: "record_verdict", Payload: payload, Actor: owner, OperatorActor: &operator,
 		AcceptedInputsDigest: "sha256:" + strings.Repeat("c", 64) + workID, IdempotencyIdentity: "operator-verdict-" + workID, OperationID: "operator-verdict-" + workID,
 		PrincipalRef: owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "operator-verdict-" + workID, RequestID: "request:operator-verdict-" + workID, ContractDigest: testManifestDigest, Now: time.Unix(9, 0).UTC(),
 	})
 	if err != nil {
-		_ = leaveFold(context.Background(), tx)
 		return err
 	}
-	_ = leaveFold(context.Background(), tx)
 	return tx.Commit()
 }
 
@@ -364,20 +359,15 @@ func testOperatorCompleteAfterDelivery(t *testing.T, seed func(*testing.T, strin
 		t.Fatal(err)
 	}
 	defer tx.Rollback()
-	if err := enterFold(context.Background(), tx); err != nil {
-		t.Fatal(err)
-	}
 	payload, _ := json.Marshal(map[string]any{"impact_verdict": "non-breaking"})
-	_, err = applyWorkflowActionRawTx(context.Background(), tx, BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
+	_, err = applyWorkflowActionRawTx(context.Background(), tx, newFoldScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
 		WorkID: workID, ExpectedVersion: completeVersion, ActionID: "complete", Payload: payload, Actor: owner, OperatorActor: &operator,
 		AcceptedInputsDigest: "sha256:" + strings.Repeat("d", 64) + workID, IdempotencyIdentity: "operator-complete-" + workID, OperationID: "operator-complete-" + workID,
 		PrincipalRef: owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "operator-complete-" + workID, RequestID: "request:operator-complete-" + workID, ContractDigest: testManifestDigest, Now: time.Unix(11, 0).UTC(),
 	})
 	if err != nil {
-		_ = leaveFold(context.Background(), tx)
 		t.Fatalf("operator complete after delivery refused: %v", err)
 	}
-	_ = leaveFold(context.Background(), tx)
 	if err := tx.Commit(); err != nil {
 		t.Fatal(err)
 	}
@@ -413,16 +403,12 @@ func TestOperatorCompleteConditionBinds(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer tx.Rollback()
-	if err := enterFold(context.Background(), tx); err != nil {
-		t.Fatal(err)
-	}
 	payload, _ := json.Marshal(map[string]any{"impact_verdict": "non-breaking"})
-	_, err = applyWorkflowActionRawTx(context.Background(), tx, BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
+	_, err = applyWorkflowActionRawTx(context.Background(), tx, newFoldScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
 		WorkID: workID, ExpectedVersion: version, ActionID: "complete", Payload: payload, Actor: owner, OperatorActor: &operator,
 		AcceptedInputsDigest: "sha256:" + strings.Repeat("e", 64) + workID, IdempotencyIdentity: "operator-complete-cond-" + workID, OperationID: "operator-complete-cond-" + workID,
 		PrincipalRef: owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "operator-complete-cond-" + workID, RequestID: "request:operator-complete-cond-" + workID, ContractDigest: testManifestDigest, Now: time.Unix(11, 0).UTC(),
 	})
-	_ = leaveFold(context.Background(), tx)
 	if err == nil || !strings.Contains(err.Error(), "workflow verdict is missing") {
 		t.Fatalf("operator complete without a verdict err=%v, want the verdict refusal", err)
 	}
@@ -487,20 +473,15 @@ func TestCompleteRecordsAFirstSeenActorTuple(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer tx.Rollback()
-	if err := enterFold(context.Background(), tx); err != nil {
-		t.Fatal(err)
-	}
 	payload, _ := json.Marshal(map[string]any{"impact_verdict": "non-breaking"})
-	_, err = applyWorkflowActionRawTx(context.Background(), tx, BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
+	_, err = applyWorkflowActionRawTx(context.Background(), tx, newFoldScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
 		WorkID: workID, ExpectedVersion: completeVersion, ActionID: "complete", Payload: payload, Actor: restarted,
 		AcceptedInputsDigest: "sha256:" + strings.Repeat("f", 64) + workID, IdempotencyIdentity: "first-seen-complete-" + workID, OperationID: "first-seen-complete-" + workID,
 		PrincipalRef: restarted.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "first-seen-complete-" + workID, RequestID: "request:first-seen-complete-" + workID, ContractDigest: testManifestDigest, Now: time.Unix(13, 0).UTC(),
 	})
 	if err != nil {
-		_ = leaveFold(context.Background(), tx)
 		t.Fatalf("complete from a first-seen actor tuple refused: %v", err)
 	}
-	_ = leaveFold(context.Background(), tx)
 	if err := tx.Commit(); err != nil {
 		t.Fatal(err)
 	}

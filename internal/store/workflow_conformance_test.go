@@ -271,14 +271,15 @@ func executeCorpusCompletionFault(ctx context.Context, s *Store, workID string, 
 	if err != nil {
 		return workflowObservation{}, err
 	}
-	if err := enterFold(ctx, tx); err != nil {
+	scope, err := beginFold(ctx, tx)
+	if err != nil {
 		_ = tx.Rollback()
 		return observeWorkflowStore(ctx, s, workID, beforeSeq, err, nil)
 	}
 	payload := map[string]any{"terminal_state": "completed", "final_verdict_kind": "ok", "verdict_actor_ref": actorRefForCorpus(actor), "premise_confirmed": false, "evidence_count": 0, "changed_refs_digest": WorkflowChangedRefsDigest([]string{workID}), "impact_verdict": impactVerdict}
 	event := workflowTypedEvent(request.Operation.OpID+":completed", WorkflowCompleted, workID, actorRefForCorpus(actor), corpusNow, request.ExpectedVersion, payload)
-	completionErr := CompleteWorkflowTxWithRegistry(ctx, tx, BuiltinWorkflowRegistry(), event)
-	_ = leaveFold(ctx, tx)
+	completionErr := CompleteWorkflowTxWithRegistry(ctx, tx, BuiltinWorkflowRegistry(), event, scope)
+	_ = scope.close(ctx)
 	_ = tx.Rollback()
 	if completionErr == nil {
 		completionErr = newFailure(KindOperationConflict, "complete_workflow", "declared commit fault", false, "reconcile_operation")
@@ -295,14 +296,15 @@ func executeCorpusLinkAndComplete(ctx context.Context, s *Store, workID string, 
 	if err != nil {
 		return workflowObservation{}, err
 	}
-	if err := enterFold(ctx, tx); err != nil {
+	scope, err := beginFold(ctx, tx)
+	if err != nil {
 		_ = tx.Rollback()
 		return observeWorkflowStore(ctx, s, workID, beforeSeq, err, nil)
 	}
 	actorRef := actorRefForCorpus(actor)
 	successor, relationErr := corpusRelatedWorkID(setup, request, fixtures, workID)
 	if relationErr != nil {
-		_ = leaveFold(ctx, tx)
+		_ = scope.close(ctx)
 		_ = tx.Rollback()
 		return workflowObservation{}, relationErr
 	}
@@ -315,9 +317,9 @@ func executeCorpusLinkAndComplete(ctx context.Context, s *Store, workID string, 
 	payload["successor"] = successor
 	fields["successor_work_id"] = successor
 	link := WorkflowActionExecutionRequest{WorkID: workID, ExpectedVersion: request.ExpectedVersion, ActionID: "link_successor", Payload: json.RawMessage(mustJSON(fields)), Actor: actor, AcceptedInputsDigest: request.Idempotency.AcceptedInputsDigest, IdempotencyIdentity: request.Idempotency.Key, OperationID: request.Operation.OpID + ":link", PrincipalRef: actor.PrincipalRef, Tool: "workflow-corpus", IdempotencyKey: request.Idempotency.Key + ":link", RequestID: request.Idempotency.RequestID + ":link", AcceptedScope: `{}`, ContractDigest: testManifestDigest, Now: corpusNow}
-	result, err := applyWorkflowActionRawTx(ctx, tx, BuiltinWorkflowRegistry(), link)
+	result, err := applyWorkflowActionRawTx(ctx, tx, scope, BuiltinWorkflowRegistry(), link)
 	if err != nil {
-		_ = leaveFold(ctx, tx)
+		_ = scope.close(ctx)
 		_ = tx.Rollback()
 		return observeWorkflowStore(ctx, s, workID, beforeSeq, err, nil)
 	}
@@ -326,8 +328,8 @@ func executeCorpusLinkAndComplete(ctx context.Context, s *Store, workID string, 
 		completionActorRef = setup.FixtureRefs.Actors[1]
 	}
 	completion := workflowTypedEvent(request.Operation.OpID+":completed", WorkflowCompleted, workID, completionActorRef, corpusNow, result.ResultingVersion, map[string]any{"terminal_state": "completed", "final_verdict_kind": "ok", "verdict_actor_ref": actorRefForLatestVerdict(ctx, tx, workID), "premise_confirmed": true, "evidence_count": 1, "changed_refs_digest": WorkflowChangedRefsDigest([]string{workID}), "impact_verdict": impactVerdict})
-	err = CompleteWorkflowTxWithRegistry(ctx, tx, BuiltinWorkflowRegistry(), completion)
-	_ = leaveFold(ctx, tx)
+	err = CompleteWorkflowTxWithRegistry(ctx, tx, BuiltinWorkflowRegistry(), completion, scope)
+	_ = scope.close(ctx)
 	if err == nil {
 		err = tx.Commit()
 	} else {
@@ -687,13 +689,14 @@ func TestWorkflowInlineTransactionRollbackLeavesNoSemanticOrActionEvents(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := enterFold(ctx, tx); err != nil {
+	scope, err := beginFold(ctx, tx)
+	if err != nil {
 		tx.Rollback()
 		t.Fatal(err)
 	}
 	payload, _ := json.Marshal(scenario.Request.Fields)
-	_, actionErr := applyWorkflowActionRawTx(ctx, tx, BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{WorkID: scenario.Setup.FixtureRefs.WorkItem, ExpectedVersion: scenario.Request.ExpectedVersion, ActionID: scenario.Request.ActionID, Payload: payload, Actor: actor, AcceptedInputsDigest: scenario.Request.Idempotency.AcceptedInputsDigest, IdempotencyIdentity: scenario.Request.Idempotency.Key, OperationID: scenario.Request.Operation.OpID, PrincipalRef: actor.PrincipalRef, Tool: "workflow-corpus", IdempotencyKey: scenario.Request.Idempotency.Key, RequestID: scenario.Request.Idempotency.RequestID, AcceptedScope: `{}`, ContractDigest: testManifestDigest, Now: corpusNow})
-	_ = leaveFold(ctx, tx)
+	_, actionErr := applyWorkflowActionRawTx(ctx, tx, scope, BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{WorkID: scenario.Setup.FixtureRefs.WorkItem, ExpectedVersion: scenario.Request.ExpectedVersion, ActionID: scenario.Request.ActionID, Payload: payload, Actor: actor, AcceptedInputsDigest: scenario.Request.Idempotency.AcceptedInputsDigest, IdempotencyIdentity: scenario.Request.Idempotency.Key, OperationID: scenario.Request.Operation.OpID, PrincipalRef: actor.PrincipalRef, Tool: "workflow-corpus", IdempotencyKey: scenario.Request.Idempotency.Key, RequestID: scenario.Request.Idempotency.RequestID, AcceptedScope: `{}`, ContractDigest: testManifestDigest, Now: corpusNow})
+	_ = scope.close(ctx)
 	if actionErr != nil {
 		tx.Rollback()
 		t.Fatalf("WF20 production action failed before rollback fault: %v", actionErr)
@@ -1323,7 +1326,8 @@ func executeStructuredWorkflowAction(t *testing.T, name string, initial map[stri
 	if err != nil {
 		return workflowObservation{}, err
 	}
-	if err := enterFold(ctx, tx); err != nil {
+	scope, err := beginFold(ctx, tx)
+	if err != nil {
 		_ = tx.Rollback()
 		return observeWorkflowStore(ctx, s, workID, beforeSeq, err, nil)
 	}
@@ -1331,11 +1335,11 @@ func executeStructuredWorkflowAction(t *testing.T, name string, initial map[stri
 	var result WorkflowActionExecutionResult
 	var actionErr error
 	if action == string(corpusActionReplaceCheck) {
-		result, actionErr = ReplaceWorkflowCheckTx(ctx, tx, actionRegistry, workflowRequest)
+		result, actionErr = ReplaceWorkflowCheckTx(ctx, tx, scope, actionRegistry, workflowRequest)
 	} else {
-		result, actionErr = applyWorkflowActionRawTx(ctx, tx, actionRegistry, workflowRequest)
+		result, actionErr = applyWorkflowActionRawTx(ctx, tx, scope, actionRegistry, workflowRequest)
 	}
-	_ = leaveFold(ctx, tx)
+	_ = scope.close(ctx)
 	if actionErr != nil {
 		_ = tx.Rollback()
 		resultObservation := map[string]any{}
@@ -1399,11 +1403,12 @@ func seedCorpusArchitectureScope(ctx context.Context, s *Store, workID string, f
 	if err != nil {
 		return err
 	}
-	if err := enterFold(ctx, tx); err != nil {
+	scope, err := beginFold(ctx, tx)
+	if err != nil {
 		_ = tx.Rollback()
 		return err
 	}
-	rollback := func(cause error) error { _ = leaveFold(ctx, tx); _ = tx.Rollback(); return cause }
+	rollback := func(cause error) error { _ = scope.close(ctx); _ = tx.Rollback(); return cause }
 	if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO project_locators(locator_id,project_id,kind,locator_value,normalized_value,created_at,updated_at) VALUES('workflow-corpus-locator','project','canonical_path','workflow-corpus-repo','workflow-corpus-repo','now','now')`); err != nil {
 		return rollback(err)
 	}
@@ -1860,7 +1865,8 @@ func advanceCorpusWorkflowToLink(ctx context.Context, s *Store, workID string, a
 		if err != nil {
 			return err
 		}
-		if err := enterFold(ctx, tx); err != nil {
+		scope, err := beginFold(ctx, tx)
+		if err != nil {
 			_ = tx.Rollback()
 			return err
 		}
@@ -1872,8 +1878,8 @@ func advanceCorpusWorkflowToLink(ctx context.Context, s *Store, workID string, a
 			actionPayload["premise"] = "The operator stated this premise."
 			actionPayload["outcome_predicates"] = []map[string]any{{"predicate_id": "predicate:primary", "ordinal": 0, "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:corpus", "immutable_subject_ref": "commit:" + strings.Repeat("a", 64), "expected_result": "pass"}}}
 		}
-		_, err = applyWorkflowActionRawTx(ctx, tx, BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{WorkID: workID, ExpectedVersion: version, ActionID: action, Payload: json.RawMessage(mustJSON(actionPayload)), Actor: actor, AcceptedInputsDigest: "sha256:" + strings.Repeat("a", 64), IdempotencyIdentity: workID + ":fixture:" + action, OperationID: workID + ":fixture:" + action, PrincipalRef: actor.PrincipalRef, Tool: "workflow-corpus", IdempotencyKey: workID + ":fixture:" + action, RequestID: workID + ":fixture:" + action, ContractDigest: testManifestDigest, Now: corpusNow})
-		_ = leaveFold(ctx, tx)
+		_, err = applyWorkflowActionRawTx(ctx, tx, scope, BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{WorkID: workID, ExpectedVersion: version, ActionID: action, Payload: json.RawMessage(mustJSON(actionPayload)), Actor: actor, AcceptedInputsDigest: "sha256:" + strings.Repeat("a", 64), IdempotencyIdentity: workID + ":fixture:" + action, OperationID: workID + ":fixture:" + action, PrincipalRef: actor.PrincipalRef, Tool: "workflow-corpus", IdempotencyKey: workID + ":fixture:" + action, RequestID: workID + ":fixture:" + action, ContractDigest: testManifestDigest, Now: corpusNow})
+		_ = scope.close(ctx)
 		if err != nil {
 			_ = tx.Rollback()
 			return err
@@ -1902,7 +1908,8 @@ func advanceCorpusWorkflowToPlanning(ctx context.Context, s *Store, workID strin
 		if err != nil {
 			return err
 		}
-		if err := enterFold(ctx, tx); err != nil {
+		scope, err := beginFold(ctx, tx)
+		if err != nil {
 			_ = tx.Rollback()
 			return err
 		}
@@ -1910,8 +1917,8 @@ func advanceCorpusWorkflowToPlanning(ctx context.Context, s *Store, workID strin
 		if action == "record_proposal" {
 			actionPayload = map[string]any{"problem": "The bounded problem statement.", "affected": []string{"The affected system."}, "stakes": "The bounded stakes statement.", "user_outcomes": []string{"The expected user outcome."}}
 		}
-		_, err = applyWorkflowActionRawTx(ctx, tx, BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{WorkID: workID, ExpectedVersion: version, ActionID: action, Payload: json.RawMessage(mustJSON(actionPayload)), Actor: actor, AcceptedInputsDigest: "sha256:" + strings.Repeat("a", 64), IdempotencyIdentity: workID + ":fixture:" + action, OperationID: workID + ":fixture:" + action, PrincipalRef: actor.PrincipalRef, Tool: "workflow-corpus", IdempotencyKey: workID + ":fixture:" + action, RequestID: workID + ":fixture:" + action, ContractDigest: testManifestDigest, Now: corpusNow})
-		_ = leaveFold(ctx, tx)
+		_, err = applyWorkflowActionRawTx(ctx, tx, scope, BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{WorkID: workID, ExpectedVersion: version, ActionID: action, Payload: json.RawMessage(mustJSON(actionPayload)), Actor: actor, AcceptedInputsDigest: "sha256:" + strings.Repeat("a", 64), IdempotencyIdentity: workID + ":fixture:" + action, OperationID: workID + ":fixture:" + action, PrincipalRef: actor.PrincipalRef, Tool: "workflow-corpus", IdempotencyKey: workID + ":fixture:" + action, RequestID: workID + ":fixture:" + action, ContractDigest: testManifestDigest, Now: corpusNow})
+		_ = scope.close(ctx)
 		if err != nil {
 			_ = tx.Rollback()
 			return err

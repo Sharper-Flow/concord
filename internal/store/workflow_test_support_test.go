@@ -184,12 +184,7 @@ func applyWorkflowTestOperationDirect(ctx context.Context, s *Store, operation O
 	if err != nil {
 		return err
 	}
-	if err := enterFold(ctx, tx); err != nil {
-		tx.Rollback()
-		return err
-	}
-	_, err = applyWorkflowOperationTx(ctx, tx, operation)
-	_ = leaveFold(ctx, tx)
+	_, err = applyWorkflowOperationTx(ctx, tx, operation, newFoldScope(tx))
 	if err != nil {
 		tx.Rollback()
 		return err

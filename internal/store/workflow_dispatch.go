@@ -197,22 +197,29 @@ func WorkflowActionDefinitionFor(ctx context.Context, s *Store, registry Definit
 }
 
 // ApplyWorkflowActionTx records one action's durable operation and event-folded
-// result. The caller must already own fold_guard; no alternate mutation path is
-// exposed. Every declared semantic action is translated to its closed event
-// family here. The dispatcher is deliberately the only place where public
-// action IDs acquire domain meaning.
+// result. The transaction's fold region owner supplies the scope; without one
+// the action opens its own scope for this transaction. Every declared semantic
+// action is translated to its closed event family here. The dispatcher is
+// deliberately the only place where public action IDs acquire domain meaning.
 func ApplyWorkflowActionTx(ctx context.Context, transaction *Transaction, registry DefinitionRegistry, request WorkflowActionExecutionRequest) (WorkflowActionExecutionResult, error) {
 	tx, err := transactionSQL(transaction, "workflow_action")
 	if err != nil {
 		return WorkflowActionExecutionResult{}, err
 	}
-	return applyWorkflowActionRawTx(ctx, tx, registry, request)
+	scope := transaction.fold
+	if scope == nil {
+		scope = newFoldScope(tx)
+	}
+	return applyWorkflowActionRawTx(ctx, tx, scope, registry, request)
 }
 
-func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, registry DefinitionRegistry, request WorkflowActionExecutionRequest) (WorkflowActionExecutionResult, error) {
+func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, scope *foldScope, registry DefinitionRegistry, request WorkflowActionExecutionRequest) (WorkflowActionExecutionResult, error) {
 	var result WorkflowActionExecutionResult
 	if tx == nil {
 		return result, newFailure(KindInvalidOperation, "workflow_action", "transaction is not open", false, "supply an active store transaction")
+	}
+	if scope == nil {
+		return result, newFailure(KindInvalidOperation, "workflow_action", "fold scope is required", false, "open the fold scope with beginFold")
 	}
 	if registry == nil {
 		registry = BuiltinWorkflowRegistry()
@@ -398,7 +405,7 @@ func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, registry Definiti
 		// a new session identity). Complete is the one action that does not
 		// consume the assembly's events, so they travel as a prefix here;
 		// dropping them left a restarted session unable to complete (#909).
-		return applyCompleteWorkflowActionTx(ctx, tx, registry, entry, request, currentStep, guards.eventActor, payload, assembly.events)
+		return applyCompleteWorkflowActionTx(ctx, tx, scope, registry, entry, request, currentStep, guards.eventActor, payload, assembly.events)
 	}
 	var workerPacketDigest string
 	assembly.events, workerPacketDigest, err = appendGenericWorkflowCompletion(assemblyInput, assembly.attemptEpoch, assembly.events)
@@ -407,7 +414,7 @@ func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, registry Definiti
 	}
 	result.NativeRun = assembly.nativeRun
 
-	operationResult, err := applyWorkflowOperationTx(ctx, tx, Operation{Events: assembly.events, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, request.WorkID): request.ExpectedVersion}})
+	operationResult, err := applyWorkflowOperationTx(ctx, tx, Operation{Events: assembly.events, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, request.WorkID): request.ExpectedVersion}}, scope)
 	if err != nil {
 		return result, err
 	}

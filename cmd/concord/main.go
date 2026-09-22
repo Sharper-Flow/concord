@@ -94,6 +94,12 @@ func runWithInput(args []string, in io.Reader, out, errOut io.Writer) int {
 	if len(args) > 0 && args[0] == "repair" {
 		return runRepairCommand(args[1:], in, out, errOut)
 	}
+	// Fold-guard recovery is offline and store-refusing by definition: Open
+	// refuses a stranded fold_guard row, so the recovery verb routes around
+	// the store open like the release verbs.
+	if len(args) > 0 && args[0] == "recover-fold-guard" {
+		return runRecoverFoldGuardCommand(args[1:], in, out, errOut)
+	}
 	// ci-wait is store-free (CD-0160): it queries GitHub through gh and a
 	// state file, never Concord authority, so it routes around the database
 	// open like the release verbs and consumes its JSON body directly.
@@ -228,6 +234,7 @@ func writeUsage(out io.Writer) {
 	_, _ = fmt.Fprintln(out, "  concord host-leases                  # print live release leases; prunes stale ones")
 	_, _ = fmt.Fprintln(out, "  concord upgrade                      # apply pending migrations; refuses under an older live session")
 	_, _ = fmt.Fprintln(out, "  concord repair < JSON stdin          # verify assets, back up the database, repair the installed release (#912)")
+	_, _ = fmt.Fprintln(out, "  concord recover-fold-guard < JSON stdin   # offline: clear a stranded fold guard and rebuild projections from the log")
 	_, _ = fmt.Fprintln(out, "  concord ci-wait < JSON stdin         # one bounded slice of a GitHub CI wait (CD-0160)")
 	_, _ = fmt.Fprintln(out, "")
 	_, _ = fmt.Fprintln(out, "Commands read one strict JSON object from stdin:")

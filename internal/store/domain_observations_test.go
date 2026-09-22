@@ -28,17 +28,9 @@ func foldDomainEvent(t *testing.T, s *Store, event Event) error {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := enterFold(ctx, tx); err != nil {
-		_ = tx.Rollback()
-		t.Fatal(err)
-	}
-	if _, err := applyWorkflowOperationTx(ctx, tx, Operation{Events: []Event{event}}); err != nil {
+	if _, err := applyWorkflowOperationTx(ctx, tx, Operation{Events: []Event{event}}, newFoldScope(tx)); err != nil {
 		_ = tx.Rollback()
 		return err
-	}
-	if err := leaveFold(ctx, tx); err != nil {
-		_ = tx.Rollback()
-		t.Fatal(err)
 	}
 	return tx.Commit()
 }

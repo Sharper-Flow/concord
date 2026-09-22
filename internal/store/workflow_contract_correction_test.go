@@ -17,21 +17,14 @@ func runIssue933OperatorAction(t *testing.T, s *Store, workID, action string, pa
 		return err
 	}
 	defer tx.Rollback()
-	if err := enterFold(context.Background(), tx); err != nil {
-		return err
-	}
 	operationID := fmt.Sprintf("issue933-%s-%s-%d", action, workID, version)
-	_, err = applyWorkflowActionRawTx(context.Background(), tx, BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
+	_, err = applyWorkflowActionRawTx(context.Background(), tx, newFoldScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
 		WorkID: workID, ExpectedVersion: version, ActionID: action, Payload: payload, Actor: owner, OperatorActor: &operator,
 		AcceptedInputsDigest: "sha256:" + strings.Repeat("f", 64), IdempotencyIdentity: operationID, OperationID: operationID,
 		PrincipalRef: owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: operationID, RequestID: "request:" + operationID,
 		ContractDigest: testManifestDigest, Now: time.Unix(20, version).UTC(),
 	})
 	if err != nil {
-		_ = leaveFold(context.Background(), tx)
-		return err
-	}
-	if err := leaveFold(context.Background(), tx); err != nil {
 		return err
 	}
 	return tx.Commit()

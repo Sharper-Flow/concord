@@ -180,23 +180,14 @@ func TestAcceptWorkerResultSucceedsWhenLaneIsExecutingActor(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := enterFold(ctx, tx); err != nil {
-		tx.Rollback()
-		t.Fatal(err)
-	}
-	_, err = applyWorkflowActionRawTx(ctx, tx, BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
+	_, err = applyWorkflowActionRawTx(ctx, tx, newFoldScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
 		WorkID: workID, ExpectedVersion: 10, ActionID: "accept_worker_result", Payload: mustJSONValue(map[string]any{"attempt_id": attemptID, "attempt_epoch": 1}), Actor: owner,
 		AcceptedInputsDigest: "sha256:" + strings.Repeat("f", 64), IdempotencyIdentity: "lane:accept", OperationID: "lane:accept",
 		PrincipalRef: owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "lane:accept", RequestID: "request:lane:accept", ContractDigest: testManifestDigest, Now: time.Unix(4, 0).UTC(),
 	})
 	if err != nil {
-		_ = leaveFold(ctx, tx)
 		_ = tx.Rollback()
 		t.Fatalf("owner accepting the lane result was refused: %v", err)
-	}
-	if err := leaveFold(ctx, tx); err != nil {
-		tx.Rollback()
-		t.Fatal(err)
 	}
 	if err := tx.Commit(); err != nil {
 		t.Fatal(err)
@@ -278,15 +269,10 @@ func assertRejectedActionStart(t *testing.T, s *Store, workID string, event Even
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := enterFold(context.Background(), tx); err != nil {
-		tx.Rollback()
-		t.Fatal(err)
-	}
 	err = func() error {
-		_, err := applyWorkflowOperationTx(context.Background(), tx, Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): expectedVersion}})
+		_, err := applyWorkflowOperationTx(context.Background(), tx, Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): expectedVersion}}, newFoldScope(tx))
 		return err
 	}()
-	_ = leaveFold(context.Background(), tx)
 	_ = tx.Rollback()
 	var failure *Failure
 	if !errors.As(err, &failure) || failure.Kind != wantKind {
@@ -358,12 +344,7 @@ func assertRejectedCheckpoint(t *testing.T, s *Store, workID string, event Event
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := enterFold(context.Background(), tx); err != nil {
-		tx.Rollback()
-		t.Fatal(err)
-	}
-	_, err = applyWorkflowOperationTx(context.Background(), tx, Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): expectedVersion}})
-	_ = leaveFold(context.Background(), tx)
+	_, err = applyWorkflowOperationTx(context.Background(), tx, Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): expectedVersion}}, newFoldScope(tx))
 	_ = tx.Rollback()
 	var failure *Failure
 	if !errors.As(err, &failure) || failure.Kind != wantKind {
@@ -407,12 +388,7 @@ func TestWorkflowActionCompletedV2BindsPayloadActorToEventActor(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := enterFold(context.Background(), tx); err != nil {
-		tx.Rollback()
-		t.Fatal(err)
-	}
-	_, err = applyWorkflowOperationTx(context.Background(), tx, Operation{Events: []Event{completed}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 10}})
-	_ = leaveFold(context.Background(), tx)
+	_, err = applyWorkflowOperationTx(context.Background(), tx, Operation{Events: []Event{completed}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 10}}, newFoldScope(tx))
 	_ = tx.Rollback()
 	var failure *Failure
 	if !errors.As(err, &failure) || failure.Kind != KindUnauthorized {
@@ -696,12 +672,7 @@ func TestDistinctWorkflowOwnerAcceptsCompletedWorkerResult(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := enterFold(ctx, tx); err != nil {
-		tx.Rollback()
-		t.Fatal(err)
-	}
-	result, err := applyWorkflowActionRawTx(ctx, tx, BuiltinWorkflowRegistry(), request)
-	_ = leaveFold(ctx, tx)
+	result, err := applyWorkflowActionRawTx(ctx, tx, newFoldScope(tx), BuiltinWorkflowRegistry(), request)
 	if err != nil {
 		tx.Rollback()
 		t.Fatalf("distinct owner could not accept completed worker result: %v", err)
@@ -785,16 +756,11 @@ func TestAcceptWorkerResultAdvancesCurrentNonExternalDispatchStep(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := enterFold(ctx, tx); err != nil {
-		_ = tx.Rollback()
-		t.Fatal(err)
-	}
-	result, err := applyWorkflowActionRawTx(ctx, tx, BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
+	result, err := applyWorkflowActionRawTx(ctx, tx, newFoldScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
 		WorkID: workID, ExpectedVersion: 6, ActionID: "accept_worker_result", Payload: mustJSONValue(map[string]any{"attempt_id": attemptID, "attempt_epoch": 1}), Actor: owner,
 		AcceptedInputsDigest: "sha256:" + strings.Repeat("a", 64), IdempotencyIdentity: "internal-accept", OperationID: "internal-accept",
 		PrincipalRef: owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "internal-accept", RequestID: "request:internal-accept", ContractDigest: testManifestDigest, Now: time.Unix(4, 0).UTC(),
 	})
-	_ = leaveFold(ctx, tx)
 	if err != nil {
 		_ = tx.Rollback()
 		t.Fatalf("accept_worker_result on internal_sqlite step: %v", err)
@@ -827,12 +793,7 @@ func TestWorkerCannotInvokeAcceptWorkerResultAsItsOwnOwner(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := enterFold(ctx, tx); err != nil {
-		tx.Rollback()
-		t.Fatal(err)
-	}
-	_, err = applyWorkflowActionRawTx(ctx, tx, BuiltinWorkflowRegistry(), request)
-	_ = leaveFold(ctx, tx)
+	_, err = applyWorkflowActionRawTx(ctx, tx, newFoldScope(tx), BuiltinWorkflowRegistry(), request)
 	if err == nil {
 		tx.Rollback()
 		t.Fatal("worker accepted its own result")
@@ -929,16 +890,11 @@ func assertRejectedWorkerAcceptance(t *testing.T, s *Store, workID string, owner
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := enterFold(context.Background(), tx); err != nil {
-		tx.Rollback()
-		t.Fatal(err)
-	}
-	_, err = applyWorkflowActionRawTx(context.Background(), tx, BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
+	_, err = applyWorkflowActionRawTx(context.Background(), tx, newFoldScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
 		WorkID: workID, ExpectedVersion: expectedVersion, ActionID: "accept_worker_result", Payload: mustJSONValue(payload), Actor: owner,
 		AcceptedInputsDigest: "sha256:" + strings.Repeat("e", 64), IdempotencyIdentity: "reject:" + workID, OperationID: "reject:" + workID,
 		PrincipalRef: owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "reject:" + workID, RequestID: "request:reject:" + workID, ContractDigest: testManifestDigest, Now: time.Unix(4, 0).UTC(),
 	})
-	_ = leaveFold(context.Background(), tx)
 	_ = tx.Rollback()
 	if err == nil {
 		t.Fatal("accept_worker_result unexpectedly succeeded")
@@ -1065,16 +1021,11 @@ func applyRecordWorkerFailureForTest(t *testing.T, s *Store, workID string, owne
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := enterFold(ctx, tx); err != nil {
-		tx.Rollback()
-		t.Fatal(err)
-	}
-	result, err := applyWorkflowActionRawTx(ctx, tx, BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
+	result, err := applyWorkflowActionRawTx(ctx, tx, newFoldScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
 		WorkID: workID, ExpectedVersion: expectedVersion, ActionID: "record_worker_failure", Payload: mustJSONValue(map[string]any{"attempt_id": attemptID, "attempt_epoch": attemptEpoch}), Actor: owner,
 		AcceptedInputsDigest: "sha256:" + strings.Repeat("f", 64), IdempotencyIdentity: operationID, OperationID: operationID,
 		PrincipalRef: owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: operationID, RequestID: "request:" + operationID, ContractDigest: testManifestDigest, Now: time.Unix(4, 0).UTC(),
 	})
-	_ = leaveFold(ctx, tx)
 	if err != nil {
 		tx.Rollback()
 		t.Fatalf("record_worker_failure: %v", err)
@@ -1095,16 +1046,11 @@ func assertRejectedWorkerFailureRecord(t *testing.T, s *Store, workID string, ow
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := enterFold(context.Background(), tx); err != nil {
-		tx.Rollback()
-		t.Fatal(err)
-	}
-	_, err = applyWorkflowActionRawTx(context.Background(), tx, BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
+	_, err = applyWorkflowActionRawTx(context.Background(), tx, newFoldScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
 		WorkID: workID, ExpectedVersion: expectedVersion, ActionID: "record_worker_failure", Payload: mustJSONValue(payload), Actor: owner,
 		AcceptedInputsDigest: "sha256:" + strings.Repeat("r", 64), IdempotencyIdentity: "reject-failure:" + workID, OperationID: "reject-failure:" + workID,
 		PrincipalRef: owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "reject-failure:" + workID, RequestID: "request:reject-failure:" + workID, ContractDigest: testManifestDigest, Now: time.Unix(4, 0).UTC(),
 	})
-	_ = leaveFold(context.Background(), tx)
 	_ = tx.Rollback()
 	if err == nil {
 		t.Fatal("record_worker_failure unexpectedly succeeded")
@@ -1135,16 +1081,11 @@ func applyStartForTest(t *testing.T, s *Store, workID string, owner WorkflowActo
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := enterFold(ctx, tx); err != nil {
-		tx.Rollback()
-		t.Fatal(err)
-	}
-	result, err := applyWorkflowActionRawTx(ctx, tx, BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
+	result, err := applyWorkflowActionRawTx(ctx, tx, newFoldScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
 		WorkID: workID, ExpectedVersion: expectedVersion, ActionID: "start_execution", Payload: mustJSONValue(map[string]any{}), Actor: owner,
 		AcceptedInputsDigest: "sha256:" + strings.Repeat("s", 64), IdempotencyIdentity: operationID, OperationID: operationID,
 		PrincipalRef: owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: operationID, RequestID: "request:" + operationID, ContractDigest: testManifestDigest, Now: time.Unix(4, 0).UTC(),
 	})
-	_ = leaveFold(ctx, tx)
 	if err != nil {
 		tx.Rollback()
 		t.Fatalf("start_execution: %v", err)
@@ -1162,16 +1103,11 @@ func applyDeliveryForTest(t *testing.T, s *Store, workID string, owner WorkflowA
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := enterFold(ctx, tx); err != nil {
-		tx.Rollback()
-		t.Fatal(err)
-	}
-	result, err := applyWorkflowActionRawTx(ctx, tx, BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
+	result, err := applyWorkflowActionRawTx(ctx, tx, newFoldScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
 		WorkID: workID, ExpectedVersion: expectedVersion, ActionID: "record_delivery", Payload: mustJSONValue(map[string]any{}), Actor: owner,
 		AcceptedInputsDigest: "sha256:" + strings.Repeat("d", 64), IdempotencyIdentity: operationID, OperationID: operationID,
 		PrincipalRef: owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: operationID, RequestID: "request:" + operationID, ContractDigest: testManifestDigest, Now: time.Unix(5, 0).UTC(),
 	})
-	_ = leaveFold(ctx, tx)
 	if err != nil {
 		tx.Rollback()
 		t.Fatalf("record_delivery: %v", err)
@@ -1387,15 +1323,10 @@ func TestAcceptWorkerResultBindsTheAttemptAsEvidence(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := enterFold(ctx, tx); err != nil {
-		tx.Rollback()
-		t.Fatal(err)
-	}
-	if _, err := applyWorkflowActionRawTx(ctx, tx, BuiltinWorkflowRegistry(), request); err != nil {
+	if _, err := applyWorkflowActionRawTx(ctx, tx, newFoldScope(tx), BuiltinWorkflowRegistry(), request); err != nil {
 		tx.Rollback()
 		t.Fatalf("accept: %v", err)
 	}
-	_ = leaveFold(ctx, tx)
 	if err := tx.Commit(); err != nil {
 		t.Fatal(err)
 	}

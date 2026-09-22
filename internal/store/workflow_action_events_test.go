@@ -25,17 +25,12 @@ func issue31WorkflowActionWithPayload(t *testing.T, s *Store, workID string, ver
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := enterFold(context.Background(), tx); err != nil {
-		tx.Rollback()
-		t.Fatal(err)
-	}
-	result, err := applyWorkflowActionRawTx(context.Background(), tx, BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
+	result, err := applyWorkflowActionRawTx(context.Background(), tx, newFoldScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
 		WorkID: workID, ExpectedVersion: version, ActionID: actionID, Payload: payload, Actor: actor,
 		AcceptedInputsDigest: "sha256:issue31", IdempotencyIdentity: operationID, OperationID: operationID,
 		PrincipalRef: actor.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: operationID,
 		RequestID: "request:" + operationID, ContractDigest: testManifestDigest, Now: time.Date(2026, 8, 9, 0, 0, 0, 0, time.UTC),
 	})
-	_ = leaveFold(context.Background(), tx)
 	if err != nil {
 		tx.Rollback()
 		t.Fatalf("action %s: %v", actionID, err)
@@ -202,11 +197,11 @@ func seedIssue31DomainRegistry(t *testing.T, s *Store) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	hash := "sha256:" + strings.Repeat("b", 64)
 	if err := enterFold(ctx, tx); err != nil {
 		tx.Rollback()
 		t.Fatal(err)
 	}
-	hash := "sha256:" + strings.Repeat("b", 64)
 	if _, err := tx.ExecContext(ctx, `INSERT INTO domain_registries(product_id,home_project_id,home_locator_id,product_key,root_domain_id,schema_version,content_hash,scanned_commit_oid) VALUES('product','project','workflow-law-locator','product','root','1.0',?,'test')`, hash); err != nil {
 		tx.Rollback()
 		t.Fatal(err)

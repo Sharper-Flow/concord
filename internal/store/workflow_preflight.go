@@ -272,17 +272,19 @@ func authorizeWorkflowActionAtBoundaryCore(ctx context.Context, s *Store, regist
 	transaction := &Transaction{tx: tx}
 	rollback := func(cause error) error { _ = tx.Rollback(); transaction.tx = nil; return cause }
 	defer func() { transaction.tx = nil }()
-	if err := enterFold(ctx, tx); err != nil {
+	scope, err := beginFold(ctx, tx)
+	if err != nil {
 		return rollback(err)
 	}
-	defer func() { _ = leaveFold(ctx, tx) }()
+	transaction.fold = scope
+	defer func() { _ = scope.close(ctx) }()
 	if beforePreflight != nil {
 		handled, err := beforePreflight(transaction)
 		if err != nil {
 			return rollback(err)
 		}
 		if handled {
-			if err := leaveFold(ctx, tx); err != nil {
+			if err := scope.close(ctx); err != nil {
 				return rollback(err)
 			}
 			if err := tx.Commit(); err != nil {
@@ -323,7 +325,7 @@ func authorizeWorkflowActionAtBoundaryCore(ctx context.Context, s *Store, regist
 	if err := mutate(transaction); err != nil {
 		return rollback(err)
 	}
-	if err := leaveFold(ctx, tx); err != nil {
+	if err := scope.close(ctx); err != nil {
 		return rollback(err)
 	}
 	if err := tx.Commit(); err != nil {

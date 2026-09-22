@@ -90,14 +90,8 @@ func TestNativeRunVerificationParticipationAndEvidenceGate(t *testing.T) {
 	}
 
 	if err := s.Transact(ctx, func(tx *Transaction) error {
-		if err := enterFold(ctx, tx.tx); err != nil {
-			return err
-		}
-		_, applyErr := applyWorkflowOperationTx(ctx, tx.tx, Operation{Events: []Event{report("start", "started", 2)}})
-		if applyErr != nil {
-			return applyErr
-		}
-		return leaveFold(ctx, tx.tx)
+		_, applyErr := applyWorkflowOperationTx(ctx, tx.tx, Operation{Events: []Event{report("start", "started", 2)}}, newFoldScope(tx.tx))
+		return applyErr
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -127,18 +121,12 @@ func TestNativeRunVerificationParticipationAndEvidenceGate(t *testing.T) {
 	// D9 gate: binding the unverified record as completion evidence fails
 	// closed, naming exactly why.
 	if err := s.Transact(ctx, func(tx *Transaction) error {
-		if err := enterFold(ctx, tx.tx); err != nil {
-			return err
-		}
 		_, bindErr := applyWorkflowOperationTx(ctx, tx.tx, Operation{Events: []Event{workflowTypedEvent("op:bind-unverified", WorkflowEvidenceBound, workID, "actor:1", time.Date(2026, 8, 20, 12, 1, 0, 0, time.UTC), 3, map[string]any{
 			"evidence_kind": "native_run", "immutable_subject_ref": observationID,
 			"producer_id": "principal-1", "producer_run_ref": "op:start", "producer_watermark": "req-1",
 			"observed_at": "2026-08-20T12:00:30Z",
-		})}})
-		if bindErr != nil {
-			return bindErr
-		}
-		return leaveFold(ctx, tx.tx)
+		})}}, newFoldScope(tx.tx))
+		return bindErr
 	}); err == nil {
 		t.Fatal("unverified native_run evidence satisfied a completion gate")
 	} else {
@@ -166,18 +154,12 @@ func TestNativeRunVerificationParticipationAndEvidenceGate(t *testing.T) {
 
 	// The gate now admits the same binding.
 	if err := s.Transact(ctx, func(tx *Transaction) error {
-		if err := enterFold(ctx, tx.tx); err != nil {
-			return err
-		}
 		_, bindErr := applyWorkflowOperationTx(ctx, tx.tx, Operation{Events: []Event{workflowTypedEvent("op:bind-verified", WorkflowEvidenceBound, workID, "actor:1", time.Date(2026, 8, 20, 12, 3, 0, 0, time.UTC), 3, map[string]any{
 			"evidence_kind": "native_run", "immutable_subject_ref": observationID,
 			"producer_id": "principal-1", "producer_run_ref": "op:start", "producer_watermark": "req-1",
 			"observed_at": "2026-08-20T12:00:30Z",
-		})}})
-		if bindErr != nil {
-			return bindErr
-		}
-		return leaveFold(ctx, tx.tx)
+		})}}, newFoldScope(tx.tx))
+		return bindErr
 	}); err != nil {
 		t.Fatalf("verified native_run evidence was still refused: %v", err)
 	}

@@ -89,17 +89,12 @@ func dispatchOpsRunbookActionResult(t *testing.T, s *Store, workID string, versi
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := enterFold(ctx, tx); err != nil {
-		_ = tx.Rollback()
-		t.Fatal(err)
-	}
-	result, actionErr := applyWorkflowActionRawTx(ctx, tx, BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
+	result, actionErr := applyWorkflowActionRawTx(ctx, tx, newFoldScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
 		WorkID: workID, ExpectedVersion: version, ActionID: actionID, Payload: payload, Actor: actor,
 		AcceptedInputsDigest: testManifestDigest, IdempotencyIdentity: operationID, OperationID: operationID,
 		PrincipalRef: actor.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: operationID,
 		RequestID: "request:" + operationID, ContractDigest: testManifestDigest, Now: time.Date(2026, 8, 24, 12, 0, 0, 0, time.UTC),
 	})
-	_ = leaveFold(ctx, tx)
 	if actionErr != nil {
 		_ = tx.Rollback()
 		return WorkflowActionExecutionResult{}, actionErr

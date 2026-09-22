@@ -481,7 +481,7 @@ func claimWorktreeRawTx(ctx context.Context, tx *sql.Tx, dataPath string, req Wo
 	payload := marshalWorktreeCreated(req.ExpectedVersion, setID, req.ProjectID, req.OpID, WorktreeLocation{Branch: pinnedBranch, BaseSHA: pinnedBase, Path: pinnedPath}, facts, req.SessionRef)
 	if _, err := applyOperationTx(ctx, tx, Operation{Events: []Event{{
 		EventID: fmt.Sprintf("%s:worktree-created", req.OpID), Kind: "work.worktree_created", SubjectType: SubjectWorkItem, SubjectID: req.WorkID, Actor: req.PrincipalRef, OccurredAt: now, PayloadVersion: 1, Payload: payload,
-	}}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, req.WorkID): req.ExpectedVersion}}, true, false); err != nil {
+	}}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, req.WorkID): req.ExpectedVersion}}, newFoldScope(tx), false); err != nil {
 		return out, err
 	}
 	if _, err := tx.ExecContext(ctx, `UPDATE worktree_claims SET state=?, updated_at=? WHERE op_id=?`, worktreeStateVerified, now.Format(time.RFC3339Nano), req.OpID); err != nil {
@@ -1077,7 +1077,7 @@ func appendReclaimedTx(ctx context.Context, tx *sql.Tx, req WorktreeReclaimReque
 	payload, _ := json.Marshal(worktreeReclaimedPayload{ExpectedVersion: req.ExpectedVersion, ResultingVersion: req.ExpectedVersion + 1, SetID: setID, ProjectID: req.ProjectID, ClaimOpID: claimOpID, RequestID: req.RequestID, GitFacts: facts})
 	_, err := applyOperationTx(ctx, tx, Operation{Events: []Event{{
 		EventID: reclaimedEventID(req.WorkID, req.ProjectID, claimOpID), Kind: "work.worktree_reclaimed", SubjectType: SubjectWorkItem, SubjectID: req.WorkID, Actor: req.PrincipalRef, OccurredAt: now, PayloadVersion: 1, Payload: payload,
-	}}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, req.WorkID): req.ExpectedVersion}}, true, false)
+	}}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, req.WorkID): req.ExpectedVersion}}, newFoldScope(tx), false)
 	if err != nil {
 		return convergeRecordedReclaimTx(ctx, tx, req, setID, claimOpID, err)
 	}
@@ -1168,7 +1168,7 @@ func releaseWorktreeOccupancyTx(ctx context.Context, tx *sql.Tx, req WorktreeRec
 		EventID: fmt.Sprintf("%s:%s:%s:worktree-occupancy-released", req.WorkID, req.ProjectID, claimOpID),
 		Kind:    "work.worktree_occupancy_released", SubjectType: SubjectWorkItem, SubjectID: req.WorkID,
 		Actor: req.PrincipalRef, OccurredAt: now, PayloadVersion: 1, Payload: payload,
-	}}}, true, false)
+	}}}, newFoldScope(tx), false)
 	return err
 }
 

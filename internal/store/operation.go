@@ -386,25 +386,35 @@ func ApplyOperationWithResult(ctx context.Context, s *Store, operation Operation
 // ApplyOperationTx applies one domain operation within the opaque store-owned
 // transaction supplied by Transact. It is the mutation seam used when
 // authorization, approval consumption, idempotency, and the domain effect must
-// share one transaction.
+// share one transaction. The transaction's fold scope is reused when a fold
+// region already owns it, so nesting stays depth-counted on one scope.
 func ApplyOperationTx(ctx context.Context, transaction *Transaction, operation Operation) (ApplyOperationResult, error) {
 	tx, err := transactionSQL(transaction, "apply_operation")
 	if err != nil {
 		return ApplyOperationResult{}, err
 	}
-	return applyOperationTx(ctx, tx, operation, true, false)
+	scope := transaction.fold
+	if scope == nil {
+		scope = newFoldScope(tx)
+	}
+	return applyOperationTx(ctx, tx, operation, scope, false)
 }
 
 // applyWorkflowOperationTx is the private append route used by the workflow
 // dispatcher and initialization path. Generic callers cannot acquire this
-// authority through ApplyOperation or ApplyOperationTx.
-func applyWorkflowOperationTx(ctx context.Context, tx *sql.Tx, operation Operation) (ApplyOperationResult, error) {
-	return applyOperationTx(ctx, tx, operation, false, true)
+// authority through ApplyOperation or ApplyOperationTx. The caller passes the
+// fold scope its region owns; enter and close stay paired inside.
+func applyWorkflowOperationTx(ctx context.Context, tx *sql.Tx, operation Operation, scope *foldScope) (ApplyOperationResult, error) {
+	return applyOperationTx(ctx, tx, operation, scope, true)
 }
 
-func applyOperationTx(ctx context.Context, tx *sql.Tx, operation Operation, ownFoldGuard bool, workflowAuthority bool) (output ApplyOperationResult, err error) {
+func applyOperationTx(ctx context.Context, tx *sql.Tx, operation Operation, scope *foldScope, workflowAuthority bool) (ApplyOperationResult, error) {
+	var output ApplyOperationResult
 	if tx == nil {
 		return output, newFailure(KindUnavailable, "apply_operation", "transaction is not open", false, "open a mutation transaction")
+	}
+	if scope == nil {
+		return output, newFailure(KindInvalidOperation, "apply_operation", "fold scope is required", false, "open the fold scope with beginFold")
 	}
 	if len(operation.Events) == 0 {
 		return output, newFailure(KindInvalidOperation, "apply_operation", "operation has no events", false, "supply at least one accepted event")
@@ -425,20 +435,9 @@ func applyOperationTx(ctx context.Context, tx *sql.Tx, operation Operation, ownF
 			}
 		}
 	}
-	if ownFoldGuard {
-		if err := enterFold(ctx, tx); err != nil {
-			return output, err
-		}
+	if err := scope.enter(ctx); err != nil {
+		return output, err
 	}
-	foldGuardEntered := ownFoldGuard
-	defer func() {
-		if !foldGuardEntered {
-			return
-		}
-		if leaveErr := leaveFold(ctx, tx); err == nil {
-			err = leaveErr
-		}
-	}()
 	checked := make(map[SubjectRef]bool, len(operation.ExpectedVersions))
 	for _, event := range operation.Events {
 		if err := event.validate(); err != nil {
@@ -501,6 +500,9 @@ func applyOperationTx(ctx context.Context, tx *sql.Tx, operation Operation, ownF
 	if err := validateInitiativeInvariantsTx(ctx, tx); err != nil {
 		return output, err
 	}
+	if err := scope.close(ctx); err != nil {
+		return output, err
+	}
 	return output, nil
 }
 
@@ -540,7 +542,8 @@ func applyOperationObserved(ctx context.Context, s *Store, operation Operation, 
 		_ = tx.Rollback()
 		return cause
 	}
-	if err := enterFold(ctx, tx); err != nil {
+	scope, err := beginFold(ctx, tx)
+	if err != nil {
 		return output, rollback(err)
 	}
 	startSeq, err := operationEventSequence(ctx, tx)
@@ -614,7 +617,7 @@ func applyOperationObserved(ctx context.Context, s *Store, operation Operation, 
 	if err != nil {
 		return output, rollback(err)
 	}
-	if err := leaveFold(ctx, tx); err != nil {
+	if err := scope.close(ctx); err != nil {
 		return output, rollback(err)
 	}
 	if beforeCommit != nil {
@@ -674,18 +677,33 @@ func RebuildFromLog(ctx context.Context, s *Store) error {
 		_ = tx.Rollback()
 		return cause
 	}
-	if err := enterFold(ctx, tx); err != nil {
+	if err := rebuildFromLogTx(ctx, tx); err != nil {
 		return rollback(err)
 	}
+	if err := tx.Commit(); err != nil {
+		return wrapFailure(KindUnavailable, "rebuild_from_log", "cannot commit projection rebuild", true,
+			"retry once the database is writable", err)
+	}
+	return nil
+}
+
+// rebuildFromLogTx is the transaction-scoped rebuild body shared by
+// RebuildFromLog and the offline fold-guard recovery, which runs it in its own
+// clearing transaction. A failure leaves the transaction to roll back.
+func rebuildFromLogTx(ctx context.Context, tx *sql.Tx) error {
+	scope, err := beginFold(ctx, tx)
+	if err != nil {
+		return err
+	}
 	if err := snapshotActiveResearchForRebuild(ctx, tx); err != nil {
-		return rollback(err)
+		return err
 	}
 	// Active research is direct-table authority, but its work-item FKs prevent
 	// deleting the fold projections in place. The transaction snapshots and
 	// restores those rows byte-for-byte; the event log never becomes their source.
 	events, err := readEvents(ctx, tx)
 	if err != nil {
-		return rollback(err)
+		return err
 	}
 	// Version-window and chain failures are rejected before the first
 	// projection DELETE. Fold/decode failures remain transactionally atomic, and
@@ -694,7 +712,7 @@ func RebuildFromLog(ctx context.Context, s *Store) error {
 	for _, event := range events {
 		prepared, err := prepareRegisteredEvent(event)
 		if err != nil {
-			return rollback(attributeFailure(err, event, prepared.stage))
+			return attributeFailure(err, event, prepared.stage)
 		}
 	}
 	// The migration 52 locator guard must not fire while the replay clears and
@@ -704,7 +722,7 @@ func RebuildFromLog(ctx context.Context, s *Store) error {
 	// restore.
 	knowledgeLocatorGuardDDL, err := dropTriggerReturningDDL(ctx, tx, knowledgeLocatorDeleteGuardName)
 	if err != nil {
-		return rollback(err)
+		return err
 	}
 	// Relations reference work_items, so clear the dependent projection first;
 	// replay then restores the same event order under the fold guard.
@@ -731,54 +749,50 @@ func RebuildFromLog(ctx context.Context, s *Store) error {
 		"project_governing_requirements", "product_knowledge_homes", "project_locators", "products", "projects",
 	} {
 		if _, err := tx.ExecContext(ctx, "DELETE FROM "+table); err != nil { //nolint:gosec // table comes only from the closed replay projection list above and no values are interpolated.
-			return rollback(wrapFailure(KindUnavailable, "rebuild_from_log",
+			return wrapFailure(KindUnavailable, "rebuild_from_log",
 				"cannot clear "+table+" projection", true,
-				"retry once the database is writable", err))
+				"retry once the database is writable", err)
 		}
 	}
 	for _, event := range events {
 		// Historical knowledge is git-derived. Domain-log replay must not
 		// rewrite archived_work, scope edges, or git watermarks.
 		if err := foldRegisteredEvent(replayCtx, tx, event); err != nil {
-			return rollback(err)
+			return err
 		}
 	}
 	if err := restoreActiveResearchAfterRebuild(ctx, tx); err != nil {
-		return rollback(err)
+		return err
 	}
 	orphans, err := countOrphanedKnowledgeHomePairs(ctx, tx)
 	if err != nil {
-		return rollback(err)
+		return err
 	}
 	if orphans > 0 {
-		return rollback(newFailure(KindProjectionConflict, "rebuild_from_log",
+		return newFailure(KindProjectionConflict, "rebuild_from_log",
 			fmt.Sprintf("%d Git-derived knowledge rows reference a Project locator the event log does not restore", orphans), false,
-			"re-add the locator event or rescan the knowledge home before rebuilding"))
+			"re-add the locator event or rescan the knowledge home before rebuilding")
 	}
 	if knowledgeLocatorGuardDDL != "" {
 		if _, err := tx.ExecContext(ctx, knowledgeLocatorGuardDDL); err != nil {
-			return rollback(wrapFailure(KindUnavailable, "rebuild_from_log", "cannot restore the knowledge locator guard", true,
-				"retry once the database is writable", err))
+			return wrapFailure(KindUnavailable, "rebuild_from_log", "cannot restore the knowledge locator guard", true,
+				"retry once the database is writable", err)
 		}
 	}
 	if err := validateMembershipInvariantsTx(ctx, tx); err != nil {
-		return rollback(err)
+		return err
 	}
 	if err := validateDomainAttachmentInvariantsTx(ctx, tx); err != nil {
-		return rollback(err)
+		return err
 	}
 	if err := validateInitiativeInvariantsTx(ctx, tx); err != nil {
-		return rollback(err)
+		return err
 	}
-	if err := leaveFold(ctx, tx); err != nil {
-		return rollback(err)
+	if err := scope.close(ctx); err != nil {
+		return err
 	}
 	if err := dropActiveResearchRebuildSnapshot(ctx, tx); err != nil {
-		return rollback(err)
-	}
-	if err := tx.Commit(); err != nil {
-		return wrapFailure(KindUnavailable, "rebuild_from_log", "cannot commit projection rebuild", true,
-			"retry once the database is writable", err)
+		return err
 	}
 	return nil
 }

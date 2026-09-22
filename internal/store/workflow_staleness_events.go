@@ -30,10 +30,10 @@ func appendWorkflowStalenessObservationTx(ctx context.Context, transaction *Tran
 	if err != nil {
 		return err
 	}
-	if err := enterFold(ctx, tx); err != nil {
-		return err
+	scope := transaction.fold
+	if scope == nil {
+		scope = newFoldScope(tx)
 	}
-	defer func() { _ = leaveFold(ctx, tx) }()
 	recorded, err := workflowStalenessObservationRecordedTx(ctx, tx, event)
 	if err != nil {
 		return err
@@ -41,7 +41,7 @@ func appendWorkflowStalenessObservationTx(ctx context.Context, transaction *Tran
 	if recorded {
 		return nil
 	}
-	_, err = applyWorkflowOperationTx(ctx, tx, Operation{Events: []Event{event}})
+	_, err = applyWorkflowOperationTx(ctx, tx, Operation{Events: []Event{event}}, scope)
 	return err
 }
 

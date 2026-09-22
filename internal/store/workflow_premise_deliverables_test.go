@@ -85,10 +85,7 @@ func TestConfirmPremiseRequiresVerdictAndRequiredEvidence(t *testing.T) {
 			return err
 		}
 		defer func() { _ = tx.Rollback() }()
-		if err := enterFold(ctx, tx); err != nil {
-			return err
-		}
-		_, actionErr := applyWorkflowActionRawTx(ctx, tx, BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
+		_, actionErr := applyWorkflowActionRawTx(ctx, tx, newFoldScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
 			WorkID: workID, ExpectedVersion: version, ActionID: "confirm_premise",
 			Actor: invoking, OperatorActor: &operator, OperationID: workID + ":premise-confirm",
 			PrincipalRef: operator.PrincipalRef, Tool: "concord_work_transition",

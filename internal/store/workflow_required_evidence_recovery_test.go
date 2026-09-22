@@ -176,11 +176,7 @@ func (f acceptanceRecoveryFixture) run(ctx context.Context, actionID, label stri
 		return err
 	}
 	defer func() { _ = tx.Rollback() }()
-	if err := enterFold(ctx, tx); err != nil {
-		return err
-	}
-	if _, actionErr := applyWorkflowActionRawTx(ctx, tx, BuiltinWorkflowRegistry(), request); actionErr != nil {
-		_ = leaveFold(ctx, tx)
+	if _, actionErr := applyWorkflowActionRawTx(ctx, tx, newFoldScope(tx), BuiltinWorkflowRegistry(), request); actionErr != nil {
 		return actionErr
 	}
 	if err := leaveFold(ctx, tx); err != nil {
@@ -233,9 +229,6 @@ func runRecoveryAction(ctx context.Context, t *testing.T, s *Store, workID, acti
 		return err
 	}
 	defer func() { _ = tx.Rollback() }()
-	if err := enterFold(ctx, tx); err != nil {
-		return err
-	}
 	request := WorkflowActionExecutionRequest{
 		WorkID: workID, ExpectedVersion: version, ActionID: actionID, Payload: payload, Actor: actor,
 		OperatorActor: operator, OperationID: operationID, PrincipalRef: actor.PrincipalRef, Tool: "concord_work_transition",
@@ -243,12 +236,8 @@ func runRecoveryAction(ctx context.Context, t *testing.T, s *Store, workID, acti
 		AcceptedInputsDigest: "sha256:" + strings.Repeat("b", 64), ContractDigest: testManifestDigest,
 		Now: time.Date(2026, 8, 12, 0, 0, 0, 0, time.UTC),
 	}
-	if _, actionErr := applyWorkflowActionRawTx(ctx, tx, BuiltinWorkflowRegistry(), request); actionErr != nil {
-		_ = leaveFold(ctx, tx)
+	if _, actionErr := applyWorkflowActionRawTx(ctx, tx, newFoldScope(tx), BuiltinWorkflowRegistry(), request); actionErr != nil {
 		return actionErr
-	}
-	if err := leaveFold(ctx, tx); err != nil {
-		return err
 	}
 	return tx.Commit()
 }

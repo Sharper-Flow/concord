@@ -116,17 +116,12 @@ func TestRecordAlignmentRefusesInconsistentOutcomeAndRelatedIds(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := enterFold(context.Background(), tx); err != nil {
-			tx.Rollback()
-			t.Fatal(err)
-		}
-		_, err = applyWorkflowActionRawTx(context.Background(), tx, BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
+		_, err = applyWorkflowActionRawTx(context.Background(), tx, newFoldScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
 			WorkID: workID, ExpectedVersion: version, ActionID: "record_alignment", Payload: payload, Actor: actor,
 			AcceptedInputsDigest: "sha256:alignment", IdempotencyIdentity: operationID, OperationID: operationID,
 			PrincipalRef: actor.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: operationID,
 			RequestID: "request:" + operationID, ContractDigest: testManifestDigest, Now: time.Date(2026, 9, 19, 0, 0, 0, 0, time.UTC),
 		})
-		_ = leaveFold(context.Background(), tx)
 		if err != nil {
 			tx.Rollback()
 			return err

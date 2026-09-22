@@ -655,14 +655,11 @@ func AppendLaneActorDispatchTx(ctx context.Context, transaction *Transaction, ev
 	if err != nil {
 		return ApplyOperationResult{}, err
 	}
-	if err := enterFold(ctx, tx); err != nil {
-		return ApplyOperationResult{}, err
+	scope := transaction.fold
+	if scope == nil {
+		scope = newFoldScope(tx)
 	}
-	result, err := applyWorkflowOperationTx(ctx, tx, Operation{Events: events})
-	if leaveErr := leaveFold(ctx, tx); err == nil && leaveErr != nil {
-		return ApplyOperationResult{}, leaveErr
-	}
-	return result, err
+	return applyWorkflowOperationTx(ctx, tx, Operation{Events: events}, scope)
 }
 
 func foldWorkerCompleted(ctx context.Context, tx *sql.Tx, event Event) error {

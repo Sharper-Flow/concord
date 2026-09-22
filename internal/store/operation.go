@@ -687,6 +687,40 @@ func RebuildFromLog(ctx context.Context, s *Store) error {
 	return nil
 }
 
+// rebuildClearTables lists the projection tables the replay clears before the
+// log folds back in, in foreign-key dependency order: every table cleared
+// before any table that references it. The list holds only event-log-derived
+// projections and work-scoped runtime state; direct-table authority such as
+// the active research tables is snapshotted and restored instead of cleared.
+// TestRebuildClearListCoversWorkItemReferences derives the coverage and
+// ordering obligations from SQLite's own foreign-key metadata.
+var rebuildClearTables = []string{
+	// Domain attachments and C15 membership depend on Product projections;
+	// clear their edges and sets before Product memberships and resources.
+	"domain_resource_attachment_edges", "domain_project_attachment_edges",
+	"domain_resource_attachment_sets", "domain_project_attachment_sets",
+	// Domain-anchored observations (CD-0068) hang off the same Git-projected
+	// Domain identity as the attachment sets.
+	"domain_observations",
+	"resource_products", "managed_resources",
+	// work-referencing RESTRICT-FK tables clear before work_items:
+	// observations (CD-0030), messages (CD-0029), claims (CD-0028).
+	"work_observations", "work_messages", "resource_claims",
+	"external_observations",
+	"worker_attempts",
+	// Runtime state with RESTRICT foreign keys to work_items is direct-table
+	// authority the log cannot restore: bootstrap journals, Linear drain
+	// dispositions, and verify leases. They are snapshotted and restored
+	// around the clear (runtime_authority_rebuild.go), never cleared.
+	"workflow_contract_predicates", "workflow_contract_law_revisions", "workflow_contract_law_modifications", "workflow_overlap_resolutions", "workflow_native_runs",
+	"workflow_contract_verification_obligations", "workflow_contract_law_additions", "workflow_contract_domain_relation_modifications", "workflow_contract_domain_modifications", "workflow_contract_affected_domains", "workflow_law_addition_reservations", "workflow_architecture_bindings",
+	"workflow_premise_confirmations", "workflow_context_boundaries", "workflow_context_checkpoints", "workflow_impact_notices", "workflow_impact_edges",
+	"workflow_external_conditions", "workflow_checkpoints", "workflow_candidate_sets", "workflow_backlog_alignment",
+	"workflow_contracts", "workflow_decision_records", "workflow_design_records", "workflow_proposal_records", "workflow_instances", "workflow_actors",
+	"initiative_entries", "relations", "work_projects", "work_items", "product_projects",
+	"project_governing_requirements", "product_knowledge_homes", "project_locators", "products", "projects",
+}
+
 // rebuildFromLogTx is the transaction-scoped rebuild body shared by
 // RebuildFromLog and the offline fold-guard recovery, which runs it in its own
 // clearing transaction. A failure leaves the transaction to roll back.
@@ -701,6 +735,9 @@ func rebuildFromLogTx(ctx context.Context, tx *sql.Tx) error {
 	// Active research is direct-table authority, but its work-item FKs prevent
 	// deleting the fold projections in place. The transaction snapshots and
 	// restores those rows byte-for-byte; the event log never becomes their source.
+	if err := snapshotRuntimeAuthorityForRebuild(ctx, tx); err != nil {
+		return err
+	}
 	events, err := readEvents(ctx, tx)
 	if err != nil {
 		return err
@@ -726,28 +763,7 @@ func rebuildFromLogTx(ctx context.Context, tx *sql.Tx) error {
 	}
 	// Relations reference work_items, so clear the dependent projection first;
 	// replay then restores the same event order under the fold guard.
-	for _, table := range []string{
-		// Domain attachments and C15 membership depend on Product projections;
-		// clear their edges and sets before Product memberships and resources.
-		"domain_resource_attachment_edges", "domain_project_attachment_edges",
-		"domain_resource_attachment_sets", "domain_project_attachment_sets",
-		// Domain-anchored observations (CD-0068) hang off the same Git-projected
-		// Domain identity as the attachment sets.
-		"domain_observations",
-		"resource_products", "managed_resources",
-		// work-referencing RESTRICT-FK tables clear before work_items:
-		// observations (CD-0030), messages (CD-0029), claims (CD-0028).
-		"work_observations", "work_messages", "resource_claims",
-		"external_observations",
-		"worker_attempts",
-		"workflow_contract_predicates", "workflow_contract_law_revisions", "workflow_contract_law_modifications", "workflow_overlap_resolutions", "workflow_native_runs",
-		"workflow_contract_verification_obligations", "workflow_contract_law_additions", "workflow_contract_domain_relation_modifications", "workflow_contract_domain_modifications", "workflow_contract_affected_domains", "workflow_law_addition_reservations", "workflow_architecture_bindings",
-		"workflow_premise_confirmations", "workflow_context_boundaries", "workflow_context_checkpoints", "workflow_impact_notices", "workflow_impact_edges",
-		"workflow_external_conditions", "workflow_checkpoints", "workflow_candidate_sets", "workflow_backlog_alignment",
-		"workflow_contracts", "workflow_decision_records", "workflow_design_records", "workflow_proposal_records", "workflow_instances", "workflow_actors",
-		"initiative_entries", "relations", "work_projects", "work_items", "product_projects",
-		"project_governing_requirements", "product_knowledge_homes", "project_locators", "products", "projects",
-	} {
+	for _, table := range rebuildClearTables {
 		if _, err := tx.ExecContext(ctx, "DELETE FROM "+table); err != nil { //nolint:gosec // table comes only from the closed replay projection list above and no values are interpolated.
 			return wrapFailure(KindUnavailable, "rebuild_from_log",
 				"cannot clear "+table+" projection", true,
@@ -762,6 +778,9 @@ func rebuildFromLogTx(ctx context.Context, tx *sql.Tx) error {
 		}
 	}
 	if err := restoreActiveResearchAfterRebuild(ctx, tx); err != nil {
+		return err
+	}
+	if err := restoreRuntimeAuthorityAfterRebuild(ctx, tx); err != nil {
 		return err
 	}
 	orphans, err := countOrphanedKnowledgeHomePairs(ctx, tx)
@@ -792,6 +811,9 @@ func rebuildFromLogTx(ctx context.Context, tx *sql.Tx) error {
 		return err
 	}
 	if err := dropActiveResearchRebuildSnapshot(ctx, tx); err != nil {
+		return err
+	}
+	if err := dropRuntimeAuthorityRebuildSnapshot(ctx, tx); err != nil {
 		return err
 	}
 	return nil

@@ -284,14 +284,20 @@ func TestLongFieldsTruncateToOneLineAtThe80ColumnFloor(t *testing.T) {
 			t.Fatalf("line exceeds 80 display columns: %d: %q", got, line)
 		}
 	}
+	// The narrowed budget sheds every column the over-width values price out,
+	// so the surviving cells stay parallel to the projected columns and the
+	// first column truncates in place.
 	pane := m.renderPortfolio(m.snapshot, m.cursor)
-	if len(pane.rows) != 1 || len(pane.rows[0]) != 5 {
-		t.Fatalf("the Product row must have five table cells: %#v", pane.rows)
+	if len(pane.rows) != 1 || len(pane.rows[0]) != len(m.projection.Columns) || len(pane.rows[0]) == 0 {
+		t.Fatalf("the Product row must stay parallel to the projected columns %#v: %#v", m.projection.Columns, pane.rows)
+	}
+	if len(m.projection.Columns) > 1 || m.projection.Columns[0] != "Product" {
+		t.Fatalf("over-width values must shed down to the first column, got %v", m.projection.Columns)
 	}
 	if !strings.Contains(rendered, "…") {
 		t.Fatalf("over-width values carry no ellipsis: %q", rendered)
 	}
-	for _, label := range []string{"PRODUCT:", "WATERMARK:", "AGE:", "SCREEN:", "RELIANCE:", "COVERAGE:", "Product", "Stage", "Reliance", "Focus"} {
+	for _, label := range []string{"PRODUCT:", "WATERMARK:", "AGE:", "SCREEN:", "RELIANCE:", "COVERAGE:", "Product"} {
 		if !strings.Contains(rendered, label) {
 			t.Fatalf("semantic label %q missing: %q", label, rendered)
 		}
@@ -635,6 +641,10 @@ func TestS2AndS3RenderUnavailableForegroundReadState(t *testing.T) {
 		core := launcher.New(p)
 		core.RestoreSnapshot(snapshot)
 		m := New(core, context.Background(), Profile{})
+		// The split reserves the detail pane, so 120 is the harness width
+		// that keeps the longest foreground status line untruncated.
+		m.Update(tea.WindowSizeMsg{Width: 120, Height: 24})
+		m.Sync()
 		rendered := m.Render()
 		if !strings.Contains(rendered, "STATUS: "+snapshot.StatusMessage) {
 			t.Fatalf("foreground read state must remain visible: %q", rendered)
@@ -655,7 +665,9 @@ func TestS2DrillDownRendersKindReadinessAndTerminalAt(t *testing.T) {
 	core := launcher.New(p)
 	core.RestoreSnapshot(snapshot)
 	m := New(core, context.Background(), Profile{})
-	m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	// 200 keeps every ranked column visible beside the detail pane; the
+	// terminal= cell under test exceeds the split primary pane at 120.
+	m.Update(tea.WindowSizeMsg{Width: 200, Height: 40})
 	rendered := m.Render()
 	for _, want := range []string{
 		"kind=task", "kind=bug",
@@ -682,6 +694,10 @@ func TestS2DegradedDrillDownNeverRendersAuthoritativeEmpty(t *testing.T) {
 		core := launcher.New(p)
 		core.RestoreSnapshot(snapshot)
 		m := New(core, context.Background(), Profile{})
+		// The split reserves the detail pane, so 120 is the harness width
+		// that keeps the typed unavailable state untruncated.
+		m.Update(tea.WindowSizeMsg{Width: 120, Height: 24})
+		m.Sync()
 		rendered := m.Render()
 		if !strings.Contains(rendered, "unavailable: Product work omitted by launcher limit") {
 			t.Fatalf("degraded %s drill-down lost its typed state: %q", focus, rendered)
@@ -929,6 +945,10 @@ func TestS2DomainSectionRendersHierarchyRelationsAndOverlap(t *testing.T) {
 		t.Fatal(err)
 	}
 	m := New(core, context.Background(), Profile{})
+	// The split reserves the detail pane, so 120 is the harness width that
+	// keeps the relation, overlap and summary lines untruncated.
+	m.Update(tea.WindowSizeMsg{Width: 120, Height: 24})
+	m.Sync()
 	m.UpdateKey("enter")
 	rendered := m.Render()
 	for _, want := range []string{"Domain", "HOME", "product-root:one Product One", "DOMAIN", "work-nav Work navigation", "RELATION depends_on: work-nav -> product-root:one state=active", "OVERLAP work-1 & work-2 domains=work-nav resolution=absent"} {
@@ -954,6 +974,9 @@ func TestS2AnswerStackAdapterRendersPanelsInContractOrderAndKeepsSummariesStable
 	core := launcher.New(nil)
 	core.RestoreSnapshot(snapshot)
 	m := New(core, context.Background(), Profile{})
+	// The split reserves the detail pane, so 120 is the harness width that
+	// keeps the panel summary and work lines untruncated.
+	m.Update(tea.WindowSizeMsg{Width: 120, Height: 24})
 	m.Sync()
 	rendered := m.Render()
 	for _, want := range []string{"OVERLAP w-a & w-b domains=d-law resolution=absent", "BLOCKED: w-store Stored order marker=!BLOCKED blockers=b-store[law]", "NEXT: !BLOCKED w-store Stored order"} {
@@ -1017,17 +1040,54 @@ func TestS2TabFocusAndS3TabSectionBehaviour(t *testing.T) {
 	core.RestoreSnapshot(launcher.Snapshot{Screen: launcher.ScreenProduct, Section: launcher.SectionDomains, Domains: launcher.DomainSection{Read: true, State: "authoritative"}})
 	m := New(core, context.Background(), Profile{})
 	m.Sync()
-	for _, want := range []launcher.S2Panel{launcher.S2PanelBlocked, launcher.S2PanelNext, launcher.S2PanelDomain} {
+	// Split width: the detail pane is the outer stop of the Tab cycle, so the
+	// section cycle reaches it before wrapping.
+	m.Update(tea.WindowSizeMsg{Width: 120, Height: 24})
+	for _, want := range []launcher.S2Panel{launcher.S2PanelBlocked, launcher.S2PanelNext} {
 		m.UpdateKey("tab")
 		if got := core.PanelFocus(); got != want {
 			t.Fatalf("S2 focus=%q, want %q", got, want)
 		}
 	}
-	core.RestoreSnapshot(launcher.Snapshot{Screen: launcher.ScreenWork, Section: launcher.SectionRelations, Detail: launcher.WorkDetail{Knowledge: launcher.KnowledgeSection{Read: true}}})
+	m.UpdateKey("tab") // next panel -> detail pane
+	if !m.detailFocus || core.PanelFocus() != launcher.S2PanelNext {
+		t.Fatalf("S2 Tab did not move pane focus to the detail pane: focus=%v panel=%q", m.detailFocus, core.PanelFocus())
+	}
+	m.UpdateKey("tab") // detail pane -> domain panel
+	if m.detailFocus || core.PanelFocus() != launcher.S2PanelDomain {
+		t.Fatalf("S2 Tab did not return pane focus to the primary pane: focus=%v panel=%q", m.detailFocus, core.PanelFocus())
+	}
+	// Narrow width: the frame stays single-pane and Tab still moves focus.
+	m.Update(tea.WindowSizeMsg{Width: 60, Height: 24})
+	for _, want := range []launcher.S2Panel{launcher.S2PanelBlocked, launcher.S2PanelNext, launcher.S2PanelDomain} {
+		m.UpdateKey("tab")
+		if got := core.PanelFocus(); got != want {
+			t.Fatalf("narrow S2 focus=%q, want %q", got, want)
+		}
+		if m.detailFocus {
+			t.Fatal("narrow frame focused the absent detail pane")
+		}
+	}
+	// S3 sections keep their inner level of the same cycle, with the detail
+	// pane as the outer stop at split width.
+	m.Update(tea.WindowSizeMsg{Width: 120, Height: 24})
+	core.RestoreSnapshot(launcher.Snapshot{Screen: launcher.ScreenWork, Section: launcher.SectionRelations, Knowledge: launcher.KnowledgeSection{Read: true}})
 	m.Sync()
-	m.UpdateKey("tab")
+	m.UpdateKey("tab") // relations -> ranked
 	if got := core.Section(); got != launcher.SectionRanked {
 		t.Fatalf("S3 Tab changed to %q, want next existing section", got)
+	}
+	m.UpdateKey("tab") // ranked -> knowledge; the read-free EnsureKnowledge guard holds
+	if got := core.Section(); got != launcher.SectionKnowledge {
+		t.Fatalf("S3 Tab changed to %q, want the knowledge section", got)
+	}
+	m.UpdateKey("tab") // knowledge -> detail pane
+	if !m.detailFocus || core.Section() != launcher.SectionKnowledge {
+		t.Fatalf("S3 Tab did not move pane focus to the detail pane: focus=%v section=%q", m.detailFocus, core.Section())
+	}
+	m.UpdateKey("tab") // detail pane -> domains section
+	if m.detailFocus || core.Section() != launcher.SectionDomains {
+		t.Fatalf("S3 Tab did not return pane focus from the detail pane: focus=%v section=%q", m.detailFocus, core.Section())
 	}
 }
 
@@ -1086,9 +1146,9 @@ func TestPortfolioRowsRenderExactlyOneLineAtSupportedWidths(t *testing.T) {
 		m.Update(tea.WindowSizeMsg{Width: width, Height: 40})
 		frame := m.Render()
 		lines := strings.Split(frame, "\n")
-		// The long row renders on exactly one line: at width 80 the Product
-		// column truncates to "operator_only_produ…", so the surviving
-		// 18-character prefix identifies the row line at every width.
+		// The long row renders on exactly one line: a shed or truncated
+		// Product column keeps the 18-character prefix on the row's own line
+		// at every width.
 		rowLine, rowLines := "", 0
 		for _, line := range lines {
 			if strings.Contains(line, "operator_only_prod") {
@@ -1099,12 +1159,22 @@ func TestPortfolioRowsRenderExactlyOneLineAtSupportedWidths(t *testing.T) {
 		if rowLines != 1 {
 			t.Fatalf("width %d: the long product row renders on %d lines, want 1: %q", width, rowLines, frame)
 		}
-		// The fitting row renders on exactly one line too.
-		if got := strings.Count(frame, "Ship the floor"); got != 1 {
-			t.Fatalf("width %d: fitting row renders on %d lines, want 1: %q", width, got, frame)
+		// The narrowed budget sheds the Focus column below the width that
+		// seats it; while it survives, the fitting row renders on exactly one
+		// line and an over-width Focus value truncates with an ellipsis on
+		// that line instead of wrapping.
+		focusKept := false
+		for _, column := range m.projection.Columns {
+			if column == "Focus" {
+				focusKept = true
+			}
 		}
-		// The long Focus value ends in the ellipsis on the row's own line; it
-		// never continues onto a second line.
+		if !focusKept {
+			continue
+		}
+		if got := strings.Count(frame, "Ship the floor"); got != 2 {
+			t.Fatalf("width %d: fitting row renders on %d lines, want the row line plus the detail pane's focus line: %q", width, got, frame)
+		}
 		if strings.Contains(frame, focusTail) {
 			if !strings.Contains(rowLine, focusTail) {
 				t.Fatalf("width %d: focus value split across lines: %q", width, frame)
@@ -1136,7 +1206,10 @@ func TestHelpFooterUsesFullWidthBudgetAtEveryTerminalWidth(t *testing.T) {
 		Rows:     []launcher.ProductRow{{ID: "p-1", Name: "Alpha"}},
 	}
 	m := New(launcher.New(&port{state: snapshot}), context.Background(), Profile{})
-	for _, width := range []int{80, 100, 120, 200} {
+	// 79 is the widest single-pane width and 120 the narrowest split width
+	// whose primary pane still seats the unpin binding; between them the
+	// short help elides whole bindings inside the narrower pane.
+	for _, width := range []int{79, 120, 200} {
 		m.Update(tea.WindowSizeMsg{Width: width, Height: 24})
 		frame := m.Render()
 		if !strings.Contains(frame, "ctrl-u unpin") {

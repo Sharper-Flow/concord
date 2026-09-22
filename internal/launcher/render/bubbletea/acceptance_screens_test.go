@@ -253,7 +253,7 @@ func TestLauncherOperatorFlowUsesSizedTables(t *testing.T) {
 			PanelFocus: launcher.S2PanelBlocked, Coverage: "authoritative", Backlog: true,
 			Ranked: []launcher.RankedWork{{ID: "backlog", Title: "New / Backlog", Backlog: true}},
 		},
-		projects: []launcher.ProjectOption{{ID: "project-1", Name: "Project one", Role: "primary", Path: "/project-one"}},
+		projects: []launcher.ProjectOption{{ID: "project-1", Name: "Project one", Role: "primary", Path: "/p1"}},
 		resolve:  func(string) (launcher.SessionHandoff, error) { return launcher.SessionHandoff{}, nil },
 	}
 	degradedCore := launcher.New(degraded)
@@ -363,7 +363,9 @@ func TestWorkRowRendersIssueKeyAndOccupancy(t *testing.T) {
 	core := launcher.New(stub)
 	core.RestoreSnapshot(stub.state)
 	m := New(core, context.Background(), Profile{})
-	m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	// 200 keeps every ranked column visible beside the detail pane; the row
+	// identity cells under test exceed the split primary pane at 120.
+	m.Update(tea.WindowSizeMsg{Width: 200, Height: 40})
 	rendered := m.Render()
 	for _, want := range []string{"lifecycle=in_progress", "issue=CON-153", "live=yes", "live=no"} {
 		if !strings.Contains(rendered, want) {
@@ -458,7 +460,7 @@ func TestNewBacklogResolvesIssueKeyOrDegradesToProjects(t *testing.T) {
 	})
 	t.Run("unlinked key degrades to the Project select", func(t *testing.T) {
 		stub := &screenStub{state: product(), projects: []launcher.ProjectOption{
-			{ID: "proj-1", Name: "Pathed project", Role: "primary", Path: "/src/proj-1"},
+			{ID: "proj-1", Name: "Pathed project", Role: "primary", Path: "/src/p1"},
 		}, resolve: func(string) (launcher.SessionHandoff, error) {
 			return launcher.SessionHandoff{}, nil
 		}}
@@ -477,13 +479,13 @@ func TestNewBacklogResolvesIssueKeyOrDegradesToProjects(t *testing.T) {
 			t.Fatalf("Project select = %#v, want the launchable Project", snapshot.Projects)
 		}
 		rendered := m.Render()
-		if !strings.Contains(rendered, "Pathed project") || !strings.Contains(rendered, "path=/src/proj-1") {
+		if !strings.Contains(rendered, "Pathed project") || !strings.Contains(rendered, "path=/src/p1") {
 			t.Fatalf("Project select lost its row: %q", rendered)
 		}
 	})
 	t.Run("empty Enter degrades to the Project select", func(t *testing.T) {
 		stub := &screenStub{state: product(), projects: []launcher.ProjectOption{
-			{ID: "proj-1", Name: "Pathed project", Role: "primary", Path: "/src/proj-1"},
+			{ID: "proj-1", Name: "Pathed project", Role: "primary", Path: "/src/p1"},
 		}}
 		core := launcher.New(stub)
 		core.RestoreSnapshot(stub.state)
@@ -517,5 +519,47 @@ func TestPortfolioRendersCandidateFeedWhenEmpty(t *testing.T) {
 	}
 	if !strings.Contains(rendered, "STATUS: first_run") {
 		t.Fatalf("first-run coverage banner lost: %q", rendered)
+	}
+}
+
+// TestDetailPaneCarriesFocusFieldsTheStatusBarDrops proves
+// check:launcher/detail-pane-carries-focus-fields: the split frame's detail
+// pane renders the focus fields the core computes for the selected Product
+// row, which focusText reduces to one identifier string in the status bar.
+func TestDetailPaneCarriesFocusFieldsTheStatusBarDrops(t *testing.T) {
+	core := launcher.New(nil)
+	core.RestoreSnapshot(focusedDetailSnapshot())
+	m := New(core, context.Background(), Profile{})
+	m.Update(tea.WindowSizeMsg{Width: 120, Height: 24})
+	rendered := m.Render()
+	if !strings.Contains(rendered, "FOCUS: product/Concord") {
+		t.Fatalf("status bar lost the focus identifier: %q", rendered)
+	}
+	for _, want := range []string{
+		"FOCUS: Ship the detail pane",
+		"WORK: work-42",
+		"KIND: task",
+		"LIFECYCLE: in_progress",
+		"ATTENTION: approval_required",
+		"BLOCKED SESSIONS: 2",
+		"OLDEST BLOCKED: session-7",
+		"PRIORITY: 3",
+		"WORKFLOW: execution",
+		"PROJECTS: 1",
+		"STAGE: build",
+		"STAGE MATURITY: stable",
+		"STAGE AUDIENCE: operator",
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("detail pane dropped focus field %q: %q", want, rendered)
+		}
+	}
+	if strings.Contains(rendered, "DETAIL *") {
+		t.Fatalf("unfocused detail pane rendered the focus marker: %q", rendered)
+	}
+	// Pane focus is the outer stop of the Tab cycle: the marker follows it.
+	m.UpdateKey("tab") // portfolio screen: Tab is no-op, marker stays off
+	if strings.Contains(m.Render(), "DETAIL *") {
+		t.Fatalf("portfolio Tab focused the detail pane: %q", m.Render())
 	}
 }

@@ -187,7 +187,9 @@ func TestRankedDrillDownProjectionIsDeterministicWithTerminalTail(t *testing.T) 
 		{ID: "w-2", Kind: "bug", Title: "Second", Priority: 2, Lifecycle: "needed", Blocked: true},
 		{ID: "w-3", Kind: "task", Title: "Done", Priority: 3, Lifecycle: "completed", Terminal: true, TerminalAt: "2026-08-05T00:00:00Z"},
 	}}
-	first, second := Project(snapshot, 80), Project(snapshot, 80)
+	// 120 seats the full declared column set beside the detail pane; the
+	// narrower budget legitimately sheds the lowest-priority columns.
+	first, second := Project(snapshot, 120), Project(snapshot, 120)
 	wantColumns := []string{"Work", "Kind", "Priority", "Urgency", "Readiness", "Lifecycle", "TerminalAt", "Projects"}
 	if !reflect.DeepEqual(first.Columns, wantColumns) {
 		t.Fatalf("drill-down columns=%v", first.Columns)

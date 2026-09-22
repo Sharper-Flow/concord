@@ -105,6 +105,79 @@ func fixturePortfolioRows(count int) []launcher.ProductRow {
 	return rows
 }
 
+// focusedDetailSnapshot carries one Product row whose twelve focus fields the
+// core computes on every refresh, so the detail pane has typed data to render.
+func focusedDetailSnapshot() launcher.Snapshot {
+	return launcher.Snapshot{
+		Screen: launcher.ScreenPortfolio, AmbientProduct: "Concord",
+		Watermark: "w42", ObservedAt: "2m", Reliance: "clear", Coverage: "authoritative",
+		Rows: []launcher.ProductRow{{
+			ID: "p-1", Name: "Alpha", Stage: "in_progress", Reliance: "clear", Actions: 1,
+			Focus:   "Ship the detail pane",
+			FocusID: "work-42", FocusWorkKind: "task", FocusLifecycle: "in_progress",
+			FocusAttentionKind: "approval_required", FocusBlockedSessionCount: 2,
+			FocusOldestBlockedSession: "session-7", FocusPriority: 3,
+			FocusWorkflowStepLabel: "execution", FocusProjectCount: 1,
+			FocusStageContext: "build", FocusStageOverrideMaturity: "stable",
+			FocusStageOverrideAudience: "operator",
+		}},
+	}
+}
+
+// TestFrameJoinsDetailPaneWhenWidthSeatsBothMinima proves the split
+// geometry by measurement, not screenshots:
+// check:launcher/frame-joins-two-panes joins a second pane at the frame,
+// check:launcher/pane-widths-sum-to-frame holds the two pane widths equal to
+// the frame width with a shared border and an unchanged frame height, and
+// check:launcher/narrow-frame-stays-single-pane keeps one pane below the
+// seated minima.
+func TestFrameJoinsDetailPaneWhenWidthSeatsBothMinima(t *testing.T) {
+	core := launcher.New(nil)
+	core.RestoreSnapshot(focusedDetailSnapshot())
+	model := New(core, context.Background(), Profile{})
+	model.Update(tea.WindowSizeMsg{Width: 120, Height: 24})
+	frame := model.Render()
+	lines := strings.Split(frame, "\n")
+	if len(lines) != 24 {
+		t.Fatalf("split frame height=%d, want 24", len(lines))
+	}
+	if got := strings.Count(frame, "╭"); got != 2 {
+		t.Fatalf("split frame pane count=%d, want 2: %q", got, frame)
+	}
+	boundary := primaryPaneWidth(120)
+	if boundary != 120-detailPaneWidth {
+		t.Fatalf("primary pane width=%d, want frame minus the declared detail budget", boundary)
+	}
+	top := []rune(lines[2])
+	if top[boundary-1] != '╮' || top[boundary] != '╭' {
+		t.Fatalf("top border is not split at column %d: %q", boundary, lines[2])
+	}
+	body := []rune(lines[4])
+	if body[boundary-1] != '│' || body[boundary] != '│' {
+		t.Fatalf("pane boundary at column %d is not a shared border: %q", boundary, lines[4])
+	}
+	detailWidth := lipgloss.Width(string(top[boundary:]))
+	if boundary+detailWidth != 120 {
+		t.Fatalf("pane widths %d + %d do not sum to the frame width 120", boundary, detailWidth)
+	}
+	for i, line := range lines {
+		if got := lipgloss.Width(line); got != 120 {
+			t.Fatalf("split frame line %d width=%d, want 120: %q", i, got, line)
+		}
+	}
+
+	// Below the seated minima the frame stays single-pane and no detail
+	// content leaks into it.
+	model.Update(tea.WindowSizeMsg{Width: 79, Height: 24})
+	narrow := model.Render()
+	if got := strings.Count(narrow, "╭"); got != 1 {
+		t.Fatalf("narrow frame pane count=%d, want 1: %q", got, narrow)
+	}
+	if strings.Contains(narrow, "DETAIL") {
+		t.Fatalf("narrow frame leaked the detail pane: %q", narrow)
+	}
+}
+
 func fixtureRankedWorks(count int) []launcher.RankedWork {
 	rows := make([]launcher.RankedWork, count)
 	for i := range rows {

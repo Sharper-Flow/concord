@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -168,13 +169,138 @@ func TestFrameJoinsDetailPaneWhenWidthSeatsBothMinima(t *testing.T) {
 
 	// Below the seated minima the frame stays single-pane and no detail
 	// content leaks into it.
-	model.Update(tea.WindowSizeMsg{Width: 79, Height: 24})
+	model.Update(tea.WindowSizeMsg{Width: 113, Height: 24})
 	narrow := model.Render()
 	if got := strings.Count(narrow, "╭"); got != 1 {
 		t.Fatalf("narrow frame pane count=%d, want 1: %q", got, narrow)
 	}
 	if strings.Contains(narrow, "DETAIL") {
 		t.Fatalf("narrow frame leaked the detail pane: %q", narrow)
+	}
+	model.Update(tea.WindowSizeMsg{Width: 114, Height: 24})
+	minimum := strings.Split(model.Render(), "\n")
+	if len(minimum) != 24 {
+		t.Fatalf("minimum split height=%d, want 24", len(minimum))
+	}
+	border := []rune(minimum[2])
+	if len(border) != 114 || border[79] != '╮' || border[80] != '╭' {
+		t.Fatalf("minimum split must have 80-column primary and 34-column detail: %q", minimum[2])
+	}
+	for i, line := range minimum {
+		if got := lipgloss.Width(line); got != 114 {
+			t.Fatalf("minimum split line %d width=%d, want 114", i, got)
+		}
+	}
+}
+
+// TestFrameSplitHoldsAtUnicodeDisplayWidths proves the split geometry at
+// Unicode display widths: a wide-rune work title clips inside its pane by
+// display width and neither the pane boundary nor the frame width moves.
+func TestFrameSplitHoldsAtUnicodeDisplayWidths(t *testing.T) {
+	snapshot := launcher.Snapshot{
+		Screen: launcher.ScreenProduct, AmbientProduct: "product-1", Section: launcher.SectionRanked,
+		PanelFocus: launcher.S2PanelBlocked, Coverage: "authoritative",
+		Ranked: []launcher.RankedWork{
+			{ID: "work-1", Kind: "task", Title: strings.Repeat("作業", 40), Lifecycle: "in_progress", Priority: 1, Ready: true},
+			{ID: "work-2", Kind: "bug", Title: "plain", Lifecycle: "needed", Priority: 2},
+		},
+	}
+	core := launcher.New(nil)
+	core.RestoreSnapshot(snapshot)
+	model := New(core, context.Background(), Profile{})
+	model.Update(tea.WindowSizeMsg{Width: 120, Height: 24})
+	frame := model.Render()
+	lines := strings.Split(frame, "\n")
+	if len(lines) != 24 {
+		t.Fatalf("unicode frame height=%d, want 24", len(lines))
+	}
+	if got := strings.Count(frame, "╭"); got != 2 {
+		t.Fatalf("unicode frame pane count=%d, want 2", got)
+	}
+	boundary := primaryPaneWidth(120)
+	top := []rune(lines[2])
+	if top[boundary-1] != '╮' || top[boundary] != '╭' {
+		t.Fatalf("unicode top border is not split at column %d: %q", boundary, lines[2])
+	}
+	for i, line := range lines {
+		if got := lipgloss.Width(line); got != 120 {
+			t.Fatalf("unicode frame line %d width=%d, want 120: %q", i, got, line)
+		}
+	}
+	if !strings.Contains(frame, "WORK: work-1") {
+		t.Fatalf("unicode frame lost the selected work detail: %q", frame)
+	}
+}
+
+// TestColumnBudgetShedsAtCellAccurateThresholds drives the core's column
+// budget with the measure this package renders with — lipgloss.Width, the
+// library every table here prices with. Near the threshold a rune count
+// answers differently: CJK and fullwidth forms occupy two cells per rune,
+// while the family emoji occupies two cells for the whole sequence. A base
+// character with a combining mark occupies one cell, so each
+// fixture separates the cell measure from a rune count in at least one
+// direction. The core carries no width logic of its own; this test is the
+// near-threshold pin on the measurement the renderer hands it.
+func TestColumnBudgetShedsAtCellAccurateThresholds(t *testing.T) {
+	cases := []struct {
+		name       string
+		cell       string
+		seat, shed int // widths where the two-column set seats vs sheds
+		runeSeat   int // where a rune count would seat, for the contrast
+	}{
+		// seat = display cells + 7: the gutter, both widest cells, and the
+		// inter-column padding of a two-column table.
+		{"cjk", "界界界界", 15, 14, 11},
+		{"fullwidth", "ＦＵＬＬＷＩＤＴＨ", 25, 24, 16},
+		{"family emoji", "👨‍👩‍👧", 9, 8, 12},
+		{"emoji", "👍👍👍", 13, 12, 10},
+		{"combining marks", "e\u0301e\u0301e\u0301e\u0301", 11, 10, 15},
+	}
+	headers := []string{"A", "B"}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			rows := [][]string{{tc.cell, "x"}}
+			if got := launcher.ColumnBudget(headers, rows, tc.seat, lipgloss.Width); got != 2 {
+				t.Fatalf("cell budget at seat width %d = %d, want 2", tc.seat, got)
+			}
+			if got := launcher.ColumnBudget(headers, rows, tc.shed, lipgloss.Width); got != 1 {
+				t.Fatalf("cell budget at shed width %d = %d, want 1", tc.shed, got)
+			}
+			if got := launcher.ColumnBudget(headers, rows, tc.runeSeat, utf8.RuneCountInString); got != 2 {
+				t.Fatalf("rune-count budget at %d = %d, want 2: the fixture no longer separates the measures", tc.runeSeat, got)
+			}
+		})
+	}
+}
+
+// TestProjectShedsByTheRendererMeasure applies the renderer's measure
+// through the Project entry point the model's Sync uses. The Product row
+// "p-1 界界界界" spans 12 display cells (8 runes) and Focus "界界界界" 8
+// cells (4 runes), so the cells shed the focus column from width 51 while a
+// rune count would keep it, and both seat the full set at 58.
+func TestProjectShedsByTheRendererMeasure(t *testing.T) {
+	core := launcher.New(nil)
+	core.RestoreSnapshot(launcher.Snapshot{
+		Screen: launcher.ScreenPortfolio, AmbientProduct: "Concord",
+		Coverage: "authoritative",
+		Rows: []launcher.ProductRow{{
+			ID: "p-1", Name: "界界界界", Stage: "in_progress",
+			Reliance: "clear", Actions: 1, Focus: "界界界界",
+		}},
+	})
+	snapshot := core.Snapshot()
+	narrow := launcher.Project(snapshot, 51, lipgloss.Width)
+	if len(narrow.Columns) != 4 {
+		t.Fatalf("width-51 projection kept %d columns, want 4: %v", len(narrow.Columns), narrow.Columns)
+	}
+	for _, column := range narrow.Columns {
+		if column == "Focus" {
+			t.Fatalf("focus column survived a budget its cells exceed: %v", narrow.Columns)
+		}
+	}
+	wide := launcher.Project(snapshot, 58, lipgloss.Width)
+	if len(wide.Columns) != 5 {
+		t.Fatalf("width-58 projection dropped fitting columns: %v", wide.Columns)
 	}
 }
 

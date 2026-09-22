@@ -156,7 +156,7 @@ func TestSnapshotCopiesRows(t *testing.T) {
 
 func TestProjectionIsDeterministicAndCarriesC14Meaning(t *testing.T) {
 	snapshot := Snapshot{Screen: ScreenPortfolio, AmbientProduct: "Concord", Watermark: "w42", ObservedAt: "2m", Reliance: "blocked", Coverage: "authoritative", Rows: []ProductRow{{Name: "Launcher", Stage: "in_progress", Reliance: "blocked", Actions: 3, Focus: "Fix launcher input"}}}
-	first, second := Project(snapshot, 80), Project(snapshot, 80)
+	first, second := Project(snapshot, 80, fixtureMeasure(nil)), Project(snapshot, 80, fixtureMeasure(nil))
 	if len(first.Rows) != 1 || len(first.Rows[0]) != 5 {
 		t.Fatalf("projection rows=%#v", first.Rows)
 	}
@@ -171,11 +171,11 @@ func TestProjectionIsDeterministicAndCarriesC14Meaning(t *testing.T) {
 }
 
 func TestProductAndWorkProjectionCarriesTypedScreenSections(t *testing.T) {
-	product := Project(Snapshot{Screen: ScreenProduct, AmbientProduct: "p-1", Watermark: "w", ObservedAt: "now", Reliance: "authoritative", Coverage: "authoritative", Section: SectionRanked, Ranked: []RankedWork{{ID: "w-1", Title: "Next", Priority: 1, Lifecycle: "needed", Ready: true}}}, 80)
+	product := Project(Snapshot{Screen: ScreenProduct, AmbientProduct: "p-1", Watermark: "w", ObservedAt: "now", Reliance: "authoritative", Coverage: "authoritative", Section: SectionRanked, Ranked: []RankedWork{{ID: "w-1", Title: "Next", Priority: 1, Lifecycle: "needed", Ready: true}}}, 80, fixtureMeasure(nil))
 	if product.Columns[0] != "Work" || len(product.Rows) != 1 || !strings.Contains(strings.Join(product.Rows[0], " "), "w-1") {
 		t.Fatalf("product projection=%#v", product)
 	}
-	work := Project(Snapshot{Screen: ScreenWork, AmbientProduct: "p-1", Section: SectionKnowledge, Detail: WorkDetail{Item: RankedWork{ID: "w-1", Title: "Next", Lifecycle: "needed"}}}, 80)
+	work := Project(Snapshot{Screen: ScreenWork, AmbientProduct: "p-1", Section: SectionKnowledge, Detail: WorkDetail{Item: RankedWork{ID: "w-1", Title: "Next", Lifecycle: "needed"}}}, 80, fixtureMeasure(nil))
 	if work.Columns[0] != "Work" || len(work.Rows) != 1 || !strings.Contains(work.Header[len(work.Header)-1], "knowledge") {
 		t.Fatalf("work projection=%#v", work)
 	}
@@ -187,9 +187,9 @@ func TestRankedDrillDownProjectionIsDeterministicWithTerminalTail(t *testing.T) 
 		{ID: "w-2", Kind: "bug", Title: "Second", Priority: 2, Lifecycle: "needed", Blocked: true},
 		{ID: "w-3", Kind: "task", Title: "Done", Priority: 3, Lifecycle: "completed", Terminal: true, TerminalAt: "2026-08-05T00:00:00Z"},
 	}}
-	// 120 seats the full declared column set beside the detail pane; the
-	// narrower budget legitimately sheds the lowest-priority columns.
-	first, second := Project(snapshot, 120), Project(snapshot, 120)
+	// 120 seats the full declared eight-column set; narrower budgets
+	// legitimately shed the lowest-priority columns.
+	first, second := Project(snapshot, 120, fixtureMeasure(nil)), Project(snapshot, 120, fixtureMeasure(nil))
 	wantColumns := []string{"Work", "Kind", "Priority", "Urgency", "Readiness", "Lifecycle", "TerminalAt", "Projects"}
 	if !reflect.DeepEqual(first.Columns, wantColumns) {
 		t.Fatalf("drill-down columns=%v", first.Columns)
@@ -229,15 +229,15 @@ func TestRankedReadinessDerivesTerminalBeforeBlocked(t *testing.T) {
 }
 
 func TestRankedDrillDownEmptyRendersTypedStateNotSilentBlank(t *testing.T) {
-	authoritative := Project(Snapshot{Screen: ScreenProduct, Section: SectionRanked, Coverage: "authoritative"}, 80)
+	authoritative := Project(Snapshot{Screen: ScreenProduct, Section: SectionRanked, Coverage: "authoritative"}, 80, fixtureMeasure(nil))
 	if len(authoritative.Rows) != 1 || authoritative.Rows[0][0] != "authoritative-empty" {
 		t.Fatalf("authoritative empty drill-down=%#v", authoritative.Rows)
 	}
-	degraded := Project(Snapshot{Screen: ScreenProduct, Section: SectionRanked, Coverage: "unavailable", StatusMessage: "unavailable: Product work omitted by launcher limit"}, 80)
+	degraded := Project(Snapshot{Screen: ScreenProduct, Section: SectionRanked, Coverage: "unavailable", StatusMessage: "unavailable: Product work omitted by launcher limit"}, 80, fixtureMeasure(nil))
 	if len(degraded.Rows) != 1 || degraded.Rows[0][0] != "unavailable: Product work omitted by launcher limit" {
 		t.Fatalf("degraded empty drill-down=%#v", degraded.Rows)
 	}
-	unreachable := Project(Snapshot{Screen: ScreenProduct, Section: SectionRanked, Coverage: "unreachable", StatusMessage: "database unavailable"}, 80)
+	unreachable := Project(Snapshot{Screen: ScreenProduct, Section: SectionRanked, Coverage: "unreachable", StatusMessage: "database unavailable"}, 80, fixtureMeasure(nil))
 	if len(unreachable.Rows) != 1 || unreachable.Rows[0][0] != "unavailable: database unavailable" {
 		t.Fatalf("unreachable empty drill-down=%#v", unreachable.Rows)
 	}

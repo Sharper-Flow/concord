@@ -2,18 +2,18 @@ CONCORD LAUNCHER | PRODUCT: Concord
 FOCUS: product/Concord                                      COVERAGE: authoritative                                     
 ╭────────────────────────────────────────────────────────────────────────────────────╮╭────────────────────────────────╮
 │PRODUCT: Concord                                                                    ││DETAIL                          │
-│WATERMARK: unknown                                                                  ││FOCUS: absent: no product row   │
-│AGE: unknown                                                                        ││                                │
-│SCREEN: product                                                                     ││                                │
-│RELIANCE: unknown                                                                   ││                                │
-│COVERAGE: authoritative                                                             ││                                │
-│SECTION: ranked                                                                     ││                                │
-│S2 PRODUCT COORDINATION                                                             ││                                │
-│DOMAIN: no unresolved overlaps                                                      ││                                │
-│BLOCKED: work-1 Work 1 marker=+READY blockers=                                      ││                                │
-│BLOCKED/BLOCKERS:                                                                   ││                                │
-│  Work                                                                              ││                                │
-│  23 +READY work-23 Work 23                                                         ││                                │
+│WATERMARK: unknown                                                                  ││WORK: work-45                   │
+│AGE: unknown                                                                        ││TITLE: Work 45                  │
+│SCREEN: product                                                                     ││KIND: task                      │
+│RELIANCE: unknown                                                                   ││LIFECYCLE: in_progress          │
+│COVERAGE: authoritative                                                             ││READINESS: ready                │
+│SECTION: ranked                                                                     ││PRIORITY: 0                     │
+│S2 PRODUCT COORDINATION                                                             ││URGENCY: standard               │
+│DOMAIN: no unresolved overlaps                                                      ││ISSUE: -                        │
+│BLOCKED: work-1 Work 1 marker=+READY blockers=                                      ││LIVE SESSIONS: 0                │
+│BLOCKED/BLOCKERS:                                                                   ││PROJECTS: 0                     │
+│  Work                                                                              ││TERMINAL: -                     │
+│  23 +READY work-23 Work 23                                                         ││WORKFLOW: -                     │
 │  24 +READY work-24 Work 24                                                         ││                                │
 │  25 +READY work-25 Work 25                                                         ││                                │
 │  26 +READY work-26 Work 26                                                         ││                                │
@@ -36,5 +36,5 @@ FOCUS: product/Concord                                      COVERAGE: authoritat
 │  43 +READY work-43 Work 43                                                         ││                                │
 │  44 +READY work-44 Work 44                                                         ││                                │
 │> 45 +READY work-45 Work 45                                                         ││                                │
-│arrows move • / filter • s search • tab pane/section • r refresh • enter open …     ││                                │
 ╰────────────────────────────────────────────────────────────────────────────────────╯╰────────────────────────────────╯
+arrows move • / filter • s search • tab pane/section • r refresh • enter open • l launch • ctrl-p pin • ctrl-u unpin • ?

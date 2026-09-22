@@ -261,7 +261,10 @@ func TestTerminalControlHelperRejectsInjectedANSIAndAcceptsPlainText(t *testing.
 }
 
 func TestLongFieldsTruncateToOneLineAtThe80ColumnFloor(t *testing.T) {
-	name := "Product-" + strings.Repeat("A", 52)
+	// The name exceeds the single-pane floor's inner width, so the first
+	// column truncates in place: non-first over-width columns shed instead,
+	// and the first column never drops.
+	name := "Product-" + strings.Repeat("A", 76)
 	stage := "進行中" + strings.Repeat("e\u0301", 20)
 	reliance := "blocked-" + strings.Repeat("!", 38)
 	focus := "Focus-" + strings.Repeat("界", 24)
@@ -286,7 +289,7 @@ func TestLongFieldsTruncateToOneLineAtThe80ColumnFloor(t *testing.T) {
 	}
 	// The narrowed budget sheds every column the over-width values price out,
 	// so the surviving cells stay parallel to the projected columns and the
-	// first column truncates in place.
+	// first column truncates in place when it alone exceeds the floor.
 	pane := m.renderPortfolio(m.snapshot, m.cursor)
 	if len(pane.rows) != 1 || len(pane.rows[0]) != len(m.projection.Columns) || len(pane.rows[0]) == 0 {
 		t.Fatalf("the Product row must stay parallel to the projected columns %#v: %#v", m.projection.Columns, pane.rows)
@@ -641,14 +644,44 @@ func TestS2AndS3RenderUnavailableForegroundReadState(t *testing.T) {
 		core := launcher.New(p)
 		core.RestoreSnapshot(snapshot)
 		m := New(core, context.Background(), Profile{})
-		// The split reserves the detail pane, so 120 is the harness width
-		// that keeps the longest foreground status line untruncated.
-		m.Update(tea.WindowSizeMsg{Width: 120, Height: 24})
-		m.Sync()
 		rendered := m.Render()
 		if !strings.Contains(rendered, "STATUS: "+snapshot.StatusMessage) {
 			t.Fatalf("foreground read state must remain visible: %q", rendered)
 		}
+	}
+}
+
+// TestRenderChangesOnlyThroughSync proves the render path reads only the
+// synced snapshot and local interaction state: a core mutation that skips
+// Sync changes nothing on screen, and Sync then projects it.
+func TestRenderChangesOnlyThroughSync(t *testing.T) {
+	snapshot := launcher.Snapshot{
+		Screen: launcher.ScreenProduct, AmbientProduct: "product-1", Section: launcher.SectionRanked,
+		PanelFocus: launcher.S2PanelBlocked, Coverage: "authoritative",
+		Ranked: []launcher.RankedWork{{ID: "work-1", Kind: "task", Title: "Seated", Lifecycle: "needed", Priority: 1, Ready: true}},
+	}
+	core := launcher.New(&port{state: snapshot})
+	core.RestoreSnapshot(snapshot)
+	m := New(core, context.Background(), Profile{})
+	m.Update(tea.WindowSizeMsg{Width: 120, Height: 24})
+	m.Sync()
+	before := m.Render()
+
+	// Pane focus and ranked rows both feed the frame: neither core change may
+	// reach Render ahead of its Sync.
+	if err := core.SetPanelFocus(launcher.S2PanelDomain); err != nil {
+		t.Fatal(err)
+	}
+	next := snapshot
+	next.PanelFocus = launcher.S2PanelDomain
+	next.Ranked = []launcher.RankedWork{{ID: "work-2", Kind: "bug", Title: "Replacement", Lifecycle: "needed", Priority: 2}}
+	core.RestoreSnapshot(next)
+	if after := m.Render(); after != before {
+		t.Fatalf("render changed before Sync:\n%s\n%s", before, after)
+	}
+	m.Sync()
+	if after := m.Render(); after == before {
+		t.Fatalf("Sync projected no change: %s", after)
 	}
 }
 
@@ -665,14 +698,13 @@ func TestS2DrillDownRendersKindReadinessAndTerminalAt(t *testing.T) {
 	core := launcher.New(p)
 	core.RestoreSnapshot(snapshot)
 	m := New(core, context.Background(), Profile{})
-	// 200 keeps every ranked column visible beside the detail pane; the
-	// terminal= cell under test exceeds the split primary pane at 120.
-	m.Update(tea.WindowSizeMsg{Width: 200, Height: 40})
+	// At 120 the split seats both panes and the narrowed ranked table sheds
+	// its lowest-priority columns; the row assertions cover what survives.
+	m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
 	rendered := m.Render()
 	for _, want := range []string{
 		"kind=task", "kind=bug",
 		"+READY", "-TERMINAL",
-		"terminal=2026-08-05T00:00:00Z",
 		"lifecycle=completed",
 	} {
 		if !strings.Contains(rendered, want) {
@@ -681,6 +713,12 @@ func TestS2DrillDownRendersKindReadinessAndTerminalAt(t *testing.T) {
 	}
 	if again := m.Render(); again != rendered {
 		t.Fatalf("drill-down render changed between frames:\n%s\n%s", rendered, again)
+	}
+	// The shed terminal column's fact stays on screen: the cursor's work
+	// detail pane carries the terminal date beside the narrowed table.
+	m.UpdateKey("j")
+	if rendered := m.Render(); !strings.Contains(rendered, "TERMINAL: 2026-08-05T00:00:00Z") {
+		t.Fatalf("selected work detail lost the terminal date: %q", rendered)
 	}
 }
 
@@ -694,10 +732,6 @@ func TestS2DegradedDrillDownNeverRendersAuthoritativeEmpty(t *testing.T) {
 		core := launcher.New(p)
 		core.RestoreSnapshot(snapshot)
 		m := New(core, context.Background(), Profile{})
-		// The split reserves the detail pane, so 120 is the harness width
-		// that keeps the typed unavailable state untruncated.
-		m.Update(tea.WindowSizeMsg{Width: 120, Height: 24})
-		m.Sync()
 		rendered := m.Render()
 		if !strings.Contains(rendered, "unavailable: Product work omitted by launcher limit") {
 			t.Fatalf("degraded %s drill-down lost its typed state: %q", focus, rendered)
@@ -945,10 +979,6 @@ func TestS2DomainSectionRendersHierarchyRelationsAndOverlap(t *testing.T) {
 		t.Fatal(err)
 	}
 	m := New(core, context.Background(), Profile{})
-	// The split reserves the detail pane, so 120 is the harness width that
-	// keeps the relation, overlap and summary lines untruncated.
-	m.Update(tea.WindowSizeMsg{Width: 120, Height: 24})
-	m.Sync()
 	m.UpdateKey("enter")
 	rendered := m.Render()
 	for _, want := range []string{"Domain", "HOME", "product-root:one Product One", "DOMAIN", "work-nav Work navigation", "RELATION depends_on: work-nav -> product-root:one state=active", "OVERLAP work-1 & work-2 domains=work-nav resolution=absent"} {
@@ -974,9 +1004,6 @@ func TestS2AnswerStackAdapterRendersPanelsInContractOrderAndKeepsSummariesStable
 	core := launcher.New(nil)
 	core.RestoreSnapshot(snapshot)
 	m := New(core, context.Background(), Profile{})
-	// The split reserves the detail pane, so 120 is the harness width that
-	// keeps the panel summary and work lines untruncated.
-	m.Update(tea.WindowSizeMsg{Width: 120, Height: 24})
 	m.Sync()
 	rendered := m.Render()
 	for _, want := range []string{"OVERLAP w-a & w-b domains=d-law resolution=absent", "BLOCKED: w-store Stored order marker=!BLOCKED blockers=b-store[law]", "NEXT: !BLOCKED w-store Stored order"} {
@@ -1206,10 +1233,7 @@ func TestHelpFooterUsesFullWidthBudgetAtEveryTerminalWidth(t *testing.T) {
 		Rows:     []launcher.ProductRow{{ID: "p-1", Name: "Alpha"}},
 	}
 	m := New(launcher.New(&port{state: snapshot}), context.Background(), Profile{})
-	// 79 is the widest single-pane width and 120 the narrowest split width
-	// whose primary pane still seats the unpin binding; between them the
-	// short help elides whole bindings inside the narrower pane.
-	for _, width := range []int{79, 120, 200} {
+	for _, width := range []int{80, 100, 120, 200} {
 		m.Update(tea.WindowSizeMsg{Width: width, Height: 24})
 		frame := m.Render()
 		if !strings.Contains(frame, "ctrl-u unpin") {
@@ -1261,8 +1285,10 @@ func TestRankedRowsCollapseConstantColumnsAndTruncateToOneLine(t *testing.T) {
 		}
 	}
 	// The over-width row truncates to the row budget on its single line. The
-	// direct render carries the production gutter: cursor 0 marks row 0.
-	headers, rows, _ := rankedTable(ranked, snapshot)
+	// direct render carries the production gutter: cursor 0 marks row 0. The
+	// width seats every surviving column so this call composes, and the
+	// render-path budget response is proven on the Model's own frames.
+	headers, rows, _ := rankedTable(ranked, snapshot, 400)
 	if len(rows) != 3 {
 		t.Fatalf("ranked row count=%d, want 3", len(rows))
 	}
@@ -1278,7 +1304,7 @@ func TestRankedRowsCollapseConstantColumnsAndTruncateToOneLine(t *testing.T) {
 	// A column whose value varies on any visible row survives everywhere it
 	// has a value.
 	ranked[1].Kind = "bug"
-	headers, rows, _ = rankedTable(ranked, snapshot)
+	headers, rows, _ = rankedTable(ranked, snapshot, 400)
 	if !strings.Contains(strings.Join(headers, " "), "kind") || !strings.Contains(rows[0][1], "task") || !strings.Contains(rows[1][1], "bug") {
 		t.Fatalf("varying kind column collapsed: %#v / %#v", headers, rows)
 	}

@@ -46,7 +46,6 @@ type renderedPane struct {
 	rows         [][]string
 	severities   []rowSeverity
 	tail         []string
-	footer       []string
 	cursor       int
 	color        bool
 }
@@ -109,10 +108,13 @@ const (
 	// label and value rows, so a fixed width leaves every remaining column to
 	// the primary pane's table.
 	detailPaneWidth = 34
-	// primaryPaneMinWidth is the narrowest primary pane that stays usable. The
-	// frame splits only when the remainder after the detail pane meets it, so
-	// the split threshold is computed from the two declared minima.
-	primaryPaneMinWidth = 46
+	// primaryPaneMinWidth is the narrowest primary pane that stays usable: the
+	// full 80-column width the original single-pane acceptance inputs proved
+	// necessary for the required status and summary lines. The frame splits
+	// only when the remainder after the detail pane meets it, so the split
+	// threshold is computed from the two declared minima and a narrower frame
+	// keeps the established single-pane fallback.
+	primaryPaneMinWidth = 80
 )
 
 // splitAfforded reports whether the frame width seats both panes at their
@@ -127,6 +129,23 @@ func primaryPaneWidth(width int) int {
 		return width - detailPaneWidth
 	}
 	return width
+}
+
+// splitShown reports whether this frame joins the detail pane: the width
+// seats both panes at their minima and no modal overlay is up. The Project
+// select seats no detail subject, so reserving the detail pane there would
+// tax the one row the operator must read in full.
+func (m *Model) splitShown() bool {
+	return splitAfforded(m.width) && !m.snapshot.ProjectSelect
+}
+
+// primaryShown is the primary pane's share of this frame under the current
+// overlay state.
+func (m *Model) primaryShown() int {
+	if m.splitShown() {
+		return primaryPaneWidth(m.width)
+	}
+	return m.width
 }
 
 func New(core *launcher.Model, ctx context.Context, profile Profile) *Model {
@@ -166,8 +185,11 @@ func New(core *launcher.Model, ctx context.Context, profile Profile) *Model {
 // or UI event. Render never reads the core or its read port.
 func (m *Model) Sync() {
 	m.snapshot = m.core.Snapshot()
-	m.projection = launcher.Project(m.snapshot, m.primaryColumnBudget())
-	if m.detailFocus && (!splitAfforded(m.width) || m.detailFocusScreen != m.snapshot.Screen) {
+	// The renderer prices cells with the measurement library it renders
+	// with and hands it to the projection: the core keeps column priority
+	// without carrying width logic of its own.
+	m.projection = launcher.Project(m.snapshot, m.primaryColumnBudget(), lipgloss.Width)
+	if m.detailFocus && (!m.splitShown() || m.detailFocusScreen != m.snapshot.Screen) {
 		m.detailFocus = false
 	}
 	m.clampCursor()
@@ -177,7 +199,7 @@ func (m *Model) Sync() {
 // may span: the pane's inner width after its border, less the cursor gutter
 // the table renders inside itself.
 func (m *Model) primaryColumnBudget() int {
-	return max(1, primaryPaneWidth(m.width)-4)
+	return max(1, m.primaryShown()-4)
 }
 
 // OpenFilter enters S1's read-free local filter mode.
@@ -403,6 +425,16 @@ func (m *Model) submitIssueKey() (tea.Model, tea.Cmd) {
 
 func (m *Model) updateCommandKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	key := msg.String()
+	// The focused detail pane owns movement and Enter: its bounded subject is
+	// fully visible, so the keys are consumed without moving or activating
+	// the primary selection beneath it. Tab, help, refresh, filter, query,
+	// pin and launch keep working; Tab returns pane focus.
+	if m.detailFocus {
+		switch key {
+		case "j", "down", "k", "up", "g", "G", "ctrl+d", "n", "p", "enter":
+			return m, nil
+		}
+	}
 	switch key {
 	case "/":
 		return m, m.OpenFilter()
@@ -479,7 +511,7 @@ func (m *Model) tabKey() {
 		// level of the same key.
 		order := launcher.S2PanelOrder()
 		if m.core.PanelFocus() == order[len(order)-1] {
-			if splitAfforded(m.width) {
+			if m.splitShown() {
 				m.detailFocus = true
 				m.detailFocusScreen = m.core.Snapshot().Screen
 			} else {
@@ -500,7 +532,7 @@ func (m *Model) tabKey() {
 		case launcher.SectionRanked:
 			next = launcher.SectionKnowledge
 		case launcher.SectionKnowledge:
-			if splitAfforded(m.width) {
+			if m.splitShown() {
 				m.detailFocus = true
 				m.detailFocusScreen = m.core.Snapshot().Screen
 				m.Sync()
@@ -514,6 +546,15 @@ func (m *Model) tabKey() {
 		}
 		_ = m.core.SetSection(next)
 		m.Sync()
+	} else if m.core.Snapshot().Screen == launcher.ScreenPortfolio {
+		// The portfolio screen seats no section cycle, so Tab moves pane
+		// focus straight to the detail pane; the branch above returns it.
+		// Below the seated minima no pane is joined and Tab stays a no-op.
+		if m.splitShown() {
+			m.detailFocus = true
+			m.detailFocusScreen = m.core.Snapshot().Screen
+			m.Sync()
+		}
 	}
 }
 
@@ -684,8 +725,12 @@ func (m *Model) setError(err error) {
 	m.core.RestoreSnapshot(snapshot)
 }
 
+// The filtered* and count helpers read the synced snapshot, never the core:
+// event handlers Sync after every core mutation, so both paths see the same
+// state and the render path cannot observe a core change before its Sync.
+
 func (m *Model) filteredRows() []launcher.ProductRow {
-	rows := m.core.Snapshot().Rows
+	rows := m.snapshot.Rows
 	needle := strings.ToLower(m.filterValue)
 	if needle == "" {
 		return rows
@@ -700,7 +745,7 @@ func (m *Model) filteredRows() []launcher.ProductRow {
 }
 
 func (m *Model) filteredRanked() []launcher.RankedWork {
-	snapshot := m.core.Snapshot()
+	snapshot := m.snapshot
 	rows := snapshot.Ranked
 	needle := strings.ToLower(m.filterValue)
 	out := make([]launcher.RankedWork, 0, len(rows)+1)
@@ -739,7 +784,10 @@ func (m *Model) pageSize() int {
 		return 1
 	}
 	content := m.renderContent(m.snapshot, m.cursor)
-	page := m.height - 4 - len(content.header) - len(content.tail) - len(content.footer)
+	// Frame rows (header and status) plus the pane border leave height-4;
+	// the footer is the frame's own bottom rows. The two subtractions below
+	// price the table's header row and its scroll-indicator line.
+	page := m.height - 4 - len(m.footerLines()) - len(content.header) - len(content.tail)
 	if len(content.tableHeaders) > 0 {
 		page--
 	}
@@ -772,12 +820,12 @@ func (m *Model) clampCursor() {
 }
 
 func (m *Model) rowCount() int {
-	s := m.core.Snapshot()
+	s := m.snapshot
 	if s.ProjectSelect {
 		return len(s.Projects)
 	}
 	if s.Screen == launcher.ScreenProduct {
-		if m.core.PanelFocus() == launcher.S2PanelDomain {
+		if m.panelFocus() == launcher.S2PanelDomain {
 			return len(s.Domains.Domains)
 		}
 		return len(m.filteredRanked())
@@ -792,7 +840,7 @@ func (m *Model) rowCount() int {
 }
 
 func (m *Model) filteredCandidates() []launcher.Candidate {
-	return launcher.FilterCandidates(m.core.Snapshot().Candidates, m.filterValue)
+	return launcher.FilterCandidates(m.snapshot.Candidates, m.filterValue)
 }
 
 func (m *Model) togglePin(pin bool) {
@@ -843,13 +891,15 @@ func (m *Model) Render() string {
 		lipgloss.NewStyle().Width(m.width/2).Render("FOCUS: "+focusText(snapshot)),
 		lipgloss.NewStyle().Width(m.width-m.width/2).Render(status),
 	)
-	// The pane owns the help footer; the frame carries only the header and
-	// the status bar above the body. When the width seats both panes the body
-	// becomes a horizontal join of the primary pane and the focus detail pane
+	// The frame owns the help footer as its full-width bottom row: a footer
+	// inside the primary pane would starve with the pane and elide bindings
+	// the frame width seats. When the width seats both panes the body becomes
+	// a horizontal join of the primary pane and the selected-work detail pane
 	// (CD-0108 D2: panes, everything visible at once).
-	bodyHeight := max(1, m.height-2)
-	body := pane(content, primaryPaneWidth(m.width), bodyHeight, m.scroll)
-	if splitAfforded(m.width) {
+	footer := m.footerLines()
+	bodyHeight := max(1, m.height-2-len(footer))
+	body := pane(content, m.primaryShown(), bodyHeight, m.scroll)
+	if m.splitShown() {
 		body = lipgloss.JoinHorizontal(lipgloss.Top, body, m.detailPane(bodyHeight))
 	}
 	return lipgloss.NewStyle().
@@ -859,6 +909,11 @@ func (m *Model) Render() string {
 			lipgloss.NewStyle().Width(m.width).Render(header),
 			statusBar,
 			body,
+			// MaxWidth holds the footer to one row per help line: the help
+			// model emits an overlong line when no whole binding fits
+			// beside the ellipsis, and a wrapped row would push the frame
+			// past the terminal height.
+			lipgloss.NewStyle().MaxWidth(max(1, m.width)).Render(strings.Join(footer, "\n")),
 		))
 }
 
@@ -891,37 +946,102 @@ func orDash(value string) string {
 	return value
 }
 
-// detailFocusRow returns the Product row whose focus feeds the detail pane:
-// the row under the portfolio cursor, or the ambient product's row when the
-// screen keeps portfolio rows alongside its own list.
+// workFields types the selected work's fields into label and value detail
+// rows. The snapshot already holds them typed on RankedWork, so the pane
+// re-derives nothing from rendered text and triggers no core read. workflow
+// is the step label the Work screen's detail carries; screens without one
+// pass the empty string.
+func workFields(item launcher.RankedWork, workflow string) []detailField {
+	urgency := item.Urgency
+	if urgency == "" {
+		urgency = "standard"
+	}
+	fields := []detailField{
+		{"WORK", orDash(item.ID)},
+		{"TITLE", orDash(item.Title)},
+		{"KIND", orDash(item.Kind)},
+		{"LIFECYCLE", orDash(item.Lifecycle)},
+		{"READINESS", item.Readiness()},
+		{"PRIORITY", fmtInt64(item.Priority)},
+		{"URGENCY", urgency},
+		{"ISSUE", orDash(item.LinearIssueKey)},
+		{"LIVE SESSIONS", fmtInt(item.Live)},
+		{"PROJECTS", fmtInt(item.ProjectCount)},
+		{"TERMINAL", orDash(item.TerminalAt)},
+		{"WORKFLOW", orDash(workflow)},
+	}
+	if len(item.Blockers) > 0 {
+		fields = append(fields, detailField{"BLOCKERS", fmtInt(len(item.Blockers))})
+	}
+	return fields
+}
+
+// panelFocus reads the synced snapshot's pane focus with the core's default:
+// an empty Product-screen focus is the domain panel. Render reads this, never
+// the core, so a core change stays invisible until Sync projects it.
+func (m *Model) panelFocus() launcher.S2Panel {
+	if m.snapshot.PanelFocus == "" {
+		return launcher.S2PanelDomain
+	}
+	return m.snapshot.PanelFocus
+}
+
+// selectedWork returns the work the operator selected on the primary pane and
+// the workflow label the snapshot carries for it: the ranked row under the
+// cursor on the Product screen, or the loaded work detail on the Work screen.
+// An ambient product's focus is portfolio detail, never selected-work detail.
+func (m *Model) selectedWork() (*launcher.RankedWork, string) {
+	s := m.snapshot
+	if s.ProjectSelect {
+		return nil, ""
+	}
+	if s.Screen == launcher.ScreenWork {
+		if s.Detail.Item.ID == "" {
+			return nil, ""
+		}
+		item := s.Detail.Item
+		return &item, s.Detail.Workflow
+	}
+	if s.Screen == launcher.ScreenProduct && m.panelFocus() != launcher.S2PanelDomain {
+		ranked := m.filteredRanked()
+		if m.cursor >= 0 && m.cursor < len(ranked) {
+			item := ranked[m.cursor]
+			return &item, ""
+		}
+	}
+	return nil, ""
+}
+
+// detailFocusRow returns the portfolio row under the cursor whose computed
+// focus feeds the detail pane. Screens that seat a work list feed the pane
+// from the selected work instead, so detailFocusRow answers only on the
+// portfolio screen.
 func (m *Model) detailFocusRow() *launcher.ProductRow {
-	if m.snapshot.Screen == launcher.ScreenPortfolio && !m.snapshot.ProjectSelect {
-		rows := m.filteredRows()
-		if m.cursor >= 0 && m.cursor < len(rows) {
-			return &rows[m.cursor]
-		}
+	if m.snapshot.Screen != launcher.ScreenPortfolio || m.snapshot.ProjectSelect {
 		return nil
 	}
-	if m.snapshot.AmbientProduct == "" {
-		return nil
-	}
-	for i := range m.snapshot.Rows {
-		if m.snapshot.Rows[i].ID == m.snapshot.AmbientProduct {
-			return &m.snapshot.Rows[i]
-		}
+	rows := m.filteredRows()
+	if m.cursor >= 0 && m.cursor < len(rows) {
+		return &rows[m.cursor]
 	}
 	return nil
 }
 
-// detailPane renders the fixed-width focus detail pane beside the primary
-// pane. Its content is bounded label and value rows, so the pane holds one
-// declared width and the table keeps every remaining column.
+// detailPane renders the fixed-width detail pane beside the primary pane. Its
+// content is bounded label and value rows, so the pane holds one declared
+// width and the table keeps every remaining column. The subject follows the
+// selection: the selected work where a work list or work detail is seated,
+// otherwise the portfolio row's computed focus fields.
 func (m *Model) detailPane(height int) string {
 	lines := []string{"DETAIL"}
 	if m.detailFocus {
 		lines[0] = "DETAIL *"
 	}
-	if row := m.detailFocusRow(); row != nil {
+	if item, workflow := m.selectedWork(); item != nil {
+		for _, field := range workFields(*item, workflow) {
+			lines = append(lines, field.label+": "+field.value)
+		}
+	} else if row := m.detailFocusRow(); row != nil {
 		if row.Focus != "" {
 			lines = append(lines, "FOCUS: "+row.Focus)
 		} else {
@@ -930,8 +1050,10 @@ func (m *Model) detailPane(height int) string {
 		for _, field := range focusFields(*row) {
 			lines = append(lines, field.label+": "+field.value)
 		}
-	} else {
+	} else if m.snapshot.Screen == launcher.ScreenPortfolio {
 		lines = append(lines, "FOCUS: absent: no product row")
+	} else {
+		lines = append(lines, "SELECTED: none")
 	}
 	return pane(renderedPane{header: lines}, detailPaneWidth, height, 0)
 }
@@ -981,8 +1103,7 @@ func (m *Model) renderPortfolio(snapshot launcher.Snapshot, cursor int) rendered
 		renderedRows = append(renderedRows, values)
 		severities = append(severities, productRowSeverity(row))
 	}
-	footer := m.footerLines()
-	return renderedPane{header: header, tableHeaders: projection.Columns, rows: renderedRows, severities: severities, footer: footer, cursor: cursor, color: m.profile.Color}
+	return renderedPane{header: header, tableHeaders: projection.Columns, rows: renderedRows, severities: severities, cursor: cursor, color: m.profile.Color}
 }
 
 // portfolioCells types each projected column's cell text so the rendered rows
@@ -1017,8 +1138,8 @@ func (m *Model) renderS2(headers []string, cursor int) renderedPane {
 	var tail []string
 	focusedSeen := false
 	for _, panel := range stack.Panels {
-		focused := s.PanelFocus == panel || (s.PanelFocus == "" && panel == launcher.S2PanelDomain)
-		panelHeader, panelTableHeaders, panelRows, panelTail, panelSeverities := s2PanelContent(panel, focused, stack, s, m.filteredRanked())
+		focused := m.panelFocus() == panel
+		panelHeader, panelTableHeaders, panelRows, panelTail, panelSeverities := s2PanelContent(panel, focused, stack, s, m.filteredRanked(), m.primaryColumnBudget())
 		if !focusedSeen && !focused {
 			header = append(header, panelHeader...)
 			continue
@@ -1047,11 +1168,10 @@ func (m *Model) renderS2(headers []string, cursor int) renderedPane {
 	if s.QueryResult {
 		tail = append(tail, "QUERY RESULT: "+s.QuerySubmitted+" (Esc restores prior view)")
 	}
-	footer := m.footerLines()
-	return renderedPane{header: header, tableHeaders: tableHeaders, rows: rows, severities: severities, tail: tail, footer: footer, cursor: cursor, color: m.profile.Color}
+	return renderedPane{header: header, tableHeaders: tableHeaders, rows: rows, severities: severities, tail: tail, cursor: cursor, color: m.profile.Color}
 }
 
-func s2PanelContent(panel launcher.S2Panel, expanded bool, stack launcher.S2AnswerStack, snapshot launcher.Snapshot, ranked []launcher.RankedWork) (header []string, tableHeaders []string, rows [][]string, tail []string, severities []rowSeverity) {
+func s2PanelContent(panel launcher.S2Panel, expanded bool, stack launcher.S2AnswerStack, snapshot launcher.Snapshot, ranked []launcher.RankedWork, width int) (header []string, tableHeaders []string, rows [][]string, tail []string, severities []rowSeverity) {
 	if !expanded {
 		switch panel {
 		case launcher.S2PanelDomain:
@@ -1065,13 +1185,35 @@ func s2PanelContent(panel launcher.S2Panel, expanded bool, stack launcher.S2Answ
 	switch panel {
 	case launcher.S2PanelDomain:
 		domainHeader, domainHeaders, domainRows, domainSeverities := domainLines(snapshot.Domains)
+		domainHeaders, domainRows = fitTable(domainHeaders, domainRows, width)
 		return append([]string{"DOMAIN:"}, domainHeader...), domainHeaders, domainRows, append(knowledgeLines(snapshot.Knowledge), relationLines(snapshot.Relations)...), domainSeverities
 	case launcher.S2PanelBlocked, launcher.S2PanelNext:
-		rankedHeaders, rankedRows, rankedSeverities := rankedTable(ranked, snapshot)
+		rankedHeaders, rankedRows, rankedSeverities := rankedTable(ranked, snapshot, width)
 		return []string{"BLOCKED/BLOCKERS:"}, rankedHeaders, rankedRows, nil, rankedSeverities
 	default:
 		return nil, nil, nil, nil, nil
 	}
+}
+
+// fitTable sheds a composed table's lowest-priority columns with the same
+// rule Project applies to its projections, so a narrowed pane sheds whole
+// columns instead of truncating every one of them. The renderer prices the
+// cells with the measurement library it renders with and passes the measure
+// in, exactly as Sync does for Project.
+func fitTable(headers []string, rows [][]string, width int) ([]string, [][]string) {
+	keep := launcher.ColumnBudget(headers, rows, width, lipgloss.Width)
+	if keep >= len(headers) {
+		return headers, rows
+	}
+	headers = headers[:keep]
+	fitted := make([][]string, len(rows))
+	for i, row := range rows {
+		if keep < len(row) {
+			row = row[:keep]
+		}
+		fitted[i] = row
+	}
+	return headers, fitted
 }
 
 func domainSummaryLines(summary launcher.S2DomainSummary) []string {
@@ -1163,7 +1305,11 @@ func relationLines(relations launcher.RelationTree) []string {
 	return lines
 }
 
-func rankedTable(ranked []launcher.RankedWork, snapshot launcher.Snapshot) ([]string, [][]string, []rowSeverity) {
+// rankedTable composes the Product screen's drill-down work table. width is
+// the pane's column budget: when the declared columns do not fit, the
+// lowest-priority value columns shed whole instead of every column
+// truncating uniformly.
+func rankedTable(ranked []launcher.RankedWork, snapshot launcher.Snapshot, width int) ([]string, [][]string, []rowSeverity) {
 	if len(ranked) == 0 {
 		return []string{"Work"}, [][]string{{"WORK: " + drillDownEmptyState(snapshot)}}, []rowSeverity{severityNone}
 	}
@@ -1215,6 +1361,7 @@ func rankedTable(ranked []launcher.RankedWork, snapshot launcher.Snapshot) ([]st
 		}
 		rows = append(rows, row)
 	}
+	headers, rows = fitTable(headers, rows, width)
 	return headers, rows, severities
 }
 
@@ -1238,8 +1385,7 @@ func (m *Model) renderS3(headers []string, cursor int) renderedPane {
 		}
 		header = append(header, "KNOWLEDGE WATERMARK: "+s.Knowledge.Watermark+" STATE: "+s.Knowledge.State)
 		header = append(header, knowledgeLines(s.Knowledge)...)
-		footer := m.footerLines()
-		return renderedPane{header: header, footer: footer, cursor: cursor, color: m.profile.Color}
+		return renderedPane{header: header, cursor: cursor, color: m.profile.Color}
 	}
 	d := s.Detail
 	urgency := d.Item.Urgency
@@ -1280,12 +1426,11 @@ func (m *Model) renderS3(headers []string, cursor int) renderedPane {
 			tail = append(tail, "  "+item.Kind+" "+item.ID+" "+item.Title)
 		}
 	}
-	footer := m.footerLines()
 	tableHeaders := []string(nil)
 	if s.Section == launcher.SectionRanked {
 		tableHeaders = []string{"History"}
 	}
-	return renderedPane{header: header, tableHeaders: tableHeaders, rows: rows, severities: severities, tail: tail, footer: footer, cursor: cursor, color: m.profile.Color}
+	return renderedPane{header: header, tableHeaders: tableHeaders, rows: rows, severities: severities, tail: tail, cursor: cursor, color: m.profile.Color}
 }
 
 func domainLines(section launcher.DomainSection) ([]string, []string, [][]string, []rowSeverity) {
@@ -1378,10 +1523,11 @@ func probeLines(probes []launcher.ProbeStatus) []string {
 }
 
 func (m *Model) footerLines() []string {
-	// Two columns of slack beyond the pane's border: the help model elides
-	// whole bindings at this width, and the text rows must never truncate a
-	// binding label the help model already fit.
-	m.help.SetWidth(max(1, primaryPaneWidth(m.width)-4))
+	// The footer spans the frame, so the help budget is the frame width less
+	// two columns of slack: the help model elides whole bindings at this
+	// width, and the text rows must never truncate a binding label the help
+	// model already fit.
+	m.help.SetWidth(max(1, m.width-2))
 	value := m.help.View(m.keys)
 	if m.showHelp {
 		value = "HELP: " + value
@@ -1572,8 +1718,7 @@ func (m *Model) renderCandidates(snapshot launcher.Snapshot, cursor int) rendere
 	if m.filterMode {
 		header = append(header, m.input.View())
 	}
-	footer := m.footerLines()
-	return renderedPane{header: header, tableHeaders: []string{"Candidate"}, rows: rows, severities: severities, footer: footer, cursor: cursor, color: m.profile.Color}
+	return renderedPane{header: header, tableHeaders: []string{"Candidate"}, rows: rows, severities: severities, cursor: cursor, color: m.profile.Color}
 }
 
 func (m *Model) renderProjects(snapshot launcher.Snapshot, cursor int) renderedPane {
@@ -1587,7 +1732,7 @@ func (m *Model) renderProjects(snapshot launcher.Snapshot, cursor int) renderedP
 	if len(rows) == 0 {
 		header = append(header, "PROJECTS: authoritative-empty")
 	}
-	return renderedPane{header: header, tableHeaders: []string{"Project"}, rows: rows, severities: severities, footer: m.footerLines(), cursor: cursor, color: m.profile.Color}
+	return renderedPane{header: header, tableHeaders: []string{"Project"}, rows: rows, severities: severities, cursor: cursor, color: m.profile.Color}
 }
 
 func focusText(snapshot launcher.Snapshot) string {
@@ -1614,19 +1759,17 @@ func pane(content renderedPane, width, height, offset int) string {
 	innerHeight := height - 2
 	header := renderTextRows(content.header, innerWidth)
 	tail := renderTextRows(content.tail, innerWidth)
-	footer := renderTextRows(content.footer, innerWidth)
-	tableHeight := max(1, innerHeight-len(header)-len(tail)-len(footer))
+	tableHeight := max(1, innerHeight-len(header)-len(tail))
 	if len(content.rows) > 0 {
 		tableHeight = max(3, tableHeight)
 	}
 	data := renderTable(content.tableHeaders, content.rows, content.severities, innerWidth, tableHeight, offset, content.cursor, content.color)
-	lines := make([]string, 0, len(header)+len(tail)+len(footer)+strings.Count(data, "\n")+1)
+	lines := make([]string, 0, len(header)+len(tail)+strings.Count(data, "\n")+1)
 	lines = append(lines, header...)
 	if data != "" {
 		lines = append(lines, strings.Split(data, "\n")...)
 	}
 	lines = append(lines, tail...)
-	lines = append(lines, footer...)
 	return lipgloss.NewStyle().
 		Width(width).
 		Height(height).
@@ -1693,10 +1836,12 @@ func renderTable(headers []string, rows [][]string, severities []rowSeverity, wi
 				// would push its content to an arbitrary offset.
 				return lipgloss.NewStyle().Width(2)
 			}
-			if len(tableHeaders) == 1 {
+			if len(tableHeaders) == 1 || (gutter && len(tableHeaders) == 2) {
 				// A lone column has no right-hand neighbor, so its padding
 				// buys nothing and steals width from single-line text rows
-				// such as the help footer.
+				// such as the help footer. The same holds for one data column
+				// beside the cursor gutter: the padding would price the row
+				// over the pane and clip its tail cell.
 				return attentionForeground(lipgloss.NewStyle(), color, row, severities)
 			}
 			style := lipgloss.NewStyle().PaddingRight(2)

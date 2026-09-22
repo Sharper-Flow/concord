@@ -201,5 +201,10 @@ export async function dispatchLaneWorker(input: LaneDispatchInput, deps: LaneDis
   // The window binds to the calling session, because that is the session whose
   // next Task call the plugin hook rewrites (CD-0102 D1).
   const workPins = resultRecord && Array.isArray(resultRecord.work_pins) ? resultRecord.work_pins : undefined
-  return dispatchWorker(packet, { authorize: async () => coreResponse, credentials: deps.credentials, runner: deps.runner, evidenceRunner: deps.evidenceRunner, concordBinary: deps.concordBinary, packetDigest, sessionID: deps.context.sessionID, windows: deps.windows, workPins, workerDirectory, pinnedWorkerDirectory, resolveWorkerDirectory: () => hostControlPlane().sessionDirectory(deps.context.sessionID, deps.context.abort) })
+  // contextDirectory is the directory the calling tool call runs in, the
+  // observable that proves the session's tool context has landed in the
+  // claimed worktree (issue #1322). dispatchWorker compares it with the armed
+  // claim, or with the record a metadata-only work_start refusal left behind.
+  const contextDirectory = typeof deps.context.directory === "string" ? deps.context.directory : undefined
+  return dispatchWorker(packet, { authorize: async () => coreResponse, credentials: deps.credentials, runner: deps.runner, evidenceRunner: deps.evidenceRunner, concordBinary: deps.concordBinary, packetDigest, sessionID: deps.context.sessionID, windows: deps.windows, workPins, workerDirectory, pinnedWorkerDirectory, resolveWorkerDirectory: () => hostControlPlane().sessionDirectory(deps.context.sessionID, deps.context.abort), contextDirectory })
 }

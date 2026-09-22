@@ -7,7 +7,7 @@ import { maxEnvelopeBytes } from "./generated-contracts"
 import { coreBinary } from "./generated-release"
 import { SecretToolCredentialStore, b64, clientRef, privateKeyObject, randomNonce, type CredentialStore } from "./credentials"
 import { canonicalDirectory, dispatchDirectoryMismatch, dispatchWindows, DispatchWindowError, type DispatchWindows } from "./dispatch-window"
-import { armedClaimedWorktree } from "./claimed-worktree"
+import { armedClaimedWorktree, unlandedClaimedWorktree } from "./claimed-worktree"
 import { hostControlPlane } from "./move-session"
 import { readTaskResult } from "./task-result"
 import { dispatchRequiresNextTurn, TURN_MOVE_DISPATCH_REFUSAL } from "./turn-move-boundary"
@@ -1290,7 +1290,7 @@ function sitsUnder(child: string, prefix: string): boolean {
   return !relative.startsWith(`..${path.sep}`) && relative !== ".." && !path.isAbsolute(relative)
 }
 
-export async function dispatchWorker(packet: unknown, options: { signal?: AbortSignal; runner?: DispatchRunner; readbackRunner?: DispatchRunner; evidenceRunner?: DispatchRunner; binary?: string; concordBinary?: string; credentials?: CredentialStore; authorize?: DispatchAuthorizer; packetDigest?: string; sessionID?: string; windows?: DispatchWindows; workPins?: unknown[]; workerDirectory?: string; pinnedWorkerDirectory?: string; resolveWorkerDirectory?: () => Promise<string> } = {}): Promise<AgentResultEnvelope> {
+export async function dispatchWorker(packet: unknown, options: { signal?: AbortSignal; runner?: DispatchRunner; readbackRunner?: DispatchRunner; evidenceRunner?: DispatchRunner; binary?: string; concordBinary?: string; credentials?: CredentialStore; authorize?: DispatchAuthorizer; packetDigest?: string; sessionID?: string; windows?: DispatchWindows; workPins?: unknown[]; workerDirectory?: string; pinnedWorkerDirectory?: string; resolveWorkerDirectory?: () => Promise<string>; contextDirectory?: string } = {}): Promise<AgentResultEnvelope> {
   if (!validateAgentLanePacket(packet)) return errorEnvelope(null, isRecord(packet) ? packet as Partial<AgentLanePacket> : {}, "error", "invalid_input", "agent lane packet failed the closed packet schema", "retry_same_request")
   const lane = laneForPacket(packet)
   if (!lane) return errorEnvelope(null, packet, "error", "invalid_input", "lane identity or digest is not registered", "retry_same_request")
@@ -1383,6 +1383,32 @@ export async function dispatchWorker(packet: unknown, options: { signal?: AbortS
       if (claimMismatch) {
         return errorEnvelope(lane, packet as Partial<AgentLanePacket>, "error", "unauthorized_dispatch", `the host runs this session in ${JSON.stringify(liveWorkerDirectory)} but the armed claimed worktree is ${JSON.stringify(armedClaim)}; replay worktree_claim to retry the move, then dispatch again`, "reconcile_operation")
       }
+    }
+    // Issue #1322: the two host answers above can agree on the claimed
+    // worktree while the session's tools still run elsewhere, because the
+    // session record converges before the effective tool context does. The
+    // calling tool context is where this dispatch actually executes, so it
+    // must resolve inside the armed claimed worktree before the window opens.
+    if (options.contextDirectory !== undefined) {
+      const contextMismatch = dispatchDirectoryMismatch(armedClaim, options.contextDirectory)
+      if (contextMismatch) {
+        return errorEnvelope(lane, packet as Partial<AgentLanePacket>, "error", "unauthorized_dispatch", `the calling tool context runs in ${JSON.stringify(options.contextDirectory)} but the armed claimed worktree is ${JSON.stringify(armedClaim)} (${contextMismatch}); replay work_start or worktree_claim to land the session's tool context in the claimed worktree, then dispatch again`, "reconcile_operation")
+      }
+    }
+  }
+  // Issue #1322, the refused-start state: a metadata-only work_start refused
+  // before arming, so no armed-claim guard runs for this session. The unlanded
+  // record is the adapter's own memory of that refused move, and the gate
+  // fails closed: dispatch waits until the calling tool context resolves
+  // inside the recorded claimed worktree, and without a context answer the
+  // landing cannot be proved at all. A replay that lands the context arms the
+  // claim and removes this record.
+  const unlandedClaim = armedClaim === null ? unlandedClaimedWorktree(sessionID) : null
+  if (unlandedClaim !== null) {
+    const contextUnresolved = options.contextDirectory === undefined ? "the calling tool context directory was not supplied" : dispatchDirectoryMismatch(unlandedClaim, options.contextDirectory)
+    if (contextUnresolved) {
+      const contextRuns = options.contextDirectory === undefined ? "" : ` the calling tool context runs in ${JSON.stringify(options.contextDirectory)};`
+      return errorEnvelope(lane, packet as Partial<AgentLanePacket>, "error", "unauthorized_dispatch", `the session has a claimed worktree ${JSON.stringify(unlandedClaim)} whose move has not landed (${contextUnresolved});${contextRuns} replay work_start once the session's tool context runs in the claimed worktree, then dispatch again`, "reconcile_operation")
     }
   }
   const windows = options.windows ?? dispatchWindows()

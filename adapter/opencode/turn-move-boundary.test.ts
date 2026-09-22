@@ -9,7 +9,7 @@ import { configureConcordAdapter } from "./concord"
 import { DispatchWindows, TASK_TOOL_ID } from "./dispatch-window"
 import { hostControlPlane } from "./move-session"
 import { moveSessionToClaimedWorktree, moveSessionToRegisteredMainCheckout, work_start } from "./concord"
-import { resetClaimedWorktrees } from "./claimed-worktree"
+import { resetClaimedWorktrees, unlandedClaimedWorktree } from "./claimed-worktree"
 import { armTurnMoveBoundary, clearTurnMoveBoundary, dispatchRequiresNextTurn, questionRequiresNormalChat, TURN_MOVE_DISPATCH_REFUSAL, TURN_MOVE_QUESTION_REFUSAL } from "./turn-move-boundary"
 
 configureCoreBinary("concord")
@@ -123,7 +123,10 @@ describe("same-turn session move boundary", () => {
     await expectQuestionBlocked()
   })
 
-  test("work_start arms after its successful cross-directory move", async () => {
+  // Issue #1322: work_start does not complete a cross-directory move whose
+  // tool context has not landed. The metadata-only move refuses and arms no
+  // boundary, so this turn stays an ordinary turn of the session it started in.
+  test("work_start refuses a metadata-only cross-directory move and arms no boundary", async () => {
     let moved = false
     let managed = false
     bindMoveRoutes("/worktree")
@@ -154,8 +157,113 @@ describe("same-turn session move boundary", () => {
     configureConcordAdapter({ runner })
     const result = await work_start.execute({ title: "Work", value_statement: "Start work", kind: "task", task: "Do work", idempotency_key: "start-1" }, context())
     if (typeof result === "string") throw new Error("work_start returned a string ToolResult")
-    expect(JSON.parse(result.output).outcome, result.output).toBe("ok")
-    await expectQuestionBlocked()
+    const envelope = JSON.parse(result.output)
+    expect(envelope.outcome, result.output).toBe("error")
+    expect(envelope.error.kind).toBe("session_directory_mismatch")
+    expect(moved).toBe(true)
+    await expectQuestionAllowed()
+  })
+
+  // Issue #1322, end to end: the metadata-only work_start refuses and records
+  // the unlanded move, so a dispatch for the same session cannot open a worker
+  // window while its tool context still runs in the pre-move directory. A
+  // replay whose context has landed reports success, arms the claim, and the
+  // dispatch is admitted.
+  test("metadata-only work_start keeps dispatch closed until the context lands, then a replay admits it", async () => {
+    const root = fs.mkdtempSync(path.join(process.cwd(), "concord-unlanded-dispatch-"))
+    fs.mkdirSync(path.join(root, "origin"))
+    fs.mkdirSync(path.join(root, "claimed"))
+    const origin = fs.realpathSync(path.join(root, "origin"))
+    const claimed = fs.realpathSync(path.join(root, "claimed"))
+    const previousDirectory = process.cwd()
+    const lane = agentLanes[0]
+    const packet: AgentLanePacket = {
+      schema_version: "1.0",
+      attempt_id: "attempt-unlanded",
+      lane_id: lane.id,
+      lane_version: lane.version,
+      lane_digest: lane.digest,
+      work_id: "work-unlanded",
+      step_id: "step-unlanded",
+      inputs: { task: "dispatch after a metadata-only move" },
+    }
+    const windows = new DispatchWindows()
+    const authorize = async () => ({ outcome: "ok" })
+    const credentials = { async getPrivateKey() { return new Uint8Array(32).fill(7) } }
+    let moved = false
+    let metadata: Record<string, unknown> = {}
+    hostControlPlane().bind({
+      post: async ({ url }: any) => {
+        if (url === "/session/{id}") return { response: new Response(null, { status: 200 }) }
+        moved = true
+        return { response: new Response(null, { status: 204 }) }
+      },
+      get: async () => ({
+        data: { id: sessionID, directory: moved ? claimed : origin, metadata },
+        response: new Response(null, { status: 200 }),
+      }),
+      patch: async ({ body }: any) => {
+        metadata = body.metadata
+        return { response: new Response(null, { status: 200 }) }
+      },
+    })
+    const runner = {
+      async run(argv: string[]) {
+        const command = argv[1]
+        if (command === "project-resolve") return { exitCode: 0, stdout: JSON.stringify({ project_id: "project-1", product_ids: ["product-1"], scope_version: "1", main_worktree: false }), stderr: "" }
+        if (command === "work-bootstrap") return { exitCode: 0, stdout: JSON.stringify({ schema_version: "1.0", operation_id: "operation-1", replayed: false, product_id: "product-1", project_id: "project-1", work_id: "work-1", work_version: 1, worktree: { set_id: "set-1", path: claimed, branch: "work/work-1", base_sha: "a".repeat(40), state: "active" } }), stderr: "" }
+        if (command === "session-prepare") return { exitCode: 0, stdout: JSON.stringify({ schema_version: "1.0", agent: "agent-1", directory: claimed, product_id: "product-1", work_id: "work-1", title: "Work", prompt: "Do work" }), stderr: "" }
+        return { exitCode: 0, stdout: JSON.stringify({ schema_version: "1.0", manifest_digest: "sha256:" + "0".repeat(64), request_id: "session-boundary-message-boundary", origin: "core", tool: "concord_product_view", operation: "portfolio", outcome: "error", resolved_scope: null, authority: "authoritative", freshness: null, source_version_watermark: [], ordering_keys: [], next_cursor: null, omissions: [], warnings: [], evidence_refs: [], replayed: false, error: { kind: "internal_error", retry_safe: false, recovery_action: { kind: "contact_operator" }, effect_state: "none" } }), stderr: "" }
+      },
+    }
+    try {
+      configureConcordAdapter({ runner })
+      const startArgs = { title: "Work", value_statement: "Start work", kind: "task", task: "Do work", idempotency_key: "start-unlanded-1" }
+      const refused = await work_start.execute(startArgs, context(origin))
+      if (typeof refused === "string") throw new Error("work_start returned a string ToolResult")
+      const refusedEnvelope = JSON.parse(refused.output)
+      expect(refusedEnvelope.outcome, refused.output).toBe("error")
+      expect(refusedEnvelope.error.kind).toBe("session_directory_mismatch")
+      expect(unlandedClaimedWorktree(sessionID)).toBe(claimed)
+
+      const sameTurn = await dispatchWorker(packet, {
+        authorize,
+        credentials,
+        sessionID,
+        windows,
+        workerDirectory: claimed,
+        resolveWorkerDirectory: async () => claimed,
+        contextDirectory: origin,
+      })
+      expect(sameTurn.outcome).toBe("error")
+      expect(sameTurn.error?.kind).toBe("unauthorized_dispatch")
+      expect(sameTurn.error?.message).toContain(claimed)
+      expect(sameTurn.error?.message).toContain(origin)
+      expect(sameTurn.error?.message).toMatch(/replay work_start/)
+      expect(windows.has(sessionID)).toBe(false)
+
+      const replay = await work_start.execute(startArgs, context(claimed))
+      if (typeof replay === "string") throw new Error("work_start returned a string ToolResult")
+      const replayEnvelope = JSON.parse(replay.output)
+      expect(replayEnvelope.outcome, replay.output).toBe("ok")
+      expect(unlandedClaimedWorktree(sessionID)).toBeNull()
+
+      const landed = await dispatchWorker(packet, {
+        authorize,
+        credentials,
+        sessionID,
+        windows,
+        workerDirectory: claimed,
+        resolveWorkerDirectory: async () => claimed,
+        contextDirectory: claimed,
+      })
+      expect(landed.outcome).toBe("ok")
+      expect(landed.dispatch_state).toBe("awaiting_worker")
+      expect(windows.has(sessionID)).toBe(true)
+    } finally {
+      process.chdir(previousDirectory)
+      fs.rmSync(root, { recursive: true, force: true })
+    }
   })
 
   test("refuses same-turn dispatch after work_start and proceeds after the next operator turn", async () => {

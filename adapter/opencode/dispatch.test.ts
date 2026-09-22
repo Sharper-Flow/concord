@@ -17,7 +17,7 @@ configureCoreBinary("concord-test")
 import { hostControlPlane } from "./move-session"
 hostControlPlane().bind(undefined)
 import { DispatchWindows } from "./dispatch-window"
-import { armClaimedWorktree, clearClaimedWorktree } from "./claimed-worktree"
+import { armClaimedWorktree, clearClaimedWorktree, recordUnlandedClaimedWorktree } from "./claimed-worktree"
 import type { CredentialStore } from "./credentials"
 
 const isRecord = (value: unknown): value is Record<string, unknown> => value !== null && typeof value === "object" && !Array.isArray(value)
@@ -332,6 +332,159 @@ test("dispatch proceeds when the host answer agrees with the armed claimed workt
     expect(windows.has(SESSION)).toBe(true)
   } finally {
     clearClaimedWorktree(SESSION)
+  }
+})
+
+// Issue #1322: the host's session record can agree with the armed claim while
+// the session's tools still run elsewhere, because the record converges before
+// the effective tool context does. The calling tool context is where this
+// dispatch actually executes, so it must sit inside the armed claim.
+test("dispatch refuses when the calling tool context sits outside the armed claimed worktree", async () => {
+  const root = fs.mkdtempSync(path.join(process.cwd(), "concord-dispatch-context-"))
+  fs.mkdirSync(path.join(root, "claimed"))
+  fs.mkdirSync(path.join(root, "elsewhere"))
+  const claimed = fs.realpathSync(path.join(root, "claimed"))
+  const elsewhere = fs.realpathSync(path.join(root, "elsewhere"))
+  const windows = new DispatchWindows()
+  try {
+    armClaimedWorktree(SESSION, claimed)
+    const result = await dispatchWorker(packet(), {
+      credentials: testCredentials,
+      authorize: permissiveAuthorizer(),
+      packetDigest: PACKET_DIGEST,
+      sessionID: SESSION,
+      windows,
+      workerDirectory: claimed,
+      resolveWorkerDirectory: async () => claimed,
+      contextDirectory: elsewhere,
+    })
+    expect(result.outcome).toBe("error")
+    expect(result.error?.kind).toBe("unauthorized_dispatch")
+    expect(result.error?.recovery_action).toBe("reconcile_operation")
+    expect(result.error?.message).toContain(claimed)
+    expect(result.error?.message).toContain(elsewhere)
+    expect(result.error?.message).toMatch(/replay work_start or worktree_claim/)
+    expect(windows.has(SESSION)).toBe(false)
+  } finally {
+    clearClaimedWorktree(SESSION)
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test("dispatch proceeds when the calling tool context resolves inside the armed claimed worktree", async () => {
+  const root = fs.mkdtempSync(path.join(process.cwd(), "concord-dispatch-context-"))
+  fs.mkdirSync(path.join(root, "claimed"))
+  const claimed = fs.realpathSync(path.join(root, "claimed"))
+  const windows = new DispatchWindows()
+  try {
+    armClaimedWorktree(SESSION, claimed)
+    const result = await dispatchWorker(packet(), {
+      credentials: testCredentials,
+      authorize: permissiveAuthorizer(),
+      packetDigest: PACKET_DIGEST,
+      sessionID: SESSION,
+      windows,
+      workerDirectory: claimed,
+      resolveWorkerDirectory: async () => claimed,
+      contextDirectory: claimed,
+    })
+    expect(result.outcome).toBe("ok")
+    expect(result.dispatch_state).toBe("awaiting_worker")
+    expect(windows.has(SESSION)).toBe(true)
+  } finally {
+    clearClaimedWorktree(SESSION)
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+// Issue #1322, the refused-start state: a metadata-only work_start refused
+// before arming, so no armed claim exists to gate this session. The unlanded
+// record fails the dispatch gate closed until the tool context lands.
+test("dispatch refuses while a metadata-only refusal leaves the claimed worktree unlanded", async () => {
+  const root = fs.mkdtempSync(path.join(process.cwd(), "concord-dispatch-unlanded-"))
+  fs.mkdirSync(path.join(root, "claimed"))
+  fs.mkdirSync(path.join(root, "elsewhere"))
+  const claimed = fs.realpathSync(path.join(root, "claimed"))
+  const elsewhere = fs.realpathSync(path.join(root, "elsewhere"))
+  const windows = new DispatchWindows()
+  try {
+    recordUnlandedClaimedWorktree(SESSION, claimed)
+    const result = await dispatchWorker(packet(), {
+      credentials: testCredentials,
+      authorize: permissiveAuthorizer(),
+      packetDigest: PACKET_DIGEST,
+      sessionID: SESSION,
+      windows,
+      workerDirectory: claimed,
+      resolveWorkerDirectory: async () => claimed,
+      contextDirectory: elsewhere,
+    })
+    expect(result.outcome).toBe("error")
+    expect(result.error?.kind).toBe("unauthorized_dispatch")
+    expect(result.error?.recovery_action).toBe("reconcile_operation")
+    expect(result.error?.message).toContain(claimed)
+    expect(result.error?.message).toContain(elsewhere)
+    expect(result.error?.message).toMatch(/replay work_start/)
+    expect(windows.has(SESSION)).toBe(false)
+  } finally {
+    clearClaimedWorktree(SESSION)
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+// Without a context answer the landing cannot be proved, so the refused-start
+// state stays refused.
+test("dispatch fails closed for an unlanded claim when no tool context is supplied", async () => {
+  const root = fs.mkdtempSync(path.join(process.cwd(), "concord-dispatch-unlanded-"))
+  fs.mkdirSync(path.join(root, "claimed"))
+  const claimed = fs.realpathSync(path.join(root, "claimed"))
+  const windows = new DispatchWindows()
+  try {
+    recordUnlandedClaimedWorktree(SESSION, claimed)
+    const result = await dispatchWorker(packet(), {
+      credentials: testCredentials,
+      authorize: permissiveAuthorizer(),
+      packetDigest: PACKET_DIGEST,
+      sessionID: SESSION,
+      windows,
+      workerDirectory: claimed,
+      resolveWorkerDirectory: async () => claimed,
+    })
+    expect(result.outcome).toBe("error")
+    expect(result.error?.kind).toBe("unauthorized_dispatch")
+    expect(result.error?.message).toMatch(/tool context directory was not supplied/)
+    expect(windows.has(SESSION)).toBe(false)
+  } finally {
+    clearClaimedWorktree(SESSION)
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+// The dispatch gate opens exactly when the tool context resolves inside the
+// recorded claimed worktree, before any work_start replay arms the claim.
+test("dispatch proceeds once the tool context resolves inside the unlanded claimed worktree", async () => {
+  const root = fs.mkdtempSync(path.join(process.cwd(), "concord-dispatch-unlanded-"))
+  fs.mkdirSync(path.join(root, "claimed"))
+  const claimed = fs.realpathSync(path.join(root, "claimed"))
+  const windows = new DispatchWindows()
+  try {
+    recordUnlandedClaimedWorktree(SESSION, claimed)
+    const result = await dispatchWorker(packet(), {
+      credentials: testCredentials,
+      authorize: permissiveAuthorizer(),
+      packetDigest: PACKET_DIGEST,
+      sessionID: SESSION,
+      windows,
+      workerDirectory: claimed,
+      resolveWorkerDirectory: async () => claimed,
+      contextDirectory: claimed,
+    })
+    expect(result.outcome).toBe("ok")
+    expect(result.dispatch_state).toBe("awaiting_worker")
+    expect(windows.has(SESSION)).toBe(true)
+  } finally {
+    clearClaimedWorktree(SESSION)
+    fs.rmSync(root, { recursive: true, force: true })
   }
 })
 

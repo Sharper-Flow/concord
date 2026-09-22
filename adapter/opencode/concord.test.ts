@@ -7,7 +7,7 @@ import { contractOperations, hostToolSchemas, manifestDigest, payloadSchemas } f
 import { configureCoreBinary } from "./dispatch"
 import { dispatchWindows, TASK_TOOL_ID } from "./dispatch-window"
 import { claimHostLease, configureHostLease } from "./host-lease"
-import { armedClaimedWorktree, clearClaimedWorktree, resetClaimedWorktrees } from "./claimed-worktree"
+import { armedClaimedWorktree, clearClaimedWorktree, resetClaimedWorktrees, unlandedClaimedWorktree } from "./claimed-worktree"
 import { validateGeneratedEnvelope, envelopeFailurePath } from "./generated-contract-tests"
 import { hostControlPlane, SESSION_LIST_ROUTE, SESSION_ROUTE } from "./move-session"
 
@@ -1240,7 +1240,7 @@ test("work_start derives one Project and Product from project-resolve before mut
   adapter.configureConcordAdapter({ runner: retargetRunner(linkedCalls, {
     "project-resolve": () => ({ exitCode: 0, stdout: JSON.stringify(contextResponse(false)), stderr: "" }),
   }) })
-  const linked: any = await rawHostResult(adapter.work_start.execute(bootstrapArgs, contextFor()))
+  const linked: any = await rawHostResult(adapter.work_start.execute(bootstrapArgs, landedContextFor()))
   expect(linked.outcome).toBe("ok")
   expect(linkedCalls.map(({ argv }) => argv[1])).toContain("work-bootstrap")
 
@@ -1264,7 +1264,7 @@ test("work_start enforces UTF-8 byte limits for short fields and task input", as
   bindRetargetRoute()
   const calls2: RetargetCall[] = []
   adapter.configureConcordAdapter({ runner: retargetRunner(calls2) })
-  const result: any = await rawHostResult(adapter.work_start.execute(validTask as any, contextFor()))
+  const result: any = await rawHostResult(adapter.work_start.execute(validTask as any, landedContextFor()))
   expect(result.outcome).toBe("ok")
 })
 
@@ -1275,6 +1275,12 @@ test("work_start enforces UTF-8 byte limits for short fields and task input", as
 // worktree. No step records intent ahead of its effect, so there is no
 // partial outcome and no rollback: a replay under the same key converges.
 const WORKTREE = "/data/worktrees/project-1/work-1"
+
+// The work_start landing gate (issue #1322) admits success only when the
+// calling tool context resolves inside the claimed worktree — the posture of a
+// replay that runs after the context has landed. The bare contextFor() keeps
+// the pre-move directory and drives the metadata-only refusals.
+const landedContextFor = (): any => contextFor(() => {}, new AbortController(), WORKTREE)
 
 type RetargetCall = { argv: string[]; input: string; options?: any }
 
@@ -1334,7 +1340,7 @@ test("work start moves the calling session into the claimed worktree", async () 
   const { moved, titles } = bindRetargetRoute()
   const calls: RetargetCall[] = []
   adapter.configureConcordAdapter({ runner: retargetRunner(calls) })
-  const result: any = await rawHostResult(adapter.work_start.execute(bootstrapArgs, contextFor()))
+  const result: any = await rawHostResult(adapter.work_start.execute(bootstrapArgs, landedContextFor()))
   expect(result).toMatchObject({ outcome: "ok", work_id: "work-1", worktree_path: WORKTREE, session_id: "session-1", agent: "agent-1" })
   expect(await hostControlPlane().taskScope("session-1")).toBe("managed")
   // The claim exists before the session moves, so a failed move leaves a
@@ -1358,7 +1364,7 @@ test("work start arms the claimed worktree after the confirmed landing", async (
     bindRetargetRoute()
     const calls: RetargetCall[] = []
     adapter.configureConcordAdapter({ runner: retargetRunner(calls) })
-    const result: any = await rawHostResult(adapter.work_start.execute(bootstrapArgs, contextFor()))
+    const result: any = await rawHostResult(adapter.work_start.execute(bootstrapArgs, landedContextFor()))
     expect(result.outcome).toBe("ok")
     expect(armedClaimedWorktree("session-1")).toBe(WORKTREE)
   } finally {
@@ -1377,6 +1383,61 @@ test("work start arms nothing when the landing mismatch refuses", async () => {
     expect(result.outcome).toBe("error")
     expect(result.error.kind).toBe("session_directory_mismatch")
     expect(armedClaimedWorktree("session-1")).toBeNull()
+  } finally {
+    clearClaimedWorktree("session-1")
+  }
+})
+
+// Issue #1322: a host can accept the retarget and answer the claimed worktree
+// on the read-back while the session's tools still run in the pre-move
+// directory. That metadata-only move reports no success and arms nothing; the
+// durable claim stays adoptable by a replay.
+test("work start refuses a metadata-only move whose tool context has not landed", async () => {
+  try {
+    bindRetargetRoute({ landedDirectory: WORKTREE })
+    const calls: RetargetCall[] = []
+    adapter.configureConcordAdapter({ runner: retargetRunner(calls) })
+    // The bare context runs in /worktree, not the claimed worktree, so the
+    // confirmed read-back alone is a metadata-only move.
+    const result: any = await rawHostResult(adapter.work_start.execute(bootstrapArgs, contextFor()))
+    expect(result.outcome).toBe("error")
+    expect(result.error.kind).toBe("session_directory_mismatch")
+    expect(result.error.message).toContain(WORKTREE)
+    expect(result.error.message).toContain("/worktree")
+    expect(result.error.message).toContain("Replay work_start")
+    expect(result.error.effect_state).toBe("none")
+    expect(result.error.recovery_action.kind).toBe("retry_same_request")
+    // The work item and worktree that exist ride along so the replay's target is visible.
+    expect(result.work_id).toBe("work-1")
+    expect(result.worktree_path).toBe(WORKTREE)
+    // The declared refusal leaves the claimed worktree unarmed for dispatch,
+    // and records the move as unlanded so the dispatch gate stays closed.
+    expect(armedClaimedWorktree("session-1")).toBeNull()
+    expect(unlandedClaimedWorktree("session-1")).toBe(WORKTREE)
+    // The bootstrap ran and stays durable, so the replay adopts it.
+    expect(calls.map(({ argv }) => argv[1])).toContain("work-bootstrap")
+  } finally {
+    clearClaimedWorktree("session-1")
+  }
+})
+
+// The replay runs once the host tool context resolves inside the claimed
+// worktree: the same request adopts the durable claim, the move is a no-op,
+// and the confirmed landing reports success and arms the claim.
+test("a replay after the tool context lands reports success and arms the claim", async () => {
+  try {
+    bindRetargetRoute({ landedDirectory: WORKTREE })
+    adapter.configureConcordAdapter({ runner: retargetRunner([]) })
+    const refused: any = await rawHostResult(adapter.work_start.execute(bootstrapArgs, contextFor()))
+    expect(refused.outcome).toBe("error")
+    expect(armedClaimedWorktree("session-1")).toBeNull()
+    expect(unlandedClaimedWorktree("session-1")).toBe(WORKTREE)
+    const calls: RetargetCall[] = []
+    adapter.configureConcordAdapter({ runner: retargetRunner(calls) })
+    const replay: any = await rawHostResult(adapter.work_start.execute(bootstrapArgs, landedContextFor()))
+    expect(replay).toMatchObject({ outcome: "ok", work_id: "work-1", worktree_path: WORKTREE, session_id: "session-1" })
+    expect(armedClaimedWorktree("session-1")).toBe(WORKTREE)
+    expect(unlandedClaimedWorktree("session-1")).toBeNull()
   } finally {
     clearClaimedWorktree("session-1")
   }
@@ -1408,7 +1469,7 @@ test("work start renames the zellij pane frame to the work title on success", as
   bindRetargetRoute()
   const calls: RetargetCall[] = []
   adapter.configureConcordAdapter({ runner: retargetRunner(calls) })
-  const result: any = await rawHostResult(adapter.work_start.execute(bootstrapArgs, contextFor()))
+  const result: any = await rawHostResult(adapter.work_start.execute(bootstrapArgs, landedContextFor()))
   expect(result.outcome).toBe("ok")
   // One rename fork, after session-prepare supplied the title and before the
   // gate brief's reads: exactly one per success.
@@ -1418,7 +1479,7 @@ test("work start renames the zellij pane frame to the work title on success", as
 
   const resumeCalls: RetargetCall[] = []
   adapter.configureConcordAdapter({ runner: resumeRunner(resumeCalls) })
-  const resumed: any = await rawHostResult(adapter.work_start.execute({ work_id: "work-1" }, contextFor()))
+  const resumed: any = await rawHostResult(adapter.work_start.execute({ work_id: "work-1" }, landedContextFor()))
   expect(resumed.outcome).toBe("ok")
   const resumeRenames = resumeCalls.filter(({ argv }) => argv[0] === "zellij")
   expect(resumeRenames).toHaveLength(1)
@@ -1432,7 +1493,7 @@ test("the pane name strips control characters and is cut at 64 code points", asy
   adapter.configureConcordAdapter({ runner: retargetRunner(calls, {
       "session-prepare": () => ({ exitCode: 0, stdout: JSON.stringify(preparedContract("agent-1", "Implement the task.", `ab\u0001cd\u009Fef${"g".repeat(70)}`)), stderr: "" }),
   }) })
-  const result: any = await rawHostResult(adapter.work_start.execute(bootstrapArgs, contextFor()))
+  const result: any = await rawHostResult(adapter.work_start.execute(bootstrapArgs, landedContextFor()))
   expect(result.outcome).toBe("ok")
   const renames = calls.filter(({ argv }) => argv[0] === "zellij")
   expect(renames).toHaveLength(1)
@@ -1445,7 +1506,7 @@ test("work start without ZELLIJ_PANE_ID renames nothing", async () => {
   bindRetargetRoute()
   const calls: RetargetCall[] = []
   adapter.configureConcordAdapter({ runner: retargetRunner(calls) })
-  const result: any = await rawHostResult(adapter.work_start.execute(bootstrapArgs, contextFor()))
+  const result: any = await rawHostResult(adapter.work_start.execute(bootstrapArgs, landedContextFor()))
   expect(result.outcome).toBe("ok")
   expect(calls.some(({ argv }) => argv[0] === "zellij")).toBe(false)
 })
@@ -1462,7 +1523,7 @@ test("a failed pane rename is a warning in the tool output and never fails work_
     return retargetRunner(calls).run(argv, input, signal, options)
   } }
   adapter.configureConcordAdapter({ runner: failing })
-  const refused: any = await adapter.work_start.execute(bootstrapArgs, contextFor())
+  const refused: any = await adapter.work_start.execute(bootstrapArgs, landedContextFor())
   expect(envelopeLine(refused.output)).toMatchObject({ outcome: "ok", work_id: "work-1" })
   expect(refused.output).toContain("Concord could not rename the pane frame to the work title: exit 1.")
 
@@ -1471,7 +1532,7 @@ test("a failed pane rename is a warning in the tool output and never fails work_
     return retargetRunner(calls).run(argv, input, signal, options)
   } }
   adapter.configureConcordAdapter({ runner: throwing })
-  const thrown: any = await adapter.work_start.execute(bootstrapArgs, contextFor())
+  const thrown: any = await adapter.work_start.execute(bootstrapArgs, landedContextFor())
   expect(envelopeLine(thrown.output)).toMatchObject({ outcome: "ok", work_id: "work-1" })
   expect(thrown.output).toContain("Concord could not rename the pane frame to the work title: the fork failed.")
 })
@@ -1485,7 +1546,7 @@ test("a refused session goal title write warns in the tool output and never fail
     bindRetargetRoute({ titleStatus })
     const calls: RetargetCall[] = []
     adapter.configureConcordAdapter({ runner: retargetRunner(calls) })
-    const result: any = await adapter.work_start.execute(bootstrapArgs, contextFor())
+    const result: any = await adapter.work_start.execute(bootstrapArgs, landedContextFor())
     expect(envelopeLine(result.output)).toMatchObject({ outcome: "ok", work_id: "work-1" })
     expect(result.output).toContain("Concord could not write the session goal title: the session title route is absent or refused the write.")
   }
@@ -1534,7 +1595,7 @@ test("work start resume derives the entry by work_id and moves the session", asy
   const { moved } = bindRetargetRoute()
   const calls: RetargetCall[] = []
   adapter.configureConcordAdapter({ runner: resumeRunner(calls) })
-  const result: any = await rawHostResult(adapter.work_start.execute({ work_id: "work-1" }, contextFor()))
+  const result: any = await rawHostResult(adapter.work_start.execute({ work_id: "work-1" }, landedContextFor()))
   expect(await hostControlPlane().taskScope("session-1")).toBe("managed")
   expect(result).toMatchObject({ outcome: "ok", product_id: "product-1", project_id: "project-1", work_id: "work-1", worktree_path: WORKTREE, agent: "agent-1", session_id: "session-1" })
   // An active resume is read-only, so the child sequence has no journal step.
@@ -1615,7 +1676,7 @@ test("work start names the missing capture fields and admits a corrected request
   expect(calls).toEqual([])
   bindRetargetRoute()
   adapter.configureConcordAdapter({ runner: retargetRunner(calls) })
-  const corrected = await rawHostResult(adapter.work_start.execute({ ...incomplete, value_statement: "Start valid work without operator repair.", idempotency_key: "corrected-start-1" }, contextFor()))
+  const corrected = await rawHostResult(adapter.work_start.execute({ ...incomplete, value_statement: "Start valid work without operator repair.", idempotency_key: "corrected-start-1" }, landedContextFor()))
   expect(corrected.outcome).toBe("ok")
   expect(calls.filter(({ argv }) => argv[1] === "work-bootstrap")).toHaveLength(1)
 })
@@ -1748,7 +1809,7 @@ test("work start accepts minimal capture and exact declared bounds in a resolved
     const { moved } = bindRetargetRoute()
     const calls: RetargetCall[] = []
     adapter.configureConcordAdapter({ runner: retargetRunner(calls) })
-    const result = await rawHostResult(adapter.work_start.execute(args, contextFor()))
+    const result = await rawHostResult(adapter.work_start.execute(args, landedContextFor()))
     expect(result).toMatchObject({ outcome: "ok", product_id: "product-1", project_id: "project-1", work_id: "work-1" })
     expect(JSON.parse(calls[1].input)).toEqual({ product_id: "product-1", project_id: "project-1", ...args, session_ref: "session-1" })
     expect(calls.filter(({ argv }) => argv[1] === "work-bootstrap")).toHaveLength(1)
@@ -1849,7 +1910,7 @@ test("work start replays to convergence after an interrupted step", async () => 
       "work-bootstrap": () => ({ exitCode: 0, stdout: JSON.stringify({ ...bootstrapSuccess(), replayed: true }), stderr: "" }),
     }),
   })
-  const converged: any = await rawHostResult(adapter.work_start.execute(bootstrapArgs, contextFor()))
+  const converged: any = await rawHostResult(adapter.work_start.execute(bootstrapArgs, landedContextFor()))
   expect(converged).toMatchObject({ outcome: "ok", work_id: "work-1", worktree_path: WORKTREE, session_id: "session-1" })
   expect(second.map(({ argv }) => argv[1])).toEqual(["project-resolve", "work-bootstrap", "session-prepare"])
   expect(JSON.parse(second[1].input).idempotency_key).toBe(bootstrapArgs.idempotency_key)

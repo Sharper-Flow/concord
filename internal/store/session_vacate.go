@@ -65,6 +65,29 @@ func firstSessionRef(refs []string) string {
 	return refs[0]
 }
 
+// CountWorkSessionVacatesTx returns how many vacate operations the
+// projection already records for one work item and session. A recorded event
+// is the durable record of one vacate the core accepted, written before the
+// adapter moves the host session; it is not proof the session landed. The
+// count is therefore the ordinal of the next relocation request, not a count
+// of confirmed host moves. Read-only work resume writes no event and no
+// session-directory binding, so the recorded vacate history is the only
+// projection that distinguishes repeated vacates of the same work item
+// by the same session. It runs inside the caller's transaction so the read
+// observes the caller's own uncommitted events.
+func CountWorkSessionVacatesTx(ctx context.Context, transaction *Transaction, workID, sessionRef string) (int, error) {
+	tx, err := transactionSQL(transaction, "session_vacate")
+	if err != nil {
+		return 0, err
+	}
+	var count int
+	err = tx.QueryRowContext(ctx, `SELECT count(*) FROM domain_events WHERE kind='work.session_vacated' AND subject_id=? AND json_extract(payload,'$.session_ref')=?`, workID, sessionRef).Scan(&count)
+	if err != nil {
+		return 0, wrapFailure(KindUnavailable, "session_vacate", "cannot count the recorded vacate events", true, "retry once the database is readable", err)
+	}
+	return count, nil
+}
+
 func foldSessionVacated(ctx context.Context, tx *sql.Tx, event Event) error {
 	if err := checkSubject(event, SubjectWorkItem); err != nil {
 		return err

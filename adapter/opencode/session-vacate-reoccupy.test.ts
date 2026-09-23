@@ -228,7 +228,7 @@ connected("vacate, work-resume, vacate in one session keeps one event per reques
       post: async ({ url, body }) => {
         expect(url).toBe(MOVE_SESSION_ROUTE)
         const destination = (body as { destination: { directory: string } }).destination.directory
-        moves.push({ from: sessionDirectory, to: destination })
+        if (sessionDirectory !== destination) moves.push({ from: sessionDirectory, to: destination })
         sessionDirectory = destination
         if (failNextMove) {
           failNextMove = false
@@ -283,11 +283,17 @@ connected("vacate, work-resume, vacate in one session keeps one event per reques
     const resume = async (directory: string) => parseToolResult(await work_start.execute({ work_id: workID } as any, contextFor(directory)))
 
     // Entry into work: the resume read durably creates the worktree and the
-    // mover lands the session in it.
-    const entered = await resume(repo1.repo)
-    expect(entered.outcome, JSON.stringify(entered)).toBe("ok")
-    const worktree1 = entered.worktree_path as string
+    // mover lands the session in it. The old tool context cannot attest that
+    // landing; only a next-turn replay from the worktree reports success.
+    const unlandedEntry = await resume(repo1.repo)
+    expect(unlandedEntry.outcome, JSON.stringify(unlandedEntry)).toBe("error")
+    expect(unlandedEntry.error.kind).toBe("session_directory_mismatch")
+    const worktree1 = unlandedEntry.worktree_path as string
     expect(moves).toEqual([{ from: repo1.repo, to: worktree1 }])
+    const entered = await resume(worktree1)
+    expect(entered.outcome, JSON.stringify(entered)).toBe("ok")
+    expect(entered.worktree_path).toBe(worktree1)
+    expect(moves).toHaveLength(1)
     expect(worktreeEntries()).toEqual([{ project_id: PROJECT_1, path: worktree1, state: "active", occupant: SESSION_ID }])
 
     // First vacate: the core records the operation toward the derived main
@@ -318,17 +324,21 @@ connected("vacate, work-resume, vacate in one session keeps one event per reques
     expect(vacateEvents()).toHaveLength(1)
     expect(worktreeEntries()[0].occupant).toBe("")
 
-    // Work resume is read-only: work-resume returns the recorded worktree,
-    // session-prepare records nothing on the vacate history, and the mover
-    // puts the session back into the claimed worktree.
-    const resumed = await resume(repo1.repo)
-    expect(resumed.outcome, JSON.stringify(resumed)).toBe("ok")
-    expect(resumed.worktree_path).toBe(worktree1)
+    // Work resume remains read-only. A move back from main refuses while the
+    // tool context still reports main; next-turn replay from the worktree
+    // succeeds without another move or vacate event.
+    const unlandedResume = await resume(repo1.repo)
+    expect(unlandedResume.outcome, JSON.stringify(unlandedResume)).toBe("error")
+    expect(unlandedResume.error.kind).toBe("session_directory_mismatch")
     expect(moves).toEqual([
       { from: repo1.repo, to: worktree1 },
       { from: worktree1, to: repo1.repo },
       { from: repo1.repo, to: worktree1 },
     ])
+    const resumed = await resume(worktree1)
+    expect(resumed.outcome, JSON.stringify(resumed)).toBe("ok")
+    expect(resumed.worktree_path).toBe(worktree1)
+    expect(moves).toHaveLength(3)
     expect(vacateEvents()).toHaveLength(1)
     expect(worktreeEntries()[0].occupant).toBe("")
 

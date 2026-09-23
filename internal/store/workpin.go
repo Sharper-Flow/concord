@@ -267,7 +267,7 @@ func ReadWorkPinTx(ctx context.Context, tx *sql.Tx, workID string) (WorkPin, err
 	}
 	pin.Correction = correction
 	if correction != nil && correction.Escalated {
-		pin.NextValidIntents = workPinWithoutAction(pin.NextValidIntents, "dispatch_worker")
+		pin.NextValidIntents = workPinEscalatedRetryIntents(pin.NextValidIntents)
 	}
 	if workPinContainsAction(pin.NextValidIntents, "dispatch_worker") {
 		_, staleDesign, designErr := readCurrentWorkflowDesign(ctx, tx, workID)
@@ -477,6 +477,22 @@ func workPinWithoutAction(intents []WorkPinIntent, actionID string) []WorkPinInt
 		}
 	}
 	return filtered
+}
+
+// workPinEscalatedRetryIntents keeps the dispatch_worker route visible when a
+// correction reached the three-attempt limit (CD-0173). The fold still
+// refuses the retry until the operator approval CD-0148 binds is consumed,
+// so the pin advertises the action under the escalated reason instead of
+// hiding a route that exists behind the approval wall.
+func workPinEscalatedRetryIntents(intents []WorkPinIntent) []WorkPinIntent {
+	out := make([]WorkPinIntent, 0, len(intents))
+	for _, intent := range intents {
+		if intent.ActionID == "dispatch_worker" {
+			intent.ReasonCode = "escalated_retry_requires_approval"
+		}
+		out = append(out, intent)
+	}
+	return out
 }
 
 func workPinIntentForAction(action WorkflowActionDefinition, version int64, reason string) WorkPinIntent {

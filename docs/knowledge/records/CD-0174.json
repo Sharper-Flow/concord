@@ -1,0 +1,39 @@
+{
+  "authority": {
+    "contract_version": 2,
+    "legislated_by": "work-05a228deeb2cfc25eaea9acb",
+    "tier": "legislated"
+  },
+  "date": "2026-09-23T00:00:00Z",
+  "home_domain_id": "agent-surface",
+  "id": "CD-0174",
+  "kind": "decision",
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "CD-0058"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0102"
+    }
+  ],
+  "path": "docs/decisions/CD-0174-worker-readback-reads-host-session-api.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:1528603cef7f5a4dd3690770a942e4325752cf03c2abb6398279c58da035a52f",
+  "status": "accepted",
+  "summary": "The worker completion readback reads the host session API in process over bounded message pages, and one serializer escapes '@' in the lane packet so no host agent mention forms, while the opening-packet check, the model and agent identity, and the born-failed recording stay unchanged.",
+  "tags": [
+    "adapter",
+    "worker-completion",
+    "readback",
+    "session-api"
+  ],
+  "title": "The worker readback reads the host session API in process"
+}

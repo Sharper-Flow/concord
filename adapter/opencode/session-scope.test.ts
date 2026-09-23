@@ -1,6 +1,6 @@
 import { afterEach, expect, test } from "bun:test"
 import ConcordAdapterPlugin from "./concord-plugin"
-import { dispatchWindows } from "./dispatch-window"
+import { dispatchWindows, serializeLanePacket } from "./dispatch-window"
 import { configureHostLease } from "./host-lease"
 import { HostControlPlane, hostControlPlane, SESSION_ROUTE } from "./move-session"
 
@@ -157,7 +157,7 @@ test("an authorized Task binds once and the managed session stays protected", as
   expect(dispatchWindows().has("scope-window")).toBe(true)
   const output = { args: args() }
   await plugin["tool.execute.before"](task("scope-window"), output)
-  expect(output.args).toEqual({ subagent_type: "concord-implement", prompt: JSON.stringify(packet), description: "implement lane, attempt scope-attempt" })
+  expect(output.args).toEqual({ subagent_type: "concord-implement", prompt: serializeLanePacket(packet), description: "implement lane, attempt scope-attempt" })
   await expect(plugin["tool.execute.before"](task("scope-window"), { args: args() })).rejects.toThrow("no authorized dispatch window")
 })
 

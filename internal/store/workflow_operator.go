@@ -224,9 +224,17 @@ func workflowOperatorQuestionTx(ctx context.Context, q queryer, workID, currentS
 }
 
 // requireRecordedInvestigationArtifact admits an operator question only when a
-// work observation names a current Domain of the work item's Product and a
-// different work item. Each ref must resolve in its owning projection.
+// work observation names a current Domain of the work item's Product and,
+// when the Product holds another work item, a different work item. The
+// comparison-work condition is counted here in the same transaction as the
+// ref resolution (CD-0173): a Product whose only work item is this one has no
+// other work item to name, so demanding one would wedge every single-item
+// Product out of its own premise gate.
 func requireRecordedInvestigationArtifact(ctx context.Context, q queryer, workID string) error {
+	comparisonRequired, err := productHoldsAnotherWorkItem(ctx, q, workID)
+	if err != nil {
+		return err
+	}
 	rows, err := q.QueryContext(ctx, `SELECT refs FROM work_observations WHERE work_id=? ORDER BY recorded_at DESC, observation_id`, workID)
 	if err != nil {
 		return wrapFailure(KindUnavailable, "workflow_operator_question", "cannot inspect recorded investigation artifacts", true, "retry once the workflow evidence is readable", err)
@@ -270,12 +278,40 @@ func requireRecordedInvestigationArtifact(ctx context.Context, q queryer, workID
 				}
 				namesWork = known
 			}
-			if namesDomain && namesWork {
+			if namesDomain && (namesWork || !comparisonRequired) {
 				return nil
 			}
 		}
 	}
-	return newFailure(KindMissingEvidence, "workflow_operator_question", "operator question requires a recorded investigation artifact naming a current Domain of the Product and another work item", false, "record an observation whose refs resolve to a current Product Domain and another work item")
+	if comparisonRequired {
+		return newFailure(KindMissingEvidence, "workflow_operator_question", "operator question requires a recorded investigation artifact naming a current Domain of the Product and another work item", false, "record an observation whose refs resolve to a current Product Domain and another work item")
+	}
+	return newFailure(KindMissingEvidence, "workflow_operator_question", "operator question requires a recorded investigation artifact naming a current Domain of the Product", false, "record an observation whose refs resolve to a current Product Domain")
+}
+
+// productHoldsAnotherWorkItem reports whether the work item's Product holds a
+// work item other than this one, in any lifecycle. The count runs on the
+// caller's queryer, so it reads the same transaction snapshot the ref
+// resolution reads.
+func productHoldsAnotherWorkItem(ctx context.Context, q queryer, workID string) (bool, error) {
+	var held int
+	err := q.QueryRowContext(ctx, `SELECT EXISTS(
+		SELECT 1
+		FROM work_items other
+		JOIN work_projects wp2 ON wp2.work_id = other.id
+		JOIN product_projects pp2 ON pp2.project_id = wp2.project_id
+		WHERE other.id <> ?
+		  AND pp2.product_id IN (
+			SELECT pp.product_id
+			FROM work_projects wp
+			JOIN product_projects pp ON pp.project_id = wp.project_id
+			WHERE wp.work_id = ?
+		  )
+	)`, workID, workID).Scan(&held)
+	if err != nil {
+		return false, wrapFailure(KindUnavailable, "workflow_operator_question", "cannot count the Product's work items", true, "retry once the work projection is readable", err)
+	}
+	return held == 1, nil
 }
 
 func investigationRefIsCurrentDomain(ctx context.Context, q queryer, workID, ref string) (bool, error) {

@@ -463,6 +463,10 @@ func claimWorktreeRawTx(ctx context.Context, tx *sql.Tx, dataPath string, req Wo
 	if probeErr != nil {
 		return out, probeErr
 	}
+	// createdBranch records whether this operation created the branch itself,
+	// as opposed to adopting one a prior attempt left behind. Compensation
+	// may remove only what this operation created.
+	createdBranch := false
 	if !created {
 		// A branch left by a prior failed claim can be adopted only when it
 		// still points at the pinned base. A divergent branch is native state
@@ -478,8 +482,11 @@ func claimWorktreeRawTx(ctx context.Context, tx *sql.Tx, dataPath string, req Wo
 			if _, err := runner.Run(ctx, repoRoot, "worktree", "add", pinnedPath, pinnedBranch); err != nil {
 				return out, wrapFailure(KindGitUnreachable, "worktree_claim", "native worktree creation failed; the claim stays pending for reconciliation", true, "retry the same operation with the same op id", err)
 			}
-		} else if _, err := runner.Run(ctx, repoRoot, "worktree", "add", pinnedPath, "-b", pinnedBranch, pinnedBase); err != nil {
-			return out, wrapFailure(KindGitUnreachable, "worktree_claim", "native worktree creation failed; the claim stays pending for reconciliation", true, "retry the same operation with the same op id", err)
+		} else {
+			if _, err := runner.Run(ctx, repoRoot, "worktree", "add", pinnedPath, "-b", pinnedBranch, pinnedBase); err != nil {
+				return out, wrapFailure(KindGitUnreachable, "worktree_claim", "native worktree creation failed; the claim stays pending for reconciliation", true, "retry the same operation with the same op id", err)
+			}
+			createdBranch = true
 		}
 		var verifyErr error
 		created, facts, verifyErr = probeWorktree(ctx, runner, repoRoot, pinnedPath, pinnedBranch, pinnedBase)
@@ -487,27 +494,86 @@ func claimWorktreeRawTx(ctx context.Context, tx *sql.Tx, dataPath string, req Wo
 			return out, verifyErr
 		}
 		if !created {
-			return out, newFailure(KindGitUnreachable, "worktree_claim", "created worktree did not verify against the pinned intent", false, "contact_operator")
+			return out, compensateClaimWorktree(ctx, runner, repoRoot, pinnedPath, pinnedBranch, pinnedBase, createdBranch,
+				newFailure(KindGitUnreachable, "worktree_claim", "created worktree did not verify against the pinned intent", false, "contact_operator"))
 		}
 	}
 
 	// Phase 3: append the verified locator as domain state and complete the
 	// claim in the same transaction.
+	phase3Err := claimWorktreePhase3Tx(ctx, tx, req, setID, now, pinnedBranch, pinnedBase, pinnedPath, facts)
+	if phase3Err != nil {
+		return out, compensateClaimWorktree(ctx, runner, repoRoot, pinnedPath, pinnedBranch, pinnedBase, createdBranch, phase3Err)
+	}
+	entry, err := worktreeEntryByClaim(ctx, tx, req.OpID)
+	if err != nil {
+		return out, compensateClaimWorktree(ctx, runner, repoRoot, pinnedPath, pinnedBranch, pinnedBase, createdBranch, err)
+	}
+	out.Entry = entry
+	return out, nil
+}
+
+// claimWorktreePhase3Tx is the durable half of a claim: the verified locator
+// event and the verified claim state fold and commit together. The git
+// worktree the phases before it created exists outside the transaction, so a
+// failure here rolls the durable record back while the native tree remains.
+func claimWorktreePhase3Tx(ctx context.Context, tx *sql.Tx, req WorktreeClaimRequest, setID string, now time.Time, pinnedBranch, pinnedBase, pinnedPath string, facts worktreeFacts) error {
 	payload := marshalWorktreeCreated(req.ExpectedVersion, setID, req.ProjectID, req.OpID, WorktreeLocation{Branch: pinnedBranch, BaseSHA: pinnedBase, Path: pinnedPath}, facts, req.SessionRef)
 	if _, err := applyOperationTx(ctx, tx, Operation{Events: []Event{{
 		EventID: fmt.Sprintf("%s:worktree-created", req.OpID), Kind: "work.worktree_created", SubjectType: SubjectWorkItem, SubjectID: req.WorkID, Actor: req.PrincipalRef, OccurredAt: now, PayloadVersion: 1, Payload: payload,
 	}}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, req.WorkID): req.ExpectedVersion}}, newFoldScope(tx), false); err != nil {
-		return out, err
+		return err
 	}
 	if _, err := tx.ExecContext(ctx, `UPDATE worktree_claims SET state=?, updated_at=? WHERE op_id=?`, worktreeStateVerified, now.Format(time.RFC3339Nano), req.OpID); err != nil {
-		return out, wrapFailure(KindUnavailable, "worktree_claim", "cannot complete claim", true, "retry the same operation with the same op id", err)
+		return wrapFailure(KindUnavailable, "worktree_claim", "cannot complete claim", true, "retry the same operation with the same op id", err)
 	}
-	entry, err := worktreeEntryByClaim(ctx, tx, req.OpID)
-	if err != nil {
-		return out, err
+	return nil
+}
+
+// compensateClaimWorktree removes the native worktree and branch a failed
+// claim created, so the rolled-back transaction does not leave an unowned
+// worktree behind. The removal runs only when the tree is clean and holds no
+// commit beyond the pinned base, and the branch is removed only when this
+// operation created it. A removal that cannot complete marks the failure
+// effect-possible: the native tree then outlives the claim row. Compensation
+// runs detached from the caller's context, because a budget deadline that
+// fails the transaction must not stop the cleanup that keeps the no-effect
+// classification honest.
+func compensateClaimWorktree(ctx context.Context, runner GitRunner, repoRoot, path, branch, base string, createdBranch bool, cause error) error {
+	ctx = context.WithoutCancel(ctx)
+	incomplete := func(reason error) error {
+		var failure *Failure
+		if errors.As(cause, &failure) {
+			failure.EffectPossible = true
+			return cause
+		}
+		detail := "claim failed after the native worktree was created and compensation could not remove it; the created worktree may outlive the rolled-back claim"
+		if reason != nil {
+			detail += ": " + reason.Error()
+		}
+		wrapped := wrapFailure(KindUnavailable, "worktree_claim", detail, true, "retry the same operation with the same op id", cause)
+		wrapped.EffectPossible = true
+		return wrapped
 	}
-	out.Entry = entry
-	return out, nil
+	statusOut, statusErr := runner.Run(ctx, path, "status", "--porcelain")
+	if statusErr != nil || strings.TrimSpace(string(statusOut)) != "" {
+		return incomplete(statusErr)
+	}
+	countOut, countErr := runner.Run(ctx, repoRoot, "rev-list", "--count", base+".."+branch)
+	if countErr != nil || strings.TrimSpace(string(countOut)) != "0" {
+		return incomplete(countErr)
+	}
+	if _, rmErr := runner.Run(ctx, repoRoot, "worktree", "remove", path); rmErr != nil {
+		return incomplete(rmErr)
+	}
+	// The branch pointer is proven redundant: the count above established
+	// that nothing is reachable from the branch beyond the pinned base.
+	if createdBranch {
+		if _, brErr := runner.Run(ctx, repoRoot, "branch", "-D", "--", branch); brErr != nil {
+			return incomplete(brErr)
+		}
+	}
+	return cause
 }
 
 // WorktreeReclaimRequest reclaims a worktree from git facts: the tree must be

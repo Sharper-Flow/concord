@@ -4431,6 +4431,13 @@ const GeneratedPayloadSchemaDocument = `{
         },
         "work_id": {
           "$ref": "#/$defs/id"
+        },
+        "work_pins": {
+          "items": {
+            "$ref": "#/$defs/work_pin"
+          },
+          "maxItems": 32,
+          "type": "array"
         }
       },
       "required": [
@@ -12947,6 +12954,13 @@ const GeneratedPayloadSchemaDocument = `{
         },
         "path": {
           "$ref": "#/$defs/absolute_path"
+        },
+        "work_pins": {
+          "items": {
+            "$ref": "#/$defs/work_pin"
+          },
+          "maxItems": 32,
+          "type": "array"
         }
       },
       "required": [

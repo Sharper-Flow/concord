@@ -1,23 +1,23 @@
 import { createHash, sign as signBytes } from "node:crypto"
 import fs from "node:fs"
-import os from "node:os"
 import path from "node:path"
 import { agentLanePacketSchema, agentLaneReportSchema, agentLanes, workerScopeAssignedResult, type AgentLane } from "./generated-agent-lanes"
 import { maxEnvelopeBytes } from "./generated-contracts"
 import { coreBinary } from "./generated-release"
 import { SecretToolCredentialStore, b64, clientRef, privateKeyObject, randomNonce, type CredentialStore } from "./credentials"
-import { canonicalDirectory, dispatchDirectoryMismatch, dispatchWindows, DispatchWindowError, type DispatchWindows } from "./dispatch-window"
+import { canonicalDirectory, dispatchDirectoryMismatch, dispatchWindows, DispatchWindowError, serializeLanePacket, type DispatchWindows } from "./dispatch-window"
 import { armedClaimedWorktree, unlandedClaimedWorktree } from "./claimed-worktree"
-import { hostControlPlane } from "./move-session"
+import { hostControlPlane, type RouteResult, type SessionReader } from "./move-session"
 import { readTaskResult } from "./task-result"
 import { dispatchRequiresNextTurn, TURN_MOVE_DISPATCH_REFUSAL } from "./turn-move-boundary"
 
 export const MAX_OUTPUT_BYTES = 65_536
 // MAX_OUTPUT_BYTES bounds the worker result body the adapter keeps as
-// evidence. The session export readback parses is the whole transcript, which
-// grows with the lane's work, and readback keeps three fields from it. This
-// bound guards a runaway export, not a working lane.
-export const MAX_EXPORT_BYTES = 8_388_608
+// evidence. The session readback parses messages through the host session
+// API, and readback keeps three fields from them. The message-page bound
+// below guards a runaway transcript, not a working lane.
+export const READBACK_MESSAGE_PAGE = 128
+export const MAX_READBACK_MESSAGE_PAGES = 16
 const MAX_ERROR_BYTES = 8_192
 const MAX_CLI_INPUT_BYTES = 65_536
 // worker.failed detail is bounded at 1..4096 by validateWorkerFailedPayload in
@@ -103,11 +103,11 @@ export interface SessionMetadata {
   session_id: string | null
 }
 
-// ReadbackRefusal identifies the first export predicate that refused the
-// sanitized session body. The digest binds the refusal to the exact body read.
+// ReadbackRefusal identifies the first session-readback predicate that
+// refused the sanitized session body. The digest binds the refusal to the
+// exact body read.
 export type ReadbackRefusal =
-  | "export_command"
-  | "export_size_bound"
+  | "session_read"
   | "export_json"
   | "export_shape"
   | "export_session_identity"
@@ -117,6 +117,7 @@ export type ReadbackRefusal =
   | "export_message_model"
   | "export_model_ambiguous"
   | "export_assistant_message"
+  | "readback_message_bound"
   | "dispatched_agent_identity"
   | "dispatched_packet_identity"
 
@@ -242,13 +243,6 @@ export function boundedTextPrefix(text: string, maxBytes: number): string {
   return buffer.subarray(0, cut).toString("utf8")
 }
 
-// exportRefusalDiagnostics captures what the completion path knows about the
-// child that produced a refused export: the exact argv, the wait status, the
-// terminating signal when there was one, and the received body.
-function exportRefusalDiagnostics(command: string[], result: DispatchRunnerResult): ReadbackRefusalDiagnostics {
-  return { command, exit_code: result.exitCode, signal_state: result.signal_state ?? null, export_body: result.stdout }
-}
-
 // readbackFailureDetail renders the durable diagnostic a refused readback
 // retains on the recorded failed attempt: the refusing predicate, what ran
 // and how the child ended, a bounded prefix of the received export body, and
@@ -288,41 +282,91 @@ export const defaultRunner: DispatchRunner = {
   },
 }
 
-// The host `opencode export` CLI truncates its output to one stdio buffer
-// when stdout is a pipe (8192 bytes raw, 16384 sanitized) while writing the
-// complete export to a file. The lane readback parses the whole session, so
-// reading the export through a pipe silently loses the tail and every lane
-// completion refused with a missing model readback. The export therefore runs
-// with stdout bound to a temporary file, which the host writes completely,
-// and the file is read back and removed. The same runner seam shape is kept
-// so a test can still supply its own export runner.
-export const defaultExportRunner: DispatchRunner = {
-  async run(argv, input, signal) {
-    const directory = fs.mkdtempSync(path.join(os.tmpdir(), "concord-export-"))
-    const target = path.join(directory, "export.json")
-    let exitCode: number
-    let stderr: string
+// The host `opencode export` CLI truncated its output and exited before the
+// pipe drained, which is why the readback spawned a subprocess at all. The
+// readback now reads the worker session in process through the host session
+// API: one session record, then a bounded walk of the message pages from the
+// newest page back toward the oldest. No child process exists to truncate or
+// strand, and the byte ceiling on the exported body is gone — the bound is
+// the message-page count.
+//
+// WorkerSessionRead is one readback attempt. A host_failure is a transport or
+// route fault (the stderr analog rides the message); a readback_refusal is a
+// typed predicate refusal over the body the host actually returned.
+export type WorkerSessionRead =
+  | { ok: true; body: string; status: number; request: string[] }
+  | { ok: false; kind: "host_failure"; leg: string; message: string; status: number; request: string[] }
+  | { ok: false; kind: "readback_refusal"; predicate: ReadbackRefusal; message: string; status: number; request: string[]; body: string }
+
+// nextBeforeCursor reads the host's pagination cursor from the Link response
+// header (`<...>; rel="next"`). An absent header means the page answered held
+// the oldest messages, so the walk is done.
+export function nextBeforeCursor(response: Response): string | undefined {
+  const link = response.headers?.get?.("link")
+  if (typeof link !== "string" || link.length === 0) return undefined
+  const match = /<([^>]+)>;\s*rel="next"/.exec(link)
+  if (!match) return undefined
+  try {
+    const before = new URL(match[1]).searchParams.get("before")
+    return before === null || before.length === 0 ? undefined : before
+  } catch {
+    return undefined
+  }
+}
+
+export async function readWorkerSessionBody(sessionReader: SessionReader, workerSessionID: string, signal: AbortSignal): Promise<WorkerSessionRead> {
+  const request = ["session.get", workerSessionID]
+  let session: RouteResult
+  try {
+    session = await sessionReader.get(workerSessionID, signal)
+  } catch (error) {
+    return { ok: false, kind: "host_failure", leg: "session.get", message: `the host session read failed: ${error instanceof Error ? error.message : String(error)}`, status: 0, request }
+  }
+  if (!session.response.ok) {
+    // A host answer with an error status refuses the readback the way a dead
+    // export child did: the attempt is born failed and stays reconcilable.
+    return { ok: false, kind: "readback_refusal", predicate: "session_read", message: `the host session read answered ${session.response.status}`, status: session.response.status, request, body: "" }
+  }
+  const messagesRequest = ["session.messages", workerSessionID, `limit=${READBACK_MESSAGE_PAGE}`]
+  const pages: unknown[][] = []
+  let before: string | undefined
+  let status = session.response.status
+  for (let page = 0; page < MAX_READBACK_MESSAGE_PAGES; page++) {
+    let result: RouteResult
     try {
-      const fd = fs.openSync(target, "w")
-      // The child holds its own duplicate of the descriptor, so closing this
-      // side's copy after the spawn releases it without touching the child's.
-      const child = Bun.spawn(argv, { stdin: "ignore", stdout: fd, stderr: "pipe" })
-      fs.closeSync(fd)
-      const abort = () => child.kill()
-      if (signal.aborted) abort()
-      signal.addEventListener("abort", abort, { once: true })
-      try {
-        stderr = await new Response(child.stderr).text()
-        exitCode = await child.exited
-      } finally {
-        signal.removeEventListener("abort", abort)
-      }
-      const stdout = await fs.promises.readFile(target, "utf8")
-      return { exitCode, stdout, stderr, signal_state: child.signalCode ?? null }
-    } finally {
-      fs.rmSync(directory, { recursive: true, force: true })
+      result = await sessionReader.messages(workerSessionID, READBACK_MESSAGE_PAGE, before, signal)
+    } catch (error) {
+      return { ok: false, kind: "host_failure", leg: "session.messages", message: `the host session read failed: ${error instanceof Error ? error.message : String(error)}`, status, request: messagesRequest }
     }
-  },
+    if (!result.response.ok) {
+      return { ok: false, kind: "readback_refusal", predicate: "session_read", message: `the host session read answered ${result.response.status}`, status: result.response.status, request: messagesRequest, body: "" }
+    }
+    if (!Array.isArray(result.data)) {
+      return { ok: false, kind: "readback_refusal", predicate: "export_json", message: "the host session read answered a message page that is not a JSON array", status: result.response.status, request: messagesRequest, body: JSON.stringify(result.data) }
+    }
+    status = result.response.status
+    pages.push(result.data as unknown[])
+    before = nextBeforeCursor(result.response)
+    if (!before) {
+      // Pages arrive newest first; assembling oldest first restores the
+      // order the transcript carries, with the opening packet at the head.
+      return { ok: true, body: JSON.stringify({ info: session.data, messages: pages.reverse().flat() }), status, request: messagesRequest }
+    }
+  }
+  return {
+    ok: false, kind: "readback_refusal", predicate: "readback_message_bound",
+    message: `worker session exceeded ${MAX_READBACK_MESSAGE_PAGES} readback pages of ${READBACK_MESSAGE_PAGE} messages`,
+    status, request: messagesRequest,
+    body: JSON.stringify({ info: session.data, messages: pages.reverse().flat() }),
+  }
+}
+
+// hostSessionReader is the production reader: the session API routes on the
+// client the plugin factory bound. A host that handed over no client answers
+// null and completion refuses closed instead of spawning a substitute
+// process.
+export function hostSessionReader(): SessionReader | null {
+  return hostControlPlane().sessionReader()
 }
 
 const defaultCredentials: CredentialStore = new SecretToolCredentialStore()
@@ -512,7 +556,6 @@ export function readExportSession(stdout: string, expectedSessionID: string): Se
     export_bytes: exportBytes,
     message,
   })
-  if (exportBytes > MAX_EXPORT_BYTES) return refuse("export_size_bound", `export body exceeded ${MAX_EXPORT_BYTES} bytes`)
   let value: unknown
   try { value = JSON.parse(stdout) } catch { return refuse("export_json", "export body was not valid JSON") }
   if (!isRecord(value) || !isRecord(value.info) || value.info.id !== expectedSessionID || !Array.isArray(value.messages)) return refuse("export_shape", "export body did not match the session shape")
@@ -559,21 +602,10 @@ export function readExportSessionMetadata(stdout: string, expectedSessionID: str
 // authorized path and refuses every substitution — caller-composed prose, a
 // packet for another attempt, or a session opened by anything else.
 //
-// The opening message may carry host-generated parts beside the packet text.
-// When the packet text contains an @-mention of the lane agent — observed in
-// production when a retry's correction block quotes the prior attempt's
-// session title, which ends in "(@concord-implement subagent)" — the host
-// splits the message into [packet text, agent part, synthetic instruction]
-// where the instruction is the host's own deterministic wrapper for that
-// agent. Those parts never carry worker-composed content: the dispatch
-// overwrites the Task prompt with the packet bytes, so the caller cannot add
-// parts, and the wrapper text is derived from the packet's own bytes. The
-// identity guarantee is therefore: exactly one text part equals the packet
-// bytes, and every other part is the host's agent part for the lane agent or
-// the host's synthetic instruction for it. Anything else is unauthorized
-// content and is refused.
+// The opening message is exactly one text part. The host resolves an @agent
+// mention in a Task prompt into an agent part and a synthetic instruction, so
+// the packet serializer escapes every '@' and no packet text can form one.
 export function readExportOpeningPacket(stdout: string, expectedSessionID: string, packet: AgentLanePacket): { ok: true } | { ok: false; predicate: ReadbackRefusal; message: string } {
-  if (Buffer.byteLength(stdout) > MAX_EXPORT_BYTES) return { ok: false, predicate: "export_size_bound", message: `export body exceeded ${MAX_EXPORT_BYTES} bytes` }
   let value: unknown
   try { value = JSON.parse(stdout) } catch { return { ok: false, predicate: "export_json", message: "export body was not valid JSON" } }
   if (!isRecord(value) || !isRecord(value.info) || value.info.id !== expectedSessionID || !Array.isArray(value.messages) || value.messages.length === 0) return { ok: false, predicate: "export_shape", message: "export body did not match the session shape" }
@@ -581,31 +613,26 @@ export function readExportOpeningPacket(stdout: string, expectedSessionID: strin
   if (!isRecord(first) || !isRecord(first.info) || !Array.isArray(first.parts)) return { ok: false, predicate: "export_message_shape", message: "export body did not match the message shape" }
   if (first.info.role !== "user") return { ok: false, predicate: "dispatched_packet_identity", message: "worker session opened with a non-user message instead of the authorized dispatch packet" }
   if (first.parts.length === 0) return { ok: false, predicate: "dispatched_packet_identity", message: "worker session opened with 0 message parts instead of the single authorized dispatch packet" }
-  const laneAgent = "concord-" + packet.lane_id
-  const wrapperPrefix = " Use the above message and context to generate a prompt and call the task tool with subagent: " + laneAgent
-  const wrapperDeniedSuffix = " . Invoked by user; guaranteed to exist."
+  const expected = serializeLanePacket(packet)
   let packetPartSeen = false
   for (const part of first.parts) {
     if (!isRecord(part)) return { ok: false, predicate: "export_message_shape", message: "export message did not match the message shape" }
     if (part.type === "text" && typeof part.text === "string") {
-      if (part.text === JSON.stringify(packet)) {
+      if (part.text === expected) {
         if (packetPartSeen) return { ok: false, predicate: "dispatched_packet_identity", message: "worker session opened with the authorized dispatch packet repeated beside itself" }
         packetPartSeen = true
         continue
       }
-      if (part.text === wrapperPrefix || part.text === wrapperPrefix + wrapperDeniedSuffix) continue
       if (first.parts.length === 1) return { ok: false, predicate: "dispatched_packet_identity", message: "worker session opened with a message that is not the authorized dispatch packet" }
       return { ok: false, predicate: "dispatched_packet_identity", message: "worker session opened with an unauthorized text part beside the authorized dispatch packet" }
     }
-    if (part.type === "agent") {
-      if (part.name !== laneAgent) return { ok: false, predicate: "dispatched_packet_identity", message: `worker session opened with a host agent part for ${typeof part.name === "string" ? part.name : "an unknown agent"} instead of ${laneAgent}` }
-      continue
-    }
+    if (part.type === "agent") return { ok: false, predicate: "dispatched_packet_identity", message: `worker session opened with a host agent part for ${typeof part.name === "string" ? part.name : "an unknown agent"} beside the authorized dispatch packet` }
     return { ok: false, predicate: "dispatched_packet_identity", message: `worker session opened with a ${typeof part.type === "string" ? part.type : "malformed"} part instead of the authorized dispatch packet` }
   }
   if (!packetPartSeen) return { ok: false, predicate: "dispatched_packet_identity", message: "worker session opened with a message that is not the authorized dispatch packet" }
   return { ok: true }
 }
+
 
 // The core compares the worker session's directory against the work item's
 // active worktree claim, so the value it receives must be a real path. The
@@ -1308,7 +1335,7 @@ export function contextPreflightRefusal(lane: AgentLane | null, packet: Partial<
   return errorEnvelope(lane, packet, "error", "unauthorized_dispatch", `the calling tool context runs in ${JSON.stringify(contextDirectory)} but the host session directory is ${JSON.stringify(sessionDirectory)} (${mismatch}); replay work_start or worktree_claim to land the session's tool context in the claimed worktree, then dispatch again`, "reconcile_operation")
 }
 
-export async function dispatchWorker(packet: unknown, options: { signal?: AbortSignal; runner?: DispatchRunner; readbackRunner?: DispatchRunner; evidenceRunner?: DispatchRunner; binary?: string; concordBinary?: string; credentials?: CredentialStore; authorize?: DispatchAuthorizer; packetDigest?: string; sessionID?: string; windows?: DispatchWindows; workPins?: unknown[]; workerDirectory?: string; pinnedWorkerDirectory?: string; authorizedWorktree?: string; resolveWorkerDirectory?: () => Promise<string>; contextDirectory?: string } = {}): Promise<AgentResultEnvelope> {
+export async function dispatchWorker(packet: unknown,   options: { signal?: AbortSignal; runner?: DispatchRunner; evidenceRunner?: DispatchRunner; concordBinary?: string; credentials?: CredentialStore; authorize?: DispatchAuthorizer; packetDigest?: string; sessionID?: string; windows?: DispatchWindows; workPins?: unknown[]; workerDirectory?: string; pinnedWorkerDirectory?: string; authorizedWorktree?: string; resolveWorkerDirectory?: () => Promise<string>; contextDirectory?: string } = {}): Promise<AgentResultEnvelope> {
   if (!validateAgentLanePacket(packet)) return errorEnvelope(null, isRecord(packet) ? packet as Partial<AgentLanePacket> : {}, "error", "invalid_input", "agent lane packet failed the closed packet schema", "retry_same_request")
   const lane = laneForPacket(packet)
   if (!lane) return errorEnvelope(null, packet, "error", "invalid_input", "lane identity or digest is not registered", "retry_same_request")
@@ -1493,7 +1520,7 @@ export async function completeWorkerAttempt(
   lane: AgentLane,
   packet: AgentLanePacket,
   taskResult: string,
-  options: { signal?: AbortSignal; runner?: DispatchRunner; readbackRunner?: DispatchRunner; evidenceRunner?: DispatchRunner; binary?: string; concordBinary?: string; credentials?: CredentialStore; authorize?: DispatchAuthorizer; packetDigest?: string; workerDirectory: string },
+  options: { signal?: AbortSignal; runner?: DispatchRunner; sessionReader?: SessionReader; evidenceRunner?: DispatchRunner; binary?: string; concordBinary?: string; credentials?: CredentialStore; authorize?: DispatchAuthorizer; packetDigest?: string; workerDirectory: string },
   signal: AbortSignal,
 ): Promise<AgentResultEnvelope> {
   // The wrapper carries the worker session identifier, so a body that is not a
@@ -1587,60 +1614,58 @@ async function completeWorkerSession(
   hostFailure?: string,
   onRecorded?: () => void,
 ): Promise<AgentResultEnvelope> {
-  const binary = options.binary ?? "opencode"
-  const readbackRunner = options.readbackRunner ?? options.runner ?? defaultExportRunner
-  const workerDirectory = options.workerDirectory
   // CD-0102 completion identity: the attempt is refused before any model
   // evidence is read unless the worker session opens with the packet the
-  // dispatch authorized. The sanitized export cannot carry that check — the
-  // host sanitizer redacts every text part — so the opening prompt is read
-  // from its own unsanitized export and compared byte-for-byte.
-  const openingCommand = [binary, "export", workerSessionID]
-  const sanitizedCommand = [binary, "export", workerSessionID, "--sanitize"]
-  let opened: DispatchRunnerResult
-  try { opened = await readbackRunner.run(openingCommand, "", signal) } catch (error) {
-    return errorEnvelope(lane, packet, "error", "error", String(error), "reconcile_operation")
+  // dispatch authorized. The session API returns the transcript unsanitized,
+  // so the opening prompt is compared byte-for-byte against the packet and
+  // the same body then supplies the model and agent readback.
+  const sessionReader = options.sessionReader ?? hostSessionReader()
+  if (!sessionReader) {
+    return errorEnvelope(lane, packet, "error", "error", "worker completion could not read the worker session: this host handed the plugin no client", "reconcile_operation")
   }
-  if (opened.exitCode !== 0) {
+  const workerDirectory = options.workerDirectory
+  const read = await readWorkerSessionBody(sessionReader, workerSessionID, signal)
+  const diagnostics = (refusedBody: string): ReadbackRefusalDiagnostics => ({
+    command: read.request,
+    exit_code: read.status,
+    signal_state: null,
+    export_body: refusedBody,
+  })
+  if (!read.ok) {
+    if (read.kind === "host_failure") {
+      // A transport or route fault carries the host's own diagnostic in the
+      // failure message. It is not a readback refusal: nothing was refused,
+      // and the reconciliation route is the same one a dead export runner
+      // had.
+      return errorEnvelope(lane, packet, "error", "error", read.message, "reconcile_operation")
+    }
     return refuseWorkerReadback(lane, packet, {
-      predicate: "export_command",
-      export_digest: sha256Digest(opened.stdout),
-      export_bytes: Buffer.byteLength(opened.stdout),
-      message: opened.stderr.slice(0, MAX_ERROR_BYTES) || "OpenCode session export failed without diagnostic output",
-      diagnostics: exportRefusalDiagnostics(openingCommand, opened),
+      predicate: read.predicate,
+      export_digest: sha256Digest(read.body),
+      export_bytes: Buffer.byteLength(read.body),
+      message: read.message,
+      diagnostics: diagnostics(read.body),
     }, workerSessionID, workerDirectory, resultBody, options, signal, onRecorded)
   }
-  const opening = readExportOpeningPacket(opened.stdout, workerSessionID, packet)
+  const body = read.body
+  const opening = readExportOpeningPacket(body, workerSessionID, packet)
   if (!opening.ok) {
     return refuseWorkerReadback(lane, packet, {
       predicate: opening.predicate,
-      export_digest: sha256Digest(opened.stdout),
-      export_bytes: Buffer.byteLength(opened.stdout),
+      export_digest: sha256Digest(body),
+      export_bytes: Buffer.byteLength(body),
       message: opening.message,
-      diagnostics: exportRefusalDiagnostics(openingCommand, opened),
+      diagnostics: diagnostics(body),
     }, workerSessionID, workerDirectory, resultBody, options, signal, onRecorded)
   }
-  let exported: DispatchRunnerResult
-  try { exported = await readbackRunner.run(sanitizedCommand, "", signal) } catch (error) {
-    return errorEnvelope(lane, packet, "error", "error", String(error), "reconcile_operation")
-  }
-  if (exported.exitCode !== 0) {
-    return refuseWorkerReadback(lane, packet, {
-      predicate: "export_command",
-      export_digest: sha256Digest(exported.stdout),
-      export_bytes: Buffer.byteLength(exported.stdout),
-      message: exported.stderr.slice(0, MAX_ERROR_BYTES) || "OpenCode session export failed without diagnostic output",
-      diagnostics: exportRefusalDiagnostics(sanitizedCommand, exported),
-    }, workerSessionID, workerDirectory, resultBody, options, signal, onRecorded)
-  }
-  const readbackResult = readExportSession(exported.stdout, workerSessionID)
+  const readbackResult = readExportSession(body, workerSessionID)
   if (!readbackResult.ok) {
     return refuseWorkerReadback(lane, packet, {
       predicate: readbackResult.predicate,
       export_digest: readbackResult.export_digest,
       export_bytes: readbackResult.export_bytes,
       message: readbackResult.message,
-      diagnostics: exportRefusalDiagnostics(sanitizedCommand, exported),
+      diagnostics: diagnostics(body),
     }, workerSessionID, workerDirectory, resultBody, options, signal, onRecorded)
   }
   const readback = readbackResult.metadata
@@ -1681,7 +1706,7 @@ async function completeWorkerSession(
   // The dispatch window owns the worker directory. The session observation is
   // separate and supplies only the live-session evidence for abandoned close.
   const provenance = await computeHostPromptProvenance(lane.id, workerDirectory)
-  const workerObservation = await readWorkerSessionObservation(readbackRunner, binary, signal)
+  const workerObservation = await readWorkerSessionObservation(cliRunner, options.binary ?? "opencode", signal)
 
   // CD-0056 D7: the adapter is the only component that sees worker output, so
   // the report is admitted here. A report that is absent, unparseable, invalid,

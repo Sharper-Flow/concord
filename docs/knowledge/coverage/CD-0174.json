@@ -1,0 +1,34 @@
+{
+  "evidence": [
+    {
+      "kind": "adapter_test",
+      "value": "adapter/opencode/dispatch.test.ts#completion obtains readback from one in-process session body"
+    },
+    {
+      "kind": "adapter_test",
+      "value": "adapter/opencode/dispatch.test.ts#TestDispatchWorkerCompletesWithSessionLargerThanPipeBuffer"
+    },
+    {
+      "kind": "adapter_test",
+      "value": "adapter/opencode/dispatch.test.ts#a transcript that outlives the readback page bound refuses typed"
+    },
+    {
+      "kind": "adapter_test",
+      "value": "adapter/opencode/dispatch.test.ts#a refused readback retains session diagnostics on the recorded failed attempt"
+    },
+    {
+      "kind": "adapter_test",
+      "value": "adapter/opencode/lane_completion.test.ts#records dispatch and completion for the in-flight attempt"
+    },
+    {
+      "kind": "adapter_test",
+      "value": "adapter/opencode/dispatch.test.ts#serializeLanePacket escapes host agent mentions and round-trips"
+    },
+    {
+      "kind": "adapter_test",
+      "value": "adapter/opencode/dispatch.test.ts#readExportOpeningPacket refuses a host agent part and wrapper beside the packet"
+    }
+  ],
+  "id": "CD-0174",
+  "state": "satisfied"
+}

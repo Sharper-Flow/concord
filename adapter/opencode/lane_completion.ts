@@ -14,6 +14,7 @@ import { createHash } from "node:crypto"
 import { completeWorkerAttempt, failWorkerAttempt, abandonWorkerAttempt, type AgentResultEnvelope, type DispatchRunner } from "./dispatch"
 import type { CredentialStore } from "./credentials"
 import { dispatchWindows, DispatchWindows, TASK_TOOL_ID, type DispatchRecord } from "./dispatch-window"
+import type { SessionReader } from "./move-session"
 import { agentLanes } from "./generated-agent-lanes"
 
 export interface LaneCompletionInput {
@@ -34,6 +35,7 @@ export interface LaneCompletionDeps {
   credentials?: CredentialStore
   runner?: DispatchRunner
   evidenceRunner?: DispatchRunner
+  sessionReader?: SessionReader
   concordBinary?: string
   signal?: AbortSignal
 }
@@ -87,7 +89,7 @@ export async function completeDispatchedWorker(input: LaneCompletionInput, outpu
   const signal = deps.signal ?? new AbortController().signal
   let envelope: AgentResultEnvelope
   try {
-    envelope = await completeWorkerAttempt(lane, record.packet, output.output, { credentials: deps.credentials, runner: deps.runner, evidenceRunner: deps.evidenceRunner, concordBinary: deps.concordBinary, packetDigest: record.packetDigest, workerDirectory: record.workerDirectory }, signal)
+    envelope = await completeWorkerAttempt(lane, record.packet, output.output, { credentials: deps.credentials, runner: deps.runner, evidenceRunner: deps.evidenceRunner, sessionReader: deps.sessionReader, concordBinary: deps.concordBinary, packetDigest: record.packetDigest, workerDirectory: record.workerDirectory }, signal)
   } catch (error) {
     envelope = { schema_version: "1.0", outcome: "error", lane: { id: lane.id, version: lane.version, digest: lane.digest }, agent: `concord-${lane.id}`, readback_model: null, session_id: null, error: { kind: "error", retry_safe: false, recovery_action: "reconcile_operation", message: String(error).slice(0, 2048) } }
   }
@@ -126,7 +128,7 @@ export async function failDispatchedWorker(event: unknown, deps: LaneCompletionD
   const callID = part.callID
   try {
     const envelope = await failWorkerAttempt(lane, pending.packet, metadata.sessionId, state.error, {
-      credentials: deps.credentials, runner: deps.runner, evidenceRunner: deps.evidenceRunner, concordBinary: deps.concordBinary, packetDigest: pending.packetDigest, workerDirectory: pending.workerDirectory,
+      credentials: deps.credentials, runner: deps.runner, evidenceRunner: deps.evidenceRunner, sessionReader: deps.sessionReader, concordBinary: deps.concordBinary, packetDigest: pending.packetDigest, workerDirectory: pending.workerDirectory,
     }, deps.signal ?? new AbortController().signal, () => windows.finishSettlement(sessionID, callID))
     // A recorded failure already dropped the record with its claim. A refused
     // write left the record retained: the claim releases into the refused

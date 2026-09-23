@@ -233,3 +233,39 @@ func TestOperatorQuestionWithheldForAnyApprovalRequiredAction(t *testing.T) {
 		t.Fatalf("question refused after investigation: %v", err)
 	}
 }
+
+// CD-0173: the comparison-work half of the investigation gate is conditional.
+// A Product that holds one work item in any lifecycle has no other work item
+// to name, so the artifact needs only the current Domain ref. The core counts
+// the Product's work items in the same transaction; no agent assertion
+// decides it.
+func TestInvestigationArtifactAdmitsSingleItemProductByDomainRef(t *testing.T) {
+	t.Parallel()
+	s := openTemp(t)
+	workID := "investigation-gate-single"
+	seedWork(t, s, workID)
+	seedWorkflowLaw(t, s)
+	seedIssue31DomainRegistry(t, s)
+
+	// The Product holds no second work item, so a current Domain ref alone
+	// admits the question.
+	insertInvestigationGateObservation(t, s, workID, "obs:"+strings.Repeat("a", 16), []string{"root"})
+	if err := requireRecordedInvestigationArtifact(context.Background(), s.DatabaseForTesting(), workID); err != nil {
+		t.Fatalf("single-item Product refused a domain-only investigation artifact: %v", err)
+	}
+}
+
+// The Domain half stays mandatory in a single-item Product: a fresh store
+// holds only an observation whose Domain ref does not resolve.
+func TestInvestigationArtifactSingleItemProductStillRequiresDomainRef(t *testing.T) {
+	t.Parallel()
+	s := openTemp(t)
+	workID := "investigation-gate-single-badref"
+	seedWork(t, s, workID)
+	seedWorkflowLaw(t, s)
+	seedIssue31DomainRegistry(t, s)
+	insertInvestigationGateObservation(t, s, workID, "obs:"+strings.Repeat("b", 16), []string{"missing-domain"})
+	if err := requireRecordedInvestigationArtifact(context.Background(), s.DatabaseForTesting(), workID); err == nil {
+		t.Fatal("single-item Product admitted an artifact without a current Domain ref")
+	}
+}

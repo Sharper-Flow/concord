@@ -10,7 +10,7 @@ import { computeHostPromptProvenance, type AgentLanePacket, type DispatchRunner 
 import { DispatchWindows, TASK_TOOL_ID } from "./dispatch-window"
 import { agentLanes } from "./generated-agent-lanes"
 import { completeDispatchedWorker, failDispatchedWorker, type LaneCompletionDeps } from "./lane_completion"
-import { hostControlPlane, SESSION_LIST_ROUTE } from "./move-session"
+import { hostControlPlane, SESSION_LIST_ROUTE, type SessionReader } from "./move-session"
 import type { CredentialStore } from "./credentials"
 
 const testCredentials: CredentialStore = { async getPrivateKey() { return new Uint8Array(32).fill(7) } }
@@ -69,6 +69,28 @@ const exportedSession = (agent = `concord-${lane.id}`, parentID: string | null =
 const sessionIndex = (directory = "/claimed/worktree") =>
   JSON.stringify([{ id: "ses_other", directory: "/somewhere/else" }, { id: SESSION, directory }])
 
+// The readback reads the worker session in process through the host session
+// API; the reader serves the transcript the fixture export carries.
+const failingReader = (status: number): SessionReader => ({
+  async get() { return { data: undefined, response: new Response("{}", { status }) } },
+  async messages() { return { data: undefined, response: new Response("{}", { status }) } },
+})
+
+const malformedReader = (): SessionReader => ({
+  async get() { return { data: { id: WORKER_SESSION }, response: new Response("{}", { status: 200 }) } },
+  async messages() { return { data: "{", response: new Response("[]", { status: 200 }) } },
+})
+
+const readerFor = (exported: string): SessionReader => {
+  const parsed = JSON.parse(exported)
+  return {
+    async get() { return { data: parsed.info, response: new Response("{}", { status: 200 }) } },
+    async messages(_sessionID: string, _limit: number, before: string | undefined) {
+      return { data: before ? [] : parsed.messages, response: new Response("[]", { status: 200 }) }
+    },
+  }
+}
+
 // One runner answers the session export and index, and records every CLI verb.
 const recordingRunner = (verbs: string[], agent?: string): DispatchRunner => ({
   async run(argv) {
@@ -83,6 +105,7 @@ const deps = (verbs: string[], windows: DispatchWindows, agent?: string): LaneCo
   windows,
   credentials: testCredentials,
   runner: recordingRunner(verbs, agent),
+  sessionReader: readerFor(exportedSession(agent)),
   concordBinary: "concord",
 })
 
@@ -117,6 +140,7 @@ describe("completeDispatchedWorker", () => {
       windows,
       credentials: testCredentials,
       runner,
+      sessionReader: readerFor(exportedSession()),
       concordBinary: "concord",
     })
     const expected = await computeHostPromptProvenance(lane.id, process.cwd())
@@ -143,6 +167,7 @@ describe("completeDispatchedWorker", () => {
       windows,
       credentials: testCredentials,
       runner,
+      sessionReader: readerFor(exportedSession()),
       concordBinary: "concord",
     })
     return completionInput
@@ -174,6 +199,7 @@ describe("completeDispatchedWorker", () => {
       windows,
       credentials: testCredentials,
       runner,
+      sessionReader: readerFor(exportedSession()),
       concordBinary: "concord",
     })
     expect(completionInput?.worker_directory).toBe(process.cwd())
@@ -197,6 +223,7 @@ describe("completeDispatchedWorker", () => {
       windows,
       credentials: testCredentials,
       runner,
+      sessionReader: readerFor(exportedSession()),
       concordBinary: "concord",
     })
     expect(completionInput?.worker_directory).toBe(process.cwd())
@@ -230,6 +257,7 @@ describe("completeDispatchedWorker", () => {
       windows,
       credentials: testCredentials,
       runner,
+      sessionReader: readerFor(exportedSession()),
       concordBinary: "concord",
     })
     expect(verbs).toEqual(["worker-dispatch", "worker-complete", "worker-fail"])
@@ -260,6 +288,7 @@ describe("completeDispatchedWorker", () => {
       windows,
       credentials: testCredentials,
       runner,
+      sessionReader: readerFor(exportedSession()),
       concordBinary: "concord",
     })
     expect(verbs).toEqual(["worker-dispatch", "worker-complete"])
@@ -309,7 +338,6 @@ describe("completeDispatchedWorker", () => {
     const verbs: string[] = []
     const runner: DispatchRunner = {
       async run(argv) {
-        if (argv[1] === "export") return { exitCode: 0, stdout: exportedSession(`concord-${lane.id}`, SESSION, "Run the task described above and report back."), stderr: "" }
         if (argv[1] === "session") return { exitCode: 0, stdout: sessionIndex(), stderr: "" }
         verbs.push(argv[1])
         return { exitCode: 0, stdout: "", stderr: "" }
@@ -320,6 +348,7 @@ describe("completeDispatchedWorker", () => {
       windows,
       credentials: testCredentials,
       runner,
+      sessionReader: readerFor(exportedSession(`concord-${lane.id}`, SESSION, "Run the task described above and report back.")),
       concordBinary: "concord",
     })
     expect(verbs).toEqual(["worker-dispatch"])
@@ -399,11 +428,7 @@ describe("host task failure", () => {
       await windows.bind(TASK_TOOL_ID, SESSION, {}, "call-cancel", async () => process.cwd())
       const verbs: string[] = []
       const options = deps(verbs, windows)
-      options.runner = { async run() {
-        return fault === "export-command"
-          ? { exitCode: 1, stdout: "", stderr: "export unavailable" }
-          : { exitCode: 0, stdout: "{", stderr: "" }
-      } }
+      options.sessionReader = fault === "export-command" ? failingReader(503) : malformedReader()
       options.evidenceRunner = { async run(argv, raw) {
         verbs.push(argv[1])
         const input = JSON.parse(raw)
@@ -436,7 +461,7 @@ describe("host task failure", () => {
     await windows.bind(TASK_TOOL_ID, SESSION, {}, "call-cancel", async () => process.cwd())
     const verbs: string[] = []
     const options = deps(verbs, windows)
-    options.runner = { async run() { return { exitCode: 1, stdout: "", stderr: "export unavailable" } } }
+    options.sessionReader = failingReader(503)
     options.evidenceRunner = { async run(argv) {
       verbs.push(argv[1])
       return { exitCode: 1, stdout: "", stderr: "write unavailable" }
@@ -504,7 +529,9 @@ describe("host task failure", () => {
     } }
     await failDispatchedWorker(failedEvent(), options)
     await failDispatchedWorker(failedEvent(), options)
-    expect(verbs).toEqual(["worker-dispatch"])
+    // The session-list observation rides the same CLI runner; only worker
+    // evidence verbs assert here.
+    expect(verbs.filter((verb) => verb.startsWith("worker-"))).toEqual(["worker-dispatch"])
     expect(windows.inFlight(SESSION, "call-cancel")).not.toBeNull()
     expect(() => windows.open(SESSION, packet(), PACKET_DIGEST, process.cwd())).toThrow()
   })

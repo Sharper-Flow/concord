@@ -27,6 +27,7 @@ import { execFileSync } from "node:child_process"
 export const MOVE_SESSION_ROUTE = "/experimental/control-plane/move-session"
 export const SESSION_ROUTE = "/session/{id}"
 export const SESSION_LIST_ROUTE = "/session"
+export const SESSION_MESSAGES_ROUTE = "/session/{id}/message"
 export const MANAGED_TASK_SCOPE_KEY = "concord.task_scope"
 
 // ObservedSessionDirectory is one live host session and the directory it runs
@@ -68,9 +69,18 @@ export type RouteResult = { data?: unknown; response: Response }
 // generated methods. It takes the route as data, so it reaches routes the
 // generated methods omit while keeping the host's transport and headers.
 export type RouteClient = {
-  get: (options: { url: string; path?: Record<string, unknown>; signal?: AbortSignal }) => Promise<RouteResult>
+  get: (options: { url: string; path?: Record<string, unknown>; query?: Record<string, unknown>; signal?: AbortSignal }) => Promise<RouteResult>
   post: (options: { url: string; body?: unknown; signal?: AbortSignal }) => Promise<RouteResult>
   patch?: (options: { url: string; path?: Record<string, unknown>; body?: unknown; signal?: AbortSignal }) => Promise<RouteResult>
+}
+
+// SessionReader is the host session API the worker readback reads through:
+// one session record and one bounded page of its messages per call. The
+// result is the same route pair the generic client returns, so a test can
+// supply its own reader without a server.
+export interface SessionReader {
+  get(sessionID: string, signal?: AbortSignal): Promise<RouteResult>
+  messages(sessionID: string, limit: number, before: string | undefined, signal?: AbortSignal): Promise<RouteResult>
 }
 
 // PluginClientHost is the part of the host plugin input this module consumes.
@@ -107,6 +117,25 @@ export class HostControlPlane {
 
   available(): boolean {
     return this.#client !== null
+  }
+
+  // sessionReader exposes the host session API the worker readback reads
+  // through: the session record and the bounded message pages. A host that
+  // handed the plugin no client answers null, and the readback refuses closed
+  // instead of spawning a substitute process.
+  sessionReader(): SessionReader | null {
+    const client = this.#client
+    if (!client) return null
+    return {
+      async get(sessionID, signal) {
+        return client.get({ url: SESSION_ROUTE, path: { id: sessionID }, signal })
+      },
+      async messages(sessionID, limit, before, signal) {
+        const query: Record<string, unknown> = { limit: String(limit) }
+        if (before !== undefined) query.before = before
+        return client.get({ url: SESSION_MESSAGES_ROUTE, path: { id: sessionID }, query, signal })
+      },
+    }
   }
 
   // moveSession retargets a running session at an absolute directory. It

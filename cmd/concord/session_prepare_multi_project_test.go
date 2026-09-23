@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -123,5 +125,26 @@ func TestSessionPrepareMultiProject(t *testing.T) {
 				t.Fatalf("refusal diagnostic=%q", errOut.String())
 			}
 		})
+	}
+}
+
+// TestSessionPrepareReadFailureExit proves read-failure classification: a
+// typed failure the store marks safe to repeat, or an untyped failure, keeps
+// the ordinary status; a typed failure unsafe to repeat is a refusal.
+func TestSessionPrepareReadFailureExit(t *testing.T) {
+	cases := []struct {
+		name string
+		err  error
+		want int
+	}{
+		{"retry-safe store failure", &store.Failure{Kind: store.KindUnavailable, RetrySafe: true}, 1},
+		{"wrapped retry-safe store failure", fmt.Errorf("resolve: %w", &store.Failure{Kind: store.KindUnavailable, RetrySafe: true}), 1},
+		{"store failure unsafe to repeat", &store.Failure{Kind: store.KindUnavailable, RetrySafe: false}, sessionPrepareRefusalExit},
+		{"untyped failure", errors.New("disk I/O error"), 1},
+	}
+	for _, tc := range cases {
+		if got := sessionPrepareReadFailureExit(tc.err); got != tc.want {
+			t.Errorf("%s: exit=%d want %d", tc.name, got, tc.want)
+		}
 	}
 }

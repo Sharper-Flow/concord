@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -128,6 +129,17 @@ var sessionPrepareID = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$`)
 // entry declares it.
 const sessionPrepareRefusalExit = 2
 
+// sessionPrepareReadFailureExit classifies a store read failure. A typed
+// failure the store marks unsafe to repeat is a refusal; every other failure
+// may clear on a replay, so it keeps the ordinary failure status.
+func sessionPrepareReadFailureExit(err error) int {
+	var failure *store.Failure
+	if errors.As(err, &failure) && !failure.RetrySafe {
+		return sessionPrepareRefusalExit
+	}
+	return 1
+}
+
 // runSessionPrepare verifies that the current directory is an active claimed
 // worktree of the work item — a multi-Project item holds one active worktree
 // per Project, so the claimed entry is the active one whose path is this
@@ -171,7 +183,11 @@ func runSessionPrepare(raw []byte, s *store.Store, out, errOut io.Writer, laneId
 		return sessionPrepareRefusalExit
 	}
 	resolution, err := s.ResolveProject(context.Background(), cwd, cwd)
-	if err != nil || resolution.ProjectID != entry.ProjectID || resolution.MainWorktree {
+	if err != nil {
+		writeOperatorDiagnostic(errOut, "session-prepare", err.Error())
+		return sessionPrepareReadFailureExit(err)
+	}
+	if resolution.ProjectID != entry.ProjectID || resolution.MainWorktree {
 		writeOperatorDiagnostic(errOut, "session-prepare", "current directory does not resolve to the claimed Project worktree")
 		return sessionPrepareRefusalExit
 	}
@@ -192,7 +208,11 @@ func runSessionPrepare(raw []byte, s *store.Store, out, errOut io.Writer, laneId
 		return sessionPrepareRefusalExit
 	}
 	_, products, err := s.ScopeVersion(context.Background(), entry.ProjectID)
-	if err != nil || len(products) != 1 || products[0] != input.ProductID {
+	if err != nil {
+		writeOperatorDiagnostic(errOut, "session-prepare", err.Error())
+		return sessionPrepareReadFailureExit(err)
+	}
+	if len(products) != 1 || products[0] != input.ProductID {
 		writeOperatorDiagnostic(errOut, "session-prepare", "claimed Project is not in the requested Product scope")
 		return sessionPrepareRefusalExit
 	}

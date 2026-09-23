@@ -160,7 +160,14 @@ func ReadWorkPinTx(ctx context.Context, tx *sql.Tx, workID string) (WorkPin, err
 		return pin, contractErr
 	}
 	if len(activeContractVersions) > 1 {
-		pin.NextValidIntents = []WorkPinIntent{workPinIntentForAction(workflowContractRecoveryActionDefinition(), pin.Version, "operator_contract_correction")}
+		// Duplicate recovery belongs to earlier, running steps. At complete,
+		// the one-active-contract gate refuses it, a terminal instance
+		// cannot run any earlier-step recovery, and a completed instance
+		// keeps the route closed on every shape but the complete-step
+		// correction admission.
+		if instanceState != "completed" && !workflowCompleteStepCorrectionStep(registered.Definition, pin.Step) && !workflowCompletedInstanceActionImmutable(instanceState, "supersede_contract", pin.Lifecycle) && !isTerminalLifecycle(pin.Lifecycle) {
+			pin.NextValidIntents = []WorkPinIntent{workPinIntentForAction(workflowContractRecoveryActionDefinition(), pin.Version, "operator_contract_correction")}
+		}
 		return pin, nil
 	}
 	var activeContractVersion int64
@@ -289,14 +296,14 @@ func ReadWorkPinTx(ctx context.Context, tx *sql.Tx, workID string) (WorkPin, err
 	if pin.PendingOperatorDecision == nil && workPinContainsAction(pin.NextValidIntents, "confirm_premise") {
 		pin.NextValidIntents = workPinWithoutAction(pin.NextValidIntents, "confirm_premise")
 	}
-	// A closed instance admits no workflow action: the action preflight
-	// refuses every one against it. The pin states what the caller may do, so
-	// a terminal instance offers nothing. This clears the whole set after it
-	// is assembled, because each recovery branch above appends an action the
-	// same preflight would refuse. Instance states spell terminality with the
-	// same three words as lifecycles.
+	// A completed instance with nonterminal work retains only the admitted
+	// complete-step contract correction. Every other action remains immutable.
 	if isTerminalLifecycle(instanceState) {
-		pin.NextValidIntents = []WorkPinIntent{}
+		if instanceState == "completed" && contractCorrection && !workflowCompletedInstanceActionImmutable(instanceState, "supersede_contract", pin.Lifecycle) {
+			pin.NextValidIntents = []WorkPinIntent{workPinIntentForAction(workflowContractRecoveryActionDefinition(), pin.Version, "operator_contract_correction")}
+		} else {
+			pin.NextValidIntents = []WorkPinIntent{}
+		}
 	}
 
 	return pin, nil

@@ -9,6 +9,86 @@ import (
 
 const workflowCorrectionAttemptLimit int64 = 3
 
+// workflowCompleteStepCorrectionRoute is the reserved contract route
+// convention a successor declares when the operator approved it at the pinned
+// complete step. It is the durable marker that cuts predecessor verdicts off
+// the successor's predicates: the route exists because durable evidence
+// disproved the predecessor's premise, so the verdicts that predecessor
+// carried hold no authority, however identical the predicate payloads remain.
+const workflowCompleteStepCorrectionRoute = "complete_step_correction"
+
+// workflowCompleteStepCorrectionStep reports whether the pinned step is the
+// completion step of a break-fix or implementation workflow, the only shape
+// the complete-step correction route and its reserved convention apply to.
+func workflowCompleteStepCorrectionStep(definition WorkflowDefinition, currentStep string) bool {
+	return workflowCorrectionWorkflow(definition) && stepDeclaresAction(definition, currentStep, "complete")
+}
+
+// workflowCompletedInstanceSupersedeOffShape reports a completed workflow
+// instance whose pinned shape does not carry the complete-step correction
+// step. That step is the only shape whose supersession admission reopens the
+// instance, so on any other shape a completed instance keeps every recovery
+// route closed: a supersession there folds without the return that reopens
+// the work.
+func workflowCompletedInstanceSupersedeOffShape(state string, definition WorkflowDefinition, currentStep string) bool {
+	return state == "completed" && !workflowCompleteStepCorrectionStep(definition, currentStep)
+}
+
+// workflowCompletedInstanceOffShapeFailure is the refusal every admission
+// surface names for a completed instance off the supported shape, so a
+// divergence between the surfaces cannot reopen the route.
+func workflowCompletedInstanceOffShapeFailure(subject string) error {
+	return newFailure(KindInvalidOperation, subject, "a completed workflow instance supersedes its contract only on the pinned complete-step correction shape", false, "start a successor workflow")
+}
+
+// workflowCompleteStepCorrectionEvidenceCutoff returns the domain-event
+// sequence of the latest supersession in contractVersion's ancestry that
+// produced a contract declaring the reserved complete-step correction route,
+// and zero when the ancestry declares none. The cutoff persists across later
+// ordinary successors: once a correction cut the predecessor's verdicts and
+// evidence off, no descendant reads them again — only fresh post-cutoff
+// evidence and verdicts re-establish a contract. Evidence bound at or before
+// the cutoff carried the disproved premise, so the evidence-requirement
+// surfaces accept only bindings recorded after it.
+func workflowCompleteStepCorrectionEvidenceCutoff(ctx context.Context, q queryer, workID string, contractVersion int64) (int64, error) {
+	rows, err := q.QueryContext(ctx, `SELECT contract_version,route_conventions FROM workflow_contracts WHERE work_id=? AND contract_version<=? ORDER BY contract_version DESC`, workID, contractVersion)
+	if err != nil {
+		return 0, wrapFailure(KindUnavailable, "workflow_correction", "cannot read the workflow contract ancestry", true, "retry once the workflow projection is readable", err)
+	}
+	routeVersion := int64(0)
+	for rows.Next() {
+		var version int64
+		var routesJSON string
+		if err := rows.Scan(&version, &routesJSON); err != nil {
+			rows.Close()
+			return 0, wrapFailure(KindUnavailable, "workflow_correction", "cannot scan the workflow contract ancestry", true, "retry once the workflow projection is readable", err)
+		}
+		var routes []string
+		if json.Unmarshal([]byte(routesJSON), &routes) == nil && containsString(routes, workflowCompleteStepCorrectionRoute) {
+			routeVersion = version
+			break
+		}
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return 0, wrapFailure(KindUnavailable, "workflow_correction", "cannot enumerate the workflow contract ancestry", true, "retry once the workflow projection is readable", err)
+	}
+	if err := rows.Close(); err != nil {
+		return 0, wrapFailure(KindUnavailable, "workflow_correction", "cannot close the workflow contract ancestry", true, "retry once the workflow projection is readable", err)
+	}
+	if routeVersion == 0 {
+		return 0, nil
+	}
+	var seq int64
+	if err := q.QueryRowContext(ctx, `SELECT COALESCE(MAX(seq),0) FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.new_contract_version')=?`, string(SubjectWorkItem), workID, WorkflowContractSuperseded, routeVersion).Scan(&seq); err != nil {
+		return 0, wrapFailure(KindUnavailable, "workflow_correction", "cannot read the complete-step correction cutoff", true, "retry once the workflow projection is readable", err)
+	}
+	if seq == 0 {
+		return 0, newFailure(KindInvariantViolation, "workflow_correction", "complete-step correction contract has no supersession event", false, "rebuild the workflow contract projection")
+	}
+	return seq, nil
+}
+
 // WorkflowCorrectionContext is the bounded correction record projected for a
 // work pin and for the next worker packet.
 type WorkflowCorrectionContext struct {
@@ -333,6 +413,17 @@ func workflowVerdictCorrectionContext(ctx context.Context, q queryer, workID str
 	if healthyErr != nil {
 		return nil, healthyErr
 	}
+	// A cutoff in the contract's ancestry bounds the healthy baseline: the
+	// corrected contract's verification window opens at the supersession, so
+	// historical healthy verdicts and the corrections they closed count
+	// neither as health nor toward the successor's bound.
+	cutoff, cutoffErr := workflowCompleteStepCorrectionEvidenceCutoff(ctx, q, workID, contractVersion)
+	if cutoffErr != nil {
+		return nil, cutoffErr
+	}
+	if lastHealthySeq < cutoff {
+		lastHealthySeq = cutoff
+	}
 	var latestCorrectionSeq int64
 	if err := q.QueryRowContext(ctx, `SELECT COALESCE(MAX(seq),0) FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='request_correction' AND seq>? AND seq<?`, string(SubjectWorkItem), workID, WorkflowActionCompleted, lastHealthySeq, seq).Scan(&latestCorrectionSeq); err != nil {
 		return nil, wrapFailure(KindUnavailable, subject, "cannot inspect prior correction requests", true, "retry once the workflow correction projection is readable", err)
@@ -463,7 +554,7 @@ func validateCorrectionRequestPayload(ctx context.Context, q queryer, workID str
 		}
 	}
 	for _, ref := range evidence {
-		bound, boundErr := workflowEvidenceReferenceBound(ctx, q, workID, ref, subject)
+		bound, boundErr := workflowEvidenceReferenceBound(ctx, q, workID, ref, subject, 0)
 		if boundErr != nil {
 			return boundErr
 		}

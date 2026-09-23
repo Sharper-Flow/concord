@@ -5,7 +5,7 @@ import { agentLanePacketSchema, agentLaneReportSchema, agentLanes, workerScopeAs
 import { maxEnvelopeBytes } from "./generated-contracts"
 import { coreBinary } from "./generated-release"
 import { SecretToolCredentialStore, b64, clientRef, privateKeyObject, randomNonce, type CredentialStore } from "./credentials"
-import { canonicalDirectory, dispatchDirectoryMismatch, dispatchWindows, DispatchWindowError, type DispatchWindows } from "./dispatch-window"
+import { canonicalDirectory, dispatchDirectoryMismatch, dispatchWindows, DispatchWindowError, serializeLanePacket, type DispatchWindows } from "./dispatch-window"
 import { armedClaimedWorktree, unlandedClaimedWorktree } from "./claimed-worktree"
 import { hostControlPlane, type RouteResult, type SessionReader } from "./move-session"
 import { readTaskResult } from "./task-result"
@@ -602,19 +602,9 @@ export function readExportSessionMetadata(stdout: string, expectedSessionID: str
 // authorized path and refuses every substitution — caller-composed prose, a
 // packet for another attempt, or a session opened by anything else.
 //
-// The opening message may carry host-generated parts beside the packet text.
-// When the packet text contains an @-mention of the lane agent — observed in
-// production when a retry's correction block quotes the prior attempt's
-// session title, which ends in "(@concord-implement subagent)" — the host
-// splits the message into [packet text, agent part, synthetic instruction]
-// where the instruction is the host's own deterministic wrapper for that
-// agent. Those parts never carry worker-composed content: the dispatch
-// overwrites the Task prompt with the packet bytes, so the caller cannot add
-// parts, and the wrapper text is derived from the packet's own bytes. The
-// identity guarantee is therefore: exactly one text part equals the packet
-// bytes, and every other part is the host's agent part for the lane agent or
-// the host's synthetic instruction for it. Anything else is unauthorized
-// content and is refused.
+// The opening message is exactly one text part. The host resolves an @agent
+// mention in a Task prompt into an agent part and a synthetic instruction, so
+// the packet serializer escapes every '@' and no packet text can form one.
 export function readExportOpeningPacket(stdout: string, expectedSessionID: string, packet: AgentLanePacket): { ok: true } | { ok: false; predicate: ReadbackRefusal; message: string } {
   let value: unknown
   try { value = JSON.parse(stdout) } catch { return { ok: false, predicate: "export_json", message: "export body was not valid JSON" } }
@@ -623,31 +613,26 @@ export function readExportOpeningPacket(stdout: string, expectedSessionID: strin
   if (!isRecord(first) || !isRecord(first.info) || !Array.isArray(first.parts)) return { ok: false, predicate: "export_message_shape", message: "export body did not match the message shape" }
   if (first.info.role !== "user") return { ok: false, predicate: "dispatched_packet_identity", message: "worker session opened with a non-user message instead of the authorized dispatch packet" }
   if (first.parts.length === 0) return { ok: false, predicate: "dispatched_packet_identity", message: "worker session opened with 0 message parts instead of the single authorized dispatch packet" }
-  const laneAgent = "concord-" + packet.lane_id
-  const wrapperPrefix = " Use the above message and context to generate a prompt and call the task tool with subagent: " + laneAgent
-  const wrapperDeniedSuffix = " . Invoked by user; guaranteed to exist."
+  const expected = serializeLanePacket(packet)
   let packetPartSeen = false
   for (const part of first.parts) {
     if (!isRecord(part)) return { ok: false, predicate: "export_message_shape", message: "export message did not match the message shape" }
     if (part.type === "text" && typeof part.text === "string") {
-      if (part.text === JSON.stringify(packet)) {
+      if (part.text === expected) {
         if (packetPartSeen) return { ok: false, predicate: "dispatched_packet_identity", message: "worker session opened with the authorized dispatch packet repeated beside itself" }
         packetPartSeen = true
         continue
       }
-      if (part.text === wrapperPrefix || part.text === wrapperPrefix + wrapperDeniedSuffix) continue
       if (first.parts.length === 1) return { ok: false, predicate: "dispatched_packet_identity", message: "worker session opened with a message that is not the authorized dispatch packet" }
       return { ok: false, predicate: "dispatched_packet_identity", message: "worker session opened with an unauthorized text part beside the authorized dispatch packet" }
     }
-    if (part.type === "agent") {
-      if (part.name !== laneAgent) return { ok: false, predicate: "dispatched_packet_identity", message: `worker session opened with a host agent part for ${typeof part.name === "string" ? part.name : "an unknown agent"} instead of ${laneAgent}` }
-      continue
-    }
+    if (part.type === "agent") return { ok: false, predicate: "dispatched_packet_identity", message: `worker session opened with a host agent part for ${typeof part.name === "string" ? part.name : "an unknown agent"} beside the authorized dispatch packet` }
     return { ok: false, predicate: "dispatched_packet_identity", message: `worker session opened with a ${typeof part.type === "string" ? part.type : "malformed"} part instead of the authorized dispatch packet` }
   }
   if (!packetPartSeen) return { ok: false, predicate: "dispatched_packet_identity", message: "worker session opened with a message that is not the authorized dispatch packet" }
   return { ok: true }
 }
+
 
 // The core compares the worker session's directory against the work item's
 // active worktree claim, so the value it receives must be a real path. The

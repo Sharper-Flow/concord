@@ -12,6 +12,15 @@ import path from "node:path"
 import type { AgentLanePacket } from "./dispatch"
 import { dispatchRequiresNextTurn, TURN_MOVE_DISPATCH_REFUSAL } from "./turn-move-boundary"
 
+// serializeLanePacket is the one byte form of a lane packet: the Task prompt
+// the dispatch window writes and the opening text the readback compares. It
+// escapes every '@' as \u0040, which JSON decodes back to '@', so quoted
+// correction context such as a prior session title cannot form a host @agent
+// mention in the worker's opening message.
+export function serializeLanePacket(packet: AgentLanePacket): string {
+  return JSON.stringify(packet).replace(/@/g, "\\u0040")
+}
+
 // The host renders the worker card only for the tool with this id, so the lane
 // runs under it or it runs without operator progress, navigation, and cancel.
 export const TASK_TOOL_ID = "task"
@@ -222,7 +231,7 @@ export class DispatchWindows {
     this.#inFlight.set(sessionID, record)
     const packet = record.packet
     args.subagent_type = LANE_AGENT_PREFIX + packet.lane_id
-    args.prompt = JSON.stringify(packet)
+    args.prompt = serializeLanePacket(packet)
     args.description = `${packet.lane_id} lane, attempt ${packet.attempt_id}`
     // A resumed worker session would carry a prior attempt's history into this
     // attempt. Lane restart is not reachable, so the resume field never survives.

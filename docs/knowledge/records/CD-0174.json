@@ -1,6 +1,6 @@
 {
   "authority": {
-    "contract_version": 1,
+    "contract_version": 2,
     "legislated_by": "work-05a228deeb2cfc25eaea9acb",
     "tier": "legislated"
   },
@@ -26,9 +26,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:64704b6d72401ad2714548917e4b9202f306af709a6c5ea1ef16f777bafd90a3",
+  "sha256": "sha256:1528603cef7f5a4dd3690770a942e4325752cf03c2abb6398279c58da035a52f",
   "status": "accepted",
-  "summary": "The worker completion readback reads the host session API in process over bounded message pages, so the truncating export subprocess and the byte ceiling are gone while the opening-packet check, the model and agent identity, and the born-failed recording stay unchanged.",
+  "summary": "The worker completion readback reads the host session API in process over bounded message pages, and one serializer escapes '@' in the lane packet so no host agent mention forms, while the opening-packet check, the model and agent identity, and the born-failed recording stay unchanged.",
   "tags": [
     "adapter",
     "worker-completion",

@@ -17,7 +17,7 @@ configureCoreBinary("concord-test")
 // otherwise hand this file a host it never asked for. State the precondition.
 import { hostControlPlane } from "./move-session"
 hostControlPlane().bind(undefined)
-import { DispatchWindows } from "./dispatch-window"
+import { DispatchWindows, serializeLanePacket } from "./dispatch-window"
 import { armClaimedWorktree, clearClaimedWorktree, recordUnlandedClaimedWorktree, resetClaimedWorktrees } from "./claimed-worktree"
 import type { CredentialStore } from "./credentials"
 
@@ -1104,51 +1104,37 @@ test("readExportOpeningPacket refuses content beside the exact packet", () => {
   expect(readExportOpeningPacket(openingParts([]), "session-1", packet())).toEqual({ ok: false, predicate: "dispatched_packet_identity", message: "worker session opened with 0 message parts instead of the single authorized dispatch packet" })
 })
 
-// The host splits the opening message into [packet text, agent part, synthetic
-// instruction] when the packet text mentions the lane agent — observed in
-// production when a retry's correction block quotes the prior attempt's
-// session title. The wrapper parts are the host's own bytes for the lane
-// agent, so they admit the packet; a wrapper for another agent, a wrapper with
-// unexpected bytes, or worker-composed content beside the packet refuses.
-test("readExportOpeningPacket admits the host wrapper beside the packet and refuses every substitute", () => {
+// A packet whose correction context quotes a prior session title carries
+// "@concord-implement". The serializer escapes every '@', so the Task prompt
+// holds no host @agent mention, and JSON decoding restores the exact packet.
+test("serializeLanePacket escapes host agent mentions and round-trips", () => {
+  const mentioned = { ...packet(), inputs: { ...packet().inputs, task: "prior title: implement lane (@concord-implement subagent)" } } as AgentLanePacket
+  const text = serializeLanePacket(mentioned)
+  expect(text.includes("@")).toBe(false)
+  expect(text.includes("\\u0040concord-implement")).toBe(true)
+  expect(JSON.parse(text)).toEqual(mentioned)
+})
+
+// The opening message is exactly the serialized packet. A host agent part or
+// synthetic instruction beside it means a mention formed, and it refuses.
+test("readExportOpeningPacket refuses a host agent part and wrapper beside the packet", () => {
   const openingParts = (parts: unknown[]) => JSON.stringify({
     info: { id: "session-1" },
     messages: [{ info: { id: "message-1", sessionID: "session-1", role: "user", time: { created: 1 } }, parts }],
   })
   const laneAgent = "concord-" + packet().lane_id
-  const wrapper = " Use the above message and context to generate a prompt and call the task tool with subagent: " + laneAgent
-  const production = openingParts([
-    { type: "text", text: JSON.stringify(packet()) },
-    { type: "agent", name: laneAgent, id: "prt-1", sessionID: "session-1", messageID: "message-1" },
-    { type: "text", text: wrapper + " . Invoked by user; guaranteed to exist." },
-  ])
-  expect(readExportOpeningPacket(production, "session-1", packet())).toEqual({ ok: true })
-  const plainWrapper = openingParts([
-    { type: "text", text: JSON.stringify(packet()) },
+  expect(readExportOpeningPacket(openingParts([{ type: "text", text: serializeLanePacket(packet()) }]), "session-1", packet())).toEqual({ ok: true })
+  const wrapped = readExportOpeningPacket(openingParts([
+    { type: "text", text: serializeLanePacket(packet()) },
     { type: "agent", name: laneAgent },
-    { type: "text", text: wrapper },
-  ])
-  expect(readExportOpeningPacket(plainWrapper, "session-1", packet())).toEqual({ ok: true })
-  const wrongAgent = readExportOpeningPacket(openingParts([
-    { type: "text", text: JSON.stringify(packet()) },
-    { type: "agent", name: "concord-review" },
+    { type: "text", text: " Use the above message and context to generate a prompt and call the task tool with subagent: " + laneAgent },
   ]), "session-1", packet())
-  expect(wrongAgent).toEqual({ ok: false, predicate: "dispatched_packet_identity", message: `worker session opened with a host agent part for concord-review instead of ${laneAgent}` })
-  const foreignWrapper = readExportOpeningPacket(openingParts([
-    { type: "text", text: JSON.stringify(packet()) },
-    { type: "text", text: wrapper + " plus worker-composed instructions" },
-  ]), "session-1", packet())
-  expect(foreignWrapper).toEqual({ ok: false, predicate: "dispatched_packet_identity", message: "worker session opened with an unauthorized text part beside the authorized dispatch packet" })
+  expect(wrapped).toEqual({ ok: false, predicate: "dispatched_packet_identity", message: `worker session opened with a host agent part for ${laneAgent} beside the authorized dispatch packet` })
   const duplicatedPacket = readExportOpeningPacket(openingParts([
-    { type: "text", text: JSON.stringify(packet()) },
-    { type: "text", text: JSON.stringify(packet()) },
+    { type: "text", text: serializeLanePacket(packet()) },
+    { type: "text", text: serializeLanePacket(packet()) },
   ]), "session-1", packet())
   expect(duplicatedPacket).toEqual({ ok: false, predicate: "dispatched_packet_identity", message: "worker session opened with the authorized dispatch packet repeated beside itself" })
-  const packetMissing = readExportOpeningPacket(openingParts([
-    { type: "agent", name: laneAgent },
-    { type: "text", text: wrapper },
-  ]), "session-1", packet())
-  expect(packetMissing).toEqual({ ok: false, predicate: "dispatched_packet_identity", message: "worker session opened with a message that is not the authorized dispatch packet" })
 })
 
 test("ambiguous model readback records one durable failed attempt", async () => {

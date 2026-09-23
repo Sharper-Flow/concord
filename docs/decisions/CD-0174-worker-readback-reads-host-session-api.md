@@ -42,11 +42,24 @@ assertions, and records the outcome. A host read that answers an error status
 refuses the readback as a born-failed read; a transport fault reports the
 host's own diagnostic and names reconciliation.
 
+### D4. The lane packet cannot form a host agent mention
+
+The host resolves an `@agent` mention in a Task prompt into an agent part and
+a synthetic instruction in the worker's opening message. A packet that quotes
+a prior session title carries such a mention. One serializer produces the
+packet bytes for both the Task prompt and the opening-packet comparison, and
+it escapes every `@` as `\u0040`, which JSON decoding restores. The opening
+message is then exactly one text part, and any other part refuses the
+readback with `dispatched_packet_identity`.
+
 ## Verification
 
 - The adapter suite proves the completion readback runs one session read and
   one bounded page, admits a transcript larger than any pipe buffer, refuses
   an unbounded transcript with the typed predicate, and retains the session
   diagnostics and the worker result on the recorded failed attempt.
+- The adapter suite proves a packet that contains `@concord-implement`
+  serializes with no `@` and decodes to the same packet, and that a host agent
+  part beside the packet refuses.
 - The route end-to-end test dispatches through the real core with the session
   API reader and completes on the real store.

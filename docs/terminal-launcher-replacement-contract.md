@@ -3,6 +3,10 @@
 **Status:** Accepted under [`CD-0108`](./decisions/CD-0108-the-launcher-is-the-zlauncher-replacement.md).
 **Supersedes:** the terminal launcher contract (C18,
 [`terminal-launcher-contract.md`](./terminal-launcher-contract.md)) in full.
+**Amended:** 2026-09-22, operator-approved Product-first correction in work
+work-900ef777e9de86b16f55d269, with the CD-0041 D2 browse-path amendment:
+Product selection opens the Product work list directly, and Domain and law
+context stays reachable without being the default focus.
 **Implementation status:** The replacement build is implemented. Operator
 verification of ZLauncher retirement remains tracked by
 [issue #803](https://github.com/Sharper-Flow/concord/issues/803).
@@ -79,14 +83,19 @@ focus. No vim chords. Type-to-filter narrows the current list.
 - Pins: pinned paths stay at the top of the list; Ctrl-P pins and Ctrl-U
   unpins the highlighted path.
 - Ordering is most-recently-used first, then stored rank.
-- Two-stage pick: selecting a Product with work narrows to its work items
-  and worktrees; selecting a plain project launches directly.
+- Two-stage pick: selecting a Product with work immediately shows its
+  Product-scoped, scrollable list of non-terminal work, ending with a
+  New / Backlog row; selecting a plain project launches directly.
+- The Product work list is the Product entry view. Domain and law context
+  per Product stays reachable from the Product view; it is never the default
+  focus.
 
 ### 5. Status and preview
 
 - The preview pane renders the selection's context: work state, worktree
   status, and Domain context per Product.
-- Work columns show lifecycle, priority, and urgency.
+- Work columns show lifecycle, priority, urgency, the linked issue key, and
+  the live-session state.
 - Blocked-work indicators mark work whose blocking relations are recorded.
 - A session inventory lists live OpenCode sessions per work with reattach.
 - Vision live status and lgrep status appear as preview content, read
@@ -149,6 +158,14 @@ replaces C18's three-screen model; it keeps the dependency decision.
 ## Acceptance criteria
 
 ```gherkin
+Scenario: product-select-opens-the-work-list
+  Given the store holds Product "concord" with non-terminal work
+  When the operator selects "concord"
+  Then the Product work list renders immediately
+  And each non-terminal row carries its lifecycle, linked issue key, and live-session state
+  And the New / Backlog row ends the list
+  And the Domain and law context renders when the operator cycles pane focus to it
+
 Scenario: browse-to-launch
   Given the store holds Product "concord" with work item "W" in progress
   And work item "W" has a claimed worktree

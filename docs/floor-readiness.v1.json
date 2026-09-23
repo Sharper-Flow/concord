@@ -117,13 +117,13 @@
     {
       "id": "fc1-domain-navigation",
       "condition": "fc1",
-      "title": "Product detail is navigated through canonical Domains",
-      "requirement": "The launcher opens Product detail through a bounded Domain hierarchy and shows current law, typed architecture relations, active Domain-bound work, and unresolved architecture overlap before subordinate work or Initiative views.",
+      "title": "Product detail opens on active work with Domain context reachable",
+      "requirement": "The launcher opens Product detail on its Product-scoped active work list (CD-0041 D2, amended 2026-09-22), and the bounded Domain hierarchy carries current law, typed architecture relations, active Domain-bound work, and unresolved architecture overlap one reachable step from the Product view.",
       "state": "satisfied",
       "evidence": [
         {
           "kind": "go_test",
-          "value": "internal/launcher.TestSelectingProductOpensOnDomainSection"
+          "value": "internal/launcher.TestSelectingProductOpensOnRankedWork"
         },
         {
           "kind": "go_test",

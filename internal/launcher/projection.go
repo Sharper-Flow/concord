@@ -272,12 +272,23 @@ type RankedColumn struct {
 	Key, Value string
 }
 
-// RankedColumns returns the stable data columns for a work item.
+// mandatedRankedKeys lists the columns the launcher contract requires on
+// every non-terminal Product work row: lifecycle, the linked issue key, and
+// the live-session state. Their mandate is per row, so neither the constant
+// collapse nor a shed column may remove them; the renderer bounds the Work
+// cell so these columns always fit instead.
+var mandatedRankedKeys = map[string]bool{"lifecycle": true, "issue": true, "live": true}
+
+// MandatedRankedColumn reports whether the launcher contract requires the
+// named column on every non-terminal Product work row.
+func MandatedRankedColumn(key string) bool {
+	return mandatedRankedKeys[key]
+}
+
+// RankedColumns returns the stable data columns for a work item. The
+// mandated columns lead the display order; the rest follow in shed priority
+// so a narrowed pane drops descriptive columns first.
 func RankedColumns(item RankedWork, snapshot Snapshot) []RankedColumn {
-	urgency := item.Urgency
-	if urgency == "" {
-		urgency = "standard"
-	}
 	kind := item.Kind
 	if kind == "" {
 		kind = "-"
@@ -289,18 +300,29 @@ func RankedColumns(item RankedWork, snapshot Snapshot) []RankedColumn {
 		live = "no"
 	}
 	return []RankedColumn{
+		{Key: "lifecycle", Value: item.Lifecycle},
 		{Key: "issue", Value: item.LinearIssueKey},
 		{Key: "live", Value: live},
 		{Key: "kind", Value: kind},
 		{Key: "priority", Value: fmt.Sprintf("%d", item.Priority)},
-		{Key: "urgency", Value: urgency},
-		{Key: "lifecycle", Value: item.Lifecycle},
+		{Key: "urgency", Value: urgencyText(item.Urgency)},
 		{Key: "terminal", Value: item.TerminalAt},
 		{Key: "projects", Value: fmt.Sprintf("%d", item.ProjectCount)},
 	}
 }
 
-// CollapsedRankedKeys returns columns that carry one value across visible rows.
+// urgencyText defaults an unset urgency to the standard label the detail
+// pane renders, so the column never shows an empty urgency.
+func urgencyText(value string) string {
+	if value == "" {
+		return "standard"
+	}
+	return value
+}
+
+// CollapsedRankedKeys returns columns that carry one value across visible
+// rows. The mandated columns never collapse: a constant lifecycle or
+// live-session state is still a fact each row must carry.
 func CollapsedRankedKeys(ranked []RankedWork, snapshot Snapshot) map[string]bool {
 	constant := map[string]bool{}
 	if len(ranked) == 0 {
@@ -308,6 +330,9 @@ func CollapsedRankedKeys(ranked []RankedWork, snapshot Snapshot) map[string]bool
 	}
 	first := RankedColumns(ranked[0], snapshot)
 	for _, column := range first {
+		if mandatedRankedKeys[column.Key] {
+			continue
+		}
 		same := true
 		for _, item := range ranked[1:] {
 			values := RankedColumns(item, snapshot)

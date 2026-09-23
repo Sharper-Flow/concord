@@ -72,7 +72,7 @@ func TestS2PanelFocusCyclesAndS3SectionsRemainSeparate(t *testing.T) {
 		}
 	}
 	m.RestoreSnapshot(Snapshot{Screen: ScreenWork, Section: SectionRelations})
-	if got := m.CyclePanelFocus(); got != S2PanelDomain {
+	if got := m.CyclePanelFocus(); got != S2PanelNext {
 		t.Fatalf("S3 changed S2 focus=%q", got)
 	}
 	if got := m.Section(); got != SectionRelations {

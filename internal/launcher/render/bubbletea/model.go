@@ -977,11 +977,14 @@ func workFields(item launcher.RankedWork, workflow string) []detailField {
 }
 
 // panelFocus reads the synced snapshot's pane focus with the core's default:
-// an empty Product-screen focus is the domain panel. Render reads this, never
-// the core, so a core change stays invisible until Sync projects it.
+// an empty Product-screen focus is the work list panel. Render reads this,
+// never the core, so a core change stays invisible until Sync projects it.
 func (m *Model) panelFocus() launcher.S2Panel {
 	if m.snapshot.PanelFocus == "" {
-		return launcher.S2PanelDomain
+		if m.snapshot.Section == launcher.SectionDomains {
+			return launcher.S2PanelDomain
+		}
+		return launcher.S2PanelNext
 	}
 	return m.snapshot.PanelFocus
 }
@@ -1039,7 +1042,7 @@ func (m *Model) detailPane(height int) string {
 	}
 	if item, workflow := m.selectedWork(); item != nil {
 		for _, field := range workFields(*item, workflow) {
-			lines = append(lines, field.label+": "+field.value)
+			lines = append(lines, detailPaneLines(field.label, field.value)...)
 		}
 	} else if row := m.detailFocusRow(); row != nil {
 		if row.Focus != "" {
@@ -1056,6 +1059,56 @@ func (m *Model) detailPane(height int) string {
 		lines = append(lines, "SELECTED: none")
 	}
 	return pane(renderedPane{header: lines}, detailPaneWidth, height, 0)
+}
+
+// detailPaneIdentityFields names the detail fields whose values wrap onto
+// indented continuation rows instead of clipping: the work and issue
+// identifiers are what a compacted work row elides, so the pane carries
+// them in full. Other fields keep their single-row clip; a long title
+// belongs to the Work screen's full-width header.
+var detailPaneIdentityFields = map[string]bool{"WORK": true, "ISSUE": true}
+
+// detailPaneLines renders one detail field's label and value as pane rows
+// within the pane's inner width. An over-width identity value wraps because
+// the pane clips a single row, and a clipped identifier would hide the very
+// cells the compacted work row elides.
+func detailPaneLines(label, value string) []string {
+	line := label + ": " + value
+	prefix := label + ": "
+	budget := detailPaneWidth - 2 // the pane border's two cells
+	if value == "" || !detailPaneIdentityFields[label] || lipgloss.Width(line) <= budget {
+		return []string{line}
+	}
+	rows := make([]string, 0, 2)
+	indent := strings.Repeat(" ", lipgloss.Width(prefix))
+	for i, chunk := range wrapToWidth(value, budget-lipgloss.Width(prefix)) {
+		if i == 0 {
+			rows = append(rows, prefix+chunk)
+			continue
+		}
+		rows = append(rows, indent+chunk)
+	}
+	return rows
+}
+
+// wrapToWidth splits a value into display-width-bounded chunks with no
+// ellipsis: the caller wraps to show every cell, not to bound a row.
+func wrapToWidth(value string, width int) []string {
+	var rows []string
+	current := ""
+	for _, r := range value {
+		next := current + string(r)
+		if current != "" && lipgloss.Width(next) > width {
+			rows = append(rows, current)
+			current = string(r)
+			continue
+		}
+		current = next
+	}
+	if current != "" {
+		rows = append(rows, current)
+	}
+	return rows
 }
 
 func (m *Model) renderContent(snapshot launcher.Snapshot, cursor int) renderedPane {
@@ -1189,7 +1242,11 @@ func s2PanelContent(panel launcher.S2Panel, expanded bool, stack launcher.S2Answ
 		return append([]string{"DOMAIN:"}, domainHeader...), domainHeaders, domainRows, append(knowledgeLines(snapshot.Knowledge), relationLines(snapshot.Relations)...), domainSeverities
 	case launcher.S2PanelBlocked, launcher.S2PanelNext:
 		rankedHeaders, rankedRows, rankedSeverities := rankedTable(ranked, snapshot, width)
-		return []string{"BLOCKED/BLOCKERS:"}, rankedHeaders, rankedRows, nil, rankedSeverities
+		label := "WORK:"
+		if panel == launcher.S2PanelBlocked {
+			label = "BLOCKED/BLOCKERS:"
+		}
+		return []string{label}, rankedHeaders, rankedRows, nil, rankedSeverities
 	default:
 		return nil, nil, nil, nil, nil
 	}
@@ -1308,7 +1365,11 @@ func relationLines(relations launcher.RelationTree) []string {
 // rankedTable composes the Product screen's drill-down work table. width is
 // the pane's column budget: when the declared columns do not fit, the
 // lowest-priority value columns shed whole instead of every column
-// truncating uniformly.
+// truncating uniformly. The mandated columns lead the display order and are
+// priced before composition at their full width, so a linked issue key
+// renders in full on every row, and the Work cell bounds itself with a
+// compacted identity, so lifecycle, issue, and live seat on every row at
+// every supported width no matter how long the titles and keys run.
 func rankedTable(ranked []launcher.RankedWork, snapshot launcher.Snapshot, width int) ([]string, [][]string, []rowSeverity) {
 	if len(ranked) == 0 {
 		return []string{"Work"}, [][]string{{"WORK: " + drillDownEmptyState(snapshot)}}, []rowSeverity{severityNone}
@@ -1333,28 +1394,24 @@ func rankedTable(ranked []launcher.RankedWork, snapshot launcher.Snapshot, width
 	for _, column := range keys {
 		headers = append(headers, column.Key)
 	}
+	reservations := mandatedColumnReservations(keys, ranked, snapshot)
+	// The cursor gutter and the Work column's inter-column padding, priced
+	// as fitTable prices them.
+	reserved := 4
+	for _, cells := range reservations {
+		reserved += cells + 2 // the mandated column's inter-column padding
+	}
+	workBudget := max(minWorkCellBudget, width-reserved)
 	rows := make([][]string, 0, len(ranked))
 	severities := make([]rowSeverity, 0, len(ranked))
 	for i, item := range ranked {
-		line := fmtInt(i+1) + " " + rankedMarker(&item) + " " + item.ID + " " + item.Title
-		if len(item.Blockers) > 0 {
-			blockers := make([]string, 0, len(item.Blockers))
-			for _, blocker := range item.Blockers {
-				external := ""
-				if blocker.External {
-					external = " external"
-				}
-				blockers = append(blockers, blocker.ID+"/"+blocker.Title+" authority="+blocker.Authority+" age="+blocker.Age+external)
-			}
-			line += " blockers=" + strings.Join(blockers, ",")
-		}
-		row := []string{line}
+		row := []string{workCellText(i, &item, workBudget)}
 		severities = append(severities, rankedRowSeverity(&item))
 		values := launcher.RankedColumns(item, snapshot)
 		for _, key := range keys {
 			for _, column := range values {
 				if column.Key == key.Key {
-					row = append(row, column.Key+"="+column.Value)
+					row = append(row, column.Value)
 					break
 				}
 			}
@@ -1363,6 +1420,139 @@ func rankedTable(ranked []launcher.RankedWork, snapshot launcher.Snapshot, width
 	}
 	headers, rows = fitTable(headers, rows, width)
 	return headers, rows, severities
+}
+
+// workIdentityTailCells is the tail a compacted work ID keeps: an ID's final
+// cells are its most distinguishing, so they stay visible around the
+// ellipsis.
+const workIdentityTailCells = 4
+
+// minWorkCellBudget keeps a Work cell on a width too narrow to seat the
+// mandated set wide enough for the row number and a compacted identity's
+// tail, where fitTable sheds the mandated columns it cannot seat.
+const minWorkCellBudget = 7 // "1 " plus an ellipsis plus four identity tail cells
+
+// workCellText composes one ranked row's Work cell within the budget: the
+// row number, the readiness marker, the work identity, the title, and any
+// blocker detail. The identity never yields entirely: the title truncates
+// first, the marker yields next, and an ID the budget cannot seat in full
+// compacts to a head-and-tail form — its tail alone when even that cannot
+// seat. The detail pane carries the full ID.
+func workCellText(index int, item *launcher.RankedWork, budget int) string {
+	head := fmtInt(index+1) + " "
+	cells := budget - lipgloss.Width(head)
+	identityText := item.ID
+	if item.Backlog {
+		// The picker row is an action, not a work item: its "New / Backlog"
+		// label is the identity, and only a budget that would compact the
+		// label falls back to the row's own name.
+		identityText = item.Title
+		if workIdentity(identityText, cells) != identityText {
+			identityText = item.ID
+		}
+	}
+	identity := workIdentity(identityText, cells)
+	line := head + identity
+	marker := rankedMarker(item) + " "
+	if lipgloss.Width(line)+lipgloss.Width(marker) <= budget {
+		line = head + marker + identity
+	}
+	if title := item.Title; title != "" && !item.Backlog {
+		if spare := budget - lipgloss.Width(line) - 1; spare > 1 {
+			line += " " + truncateToWidth(title, spare)
+		}
+	}
+	if len(item.Blockers) > 0 {
+		blockers := make([]string, 0, len(item.Blockers))
+		for _, blocker := range item.Blockers {
+			external := ""
+			if blocker.External {
+				external = " external"
+			}
+			blockers = append(blockers, blocker.ID+"/"+blocker.Title+" authority="+blocker.Authority+" age="+blocker.Age+external)
+		}
+		line += " blockers=" + strings.Join(blockers, ",")
+	}
+	return truncateToWidth(line, budget)
+}
+
+// workIdentity renders a work ID inside a display-cell budget. A fitting ID
+// renders in full. An over-width ID compacts around an ellipsis: the widest
+// head of the ID the budget seats plus its final cells, so the compact form
+// keeps both ends of the ID and never reads as a complete ID. A head no
+// longer than the ID's leading hyphen-bounded token distinguishes nothing,
+// so a budget too small for it degrades to the tail alone, still ellipsized.
+func workIdentity(id string, budget int) string {
+	if lipgloss.Width(id) <= budget {
+		return id
+	}
+	tail := id
+	if len(tail) > workIdentityTailCells {
+		tail = tail[len(tail)-workIdentityTailCells:]
+	}
+	head := budget - 1 - lipgloss.Width(tail)
+	if head >= 0 && head <= len(id)-len(tail) && head >= workIdentityHeadFloor(id) {
+		return id[:head] + "…" + tail
+	}
+	return truncateToWidth("…"+tail, budget)
+}
+
+// workIdentityHeadFloor is the head length below which a compacted work ID
+// keeps no distinguishing prefix: a work ID's leading hyphen-bounded token,
+// the "work-" prefix every store ID shares, is uniform across rows.
+func workIdentityHeadFloor(id string) int {
+	token, _, found := strings.Cut(id, "-")
+	if !found {
+		return 0
+	}
+	return len(token) + 1
+}
+
+// mandatedColumnReservations prices each mandated column the table composes
+// at its widest cell. The linked issue key renders in full on every row —
+// the contract mandates the key itself, not a truncated stand-in — so the
+// reservation is uncapped and the Work cell yields instead: its title
+// truncates, its marker yields, and its identity compacts before a mandated
+// cell shrinks.
+func mandatedColumnReservations(keys []launcher.RankedColumn, ranked []launcher.RankedWork, snapshot launcher.Snapshot) map[string]int {
+	reservations := map[string]int{}
+	for _, column := range keys {
+		if !launcher.MandatedRankedColumn(column.Key) {
+			continue
+		}
+		widest := lipgloss.Width(column.Key)
+		for _, item := range ranked {
+			for _, candidate := range launcher.RankedColumns(item, snapshot) {
+				if candidate.Key == column.Key {
+					if cells := lipgloss.Width(candidate.Value); cells > widest {
+						widest = cells
+					}
+					break
+				}
+			}
+		}
+		reservations[column.Key] = widest
+	}
+	return reservations
+}
+
+// truncateToWidth clips a cell to a display-width budget and marks the cut
+// with an ellipsis, so a clipped title never reads as complete. It measures
+// with the same library the table renders with.
+func truncateToWidth(value string, width int) string {
+	if width <= 0 || lipgloss.Width(value) <= width {
+		return value
+	}
+	cut := width - 1 // the ellipsis occupies the final cell
+	clipped := ""
+	for _, r := range value {
+		next := clipped + string(r)
+		if lipgloss.Width(next) > cut {
+			break
+		}
+		clipped = next
+	}
+	return clipped + "…"
 }
 
 // rankedRowSeverity colours the rows whose rendered text already carries the

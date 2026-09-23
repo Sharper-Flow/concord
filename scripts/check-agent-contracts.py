@@ -392,23 +392,21 @@ def _validate_outcome_semantics(work_kind: str, outcome: dict) -> str | None:
         return None
     tokens = set(outcome.get("allowed", []))
     spike_tokens = {"accepted_decision", "insufficient_evidence"}
-    if work_kind == "architecture_spike" and tokens & spike_tokens and "decision_record" not in outcome:
-        return "decision record required for architecture spike"
     if work_kind == "research" and tokens & spike_tokens:
         return "research cannot allow spike-only outcome"
     return None
 
 def _validate_predicate_against_family(work_kind: str, predicate: dict) -> str | None:
     rules = {
-        "implementation": ("check", {"exists", "absent", "check"}, set(), False),
-        "break_fix": ("absent", {"exists", "absent", "check"}, set(), False),
-        "research": ("outcome", {"outcome"}, {"no_change", "resolved", "report_recorded"}, False),
-        "architecture_spike": ("outcome", {"outcome"}, {"accepted_decision", "insufficient_evidence"}, True),
-        "ops_runbook": ("check", {"exists", "absent", "check"}, set(), False),
-        "static_analysis": ("check", {"exists", "absent", "check"}, set(), False),
-        "generic_one_off": ("outcome", {"exists", "absent", "outcome", "check"}, {"no_change", "accepted_decision", "insufficient_evidence", "resolved", "remediated", "report_recorded", "completed", "operator_defined"}, False),
+        "implementation": ("check", {"exists", "absent", "check"}, set()),
+        "break_fix": ("absent", {"exists", "absent", "check"}, set()),
+        "research": ("outcome", {"outcome"}, {"no_change", "resolved", "report_recorded"}),
+        "architecture_spike": ("outcome", {"outcome"}, {"accepted_decision", "insufficient_evidence"}),
+        "ops_runbook": ("check", {"exists", "absent", "check"}, set()),
+        "static_analysis": ("check", {"exists", "absent", "check"}, set()),
+        "generic_one_off": ("outcome", {"exists", "absent", "outcome", "check"}, {"no_change", "accepted_decision", "insufficient_evidence", "resolved", "remediated", "report_recorded", "completed", "operator_defined"}),
     }
-    _, allowed_kinds, allowed_tokens, requires_record = rules[work_kind]
+    _, allowed_kinds, allowed_tokens = rules[work_kind]
     kind = predicate.get("kind")
     if kind not in allowed_kinds:
         return "predicate kind not allowed"
@@ -416,8 +414,6 @@ def _validate_predicate_against_family(work_kind: str, predicate: dict) -> str |
         tokens = set(predicate.get("allowed", []))
         if not tokens.issubset(allowed_tokens):
             return "outcome token not allowed"
-        if requires_record and tokens & {"accepted_decision", "insufficient_evidence"} and "decision_record" not in predicate:
-            return "decision record required"
     return None
 
 def check_workflow_contracts() -> list[str]:

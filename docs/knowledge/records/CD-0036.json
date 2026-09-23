@@ -8,6 +8,7 @@
     "tier": "legislated"
   },
   "date": "2026-08-17T00:00:00Z",
+  "doc_contract_profile": "legacy",
   "evidence": [
     "internal/store/workflow_law_revision.go",
     "internal/store/workflow_law_revision_test.go",

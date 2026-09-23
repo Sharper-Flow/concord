@@ -185,6 +185,12 @@ def validate_generator(schema: object, generator: object, findings: list[str]) -
     compare("generator KINDS", schema_enum(schema, ["$defs", "record", "properties", "kind"], findings), generator.KINDS, findings)
     compare("generator LAW_KINDS", schema_enum(schema, ["$defs", "lawRelation", "properties", "kind"], findings), generator.LAW_RELATION_KINDS, findings)
     compare("generator LAW_BEARING_KINDS", status_tier_kinds(schema, "accepted", findings), generator.LAW_BEARING_KINDS, findings)
+    compare(
+        "generator LEGACY_DECISION_PROFILE_IDS",
+        schema_enum(schema, ["$defs", "legacyDecisionProfileId"], findings),
+        generator.LEGACY_DECISION_PROFILE_IDS,
+        findings,
+    )
     compare_pattern(
         "generator RECORD_PATH_RE",
         schema_string(schema, ["$defs", "record", "properties", "path", "pattern"], findings),
@@ -225,6 +231,12 @@ def validate(schema: object, checker: object, doc_contract: object = None, closu
     compare("KINDS (indexed_kinds)", schema_enum(schema, ["properties", "indexed_kinds", "items"], findings), checker.KINDS, findings)
     compare("RECORD_KINDS", schema_enum(schema, ["$defs", "record", "properties", "kind"], findings), checker.RECORD_KINDS, findings)
     compare("LAW_KINDS", schema_enum(schema, ["$defs", "lawRelation", "properties", "kind"], findings), checker.LAW_KINDS, findings)
+    compare(
+        "LEGACY_DECISION_PROFILE_IDS",
+        schema_enum(schema, ["$defs", "legacyDecisionProfileId"], findings),
+        checker.LEGACY_DECISION_PROFILE_IDS,
+        findings,
+    )
     compare(
         "ALLOWED_SCOPES_V12",
         schema_properties(schema, ["$defs", "scopeCommon"], findings),

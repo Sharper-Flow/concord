@@ -5,6 +5,7 @@
     "tier": "legislated"
   },
   "date": "2026-08-13T00:00:00Z",
+  "doc_contract_profile": "legacy",
   "home_domain_id": "product-memory",
   "id": "CD-0020",
   "kind": "decision",

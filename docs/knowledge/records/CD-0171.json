@@ -5,6 +5,7 @@
     "tier": "legislated"
   },
   "date": "2026-09-23T00:00:00Z",
+  "doc_contract_profile": "legacy",
   "home_domain_id": "work-coordination",
   "id": "CD-0171",
   "kind": "decision",

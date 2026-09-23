@@ -5,6 +5,7 @@
     "tier": "legislated"
   },
   "date": "2026-09-12T00:00:00Z",
+  "doc_contract_profile": "legacy",
   "evidence": [
     "internal/store/workflow_registry.go",
     "internal/store/workflow_registry_versions.go",

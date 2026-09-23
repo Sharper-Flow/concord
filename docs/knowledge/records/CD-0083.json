@@ -5,6 +5,7 @@
     "tier": "legislated"
   },
   "date": "2026-08-29T00:00:00Z",
+  "doc_contract_profile": "legacy",
   "evidence": [
     "internal/launcher/projection.go",
     "internal/launcher/render/bubbletea/model_test.go",

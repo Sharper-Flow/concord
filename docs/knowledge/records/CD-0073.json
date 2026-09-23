@@ -5,6 +5,7 @@
     "tier": "legislated"
   },
   "date": "2026-08-25T00:00:00Z",
+  "doc_contract_profile": "legacy",
   "evidence": [
     "scenarios/agent-jobs.v1.json",
     "internal/agent/agent_jobs_corpus_test.go",

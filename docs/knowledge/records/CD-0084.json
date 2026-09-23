@@ -5,6 +5,7 @@
     "tier": "legislated"
   },
   "date": "2026-08-29T00:00:00Z",
+  "doc_contract_profile": "legacy",
   "evidence": [
     "adapter/opencode/concord.ts",
     "adapter/opencode/concord.test.ts",

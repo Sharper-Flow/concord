@@ -5,6 +5,7 @@
     "tier": "legislated"
   },
   "date": "2026-08-21T00:00:00Z",
+  "doc_contract_profile": "legacy",
   "evidence": [
     "docs/decisions/CD-0018-declared-urgency-and-provenance.md",
     "internal/store/lifecycle_relations_test.go"

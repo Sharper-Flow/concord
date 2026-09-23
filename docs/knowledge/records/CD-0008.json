@@ -10,6 +10,7 @@
     "tier": "legislated"
   },
   "date": "2026-08-05T00:00:00Z",
+  "doc_contract_profile": "legacy",
   "evidence": [
     "internal/store/worktrees.go",
     "internal/store/worktrees_test.go",

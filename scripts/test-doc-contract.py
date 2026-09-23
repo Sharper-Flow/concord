@@ -1282,6 +1282,508 @@ Body.
 
 
 # ---------------------------------------------------------------------------
+# CD-0175: the versioned decision profile. A decision whose shard authors the
+# current profile carries the five-heading outline; a shard that authors the
+# legacy profile keeps the old one. Selection reads authored per-record shard
+# metadata, never a date, and the closed historical set that bounds the
+# legacy claim is frozen in the index schema, enforced by the knowledge-index
+# checker and the shard generator.
+# ---------------------------------------------------------------------------
+
+
+DECISION_OUTLINE = [
+    "Context",
+    "Decision",
+    "Alternatives considered",
+    "Consequences",
+    "Verification",
+]
+
+
+def decision_contract(decision_body: dict | None = None) -> dict:
+    contract = {
+        "enforced": True,
+        "decision": {
+            "ac_required": False,
+            "required_sections": [],
+        },
+        "banned_phrases": [
+            "in order to", "utilize", "leverage",
+            "it is important to note", "needless to say", "at the end of the day",
+        ],
+    }
+    if decision_body is not None:
+        contract["decision"] = decision_body
+    return contract
+
+
+def amended_decision_contract() -> dict:
+    body = decision_contract()["decision"]
+    body["current_required_sections"] = DECISION_OUTLINE
+    contract = decision_contract(body)
+    # The spec block rides along unchanged, so tests that place a spec record
+    # next to amended decisions prove the spec rule stayed as it was.
+    contract["spec"] = {
+        "required_sections": ["Context", "Contract", "Acceptance criteria", "Verification"],
+        "ac_required": True,
+    }
+    return contract
+
+
+def decision_record(path: str, record_id: str = "CD-0175", profile: str | None = "current") -> dict:
+    record = {
+        "id": record_id,
+        "kind": "decision",
+        "path": path,
+        "status": "accepted",
+        "date": "2026-09-23T00:00:00Z",
+        "title": "Decision",
+        "summary": "Decision",
+        "tags": [],
+        "scopes": {
+            "mode": "home", "product_ids": [], "project_ids": [],
+            "domain_ids": [], "tag_ids": [],
+        },
+        "sha256": "sha256:" + "b" * 64,
+    }
+    if profile is not None:
+        record["doc_contract_profile"] = profile
+    return record
+
+
+def with_legacy_record(records: list[dict]) -> list[dict]:
+    """Register one legacy-profile decision beside the records under test.
+
+    The placeholder file is absent, which check_record skips by contract.
+    """
+    return [*records, decision_record("docs/decisions/legacy-kept.md", "CD-0002", profile="legacy")]
+
+
+FULL_DECISION_BODY = """# A current decision
+
+## Context
+
+The context states the problem.
+
+## Decision
+
+The decision states the rule.
+
+## Alternatives considered
+
+- Apply the rule retroactively. Rejected: it invents rationale.
+
+## Consequences
+
+The consequence states the effect.
+
+## Verification
+
+The verification states the proof.
+"""
+
+
+PARTIAL_DECISION_BODY = """# An old decision
+
+## Context
+
+The context states the problem.
+
+## Decision
+
+The decision states the rule.
+"""
+
+
+def test_current_decision_with_full_outline_passes() -> None:
+    root = sandbox()
+    path = "docs/decisions/current.md"
+    write_spec(root, path, FULL_DECISION_BODY)
+    manifest = manifest_with(
+        root, with_legacy_record([decision_record(path)]), contract=amended_decision_contract()
+    )
+    exit_code, stdout, stderr = run_checker(root, manifest)
+    assert exit_code == 0, (exit_code, stdout, stderr)
+    assert "doc contract check passed" in stdout, stdout
+
+
+def test_current_decision_missing_heading_fails() -> None:
+    root = sandbox()
+    path = "docs/decisions/partial.md"
+    write_spec(root, path, PARTIAL_DECISION_BODY)
+    manifest = manifest_with(
+        root, with_legacy_record([decision_record(path)]), contract=amended_decision_contract()
+    )
+    exit_code, stdout, _ = run_checker(root, manifest)
+    assert exit_code == 1, (exit_code, stdout)
+    assert any(
+        "missing-section: docs/decisions/partial.md (Alternatives considered)" in line
+        for line in stdout.splitlines()
+    ), stdout
+
+
+def test_unprofiled_decision_defaults_to_current_profile() -> None:
+    """The validated new-record rule: no authored profile, current outline."""
+    root = sandbox()
+    path = "docs/decisions/newest.md"
+    write_spec(root, path, PARTIAL_DECISION_BODY)
+    manifest = manifest_with(
+        root,
+        [
+            decision_record("docs/decisions/legacy-kept.md", "CD-0002", profile="legacy"),
+            decision_record(path, "CD-9999", profile=None),
+        ],
+        contract=amended_decision_contract(),
+    )
+    exit_code, stdout, _ = run_checker(root, manifest)
+    assert exit_code == 1, (exit_code, stdout)
+    assert any("missing-section: docs/decisions/newest.md" in line for line in stdout.splitlines()), stdout
+
+
+def test_legacy_decision_keeps_the_old_outline() -> None:
+    root = sandbox()
+    path = "docs/decisions/old.md"
+    write_spec(root, path, PARTIAL_DECISION_BODY)
+    manifest = manifest_with(
+        root,
+        [decision_record(path, "CD-0002", profile="legacy")],
+        contract=amended_decision_contract(),
+    )
+    exit_code, stdout, stderr = run_checker(root, manifest)
+    assert exit_code == 0, (exit_code, stdout, stderr)
+    assert "doc contract check passed" in stdout, stdout
+
+
+def test_manifest_head_legacy_records_list_is_rejected() -> None:
+    """The aggregate head list is gone; a decision cannot join a legacy set.
+
+    A manifest-head list lets a new decision name itself legacy and skip the
+    outline, because the only available check verifies that a listed
+    identifier is registered. The list is an unknown field now: the boundary
+    lives in the record shard's authored profile, bounded by the frozen set
+    the knowledge-index checker and the shard generator enforce.
+    """
+    root = sandbox()
+    path = "docs/decisions/old.md"
+    write_spec(root, path, PARTIAL_DECISION_BODY)
+    contract = amended_decision_contract()
+    contract["decision"]["legacy_records"] = ["CD-0002", "CD-9999"]
+    manifest = manifest_with(
+        root, [decision_record(path, "CD-9999", profile="legacy")], contract=contract
+    )
+    exit_code, stdout, _ = run_checker(root, manifest)
+    assert exit_code == 1, (exit_code, stdout)
+    assert any(
+        "manifest.doc_contract.decision: unknown fields: ['legacy_records']" in line
+        for line in stdout.splitlines()
+    ), stdout
+
+
+def test_profile_fields_on_another_kind_fail() -> None:
+    root = sandbox()
+    path = "docs/decisions/old.md"
+    write_spec(root, path, PARTIAL_DECISION_BODY)
+    contract = decision_contract()
+    contract["constitution"] = {
+        "ac_required": False,
+        "required_sections": ["Purpose"],
+        "legacy_records": ["CD-0002"],
+    }
+    manifest = manifest_with(
+        root, [decision_record(path, "CD-0002")], contract=contract
+    )
+    exit_code, stdout, _ = run_checker(root, manifest)
+    assert exit_code == 1, (exit_code, stdout)
+    assert any(
+        "manifest.doc_contract.constitution: unknown fields: ['legacy_records']" in line
+        for line in stdout.splitlines()
+    ), stdout
+
+
+def test_unchanged_contract_keeps_today_behavior() -> None:
+    """No profile pair in the manifest head: no outline is required."""
+    root = sandbox()
+    path = "docs/decisions/old.md"
+    write_spec(root, path, PARTIAL_DECISION_BODY)
+    manifest = manifest_with(
+        root, [decision_record(path, "CD-0002")], contract=decision_contract()
+    )
+    exit_code, stdout, stderr = run_checker(root, manifest)
+    assert exit_code == 0, (exit_code, stdout, stderr)
+    assert "doc contract check passed" in stdout, stdout
+
+
+def test_current_decision_uppercase_criteria_parse() -> None:
+    body = FULL_DECISION_BODY + """
+## Acceptance Criteria
+
+- Given a precondition
+  When an action happens
+  Then an outcome follows.
+"""
+    root = sandbox()
+    path = "docs/decisions/with-criteria.md"
+    write_spec(root, path, body)
+    manifest = manifest_with(
+        root,
+        with_legacy_record([decision_record(path, "CD-0175")]),
+        contract=amended_decision_contract(),
+    )
+    exit_code, stdout, stderr = run_checker(root, manifest)
+    assert exit_code == 0, (exit_code, stdout, stderr)
+    assert "doc contract check passed" in stdout, stdout
+
+
+def test_current_decision_invalid_criteria_fail_under_either_case() -> None:
+    for title in ("Acceptance Criteria", "Acceptance criteria"):
+        body = FULL_DECISION_BODY + f"""
+## {title}
+
+- Given a precondition
+  When an action happens
+"""
+        root = sandbox()
+        path = "docs/decisions/bad-criteria.md"
+        write_spec(root, path, body)
+        manifest = manifest_with(
+            root,
+            with_legacy_record([decision_record(path, "CD-0175")]),
+            contract=amended_decision_contract(),
+        )
+        exit_code, stdout, _ = run_checker(root, manifest)
+        assert exit_code == 1, (title, exit_code, stdout)
+        assert any("ac-not-gherkin" in line for line in stdout.splitlines()), stdout
+
+
+def test_legacy_decision_lowercase_criteria_stay_forbidden() -> None:
+    """The legacy profile keeps the pre-amendment rule byte for byte."""
+    body = PARTIAL_DECISION_BODY + """
+## Acceptance criteria
+
+- Given a precondition
+  When an action happens
+  Then an outcome follows.
+"""
+    root = sandbox()
+    path = "docs/decisions/legacy-criteria.md"
+    write_spec(root, path, body)
+    manifest = manifest_with(
+        root,
+        [decision_record(path, "CD-0002", profile="legacy")],
+        contract=amended_decision_contract(),
+    )
+    exit_code, stdout, _ = run_checker(root, manifest)
+    assert exit_code == 1, (exit_code, stdout)
+    assert any("ac-forbidden: docs/decisions/legacy-criteria.md" in line for line in stdout.splitlines()), stdout
+
+
+def test_current_decision_domain_heading_fails() -> None:
+    body = FULL_DECISION_BODY + """
+## Domain
+
+The domain is product-memory.
+"""
+    root = sandbox()
+    path = "docs/decisions/with-domain.md"
+    write_spec(root, path, body)
+    manifest = manifest_with(
+        root,
+        with_legacy_record([decision_record(path, "CD-0175")]),
+        contract=amended_decision_contract(),
+    )
+    exit_code, stdout, _ = run_checker(root, manifest)
+    assert exit_code == 1, (exit_code, stdout)
+    assert any(
+        "domain-heading-forbidden: docs/decisions/with-domain.md" in line
+        for line in stdout.splitlines()
+    ), stdout
+
+
+def test_spec_criteria_stay_mandatory_and_exact_case() -> None:
+    """The spec contract is unchanged: exact-case title, still required."""
+    body = """# Spec
+
+## Context
+
+Body.
+
+## Contract
+
+Body.
+
+## Acceptance Criteria
+
+- Given a precondition
+  When an action happens
+  Then an outcome follows.
+
+## Verification
+
+Body.
+"""
+    root = sandbox()
+    path = "docs/spec-upper.md"
+    write_spec(root, path, body)
+    manifest = manifest_with(
+        root,
+        with_legacy_record([record(path, sha_digest="upper")]),
+        contract=amended_decision_contract(),
+    )
+    exit_code, stdout, _ = run_checker(root, manifest)
+    assert exit_code == 1, (exit_code, stdout)
+    assert any("ac-missing: docs/spec-upper.md" in line for line in stdout.splitlines()), stdout
+
+
+def test_fenced_fake_headings_do_not_satisfy_outline() -> None:
+    """A heading inside a fenced block is example text, not structure.
+
+    The outline check reads document structure; a fenced sketch of the five
+    headings satisfies none of them.
+    """
+    body = """# A fenced decision
+
+The prose names no section at all.
+
+```
+## Context
+## Decision
+## Alternatives considered
+## Consequences
+## Verification
+```
+"""
+    root = sandbox()
+    path = "docs/decisions/fenced-headings.md"
+    write_spec(root, path, body)
+    manifest = manifest_with(
+        root,
+        with_legacy_record([decision_record(path, "CD-0175")]),
+        contract=amended_decision_contract(),
+    )
+    exit_code, stdout, _ = run_checker(root, manifest)
+    assert exit_code == 1, (exit_code, stdout)
+    for section in DECISION_OUTLINE:
+        assert any(
+            f"missing-section: docs/decisions/fenced-headings.md ({section})" in line
+            for line in stdout.splitlines()
+        ), (section, stdout)
+
+
+def test_fenced_criteria_parse_on_current_profile() -> None:
+    """Fenced criteria parse: the fence is the corpus's recorded style.
+
+    A complete criterion inside a ```gherkin block passes; the positive
+    side of the fenced grammar.
+    """
+    body = FULL_DECISION_BODY + """
+## Acceptance Criteria
+
+```gherkin
+- Given a precondition
+  When an action happens
+  Then an outcome follows.
+```
+"""
+    root = sandbox()
+    path = "docs/decisions/fenced-criteria.md"
+    write_spec(root, path, body)
+    manifest = manifest_with(
+        root,
+        with_legacy_record([decision_record(path, "CD-0175")]),
+        contract=amended_decision_contract(),
+    )
+    exit_code, stdout, stderr = run_checker(root, manifest)
+    assert exit_code == 0, (exit_code, stdout, stderr)
+    assert "doc contract check passed" in stdout, stdout
+
+
+def test_fenced_incomplete_criteria_fail_on_current_profile() -> None:
+    """An invalid criterion inside a fenced block fails like any other.
+
+    Skipping fenced content let a criterion without a Then escape the
+    grammar; the section is read in full.
+    """
+    body = FULL_DECISION_BODY + """
+## Acceptance Criteria
+
+```gherkin
+- Given a precondition
+  When an action happens
+```
+"""
+    root = sandbox()
+    path = "docs/decisions/fenced-incomplete.md"
+    write_spec(root, path, body)
+    manifest = manifest_with(
+        root,
+        with_legacy_record([decision_record(path, "CD-0175")]),
+        contract=amended_decision_contract(),
+    )
+    exit_code, stdout, _ = run_checker(root, manifest)
+    assert exit_code == 1, (exit_code, stdout)
+    assert any("ac-not-gherkin" in line for line in stdout.splitlines()), stdout
+
+
+def test_second_invalid_criteria_section_fails() -> None:
+    """Every criteria section is read, not only the first match.
+
+    A valid section no longer hides an invalid one that follows it.
+    """
+    body = FULL_DECISION_BODY + """
+## Acceptance criteria
+
+- Given a precondition
+  When an action happens
+  Then an outcome follows.
+
+## Follow-up
+
+The follow-up states more context.
+
+## Acceptance Criteria
+
+- Given a precondition
+  When an action happens
+"""
+    root = sandbox()
+    path = "docs/decisions/two-criteria.md"
+    write_spec(root, path, body)
+    manifest = manifest_with(
+        root,
+        with_legacy_record([decision_record(path, "CD-0175")]),
+        contract=amended_decision_contract(),
+    )
+    exit_code, stdout, _ = run_checker(root, manifest)
+    assert exit_code == 1, (exit_code, stdout)
+    assert any("ac-not-gherkin" in line for line in stdout.splitlines()), stdout
+
+
+def test_legacy_decision_uppercase_criteria_stay_unparsed() -> None:
+    """The legacy grammar is a preserved historical exception (CD-0175 D4).
+
+    A legacy criteria section stays exactly as recorded: unparsed by the
+    checker, read by review. No historical criterion is re-graded.
+    """
+    body = PARTIAL_DECISION_BODY + """
+## Acceptance Criteria
+
+- The operator confirms the outcome in the transcript.
+- The verdict names the delivery.
+"""
+    root = sandbox()
+    path = "docs/decisions/legacy-upper.md"
+    write_spec(root, path, body)
+    manifest = manifest_with(
+        root,
+        [decision_record(path, "CD-0002", profile="legacy")],
+        contract=amended_decision_contract(),
+    )
+    exit_code, stdout, stderr = run_checker(root, manifest)
+    assert exit_code == 0, (exit_code, stdout, stderr)
+    assert "doc contract check passed" in stdout, stdout
+
+
+# ---------------------------------------------------------------------------
 # Typed criterion resolution
 # ---------------------------------------------------------------------------
 

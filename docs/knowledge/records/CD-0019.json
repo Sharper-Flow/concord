@@ -9,6 +9,7 @@
     "tier": "legislated"
   },
   "date": "2026-08-13T00:00:00Z",
+  "doc_contract_profile": "legacy",
   "home_domain_id": "product-root:concord",
   "id": "CD-0019",
   "kind": "decision",

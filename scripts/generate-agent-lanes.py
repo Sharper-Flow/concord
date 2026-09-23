@@ -202,6 +202,31 @@ with `status` `failed`, and name the missing packet fields in the evidence.
 """
 
 
+def execute_source_lookup_instructions() -> str:
+    # Host connections decide which research services exist, so these
+    # instructions name Context7 and Exa as host-connected options and require
+    # discovery before invocation. utility_projection appends the block only
+    # where `execute` access is declared, so ci-wait never receives it and
+    # CD-0160 keeps its wait deterministic without it.
+    return """## Source lookup through `execute`
+
+For each bounded technical task, make one real source lookup through
+`execute`: query Context7 for relevant library, language, platform, or tool
+documentation, or search Exa for current external information. This also
+applies to repository-only tasks: look up a relevant external technology,
+but use repository sources, not external search results, to establish this
+repository's own behavior. Discover the exact callable signatures first:
+enumerate the tool catalog inside `execute`, or search it for the service by
+name, then call the returned path exactly. Never reconstruct a tool path from
+memory.
+Context7 and Exa are host-connected options, and the host, not this
+instruction, controls whether they are connected. When neither service is
+connected, or neither can answer the question, state that plainly, name the
+missing source, and continue with the evidence your role already allows.
+Never invent a lookup result, and never present recall as a research call.
+"""
+
+
 def agent_projection(lane: dict, report_schema: dict) -> str:
     agent_name = f"concord-{lane['id']}"
     evidence = ", ".join(f"`{item}`" for item in lane["evidence_obligations"])
@@ -233,6 +258,7 @@ packet and return only the `agent-lane-report.v1` report for this attempt. Do no
 record workflow transitions, verdicts, completion, or spawn nested workers.
 
 {packet_refusal_instructions()}
+{execute_source_lookup_instructions()}
 Return the report as a single JSON object, and nothing else, as your final
 message. Do not include `attempt_id`, `lane_id`, `lane_version`, or
 `lane_digest`: the dispatch window owns those fields and any report that
@@ -390,8 +416,9 @@ question from the working directory or from prior context.
 ## Method
 
 1. Fetch each supplied source URL with `webfetch`.
-2. If the parent does not supply enough sources, use `execute` to search the
-   connected external research services.
+2. Use `execute` for the required source lookup, whether or not the parent
+   supplied URLs. Query Context7 for library documentation or Exa for current
+   research. Discover the exact callable signature first and call that path.
 3. Prefer authoritative documentation, source code, or a primary publisher.
 4. Compare sources when they report different versions, dates, or behavior.
 5. Stop when the question has a source-backed answer, or after {duration} of
@@ -420,9 +447,10 @@ supplied answer anchors to it, and the parent asked for an independent one.
 
 1. Restate the problem in your own words before you reason about it.
 2. Reach your own answer before you consider what the parent might want.
-3. Read the repository when the problem touches it: search with `glob` and
-   `grep`, read only what the problem needs, and use the declared read-only
-   Git commands for history, status, or the current diff.
+3. Read the repository when the problem touches it: search connected tools
+   through `execute` first, then use `glob` or `grep` when needed. Read only
+   what the problem needs. Use declared read-only Git commands for history,
+   status, or the current diff.
 4. Stop when you hold a reasoned opinion, or after {duration} of total wall
    time, whichever comes first. Report the opinion you hold when the cap stops
    you.
@@ -451,6 +479,9 @@ def utility_projection(utility: dict) -> str:
     permissions = ["    \"*\": deny"] + [f"    \"{command}\": allow" for command in utility["allowed_commands"]]
     minutes, seconds = divmod(utility["time_seconds_max"], 60)
     duration = f"{minutes} minutes" if seconds == 0 else f"{utility['time_seconds_max']} seconds"
+    body_text = body.format(duration=duration).rstrip()
+    if "execute" in utility["allowed_tools"]:
+        body_text += "\n\n" + execute_source_lookup_instructions().strip()
     return f"""---
 description: Concord {utility['id']} utility — {utility['purpose']}
 mode: all
@@ -466,7 +497,7 @@ permission:
 
 {utility['purpose']}
 
-{body.format(duration=duration).rstrip()}
+{body_text}
 """
 
 

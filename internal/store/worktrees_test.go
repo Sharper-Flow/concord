@@ -1212,3 +1212,101 @@ func TestWorktreeAuditRequiresProductScopeAndBoundsLimit(t *testing.T) {
 		t.Fatal("drift must serialize as an empty array, not null")
 	}
 }
+
+// A claim whose durable half fails after this operation ran `git worktree
+// add` must not leave the created worktree and branch unowned: the tree was
+// created outside the transaction, so the rollback alone strands it. The
+// compensation removes both only when the tree is clean and holds no commit
+// beyond the pinned base; a removal that cannot complete reports the failure
+// effect-possible instead of claiming no effect.
+func TestClaimWorktreeRollbackCompensatesCreatedWorktree(t *testing.T) {
+	t.Parallel()
+	s, git, _ := worktreeFixture(t)
+	request := baseClaim(git)
+	request.ExpectedVersion = 99 // stale version fails the durable fold, not the git half
+	_, err := s.ClaimWorktree(context.Background(), request)
+	var failure *Failure
+	if !errors.As(err, &failure) || failure.Kind != KindVersionConflict {
+		t.Fatalf("stale claim failure=%v, want version_conflict", err)
+	}
+	if failure.EffectPossible {
+		t.Fatalf("compensated claim reported effect possible: %+v", failure)
+	}
+	if _, held := git.worktrees[claimPath(s)]; held {
+		t.Fatal("compensation left the created worktree in place")
+	}
+	if _, held := git.branches[claimBranch()]; held {
+		t.Fatal("compensation left the created branch in place")
+	}
+	if git.countCalls("worktree remove") != 1 || git.countCalls("branch -D -- "+claimBranch()) != 1 {
+		t.Fatalf("compensation calls=%v, want one worktree remove and one branch delete", git.calls)
+	}
+}
+
+// A dirty tree may hold work the claim never recorded, so compensation must
+// refuse the removal and mark the failure effect-possible: the created
+// worktree then outlives the rolled-back claim row.
+func TestClaimWorktreeRollbackKeepsDirtyWorktreeAndReportsPossibleEffect(t *testing.T) {
+	t.Parallel()
+	s, git, _ := worktreeFixture(t)
+	git.dirty[claimPath(s)] = true
+	request := baseClaim(git)
+	request.ExpectedVersion = 99
+	_, err := s.ClaimWorktree(context.Background(), request)
+	var failure *Failure
+	if !errors.As(err, &failure) {
+		t.Fatalf("stale claim failure=%v, want a typed failure", err)
+	}
+	if !failure.EffectPossible {
+		t.Fatalf("dirty-tree compensation reported no effect: %+v", failure)
+	}
+	if _, held := git.worktrees[claimPath(s)]; !held {
+		t.Fatal("compensation removed a dirty worktree")
+	}
+	if git.countCalls("worktree remove") != 0 {
+		t.Fatal("compensation attempted to remove a dirty worktree")
+	}
+}
+
+// A branch holding commits beyond the pinned base is unrecorded work. The
+// removal must refuse and the failure must report the possible effect.
+func TestClaimWorktreeRollbackKeepsCommittedWorktreeAndReportsPossibleEffect(t *testing.T) {
+	t.Parallel()
+	s, git, _ := worktreeFixture(t)
+	git.ahead[claimBranch()] = 1
+	request := baseClaim(git)
+	request.ExpectedVersion = 99
+	_, err := s.ClaimWorktree(context.Background(), request)
+	var failure *Failure
+	if !errors.As(err, &failure) {
+		t.Fatalf("stale claim failure=%v, want a typed failure", err)
+	}
+	if !failure.EffectPossible {
+		t.Fatalf("committed-worktree compensation reported no effect: %+v", failure)
+	}
+	if _, held := git.worktrees[claimPath(s)]; !held {
+		t.Fatal("compensation removed a worktree holding commits")
+	}
+}
+
+// An adopted branch pre-existed the claim, so compensation removes the
+// worktree this operation created but never the branch it only adopted.
+func TestClaimWorktreeRollbackRemovesWorktreeButKeepsAdoptedBranch(t *testing.T) {
+	t.Parallel()
+	s, git, _ := worktreeFixture(t)
+	base := git.branches["main"]
+	git.branches[claimBranch()] = base
+	request := baseClaim(git)
+	request.ExpectedVersion = 99
+	_, err := s.ClaimWorktree(context.Background(), request)
+	var failure *Failure
+	if !errors.As(err, &failure) || failure.Kind != KindVersionConflict {
+		t.Fatalf("stale claim failure=%v, want version_conflict", err)
+	}
+	if _, held := git.worktrees[claimPath(s)]; held {
+		t.Fatal("compensation left the created worktree in place")
+	}
+	if _, held := git.branches[claimBranch()]; !held {
+		t.Fatal("compensation deleted the adopted branch")
+	}
+}

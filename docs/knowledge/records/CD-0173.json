@@ -1,0 +1,39 @@
+{
+  "authority": {
+    "contract_version": 1,
+    "legislated_by": "work-05a228deeb2cfc25eaea9acb",
+    "tier": "legislated"
+  },
+  "date": "2026-09-23T00:00:00Z",
+  "home_domain_id": "workflow-engine",
+  "id": "CD-0173",
+  "kind": "decision",
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "CD-0129"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0148"
+    }
+  ],
+  "path": "docs/decisions/CD-0173-escalation-wall-stays-visible-gate-counts-product.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:93fcae9396134663216a9dceaf31a833c8140ff23e779049682c3de8274b42c1",
+  "status": "accepted",
+  "summary": "An escalated correction keeps dispatch_worker visible with reason escalated_retry_requires_approval, and the investigation gate demands the comparison work ref only when the item's Product holds another work item in any lifecycle, counted by the core in the same transaction.",
+  "tags": [
+    "workflow",
+    "work-pin",
+    "correction",
+    "investigation-gate"
+  ],
+  "title": "The escalation wall stays visible and the gate counts the Product"
+}

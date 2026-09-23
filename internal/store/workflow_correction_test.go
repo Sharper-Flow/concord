@@ -438,7 +438,11 @@ func TestWorkflowFourthCorrectionDispatchRefusesWithApprovalRequired(t *testing.
 	}
 }
 
-func TestWorkPinEscalatedCorrectionRemovesDispatchIntent(t *testing.T) {
+// An escalated correction keeps dispatch_worker visible, but only as the
+// approval-gated route: the pin advertises the action under the escalated
+// reason so an agent finds the CD-0148 approval wall instead of a dead end.
+func TestWorkPinEscalatedCorrectionAdvertisesApprovalGatedRetry(t *testing.T) {
+	t.Parallel()
 	const workID = "issue1013-escalated-correction-pin"
 	s, _, pin := seedIssue1013EscalatedCorrection(t, workID)
 	defer s.Close()
@@ -449,8 +453,18 @@ func TestWorkPinEscalatedCorrectionRemovesDispatchIntent(t *testing.T) {
 	if pin.Correction == nil || pin.Correction.AttemptCount != 3 || !pin.Correction.Escalated {
 		t.Fatalf("correction = %#v, want three attempts and escalation", pin.Correction)
 	}
-	if issue1013HasIntent(pin, "dispatch_worker") {
-		t.Fatalf("escalated correction retained dispatch_worker: %#v", pin.NextValidIntents)
+	advertised := false
+	for _, intent := range pin.NextValidIntents {
+		if intent.ActionID != "dispatch_worker" {
+			continue
+		}
+		advertised = true
+		if intent.ReasonCode != "escalated_retry_requires_approval" {
+			t.Fatalf("escalated dispatch intent reason = %q, want escalated_retry_requires_approval", intent.ReasonCode)
+		}
+	}
+	if !advertised {
+		t.Fatalf("escalated correction hid dispatch_worker: %#v", pin.NextValidIntents)
 	}
 }
 
@@ -1180,8 +1194,15 @@ func TestInfrastructureFailureKindConsumesCorrectionAttemptBound(t *testing.T) {
 	if pin.Correction == nil || pin.Correction.AttemptCount != 3 || !pin.Correction.Escalated {
 		t.Fatalf("correction after three infrastructure failures = %#v, want three counted attempts and escalation", pin.Correction)
 	}
-	if issue1013HasIntent(pin, "dispatch_worker") {
-		t.Fatalf("escalated correction retained dispatch_worker: %#v", pin.NextValidIntents)
+	// CD-0173: the escalated pin advertises the retry route under the
+	// approval-gated reason instead of hiding it.
+	if !issue1013HasIntent(pin, "dispatch_worker") {
+		t.Fatalf("escalated correction hid dispatch_worker: %#v", pin.NextValidIntents)
+	}
+	for _, intent := range pin.NextValidIntents {
+		if intent.ActionID == "dispatch_worker" && intent.ReasonCode != "escalated_retry_requires_approval" {
+			t.Fatalf("escalated dispatch intent reason = %q, want escalated_retry_requires_approval", intent.ReasonCode)
+		}
 	}
 	if workflowCorrectionAttemptLimit != 3 {
 		t.Fatalf("workflow correction attempt limit = %d, want 3", workflowCorrectionAttemptLimit)
@@ -1363,8 +1384,10 @@ func TestCorrectionAttemptCountSurvivesContractSupersession(t *testing.T) {
 	if pin.Correction == nil || pin.Correction.AttemptCount != 3 || !pin.Correction.Escalated {
 		t.Fatalf("correction under the successor contract = %#v, want three counted attempts and escalation", pin.Correction)
 	}
-	if issue1013HasIntent(pin, "dispatch_worker") {
-		t.Fatalf("escalated correction under the successor retained dispatch_worker: %#v", pin.NextValidIntents)
+	// CD-0173: the escalated pin keeps dispatch_worker visible as the
+	// approval-gated route, also under a successor contract.
+	if !issue1013HasIntent(pin, "dispatch_worker") {
+		t.Fatalf("escalated correction under the successor hid dispatch_worker: %#v", pin.NextValidIntents)
 	}
 }
 

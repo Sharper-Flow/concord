@@ -5262,6 +5262,13 @@
             "$ref": "#/$defs/next_valid_intent"
           }
         },
+        "work_pins": {
+          "type": "array",
+          "maxItems": 32,
+          "items": {
+            "$ref": "#/$defs/work_pin"
+          }
+        },
         "path": {
           "$ref": "#/$defs/absolute_path"
         }
@@ -5291,6 +5298,13 @@
           "maxItems": 16,
           "items": {
             "$ref": "#/$defs/next_valid_intent"
+          }
+        },
+        "work_pins": {
+          "type": "array",
+          "maxItems": 32,
+          "items": {
+            "$ref": "#/$defs/work_pin"
           }
         },
         "work_id": {

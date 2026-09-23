@@ -5,7 +5,8 @@ import fs from "node:fs"
 import * as os from "node:os"
 import path from "node:path"
 import { agentLanes, workerScopeAssignedResult } from "./generated-agent-lanes"
-import { boundedTextPrefix, completeWorkerAttempt, computeHostPromptProvenance, concordBinaryPath, configureCoreBinary, defaultExportRunner, defaultRunner, dispatchWorker, MAX_EXPORT_BYTES, readExportOpeningPacket, readExportSession, readExportSessionMetadata, readRunSessionMetadata, resolveCoreBinary, validateAgentLanePacket, type AgentLanePacket, type CanonicalLaneReport, type DispatchAuthorizer, type DispatchRunner } from "./dispatch"
+import { boundedTextPrefix, completeWorkerAttempt, computeHostPromptProvenance, concordBinaryPath, configureCoreBinary, defaultRunner, dispatchWorker, MAX_READBACK_MESSAGE_PAGES, READBACK_MESSAGE_PAGE, readExportOpeningPacket, readExportSession, readExportSessionMetadata, readRunSessionMetadata, readWorkerSessionBody, resolveCoreBinary, validateAgentLanePacket, type AgentLanePacket, type CanonicalLaneReport, type DispatchAuthorizer, type DispatchRunner } from "./dispatch"
+import type { RouteResult, SessionReader } from "./move-session"
 
 // Fake-runner suite: bind worker-evidence CLI calls to a nominal core path
 // instead of the unstamped repository placeholder (CD-0111 D1).
@@ -111,20 +112,37 @@ const taskWrap = (text: string, id = "session-1", state = "completed") =>
 const workerBody = (carried: unknown = report()) =>
   taskWrap(carried === null ? "" : typeof carried === "string" ? carried : JSON.stringify(carried))
 
-// The completion path reads the worker session back and records evidence. It
-// never starts a process, so the runner answers `export` and nothing else.
-// Completion reads two host surfaces: the sanitized export for the executing
-// model, and the session index for live-session evidence. The dispatch window
-// supplies the worker directory.
+// The completion path reads the worker session back through the host session
+// API and records evidence. It never starts a process for the readback, so
+// the reader answers the session record and its messages and nothing else.
+// Completion reads one bounded session body for the packet and model
+// readback, and the session index for live-session evidence. The dispatch
+// window supplies the worker directory.
 const sessionIndex = (directory = "/claimed/worktree") => JSON.stringify([{ id: "session-1", directory }])
 
-const readbackRunner = (model = READBACK_MODEL, agent = "concord-research", opener: unknown = packet()): DispatchRunner => ({
-  async run(argv) {
-    if (argv[1] === "export") return { exitCode: 0, stdout: exportedSession(model, agent, opener), stderr: "" }
-    if (argv[1] === "session") return { exitCode: 0, stdout: sessionIndex(), stderr: "" }
-    return { exitCode: 0, stdout: "", stderr: "" }
-  },
+const okRoute = (data: unknown, link?: string): RouteResult => ({
+  data,
+  response: new Response(JSON.stringify(data), { status: 200, headers: link ? { link } : undefined }),
 })
+
+// The fixture session carries one user message (the opener, which is the
+// dispatch packet on the admitted path) and one assistant message carrying
+// the model identity, exactly the two ends the readback checks.
+const transcript = (model = READBACK_MODEL, agent = "concord-research", opener: unknown = packet()) => [
+  { info: { id: "message-0", sessionID: "session-1", role: "user", agent, time: { created: 0 } }, parts: [{ type: "text", text: typeof opener === "string" ? opener : JSON.stringify(opener) }] },
+  { info: { id: "message-1", sessionID: "session-1", role: "assistant", agent, providerID: model.split("/")[0], modelID: model.split("/").slice(1).join("/"), time: { created: 1 } }, parts: [] },
+]
+
+const readbackSessionReader = (model = READBACK_MODEL, agent = "concord-research", opener: unknown = packet()): SessionReader => {
+  const session = { id: "session-1" }
+  return {
+    async get() { return okRoute(session) },
+    async messages(_sessionID, _limit, before) {
+      if (before) return okRoute([])
+      return okRoute(transcript(model, agent, opener))
+    },
+  }
+}
 
 const SIGNAL = new AbortController().signal
 const SESSION = "session-parent"
@@ -135,7 +153,7 @@ const acceptingEvidence = (): DispatchRunner => ({ async run() { return { exitCo
 // The fixture session opens with the packet under test, so the completion
 // path verifies packet identity against the same dispatch it admits.
 const complete = (body: string, options: Partial<CompleteOptions> = {}, dispatched: AgentLanePacket = packet()) =>
-  completeWorkerAttempt(lane, dispatched, body, { credentials: testCredentials, readbackRunner: readbackRunner(READBACK_MODEL, "concord-research", dispatched), evidenceRunner: acceptingEvidence(), packetDigest: PACKET_DIGEST, workerDirectory: WORKER_DIRECTORY, ...options }, SIGNAL)
+  completeWorkerAttempt(lane, dispatched, body, { credentials: testCredentials, sessionReader: readbackSessionReader(READBACK_MODEL, "concord-research", dispatched), evidenceRunner: acceptingEvidence(), packetDigest: PACKET_DIGEST, workerDirectory: WORKER_DIRECTORY, ...options }, SIGNAL)
 
 test("packet validation is closed before any runner call", async () => {
   let calls = 0
@@ -799,20 +817,28 @@ test("matching recorded session metadata returns bounded ok envelope", async () 
   expect(result.session_id).toBe("session-1")
 })
 
-test("completion obtains readback from a sanitized session export", async () => {
-  const calls: string[][] = []
-  const base = readbackRunner()
+test("completion obtains readback from one in-process session body", async () => {
+  const readerCalls: string[][] = []
+  const cliCalls: string[][] = []
+  const base = readbackSessionReader()
   const result = await complete(workerBody(), {
-    readbackRunner: { async run(argv, input, signal) { calls.push(argv); return base.run(argv, input, signal) } },
-    evidenceRunner: { async run() { return { exitCode: 0, stdout: "", stderr: "" } } },
+    sessionReader: {
+      get(sessionID, signal) { readerCalls.push(["session.get", sessionID]); return base.get(sessionID, signal) },
+      messages(sessionID, limit, before, signal) { readerCalls.push(["session.messages", sessionID, `limit=${limit}`, before ?? ""]); return base.messages(sessionID, limit, before, signal) },
+    },
+    evidenceRunner: { async run(argv) { cliCalls.push(argv); return { exitCode: 0, stdout: "", stderr: "" } } },
   })
   expect(result.outcome).toBe("ok")
-  expect(calls.map((argv) => argv.slice(0, 2))).toEqual([["opencode", "export"], ["opencode", "export"], ["opencode", "session"]])
-  // The opening packet read runs first and unsanitized — the sanitized body
-  // redacts every text part — then the sanitized export for model readback.
-  expect(calls[0]).toEqual(["opencode", "export", "session-1"])
-  expect(calls[1]).toEqual(["opencode", "export", "session-1", "--sanitize"])
-  expect(calls[2]).toEqual(["opencode", "session", "list", "--format", "json"])
+  // One session record, then one bounded message page with no cursor to
+  // follow — the whole transcript fit inside the first page.
+  expect(readerCalls).toEqual([["session.get", "session-1"], ["session.messages", "session-1", `limit=${READBACK_MESSAGE_PAGE}`, ""]])
+  // The live-session observation still rides the CLI runner seam, ahead of
+  // the worker-dispatch and worker-complete evidence records.
+  expect(cliCalls.map((argv) => argv.slice(0, 2))).toEqual([
+    ["opencode", "session"],
+    ["concord-test", "worker-dispatch"],
+    ["concord-test", "worker-complete"],
+  ])
 })
 
 test("readback accepts a large sanitized session export", () => {
@@ -827,15 +853,21 @@ test("readback accepts a large sanitized session export", () => {
   expect(readExportSessionMetadata(largeExport, "session-1")).toEqual({ readback_model: "openai/gpt-5.6-luna", readback_agent: "concord-research", session_id: "session-1" })
 })
 
-test("readback refuses an export above its own ceiling", () => {
-  const runaway = JSON.stringify({
-    info: { id: "session-1" },
-    messages: [
-      { info: { id: "message-0", sessionID: "session-1", role: "user", agent: "concord-research", time: { created: 0 } }, parts: [{ type: "text", text: "x".repeat(MAX_EXPORT_BYTES) }] },
-      { info: { id: "message-1", sessionID: "session-1", role: "assistant", agent: "concord-research", providerID: "openai", modelID: "gpt-5.6-luna", time: { created: 1 } }, parts: [] },
-    ],
-  })
-  expect(readExportSessionMetadata(runaway, "session-1")).toBe(null)
+test("a transcript that outlives the readback page bound refuses typed", async () => {
+  // A reader that always advertises a next page simulates a transcript the
+  // page walk never reaches the head of; the walk refuses after its bound.
+  const session = { id: "session-1" }
+  const alwaysMore: SessionReader = {
+    async get() { return okRoute(session) },
+    async messages() { return okRoute(transcript(), `<http://host/session/session-1/message?limit=${READBACK_MESSAGE_PAGE}&before=cursor-1>; rel="next"`) },
+  }
+  const read = await readWorkerSessionBody(alwaysMore, "session-1", SIGNAL)
+  expect(read.ok).toBe(false)
+  if (read.ok || read.kind !== "readback_refusal") {
+    throw new Error("the page-bound walk refused with the wrong kind")
+  }
+  expect(read.predicate).toBe("readback_message_bound")
+  expect(read.message).toContain(`${MAX_READBACK_MESSAGE_PAGES} readback pages`)
 })
 
 test("readback refusal names its predicate and preserves the export digest", () => {
@@ -850,20 +882,18 @@ test("readback refusal names its predicate and preserves the export digest", () 
   expect(result.message).toContain("valid JSON")
 })
 
+// A session whose record identity does not match the worker session refuses
+// through the typed shape predicate, and a valid session still completes.
 test("readback refusal is typed and does not change valid completion", async () => {
-  const result = await complete(workerBody(), {
-    readbackRunner: { async run(argv) {
-      if (argv[1] === "session") return { exitCode: 0, stdout: sessionIndex(), stderr: "" }
-      return { exitCode: 0, stdout: "not-json", stderr: "" }
-    } },
-  })
+  const foreign: SessionReader = {
+    async get() { return okRoute({ id: "session-9" }) },
+    async messages(_id, _limit, before) { return before ? okRoute([]) : okRoute(transcript()) },
+  }
+  const result = await complete(workerBody(), { sessionReader: foreign })
   expect(result.outcome).toBe("error")
   expect(result.error?.kind).toBe("readback_refusal")
-  expect(result.error?.predicate).toBe("export_json")
-  expect(result.error?.export_digest).toBe(`sha256:${createHash("sha256").update("not-json", "utf8").digest("hex")}`)
-  expect(result.error?.export_bytes).toBe(Buffer.byteLength("not-json"))
-  expect(result.error?.message).toContain("readback predicate export_json refused")
-  expect(result.error?.message).not.toContain("not-json")
+  expect(result.error?.predicate).toBe("export_shape")
+  expect(result.error?.message).toContain("readback predicate export_shape refused")
   expect(result.error?.retry_safe).toBe(false)
 
   const accepted = await complete(workerBody())
@@ -871,50 +901,45 @@ test("readback refusal is typed and does not change valid completion", async () 
   expect(accepted.readback_model).toBe(READBACK_MODEL)
 })
 
-// A refused readback stays terminal, but the corrupt export it refused and the
-// work the lane produced are retained: the recorded failed attempt carries the
-// command, the wait status, the terminating signal, and bounded prefixes of
-// both bodies, so the store alone is enough to diagnose and recover.
-test("a refused readback retains export diagnostics on the recorded failed attempt", async () => {
+// A refused readback stays terminal, but the body it refused and the work the
+// lane produced are retained: the recorded failed attempt carries the host
+// request identity, the status, and bounded prefixes of the readback body and
+// the worker result, so the store alone is enough to diagnose and recover.
+test("a refused readback retains session diagnostics on the recorded failed attempt", async () => {
   const calls: string[] = []
-  const corrupt = '{"info":'
   const result = await complete(workerBody(), {
-    readbackRunner: { async run(argv) {
-      if (argv[1] === "session") return { exitCode: 0, stdout: sessionIndex(), stderr: "" }
-      if (argv.includes("--sanitize")) return { exitCode: 0, stdout: corrupt, stderr: "" }
-      return { exitCode: 0, stdout: exportedSession(), stderr: "" }
-    } },
+    sessionReader: {
+      async get() { return okRoute({ id: "session-9" }) },
+      async messages(_id, _limit, before) { return before ? okRoute([]) : okRoute(transcript()) },
+    },
     evidenceRunner: { async run(argv, input) { calls.push(input); return { exitCode: 0, stdout: "", stderr: "" } } },
   })
   expect(result.outcome).toBe("error")
   expect(result.error?.kind).toBe("readback_refusal")
   expect(calls.map((input) => JSON.parse(input).terminal)).toEqual(["failed"])
+  const refusedBody = JSON.stringify({ info: { id: "session-9" }, messages: transcript() })
   const detail = JSON.parse(calls[0]).terminal_detail as string
-  expect(detail).toContain("readback predicate export_json refused")
-  expect(detail).toContain(`export_digest sha256:${createHash("sha256").update(corrupt, "utf8").digest("hex")}`)
-  expect(detail).toContain(`export_bytes ${Buffer.byteLength(corrupt)}`)
-  expect(detail).toContain("command opencode export session-1 --sanitize")
-  expect(detail).toContain("exit_code 0")
+  expect(detail).toContain("readback predicate export_shape refused")
+  expect(detail).toContain(`export_digest sha256:${createHash("sha256").update(refusedBody, "utf8").digest("hex")}`)
+  expect(detail).toContain(`export_bytes ${Buffer.byteLength(refusedBody)}`)
+  expect(detail).toContain("command session.messages session-1 limit=")
+  expect(detail).toContain("exit_code 200")
   expect(detail).toContain("signal_state none")
-  expect(detail).toContain(`export_body_prefix ${corrupt}`)
+  expect(detail).toContain(`export_body_prefix ${boundedTextPrefix(refusedBody, 1024)}`)
   expect(Buffer.byteLength(detail, "utf8")).toBeLessThanOrEqual(4096)
 })
 
-test("a killed export retains the terminating signal in the failure diagnostic", async () => {
-  const calls: string[] = []
+test("a host session read failure carries the host diagnostic and reconciles", async () => {
   const result = await complete(workerBody(), {
-    readbackRunner: { async run(argv) {
-      if (argv[1] === "session") return { exitCode: 0, stdout: sessionIndex(), stderr: "" }
-      return { exitCode: 143, stdout: "", stderr: "killed", signal_state: "SIGTERM" }
-    } },
-    evidenceRunner: { async run(argv, input) { calls.push(input); return { exitCode: 0, stdout: "", stderr: "" } } },
+    sessionReader: {
+      async get() { throw new Error("host socket closed") },
+      async messages() { return okRoute([]) },
+    },
   })
   expect(result.outcome).toBe("error")
-  expect(result.error?.predicate).toBe("export_command")
-  const detail = JSON.parse(calls[0]).terminal_detail as string
-  expect(detail).toContain("command opencode export session-1")
-  expect(detail).toContain("exit_code 143")
-  expect(detail).toContain("signal_state SIGTERM")
+  expect(result.error?.kind).toBe("error")
+  expect(result.error?.message).toContain("the host session read failed: host socket closed")
+  expect(result.error?.recovery_action).toBe("reconcile_operation")
 })
 
 test("a refused readback preserves the completed work it would have carried", async () => {
@@ -923,10 +948,10 @@ test("a refused readback preserves the completed work it would have carried", as
   // the refusal must preserve.
   const carried = JSON.stringify(report())
   const result = await complete(taskWrap(carried), {
-    readbackRunner: { async run(argv) {
-      if (argv[1] === "session") return { exitCode: 0, stdout: sessionIndex(), stderr: "" }
-      return { exitCode: 0, stdout: "not-json", stderr: "" }
-    } },
+    sessionReader: {
+      async get() { return okRoute({ id: "session-9" }) },
+      async messages(_id, _limit, before) { return before ? okRoute([]) : okRoute(transcript()) },
+    },
     evidenceRunner: { async run(argv, input) { calls.push(input); return { exitCode: 0, stdout: "", stderr: "" } } },
   })
   expect(result.outcome).toBe("error")
@@ -944,10 +969,10 @@ test("a refused readback preserves the completed work it would have carried", as
 test("the retained worker result prefix stays inside the failure detail bound", async () => {
   const calls: string[] = []
   const result = await complete(taskWrap("x".repeat(20_000)), {
-    readbackRunner: { async run(argv) {
-      if (argv[1] === "session") return { exitCode: 0, stdout: sessionIndex(), stderr: "" }
-      return { exitCode: 0, stdout: "not-json", stderr: "" }
-    } },
+    sessionReader: {
+      async get() { return okRoute({ id: "session-9" }) },
+      async messages(_id, _limit, before) { return before ? okRoute([]) : okRoute(transcript()) },
+    },
     evidenceRunner: { async run(argv, input) { calls.push(input); return { exitCode: 0, stdout: "", stderr: "" } } },
   })
   expect(result.outcome).toBe("error")
@@ -959,31 +984,27 @@ test("the retained worker result prefix stays inside the failure detail bound", 
   expect(Buffer.byteLength(detail, "utf8")).toBeLessThanOrEqual(4096)
 })
 
-// Fail-closed is unchanged: the refused sanitized export is never completed
-// from a second read. Exactly one sanitized export runs, and the attempt ends
-// in the typed refusal with no retry and no alternate readback source.
-test("a corrupt sanitized export is never completed from a second read", async () => {
-  const sanitized: string[][] = []
+// Fail-closed is unchanged: the refused session body is never completed from
+// a second read. Exactly one message page runs, and the attempt ends in the
+// typed refusal with no retry and no alternate readback source.
+test("a refused session body is never completed from a second read", async () => {
+  let reads = 0
   const result = await complete(workerBody(), {
-    readbackRunner: { async run(argv) {
-      if (argv[1] === "session") return { exitCode: 0, stdout: sessionIndex(), stderr: "" }
-      if (argv.includes("--sanitize")) { sanitized.push(argv); return { exitCode: 0, stdout: "not-json", stderr: "" } }
-      return { exitCode: 0, stdout: exportedSession(), stderr: "" }
-    } },
+    sessionReader: {
+      async get() { return okRoute({ id: "session-1" }) },
+      async messages(_id, _limit, before) {
+        if (!before) reads++
+        return okRoute([{ info: { id: "message-0", sessionID: "session-1", role: "user", agent: "concord-research", time: { created: 0 } }, parts: [{ type: "text", text: "not the packet" }] }])
+      },
+    },
   })
   expect(result.outcome).toBe("error")
-  expect(result.error?.predicate).toBe("export_json")
+  expect(result.error?.predicate).toBe("dispatched_packet_identity")
   expect(result.error?.retry_safe).toBe(false)
-  expect(sanitized).toEqual([["opencode", "export", "session-1", "--sanitize"]])
+  expect(reads).toBe(1)
 })
 
-test("defaultExportRunner and defaultRunner report the terminating signal", async () => {
-  const killedExport = await defaultExportRunner.run(["sh", "-c", "kill -TERM $$"], "", SIGNAL)
-  expect(killedExport.signal_state).toBe("SIGTERM")
-  expect(killedExport.exitCode).not.toBe(0)
-  const cleanExport = await defaultExportRunner.run(["sh", "-c", "exit 0"], "", SIGNAL)
-  expect(cleanExport.exitCode).toBe(0)
-  expect(cleanExport.signal_state).toBeNull()
+test("defaultRunner reports the terminating signal", async () => {
   const killed = await defaultRunner.run(["sh", "-c", "kill -TERM $$"], "", SIGNAL)
   expect(killed.signal_state).toBe("SIGTERM")
   const clean = await defaultRunner.run(["sh", "-c", "exit 0"], "", SIGNAL)
@@ -1002,16 +1023,15 @@ test("boundedTextPrefix cuts on a UTF-8 boundary and under the bound", () => {
 // CD-0102 completion identity: a worker session that did not open with the
 // authorized packet is refused through the typed readback predicate, records
 // one durable failed attempt, and signs no completion evidence.
-const packetRefusalRunner = (opener: string): DispatchRunner => ({ async run(argv) {
-  if (argv[1] === "export") return { exitCode: 0, stdout: exportedSession(READBACK_MODEL, "concord-research", opener), stderr: "" }
-  if (argv[1] === "session") return { exitCode: 0, stdout: sessionIndex(), stderr: "" }
-  return { exitCode: 0, stdout: "", stderr: "" }
-} })
+const packetRefusalReader = (opener: string): SessionReader => ({
+  async get() { return okRoute({ id: "session-1" }) },
+  async messages(_id, _limit, before) { return before ? okRoute([]) : okRoute(transcript(READBACK_MODEL, "concord-research", opener)) },
+})
 
 test("caller-composed prose as the first user message refuses the attempt", async () => {
   const calls: { argv: string[]; input: string }[] = []
   const result = await complete(workerBody(), {
-    readbackRunner: packetRefusalRunner("Fix the bug in the adapter, then summarize what you changed."),
+    sessionReader: packetRefusalReader("Fix the bug in the adapter, then summarize what you changed."),
     evidenceRunner: { async run(argv, input) { calls.push({ argv, input }); return { exitCode: 0, stdout: "", stderr: "" } } },
   })
   expect(result.outcome).toBe("error")
@@ -1022,7 +1042,7 @@ test("caller-composed prose as the first user message refuses the attempt", asyn
   expect(result.error?.message).not.toContain("Fix the bug")
   expect(result.session_id).toBe("session-1")
   // One durable failed dispatch event; no model evidence, no completion.
-  expect(calls.map((call) => call.argv[1])).toEqual(["worker-dispatch"])
+  expect(calls.filter((call) => call.argv[1].startsWith("worker-")).map((call) => call.argv[1])).toEqual(["worker-dispatch"])
   expect(JSON.parse(calls[0].input).terminal).toBe("failed")
   expect(JSON.parse(calls[0].input).terminal_failure_kind).toBe("model_readback_missing")
   expect(JSON.parse(calls[0].input).readback_model).toBe("")
@@ -1033,7 +1053,7 @@ test("a packet for another attempt refuses the attempt the same way", async () =
   const foreign = { ...packet(), attempt_id: "attempt-other" }
   const calls: string[] = []
   const result = await complete(workerBody(), {
-    readbackRunner: packetRefusalRunner(JSON.stringify(foreign)),
+    sessionReader: packetRefusalReader(JSON.stringify(foreign)),
     evidenceRunner: { async run(argv) { calls.push(argv[1]); return { exitCode: 0, stdout: "", stderr: "" } } },
   })
   expect(result.outcome).toBe("error")
@@ -1131,37 +1151,25 @@ test("readExportOpeningPacket admits the host wrapper beside the packet and refu
   expect(packetMissing).toEqual({ ok: false, predicate: "dispatched_packet_identity", message: "worker session opened with a message that is not the authorized dispatch packet" })
 })
 
-// The sanitized readback bounds its own export. This predicate reads a second,
-// unsanitized export of the same session, so it carries the same bound.
-test("readExportOpeningPacket refuses an export above the size bound", () => {
-  const oversize = JSON.stringify({
-    info: { id: "session-1", padding: "p".repeat(MAX_EXPORT_BYTES) },
-    messages: [{ info: { id: "message-1", sessionID: "session-1", role: "user", time: { created: 1 } }, parts: [{ type: "text", text: JSON.stringify(packet()) }] }],
-  })
-  expect(Buffer.byteLength(oversize)).toBeGreaterThan(MAX_EXPORT_BYTES)
-  expect(readExportOpeningPacket(oversize, "session-1", packet())).toEqual({ ok: false, predicate: "export_size_bound", message: `export body exceeded ${MAX_EXPORT_BYTES} bytes` })
-})
-
 test("ambiguous model readback records one durable failed attempt", async () => {
   const calls: { argv: string[]; input: string }[] = []
-  const exportRunner: DispatchRunner = { async run(argv) {
-    if (argv[1] === "export") return { exitCode: 0, stdout: JSON.stringify({
-      info: { id: "session-1" },
-      messages: [
+  const exportReader: SessionReader = {
+    async get() { return okRoute({ id: "session-1" }) },
+    async messages(_id, _limit, before) {
+      if (before) return okRoute([])
+      return okRoute([
         { info: { id: "message-0", sessionID: "session-1", role: "user", agent: "concord-research", time: { created: 0 } }, parts: [{ type: "text", text: JSON.stringify(packet()) }] },
         { info: { id: "message-1", sessionID: "session-1", role: "assistant", agent: "concord-research", providerID: "openai", modelID: "first", time: { created: 1 } }, parts: [] },
         { info: { id: "message-2", sessionID: "session-1", role: "assistant", agent: "concord-research", providerID: "openai", modelID: "second", time: { created: 2 } }, parts: [] },
-      ],
-    }), stderr: "" }
-    if (argv[1] === "session") return { exitCode: 0, stdout: sessionIndex(), stderr: "" }
-    return { exitCode: 0, stdout: "", stderr: "" }
-  } }
+      ])
+    },
+  }
   const result = await complete(workerBody(), {
-    readbackRunner: exportRunner,
+    sessionReader: exportReader,
     evidenceRunner: { async run(argv, input) { calls.push({ argv, input }); return { exitCode: 0, stdout: "", stderr: "" } } },
   })
   expect(result.outcome).toBe("error")
-  expect(calls.map((call) => call.argv[1])).toEqual(["worker-dispatch"])
+  expect(calls.filter((call) => call.argv[1].startsWith("worker-")).map((call) => call.argv[1])).toEqual(["worker-dispatch"])
   expect(JSON.parse(calls[0].input).terminal).toBe("failed")
   expect(JSON.parse(calls[0].input).terminal_failure_kind).toBe("model_readback_ambiguous")
   expect(JSON.parse(calls[0].input).readback_model).toBe("")
@@ -1174,19 +1182,21 @@ test("ambiguous model readback records one durable failed attempt", async () => 
 
 test("missing model readback records one durable failed attempt", async () => {
   const calls: { argv: string[]; input: string }[] = []
-  const exportRunner: DispatchRunner = { async run(argv) {
-    if (argv[1] === "export") return { exitCode: 0, stdout: JSON.stringify({ info: { id: "session-1" }, messages: [
-      { info: { id: "message-0", sessionID: "session-1", role: "user", agent: "concord-research", time: { created: 0 } }, parts: [{ type: "text", text: JSON.stringify(packet()) }] },
-    ] }), stderr: "" }
-    if (argv[1] === "session") return { exitCode: 0, stdout: sessionIndex(), stderr: "" }
-    return { exitCode: 0, stdout: "", stderr: "" }
-  } }
+  const exportReader: SessionReader = {
+    async get() { return okRoute({ id: "session-1" }) },
+    async messages(_id, _limit, before) {
+      if (before) return okRoute([])
+      return okRoute([
+        { info: { id: "message-0", sessionID: "session-1", role: "user", agent: "concord-research", time: { created: 0 } }, parts: [{ type: "text", text: JSON.stringify(packet()) }] },
+      ])
+    },
+  }
   const result = await complete(workerBody(), {
-    readbackRunner: exportRunner,
+    sessionReader: exportReader,
     evidenceRunner: { async run(argv, input) { calls.push({ argv, input }); return { exitCode: 0, stdout: "", stderr: "" } } },
   })
   expect(result.outcome).toBe("error")
-  expect(calls.map((call) => call.argv[1])).toEqual(["worker-dispatch"])
+  expect(calls.filter((call) => call.argv[1].startsWith("worker-")).map((call) => call.argv[1])).toEqual(["worker-dispatch"])
   expect(JSON.parse(calls[0].input).terminal).toBe("failed")
   expect(JSON.parse(calls[0].input).terminal_failure_kind).toBe("model_readback_missing")
   expect(JSON.parse(calls[0].input).readback_model).toBe("")
@@ -1221,7 +1231,7 @@ test("an export whose assistant message carries no agent string is not a readbac
 test("a dispatch executed by a substituted agent fails closed with no worker evidence", async () => {
   const evidenceCalls: string[][] = []
   const result = await complete(workerBody(), {
-    readbackRunner: readbackRunner(READBACK_MODEL, "adv"),
+    sessionReader: readbackSessionReader(READBACK_MODEL, "adv"),
     evidenceRunner: { async run(argv) { evidenceCalls.push(argv); return { exitCode: 0, stdout: "", stderr: "" } } },
   })
   expect(result.outcome).toBe("error")
@@ -1238,9 +1248,10 @@ test("a successful run records dispatch evidence before completion evidence", as
     evidenceRunner: { async run(argv, input) { calls.push({ argv, input }); return { exitCode: 0, stdout: "", stderr: "" } } },
   })
   expect(result.outcome).toBe("ok")
-  expect(calls.map((call) => call.argv)).toEqual([["concord-test", "worker-dispatch"], ["concord-test", "worker-complete"]])
+  const records = calls.filter((call) => call.argv[1].startsWith("worker-"))
+  expect(records.map((call) => call.argv)).toEqual([["concord-test", "worker-dispatch"], ["concord-test", "worker-complete"]])
 
-  const dispatched = JSON.parse(calls[0].input)
+  const dispatched = JSON.parse(records[0].input)
   expect(dispatched.work_id).toBe("work-1")
   expect(dispatched.attempt_id).toBe("attempt-1")
   expect(dispatched.lane_id).toBe(lane.id)
@@ -1251,7 +1262,7 @@ test("a successful run records dispatch evidence before completion evidence", as
   expect(dispatched.report_schema_version).toBe("1.0")
   expect(typeof dispatched.event_id).toBe("string")
 
-  const completed = JSON.parse(calls[1].input)
+  const completed = JSON.parse(records[1].input)
   expect(completed.work_id).toBe("work-1")
   expect(completed.attempt_id).toBe("attempt-1")
   expect(completed.readback_model).toBe(READBACK_MODEL)
@@ -1278,7 +1289,7 @@ test("a completion that cannot be recorded is closed and not reported as a succe
   const result = await complete(workerBody(), {
     evidenceRunner: { async run(argv) { verbs.push(argv[1]); return argv[1] === "worker-complete" ? { exitCode: 1, stdout: "", stderr: "worker attempt belongs to a different work item" } : { exitCode: 0, stdout: "", stderr: "" } } },
   })
-  expect(verbs).toEqual(["worker-dispatch", "worker-complete", "worker-fail"])
+  expect(verbs.filter((verb) => verb.startsWith("worker-"))).toEqual(["worker-dispatch", "worker-complete", "worker-fail"])
   expect(result.outcome).toBe("error")
   expect(result.error?.message).toBe("worker-complete refused: worker attempt belongs to a different work item")
 })
@@ -1312,14 +1323,14 @@ test("the adapter does not declare a model — argv carries no --model", async (
 
 test("the readback shape is recorded verbatim regardless of host configuration", async () => {
   const hostExecuted = "zai-coding-plan/glm-5.3"
-  const result = await complete(workerBody(report({}, hostExecuted)), { readbackRunner: readbackRunner(hostExecuted) })
+  const result = await complete(workerBody(report({}, hostExecuted)), { sessionReader: readbackSessionReader(hostExecuted) })
   expect(result.outcome).toBe("ok")
   expect(result.readback_model).toBe(hostExecuted)
 })
 
 test("an unknown readback is recorded as-is and not refused", async () => {
   const hostExecuted = "openai/not-declared"
-  const result = await complete(workerBody(report({}, hostExecuted)), { readbackRunner: readbackRunner(hostExecuted) })
+  const result = await complete(workerBody(report({}, hostExecuted)), { sessionReader: readbackSessionReader(hostExecuted) })
   expect(result.outcome).toBe("ok")
   expect(result.readback_model).toBe(hostExecuted)
 })
@@ -1380,13 +1391,7 @@ test("worker evidence uses the supplied worker directory for provenance", async 
     let dispatchPayload: Record<string, unknown> | undefined
     const result = await complete(workerBody(report()), {
       workerDirectory: worker,
-      readbackRunner: {
-        async run(argv) {
-          if (argv[1] === "export") return { exitCode: 0, stdout: exportedSession(), stderr: "" }
-          if (argv[1] === "session") return { exitCode: 0, stdout: sessionIndex(worker), stderr: "" }
-          return { exitCode: 0, stdout: "", stderr: "" }
-        },
-      },
+      sessionReader: readbackSessionReader(),
       evidenceRunner: {
         async run(argv, input) {
           if (argv[1] === "worker-dispatch") dispatchPayload = JSON.parse(input) as Record<string, unknown>
@@ -1407,21 +1412,19 @@ test("worker evidence uses the supplied worker directory for provenance", async 
 test("worker evidence remains successful when the session index is unreadable", async () => {
   let evidenceCalls = 0
   const result = await complete(workerBody(), {
-    readbackRunner: {
-      async run(argv) {
-        if (argv[1] === "session") return { exitCode: 1, stdout: "", stderr: "session list failed" }
-        return { exitCode: 0, stdout: exportedSession(), stderr: "" }
-      },
-    },
+    sessionReader: readbackSessionReader(),
+    // The CLI runner also carries the live-session observation; its session
+    // list fails here and completion must tolerate that.
     evidenceRunner: {
-      async run() {
+      async run(argv) {
         evidenceCalls++
+        if (argv[1] === "session") return { exitCode: 1, stdout: "", stderr: "session list failed" }
         return { exitCode: 0, stdout: "", stderr: "" }
       },
     },
   })
   expect(result.outcome).toBe("ok")
-  expect(evidenceCalls).toBe(2)
+  expect(evidenceCalls).toBe(3)
 })
 
 // CD-0032 / issue #103: provenance is deterministic for the same inputs and
@@ -1647,7 +1650,10 @@ async function terminalEvidence(carried: unknown = report()) {
     concordBinary: "concord-test",
     evidenceRunner: { async run(argv, input) { calls.push({ argv, input }); return { exitCode: 0, stdout: "", stderr: "" } } },
   })
-  return { result, verbs: calls.map((call) => call.argv[1]), payloads: calls.map((call) => JSON.parse(call.input)) }
+  // The session-list observation rides the same CLI runner; the evidence
+  // records are the worker-* calls alone.
+  const records = calls.filter((call) => call.argv[1].startsWith("worker-"))
+  return { result, verbs: records.map((call) => call.argv[1]), payloads: records.map((call) => JSON.parse(call.input)) }
 }
 
 test("a valid completed report carries its reported evidence into worker-complete", async () => {
@@ -1715,13 +1721,16 @@ async function laneTerminalEvidence(laneID: string, evidence: LaneEvidence[]) {
   const body = workerBody({ schema_version: "1.0", readback_model: READBACK_MODEL, status: "completed", evidence })
   const result = await completeWorkerAttempt(target, lanePacketFor(laneID), body, {
     credentials: testCredentials,
-    readbackRunner: readbackRunner(READBACK_MODEL, `concord-${target.id}`, lanePacketFor(laneID)),
+    sessionReader: readbackSessionReader(READBACK_MODEL, `concord-${target.id}`, lanePacketFor(laneID)),
     packetDigest: PACKET_DIGEST,
     workerDirectory: process.cwd(),
     concordBinary: "concord-test",
     evidenceRunner: { async run(argv, input) { calls.push({ argv, input }); return { exitCode: 0, stdout: "", stderr: "" } } },
   }, SIGNAL)
-  return { result, verbs: calls.map((call) => call.argv[1]), payloads: calls.map((call) => JSON.parse(call.input)) }
+  // The session-list observation rides the same CLI runner; the evidence
+  // records are the worker-* calls alone.
+  const records = calls.filter((call) => call.argv[1].startsWith("worker-"))
+  return { result, verbs: records.map((call) => call.argv[1]), payloads: records.map((call) => JSON.parse(call.input)) }
 }
 
 for (const registered of agentLanes) {
@@ -1877,9 +1886,10 @@ test("identity-free worker content reaches worker-complete bound to the dispatch
     concordBinary: "concord-test",
     evidenceRunner: { async run(argv, input) { calls.push({ argv, input }); return { exitCode: 0, stdout: "", stderr: "" } } },
   }, dispatched)
-  const payloads = calls.map((call) => JSON.parse(call.input))
+  const records = calls.filter((call) => call.argv[1].startsWith("worker-"))
+  const payloads = records.map((call) => JSON.parse(call.input))
   expect(result.outcome).toBe("ok")
-  expect(calls.map((call) => call.argv[1])).toEqual(["worker-dispatch", "worker-complete"])
+  expect(records.map((call) => call.argv[1])).toEqual(["worker-dispatch", "worker-complete"])
   expect(payloads[0].attempt_id).toBe(dispatched.attempt_id)
   expect(payloads[1].attempt_id).toBe(dispatched.attempt_id)
   expect(payloads[1].evidence).toEqual(reportEvidence())
@@ -2139,69 +2149,30 @@ test("a transport fault is not reported as an authorization refusal", async () =
   }
 })
 
-// The host `opencode export` CLI truncates its stdout to one stdio buffer on
-// a pipe, so the export readback runs file-backed: the child writes the
-// export to a temporary file and the adapter reads the file whole.
-const largeSanitizedExport = () => JSON.stringify({
-  info: { id: "session-1" },
-  messages: [
-    // The opening user message is exactly the dispatch packet, so completion's
-    // packet-identity readback admits the fixture; the size lives on the
-    // assistant text, which the readback does not parse.
+// The readback reads the session in process, so a transcript larger than any
+// stdio pipe buffer completes: the size lives on message text the readback
+// never parses, and the two-end read still finds the opening packet and the
+// latest assistant identity.
+const largeTranscriptReader = (): SessionReader => {
+  const session = { id: "session-1" }
+  const messages = [
     { info: { id: "message-0", sessionID: "session-1", role: "user", agent: "concord-research", time: { created: 0 } }, parts: [{ type: "text", text: JSON.stringify(packet()) }] },
     { info: { id: "message-1", sessionID: "session-1", role: "assistant", agent: "concord-research", providerID: "openai", modelID: "gpt-5.6-luna", time: { created: 1 } }, parts: [{ type: "text", text: "x".repeat(70_000) }] },
-  ],
-})
-
-const writeExportFixture = (): { binary: string; body: string; cleanup: () => void } => {
-  const body = largeSanitizedExport()
-  expect(Buffer.byteLength(body)).toBeGreaterThan(16_384)
-  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "concord-fixture-export-"))
-  fs.writeFileSync(path.join(directory, "export.json"), body)
-  const script = path.join(directory, "opencode-export")
-  fs.writeFileSync(script, `#!/bin/sh\ncase "$1" in\n  export) cat "$(dirname "$0")/export.json" ;;\n  session) printf '[{"id":"session-1","directory":"/claimed/worktree"}]\\n' ;;\nesac\n`, { mode: 0o755 })
-  return { binary: script, body, cleanup: () => fs.rmSync(directory, { recursive: true, force: true }) }
+  ]
+  return {
+    async get() { return okRoute(session) },
+    async messages(_sessionID, _limit, before) { return before ? okRoute([]) : okRoute(messages) },
+  }
 }
 
-test("TestExportReadbackRunnerReadsFullExportThroughFile", async () => {
-  // The runner places its scratch directory under os.tmpdir(), which resolves
-  // TMPDIR on every call. Pointing TMPDIR at a directory this test creates
-  // makes the no-leak claim exact: whatever remains came from this run.
-  // Scanning the shared temporary directory instead could not tell the
-  // runner's leak from a concurrent session's export in flight, so an
-  // unrelated process failed this test.
-  const { binary, body, cleanup } = writeExportFixture()
-  const scratchRoot = fs.mkdtempSync(path.join(os.tmpdir(), "concord-export-scope-"))
-  const inheritedTmpdir = process.env.TMPDIR
-  try {
-    process.env.TMPDIR = scratchRoot
-    const result = await defaultExportRunner.run([binary, "export", "session-1", "--sanitize"], "", SIGNAL)
-    expect(result.exitCode).toBe(0)
-    expect(result.stderr).toBe("")
-    expect(result.stdout).toBe(body)
-  } finally {
-    if (inheritedTmpdir === undefined) delete process.env.TMPDIR
-    else process.env.TMPDIR = inheritedTmpdir
-    cleanup()
-  }
-  expect(fs.readdirSync(scratchRoot)).toEqual([])
-  fs.rmSync(scratchRoot, { recursive: true, force: true })
-})
-
-test("TestDispatchWorkerCompletesWithExportLargerThanPipeBuffer", async () => {
-  const { binary, cleanup } = writeExportFixture()
-  let result: Awaited<ReturnType<typeof completeWorkerAttempt>>
-  try {
-    result = await completeWorkerAttempt(lane, packet(), workerBody(), {
-      credentials: testCredentials,
-      evidenceRunner: acceptingEvidence(),
-      packetDigest: PACKET_DIGEST,
-      binary,
-      workerDirectory: WORKER_DIRECTORY,
-    }, SIGNAL)
-  } finally {
-    cleanup()
-  }
+test("TestDispatchWorkerCompletesWithSessionLargerThanPipeBuffer", async () => {
+  const result = await completeWorkerAttempt(lane, packet(), workerBody(), {
+    credentials: testCredentials,
+    sessionReader: largeTranscriptReader(),
+    evidenceRunner: acceptingEvidence(),
+    packetDigest: PACKET_DIGEST,
+    workerDirectory: WORKER_DIRECTORY,
+  }, SIGNAL)
   expect(result.outcome).toBe("ok")
   expect(result.readback_model).toBe("openai/gpt-5.6-luna")
   expect(result.session_id).toBe("session-1")

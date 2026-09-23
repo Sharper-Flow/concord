@@ -1,0 +1,26 @@
+{
+  "evidence": [
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestWorkPinEscalatedCorrectionAdvertisesApprovalGatedRetry"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestWorkflowFourthCorrectionDispatchRefusesWithApprovalRequired"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestInvestigationArtifactAdmitsSingleItemProductByDomainRef"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestInvestigationArtifactSingleItemProductStillRequiresDomainRef"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestRecordedInvestigationArtifactRequiresResolvableDomainAndWorkRefs"
+    }
+  ],
+  "id": "CD-0173",
+  "state": "satisfied"
+}

@@ -17,7 +17,7 @@ import { DispatchWindows, TASK_TOOL_ID } from "./dispatch-window"
 import type { CredentialStore } from "./credentials"
 import type { DispatchRunner } from "./dispatch"
 import { agentLanes } from "./generated-agent-lanes"
-import { hostControlPlane, MANAGED_TASK_SCOPE_KEY, SESSION_ROUTE } from "./move-session"
+import { hostControlPlane, MANAGED_TASK_SCOPE_KEY, SESSION_MESSAGES_ROUTE, SESSION_ROUTE } from "./move-session"
 
 const PRODUCT_ID = "product-e2e"
 const PROJECT_ID = "project-e2e"
@@ -248,8 +248,17 @@ routeDeclaration("dispatches a real store route through Task completion and work
     process.env.OPENCODE_CONFIG = configPath
     const context = contextFor(worktree)
     let sessionMetadata: Record<string, unknown> = {}
+    let boundPacket: JSONRecord | null = null
     hostControlPlane().bind({
       get: async ({ url, path }) => {
+        if (url === SESSION_MESSAGES_ROUTE) {
+          // The worker readback serves the transcript through the bounded
+          // message page: the opening packet, then the assistant identity.
+          const id = path?.id
+          expect(id).toBe("worker-session")
+          const parsed = JSON.parse(exportedSession(boundPacket)) as { messages: unknown[] }
+          return { data: parsed.messages, response: new Response("[]", { status: 200 }) }
+        }
         expect(url).toBe(SESSION_ROUTE)
         const id = path?.id
         expect(id === SESSION_ID || id === "worker-session").toBe(true)
@@ -265,10 +274,8 @@ routeDeclaration("dispatches a real store route through Task completion and work
       post: async () => { throw new Error("dispatch scope must not change host permissions or directory") },
     })
     const realCalls: Array<{ argv: string[]; input: JSONRecord }> = []
-    let boundPacket: JSONRecord | null = null
     const realRunner: DispatchRunner = {
       async run(argv, input, signal) {
-        if (argv[1] === "export") return { exitCode: 0, stdout: exportedSession(boundPacket), stderr: "" }
         if (argv[1] === "session") return { exitCode: 0, stdout: JSON.stringify([{ id: "worker-session", directory: worktree, parentID: SESSION_ID }, { id: SESSION_ID, directory: worktree }]), stderr: "" }
         if (argv[1] === "worker-dispatch" || argv[1] === "worker-complete" || argv[1] === "worker-fail" || argv[1] === "invoke") {
           realCalls.push({ argv, input: JSON.parse(input) as JSONRecord })

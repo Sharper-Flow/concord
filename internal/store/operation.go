@@ -200,6 +200,7 @@ var eventKindRegistry = map[string]EventKindRegistration{
 	"work.worktree_reclaimed":                 registerEventKind[worktreeReclaimedPayload](1, 1, nil, EventAppendAuthorityGeneric, foldWorktreeReclaimed, nil),
 	"work.worktree_occupancy_released":        registerEventKind[worktreeOccupancyReleasedPayload](1, 1, nil, EventAppendAuthorityGeneric, foldWorktreeOccupancyReleased, nil),
 	"work.session_vacated":                    registerEventKind[sessionVacatedPayload](1, 1, nil, EventAppendAuthorityGeneric, foldSessionVacated, nil),
+	"work.session_claim_landed":               registerEventKind[sessionClaimLandedPayload](1, 1, nil, EventAppendAuthorityGeneric, foldSessionClaimLanded, nil),
 	"work.transitioned":                       registerEventKind[workTransitionPayload](1, 1, nil, EventAppendAuthorityGeneric, foldWorkTransitioned, nil),
 	"work.superseded":                         registerEventKind[workSupersededPayload](1, 1, nil, EventAppendAuthorityGeneric, foldWorkSuperseded, nil),
 	"work.reopened":                           registerEventKind[workReopenedPayload](1, 1, nil, EventAppendAuthorityGeneric, foldWorkReopened, nil),

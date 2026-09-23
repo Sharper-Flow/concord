@@ -8,13 +8,38 @@ import { join, resolve } from "node:path"
 import { configureHostLease } from "./host-lease"
 import ConcordAdapterPlugin from "./concord-plugin"
 import { hostControlPlane } from "./move-session"
-import { moveSessionToClaimedWorktree } from "./concord"
+import { configureConcordAdapter, moveSessionToClaimedWorktree } from "./concord"
+import { configureCoreBinary } from "./dispatch"
 import { armedClaimedWorktree, clearClaimedWorktree, resetClaimedWorktrees } from "./claimed-worktree"
 import { resetTurnMoveBoundaries } from "./turn-move-boundary"
 import { ensureConductLink } from "./project-link"
 import { createHash } from "node:crypto"
 
+// The landing record resolves the core binary path before the runner seam
+// intercepts the verb, so the file binds a path once at module level, the way
+// the suite's other files do.
+configureCoreBinary("concord")
+
 const sha256 = (text: string): string => createHash("sha256").update(text).digest("hex")
+
+// The landing record runs the adapter-only claim-landing verb as a
+// child process. Tests capture those invocations instead of spawning the
+// core: the landing call names the verified path, and a refused or mismatched
+// move must never produce one.
+let landingCalls: Array<{ argv: string[]; input: Record<string, unknown> }> = []
+
+function landingRunner(exitCode = 0, stderr = "") {
+  return {
+    async run(argv: string[], input: string) {
+      if (argv[1] === "claim-landing") {
+        landingCalls.push({ argv, input: JSON.parse(input) as Record<string, unknown> })
+        if (exitCode !== 0) return { exitCode, stdout: "", stderr }
+        return { exitCode, stdout: JSON.stringify({ work_id: (JSON.parse(input) as Record<string, unknown>).work_id, already_recorded: false }) + "\n", stderr: "" }
+      }
+      throw new Error("unexpected CLI invocation: " + argv.join(" "))
+    },
+  }
+}
 
 const context = (overrides: Partial<Parameters<typeof moveSessionToClaimedWorktree>[1]> = {}) =>
   ({ sessionID: "session-1", messageID: "message-1", abort: new AbortController().signal, directory: "/old", ...overrides }) as Parameters<typeof moveSessionToClaimedWorktree>[1]
@@ -34,12 +59,15 @@ async function fakeHost(handlers: { post?: (url: string, body: any) => { status:
       return { data: result.body, response: new Response(null, { status: result.status }) }
     },
   }
+  configureConcordAdapter({ runner: landingRunner() as never })
   await ConcordAdapterPlugin({ client: { _client: raw } as never, serverUrl: new URL("http://127.0.0.1:4096") })
 }
 
 afterEach(async () => {
   resetClaimedWorktrees()
   resetTurnMoveBoundaries()
+  landingCalls = []
+  configureConcordAdapter({ reset: true })
   await ConcordAdapterPlugin({})
 })
 
@@ -425,6 +453,51 @@ describe("worktree_claim moves the session into the claimed worktree", () => {
     expect(await moveSessionToClaimedWorktree(other, context(), okEnvelope())).toEqual(okEnvelope())
     const refused = { schema_version: "1.0", outcome: "error", error: { kind: "version_conflict" } } as unknown as Parameters<typeof moveSessionToClaimedWorktree>[2]
     expect(await moveSessionToClaimedWorktree(claimArgs(), context(), refused)).toEqual(refused)
+  })
+})
+
+// The verified landing is recorded in the core through the adapter-only
+// claim-landing verb. The record runs only after the host readback
+// names the claimed path: a refused or mismatched move records no landing,
+// which leaves the source occupancy standing for the removal gate, and a
+// replayed worktree_claim retries the move and the landing record.
+describe("worktree_claim records the verified landing in the core", () => {
+  test("records the landing naming the session, work item, and claimed path after verified readback", async () => {
+    await fakeHost({})
+    const envelope = await moveSessionToClaimedWorktree(claimArgs(), context(), okEnvelope("/claimed"))
+    expect(envelope.outcome).toBe("ok")
+    expect(landingCalls).toHaveLength(1)
+    expect(landingCalls[0].argv[1]).toBe("claim-landing")
+    expect(landingCalls[0].input).toEqual({ work_id: "work-1", session_ref: "session-1", landed_directory: "/claimed" })
+  })
+
+  test("records no landing when the readback mismatches the claimed path", async () => {
+    await fakeHost({ get: () => ({ status: 200, body: { directory: "/elsewhere" } }) })
+    const envelope = await moveSessionToClaimedWorktree(claimArgs(), context(), okEnvelope())
+    expect(envelope.outcome).toBe("error")
+    expect(landingCalls).toHaveLength(0)
+  })
+
+  test("records no landing when the move is refused", async () => {
+    await fakeHost({ post: () => ({ status: 409, body: { data: { message: "worktree /claimed is held by another session" } } }) })
+    const envelope = await moveSessionToClaimedWorktree(claimArgs(), context(), okEnvelope())
+    expect(envelope.outcome).toBe("error")
+    expect(landingCalls).toHaveLength(0)
+  })
+
+  test("refuses with a replay remedy and records nothing further when the core refuses the landing", async () => {
+    await fakeHost({})
+    configureConcordAdapter({ runner: landingRunner(1, "store: claim-landing: the claimed worktree is not recorded as occupied by this session") })
+    const envelope = await moveSessionToClaimedWorktree(claimArgs(), context(), okEnvelope())
+    expect(envelope.outcome).toBe("error")
+    if (envelope.outcome === "error") {
+      const error = envelope.error as { kind?: string; adapter_reason?: string; recovery_action?: { kind?: string }; message?: string }
+      expect(error.kind).toBe("operation_conflict")
+      expect(error.adapter_reason).toBe("claim_landing_refused")
+      expect(error.recovery_action).toEqual({ kind: "retry_same_request" })
+      expect(error.message).toContain("replay worktree_claim")
+    }
+    expect(landingCalls).toHaveLength(1)
   })
 })
 

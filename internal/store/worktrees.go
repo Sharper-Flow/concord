@@ -388,7 +388,7 @@ func claimWorktreeRawTx(ctx context.Context, tx *sql.Tx, dataPath string, req Wo
 	if err := validateWorktreeProjectMembershipTx(ctx, tx, req.WorkID, req.ProjectID, "worktree_claim"); err != nil {
 		return out, err
 	}
-	if err := refuseWhenSessionOccupiesAnotherWorktreeTx(ctx, tx, req.SessionRef, WorktreeSetID(req.WorkID), req.ProjectID); err != nil {
+	if err := refuseWhenSessionOccupiesAnotherWorktreeTx(ctx, tx, req.SessionRef, WorktreeSetID(req.WorkID)); err != nil {
 		return out, err
 	}
 	runner := req.Runner
@@ -896,9 +896,13 @@ func releaseSessionWorktreeOccupancyTx(ctx context.Context, tx *sql.Tx, operatio
 // this transaction, while the host relocation that makes it true runs afterwards
 // and outside it. A refused relocation would then leave a live session in a
 // directory recorded as empty, which is the stranding the gate exists to
-// prevent. The claim refuses instead, and session_vacate stays the only route
-// that clears occupancy, because it clears only after its own move lands.
-func refuseWhenSessionOccupiesAnotherWorktreeTx(ctx context.Context, tx *sql.Tx, sessionRef, destinationSetID, destinationProjectID string) error {
+// prevent. Occupancy therefore moves only through a verified landing: a
+// sibling Project of the same work item is admitted, and the claim commit
+// leaves every source row occupied until claim-landing records the
+// verified transfer. Another work item's worktree still refuses, because a
+// claim there has no landing record that could make the move true, so the
+// session must vacate first.
+func refuseWhenSessionOccupiesAnotherWorktreeTx(ctx context.Context, tx *sql.Tx, sessionRef, destinationSetID string) error {
 	if sessionRef == "" {
 		return nil
 	}
@@ -907,14 +911,192 @@ func refuseWhenSessionOccupiesAnotherWorktreeTx(ctx context.Context, tx *sql.Tx,
 		return err
 	}
 	var occupiedPath string
-	err = tx.QueryRowContext(ctx, `SELECT path FROM worktree_entries WHERE state='active' AND occupant_session_ref=? AND NOT (set_id=? AND project_id=?) ORDER BY path LIMIT 1`, sessionRef, destinationSetID, destinationProjectID).Scan(&occupiedPath)
+	err = tx.QueryRowContext(ctx, `SELECT path FROM worktree_entries WHERE state='active' AND occupant_session_ref=? AND set_id<>? ORDER BY path LIMIT 1`, sessionRef, destinationSetID).Scan(&occupiedPath)
 	if err == sql.ErrNoRows {
 		return nil
 	}
 	if err != nil {
 		return err
 	}
-	return newFailure(KindWorktreeOwnershipConflict, "worktree_claim", fmt.Sprintf("the calling session still occupies another active worktree at %s", occupiedPath), false, "vacate the occupied worktree with session_vacate before claiming another")
+	return newFailure(KindWorktreeOwnershipConflict, "worktree_claim", fmt.Sprintf("the calling session still occupies another work item's active worktree at %s", occupiedPath), false, "vacate the occupied worktree with session_vacate before claiming another")
+}
+
+// sessionClaimLandedPayload is the durable record of one verified claim
+// landing. The host moved the session and read its directory back as the
+// claimed path before this event exists, so the event is evidence of a
+// landing, never an intention to land.
+type sessionClaimLandedPayload struct {
+	WorkID            string   `json:"work_id"`
+	ProjectID         string   `json:"project_id"`
+	SessionRef        string   `json:"session_ref"`
+	SourceDirectories []string `json:"source_directories"`
+	LandedDirectory   string   `json:"landed_directory"`
+}
+
+// WorktreeClaimLandingRequest records the verified landing of a session in a
+// claimed worktree. The adapter-only claim-landing verb is the
+// caller: the host proves the landing by readback, and the core refuses to
+// record anything the projection does not already hold true.
+type WorktreeClaimLandingRequest struct {
+	WorkID          string
+	SessionRef      string
+	LandedDirectory string
+	Now             time.Time
+}
+
+// WorktreeClaimLandingResult names the transferred landing. ReleasedSources
+// holds the other active rows of the same work item whose occupancy the
+// landing cleared.
+type WorktreeClaimLandingResult struct {
+	WorkID          string   `json:"work_id"`
+	ProjectID       string   `json:"project_id"`
+	SessionRef      string   `json:"session_ref"`
+	LandedDirectory string   `json:"landed_directory"`
+	ReleasedSources []string `json:"released_sources,omitempty"`
+	AlreadyRecorded bool     `json:"already_recorded"`
+}
+
+// RecordWorktreeClaimLanding transfers the calling session's occupancy onto
+// the claimed worktree in one transaction: the destination row must be active
+// and occupied by this session, the work item's other active rows the session
+// occupies clear, and one durable event names the session, work item, source
+// paths, and landed path. A destination that is absent, inactive, or occupied
+// by another session refuses before any effect, and no other work item's row
+// is ever cleared. The same landing replays idempotently.
+func (s *Store) RecordWorktreeClaimLanding(ctx context.Context, req WorktreeClaimLandingRequest) (WorktreeClaimLandingResult, error) {
+	if s == nil || s.db == nil {
+		return WorktreeClaimLandingResult{}, newFailure(KindUnavailable, "claim-landing", "store is not open", false, "open the authority database")
+	}
+	if req.WorkID == "" || req.SessionRef == "" || req.LandedDirectory == "" {
+		return WorktreeClaimLandingResult{}, newFailure(KindInvalidOperation, "claim-landing", "landing is missing the work, session, or landed directory", false, "supply the work id, session ref, and verified landed path")
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return WorktreeClaimLandingResult{}, wrapFailure(KindUnavailable, "claim-landing", "cannot begin landing", true, "retry once the database is writable", err)
+	}
+	defer tx.Rollback()
+	out, err := recordWorktreeClaimLandingTx(ctx, tx, req)
+	if err != nil {
+		return WorktreeClaimLandingResult{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return WorktreeClaimLandingResult{}, wrapFailure(KindUnavailable, "claim-landing", "cannot commit landing", true, "retry the same landing", err)
+	}
+	return out, nil
+}
+
+func recordWorktreeClaimLandingTx(ctx context.Context, tx *sql.Tx, req WorktreeClaimLandingRequest) (WorktreeClaimLandingResult, error) {
+	out := WorktreeClaimLandingResult{WorkID: req.WorkID, SessionRef: req.SessionRef, LandedDirectory: filepath.Clean(req.LandedDirectory)}
+	hasOccupancy, err := worktreeOccupancyColumnAvailable(ctx, tx)
+	if err != nil {
+		return out, err
+	}
+	if !hasOccupancy {
+		return out, newFailure(KindUnavailable, "claim-landing", "this database does not record worktree occupancy", false, "run upgrade so the occupancy projection exists")
+	}
+	var projectID, occupant string
+	err = tx.QueryRowContext(ctx, `SELECT project_id, occupant_session_ref FROM worktree_entries WHERE set_id=? AND path=? AND state='active'`, WorktreeSetID(req.WorkID), out.LandedDirectory).Scan(&projectID, &occupant)
+	if err == sql.ErrNoRows {
+		return out, newFailure(KindProjectionNotFound, "claim-landing", "the landed path is not an active worktree of this work item", false, "land in the derived path the claim returned")
+	}
+	if err != nil {
+		return out, wrapFailure(KindUnavailable, "claim-landing", "cannot read the claimed worktree", true, "retry once the database is readable", err)
+	}
+	if occupant != req.SessionRef {
+		return out, newFailure(KindWorktreeOwnershipConflict, "claim-landing", "the claimed worktree is not recorded as occupied by this session", false, "replay worktree_claim so the claim carries this session's occupancy")
+	}
+	out.ProjectID = projectID
+	sources, err := sessionOccupiedSourcesTx(ctx, tx, req.WorkID, req.SessionRef, projectID, out.LandedDirectory)
+	if err != nil {
+		return out, err
+	}
+	// Replay is read from state, not from a derived event id: the claimed
+	// path per Project is deterministic, so an id naming the path would own
+	// the replay for the work item's whole life, and after a reclaim and a
+	// new claim at the same derived path a real second transfer would be
+	// skipped while the session's sources stay occupied under a success
+	// report. When no other occupied row of this work item remains, the
+	// projection already holds the landing and the same landing replays
+	// idempotently with no event.
+	if len(sources) == 0 {
+		out.AlreadyRecorded = true
+		return out, nil
+	}
+	out.ReleasedSources = sources
+	// One transfer is the unit of identity: the recorded landing count for
+	// this work item and session is the ordinal of this event, so a second
+	// landing at the same derived path records its own transfer. The count
+	// runs inside this transaction, mirroring the vacate ordinal in
+	// CD-0120 D4.
+	recorded, err := countSessionClaimLandingsTx(ctx, tx, req.WorkID, req.SessionRef)
+	if err != nil {
+		return out, err
+	}
+	eventID := fmt.Sprintf("%s:session-claim-landed:%s:%d", req.WorkID, req.SessionRef, recorded+1)
+	now := req.Now
+	if now.IsZero() {
+		now = nowFromClock(nil)
+	}
+	payload, err := json.Marshal(sessionClaimLandedPayload{WorkID: req.WorkID, ProjectID: projectID, SessionRef: req.SessionRef, SourceDirectories: sources, LandedDirectory: out.LandedDirectory})
+	if err != nil {
+		return out, err
+	}
+	if _, err := applyOperationTx(ctx, tx, Operation{Events: []Event{{
+		EventID: eventID, Kind: "work.session_claim_landed", SubjectType: SubjectWorkItem, SubjectID: req.WorkID, Actor: req.SessionRef, OccurredAt: now, PayloadVersion: 1, Payload: payload,
+	}}}, newFoldScope(tx), false); err != nil {
+		return out, err
+	}
+	return out, nil
+}
+
+// countSessionClaimLandingsTx returns how many landing events the projection
+// already records for one work item and session. It runs inside the caller's
+// transaction so the read observes the caller's own uncommitted events, and
+// the count is the ordinal of the next transfer event.
+func countSessionClaimLandingsTx(ctx context.Context, tx *sql.Tx, workID, sessionRef string) (int, error) {
+	var count int
+	err := tx.QueryRowContext(ctx, `SELECT count(*) FROM domain_events WHERE kind='work.session_claim_landed' AND subject_id=? AND json_extract(payload,'$.session_ref')=?`, workID, sessionRef).Scan(&count)
+	if err != nil {
+		return 0, wrapFailure(KindUnavailable, "claim-landing", "cannot count the recorded landing events", true, "retry once the database is readable", err)
+	}
+	return count, nil
+}
+
+// sessionOccupiedSourcesTx lists the work item's other active rows the
+// session occupies, in stable path order, before the landing clears them.
+func sessionOccupiedSourcesTx(ctx context.Context, tx *sql.Tx, workID, sessionRef, landedProjectID, landedDirectory string) ([]string, error) {
+	rows, err := tx.QueryContext(ctx, `SELECT path FROM worktree_entries WHERE state='active' AND occupant_session_ref=? AND set_id=? AND NOT (project_id=? AND path=?) ORDER BY path`, sessionRef, WorktreeSetID(workID), landedProjectID, landedDirectory)
+	if err != nil {
+		return nil, wrapFailure(KindUnavailable, "claim-landing", "cannot read the session's occupied worktrees", true, "retry once the database is readable", err)
+	}
+	defer rows.Close()
+	var sources []string
+	for rows.Next() {
+		var path string
+		if err := rows.Scan(&path); err != nil {
+			return nil, err
+		}
+		sources = append(sources, path)
+	}
+	return sources, rows.Err()
+}
+
+// foldSessionClaimLanded re-applies the verified transfer during rebuild: the
+// session's occupancy on the work item's other active rows clears, and the
+// landed row stays held.
+func foldSessionClaimLanded(ctx context.Context, tx *sql.Tx, event Event) error {
+	if err := checkSubject(event, SubjectWorkItem); err != nil {
+		return err
+	}
+	var p sessionClaimLandedPayload
+	if err := decodePayload(event, &p); err != nil {
+		return err
+	}
+	if p.WorkID == "" || p.WorkID != event.SubjectID || p.ProjectID == "" || p.SessionRef == "" || p.LandedDirectory == "" {
+		return newFailure(KindInvalidPayload, "fold_event", "session claim landed payload is missing required fields", false, "supply work, project, session, and landed directory")
+	}
+	_, err := tx.ExecContext(ctx, `UPDATE worktree_entries SET occupant_session_ref='' WHERE state='active' AND occupant_session_ref=? AND set_id=? AND NOT (project_id=? AND path=?)`, p.SessionRef, WorktreeSetID(p.WorkID), p.ProjectID, filepath.Clean(p.LandedDirectory))
+	return err
 }
 
 // worktreeRepoRootTx resolves the repository to create from the Project's

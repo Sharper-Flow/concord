@@ -75,6 +75,16 @@ function bindMoveRoutes(destination: string, options: { moveStatus?: number; lan
       return { response: new Response(null, { status: 200 }) }
     },
   })
+  // A verified landing records itself in the core through the adapter-only
+  // claim-landing verb; the capture accepts it instead of spawning a binary.
+  configureConcordAdapter({
+    runner: {
+      async run(argv: string[], input: string) {
+        if (argv[1] === "claim-landing") return { exitCode: 0, stdout: JSON.stringify({ work_id: (JSON.parse(input) as { work_id: string }).work_id }) + "\n", stderr: "" }
+        throw new Error("unexpected CLI invocation: " + argv.join(" "))
+      },
+    } as any,
+  })
 }
 
 describe("same-turn session move boundary", () => {

@@ -134,10 +134,11 @@ principal, and a mismatch is refused.
 Capability classes and the allowed Product scope come from the registered
 client policy. The core resolves `directory` and `worktree` to a Project and
 reads the current scope version. The policy Project list bounds which Project a
-session may resolve from. It authorizes the Products in that policy that own the
-resolved Project. Project authority then follows current Product membership, and
-holds every Project in the selected Product. The resolved Project selects the
-Product and does not limit authority to that Project (CD-0152 D1).
+session may resolve from, and the resolved Project must belong to a Product the
+policy authorizes. Every Product in the policy is authorized. Project authority
+follows current Product membership, and holds every Project in every authorized
+Product. The resolved Project anchors the ambient Product selection and does not
+limit authority to that Project (CD-0152 D1).
 
 Tool input cannot name or impersonate a principal, widen scope, or add
 capabilities. `manifest_digest` must equal the core's generated manifest digest,

@@ -551,7 +551,8 @@
                 "resource_claim",
                 "resource_release",
                 "message_send",
-                "message_withdraw"
+                "message_withdraw",
+                "product_project_add"
               ],
               "type": "string"
             }
@@ -814,7 +815,8 @@
             "worktree_destroy",
             "worktree_inspect",
             "worktree_reclaim",
-            "worktree_verify"
+            "worktree_verify",
+            "product_project_add"
           ],
           "type": "string"
         },
@@ -1286,7 +1288,8 @@
             "worktree_destroy",
             "worktree_inspect",
             "worktree_reclaim",
-            "worktree_verify"
+            "worktree_verify",
+            "product_project_add"
           ],
           "type": "string"
         },

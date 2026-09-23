@@ -50,6 +50,7 @@ func TestMutationInputSchemasBindDecodingStructs(t *testing.T) {
 		"concord_work_relate.link":                       linkMutationInput{},
 		"concord_work_relate.message_send":               messageSendInput{},
 		"concord_work_relate.message_withdraw":           messageWithdrawInput{},
+		"concord_work_relate.product_project_add":        productProjectAddInput{},
 		"concord_work_relate.resolve_overlap":            resolveOverlapMutationInput{},
 		"concord_work_relate.resource_claim":             resourceClaimInput{},
 		"concord_work_relate.resource_release":           resourceReleaseInput{},

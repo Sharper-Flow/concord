@@ -393,6 +393,26 @@ func membershipImpact(ctx context.Context, tx *sql.Tx, operation Operation) (Mem
 	return impact, nil
 }
 
+// ProductProjectMembershipRoleTx reads the role of one existing Product–Project
+// edge inside the caller's transaction. Found is false when the edge does not
+// exist, which is the only state a new-link mutation may act on.
+func ProductProjectMembershipRoleTx(ctx context.Context, transaction *Transaction, productID, projectID string) (string, bool, error) {
+	tx, err := transactionSQL(transaction, "product_project_membership")
+	if err != nil {
+		return "", false, err
+	}
+	var role string
+	err = tx.QueryRowContext(ctx, `SELECT role FROM product_projects WHERE product_id = ? AND project_id = ?`, productID, projectID).Scan(&role)
+	if err == sql.ErrNoRows {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, wrapFailure(KindUnavailable, "product_project_membership", "cannot read Product membership", true,
+			"retry once the database is readable", err)
+	}
+	return role, true, nil
+}
+
 func (s *Store) ProjectsForProduct(ctx context.Context, productID string) ([]ProjectMembership, error) {
 	return projectsForProduct(ctx, s.db, productID)
 }

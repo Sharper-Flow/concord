@@ -84,7 +84,7 @@ async function repositoryFixture(root: string, name: string): Promise<{ repo: st
   return { repo }
 }
 
-function dbValue(dbPath: string, sql: string, ...params: unknown[]): any {
+function dbValue(dbPath: string, sql: string, ...params: string[]): any {
   const db = new Database(dbPath, { readonly: true })
   try {
     return db.query(sql).get(...params)
@@ -93,7 +93,7 @@ function dbValue(dbPath: string, sql: string, ...params: unknown[]): any {
   }
 }
 
-function dbRows(dbPath: string, sql: string, ...params: unknown[]): any[] {
+function dbRows(dbPath: string, sql: string, ...params: string[]): any[] {
   const db = new Database(dbPath, { readonly: true })
   try {
     return db.query(sql).all(...params)

@@ -51,6 +51,32 @@ func TestS2NoUnresolvedOverlapIsDistinctFromUnavailable(t *testing.T) {
 	}
 }
 
+// A bounded enumeration never evaluates clean (CD-0048 keeps evaluated-clean
+// distinct from unevaluated): the summary names the bounded part as
+// unavailable instead of answering from incomplete data.
+func TestS2BoundedReadsNeverEvaluateClean(t *testing.T) {
+	bounded := (Snapshot{Screen: ScreenProduct, Domains: DomainSection{Read: true, State: "authoritative", OverlapsTruncated: true, Overlaps: []OverlapPair{{From: "w-1", To: "w-2", State: "resolved"}}}}).S2AnswerStack().Domain.Domain
+	if bounded.Evaluated || bounded.UnavailableReason != "domain_overlaps_bounded" {
+		t.Fatalf("bounded overlap summary=%#v", bounded)
+	}
+
+	partialRegistry := (Snapshot{Screen: ScreenProduct, Domains: DomainSection{Read: true, State: "authoritative", RegistryIncomplete: true}}).S2AnswerStack().Domain.Domain
+	if partialRegistry.Evaluated || partialRegistry.UnavailableReason != "domain_registry_incomplete" {
+		t.Fatalf("incomplete registry summary=%#v", partialRegistry)
+	}
+
+	// A bounded relation read marks the collapsed summary the same way, alone
+	// or beside a bounded overlap enumeration, and never answers clean.
+	boundedRelations := (Snapshot{Screen: ScreenProduct, Domains: DomainSection{Read: true, State: "authoritative", RelationsTruncated: true, Overlaps: []OverlapPair{{From: "w-1", To: "w-2", State: "resolved"}}}}).S2AnswerStack().Domain.Domain
+	if boundedRelations.Evaluated || boundedRelations.UnavailableReason != "domain_relations_bounded" {
+		t.Fatalf("bounded relation summary=%#v", boundedRelations)
+	}
+	boundedBoth := (Snapshot{Screen: ScreenProduct, Domains: DomainSection{Read: true, State: "authoritative", RelationsTruncated: true, OverlapsTruncated: true, Overlaps: []OverlapPair{{From: "w-1", To: "w-2", State: "resolved"}}}}).S2AnswerStack().Domain.Domain
+	if boundedBoth.Evaluated || boundedBoth.UnavailableReason != "domain_relations_bounded,domain_overlaps_bounded" {
+		t.Fatalf("bounded relation and overlap summary=%#v", boundedBoth)
+	}
+}
+
 func TestS2AnswerStackRenderIsIdempotent(t *testing.T) {
 	snapshot := Snapshot{Screen: ScreenProduct, Domains: DomainSection{Read: true, State: "authoritative"}, Ranked: []RankedWork{{ID: "w-1", Title: "First", Ready: true}}}
 	first := fmt.Sprintf("%#v", snapshot.S2AnswerStack())

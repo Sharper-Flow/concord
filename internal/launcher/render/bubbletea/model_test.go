@@ -1074,6 +1074,7 @@ func TestS2AnswerStackSummaryLinesStayWithin80ColumnsAndUnavailableDiffersFromCl
 	for _, state := range []launcher.DomainSection{
 		{Read: true, State: "authoritative"},
 		{Read: true, State: "unavailable", Reason: "registry unavailable"},
+		{Read: true, State: "authoritative", OverlapsTruncated: true},
 	} {
 		core := launcher.New(nil)
 		core.RestoreSnapshot(launcher.Snapshot{Screen: launcher.ScreenProduct, AmbientProduct: "product-1", Coverage: "authoritative", PanelFocus: launcher.S2PanelNext, Domains: state, Ranked: []launcher.RankedWork{{ID: "w-1", Title: strings.Repeat("x", 200), Ready: true}}})
@@ -1088,8 +1089,175 @@ func TestS2AnswerStackSummaryLinesStayWithin80ColumnsAndUnavailableDiffersFromCl
 		if state.State == "unavailable" && !strings.Contains(rendered, "DOMAIN: unavailable: registry unavailable") {
 			t.Fatalf("typed unavailable reason missing: %q", rendered)
 		}
-		if state.State == "authoritative" && !strings.Contains(rendered, "DOMAIN: no unresolved overlaps") {
+		if state.OverlapsTruncated {
+			if !strings.Contains(rendered, "DOMAIN: unavailable: domain_overlaps_bounded") {
+				t.Fatalf("bounded overlap enumeration rendered as evaluated: %q", rendered)
+			}
+			if strings.Contains(rendered, "no unresolved overlaps") {
+				t.Fatalf("bounded overlap enumeration rendered a clean answer: %q", rendered)
+			}
+		}
+		if state.State == "authoritative" && !state.OverlapsTruncated && !strings.Contains(rendered, "DOMAIN: no unresolved overlaps") {
 			t.Fatalf("evaluated-clean summary missing: %q", rendered)
+		}
+	}
+}
+
+// The collapsed Domain panel names a bounded relation read at both terminal
+// widths — alone or beside a bounded overlap enumeration — and never answers
+// "no unresolved overlaps" from a section whose relation read stopped early.
+func TestS2CollapsedDomainSummaryNamesRelationTruncationAtTerminalWidths(t *testing.T) {
+	for _, width := range []int{80, 120} {
+		for _, state := range []launcher.DomainSection{
+			{Read: true, State: "authoritative", RelationsTruncated: true, Overlaps: []launcher.OverlapPair{{From: "w-1", To: "w-2", State: "resolved"}}},
+			{Read: true, State: "authoritative", RelationsTruncated: true, OverlapsTruncated: true, Overlaps: []launcher.OverlapPair{{From: "w-1", To: "w-2", State: "resolved"}}},
+		} {
+			core := launcher.New(nil)
+			core.RestoreSnapshot(launcher.Snapshot{Screen: launcher.ScreenProduct, AmbientProduct: "product-1", Coverage: "authoritative", PanelFocus: launcher.S2PanelNext, Domains: state, Ranked: []launcher.RankedWork{{ID: "w-1", Title: "Next", Ready: true}}})
+			m := New(core, context.Background(), Profile{})
+			m.width, m.height = width, 24
+			m.Sync()
+			rendered := m.Render()
+			for _, line := range strings.Split(rendered, "\n") {
+				if line := lipgloss.Width(line); line > width {
+					t.Fatalf("%d-column line width=%d: %q", width, line, rendered)
+				}
+			}
+			if !strings.Contains(rendered, "DOMAIN: unavailable: domain_relations_bounded") {
+				t.Fatalf("%d-column collapsed panel missed the relation bound: %q", width, rendered)
+			}
+			if strings.Contains(rendered, "no unresolved overlaps") {
+				t.Fatalf("%d-column collapsed panel answered clean on a bounded relation read: %q", width, rendered)
+			}
+		}
+	}
+}
+
+// A bound on one part renders beside the sibling parts' complete answers:
+// the Domain rows stay visible while each bounded part carries its own
+// explicit incompleteness line.
+func TestDomainSectionBoundedPartsRenderBesideCompleteRows(t *testing.T) {
+	core := launcher.New(nil)
+	core.RestoreSnapshot(launcher.Snapshot{
+		Screen: launcher.ScreenProduct, AmbientProduct: "product-1", Section: launcher.SectionDomains, Coverage: "authoritative", PanelFocus: launcher.S2PanelDomain,
+		Domains: launcher.DomainSection{
+			Read: true, State: "authoritative", Registry: "sha256:abcd",
+			RelationsTruncated: true, OverlapsTruncated: true,
+			Domains:  []launcher.DomainRow{{ID: "root", Name: "Root", Home: true}, {ID: "child", Name: "Child", ParentID: "root"}},
+			Overlaps: []launcher.OverlapPair{{From: "w-1", To: "w-2", State: "absent", SharedDomains: []string{"child"}}},
+		},
+	})
+	m := New(core, context.Background(), Profile{})
+	m.Sync()
+	rendered := m.Render()
+	for _, want := range []string{
+		"root Root",
+		"child Child",
+		"RELATIONS: incomplete: bounded read reached",
+		"OVERLAPS: incomplete: bounded read reached",
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("bounded section rendering missed %q: %s", want, rendered)
+		}
+	}
+	if strings.Contains(rendered, "DOMAINS: truncated") {
+		t.Fatalf("whole-section truncation marker rendered: %s", rendered)
+	}
+}
+
+// The real-shaped bounded section — the registry's eight current Domain rows
+// with the overlap enumeration stopped at its 50-pair bound and the relation
+// read at its own bound — keeps the complete rows, the watermark, both bound
+// warnings, and the footer inside the first viewport of an actual frame.
+func TestDomainSectionEightDomainsFiftyTruncatedPairsShowRowsAndWarningsAtTerminalHeight(t *testing.T) {
+	domains := make([]launcher.DomainRow, 8)
+	for i := range domains {
+		domains[i] = launcher.DomainRow{ID: fmt.Sprintf("d-%02d", i), Name: fmt.Sprintf("Domain %02d", i)}
+	}
+	domains[0].Home = true
+	overlaps := make([]launcher.OverlapPair, 50)
+	for i := range overlaps {
+		overlaps[i] = launcher.OverlapPair{From: fmt.Sprintf("work-%02d", i), To: "other", State: "absent", SharedDomains: []string{"d-01"}}
+	}
+	core := launcher.New(nil)
+	core.RestoreSnapshot(launcher.Snapshot{
+		Screen: launcher.ScreenProduct, AmbientProduct: "concord", Section: launcher.SectionDomains,
+		Coverage: "authoritative", PanelFocus: launcher.S2PanelDomain,
+		Domains: launcher.DomainSection{
+			Read: true, State: "authoritative", Registry: "sha256:abcd",
+			RelationsTruncated: true, OverlapsTruncated: true,
+			Domains: domains, Overlaps: overlaps,
+		},
+	})
+	m := New(core, context.Background(), Profile{})
+	for _, width := range []int{80, 120} {
+		m.width, m.height = width, 40
+		m.Sync()
+		rendered := m.Render()
+		visibleRows := strings.Split(rendered, "\n")
+		if len(visibleRows) > m.height {
+			visibleRows = visibleRows[:m.height]
+		}
+		visible := strings.Join(visibleRows, "\n")
+		for _, want := range []string{
+			"d-00 Domain 00",
+			"REGISTRY: sha256:abcd",
+			"RELATIONS: incomplete: bounded read reached",
+			"OVERLAPS: incomplete: bounded read reached",
+			"arrows move",
+		} {
+			if !strings.Contains(visible, want) {
+				t.Fatalf("%d-column terminal hid %q in first %d rows: %s", width, want, m.height, visible)
+			}
+		}
+		if len(strings.Split(rendered, "\n")) > m.height {
+			t.Fatalf("%d-column frame overran %d-row terminal with %d lines", width, m.height, len(strings.Split(rendered, "\n")))
+		}
+	}
+}
+
+// A complete overlap enumeration keeps its evaluated-clean reading. The
+// pane fits the terminal by naming its own view-level omission instead of
+// dropping detail silently, and the section never renders the bounded-read
+// warning the store did not raise.
+func TestDomainSectionWithManyCompleteOverlapsFitsAndStaysEvaluated(t *testing.T) {
+	domains := make([]launcher.DomainRow, 8)
+	for i := range domains {
+		domains[i] = launcher.DomainRow{ID: fmt.Sprintf("d-%02d", i), Name: fmt.Sprintf("Domain %02d", i)}
+	}
+	domains[0].Home = true
+	overlaps := make([]launcher.OverlapPair, 45)
+	for i := range overlaps {
+		overlaps[i] = launcher.OverlapPair{From: fmt.Sprintf("work-%02d", i), To: "other", State: "absent", SharedDomains: []string{"d-01"}}
+	}
+	core := launcher.New(nil)
+	core.RestoreSnapshot(launcher.Snapshot{
+		Screen: launcher.ScreenProduct, AmbientProduct: "concord", Section: launcher.SectionDomains,
+		Coverage: "authoritative", PanelFocus: launcher.S2PanelDomain,
+		Domains: launcher.DomainSection{
+			Read: true, State: "authoritative", Registry: "sha256:ef01",
+			Domains: domains, Overlaps: overlaps,
+		},
+	})
+	m := New(core, context.Background(), Profile{})
+	for _, width := range []int{80, 120} {
+		m.width, m.height = width, 40
+		m.Sync()
+		rendered := m.Render()
+		if lines := len(strings.Split(rendered, "\n")); lines > m.height {
+			t.Fatalf("%d-column frame overran %d-row terminal with %d lines", width, m.height, lines)
+		}
+		if strings.Contains(rendered, "OVERLAPS: incomplete: bounded read reached") {
+			t.Fatalf("%d-column complete enumeration rendered the store's bounded-read warning: %s", width, rendered)
+		}
+		if !strings.Contains(rendered, "more detail lines (pane bound reached)") {
+			t.Fatalf("%d-column view dropped overlap detail without naming the omission: %s", width, rendered)
+		}
+		visible := strings.Join(strings.Split(rendered, "\n")[:m.height], "\n")
+		for _, want := range []string{"d-00 Domain 00", "REGISTRY: sha256:ef01", "arrows move"} {
+			if !strings.Contains(visible, want) {
+				t.Fatalf("%d-column terminal hid %q in first %d rows: %s", width, want, m.height, visible)
+			}
 		}
 	}
 }

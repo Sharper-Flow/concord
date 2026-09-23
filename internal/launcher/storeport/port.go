@@ -333,10 +333,17 @@ func snapshotFromDomains(result store.LauncherDomainsResult, product store.Launc
 		converted := launcher.OverlapPair{From: pair.FromWorkID, To: pair.ToWorkID, State: pair.ResolutionState, SharedDomains: append([]string(nil), pair.SharedDomainIDs...)}
 		s.Domains.Overlaps = append(s.Domains.Overlaps, converted)
 	}
-	s.Domains.Truncated = result.Truncated
-	if result.Truncated {
+	s.Domains.RegistryIncomplete = result.RegistryIncomplete
+	s.Domains.RelationsTruncated = result.RelationsTruncated
+	s.Domains.OverlapsTruncated = result.OverlapsTruncated
+	if result.RegistryIncomplete {
+		// An incomplete registry page cannot back a trustworthy row view, so
+		// the section carries the typed incompleteness instead of partial
+		// rows. A bound on overlaps or relations never reaches this branch:
+		// the rows and the watermark stay visible when only those parts are
+		// bounded.
 		s.Domains.State = "unavailable"
-		s.Domains.Reason = "domain_relations_bounded"
+		s.Domains.Reason = "domain_registry_incomplete"
 	}
 	return s
 }

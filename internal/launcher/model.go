@@ -177,16 +177,21 @@ type OverlapPair struct {
 
 // DomainSection is S2's Domain navigation body. Unavailable is typed and
 // distinct from authoritative-empty: an absent registry never renders as an
-// empty Domain list.
+// empty Domain list. The registry, relation, and overlap reads fail
+// independently at their bounds, so a bound on overlaps or relations marks
+// only that part and never withholds complete registry rows or their
+// watermark.
 type DomainSection struct {
-	Read      bool
-	State     string
-	Reason    string
-	Registry  string
-	Domains   []DomainRow
-	Relations []DomainRelationEdge
-	Overlaps  []OverlapPair
-	Truncated bool
+	Read               bool
+	State              string
+	Reason             string
+	Registry           string
+	RegistryIncomplete bool
+	RelationsTruncated bool
+	OverlapsTruncated  bool
+	Domains            []DomainRow
+	Relations          []DomainRelationEdge
+	Overlaps           []OverlapPair
 }
 
 type S2DomainSummary struct {
@@ -626,6 +631,24 @@ func domainSummary(section DomainSection) S2DomainSummary {
 		}
 		return summary
 	}
+	// A partial read never evaluates clean (CD-0048 keeps evaluated-clean
+	// distinct from unevaluated): the summary names every bounded part as
+	// unavailable instead of answering from incomplete enumeration.
+	if section.RegistryIncomplete {
+		summary.UnavailableReason = "domain_registry_incomplete"
+		return summary
+	}
+	var bounded []string
+	if section.RelationsTruncated {
+		bounded = append(bounded, "domain_relations_bounded")
+	}
+	if section.OverlapsTruncated {
+		bounded = append(bounded, "domain_overlaps_bounded")
+	}
+	if len(bounded) > 0 {
+		summary.UnavailableReason = strings.Join(bounded, ",")
+		return summary
+	}
 	summary.Evaluated = true
 	for _, pair := range section.Overlaps {
 		if pair.State == "absent" {
@@ -654,7 +677,9 @@ func cloneSnapshot(snapshot Snapshot) Snapshot {
 	cloned.Domains.Read = snapshot.Domains.Read
 	cloned.Domains.Registry = snapshot.Domains.Registry
 	cloned.Domains.State, cloned.Domains.Reason = snapshot.Domains.State, snapshot.Domains.Reason
-	cloned.Domains.Truncated = snapshot.Domains.Truncated
+	cloned.Domains.RegistryIncomplete = snapshot.Domains.RegistryIncomplete
+	cloned.Domains.RelationsTruncated = snapshot.Domains.RelationsTruncated
+	cloned.Domains.OverlapsTruncated = snapshot.Domains.OverlapsTruncated
 	cloned.Domains.Domains = append([]DomainRow(nil), snapshot.Domains.Domains...)
 	cloned.Domains.Relations = append([]DomainRelationEdge(nil), snapshot.Domains.Relations...)
 	cloned.Domains.Overlaps = nil

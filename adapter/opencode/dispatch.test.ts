@@ -853,6 +853,28 @@ test("readback accepts a large sanitized session export", () => {
   expect(readExportSessionMetadata(largeExport, "session-1")).toEqual({ readback_model: "openai/gpt-5.6-luna", readback_agent: "concord-research", session_id: "session-1" })
 })
 
+test("a worker transcript above the old export limit records completion", async () => {
+  const messages: unknown[] = transcript()
+  messages.splice(1, 0, {
+    info: { id: "message-large", sessionID: "session-1", role: "user", agent: "concord-research", time: { created: 0.5 } },
+    parts: [{ type: "text", text: "x".repeat(14_000_000) }],
+  })
+  expect(Buffer.byteLength(JSON.stringify(messages))).toBeGreaterThan(8_388_608)
+  const recorded: string[] = []
+  const result = await complete(workerBody(), {
+    sessionReader: {
+      async get() { return okRoute({ id: "session-1" }) },
+      async messages() { return okRoute(messages) },
+    },
+    evidenceRunner: {
+      async run(argv) { recorded.push(argv[1]); return { exitCode: 0, stdout: "", stderr: "" } },
+    },
+  })
+  expect(result.outcome).toBe("ok")
+  expect(result.readback_model).toBe(READBACK_MODEL)
+  expect(recorded).toEqual(["session", "worker-dispatch", "worker-complete"])
+})
+
 test("a transcript that outlives the readback page bound refuses typed", async () => {
   // A reader that always advertises a next page simulates a transcript the
   // page walk never reaches the head of; the walk refuses after its bound.

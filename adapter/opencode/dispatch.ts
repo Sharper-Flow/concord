@@ -996,8 +996,8 @@ export function canonicalWorkerEvidence(assertion: Record<string, unknown>): Uin
 // never reaches the worker: it is produced here, after the run, and is not part
 // of the lane packet or any prompt surface.
 async function signWorkerEvidence(credentials: CredentialStore, fields: Record<string, unknown>): Promise<Record<string, unknown>> {
-  const assertion = { ...fields, client_ref: clientRef(), issued_at: new Date().toISOString(), nonce: fields.nonce ?? randomNonce() }
   const privateKey = privateKeyObject(await credentials.getPrivateKey(clientRef()))
+  const assertion = { ...fields, client_ref: clientRef(), issued_at: new Date().toISOString(), nonce: fields.nonce ?? randomNonce() }
   return { ...assertion, signature: b64(signBytes(null, Buffer.from(canonicalWorkerEvidence(assertion)), privateKey)) }
 }
 
@@ -1732,7 +1732,6 @@ async function completeWorkerSession(
     return errorEnvelope(lane, packet as Partial<AgentLanePacket>, "error", "invalid_input", "dispatch evidence requires the packet digest recorded by the dispatch authorization", "reconcile_operation")
   }
   let dispatchAssertion: Record<string, unknown>
-  let terminalAssertion: Record<string, unknown>
   try {
     dispatchAssertion = await signWorkerEvidence(credentials, {
       verb: "worker-dispatch",
@@ -1745,6 +1744,37 @@ async function completeWorkerSession(
       host_provenance_digest: provenance.digest,
       packet_digest: options.packetDigest,
     })
+  } catch (error) {
+    // Without a credential the adapter cannot authorize evidence, and evidence
+    // that cannot be recorded is never reported as a successful run.
+    return errorEnvelope(lane, packet, "error", "error", String(error).slice(0, MAX_ERROR_BYTES), "contact_operator")
+  }
+  const dispatchFailure = await recordWorkerEvent(cliRunner, cli, "worker-dispatch", {
+    event_id: crypto.randomUUID(),
+    work_id: packet.work_id,
+    attempt_id: packet.attempt_id,
+    lane_id: lane.id,
+    lane_version: lane.version,
+    lane_digest: lane.digest,
+    readback_model: readback.readback_model,
+    packet_schema_version: PACKET_SCHEMA_VERSION,
+    report_schema_version: REPORT_SCHEMA_VERSION,
+    // The CLI requires the digest on the request as well as inside the
+    // signed assertion: it is the seam that checks the value the assertion
+    // claims is the value the core recorded (CD-0067 D6).
+    packet_digest: options.packetDigest,
+    host_provenance: provenance,
+    assertion: dispatchAssertion,
+  }, signal)
+  if (dispatchFailure) return errorEnvelope(lane, packet, "error", "error", dispatchFailure, "reconcile_operation")
+
+  // The terminal assertion is minted immediately before its own CLI write,
+  // after the dispatch write has landed. The core refuses an assertion whose
+  // issued_at falls outside its clock-skew window, so a dispatch write that is
+  // slow or queued must not stale a completion signature that was minted
+  // before it (the historical "worker evidence assertion timestamp invalid").
+  let terminalAssertion: Record<string, unknown>
+  try {
     terminalAssertion = terminal.verb === "worker-complete"
       ? await signWorkerEvidence(credentials, {
         verb: "worker-complete",
@@ -1774,28 +1804,11 @@ async function completeWorkerSession(
         failure_kind: terminal.failure_kind,
       })
   } catch (error) {
-    // Without a credential the adapter cannot authorize evidence, and evidence
-    // that cannot be recorded is never reported as a successful run.
+    // The dispatch event is already durable, so this failure reports the
+    // terminal-evidence cause alone; the coordinator reconciles the attempt
+    // from the dispatched row.
     return errorEnvelope(lane, packet, "error", "error", String(error).slice(0, MAX_ERROR_BYTES), "contact_operator")
   }
-  const dispatchFailure = await recordWorkerEvent(cliRunner, cli, "worker-dispatch", {
-    event_id: crypto.randomUUID(),
-    work_id: packet.work_id,
-    attempt_id: packet.attempt_id,
-    lane_id: lane.id,
-    lane_version: lane.version,
-    lane_digest: lane.digest,
-    readback_model: readback.readback_model,
-    packet_schema_version: PACKET_SCHEMA_VERSION,
-    report_schema_version: REPORT_SCHEMA_VERSION,
-    // The CLI requires the digest on the request as well as inside the
-    // signed assertion: it is the seam that checks the value the assertion
-    // claims is the value the core recorded (CD-0067 D6).
-    packet_digest: options.packetDigest,
-    host_provenance: provenance,
-    assertion: dispatchAssertion,
-  }, signal)
-  if (dispatchFailure) return errorEnvelope(lane, packet, "error", "error", dispatchFailure, "reconcile_operation")
 
   if (terminal.verb === "worker-fail") {
     const failureRecordFailure = await recordWorkerEvent(cliRunner, cli, "worker-fail", {

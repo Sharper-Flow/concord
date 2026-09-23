@@ -728,6 +728,281 @@ func TestLinearDrainRefreshesConnectionPerClaimedOperation(t *testing.T) {
 	}
 }
 
+// seedLinearInitiativeFixture seeds an Initiative with a narrative, an entry
+// work item when entryID is non-empty, their Product memberships, and the
+// entry row, mirroring the capture folds the drain tests drive.
+func seedLinearInitiativeFixture(t *testing.T, dbPath, projectID, initiativeID, entryID, narrative string) {
+	t.Helper()
+	s, err := store.Open(context.Background(), dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+		t.Fatal(err)
+	}
+	initiativeIntent := `{"title":"Initiative title","value_statement":"Initiative value","kind":"initiative","priority":0,"urgency":"standard"}`
+	if _, err := tx.Exec(`INSERT INTO work_items(id, kind, title, lifecycle, priority, urgency, version, intent_json, narrative, created_at, updated_at) VALUES(?, 'initiative', 'Initiative title', 'needed', 0, 'standard', 1, ?, ?, '2026-09-23T00:00:00Z', '2026-09-23T00:00:00Z')`, initiativeID, initiativeIntent, narrative); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec(`INSERT INTO work_projects(work_id, project_id, role) VALUES(?, ?, 'primary')`, initiativeID, projectID); err != nil {
+		t.Fatal(err)
+	}
+	if entryID != "" {
+		entryIntent := `{"title":"Entry title","value_statement":"Entry value","kind":"task","priority":0,"urgency":"standard"}`
+		if _, err := tx.Exec(`INSERT INTO work_items(id, kind, title, lifecycle, priority, urgency, version, intent_json, created_at, updated_at) VALUES(?, 'task', 'Entry title', 'needed', 0, 'standard', 1, ?, '2026-09-23T00:00:00Z', '2026-09-23T00:00:00Z')`, entryID, entryIntent); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := tx.Exec(`INSERT INTO work_projects(work_id, project_id, role) VALUES(?, ?, 'primary')`, entryID, projectID); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := tx.Exec(`INSERT INTO initiative_entries(initiative_work_id, child_work_id, position, required) VALUES(?, ?, 0, 1)`, initiativeID, entryID); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := tx.Exec(`DELETE FROM fold_guard`); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// CD-0171 review correction: the drain resolves the owning Initiative's
+// confirmed Project at issue_create drain time, so neither claim order can
+// strand an entry issue outside its Initiative's Project. When the Project
+// drains first, the create carries the Project from the start; when the issue
+// drains first, the project_create completion refreshes the now-confirmed
+// entry with a queued update.
+func TestLinearDrainResolvesProjectAtIssueCreateDrainTime(t *testing.T) {
+	for name, projectFirst := range map[string]bool{"project drains first": true, "issue drains first": false} {
+		t.Run(name, func(t *testing.T) {
+			dbPath := filepath.Join(t.TempDir(), "concord.db")
+			seedCLIProduct(t, dbPath, "order-product", "order-project")
+			enableLinearProduct(t, dbPath, "order-product")
+			seedLinearInitiativeFixture(t, dbPath, "order-project", "order-initiative", "order-entry", "The order narrative.")
+
+			s, err := store.Open(context.Background(), dbPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if projectFirst {
+				if _, err := s.EnqueueLinearProjectForInitiative(context.Background(), "order-product", "order-initiative", store.LinearOpProjectCreate); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if _, err := s.EnqueueLinearIssueForProduct(context.Background(), "order-product", "order-entry", store.LinearOpIssueCreate); err != nil {
+				t.Fatal(err)
+			}
+			if !projectFirst {
+				if _, err := s.EnqueueLinearProjectForInitiative(context.Background(), "order-product", "order-initiative", store.LinearOpProjectCreate); err != nil {
+					t.Fatal(err)
+				}
+			}
+			s.Close()
+
+			var projectBodies, issueCreateBodies, updateBodies []string
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				body, _ := io.ReadAll(r.Body)
+				text := string(body)
+				w.Header().Set("Content-Type", "application/json")
+				switch {
+				case strings.Contains(text, "projectCreate"):
+					projectBodies = append(projectBodies, text)
+					_, _ = w.Write([]byte(`{"data":{"projectCreate":{"success":true,"project":{"id":"remote-project-ordered","name":"Initiative title","description":"Initiative value","content":"The order narrative.","url":"https://linear.app/example/project/remote-project-ordered","updatedAt":"2026-09-23T01:00:00Z"}}}}`))
+				case strings.Contains(text, "issueCreate"):
+					issueCreateBodies = append(issueCreateBodies, text)
+					_, _ = w.Write([]byte(`{"data":{"issueCreate":{"success":true,"issue":{"id":"order-issue-remote","identifier":"OR-1","url":"https://linear.app/example/issue/OR-1","updatedAt":"2026-09-23T01:00:00Z"}}}}`))
+				case strings.Contains(text, "issueUpdate"):
+					updateBodies = append(updateBodies, text)
+					_, _ = w.Write([]byte(`{"data":{"issueUpdate":{"success":true,"issue":{"id":"order-issue-remote","identifier":"OR-1","url":"https://linear.app/example/issue/OR-1","updatedAt":"2026-09-23T02:00:00Z"}}}}`))
+				default:
+					_, _ = w.Write([]byte(`{"data":{"issue":{"id":"order-issue-remote","identifier":"OR-1","url":"https://linear.app/example/issue/OR-1","updatedAt":"2026-09-23T03:00:00Z","state":{"type":"unstarted"},"team":{"id":"order-team"}}}}`))
+				}
+			}))
+			defer server.Close()
+			t.Setenv(linearclient.EnvEndpoint, server.URL)
+			t.Setenv(linearclient.EnvAPIKey, "lin_api_order_test")
+			t.Setenv(dbOverrideEnv, dbPath)
+
+			var out, errOut strings.Builder
+			if code := runWithInput([]string{"linear", "outbox-drain"}, strings.NewReader(`{"product_id":"order-product"}`), &out, &errOut); code != 0 {
+				t.Fatalf("first drain exit=%d stderr=%q", code, errOut.String())
+			}
+			s, err = store.Open(context.Background(), dbPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer s.Close()
+			if projectFirst {
+				// The create itself carried the Project: the completion refresh
+				// could not have fixed the entry up, because its link was still
+				// unpublished when the project_create completed.
+				if len(issueCreateBodies) != 1 {
+					t.Fatalf("issueCreate calls = %d, want 1", len(issueCreateBodies))
+				}
+				if !strings.Contains(issueCreateBodies[0], `"projectId":"remote-project-ordered"`) {
+					t.Fatalf("issueCreate body = %q, want the owning Initiative's Project resolved at drain time", issueCreateBodies[0])
+				}
+				var queued int
+				if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM linear_outbox WHERE work_id='order-entry' AND op_kind=? AND state=?`, store.LinearOpIssueUpdate, store.LinearOutboxQueued).Scan(&queued); err != nil {
+					t.Fatal(err)
+				}
+				if queued != 0 {
+					t.Fatalf("queued entry updates = %d, want 0: the create already carried the Project", queued)
+				}
+				return
+			}
+			// The issue drained before the Project existed, so the create body
+			// carries no Project; the completion refresh queues the update
+			// that moves the confirmed entry in.
+			if len(issueCreateBodies) != 1 || strings.Contains(issueCreateBodies[0], "projectId") {
+				t.Fatalf("issueCreate body = %q, want no Project before the Initiative's Project exists", issueCreateBodies)
+			}
+			var refreshPayload string
+			if err := s.DatabaseForTesting().QueryRow(`SELECT payload FROM linear_outbox WHERE work_id='order-entry' AND op_kind=? AND state=?`, store.LinearOpIssueUpdate, store.LinearOutboxQueued).Scan(&refreshPayload); err != nil {
+				t.Fatalf("the project completion queued no entry refresh: %v", err)
+			}
+			if !strings.Contains(refreshPayload, `"project_id":"remote-project-ordered"`) {
+				t.Fatalf("entry refresh payload = %q, want the created Project", refreshPayload)
+			}
+			out.Reset()
+			errOut.Reset()
+			updateBodies = nil
+			if code := runWithInput([]string{"linear", "outbox-drain"}, strings.NewReader(`{"product_id":"order-product"}`), &out, &errOut); code != 0 {
+				t.Fatalf("second drain exit=%d stderr=%q", code, errOut.String())
+			}
+			if len(updateBodies) != 1 || !strings.Contains(updateBodies[0], `"projectId":"remote-project-ordered"`) {
+				t.Fatalf("issueUpdate bodies = %v, want the entry moved into the created Project", updateBodies)
+			}
+		})
+	}
+}
+
+// CD-0171 review correction: the project_create drain sends the Initiative's
+// current title, value statement, and narrative — not the payload snapshot —
+// so a narrative revision that lands after enqueue, while no Project link
+// exists yet, still ships with the create.
+func TestLinearDrainSendsCurrentNarrativeOnProjectCreate(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "concord.db")
+	seedCLIProduct(t, dbPath, "narrdrain-product", "narrdrain-project")
+	enableLinearProduct(t, dbPath, "narrdrain-product")
+	seedLinearInitiativeFixture(t, dbPath, "narrdrain-project", "narrdrain-initiative", "", "The original narrative.")
+
+	s, err := store.Open(context.Background(), dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.EnqueueLinearProjectForInitiative(context.Background(), "narrdrain-product", "narrdrain-initiative", store.LinearOpProjectCreate); err != nil {
+		t.Fatal(err)
+	}
+	// The narrative moves on before the drain; no Project link exists yet, so
+	// the revision itself queues no project_update.
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE work_items SET narrative='The revised narrative.' WHERE id='narrdrain-initiative'; DELETE FROM fold_guard`); err != nil {
+		t.Fatal(err)
+	}
+	s.Close()
+
+	var createBody string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		text := string(body)
+		w.Header().Set("Content-Type", "application/json")
+		if strings.Contains(text, "projectCreate") {
+			createBody = text
+			_, _ = w.Write([]byte(`{"data":{"projectCreate":{"success":true,"project":{"id":"remote-project-narrdrain","name":"Initiative title","description":"Initiative value","content":"The revised narrative.","url":"https://linear.app/example/project/remote-project-narrdrain","updatedAt":"2026-09-23T01:00:00Z"}}}}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"data":{"issue":{"id":"narrdrain-issue","identifier":"ND-1","url":"https://linear.app/example/issue/ND-1","updatedAt":"2026-09-23T01:00:00Z","state":{"type":"unstarted"},"team":{"id":"narrdrain-team"}}}}`))
+	}))
+	defer server.Close()
+	t.Setenv(linearclient.EnvEndpoint, server.URL)
+	t.Setenv(linearclient.EnvAPIKey, "lin_api_narrdrain_test")
+	t.Setenv(dbOverrideEnv, dbPath)
+
+	var out, errOut strings.Builder
+	if code := runWithInput([]string{"linear", "outbox-drain"}, strings.NewReader(`{"product_id":"narrdrain-product"}`), &out, &errOut); code != 0 {
+		t.Fatalf("drain exit=%d stderr=%q", code, errOut.String())
+	}
+	if !strings.Contains(createBody, `"content":"The revised narrative."`) {
+		t.Fatalf("projectCreate body = %q, want the narrative read at drain time", createBody)
+	}
+	if !strings.Contains(createBody, `"description":"Initiative value"`) || !strings.Contains(createBody, `"name":"Initiative title"`) {
+		t.Fatalf("projectCreate body = %q, want the current title and value statement", createBody)
+	}
+}
+
+// CD-0171 review correction: an issue_update resolves the owning Initiative's
+// Project at drain time too, so a payload enqueued before the Initiative's
+// project_create completed cannot clear a Project that exists by the time the
+// update is sent.
+func TestLinearIssueUpdateDrainResolvesProjectAtDrainTime(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "concord.db")
+	seedCLIProduct(t, dbPath, "updresolve-product", "updresolve-project")
+	enableLinearProduct(t, dbPath, "updresolve-product")
+	seedLinearInitiativeFixture(t, dbPath, "updresolve-project", "updresolve-initiative", "updresolve-entry", "The resolve narrative.")
+
+	s, err := store.Open(context.Background(), dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.RecordLinearLink(context.Background(), "updresolve-entry", "updresolve-remote", "UR-1", "https://linear.app/example/issue/UR-1", "", "", store.LinearLinkUnpublished); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.RecordLinearLink(context.Background(), "updresolve-entry", "updresolve-remote", "UR-1", "https://linear.app/example/issue/UR-1", "", "", store.LinearLinkPending); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.RecordLinearLink(context.Background(), "updresolve-entry", "updresolve-remote", "UR-1", "https://linear.app/example/issue/UR-1", "", "", store.LinearLinkConfirmed); err != nil {
+		t.Fatal(err)
+	}
+	// The update is enqueued while the Initiative holds no Project link, so
+	// its payload snapshot carries none.
+	if _, err := s.EnqueueLinearIssueForProduct(context.Background(), "updresolve-product", "updresolve-entry", store.LinearOpIssueUpdate); err != nil {
+		t.Fatal(err)
+	}
+	s.Close()
+
+	// The Initiative's Project completes before the update drains.
+	seedStore, err := store.Open(context.Background(), dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := seedStore.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT INTO linear_project_links(work_id, remote_project_uuid, name, url, created_at, updated_at) VALUES('updresolve-initiative', 'remote-project-live', 'Initiative title', '', '2026-09-23T00:00:00Z', '2026-09-23T00:00:00Z'); DELETE FROM fold_guard`); err != nil {
+		t.Fatal(err)
+	}
+	seedStore.Close()
+
+	var updateBody string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		text := string(body)
+		w.Header().Set("Content-Type", "application/json")
+		if strings.Contains(text, "issueUpdate") {
+			updateBody = text
+			_, _ = w.Write([]byte(`{"data":{"issueUpdate":{"success":true,"issue":{"id":"updresolve-remote","identifier":"UR-1","url":"https://linear.app/example/issue/UR-1","updatedAt":"2026-09-23T02:00:00Z"}}}}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"data":{"issue":{"id":"updresolve-remote","identifier":"UR-1","url":"https://linear.app/example/issue/UR-1","updatedAt":"2026-09-23T03:00:00Z","state":{"type":"unstarted"},"team":{"id":"updresolve-team"}}}}`))
+	}))
+	defer server.Close()
+	t.Setenv(linearclient.EnvEndpoint, server.URL)
+	t.Setenv(linearclient.EnvAPIKey, "lin_api_updresolve_test")
+	t.Setenv(dbOverrideEnv, dbPath)
+
+	var out, errOut strings.Builder
+	if code := runWithInput([]string{"linear", "outbox-drain"}, strings.NewReader(`{"product_id":"updresolve-product"}`), &out, &errOut); code != 0 {
+		t.Fatalf("drain exit=%d stderr=%q", code, errOut.String())
+	}
+	if !strings.Contains(updateBody, `"projectId":"remote-project-live"`) {
+		t.Fatalf("issueUpdate body = %q, want the Project resolved at drain time", updateBody)
+	}
+}
+
 func fixedLinearTestTime() time.Time { return time.Date(2026, 9, 9, 1, 0, 0, 0, time.UTC) }
 
 // TestLinearDrainProjectOperations drives CD-0171 D2 end to end: the drain

@@ -484,7 +484,7 @@ func TestCompleteLinearProjectOperationRecordsLinkOnce(t *testing.T) {
 	if _, err := s.ClaimLinearOperations(ctx, 25); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.CompleteLinearProjectOperation(ctx, entry.OperationID, "remote-project-uuid-1", "Done initiative", "https://linear.app/example/project/remote-project-uuid-1"); err != nil {
+	if err := s.CompleteLinearProjectOperation(ctx, entry.OperationID, "remote-project-uuid-1", "Done initiative", "https://linear.app/example/project/remote-project-uuid-1", LinearInitiativeProjectState{Title: "Done initiative", ValueStatement: "Done value"}); err != nil {
 		t.Fatalf("CompleteLinearProjectOperation() error = %v", err)
 	}
 	link, err := s.ReadLinearProjectLink(ctx, "projdone-initiative")
@@ -495,11 +495,75 @@ func TestCompleteLinearProjectOperationRecordsLinkOnce(t *testing.T) {
 		t.Fatalf("project link = %+v", link)
 	}
 	// Completing again is a typed refusal: the operation left in_flight.
-	if err := s.CompleteLinearProjectOperation(ctx, entry.OperationID, "remote-project-uuid-2", "Done initiative", ""); err == nil || !failureKindIs(err, KindInvalidTransition) {
+	if err := s.CompleteLinearProjectOperation(ctx, entry.OperationID, "remote-project-uuid-2", "Done initiative", "", LinearInitiativeProjectState{}); err == nil || !failureKindIs(err, KindInvalidTransition) {
 		t.Fatalf("re-completion error = %v, want invalid_transition", err)
 	}
 	if _, err := s.ReadLinearProjectLink(ctx, "ghost-initiative"); err == nil || !failureKindIs(err, KindUnknownScope) {
 		t.Fatalf("missing link error = %v, want unknown_scope", err)
+	}
+}
+
+// CD-0171 review correction: one Linear Project per Initiative, so a repeated
+// project_create never mints a second remote Project. While a create is
+// queued or in flight the enqueue returns that operation; once the Project
+// link exists the create addresses it with a project_update instead.
+func TestLinearProjectCreateEnqueueIsIdempotentPerInitiative(t *testing.T) {
+	t.Parallel()
+	s := openTemp(t)
+	ctx := context.Background()
+	setupLinearProduct(t, s, "projidem-product")
+	setupLinearLabelConnection(t, s, "projidem-product", map[string]string{})
+	enableLinearPlanning(t, s, "projidem-product", 2)
+	seedLinearWorkOfKind(t, s, "projidem-initiative", "projidem-product-project", "initiative", "Idem initiative", "Idem value")
+
+	first, err := s.EnqueueLinearProjectForInitiative(ctx, "projidem-product", "projidem-initiative", LinearOpProjectCreate)
+	if err != nil {
+		t.Fatalf("first EnqueueLinearProjectForInitiative() error = %v", err)
+	}
+	second, err := s.EnqueueLinearProjectForInitiative(ctx, "projidem-product", "projidem-initiative", LinearOpProjectCreate)
+	if err != nil {
+		t.Fatalf("repeated EnqueueLinearProjectForInitiative() error = %v", err)
+	}
+	if second.OperationID != first.OperationID {
+		t.Fatalf("repeat create queued operation %s, want the queued operation %s returned", second.OperationID, first.OperationID)
+	}
+	var createCount int
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM linear_outbox WHERE work_id='projidem-initiative' AND op_kind=?`, LinearOpProjectCreate).Scan(&createCount); err != nil {
+		t.Fatal(err)
+	}
+	if createCount != 1 {
+		t.Fatalf("project_create rows = %d, want 1: a repeat enqueue must not mint a second Project", createCount)
+	}
+
+	// Once the create completes, a repeated create addresses the existing
+	// Project with an update instead of creating another one.
+	if _, err := s.ClaimLinearOperations(ctx, 25); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.CompleteLinearProjectOperation(ctx, first.OperationID, "remote-project-idem", "Idem initiative", "", LinearInitiativeProjectState{Title: "Idem initiative", ValueStatement: "Idem value"}); err != nil {
+		t.Fatalf("CompleteLinearProjectOperation() error = %v", err)
+	}
+	// The sent state equaled the stored state, so the completion queued no
+	// rescue update: the create row is the only one the Initiative holds.
+	var rowCount int
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM linear_outbox WHERE work_id='projidem-initiative'`).Scan(&rowCount); err != nil {
+		t.Fatal(err)
+	}
+	if rowCount != 1 {
+		t.Fatalf("outbox rows after an equal-state completion = %d, want 1", rowCount)
+	}
+	third, err := s.EnqueueLinearProjectForInitiative(ctx, "projidem-product", "projidem-initiative", LinearOpProjectCreate)
+	if err != nil {
+		t.Fatalf("post-completion EnqueueLinearProjectForInitiative() error = %v", err)
+	}
+	if third.OpKind != LinearOpProjectUpdate {
+		t.Fatalf("create after completion queued %s, want project_update addressing the existing Project", third.OpKind)
+	}
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM linear_outbox WHERE work_id='projidem-initiative' AND op_kind=?`, LinearOpProjectCreate).Scan(&createCount); err != nil {
+		t.Fatal(err)
+	}
+	if createCount != 1 {
+		t.Fatalf("project_create rows after completion = %d, want 1", createCount)
 	}
 }
 
@@ -650,5 +714,99 @@ func TestEntryAddedFoldEnqueuesIssueUpdateForConfirmedIssue(t *testing.T) {
 	}
 	if !hasOptional {
 		t.Fatalf("payload labels = %v, want the optional label from the non-required entry (CD-0171 D5)", payload.LabelIDs)
+	}
+}
+
+// CD-0171 review correction: the completion compares the Initiative state the
+// drain sent against the stored state. A revision that lands inside the
+// drain-to-completion window queues one project_update, so it is never lost
+// behind the create.
+func TestCompleteLinearProjectOperationQueuesUpdateWhenStateMovedOn(t *testing.T) {
+	t.Parallel()
+	s := openTemp(t)
+	ctx := context.Background()
+	setupLinearProduct(t, s, "projrace-product")
+	setupLinearLabelConnection(t, s, "projrace-product", map[string]string{})
+	enableLinearPlanning(t, s, "projrace-product", 2)
+	seedLinearWorkOfKind(t, s, "projrace-initiative", "projrace-product-project", "initiative", "Race initiative", "Race value")
+
+	entry, err := s.EnqueueLinearProjectForInitiative(ctx, "projrace-product", "projrace-initiative", LinearOpProjectCreate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.ClaimLinearOperations(ctx, 25); err != nil {
+		t.Fatal(err)
+	}
+	// The narrative moves on after the drain read the state but before the
+	// completion commits, so the create shipped the stale content.
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE work_items SET narrative='The late revision.' WHERE id='projrace-initiative'; DELETE FROM fold_guard`); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.CompleteLinearProjectOperation(ctx, entry.OperationID, "remote-project-race", "Race initiative", "", LinearInitiativeProjectState{Title: "Race initiative", ValueStatement: "Race value"}); err != nil {
+		t.Fatalf("CompleteLinearProjectOperation() error = %v", err)
+	}
+	var opKind string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT op_kind FROM linear_outbox WHERE work_id='projrace-initiative' AND state=?`, LinearOutboxQueued).Scan(&opKind); err != nil {
+		t.Fatalf("the completion queued no rescue update for the moved-on narrative: %v", err)
+	}
+	if opKind != LinearOpProjectUpdate {
+		t.Fatalf("rescue op kind = %s, want project_update", opKind)
+	}
+	// The rescue update is the queued one and only one.
+	var queuedCount int
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM linear_outbox WHERE work_id='projrace-initiative' AND state=?`, LinearOutboxQueued).Scan(&queuedCount); err != nil {
+		t.Fatal(err)
+	}
+	if queuedCount != 1 {
+		t.Fatalf("queued rescue updates = %d, want 1", queuedCount)
+	}
+}
+
+// CD-0171 review correction: the drain-time Project resolution follows the
+// earliest-joined Initiative and stays empty before that Initiative's
+// project_create completes, whichever Initiative's Project exists.
+func TestResolveLinearProjectIDForWorkFollowsTheOwningInitiative(t *testing.T) {
+	t.Parallel()
+	s := openTemp(t)
+	ctx := context.Background()
+	setupLinearProduct(t, s, "resolvep-product")
+	setupLinearLabelConnection(t, s, "resolvep-product", map[string]string{})
+	enableLinearPlanning(t, s, "resolvep-product", 2)
+	seedLinearWorkOfKind(t, s, "resolvep-first", "resolvep-product-project", "initiative", "First initiative", "First value")
+	seedLinearWorkOfKind(t, s, "resolvep-second", "resolvep-product-project", "initiative", "Second initiative", "Second value")
+	seedLinearWorkItem(t, s, "resolvep-work", "resolvep-product-project", "Shared title", "Shared value")
+	seedLinearInitiativeEntry(t, s, "resolvep-first", "resolvep-work", true)
+	seedLinearInitiativeEntry(t, s, "resolvep-second", "resolvep-work", true)
+
+	resolved, err := s.ResolveLinearProjectIDForWork(ctx, "resolvep-work")
+	if err != nil {
+		t.Fatalf("ResolveLinearProjectIDForWork() error = %v", err)
+	}
+	if resolved != "" {
+		t.Fatalf("resolution before the owner's Project exists = %q, want empty", resolved)
+	}
+	seedLinearProjectLink(t, s, "resolvep-second", "remote-project-second")
+	resolved, err = s.ResolveLinearProjectIDForWork(ctx, "resolvep-work")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resolved != "" {
+		t.Fatalf("resolution with only the other Initiative linked = %q, want empty: ownership follows join order", resolved)
+	}
+	seedLinearProjectLink(t, s, "resolvep-first", "remote-project-first")
+	resolved, err = s.ResolveLinearProjectIDForWork(ctx, "resolvep-work")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resolved != "remote-project-first" {
+		t.Fatalf("resolution = %q, want remote-project-first from the earliest-joined Initiative", resolved)
+	}
+	// A work item outside every Initiative resolves empty.
+	resolved, err = s.ResolveLinearProjectIDForWork(ctx, "resolvep-first")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resolved != "" {
+		t.Fatalf("resolution for an Initiative work item = %q, want empty: Initiatives hold no issue", resolved)
 	}
 }

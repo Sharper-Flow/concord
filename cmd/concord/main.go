@@ -1440,7 +1440,7 @@ func runLinearOutboxDrain(ctx context.Context, s *store.Store, raw []byte, comma
 			derr  error
 		)
 		if op.OpKind == store.LinearOpProjectCreate || op.OpKind == store.LinearOpProjectUpdate {
-			project, perr := drainProject(ctx, s, client, op, payload, teamID)
+			project, projectState, perr := drainProject(ctx, s, client, op, payload, teamID)
 			if perr != nil {
 				class := "permanent"
 				if linearclient.IsRetryable(perr) {
@@ -1450,7 +1450,7 @@ func runLinearOutboxDrain(ctx context.Context, s *store.Store, raw []byte, comma
 				results = append(results, drained{OperationID: op.OperationID, Outcome: class, Detail: perr.Error()})
 				continue
 			}
-			if err := s.CompleteLinearProjectOperation(ctx, op.OperationID, project.ID, project.Name, project.URL); err != nil {
+			if err := s.CompleteLinearProjectOperation(ctx, op.OperationID, project.ID, project.Name, project.URL, projectState); err != nil {
 				class := linearCompletionFailureClass(err)
 				_ = s.FailLinearOperation(ctx, op.OperationID, class, err.Error())
 				results = append(results, drained{OperationID: op.OperationID, Outcome: class, Detail: err.Error()})
@@ -1477,8 +1477,20 @@ func runLinearOutboxDrain(ctx context.Context, s *store.Store, raw []byte, comma
 		} else if op.OpKind == store.LinearOpIssueAdopt {
 			issue, derr = drainAdopt(ctx, client, payload, teamID)
 		} else {
+			// CD-0171 review correction: the create resolves the owning
+			// Initiative's confirmed Project at drain time. The payload
+			// snapshot goes stale whenever the Initiative's project_create
+			// completes after the issue was queued; reading the link here
+			// lets either claim order land the issue in its Project.
+			projectID, resolveErr := s.ResolveLinearProjectIDForWork(ctx, op.WorkID)
+			if resolveErr != nil {
+				const detail = "cannot read the owning Initiative's Linear Project link before sending the create"
+				_ = s.FailLinearOperation(ctx, op.OperationID, "retryable", detail)
+				results = append(results, drained{OperationID: op.OperationID, Outcome: "retryable", Detail: detail})
+				continue
+			}
 			issue, derr = client.CreateIssue(ctx, linearclient.CreateIssueInput{
-				ID: payload.ClientUUID, TeamID: teamID, ProjectID: payload.ProjectID, Title: payload.Title, Description: payload.Description, LabelIDs: payload.LabelIDs, StatusID: payload.StatusID, Priority: payload.Priority,
+				ID: payload.ClientUUID, TeamID: teamID, ProjectID: projectID, Title: payload.Title, Description: payload.Description, LabelIDs: payload.LabelIDs, StatusID: payload.StatusID, Priority: payload.Priority,
 			})
 		}
 		if derr != nil {
@@ -1610,9 +1622,10 @@ type linearDrainPayload struct {
 	// Linear Project's markdown content field (CD-0171 d3).
 	Content string `json:"content,omitempty"`
 	TeamID  string `json:"team_id"`
-	// ProjectID is the owning Initiative's Linear Project (CD-0171 D2, D6);
-	// it is empty for a work item outside every Initiative or before that
-	// Initiative's Project is created. It never carries a repository mapping.
+	// ProjectID is the owning Initiative's Linear Project (CD-0171 D2, D6) as
+	// the enqueue read it; the create and update drains resolve the link's
+	// state at send time instead, so this snapshot stays advisory only. It
+	// never carries a repository mapping.
 	ProjectID         string   `json:"project_id,omitempty"`
 	ConnectionVersion int64    `json:"connection_version"`
 	Lifecycle         string   `json:"lifecycle,omitempty"`
@@ -1622,34 +1635,44 @@ type linearDrainPayload struct {
 	RemoteIssueUUID   string   `json:"remote_issue_uuid,omitempty"`
 }
 
-// drainProject executes one Initiative Project operation. A create sends the
+// drainProject executes one Initiative Project operation. The drain sends the
+// Initiative's current title, value statement, and narrative — read at drain
+// time, not the enqueue-time payload snapshot — so a revision that lands after
+// enqueue still ships (CD-0171 review correction). A create sends the
 // Concord-generated UUID as ProjectCreateInput.id so a replayed drain
 // converges on the same remote Project (CD-0171 d2). An update addresses the
-// recorded remote Project and resyncs the name, the value statement in
-// description, and the narrative in content.
-func drainProject(ctx context.Context, s *store.Store, client *linearclient.Client, op store.ClaimedLinearOperation, payload linearDrainPayload, teamID string) (linearclient.Project, error) {
+// recorded remote Project.
+func drainProject(ctx context.Context, s *store.Store, client *linearclient.Client, op store.ClaimedLinearOperation, payload linearDrainPayload, teamID string) (linearclient.Project, store.LinearInitiativeProjectState, error) {
+	state, err := s.ReadLinearInitiativeProjectState(ctx, op.WorkID)
+	if err != nil {
+		return linearclient.Project{}, store.LinearInitiativeProjectState{}, err
+	}
 	if op.OpKind == store.LinearOpProjectCreate {
-		if payload.ClientUUID == "" || payload.Title == "" || teamID == "" {
-			return linearclient.Project{}, fmt.Errorf("project_create needs a client uuid, a name, and the Product's team")
+		if payload.ClientUUID == "" || state.Title == "" || teamID == "" {
+			return linearclient.Project{}, store.LinearInitiativeProjectState{}, fmt.Errorf("project_create needs a client uuid, a name, and the Product's team")
 		}
-		return client.CreateProject(ctx, linearclient.CreateProjectInput{ID: payload.ClientUUID, TeamIDs: []string{teamID}, Name: payload.Title, Description: payload.Description, Content: payload.Content})
+		project, err := client.CreateProject(ctx, linearclient.CreateProjectInput{ID: payload.ClientUUID, TeamIDs: []string{teamID}, Name: state.Title, Description: state.ValueStatement, Content: state.Narrative})
+		return project, state, err
 	}
 	link, err := s.ReadLinearProjectLink(ctx, op.WorkID)
 	if err != nil {
-		return linearclient.Project{}, err
+		return linearclient.Project{}, store.LinearInitiativeProjectState{}, err
 	}
 	if link.RemoteProjectUUID == "" {
-		return linearclient.Project{}, fmt.Errorf("the Initiative's project link has no remote project to update")
+		return linearclient.Project{}, store.LinearInitiativeProjectState{}, fmt.Errorf("the Initiative's project link has no remote project to update")
 	}
-	return client.UpdateProject(ctx, link.RemoteProjectUUID, linearclient.UpdateProjectInput{Name: payload.Title, Description: payload.Description, Content: payload.Content})
+	project, err := client.UpdateProject(ctx, link.RemoteProjectUUID, linearclient.UpdateProjectInput{Name: state.Title, Description: state.ValueStatement, Content: state.Narrative})
+	return project, state, err
 }
 
 // drainUpdate resolves the linked remote identity and executes issueUpdate.
 // The update carries the issue's full Project and Concord-managed label
-// state: an empty payload Project sends an explicit null so Linear clears the
-// field (CD-0171 D4, D6), and remote labels under the project:* and optional
-// connection keys that the payload no longer desires ride removedLabelIds
-// (CD-0171 D3, D5). Labels outside those keys are never Concord's to remove.
+// state, both resolved at drain time (CD-0171 review correction): the owning
+// Initiative's confirmed Project sets projectId, no Initiative Project sends
+// an explicit null so Linear clears the field (CD-0171 D4, D6), and remote
+// labels under the project:* and optional connection keys that the payload no
+// longer desires ride removedLabelIds (CD-0171 D3, D5). Labels outside those
+// keys are never Concord's to remove.
 func drainUpdate(ctx context.Context, s *store.Store, client *linearclient.Client, op store.ClaimedLinearOperation, payload linearDrainPayload, connection store.LinearConnection) (linearclient.Issue, error) {
 	link, err := s.ReadLinearLink(ctx, op.WorkID)
 	if err != nil {
@@ -1658,9 +1681,16 @@ func drainUpdate(ctx context.Context, s *store.Store, client *linearclient.Clien
 	if link.RemoteIssueUUID == "" || link.RemoteIssueUUID == payload.ClientUUID {
 		return linearclient.Issue{}, fmt.Errorf("link has no confirmed remote issue to update")
 	}
+	// The payload snapshot goes stale whenever the owning Initiative's
+	// project_create completes after the update was queued; the link's state
+	// at send time decides the field, and its absence clears it.
+	projectIDValue, projectErr := s.ResolveLinearProjectIDForWork(ctx, op.WorkID)
+	if projectErr != nil {
+		return linearclient.Issue{}, projectErr
+	}
 	var projectID *string
-	if payload.ProjectID != "" {
-		projectID = &payload.ProjectID
+	if projectIDValue != "" {
+		projectID = &projectIDValue
 	}
 	input := linearclient.UpdateIssueInput{ProjectID: projectID, StatusID: payload.StatusID, AddedLabelIDs: payload.LabelIDs}
 	desired := make(map[string]bool, len(payload.LabelIDs))

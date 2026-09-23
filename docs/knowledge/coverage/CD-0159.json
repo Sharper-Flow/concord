@@ -1,5 +1,22 @@
 {
+  "evidence": [
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestRebuildProjectsTheDeclaredAuthorityTierIntoLawSubjects"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestAmendmentPathAcceptsDerivedConflictAndRefusesLegislated"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestPublishLessonRecordAssignsTheDerivedTier"
+    },
+    {
+      "kind": "validator",
+      "value": "scripts/check-knowledge-index.py"
+    }
+  ],
   "id": "CD-0159",
-  "issue": "CON-331",
-  "state": "outstanding"
+  "state": "satisfied"
 }

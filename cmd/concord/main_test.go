@@ -503,7 +503,7 @@ func TestRunHelpListsExactCommandFormsAndStdinShapes(t *testing.T) {
 	if errOut.Len() != 0 {
 		t.Fatalf("help stderr = %q, want empty", errOut.String())
 	}
-	if out.Len() > 15000 {
+	if out.Len() > 15100 {
 		t.Fatalf("help output is unbounded: %d bytes", out.Len())
 	}
 }

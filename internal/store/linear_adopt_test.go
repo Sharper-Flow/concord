@@ -21,8 +21,7 @@ func setupAdoptionTarget(t *testing.T, s *Store, productID, workID string) {
 	}
 	setupLinearConnectionResourceAtVersion(t, s, productID, map[string]any{"linear": map[string]any{
 		"workspace_url": "https://linear.app/example", "team_id": "team-uuid-1",
-		"project_ids": map[string]string{productID + "-project": "project-uuid-1"},
-		"auth_mode":   "personal_api_key",
+		"auth_mode": "personal_api_key",
 	}}, 3)
 }
 
@@ -101,8 +100,7 @@ func TestLinearIssueAdoptionPlanningAuthorityRefusals(t *testing.T) {
 	// Unknown work and a foreign Product scope refuse.
 	setupLinearConnectionResourceAtVersion(t, s, "auth-product", map[string]any{"linear": map[string]any{
 		"workspace_url": "https://linear.app/example", "team_id": "team-uuid-1",
-		"project_ids": map[string]string{"auth-product-project": "project-uuid-1"},
-		"auth_mode":   "personal_api_key",
+		"auth_mode": "personal_api_key",
 	}}, 3)
 	if _, err := s.EnqueueLinearIssueAdoption(ctx, "auth-product", "ghost-work", "11111111-2222-3333-4444-555555555555"); err == nil || !failureKindIs(err, KindUnknownScope) {
 		t.Fatalf("unknown work error = %v, want unknown_scope", err)

@@ -174,12 +174,13 @@ func TestCaptureEnqueueGuardsNoOpWithoutFailingCapture(t *testing.T) {
 		t.Fatalf("capture without a declared connection queued %d operations, want 0", count)
 	}
 
-	// A declared connection whose project_ids leave the owning Concord project
-	// unmapped skips the enqueue.
-	setupLinearConnectionResourceAtVersion(t, s, "guard-product", map[string]any{"linear": map[string]any{"workspace_url": "https://linear.app/example", "team_id": "team-uuid-1", "auth_mode": "personal_api_key", "project_ids": map[string]string{"other-project": "linear-project-9"}}}, 3)
+	// A declared connection whose label map carries no repository label still
+	// enqueues: CD-0171 moved repository identity to labels, and an unmapped
+	// label is a configuration gap the payload tolerates, not a refusal.
+	setupLinearConnectionResourceAtVersion(t, s, "guard-product", map[string]any{"linear": map[string]any{"workspace_url": "https://linear.app/example", "team_id": "team-uuid-1", "auth_mode": "personal_api_key"}}, 3)
 	captureLinearFixtureWork(t, s, "guard-unmapped", projectID, "task", "Unmapped title", "Unmapped value", "")
-	if count, _ := countLinearOutboxRows(t, s, "guard-unmapped"); count != 0 {
-		t.Fatalf("capture with an unmapped project queued %d operations, want 0", count)
+	if count, _ := countLinearOutboxRows(t, s, "guard-unmapped"); count != 1 {
+		t.Fatalf("capture on a declared connection queued %d operations, want 1", count)
 	}
 
 	// An external_ref that already names a Linear issue skips the enqueue: a
@@ -189,16 +190,8 @@ func TestCaptureEnqueueGuardsNoOpWithoutFailingCapture(t *testing.T) {
 		t.Fatalf("capture with a Linear external_ref queued %d operations, want 0", count)
 	}
 
-	// A mapped connection lets the remaining guards pass and the happy path
-	// enqueues; a membership replacement on the same item must not duplicate
-	// the issue_create.
-	if err := s.UpdateLinearConnection(ctx, LinearConnectionUpdateRequest{
-		EventID: "guard-connection-mapped", ResourceID: "linear-conn-guard-product", ProductID: "guard-product",
-		TeamID: "team-uuid-1", ProjectIDs: map[string]string{projectID: "linear-project-1"},
-		ExpectedResourceVersion: 1, Actor: "operator", OccurredAt: time.Unix(3, 0).UTC(),
-	}); err != nil {
-		t.Fatal(err)
-	}
+	// The happy path keeps enqueuing, and a membership replacement on the
+	// same item must not duplicate the issue_create.
 	captureLinearFixtureWork(t, s, "guard-happy", projectID, "task", "Happy title", "Happy value", "")
 	if count, _ := countLinearOutboxRows(t, s, "guard-happy"); count != 1 {
 		t.Fatalf("mapped capture queued %d operations, want 1", count)

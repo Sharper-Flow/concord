@@ -34,6 +34,8 @@ const (
 	LinearOpIssueCreate      = "issue_create"
 	LinearOpIssueUpdate      = "issue_update"
 	LinearOpIssueAdopt       = "issue_adopt"
+	LinearOpProjectCreate    = "project_create"
+	LinearOpProjectUpdate    = "project_update"
 	LinearConnectionDeclared = "declared"
 	LinearConnectionPartial  = "partial"
 	LinearConnectionAbsent   = "absent"
@@ -56,7 +58,6 @@ type LinearConnection struct {
 	WorkspaceURL string            `json:"workspace_url"`
 	TeamID       string            `json:"team_id"`
 	AuthMode     string            `json:"auth_mode"`
-	ProjectIDs   map[string]string `json:"project_ids,omitempty"`
 	StatusIDs    map[string]string `json:"status_ids,omitempty"`
 	LabelIDs     map[string]string `json:"label_ids,omitempty"`
 	State        string            `json:"state"` // declared | partial | absent
@@ -254,27 +255,6 @@ ORDER BY r.resource_id`, productID)
 		if v, ok := linear["auth_mode"].(string); ok {
 			candidate.AuthMode = v
 		}
-		if encoded, exists := linear["project_ids"]; exists {
-			rawProjects, marshalErr := json.Marshal(encoded)
-			var projectIDs map[string]json.RawMessage
-			if marshalErr != nil || json.Unmarshal(rawProjects, &projectIDs) != nil || projectIDs == nil {
-				return LinearConnection{}, newFailure(KindInvalidPayload, "linear_connection_read", "Linear project_ids must be an object", false, "supply Concord project id to Linear project id mappings")
-			}
-			candidate.ProjectIDs = make(map[string]string, len(projectIDs))
-			for projectID, value := range projectIDs {
-				if err := validateLinearConnectionID(projectID, "Concord project id"); err != nil {
-					return LinearConnection{}, err
-				}
-				var linearProjectID string
-				if err := json.Unmarshal(value, &linearProjectID); err != nil {
-					return LinearConnection{}, newFailure(KindInvalidPayload, "linear_connection_read", "Linear project_ids values must be strings", false, "supply Concord project id to Linear project id mappings")
-				}
-				if err := validateLinearConnectionID(linearProjectID, "Linear project id"); err != nil {
-					return LinearConnection{}, err
-				}
-				candidate.ProjectIDs[projectID] = linearProjectID
-			}
-		}
 		if encoded, exists := linear["status_ids"]; exists {
 			rawStatus, marshalErr := json.Marshal(encoded)
 			var statusIDs map[string]json.RawMessage
@@ -307,8 +287,8 @@ ORDER BY r.resource_id`, productID)
 			}
 			candidate.LabelIDs = make(map[string]string, len(labelIDs))
 			for key, value := range labelIDs {
-				if !linearLabelMappingKeys[key] {
-					return LinearConnection{}, newFailure(KindInvalidPayload, "linear_connection_read", "Linear label mapping key is not recognized", false, "map task, bug, decision, research, other, or expedite")
+				if !linearLabelMappingKeyRecognized(key) {
+					return LinearConnection{}, newFailure(KindInvalidPayload, "linear_connection_read", "Linear label mapping key is not recognized", false, "map task, bug, decision, research, other, expedite, optional, or project:<concord project id>")
 				}
 				var labelID string
 				if err := json.Unmarshal(value, &labelID); err != nil {
@@ -345,7 +325,6 @@ type LinearConnectionUpdateRequest struct {
 	ResourceID              string
 	ProductID               string
 	TeamID                  string
-	ProjectIDs              map[string]string
 	StatusIDs               map[string]string
 	LabelIDs                map[string]string
 	ExpectedResourceVersion int64
@@ -365,23 +344,13 @@ func (s *Store) UpdateLinearConnection(ctx context.Context, req LinearConnection
 			return err
 		}
 	}
-	if req.ProjectIDs != nil {
-		for projectID, linearProjectID := range req.ProjectIDs {
-			if err := validateLinearConnectionID(projectID, "Concord project id"); err != nil {
-				return err
-			}
-			if err := validateLinearConnectionID(linearProjectID, "Linear project id"); err != nil {
-				return err
-			}
-		}
-	}
 	if req.StatusIDs != nil {
 		if err := validateLinearStatusMapping(req.StatusIDs, "linear_connection_update"); err != nil {
 			return err
 		}
 	}
 	if req.LabelIDs != nil {
-		if err := validateLinearLabelMapping(req.LabelIDs, "linear_connection_update"); err != nil {
+		if err := validateLinearLabelMapping(ctx, s.db, req.LabelIDs, "linear_connection_update"); err != nil {
 			return err
 		}
 	}
@@ -430,10 +399,11 @@ func (s *Store) UpdateLinearConnection(ctx context.Context, req LinearConnection
 	if req.TeamID != "" {
 		linear["team_id"], _ = json.Marshal(req.TeamID)
 	}
-	if req.ProjectIDs != nil {
-		linear["project_ids"], _ = json.Marshal(req.ProjectIDs)
-	}
+	// CD-0171 removed the repository-to-Linear-Project mapping. A metadata
+	// document still carrying the retired project_ids key loses it here, so
+	// the stored resource converges on the current convention.
 	delete(linear, "project_id")
+	delete(linear, "project_ids")
 	if req.StatusIDs != nil {
 		linear["status_ids"], _ = json.Marshal(req.StatusIDs)
 	}
@@ -501,10 +471,46 @@ var linearLabelMappingKeys = map[string]bool{
 	"task": true, "bug": true, "decision": true, "research": true, "other": true, "expedite": true,
 }
 
-func validateLinearLabelMapping(labelIDs map[string]string, operation string) error {
+// linearLabelOptionalKey maps the label that marks a non-required Initiative
+// entry (CD-0171 D5), and linearLabelProjectPrefix names the repository label
+// keys: project:<concord project id> carries one Concord project membership
+// of the work item (CD-0171 D3).
+const (
+	linearLabelOptionalKey   = "optional"
+	linearLabelProjectPrefix = "project:"
+)
+
+// linearLabelMappingKeyRecognized reports whether a label mapping key is a
+// fixed work-kind or urgency key, the optional key, or a repository key whose
+// suffix is a bounded Concord project id. Write-path validation additionally
+// requires the project to be registered (validateLinearLabelMapping); the
+// read path checks shape only, so a connection stays readable while a mapped
+// project is being re-registered.
+func linearLabelMappingKeyRecognized(key string) bool {
+	if linearLabelMappingKeys[key] || key == linearLabelOptionalKey {
+		return true
+	}
+	if projectID, ok := strings.CutPrefix(key, linearLabelProjectPrefix); ok {
+		return validateLinearConnectionID(projectID, "Concord project id") == nil
+	}
+	return false
+}
+
+// validateLinearLabelMapping accepts the fixed work-kind and urgency keys,
+// the optional key, and project:<concord project id> keys that name a
+// registered Concord project.
+func validateLinearLabelMapping(ctx context.Context, q queryer, labelIDs map[string]string, operation string) error {
 	for key, labelID := range labelIDs {
-		if !linearLabelMappingKeys[key] {
-			return newFailure(KindInvalidPayload, operation, "label mapping key is not recognized", false, "map task, bug, decision, research, other, or expedite")
+		if !linearLabelMappingKeyRecognized(key) {
+			return newFailure(KindInvalidPayload, operation, "label mapping key is not recognized", false, "map task, bug, decision, research, other, expedite, optional, or project:<concord project id>")
+		}
+		if projectID, ok := strings.CutPrefix(key, linearLabelProjectPrefix); ok {
+			var registered int
+			if err := q.QueryRowContext(ctx, `SELECT 1 FROM projects WHERE id=?`, projectID).Scan(&registered); err == sql.ErrNoRows {
+				return newFailure(KindUnknownScope, operation, "label mapping names a Concord project that does not exist", false, "register the Concord project before mapping it to a Linear label")
+			} else if err != nil {
+				return wrapFailure(KindUnavailable, operation, "cannot read the mapped Concord project", true, "retry once the database is readable", err)
+			}
 		}
 		if err := validateLinearConnectionID(labelID, "label id"); err != nil {
 			return err
@@ -519,8 +525,8 @@ func (s *Store) EnqueueLinearOperation(ctx context.Context, entry LinearOutboxEn
 	if entry.OperationID == "" || len(entry.OperationID) > 128 {
 		return newFailure(KindInvalidPayload, "linear_outbox_enqueue", "operation id must be 2 to 128 characters", false, "supply a bounded operation id")
 	}
-	if entry.OpKind != LinearOpIssueCreate && entry.OpKind != LinearOpIssueUpdate && entry.OpKind != LinearOpIssueAdopt {
-		return newFailure(KindInvalidPayload, "linear_outbox_enqueue", "operation kind is not recognized", false, "use issue_create, issue_update, or issue_adopt")
+	if entry.OpKind != LinearOpIssueCreate && entry.OpKind != LinearOpIssueUpdate && entry.OpKind != LinearOpIssueAdopt && entry.OpKind != LinearOpProjectCreate && entry.OpKind != LinearOpProjectUpdate {
+		return newFailure(KindInvalidPayload, "linear_outbox_enqueue", "operation kind is not recognized", false, "use issue_create, issue_update, issue_adopt, project_create, or project_update")
 	}
 	if entry.IdempotencyKey == "" || len(entry.IdempotencyKey) > 128 {
 		return newFailure(KindInvalidPayload, "linear_outbox_enqueue", "idempotency key must be 2 to 128 characters", false, "supply a bounded idempotency key")
@@ -1038,19 +1044,29 @@ type ClaimedLinearOperation struct {
 }
 
 // linearPayload is the JSON convention every outbox payload carries. The
-// client UUID is the idempotency identity: Linear's IssueCreateInput.id, so a
-// re-drain after an ambiguous outcome converges on the same remote issue.
+// client UUID is the idempotency identity: Linear's IssueCreateInput.id or
+// ProjectCreateInput.id, so a re-drain after an ambiguous outcome converges
+// on the same remote object.
 type linearPayload struct {
-	ClientUUID        string   `json:"client_uuid"`
-	ProductID         string   `json:"product_id"`
-	Title             string   `json:"title"`
-	Description       string   `json:"description"`
-	LabelIDs          []string `json:"label_ids,omitempty"`
-	TeamID            string   `json:"team_id"`
-	ProjectID         string   `json:"project_id,omitempty"`
-	ConnectionVersion int64    `json:"connection_version"`
-	Lifecycle         string   `json:"lifecycle,omitempty"`
-	StatusID          string   `json:"status_id,omitempty"`
+	ClientUUID  string `json:"client_uuid"`
+	ProductID   string `json:"product_id"`
+	Title       string `json:"title"`
+	Description string `json:"description"`
+	// Content carries the Initiative narrative that project_create and
+	// project_update write to the Linear Project's markdown content field
+	// (CD-0171 d3). Issue payloads leave it empty.
+	Content  string   `json:"content,omitempty"`
+	LabelIDs []string `json:"label_ids,omitempty"`
+	TeamID   string   `json:"team_id"`
+	// ProjectID is the owning Initiative's Linear Project (CD-0171 D2, D6):
+	// the earliest-joined Initiative entry sets it, and it stays empty for a
+	// work item outside every Initiative (D4) or before that Initiative's
+	// project_create completed. It never carries a repository mapping;
+	// repository identity rides the project:<id> label instead.
+	ProjectID         string `json:"project_id,omitempty"`
+	ConnectionVersion int64  `json:"connection_version"`
+	Lifecycle         string `json:"lifecycle,omitempty"`
+	StatusID          string `json:"status_id,omitempty"`
 	// Priority is the Linear priority seeded at issue creation from the
 	// work item's urgency band (expedite 1, standard 3). Update payloads
 	// leave it empty: Linear owns backlog triage after creation.
@@ -1123,22 +1139,91 @@ WHERE w.id = ?`, workID)
 	}
 }
 
-func resolveLinearProjectCore(ctx context.Context, q queryer, workID, productID string) (string, string, error) {
-	var projectID, displayName string
-	err := q.QueryRowContext(ctx, `
-SELECT wp.project_id, p.display_name
-FROM work_items w
-JOIN work_projects wp ON wp.work_id = w.id AND wp.role = 'primary'
+// resolveLinearProjectIDsCore returns every Concord project the work item
+// belongs to inside the owning Product. CD-0171 D3: each membership becomes
+// one repository label key, so a work item that spans two repositories
+// carries both labels. A work item with no membership in the Product cannot
+// carry a repository label and refuses.
+func resolveLinearProjectIDsCore(ctx context.Context, q queryer, workID, productID string) ([]string, error) {
+	rows, err := q.QueryContext(ctx, `
+SELECT wp.project_id
+FROM work_projects wp
 JOIN product_projects pp ON pp.project_id = wp.project_id AND pp.product_id = ?
-JOIN projects p ON p.id = wp.project_id
-WHERE w.id = ?`, productID, workID).Scan(&projectID, &displayName)
+WHERE wp.work_id = ?
+ORDER BY wp.project_id`, productID, workID)
+	if err != nil {
+		return nil, wrapFailure(KindUnavailable, "linear_project_resolve", "cannot resolve the work item's Concord projects", true, "retry once the database is readable", err)
+	}
+	defer rows.Close()
+	var projectIDs []string
+	for rows.Next() {
+		var projectID string
+		if err := rows.Scan(&projectID); err != nil {
+			return nil, wrapFailure(KindUnavailable, "linear_project_resolve", "cannot scan the work item's Concord projects", true, "retry once the database is readable", err)
+		}
+		projectIDs = append(projectIDs, projectID)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, wrapFailure(KindUnavailable, "linear_project_resolve", "cannot finish the Concord project read", true, "retry once the database is readable", err)
+	}
+	if len(projectIDs) == 0 {
+		return nil, newFailure(KindUnknownScope, "linear_project_resolve", "work item has no Concord project membership in the Product", false, "supply a work item with a project membership in the owning Product")
+	}
+	return projectIDs, nil
+}
+
+// resolveLinearInitiativeOwnershipCore applies CD-0171 D6: Linear carries one
+// Project per issue, so among the Initiatives holding this work item the
+// earliest-joined one owns the Project field and the others are reported for
+// the issue description. initiative_entries is the folded projection whose
+// row order is the durable join order: the entry-added fold inserts each row
+// once and removal deletes it, so a re-added entry rejoins at the end.
+func resolveLinearInitiativeOwnershipCore(ctx context.Context, q queryer, workID string) (owner string, others []string, err error) {
+	rows, err := q.QueryContext(ctx, `SELECT initiative_work_id FROM initiative_entries WHERE child_work_id=? ORDER BY rowid`, workID)
+	if err != nil {
+		return "", nil, wrapFailure(KindUnavailable, "linear_issue_enqueue", "cannot read Initiative entries", true, "retry once the database is readable", err)
+	}
+	defer rows.Close()
+	var initiatives []string
+	for rows.Next() {
+		var initiative string
+		if err := rows.Scan(&initiative); err != nil {
+			return "", nil, wrapFailure(KindUnavailable, "linear_issue_enqueue", "cannot scan Initiative entries", true, "retry once the database is readable", err)
+		}
+		initiatives = append(initiatives, initiative)
+	}
+	if err := rows.Err(); err != nil {
+		return "", nil, wrapFailure(KindUnavailable, "linear_issue_enqueue", "cannot finish the Initiative entry read", true, "retry once the database is readable", err)
+	}
+	if len(initiatives) == 0 {
+		return "", nil, nil
+	}
+	return initiatives[0], initiatives[1:], nil
+}
+
+// linearWorkOptionalEntryCore reports whether any Initiative holds the work
+// item as a non-required entry (CD-0171 D5); only that fact puts the
+// optional label on the issue.
+func linearWorkOptionalEntryCore(ctx context.Context, q queryer, workID string) (bool, error) {
+	var optional int
+	if err := q.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM initiative_entries WHERE child_work_id=? AND required=0)`, workID).Scan(&optional); err != nil {
+		return false, wrapFailure(KindUnavailable, "linear_issue_enqueue", "cannot read Initiative entry requiredness", true, "retry once the database is readable", err)
+	}
+	return optional == 1, nil
+}
+
+// readLinearProjectLinkUUIDCore returns the confirmed Linear Project uuid of
+// one Initiative, or an empty string before its project_create completes.
+func readLinearProjectLinkUUIDCore(ctx context.Context, q queryer, initiativeWorkID string) (string, error) {
+	var remoteUUID string
+	err := q.QueryRowContext(ctx, `SELECT remote_project_uuid FROM linear_project_links WHERE work_id=?`, initiativeWorkID).Scan(&remoteUUID)
 	if err == sql.ErrNoRows {
-		return "", "", newFailure(KindUnknownScope, "linear_project_resolve", "work item has no owning Concord project in the Product", false, "supply a work item with one primary project in the owning Product")
+		return "", nil
 	}
 	if err != nil {
-		return "", "", wrapFailure(KindUnavailable, "linear_project_resolve", "cannot resolve the work item's Concord project", true, "retry once the database is readable", err)
+		return "", wrapFailure(KindUnavailable, "linear_issue_enqueue", "cannot read the Initiative's Linear Project link", true, "retry once the database is readable", err)
 	}
-	return projectID, displayName, nil
+	return remoteUUID, nil
 }
 
 // EnqueueLinearIssueForWork queues one outbound issue operation for a work
@@ -1191,17 +1276,29 @@ type linearIssueEnqueuePlan struct {
 // composeLinearIssueBody renders the issue Description at the single point
 // both enqueue paths share. Each source is omitted when absent so the body
 // never shows an empty label. Heading the value statement stops a reader
-// taking it for a description of the work. The single footer line carries the
-// kind and the documented resume line `concord zl <work id> --` from the CLI
-// help. The kind rides the footer rather than its own section because it is
-// one word, and a heading above one word costs two lines to say it.
-func composeLinearIssueBody(valueStatement, premise, workID, kind string) string {
-	sections := make([]string, 0, 3)
+// taking it for a description of the work. The Initiatives section names the
+// earliest-joined owner and links every other Initiative the work item
+// joined (CD-0171 D6): Linear carries one Project field, so the description
+// is the only surface the remaining memberships reach. The single footer
+// line carries the kind and the documented resume line
+// `concord zl <work id> --` from the CLI help. The kind rides the footer
+// rather than its own section because it is one word, and a heading above
+// one word costs two lines to say it.
+func composeLinearIssueBody(valueStatement, premise, workID, kind, ownerInitiative string, otherInitiatives []string) string {
+	sections := make([]string, 0, 4)
 	if trimmed := strings.TrimSpace(valueStatement); trimmed != "" {
 		sections = append(sections, "## Value statement\n\n"+trimmed)
 	}
 	if trimmed := strings.TrimSpace(premise); trimmed != "" {
 		sections = append(sections, "## Premise\n\n"+trimmed)
+	}
+	if ownerInitiative != "" {
+		lines := make([]string, 0, len(otherInitiatives)+1)
+		lines = append(lines, "Owned by `"+ownerInitiative+"`.")
+		for _, other := range otherInitiatives {
+			lines = append(lines, "Also in `"+other+"`.")
+		}
+		sections = append(sections, "## Initiatives\n\n"+strings.Join(lines, "\n"))
 	}
 	footer := "Resume: `concord zl " + workID + " --`"
 	if trimmed := strings.TrimSpace(kind); trimmed != "" {
@@ -1211,10 +1308,24 @@ func composeLinearIssueBody(valueStatement, premise, workID, kind string) string
 	return strings.Join(sections, "\n\n")
 }
 
-func linearIssueLabelIDs(connection LinearConnection, kind, urgency string) []string {
-	keys := []string{kind}
+// linearIssueLabelIDs resolves the label set one synced issue carries: the
+// work kind, one repository label per Concord project membership
+// (CD-0171 D3, so a work item spanning two repositories carries both
+// labels), the expedite band, and the optional label when a non-required
+// Initiative entry holds the work item (CD-0171 D5). An unmapped key
+// contributes no label: a team label that does not exist yet is a
+// configuration gap, not a sync failure.
+func linearIssueLabelIDs(connection LinearConnection, kind, urgency string, projectIDs []string, optionalEntry bool) []string {
+	keys := make([]string, 0, len(projectIDs)+3)
+	keys = append(keys, kind)
+	for _, projectID := range projectIDs {
+		keys = append(keys, linearLabelProjectPrefix+projectID)
+	}
 	if urgency == "expedite" {
 		keys = append(keys, "expedite")
+	}
+	if optionalEntry {
+		keys = append(keys, linearLabelOptionalKey)
 	}
 	labels := make([]string, 0, len(keys))
 	seen := make(map[string]bool, len(keys))
@@ -1300,13 +1411,28 @@ func enqueueLinearIssueForWorkCore(ctx context.Context, q queryer, expectedProdu
 	if connection.State != LinearConnectionDeclared {
 		return linearIssueEnqueuePlan{}, newFailure(KindInvalidOperation, "linear_issue_enqueue", "linear_enabled Product has no declared Linear connection", false, "declare the connection as a managed saas_account resource or set the mode back to local_only")
 	}
-	projectID, projectName, err := resolveLinearProjectCore(ctx, q, workID, productID)
+	projectIDs, err := resolveLinearProjectIDsCore(ctx, q, workID, productID)
 	if err != nil {
 		return linearIssueEnqueuePlan{}, err
 	}
-	linearProjectID := connection.ProjectIDs[projectID]
-	if linearProjectID == "" {
-		return linearIssueEnqueuePlan{}, newFailure(KindInvalidRelation, "linear_issue_enqueue", fmt.Sprintf("Concord project %q is not mapped in Linear project_ids", projectName), false, "add the owning Concord project to project_ids before enqueueing Linear issues")
+	ownerInitiative, otherInitiatives, err := resolveLinearInitiativeOwnershipCore(ctx, q, workID)
+	if err != nil {
+		return linearIssueEnqueuePlan{}, err
+	}
+	optionalEntry, err := linearWorkOptionalEntryCore(ctx, q, workID)
+	if err != nil {
+		return linearIssueEnqueuePlan{}, err
+	}
+	// CD-0171 D2/D6: the earliest-joined Initiative entry sets the issue's
+	// Linear Project. Before that Initiative's project_create completes, the
+	// issue syncs without a Project; the project completion re-enqueues its
+	// entry issues so the field lands as soon as the Project exists.
+	var initiativeProjectID string
+	if ownerInitiative != "" {
+		initiativeProjectID, err = readLinearProjectLinkUUIDCore(ctx, q, ownerInitiative)
+		if err != nil {
+			return linearIssueEnqueuePlan{}, err
+		}
 	}
 	createLink := false
 	if opKind == LinearOpIssueUpdate {
@@ -1341,14 +1467,14 @@ func enqueueLinearIssueForWorkCore(ctx context.Context, q queryer, expectedProdu
 	if err != nil {
 		return linearIssueEnqueuePlan{}, err
 	}
-	description := composeLinearIssueBody(valueStatement, premise, workID, kind)
+	description := composeLinearIssueBody(valueStatement, premise, workID, kind, ownerInitiative, otherInitiatives)
 	// The priority rides the create payload only: seeding happens once, at
 	// creation, from the urgency the work item holds at enqueue time.
 	priority := 0
 	if opKind == LinearOpIssueCreate {
 		priority = linearPriorityForUrgency(urgency)
 	}
-	payload, err := json.Marshal(linearPayload{ClientUUID: clientUUID, ProductID: productID, Title: title, Description: description, LabelIDs: linearIssueLabelIDs(connection, kind, urgency), TeamID: connection.TeamID, ProjectID: linearProjectID, ConnectionVersion: connection.Version, Lifecycle: lifecycle, StatusID: statusID, Priority: priority})
+	payload, err := json.Marshal(linearPayload{ClientUUID: clientUUID, ProductID: productID, Title: title, Description: description, LabelIDs: linearIssueLabelIDs(connection, kind, urgency, projectIDs, optionalEntry), TeamID: connection.TeamID, ProjectID: initiativeProjectID, ConnectionVersion: connection.Version, Lifecycle: lifecycle, StatusID: statusID, Priority: priority})
 	if err != nil {
 		return linearIssueEnqueuePlan{}, wrapFailure(KindUnavailable, "linear_issue_enqueue", "cannot encode payload", true, "retry the enqueue", err)
 	}
@@ -1487,6 +1613,310 @@ func enqueueLinearIssueAdoptionCore(ctx context.Context, q queryer, expectedProd
 	return ClaimedLinearOperation{OperationID: "linear-" + clientUUID, WorkID: workID, OpKind: LinearOpIssueAdopt, IdempotencyKey: clientUUID, Payload: payload}, nil
 }
 
+// Linear Project outbox operations (CD-0171 D2). One Linear Project per
+// Concord Initiative: project_create mints the remote Project with a
+// Concord-generated UUID sent as ProjectCreateInput.id, so a replayed create
+// converges on the same remote Project; project_update resyncs the name, the
+// value statement in description, and the narrative in content. Issue
+// payloads carry the owning Initiative's Project once it exists.
+
+// EnqueueLinearProjectForInitiative queues one project_create or
+// project_update operation for an Initiative work item.
+func (s *Store) EnqueueLinearProjectForInitiative(ctx context.Context, productID, initiativeWorkID, opKind string) (ClaimedLinearOperation, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return ClaimedLinearOperation{}, wrapFailure(KindUnavailable, "linear_project_enqueue", "cannot open Project enqueue transaction", true, "retry once the database is writable", err)
+	}
+	defer tx.Rollback()
+	if err := enterFold(ctx, tx); err != nil {
+		return ClaimedLinearOperation{}, err
+	}
+	entry, err := enqueueLinearProjectForInitiativeCore(ctx, tx, productID, initiativeWorkID, opKind)
+	if err != nil {
+		return ClaimedLinearOperation{}, err
+	}
+	if _, err := persistLinearIssueEnqueueTx(ctx, tx, linearIssueEnqueuePlan{entry: entry, payload: entry.Payload}, s.now().UTC().Format(time.RFC3339Nano)); err != nil {
+		return ClaimedLinearOperation{}, err
+	}
+	if err := leaveFold(ctx, tx); err != nil {
+		return ClaimedLinearOperation{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return ClaimedLinearOperation{}, wrapFailure(KindUnavailable, "linear_project_enqueue", "cannot commit queued Project operation", true, "retry once the database is writable", err)
+	}
+	return entry, nil
+}
+
+func enqueueLinearProjectForInitiativeCore(ctx context.Context, q queryer, expectedProductID, initiativeWorkID, opKind string) (ClaimedLinearOperation, error) {
+	if opKind != LinearOpProjectCreate && opKind != LinearOpProjectUpdate {
+		return ClaimedLinearOperation{}, newFailure(KindInvalidPayload, "linear_project_enqueue", "operation kind is not recognized", false, "use project_create or project_update")
+	}
+	if len(initiativeWorkID) < 2 || len(initiativeWorkID) > 128 {
+		return ClaimedLinearOperation{}, newFailure(KindInvalidPayload, "linear_project_enqueue", "work id must be 2 to 128 characters", false, "supply a bounded Initiative work id")
+	}
+	var kind, title, valueStatement, narrative string
+	err := q.QueryRowContext(ctx, `SELECT kind, title, coalesce(json_extract(intent_json, '$.value_statement'), ''), coalesce(narrative, '') FROM work_items WHERE id=?`, initiativeWorkID).Scan(&kind, &title, &valueStatement, &narrative)
+	if err == sql.ErrNoRows {
+		return ClaimedLinearOperation{}, newFailure(KindUnknownScope, "linear_project_enqueue", "work item does not exist", false, "supply an existing Initiative work item")
+	} else if err != nil {
+		return ClaimedLinearOperation{}, wrapFailure(KindUnavailable, "linear_project_enqueue", "cannot read work item", true, "retry once the database is readable", err)
+	}
+	if kind != "initiative" {
+		return ClaimedLinearOperation{}, newFailure(KindInitiativeScopeViolation, "linear_project_enqueue", "work item is not an Initiative", false, "queue Linear Projects only for Initiative work items")
+	}
+	productID, err := resolveLinearProductCore(ctx, q, initiativeWorkID)
+	if err != nil {
+		return ClaimedLinearOperation{}, err
+	}
+	if expectedProductID != "" && expectedProductID != productID {
+		return ClaimedLinearOperation{}, newFailure(KindInvalidRelation, "linear_project_enqueue", "Initiative belongs to a different Product", false, "supply an Initiative in the requested Product")
+	}
+	mode, err := resolveLinearPlanningTargetCore(ctx, q, productID)
+	if err != nil {
+		return ClaimedLinearOperation{}, err
+	}
+	if mode.PlanningMode == PlanningModeLocalOnly {
+		return ClaimedLinearOperation{}, newFailure(KindInvalidOperation, "linear_project_enqueue", "planning mode is local_only", false, "set planning_mode to linear_enabled before queueing Linear Projects")
+	}
+	connection, err := readLinearConnectionCore(ctx, q, productID)
+	if err != nil {
+		return ClaimedLinearOperation{}, err
+	}
+	if connection.State != LinearConnectionDeclared {
+		return ClaimedLinearOperation{}, newFailure(KindInvalidOperation, "linear_project_enqueue", "linear_enabled Product has no declared Linear connection", false, "declare the connection as a managed saas_account resource or set the mode back to local_only")
+	}
+	if opKind == LinearOpProjectUpdate {
+		remoteUUID, err := readLinearProjectLinkUUIDCore(ctx, q, initiativeWorkID)
+		if err != nil {
+			return ClaimedLinearOperation{}, err
+		}
+		if remoteUUID == "" {
+			return ClaimedLinearOperation{}, newFailure(KindInvalidOperation, "linear_project_enqueue", "the Initiative holds no created Linear Project to update", false, "enqueue project_create first; the update addresses the created Project")
+		}
+	}
+	clientUUID := newLinearClientUUID()
+	payload, err := json.Marshal(linearPayload{ClientUUID: clientUUID, ProductID: productID, Title: title, Description: valueStatement, Content: narrative, TeamID: connection.TeamID, ConnectionVersion: connection.Version})
+	if err != nil {
+		return ClaimedLinearOperation{}, wrapFailure(KindUnavailable, "linear_project_enqueue", "cannot encode payload", true, "retry the enqueue", err)
+	}
+	return ClaimedLinearOperation{OperationID: "linear-" + clientUUID, WorkID: initiativeWorkID, OpKind: opKind, IdempotencyKey: clientUUID, Payload: payload}, nil
+}
+
+// enqueueLinearProjectCreateForCaptureTx queues the project_create that puts
+// a freshly captured Initiative's Linear Project in the outbox from the
+// instant its capture commits. Every configuration gap is a silent no-op,
+// and an Initiative imported from Linear keeps the Project it already has.
+func enqueueLinearProjectCreateForCaptureTx(ctx context.Context, tx *sql.Tx, initiativeWorkID string, at time.Time) error {
+	if isWorkflowReplay(ctx) {
+		// The outbox is direct authority the log never carries. Replay
+		// records no enqueue.
+		return nil
+	}
+	var table string
+	if err := tx.QueryRowContext(ctx, `SELECT name FROM sqlite_schema WHERE type='table' AND name='linear_outbox'`).Scan(&table); err == sql.ErrNoRows {
+		return nil
+	} else if err != nil {
+		return wrapFailure(KindUnavailable, "linear_project_enqueue", "cannot inspect Linear outbox schema", true, "retry once the database is readable", err)
+	}
+	var externalRef string
+	if err := tx.QueryRowContext(ctx, `SELECT coalesce(json_extract(intent_json, '$.external_ref'), '') FROM work_items WHERE id=?`, initiativeWorkID).Scan(&externalRef); err != nil {
+		return wrapFailure(KindUnavailable, "linear_project_enqueue", "cannot read Initiative external ref", true, "retry once the database is readable", err)
+	}
+	if _, exists := normalizeLinearIssueExternalRef(externalRef); exists {
+		// An imported Initiative mirrors a Linear Project that already
+		// exists; creating a second one is never wanted.
+		return nil
+	}
+	entry, err := enqueueLinearProjectForInitiativeCore(ctx, tx, "", initiativeWorkID, LinearOpProjectCreate)
+	if err != nil {
+		if linearCaptureConfigurationRefusal(err) {
+			return nil
+		}
+		return err
+	}
+	_, err = persistLinearIssueEnqueueTx(ctx, tx, linearIssueEnqueuePlan{entry: entry, payload: entry.Payload}, at.UTC().Format(time.RFC3339Nano))
+	return err
+}
+
+// enqueueLinearProjectUpdateForNarrativeTx queues the project_update that
+// carries a narrative revision to the Initiative's Linear Project content.
+// It is a silent no-op until the Initiative's Project exists, so the first
+// sync after capture is always the create.
+func enqueueLinearProjectUpdateForNarrativeTx(ctx context.Context, tx *sql.Tx, initiativeWorkID string, at time.Time) error {
+	if isWorkflowReplay(ctx) {
+		return nil
+	}
+	var table string
+	if err := tx.QueryRowContext(ctx, `SELECT name FROM sqlite_schema WHERE type='table' AND name='linear_project_links'`).Scan(&table); err == sql.ErrNoRows {
+		return nil
+	} else if err != nil {
+		return wrapFailure(KindUnavailable, "linear_project_enqueue", "cannot inspect Linear Project link schema", true, "retry once the database is readable", err)
+	}
+	var linked int
+	if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM linear_project_links WHERE work_id=?)`, initiativeWorkID).Scan(&linked); err != nil {
+		return wrapFailure(KindUnavailable, "linear_project_enqueue", "cannot read the Linear Project link", true, "retry once the database is readable", err)
+	}
+	if linked == 0 {
+		return nil
+	}
+	entry, err := enqueueLinearProjectForInitiativeCore(ctx, tx, "", initiativeWorkID, LinearOpProjectUpdate)
+	if err != nil {
+		if linearCaptureConfigurationRefusal(err) {
+			return nil
+		}
+		return err
+	}
+	_, err = persistLinearIssueEnqueueTx(ctx, tx, linearIssueEnqueuePlan{entry: entry, payload: entry.Payload}, at.UTC().Format(time.RFC3339Nano))
+	return err
+}
+
+// enqueueLinearIssueUpdateForEntryTx queues the issue_update that re-labels
+// the child work item and re-points its Linear Project after its Initiative
+// membership changed: an entry added, removed, or re-required can change the
+// owning Initiative (CD-0171 D6) and the optional label (D5). It reuses the
+// lifecycle update path, so the same confirmed-link and declared-mapping
+// guards decide whether an operation is queued.
+func enqueueLinearIssueUpdateForEntryTx(ctx context.Context, tx *sql.Tx, childWorkID string, at time.Time) error {
+	if isWorkflowReplay(ctx) {
+		return nil
+	}
+	var lifecycle string
+	if err := tx.QueryRowContext(ctx, `SELECT lifecycle FROM work_items WHERE id=?`, childWorkID).Scan(&lifecycle); err != nil {
+		if err == sql.ErrNoRows {
+			return nil
+		}
+		return wrapFailure(KindUnavailable, "linear_issue_enqueue", "cannot read work item lifecycle", true, "retry once the database is readable", err)
+	}
+	return enqueueLinearIssueForLifecycleTx(ctx, tx, childWorkID, lifecycle, at)
+}
+
+// EnqueueLinearIssueUpdatesForInitiativeEntries queues an issue_update for
+// every entry of one Initiative whose issue link is confirmed, so the issues
+// move into the Initiative's Linear Project and pick up their labels once
+// the Project exists. The drain calls it after a project_create completes.
+// Entries without a confirmed link skip: their next enqueue carries the
+// Project from the start.
+func (s *Store) EnqueueLinearIssueUpdatesForInitiativeEntries(ctx context.Context, initiativeWorkID string) ([]ClaimedLinearOperation, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, wrapFailure(KindUnavailable, "linear_issue_entry_refresh", "cannot open entry refresh transaction", true, "retry once the database is writable", err)
+	}
+	defer tx.Rollback()
+	if err := enterFold(ctx, tx); err != nil {
+		return nil, err
+	}
+	rows, err := tx.QueryContext(ctx, `SELECT child_work_id FROM initiative_entries WHERE initiative_work_id=? ORDER BY rowid`, initiativeWorkID)
+	if err != nil {
+		return nil, wrapFailure(KindUnavailable, "linear_issue_entry_refresh", "cannot read Initiative entries", true, "retry once the database is readable", err)
+	}
+	var children []string
+	for rows.Next() {
+		var child string
+		if err := rows.Scan(&child); err != nil {
+			rows.Close()
+			return nil, wrapFailure(KindUnavailable, "linear_issue_entry_refresh", "cannot scan Initiative entries", true, "retry once the database is readable", err)
+		}
+		children = append(children, child)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return nil, wrapFailure(KindUnavailable, "linear_issue_entry_refresh", "cannot finish the Initiative entry read", true, "retry once the database is readable", err)
+	}
+	rows.Close()
+	now := s.now()
+	enqueued := make([]ClaimedLinearOperation, 0, len(children))
+	for _, child := range children {
+		var linkState string
+		err := tx.QueryRowContext(ctx, `SELECT link_state FROM linear_issue_links WHERE work_id=?`, child).Scan(&linkState)
+		if err == sql.ErrNoRows || (err == nil && linkState != LinearLinkConfirmed) {
+			continue
+		} else if err != nil {
+			return nil, wrapFailure(KindUnavailable, "linear_issue_entry_refresh", "cannot read the entry's issue link", true, "retry once the database is readable", err)
+		}
+		if err := enqueueLinearIssueUpdateForEntryTx(ctx, tx, child, now); err != nil {
+			return nil, err
+		}
+		var latest string
+		if err := tx.QueryRowContext(ctx, `SELECT operation_id FROM linear_outbox WHERE work_id=? AND op_kind=? ORDER BY rowid DESC LIMIT 1`, child, LinearOpIssueUpdate).Scan(&latest); err == nil {
+			enqueued = append(enqueued, ClaimedLinearOperation{OperationID: latest, WorkID: child, OpKind: LinearOpIssueUpdate})
+		} else if err != sql.ErrNoRows {
+			return nil, wrapFailure(KindUnavailable, "linear_issue_entry_refresh", "cannot read the queued entry update", true, "retry once the database is readable", err)
+		}
+	}
+	if err := leaveFold(ctx, tx); err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, wrapFailure(KindUnavailable, "linear_issue_entry_refresh", "cannot commit the entry refresh", true, "retry once the database is writable", err)
+	}
+	return enqueued, nil
+}
+
+// LinearProjectLink is one Initiative's durable Linear Project link.
+type LinearProjectLink struct {
+	WorkID            string `json:"work_id"`
+	RemoteProjectUUID string `json:"remote_project_uuid"`
+	Name              string `json:"name"`
+	URL               string `json:"url"`
+}
+
+// ReadLinearProjectLink returns one Initiative's Linear Project link,
+// refusing when none exists.
+func (s *Store) ReadLinearProjectLink(ctx context.Context, workID string) (LinearProjectLink, error) {
+	var link LinearProjectLink
+	link.WorkID = workID
+	err := s.db.QueryRowContext(ctx, `SELECT remote_project_uuid, name, url FROM linear_project_links WHERE work_id=?`, workID).Scan(&link.RemoteProjectUUID, &link.Name, &link.URL)
+	if err == sql.ErrNoRows {
+		return LinearProjectLink{}, newFailure(KindUnknownScope, "linear_project_link_read", "no Linear Project link exists for the Initiative", false, "drain the queued project_create first")
+	} else if err != nil {
+		return LinearProjectLink{}, wrapFailure(KindUnavailable, "linear_project_link_read", "cannot read the Linear Project link", true, "retry once the database is readable", err)
+	}
+	return link, nil
+}
+
+// CompleteLinearProjectOperation atomically marks an in-flight project
+// operation done and, for a completed project_create, records the remote
+// Project identity on the Initiative's link (CD-0171 D2).
+func (s *Store) CompleteLinearProjectOperation(ctx context.Context, operationID, remoteProjectUUID, name, url string) error {
+	if len(remoteProjectUUID) < 2 || len(remoteProjectUUID) > 128 {
+		return newFailure(KindInvalidPayload, "linear_outbox_complete", "remote project uuid must be 2 to 128 characters", false, "supply the bounded remote project uuid")
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return wrapFailure(KindUnavailable, "linear_outbox_complete", "cannot open completion transaction", true, "retry once the database is writable", err)
+	}
+	defer tx.Rollback()
+	if err := enterFold(ctx, tx); err != nil {
+		return err
+	}
+	var workID, opKind, state string
+	if err := tx.QueryRowContext(ctx, `SELECT work_id, op_kind, state FROM linear_outbox WHERE operation_id=?`, operationID).Scan(&workID, &opKind, &state); err == sql.ErrNoRows {
+		return newFailure(KindUnknownScope, "linear_outbox_complete", "queued operation does not exist", false, "supply an in-flight operation id")
+	} else if err != nil {
+		return wrapFailure(KindUnavailable, "linear_outbox_complete", "cannot read the completed operation", true, "retry once the database is readable", err)
+	}
+	if state != LinearOutboxInFlight {
+		return newFailure(KindInvalidTransition, "linear_outbox_complete", fmt.Sprintf("outbox state is %s, not %s", state, LinearOutboxInFlight), false, "reload the operation and complete it only while in flight")
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE linear_outbox SET state=?, last_error='', updated_at=? WHERE operation_id=? AND state=?`, LinearOutboxDone, s.now().UTC().Format(time.RFC3339Nano), operationID, LinearOutboxInFlight); err != nil {
+		return wrapFailure(KindUnavailable, "linear_outbox_complete", "cannot mark operation done", true, "retry once the database is writable", err)
+	}
+	if opKind == LinearOpProjectCreate {
+		now := s.now().UTC().Format(time.RFC3339Nano)
+		if _, err := tx.ExecContext(ctx, `INSERT INTO linear_project_links(work_id, remote_project_uuid, name, url, created_at, updated_at) VALUES(?,?,?,?,?,?)
+			ON CONFLICT(work_id) DO UPDATE SET remote_project_uuid=excluded.remote_project_uuid, name=excluded.name, url=excluded.url, updated_at=excluded.updated_at`, workID, remoteProjectUUID, name, url, now, now); err != nil {
+			return wrapFailure(KindUnavailable, "linear_outbox_complete", "cannot record the Linear Project link", true, "retry once the database is writable", err)
+		}
+	}
+	if err := leaveFold(ctx, tx); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return wrapFailure(KindUnavailable, "linear_outbox_complete", "cannot commit completed Project operation", true, "retry once the database is writable", err)
+	}
+	return nil
+}
+
 func enqueueLinearIssueForLifecycleTx(ctx context.Context, tx *sql.Tx, workID, lifecycle string, at time.Time) error {
 	if isWorkflowReplay(ctx) {
 		// The outbox is direct authority the log never carries, and the
@@ -1587,11 +2017,11 @@ func linearCaptureConfigurationRefusal(err error) bool {
 // captured work item on the operator's Linear board from the instant its
 // capture transaction commits. The capture membership fold precedes this call,
 // so the owning Product resolves only here. Every configuration gap is a
-// silent no-op — local_only mode, a missing declared connection, an unmapped
-// owning Concord project, an unresolvable Product scope, an existing link row,
-// an initiative kind, and an external_ref that already names a Linear issue —
-// and terminal items are never published. It reports whether an operation was
-// queued, with the queued entry when it was.
+// silent no-op — local_only mode, a missing declared connection, an unresolvable
+// Product scope, an existing link row, an initiative kind, and an
+// external_ref that already names a Linear issue — and terminal items are
+// never published. It reports whether an operation was queued, with the queued
+// entry when it was.
 func enqueueLinearIssueForCaptureTx(ctx context.Context, tx *sql.Tx, workID string, at time.Time) (ClaimedLinearOperation, bool, error) {
 	if isWorkflowReplay(ctx) {
 		// The outbox is direct authority the log never carries, and the
@@ -1649,16 +2079,6 @@ func enqueueLinearIssueForCaptureTx(ctx context.Context, tx *sql.Tx, workID stri
 		return ClaimedLinearOperation{}, false, err
 	}
 	if connection.State != LinearConnectionDeclared {
-		return ClaimedLinearOperation{}, false, nil
-	}
-	projectID, _, err := resolveLinearProjectCore(ctx, tx, workID, productID)
-	if err != nil {
-		if linearCaptureConfigurationRefusal(err) {
-			return ClaimedLinearOperation{}, false, nil
-		}
-		return ClaimedLinearOperation{}, false, err
-	}
-	if connection.ProjectIDs[projectID] == "" {
 		return ClaimedLinearOperation{}, false, nil
 	}
 	plan, err := enqueueLinearIssueForWorkCore(ctx, tx, productID, workID, LinearOpIssueCreate)

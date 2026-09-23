@@ -110,6 +110,37 @@ type Issue struct {
 	UpdatedAt   time.Time `json:"updatedAt"`
 }
 
+// Project is the remote Linear project identity and content. Content is the
+// project's markdown document; Description is the short field (CD-0171 d3).
+type Project struct {
+	ID          string    `json:"id"`
+	Name        string    `json:"name"`
+	Description string    `json:"description"`
+	Content     string    `json:"content"`
+	URL         string    `json:"url"`
+	UpdatedAt   time.Time `json:"updatedAt"`
+}
+
+// CreateProjectInput carries the fields the drain supplies on project
+// creation. ID is the Concord-generated UUID v4: Linear's
+// ProjectCreateInput.id, which makes a replayed create converge on the same
+// remote project instead of duplicating it (CD-0171 d2).
+type CreateProjectInput struct {
+	ID          string   `json:"id"`
+	TeamIDs     []string `json:"teamIds"`
+	Name        string   `json:"name"`
+	Description string   `json:"description,omitempty"`
+	Content     string   `json:"content,omitempty"`
+}
+
+// UpdateProjectInput carries the mutable project fields the drain
+// synchronizes for an Initiative.
+type UpdateProjectInput struct {
+	Name        string `json:"name,omitempty"`
+	Description string `json:"description,omitempty"`
+	Content     string `json:"content,omitempty"`
+}
+
 // ResolvedIssue is one fetched issue together with its owning team and state,
 // so callers can verify its identity, ownership, and liveness.
 type ResolvedIssue struct {
@@ -264,6 +295,60 @@ func (c *Client) GetIssue(ctx context.Context, remoteUUID string) (ResolvedIssue
 		return ResolvedIssue{}, &Failure{Kind: KindGraphqlError, Detail: "issue query returned no issue"}
 	}
 	return ResolvedIssue{Issue: payload.Issue.Issue, TeamID: payload.Issue.Team.ID, StateID: payload.Issue.State.ID, StateType: payload.Issue.State.Type}, nil
+}
+
+// CreateProject executes projectCreate with the Concord-generated UUID and
+// returns the remote project identity.
+func (c *Client) CreateProject(ctx context.Context, input CreateProjectInput) (Project, error) {
+	var payload struct {
+		ProjectCreate struct {
+			Success bool    `json:"success"`
+			Project Project `json:"project"`
+		} `json:"projectCreate"`
+	}
+	query := "mutation($input: ProjectCreateInput!) { projectCreate(input: $input) { success project { id name description content url updatedAt } } }"
+	if err := c.call(ctx, query, map[string]any{"input": input}, &payload); err != nil {
+		return Project{}, err
+	}
+	if !payload.ProjectCreate.Success {
+		return Project{}, &Failure{Kind: KindGraphqlError, Detail: "projectCreate reported success=false"}
+	}
+	return payload.ProjectCreate.Project, nil
+}
+
+// UpdateProject executes projectUpdate against the remote project UUID.
+func (c *Client) UpdateProject(ctx context.Context, projectUUID string, input UpdateProjectInput) (Project, error) {
+	var payload struct {
+		ProjectUpdate struct {
+			Success bool    `json:"success"`
+			Project Project `json:"project"`
+		} `json:"projectUpdate"`
+	}
+	query := "mutation($id: String!, $input: ProjectUpdateInput!) { projectUpdate(id: $id, input: $input) { success project { id name description content url updatedAt } } }"
+	if err := c.call(ctx, query, map[string]any{"id": projectUUID, "input": input}, &payload); err != nil {
+		return Project{}, err
+	}
+	if !payload.ProjectUpdate.Success {
+		return Project{}, &Failure{Kind: KindGraphqlError, Detail: "projectUpdate reported success=false"}
+	}
+	return payload.ProjectUpdate.Project, nil
+}
+
+// GetProject fetches one project by its UUID. Linear answers an unknown
+// project with a GraphQL error, which maps to the permanent KindGraphqlError
+// failure.
+func (c *Client) GetProject(ctx context.Context, projectUUID string) (Project, error) {
+	var payload struct {
+		Project Project `json:"project"`
+	}
+	query := "query($id: String!) { project(id: $id) { id name description content url updatedAt } }"
+	if err := c.call(ctx, query, map[string]any{"id": projectUUID}, &payload); err != nil {
+		return Project{}, err
+	}
+	if payload.Project.ID == "" {
+		return Project{}, &Failure{Kind: KindGraphqlError, Detail: "project query returned no project"}
+	}
+	return payload.Project, nil
 }
 
 // startedIssuesPageSize is the page size the started-issue sweep requests.

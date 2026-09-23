@@ -69,7 +69,7 @@ func enableLinearProduct(t *testing.T, dbPath, productID string) {
 		"stage_maturity": "prototype", "stage_audience_commitment": "operator_only", "environments": []string{"production"},
 		"metadata_schema_version": "linear-connection-v1",
 		"metadata": map[string]any{"linear": map[string]any{
-			"workspace_url": "https://linear.app/example", "team_id": "68d52710-76d9-4b41-ba45-778511d0e2ed", "project_ids": map[string]string{projectID: "project-uuid-1"}, "auth_mode": "personal_api_key",
+			"workspace_url": "https://linear.app/example", "team_id": "68d52710-76d9-4b41-ba45-778511d0e2ed", "auth_mode": "personal_api_key",
 			"status_ids": map[string]string{"needed": "state-needed", "in_progress": "state-in-progress", "cancelled": "state-cancelled", "completed": "state-completed", "superseded": "state-superseded"},
 		}},
 		"expected_product_version": 3,
@@ -86,14 +86,17 @@ func TestLinearEnqueueAndDrainCLI(t *testing.T) {
 		"label_ids": map[string]string{"task": "label-task"}, "expected_resource_version": 1,
 	})
 
-	var sawAuth, sawProject, sawLabels, sawStatus, sawPriority bool
+	var sawAuth, sawLabels, sawStatus, sawPriority bool
+	// CD-0171 D4: a work item outside every Initiative syncs with an empty
+	// Project field, so the create input carries no projectId at all.
+	var sawNoProject bool
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
 		if strings.Contains(string(body), "issueCreate") {
 			if r.Header.Get("Authorization") == "lin_api_cli_test" {
 				sawAuth = true
 			}
-			sawProject = strings.Contains(string(body), `"projectId":"project-uuid-1"`)
+			sawNoProject = !strings.Contains(string(body), "projectId")
 			sawLabels = strings.Contains(string(body), `"labelIds":["label-task"]`)
 			sawStatus = strings.Contains(string(body), `"stateId":"state-needed"`)
 			sawPriority = strings.Contains(string(body), `"priority":3`)
@@ -128,8 +131,8 @@ func TestLinearEnqueueAndDrainCLI(t *testing.T) {
 	if code := runWithInput([]string{"linear", "outbox-drain"}, strings.NewReader(`{"product_id":"drain-product"}`), &out, &errOut); code != 0 {
 		t.Fatalf("drain exit=%d stderr=%q", code, errOut.String())
 	}
-	if !sawAuth || !sawProject || !sawLabels || !sawStatus || !sawPriority {
-		t.Fatalf("the drain request lacked authorization, project routing, labels, the birth status, or the seeded priority: auth=%t project=%t labels=%t status=%t priority=%t", sawAuth, sawProject, sawLabels, sawStatus, sawPriority)
+	if !sawAuth || !sawNoProject || !sawLabels || !sawStatus || !sawPriority {
+		t.Fatalf("the drain request lacked authorization, the empty Project field, labels, the birth status, or the seeded priority: auth=%t noProject=%t labels=%t status=%t priority=%t", sawAuth, sawNoProject, sawLabels, sawStatus, sawPriority)
 	}
 	var drained struct {
 		OK         bool `json:"ok"`
@@ -426,7 +429,7 @@ func TestLinearDrainRefusesQueuedOperationAfterConnectionChange(t *testing.T) {
 	runOperatorJSON(t, dbPath, []string{"linear-issue-enqueue"}, map[string]any{"product_id": "stale-product", "work_id": "stale-work", "op_kind": "issue_create"})
 	runOperatorJSON(t, dbPath, []string{"linear-connection-update"}, map[string]any{
 		"event_id": "stale-connection-update", "resource_id": "drain-conn-stale-product", "product_id": "stale-product",
-		"team_id": "new-team", "project_ids": map[string]string{"stale-project": "new-project"}, "status_ids": map[string]string{"needed": "new-needed", "in_progress": "new-in-progress", "cancelled": "new-cancelled", "completed": "new-completed", "superseded": "new-superseded"}, "expected_resource_version": 1,
+		"team_id": "new-team", "status_ids": map[string]string{"needed": "new-needed", "in_progress": "new-in-progress", "cancelled": "new-cancelled", "completed": "new-completed", "superseded": "new-superseded"}, "expected_resource_version": 1,
 	})
 
 	calls := 0
@@ -493,7 +496,7 @@ func TestLinearDrainRefusesLegacyQueuedOperationAfterConnectionChange(t *testing
 
 	runOperatorJSON(t, dbPath, []string{"linear-connection-update"}, map[string]any{
 		"event_id": "legacy-stale-connection-update", "resource_id": "drain-conn-legacy-stale-product", "product_id": "legacy-stale-product",
-		"team_id": "new-team", "project_ids": map[string]string{"legacy-stale-project": "new-project"}, "status_ids": map[string]string{"needed": "new-needed", "in_progress": "new-in-progress", "cancelled": "new-cancelled", "completed": "new-completed", "superseded": "new-superseded"}, "expected_resource_version": 1,
+		"team_id": "new-team", "status_ids": map[string]string{"needed": "new-needed", "in_progress": "new-in-progress", "cancelled": "new-cancelled", "completed": "new-completed", "superseded": "new-superseded"}, "expected_resource_version": 1,
 	})
 
 	calls := 0
@@ -553,7 +556,7 @@ func TestLinearDrainRefreshesConnectionPerClaimedOperation(t *testing.T) {
 			}
 			err = s.UpdateLinearConnection(context.Background(), store.LinearConnectionUpdateRequest{
 				EventID: "refresh-connection-update", ResourceID: "drain-conn-refresh-product", ProductID: "refresh-product",
-				TeamID: "refresh-team", ProjectIDs: map[string]string{"refresh-project": "refresh-new-project"}, StatusIDs: map[string]string{"needed": "refresh-needed", "in_progress": "refresh-in-progress", "cancelled": "refresh-cancelled", "completed": "refresh-completed", "superseded": "refresh-superseded"},
+				TeamID: "refresh-team", StatusIDs: map[string]string{"needed": "refresh-needed", "in_progress": "refresh-in-progress", "cancelled": "refresh-cancelled", "completed": "refresh-completed", "superseded": "refresh-superseded"},
 				ExpectedResourceVersion: 1, Actor: "operator", OccurredAt: fixedLinearTestTime(),
 			})
 			s.Close()
@@ -578,3 +581,134 @@ func TestLinearDrainRefreshesConnectionPerClaimedOperation(t *testing.T) {
 }
 
 func fixedLinearTestTime() time.Time { return time.Date(2026, 9, 9, 1, 0, 0, 0, time.UTC) }
+
+// TestLinearDrainProjectOperations drives CD-0171 D2 end to end: the drain
+// creates one Linear Project per Initiative with the Concord-generated UUID
+// as ProjectCreateInput.id, records the link, refreshes the entry issues, and
+// a later project_update addresses the recorded remote Project.
+func TestLinearDrainProjectOperations(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "concord.db")
+	seedCLIProduct(t, dbPath, "projdrain-product", "projdrain-project")
+	enableLinearProduct(t, dbPath, "projdrain-product")
+
+	// Seed the Initiative, its entry, and the entry's confirmed issue link.
+	s, err := store.Open(context.Background(), dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	intent := `{"title":"Initiative title","value_statement":"Initiative value statement","kind":"initiative","priority":0,"urgency":"standard"}`
+	if _, err := tx.Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec(`INSERT INTO work_items(id, kind, title, lifecycle, priority, urgency, version, intent_json, narrative, created_at, updated_at) VALUES('projdrain-initiative', 'initiative', 'Initiative title', 'needed', 0, 'standard', 1, ?, 'The coordination narrative.', '2026-09-23T00:00:00Z', '2026-09-23T00:00:00Z')`, intent); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec(`INSERT INTO work_projects(work_id, project_id, role) VALUES('projdrain-initiative', 'projdrain-project', 'primary')`); err != nil {
+		t.Fatal(err)
+	}
+	childIntent := `{"title":"Entry title","value_statement":"Entry value","kind":"task","priority":0,"urgency":"standard"}`
+	if _, err := tx.Exec(`INSERT INTO work_items(id, kind, title, lifecycle, priority, urgency, version, intent_json, created_at, updated_at) VALUES('projdrain-entry', 'task', 'Entry title', 'in_progress', 0, 'standard', 1, ?, '2026-09-23T00:00:00Z', '2026-09-23T00:00:00Z')`, childIntent); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec(`INSERT INTO work_projects(work_id, project_id, role) VALUES('projdrain-entry', 'projdrain-project', 'primary')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec(`INSERT INTO initiative_entries(initiative_work_id, child_work_id, position, required) VALUES('projdrain-initiative', 'projdrain-entry', 0, 0)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec(`INSERT INTO linear_issue_links(work_id, remote_issue_uuid, human_key, url, remote_updated_at, content_hash, link_state, created_at, updated_at) VALUES('projdrain-entry', 'entry-issue-uuid-1', 'EX-1', '', '', '', 'confirmed', '2026-09-23T00:00:00Z', '2026-09-23T00:00:00Z')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec(`DELETE FROM fold_guard`); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+
+	// Queue the project_create; the Product is already linear_enabled with a
+	// declared connection from enableLinearProduct.
+	entry, err := s.EnqueueLinearProjectForInitiative(context.Background(), "projdrain-product", "projdrain-initiative", store.LinearOpProjectCreate)
+	if err != nil {
+		t.Fatalf("EnqueueLinearProjectForInitiative() error = %v", err)
+	}
+	s.Close()
+
+	var projectCreateBodies, projectUpdateIDs []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		text := string(body)
+		switch {
+		case strings.Contains(text, "projectCreate"):
+			projectCreateBodies = append(projectCreateBodies, text)
+			_, _ = w.Write([]byte(`{"data":{"projectCreate":{"success":true,"project":{"id":"remote-project-created","name":"Initiative title","description":"Initiative value statement","content":"The coordination narrative.","url":"https://linear.app/example/project/remote-project-created","updatedAt":"2026-09-23T01:00:00Z"}}}}`))
+		case strings.Contains(text, "projectUpdate"):
+			projectUpdateIDs = append(projectUpdateIDs, text)
+			_, _ = w.Write([]byte(`{"data":{"projectUpdate":{"success":true,"project":{"id":"remote-project-created","name":"Initiative title","description":"Initiative value statement","content":"The revised narrative.","url":"https://linear.app/example/project/remote-project-created","updatedAt":"2026-09-23T02:00:00Z"}}}}`))
+		case strings.Contains(text, "issueUpdate"):
+			_, _ = w.Write([]byte(`{"data":{"issueUpdate":{"success":true,"issue":{"id":"entry-issue-uuid-1","identifier":"EX-1","url":"https://linear.app/example/issue/EX-1","updatedAt":"2026-09-23T01:30:00Z"}}}}`))
+		default:
+			w.WriteHeader(http.StatusInternalServerError)
+		}
+	}))
+	defer server.Close()
+	t.Setenv(linearclient.EnvEndpoint, server.URL)
+	t.Setenv(linearclient.EnvAPIKey, "lin_api_projdrain_test")
+	t.Setenv(dbOverrideEnv, dbPath)
+
+	var out, errOut strings.Builder
+	if code := runWithInput([]string{"linear", "outbox-drain"}, strings.NewReader(`{"product_id":"projdrain-product"}`), &out, &errOut); code != 0 {
+		t.Fatalf("drain exit=%d stderr=%q", code, errOut.String())
+	}
+	if len(projectCreateBodies) != 1 {
+		t.Fatalf("projectCreate calls = %d, want 1", len(projectCreateBodies))
+	}
+	if !strings.Contains(projectCreateBodies[0], `"id":"`+entry.IdempotencyKey+`"`) {
+		t.Fatalf("projectCreate body = %q, want the Concord-generated UUID as ProjectCreateInput.id", projectCreateBodies[0])
+	}
+	if !strings.Contains(projectCreateBodies[0], `"teamIds":["`) || !strings.Contains(projectCreateBodies[0], `"name":"Initiative title"`) || !strings.Contains(projectCreateBodies[0], `"description":"Initiative value statement"`) || !strings.Contains(projectCreateBodies[0], `"content":"The coordination narrative."`) {
+		t.Fatalf("projectCreate body = %q, want team, name, value statement, and narrative", projectCreateBodies[0])
+	}
+
+	s, err = store.Open(context.Background(), dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	var linkUUID string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT remote_project_uuid FROM linear_project_links WHERE work_id='projdrain-initiative'`).Scan(&linkUUID); err != nil {
+		t.Fatalf("the drained create recorded no project link: %v", err)
+	}
+	if linkUUID != "remote-project-created" {
+		t.Fatalf("project link = %q, want remote-project-created", linkUUID)
+	}
+	// The entry issue refresh is queued with the created Project set.
+	var refreshPayload string
+	var refreshKind string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT op_kind, payload FROM linear_outbox WHERE work_id='projdrain-entry' ORDER BY rowid DESC LIMIT 1`).Scan(&refreshKind, &refreshPayload); err != nil {
+		t.Fatalf("the project completion queued no entry refresh: %v", err)
+	}
+	if refreshKind != store.LinearOpIssueUpdate || !strings.Contains(refreshPayload, `"project_id":"remote-project-created"`) {
+		t.Fatalf("entry refresh = %s / %s, want an update carrying the created Project", refreshKind, refreshPayload)
+	}
+	if _, err := s.EnqueueLinearProjectForInitiative(context.Background(), "projdrain-product", "projdrain-initiative", store.LinearOpProjectUpdate); err != nil {
+		t.Fatalf("EnqueueLinearProjectForInitiative(update) error = %v", err)
+	}
+	s.Close()
+
+	out.Reset()
+	errOut.Reset()
+	if code := runWithInput([]string{"linear", "outbox-drain"}, strings.NewReader(`{"product_id":"projdrain-product"}`), &out, &errOut); code != 0 {
+		t.Fatalf("second drain exit=%d stderr=%q", code, errOut.String())
+	}
+	if len(projectUpdateIDs) != 1 {
+		t.Fatalf("projectUpdate calls = %d, want 1", len(projectUpdateIDs))
+	}
+	if !strings.Contains(projectUpdateIDs[0], `"id":"remote-project-created"`) || !strings.Contains(projectUpdateIDs[0], `"content":"The coordination narrative."`) || !strings.Contains(projectUpdateIDs[0], `"description":"Initiative value statement"`) {
+		t.Fatalf("projectUpdate body = %q, want the recorded remote Project, the value statement, and the narrative", projectUpdateIDs[0])
+	}
+}

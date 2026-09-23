@@ -26,7 +26,6 @@ import (
 	"github.com/sharper-flow/concord/internal/launcher/render/bubbletea"
 	"github.com/sharper-flow/concord/internal/launcher/storeport"
 	"github.com/sharper-flow/concord/internal/linearclient"
-	"github.com/sharper-flow/concord/internal/linearmcp"
 	"github.com/sharper-flow/concord/internal/predecessor"
 	"github.com/sharper-flow/concord/internal/store"
 	"github.com/sharper-flow/concord/internal/version"
@@ -173,8 +172,8 @@ var commandSpecs = []commandSpec{
 	{Canonical: "linear-outbox-drain", TwoWord: "linear outbox-drain", RequiredFields: requiredFields(field("product_id")), Optional: "max_operations", Enums: "none"},
 	{Canonical: "linear-outbox-disposition", TwoWord: "linear outbox-disposition", RequiredFields: requiredFields(field("product_id"), field("reason")), Optional: "operation_ids (defaults to all undisposed failed rows)", Enums: "disposition: acknowledged"},
 	{Canonical: "linear-backfill", TwoWord: "linear backfill", RequiredFields: requiredFields(field("product_id")), Optional: "none", Enums: "none"},
-	{Canonical: "linear-connection-update", TwoWord: "linear connection-update", RequiredFields: requiredFields(field("event_id"), field("resource_id"), field("product_id"), field("expected_resource_version")), Optional: "team_id, project_ids, status_ids, label_ids", Enums: "status_ids keys: needed | in_progress | completed | cancelled | superseded; label_ids keys: task | bug | decision | research | other | expedite"},
-	{Canonical: "linear-initiative-import", TwoWord: "linear initiative-import", RequiredFields: requiredFields(field("product_id"), field("initiative_id")), Optional: "none", Enums: "none"},
+	{Canonical: "linear-connection-update", TwoWord: "linear connection-update", RequiredFields: requiredFields(field("event_id"), field("resource_id"), field("product_id"), field("expected_resource_version")), Optional: "team_id, status_ids, label_ids", Enums: "status_ids: needed | in_progress | completed | cancelled | superseded; label_ids: task | bug | decision | research | other | expedite | optional | project:<project_id>"},
+	{Canonical: "linear-initiative-import", TwoWord: "linear initiative-import", RequiredFields: requiredFields(field("product_id"), field("initiative_id")), Optional: "none", Enums: "initiative_id: Linear Project uuid"},
 	{Canonical: "resource-create", TwoWord: "resource create", RequiredFields: requiredFields(field("event_id"), field("resource_id"), field("product_id"), field("display_name"), field("class"), field("kind"), field("purpose"), field("stage_maturity"), field("stage_audience_commitment"), field("environments"), field("expected_product_version")), Optional: "locator_absence_reason, metadata_schema_version, metadata, owner_purpose, owner_environments", Enums: "stage_maturity: prototype | alpha | beta | production | deprecated; stage_audience_commitment: operator_only | limited | public"},
 	{Canonical: "resource-share", TwoWord: "resource share", RequiredFields: requiredFields(field("event_id"), field("resource_id"), field("product_id"), field("expected_resource_version")), Optional: "purpose, environments", Enums: "none"},
 	{Canonical: "domain-project-attachments-replace", TwoWord: "domain project-attachments-replace", RequiredFields: requiredFields(field("event_id"), field("product_id"), field("domain_id"), field("expected_version"), field("attachments")), Optional: "attachments (replaces the full edge set)", Enums: "attachments[].role: primary | secondary"},
@@ -1064,7 +1063,6 @@ func runLinearConnectionUpdate(ctx context.Context, s *store.Store, raw []byte, 
 		ResourceID              string            `json:"resource_id"`
 		ProductID               string            `json:"product_id"`
 		TeamID                  string            `json:"team_id"`
-		ProjectIDs              map[string]string `json:"project_ids"`
 		StatusIDs               map[string]string `json:"status_ids"`
 		LabelIDs                map[string]string `json:"label_ids"`
 		ExpectedResourceVersion int64             `json:"expected_resource_version"`
@@ -1075,7 +1073,7 @@ func runLinearConnectionUpdate(ctx context.Context, s *store.Store, raw []byte, 
 	}
 	if err := s.UpdateLinearConnection(ctx, store.LinearConnectionUpdateRequest{
 		EventID: request.EventID, ResourceID: request.ResourceID, ProductID: request.ProductID,
-		TeamID: request.TeamID, ProjectIDs: request.ProjectIDs, StatusIDs: request.StatusIDs, LabelIDs: request.LabelIDs,
+		TeamID: request.TeamID, StatusIDs: request.StatusIDs, LabelIDs: request.LabelIDs,
 		ExpectedResourceVersion: request.ExpectedResourceVersion, Actor: "operator", OccurredAt: clock().UTC(),
 	}); err != nil {
 		writeOperatorDiagnostic(errOut, command, err.Error())
@@ -1441,6 +1439,39 @@ func runLinearOutboxDrain(ctx context.Context, s *store.Store, raw []byte, comma
 			issue linearclient.Issue
 			derr  error
 		)
+		if op.OpKind == store.LinearOpProjectCreate || op.OpKind == store.LinearOpProjectUpdate {
+			project, perr := drainProject(ctx, s, client, op, payload, teamID)
+			if perr != nil {
+				class := "permanent"
+				if linearclient.IsRetryable(perr) {
+					class = "retryable"
+				}
+				_ = s.FailLinearOperation(ctx, op.OperationID, class, perr.Error())
+				results = append(results, drained{OperationID: op.OperationID, Outcome: class, Detail: perr.Error()})
+				continue
+			}
+			if err := s.CompleteLinearProjectOperation(ctx, op.OperationID, project.ID, project.Name, project.URL); err != nil {
+				class := linearCompletionFailureClass(err)
+				_ = s.FailLinearOperation(ctx, op.OperationID, class, err.Error())
+				results = append(results, drained{OperationID: op.OperationID, Outcome: class, Detail: err.Error()})
+				continue
+			}
+			if op.OpKind == store.LinearOpProjectCreate {
+				// The Project now exists: its confirmed entry issues enqueue
+				// the update that moves them into it (CD-0171 D2) and picks
+				// up their labels. A refresh failure is reported, and it
+				// cannot un-create the Project.
+				refreshed, refreshErr := s.EnqueueLinearIssueUpdatesForInitiativeEntries(ctx, op.WorkID)
+				if refreshErr != nil {
+					results = append(results, drained{OperationID: op.OperationID, Outcome: "done", Detail: "project created; entry refresh failed: " + refreshErr.Error()})
+				} else {
+					results = append(results, drained{OperationID: op.OperationID, Outcome: "done", Identifier: project.Name, Detail: fmt.Sprintf("entry refreshes queued: %d", len(refreshed))})
+				}
+				continue
+			}
+			results = append(results, drained{OperationID: op.OperationID, Outcome: "done", Identifier: project.Name})
+			continue
+		}
 		if op.OpKind == store.LinearOpIssueUpdate {
 			issue, derr = drainUpdate(ctx, s, client, op, payload)
 		} else if op.OpKind == store.LinearOpIssueAdopt {
@@ -1571,11 +1602,17 @@ func refreshLinearLinkIdentities(ctx context.Context, s *store.Store, client *li
 
 // linearDrainPayload is the JSON convention every outbox payload carries.
 type linearDrainPayload struct {
-	ClientUUID        string   `json:"client_uuid"`
-	ProductID         string   `json:"product_id"`
-	Title             string   `json:"title"`
-	Description       string   `json:"description"`
-	TeamID            string   `json:"team_id"`
+	ClientUUID  string `json:"client_uuid"`
+	ProductID   string `json:"product_id"`
+	Title       string `json:"title"`
+	Description string `json:"description"`
+	// Content is the Initiative narrative a project operation writes to the
+	// Linear Project's markdown content field (CD-0171 d3).
+	Content string `json:"content,omitempty"`
+	TeamID  string `json:"team_id"`
+	// ProjectID is the owning Initiative's Linear Project (CD-0171 D2, D6);
+	// it is empty for a work item outside every Initiative or before that
+	// Initiative's Project is created. It never carries a repository mapping.
 	ProjectID         string   `json:"project_id,omitempty"`
 	ConnectionVersion int64    `json:"connection_version"`
 	Lifecycle         string   `json:"lifecycle,omitempty"`
@@ -1583,6 +1620,28 @@ type linearDrainPayload struct {
 	Priority          int      `json:"priority,omitempty"`
 	LabelIDs          []string `json:"label_ids,omitempty"`
 	RemoteIssueUUID   string   `json:"remote_issue_uuid,omitempty"`
+}
+
+// drainProject executes one Initiative Project operation. A create sends the
+// Concord-generated UUID as ProjectCreateInput.id so a replayed drain
+// converges on the same remote Project (CD-0171 d2). An update addresses the
+// recorded remote Project and resyncs the name, the value statement in
+// description, and the narrative in content.
+func drainProject(ctx context.Context, s *store.Store, client *linearclient.Client, op store.ClaimedLinearOperation, payload linearDrainPayload, teamID string) (linearclient.Project, error) {
+	if op.OpKind == store.LinearOpProjectCreate {
+		if payload.ClientUUID == "" || payload.Title == "" || teamID == "" {
+			return linearclient.Project{}, fmt.Errorf("project_create needs a client uuid, a name, and the Product's team")
+		}
+		return client.CreateProject(ctx, linearclient.CreateProjectInput{ID: payload.ClientUUID, TeamIDs: []string{teamID}, Name: payload.Title, Description: payload.Description, Content: payload.Content})
+	}
+	link, err := s.ReadLinearProjectLink(ctx, op.WorkID)
+	if err != nil {
+		return linearclient.Project{}, err
+	}
+	if link.RemoteProjectUUID == "" {
+		return linearclient.Project{}, fmt.Errorf("the Initiative's project link has no remote project to update")
+	}
+	return client.UpdateProject(ctx, link.RemoteProjectUUID, linearclient.UpdateProjectInput{Name: payload.Title, Description: payload.Description, Content: payload.Content})
 }
 
 // drainUpdate resolves the linked remote identity and executes issueUpdate.
@@ -1628,9 +1687,10 @@ func linearContentHash(title, description string) string {
 	return "sha256:" + hex.EncodeToString(sum[:])
 }
 
-// runLinearInitiativeImport handles the drafting-pad verb: one-way import of a
-// Linear initiative as a Concord initiative, read through the host's MCP
-// server. The process holds no Linear credential; the MCP endpoint owns it.
+// runLinearInitiativeImport handles the one-way import verb: it reads one
+// Linear Project through the first-party GraphQL client (CD-0171 D7) and
+// records it as a Concord Initiative. The import never writes back to
+// Linear.
 func runLinearInitiativeImport(ctx context.Context, s *store.Store, raw []byte, command string, out, errOut io.Writer) int {
 	var request struct {
 		ProductID    string `json:"product_id"`
@@ -1641,24 +1701,24 @@ func runLinearInitiativeImport(ctx context.Context, s *store.Store, raw []byte, 
 		return 1
 	}
 	if request.InitiativeID == "" {
-		writeOperatorDiagnostic(errOut, command, "initiative_id is required (a Linear initiative uuid)")
+		writeOperatorDiagnostic(errOut, command, "initiative_id is required (a Linear Project uuid)")
 		return 1
 	}
 	if _, err := s.ResolveLinearPlanningTarget(ctx, request.ProductID); err != nil {
 		writeOperatorDiagnostic(errOut, command, err.Error())
 		return 1
 	}
-	endpoint := os.Getenv("CONCORD_LINEAR_MCP_URL")
-	if endpoint == "" {
-		writeOperatorDiagnostic(errOut, command, "no MCP endpoint configured; set CONCORD_LINEAR_MCP_URL to the host's Linear MCP server")
+	client, err := linearclient.FromEnv()
+	if err != nil {
+		writeOperatorDiagnostic(errOut, command, err.Error()+"; set CONCORD_LINEAR_API_KEY in the process environment")
 		return 1
 	}
-	initiative, err := linearmcp.GetInitiative(ctx, endpoint, request.InitiativeID)
+	project, err := client.GetProject(ctx, request.InitiativeID)
 	if err != nil {
 		writeOperatorDiagnostic(errOut, command, err.Error())
 		return 1
 	}
-	imported, err := s.ImportLinearInitiative(ctx, request.ProductID, initiative.ID, initiative.Name, initiative.Description)
+	imported, err := s.ImportLinearInitiative(ctx, request.ProductID, project.ID, project.Name, project.Description)
 	if err != nil {
 		writeOperatorDiagnostic(errOut, command, err.Error())
 		return 1

@@ -4953,6 +4953,75 @@ ALTER TABLE law_subjects ADD COLUMN authority_tier TEXT NOT NULL DEFAULT 'derive
     CHECK(authority_tier IN ('legislated','derived'));
 `,
 	},
+	{
+		// CD-0171 D2: one Linear Project per Concord Initiative. The drain
+		// records the remote Project identity when a project_create
+		// completes; project_update and the issue enqueue path address the
+		// Initiative's Project through this row. The outbox widens to carry
+		// the project_create and project_update operation kinds.
+		Version: 99,
+		Name:    "linear_project_links",
+		SQL: `
+CREATE TABLE linear_project_links (
+    work_id             TEXT PRIMARY KEY CHECK(length(work_id) BETWEEN 2 AND 128),
+    remote_project_uuid TEXT NOT NULL UNIQUE CHECK(length(remote_project_uuid) BETWEEN 2 AND 128),
+    name                TEXT NOT NULL DEFAULT '',
+    url                 TEXT NOT NULL DEFAULT '',
+    created_at          TEXT NOT NULL,
+    updated_at          TEXT NOT NULL
+);
+CREATE INDEX linear_project_links_uuid ON linear_project_links(remote_project_uuid);
+CREATE TRIGGER linear_project_links_guard_insert BEFORE INSERT ON linear_project_links FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'linear_project_links is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER linear_project_links_guard_update BEFORE UPDATE ON linear_project_links FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'linear_project_links is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER linear_project_links_guard_delete BEFORE DELETE ON linear_project_links FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'linear_project_links is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+ALTER TABLE linear_outbox RENAME TO linear_outbox_v99;
+CREATE TABLE linear_outbox (
+    operation_id     TEXT PRIMARY KEY CHECK(length(operation_id) BETWEEN 2 AND 128),
+    work_id          TEXT NOT NULL CHECK(length(work_id) BETWEEN 2 AND 128),
+    op_kind          TEXT NOT NULL CHECK(op_kind IN ('issue_create','issue_update','issue_adopt','project_create','project_update')),
+    idempotency_key  TEXT NOT NULL UNIQUE CHECK(length(idempotency_key) BETWEEN 2 AND 128),
+    payload          TEXT NOT NULL CHECK(json_valid(payload) AND json_type(payload) = 'object'),
+    state            TEXT NOT NULL DEFAULT 'queued' CHECK(state IN ('queued','in_flight','done','failed')),
+    attempts         INTEGER NOT NULL DEFAULT 0 CHECK(attempts >= 0),
+    last_error       TEXT NOT NULL DEFAULT '',
+    created_at       TEXT NOT NULL,
+    updated_at       TEXT NOT NULL,
+    CHECK((state = 'queued' AND attempts = 0) OR attempts > 0)
+);
+INSERT INTO linear_outbox
+    (operation_id, work_id, op_kind, idempotency_key, payload, state, attempts, last_error, created_at, updated_at)
+    SELECT operation_id, work_id, op_kind, idempotency_key, payload, state, attempts, last_error, created_at, updated_at
+    FROM linear_outbox_v99;
+-- The rename rewrote every FK that named linear_outbox, including the
+-- dispositions table below, so that table is recreated against the new queue
+-- with its rows intact.
+CREATE TABLE linear_outbox_dispositions_v99 AS
+    SELECT operation_id, work_id, disposition, reason, created_at FROM linear_outbox_dispositions;
+DROP TABLE linear_outbox_dispositions;
+DROP TABLE linear_outbox_v99;
+CREATE INDEX linear_outbox_state ON linear_outbox(state, created_at);
+CREATE TRIGGER linear_outbox_guard_insert BEFORE INSERT ON linear_outbox FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'linear_outbox is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER linear_outbox_guard_update BEFORE UPDATE ON linear_outbox FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'linear_outbox is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER linear_outbox_guard_delete BEFORE DELETE ON linear_outbox FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'linear_outbox is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TABLE linear_outbox_dispositions (
+    operation_id TEXT PRIMARY KEY REFERENCES linear_outbox(operation_id) ON DELETE RESTRICT,
+    work_id      TEXT NOT NULL REFERENCES work_items(id) ON DELETE RESTRICT,
+    disposition  TEXT NOT NULL CHECK(disposition IN ('acknowledged')),
+    reason       TEXT NOT NULL CHECK(length(reason) BETWEEN 1 AND 4096),
+    created_at   TEXT NOT NULL,
+    CHECK(length(operation_id) BETWEEN 2 AND 128),
+    CHECK(length(work_id) BETWEEN 2 AND 128)
+);
+CREATE INDEX linear_outbox_dispositions_work ON linear_outbox_dispositions(work_id);
+CREATE TRIGGER linear_outbox_dispositions_guard_insert BEFORE INSERT ON linear_outbox_dispositions FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'linear_outbox_dispositions is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER linear_outbox_dispositions_guard_update BEFORE UPDATE ON linear_outbox_dispositions FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'linear_outbox_dispositions is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER linear_outbox_dispositions_guard_delete BEFORE DELETE ON linear_outbox_dispositions FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'linear_outbox_dispositions is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+INSERT INTO linear_outbox_dispositions
+    (operation_id, work_id, disposition, reason, created_at)
+    SELECT operation_id, work_id, disposition, reason, created_at FROM linear_outbox_dispositions_v99;
+DROP TABLE linear_outbox_dispositions_v99;
+`,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any

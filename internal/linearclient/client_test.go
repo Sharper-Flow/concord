@@ -345,3 +345,84 @@ func TestGetIssueMapsUnknownIssueToPermanentFailure(t *testing.T) {
 		t.Fatalf("unknown issue error %v is retryable, want permanent", err)
 	}
 }
+
+func TestCreateProjectSendsClientUUIDAndContentFields(t *testing.T) {
+	var gotBody string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		buf := make([]byte, r.ContentLength)
+		_, _ = r.Body.Read(buf)
+		gotBody = string(buf)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":{"projectCreate":{"success":true,"project":{"id":"proj-uuid-1","name":"Initiative title","description":"Initiative value statement","content":"The narrative.","url":"https://linear.app/example/project/proj-uuid-1","updatedAt":"2026-09-23T00:00:00Z"}}}}`))
+	}))
+	defer server.Close()
+	client, err := New("lin_api_test", WithEndpoint(server.URL))
+	if err != nil {
+		t.Fatal(err)
+	}
+	project, err := client.CreateProject(context.Background(), CreateProjectInput{
+		ID:          "0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0",
+		TeamIDs:     []string{"team-uuid-1"},
+		Name:        "Initiative title",
+		Description: "Initiative value statement",
+		Content:     "The narrative.",
+	})
+	if err != nil {
+		t.Fatalf("CreateProject() error = %v", err)
+	}
+	if project.ID != "proj-uuid-1" || project.Name != "Initiative title" || project.Content != "The narrative." || project.URL == "" {
+		t.Fatalf("project = %+v", project)
+	}
+	// CD-0171 d2: the Concord-generated UUID rides ProjectCreateInput.id, so
+	// a replayed create converges on the same remote Project. CD-0171 d3:
+	// description is the short field, content the markdown narrative.
+	for _, want := range []string{`"id":"0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0"`, `"teamIds":["team-uuid-1"]`, `"name":"Initiative title"`, `"description":"Initiative value statement"`, `"content":"The narrative."`, "projectCreate"} {
+		if !strings.Contains(gotBody, want) {
+			t.Fatalf("request body %q lacks %q", gotBody, want)
+		}
+	}
+}
+
+func TestUpdateProjectAddressesTheRemoteUUID(t *testing.T) {
+	var gotBody string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		buf := make([]byte, r.ContentLength)
+		_, _ = r.Body.Read(buf)
+		gotBody = string(buf)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":{"projectUpdate":{"success":true,"project":{"id":"proj-uuid-1","name":"Initiative title","updatedAt":"2026-09-23T01:00:00Z"}}}}`))
+	}))
+	defer server.Close()
+	client, err := New("lin_api_test", WithEndpoint(server.URL))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.UpdateProject(context.Background(), "proj-uuid-1", UpdateProjectInput{Name: "Initiative title", Description: "Revised value", Content: "Revised narrative."}); err != nil {
+		t.Fatalf("UpdateProject() error = %v", err)
+	}
+	for _, want := range []string{"projectUpdate", `"id":"proj-uuid-1"`, `"description":"Revised value"`, `"content":"Revised narrative."`} {
+		if !strings.Contains(gotBody, want) {
+			t.Fatalf("request body %q lacks %q", gotBody, want)
+		}
+	}
+}
+
+func TestGetProjectRefusesAnUnknownProject(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"errors":[{"message":"Entity not found: Project","extensions":{"code":"NOT_FOUND"}}]}`))
+	}))
+	defer server.Close()
+	client, err := New("lin_api_test", WithEndpoint(server.URL))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.GetProject(context.Background(), "ghost-project-uuid"); err == nil {
+		t.Fatal("GetProject() on an unknown project must fail")
+	} else {
+		var failure *Failure
+		if !failureAs(err, &failure) || failure.Kind != KindGraphqlError {
+			t.Fatalf("GetProject() error = %v, want graphql_error", err)
+		}
+	}
+}

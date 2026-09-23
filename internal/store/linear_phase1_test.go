@@ -177,7 +177,7 @@ func TestLinearEnqueueForWorkGuards(t *testing.T) {
 	}
 
 	// Unknown work refuses.
-	setupLinearConnectionResourceAtVersion(t, s, "enq-product", map[string]any{"linear": map[string]any{"workspace_url": "https://linear.app/example", "team_id": "team-uuid-1", "project_ids": map[string]string{"enq-product-project": "project-uuid-1"}, "auth_mode": "personal_api_key"}}, 3)
+	setupLinearConnectionResourceAtVersion(t, s, "enq-product", map[string]any{"linear": map[string]any{"workspace_url": "https://linear.app/example", "team_id": "team-uuid-1", "auth_mode": "personal_api_key"}}, 3)
 	if _, err := s.EnqueueLinearIssueForWork(ctx, "ghost", LinearOpIssueCreate); err == nil || !failureKindIs(err, KindUnknownScope) {
 		t.Fatalf("unknown work error = %v, want unknown_scope", err)
 	}
@@ -212,7 +212,7 @@ func TestLinearEnqueueForWorkGuards(t *testing.T) {
 	if err := json.Unmarshal([]byte(payload), &decoded); err != nil {
 		t.Fatal(err)
 	}
-	if decoded.ClientUUID == "" || decoded.Title != "Enqueue title" || decoded.Description != composeLinearIssueBody("Enqueue value statement", "", "enq-work", "task") || decoded.ProductID != "enq-product" || decoded.TeamID != "team-uuid-1" || decoded.ProjectID != "project-uuid-1" {
+	if decoded.ClientUUID == "" || decoded.Title != "Enqueue title" || decoded.Description != composeLinearIssueBody("Enqueue value statement", "", "enq-work", "task", "", nil) || decoded.ProductID != "enq-product" || decoded.TeamID != "team-uuid-1" || decoded.ProjectID != "" {
 		t.Fatalf("payload = %+v", decoded)
 	}
 	if len(decoded.LabelIDs) != 0 {
@@ -236,8 +236,7 @@ func TestLinearEnqueueMapsKindAndExpediteLabels(t *testing.T) {
 	setupLinearProduct(t, s, "label-product")
 	setupLinearConnectionResource(t, s, "label-product", map[string]any{"linear": map[string]any{
 		"workspace_url": "https://linear.app/example", "team_id": "team-uuid-1", "auth_mode": "personal_api_key",
-		"project_ids": map[string]string{"label-product-project": "project-uuid-1"},
-		"label_ids":   map[string]string{"bug": "label-bug", "expedite": "label-expedite"},
+		"label_ids": map[string]string{"bug": "label-bug", "expedite": "label-expedite"},
 	}})
 	if _, err := s.SetProductPlanningMode(ctx, "label-product", PlanningModeLinear, "pilot", "operator", 2); err != nil {
 		t.Fatal(err)
@@ -738,12 +737,12 @@ func TestLinearEnqueueBodyComposesPremiseAndResume(t *testing.T) {
 }
 
 func TestComposeLinearIssueBodyOmitsAbsentSections(t *testing.T) {
-	body := composeLinearIssueBody("", "", "work-x", "task")
+	body := composeLinearIssueBody("", "", "work-x", "task", "", nil)
 	want := "task · Resume: `concord zl work-x --`"
 	if body != want {
 		t.Fatalf("body = %q, want %q", body, want)
 	}
-	if got := composeLinearIssueBody("  value ", " premise ", "work-y", "task"); !strings.Contains(got, "## Value statement\n\nvalue\n\n## Premise\n\npremise\n\ntask · Resume: `concord zl work-y --`") {
+	if got := composeLinearIssueBody("  value ", " premise ", "work-y", "task", "", nil); !strings.Contains(got, "## Value statement\n\nvalue\n\n## Premise\n\npremise\n\ntask · Resume: `concord zl work-y --`") {
 		t.Fatalf("body = %q, want trimmed sections", got)
 	}
 }

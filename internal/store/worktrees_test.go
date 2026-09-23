@@ -1289,6 +1289,81 @@ func TestClaimWorktreeRollbackKeepsCommittedWorktreeAndReportsPossibleEffect(t *
 	}
 }
 
+// A clean, commit-free worktree that pre-existed the claim is native state
+// this operation never created: its phase-3 failure returns the cause
+// unchanged and touches nothing, because the first probe adopted the tree and
+// the operation ran no `git worktree add` of its own.
+func TestClaimWorktreeKeepsPreExistingWorktreeWhenItCreatedNothing(t *testing.T) {
+	t.Parallel()
+	s, git, repoRoot := worktreeFixture(t)
+	base := git.branches["main"]
+	git.branches[claimBranch()] = base
+	git.worktrees[claimPath(s)] = claimBranch()
+	git.worktreeRepos[claimPath(s)] = repoRoot
+	request := baseClaim(git)
+	request.ExpectedVersion = 99 // stale version fails the durable fold, not the git half
+	_, err := s.ClaimWorktree(context.Background(), request)
+	var failure *Failure
+	if !errors.As(err, &failure) || failure.Kind != KindVersionConflict {
+		t.Fatalf("stale claim failure=%v, want version_conflict", err)
+	}
+	if failure.EffectPossible {
+		t.Fatalf("pre-existing tree reported effect possible: %+v", failure)
+	}
+	if _, held := git.worktrees[claimPath(s)]; !held {
+		t.Fatal("compensation removed a worktree this operation did not create")
+	}
+	if git.countCalls("worktree add") != 0 {
+		t.Fatalf("claim ran worktree add for a pre-existing tree: %v", git.calls)
+	}
+	if git.countCalls("worktree remove") != 0 {
+		t.Fatal("compensation ran worktree remove for a pre-existing tree")
+	}
+}
+
+// The caller that owns the commit can only compensate what the claim reports.
+// claimWorktreeRawTx reports the tree and branch this operation created, so a
+// caller whose transaction fails after the claim returns — a failed Commit, or
+// the agent mutation envelope's post-effect writes — compensates from the
+// reported facts instead of leaving the creation stranded.
+func TestClaimWorktreeRawTxReportsCreatedNativeState(t *testing.T) {
+	t.Parallel()
+	s, git, _ := worktreeFixture(t)
+	ctx := context.Background()
+	request := baseClaim(git)
+	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, rawErr := claimWorktreeRawTx(ctx, tx, s.Path(), request)
+	if rawErr != nil {
+		t.Fatal(rawErr)
+	}
+	if out.Created == nil || out.Created.Path != claimPath(s) || out.Created.Branch != claimBranch() || out.Created.Base != request.BaseSHA || out.Created.RepoRoot == "" || !out.Created.CreatedBranch {
+		t.Fatalf("created report=%+v, want this operation's tree and branch", out.Created)
+	}
+	// The commit owner fails and rolls the transaction back; compensation
+	// from the reported creation must remove both native artifacts and
+	// return the cause unchanged, with no effect-possible marking.
+	if err := tx.Rollback(); err != nil {
+		t.Fatal(err)
+	}
+	cause := errors.New("cannot commit claim")
+	if compErr := CompensateWorktreeClaimCreation(ctx, git, *out.Created, cause); compErr != cause {
+		var failure *Failure
+		if errors.As(compErr, &failure) && failure.EffectPossible {
+			t.Fatalf("compensation could not prove removal: %v", compErr)
+		}
+		t.Fatalf("compensation error=%v, want the cause returned unchanged", compErr)
+	}
+	if _, held := git.worktrees[claimPath(s)]; held {
+		t.Fatal("compensation left the created worktree in place")
+	}
+	if _, held := git.branches[claimBranch()]; held {
+		t.Fatal("compensation left the created branch in place")
+	}
+}
+
 // An adopted branch pre-existed the claim, so compensation removes the
 // worktree this operation created but never the branch it only adopted.
 func TestClaimWorktreeRollbackRemovesWorktreeButKeepsAdoptedBranch(t *testing.T) {

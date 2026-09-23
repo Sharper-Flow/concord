@@ -1262,6 +1262,14 @@ type mutationPlan struct {
 	// A lifecycle transition into a terminal state sets it so the adapter can
 	// render a closure receipt from the same envelope that reports the state.
 	evidenceRefs []EvidenceRef
+	// nativeCreation records native state the effect created outside the
+	// transaction — the git worktree and branch a worktree_claim created —
+	// so a failure after the effect (enrichment, result validation,
+	// idempotency, the commit itself) is compensated instead of stranding it.
+	nativeCreation *store.WorktreeClaimCreation
+	// nativeCleanup compensates nativeCreation when the mutation transaction
+	// fails. Only operations with an out-of-transaction native effect set it.
+	nativeCleanup func(ctx context.Context, cause error) error
 }
 
 func newMutationPlan(envelope CallEnvelope, op ContractOperation) *mutationPlan {
@@ -2100,6 +2108,7 @@ func (r runtime) planWorktreeClaim(ctx context.Context, base Envelope, raw []byt
 		if err != nil {
 			return nil, nil, nil, err
 		}
+		plan.nativeCreation = claimed.Created
 		changed := []ChangedRef{{EntityKind: "work_item", ID: in.WorkID, Version: strconv.FormatInt(in.ExpectedVersion+1, 10)}}
 		result, err := json.Marshal(map[string]any{
 			"changed_refs":       mutationResultChangedRefs(changed),
@@ -2107,6 +2116,17 @@ func (r runtime) planWorktreeClaim(ctx context.Context, base Envelope, raw []byt
 			"path":               claimed.Entry.Path,
 		})
 		return result, []string{opID + ":worktree-created"}, changed, err
+	}
+	// The claim's worktree exists outside the transaction, so a failure after
+	// the effect — enrichment, result validation, idempotency, or the commit —
+	// rolls the claim row back and would strand the creation. The cleanup
+	// compensates exactly what the claim reported creating; a failure it
+	// cannot prove removed reports effect-possible through the cause.
+	plan.nativeCleanup = func(ctx context.Context, cause error) error {
+		if plan.nativeCreation == nil {
+			return cause
+		}
+		return store.CompensateWorktreeClaimCreation(ctx, nil, *plan.nativeCreation, cause)
 	}
 	return Envelope{}, nil, false
 }
@@ -3058,7 +3078,7 @@ func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Au
 	}
 	plan.scope["product_ids"] = preflightProducts
 	base.EvidenceRefs = append([]EvidenceRef{}, plan.evidenceRefs...)
-	return r.executeMutation(ctx, base, raw, digest, plan.scope, plan.versions, plan.consequence, plan.approval, plan.requiresApproval, plan.governingConflict, plan.intents, plan.effect)
+	return r.executeMutation(ctx, base, raw, digest, plan.scope, plan.versions, plan.consequence, plan.approval, plan.requiresApproval, plan.governingConflict, plan.intents, plan.effect, plan.nativeCleanup)
 }
 
 // planSupersede plans concord_work_relate.supersede.
@@ -3749,7 +3769,7 @@ func (r runtime) mutationResult(base Envelope, payload json.RawMessage, changed 
 	return response
 }
 
-func (r runtime) executeMutation(ctx context.Context, base Envelope, raw []byte, digest string, scope, versions map[string]any, consequence, approval string, requiresApproval bool, governingConflict []string, intents []NextIntent, effect mutationEffect) (Envelope, error) {
+func (r runtime) executeMutation(ctx context.Context, base Envelope, raw []byte, digest string, scope, versions map[string]any, consequence, approval string, requiresApproval bool, governingConflict []string, intents []NextIntent, effect mutationEffect, nativeCleanup func(ctx context.Context, cause error) error) (Envelope, error) {
 	var response Envelope
 	var resultRejected bool
 	err := r.Store.Transact(ctx, func(tx *store.Transaction) error {
@@ -3901,6 +3921,19 @@ func (r runtime) executeMutation(ctx context.Context, base Envelope, raw []byte,
 		return store.InsertMutationIdempotencyTx(ctx, tx, store.MutationIdempotencyInsert{Key: store.MutationIdempotencyKey{PrincipalRef: grant.PrincipalRef, Tool: r.Tool, OperationKind: r.Operation, IdempotencyKey: key}, CanonicalDigest: digest, OperationID: "mutation-" + digest[7:31], ResultEventIDs: marshalEventIDs(eventIDs), ResultPayload: string(payload), ChangedRefs: string(changedJSON), AuthorizedScopeSnapshot: string(authorizedScope), ObservedAt: r.Authority.now()})
 	})
 	if err != nil {
+		// The transaction failed after the effect ran. An operation that
+		// created native state outside it — the worktree_claim's git tree and
+		// branch — compensates here; a removal that cannot be proven reports
+		// effect-possible through the cause.
+		if nativeCleanup != nil {
+			err = nativeCleanup(ctx, err)
+		}
+		var failure *store.Failure
+		if resultRejected && errors.As(err, &failure) && failure.EffectPossible {
+			// The refusal stands, but the created worktree outlives the
+			// rolled-back claim, so the possible effect is the honest report.
+			return failureEnvelope(base, err), nil
+		}
 		if resultRejected {
 			return response, nil
 		}

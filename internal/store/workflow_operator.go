@@ -108,14 +108,23 @@ func ComputeWorkflowDecisionContextDigest(workID string, workVersion int64, defi
 // ReadWorkflowOperatorQuestion returns the question for the next approved
 // human-checkpoint action, if the current step has one. No question is emitted
 // for non-human steps or for a workflow without an approved contract.
+//
+// CD-0173 D2: the comparison-work count and the investigation-ref reads
+// answer one question, so every read below runs in one read transaction and
+// sees one snapshot.
 func ReadWorkflowOperatorQuestion(ctx context.Context, s *Store, workID string) (*WorkflowOperatorQuestion, error) {
 	if s == nil || s.db == nil {
 		return nil, newFailure(KindUnavailable, "workflow_operator_question", "store is not open", false, "open the authority database")
 	}
+	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return nil, wrapFailure(KindUnavailable, "workflow_operator_question", "cannot open a consistent question snapshot", true, "retry once the database is readable", err)
+	}
+	defer tx.Rollback()
 	var currentStep string
 	var workVersion int64
 	var definition WorkflowReadDefinition
-	if err := s.db.QueryRowContext(ctx, `SELECT current_step,definition_ref,definition_version,definition_digest,(SELECT version FROM work_items WHERE id=workflow_instances.work_id) FROM workflow_instances WHERE work_id=?`, workID).Scan(&currentStep, &definition.Ref, &definition.Version, &definition.Digest, &workVersion); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT current_step,definition_ref,definition_version,definition_digest,(SELECT version FROM work_items WHERE id=workflow_instances.work_id) FROM workflow_instances WHERE work_id=?`, workID).Scan(&currentStep, &definition.Ref, &definition.Version, &definition.Digest, &workVersion); err != nil {
 		if err == context.Canceled || err == context.DeadlineExceeded {
 			return nil, err
 		}
@@ -124,7 +133,7 @@ func ReadWorkflowOperatorQuestion(ctx context.Context, s *Store, workID string) 
 		}
 		return nil, wrapFailure(KindUnavailable, "workflow_operator_question", "cannot read workflow question context", true, "retry once the database is readable", err)
 	}
-	activeContractVersion, contractErr := activeWorkflowContractVersion(ctx, s.db, workID, "workflow_operator_question")
+	activeContractVersion, contractErr := activeWorkflowContractVersion(ctx, tx, workID, "workflow_operator_question")
 	if contractErr != nil {
 		if contractErr == sql.ErrNoRows {
 			return nil, nil
@@ -133,7 +142,7 @@ func ReadWorkflowOperatorQuestion(ctx context.Context, s *Store, workID string) 
 	}
 	var contract WorkflowReadContract
 	var required, routes, mandates, modifies string
-	if err := s.db.QueryRowContext(ctx, `SELECT contract_version,premise,required_evidence,route_conventions,spec_mandate,law_modifies FROM workflow_contracts WHERE work_id=? AND contract_version=? AND superseded_by IS NULL`, workID, activeContractVersion).Scan(&contract.Version, &contract.Premise, &required, &routes, &mandates, &modifies); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT contract_version,premise,required_evidence,route_conventions,spec_mandate,law_modifies FROM workflow_contracts WHERE work_id=? AND contract_version=? AND superseded_by IS NULL`, workID, activeContractVersion).Scan(&contract.Version, &contract.Premise, &required, &routes, &mandates, &modifies); err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
 		}
@@ -143,11 +152,11 @@ func ReadWorkflowOperatorQuestion(ctx context.Context, s *Store, workID string) 
 		return nil, newFailure(KindInvariantViolation, "workflow_operator_question", "workflow contract projection contains malformed arrays", false, "rebuild projections from the event log")
 	}
 	var predicateErr error
-	contract.OutcomePredicates, predicateErr = readWorkflowContractPredicates(ctx, s.db, workID, contract.Version)
+	contract.OutcomePredicates, predicateErr = readWorkflowContractPredicates(ctx, tx, workID, contract.Version)
 	if predicateErr != nil {
 		return nil, predicateErr
 	}
-	contract.SelfRepair, predicateErr = readWorkflowSelfRepair(ctx, s.db, workID, contract.Version)
+	contract.SelfRepair, predicateErr = readWorkflowSelfRepair(ctx, tx, workID, contract.Version)
 	if predicateErr != nil {
 		return nil, predicateErr
 	}
@@ -164,7 +173,7 @@ func ReadWorkflowOperatorQuestion(ctx context.Context, s *Store, workID string) 
 			if action.ID != candidate || action.Approval != ActionApprovalRequired {
 				continue
 			}
-			question, _, questionErr := workflowOperatorQuestionTx(ctx, s.db, workID, currentStep, workVersion, definition, contract)
+			question, _, questionErr := workflowOperatorQuestionTx(ctx, tx, workID, currentStep, workVersion, definition, contract)
 			return question, questionErr
 		}
 	}

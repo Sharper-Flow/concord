@@ -2120,7 +2120,19 @@ func (r runtime) planSessionVacate(ctx context.Context, base Envelope, raw []byt
 		// id must name the relocating session and the worktree's work item,
 		// or the first vacate ever recorded owns the id for every later
 		// session and each one refuses as a conflicting replay (CD-0120 D4).
-		eventID := digest + ":session-vacated:" + grant.SessionRef + ":" + target.WorkID
+		// One relocation request of one work item by one session is the unit
+		// of identity: the recorded vacate count is the ordinal of this
+		// request. This event records the operation before the adapter moves
+		// the host session, so it is never proof of landing; read-only work
+		// resume writes no event and no occupancy, and the worktree
+		// projection is identical before repeated vacates of the same work
+		// item by the same session, so the recorded operation count is the
+		// only projection that orders them.
+		vacated, err := store.CountWorkSessionVacatesTx(ctx, tx, target.WorkID, grant.SessionRef)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		eventID := fmt.Sprintf("%s:session-vacated:%s:%s:%d", digest, grant.SessionRef, target.WorkID, vacated+1)
 		payload, err := json.Marshal(map[string]any{
 			"work_id":               target.WorkID,
 			"project_id":            target.ProjectID,

@@ -17,6 +17,18 @@ func TestDispatchWorkerResultAdmitsWorkerPacketDigest(t *testing.T) {
 	}
 }
 
+// Issue #1322: the dispatch_worker result also names the durable claimed
+// worktree the authorization rested on, so the adapter can gate the calling
+// tool context against a store-owned answer across host restarts. The closed
+// schema must admit it for the dispatch result.
+func TestDispatchWorkerResultAdmitsWorkerWorktree(t *testing.T) {
+	t.Parallel()
+	payload := []byte(`{"changed_refs":[{"entity_kind":"work_item","id":"work-1","version":3}],"next_valid_intents":[],"operation_id":"workflow-1","worker_packet_digest":"sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef","worker_worktree":"/tmp/worktrees/work-1"}`)
+	if err := ValidateOperationPayload("concord_work_transition", "workflow_action", payload, true); err != nil {
+		t.Fatalf("dispatch_worker result with worker_worktree refused: %v", err)
+	}
+}
+
 func TestMutationResultRefusesMalformedWorkerPacketDigest(t *testing.T) {
 	t.Parallel()
 	payload := []byte(`{"changed_refs":[],"next_valid_intents":[],"worker_packet_digest":"not-a-digest"}`)

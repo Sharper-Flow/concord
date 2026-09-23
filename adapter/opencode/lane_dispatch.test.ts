@@ -87,13 +87,15 @@ const continuityEnvelope = (overrides: Partial<{ pinned: Record<string, unknown>
 })
 
 // CD-0067 D6: the dispatch_worker response must carry worker_packet_digest on
-// result so the adapter can quote it on the signed evidence assertion. Every
-// test that exercises the happy path uses this envelope; tests that probe
-// the digest-missing refusal override result to an empty record.
+// result so the adapter can quote it on the signed evidence assertion. Issue
+// #1322: it must also carry worker_worktree, the durable claimed worktree the
+// authorization rested on, so the tool-context gate survives a host restart.
+// Every test that exercises the happy path uses this envelope; tests that
+// probe the missing-field refusals override result to a partial record.
 const CORE_PACKET_DIGEST = "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
-const coreOkEnvelope = () => envelope({
+const coreOkEnvelope = (workerWorktree: string = process.cwd()) => envelope({
   tool: "concord_work_transition", operation: "workflow_action", outcome: "ok", authority: "authoritative", freshness: null,
-  result: { worker_packet_digest: CORE_PACKET_DIGEST },
+  result: { worker_packet_digest: CORE_PACKET_DIGEST, worker_worktree: workerWorktree },
 })
 
 const coreErrorEnvelope = (kind: string, message: string) => envelope({
@@ -280,6 +282,12 @@ test("production dispatch refuses a session retargeted during core authorization
   const alias = path.join(root, "alias")
   for (const directory of [claimed, other]) fs.mkdirSync(directory)
   fs.symlinkSync(claimed, alias)
+  // The pre-effect gate refuses a tool context outside the host session
+  // directory before the core is asked, so this race fixture lands the
+  // context in the claimed worktree first and retargets the alias only
+  // during the authorization call itself.
+  const landed = fs.realpathSync(claimed)
+  const landedContext = { sessionID: "session-1", messageID: "message-1", agent: "agent-1", worktree: landed, directory: landed, abort: new AbortController().signal, ask: async () => {} } as any
   try {
     hostControlPlane().bind({
       get: async ({ path: routePath }) => ({
@@ -306,7 +314,7 @@ test("production dispatch refuses a session retargeted during core authorization
     const windows = new DispatchWindows()
     const result = await dispatchLaneWorker(
       { work_id: WORK_ID, expected_version: 3, idempotency_key: "directory-race", lane_id: lane.id },
-      { context: contextFor(), invoke: invoke as any, credentials: testCredentials, windows },
+      { context: landedContext, invoke: invoke as any, credentials: testCredentials, windows },
     )
     expect(result.outcome).toBe("error")
     expect(result.error?.kind).toBe("unauthorized_dispatch")
@@ -509,6 +517,123 @@ test("dispatch_worker response without worker_packet_digest refuses before spawn
   expect(result.error?.message).toContain("worker_packet_digest")
   expect(result.error?.recovery_action).toBe("reconcile_operation")
   expect(spawned).toBe(0)
+})
+
+// Issue #1322: the same contract break as a missing digest — an ok response
+// that names no claimed worktree is not an authorization whose tool-context
+// landing the adapter can gate, so it refuses before any window opens.
+test("dispatch_worker response without worker_worktree refuses before spawn", async () => {
+  let spawned = 0
+  const invoke = async (toolName: string, args: { operation: string; input?: Record<string, unknown> }): Promise<unknown> => {
+    if (toolName === "concord_work_trace") return continuityEnvelope()
+    if (toolName === "concord_work_browse") return scopeEnvelope()
+    if (toolName === "concord_work_transition") return envelope({
+      tool: "concord_work_transition", operation: "workflow_action", outcome: "ok", authority: "authoritative", freshness: null,
+      result: { worker_packet_digest: CORE_PACKET_DIGEST },
+    })
+    throw new Error(`unscripted ${toolName}.${args.operation}`)
+  }
+  const runner: DispatchRunner = { async run() { spawned++; return { exitCode: 0, stdout: "", stderr: "" } } }
+  const windows = new DispatchWindows()
+  const result = await dispatchLaneWorker({ work_id: WORK_ID, expected_version: 3, idempotency_key: "idemp-worktree-missing", lane_id: lane.id }, { context: contextFor(), invoke: invoke as any, runner, credentials: testCredentials, windows })
+  expect(result.outcome).toBe("error")
+  expect(result.error?.kind).toBe("transport_failure")
+  expect(result.error?.message).toContain("worker_worktree")
+  expect(result.error?.recovery_action).toBe("reconcile_operation")
+  expect(spawned).toBe(0)
+  expect(windows.has("session-1")).toBe(false)
+})
+
+// Issue #1322, the durable gate end to end: the core's response names a
+// claimed worktree the calling tool context does not run in, and no in-memory
+// claim record exists (the post-restart posture), so dispatch refuses with the
+// replay route and opens no window.
+test("dispatch refuses when the tool context sits outside the authorized claimed worktree", async () => {
+  const root = fs.mkdtempSync(path.join(process.cwd(), "concord-dispatch-"))
+  fs.mkdirSync(path.join(root, "claimed"))
+  const claimed = fs.realpathSync(path.join(root, "claimed"))
+  try {
+    const invoke = async (toolName: string, args: { operation: string }): Promise<unknown> => {
+      const key = `${toolName}.${args.operation}`
+      if (key === "concord_work_trace.continuity") return continuityEnvelope()
+      if (key === "concord_work_browse.scope") return scopeEnvelope()
+      if (key === "concord_work_transition.workflow_action") return coreOkEnvelope(claimed)
+      throw new Error(`unscripted ${key}`)
+    }
+    hostControlPlane().bind({
+      get: async () => ({ data: { id: "session-1", directory: process.cwd(), metadata: { [MANAGED_TASK_SCOPE_KEY]: "managed" } }, response: new Response(null, { status: 200 }) }),
+      post: async () => { throw new Error("dispatch does not move the host session") },
+    })
+    const windows = new DispatchWindows()
+    const result = await dispatchLaneWorker({ work_id: WORK_ID, expected_version: 3, idempotency_key: "idemp-durable-gate", lane_id: lane.id }, { context: contextFor(), invoke: invoke as any, credentials: testCredentials, windows })
+    expect(result.outcome).toBe("error")
+    expect(result.error?.kind).toBe("unauthorized_dispatch")
+    expect(result.error?.message).toContain(claimed)
+    expect(result.error?.message).toMatch(/replay work_start or worktree_claim/)
+    expect(windows.has("session-1")).toBe(false)
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+// Issue #1322, the pre-effect gate end to end: the host session directory has
+// converged on the claimed worktree while the calling tool context still runs
+// elsewhere, so the lane dispatch refuses before the core dispatch_worker
+// action — the core persists no authorized attempt and no window opens.
+test("a mismatched tool context authorizes nothing in the core", async () => {
+  const root = fs.mkdtempSync(path.join(process.cwd(), "concord-dispatch-"))
+  fs.mkdirSync(path.join(root, "claimed"))
+  fs.mkdirSync(path.join(root, "elsewhere"))
+  const claimed = fs.realpathSync(path.join(root, "claimed"))
+  const elsewhere = fs.realpathSync(path.join(root, "elsewhere"))
+  try {
+    let transitionCalls = 0
+    const invoke = async (toolName: string, args: { operation: string }): Promise<unknown> => {
+      const key = `${toolName}.${args.operation}`
+      if (key === "concord_work_trace.continuity") return continuityEnvelope()
+      if (key === "concord_work_browse.scope") return scopeEnvelope()
+      if (key === "concord_work_transition.workflow_action") { transitionCalls++; return coreOkEnvelope(claimed) }
+      throw new Error(`unscripted ${key}`)
+    }
+    hostControlPlane().bind({
+      get: async () => ({ data: { id: "session-1", directory: claimed, metadata: { [MANAGED_TASK_SCOPE_KEY]: "managed" } }, response: new Response(null, { status: 200 }) }),
+      post: async () => { throw new Error("dispatch does not move the host session") },
+    })
+    const windows = new DispatchWindows()
+    const context = { sessionID: "session-1", messageID: "message-1", agent: "agent-1", worktree: elsewhere, directory: elsewhere, abort: new AbortController().signal, ask: async () => {} } as any
+    const result = await dispatchLaneWorker({ work_id: WORK_ID, expected_version: 3, idempotency_key: "idemp-context-gate", lane_id: lane.id }, { context, invoke: invoke as any, credentials: testCredentials, windows })
+    expect(result.outcome).toBe("error")
+    expect(result.error?.kind).toBe("unauthorized_dispatch")
+    expect(result.error?.message).toContain(claimed)
+    expect(result.error?.message).toContain(elsewhere)
+    expect(result.error?.message).toMatch(/replay work_start or worktree_claim/)
+    expect(transitionCalls).toBe(0)
+    expect(windows.has("session-1")).toBe(false)
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test("a missing tool context authorizes nothing in the core", async () => {
+  let transitionCalls = 0
+  const invoke = async (toolName: string, args: { operation: string }): Promise<unknown> => {
+    const key = `${toolName}.${args.operation}`
+    if (key === "concord_work_trace.continuity") return continuityEnvelope()
+    if (key === "concord_work_browse.scope") return scopeEnvelope()
+    if (key === "concord_work_transition.workflow_action") { transitionCalls++; return coreOkEnvelope() }
+    throw new Error(`unscripted ${key}`)
+  }
+  hostControlPlane().bind({
+    get: async () => ({ data: { id: "session-1", directory: process.cwd(), metadata: { [MANAGED_TASK_SCOPE_KEY]: "managed" } }, response: new Response(null, { status: 200 }) }),
+    post: async () => { throw new Error("dispatch does not move the host session") },
+  })
+  const windows = new DispatchWindows()
+  const context = { ...contextFor(), directory: undefined } as any
+  const result = await dispatchLaneWorker({ work_id: WORK_ID, expected_version: 3, idempotency_key: "idemp-missing-context-gate", lane_id: lane.id }, { context, invoke: invoke as any, credentials: testCredentials, windows })
+  expect(result.outcome).toBe("error")
+  expect(result.error?.kind).toBe("unauthorized_dispatch")
+  expect(transitionCalls).toBe(0)
+  expect(windows.has("session-1")).toBe(false)
 })
 
 test("dispatchLaneWorker retains the core's packet digest for completion", async () => {

@@ -13,7 +13,7 @@ import { concordBinaryPath, CoreBinaryUnavailable } from "./dispatch"
 import { createWorkStateReporter, formatWorkPaneName } from "./workflow-status"
 import { hostLeaseFault } from "./host-lease"
 import { armTurnMoveBoundary } from "./turn-move-boundary"
-import { armClaimedWorktree, clearClaimedWorktree } from "./claimed-worktree"
+import { armClaimedWorktree, clearClaimedWorktree, recordUnlandedClaimedWorktree } from "./claimed-worktree"
 import { ensureConductLink } from "./project-link"
 
 type ToolContext = {
@@ -852,8 +852,12 @@ async function writeSessionGoalTitle(sessionID: string, title: string, context: 
 //      records nothing.
 //   3. moveSession moves the calling session, and is a no-op when the session
 //      already runs there.
-//   4. The host reports the directory the session runs in. Success is refused
-//      unless it is the claimed worktree.
+//   4. The host reports the directory the session runs in, and the host tool
+//      context this call runs in must resolve there too. Success is refused
+//      unless both name the claimed worktree (issue #1322): a metadata-only
+//      move — the host accepted the retarget but the tool context has not
+//      landed — refuses and leaves the claimed worktree unarmed, so a replay
+//      after the context lands may succeed.
 //
 // No step records intent ahead of its effect, so there is no partial state.
 // The session's worktree is the directory it runs in, and the host owns that
@@ -948,20 +952,35 @@ async function executeWorkStart(args: WorkStartArgs, context: ToolContext, warni
     }
     // CD-0098 D3. The destination is read back from the host, not assumed from
     // the request that asked for it, and success is refused unless the session
-    // now runs in the claimed worktree.
+    // now runs in the claimed worktree. Every refusal past the accepted move
+    // records the pending target first: the move was accepted but never proved
+    // to have landed, so the dispatch gate stays closed for this session until
+    // a confirmed landing, a vacate, or the durable gate takes over.
     let landed: string
     try {
       landed = await hostControlPlane().sessionDirectory(context.sessionID, context.abort)
     } catch (error) {
+      recordUnlandedClaimedWorktree(context.sessionID, target.worktree.path)
       throw new AdapterFailure("malformed_response", "session_directory_unreadable", error instanceof Error ? error.message : String(error), "none", "retry_same_request")
     }
     if (!samePath(landed, target.worktree.path)) {
+      recordUnlandedClaimedWorktree(context.sessionID, target.worktree.path)
       throw new AdapterFailure("session_directory_mismatch", "move_destination_mismatch", `the session moved to ${JSON.stringify(landed)} rather than the claimed worktree ${JSON.stringify(target.worktree.path)}`, "none", "retry_same_request")
     }
-    // The landing is confirmed, so this session's active claimed worktree is
-    // armed for the dispatch check.
+    // Issue #1322: a host that accepted the retarget can keep running this
+    // session's tools in the pre-move directory, so the confirmed read-back
+    // alone is a metadata-only move. Success waits until the host tool context
+    // this call runs in resolves inside the claimed worktree; until then the
+    // declared refusal leaves the claimed worktree unarmed and a replay after
+    // the context lands may succeed. The unlanded record keeps the dispatch
+    // gate closed for this session while that move has not landed.
+    if (!samePath(context.directory, target.worktree.path)) {
+      recordUnlandedClaimedWorktree(context.sessionID, target.worktree.path)
+      throw new AdapterFailure("session_directory_mismatch", "move_context_not_landed", `the host reports the session in the claimed worktree ${JSON.stringify(target.worktree.path)}, but this session's tool context still resolves in ${JSON.stringify(context.directory)}; the move has not landed, so Concord reports no success and arms no claimed worktree. Replay work_start once the session's tool context runs in the claimed worktree.`, "none", "retry_same_request")
+    }
+    // The tool context landed in the claimed worktree, so this session's
+    // active claimed worktree is armed for the dispatch check.
     armClaimedWorktree(context.sessionID, target.worktree.path)
-    if (!samePath(context.directory, target.worktree.path)) armTurnMoveBoundary(context.sessionID)
     // Issue #917: the pane frame now names the work this session runs. The
     // rename sits after every refusal point, so it fires once per success and
     // never changes the outcome the envelope reports. A failure returns a
@@ -1214,14 +1233,20 @@ export async function moveSessionToClaimedWorktree(args: HostToolArgs, context: 
     const message = error instanceof Error ? error.message : String(error)
     return adapterError("concord_work_transition", "worktree_claim", requestID, "transport_failure", "claim_move_refused", `${message}; the claim is durable, replay worktree_claim to retry the move`, "none", "retry_same_request")
   }
+  // The move was accepted but the landing cannot be proved, so every refusal
+  // past the move records the pending target: dispatch stays closed for this
+  // session until a confirmed landing, a vacate, or the durable gate takes
+  // over (issue #1322).
   let landed: string
   try {
     landed = await hostControlPlane().sessionDirectory(context.sessionID, context.abort)
   } catch (error) {
+    recordUnlandedClaimedWorktree(context.sessionID, path)
     const message = error instanceof Error ? error.message : String(error)
     return adapterError("concord_work_transition", "worktree_claim", requestID, "malformed_response", "claim_move_destination_unreadable", message, "none", "retry_same_request")
   }
   if (!samePath(landed, path)) {
+    recordUnlandedClaimedWorktree(context.sessionID, path)
     return adapterError("concord_work_transition", "worktree_claim", requestID, "session_directory_mismatch", "claim_move_destination_mismatch", `the claim recorded ${JSON.stringify(path)} but the session runs in ${JSON.stringify(landed)}`, "none", "retry_same_request")
   }
   // The landing is confirmed, so this session's active claimed worktree is

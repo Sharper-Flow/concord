@@ -232,6 +232,18 @@ func workflowOperatorQuestionTx(ctx context.Context, q queryer, workID, currentS
 	return nil, nil, nil
 }
 
+// requireRecordedInvestigationArtifactSnapshot runs the investigation-artifact
+// precondition in one read-only transaction, so the Product work-item count and
+// the investigation-ref reads see one snapshot (CD-0173 D2).
+func requireRecordedInvestigationArtifactSnapshot(ctx context.Context, s *Store, workID string) error {
+	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return wrapFailure(KindUnavailable, "workflow_operator_question", "cannot open a consistent investigation snapshot", true, "retry once the database is readable", err)
+	}
+	defer tx.Rollback()
+	return requireRecordedInvestigationArtifact(ctx, tx, workID)
+}
+
 // requireRecordedInvestigationArtifact admits an operator question only when a
 // work observation names a current Domain of the work item's Product and,
 // when the Product holds another work item, a different work item. The
@@ -383,7 +395,7 @@ func ValidateWorkflowOperatorSelection(ctx context.Context, s *Store, workID str
 		// precondition holds, and swallows that refusal to keep reads total. The
 		// requirement is knowable here, so name it: reporting staleness sends the
 		// caller to refresh context that refreshing cannot change.
-		if artifactErr := requireRecordedInvestigationArtifact(ctx, s.db, workID); artifactErr != nil {
+		if artifactErr := requireRecordedInvestigationArtifactSnapshot(ctx, s, workID); artifactErr != nil {
 			return artifactErr
 		}
 		return newFailure(KindStaleRequiresReview, "workflow_operator_question", "no operator question is open at the current workflow step", false, "reread the workflow step and its declared actions")

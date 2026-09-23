@@ -508,11 +508,11 @@ func claimWorktreeRawTx(ctx context.Context, tx *sql.Tx, dataPath string, req Wo
 				return out, newFailure(KindProjectionConflict, "worktree_claim", "existing branch does not match the pinned base", false, "resolve the existing branch before claiming this worktree")
 			}
 			if _, err := runner.Run(ctx, repoRoot, "worktree", "add", pinnedPath, pinnedBranch); err != nil {
-				return out, wrapFailure(KindGitUnreachable, "worktree_claim", "native worktree creation failed; the claim stays pending for reconciliation", true, "retry the same operation with the same op id", err)
+				return out, worktreeAddFailure(ctx, runner, repoRoot, pinnedPath, pinnedBranch, false, err)
 			}
 		} else {
 			if _, err := runner.Run(ctx, repoRoot, "worktree", "add", pinnedPath, "-b", pinnedBranch, pinnedBase); err != nil {
-				return out, wrapFailure(KindGitUnreachable, "worktree_claim", "native worktree creation failed; the claim stays pending for reconciliation", true, "retry the same operation with the same op id", err)
+				return out, worktreeAddFailure(ctx, runner, repoRoot, pinnedPath, pinnedBranch, true, err)
 			}
 			createdBranch = true
 		}
@@ -611,6 +611,28 @@ func compensateClaimWorktree(ctx context.Context, runner GitRunner, created Work
 	if created.CreatedBranch {
 		if _, brErr := runner.Run(ctx, created.RepoRoot, "branch", "-D", "--", created.Branch); brErr != nil {
 			return incomplete(brErr)
+		}
+	}
+	return cause
+}
+
+// worktreeAddFailure classifies a failed `git worktree add`. Git can leave a
+// partial tree directory, or the branch it was asked to create, before it
+// reports the error. The rolled-back claim cannot see that state, so the
+// failure reports the effect possible when the path exists, when a branch this
+// call asked git to create exists, or when either fact cannot be read. It
+// reports no effect only when both facts prove nothing remains.
+func worktreeAddFailure(ctx context.Context, runner GitRunner, repoRoot, path, branch string, newBranch bool, addErr error) error {
+	cause := wrapFailure(KindGitUnreachable, "worktree_claim", "native worktree creation failed; the claim stays pending for reconciliation", true, "retry the same operation with the same op id", addErr)
+	ctx = context.WithoutCancel(ctx)
+	if _, statErr := os.Lstat(path); statErr == nil || !errors.Is(statErr, os.ErrNotExist) {
+		cause.EffectPossible = true
+		return cause
+	}
+	if newBranch {
+		_, exists, branchErr := worktreeBranchHead(ctx, runner, repoRoot, branch)
+		if branchErr != nil || exists {
+			cause.EffectPossible = true
 		}
 	}
 	return cause

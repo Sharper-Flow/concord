@@ -31,7 +31,10 @@ type fakeWorktreeGit struct {
 	unpushed      map[string]int // branch -> commits unreachable from local remotes
 	mergeConflict bool
 	failAdd       bool
-	calls         [][]string
+	// partialAdd models git leaving the tree directory and the requested new
+	// branch behind before it reports a failed `worktree add`.
+	partialAdd bool
+	calls      [][]string
 }
 
 // addRepository registers a further repository root the fake answers for.
@@ -143,6 +146,15 @@ func (g *fakeWorktreeGit) Run(_ context.Context, dir string, args ...string) ([]
 			return nil, fmt.Errorf("native add failed")
 		}
 		parts := strings.Fields(join)
+		if g.partialAdd {
+			if len(parts) == 6 && parts[3] == "-b" {
+				g.branches[parts[4]] = parts[5]
+			}
+			if err := os.MkdirAll(parts[2], 0o755); err != nil {
+				return nil, err
+			}
+			return nil, fmt.Errorf("native add failed after creating state")
+		}
 		path := parts[2]
 		branch := parts[3]
 		base := g.branches[branch]
@@ -1383,5 +1395,35 @@ func TestClaimWorktreeRollbackRemovesWorktreeButKeepsAdoptedBranch(t *testing.T)
 	}
 	if _, held := git.branches[claimBranch()]; !held {
 		t.Fatal("compensation deleted the adopted branch")
+	}
+}
+
+// A failed `git worktree add` can leave the tree directory or the new branch
+// behind. The rolled-back claim cannot see that state, so the failure must
+// report the effect possible; a failure that left nothing reports no effect.
+func TestClaimWorktreeAddFailureReportsPartialNativeState(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name       string
+		partial    bool
+		wantEffect bool
+	}{
+		{name: "partial state left behind", partial: true, wantEffect: true},
+		{name: "nothing left behind", partial: false, wantEffect: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			s, git, _ := worktreeFixture(t)
+			git.partialAdd = tc.partial
+			git.failAdd = !tc.partial
+			_, err := s.ClaimWorktree(context.Background(), baseClaim(git))
+			var failure *Failure
+			if !errors.As(err, &failure) || failure.Kind != KindGitUnreachable {
+				t.Fatalf("claim failure=%v, want git_unreachable", err)
+			}
+			if failure.EffectPossible != tc.wantEffect {
+				t.Fatalf("effect possible=%v, want %v", failure.EffectPossible, tc.wantEffect)
+			}
+		})
 	}
 }

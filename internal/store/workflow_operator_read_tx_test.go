@@ -95,3 +95,35 @@ func TestReadWorkflowOperatorQuestionReadsOneTransaction(t *testing.T) {
 		t.Errorf("ReadWorkflowOperatorQuestion references s.db %d times; only the open guard and the BeginTx receiver are permitted, every read must flow through the transaction", dbRefs)
 	}
 }
+
+// Every caller of the investigation-artifact precondition must pass one
+// transaction, never the pooled store handle, so its Product count and its
+// ref reads share one snapshot (CD-0173 D2).
+func TestInvestigationArtifactPreconditionNeverReadsThroughTheStoreHandle(t *testing.T) {
+	t.Parallel()
+	_, thisFile, _, _ := runtime.Caller(0)
+	sourcePath := filepath.Join(filepath.Dir(thisFile), "workflow_operator.go")
+	file, err := parser.ParseFile(token.NewFileSet(), sourcePath, nil, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	calls := 0
+	ast.Inspect(file, func(node ast.Node) bool {
+		call, ok := node.(*ast.CallExpr)
+		if !ok {
+			return true
+		}
+		fn, ok := call.Fun.(*ast.Ident)
+		if !ok || fn.Name != "requireRecordedInvestigationArtifact" || len(call.Args) < 2 {
+			return true
+		}
+		calls++
+		if sel, ok := call.Args[1].(*ast.SelectorExpr); ok && sel.Sel.Name == "db" {
+			t.Errorf("requireRecordedInvestigationArtifact is called with the store handle at offset %d; pass a transaction", call.Pos())
+		}
+		return true
+	})
+	if calls == 0 {
+		t.Fatal("no requireRecordedInvestigationArtifact call found in internal/store/workflow_operator.go")
+	}
+}

@@ -1,0 +1,39 @@
+{
+  "authority": {
+    "contract_version": 1,
+    "legislated_by": "work-bd25a9d0e15b178caa9f3c66",
+    "tier": "legislated"
+  },
+  "date": "2026-09-23T00:00:00Z",
+  "home_domain_id": "work-coordination",
+  "id": "CD-0171",
+  "kind": "decision",
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "CD-0041"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0121"
+    }
+  ],
+  "path": "docs/decisions/CD-0171-initiatives-map-to-linear-projects.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:c012df7ed9270490d7b73af673ef69232de2db2e9bfcb6a03ed2e08b0f1d5d2b",
+  "status": "accepted",
+  "summary": "A Linear-enabled Product maps to one Linear team, each Concord Initiative to one Linear Project, and each repository Project to a team label; the project_ids repository mapping is removed. Optional entries carry an optional label, the first Initiative owns a shared entry, Linear Initiatives stay operator-owned, import reads a Linear Project, and each pull request carries a non-closing Related to reference with GitHub Issues Sync off.",
+  "tags": [
+    "linear",
+    "initiative",
+    "planning",
+    "work-coordination"
+  ],
+  "title": "Initiatives map to Linear Projects"
+}

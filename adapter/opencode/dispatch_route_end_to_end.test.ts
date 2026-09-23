@@ -138,11 +138,12 @@ function taskResult(report: JSONRecord): string {
 // CD-0102: an authorized worker session opens with the dispatch packet as its
 // first user message, so the fixture takes the bound packet once the test
 // captures it from the rewritten Task call.
-function exportedSession(opening: JSONRecord | null = null): string {
+function exportedSession(opening: JSONRecord | null = null, bulkTextBytes = 0): string {
   return JSON.stringify({
     info: { id: "worker-session" },
     messages: [
       ...(opening ? [{ info: { id: "worker-message-open", sessionID: "worker-session", role: "user", agent: "concord-implement", time: { created: 0 } }, parts: [{ type: "text", text: JSON.stringify(opening) }] }] : []),
+      ...(bulkTextBytes > 0 ? [{ info: { id: "worker-message-bulk", sessionID: "worker-session", role: "user", agent: "concord-implement", time: { created: 0.5 } }, parts: [{ type: "text", text: "x".repeat(bulkTextBytes) }] }] : []),
       { info: { id: "worker-message", sessionID: "worker-session", role: "assistant", agent: "concord-implement", providerID: "openai", modelID: "gpt-5.6-luna", time: { created: 1 } }, parts: [] },
     ],
   })
@@ -161,8 +162,23 @@ const routeDeclaration =
     ? test
     : test.skip
 
-routeDeclaration("dispatches a real store route through Task completion and workflow gates", async () => {
-  const root = await mkdtemp(join(tmpdir(), "concord-dispatch-e2e-"))
+interface RouteFixture {
+  binary: string
+  repo: string
+  dbPath: string
+  configPath: string
+  workID: string
+  worktree: string
+  lane: (typeof agentLanes)[number]
+}
+
+// bootRouteFixture builds the real store and repository fixture every route
+// test shares: one built core binary, one real git repository with the
+// synthetic knowledge home, one bootstrapped work item, and one registered
+// client carrying the worker evidence and dispatch capabilities. The host
+// control-plane binding and the transport runner stay per-test, because each
+// scenario answers the host session routes differently.
+async function bootRouteFixture(root: string): Promise<RouteFixture> {
   let binRoot = ""
   let binary = process.env.CONCORD_BIN ?? ""
   if (!binary) {
@@ -175,76 +191,143 @@ routeDeclaration("dispatches a real store route through Task completion and work
   const repo = join(root, "repo")
   const dbPath = join(root, "concord.db")
   const configPath = join(repo, "opencode.jsonc")
-  const previousConfig = process.env.OPENCODE_CONFIG
   const lane = agentLanes.find((candidate) => candidate.id === "implement")
   if (!lane) throw new Error("implement lane is not registered")
 
+  await mkdir(join(repo, "docs"), { recursive: true })
+  await Bun.write(join(repo, "docs", "concord-knowledge-index.v1.json"), JSON.stringify({
+    schema_version: "1.2",
+    supported_kinds: [],
+    indexed_kinds: [],
+    knowledge_roots: [],
+    domain_registry: {
+      schema_version: "1.0",
+      product_key: PRODUCT_ID,
+      root_domain_id: `product-root:${PRODUCT_ID}`,
+      domains: [{ domain_id: `product-root:${PRODUCT_ID}`, name: "Synthetic root", purpose: "Synthetic test domain", status: "current", architecture_relations: [] }],
+    },
+    records: [],
+  }, null, 2))
+  await Bun.write(configPath, JSON.stringify({ instructions: ["https://example.invalid/synthetic-instructions"] }))
+  await Bun.write(join(repo, "README.md"), "synthetic dispatch fixture\n")
+  await git(repo, "init", "--quiet", "--initial-branch=main")
+  await git(repo, "config", "user.email", "test@example.invalid")
+  await git(repo, "config", "user.name", "Synthetic Test")
+  await git(repo, "add", ".")
+  await git(repo, "commit", "--quiet", "-m", "fixture")
+  await git(repo, "remote", "add", "origin", "https://example.invalid/synthetic.git")
+  await git(repo, "update-ref", "refs/remotes/origin/main", "HEAD")
+  await git(repo, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main")
+
+  await runJSON(binary, dbPath, "product-create", {
+    product_id: PRODUCT_ID,
+    display_name: "Synthetic Product",
+    stage_maturity: "prototype",
+    stage_audience_commitment: "operator_only",
+    project_id: PROJECT_ID,
+    project_display_name: "Synthetic Project",
+    role: "primary",
+  })
+  await runJSON(binary, dbPath, "project-locator-add", { project_id: PROJECT_ID, locator_id: "repo", kind: "canonical_path", value: repo, expected_version: 1 })
+  await runJSON(binary, dbPath, "product-knowledge-home-designate", { product_id: PRODUCT_ID, project_id: PROJECT_ID, locator_id: "repo", expected_version: 2 })
+  const bootstrap = await runJSON(binary, dbPath, "work-bootstrap", {
+    product_id: PRODUCT_ID,
+    project_id: PROJECT_ID,
+    title: "Synthetic dispatch route",
+    value_statement: "The route completes a real worker attempt.",
+    kind: "bug",
+    task: "Exercise the dispatch route.",
+    idempotency_key: "dispatch-route-e2e",
+    priority: 1,
+    urgency: "standard",
+    tags: [],
+    workflow_type_ref: "",
+    external_ref: "issue-840",
+    governing_requirements: [],
+    ref: "HEAD",
+  }, repo)
+  await runJSON(binary, dbPath, "client-register", {
+    client_ref: CLIENT_REF,
+    key_id: "dispatch-e2e-key",
+    principal_ref: "operator-1",
+    public_key: publicKeyBase64(),
+    capabilities: ["product_read", "work_define", "work_transition", "work_relate", "work_compact", "worker_evidence", "worker_dispatch"],
+    product_scope: [PRODUCT_ID],
+    project_scope: [PROJECT_ID],
+    agent_scope: ["concord-implement", "concord-review"],
+  })
+  return { binary, repo, dbPath, configPath, workID: bootstrap.work_id as string, worktree: bootstrap.worktree.path as string, lane }
+}
+
+// realStoreRunner spawns the real core binary against the real store and
+// records the evidence verbs the route observes. This is the transport the
+// review demanded: no accepting stub stands between the adapter and the core
+// on the evidence path. The `session` leg stays a host-shaped stub because it
+// names the `opencode` CLI, not the core, and the host control plane answers
+// the liveness read when it is bound.
+function realStoreRunner(binary: string, dbPath: string, realCalls: Array<{ argv: string[]; input: JSONRecord }>, worktree: string): DispatchRunner {
+  return {
+    async run(argv, input, signal) {
+      if (argv[1] === "session") return { exitCode: 0, stdout: JSON.stringify([{ id: "worker-session", directory: worktree }, { id: SESSION_ID, directory: worktree }]), stderr: "" }
+      if (argv[1] === "worker-dispatch" || argv[1] === "worker-complete" || argv[1] === "worker-fail" || argv[1] === "invoke") {
+        realCalls.push({ argv, input: JSON.parse(input) as JSONRecord })
+      }
+      const child = Bun.spawn([binary, ...argv.slice(1)], { env: { ...process.env, CONCORD_DB_PATH: dbPath }, stdin: "pipe", stdout: "pipe", stderr: "pipe" })
+      if (signal.aborted) child.kill()
+      await child.stdin.write(input)
+      await child.stdin.end()
+      const [stdout, stderr, exitCode] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited])
+      return { exitCode, stdout, stderr }
+    },
+  }
+}
+
+// driveWorkflowToContract walks the real workflow from capture to the
+// approved-contract state that makes dispatch_worker the next action, using
+// the transition sequence every route test shares.
+async function driveWorkflowToContract(
+  workID: string,
+  invoke: (toolName: string, args: { operation: string; input: Record<string, unknown> }, callContext: any, sessionDirectory?: string) => Promise<any>,
+  context: any,
+): Promise<void> {
+  const transition = (version: number, actionID: string, idempotencyKey: string, fields: Record<string, unknown>) => invoke("concord_work_transition", { operation: "workflow_action", input: { work_id: workID, expected_version: version, action_id: actionID, idempotency_key: idempotencyKey, fields } }, context)
+  let response = await transition(5, "record_reproduction", "e2e-reproduction", {})
+  expect(response.outcome).toBe("ok")
+  response = await transition(7, "record_alignment", "e2e-alignment", { searched: "Searched the backlog for duplicate defect work.", outcome: "none_found" })
+  expect(response.outcome).toBe("ok")
+  response = await transition(9, "record_root_cause", "e2e-root-cause", {})
+  expect(response.outcome).toBe("ok")
+  const domainList = await invoke("concord_domain", { operation: "list", input: { product_id: PRODUCT_ID, page: { cursor: null, limit: 10 } } }, context)
+  expect(domainList.outcome).toBe("ok")
+  const registry = domainList.result as JSONRecord
+  const registryHash = (registry.registry as JSONRecord).content_hash as string
+  response = await transition(10, "approve_contract", "e2e-approve-contract", {
+    premise: APPROVED_OBJECTIVE,
+    outcome_predicates: [WORKFLOW_PREDICATE],
+    required_evidence: [],
+    route_conventions: [],
+    spec_mandate: [],
+    law_modifies: [],
+    architecture_binding: {
+      domain_registry_content_hash: registryHash,
+      home_domain_id: `product-root:${PRODUCT_ID}`,
+      affected_domain_ids: [`product-root:${PRODUCT_ID}`],
+      domain_modifies: [],
+      domain_relation_modifies: [],
+      law_additions: [],
+      verification_obligations: [],
+    },
+  })
+  expect(response.outcome).toBe("ok")
+  const stepRead = (await invoke("concord_work_trace", { operation: "continuity", input: { work_id: workID, page: { cursor: null, limit: 1 } } }, context)).result as JSONRecord
+  expect((stepRead.pinned as JSONRecord).workflow_step).toBe("repair")
+}
+
+routeDeclaration("dispatches a real store route through Task completion and workflow gates", async () => {
+  const root = await mkdtemp(join(tmpdir(), "concord-dispatch-e2e-"))
+  const previousConfig = process.env.OPENCODE_CONFIG
   try {
-    await mkdir(join(repo, "docs"), { recursive: true })
-    await Bun.write(join(repo, "docs", "concord-knowledge-index.v1.json"), JSON.stringify({
-      schema_version: "1.2",
-      supported_kinds: [],
-      indexed_kinds: [],
-      knowledge_roots: [],
-      domain_registry: {
-        schema_version: "1.0",
-        product_key: PRODUCT_ID,
-        root_domain_id: `product-root:${PRODUCT_ID}`,
-        domains: [{ domain_id: `product-root:${PRODUCT_ID}`, name: "Synthetic root", purpose: "Synthetic test domain", status: "current", architecture_relations: [] }],
-      },
-      records: [],
-    }, null, 2))
-    await Bun.write(configPath, JSON.stringify({ instructions: ["https://example.invalid/synthetic-instructions"] }))
-    await Bun.write(join(repo, "README.md"), "synthetic dispatch fixture\n")
-    await git(repo, "init", "--quiet", "--initial-branch=main")
-    await git(repo, "config", "user.email", "test@example.invalid")
-    await git(repo, "config", "user.name", "Synthetic Test")
-    await git(repo, "add", ".")
-    await git(repo, "commit", "--quiet", "-m", "fixture")
-    await git(repo, "remote", "add", "origin", "https://example.invalid/synthetic.git")
-    await git(repo, "update-ref", "refs/remotes/origin/main", "HEAD")
-    await git(repo, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main")
-
-    await runJSON(binary, dbPath, "product-create", {
-      product_id: PRODUCT_ID,
-      display_name: "Synthetic Product",
-      stage_maturity: "prototype",
-      stage_audience_commitment: "operator_only",
-      project_id: PROJECT_ID,
-      project_display_name: "Synthetic Project",
-      role: "primary",
-    })
-    await runJSON(binary, dbPath, "project-locator-add", { project_id: PROJECT_ID, locator_id: "repo", kind: "canonical_path", value: repo, expected_version: 1 })
-    await runJSON(binary, dbPath, "product-knowledge-home-designate", { product_id: PRODUCT_ID, project_id: PROJECT_ID, locator_id: "repo", expected_version: 2 })
-    const bootstrap = await runJSON(binary, dbPath, "work-bootstrap", {
-      product_id: PRODUCT_ID,
-      project_id: PROJECT_ID,
-      title: "Synthetic dispatch route",
-      value_statement: "The route completes a real worker attempt.",
-      kind: "bug",
-      task: "Exercise the dispatch route.",
-      idempotency_key: "dispatch-route-e2e",
-      priority: 1,
-      urgency: "standard",
-      tags: [],
-      workflow_type_ref: "",
-      external_ref: "issue-840",
-      governing_requirements: [],
-      ref: "HEAD",
-    }, repo)
-    const workID = bootstrap.work_id as string
-    const worktree = bootstrap.worktree.path as string
-    await runJSON(binary, dbPath, "client-register", {
-      client_ref: CLIENT_REF,
-      key_id: "dispatch-e2e-key",
-      principal_ref: "operator-1",
-      public_key: publicKeyBase64(),
-      capabilities: ["product_read", "work_define", "work_transition", "work_relate", "work_compact", "worker_evidence", "worker_dispatch"],
-      product_scope: [PRODUCT_ID],
-      project_scope: [PROJECT_ID],
-      agent_scope: ["concord-implement", "concord-review"],
-    })
-
+    const { binary, repo, dbPath, configPath, workID, worktree, lane } = await bootRouteFixture(root)
     process.env.OPENCODE_CONFIG = configPath
     const context = contextFor(worktree)
     let sessionMetadata: Record<string, unknown> = {}
@@ -296,37 +379,9 @@ routeDeclaration("dispatches a real store route through Task completion and work
     }
     const transition = (version: number, actionID: string, idempotencyKey: string, fields: Record<string, unknown>) => invoke("concord_work_transition", { operation: "workflow_action", input: { work_id: workID, expected_version: version, action_id: actionID, idempotency_key: idempotencyKey, fields } }, context)
 
-    let response = await transition(5, "record_reproduction", "e2e-reproduction", {})
-    expect(response.outcome).toBe("ok")
-    response = await transition(7, "record_alignment", "e2e-alignment", { searched: "Searched the backlog for duplicate defect work.", outcome: "none_found" })
-    expect(response.outcome).toBe("ok")
-    response = await transition(9, "record_root_cause", "e2e-root-cause", {})
-    expect(response.outcome).toBe("ok")
-    const domainList = await invoke("concord_domain", { operation: "list", input: { product_id: PRODUCT_ID, page: { cursor: null, limit: 10 } } }, context)
-    expect(domainList.outcome).toBe("ok")
-    const registry = domainList.result as JSONRecord
-    const registryHash = (registry.registry as JSONRecord).content_hash as string
-    response = await transition(10, "approve_contract", "e2e-approve-contract", {
-      premise: APPROVED_OBJECTIVE,
-      outcome_predicates: [WORKFLOW_PREDICATE],
-      required_evidence: [],
-      route_conventions: [],
-      spec_mandate: [],
-      law_modifies: [],
-      architecture_binding: {
-        domain_registry_content_hash: registryHash,
-        home_domain_id: `product-root:${PRODUCT_ID}`,
-        affected_domain_ids: [`product-root:${PRODUCT_ID}`],
-        domain_modifies: [],
-        domain_relation_modifies: [],
-        law_additions: [],
-        verification_obligations: [],
-      },
-    })
-    expect(response.outcome).toBe("ok")
-    const stepRead = (await invoke("concord_work_trace", { operation: "continuity", input: { work_id: workID, page: { cursor: null, limit: 1 } } }, context)).result as JSONRecord
-    expect((stepRead.pinned as JSONRecord).workflow_step).toBe("repair")
+    await driveWorkflowToContract(workID, invoke, context)
 
+    let response: JSONRecord
     const routed = laneDispatchRequest({ operation: "workflow_action", input: { work_id: workID, expected_version: 12, action_id: "dispatch_worker", idempotency_key: "e2e-dispatch", fields: { lane_id: "implement" } } })
     expect(routed).toEqual({ work_id: workID, expected_version: 12, idempotency_key: "e2e-dispatch", lane_id: "implement" })
     const windows = new DispatchWindows()
@@ -444,6 +499,177 @@ routeDeclaration("dispatches a real store route through Task completion and work
       expect(call.input.call_envelope.directory).toBe(worktree)
       expect(call.input.call_envelope.worktree).toBe(worktree)
     }
+  } finally {
+    configureConcordAdapter({ reset: true })
+    hostControlPlane().bind(undefined)
+    if (previousConfig === undefined) delete process.env.OPENCODE_CONFIG
+    else process.env.OPENCODE_CONFIG = previousConfig
+    await rm(root, { recursive: true, force: true })
+  }
+}, 120_000)
+
+// The oversized-session completion is verified against the real core and
+// store: a transcript past the fixed 8 MiB export bound the readback once
+// crossed must complete through the bounded message pages, and the evidence
+// verbs must land on the real CLI and its worker_attempts row.
+routeDeclaration("records an oversized worker session through the real CLI and store", async () => {
+  const root = await mkdtemp(join(tmpdir(), "concord-dispatch-oversized-"))
+  const previousConfig = process.env.OPENCODE_CONFIG
+  try {
+    const { binary, dbPath, configPath, workID, worktree, lane } = await bootRouteFixture(root)
+    process.env.OPENCODE_CONFIG = configPath
+    const context = contextFor(worktree)
+    let boundPacket: JSONRecord | null = null
+    const BULK_TEXT_BYTES = 14_000_000
+    let sessionMetadata: Record<string, unknown> = {}
+    hostControlPlane().bind({
+      get: async ({ url, path }) => {
+        if (url === SESSION_MESSAGES_ROUTE) {
+          const parsed = JSON.parse(exportedSession(boundPacket, BULK_TEXT_BYTES)) as { messages: unknown[] }
+          return { data: parsed.messages, response: new Response("[]", { status: 200 }) }
+        }
+        expect(url).toBe(SESSION_ROUTE)
+        const id = path?.id
+        expect(id === SESSION_ID || id === "worker-session").toBe(true)
+        return { data: { id, directory: worktree, metadata: id === SESSION_ID ? sessionMetadata : {}, ...(id === "worker-session" ? { parentID: SESSION_ID } : {}) }, response: new Response(null, { status: 200 }) }
+      },
+      patch: async ({ url, path, body }) => {
+        expect(url).toBe(SESSION_ROUTE)
+        expect(path).toEqual({ id: SESSION_ID })
+        expect(body).toEqual({ metadata: { [MANAGED_TASK_SCOPE_KEY]: "managed" } })
+        sessionMetadata = { [MANAGED_TASK_SCOPE_KEY]: "managed" }
+        return { response: new Response(null, { status: 200 }) }
+      },
+      post: async () => { throw new Error("dispatch scope must not change host permissions or directory") },
+    })
+    const realCalls: Array<{ argv: string[]; input: JSONRecord }> = []
+    const realRunner = realStoreRunner(binary, dbPath, realCalls, worktree)
+    configureConcordAdapter({ runner: realRunner })
+
+    const invoke = (toolName: string, args: { operation: string; input: Record<string, unknown> }, callContext: any, sessionDirectory?: string) =>
+      invokeConcordOperation(toolName, args as any, callContext, sessionDirectory)
+    await driveWorkflowToContract(workID, invoke, context)
+    const routed = laneDispatchRequest({ operation: "workflow_action", input: { work_id: workID, expected_version: 12, action_id: "dispatch_worker", idempotency_key: "e2e-oversized-dispatch", fields: { lane_id: "implement" } } })
+    const windows = new DispatchWindows()
+    const dispatchResult = await dispatchLaneWorker(routed as any, {
+      context, invoke,
+      credentials: { async getPrivateKey() { return PRIVATE_SEED } } satisfies CredentialStore,
+      windows,
+    })
+    expect(dispatchResult.outcome).toBe("ok")
+    const taskArgs: Record<string, unknown> = { subagent_type: "general", prompt: "model input", description: "model task" }
+    await windows.bind(TASK_TOOL_ID, SESSION_ID, taskArgs, undefined, async () => worktree)
+    const packet = JSON.parse(taskArgs.prompt as string) as JSONRecord
+    boundPacket = packet
+    // The transcript the readback walks crosses the fixed 8 MiB export bound
+    // that born the failure under repair.
+    expect(Buffer.byteLength(exportedSession(packet, BULK_TEXT_BYTES))).toBeGreaterThan(8_388_608)
+    const report = {
+      schema_version: "1.0",
+      readback_model: READBACK_MODEL,
+      status: "completed",
+      evidence: lane.evidence_obligations.map((obligation) => ({ obligation, detail: `discharged ${obligation}` })),
+    }
+    const completionOutput = { title: "task", output: taskResult(report), metadata: {} }
+    await completeDispatchedWorker({ tool: TASK_TOOL_ID, sessionID: SESSION_ID, callID: "e2e-oversized-call", args: taskArgs }, completionOutput, { windows, credentials: { async getPrivateKey() { return PRIVATE_SEED } }, runner: realRunner, concordBinary: binary })
+    expect(completionOutput.output).toContain('"outcome":"ok"')
+    const attempt = dbValue(dbPath, `SELECT lifecycle_state,readback_model FROM worker_attempts WHERE attempt_id='${packet.attempt_id}'`)
+    expect(attempt.lifecycle_state).toBe("completed")
+    expect(attempt.readback_model).toBe(READBACK_MODEL)
+    const verbs = realCalls.filter((call) => call.argv[1] === "worker-dispatch" || call.argv[1] === "worker-complete").map((call) => call.argv[1])
+    expect(verbs).toEqual(["worker-dispatch", "worker-complete"])
+  } finally {
+    configureConcordAdapter({ reset: true })
+    hostControlPlane().bind(undefined)
+    if (previousConfig === undefined) delete process.env.OPENCODE_CONFIG
+    else process.env.OPENCODE_CONFIG = previousConfig
+    await rm(root, { recursive: true, force: true })
+  }
+}, 120_000)
+
+// The born-failed recording is verified against the real core and store: a
+// refused session read must leave one durable failed attempt row written by
+// the real CLI, with the refusal diagnosable from the store alone — the exact
+// surface that once answered 'worker evidence assertion timestamp invalid'
+// and left no attempt row.
+routeDeclaration("records a refused readback as a durable failed attempt through the real CLI and store", async () => {
+  const root = await mkdtemp(join(tmpdir(), "concord-dispatch-refused-"))
+  const previousConfig = process.env.OPENCODE_CONFIG
+  try {
+    const { binary, dbPath, configPath, workID, worktree, lane } = await bootRouteFixture(root)
+    process.env.OPENCODE_CONFIG = configPath
+    const context = contextFor(worktree)
+    // The host session read fails only at completion time: the dispatch flow
+    // reads the same session routes, and the refusal under test is the
+    // readback, not the dispatch.
+    let refuseWorkerSessionRead = false
+    let sessionMetadata: Record<string, unknown> = {}
+    hostControlPlane().bind({
+      get: async ({ url, path }) => {
+        expect(url).toBe(SESSION_ROUTE)
+        const id = path?.id
+        if (id === "worker-session" && refuseWorkerSessionRead) {
+          return { data: { id }, response: new Response("session read unavailable", { status: 500 }) }
+        }
+        expect(id === SESSION_ID || id === "worker-session").toBe(true)
+        return { data: { id, directory: worktree, metadata: id === SESSION_ID ? sessionMetadata : {}, ...(id === "worker-session" ? { parentID: SESSION_ID } : {}) }, response: new Response(null, { status: 200 }) }
+      },
+      patch: async ({ url, path, body }) => {
+        expect(url).toBe(SESSION_ROUTE)
+        expect(path).toEqual({ id: SESSION_ID })
+        expect(body).toEqual({ metadata: { [MANAGED_TASK_SCOPE_KEY]: "managed" } })
+        sessionMetadata = { [MANAGED_TASK_SCOPE_KEY]: "managed" }
+        return { response: new Response(null, { status: 200 }) }
+      },
+      post: async () => { throw new Error("dispatch scope must not change host permissions or directory") },
+    })
+    const realCalls: Array<{ argv: string[]; input: JSONRecord }> = []
+    const realRunner = realStoreRunner(binary, dbPath, realCalls, worktree)
+    configureConcordAdapter({ runner: realRunner })
+
+    const invoke = (toolName: string, args: { operation: string; input: Record<string, unknown> }, callContext: any, sessionDirectory?: string) =>
+      invokeConcordOperation(toolName, args as any, callContext, sessionDirectory)
+    await driveWorkflowToContract(workID, invoke, context)
+    const routed = laneDispatchRequest({ operation: "workflow_action", input: { work_id: workID, expected_version: 12, action_id: "dispatch_worker", idempotency_key: "e2e-refused-dispatch", fields: { lane_id: "implement" } } })
+    const windows = new DispatchWindows()
+    const dispatchResult = await dispatchLaneWorker(routed as any, {
+      context, invoke,
+      credentials: { async getPrivateKey() { return PRIVATE_SEED } } satisfies CredentialStore,
+      windows,
+    })
+    expect(dispatchResult.outcome).toBe("ok")
+    const taskArgs: Record<string, unknown> = { subagent_type: "general", prompt: "model input", description: "model task" }
+    await windows.bind(TASK_TOOL_ID, SESSION_ID, taskArgs, undefined, async () => worktree)
+    const packet = JSON.parse(taskArgs.prompt as string) as JSONRecord
+    refuseWorkerSessionRead = true
+    const report = {
+      schema_version: "1.0",
+      readback_model: READBACK_MODEL,
+      status: "completed",
+      evidence: lane.evidence_obligations.map((obligation) => ({ obligation, detail: `discharged ${obligation}` })),
+    }
+    const completionOutput = { title: "task", output: taskResult(report), metadata: {} }
+    await completeDispatchedWorker({ tool: TASK_TOOL_ID, sessionID: SESSION_ID, callID: "e2e-refused-call", args: taskArgs }, completionOutput, { windows, credentials: { async getPrivateKey() { return PRIVATE_SEED } }, runner: realRunner, concordBinary: binary })
+    expect(completionOutput.output).toContain('"outcome":"error"')
+    expect(completionOutput.output).toContain("readback_refusal")
+    // The born-failed dispatch write durably records the attempt as failed:
+    // an attempt row exists, its failure is typed, and the refusal detail is
+    // readable from the store alone.
+    const attempt = dbValue(dbPath, `SELECT lifecycle_state,failure_kind,readback_model,failure_detail FROM worker_attempts WHERE attempt_id='${packet.attempt_id}'`)
+    expect(attempt.lifecycle_state).toBe("failed")
+    expect(attempt.failure_kind).toBe("model_readback_missing")
+    expect(attempt.readback_model).toBe("")
+    expect(attempt.failure_detail).toContain("readback predicate session_read refused")
+    // Only the born-failed dispatch write happened; no terminal completion
+    // evidence was signed or written.
+    const verbs = realCalls.filter((call) => call.argv[1] === "worker-dispatch" || call.argv[1] === "worker-complete" || call.argv[1] === "worker-fail").map((call) => call.argv[1])
+    expect(verbs).toEqual(["worker-dispatch"])
+    const bornFailed = realCalls.find((call) => call.argv[1] === "worker-dispatch")?.input
+    expect(bornFailed?.terminal).toBe("failed")
+    expect(bornFailed?.terminal_failure_kind).toBe("model_readback_missing")
+    const assertion = (bornFailed?.assertion ?? {}) as JSONRecord
+    expect(assertion.readback_model).toBe("")
+    expect(typeof assertion.signature).toBe("string")
   } finally {
     configureConcordAdapter({ reset: true })
     hostControlPlane().bind(undefined)

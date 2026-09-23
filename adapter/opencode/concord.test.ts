@@ -1373,8 +1373,10 @@ test("work start arms the claimed worktree after the confirmed landing", async (
 })
 
 // A refused move never landed, so nothing may be armed: the dispatch check
-// must stay exactly as it was for this session.
-test("work start arms nothing when the landing mismatch refuses", async () => {
+// must stay exactly as it was for this session. Issue #1322: the refusal still
+// records the pending target, so the dispatch gate fails closed for the
+// retarget instead of staying open on a prior claim.
+test("work start arms nothing and records the pending target when the landing mismatch refuses", async () => {
   try {
     bindRetargetRoute({ landedDirectory: "/elsewhere" })
     const calls: RetargetCall[] = []
@@ -1383,6 +1385,7 @@ test("work start arms nothing when the landing mismatch refuses", async () => {
     expect(result.outcome).toBe("error")
     expect(result.error.kind).toBe("session_directory_mismatch")
     expect(armedClaimedWorktree("session-1")).toBeNull()
+    expect(unlandedClaimedWorktree("session-1")).toBe(WORKTREE)
   } finally {
     clearClaimedWorktree("session-1")
   }

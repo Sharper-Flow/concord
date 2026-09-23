@@ -22,15 +22,17 @@ const unlandedClaims = new Map<string, string>()
 // recordUnlandedClaimedWorktree records the claimed worktree of a work_start
 // move that refused as metadata-only, whose tool context has not landed.
 // A later confirmed landing for the same session replaces the record.
+//
+// The map carries no cap eviction. An unlanded record is the fail-closed
+// state of a refused move, and its only exits are a confirmed landing
+// (armClaimedWorktree), vacate (clearClaimedWorktree), or a host process
+// restart. Evicting one by cap would forget an unresolved move and let
+// dispatch authorize on lost in-memory state, so the map is lifecycle-bounded
+// instead: one entry per session with a refused move outstanding.
 export function recordUnlandedClaimedWorktree(sessionID: string, directory: string): void {
   if (!sessionID || !directory) return
   unlandedClaims.delete(sessionID)
   unlandedClaims.set(sessionID, directory)
-  while (unlandedClaims.size > MAX_ARMED_CLAIMS) {
-    const oldest = unlandedClaims.keys().next()
-    if (oldest.done) break
-    unlandedClaims.delete(oldest.value)
-  }
 }
 
 // unlandedClaimedWorktree answers the recorded unlanded directory for one

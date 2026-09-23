@@ -10,12 +10,21 @@ import (
 )
 
 func validateWorkerDispatchWorktree(ctx context.Context, q queryer, workID, sessionWorktree string) error {
+	_, err := activeWorkerClaimedWorktree(ctx, q, workID, sessionWorktree)
+	return err
+}
+
+// activeWorkerClaimedWorktree answers the canonical path of the durable active
+// claim the host session worktree matches. The store owns that answer, so an
+// authorized dispatch can name the claim its authorization rested on and a
+// caller can compare against it after any host process restart.
+func activeWorkerClaimedWorktree(ctx context.Context, q queryer, workID, sessionWorktree string) (string, error) {
 	if workID == "" || sessionWorktree == "" {
-		return newFailure(KindUnauthorizedDispatch, "worker_dispatch", "worker dispatch requires a work item and host session worktree", false, "refresh the host session boundary")
+		return "", newFailure(KindUnauthorizedDispatch, "worker_dispatch", "worker dispatch requires a work item and host session worktree", false, "refresh the host session boundary")
 	}
 	entries, err := worktreeEntriesCore(ctx, q, workID)
 	if err != nil {
-		return err
+		return "", err
 	}
 	active := make([]string, 0, len(entries))
 	for _, entry := range entries {
@@ -24,23 +33,23 @@ func validateWorkerDispatchWorktree(ctx context.Context, q queryer, workID, sess
 		}
 		canonical, canonicalErr := canonicalWorkerWorktreePath(entry.Path)
 		if canonicalErr != nil {
-			return newFailure(KindUnavailable, "worker_dispatch", "active worktree identity cannot be resolved", true, "verify the active worktree claim")
+			return "", newFailure(KindUnavailable, "worker_dispatch", "active worktree identity cannot be resolved", true, "verify the active worktree claim")
 		}
 		active = append(active, canonical)
 	}
 	if len(active) == 0 {
-		return newFailure(KindUnauthorizedDispatch, "worker_dispatch", "worker dispatch requires an active worktree claim", false, "claim the work item's worktree before dispatch")
+		return "", newFailure(KindUnauthorizedDispatch, "worker_dispatch", "worker dispatch requires an active worktree claim", false, "claim the work item's worktree before dispatch")
 	}
 	session, err := canonicalWorkerWorktreePath(sessionWorktree)
 	if err != nil {
-		return newFailure(KindUnauthorizedDispatch, "worker_dispatch", "host session worktree identity cannot be resolved", false, "refresh the host session boundary")
+		return "", newFailure(KindUnauthorizedDispatch, "worker_dispatch", "host session worktree identity cannot be resolved", false, "refresh the host session boundary")
 	}
 	for _, expected := range active {
 		if expected == session {
-			return nil
+			return expected, nil
 		}
 	}
-	return workerWorktreeMismatchFailure(active, workerWorktreeIdentity(session))
+	return "", workerWorktreeMismatchFailure(active, workerWorktreeIdentity(session))
 }
 
 func validateWorkerDispatchWorktreeIdentity(ctx context.Context, q queryer, workID, expectedIdentity string) error {

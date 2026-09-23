@@ -110,10 +110,18 @@ describe("same-turn session move boundary", () => {
     bindMoveRoutes("/claimed", { moveStatus: 409 })
     expect((await moveSessionToClaimedWorktree(claimArgs(), context(), successfulClaimEnvelope())).outcome).toBe("error")
     await expectQuestionAllowed()
+    // The move itself was refused, so no move is outstanding and nothing is
+    // pending.
+    expect(unlandedClaimedWorktree(sessionID)).toBeNull()
 
+    // Issue #1322: the host accepted the move but answers a different
+    // directory, so the claim's move has not landed. The refusal records the
+    // pending target, and the dispatch gate stays closed for this session
+    // until a confirmed landing.
     bindMoveRoutes("/claimed", { landed: "/other" })
-    expect((await moveSessionToClaimedWorktree(claimArgs(), context(), successfulClaimEnvelope())).outcome).toBe("error")
+    expect((await moveSessionToClaimedWorktree(claimArgs(), context(), successfulClaimEnvelope("/claimed"))).outcome).toBe("error")
     await expectQuestionAllowed()
+    expect(unlandedClaimedWorktree(sessionID)).toBe("/claimed")
   })
 
   test("arms after a successful cross-directory session vacate", async () => {
@@ -325,6 +333,7 @@ describe("same-turn session move boundary", () => {
         windows,
         workerDirectory: claimed,
         resolveWorkerDirectory: async () => claimed,
+        contextDirectory: claimed,
       })
       expect(nextTurn.outcome).toBe("ok")
       expect(authorizeCalls).toBe(1)

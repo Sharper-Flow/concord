@@ -952,14 +952,19 @@ async function executeWorkStart(args: WorkStartArgs, context: ToolContext, warni
     }
     // CD-0098 D3. The destination is read back from the host, not assumed from
     // the request that asked for it, and success is refused unless the session
-    // now runs in the claimed worktree.
+    // now runs in the claimed worktree. Every refusal past the accepted move
+    // records the pending target first: the move was accepted but never proved
+    // to have landed, so the dispatch gate stays closed for this session until
+    // a confirmed landing, a vacate, or the durable gate takes over.
     let landed: string
     try {
       landed = await hostControlPlane().sessionDirectory(context.sessionID, context.abort)
     } catch (error) {
+      recordUnlandedClaimedWorktree(context.sessionID, target.worktree.path)
       throw new AdapterFailure("malformed_response", "session_directory_unreadable", error instanceof Error ? error.message : String(error), "none", "retry_same_request")
     }
     if (!samePath(landed, target.worktree.path)) {
+      recordUnlandedClaimedWorktree(context.sessionID, target.worktree.path)
       throw new AdapterFailure("session_directory_mismatch", "move_destination_mismatch", `the session moved to ${JSON.stringify(landed)} rather than the claimed worktree ${JSON.stringify(target.worktree.path)}`, "none", "retry_same_request")
     }
     // Issue #1322: a host that accepted the retarget can keep running this
@@ -1228,14 +1233,20 @@ export async function moveSessionToClaimedWorktree(args: HostToolArgs, context: 
     const message = error instanceof Error ? error.message : String(error)
     return adapterError("concord_work_transition", "worktree_claim", requestID, "transport_failure", "claim_move_refused", `${message}; the claim is durable, replay worktree_claim to retry the move`, "none", "retry_same_request")
   }
+  // The move was accepted but the landing cannot be proved, so every refusal
+  // past the move records the pending target: dispatch stays closed for this
+  // session until a confirmed landing, a vacate, or the durable gate takes
+  // over (issue #1322).
   let landed: string
   try {
     landed = await hostControlPlane().sessionDirectory(context.sessionID, context.abort)
   } catch (error) {
+    recordUnlandedClaimedWorktree(context.sessionID, path)
     const message = error instanceof Error ? error.message : String(error)
     return adapterError("concord_work_transition", "worktree_claim", requestID, "malformed_response", "claim_move_destination_unreadable", message, "none", "retry_same_request")
   }
   if (!samePath(landed, path)) {
+    recordUnlandedClaimedWorktree(context.sessionID, path)
     return adapterError("concord_work_transition", "worktree_claim", requestID, "session_directory_mismatch", "claim_move_destination_mismatch", `the claim recorded ${JSON.stringify(path)} but the session runs in ${JSON.stringify(landed)}`, "none", "retry_same_request")
   }
   // The landing is confirmed, so this session's active claimed worktree is

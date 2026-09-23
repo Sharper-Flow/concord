@@ -1290,7 +1290,25 @@ function sitsUnder(child: string, prefix: string): boolean {
   return !relative.startsWith(`..${path.sep}`) && relative !== ".." && !path.isAbsolute(relative)
 }
 
-export async function dispatchWorker(packet: unknown, options: { signal?: AbortSignal; runner?: DispatchRunner; readbackRunner?: DispatchRunner; evidenceRunner?: DispatchRunner; binary?: string; concordBinary?: string; credentials?: CredentialStore; authorize?: DispatchAuthorizer; packetDigest?: string; sessionID?: string; windows?: DispatchWindows; workPins?: unknown[]; workerDirectory?: string; pinnedWorkerDirectory?: string; resolveWorkerDirectory?: () => Promise<string>; contextDirectory?: string } = {}): Promise<AgentResultEnvelope> {
+// contextPreflightRefusal is the pre-effect tool-context gate shared by the
+// lane dispatch path and the dispatchWorker authorize seam (issue #1322). The
+// dispatch_worker action persists an authorized attempt in the core, so a
+// calling tool context outside the host session directory — the state where
+// the session's tool context has not landed where the host resolved the
+// session — refuses before that call. The post-authorization claim gates,
+// including the durable claimed-worktree gate, stay as defense in depth.
+// Returns the refusal envelope, or null when the context resolves inside the
+// host session directory.
+export function contextPreflightRefusal(lane: AgentLane | null, packet: Partial<AgentLanePacket>, sessionDirectory: unknown, contextDirectory: unknown): AgentResultEnvelope | null {
+  if (contextDirectory === undefined) {
+    return errorEnvelope(lane, packet, "error", "unauthorized_dispatch", "the calling tool context directory was not supplied; dispatch cannot prove that the session runs in the claimed worktree", "reconcile_operation")
+  }
+  const mismatch = dispatchDirectoryMismatch(sessionDirectory, contextDirectory)
+  if (mismatch === null) return null
+  return errorEnvelope(lane, packet, "error", "unauthorized_dispatch", `the calling tool context runs in ${JSON.stringify(contextDirectory)} but the host session directory is ${JSON.stringify(sessionDirectory)} (${mismatch}); replay work_start or worktree_claim to land the session's tool context in the claimed worktree, then dispatch again`, "reconcile_operation")
+}
+
+export async function dispatchWorker(packet: unknown, options: { signal?: AbortSignal; runner?: DispatchRunner; readbackRunner?: DispatchRunner; evidenceRunner?: DispatchRunner; binary?: string; concordBinary?: string; credentials?: CredentialStore; authorize?: DispatchAuthorizer; packetDigest?: string; sessionID?: string; windows?: DispatchWindows; workPins?: unknown[]; workerDirectory?: string; pinnedWorkerDirectory?: string; authorizedWorktree?: string; resolveWorkerDirectory?: () => Promise<string>; contextDirectory?: string } = {}): Promise<AgentResultEnvelope> {
   if (!validateAgentLanePacket(packet)) return errorEnvelope(null, isRecord(packet) ? packet as Partial<AgentLanePacket> : {}, "error", "invalid_input", "agent lane packet failed the closed packet schema", "retry_same_request")
   const lane = laneForPacket(packet)
   if (!lane) return errorEnvelope(null, packet, "error", "invalid_input", "lane identity or digest is not registered", "retry_same_request")
@@ -1303,6 +1321,30 @@ export async function dispatchWorker(packet: unknown, options: { signal?: AbortS
   const canonicalWorkerDirectory = canonicalDirectory(options.pinnedWorkerDirectory ?? workerDirectory)
   if (canonicalWorkerDirectory === null) {
     return errorEnvelope(lane, packet as Partial<AgentLanePacket>, "error", "invalid_input", "dispatch requires a non-empty, resolvable worker directory before authorization", "reconcile_operation")
+  }
+  // Issue #1322, the pre-effect preflight: the dispatch_worker action persists
+  // an authorized attempt in the core, so every check the host can answer must
+  // refuse before that call. The host session directory is read once here and
+  // reused by the post-authorization claim gates below; the durable
+  // claimed-worktree gate stays after authorization as defense in depth.
+  let liveWorkerDirectory: string | undefined
+  if (options.resolveWorkerDirectory) {
+    try {
+      liveWorkerDirectory = await options.resolveWorkerDirectory()
+    } catch {
+      return errorEnvelope(lane, packet as Partial<AgentLanePacket>, "error", "transport_failure", "dispatch could not re-read the host session directory before opening its authorization window", "reconcile_operation")
+    }
+    const mismatch = dispatchDirectoryMismatch(canonicalWorkerDirectory, liveWorkerDirectory)
+    if (mismatch) {
+      return errorEnvelope(lane, packet as Partial<AgentLanePacket>, "error", "unauthorized_dispatch", mismatch, "reconcile_operation")
+    }
+    // The calling tool context is where this dispatch executes. When it sits
+    // outside the host session directory, the session's tool context has not
+    // landed where the host resolved the session, so the window this dispatch
+    // would arm cannot be reached from here. The refusal fires before the core
+    // authorization: a mismatched context persists no authorized attempt.
+    const contextRefusal = contextPreflightRefusal(lane, packet as Partial<AgentLanePacket>, liveWorkerDirectory, options.contextDirectory)
+    if (contextRefusal) return contextRefusal
   }
 
   // CD-0059 D1: authorize before the worker starts, unconditionally. The dispatch_worker
@@ -1345,18 +1387,6 @@ export async function dispatchWorker(packet: unknown, options: { signal?: AbortS
   if (!sessionID) {
     return errorEnvelope(lane, packet as Partial<AgentLanePacket>, "error", "invalid_input", "dispatch requires the calling session identifier to open an authorization window", "contact_operator")
   }
-  let liveWorkerDirectory: string | undefined
-  if (options.resolveWorkerDirectory) {
-    try {
-      liveWorkerDirectory = await options.resolveWorkerDirectory()
-    } catch {
-      return errorEnvelope(lane, packet as Partial<AgentLanePacket>, "error", "transport_failure", "dispatch could not re-read the host session directory before opening its authorization window", "reconcile_operation")
-    }
-    const mismatch = dispatchDirectoryMismatch(canonicalWorkerDirectory, liveWorkerDirectory)
-    if (mismatch) {
-      return errorEnvelope(lane, packet as Partial<AgentLanePacket>, "error", "unauthorized_dispatch", mismatch, "reconcile_operation")
-    }
-  }
   // The host-answer guards above compare host answers with each other, so a
   // session directory that regressed after its move converged answers stale on
   // both reads and passes both. The armed claim is the adapter's own record of
@@ -1397,18 +1427,34 @@ export async function dispatchWorker(packet: unknown, options: { signal?: AbortS
     }
   }
   // Issue #1322, the refused-start state: a metadata-only work_start refused
-  // before arming, so no armed-claim guard runs for this session. The unlanded
-  // record is the adapter's own memory of that refused move, and the gate
-  // fails closed: dispatch waits until the calling tool context resolves
-  // inside the recorded claimed worktree, and without a context answer the
-  // landing cannot be proved at all. A replay that lands the context arms the
-  // claim and removes this record.
-  const unlandedClaim = armedClaim === null ? unlandedClaimedWorktree(sessionID) : null
+  // before arming. The unlanded record is the adapter's own memory of that
+  // refused move, and the newest unlanded move takes precedence over any
+  // prior armed claim: while it stands the session is retargeting, so an
+  // earlier claim whose directory the host answers and the tool context agree
+  // on is stale and must not open a window around it. The gate fails closed:
+  // dispatch waits until the calling tool context resolves inside the
+  // recorded claimed worktree, and without a context answer the landing
+  // cannot be proved at all. A replay that lands the context arms the claim
+  // and removes this record.
+  const unlandedClaim = unlandedClaimedWorktree(sessionID)
   if (unlandedClaim !== null) {
     const contextUnresolved = options.contextDirectory === undefined ? "the calling tool context directory was not supplied" : dispatchDirectoryMismatch(unlandedClaim, options.contextDirectory)
     if (contextUnresolved) {
       const contextRuns = options.contextDirectory === undefined ? "" : ` the calling tool context runs in ${JSON.stringify(options.contextDirectory)};`
       return errorEnvelope(lane, packet as Partial<AgentLanePacket>, "error", "unauthorized_dispatch", `the session has a claimed worktree ${JSON.stringify(unlandedClaim)} whose move has not landed (${contextUnresolved});${contextRuns} replay work_start once the session's tool context runs in the claimed worktree, then dispatch again`, "reconcile_operation")
+    }
+  }
+  // Issue #1322, the durable gate: the core names the claimed worktree its
+  // authorization rested on, and that answer is store-owned, so it survives a
+  // host process restart that empties the adapter's in-memory claim records.
+  // The calling tool context must resolve inside it before the window opens,
+  // and without a context answer the landing cannot be proved at all. A
+  // replay that lands the context satisfies every gate here.
+  if (options.authorizedWorktree !== undefined) {
+    const durableUnresolved = options.contextDirectory === undefined ? "the calling tool context directory was not supplied" : dispatchDirectoryMismatch(options.authorizedWorktree, options.contextDirectory)
+    if (durableUnresolved) {
+      const contextRuns = options.contextDirectory === undefined ? "" : ` the calling tool context runs in ${JSON.stringify(options.contextDirectory)};`
+      return errorEnvelope(lane, packet as Partial<AgentLanePacket>, "error", "unauthorized_dispatch", `the dispatch is authorized for the claimed worktree ${JSON.stringify(options.authorizedWorktree)} whose tool context has not landed (${durableUnresolved});${contextRuns} replay work_start or worktree_claim once the session's tool context runs in the claimed worktree, then dispatch again`, "reconcile_operation")
     }
   }
   const windows = options.windows ?? dispatchWindows()

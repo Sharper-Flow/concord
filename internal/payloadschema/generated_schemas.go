@@ -2538,6 +2538,9 @@ const GeneratedPayloadSchemaDocument = `{
           "minLength": 71,
           "pattern": "^sha256:[0-9a-f]{64}$",
           "type": "string"
+        },
+        "worker_worktree": {
+          "$ref": "#/$defs/absolute_path"
         }
       },
       "required": [

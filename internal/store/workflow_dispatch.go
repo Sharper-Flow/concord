@@ -228,15 +228,18 @@ func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, scope *foldScope,
 	if err != nil {
 		return result, err
 	}
+	var workerClaimedWorktree string
 	if request.ActionID == "dispatch_worker" {
-		if err := validateWorkerDispatchWorktree(ctx, tx, request.WorkID, request.SessionWorktree); err != nil {
-			return result, err
+		claimed, claimErr := activeWorkerClaimedWorktree(ctx, tx, request.WorkID, request.SessionWorktree)
+		if claimErr != nil {
+			return result, claimErr
 		}
 		canonical, canonicalErr := canonicalWorkerWorktreePath(request.SessionWorktree)
 		if canonicalErr != nil {
 			return result, newFailure(KindUnauthorizedDispatch, "worker_dispatch", "host session worktree identity cannot be resolved", false, "refresh the host session boundary")
 		}
 		request.SessionWorktreeIdentity = workerWorktreeIdentity(canonical)
+		workerClaimedWorktree = claimed
 	}
 	var currentStep, state string
 	var version int64
@@ -431,6 +434,13 @@ func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, scope *foldScope,
 	// schema drift.
 	if workerPacketDigest != "" {
 		resultMap["worker_packet_digest"] = workerPacketDigest
+	}
+	// Issue #1322: the authorized dispatch names the durable claimed worktree
+	// its authorization rested on, so the adapter can gate the calling tool
+	// context against a store-owned answer that survives a host process
+	// restart rather than against adapter memory alone.
+	if workerClaimedWorktree != "" {
+		resultMap["worker_worktree"] = workerClaimedWorktree
 	}
 	result.Result, _ = json.Marshal(resultMap)
 	durableChangedRef, _ := json.Marshal(changedRef)

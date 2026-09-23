@@ -19,7 +19,7 @@ import type { ToolContext } from "@opencode-ai/plugin"
 import type { ConcordInvoke } from "./packet"
 import type { CredentialStore } from "./credentials"
 import { canonicalDirectory, type DispatchWindows } from "./dispatch-window"
-import { dispatchWorker, errorEnvelopeForLane, type AgentLanePacket, type AgentResultEnvelope, type DispatchRunner } from "./dispatch"
+import { dispatchWorker, errorEnvelopeForLane, contextPreflightRefusal, type AgentLanePacket, type AgentResultEnvelope, type DispatchRunner } from "./dispatch"
 import { agentLanes, type AgentLane } from "./generated-agent-lanes"
 import { buildAgentLanePacket, type AgentLanePacketFailureKind } from "./packet"
 import { hostControlPlane } from "./move-session"
@@ -153,6 +153,15 @@ export async function dispatchLaneWorker(input: LaneDispatchInput, deps: LaneDis
     return errorEnvelopeForLane(laneForId(packet.lane_id), packet, "error", "transport_failure", "host session directory identity cannot be resolved", "reconcile_operation")
   }
 
+  // Issue #1322, the pre-effect gate: contextDirectory is where this dispatch
+  // executes. The dispatch_worker action below persists an authorized attempt
+  // in the core, so a calling tool context outside the host session directory
+  // refuses here, before the core is asked; the durable claimed-worktree gate
+  // after authorization stays as defense in depth.
+  const contextDirectory = typeof deps.context.directory === "string" ? deps.context.directory : undefined
+  const contextRefusal = contextPreflightRefusal(laneForId(packet.lane_id), packet, pinnedWorkerDirectory, contextDirectory)
+  if (contextRefusal) return contextRefusal
+
   // Core invoke: the dispatch_worker action with the enriched fields. The
   // core records the packet digest (CD-0067 D2) and returns a typed
   // envelope; any non-ok response is an authorization boundary refusal,
@@ -201,10 +210,21 @@ export async function dispatchLaneWorker(input: LaneDispatchInput, deps: LaneDis
   // The window binds to the calling session, because that is the session whose
   // next Task call the plugin hook rewrites (CD-0102 D1).
   const workPins = resultRecord && Array.isArray(resultRecord.work_pins) ? resultRecord.work_pins : undefined
+  // Issue #1322: the dispatch_worker response also carries worker_worktree,
+  // the durable claimed worktree the authorization rested on. A core that
+  // answers ok without naming it is not an authorization whose tool-context
+  // landing this adapter can gate, so it refuses as a server contract break
+  // before any window opens; the gate then survives a host process restart
+  // that empties the adapter's in-memory claim records.
+  const authorizedWorktree = resultRecord && typeof resultRecord.worker_worktree === "string" ? resultRecord.worker_worktree : ""
+  if (authorizedWorktree === "") {
+    return errorEnvelopeForLane(laneForId(packet.lane_id), packet as Partial<AgentLanePacket>, "error", "transport_failure", "dispatch_worker response carried no worker_worktree", "reconcile_operation")
+  }
   // contextDirectory is the directory the calling tool call runs in, the
   // observable that proves the session's tool context has landed in the
-  // claimed worktree (issue #1322). dispatchWorker compares it with the armed
-  // claim, or with the record a metadata-only work_start refusal left behind.
-  const contextDirectory = typeof deps.context.directory === "string" ? deps.context.directory : undefined
-  return dispatchWorker(packet, { authorize: async () => coreResponse, credentials: deps.credentials, runner: deps.runner, evidenceRunner: deps.evidenceRunner, concordBinary: deps.concordBinary, packetDigest, sessionID: deps.context.sessionID, windows: deps.windows, workPins, workerDirectory, pinnedWorkerDirectory, resolveWorkerDirectory: () => hostControlPlane().sessionDirectory(deps.context.sessionID, deps.context.abort), contextDirectory })
+  // claimed worktree (issue #1322). It was resolved above for the pre-effect
+  // gate; dispatchWorker compares it with the armed claim, with the record a
+  // metadata-only work_start refusal left behind, and with the durable
+  // claimed worktree the core names.
+  return dispatchWorker(packet, { authorize: async () => coreResponse, credentials: deps.credentials, runner: deps.runner, evidenceRunner: deps.evidenceRunner, concordBinary: deps.concordBinary, packetDigest, sessionID: deps.context.sessionID, windows: deps.windows, workPins, workerDirectory, pinnedWorkerDirectory, authorizedWorktree, resolveWorkerDirectory: () => hostControlPlane().sessionDirectory(deps.context.sessionID, deps.context.abort), contextDirectory })
 }

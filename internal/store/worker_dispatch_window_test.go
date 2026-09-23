@@ -227,6 +227,49 @@ func TestDispatchWorkerBindsCanonicalWorktreeIdentityToWindow(t *testing.T) {
 	}
 }
 
+// Issue #1322: the dispatch_worker result names the durable claimed worktree
+// its authorization rested on, so the adapter can gate the calling tool
+// context against a store-owned answer that survives a host process restart.
+func TestDispatchWorkerResultCarriesClaimedWorktree(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s := openTemp(t)
+	seed := seedDispatchFixture(t, s, "work-dispatch-claimed-worktree")
+	claimed := t.TempDir()
+	insertWorkerWorktreeEntry(t, s, seed.workID, claimed)
+	attemptID := "attempt-claimed-worktree"
+	packetPayload, err := json.Marshal(dispatchWorkerPacket(seed.workID, "execution", attemptID))
+	if err != nil {
+		t.Fatalf("marshal dispatch packet: %v", err)
+	}
+	fieldsPayload, err := json.Marshal(map[string]any{"attempt_id": attemptID, "worker_packet": json.RawMessage(packetPayload)})
+	if err != nil {
+		t.Fatalf("marshal dispatch fields: %v", err)
+	}
+	result, err := invokeWorkflowActionForCD0059(ctx, t, s, WorkflowActionExecutionRequest{
+		WorkID: seed.workID, ExpectedVersion: readWorkVersion(t, s, seed.workID), ActionID: "dispatch_worker",
+		Payload: fieldsPayload, SessionWorktree: claimed,
+		Actor: seed.ownerActor, AcceptedInputsDigest: cd0059TestDigest(t, "claimed-worktree-inputs"),
+		IdempotencyIdentity: "claimed-worktree-op", OperationID: "op-claimed-worktree", PrincipalRef: seed.ownerActor.PrincipalRef,
+		Tool: "concord_work_transition", IdempotencyKey: "claimed-worktree-key", RequestID: "req-claimed-worktree",
+		AcceptedScope: `{}`, ContractDigest: testManifestDigest,
+	})
+	if err != nil {
+		t.Fatalf("dispatch_worker invocation failed: %v", err)
+	}
+	var resultMap map[string]any
+	if err := json.Unmarshal(result.Result, &resultMap); err != nil {
+		t.Fatalf("dispatch_worker result is not an object: %v", err)
+	}
+	canonical, err := canonicalWorkerWorktreePath(claimed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resultMap["worker_worktree"] != canonical {
+		t.Fatalf("result worker_worktree = %v, want the durable claimed worktree %q", resultMap["worker_worktree"], canonical)
+	}
+}
+
 // TestDispatchWorkerAppearsOnExternalEffectWorkflows proves the brief's
 // instruction to append dispatch_worker to AvailableActions on workflows
 // whose external_effect step is where workers run. Research workflows have

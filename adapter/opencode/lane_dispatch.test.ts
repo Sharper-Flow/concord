@@ -33,7 +33,7 @@ const fakeTool = Object.assign((config: any) => config, {
 })
 mock.module("@opencode-ai/plugin", () => ({ tool: fakeTool }))
 
-const { agentLanes } = await import("./generated-agent-lanes")
+const { agentLanes, agentUtilities } = await import("./generated-agent-lanes")
 const { validateAgentLanePacket } = await import("./dispatch")
 import { DispatchWindows, TASK_TOOL_ID } from "./dispatch-window"
 import type { AgentLanePacket, DispatchRunner } from "./dispatch"
@@ -362,6 +362,61 @@ test("unregistered lane refuses before any core invoke or spawn", async () => {
   expect(result.error?.kind).toBe("invalid_input")
   expect(result.error?.message).toContain("summarize")
   expect(spawned).toBe(0)
+  expect(workflowCalls).toBe(0)
+})
+
+// A registered generated utility id is not a lane: dispatch_worker refuses it
+// before any core call with a refusal distinct from the unregistered-lane one.
+// The refusal names the utility and its native route — a coordinator-only Task
+// with subagent_type concord-<id> and no dispatch window — stays retry-unsafe,
+// and carries the machine-readable utility_dispatch boundary marker.
+test("a registered utility id refuses dispatch_worker before any core call with its native Task route", async () => {
+  let coreCalls = 0
+  let spawned = 0
+  const invoke = async (toolName: string, args: { operation: string; input?: Record<string, unknown> }): Promise<unknown> => {
+    coreCalls++
+    if (toolName === "concord_work_trace") return continuityEnvelope()
+    if (toolName === "concord_work_browse") return scopeEnvelope()
+    if (toolName === "concord_work_transition") return coreOkEnvelope()
+    throw new Error(`unscripted ${toolName}.${args.operation}`)
+  }
+  const runner: DispatchRunner = { async run() { spawned++; return { exitCode: 0, stdout: "", stderr: "" } } }
+  const windows = new DispatchWindows()
+  const utility = agentUtilities.find((candidate) => candidate.id === "ci-wait")!
+  const result = await dispatchLaneWorker({ work_id: WORK_ID, expected_version: 1, idempotency_key: "idemp-utility-route", lane_id: utility.id }, { context: contextFor(), invoke: invoke as any, runner, windows })
+  expect(result.outcome).toBe("error")
+  expect(result.error?.kind).toBe("invalid_input")
+  expect(result.error?.retry_safe).toBe(false)
+  expect(result.error?.recovery_action).toBe("reconcile_operation")
+  expect(result.error?.message).toContain(utility.id)
+  expect(result.error?.message).toContain(`concord-${utility.id}`)
+  expect(result.error?.message).toMatch(/native task/i)
+  expect(result.error?.message).toContain("coordinator")
+  expect(result.error?.message).toContain("without a dispatch window")
+  const details = result.error?.details as Record<string, unknown>
+  expect(details.boundary).toBe("utility_dispatch")
+  expect(details.utility).toBe(utility.id)
+  expect(spawned).toBe(0)
+  expect(windows.has("session-1")).toBe(false)
+  expect(coreCalls).toBe(0)
+})
+
+// The utility refusal must not swallow an unknown lane id: a name no registry
+// admits keeps the existing unregistered-lane refusal, distinct from the
+// utility boundary marker.
+test("an unknown lane id keeps the unregistered-lane refusal, not the utility refusal", async () => {
+  let workflowCalls = 0
+  const invoke = async (toolName: string, args: { operation: string; input?: Record<string, unknown> }): Promise<unknown> => {
+    if (toolName === "concord_work_trace") return continuityEnvelope()
+    if (toolName === "concord_work_transition") { workflowCalls++; return coreOkEnvelope() }
+    throw new Error(`unscripted ${toolName}.${args.operation}`)
+  }
+  const result = await dispatchLaneWorker({ work_id: WORK_ID, expected_version: 1, idempotency_key: "idemp-unknown-keeps-lane-refusal", lane_id: "summarize" }, { context: contextFor(), invoke: invoke as any })
+  expect(result.outcome).toBe("error")
+  expect(result.error?.kind).toBe("invalid_input")
+  expect(result.error?.message).toContain("not in the generated lane registry")
+  const details = (result.error?.details ?? {}) as Record<string, unknown>
+  expect(details.boundary).toBeUndefined()
   expect(workflowCalls).toBe(0)
 })
 

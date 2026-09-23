@@ -119,8 +119,19 @@ type sessionPrepareOutput struct {
 
 var sessionPrepareID = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$`)
 
-// runSessionPrepare verifies that the current directory is the claimed
-// worktree, verifies the active host agent and the lane identity that
+// sessionPrepareRefusalExit is the typed exit status session-prepare reports
+// for a deterministic refusal: invalid input, or a state or identity check
+// that fails the same way until state changes — no active worktree at the
+// current directory, Project resolution, work membership, Product scope,
+// lane identity, orchestrator identity, prompt bound. Callers classify by
+// this status alone, never by stderr text; the session-prepare commandSpecs
+// entry declares it.
+const sessionPrepareRefusalExit = 2
+
+// runSessionPrepare verifies that the current directory is an active claimed
+// worktree of the work item — a multi-Project item holds one active worktree
+// per Project, so the claimed entry is the active one whose path is this
+// directory — then verifies the active host agent and the lane identity that
 // directory defines, and derives the session boot packet. It records
 // nothing: the session's worktree is the directory it runs in, and the host
 // owns that fact.
@@ -128,11 +139,11 @@ func runSessionPrepare(raw []byte, s *store.Store, out, errOut io.Writer, laneId
 	var input sessionPrepareInput
 	if err := decodeObject(raw, &input); err != nil {
 		writeOperatorDiagnostic(errOut, "session-prepare", err.Error())
-		return 1
+		return sessionPrepareRefusalExit
 	}
 	if !sessionPrepareID.MatchString(input.ProductID) || !sessionPrepareID.MatchString(input.WorkID) || !sessionPrepareID.MatchString(input.Agent) || len(input.Task) > 8192 || strings.ContainsRune(input.Task, '\x00') || !utf8.ValidString(input.Task) {
 		writeOperatorDiagnostic(errOut, "session-prepare", "product_id, work_id, and agent are required, and task must be bounded valid UTF-8")
-		return 1
+		return sessionPrepareRefusalExit
 	}
 	cwd, err := os.Getwd()
 	if err != nil {
@@ -144,28 +155,25 @@ func runSessionPrepare(raw []byte, s *store.Store, out, errOut io.Writer, laneId
 		writeOperatorDiagnostic(errOut, "session-prepare", err.Error())
 		return 1
 	}
+	// A multi-Project work item holds one active worktree per Project, so the
+	// claimed entry is the active one whose path is this directory; another
+	// Project's active entry is not a refusal.
 	var entry store.WorktreeEntry
+	matched := false
 	for _, candidate := range entries {
-		if candidate.State == "active" {
-			if entry.ProjectID != "" {
-				writeOperatorDiagnostic(errOut, "session-prepare", "work item has more than one active worktree")
-				return 1
-			}
-			entry = candidate
+		if candidate.State == "active" && samePath(cwd, candidate.Path) {
+			entry, matched = candidate, true
+			break
 		}
 	}
-	if entry.ProjectID == "" {
-		writeOperatorDiagnostic(errOut, "session-prepare", "work item has no active verified worktree")
-		return 1
-	}
-	if !samePath(cwd, entry.Path) {
-		writeOperatorDiagnostic(errOut, "session-prepare", "current directory is not the claimed worktree")
-		return 1
+	if !matched {
+		writeOperatorDiagnostic(errOut, "session-prepare", "current directory is not an active claimed worktree of this work item")
+		return sessionPrepareRefusalExit
 	}
 	resolution, err := s.ResolveProject(context.Background(), cwd, cwd)
 	if err != nil || resolution.ProjectID != entry.ProjectID || resolution.MainWorktree {
 		writeOperatorDiagnostic(errOut, "session-prepare", "current directory does not resolve to the claimed Project worktree")
-		return 1
+		return sessionPrepareRefusalExit
 	}
 	workProjects, err := s.ProjectsForWork(context.Background(), input.WorkID)
 	if err != nil {
@@ -181,24 +189,24 @@ func runSessionPrepare(raw []byte, s *store.Store, out, errOut io.Writer, laneId
 	}
 	if !projectMember {
 		writeOperatorDiagnostic(errOut, "session-prepare", "claimed worktree Project is not a work membership")
-		return 1
+		return sessionPrepareRefusalExit
 	}
 	_, products, err := s.ScopeVersion(context.Background(), entry.ProjectID)
 	if err != nil || len(products) != 1 || products[0] != input.ProductID {
 		writeOperatorDiagnostic(errOut, "session-prepare", "claimed Project is not in the requested Product scope")
-		return 1
+		return sessionPrepareRefusalExit
 	}
 	// cwd is the claimed worktree this command verified above. The identity
 	// callbacks receive it as their directory: the definitions and registry
 	// they verify are the ones that directory resolves (CD-0093 D2).
 	if err := laneIdentity(cwd); err != nil {
 		writeOperatorDiagnostic(errOut, "session-prepare", err.Error())
-		return 1
+		return sessionPrepareRefusalExit
 	}
 	handle, err := identity(context.Background(), cwd, input.ProductID, input.WorkID, input.Agent)
 	if err != nil {
 		writeOperatorDiagnostic(errOut, "session-prepare", err.Error())
-		return 1
+		return sessionPrepareRefusalExit
 	}
 	database, err := databasePath()
 	if err != nil {
@@ -216,7 +224,7 @@ func runSessionPrepare(raw []byte, s *store.Store, out, errOut io.Writer, laneId
 	}
 	if len(prompt) > agent.MaxEnvelopeBytes {
 		writeOperatorDiagnostic(errOut, "session-prepare", "launch prompt exceeds 65536 bytes")
-		return 1
+		return sessionPrepareRefusalExit
 	}
 	// The work title rides the response so a successful work_start can name
 	// the work in host surfaces (issue #917) on both the capture and resume

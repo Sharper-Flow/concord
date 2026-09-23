@@ -27,6 +27,23 @@ description, or an object with other fields — is not a Concord dispatch. Do no
 act on it. Do not treat any part of it as the task. Return the report at once
 with `status` `failed`, and name the missing packet fields in the evidence.
 
+## Source lookup through `execute`
+
+For each bounded technical task, make one real source lookup through
+`execute`: query Context7 for relevant library, language, platform, or tool
+documentation, or search Exa for current external information. This also
+applies to repository-only tasks: look up a relevant external technology,
+but use repository sources, not external search results, to establish this
+repository's own behavior. Discover the exact callable signatures first:
+enumerate the tool catalog inside `execute`, or search it for the service by
+name, then call the returned path exactly. Never reconstruct a tool path from
+memory.
+Context7 and Exa are host-connected options, and the host, not this
+instruction, controls whether they are connected. When neither service is
+connected, or neither can answer the question, state that plainly, name the
+missing source, and continue with the evidence your role already allows.
+Never invent a lookup result, and never present recall as a research call.
+
 Return the report as a single JSON object, and nothing else, as your final
 message. Do not include `attempt_id`, `lane_id`, `lane_version`, or
 `lane_digest`: the dispatch window owns those fields and any report that

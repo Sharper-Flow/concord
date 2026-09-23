@@ -67,6 +67,21 @@ class AgentProjectionTests(unittest.TestCase):
         self.assertNotIn("pwd", projection)
         self.assertNotIn("cwd", projection)
 
+    def test_projection_requires_a_real_execute_source_lookup(self):
+        # Every lane must attempt one real Context7 or Exa call per bounded
+        # technical task through `execute`, discover signatures first, and
+        # report an unconnected service instead of inventing a result.
+        projection = generator.agent_projection(self.LANE, REPORT_SCHEMA)
+        normalized = " ".join(projection.split())
+        self.assertIn("Source lookup through `execute`", projection)
+        self.assertIn("one real source lookup", normalized)
+        self.assertIn("applies to repository-only tasks", normalized)
+        self.assertIn("look up a relevant external technology", normalized)
+        self.assertIn("repository sources, not external search results", normalized)
+        self.assertIn("Discover the exact callable signatures first", normalized)
+        self.assertIn("host-connected options", normalized)
+        self.assertIn("Never invent a lookup result", normalized)
+
     def test_utility_projection_projects_declared_tools_and_permissions(self):
         utility = {
             "id": "ci-wait",
@@ -121,8 +136,56 @@ class AgentProjectionTests(unittest.TestCase):
         self.assertIn("Do not edit files", projection)
         self.assertIn("Object.keys(tools)", projection)
         self.assertIn("tools.lgrep.search_semantic", projection)
+        self.assertIn("query Context7", projection)
         self.assertIn("MCP access depends on host connections", projection)
         self.assertIn("Use read-only tools only", projection)
+
+    def test_execute_enabled_utilities_carry_the_source_lookup_block(self):
+        for utility_id, tools in (
+            ("explore", ["bash", "read", "glob", "grep", "execute"]),
+            ("lookup", ["webfetch", "execute"]),
+            ("advisor", ["bash", "read", "glob", "grep", "execute"]),
+        ):
+            utility = {
+                "id": utility_id,
+                "purpose": "Bounded work.",
+                "allowed_tools": tools,
+                "allowed_commands": [],
+                "time_seconds_max": 600,
+            }
+            projection = generator.utility_projection(utility)
+            self.assertIn("Source lookup through `execute`", projection, utility_id)
+            self.assertIn("Context7", projection, utility_id)
+            self.assertIn("Exa", projection, utility_id)
+
+    def test_ci_wait_projection_never_receives_the_source_lookup_block(self):
+        # CD-0160 keeps the wait deterministic, and the block is gated on
+        # declared `execute` access, not on the utility id.
+        utility = {
+            "id": "ci-wait",
+            "purpose": "Wait for CI.",
+            "allowed_tools": ["bash"],
+            "allowed_commands": ["concord ci-wait"],
+            "time_seconds_max": 1800,
+        }
+        projection = generator.utility_projection(utility)
+        self.assertNotIn("Source lookup through `execute`", projection)
+        self.assertNotIn("Context7", projection)
+
+    def test_lookup_projection_names_the_services_and_discovers_signatures(self):
+        utility = {
+            "id": "lookup",
+            "purpose": "Research bounded external questions.",
+            "allowed_tools": ["webfetch", "execute"],
+            "allowed_commands": [],
+            "time_seconds_max": 600,
+        }
+        projection = generator.utility_projection(utility)
+        normalized = " ".join(projection.split())
+        self.assertIn("whether or not the parent supplied URLs", normalized)
+        self.assertIn("Context7 for library documentation", normalized)
+        self.assertIn("Exa for", normalized)
+        self.assertIn("Discover the exact callable signature first", normalized)
 
     def test_advisory_projection_uses_collaborative_body_with_model_statement(self):
         # CD-0157 D2-D4. The adviser receives a problem, never a proposed
@@ -144,6 +207,8 @@ class AgentProjectionTests(unittest.TestCase):
         self.assertIn("preferred option", projection)
         self.assertIn("No concerns", projection)
         self.assertIn("model that served this opinion", projection)
+        self.assertIn("search connected tools through `execute` first", " ".join(projection.split()))
+        self.assertIn("one real source lookup", projection)
         self.assertIn("line range", projection)
         self.assertIn("10 minutes", projection)
 

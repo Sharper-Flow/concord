@@ -71,6 +71,9 @@ func enableLinearProduct(t *testing.T, dbPath, productID string) {
 		"metadata": map[string]any{"linear": map[string]any{
 			"workspace_url": "https://linear.app/example", "team_id": "68d52710-76d9-4b41-ba45-778511d0e2ed", "auth_mode": "personal_api_key",
 			"status_ids": map[string]string{"needed": "state-needed", "in_progress": "state-in-progress", "cancelled": "state-cancelled", "completed": "state-completed", "superseded": "state-superseded"},
+			// CD-0171 D3: every synced issue carries its repository label, so
+			// the fixture connection maps the Product's primary project.
+			"label_ids": map[string]string{"project:" + projectID: "label-repo"},
 		}},
 		"expected_product_version": 3,
 	})
@@ -83,7 +86,7 @@ func TestLinearEnqueueAndDrainCLI(t *testing.T) {
 	seedLinearCLIWork(t, dbPath, "drain-work", "drain-product-project", "Drain title")
 	runOperatorJSON(t, dbPath, []string{"linear-connection-update"}, map[string]any{
 		"event_id": "drain-label-update", "resource_id": "drain-conn-drain-product", "product_id": "drain-product",
-		"label_ids": map[string]string{"task": "label-task"}, "expected_resource_version": 1,
+		"label_ids": map[string]string{"task": "label-task", "project:drain-product-project": "label-repo"}, "expected_resource_version": 1,
 	})
 
 	var sawAuth, sawLabels, sawStatus, sawPriority bool
@@ -97,7 +100,7 @@ func TestLinearEnqueueAndDrainCLI(t *testing.T) {
 				sawAuth = true
 			}
 			sawNoProject = !strings.Contains(string(body), "projectId")
-			sawLabels = strings.Contains(string(body), `"labelIds":["label-task"]`)
+			sawLabels = strings.Contains(string(body), `"labelIds":["label-task","label-repo"]`)
 			sawStatus = strings.Contains(string(body), `"stateId":"state-needed"`)
 			sawPriority = strings.Contains(string(body), `"priority":3`)
 		}
@@ -186,7 +189,7 @@ func TestLinearIssueUpdateDrainReportsDoneAndMirrorsTerminalStatus(t *testing.T)
 	seedLinearCLIWork(t, dbPath, "update-drain-work", "update-drain-project", "Cancelled title")
 	runOperatorJSON(t, dbPath, []string{"linear-connection-update"}, map[string]any{
 		"event_id": "update-drain-label-update", "resource_id": "drain-conn-update-drain-product", "product_id": "update-drain-product",
-		"label_ids": map[string]string{"task": "label-task"}, "expected_resource_version": 1,
+		"label_ids": map[string]string{"task": "label-task", "project:update-drain-project": "label-repo"}, "expected_resource_version": 1,
 	})
 
 	s, err := store.Open(context.Background(), dbPath)
@@ -219,7 +222,7 @@ func TestLinearIssueUpdateDrainReportsDoneAndMirrorsTerminalStatus(t *testing.T)
 		body, _ := io.ReadAll(r.Body)
 		if strings.Contains(string(body), "issueUpdate") {
 			sawStatus = strings.Contains(string(body), `"stateId":"state-cancelled"`)
-			sawLabels = strings.Contains(string(body), `"addedLabelIds":["label-task"]`)
+			sawLabels = strings.Contains(string(body), `"addedLabelIds":["label-task","label-repo"]`)
 			if strings.Contains(string(body), `"priority":`) {
 				sawResentPriority = true
 			}
@@ -332,6 +335,151 @@ func TestLinearIssueUpdateDrainOmitsUnchangedContent(t *testing.T) {
 	}
 	if input["stateId"] != "state-needed" {
 		t.Fatalf("request input = %#v, want stateId", input)
+	}
+}
+
+// CD-0171 review correction: an issue_update carries the issue's full Project
+// and Concord-managed label state. When no Initiative Project applies, the
+// input sends an explicit null projectId so Linear clears the field (the
+// omitted field left a stale Project behind after the last Initiative entry
+// left), and labels under the project:* and optional keys that no longer
+// apply ride removedLabelIds instead of lingering remotely.
+func TestLinearIssueUpdateDrainClearsProjectAndRemovesStaleLabels(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "concord.db")
+	seedCLIProduct(t, dbPath, "syncfix-product", "syncfix-project")
+	enableLinearProduct(t, dbPath, "syncfix-product")
+	seedLinearCLIWork(t, dbPath, "syncfix-work", "syncfix-project", "Sync fix title")
+	runOperatorJSON(t, dbPath, []string{"linear-connection-update"}, map[string]any{
+		"event_id": "syncfix-label-update", "resource_id": "drain-conn-syncfix-product", "product_id": "syncfix-product",
+		"label_ids": map[string]string{"task": "label-task", "project:syncfix-project": "label-repo", "optional": "label-optional"}, "expected_resource_version": 1,
+	})
+
+	// The work item is a required entry of one Initiative whose issue is
+	// already confirmed. Its remote issue still carries the optional label
+	// from an earlier non-required entry, one managed repository label, and
+	// one label Concord never manages.
+	s, err := store.Open(context.Background(), dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+		t.Fatal(err)
+	}
+	initiativeIntent := `{"title":"Sync initiative","value_statement":"Sync value","kind":"initiative","priority":0,"urgency":"standard"}`
+	if _, err := tx.Exec(`INSERT INTO work_items(id, kind, title, lifecycle, priority, urgency, version, intent_json, created_at, updated_at) VALUES('syncfix-initiative', 'initiative', 'Sync initiative', 'needed', 0, 'standard', 1, ?, '2026-09-23T00:00:00Z', '2026-09-23T00:00:00Z')`, initiativeIntent); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec(`INSERT INTO work_projects(work_id, project_id, role) VALUES('syncfix-initiative', 'syncfix-project', 'primary')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec(`INSERT INTO initiative_entries(initiative_work_id, child_work_id, position, required) VALUES('syncfix-initiative', 'syncfix-work', 0, 1)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec(`INSERT INTO linear_issue_links(work_id, remote_issue_uuid, human_key, url, remote_updated_at, content_hash, link_state, created_at, updated_at) VALUES('syncfix-work', 'remote-syncfix-1', 'SF-1', '', '', '', 'confirmed', '2026-09-23T00:00:00Z', '2026-09-23T00:00:00Z')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec(`DELETE FROM fold_guard`); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	s.Close()
+
+	var updateBodies []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		text := string(body)
+		w.Header().Set("Content-Type", "application/json")
+		if strings.Contains(text, "issueUpdate") {
+			updateBodies = append(updateBodies, text)
+			_, _ = w.Write([]byte(`{"data":{"issueUpdate":{"success":true,"issue":{"id":"remote-syncfix-1","identifier":"SF-1","url":"https://linear.app/example/issue/SF-1","updatedAt":"2026-09-23T12:00:00Z"}}}}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"data":{"issue":{"id":"remote-syncfix-1","identifier":"SF-1","url":"https://linear.app/example/issue/SF-1","title":"Sync fix title","updatedAt":"2026-09-23T12:00:00Z","state":{"type":"started"},"team":{"id":"sync-team"},"labels":{"nodes":[{"id":"label-task"},{"id":"label-repo"},{"id":"label-optional"},{"id":"label-foreign"}]}}}}`))
+	}))
+	defer server.Close()
+	t.Setenv(linearclient.EnvEndpoint, server.URL)
+	t.Setenv(linearclient.EnvAPIKey, "lin_api_syncfix_test")
+	t.Setenv(dbOverrideEnv, dbPath)
+
+	runOperatorJSON(t, dbPath, []string{"linear-issue-enqueue"}, map[string]any{"product_id": "syncfix-product", "work_id": "syncfix-work", "op_kind": "issue_update"})
+	var out, errOut strings.Builder
+	if code := runWithInput([]string{"linear", "outbox-drain"}, strings.NewReader(`{"product_id":"syncfix-product"}`), &out, &errOut); code != 0 {
+		t.Fatalf("first drain exit=%d stderr=%q", code, errOut.String())
+	}
+	if len(updateBodies) != 1 {
+		t.Fatalf("issueUpdate calls = %d, want 1", len(updateBodies))
+	}
+	first := updateBodies[0]
+	if !strings.Contains(first, `"projectId":null`) {
+		t.Fatalf("first update body = %q, want the explicit null projectId", first)
+	}
+	if !strings.Contains(first, `"removedLabelIds":["label-optional"]`) {
+		t.Fatalf("first update body = %q, want the stale optional label removed", first)
+	}
+	if strings.Contains(first, "label-foreign") {
+		t.Fatalf("first update body = %q, want the unmanaged label left alone", first)
+	}
+
+	// Once the owning Initiative's Project exists, the update carries it.
+	s, err = store.Open(context.Background(), dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT INTO linear_project_links(work_id, remote_project_uuid, name, url, created_at, updated_at) VALUES('syncfix-initiative', 'remote-project-syncfix', 'Sync initiative', '', '2026-09-23T00:00:00Z', '2026-09-23T00:00:00Z'); DELETE FROM fold_guard`); err != nil {
+		t.Fatal(err)
+	}
+	s.Close()
+	updateBodies = updateBodies[:0]
+	runOperatorJSON(t, dbPath, []string{"linear-issue-enqueue"}, map[string]any{"product_id": "syncfix-product", "work_id": "syncfix-work", "op_kind": "issue_update"})
+	out.Reset()
+	errOut.Reset()
+	if code := runWithInput([]string{"linear", "outbox-drain"}, strings.NewReader(`{"product_id":"syncfix-product"}`), &out, &errOut); code != 0 {
+		t.Fatalf("second drain exit=%d stderr=%q", code, errOut.String())
+	}
+	if len(updateBodies) != 1 {
+		t.Fatalf("second drain issueUpdate calls = %d, want 1", len(updateBodies))
+	}
+	if !strings.Contains(updateBodies[0], `"projectId":"remote-project-syncfix"`) {
+		t.Fatalf("second update body = %q, want the owning Initiative's project uuid", updateBodies[0])
+	}
+
+	// Leaving the Initiative clears the Project again (CD-0171 D4/D6): this
+	// is the exact path the omitted projectId left broken.
+	s, err = store.Open(context.Background(), dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); DELETE FROM initiative_entries WHERE initiative_work_id='syncfix-initiative' AND child_work_id='syncfix-work'; DELETE FROM fold_guard`); err != nil {
+		t.Fatal(err)
+	}
+	s.Close()
+	updateBodies = updateBodies[:0]
+	runOperatorJSON(t, dbPath, []string{"linear-issue-enqueue"}, map[string]any{"product_id": "syncfix-product", "work_id": "syncfix-work", "op_kind": "issue_update"})
+	out.Reset()
+	errOut.Reset()
+	if code := runWithInput([]string{"linear", "outbox-drain"}, strings.NewReader(`{"product_id":"syncfix-product"}`), &out, &errOut); code != 0 {
+		t.Fatalf("third drain exit=%d stderr=%q", code, errOut.String())
+	}
+	if len(updateBodies) != 1 {
+		t.Fatalf("third drain issueUpdate calls = %d, want 1", len(updateBodies))
+	}
+	third := updateBodies[0]
+	if !strings.Contains(third, `"projectId":null`) {
+		t.Fatalf("third update body = %q, want the Project cleared after the entry left", third)
+	}
+	// The repository label stays: the work item keeps its Concord project
+	// membership, and repository identity rides the label (CD-0171 D3).
+	if !strings.Contains(third, `"labelIds":["label-task","label-repo"]`) && !strings.Contains(third, `"addedLabelIds":["label-task","label-repo"]`) {
+		t.Fatalf("third update body = %q, want the repository label kept", third)
+	}
+	if strings.Contains(third, "remote-project-syncfix") {
+		t.Fatalf("third update body = %q, want no stale Initiative Project", third)
 	}
 }
 

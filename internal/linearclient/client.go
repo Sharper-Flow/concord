@@ -93,11 +93,21 @@ type CreateIssueInput struct {
 // no priority field by design: creation seeded the priority once, and Linear
 // owns backlog triage from then on.
 type UpdateIssueInput struct {
-	Title         string   `json:"title,omitempty"`
-	Description   string   `json:"description,omitempty"`
-	ProjectID     string   `json:"projectId,omitempty"`
-	StatusID      string   `json:"stateId,omitempty"`
-	AddedLabelIDs []string `json:"addedLabelIds,omitempty"`
+	Title       string `json:"title,omitempty"`
+	Description string `json:"description,omitempty"`
+	// ProjectID is the issue's full Project state, not a change request: the
+	// owning Initiative's Linear Project uuid, or nil to send an explicit
+	// null. Linear reads the explicit null as "clear the field" (CD-0171 D4,
+	// D6), so an issue whose last Initiative entry left loses its Project
+	// instead of keeping a stale one.
+	ProjectID *string `json:"projectId"`
+	StatusID  string  `json:"stateId,omitempty"`
+	// AddedLabelIDs and RemovedLabelIDs carry the label delta. RemovedLabelIDs
+	// exists on Linear's IssueUpdateInput ([UUID!]); without it a label under
+	// the project:* or optional keys that stopped applying would linger on the
+	// remote issue forever (CD-0171 D3, D5).
+	AddedLabelIDs   []string `json:"addedLabelIds,omitempty"`
+	RemovedLabelIDs []string `json:"removedLabelIds,omitempty"`
 }
 
 // Issue is the remote issue identity and content returned by Linear.
@@ -295,6 +305,29 @@ func (c *Client) GetIssue(ctx context.Context, remoteUUID string) (ResolvedIssue
 		return ResolvedIssue{}, &Failure{Kind: KindGraphqlError, Detail: "issue query returned no issue"}
 	}
 	return ResolvedIssue{Issue: payload.Issue.Issue, TeamID: payload.Issue.Team.ID, StateID: payload.Issue.State.ID, StateType: payload.Issue.State.Type}, nil
+}
+
+// GetIssueLabelIDs fetches only the issue's current label ids, so the drain
+// can compute the Concord-managed labels that no longer apply without a full
+// issue read.
+func (c *Client) GetIssueLabelIDs(ctx context.Context, remoteUUID string) ([]string, error) {
+	var payload struct {
+		Issue struct {
+			Labels struct {
+				Nodes []struct {
+					ID string `json:"id"`
+				} `json:"nodes"`
+			} `json:"labels"`
+		} `json:"issue"`
+	}
+	if err := c.call(ctx, "query($id: String!) { issue(id: $id) { labels { nodes { id } } } }", map[string]any{"id": remoteUUID}, &payload); err != nil {
+		return nil, err
+	}
+	labels := make([]string, 0, len(payload.Issue.Labels.Nodes))
+	for _, node := range payload.Issue.Labels.Nodes {
+		labels = append(labels, node.ID)
+	}
+	return labels, nil
 }
 
 // CreateProject executes projectCreate with the Concord-generated UUID and

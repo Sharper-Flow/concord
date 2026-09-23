@@ -215,8 +215,10 @@ func TestLinearEnqueueForWorkGuards(t *testing.T) {
 	if decoded.ClientUUID == "" || decoded.Title != "Enqueue title" || decoded.Description != composeLinearIssueBody("Enqueue value statement", "", "enq-work", "task", "", nil) || decoded.ProductID != "enq-product" || decoded.TeamID != "team-uuid-1" || decoded.ProjectID != "" {
 		t.Fatalf("payload = %+v", decoded)
 	}
-	if len(decoded.LabelIDs) != 0 {
-		t.Fatalf("unconfigured labels = %v, want none", decoded.LabelIDs)
+	// The fixture connection maps the Product's repository (CD-0171 D3), so
+	// the synced issue carries that label alongside the work kind.
+	if len(decoded.LabelIDs) != 1 || decoded.LabelIDs[0] != "label-enq-product-repo" {
+		t.Fatalf("configured labels = %v, want the repository label", decoded.LabelIDs)
 	}
 	if len(decoded.ClientUUID) != 36 || !strings.Contains(decoded.ClientUUID, "-") {
 		t.Fatalf("client uuid %q is not a UUID", decoded.ClientUUID)
@@ -236,7 +238,7 @@ func TestLinearEnqueueMapsKindAndExpediteLabels(t *testing.T) {
 	setupLinearProduct(t, s, "label-product")
 	setupLinearConnectionResource(t, s, "label-product", map[string]any{"linear": map[string]any{
 		"workspace_url": "https://linear.app/example", "team_id": "team-uuid-1", "auth_mode": "personal_api_key",
-		"label_ids": map[string]string{"bug": "label-bug", "expedite": "label-expedite"},
+		"label_ids": map[string]string{"bug": "label-bug", "expedite": "label-expedite", "project:label-product-project": "label-repo"},
 	}})
 	if _, err := s.SetProductPlanningMode(ctx, "label-product", PlanningModeLinear, "pilot", "operator", 2); err != nil {
 		t.Fatal(err)
@@ -260,8 +262,8 @@ func TestLinearEnqueueMapsKindAndExpediteLabels(t *testing.T) {
 	if err := json.Unmarshal([]byte(raw), &payload); err != nil {
 		t.Fatal(err)
 	}
-	if strings.Join(payload.LabelIDs, ",") != "label-bug,label-expedite" {
-		t.Fatalf("mapped labels = %v, want bug then expedite", payload.LabelIDs)
+	if strings.Join(payload.LabelIDs, ",") != "label-bug,label-repo,label-expedite" {
+		t.Fatalf("mapped labels = %v, want bug, repository, then expedite", payload.LabelIDs)
 	}
 }
 

@@ -54,7 +54,12 @@ func seedLinearInitiativeEntry(t *testing.T, s *Store, initiative, child string,
 // Initiative, as the drain completion does.
 func seedLinearProjectLink(t *testing.T, s *Store, initiative, remoteUUID string) {
 	t.Helper()
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT INTO linear_project_links(work_id, remote_project_uuid, name, url, created_at, updated_at) VALUES(?, ?, ?, '', '2026-09-23T00:00:00Z', '2026-09-23T00:00:00Z'); DELETE FROM fold_guard`, initiative, remoteUUID, initiative); err != nil {
+	seedLinearProjectLinkWithURL(t, s, initiative, remoteUUID, "")
+}
+
+func seedLinearProjectLinkWithURL(t *testing.T, s *Store, initiative, remoteUUID, url string) {
+	t.Helper()
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT INTO linear_project_links(work_id, remote_project_uuid, name, url, created_at, updated_at) VALUES(?, ?, ?, ?, '2026-09-23T00:00:00Z', '2026-09-23T00:00:00Z'); DELETE FROM fold_guard`, initiative, remoteUUID, initiative, url); err != nil {
 		t.Fatalf("seed project link %s: %v", initiative, err)
 	}
 }
@@ -201,7 +206,7 @@ func TestLinearIssueProjectFollowsTheEarliestInitiative(t *testing.T) {
 	s := openTemp(t)
 	ctx := context.Background()
 	setupLinearProduct(t, s, "owner-product")
-	setupLinearLabelConnection(t, s, "owner-product", map[string]string{})
+	setupLinearLabelConnection(t, s, "owner-product", map[string]string{"project:owner-product-project": "label-owner-repo"})
 	enableLinearPlanning(t, s, "owner-product", 2)
 	seedLinearWorkOfKind(t, s, "owner-first", "owner-product-project", "initiative", "First initiative", "First value")
 	seedLinearWorkOfKind(t, s, "owner-second", "owner-product-project", "initiative", "Second initiative", "Second value")
@@ -221,8 +226,8 @@ func TestLinearIssueProjectFollowsTheEarliestInitiative(t *testing.T) {
 	if payload.ProjectID != "" {
 		t.Fatalf("payload project id = %q, want empty before the owning Initiative's Project is created", payload.ProjectID)
 	}
-	if !strings.Contains(payload.Description, "## Initiatives") || !strings.Contains(payload.Description, "Owned by `owner-first`") || !strings.Contains(payload.Description, "Also in `owner-second`") {
-		t.Fatalf("payload description = %q, want the owner and a link to the other Initiative", payload.Description)
+	if !strings.Contains(payload.Description, "## Initiatives") || !strings.Contains(payload.Description, "Owned by `owner-first`") || !strings.Contains(payload.Description, "Also in Second initiative (`owner-second`).") {
+		t.Fatalf("payload description = %q, want the owner and a title reference to the other Initiative", payload.Description)
 	}
 
 	// Once the earliest-joined Initiative's Project exists, its remote uuid
@@ -243,7 +248,7 @@ func TestLinearIssueOutsideInitiativeHasNoProject(t *testing.T) {
 	s := openTemp(t)
 	ctx := context.Background()
 	setupLinearProduct(t, s, "lone-product")
-	setupLinearLabelConnection(t, s, "lone-product", map[string]string{})
+	setupLinearLabelConnection(t, s, "lone-product", map[string]string{"project:lone-product-project": "label-lone-repo"})
 	enableLinearPlanning(t, s, "lone-product", 2)
 	seedLinearWorkItem(t, s, "lone-work", "lone-product-project", "Lone title", "Lone value")
 
@@ -254,6 +259,153 @@ func TestLinearIssueOutsideInitiativeHasNoProject(t *testing.T) {
 	payload := decodeLinearPayload(t, s, op.OperationID)
 	if payload.ProjectID != "" || strings.Contains(payload.Description, "## Initiatives") {
 		t.Fatalf("payload = %+v / %q, want no Project and no Initiatives section (CD-0171 D4)", payload.ProjectID, payload.Description)
+	}
+}
+
+// CD-0171 D3 correction: every synced issue carries its repository label, so
+// a member Project with no project:<id> mapping refuses the enqueue with the
+// typed failure the former repository mapping used, instead of silently
+// syncing an issue with no repository label.
+func TestLinearIssueEnqueueRefusesUnmappedRepositoryProject(t *testing.T) {
+	t.Parallel()
+	s := openTemp(t)
+	ctx := context.Background()
+	setupLinearProduct(t, s, "unmapped-product")
+	setupLinearLabelConnection(t, s, "unmapped-product", map[string]string{"task": "label-task"})
+
+	if _, err := s.SetProductPlanningMode(ctx, "unmapped-product", PlanningModeLinear, "pilot", "operator", 2); err != nil {
+		t.Fatal(err)
+	}
+	seedLinearWorkItem(t, s, "unmapped-work", "unmapped-product-project", "Unmapped title", "Unmapped value")
+
+	_, err := s.EnqueueLinearIssueForWork(ctx, "unmapped-work", LinearOpIssueCreate)
+	if err == nil || !failureKindIs(err, KindInvalidRelation) || !strings.Contains(err.Error(), "unmapped-product-project") {
+		t.Fatalf("unmapped repository enqueue error = %v, want invalid_relation naming the project", err)
+	}
+	var count int
+	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT count(*) FROM linear_outbox WHERE work_id='unmapped-work'`).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 0 {
+		t.Fatalf("unmapped repository enqueue queued %d operations, want 0", count)
+	}
+
+	// A work item spanning two repositories refuses when either membership
+	// lacks its mapping: one unmapped repository label is enough to leave the
+	// issue unable to carry its repository identity.
+	if err := ApplyOperation(ctx, s, Operation{
+		Events: []Event{
+			projectCreatedEvent("unmapped-other", "unmapped-other-project"),
+			membershipEvent("unmapped-secondary-membership", "product_project.added", SubjectProduct, "unmapped-product", map[string]any{
+				"product_id": "unmapped-product", "project_id": "unmapped-other", "role": "secondary", "reason": "test",
+				"expected_version": 3, "resulting_version": 4,
+			}),
+		},
+		ExpectedVersions: map[SubjectRef]int64{
+			VersionRef(SubjectProduct, "unmapped-product"): 3,
+			VersionRef(SubjectProject, "unmapped-other"):   0,
+		},
+	}); err != nil {
+		t.Fatalf("add secondary Product project: %v", err)
+	}
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT INTO work_projects(work_id, project_id, role) VALUES('unmapped-work', 'unmapped-other', 'secondary'); DELETE FROM fold_guard`); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.UpdateLinearConnection(ctx, LinearConnectionUpdateRequest{
+		EventID: "unmapped-second-mapping", ResourceID: "linear-conn-unmapped-product", ProductID: "unmapped-product",
+		LabelIDs:                map[string]string{"task": "label-task", "project:unmapped-product-project": "label-repo-one"},
+		ExpectedResourceVersion: 1, Actor: "operator", OccurredAt: time.Date(2026, 9, 23, 1, 0, 0, 0, time.UTC),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	_, err = s.EnqueueLinearIssueForWork(ctx, "unmapped-work", LinearOpIssueCreate)
+	if err == nil || !failureKindIs(err, KindInvalidRelation) || !strings.Contains(err.Error(), "unmapped-other") {
+		t.Fatalf("second unmapped repository enqueue error = %v, want invalid_relation naming unmapped-other", err)
+	}
+}
+
+// CD-0171 correction: an Initiative has no Linear issue of its own, so the
+// issue-enqueue verb on an Initiative routes to its Project operation:
+// project_create before the Project exists, project_update afterwards. This
+// is the route existing Initiatives use, since only a fresh capture enqueued
+// a project_create before.
+func TestLinearIssueEnqueueOnAnInitiativeQueuesProjectOperations(t *testing.T) {
+	t.Parallel()
+	s := openTemp(t)
+	ctx := context.Background()
+	setupLinearProduct(t, s, "route-product")
+	setupLinearLabelConnection(t, s, "route-product", map[string]string{
+		"task": "label-task", "project:route-product-project": "label-repo",
+	})
+	enableLinearPlanning(t, s, "route-product", 2)
+	seedLinearWorkOfKind(t, s, "route-initiative", "route-product-project", "initiative", "Routed initiative", "Routed value")
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE work_items SET narrative='The routed narrative.' WHERE id='route-initiative'; DELETE FROM fold_guard`); err != nil {
+		t.Fatal(err)
+	}
+
+	entry, err := s.EnqueueLinearIssueForProduct(ctx, "route-product", "route-initiative", LinearOpIssueCreate)
+	if err != nil {
+		t.Fatalf("EnqueueLinearIssueForProduct(initiative) error = %v", err)
+	}
+	if entry.OpKind != LinearOpProjectCreate {
+		t.Fatalf("queued op kind = %s, want project_create", entry.OpKind)
+	}
+	payload := decodeLinearPayload(t, s, entry.OperationID)
+	if payload.Title != "Routed initiative" || payload.Description != "Routed value" || payload.Content != "The routed narrative." {
+		t.Fatalf("project payload = %+v, want the Initiative title, value statement, and narrative", payload)
+	}
+	var linkCount int
+	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT count(*) FROM linear_issue_links WHERE work_id='route-initiative'`).Scan(&linkCount); err != nil {
+		t.Fatal(err)
+	}
+	if linkCount != 0 {
+		t.Fatalf("an Initiative routed to its Project queued %d issue links, want 0", linkCount)
+	}
+
+	seedLinearProjectLink(t, s, "route-initiative", "remote-project-routed")
+	update, err := s.EnqueueLinearIssueForProduct(ctx, "route-product", "route-initiative", LinearOpIssueUpdate)
+	if err != nil {
+		t.Fatalf("EnqueueLinearProjectForInitiative(update) error = %v", err)
+	}
+	if update.OpKind != LinearOpProjectUpdate {
+		t.Fatalf("queued op kind = %s, want project_update once the Project exists", update.OpKind)
+	}
+}
+
+// CD-0171 D6 correction: the issue description links the other Initiatives by
+// their Linear Project URL when the Project exists, and by title and work id
+// when it does not, instead of naming a bare work id nobody can open.
+func TestLinearIssueDescriptionLinksOtherInitiativesByProjectURL(t *testing.T) {
+	t.Parallel()
+	s := openTemp(t)
+	ctx := context.Background()
+	setupLinearProduct(t, s, "linkdesc-product")
+	setupLinearLabelConnection(t, s, "linkdesc-product", map[string]string{
+		"task": "label-task", "project:linkdesc-product-project": "label-repo",
+	})
+	enableLinearPlanning(t, s, "linkdesc-product", 2)
+	seedLinearWorkOfKind(t, s, "linkdesc-first", "linkdesc-product-project", "initiative", "First initiative", "First value")
+	seedLinearWorkOfKind(t, s, "linkdesc-second", "linkdesc-product-project", "initiative", "Second initiative", "Second value")
+	seedLinearWorkOfKind(t, s, "linkdesc-third", "linkdesc-product-project", "initiative", "Third initiative", "Third value")
+	seedLinearWorkItem(t, s, "linkdesc-work", "linkdesc-product-project", "Shared title", "Shared value")
+	seedLinearInitiativeEntry(t, s, "linkdesc-first", "linkdesc-work", true)
+	seedLinearInitiativeEntry(t, s, "linkdesc-second", "linkdesc-work", true)
+	seedLinearInitiativeEntry(t, s, "linkdesc-third", "linkdesc-work", true)
+	seedLinearProjectLinkWithURL(t, s, "linkdesc-second", "remote-project-second", "https://linear.app/example/project/remote-project-second")
+
+	op, err := s.EnqueueLinearIssueForWork(ctx, "linkdesc-work", LinearOpIssueCreate)
+	if err != nil {
+		t.Fatalf("EnqueueLinearIssueForWork() error = %v", err)
+	}
+	description := decodeLinearPayload(t, s, op.OperationID).Description
+	if !strings.Contains(description, "Also in [Second initiative](https://linear.app/example/project/remote-project-second).") {
+		t.Fatalf("description = %q, want the linked other Initiative", description)
+	}
+	if !strings.Contains(description, "Also in Third initiative (`linkdesc-third`).") {
+		t.Fatalf("description = %q, want the unlinked other Initiative by title and work id", description)
+	}
+	if strings.Contains(description, "Also in `linkdesc-second`") || strings.Contains(description, "Also in `linkdesc-third`") {
+		t.Fatalf("description = %q, want no other Initiative named by bare work id", description)
 	}
 }
 
@@ -356,7 +508,7 @@ func TestProjectCreateCompletionRefreshesEntryIssues(t *testing.T) {
 	s := openTemp(t)
 	ctx := context.Background()
 	setupLinearProduct(t, s, "refresh-product")
-	setupLinearLabelConnection(t, s, "refresh-product", map[string]string{})
+	setupLinearLabelConnection(t, s, "refresh-product", map[string]string{"project:refresh-product-project": "label-refresh-repo"})
 	enableLinearPlanning(t, s, "refresh-product", 2)
 	seedLinearWorkOfKind(t, s, "refresh-initiative", "refresh-product-project", "initiative", "Refresh initiative", "Refresh value")
 	seedLinearWorkItem(t, s, "refresh-entry", "refresh-product-project", "Entry title", "Entry value")
@@ -455,7 +607,7 @@ func TestEntryAddedFoldEnqueuesIssueUpdateForConfirmedIssue(t *testing.T) {
 	s := openTemp(t)
 	ctx := context.Background()
 	setupLinearProduct(t, s, "entryhook-product")
-	setupLinearLabelConnection(t, s, "entryhook-product", map[string]string{"optional": "label-optional"})
+	setupLinearLabelConnection(t, s, "entryhook-product", map[string]string{"optional": "label-optional", "project:entryhook-product-project": "label-entryhook-repo"})
 	enableLinearPlanning(t, s, "entryhook-product", 2)
 	seedLinearWorkOfKind(t, s, "entryhook-initiative", "entryhook-product-project", "initiative", "Entry hook initiative", "Entry hook value")
 	seedLinearWorkItem(t, s, "entryhook-child", "entryhook-product-project", "Child title", "Child value")

@@ -471,13 +471,14 @@ var linearLabelMappingKeys = map[string]bool{
 	"task": true, "bug": true, "decision": true, "research": true, "other": true, "expedite": true,
 }
 
-// linearLabelOptionalKey maps the label that marks a non-required Initiative
-// entry (CD-0171 D5), and linearLabelProjectPrefix names the repository label
+// LinearLabelOptionalKey maps the label that marks a non-required Initiative
+// entry (CD-0171 D5), and LinearLabelProjectPrefix names the repository label
 // keys: project:<concord project id> carries one Concord project membership
-// of the work item (CD-0171 D3).
+// of the work item (CD-0171 D3). The drain reads the same keys to decide
+// which stale remote labels it may remove.
 const (
-	linearLabelOptionalKey   = "optional"
-	linearLabelProjectPrefix = "project:"
+	LinearLabelOptionalKey   = "optional"
+	LinearLabelProjectPrefix = "project:"
 )
 
 // linearLabelMappingKeyRecognized reports whether a label mapping key is a
@@ -487,10 +488,10 @@ const (
 // read path checks shape only, so a connection stays readable while a mapped
 // project is being re-registered.
 func linearLabelMappingKeyRecognized(key string) bool {
-	if linearLabelMappingKeys[key] || key == linearLabelOptionalKey {
+	if linearLabelMappingKeys[key] || key == LinearLabelOptionalKey {
 		return true
 	}
-	if projectID, ok := strings.CutPrefix(key, linearLabelProjectPrefix); ok {
+	if projectID, ok := strings.CutPrefix(key, LinearLabelProjectPrefix); ok {
 		return validateLinearConnectionID(projectID, "Concord project id") == nil
 	}
 	return false
@@ -504,7 +505,7 @@ func validateLinearLabelMapping(ctx context.Context, q queryer, labelIDs map[str
 		if !linearLabelMappingKeyRecognized(key) {
 			return newFailure(KindInvalidPayload, operation, "label mapping key is not recognized", false, "map task, bug, decision, research, other, expedite, optional, or project:<concord project id>")
 		}
-		if projectID, ok := strings.CutPrefix(key, linearLabelProjectPrefix); ok {
+		if projectID, ok := strings.CutPrefix(key, LinearLabelProjectPrefix); ok {
 			var registered int
 			if err := q.QueryRowContext(ctx, `SELECT 1 FROM projects WHERE id=?`, projectID).Scan(&registered); err == sql.ErrNoRows {
 				return newFailure(KindUnknownScope, operation, "label mapping names a Concord project that does not exist", false, "register the Concord project before mapping it to a Linear label")
@@ -1273,18 +1274,48 @@ type linearIssueEnqueuePlan struct {
 	createLink bool
 }
 
+// linearInitiativeMention is one Initiative named in a shared entry's issue
+// description: its title, its Linear Project URL when the Project exists, and
+// its Concord work id as the fallback reference.
+type linearInitiativeMention struct {
+	workID string
+	title  string
+	url    string
+}
+
+// linearInitiativeMentionsCore resolves the description reference data for
+// Initiative work ids through the caller's queryer, so it stays inside the
+// caller's transaction.
+func linearInitiativeMentionsCore(ctx context.Context, q queryer, initiativeWorkIDs []string) ([]linearInitiativeMention, error) {
+	mentions := make([]linearInitiativeMention, 0, len(initiativeWorkIDs))
+	for _, initiativeWorkID := range initiativeWorkIDs {
+		var mention linearInitiativeMention
+		mention.workID = initiativeWorkID
+		err := q.QueryRowContext(ctx, `SELECT w.title, coalesce(l.url, '') FROM work_items w LEFT JOIN linear_project_links l ON l.work_id = w.id WHERE w.id=?`, initiativeWorkID).Scan(&mention.title, &mention.url)
+		if err == sql.ErrNoRows {
+			continue
+		}
+		if err != nil {
+			return nil, wrapFailure(KindUnavailable, "linear_issue_enqueue", "cannot read Initiative mention", true, "retry once the database is readable", err)
+		}
+		mentions = append(mentions, mention)
+	}
+	return mentions, nil
+}
+
 // composeLinearIssueBody renders the issue Description at the single point
 // both enqueue paths share. Each source is omitted when absent so the body
 // never shows an empty label. Heading the value statement stops a reader
 // taking it for a description of the work. The Initiatives section names the
 // earliest-joined owner and links every other Initiative the work item
 // joined (CD-0171 D6): Linear carries one Project field, so the description
-// is the only surface the remaining memberships reach. The single footer
-// line carries the kind and the documented resume line
-// `concord zl <work id> --` from the CLI help. The kind rides the footer
-// rather than its own section because it is one word, and a heading above
-// one word costs two lines to say it.
-func composeLinearIssueBody(valueStatement, premise, workID, kind, ownerInitiative string, otherInitiatives []string) string {
+// is the only surface the remaining memberships reach. A linked other
+// Initiative carries its Linear Project URL; an unlinked one carries its
+// title and work id. The single footer line carries the kind and the
+// documented resume line `concord zl <work id> --` from the CLI help. The
+// kind rides the footer rather than its own section because it is one word,
+// and a heading above one word costs two lines to say it.
+func composeLinearIssueBody(valueStatement, premise, workID, kind, ownerInitiative string, otherInitiatives []linearInitiativeMention) string {
 	sections := make([]string, 0, 4)
 	if trimmed := strings.TrimSpace(valueStatement); trimmed != "" {
 		sections = append(sections, "## Value statement\n\n"+trimmed)
@@ -1296,7 +1327,14 @@ func composeLinearIssueBody(valueStatement, premise, workID, kind, ownerInitiati
 		lines := make([]string, 0, len(otherInitiatives)+1)
 		lines = append(lines, "Owned by `"+ownerInitiative+"`.")
 		for _, other := range otherInitiatives {
-			lines = append(lines, "Also in `"+other+"`.")
+			switch {
+			case other.url != "" && other.title != "":
+				lines = append(lines, "Also in ["+other.title+"]("+other.url+").")
+			case other.title != "":
+				lines = append(lines, "Also in "+other.title+" (`"+other.workID+"`).")
+			default:
+				lines = append(lines, "Also in `"+other.workID+"`.")
+			}
 		}
 		sections = append(sections, "## Initiatives\n\n"+strings.Join(lines, "\n"))
 	}
@@ -1319,13 +1357,13 @@ func linearIssueLabelIDs(connection LinearConnection, kind, urgency string, proj
 	keys := make([]string, 0, len(projectIDs)+3)
 	keys = append(keys, kind)
 	for _, projectID := range projectIDs {
-		keys = append(keys, linearLabelProjectPrefix+projectID)
+		keys = append(keys, LinearLabelProjectPrefix+projectID)
 	}
 	if urgency == "expedite" {
 		keys = append(keys, "expedite")
 	}
 	if optionalEntry {
-		keys = append(keys, linearLabelOptionalKey)
+		keys = append(keys, LinearLabelOptionalKey)
 	}
 	labels := make([]string, 0, len(keys))
 	seen := make(map[string]bool, len(keys))
@@ -1390,6 +1428,24 @@ func enqueueLinearIssueForWorkCore(ctx context.Context, q queryer, expectedProdu
 	} else if err != nil {
 		return linearIssueEnqueuePlan{}, wrapFailure(KindUnavailable, "linear_issue_enqueue", "cannot read work item", true, "retry once the database is readable", err)
 	}
+	if kind == "initiative" {
+		// CD-0171 D2/D7: an Initiative has no Linear issue of its own, so
+		// syncing it means syncing its Linear Project. Before the Project
+		// exists the route is project_create; afterwards project_update.
+		// This is the route existing Initiatives use, because only a fresh
+		// capture enqueues a project_create on its own.
+		projectOp := LinearOpProjectCreate
+		if remoteUUID, err := readLinearProjectLinkUUIDCore(ctx, q, workID); err != nil {
+			return linearIssueEnqueuePlan{}, err
+		} else if remoteUUID != "" {
+			projectOp = LinearOpProjectUpdate
+		}
+		entry, err := enqueueLinearProjectForInitiativeCore(ctx, q, expectedProductID, workID, projectOp)
+		if err != nil {
+			return linearIssueEnqueuePlan{}, err
+		}
+		return linearIssueEnqueuePlan{entry: entry, payload: entry.Payload}, nil
+	}
 	productID, err := resolveLinearProductCore(ctx, q, workID)
 	if err != nil {
 		return linearIssueEnqueuePlan{}, err
@@ -1415,7 +1471,21 @@ func enqueueLinearIssueForWorkCore(ctx context.Context, q queryer, expectedProdu
 	if err != nil {
 		return linearIssueEnqueuePlan{}, err
 	}
-	ownerInitiative, otherInitiatives, err := resolveLinearInitiativeOwnershipCore(ctx, q, workID)
+	// CD-0171 D3: every synced issue carries its repository label, so each
+	// member Project needs its project:<id> mapping. A missing mapping
+	// refuses with the typed failure the former repository mapping used,
+	// matching that refusal's surface: the capture path absorbs it as a
+	// configuration no-op, and an explicit enqueue reports it.
+	for _, projectID := range projectIDs {
+		if connection.LabelIDs[LinearLabelProjectPrefix+projectID] == "" {
+			return linearIssueEnqueuePlan{}, newFailure(KindInvalidRelation, "linear_issue_enqueue", fmt.Sprintf("Concord project %q has no project:<id> Linear label mapping", projectID), false, "map label_ids.project:<concord project id> on the Linear connection resource before enqueueing Linear issues")
+		}
+	}
+	ownerInitiative, otherInitiativeIDs, err := resolveLinearInitiativeOwnershipCore(ctx, q, workID)
+	if err != nil {
+		return linearIssueEnqueuePlan{}, err
+	}
+	otherInitiatives, err := linearInitiativeMentionsCore(ctx, q, otherInitiativeIDs)
 	if err != nil {
 		return linearIssueEnqueuePlan{}, err
 	}
@@ -2083,6 +2153,9 @@ func enqueueLinearIssueForCaptureTx(ctx context.Context, tx *sql.Tx, workID stri
 	}
 	plan, err := enqueueLinearIssueForWorkCore(ctx, tx, productID, workID, LinearOpIssueCreate)
 	if err != nil {
+		if linearCaptureConfigurationRefusal(err) {
+			return ClaimedLinearOperation{}, false, nil
+		}
 		return ClaimedLinearOperation{}, false, err
 	}
 	entry, err := persistLinearIssueEnqueueTx(ctx, tx, plan, at.UTC().Format(time.RFC3339Nano))
@@ -2527,11 +2600,14 @@ func (s *Store) EnsureLinearIssueWork(ctx context.Context, productID, remoteUUID
 	return workID, nil
 }
 
-// ImportLinearInitiative imports one Linear initiative as a Concord initiative
-// work item with external_ref linear:<uuid>. The import is one-way and once:
-// a repeated import of the same remote identity refuses with a typed
-// duplicate, and nothing here ever writes back to Linear.
-func (s *Store) ImportLinearInitiative(ctx context.Context, productID, remoteUUID, name, description string) (ImportedLinearInitiative, error) {
+// ImportLinearInitiative imports one Linear Project as a Concord Initiative
+// work item with external_ref linear:<uuid>, and records the imported remote
+// Project on the Initiative's project link in the same transaction, so the
+// entries of an imported Initiative acquire its Project on their next sync.
+// The import is one-way and once: a repeated import of the same remote
+// identity refuses with a typed duplicate, and nothing here ever writes back
+// to Linear.
+func (s *Store) ImportLinearInitiative(ctx context.Context, productID, remoteUUID, name, description, url string) (ImportedLinearInitiative, error) {
 	if len(remoteUUID) < 2 || len(remoteUUID) > 128 {
 		return ImportedLinearInitiative{}, newFailure(KindInvalidPayload, "linear_initiative_import", "remote initiative uuid must be 2 to 128 characters", false, "supply the Linear initiative uuid")
 	}
@@ -2578,11 +2654,40 @@ func (s *Store) ImportLinearInitiative(ctx context.Context, productID, remoteUUI
 		return ImportedLinearInitiative{}, wrapFailure(KindUnavailable, "linear_initiative_import", "cannot encode membership payload", true, "retry the import", err)
 	}
 	now := s.now().UTC()
-	if err := ApplyOperation(ctx, s, Operation{Events: []Event{
+	operation := Operation{Events: []Event{
 		{EventID: "linear-initiative-import:" + externalRef + ":create", Kind: "work.created", SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "operator", OccurredAt: now, PayloadVersion: 2, Payload: payload},
 		{EventID: "linear-initiative-import:" + externalRef + ":memberships", Kind: "work.memberships_replaced", SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "operator", OccurredAt: now, PayloadVersion: 1, Payload: membershipPayload},
-	}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 0}}); err != nil {
+	}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 0}}
+	stampedAt := now.UTC().Format(time.RFC3339Nano)
+	if err := s.Transact(ctx, func(transaction *Transaction) error {
+		return importLinearInitiativeTx(ctx, transaction, operation, workID, remoteUUID, name, url, stampedAt)
+	}); err != nil {
 		return ImportedLinearInitiative{}, err
 	}
 	return ImportedLinearInitiative{WorkID: workID, ExternalRef: externalRef, Title: name}, nil
+}
+
+// importLinearInitiativeTx applies the import events and records the imported
+// Linear Project link inside one transaction, so the work identity and its
+// Project link exist together or not at all.
+func importLinearInitiativeTx(ctx context.Context, transaction *Transaction, operation Operation, workID, remoteUUID, name, url, now string) error {
+	if _, err := ApplyOperationTx(ctx, transaction, operation); err != nil {
+		return err
+	}
+	tx, err := transactionSQL(transaction, "linear_initiative_import")
+	if err != nil {
+		return err
+	}
+	// The imported remote Project IS the Initiative's Project (CD-0171 D7).
+	// The link table is fold-only, so the write runs inside its own fold
+	// region. DO NOTHING keeps a row a completed project_create recorded,
+	// because that completion owns the link it wrote.
+	if err := enterFold(ctx, tx); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO linear_project_links(work_id, remote_project_uuid, name, url, created_at, updated_at) VALUES(?,?,?,?,?,?)
+		ON CONFLICT(work_id) DO NOTHING`, workID, remoteUUID, name, url, now, now); err != nil {
+		return wrapFailure(KindUnavailable, "linear_initiative_import", "cannot record the imported Linear Project link", true, "retry the import", err)
+	}
+	return leaveFold(ctx, tx)
 }

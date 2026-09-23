@@ -1473,7 +1473,7 @@ func runLinearOutboxDrain(ctx context.Context, s *store.Store, raw []byte, comma
 			continue
 		}
 		if op.OpKind == store.LinearOpIssueUpdate {
-			issue, derr = drainUpdate(ctx, s, client, op, payload)
+			issue, derr = drainUpdate(ctx, s, client, op, payload, connection)
 		} else if op.OpKind == store.LinearOpIssueAdopt {
 			issue, derr = drainAdopt(ctx, client, payload, teamID)
 		} else {
@@ -1645,7 +1645,12 @@ func drainProject(ctx context.Context, s *store.Store, client *linearclient.Clie
 }
 
 // drainUpdate resolves the linked remote identity and executes issueUpdate.
-func drainUpdate(ctx context.Context, s *store.Store, client *linearclient.Client, op store.ClaimedLinearOperation, payload linearDrainPayload) (linearclient.Issue, error) {
+// The update carries the issue's full Project and Concord-managed label
+// state: an empty payload Project sends an explicit null so Linear clears the
+// field (CD-0171 D4, D6), and remote labels under the project:* and optional
+// connection keys that the payload no longer desires ride removedLabelIds
+// (CD-0171 D3, D5). Labels outside those keys are never Concord's to remove.
+func drainUpdate(ctx context.Context, s *store.Store, client *linearclient.Client, op store.ClaimedLinearOperation, payload linearDrainPayload, connection store.LinearConnection) (linearclient.Issue, error) {
 	link, err := s.ReadLinearLink(ctx, op.WorkID)
 	if err != nil {
 		return linearclient.Issue{}, err
@@ -1653,7 +1658,32 @@ func drainUpdate(ctx context.Context, s *store.Store, client *linearclient.Clien
 	if link.RemoteIssueUUID == "" || link.RemoteIssueUUID == payload.ClientUUID {
 		return linearclient.Issue{}, fmt.Errorf("link has no confirmed remote issue to update")
 	}
-	input := linearclient.UpdateIssueInput{ProjectID: payload.ProjectID, StatusID: payload.StatusID, AddedLabelIDs: payload.LabelIDs}
+	var projectID *string
+	if payload.ProjectID != "" {
+		projectID = &payload.ProjectID
+	}
+	input := linearclient.UpdateIssueInput{ProjectID: projectID, StatusID: payload.StatusID, AddedLabelIDs: payload.LabelIDs}
+	desired := make(map[string]bool, len(payload.LabelIDs))
+	for _, labelID := range payload.LabelIDs {
+		desired[labelID] = true
+	}
+	managed := make(map[string]bool)
+	for key, labelID := range connection.LabelIDs {
+		if key == store.LinearLabelOptionalKey || strings.HasPrefix(key, store.LinearLabelProjectPrefix) {
+			managed[labelID] = true
+		}
+	}
+	if len(managed) > 0 {
+		current, labelErr := client.GetIssueLabelIDs(ctx, link.RemoteIssueUUID)
+		if labelErr != nil {
+			return linearclient.Issue{}, labelErr
+		}
+		for _, labelID := range current {
+			if managed[labelID] && !desired[labelID] {
+				input.RemovedLabelIDs = append(input.RemovedLabelIDs, labelID)
+			}
+		}
+	}
 	if link.ContentHash != linearContentHash(payload.Title, payload.Description) {
 		input.Title = payload.Title
 		input.Description = payload.Description
@@ -1718,7 +1748,7 @@ func runLinearInitiativeImport(ctx context.Context, s *store.Store, raw []byte, 
 		writeOperatorDiagnostic(errOut, command, err.Error())
 		return 1
 	}
-	imported, err := s.ImportLinearInitiative(ctx, request.ProductID, project.ID, project.Name, project.Description)
+	imported, err := s.ImportLinearInitiative(ctx, request.ProductID, project.ID, project.Name, project.Description, project.URL)
 	if err != nil {
 		writeOperatorDiagnostic(errOut, command, err.Error())
 		return 1

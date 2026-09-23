@@ -127,11 +127,74 @@ func TestUpdateIssueNeverSendsPriority(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := client.UpdateIssue(context.Background(), "68d52710-76d9-4b41-ba45-778511d0e2ed", UpdateIssueInput{Title: "Revised title", Description: "Revised description", ProjectID: "project-uuid-1", StatusID: "state-cancelled", AddedLabelIDs: []string{"label-task"}}); err != nil {
+	setProjectID := "project-uuid-1"
+	if _, err := client.UpdateIssue(context.Background(), "68d52710-76d9-4b41-ba45-778511d0e2ed", UpdateIssueInput{Title: "Revised title", Description: "Revised description", ProjectID: &setProjectID, StatusID: "state-cancelled", AddedLabelIDs: []string{"label-task"}}); err != nil {
 		t.Fatalf("UpdateIssue() error = %v", err)
 	}
 	if strings.Contains(gotBody, `"priority":`) {
 		t.Fatalf("issueUpdate body %q must never resend a priority: Linear owns triage after creation", gotBody)
+	}
+}
+
+// CD-0171 review correction: an issue_update carries the issue's full Project
+// state. A nil ProjectID marshals as an explicit JSON null, which Linear reads
+// as "clear the field" (the omitempty string omitted it, so a remote issue
+// kept its Project after its last Initiative entry left), and RemovedLabelIDs
+// carries the Concord-managed labels that no longer apply.
+func TestUpdateIssueSendsProjectIdNullAndRemovedLabelIds(t *testing.T) {
+	var gotBodies []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		gotBodies = append(gotBodies, string(body))
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":{"issueUpdate":{"success":true,"issue":{"id":"68d52710-76d9-4b41-ba45-778511d0e2ed","identifier":"SHA-1","url":"https://linear.app/example/issue/SHA-1","updatedAt":"2026-09-09T12:01:00Z"}}}}`))
+	}))
+	defer server.Close()
+	client, err := New("lin_api_test", WithEndpoint(server.URL))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.UpdateIssue(context.Background(), "68d52710-76d9-4b41-ba45-778511d0e2ed", UpdateIssueInput{Title: "T"}); err != nil {
+		t.Fatalf("UpdateIssue(nil project) error = %v", err)
+	}
+	if !strings.Contains(gotBodies[0], `"projectId":null`) {
+		t.Fatalf("request body %q lacks the explicit null projectId that clears the field", gotBodies[0])
+	}
+	if _, err := client.UpdateIssue(context.Background(), "68d52710-76d9-4b41-ba45-778511d0e2ed", UpdateIssueInput{Title: "T", ProjectID: &[]string{"remote-project-1"}[0], RemovedLabelIDs: []string{"label-stale"}}); err != nil {
+		t.Fatalf("UpdateIssue(set project) error = %v", err)
+	}
+	if !strings.Contains(gotBodies[1], `"projectId":"remote-project-1"`) {
+		t.Fatalf("request body %q lacks the owning Initiative's project uuid", gotBodies[1])
+	}
+	if !strings.Contains(gotBodies[1], `"removedLabelIds":["label-stale"]`) {
+		t.Fatalf("request body %q lacks removedLabelIds for the label that no longer applies", gotBodies[1])
+	}
+}
+
+// The drain needs the issue's current labels to compute the Concord-managed
+// labels that no longer apply (CD-0171 D3, D5).
+func TestGetIssueLabelIDsFetchesTheLabelConnection(t *testing.T) {
+	var gotBody string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		gotBody = string(body)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":{"issue":{"labels":{"nodes":[{"id":"label-repo"},{"id":"label-optional"}]}}}}`))
+	}))
+	defer server.Close()
+	client, err := New("lin_api_test", WithEndpoint(server.URL))
+	if err != nil {
+		t.Fatal(err)
+	}
+	labels, err := client.GetIssueLabelIDs(context.Background(), "68d52710-76d9-4b41-ba45-778511d0e2ed")
+	if err != nil {
+		t.Fatalf("GetIssueLabelIDs() error = %v", err)
+	}
+	if len(labels) != 2 || labels[0] != "label-repo" || labels[1] != "label-optional" {
+		t.Fatalf("labels = %v, want the connection's label ids", labels)
+	}
+	if !strings.Contains(gotBody, "labels") || !strings.Contains(gotBody, "nodes") {
+		t.Fatalf("request body %q, want the labels connection query", gotBody)
 	}
 }
 

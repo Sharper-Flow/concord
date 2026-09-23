@@ -120,6 +120,12 @@ func setupLinearConnectionResourceAtVersion(t *testing.T, s *Store, productID st
 				"superseded": "linear-status-superseded",
 			}
 		}
+		// CD-0171 D3: every synced issue carries its repository label, so a
+		// fixture connection maps the Product's convention-named project
+		// unless the test declares its own label_ids on purpose.
+		if _, exists := linear["label_ids"]; !exists {
+			linear["label_ids"] = map[string]string{"project:" + productID + "-project": "label-" + productID + "-repo"}
+		}
 	}
 	now := time.Date(2026, 9, 9, 0, 0, 0, 0, time.UTC)
 	raw, _ := json.Marshal(metadata)

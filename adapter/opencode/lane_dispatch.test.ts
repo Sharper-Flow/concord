@@ -387,7 +387,7 @@ test("a registered utility id refuses dispatch_worker before any core call with 
   expect(result.outcome).toBe("error")
   expect(result.error?.kind).toBe("invalid_input")
   expect(result.error?.retry_safe).toBe(false)
-  expect(result.error?.recovery_action).toBe("reconcile_operation")
+  expect(result.error?.recovery_action).toBe("use_declared_route")
   expect(result.error?.message).toContain(utility.id)
   expect(result.error?.message).toContain(`concord-${utility.id}`)
   expect(result.error?.message).toMatch(/native task/i)

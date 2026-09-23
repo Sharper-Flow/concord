@@ -81,7 +81,7 @@ function utilityDispatchRefusal(utility: AgentUtility, input: LaneDispatchInput)
     "error",
     "invalid_input",
     `dispatch_worker refuses utility id ${utility.id}: a utility runs as a native Task with subagent_type concord-${utility.id}, from a coordinator session only, and without a dispatch window; issue that Task call instead of dispatch_worker`,
-    "reconcile_operation",
+    "use_declared_route",
     { details: { boundary: "utility_dispatch", utility: utility.id, route: `native Task with subagent_type concord-${utility.id}`, coordinator_session_only: true, dispatch_window: false } },
   )
   refusal.error!.retry_safe = false

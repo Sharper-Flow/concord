@@ -2,6 +2,7 @@ package storeport
 
 import (
 	"context"
+	"fmt"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -108,8 +109,8 @@ func TestS2DomainSectionReadsLawRelationsWorkAndOverlapFromTheStore(t *testing.T
 	if len(snapshot.Domains.Relations) != 0 {
 		t.Fatalf("single-Domain Product rendered %d architecture relations: %#v", len(snapshot.Domains.Relations), snapshot.Domains.Relations)
 	}
-	if snapshot.Domains.Truncated {
-		t.Fatal("one Domain and no relations cannot exceed the relation bound")
+	if snapshot.Domains.RelationsTruncated || snapshot.Domains.OverlapsTruncated || snapshot.Domains.RegistryIncomplete {
+		t.Fatal("one Domain and no relations cannot exceed any read bound")
 	}
 
 	// Unresolved architecture overlap between the two Domain-bound contracts,
@@ -200,6 +201,105 @@ func TestS2ArchitectureRelationsAreAuthoritativeEmptyNotUnavailable(t *testing.T
 	}
 	if row := domainProjectionRow(t, empty); strings.HasPrefix(row[0], "unavailable:") {
 		t.Fatalf("authoritative-empty Domain section rendered as unavailable: %#v", row)
+	}
+}
+
+// boundedOverlapStore assembles the bounded-read shape: eleven Domain-bound
+// contracts enumerate 55 overlap pairs, past the 50-pair bound, while the
+// projected registry carries eight current Domain rows — the registry shape
+// the real Product holds.
+func boundedOverlapStore(t *testing.T) *store.Store {
+	t.Helper()
+	ctx := context.Background()
+	s := openLauncherStore(t)
+	if err := pm1fixture.SeedProductAndProject(ctx, s, "product-1", "project-1"); err != nil {
+		t.Fatal(err)
+	}
+	works := make([]string, 0, 11)
+	for i := 1; i <= 11; i++ {
+		workID := fmt.Sprintf("bounded-overlap-%02d", i)
+		if err := pm1fixture.SeedWorkItem(ctx, s, "project-1", workID, "Bounded overlap work", i); err != nil {
+			t.Fatal(err)
+		}
+		works = append(works, workID)
+	}
+	options := pm1fixture.DomainEvidenceOptions{Dir: t.TempDir(), ProductID: "product-1", ProjectID: "project-1", LocatorID: "domain-evidence-locator", WorkIDs: works}
+	if err := pm1fixture.SeedDomainEvidence(ctx, s, options); err != nil {
+		t.Fatal(err)
+	}
+	// Seven more current Domains on the single-Domain evidence registry bring
+	// the section to the real eight-row shape without touching the evidence
+	// fixtures.
+	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+		tx.Rollback()
+		t.Fatal(err)
+	}
+	for i := 1; i <= 7; i++ {
+		domainID := fmt.Sprintf("bounded-extra-%d", i)
+		if _, err := tx.ExecContext(ctx, `INSERT INTO domains(home_project_id,home_locator_id,product_id,domain_id,name,purpose,parent_domain_id,status,registry_content_hash,scanned_commit_oid) SELECT home_project_id,home_locator_id,product_id,?,'Extra','Fixture domain',?,status,registry_content_hash,scanned_commit_oid FROM domains WHERE product_id=? AND domain_id=?`, domainID, pm1fixture.SingleDomainRootID, "product-1", pm1fixture.SingleDomainRootID); err != nil {
+			tx.Rollback()
+			t.Fatal(err)
+		}
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM fold_guard`); err != nil {
+		tx.Rollback()
+		t.Fatal(err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	return s
+}
+
+// The bounded overlap enumeration must not hide the complete registry read:
+// the section keeps its eight Domain rows and the Git registry watermark,
+// names the bounded part, and never answers "no unresolved overlaps" from an
+// incomplete enumeration.
+func TestS2DomainSectionBoundedOverlapKeepsRegistryRows(t *testing.T) {
+	snapshot := readDomainSection(t, boundedOverlapStore(t), "product-1")
+
+	if snapshot.Domains.State != "authoritative" {
+		t.Fatalf("bounded overlaps marked the whole section unavailable: %#v", snapshot.Domains)
+	}
+	if !strings.HasPrefix(snapshot.Domains.Registry, "sha256:") {
+		t.Fatalf("bounded overlap read dropped the registry watermark: %q", snapshot.Domains.Registry)
+	}
+	if len(snapshot.Domains.Domains) != 8 {
+		t.Fatalf("bounded overlap read rendered %d Domain rows, want the eight registry rows: %#v", len(snapshot.Domains.Domains), snapshot.Domains.Domains)
+	}
+	if !snapshot.Domains.OverlapsTruncated {
+		t.Fatalf("fixture did not reach the overlap bound: %#v", snapshot.Domains)
+	}
+	if snapshot.Domains.RelationsTruncated || snapshot.Domains.RegistryIncomplete {
+		t.Fatalf("fixture bounded a part it should not: %#v", snapshot.Domains)
+	}
+	if len(snapshot.Domains.Overlaps) != 50 {
+		t.Fatalf("overlap pairs = %d, want the 50-pair bound", len(snapshot.Domains.Overlaps))
+	}
+
+	// The S2 panel states the bounded enumeration as unavailable instead of
+	// evaluating clean from partial data.
+	summary := snapshot.S2AnswerStack().Domain.Domain
+	if summary.Evaluated || summary.UnavailableReason != "domain_overlaps_bounded" {
+		t.Fatalf("bounded overlap enumeration evaluated clean: %#v", summary)
+	}
+
+	// 80 and 120 column terminal rendering keeps the registry rows visible and
+	// carries no unavailable row for the bounded part.
+	for _, width := range []int{80, 120} {
+		projection := launcher.Project(snapshot, width, func(s string) int { return utf8.RuneCountInString(s) })
+		if len(projection.Rows) != 8 {
+			t.Fatalf("width %d rendered %d Domain rows: %#v", width, len(projection.Rows), projection.Rows)
+		}
+		for _, row := range projection.Rows {
+			if strings.HasPrefix(row[0], "unavailable:") {
+				t.Fatalf("width %d rendered the bounded section unavailable: %#v", width, row)
+			}
+		}
 	}
 }
 

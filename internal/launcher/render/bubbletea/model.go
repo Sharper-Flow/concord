@@ -1237,9 +1237,11 @@ func s2PanelContent(panel launcher.S2Panel, expanded bool, stack launcher.S2Answ
 	}
 	switch panel {
 	case launcher.S2PanelDomain:
-		domainHeader, domainHeaders, domainRows, domainSeverities := domainLines(snapshot.Domains)
+		domainHeader, domainHeaders, domainRows, domainSeverities, domainDetail := domainLines(snapshot.Domains)
 		domainHeaders, domainRows = fitTable(domainHeaders, domainRows, width)
-		return append([]string{"DOMAIN:"}, domainHeader...), domainHeaders, domainRows, append(knowledgeLines(snapshot.Knowledge), relationLines(snapshot.Relations)...), domainSeverities
+		detail := append(domainDetail, knowledgeLines(snapshot.Knowledge)...)
+		detail = append(detail, relationLines(snapshot.Relations)...)
+		return append([]string{"DOMAIN:"}, domainHeader...), domainHeaders, domainRows, detail, domainSeverities
 	case launcher.S2PanelBlocked, launcher.S2PanelNext:
 		rankedHeaders, rankedRows, rankedSeverities := rankedTable(ranked, snapshot, width)
 		label := "WORK:"
@@ -1623,22 +1625,31 @@ func (m *Model) renderS3(headers []string, cursor int) renderedPane {
 	return renderedPane{header: header, tableHeaders: tableHeaders, rows: rows, severities: severities, tail: tail, cursor: cursor, color: m.profile.Color}
 }
 
-func domainLines(section launcher.DomainSection) ([]string, []string, [][]string, []rowSeverity) {
+// domainLines splits the Domain section into the pane layers. The status
+// lines seat above the table at every terminal height: each truncation
+// warning and the Git registry watermark stay beside the complete registry
+// rows, so a bound on one part never pushes a sibling part's complete answer
+// out of the first viewport. The relation and overlap enumeration rides
+// below the table and never answers for the section.
+func domainLines(section launcher.DomainSection) ([]string, []string, [][]string, []rowSeverity, []string) {
 	if !section.Read {
-		return []string{"DOMAINS: unavailable: not_read"}, nil, nil, nil
+		return []string{"DOMAINS: unavailable: not_read"}, nil, nil, nil, nil
 	}
 	if section.State == "unavailable" {
 		reason := section.Reason
 		if reason == "" {
 			reason = "unavailable"
 		}
-		return []string{"DOMAINS: unavailable: " + reason}, nil, nil, nil
+		return []string{"DOMAINS: unavailable: " + reason}, nil, nil, nil, nil
 	}
 	var header []string
 	var rows [][]string
 	var severities []rowSeverity
 	if len(section.Domains) == 0 {
 		header = append(header, "DOMAINS: authoritative-empty")
+	}
+	if section.Registry != "" {
+		header = append(header, "REGISTRY: "+section.Registry)
 	}
 	for _, domain := range section.Domains {
 		marker := "DOMAIN"
@@ -1663,20 +1674,26 @@ func domainLines(section launcher.DomainSection) ([]string, []string, [][]string
 		})
 		severities = append(severities, severityNone)
 	}
+	var detail []string
 	for _, relation := range section.Relations {
-		header = append(header, "RELATION "+relation.Kind+": "+relation.Source+" -> "+relation.Target+" state="+relation.State)
+		detail = append(detail, "RELATION "+relation.Kind+": "+relation.Source+" -> "+relation.Target+" state="+relation.State)
 	}
 	for _, pair := range section.Overlaps {
 		resolution := pair.State
 		if resolution == "" {
 			resolution = "absent"
 		}
-		header = append(header, "OVERLAP "+pair.From+" & "+pair.To+" domains="+strings.Join(pair.SharedDomains, ",")+" resolution="+resolution)
+		detail = append(detail, "OVERLAP "+pair.From+" & "+pair.To+" domains="+strings.Join(pair.SharedDomains, ",")+" resolution="+resolution)
 	}
-	if section.Truncated {
-		header = append(header, "DOMAINS: truncated: bounded read reached")
+	// A bound marks only the part that reached it. Complete registry rows and
+	// the section watermark stay rendered beside the explicit incompleteness.
+	if section.RelationsTruncated {
+		header = append(header, "RELATIONS: incomplete: bounded read reached")
 	}
-	return header, []string{"Domain", "Marker", "Parent", "Relations"}, rows, severities
+	if section.OverlapsTruncated {
+		header = append(header, "OVERLAPS: incomplete: bounded read reached")
+	}
+	return header, []string{"Domain", "Marker", "Parent", "Relations"}, rows, severities, detail
 }
 
 func knowledgeLines(section launcher.KnowledgeSection) []string {
@@ -1949,11 +1966,39 @@ func pane(content renderedPane, width, height, offset int) string {
 	innerHeight := height - 2
 	header := renderTextRows(content.header, innerWidth)
 	tail := renderTextRows(content.tail, innerWidth)
+	// The pane owns the frame contract. lipgloss Height pads a short block
+	// and never clips a tall one, so header, table, and tail must compose
+	// to exactly innerHeight rows by construction. The header and the data
+	// table keep their seats; the tail enumerates detail in the remaining
+	// rows and names its own omission when the enumeration cannot finish
+	// inside the frame.
 	tableHeight := max(1, innerHeight-len(header)-len(tail))
 	if len(content.rows) > 0 {
 		tableHeight = max(3, tableHeight)
 	}
 	data := renderTable(content.tableHeaders, content.rows, content.severities, innerWidth, tableHeight, offset, content.cursor, content.color)
+	dataLines := 0
+	if data != "" {
+		dataLines = strings.Count(data, "\n") + 1
+	}
+	if len(tail) > 0 {
+		if room := innerHeight - len(header) - dataLines; len(tail) > room {
+			if room <= 0 && tableHeight > 1 && len(content.rows) > 0 {
+				// The header and table fill the pane: one table row yields
+				// so the tail's omission marker keeps a seat.
+				tableHeight--
+				data = renderTable(content.tableHeaders, content.rows, content.severities, innerWidth, tableHeight, offset, content.cursor, content.color)
+				dataLines = 0
+				if data != "" {
+					dataLines = strings.Count(data, "\n") + 1
+				}
+				room = innerHeight - len(header) - dataLines
+			}
+			kept := max(0, room-1)
+			marker := renderTextRows([]string{fmt.Sprintf("+%d more detail lines (pane bound reached)", len(tail)-kept)}, innerWidth)
+			tail = append(tail[:kept:kept], marker...)
+		}
+	}
 	lines := make([]string, 0, len(header)+len(tail)+strings.Count(data, "\n")+1)
 	lines = append(lines, header...)
 	if data != "" {

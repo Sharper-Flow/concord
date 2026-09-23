@@ -614,13 +614,21 @@ type LauncherDomainRelation struct {
 // LauncherDomainsResult is the bounded S2 Domain navigation read: the current
 // Domain hierarchy, its typed architecture relations, and derived unresolved
 // overlap — one Product, one registry watermark, no fourth screen.
+//
+// The three reads fail independently at their bounds. RegistryIncomplete
+// marks a Domain row page that stopped short of the registry's end;
+// RelationsTruncated and OverlapsTruncated mark their own enumerations. One
+// part's bound never withholds another part's complete answer, so the
+// registry rows and watermark survive a bounded overlap or relation read.
 type LauncherDomainsResult struct {
 	ResultMeta
-	Registry  *DomainRegistryView
-	Domains   []LauncherDomainRow
-	Relations []LauncherDomainRelation
-	Overlaps  []DomainOverlapPair
-	Truncated bool
+	Registry           *DomainRegistryView
+	Domains            []LauncherDomainRow
+	Relations          []LauncherDomainRelation
+	Overlaps           []DomainOverlapPair
+	RegistryIncomplete bool
+	RelationsTruncated bool
+	OverlapsTruncated  bool
 }
 
 func (s *Store) QueryLauncherDomains(ctx context.Context, req LauncherProductRequest) (LauncherDomainsResult, error) {
@@ -711,18 +719,27 @@ func queryLauncherDomains(ctx context.Context, q queryer, req LauncherProductReq
 	}
 	if len(out.Relations) > domainListMaxLimit {
 		out.Relations = out.Relations[:domainListMaxLimit]
-		out.Truncated = true
+		out.RelationsTruncated = true
 	}
 	out.Registry = list.Registry
 	out.Overlaps = overlaps.Pairs
 	if overlaps.Truncated {
-		out.Truncated = true
+		out.OverlapsTruncated = true
+	}
+	if list.NextCursor != nil {
+		out.RegistryIncomplete = true
 	}
 	omissions := append([]string{}, list.Omissions...)
 	omissions = append(omissions, overlaps.Omissions...)
 	out.ResultMeta = ResultMeta{QueryID: "C14.DomainNav", ContractVersion: "C14/1.0", ResolvedScope: ResolvedScope{ProductID: req.Product}, Authority: "authoritative", OrderingKeys: []string{"name", "domain_id", "kind", "source_domain_id", "target_domain_id"}, Omissions: omissions}
-	if out.Truncated {
+	if out.RegistryIncomplete {
+		out.Omissions = append(out.Omissions, "domain_registry_rows_omitted")
+	}
+	if out.RelationsTruncated {
 		out.Omissions = append(out.Omissions, "domain_relations_bounded")
+	}
+	if out.OverlapsTruncated {
+		out.Omissions = append(out.Omissions, "domain_overlaps_bounded")
 	}
 	return out, nil
 }

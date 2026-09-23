@@ -623,20 +623,8 @@ func livenessOutcomePayload(definition WorkflowDefinition, kind PredicateKind) m
 		if len(definition.OutcomeSchema.AllowedOutcomeTokens) != 0 {
 			token = definition.OutcomeSchema.AllowedOutcomeTokens[0]
 		}
-		payload := built
-		payload["allowed"] = []string{token}
-		// A definition that requires a decision record refuses the contract
-		// without one, so the explorer supplies it rather than reporting the
-		// refusal as a workflow that cannot be approved.
-		if definition.OutcomeSchema.DecisionRecordRequired {
-			record, _ := livenessFromSchema(livenessResolveSchema("workflow_outcome_decision_record"), 0).(map[string]any)
-			if record == nil {
-				record = map[string]any{}
-			}
-			record["decision"] = token
-			payload["decision_record"] = record
-		}
-		return payload
+		built["allowed"] = []string{token}
+		return built
 	default:
 		return built
 	}

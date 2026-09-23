@@ -346,9 +346,9 @@ bindings, and the executing actor. It returns `satisfied`, `verdict_kind`, and
 
 Before evaluation, the submitted predicate is validated against the pinned
 definition's `outcome_schema`, not only against the generic outcome union. The
-validator rejects a predicate kind outside `allowed_kinds`, an outcome token not
-in `allowed_outcome_tokens`, and any architecture-spike outcome without its bound
-decision record. This check runs for all seven families; the generic union is only
+validator rejects a predicate kind outside `allowed_kinds` and an outcome token
+not in `allowed_outcome_tokens`. An inline decision record is validated whenever
+one is supplied. This check runs for all seven families; the generic union is only
 the syntax check, while the selected definition is the authority for meaning.
 
 1. **`exists`:** resolve every approved subject on the named ground-truth surface.
@@ -364,8 +364,8 @@ the syntax check, while the selected definition is the authority for meaning.
 3. **`outcome`:** evaluate the recorded token. It passes iff the token is a member
    of the approved `allowed` set. `no_change` is a valid research result. A spike's
    `accepted_decision` or `insufficient_evidence` token additionally requires the
-   strict, reviewer-validated, operator-accepted decision record in §6.1. A token
-   outside the set is weaker/mismatched.
+   bound decision record in §6.1, and the record's decision token must sit in the
+   approved `allowed` set. A token outside the set is weaker/mismatched.
 4. **`check`:** resolve the registered evaluator against the exact immutable
    subject and compare its closed result with `expected_result`. The evaluator
    owns behavioral strength. It must return `stronger_or_equal`, `weaker`, or
@@ -384,7 +384,12 @@ containing framed questions, options with source-backed evidence, decision,
 rationale, consequences, inputs, proof of concept (POC) findings (or an explicit no-POC value),
 supersession position, reviewer actor, operator acceptance, and for
 `insufficient_evidence`, recorded unknowns plus what would be required to decide.
-An unaccepted record does not satisfy the predicate or unblock a dependent Initiative.
+Evaluation and completion read the latest accepted row in
+`workflow_decision_records` — the row `record_decision` writes and
+`accept_decision` accepts — and require its decision token inside the approved
+`allowed` set. Contract approval validates the predicate kind and its allowed
+tokens, and validates an inline record only when one is supplied. An unaccepted
+record does not satisfy the predicate or unblock a dependent Initiative.
 
 ## 7. Ordered completion gate
 

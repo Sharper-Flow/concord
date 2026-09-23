@@ -457,19 +457,18 @@ func foldWorkTransitioned(ctx context.Context, tx *sql.Tx, event Event) error {
 		if definitionErr != nil && definitionErr != sql.ErrNoRows {
 			return workflowProjectionError(definitionErr, "cannot read workflow definition for work completion")
 		}
-		architectureWorkflow := false
+		var definition WorkflowDefinition
 		if definitionErr == nil {
-			definition, lookupErr := BuiltinWorkflowDefinitionForRef(definitionRef)
+			registered, lookupErr := BuiltinWorkflowDefinitionForRef(definitionRef)
 			if lookupErr != nil {
 				return lookupErr
 			}
-			architectureWorkflow = definition.Definition.WorkKind == WorkKindArchitectureSpike
+			definition = registered.Definition
 		}
-		if architectureWorkflow {
-			// Fail closed until an accepted workflow adds structural decision-record
-			// acceptance. Research attachments and EvidenceRefs are intentionally
-			// not treated as heuristic substitutes for that future proof.
-			return newFailure(KindDecisionRecordRequired, "fold_event", "architecture_spike completion requires an accepted decision record", false, "complete through the accepted decision-record workflow once implemented")
+		if definition.OutcomeSchema.DecisionRecordRequired {
+			if err := requireBoundDecisionRecordTx(ctx, tx, event.SubjectID, definition); err != nil {
+				return err
+			}
 		}
 		if WorkKindRequiresDedicatedOperation(kind) {
 			if _, err := initiativeRequiredChildrenComplete(ctx, tx, event.SubjectID); err != nil {
@@ -497,6 +496,25 @@ func foldWorkTransitioned(ctx context.Context, tx *sql.Tx, event Event) error {
 		}
 		// CD-0028: a terminal work item holds nothing.
 		return foldTerminalReleasesResourceClaims(ctx, tx, event)
+	}
+	return nil
+}
+
+// requireBoundDecisionRecordTx binds completion of a DecisionRecordRequired
+// definition to the record the record_decision fold wrote (CD-0013 D4): the
+// latest accepted row in workflow_decision_records must exist, stand
+// unsuperseded, and carry a decision token the pinned definition allows.
+func requireBoundDecisionRecordTx(ctx context.Context, tx *sql.Tx, workID string, definition WorkflowDefinition) error {
+	var decision string
+	err := tx.QueryRowContext(ctx, `SELECT decision FROM workflow_decision_records WHERE work_id=? AND superseded_by IS NULL ORDER BY recorded_at DESC LIMIT 1`, workID).Scan(&decision)
+	if err == sql.ErrNoRows {
+		return newFailure(KindDecisionRecordRequired, "fold_event", "completion requires a bound, accepted decision record", false, "record_decision, then accept_decision, before completing")
+	}
+	if err != nil {
+		return workflowProjectionError(err, "cannot read workflow decision record")
+	}
+	if !containsString(definition.OutcomeSchema.AllowedOutcomeTokens, decision) {
+		return newFailure(KindDecisionRecordRequired, "fold_event", "decision record token "+decision+" is outside the approved outcome set", false, "record a decision the pinned definition allows")
 	}
 	return nil
 }

@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -460,10 +461,34 @@ func TestWorkflowOutcomeEvaluationUsesPinnedDefinitionAndAuthoritativeCheckStren
 	if _, err := EvaluateWorkflowOutcome(spikeToken, spikeToken, WorkflowOutcomeEvaluationContext{Registry: researchRegistry, DefinitionPin: researchPin}); err == nil {
 		t.Fatal("research definition accepted an architecture-spike token")
 	}
-	_, spikeRegistry, spikePin := phaseBDefinition(t, 3)
-	missingRecord := OutcomePredicate{Kind: PredicateOutcome, Allowed: []string{"accepted_decision"}}
-	if _, err := EvaluateWorkflowOutcome(missingRecord, missingRecord, WorkflowOutcomeEvaluationContext{Registry: spikeRegistry, DefinitionPin: spikePin}); err == nil {
-		t.Fatal("architecture spike accepted a missing decision record")
+	// The bound decision record lives in workflow_decision_records, not on the
+	// predicate: a DecisionRecordRequired definition evaluates against the
+	// record the record_decision fold wrote, so evaluation without the lookup
+	// fails closed, a missing row or out-of-set token is an outcome mismatch,
+	// and the bound token joins the approved allowed set.
+	spikeDefinition, spikeRegistry, spikePin := phaseBDefinition(t, 3)
+	if err := ValidateWorkflowPredicateForDefinition(spikeDefinition, spikeToken); err != nil {
+		t.Fatalf("spike outcome predicate without an inline decision record was refused: %v", err)
+	}
+	if _, err := EvaluateWorkflowOutcome(spikeToken, spikeToken, WorkflowOutcomeEvaluationContext{Registry: spikeRegistry, DefinitionPin: spikePin}); err == nil {
+		t.Fatal("spike evaluation without a decision-record lookup was accepted")
+	}
+	noRecord := WorkflowOutcomeEvaluationContext{Registry: spikeRegistry, DefinitionPin: spikePin, DecisionRecord: func() (string, bool, error) { return "", false, nil }}
+	result, err := EvaluateWorkflowOutcome(spikeToken, spikeToken, noRecord)
+	if err != nil || result.Satisfied || result.VerdictKind != "outcome_mismatch" {
+		t.Fatalf("spike evaluation without a record = %+v err=%v", result, err)
+	}
+	otherToken := WorkflowOutcomeEvaluationContext{Registry: spikeRegistry, DefinitionPin: spikePin, DecisionRecord: func() (string, bool, error) { return "insufficient_evidence", true, nil }}
+	if result, err = EvaluateWorkflowOutcome(spikeToken, spikeToken, otherToken); err != nil || result.Satisfied {
+		t.Fatalf("spike evaluation with an out-of-set record token = %+v err=%v", result, err)
+	}
+	boundRecord := WorkflowOutcomeEvaluationContext{Registry: spikeRegistry, DefinitionPin: spikePin, DecisionRecord: func() (string, bool, error) { return "accepted_decision", true, nil }}
+	if result, err = EvaluateWorkflowOutcome(spikeToken, spikeToken, boundRecord); err != nil || !result.Satisfied || result.VerdictKind != "ok" {
+		t.Fatalf("spike evaluation with the bound record = %+v err=%v", result, err)
+	}
+	readerError := WorkflowOutcomeEvaluationContext{Registry: spikeRegistry, DefinitionPin: spikePin, DecisionRecord: func() (string, bool, error) { return "", false, errors.New("lookup failed") }}
+	if _, err := EvaluateWorkflowOutcome(spikeToken, spikeToken, readerError); err == nil {
+		t.Fatal("spike evaluation swallowed a decision-record lookup failure")
 	}
 }
 
@@ -563,4 +588,112 @@ func phaseBDefinition(t *testing.T, index int) (WorkflowDefinition, DefinitionRe
 		t.Fatal(err)
 	}
 	return definition, registry, WorkflowDefinitionPin{Ref: definition.Ref, Version: definition.Version, Digest: registered.Digest}
+}
+
+// spikeWorkflowFixture seeds one Product, Project, and task work item the way
+// the fail-closed completion fixture does, so the approval and completion
+// tests below measure only the decision-record boundary.
+func spikeWorkflowFixture(t *testing.T, s *Store, workID string, actor WorkflowActor) {
+	t.Helper()
+	ctx := context.Background()
+	events := []Event{
+		{EventID: workID + "-product", Kind: "product.created", SubjectType: SubjectProduct, SubjectID: "product-" + workID, Actor: "test", OccurredAt: time.Unix(1, 0).UTC(), PayloadVersion: 1, Payload: []byte(`{"display_name":"Product","stage_maturity":"prototype","stage_audience_commitment":"operator_only"}`)},
+		{EventID: workID + "-project", Kind: "project.created", SubjectType: SubjectProject, SubjectID: "project-" + workID, Actor: "test", OccurredAt: time.Unix(1, 1).UTC(), PayloadVersion: 1, Payload: []byte(`{"display_name":"Project"}`)},
+		{EventID: workID + "-product-project", Kind: "product_project.added", SubjectType: SubjectProduct, SubjectID: "product-" + workID, Actor: "test", OccurredAt: time.Unix(1, 2).UTC(), PayloadVersion: 1, Payload: mustJSONBytes(map[string]any{"product_id": "product-" + workID, "project_id": "project-" + workID, "role": "primary", "reason": "test", "expected_version": 1, "resulting_version": 2})},
+		{EventID: workID + "-work", Kind: "work.created", SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "test", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: 2, Payload: mustJSONBytes(map[string]any{"work_kind": "task", "title": "Spike", "priority": 1})},
+		{EventID: workID + "-work-project", Kind: "work_project.added", SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "test", OccurredAt: time.Unix(3, 0).UTC(), PayloadVersion: 1, Payload: mustJSONBytes(map[string]any{"work_id": workID, "project_id": "project-" + workID, "role": "primary", "reason": "test", "expected_version": 1, "resulting_version": 2})},
+	}
+	if err := ApplyOperation(ctx, s, Operation{Events: events, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectProduct, "product-"+workID): 0, VersionRef(SubjectProject, "project-"+workID): 0, VersionRef(SubjectWorkItem, workID): 0}}); err != nil {
+		t.Fatal(err)
+	}
+	initializeCompositionWorkflow(t, s, workID, "workflow.architecture_spike", actor)
+}
+
+// spikeDecisionRecordEnvelope is one record_decision payload whose token can
+// be varied per case.
+func spikeDecisionRecordEnvelope(decision string) json.RawMessage {
+	return mustJSONBytes(map[string]any{"action_id": "record_decision", "fields": map[string]any{"question": "Which mechanism binds state?", "options_considered": []string{"one"}, "decision": decision, "rationale": "rationale", "consequences": []string{"effect"}, "inputs": []string{"input"}, "poc_findings": "findings"}})
+}
+
+// CD-0013 D4 binds the architecture-spike record at evaluation and completion
+// through the row record_decision writes, so contract approval admits an
+// outcome predicate without an inline record and still validates a record
+// when one is supplied.
+func TestSpikeContractApprovalAdmitsOutcomeWithoutInlineRecord(t *testing.T) {
+	t.Parallel()
+	s := openTemp(t)
+	const workID = "spike-approval-no-record"
+	owner := WorkflowActor{PrincipalRef: "principal/phase-b", ClientRef: "client/phase-b", AgentRef: "agent/architect", SessionRef: "session/" + workID, ActorClass: ActorAgent}
+	spikeWorkflowFixture(t, s, workID, owner)
+	actorRef, err := WorkflowActorRef(owner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	approval := func(eventID string, outcome map[string]any) Event {
+		return workflowEventWithActor(eventID, WorkflowContractApproved, workID, actorRef, map[string]any{"work_id": workID, "expected_version": 4, "resulting_version": 5, "contract_version": 1, "premise": "spike the binding mechanism", "outcome_kind": "outcome", "outcome_payload": outcome, "outcome_predicates": []map[string]any{{"predicate_id": "predicate:spike-exit", "ordinal": 0, "outcome_kind": "outcome", "outcome_payload": outcome}}, "required_evidence": []string{"review"}, "route_conventions": []string{}, "spec_mandate": []string{}, "rigor_class": "prototype_internal", "consequence_class": "internal_sqlite"})
+	}
+	event := approval("approval-contract-"+workID, map[string]any{"kind": "outcome", "allowed": []string{"accepted_decision"}})
+	if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 4}}); err != nil {
+		t.Fatalf("spike contract without an inline decision record was refused: %v", err)
+	}
+}
+
+// An inline record, when supplied, is still validated: its decision token must
+// sit inside the predicate's allowed set, so approval refuses the mismatch.
+func TestSpikeContractApprovalValidatesASuppliedInlineRecord(t *testing.T) {
+	t.Parallel()
+	s := openTemp(t)
+	const workID = "spike-approval-mismatched-record"
+	owner := WorkflowActor{PrincipalRef: "principal/phase-b", ClientRef: "client/phase-b", AgentRef: "agent/architect", SessionRef: "session/" + workID, ActorClass: ActorAgent}
+	spikeWorkflowFixture(t, s, workID, owner)
+	actorRef, err := WorkflowActorRef(owner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	record := map[string]any{"question": "q", "options_considered": []string{"one"}, "decision": "insufficient_evidence", "rationale": "r", "consequences": []string{"c"}, "inputs": []string{"i"}, "poc_findings": "none", "supersedes": nil, "superseded_by": nil, "unknowns": []string{"u"}, "required_to_decide": []string{"d"}, "reviewer_actor_ref": "actor:" + strings.Repeat("a", 64), "operator_approval_ref": "approval:spike"}
+	outcome := map[string]any{"kind": "outcome", "allowed": []string{"accepted_decision"}, "decision_record": record}
+	event := workflowEventWithActor("approval-contract-"+workID, WorkflowContractApproved, workID, actorRef, map[string]any{"work_id": workID, "expected_version": 4, "resulting_version": 5, "contract_version": 1, "premise": "spike the binding mechanism", "outcome_kind": "outcome", "outcome_payload": outcome, "outcome_predicates": []map[string]any{{"predicate_id": "predicate:spike-exit", "ordinal": 0, "outcome_kind": "outcome", "outcome_payload": outcome}}, "required_evidence": []string{"review"}, "route_conventions": []string{}, "spec_mandate": []string{}, "rigor_class": "prototype_internal", "consequence_class": "internal_sqlite"})
+	if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 4}}); err == nil {
+		t.Fatal("spike contract accepted an inline record outside the approved token set")
+	} else {
+		// The generic outcome union refuses the mismatch before the pinned
+		// definition is consulted, so the fold reports invalid_payload.
+		assertFailureKind(t, err, KindInvalidPayload)
+	}
+}
+
+// Completion binds to the recorded row: without one the fold refuses, with
+// one whose token sits in the pinned allowed set the work completes.
+func TestSpikeCompletionBindsToTheRecordedDecisionRecord(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s := openTemp(t)
+	const workID = "spike-completion-bound-record"
+	owner := WorkflowActor{PrincipalRef: "principal/phase-b", ClientRef: "client/phase-b", AgentRef: "agent/architect", SessionRef: "session/" + workID, ActorClass: ActorAgent}
+	spikeWorkflowFixture(t, s, workID, owner)
+	if err := s.Transact(ctx, func(tx *Transaction) error {
+		if err := enterFold(ctx, tx.tx); err != nil {
+			return err
+		}
+		if err := foldWorkflowDecisionRecord(ctx, tx.tx, Event{SubjectID: workID, OccurredAt: time.Unix(100, 0)}, spikeDecisionRecordEnvelope("accepted_decision")); err != nil {
+			return err
+		}
+		return leaveFold(ctx, tx.tx)
+	}); err != nil {
+		t.Fatalf("record_decision fold refused the typed record: %v", err)
+	}
+	event, err := operationEventForResearch(workID+"-complete", "work.transitioned", SubjectWorkItem, workID, map[string]any{"from": "needed", "to": "completed", "reason": "decision accepted", "evidence_refs": []string{"evidence:spike-decision"}, "expected_version": 4, "resulting_version": 5})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ApplyOperation(ctx, s, Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 4}}); err != nil {
+		t.Fatalf("spike completion with a bound decision record was refused: %v", err)
+	}
+	var lifecycle string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT lifecycle FROM work_items WHERE id=?`, workID).Scan(&lifecycle); err != nil {
+		t.Fatal(err)
+	}
+	if lifecycle != "completed" {
+		t.Fatalf("lifecycle = %q, want completed", lifecycle)
+	}
 }

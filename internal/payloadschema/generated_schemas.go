@@ -6254,6 +6254,152 @@ const GeneratedPayloadSchemaDocument = `{
       ],
       "type": "object"
     },
+    "work_relate_product_project_add_input": {
+      "additionalProperties": false,
+      "properties": {
+        "approval": {
+          "$ref": "#/$defs/approval"
+        },
+        "expected_version": {
+          "$ref": "#/$defs/version"
+        },
+        "idempotency_key": {
+          "$ref": "#/$defs/id"
+        },
+        "product_id": {
+          "$ref": "#/$defs/id"
+        },
+        "project_id": {
+          "$ref": "#/$defs/id"
+        },
+        "reason": {
+          "maxLength": 1024,
+          "minLength": 1,
+          "type": "string"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
+        },
+        "role": {
+          "enum": [
+            "primary",
+            "secondary"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "product_id",
+        "project_id",
+        "role",
+        "reason",
+        "expected_version",
+        "idempotency_key"
+      ],
+      "type": "object"
+    },
+    "work_relate_product_project_add_result": {
+      "additionalProperties": false,
+      "properties": {
+        "affected_work_count": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "affected_work_ids": {
+          "items": {
+            "$ref": "#/$defs/id"
+          },
+          "maxItems": 100,
+          "type": "array"
+        },
+        "changed_refs": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "entity_kind": {
+                "$ref": "#/$defs/short"
+              },
+              "id": {
+                "$ref": "#/$defs/id"
+              },
+              "version": {
+                "$ref": "#/$defs/version"
+              }
+            },
+            "required": [
+              "entity_kind",
+              "id",
+              "version"
+            ],
+            "type": "object"
+          },
+          "maxItems": 32,
+          "type": "array"
+        },
+        "event_ids": {
+          "items": {
+            "$ref": "#/$defs/id"
+          },
+          "maxItems": 32,
+          "type": "array"
+        },
+        "next_valid_intents": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "action_id": {
+                "$ref": "#/$defs/id"
+              },
+              "expected_version": {
+                "$ref": "#/$defs/version"
+              },
+              "operation": {
+                "$ref": "#/$defs/short"
+              },
+              "reason_code": {
+                "$ref": "#/$defs/short"
+              },
+              "required_fields": {
+                "items": {
+                  "$ref": "#/$defs/short"
+                },
+                "maxItems": 32,
+                "type": "array",
+                "uniqueItems": true
+              },
+              "tool": {
+                "$ref": "#/$defs/id"
+              }
+            },
+            "required": [
+              "tool",
+              "operation",
+              "reason_code"
+            ],
+            "type": "object"
+          },
+          "maxItems": 16,
+          "type": "array"
+        },
+        "product_version": {
+          "$ref": "#/$defs/version"
+        },
+        "total_affected_work_count": {
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "changed_refs",
+        "next_valid_intents",
+        "product_version",
+        "affected_work_count",
+        "total_affected_work_count",
+        "affected_work_ids",
+        "event_ids"
+      ],
+      "type": "object"
+    },
     "work_relate_resolve_overlap_input": {
       "additionalProperties": false,
       "properties": {

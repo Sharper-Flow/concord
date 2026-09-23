@@ -61,6 +61,24 @@ values. Operator setup commands use these closed values:
 - Client capabilities: `product_read`, `work_define`,
   `work_transition`, `work_relate`, `work_compact`, or `cross_scope`.
 
+## Agent Product–Project links
+
+Agents register an existing Project into an existing Product through the typed
+`concord_work_relate.product_project_add` mutation; the operator keeps every
+other topology change (creating or removing Products and Projects, deleting
+links, changing link roles). The operator CLI verbs above stay the only route
+for those. Every agent link requires one fresh, exact, single-use operator
+approval bound to the Product, the Project, the role, the expected Product
+version, and the request digest: the first call returns `approval_required`
+with the challenge reference, and the operator approves that exact link before
+the agent retries with it. The core checks the client's trusted Product scope
+over the Project independently of the approval, so an approval cannot confer
+trust in a Project or Product the client policy does not already cover, and a
+link that crosses Products also requires the `cross_scope` capability. The
+result reports the affected work scope: the count and the first 100 work IDs
+attached to the linked Project. Some may already be visible in the Product
+through another Project.
+
 ## Database and host resolution
 
 The authority database is outside a Project repository:

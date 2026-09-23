@@ -12987,6 +12987,152 @@
     },
     "workflow_contract_version": {
       "$ref": "#/$defs/version"
+    },
+    "work_relate_product_project_add_input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "product_id",
+        "project_id",
+        "role",
+        "reason",
+        "expected_version",
+        "idempotency_key"
+      ],
+      "properties": {
+        "product_id": {
+          "$ref": "#/$defs/id"
+        },
+        "project_id": {
+          "$ref": "#/$defs/id"
+        },
+        "role": {
+          "type": "string",
+          "enum": [
+            "primary",
+            "secondary"
+          ]
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1024
+        },
+        "expected_version": {
+          "$ref": "#/$defs/version"
+        },
+        "idempotency_key": {
+          "$ref": "#/$defs/id"
+        },
+        "approval": {
+          "$ref": "#/$defs/approval"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
+        }
+      }
+    },
+    "work_relate_product_project_add_result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "changed_refs",
+        "next_valid_intents",
+        "product_version",
+        "affected_work_count",
+        "total_affected_work_count",
+        "affected_work_ids",
+        "event_ids"
+      ],
+      "properties": {
+        "changed_refs": {
+          "type": "array",
+          "maxItems": 32,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "entity_kind",
+              "id",
+              "version"
+            ],
+            "properties": {
+              "entity_kind": {
+                "$ref": "#/$defs/short"
+              },
+              "id": {
+                "$ref": "#/$defs/id"
+              },
+              "version": {
+                "$ref": "#/$defs/version"
+              }
+            }
+          }
+        },
+        "next_valid_intents": {
+          "type": "array",
+          "maxItems": 16,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "tool",
+              "operation",
+              "reason_code"
+            ],
+            "properties": {
+              "tool": {
+                "$ref": "#/$defs/id"
+              },
+              "operation": {
+                "$ref": "#/$defs/short"
+              },
+              "reason_code": {
+                "$ref": "#/$defs/short"
+              },
+              "action_id": {
+                "$ref": "#/$defs/id"
+              },
+              "required_fields": {
+                "type": "array",
+                "maxItems": 32,
+                "uniqueItems": true,
+                "items": {
+                  "$ref": "#/$defs/short"
+                }
+              },
+              "expected_version": {
+                "$ref": "#/$defs/version"
+              }
+            }
+          }
+        },
+        "product_version": {
+          "$ref": "#/$defs/version"
+        },
+        "affected_work_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "total_affected_work_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "affected_work_ids": {
+          "type": "array",
+          "maxItems": 100,
+          "items": {
+            "$ref": "#/$defs/id"
+          }
+        },
+        "event_ids": {
+          "type": "array",
+          "maxItems": 32,
+          "items": {
+            "$ref": "#/$defs/id"
+          }
+        }
+      }
     }
   }
 }

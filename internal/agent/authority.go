@@ -295,6 +295,13 @@ type Authority struct {
 	ScopeVersion      string
 	CandidateProducts []string
 	ScopeSnapshot     map[string]any
+	// PolicyProductScope and PolicyProjectScope snapshot the trusted client
+	// policy verbatim. ProductScope and ProjectScope are derived from the
+	// ambient Project's memberships and cannot see a subject outside them, so
+	// an operation whose named subject sits outside the ambient membership
+	// checks that subject against these policy scopes instead.
+	PolicyProductScope []string
+	PolicyProjectScope []string
 	// MainWorktree records that the grant resolved from the registered
 	// Project's default checkout rather than a linked worktree, so
 	// conditional main-checkout operations can enforce their conditions at
@@ -437,7 +444,7 @@ func (s *Service) authorizeResolved(ctx context.Context, tx *store.Transaction, 
 		projects = normalizeStrings(projects)
 	}
 	snapshot := map[string]any{"project_id": resolved.ProjectID, "product_ids": candidateProducts, "scope_version": scopeVersion}
-	return Authority{PrincipalRef: client.PrincipalRef, ClientRef: client.ClientRef, SessionRef: in.SessionRef, AgentRef: in.AgentRef, Directory: in.Directory, Worktree: in.Worktree, ManifestDigest: ManifestDigest, Capabilities: capabilityValues(normalizeStrings(policyCaps)), ProductScope: candidateProducts, ProjectScope: projects, ScopeVersion: scopeVersion, CandidateProducts: candidateProducts, ScopeSnapshot: snapshot, MainWorktree: resolved.MainWorktree}, nil
+	return Authority{PrincipalRef: client.PrincipalRef, ClientRef: client.ClientRef, SessionRef: in.SessionRef, AgentRef: in.AgentRef, Directory: in.Directory, Worktree: in.Worktree, ManifestDigest: ManifestDigest, Capabilities: capabilityValues(normalizeStrings(policyCaps)), ProductScope: candidateProducts, ProjectScope: projects, ScopeVersion: scopeVersion, CandidateProducts: candidateProducts, ScopeSnapshot: snapshot, PolicyProductScope: normalizeStrings(policyProducts), PolicyProjectScope: normalizeStrings(policyProjects), MainWorktree: resolved.MainWorktree}, nil
 }
 
 // authorityRefusal marks the authorization boundary as a typed refusal.
@@ -751,21 +758,38 @@ func authorizedScopeFromSnapshot(scopeJSON string) (map[string]any, error) {
 	return scope, nil
 }
 
+// scopeWithinAuthority checks a challenge scope against the authorization the
+// invoking session holds. product_id, product_ids, and project_ids are
+// compared against the derived scopes. The Product–Project link keys
+// project_id and role are deliberately absent here: the linked Project sits
+// outside the derived ProjectScope by construction, because the membership
+// edge the challenge authorizes is the very thing that would admit it. The
+// product_project_add mutation owns their admission instead, with an explicit
+// trusted check that the named Project exists and its current Products sit
+// inside the policy before any challenge is minted. The link scope's product
+// keys share that blind spot — affectedProducts names the linked Project's
+// current memberships plus the destination, none of which the derived
+// Product scope can see for a disjoint Project — so a scope carrying
+// project_id compares them against the policy scopes the trusted check used.
 func scopeWithinAuthority(scope map[string]any, authority Authority) bool {
-	if product, ok := scope["product_id"].(string); ok && !contains(authority.ProductScope, product) {
+	productScope, projectScope := authority.ProductScope, authority.ProjectScope
+	if _, isLinkScope := scope["project_id"]; isLinkScope {
+		productScope, projectScope = authority.PolicyProductScope, authority.PolicyProjectScope
+	}
+	if product, ok := scope["product_id"].(string); ok && !contains(productScope, product) {
 		return false
 	}
 	switch products := scope["product_ids"].(type) {
 	case []any:
 		for _, raw := range products {
 			product, ok := raw.(string)
-			if !ok || !contains(authority.ProductScope, product) {
+			if !ok || !contains(productScope, product) {
 				return false
 			}
 		}
 	case []string:
 		for _, product := range products {
-			if !contains(authority.ProductScope, product) {
+			if !contains(productScope, product) {
 				return false
 			}
 		}
@@ -774,13 +798,13 @@ func scopeWithinAuthority(scope map[string]any, authority Authority) bool {
 	case []any:
 		for _, raw := range projects {
 			project, ok := raw.(string)
-			if !ok || !contains(authority.ProjectScope, project) {
+			if !ok || !contains(projectScope, project) {
 				return false
 			}
 		}
 	case []string:
 		for _, project := range projects {
-			if !contains(authority.ProjectScope, project) {
+			if !contains(projectScope, project) {
 				return false
 			}
 		}
@@ -788,14 +812,18 @@ func scopeWithinAuthority(scope map[string]any, authority Authority) bool {
 	return true
 }
 func validChallengeScope(scope map[string]any) bool {
-	allowed := map[string]bool{"product_id": true, "product_ids": true, "project_ids": true, "work_ids": true, "failed_attempt_id": true, "scope_version": true}
+	allowed := map[string]bool{"product_id": true, "product_ids": true, "project_ids": true, "work_ids": true, "failed_attempt_id": true, "scope_version": true, "project_id": true, "role": true}
 	for key, value := range scope {
 		if !allowed[key] {
 			return false
 		}
 		switch key {
-		case "product_id", "scope_version":
+		case "product_id", "scope_version", "project_id":
 			if text, ok := value.(string); !ok || !bounded(text, 1, 128) {
+				return false
+			}
+		case "role":
+			if text, ok := value.(string); !ok || (text != "primary" && text != "secondary") {
 				return false
 			}
 		case "failed_attempt_id", "product_ids", "project_ids", "work_ids":
@@ -833,7 +861,7 @@ func validChallengeScope(scope map[string]any) bool {
 	return true
 }
 func validChallengeVersions(versions map[string]any) bool {
-	allowed := map[string]bool{"work": true, "contract": true, "operation": true, "terminal_work": true, "predecessor": true, "successor": true, "from": true, "to": true, "from_contract": true, "to_contract": true, "target": true, "failed_attempt_epoch": true}
+	allowed := map[string]bool{"work": true, "contract": true, "operation": true, "terminal_work": true, "predecessor": true, "successor": true, "from": true, "to": true, "from_contract": true, "to_contract": true, "target": true, "failed_attempt_epoch": true, "product": true}
 	for key, value := range versions {
 		if !allowed[key] {
 			return false

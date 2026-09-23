@@ -371,6 +371,21 @@ type membershipsMutationInput struct {
 	IdempotencyKey  string               `json:"idempotency_key"`
 	Approval        *approvalInput       `json:"approval"`
 }
+
+// productProjectAddInput decodes exactly what the
+// concord_work_relate.product_project_add schema allows. The operation adds
+// one existing Project to one existing Product behind an exact operator
+// approval; creating or removing the endpoints, deleting links, changing link
+// roles, and automatic linking stay outside it.
+type productProjectAddInput struct {
+	ProductID       string         `json:"product_id"`
+	ProjectID       string         `json:"project_id"`
+	Role            string         `json:"role"`
+	Reason          string         `json:"reason"`
+	ExpectedVersion int64          `json:"expected_version"`
+	IdempotencyKey  string         `json:"idempotency_key"`
+	Approval        *approvalInput `json:"approval"`
+}
 type linkMutationInput struct {
 	FromWorkID          string         `json:"from_work_id"`
 	ToWorkID            string         `json:"to_work_id"`
@@ -2596,6 +2611,210 @@ func (r runtime) planSetMemberships(ctx context.Context, base Envelope, raw []by
 	return Envelope{}, nil, false
 }
 
+// mutateProductProjectAdd plans concord_work_relate.product_project_add.
+//
+// The generic mutation tail cannot host this operation. Its Product scope is
+// derived from existing edges, so it cannot see the destination Product of an
+// edge that does not exist yet, and its challenge scope admits Projects only
+// through the derived ProjectScope — which is the membership this operation
+// creates. The trusted check here therefore runs against the named Project's
+// current Products, and the operator challenge binds the exact link on top of
+// that check instead of replacing it.
+func (r runtime) mutateProductProjectAdd(ctx context.Context, base Envelope, raw []byte, grant Authority, op ContractOperation) (Envelope, error) {
+	var in productProjectAddInput
+	if err := decodeOperationInput(raw, &in); err != nil {
+		return coreError(base, "invalid_input", err.Error(), "reread_entities", false), nil
+	}
+	if in.ProductID == "" {
+		in.ProductID = r.Envelope.SelectedProductID
+	}
+	if in.ProductID == "" || in.ProjectID == "" || in.Role == "" || in.Reason == "" {
+		return coreError(base, "invalid_input", "adding a Product–Project link requires a Product, an existing Project, a role, and a reason", "reread_entities", false), nil
+	}
+	if in.Role != "primary" && in.Role != "secondary" {
+		return coreError(base, "invalid_input", "membership role is not recognized", "reread_entities", false), nil
+	}
+	if in.ExpectedVersion < 1 {
+		return coreError(base, "invalid_input", "expected_version must be at least 1", "reread_entities", false), nil
+	}
+	digest := mutationDigest(r.Tool, r.Operation, r.Envelope, raw)
+	approval := ""
+	if in.Approval != nil {
+		approval = in.Approval.ApprovalRef
+	}
+	// Trusted client scope, checked before any approval exists: the named
+	// Project must sit inside the policy Project scope, and every Product it
+	// currently belongs to must sit inside the policy Product scope. The
+	// check reads the policy scopes, not the derived grant scope, because the
+	// grant intersects the policy with the ambient Project's memberships and
+	// so cannot see a disjoint Project. Approval cannot confer trust in an
+	// otherwise unauthorized Product or Project.
+	byProject, err := r.Store.ProductsForProjectIDs(ctx, []string{in.ProjectID})
+	if err != nil {
+		return failureEnvelope(base, err), nil
+	}
+	currentProducts := byProject[in.ProjectID]
+	if len(currentProducts) == 0 {
+		return coreError(base, "unknown_scope", "Project does not exist", "reread_entities", false), nil
+	}
+	if !contains(grant.PolicyProjectScope, in.ProjectID) {
+		return coreError(base, "unauthorized", fmt.Sprintf("Project %s is outside trusted client Project policy", in.ProjectID), "contact_operator", false), nil
+	}
+	crossProduct := false
+	for _, product := range currentProducts {
+		if !contains(grant.PolicyProductScope, product) {
+			return coreError(base, "unauthorized", fmt.Sprintf("Project %s belongs to Product %s, which is outside trusted client Product policy", in.ProjectID, product), "contact_operator", false), nil
+		}
+		if product != in.ProductID {
+			crossProduct = true
+		}
+	}
+	if !contains(grant.PolicyProductScope, in.ProductID) {
+		return coreError(base, "unauthorized", fmt.Sprintf("destination Product %s is outside trusted client Product policy", in.ProductID), "contact_operator", false), nil
+	}
+	if crossProduct && !containsCapability(grant.Capabilities, Capability("cross_scope")) {
+		return coreError(base, "unauthorized", "cross-Product mutation requires cross_scope capability", "contact_operator", false), nil
+	}
+	if contains(currentProducts, in.ProductID) {
+		// The edge already exists. Re-adding it would duplicate it, and a
+		// different role would be a role change, which this operation does
+		// not carry.
+		return coreError(base, "invalid_input", "Product membership already exists; changing an existing link role stays operator-owned", "reread_entities", false), nil
+	}
+	affectedProducts := append(append([]string{}, currentProducts...), in.ProductID)
+	sort.Strings(affectedProducts)
+	scope := map[string]any{"product_id": in.ProductID, "product_ids": affectedProducts, "project_id": in.ProjectID, "role": in.Role, "scope_version": r.Envelope.ScopeVersion}
+	versions := map[string]any{"product": in.ExpectedVersion}
+	consequence := string(op.Consequence)
+	intents := []NextIntent{{Tool: "concord_product_view", Operation: "snapshot", QueryID: "PM1.Q2", ReasonCode: "verify_product_project_link", RequiredFields: []string{"product_id"}}}
+
+	var response Envelope
+	var resultRejected bool
+	err = r.Store.Transact(ctx, func(tx *store.Transaction) error {
+		contractOp, registered := ValidateContractOperation(r.Tool, r.Operation)
+		if !registered {
+			return newRuntimeFailure("invariant_violation", fmt.Sprintf("mutation dispatch reached unregistered operation %s.%s", r.Tool, r.Operation), "contact_operator", false)
+		}
+		inv := Invocation{ClientRef: r.Envelope.ClientRef, PrincipalRef: r.Envelope.PrincipalRef, SessionRef: r.Envelope.SessionRef, AgentRef: r.Envelope.AgentRef, Directory: r.Envelope.Directory, Worktree: r.Envelope.Worktree, ManifestDigest: r.Envelope.ManifestDigest, HostAssertionDigest: r.Envelope.HostAssertionDigest, RequiredCapability: contractOp.Capability, RequiredOperation: r.Operation, ProductID: r.Envelope.SelectedProductID}
+		if inv.HostAssertionDigest == "" {
+			inv.HostAssertionDigest = digest
+		}
+		txGrant, err := r.Authority.AuthorizeTx(ctx, tx, inv)
+		if err != nil {
+			return err
+		}
+		// The preflight facts are re-read inside the transaction, so a Project
+		// Product scope that moved between the two reads refuses instead of
+		// linking.
+		byProjectTx, err := store.ProductsForProjectIDsTx(ctx, tx, []string{in.ProjectID})
+		if err != nil {
+			return err
+		}
+		txProducts := byProjectTx[in.ProjectID]
+		if !equalStrings(currentProducts, txProducts) {
+			return newRuntimeFailure("version_conflict", "Project Product scope changed after authorization preflight", "reread_entities", false)
+		}
+		if !contains(txGrant.PolicyProjectScope, in.ProjectID) {
+			return newRuntimeFailure("unauthorized", fmt.Sprintf("Project %s is outside trusted client Project policy", in.ProjectID), "contact_operator", false)
+		}
+		for _, product := range txProducts {
+			if !contains(txGrant.PolicyProductScope, product) {
+				return newRuntimeFailure("unauthorized", fmt.Sprintf("Project %s belongs to Product %s, which is outside trusted client Product policy", in.ProjectID, product), "contact_operator", false)
+			}
+		}
+		if !contains(txGrant.PolicyProductScope, in.ProductID) {
+			return newRuntimeFailure("unauthorized", fmt.Sprintf("destination Product %s is outside trusted client Product policy", in.ProductID), "contact_operator", false)
+		}
+		if crossProduct && !containsCapability(txGrant.Capabilities, Capability("cross_scope")) {
+			return newRuntimeFailure("unauthorized", "cross-Product mutation requires cross_scope capability", "contact_operator", false)
+		}
+		key := idempotencyKey(raw)
+		prior, found, err := store.LookupMutationIdempotencyTx(ctx, tx, store.MutationIdempotencyKey{PrincipalRef: txGrant.PrincipalRef, Tool: r.Tool, OperationKind: r.Operation, IdempotencyKey: key})
+		if err != nil {
+			return err
+		}
+		if found {
+			if prior.CanonicalDigest != digest {
+				return storeIdempotencyConflict(r.Operation, key)
+			}
+			var changed []ChangedRef
+			_ = json.Unmarshal([]byte(prior.ChangedRefs), &changed)
+			base.Replayed = true
+			base.ResolvedScope = &Scope{ProductID: in.ProductID, ProjectIDs: []string{r.Envelope.AmbientProjectID}, ScopeVersion: r.Envelope.ScopeVersion}
+			response = r.mutationResult(base, json.RawMessage(prior.ResultPayload), changed, intents)
+			if response.Outcome == OutcomeError {
+				resultRejected = true
+				return errors.New("mutation result rejected")
+			}
+			return store.TouchMutationIdempotencyTx(ctx, tx, store.MutationIdempotencyKey{PrincipalRef: txGrant.PrincipalRef, Tool: r.Tool, OperationKind: r.Operation, IdempotencyKey: key}, r.Authority.now())
+		}
+		// CD-0038 D3: the seconds ceiling is admitted after the idempotency
+		// lookup, so a refused request records no idempotency effect and the
+		// same key may be reused with a lower budget.
+		if r.Budget.CeilingRefused {
+			response = r.budgetRefusal(base, fmt.Sprintf("requested_budget_seconds %d exceeds supported %d", r.Budget.RequestedSeconds, r.Budget.SupportedSeconds))
+			resultRejected = true
+			return errors.New("budget admission refused")
+		}
+		challengeScope := boundedApprovalScope(scope)
+		// The existing-edge refusal sits after the replay window, so an exact
+		// replay of a recorded link keeps answering with its stored result.
+		if _, exists, err := store.ProductProjectMembershipRoleTx(ctx, tx, in.ProductID, in.ProjectID); err != nil {
+			return err
+		} else if exists {
+			return newRuntimeFailure("invalid_input", "Product membership already exists; changing an existing link role stays operator-owned", "reread_entities", false)
+		}
+		if approval == "" {
+			spec := ApprovalChallengeSpec{OperationDigest: digest, Scope: challengeScope, Versions: versions, Consequence: consequence, HostAssertionDigest: inv.HostAssertionDigest, ExpiresAt: r.Authority.now().Add(10 * time.Minute)}
+			challengeRef, challengeErr := r.Authority.CreateApprovalChallengeTx(ctx, tx, inv, spec)
+			if challengeErr != nil {
+				return challengeErr
+			}
+			response = coreError(base, "approval_required", "operator approval is required to link a Project into a Product", "request_approval", false)
+			response.Error.ConsequenceSummary = consequenceSummaryFor(r.Tool, r.Operation, spec)
+			response.Error.Details = map[string]any{"approval_ref": challengeRef, "summary": "Approve the exact Product, Project, role, and expected Product version for this link.", "operation_digest": digest, "scope": approvalScopeBindings(challengeScope), "versions": approvalVersionBindings(versions), "product_id": in.ProductID, "project_id": in.ProjectID, "role": in.Role}
+			return nil
+		}
+		approvalCheck := ApprovalCheck{ApprovalRef: approval, OperationDigest: digest, Scope: challengeScope, Versions: versions, Consequence: consequence, ClientRef: txGrant.ClientRef, SessionRef: txGrant.SessionRef}
+		if _, consumedApprovalRef, approvalErr := r.consumeApprovalTx(ctx, tx, inv, txGrant, approvalCheck); approvalErr != nil {
+			response = coreError(base, "approval_invalid", approvalErr.Error(), "request_approval", false)
+			resultRejected = true
+			return errors.New("approval invalid")
+		} else {
+			scope["approval_ref"] = consumedApprovalRef
+		}
+		payload, payloadErr := json.Marshal(map[string]any{"product_id": in.ProductID, "project_id": in.ProjectID, "role": in.Role, "reason": in.Reason, "expected_version": in.ExpectedVersion, "resulting_version": in.ExpectedVersion + 1})
+		if payloadErr != nil {
+			return payloadErr
+		}
+		result, applyErr := store.ApplyOperationTx(ctx, tx, store.Operation{Events: []store.Event{{EventID: digest + ":product-project-added", Kind: "product_project.added", SubjectType: store.SubjectProduct, SubjectID: in.ProductID, Actor: txGrant.PrincipalRef, OccurredAt: r.Authority.now(), PayloadVersion: 1, Payload: payload}}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectProduct, in.ProductID): in.ExpectedVersion}})
+		if applyErr != nil {
+			return applyErr
+		}
+		changed := []ChangedRef{{EntityKind: "product", ID: in.ProductID, Version: strconv.FormatInt(in.ExpectedVersion+1, 10)}}
+		resultPayload, marshalErr := json.Marshal(map[string]any{"changed_refs": mutationResultChangedRefs(changed), "next_valid_intents": mutationResultIntents(intents), "product_version": in.ExpectedVersion + 1, "affected_work_count": result.Impact.AffectedWorkCount, "total_affected_work_count": result.Impact.TotalAffectedWorkCount, "affected_work_ids": nonNilStrings(result.Impact.AffectedWorkIDs), "event_ids": nonNilStrings(result.EventIDs)})
+		if marshalErr != nil {
+			return marshalErr
+		}
+		base.ResolvedScope = &Scope{ProductID: in.ProductID, ProjectIDs: []string{r.Envelope.AmbientProjectID}, ScopeVersion: r.Envelope.ScopeVersion}
+		response = r.mutationResult(base, resultPayload, changed, intents)
+		if response.Outcome == OutcomeError {
+			resultRejected = true
+			return errors.New("mutation result rejected")
+		}
+		changedJSON, _ := json.Marshal(changed)
+		authorizedScope, _ := json.Marshal(challengeScope)
+		return store.InsertMutationIdempotencyTx(ctx, tx, store.MutationIdempotencyInsert{Key: store.MutationIdempotencyKey{PrincipalRef: txGrant.PrincipalRef, Tool: r.Tool, OperationKind: r.Operation, IdempotencyKey: key}, CanonicalDigest: digest, OperationID: "mutation-" + digest[7:31], ResultEventIDs: marshalEventIDs(result.EventIDs), ResultPayload: string(resultPayload), ChangedRefs: string(changedJSON), AuthorizedScopeSnapshot: string(authorizedScope), ObservedAt: r.Authority.now()})
+	})
+	if err != nil {
+		if resultRejected {
+			return response, nil
+		}
+		return failureEnvelope(base, err), nil
+	}
+	return response, nil
+}
+
 // planResolveOverlap plans concord_work_relate.resolve_overlap.
 //
 // A depends_on resolution is the one kind an agent may record without an
@@ -2733,6 +2952,9 @@ func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Au
 	}
 	if op.ID == "concord_work_transition.worktree_audit_reclaim" {
 		return r.mutateWorktreeAuditReclaim(ctx, base, raw, grant, op)
+	}
+	if op.ID == "concord_work_relate.product_project_add" {
+		return r.mutateProductProjectAdd(ctx, base, raw, grant, op)
 	}
 	digest := mutationDigest(r.Tool, r.Operation, r.Envelope, raw)
 	if r.Tool == "concord_work_compact" && op.ID != "concord_work_compact.lesson_publish" {
@@ -3814,7 +4036,7 @@ func (r runtime) consumeApprovalTx(ctx context.Context, tx *store.Transaction, i
 func boundedApprovalScope(scope map[string]any) map[string]any {
 	out := make(map[string]any, len(scope))
 	for key, value := range scope {
-		if key != "product_id" && key != "product_ids" && key != "project_ids" && key != "work_ids" && key != "failed_attempt_id" && key != "scope_version" {
+		if key != "product_id" && key != "product_ids" && key != "project_ids" && key != "work_ids" && key != "failed_attempt_id" && key != "scope_version" && key != "project_id" && key != "role" {
 			continue
 		}
 		switch typed := value.(type) {

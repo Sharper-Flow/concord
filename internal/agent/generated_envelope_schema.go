@@ -270,7 +270,8 @@ const GeneratedEnvelopeSchemaDocument = `{
             "worktree_destroy",
             "worktree_inspect",
             "worktree_reclaim",
-            "worktree_verify"
+            "worktree_verify",
+            "product_project_add"
           ],
           "type": "string"
         },
@@ -879,7 +880,8 @@ const GeneratedEnvelopeSchemaDocument = `{
             "worktree_destroy",
             "worktree_inspect",
             "worktree_reclaim",
-            "worktree_verify"
+            "worktree_verify",
+            "product_project_add"
           ],
           "type": "string"
         },
@@ -1797,7 +1799,8 @@ const GeneratedEnvelopeSchemaDocument = `{
                 "resource_claim",
                 "resource_release",
                 "message_send",
-                "message_withdraw"
+                "message_withdraw",
+                "product_project_add"
               ],
               "type": "string"
             },

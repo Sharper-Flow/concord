@@ -218,7 +218,7 @@ export interface AgentResultEnvelope {
     // them tells an operator to seek permission for a wiring defect.
     kind: "invalid_input" | "blocked" | "error" | "invalid_report" | "agent_identity_mismatch" | "readback_refusal" | "unauthorized_dispatch" | "approval_required" | "transport_failure"
     retry_safe: boolean
-    recovery_action: "retry_same_request" | "adjust_budget" | "contact_operator" | "reconcile_operation" | "request_approval"
+    recovery_action: "retry_same_request" | "adjust_budget" | "contact_operator" | "reconcile_operation" | "request_approval" | "use_declared_route"
     message: string
     details?: Record<string, unknown>
     predicate?: ReadbackRefusal

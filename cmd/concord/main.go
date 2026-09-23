@@ -189,6 +189,7 @@ var commandSpecs = []commandSpec{
 	{Canonical: "project-locator-remove", TwoWord: "project locator-remove", RequiredFields: requiredFields(field("project_id"), field("locator_id"), field("expected_version")), Optional: "none", Enums: "none"},
 	{Canonical: "backup", RequiredFields: requiredFields(field("destination")), Optional: "none", Enums: "destination: absolute clean path that does not yet exist; a manifest is written beside it"},
 	{Canonical: "worktree-locate", RequiredFields: requiredFields(field("project_id"), field("work_id")), Optional: "ref (a rev-syntax ref; defaults to HEAD, the default branch under the trunk-stays-on-default rule)", Enums: "none"},
+	{Canonical: "claim-landing", RequiredFields: requiredFields(field("work_id"), field("session_ref"), field("landed_directory")), Optional: "none", Enums: "none"},
 	{Canonical: "work-bootstrap", RequiredFields: requiredFields(field("product_id"), field("project_id"), field("title"), field("value_statement"), field("kind"), field("task"), field("idempotency_key")), Optional: "priority, urgency, tags, workflow_type_ref, external_ref, governing_requirements, ref (defaults to HEAD)", Enums: "kind: task | bug | decision | research | other; urgency: standard | expedite"},
 	{Canonical: "work-resume", RequiredFields: requiredFields(field("product_id"), field("project_id"), field("work_id")), Optional: "none", Enums: "none"},
 	{Canonical: "receipt", RequiredFields: requiredFields(field("work_id")), Optional: "none", Enums: "prints the product-owned closure receipt markdown (CD-0169) for a completed work item; empty output when the item is not completed"},
@@ -608,6 +609,8 @@ func runJSONCommand(command string, args []string, in io.Reader, out, errOut io.
 		return runWorkBootstrap(raw, s, out, errOut)
 	case "work-resume":
 		return runWorkResume(raw, s, out, errOut)
+	case "claim-landing":
+		return runWorktreeClaimLanding(raw, s, out, errOut)
 	case "work-shelve", "work-cancel":
 		var request store.WorkRemovalRequest
 		if err := decodeObject(raw, &request); err != nil {

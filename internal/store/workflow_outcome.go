@@ -167,9 +167,6 @@ func ValidateWorkflowPredicateForDefinition(definition WorkflowDefinition, predi
 				return definitionFailure(KindInvalidDefinition, "outcome token not allowed by the pinned workflow definition")
 			}
 		}
-		if definition.OutcomeSchema.DecisionRecordRequired && predicate.DecisionRecord == nil {
-			return definitionFailure(KindInvalidDefinition, "decision record required by the pinned workflow definition")
-		}
 		if predicate.DecisionRecord != nil && !containsString(predicate.Allowed, predicate.DecisionRecord.Decision) {
 			return definitionFailure(KindInvalidDefinition, "decision record token is not allowed by the pinned workflow definition")
 		}
@@ -442,6 +439,11 @@ type WorkflowGroundTruthResolver interface {
 type WorkflowCheckResolver interface {
 	Compare(checkRef, immutableSubjectRef, expectedResult string) (WorkflowStrength, error)
 }
+
+// WorkflowDecisionRecordFunc reads the latest accepted row in
+// workflow_decision_records for the work item under evaluation. found is false
+// when no standing record exists.
+type WorkflowDecisionRecordFunc func() (decision string, found bool, err error)
 type WorkflowOutcomeEvaluation struct {
 	Satisfied                bool
 	VerdictKind              string
@@ -455,6 +457,12 @@ type WorkflowOutcomeEvaluationContext struct {
 	VerdictActor   *WorkflowActor
 	Registry       DefinitionRegistry
 	DefinitionPin  WorkflowDefinitionPin
+	// DecisionRecord supplies the bound decision record a
+	// DecisionRecordRequired definition evaluates against. The lookup is
+	// required whenever the pinned definition declares the record, so an
+	// evaluation without it fails closed instead of treating the record as
+	// absent evidence.
+	DecisionRecord WorkflowDecisionRecordFunc
 }
 
 func EvaluateWorkflowOutcome(approved, delivered OutcomePredicate, context WorkflowOutcomeEvaluationContext) (WorkflowOutcomeEvaluation, error) {
@@ -512,6 +520,18 @@ func evaluateWorkflowOutcomePredicateCore(approved, delivered OutcomePredicate, 
 			}
 		}
 	case PredicateOutcome:
+		if definition.OutcomeSchema.DecisionRecordRequired {
+			if context.DecisionRecord == nil {
+				return WorkflowOutcomeEvaluation{}, workflowOutcomeFailure("decision record lookup is required by the pinned workflow definition")
+			}
+			decision, found, err := context.DecisionRecord()
+			if err != nil {
+				return WorkflowOutcomeEvaluation{}, err
+			}
+			if !found || !containsString(approved.Allowed, decision) {
+				return result, nil
+			}
+		}
 		if delivered.Kind != PredicateOutcome || len(delivered.Allowed) != 1 || !containsString(approved.Allowed, delivered.Allowed[0]) {
 			return result, nil
 		}

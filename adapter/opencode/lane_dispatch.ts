@@ -20,7 +20,7 @@ import type { ConcordInvoke } from "./packet"
 import type { CredentialStore } from "./credentials"
 import { canonicalDirectory, type DispatchWindows } from "./dispatch-window"
 import { dispatchWorker, errorEnvelopeForLane, contextPreflightRefusal, type AgentLanePacket, type AgentResultEnvelope, type DispatchRunner } from "./dispatch"
-import { agentLanes, type AgentLane } from "./generated-agent-lanes"
+import { agentLanes, agentUtilities, type AgentLane, type AgentUtility } from "./generated-agent-lanes"
 import { buildAgentLanePacket, type AgentLanePacketFailureKind } from "./packet"
 import { hostControlPlane } from "./move-session"
 import { dispatchRequiresNextTurn, TURN_MOVE_DISPATCH_REFUSAL } from "./turn-move-boundary"
@@ -59,6 +59,35 @@ function laneForId(laneId: string): AgentLane | null {
   return agentLanes.find((candidate) => candidate.id === laneId) ?? null
 }
 
+// utilityForId looks up a registered generated utility by id. Utilities are
+// coordinator-native Tasks, not lanes: they carry no packet, no dispatch
+// window, and no lane evidence, so a dispatch_worker request naming one never
+// reaches the packet builder or the core.
+function utilityForId(laneId: string): AgentUtility | null {
+  return agentUtilities.find((candidate) => candidate.id === laneId) ?? null
+}
+
+// utilityDispatchRefusal is the typed refusal for a utility id named at
+// dispatch_worker. It is distinct from the unregistered-lane refusal: the
+// details carry the utility_dispatch boundary marker and the native route, and
+// the message names the utility and its correcting route — a coordinator-only
+// native Task with subagent_type concord-<id> and no dispatch window. The
+// refusal is retry-unsafe because retrying dispatch_worker with a utility id
+// can never succeed; the caller must issue the Task call instead.
+function utilityDispatchRefusal(utility: AgentUtility, input: LaneDispatchInput): AgentResultEnvelope {
+  const refusal = errorEnvelopeForLane(
+    null,
+    { work_id: input.work_id, lane_id: input.lane_id },
+    "error",
+    "invalid_input",
+    `dispatch_worker refuses utility id ${utility.id}: a utility runs as a native Task with subagent_type concord-${utility.id}, from a coordinator session only, and without a dispatch window; issue that Task call instead of dispatch_worker`,
+    "use_declared_route",
+    { details: { boundary: "utility_dispatch", utility: utility.id, route: `native Task with subagent_type concord-${utility.id}`, coordinator_session_only: true, dispatch_window: false } },
+  )
+  refusal.error!.retry_safe = false
+  return refusal
+}
+
 // dispatchAttemptID identifies the exact adapter request, not the time at which
 // the request reaches the host. Approval handling can resubmit the unchanged
 // request after a prompt, so a clock-based identity would change its packet and
@@ -94,6 +123,12 @@ export async function dispatchLaneWorker(input: LaneDispatchInput, deps: LaneDis
   if (dispatchRequiresNextTurn(deps.context.sessionID)) {
     return errorEnvelopeForLane(laneForId(input.lane_id), { work_id: input.work_id, lane_id: input.lane_id }, "error", "unauthorized_dispatch", TURN_MOVE_DISPATCH_REFUSAL, "retry_same_request", { details: { boundary: "turn_move" } })
   }
+  // A registered utility id is not a lane. The refusal fires before any core
+  // call — utility admission lives in the plugin's Task hook, so dispatch_worker
+  // can never authorize one — while an unknown lane id falls through to the
+  // packet builder's unregistered-lane refusal below.
+  const utility = utilityForId(input.lane_id)
+  if (utility) return utilityDispatchRefusal(utility, input)
   // The continuity read supplies the durable anchors: product identity and
   // workflow step. Anything else — narrative, mandate — is read once the
   // packet builder runs below. The strict-refusal style mirrors packet.ts's

@@ -165,6 +165,65 @@ test("dispatch and completion evidence each carry a bound assertion", async () =
   }
 })
 
+test("worker evidence timestamps are minted after credential retrieval", async () => {
+  const availableAt: number[] = []
+  const delayedCredentials: CredentialStore = {
+    async getPrivateKey() {
+      await new Promise((resolve) => setTimeout(resolve, 20))
+      availableAt.push(Date.now())
+      return new Uint8Array(32).fill(7)
+    },
+  }
+  const recorded: Record<string, unknown>[] = []
+  const result = await completeWorkerAttempt(lane, packet(), completedBody(), {
+    credentials: delayedCredentials, sessionReader: laneSessionReader,
+    evidenceRunner: evidenceCollector(recorded), concordBinary: "concord", packetDigest: PACKET_DIGEST, workerDirectory: WORKER_DIRECTORY,
+  }, SIGNAL)
+  expect(result.outcome).toBe("ok")
+  expect(recorded.map((entry) => entry.command)).toEqual(["worker-dispatch", "worker-complete"])
+  for (const [index, entry] of recorded.entries()) {
+    const assertion = (entry.request as any).assertion
+    expect(Date.parse(assertion.issued_at)).toBeGreaterThanOrEqual(availableAt[index])
+  }
+
+  const refused: Record<string, unknown>[] = []
+  const refusal = await completeWorkerAttempt(lane, packet(), completedBody(), {
+    credentials: delayedCredentials,
+    sessionReader: {
+      async get() { return { data: { id: "session-other" }, response: new Response("{}", { status: 200 }) } },
+      async messages() { return { data: [], response: new Response("[]", { status: 200 }) } },
+    },
+    evidenceRunner: evidenceCollector(refused), concordBinary: "concord", packetDigest: PACKET_DIGEST, workerDirectory: WORKER_DIRECTORY,
+  }, SIGNAL)
+  expect(refusal.error?.kind).toBe("readback_refusal")
+  expect(refused.map((entry) => entry.command)).toEqual(["worker-dispatch"])
+  const failedRequest = refused[0].request as Record<string, any>
+  expect(failedRequest.terminal).toBe("failed")
+  expect(Date.parse(failedRequest.assertion.issued_at)).toBeGreaterThanOrEqual(availableAt[2])
+})
+
+// The core refuses an assertion whose issued_at is older than its clock-skew
+// window, so the terminal signature must be minted after the dispatch write
+// has landed, not beside the dispatch signature. A delayed dispatch write
+// therefore cannot stale the completion evidence before its own CLI write.
+test("a delayed dispatch write does not stale the terminal assertion", async () => {
+  const recorded: { command: string; request: Record<string, any>; landedAt: number }[] = []
+  const delayedDispatch: DispatchRunner = {
+    async run(argv, input) {
+      if (argv[1] === "worker-dispatch") await new Promise((resolve) => setTimeout(resolve, 50))
+      recorded.push({ command: argv[1], request: JSON.parse(input), landedAt: Date.now() })
+      return { exitCode: 0, stdout: "", stderr: "" }
+    },
+  }
+  const result = await completeWorkerAttempt(lane, packet(), completedBody(), {
+    credentials: testCredentials, sessionReader: laneSessionReader,
+    evidenceRunner: delayedDispatch, concordBinary: "concord", packetDigest: PACKET_DIGEST, workerDirectory: WORKER_DIRECTORY,
+  }, SIGNAL)
+  expect(result.outcome).toBe("ok")
+  expect(recorded.map((entry) => entry.command)).toEqual(["worker-dispatch", "worker-complete"])
+  expect(Date.parse(recorded[1].request.assertion.issued_at)).toBeGreaterThanOrEqual(recorded[0].landedAt)
+})
+
 // The CLI refuses a request that omits a required top-level field, and the
 // stubbed evidence runner cannot see that refusal. The shared file names the
 // fields each verb requires, cmd/concord holds it to commandSpecs, and this

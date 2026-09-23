@@ -1258,11 +1258,40 @@ export async function moveSessionToClaimedWorktree(args: HostToolArgs, context: 
     recordUnlandedClaimedWorktree(context.sessionID, path)
     return adapterError("concord_work_transition", "worktree_claim", requestID, "session_directory_mismatch", "claim_move_destination_mismatch", `the claim recorded ${JSON.stringify(path)} but the session runs in ${JSON.stringify(landed)}`, "none", "retry_same_request")
   }
+  // The verified landing is recorded in the core: one transaction confirms
+  // the destination row is active and occupied by this session, clears this
+  // session's occupancy on its other active rows of the same work item, and
+  // appends one durable event. A landing the core refuses records nothing, so
+  // every source row stays occupied — the conservative direction for the
+  // removal gate — and replaying worktree_claim adopts the durable claim and
+  // retries the move and the landing record.
+  const input = args.input
+  const workID = record(input) ? input.work_id : undefined
+  if (typeof workID !== "string" || workID === "") {
+    return adapterError("concord_work_transition", "worktree_claim", requestID, "malformed_response", "claim_landing_unattributable", "the claim's landing verified by readback carries no work id to record it under", "none", "retry_same_request")
+  }
+  try {
+    await recordClaimLanding(workID, context.sessionID, path, context.abort)
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    return adapterError("concord_work_transition", "worktree_claim", requestID, "operation_conflict", "claim_landing_refused", `${message}; the verified landing is not recorded and the source occupancy stands, replay worktree_claim to retry the landing record`, "none", "retry_same_request")
+  }
   // The landing is confirmed, so this session's active claimed worktree is
   // armed for the dispatch check.
   armClaimedWorktree(context.sessionID, path)
   if (!samePath(context.directory, path)) armTurnMoveBoundary(context.sessionID)
   return envelope
+}
+
+// recordClaimLanding runs the adapter-only claim-landing verb. The
+// verb is not an agent tool operation, like host-lease: the agent names
+// nothing, and the core refuses any landing its projection does not already
+// hold true.
+async function recordClaimLanding(workID: string, sessionRef: string, landedDirectory: string, signal: AbortSignal): Promise<void> {
+  const result = await runner.run([concordBinaryPath(), "claim-landing"], JSON.stringify({ work_id: workID, session_ref: sessionRef, landed_directory: landedDirectory }), signal)
+  if (result.exitCode !== 0) {
+    throw new Error(`claim-landing failed with exit ${result.exitCode}: ${result.stderr.slice(0, 400)}`)
+  }
 }
 
 // moveSessionToRegisteredMainCheckout applies the core-derived vacate target.

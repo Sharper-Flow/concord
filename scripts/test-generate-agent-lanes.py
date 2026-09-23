@@ -106,7 +106,7 @@ class AgentProjectionTests(unittest.TestCase):
         utility = {
             "id": "explore",
             "purpose": "Inspect a repository.",
-            "allowed_tools": ["bash", "read", "glob", "grep"],
+            "allowed_tools": ["bash", "read", "glob", "grep", "execute"],
             "allowed_commands": ["git status *"],
             "time_seconds_max": 600,
         }
@@ -115,9 +115,14 @@ class AgentProjectionTests(unittest.TestCase):
         self.assertIn("  read: true", projection)
         self.assertIn("  glob: true", projection)
         self.assertIn("  grep: true", projection)
+        self.assertIn("  execute: true", projection)
         self.assertIn("  edit: false", projection)
         self.assertIn("# concord-explore", projection)
         self.assertIn("Do not edit files", projection)
+        self.assertIn("Object.keys(tools)", projection)
+        self.assertIn("tools.lgrep.search_semantic", projection)
+        self.assertIn("MCP access depends on host connections", projection)
+        self.assertIn("Use read-only tools only", projection)
 
     def test_advisory_projection_uses_collaborative_body_with_model_statement(self):
         # CD-0157 D2-D4. The adviser receives a problem, never a proposed

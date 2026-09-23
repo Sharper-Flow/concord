@@ -809,6 +809,14 @@ async function runWorkStartChild(argv: string[], input: string, signal: AbortSig
   try { return await runner.run(argv, input, signal, options) } catch (error) { throw runnerFailure(error, signal.aborted) }
 }
 
+// The core reports a deterministic session-prepare refusal — invalid input,
+// or a state or identity check that fails the same way until state changes —
+// with this typed exit status, declared in the core's session-prepare help.
+// Classification uses the status alone, never stderr text: replaying the same
+// request cannot clear a refusal, so it maps to contact_operator, while any
+// other session-prepare failure stays retryable.
+export const sessionPrepareRefusalExit = 2
+
 // renameZellijPaneFrame names the zellij pane frame after the work a
 // successful work_start just entered (issue #917). The session-prepare
 // contract returns the title alone, and the adapter does not add a database
@@ -930,6 +938,7 @@ async function executeWorkStart(args: WorkStartArgs, context: ToolContext, warni
     // same agent. A core that answers with any other agent fails the strict
     // contract below.
     const prepared = await runWorkStartChild([concordBinaryPath(), "session-prepare"], JSON.stringify({ product_id: target.product_id, work_id: target.work_id, task: prepareTask, agent: context.agent }), context.abort, { cwd: target.worktree.path })
+    if (prepared.exitCode === sessionPrepareRefusalExit) throw new AdapterFailure("session_prepare_failure", "session_prepare_refused", prepared.stderr.slice(0, MAX_STDERR), "none", "contact_operator")
     if (prepared.exitCode !== 0) throw new AdapterFailure("session_prepare_failure", "session_prepare_failed", prepared.stderr.slice(0, MAX_STDERR), "none", "retry_same_request")
     let preparedValue: unknown
     try { preparedValue = singleJSON(prepared.stdout) } catch (error) { throw new AdapterFailure("malformed_response", "malformed_prepare_response", String(error), "none", "retry_same_request") }

@@ -1,0 +1,48 @@
+{
+  "authority": {
+    "contract_version": 3,
+    "legislated_by": "work-418bde718f27f3ca0afe625f",
+    "tier": "legislated"
+  },
+  "date": "2026-09-23T00:00:00Z",
+  "home_domain_id": "workflow-engine",
+  "id": "CD-0172",
+  "kind": "decision",
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "CD-0133"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0030"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0143"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0124"
+    }
+  ],
+  "path": "docs/decisions/CD-0172-contract-correction-at-the-pinned-complete-step.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:bd1a36d1cd3d83ed6ddf8289c193d382e0f6c2799e9a0e0dcc0bc2578b267345",
+  "status": "accepted",
+  "summary": "Operator-approved contract correction extends to the pinned complete step of a break-fix or implementation workflow: a nonterminal item, one active contract, no unsettled attempt, and a same-work observation recorded after the latest verdict admit the typed supersession, whose successor carries the reserved complete_step_correction convention, returns the instance to repair or execution under the unchanged pinned definition, and accepts no predecessor verdict and no predecessor evidence binding, because the supersession bounds the evidence history. The cutoff is ancestry state: a later ordinary successor of a corrected contract keeps the bound, so dropping the route marker restores nothing, and only fresh post-cutoff evidence and verdicts re-establish a contract. Duplicate recovery and stale-law recovery stay behind the same shared admission at that step. Fresh delivery, fresh required evidence, an independent review, and a fresh verdict are the only path back to completion. The predicate reads the observation's existence and ordering only, and CD-0143's unhealthy-verdict route stays unchanged.",
+  "tags": [
+    "workflow",
+    "correction",
+    "supersession",
+    "completion",
+    "verdict"
+  ],
+  "title": "Contract correction at the pinned complete step"
+}

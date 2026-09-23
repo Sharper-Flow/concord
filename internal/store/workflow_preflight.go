@@ -100,9 +100,9 @@ func WorkflowActionPreflightWithRegistry(ctx context.Context, s *Store, registry
 	if err != nil {
 		return err
 	}
-	var currentStep, state string
+	var currentStep, state, lifecycle string
 	var version int64
-	if err := s.db.QueryRowContext(ctx, `SELECT current_step,instance_state,(SELECT version FROM work_items WHERE id=workflow_instances.work_id) FROM workflow_instances WHERE work_id=?`, request.WorkID).Scan(&currentStep, &state, &version); err != nil {
+	if err := s.db.QueryRowContext(ctx, `SELECT current_step,instance_state,(SELECT lifecycle FROM work_items WHERE id=workflow_instances.work_id),(SELECT version FROM work_items WHERE id=workflow_instances.work_id) FROM workflow_instances WHERE work_id=?`, request.WorkID).Scan(&currentStep, &state, &lifecycle, &version); err != nil {
 		return wrapFailure(KindUnavailable, "workflow_action_preflight", "cannot read workflow instance state", true, "retry once the database is readable", err)
 	}
 	if request.StepID != "" && request.StepID != currentStep {
@@ -115,7 +115,7 @@ func WorkflowActionPreflightWithRegistry(ctx context.Context, s *Store, registry
 		}
 		return conflict
 	}
-	if state == "completed" || state == "cancelled" || state == "superseded" {
+	if workflowCompletedInstanceActionImmutable(state, request.ActionID, lifecycle) {
 		return newFailure(KindInvalidOperation, "workflow_action_preflight", "terminal workflow instance is immutable", false, "start a successor workflow")
 	}
 	_, action, err := WorkflowActionDefinitionFor(ctx, s, registry, request.WorkID, request.ActionID)
@@ -156,7 +156,55 @@ func WorkflowActionPreflightWithRegistry(ctx context.Context, s *Store, registry
 		}
 	}
 	consequence := action.Consequence
-	staleRecovery := request.ActionID == "supersede_contract"
+	staleRecovery := false
+	if request.ActionID == "supersede_contract" {
+		// The read-only surface validates the same complete-step payload
+		// route convention and the same shared admission the transaction
+		// preflight enforces, so the two preflights cannot diverge on the
+		// answer that gates the effect.
+		fields, fieldsErr := workflowActionObject(request.Payload)
+		if fieldsErr != nil {
+			return fieldsErr
+		}
+		atCompleteStep := workflowCompleteStepCorrectionStep(entry.Definition, currentStep)
+		declaresRoute := containsString(workflowFieldStrings(fields, "route_conventions"), workflowCompleteStepCorrectionRoute)
+		if declaresRoute && !atCompleteStep {
+			return newFailure(KindInvalidPayload, "workflow_action_preflight", "route convention complete_step_correction is reserved for correction at the pinned complete step", false, "drop the reserved route convention")
+		}
+		if workflowCompletedInstanceSupersedeOffShape(state, entry.Definition, currentStep) {
+			return workflowCompletedInstanceOffShapeFailure("workflow_action_preflight")
+		}
+		activeContracts, countErr := activeWorkflowContractCount(ctx, s.db, request.WorkID, "workflow_action_preflight")
+		if countErr != nil {
+			return countErr
+		}
+		if atCompleteStep {
+			recovery, recoveryErr := workflowSupersedeRecoveryAtCompleteStep(ctx, s.db, request.WorkID, entry.Definition, currentStep, "workflow_action_preflight", declaresRoute, activeContracts)
+			if recoveryErr != nil {
+				return recoveryErr
+			}
+			staleRecovery = recovery
+		} else if activeContracts > 1 {
+			// A duplicate projection is the recovery subject. Do not ask the
+			// ordinary single-contract reader to classify it first.
+			staleRecovery = true
+		} else if lawErr := checkWorkflowLawRevisionStalenessReadTx(ctx, s.db, request.WorkID); lawErr != nil {
+			var failure *Failure
+			if !failureAs(lawErr, &failure) || (failure.Kind != KindStaleLawRevision && failure.Kind != KindDomainOverlap) {
+				return lawErr
+			}
+			staleRecovery = true
+		} else {
+			correction, correctionErr := workflowContractCorrectionAvailable(ctx, s.db, request.WorkID, entry.Definition, currentStep, "workflow_action_preflight")
+			if correctionErr != nil {
+				return correctionErr
+			}
+			if !correction {
+				return newFailure(KindInvalidOperation, "workflow_action_preflight", "contract recovery is available only for a stale workflow contract", false, "continue the current contract or request terminal work")
+			}
+			staleRecovery = true
+		}
+	}
 	// The resolver admits record_verdict past its verification step, but
 	// the admission is bounded by the same shared availability the owning
 	// transaction checks (#1013): only a missing, non-ok, or incomparable
@@ -359,9 +407,9 @@ func workflowActionPreflightTx(ctx context.Context, tx *sql.Tx, registry Definit
 	if err != nil {
 		return RegisteredDefinition{}, err
 	}
-	var currentStep, state string
+	var currentStep, state, lifecycle string
 	var version int64
-	if err := tx.QueryRowContext(ctx, `SELECT current_step,instance_state,(SELECT version FROM work_items WHERE id=workflow_instances.work_id) FROM workflow_instances WHERE work_id=?`, request.WorkID).Scan(&currentStep, &state, &version); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT current_step,instance_state,(SELECT lifecycle FROM work_items WHERE id=workflow_instances.work_id),(SELECT version FROM work_items WHERE id=workflow_instances.work_id) FROM workflow_instances WHERE work_id=?`, request.WorkID).Scan(&currentStep, &state, &lifecycle, &version); err != nil {
 		return RegisteredDefinition{}, wrapFailure(KindUnavailable, "workflow_action_preflight", "cannot read workflow instance state", true, "retry once the database is readable", err)
 	}
 	if request.StepID != "" && request.StepID != currentStep {
@@ -374,7 +422,7 @@ func workflowActionPreflightTx(ctx context.Context, tx *sql.Tx, registry Definit
 		}
 		return RegisteredDefinition{}, conflict
 	}
-	if state == "completed" || state == "cancelled" || state == "superseded" {
+	if workflowCompletedInstanceActionImmutable(state, request.ActionID, lifecycle) {
 		return RegisteredDefinition{}, newFailure(KindInvalidOperation, "workflow_action_preflight", "terminal workflow instance is immutable", false, "start a successor workflow")
 	}
 	staleRecovery := false
@@ -407,11 +455,35 @@ func workflowActionPreflightTx(ctx context.Context, tx *sql.Tx, registry Definit
 		}
 	}
 	if request.ActionID == "supersede_contract" {
+		fields, fieldsErr := workflowActionObject(request.Payload)
+		if fieldsErr != nil {
+			return RegisteredDefinition{}, fieldsErr
+		}
+		atCompleteStep := workflowCompleteStepCorrectionStep(entry.Definition, currentStep)
+		declaresRoute := containsString(workflowFieldStrings(fields, "route_conventions"), workflowCompleteStepCorrectionRoute)
+		if declaresRoute && !atCompleteStep {
+			return RegisteredDefinition{}, newFailure(KindInvalidPayload, "workflow_action_preflight", "route convention complete_step_correction is reserved for correction at the pinned complete step", false, "drop the reserved route convention")
+		}
+		if workflowCompletedInstanceSupersedeOffShape(state, entry.Definition, currentStep) {
+			// The stale-law and duplicate recoveries belong to running
+			// earlier steps. A completed instance off the supported shape
+			// would fold without the return that reopens the work.
+			return RegisteredDefinition{}, workflowCompletedInstanceOffShapeFailure("workflow_action_preflight")
+		}
 		activeContracts, countErr := activeWorkflowContractCount(ctx, tx, request.WorkID, "workflow_action_preflight")
 		if countErr != nil {
 			return RegisteredDefinition{}, countErr
 		}
-		if activeContracts > 1 {
+		if atCompleteStep {
+			// Every correction path at the pinned complete step — duplicate,
+			// stale-law, or ordinary — passes through the shared complete-step
+			// admission before any effect.
+			recovery, recoveryErr := workflowSupersedeRecoveryAtCompleteStep(ctx, tx, request.WorkID, entry.Definition, currentStep, "workflow_action_preflight", declaresRoute, activeContracts)
+			if recoveryErr != nil {
+				return RegisteredDefinition{}, recoveryErr
+			}
+			staleRecovery = recovery
+		} else if activeContracts > 1 {
 			// A duplicate projection is the recovery subject. Do not ask the
 			// ordinary single-contract reader to classify it first.
 			staleRecovery = true

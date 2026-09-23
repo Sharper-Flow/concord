@@ -15,6 +15,11 @@ import (
 
 var observationIDPattern = regexp.MustCompile(`^obs:[0-9a-f]{16}$`)
 
+// WorkObservationRecorded is the typed event kind for one durable work
+// observation (CD-0030). It carries generic append authority, so a public
+// operation can record it on nonterminal work at any workflow step.
+const WorkObservationRecorded = "work.observation_recorded"
+
 // WorkObservation is one durable observation row.
 type WorkObservation struct {
 	ObservationID string   `json:"observation_id"`

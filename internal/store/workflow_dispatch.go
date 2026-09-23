@@ -113,8 +113,25 @@ func WorkflowActionDefinitionFor(ctx context.Context, s *Store, registry Definit
 		if err := s.db.QueryRowContext(ctx, `SELECT current_step,instance_state FROM workflow_instances WHERE work_id=?`, workID).Scan(&currentStep, &state); err != nil {
 			return RegisteredDefinition{}, WorkflowActionDefinition{}, wrapFailure(KindUnavailable, "workflow_action", "cannot inspect workflow lifecycle", true, "retry once the workflow projection is readable", err)
 		}
-		if state == "completed" || state == "cancelled" || state == "superseded" {
+		if state == "cancelled" || state == "superseded" {
 			return RegisteredDefinition{}, WorkflowActionDefinition{}, newFailure(KindInvalidOperation, "workflow_action", "contract recovery is unavailable for terminal work", false, "start a successor workflow")
+		}
+		// A completed workflow instance whose work item is still nonterminal
+		// is the state the complete-step correction route recovers: completion
+		// under a contract the operator has disproved. Terminality follows the
+		// work item lifecycle, not the instance state alone.
+		var lifecycle string
+		if err := s.db.QueryRowContext(ctx, `SELECT lifecycle FROM work_items WHERE id=?`, workID).Scan(&lifecycle); err != nil {
+			return RegisteredDefinition{}, WorkflowActionDefinition{}, wrapFailure(KindUnavailable, "workflow_action", "cannot read the work item lifecycle", true, "retry once the work item is readable", err)
+		}
+		if lifecycle == "completed" || lifecycle == "cancelled" || lifecycle == "superseded" {
+			return RegisteredDefinition{}, WorkflowActionDefinition{}, newFailure(KindInvalidOperation, "workflow_action", "contract recovery is unavailable for terminal work", false, "start a successor workflow")
+		}
+		if workflowCompletedInstanceSupersedeOffShape(state, entry.Definition, currentStep) {
+			// A completed instance off the supported pinned complete-step
+			// shape keeps every recovery route closed; only the complete-step
+			// admission reopens it.
+			return RegisteredDefinition{}, WorkflowActionDefinition{}, workflowCompletedInstanceOffShapeFailure("workflow_action")
 		}
 		var activeCount int
 		if err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL`, workID).Scan(&activeCount); err != nil {
@@ -122,6 +139,19 @@ func WorkflowActionDefinitionFor(ctx context.Context, s *Store, registry Definit
 		}
 		if activeCount == 0 {
 			return RegisteredDefinition{}, WorkflowActionDefinition{}, newFailure(KindInvariantViolation, "workflow_action", "contract recovery requires an active workflow contract", false, "rebuild the workflow contract projection")
+		}
+		if workflowCompleteStepCorrectionStep(entry.Definition, currentStep) {
+			// The pinned complete step exposes one admission: the shared
+			// complete-step state gate. Duplicate and stale-law recovery stay
+			// on their declared earlier steps.
+			available, gateErr := workflowCompleteStepCorrectionAvailable(ctx, s.db, workID, entry.Definition, currentStep, "workflow_action")
+			if gateErr != nil {
+				return RegisteredDefinition{}, WorkflowActionDefinition{}, gateErr
+			}
+			if !available {
+				return RegisteredDefinition{}, WorkflowActionDefinition{}, newFailure(KindInvalidOperation, "workflow_action", "contract recovery is available only for a stale workflow contract", false, "continue the current contract or request terminal work")
+			}
+			return entry, workflowContractRecoveryActionDefinition(), nil
 		}
 		if activeCount > 1 {
 			return entry, workflowContractRecoveryActionDefinition(), nil
@@ -241,9 +271,9 @@ func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, scope *foldScope,
 		request.SessionWorktreeIdentity = workerWorktreeIdentity(canonical)
 		workerClaimedWorktree = claimed
 	}
-	var currentStep, state string
+	var currentStep, state, lifecycle string
 	var version int64
-	if err := tx.QueryRowContext(ctx, `SELECT current_step,instance_state,(SELECT version FROM work_items WHERE id=workflow_instances.work_id) FROM workflow_instances WHERE work_id=?`, request.WorkID).Scan(&currentStep, &state, &version); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT current_step,instance_state,(SELECT lifecycle FROM work_items WHERE id=workflow_instances.work_id),(SELECT version FROM work_items WHERE id=workflow_instances.work_id) FROM workflow_instances WHERE work_id=?`, request.WorkID).Scan(&currentStep, &state, &lifecycle, &version); err != nil {
 		return result, wrapFailure(KindUnavailable, "workflow_action", "cannot read workflow state", true, "retry once the database is readable", err)
 	}
 	if request.ExpectedVersion != version {
@@ -253,10 +283,10 @@ func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, scope *foldScope,
 		}
 		return result, conflict
 	}
-	if state == "completed" || state == "cancelled" || state == "superseded" {
+	if workflowCompletedInstanceActionImmutable(state, request.ActionID, lifecycle) {
 		return result, newFailure(KindInvalidOperation, "workflow_action", "terminal workflow instance is immutable", false, "start a successor workflow")
 	}
-	guards := &workflowActionGuardContext{ctx: ctx, tx: tx, request: request, entry: entry, currentStep: currentStep}
+	guards := &workflowActionGuardContext{ctx: ctx, tx: tx, request: request, entry: entry, currentStep: currentStep, instanceState: state}
 	if request.ActionID == "record_worker_failure" {
 		guards.workerFailureRecovery, err = workflowWorkerFailureRecoveryAvailable(ctx, tx, request.WorkID, entry.Definition, currentStep, "workflow_action")
 		if err != nil {

@@ -766,6 +766,55 @@ func workflowProjectionError(err error, message string) error {
 	return wrapFailure(KindUnavailable, "fold_event", fmt.Sprintf("%s: %v", message, err), true, "retry once the database is writable", err)
 }
 
+// validateWorkflowContractApprovalLaw checks the law and architecture declarations an approval carries against the pinned definition: a
+// Product-changing contract must carry the current law boundary and a complete binding, and every other contract must carry none of that
+// authority. changesProductTruth is the pinned definition's Product-truth class, and contractFields is the raw approval payload the
+// composed fields are read from.
+func validateWorkflowContractApprovalLaw(ctx context.Context, tx *sql.Tx, event Event, registered RegisteredDefinition, contractFields map[string]json.RawMessage, p workflowContractApprovedPayload, changesProductTruth bool) error {
+	if changesProductTruth {
+		if p.LawBoundaryVersion != 1 {
+			return newFailure(KindInvalidPayload, "fold_event", "Product-changing contract must carry the current law boundary", false, "supply law_boundary_version=1")
+		}
+		for _, field := range []string{"spec_mandate", "law_modifies", "law_revisions", "architecture_binding"} {
+			if _, present := contractFields[field]; !present {
+				return newFailure(KindInvalidPayload, "fold_event", "Product-changing contract is missing composed field "+field, false, "supply every architecture-bound contract field")
+			}
+		}
+		if p.ArchitectureBinding == nil || p.LawRevisions == nil {
+			return newFailure(KindInvalidPayload, "fold_event", "Product-changing contract contains null architecture-bound fields", false, "supply the complete architecture binding and law pins")
+		}
+		if isWorkflowReplay(ctx) {
+			if err := validateArchitectureBindingReplayShape(registered.Definition, p.ArchitectureBinding, p.SpecMandate, p.LawModifies, p.LawRevisions); err != nil {
+				return err
+			}
+		} else if err := validateArchitectureBindingTx(ctx, tx, event.SubjectID, registered.Definition, p.ArchitectureBinding, p.SpecMandate, p.LawModifies, p.LawRevisions); err != nil {
+			return err
+		}
+	} else {
+		if p.ArchitectureBinding != nil {
+			return newFailure(KindInvalidPayload, "fold_event", "non-Product-changing workflow cannot carry architecture_binding", false, "select a registered Product-changing workflow")
+		}
+		if len(p.LawModifies) != 0 {
+			// CD-0041 D5 as amended by the CON-336 decision: a contract that
+			// does not change Product truth may revise derived law in-contract.
+			// The replay path skips the check because the approved contract
+			// already carried the tiers it named at approval time.
+			if isWorkflowReplay(ctx) {
+				return newFailure(KindInvalidPayload, "fold_event", "non-Product-changing workflow cannot modify Product law", false, "leave law_modifies empty or select a Product-changing workflow")
+			}
+			if err := validateDerivedLawModification(ctx, tx, event.SubjectID, p.LawModifies); err != nil {
+				return err
+			}
+		}
+		if p.LawRevisions != nil {
+			if err := validateWorkflowLawRevisions(p.SpecMandate, p.LawRevisions); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
 func foldWorkflowContractApproved(ctx context.Context, tx *sql.Tx, event Event) error {
 	var p workflowContractApprovedPayload
 	if err := decodeWorkflowPayload(event, &p); err != nil {
@@ -776,6 +825,9 @@ func foldWorkflowContractApproved(ctx context.Context, tx *sql.Tx, event Event) 
 	}
 	if p.ContractVersion <= 0 || !workflowString(p.Premise, WorkflowPremiseMaxLength) || !workflowList(p.RequiredEvidence, 7, 0) || !workflowList(p.RouteConventions, 16, 0) || !workflowList(p.SpecMandate, 32, 0) || !workflowList(p.LawModifies, 32, 0) {
 		return newFailure(KindInvalidPayload, "fold_event", "contract_approved contains invalid contract fields", false, "supply a strict closed workflow outcome and bounded contract fields")
+	}
+	if containsString(p.RouteConventions, workflowCompleteStepCorrectionRoute) && !inWorkflowContractSupersessionContext(ctx) {
+		return newFailure(KindInvalidPayload, "fold_event", "route convention complete_step_correction is reserved for the complete-step correction successor", false, "drop the reserved route convention")
 	}
 	if p.OutcomePredicates == nil {
 		if !validateWorkflowOutcome(p.OutcomePayload, p.OutcomeKind) {
@@ -832,46 +884,8 @@ func foldWorkflowContractApproved(ctx context.Context, tx *sql.Tx, event Event) 
 		return definitionErr
 	}
 	changesProductTruth := registered.Definition.ChangesProductTruth != nil && *registered.Definition.ChangesProductTruth
-	if changesProductTruth {
-		if p.LawBoundaryVersion != 1 {
-			return newFailure(KindInvalidPayload, "fold_event", "Product-changing contract must carry the current law boundary", false, "supply law_boundary_version=1")
-		}
-		for _, field := range []string{"spec_mandate", "law_modifies", "law_revisions", "architecture_binding"} {
-			if _, present := contractFields[field]; !present {
-				return newFailure(KindInvalidPayload, "fold_event", "Product-changing contract is missing composed field "+field, false, "supply every architecture-bound contract field")
-			}
-		}
-		if p.ArchitectureBinding == nil || p.LawRevisions == nil {
-			return newFailure(KindInvalidPayload, "fold_event", "Product-changing contract contains null architecture-bound fields", false, "supply the complete architecture binding and law pins")
-		}
-		if isWorkflowReplay(ctx) {
-			if err := validateArchitectureBindingReplayShape(registered.Definition, p.ArchitectureBinding, p.SpecMandate, p.LawModifies, p.LawRevisions); err != nil {
-				return err
-			}
-		} else if err := validateArchitectureBindingTx(ctx, tx, event.SubjectID, registered.Definition, p.ArchitectureBinding, p.SpecMandate, p.LawModifies, p.LawRevisions); err != nil {
-			return err
-		}
-	} else {
-		if p.ArchitectureBinding != nil {
-			return newFailure(KindInvalidPayload, "fold_event", "non-Product-changing workflow cannot carry architecture_binding", false, "select a registered Product-changing workflow")
-		}
-		if len(p.LawModifies) != 0 {
-			// CD-0041 D5 as amended by the CON-336 decision: a contract that
-			// does not change Product truth may revise derived law in-contract.
-			// The replay path skips the check because the approved contract
-			// already carried the tiers it named at approval time.
-			if isWorkflowReplay(ctx) {
-				return newFailure(KindInvalidPayload, "fold_event", "non-Product-changing workflow cannot modify Product law", false, "leave law_modifies empty or select a Product-changing workflow")
-			}
-			if err := validateDerivedLawModification(ctx, tx, event.SubjectID, p.LawModifies); err != nil {
-				return err
-			}
-		}
-		if p.LawRevisions != nil {
-			if err := validateWorkflowLawRevisions(p.SpecMandate, p.LawRevisions); err != nil {
-				return err
-			}
-		}
+	if err := validateWorkflowContractApprovalLaw(ctx, tx, event, registered, contractFields, p, changesProductTruth); err != nil {
+		return err
 	}
 	if p.LawBoundaryVersion == 1 {
 		if err := validateLawModificationSubset(p.SpecMandate, p.LawModifies); err != nil {
@@ -943,26 +957,25 @@ func foldWorkflowContractApproved(ctx context.Context, tx *sql.Tx, event Event) 
 	return nil
 }
 
-func foldWorkflowContractSuperseded(ctx context.Context, tx *sql.Tx, event Event) error {
-	var p workflowContractSupersededPayload
-	if err := decodeWorkflowPayload(event, &p); err != nil {
-		return err
-	}
-	if err := workflowBase(event, p.WorkflowVersionFields); err != nil {
-		return err
-	}
+// validateWorkflowContractSupersessionPredecessors normalizes and validates
+// the predecessor set a supersession names: bounded versions, a consecutive
+// successor version, an exact match with the active contracts, the recovery
+// authorization a duplicate-projection recovery owes, and one active row per
+// named predecessor. It returns the sorted predecessor versions the fold
+// supersedes.
+func validateWorkflowContractSupersessionPredecessors(ctx context.Context, tx *sql.Tx, event Event, p workflowContractSupersededPayload) ([]int64, error) {
 	predecessors := p.PredecessorContractVersions
 	if len(predecessors) == 0 && p.PreviousContractVersion > 0 {
 		predecessors = []int64{p.PreviousContractVersion}
 	}
 	if !validWorkflowContractVersionList(predecessors) || !workflowString(p.SupersedeReason, 4096) || !workflowList(p.AuditEvidence, 32, 1) {
-		return newFailure(KindInvalidPayload, "fold_event", "contract_superseded has invalid version, reason, or audit evidence", false, "supersede one contract with a consecutive version and evidence")
+		return nil, newFailure(KindInvalidPayload, "fold_event", "contract_superseded has invalid version, reason, or audit evidence", false, "supersede one contract with a consecutive version and evidence")
 	}
 	predecessors = append([]int64(nil), predecessors...)
 	sort.Slice(predecessors, func(i, j int) bool { return predecessors[i] < predecessors[j] })
 	p.PredecessorContractVersions = predecessors
 	if !containsInt64(predecessors, p.PreviousContractVersion) {
-		return newFailure(KindInvalidPayload, "fold_event", "contract supersession predecessor list does not contain the previous contract", false, "supply every exact predecessor contract version")
+		return nil, newFailure(KindInvalidPayload, "fold_event", "contract supersession predecessor list does not contain the previous contract", false, "supply every exact predecessor contract version")
 	}
 	maxPredecessor := predecessors[0]
 	for _, version := range predecessors[1:] {
@@ -971,30 +984,46 @@ func foldWorkflowContractSuperseded(ctx context.Context, tx *sql.Tx, event Event
 		}
 	}
 	if p.NewContractVersion != maxPredecessor+1 {
-		return newFailure(KindInvalidPayload, "fold_event", "successor contract version must immediately follow every predecessor", false, "supply the next contract version")
+		return nil, newFailure(KindInvalidPayload, "fold_event", "successor contract version must immediately follow every predecessor", false, "supply the next contract version")
 	}
 	var activeCount int
 	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL`, event.SubjectID).Scan(&activeCount); err != nil {
-		return workflowProjectionError(err, "cannot inspect active workflow contracts")
+		return nil, workflowProjectionError(err, "cannot inspect active workflow contracts")
 	}
 	legacyReplacement := isWorkflowReplay(ctx) && p.SuccessorContract == nil && activeCount > len(predecessors)
 	if activeCount != len(predecessors) && !legacyReplacement {
-		return newFailure(KindInvariantViolation, "fold_event", "contract supersession predecessor list does not match active workflow contracts", false, "rebuild the workflow contract projection or supply the exact duplicate recovery set")
+		return nil, newFailure(KindInvariantViolation, "fold_event", "contract supersession predecessor list does not match active workflow contracts", false, "rebuild the workflow contract projection or supply the exact duplicate recovery set")
 	}
 	if activeCount > 1 && !isWorkflowReplay(ctx) {
 		if err := authorizeWorkflowContractRecoveryTx(ctx, tx, event, p); err != nil {
-			return err
+			return nil, err
 		}
 	}
 	for _, predecessor := range predecessors {
 		var active int
 		if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM workflow_contracts WHERE work_id=? AND contract_version=? AND superseded_by IS NULL`, event.SubjectID, predecessor).Scan(&active); err != nil {
-			return workflowProjectionError(err, "cannot inspect contract supersession predecessor")
+			return nil, workflowProjectionError(err, "cannot inspect contract supersession predecessor")
 		}
 		if active != 1 {
-			return newFailure(KindInvariantViolation, "fold_event", "contract supersession predecessor is not active", false, "supply the exact active contract versions")
+			return nil, newFailure(KindInvariantViolation, "fold_event", "contract supersession predecessor is not active", false, "supply the exact active contract versions")
 		}
 	}
+	return predecessors, nil
+}
+
+func foldWorkflowContractSuperseded(ctx context.Context, tx *sql.Tx, event Event) error {
+	var p workflowContractSupersededPayload
+	if err := decodeWorkflowPayload(event, &p); err != nil {
+		return err
+	}
+	if err := workflowBase(event, p.WorkflowVersionFields); err != nil {
+		return err
+	}
+	predecessors, err := validateWorkflowContractSupersessionPredecessors(ctx, tx, event, p)
+	if err != nil {
+		return err
+	}
+	p.PredecessorContractVersions = predecessors
 	if p.SuccessorContract != nil {
 		if p.SuccessorContract.ContractVersion != p.NewContractVersion {
 			return newFailure(KindInvalidPayload, "fold_event", "successor contract version does not match contract supersession", false, "supply the consecutive successor contract version")
@@ -1091,6 +1120,11 @@ func foldWorkflowContractSuperseded(ctx context.Context, tx *sql.Tx, event Event
 	if err := invalidateWorkflowOverlapResolutionsForWorkTx(ctx, tx, event.EventID, event.SubjectID); err != nil {
 		return err
 	}
+	if p.SuccessorContract != nil {
+		if err := foldCompleteStepContractCorrectionTx(ctx, tx, event.SubjectID, p.SuccessorContract); err != nil {
+			return err
+		}
+	}
 	if p.SuccessorContract == nil {
 		if err := resetWorkflowInstanceToContractStepTx(ctx, tx, event.SubjectID); err != nil {
 			return err
@@ -1108,6 +1142,51 @@ func foldWorkflowContractSuperseded(ctx context.Context, tx *sql.Tx, event Event
 		return nil
 	}
 	return appendWorkflowContractImpactNoticesTx(ctx, tx, event, p, *p.ResultingVersion)
+}
+
+// foldCompleteStepContractCorrectionTx keeps the route marker, historical
+// replay, and admission checks together before it returns the pinned instance
+// to its external-effect step. The caller holds the fold transaction.
+func foldCompleteStepContractCorrectionTx(ctx context.Context, tx *sql.Tx, workID string, successor *workflowContractApprovedPayload) error {
+	var foldStep, foldState string
+	if err := tx.QueryRowContext(ctx, `SELECT current_step,instance_state FROM workflow_instances WHERE work_id=?`, workID).Scan(&foldStep, &foldState); err != nil {
+		return workflowProjectionError(err, "cannot read the workflow step for the supersession route check")
+	}
+	entry, err := VerifyWorkflowInstanceDefinitionTx(ctx, tx, BuiltinWorkflowRegistry(), workID)
+	if err != nil {
+		return err
+	}
+	atCompleteStep := workflowCompleteStepCorrectionStep(entry.Definition, foldStep)
+	declaresRoute := containsString(successor.RouteConventions, workflowCompleteStepCorrectionRoute)
+	if declaresRoute && !atCompleteStep {
+		return newFailure(KindInvariantViolation, "fold_event", "route convention complete_step_correction does not match the supersession step", false, "declare the reserved convention exactly on the complete-step correction route")
+	}
+	if !atCompleteStep {
+		// Historical off-shape supersessions replay exactly as they folded.
+		// A new live supersession of a completed instance off the supported
+		// shape refuses here as the last admission before the effect, because
+		// the fold return that reopens the work runs on no other shape.
+		if workflowCompletedInstanceSupersedeOffShape(foldState, entry.Definition, foldStep) && !isWorkflowReplay(ctx) {
+			return newFailure(KindInvariantViolation, "fold_event", "a completed workflow instance supersedes its contract only on the pinned complete-step correction shape", false, "start a successor workflow")
+		}
+		return nil
+	}
+	if !declaresRoute {
+		// Historical stale-law supersessions at this step retain their replay
+		// behavior. Live admission refuses a missing route marker.
+		if isWorkflowReplay(ctx) {
+			return nil
+		}
+		return newFailure(KindInvariantViolation, "fold_event", "route convention complete_step_correction does not match the supersession step", false, "declare the reserved convention exactly on the complete-step correction route")
+	}
+	available, err := workflowCompleteStepCorrectionAvailable(ctx, tx, workID, entry.Definition, foldStep, "fold_event")
+	if err != nil {
+		return err
+	}
+	if !available {
+		return newFailure(KindInvariantViolation, "fold_event", "complete-step correction supersession does not satisfy its admission conditions", false, "rebuild the workflow projection from the event log")
+	}
+	return returnWorkflowInstanceFromCompleteStepTx(ctx, tx, workID)
 }
 
 // authorizeWorkflowContractRecoveryTx admits a duplicate-contract supersession
@@ -1900,7 +1979,7 @@ func admitWorkflowActionOffStep(ctx context.Context, tx *sql.Tx, event Event, p 
 		if bindingStep == "" || !workflowStepFollows(entry.Definition, bindingStep, currentStep) {
 			return newFailure(KindIllegalLifecycleTransition, "fold_event", "recovery evidence binding is not past its declared binding step", false, "reread_entities")
 		}
-		required, mandates, obligations, inputsErr := workflowEvidenceRequirementInputs(ctx, tx, event.SubjectID)
+		required, mandates, obligations, _, inputsErr := workflowEvidenceRequirementInputs(ctx, tx, event.SubjectID)
 		if inputsErr != nil {
 			return inputsErr
 		}

@@ -112,7 +112,7 @@ func TestGreenVerifyRunBindsAsVerificationEvidence(t *testing.T) {
 	s, git, owner, reviewer := verifyEvidenceFixture(t, workID)
 	defer s.Close()
 
-	authoritativeBefore, err := workflowEvidenceKindBound(ctx, s.DatabaseForTesting(), workID, "verification")
+	authoritativeBefore, err := workflowEvidenceKindBound(ctx, s.DatabaseForTesting(), workID, "verification", 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -155,7 +155,7 @@ func TestGreenVerifyRunBindsAsVerificationEvidence(t *testing.T) {
 	if err := runVerdictAction(t, s, workID, "bind_evidence", json.RawMessage(`{"evidence_kind":"review","immutable_subject_ref":"evidence:seeded-review"}`), 0); err != nil {
 		t.Fatalf("binding the fixture's review kind refused: %v", err)
 	}
-	authoritativeAfter, err := workflowEvidenceKindBound(ctx, s.DatabaseForTesting(), workID, "verification")
+	authoritativeAfter, err := workflowEvidenceKindBound(ctx, s.DatabaseForTesting(), workID, "verification", 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -234,7 +234,7 @@ func TestRedVerifyRunNamesNoAuthority(t *testing.T) {
 	if got := countEvidenceBinding(t, s, workID, "verification", verifyOperationRef(leaseID)); got != 0 {
 		t.Fatalf("refused red-run binding count=%d, want 0", got)
 	}
-	authoritative, err := workflowEvidenceKindBound(ctx, s.DatabaseForTesting(), workID, "verification")
+	authoritative, err := workflowEvidenceKindBound(ctx, s.DatabaseForTesting(), workID, "verification", 0)
 	if err != nil {
 		t.Fatal(err)
 	}

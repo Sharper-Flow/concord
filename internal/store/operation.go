@@ -192,7 +192,7 @@ var eventKindRegistry = map[string]EventKindRegistration{
 	"work.worktree_created":                   registerEventKind[worktreeCreatedPayload](1, 1, nil, EventAppendAuthorityGeneric, foldWorktreeCreated, nil),
 	"work.resource_claimed":                   registerEventKind[resourceClaimedPayload](1, 1, nil, EventAppendAuthorityGeneric, foldResourceClaimed, nil),
 	"work.message_sent":                       registerEventKind[messageSentPayload](1, 1, nil, EventAppendAuthorityGeneric, foldMessageSent, nil),
-	"work.observation_recorded":               registerEventKind[workObservationRecordedPayload](1, 1, nil, EventAppendAuthorityGeneric, foldWorkObservationRecorded, nil),
+	WorkObservationRecorded:                   registerEventKind[workObservationRecordedPayload](1, 1, nil, EventAppendAuthorityGeneric, foldWorkObservationRecorded, nil),
 	EventExternalObservationCaptured:          registerEventKind[externalObservationCapturedPayload](1, 1, nil, EventAppendAuthorityGeneric, foldExternalObservationCaptured, nil),
 	EventExternalObservationVerified:          registerEventKind[externalObservationVerifiedPayload](1, 1, nil, EventAppendAuthorityGeneric, foldExternalObservationVerified, nil),
 	"work.message_withdrawn":                  registerEventKind[messageWithdrawnPayload](1, 1, nil, EventAppendAuthorityGeneric, foldMessageWithdrawn, nil),

@@ -159,8 +159,16 @@ func CompleteWorkflowTxWithRegistry(ctx context.Context, tx *sql.Tx, registry De
 		return err
 	}
 
+	// The complete-step correction's supersession bounds the evidence history
+	// the completion clauses read: the successor accepts only bindings
+	// recorded after the supersession that approved it.
+	evidenceCutoff, err := workflowCompleteStepCorrectionEvidenceCutoff(ctx, tx, event.SubjectID, contract.Version)
+	if err != nil {
+		return err
+	}
+
 	// Clause 1: durable, event-folded evidence bound to the approved contract.
-	if err := verifyCompletionEvidence(ctx, tx, event.SubjectID, contract.RequiredEvidence, definition.RequiredEvidenceKinds); err != nil {
+	if err := verifyCompletionEvidence(ctx, tx, event.SubjectID, contract.RequiredEvidence, definition.RequiredEvidenceKinds, evidenceCutoff); err != nil {
 		return workflowClauseError(err, 1)
 	}
 
@@ -178,7 +186,7 @@ func CompleteWorkflowTxWithRegistry(ctx context.Context, tx *sql.Tx, registry De
 	// Clause 3: modifying edges must be covered by the approved candidate scope
 	// and every declared mandate must have durable evidence.  There is no
 	// inferred or response-wording authority here.
-	if err := verifyCompletionScopeAndMandates(ctx, tx, event.SubjectID, contract); err != nil {
+	if err := verifyCompletionScopeAndMandates(ctx, tx, event.SubjectID, contract, evidenceCutoff); err != nil {
 		return workflowClauseError(err, 3)
 	}
 	// Completion never treats an amendment declaration as permission to leave a
@@ -467,52 +475,61 @@ type workflowEvidenceRequirement struct {
 	Reference string
 }
 
-func workflowEvidenceRequirementInputs(ctx context.Context, q queryer, workID string) ([]string, []string, []WorkflowVerificationObligation, error) {
+func workflowEvidenceRequirementInputs(ctx context.Context, q queryer, workID string) ([]string, []string, []WorkflowVerificationObligation, int64, error) {
 	var requiredJSON, mandateJSON string
 	contractVersion, activeErr := activeWorkflowContractVersion(ctx, q, workID, "workflow_action")
 	if activeErr != nil {
 		if activeErr == sql.ErrNoRows {
-			return nil, nil, nil, newFailure(KindInvariantViolation, "workflow_action", "approved workflow contract is missing", false, "reread_entities")
+			return nil, nil, nil, 0, newFailure(KindInvariantViolation, "workflow_action", "approved workflow contract is missing", false, "reread_entities")
 		}
-		return nil, nil, nil, activeErr
+		return nil, nil, nil, 0, activeErr
 	}
 	if err := q.QueryRowContext(ctx, `SELECT required_evidence,spec_mandate FROM workflow_contracts WHERE work_id=? AND contract_version=?`, workID, contractVersion).Scan(&requiredJSON, &mandateJSON); err != nil {
 		if err == sql.ErrNoRows {
-			return nil, nil, nil, newFailure(KindInvariantViolation, "workflow_action", "approved workflow contract is missing", false, "reread_entities")
+			return nil, nil, nil, 0, newFailure(KindInvariantViolation, "workflow_action", "approved workflow contract is missing", false, "reread_entities")
 		}
-		return nil, nil, nil, wrapFailure(KindUnavailable, "workflow_action", "cannot read approved workflow evidence requirements", true, "retry once the workflow contract is readable", err)
+		return nil, nil, nil, 0, wrapFailure(KindUnavailable, "workflow_action", "cannot read approved workflow evidence requirements", true, "retry once the workflow contract is readable", err)
 	}
 	var required, mandates []string
 	if err := json.Unmarshal([]byte(requiredJSON), &required); err != nil {
-		return nil, nil, nil, newFailure(KindInvariantViolation, "workflow_action", "approved workflow contract evidence kinds are malformed", false, "reread_entities")
+		return nil, nil, nil, 0, newFailure(KindInvariantViolation, "workflow_action", "approved workflow contract evidence kinds are malformed", false, "reread_entities")
 	}
 	if err := json.Unmarshal([]byte(mandateJSON), &mandates); err != nil {
-		return nil, nil, nil, newFailure(KindInvariantViolation, "workflow_action", "approved workflow contract law mandates are malformed", false, "reread_entities")
+		return nil, nil, nil, 0, newFailure(KindInvariantViolation, "workflow_action", "approved workflow contract law mandates are malformed", false, "reread_entities")
 	}
 	rows, err := q.QueryContext(ctx, `SELECT law_id,obligation_id FROM workflow_contract_verification_obligations WHERE work_id=? AND contract_version=? ORDER BY law_id,obligation_id`, workID, contractVersion)
 	if err != nil {
-		return nil, nil, nil, wrapFailure(KindUnavailable, "workflow_action", "cannot read workflow verification obligations", true, "retry once the workflow contract is readable", err)
+		return nil, nil, nil, 0, wrapFailure(KindUnavailable, "workflow_action", "cannot read workflow verification obligations", true, "retry once the workflow contract is readable", err)
 	}
 	var obligations []WorkflowVerificationObligation
 	for rows.Next() {
 		var obligation WorkflowVerificationObligation
 		if err := rows.Scan(&obligation.LawID, &obligation.ObligationID); err != nil {
 			_ = rows.Close()
-			return nil, nil, nil, wrapFailure(KindUnavailable, "workflow_action", "cannot read workflow verification obligation", true, "retry once the workflow contract is readable", err)
+			return nil, nil, nil, 0, wrapFailure(KindUnavailable, "workflow_action", "cannot read workflow verification obligation", true, "retry once the workflow contract is readable", err)
 		}
 		obligations = append(obligations, obligation)
 	}
 	if err := rows.Err(); err != nil {
 		_ = rows.Close()
-		return nil, nil, nil, wrapFailure(KindUnavailable, "workflow_action", "cannot scan workflow verification obligations", true, "retry once the workflow contract is readable", err)
+		return nil, nil, nil, 0, wrapFailure(KindUnavailable, "workflow_action", "cannot scan workflow verification obligations", true, "retry once the workflow contract is readable", err)
 	}
 	if err := rows.Close(); err != nil {
-		return nil, nil, nil, wrapFailure(KindUnavailable, "workflow_action", "cannot close workflow verification obligations", true, "retry once the workflow contract is readable", err)
+		return nil, nil, nil, 0, wrapFailure(KindUnavailable, "workflow_action", "cannot close workflow verification obligations", true, "retry once the workflow contract is readable", err)
 	}
-	return required, mandates, obligations, nil
+	cutoff, cutoffErr := workflowCompleteStepCorrectionEvidenceCutoff(ctx, q, workID, contractVersion)
+	if cutoffErr != nil {
+		return nil, nil, nil, 0, cutoffErr
+	}
+	return required, mandates, obligations, cutoff, nil
 }
 
-func outstandingWorkflowEvidenceRequirements(ctx context.Context, q queryer, workID string, required, mandates []string, definition WorkflowDefinition, obligations []WorkflowVerificationObligation) ([]workflowEvidenceRequirement, error) {
+// outstandingWorkflowEvidenceRequirements returns every declared requirement
+// the evidence history does not satisfy. The cutoff bounds that history: a
+// successor approved through the complete-step correction route accepts only
+// bindings recorded after its supersession, and a cutoff of zero admits the
+// whole history.
+func outstandingWorkflowEvidenceRequirements(ctx context.Context, q queryer, workID string, required, mandates []string, definition WorkflowDefinition, obligations []WorkflowVerificationObligation, cutoff int64) ([]workflowEvidenceRequirement, error) {
 	requirements := workflowEvidenceRequirementDefinitions(required, mandates, definition, obligations)
 	outstanding := make([]workflowEvidenceRequirement, 0, len(requirements))
 	for _, requirement := range requirements {
@@ -520,11 +537,11 @@ func outstandingWorkflowEvidenceRequirements(ctx context.Context, q queryer, wor
 		var err error
 		switch {
 		case requirement.Reference != "" && requirement.Kind != "":
-			found, err = workflowEvidenceTupleBound(ctx, q, workID, requirement.Kind, requirement.Reference)
+			found, err = workflowEvidenceTupleBound(ctx, q, workID, requirement.Kind, requirement.Reference, cutoff)
 		case requirement.Reference != "":
-			found, err = workflowEvidenceReferenceBound(ctx, q, workID, requirement.Reference, "workflow_action")
+			found, err = workflowEvidenceReferenceBound(ctx, q, workID, requirement.Reference, "workflow_action", cutoff)
 		default:
-			found, err = workflowEvidenceKindBound(ctx, q, workID, requirement.Kind)
+			found, err = workflowEvidenceKindBound(ctx, q, workID, requirement.Kind, cutoff)
 		}
 		if err != nil {
 			return nil, err
@@ -570,16 +587,16 @@ func workflowEvidenceRequirementDeclared(kind, reference string, required, manda
 }
 
 func outstandingWorkflowEvidenceRequirementsForWork(ctx context.Context, q queryer, workID string, definition WorkflowDefinition) ([]workflowEvidenceRequirement, error) {
-	required, mandates, obligations, err := workflowEvidenceRequirementInputs(ctx, q, workID)
+	required, mandates, obligations, cutoff, err := workflowEvidenceRequirementInputs(ctx, q, workID)
 	if err != nil {
 		return nil, err
 	}
-	return outstandingWorkflowEvidenceRequirements(ctx, q, workID, required, mandates, definition, obligations)
+	return outstandingWorkflowEvidenceRequirements(ctx, q, workID, required, mandates, definition, obligations, cutoff)
 }
 
-func workflowEvidenceTupleBound(ctx context.Context, q queryer, workID, kind, reference string) (bool, error) {
+func workflowEvidenceTupleBound(ctx context.Context, q queryer, workID, kind, reference string, afterSeq int64) (bool, error) {
 	var count int
-	if err := q.QueryRowContext(ctx, `SELECT count(*) FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND json_extract(payload,'$.evidence_kind')=? AND json_extract(payload,'$.immutable_subject_ref')=?`, workID, WorkflowEvidenceBound, kind, reference).Scan(&count); err != nil {
+	if err := q.QueryRowContext(ctx, `SELECT count(*) FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND seq>? AND json_extract(payload,'$.evidence_kind')=? AND json_extract(payload,'$.immutable_subject_ref')=?`, workID, WorkflowEvidenceBound, afterSeq, kind, reference).Scan(&count); err != nil {
 		return false, wrapFailure(KindUnavailable, "complete_workflow", "cannot inspect workflow evidence requirement", true, "retry once the database is readable", err)
 	}
 	return count != 0, nil
@@ -614,7 +631,11 @@ func requireAcceptanceDeliverables(ctx context.Context, tx *sql.Tx, workID strin
 	if err != nil {
 		return err
 	}
-	requirements, err := outstandingWorkflowEvidenceRequirements(ctx, tx, workID, contract.RequiredEvidence, contract.SpecMandate, definition, contract.VerificationObligations)
+	cutoff, cutoffErr := workflowCompleteStepCorrectionEvidenceCutoff(ctx, tx, workID, contract.Version)
+	if cutoffErr != nil {
+		return cutoffErr
+	}
+	requirements, err := outstandingWorkflowEvidenceRequirements(ctx, tx, workID, contract.RequiredEvidence, contract.SpecMandate, definition, contract.VerificationObligations, cutoff)
 	if err != nil {
 		return err
 	}
@@ -635,7 +656,11 @@ func requireAcceptanceDeliverables(ctx context.Context, tx *sql.Tx, workID strin
 	return nil
 }
 
-func verifyCompletionEvidence(ctx context.Context, tx *sql.Tx, workID string, required []string, definitionRequired []EvidenceKind) error {
+// verifyCompletionEvidence refuses completion while a required evidence kind
+// lacks a durable binding inside the accepted history. The cutoff bounds that
+// history at the complete-step correction's supersession, so predecessor
+// bindings cannot satisfy the successor's required kinds.
+func verifyCompletionEvidence(ctx context.Context, tx *sql.Tx, workID string, required []string, definitionRequired []EvidenceKind, cutoff int64) error {
 	needed := append([]string(nil), required...)
 	for _, kind := range definitionRequired {
 		if !contains(needed, string(kind)) {
@@ -643,7 +668,7 @@ func verifyCompletionEvidence(ctx context.Context, tx *sql.Tx, workID string, re
 		}
 	}
 	for _, kind := range needed {
-		found, err := workflowEvidenceKindBound(ctx, tx, workID, kind)
+		found, err := workflowEvidenceKindBound(ctx, tx, workID, kind, cutoff)
 		if err != nil {
 			return err
 		}
@@ -654,10 +679,10 @@ func verifyCompletionEvidence(ctx context.Context, tx *sql.Tx, workID string, re
 	return nil
 }
 
-func verifyCompletionScopeAndMandates(ctx context.Context, tx *sql.Tx, workID string, contract workflowCompletionContractData) error {
+func verifyCompletionScopeAndMandates(ctx context.Context, tx *sql.Tx, workID string, contract workflowCompletionContractData, cutoff int64) error {
 	for _, mandate := range contract.SpecMandate {
 		var count int
-		if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND json_extract(payload,'$.immutable_subject_ref')=?`, workID, WorkflowEvidenceBound, mandate).Scan(&count); err != nil {
+		if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND seq>? AND json_extract(payload,'$.immutable_subject_ref')=?`, workID, WorkflowEvidenceBound, cutoff, mandate).Scan(&count); err != nil {
 			return wrapFailure(KindUnavailable, "complete_workflow", "cannot inspect spec-mandate evidence", true, "retry once the database is readable", err)
 		}
 		if count == 0 {
@@ -666,7 +691,7 @@ func verifyCompletionScopeAndMandates(ctx context.Context, tx *sql.Tx, workID st
 	}
 	for _, obligation := range contract.VerificationObligations {
 		var count int
-		if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND json_extract(payload,'$.evidence_kind')=? AND json_extract(payload,'$.immutable_subject_ref')=?`, workID, WorkflowEvidenceBound, obligation.ObligationID, obligation.LawID).Scan(&count); err != nil {
+		if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND seq>? AND json_extract(payload,'$.evidence_kind')=? AND json_extract(payload,'$.immutable_subject_ref')=?`, workID, WorkflowEvidenceBound, cutoff, obligation.ObligationID, obligation.LawID).Scan(&count); err != nil {
 			return wrapFailure(KindUnavailable, "complete_workflow", "cannot inspect verification-obligation evidence", true, "retry once the database is readable", err)
 		}
 		if count == 0 {
@@ -912,8 +937,11 @@ func completionNoticeEvents(ctx context.Context, tx *sql.Tx, workID string, cont
 	return events, nil
 }
 
-func workflowEvidenceKindBound(ctx context.Context, q queryer, workID, kind string) (bool, error) {
-	rows, err := q.QueryContext(ctx, `SELECT payload FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? ORDER BY seq`, workID, WorkflowEvidenceBound)
+// workflowEvidenceKindBound reports a durable evidence binding of the kind
+// inside the accepted history. afterSeq bounds that history: bindings at or
+// before it do not count, and zero admits the whole history.
+func workflowEvidenceKindBound(ctx context.Context, q queryer, workID, kind string, afterSeq int64) (bool, error) {
+	rows, err := q.QueryContext(ctx, `SELECT payload FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND seq>? ORDER BY seq`, workID, WorkflowEvidenceBound, afterSeq)
 	if err != nil {
 		return false, wrapFailure(KindUnavailable, "complete_workflow", "cannot inspect workflow evidence bindings", true, "retry once the database is readable", err)
 	}
@@ -979,37 +1007,66 @@ func latestWorkflowVerdicts(ctx context.Context, q queryer, workID string, contr
 	if err != nil {
 		return nil, err
 	}
-	rows, err := q.QueryContext(ctx, `SELECT payload,payload_version FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? ORDER BY seq DESC`, workID, WorkflowVerdictRecorded)
+	rows, err := q.QueryContext(ctx, `SELECT seq,payload,payload_version FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? ORDER BY seq DESC`, workID, WorkflowVerdictRecorded)
 	if err != nil {
 		return nil, wrapFailure(KindUnavailable, "complete_workflow", "cannot read workflow verdicts", true, "retry once the database is readable", err)
 	}
-	defer rows.Close()
-	result := make([]workflowVerdictRecordedPayload, 0)
-	seen := make(map[string]bool)
+	// The verdict history drains fully before any per-contract query runs: the
+	// pooled connection is single, and a query inside this scan would park on
+	// the rows the scan still holds.
+	type collectedVerdict struct {
+		seq            int64
+		raw            []byte
+		payloadVersion int
+	}
+	collected := make([]collectedVerdict, 0, 8)
 	for rows.Next() {
-		var raw []byte
-		var payloadVersion int
-		if err := rows.Scan(&raw, &payloadVersion); err != nil {
+		var verdict collectedVerdict
+		if err := rows.Scan(&verdict.seq, &verdict.raw, &verdict.payloadVersion); err != nil {
+			rows.Close()
 			return nil, wrapFailure(KindUnavailable, "complete_workflow", "cannot scan workflow verdict", true, "retry once the database is readable", err)
 		}
+		collected = append(collected, verdict)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return nil, wrapFailure(KindUnavailable, "complete_workflow", "cannot scan workflow verdicts", true, "retry once the database is readable", err)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, wrapFailure(KindUnavailable, "complete_workflow", "cannot close workflow verdicts", true, "retry once the database is readable", err)
+	}
+	// A contract whose ancestry carries the complete-step correction route
+	// accepts no verdict recorded at or before the cutoff, however identical
+	// the predicate payloads remain: the route exists because durable evidence
+	// disproved the predecessor's premise. The cutoff persists across later
+	// ordinary successors, so no descendant inherits the disproved verdicts.
+	cutoff, cutoffErr := workflowCompleteStepCorrectionEvidenceCutoff(ctx, q, workID, contractVersion)
+	if cutoffErr != nil {
+		return nil, cutoffErr
+	}
+	result := make([]workflowVerdictRecordedPayload, 0)
+	seen := make(map[string]bool)
+	for _, collectedVerdict := range collected {
 		var verdict workflowVerdictRecordedPayload
-		if err := json.Unmarshal(raw, &verdict); err != nil {
+		if err := json.Unmarshal(collectedVerdict.raw, &verdict); err != nil {
 			return nil, newFailure(KindInvariantViolation, "complete_workflow", "workflow verdict payload is malformed", false, "reread_entities")
 		}
-		if payloadVersion == 1 {
+		if collectedVerdict.payloadVersion == 1 {
 			verdict.PredicateID = "predicate:primary"
+		}
+		if collectedVerdict.seq <= cutoff {
+			continue
 		}
 		if verdict.ContractVersion <= 0 || verdict.ContractVersion > contractVersion || seen[verdict.PredicateID] {
 			continue
 		}
-		if verdict.ContractVersion < contractVersion && (!workflowPredicateHistoryCompatible(contracts, verdict.ContractVersion, contractVersion, verdict.PredicateID, verdict) || !workflowContractDefinitionPinsCompatible(pins, verdict.ContractVersion, contractVersion)) {
-			continue
+		if verdict.ContractVersion < contractVersion {
+			if !workflowPredicateHistoryCompatible(contracts, verdict.ContractVersion, contractVersion, verdict.PredicateID, verdict) || !workflowContractDefinitionPinsCompatible(pins, verdict.ContractVersion, contractVersion) {
+				continue
+			}
 		}
 		seen[verdict.PredicateID] = true
 		result = append(result, verdict)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, wrapFailure(KindUnavailable, "complete_workflow", "cannot scan workflow verdicts", true, "retry once the database is readable", err)
 	}
 	return result, nil
 }

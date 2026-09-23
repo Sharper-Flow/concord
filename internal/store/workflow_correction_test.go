@@ -536,6 +536,516 @@ func issue1013Pin(t *testing.T, s *Store, workID string) WorkPin {
 	return pin
 }
 
+// completeStepSuccessorPayload is a typed successor whose outcome predicates
+// repeat the predecessor's byte for byte. The complete-step cut must not
+// depend on a predicate payload change: the route exists because durable
+// evidence disproved the premise, not because the predicate shape moved. The
+// required evidence names every kind the predecessor bound, so the successor
+// refuses completion until each kind is freshly bound after the supersession.
+func completeStepSuccessorPayload(workID string) json.RawMessage {
+	binding := `{"domain_registry_content_hash":"sha256:` + strings.Repeat("b", 64) + `","home_domain_id":"root","affected_domain_ids":["root"],"domain_modifies":[],"domain_relation_modifies":[],"law_additions":[],"verification_obligations":[]}`
+	return json.RawMessage(`{"contract_version":2,"premise":"the delivered subject the durable evidence names","outcome_predicates":[{"predicate_id":"predicate:return-route","ordinal":0,"outcome_kind":"check","outcome_payload":{"kind":"check","check_ref":"check:return-route","immutable_subject_ref":"commit:` + workID + `","expected_result":"pass"}}],"required_evidence":["verification","review","artifact"],"route_conventions":["complete_step_correction"],"spec_mandate":[],"law_modifies":[],"rigor_class":"prototype_internal","supersede_reason":"durable evidence contradicted the approved premise","audit_evidence":["evidence:complete-correction-` + workID + `"],"architecture_binding":` + binding + `}`)
+}
+
+// seedCompleteStepCorrection drives a real pinned workflow instance to its
+// completion step under an approved contract with a recorded healthy verdict,
+// then records one same-work observation through the public generic operation
+// route. The observation postdates the verdict, so the complete-step
+// correction route's contradiction-record condition holds.
+func seedCompleteStepCorrection(t *testing.T, workID, definitionRef, verdictStep, completeStep string) (workflowReturnRouteFixture, WorkflowActor) {
+	t.Helper()
+	fixture, reviewer := seedCompleteStep(t, workID, definitionRef, verdictStep, completeStep)
+	recordCompleteStepContradictionObservation(t, fixture.store, workID, fixture.owner)
+	return fixture, reviewer
+}
+
+// seedCompleteStep leaves the contradiction record unrecorded, so refusal
+// fixtures can supply exactly the conditions under test.
+func seedCompleteStep(t *testing.T, workID, definitionRef, verdictStep, completeStep string) (workflowReturnRouteFixture, WorkflowActor) {
+	t.Helper()
+	fixture := seedWorkflowReturnRouteFixture(t, workID, definitionRef, verdictStep)
+	reviewer := completeCompleteStepReview(t, fixture, workID, completeStep)
+	return fixture, reviewer
+}
+
+// completeCompleteStepReview records the reviewer actor, the healthy verdict
+// under the active contract, and the premise confirmation that parks the
+// instance on the pinned completion step, and returns the reviewer for later
+// verdict actions.
+func completeCompleteStepReview(t *testing.T, fixture workflowReturnRouteFixture, workID, completeStep string) WorkflowActor {
+	t.Helper()
+	s := fixture.store
+	reviewer := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/reviewer", SessionRef: "session/" + workID + "-reviewer", ActorClass: ActorAgent}
+	reviewerRef, err := WorkflowActorRef(reviewer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	version := readWorkVersion(t, s, workID)
+	reviewerEvent := workflowEventWithActor("complete-correction-reviewer-"+workID, WorkflowActorRecorded, workID, reviewerRef, map[string]any{
+		"work_id": workID, "expected_version": version, "resulting_version": version + 1,
+		"actor_ref": reviewerRef, "principal_ref": reviewer.PrincipalRef, "client_ref": reviewer.ClientRef,
+		"agent_ref": reviewer.AgentRef, "session_ref": reviewer.SessionRef, "actor_class": "agent",
+	})
+	if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{reviewerEvent}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}}); err != nil {
+		t.Fatalf("record the reviewer actor: %v", err)
+	}
+	if err := runVerdictActionAs(t, s, workID, "record_verdict", json.RawMessage(`{"contract_version":1,"predicate_id":"predicate:return-route","verdict_kind":"ok"}`), 0, reviewer); err != nil {
+		t.Fatalf("record the healthy verdict: %v", err)
+	}
+	if err := runIssue933OperatorAction(t, s, workID, "confirm_premise", json.RawMessage(`{"contract_version":1}`), fixture.owner, fixture.operator); err != nil {
+		t.Fatalf("confirm the premise: %v", err)
+	}
+	var step string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT current_step FROM workflow_instances WHERE work_id=?`, workID).Scan(&step); err != nil {
+		t.Fatal(err)
+	}
+	if step != completeStep {
+		t.Fatalf("step before correction = %q, want %q", step, completeStep)
+	}
+	return reviewer
+}
+
+// recordCompleteStepContradictionObservation records the contradiction
+// observation on the stranded work item through the public generic operation
+// route, the route concord_work_define.observation_record drives. The pinned
+// completion step declares no evidence-binding action, so workflow-scoped
+// event families are unreachable there and the observation is the durable
+// contradiction record a public route can produce.
+func recordCompleteStepContradictionObservation(t *testing.T, s *Store, workID string, owner WorkflowActor) {
+	t.Helper()
+	payload, err := json.Marshal(map[string]any{
+		"observation_id": "obs:" + strings.Repeat("c", 16),
+		"statement":      "Durable evidence contradicts the approved contract premise at the completion step.",
+		"refs":           []string{"work:" + workID},
+		"tags":           []string{"correction"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	event := Event{EventID: "complete-correction-observation-" + workID, Kind: WorkObservationRecorded, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: owner.PrincipalRef, OccurredAt: time.Unix(50, 0).UTC(), PayloadVersion: 1, Payload: payload}
+	version := readWorkVersion(t, s, workID)
+	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}}); err != nil {
+		t.Fatalf("record the contradiction observation: %v", err)
+	}
+}
+
+func completeStepInstancePin(t *testing.T, s *Store, workID string) (step, state, definitionRef string, definitionVersion int64, definitionDigest string) {
+	t.Helper()
+	if err := s.DatabaseForTesting().QueryRow(`SELECT current_step,instance_state,definition_ref,definition_version,definition_digest FROM workflow_instances WHERE work_id=?`, workID).Scan(&step, &state, &definitionRef, &definitionVersion, &definitionDigest); err != nil {
+		t.Fatal(err)
+	}
+	return step, state, definitionRef, definitionVersion, definitionDigest
+}
+
+// The complete-step route admits operator-approved contract correction when
+// the pinned completion step holds a nonterminal break-fix item with one
+// active contract, no unsettled attempt, and a durable post-verdict
+// contradiction observation. The supersession preserves predecessor
+// contracts, verdicts, attempt history, and the pinned definition, returns
+// the instance to repair, and cuts the historical verdicts off the
+// successor's predicates, so fresh delivery and a fresh verdict are the only
+// path back to completion (CD-0166).
+func TestCompleteStepContractCorrectionReturnsBreakFixToRepair(t *testing.T) {
+	t.Parallel()
+	const workID = "complete-correction-breakfix"
+	ctx := context.Background()
+	fixture, reviewer := seedCompleteStepCorrection(t, workID, "workflow.break_fix", "verify", "complete")
+	s := fixture.store
+
+	_, action, err := WorkflowActionDefinitionFor(ctx, s, BuiltinWorkflowRegistry(), workID, "supersede_contract")
+	if err != nil {
+		t.Fatalf("discover contract correction at the complete step: %v", err)
+	}
+	if action.ID != "supersede_contract" || action.Approval != ActionApprovalRequired {
+		t.Fatalf("correction action = %#v, want operator-approved supersession", action)
+	}
+	if err := issue1013Preflight(t, s, workID, "supersede_contract", completeStepSuccessorPayload(workID), fixture.owner); err != nil {
+		t.Fatalf("read-only preflight refused the complete-step correction: %v", err)
+	}
+	pin := issue1013Pin(t, s, workID)
+	if !issue1013HasIntent(pin, "supersede_contract") {
+		t.Fatalf("work pin omitted the correction intent at the complete step: %#v", pin.NextValidIntents)
+	}
+	if marshaled, marshalErr := json.Marshal(pin); marshalErr != nil {
+		t.Fatal(marshalErr)
+	} else if validErr := payloadschema.Validate("work_pin", marshaled); validErr != nil {
+		t.Fatalf("complete-step correction pin does not satisfy the closed response schema: %v", validErr)
+	}
+
+	var verdicts, predecessorPredicates, attempts int
+	if err := s.DatabaseForTesting().QueryRow(`SELECT (SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=?), (SELECT count(*) FROM workflow_contract_predicates WHERE work_id=? AND contract_version=1), (SELECT count(*) FROM worker_attempts WHERE work_id=?)`, workID, WorkflowVerdictRecorded, workID, workID).Scan(&verdicts, &predecessorPredicates, &attempts); err != nil {
+		t.Fatal(err)
+	}
+	_, _, definitionRef, definitionVersion, definitionDigest := completeStepInstancePin(t, s, workID)
+
+	if err := runIssue933OperatorAction(t, s, workID, "supersede_contract", completeStepSuccessorPayload(workID), fixture.owner, fixture.operator); err != nil {
+		t.Fatalf("supersede the contract at the complete step: %v", err)
+	}
+
+	var activeCount, activeVersion, supersededBy int
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL`, workID).Scan(&activeCount); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.DatabaseForTesting().QueryRow(`SELECT contract_version FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL`, workID).Scan(&activeVersion); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.DatabaseForTesting().QueryRow(`SELECT superseded_by FROM workflow_contracts WHERE work_id=? AND contract_version=1`, workID).Scan(&supersededBy); err != nil {
+		t.Fatal(err)
+	}
+	if activeCount != 1 || activeVersion != 2 || supersededBy != 2 {
+		t.Fatalf("contracts after supersession: active=%d version=%d predecessor superseded_by=%d", activeCount, activeVersion, supersededBy)
+	}
+	var verdictsAfter, predecessorPredicatesAfter, attemptsAfter int
+	if err := s.DatabaseForTesting().QueryRow(`SELECT (SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=?), (SELECT count(*) FROM workflow_contract_predicates WHERE work_id=? AND contract_version=1), (SELECT count(*) FROM worker_attempts WHERE work_id=?)`, workID, WorkflowVerdictRecorded, workID, workID).Scan(&verdictsAfter, &predecessorPredicatesAfter, &attemptsAfter); err != nil {
+		t.Fatal(err)
+	}
+	if verdictsAfter != verdicts || predecessorPredicatesAfter != predecessorPredicates || attemptsAfter != attempts {
+		t.Fatalf("supersession disturbed history: verdicts %d->%d predecessor predicates %d->%d attempts %d->%d", verdicts, verdictsAfter, predecessorPredicates, predecessorPredicatesAfter, attempts, attemptsAfter)
+	}
+	step, state, refAfter, versionAfter, digestAfter := completeStepInstancePin(t, s, workID)
+	if refAfter != definitionRef || versionAfter != definitionVersion || digestAfter != definitionDigest {
+		t.Fatalf("pinned definition changed: %s@%d (%s) -> %s@%d (%s)", definitionRef, definitionVersion, definitionDigest, refAfter, versionAfter, digestAfter)
+	}
+	if step != "repair" || state != "running" {
+		t.Fatalf("instance after correction: step=%q state=%q, want repair/running", step, state)
+	}
+
+	// Historical healthy verdicts never satisfy the successor: identical
+	// predicate payloads carry no verdict across this supersession.
+	satisfied, err := latestWorkflowVerdicts(ctx, s.db, workID, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(satisfied) != 0 {
+		t.Fatalf("historical verdicts satisfied the successor: %#v", satisfied)
+	}
+	cutoff, cutoffErr := workflowCompleteStepCorrectionEvidenceCutoff(ctx, s.db, workID, 2)
+	if cutoffErr != nil {
+		t.Fatal(cutoffErr)
+	}
+	if cutoff == 0 {
+		t.Fatal("the corrected successor derived no evidence cutoff")
+	}
+
+	// The returned instance runs the ordinary route: fresh delivery through
+	// the repair and refine external effects, a fresh verdict under the
+	// successor, and only then the completion step again.
+	workerRef, err := WorkflowActorRef(fixture.owner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	issue1013StartRepair(t, s, workID, fixture.owner, readWorkVersion(t, s, workID), latestStepStartEpoch(t, s, workID, "repair")+1)
+	epoch := latestStepStartEpoch(t, s, workID, "repair")
+	deliverAt := func(stepID string, attemptEpoch int64) {
+		t.Helper()
+		version := readWorkVersion(t, s, workID)
+		delivery := workflowEventWithActor("complete-correction-redelivery-"+workID+"-"+stepID, WorkflowActionCompleted, workID, workerRef, map[string]any{
+			"work_id": workID, "expected_version": version, "resulting_version": version + 1,
+			"step_id": stepID, "action_id": "record_delivery", "attempt_epoch": attemptEpoch,
+			"delivery_artifact": "evidence:complete-correction-" + workID, "delivery_state": "asserted",
+			"result_evidence_refs": []string{"evidence:complete-correction-" + workID}, "changed_refs": []string{workID},
+			"actor_ref": workerRef,
+		})
+		if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{delivery}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}}); err != nil {
+			t.Fatalf("record the fresh delivery at %s: %v", stepID, err)
+		}
+	}
+	deliverAt("repair", epoch)
+	deliverAt("refine", epoch+1)
+	deliverAt("delivery", epoch+2)
+	if step, _, _, _, _ := completeStepInstancePin(t, s, workID); step != "verify" {
+		t.Fatalf("step after the fresh deliveries = %q, want verify", step)
+	}
+
+	// The successor inherits no predecessor evidence either. Every
+	// predecessor binding is still on the log, yet the requirement scan cuts
+	// them all: the outstanding set names every required kind, the premise
+	// confirmation refuses, and completion refuses at its evidence clause
+	// rather than reaching its verdict clause.
+	pinned, pinnedOK := BuiltinWorkflowRegistry().Lookup(definitionRef, definitionVersion)
+	if !pinnedOK {
+		t.Fatalf("pinned definition %s@%d is not registered", definitionRef, definitionVersion)
+	}
+	outstanding, outstandingErr := outstandingWorkflowEvidenceRequirementsForWork(ctx, s.db, workID, pinned.Definition)
+	if outstandingErr != nil {
+		t.Fatal(outstandingErr)
+	}
+	if len(outstanding) != 3 {
+		t.Fatalf("outstanding requirements with only predecessor evidence = %v, want verification, review, and artifact", outstanding)
+	}
+	for _, requirement := range outstanding {
+		if requirement.Kind != "verification" && requirement.Kind != "review" && requirement.Kind != "artifact" {
+			t.Fatalf("outstanding requirement = %#v, want a required evidence kind", requirement)
+		}
+	}
+	var failure *Failure
+	if err := runIssue933OperatorAction(t, s, workID, "confirm_premise", json.RawMessage(`{"contract_version":2}`), fixture.owner, fixture.operator); err == nil {
+		t.Fatal("confirm_premise passed with only predecessor evidence")
+	} else if !errors.As(err, &failure) || failure.Kind != KindMissingEvidence {
+		t.Fatalf("confirm_premise with only predecessor evidence = %v, want missing-evidence", err)
+	}
+	operatorRef, operatorRefErr := WorkflowActorRef(fixture.operator)
+	if operatorRefErr != nil {
+		t.Fatal(operatorRefErr)
+	}
+	reviewerRef, reviewerRefErr := WorkflowActorRef(reviewer)
+	if reviewerRefErr != nil {
+		t.Fatal(reviewerRefErr)
+	}
+	completion := workflowEventWithActor("complete-correction-early-"+workID, WorkflowCompleted, workID, operatorRef, map[string]any{
+		"work_id": workID, "expected_version": readWorkVersion(t, s, workID), "resulting_version": readWorkVersion(t, s, workID) + 1,
+		"terminal_state": "completed", "final_verdict_kind": "ok", "verdict_actor_ref": reviewerRef, "premise_confirmed": true,
+		"evidence_count": 3, "changed_refs_digest": "sha256:" + strings.Repeat("a", 64), "impact_verdict": "non-breaking",
+	})
+	completion.PayloadVersion = 2
+	if err := CompleteWorkflow(ctx, s, completion); err == nil {
+		t.Fatal("completion passed with only predecessor evidence")
+	} else if !errors.As(err, &failure) || failure.Kind != KindMissingEvidence || failure.Clause != 1 {
+		t.Fatalf("completion with only predecessor evidence = %v, want the clause-1 evidence refusal", err)
+	}
+
+	// The fresh verdict under the successor is born bound: its minted
+	// bindings land after the cutoff, one per required kind, and they are the
+	// fresh evidence the path back to completion requires.
+	if err := runVerdictActionAs(t, s, workID, "record_verdict", json.RawMessage(`{"contract_version":2,"predicate_id":"predicate:return-route","verdict_kind":"ok"}`), 0, reviewer); err != nil {
+		t.Fatalf("record the fresh verdict under the successor: %v", err)
+	}
+	outstanding, outstandingErr = outstandingWorkflowEvidenceRequirementsForWork(ctx, s.db, workID, pinned.Definition)
+	if outstandingErr != nil {
+		t.Fatal(outstandingErr)
+	}
+	if len(outstanding) != 0 {
+		t.Fatalf("outstanding requirements after the successor verdict = %v, want none", outstanding)
+	}
+	satisfied, err = latestWorkflowVerdicts(ctx, s.db, workID, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(satisfied) != 1 || satisfied[0].ContractVersion != 2 {
+		t.Fatalf("fresh verdicts = %#v, want one successor verdict", satisfied)
+	}
+	if err := runIssue933OperatorAction(t, s, workID, "confirm_premise", json.RawMessage(`{"contract_version":2}`), fixture.owner, fixture.operator); err != nil {
+		t.Fatalf("confirm the successor premise after the fresh bindings: %v", err)
+	}
+	if step, _, _, _, _ := completeStepInstancePin(t, s, workID); step != "complete" {
+		t.Fatalf("step after the successor premise = %q, want complete", step)
+	}
+}
+
+// A workflow instance that already recorded completion while the work item
+// stayed nonterminal is the stranded regression shape. Correction at the
+// complete step reopens it: the return sets the instance running on the
+// external-effect step under the unchanged pinned definition.
+func TestCompleteStepContractCorrectionReopensCompletedInstance(t *testing.T) {
+	t.Parallel()
+	const workID = "complete-correction-reopen"
+	fixture, _ := seedCompleteStepCorrection(t, workID, "workflow.break_fix", "verify", "complete")
+	s := fixture.store
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE workflow_instances SET instance_state='completed' WHERE work_id=?; DELETE FROM fold_guard`, workID); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := WorkflowActionDefinitionFor(context.Background(), s, BuiltinWorkflowRegistry(), workID, "supersede_contract"); err != nil {
+		t.Fatalf("discovery refused the completed-instance correction: %v", err)
+	}
+	pin := issue1013Pin(t, s, workID)
+	if len(pin.NextValidIntents) != 1 || pin.NextValidIntents[0].ActionID != "supersede_contract" {
+		t.Fatalf("completed nonterminal instance intents = %#v, want only supersede_contract", pin.NextValidIntents)
+	}
+	if err := runIssue933OperatorAction(t, s, workID, "supersede_contract", completeStepSuccessorPayload(workID), fixture.owner, fixture.operator); err != nil {
+		t.Fatalf("supersede on the completed instance: %v", err)
+	}
+	step, state, _, _, _ := completeStepInstancePin(t, s, workID)
+	if step != "repair" || state != "running" {
+		t.Fatalf("instance after correction: step=%q state=%q, want repair/running", step, state)
+	}
+}
+
+// TestCompleteStepContractCorrectionReturnsImplementationToExecution proves
+// the implementation mapping of the same route: the release step returns to
+// execution under the unchanged pinned definition.
+func TestCompleteStepContractCorrectionReturnsImplementationToExecution(t *testing.T) {
+	t.Parallel()
+	const workID = "complete-correction-implementation"
+	fixture, _ := seedCompleteStepCorrection(t, workID, "workflow.implementation", "acceptance", "release")
+	s := fixture.store
+	if err := runIssue933OperatorAction(t, s, workID, "supersede_contract", completeStepSuccessorPayload(workID), fixture.owner, fixture.operator); err != nil {
+		t.Fatalf("supersede the contract at the release step: %v", err)
+	}
+	step, state, _, _, _ := completeStepInstancePin(t, s, workID)
+	if step != "execution" || state != "running" {
+		t.Fatalf("instance after correction: step=%q state=%q, want execution/running", step, state)
+	}
+}
+
+// Every complete-step refusal fires before any effect: missing durable
+// contradiction evidence, an unsettled worker attempt, a terminal work item,
+// an unsupported workflow shape, a missing operator approval, and a stale
+// work version.
+func TestCompleteStepContractCorrectionRefusals(t *testing.T) {
+	t.Parallel()
+
+	t.Run("missing contradiction evidence", func(t *testing.T) {
+		t.Parallel()
+		const workID = "complete-correction-no-evidence"
+		fixture, _ := seedCompleteStep(t, workID, "workflow.break_fix", "verify", "complete")
+		err := issue1013Preflight(t, fixture.store, workID, "supersede_contract", completeStepSuccessorPayload(workID), fixture.owner)
+		var failure *Failure
+		if !errors.As(err, &failure) || failure.Kind != KindInvalidOperation || failure.Detail != "contract recovery is available only for a stale workflow contract" {
+			t.Fatalf("preflight without contradiction evidence = %v, want the stale-contract refusal", err)
+		}
+		if _, _, err := WorkflowActionDefinitionFor(context.Background(), fixture.store, BuiltinWorkflowRegistry(), workID, "supersede_contract"); err == nil {
+			t.Fatal("discovery admitted correction without contradiction evidence")
+		}
+	})
+
+	t.Run("observation before the verdict", func(t *testing.T) {
+		t.Parallel()
+		const workID = "complete-correction-pre-verdict-observation"
+		fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", "verify")
+		recordCompleteStepContradictionObservation(t, fixture.store, workID, fixture.owner)
+		completeCompleteStepReview(t, fixture, workID, "complete")
+		err := issue1013Preflight(t, fixture.store, workID, "supersede_contract", completeStepSuccessorPayload(workID), fixture.owner)
+		var failure *Failure
+		if !errors.As(err, &failure) || failure.Kind != KindInvalidOperation || failure.Detail != "contract recovery is available only for a stale workflow contract" {
+			t.Fatalf("preflight with only a pre-verdict observation = %v, want the stale-contract refusal", err)
+		}
+	})
+
+	t.Run("unsettled worker attempt", func(t *testing.T) {
+		t.Parallel()
+		const workID = "complete-correction-live-attempt"
+		fixture, _ := seedCompleteStepCorrection(t, workID, "workflow.break_fix", "verify", "complete")
+		db := fixture.store.DatabaseForTesting()
+		if _, err := db.Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT INTO worker_attempts(work_id,attempt_id,lane_id,lane_version,lane_digest,capability_class,readback_model,packet_schema_version,report_schema_version,lifecycle_state,dispatched_at) VALUES(?, 'attempt:unsettled', 'lane:implement', 1, ?, 'work_transition', 'model/test', '1.0', '1.0', 'dispatched', '2026-09-22T00:00:00Z'); DELETE FROM fold_guard`, workID, "sha256:"+strings.Repeat("a", 64)); err != nil {
+			t.Fatal(err)
+		}
+		err := issue1013Preflight(t, fixture.store, workID, "supersede_contract", completeStepSuccessorPayload(workID), fixture.owner)
+		var failure *Failure
+		if !errors.As(err, &failure) || failure.Kind != KindInvalidOperation {
+			t.Fatalf("preflight with a live attempt = %v, want refusal", err)
+		}
+	})
+
+	t.Run("completed report without disposition", func(t *testing.T) {
+		t.Parallel()
+		const workID = "complete-correction-undisposed-report"
+		const attemptID = "attempt:undisposed"
+		fixture, _ := seedCompleteStepCorrection(t, workID, "workflow.break_fix", "verify", "complete")
+		db := fixture.store.DatabaseForTesting()
+		if _, err := db.Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT INTO worker_attempts(work_id,attempt_id,lane_id,lane_version,lane_digest,capability_class,readback_model,packet_schema_version,report_schema_version,lifecycle_state,dispatched_at,completed_at) VALUES(?, ?, 'lane:implement', 1, ?, 'work_transition', 'model/test', '1.0', '1.0', 'completed', '2026-09-22T00:00:00Z', '2026-09-22T00:00:01Z'); DELETE FROM fold_guard`, workID, attemptID, "sha256:"+strings.Repeat("a", 64)); err != nil {
+			t.Fatal(err)
+		}
+		err := issue1013Preflight(t, fixture.store, workID, "supersede_contract", completeStepSuccessorPayload(workID), fixture.owner)
+		var failure *Failure
+		if !errors.As(err, &failure) || failure.Kind != KindInvalidOperation {
+			t.Fatalf("preflight with an undisposed completed report = %v, want refusal", err)
+		}
+		if _, _, err := WorkflowActionDefinitionFor(context.Background(), fixture.store, BuiltinWorkflowRegistry(), workID, "supersede_contract"); err == nil {
+			t.Fatal("discovery admitted correction with an undisposed completed report")
+		}
+		if _, err := db.Exec(`INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES(?,?,?,?,?,?,?,?)`, "completed-report-disposition", WorkflowActionCompleted, SubjectWorkItem, workID, fixture.owner.PrincipalRef, "2026-09-23T00:00:00Z", 1, `{"action_id":"accept_worker_result","worker_attempt_id":"attempt:undisposed"}`); err != nil {
+			t.Fatal(err)
+		}
+		unsettled, err := workflowUnsettledWorkerAttempt(context.Background(), fixture.store.db, workID, "test")
+		if err != nil || unsettled {
+			t.Fatalf("accepted report remains unsettled: unsettled=%t err=%v", unsettled, err)
+		}
+	})
+
+	t.Run("terminal work item", func(t *testing.T) {
+		t.Parallel()
+		const workID = "complete-correction-terminal"
+		fixture, _ := seedCompleteStepCorrection(t, workID, "workflow.break_fix", "verify", "complete")
+		if _, err := fixture.store.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE work_items SET lifecycle='completed' WHERE id=?; DELETE FROM fold_guard`, workID); err != nil {
+			t.Fatal(err)
+		}
+		_, _, err := WorkflowActionDefinitionFor(context.Background(), fixture.store, BuiltinWorkflowRegistry(), workID, "supersede_contract")
+		var failure *Failure
+		if !errors.As(err, &failure) || failure.Kind != KindInvalidOperation || failure.Detail != "contract recovery is unavailable for terminal work" {
+			t.Fatalf("discovery on a terminal item = %v, want the terminal-work refusal", err)
+		}
+	})
+
+	t.Run("unsupported workflow shape", func(t *testing.T) {
+		t.Parallel()
+		const workID = "complete-correction-shape"
+		s, owner, _ := seedItemAtAcceptance(t, workID, false)
+		reviewer := verdictReviewer(t, s, workID)
+		if err := runVerdictActionAs(t, s, workID, "record_verdict", json.RawMessage(`{"contract_version":1,"predicate_id":"predicate:primary","verdict_kind":"ok"}`), 0, reviewer); err != nil {
+			t.Fatalf("record the verdict: %v", err)
+		}
+		if err := runIssue933OperatorAction(t, s, workID, "confirm_premise", json.RawMessage(`{"contract_version":1}`), owner, operatorVerdictActor(t, workID)); err != nil {
+			t.Fatalf("confirm the premise: %v", err)
+		}
+		recordCompleteStepContradictionObservation(t, s, workID, owner)
+		err := issue1013Preflight(t, s, workID, "supersede_contract", completeStepSuccessorPayload(workID), owner)
+		var failure *Failure
+		if !errors.As(err, &failure) || failure.Kind != KindInvalidOperation || failure.Detail != "contract recovery is available only for a stale workflow contract" {
+			t.Fatalf("preflight on the static-analysis shape = %v, want the shape refusal", err)
+		}
+	})
+
+	t.Run("missing operator approval", func(t *testing.T) {
+		t.Parallel()
+		const workID = "complete-correction-no-approval"
+		fixture, _ := seedCompleteStepCorrection(t, workID, "workflow.break_fix", "verify", "complete")
+		version := verdictItemVersion(t, fixture.store, workID)
+		tx, err := fixture.store.DatabaseForTesting().BeginTx(context.Background(), nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer tx.Rollback()
+		operationID := "complete-correction-no-approval"
+		_, err = applyWorkflowActionRawTx(context.Background(), tx, newFoldScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
+			WorkID: workID, ExpectedVersion: version, ActionID: "supersede_contract", Payload: completeStepSuccessorPayload(workID), Actor: fixture.owner,
+			AcceptedInputsDigest: "sha256:" + strings.Repeat("f", 64), IdempotencyIdentity: operationID, OperationID: operationID,
+			PrincipalRef: fixture.owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: operationID, RequestID: "request:" + operationID,
+			ContractDigest: testManifestDigest, Now: time.Unix(30, 0).UTC(),
+		})
+		var failure *Failure
+		if !errors.As(err, &failure) || failure.Kind != KindApprovalRequired {
+			t.Fatalf("unapproved correction = %v, want approval_required", err)
+		}
+	})
+
+	t.Run("stale work version", func(t *testing.T) {
+		t.Parallel()
+		const workID = "complete-correction-stale-version"
+		fixture, _ := seedCompleteStepCorrection(t, workID, "workflow.break_fix", "verify", "complete")
+		version := verdictItemVersion(t, fixture.store, workID)
+		tx, err := fixture.store.DatabaseForTesting().BeginTx(context.Background(), nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer tx.Rollback()
+		operationID := "complete-correction-stale-version"
+		_, err = applyWorkflowActionRawTx(context.Background(), tx, newFoldScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
+			WorkID: workID, ExpectedVersion: version + 1, ActionID: "supersede_contract", Payload: completeStepSuccessorPayload(workID), Actor: fixture.owner, OperatorActor: &fixture.operator,
+			AcceptedInputsDigest: "sha256:" + strings.Repeat("f", 64), IdempotencyIdentity: operationID, OperationID: operationID,
+			PrincipalRef: fixture.owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: operationID, RequestID: "request:" + operationID,
+			ContractDigest: testManifestDigest, Now: time.Unix(31, 0).UTC(),
+		})
+		var failure *Failure
+		if !errors.As(err, &failure) || failure.Kind != KindVersionConflict {
+			t.Fatalf("stale-version correction = %v, want version_conflict", err)
+		}
+	})
+
+	t.Run("missing declared supersession event", func(t *testing.T) {
+		t.Parallel()
+		const workID = "complete-correction-missing-supersession"
+		fixture, _ := seedCompleteStepCorrection(t, workID, "workflow.break_fix", "verify", "complete")
+		if _, err := fixture.store.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE workflow_contracts SET route_conventions='["complete_step_correction"]' WHERE work_id=? AND contract_version=1; DELETE FROM fold_guard`, workID); err != nil {
+			t.Fatal(err)
+		}
+		_, err := workflowCompleteStepCorrectionEvidenceCutoff(context.Background(), fixture.store.db, workID, 1)
+		var failure *Failure
+		if !errors.As(err, &failure) || failure.Kind != KindInvariantViolation {
+			t.Fatalf("missing declared supersession = %v, want invariant_violation", err)
+		}
+	})
+}
+
 func issue1013HasIntent(pin WorkPin, actionID string) bool {
 	for _, intent := range pin.NextValidIntents {
 		if intent.ActionID == actionID {
@@ -866,5 +1376,534 @@ func TestRejectPayloadDeclarationRefusesNonIDPredicateID(t *testing.T) {
 	var failure *Failure
 	if !errors.As(err, &failure) || failure.Kind != KindInvalidPayload || !strings.Contains(failure.Detail, `"predicate_ids"`) {
 		t.Fatalf("payload gate failure=%v, want an invalid-payload refusal naming predicate_ids", err)
+	}
+}
+
+// laterOrdinarySuccessorPayload is the typed successor a later ordinary
+// supersession approves after the complete-step correction: identical
+// predicate payloads, no reserved convention, version 3.
+func laterOrdinarySuccessorPayload(workID string) json.RawMessage {
+	binding := `{"domain_registry_content_hash":"sha256:` + strings.Repeat("b", 64) + `","home_domain_id":"root","affected_domain_ids":["root"],"domain_modifies":[],"domain_relation_modifies":[],"law_additions":[],"verification_obligations":[]}`
+	return json.RawMessage(`{"contract_version":3,"premise":"the delivered subject the durable evidence names","outcome_predicates":[{"predicate_id":"predicate:return-route","ordinal":0,"outcome_kind":"check","outcome_payload":{"kind":"check","check_ref":"check:return-route","immutable_subject_ref":"commit:` + workID + `","expected_result":"pass"}}],"required_evidence":["verification","review","artifact"],"route_conventions":[],"spec_mandate":[],"law_modifies":[],"rigor_class":"prototype_internal","architecture_binding":` + binding + `,"supersede_reason":"the corrected contract premise moved again","audit_evidence":["evidence:later-successor-` + workID + `"]}`)
+}
+
+// TestCompleteStepCorrectionCutoffPersistsAcrossLaterSuccessor proves the
+// correction cut survives the route marker. A later ordinary supersession of
+// the corrected contract inherits neither the pre-correction healthy verdict
+// nor the pre-correction evidence bindings, however identical the predicate
+// payloads remain: the cutoff is ancestry state, not a property of the active
+// contract row (CD-0172 D4).
+func TestCompleteStepCorrectionCutoffPersistsAcrossLaterSuccessor(t *testing.T) {
+	t.Parallel()
+	const workID = "complete-correction-cutoff-persists"
+	ctx := context.Background()
+	fixture, _ := seedCompleteStepCorrection(t, workID, "workflow.break_fix", "verify", "complete")
+	s := fixture.store
+
+	if err := runIssue933OperatorAction(t, s, workID, "supersede_contract", completeStepSuccessorPayload(workID), fixture.owner, fixture.operator); err != nil {
+		t.Fatalf("supersede the contract at the complete step: %v", err)
+	}
+	cutoffV2, cutoffErr := workflowCompleteStepCorrectionEvidenceCutoff(ctx, s.db, workID, 2)
+	if cutoffErr != nil {
+		t.Fatal(cutoffErr)
+	}
+	if cutoffV2 == 0 {
+		t.Fatal("the corrected successor derived no evidence cutoff")
+	}
+
+	// A later ordinary supersession at the returned repair step retires the
+	// corrected contract without the reserved convention.
+	if err := runIssue933OperatorAction(t, s, workID, "supersede_contract", laterOrdinarySuccessorPayload(workID), fixture.owner, fixture.operator); err != nil {
+		t.Fatalf("ordinary supersession of the corrected contract: %v", err)
+	}
+	var activeVersion int
+	if err := s.DatabaseForTesting().QueryRow(`SELECT contract_version FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL`, workID).Scan(&activeVersion); err != nil {
+		t.Fatal(err)
+	}
+	if activeVersion != 3 {
+		t.Fatalf("active contract version = %d, want 3", activeVersion)
+	}
+
+	cutoffV3, cutoffErr := workflowCompleteStepCorrectionEvidenceCutoff(ctx, s.db, workID, 3)
+	if cutoffErr != nil {
+		t.Fatal(cutoffErr)
+	}
+	if cutoffV3 != cutoffV2 {
+		t.Fatalf("cutoff moved across the ordinary successor: %d -> %d", cutoffV2, cutoffV3)
+	}
+
+	// The pre-correction healthy verdict satisfies nothing: the successor's
+	// predicate history is byte-identical, yet no verdict is admitted.
+	satisfied, err := latestWorkflowVerdicts(ctx, s.db, workID, 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(satisfied) != 0 {
+		t.Fatalf("ordinary successor inherited pre-correction verdicts: %#v", satisfied)
+	}
+
+	// The pre-correction bindings satisfy nothing either: every kind the
+	// predecessor bound stays outstanding under the ordinary successor.
+	pinned, pinnedOK := completeStepPinnedDefinition(t, s, workID)
+	if !pinnedOK {
+		t.Fatal("pinned break-fix definition is not registered")
+	}
+	outstanding, outstandingErr := outstandingWorkflowEvidenceRequirementsForWork(ctx, s.db, workID, pinned.Definition)
+	if outstandingErr != nil {
+		t.Fatal(outstandingErr)
+	}
+	if len(outstanding) != 3 {
+		t.Fatalf("outstanding requirements under the ordinary successor = %v, want verification, review, and artifact", outstanding)
+	}
+}
+
+func completeStepPinnedDefinition(t *testing.T, s *Store, workID string) (RegisteredDefinition, bool) {
+	t.Helper()
+	var definitionRef string
+	var definitionVersion int64
+	if err := s.DatabaseForTesting().QueryRow(`SELECT definition_ref,definition_version FROM workflow_instances WHERE work_id=?`, workID).Scan(&definitionRef, &definitionVersion); err != nil {
+		t.Fatal(err)
+	}
+	return BuiltinWorkflowRegistry().Lookup(definitionRef, definitionVersion)
+}
+
+// staleLawSuccessorPayload mandates the accepted successor law: the composed
+// successor derives its law revision pins from the mandate's current state, so
+// the stale-law recovery finds the accepted successor pinned (CD-0041 D5).
+func staleLawSuccessorPayload(workID string) json.RawMessage {
+	binding := `{"domain_registry_content_hash":"sha256:` + strings.Repeat("b", 64) + `","home_domain_id":"root","affected_domain_ids":["root"],"domain_modifies":[],"domain_relation_modifies":[],"law_additions":[],"verification_obligations":[]}`
+	return json.RawMessage(`{"contract_version":2,"premise":"the delivered subject under the successor law","outcome_predicates":[{"predicate_id":"predicate:return-route","ordinal":0,"outcome_kind":"check","outcome_payload":{"kind":"check","check_ref":"check:return-route","immutable_subject_ref":"commit:` + workID + `","expected_result":"pass"}}],"required_evidence":["verification","review","artifact"],"route_conventions":["complete_step_correction"],"spec_mandate":["spec:two"],"law_modifies":[],"rigor_class":"prototype_internal","architecture_binding":` + binding + `,"supersede_reason":"the approved premise moved to the successor law","audit_evidence":["evidence:complete-correction-` + workID + `"]}`)
+}
+
+// TestCompleteStepCorrectionStaleLawStaysBehindTheGate proves the stale-law
+// recovery route does not bypass the complete-step admission. With the active
+// contract's mandated law superseded but no durable contradiction record,
+// discovery and preflight refuse; the route opens only when the contradiction
+// observation postdates the verdict (CD-0172 D1).
+func TestCompleteStepCorrectionStaleLawStaysBehindTheGate(t *testing.T) {
+	t.Parallel()
+	const workID = "complete-correction-stale-law-gate"
+	fixture, _ := seedCompleteStep(t, workID, "workflow.break_fix", "verify", "complete")
+	s := fixture.store
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1);
+		UPDATE workflow_contracts SET spec_mandate='["spec:one"]' WHERE work_id=? AND contract_version=1;
+		UPDATE law_subjects SET status='superseded' WHERE home_project_id='project' AND home_locator_id='workflow-law-locator' AND law_id='spec:one';
+		INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('project','workflow-law-locator','spec:two','spec','accepted','docs/spec-two.md','Synthetic successor law','sha256:`+strings.Repeat("b", 64)+`','test');
+		INSERT INTO law_relations(home_project_id,home_locator_id,source_law_id,kind,target_law_id,scanned_commit_oid) VALUES('project','workflow-law-locator','spec:two','supersedes','spec:one','test');
+		INSERT INTO law_domain_homes(home_project_id,home_locator_id,law_id,product_id,domain_id,law_content_hash,scanned_commit_oid,product_wide_rationale) VALUES('project','workflow-law-locator','spec:two','product','root','sha256:`+strings.Repeat("b", 64)+`','test','');
+		DELETE FROM fold_guard`, workID); err != nil {
+		t.Fatal(err)
+	}
+
+	err := issue1013Preflight(t, s, workID, "supersede_contract", completeStepSuccessorPayload(workID), fixture.owner)
+	var failure *Failure
+	if !errors.As(err, &failure) || failure.Kind != KindInvalidOperation || failure.Detail != "contract recovery is available only for a stale workflow contract" {
+		t.Fatalf("stale-law supersession without the contradiction record = %v, want the complete-step gate refusal", err)
+	}
+	if _, _, err := WorkflowActionDefinitionFor(context.Background(), s, BuiltinWorkflowRegistry(), workID, "supersede_contract"); err == nil {
+		t.Fatal("discovery admitted the complete-step correction without the contradiction record")
+	}
+
+	// Recording the durable contradiction opens the shared gate; the stale-law
+	// condition neither excuses the reserved convention nor the state gate,
+	// and the successor still pins the accepted successor law.
+	recordCompleteStepContradictionObservation(t, s, workID, fixture.owner)
+	if err := issue1013Preflight(t, s, workID, "supersede_contract", staleLawSuccessorPayload(workID), fixture.owner); err != nil {
+		t.Fatalf("preflight refused the complete-step correction behind a stale law: %v", err)
+	}
+	if err := runIssue933OperatorAction(t, s, workID, "supersede_contract", staleLawSuccessorPayload(workID), fixture.owner, fixture.operator); err != nil {
+		t.Fatalf("supersede behind a stale law through the gate: %v", err)
+	}
+	if step, state, _, _, _ := completeStepInstancePin(t, s, workID); step != "repair" || state != "running" {
+		t.Fatalf("instance after correction: step=%q state=%q, want repair/running", step, state)
+	}
+}
+
+// TestCompleteStepCorrectionDuplicateRecoveryUnreachable keeps the separate
+// duplicate recovery on its declared earlier steps: at the pinned complete
+// step a duplicate contract projection refuses discovery and preflight instead
+// of admitting the recovery route (CD-0172 D1). The reachable duplicate
+// recovery at an earlier step stays covered by
+// TestDuplicateActiveContractsRecoverWithExactPredecessorSet.
+func TestCompleteStepCorrectionDuplicateRecoveryUnreachable(t *testing.T) {
+	t.Parallel()
+	const workID = "complete-correction-duplicate"
+	fixture, _ := seedCompleteStepCorrection(t, workID, "workflow.break_fix", "verify", "complete")
+	s := fixture.store
+	ownerRef, err := WorkflowActorRef(fixture.owner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	version := verdictItemVersion(t, s, workID)
+	legacyApproval, marshalErr := json.Marshal(map[string]any{
+		"work_id": workID, "expected_version": version, "resulting_version": version + 1,
+		"contract_version": 2, "premise": "legacy duplicate approval",
+		"outcome_predicates": []map[string]any{{
+			"predicate_id": "predicate:return-route", "ordinal": 0, "outcome_kind": "check",
+			"outcome_payload": map[string]any{"kind": "check", "check_ref": "check:duplicate", "immutable_subject_ref": "commit:" + workID, "expected_result": "pass"},
+		}},
+		"required_evidence": []string{"verification"}, "route_conventions": []string{}, "spec_mandate": []string{},
+		"law_modifies": []string{}, "law_revisions": []WorkflowLawRevision{}, "law_boundary_version": 1,
+		"architecture_binding": WorkflowArchitectureBinding{
+			DomainRegistryContentHash: "sha256:" + strings.Repeat("b", 64), HomeDomainID: "root", AffectedDomainIDs: []string{"root"},
+			DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{},
+			VerificationObligations: []WorkflowVerificationObligation{},
+		},
+		"rigor_class": "prototype_internal", "consequence_class": "internal_sqlite",
+	})
+	if marshalErr != nil {
+		t.Fatal(marshalErr)
+	}
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES(?,?,?,?,?,?,?,?)`,
+		"complete-correction-duplicate-approval", WorkflowContractApproved, SubjectWorkItem, workID, ownerRef, "2026-09-22T00:00:00Z", 3, legacyApproval); err != nil {
+		t.Fatal(err)
+	}
+	if err := RebuildFromLog(context.Background(), s); err != nil {
+		t.Fatal(err)
+	}
+	var activeCount int
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL`, workID).Scan(&activeCount); err != nil {
+		t.Fatal(err)
+	}
+	if activeCount != 2 {
+		t.Fatalf("duplicate fixture active contracts = %d, want 2", activeCount)
+	}
+	pin := issue1013Pin(t, s, workID)
+	if issue1013HasIntent(pin, "supersede_contract") {
+		t.Fatalf("duplicate complete-step pin advertises refused supersession: %#v", pin.NextValidIntents)
+	}
+
+	if _, _, err := WorkflowActionDefinitionFor(context.Background(), s, BuiltinWorkflowRegistry(), workID, "supersede_contract"); err == nil {
+		t.Fatal("discovery offered contract recovery at the complete step with a duplicate projection")
+	}
+	if err := issue1013Preflight(t, s, workID, "supersede_contract", completeStepSuccessorPayload(workID), fixture.owner); err == nil {
+		t.Fatal("read-only preflight admitted the complete-step correction with a duplicate projection")
+	}
+	duplicateRecovery, payloadErr := json.Marshal(map[string]any{
+		"contract_version": 3, "predecessor_contract_versions": []int64{1, 2}, "premise": "recovered premise",
+		"outcome_predicates": []map[string]any{{
+			"predicate_id": "predicate:return-route", "ordinal": 0, "outcome_kind": "check",
+			"outcome_payload": map[string]any{"kind": "check", "check_ref": "check:return-route", "immutable_subject_ref": "commit:" + workID, "expected_result": "pass"},
+		}}, "required_evidence": []string{"verification"}, "route_conventions": []string{},
+		"spec_mandate": []string{}, "law_modifies": []string{}, "law_revisions": []WorkflowLawRevision{}, "law_boundary_version": 1,
+		"rigor_class":      "prototype_internal",
+		"supersede_reason": "repair the duplicate projection", "audit_evidence": []string{"evidence:duplicate-recovery"},
+	})
+	if payloadErr != nil {
+		t.Fatal(payloadErr)
+	}
+	err = InspectWorkflowActionAdmission(context.Background(), s, WorkflowActionPreflightRequest{
+		WorkID: workID, ExpectedVersion: verdictItemVersion(t, s, workID), ActionID: "supersede_contract", Payload: duplicateRecovery, Actor: fixture.owner,
+	})
+	var failure *Failure
+	if !errors.As(err, &failure) || failure.Kind != KindInvariantViolation || failure.Detail != "duplicate contract recovery is unavailable at the pinned complete step" {
+		t.Fatalf("duplicate recovery admission at the complete step = %v, want the complete-step duplicate refusal", err)
+	}
+}
+
+// TestCompleteStepCorrectionSurvivesRebuildFromLog proves the fold's return
+// and its shared admission are replay-stable: rebuilding the log refolds the
+// route supersession to the same instance state, active contract, and verdict
+// cut (CD-0172 D1, D3).
+func TestCompleteStepCorrectionSurvivesRebuildFromLog(t *testing.T) {
+	t.Parallel()
+	const workID = "complete-correction-replay"
+	ctx := context.Background()
+	fixture, _ := seedCompleteStepCorrection(t, workID, "workflow.break_fix", "verify", "complete")
+	s := fixture.store
+	if err := runIssue933OperatorAction(t, s, workID, "supersede_contract", completeStepSuccessorPayload(workID), fixture.owner, fixture.operator); err != nil {
+		t.Fatalf("supersede the contract at the complete step: %v", err)
+	}
+	step, state, definitionRef, definitionVersion, definitionDigest := completeStepInstancePin(t, s, workID)
+	if step != "repair" || state != "running" {
+		t.Fatalf("instance before rebuild: step=%q state=%q, want repair/running", step, state)
+	}
+	if err := RebuildFromLog(ctx, s); err != nil {
+		t.Fatalf("rebuild from log: %v", err)
+	}
+	stepAfter, stateAfter, refAfter, versionAfter, digestAfter := completeStepInstancePin(t, s, workID)
+	if stepAfter != step || stateAfter != state || refAfter != definitionRef || versionAfter != definitionVersion || digestAfter != definitionDigest {
+		t.Fatalf("replay moved the correction return: %s/%s %s@%d (%s) -> %s/%s %s@%d (%s)", step, state, definitionRef, definitionVersion, definitionDigest, stepAfter, stateAfter, refAfter, versionAfter, digestAfter)
+	}
+	var activeVersion int
+	if err := s.DatabaseForTesting().QueryRow(`SELECT contract_version FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL`, workID).Scan(&activeVersion); err != nil {
+		t.Fatal(err)
+	}
+	if activeVersion != 2 {
+		t.Fatalf("active contract version after rebuild = %d, want 2", activeVersion)
+	}
+	satisfied, err := latestWorkflowVerdicts(ctx, s.db, workID, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(satisfied) != 0 {
+		t.Fatalf("replayed successor inherited pre-correction verdicts: %#v", satisfied)
+	}
+}
+
+// TestCompleteStepCorrectionHistoricalSupersessionReplays proves the fold
+// tolerates a typed supersession recorded at the pinned complete step before
+// the reserved convention existed: it replays exactly as it folded, with no
+// route, no instance return, and no complete-step admission demanded of
+// history (CD-0172 D2).
+func TestCompleteStepCorrectionHistoricalSupersessionReplays(t *testing.T) {
+	t.Parallel()
+	const workID = "complete-correction-historical-replay"
+	fixture, _ := seedCompleteStepCorrection(t, workID, "workflow.break_fix", "verify", "complete")
+	s := fixture.store
+	ownerRef, err := WorkflowActorRef(fixture.owner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	version := verdictItemVersion(t, s, workID)
+	historical, marshalErr := json.Marshal(map[string]any{
+		"work_id": workID, "expected_version": version, "resulting_version": version + 1,
+		"previous_contract_version": 1, "new_contract_version": 2,
+		"supersede_reason": "stale-law recovery recorded before the reserved convention existed",
+		"audit_evidence":   []string{"evidence:historical-stale-law"},
+		"successor_contract": map[string]any{
+			"contract_version": 2, "premise": "the delivered subject the durable evidence names",
+			"outcome_predicates": []map[string]any{{"predicate_id": "predicate:return-route", "ordinal": 0, "outcome_kind": "check",
+				"outcome_payload": map[string]any{"kind": "check", "check_ref": "check:return-route", "immutable_subject_ref": "commit:" + workID, "expected_result": "pass"}}},
+			"required_evidence": []string{"verification"}, "route_conventions": []string{}, "spec_mandate": []string{},
+			"law_modifies": []string{}, "law_revisions": []WorkflowLawRevision{}, "law_boundary_version": 1,
+			"rigor_class": "prototype_internal", "consequence_class": "internal_sqlite",
+			"architecture_binding": WorkflowArchitectureBinding{
+				DomainRegistryContentHash: "sha256:" + strings.Repeat("b", 64), HomeDomainID: "root", AffectedDomainIDs: []string{"root"},
+				DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{},
+				VerificationObligations: []WorkflowVerificationObligation{},
+			},
+		},
+	})
+	if marshalErr != nil {
+		t.Fatal(marshalErr)
+	}
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES(?,?,?,?,?,?,?,?)`,
+		"complete-correction-historical-supersession", WorkflowContractSuperseded, SubjectWorkItem, workID, ownerRef, "2026-09-22T00:00:00Z", 2, historical); err != nil {
+		t.Fatal(err)
+	}
+	if err := RebuildFromLog(context.Background(), s); err != nil {
+		t.Fatalf("rebuild with the historical supersession: %v", err)
+	}
+	step, _, _, _, _ := completeStepInstancePin(t, s, workID)
+	if step != "complete" {
+		t.Fatalf("historical supersession moved the instance to %q, want complete", step)
+	}
+	var activeVersion int
+	if err := s.DatabaseForTesting().QueryRow(`SELECT contract_version FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL`, workID).Scan(&activeVersion); err != nil {
+		t.Fatal(err)
+	}
+	if activeVersion != 2 {
+		t.Fatalf("active contract version after the historical rebuild = %d, want 2", activeVersion)
+	}
+}
+
+// seedOffShapeCompletedInstance parks a completed workflow instance on a
+// verified break-fix step whose pinned shape does not carry the complete-step
+// correction route, and supersedes the active contract's mandated law so the
+// stale-law recovery is the admission under test.
+func seedOffShapeCompletedInstance(t *testing.T, workID string) workflowReturnRouteFixture {
+	t.Helper()
+	fixture, _ := seedCompleteStep(t, workID, "workflow.break_fix", "verify", "complete")
+	if _, err := fixture.store.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1);
+		UPDATE workflow_instances SET current_step='verify', instance_state='completed' WHERE work_id=?;
+		UPDATE workflow_contracts SET spec_mandate='["spec:one"]' WHERE work_id=? AND contract_version=1;
+		UPDATE law_subjects SET status='superseded' WHERE home_project_id='project' AND home_locator_id='workflow-law-locator' AND law_id='spec:one';
+		INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('project','workflow-law-locator','spec:two','spec','accepted','docs/spec-two.md','Synthetic successor law','sha256:`+strings.Repeat("b", 64)+`','test');
+		INSERT INTO law_relations(home_project_id,home_locator_id,source_law_id,kind,target_law_id,scanned_commit_oid) VALUES('project','workflow-law-locator','spec:two','supersedes','spec:one','test');
+		INSERT INTO law_domain_homes(home_project_id,home_locator_id,law_id,product_id,domain_id,law_content_hash,scanned_commit_oid,product_wide_rationale) VALUES('project','workflow-law-locator','spec:two','product','root','sha256:`+strings.Repeat("b", 64)+`','test','');
+		DELETE FROM fold_guard`, workID, workID); err != nil {
+		t.Fatal(err)
+	}
+	return fixture
+}
+
+// offShapeStaleLawSuccessorPayload is the stale-law successor without the
+// reserved convention: the shape under test carries no complete-step
+// correction route, so a shape-compliant successor declares no route.
+func offShapeStaleLawSuccessorPayload(workID string) json.RawMessage {
+	return json.RawMessage(strings.Replace(string(staleLawSuccessorPayload(workID)), `"route_conventions":["complete_step_correction"]`, `"route_conventions":[]`, 1))
+}
+
+// TestCompleteStepCorrectionReadOnlyPreflightRequiresReservedRoute pins the
+// shared admission the read-only surface once skipped: a completed nonterminal
+// instance at the pinned complete step whose successor omits the reserved
+// complete_step_correction convention refuses at the read-only preflight
+// exactly as the transaction preflight, guard, and fold refuse, and no effect
+// records (CD-0172).
+func TestCompleteStepCorrectionReadOnlyPreflightRequiresReservedRoute(t *testing.T) {
+	t.Parallel()
+	const workID = "complete-correction-missing-marker"
+	fixture, _ := seedCompleteStepCorrection(t, workID, "workflow.break_fix", "verify", "complete")
+	s := fixture.store
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE workflow_instances SET instance_state='completed' WHERE work_id=?; DELETE FROM fold_guard`, workID); err != nil {
+		t.Fatal(err)
+	}
+	withoutRoute := json.RawMessage(strings.Replace(string(completeStepSuccessorPayload(workID)), `"route_conventions":["complete_step_correction"]`, `"route_conventions":[]`, 1))
+	if !strings.Contains(string(withoutRoute), `"route_conventions":[]`) {
+		t.Fatal("the missing-marker payload kept the reserved convention")
+	}
+	err := issue1013Preflight(t, s, workID, "supersede_contract", withoutRoute, fixture.owner)
+	var failure *Failure
+	if !errors.As(err, &failure) || failure.Kind != KindInvalidOperation || failure.Detail != "complete-step correction requires the reserved route convention complete_step_correction" {
+		t.Fatalf("read-only preflight without the reserved route = %v, want the reserved-route refusal", err)
+	}
+	if err := runIssue933OperatorAction(t, s, workID, "supersede_contract", withoutRoute, fixture.owner, fixture.operator); err == nil {
+		t.Fatal("the owning action admitted a successor without the reserved route")
+	}
+	var activeVersion int
+	if err := s.DatabaseForTesting().QueryRow(`SELECT contract_version FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL`, workID).Scan(&activeVersion); err != nil {
+		t.Fatal(err)
+	}
+	if activeVersion != 1 {
+		t.Fatalf("active contract version = %d, want the predecessor 1", activeVersion)
+	}
+	if step, state, _, _, _ := completeStepInstancePin(t, s, workID); step != "complete" || state != "completed" {
+		t.Fatalf("instance moved without effect: step=%q state=%q, want complete/completed", step, state)
+	}
+}
+
+// TestCompletedInstanceOffShapeSupersessionRefusesBeforeEffect pins the
+// completed-instance boundary every admission surface shares: a completed
+// workflow instance whose pinned shape does not carry the complete-step
+// correction route refuses supersession at discovery, the read-only preflight,
+// the transaction admission, the owning mutation, and the live fold, while
+// the same historical event still replays and the instance stays closed with
+// its contract active (CD-0172).
+func TestCompletedInstanceOffShapeSupersessionRefusesBeforeEffect(t *testing.T) {
+	t.Parallel()
+
+	const sharedDetail = "a completed workflow instance supersedes its contract only on the pinned complete-step correction shape"
+
+	t.Run("discovery", func(t *testing.T) {
+		t.Parallel()
+		const workID = "complete-correction-offshape-discovery"
+		fixture := seedOffShapeCompletedInstance(t, workID)
+		_, _, err := WorkflowActionDefinitionFor(context.Background(), fixture.store, BuiltinWorkflowRegistry(), workID, "supersede_contract")
+		var failure *Failure
+		if !errors.As(err, &failure) || failure.Kind != KindInvalidOperation || failure.Detail != sharedDetail {
+			t.Fatalf("discovery on the off-shape completed instance = %v, want the shape refusal", err)
+		}
+	})
+
+	t.Run("read-only preflight", func(t *testing.T) {
+		t.Parallel()
+		const workID = "complete-correction-offshape-preflight"
+		fixture := seedOffShapeCompletedInstance(t, workID)
+		err := issue1013Preflight(t, fixture.store, workID, "supersede_contract", offShapeStaleLawSuccessorPayload(workID), fixture.owner)
+		var failure *Failure
+		if !errors.As(err, &failure) || failure.Kind != KindInvalidOperation || failure.Detail != sharedDetail {
+			t.Fatalf("read-only preflight on the off-shape completed instance = %v, want the shape refusal", err)
+		}
+	})
+
+	t.Run("transaction admission", func(t *testing.T) {
+		t.Parallel()
+		const workID = "complete-correction-offshape-admission"
+		fixture := seedOffShapeCompletedInstance(t, workID)
+		err := InspectWorkflowActionAdmission(context.Background(), fixture.store, WorkflowActionPreflightRequest{
+			WorkID: workID, ActionID: "supersede_contract", Payload: offShapeStaleLawSuccessorPayload(workID), Actor: fixture.owner,
+		})
+		var failure *Failure
+		if !errors.As(err, &failure) || failure.Kind != KindInvalidOperation || failure.Detail != sharedDetail {
+			t.Fatalf("transaction admission on the off-shape completed instance = %v, want the shape refusal", err)
+		}
+	})
+
+	t.Run("mutation", func(t *testing.T) {
+		t.Parallel()
+		const workID = "complete-correction-offshape-mutation"
+		fixture := seedOffShapeCompletedInstance(t, workID)
+		err := runIssue933OperatorAction(t, fixture.store, workID, "supersede_contract", offShapeStaleLawSuccessorPayload(workID), fixture.owner, fixture.operator)
+		var failure *Failure
+		if !errors.As(err, &failure) || failure.Kind != KindInvalidOperation || failure.Detail != sharedDetail {
+			t.Fatalf("mutation on the off-shape completed instance = %v, want the shape refusal", err)
+		}
+		var activeVersion int
+		if err := fixture.store.DatabaseForTesting().QueryRow(`SELECT contract_version FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL`, workID).Scan(&activeVersion); err != nil {
+			t.Fatal(err)
+		}
+		if activeVersion != 1 {
+			t.Fatalf("active contract version after the refused mutation = %d, want the predecessor 1", activeVersion)
+		}
+	})
+
+	t.Run("live fold refuses and replay preserves", func(t *testing.T) {
+		t.Parallel()
+		const workID = "complete-correction-offshape-fold"
+		fixture := seedOffShapeCompletedInstance(t, workID)
+		successor := &workflowContractApprovedPayload{ContractVersion: 2, RouteConventions: []string{}}
+		tx, txErr := fixture.store.DatabaseForTesting().BeginTx(context.Background(), nil)
+		if txErr != nil {
+			t.Fatal(txErr)
+		}
+		defer tx.Rollback()
+		err := foldCompleteStepContractCorrectionTx(context.Background(), tx, workID, successor)
+		var failure *Failure
+		if !errors.As(err, &failure) || failure.Kind != KindInvariantViolation || failure.Detail != sharedDetail {
+			t.Fatalf("live fold of the off-shape completed supersession = %v, want the shape refusal", err)
+		}
+		if err := foldCompleteStepContractCorrectionTx(workflowReplayContext(context.Background()), tx, workID, successor); err != nil {
+			t.Fatalf("replay of the historical off-shape supersession = %v, want replay preservation", err)
+		}
+	})
+}
+
+// TestCompletedInstanceDuplicateRecoveryStaysOffThePin keeps the duplicate
+// recovery exception off a completed instance: the work pin and discovery
+// refuse when the duplicated projection sits on a completed instance whose
+// pinned shape does not carry the complete-step correction route (CD-0172).
+func TestCompletedInstanceDuplicateRecoveryStaysOffThePin(t *testing.T) {
+	t.Parallel()
+	const workID = "complete-correction-duplicate-offshape"
+	fixture, _ := seedCompleteStep(t, workID, "workflow.break_fix", "verify", "complete")
+	s := fixture.store
+	ownerRef, err := WorkflowActorRef(fixture.owner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	version := verdictItemVersion(t, s, workID)
+	legacyApproval, marshalErr := json.Marshal(map[string]any{
+		"work_id": workID, "expected_version": version, "resulting_version": version + 1,
+		"contract_version": 2, "premise": "legacy duplicate approval",
+		"outcome_predicates": []map[string]any{{
+			"predicate_id": "predicate:return-route", "ordinal": 0, "outcome_kind": "check",
+			"outcome_payload": map[string]any{"kind": "check", "check_ref": "check:duplicate", "immutable_subject_ref": "commit:" + workID, "expected_result": "pass"},
+		}},
+		"required_evidence": []string{"verification"}, "route_conventions": []string{}, "spec_mandate": []string{},
+		"law_modifies": []string{}, "law_revisions": []WorkflowLawRevision{}, "law_boundary_version": 1,
+		"architecture_binding": WorkflowArchitectureBinding{
+			DomainRegistryContentHash: "sha256:" + strings.Repeat("b", 64), HomeDomainID: "root", AffectedDomainIDs: []string{"root"},
+			DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{},
+			VerificationObligations: []WorkflowVerificationObligation{},
+		},
+		"rigor_class": "prototype_internal", "consequence_class": "internal_sqlite",
+	})
+	if marshalErr != nil {
+		t.Fatal(marshalErr)
+	}
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES(?,?,?,?,?,?,?,?)`,
+		"complete-correction-duplicate-offshape-approval", WorkflowContractApproved, SubjectWorkItem, workID, ownerRef, "2026-09-22T00:00:00Z", 3, legacyApproval); err != nil {
+		t.Fatal(err)
+	}
+	if err := RebuildFromLog(context.Background(), s); err != nil {
+		t.Fatal(err)
+	}
+	var activeCount int
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL`, workID).Scan(&activeCount); err != nil {
+		t.Fatal(err)
+	}
+	if activeCount != 2 {
+		t.Fatalf("off-shape duplicate fixture active contracts = %d, want 2", activeCount)
+	}
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE workflow_instances SET current_step='verify', instance_state='completed' WHERE work_id=?; DELETE FROM fold_guard`, workID); err != nil {
+		t.Fatal(err)
+	}
+	pin := issue1013Pin(t, s, workID)
+	if issue1013HasIntent(pin, "supersede_contract") {
+		t.Fatalf("completed off-shape pin advertises duplicate recovery: %#v", pin.NextValidIntents)
+	}
+	if _, _, err := WorkflowActionDefinitionFor(context.Background(), s, BuiltinWorkflowRegistry(), workID, "supersede_contract"); err == nil {
+		t.Fatal("discovery offered duplicate recovery on the completed off-shape instance")
 	}
 }

@@ -1,0 +1,42 @@
+{
+  "evidence": [
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestCompleteStepContractCorrectionReturnsBreakFixToRepair"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestCompleteStepContractCorrectionRefusals"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestCompleteStepContractCorrectionReopensCompletedInstance"
+    },
+    {
+      "kind": "validator",
+      "value": "scripts/check-cd-allocation.py"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestCompleteStepCorrectionCutoffPersistsAcrossLaterSuccessor"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestCompleteStepCorrectionStaleLawStaysBehindTheGate"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestCompleteStepCorrectionDuplicateRecoveryUnreachable"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestCompleteStepCorrectionSurvivesRebuildFromLog"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestCompleteStepCorrectionHistoricalSupersessionReplays"
+    }
+  ],
+  "id": "CD-0172",
+  "state": "satisfied"
+}

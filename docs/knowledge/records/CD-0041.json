@@ -17,9 +17,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:6163f260cb6d9eb91376df051842ad30300e7e4c0ae13553626b2631523255b0",
+  "sha256": "sha256:112a5bbdecdd05a83f0a1b381bb735e21427c2da2a0dfd68f0015c3f115849a8",
   "status": "accepted",
-  "summary": "Makes Product law and architectural concordance Priority 1; canonical Domains own law and bind Product-changing work; shared Product writes require an overlap resolution, and revisions make it stale only when judged architecture content changes; architecture-only proximity does not block; Initiative remains secondary context; SQLite remains sole local authority. CD-0042 amends sequencing, CD-0144 moves the claim to execution start, CD-0145 narrows blocking writes, and CD-0153 refines staleness.",
+  "summary": "Makes Product law and architectural concordance Priority 1; canonical Domains own law and bind Product-changing work; shared Product writes require an overlap resolution, and revisions make it stale only when judged architecture content changes; architecture-only proximity does not block; Initiative remains secondary context; SQLite remains sole local authority. CD-0042 amends sequencing, CD-0144 moves the claim to execution start, CD-0145 narrows blocking writes, and CD-0153 refines staleness. The 2026-09-22 operator correction makes the Product work list the browse entry with Domain and law context one reachable step away.",
   "tags": [
     "product-law",
     "architecture",

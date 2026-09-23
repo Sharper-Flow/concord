@@ -17,6 +17,9 @@
   Domain-overlap execution block to shared writes; CD-0144 moves the active
   footprint boundary from contract approval to execution start; CD-0153
   refines D6 staleness to judged contract content.
+- **Amended:** D2's canonical browse path, Product-first entry with reachable
+  Domain context, operator-approved 2026-09-22 in work
+  work-900ef777e9de86b16f55d269.
 - **Preserves:** CD-0002 and CD-0011 storage authority and falsifiers;
   CD-0009 D2–D8 research-pack authority; CD-0036 breaking-law cutovers
 - **Supersedes:** Epic as Concord's current Product-facing initiative term and
@@ -129,8 +132,14 @@ as an ordinary description, but it cannot identify a second grouping entity or
 own links. The canonical browse path is:
 
 ```text
-Product -> Domain -> current law, active work, evidence, decisions, resources
+Product -> active work, then Domain -> current law, evidence, decisions, resources
 ```
+
+Selecting a Product lands on its Product-scoped, non-terminal work list. That
+list is the entry view. Domain and law context is the next reachable step from
+the Product view. It is context for the work, not the default focus. Domains
+remain the canonical home of law (D3), so the law and evidence browse still
+runs through the Domain hierarchy.
 
 Initiatives are optional overlays on that path, never its replacement.
 

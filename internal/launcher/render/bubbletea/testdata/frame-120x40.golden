@@ -11,30 +11,30 @@ FOCUS: product/Concord                                      COVERAGE: authoritat
 │S2 PRODUCT COORDINATION                                                             ││URGENCY: standard               │
 │DOMAIN: no unresolved overlaps                                                      ││ISSUE: -                        │
 │BLOCKED: work-1 Work 1 marker=+READY blockers=                                      ││LIVE SESSIONS: 0                │
-│BLOCKED/BLOCKERS:                                                                   ││PROJECTS: 0                     │
-│  Work                                                                              ││TERMINAL: -                     │
-│  23 +READY work-23 Work 23                                                         ││WORKFLOW: -                     │
-│  24 +READY work-24 Work 24                                                         ││                                │
-│  25 +READY work-25 Work 25                                                         ││                                │
-│  26 +READY work-26 Work 26                                                         ││                                │
-│  27 +READY work-27 Work 27                                                         ││                                │
-│  28 +READY work-28 Work 28                                                         ││                                │
-│  29 +READY work-29 Work 29                                                         ││                                │
-│  30 +READY work-30 Work 30                                                         ││                                │
-│  31 +READY work-31 Work 31                                                         ││                                │
-│  32 +READY work-32 Work 32                                                         ││                                │
-│  33 +READY work-33 Work 33                                                         ││                                │
-│  34 +READY work-34 Work 34                                                         ││                                │
-│  35 +READY work-35 Work 35                                                         ││                                │
-│  36 +READY work-36 Work 36                                                         ││                                │
-│  37 +READY work-37 Work 37                                                         ││                                │
-│  38 +READY work-38 Work 38                                                         ││                                │
-│  39 +READY work-39 Work 39                                                         ││                                │
-│  40 +READY work-40 Work 40                                                         ││                                │
-│  41 +READY work-41 Work 41                                                         ││                                │
-│  42 +READY work-42 Work 42                                                         ││                                │
-│  43 +READY work-43 Work 43                                                         ││                                │
-│  44 +READY work-44 Work 44                                                         ││                                │
-│> 45 +READY work-45 Work 45                                                         ││                                │
+│WORK:                                                                               ││PROJECTS: 0                     │
+│  Work                                     lifecycle                                ││TERMINAL: -                     │
+│  23 +READY work-23 Work 23                in_progress                              ││WORKFLOW: -                     │
+│  24 +READY work-24 Work 24                in_progress                              ││                                │
+│  25 +READY work-25 Work 25                in_progress                              ││                                │
+│  26 +READY work-26 Work 26                in_progress                              ││                                │
+│  27 +READY work-27 Work 27                in_progress                              ││                                │
+│  28 +READY work-28 Work 28                in_progress                              ││                                │
+│  29 +READY work-29 Work 29                in_progress                              ││                                │
+│  30 +READY work-30 Work 30                in_progress                              ││                                │
+│  31 +READY work-31 Work 31                in_progress                              ││                                │
+│  32 +READY work-32 Work 32                in_progress                              ││                                │
+│  33 +READY work-33 Work 33                in_progress                              ││                                │
+│  34 +READY work-34 Work 34                in_progress                              ││                                │
+│  35 +READY work-35 Work 35                in_progress                              ││                                │
+│  36 +READY work-36 Work 36                in_progress                              ││                                │
+│  37 +READY work-37 Work 37                in_progress                              ││                                │
+│  38 +READY work-38 Work 38                in_progress                              ││                                │
+│  39 +READY work-39 Work 39                in_progress                              ││                                │
+│  40 +READY work-40 Work 40                in_progress                              ││                                │
+│  41 +READY work-41 Work 41                in_progress                              ││                                │
+│  42 +READY work-42 Work 42                in_progress                              ││                                │
+│  43 +READY work-43 Work 43                in_progress                              ││                                │
+│  44 +READY work-44 Work 44                in_progress                              ││                                │
+│> 45 +READY work-45 Work 45                in_progress                              ││                                │
 ╰────────────────────────────────────────────────────────────────────────────────────╯╰────────────────────────────────╯
 arrows move • / filter • s search • tab pane/section • r refresh • enter open • l launch • ctrl-p pin • ctrl-u unpin • ?

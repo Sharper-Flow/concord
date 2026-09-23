@@ -507,8 +507,8 @@ func TestS2S3NavigationRestoresProductSelectionAndScroll(t *testing.T) {
 	if core.Snapshot().Screen != launcher.ScreenProduct || p.reads != 3 {
 		t.Fatalf("S2=%#v reads=%d", core.Snapshot(), p.reads)
 	}
+	m.UpdateKey("tab") // next -> domain
 	m.UpdateKey("tab") // domain -> blocked
-	m.UpdateKey("tab") // blocked -> next
 	m.UpdateKey("j")
 	m.UpdateKey("enter")
 	if core.Snapshot().Screen != launcher.ScreenWork || core.Handoff().WorkID != "work-2" || p.reads != 4 {
@@ -560,15 +560,15 @@ func TestS2PanelFocusAndQuerySubmitsExactlyOnce(t *testing.T) {
 	m := New(core, context.Background(), Profile{})
 	m.UpdateKey("enter")
 	reads := p.reads
+	m.UpdateKey("tab") // next -> domain
+	if p.reads != reads {
+		t.Fatalf("next to domain read=%d", p.reads)
+	}
 	m.UpdateKey("tab") // domain -> blocked
 	if p.reads != reads {
 		t.Fatalf("domain to blocked read=%d", p.reads)
 	}
 	m.UpdateKey("tab") // blocked -> next
-	if p.reads != reads {
-		t.Fatalf("blocked to next read=%d", p.reads)
-	}
-	m.UpdateKey("tab") // next -> domain
 	if p.reads != reads {
 		t.Fatalf("S2 panel cycling must not read=%d", p.reads)
 	}
@@ -591,8 +591,8 @@ func TestDisplayedQueryEscRestoresSnapshotCursorAndScroll(t *testing.T) {
 	}
 	m := New(core, context.Background(), Profile{})
 	m.UpdateKey("enter")
+	m.UpdateKey("tab") // next -> domain
 	m.UpdateKey("tab") // domain -> blocked
-	m.UpdateKey("tab") // blocked -> next
 	m.UpdateKey("j")
 	m.scroll = 1
 	m.UpdateKey("s")
@@ -702,14 +702,17 @@ func TestS2DrillDownRendersKindReadinessAndTerminalAt(t *testing.T) {
 	// its lowest-priority columns; the row assertions cover what survives.
 	m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
 	rendered := m.Render()
-	for _, want := range []string{
-		"kind=task", "kind=bug",
-		"+READY", "-TERMINAL",
-		"lifecycle=completed",
-	} {
+	for _, want := range []string{"+READY", "-TERMINAL", "kind", "lifecycle"} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("drill-down line missing %q: %q", want, rendered)
 		}
+	}
+	content := m.renderContent(m.snapshot, m.cursor)
+	if live := rankedRowLine(t, 120, rendered, content, "work-1"); !strings.Contains(live, "task") || !strings.Contains(live, "needed") {
+		t.Fatalf("ready drill-down row lost its kind and lifecycle cells: %q", live)
+	}
+	if done := rankedRowLine(t, 120, rendered, content, "work-2"); !strings.Contains(done, "completed") {
+		t.Fatalf("terminal drill-down row lost its lifecycle cell: %q", done)
 	}
 	if again := m.Render(); again != rendered {
 		t.Fatalf("drill-down render changed between frames:\n%s\n%s", rendered, again)
@@ -880,7 +883,8 @@ func TestLaunchHandoffIsIdentityOnlyAndS1CannotReachWork(t *testing.T) {
 	if called != (launcher.SessionHandoff{ProductID: "product-1", Agent: launcher.DefaultSessionAgent}) {
 		t.Fatalf("S2 handoff=%#v", called)
 	}
-	// S2 opens on the Domain panel; two tabs reach the ranked work mode.
+	// S2 opens on the work list; two tabs reach the Domain panel and back to
+	// a work panel.
 	m.UpdateKey("tab")
 	m.UpdateKey("tab")
 	m.UpdateKey("enter")
@@ -1005,6 +1009,9 @@ func TestS2DomainSectionRendersHierarchyRelationsAndOverlap(t *testing.T) {
 	}
 	m := New(core, context.Background(), Profile{})
 	m.UpdateKey("enter")
+	// The work list owns the entry view; Tab reaches the Domain and law
+	// context panel, which the entry read already populated.
+	m.UpdateKey("tab")
 	rendered := m.Render()
 	for _, want := range []string{"Domain", "HOME", "product-root:one Product One", "DOMAIN", "work-nav Work navigation", "RELATION depends_on: work-nav -> product-root:one state=active", "OVERLAP work-1 & work-2 domains=work-nav resolution=absent"} {
 		if !strings.Contains(rendered, want) {
@@ -1297,12 +1304,18 @@ func TestRankedRowsCollapseConstantColumnsAndTruncateToOneLine(t *testing.T) {
 	m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	m.Sync()
 	rendered := m.Render()
-	// Every visible row carries these values, so the columns collapse instead
-	// of spending row width on a constant.
-	for _, constant := range []string{"kind=task", "priority=7", "urgency=standard", "lifecycle=needed", "projects=2"} {
-		if strings.Contains(rendered, constant) {
-			t.Fatalf("constant column %q survived the collapse: %q", constant, rendered)
+	// Every visible row carries these values, so the descriptive columns
+	// collapse instead of spending row width on a constant. The mandated
+	// lifecycle never collapses: each row keeps its fact.
+	headers, _, _ := rankedTable(ranked, snapshot, 400)
+	joined := strings.Join(headers, " ")
+	for _, collapsedColumn := range []string{"kind", "priority", "urgency", "projects"} {
+		if strings.Contains(joined, collapsedColumn) {
+			t.Fatalf("constant column %q survived the collapse: %v", collapsedColumn, headers)
 		}
+	}
+	if !strings.Contains(joined, "lifecycle") {
+		t.Fatalf("the mandated lifecycle column collapsed: %v", headers)
 	}
 	for _, identity := range []string{"work-1 Alpha", "work-2 Beta"} {
 		if !strings.Contains(rendered, identity) {
@@ -1330,7 +1343,13 @@ func TestRankedRowsCollapseConstantColumnsAndTruncateToOneLine(t *testing.T) {
 	// has a value.
 	ranked[1].Kind = "bug"
 	headers, rows, _ = rankedTable(ranked, snapshot, 400)
-	if !strings.Contains(strings.Join(headers, " "), "kind") || !strings.Contains(rows[0][1], "task") || !strings.Contains(rows[1][1], "bug") {
+	kindAt := -1
+	for i, header := range headers {
+		if header == "kind" {
+			kindAt = i
+		}
+	}
+	if kindAt < 0 || !strings.Contains(rows[0][kindAt], "task") || !strings.Contains(rows[1][kindAt], "bug") {
 		t.Fatalf("varying kind column collapsed: %#v / %#v", headers, rows)
 	}
 }

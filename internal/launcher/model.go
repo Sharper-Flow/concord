@@ -23,12 +23,16 @@ const (
 type Section string
 
 const (
-	// SectionDomains is S2's primary section: Domain hierarchy, architecture
-	// relations, and unresolved overlap render before the subordinate C17
-	// work modes (CD-0041 amended S2; no fourth screen).
+	// SectionRanked is the Product screen's default section: the
+	// Product-scoped, non-terminal work list the operator lands on when
+	// selecting a Product (CD-0041 D2).
+	SectionRanked Section = "ranked"
+	// SectionDomains is the Product screen's reachable context section:
+	// Domain hierarchy, architecture relations, and law. The operator
+	// reaches it from the work list with pane focus; it is never the entry
+	// focus.
 	SectionDomains   Section = "domains"
 	SectionRelations Section = "relations"
-	SectionRanked    Section = "ranked"
 	SectionKnowledge Section = "knowledge"
 )
 
@@ -356,8 +360,12 @@ func (m *Model) Enter(ctx context.Context) error {
 
 // SelectProduct carries the one Product-selection invariant shared by the
 // portfolio-row route and the candidate route: a selection by Product ID
-// reads that Product and shows it. Callers bound the selection to a visible
-// entry; visibility in a previous snapshot's rows is not required.
+// reads that Product and shows its work list. The read is the Product
+// coordination read, which carries both the ranked work rows and the Domain
+// context, so the work list is the entry view (CD-0041 D2) while the Domain
+// and law panel stays reachable with its data through pane focus. Callers
+// bound the selection to a visible entry; visibility in a previous
+// snapshot's rows is not required.
 func (m *Model) SelectProduct(ctx context.Context, product string) error {
 	m.navigation = append(m.navigation, m.Snapshot())
 	err := m.read(ctx, ReadRequest{Kind: ReadDomains, Product: product, Limit: 100, Section: SectionDomains})
@@ -366,16 +374,16 @@ func (m *Model) SelectProduct(ctx context.Context, product string) error {
 		m.snapshot = Snapshot{Screen: SurfacePortfolio, Coverage: "unreachable", Reliance: "unreachable", StatusMessage: err.Error()}
 		return err
 	}
-	// The Domain panel is focused on entry, so its bounded knowledge
-	// section reads here. A failed knowledge read stays typed in the
-	// Product snapshot rather than costing navigation, which is why the
-	// error is discarded.
+	// The bounded Product knowledge section reads at entry, so the Domain
+	// and law panel the operator can reach stays typed rather than unread.
+	// A failed knowledge read stays typed in the Product snapshot rather
+	// than costing navigation, which is why the error is discarded.
 	_ = m.EnsureKnowledge(ctx)
 	m.snapshot.Session = SessionHandoff{ProductID: product, Agent: DefaultSessionAgent}
-	m.snapshot.PanelFocus = S2PanelDomain
-	m.snapshot.Section = SectionDomains
-	m.section = SectionDomains
-	return err
+	m.snapshot.PanelFocus = S2PanelNext
+	m.snapshot.Section = SectionRanked
+	m.section = SectionRanked
+	return nil
 }
 
 func (m *Model) SelectWork(ctx context.Context, work string) error {
@@ -490,8 +498,14 @@ func (m *Model) SetSection(section Section) error {
 }
 
 func (m *Model) PanelFocus() S2Panel {
+	// The work list is the Product screen's default focus; an empty focus
+	// resolves to it. Only a snapshot already seated on the Domain section
+	// defaults back to the Domain panel.
 	if m.snapshot.PanelFocus == "" {
-		return S2PanelDomain
+		if m.snapshot.Section == SectionDomains {
+			return S2PanelDomain
+		}
+		return S2PanelNext
 	}
 	return m.snapshot.PanelFocus
 }
@@ -552,12 +566,12 @@ func (m *Model) Candidates() []Candidate { return append([]Candidate(nil), m.sna
 func (m *Model) RestoreSnapshot(snapshot Snapshot) {
 	if snapshot.Screen == SurfaceProduct {
 		if snapshot.Section == "" {
-			snapshot.Section = SectionDomains
+			snapshot.Section = SectionRanked
 		}
 		if snapshot.PanelFocus == "" {
-			snapshot.PanelFocus = S2PanelDomain
-			if snapshot.Section == SectionRanked {
-				snapshot.PanelFocus = S2PanelNext
+			snapshot.PanelFocus = S2PanelNext
+			if snapshot.Section == SectionDomains {
+				snapshot.PanelFocus = S2PanelDomain
 			}
 		}
 	}
@@ -787,9 +801,9 @@ func (m *Model) read(ctx context.Context, request ReadRequest) error {
 	if snapshot.Screen == SurfaceProduct && snapshot.PanelFocus == "" {
 		snapshot.PanelFocus = previous.PanelFocus
 		if snapshot.PanelFocus == "" {
-			snapshot.PanelFocus = S2PanelDomain
-			if snapshot.Section == SectionRanked {
-				snapshot.PanelFocus = S2PanelNext
+			snapshot.PanelFocus = S2PanelNext
+			if snapshot.Section == SectionDomains {
+				snapshot.PanelFocus = S2PanelDomain
 			}
 		}
 	}
@@ -832,5 +846,10 @@ func mergeKnowledgeSnapshot(previous, knowledge Snapshot) Snapshot {
 	knowledge.Section = SectionKnowledge
 	knowledge.PanelFocus = previous.PanelFocus
 	knowledge.Session = previous.Session
+	// ActiveWorkOnly and Backlog are Product-scope picker facts the merged
+	// snapshot must keep: dropping them would show terminal history and hide
+	// the New / Backlog row on the screen the knowledge read serves.
+	knowledge.ActiveWorkOnly = previous.ActiveWorkOnly
+	knowledge.Backlog = previous.Backlog
 	return knowledge
 }

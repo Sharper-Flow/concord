@@ -259,26 +259,35 @@ func TestS2AnswerStackSummariesSkipTerminalDrillDownTail(t *testing.T) {
 	}
 }
 
-func TestSelectingProductOpensOnDomainSection(t *testing.T) {
+func TestSelectingProductOpensOnRankedWork(t *testing.T) {
 	port := &countingPort{snapshot: Snapshot{Screen: ScreenPortfolio, Rows: []ProductRow{{ID: "p-1", Name: "One"}}, Coverage: "authoritative"}}
 	model := New(port)
 	if err := model.Enter(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	port.snapshot = Snapshot{Screen: ScreenProduct, Section: SectionDomains, Coverage: "authoritative", Domains: DomainSection{Read: true, State: "authoritative", Domains: []DomainRow{{ID: "root", Name: "One", Home: true}}}}
+	port.snapshot = Snapshot{Screen: ScreenProduct, Section: SectionDomains, Coverage: "authoritative", Ranked: []RankedWork{{ID: "work-1", Title: "One", Lifecycle: "in_progress"}}, Domains: DomainSection{Read: true, State: "authoritative", Domains: []DomainRow{{ID: "root", Name: "One", Home: true}}}}
 	if err := model.SelectProduct(context.Background(), "p-1"); err != nil {
 		t.Fatal(err)
 	}
-	if len(port.requests) != 3 || port.requests[1].Kind != ReadDomains || port.requests[1].Section != SectionDomains || port.requests[2].Kind != ReadKnowledge {
+	if len(port.requests) != 3 || port.requests[1].Kind != ReadDomains || port.requests[2].Kind != ReadKnowledge {
 		t.Fatalf("S2 entry requests=%#v", port.requests)
 	}
-	if got := model.Snapshot(); got.Section != SectionDomains || len(got.Domains.Domains) != 1 || !got.Domains.Domains[0].Home {
-		t.Fatalf("S2 default section must be Domains: %#v", got)
+	got := model.Snapshot()
+	// The work list is the entry view: the ranked section and the work panel
+	// hold the focus, with the Domain context populated for the panel the
+	// operator can reach.
+	if got.Section != SectionRanked || got.PanelFocus != S2PanelNext || len(got.Ranked) != 1 || got.Ranked[0].ID != "work-1" {
+		t.Fatalf("S2 default view must be the ranked work list: %#v", got)
+	}
+	if len(got.Domains.Domains) != 1 || !got.Domains.Domains[0].Home {
+		t.Fatalf("S2 entry must keep the Domain context readable: %#v", got.Domains)
 	}
 	cloned := model.Snapshot()
+	cloned.Ranked[0].Title = "mutated"
 	cloned.Domains.Domains[0].Name = "mutated"
-	if model.Snapshot().Domains.Domains[0].Name == "mutated" {
-		t.Fatal("Snapshot leaked Domain rows by reference")
+	fresh := model.Snapshot()
+	if fresh.Ranked[0].Title == "mutated" || fresh.Domains.Domains[0].Name == "mutated" {
+		t.Fatal("Snapshot leaked Ranked or Domain rows by reference")
 	}
 }
 

@@ -1348,8 +1348,10 @@ func TestLinearDrainAdoptsExistingProjectAfterFailedCreate(t *testing.T) {
 			_, _ = w.Write([]byte(`{"data":{"projectCreate":{"success":true,"project":{"id":"duplicate-project","name":"duplicate","description":"","content":"","url":"","updatedAt":"2026-09-23T02:00:00Z"}}}}`))
 			return
 		}
-		// The earlier attempt's Project is live under the client UUID.
-		_, _ = w.Write([]byte(`{"data":{"project":{"id":"remote-project-adopted","name":"Adopt initiative","description":"Adopt value","content":"The adopt narrative.","url":"https://linear.app/example/project/remote-project-adopted","updatedAt":"2026-09-23T01:00:00Z"}}}`))
+		// The earlier attempt's Project is live under the client UUID and its
+		// fields match the Initiative exactly, so adoption converges without
+		// a further update.
+		_, _ = w.Write([]byte(`{"data":{"project":{"id":"remote-project-adopted","name":"Initiative title","description":"Initiative value","content":"The adopt narrative.","url":"https://linear.app/example/project/remote-project-adopted","updatedAt":"2026-09-23T01:00:00Z"}}}`))
 	}))
 	defer server.Close()
 	t.Setenv(linearclient.EnvEndpoint, server.URL)
@@ -1372,7 +1374,7 @@ func TestLinearDrainAdoptsExistingProjectAfterFailedCreate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadLinearProjectLink() error = %v", err)
 	}
-	if link.RemoteProjectUUID != "remote-project-adopted" || link.Name != "Adopt initiative" {
+	if link.RemoteProjectUUID != "remote-project-adopted" || link.Name != "Initiative title" {
 		t.Fatalf("project link = %+v, want the adopted Project recorded", link)
 	}
 	var state string
@@ -1381,5 +1383,99 @@ func TestLinearDrainAdoptsExistingProjectAfterFailedCreate(t *testing.T) {
 	}
 	if state != store.LinearOutboxDone {
 		t.Fatalf("revived operation state = %s, want done", state)
+	}
+	var queued int
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM linear_outbox WHERE work_id=? AND op_kind=? AND state=?`, "adopt-initiative", store.LinearOpProjectUpdate, store.LinearOutboxQueued).Scan(&queued); err != nil {
+		t.Fatal(err)
+	}
+	if queued != 0 {
+		t.Fatalf("queued project_update count = %d, want 0: the adopted Project already matches the Initiative", queued)
+	}
+}
+
+// CD-0171 review correction: the adopted Project may predate the Initiative's
+// current revision. The adoption reports the remote fields as the sent state,
+// so the completion compares the live Project against the Initiative and
+// queues the one project_update that converges stale remote content.
+func TestLinearDrainAdoptionOfStaleProjectQueuesConvergingUpdate(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "concord.db")
+	seedCLIProduct(t, dbPath, "staleadopt-product", "staleadopt-project")
+	enableLinearProduct(t, dbPath, "staleadopt-product")
+	seedLinearInitiativeFixture(t, dbPath, "staleadopt-project", "staleadopt-initiative", "", "The adopt narrative.")
+
+	s, err := store.Open(context.Background(), dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := s.EnqueueLinearProjectForInitiative(context.Background(), "staleadopt-product", "staleadopt-initiative", store.LinearOpProjectCreate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.ClaimLinearOperations(context.Background(), 25); err != nil {
+		t.Fatal(err)
+	}
+	// Linear created the Project, then lost the response: the operation
+	// fails permanently while the remote Project exists. The Initiative is
+	// then revised, so the live Project carries stale fields.
+	if err := s.FailLinearOperation(context.Background(), first.OperationID, "permanent", "ambiguous remote success"); err != nil {
+		t.Fatal(err)
+	}
+	second, err := s.EnqueueLinearProjectForInitiative(context.Background(), "staleadopt-product", "staleadopt-initiative", store.LinearOpProjectCreate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.Close()
+
+	var createCalls int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		text := string(body)
+		w.Header().Set("Content-Type", "application/json")
+		if strings.Contains(text, "projectCreate") {
+			createCalls++
+			_, _ = w.Write([]byte(`{"data":{"projectCreate":{"success":true,"project":{"id":"duplicate-project","name":"duplicate","description":"","content":"","url":"","updatedAt":"2026-09-24T02:00:00Z"}}}}`))
+			return
+		}
+		// The earlier attempt's Project is live under the client UUID, but
+		// every field carries an older revision than the Initiative holds.
+		_, _ = w.Write([]byte(`{"data":{"project":{"id":"remote-project-stale","name":"Stale name","description":"Stale value","content":"Stale narrative","url":"https://linear.app/example/project/remote-project-stale","updatedAt":"2026-09-24T01:00:00Z"}}}`))
+	}))
+	defer server.Close()
+	t.Setenv(linearclient.EnvEndpoint, server.URL)
+	t.Setenv(linearclient.EnvAPIKey, "lin_api_staleadopt_test")
+	t.Setenv(dbOverrideEnv, dbPath)
+
+	var out, errOut strings.Builder
+	if code := runWithInput([]string{"linear", "outbox-drain"}, strings.NewReader(`{"product_id":"staleadopt-product"}`), &out, &errOut); code != 0 {
+		t.Fatalf("drain exit=%d stderr=%q", code, errOut.String())
+	}
+	if createCalls != 0 {
+		t.Fatalf("projectCreate calls = %d, want 0: the drain must adopt the existing Project", createCalls)
+	}
+	s, err = store.Open(context.Background(), dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	link, err := s.ReadLinearProjectLink(context.Background(), "staleadopt-initiative")
+	if err != nil {
+		t.Fatalf("ReadLinearProjectLink() error = %v", err)
+	}
+	if link.RemoteProjectUUID != "remote-project-stale" {
+		t.Fatalf("project link = %+v, want the adopted Project recorded", link)
+	}
+	var state string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT state FROM linear_outbox WHERE operation_id=?`, second.OperationID).Scan(&state); err != nil {
+		t.Fatal(err)
+	}
+	if state != store.LinearOutboxDone {
+		t.Fatalf("revived operation state = %s, want done", state)
+	}
+	var queued int
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM linear_outbox WHERE work_id=? AND op_kind=? AND state=?`, "staleadopt-initiative", store.LinearOpProjectUpdate, store.LinearOutboxQueued).Scan(&queued); err != nil {
+		t.Fatal(err)
+	}
+	if queued != 1 {
+		t.Fatalf("queued project_update count = %d, want 1: the adoption must queue the update that converges the stale remote fields", queued)
 	}
 }

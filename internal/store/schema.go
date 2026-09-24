@@ -5022,6 +5022,28 @@ INSERT INTO linear_outbox_dispositions
 DROP TABLE linear_outbox_dispositions_v99;
 `,
 	},
+	{
+		// CD-0171 removed the repository-to-Linear-Project mapping.
+		// Connections recorded while the mapping still existed keep its
+		// retired project_id and project_ids members in stored metadata, and
+		// the update path reaches a document only when an operator edits the
+		// connection. This step removes the retired members from every
+		// stored document so the removal holds without waiting for that
+		// edit. json_remove silently ignores a path that finds nothing, and
+		// the WHERE clause leaves documents already carrying the current
+		// convention untouched.
+		Version: 100,
+		Name:    "linear_connection_metadata_drops_project_mapping",
+		SQL: `
+INSERT OR IGNORE INTO fold_guard(active) VALUES (1);
+UPDATE managed_resources
+SET metadata = json_remove(metadata, '$.linear.project_id', '$.linear.project_ids')
+WHERE json_type(metadata, '$.linear') = 'object'
+  AND (json_type(metadata, '$.linear.project_id') IS NOT NULL
+    OR json_type(metadata, '$.linear.project_ids') IS NOT NULL);
+DELETE FROM fold_guard WHERE active = 1;
+`,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any

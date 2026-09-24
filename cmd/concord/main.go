@@ -1663,9 +1663,14 @@ func drainProject(ctx context.Context, s *store.Store, client *linearclient.Clie
 		// failed locally. The get finds that Project and the drain adopts it
 		// instead of minting a duplicate; a miss or a failed get falls
 		// through to the create, whose replayed UUID converges on the same
-		// Project.
+		// Project. The adoption reports the remote fields as the sent state:
+		// an adopted Project may predate the Initiative's current revision,
+		// and only a sent state taken from the remote lets the completion
+		// detect that distance and queue the converging project_update — a
+		// sent state taken from the Initiative would compare the state with
+		// itself and drop the revision silently.
 		if adopted, adoptErr := client.GetProject(ctx, payload.ClientUUID); adoptErr == nil {
-			return adopted, state, nil
+			return adopted, store.LinearInitiativeProjectState{Title: adopted.Name, ValueStatement: adopted.Description, Narrative: adopted.Content}, nil
 		}
 		project, err := client.CreateProject(ctx, linearclient.CreateProjectInput{ID: payload.ClientUUID, TeamIDs: []string{teamID}, Name: state.Title, Description: state.ValueStatement, Content: state.Narrative})
 		return project, state, err

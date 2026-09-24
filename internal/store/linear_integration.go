@@ -399,9 +399,12 @@ func (s *Store) UpdateLinearConnection(ctx context.Context, req LinearConnection
 	if req.TeamID != "" {
 		linear["team_id"], _ = json.Marshal(req.TeamID)
 	}
-	// CD-0171 removed the repository-to-Linear-Project mapping. A metadata
-	// document still carrying the retired project_ids key loses it here, so
-	// the stored resource converges on the current convention.
+	// CD-0171 removed the repository-to-Linear-Project mapping. Migration
+	// 100 strips the retired project_id and project_ids members from every
+	// stored document, and a document re-entering afterward through the
+	// generic resource surface loses them here, so the stored resource
+	// converges on the current convention whenever the connection is
+	// updated.
 	delete(linear, "project_id")
 	delete(linear, "project_ids")
 	if req.StatusIDs != nil {

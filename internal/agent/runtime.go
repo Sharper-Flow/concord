@@ -1573,6 +1573,15 @@ func ContinuityPayload(snapshot store.ContinuitySnapshot) map[string]any {
 	if len(snapshot.ActiveVerifyLeases) > 0 {
 		pinned["active_verify_leases"] = snapshot.ActiveVerifyLeases
 	}
+	// The contract's resolved law and Domain references, and the recorded
+	// proposal, ride the pinned projection when present. The absent fields
+	// keep contracts with no bound law byte-stable.
+	if snapshot.LawContext != nil {
+		pinned["law_context"] = snapshot.LawContext
+	}
+	if snapshot.ProposalRecord != nil {
+		pinned["proposal_record"] = proposalContextProjection(snapshot.ProposalRecord)
+	}
 	payload := map[string]any{
 		"work_id":            snapshot.WorkID,
 		"pinned":             pinned,
@@ -1583,6 +1592,22 @@ func ContinuityPayload(snapshot store.ContinuitySnapshot) map[string]any {
 		"observations":       observations,
 	}
 	return payload
+}
+
+// proposalContextProjection carries the proposal record fields the
+// dispatched lane packet renders: problem, user outcomes, and constraints.
+// The typed record's optional lists normalize to empty arrays so the
+// projected shape stays closed.
+func proposalContextProjection(record *store.WorkflowProposalRecord) map[string]any {
+	outcomes := record.UserOutcomes
+	if outcomes == nil {
+		outcomes = []string{}
+	}
+	constraints := record.Constraints
+	if constraints == nil {
+		constraints = []string{}
+	}
+	return map[string]any{"problem": record.Problem, "user_outcomes": outcomes, "constraints": constraints}
 }
 
 func (r runtime) continuity(base Envelope, snapshot store.ContinuitySnapshot) (Envelope, error) {

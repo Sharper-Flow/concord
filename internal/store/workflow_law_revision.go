@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"sort"
 	"strings"
 )
 
@@ -479,6 +480,228 @@ func workflowExecutionAllowsStaleRecovery(actionID string, payload []byte) bool 
 	var terminalState string
 	_ = json.Unmarshal(fields["terminal_state"], &terminalState)
 	return terminalState == "cancelled" || terminalState == "superseded"
+}
+
+// WorkflowLawContext is the bounded, typed resolution of the approved
+// contract's binding law and Domain references. The core turns every
+// contract-bound law ID and home or affected Domain ID into its projection
+// state at continuity read time, so a dispatched packet carries the title and
+// repository path of each binding law, not bare IDs.
+type WorkflowLawContext struct {
+	Laws    []WorkflowLawContextLaw    `json:"laws"`
+	Domains []WorkflowLawContextDomain `json:"domains"`
+}
+
+type WorkflowLawContextLaw struct {
+	Roles         []string `json:"roles"`
+	LawID         string   `json:"law_id"`
+	Kind          string   `json:"kind,omitempty"`
+	Status        string   `json:"status,omitempty"`
+	Title         string   `json:"title,omitempty"`
+	Path          string   `json:"path,omitempty"`
+	ObligationIDs []string `json:"obligation_ids,omitempty"`
+}
+
+type WorkflowLawContextDomain struct {
+	DomainID string `json:"domain_id"`
+	Name     string `json:"name"`
+	Purpose  string `json:"purpose"`
+}
+
+// Role vocabulary for the law context. The sources overlap — a modified law
+// is also mandated, and a mandated or modified law may carry verification
+// obligations — so each law carries every role its contract binds, sorted and
+// deduplicated, not one most-specific winner.
+const (
+	lawContextRoleMandated   = "mandated"
+	lawContextRoleModified   = "modified"
+	lawContextRoleAdded      = "added"
+	lawContextRoleObligation = "obligation"
+)
+
+// readWorkflowLawContext resolves the approved contract's bound law and
+// Domain references against the law_subjects and domains projections inside
+// the caller's transaction. It returns nil when the contract binds no law and
+// no Domain, so a contract with no bound law still dispatches. A law listed in
+// law_additions — a reserved addition before its subject is published —
+// carries its role and identity only. Any other bound law without a subject,
+// and any home or affected Domain missing from the registry, refuses with
+// KindProjectionNotFound: the packet would otherwise bind a document no lane
+// can read.
+func readWorkflowLawContext(ctx context.Context, tx *sql.Tx, workID string, contract *WorkflowReadContract) (*WorkflowLawContext, error) {
+	if contract == nil {
+		return nil, nil
+	}
+	roleSet := map[string]map[string]bool{}
+	obligationSet := map[string]map[string]bool{}
+	markRole := func(lawID, role string) {
+		if roleSet[lawID] == nil {
+			roleSet[lawID] = map[string]bool{}
+		}
+		roleSet[lawID][role] = true
+	}
+	for _, lawID := range contract.SpecMandate {
+		markRole(lawID, lawContextRoleMandated)
+	}
+	if binding := contract.ArchitectureBinding; binding != nil {
+		for _, obligation := range binding.VerificationObligations {
+			markRole(obligation.LawID, lawContextRoleObligation)
+			if obligationSet[obligation.LawID] == nil {
+				obligationSet[obligation.LawID] = map[string]bool{}
+			}
+			obligationSet[obligation.LawID][obligation.ObligationID] = true
+		}
+		for _, addition := range binding.LawAdditions {
+			markRole(addition.LawID, lawContextRoleAdded)
+		}
+	}
+	for _, lawID := range contract.LawModifies {
+		markRole(lawID, lawContextRoleModified)
+	}
+	bindingDomains := 0
+	if contract.ArchitectureBinding != nil {
+		bindingDomains = 1 + len(contract.ArchitectureBinding.AffectedDomainIDs)
+	}
+	if len(roleSet) == 0 && bindingDomains == 0 {
+		return nil, nil
+	}
+	context := &WorkflowLawContext{Laws: []WorkflowLawContextLaw{}, Domains: []WorkflowLawContextDomain{}}
+	lawIDs := make([]string, 0, len(roleSet))
+	for lawID := range roleSet {
+		lawIDs = append(lawIDs, lawID)
+	}
+	sort.Strings(lawIDs)
+	if len(lawIDs) > 0 {
+		homeProjectID, homeLocatorID, err := workflowLawHome(ctx, tx, workID)
+		if err != nil {
+			return nil, err
+		}
+		laws, err := resolveLawContextSubjects(ctx, tx, homeProjectID, homeLocatorID, lawContextLaws(roleSet, obligationSet, lawIDs))
+		if err != nil {
+			return nil, err
+		}
+		context.Laws = laws
+	}
+	if contract.ArchitectureBinding != nil {
+		productID, err := workflowBindingProductIDTx(ctx, tx, workID)
+		if err != nil {
+			return nil, err
+		}
+		domains, err := resolveLawContextDomains(ctx, tx, productID, *contract.ArchitectureBinding)
+		if err != nil {
+			return nil, err
+		}
+		context.Domains = domains
+	}
+	return context, nil
+}
+
+// lawContextLaws builds each bound law's identity with its sorted, deduplicated
+// roles and obligation IDs, ahead of the subject lookup.
+func lawContextLaws(roleSet, obligationSet map[string]map[string]bool, lawIDs []string) []WorkflowLawContextLaw {
+	laws := make([]WorkflowLawContextLaw, 0, len(lawIDs))
+	for _, lawID := range lawIDs {
+		law := WorkflowLawContextLaw{LawID: lawID}
+		for role := range roleSet[lawID] {
+			law.Roles = append(law.Roles, role)
+		}
+		sort.Strings(law.Roles)
+		for obligationID := range obligationSet[lawID] {
+			law.ObligationIDs = append(law.ObligationIDs, obligationID)
+		}
+		sort.Strings(law.ObligationIDs)
+		laws = append(laws, law)
+	}
+	return laws
+}
+
+// resolveLawContextSubjects reads the law_subjects row for each bound law in
+// one bounded batch. The 128-entry ceiling is the write-side sum of the
+// mandate (32), additions (32), and obligations (64) bounds.
+func resolveLawContextSubjects(ctx context.Context, tx *sql.Tx, homeProjectID, homeLocatorID string, laws []WorkflowLawContextLaw) ([]WorkflowLawContextLaw, error) {
+	if len(laws) > 128 {
+		return nil, newFailure(KindLimitExceeded, "read_workflow_law_context", "workflow contract binds more laws than the law context carries", false, "reduce_limit")
+	}
+	placeholders := strings.TrimRight(strings.Repeat("?,", len(laws)), ",")
+	args := make([]any, 0, len(laws)+2)
+	args = append(args, homeProjectID, homeLocatorID)
+	for _, law := range laws {
+		args = append(args, law.LawID)
+	}
+	rows, err := tx.QueryContext(ctx, `SELECT law_id,kind,status,title,path FROM law_subjects WHERE home_project_id=? AND home_locator_id=? AND law_id IN (`+placeholders+`)`, args...) //nolint:gosec // the fragment contains only generated question-mark placeholders and every law ID stays parameter-bound.
+	if err != nil {
+		return nil, wrapFailure(KindUnavailable, "read_workflow_law_context", "cannot read the law subjects for the bound laws", true, "retry once the law projection is readable", err)
+	}
+	defer rows.Close()
+	subjects := map[string]WorkflowLawContextLaw{}
+	for rows.Next() {
+		var law WorkflowLawContextLaw
+		if err := rows.Scan(&law.LawID, &law.Kind, &law.Status, &law.Title, &law.Path); err != nil {
+			return nil, wrapFailure(KindUnavailable, "read_workflow_law_context", "cannot decode a bound law subject", true, "retry once the law projection is readable", err)
+		}
+		subjects[law.LawID] = law
+	}
+	if err := rows.Err(); err != nil {
+		return nil, wrapFailure(KindUnavailable, "read_workflow_law_context", "cannot enumerate the bound law subjects", true, "retry once the law projection is readable", err)
+	}
+	for index := range laws {
+		subject, exists := subjects[laws[index].LawID]
+		if !exists {
+			if listedAsAddition(laws[index].Roles) {
+				continue
+			}
+			failure := newFailure(KindProjectionNotFound, "read_workflow_law_context", "bound law is missing from the current Git-derived projection", false, "rebuild the accepted Git law projection")
+			failure.CandidateIDs = []string{laws[index].LawID}
+			return nil, failure
+		}
+		laws[index].Kind, laws[index].Status, laws[index].Title, laws[index].Path = subject.Kind, subject.Status, subject.Title, subject.Path
+	}
+	return laws, nil
+}
+
+// listedAsAddition reports whether the contract lists the law in
+// law_additions, the one listing the approved design allows to precede its
+// law_subjects row: an addition is barred from modifying or pinning an
+// existing law ID, so its absent subject at continuity read time is the
+// designed pre-publication state. Every other bound role promises a document
+// that already exists.
+func listedAsAddition(roles []string) bool {
+	for _, role := range roles {
+		if role == lawContextRoleAdded {
+			return true
+		}
+	}
+	return false
+}
+
+// resolveLawContextDomains reads the domains projection for the binding's
+// home Domain first, then its affected Domains in ID order.
+func resolveLawContextDomains(ctx context.Context, tx *sql.Tx, productID string, binding WorkflowArchitectureBinding) ([]WorkflowLawContextDomain, error) {
+	ordered := make([]string, 0, 1+len(binding.AffectedDomainIDs))
+	seen := map[string]bool{}
+	for _, domainID := range append([]string{binding.HomeDomainID}, binding.AffectedDomainIDs...) {
+		if !seen[domainID] {
+			seen[domainID] = true
+			ordered = append(ordered, domainID)
+		}
+	}
+	sort.Strings(ordered[1:])
+	domains := make([]WorkflowLawContextDomain, 0, len(ordered))
+	for _, domainID := range ordered {
+		var domain WorkflowLawContextDomain
+		err := tx.QueryRowContext(ctx, `SELECT name,purpose FROM domains WHERE product_id=? AND domain_id=?`, productID, domainID).Scan(&domain.Name, &domain.Purpose)
+		if err == sql.ErrNoRows {
+			failure := newFailure(KindProjectionNotFound, "read_workflow_law_context", "bound Domain is missing from the Domain registry projection", false, "rebuild the Domain registry projection")
+			failure.CandidateIDs = []string{domainID}
+			return nil, failure
+		}
+		if err != nil {
+			return nil, wrapFailure(KindUnavailable, "read_workflow_law_context", "cannot read a bound Domain", true, "retry once the Domain registry is readable", err)
+		}
+		domain.DomainID = domainID
+		domains = append(domains, domain)
+	}
+	return domains, nil
 }
 
 func validateWorkflowContractRecoveryPayload(raw json.RawMessage) error {

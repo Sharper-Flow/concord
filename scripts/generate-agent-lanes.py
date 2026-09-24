@@ -250,6 +250,23 @@ Never invent a lookup result, and never present recall as a research call.
 """
 
 
+def law_conformance_instructions() -> str:
+    # The dispatched packet carries the approved contract's bound law and
+    # Domains as recorded state. The block's meaning and the disclosure the
+    # report owes are lane contract, so one shared generated block serves
+    # every lane; it states no host procedure (CD-0043 D1). Precedent: the
+    # generated packet-refusal block.
+    return """## Approved law and architecture block
+
+When `inputs.context` carries the "Approved law and Domains (binding Product
+law)" block, it names the Product law and Domains the approved contract binds.
+Read each named law document before you change files. Conform to it. Change a
+law document only when the block lists it as `modified` or `added`. Report any
+conflict between that law and the assigned result in your evidence. Return
+`status` `failed` when a conflict blocks the assigned result.
+"""
+
+
 def agent_projection(lane: dict, report_schema: dict) -> str:
     agent_name = f"concord-{lane['id']}"
     evidence = ", ".join(f"`{item}`" for item in lane["evidence_obligations"])
@@ -281,6 +298,7 @@ packet and return only the `agent-lane-report.v1` report for this attempt. Do no
 record workflow transitions, verdicts, completion, or spawn nested workers.
 
 {packet_refusal_instructions()}
+{law_conformance_instructions()}
 {execute_source_lookup_instructions()}
 Return the report as a single JSON object, and nothing else, as your final
 message. Do not include `attempt_id`, `lane_id`, `lane_version`, or

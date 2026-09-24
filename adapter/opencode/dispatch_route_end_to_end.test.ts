@@ -411,8 +411,9 @@ routeDeclaration("dispatches a real store route through Task completion and work
     expect(taskArgs.subagent_type).toBe("concord-implement")
     expect(packet.step_id).toBe("repair")
     // This non-Initiative fixture has no narrative. The task still carries
-    // the objective and version binding; numbered constraints carry the mandate.
-    expect(packet.inputs).not.toHaveProperty("context")
+    // the objective and version binding; numbered constraints carry the
+    // mandate. The context carries the contract's resolved home Domain.
+    expect(packet.inputs.context).toBe(`Approved law and Domains (binding Product law):\n- Domain product-root:${PRODUCT_ID}: Synthetic root — Synthetic test domain\n\n`)
     expect(packet.inputs.task).toContain("Approved objective:")
     expect(packet.inputs.task).toContain(APPROVED_OBJECTIVE)
     expect(packet.inputs.task).toContain("(work v12, contract v1)")

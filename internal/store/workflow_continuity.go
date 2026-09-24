@@ -110,6 +110,10 @@ type ContinuitySnapshot struct {
 	CompatibleLawAmendments []CompatibleLawAmendment    `json:"compatible_law_amendments"`
 	ActiveVerifyLeases      []ActiveWorktreeVerifyLease `json:"active_verify_leases,omitempty"`
 	WorkPin                 *WorkPin                    `json:"work_pin,omitempty"`
+	// LawContext resolves the approved contract's binding law and Domains
+	// against the law_subjects and domains projections at read time. Nil
+	// when the contract binds no law and no Domain.
+	LawContext *WorkflowLawContext `json:"law_context,omitempty"`
 }
 
 type ContinuityRequest struct {
@@ -237,6 +241,14 @@ func ReadWorkflowContinuity(ctx context.Context, s *Store, req ContinuityRequest
 		out.ArchitectureBinding = contract.ArchitectureBinding
 		out.Contract = &contract
 		contract.LawRevisions, err = readWorkflowLawRevisions(ctx, tx, req.Work, contract.Version)
+		if err != nil {
+			return out, err
+		}
+		// Resolve the contract's binding law and Domains inside the same
+		// read transaction, so the pinned projection carries readable law
+		// references rather than bare IDs. A contract with no bound law
+		// leaves the field absent.
+		out.LawContext, err = readWorkflowLawContext(ctx, tx, req.Work, &contract)
 		if err != nil {
 			return out, err
 		}

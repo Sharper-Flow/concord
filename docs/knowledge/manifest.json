@@ -23,6 +23,13 @@
     },
     "decision": {
       "ac_required": false,
+      "current_required_sections": [
+        "Context",
+        "Decision",
+        "Alternatives considered",
+        "Consequences",
+        "Verification"
+      ],
       "required_sections": []
     },
     "enforced": true,

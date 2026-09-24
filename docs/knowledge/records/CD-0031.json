@@ -9,6 +9,7 @@
     "tier": "legislated"
   },
   "date": "2026-08-16T00:00:00Z",
+  "doc_contract_profile": "legacy",
   "evidence": [
     "internal/sessionboot/sessionboot.go",
     "cmd/concord/session_test.go",

@@ -1,0 +1,30 @@
+{
+  "evidence": [
+    {
+      "kind": "validator",
+      "value": "scripts/test-doc-contract.py"
+    },
+    {
+      "kind": "validator",
+      "value": "scripts/check-doc-contract.py"
+    },
+    {
+      "kind": "validator",
+      "value": "scripts/check-knowledge-vocabulary.py"
+    },
+    {
+      "kind": "validator",
+      "value": "scripts/check-knowledge-index.py"
+    },
+    {
+      "kind": "validator",
+      "value": "scripts/test-knowledge-index.py"
+    },
+    {
+      "kind": "validator",
+      "value": "scripts/test-generate-knowledge-index.py"
+    }
+  ],
+  "id": "CD-0175",
+  "state": "satisfied"
+}

@@ -9,6 +9,7 @@
     "tier": "legislated"
   },
   "date": "2026-08-23T00:00:00Z",
+  "doc_contract_profile": "legacy",
   "evidence": [
     "internal/store/knowledge_manifest.go",
     "internal/store/knowledge_index_projection.go",

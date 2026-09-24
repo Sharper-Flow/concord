@@ -216,6 +216,11 @@ type KnowledgeRecord struct {
 	LawRelations       []KnowledgeRelation   `json:"law_relations,omitempty"`
 	HomeDomainID       string                `json:"home_domain_id,omitempty"`
 	AppliesToDomainIDs []string              `json:"applies_to_domain_ids,omitempty"`
+	// DocContractProfile carries the authored CD-0175 decision outline
+	// generation ("legacy" or "current"). The store never interprets it; it
+	// is carried so a strict decode of an authored shard keeps working and a
+	// re-marshaled manifest keeps the authored value.
+	DocContractProfile string `json:"doc_contract_profile,omitempty"`
 	// Evidence names implementation paths (scenarios, tests, code) that
 	// carry this record's guidance. The offline validator fails when an
 	// evidence path no longer exists — the structural law/implementation
@@ -447,6 +452,9 @@ func manifestRecordEntry(record KnowledgeRecord) map[string]any {
 	}
 	if record.HomeDomainID != "" {
 		entry["home_domain_id"] = record.HomeDomainID
+	}
+	if record.DocContractProfile != "" {
+		entry["doc_contract_profile"] = record.DocContractProfile
 	}
 	if len(record.AppliesToDomainIDs) > 0 {
 		entry["applies_to_domain_ids"] = record.AppliesToDomainIDs

@@ -5,6 +5,7 @@
     "tier": "legislated"
   },
   "date": "2026-09-06T00:00:00Z",
+  "doc_contract_profile": "legacy",
   "evidence": [
     "cmd/concord/work_resume.go",
     "cmd/concord/work_resume_test.go",

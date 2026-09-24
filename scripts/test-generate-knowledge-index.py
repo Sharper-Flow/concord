@@ -174,6 +174,77 @@ def test_repository_shards_compose() -> None:
     assert result.returncode == 0, result.stderr
 
 
+def decision_shard(identifier: str, profile: str | None) -> dict:
+    value = {
+        "id": identifier,
+        "kind": "decision",
+        "path": f"docs/decisions/{identifier}.md",
+        "status": "accepted",
+        "date": "2026-08-20T00:00:00Z",
+        "title": identifier,
+        "summary": "A bounded decision.",
+        "tags": [],
+        "authority": {"tier": "legislated", "legislated_by": "fixture-authority", "contract_version": 1},
+        "scopes": {"mode": "home", "product_ids": [], "project_ids": [], "domain_ids": [], "tag_ids": []},
+        "home_domain_id": "product-root:concord",
+        "product_wide_rationale": "Fixture law binds every child Domain.",
+        "sha256": "sha256:" + "a" * 64,
+    }
+    if profile is not None:
+        value["doc_contract_profile"] = profile
+    return value
+
+
+def profile_findings(value: dict, profiles_enforced: bool = True) -> list[str]:
+    findings: list[str] = []
+    generator.validate_record(value, "1.2", {"product-root:concord"}, "records/shard.json", findings, profiles_enforced)
+    return [finding for finding in findings if "doc_contract_profile" in finding]
+
+
+def test_new_decision_cannot_claim_the_legacy_profile() -> None:
+    """The CD-0175 boundary regression at the shard composer: authoring the
+    legacy profile exempts nothing, because the record identifier sits
+    outside the closed historical set the schema freezes."""
+    assert profile_findings(decision_shard("CD-9999", "legacy")) == [
+        "records/shard.json: doc_contract_profile 'legacy' contradicts the closed legacy decision set for CD-9999"
+    ]
+
+
+def test_frozen_decision_cannot_claim_the_current_profile() -> None:
+    assert profile_findings(decision_shard("CD-0002", "current")) == [
+        "records/shard.json: doc_contract_profile 'current' contradicts the closed legacy decision set for CD-0002"
+    ]
+
+
+def test_decision_shard_requires_an_authored_profile() -> None:
+    assert profile_findings(decision_shard("CD-9999", None)) == [
+        "records/shard.json: decision requires a doc_contract_profile of 'legacy' or 'current'"
+    ]
+
+
+def test_frozen_legacy_profile_passes_and_unknown_value_fails() -> None:
+    assert profile_findings(decision_shard("CD-0002", "legacy")) == []
+    assert profile_findings(decision_shard("CD-9999", "obsolete")) == [
+        "records/shard.json: decision requires a doc_contract_profile of 'legacy' or 'current'"
+    ]
+
+
+def test_pre_amendment_shard_demands_no_profile() -> None:
+    """A head without current_required_sections keeps the old composition."""
+    assert profile_findings(decision_shard("CD-9999", None), profiles_enforced=False) == []
+
+
+def test_non_decision_record_cannot_carry_a_profile() -> None:
+    value = record("lesson-1")
+    value["doc_contract_profile"] = "current"
+    findings: list[str] = []
+    generator.validate_record(value, "1.2", {"product-root:concord"}, "records/shard.json", findings)
+    assert any(
+        "doc_contract_profile is only valid on decision records" in finding
+        for finding in findings
+    ), findings
+
+
 if __name__ == "__main__":
     failures = 0
     tests = [value for name, value in sorted(globals().items()) if name.startswith("test_") and callable(value)]

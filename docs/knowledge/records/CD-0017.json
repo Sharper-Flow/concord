@@ -5,6 +5,7 @@
     "tier": "legislated"
   },
   "date": "2026-08-11T00:00:00Z",
+  "doc_contract_profile": "legacy",
   "evidence": [
     "contracts/agent-lanes.v1.json",
     "internal/store/worker_authority_boundary_test.go",

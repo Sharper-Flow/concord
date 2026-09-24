@@ -5,6 +5,7 @@
     "tier": "legislated"
   },
   "date": "2026-08-26T00:00:00Z",
+  "doc_contract_profile": "legacy",
   "evidence": [
     "internal/launcher/host_boundary_test.go",
     "internal/launcher/render/bubbletea/model.go",

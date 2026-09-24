@@ -110,6 +110,63 @@ func TestParseKeepsADeclaredTierAtSchema12(t *testing.T) {
 	}
 }
 
+// profileManifestBytes encodes a one-decision schema-1.3 manifest whose
+// record carries the given doc_contract_profile. The field is omitempty, so
+// the empty profile is absent from the encoded document — the shape a corpus
+// authored before CD-0175 actually has on disk.
+func profileManifestBytes(t *testing.T, profile string) []byte {
+	t.Helper()
+	manifest := KnowledgeManifest{
+		SchemaVersion:  "1.3",
+		SupportedKinds: []string{"lesson", "decision", "spec"},
+		IndexedKinds:   []string{"lesson", "decision", "spec"},
+		DomainRegistry: KnowledgeDomainRegistry{
+			SchemaVersion: "1.0", ProductKey: "concord", RootDomainID: "product-root:concord",
+			Domains: []KnowledgeDomain{{DomainID: "product-root:concord", Name: "Concord", Purpose: "Product-wide law", Status: "current", ArchitectureRelations: []KnowledgeArchitectureRelation{}}},
+		},
+		Records: []KnowledgeRecord{{
+			ID: "CD-0001", Kind: "decision", Path: "docs/decisions/CD-0001-legacy.md", Status: "accepted",
+			Date: "2026-08-10T00:00:00Z", Title: "Legacy decision", Summary: "summary", Tags: []string{},
+			Authority:    KnowledgeAuthority{Tier: "legislated", LegislatedBy: "fixture-authority", ContractVersion: 1},
+			Scopes:       KnowledgeRecordScopes{Mode: "home", ProductIDs: []string{}, ProjectIDs: []string{}, DomainIDs: []string{}, TagIDs: []string{}},
+			HomeDomainID: "product-root:concord", ProductWideRationale: "Fixture law binds every child Domain.",
+			SHA256: "sha256:" + strings.Repeat("a", 64),
+		}},
+	}
+	if profile != "" {
+		manifest.Records[0].DocContractProfile = profile
+	}
+	encoded, err := json.Marshal(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return encoded
+}
+
+// TestParseReadsAPreAmendmentDecisionProfile holds the CD-0175 historical
+// read. A corpus whose head predates decision.current_required_sections
+// carries no doc_contract_profile on its records, and the schema admits that
+// absence, so the parse must refuse nothing and read the field as unset. An
+// authored claim — a current head's shard — still reads through unchanged.
+func TestParseReadsAPreAmendmentDecisionProfile(t *testing.T) {
+	t.Parallel()
+	manifest, err := parseKnowledgeManifest(profileManifestBytes(t, ""))
+	if err != nil {
+		t.Fatalf("a pre-amendment corpus without a decision profile was refused: %v", err)
+	}
+	if got := manifest.Records[0].DocContractProfile; got != "" {
+		t.Fatalf("an absent profile read as %q, want unset", got)
+	}
+
+	manifest, err = parseKnowledgeManifest(profileManifestBytes(t, "legacy"))
+	if err != nil {
+		t.Fatalf("an authored decision profile was refused: %v", err)
+	}
+	if got := manifest.Records[0].DocContractProfile; got != "legacy" {
+		t.Fatalf("an authored profile read as %q, want legacy", got)
+	}
+}
+
 func TestManifestPathBoundUsesUnicodeScalarsAtSchemaLimit(t *testing.T) {
 	t.Parallel()
 	valid := "docs/" + strings.Repeat("é", 504) + ".md"

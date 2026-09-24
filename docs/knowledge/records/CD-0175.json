@@ -1,0 +1,35 @@
+{
+  "authority": {
+    "contract_version": 1,
+    "legislated_by": "work-8a46f26db16f5220b4cb5acd",
+    "tier": "legislated"
+  },
+  "date": "2026-09-23T00:00:00Z",
+  "doc_contract_profile": "current",
+  "home_domain_id": "product-memory",
+  "id": "CD-0175",
+  "kind": "decision",
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "CD-0114"
+    }
+  ],
+  "path": "docs/decisions/CD-0175-decision-record-outline.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:9c428b2b003859a26ccb634ff49b90697c60f8cb24b77fa8e163d9a0499eef80",
+  "status": "accepted",
+  "summary": "New decisions carry the exact outline Context, Decision, Alternatives considered, Consequences, and Verification on the current profile authored in each record shard; decisions accepted earlier stay on a legacy profile bounded by the closed historical set frozen in the index schema, the Domain stays in the record shard field, and an optional decision acceptance-criteria section parses under either heading spelling, with fenced criteria included and every matching section read, while a legacy criteria section stays recorded unparsed and the spec rule stays unchanged.",
+  "tags": [
+    "decisions",
+    "doc-contract",
+    "knowledge-manifest"
+  ],
+  "title": "The decision record outline is versioned"
+}

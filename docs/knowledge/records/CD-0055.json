@@ -5,6 +5,7 @@
     "tier": "legislated"
   },
   "date": "2026-08-21T00:00:00Z",
+  "doc_contract_profile": "legacy",
   "evidence": [
     "scripts/check-reachability.py",
     "internal/store/txscope_test.go",

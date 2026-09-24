@@ -503,6 +503,11 @@ async function invokeConcordOperationRaw(toolName: string, args: HostToolArgs, c
     if (toolName === "concord_work_relate" && operation === "resolve_overlap") {
       requiredChallengeFields.push("summary", "resolution_kind", "from_work_id", "to_work_id")
     }
+    if (toolName === "concord_work_relate" && operation === "client_policy_grant_request") {
+      // The operator must see whose policy widens, at which policy version,
+      // and why before the expansion can apply (CD-0097 D6).
+      requiredChallengeFields.push("summary", "client_ref", "policy_version", "reason")
+    }
     if (requiredChallengeFields.some((key) => typeof details[key] !== "string" || details[key].length === 0)) return adapterError(toolName, operation, requestID, "malformed_response", "malformed_core_response", "core approval challenge lacked exact workflow metadata")
     if (toolName === "concord_work_transition" && operation === "workflow_action" && Array.from(details.premise_summary ?? "").length > 256) return adapterError(toolName, operation, requestID, "malformed_response", "malformed_core_response", "core approval challenge premise summary exceeded the public bound")
     // The selection binds only where the surface admits one. `confirm_premise`
@@ -528,6 +533,9 @@ async function invokeConcordOperationRaw(toolName: string, args: HostToolArgs, c
           ...(typeof details.resolution_kind === "string" ? { resolution_kind: details.resolution_kind } : {}),
           ...(typeof details.from_work_id === "string" ? { from_work_id: details.from_work_id } : {}),
           ...(typeof details.to_work_id === "string" ? { to_work_id: details.to_work_id } : {}),
+          ...(typeof details.client_ref === "string" ? { client_ref: details.client_ref } : {}),
+          ...(typeof details.policy_version === "string" ? { policy_version: details.policy_version } : {}),
+          ...(typeof details.reason === "string" ? { reason: details.reason } : {}),
           // CD-0037 D5: the typed consequence summary is copied unchanged
           // into host permission metadata; the host renders it.
           ...(response.error?.consequence_summary ? { consequence_summary: response.error.consequence_summary } : {}),

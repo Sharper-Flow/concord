@@ -125,7 +125,8 @@
         "concord_work_relate.message_send",
         "concord_work_relate.message_withdraw",
         "concord_work_relate.resolve_overlap",
-        "concord_work_relate.product_project_add"
+        "concord_work_relate.product_project_add",
+        "concord_work_relate.client_policy_grant_request"
       ]
     },
     {
@@ -1601,6 +1602,27 @@
         ]
       },
       "supported_budget_seconds": 300
+    },
+    {
+      "id": "concord_work_relate.client_policy_grant_request",
+      "tool": "concord_work_relate",
+      "kind": "mutation",
+      "query_id": null,
+      "input_schema": "#/schemas/work_relate_client_policy_grant_request_input",
+      "result_schema": "#/schemas/work_relate_client_policy_grant_request_result",
+      "capability": "work_relate",
+      "consequence": "scope",
+      "approval": "required",
+      "metadata": {
+        "context": "explicit",
+        "idempotency": "required",
+        "pagination": "none",
+        "output_bytes": 51200,
+        "versions": [
+          "1.0"
+        ]
+      },
+      "supported_budget_seconds": 300
     }
   ],
   "schemas": {
@@ -2019,6 +2041,14 @@
     "work_relate_product_project_add_result": {
       "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_relate_product_project_add_result",
       "closed": true
+    },
+    "work_relate_client_policy_grant_request_input": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_relate_client_policy_grant_request_input",
+      "closed": true
+    },
+    "work_relate_client_policy_grant_request_result": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_relate_client_policy_grant_request_result",
+      "closed": true
     }
   },
   "capabilities": [
@@ -2069,6 +2099,6 @@
       "digest"
     ]
   },
-  "payload_digest": "sha256:257ad0f28ff9b43175708223cead6742a29b879b7eba44ec66a0ea59dcb90751",
-  "digest": "sha256:b586befd74ea8f00000a839ddcc77de1f4403bb4482d3edd83387944899ba37a"
+  "payload_digest": "sha256:323a0d0b9a1b303835c27575fac82d709ac67a5df261beba78a4078ff5e8fc96",
+  "digest": "sha256:438240c44666e9cbda7cdfcca29de2451cd26d047571d457ef89a3f56c4f66f2"
 }

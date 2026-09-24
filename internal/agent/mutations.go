@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/sharper-flow/concord/internal/store"
@@ -385,6 +386,21 @@ type productProjectAddInput struct {
 	ExpectedVersion int64          `json:"expected_version"`
 	IdempotencyKey  string         `json:"idempotency_key"`
 	Approval        *approvalInput `json:"approval"`
+}
+
+// clientPolicyGrantRequestInput decodes exactly what the
+// concord_work_relate.client_policy_grant_request schema allows. It carries
+// no client field: the target of the proposed expansion is always the
+// authenticated caller's own trusted client, because a tool argument that
+// could name another client would impersonate it (CD-0071 D1).
+type clientPolicyGrantRequestInput struct {
+	Capabilities   []Capability   `json:"capabilities"`
+	ProductScope   []string       `json:"product_scope"`
+	ProjectScope   []string       `json:"project_scope"`
+	AgentScope     []string       `json:"agent_scope"`
+	Reason         string         `json:"reason"`
+	IdempotencyKey string         `json:"idempotency_key"`
+	Approval       *approvalInput `json:"approval"`
 }
 type linkMutationInput struct {
 	FromWorkID          string         `json:"from_work_id"`
@@ -2847,6 +2863,207 @@ func (r runtime) mutateProductProjectAdd(ctx context.Context, base Envelope, raw
 	return response, nil
 }
 
+// stalePolicyConflict is the typed stale-policy refusal of the grant route.
+// The envelope schema requires every version_conflict to name the live
+// versions the caller must reread, so it carries the stored client at its
+// current policy version — the value the approval challenge bound, now stale.
+func stalePolicyConflict(base Envelope, client store.TrustedClientRecord) Envelope {
+	response := coreError(base, "version_conflict", "the trusted client policy changed after the grant request was derived; request approval again against the current policy", "reread_entities", false)
+	response.Error.CurrentVersions = []ChangedRef{{EntityKind: "trusted_client", ID: client.ClientRef, Version: TrustedClientPolicyVersion(client)}}
+	return response
+}
+
+// mutateClientPolicyGrantRequest plans
+// concord_work_relate.client_policy_grant_request.
+//
+// The generic mutation tail cannot host this operation, for the same reason
+// product_project_add cannot: the facts the operator must approve are derived
+// against a record the derived grant scope cannot see — here the caller's own
+// trusted-client policy row. The target is always the authenticated caller's
+// client because the input carries no client field. The core derives the
+// exact additive diff, binds the challenge to the diff plus the current
+// policy version, and applies the union through the one shared expansion
+// owner in the same transaction that consumes the approval, so denial,
+// expiry, altered arguments, a stale policy, and replay all leave authority
+// exactly as it was (CD-0071 D1, CD-0037 D5, CD-0097 D6).
+func (r runtime) mutateClientPolicyGrantRequest(ctx context.Context, base Envelope, raw []byte, grant Authority, op ContractOperation) (Envelope, error) {
+	var in clientPolicyGrantRequestInput
+	if err := decodeOperationInput(raw, &in); err != nil {
+		return coreError(base, "invalid_input", err.Error(), "reread_entities", false), nil
+	}
+	if strings.TrimSpace(in.Reason) == "" {
+		return coreError(base, "invalid_input", "a grant request requires a reason the operator can read", "reread_entities", false), nil
+	}
+	if in.IdempotencyKey == "" {
+		return coreError(base, "invalid_input", "a grant request requires an idempotency key", "reread_entities", false), nil
+	}
+	additions := TrustedClientPolicy{Capabilities: in.Capabilities, ProductScope: in.ProductScope, ProjectScope: in.ProjectScope, AgentScope: in.AgentScope}
+	digest := mutationDigest(r.Tool, r.Operation, r.Envelope, raw)
+	approval := ""
+	if in.Approval != nil {
+		approval = in.Approval.ApprovalRef
+	}
+	// Preflight derivation against the stored policy. The stored principal
+	// and every existing grant are inputs to the proposal, never its output.
+	client, _, err := r.Store.TrustedClientWithKey(ctx, r.Envelope.ClientRef)
+	if err != nil {
+		return coreError(base, "unknown_scope", "the authenticated trusted client is unknown or revoked", "contact_operator", false), nil
+	}
+	proposal, proposalErr := DeriveTrustedClientPolicyExpansion(client, additions)
+	if proposalErr != nil {
+		return failureEnvelope(base, proposalErr), nil
+	}
+	scope := map[string]any{
+		"client_ref":     proposal.ClientRef,
+		"policy_version": proposal.PolicyVersion,
+		"capabilities":   capabilityStrings(proposal.Capabilities),
+		"product_scope":  proposal.ProductScope,
+		"project_scope":  proposal.ProjectScope,
+		"agent_scope":    proposal.AgentScope,
+	}
+	challengeScope := boundedApprovalScope(scope)
+	versions := map[string]any{}
+	consequence := string(op.Consequence)
+	intents := []NextIntent{}
+
+	var response Envelope
+	var resultRejected bool
+	err = r.Store.Transact(ctx, func(tx *store.Transaction) error {
+		contractOp, registered := ValidateContractOperation(r.Tool, r.Operation)
+		if !registered {
+			return newRuntimeFailure("invariant_violation", fmt.Sprintf("mutation dispatch reached unregistered operation %s.%s", r.Tool, r.Operation), "contact_operator", false)
+		}
+		inv := Invocation{ClientRef: r.Envelope.ClientRef, PrincipalRef: r.Envelope.PrincipalRef, SessionRef: r.Envelope.SessionRef, AgentRef: r.Envelope.AgentRef, Directory: r.Envelope.Directory, Worktree: r.Envelope.Worktree, ManifestDigest: r.Envelope.ManifestDigest, HostAssertionDigest: r.Envelope.HostAssertionDigest, RequiredCapability: contractOp.Capability, RequiredOperation: r.Operation, ProductID: r.Envelope.SelectedProductID}
+		if inv.HostAssertionDigest == "" {
+			inv.HostAssertionDigest = digest
+		}
+		txGrant, err := r.Authority.AuthorizeTx(ctx, tx, inv)
+		if err != nil {
+			return err
+		}
+		key := idempotencyKey(raw)
+		prior, found, err := store.LookupMutationIdempotencyTx(ctx, tx, store.MutationIdempotencyKey{PrincipalRef: txGrant.PrincipalRef, Tool: r.Tool, OperationKind: r.Operation, IdempotencyKey: key})
+		if err != nil {
+			return err
+		}
+		if found {
+			// The replay window sits before the stale-policy gate: an exact
+			// replay of a recorded expansion keeps answering with its stored
+			// result even though the additions are now held and the derived
+			// diff would be empty.
+			if prior.CanonicalDigest != digest {
+				return storeIdempotencyConflict(r.Operation, key)
+			}
+			var changed []ChangedRef
+			_ = json.Unmarshal([]byte(prior.ChangedRefs), &changed)
+			base.Replayed = true
+			base.ResolvedScope = &Scope{ProductID: r.Envelope.SelectedProductID, ProjectIDs: []string{r.Envelope.AmbientProjectID}, ScopeVersion: r.Envelope.ScopeVersion}
+			response = r.mutationResult(base, json.RawMessage(prior.ResultPayload), changed, intents)
+			if response.Outcome == OutcomeError {
+				resultRejected = true
+				return errors.New("mutation result rejected")
+			}
+			return store.TouchMutationIdempotencyTx(ctx, tx, store.MutationIdempotencyKey{PrincipalRef: txGrant.PrincipalRef, Tool: r.Tool, OperationKind: r.Operation, IdempotencyKey: key}, r.Authority.now())
+		}
+		// CD-0038 D3: the seconds ceiling is admitted after the idempotency
+		// lookup, so a refused request records no idempotency effect and the
+		// same key may be reused with a lower budget.
+		if r.Budget.CeilingRefused {
+			response = r.budgetRefusal(base, fmt.Sprintf("requested_budget_seconds %d exceeds supported %d", r.Budget.RequestedSeconds, r.Budget.SupportedSeconds))
+			resultRejected = true
+			return errors.New("budget admission refused")
+		}
+		// The proposal is re-derived inside the transaction against the stored
+		// policy, so an expansion applied by any route between the preflight
+		// and this read refuses instead of approving a stale diff.
+		txClient, _, err := store.TrustedClientWithKeyTx(ctx, tx, r.Envelope.ClientRef)
+		if err != nil {
+			return err
+		}
+		txProposal, proposalErr := DeriveTrustedClientPolicyExpansion(txClient, additions)
+		if proposalErr != nil {
+			return proposalErr
+		}
+		if !equalPolicyExpansion(proposal, txProposal) {
+			response = stalePolicyConflict(base, txClient)
+			resultRejected = true
+			return errors.New("stale trusted client policy")
+		}
+		if approval != "" {
+			// The challenge binds the policy version its diff was derived
+			// against. A policy that moved between the mint and the approval
+			// means the operator approved a diff against a policy state that
+			// no longer exists, so the route refuses typed before the
+			// assertion check, leaving challenge and approval unconsumed.
+			if challenge, challengeErr := store.ReadApprovalChallengeRefTx(ctx, tx, approval); challengeErr == nil {
+				var recordedScope map[string]any
+				if json.Unmarshal([]byte(challenge.ScopeJSON), &recordedScope) == nil {
+					if minted, _ := recordedScope["policy_version"].(string); minted != "" && minted != txProposal.PolicyVersion {
+						response = stalePolicyConflict(base, txClient)
+						resultRejected = true
+						return errors.New("approval binds a stale policy version")
+					}
+				}
+			}
+		}
+		if approval == "" {
+			spec := ApprovalChallengeSpec{OperationDigest: digest, Scope: challengeScope, Versions: versions, Consequence: consequence, HostAssertionDigest: inv.HostAssertionDigest, ExpiresAt: r.Authority.now().Add(10 * time.Minute)}
+			challengeRef, challengeErr := r.Authority.CreateApprovalChallengeTx(ctx, tx, inv, spec)
+			if challengeErr != nil {
+				return challengeErr
+			}
+			response = coreError(base, "approval_required", "operator approval is required to widen the calling client's own policy", "request_approval", false)
+			response.Error.ConsequenceSummary = consequenceSummaryFor(r.Tool, r.Operation, spec)
+			response.Error.Details = map[string]any{"approval_ref": challengeRef, "summary": "Approve the exact added grants for your own trusted client; every existing grant and the stored principal stay unchanged.", "operation_digest": digest, "scope": approvalScopeBindings(challengeScope), "versions": approvalVersionBindings(versions), "client_ref": proposal.ClientRef, "policy_version": proposal.PolicyVersion, "added_capabilities": capabilityStrings(proposal.Capabilities), "added_product_scope": proposal.ProductScope, "added_project_scope": proposal.ProjectScope, "added_agent_scope": proposal.AgentScope, "reason": in.Reason}
+			return nil
+		}
+		approvalCheck := ApprovalCheck{ApprovalRef: approval, OperationDigest: digest, Scope: challengeScope, Versions: versions, Consequence: consequence, ClientRef: txGrant.ClientRef, SessionRef: txGrant.SessionRef}
+		if _, _, approvalErr := r.consumeApprovalTx(ctx, tx, inv, txGrant, approvalCheck); approvalErr != nil {
+			response = coreError(base, "approval_invalid", approvalErr.Error(), "request_approval", false)
+			resultRejected = true
+			return errors.New("approval invalid")
+		}
+		if err := store.MutateTrustedClientPolicyTx(ctx, tx, r.Envelope.ClientRef, unionPolicyExpansion(r.Operation, canonicalPolicy(additions))); err != nil {
+			return err
+		}
+		// Read back what actually persisted so the result reports the stored
+		// policy version, not the intention.
+		stored, _, readErr := store.TrustedClientWithKeyTx(ctx, tx, r.Envelope.ClientRef)
+		if readErr != nil {
+			return readErr
+		}
+		policyVersion := TrustedClientPolicyVersion(stored)
+		resultPayload, marshalErr := json.Marshal(map[string]any{"client_ref": stored.ClientRef, "policy_version": policyVersion, "added_capabilities": capabilityStrings(proposal.Capabilities), "added_product_scope": proposal.ProductScope, "added_project_scope": proposal.ProjectScope, "added_agent_scope": proposal.AgentScope})
+		if marshalErr != nil {
+			return marshalErr
+		}
+		changed := []ChangedRef{{EntityKind: "trusted_client", ID: stored.ClientRef, Version: policyVersion}}
+		base.ResolvedScope = &Scope{ProductID: r.Envelope.SelectedProductID, ProjectIDs: []string{r.Envelope.AmbientProjectID}, ScopeVersion: r.Envelope.ScopeVersion}
+		response = r.mutationResult(base, resultPayload, changed, intents)
+		if response.Outcome == OutcomeError {
+			resultRejected = true
+			return errors.New("mutation result rejected")
+		}
+		changedJSON, _ := json.Marshal(changed)
+		authorizedScope, _ := json.Marshal(challengeScope)
+		return store.InsertMutationIdempotencyTx(ctx, tx, store.MutationIdempotencyInsert{Key: store.MutationIdempotencyKey{PrincipalRef: txGrant.PrincipalRef, Tool: r.Tool, OperationKind: r.Operation, IdempotencyKey: key}, CanonicalDigest: digest, OperationID: "mutation-" + digest[7:31], ResultEventIDs: "[]", ResultPayload: string(resultPayload), ChangedRefs: string(changedJSON), AuthorizedScopeSnapshot: string(authorizedScope), ObservedAt: r.Authority.now()})
+	})
+	if err != nil {
+		if resultRejected {
+			return response, nil
+		}
+		return failureEnvelope(base, err), nil
+	}
+	// committed; the durability barrier must hold before acknowledging a
+	// minted challenge or an applied grant — both bind client and approval
+	// authority (CD-0050 D3). A barrier failure is committed-but-not-yet-
+	// durable and surfaces as the retry-safe failure the caller sees.
+	if syncErr := r.Store.SyncDurable(ctx); syncErr != nil {
+		return failureEnvelope(base, syncErr), nil
+	}
+	return response, nil
+}
+
 // planResolveOverlap plans concord_work_relate.resolve_overlap.
 //
 // A depends_on resolution is the one kind an agent may record without an
@@ -2987,6 +3204,9 @@ func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Au
 	}
 	if op.ID == "concord_work_relate.product_project_add" {
 		return r.mutateProductProjectAdd(ctx, base, raw, grant, op)
+	}
+	if op.ID == "concord_work_relate.client_policy_grant_request" {
+		return r.mutateClientPolicyGrantRequest(ctx, base, raw, grant, op)
 	}
 	digest := mutationDigest(r.Tool, r.Operation, r.Envelope, raw)
 	if r.Tool == "concord_work_compact" && op.ID != "concord_work_compact.lesson_publish" {
@@ -4081,7 +4301,7 @@ func (r runtime) consumeApprovalTx(ctx context.Context, tx *store.Transaction, i
 func boundedApprovalScope(scope map[string]any) map[string]any {
 	out := make(map[string]any, len(scope))
 	for key, value := range scope {
-		if key != "product_id" && key != "product_ids" && key != "project_ids" && key != "work_ids" && key != "failed_attempt_id" && key != "scope_version" && key != "project_id" && key != "role" {
+		if key != "product_id" && key != "product_ids" && key != "project_ids" && key != "work_ids" && key != "failed_attempt_id" && key != "scope_version" && key != "project_id" && key != "role" && key != "client_ref" && key != "policy_version" && key != "capabilities" && key != "product_scope" && key != "project_scope" && key != "agent_scope" {
 			continue
 		}
 		switch typed := value.(type) {

@@ -907,6 +907,62 @@ test("overlap approval asks with exact direction and resolution consequence", as
   })
 })
 
+test("client policy grant request asks with the calling client, policy version, and reason", async () => {
+  const digest = `sha256:${"d".repeat(64)}`
+  const policyVersion = `sha256:${"e".repeat(64)}`
+  const scope = ["capabilities:cross_scope", "client_ref:client-1", "policy_version:" + policyVersion, "product_scope:product-2"]
+  const challenge = coreEnvelope("concord_work_relate", "client_policy_grant_request", "error", {
+    error: { kind: "approval_required", retry_safe: false, recovery_action: { kind: "request_approval" }, effect_state: "none",
+      consequence_summary: {
+        tool: "concord_work_relate", operation: "client_policy_grant_request", consequence: "scope",
+        operation_digest: digest, scope, versions: [], expires_at: "2026-08-20T00:00:00Z",
+      },
+      details: {
+        approval_ref: "grant-challenge-1", operation_digest: digest,
+        summary: "Approve the exact added grants for your own trusted client; every existing grant and the stored principal stay unchanged.",
+        scope, versions: [],
+        client_ref: "client-1", policy_version: policyVersion,
+        reason: "dependent work claims a cross-Product worktree",
+      } },
+  })
+  const success = coreEnvelope("concord_work_relate", "client_policy_grant_request", "ok", {
+    result: { client_ref: "client-1", policy_version: policyVersion, added_capabilities: ["cross_scope"], added_product_scope: ["product-2"], added_project_scope: [], added_agent_scope: [] },
+    changed_refs: [{ entity_kind: "trusted_client", id: "client-1", version: policyVersion }], next_valid_intents: [],
+  })
+  let calls = 0
+  const submitted: any[] = []
+  const runner = { async run(_argv: string[], input: any) {
+    calls++
+    submitted.push(input)
+    if (calls === 1) return { exitCode: 0, stdout: JSON.stringify(contextResponse()), stderr: "" }
+    return { exitCode: 0, stdout: JSON.stringify(calls === 2 ? challenge : success), stderr: "" }
+  } }
+  let askMetadata: any
+  adapter.configureConcordAdapter({ runner })
+  const result: any = await rawHostResult(adapter.work_relate.execute(hostCall("client_policy_grant_request", {
+    capabilities: ["cross_scope"], product_scope: ["product-2"], project_scope: [], agent_scope: [],
+    reason: "dependent work claims a cross-Product worktree", idempotency_key: "grant-request-adapter-1",
+  }), contextFor(async (request: any) => { askMetadata = request.metadata })))
+  expect(result.outcome).toBe("ok")
+  expect(askMetadata).toEqual({
+    approval_ref: "grant-challenge-1", operation_digest: digest,
+    summary: "Approve the exact added grants for your own trusted client; every existing grant and the stored principal stay unchanged.",
+    scope, versions: [],
+    client_ref: "client-1", policy_version: policyVersion,
+    reason: "dependent work claims a cross-Product worktree",
+    consequence_summary: {
+      tool: "concord_work_relate", operation: "client_policy_grant_request", consequence: "scope",
+      operation_digest: digest, scope, versions: [], expires_at: "2026-08-20T00:00:00Z",
+    },
+  })
+  // The resubmission is the same request with only the approval binding added,
+  // so the core's digest check sees the approved arguments, not edited ones.
+  const finalCall = JSON.parse(submitted[2])
+  expect(finalCall.input.approval).toEqual({ approval_ref: "grant-challenge-1" })
+  expect(finalCall.input.capabilities).toEqual(["cross_scope"])
+  expect(finalCall.call_envelope.host_approval_assertion.challenge_ref).toBe("grant-challenge-1")
+})
+
 test("generated and adapter validators reject unknown top-level fields for every outcome", async () => {
   const variants: Array<[string, any, any, any]> = [
     ["ok", coreEnvelope("concord_product_view", "resolve", "ok", { items: [{}] }), adapter.product_view, hostCall("resolve", {})],

@@ -212,6 +212,7 @@ const GeneratedEnvelopeSchemaDocument = `{
             "blocked_sessions",
             "capture",
             "change_requiredness",
+            "client_policy_grant_request",
             "continuity",
             "create",
             "detail",
@@ -822,6 +823,7 @@ const GeneratedEnvelopeSchemaDocument = `{
             "blocked_sessions",
             "capture",
             "change_requiredness",
+            "client_policy_grant_request",
             "continuity",
             "create",
             "detail",
@@ -1800,7 +1802,8 @@ const GeneratedEnvelopeSchemaDocument = `{
                 "resource_release",
                 "message_send",
                 "message_withdraw",
-                "product_project_add"
+                "product_project_add",
+                "client_policy_grant_request"
               ],
               "type": "string"
             },

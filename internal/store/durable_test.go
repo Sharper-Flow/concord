@@ -2,6 +2,8 @@ package store
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -222,6 +224,72 @@ func TestDurableBarrierFailureSurfaces(t *testing.T) {
 	err = s.SyncDurable(ctx)
 	if err == nil {
 		t.Fatal("SyncDurable on a closed store returned nil; the failure path must surface the error to the caller")
+	}
+	var failure *Failure
+	if !errors.As(err, &failure) {
+		t.Fatalf("SyncDurable failure is not typed: %v", err)
+	}
+	if !failure.RetrySafe {
+		t.Fatal("a durability barrier failure must be retry-safe")
+	}
+	if !failure.EffectPossible {
+		t.Fatal("a post-commit barrier failure reports EffectPossible=false; the committed seed event would read as no effect")
+	}
+}
+
+// TestDurableBarrierBusyReportsEffectPossible pins the production-shaped
+// barrier failure: a concurrent reader pins the WAL, the TRUNCATE checkpoint
+// reports busy after the caller's transaction committed, and the failure
+// carries EffectPossible because the committed effect cannot be proved absent.
+// The busy wait is the store connection's own five-second busy_timeout.
+func TestDurableBarrierBusyReportsEffectPossible(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	root := t.TempDir()
+	dbpath := filepath.Join(root, "busy.db")
+	s, err := Open(ctx, dbpath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	if err := s.appendSeedEvent(ctx); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	reader, err := sql.Open("sqlite", "file:"+dbpath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reader.Close()
+	readTx, err := reader.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = readTx.Rollback() }()
+	var probe int
+	if err := readTx.QueryRowContext(ctx, `SELECT count(*) FROM domain_events`).Scan(&probe); err != nil {
+		t.Fatalf("reader snapshot: %v", err)
+	}
+
+	err = s.SyncDurable(ctx)
+	var failure *Failure
+	if !errors.As(err, &failure) {
+		t.Fatalf("busy barrier failure is not typed: %v", err)
+	}
+	if failure.Kind != KindUnavailable || !failure.RetrySafe {
+		t.Fatalf("busy barrier failure = %+v, want a retry-safe unavailable failure", failure)
+	}
+	if !failure.EffectPossible {
+		t.Fatal("a busy barrier failure after a commit reports EffectPossible=false; the committed seed event would read as no effect")
+	}
+
+	// The reader released, the retry-safe barrier resumes: the recovery path
+	// the caller's retry takes.
+	if err := readTx.Rollback(); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SyncDurable(ctx); err != nil {
+		t.Fatalf("barrier retry after the reader finished: %v", err)
 	}
 }
 

@@ -4953,6 +4953,21 @@ ALTER TABLE law_subjects ADD COLUMN authority_tier TEXT NOT NULL DEFAULT 'derive
     CHECK(authority_tier IN ('legislated','derived'));
 `,
 	},
+	{
+		// The trusted-client policy revision makes the derived policy version
+		// monotonic across writes. A content-only version lets an operator
+		// change a policy and restore its exact prior content during a
+		// challenge's validity, and the approval minted before that round
+		// trip would match the restored policy again. The store bumps the
+		// revision on every policy write, so the restored policy is a
+		// different version and the stale approval refuses (CD-0097 D6).
+		Version:  99,
+		Name:     "agent_clients_carry_policy_revision",
+		Breaking: false,
+		SQL: `
+ALTER TABLE agent_clients ADD COLUMN policy_revision INTEGER NOT NULL DEFAULT 1;
+`,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any

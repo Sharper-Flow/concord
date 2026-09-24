@@ -220,6 +220,23 @@ func seedReconstructionEndpoints(ctx context.Context, tx *sql.Tx, subject Subjec
 					return err
 				}
 			}
+		case subject.Type == SubjectWorkItem && current.Kind == "work.memberships_replaced":
+			var memberships struct {
+				Memberships []struct {
+					ProjectID string `json:"project_id"`
+				} `json:"memberships"`
+			}
+			if err := json.Unmarshal(current.Payload, &memberships); err != nil {
+				return err
+			}
+			for _, membership := range memberships.Memberships {
+				if membership.ProjectID == "" {
+					continue
+				}
+				if err := insertScratchProject(ctx, tx, membership.ProjectID); err != nil {
+					return err
+				}
+			}
 		case subject.Type == SubjectWorkItem && (current.Kind == "relation.added" || current.Kind == "relation.removed"):
 			if workID := id("to"); workID != "" && workID != subject.ID {
 				if err := insertScratchWork(ctx, tx, workID); err != nil {

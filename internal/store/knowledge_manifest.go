@@ -126,6 +126,14 @@ var manifestLawRelationSubjects = map[string]bool{"decision": true, "spec": true
 // carries it and the store never rewrites that shard (CD-0114).
 // TestKnowledgeManifestVocabularyMatchesSchema binds this set to
 // contracts/concord-knowledge-index.v1.schema.json.
+//
+// The reader is additive (CD-0177): a key outside this vocabulary is dropped
+// at parse instead of refusing the document, so a release-pinned core reads a
+// manifest authored after its release. Authoring stays closed behind the JSON
+// Schema and scripts/check-knowledge-index.py, and
+// TestCommittedManifestCarriesNoFieldTheModelDrops keeps the committed shard
+// tree inside the modeled vocabulary. A field that must restrict older cores
+// needs a schema_version bump, which stays the only closed-version signal.
 var manifestRootKeys = map[string]bool{
 	"schema_version":  true,
 	"supported_kinds": true,
@@ -217,9 +225,8 @@ type KnowledgeRecord struct {
 	HomeDomainID       string                `json:"home_domain_id,omitempty"`
 	AppliesToDomainIDs []string              `json:"applies_to_domain_ids,omitempty"`
 	// DocContractProfile carries the authored CD-0175 decision outline
-	// generation ("legacy" or "current"). The store never interprets it; it
-	// is carried so a strict decode of an authored shard keeps working and a
-	// re-marshaled manifest keeps the authored value.
+	// generation ("legacy" or "current"). The store never interprets it; it is
+	// carried so a re-marshaled manifest keeps the authored value.
 	DocContractProfile string `json:"doc_contract_profile,omitempty"`
 	// Evidence names implementation paths (scenarios, tests, code) that
 	// carry this record's guidance. The offline validator fails when an
@@ -284,13 +291,12 @@ func (manifest *KnowledgeManifest) UnmarshalJSON(data []byte) error {
 	if err := json.Unmarshal(data, &fields); err != nil {
 		return err
 	}
+	// Additive read (CD-0177): only declared, projected keys reach the model;
+	// an undeclared key, and a declared key the store does not interpret, are
+	// dropped rather than refused.
 	modeled := make(map[string]json.RawMessage, len(fields))
 	for key, value := range fields {
-		projected, declared := manifestRootKeys[key]
-		if !declared {
-			return fmt.Errorf("json: unknown field %q", key)
-		}
-		if projected {
+		if projected := manifestRootKeys[key]; projected {
 			modeled[key] = value
 		}
 	}
@@ -301,7 +307,6 @@ func (manifest *KnowledgeManifest) UnmarshalJSON(data []byte) error {
 	type manifestAlias KnowledgeManifest
 	var parsed manifestAlias
 	decoder := json.NewDecoder(bytes.NewReader(body))
-	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&parsed); err != nil {
 		return err
 	}
@@ -313,9 +318,7 @@ func (manifest *KnowledgeManifest) UnmarshalJSON(data []byte) error {
 func (disposition *KnowledgeDisposition) UnmarshalJSON(data []byte) error {
 	type dispositionAlias KnowledgeDisposition
 	var parsed dispositionAlias
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&parsed); err != nil {
+	if err := json.Unmarshal(data, &parsed); err != nil {
 		return err
 	}
 	*disposition = KnowledgeDisposition(parsed)
@@ -325,9 +328,7 @@ func (disposition *KnowledgeDisposition) UnmarshalJSON(data []byte) error {
 func (domain *KnowledgeDomain) UnmarshalJSON(data []byte) error {
 	type domainAlias KnowledgeDomain
 	var parsed domainAlias
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&parsed); err != nil {
+	if err := json.Unmarshal(data, &parsed); err != nil {
 		return err
 	}
 	*domain = KnowledgeDomain(parsed)
@@ -347,9 +348,7 @@ func (domain *KnowledgeDomain) UnmarshalJSON(data []byte) error {
 func (relation *KnowledgeArchitectureRelation) UnmarshalJSON(data []byte) error {
 	type relationAlias KnowledgeArchitectureRelation
 	var parsed relationAlias
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&parsed); err != nil {
+	if err := json.Unmarshal(data, &parsed); err != nil {
 		return err
 	}
 	*relation = KnowledgeArchitectureRelation(parsed)
@@ -375,9 +374,7 @@ func (relation *KnowledgeArchitectureRelation) UnmarshalJSON(data []byte) error 
 func (record *KnowledgeRecord) UnmarshalJSON(data []byte) error {
 	type recordAlias KnowledgeRecord
 	var parsed recordAlias
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&parsed); err != nil {
+	if err := json.Unmarshal(data, &parsed); err != nil {
 		return err
 	}
 	*record = KnowledgeRecord(parsed)
@@ -488,9 +485,8 @@ func parseKnowledgeManifest(data []byte) (KnowledgeManifest, error) {
 	}
 	var manifest KnowledgeManifest
 	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&manifest); err != nil {
-		return KnowledgeManifest{}, wrapFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "manifest is not strict v1 JSON", false, "repair the manifest schema and remove unknown fields", err)
+		return KnowledgeManifest{}, wrapFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "manifest is not valid v1 JSON", false, "publish well-formed v1 manifest JSON", err)
 	}
 	var extra any
 	if err := decoder.Decode(&extra); err != io.EOF {

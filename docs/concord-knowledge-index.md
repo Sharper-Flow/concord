@@ -13,8 +13,18 @@ is the closed JSON Schema contract.
 ## Contract
 
 The manifest has `schema_version`, `supported_kinds`, `indexed_kinds`, optional
-registry metadata, and `records`. Unknown fields, duplicate keys, duplicate IDs, and duplicate paths
-are invalid. A record has an authored stable ID, closed kind, clean regular
+registry metadata, and `records`. Unknown fields are invalid at authoring: the
+closed JSON Schema and `scripts/check-knowledge-index.py` refuse them, and CI
+runs both. The reader is additive (CD-0177): at a known `schema_version` the
+Go parser drops a field its model does not declare, so a release-pinned core
+reads a manifest authored after its release, and
+`TestCommittedManifestCarriesNoFieldTheModelDrops` holds the committed shard
+tree to the modeled vocabulary. Duplicate keys, duplicate IDs, duplicate
+paths, trailing values, and an unknown `schema_version` remain invalid for
+the reader. A field that must restrict older cores requires a
+`schema_version` bump. An additive field declares itself on the Go model in
+the same change.
+A record has an authored stable ID, closed kind, clean regular
 Markdown path below `docs/`, status, RFC3339 date, bounded title and summary,
 unique tags, closed scopes, and a required `sha256:` hash. It has no body or
 content field. `decision` and `spec` records are `accepted`; `lesson` records

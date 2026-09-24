@@ -1,0 +1,22 @@
+{
+  "evidence": [
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestParseAdmitsAdditiveManifestFieldsAtAKnownSchema"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestCommittedManifestCarriesNoFieldTheModelDrops"
+    },
+    {
+      "kind": "validator",
+      "value": "scripts/check-knowledge-index.py"
+    },
+    {
+      "kind": "validator",
+      "value": "scripts/check-doc-contract.py"
+    }
+  ],
+  "id": "CD-0177",
+  "state": "satisfied"
+}

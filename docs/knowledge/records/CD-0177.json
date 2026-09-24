@@ -1,0 +1,40 @@
+{
+  "authority": {
+    "contract_version": 1,
+    "legislated_by": "work-bc5323f3a1670806341c3768",
+    "tier": "legislated"
+  },
+  "date": "2026-09-24T00:00:00Z",
+  "doc_contract_profile": "current",
+  "evidence": [
+    "docs/concord-knowledge-index.md",
+    "internal/store/knowledge_manifest.go",
+    "internal/store/knowledge_manifest_additive_test.go"
+  ],
+  "home_domain_id": "product-memory",
+  "id": "CD-0177",
+  "kind": "decision",
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "CD-0114"
+    }
+  ],
+  "path": "docs/decisions/CD-0177-the-manifest-reader-admits-additive-fields.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:a34aea73a791f191fc4060525d3afb8111c3226dea8fe0cf3312cf3d456d1b0f",
+  "status": "accepted",
+  "summary": "A release-pinned core reads a knowledge manifest authored after its release: at a known schema_version the Go manifest reader drops a field its model does not declare across the root, record, authority, scopes, law relation, criterion binding, domain, architecture relation, and disposition decoders, while an unknown schema_version, duplicate keys, trailing values, and every semantic check still refuse, authoring stays closed behind the unchanged JSON Schema and knowledge-index checker, a field that must restrict older cores needs a schema_version bump, and the committed shard tree may carry no field the Go model drops.",
+  "tags": [
+    "compatibility",
+    "knowledge-index",
+    "knowledge-manifest"
+  ],
+  "title": "The manifest reader admits additive fields"
+}

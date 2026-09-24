@@ -185,6 +185,10 @@ func TestManifestPathBoundUsesUnicodeScalarsAtSchemaLimit(t *testing.T) {
 	}
 }
 
+// The manifest reader admits additive fields at a known schema_version
+// (CD-0177), so the unknown-field case here is the admission the reader now
+// gives an undeclared record field. The remaining combinations are the ones
+// that still refuse: a duplicated stable ID and every semantic violation.
 func TestKnowledgeManifestRejectsUnknownFieldsAndInvalidCombinations(t *testing.T) {
 	t.Parallel()
 	valid := `{"schema_version":"1.2","supported_kinds":["lesson","research"],"indexed_kinds":["lesson"],"domain_registry":{"schema_version":"1.0","product_key":"concord","root_domain_id":"product-root:concord","domains":[{"domain_id":"product-root:concord","name":"Concord","purpose":"Product-wide Concord law and architecture","status":"current","architecture_relations":[]}]},"records":[{"id":"lesson-1","kind":"lesson","path":"docs/lessons/one.md","status":"published","date":"2026-08-10T00:00:00Z","title":"Lesson","summary":"Summary","tags":[],"authority":{"tier":"derived"},"scopes":{"mode":"home","product_ids":[],"project_ids":[],"domain_ids":[],"tag_ids":[]},"sha256":"sha256:` + strings.Repeat("a", 64) + `"}]}`
@@ -199,10 +203,18 @@ func TestKnowledgeManifestRejectsUnknownFieldsAndInvalidCombinations(t *testing.
 			if name == "duplicate id" {
 				raw = strings.TrimSuffix(valid, `]}`) + `,{"id":"lesson-1","kind":"lesson","path":"docs/lessons/two.md","status":"published","date":"2026-08-10T00:00:00Z","title":"Lesson","summary":"Summary","tags":[],"authority":{"tier":"derived"},"scopes":{"mode":"home","product_ids":[],"project_ids":[],"domain_ids":[],"tag_ids":[]},"sha256":"sha256:` + strings.Repeat("b", 64) + `"}]}`
 			}
-			_, err := parseKnowledgeManifest([]byte(raw))
-			if name == "duplicate id" {
+			manifest, err := parseKnowledgeManifest([]byte(raw))
+			switch name {
+			case "unknown field":
+				if err != nil {
+					t.Fatalf("an additive record field was refused: %v", err)
+				}
+				if got := manifest.Records[0].Summary; got != "Summary" {
+					t.Fatalf("summary = %q", got)
+				}
+			case "duplicate id":
 				assertFailureKind(t, err, KindKnowledgeAmbiguous)
-			} else {
+			default:
 				assertFailureKind(t, err, KindInvalidNoteProof)
 			}
 		})
@@ -218,7 +230,6 @@ func TestKnowledgeManifestV12RequiresDomainHomesAndDomainScopes(t *testing.T) {
 	for name, raw := range map[string]string{
 		"missing domain registry": strings.Replace(valid, `,"domain_registry":{"schema_version":"1.0","product_key":"concord","root_domain_id":"product-root:concord","domains":[{"domain_id":"product-root:concord","name":"Concord","purpose":"Product-wide Concord law and architecture","status":"current","architecture_relations":[]}]}`, "", 1),
 		"missing domain scope":    strings.Replace(valid, `,"domain_ids":[]`, "", 1),
-		"retired component scope": strings.Replace(valid, `"domain_ids":[]`, `"domain_ids":[],"component_ids":[]`, 1),
 		"missing law home":        strings.Replace(valid, `,"home_domain_id":"product-root:concord","product_wide_rationale":"Fixture law binds every child Domain."`, "", 1),
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -227,6 +238,19 @@ func TestKnowledgeManifestV12RequiresDomainHomesAndDomainScopes(t *testing.T) {
 			}
 		})
 	}
+	// The retired component_ids scope field is an undeclared field the reader
+	// drops instead of refusing the document (CD-0177); the declared scope
+	// arrays still carry the rule this test holds.
+	t.Run("retired component scope", func(t *testing.T) {
+		raw := strings.Replace(valid, `"domain_ids":[]`, `"domain_ids":[],"component_ids":[]`, 1)
+		manifest, err := parseKnowledgeManifest([]byte(raw))
+		if err != nil {
+			t.Fatalf("a retired scope field the model drops was refused: %v", err)
+		}
+		if got := manifest.Records[0].Scopes.DomainIDs; got == nil || len(got) != 0 {
+			t.Fatalf("domain_ids = %v", got)
+		}
+	})
 }
 
 func TestKnowledgeManifestV12RequiresLawHomeForApplicability(t *testing.T) {

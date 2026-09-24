@@ -211,26 +211,158 @@ func (s *Service) ExpandTrustedClientPolicy(ctx context.Context, clientRef strin
 		return errors.New("invalid trusted client policy additions")
 	}
 	add := canonicalPolicy(additions)
-	return s.Store.MutateTrustedClientPolicy(ctx, clientRef, func(current store.TrustedClientRecord) (store.TrustedClientRecord, error) {
+	return s.Store.MutateTrustedClientPolicy(ctx, clientRef, unionPolicyExpansion("agent_expand_policy", add))
+}
+
+// unionPolicyExpansion returns the mutate closure that unions the canonical
+// additions into every policy dimension under the dimension bounds. The
+// operator verb and the agent grant-request route both apply the union through
+// this one owner, so bounds, ordering, and survival of every existing grant
+// cannot drift between the two routes.
+func unionPolicyExpansion(op string, add canonicalPolicyJSON) func(store.TrustedClientRecord) (store.TrustedClientRecord, error) {
+	return func(current store.TrustedClientRecord) (store.TrustedClientRecord, error) {
 		next := current
 		var err error
-		if next.CapabilitiesJSON, err = unionPolicyJSON("agent_expand_policy", "capabilities", current.CapabilitiesJSON, add.capabilities, 32); err != nil {
+		if next.CapabilitiesJSON, err = unionPolicyJSON(op, "capabilities", current.CapabilitiesJSON, add.capabilities, 32); err != nil {
 			return current, err
 		}
-		if next.ProductScopeJSON, err = unionPolicyJSON("agent_expand_policy", "product scope", current.ProductScopeJSON, add.products, 100); err != nil {
+		if next.ProductScopeJSON, err = unionPolicyJSON(op, "product scope", current.ProductScopeJSON, add.products, 100); err != nil {
 			return current, err
 		}
-		if next.ProjectScopeJSON, err = unionPolicyJSON("agent_expand_policy", "project scope", current.ProjectScopeJSON, add.projects, 100); err != nil {
+		if next.ProjectScopeJSON, err = unionPolicyJSON(op, "project scope", current.ProjectScopeJSON, add.projects, 100); err != nil {
 			return current, err
 		}
 		// The agent scope is a policy dimension like the others (CD-0049 D5).
 		// An expansion that skipped it would leave a client unable to present
 		// an agent it was just granted.
-		if next.AgentScopeJSON, err = unionPolicyJSON("agent_expand_policy", "agent scope", current.AgentScopeJSON, add.agents, 100); err != nil {
+		if next.AgentScopeJSON, err = unionPolicyJSON(op, "agent scope", current.AgentScopeJSON, add.agents, 100); err != nil {
 			return current, err
 		}
 		return next, nil
-	})
+	}
+}
+
+// grantRequestCapabilities names the closed capability vocabulary the agent
+// grant-request route may carry. worker_evidence and worker_dispatch are
+// absent because both authorize client-only signed writes (CD-0044): no
+// bearer route may request them, so the operator CLI stays their only path.
+// Tool arguments still cannot add capabilities (CD-0071 D1); this route only
+// proposes, and the core applies a proposal after an independent operator
+// approval in the same transaction.
+var grantRequestCapabilities = map[Capability]struct{}{
+	Capability("product_read"):    {},
+	Capability("work_define"):     {},
+	Capability("work_transition"): {},
+	Capability("work_relate"):     {},
+	Capability("work_compact"):    {},
+	Capability("work_initiative"): {},
+	Capability("cross_scope"):     {},
+	Capability("research"):        {},
+}
+
+// TrustedClientPolicyVersion derives the version of a stored trusted client
+// policy: a digest over the stored principal, every policy dimension, and the
+// policy revision the store bumps on every policy write. The grant-request
+// route binds the operator approval to this version, so a policy that changed
+// after the challenge was minted — by any route — invalidates the approval
+// instead of expanding on top of it. The revision makes the version monotonic
+// across writes: a policy whose content is restored to its exact prior state
+// still yields a new version, so an approval minted before a change-then-
+// restore round trip refuses against the restored policy instead of applying.
+func TrustedClientPolicyVersion(current store.TrustedClientRecord) string {
+	return sha256Hex([]byte("client-policy-v2\x00" + current.ClientRef + "|" + current.PrincipalRef + "|" + current.CapabilitiesJSON + "|" + current.ProductScopeJSON + "|" + current.ProjectScopeJSON + "|" + current.AgentScopeJSON + "|" + fmt.Sprintf("%d", current.PolicyRevision)))
+}
+
+// PolicyExpansionProposal is the core-derived exact additive diff between a
+// stored trusted client policy and the requested additions: every entry the
+// client does not hold yet, per dimension, sorted, with the policy version
+// the diff was derived against. It confers no authority; applying it still
+// requires the operator approval and happens only inside the approval
+// transaction.
+type PolicyExpansionProposal struct {
+	ClientRef     string
+	PolicyVersion string
+	Capabilities  []Capability
+	ProductScope  []string
+	ProjectScope  []string
+	AgentScope    []string
+}
+
+// maxGrantRequestTotalAdditions caps the total additions one grant request may
+// propose across all four policy dimensions. The smallest carrier that must
+// render the minted challenge is the approval_required details.scope array,
+// whose closed envelope admits 20 string bindings, and client_ref plus
+// policy_version always take two of them. A request past this bound would
+// commit a challenge whose approval response cannot be delivered, so the
+// derivation refuses it before any challenge or policy write.
+const maxGrantRequestTotalAdditions = 18
+
+// DeriveTrustedClientPolicyExpansion diffs the requested additions against
+// the stored policy and returns only the entries the client does not hold
+// yet. It validates the request vocabulary, the per-dimension bounds, and
+// the union bounds, and changes nothing. The grant-request route runs it
+// before the challenge is minted and again inside the approval transaction,
+// so a policy that moved between the two reads refuses instead of applying.
+func DeriveTrustedClientPolicyExpansion(current store.TrustedClientRecord, additions TrustedClientPolicy) (PolicyExpansionProposal, error) {
+	if current.Status != "active" {
+		return PolicyExpansionProposal{}, newRuntimeFailure("unknown_scope", fmt.Sprintf("trusted client %q is unknown or revoked; the operator registers and restores clients", current.ClientRef), "contact_operator", false)
+	}
+	if !validPolicyGrants(additions) {
+		return PolicyExpansionProposal{}, newRuntimeFailure("invalid_input", "grant-request additions name an unknown capability, duplicate an entry, exceed a policy bound, or carry an out-of-bounds scope value", "reread_entities", false)
+	}
+	for _, capability := range additions.Capabilities {
+		if _, allowed := grantRequestCapabilities[capability]; !allowed {
+			return PolicyExpansionProposal{}, newRuntimeFailure("unauthorized", fmt.Sprintf("capability %q cannot be requested through a bearer route; the operator grants it with concord client-policy-expand", capability), "contact_operator", false)
+		}
+	}
+	var storedCaps, storedProducts, storedProjects, storedAgents []string
+	if json.Unmarshal([]byte(current.CapabilitiesJSON), &storedCaps) != nil || json.Unmarshal([]byte(current.ProductScopeJSON), &storedProducts) != nil || json.Unmarshal([]byte(current.ProjectScopeJSON), &storedProjects) != nil || json.Unmarshal([]byte(current.AgentScopeJSON), &storedAgents) != nil {
+		return PolicyExpansionProposal{}, newRuntimeFailure("internal_error", "the stored trusted client policy is unreadable", "contact_operator", false)
+	}
+	proposal := PolicyExpansionProposal{ClientRef: current.ClientRef, PolicyVersion: TrustedClientPolicyVersion(current)}
+	proposedCaps, err := deltaGrants(capabilityStrings(additions.Capabilities), storedCaps, len(storedCaps), 32)
+	if err != nil {
+		return PolicyExpansionProposal{}, err
+	}
+	proposal.Capabilities = capabilityValues(proposedCaps)
+	if proposal.ProductScope, err = deltaGrants(additions.ProductScope, storedProducts, len(storedProducts), 100); err != nil {
+		return PolicyExpansionProposal{}, err
+	}
+	if proposal.ProjectScope, err = deltaGrants(additions.ProjectScope, storedProjects, len(storedProjects), 100); err != nil {
+		return PolicyExpansionProposal{}, err
+	}
+	if proposal.AgentScope, err = deltaGrants(additions.AgentScope, storedAgents, len(storedAgents), 100); err != nil {
+		return PolicyExpansionProposal{}, err
+	}
+	if len(proposedCaps)+len(proposal.ProductScope)+len(proposal.ProjectScope)+len(proposal.AgentScope) == 0 {
+		return PolicyExpansionProposal{}, newRuntimeFailure("invalid_input", "the grant request adds nothing the client does not hold; name the grants the dependent work needs", "reread_entities", false)
+	}
+	if len(proposal.Capabilities)+len(proposal.ProductScope)+len(proposal.ProjectScope)+len(proposal.AgentScope) > maxGrantRequestTotalAdditions {
+		return PolicyExpansionProposal{}, newRuntimeFailure("invalid_input", "the grant request proposes more total additions than the operator challenge can render; request fewer grants or split the request", "reread_entities", false)
+	}
+	return proposal, nil
+}
+
+// deltaGrants returns the sorted entries of requested that stored does not
+// hold, refusing when adding them would push the dimension past its bound.
+func deltaGrants(requested, stored []string, storedCount, bound int) ([]string, error) {
+	delta := make([]string, 0, len(requested))
+	for _, value := range normalizeStrings(requested) {
+		if !contains(stored, value) && !contains(delta, value) {
+			delta = append(delta, value)
+		}
+	}
+	if storedCount+len(delta) > bound {
+		return nil, newRuntimeFailure("invalid_input", "the grant union exceeds the policy bound of "+fmt.Sprint(bound)+" for one dimension; request fewer grants or ask the operator to restate the policy", "reread_entities", false)
+	}
+	return delta, nil
+}
+
+// equalPolicyExpansion reports whether two proposals describe the same diff
+// against the same policy version, so a proposal derived outside the
+// approval transaction can be proven unchanged inside it.
+func equalPolicyExpansion(left, right PolicyExpansionProposal) bool {
+	return left.ClientRef == right.ClientRef && left.PolicyVersion == right.PolicyVersion && equalStrings(capabilityStrings(left.Capabilities), capabilityStrings(right.Capabilities)) && equalStrings(left.ProductScope, right.ProductScope) && equalStrings(left.ProjectScope, right.ProjectScope) && equalStrings(left.AgentScope, right.AgentScope)
 }
 
 // unionPolicyJSON decodes both canonical JSON arrays, unions them without
@@ -421,13 +553,15 @@ func (s *Service) authorizeResolved(ctx context.Context, tx *store.Transaction, 
 		return Authority{}, authorityRefusal("project outside resolved scope")
 	}
 	projects := []string{resolved.ProjectID}
-	product := in.ProductID
-	if product == "" && len(candidateProducts) == 1 {
-		product = candidateProducts[0]
-	}
-	// The ambient repository selects the Product. Current Product membership,
-	// not the repository locator allowlist, owns its Project authority.
-	if product != "" {
+	// Project authority follows current Product membership (CD-0152 D1). The
+	// explicit policy is the authority source for Products, so every Product
+	// it authorizes contributes its current Projects: the authority spans
+	// every Project of every authorized Product, and the ambient locator
+	// neither limits it nor selects a narrower set. A Project a Product no
+	// longer owns drops out on the next invocation.
+	authorizedProducts := normalizeStrings(policyProducts)
+	seenProjects := map[string]bool{resolved.ProjectID: true}
+	for _, product := range authorizedProducts {
 		var memberships []store.ProjectMembership
 		if tx == nil {
 			memberships, err = s.Store.ProjectsForProduct(ctx, product)
@@ -437,14 +571,15 @@ func (s *Service) authorizeResolved(ctx context.Context, tx *store.Transaction, 
 		if err != nil {
 			return Authority{}, err
 		}
-		projects = nil
 		for _, membership := range memberships {
-			projects = append(projects, membership.ID)
+			if !seenProjects[membership.ID] {
+				seenProjects[membership.ID] = true
+				projects = append(projects, membership.ID)
+			}
 		}
-		projects = normalizeStrings(projects)
 	}
 	snapshot := map[string]any{"project_id": resolved.ProjectID, "product_ids": candidateProducts, "scope_version": scopeVersion}
-	return Authority{PrincipalRef: client.PrincipalRef, ClientRef: client.ClientRef, SessionRef: in.SessionRef, AgentRef: in.AgentRef, Directory: in.Directory, Worktree: in.Worktree, ManifestDigest: ManifestDigest, Capabilities: capabilityValues(normalizeStrings(policyCaps)), ProductScope: candidateProducts, ProjectScope: projects, ScopeVersion: scopeVersion, CandidateProducts: candidateProducts, ScopeSnapshot: snapshot, PolicyProductScope: normalizeStrings(policyProducts), PolicyProjectScope: normalizeStrings(policyProjects), MainWorktree: resolved.MainWorktree}, nil
+	return Authority{PrincipalRef: client.PrincipalRef, ClientRef: client.ClientRef, SessionRef: in.SessionRef, AgentRef: in.AgentRef, Directory: in.Directory, Worktree: in.Worktree, ManifestDigest: ManifestDigest, Capabilities: capabilityValues(normalizeStrings(policyCaps)), ProductScope: authorizedProducts, ProjectScope: normalizeStrings(projects), ScopeVersion: scopeVersion, CandidateProducts: candidateProducts, ScopeSnapshot: snapshot, PolicyProductScope: normalizeStrings(policyProducts), PolicyProjectScope: normalizeStrings(policyProjects), MainWorktree: resolved.MainWorktree}, nil
 }
 
 // authorityRefusal marks the authorization boundary as a typed refusal.
@@ -812,13 +947,13 @@ func scopeWithinAuthority(scope map[string]any, authority Authority) bool {
 	return true
 }
 func validChallengeScope(scope map[string]any) bool {
-	allowed := map[string]bool{"product_id": true, "product_ids": true, "project_ids": true, "work_ids": true, "failed_attempt_id": true, "scope_version": true, "project_id": true, "role": true}
+	allowed := map[string]bool{"product_id": true, "product_ids": true, "project_ids": true, "work_ids": true, "failed_attempt_id": true, "scope_version": true, "project_id": true, "role": true, "client_ref": true, "policy_version": true, "capabilities": true, "product_scope": true, "project_scope": true, "agent_scope": true}
 	for key, value := range scope {
 		if !allowed[key] {
 			return false
 		}
 		switch key {
-		case "product_id", "scope_version", "project_id":
+		case "product_id", "scope_version", "project_id", "client_ref", "policy_version":
 			if text, ok := value.(string); !ok || !bounded(text, 1, 128) {
 				return false
 			}
@@ -826,16 +961,20 @@ func validChallengeScope(scope map[string]any) bool {
 			if text, ok := value.(string); !ok || (text != "primary" && text != "secondary") {
 				return false
 			}
-		case "failed_attempt_id", "product_ids", "project_ids", "work_ids":
+		case "failed_attempt_id", "product_ids", "project_ids", "work_ids", "capabilities", "product_scope", "project_scope", "agent_scope":
 			if key == "failed_attempt_id" {
 				if text, ok := value.(string); !ok || !bounded(text, 1, 128) {
 					return false
 				}
 				continue
 			}
+			bound := 100
+			if key == "capabilities" {
+				bound = 32
+			}
 			switch ids := value.(type) {
 			case []any:
-				if len(ids) > 100 {
+				if len(ids) > bound {
 					return false
 				}
 				for _, raw := range ids {
@@ -845,7 +984,7 @@ func validChallengeScope(scope map[string]any) bool {
 					}
 				}
 			case []string:
-				if len(ids) > 100 {
+				if len(ids) > bound {
 					return false
 				}
 				for _, text := range ids {
@@ -861,7 +1000,7 @@ func validChallengeScope(scope map[string]any) bool {
 	return true
 }
 func validChallengeVersions(versions map[string]any) bool {
-	allowed := map[string]bool{"work": true, "contract": true, "operation": true, "terminal_work": true, "predecessor": true, "successor": true, "from": true, "to": true, "from_contract": true, "to_contract": true, "target": true, "failed_attempt_epoch": true, "product": true}
+	allowed := map[string]bool{"work": true, "contract": true, "operation": true, "terminal_work": true, "predecessor": true, "successor": true, "from": true, "to": true, "from_contract": true, "to_contract": true, "target": true, "failed_attempt_epoch": true, "correction_attempts": true, "product": true}
 	for key, value := range versions {
 		if !allowed[key] {
 			return false

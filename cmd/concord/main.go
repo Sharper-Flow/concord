@@ -155,7 +155,7 @@ func formatRequiredFields(fields []commandField) string {
 var commandSpecs = []commandSpec{
 	{Canonical: "invoke", RequiredFields: requiredFields(nestedField("call_envelope", "schema_version", "request_id", "client_ref", "principal_ref", "session_ref", "agent_ref", "directory", "worktree", "ambient_project_id", "scope_version", "manifest_digest"), field("tool"), field("operation"), field("input")), Optional: "call_envelope.selected_product_id, call_envelope.host_assertion_digest, call_envelope.host_approval_assertion", Enums: "tool.operation: concord_product_view.resolve | concord_product_view.snapshot | concord_product_view.portfolio | concord_work_browse.list | concord_work_browse.blocked | concord_work_browse.ready | concord_work_browse.scope | concord_work_trace.history | concord_work_trace.continuity | concord_work_trace.relations | concord_knowledge.search | concord_knowledge.resolve_note | concord_knowledge.unprocessed | concord_work_define.capture | concord_work_define.revise_intent | concord_work_transition.lifecycle | concord_work_transition.workflow_action | concord_work_transition.session_vacate | concord_work_relate.set_memberships | concord_work_relate.link | concord_work_relate.unlink | concord_work_relate.supersede | concord_work_compact.publish | concord_work_compact.reconcile"},
 	{Canonical: "worker-dispatch", RequiredFields: requiredFields(field("event_id"), field("work_id"), field("attempt_id"), field("lane_id"), field("lane_version"), field("lane_digest"), field("packet_schema_version"), field("report_schema_version"), field("packet_digest")), Optional: "readback_model (host-reported executing model); terminal ('failed') with terminal_failure_kind and terminal_detail for an attempt born failed, such as a lost or ambiguous readback; host_provenance.digest (sha256), host_provenance.sources[] (kind: agent_definition | agents_md | instruction_file | unenumerated; path; sha256) — required for v3 evidence (CD-0034)", Enums: "none"},
-	{Canonical: "worker-complete", RequiredFields: requiredFields(field("event_id"), field("work_id"), field("attempt_id"), field("readback_model"), field("report_schema_version"), field("evidence_origin")), Optional: "worker_directory, evidence[] — required when evidence_origin is reported", Enums: "evidence_origin: reported | legacy_unavailable; evidence[].obligation: bounded_findings | commands | contract_findings | exit_codes | failure_classification | files_touched | severity | source_citations | uncertainties | unresolved_issues | verification_commands | visual_artifacts; reported evidence must discharge every obligation the dispatching lane declares"},
+	{Canonical: "worker-complete", RequiredFields: requiredFields(field("event_id"), field("work_id"), field("attempt_id"), field("readback_model"), field("report_schema_version"), field("evidence_origin")), Optional: "worker_directory, base_comparison, evidence[] — required when evidence_origin is reported", Enums: "evidence_origin: reported | legacy_unavailable; evidence[].obligation: bounded_findings | commands | contract_findings | exit_codes | failure_classification | files_touched | severity | source_citations | uncertainties | unresolved_issues | verification_commands | visual_artifacts; reported evidence must discharge every obligation the dispatching lane declares; base_comparison.checks[] results: pass | fail | not_run"},
 	{Canonical: "worker-fail", RequiredFields: requiredFields(field("event_id"), field("work_id"), field("attempt_id"), field("readback_model"), field("failure_kind"), field("detail")), Optional: "observed_session_directories[] when failure_kind is abandoned — the host's live session and directory observation", Enums: "failure_kind: fallback_blocked | worker_error | invalid_report | abandoned"},
 	{Canonical: "worker-abandon", RequiredFields: requiredFields(field("event_id"), field("work_id"), field("attempt_id"), field("detail"), field("observed_session_directories")), Optional: "none", Enums: "the host signs a worker-fail assertion with failure_kind abandoned; readback_model is derived from the dispatched attempt"},
 	{Canonical: "client-register", TwoWord: "client register", RequiredFields: requiredFields(field("client_ref"), field("key_id"), field("principal_ref"), field("public_key"), field("capabilities"), field("product_scope"), field("project_scope"), field("agent_scope")), Optional: "none", Enums: "capabilities: product_read | work_define | work_transition | work_relate | work_compact | work_initiative | cross_scope | research | worker_evidence | worker_dispatch; public_key: base64 Ed25519; agent_scope: the agent references this client may present"},
@@ -195,7 +195,7 @@ var commandSpecs = []commandSpec{
 	{Canonical: "work-shelve", RequiredFields: requiredFields(field("operation_id"), field("idempotency_key"), field("work_id"), field("expected_version"), field("handoff")), Optional: "product_id, linear, actor, safety evidence", Enums: "reason is fixed to shelved; no sixth lifecycle state"},
 	{Canonical: "work-cancel", RequiredFields: requiredFields(field("operation_id"), field("idempotency_key"), field("work_id"), field("expected_version"), field("handoff")), Optional: "product_id, linear, actor, safety evidence", Enums: "reason is fixed to cancelled; removal is not archival"},
 	{Canonical: "ci-wait", RequiredFields: requiredFields(field("selector"), field("repo")), Optional: "mode (pr checks|merge), time_seconds_max, state_file", Enums: "selector.kind: pr|sha|run; mode: checks|merge"},
-	{Canonical: "session-prepare", RequiredFields: requiredFields(field("product_id"), field("work_id"), field("agent")), Optional: "task (bounded to 8192 bytes; a resume supplies none); agent is the active agent", Enums: "none"},
+	{Canonical: "session-prepare", RequiredFields: requiredFields(field("product_id"), field("work_id"), field("agent")), Optional: "task (max 8192 bytes; none on resume); agent is the active agent; refusals exit 2", Enums: "none"},
 	{Canonical: "project-resolve", TwoWord: "project resolve", RequiredFields: requiredFields(field("directory")), Optional: "worktree (defaults to directory)", Enums: "none"},
 	{Canonical: "restore", RequiredFields: requiredFields(field("source"), field("destination")), Optional: "none", Enums: "source: existing verified backup snapshot path; destination: absolute clean path that does not yet exist and is not the live database"},
 	{Canonical: "predecessor-inventory", TwoWord: "predecessor inventory", RequiredFields: requiredFields(field("snapshot_path")), Optional: "none", Enums: "snapshot_path: absolute path to a predecessor snapshot file (CD-0097)"},
@@ -686,6 +686,11 @@ type workerCompleteRequest struct {
 	// (CD-0056 D1/D6).
 	Evidence       []store.WorkerReportEvidence `json:"evidence"`
 	EvidenceOrigin string                       `json:"evidence_origin"`
+	// BaseComparison is the optional informational comparison the worker
+	// reported between branch and base results of its verification commands.
+	// It joins no obligation vocabulary and no workflow route reads it
+	// (CD-0043 D1).
+	BaseComparison *store.WorkerBaseComparison `json:"base_comparison,omitempty"`
 }
 
 type workerFailRequest struct {
@@ -792,7 +797,7 @@ func runWorkerCommand(command string, raw []byte, s *store.Store, service *agent
 			AttemptID:     request.AttemptID,
 			ReadbackModel: request.ReadbackModel,
 		}
-		payload := store.WorkerCompletedPayload{AttemptID: request.AttemptID, ReadbackModel: request.ReadbackModel, ReportSchemaVersion: request.ReportSchemaVersion, WorkerDirectory: request.WorkerDirectory, Evidence: request.Evidence, EvidenceOrigin: request.EvidenceOrigin}
+		payload := store.WorkerCompletedPayload{AttemptID: request.AttemptID, ReadbackModel: request.ReadbackModel, ReportSchemaVersion: request.ReportSchemaVersion, WorkerDirectory: request.WorkerDirectory, Evidence: request.Evidence, EvidenceOrigin: request.EvidenceOrigin, BaseComparison: request.BaseComparison}
 		event := store.Event{EventID: request.EventID, Kind: store.WorkerCompleted, SubjectType: store.SubjectWorkItem, SubjectID: request.WorkID, OccurredAt: clock().UTC(), PayloadVersion: 2, Payload: mustMarshalWorkerPayload(payload)}
 		return applyWorkerEvidence(ctx, command, s, service, request.Assertion, binding, nil, event, out, errOut)
 	case "worker-fail":
@@ -1436,8 +1441,9 @@ func runLinearOutboxDrain(ctx context.Context, s *store.Store, raw []byte, comma
 			}
 		}
 		var (
-			issue linearclient.Issue
-			derr  error
+			issue    linearclient.Issue
+			revision string
+			derr     error
 			// sentProjectID is the owning Initiative's Project the operation
 			// put on the wire: the completion compares it against the link's
 			// state at completion time, so a project_create that lands inside
@@ -1470,7 +1476,7 @@ func runLinearOutboxDrain(ctx context.Context, s *store.Store, raw []byte, comma
 			continue
 		}
 		if op.OpKind == store.LinearOpIssueUpdate {
-			issue, sentProjectID, derr = drainUpdate(ctx, s, client, op, payload, connection)
+			issue, revision, sentProjectID, derr = drainUpdate(ctx, s, client, op, payload, connection)
 		} else if op.OpKind == store.LinearOpIssueAdopt {
 			issue, derr = drainAdopt(ctx, client, payload, teamID)
 		} else {
@@ -1487,9 +1493,7 @@ func runLinearOutboxDrain(ctx context.Context, s *store.Store, raw []byte, comma
 				continue
 			}
 			sentProjectID = projectID
-			issue, derr = client.CreateIssue(ctx, linearclient.CreateIssueInput{
-				ID: payload.ClientUUID, TeamID: teamID, ProjectID: projectID, Title: payload.Title, Description: payload.Description, LabelIDs: payload.LabelIDs, StatusID: payload.StatusID, Priority: payload.Priority,
-			})
+			issue, derr = drainCreate(ctx, client, payload, teamID, projectID)
 		}
 		if derr != nil {
 			class := "permanent"
@@ -1505,12 +1509,18 @@ func runLinearOutboxDrain(ctx context.Context, s *store.Store, raw []byte, comma
 			HumanKey:        issue.Identifier,
 			URL:             issue.URL,
 			RemoteUpdatedAt: issue.UpdatedAt.UTC().Format(time.RFC3339Nano),
-			ContentHash:     linearContentHash(payload.Title, payload.Description),
 		}
-		if op.OpKind == store.LinearOpIssueAdopt {
-			// Adoption records an issue Concord has never authored; no
-			// synchronized content exists to hash yet.
-			identity.ContentHash = ""
+		switch {
+		case op.OpKind == store.LinearOpIssueCreate:
+			// Creation writes the remote title and description, so its
+			// completion records their digest.
+			identity.ContentHash = linearContentHash(payload.Title, payload.Description)
+		case revision != "":
+			// The update published the approved later composition as a
+			// revision comment, so its completion records that digest. A
+			// routing-only update claims no content and leaves the recorded
+			// digest standing.
+			identity.ContentHash = revision
 		}
 		// Create and update completions compare the sent Project against the
 		// link read inside the same transaction and enqueue the converging
@@ -1529,7 +1539,11 @@ func runLinearOutboxDrain(ctx context.Context, s *store.Store, raw []byte, comma
 			results = append(results, drained{OperationID: op.OperationID, Outcome: class, Detail: completeErr.Error()})
 			continue
 		}
-		results = append(results, drained{OperationID: op.OperationID, Outcome: "done", Identifier: issue.Identifier})
+		detail := ""
+		if revision != "" {
+			detail = "published managed revision comment " + revision
+		}
+		results = append(results, drained{OperationID: op.OperationID, Outcome: "done", Identifier: issue.Identifier, Detail: detail})
 	}
 	linkRefreshes := refreshLinearLinkIdentities(ctx, s, client, request.ProductID)
 	return writeJSON(out, map[string]any{"ok": true, "drained": len(results), "operations": results, "link_refreshes": linkRefreshes}, errOut)
@@ -1696,21 +1710,39 @@ func drainProject(ctx context.Context, s *store.Store, client *linearclient.Clie
 // keys are never Concord's to remove. The resolved Project rides the return
 // value so the completion can compare it against the link's state at
 // completion time and queue the converging update when the project_create
-// landed inside the drain-to-completion window.
-func drainUpdate(ctx context.Context, s *store.Store, client *linearclient.Client, op store.ClaimedLinearOperation, payload linearDrainPayload, connection store.LinearConnection) (linearclient.Issue, string, error) {
+// landed inside the drain-to-completion window. Linear's issueUpdate carries
+// no conditional-write guard, so a post-create content write can erase a
+// human edit that lands between a remote read and the write. Updates
+// therefore synchronize the managed routing fields only (project, state,
+// labels) and never send the generated title or description to the issue
+// body. When the composed content diverges from the digest of what Concord
+// last published, the drain posts the approved revision on the linked issue
+// as a comment — durable Linear planning context that replaces no one's text
+// — and returns its digest so the completion records it. A repeated drain
+// finds the digests equal and publishes nothing. The comment id is the
+// operation's client UUID. Linear stores that UUID as the comment's own id
+// and refuses a repeated insert instead of upserting. A retry after a lost
+// response meets a duplicate-entity conflict: the drain resolves it by UUID,
+// verifies it sits on the linked issue, and converges instead of duplicating
+// or failing an effect that is already visible. An empty recorded digest
+// marks an issue whose body Concord never authored — explicit adoption — so
+// there is no Concord-published content to revise and the update stays
+// routing-only. A failed comment fails the operation, leaving the revision
+// explicitly unsynchronized rather than reporting a stale issue as done.
+func drainUpdate(ctx context.Context, s *store.Store, client *linearclient.Client, op store.ClaimedLinearOperation, payload linearDrainPayload, connection store.LinearConnection) (linearclient.Issue, string, string, error) {
 	link, err := s.ReadLinearLink(ctx, op.WorkID)
 	if err != nil {
-		return linearclient.Issue{}, "", err
+		return linearclient.Issue{}, "", "", err
 	}
 	if link.RemoteIssueUUID == "" || link.RemoteIssueUUID == payload.ClientUUID {
-		return linearclient.Issue{}, "", fmt.Errorf("link has no confirmed remote issue to update")
+		return linearclient.Issue{}, "", "", fmt.Errorf("link has no confirmed remote issue to update")
 	}
 	// The payload snapshot goes stale whenever the owning Initiative's
 	// project_create completes after the update was queued; the link's state
 	// at send time decides the field, and its absence clears it.
 	projectIDValue, projectErr := s.ResolveLinearProjectIDForWork(ctx, op.WorkID)
 	if projectErr != nil {
-		return linearclient.Issue{}, "", projectErr
+		return linearclient.Issue{}, "", "", projectErr
 	}
 	var projectID *string
 	if projectIDValue != "" {
@@ -1730,7 +1762,7 @@ func drainUpdate(ctx context.Context, s *store.Store, client *linearclient.Clien
 	if len(managed) > 0 {
 		current, labelErr := client.GetIssueLabelIDs(ctx, link.RemoteIssueUUID)
 		if labelErr != nil {
-			return linearclient.Issue{}, "", labelErr
+			return linearclient.Issue{}, "", "", labelErr
 		}
 		for _, labelID := range current {
 			if managed[labelID] && !desired[labelID] {
@@ -1738,12 +1770,101 @@ func drainUpdate(ctx context.Context, s *store.Store, client *linearclient.Clien
 			}
 		}
 	}
-	if link.ContentHash != linearContentHash(payload.Title, payload.Description) {
-		input.Title = payload.Title
-		input.Description = payload.Description
-	}
 	issue, err := client.UpdateIssue(ctx, link.RemoteIssueUUID, input)
-	return issue, projectIDValue, err
+	if err != nil {
+		return linearclient.Issue{}, "", "", err
+	}
+	digest := linearContentHash(payload.Title, payload.Description)
+	if link.ContentHash == "" || link.ContentHash == digest {
+		return issue, "", projectIDValue, nil
+	}
+	comment := linearclient.CommentCreateInput{
+		ID:      payload.ClientUUID,
+		IssueID: link.RemoteIssueUUID,
+		Body:    linearRevisionComment(payload.Title, payload.Description, digest),
+	}
+	if err := client.CreateComment(ctx, comment); err != nil {
+		// Linear refuses a repeated insert on the comment's UUID instead of
+		// upserting, so a conflict names a comment a previous attempt of this
+		// operation already stored. Converge only after the read-back proves
+		// the stored comment is this operation's: its id answers this
+		// operation's UUID, it sits on the linked issue, and its stored body
+		// matches the exact revision. Any other answer is a
+		// divergence the operation must not claim as its own publication.
+		if !linearclient.IsDuplicateEntity(err) {
+			return linearclient.Issue{}, "", "", fmt.Errorf("publish managed revision comment: %w", err)
+		}
+		stored, cerr := client.GetComment(ctx, payload.ClientUUID)
+		if cerr != nil {
+			// The conflict proved the comment exists, so the lookup failure
+			// decides retryability, as in drainCreate.
+			return linearclient.Issue{}, "", "", fmt.Errorf("publish managed revision comment: resolve stored comment: %w", cerr)
+		}
+		if stored.ID != payload.ClientUUID {
+			return linearclient.Issue{}, "", "", fmt.Errorf("publish managed revision comment: lookup for %s returned comment id %s", payload.ClientUUID, stored.ID)
+		}
+		if stored.IssueID != link.RemoteIssueUUID {
+			return linearclient.Issue{}, "", "", fmt.Errorf("publish managed revision comment: comment %s sits on issue %s, not the linked issue", stored.ID, link.RemoteIssueUUID)
+		}
+		if stored.Body != comment.Body {
+			return linearclient.Issue{}, "", "", fmt.Errorf("publish managed revision comment: stored body differs for comment %s; revision digest %s is not verified", stored.ID, digest)
+		}
+	}
+	return issue, digest, projectIDValue, nil
+}
+
+// drainCreate executes issueCreate and converges a repeated create. Linear
+// stores the sent client UUID as the issue's own UUID and refuses a second
+// insert instead of upserting, so a duplicate-entity conflict means a
+// previous attempt of this operation already created the issue — the
+// lost-response case the durable retry exists for. Resolution reads the
+// issue by the operation's own UUID: any other identifier would adopt an
+// issue this operation did not create. projectID is the owning Initiative's
+// Linear Project the drain resolved at send time (CD-0171 D6), not an
+// enqueue-time snapshot.
+func drainCreate(ctx context.Context, client *linearclient.Client, payload linearDrainPayload, teamID, projectID string) (linearclient.Issue, error) {
+	issue, err := client.CreateIssue(ctx, linearclient.CreateIssueInput{
+		ID: payload.ClientUUID, TeamID: teamID, ProjectID: projectID, Title: payload.Title, Description: payload.Description, LabelIDs: payload.LabelIDs, StatusID: payload.StatusID, Priority: payload.Priority,
+	})
+	if err == nil || !linearclient.IsDuplicateEntity(err) {
+		return issue, err
+	}
+	resolved, rerr := client.GetIssue(ctx, payload.ClientUUID)
+	if rerr != nil {
+		// The issue exists remotely (the conflict proved it) but cannot be
+		// resolved right now. Returning the resolution error preserves its
+		// retryability: the retry re-creates, meets the same conflict, and
+		// resolves again.
+		return linearclient.Issue{}, rerr
+	}
+	if resolved.Issue.ID != payload.ClientUUID {
+		return linearclient.Issue{}, fmt.Errorf("resolved issue %s does not match client UUID %s", resolved.Issue.ID, payload.ClientUUID)
+	}
+	return resolved.Issue, nil
+}
+
+// linearRevisionDigestMarker renders the exact digest line a revision
+// comment carries. The convergence check compares the entire stored body
+// against the rendered comment rather than trusting this marker alone.
+func linearRevisionDigestMarker(digest string) string {
+	return "Revision digest: `" + digest + "`"
+}
+
+// linearRevisionComment renders the durable Linear planning context for an
+// approved later composition. The issue body keeps the creation-time
+// composition and every human edit; this comment carries the current managed
+// title and description, and its trailing digest names the exact composition
+// so a reader can match it against the drain result and the stored link.
+func linearRevisionComment(title, description, digest string) string {
+	var body strings.Builder
+	body.WriteString("## Managed revision\n\n")
+	body.WriteString("Concord composed new managed planning content for this issue. The issue body stays as its human editors wrote it, so the approved revision is published here instead.\n\n")
+	body.WriteString("**Managed title:** " + title + "\n")
+	if trimmed := strings.TrimSpace(description); trimmed != "" {
+		body.WriteString("\n" + trimmed + "\n")
+	}
+	body.WriteString("\n" + linearRevisionDigestMarker(digest) + "\n")
+	return body.String()
 }
 
 // drainAdopt resolves the named existing issue and verifies it belongs to the

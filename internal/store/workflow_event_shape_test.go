@@ -166,3 +166,51 @@ func TestEveryActionDeclaresOneKnownEventShape(t *testing.T) {
 			`with request.ActionID != "complete", which admits exactly one action`, completion)
 	}
 }
+
+// TestEvidenceBinderCaseArmMatchesTheProducerTable binds the dispatcher arm
+// that routes to workflowEvidenceBindingEvents to workflowCallerEvidenceBinders.
+// The reachability walk reads that table to decide which actions can produce
+// any evidence kind, so an arm label missing from the table would call a
+// producible kind unproducible, and a table entry with no arm would call a
+// kind producible that no action binds.
+func TestEvidenceBinderCaseArmMatchesTheProducerTable(t *testing.T) {
+	t.Parallel()
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, "workflow_dispatch.go", nil, 0)
+	if err != nil {
+		t.Fatalf("parse workflow_dispatch.go: %v", err)
+	}
+	var arm []string
+	ast.Inspect(file, func(node ast.Node) bool {
+		clause, ok := node.(*ast.CaseClause)
+		if !ok || len(clause.Body) != 1 {
+			return true
+		}
+		ret, ok := clause.Body[0].(*ast.ReturnStmt)
+		if !ok || len(ret.Results) != 1 {
+			return true
+		}
+		call, ok := ret.Results[0].(*ast.CallExpr)
+		if !ok {
+			return true
+		}
+		if ident, ok := call.Fun.(*ast.Ident); !ok || ident.Name != "workflowEvidenceBindingEvents" {
+			return true
+		}
+		for _, expr := range clause.List {
+			if lit, ok := expr.(*ast.BasicLit); ok && lit.Kind == token.STRING {
+				if value, err := strconv.Unquote(lit.Value); err == nil {
+					arm = append(arm, value)
+				}
+			}
+		}
+		return true
+	})
+	if len(arm) == 0 {
+		t.Fatal("found no case arm in workflow_dispatch.go that returns workflowEvidenceBindingEvents")
+	}
+	if !uniqueStrings(arm) || !sameStrings(arm, workflowCallerEvidenceBinders) {
+		sort.Strings(arm)
+		t.Fatalf("evidence binder case arm %v differs from workflowCallerEvidenceBinders %v", arm, workflowCallerEvidenceBinders)
+	}
+}

@@ -296,12 +296,112 @@ func TestResolveSessionDirectoryFailsClosedOnEveryAbsentInput(t *testing.T) {
 	if err := s.AddProjectLocator(ctx, "project-session", ProjectLocator{ID: "path-session", Kind: LocatorCanonicalPath, Value: repo}, 1); err != nil {
 		t.Fatal(err)
 	}
-	dir, err := s.ResolveSessionDirectory(ctx, "work-session")
+	resolved, err := s.ResolveSessionDirectory(ctx, "work-session")
 	if err != nil {
 		t.Fatalf("registered locator did not resolve: %v", err)
 	}
-	if dir != repo {
-		t.Fatalf("session directory=%q want the primary Project canonical path %q", dir, repo)
+	if resolved.CanonicalPath != repo {
+		t.Fatalf("session directory=%q want the primary Project canonical path %q", resolved.CanonicalPath, repo)
+	}
+	// Work with no claim carries the canonical path and no worktree
+	// candidate (CD-0176).
+	if resolved.WorktreePath != "" {
+		t.Fatalf("work with no claim resolved a worktree path %q", resolved.WorktreePath)
+	}
+}
+
+// TestResolveSessionDirectoryCarriesTheActiveWorktree covers CD-0176: the
+// read carries the work's active worktree path in its primary Project next
+// to the canonical path, and carries no worktree candidate when the entry
+// is reclaimed, when the only active entry belongs to another Project, or
+// when the work holds no claim at all.
+func TestResolveSessionDirectoryCarriesTheActiveWorktree(t *testing.T) {
+	s := openTemp(t)
+	ctx := context.Background()
+	createProductProject(t, s, "product-wt", "project-wt")
+	repo := t.TempDir()
+	if err := s.AddProjectLocator(ctx, "project-wt", ProjectLocator{ID: "path-wt", Kind: LocatorCanonicalPath, Value: repo}, 1); err != nil {
+		t.Fatal(err)
+	}
+	if err := ApplyOperation(ctx, s, Operation{Events: []Event{
+		workCreatedEvent("work-wt", "create-work-wt"),
+		membershipEvent("membership-work-wt", "work_project.added", SubjectWorkItem, "work-wt", map[string]any{
+			"work_id": "work-wt", "project_id": "project-wt", "role": "primary", "reason": "test",
+			"expected_version": 1, "resulting_version": 2,
+		}),
+	}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "work-wt"): 0}}); err != nil {
+		t.Fatal(err)
+	}
+
+	seedWorktreeClaim := func(t *testing.T, opID, projectID, path, state string) {
+		t.Helper()
+		base := strings.Repeat("a", 40)
+		branch := "work/" + projectID
+		claimState := "verified"
+		if state == "reclaimed" {
+			claimState = "reclaimed"
+		}
+		if _, err := s.db.ExecContext(ctx, `INSERT INTO worktree_claims(op_id,work_id,project_id,set_id,repository_id,pinned_branch,pinned_base_sha,pinned_path,state,principal_ref,request_id,observed_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,'operator','req-wt','now','now')`,
+			opID, "work-wt", projectID, WorktreeSetID("work-wt"), "repo-"+projectID, branch, base, path, claimState); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := s.db.ExecContext(ctx, `INSERT INTO worktree_entries(set_id,project_id,claim_op_id,branch,base_sha,path,repository_id,state,verified_at,git_facts) VALUES(?,?,?,?,?,?,?,?,?,'{}')`,
+			WorktreeSetID("work-wt"), projectID, opID, branch, base, path, "repo-"+projectID, state, "now"); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	worktree := filepath.Join(t.TempDir(), "wt-active")
+	seedWorktreeClaim(t, "wt-op-active", "project-wt", worktree, "active")
+	resolved, err := s.ResolveSessionDirectory(ctx, "work-wt")
+	if err != nil {
+		t.Fatalf("active worktree did not resolve: %v", err)
+	}
+	if resolved.WorktreePath != filepath.Clean(worktree) {
+		t.Fatalf("worktree path=%q want %q", resolved.WorktreePath, filepath.Clean(worktree))
+	}
+	if resolved.CanonicalPath != repo {
+		t.Fatalf("canonical path=%q want %q", resolved.CanonicalPath, repo)
+	}
+
+	// A reclaimed entry is not a landing candidate.
+	if _, err := s.db.ExecContext(ctx, `UPDATE worktree_entries SET state='reclaimed' WHERE set_id=? AND project_id='project-wt'`, WorktreeSetID("work-wt")); err != nil {
+		t.Fatal(err)
+	}
+	fall, err := s.ResolveSessionDirectory(ctx, "work-wt")
+	if err != nil {
+		t.Fatalf("reclaimed worktree refused instead of falling back: %v", err)
+	}
+	if fall.WorktreePath != "" || fall.CanonicalPath != repo {
+		t.Fatalf("reclaimed resolution=%+v, want the canonical path only", fall)
+	}
+
+	// An active entry whose claim is reclaimed is not a landing candidate.
+	if _, err := s.db.ExecContext(ctx, `UPDATE worktree_entries SET state='active' WHERE set_id=? AND project_id='project-wt'`, WorktreeSetID("work-wt")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.db.ExecContext(ctx, `UPDATE worktree_claims SET state='reclaimed' WHERE op_id='wt-op-active'`); err != nil {
+		t.Fatal(err)
+	}
+	diverged, err := s.ResolveSessionDirectory(ctx, "work-wt")
+	if err != nil {
+		t.Fatalf("reclaimed claim refused instead of falling back: %v", err)
+	}
+	if diverged.WorktreePath != "" || diverged.CanonicalPath != repo {
+		t.Fatalf("reclaimed-claim resolution=%+v, want the canonical path only", diverged)
+	}
+
+	// An active entry in a Project other than the primary one is not a
+	// landing candidate.
+	createProductProject(t, s, "product-wt-other", "project-wt-other")
+	other := filepath.Join(t.TempDir(), "wt-other")
+	seedWorktreeClaim(t, "wt-op-other", "project-wt-other", other, "active")
+	crossed, err := s.ResolveSessionDirectory(ctx, "work-wt")
+	if err != nil {
+		t.Fatalf("foreign-project worktree refused instead of falling back: %v", err)
+	}
+	if crossed.WorktreePath != "" || crossed.CanonicalPath != repo {
+		t.Fatalf("foreign-project resolution=%+v, want the canonical path only", crossed)
 	}
 }
 

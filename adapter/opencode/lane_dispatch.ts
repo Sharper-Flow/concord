@@ -20,7 +20,7 @@ import type { ConcordInvoke } from "./packet"
 import type { CredentialStore } from "./credentials"
 import { canonicalDirectory, type DispatchWindows } from "./dispatch-window"
 import { dispatchWorker, errorEnvelopeForLane, contextPreflightRefusal, type AgentLanePacket, type AgentResultEnvelope, type DispatchRunner } from "./dispatch"
-import { agentLanes, type AgentLane } from "./generated-agent-lanes"
+import { agentLanes, agentUtilities, type AgentLane, type AgentUtility } from "./generated-agent-lanes"
 import { buildAgentLanePacket, type AgentLanePacketFailureKind } from "./packet"
 import { hostControlPlane } from "./move-session"
 import { dispatchRequiresNextTurn, TURN_MOVE_DISPATCH_REFUSAL } from "./turn-move-boundary"
@@ -59,6 +59,35 @@ function laneForId(laneId: string): AgentLane | null {
   return agentLanes.find((candidate) => candidate.id === laneId) ?? null
 }
 
+// utilityForId looks up a registered generated utility by id. Utilities are
+// coordinator-native Tasks, not lanes: they carry no packet, no dispatch
+// window, and no lane evidence, so a dispatch_worker request naming one never
+// reaches the packet builder or the core.
+function utilityForId(laneId: string): AgentUtility | null {
+  return agentUtilities.find((candidate) => candidate.id === laneId) ?? null
+}
+
+// utilityDispatchRefusal is the typed refusal for a utility id named at
+// dispatch_worker. It is distinct from the unregistered-lane refusal: the
+// details carry the utility_dispatch boundary marker and the native route, and
+// the message names the utility and its correcting route — a coordinator-only
+// native Task with subagent_type concord-<id> and no dispatch window. The
+// refusal is retry-unsafe because retrying dispatch_worker with a utility id
+// can never succeed; the caller must issue the Task call instead.
+function utilityDispatchRefusal(utility: AgentUtility, input: LaneDispatchInput): AgentResultEnvelope {
+  const refusal = errorEnvelopeForLane(
+    null,
+    { work_id: input.work_id, lane_id: input.lane_id },
+    "error",
+    "invalid_input",
+    `dispatch_worker refuses utility id ${utility.id}: a utility runs as a native Task with subagent_type concord-${utility.id}, from a coordinator session only, and without a dispatch window; issue that Task call instead of dispatch_worker`,
+    "use_declared_route",
+    { details: { boundary: "utility_dispatch", utility: utility.id, route: `native Task with subagent_type concord-${utility.id}`, coordinator_session_only: true, dispatch_window: false } },
+  )
+  refusal.error!.retry_safe = false
+  return refusal
+}
+
 // dispatchAttemptID identifies the exact adapter request, not the time at which
 // the request reaches the host. Approval handling can resubmit the unchanged
 // request after a prompt, so a clock-based identity would change its packet and
@@ -94,6 +123,12 @@ export async function dispatchLaneWorker(input: LaneDispatchInput, deps: LaneDis
   if (dispatchRequiresNextTurn(deps.context.sessionID)) {
     return errorEnvelopeForLane(laneForId(input.lane_id), { work_id: input.work_id, lane_id: input.lane_id }, "error", "unauthorized_dispatch", TURN_MOVE_DISPATCH_REFUSAL, "retry_same_request", { details: { boundary: "turn_move" } })
   }
+  // A registered utility id is not a lane. The refusal fires before any core
+  // call — utility admission lives in the plugin's Task hook, so dispatch_worker
+  // can never authorize one — while an unknown lane id falls through to the
+  // packet builder's unregistered-lane refusal below.
+  const utility = utilityForId(input.lane_id)
+  if (utility) return utilityDispatchRefusal(utility, input)
   // The continuity read supplies the durable anchors: product identity and
   // workflow step. Anything else — narrative, mandate — is read once the
   // packet builder runs below. The strict-refusal style mirrors packet.ts's
@@ -107,15 +142,29 @@ export async function dispatchLaneWorker(input: LaneDispatchInput, deps: LaneDis
   const pinned = continuity.result.pinned
   const productIdentity = pinned.product_identity
   const workflowStep = pinned.workflow_step
+  // The packet Product is the dispatching session's core-resolved ambient
+  // Product (TS5 §2.2), which the core verifies against the session's client
+  // policy and echoes on every ok envelope's resolved_scope.product_id. A
+  // session whose Project holds no Product, or several Products without an
+  // explicit selection, resolves none, so an absent product_id covers both
+  // cases. Primary membership is never a tiebreaker, and the dispatch input
+  // carries no Product selector: the operator scopes the session. The refusal
+  // is blocked/reconcile_operation because no retry can succeed until the
+  // session's ambient scope resolves one Product.
+  const resolvedScope = isRecord(continuity.resolved_scope) ? continuity.resolved_scope : null
+  const ambientProduct = resolvedScope !== null && typeof resolvedScope.product_id === "string" && resolvedScope.product_id.length > 0 ? resolvedScope.product_id : ""
+  if (ambientProduct === "") {
+    return errorEnvelopeForLane(null, { work_id: input.work_id, lane_id: input.lane_id }, "blocked", "invalid_input", `the dispatching session resolves no ambient Product (none, or ambiguous); scope the session to one Product before dispatching ${input.work_id}`, "reconcile_operation")
+  }
   // product_identity is the distinct product set across the work item's
   // projects, so zero or several identities is valid core state, not a
-  // transport fault: the work item is unscoped or spans products, and
-  // dispatch needs exactly one product to project the packet from. The
-  // refusal is blocked/reconcile_operation because the operator must fix
-  // the project scoping before any retry can succeed.
-  if (!Array.isArray(productIdentity) || productIdentity.length !== 1 || typeof productIdentity[0] !== "string") {
-    const count = Array.isArray(productIdentity) ? String(productIdentity.length) : "none"
-    return errorEnvelopeForLane(null, { work_id: input.work_id, lane_id: input.lane_id }, "blocked", "invalid_input", `work item ${input.work_id} carries ${count} product identities; dispatch requires exactly one`, "reconcile_operation")
+  // transport fault. The ambient Product must be one of them: a work item
+  // outside the session's Product refuses the same way, before the packet
+  // builder runs and before any spawn.
+  const identities = Array.isArray(productIdentity) ? productIdentity.filter((entry): entry is string => typeof entry === "string" && entry.length > 0) : []
+  if (!identities.includes(ambientProduct)) {
+    const listed = identities.length === 0 ? "no product identities" : `product identities ${identities.join(", ")}`
+    return errorEnvelopeForLane(null, { work_id: input.work_id, lane_id: input.lane_id }, "blocked", "invalid_input", `work item ${input.work_id} carries ${listed} and does not belong to the session's ambient Product ${ambientProduct}`, "reconcile_operation")
   }
   if (typeof workflowStep !== "string") {
     return errorEnvelopeForLane(null, { work_id: input.work_id, lane_id: input.lane_id }, "error", "transport_failure", `concord_work_trace.continuity pinned workflow_step is not a string for ${input.work_id}`, "reconcile_operation")
@@ -128,7 +177,7 @@ export async function dispatchLaneWorker(input: LaneDispatchInput, deps: LaneDis
   // The packet builder performs the additional scope + trace reads it needs
   // and returns either a packet or a typed refusal; we forward refusals
   // verbatim after the kind → outcome mapping in CD-0067 D5.
-  const built = await buildAgentLanePacket({ workId: input.work_id, productId: productIdentity[0], laneId: input.lane_id, attemptId: attempt, stepId: workflowStep }, { context: deps.context, invoke: deps.invoke })
+  const built = await buildAgentLanePacket({ workId: input.work_id, productId: ambientProduct, laneId: input.lane_id, attemptId: attempt, stepId: workflowStep }, { context: deps.context, invoke: deps.invoke })
   if (built.failure) return mapPacketFailure(built.failure, { work_id: input.work_id, lane_id: input.lane_id })
   const packet = built.packet
 

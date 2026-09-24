@@ -5,6 +5,7 @@
     "tier": "legislated"
   },
   "date": "2026-08-23T00:00:00Z",
+  "doc_contract_profile": "legacy",
   "evidence": [
     "scenarios/workflow-engine.v1.json",
     "internal/store/workflow_registry.go",

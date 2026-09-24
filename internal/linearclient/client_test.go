@@ -225,6 +225,178 @@ func TestUpdateIssueAddressesRemoteIdentity(t *testing.T) {
 	}
 }
 
+func TestCreateCommentSendsClientUUIDAndBody(t *testing.T) {
+	var gotBody string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		buf := make([]byte, r.ContentLength)
+		_, _ = r.Body.Read(buf)
+		gotBody = string(buf)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":{"commentCreate":{"success":true,"comment":{"id":"0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0"}}}}`))
+	}))
+	defer server.Close()
+	client, err := New("lin_api_test", WithEndpoint(server.URL))
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = client.CreateComment(context.Background(), CommentCreateInput{
+		ID:      "0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0",
+		IssueID: "68d52710-76d9-4b41-ba45-778511d0e2ed",
+		Body:    "## Managed revision\n\nRevision digest: `sha256:abc`",
+	})
+	if err != nil {
+		t.Fatalf("CreateComment() error = %v", err)
+	}
+	for _, want := range []string{"commentCreate", `"id":"0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0"`, `"issueId":"68d52710-76d9-4b41-ba45-778511d0e2ed"`, `"body":"## Managed revision`} {
+		if !strings.Contains(gotBody, want) {
+			t.Fatalf("request body %q lacks %q", gotBody, want)
+		}
+	}
+}
+
+func TestCreateCommentRefusesDifferentReturnedID(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":{"commentCreate":{"success":true,"comment":{"id":"foreign-comment"}}}}`))
+	}))
+	defer server.Close()
+	client, err := New("lin_api_test", WithEndpoint(server.URL))
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = client.CreateComment(context.Background(), CommentCreateInput{ID: "requested-comment", IssueID: "issue-1", Body: "body"})
+	var failure *Failure
+	if !failureAs(err, &failure) || failure.Kind != KindGraphqlError {
+		t.Fatalf("different comment ID error = %v, want graphql_error", err)
+	}
+}
+
+func TestCreateCommentRefusesMutationFailure(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":{"commentCreate":{"success":false,"comment":{"id":""}}}}`))
+	}))
+	defer server.Close()
+	client, err := New("lin_api_test", WithEndpoint(server.URL))
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = client.CreateComment(context.Background(), CommentCreateInput{ID: "0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0", IssueID: "issue-1", Body: "body"})
+	var failure *Failure
+	if !failureAs(err, &failure) || failure.Kind != KindGraphqlError {
+		t.Fatalf("error = %v, want graphql_error", err)
+	}
+}
+
+// TestCreateCommentLostResponseThenConflictIsClassified models remote
+// persistence followed by a lost response: the first commentCreate is
+// received and executed, then the connection drops before any response is
+// written. The durable retry re-sends the same client UUID, and the live API
+// answers the insert conflict instead of upserting.
+// Both outcomes must keep their classification so the outbox retries the
+// first and the caller converges the second.
+func TestCreateCommentLostResponseThenConflictIsClassified(t *testing.T) {
+	const conflictBody = `{"errors":[{"message":"conflict on insert of Comment","extensions":{"type":"invalid input","code":"INPUT_ERROR","statusCode":400,"userError":true,"userPresentableMessage":"Entity Comment with id 0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0 already exists."}}],"data":null}`
+	stored := false
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		if !strings.Contains(string(body), "commentCreate") {
+			t.Errorf("unexpected call: %s", body)
+			return
+		}
+		if stored {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(conflictBody))
+			return
+		}
+		stored = true
+		hijacker, ok := w.(http.Hijacker)
+		if !ok {
+			t.Error("response does not support hijacking")
+			return
+		}
+		conn, _, err := hijacker.Hijack()
+		if err != nil {
+			t.Errorf("hijack: %v", err)
+			return
+		}
+		_ = conn.Close()
+	}))
+	defer server.Close()
+	client, err := New("lin_api_test", WithEndpoint(server.URL))
+	if err != nil {
+		t.Fatal(err)
+	}
+	input := CommentCreateInput{ID: "0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0", IssueID: "issue-1", Body: "body"}
+	err = client.CreateComment(context.Background(), input)
+	var failure *Failure
+	if !failureAs(err, &failure) || failure.Kind != KindTransport {
+		t.Fatalf("lost-response error = %v, want transport", err)
+	}
+	if !IsRetryable(err) {
+		t.Fatalf("a lost response must stay retryable: %v", err)
+	}
+	err = client.CreateComment(context.Background(), input)
+	if !failureAs(err, &failure) || failure.Kind != KindDuplicateEntity {
+		t.Fatalf("retry error = %v, want duplicate_entity", err)
+	}
+	if IsRetryable(err) {
+		t.Fatalf("a duplicate-entity conflict must not requeue a blind resend: %v", err)
+	}
+	if !IsDuplicateEntity(err) {
+		t.Fatalf("IsDuplicateEntity(%v) = false, want true", err)
+	}
+	if !strings.Contains(failure.Detail, "conflict on insert of Comment") || !strings.Contains(failure.Detail, "0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0") {
+		t.Fatalf("detail = %q, want the conflict message and the conflicted id surfaced", failure.Detail)
+	}
+}
+
+func TestGetCommentResolvesPlacement(t *testing.T) {
+	var gotBody string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		buf := make([]byte, r.ContentLength)
+		_, _ = r.Body.Read(buf)
+		gotBody = string(buf)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":{"comment":{"id":"0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0","issueId":"issue-9","body":"stored body"}}}`))
+	}))
+	defer server.Close()
+	client, err := New("lin_api_test", WithEndpoint(server.URL))
+	if err != nil {
+		t.Fatal(err)
+	}
+	comment, err := client.GetComment(context.Background(), "0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0")
+	if err != nil {
+		t.Fatalf("GetComment() error = %v", err)
+	}
+	if comment.ID != "0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0" || comment.IssueID != "issue-9" || comment.Body != "stored body" {
+		t.Fatalf("comment = %+v, want the stored identity, its issue, and its body", comment)
+	}
+	if !strings.Contains(gotBody, "comment(id:") || !strings.Contains(gotBody, "body") {
+		t.Fatalf("request body %q must resolve the comment by id with its body", gotBody)
+	}
+}
+
+func TestGetCommentReportsUnknownComment(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"errors":[{"message":"Entity not found: Comment","extensions":{"type":"invalid input","code":"INPUT_ERROR","statusCode":400,"userError":true}}],"data":null}`))
+	}))
+	defer server.Close()
+	client, err := New("lin_api_test", WithEndpoint(server.URL))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = client.GetComment(context.Background(), "0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0")
+	var failure *Failure
+	if !failureAs(err, &failure) || failure.Kind != KindGraphqlError {
+		t.Fatalf("error = %v, want graphql_error for an unknown comment", err)
+	}
+	if IsDuplicateEntity(err) {
+		t.Fatalf("an unknown-comment refusal must not classify as a duplicate entity: %v", err)
+	}
+}
+
 func TestFailureClassificationIsTyped(t *testing.T) {
 	cases := []struct {
 		name       string
@@ -245,6 +417,8 @@ func TestFailureClassificationIsTyped(t *testing.T) {
 		{"non-rate-limit extension code", http.StatusBadRequest, `{"errors":[{"message":"invalid input","extensions":{"code":"BAD_USER_INPUT"}}]}`, "", KindGraphqlError},
 		{"mutation reported failure", http.StatusOK, `{"data":{"issueCreate":{"success":false}}}`, "", KindGraphqlError},
 		{"error body surfaces", http.StatusBadRequest, `{"errors":[{"message":"an API key is not a Bearer token"}]}`, "", KindGraphqlError},
+		{"duplicate comment id on 200", http.StatusOK, `{"errors":[{"message":"conflict on insert of Comment","extensions":{"code":"INPUT_ERROR"}}],"data":null}`, "", KindDuplicateEntity},
+		{"duplicate issue id on 400", http.StatusBadRequest, `{"errors":[{"message":"conflict on insert of Issue","extensions":{"code":"INPUT_ERROR"}}],"data":null}`, "", KindDuplicateEntity},
 		{"malformed body", http.StatusOK, `not-json`, "", KindMalformedResponse},
 	}
 	for _, tc := range cases {

@@ -5,6 +5,7 @@
     "tier": "legislated"
   },
   "date": "2026-08-22T00:00:00Z",
+  "doc_contract_profile": "legacy",
   "evidence": [
     "internal/store/worker_lanes.go",
     "adapter/opencode/dispatch.ts",

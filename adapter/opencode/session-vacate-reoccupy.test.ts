@@ -324,9 +324,11 @@ connected("vacate, work-resume, vacate in one session keeps one event per reques
     expect(vacateEvents()).toHaveLength(1)
     expect(worktreeEntries()[0].occupant).toBe("")
 
-    // Work resume remains read-only. A move back from main refuses while the
-    // tool context still reports main; next-turn replay from the worktree
-    // succeeds without another move or vacate event.
+    // Work resume's read remains read-only. A move back from main refuses
+    // while the tool context still reports main; next-turn replay from the
+    // worktree succeeds without another move or vacate event, and the
+    // verified landing records the resumed session as the occupant, so the
+    // removal gates hold the worktree for it.
     const unlandedResume = await resume(repo1.repo)
     expect(unlandedResume.outcome, JSON.stringify(unlandedResume)).toBe("error")
     expect(unlandedResume.error.kind).toBe("session_directory_mismatch")
@@ -340,7 +342,7 @@ connected("vacate, work-resume, vacate in one session keeps one event per reques
     expect(resumed.worktree_path).toBe(worktree1)
     expect(moves).toHaveLength(3)
     expect(vacateEvents()).toHaveLength(1)
-    expect(worktreeEntries()[0].occupant).toBe("")
+    expect(worktreeEntries()[0].occupant).toBe(SESSION_ID)
 
     // Second vacate, new request identity: the same session leaves the same
     // worktree again and the core records a second, distinct operation.

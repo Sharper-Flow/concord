@@ -201,13 +201,19 @@ func TestDispositionsAreBoundedAndExcludeRecordPaths(t *testing.T) {
 		}
 	})
 
+	// The disposition decoder drops an undeclared field instead of refusing
+	// the document (CD-0177); the modeled fields still read through.
 	t.Run("unknown field", func(t *testing.T) {
 		raw := taxonomyManifestBytes(t, taxonomyManifest{
 			Records:      []json.RawMessage{record},
 			Dispositions: []json.RawMessage{json.RawMessage(`{"path":"docs/scratch.md","disposition":"archived","reason":"Reason.","owner":"operator"}`)},
 		})
-		if _, err := parseKnowledgeManifest(raw); err == nil {
-			t.Fatal("a disposition carried an undeclared field")
+		manifest, err := parseKnowledgeManifest(raw)
+		if err != nil {
+			t.Fatalf("a disposition carrying an additive field was refused: %v", err)
+		}
+		if got := manifest.Dispositions[0].Reason; got != "Reason." {
+			t.Fatalf("disposition reason = %q", got)
 		}
 	})
 }

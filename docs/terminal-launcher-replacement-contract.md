@@ -116,8 +116,17 @@ focus. No vim chords. Type-to-filter narrows the current list.
 
 The launcher reads the store on start, on refresh key, and on navigation
 that needs uncached detail. It polls nothing on a timer, matching C18's
-no-poll rule. Reads are Product-scoped and bounded; a read that exceeds its
-bound fails the pane, not the process.
+no-poll rule. Reads are Product-scoped and bounded. A read that exceeds its
+bound fails the affected data, not the process. One part's bound never
+withholds a sibling part's complete answer. The S2 Domain read shows its
+registry rows and Git registry watermark when the overlap or relation
+enumeration reaches its bound. It names the bounded part unavailable or
+incomplete in place. A bounded read never reports an evaluated-clean
+answer, such as "no unresolved overlaps", from an incomplete enumeration.
+CD-0048 keeps evaluated-clean distinct from unevaluated. A missing Domain
+registry stays typed unavailable. A missing Domain registry or knowledge home
+stays typed unavailable in its own section and never withholds the Product
+work list or changes screen coverage.
 
 ### 8. Failure and first run
 
@@ -132,7 +141,10 @@ bound fails the pane, not the process.
 ### 9. Rendering
 
 Bubble Tea v2 per CD-0014, behind the isolated adapter. The remake
-replaces C18's three-screen model; it keeps the dependency decision.
+replaces C18's three-screen model; it keeps the dependency decision. The
+frame fits the terminal: the help footer stays visible at 80 and 120
+columns, and detail enumeration that cannot seat in the pane rows is
+named as omitted, never silently dropped.
 
 ### 10. Anti-requirements
 

@@ -33,7 +33,7 @@ const fakeTool = Object.assign((config: any) => config, {
 })
 mock.module("@opencode-ai/plugin", () => ({ tool: fakeTool }))
 
-const { agentLanes } = await import("./generated-agent-lanes")
+const { agentLanes, agentUtilities } = await import("./generated-agent-lanes")
 const { validateAgentLanePacket } = await import("./dispatch")
 import { DispatchWindows, TASK_TOOL_ID } from "./dispatch-window"
 import type { AgentLanePacket, DispatchRunner } from "./dispatch"
@@ -66,8 +66,9 @@ const scopeEnvelope = () => envelope({
   },
 })
 
-const continuityEnvelope = (overrides: Partial<{ pinned: Record<string, unknown> }> = {}) => envelope({
+const continuityEnvelope = (overrides: Partial<{ pinned: Record<string, unknown>; resolvedScope: Record<string, unknown> | null }> = {}) => envelope({
   tool: "concord_work_trace", operation: "continuity", outcome: "ok", authority: "authoritative", freshness: null,
+  resolved_scope: overrides.resolvedScope !== undefined ? overrides.resolvedScope : { product_id: PRODUCT_ID, project_ids: [PRODUCT_ID], scope_version: "sha256:" + "b".repeat(64) },
   result: {
     work_id: WORK_ID,
     pinned: {
@@ -365,6 +366,61 @@ test("unregistered lane refuses before any core invoke or spawn", async () => {
   expect(workflowCalls).toBe(0)
 })
 
+// A registered generated utility id is not a lane: dispatch_worker refuses it
+// before any core call with a refusal distinct from the unregistered-lane one.
+// The refusal names the utility and its native route — a coordinator-only Task
+// with subagent_type concord-<id> and no dispatch window — stays retry-unsafe,
+// and carries the machine-readable utility_dispatch boundary marker.
+test("a registered utility id refuses dispatch_worker before any core call with its native Task route", async () => {
+  let coreCalls = 0
+  let spawned = 0
+  const invoke = async (toolName: string, args: { operation: string; input?: Record<string, unknown> }): Promise<unknown> => {
+    coreCalls++
+    if (toolName === "concord_work_trace") return continuityEnvelope()
+    if (toolName === "concord_work_browse") return scopeEnvelope()
+    if (toolName === "concord_work_transition") return coreOkEnvelope()
+    throw new Error(`unscripted ${toolName}.${args.operation}`)
+  }
+  const runner: DispatchRunner = { async run() { spawned++; return { exitCode: 0, stdout: "", stderr: "" } } }
+  const windows = new DispatchWindows()
+  const utility = agentUtilities.find((candidate) => candidate.id === "ci-wait")!
+  const result = await dispatchLaneWorker({ work_id: WORK_ID, expected_version: 1, idempotency_key: "idemp-utility-route", lane_id: utility.id }, { context: contextFor(), invoke: invoke as any, runner, windows })
+  expect(result.outcome).toBe("error")
+  expect(result.error?.kind).toBe("invalid_input")
+  expect(result.error?.retry_safe).toBe(false)
+  expect(result.error?.recovery_action).toBe("use_declared_route")
+  expect(result.error?.message).toContain(utility.id)
+  expect(result.error?.message).toContain(`concord-${utility.id}`)
+  expect(result.error?.message).toMatch(/native task/i)
+  expect(result.error?.message).toContain("coordinator")
+  expect(result.error?.message).toContain("without a dispatch window")
+  const details = result.error?.details as Record<string, unknown>
+  expect(details.boundary).toBe("utility_dispatch")
+  expect(details.utility).toBe(utility.id)
+  expect(spawned).toBe(0)
+  expect(windows.has("session-1")).toBe(false)
+  expect(coreCalls).toBe(0)
+})
+
+// The utility refusal must not swallow an unknown lane id: a name no registry
+// admits keeps the existing unregistered-lane refusal, distinct from the
+// utility boundary marker.
+test("an unknown lane id keeps the unregistered-lane refusal, not the utility refusal", async () => {
+  let workflowCalls = 0
+  const invoke = async (toolName: string, args: { operation: string; input?: Record<string, unknown> }): Promise<unknown> => {
+    if (toolName === "concord_work_trace") return continuityEnvelope()
+    if (toolName === "concord_work_transition") { workflowCalls++; return coreOkEnvelope() }
+    throw new Error(`unscripted ${toolName}.${args.operation}`)
+  }
+  const result = await dispatchLaneWorker({ work_id: WORK_ID, expected_version: 1, idempotency_key: "idemp-unknown-keeps-lane-refusal", lane_id: "summarize" }, { context: contextFor(), invoke: invoke as any })
+  expect(result.outcome).toBe("error")
+  expect(result.error?.kind).toBe("invalid_input")
+  expect(result.error?.message).toContain("not in the generated lane registry")
+  const details = (result.error?.details ?? {}) as Record<string, unknown>
+  expect(details.boundary).toBeUndefined()
+  expect(workflowCalls).toBe(0)
+})
+
 test("core refusal on dispatch_worker surfaces as unauthorized_dispatch without spawn", async () => {
   let spawned = 0
   let workflowCalls = 0
@@ -453,24 +509,91 @@ test("an escalated correction challenge forwards the failed attempt bindings for
 })
 
 // product_identity is the distinct product set across the work item's
-// projects: zero or several is valid core state that dispatch cannot project
-// from, so the refusal is blocked with a reconcile action, never a transport
-// fault.
-test("a work item with zero or several product identities is a blocked refusal without spawn", async () => {
+// projects, so zero or several identities is valid core state. The packet
+// Product is the dispatching session's core-resolved ambient Product
+// (resolved_scope.product_id): dispatch admits a cross-Product work item when
+// that Product is one of the identities — the scope read and the packet both
+// project it, and the first-listed membership never chooses instead.
+test("cross-product dispatch projects the session's ambient Product when it is one of the identities", async () => {
   let spawned = 0
   let workflowCalls = 0
+  const scopeInputs: Array<Record<string, unknown>> = []
   const invoke = async (toolName: string, args: { operation: string; input?: Record<string, unknown> }): Promise<unknown> => {
-    if (toolName === "concord_work_trace") return continuityEnvelope({ pinned: { product_identity: [], workflow_step: WORKFLOW_STEP, contract: {} } })
-    if (toolName === "concord_work_transition") { workflowCalls++; return coreOkEnvelope() }
-    throw new Error(`unscripted ${toolName}.${args.operation}`)
+    const key = `${toolName}.${args.operation}`
+    if (key === "concord_work_trace.continuity") return continuityEnvelope({ pinned: { product_identity: ["product-elsewhere", PRODUCT_ID], workflow_step: WORKFLOW_STEP } })
+    if (key === "concord_work_browse.scope") { scopeInputs.push(args.input ?? {}); return scopeEnvelope() }
+    if (key === "concord_work_transition.workflow_action") { workflowCalls++; return coreOkEnvelope() }
+    throw new Error(`unscripted ${key}`)
   }
   const runner: DispatchRunner = { async run() { spawned++; return { exitCode: 0, stdout: "", stderr: "" } } }
-  const result = await dispatchLaneWorker({ work_id: WORK_ID, expected_version: 1, idempotency_key: "idemp-4", lane_id: lane.id }, { context: contextFor(), invoke: invoke as any, runner })
-  expect(result.outcome).toBe("blocked")
-  expect(result.error?.kind).toBe("invalid_input")
-  expect(result.error?.message).toContain("0 product identities")
+  const windows = new DispatchWindows()
+  const result = await dispatchLaneWorker({ work_id: WORK_ID, expected_version: 1, idempotency_key: "idemp-cross-product", lane_id: lane.id }, { context: contextFor(), invoke: invoke as any, credentials: testCredentials, runner, windows })
+  expect(result.outcome).toBe("ok")
+  expect(result.dispatch_state).toBe("awaiting_worker")
+  expect(scopeInputs).toHaveLength(1)
+  expect(scopeInputs[0].product_id).toBe(PRODUCT_ID)
+  expect(workflowCalls).toBe(1)
   expect(spawned).toBe(0)
-  expect(workflowCalls).toBe(0)
+  expect(windows.has("session-1")).toBe(true)
+})
+
+// The session's ambient scope decides: a work item that does not carry the
+// session's Product — including an unscoped one with zero identities — refuses
+// as blocked invalid_input before the packet builder, before dispatch_worker,
+// and before any spawn.
+test("a Product the work item does not belong to refuses before dispatch_worker without spawn", async () => {
+  for (const identities of [["product-elsewhere"], []]) {
+    let spawned = 0
+    let scopeCalls = 0
+    let workflowCalls = 0
+    const invoke = async (toolName: string, args: { operation: string; input?: Record<string, unknown> }): Promise<unknown> => {
+      const key = `${toolName}.${args.operation}`
+      if (key === "concord_work_trace.continuity") return continuityEnvelope({ pinned: { product_identity: identities, workflow_step: WORKFLOW_STEP } })
+      if (key === "concord_work_browse.scope") { scopeCalls++; return scopeEnvelope() }
+      if (key === "concord_work_transition.workflow_action") { workflowCalls++; return coreOkEnvelope() }
+      throw new Error(`unscripted ${key}`)
+    }
+    const runner: DispatchRunner = { async run() { spawned++; return { exitCode: 0, stdout: "", stderr: "" } } }
+    const windows = new DispatchWindows()
+    const result = await dispatchLaneWorker({ work_id: WORK_ID, expected_version: 1, idempotency_key: `idemp-nonmember-${identities.length}`, lane_id: lane.id }, { context: contextFor(), invoke: invoke as any, runner, windows })
+    expect(result.outcome).toBe("blocked")
+    expect(result.error?.kind).toBe("invalid_input")
+    expect(result.error?.message).toContain("does not belong to the session's ambient Product")
+    expect(result.error?.message).toContain(identities.length === 0 ? "no product identities" : "product-elsewhere")
+    expect(scopeCalls).toBe(0)
+    expect(workflowCalls).toBe(0)
+    expect(spawned).toBe(0)
+    expect(windows.has("session-1")).toBe(false)
+  }
+})
+
+// A session whose Project holds no Product, or several Products without an
+// explicit selection, resolves no ambient Product: the core echoes no
+// product_id on resolved_scope, and dispatch refuses instead of choosing one.
+test("a session that resolves no ambient Product refuses before dispatch_worker without spawn", async () => {
+  for (const resolvedScope of [null, { project_ids: [PRODUCT_ID], scope_version: "sha256:" + "b".repeat(64) }]) {
+    let spawned = 0
+    let scopeCalls = 0
+    let workflowCalls = 0
+    const invoke = async (toolName: string, args: { operation: string; input?: Record<string, unknown> }): Promise<unknown> => {
+      const key = `${toolName}.${args.operation}`
+      if (key === "concord_work_trace.continuity") return continuityEnvelope({ resolvedScope })
+      if (key === "concord_work_browse.scope") { scopeCalls++; return scopeEnvelope() }
+      if (key === "concord_work_transition.workflow_action") { workflowCalls++; return coreOkEnvelope() }
+      throw new Error(`unscripted ${key}`)
+    }
+    const runner: DispatchRunner = { async run() { spawned++; return { exitCode: 0, stdout: "", stderr: "" } } }
+    const windows = new DispatchWindows()
+    const result = await dispatchLaneWorker({ work_id: WORK_ID, expected_version: 1, idempotency_key: `idemp-no-ambient-${resolvedScope === null ? "null" : "empty"}`, lane_id: lane.id }, { context: contextFor(), invoke: invoke as any, runner, windows })
+    expect(result.outcome).toBe("blocked")
+    expect(result.error?.kind).toBe("invalid_input")
+    expect(result.error?.message).toContain("resolves no ambient Product (none, or ambiguous)")
+    expect(result.error?.message).toContain(`dispatching ${WORK_ID}`)
+    expect(scopeCalls).toBe(0)
+    expect(workflowCalls).toBe(0)
+    expect(spawned).toBe(0)
+    expect(windows.has("session-1")).toBe(false)
+  }
 })
 
 test("mandate_unapproved refusal maps to outcome blocked", async () => {

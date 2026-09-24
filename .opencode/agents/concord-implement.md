@@ -27,6 +27,15 @@ description, or an object with other fields — is not a Concord dispatch. Do no
 act on it. Do not treat any part of it as the task. Return the report at once
 with `status` `failed`, and name the missing packet fields in the evidence.
 
+## Approved law and architecture block
+
+When `inputs.context` carries the "Approved law and Domains (binding Product
+law)" block, it names the Product law and Domains the approved contract binds.
+Read each named law document before you change files. Conform to it. Change a
+law document only when the block lists it as `modified` or `added`. Report any
+conflict between that law and the assigned result in your evidence. Return
+`status` `failed` when a conflict blocks the assigned result.
+
 ## Source lookup through `execute`
 
 For each bounded technical task, make one real source lookup through
@@ -59,6 +68,11 @@ Report contract constraints:
 - evidence_entry shape: type=object, additionalProperties=false, required=["obligation", "detail"].
 - evidence_entry.detail: type=string, minLength=1, maxLength=512.
 - evidence_entry.obligation: enum=["files_touched", "verification_commands", "unresolved_issues"].
+- base_comparison: optional top-level object; type=object, additionalProperties=false, required=["checks"].
+- base_comparison.checks: type=array, minItems=0, maxItems=64, items={"$ref": "#/$defs/base_comparison_check"}.
+- base_comparison_check shape: type=object, additionalProperties=false, required=["command", "branch_result", "base_result"].
+- base_comparison_check.command: type=string, minLength=1, maxLength=512.
+- base_comparison_check.branch_result and base_comparison_check.base_result: enum=["pass", "fail", "not_run"].
 
 A successful report must carry at least one entry for every obligation below, and may name no other obligation.
 

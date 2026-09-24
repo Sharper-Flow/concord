@@ -5,6 +5,7 @@
     "tier": "legislated"
   },
   "date": "2026-09-13T00:00:00Z",
+  "doc_contract_profile": "legacy",
   "evidence": [
     "internal/store/workflow_domain_overlap.go",
     "internal/store/workflow_domain_overlap_test.go",

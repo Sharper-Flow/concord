@@ -907,6 +907,62 @@ test("overlap approval asks with exact direction and resolution consequence", as
   })
 })
 
+test("client policy grant request asks with the calling client, policy version, and reason", async () => {
+  const digest = `sha256:${"d".repeat(64)}`
+  const policyVersion = `sha256:${"e".repeat(64)}`
+  const scope = ["capabilities:cross_scope", "client_ref:client-1", "policy_version:" + policyVersion, "product_scope:product-2"]
+  const challenge = coreEnvelope("concord_work_relate", "client_policy_grant_request", "error", {
+    error: { kind: "approval_required", retry_safe: false, recovery_action: { kind: "request_approval" }, effect_state: "none",
+      consequence_summary: {
+        tool: "concord_work_relate", operation: "client_policy_grant_request", consequence: "scope",
+        operation_digest: digest, scope, versions: [], expires_at: "2026-08-20T00:00:00Z",
+      },
+      details: {
+        approval_ref: "grant-challenge-1", operation_digest: digest,
+        summary: "Approve the exact added grants for your own trusted client; every existing grant and the stored principal stay unchanged.",
+        scope, versions: [],
+        client_ref: "client-1", policy_version: policyVersion,
+        reason: "dependent work claims a cross-Product worktree",
+      } },
+  })
+  const success = coreEnvelope("concord_work_relate", "client_policy_grant_request", "ok", {
+    result: { client_ref: "client-1", policy_version: policyVersion, added_capabilities: ["cross_scope"], added_product_scope: ["product-2"], added_project_scope: [], added_agent_scope: [] },
+    changed_refs: [{ entity_kind: "trusted_client", id: "client-1", version: policyVersion }], next_valid_intents: [],
+  })
+  let calls = 0
+  const submitted: any[] = []
+  const runner = { async run(_argv: string[], input: any) {
+    calls++
+    submitted.push(input)
+    if (calls === 1) return { exitCode: 0, stdout: JSON.stringify(contextResponse()), stderr: "" }
+    return { exitCode: 0, stdout: JSON.stringify(calls === 2 ? challenge : success), stderr: "" }
+  } }
+  let askMetadata: any
+  adapter.configureConcordAdapter({ runner })
+  const result: any = await rawHostResult(adapter.work_relate.execute(hostCall("client_policy_grant_request", {
+    capabilities: ["cross_scope"], product_scope: ["product-2"], project_scope: [], agent_scope: [],
+    reason: "dependent work claims a cross-Product worktree", idempotency_key: "grant-request-adapter-1",
+  }), contextFor(async (request: any) => { askMetadata = request.metadata })))
+  expect(result.outcome).toBe("ok")
+  expect(askMetadata).toEqual({
+    approval_ref: "grant-challenge-1", operation_digest: digest,
+    summary: "Approve the exact added grants for your own trusted client; every existing grant and the stored principal stay unchanged.",
+    scope, versions: [],
+    client_ref: "client-1", policy_version: policyVersion,
+    reason: "dependent work claims a cross-Product worktree",
+    consequence_summary: {
+      tool: "concord_work_relate", operation: "client_policy_grant_request", consequence: "scope",
+      operation_digest: digest, scope, versions: [], expires_at: "2026-08-20T00:00:00Z",
+    },
+  })
+  // The resubmission is the same request with only the approval binding added,
+  // so the core's digest check sees the approved arguments, not edited ones.
+  const finalCall = JSON.parse(submitted[2])
+  expect(finalCall.input.approval).toEqual({ approval_ref: "grant-challenge-1" })
+  expect(finalCall.input.capabilities).toEqual(["cross_scope"])
+  expect(finalCall.call_envelope.host_approval_assertion.challenge_ref).toBe("grant-challenge-1")
+})
+
 test("generated and adapter validators reject unknown top-level fields for every outcome", async () => {
   const variants: Array<[string, any, any, any]> = [
     ["ok", coreEnvelope("concord_product_view", "resolve", "ok", { items: [{}] }), adapter.product_view, hostCall("resolve", {})],
@@ -1590,6 +1646,7 @@ const resumeRunner = (calls: RetargetCall[], overrides: Record<string, () => { e
     if (command === "project-resolve") return { exitCode: 0, stdout: JSON.stringify(contextResponse()), stderr: "" }
     if (command === "work-resume") return { exitCode: 0, stdout: JSON.stringify(resumeSuccess()), stderr: "" }
     if (command === "session-prepare") return { exitCode: 0, stdout: JSON.stringify(preparedContract()), stderr: "" }
+    if (command === "claim-landing") return { exitCode: 0, stdout: JSON.stringify({ work_id: (JSON.parse(input) as { work_id: string }).work_id, already_recorded: false }) + "\n", stderr: "" }
     throw new Error(`unexpected command ${argv.join(" ")}`)
   },
 })
@@ -1601,8 +1658,9 @@ test("work start resume derives the entry by work_id and moves the session", asy
   const result: any = await rawHostResult(adapter.work_start.execute({ work_id: "work-1" }, landedContextFor()))
   expect(await hostControlPlane().taskScope("session-1")).toBe("managed")
   expect(result).toMatchObject({ outcome: "ok", product_id: "product-1", project_id: "project-1", work_id: "work-1", worktree_path: WORKTREE, agent: "agent-1", session_id: "session-1" })
-  // An active resume is read-only, so the child sequence has no journal step.
-  expect(calls.map(({ argv }) => argv[1])).toEqual(["project-resolve", "work-resume", "session-prepare"])
+  // The active resume read stays journal-free, and the verified landing
+  // records itself afterwards through the claim-landing verb.
+  expect(calls.map(({ argv }) => argv[1])).toEqual(["project-resolve", "work-resume", "session-prepare", "claim-landing"])
   expect(JSON.parse(calls[1].input)).toEqual({ product_id: "product-1", project_id: "project-1", work_id: "work-1", session_ref: "session-1" })
   // A resume carries no task; session-prepare still verifies the active
   // agent and the worktree.
@@ -1632,6 +1690,45 @@ test("work start resume forwards the typed core refusal and reads the landing ba
   expect(mismatch.error.kind).toBe("session_directory_mismatch")
   expect(mismatch.work_id).toBe("work-1")
   expect(mismatch.worktree_path).toBe(WORKTREE)
+})
+
+// The resumed session records itself as the worktree's occupant once its move
+// reads back: the read that derived the worktree records nothing (CD-0104 D1),
+// so the landing record is what makes worktree_audit_reclaim and
+// worktree_reclaim hold the worktree for the session that runs in it.
+test("work start resume records the verified landing naming the session, work item, and claimed path", async () => {
+  bindRetargetRoute()
+  const calls: RetargetCall[] = []
+  adapter.configureConcordAdapter({ runner: resumeRunner(calls) })
+  const result: any = await rawHostResult(adapter.work_start.execute({ work_id: "work-1" }, landedContextFor()))
+  expect(result.outcome).toBe("ok")
+  const landings = calls.filter(({ argv }) => argv[1] === "claim-landing")
+  expect(landings).toHaveLength(1)
+  expect(JSON.parse(landings[0].input)).toEqual({ work_id: "work-1", session_ref: "session-1", landed_directory: WORKTREE })
+
+  // A move whose readback names another directory records no landing.
+  bindRetargetRoute({ landedDirectory: "/somewhere-else" })
+  const mismatchCalls: RetargetCall[] = []
+  adapter.configureConcordAdapter({ runner: resumeRunner(mismatchCalls) })
+  const mismatch: any = await rawHostResult(adapter.work_start.execute({ work_id: "work-1" }, contextFor()))
+  expect(mismatch.outcome).toBe("error")
+  expect(mismatch.error.kind).toBe("session_directory_mismatch")
+  expect(mismatchCalls.some(({ argv }) => argv[1] === "claim-landing")).toBe(false)
+})
+
+// Occupancy never refuses the move (CD-0104 D5, CD-0119): a landing record the
+// core refuses, such as a worktree another live session already occupies, is
+// a warning, and the resumed start still succeeds and arms the worktree.
+test("work start resume succeeds with a warning when the core refuses the landing record", async () => {
+  bindRetargetRoute()
+  const calls: RetargetCall[] = []
+  adapter.configureConcordAdapter({ runner: resumeRunner(calls, {
+    "claim-landing": () => ({ exitCode: 1, stdout: "", stderr: "concord claim-landing: worktree_ownership_conflict: the claimed worktree is not recorded as occupied by this session" }),
+  }) })
+  const raw: any = await adapter.work_start.execute({ work_id: "work-1" }, landedContextFor())
+  expect(envelopeLine(raw.output)).toMatchObject({ outcome: "ok", work_id: "work-1", worktree_path: WORKTREE })
+  expect(raw.output).toContain(`Concord did not record this session as the occupant of ${WORKTREE}`)
+  expect(raw.output).toContain("replay work_start")
 })
 
 test("work start resume rejects mixed and malformed argument shapes", async () => {
@@ -1918,6 +2015,45 @@ test("work start replays to convergence after an interrupted step", async () => 
   expect(second.map(({ argv }) => argv[1])).toEqual(["project-resolve", "work-bootstrap", "session-prepare"])
   expect(JSON.parse(second[1].input).idempotency_key).toBe(bootstrapArgs.idempotency_key)
   expect(moved).toEqual([{ sessionID: "session-1", destination: { directory: WORKTREE } }])
+})
+
+// The core reports a deterministic session-prepare refusal with its typed
+// exit status. The adapter classifies by that status alone — never by stderr
+// text — and maps it to contact_operator: a refusal that fails the same way
+// until state changes is not repaired by replaying the request.
+test("a session-prepare refusal status maps work_start recovery to contact_operator", async () => {
+  bindRetargetRoute()
+  const calls: RetargetCall[] = []
+  adapter.configureConcordAdapter({
+    runner: retargetRunner(calls, {
+      "session-prepare": () => ({ exitCode: adapter.sessionPrepareRefusalExit, stdout: "", stderr: "concord session-prepare: current directory is not an active claimed worktree of this work item" }),
+    }),
+  })
+  const result: any = await rawHostResult(adapter.work_start.execute(bootstrapArgs, contextFor()))
+  expect(result.outcome).toBe("error")
+  expect(result.error.kind).toBe("session_prepare_failure")
+  expect(result.error.effect_state).toBe("none")
+  expect(result.error.retry_safe).toBe(false)
+  expect(result.error.recovery_action.kind).toBe("contact_operator")
+  expect(calls.map(({ argv }) => argv[1])).toEqual(["project-resolve", "work-bootstrap", "session-prepare"])
+})
+
+// Any session-prepare exit other than the refusal status is not a refusal: a
+// transient core failure stays retry_safe and keeps retry_same_request.
+test("a non-refusal session-prepare failure keeps retry_same_request", async () => {
+  bindRetargetRoute()
+  const calls: RetargetCall[] = []
+  adapter.configureConcordAdapter({
+    runner: retargetRunner(calls, {
+      "session-prepare": () => ({ exitCode: 1, stdout: "", stderr: "concord session-prepare: cannot read the authority database" }),
+    }),
+  })
+  const result: any = await rawHostResult(adapter.work_start.execute(bootstrapArgs, contextFor()))
+  expect(result.outcome).toBe("error")
+  expect(result.error.kind).toBe("session_prepare_failure")
+  expect(result.error.effect_state).toBe("none")
+  expect(result.error.retry_safe).toBe(true)
+  expect(result.error.recovery_action.kind).toBe("retry_same_request")
 })
 
 // A move the host refuses leaves the claim where it was: the next replay

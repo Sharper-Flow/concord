@@ -108,6 +108,9 @@ def go_slice(values: list[str]) -> str:
 def report_projection_constraints(report_schema: dict, lane: dict) -> list[str]:
     properties = report_schema["properties"]
     evidence_entry = report_schema["$defs"]["evidence_entry"]
+    base_comparison = properties["base_comparison"]
+    base_checks = base_comparison["properties"]["checks"]
+    base_check = report_schema["$defs"]["base_comparison_check"]
     return [
         "Report top-level shape: "
         f"type={report_schema['type']}, "
@@ -137,6 +140,26 @@ def report_projection_constraints(report_schema: dict, lane: dict) -> list[str]:
         f"maxLength={evidence_entry['properties']['detail']['maxLength']}.",
         "evidence_entry.obligation: "
         f"enum={json.dumps(lane['evidence_obligations'], ensure_ascii=False)}.",
+        "base_comparison: "
+        "optional top-level object; "
+        f"type={base_comparison['type']}, "
+        f"additionalProperties={json.dumps(base_comparison['additionalProperties'])}, "
+        f"required={json.dumps(base_comparison['required'], ensure_ascii=False)}.",
+        "base_comparison.checks: "
+        f"type={base_checks['type']}, "
+        f"minItems={base_checks['minItems']}, "
+        f"maxItems={base_checks['maxItems']}, "
+        f"items={json.dumps(base_checks['items'], ensure_ascii=False)}.",
+        "base_comparison_check shape: "
+        f"type={base_check['type']}, "
+        f"additionalProperties={json.dumps(base_check['additionalProperties'])}, "
+        f"required={json.dumps(base_check['required'], ensure_ascii=False)}.",
+        "base_comparison_check.command: "
+        f"type={base_check['properties']['command']['type']}, "
+        f"minLength={base_check['properties']['command']['minLength']}, "
+        f"maxLength={base_check['properties']['command']['maxLength']}.",
+        "base_comparison_check.branch_result and base_comparison_check.base_result: "
+        f"enum={json.dumps(base_check['properties']['branch_result']['enum'], ensure_ascii=False)}.",
     ]
 
 
@@ -227,6 +250,23 @@ Never invent a lookup result, and never present recall as a research call.
 """
 
 
+def law_conformance_instructions() -> str:
+    # The dispatched packet carries the approved contract's bound law and
+    # Domains as recorded state. The block's meaning and the disclosure the
+    # report owes are lane contract, so one shared generated block serves
+    # every lane; it states no host procedure (CD-0043 D1). Precedent: the
+    # generated packet-refusal block.
+    return """## Approved law and architecture block
+
+When `inputs.context` carries the "Approved law and Domains (binding Product
+law)" block, it names the Product law and Domains the approved contract binds.
+Read each named law document before you change files. Conform to it. Change a
+law document only when the block lists it as `modified` or `added`. Report any
+conflict between that law and the assigned result in your evidence. Return
+`status` `failed` when a conflict blocks the assigned result.
+"""
+
+
 def agent_projection(lane: dict, report_schema: dict) -> str:
     agent_name = f"concord-{lane['id']}"
     evidence = ", ".join(f"`{item}`" for item in lane["evidence_obligations"])
@@ -258,6 +298,7 @@ packet and return only the `agent-lane-report.v1` report for this attempt. Do no
 record workflow transitions, verdicts, completion, or spawn nested workers.
 
 {packet_refusal_instructions()}
+{law_conformance_instructions()}
 {execute_source_lookup_instructions()}
 Return the report as a single JSON object, and nothing else, as your final
 message. Do not include `attempt_id`, `lane_id`, `lane_version`, or

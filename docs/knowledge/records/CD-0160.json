@@ -5,6 +5,7 @@
     "tier": "legislated"
   },
   "date": "2026-09-20T00:00:00Z",
+  "doc_contract_profile": "legacy",
   "evidence": [
     "contracts/agent-lanes.v1.json",
     "cmd/concord/ci_wait.go",

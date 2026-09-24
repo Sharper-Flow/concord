@@ -4954,12 +4954,51 @@ ALTER TABLE law_subjects ADD COLUMN authority_tier TEXT NOT NULL DEFAULT 'derive
 `,
 	},
 	{
+		// The trusted-client policy revision makes the derived policy version
+		// monotonic across writes. A content-only version lets an operator
+		// change a policy and restore its exact prior content during a
+		// challenge's validity, and the approval minted before that round
+		// trip would match the restored policy again. The store bumps the
+		// revision on every policy write, so the restored policy is a
+		// different version and the stale approval refuses (CD-0097 D6).
+		Version:  99,
+		Name:     "agent_clients_carry_policy_revision",
+		Breaking: false,
+		SQL: `
+ALTER TABLE agent_clients ADD COLUMN policy_revision INTEGER NOT NULL DEFAULT 1;
+`,
+	},
+	{
+		// A reclaimed worktree claim row is reused when the bootstrap journal
+		// reopens it, so the reclaim and occupancy-release event identities,
+		// which derive from the claim's op id, would re-derive the first
+		// incarnation's events and fold the later reclaim onto that earlier
+		// history. The incarnation counts reopenings: rows start at the first
+		// incarnation with the legacy identity, and every reopen bumps the
+		// counter so the incarnation's events derive their own identities.
+		// A claim reopened before this column existed already carries one
+		// suffixed work.worktree_created event per reopen (bootstrap.go
+		// finalization), so the backfill counts those events and the next
+		// release or reclaim of that claim derives its own identity.
+		Version:  100,
+		Name:     "worktree_claims_carry_incarnation",
+		Breaking: false,
+		SQL: `
+ALTER TABLE worktree_claims ADD COLUMN incarnation INTEGER NOT NULL DEFAULT 0;
+UPDATE worktree_claims SET incarnation = (
+    SELECT COUNT(*) FROM domain_events
+    WHERE kind = 'work.worktree_created'
+      AND substr(event_id, 1, length(worktree_claims.op_id) + 18) = worktree_claims.op_id || ':worktree-created:'
+);
+`,
+	},
+	{
 		// CD-0171 D2: one Linear Project per Concord Initiative. The drain
 		// records the remote Project identity when a project_create
 		// completes; project_update and the issue enqueue path address the
 		// Initiative's Project through this row. The outbox widens to carry
 		// the project_create and project_update operation kinds.
-		Version: 99,
+		Version: 101,
 		Name:    "linear_project_links",
 		SQL: `
 CREATE TABLE linear_project_links (
@@ -5032,7 +5071,7 @@ DROP TABLE linear_outbox_dispositions_v99;
 		// edit. json_remove silently ignores a path that finds nothing, and
 		// the WHERE clause leaves documents already carrying the current
 		// convention untouched.
-		Version: 100,
+		Version: 102,
 		Name:    "linear_connection_metadata_drops_project_mapping",
 		SQL: `
 INSERT OR IGNORE INTO fold_guard(active) VALUES (1);

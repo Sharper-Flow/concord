@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/sharper-flow/concord/internal/launcher"
+	"github.com/sharper-flow/concord/internal/pm1fixture"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
@@ -130,6 +131,13 @@ func TestReadDomainsMapsAbsentRegistryToTypedUnavailableSection(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer s.Close()
+	ctx := context.Background()
+	if err := pm1fixture.SeedProductAndProject(ctx, s, "product", "project"); err != nil {
+		t.Fatal(err)
+	}
+	if err := pm1fixture.SeedWorkItem(ctx, s, "project", "work-1", "Work", 1); err != nil {
+		t.Fatal(err)
+	}
 	port := New(s)
 	snapshot, err := port.Read(context.Background(), launcher.ReadRequest{Kind: launcher.ReadDomains, Product: "product", Limit: 20, Section: launcher.SectionDomains})
 	if err != nil {
@@ -138,8 +146,13 @@ func TestReadDomainsMapsAbsentRegistryToTypedUnavailableSection(t *testing.T) {
 	if snapshot.Screen != launcher.ScreenProduct || snapshot.Section != launcher.SectionDomains {
 		t.Fatalf("screen/section = %s/%s", snapshot.Screen, snapshot.Section)
 	}
-	if snapshot.Coverage != "unavailable" || snapshot.Domains.State != "unavailable" || snapshot.Domains.Reason != "domain_registry_absent" {
-		t.Fatalf("absent registry must render typed unavailable, not empty: %#v", snapshot.Domains)
+	// The absent registry is typed only in the Domain section. Screen
+	// coverage follows the work read, and the Product work list survives.
+	if snapshot.Coverage != "authoritative" || snapshot.Domains.State != "unavailable" || snapshot.Domains.Reason != "domain_registry_absent" {
+		t.Fatalf("absent registry must render typed unavailable in its section over an authoritative work read: coverage=%q domains=%#v", snapshot.Coverage, snapshot.Domains)
+	}
+	if len(snapshot.Ranked) != 1 || snapshot.Ranked[0].ID != "work-1" {
+		t.Fatalf("absent registry withheld the Product work list: %#v", snapshot.Ranked)
 	}
 }
 

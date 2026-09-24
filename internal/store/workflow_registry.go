@@ -56,6 +56,9 @@ const (
 	EvidenceArtifact     EvidenceKind = "artifact"
 )
 
+// workflowEvidenceKinds is the closed evidence kind enum, in declaration order.
+var workflowEvidenceKinds = []EvidenceKind{EvidenceVerification, EvidenceReview, EvidenceApproval, EvidenceCommit, EvidenceDurableNote, EvidenceNativeRun, EvidenceArtifact}
+
 type ActionConsequence string
 
 const (
@@ -1039,7 +1042,7 @@ func evidenceStrings(values []EvidenceKind) []string {
 	return out
 }
 func validEvidence(value EvidenceKind) bool {
-	return containsString([]string{"verification", "review", "approval", "commit", "durable_note", "native_run", "artifact"}, string(value))
+	return containsString(evidenceStrings(workflowEvidenceKinds), string(value))
 }
 func allEvidenceKindsValid(values []EvidenceKind) bool {
 	for _, value := range values {
@@ -1458,6 +1461,80 @@ var builtinActionPolicies = map[string]builtinActionPolicy{
 		actionRefField("attempt_id", true), actionObjectField("worker_packet", true, "worker_packet"),
 	), actionRefField("lane_id", true)),
 	"supersede_contract": actionPolicy(ActionInternalSQLite, ActionApprovalRequired, ActionAdvance, ActionEventTyped),
+}
+
+// workflowCallerEvidenceBinders names the actions whose completed event binds
+// the evidence kind the call submitted. Each payload declares the
+// evidence_kind enum (evidenceBindingActionFields), so one action can produce
+// any declared kind. The evidence-reference payload revisions select binders
+// through workflowCallerEvidenceBinder, and
+// TestEvidenceBinderCaseArmMatchesTheProducerTable binds the
+// workflowSemanticActionEvents case arm to this list, so producibility and
+// routing cannot disagree.
+var workflowCallerEvidenceBinders = []string{"bind_evidence", "record_research", "record_report", "accept_decision", "approve_operation"}
+
+func workflowCallerEvidenceBinder(actionID string) bool {
+	return containsString(workflowCallerEvidenceBinders, actionID)
+}
+
+// workflowWorkerAttemptEvidenceKinds is the closed set accept_worker_result
+// can produce: workerAttemptEvidenceKind maps a lane capability class onto
+// exactly these kinds, so an accepted attempt binds as one of them and never
+// as approval, commit, durable_note, or native_run.
+var workflowWorkerAttemptEvidenceKinds = []EvidenceKind{EvidenceVerification, EvidenceReview, EvidenceArtifact}
+
+// workflowEvidenceKindsProducedBy returns the evidence kinds one completed
+// action can bind. The caller-kind binders take the kind from their payload,
+// so each can produce any declared kind; accept_worker_result binds the
+// accepted attempt under the closed worker-attempt mapping. Every other
+// action binds no evidence at all.
+func workflowEvidenceKindsProducedBy(actionID string) []EvidenceKind {
+	if workflowCallerEvidenceBinder(actionID) {
+		return workflowEvidenceKinds
+	}
+	if actionID == "accept_worker_result" {
+		return workflowWorkerAttemptEvidenceKinds
+	}
+	return nil
+}
+
+// workflowReachableEvidenceKinds walks the definition's forward and optional
+// edges from the start step and returns the sorted evidence kinds the actions
+// on those steps can produce. Retry and failure edges stay outside the walk:
+// a retry re-enters the step it left, and a failure exit is not the route a
+// completion requirement is served on. This answers producibility only —
+// whether an action can bind a kind — never whether one binding of that kind
+// was truthful.
+func workflowReachableEvidenceKinds(definition WorkflowDefinition) []EvidenceKind {
+	produced := map[EvidenceKind]bool{}
+	visited := map[string]bool{}
+	queue := []string{definition.StepGraph.StartStep}
+	for len(queue) != 0 {
+		stepID := queue[0]
+		queue = queue[1:]
+		if visited[stepID] {
+			continue
+		}
+		visited[stepID] = true
+		if step := workflowStep(definition, stepID); step != nil {
+			for _, actionID := range step.Actions {
+				for _, kind := range workflowEvidenceKindsProducedBy(actionID) {
+					produced[kind] = true
+				}
+			}
+		}
+		for _, edge := range definition.StepGraph.Edges {
+			if edge.From == stepID && (edge.Kind == WorkflowEdgeForward || edge.Kind == WorkflowEdgeOptional) {
+				queue = append(queue, edge.To)
+			}
+		}
+	}
+	kinds := make([]EvidenceKind, 0, len(produced))
+	for kind := range produced {
+		kinds = append(kinds, kind)
+	}
+	sort.Slice(kinds, func(i, j int) bool { return kinds[i] < kinds[j] })
+	return kinds
 }
 
 func currentActionDefinition(id string, payloadContracts bool) WorkflowActionDefinition {

@@ -401,6 +401,7 @@ def test_duplicate_decision_id_files_are_rejected_deterministically() -> None:
 				"scopes": {"mode": "home", "product_ids": [], "project_ids": [], "domain_ids": [], "tag_ids": []},
 				"home_domain_id": "product-root:concord",
 				"product_wide_rationale": "Fixture law binds every child Domain.",
+				"doc_contract_profile": "legacy",
                 "sha256": "sha256:" + "a" * 64,
             }]
         with mock.patch.object(checker, "ROOT", root):
@@ -422,6 +423,9 @@ def taxonomy_fixture(root: Path, kind: str, path: str, status: str) -> dict:
     record["kind"], record["path"], record["status"] = kind, path, status
     if kind == "decision":
         record["id"] = Path(path).stem
+        record["doc_contract_profile"] = (
+            "legacy" if record["id"] in checker.LEGACY_DECISION_PROFILE_IDS else "current"
+        )
     if kind not in checker.LAW_BEARING_KINDS:
         record.pop("home_domain_id", None)
         record.pop("product_wide_rationale", None)
@@ -591,6 +595,202 @@ def test_record_shards_carry_the_encoding_update_writes() -> None:
                     checker.check_shard_encoding(findings)
                     assert any("not canonically encoded" in f for f in findings), (label, drift, findings)
                     shard_path.write_bytes(canonical(shard))
+
+
+def decision_profile_fixture(root: Path, record_id: str, profile: str | None) -> dict:
+    """A one-decision v1.2 manifest whose authored profile is the subject."""
+    (root / "docs/decisions").mkdir(parents=True, exist_ok=True)
+    path = f"docs/decisions/{record_id}.md"
+    (root / path).write_text("body\n", encoding="utf-8")
+    value = v12_fixture()
+    value["supported_kinds"] = ["decision"]
+    value["indexed_kinds"] = ["decision"]
+    value["doc_contract"] = {
+        "decision": {
+            "required_sections": [],
+            "ac_required": False,
+            "current_required_sections": [
+                "Context", "Decision", "Alternatives considered", "Consequences", "Verification",
+            ],
+        }
+    }
+    value["records"] = [{
+        "id": record_id,
+        "kind": "decision",
+        "path": path,
+        "status": "accepted",
+        "date": "2026-08-10T00:00:00Z",
+        "title": "Decision",
+        "summary": "Summary",
+        "tags": [],
+        "authority": {"tier": "legislated", "legislated_by": "fixture-authority", "contract_version": 1},
+        "scopes": {"mode": "home", "product_ids": [], "project_ids": [], "domain_ids": [], "tag_ids": []},
+        "home_domain_id": "product-root:concord",
+        "product_wide_rationale": "Fixture law binds every child Domain.",
+        "sha256": "sha256:" + "a" * 64,
+    }]
+    if profile is not None:
+        value["records"][0]["doc_contract_profile"] = profile
+    return value
+
+
+def profile_findings(root: Path, value: dict) -> list[str]:
+    with mock.patch.object(checker, "ROOT", root):
+        return [
+            finding
+            for finding in checker.validate(value, check_hashes=False)
+            if "doc_contract_profile" in finding
+        ]
+
+
+def test_new_decision_cannot_claim_the_legacy_profile() -> None:
+    """The CD-0175 boundary regression: authoring legacy exempts nothing.
+
+    A record outside the closed historical set cannot select the legacy
+    outline, so a newly accepted decision cannot write its way around the
+    current one.
+    """
+    with tempfile.TemporaryDirectory(dir=checker.ROOT) as directory:
+        root = Path(directory)
+        value = decision_profile_fixture(root, "CD-9999", "legacy")
+        findings = profile_findings(root, value)
+        assert findings == [
+            "manifest.records[0]: doc_contract_profile 'legacy' contradicts the closed legacy decision set for CD-9999"
+        ], findings
+
+
+def test_frozen_decision_cannot_claim_the_current_profile() -> None:
+    """A set member keeps the legacy profile; the boundary binds both ways."""
+    with tempfile.TemporaryDirectory(dir=checker.ROOT) as directory:
+        root = Path(directory)
+        value = decision_profile_fixture(root, "CD-0002", "current")
+        findings = profile_findings(root, value)
+        assert findings == [
+            "manifest.records[0]: doc_contract_profile 'current' contradicts the closed legacy decision set for CD-0002"
+        ], findings
+
+
+def test_decision_shard_requires_an_authored_profile() -> None:
+    with tempfile.TemporaryDirectory(dir=checker.ROOT) as directory:
+        root = Path(directory)
+        value = decision_profile_fixture(root, "CD-9999", None)
+        findings = profile_findings(root, value)
+        assert findings == [
+            "manifest.records[0]: decision requires a doc_contract_profile of 'legacy' or 'current'"
+        ], findings
+
+
+def test_frozen_legacy_profile_passes_and_unknown_profile_value_fails() -> None:
+    with tempfile.TemporaryDirectory(dir=checker.ROOT) as directory:
+        root = Path(directory)
+        value = decision_profile_fixture(root, "CD-0002", "legacy")
+        assert profile_findings(root, value) == []
+        drifted = decision_profile_fixture(root, "CD-9999", "obsolete")
+        findings = profile_findings(root, drifted)
+        assert findings == [
+            "manifest.records[0]: decision requires a doc_contract_profile of 'legacy' or 'current'"
+        ], findings
+
+
+def test_pre_amendment_head_demands_no_profile() -> None:
+    """A historical ref whose head predates the outline still composes."""
+    with tempfile.TemporaryDirectory(dir=checker.ROOT) as directory:
+        root = Path(directory)
+        value = decision_profile_fixture(root, "CD-9999", None)
+        del value["doc_contract"]
+        assert profile_findings(root, value) == []
+
+
+def test_non_decision_record_cannot_carry_a_profile() -> None:
+    with tempfile.TemporaryDirectory(dir=checker.ROOT) as directory:
+        root = Path(directory)
+        value = v12_fixture()
+        (root / "docs").mkdir(parents=True, exist_ok=True)
+        (root / "docs/lesson.md").write_text("body\n", encoding="utf-8")
+        value["records"][0]["doc_contract_profile"] = "current"
+        with mock.patch.object(checker, "ROOT", root):
+            findings = checker.validate(value, check_hashes=False)
+        assert any(
+            "doc_contract_profile is only valid on decision records" in finding
+            for finding in findings
+        ), findings
+
+
+SCHEMA_PATH = Path(__file__).resolve().parents[1] / "contracts" / "concord-knowledge-index.v1.schema.json"
+
+
+def schema_validator():
+    """Load the canonical knowledge-index schema for document-level checks."""
+    try:
+        import jsonschema
+    except ImportError as error:  # pragma: no cover - CI images carry jsonschema
+        raise AssertionError("jsonschema is required to validate the canonical schema") from error
+    schema = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
+    jsonschema.Draft202012Validator.check_schema(schema)
+    return jsonschema.Draft202012Validator(schema)
+
+
+def schema_errors(validator, document: dict) -> list[str]:
+    return sorted(error.message for error in validator.iter_errors(document))
+
+
+def test_schema_keeps_a_pre_amendment_head_profile_free() -> None:
+    """CD-0175 D2: a head without the new outline keeps unversioned behavior.
+
+    A schema-1.3 manifest whose head predates decision.current_required_sections
+    — by an absent doc_contract or an absent amendment key — stays schema-valid
+    with decision records that carry no doc_contract_profile. A historical ref
+    and another Product's corpus cannot be invalidated by adding this rule.
+    """
+    validator = schema_validator()
+    with tempfile.TemporaryDirectory(dir=checker.ROOT) as directory:
+        root = Path(directory)
+        bare = decision_profile_fixture(root, "CD-9999", None)
+        bare["schema_version"] = "1.3"
+        del bare["doc_contract"]
+        assert schema_errors(validator, bare) == [], schema_errors(validator, bare)
+
+        headless = decision_profile_fixture(root, "CD-9999", None)
+        headless["schema_version"] = "1.3"
+        headless["doc_contract"]["decision"].pop("current_required_sections")
+        assert schema_errors(validator, headless) == [], schema_errors(validator, headless)
+
+
+def test_schema_demands_the_profile_only_under_the_amended_head() -> None:
+    """The canonical schema matches the checker once the head declares the amendment.
+
+    Under a current head every decision record carries a profile from the
+    closed set, a frozen ID keeps 'legacy', and a new ID keeps 'current'.
+    Forged values and crossed profiles fail.
+    """
+    validator = schema_validator()
+    with tempfile.TemporaryDirectory(dir=checker.ROOT) as directory:
+        root = Path(directory)
+        errors = schema_errors(validator, decision_profile_fixture(root, "CD-9999", None))
+        assert errors == ["'doc_contract_profile' is a required property"], errors
+
+        forged = decision_profile_fixture(root, "CD-9999", "obsolete")
+        assert any("'obsolete' is not one of ['legacy', 'current'" in message for message in schema_errors(validator, forged)), schema_errors(validator, forged)
+
+        crossed = schema_errors(validator, decision_profile_fixture(root, "CD-9999", "legacy"))
+        assert any("CD-9999" in message for message in crossed), crossed
+
+        crossed = schema_errors(validator, decision_profile_fixture(root, "CD-0002", "current"))
+        assert any("'legacy' was expected" in message for message in crossed), crossed
+
+        assert schema_errors(validator, decision_profile_fixture(root, "CD-0002", "legacy")) == []
+
+
+def test_composed_repository_manifest_passes_the_canonical_schema() -> None:
+    """The shipped corpus validates against the shipped schema, end to end."""
+    validator = schema_validator()
+    compose_spec = importlib.util.spec_from_file_location(
+        "knowledge_index", Path(__file__).with_name("knowledge_index.py")
+    )
+    knowledge_index = importlib.util.module_from_spec(compose_spec)
+    compose_spec.loader.exec_module(knowledge_index)
+    errors = schema_errors(validator, knowledge_index.compose_manifest())
+    assert errors == [], errors[:5]
 
 
 def run_tests() -> None:

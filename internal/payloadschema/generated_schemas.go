@@ -853,6 +853,9 @@ const GeneratedPayloadSchemaDocument = `{
                 }
               ]
             },
+            "law_context": {
+              "$ref": "#/$defs/workflow_law_context"
+            },
             "pending_operator_decision": {
               "oneOf": [
                 {
@@ -870,6 +873,9 @@ const GeneratedPayloadSchemaDocument = `{
               "maxItems": 64,
               "type": "array",
               "uniqueItems": true
+            },
+            "proposal_record": {
+              "$ref": "#/$defs/workflow_proposal_record"
             },
             "spec_mandate": {
               "items": {
@@ -1278,6 +1284,7 @@ const GeneratedPayloadSchemaDocument = `{
         },
         "kind": {
           "enum": [
+            "constitution",
             "decision",
             "spec"
           ],
@@ -6099,6 +6106,138 @@ const GeneratedPayloadSchemaDocument = `{
         "outcome_kind",
         "outcome_payload",
         "verdict_kind"
+      ],
+      "type": "object"
+    },
+    "work_relate_client_policy_grant_request_input": {
+      "additionalProperties": false,
+      "properties": {
+        "agent_scope": {
+          "items": {
+            "$ref": "#/$defs/reference"
+          },
+          "maxItems": 100,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "approval": {
+          "$ref": "#/$defs/approval"
+        },
+        "capabilities": {
+          "items": {
+            "enum": [
+              "product_read",
+              "work_define",
+              "work_transition",
+              "work_relate",
+              "work_compact",
+              "work_initiative",
+              "cross_scope",
+              "research"
+            ],
+            "type": "string"
+          },
+          "maxItems": 32,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "idempotency_key": {
+          "$ref": "#/$defs/id"
+        },
+        "product_scope": {
+          "items": {
+            "$ref": "#/$defs/reference"
+          },
+          "maxItems": 100,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "project_scope": {
+          "items": {
+            "$ref": "#/$defs/reference"
+          },
+          "maxItems": 100,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "reason": {
+          "maxLength": 1024,
+          "minLength": 1,
+          "type": "string"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
+        }
+      },
+      "required": [
+        "capabilities",
+        "product_scope",
+        "project_scope",
+        "agent_scope",
+        "reason",
+        "idempotency_key"
+      ],
+      "type": "object"
+    },
+    "work_relate_client_policy_grant_request_result": {
+      "additionalProperties": false,
+      "properties": {
+        "added_agent_scope": {
+          "items": {
+            "$ref": "#/$defs/reference"
+          },
+          "maxItems": 100,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "added_capabilities": {
+          "items": {
+            "enum": [
+              "product_read",
+              "work_define",
+              "work_transition",
+              "work_relate",
+              "work_compact",
+              "work_initiative",
+              "cross_scope",
+              "research"
+            ],
+            "type": "string"
+          },
+          "maxItems": 32,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "added_product_scope": {
+          "items": {
+            "$ref": "#/$defs/reference"
+          },
+          "maxItems": 100,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "added_project_scope": {
+          "items": {
+            "$ref": "#/$defs/reference"
+          },
+          "maxItems": 100,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "client_ref": {
+          "$ref": "#/$defs/id"
+        },
+        "policy_version": {
+          "$ref": "#/$defs/digest"
+        }
+      },
+      "required": [
+        "client_ref",
+        "policy_version",
+        "added_capabilities",
+        "added_product_scope",
+        "added_project_scope",
+        "added_agent_scope"
       ],
       "type": "object"
     },
@@ -12034,6 +12173,118 @@ const GeneratedPayloadSchemaDocument = `{
       ],
       "type": "object"
     },
+    "workflow_law_context": {
+      "additionalProperties": false,
+      "description": "The approved contract's binding law and Domains, resolved at continuity read time from the law_subjects and domains projections. Absent when the contract binds no law and no Domain.",
+      "properties": {
+        "domains": {
+          "items": {
+            "$ref": "#/$defs/workflow_law_context_domain"
+          },
+          "maxItems": 65,
+          "type": "array"
+        },
+        "laws": {
+          "items": {
+            "$ref": "#/$defs/workflow_law_context_law"
+          },
+          "maxItems": 128,
+          "type": "array"
+        }
+      },
+      "required": [
+        "laws",
+        "domains"
+      ],
+      "type": "object"
+    },
+    "workflow_law_context_domain": {
+      "additionalProperties": false,
+      "properties": {
+        "domain_id": {
+          "$ref": "#/$defs/domain_id"
+        },
+        "name": {
+          "maxLength": 256,
+          "type": "string"
+        },
+        "purpose": {
+          "maxLength": 4096,
+          "type": "string"
+        }
+      },
+      "required": [
+        "domain_id",
+        "name",
+        "purpose"
+      ],
+      "type": "object"
+    },
+    "workflow_law_context_law": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "description": "The law_subjects record kind. Constitution records are law-bearing and project into law_subjects, so a contract can mandate them.",
+          "enum": [
+            "constitution",
+            "decision",
+            "spec"
+          ],
+          "type": "string"
+        },
+        "law_id": {
+          "$ref": "#/$defs/law_id"
+        },
+        "obligation_ids": {
+          "description": "The contract's verification obligations that name the law, sorted and deduplicated. Present only when roles carries obligation.",
+          "items": {
+            "$ref": "#/$defs/obligation_id"
+          },
+          "maxItems": 64,
+          "minItems": 1,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "path": {
+          "maxLength": 1024,
+          "minLength": 1,
+          "type": "string"
+        },
+        "roles": {
+          "description": "Every binding role the approved contract gives the law, sorted and deduplicated.",
+          "items": {
+            "enum": [
+              "mandated",
+              "modified",
+              "added",
+              "obligation"
+            ],
+            "type": "string"
+          },
+          "maxItems": 4,
+          "minItems": 1,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "status": {
+          "enum": [
+            "accepted",
+            "superseded"
+          ],
+          "type": "string"
+        },
+        "title": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "roles",
+        "law_id"
+      ],
+      "type": "object"
+    },
     "workflow_outcome_absent": {
       "additionalProperties": false,
       "properties": {
@@ -12335,6 +12586,43 @@ const GeneratedPayloadSchemaDocument = `{
       "maxLength": 4096,
       "minLength": 1,
       "type": "string"
+    },
+    "workflow_proposal_record": {
+      "additionalProperties": false,
+      "description": "The recorded proposal fields the dispatched lane packet renders. Absent when no proposal is recorded.",
+      "properties": {
+        "constraints": {
+          "items": {
+            "maxLength": 512,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 16,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "problem": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "type": "string"
+        },
+        "user_outcomes": {
+          "items": {
+            "maxLength": 512,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 16,
+          "type": "array",
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "problem",
+        "user_outcomes",
+        "constraints"
+      ],
+      "type": "object"
     },
     "workflow_read": {
       "additionalProperties": false,

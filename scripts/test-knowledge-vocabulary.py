@@ -121,6 +121,35 @@ def test_indexed_kind_divergence_is_reported() -> None:
     assert findings == ["KINDS (indexed_kinds): enforced by the checker, absent from the schema: reference"]
 
 
+def test_legacy_decision_set_schema_divergence_is_reported() -> None:
+    """The frozen CD-0175 boundary binds schema, checker, and generator in
+    both directions, so no single enforcement point can widen the set."""
+    schema = copy.deepcopy(SCHEMA)
+    schema["$defs"]["legacyDecisionProfileId"]["enum"].append("CD-9999")
+    assert validate(schema) == [
+        "LEGACY_DECISION_PROFILE_IDS: declared in schema, absent from the checker: CD-9999"
+    ]
+    assert validate_generator(schema) == [
+        "generator LEGACY_DECISION_PROFILE_IDS: declared in schema, absent from the checker: CD-9999"
+    ]
+
+
+def test_legacy_decision_set_growth_in_an_enforcer_is_reported() -> None:
+    schema = copy.deepcopy(SCHEMA)
+    with mock.patch.object(
+        CHECKER, "LEGACY_DECISION_PROFILE_IDS", CHECKER.LEGACY_DECISION_PROFILE_IDS | {"CD-9999"}
+    ):
+        assert validate(schema) == [
+            "LEGACY_DECISION_PROFILE_IDS: enforced by the checker, absent from the schema: CD-9999"
+        ]
+    with mock.patch.object(
+        GENERATOR, "LEGACY_DECISION_PROFILE_IDS", GENERATOR.LEGACY_DECISION_PROFILE_IDS | {"CD-9999"}
+    ):
+        assert validate_generator(schema) == [
+            "generator LEGACY_DECISION_PROFILE_IDS: enforced by the checker, absent from the schema: CD-9999"
+        ]
+
+
 def test_law_bearing_tier_divergence_is_reported() -> None:
     schema = copy.deepcopy(SCHEMA)
     for clause in schema["$defs"]["record"]["allOf"]:

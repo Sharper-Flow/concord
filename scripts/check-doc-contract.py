@@ -13,13 +13,35 @@ is in scope, gating hard-fail mode behind a manifest-level flag so the
 existing corpus can dogfood the rule before it blocks CI.
 
   outline       exact-case headings under the kind's required_sections list
+  decision profile
+                CD-0175: when the decision contract declares a
+                current_required_sections outline, a decision record whose
+                shard authors doc_contract_profile "current" must carry that
+                outline. A shard that authors "legacy" keeps the legacy
+                outline, so accepted decisions are preserved without
+                invented sections. Selection reads authored per-record shard
+                metadata, never a record date, and the closed historical set
+                that bounds the legacy profile is frozen in the index schema
+                and enforced by the knowledge-index checker, the shard
+                generator, and their vocabulary binding. A current-profile
+                decision may carry acceptance-criteria sections under either
+                heading spelling, every matching section is read, and
+                criteria stated inside a fenced block parse with the same
+                Given/When/Then rule a spec uses; it may not restate its
+                Domain as a heading: the authoritative Domain is the record
+                shard's home_domain_id. A legacy-profile decision keeps its
+                recorded criteria section unparsed: the frozen set's
+                sections are a preserved historical exception that review
+                reads.
   ac grammar    ac_required true requires an "Acceptance criteria" section
                 whose every criterion parses as Given/When/Then (Given
                 optional; Then required; exactly one When, because a second
                 trigger is a second criterion). ac_required false forbids the
                 section outright: only a spec carries acceptance criteria, so
                 any other kind that grows one is claiming a testable contract
-                its kind cannot hold.
+                its kind cannot hold. The current-profile decision rule above
+                replaces the forbidden half for decisions only; the spec rule
+                is unchanged.
   ac coverage   the "Verification" section states at least as many entries as
                 there are criteria, so no criterion is left unproven
   ste subset    sentence length ≤ 40 words, banned phrases absent,
@@ -62,6 +84,15 @@ MAX_CRITERION_EXEMPTION = 512
 # checked against its outline, its acceptance-criteria rule, and the STE subset.
 DOC_CONTRACT_KINDS = ("constitution", "decision", "spec", "lesson", "reference", "research")
 DOC_CONTRACT_FIELDS = {"enforced", *DOC_CONTRACT_KINDS, "banned_phrases", "activation"}
+# CD-0175: the versioned decision profile. `current_required_sections` names
+# the outline every decision carries on the current profile; the profile is
+# authored per record in the record shard's `doc_contract_profile` field, and
+# the closed historical set that bounds the legacy profile lives in the index
+# schema, not here. Authored in the manifest head, never inferred from a
+# record date, and only the decision kind may carry it.
+DECISION_BASE_FIELDS = {"required_sections", "ac_required"}
+DECISION_PROFILE_FIELDS = {"current_required_sections"}
+AC_SECTION_TITLE = "Acceptance criteria"
 DEFAULT_ABBREVIATION_ALLOWLIST = frozenset(
     {
         "JSON", "API", "CLI", "TUI", "SQL", "WAL", "CI", "PR", "ADV", "TS",
@@ -229,6 +260,23 @@ def unique_string_list(value: object, maximum: int, minimum: int = 0) -> bool:
     return True
 
 
+def validate_decision_profile(body: dict, findings: list[str]) -> None:
+    """Validate the authored CD-0175 profile on the decision contract.
+
+    The field is optional: a decision contract without it keeps the
+    unversioned behavior. The outline lives in the manifest head because it
+    is one rule for every current-profile decision; the profile itself lives
+    in each record shard, where the knowledge-index checker and the shard
+    generator bound it to the closed historical set.
+    """
+    if "current_required_sections" in body and not unique_string_list(
+        body["current_required_sections"], 32, minimum=1
+    ):
+        findings.append(
+            "manifest.doc_contract.decision: current_required_sections must be a unique array of 1-32 trimmed strings"
+        )
+
+
 def validate_doc_contract(manifest: dict, findings: list[str]) -> dict | None:
     """Validate and return the doc_contract block, or None on failure."""
     contract = manifest.get("doc_contract")
@@ -260,7 +308,11 @@ def validate_doc_contract(manifest: dict, findings: list[str]) -> dict | None:
         if not isinstance(body, dict):
             findings.append(f"manifest.doc_contract.{kind}: must be an object")
             continue
-        body_unknown = set(body) - {"required_sections", "ac_required"}
+        body_unknown = set(body) - (
+            DECISION_BASE_FIELDS | DECISION_PROFILE_FIELDS
+            if kind == "decision"
+            else DECISION_BASE_FIELDS
+        )
         if body_unknown:
             findings.append(
                 f"manifest.doc_contract.{kind}: unknown fields: {sorted(body_unknown)}"
@@ -271,6 +323,8 @@ def validate_doc_contract(manifest: dict, findings: list[str]) -> dict | None:
             )
         if "ac_required" in body and not isinstance(body["ac_required"], bool):
             findings.append(f"manifest.doc_contract.{kind}: ac_required must be a boolean")
+        if kind == "decision":
+            validate_decision_profile(body, findings)
 
     if "banned_phrases" in contract and not unique_string_list(
         contract["banned_phrases"], 64
@@ -290,10 +344,35 @@ def read_file(path: Path, findings: list[str]) -> list[str] | None:
         return None
 
 
-def collect_headings(lines: list[str]) -> dict[str, int]:
-    """Map exact heading text to its first 1-based line number."""
-    headings: dict[str, int] = {}
+def outside_fences(lines: list[str]) -> list[tuple[int, str]]:
+    """Return (1-based line number, line) pairs for lines outside fences.
+
+    A fenced block is a code quotation: every line between the fence
+    delimiters is example content, and a heading-shaped line inside one
+    opens no section. Structure scans — heading collection and section
+    lookup — read only the pairs this returns. The delimiters themselves
+    are fence syntax, not content.
+    """
+    visible: list[tuple[int, str]] = []
+    in_code = False
     for index, line in enumerate(lines, start=1):
+        if CODE_FENCE_RE.match(line):
+            in_code = not in_code
+            continue
+        if not in_code:
+            visible.append((index, line))
+    return visible
+
+
+def collect_headings(lines: list[str]) -> dict[str, int]:
+    """Map exact heading text to its first 1-based line number.
+
+    A heading line inside a fenced block is example content rather than
+    document structure, so it satisfies no required section and triggers
+    no refusal.
+    """
+    headings: dict[str, int] = {}
+    for index, line in outside_fences(lines):
         match = HEADING_RE.match(line)
         if not match:
             continue
@@ -312,17 +391,21 @@ def check_required_sections(
 
 
 def find_section(
-    lines: list[str], title: str, start_after: int = 0
+    lines: list[str], title: str, start_after: int = 0, exact: bool = True
 ) -> tuple[int, int] | None:
     """Return (start, end) 1-based line range of the named section.
 
     `start` is the line of the heading itself; `end` is the line *after* the
     next heading at the same or higher level, or len(lines) + 1 when the
-    section runs to EOF.
+    section runs to EOF. With exact=False the title matches without case,
+    which is how the CD-0175 decision rule finds an acceptance-criteria
+    section under either recorded spelling; the required-section scans stay
+    exact-case. A heading line inside a fenced block is example text: it
+    opens no section and terminates none.
     """
     section_level: int | None = None
     start_line = 0
-    for index, line in enumerate(lines, start=1):
+    for index, line in outside_fences(lines):
         if index <= start_after:
             continue
         match = HEADING_RE.match(line)
@@ -330,21 +413,46 @@ def find_section(
             continue
         text = match.group(2).strip()
         level = len(match.group(1))
-        if text == title:
+        if text == title or (not exact and text.lower() == title.lower()):
             section_level = level
             start_line = index
             break
     if section_level is None:
         return None
-    for index, line in enumerate(lines[start_line:], start=start_line + 1):
+    for index, line in outside_fences(lines):
+        if index <= start_line:
+            continue
         match = HEADING_RE.match(line)
         if match and len(match.group(1)) <= section_level:
             return start_line, index - 1
     return start_line, len(lines)
 
 
+def find_all_sections(
+    lines: list[str], title: str, exact: bool = True
+) -> list[tuple[int, int]]:
+    """Return every (start, end) range whose heading names `title`.
+
+    A rule that reads one section lets a second section with the same
+    title carry content no rule ever saw, so the optional-decision
+    criteria scan walks every match; a caller that owns a one-section
+    rule keeps find_section.
+    """
+    sections: list[tuple[int, int]] = []
+    search_after = 0
+    while True:
+        found = find_section(lines, title, start_after=search_after, exact=exact)
+        if found is None:
+            return sections
+        sections.append(found)
+        search_after = found[0]
+
+
 def iter_section_blocks(
-    lines: list[str], section_start: int, section_end: int
+    lines: list[str],
+    section_start: int,
+    section_end: int,
+    include_fenced: bool = False,
 ) -> list[tuple[int, list[str]]]:
     """Split a section into blocks, returning (start_line, text_lines) pairs.
 
@@ -353,6 +461,14 @@ def iter_section_blocks(
     the parent block. Both the acceptance-criteria grammar and the
     verification join count the same block shape, so the split lives here
     rather than in either caller.
+
+    Fenced blocks are skipped by default: a code sample inside a section is
+    not prose. `include_fenced` reads the fenced lines as block content
+    instead, which is how the decision criteria rule reads the corpus's
+    fenced ```gherkin criteria style. There a delimiter line is fence
+    syntax, the lines between delimiters are criteria text, and a
+    heading-shaped line inside the fence stays example text rather than a
+    section boundary.
     """
     blocks: list[tuple[int, list[str]]] = []
     in_code = False
@@ -369,10 +485,12 @@ def iter_section_blocks(
         line = lines[index - 1]
         if CODE_FENCE_RE.match(line):
             in_code = not in_code
+            if include_fenced:
+                flush()
             continue
-        if in_code:
+        if in_code and not include_fenced:
             continue
-        if HEADING_RE.match(line):
+        if not include_fenced and HEADING_RE.match(line):
             flush()
             continue
         list_match = LIST_ITEM_RE.match(line)
@@ -405,6 +523,7 @@ def parse_gherkin_criteria(
     section_end: int,
     path: Path,
     findings: list[str],
+    include_fenced: bool = False,
 ) -> int:
     """Validate the acceptance-criteria section, return the number of criteria.
 
@@ -412,9 +531,13 @@ def parse_gherkin_criteria(
     it contains at least one When and one Then (Given is optional per the
     recorded amendment) and states exactly one When. A criterion with two
     triggers is two criteria: the single-When rule is the granularity test.
+    `include_fenced` reads fenced lines as criteria content; the spec rule
+    keeps the default, so its parsing stays as recorded.
     """
     keywords = ("Given", "When", "Then")
-    blocks = iter_section_blocks(lines, section_start, section_end)
+    blocks = iter_section_blocks(
+        lines, section_start, section_end, include_fenced=include_fenced
+    )
 
     for start_line, text_lines in blocks:
         first = text_lines[0].lstrip()
@@ -560,6 +683,60 @@ def check_no_gherkin(lines: list[str], path: Path, findings: list[str]) -> None:
     if section is None:
         return
     findings.append(f"ac-forbidden: {path.relative_to(ROOT)}#{section[0]}")
+
+
+def decision_on_legacy_profile(record: dict) -> bool:
+    """CD-0175: the authored shard profile decides; nothing else is inferred.
+
+    The profile names the outline generation in the record's own shard. A
+    record date or an identifier comparison would select a profile from
+    context instead of from the authored metadata the shard owns, and the
+    knowledge-index checker has already bounded the legacy claim to the
+    closed historical set before this checker runs.
+    """
+    return record.get("doc_contract_profile") == "legacy"
+
+
+def check_optional_decision_criteria(
+    lines: list[str], path: Path, findings: list[str]
+) -> int:
+    """CD-0175: a current-profile decision may carry acceptance criteria.
+
+    The section is optional and its heading matches without case. The
+    previous scan forbade only the exact lowercase title and read only the
+    first match, so an `Acceptance Criteria` section passed without being
+    read and a second section escaped the grammar entirely: the rule held
+    by accident of spelling. Under the amendment one rule covers both
+    spellings and every section: each present section must parse as
+    Gherkin, criteria stated inside a fenced block parse with the same
+    grammar, and an invalid criterion fails under either spelling in
+    either position. The spec contract is untouched: a spec still
+    requires its exact-case acceptance-criteria section.
+    """
+    parsed = 0
+    for start, end in find_all_sections(lines, AC_SECTION_TITLE, exact=False):
+        parsed += parse_gherkin_criteria(
+            lines, start, end, path, findings, include_fenced=True
+        )
+    return parsed
+
+
+def check_no_domain_heading(
+    headings: dict[str, int], path: Path, findings: list[str]
+) -> None:
+    """CD-0175: the authoritative Domain is the record shard's home_domain_id.
+
+    The manifest gives every accepted law-bearing record exactly one home
+    Domain through the shard field. A Domain heading in the body would
+    create a second source for the same fact and a heuristic join between
+    the two, so a current-profile decision refuses one.
+    """
+    for text, line_no in headings.items():
+        lowered = text.lower()
+        if lowered == "domain" or lowered.startswith("domain:"):
+            findings.append(
+                f"domain-heading-forbidden: {path.relative_to(ROOT)}#{line_no} ({text})"
+            )
 
 
 def strip_html_comments(lines: list[str]) -> list[str]:
@@ -821,13 +998,25 @@ def check_record(
 
     spec = contract[kind]
     headings = collect_headings(lines)
-    required = spec.get("required_sections", [])
+    on_current_profile = (
+        kind == "decision"
+        and "current_required_sections" in spec
+        and not decision_on_legacy_profile(record)
+    )
+    if on_current_profile:
+        required = spec["current_required_sections"]
+    else:
+        required = spec.get("required_sections", [])
     check_required_sections(headings, required, absolute, findings)
 
     if spec.get("ac_required", False):
         criteria_count = check_gherkin(lines, absolute, findings)
         check_verification_coverage(lines, criteria_count, absolute, findings)
         check_criterion_bindings(record, criteria_count, absolute, findings)
+    elif on_current_profile:
+        check_optional_decision_criteria(lines, absolute, findings)
+        check_no_domain_heading(headings, absolute, findings)
+        check_criterion_bindings(record, 0, absolute, findings)
     else:
         check_no_gherkin(lines, absolute, findings)
         check_criterion_bindings(record, 0, absolute, findings)

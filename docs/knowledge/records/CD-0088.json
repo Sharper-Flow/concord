@@ -5,6 +5,7 @@
     "tier": "legislated"
   },
   "date": "2026-08-30T00:00:00Z",
+  "doc_contract_profile": "legacy",
   "evidence": [
     "cmd/concord/work_bootstrap.go",
     "cmd/concord/work_bootstrap_test.go",

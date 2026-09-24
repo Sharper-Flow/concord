@@ -25,7 +25,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:03263689e101b895c0ba285f60a1a5c618dc1bcf6c6a4754f1de42e2762a60d2",
+  "sha256": "sha256:8b1681aeebd74d3cecd322b81dbac887ea063a04b4f930543c7127f378c7015a",
   "status": "accepted",
   "summary": "Defines the launcher remake CD-0108 mandates: Concord-first browse with launch actions through Concord's session bootstrap, resume, and prompt pass-through; dense panes on arrow, Enter, and Tab; store-write-free; the accepted feature set with removed and deferred items; and the ZLauncher retirement acceptance test.",
   "tags": [

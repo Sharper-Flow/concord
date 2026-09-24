@@ -503,6 +503,11 @@ async function invokeConcordOperationRaw(toolName: string, args: HostToolArgs, c
     if (toolName === "concord_work_relate" && operation === "resolve_overlap") {
       requiredChallengeFields.push("summary", "resolution_kind", "from_work_id", "to_work_id")
     }
+    if (toolName === "concord_work_relate" && operation === "client_policy_grant_request") {
+      // The operator must see whose policy widens, at which policy version,
+      // and why before the expansion can apply (CD-0097 D6).
+      requiredChallengeFields.push("summary", "client_ref", "policy_version", "reason")
+    }
     if (requiredChallengeFields.some((key) => typeof details[key] !== "string" || details[key].length === 0)) return adapterError(toolName, operation, requestID, "malformed_response", "malformed_core_response", "core approval challenge lacked exact workflow metadata")
     if (toolName === "concord_work_transition" && operation === "workflow_action" && Array.from(details.premise_summary ?? "").length > 256) return adapterError(toolName, operation, requestID, "malformed_response", "malformed_core_response", "core approval challenge premise summary exceeded the public bound")
     // The selection binds only where the surface admits one. `confirm_premise`
@@ -528,6 +533,9 @@ async function invokeConcordOperationRaw(toolName: string, args: HostToolArgs, c
           ...(typeof details.resolution_kind === "string" ? { resolution_kind: details.resolution_kind } : {}),
           ...(typeof details.from_work_id === "string" ? { from_work_id: details.from_work_id } : {}),
           ...(typeof details.to_work_id === "string" ? { to_work_id: details.to_work_id } : {}),
+          ...(typeof details.client_ref === "string" ? { client_ref: details.client_ref } : {}),
+          ...(typeof details.policy_version === "string" ? { policy_version: details.policy_version } : {}),
+          ...(typeof details.reason === "string" ? { reason: details.reason } : {}),
           // CD-0037 D5: the typed consequence summary is copied unchanged
           // into host permission metadata; the host renders it.
           ...(response.error?.consequence_summary ? { consequence_summary: response.error.consequence_summary } : {}),
@@ -809,6 +817,14 @@ async function runWorkStartChild(argv: string[], input: string, signal: AbortSig
   try { return await runner.run(argv, input, signal, options) } catch (error) { throw runnerFailure(error, signal.aborted) }
 }
 
+// The core reports a deterministic session-prepare refusal — invalid input,
+// or a state or identity check that fails the same way until state changes —
+// with this typed exit status, declared in the core's session-prepare help.
+// Classification uses the status alone, never stderr text: replaying the same
+// request cannot clear a refusal, so it maps to contact_operator, while any
+// other session-prepare failure stays retryable.
+export const sessionPrepareRefusalExit = 2
+
 // renameZellijPaneFrame names the zellij pane frame after the work a
 // successful work_start just entered (issue #917). The session-prepare
 // contract returns the title alone, and the adapter does not add a database
@@ -858,6 +874,11 @@ async function writeSessionGoalTitle(sessionID: string, title: string, context: 
 //      move — the host accepted the retarget but the tool context has not
 //      landed — refuses and leaves the claimed worktree unarmed, so a replay
 //      after the context lands may succeed.
+//   5. A resume records the verified landing through the core's claim-landing
+//      verb. Its resume read records nothing (CD-0104 D1), so the store holds
+//      no occupancy for the session until the record lands, and the removal
+//      gates (worktree_audit_reclaim, worktree_reclaim) hold the worktree for
+//      the session that runs in it.
 //
 // No step records intent ahead of its effect, so there is no partial state.
 // The session's worktree is the directory it runs in, and the host owns that
@@ -930,6 +951,7 @@ async function executeWorkStart(args: WorkStartArgs, context: ToolContext, warni
     // same agent. A core that answers with any other agent fails the strict
     // contract below.
     const prepared = await runWorkStartChild([concordBinaryPath(), "session-prepare"], JSON.stringify({ product_id: target.product_id, work_id: target.work_id, task: prepareTask, agent: context.agent }), context.abort, { cwd: target.worktree.path })
+    if (prepared.exitCode === sessionPrepareRefusalExit) throw new AdapterFailure("session_prepare_failure", "session_prepare_refused", prepared.stderr.slice(0, MAX_STDERR), "none", "contact_operator")
     if (prepared.exitCode !== 0) throw new AdapterFailure("session_prepare_failure", "session_prepare_failed", prepared.stderr.slice(0, MAX_STDERR), "none", "retry_same_request")
     let preparedValue: unknown
     try { preparedValue = singleJSON(prepared.stdout) } catch (error) { throw new AdapterFailure("malformed_response", "malformed_prepare_response", String(error), "none", "retry_same_request") }
@@ -977,6 +999,24 @@ async function executeWorkStart(args: WorkStartArgs, context: ToolContext, warni
     if (!samePath(context.directory, target.worktree.path)) {
       recordUnlandedClaimedWorktree(context.sessionID, target.worktree.path)
       throw new AdapterFailure("session_directory_mismatch", "move_context_not_landed", `the host reports the session in the claimed worktree ${JSON.stringify(target.worktree.path)}, but this session's tool context still resolves in ${JSON.stringify(context.directory)}; the move has not landed, so Concord reports no success and arms no claimed worktree. Replay work_start once the session's tool context runs in the claimed worktree.`, "none", "retry_same_request")
+    }
+    // A resumed session claims no worktree: the read that derives its active
+    // worktree records nothing (CD-0104 D1), so the store holds no occupancy
+    // for it. Once both readbacks name the worktree, the landing records
+    // itself through the same claim-landing owner the verified claim route
+    // uses, so worktree_audit_reclaim and worktree_reclaim hold the worktree
+    // for the session that runs in it. The record replays idempotently.
+    // Occupancy never refuses the move (CD-0104 D5, CD-0119): the session has
+    // landed, so a refused record is a warning and the start still succeeds.
+    // A worktree another live session occupies is already held by that
+    // recorded occupant.
+    if (resume) {
+      try {
+        await recordClaimLanding(target.work_id, context.sessionID, target.worktree.path, context.abort)
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        warnings.push(`Concord did not record this session as the occupant of ${target.worktree.path}: ${message}. The worktree removal gates may not hold it for this session; replay work_start to retry the record.`)
+      }
     }
     // The tool context landed in the claimed worktree, so this session's
     // active claimed worktree is armed for the dispatch check.

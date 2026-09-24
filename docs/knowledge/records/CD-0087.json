@@ -5,6 +5,7 @@
     "tier": "legislated"
   },
   "date": "2026-08-30T00:00:00Z",
+  "doc_contract_profile": "legacy",
   "evidence": [
     "scripts/install.py",
     "scripts/test-installer.py",

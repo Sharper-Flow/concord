@@ -2,6 +2,7 @@ package storeport
 
 import (
 	"context"
+	"fmt"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -63,6 +64,30 @@ func readDomainSection(t *testing.T, s *store.Store, product string) launcher.Sn
 	return snapshot
 }
 
+// A Domain query that fails after the registry reads is the Domain section's
+// state alone. Removing the law table makes the grouped current-law query
+// fail with a typed unavailable failure, while the Product work read is
+// untouched; the launcher still enters the Product and lists its work.
+func TestDomainQueryFailureKeepsTheProductWorkList(t *testing.T) {
+	s := domainEvidenceStore(t)
+	if _, err := s.DatabaseForTesting().Exec(`DROP TABLE law_domain_homes`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.QueryLauncherDomains(context.Background(), store.LauncherProductRequest{Product: "product-1", Limit: 20, Depth: 3}); err == nil {
+		t.Fatal("non-vacuity: the Domain query must fail for this test to measure anything")
+	}
+	snapshot := readDomainSection(t, s, "product-1")
+	if len(snapshot.Ranked) != 2 {
+		t.Fatalf("a failed Domain query withheld the Product work list: %#v", snapshot.Ranked)
+	}
+	if snapshot.Coverage != "authoritative" || snapshot.StatusMessage != "" {
+		t.Fatalf("a failed Domain query moved screen coverage or status: coverage=%q status=%q", snapshot.Coverage, snapshot.StatusMessage)
+	}
+	if snapshot.Domains.State != "unavailable" || snapshot.Domains.Reason != string(store.KindUnavailable) {
+		t.Fatalf("a failed Domain query was not typed unavailable in its section: %#v", snapshot.Domains)
+	}
+}
+
 // The four content clauses of the Product-detail floor row, read from a store
 // rather than a fabricated snapshot: current law, architecture relations,
 // active Domain-bound work, and unresolved architecture overlap.
@@ -108,8 +133,8 @@ func TestS2DomainSectionReadsLawRelationsWorkAndOverlapFromTheStore(t *testing.T
 	if len(snapshot.Domains.Relations) != 0 {
 		t.Fatalf("single-Domain Product rendered %d architecture relations: %#v", len(snapshot.Domains.Relations), snapshot.Domains.Relations)
 	}
-	if snapshot.Domains.Truncated {
-		t.Fatal("one Domain and no relations cannot exceed the relation bound")
+	if snapshot.Domains.RelationsTruncated || snapshot.Domains.OverlapsTruncated || snapshot.Domains.RegistryIncomplete {
+		t.Fatal("one Domain and no relations cannot exceed any read bound")
 	}
 
 	// Unresolved architecture overlap between the two Domain-bound contracts,
@@ -140,13 +165,34 @@ func TestS2DomainSectionReadsLawRelationsWorkAndOverlapFromTheStore(t *testing.T
 	}
 }
 
+// absentRegistryStore seeds a Product whose work list is readable while its
+// Domain registry was never projected, the shape the launcher must survive:
+// the Product opens, lists, and opens work, and only the Domain section
+// reports the absent registry.
+func absentRegistryStore(t *testing.T) *store.Store {
+	t.Helper()
+	ctx := context.Background()
+	s := openLauncherStore(t)
+	if err := pm1fixture.SeedProductAndProject(ctx, s, "product-1", "project-1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := pm1fixture.SeedWorkItem(ctx, s, "project-1", "work-1", "Work", 1); err != nil {
+		t.Fatal(err)
+	}
+	if err := pm1fixture.SeedWorkItem(ctx, s, "project-1", "work-2", "Second work", 2); err != nil {
+		t.Fatal(err)
+	}
+	return s
+}
+
 // The defect this floor row exists for. Architecture relations are legitimately
 // empty for a single-Domain Product, and an unprojected registry also produces
 // zero relations, so relation count cannot tell the two apart. The pair that
-// can is outcome plus coverage: an authoritative-empty section states
+// can is outcome plus section state: an authoritative-empty section states
 // "authoritative" and carries a Git-anchored registry watermark, while an
 // unreadable one states "unavailable" with a typed reason and no watermark at
-// all.
+// all. Screen coverage follows the work read in both cases; only the Domain
+// section separates the two.
 func TestS2ArchitectureRelationsAreAuthoritativeEmptyNotUnavailable(t *testing.T) {
 	empty := readDomainSection(t, domainEvidenceStore(t), "product-1")
 	// Non-vacuity: the same section carries projected law and Domain-bound
@@ -155,7 +201,7 @@ func TestS2ArchitectureRelationsAreAuthoritativeEmptyNotUnavailable(t *testing.T
 		t.Fatalf("relation emptiness was read from an unpopulated registry: %#v", empty.Domains.Domains)
 	}
 
-	absent := readDomainSection(t, openLauncherStore(t), "product-1")
+	absent := readDomainSection(t, absentRegistryStore(t), "product-1")
 
 	if len(empty.Domains.Relations) != 0 || len(absent.Domains.Relations) != 0 {
 		t.Fatalf("relation counts differ, so this test would not measure the discriminator: empty=%d absent=%d", len(empty.Domains.Relations), len(absent.Domains.Relations))
@@ -170,8 +216,18 @@ func TestS2ArchitectureRelationsAreAuthoritativeEmptyNotUnavailable(t *testing.T
 	if absent.Domains.State != "unavailable" || absent.Domains.Reason != string(store.KindDomainRegistryAbsent) {
 		t.Fatalf("unprojected registry was not typed unavailable: %#v", absent.Domains)
 	}
-	if empty.Coverage != "authoritative" || absent.Coverage != "unavailable" {
-		t.Fatalf("screen coverage did not separate the two: empty=%q absent=%q", empty.Coverage, absent.Coverage)
+	if empty.Coverage != "authoritative" || absent.Coverage != "authoritative" {
+		t.Fatalf("screen coverage must follow the work read; only the Domain section types the absent registry: empty=%q absent=%q", empty.Coverage, absent.Coverage)
+	}
+	// An absent registry never withholds the Product work list: the work
+	// read's answer rides beside the typed unavailable Domain section.
+	if len(absent.Ranked) != 2 {
+		t.Fatalf("absent registry withheld the Product work list: %#v", absent.Ranked)
+	}
+	for _, item := range absent.Ranked {
+		if item.ID != "work-1" && item.ID != "work-2" {
+			t.Fatalf("absent registry listed work outside the Product: %#v", item)
+		}
 	}
 	if !strings.HasPrefix(empty.Domains.Registry, "sha256:") {
 		t.Fatalf("authoritative-empty section carried no coverage watermark: %q", empty.Domains.Registry)
@@ -200,6 +256,105 @@ func TestS2ArchitectureRelationsAreAuthoritativeEmptyNotUnavailable(t *testing.T
 	}
 	if row := domainProjectionRow(t, empty); strings.HasPrefix(row[0], "unavailable:") {
 		t.Fatalf("authoritative-empty Domain section rendered as unavailable: %#v", row)
+	}
+}
+
+// boundedOverlapStore assembles the bounded-read shape: eleven Domain-bound
+// contracts enumerate 55 overlap pairs, past the 50-pair bound, while the
+// projected registry carries eight current Domain rows — the registry shape
+// the real Product holds.
+func boundedOverlapStore(t *testing.T) *store.Store {
+	t.Helper()
+	ctx := context.Background()
+	s := openLauncherStore(t)
+	if err := pm1fixture.SeedProductAndProject(ctx, s, "product-1", "project-1"); err != nil {
+		t.Fatal(err)
+	}
+	works := make([]string, 0, 11)
+	for i := 1; i <= 11; i++ {
+		workID := fmt.Sprintf("bounded-overlap-%02d", i)
+		if err := pm1fixture.SeedWorkItem(ctx, s, "project-1", workID, "Bounded overlap work", i); err != nil {
+			t.Fatal(err)
+		}
+		works = append(works, workID)
+	}
+	options := pm1fixture.DomainEvidenceOptions{Dir: t.TempDir(), ProductID: "product-1", ProjectID: "project-1", LocatorID: "domain-evidence-locator", WorkIDs: works}
+	if err := pm1fixture.SeedDomainEvidence(ctx, s, options); err != nil {
+		t.Fatal(err)
+	}
+	// Seven more current Domains on the single-Domain evidence registry bring
+	// the section to the real eight-row shape without touching the evidence
+	// fixtures.
+	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+		tx.Rollback()
+		t.Fatal(err)
+	}
+	for i := 1; i <= 7; i++ {
+		domainID := fmt.Sprintf("bounded-extra-%d", i)
+		if _, err := tx.ExecContext(ctx, `INSERT INTO domains(home_project_id,home_locator_id,product_id,domain_id,name,purpose,parent_domain_id,status,registry_content_hash,scanned_commit_oid) SELECT home_project_id,home_locator_id,product_id,?,'Extra','Fixture domain',?,status,registry_content_hash,scanned_commit_oid FROM domains WHERE product_id=? AND domain_id=?`, domainID, pm1fixture.SingleDomainRootID, "product-1", pm1fixture.SingleDomainRootID); err != nil {
+			tx.Rollback()
+			t.Fatal(err)
+		}
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM fold_guard`); err != nil {
+		tx.Rollback()
+		t.Fatal(err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	return s
+}
+
+// The bounded overlap enumeration must not hide the complete registry read:
+// the section keeps its eight Domain rows and the Git registry watermark,
+// names the bounded part, and never answers "no unresolved overlaps" from an
+// incomplete enumeration.
+func TestS2DomainSectionBoundedOverlapKeepsRegistryRows(t *testing.T) {
+	snapshot := readDomainSection(t, boundedOverlapStore(t), "product-1")
+
+	if snapshot.Domains.State != "authoritative" {
+		t.Fatalf("bounded overlaps marked the whole section unavailable: %#v", snapshot.Domains)
+	}
+	if !strings.HasPrefix(snapshot.Domains.Registry, "sha256:") {
+		t.Fatalf("bounded overlap read dropped the registry watermark: %q", snapshot.Domains.Registry)
+	}
+	if len(snapshot.Domains.Domains) != 8 {
+		t.Fatalf("bounded overlap read rendered %d Domain rows, want the eight registry rows: %#v", len(snapshot.Domains.Domains), snapshot.Domains.Domains)
+	}
+	if !snapshot.Domains.OverlapsTruncated {
+		t.Fatalf("fixture did not reach the overlap bound: %#v", snapshot.Domains)
+	}
+	if snapshot.Domains.RelationsTruncated || snapshot.Domains.RegistryIncomplete {
+		t.Fatalf("fixture bounded a part it should not: %#v", snapshot.Domains)
+	}
+	if len(snapshot.Domains.Overlaps) != 50 {
+		t.Fatalf("overlap pairs = %d, want the 50-pair bound", len(snapshot.Domains.Overlaps))
+	}
+
+	// The S2 panel states the bounded enumeration as unavailable instead of
+	// evaluating clean from partial data.
+	summary := snapshot.S2AnswerStack().Domain.Domain
+	if summary.Evaluated || summary.UnavailableReason != "domain_overlaps_bounded" {
+		t.Fatalf("bounded overlap enumeration evaluated clean: %#v", summary)
+	}
+
+	// 80 and 120 column terminal rendering keeps the registry rows visible and
+	// carries no unavailable row for the bounded part.
+	for _, width := range []int{80, 120} {
+		projection := launcher.Project(snapshot, width, func(s string) int { return utf8.RuneCountInString(s) })
+		if len(projection.Rows) != 8 {
+			t.Fatalf("width %d rendered %d Domain rows: %#v", width, len(projection.Rows), projection.Rows)
+		}
+		for _, row := range projection.Rows {
+			if strings.HasPrefix(row[0], "unavailable:") {
+				t.Fatalf("width %d rendered the bounded section unavailable: %#v", width, row)
+			}
+		}
 	}
 }
 

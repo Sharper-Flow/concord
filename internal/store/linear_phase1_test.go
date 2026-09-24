@@ -212,7 +212,7 @@ func TestLinearEnqueueForWorkGuards(t *testing.T) {
 	if err := json.Unmarshal([]byte(payload), &decoded); err != nil {
 		t.Fatal(err)
 	}
-	if decoded.ClientUUID == "" || decoded.Title != "Enqueue title" || decoded.Description != composeLinearIssueBody("Enqueue value statement", "", "enq-work", "task", "", nil) || decoded.ProductID != "enq-product" || decoded.TeamID != "team-uuid-1" || decoded.ProjectID != "" {
+	if decoded.ClientUUID == "" || decoded.Title != "Enqueue title" || decoded.Description != composeLinearIssueBody("Enqueue value statement", "", "", linearIssueProposal{}, "enq-work", "task", "", nil) || decoded.ProductID != "enq-product" || decoded.TeamID != "team-uuid-1" || decoded.ProjectID != "" {
 		t.Fatalf("payload = %+v", decoded)
 	}
 	// The fixture connection maps the Product's repository (CD-0171 D3), so
@@ -452,7 +452,7 @@ func TestLinearCompleteConfirmsLinkIdentity(t *testing.T) {
 	}
 }
 
-func TestLinearUpdateCompletionRefreshesConfirmedLink(t *testing.T) {
+func TestLinearUpdateCompletionRecordsOnlyClaimedRevisionDigest(t *testing.T) {
 	t.Parallel()
 	s := openTemp(t)
 	ctx := context.Background()
@@ -469,11 +469,13 @@ func TestLinearUpdateCompletionRefreshesConfirmedLink(t *testing.T) {
 	if _, err := s.ClaimLinearOperations(ctx, 1); err != nil {
 		t.Fatal(err)
 	}
-	first := LinearRemoteIdentity{RemoteUUID: "remote-1", HumanKey: "SHA-1", URL: "https://linear.app/example/issue/SHA-1", RemoteUpdatedAt: "2026-09-09T01:00:00Z", ContentHash: "sha256:" + strings.Repeat("1", 64)}
-	if err := s.CompleteLinearOperation(ctx, create.OperationID, first); err != nil {
+	created := LinearRemoteIdentity{RemoteUUID: "remote-1", HumanKey: "SHA-1", URL: "https://linear.app/example/issue/SHA-1", RemoteUpdatedAt: "2026-09-09T01:00:00Z", ContentHash: "sha256:" + strings.Repeat("1", 64)}
+	if err := s.CompleteLinearOperation(ctx, create.OperationID, created); err != nil {
 		t.Fatal(err)
 	}
 
+	// An update that published a revision comment claims the digest it
+	// published, and its completion records that digest on the link.
 	update, err := s.EnqueueLinearIssueForWork(ctx, "update-work", LinearOpIssueUpdate)
 	if err != nil {
 		t.Fatal(err)
@@ -482,20 +484,38 @@ func TestLinearUpdateCompletionRefreshesConfirmedLink(t *testing.T) {
 	if err != nil || len(claimed) != 1 || claimed[0].OperationID != update.OperationID {
 		t.Fatalf("claimed update = %+v, error = %v", claimed, err)
 	}
-	second := LinearRemoteIdentity{RemoteUUID: "remote-1", HumanKey: "SHA-1", URL: "https://linear.app/example/issue/SHA-1", RemoteUpdatedAt: "2026-09-09T02:00:00Z", ContentHash: "sha256:" + strings.Repeat("2", 64)}
-	if err := s.CompleteLinearOperation(ctx, update.OperationID, second); err != nil {
-		t.Fatalf("update completion error = %v", err)
+	revision := LinearRemoteIdentity{RemoteUUID: "remote-1", HumanKey: "SHA-1", URL: "https://linear.app/example/issue/SHA-1", RemoteUpdatedAt: "2026-09-09T02:00:00Z", ContentHash: "sha256:" + strings.Repeat("2", 64)}
+	if err := s.CompleteLinearOperation(ctx, update.OperationID, revision); err != nil {
+		t.Fatalf("revision update completion error = %v", err)
 	}
 
-	var outboxState, linkState, remoteUUID, updatedAt, contentHash string
-	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT state FROM linear_outbox WHERE operation_id=?`, update.OperationID).Scan(&outboxState); err != nil {
+	var linkState, remoteUUID, updatedAt, contentHash string
+	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT link_state, remote_issue_uuid, remote_updated_at, content_hash FROM linear_issue_links WHERE work_id=?`, "update-work").Scan(&linkState, &remoteUUID, &updatedAt, &contentHash); err != nil {
 		t.Fatal(err)
+	}
+	if linkState != LinearLinkConfirmed || remoteUUID != revision.RemoteUUID || updatedAt != revision.RemoteUpdatedAt || contentHash != revision.ContentHash {
+		t.Fatalf("revision completion = %s/%s/%s/%s, want confirmed link with refreshed identity and the claimed revision digest", linkState, remoteUUID, updatedAt, contentHash)
+	}
+
+	// A routing-only update claims no content, so its completion refreshes
+	// the link identity while the recorded digest keeps naming the content
+	// Concord last published.
+	routing, err := s.EnqueueLinearIssueForWork(ctx, "update-work", LinearOpIssueUpdate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.ClaimLinearOperations(ctx, 1); err != nil {
+		t.Fatal(err)
+	}
+	routingOnly := LinearRemoteIdentity{RemoteUUID: "remote-1", HumanKey: "SHA-1", URL: "https://linear.app/example/issue/SHA-1", RemoteUpdatedAt: "2026-09-09T03:00:00Z"}
+	if err := s.CompleteLinearOperation(ctx, routing.OperationID, routingOnly); err != nil {
+		t.Fatalf("routing update completion error = %v", err)
 	}
 	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT link_state, remote_issue_uuid, remote_updated_at, content_hash FROM linear_issue_links WHERE work_id=?`, "update-work").Scan(&linkState, &remoteUUID, &updatedAt, &contentHash); err != nil {
 		t.Fatal(err)
 	}
-	if outboxState != LinearOutboxDone || linkState != LinearLinkConfirmed || remoteUUID != second.RemoteUUID || updatedAt != second.RemoteUpdatedAt || contentHash != second.ContentHash {
-		t.Fatalf("completion state = %s/%s/%s/%s/%s", outboxState, linkState, remoteUUID, updatedAt, contentHash)
+	if updatedAt != routingOnly.RemoteUpdatedAt || contentHash != revision.ContentHash {
+		t.Fatalf("routing completion = %s/%s, want refreshed timestamp with the revision digest standing", updatedAt, contentHash)
 	}
 }
 
@@ -738,14 +758,106 @@ func TestLinearEnqueueBodyComposesPremiseAndResume(t *testing.T) {
 	}
 }
 
+func TestLinearEnqueueBodyPublishesLatestIntakeProposal(t *testing.T) {
+	s := openTemp(t)
+	ctx := context.Background()
+	setupLinearProduct(t, s, "proposal-product")
+	setupLinearConnectionResource(t, s, "proposal-product", map[string]any{"linear": map[string]any{
+		"workspace_url": "https://linear.app/example", "team_id": "team-uuid-1", "auth_mode": "personal_api_key",
+	}})
+	if _, err := s.SetProductPlanningMode(ctx, "proposal-product", PlanningModeLinear, "pilot", "operator", 2); err != nil {
+		t.Fatal(err)
+	}
+	seedLinearWorkItem(t, s, "proposal-work", "proposal-product-project", "Proposal title", "Proposal value")
+	if _, err := s.DatabaseForTesting().ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1); INSERT INTO workflow_proposal_records(work_id,work_version,problem,affected,stakes,user_outcomes,constraints,open_questions,recorded_at) VALUES(?,1,?,?,?,?,?,?,?); DELETE FROM fold_guard`,
+		"proposal-work", "Intake problem", `["Project A"]`, "Intake stakes", `["Expected result"]`, `["Must preserve the API"]`, `["Does the API need migration?"]`, "2026-09-09T00:00:00Z"); err != nil {
+		t.Fatal(err)
+	}
+	create, err := s.EnqueueLinearIssueForWork(ctx, "proposal-work", LinearOpIssueCreate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	description := decodeLinearDescription(t, s, create.OperationID)
+	for _, want := range []string{
+		"## Problem\n\nIntake problem", "## Affected\n\n- Project A", "## Stakes\n\nIntake stakes",
+		"## User outcomes\n\n- Expected result", "## Constraints\n\n- Must preserve the API",
+		"## Open questions\n\n- Does the API need migration?",
+	} {
+		if !strings.Contains(description, want) {
+			t.Fatalf("description = %q, want substring %q", description, want)
+		}
+	}
+	if _, err := s.DatabaseForTesting().ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1); INSERT INTO workflow_proposal_records(work_id,work_version,problem,affected,stakes,user_outcomes,constraints,open_questions,recorded_at) VALUES(?,2,?,?,?,?,?,?,?); DELETE FROM fold_guard`,
+		"proposal-work", "Revised intake problem", `["Project B"]`, "Revised stakes", `["Revised result"]`, `[]`, `[]`, "2026-09-10T00:00:00Z"); err != nil {
+		t.Fatal(err)
+	}
+	update, err := s.EnqueueLinearIssueForWork(ctx, "proposal-work", LinearOpIssueUpdate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	updatedDescription := decodeLinearDescription(t, s, update.OperationID)
+	if !strings.Contains(updatedDescription, "## Problem\n\nRevised intake problem") || !strings.Contains(updatedDescription, "- Project B") || !strings.Contains(updatedDescription, "## Stakes\n\nRevised stakes") || !strings.Contains(updatedDescription, "- Revised result") || strings.Contains(updatedDescription, "Project A") || strings.Contains(updatedDescription, "Intake stakes") || strings.Contains(updatedDescription, "Expected result") || strings.Contains(updatedDescription, "Open questions") || strings.Contains(updatedDescription, "Constraints") {
+		t.Fatalf("updated description = %q, want latest proposal and no stale optional sections", updatedDescription)
+	}
+}
+
+func TestLinearEnqueueBodyPublishesRecordedTaskBrief(t *testing.T) {
+	s := openTemp(t)
+	ctx := context.Background()
+	setupLinearProduct(t, s, "brief-product")
+	setupLinearConnectionResource(t, s, "brief-product", map[string]any{"linear": map[string]any{
+		"workspace_url": "https://linear.app/example", "team_id": "team-uuid-1", "auth_mode": "personal_api_key",
+		"status_ids": map[string]string{"needed": "state-needed", "in_progress": "state-in-progress", "completed": "state-completed", "cancelled": "state-cancelled", "superseded": "state-superseded"},
+	}})
+	if _, err := s.SetProductPlanningMode(ctx, "brief-product", PlanningModeLinear, "pilot", "operator", 2); err != nil {
+		t.Fatal(err)
+	}
+	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback()
+	if err := enterFold(ctx, tx); err != nil {
+		t.Fatal(err)
+	}
+	intent, err := json.Marshal(map[string]any{"title": "Brief title", "value_statement": "Brief value", "task": "Deliver the approved objective.", "kind": "task", "priority": 0, "urgency": "standard"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO work_items(id, kind, title, lifecycle, priority, urgency, version, intent_json, created_at, updated_at) VALUES('brief-work', 'task', 'Brief title', 'needed', 0, 'standard', 1, ?, '2026-09-09T00:00:00Z', '2026-09-09T00:00:00Z')`, string(intent)); err != nil {
+		t.Fatalf("seed work item: %v", err)
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO work_projects(work_id, project_id, role) VALUES('brief-work', 'brief-product-project', 'primary')`); err != nil {
+		t.Fatalf("seed work membership: %v", err)
+	}
+	if err := leaveFold(ctx, tx); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+
+	create, err := s.EnqueueLinearIssueForWork(ctx, "brief-work", LinearOpIssueCreate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	description := decodeLinearDescription(t, s, create.OperationID)
+	if !strings.Contains(description, "## Task\n\nDeliver the approved objective.") {
+		t.Fatalf("description = %q, want the recorded task brief published", description)
+	}
+}
+
 func TestComposeLinearIssueBodyOmitsAbsentSections(t *testing.T) {
-	body := composeLinearIssueBody("", "", "work-x", "task", "", nil)
+	body := composeLinearIssueBody("", "", "", linearIssueProposal{}, "work-x", "task", "", nil)
 	want := "task · Resume: `concord zl work-x --`"
 	if body != want {
 		t.Fatalf("body = %q, want %q", body, want)
 	}
-	if got := composeLinearIssueBody("  value ", " premise ", "work-y", "task", "", nil); !strings.Contains(got, "## Value statement\n\nvalue\n\n## Premise\n\npremise\n\ntask · Resume: `concord zl work-y --`") {
+	if got := composeLinearIssueBody("  value ", " brief ", " premise ", linearIssueProposal{}, "work-y", "task", "", nil); !strings.Contains(got, "## Value statement\n\nvalue\n\n## Task\n\nbrief\n\n## Premise\n\npremise\n\ntask · Resume: `concord zl work-y --`") {
 		t.Fatalf("body = %q, want trimmed sections", got)
+	}
+	if got := composeLinearIssueBody("value", "", "premise", linearIssueProposal{}, "work-z", "task", "", nil); strings.Contains(got, "## Task") {
+		t.Fatalf("body = %q, want no Task section without a recorded task brief", got)
 	}
 }
 

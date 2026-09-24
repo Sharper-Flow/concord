@@ -177,16 +177,21 @@ type OverlapPair struct {
 
 // DomainSection is S2's Domain navigation body. Unavailable is typed and
 // distinct from authoritative-empty: an absent registry never renders as an
-// empty Domain list.
+// empty Domain list. The registry, relation, and overlap reads fail
+// independently at their bounds, so a bound on overlaps or relations marks
+// only that part and never withholds complete registry rows or their
+// watermark.
 type DomainSection struct {
-	Read      bool
-	State     string
-	Reason    string
-	Registry  string
-	Domains   []DomainRow
-	Relations []DomainRelationEdge
-	Overlaps  []OverlapPair
-	Truncated bool
+	Read               bool
+	State              string
+	Reason             string
+	Registry           string
+	RegistryIncomplete bool
+	RelationsTruncated bool
+	OverlapsTruncated  bool
+	Domains            []DomainRow
+	Relations          []DomainRelationEdge
+	Overlaps           []OverlapPair
 }
 
 type S2DomainSummary struct {
@@ -626,6 +631,24 @@ func domainSummary(section DomainSection) S2DomainSummary {
 		}
 		return summary
 	}
+	// A partial read never evaluates clean (CD-0048 keeps evaluated-clean
+	// distinct from unevaluated): the summary names every bounded part as
+	// unavailable instead of answering from incomplete enumeration.
+	if section.RegistryIncomplete {
+		summary.UnavailableReason = "domain_registry_incomplete"
+		return summary
+	}
+	var bounded []string
+	if section.RelationsTruncated {
+		bounded = append(bounded, "domain_relations_bounded")
+	}
+	if section.OverlapsTruncated {
+		bounded = append(bounded, "domain_overlaps_bounded")
+	}
+	if len(bounded) > 0 {
+		summary.UnavailableReason = strings.Join(bounded, ",")
+		return summary
+	}
 	summary.Evaluated = true
 	for _, pair := range section.Overlaps {
 		if pair.State == "absent" {
@@ -654,7 +677,9 @@ func cloneSnapshot(snapshot Snapshot) Snapshot {
 	cloned.Domains.Read = snapshot.Domains.Read
 	cloned.Domains.Registry = snapshot.Domains.Registry
 	cloned.Domains.State, cloned.Domains.Reason = snapshot.Domains.State, snapshot.Domains.Reason
-	cloned.Domains.Truncated = snapshot.Domains.Truncated
+	cloned.Domains.RegistryIncomplete = snapshot.Domains.RegistryIncomplete
+	cloned.Domains.RelationsTruncated = snapshot.Domains.RelationsTruncated
+	cloned.Domains.OverlapsTruncated = snapshot.Domains.OverlapsTruncated
 	cloned.Domains.Domains = append([]DomainRow(nil), snapshot.Domains.Domains...)
 	cloned.Domains.Relations = append([]DomainRelationEdge(nil), snapshot.Domains.Relations...)
 	cloned.Domains.Overlaps = nil
@@ -754,6 +779,15 @@ func FilterCandidates(values []Candidate, query string) []Candidate {
 func (m *Model) read(ctx context.Context, request ReadRequest) error {
 	previous := m.snapshot
 	snapshot, err := m.port.Read(ctx, request)
+	if err != nil && request.Kind == ReadKnowledge {
+		// A failed knowledge read is the Knowledge section's state alone;
+		// the screen keeps the rows and status its own read produced.
+		if !snapshot.Knowledge.Read {
+			snapshot.Knowledge = KnowledgeSection{Read: true, State: "unavailable", Reason: err.Error()}
+		}
+		m.snapshot = mergeKnowledgeSnapshot(previous, snapshot)
+		return err
+	}
 	if err != nil {
 		// A failed foreground read must never leave the previous rows looking
 		// current. Read ports may return typed unavailable state alongside the
@@ -771,9 +805,6 @@ func (m *Model) read(ctx context.Context, request ReadRequest) error {
 		}
 		if snapshot.StatusMessage == "" {
 			snapshot.StatusMessage = err.Error()
-		}
-		if request.Kind == ReadKnowledge {
-			snapshot = mergeKnowledgeSnapshot(previous, snapshot)
 		}
 		if probes, ok := m.port.(ProbePort); ok {
 			snapshot.Probes = append([]ProbeStatus(nil), probes.Probe(ctx)...)
@@ -830,26 +861,14 @@ func (m *Model) read(ctx context.Context, request ReadRequest) error {
 	return nil
 }
 
+// mergeKnowledgeSnapshot applies a knowledge read to the screen it serves.
+// The knowledge read answers one section, so every screen field — rows, work
+// list, coverage, reliance, watermark, status — stays as the screen's own
+// read set it.
 func mergeKnowledgeSnapshot(previous, knowledge Snapshot) Snapshot {
-	knowledge.Screen = previous.Screen
-	knowledge.AmbientProduct = previous.AmbientProduct
-	knowledge.SelectedWorkID = previous.SelectedWorkID
-	knowledge.Rows = previous.Rows
-	knowledge.Candidates = previous.Candidates
-	knowledge.Preview = previous.Preview
-	knowledge.Probes = previous.Probes
-	knowledge.Domains = previous.Domains
-	knowledge.Ranked = previous.Ranked
-	knowledge.Relations = previous.Relations
-	knowledge.Detail = previous.Detail
-	knowledge.Detail.Knowledge = knowledge.Knowledge
-	knowledge.Section = SectionKnowledge
-	knowledge.PanelFocus = previous.PanelFocus
-	knowledge.Session = previous.Session
-	// ActiveWorkOnly and Backlog are Product-scope picker facts the merged
-	// snapshot must keep: dropping them would show terminal history and hide
-	// the New / Backlog row on the screen the knowledge read serves.
-	knowledge.ActiveWorkOnly = previous.ActiveWorkOnly
-	knowledge.Backlog = previous.Backlog
-	return knowledge
+	merged := previous
+	merged.Knowledge = knowledge.Knowledge
+	merged.Detail.Knowledge = knowledge.Knowledge
+	merged.Section = SectionKnowledge
+	return merged
 }

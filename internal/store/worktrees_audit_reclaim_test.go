@@ -460,3 +460,38 @@ func TestReclaimWorktreeUnstartedTierRefusesStartedWork(t *testing.T) {
 		t.Fatalf("refusal must be a typed invalid transition, got %+v", err)
 	}
 }
+
+// A session that resumed the item records itself as the occupant through the
+// claim-landing owner, and that recorded occupant keeps both removal gates:
+// the audit pass and the direct reclaim refuse the needed item's unstarted
+// worktree the resumed session occupies.
+func TestWorktreeAuditReclaimRefusesResumedOccupiedUnstartedWorktree(t *testing.T) {
+	t.Parallel()
+	s, git, _ := worktreeFixture(t)
+	ctx := context.Background()
+	path := auditWork(t, s, git, "work-unstarted-resumed", true)
+	if _, err := s.RecordWorktreeClaimLanding(ctx, WorktreeClaimLandingRequest{WorkID: "work-unstarted-resumed", SessionRef: "ses-resumed", LandedDirectory: path, Now: time.Unix(30, 0).UTC()}); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := s.WorktreeAuditReclaim(ctx, WorktreeAuditReclaimRequest{ProductID: "product-w", DefaultRef: "origin/main", PrincipalRef: "principal-1", RequestID: "resumed-occupied", Now: time.Unix(40, 0).UTC(), Runner: git, Limit: 100})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Rows) != 1 || result.Rows[0].Outcome != WorktreeAuditRefused || result.Rows[0].RefusalKind != string(KindWorktreeOwnershipConflict) {
+		t.Fatalf("resumed-occupied unstarted worktree must be refused typed, got %+v", result.Rows)
+	}
+	if _, kept := git.worktrees[path]; !kept {
+		t.Fatal("resumed-occupied unstarted worktree must remain")
+	}
+
+	var version int64
+	if err := s.DatabaseForTesting().QueryRow(`SELECT version FROM work_items WHERE id='work-unstarted-resumed'`).Scan(&version); err != nil {
+		t.Fatal(err)
+	}
+	_, err = s.ReclaimWorktree(ctx, WorktreeReclaimRequest{WorkID: "work-unstarted-resumed", ProjectID: "project-w", DefaultRef: "origin/main", PrincipalRef: "principal-1", RequestID: "resumed-occupied-direct", ExpectedVersion: version, Now: time.Unix(40, 0).UTC(), Runner: git, RequireUnstarted: true})
+	failure, ok := err.(*Failure)
+	if !ok || failure.Kind != KindWorktreeOwnershipConflict {
+		t.Fatalf("direct reclaim err=%v, want %s for the resumed session's worktree", err, KindWorktreeOwnershipConflict)
+	}
+}

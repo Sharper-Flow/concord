@@ -1,0 +1,36 @@
+{
+  "authority": {
+    "contract_version": 1,
+    "legislated_by": "work-e2c0dffe24416cf6d106a626",
+    "tier": "legislated"
+  },
+  "date": "2026-09-24T00:00:00Z",
+  "doc_contract_profile": "current",
+  "home_domain_id": "product-root:concord",
+  "id": "CD-0176",
+  "kind": "decision",
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "CD-0093"
+    }
+  ],
+  "path": "docs/decisions/CD-0176-the-launcher-lands-in-the-active-worktree.md",
+  "product_wide_rationale": "Governs the session landing directory across the launcher, the session command, and the worktree workflow, so no single runtime Domain owns it.",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:7ca85a34e31d35d596b0fdf503051e02c5121cfa87e85b82f512ee16bb46f600",
+  "status": "accepted",
+  "summary": "A launcher-started session for selected work lands in that work's active worktree in its primary Project when the worktree is a usable directory on the machine, and in the Project canonical path otherwise; the one-directory binding, the fixed host command, and the fail-closed canonical path stand unchanged, and the adapter landing guard plus the capture-launch turn stay out of scope.",
+  "tags": [
+    "launcher",
+    "session-boot",
+    "worktrees"
+  ],
+  "title": "The launcher lands in the active worktree"
+}

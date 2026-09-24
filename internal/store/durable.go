@@ -42,14 +42,22 @@ func syncDurable(ctx context.Context, q queryer) error {
 	const op = "sync_durable"
 	var busy, log, checkpointed int
 	if err := q.QueryRowContext(ctx, "PRAGMA wal_checkpoint(TRUNCATE)").Scan(&busy, &log, &checkpointed); err != nil {
-		return wrapFailure(KindUnavailable, op, "cannot run the durability checkpoint", true,
+		failure := wrapFailure(KindUnavailable, op, "cannot run the durability checkpoint", true,
 			"retry once the database is writable; nothing is lost by retrying", err)
+		// A barrier runs only after the caller's transaction committed, so no
+		// failure here can roll that commit back. EffectPossible keeps the
+		// typed envelope honest: the effect exists and only its durability is
+		// unproven, so a committed write must never report no effect.
+		failure.EffectPossible = true
+		return failure
 	}
 	if busy != 0 {
-		return newFailure(KindUnavailable, op,
+		failure := newFailure(KindUnavailable, op,
 			fmt.Sprintf("durability checkpoint did not complete: busy=%d log=%d checkpointed=%d", busy, log, checkpointed),
 			true,
 			"retry once concurrent readers finish; the checkpoint resumes where it stopped")
+		failure.EffectPossible = true
+		return failure
 	}
 	return nil
 }

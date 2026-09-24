@@ -8,6 +8,7 @@
     "tier": "legislated"
   },
   "date": "2026-08-21T00:00:00Z",
+  "doc_contract_profile": "legacy",
   "evidence": [
     "adapter/opencode/dispatch.ts",
     "cmd/concord/session.go",

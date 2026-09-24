@@ -1049,8 +1049,9 @@ type ClaimedLinearOperation struct {
 
 // linearPayload is the JSON convention every outbox payload carries. The
 // client UUID is the idempotency identity: Linear's IssueCreateInput.id or
-// ProjectCreateInput.id, so a re-drain after an ambiguous outcome converges
-// on the same remote object.
+// ProjectCreateInput.id (CD-0171 D2), stored as the remote entity's own id,
+// so a re-drain after an ambiguous outcome converges on the same remote
+// object and the drain resolves the entity by it.
 type linearPayload struct {
 	ClientUUID  string `json:"client_uuid"`
 	ProductID   string `json:"product_id"`
@@ -1104,42 +1105,73 @@ func newLinearClientUUID() string {
 	return fmt.Sprintf("%x-%x-%x-%x-%x", bytes[0:4], bytes[4:6], bytes[6:8], bytes[8:10], bytes[10:16])
 }
 
-// resolveLinearProduct resolves the exactly one Product a work item belongs
-// to. Zero or many Products refuse: planning authority is never inferred.
+// resolveLinearProduct resolves the Product that owns a work item's Linear
+// identity. A work item in exactly one Product resolves to it. The approved
+// shared shape — one work identity with explicit Project memberships across
+// Products — resolves to the Product holding the work item's primary
+// project. Zero memberships, or a shared scope with no single primary
+// owner, refuse: planning authority is never inferred.
 func (s *Store) resolveLinearProduct(ctx context.Context, workID string) (string, error) {
 	return resolveLinearProductCore(ctx, s.db, workID)
 }
 
 func resolveLinearProductCore(ctx context.Context, q queryer, workID string) (string, error) {
-	rows, err := q.QueryContext(ctx, `
+	products, err := linearProductMemberships(ctx, q, workID, false)
+	if err != nil {
+		return "", err
+	}
+	if len(products) == 1 {
+		return products[0], nil
+	}
+	if len(products) == 0 {
+		return "", newFailure(KindUnknownScope, "linear_product_resolve", "work item does not exist or belongs to no Product", false, "supply a work item with exactly one Product")
+	}
+	// A shared work item holds memberships in more than one Product; its
+	// primary project names the Product that owns the Linear identity.
+	primary, err := linearProductMemberships(ctx, q, workID, true)
+	if err != nil {
+		return "", err
+	}
+	switch len(primary) {
+	case 1:
+		return primary[0], nil
+	case 0:
+		return "", newFailure(KindUnknownScope, "linear_product_resolve", "shared work item has no primary project in any Product", false, "give the work item one primary project in the Product that owns its Linear issue")
+	default:
+		return "", newFailure(KindAmbiguousScope, "linear_product_resolve", "shared work item's primary projects span more than one Product", false, "give the work item one primary project in exactly one Product")
+	}
+}
+
+// linearProductMemberships lists the distinct Products a work item's project
+// memberships reach; primaryOnly narrows the read to primary memberships.
+func linearProductMemberships(ctx context.Context, q queryer, workID string, primaryOnly bool) ([]string, error) {
+	query := `
 SELECT DISTINCT pp.product_id
 FROM work_items w
-JOIN work_projects wp ON wp.work_id = w.id
+JOIN work_projects wp ON wp.work_id = w.id`
+	if primaryOnly {
+		query += ` AND wp.role = 'primary'`
+	}
+	query += `
 JOIN product_projects pp ON pp.project_id = wp.project_id
-WHERE w.id = ?`, workID)
+WHERE w.id = ?`
+	rows, err := q.QueryContext(ctx, query, workID)
 	if err != nil {
-		return "", wrapFailure(KindUnavailable, "linear_product_resolve", "cannot resolve the work item's Product", true, "retry once the database is readable", err)
+		return nil, wrapFailure(KindUnavailable, "linear_product_resolve", "cannot resolve the work item's Product", true, "retry once the database is readable", err)
 	}
 	defer rows.Close()
 	var products []string
 	for rows.Next() {
 		var productID string
 		if err := rows.Scan(&productID); err != nil {
-			return "", wrapFailure(KindUnavailable, "linear_product_resolve", "cannot scan the work item's Product", true, "retry once the database is readable", err)
+			return nil, wrapFailure(KindUnavailable, "linear_product_resolve", "cannot scan the work item's Product", true, "retry once the database is readable", err)
 		}
 		products = append(products, productID)
 	}
 	if err := rows.Err(); err != nil {
-		return "", wrapFailure(KindUnavailable, "linear_product_resolve", "cannot finish the Product read", true, "retry once the database is readable", err)
+		return nil, wrapFailure(KindUnavailable, "linear_product_resolve", "cannot finish the Product read", true, "retry once the database is readable", err)
 	}
-	switch len(products) {
-	case 1:
-		return products[0], nil
-	case 0:
-		return "", newFailure(KindUnknownScope, "linear_product_resolve", "work item does not exist or belongs to no Product", false, "supply a work item with exactly one Product")
-	default:
-		return "", newFailure(KindAmbiguousScope, "linear_product_resolve", "work item belongs to more than one Product", false, "supply a work item with exactly one Product")
-	}
+	return products, nil
 }
 
 // resolveLinearProjectIDsCore returns every Concord project the work item
@@ -1359,22 +1391,53 @@ func linearInitiativeMentionsCore(ctx context.Context, q queryer, initiativeWork
 	return mentions, nil
 }
 
+type linearIssueProposal struct {
+	Problem       string
+	Affected      []string
+	Stakes        string
+	UserOutcomes  []string
+	Constraints   []string
+	OpenQuestions []string
+}
+
 // composeLinearIssueBody renders the issue Description at the single point
-// both enqueue paths share. Each source is omitted when absent so the body
-// never shows an empty label. Heading the value statement stops a reader
-// taking it for a description of the work. The Initiatives section names the
-// earliest-joined owner and links every other Initiative the work item
-// joined (CD-0171 D6): Linear carries one Project field, so the description
-// is the only surface the remaining memberships reach. A linked other
-// Initiative carries its Linear Project URL; an unlinked one carries its
-// title and work id. The single footer line carries the kind and the
-// documented resume line `concord zl <work id> --` from the CLI help. The
-// kind rides the footer rather than its own section because it is one word,
-// and a heading above one word costs two lines to say it.
-func composeLinearIssueBody(valueStatement, premise, workID, kind, ownerInitiative string, otherInitiatives []linearInitiativeMention) string {
-	sections := make([]string, 0, 4)
+// both enqueue paths share. Each intake source is published only when the
+// work item holds it, so the body grows as intake evidence is recorded and
+// never shows an empty label or an invented section. Heading the value
+// statement stops a reader taking it for a description of the work. The
+// Initiatives section names the earliest-joined owner and links every other
+// Initiative the work item joined (CD-0171 D6): Linear carries one Project
+// field, so the description is the only surface the remaining memberships
+// reach. A linked other Initiative carries its Linear Project URL; an
+// unlinked one carries its title and work id. The single footer line carries
+// the kind and the documented resume line `concord zl <work id> --` from the
+// CLI help. The kind rides the footer rather than its own section because it
+// is one word, and a heading above one word costs two lines to say it.
+func composeLinearIssueBody(valueStatement, task, premise string, proposal linearIssueProposal, workID, kind, ownerInitiative string, otherInitiatives []linearInitiativeMention) string {
+	sections := make([]string, 0, 10)
 	if trimmed := strings.TrimSpace(valueStatement); trimmed != "" {
 		sections = append(sections, "## Value statement\n\n"+trimmed)
+	}
+	if trimmed := strings.TrimSpace(task); trimmed != "" {
+		sections = append(sections, "## Task\n\n"+trimmed)
+	}
+	if trimmed := strings.TrimSpace(proposal.Problem); trimmed != "" {
+		sections = append(sections, "## Problem\n\n"+trimmed)
+	}
+	if section := linearIssueListSection("Affected", proposal.Affected); section != "" {
+		sections = append(sections, section)
+	}
+	if trimmed := strings.TrimSpace(proposal.Stakes); trimmed != "" {
+		sections = append(sections, "## Stakes\n\n"+trimmed)
+	}
+	if section := linearIssueListSection("User outcomes", proposal.UserOutcomes); section != "" {
+		sections = append(sections, section)
+	}
+	if section := linearIssueListSection("Constraints", proposal.Constraints); section != "" {
+		sections = append(sections, section)
+	}
+	if section := linearIssueListSection("Open questions", proposal.OpenQuestions); section != "" {
+		sections = append(sections, section)
 	}
 	if trimmed := strings.TrimSpace(premise); trimmed != "" {
 		sections = append(sections, "## Premise\n\n"+trimmed)
@@ -1400,6 +1463,44 @@ func composeLinearIssueBody(valueStatement, premise, workID, kind, ownerInitiati
 	}
 	sections = append(sections, footer)
 	return strings.Join(sections, "\n\n")
+}
+
+// linearIssueListSection renders one intake list section when the work item
+// holds it.
+func linearIssueListSection(title string, items []string) string {
+	lines := make([]string, 0, len(items))
+	for _, item := range items {
+		if trimmed := strings.TrimSpace(item); trimmed != "" {
+			lines = append(lines, "- "+trimmed)
+		}
+	}
+	if len(lines) == 0 {
+		return ""
+	}
+	return "## " + title + "\n\n" + strings.Join(lines, "\n")
+}
+
+func readLatestLinearIssueProposalCore(ctx context.Context, q queryer, workID string) (linearIssueProposal, error) {
+	var proposal linearIssueProposal
+	var affected, outcomes, constraints, questions string
+	err := q.QueryRowContext(ctx, `SELECT problem, affected, stakes, user_outcomes, constraints, open_questions FROM workflow_proposal_records WHERE work_id=? ORDER BY work_version DESC LIMIT 1`, workID).Scan(
+		&proposal.Problem, &affected, &proposal.Stakes, &outcomes, &constraints, &questions)
+	if err == sql.ErrNoRows {
+		return proposal, nil
+	}
+	if err != nil {
+		return linearIssueProposal{}, wrapFailure(KindUnavailable, "linear_issue_enqueue", "cannot read intake proposal", true, "retry once the database is readable", err)
+	}
+	for _, entry := range []struct {
+		name string
+		raw  string
+		into *[]string
+	}{{"affected", affected, &proposal.Affected}, {"user_outcomes", outcomes, &proposal.UserOutcomes}, {"constraints", constraints, &proposal.Constraints}, {"open_questions", questions, &proposal.OpenQuestions}} {
+		if err := json.Unmarshal([]byte(entry.raw), entry.into); err != nil {
+			return linearIssueProposal{}, wrapFailure(KindUnavailable, "linear_issue_enqueue", "cannot decode intake proposal "+entry.name, true, "repair the stored proposal projection", err)
+		}
+	}
+	return proposal, nil
 }
 
 // linearIssueLabelIDs resolves the label set one synced issue carries: the
@@ -1493,7 +1594,7 @@ type linearIssueSyncState struct {
 // Initiative's confirmed Project, and the synchronized content. The mandated
 // keys refuse here, so neither the enqueue nor the completion comparison can
 // silently drop a decision-mandated label (CD-0171 D3, D5).
-func buildLinearIssueSyncStateCore(ctx context.Context, q queryer, expectedProductID, workID, title, valueStatement, kind, lifecycle, urgency string) (linearIssueSyncState, error) {
+func buildLinearIssueSyncStateCore(ctx context.Context, q queryer, expectedProductID, workID, title, valueStatement, task, kind, lifecycle, urgency string) (linearIssueSyncState, error) {
 	productID, err := resolveLinearProductCore(ctx, q, workID)
 	if err != nil {
 		return linearIssueSyncState{}, err
@@ -1564,6 +1665,10 @@ func buildLinearIssueSyncStateCore(ctx context.Context, q queryer, expectedProdu
 	if err != nil {
 		return linearIssueSyncState{}, err
 	}
+	proposal, err := readLatestLinearIssueProposalCore(ctx, q, workID)
+	if err != nil {
+		return linearIssueSyncState{}, err
+	}
 	statusID, err := linearLifecycleStatusID(connection, lifecycle)
 	if err != nil {
 		return linearIssueSyncState{}, err
@@ -1576,7 +1681,7 @@ func buildLinearIssueSyncStateCore(ctx context.Context, q queryer, expectedProdu
 		ProjectID:         initiativeProjectID,
 		LabelIDs:          linearIssueLabelIDs(connection, kind, urgency, projectIDs, optionalEntry),
 		Title:             title,
-		Description:       composeLinearIssueBody(valueStatement, premise, workID, kind, ownerInitiative, otherInitiatives),
+		Description:       composeLinearIssueBody(valueStatement, task, premise, proposal, workID, kind, ownerInitiative, otherInitiatives),
 	}, nil
 }
 
@@ -1614,8 +1719,8 @@ func enqueueLinearIssueForWorkCore(ctx context.Context, q queryer, expectedProdu
 	if len(workID) < 2 || len(workID) > 128 {
 		return linearIssueEnqueuePlan{}, newFailure(KindInvalidPayload, "linear_issue_enqueue", "work id must be 2 to 128 characters", false, "supply a bounded work id")
 	}
-	var title, valueStatement, kind, lifecycle, urgency string
-	err := q.QueryRowContext(ctx, `SELECT title, coalesce(json_extract(intent_json, '$.value_statement'), ''), kind, lifecycle, urgency FROM work_items WHERE id=?`, workID).Scan(&title, &valueStatement, &kind, &lifecycle, &urgency)
+	var title, valueStatement, task, kind, lifecycle, urgency string
+	err := q.QueryRowContext(ctx, `SELECT title, coalesce(json_extract(intent_json, '$.value_statement'), ''), coalesce(json_extract(intent_json, '$.task'), ''), kind, lifecycle, urgency FROM work_items WHERE id=?`, workID).Scan(&title, &valueStatement, &task, &kind, &lifecycle, &urgency)
 	if err == sql.ErrNoRows {
 		return linearIssueEnqueuePlan{}, newFailure(KindUnknownScope, "linear_issue_enqueue", "work item does not exist", false, "supply an existing work item")
 	} else if err != nil {
@@ -1642,7 +1747,7 @@ func enqueueLinearIssueForWorkCore(ctx context.Context, q queryer, expectedProdu
 		// back revived: the same row requeued under its own client UUID.
 		return linearIssueEnqueuePlan{entry: entry, payload: entry.Payload, skipPersist: existing, reviveFailed: reviveFailed}, nil
 	}
-	state, err := buildLinearIssueSyncStateCore(ctx, q, expectedProductID, workID, title, valueStatement, kind, lifecycle, urgency)
+	state, err := buildLinearIssueSyncStateCore(ctx, q, expectedProductID, workID, title, valueStatement, task, kind, lifecycle, urgency)
 	if err != nil {
 		return linearIssueEnqueuePlan{}, err
 	}
@@ -2581,11 +2686,11 @@ func (s *Store) CompleteLinearIssueOperation(ctx context.Context, operationID st
 			return newFailure(KindInvalidPayload, "linear_outbox_complete", "the sent issue payload does not decode", false, "complete only operations the enqueue wrote")
 		}
 		sentState := linearIssueSyncState{ProjectID: sentProjectID, LabelIDs: sent.LabelIDs, Title: sent.Title, Description: sent.Description}
-		var title, valueStatement, kind, lifecycle, urgency string
-		if err := tx.QueryRowContext(ctx, `SELECT title, coalesce(json_extract(intent_json, '$.value_statement'), ''), kind, lifecycle, urgency FROM work_items WHERE id=?`, workID).Scan(&title, &valueStatement, &kind, &lifecycle, &urgency); err != nil {
+		var title, valueStatement, task, kind, lifecycle, urgency string
+		if err := tx.QueryRowContext(ctx, `SELECT title, coalesce(json_extract(intent_json, '$.value_statement'), ''), coalesce(json_extract(intent_json, '$.task'), ''), kind, lifecycle, urgency FROM work_items WHERE id=?`, workID).Scan(&title, &valueStatement, &task, &kind, &lifecycle, &urgency); err != nil {
 			return wrapFailure(KindUnavailable, "linear_outbox_complete", "cannot re-read the work item", true, "retry once the database is readable", err)
 		}
-		desired, err := buildLinearIssueSyncStateCore(ctx, tx, "", workID, title, valueStatement, kind, lifecycle, urgency)
+		desired, err := buildLinearIssueSyncStateCore(ctx, tx, "", workID, title, valueStatement, task, kind, lifecycle, urgency)
 		if err != nil {
 			// The remote effect already succeeded, so a configuration gap on
 			// the connection cannot fail this completion; the capture path
@@ -2687,8 +2792,8 @@ func (s *Store) HasNewerLinearIssueUpdate(ctx context.Context, operationID strin
 }
 
 func completeLinearLinkTx(ctx context.Context, tx *sql.Tx, workID, opKind string, identity LinearRemoteIdentity, now string) error {
-	var currentState string
-	err := tx.QueryRowContext(ctx, `SELECT link_state FROM linear_issue_links WHERE work_id=?`, workID).Scan(&currentState)
+	var currentState, recordedHash string
+	err := tx.QueryRowContext(ctx, `SELECT link_state, content_hash FROM linear_issue_links WHERE work_id=?`, workID).Scan(&currentState, &recordedHash)
 	if err == sql.ErrNoRows {
 		if _, err := tx.ExecContext(ctx, `INSERT INTO linear_issue_links(work_id, remote_issue_uuid, human_key, url, remote_updated_at, content_hash, link_state, created_at, updated_at) VALUES (?,?,?,?,?,?,?, ?, ?)`, workID, identity.RemoteUUID, identity.HumanKey, identity.URL, identity.RemoteUpdatedAt, identity.ContentHash, LinearLinkConfirmed, now, now); err != nil {
 			return wrapFailure(KindUnavailable, "linear_outbox_complete", "cannot create completed link", true, "retry once the database is writable", err)
@@ -2697,6 +2802,16 @@ func completeLinearLinkTx(ctx context.Context, tx *sql.Tx, workID, opKind string
 	}
 	if err != nil {
 		return wrapFailure(KindUnavailable, "linear_outbox_complete", "cannot read link", true, "retry once the database is readable", err)
+	}
+	// content_hash records the digest of the composed title and description
+	// Concord last published to the remote issue: the body written at
+	// creation, or the revision comment an approved later composition was
+	// published as. A completion advances the digest only when it claims
+	// published content; a routing-only update or an adoption writes no
+	// remote text and leaves the recorded digest standing.
+	contentHash := recordedHash
+	if identity.ContentHash != "" {
+		contentHash = identity.ContentHash
 	}
 	if currentState != LinearLinkUnpublished && currentState != LinearLinkPending && currentState != LinearLinkConfirmed && currentState != LinearLinkDegraded {
 		return newFailure(KindInvalidTransition, "linear_outbox_complete", "link state is not recognized", false, "repair the stored Linear link state")
@@ -2715,7 +2830,7 @@ func completeLinearLinkTx(ctx context.Context, tx *sql.Tx, workID, opKind string
 	} else if err != nil && err != sql.ErrNoRows {
 		return wrapFailure(KindUnavailable, "linear_outbox_complete", "cannot inspect existing links", true, "retry once the database is readable", err)
 	}
-	if _, err := tx.ExecContext(ctx, `UPDATE linear_issue_links SET remote_issue_uuid=?, human_key=?, url=?, remote_updated_at=?, content_hash=?, link_state=?, updated_at=? WHERE work_id=?`, identity.RemoteUUID, identity.HumanKey, identity.URL, identity.RemoteUpdatedAt, identity.ContentHash, LinearLinkConfirmed, now, workID); err != nil {
+	if _, err := tx.ExecContext(ctx, `UPDATE linear_issue_links SET remote_issue_uuid=?, human_key=?, url=?, remote_updated_at=?, content_hash=?, link_state=?, updated_at=? WHERE work_id=?`, identity.RemoteUUID, identity.HumanKey, identity.URL, identity.RemoteUpdatedAt, contentHash, LinearLinkConfirmed, now, workID); err != nil {
 		return wrapFailure(KindUnavailable, "linear_outbox_complete", "cannot confirm completed link", true, "retry once the database is writable", err)
 	}
 	return nil

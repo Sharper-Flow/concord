@@ -387,8 +387,7 @@ func withCurrentDeliveryPayload(definition WorkflowDefinition) WorkflowDefinitio
 func withLegacyEvidenceBindingReferences(definition WorkflowDefinition) WorkflowDefinition {
 	definition = cloneWorkflowDefinition(definition)
 	for actionIndex := range definition.ActionDefinitions {
-		switch definition.ActionDefinitions[actionIndex].ID {
-		case "bind_evidence", "record_report", "record_research", "accept_decision", "approve_operation":
+		if workflowCallerEvidenceBinder(definition.ActionDefinitions[actionIndex].ID) {
 			for fieldIndex := range definition.ActionDefinitions[actionIndex].Payload.Fields {
 				field := &definition.ActionDefinitions[actionIndex].Payload.Fields[fieldIndex]
 				if field.Name != "evidence_ref" && field.Name != "immutable_subject_ref" {
@@ -407,8 +406,7 @@ func withLegacyEvidenceBindingReferences(definition WorkflowDefinition) Workflow
 func withCurrentEvidenceBindingReferences(definition WorkflowDefinition) WorkflowDefinition {
 	definition = cloneWorkflowDefinition(definition)
 	for actionIndex := range definition.ActionDefinitions {
-		switch definition.ActionDefinitions[actionIndex].ID {
-		case "bind_evidence", "record_report", "record_research", "accept_decision", "approve_operation":
+		if workflowCallerEvidenceBinder(definition.ActionDefinitions[actionIndex].ID) {
 			for fieldIndex := range definition.ActionDefinitions[actionIndex].Payload.Fields {
 				field := &definition.ActionDefinitions[actionIndex].Payload.Fields[fieldIndex]
 				if field.Name != "evidence_ref" && field.Name != "immutable_subject_ref" {

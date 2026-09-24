@@ -1,0 +1,30 @@
+{
+  "evidence": [
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestResolveSessionDirectoryCarriesTheActiveWorktree"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestResolveSessionDirectoryFailsClosedOnEveryAbsentInput"
+    },
+    {
+      "kind": "go_test",
+      "value": "cmd/concord.TestSessionStartsInTheActiveWorktree"
+    },
+    {
+      "kind": "go_test",
+      "value": "cmd/concord.TestSessionFallsBackToTheProjectPathWithoutTheWorktreeOnDisk"
+    },
+    {
+      "kind": "go_test",
+      "value": "cmd/concord.TestSessionRunsInTheResolvedProjectDirectory"
+    },
+    {
+      "kind": "go_test",
+      "value": "cmd/concord.TestProductOnlySessionRemainsIdentityOnly"
+    }
+  ],
+  "id": "CD-0176",
+  "state": "satisfied"
+}

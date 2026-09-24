@@ -306,6 +306,36 @@ func (p *ambientPort) Read(_ context.Context, request ReadRequest) (Snapshot, er
 	}
 }
 
+// knowledgeErrorPort answers the Product read and refuses the knowledge read.
+type knowledgeErrorPort struct{}
+
+func (p *knowledgeErrorPort) Read(_ context.Context, request ReadRequest) (Snapshot, error) {
+	if request.Kind == ReadKnowledge {
+		return Snapshot{Coverage: "unreachable", StatusMessage: "knowledge store refused"}, errors.New("knowledge store refused")
+	}
+	return Snapshot{Screen: ScreenProduct, AmbientProduct: request.Product, Section: SectionDomains, Coverage: "authoritative", Reliance: "authoritative", Watermark: "42", Ranked: []RankedWork{{ID: "work-1", Title: "One", Lifecycle: "in_progress"}}}, nil
+}
+
+// A refused knowledge read is the Knowledge section's state alone: Product
+// entry succeeds, and the work list, coverage, reliance, watermark, and status
+// stay as the Product read set them.
+func TestRefusedKnowledgeReadTypesOnlyTheKnowledgeSection(t *testing.T) {
+	model := New(&knowledgeErrorPort{})
+	if err := model.SelectProduct(context.Background(), "p-1"); err != nil {
+		t.Fatalf("a refused knowledge read cost Product entry: %v", err)
+	}
+	got := model.Snapshot()
+	if got.Screen != ScreenProduct || len(got.Ranked) != 1 || got.Ranked[0].ID != "work-1" {
+		t.Fatalf("refused knowledge read withheld the Product work list: %#v", got)
+	}
+	if got.Coverage != "authoritative" || got.Reliance != "authoritative" || got.Watermark != "42" || got.StatusMessage != "" {
+		t.Fatalf("refused knowledge read moved screen fields: coverage=%q reliance=%q watermark=%q status=%q", got.Coverage, got.Reliance, got.Watermark, got.StatusMessage)
+	}
+	if !got.Knowledge.Read || got.Knowledge.State != "unavailable" || got.Knowledge.Reason != "knowledge store refused" {
+		t.Fatalf("refused knowledge read was not typed unavailable: %#v", got.Knowledge)
+	}
+}
+
 func TestTwoInstancesHoldDifferentAmbientProductsWithoutObservingEachOther(t *testing.T) {
 	ctx := context.Background()
 	port := &ambientPort{}

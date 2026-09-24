@@ -141,13 +141,34 @@ func TestS2DomainSectionReadsLawRelationsWorkAndOverlapFromTheStore(t *testing.T
 	}
 }
 
+// absentRegistryStore seeds a Product whose work list is readable while its
+// Domain registry was never projected, the shape the launcher must survive:
+// the Product opens, lists, and opens work, and only the Domain section
+// reports the absent registry.
+func absentRegistryStore(t *testing.T) *store.Store {
+	t.Helper()
+	ctx := context.Background()
+	s := openLauncherStore(t)
+	if err := pm1fixture.SeedProductAndProject(ctx, s, "product-1", "project-1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := pm1fixture.SeedWorkItem(ctx, s, "project-1", "work-1", "Work", 1); err != nil {
+		t.Fatal(err)
+	}
+	if err := pm1fixture.SeedWorkItem(ctx, s, "project-1", "work-2", "Second work", 2); err != nil {
+		t.Fatal(err)
+	}
+	return s
+}
+
 // The defect this floor row exists for. Architecture relations are legitimately
 // empty for a single-Domain Product, and an unprojected registry also produces
 // zero relations, so relation count cannot tell the two apart. The pair that
-// can is outcome plus coverage: an authoritative-empty section states
+// can is outcome plus section state: an authoritative-empty section states
 // "authoritative" and carries a Git-anchored registry watermark, while an
 // unreadable one states "unavailable" with a typed reason and no watermark at
-// all.
+// all. Screen coverage follows the work read in both cases; only the Domain
+// section separates the two.
 func TestS2ArchitectureRelationsAreAuthoritativeEmptyNotUnavailable(t *testing.T) {
 	empty := readDomainSection(t, domainEvidenceStore(t), "product-1")
 	// Non-vacuity: the same section carries projected law and Domain-bound
@@ -156,7 +177,7 @@ func TestS2ArchitectureRelationsAreAuthoritativeEmptyNotUnavailable(t *testing.T
 		t.Fatalf("relation emptiness was read from an unpopulated registry: %#v", empty.Domains.Domains)
 	}
 
-	absent := readDomainSection(t, openLauncherStore(t), "product-1")
+	absent := readDomainSection(t, absentRegistryStore(t), "product-1")
 
 	if len(empty.Domains.Relations) != 0 || len(absent.Domains.Relations) != 0 {
 		t.Fatalf("relation counts differ, so this test would not measure the discriminator: empty=%d absent=%d", len(empty.Domains.Relations), len(absent.Domains.Relations))
@@ -171,8 +192,18 @@ func TestS2ArchitectureRelationsAreAuthoritativeEmptyNotUnavailable(t *testing.T
 	if absent.Domains.State != "unavailable" || absent.Domains.Reason != string(store.KindDomainRegistryAbsent) {
 		t.Fatalf("unprojected registry was not typed unavailable: %#v", absent.Domains)
 	}
-	if empty.Coverage != "authoritative" || absent.Coverage != "unavailable" {
-		t.Fatalf("screen coverage did not separate the two: empty=%q absent=%q", empty.Coverage, absent.Coverage)
+	if empty.Coverage != "authoritative" || absent.Coverage != "authoritative" {
+		t.Fatalf("screen coverage must follow the work read; only the Domain section types the absent registry: empty=%q absent=%q", empty.Coverage, absent.Coverage)
+	}
+	// An absent registry never withholds the Product work list: the work
+	// read's answer rides beside the typed unavailable Domain section.
+	if len(absent.Ranked) != 2 {
+		t.Fatalf("absent registry withheld the Product work list: %#v", absent.Ranked)
+	}
+	for _, item := range absent.Ranked {
+		if item.ID != "work-1" && item.ID != "work-2" {
+			t.Fatalf("absent registry listed work outside the Product: %#v", item)
+		}
 	}
 	if !strings.HasPrefix(empty.Domains.Registry, "sha256:") {
 		t.Fatalf("authoritative-empty section carried no coverage watermark: %q", empty.Domains.Registry)

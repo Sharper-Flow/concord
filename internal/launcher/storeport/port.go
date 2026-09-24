@@ -207,21 +207,27 @@ func (p *Port) Read(ctx context.Context, request launcher.ReadRequest) (launcher
 		p.decorateProduct(ctx, &result)
 		return snapshotFromProduct(result, request.Product, request.Section), nil
 	case launcher.ReadDomains:
-		domains, err := p.Store.QueryLauncherDomains(ctx, store.LauncherProductRequest{Product: request.Product, Limit: request.Limit, Depth: 3})
-		if err != nil {
-			var failure *store.Failure
-			if errors.As(err, &failure) && (failure.Kind == store.KindDomainRegistryAbsent || failure.Kind == store.KindUnknownDomain) {
-				// An absent registry is a typed unavailable section, never an
-				// empty Domain list and never an unreachable screen.
-				return launcher.Snapshot{Screen: launcher.ScreenProduct, AmbientProduct: request.Product, Section: launcher.SectionDomains, Coverage: "unavailable", Domains: launcher.DomainSection{Read: true, State: "unavailable", Reason: string(failure.Kind)}}, nil
-			}
-			return launcher.Snapshot{Screen: launcher.ScreenProduct, AmbientProduct: request.Product, Section: launcher.SectionDomains, Coverage: "unreachable", StatusMessage: err.Error()}, err
-		}
+		// The Domain read composes the Product work read: the work list is
+		// carried on every outcome, so an absent registry can never withhold
+		// it or restate the screen coverage the work read produced.
 		product, err := p.Store.QueryLauncherProduct(ctx, store.LauncherProductRequest{Product: request.Product, Limit: request.Limit, Depth: 3})
 		if err != nil {
 			return launcher.Snapshot{Screen: launcher.ScreenProduct, AmbientProduct: request.Product, Section: launcher.SectionDomains, Coverage: "unreachable", StatusMessage: err.Error()}, err
 		}
 		p.decorateProduct(ctx, &product)
+		domains, err := p.Store.QueryLauncherDomains(ctx, store.LauncherProductRequest{Product: request.Product, Limit: request.Limit, Depth: 3})
+		if err != nil {
+			var failure *store.Failure
+			if errors.As(err, &failure) && (failure.Kind == store.KindDomainRegistryAbsent || failure.Kind == store.KindUnknownDomain) {
+				// An absent or unknown registry is a typed unavailable
+				// Domain section over the intact Product work list, never an
+				// empty Domain list and never an unavailable screen.
+				s := snapshotFromProduct(product, request.Product, launcher.SectionDomains)
+				s.Domains = launcher.DomainSection{Read: true, State: "unavailable", Reason: string(failure.Kind)}
+				return s, nil
+			}
+			return launcher.Snapshot{Screen: launcher.ScreenProduct, AmbientProduct: request.Product, Section: launcher.SectionDomains, Coverage: "unreachable", StatusMessage: err.Error()}, err
+		}
 		return snapshotFromDomains(domains, product, request.Product), nil
 	case launcher.ReadWork:
 		result, err := p.Store.QueryLauncherWork(ctx, store.LauncherWorkRequest{Product: request.Product, Work: request.Work, Limit: request.Limit})
@@ -557,34 +563,45 @@ func workflowText(workflow *store.WorkflowReadProjection) string {
 }
 
 func (p *Port) readKnowledge(ctx context.Context, request launcher.ReadRequest) (launcher.Snapshot, error) {
+	// The knowledge read answers one section. The screen's work list,
+	// coverage, reliance, watermark, and status belong to the screen's own
+	// read, so this snapshot carries none of them. A failed or degraded
+	// knowledge read is a typed unavailable section with the store's reason,
+	// never an unreachable screen.
+	return launcher.Snapshot{Screen: screenForWork(request.Work), AmbientProduct: request.Product, SelectedWorkID: request.Work, Section: launcher.SectionKnowledge, Knowledge: p.knowledgeSection(ctx, request)}, nil
+}
+
+func (p *Port) knowledgeSection(ctx context.Context, request launcher.ReadRequest) launcher.KnowledgeSection {
 	if request.Work != "" && request.Query == "" {
 		result, err := p.Store.QueryQ10(ctx, store.Q10Request{Product: request.Product, Work: request.Work, AllowDegraded: true})
 		if err != nil {
-			return launcher.Snapshot{Screen: launcher.ScreenWork, AmbientProduct: request.Product, SelectedWorkID: request.Work, Coverage: "unreachable", StatusMessage: err.Error()}, err
+			return unavailableKnowledgeSection(err)
 		}
-		s := launcher.Snapshot{Screen: launcher.ScreenWork, AmbientProduct: request.Product, SelectedWorkID: request.Work, Section: launcher.SectionKnowledge, QueryID: result.QueryID, ContractVersion: result.ContractVersion, SourceVersionWatermark: result.SourceVersionWatermark, Watermark: "q10", ObservedAt: result.Freshness.ObservedAt, Reliance: result.Authority, Coverage: result.Authority}
-		s.Knowledge.Read = true
+		section := launcher.KnowledgeSection{Read: true, Watermark: "q10"}
 		if result.Status == "canonical" && result.Note != nil {
-			s.Knowledge.State = "authoritative"
-			s.Knowledge.Items = []launcher.KnowledgeItem{{ID: request.Work, Kind: "work_note", Title: "canonical work note", Reference: result.Note.NotePath, Watermark: result.Note.CommitOID}}
+			section.State = "authoritative"
+			section.Items = []launcher.KnowledgeItem{{ID: request.Work, Kind: "work_note", Title: "canonical work note", Reference: result.Note.NotePath, Watermark: result.Note.CommitOID}}
 		} else if result.Authority != "authoritative" {
-			s.Knowledge.State, s.Knowledge.Reason = "unavailable", "canonical_note_unavailable"
+			section.State, section.Reason = "unavailable", "canonical_note_unavailable"
 		} else {
-			s.Knowledge.State = "authoritative-empty"
+			section.State = "authoritative-empty"
 		}
-		return s, nil
+		return section
 	}
-	req := store.Q9Request{Product: request.Product, Text: request.Query, Limit: request.Limit, AllowDegraded: true}
-	if request.Work != "" {
-		req.Text = request.Query
-	}
-	result, err := p.Store.QueryQ9(ctx, req)
+	result, err := p.Store.QueryQ9(ctx, store.Q9Request{Product: request.Product, Text: request.Query, Limit: request.Limit, AllowDegraded: true})
 	if err != nil {
-		return launcher.Snapshot{Screen: screenForWork(request.Work), AmbientProduct: request.Product, SelectedWorkID: request.Work, Coverage: "unreachable", StatusMessage: err.Error()}, err
+		return unavailableKnowledgeSection(err)
 	}
-	s := launcher.Snapshot{Screen: screenForWork(request.Work), AmbientProduct: request.Product, SelectedWorkID: request.Work, Section: launcher.SectionKnowledge, QueryID: result.QueryID, ContractVersion: result.ContractVersion, SourceVersionWatermark: result.SourceVersionWatermark, Watermark: result.IndexWatermark, ObservedAt: result.Freshness.ObservedAt, Reliance: result.Authority, Coverage: result.Authority}
-	s.Knowledge = mapKnowledge(result)
-	return s, nil
+	return mapKnowledge(result)
+}
+
+func unavailableKnowledgeSection(err error) launcher.KnowledgeSection {
+	reason := err.Error()
+	var failure *store.Failure
+	if errors.As(err, &failure) {
+		reason = string(failure.Kind)
+	}
+	return launcher.KnowledgeSection{Read: true, State: "unavailable", Reason: reason}
 }
 
 func (p *Port) readSearch(ctx context.Context, request launcher.ReadRequest) (launcher.Snapshot, error) {

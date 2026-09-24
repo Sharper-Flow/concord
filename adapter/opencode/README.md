@@ -79,6 +79,29 @@ result reports the affected work scope: the count and the first 100 work IDs
 attached to the linked Project. Some may already be visible in the Product
 through another Project.
 
+## Agent trusted-client grant requests
+
+An agent whose client lacks a grant a task needs — for example `cross_scope`
+or a second Product before a dependent work item claims a cross-Product
+worktree — proposes that expansion through the typed
+`concord_work_relate.client_policy_grant_request` mutation. The proposal
+carries only exact additions (capabilities, Product, Project, and agent
+scope) plus a reason, and no client field: the target is always the calling
+agent's own trusted client, so a tool argument cannot widen a different
+client (CD-0071 D1). The core derives the exact additive diff against the
+stored policy, refuses requests that add nothing, exceed a policy bound, or
+name `worker_evidence`/`worker_dispatch` (no bearer route may request those),
+and mints an operator challenge bound to the diff plus the current policy
+version. The first call returns `approval_required` with the challenge; the
+host asks the operator with the calling client, the policy version, the
+added grants, and the reason, and only an approval of that exact challenge
+at that exact policy version applies the union — in the same transaction
+that consumes the approval. Denial, expiry, altered arguments, a policy
+that moved in between, and replay all leave the stored policy unchanged.
+Every prior grant and the stored principal survive. Full-statement replaces,
+principal moves, and any change to another client stay on the operator CLI
+verbs (`client-policy-update`, `client-policy-expand`).
+
 ## Database and host resolution
 
 The authority database is outside a Project repository:

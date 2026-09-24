@@ -1,7 +1,7 @@
 # Generated Concord agent tool surface
 
-Manifest digest: `sha256:b586befd74ea8f00000a839ddcc77de1f4403bb4482d3edd83387944899ba37a`
-Payload schema digest: `sha256:257ad0f28ff9b43175708223cead6742a29b879b7eba44ec66a0ea59dcb90751`
+Manifest digest: `sha256:438240c44666e9cbda7cdfcca29de2451cd26d047571d457ef89a3f56c4f66f2`
+Payload schema digest: `sha256:323a0d0b9a1b303835c27575fac82d709ac67a5df261beba78a4078ff5e8fc96`
 Envelope schema: `1.0`
 
 | Operation | Kind | Query | Capability | Consequence | Availability |
@@ -75,3 +75,4 @@ Envelope schema: `1.0`
 | `concord_domain.observation_record` | `mutation` | `—` | `work_define` | `intent` | `always` |
 | `concord_domain.observation_dismiss` | `mutation` | `—` | `work_define` | `intent` | `always` |
 | `concord_work_relate.product_project_add` | `mutation` | `—` | `work_relate` | `scope` | `always` |
+| `concord_work_relate.client_policy_grant_request` | `mutation` | `—` | `work_relate` | `scope` | `always` |

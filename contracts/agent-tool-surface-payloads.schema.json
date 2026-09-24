@@ -13046,6 +13046,138 @@
         }
       }
     },
+    "work_relate_client_policy_grant_request_input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "capabilities",
+        "product_scope",
+        "project_scope",
+        "agent_scope",
+        "reason",
+        "idempotency_key"
+      ],
+      "properties": {
+        "capabilities": {
+          "type": "array",
+          "maxItems": 32,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "enum": [
+              "product_read",
+              "work_define",
+              "work_transition",
+              "work_relate",
+              "work_compact",
+              "work_initiative",
+              "cross_scope",
+              "research"
+            ]
+          }
+        },
+        "product_scope": {
+          "type": "array",
+          "maxItems": 100,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/reference"
+          }
+        },
+        "project_scope": {
+          "type": "array",
+          "maxItems": 100,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/reference"
+          }
+        },
+        "agent_scope": {
+          "type": "array",
+          "maxItems": 100,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/reference"
+          }
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1024
+        },
+        "idempotency_key": {
+          "$ref": "#/$defs/id"
+        },
+        "approval": {
+          "$ref": "#/$defs/approval"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
+        }
+      }
+    },
+    "work_relate_client_policy_grant_request_result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "client_ref",
+        "policy_version",
+        "added_capabilities",
+        "added_product_scope",
+        "added_project_scope",
+        "added_agent_scope"
+      ],
+      "properties": {
+        "client_ref": {
+          "$ref": "#/$defs/id"
+        },
+        "policy_version": {
+          "$ref": "#/$defs/digest"
+        },
+        "added_capabilities": {
+          "type": "array",
+          "maxItems": 32,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "enum": [
+              "product_read",
+              "work_define",
+              "work_transition",
+              "work_relate",
+              "work_compact",
+              "work_initiative",
+              "cross_scope",
+              "research"
+            ]
+          }
+        },
+        "added_product_scope": {
+          "type": "array",
+          "maxItems": 100,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/reference"
+          }
+        },
+        "added_project_scope": {
+          "type": "array",
+          "maxItems": 100,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/reference"
+          }
+        },
+        "added_agent_scope": {
+          "type": "array",
+          "maxItems": 100,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/reference"
+          }
+        }
+      }
+    },
     "work_relate_product_project_add_result": {
       "type": "object",
       "additionalProperties": false,

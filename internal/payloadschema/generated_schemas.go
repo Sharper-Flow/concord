@@ -6102,6 +6102,138 @@ const GeneratedPayloadSchemaDocument = `{
       ],
       "type": "object"
     },
+    "work_relate_client_policy_grant_request_input": {
+      "additionalProperties": false,
+      "properties": {
+        "agent_scope": {
+          "items": {
+            "$ref": "#/$defs/reference"
+          },
+          "maxItems": 100,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "approval": {
+          "$ref": "#/$defs/approval"
+        },
+        "capabilities": {
+          "items": {
+            "enum": [
+              "product_read",
+              "work_define",
+              "work_transition",
+              "work_relate",
+              "work_compact",
+              "work_initiative",
+              "cross_scope",
+              "research"
+            ],
+            "type": "string"
+          },
+          "maxItems": 32,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "idempotency_key": {
+          "$ref": "#/$defs/id"
+        },
+        "product_scope": {
+          "items": {
+            "$ref": "#/$defs/reference"
+          },
+          "maxItems": 100,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "project_scope": {
+          "items": {
+            "$ref": "#/$defs/reference"
+          },
+          "maxItems": 100,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "reason": {
+          "maxLength": 1024,
+          "minLength": 1,
+          "type": "string"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
+        }
+      },
+      "required": [
+        "capabilities",
+        "product_scope",
+        "project_scope",
+        "agent_scope",
+        "reason",
+        "idempotency_key"
+      ],
+      "type": "object"
+    },
+    "work_relate_client_policy_grant_request_result": {
+      "additionalProperties": false,
+      "properties": {
+        "added_agent_scope": {
+          "items": {
+            "$ref": "#/$defs/reference"
+          },
+          "maxItems": 100,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "added_capabilities": {
+          "items": {
+            "enum": [
+              "product_read",
+              "work_define",
+              "work_transition",
+              "work_relate",
+              "work_compact",
+              "work_initiative",
+              "cross_scope",
+              "research"
+            ],
+            "type": "string"
+          },
+          "maxItems": 32,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "added_product_scope": {
+          "items": {
+            "$ref": "#/$defs/reference"
+          },
+          "maxItems": 100,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "added_project_scope": {
+          "items": {
+            "$ref": "#/$defs/reference"
+          },
+          "maxItems": 100,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "client_ref": {
+          "$ref": "#/$defs/id"
+        },
+        "policy_version": {
+          "$ref": "#/$defs/digest"
+        }
+      },
+      "required": [
+        "client_ref",
+        "policy_version",
+        "added_capabilities",
+        "added_product_scope",
+        "added_project_scope",
+        "added_agent_scope"
+      ],
+      "type": "object"
+    },
     "work_relate_link_input": {
       "additionalProperties": false,
       "properties": {

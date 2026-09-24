@@ -579,6 +579,8 @@ func enrichmentChangedRefs(workID string, version int64, opID string) []ChangedR
 		return []ChangedRef{{EntityKind: "worktree_verify_lease", ID: "lease-1", Version: "1"}}
 	case "concord_work_relate.product_project_add":
 		return []ChangedRef{{EntityKind: "product", ID: "product-1", Version: "1"}}
+	case "concord_work_relate.client_policy_grant_request":
+		return []ChangedRef{{EntityKind: "trusted_client", ID: "client-1", Version: "sha256:5a19a2b615a5bb94ba0e848a1a5f9c15d00375cbc1a5d0a0e6b31a4d3a41e6b8"}}
 	default:
 		return []ChangedRef{{EntityKind: "work_item", ID: workID, Version: strconv.FormatInt(version, 10)}}
 	}

@@ -1220,6 +1220,15 @@ type linearIssueEnqueuePlan struct {
 	createLink bool
 }
 
+type linearIssueProposal struct {
+	Problem       string
+	Affected      []string
+	Stakes        string
+	UserOutcomes  []string
+	Constraints   []string
+	OpenQuestions []string
+}
+
 // composeLinearIssueBody renders the issue Description at the single point
 // both enqueue paths share. Each intake source is published only when the
 // work item holds it, so the body grows as intake evidence is recorded and
@@ -1229,13 +1238,31 @@ type linearIssueEnqueuePlan struct {
 // `concord zl <work id> --` from the CLI help. The kind rides the footer
 // rather than its own section because it is one word, and a heading above
 // one word costs two lines to say it.
-func composeLinearIssueBody(valueStatement, task, premise, workID, kind string) string {
-	sections := make([]string, 0, 4)
+func composeLinearIssueBody(valueStatement, task, premise string, proposal linearIssueProposal, workID, kind string) string {
+	sections := make([]string, 0, 10)
 	if trimmed := strings.TrimSpace(valueStatement); trimmed != "" {
 		sections = append(sections, "## Value statement\n\n"+trimmed)
 	}
 	if trimmed := strings.TrimSpace(task); trimmed != "" {
 		sections = append(sections, "## Task\n\n"+trimmed)
+	}
+	if trimmed := strings.TrimSpace(proposal.Problem); trimmed != "" {
+		sections = append(sections, "## Problem\n\n"+trimmed)
+	}
+	if section := linearIssueListSection("Affected", proposal.Affected); section != "" {
+		sections = append(sections, section)
+	}
+	if trimmed := strings.TrimSpace(proposal.Stakes); trimmed != "" {
+		sections = append(sections, "## Stakes\n\n"+trimmed)
+	}
+	if section := linearIssueListSection("User outcomes", proposal.UserOutcomes); section != "" {
+		sections = append(sections, section)
+	}
+	if section := linearIssueListSection("Constraints", proposal.Constraints); section != "" {
+		sections = append(sections, section)
+	}
+	if section := linearIssueListSection("Open questions", proposal.OpenQuestions); section != "" {
+		sections = append(sections, section)
 	}
 	if trimmed := strings.TrimSpace(premise); trimmed != "" {
 		sections = append(sections, "## Premise\n\n"+trimmed)
@@ -1246,6 +1273,42 @@ func composeLinearIssueBody(valueStatement, task, premise, workID, kind string) 
 	}
 	sections = append(sections, footer)
 	return strings.Join(sections, "\n\n")
+}
+
+func linearIssueListSection(title string, items []string) string {
+	lines := make([]string, 0, len(items))
+	for _, item := range items {
+		if trimmed := strings.TrimSpace(item); trimmed != "" {
+			lines = append(lines, "- "+trimmed)
+		}
+	}
+	if len(lines) == 0 {
+		return ""
+	}
+	return "## " + title + "\n\n" + strings.Join(lines, "\n")
+}
+
+func readLatestLinearIssueProposalCore(ctx context.Context, q queryer, workID string) (linearIssueProposal, error) {
+	var proposal linearIssueProposal
+	var affected, outcomes, constraints, questions string
+	err := q.QueryRowContext(ctx, `SELECT problem, affected, stakes, user_outcomes, constraints, open_questions FROM workflow_proposal_records WHERE work_id=? ORDER BY work_version DESC LIMIT 1`, workID).Scan(
+		&proposal.Problem, &affected, &proposal.Stakes, &outcomes, &constraints, &questions)
+	if err == sql.ErrNoRows {
+		return proposal, nil
+	}
+	if err != nil {
+		return linearIssueProposal{}, wrapFailure(KindUnavailable, "linear_issue_enqueue", "cannot read intake proposal", true, "retry once the database is readable", err)
+	}
+	for _, entry := range []struct {
+		name string
+		raw  string
+		into *[]string
+	}{{"affected", affected, &proposal.Affected}, {"user_outcomes", outcomes, &proposal.UserOutcomes}, {"constraints", constraints, &proposal.Constraints}, {"open_questions", questions, &proposal.OpenQuestions}} {
+		if err := json.Unmarshal([]byte(entry.raw), entry.into); err != nil {
+			return linearIssueProposal{}, wrapFailure(KindUnavailable, "linear_issue_enqueue", "cannot decode intake proposal "+entry.name, true, "repair the stored proposal projection", err)
+		}
+	}
+	return proposal, nil
 }
 
 func linearIssueLabelIDs(connection LinearConnection, kind, urgency string) []string {
@@ -1378,7 +1441,11 @@ func enqueueLinearIssueForWorkCore(ctx context.Context, q queryer, expectedProdu
 	if err != nil {
 		return linearIssueEnqueuePlan{}, err
 	}
-	description := composeLinearIssueBody(valueStatement, task, premise, workID, kind)
+	proposal, err := readLatestLinearIssueProposalCore(ctx, q, workID)
+	if err != nil {
+		return linearIssueEnqueuePlan{}, err
+	}
+	description := composeLinearIssueBody(valueStatement, task, premise, proposal, workID, kind)
 	// The priority rides the create payload only: seeding happens once, at
 	// creation, from the urgency the work item holds at enqueue time.
 	priority := 0

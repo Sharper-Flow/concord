@@ -97,6 +97,10 @@ snapshot plus every human edit; the Concord store owns the current composed
 content, and a Linear comment records a revision, never workflow approval.
 An issue adopted from Linear never carried a Concord-authored body, so its
 updates synchronize routing fields only and publish no revision.
+An independent audit update is one typed comment on a confirmed linked or
+adopted issue. The audit route sends no issue title or description, and the
+store keeps the supplied audit text verbatim. An issue with no confirmed link
+is audited only after explicit adoption or a confirmed create.
 GraphQL issue creation assumes no Linear default template; the composed
 description carries the complete managed content.
 

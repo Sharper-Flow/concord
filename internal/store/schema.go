@@ -4992,6 +4992,61 @@ UPDATE worktree_claims SET incarnation = (
 );
 `,
 	},
+	{
+		// issue_audit_comment queues one sourced independent-audit comment on
+		// a confirmed linked or adopted issue. The route is comment-only, so
+		// the queue widens without changing any stored row's meaning: every
+		// previously accepted op_kind stays accepted. The disposition table
+		// holds a foreign key into the queue, so it is rebuilt with the same
+		// rows once the queue carries its final name again.
+		Version:  101,
+		Name:     "linear_issue_audit_comment",
+		Breaking: false,
+		SQL: `
+CREATE TEMP TABLE linear_outbox_dispositions_v101 AS
+    SELECT operation_id, work_id, disposition, reason, created_at FROM linear_outbox_dispositions;
+ALTER TABLE linear_outbox RENAME TO linear_outbox_v101;
+CREATE TABLE linear_outbox (
+    operation_id     TEXT PRIMARY KEY CHECK(length(operation_id) BETWEEN 2 AND 128),
+    work_id          TEXT NOT NULL CHECK(length(work_id) BETWEEN 2 AND 128),
+    op_kind          TEXT NOT NULL CHECK(op_kind IN ('issue_create','issue_update','issue_adopt','issue_audit_comment')),
+    idempotency_key  TEXT NOT NULL UNIQUE CHECK(length(idempotency_key) BETWEEN 2 AND 128),
+    payload          TEXT NOT NULL CHECK(json_valid(payload) AND json_type(payload) = 'object'),
+    state            TEXT NOT NULL DEFAULT 'queued' CHECK(state IN ('queued','in_flight','done','failed')),
+    attempts         INTEGER NOT NULL DEFAULT 0 CHECK(attempts >= 0),
+    last_error       TEXT NOT NULL DEFAULT '',
+    created_at       TEXT NOT NULL,
+    updated_at       TEXT NOT NULL,
+    CHECK((state = 'queued' AND attempts = 0) OR attempts > 0)
+);
+INSERT INTO linear_outbox
+    (operation_id, work_id, op_kind, idempotency_key, payload, state, attempts, last_error, created_at, updated_at)
+    SELECT operation_id, work_id, op_kind, idempotency_key, payload, state, attempts, last_error, created_at, updated_at
+    FROM linear_outbox_v101;
+DROP TABLE linear_outbox_dispositions;
+DROP TABLE linear_outbox_v101;
+CREATE TABLE linear_outbox_dispositions (
+    operation_id TEXT PRIMARY KEY REFERENCES linear_outbox(operation_id) ON DELETE RESTRICT,
+    work_id      TEXT NOT NULL REFERENCES work_items(id) ON DELETE RESTRICT,
+    disposition  TEXT NOT NULL CHECK(disposition IN ('acknowledged')),
+    reason       TEXT NOT NULL CHECK(length(reason) BETWEEN 1 AND 4096),
+    created_at   TEXT NOT NULL,
+    CHECK(length(operation_id) BETWEEN 2 AND 128),
+    CHECK(length(work_id) BETWEEN 2 AND 128)
+);
+INSERT INTO linear_outbox_dispositions (operation_id, work_id, disposition, reason, created_at)
+    SELECT operation_id, work_id, disposition, reason, created_at FROM temp.linear_outbox_dispositions_v101;
+DROP TABLE temp.linear_outbox_dispositions_v101;
+CREATE INDEX linear_outbox_state ON linear_outbox(state, created_at);
+CREATE INDEX linear_outbox_dispositions_work ON linear_outbox_dispositions(work_id);
+CREATE TRIGGER linear_outbox_guard_insert BEFORE INSERT ON linear_outbox FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'linear_outbox is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER linear_outbox_guard_update BEFORE UPDATE ON linear_outbox FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'linear_outbox is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER linear_outbox_guard_delete BEFORE DELETE ON linear_outbox FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'linear_outbox is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER linear_outbox_dispositions_guard_insert BEFORE INSERT ON linear_outbox_dispositions FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'linear_outbox_dispositions is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER linear_outbox_dispositions_guard_update BEFORE UPDATE ON linear_outbox_dispositions FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'linear_outbox_dispositions is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER linear_outbox_dispositions_guard_delete BEFORE DELETE ON linear_outbox_dispositions FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'linear_outbox_dispositions is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+`,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any

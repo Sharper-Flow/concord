@@ -21,22 +21,23 @@ import (
 // no network calls, reads no credentials, and never mutates Linear.
 
 const (
-	PlanningModeLocalOnly    = "local_only"
-	PlanningModeLinear       = "linear_enabled"
-	LinearLinkUnpublished    = "unpublished"
-	LinearLinkPending        = "pending"
-	LinearLinkConfirmed      = "confirmed"
-	LinearLinkDegraded       = "degraded"
-	LinearOutboxQueued       = "queued"
-	LinearOutboxInFlight     = "in_flight"
-	LinearOutboxDone         = "done"
-	LinearOutboxFailed       = "failed"
-	LinearOpIssueCreate      = "issue_create"
-	LinearOpIssueUpdate      = "issue_update"
-	LinearOpIssueAdopt       = "issue_adopt"
-	LinearConnectionDeclared = "declared"
-	LinearConnectionPartial  = "partial"
-	LinearConnectionAbsent   = "absent"
+	PlanningModeLocalOnly     = "local_only"
+	PlanningModeLinear        = "linear_enabled"
+	LinearLinkUnpublished     = "unpublished"
+	LinearLinkPending         = "pending"
+	LinearLinkConfirmed       = "confirmed"
+	LinearLinkDegraded        = "degraded"
+	LinearOutboxQueued        = "queued"
+	LinearOutboxInFlight      = "in_flight"
+	LinearOutboxDone          = "done"
+	LinearOutboxFailed        = "failed"
+	LinearOpIssueCreate       = "issue_create"
+	LinearOpIssueUpdate       = "issue_update"
+	LinearOpIssueAdopt        = "issue_adopt"
+	LinearOpIssueAuditComment = "issue_audit_comment"
+	LinearConnectionDeclared  = "declared"
+	LinearConnectionPartial   = "partial"
+	LinearConnectionAbsent    = "absent"
 )
 
 // ProductPlanningMode is the operator-set planning authority for one Product
@@ -519,8 +520,8 @@ func (s *Store) EnqueueLinearOperation(ctx context.Context, entry LinearOutboxEn
 	if entry.OperationID == "" || len(entry.OperationID) > 128 {
 		return newFailure(KindInvalidPayload, "linear_outbox_enqueue", "operation id must be 2 to 128 characters", false, "supply a bounded operation id")
 	}
-	if entry.OpKind != LinearOpIssueCreate && entry.OpKind != LinearOpIssueUpdate && entry.OpKind != LinearOpIssueAdopt {
-		return newFailure(KindInvalidPayload, "linear_outbox_enqueue", "operation kind is not recognized", false, "use issue_create, issue_update, or issue_adopt")
+	if entry.OpKind != LinearOpIssueCreate && entry.OpKind != LinearOpIssueUpdate && entry.OpKind != LinearOpIssueAdopt && entry.OpKind != LinearOpIssueAuditComment {
+		return newFailure(KindInvalidPayload, "linear_outbox_enqueue", "operation kind is not recognized", false, "use issue_create, issue_update, issue_adopt, or issue_audit_comment")
 	}
 	if entry.IdempotencyKey == "" || len(entry.IdempotencyKey) > 128 {
 		return newFailure(KindInvalidPayload, "linear_outbox_enqueue", "idempotency key must be 2 to 128 characters", false, "supply a bounded idempotency key")
@@ -1057,8 +1058,15 @@ type linearPayload struct {
 	// leave it empty: Linear owns backlog triage after creation.
 	Priority int `json:"priority,omitempty"`
 	// RemoteIssueUUID names the existing issue an issue_adopt operation
-	// resolves at drain time. Create and update leave it empty.
+	// resolves at drain time. Create and update leave it empty. An
+	// issue_audit_comment payload carries the confirmed linked issue it
+	// addresses, resolved from the link at enqueue time.
 	RemoteIssueUUID string `json:"remote_issue_uuid,omitempty"`
+	// AuditComment is the sourced independent-audit body an
+	// issue_audit_comment operation publishes as one comment. The store
+	// keeps it verbatim: it invents no correction and writes no title or
+	// description. Every other operation leaves it empty.
+	AuditComment string `json:"audit_comment,omitempty"`
 }
 
 // linearLifecycleStatusID resolves the lifecycle mapping declared on the
@@ -1591,6 +1599,100 @@ func enqueueLinearIssueAdoptionCore(ctx context.Context, q queryer, expectedProd
 	return ClaimedLinearOperation{OperationID: "linear-" + clientUUID, WorkID: workID, OpKind: LinearOpIssueAdopt, IdempotencyKey: clientUUID, Payload: payload}, nil
 }
 
+// linearAuditCommentMaxLength bounds one sourced audit body. Linear comment
+// bodies accept long markdown; the bound keeps an outbox payload reviewable.
+const linearAuditCommentMaxLength = 20000
+
+// EnqueueLinearIssueAuditComment queues one issue_audit_comment operation for
+// a work item whose Linear link is confirmed. The audit body is the sourced
+// correction text the caller supplies; the store keeps it verbatim and adds
+// nothing. The route is comment-only by construction: the payload carries no
+// title or description, so no drain of this kind can alter human-owned issue
+// text. An issue with no confirmed link is refused — an unlinked issue first
+// goes through explicit adoption or a confirmed create, and the audit
+// comment follows the confirmed identity.
+func (s *Store) EnqueueLinearIssueAuditComment(ctx context.Context, productID, workID, auditBody string) (ClaimedLinearOperation, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return ClaimedLinearOperation{}, wrapFailure(KindUnavailable, "linear_issue_audit_enqueue", "cannot open audit comment transaction", true, "retry once the database is writable", err)
+	}
+	defer tx.Rollback()
+	if err := enterFold(ctx, tx); err != nil {
+		return ClaimedLinearOperation{}, err
+	}
+	entry, err := enqueueLinearIssueAuditCommentCore(ctx, tx, productID, workID, auditBody)
+	if err != nil {
+		return ClaimedLinearOperation{}, err
+	}
+	if _, err := persistLinearIssueEnqueueTx(ctx, tx, linearIssueEnqueuePlan{entry: entry, payload: entry.Payload}, s.now().UTC().Format(time.RFC3339Nano)); err != nil {
+		return ClaimedLinearOperation{}, err
+	}
+	if err := leaveFold(ctx, tx); err != nil {
+		return ClaimedLinearOperation{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return ClaimedLinearOperation{}, wrapFailure(KindUnavailable, "linear_issue_audit_enqueue", "cannot commit queued audit comment", true, "retry once the database is writable", err)
+	}
+	return entry, nil
+}
+
+func enqueueLinearIssueAuditCommentCore(ctx context.Context, q queryer, expectedProductID, workID, auditBody string) (ClaimedLinearOperation, error) {
+	const op = "linear_issue_audit_enqueue"
+	if len(workID) < 2 || len(workID) > 128 {
+		return ClaimedLinearOperation{}, newFailure(KindInvalidPayload, op, "work id must be 2 to 128 characters", false, "supply a bounded work id")
+	}
+	body := strings.TrimSpace(auditBody)
+	if body == "" {
+		return ClaimedLinearOperation{}, newFailure(KindInvalidPayload, op, "audit comment body is empty", false, "supply the sourced corrections the comment carries")
+	}
+	if len(body) > linearAuditCommentMaxLength {
+		return ClaimedLinearOperation{}, newFailure(KindInvalidPayload, op, fmt.Sprintf("audit comment body is longer than %d characters", linearAuditCommentMaxLength), false, "publish the audit in more than one comment")
+	}
+	var exists int
+	if err := q.QueryRowContext(ctx, `SELECT 1 FROM work_items WHERE id=?`, workID).Scan(&exists); err == sql.ErrNoRows {
+		return ClaimedLinearOperation{}, newFailure(KindUnknownScope, op, "work item does not exist", false, "supply an existing work item")
+	} else if err != nil {
+		return ClaimedLinearOperation{}, wrapFailure(KindUnavailable, op, "cannot read work item", true, "retry once the database is readable", err)
+	}
+	productID, err := resolveLinearProductCore(ctx, q, workID)
+	if err != nil {
+		return ClaimedLinearOperation{}, err
+	}
+	if expectedProductID != "" && expectedProductID != productID {
+		return ClaimedLinearOperation{}, newFailure(KindInvalidRelation, op, "work item belongs to a different Product", false, "supply a work item in the requested Product")
+	}
+	mode, err := resolveLinearPlanningTargetCore(ctx, q, productID)
+	if err != nil {
+		return ClaimedLinearOperation{}, err
+	}
+	if mode.PlanningMode == PlanningModeLocalOnly {
+		return ClaimedLinearOperation{}, newFailure(KindInvalidOperation, op, "planning mode is local_only", false, "set planning_mode to linear_enabled before queueing Linear audit comments")
+	}
+	connection, err := readLinearConnectionCore(ctx, q, productID)
+	if err != nil {
+		return ClaimedLinearOperation{}, err
+	}
+	if connection.State != LinearConnectionDeclared {
+		return ClaimedLinearOperation{}, newFailure(KindInvalidOperation, op, "linear_enabled Product has no declared Linear connection", false, "declare the connection as a managed saas_account resource or set the mode back to local_only")
+	}
+	var linkState, remoteIssueUUID string
+	err = q.QueryRowContext(ctx, `SELECT link_state, remote_issue_uuid FROM linear_issue_links WHERE work_id=?`, workID).Scan(&linkState, &remoteIssueUUID)
+	if err == sql.ErrNoRows {
+		return ClaimedLinearOperation{}, newFailure(KindInvalidOperation, op, "no Linear link exists to audit", false, "adopt the issue explicitly or confirm a linked create before queueing an audit comment")
+	} else if err != nil {
+		return ClaimedLinearOperation{}, wrapFailure(KindUnavailable, op, "cannot read link", true, "retry once the database is readable", err)
+	}
+	if linkState != LinearLinkConfirmed {
+		return ClaimedLinearOperation{}, newFailure(KindInvalidOperation, op, fmt.Sprintf("Linear link state is %s, not %s", linkState, LinearLinkConfirmed), false, "wait for the queued operation to confirm the link, then queue the audit comment")
+	}
+	clientUUID := newLinearClientUUID()
+	payload, err := json.Marshal(linearPayload{ClientUUID: clientUUID, ProductID: productID, TeamID: connection.TeamID, ConnectionVersion: connection.Version, RemoteIssueUUID: remoteIssueUUID, AuditComment: body})
+	if err != nil {
+		return ClaimedLinearOperation{}, wrapFailure(KindUnavailable, op, "cannot encode payload", true, "retry the audit comment enqueue", err)
+	}
+	return ClaimedLinearOperation{OperationID: "linear-" + clientUUID, WorkID: workID, OpKind: LinearOpIssueAuditComment, IdempotencyKey: clientUUID, Payload: payload}, nil
+}
+
 func enqueueLinearIssueForLifecycleTx(ctx context.Context, tx *sql.Tx, workID, lifecycle string, at time.Time) error {
 	if isWorkflowReplay(ctx) {
 		// The outbox is direct authority the log never carries, and the
@@ -1996,8 +2098,8 @@ func (s *Store) HasNewerLinearIssueUpdate(ctx context.Context, operationID strin
 }
 
 func completeLinearLinkTx(ctx context.Context, tx *sql.Tx, workID, opKind string, identity LinearRemoteIdentity, now string) error {
-	var currentState, recordedHash string
-	err := tx.QueryRowContext(ctx, `SELECT link_state, content_hash FROM linear_issue_links WHERE work_id=?`, workID).Scan(&currentState, &recordedHash)
+	var currentState, recordedHash, recordedRemoteUpdatedAt string
+	err := tx.QueryRowContext(ctx, `SELECT link_state, content_hash, remote_updated_at FROM linear_issue_links WHERE work_id=?`, workID).Scan(&currentState, &recordedHash, &recordedRemoteUpdatedAt)
 	if err == sql.ErrNoRows {
 		if _, err := tx.ExecContext(ctx, `INSERT INTO linear_issue_links(work_id, remote_issue_uuid, human_key, url, remote_updated_at, content_hash, link_state, created_at, updated_at) VALUES (?,?,?,?,?,?,?, ?, ?)`, workID, identity.RemoteUUID, identity.HumanKey, identity.URL, identity.RemoteUpdatedAt, identity.ContentHash, LinearLinkConfirmed, now, now); err != nil {
 			return wrapFailure(KindUnavailable, "linear_outbox_complete", "cannot create completed link", true, "retry once the database is writable", err)
@@ -2017,10 +2119,19 @@ func completeLinearLinkTx(ctx context.Context, tx *sql.Tx, workID, opKind string
 	if identity.ContentHash != "" {
 		contentHash = identity.ContentHash
 	}
+	// remote_updated_at records the freshness of the last confirmed remote
+	// read. A completion that supplies no timestamp performed no remote
+	// issue read — a comment-only operation reads no issue — so it keeps
+	// the recorded timestamp instead of claiming freshness it did not
+	// observe.
+	remoteUpdatedAt := recordedRemoteUpdatedAt
+	if identity.RemoteUpdatedAt != "" {
+		remoteUpdatedAt = identity.RemoteUpdatedAt
+	}
 	if currentState != LinearLinkUnpublished && currentState != LinearLinkPending && currentState != LinearLinkConfirmed && currentState != LinearLinkDegraded {
 		return newFailure(KindInvalidTransition, "linear_outbox_complete", "link state is not recognized", false, "repair the stored Linear link state")
 	}
-	if currentState == LinearLinkConfirmed && opKind != LinearOpIssueUpdate {
+	if currentState == LinearLinkConfirmed && opKind != LinearOpIssueUpdate && opKind != LinearOpIssueAuditComment {
 		detail := "a create operation cannot complete an already confirmed link"
 		if opKind == LinearOpIssueAdopt {
 			detail = "an adopt operation cannot complete an already confirmed link"
@@ -2034,7 +2145,7 @@ func completeLinearLinkTx(ctx context.Context, tx *sql.Tx, workID, opKind string
 	} else if err != nil && err != sql.ErrNoRows {
 		return wrapFailure(KindUnavailable, "linear_outbox_complete", "cannot inspect existing links", true, "retry once the database is readable", err)
 	}
-	if _, err := tx.ExecContext(ctx, `UPDATE linear_issue_links SET remote_issue_uuid=?, human_key=?, url=?, remote_updated_at=?, content_hash=?, link_state=?, updated_at=? WHERE work_id=?`, identity.RemoteUUID, identity.HumanKey, identity.URL, identity.RemoteUpdatedAt, contentHash, LinearLinkConfirmed, now, workID); err != nil {
+	if _, err := tx.ExecContext(ctx, `UPDATE linear_issue_links SET remote_issue_uuid=?, human_key=?, url=?, remote_updated_at=?, content_hash=?, link_state=?, updated_at=? WHERE work_id=?`, identity.RemoteUUID, identity.HumanKey, identity.URL, remoteUpdatedAt, contentHash, LinearLinkConfirmed, now, workID); err != nil {
 		return wrapFailure(KindUnavailable, "linear_outbox_complete", "cannot confirm completed link", true, "retry once the database is writable", err)
 	}
 	return nil

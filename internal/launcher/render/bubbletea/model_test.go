@@ -1001,6 +1001,74 @@ func TestSessionLauncherFailsClosedWithoutRunningBinaryIdentity(t *testing.T) {
 	}
 }
 
+// refusedLaunchState is the work screen a completed read leaves behind: the
+// read's coverage, reliance, watermark, and rows are all seated, and a launch
+// refusal must leave each exactly where the read set it.
+func refusedLaunchState() launcher.Snapshot {
+	return launcher.Snapshot{
+		Screen: launcher.ScreenProduct, AmbientProduct: "corded", Section: launcher.SectionRanked,
+		Watermark: "w41", ObservedAt: "1m", Reliance: "authoritative", Coverage: "authoritative",
+		Ranked: []launcher.RankedWork{{ID: "import-advance-work-one", Title: "Document customer queue", Lifecycle: "needed"}},
+	}
+}
+
+func TestRefusedLaunchReportsStatusOnlyAndKeepsScreenState(t *testing.T) {
+	p := &port{state: refusedLaunchState()}
+	core := launcher.New(p)
+	if err := core.Enter(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	m := New(core, context.Background(), Profile{})
+	m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	m.Sync()
+	refusal := errors.New("workflow instance is not recorded")
+	m.Update(sessionLaunchError{err: refusal})
+	got := core.Snapshot()
+	if got.StatusMessage != refusal.Error() {
+		t.Fatalf("refused launch status=%q, want %q", got.StatusMessage, refusal.Error())
+	}
+	if got.Coverage != "authoritative" || got.Reliance != "authoritative" || got.Watermark != "w41" || got.ObservedAt != "1m" || len(got.Ranked) != 1 {
+		t.Fatalf("refused launch moved screen state: coverage=%q reliance=%q watermark=%q observed=%q ranked=%d", got.Coverage, got.Reliance, got.Watermark, got.ObservedAt, len(got.Ranked))
+	}
+	m.Sync()
+	rendered := m.Render()
+	if !strings.Contains(rendered, "STATUS: "+refusal.Error()) {
+		t.Fatalf("refusal is not the rendered status: %q", rendered)
+	}
+	for _, marker := range []string{"w41", "authoritative", "Document customer queue"} {
+		if !strings.Contains(rendered, marker) {
+			t.Fatalf("refused launch render lost work-read marker %q: %q", marker, rendered)
+		}
+	}
+}
+
+func TestUnavailableWorkCandidateRefusalReportsStatusOnly(t *testing.T) {
+	p := &port{state: launcher.Snapshot{
+		Screen: launcher.ScreenPortfolio, AmbientProduct: "corded", Watermark: "w7", ObservedAt: "2m",
+		Reliance: "authoritative", Coverage: "authoritative",
+		Rows:       []launcher.ProductRow{{ID: "corded", Name: "Corded", Stage: "prototype", Reliance: "clear", Actions: 1, Focus: "Import work"}},
+		Candidates: []launcher.Candidate{{Kind: launcher.CandidateWork, ID: "import-advance-work-one", ProductID: "corded", Name: "Document customer queue", Available: false}},
+	}}
+	core := launcher.New(p)
+	if err := core.Enter(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	m := New(core, context.Background(), Profile{})
+	m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	m.Sync()
+	cmd, handled := m.activateCandidate(launcher.Candidate{Kind: launcher.CandidateWork, ID: "import-advance-work-one", ProductID: "corded", Name: "Document customer queue", Available: false})
+	if !handled || cmd != nil {
+		t.Fatalf("unavailable candidate handled=%v cmd=%v", handled, cmd)
+	}
+	got := core.Snapshot()
+	if got.StatusMessage != "work item import-advance-work-one has no claimed worktree" {
+		t.Fatalf("refusal status=%q", got.StatusMessage)
+	}
+	if got.Coverage != "authoritative" || got.Reliance != "authoritative" || got.Watermark != "w7" || len(got.Rows) != 1 {
+		t.Fatalf("worktree refusal moved screen state: coverage=%q reliance=%q watermark=%q rows=%d", got.Coverage, got.Reliance, got.Watermark, len(got.Rows))
+	}
+}
+
 func TestS2DomainSectionRendersHierarchyRelationsAndOverlap(t *testing.T) {
 	p := &coordinationPort{}
 	core := launcher.New(p)

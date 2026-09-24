@@ -23,8 +23,10 @@ type WorkflowInitializationRequest struct {
 // Capture and revise call it before their owning transaction commits.
 
 // DefaultWorkflowRefForKind names the workflow a captured work item pins when
-// the capture names none. Session-prepare reads C19 continuity unconditionally,
-// so there is no valid capture without a workflow instance (#650).
+// the capture names none. Session-prepare reads C19 continuity
+// unconditionally, so a capture pins the kind-driven default instead of
+// skipping initialization (#650). Imported work items are the one shape that
+// holds no instance; continuity answers for them with typed absence.
 func DefaultWorkflowRefForKind(kind string) string {
 	switch kind {
 	case "task":

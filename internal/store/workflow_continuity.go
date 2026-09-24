@@ -10,6 +10,13 @@ import (
 
 const continuityMaxOffset = 1000000
 
+// WorkflowInstance values on ContinuitySnapshot. Presence is the pinned
+// default; absence is typed, never inferred from an empty step.
+const (
+	WorkflowInstancePresent = "present"
+	WorkflowInstanceAbsent  = "absent"
+)
+
 type ContextCheckpoint struct {
 	CheckpointID     string   `json:"checkpoint_id"`
 	WorkVersion      int64    `json:"work_version"`
@@ -71,8 +78,14 @@ type ContextFailure struct {
 }
 
 type ContinuitySnapshot struct {
-	WorkID                   string                            `json:"work_id"`
-	ProductIdentity          []string                          `json:"product_identity"`
+	WorkID          string   `json:"work_id"`
+	ProductIdentity []string `json:"product_identity"`
+	// WorkflowInstance states workflow-instance presence as typed
+	// information: WorkflowInstancePresent for the pinned default every
+	// captured item carries, WorkflowInstanceAbsent for an imported or
+	// otherwise instance-less work item the read still answers for.
+	// WorkflowStep is empty exactly when this is WorkflowInstanceAbsent.
+	WorkflowInstance         string                            `json:"workflow_instance"`
 	WorkflowStep             string                            `json:"workflow_step"`
 	StepActions              []string                          `json:"step_actions"`
 	Contract                 *WorkflowReadContract             `json:"contract"`
@@ -169,25 +182,32 @@ func ReadWorkflowContinuity(ctx context.Context, s *Store, req ContinuityRequest
 	var currentStep string
 	var definition WorkflowReadDefinition
 	var workVersion int64
-	if err := tx.QueryRowContext(ctx, `SELECT current_step,definition_ref,definition_version,definition_digest,(SELECT version FROM work_items WHERE id=workflow_instances.work_id) FROM workflow_instances WHERE work_id=?`, req.Work).Scan(&currentStep, &definition.Ref, &definition.Version, &definition.Digest, &workVersion); err != nil {
-		if err == sql.ErrNoRows {
-			return out, newFailure(KindProjectionNotFound, "C19.Continuity", "workflow instance is not recorded", false, "reread_entities")
+	instanceErr := tx.QueryRowContext(ctx, `SELECT current_step,definition_ref,definition_version,definition_digest,(SELECT version FROM work_items WHERE id=workflow_instances.work_id) FROM workflow_instances WHERE work_id=?`, req.Work).Scan(&currentStep, &definition.Ref, &definition.Version, &definition.Digest, &workVersion)
+	instancePresent := true
+	switch {
+	case instanceErr == sql.ErrNoRows:
+		// An imported work item holds no workflow instance. The read
+		// answers with typed absence; a launch never creates one.
+		instancePresent = false
+		out.WorkflowInstance = WorkflowInstanceAbsent
+	case instanceErr != nil:
+		return out, wrapFailure(KindUnavailable, "C19.Continuity", "cannot read workflow step", true, "retry once the database is readable", instanceErr)
+	default:
+		out.WorkflowInstance = WorkflowInstancePresent
+		pin, pinErr := ReadWorkPinTx(ctx, tx, req.Work)
+		if pinErr != nil {
+			return out, pinErr
 		}
-		return out, wrapFailure(KindUnavailable, "C19.Continuity", "cannot read workflow step", true, "retry once the database is readable", err)
-	}
-	pin, pinErr := ReadWorkPinTx(ctx, tx, req.Work)
-	if pinErr != nil {
-		return out, pinErr
-	}
-	out.WorkPin = &pin
-	out.WorkflowStep = currentStep
-	registered, err := verifyReadWorkflowDefinition(definition)
-	if err != nil {
-		return out, err
-	}
-	out.ChangesProductTruth = registered.Definition.ChangesProductTruth != nil && *registered.Definition.ChangesProductTruth
-	if step := workflowStep(registered.Definition, currentStep); step != nil {
-		out.StepActions = append(out.StepActions, step.Actions...)
+		out.WorkPin = &pin
+		out.WorkflowStep = currentStep
+		registered, err := verifyReadWorkflowDefinition(definition)
+		if err != nil {
+			return out, err
+		}
+		out.ChangesProductTruth = registered.Definition.ChangesProductTruth != nil && *registered.Definition.ChangesProductTruth
+		if step := workflowStep(registered.Definition, currentStep); step != nil {
+			out.StepActions = append(out.StepActions, step.Actions...)
+		}
 	}
 	rows, err := tx.QueryContext(ctx, `SELECT DISTINCT pp.product_id FROM work_projects wp JOIN product_projects pp ON pp.project_id=wp.project_id WHERE wp.work_id=? ORDER BY pp.product_id LIMIT 65`, req.Work)
 	if err != nil {
@@ -308,13 +328,14 @@ func ReadWorkflowContinuity(ctx context.Context, s *Store, req ContinuityRequest
 	} else if err != sql.ErrNoRows {
 		return out, wrapFailure(KindUnavailable, "C19.Continuity", "cannot read latest workflow proposal record", true, "retry once the database is readable", err)
 	}
-	var state string
-	if err := tx.QueryRowContext(ctx, `SELECT instance_state FROM workflow_instances WHERE work_id=?`, req.Work).Scan(&state); err != nil {
-		return out, wrapFailure(KindUnavailable, "C19.Continuity", "cannot read workflow failure state", true, "retry once the database is readable", err)
-	}
-	if state == "blocked" {
-		var failure ContextFailure
-		if err := tx.QueryRowContext(ctx, `SELECT json_extract(f.payload,'$.failure_kind'),json_extract(f.payload,'$.recoverable'),json_extract(f.payload,'$.step_id'),json_extract(f.payload,'$.attempt_epoch')
+	if instancePresent {
+		var state string
+		if err := tx.QueryRowContext(ctx, `SELECT instance_state FROM workflow_instances WHERE work_id=?`, req.Work).Scan(&state); err != nil {
+			return out, wrapFailure(KindUnavailable, "C19.Continuity", "cannot read workflow failure state", true, "retry once the database is readable", err)
+		}
+		if state == "blocked" {
+			var failure ContextFailure
+			if err := tx.QueryRowContext(ctx, `SELECT json_extract(f.payload,'$.failure_kind'),json_extract(f.payload,'$.recoverable'),json_extract(f.payload,'$.step_id'),json_extract(f.payload,'$.attempt_epoch')
 FROM domain_events f
 WHERE f.subject_type='work_item' AND f.subject_id=? AND f.kind=?
   AND NOT EXISTS (
@@ -324,9 +345,10 @@ WHERE f.subject_type='work_item' AND f.subject_id=? AND f.kind=?
       AND json_extract(c.payload,'$.attempt_epoch')=json_extract(f.payload,'$.attempt_epoch')
   )
 ORDER BY f.seq DESC LIMIT 1`, req.Work, WorkflowActionFailed, WorkflowActionCompleted).Scan(&failure.Kind, &failure.Recoverable, &failure.StepID, &failure.AttemptEpoch); err == nil {
-			out.UnresolvedFailure = &failure
-		} else if err != sql.ErrNoRows {
-			return out, wrapFailure(KindUnavailable, "C19.Continuity", "cannot read latest workflow failure", true, "retry once the database is readable", err)
+				out.UnresolvedFailure = &failure
+			} else if err != sql.ErrNoRows {
+				return out, wrapFailure(KindUnavailable, "C19.Continuity", "cannot read latest workflow failure", true, "retry once the database is readable", err)
+			}
 		}
 	}
 	var total int64

@@ -1591,6 +1591,14 @@ func ContinuityPayload(snapshot store.ContinuitySnapshot) map[string]any {
 		"pending_messages":   snapshot.PendingMessages,
 		"observations":       observations,
 	}
+	// An instance-less work item states its workflow absence as typed
+	// information: the step is null because no instance pins one, and the
+	// absent marker is the packet's only workflow claim. A work item with an
+	// instance keeps the bytes it has always carried.
+	if snapshot.WorkflowInstance == store.WorkflowInstanceAbsent {
+		pinned["workflow_step"] = nil
+		pinned["workflow_instance"] = store.WorkflowInstanceAbsent
+	}
 	return payload
 }
 

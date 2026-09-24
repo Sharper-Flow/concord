@@ -1044,10 +1044,12 @@ func (s *Store) prepareBootstrapMode(ctx context.Context, req BootstrapRequest, 
 			if _, err := applyOperationTx(ctx, tx, Operation{Events: events, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 0}}, newFoldScope(tx), false); err != nil {
 				return out, err
 			}
-			// C19 continuity is unconditional: session-prepare reads a workflow
-			// instance for every captured work item. A capture that names no
-			// workflow_type_ref (the common case, CD-0035) pins the kind-driven
-			// default instead of skipping initialization (#650).
+			// Session-prepare reads C19 continuity unconditionally, so a
+			// captured work item pins a workflow instance: a capture that
+			// names no workflow_type_ref (the common case, CD-0035) pins the
+			// kind-driven default instead of skipping initialization (#650).
+			// Imported work items stay instance-less; continuity answers for
+			// them with typed workflow absence.
 			workflowRef := req.WorkflowTypeRef
 			if workflowRef == "" {
 				workflowRef = DefaultWorkflowRefForKind(req.Kind)

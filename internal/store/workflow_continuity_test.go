@@ -89,11 +89,50 @@ func TestContinuityStepActions(t *testing.T) {
 
 	seedWork(t, s, "continuity-no-workflow")
 	empty, err := ReadWorkflowContinuity(context.Background(), s, ContinuityRequest{Work: "continuity-no-workflow", Limit: 20})
-	if err == nil {
-		t.Fatal("continuity read without a workflow unexpectedly succeeded")
+	if err != nil {
+		t.Fatalf("continuity refused instance-less work: %v", err)
+	}
+	if empty.WorkflowInstance != WorkflowInstanceAbsent || empty.WorkflowStep != "" {
+		t.Fatalf("workflow absence is not typed: instance=%q step=%q", empty.WorkflowInstance, empty.WorkflowStep)
 	}
 	if empty.StepActions == nil || len(empty.StepActions) != 0 {
 		t.Fatalf("empty workflow step actions=%v, want empty non-nil slice", empty.StepActions)
+	}
+}
+
+// TestContinuityAnswersForInstanceLessWork holds the typed workflow absence
+// an imported work item carries: the read answers, the instance stays
+// absent, and no workflow state is created by answering.
+func TestContinuityAnswersForInstanceLessWork(t *testing.T) {
+	t.Parallel()
+	s := openTemp(t)
+	seedWork(t, s, "continuity-imported")
+
+	snapshot, err := ReadWorkflowContinuity(context.Background(), s, ContinuityRequest{Work: "continuity-imported", Limit: 20})
+	if err != nil {
+		t.Fatalf("continuity refused instance-less work: %v", err)
+	}
+	if snapshot.WorkflowInstance != WorkflowInstanceAbsent || snapshot.WorkflowStep != "" {
+		t.Fatalf("workflow absence is not typed: instance=%q step=%q", snapshot.WorkflowInstance, snapshot.WorkflowStep)
+	}
+	if snapshot.WorkPin != nil {
+		t.Fatalf("instance-less work pin=%+v", snapshot.WorkPin)
+	}
+	if len(snapshot.ProductIdentity) != 1 || snapshot.ProductIdentity[0] != "product" {
+		t.Fatalf("product identity=%v", snapshot.ProductIdentity)
+	}
+	if snapshot.Watermark == "" || snapshot.Watermark == "seq:0" {
+		t.Fatalf("watermark=%q", snapshot.Watermark)
+	}
+	if snapshot.Contract != nil || len(snapshot.Boundaries) != 0 || snapshot.BoundaryCount != 0 {
+		t.Fatalf("instance-less work carries workflow-derived state: %+v", snapshot)
+	}
+	var instances int
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM workflow_instances WHERE work_id=?`, "continuity-imported").Scan(&instances); err != nil {
+		t.Fatal(err)
+	}
+	if instances != 0 {
+		t.Fatalf("continuity read created %d workflow instances", instances)
 	}
 }
 

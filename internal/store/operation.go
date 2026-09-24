@@ -258,6 +258,7 @@ var eventKindRegistry = map[string]EventKindRegistration{
 	WorkflowProposalRecorded:                  workflowRegistration[workflowProposalRecordedPayload](1, nil, foldWorkflowProposalRecorded),
 	WorkflowDesignRecorded:                    workflowRegistration[workflowDesignRecordedPayload](1, nil, foldWorkflowDesignRecorded),
 	WorkflowBacklogAlignmentRecorded:          workflowRegistration[workflowBacklogAlignmentRecordedPayload](1, nil, foldWorkflowBacklogAlignmentRecorded),
+	WorkflowDeliveryCorrected:                 workflowRegistration[workflowDeliveryCorrectedPayload](1, nil, foldWorkflowDeliveryCorrected),
 	WorkflowCompleted:                         workflowRegistration[workflowCompletedPayload](2, map[int]Upcaster{1: upcastWorkflowCompletedV1}, foldWorkflowCompleted),
 	EventSessionOrchestratorIdentityAsserted:  registerEventKind[orchestratorIdentityAssertedPayload](1, 1, nil, EventAppendAuthorityGeneric, foldSessionOrchestratorIdentityAsserted, validateSessionOrchestratorIdentityAssertedPayload),
 }

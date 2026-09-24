@@ -407,6 +407,23 @@ type resolveOverlapMutationInput struct {
 	IdempotencyKey      string         `json:"idempotency_key"`
 	Approval            *approvalInput `json:"approval"`
 }
+
+// correctDeliveryMutationInput decodes concord_work_transition.correct_delivery.
+// The target names the completed record_delivery event exactly; the merge
+// evidence is coordinator-provided, and the core records it without claiming
+// any verification of it.
+type correctDeliveryMutationInput struct {
+	WorkID               string         `json:"work_id"`
+	ExpectedVersion      int64          `json:"expected_version"`
+	TargetEventID        string         `json:"target_event_id"`
+	TargetSeq            int64          `json:"target_seq"`
+	TargetPayloadVersion int            `json:"target_payload_version"`
+	Reason               string         `json:"reason"`
+	DeliveryArtifact     string         `json:"delivery_artifact"`
+	DeliveryState        string         `json:"delivery_state"`
+	IdempotencyKey       string         `json:"idempotency_key"`
+	Approval             *approvalInput `json:"approval"`
+}
 type unlinkVersion struct {
 	WorkID  string `json:"work_id"`
 	Version int64  `json:"version"`
@@ -3246,6 +3263,51 @@ func (r runtime) planResolveOverlap(ctx context.Context, base Envelope, raw []by
 	return Envelope{}, nil, false
 }
 
+// planCorrectDelivery plans concord_work_transition.correct_delivery.
+//
+// The correction is always approval-required: it appends a typed correction to
+// a completed delivery assertion behind a consumed one-use operator approval,
+// and it never reopens the completed work. The merge evidence travels
+// coordinator-asserted: the core records what the coordinator provided and
+// claims no verification of any forge or merge state.
+func (r runtime) planCorrectDelivery(ctx context.Context, base Envelope, raw []byte, digest string, grant Authority, op ContractOperation, plan *mutationPlan) (Envelope, error, bool) {
+	var in correctDeliveryMutationInput
+	if err := decodeOperationInput(raw, &in); err != nil {
+		return base, err, true
+	}
+	if in.Approval != nil {
+		plan.approval = in.Approval.ApprovalRef
+	}
+	plan.requiresApproval = true
+	plan.versions["work"] = in.ExpectedVersion
+	plan.scope["work_ids"] = []string{in.WorkID}
+	plan.scope["product_id"] = r.Envelope.SelectedProductID
+	plan.intents = []NextIntent{{Tool: "concord_work_trace", Operation: "history", QueryID: "PM1.Q7", ReasonCode: "inspect_corrected_delivery", RequiredFields: []string{"work_id"}}}
+	plan.effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
+		consumedApprovalRef, _ := plan.scope["approval_ref"].(string)
+		approvalScopeJSON, _ := json.Marshal(boundedApprovalScope(plan.scope))
+		approvalVersionsJSON, _ := json.Marshal(plan.versions)
+		result, err := store.ApplyWorkflowDeliveryCorrectionTx(ctx, tx, store.WorkflowDeliveryCorrectionRequest{
+			WorkID: in.WorkID, ExpectedVersion: in.ExpectedVersion,
+			TargetEventID: in.TargetEventID, TargetSeq: in.TargetSeq, TargetPayloadVersion: in.TargetPayloadVersion,
+			Reason: in.Reason, DeliveryArtifact: in.DeliveryArtifact, DeliveryState: in.DeliveryState,
+			ApprovalRef:             consumedApprovalRef,
+			ApprovalOperationDigest: digest,
+			ApprovalScopeJSON:       string(approvalScopeJSON),
+			ApprovalVersionsJSON:    string(approvalVersionsJSON),
+			ApprovalConsequence:     plan.consequence,
+			EventID:                 digest + ":delivery-correction",
+			OccurredAt:              r.Authority.now(),
+		})
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		changed := []ChangedRef{{EntityKind: "work_item", ID: in.WorkID, Version: strconv.FormatInt(in.ExpectedVersion+2, 10)}}
+		return mutationPayload(changed, plan.intents), result.EventIDs, changed, nil
+	}
+	return Envelope{}, nil, false
+}
+
 // planLink plans concord_work_relate.link.
 func (r runtime) planLink(ctx context.Context, base Envelope, raw []byte, digest string, grant Authority, op ContractOperation, plan *mutationPlan) (Envelope, error, bool) {
 	var in linkMutationInput
@@ -3408,6 +3470,8 @@ func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Au
 		answer, err, handled = r.planWorktreeClaim(ctx, base, raw, digest, grant, op, plan)
 	case "concord_work_transition.session_vacate":
 		answer, err, handled = r.planSessionVacate(ctx, base, raw, digest, grant, op, plan)
+	case "concord_work_transition.correct_delivery":
+		answer, err, handled = r.planCorrectDelivery(ctx, base, raw, digest, grant, op, plan)
 	case "concord_work_transition.worktree_reclaim":
 		answer, err, handled = r.planWorktreeReclaim(ctx, base, raw, digest, grant, op, plan)
 	case "concord_work_transition.worktree_destroy":

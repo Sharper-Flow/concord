@@ -153,6 +153,11 @@ type WorkflowReadProjection struct {
 	ArchitectureBinding  *WorkflowArchitectureBinding `json:"architecture_binding,omitempty"`
 	ProposalRecord       *WorkflowProposalRecord      `json:"proposal_record,omitempty"`
 	ParkedDelivery       *WorkflowReadParkedDelivery  `json:"parked_delivery,omitempty"`
+	// DeliveryAssertion carries the current completed delivery assertion with
+	// its typed correction. The asserted artifact is the unchanged original
+	// event; the correction, when present, holds the effective merge evidence
+	// and its coordinator provenance.
+	DeliveryAssertion *WorkflowReadDeliveryAssertion `json:"delivery_assertion,omitempty"`
 }
 
 // ReadWorkflowProjection returns one bounded, point-in-time workflow
@@ -198,6 +203,11 @@ func ReadWorkflowProjection(ctx context.Context, s *Store, request WorkflowReadR
 	out.ImpactNotices = []WorkflowReadNotice{}
 	out.CompletionWarnings = []string{}
 	out.ParkedDelivery = parkedDeliveryRead(ctx, s, registered.Definition, request.WorkID, out.CurrentStep, out.State)
+	deliveryAssertion, assertionErr := workflowDeliveryAssertionRead(ctx, s.db, request.WorkID)
+	if assertionErr != nil {
+		return out, assertionErr
+	}
+	out.DeliveryAssertion = deliveryAssertion
 	var proposal WorkflowProposalRecord
 	var proposalAffected, proposalOutcomes, proposalConstraints, proposalQuestions string
 	if err := s.db.QueryRowContext(ctx, `SELECT work_version,problem,affected,stakes,user_outcomes,constraints,open_questions,recorded_at FROM workflow_proposal_records WHERE work_id=? ORDER BY work_version DESC LIMIT 1`, request.WorkID).Scan(&proposal.WorkVersion, &proposal.Problem, &proposalAffected, &proposal.Stakes, &proposalOutcomes, &proposalConstraints, &proposalQuestions, &proposal.RecordedAt); err == nil {
@@ -444,6 +454,11 @@ func readWorkflowSummaryTx(ctx context.Context, tx *sql.Tx, workID string) (*Wor
 	out.BlockingConditions = []string{}
 	out.ImpactNotices = []WorkflowReadNotice{}
 	out.CompletionWarnings = []string{}
+	deliveryAssertion, assertionErr := workflowDeliveryAssertionRead(ctx, tx, workID)
+	if assertionErr != nil {
+		return nil, assertionErr
+	}
+	out.DeliveryAssertion = deliveryAssertion
 	activeContractVersion, contractErr := activeWorkflowContractVersion(ctx, tx, workID, "workflow_read")
 	if contractErr != nil && contractErr != sql.ErrNoRows {
 		return nil, contractErr

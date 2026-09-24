@@ -43,6 +43,7 @@ const (
 	WorkflowProposalRecorded         = "workflow.proposal_recorded"
 	WorkflowDesignRecorded           = "workflow.design_recorded"
 	WorkflowBacklogAlignmentRecorded = "workflow.backlog_alignment_recorded"
+	WorkflowDeliveryCorrected        = "workflow.delivery_corrected"
 	WorkflowCompleted                = "workflow.completed"
 )
 

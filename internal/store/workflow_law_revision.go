@@ -522,11 +522,12 @@ const (
 // readWorkflowLawContext resolves the approved contract's bound law and
 // Domain references against the law_subjects and domains projections inside
 // the caller's transaction. It returns nil when the contract binds no law and
-// no Domain, so a contract with no bound law still dispatches. A bound law
-// the projection does not know yet — a reserved law addition before its
-// subject exists — carries its role and identity only. A home or affected
-// Domain missing from the registry carries its ID with an empty name and
-// purpose, so the packet shows the unresolved reference instead of dropping it.
+// no Domain, so a contract with no bound law still dispatches. A law listed in
+// law_additions — a reserved addition before its subject is published —
+// carries its role and identity only. Any other bound law without a subject,
+// and any home or affected Domain missing from the registry, refuses with
+// KindProjectionNotFound: the packet would otherwise bind a document no lane
+// can read.
 func readWorkflowLawContext(ctx context.Context, tx *sql.Tx, workID string, contract *WorkflowReadContract) (*WorkflowLawContext, error) {
 	if contract == nil {
 		return nil, nil
@@ -644,11 +645,33 @@ func resolveLawContextSubjects(ctx context.Context, tx *sql.Tx, homeProjectID, h
 		return nil, wrapFailure(KindUnavailable, "read_workflow_law_context", "cannot enumerate the bound law subjects", true, "retry once the law projection is readable", err)
 	}
 	for index := range laws {
-		if subject, exists := subjects[laws[index].LawID]; exists {
-			laws[index].Kind, laws[index].Status, laws[index].Title, laws[index].Path = subject.Kind, subject.Status, subject.Title, subject.Path
+		subject, exists := subjects[laws[index].LawID]
+		if !exists {
+			if listedAsAddition(laws[index].Roles) {
+				continue
+			}
+			failure := newFailure(KindProjectionNotFound, "read_workflow_law_context", "bound law is missing from the current Git-derived projection", false, "rebuild the accepted Git law projection")
+			failure.CandidateIDs = []string{laws[index].LawID}
+			return nil, failure
 		}
+		laws[index].Kind, laws[index].Status, laws[index].Title, laws[index].Path = subject.Kind, subject.Status, subject.Title, subject.Path
 	}
 	return laws, nil
+}
+
+// listedAsAddition reports whether the contract lists the law in
+// law_additions, the one listing the approved design allows to precede its
+// law_subjects row: an addition is barred from modifying or pinning an
+// existing law ID, so its absent subject at continuity read time is the
+// designed pre-publication state. Every other bound role promises a document
+// that already exists.
+func listedAsAddition(roles []string) bool {
+	for _, role := range roles {
+		if role == lawContextRoleAdded {
+			return true
+		}
+	}
+	return false
 }
 
 // resolveLawContextDomains reads the domains projection for the binding's
@@ -666,10 +689,16 @@ func resolveLawContextDomains(ctx context.Context, tx *sql.Tx, productID string,
 	domains := make([]WorkflowLawContextDomain, 0, len(ordered))
 	for _, domainID := range ordered {
 		var domain WorkflowLawContextDomain
-		domain.DomainID = domainID
-		if err := tx.QueryRowContext(ctx, `SELECT name,purpose FROM domains WHERE product_id=? AND domain_id=?`, productID, domainID).Scan(&domain.Name, &domain.Purpose); err != nil && err != sql.ErrNoRows {
+		err := tx.QueryRowContext(ctx, `SELECT name,purpose FROM domains WHERE product_id=? AND domain_id=?`, productID, domainID).Scan(&domain.Name, &domain.Purpose)
+		if err == sql.ErrNoRows {
+			failure := newFailure(KindProjectionNotFound, "read_workflow_law_context", "bound Domain is missing from the Domain registry projection", false, "rebuild the Domain registry projection")
+			failure.CandidateIDs = []string{domainID}
+			return nil, failure
+		}
+		if err != nil {
 			return nil, wrapFailure(KindUnavailable, "read_workflow_law_context", "cannot read a bound Domain", true, "retry once the Domain registry is readable", err)
 		}
+		domain.DomainID = domainID
 		domains = append(domains, domain)
 	}
 	return domains, nil

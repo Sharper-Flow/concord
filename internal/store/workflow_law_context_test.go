@@ -175,3 +175,65 @@ func TestContinuityContractWithoutBoundLawCarriesDomainsOnly(t *testing.T) {
 		t.Fatalf("law context Domains = %+v, want %+v", snapshot.LawContext.Domains, wantDomains)
 	}
 }
+
+// Projection drift between approval and dispatch must fail closed. A law the
+// contract mandates and modifies whose law_subjects row later disappears would
+// otherwise reach the packet as a bare ID, so the continuity read refuses.
+func TestContinuityRefusesModifiedLawMissingFromProjection(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s := openTemp(t)
+	workID := "law-context-drift-modified"
+	seedLawContextFixture(t, s, workID)
+	binding := WorkflowArchitectureBinding{DomainRegistryContentHash: "sha256:" + strings.Repeat("b", 64), HomeDomainID: "root", AffectedDomainIDs: []string{"root", "child"}, DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{{LawID: "law:new", HomeDomainID: "child"}}, VerificationObligations: []WorkflowVerificationObligation{}}
+	approveLawContextContract(t, s, workID, []string{"spec:one", "law:new"}, []string{"spec:one"}, binding)
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); DELETE FROM law_domain_homes WHERE law_id='spec:one'; DELETE FROM law_subjects WHERE law_id='spec:one'; DELETE FROM fold_guard`); err != nil {
+		t.Fatal(err)
+	}
+	_, err := ReadWorkflowContinuity(ctx, s, ContinuityRequest{Work: workID})
+	var failure *Failure
+	if !failureAs(err, &failure) || failure.Kind != KindProjectionNotFound || failure.Op != "read_workflow_law_context" || len(failure.CandidateIDs) != 1 || failure.CandidateIDs[0] != "spec:one" || failure.RecoveryAction != "rebuild the accepted Git law projection" {
+		t.Fatalf("missing modified law diagnosis = %v, want typed projection_not_found from the law context with candidate and rebuild recovery", err)
+	}
+}
+
+// A verification obligation binds a pinned law by ID, so a law carrying the
+// obligation role whose subject later disappears refuses the same way.
+func TestContinuityRefusesObligationLawMissingFromProjection(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s := openTemp(t)
+	workID := "law-context-drift-obligation"
+	seedLawContextFixture(t, s, workID)
+	binding := WorkflowArchitectureBinding{DomainRegistryContentHash: "sha256:" + strings.Repeat("b", 64), HomeDomainID: "root", AffectedDomainIDs: []string{"root"}, DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{}, VerificationObligations: []WorkflowVerificationObligation{{LawID: "spec:one", ObligationID: "verification"}}}
+	approveLawContextContract(t, s, workID, []string{"spec:one"}, []string{}, binding)
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); DELETE FROM law_domain_homes WHERE law_id='spec:one'; DELETE FROM law_subjects WHERE law_id='spec:one'; DELETE FROM fold_guard`); err != nil {
+		t.Fatal(err)
+	}
+	_, err := ReadWorkflowContinuity(ctx, s, ContinuityRequest{Work: workID})
+	var failure *Failure
+	if !failureAs(err, &failure) || failure.Kind != KindProjectionNotFound || failure.Op != "read_workflow_law_context" || len(failure.CandidateIDs) != 1 || failure.CandidateIDs[0] != "spec:one" || failure.RecoveryAction != "rebuild the accepted Git law projection" {
+		t.Fatalf("missing obligation law diagnosis = %v, want typed projection_not_found from the law context with candidate and rebuild recovery", err)
+	}
+}
+
+// A home or affected Domain that later disappears from the registry would
+// reach the packet with an empty name and purpose, so the continuity read
+// refuses fail-closed.
+func TestContinuityRefusesDomainMissingFromRegistry(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s := openTemp(t)
+	workID := "law-context-drift-domain"
+	seedLawContextFixture(t, s, workID)
+	binding := WorkflowArchitectureBinding{DomainRegistryContentHash: "sha256:" + strings.Repeat("b", 64), HomeDomainID: "root", AffectedDomainIDs: []string{"root", "child"}, DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{{LawID: "law:new", HomeDomainID: "child"}}, VerificationObligations: []WorkflowVerificationObligation{}}
+	approveLawContextContract(t, s, workID, []string{"spec:one", "law:new"}, []string{"spec:one"}, binding)
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); DELETE FROM law_domain_homes WHERE domain_id='child'; DELETE FROM domains WHERE domain_id='child'; DELETE FROM fold_guard`); err != nil {
+		t.Fatal(err)
+	}
+	_, err := ReadWorkflowContinuity(ctx, s, ContinuityRequest{Work: workID})
+	var failure *Failure
+	if !failureAs(err, &failure) || failure.Kind != KindProjectionNotFound || failure.Op != "read_workflow_law_context" || len(failure.CandidateIDs) != 1 || failure.CandidateIDs[0] != "child" || failure.RecoveryAction != "rebuild the Domain registry projection" {
+		t.Fatalf("missing Domain diagnosis = %v, want typed projection_not_found from the law context with candidate and rebuild recovery", err)
+	}
+}

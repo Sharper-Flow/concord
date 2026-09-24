@@ -68,3 +68,53 @@ func TestShippedNonTerminalStepsCanAdvance(t *testing.T) {
 		}
 	}
 }
+
+// workflowRequiredEvidenceOutsideReach returns, in declaration order, the
+// evidence kinds a definition requires — across the definition, its steps,
+// and its rigor rules — that no action reachable through forward and optional
+// edges can produce. TestShippedDefinitionsCanProduceRequiredEvidence holds
+// this set empty for every shipped definition;
+// TestSyntheticDefinitionEvidenceGapIsDetected holds it non-empty for a
+// synthetic one, so the check cannot pass by accident.
+func workflowRequiredEvidenceOutsideReach(definition WorkflowDefinition) []EvidenceKind {
+	producible := evidenceStrings(workflowReachableEvidenceKinds(definition))
+	var missing []EvidenceKind
+	for _, kind := range definition.RequiredEvidenceKinds {
+		if !containsString(producible, string(kind)) {
+			missing = append(missing, kind)
+		}
+	}
+	for _, step := range definition.StepGraph.Steps {
+		for _, kind := range step.RequiredEvidenceKinds {
+			if !containsString(producible, string(kind)) {
+				missing = append(missing, kind)
+			}
+		}
+	}
+	for _, rule := range definition.RigorRules {
+		for _, kind := range rule.RequiredEvidenceKinds {
+			if !containsString(producible, string(kind)) {
+				missing = append(missing, kind)
+			}
+		}
+	}
+	return missing
+}
+
+// TestShippedDefinitionsCanProduceRequiredEvidence holds the evidence-side
+// consequence of the same graph facts the invariants above protect: every
+// evidence kind a current shipped definition requires — at the definition, on
+// a step, or in a rigor rule — is a kind at least one action on a step
+// reachable through forward and optional edges can produce. A requirement
+// outside that set strands the gate that waits for it: no route through the
+// workflow can ever bind the kind, so no contract naming it can be served.
+// Frozen prior versions stay byte-identical by law, so the scope is the
+// shipped set alone, like the invariants above.
+func TestShippedDefinitionsCanProduceRequiredEvidence(t *testing.T) {
+	for _, definition := range BuiltinWorkflowDefinitions() {
+		if missing := workflowRequiredEvidenceOutsideReach(definition); len(missing) != 0 {
+			producible := evidenceStrings(workflowReachableEvidenceKinds(definition))
+			t.Errorf("%s v%d requires evidence kinds %v its reachable actions cannot produce; those actions produce %v", definition.Ref, definition.Version, missing, producible)
+		}
+	}
+}

@@ -7349,6 +7349,7 @@
         "kind": {
           "type": "string",
           "enum": [
+            "constitution",
             "decision",
             "spec"
           ]

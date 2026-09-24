@@ -101,6 +101,25 @@ type WorkerReportEvidence struct {
 	Detail     string `json:"detail"`
 }
 
+// WorkerBaseComparisonCheck is one verification command's result pair as the
+// worker reported it: how the same command behaved on the branch and on the
+// base. It is informational evidence only (CD-0043 D1): the verifier method
+// is host-owned, it joins no obligation vocabulary, and no workflow guard
+// reads it.
+type WorkerBaseComparisonCheck struct {
+	Command      string `json:"command"`
+	BranchResult string `json:"branch_result"`
+	BaseResult   string `json:"base_result"`
+}
+
+// WorkerBaseComparison is the optional top-level base_comparison object of
+// agent-lane-report.v1. It rides the completion payload so a reported
+// comparison survives the worker session, and its presence changes nothing
+// about routing or obligation coverage.
+type WorkerBaseComparison struct {
+	Checks []WorkerBaseComparisonCheck `json:"checks"`
+}
+
 type WorkerCompletedPayload struct {
 	AttemptID           string `json:"attempt_id"`
 	ReadbackModel       string `json:"readback_model"`
@@ -117,6 +136,10 @@ type WorkerCompletedPayload struct {
 	// would let one shape mean both "reported nothing" and "predates the
 	// contract".
 	EvidenceOrigin string `json:"evidence_origin"`
+	// BaseComparison is the worker's optional reported comparison between
+	// branch and base results. Absent on payloads that predate the field;
+	// present or absent never changes obligation coverage or routing.
+	BaseComparison *WorkerBaseComparison `json:"base_comparison,omitempty"`
 }
 
 type WorkerFailedPayload struct {
@@ -181,7 +204,36 @@ func validateWorkerCompletedPayload(_ Event, payload WorkerCompletedPayload) err
 	if payload.AttemptID == "" || !workerModelPattern.MatchString(payload.ReadbackModel) || payload.ReportSchemaVersion != WorkerReportSchemaVersion {
 		return invalidWorkerPayload("worker.completed payload has invalid identity or report schema")
 	}
+	if err := validateWorkerBaseComparison(payload.BaseComparison); err != nil {
+		return err
+	}
 	return validateWorkerReportEvidence(payload.EvidenceOrigin, payload.Evidence)
+}
+
+// workerComparisonResultVocabulary is the closed result set one
+// base_comparison check may report for either side.
+var workerComparisonResultVocabulary = map[string]bool{"pass": true, "fail": true, "not_run": true}
+
+// validateWorkerBaseComparison mirrors the closed shape the report schema
+// gives the optional base_comparison object: 1 to 64 checks, each naming a
+// command of 1 to 512 bytes and two results from the closed set. Like the
+// evidence entries, the content is recorded as reported and never judged.
+func validateWorkerBaseComparison(comparison *WorkerBaseComparison) error {
+	if comparison == nil {
+		return nil
+	}
+	if len(comparison.Checks) < 1 || len(comparison.Checks) > 64 {
+		return invalidWorkerPayload("worker.completed base_comparison must carry between 1 and 64 checks")
+	}
+	for _, check := range comparison.Checks {
+		if len(check.Command) < 1 || len(check.Command) > 512 {
+			return invalidWorkerPayload("worker.completed base_comparison command must be between 1 and 512 bytes")
+		}
+		if !workerComparisonResultVocabulary[check.BranchResult] || !workerComparisonResultVocabulary[check.BaseResult] {
+			return invalidWorkerPayload("worker.completed base_comparison results must be pass, fail, or not_run")
+		}
+	}
+	return nil
 }
 
 // validateWorkerReportEvidence is the shape half of the CD-0056 evidence

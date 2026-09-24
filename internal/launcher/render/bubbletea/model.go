@@ -255,6 +255,9 @@ func (m *Model) HelpVisible() bool { return m.showHelp }
 // UpdateKey feeds a deterministic key event to tests and internal callers.
 func (m *Model) UpdateKey(value string) tea.Cmd {
 	key := tea.Key{Text: value, Code: firstRune(value)}
+	// Control keys carry no Text: String() returns Text when it is set, and a
+	// real terminal control press decodes to {Code, Mod} with empty Text, so
+	// a Text here would dispatch the bare letter instead of the chord.
 	switch value {
 	case "enter":
 		key = tea.Key{Code: tea.KeyEnter}
@@ -267,15 +270,15 @@ func (m *Model) UpdateKey(value string) tea.Cmd {
 	case "left":
 		key = tea.Key{Code: tea.KeyLeft}
 	case "ctrl+l":
-		key = tea.Key{Code: 'l', Mod: tea.ModCtrl, Text: "l"}
+		key = tea.Key{Code: 'l', Mod: tea.ModCtrl}
 	case "ctrl+d":
-		key = tea.Key{Code: 'd', Mod: tea.ModCtrl, Text: "d"}
+		key = tea.Key{Code: 'd', Mod: tea.ModCtrl}
 	case "ctrl+u":
-		key = tea.Key{Code: 'u', Mod: tea.ModCtrl, Text: "u"}
+		key = tea.Key{Code: 'u', Mod: tea.ModCtrl}
 	case "ctrl+c":
-		key = tea.Key{Code: 'c', Mod: tea.ModCtrl, Text: "c"}
+		key = tea.Key{Code: 'c', Mod: tea.ModCtrl}
 	case "ctrl+p":
-		key = tea.Key{Code: 'p', Mod: tea.ModCtrl, Text: "p"}
+		key = tea.Key{Code: 'p', Mod: tea.ModCtrl}
 	}
 	_, cmd := m.Update(tea.KeyPressMsg(key))
 	return cmd
@@ -582,13 +585,16 @@ func (m *Model) enterProjectSelect() (tea.Model, tea.Cmd) {
 }
 
 func (m *Model) enterPortfolio() (tea.Model, tea.Cmd) {
-	candidates := m.filteredCandidates()
-	if len(candidates) > 0 {
-		if cmd, handled := m.activateCandidate(candidates[min(m.cursor, len(candidates)-1)]); handled {
-			return m, cmd
+	displayed := m.displayedPortfolio()
+	if displayed.candidates != nil {
+		if len(displayed.candidates) > 0 {
+			if cmd, handled := m.activateCandidate(displayed.candidates[min(m.cursor, len(displayed.candidates)-1)]); handled {
+				return m, cmd
+			}
 		}
+		return m, nil
 	}
-	rows := m.filteredRows()
+	rows := displayed.products
 	if len(rows) > 0 && m.cursor < len(rows) {
 		previousScreen := m.core.Snapshot().Screen
 		if err := m.core.SelectProduct(m.ctx, rows[m.cursor].ID); err != nil {
@@ -729,6 +735,28 @@ func (m *Model) setError(err error) {
 // event handlers Sync after every core mutation, so both paths see the same
 // state and the render path cannot observe a core change before its Sync.
 
+// displayedPortfolio is the one decision of which portfolio list the frame
+// displays: the Product rows when any survives the filter, otherwise the
+// interleaved candidate list. Render, the cursor bound, Enter, pin, and the
+// detail pane all read it, so every key acts on the row the frame
+// highlights. A nil candidates slice means the Product table displays; a
+// non-nil slice means the candidate list displays, possibly empty after a
+// filter that leaves it nothing to show.
+type displayedPortfolio struct {
+	products   []launcher.ProductRow
+	candidates []launcher.Candidate
+}
+
+func (m *Model) displayedPortfolio() displayedPortfolio {
+	if rows := m.filteredRows(); len(rows) > 0 {
+		return displayedPortfolio{products: rows}
+	}
+	if len(m.snapshot.Candidates) > 0 {
+		return displayedPortfolio{candidates: m.filteredCandidates()}
+	}
+	return displayedPortfolio{}
+}
+
 func (m *Model) filteredRows() []launcher.ProductRow {
 	rows := m.snapshot.Rows
 	needle := strings.ToLower(m.filterValue)
@@ -833,10 +861,11 @@ func (m *Model) rowCount() int {
 	if s.Screen == launcher.ScreenWork {
 		return len(s.Detail.History)
 	}
-	if len(s.Candidates) > 0 {
-		return len(m.filteredCandidates())
+	displayed := m.displayedPortfolio()
+	if displayed.candidates != nil {
+		return len(displayed.candidates)
 	}
-	return len(m.filteredRows())
+	return len(displayed.products)
 }
 
 func (m *Model) filteredCandidates() []launcher.Candidate {
@@ -844,11 +873,17 @@ func (m *Model) filteredCandidates() []launcher.Candidate {
 }
 
 func (m *Model) togglePin(pin bool) {
-	snapshot := m.core.Snapshot()
-	if len(snapshot.Candidates) == 0 || m.cursor < 0 || m.cursor >= len(m.filteredCandidates()) {
+	displayed := m.displayedPortfolio()
+	if displayed.candidates == nil {
+		// A displayed Product row has no path, so pin and unpin have no
+		// subject on the portfolio table.
 		return
 	}
-	selected := m.filteredCandidates()[m.cursor]
+	if m.cursor < 0 || m.cursor >= len(displayed.candidates) {
+		return
+	}
+	selected := displayed.candidates[m.cursor]
+	snapshot := m.core.Snapshot()
 	for i := range snapshot.Candidates {
 		if snapshot.Candidates[i].ID == selected.ID && snapshot.Candidates[i].Kind == selected.Kind && snapshot.Candidates[i].Path == selected.Path {
 			snapshot.Candidates[i].Pinned = pin
@@ -1023,7 +1058,7 @@ func (m *Model) detailFocusRow() *launcher.ProductRow {
 	if m.snapshot.Screen != launcher.ScreenPortfolio || m.snapshot.ProjectSelect {
 		return nil
 	}
-	rows := m.filteredRows()
+	rows := m.displayedPortfolio().products
 	if m.cursor >= 0 && m.cursor < len(rows) {
 		return &rows[m.cursor]
 	}
@@ -1126,10 +1161,11 @@ func (m *Model) renderContent(snapshot launcher.Snapshot, cursor int) renderedPa
 
 func (m *Model) renderPortfolio(snapshot launcher.Snapshot, cursor int) renderedPane {
 	projection := m.projection
-	rows := m.filteredRows()
-	if len(rows) == 0 && len(snapshot.Candidates) > 0 {
+	displayed := m.displayedPortfolio()
+	if displayed.candidates != nil {
 		return m.renderCandidates(snapshot, cursor)
 	}
+	rows := displayed.products
 	header := append([]string{}, projection.Header...)
 	header = append(header, probeLines(snapshot.Probes)...)
 	if m.filterMode {

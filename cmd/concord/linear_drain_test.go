@@ -577,4 +577,149 @@ func TestLinearDrainRefreshesConnectionPerClaimedOperation(t *testing.T) {
 	}
 }
 
+// TestLinearIssueCreateDrainConvergesAfterLostResponse runs the create-side
+// retry: the first issueCreate persists the issue remotely and loses the
+// response, so the operation stays retryable while the issue already exists.
+// The retry meets Linear's insert conflict on the same client uuid, resolves
+// the issue by that uuid, and converges: one remote issue, the operation
+// done, and the link confirmed with the created digest.
+func TestLinearIssueCreateDrainConvergesAfterLostResponse(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "concord.db")
+	seedCLIProduct(t, dbPath, "converge-product", "converge-project")
+	enableLinearProduct(t, dbPath, "converge-product")
+	seedLinearCLIWork(t, dbPath, "converge-work", "converge-project", "Converge title")
+	runOperatorJSON(t, dbPath, []string{"linear-connection-update"}, map[string]any{
+		"event_id": "converge-label-update", "resource_id": "drain-conn-converge-product", "product_id": "converge-product",
+		"label_ids": map[string]string{"task": "label-task"}, "expected_resource_version": 1,
+	})
+	runOperatorJSON(t, dbPath, []string{"linear-issue-enqueue"}, map[string]any{"product_id": "converge-product", "work_id": "converge-work", "op_kind": "issue_create"})
+
+	var clientUUID, identifier string
+	created := false
+	answerIssue := func(w http.ResponseWriter) {
+		_, _ = w.Write([]byte(`{"data":{"issue":{"id":"` + clientUUID + `","identifier":"` + identifier + `","url":"https://linear.app/example/issue/` + identifier + `","title":"Converge title","updatedAt":"2026-09-09T12:00:00Z","state":{"type":"unstarted"},"team":{"id":"68d52710-76d9-4b41-ba45-778511d0e2ed"}}}}`))
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		w.Header().Set("Content-Type", "application/json")
+		if !strings.Contains(string(body), "issueCreate") {
+			answerIssue(w)
+			return
+		}
+		var request struct {
+			Variables struct {
+				Input struct {
+					ID string `json:"id"`
+				} `json:"input"`
+			} `json:"variables"`
+		}
+		if err := json.Unmarshal(body, &request); err != nil {
+			t.Errorf("decode create: %v", err)
+			return
+		}
+		if created {
+			_, _ = w.Write([]byte(`{"errors":[{"message":"conflict on insert of Issue","extensions":{"type":"invalid input","code":"INPUT_ERROR","statusCode":400,"userError":true,"userPresentableMessage":"Entity Issue with id ` + request.Variables.Input.ID + ` already exists."}}],"data":null}`))
+			return
+		}
+		created = true
+		clientUUID = request.Variables.Input.ID
+		identifier = "SHA-77"
+		hijacker, ok := w.(http.Hijacker)
+		if !ok {
+			t.Error("response does not support hijacking")
+			return
+		}
+		conn, _, err := hijacker.Hijack()
+		if err != nil {
+			t.Errorf("hijack: %v", err)
+			return
+		}
+		_ = conn.Close()
+	}))
+	defer server.Close()
+	t.Setenv(linearclient.EnvEndpoint, server.URL)
+	t.Setenv(linearclient.EnvAPIKey, "lin_api_converge_test")
+	t.Setenv(dbOverrideEnv, dbPath)
+
+	drain := func() (operations []struct {
+		OperationID string `json:"operation_id"`
+		Outcome     string `json:"outcome"`
+		Detail      string `json:"detail"`
+	}) {
+		t.Helper()
+		var out, errOut strings.Builder
+		if code := runWithInput([]string{"linear", "outbox-drain"}, strings.NewReader(`{"product_id":"converge-product"}`), &out, &errOut); code != 0 {
+			t.Fatalf("drain exit=%d stderr=%q", code, errOut.String())
+		}
+		var drained struct {
+			Operations []struct {
+				OperationID string `json:"operation_id"`
+				Outcome     string `json:"outcome"`
+				Detail      string `json:"detail"`
+			} `json:"operations"`
+		}
+		if err := json.Unmarshal([]byte(out.String()), &drained); err != nil {
+			t.Fatalf("drain output %q: %v", out.String(), err)
+		}
+		return drained.Operations
+	}
+
+	operations := drain()
+	if len(operations) != 1 || operations[0].Outcome != "retryable" {
+		t.Fatalf("first drain = %+v, want one retryable operation", operations)
+	}
+	if !created || clientUUID == "" {
+		t.Fatalf("remote issue = %q/%q, want the create persisted before the response was lost", clientUUID, identifier)
+	}
+
+	operations = drain()
+	if len(operations) != 1 || operations[0].Outcome != "done" {
+		t.Fatalf("retry drain = %+v, want one done operation", operations)
+	}
+	if operations[0].Detail != "" {
+		t.Fatalf("retry report = %+v, want a converged create with no revision detail", operations[0])
+	}
+
+	s, err := store.Open(context.Background(), dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	var outboxState, linkState, remoteUUID, linkHash string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT state FROM linear_outbox WHERE operation_id=?`, operations[0].OperationID).Scan(&outboxState); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.DatabaseForTesting().QueryRow(`SELECT link_state, remote_issue_uuid, content_hash FROM linear_issue_links WHERE work_id='converge-work'`).Scan(&linkState, &remoteUUID, &linkHash); err != nil {
+		t.Fatal(err)
+	}
+	if outboxState != "done" || linkState != "confirmed" || remoteUUID != clientUUID {
+		t.Fatalf("terminal = %s/%s/%s, want done/confirmed/<created uuid>", outboxState, linkState, remoteUUID)
+	}
+	digest := linearContentHash("Converge title", ownedTestBody("converge-work"))
+	if linkHash != digest {
+		t.Fatalf("link content hash = %s, want the created digest %s", linkHash, digest)
+	}
+}
+
+func TestLinearIssueCreateDrainRefusesUnrelatedResolvedIssue(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		w.Header().Set("Content-Type", "application/json")
+		if strings.Contains(string(body), "issueCreate") {
+			_, _ = w.Write([]byte(`{"errors":[{"message":"conflict on insert of Issue","extensions":{"code":"INPUT_ERROR"}}],"data":null}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"data":{"issue":{"id":"foreign-issue","identifier":"CON-7","url":"https://linear.app/example/issue/CON-7","updatedAt":"2026-09-09T12:00:00Z","team":{"id":"team-1"}}}}`))
+	}))
+	defer server.Close()
+	client, err := linearclient.New("lin_api_test", linearclient.WithEndpoint(server.URL))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = drainCreate(context.Background(), client, linearDrainPayload{ClientUUID: "requested-issue", Title: "Title"}, "team-1")
+	if err == nil || !strings.Contains(err.Error(), "does not match") {
+		t.Fatalf("unrelated issue error = %v, want an identity mismatch", err)
+	}
+}
+
 func fixedLinearTestTime() time.Time { return time.Date(2026, 9, 9, 1, 0, 0, 0, time.UTC) }

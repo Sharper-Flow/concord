@@ -1139,7 +1139,10 @@ func reopenReclaimedBootstrapTx(ctx context.Context, tx *sql.Tx, operationID, wo
 	} else if affected, affectedErr := result.RowsAffected(); affectedErr != nil || affected != 1 {
 		return location, 0, newFailure(KindInvariantViolation, "work_bootstrap", "completed bootstrap journal could not be reopened", false, "contact_operator")
 	}
-	if result, err := tx.ExecContext(ctx, `UPDATE worktree_claims SET pinned_base_sha=?,state='pending',updated_at=? WHERE op_id=? AND state='reclaimed'`, location.BaseSHA, now, operationID); err != nil {
+	// The reopen starts a new incarnation of this claim row: the bump scopes
+	// the incarnation's occupancy-release and reclaim events to their own
+	// event identities instead of re-deriving the first incarnation's.
+	if result, err := tx.ExecContext(ctx, `UPDATE worktree_claims SET pinned_base_sha=?,state='pending',incarnation=incarnation+1,updated_at=? WHERE op_id=? AND state='reclaimed'`, location.BaseSHA, now, operationID); err != nil {
 		return location, 0, err
 	} else if affected, affectedErr := result.RowsAffected(); affectedErr != nil || affected != 1 {
 		return location, 0, newFailure(KindInvariantViolation, "work_bootstrap", "reclaimed bootstrap claim could not be reopened", false, "contact_operator")

@@ -568,6 +568,107 @@ func schemaFixtureObject(t *testing.T, schema map[string]any, defs map[string]ma
 	return out
 }
 
+// readPopulationInputs names the dispatch input each read operation answers
+// with against the population fixture. The test enumerates the operations from
+// the generated contract, so a new read is covered the moment it is declared;
+// an operation without an entry here is a failure, not a silent gap.
+func readPopulationInputs(fx readPopulationFixture) map[string]string {
+	return map[string]string{
+		"concord_product_view.resolve":             `{"product_id":"prod-alpha"}`,
+		"concord_product_view.snapshot":            `{"product_id":"prod-alpha"}`,
+		"concord_product_view.portfolio":           `{"product_id":"prod-alpha","page":{"cursor":null,"limit":20}}`,
+		"concord_product_view.blocked_sessions":    `{"product_id":"prod-alpha"}`,
+		"concord_product_view.resources":           `{"product_id":"prod-alpha","page":{"cursor":null,"limit":20}}`,
+		"concord_work_browse.list":                 `{"product_id":"prod-alpha","page":{"cursor":null,"limit":20}}`,
+		"concord_work_browse.blocked":              `{"product_id":"prod-alpha","page":{"cursor":null,"limit":20}}`,
+		"concord_work_browse.ready":                `{"product_id":"prod-alpha","page":{"cursor":null,"limit":20}}`,
+		"concord_work_browse.scope":                `{"product_id":"prod-alpha","work_id":"` + fx.workID + `"}`,
+		"concord_work_browse.resource_claims":      `{"product_id":"prod-alpha"}`,
+		"concord_work_browse.messages":             `{"product_id":"prod-alpha","work_id":"` + fx.workID + `","page":{"cursor":null,"limit":20}}`,
+		"concord_work_browse.worktree_audit":       `{"product_id":"prod-alpha"}`,
+		"concord_work_browse.worktree_inspect":     `{"work_id":"` + fx.workID + `","mode":"status"}`,
+		"concord_work_trace.history":               `{"work_id":"` + fx.workID + `","page":{"cursor":null,"limit":20}}`,
+		"concord_work_trace.observations":          `{"work_id":"` + fx.workID + `","page":{"cursor":null,"limit":20}}`,
+		"concord_work_trace.external_observations": `{"work_id":"` + fx.workID + `","limit":20}`,
+		"concord_work_trace.relations":             `{"work_id":"` + fx.workID + `"}`,
+		"concord_work_trace.continuity":            `{"work_id":"` + fx.workID + `","page":{"cursor":null,"limit":20}}`,
+		"concord_work_trace.research":              `{"product_id":"prod-alpha","work_id":"` + fx.workID + `","page":{"cursor":null,"limit":20}}`,
+		"concord_knowledge.search":                 `{"product_id":"prod-alpha","page":{"cursor":null,"limit":20}}`,
+		"concord_knowledge.resolve_note":           `{"work_id":"` + fx.workID + `"}`,
+		"concord_knowledge.unprocessed":            `{"product_id":"prod-alpha"}`,
+		"concord_work_initiative.entries":          `{"initiative_work_id":"` + fx.initiative + `"}`,
+		"concord_domain.list":                      `{"product_id":"prod-alpha","page":{"cursor":null,"limit":20}}`,
+		"concord_domain.detail":                    `{"product_id":"prod-alpha","domain_id":"` + fx.domainID + `"}`,
+		"concord_domain.active_work":               `{"product_id":"prod-alpha","domain_id":"` + fx.domainID + `","page":{"cursor":null,"limit":20}}`,
+		"concord_domain.attachments":               `{"product_id":"prod-alpha","domain_id":"` + fx.domainID + `"}`,
+		"concord_domain.overlaps":                  `{"product_id":"prod-alpha"}`,
+	}
+}
+
+// readPopulationWitnesses holds the content checks a schema-valid result must
+// also pass. A schema admits an empty or filtered answer, so a read whose
+// fixture seeds specific rows names them here; a producer that drops those rows
+// fails the test even though its payload still validates.
+var readPopulationWitnesses = map[string]func(t *testing.T, result json.RawMessage){
+	// Constitution records are law-bearing, so domain.detail must return them
+	// beside decisions and specifications rather than filter them out.
+	"concord_domain.detail": func(t *testing.T, result json.RawMessage) {
+		var detail struct {
+			CurrentLaw []struct {
+				Kind string `json:"kind"`
+			} `json:"current_law"`
+		}
+		if err := json.Unmarshal(result, &detail); err != nil {
+			t.Fatalf("decode domain.detail result: %v", err)
+		}
+		kinds := map[string]bool{}
+		for _, law := range detail.CurrentLaw {
+			kinds[law.Kind] = true
+		}
+		for _, want := range []string{"constitution", "decision", "spec"} {
+			if !kinds[want] {
+				t.Fatalf("domain.detail current_law omits seeded %s law; got kinds %v", want, kinds)
+			}
+		}
+	},
+}
+
+// TestAllReadEnvelopesValidateAtPopulationScale dispatches every read the
+// generated contract declares against a population-scale store, through the
+// same Dispatch path a real call takes, and requires an ok outcome whose
+// result the generated payload schema accepts. A read that refuses, or that
+// answers with a payload its own schema rejects, fails here at population
+// scale instead of at an agent call.
+func TestAllReadEnvelopesValidateAtPopulationScale(t *testing.T) {
+	t.Parallel()
+	if readPopulationSkipUnderRace {
+		t.Skip("population-scale seeding is measured without race instrumentation")
+	}
+	fx := seedReadPopulationFixture(t)
+	inputs := readPopulationInputs(fx)
+	for _, op := range ContractOperations {
+		if op.Kind != OperationRead {
+			continue
+		}
+		input, ok := inputs[op.ID]
+		if !ok {
+			t.Fatalf("read operation %s has no population input; add one to readPopulationInputs", op.ID)
+		}
+		t.Run(op.ID, func(t *testing.T) {
+			response := dispatchRead(t, fx.store, fx.service, InvokeRequest{Tool: op.Tool, Operation: op.Operation, Input: json.RawMessage(input)}, fx.envelope(t))
+			if response.Outcome != OutcomeOK {
+				t.Fatalf("%s refused at population scale: %s %s", op.ID, response.Error.Kind, response.Error.Message)
+			}
+			if err := ValidateOperationPayload(op.Tool, op.Operation, response.Result, true); err != nil {
+				t.Fatalf("%s answered ok with a result its schema rejects: %v", op.ID, err)
+			}
+			if witness, ok := readPopulationWitnesses[op.ID]; ok {
+				witness(t, response.Result)
+			}
+		})
+	}
+}
+
 // enrichmentChangedRefs names the changed refs each operation's real effect
 // returns. Every generic-tail mutation returns work-item refs, so enrichment
 // stamps its pin onto the result; worktree_verify answers with a lease ref

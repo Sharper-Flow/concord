@@ -1284,6 +1284,7 @@ const GeneratedPayloadSchemaDocument = `{
         },
         "kind": {
           "enum": [
+            "constitution",
             "decision",
             "spec"
           ],

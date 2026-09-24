@@ -485,7 +485,7 @@ func TestKnowledgeReferenceHonorsSelectedProductContainment(t *testing.T) {
 		t.Fatal(err)
 	}
 	request := InvokeRequest{Input: json.RawMessage(`{"knowledge_id":"knowledge-b"}`)}
-	err = validateRequestedScope(context.Background(), s, CallEnvelope{SelectedProductID: "product-a"}, Authority{ProductScope: []string{"product-a", "product-b"}}, request)
+	err = validateRequestedScope(context.Background(), s, CallEnvelope{SelectedProductID: "product-a"}, Authority{ProductScope: []string{"product-a", "product-b"}}, request, OperationRead)
 	var failure *runtimeFailure
 	if !errors.As(err, &failure) || failure.kind != "unauthorized" {
 		t.Fatalf("knowledge outside selected Product accepted: %v", err)
@@ -497,7 +497,7 @@ func TestKnowledgeResolveNoteDelegatesHomeScopeToQ10(t *testing.T) {
 	s := runtimeKnowledgeStore(t, "home-knowledge", "lesson", "home", nil, map[string]string{"product-a": "member"})
 	defer s.Close()
 	request := InvokeRequest{Tool: "concord_knowledge", Operation: "resolve_note", Input: json.RawMessage(`{"knowledge_id":"home-knowledge"}`)}
-	if err := validateRequestedScope(context.Background(), s, CallEnvelope{SelectedProductID: "product-a"}, Authority{ProductScope: []string{"product-a"}}, request); err != nil {
+	if err := validateRequestedScope(context.Background(), s, CallEnvelope{SelectedProductID: "product-a"}, Authority{ProductScope: []string{"product-a"}}, request, OperationRead); err != nil {
 		t.Fatalf("Q10 runtime pre-scope validation rejected home record: %v", err)
 	}
 	response := runtimeResolveNote(t, s, "product-a", request.Input)

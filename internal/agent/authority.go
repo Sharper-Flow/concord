@@ -553,13 +553,15 @@ func (s *Service) authorizeResolved(ctx context.Context, tx *store.Transaction, 
 		return Authority{}, authorityRefusal("project outside resolved scope")
 	}
 	projects := []string{resolved.ProjectID}
-	product := in.ProductID
-	if product == "" && len(candidateProducts) == 1 {
-		product = candidateProducts[0]
-	}
-	// The ambient repository selects the Product. Current Product membership,
-	// not the repository locator allowlist, owns its Project authority.
-	if product != "" {
+	// Project authority follows current Product membership (CD-0152 D1). The
+	// explicit policy is the authority source for Products, so every Product
+	// it authorizes contributes its current Projects: the authority spans
+	// every Project of every authorized Product, and the ambient locator
+	// neither limits it nor selects a narrower set. A Project a Product no
+	// longer owns drops out on the next invocation.
+	authorizedProducts := normalizeStrings(policyProducts)
+	seenProjects := map[string]bool{resolved.ProjectID: true}
+	for _, product := range authorizedProducts {
 		var memberships []store.ProjectMembership
 		if tx == nil {
 			memberships, err = s.Store.ProjectsForProduct(ctx, product)
@@ -569,14 +571,15 @@ func (s *Service) authorizeResolved(ctx context.Context, tx *store.Transaction, 
 		if err != nil {
 			return Authority{}, err
 		}
-		projects = nil
 		for _, membership := range memberships {
-			projects = append(projects, membership.ID)
+			if !seenProjects[membership.ID] {
+				seenProjects[membership.ID] = true
+				projects = append(projects, membership.ID)
+			}
 		}
-		projects = normalizeStrings(projects)
 	}
 	snapshot := map[string]any{"project_id": resolved.ProjectID, "product_ids": candidateProducts, "scope_version": scopeVersion}
-	return Authority{PrincipalRef: client.PrincipalRef, ClientRef: client.ClientRef, SessionRef: in.SessionRef, AgentRef: in.AgentRef, Directory: in.Directory, Worktree: in.Worktree, ManifestDigest: ManifestDigest, Capabilities: capabilityValues(normalizeStrings(policyCaps)), ProductScope: candidateProducts, ProjectScope: projects, ScopeVersion: scopeVersion, CandidateProducts: candidateProducts, ScopeSnapshot: snapshot, PolicyProductScope: normalizeStrings(policyProducts), PolicyProjectScope: normalizeStrings(policyProjects), MainWorktree: resolved.MainWorktree}, nil
+	return Authority{PrincipalRef: client.PrincipalRef, ClientRef: client.ClientRef, SessionRef: in.SessionRef, AgentRef: in.AgentRef, Directory: in.Directory, Worktree: in.Worktree, ManifestDigest: ManifestDigest, Capabilities: capabilityValues(normalizeStrings(policyCaps)), ProductScope: authorizedProducts, ProjectScope: normalizeStrings(projects), ScopeVersion: scopeVersion, CandidateProducts: candidateProducts, ScopeSnapshot: snapshot, PolicyProductScope: normalizeStrings(policyProducts), PolicyProjectScope: normalizeStrings(policyProjects), MainWorktree: resolved.MainWorktree}, nil
 }
 
 // authorityRefusal marks the authorization boundary as a typed refusal.

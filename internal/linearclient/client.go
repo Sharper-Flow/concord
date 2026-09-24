@@ -54,6 +54,12 @@ const (
 	// KindGraphqlError means Linear answered with a GraphQL-level error or a
 	// mutation that reported success=false.
 	KindGraphqlError FailureKind = "graphql_error"
+	// KindDuplicateEntity means a create named a client UUID that already
+	// exists remotely. Linear stores the sent id as the entity's own UUID and
+	// refuses a second insert instead of upserting. The caller owns
+	// convergence: resolve the entity by that UUID, verify it is the intended
+	// one, and treat the operation as delivered.
+	KindDuplicateEntity FailureKind = "duplicate_entity"
 )
 
 // Failure is the typed client error. Detail never contains key material.
@@ -68,13 +74,17 @@ func (f *Failure) Error() string {
 }
 
 // CreateIssueInput carries the fields the drain supplies on issue creation. ID
-// is the client UUID: Linear's IssueCreateInput.id, which makes a repeated
-// create converge on the existing issue instead of duplicating it.
+// is the client UUID: Linear's IssueCreateInput.id, stored as the issue's own
+// UUID. A repeated create with the same id answers KindDuplicateEntity and
+// stores nothing new; the caller converges by resolving that UUID.
 type CreateIssueInput struct {
-	ID          string   `json:"id"`
-	TeamID      string   `json:"teamId"`
-	ProjectID   string   `json:"projectId,omitempty"`
-	Title       string   `json:"title"`
+	ID        string `json:"id"`
+	TeamID    string `json:"teamId"`
+	ProjectID string `json:"projectId,omitempty"`
+	Title     string `json:"title"`
+	// Description carries the complete managed body. GraphQL creation must
+	// not assume Linear applies a team's default issue template on top of
+	// it; whatever the intake should publish is composed at enqueue time.
 	Description string   `json:"description"`
 	LabelIDs    []string `json:"labelIds,omitempty"`
 	// StatusID lands the card in the workflow state its work item holds at
@@ -98,6 +108,17 @@ type UpdateIssueInput struct {
 	ProjectID     string   `json:"projectId,omitempty"`
 	StatusID      string   `json:"stateId,omitempty"`
 	AddedLabelIDs []string `json:"addedLabelIds,omitempty"`
+}
+
+// CommentCreateInput carries the fields the drain supplies when it publishes
+// a managed revision comment on an issue it may not rewrite. ID is the client
+// UUID: Linear's CommentCreateInput.id, stored as the comment's own UUID. A
+// repeated create with the same id answers KindDuplicateEntity and stores no
+// duplicate; the caller converges by resolving that UUID.
+type CommentCreateInput struct {
+	ID      string `json:"id"`
+	IssueID string `json:"issueId"`
+	Body    string `json:"body"`
 }
 
 // Issue is the remote issue identity and content returned by Linear.
@@ -164,6 +185,10 @@ type graphError struct {
 	Message    string `json:"message"`
 	Extensions struct {
 		Code string `json:"code"`
+		// UserPresentableMessage is Linear's operator-facing restatement of
+		// the refusal. For an insert conflict it is the field that names the
+		// entity and the id that already exists.
+		UserPresentableMessage string `json:"userPresentableMessage"`
 	} `json:"extensions"`
 }
 
@@ -189,15 +214,26 @@ func isRateLimitError(item graphError) bool {
 }
 
 // classifyGraphErrors returns a rate-limited failure when any error carries
-// rate-limit evidence, otherwise a GraphQL failure carrying every message.
-// Both classification paths (a 4xx body and an HTTP 200 envelope) share it so
-// they cannot drift.
+// rate-limit evidence, a duplicate-entity failure when any error reports
+// Linear's insert conflict on a supplied id, otherwise a GraphQL failure
+// carrying every message. All classification paths (a 4xx body and an HTTP
+// 200 envelope) share it so they cannot drift.
 func classifyGraphErrors(envelope graphResponse) *Failure {
 	messages := make([]string, 0, len(envelope.Errors))
+	conflict := false
 	for _, item := range envelope.Errors {
 		messages = append(messages, item.Message)
+		if item.Extensions.UserPresentableMessage != "" {
+			messages = append(messages, item.Extensions.UserPresentableMessage)
+		}
+		if strings.Contains(item.Message, "conflict on insert of") {
+			conflict = true
+		}
 	}
 	detail := strings.Join(messages, "; ")
+	if conflict {
+		return &Failure{Kind: KindDuplicateEntity, Detail: detail}
+	}
 	for _, item := range envelope.Errors {
 		if isRateLimitError(item) {
 			return &Failure{Kind: KindRateLimited, Detail: detail}
@@ -239,6 +275,60 @@ func (c *Client) UpdateIssue(ctx context.Context, remoteUUID string, input Updat
 		return Issue{}, &Failure{Kind: KindGraphqlError, Detail: "issueUpdate reported success=false"}
 	}
 	return payload.IssueUpdate.Issue, nil
+}
+
+// CreateComment posts one comment on the remote issue and returns only the
+// delivery outcome: the issue body the comment belongs to is never read or
+// written here. A KindDuplicateEntity failure means a previous attempt with
+// this exact input already stored the comment.
+func (c *Client) CreateComment(ctx context.Context, input CommentCreateInput) error {
+	var payload struct {
+		CommentCreate struct {
+			Success bool `json:"success"`
+			Comment struct {
+				ID string `json:"id"`
+			} `json:"comment"`
+		} `json:"commentCreate"`
+	}
+	if err := c.call(ctx, "mutation($input: CommentCreateInput!) { commentCreate(input: $input) { success comment { id } } }", map[string]any{"input": input}, &payload); err != nil {
+		return err
+	}
+	if !payload.CommentCreate.Success {
+		return &Failure{Kind: KindGraphqlError, Detail: "commentCreate reported success=false"}
+	}
+	if payload.CommentCreate.Comment.ID != input.ID {
+		return &Failure{Kind: KindGraphqlError, Detail: "commentCreate returned a different comment identity"}
+	}
+	return nil
+}
+
+// CommentLocation is one existing comment's identity, the issue it sits on,
+// and its stored body, so a caller converging a repeated create can verify
+// the stored comment is the one its operation intended.
+type CommentLocation struct {
+	ID      string
+	IssueID string
+	Body    string
+}
+
+// GetComment resolves one comment by its UUID. Linear answers an unknown
+// comment with a GraphQL error, which maps to the permanent KindGraphqlError
+// failure.
+func (c *Client) GetComment(ctx context.Context, commentID string) (CommentLocation, error) {
+	var payload struct {
+		Comment struct {
+			ID      string `json:"id"`
+			IssueID string `json:"issueId"`
+			Body    string `json:"body"`
+		} `json:"comment"`
+	}
+	if err := c.call(ctx, "query($id: String!) { comment(id: $id) { id issueId body } }", map[string]any{"id": commentID}, &payload); err != nil {
+		return CommentLocation{}, err
+	}
+	if payload.Comment.ID == "" {
+		return CommentLocation{}, &Failure{Kind: KindGraphqlError, Detail: "comment query returned no comment"}
+	}
+	return CommentLocation{ID: payload.Comment.ID, IssueID: payload.Comment.IssueID, Body: payload.Comment.Body}, nil
 }
 
 // GetIssue fetches one existing issue by its UUID or human identifier. Linear
@@ -390,18 +480,30 @@ func (c *Client) call(ctx context.Context, query string, variables map[string]an
 }
 
 // IsRetryable reports whether the outbox should requeue after this failure.
-// Auth refusal is permanent; rate limiting and unknown outcomes are retryable;
-// a malformed body is retryable because the request may not have executed.
+// Auth refusal is permanent; a duplicate-entity conflict is permanent for the
+// bare client because a blind resend cannot change the answer — convergence
+// belongs to the caller that verifies the existing entity; rate limiting and
+// unknown outcomes are retryable; a malformed body is retryable because the
+// request may not have executed.
 func IsRetryable(err error) bool {
 	var failure *Failure
 	if !errors.As(err, &failure) {
 		return false
 	}
 	switch failure.Kind {
-	case KindAuthRefused, KindGraphqlError:
+	case KindAuthRefused, KindGraphqlError, KindDuplicateEntity:
 		return false
 	case KindRateLimited, KindTransport, KindMalformedResponse:
 		return true
 	}
 	return false
+}
+
+// IsDuplicateEntity reports whether the failure is Linear's insert conflict
+// on a client UUID the caller supplied: an entity with that UUID already
+// exists remotely. The caller converges by resolving the UUID and verifying
+// the entity is the one its operation intended.
+func IsDuplicateEntity(err error) bool {
+	var failure *Failure
+	return errors.As(err, &failure) && failure.Kind == KindDuplicateEntity
 }

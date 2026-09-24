@@ -102,6 +102,11 @@ type worktreeReclaimedPayload struct {
 	SetID            string `json:"set_id"`
 	ProjectID        string `json:"project_id"`
 	ClaimOpID        string `json:"claim_op_id,omitempty"`
+	// ClaimIncarnation names the claim incarnation the reclaim closed. The
+	// first incarnation leaves it empty so its payload keeps the legacy
+	// shape; a reopened incarnation records its own count, which keeps
+	// convergence scoped to one incarnation.
+	ClaimIncarnation int `json:"claim_incarnation,omitempty"`
 	// RequestID records the reclaim operation that produced the event. The
 	// claim-scoped event identity lets later removal converge on this record.
 	RequestID string          `json:"request_id,omitempty"`
@@ -112,6 +117,7 @@ type worktreeOccupancyReleasedPayload struct {
 	SetID              string `json:"set_id"`
 	ProjectID          string `json:"project_id"`
 	ClaimOpID          string `json:"claim_op_id"`
+	ClaimIncarnation   int    `json:"claim_incarnation,omitempty"`
 	OccupantSessionRef string `json:"occupant_session_ref"`
 }
 
@@ -888,6 +894,13 @@ func reclaimWorktreeRawTx(ctx context.Context, tx *sql.Tx, req WorktreeReclaimRe
 			return entry, nil
 		}
 	}
+	// Every event this reclaim appends derives its identity from the claim's
+	// incarnation, so a claim row a bootstrap reopen revived records its own
+	// events instead of re-deriving its first incarnation's.
+	incarnation, err := claimIncarnationTx(ctx, tx, entry.ClaimOpID)
+	if err != nil {
+		return out, err
+	}
 
 	repoRoot, resErr := worktreeRepoRootTx(ctx, tx, WorktreeClaimRequest{ProjectID: req.ProjectID})
 	if resErr != nil {
@@ -902,7 +915,7 @@ func reclaimWorktreeRawTx(ctx context.Context, tx *sql.Tx, req WorktreeReclaimRe
 		if req.Destructive {
 			facts = jsonMustMarshal(map[string]any{"already_absent": true, "forced": true, "operator_override": req.OperatorApprovalRef})
 		}
-		if err := appendReclaimedTx(ctx, tx, req, setID, entry.ClaimOpID, now, facts); err != nil {
+		if err := appendReclaimedTx(ctx, tx, req, setID, entry.ClaimOpID, incarnation, now, facts); err != nil {
 			return out, err
 		}
 		return worktreeEntryAfterReclaimTx(ctx, tx, req.WorkID, req.ProjectID)
@@ -919,7 +932,7 @@ func reclaimWorktreeRawTx(ctx context.Context, tx *sql.Tx, req WorktreeReclaimRe
 	// subjects.
 	if entry.OccupantSessionRef != "" {
 		if (req.ReleaseOccupancy && req.OperatorApprovalRef != "") || releaseDeadOccupantByObservation(entry, req.ObservedSessionDirectories) {
-			if err := releaseWorktreeOccupancyTx(ctx, tx, req, setID, entry.ClaimOpID, now); err != nil {
+			if err := releaseWorktreeOccupancyTx(ctx, tx, req, setID, entry.ClaimOpID, incarnation, now); err != nil {
 				return out, err
 			}
 		} else {
@@ -939,7 +952,7 @@ func reclaimWorktreeRawTx(ctx context.Context, tx *sql.Tx, req WorktreeReclaimRe
 	// is forced (CD-0096 D3 Destroy).
 	if req.Destructive {
 		facts := jsonMustMarshal(map[string]any{"forced": true, "operator_override": req.OperatorApprovalRef})
-		if err := appendReclaimedTx(ctx, tx, req, setID, entry.ClaimOpID, now, facts); err != nil {
+		if err := appendReclaimedTx(ctx, tx, req, setID, entry.ClaimOpID, incarnation, now, facts); err != nil {
 			return out, err
 		}
 		if _, err := runner.Run(ctx, repoRoot, "worktree", "remove", "--force", entry.Path); err != nil {
@@ -987,7 +1000,7 @@ func reclaimWorktreeRawTx(ctx context.Context, tx *sql.Tx, req WorktreeReclaimRe
 	} else {
 		reclaimFacts["remote_reachable"] = true
 	}
-	if err := appendReclaimedTx(ctx, tx, req, setID, entry.ClaimOpID, now, jsonMustMarshal(reclaimFacts)); err != nil {
+	if err := appendReclaimedTx(ctx, tx, req, setID, entry.ClaimOpID, incarnation, now, jsonMustMarshal(reclaimFacts)); err != nil {
 		return out, err
 	}
 	if _, err := runner.Run(ctx, repoRoot, "worktree", "remove", entry.Path); err != nil {
@@ -1405,48 +1418,79 @@ func jsonMustMarshal(v any) json.RawMessage {
 }
 
 // reclaimedEventID is the one derivation of the reclaimed event's stable
-// identity. The identity binds the event to one claim generation, so a
-// re-reclaim of the same generation re-derives the same event_id.
-func reclaimedEventID(workID, projectID, claimOpID string) string {
-	return fmt.Sprintf("%s:%s:%s:worktree-reclaimed", workID, projectID, claimOpID)
+// identity. The identity binds the event to one claim generation and
+// incarnation, so a reclaim retry of the same incarnation re-derives the same
+// event_id while a later incarnation derives its own.
+func reclaimedEventID(workID, projectID, claimOpID string, incarnation int) string {
+	return claimIncarnationEventID(fmt.Sprintf("%s:%s:%s:worktree-reclaimed", workID, projectID, claimOpID), incarnation)
 }
 
-func appendReclaimedTx(ctx context.Context, tx *sql.Tx, req WorktreeReclaimRequest, setID, claimOpID string, now time.Time, facts json.RawMessage) error {
-	payload, _ := json.Marshal(worktreeReclaimedPayload{ExpectedVersion: req.ExpectedVersion, ResultingVersion: req.ExpectedVersion + 1, SetID: setID, ProjectID: req.ProjectID, ClaimOpID: claimOpID, RequestID: req.RequestID, GitFacts: facts})
+// occupancyReleasedEventID derives the occupancy release event's stable
+// identity under the same incarnation scoping as reclaimedEventID.
+func occupancyReleasedEventID(workID, projectID, claimOpID string, incarnation int) string {
+	return claimIncarnationEventID(fmt.Sprintf("%s:%s:%s:worktree-occupancy-released", workID, projectID, claimOpID), incarnation)
+}
+
+// claimIncarnationEventID scopes one base event identity to a claim
+// incarnation. The first incarnation keeps the legacy identity byte for byte;
+// a reopened incarnation appends its own :i<N> suffix so its events never
+// re-derive an earlier incarnation's identity.
+func claimIncarnationEventID(base string, incarnation int) string {
+	if incarnation <= 0 {
+		return base
+	}
+	return fmt.Sprintf("%s:i%d", base, incarnation)
+}
+
+// claimIncarnationTx reads the claim row's incarnation count. Rows written
+// before the column existed, and a reclaim of an entry whose claim row is
+// absent, hold the first incarnation.
+func claimIncarnationTx(ctx context.Context, q queryer, claimOpID string) (int, error) {
+	var incarnation int
+	err := q.QueryRowContext(ctx, `SELECT incarnation FROM worktree_claims WHERE op_id=?`, claimOpID).Scan(&incarnation)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, nil
+	}
+	return incarnation, err
+}
+
+func appendReclaimedTx(ctx context.Context, tx *sql.Tx, req WorktreeReclaimRequest, setID, claimOpID string, incarnation int, now time.Time, facts json.RawMessage) error {
+	payload, _ := json.Marshal(worktreeReclaimedPayload{ExpectedVersion: req.ExpectedVersion, ResultingVersion: req.ExpectedVersion + 1, SetID: setID, ProjectID: req.ProjectID, ClaimOpID: claimOpID, ClaimIncarnation: incarnation, RequestID: req.RequestID, GitFacts: facts})
 	_, err := applyOperationTx(ctx, tx, Operation{Events: []Event{{
-		EventID: reclaimedEventID(req.WorkID, req.ProjectID, claimOpID), Kind: "work.worktree_reclaimed", SubjectType: SubjectWorkItem, SubjectID: req.WorkID, Actor: req.PrincipalRef, OccurredAt: now, PayloadVersion: 1, Payload: payload,
+		EventID: reclaimedEventID(req.WorkID, req.ProjectID, claimOpID, incarnation), Kind: "work.worktree_reclaimed", SubjectType: SubjectWorkItem, SubjectID: req.WorkID, Actor: req.PrincipalRef, OccurredAt: now, PayloadVersion: 1, Payload: payload,
 	}}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, req.WorkID): req.ExpectedVersion}}, newFoldScope(tx), false)
 	if err != nil {
-		return convergeRecordedReclaimTx(ctx, tx, req, setID, claimOpID, err)
+		return convergeRecordedReclaimTx(ctx, tx, req, setID, claimOpID, incarnation, err)
 	}
 	return err
 }
 
 // convergeRecordedReclaimTx resolves a reclaim whose derived event_id is
-// already recorded for the same claim generation. The stored row is the
-// durable reclaim record and its worktree projection never folded, so every
-// live reclaim of that claim re-derives the same identity and the append
-// refuses the payload divergence forever. The fold runs against the stored
-// event instead, and the reclaim proceeds to its native removal. The log row
-// itself is never touched.
+// already recorded for the same claim generation and incarnation. The stored
+// row is the durable reclaim record and its worktree projection never folded,
+// so every live reclaim of that incarnation re-derives the same identity and
+// the append refuses the payload divergence forever. The fold runs against
+// the stored event instead, and the reclaim proceeds to its native removal.
+// The log row itself is never touched.
 //
 // The interpretation is deliberately narrow: only a work.worktree_reclaimed
-// event for this work item whose payload names this set, Project, and claim
-// generation converges. The stored effect is the durable reclaim record, so
-// the fold may proceed for a later native removal. Any other collision —
-// another kind, another subject, or another claim generation — keeps the
-// divergent-reuse refusal classifyEventIDConflict produced.
+// event for this work item whose payload names this set, Project, claim
+// generation, and claim incarnation converges. The stored effect is the
+// durable reclaim record, so the fold may proceed for a later native removal.
+// Any other collision — another kind, another subject, another claim
+// generation, or another incarnation — keeps the divergent-reuse refusal
+// classifyEventIDConflict produced.
 //
 // When the stored payload's resulting_version is at or below the work item's
 // current version, the fold repairs the projection without advancing the
 // version: that advance is already public history. Above it, the stored
 // advance is still pending and the fold's own version rule applies.
-func convergeRecordedReclaimTx(ctx context.Context, tx *sql.Tx, req WorktreeReclaimRequest, setID, claimOpID string, appendErr error) error {
+func convergeRecordedReclaimTx(ctx context.Context, tx *sql.Tx, req WorktreeReclaimRequest, setID, claimOpID string, incarnation int, appendErr error) error {
 	var failure *Failure
 	if !failureAs(appendErr, &failure) || (failure.Kind != KindIdempotencyConflict && failure.Kind != KindDuplicateEvent) {
 		return appendErr
 	}
-	eventID := reclaimedEventID(req.WorkID, req.ProjectID, claimOpID)
+	eventID := reclaimedEventID(req.WorkID, req.ProjectID, claimOpID, incarnation)
 	var kind, subjectType, subjectID string
 	var payloadVersion int
 	var payload []byte
@@ -1472,7 +1516,7 @@ func convergeRecordedReclaimTx(ctx context.Context, tx *sql.Tx, req WorktreeRecl
 	if err := decodePayload(stored, &p); err != nil {
 		return appendErr
 	}
-	if p.SetID != setID || p.ProjectID != req.ProjectID || p.ClaimOpID != claimOpID {
+	if p.SetID != setID || p.ProjectID != req.ProjectID || p.ClaimOpID != claimOpID || p.ClaimIncarnation != incarnation {
 		return appendErr
 	}
 	var current int64
@@ -1493,7 +1537,7 @@ func convergeRecordedReclaimTx(ctx context.Context, tx *sql.Tx, req WorktreeRecl
 	return leaveErr
 }
 
-func releaseWorktreeOccupancyTx(ctx context.Context, tx *sql.Tx, req WorktreeReclaimRequest, setID, claimOpID string, now time.Time) error {
+func releaseWorktreeOccupancyTx(ctx context.Context, tx *sql.Tx, req WorktreeReclaimRequest, setID, claimOpID string, incarnation int, now time.Time) error {
 	var occupant string
 	if err := tx.QueryRowContext(ctx, `SELECT occupant_session_ref FROM worktree_entries WHERE set_id=? AND project_id=? AND claim_op_id=? AND state='active'`, setID, req.ProjectID, claimOpID).Scan(&occupant); err != nil {
 		return err
@@ -1501,9 +1545,9 @@ func releaseWorktreeOccupancyTx(ctx context.Context, tx *sql.Tx, req WorktreeRec
 	if occupant == "" {
 		return nil
 	}
-	payload, _ := json.Marshal(worktreeOccupancyReleasedPayload{SetID: setID, ProjectID: req.ProjectID, ClaimOpID: claimOpID, OccupantSessionRef: occupant})
+	payload, _ := json.Marshal(worktreeOccupancyReleasedPayload{SetID: setID, ProjectID: req.ProjectID, ClaimOpID: claimOpID, ClaimIncarnation: incarnation, OccupantSessionRef: occupant})
 	_, err := applyOperationTx(ctx, tx, Operation{Events: []Event{{
-		EventID: fmt.Sprintf("%s:%s:%s:worktree-occupancy-released", req.WorkID, req.ProjectID, claimOpID),
+		EventID: occupancyReleasedEventID(req.WorkID, req.ProjectID, claimOpID, incarnation),
 		Kind:    "work.worktree_occupancy_released", SubjectType: SubjectWorkItem, SubjectID: req.WorkID,
 		Actor: req.PrincipalRef, OccurredAt: now, PayloadVersion: 1, Payload: payload,
 	}}}, newFoldScope(tx), false)

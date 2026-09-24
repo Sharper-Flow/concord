@@ -805,6 +805,123 @@ func TestBootstrapExistingWorktreeReusesReclaimedCaptureIdentity(t *testing.T) {
 	}
 }
 
+// A claim a completed bootstrap journal reopens is a new incarnation of the
+// same claim row. Its occupancy release and reclaim events derive their own
+// identities, the first incarnation's recorded rows stay byte-identical, and
+// the subject's sub-log replays through the folds with both incarnations'
+// reclaim events.
+func TestReopenedBootstrapClaimRecordsOwnIncarnationEvents(t *testing.T) {
+	t.Parallel()
+	repo := initBootstrapStoreRepo(t)
+	s, err := Open(context.Background(), filepath.Join(t.TempDir(), "concord.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	seedBootstrapStoreAuthority(t, s, repo)
+	ctx := context.Background()
+
+	capture := bootstrapStoreRequest()
+	capture.IdempotencyKey = "bootstrap-reopened-claim-identity"
+	capture.SessionRef = "ses-first"
+	first, err := s.BootstrapWorktree(ctx, capture, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.ReclaimWorktree(ctx, WorktreeReclaimRequest{
+		WorkID: first.WorkID, ProjectID: first.ProjectID, DefaultRef: "origin/main",
+		PrincipalRef: "principal/operator", RequestID: "reclaim-incarnation-first",
+		ExpectedVersion: first.WorkVersion, Runner: ExecGitRunner{},
+		ObservedSessionDirectories: emptySessionObservation(), ObservedProjectID: first.ProjectID,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	legacyReclaim := reclaimedEventID(first.WorkID, first.ProjectID, first.OperationID, 0)
+	if legacyReclaim != first.WorkID+":"+first.ProjectID+":"+first.OperationID+":worktree-reclaimed" {
+		t.Fatalf("first incarnation identity=%q, want the legacy derivation", legacyReclaim)
+	}
+	var firstID, firstPayload, firstOccurredAt string
+	if err := s.db.QueryRow(`SELECT event_id,payload,occurred_at FROM domain_events WHERE event_id=?`, legacyReclaim).Scan(&firstID, &firstPayload, &firstOccurredAt); err != nil {
+		t.Fatalf("first incarnation reclaim event: %v", err)
+	}
+
+	reopened, err := s.BootstrapExistingWorktree(ctx, ExistingBootstrapRequest{
+		ProductID: first.ProductID, ProjectID: first.ProjectID, WorkID: first.WorkID, SessionRef: "ses-reopened",
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var incarnation int
+	if err := s.db.QueryRow(`SELECT incarnation FROM worktree_claims WHERE op_id=?`, first.OperationID).Scan(&incarnation); err != nil {
+		t.Fatal(err)
+	}
+	if incarnation != 1 {
+		t.Fatalf("reopened claim incarnation=%d, want 1", incarnation)
+	}
+
+	if _, err := s.ReclaimWorktree(ctx, WorktreeReclaimRequest{
+		WorkID: first.WorkID, ProjectID: first.ProjectID, DefaultRef: "origin/main",
+		PrincipalRef: "principal/operator", RequestID: "reclaim-incarnation-reopened",
+		ExpectedVersion: reopened.WorkVersion, Runner: ExecGitRunner{},
+		ObservedSessionDirectories: emptySessionObservation(), ObservedProjectID: first.ProjectID,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	var reclaims, releases int
+	if err := s.db.QueryRow(`SELECT count(*) FROM domain_events WHERE kind='work.worktree_reclaimed' AND subject_id=?`, first.WorkID).Scan(&reclaims); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.db.QueryRow(`SELECT count(*) FROM domain_events WHERE kind='work.worktree_occupancy_released' AND subject_id=?`, first.WorkID).Scan(&releases); err != nil {
+		t.Fatal(err)
+	}
+	if reclaims != 2 || releases != 2 {
+		t.Fatalf("reclaimed events=%d occupancy released events=%d, want one of each per incarnation", reclaims, releases)
+	}
+	reopenedReclaim := reclaimedEventID(first.WorkID, first.ProjectID, first.OperationID, 1)
+	reopenedRelease := occupancyReleasedEventID(first.WorkID, first.ProjectID, first.OperationID, 1)
+	if reopenedReclaim == legacyReclaim || reopenedRelease == first.WorkID+":"+first.ProjectID+":"+first.OperationID+":worktree-occupancy-released" {
+		t.Fatalf("reopened incarnation identities=%q %q, want distinct from the first incarnation's", reopenedReclaim, reopenedRelease)
+	}
+	var reclaimPayload string
+	if err := s.db.QueryRow(`SELECT payload FROM domain_events WHERE event_id=?`, reopenedReclaim).Scan(&reclaimPayload); err != nil {
+		t.Fatalf("reopened incarnation reclaim event: %v", err)
+	}
+	var reclaimed worktreeReclaimedPayload
+	if err := json.Unmarshal([]byte(reclaimPayload), &reclaimed); err != nil {
+		t.Fatal(err)
+	}
+	if reclaimed.ClaimIncarnation != 1 {
+		t.Fatalf("reopened reclaim payload incarnation=%d, want 1", reclaimed.ClaimIncarnation)
+	}
+	var releasePayload string
+	if err := s.db.QueryRow(`SELECT payload FROM domain_events WHERE event_id=?`, reopenedRelease).Scan(&releasePayload); err != nil {
+		t.Fatalf("reopened incarnation release event: %v", err)
+	}
+	var released worktreeOccupancyReleasedPayload
+	if err := json.Unmarshal([]byte(releasePayload), &released); err != nil {
+		t.Fatal(err)
+	}
+	if released.ClaimIncarnation != 1 || released.OccupantSessionRef != "ses-reopened" {
+		t.Fatalf("reopened release payload=%+v, want incarnation 1 releasing ses-reopened", released)
+	}
+	var afterID, afterPayload, afterOccurredAt string
+	if err := s.db.QueryRow(`SELECT event_id,payload,occurred_at FROM domain_events WHERE event_id=?`, legacyReclaim).Scan(&afterID, &afterPayload, &afterOccurredAt); err != nil {
+		t.Fatal(err)
+	}
+	if afterID != firstID || afterPayload != firstPayload || afterOccurredAt != firstOccurredAt {
+		t.Fatal("the reopen and the later reclaim must not touch the first incarnation's recorded reclaim row")
+	}
+
+	var maxSeq int64
+	if err := s.db.QueryRow(`SELECT max(seq) FROM domain_events`).Scan(&maxSeq); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ReconstructSubjectAt(ctx, s, VersionRef(SubjectWorkItem, first.WorkID), maxSeq, PurposeAudit); err != nil {
+		t.Fatalf("replay of the reopened claim history: %v", err)
+	}
+}
+
 func TestBootstrapExistingWorktreeRefusesBootstrapIdentityOutsideScope(t *testing.T) {
 	t.Parallel()
 	repo := initBootstrapStoreRepo(t)

@@ -4968,6 +4968,30 @@ ALTER TABLE law_subjects ADD COLUMN authority_tier TEXT NOT NULL DEFAULT 'derive
 ALTER TABLE agent_clients ADD COLUMN policy_revision INTEGER NOT NULL DEFAULT 1;
 `,
 	},
+	{
+		// A reclaimed worktree claim row is reused when the bootstrap journal
+		// reopens it, so the reclaim and occupancy-release event identities,
+		// which derive from the claim's op id, would re-derive the first
+		// incarnation's events and fold the later reclaim onto that earlier
+		// history. The incarnation counts reopenings: rows start at the first
+		// incarnation with the legacy identity, and every reopen bumps the
+		// counter so the incarnation's events derive their own identities.
+		// A claim reopened before this column existed already carries one
+		// suffixed work.worktree_created event per reopen (bootstrap.go
+		// finalization), so the backfill counts those events and the next
+		// release or reclaim of that claim derives its own identity.
+		Version:  100,
+		Name:     "worktree_claims_carry_incarnation",
+		Breaking: false,
+		SQL: `
+ALTER TABLE worktree_claims ADD COLUMN incarnation INTEGER NOT NULL DEFAULT 0;
+UPDATE worktree_claims SET incarnation = (
+    SELECT COUNT(*) FROM domain_events
+    WHERE kind = 'work.worktree_created'
+      AND substr(event_id, 1, length(worktree_claims.op_id) + 18) = worktree_claims.op_id || ':worktree-created:'
+);
+`,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any

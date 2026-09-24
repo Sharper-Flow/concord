@@ -84,6 +84,22 @@ issues in Linear. A linked local work item can carry execution and coordination
 state. It is not a second independent authority for the same planning fact.
 A queued or failed creation request is not a confirmed Linear issue.
 
+Issue creation for managed work runs through Concord's capture, typed outbox,
+confirmed issue identity, and explicit adoption of a pre-existing issue.
+Linear exposes no conditional issue update, so Concord writes a generated
+title and description once, at creation. Post-creation updates synchronize
+managed routing fields only; a human-edited Linear body is never overwritten.
+An approved later composition is published as a revision comment on the
+linked issue, and its digest is recorded so a repeated drain publishes no
+duplicate; a comment that cannot be delivered fails the operation and the
+revision stays explicitly unsynchronized. The issue body is the creation-time
+snapshot plus every human edit; the Concord store owns the current composed
+content, and a Linear comment records a revision, never workflow approval.
+An issue adopted from Linear never carried a Concord-authored body, so its
+updates synchronize routing fields only and publish no revision.
+GraphQL issue creation assumes no Linear default template; the composed
+description carries the complete managed content.
+
 For a local-only Product, Concord's local database owns planned work and defects.
 The Product requires no Linear connection, credentials, or API access. A GitHub
 issue is not a prerequisite for a local work item or development session.

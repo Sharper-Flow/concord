@@ -270,15 +270,16 @@ func seedFixtureRepo(t *testing.T, dir, readme, message string) {
 
 // A claim that names a Project outside the envelope's selected Product is a
 // cross-Product mutation: the claimed Project joins the plan scope, so the
-// scope gate evaluates its Product exactly as for every other mutation and
-// refuses it without an authorized cross-Product grant.
+// scope gate evaluates its Product exactly as for every other mutation. The
+// client policy names product-2, so the policy passes and the cross_scope
+// capability gate refuses the mutation before any effect.
 func TestWorktreeClaimCrossScopeGate(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	s, _, _, _, _ := worktreeDispatchFixture(t)
 	baseSHA := seedSecondProjectFixture(t, s)
 	// The client policy names both Products, so the refusal below is the
-	// mutation scope gate and not the client's own Product policy.
+	// cross_scope capability gate and not the client's own Product policy.
 	service, _, crossGrant := newAuthorizedService(t, s, "client-cross", "human-cross", []Capability{"work_transition", "product_read"}, []string{"product-1", "product-2"}, []string{"project-1"}, store.ProjectResolution{ProjectID: "project-1"})
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
 	if err != nil {
@@ -292,8 +293,8 @@ func TestWorktreeClaimCrossScopeGate(t *testing.T) {
 	if response.Outcome != OutcomeError || response.Error == nil || response.Error.Kind != "unauthorized" {
 		t.Fatalf("claim response=%+v, want an unauthorized refusal", response)
 	}
-	if !strings.Contains(response.Error.Message, "product-2") || !strings.Contains(response.Error.Message, "outside grant Product scope") {
-		t.Fatalf("error.message=%q, want the scope gate refusal naming product-2", response.Error.Message)
+	if !strings.Contains(response.Error.Message, "cross_scope") {
+		t.Fatalf("error.message=%q, want the cross_scope capability gate refusal", response.Error.Message)
 	}
 	entries, err := s.WorktreeEntries(ctx, "work-1")
 	if err != nil || len(entries) != 0 {

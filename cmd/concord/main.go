@@ -1438,17 +1438,16 @@ func runLinearOutboxDrain(ctx context.Context, s *store.Store, raw []byte, comma
 			}
 		}
 		var (
-			issue linearclient.Issue
-			derr  error
+			issue    linearclient.Issue
+			revision string
+			derr     error
 		)
 		if op.OpKind == store.LinearOpIssueUpdate {
-			issue, derr = drainUpdate(ctx, s, client, op, payload)
+			issue, revision, derr = drainUpdate(ctx, s, client, op, payload)
 		} else if op.OpKind == store.LinearOpIssueAdopt {
 			issue, derr = drainAdopt(ctx, client, payload, teamID)
 		} else {
-			issue, derr = client.CreateIssue(ctx, linearclient.CreateIssueInput{
-				ID: payload.ClientUUID, TeamID: teamID, ProjectID: payload.ProjectID, Title: payload.Title, Description: payload.Description, LabelIDs: payload.LabelIDs, StatusID: payload.StatusID, Priority: payload.Priority,
-			})
+			issue, derr = drainCreate(ctx, client, payload, teamID)
 		}
 		if derr != nil {
 			class := "permanent"
@@ -1464,12 +1463,18 @@ func runLinearOutboxDrain(ctx context.Context, s *store.Store, raw []byte, comma
 			HumanKey:        issue.Identifier,
 			URL:             issue.URL,
 			RemoteUpdatedAt: issue.UpdatedAt.UTC().Format(time.RFC3339Nano),
-			ContentHash:     linearContentHash(payload.Title, payload.Description),
 		}
-		if op.OpKind == store.LinearOpIssueAdopt {
-			// Adoption records an issue Concord has never authored; no
-			// synchronized content exists to hash yet.
-			identity.ContentHash = ""
+		switch {
+		case op.OpKind == store.LinearOpIssueCreate:
+			// Creation writes the remote title and description, so its
+			// completion records their digest.
+			identity.ContentHash = linearContentHash(payload.Title, payload.Description)
+		case revision != "":
+			// The update published the approved later composition as a
+			// revision comment, so its completion records that digest. A
+			// routing-only update claims no content and leaves the recorded
+			// digest standing.
+			identity.ContentHash = revision
 		}
 		if err := s.CompleteLinearOperation(ctx, op.OperationID, identity); err != nil {
 			class := linearCompletionFailureClass(err)
@@ -1477,7 +1482,11 @@ func runLinearOutboxDrain(ctx context.Context, s *store.Store, raw []byte, comma
 			results = append(results, drained{OperationID: op.OperationID, Outcome: class, Detail: err.Error()})
 			continue
 		}
-		results = append(results, drained{OperationID: op.OperationID, Outcome: "done", Identifier: issue.Identifier})
+		detail := ""
+		if revision != "" {
+			detail = "published managed revision comment " + revision
+		}
+		results = append(results, drained{OperationID: op.OperationID, Outcome: "done", Identifier: issue.Identifier, Detail: detail})
 	}
 	linkRefreshes := refreshLinearLinkIdentities(ctx, s, client, request.ProductID)
 	return writeJSON(out, map[string]any{"ok": true, "drained": len(results), "operations": results, "link_refreshes": linkRefreshes}, errOut)
@@ -1586,20 +1595,127 @@ type linearDrainPayload struct {
 }
 
 // drainUpdate resolves the linked remote identity and executes issueUpdate.
-func drainUpdate(ctx context.Context, s *store.Store, client *linearclient.Client, op store.ClaimedLinearOperation, payload linearDrainPayload) (linearclient.Issue, error) {
+// Linear's issueUpdate carries no conditional-write guard, so a post-create
+// content write can erase a human edit that lands between a remote read and
+// the write. Updates therefore synchronize the managed routing fields only
+// (project, state, labels) and never send the generated title or description
+// to the issue body. When the composed content diverges from the digest of
+// what Concord last published, the drain posts the approved revision on the
+// linked issue as a comment — durable Linear planning context that replaces
+// no one's text — and returns its digest so the completion records it. A
+// repeated drain finds the digests equal and publishes nothing. The comment
+// id is the operation's client UUID. Linear stores that UUID as the comment's
+// own id and refuses a repeated insert instead of upserting. A retry after
+// a lost response meets a duplicate-entity conflict: the drain resolves it by
+// UUID, verifies it sits on the linked issue, and converges instead of
+// duplicating or failing an effect that is already visible. An empty recorded
+// digest marks an issue whose body Concord never authored — explicit
+// adoption — so there is no Concord-published content to revise and the
+// update stays routing-only. A failed comment fails the operation, leaving
+// the revision explicitly unsynchronized rather than reporting a stale
+// issue as done.
+func drainUpdate(ctx context.Context, s *store.Store, client *linearclient.Client, op store.ClaimedLinearOperation, payload linearDrainPayload) (linearclient.Issue, string, error) {
 	link, err := s.ReadLinearLink(ctx, op.WorkID)
 	if err != nil {
-		return linearclient.Issue{}, err
+		return linearclient.Issue{}, "", err
 	}
 	if link.RemoteIssueUUID == "" || link.RemoteIssueUUID == payload.ClientUUID {
-		return linearclient.Issue{}, fmt.Errorf("link has no confirmed remote issue to update")
+		return linearclient.Issue{}, "", fmt.Errorf("link has no confirmed remote issue to update")
 	}
 	input := linearclient.UpdateIssueInput{ProjectID: payload.ProjectID, StatusID: payload.StatusID, AddedLabelIDs: payload.LabelIDs}
-	if link.ContentHash != linearContentHash(payload.Title, payload.Description) {
-		input.Title = payload.Title
-		input.Description = payload.Description
+	issue, err := client.UpdateIssue(ctx, link.RemoteIssueUUID, input)
+	if err != nil {
+		return linearclient.Issue{}, "", err
 	}
-	return client.UpdateIssue(ctx, link.RemoteIssueUUID, input)
+	digest := linearContentHash(payload.Title, payload.Description)
+	if link.ContentHash == "" || link.ContentHash == digest {
+		return issue, "", nil
+	}
+	comment := linearclient.CommentCreateInput{
+		ID:      payload.ClientUUID,
+		IssueID: link.RemoteIssueUUID,
+		Body:    linearRevisionComment(payload.Title, payload.Description, digest),
+	}
+	if err := client.CreateComment(ctx, comment); err != nil {
+		// Linear refuses a repeated insert on the comment's UUID instead of
+		// upserting, so a conflict names a comment a previous attempt of this
+		// operation already stored. Converge only after the read-back proves
+		// the stored comment is this operation's: its id answers this
+		// operation's UUID, it sits on the linked issue, and its stored body
+		// matches the exact revision. Any other answer is a
+		// divergence the operation must not claim as its own publication.
+		if !linearclient.IsDuplicateEntity(err) {
+			return linearclient.Issue{}, "", fmt.Errorf("publish managed revision comment: %w", err)
+		}
+		stored, cerr := client.GetComment(ctx, payload.ClientUUID)
+		if cerr != nil {
+			// The conflict proved the comment exists, so the lookup failure
+			// decides retryability, as in drainCreate.
+			return linearclient.Issue{}, "", fmt.Errorf("publish managed revision comment: resolve stored comment: %w", cerr)
+		}
+		if stored.ID != payload.ClientUUID {
+			return linearclient.Issue{}, "", fmt.Errorf("publish managed revision comment: lookup for %s returned comment id %s", payload.ClientUUID, stored.ID)
+		}
+		if stored.IssueID != link.RemoteIssueUUID {
+			return linearclient.Issue{}, "", fmt.Errorf("publish managed revision comment: comment %s sits on issue %s, not the linked issue", stored.ID, stored.IssueID)
+		}
+		if stored.Body != comment.Body {
+			return linearclient.Issue{}, "", fmt.Errorf("publish managed revision comment: stored body differs for comment %s; revision digest %s is not verified", stored.ID, digest)
+		}
+	}
+	return issue, digest, nil
+}
+
+// drainCreate executes issueCreate and converges a repeated create. Linear
+// stores the sent client UUID as the issue's own UUID and refuses a second
+// insert instead of upserting, so a duplicate-entity conflict means a
+// previous attempt of this operation already created the issue — the
+// lost-response case the durable retry exists for. Resolution reads the
+// issue by the operation's own UUID: any other identifier would adopt an
+// issue this operation did not create.
+func drainCreate(ctx context.Context, client *linearclient.Client, payload linearDrainPayload, teamID string) (linearclient.Issue, error) {
+	issue, err := client.CreateIssue(ctx, linearclient.CreateIssueInput{
+		ID: payload.ClientUUID, TeamID: teamID, ProjectID: payload.ProjectID, Title: payload.Title, Description: payload.Description, LabelIDs: payload.LabelIDs, StatusID: payload.StatusID, Priority: payload.Priority,
+	})
+	if err == nil || !linearclient.IsDuplicateEntity(err) {
+		return issue, err
+	}
+	resolved, rerr := client.GetIssue(ctx, payload.ClientUUID)
+	if rerr != nil {
+		// The issue exists remotely (the conflict proved it) but cannot be
+		// resolved right now. Returning the resolution error preserves its
+		// retryability: the retry re-creates, meets the same conflict, and
+		// resolves again.
+		return linearclient.Issue{}, rerr
+	}
+	if resolved.Issue.ID != payload.ClientUUID {
+		return linearclient.Issue{}, fmt.Errorf("resolved issue %s does not match client UUID %s", resolved.Issue.ID, payload.ClientUUID)
+	}
+	return resolved.Issue, nil
+}
+
+// linearRevisionDigestMarker renders the exact digest line a revision
+// comment carries. The convergence check compares the entire stored body
+// against the rendered comment rather than trusting this marker alone.
+func linearRevisionDigestMarker(digest string) string {
+	return "Revision digest: `" + digest + "`"
+}
+
+// linearRevisionComment renders the durable Linear planning context for an
+// approved later composition. The issue body keeps the creation-time
+// composition and every human edit; this comment carries the current managed
+// title and description, and its trailing digest names the exact composition
+// so a reader can match it against the drain result and the stored link.
+func linearRevisionComment(title, description, digest string) string {
+	var body strings.Builder
+	body.WriteString("## Managed revision\n\n")
+	body.WriteString("Concord composed new managed planning content for this issue. The issue body stays as its human editors wrote it, so the approved revision is published here instead.\n\n")
+	body.WriteString("**Managed title:** " + title + "\n")
+	if trimmed := strings.TrimSpace(description); trimmed != "" {
+		body.WriteString("\n" + trimmed + "\n")
+	}
+	body.WriteString("\n" + linearRevisionDigestMarker(digest) + "\n")
+	return body.String()
 }
 
 // drainAdopt resolves the named existing issue and verifies it belongs to the

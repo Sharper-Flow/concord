@@ -401,7 +401,7 @@ func DispatchWithRegistry(ctx context.Context, s *store.Store, authority *Servic
 			return failureEnvelope(base, err), nil
 		}
 	}
-	if err := validateRequestedScope(ctx, s, env, grant, request); err != nil {
+	if err := validateRequestedScope(ctx, s, env, grant, request, op.Kind); err != nil {
 		return failureEnvelope(base, err), nil
 	}
 	r := runtime{Store: s, Authority: authority, Registry: registry, Envelope: env, Tool: request.Tool, Operation: request.Operation, Budget: budget, Reader: grant}
@@ -489,7 +489,11 @@ func (r runtime) boundedPreview(limit int) int {
 	return limit
 }
 
-func validateRequestedScope(ctx context.Context, s *store.Store, env CallEnvelope, grant Authority, request InvokeRequest) error {
+// validateRequestedScope checks every Product-scoped reference the request
+// names against the grant before dispatch. A Product the policy authorizes is
+// readable across the ambient selection (TS5 §2.3); spanning outside the
+// selected Product by mutation keeps the cross_scope capability gate.
+func validateRequestedScope(ctx context.Context, s *store.Store, env CallEnvelope, grant Authority, request InvokeRequest, kind OperationKind) error {
 	var fields map[string]json.RawMessage
 	if err := json.Unmarshal(request.Input, &fields); err != nil {
 		return err
@@ -526,7 +530,7 @@ func validateRequestedScope(ctx context.Context, s *store.Store, env CallEnvelop
 			if !scopeIntersects(products, grant.ProductScope) {
 				return newRuntimeFailure("unauthorized", "work reference is outside authorized Product scope", "contact_operator", false)
 			}
-			if env.SelectedProductID != "" && !contains(products, env.SelectedProductID) && !containsCapability(grant.Capabilities, Capability("cross_scope")) {
+			if kind != OperationRead && env.SelectedProductID != "" && !contains(products, env.SelectedProductID) && !containsCapability(grant.Capabilities, Capability("cross_scope")) {
 				return newRuntimeFailure("unauthorized", "cross-Product mutation requires cross_scope capability", "contact_operator", false)
 			}
 		}
@@ -567,7 +571,7 @@ func validateRequestedScope(ctx context.Context, s *store.Store, env CallEnvelop
 				if !scopeIntersects(products, grant.ProductScope) {
 					return newRuntimeFailure("unauthorized", "Project is outside authorized Product scope", "contact_operator", false)
 				}
-				if env.SelectedProductID != "" && !contains(products, env.SelectedProductID) && !containsCapability(grant.Capabilities, Capability("cross_scope")) {
+				if kind != OperationRead && env.SelectedProductID != "" && !contains(products, env.SelectedProductID) && !containsCapability(grant.Capabilities, Capability("cross_scope")) {
 					return newRuntimeFailure("unauthorized", "cross-Product mutation requires cross_scope capability", "contact_operator", false)
 				}
 			}

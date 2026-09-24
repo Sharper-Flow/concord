@@ -127,7 +127,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:788e6facf37d91c7afba42d297b8273416fc1d80fc245d5a69036447b1b4882a",
+  "sha256": "sha256:7b20f9fbb444b88d53ca7e0742d15d43bc95bddd5d9d5cda1ba6c090d061bd48",
   "status": "accepted",
   "summary": "Defines Product-scoped planning, foreign-session routing by recorded mode, explicit Concord workflow participation, authorized outside-work defect repair, truthful activation and cutover, and separate repository and host authority.",
   "tags": [

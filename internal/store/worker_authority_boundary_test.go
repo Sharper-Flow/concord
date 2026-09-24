@@ -197,6 +197,73 @@ func TestAcceptWorkerResultSucceedsWhenLaneIsExecutingActor(t *testing.T) {
 	}
 }
 
+// The owner that accepted a lane's result drives the step the acceptance
+// advanced to. An architecture spike's POC lane hands decision_record back to
+// the owner, and record_decision is a checkpoint-event action, so the owner
+// must be able to record it once the lane attempt is disposed.
+func TestOwnerRecordsDecisionAfterAcceptingPOCLane(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	workID := "authority-poc-decision"
+	s := openTemp(t)
+	seedWork(t, s, workID)
+	seedWorkflowLaw(t, s)
+	owner := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/owner", SessionRef: "session/" + workID, ActorClass: ActorAgent}
+	ownerRef, err := WorkflowActorRef(owner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	definition, ok := BuiltinWorkflowRegistry().Lookup("workflow.architecture_spike", 7)
+	if !ok {
+		t.Fatal("workflow.architecture_spike v7 is not registered")
+	}
+	lane := BuiltinLaneDefinitions()[0]
+	attemptID := "attempt:" + workID
+	laneActor := WorkflowActor{PrincipalRef: "principal:operator", ClientRef: "client:concord", AgentRef: "agent/lane:" + lane.ID, SessionRef: "session/" + attemptID, ActorClass: ActorAgent}
+	laneRef, err := WorkflowActorRef(laneActor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{
+		workflowEvent("poc-owner-actor", WorkflowActorRecorded, workID, map[string]any{"work_id": workID, "expected_version": 2, "resulting_version": 3, "actor_ref": ownerRef, "principal_ref": owner.PrincipalRef, "client_ref": owner.ClientRef, "agent_ref": owner.AgentRef, "session_ref": owner.SessionRef, "actor_class": "agent"}),
+		workflowEvent("poc-definition", WorkflowDefinitionSelected, workID, map[string]any{"work_id": workID, "expected_version": 3, "resulting_version": 4, "ref": definition.Definition.Ref, "version": definition.Definition.Version, "digest": definition.Digest, "work_kind": string(definition.Definition.WorkKind)}),
+	}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 2}}); err != nil {
+		t.Fatal(err)
+	}
+	setWorkflowStepForOperatorVerdictTest(t, s, workID, "poc_optional")
+	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{
+		workflowEventWithActor("poc-start", WorkflowActionStarted, workID, ownerRef, map[string]any{"work_id": workID, "expected_version": 4, "resulting_version": 5, "step_id": "poc_optional", "action_id": "start_poc", "attempt_epoch": 1, "accepted_inputs_digest": "sha256:" + strings.Repeat("a", 64), "idempotency_identity": "poc:start", "actor_ref": ownerRef, "execution_model": preferredModelForLane(lane)}),
+		workflowEvent("poc-lane-actor", WorkflowActorRecorded, workID, map[string]any{"work_id": workID, "expected_version": 5, "resulting_version": 6, "actor_ref": laneRef, "principal_ref": laneActor.PrincipalRef, "client_ref": laneActor.ClientRef, "agent_ref": laneActor.AgentRef, "session_ref": laneActor.SessionRef, "actor_class": "agent"}),
+	}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 4}}); err != nil {
+		t.Fatal(err)
+	}
+	dispatch := Event{EventID: "poc-dispatch", Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:host", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: 4, Payload: mustJSONValue(map[string]any{
+		"attempt_id": attemptID, "lane_id": lane.ID, "lane_version": lane.Version, "lane_digest": lane.Digest,
+		"capability_class": lane.CapabilityClass, "packet_schema_version": WorkerPacketSchemaVersion, "report_schema_version": WorkerReportSchemaVersion,
+		"packet_digest": "sha256:" + strings.Repeat("b", 64), "readback_model": preferredModelForLane(lane), "lane_actor_ref": laneRef,
+	})}
+	completed := Event{EventID: "poc-completed", Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:host", OccurredAt: time.Unix(3, 0).UTC(), PayloadVersion: 1, Payload: mustJSONValue(WorkerCompletedPayload{AttemptID: attemptID, ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion})}
+	if err := ApplyOperation(ctx, s, Operation{Events: []Event{dispatch, completed}}); err != nil {
+		t.Fatalf("recording the POC lane attempt: %v", err)
+	}
+	if err := runVerdictActionAs(t, s, workID, "accept_worker_result", mustJSONValue(map[string]any{"attempt_id": attemptID, "attempt_epoch": 1}), 0, owner); err != nil {
+		t.Fatalf("owner accepting the POC lane result was refused: %v", err)
+	}
+	if got := currentStep(t, s, workID); got != "decision_record" {
+		t.Fatalf("accepted POC lane result advanced to %q, want decision_record", got)
+	}
+	decision := mustJSONValue(map[string]any{
+		"question": "Which route?", "options_considered": []string{"route-a", "route-b"}, "decision": "accepted_decision",
+		"rationale": "The POC proved route-a.", "consequences": []string{"route-a ships"}, "inputs": []string{"poc-report"}, "poc_findings": "route-a passed every check",
+	})
+	if err := runVerdictActionAs(t, s, workID, "record_decision", decision, 0, owner); err != nil {
+		t.Fatalf("owner recording the decision after accepting the POC lane was refused: %v", err)
+	}
+	if got := currentStep(t, s, workID); got != "review" {
+		t.Fatalf("recorded decision advanced to %q, want review", got)
+	}
+}
+
 func TestWorkerCannotRecordItsOwnVerdict(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

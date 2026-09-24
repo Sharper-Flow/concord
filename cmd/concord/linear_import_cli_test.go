@@ -38,7 +38,7 @@ func TestLinearInitiativeImportCLI(t *testing.T) {
 	enableLinearProduct(t, dbPath, "import-product")
 
 	var sawAuth bool
-	server := linearGraphQLStub(t, `{"id":"proj-uuid-1","name":"Example initiative","description":"Imported Linear Project","content":"","url":"https://linear.app/example/project/proj-uuid-1","updatedAt":"2026-09-23T00:00:00Z"}`, &sawAuth)
+	server := linearGraphQLStub(t, `{"id":"proj-uuid-1","name":"Example initiative","description":"Imported Linear Project","content":"The imported narrative.","url":"https://linear.app/example/project/proj-uuid-1","updatedAt":"2026-09-23T00:00:00Z"}`, &sawAuth)
 	defer server.Close()
 	t.Setenv(linearclient.EnvEndpoint, server.URL)
 
@@ -89,6 +89,15 @@ func TestLinearInitiativeImportCLI(t *testing.T) {
 	}
 	if kind != "initiative" || externalRef != "linear:proj-uuid-1" {
 		t.Fatalf("imported = %s/%s", kind, externalRef)
+	}
+	// The Linear Project's content lands as the Initiative narrative
+	// (CD-0171 d3), so a later project_update sends it back.
+	var narrative string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT narrative FROM work_items WHERE id=?`, imported.Initiative.WorkID).Scan(&narrative); err != nil {
+		t.Fatalf("imported work item: %v", err)
+	}
+	if narrative != "The imported narrative." {
+		t.Fatalf("imported narrative = %q, want the Linear Project content (CD-0171 d3)", narrative)
 	}
 	// An imported Initiative keeps the Project it already has: the capture
 	// path must not queue a project_create for it.

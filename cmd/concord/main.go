@@ -1640,11 +1640,9 @@ type linearDrainPayload struct {
 	// Linear Project's markdown content field (CD-0171 d3).
 	Content string `json:"content,omitempty"`
 	TeamID  string `json:"team_id"`
-	// ProjectID is the owning Initiative's Linear Project (CD-0171 D2, D6) as
-	// the enqueue read it; the create and update drains resolve the link's
-	// state at send time instead, so this snapshot stays advisory only. It
-	// never carries a repository mapping.
-	ProjectID         string   `json:"project_id,omitempty"`
+	// The payload never carries the issue's Linear Project: the create and
+	// update drains resolve the owning Initiative's confirmed Project at
+	// send time (CD-0171 D2, D6), so no enqueue-time snapshot can go stale.
 	ConnectionVersion int64    `json:"connection_version"`
 	Lifecycle         string   `json:"lifecycle,omitempty"`
 	StatusID          string   `json:"status_id,omitempty"`
@@ -1800,7 +1798,7 @@ func runLinearInitiativeImport(ctx context.Context, s *store.Store, raw []byte, 
 		writeOperatorDiagnostic(errOut, command, err.Error())
 		return 1
 	}
-	imported, err := s.ImportLinearInitiative(ctx, request.ProductID, project.ID, project.Name, project.Description, project.URL)
+	imported, err := s.ImportLinearInitiative(ctx, request.ProductID, project.ID, project.Name, project.Description, project.Content, project.URL)
 	if err != nil {
 		writeOperatorDiagnostic(errOut, command, err.Error())
 		return 1

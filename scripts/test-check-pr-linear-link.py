@@ -51,6 +51,58 @@ def test_closing_phrase_is_rejected_even_with_related_line() -> None:
     assert "CON-999" in detail, detail
 
 
+# Linear's closing magic words, verbatim from https://linear.app/docs/github.
+LINEAR_CLOSING_WORDS = [
+    "close", "closes", "closed", "closing",
+    "fix", "fixes", "fixed", "fixing",
+    "resolve", "resolves", "resolved", "resolving",
+    "complete", "completes", "completed", "completing",
+    "implement", "implements", "implemented", "implementing",
+    "linear issue",
+]
+
+
+def test_every_linear_closing_word_is_rejected_mid_line() -> None:
+    for word in LINEAR_CLOSING_WORDS:
+        body = f"Related to CON-427\n\nThe merge {word} CON-999 outright.\n"
+        ok, detail = guard.check_pr_link("work/work-abc", body)
+        assert not ok, f"{word!r} mid-line before the key must fail the check: {detail}"
+        assert "CON-999" in detail, (word, detail)
+
+
+def test_every_linear_closing_word_is_rejected_at_line_start() -> None:
+    for word in LINEAR_CLOSING_WORDS:
+        body = f"Related to CON-427\n\n{word.capitalize()}: CON-999\n"
+        ok, detail = guard.check_pr_link("work/work-abc", body)
+        assert not ok, f"{word!r} at line start must fail the check: {detail}"
+        assert "CON-999" in detail, (word, detail)
+
+
+def test_closing_detection_is_case_insensitive() -> None:
+    for word in ("FIXES", "Linear Issue", "Resolving"):
+        ok, detail = guard.check_pr_link("work/work-abc", f"{word} CON-999\n")
+        assert not ok, f"{word!r} must fail the check: {detail}"
+        assert "CON-999" in detail, (word, detail)
+
+
+def test_a_key_before_the_word_is_not_a_closing_phrase() -> None:
+    body = "Related to CON-427\n\nCON-999 was closed last quarter by a different change.\n"
+    ok, detail = guard.check_pr_link("work/work-abc", body)
+    assert ok, "the word after the key is prose, not a closing phrase"
+
+
+def test_a_closing_word_without_a_key_after_it_is_not_a_closing_phrase() -> None:
+    body = "Related to CON-427\n\nThis change fixes the flaky drain test suite.\n"
+    ok, detail = guard.check_pr_link("work/work-abc", body)
+    assert ok, "a closing word with no issue key after it must stay accepted"
+
+
+def test_a_word_that_merely_contains_a_closing_word_is_not_a_closing_phrase() -> None:
+    body = "Related to CON-427\n\nThe fixer CON-999 ships in a follow-up.\n"
+    ok, detail = guard.check_pr_link("work/work-abc", body)
+    assert ok, "fixer is not a closing word"
+
+
 def test_non_work_branch_passes_without_a_body() -> None:
     ok, detail = guard.check_pr_link("feature/thing", "")
     assert ok, detail

@@ -35,11 +35,18 @@ RELATED_LINE = re.compile(r"^[ \t]*Related to[ \t]+([A-Z][A-Z0-9]*-[0-9]+)[ \t]*
 
 # Closing phrases on an issue key would let the merge close or move the issue.
 # D8 forbids them outright, so their presence fails the check even when a
-# Related-to line also exists.
+# Related-to line also exists. The words are Linear's closing magic words,
+# verbatim from https://linear.app/docs/github. Linear parses a closing phrase
+# wherever the word sits on a line, so the word may appear anywhere as long as
+# the issue key directly follows it; a key before the word, or a word with no
+# key after it, is prose and stays accepted.
 CLOSING_LINE = re.compile(
-    r"^[ \t]*(?:fix|fixes|fixed|close|closes|closed|resolve|resolves|resolved)"
-    r"[ \t]*:?[ \t]+[A-Z][A-Z0-9]*-[0-9]+[ \t]*$",
-    re.IGNORECASE | re.MULTILINE,
+    r"\b(?:close|closes|closed|closing|fix|fixes|fixed|fixing"
+    r"|resolve|resolves|resolved|resolving"
+    r"|complete|completes|completed|completing"
+    r"|implement|implements|implemented|implementing"
+    r"|linear[ \t]+issue)\b[ \t]*:?[ \t]+([A-Z][A-Z0-9]*-[0-9]+)",
+    re.IGNORECASE,
 )
 
 WORK_BRANCH = re.compile(r"^work/work-")

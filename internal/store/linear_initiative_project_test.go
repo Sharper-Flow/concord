@@ -109,10 +109,14 @@ func TestLinearIssueSyncsRepositoryLabelInsteadOfProject(t *testing.T) {
 	if err != nil {
 		t.Fatalf("EnqueueLinearIssueForWork() error = %v", err)
 	}
-	payload := decodeLinearPayload(t, s, op.OperationID)
-	if payload.ProjectID != "" {
-		t.Fatalf("payload project id = %q, want empty: no mapping names a repository Project", payload.ProjectID)
+	var rawPayload string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT payload FROM linear_outbox WHERE operation_id=?`, op.OperationID).Scan(&rawPayload); err != nil {
+		t.Fatal(err)
 	}
+	if strings.Contains(rawPayload, "project_id") {
+		t.Fatalf("payload = %s, want no project_id field: the Project resolves at drain time", rawPayload)
+	}
+	payload := decodeLinearPayload(t, s, op.OperationID)
 	sort.Strings(payload.LabelIDs)
 	if len(payload.LabelIDs) != 2 || payload.LabelIDs[0] != "label-repo" || payload.LabelIDs[1] != "label-task" {
 		t.Fatalf("payload labels = %v, want the repository and kind labels", payload.LabelIDs)
@@ -225,23 +229,19 @@ func TestLinearIssueProjectFollowsTheEarliestInitiative(t *testing.T) {
 		t.Fatalf("EnqueueLinearIssueForWork() error = %v", err)
 	}
 	payload := decodeLinearPayload(t, s, op.OperationID)
-	if payload.ProjectID != "" {
-		t.Fatalf("payload project id = %q, want empty before the owning Initiative's Project is created", payload.ProjectID)
-	}
 	if !strings.Contains(payload.Description, "## Initiatives") || !strings.Contains(payload.Description, "Owned by `owner-first`") || !strings.Contains(payload.Description, "Also in Second initiative (`owner-second`).") {
 		t.Fatalf("payload description = %q, want the owner and a title reference to the other Initiative", payload.Description)
 	}
 
 	// Once the earliest-joined Initiative's Project exists, its remote uuid
-	// sets the Project field.
+	// is what the drains resolve for the issue's Project field at send time.
 	seedLinearProjectLink(t, s, "owner-first", "remote-project-first")
-	update, err := s.EnqueueLinearIssueForWork(ctx, "owner-work", LinearOpIssueUpdate)
+	resolved, err := s.ResolveLinearProjectIDForWork(ctx, "owner-work")
 	if err != nil {
-		t.Fatalf("EnqueueLinearIssueForWork(update) error = %v", err)
+		t.Fatalf("ResolveLinearProjectIDForWork() error = %v", err)
 	}
-	updated := decodeLinearPayload(t, s, update.OperationID)
-	if updated.ProjectID != "remote-project-first" {
-		t.Fatalf("update project id = %q, want remote-project-first from the earliest-joined Initiative", updated.ProjectID)
+	if resolved != "remote-project-first" {
+		t.Fatalf("resolved project id = %q, want remote-project-first from the earliest-joined Initiative", resolved)
 	}
 }
 
@@ -259,8 +259,15 @@ func TestLinearIssueOutsideInitiativeHasNoProject(t *testing.T) {
 		t.Fatalf("EnqueueLinearIssueForWork() error = %v", err)
 	}
 	payload := decodeLinearPayload(t, s, op.OperationID)
-	if payload.ProjectID != "" || strings.Contains(payload.Description, "## Initiatives") {
-		t.Fatalf("payload = %+v / %q, want no Project and no Initiatives section (CD-0171 D4)", payload.ProjectID, payload.Description)
+	if strings.Contains(payload.Description, "## Initiatives") {
+		t.Fatalf("payload description = %q, want no Initiatives section (CD-0171 D4)", payload.Description)
+	}
+	resolved, err := s.ResolveLinearProjectIDForWork(ctx, "lone-work")
+	if err != nil {
+		t.Fatalf("ResolveLinearProjectIDForWork() error = %v", err)
+	}
+	if resolved != "" {
+		t.Fatalf("resolved project id = %q, want empty for a work item outside every Initiative (CD-0171 D4)", resolved)
 	}
 }
 
@@ -552,8 +559,8 @@ func TestCompleteLinearIssueOperationClosesTheProjectRace(t *testing.T) {
 			t.Fatalf("CompleteLinearIssueOperation() error = %v", err)
 		}
 		payloads := queuedUpdates(t, s)
-		if len(payloads) != 1 || payloads[0].ProjectID != "remote-project-race" {
-			t.Fatalf("converging updates = %+v, want exactly one carrying remote-project-race", payloads)
+		if len(payloads) != 1 {
+			t.Fatalf("converging updates = %+v, want exactly one: the Project resolves at the update's send time", payloads)
 		}
 	})
 
@@ -589,8 +596,8 @@ func TestCompleteLinearIssueOperationClosesTheProjectRace(t *testing.T) {
 		if len(refreshed) != 1 {
 			t.Fatalf("entry refreshes = %d, want 1", len(refreshed))
 		}
-		if payloads := queuedUpdates(t, s); len(payloads) != 1 || payloads[0].ProjectID != "remote-project-race" {
-			t.Fatalf("converging updates = %+v, want exactly one carrying remote-project-race", payloads)
+		if payloads := queuedUpdates(t, s); len(payloads) != 1 {
+			t.Fatalf("converging updates = %+v, want exactly one: the Project resolves at the update's send time", payloads)
 		}
 	})
 
@@ -642,6 +649,118 @@ func TestCompleteLinearIssueOperationClosesTheProjectRace(t *testing.T) {
 			t.Fatal("a work item outside every Initiative queued a converging update")
 		}
 		rows.Close()
+	})
+}
+
+// CD-0171 review correction: an entry change between the issue enqueue and
+// its drain cannot refresh the still-unpublished link, so the drain sends the
+// stale snapshot. The completion re-derives the full desired state — Project,
+// labels, description — and queues exactly one converging update.
+func TestCompleteLinearIssueOperationConvergesAnEntryChangeAfterEnqueue(t *testing.T) {
+	queuedConvergingUpdates := func(t *testing.T, s *Store, workID string) []linearPayload {
+		t.Helper()
+		rows, err := s.DatabaseForTesting().Query(`SELECT payload FROM linear_outbox WHERE work_id=? AND op_kind=? AND state=? ORDER BY rowid`, workID, LinearOpIssueUpdate, LinearOutboxQueued)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer rows.Close()
+		var payloads []linearPayload
+		for rows.Next() {
+			var raw string
+			if err := rows.Scan(&raw); err != nil {
+				t.Fatal(err)
+			}
+			var payload linearPayload
+			if err := json.Unmarshal([]byte(raw), &payload); err != nil {
+				t.Fatal(err)
+			}
+			payloads = append(payloads, payload)
+		}
+		if err := rows.Err(); err != nil {
+			t.Fatal(err)
+		}
+		return payloads
+	}
+
+	t.Run("the optional flag flips after enqueue", func(t *testing.T) {
+		t.Parallel()
+		s := openTemp(t)
+		ctx := context.Background()
+		setupLinearProduct(t, s, "conv-product")
+		setupLinearLabelConnection(t, s, "conv-product", map[string]string{
+			"task": "label-task", "optional": "label-optional", "project:conv-product-project": "label-conv-repo",
+		})
+		enableLinearPlanning(t, s, "conv-product", 2)
+		seedLinearWorkOfKind(t, s, "conv-initiative", "conv-product-project", "initiative", "Convergence initiative", "Convergence value")
+		seedLinearWorkItem(t, s, "conv-entry", "conv-product-project", "Conv title", "Conv value")
+		seedLinearInitiativeEntry(t, s, "conv-initiative", "conv-entry", true)
+
+		op, err := s.EnqueueLinearIssueForWork(ctx, "conv-entry", LinearOpIssueCreate)
+		if err != nil {
+			t.Fatalf("EnqueueLinearIssueForWork() error = %v", err)
+		}
+		if _, err := s.ClaimLinearOperations(context.Background(), 25); err != nil {
+			t.Fatal(err)
+		}
+		// The entry turns optional while the create is in flight: the
+		// entry-change refresh skips the unpublished link, so the completion
+		// is the only writer that can still converge the labels.
+		if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE initiative_entries SET required=0 WHERE initiative_work_id='conv-initiative' AND child_work_id='conv-entry'; DELETE FROM fold_guard`); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.CompleteLinearIssueOperation(ctx, op.OperationID, LinearRemoteIdentity{RemoteUUID: "conv-issue-remote", HumanKey: "CV-1"}, ""); err != nil {
+			t.Fatalf("CompleteLinearIssueOperation() error = %v", err)
+		}
+		payloads := queuedConvergingUpdates(t, s, "conv-entry")
+		if len(payloads) != 1 {
+			t.Fatalf("converging updates = %d, want exactly one", len(payloads))
+		}
+		hasOptional := false
+		for _, labelID := range payloads[0].LabelIDs {
+			if labelID == "label-optional" {
+				hasOptional = true
+			}
+		}
+		if !hasOptional {
+			t.Fatalf("converging labels = %v, want the optional label (CD-0171 D5)", payloads[0].LabelIDs)
+		}
+	})
+
+	t.Run("a second Initiative joins after enqueue", func(t *testing.T) {
+		t.Parallel()
+		s := openTemp(t)
+		ctx := context.Background()
+		setupLinearProduct(t, s, "conv2-product")
+		setupLinearLabelConnection(t, s, "conv2-product", map[string]string{
+			"task": "label-task", "project:conv2-product-project": "label-conv-repo",
+		})
+		enableLinearPlanning(t, s, "conv2-product", 2)
+		seedLinearWorkOfKind(t, s, "conv2-initiative", "conv2-product-project", "initiative", "First initiative", "First value")
+		seedLinearWorkOfKind(t, s, "conv2-second", "conv2-product-project", "initiative", "Second initiative", "Second value")
+		seedLinearWorkItem(t, s, "conv2-entry", "conv2-product-project", "Shared title", "Shared value")
+		seedLinearInitiativeEntry(t, s, "conv2-initiative", "conv2-entry", true)
+
+		op, err := s.EnqueueLinearIssueForWork(ctx, "conv2-entry", LinearOpIssueCreate)
+		if err != nil {
+			t.Fatalf("EnqueueLinearIssueForWork() error = %v", err)
+		}
+		if _, err := s.ClaimLinearOperations(context.Background(), 25); err != nil {
+			t.Fatal(err)
+		}
+		// The second Initiative joins while the create is in flight: the
+		// description the drain sent names no second Initiative, so the
+		// completion queues the converging update that mentions it.
+		seedLinearInitiativeEntry(t, s, "conv2-second", "conv2-entry", true)
+		if err := s.CompleteLinearIssueOperation(ctx, op.OperationID, LinearRemoteIdentity{RemoteUUID: "conv2-issue-remote", HumanKey: "C2-1"}, ""); err != nil {
+			t.Fatalf("CompleteLinearIssueOperation() error = %v", err)
+		}
+		payloads := queuedConvergingUpdates(t, s, "conv2-entry")
+		if len(payloads) != 1 {
+			t.Fatalf("converging updates = %d, want exactly one", len(payloads))
+		}
+		if !strings.Contains(payloads[0].Description, "Also in Second initiative (`conv2-second`)") {
+			t.Fatalf("converging description = %q, want the second Initiative mention (CD-0171 D6)", payloads[0].Description)
+		}
 	})
 }
 
@@ -825,9 +944,12 @@ func TestProjectCreateCompletionRefreshesEntryIssues(t *testing.T) {
 	if len(refreshed) != 1 || refreshed[0].WorkID != "refresh-entry" || refreshed[0].OpKind != LinearOpIssueUpdate {
 		t.Fatalf("refresh = %+v, want one update for the confirmed entry", refreshed)
 	}
-	payload := decodeLinearPayload(t, s, refreshed[0].OperationID)
-	if payload.ProjectID != "" {
-		t.Fatalf("entry update project id = %q, want empty before the Initiative's project_create completes", payload.ProjectID)
+	var rawRefresh string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT payload FROM linear_outbox WHERE operation_id=?`, refreshed[0].OperationID).Scan(&rawRefresh); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(rawRefresh, "project_id") {
+		t.Fatalf("refresh payload = %s, want no project_id field: the update resolves the Project at send time", rawRefresh)
 	}
 }
 

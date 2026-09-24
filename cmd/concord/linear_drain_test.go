@@ -874,16 +874,17 @@ func TestLinearDrainResolvesProjectAtIssueCreateDrainTime(t *testing.T) {
 			}
 			// The issue drained before the Project existed, so the create body
 			// carries no Project; the completion refresh queues the update
-			// that moves the confirmed entry in.
+			// that moves the confirmed entry in. The update payload carries no
+			// Project: its drain resolves the field at send time below.
 			if len(issueCreateBodies) != 1 || strings.Contains(issueCreateBodies[0], "projectId") {
 				t.Fatalf("issueCreate body = %q, want no Project before the Initiative's Project exists", issueCreateBodies)
 			}
-			var refreshPayload string
-			if err := s.DatabaseForTesting().QueryRow(`SELECT payload FROM linear_outbox WHERE work_id='order-entry' AND op_kind=? AND state=?`, store.LinearOpIssueUpdate, store.LinearOutboxQueued).Scan(&refreshPayload); err != nil {
-				t.Fatalf("the project completion queued no entry refresh: %v", err)
+			var queued int
+			if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM linear_outbox WHERE work_id='order-entry' AND op_kind=? AND state=?`, store.LinearOpIssueUpdate, store.LinearOutboxQueued).Scan(&queued); err != nil {
+				t.Fatal(err)
 			}
-			if !strings.Contains(refreshPayload, `"project_id":"remote-project-ordered"`) {
-				t.Fatalf("entry refresh payload = %q, want the created Project", refreshPayload)
+			if queued != 1 {
+				t.Fatalf("queued entry refreshes = %d, want exactly one", queued)
 			}
 			out.Reset()
 			errOut.Reset()
@@ -1090,7 +1091,7 @@ func TestLinearDrainProjectOperations(t *testing.T) {
 	}
 	s.Close()
 
-	var projectCreateBodies, projectUpdateIDs []string
+	var projectCreateBodies, projectUpdateIDs, issueUpdateBodies []string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
 		text := string(body)
@@ -1101,7 +1102,12 @@ func TestLinearDrainProjectOperations(t *testing.T) {
 		case strings.Contains(text, "projectUpdate"):
 			projectUpdateIDs = append(projectUpdateIDs, text)
 			_, _ = w.Write([]byte(`{"data":{"projectUpdate":{"success":true,"project":{"id":"remote-project-created","name":"Initiative title","description":"Initiative value statement","content":"The revised narrative.","url":"https://linear.app/example/project/remote-project-created","updatedAt":"2026-09-23T02:00:00Z"}}}}`))
+		case strings.Contains(text, "labels { nodes"):
+			// GetIssueLabelIDs: the update drain reads the current labels to
+			// compute the managed ones its payload no longer desires.
+			_, _ = w.Write([]byte(`{"data":{"issue":{"labels":{"nodes":[{"id":"label-task"},{"id":"label-repo"}]}}}}`))
 		case strings.Contains(text, "issueUpdate"):
+			issueUpdateBodies = append(issueUpdateBodies, text)
 			_, _ = w.Write([]byte(`{"data":{"issueUpdate":{"success":true,"issue":{"id":"entry-issue-uuid-1","identifier":"EX-1","url":"https://linear.app/example/issue/EX-1","updatedAt":"2026-09-23T01:30:00Z"}}}}`))
 		default:
 			w.WriteHeader(http.StatusInternalServerError)
@@ -1138,14 +1144,14 @@ func TestLinearDrainProjectOperations(t *testing.T) {
 	if linkUUID != "remote-project-created" {
 		t.Fatalf("project link = %q, want remote-project-created", linkUUID)
 	}
-	// The entry issue refresh is queued with the created Project set.
-	var refreshPayload string
-	var refreshKind string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT op_kind, payload FROM linear_outbox WHERE work_id='projdrain-entry' ORDER BY rowid DESC LIMIT 1`).Scan(&refreshKind, &refreshPayload); err != nil {
-		t.Fatalf("the project completion queued no entry refresh: %v", err)
+	// The entry issue refresh is queued; its update resolves the created
+	// Project at send time, proven by the second drain below.
+	var refreshQueued int
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM linear_outbox WHERE work_id='projdrain-entry' AND op_kind=? AND state=?`, store.LinearOpIssueUpdate, store.LinearOutboxQueued).Scan(&refreshQueued); err != nil {
+		t.Fatal(err)
 	}
-	if refreshKind != store.LinearOpIssueUpdate || !strings.Contains(refreshPayload, `"project_id":"remote-project-created"`) {
-		t.Fatalf("entry refresh = %s / %s, want an update carrying the created Project", refreshKind, refreshPayload)
+	if refreshQueued != 1 {
+		t.Fatalf("queued entry refreshes = %d, want exactly one", refreshQueued)
 	}
 	if _, err := s.EnqueueLinearProjectForInitiative(context.Background(), "projdrain-product", "projdrain-initiative", store.LinearOpProjectUpdate); err != nil {
 		t.Fatalf("EnqueueLinearProjectForInitiative(update) error = %v", err)
@@ -1162,6 +1168,11 @@ func TestLinearDrainProjectOperations(t *testing.T) {
 	}
 	if !strings.Contains(projectUpdateIDs[0], `"id":"remote-project-created"`) || !strings.Contains(projectUpdateIDs[0], `"content":"The coordination narrative."`) || !strings.Contains(projectUpdateIDs[0], `"description":"Initiative value statement"`) {
 		t.Fatalf("projectUpdate body = %q, want the recorded remote Project, the value statement, and the narrative", projectUpdateIDs[0])
+	}
+	// The entry refresh the first drain queued carried no Project; its drain
+	// resolved the created Project at send time.
+	if len(issueUpdateBodies) != 1 || !strings.Contains(issueUpdateBodies[0], `"projectId":"remote-project-created"`) {
+		t.Fatalf("issueUpdate bodies = %v, want the entry moved into the created Project at send time", issueUpdateBodies)
 	}
 }
 
@@ -1231,12 +1242,12 @@ func TestLinearDrainQueuesEntryUpdateWhenTheProjectLinksMidFlight(t *testing.T) 
 		t.Fatal(err)
 	}
 	defer s2.Close()
-	var refreshPayload string
-	if err := s2.DatabaseForTesting().QueryRow(`SELECT payload FROM linear_outbox WHERE work_id='midflight-entry' AND op_kind=? AND state=?`, store.LinearOpIssueUpdate, store.LinearOutboxQueued).Scan(&refreshPayload); err != nil {
-		t.Fatalf("the completion queued no converging update: %v", err)
+	var queuedUpdates int
+	if err := s2.DatabaseForTesting().QueryRow(`SELECT count(*) FROM linear_outbox WHERE work_id='midflight-entry' AND op_kind=? AND state=?`, store.LinearOpIssueUpdate, store.LinearOutboxQueued).Scan(&queuedUpdates); err != nil {
+		t.Fatal(err)
 	}
-	if !strings.Contains(refreshPayload, `"project_id":"remote-project-midflight"`) {
-		t.Fatalf("converging update payload = %q, want the mid-flight Project", refreshPayload)
+	if queuedUpdates != 1 {
+		t.Fatalf("converging updates = %d, want exactly one: its drain resolves the mid-flight Project at send time", queuedUpdates)
 	}
 
 	out.Reset()

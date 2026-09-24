@@ -88,11 +88,29 @@ export interface AgentLaneReportEvidence {
   detail: string
 }
 
+// AgentLaneReportBaseComparisonCheck is one verification command's result as
+// the worker reported it: how the same command behaved on the branch and on
+// the base. It is informational evidence only (CD-0043 D1): it joins no
+// obligation vocabulary, no workflow route reads it, and no lane is told to
+// produce it.
+export interface AgentLaneReportBaseComparisonCheck {
+  command: string
+  branch_result: "pass" | "fail" | "not_run"
+  base_result: "pass" | "fail" | "not_run"
+}
+
+// AgentLaneReportBaseComparison mirrors the optional top-level
+// base_comparison object of contracts/agent-lane-report.schema.json.
+export interface AgentLaneReportBaseComparison {
+  checks: AgentLaneReportBaseComparisonCheck[]
+}
+
 export interface AgentLaneReport {
   schema_version: AgentLaneReportSchemaVersion
   readback_model: string
   status: AgentLaneReportStatus
   evidence: AgentLaneReportEvidence[]
+  base_comparison?: AgentLaneReportBaseComparison
 }
 
 export type CanonicalLaneReport = AgentLaneReport & Pick<AgentLanePacket, "attempt_id" | "lane_id" | "lane_version" | "lane_digest">
@@ -206,6 +224,10 @@ export interface AgentResultEnvelope {
   // result the completion disposes. Every other required result stays
   // explicit with the parent workflow.
   assigned_result?: string
+  // The optional comparison the worker reported between branch and base
+  // results of its verification commands. It rides the attempt readback when
+  // present and drives nothing (CD-0043 D1).
+  base_comparison?: AgentLaneReportBaseComparison
   // CD-0102 D1. A dispatch returns before the worker runs, so an authorized
   // dispatch reports that the window is open and the host must now issue the
   // Task call. A completed attempt never carries this field.
@@ -1683,6 +1705,10 @@ async function completeWorkerSession(
       export_bytes: readbackResult.export_bytes,
     })
   }
+  // CD-0056 D7: the adapter is the only component that sees worker output, so
+  // the report is admitted here. A report that is absent, unparseable, invalid,
+  // or bound to another packet is a typed failure, never a completion.
+  const resolution = resolveWorkerReportFromText(resultBody, packet)
   const base = baseEnvelope(lane, packet, "ok")
   base.readback_model = readback.readback_model
   base.session_id = readback.session_id
@@ -1692,6 +1718,11 @@ async function completeWorkerSession(
   if (envelopeAssignedResult !== null) base.assigned_result = envelopeAssignedResult
   const envelope = withHostBoundedOutput(base, resultBody)
   if (!envelope) return errorEnvelope(lane, packet, "error", "error", "worker result exceeds the pinned host output limit", "adjust_budget")
+  // The optional base comparison is a part of the worker output the bound
+  // above already admitted, so it attaches after the bound: measuring it
+  // beside that output would count its bytes twice and refuse a report the
+  // schema admits. The attempt readback then holds it when present.
+  if (!("detail" in resolution) && resolution.report.base_comparison) envelope.base_comparison = resolution.report.base_comparison
 
   // CD-0017 D5: a worker attempt is durable evidence, not an in-memory envelope.
   // worker-complete binds to the dispatched attempt row, so the dispatch event
@@ -1708,10 +1739,6 @@ async function completeWorkerSession(
   const provenance = await computeHostPromptProvenance(lane.id, workerDirectory)
   const workerObservation = await readWorkerSessionObservation(cliRunner, options.binary ?? "opencode", signal)
 
-  // CD-0056 D7: the adapter is the only component that sees worker output, so
-  // the report is admitted here. A report that is absent, unparseable, invalid,
-  // or bound to another packet is a typed failure, never a completion.
-  const resolution = resolveWorkerReportFromText(resultBody, packet)
   const terminal: { verb: "worker-complete"; report: CanonicalLaneReport } | { verb: "worker-fail"; failure_kind: string; detail: string } =
     hostFailure !== undefined
       ? { verb: "worker-fail", failure_kind: "worker_error", detail: hostFailure.slice(0, MAX_FAILURE_DETAIL_BYTES) }
@@ -1837,6 +1864,7 @@ async function completeWorkerSession(
     report_schema_version: REPORT_SCHEMA_VERSION,
     evidence_origin: "reported",
     evidence: terminal.report.evidence,
+    base_comparison: terminal.report.base_comparison,
     worker_directory: workerDirectory,
     assertion: terminalAssertion,
   }, signal)

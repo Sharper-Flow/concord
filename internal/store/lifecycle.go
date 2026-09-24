@@ -410,7 +410,10 @@ func foldWorkMembershipsReplaced(ctx context.Context, tx *sql.Tx, event Event) e
 	// resolves only once the membership rows exist, so the Linear outbox
 	// enqueues here rather than in the creation fold: an issue_create for a
 	// work item, or a project_create for an Initiative (CD-0171 D2). Every
-	// Linear configuration gap is a silent no-op inside.
+	// Linear configuration gap is a silent no-op inside. A later membership
+	// change can move a confirmed Linear issue between repositories and
+	// Initiatives (CD-0171 D3, D6), so the same guards gate one converging
+	// issue_update on that path too.
 	if payload.ExpectedVersion == 1 {
 		kind, kindErr := readWorkKind(ctx, tx, event.SubjectID)
 		if kindErr != nil {
@@ -423,6 +426,8 @@ func foldWorkMembershipsReplaced(ctx context.Context, tx *sql.Tx, event Event) e
 		} else if _, _, err := enqueueLinearIssueForCaptureTx(ctx, tx, event.SubjectID, event.OccurredAt); err != nil {
 			return err
 		}
+	} else if err := enqueueLinearIssueUpdateForEntryTx(ctx, tx, event.SubjectID, event.OccurredAt); err != nil && !linearCaptureConfigurationRefusal(err) {
+		return err
 	}
 	return nil
 }

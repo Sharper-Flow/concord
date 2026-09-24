@@ -576,9 +576,9 @@ func TestCompleteLinearIssueOperationClosesTheProjectRace(t *testing.T) {
 		if payloads := queuedUpdates(t, s); len(payloads) != 0 {
 			t.Fatalf("updates before the Project exists = %+v, want none", payloads)
 		}
-		// The project_create completes now: the drain's entry refresh sees
+		// The project_create completes now: the completion transaction sees
 		// the confirmed link this completion just wrote and queues the
-		// converging update.
+		// converging update inside its own commit.
 		projectOp, err := s.EnqueueLinearProjectForInitiative(context.Background(), "raceres-product", "raceres-initiative", LinearOpProjectCreate)
 		if err != nil {
 			t.Fatal(err)
@@ -588,13 +588,6 @@ func TestCompleteLinearIssueOperationClosesTheProjectRace(t *testing.T) {
 		}
 		if err := s.CompleteLinearProjectOperation(context.Background(), projectOp.OperationID, "remote-project-race", "Race initiative", "", LinearInitiativeProjectState{Title: "Race initiative", ValueStatement: "Race value"}); err != nil {
 			t.Fatalf("CompleteLinearProjectOperation() error = %v", err)
-		}
-		refreshed, err := s.EnqueueLinearIssueUpdatesForInitiativeEntries(context.Background(), "raceres-initiative")
-		if err != nil {
-			t.Fatalf("EnqueueLinearIssueUpdatesForInitiativeEntries() error = %v", err)
-		}
-		if len(refreshed) != 1 {
-			t.Fatalf("entry refreshes = %d, want 1", len(refreshed))
 		}
 		if payloads := queuedUpdates(t, s); len(payloads) != 1 {
 			t.Fatalf("converging updates = %+v, want exactly one: the Project resolves at the update's send time", payloads)
@@ -922,6 +915,133 @@ func TestLinearProjectCreateEnqueueIsIdempotentPerInitiative(t *testing.T) {
 	}
 }
 
+// CD-0171 review correction: a failed project_create keeps its client UUID —
+// the Initiative's stable Project identity — so a re-enqueue revives the same
+// operation with a refreshed payload instead of minting a second Linear
+// Project for one Initiative.
+func TestFailedProjectCreateReenqueueRevivesTheSameOperation(t *testing.T) {
+	t.Parallel()
+	s := openTemp(t)
+	ctx := context.Background()
+	setupLinearProduct(t, s, "projfail-product")
+	setupLinearLabelConnection(t, s, "projfail-product", map[string]string{})
+	enableLinearPlanning(t, s, "projfail-product", 2)
+	seedLinearWorkOfKind(t, s, "projfail-initiative", "projfail-product-project", "initiative", "Fail initiative", "Fail value")
+
+	first, err := s.EnqueueLinearProjectForInitiative(ctx, "projfail-product", "projfail-initiative", LinearOpProjectCreate)
+	if err != nil {
+		t.Fatalf("first EnqueueLinearProjectForInitiative() error = %v", err)
+	}
+	if _, err := s.ClaimLinearOperations(ctx, 25); err != nil {
+		t.Fatal(err)
+	}
+	// The drain failed the create permanently after an ambiguous remote
+	// success. A retryable failure requeues the same row already; the failed
+	// state is the one a fresh enqueue could not previously reuse.
+	if err := s.FailLinearOperation(ctx, first.OperationID, "permanent", "ambiguous remote success"); err != nil {
+		t.Fatalf("FailLinearOperation() error = %v", err)
+	}
+	// The Initiative moves on while the create sits failed; the revive
+	// carries the current state.
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE work_items SET narrative='The revived narrative.' WHERE id='projfail-initiative'; DELETE FROM fold_guard`); err != nil {
+		t.Fatal(err)
+	}
+
+	second, err := s.EnqueueLinearProjectForInitiative(ctx, "projfail-product", "projfail-initiative", LinearOpProjectCreate)
+	if err != nil {
+		t.Fatalf("re-enqueue after failure error = %v", err)
+	}
+	if second.IdempotencyKey != first.IdempotencyKey {
+		t.Fatalf("re-enqueue client UUID %s, want the failed create's %s", second.IdempotencyKey, first.IdempotencyKey)
+	}
+	if second.OperationID != first.OperationID {
+		t.Fatalf("re-enqueue operation %s, want the failed row %s revived", second.OperationID, first.OperationID)
+	}
+	var rowCount int
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM linear_outbox WHERE work_id='projfail-initiative'`).Scan(&rowCount); err != nil {
+		t.Fatal(err)
+	}
+	if rowCount != 1 {
+		t.Fatalf("outbox rows = %d, want the same single row revived", rowCount)
+	}
+	var state string
+	var attempts int
+	if err := s.DatabaseForTesting().QueryRow(`SELECT state, attempts FROM linear_outbox WHERE operation_id=?`, first.OperationID).Scan(&state, &attempts); err != nil {
+		t.Fatal(err)
+	}
+	if state != LinearOutboxQueued || attempts != 0 {
+		t.Fatalf("revived row state=%s attempts=%d, want queued with attempts reset", state, attempts)
+	}
+	payload := decodeLinearPayload(t, s, second.OperationID)
+	if payload.Content != "The revived narrative." {
+		t.Fatalf("revived payload content = %q, want the current narrative", payload.Content)
+	}
+}
+
+// CD-0171 review correction: a membership change after capture must converge
+// a confirmed Linear issue's repository labels with its new Project
+// memberships — the capture fold alone handles only the version-1 enqueue.
+func TestMembershipChangeConvergesLinearIssueRepositoryLabels(t *testing.T) {
+	t.Parallel()
+	s := openTemp(t)
+	ctx := context.Background()
+	setupLinearProduct(t, s, "memwork-product")
+	setupLinearLabelConnection(t, s, "memwork-product", map[string]string{
+		"project:memwork-product-project": "label-repo-a", "project:memwork-other-project": "label-repo-b",
+	})
+	enableLinearPlanning(t, s, "memwork-product", 2)
+	seedLinearWorkItem(t, s, "memwork-item", "memwork-product-project", "Mem work title", "Mem work value")
+	// The Product gains a second repository so the membership change can
+	// widen the issue's label set.
+	if err := ApplyOperation(ctx, s, Operation{Events: []Event{projectCreatedEvent("memwork-other-project", "memwork-other-created"), membershipEvent("memwork-other-membership", "product_project.added", SubjectProduct, "memwork-product", map[string]any{"product_id": "memwork-product", "project_id": "memwork-other-project", "role": "secondary", "reason": "test", "expected_version": 3, "resulting_version": 4})}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectProject, "memwork-other-project"): 0, VersionRef(SubjectProduct, "memwork-product"): 3}}); err != nil {
+		t.Fatalf("second project setup: %v", err)
+	}
+	// The item's issue is already confirmed on Linear.
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT INTO linear_issue_links(work_id, remote_issue_uuid, human_key, url, remote_updated_at, content_hash, link_state, created_at, updated_at) VALUES('memwork-item', 'memwork-remote', 'MW-1', '', '', '', 'confirmed', '2026-09-23T00:00:00Z', '2026-09-23T00:00:00Z'); DELETE FROM fold_guard`); err != nil {
+		t.Fatal(err)
+	}
+	queuedUpdateCount := func(t *testing.T) int {
+		t.Helper()
+		var queued int
+		if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM linear_outbox WHERE work_id='memwork-item' AND op_kind=?`, LinearOpIssueUpdate).Scan(&queued); err != nil {
+			t.Fatal(err)
+		}
+		return queued
+	}
+	replaceMemberships := func(eventID string, expected, resulting int64, memberships []map[string]any) {
+		t.Helper()
+		payload, err := json.Marshal(map[string]any{"memberships": memberships, "expected_version": expected, "resulting_version": resulting})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := ApplyOperation(ctx, s, Operation{Events: []Event{{EventID: eventID, Kind: "work.memberships_replaced", SubjectType: SubjectWorkItem, SubjectID: "memwork-item", Actor: "operator", OccurredAt: time.Date(2026, 9, 23, 1, 0, 0, 0, time.UTC), PayloadVersion: 1, Payload: payload}}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "memwork-item"): expected}}); err != nil {
+			t.Fatalf("memberships_replaced(%s): %v", eventID, err)
+		}
+	}
+
+	// The version-1 capture fold holds a confirmed link, so it records no
+	// create and no update.
+	replaceMemberships("memwork-mem-1", 1, 2, []map[string]any{{"project_id": "memwork-product-project", "role": "primary"}})
+	if queued := queuedUpdateCount(t); queued != 0 {
+		t.Fatalf("queued updates after the capture fold = %d, want 0", queued)
+	}
+	// The later membership change converges the confirmed issue's labels.
+	replaceMemberships("memwork-mem-2", 2, 3, []map[string]any{
+		{"project_id": "memwork-product-project", "role": "primary"},
+		{"project_id": "memwork-other-project", "role": "secondary"},
+	})
+	if queued := queuedUpdateCount(t); queued != 1 {
+		t.Fatalf("queued updates after the membership change = %d, want exactly one", queued)
+	}
+	var raw string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT payload FROM linear_outbox WHERE work_id='memwork-item' AND op_kind=?`, LinearOpIssueUpdate).Scan(&raw); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(raw, "label-repo-b") {
+		t.Fatalf("update payload = %s, want the new repository's label", raw)
+	}
+}
+
 func TestProjectCreateCompletionRefreshesEntryIssues(t *testing.T) {
 	t.Parallel()
 	s := openTemp(t)
@@ -937,15 +1057,25 @@ func TestProjectCreateCompletionRefreshesEntryIssues(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	refreshed, err := s.EnqueueLinearIssueUpdatesForInitiativeEntries(ctx, "refresh-initiative")
+	entry, err := s.EnqueueLinearProjectForInitiative(ctx, "refresh-product", "refresh-initiative", LinearOpProjectCreate)
 	if err != nil {
-		t.Fatalf("EnqueueLinearIssueUpdatesForInitiativeEntries() error = %v", err)
+		t.Fatalf("EnqueueLinearProjectForInitiative() error = %v", err)
 	}
-	if len(refreshed) != 1 || refreshed[0].WorkID != "refresh-entry" || refreshed[0].OpKind != LinearOpIssueUpdate {
-		t.Fatalf("refresh = %+v, want one update for the confirmed entry", refreshed)
+	if _, err := s.ClaimLinearOperations(ctx, 25); err != nil {
+		t.Fatal(err)
+	}
+	// The completion queues the confirmed entry's update inside its own
+	// transaction: no separate refresh call exists to fail after the Project
+	// exists (CD-0171 review correction).
+	if err := s.CompleteLinearProjectOperation(ctx, entry.OperationID, "remote-project-refresh", "Refresh initiative", "", LinearInitiativeProjectState{Title: "Refresh initiative", ValueStatement: "Refresh value"}); err != nil {
+		t.Fatalf("CompleteLinearProjectOperation() error = %v", err)
+	}
+	var operationID string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT operation_id FROM linear_outbox WHERE work_id='refresh-entry' AND op_kind=? AND state=?`, LinearOpIssueUpdate, LinearOutboxQueued).Scan(&operationID); err != nil {
+		t.Fatalf("the completion queued no entry update: %v", err)
 	}
 	var rawRefresh string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT payload FROM linear_outbox WHERE operation_id=?`, refreshed[0].OperationID).Scan(&rawRefresh); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT payload FROM linear_outbox WHERE operation_id=?`, operationID).Scan(&rawRefresh); err != nil {
 		t.Fatal(err)
 	}
 	if strings.Contains(rawRefresh, "project_id") {

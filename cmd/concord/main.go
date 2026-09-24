@@ -1462,19 +1462,10 @@ func runLinearOutboxDrain(ctx context.Context, s *store.Store, raw []byte, comma
 				results = append(results, drained{OperationID: op.OperationID, Outcome: class, Detail: err.Error()})
 				continue
 			}
-			if op.OpKind == store.LinearOpProjectCreate {
-				// The Project now exists: its confirmed entry issues enqueue
-				// the update that moves them into it (CD-0171 D2) and picks
-				// up their labels. A refresh failure is reported, and it
-				// cannot un-create the Project.
-				refreshed, refreshErr := s.EnqueueLinearIssueUpdatesForInitiativeEntries(ctx, op.WorkID)
-				if refreshErr != nil {
-					results = append(results, drained{OperationID: op.OperationID, Outcome: "done", Detail: "project created; entry refresh failed: " + refreshErr.Error()})
-				} else {
-					results = append(results, drained{OperationID: op.OperationID, Outcome: "done", Identifier: project.Name, Detail: fmt.Sprintf("entry refreshes queued: %d", len(refreshed))})
-				}
-				continue
-			}
+			// A completed project_create recorded the link and queued its
+			// confirmed entry updates inside the completion transaction
+			// (CD-0171 review correction): no separate refresh call can fail
+			// after the Project exists without a retry path.
 			results = append(results, drained{OperationID: op.OperationID, Outcome: "done", Identifier: project.Name})
 			continue
 		}
@@ -1666,6 +1657,15 @@ func drainProject(ctx context.Context, s *store.Store, client *linearclient.Clie
 	if op.OpKind == store.LinearOpProjectCreate {
 		if payload.ClientUUID == "" || state.Title == "" || teamID == "" {
 			return linearclient.Project{}, store.LinearInitiativeProjectState{}, fmt.Errorf("project_create needs a client uuid, a name, and the Product's team")
+		}
+		// The client UUID is stable per Initiative (CD-0171 D2): an earlier
+		// attempt may have created the Project remotely before the operation
+		// failed locally. The get finds that Project and the drain adopts it
+		// instead of minting a duplicate; a miss or a failed get falls
+		// through to the create, whose replayed UUID converges on the same
+		// Project.
+		if adopted, adoptErr := client.GetProject(ctx, payload.ClientUUID); adoptErr == nil {
+			return adopted, state, nil
 		}
 		project, err := client.CreateProject(ctx, linearclient.CreateProjectInput{ID: payload.ClientUUID, TeamIDs: []string{teamID}, Name: state.Title, Description: state.ValueStatement, Content: state.Narrative})
 		return project, state, err

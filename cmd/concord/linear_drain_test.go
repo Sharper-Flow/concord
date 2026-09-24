@@ -1302,3 +1302,84 @@ func TestLinearDrainProjectUpdateClearsAnEmptyNarrative(t *testing.T) {
 		}
 	}
 }
+
+// CD-0171 review correction: a project_create that failed after its remote
+// effect landed keeps its client UUID, so the revived drain finds the Project
+// by that UUID and adopts it instead of minting a duplicate.
+func TestLinearDrainAdoptsExistingProjectAfterFailedCreate(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "concord.db")
+	seedCLIProduct(t, dbPath, "adopt-product", "adopt-project")
+	enableLinearProduct(t, dbPath, "adopt-product")
+	seedLinearInitiativeFixture(t, dbPath, "adopt-project", "adopt-initiative", "", "The adopt narrative.")
+
+	s, err := store.Open(context.Background(), dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := s.EnqueueLinearProjectForInitiative(context.Background(), "adopt-product", "adopt-initiative", store.LinearOpProjectCreate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.ClaimLinearOperations(context.Background(), 25); err != nil {
+		t.Fatal(err)
+	}
+	// Linear created the Project, then lost the response: the operation
+	// fails permanently while the remote Project exists.
+	if err := s.FailLinearOperation(context.Background(), first.OperationID, "permanent", "ambiguous remote success"); err != nil {
+		t.Fatal(err)
+	}
+	// The re-enqueue revives the failed row under its own client UUID.
+	second, err := s.EnqueueLinearProjectForInitiative(context.Background(), "adopt-product", "adopt-initiative", store.LinearOpProjectCreate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.IdempotencyKey != first.IdempotencyKey {
+		t.Fatalf("revived client UUID %s, want the failed create's %s", second.IdempotencyKey, first.IdempotencyKey)
+	}
+	s.Close()
+
+	var createCalls int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		text := string(body)
+		w.Header().Set("Content-Type", "application/json")
+		if strings.Contains(text, "projectCreate") {
+			createCalls++
+			_, _ = w.Write([]byte(`{"data":{"projectCreate":{"success":true,"project":{"id":"duplicate-project","name":"duplicate","description":"","content":"","url":"","updatedAt":"2026-09-23T02:00:00Z"}}}}`))
+			return
+		}
+		// The earlier attempt's Project is live under the client UUID.
+		_, _ = w.Write([]byte(`{"data":{"project":{"id":"remote-project-adopted","name":"Adopt initiative","description":"Adopt value","content":"The adopt narrative.","url":"https://linear.app/example/project/remote-project-adopted","updatedAt":"2026-09-23T01:00:00Z"}}}`))
+	}))
+	defer server.Close()
+	t.Setenv(linearclient.EnvEndpoint, server.URL)
+	t.Setenv(linearclient.EnvAPIKey, "lin_api_adopt_test")
+	t.Setenv(dbOverrideEnv, dbPath)
+
+	var out, errOut strings.Builder
+	if code := runWithInput([]string{"linear", "outbox-drain"}, strings.NewReader(`{"product_id":"adopt-product"}`), &out, &errOut); code != 0 {
+		t.Fatalf("drain exit=%d stderr=%q", code, errOut.String())
+	}
+	if createCalls != 0 {
+		t.Fatalf("projectCreate calls = %d, want 0: the drain must adopt the existing Project", createCalls)
+	}
+	s, err = store.Open(context.Background(), dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	link, err := s.ReadLinearProjectLink(context.Background(), "adopt-initiative")
+	if err != nil {
+		t.Fatalf("ReadLinearProjectLink() error = %v", err)
+	}
+	if link.RemoteProjectUUID != "remote-project-adopted" || link.Name != "Adopt initiative" {
+		t.Fatalf("project link = %+v, want the adopted Project recorded", link)
+	}
+	var state string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT state FROM linear_outbox WHERE operation_id=?`, second.OperationID).Scan(&state); err != nil {
+		t.Fatal(err)
+	}
+	if state != store.LinearOutboxDone {
+		t.Fatalf("revived operation state = %s, want done", state)
+	}
+}

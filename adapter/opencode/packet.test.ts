@@ -323,8 +323,8 @@ test("the context carries the pinned design before the work narrative", async ()
 // proposal after the design record, ahead of the work narrative.
 const LAW_CONTEXT = {
   laws: [
-    { role: "added", law_id: "law:new" },
-    { role: "modified", law_id: "spec:one", kind: "spec", status: "accepted", title: "Synthetic test law", path: "docs/spec.md" },
+    { roles: ["added"], law_id: "law:new" },
+    { roles: ["mandated", "modified", "obligation"], law_id: "spec:one", kind: "spec", status: "accepted", title: "Synthetic test law", path: "docs/spec.md", obligation_ids: ["verification"] },
   ],
   domains: [
     { domain_id: "root", name: "Root", purpose: "Product law" },
@@ -348,7 +348,7 @@ test("the context carries the resolved law block and proposal after the design r
   expect(lawAt).toBeGreaterThan(designAt)
   expect(proposalAt).toBeGreaterThan(lawAt)
   expect(context.indexOf(NARRATIVE)).toBeGreaterThan(proposalAt)
-  expect(context).toContain("- modified law spec:one: Synthetic test law, spec, accepted — docs/spec.md")
+  expect(context).toContain("- mandated, modified, obligation law spec:one (obligation verification): Synthetic test law, spec, accepted — docs/spec.md")
   expect(context).toContain("- added law law:new")
   expect(context).toContain("- Domain root: Root — Product law")
   expect(context).toContain("- Domain child: Child — Child law")
@@ -367,7 +367,7 @@ test("a contract with no bound law dispatches without a law block", async () => 
 test("an oversized law block is a typed context overflow, not a truncated packet", async () => {
   // Every entry stays inside the generated law-context bounds; only their
   // number pushes the combined context past the bound.
-  const oversized = { laws: Array.from({ length: 64 }, (_, index) => ({ role: "mandated", law_id: `spec:big-${index}`, title: "t".repeat(512) })), domains: [] }
+  const oversized = { laws: Array.from({ length: 64 }, (_, index) => ({ roles: ["mandated"], law_id: `spec:big-${index}`, title: "t".repeat(512) })), domains: [] }
   const built = await build({ ...defaultScript(), "concord_work_trace.continuity": continuityEnvelope(pinnedContract(), null, null, oversized) })
   expect(built.packet).toBeUndefined()
   expect(built.failure!.kind).toBe("projection_overflow")

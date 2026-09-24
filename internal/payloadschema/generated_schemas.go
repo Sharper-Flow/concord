@@ -12232,19 +12232,36 @@ const GeneratedPayloadSchemaDocument = `{
         "law_id": {
           "$ref": "#/$defs/law_id"
         },
+        "obligation_ids": {
+          "description": "The contract's verification obligations that name the law, sorted and deduplicated. Present only when roles carries obligation.",
+          "items": {
+            "$ref": "#/$defs/obligation_id"
+          },
+          "maxItems": 64,
+          "minItems": 1,
+          "type": "array",
+          "uniqueItems": true
+        },
         "path": {
           "maxLength": 1024,
           "minLength": 1,
           "type": "string"
         },
-        "role": {
-          "enum": [
-            "mandated",
-            "modified",
-            "added",
-            "obligation"
-          ],
-          "type": "string"
+        "roles": {
+          "description": "Every binding role the approved contract gives the law, sorted and deduplicated.",
+          "items": {
+            "enum": [
+              "mandated",
+              "modified",
+              "added",
+              "obligation"
+            ],
+            "type": "string"
+          },
+          "maxItems": 4,
+          "minItems": 1,
+          "type": "array",
+          "uniqueItems": true
         },
         "status": {
           "enum": [
@@ -12260,7 +12277,7 @@ const GeneratedPayloadSchemaDocument = `{
         }
       },
       "required": [
-        "role",
+        "roles",
         "law_id"
       ],
       "type": "object"

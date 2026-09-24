@@ -100,8 +100,8 @@ func TestContinuityResolvesContractLawAndDomainContext(t *testing.T) {
 		t.Fatal("continuity resolved no law context for a contract that binds law")
 	}
 	wantLaws := []WorkflowLawContextLaw{
-		{Role: "added", LawID: "law:new"},
-		{Role: "modified", LawID: "spec:one", Kind: "spec", Status: "accepted", Title: "Synthetic test law", Path: "docs/spec.md"},
+		{Roles: []string{"added", "mandated"}, LawID: "law:new"},
+		{Roles: []string{"mandated", "modified", "obligation"}, LawID: "spec:one", Kind: "spec", Status: "accepted", Title: "Synthetic test law", Path: "docs/spec.md", ObligationIDs: []string{"verification"}},
 	}
 	if !reflect.DeepEqual(snapshot.LawContext.Laws, wantLaws) {
 		t.Fatalf("law context laws = %+v, want %+v", snapshot.LawContext.Laws, wantLaws)

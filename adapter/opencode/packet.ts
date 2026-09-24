@@ -96,11 +96,13 @@ function renderLawContext(value: unknown): string {
   const lines = ["Approved law and Domains (binding Product law):"]
   for (const law of laws) {
     if (!isRecord(law)) continue
-    const role = typeof law.role === "string" ? law.role : ""
+    const roles = Array.isArray(law.roles) ? law.roles.filter((role): role is string => typeof role === "string") : []
     const lawId = typeof law.law_id === "string" ? law.law_id : ""
+    const obligations = Array.isArray(law.obligation_ids) ? law.obligation_ids.filter((id): id is string => typeof id === "string") : []
     const detail = [law.title, law.kind, law.status].filter((part): part is string => typeof part === "string" && part.length > 0).join(", ")
     const path = typeof law.path === "string" ? law.path : ""
-    lines.push(`- ${role} law ${lawId}${detail.length > 0 ? `: ${detail}` : ""}${path.length > 0 ? ` — ${path}` : ""}`)
+    const obligationText = obligations.length > 0 ? ` (obligation ${obligations.join(", ")})` : ""
+    lines.push(`- ${roles.join(", ")} law ${lawId}${obligationText}${detail.length > 0 ? `: ${detail}` : ""}${path.length > 0 ? ` — ${path}` : ""}`)
   }
   for (const domain of domains) {
     if (!isRecord(domain)) continue

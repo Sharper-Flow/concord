@@ -493,12 +493,13 @@ type WorkflowLawContext struct {
 }
 
 type WorkflowLawContextLaw struct {
-	Role   string `json:"role"`
-	LawID  string `json:"law_id"`
-	Kind   string `json:"kind,omitempty"`
-	Status string `json:"status,omitempty"`
-	Title  string `json:"title,omitempty"`
-	Path   string `json:"path,omitempty"`
+	Roles         []string `json:"roles"`
+	LawID         string   `json:"law_id"`
+	Kind          string   `json:"kind,omitempty"`
+	Status        string   `json:"status,omitempty"`
+	Title         string   `json:"title,omitempty"`
+	Path          string   `json:"path,omitempty"`
+	ObligationIDs []string `json:"obligation_ids,omitempty"`
 }
 
 type WorkflowLawContextDomain struct {
@@ -507,10 +508,10 @@ type WorkflowLawContextDomain struct {
 	Purpose  string `json:"purpose"`
 }
 
-// One role per law entry. The sources overlap — a modified law is also
-// mandated, and an added law may carry verification obligations — so the
-// assignment order below names the most specific binding: modified, added,
-// obligation, mandated.
+// Role vocabulary for the law context. The sources overlap — a modified law
+// is also mandated, and a mandated or modified law may carry verification
+// obligations — so each law carries every role its contract binds, sorted and
+// deduplicated, not one most-specific winner.
 const (
 	lawContextRoleMandated   = "mandated"
 	lawContextRoleModified   = "modified"
@@ -530,33 +531,42 @@ func readWorkflowLawContext(ctx context.Context, tx *sql.Tx, workID string, cont
 	if contract == nil {
 		return nil, nil
 	}
-	roles := map[string]string{}
+	roleSet := map[string]map[string]bool{}
+	obligationSet := map[string]map[string]bool{}
+	markRole := func(lawID, role string) {
+		if roleSet[lawID] == nil {
+			roleSet[lawID] = map[string]bool{}
+		}
+		roleSet[lawID][role] = true
+	}
 	for _, lawID := range contract.SpecMandate {
-		roles[lawID] = lawContextRoleMandated
+		markRole(lawID, lawContextRoleMandated)
 	}
 	if binding := contract.ArchitectureBinding; binding != nil {
 		for _, obligation := range binding.VerificationObligations {
-			if _, exists := roles[obligation.LawID]; !exists {
-				roles[obligation.LawID] = lawContextRoleObligation
+			markRole(obligation.LawID, lawContextRoleObligation)
+			if obligationSet[obligation.LawID] == nil {
+				obligationSet[obligation.LawID] = map[string]bool{}
 			}
+			obligationSet[obligation.LawID][obligation.ObligationID] = true
 		}
 		for _, addition := range binding.LawAdditions {
-			roles[addition.LawID] = lawContextRoleAdded
+			markRole(addition.LawID, lawContextRoleAdded)
 		}
 	}
 	for _, lawID := range contract.LawModifies {
-		roles[lawID] = lawContextRoleModified
+		markRole(lawID, lawContextRoleModified)
 	}
 	bindingDomains := 0
 	if contract.ArchitectureBinding != nil {
 		bindingDomains = 1 + len(contract.ArchitectureBinding.AffectedDomainIDs)
 	}
-	if len(roles) == 0 && bindingDomains == 0 {
+	if len(roleSet) == 0 && bindingDomains == 0 {
 		return nil, nil
 	}
 	context := &WorkflowLawContext{Laws: []WorkflowLawContextLaw{}, Domains: []WorkflowLawContextDomain{}}
-	lawIDs := make([]string, 0, len(roles))
-	for lawID := range roles {
+	lawIDs := make([]string, 0, len(roleSet))
+	for lawID := range roleSet {
 		lawIDs = append(lawIDs, lawID)
 	}
 	sort.Strings(lawIDs)
@@ -565,7 +575,7 @@ func readWorkflowLawContext(ctx context.Context, tx *sql.Tx, workID string, cont
 		if err != nil {
 			return nil, err
 		}
-		laws, err := resolveLawContextSubjects(ctx, tx, homeProjectID, homeLocatorID, roles, lawIDs)
+		laws, err := resolveLawContextSubjects(ctx, tx, homeProjectID, homeLocatorID, lawContextLaws(roleSet, obligationSet, lawIDs))
 		if err != nil {
 			return nil, err
 		}
@@ -585,18 +595,37 @@ func readWorkflowLawContext(ctx context.Context, tx *sql.Tx, workID string, cont
 	return context, nil
 }
 
+// lawContextLaws builds each bound law's identity with its sorted, deduplicated
+// roles and obligation IDs, ahead of the subject lookup.
+func lawContextLaws(roleSet, obligationSet map[string]map[string]bool, lawIDs []string) []WorkflowLawContextLaw {
+	laws := make([]WorkflowLawContextLaw, 0, len(lawIDs))
+	for _, lawID := range lawIDs {
+		law := WorkflowLawContextLaw{LawID: lawID}
+		for role := range roleSet[lawID] {
+			law.Roles = append(law.Roles, role)
+		}
+		sort.Strings(law.Roles)
+		for obligationID := range obligationSet[lawID] {
+			law.ObligationIDs = append(law.ObligationIDs, obligationID)
+		}
+		sort.Strings(law.ObligationIDs)
+		laws = append(laws, law)
+	}
+	return laws
+}
+
 // resolveLawContextSubjects reads the law_subjects row for each bound law in
 // one bounded batch. The 128-entry ceiling is the write-side sum of the
 // mandate (32), additions (32), and obligations (64) bounds.
-func resolveLawContextSubjects(ctx context.Context, tx *sql.Tx, homeProjectID, homeLocatorID string, roles map[string]string, lawIDs []string) ([]WorkflowLawContextLaw, error) {
-	if len(lawIDs) > 128 {
+func resolveLawContextSubjects(ctx context.Context, tx *sql.Tx, homeProjectID, homeLocatorID string, laws []WorkflowLawContextLaw) ([]WorkflowLawContextLaw, error) {
+	if len(laws) > 128 {
 		return nil, newFailure(KindLimitExceeded, "read_workflow_law_context", "workflow contract binds more laws than the law context carries", false, "reduce_limit")
 	}
-	placeholders := strings.TrimRight(strings.Repeat("?,", len(lawIDs)), ",")
-	args := make([]any, 0, len(lawIDs)+2)
+	placeholders := strings.TrimRight(strings.Repeat("?,", len(laws)), ",")
+	args := make([]any, 0, len(laws)+2)
 	args = append(args, homeProjectID, homeLocatorID)
-	for _, lawID := range lawIDs {
-		args = append(args, lawID)
+	for _, law := range laws {
+		args = append(args, law.LawID)
 	}
 	rows, err := tx.QueryContext(ctx, `SELECT law_id,kind,status,title,path FROM law_subjects WHERE home_project_id=? AND home_locator_id=? AND law_id IN (`+placeholders+`)`, args...) //nolint:gosec // the fragment contains only generated question-mark placeholders and every law ID stays parameter-bound.
 	if err != nil {
@@ -614,13 +643,10 @@ func resolveLawContextSubjects(ctx context.Context, tx *sql.Tx, homeProjectID, h
 	if err := rows.Err(); err != nil {
 		return nil, wrapFailure(KindUnavailable, "read_workflow_law_context", "cannot enumerate the bound law subjects", true, "retry once the law projection is readable", err)
 	}
-	laws := make([]WorkflowLawContextLaw, 0, len(lawIDs))
-	for _, lawID := range lawIDs {
-		law := WorkflowLawContextLaw{Role: roles[lawID], LawID: lawID}
-		if subject, exists := subjects[lawID]; exists {
-			law.Kind, law.Status, law.Title, law.Path = subject.Kind, subject.Status, subject.Title, subject.Path
+	for index := range laws {
+		if subject, exists := subjects[laws[index].LawID]; exists {
+			laws[index].Kind, laws[index].Status, laws[index].Title, laws[index].Path = subject.Kind, subject.Status, subject.Title, subject.Path
 		}
-		laws = append(laws, law)
 	}
 	return laws, nil
 }

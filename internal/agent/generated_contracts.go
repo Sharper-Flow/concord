@@ -7,7 +7,7 @@ import (
 	"strings"
 )
 
-const ManifestDigest = "sha256:45289db5acc17266c7c79e59527702bf8b46c458122b3b02f862dec59543f6c2"
+const ManifestDigest = "sha256:6036c69bf03b532cd835546ea6b4bd58ef29ddce8d35fcccaef63b85396cb498"
 
 type OperationKind string
 
@@ -294,7 +294,7 @@ var GeneratedPayloadRules = map[string]GeneratedPayloadRule{
 	"workflow_forward_relation":                      {Required: []string{"kind"}, Properties: []string{"kind", "class", "severity"}},
 	"workflow_law_context":                           {Required: []string{"laws", "domains"}, Properties: []string{"laws", "domains"}},
 	"workflow_law_context_domain":                    {Required: []string{"domain_id", "name", "purpose"}, Properties: []string{"domain_id", "name", "purpose"}},
-	"workflow_law_context_law":                       {Required: []string{"role", "law_id"}, Properties: []string{"role", "law_id", "kind", "status", "title", "path"}},
+	"workflow_law_context_law":                       {Required: []string{"roles", "law_id"}, Properties: []string{"roles", "law_id", "obligation_ids", "kind", "status", "title", "path"}},
 	"workflow_outcome_absent":                        {Required: []string{"kind", "surface", "subjects", "distinguish_from"}, Properties: []string{"kind", "surface", "subjects", "distinguish_from"}},
 	"workflow_outcome_check":                         {Required: []string{"kind", "check_ref", "immutable_subject_ref", "expected_result"}, Properties: []string{"kind", "check_ref", "immutable_subject_ref", "expected_result"}},
 	"workflow_outcome_decision_record":               {Required: []string{"question", "options_considered", "decision", "rationale", "consequences", "inputs", "poc_findings", "supersedes", "superseded_by", "unknowns", "required_to_decide", "reviewer_actor_ref", "operator_approval_ref"}, Properties: []string{"question", "options_considered", "decision", "rationale", "consequences", "inputs", "poc_findings", "supersedes", "superseded_by", "unknowns", "required_to_decide", "reviewer_actor_ref", "operator_approval_ref"}},

@@ -82,10 +82,21 @@ func TestPortfolioPinIgnoresDisplayedProductRows(t *testing.T) {
 			t.Fatalf("pin on a displayed Product row pinned hidden candidate %s", candidate.ID)
 		}
 	}
+}
+
+func TestPortfolioUnpinIgnoresDisplayedProductRows(t *testing.T) {
+	m, core, _ := newInterleavedModel()
+	snapshot := core.Snapshot()
+	for i := range snapshot.Candidates {
+		snapshot.Candidates[i].Pinned = true
+	}
+	core.RestoreSnapshot(snapshot)
+	m.Sync()
+	m.UpdateKey("j")
 	m.UpdateKey("ctrl+u")
 	for _, candidate := range core.Snapshot().Candidates {
-		if candidate.Pinned {
-			t.Fatalf("unpin on a displayed Product row pinned hidden candidate %s", candidate.ID)
+		if !candidate.Pinned {
+			t.Fatalf("unpin on a displayed Product row unpinned hidden candidate %s", candidate.ID)
 		}
 	}
 }

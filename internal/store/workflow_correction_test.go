@@ -469,12 +469,14 @@ func TestWorkPinEscalatedCorrectionAdvertisesApprovalGatedRetry(t *testing.T) {
 }
 
 // CD-0164 D4 fixes the verification wall to the request population with a
-// strict comparator: the request path admits every request while the recorded
-// request count stays at or below the limit, and the dispatch wall arms only
-// when that count passes the limit. Three recorded verification corrections
-// keep dispatch approval-free; the fourth request is admitted the same way
-// production recorded one, and its dispatch faces the operator approval bound
-// to the correction's attempt count.
+// strict comparator: the request path records every correction the verdict
+// admits while the dispatch wall arms only when the recorded count passes the
+// limit. Each correction is one declared cycle — the reviewer records the
+// outcome_mismatch verdict, then the correction request records through the
+// same declared action — so the log holds four recorded requests with no
+// synthetic events. Three recorded verification corrections keep dispatch
+// approval-free; the fourth request arms the wall, and its dispatch faces the
+// operator approval bound to the correction's attempt count.
 func TestVerificationCorrectionWallArmsOnTheFourthRequest(t *testing.T) {
 	t.Parallel()
 	const workID = "verification-wall-fourth-request"
@@ -485,70 +487,104 @@ func TestVerificationCorrectionWallArmsOnTheFourthRequest(t *testing.T) {
 		t.Fatal(err)
 	}
 	reviewer := acceptReturnRouteWorker(t, fixture, workID, ownerRef)
-	if err := runVerdictActionAs(t, fixture.store, workID, "record_verdict", json.RawMessage(`{"contract_version":1,"predicate_id":"predicate:return-route","verdict_kind":"outcome_mismatch","evaluation_evidence":["evidence:return-route-verification"],"incomparable_with_approved":true}`), 0, reviewer); err != nil {
-		t.Fatalf("record mismatch verdict: %v", err)
-	}
 	if workflowCorrectionAttemptLimit != 3 {
 		t.Fatalf("workflow correction attempt limit = %d, want 3", workflowCorrectionAttemptLimit)
 	}
-	payload := json.RawMessage(`{"diagnosis":"the delivered subject still fails","strategy":"repeat the external effect","predicate_ids":["predicate:return-route"],"evidence_refs":["evidence:return-route-verification"]}`)
-	if err := runIssue933OperatorAction(t, fixture.store, workID, "request_correction", payload, fixture.owner, fixture.operator); err != nil {
-		t.Fatalf("first verification correction request: %v", err)
-	}
-	appendRecordedVerificationCorrectionRequest := func(count int64) {
+	// One declared worker delivery per cycle: the correction request returns
+	// the workflow to execution, and the next verdict needs a fresh accepted
+	// delivery to be recordable at its normal verification step. The loop's
+	// acceptor is distinct from the verdict reviewer, so no actor evaluates
+	// its own delivery.
+	acceptor := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/return-route-acceptor", SessionRef: "session/" + workID + "-acceptor", ActorClass: ActorAgent}
+	runCorrectionWorkerLoop := func(cycle int64) {
 		t.Helper()
-		var recorded []byte
-		if err := fixture.store.DatabaseForTesting().QueryRow(`SELECT payload FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='request_correction' ORDER BY seq DESC LIMIT 1`, string(SubjectWorkItem), workID, WorkflowActionCompleted).Scan(&recorded); err != nil {
+		s := fixture.store
+		lane := BuiltinLaneDefinitions()[0]
+		attemptID := fmt.Sprintf("attempt:%s:%d", workID, cycle)
+		if err := runVerdictActionAs(t, s, workID, "start_execution", json.RawMessage(`{}`), 0, fixture.owner); err != nil {
+			t.Fatalf("cycle %d start_execution: %v", cycle, err)
+		}
+		var attemptEpoch int64
+		if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.attempt_epoch') FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='start_execution' ORDER BY seq DESC LIMIT 1`, workID, WorkflowActionStarted).Scan(&attemptEpoch); err != nil {
 			t.Fatal(err)
 		}
-		var fields map[string]any
-		if err := json.Unmarshal(recorded, &fields); err != nil {
+		if err := ApplyOperation(ctx, s, Operation{Events: []Event{{
+			EventID: fmt.Sprintf("dispatch-%s-%d", workID, cycle), Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID,
+			Actor: ownerRef, OccurredAt: time.Unix(30+cycle, 0).UTC(), PayloadVersion: 2,
+			Payload: mustJSONValue(WorkerDispatchedPayload{AttemptID: attemptID, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, ReadbackModel: preferredModelForLane(lane), PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion}),
+		}}}); err != nil {
 			t.Fatal(err)
 		}
-		fields["idempotency_identity"] = fmt.Sprintf("verification-wall-request-%d", count)
-		updated, marshalErr := json.Marshal(fields)
-		if marshalErr != nil {
-			t.Fatal(marshalErr)
-		}
-		if _, err := fixture.store.DatabaseForTesting().Exec(`INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES(?,?,?,?,?,?,?,?)`, fmt.Sprintf("verification-wall-request-%d", count), WorkflowActionCompleted, SubjectWorkItem, workID, "principal/operator", time.Unix(80+count, 0).UTC().Format(time.RFC3339Nano), 1, updated); err != nil {
+		if err := ApplyOperation(ctx, s, Operation{Events: []Event{{
+			EventID: fmt.Sprintf("completed-%s-%d", workID, cycle), Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID,
+			Actor: "worker:test", OccurredAt: time.Unix(31+cycle, 0).UTC(), PayloadVersion: 1,
+			Payload: mustJSONValue(WorkerCompletedPayload{AttemptID: attemptID, ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion}),
+		}}}); err != nil {
 			t.Fatal(err)
+		}
+		if err := runVerdictActionAs(t, s, workID, "accept_worker_result", json.RawMessage(`{"attempt_id":"`+attemptID+`","attempt_epoch":`+fmt.Sprint(attemptEpoch)+`}`), 0, acceptor); err != nil {
+			t.Fatalf("cycle %d accept worker result: %v", cycle, err)
+		}
+		if err := runVerdictActionAs(t, s, workID, "start_refine", json.RawMessage(`{}`), 0, acceptor); err != nil {
+			t.Fatalf("cycle %d start refinement: %v", cycle, err)
+		}
+		for _, deliveryStep := range []string{"refine", "delivery"} {
+			if err := runVerdictActionAs(t, s, workID, "record_delivery", json.RawMessage(`{"delivery_artifact":"artifact:return-route-`+deliveryStep+`-`+fmt.Sprint(cycle)+`","delivery_state":"asserted"}`), 0, acceptor); err != nil {
+				t.Fatalf("cycle %d record %s delivery: %v", cycle, deliveryStep, err)
+			}
 		}
 	}
-	// The boundary's request gate refuses the next request while the previous
-	// one is the latest correction record, so the remaining records enter as
-	// the log held them in production. The log is the authority for a recorded
-	// request, and the comparators read the recorded count.
-	for count := int64(2); count <= 3; count++ {
-		appendRecordedVerificationCorrectionRequest(count)
+	recordCorrectionCycle := func(count int64) {
+		t.Helper()
+		if count > 1 {
+			// The fixture's first delivery loop already ran, and each
+			// correction request returns the workflow to execution, so every
+			// later verdict needs one fresh declared delivery loop.
+			runCorrectionWorkerLoop(count)
+		}
+		if err := runVerdictActionAs(t, fixture.store, workID, "record_verdict", json.RawMessage(`{"contract_version":1,"predicate_id":"predicate:return-route","verdict_kind":"outcome_mismatch","evaluation_evidence":["evidence:return-route-verification"],"incomparable_with_approved":true}`), 0, reviewer); err != nil {
+			t.Fatalf("cycle %d mismatch verdict: %v", count, err)
+		}
+		payload := json.RawMessage(`{"diagnosis":"the delivered subject still fails","strategy":"repeat the external effect","predicate_ids":["predicate:return-route"],"evidence_refs":["evidence:return-route-verification"]}`)
+		if err := runIssue933OperatorAction(t, fixture.store, workID, "request_correction", payload, fixture.owner, fixture.operator); err != nil {
+			t.Fatalf("cycle %d correction request: %v", count, err)
+		}
 		pin, pinErr := ReadWorkPin(ctx, fixture.store, workID)
 		if pinErr != nil {
 			t.Fatal(pinErr)
 		}
-		if pin.Correction == nil || pin.Correction.Disposition != "verification" || pin.Correction.AttemptCount != count || pin.Correction.Escalated {
-			t.Fatalf("verification correction after request %d = %#v, want below the wall", count, pin.Correction)
+		if pin.Correction == nil || pin.Correction.Disposition != "verification" || pin.Correction.AttemptCount != count || pin.Correction.Escalated != (count > workflowCorrectionAttemptLimit) {
+			t.Fatalf("verification correction after cycle %d = %#v, want count %d escalated=%v", count, pin.Correction, count, count > workflowCorrectionAttemptLimit)
 		}
 		binding, bindingErr := WorkflowFailedWorkerRetryBinding(ctx, fixture.store, workID)
 		if bindingErr != nil {
 			t.Fatal(bindingErr)
 		}
-		if binding != nil {
-			t.Fatalf("request %d minted a retry binding %+v, want none below the wall", count, binding)
+		if count <= workflowCorrectionAttemptLimit && binding != nil {
+			t.Fatalf("cycle %d minted a retry binding %+v, want none below the wall", count, binding)
 		}
 	}
-	appendRecordedVerificationCorrectionRequest(4)
-	pin, pinErr := ReadWorkPin(ctx, fixture.store, workID)
-	if pinErr != nil {
-		t.Fatal(pinErr)
+	for count := int64(1); count <= 3; count++ {
+		recordCorrectionCycle(count)
 	}
-	if pin.Correction == nil || pin.Correction.Disposition != "verification" || pin.Correction.AttemptCount != 4 || !pin.Correction.Escalated {
-		t.Fatalf("verification correction after the fourth request = %#v, want escalation", pin.Correction)
-	}
+	recordCorrectionCycle(4)
 	binding, bindingErr := WorkflowFailedWorkerRetryBinding(ctx, fixture.store, workID)
 	if bindingErr != nil {
 		t.Fatal(bindingErr)
 	}
 	if binding == nil || binding.FailedAttemptID != "" || binding.FailedAttemptEpoch != 0 || binding.CorrectionAttempts != 4 || binding.ContractVersion != 1 {
 		t.Fatalf("fourth request binding = %+v, want the correction-count binding", binding)
+	}
+	// PROBE: can a fifth request record while the wall is armed?
+	payload := json.RawMessage(`{"diagnosis":"the delivered subject still fails","strategy":"repeat the external effect","predicate_ids":["predicate:return-route"],"evidence_refs":["evidence:return-route-verification"]}`)
+	if err := runIssue933OperatorAction(t, fixture.store, workID, "request_correction", payload, fixture.owner, fixture.operator); err != nil {
+		t.Logf("PROBE fifth request refused: %v", err)
+	} else {
+		pin, pinErr := ReadWorkPin(ctx, fixture.store, workID)
+		if pinErr != nil {
+			t.Fatal(pinErr)
+		}
+		t.Logf("PROBE fifth request recorded: %#v", pin.Correction)
 	}
 }
 

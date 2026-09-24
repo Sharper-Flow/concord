@@ -997,6 +997,28 @@ func retryApprovalContractBound(versions map[string]any, binding *store.Workflow
 	return binding.ContractVersion == 0
 }
 
+// retryApprovalApprovedAttempts reads the escalated correction's attempt count
+// from the version bindings the operator's signed approval carries. The
+// approval binds the count the wall armed at, so the transaction-time fence
+// compares the live escalated correction against what the operator approved.
+func retryApprovalApprovedAttempts(assertion *HostApprovalAssertion) (int64, bool) {
+	if assertion == nil {
+		return 0, false
+	}
+	for _, binding := range assertion.Versions {
+		value, found := strings.CutPrefix(binding, "correction_attempts:")
+		if !found {
+			continue
+		}
+		attempts, parseErr := strconv.ParseInt(value, 10, 64)
+		if parseErr != nil {
+			return 0, false
+		}
+		return attempts, true
+	}
+	return 0, false
+}
+
 func (r runtime) mutateWorkflowAction(ctx context.Context, base Envelope, raw []byte, grant Authority, op ContractOperation) (Envelope, error) {
 	if r.Store == nil {
 		return coreError(base, "invalid_input", "workflow action requires a registered workflow authority", "contact_operator", false), nil
@@ -1187,11 +1209,12 @@ func (r runtime) mutateWorkflowAction(ctx context.Context, base Envelope, raw []
 				return bindingErr
 			}
 			if binding != nil && binding.FailedAttemptID == "" {
-				// The verification fence rereads the escalated correction's
-				// attempt count, so an approval minted for one correction
-				// cannot authorize a different or consumed one.
-				expectedAttempts, attemptsOK := versions["correction_attempts"].(int64)
-				if !attemptsOK || binding.CorrectionAttempts != expectedAttempts || binding.FailedAttemptEpoch != 0 || !retryApprovalContractBound(versions, binding) {
+				// The verification fence compares the live escalated
+				// correction with the attempt count the approval binds, so an
+				// approval minted for one correction cannot authorize a
+				// different or consumed one.
+				approvedAttempts, attemptsOK := retryApprovalApprovedAttempts(r.Envelope.HostApproval)
+				if !attemptsOK || binding.CorrectionAttempts != approvedAttempts || binding.FailedAttemptEpoch != 0 || !retryApprovalContractBound(versions, binding) {
 					return newRuntimeFailure("approval_invalid", "worker correction changed after approval challenge", "request_approval", false)
 				}
 			} else {

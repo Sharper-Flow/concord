@@ -559,9 +559,10 @@ func validateCorrectionRequestPayload(ctx context.Context, q queryer, workID str
 	if context == nil {
 		return newFailure(KindInvalidOperation, subject, "request_correction requires a current non-ok verification verdict after worker delivery", false, "record the current verification verdict or reread the work pin")
 	}
-	if context.Escalated {
-		return newFailure(KindApprovalRequired, subject, "correction reached the three-attempt limit", false, "escalate the correction to the operator")
-	}
+	// The request path records every correction the verdict admits, including
+	// the escalated one: CD-0164 D4 arms the approval wall at dispatch when the
+	// request count passes the limit, so the wall stays operator approvable
+	// (CD-0148) instead of refusing the record a fresh attempt is bound to.
 	for _, predicate := range predicates {
 		if !contains(context.PredicateIDs, predicate) {
 			return newFailure(KindInvalidPayload, subject, "request_correction names a predicate without a current non-ok verdict", false, "name only affected approved predicates")

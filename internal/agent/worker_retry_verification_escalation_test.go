@@ -29,7 +29,7 @@ func TestEscalatedVerificationCorrectionRetryMintsBindableChallengeAndAdmitsOneA
 		t.Fatal(err)
 	}
 	env := mutationEnvelope(grant, scopeVersion)
-	retryAttemptID := "attempt:work-1:verification-4"
+	retryAttemptID := "attempt:work-1:verification-5"
 	pin, err := store.ReadWorkPin(context.Background(), s, "work-1")
 	if err != nil || pin.Correction == nil || !pin.Correction.Escalated || pin.Correction.Disposition != "verification" {
 		t.Fatalf("read escalated verification correction: pin=%#v err=%v", pin.Correction, err)
@@ -84,8 +84,12 @@ func TestEscalatedVerificationCorrectionRetryMintsBindableChallengeAndAdmitsOneA
 	assertBindingContains(t, details["versions"], "correction_attempts:4")
 	assertBindingContains(t, details["versions"], "contract:1")
 	assertBindingContains(t, details["versions"], "work:"+strconv.FormatInt(version, 10))
-	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM worker_attempts WHERE work_id='work-1'`); got != 3 {
-		t.Fatalf("challenge created %d worker attempts, want 3", got)
+	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM worker_attempts WHERE work_id='work-1'`); got != 4 {
+		t.Fatalf("challenge created %d worker attempts, want 4", got)
+	}
+	var seedEpoch int64
+	if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.attempt_epoch') FROM domain_events WHERE subject_id='work-1' AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker' ORDER BY seq DESC LIMIT 1`, store.WorkflowActionStarted).Scan(&seedEpoch); err != nil {
+		t.Fatal(err)
 	}
 
 	approvedInput := cloneWithApproval(t, input, challengeRef)
@@ -101,8 +105,8 @@ func TestEscalatedVerificationCorrectionRetryMintsBindableChallengeAndAdmitsOneA
 	if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.attempt_epoch') FROM domain_events WHERE kind=? AND subject_id='work-1' AND json_extract(payload,'$.action_id')='dispatch_worker' ORDER BY seq DESC LIMIT 1`, store.WorkflowActionStarted).Scan(&retryEpoch); err != nil {
 		t.Fatal(err)
 	}
-	if retryEpoch != 7 {
-		t.Fatalf("approved escalated verification retry epoch=%d, want 7", retryEpoch)
+	if retryEpoch != seedEpoch+1 {
+		t.Fatalf("approved escalated verification retry epoch=%d, want %d", retryEpoch, seedEpoch+1)
 	}
 	var dispatched int
 	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id='work-1' AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker' AND json_extract(payload,'$.idempotency_identity') LIKE '%verification-retry-1%'`, store.WorkflowActionStarted).Scan(&dispatched); err != nil {
@@ -126,7 +130,7 @@ func TestEscalatedVerificationCorrectionRetryRefusesStaleApproval(t *testing.T) 
 		t.Fatal(err)
 	}
 	env := mutationEnvelope(grant, scopeVersion)
-	retryAttemptID := "attempt:work-1:verification-4"
+	retryAttemptID := "attempt:work-1:verification-5"
 	pin, err := store.ReadWorkPin(context.Background(), s, "work-1")
 	if err != nil || pin.Correction == nil {
 		t.Fatalf("read escalated verification correction: pin=%#v err=%v", pin.Correction, err)
@@ -145,20 +149,21 @@ func TestEscalatedVerificationCorrectionRetryRefusesStaleApproval(t *testing.T) 
 		t.Fatalf("verification challenge = %+v", challenge.Error)
 	}
 
-	// A stale approval names an attempt count the wall never armed at. The
-	// signed bindings cannot match the challenge spec, so the mismatch refuses
-	// with no durable effect.
+	// A stale approval binds an attempt count the wall never armed at. The
+	// verification fence compares the live escalated correction against the
+	// approved bindings inside the transaction, so the mismatch refuses with
+	// approval_invalid and no durable effect, and the challenge stays usable.
 	bindingScope := map[string]any{"product_id": "product-1", "project_ids": []string{"project-1"}, "work_ids": []string{"work-1"}, "scope_version": scopeVersion}
 	staleVersions := map[string]any{"work": version, "contract": int64(1), "correction_attempts": int64(3)}
 	staleInput := cloneWithApproval(t, input, challengeRef)
 	staleRaw, _ := json.Marshal(staleInput)
 	env.HostApproval = signedHostApproval(privateKey, challengeRef, mutationDigest("concord_work_transition", "workflow_action", env, staleRaw), bindingScope, staleVersions, grant.SessionRef, grant.AgentRef, grant.Worktree, fixedTime(), nonceForChallenge(challengeRef))
 	stale := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: staleRaw}, env)
-	if stale.Outcome != OutcomeError || stale.Error == nil || !strings.Contains(stale.Error.Message, "scope or versions invalid") {
-		t.Fatalf("stale verification approval = %+v, want a stale-binding refusal", stale.Error)
+	if stale.Outcome != OutcomeError || stale.Error == nil || stale.Error.Kind != "approval_invalid" || !strings.Contains(stale.Error.Message, "worker correction changed") {
+		t.Fatalf("stale verification approval = %+v, want the verification fence's approval_invalid", stale.Error)
 	}
-	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM worker_attempts WHERE work_id='work-1'`); got != 3 {
-		t.Fatalf("stale approval created %d worker attempts, want 3", got)
+	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM worker_attempts WHERE work_id='work-1'`); got != 4 {
+		t.Fatalf("stale approval created %d worker attempts, want 4", got)
 	}
 
 	// Consume the challenge with the matching approval, then re-arm the wall
@@ -172,31 +177,35 @@ func TestEscalatedVerificationCorrectionRetryRefusesStaleApproval(t *testing.T) 
 	if approved.Outcome != OutcomeOK {
 		t.Fatalf("approved verification retry = %+v", approved.Error)
 	}
-	for cycle := int64(5); cycle <= 7; cycle++ {
+	var retryEpoch int64
+	if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.attempt_epoch') FROM domain_events WHERE subject_id='work-1' AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker' ORDER BY seq DESC LIMIT 1`, store.WorkflowActionStarted).Scan(&retryEpoch); err != nil {
+		t.Fatal(err)
+	}
+	for cycle := int64(6); cycle <= 8; cycle++ {
 		rearmAttemptID := "attempt:work-1:verification-" + strconv.FormatInt(cycle, 10)
-		recordVerificationFailure(t, s, service, grant, rearmAttemptID, 7)
+		recordVerificationFailure(t, s, service, grant, rearmAttemptID, retryEpoch)
 	}
 	nextPin, err := store.ReadWorkPin(context.Background(), s, "work-1")
-	if err != nil || nextPin.Correction == nil || nextPin.Correction.Disposition != "failed" || nextPin.Correction.FailedAttemptID != "attempt:work-1:verification-7" || !nextPin.Correction.Escalated {
+	if err != nil || nextPin.Correction == nil || nextPin.Correction.Disposition != "failed" || nextPin.Correction.FailedAttemptID != "attempt:work-1:verification-8" || !nextPin.Correction.Escalated {
 		t.Fatalf("reread re-armed correction after retry: pin=%#v err=%v", nextPin.Correction, err)
 	}
 	version = workVersion(t, s, "work-1")
-	nextAttemptID := "attempt:work-1:verification-8"
+	nextAttemptID := "attempt:work-1:verification-9"
 	reusedInput := map[string]any{
 		"work_id": "work-1", "expected_version": version, "action_id": "dispatch_worker",
 		"idempotency_key": "verification-retry-reuse", "fields": map[string]any{"attempt_id": nextAttemptID, "worker_packet": retryMutationPacket(t, "work-1", "execution", nextAttemptID, nextPin.Correction)},
 	}
 	withSpentApproval := cloneWithApproval(t, reusedInput, challengeRef)
 	reusedRaw, _ := json.Marshal(withSpentApproval)
-	currentScope := map[string]any{"product_id": "product-1", "project_ids": []string{"project-1"}, "work_ids": []string{"work-1"}, "failed_attempt_id": "attempt:work-1:verification-7", "scope_version": scopeVersion}
-	currentVersions := map[string]any{"work": version, "contract": int64(1), "failed_attempt_epoch": int64(7)}
+	currentScope := map[string]any{"product_id": "product-1", "project_ids": []string{"project-1"}, "work_ids": []string{"work-1"}, "failed_attempt_id": "attempt:work-1:verification-8", "scope_version": scopeVersion}
+	currentVersions := map[string]any{"work": version, "contract": int64(1), "failed_attempt_epoch": retryEpoch}
 	env.HostApproval = signedHostApproval(privateKey, challengeRef, mutationDigest("concord_work_transition", "workflow_action", env, reusedRaw), currentScope, currentVersions, grant.SessionRef, grant.AgentRef, grant.Worktree, fixedTime(), nonceForChallenge(challengeRef))
 	reusedResponse := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: reusedRaw}, env)
 	if reusedResponse.Outcome != OutcomeError || reusedResponse.Error == nil || !strings.Contains(reusedResponse.Error.Message, "approval challenge binding invalid") {
 		t.Fatalf("reused approval = %+v, want an approval-binding refusal", reusedResponse.Error)
 	}
-	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM worker_attempts WHERE work_id='work-1'`); got != 6 {
-		t.Fatalf("reused approval created %d worker attempts, want 6", got)
+	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM worker_attempts WHERE work_id='work-1'`); got != 7 {
+		t.Fatalf("reused approval created %d worker attempts, want 7", got)
 	}
 
 	// The wall re-arms: a fresh request mints a fresh challenge bound to the
@@ -213,7 +222,7 @@ func TestEscalatedVerificationCorrectionRetryRefusesStaleApproval(t *testing.T) 
 	}
 	freshApproved := cloneWithApproval(t, freshInput, freshRef)
 	freshApprovedRaw, _ := json.Marshal(freshApproved)
-	freshVersions := map[string]any{"work": version, "contract": int64(1), "failed_attempt_epoch": int64(7)}
+	freshVersions := map[string]any{"work": version, "contract": int64(1), "failed_attempt_epoch": retryEpoch}
 	env.HostApproval = signedHostApproval(privateKey, freshRef, mutationDigest("concord_work_transition", "workflow_action", env, freshApprovedRaw), currentScope, freshVersions, grant.SessionRef, grant.AgentRef, grant.Worktree, fixedTime(), nonceForChallenge(freshRef))
 	valid := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: freshApprovedRaw}, env)
 	if valid.Outcome != OutcomeOK {
@@ -221,11 +230,12 @@ func TestEscalatedVerificationCorrectionRetryRefusesStaleApproval(t *testing.T) 
 	}
 }
 
-// seedEscalatedVerificationWorkerMutation drives three full verification
-// correction cycles through the boundary and then appends a fourth recorded
-// request_correction. Three requests stay below the wall (CD-0164 D4: the
-// dispatch comparator is strict), and the fourth record arms it, so the
-// fourth dispatch faces the escalated wall with a durable correction to bind.
+// seedEscalatedVerificationWorkerMutation drives four full verification
+// correction cycles through the boundary, every verdict and every correction
+// request recording through its declared action. Three requests stay below
+// the wall (CD-0164 D4: the dispatch comparator is strict), and the fourth
+// recorded request arms it, so the fourth dispatch faces the escalated wall
+// with a durable correction to bind.
 func seedEscalatedVerificationWorkerMutation(t *testing.T, s *store.Store, service *Service, grant Authority) (int64, string) {
 	t.Helper()
 	if got := seedAgentWorkflow(t, s, grant); got != 4 {
@@ -262,7 +272,7 @@ func seedEscalatedVerificationWorkerMutation(t *testing.T, s *store.Store, servi
 	grant.Worktree = path
 	env := mutationEnvelope(grant, scopeVersion)
 	version := int64(4)
-	for cycle := int64(1); cycle <= 3; cycle++ {
+	for cycle := int64(1); cycle <= 4; cycle++ {
 		attemptID := "attempt:work-1:verification-" + strconv.FormatInt(cycle, 10)
 		version = workVersion(t, s, "work-1")
 		start := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: json.RawMessage(`{"work_id":"work-1","expected_version":` + strconv.FormatInt(version, 10) + `,"action_id":"start_execution","idempotency_key":"verification-start-` + strconv.FormatInt(cycle, 10) + `"}`)}, env)
@@ -323,29 +333,9 @@ func seedEscalatedVerificationWorkerMutation(t *testing.T, s *store.Store, servi
 		if err != nil {
 			t.Fatal(err)
 		}
-		if pin.Correction == nil || pin.Correction.Disposition != "verification" || pin.Correction.AttemptCount != cycle || pin.Correction.Escalated {
+		if pin.Correction == nil || pin.Correction.Disposition != "verification" || pin.Correction.AttemptCount != cycle || pin.Correction.Escalated != (cycle > 3) {
 			t.Fatalf("verification correction after cycle %d = %#v", cycle, pin.Correction)
 		}
-	}
-	// The boundary's request gate refuses a fourth request once three sit in
-	// its counting window, so no live route records one. The log is the
-	// authority for a recorded request, and production held exactly such a
-	// fourth record: append it the way the log kept it.
-	var recorded []byte
-	if err := s.DatabaseForTesting().QueryRow(`SELECT payload FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='request_correction' ORDER BY seq DESC LIMIT 1`, string(store.SubjectWorkItem), "work-1", store.WorkflowActionCompleted).Scan(&recorded); err != nil {
-		t.Fatal(err)
-	}
-	var fields map[string]any
-	if err := json.Unmarshal(recorded, &fields); err != nil {
-		t.Fatal(err)
-	}
-	fields["idempotency_identity"] = "verification-correction-request-4"
-	updated, marshalErr := json.Marshal(fields)
-	if marshalErr != nil {
-		t.Fatal(marshalErr)
-	}
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES(?,?,?,?,?,?,?,?)`, "verification-correction-request-4", store.WorkflowActionCompleted, store.SubjectWorkItem, "work-1", grant.PrincipalRef, fixedTime().Format(time.RFC3339Nano), 1, updated); err != nil {
-		t.Fatal(err)
 	}
 	pin, err := store.ReadWorkPin(context.Background(), s, "work-1")
 	if err != nil {

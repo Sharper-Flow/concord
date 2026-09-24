@@ -1090,7 +1090,9 @@ type sessionClaimLandedPayload struct {
 // WorktreeClaimLandingRequest records the verified landing of a session in a
 // claimed worktree. The adapter-only claim-landing verb is the
 // caller: the host proves the landing by readback, and the core refuses to
-// record anything the projection does not already hold true.
+// record anything its projection contradicts — a destination another session
+// occupies, or an unoccupied destination while the session holds the work
+// item's other row.
 type WorktreeClaimLandingRequest struct {
 	WorkID          string
 	SessionRef      string
@@ -1112,11 +1114,13 @@ type WorktreeClaimLandingResult struct {
 
 // RecordWorktreeClaimLanding transfers the calling session's occupancy onto
 // the claimed worktree in one transaction: the destination row must be active
-// and occupied by this session, the work item's other active rows the session
+// and occupied by this session, or record no occupant — the shape a resumed
+// session lands in, because the read that derives its worktree records
+// nothing (CD-0104 D1) — the work item's other active rows the session
 // occupies clear, and one durable event names the session, work item, source
-// paths, and landed path. A destination that is absent, inactive, or occupied
-// by another session refuses before any effect, and no other work item's row
-// is ever cleared. The same landing replays idempotently.
+// paths, and landed path. A destination that is absent, inactive, or
+// occupied by another session refuses before any effect, and no other work
+// item's row is ever cleared. The same landing replays idempotently.
 func (s *Store) RecordWorktreeClaimLanding(ctx context.Context, req WorktreeClaimLandingRequest) (WorktreeClaimLandingResult, error) {
 	if s == nil || s.db == nil {
 		return WorktreeClaimLandingResult{}, newFailure(KindUnavailable, "claim-landing", "store is not open", false, "open the authority database")
@@ -1156,13 +1160,22 @@ func recordWorktreeClaimLandingTx(ctx context.Context, tx *sql.Tx, req WorktreeC
 	if err != nil {
 		return out, wrapFailure(KindUnavailable, "claim-landing", "cannot read the claimed worktree", true, "retry once the database is readable", err)
 	}
-	if occupant != req.SessionRef {
+	if occupant != "" && occupant != req.SessionRef {
 		return out, newFailure(KindWorktreeOwnershipConflict, "claim-landing", "the claimed worktree is not recorded as occupied by this session", false, "replay worktree_claim so the claim carries this session's occupancy")
 	}
 	out.ProjectID = projectID
 	sources, err := sessionOccupiedSourcesTx(ctx, tx, req.WorkID, req.SessionRef, projectID, out.LandedDirectory)
 	if err != nil {
 		return out, err
+	}
+	// A resumed session claims no worktree: the read that derives its active
+	// worktree records nothing (CD-0104 D1), so its landing is the one shape
+	// that reaches an unoccupied destination row. It is admissible only when
+	// the session holds no other active row of this work item: with a held
+	// row the landing would be a transfer into a row no claim carried, and
+	// the held row's recorded occupancy would strand.
+	if occupant == "" && len(sources) > 0 {
+		return out, newFailure(KindWorktreeOwnershipConflict, "claim-landing", "the session holds another active worktree of this work item, so an unoccupied destination admits no landing", false, "land in the worktree the session occupies, or vacate it first")
 	}
 	// Replay is read from state, not from a derived event id: the claimed
 	// path per Project is deterministic, so an id naming the path would own
@@ -1172,7 +1185,7 @@ func recordWorktreeClaimLandingTx(ctx context.Context, tx *sql.Tx, req WorktreeC
 	// report. When no other occupied row of this work item remains, the
 	// projection already holds the landing and the same landing replays
 	// idempotently with no event.
-	if len(sources) == 0 {
+	if occupant != "" && len(sources) == 0 {
 		out.AlreadyRecorded = true
 		return out, nil
 	}
@@ -1236,8 +1249,11 @@ func sessionOccupiedSourcesTx(ctx context.Context, tx *sql.Tx, workID, sessionRe
 }
 
 // foldSessionClaimLanded re-applies the verified transfer during rebuild: the
-// session's occupancy on the work item's other active rows clears, and the
-// landed row stays held.
+// landed row holds the session — a claim-carried landing finds it held
+// already, and a resumed landing records the session its host move verified —
+// and the session's occupancy on the work item's other active rows clears.
+// The guard keeps the fold total by writing only the states the recording
+// transaction admits.
 func foldSessionClaimLanded(ctx context.Context, tx *sql.Tx, event Event) error {
 	if err := checkSubject(event, SubjectWorkItem); err != nil {
 		return err
@@ -1248,6 +1264,9 @@ func foldSessionClaimLanded(ctx context.Context, tx *sql.Tx, event Event) error 
 	}
 	if p.WorkID == "" || p.WorkID != event.SubjectID || p.ProjectID == "" || p.SessionRef == "" || p.LandedDirectory == "" {
 		return newFailure(KindInvalidPayload, "fold_event", "session claim landed payload is missing required fields", false, "supply work, project, session, and landed directory")
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE worktree_entries SET occupant_session_ref=? WHERE state='active' AND set_id=? AND project_id=? AND path=? AND (occupant_session_ref='' OR occupant_session_ref=?)`, p.SessionRef, WorktreeSetID(p.WorkID), p.ProjectID, filepath.Clean(p.LandedDirectory), p.SessionRef); err != nil {
+		return err
 	}
 	_, err := tx.ExecContext(ctx, `UPDATE worktree_entries SET occupant_session_ref='' WHERE state='active' AND occupant_session_ref=? AND set_id=? AND NOT (project_id=? AND path=?)`, p.SessionRef, WorktreeSetID(p.WorkID), p.ProjectID, filepath.Clean(p.LandedDirectory))
 	return err

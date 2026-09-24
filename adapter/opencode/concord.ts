@@ -874,6 +874,11 @@ async function writeSessionGoalTitle(sessionID: string, title: string, context: 
 //      move — the host accepted the retarget but the tool context has not
 //      landed — refuses and leaves the claimed worktree unarmed, so a replay
 //      after the context lands may succeed.
+//   5. A resume records the verified landing through the core's claim-landing
+//      verb. Its resume read records nothing (CD-0104 D1), so the store holds
+//      no occupancy for the session until the record lands, and the removal
+//      gates (worktree_audit_reclaim, worktree_reclaim) hold the worktree for
+//      the session that runs in it.
 //
 // No step records intent ahead of its effect, so there is no partial state.
 // The session's worktree is the directory it runs in, and the host owns that
@@ -994,6 +999,24 @@ async function executeWorkStart(args: WorkStartArgs, context: ToolContext, warni
     if (!samePath(context.directory, target.worktree.path)) {
       recordUnlandedClaimedWorktree(context.sessionID, target.worktree.path)
       throw new AdapterFailure("session_directory_mismatch", "move_context_not_landed", `the host reports the session in the claimed worktree ${JSON.stringify(target.worktree.path)}, but this session's tool context still resolves in ${JSON.stringify(context.directory)}; the move has not landed, so Concord reports no success and arms no claimed worktree. Replay work_start once the session's tool context runs in the claimed worktree.`, "none", "retry_same_request")
+    }
+    // A resumed session claims no worktree: the read that derives its active
+    // worktree records nothing (CD-0104 D1), so the store holds no occupancy
+    // for it. Once both readbacks name the worktree, the landing records
+    // itself through the same claim-landing owner the verified claim route
+    // uses, so worktree_audit_reclaim and worktree_reclaim hold the worktree
+    // for the session that runs in it. The record replays idempotently.
+    // Occupancy never refuses the move (CD-0104 D5, CD-0119): the session has
+    // landed, so a refused record is a warning and the start still succeeds.
+    // A worktree another live session occupies is already held by that
+    // recorded occupant.
+    if (resume) {
+      try {
+        await recordClaimLanding(target.work_id, context.sessionID, target.worktree.path, context.abort)
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        warnings.push(`Concord did not record this session as the occupant of ${target.worktree.path}: ${message}. The worktree removal gates may not hold it for this session; replay work_start to retry the record.`)
+      }
     }
     // The tool context landed in the claimed worktree, so this session's
     // active claimed worktree is armed for the dispatch check.

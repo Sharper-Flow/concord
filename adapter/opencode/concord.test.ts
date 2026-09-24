@@ -1646,6 +1646,7 @@ const resumeRunner = (calls: RetargetCall[], overrides: Record<string, () => { e
     if (command === "project-resolve") return { exitCode: 0, stdout: JSON.stringify(contextResponse()), stderr: "" }
     if (command === "work-resume") return { exitCode: 0, stdout: JSON.stringify(resumeSuccess()), stderr: "" }
     if (command === "session-prepare") return { exitCode: 0, stdout: JSON.stringify(preparedContract()), stderr: "" }
+    if (command === "claim-landing") return { exitCode: 0, stdout: JSON.stringify({ work_id: (JSON.parse(input) as { work_id: string }).work_id, already_recorded: false }) + "\n", stderr: "" }
     throw new Error(`unexpected command ${argv.join(" ")}`)
   },
 })
@@ -1657,8 +1658,9 @@ test("work start resume derives the entry by work_id and moves the session", asy
   const result: any = await rawHostResult(adapter.work_start.execute({ work_id: "work-1" }, landedContextFor()))
   expect(await hostControlPlane().taskScope("session-1")).toBe("managed")
   expect(result).toMatchObject({ outcome: "ok", product_id: "product-1", project_id: "project-1", work_id: "work-1", worktree_path: WORKTREE, agent: "agent-1", session_id: "session-1" })
-  // An active resume is read-only, so the child sequence has no journal step.
-  expect(calls.map(({ argv }) => argv[1])).toEqual(["project-resolve", "work-resume", "session-prepare"])
+  // The active resume read stays journal-free, and the verified landing
+  // records itself afterwards through the claim-landing verb.
+  expect(calls.map(({ argv }) => argv[1])).toEqual(["project-resolve", "work-resume", "session-prepare", "claim-landing"])
   expect(JSON.parse(calls[1].input)).toEqual({ product_id: "product-1", project_id: "project-1", work_id: "work-1", session_ref: "session-1" })
   // A resume carries no task; session-prepare still verifies the active
   // agent and the worktree.
@@ -1688,6 +1690,45 @@ test("work start resume forwards the typed core refusal and reads the landing ba
   expect(mismatch.error.kind).toBe("session_directory_mismatch")
   expect(mismatch.work_id).toBe("work-1")
   expect(mismatch.worktree_path).toBe(WORKTREE)
+})
+
+// The resumed session records itself as the worktree's occupant once its move
+// reads back: the read that derived the worktree records nothing (CD-0104 D1),
+// so the landing record is what makes worktree_audit_reclaim and
+// worktree_reclaim hold the worktree for the session that runs in it.
+test("work start resume records the verified landing naming the session, work item, and claimed path", async () => {
+  bindRetargetRoute()
+  const calls: RetargetCall[] = []
+  adapter.configureConcordAdapter({ runner: resumeRunner(calls) })
+  const result: any = await rawHostResult(adapter.work_start.execute({ work_id: "work-1" }, landedContextFor()))
+  expect(result.outcome).toBe("ok")
+  const landings = calls.filter(({ argv }) => argv[1] === "claim-landing")
+  expect(landings).toHaveLength(1)
+  expect(JSON.parse(landings[0].input)).toEqual({ work_id: "work-1", session_ref: "session-1", landed_directory: WORKTREE })
+
+  // A move whose readback names another directory records no landing.
+  bindRetargetRoute({ landedDirectory: "/somewhere-else" })
+  const mismatchCalls: RetargetCall[] = []
+  adapter.configureConcordAdapter({ runner: resumeRunner(mismatchCalls) })
+  const mismatch: any = await rawHostResult(adapter.work_start.execute({ work_id: "work-1" }, contextFor()))
+  expect(mismatch.outcome).toBe("error")
+  expect(mismatch.error.kind).toBe("session_directory_mismatch")
+  expect(mismatchCalls.some(({ argv }) => argv[1] === "claim-landing")).toBe(false)
+})
+
+// Occupancy never refuses the move (CD-0104 D5, CD-0119): a landing record the
+// core refuses, such as a worktree another live session already occupies, is
+// a warning, and the resumed start still succeeds and arms the worktree.
+test("work start resume succeeds with a warning when the core refuses the landing record", async () => {
+  bindRetargetRoute()
+  const calls: RetargetCall[] = []
+  adapter.configureConcordAdapter({ runner: resumeRunner(calls, {
+    "claim-landing": () => ({ exitCode: 1, stdout: "", stderr: "concord claim-landing: worktree_ownership_conflict: the claimed worktree is not recorded as occupied by this session" }),
+  }) })
+  const raw: any = await adapter.work_start.execute({ work_id: "work-1" }, landedContextFor())
+  expect(envelopeLine(raw.output)).toMatchObject({ outcome: "ok", work_id: "work-1", worktree_path: WORKTREE })
+  expect(raw.output).toContain(`Concord did not record this session as the occupant of ${WORKTREE}`)
+  expect(raw.output).toContain("replay work_start")
 })
 
 test("work start resume rejects mixed and malformed argument shapes", async () => {

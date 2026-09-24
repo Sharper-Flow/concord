@@ -197,14 +197,14 @@ func TestAcceptWorkerResultSucceedsWhenLaneIsExecutingActor(t *testing.T) {
 	}
 }
 
-// The owner that accepted a lane's result drives the step the acceptance
-// advanced to. An architecture spike's POC lane hands decision_record back to
-// the owner, and record_decision is a checkpoint-event action, so the owner
-// must be able to record it once the lane attempt is disposed.
-func TestOwnerRecordsDecisionAfterAcceptingPOCLane(t *testing.T) {
-	t.Parallel()
+// seedAcceptedPOCLane stages the production POC topology through the owner's
+// acceptance: architecture_spike v7, the owner drives poc_optional, a lane is
+// dispatched as the executing actor, and the owner accepts its result. The
+// workflow lands on decision_record with the lane still pinned as the
+// executing actor and the disposed attempt behind it.
+func seedAcceptedPOCLane(t *testing.T, workID string) (*Store, WorkflowActor, string, string) {
+	t.Helper()
 	ctx := context.Background()
-	workID := "authority-poc-decision"
 	s := openTemp(t)
 	seedWork(t, s, workID)
 	seedWorkflowLaw(t, s)
@@ -252,6 +252,17 @@ func TestOwnerRecordsDecisionAfterAcceptingPOCLane(t *testing.T) {
 	if got := currentStep(t, s, workID); got != "decision_record" {
 		t.Fatalf("accepted POC lane result advanced to %q, want decision_record", got)
 	}
+	return s, owner, ownerRef, laneRef
+}
+
+// The owner that accepted a lane's result drives the step the acceptance
+// advanced to. An architecture spike's POC lane hands decision_record back to
+// the owner, and record_decision is a checkpoint-event action, so the owner
+// must be able to record it once the lane attempt is disposed.
+func TestOwnerRecordsDecisionAfterAcceptingPOCLane(t *testing.T) {
+	t.Parallel()
+	workID := "authority-poc-decision"
+	s, owner, _, _ := seedAcceptedPOCLane(t, workID)
 	decision := mustJSONValue(map[string]any{
 		"question": "Which route?", "options_considered": []string{"route-a", "route-b"}, "decision": "accepted_decision",
 		"rationale": "The POC proved route-a.", "consequences": []string{"route-a ships"}, "inputs": []string{"poc-report"}, "poc_findings": "route-a passed every check",
@@ -261,6 +272,67 @@ func TestOwnerRecordsDecisionAfterAcceptingPOCLane(t *testing.T) {
 	}
 	if got := currentStep(t, s, workID); got != "review" {
 		t.Fatalf("recorded decision advanced to %q, want review", got)
+	}
+}
+
+// The disposal that hands the owner the writing authority is the same event
+// that ends the lane's claim to it. After the owner accepts, the disposed lane
+// may not append checkpoint events, and the refusal mutates nothing.
+func TestDisposedLaneCheckpointRefused(t *testing.T) {
+	t.Parallel()
+	workID := "authority-poc-disposed-lane"
+	s, _, _, laneRef := seedAcceptedPOCLane(t, workID)
+	before := readWorkVersion(t, s, workID)
+	beforeCheckpoints := countWorkflowCheckpoints(t, s, workID)
+	disposed := workflowEventWithActor("poc-disposed-checkpoint", WorkflowActionCheckpointed, workID, laneRef, map[string]any{
+		"work_id": workID, "expected_version": before, "resulting_version": before + 1,
+		"step_id": "decision_record", "step_kind": string(WorkflowStepHumanCheckpoint), "attempt_epoch": 1,
+		"checkpoint_payload": map[string]any{"action_id": "record_decision", "question": "Which route?", "options_considered": []string{"route-a", "route-b"}, "decision": "accepted_decision", "rationale": "The POC proved route-a.", "consequences": []string{"route-a ships"}, "inputs": []string{"poc-report"}, "poc_findings": "route-a passed every check"},
+		"resume_cursor":      "cursor:disposed", "actor_ref": laneRef, "request_id": "request:poc-disposed-checkpoint",
+		"checkpoint_id": "checkpoint:poc-disposed", "accepted_inputs_digest": "sha256:" + strings.Repeat("c", 64), "idempotency_identity": "poc-disposed-checkpoint",
+	})
+	err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{disposed}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): before}})
+	var failure *Failure
+	if !errors.As(err, &failure) || failure.Kind != KindUnauthorized {
+		t.Fatalf("disposed lane checkpoint failure=%v, want %s", err, KindUnauthorized)
+	}
+	if got := readWorkVersion(t, s, workID); got != before {
+		t.Fatalf("disposed lane checkpoint version=%d, want %d", got, before)
+	}
+	if got := countWorkflowCheckpoints(t, s, workID); got != beforeCheckpoints {
+		t.Fatalf("disposed lane checkpoint rows=%d, want %d", got, beforeCheckpoints)
+	}
+}
+
+// Disposal moves the writing authority without moving the execution pin the
+// independence readers own: the lane stays the executing actor after the
+// owner's acceptance, and the verdict distinctness reader still refuses the
+// executor that tries to evaluate its own delivery.
+func TestIndependenceUnchangedAfterAccept(t *testing.T) {
+	t.Parallel()
+	workID := "authority-poc-independence"
+	s, _, _, laneRef := seedAcceptedPOCLane(t, workID)
+	var executing string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT execution_actor_ref FROM workflow_instances WHERE work_id=?`, workID).Scan(&executing); err != nil {
+		t.Fatal(err)
+	}
+	if executing != laneRef {
+		t.Fatalf("acceptance moved execution_actor_ref to %q, want %q", executing, laneRef)
+	}
+	before := readWorkVersion(t, s, workID)
+	verdict := workflowEventWithActor("poc-disposed-verdict", WorkflowVerdictRecorded, workID, laneRef, map[string]any{
+		"work_id": workID, "expected_version": before, "resulting_version": before + 1,
+		"contract_version": 1, "predicate_id": "predicate:poc", "verdict_kind": "ok",
+		"verdict_actor_ref": laneRef, "evaluation_evidence": []string{"evidence:poc"},
+		"incomparable_with_approved": false,
+	})
+	err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{verdict}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): before}})
+	var failure *Failure
+	if !errors.As(err, &failure) || failure.Kind != KindUnauthorized {
+		t.Fatalf("disposed lane verdict failure=%v, want %s", err, KindUnauthorized)
+	}
+	if got := readWorkVersion(t, s, workID); got != before {
+		t.Fatalf("disposed lane verdict version=%d, want %d", got, before)
 	}
 }
 
@@ -530,6 +602,115 @@ func TestWorkflowActionFailedV2BindsCurrentExecutorAttempt(t *testing.T) {
 // failing with stale_law_revision or domain_overlap could not be recorded.
 // Drive the real fold rather than the closure predicate, so the assertion binds
 // to the layer where the defect bit.
+// seedDisposedFailedLane stages the failure topology: the fixture workflow at
+// execution with a lane dispatched as the executing actor, the lane's attempt
+// failed, and the owner's record_worker_failure disposing of it. The workflow
+// stays on execution with the lane still pinned as the executing actor.
+func seedDisposedFailedLane(t *testing.T, workID string) (*Store, WorkflowActor, string, string) {
+	t.Helper()
+	ctx := context.Background()
+	s := openTemp(t)
+	seedWork(t, s, workID)
+	seedWorkflowLaw(t, s)
+	workerActor := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/worker", SessionRef: "session/" + workID, ActorClass: ActorAgent}
+	owner := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/owner", SessionRef: "session/" + workID, ActorClass: ActorAgent}
+	workerRef, err := WorkflowActorRef(workerActor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ownerRef, err := WorkflowActorRef(owner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lane := BuiltinLaneDefinitions()[0]
+	attemptID := "attempt:" + workID
+	laneActor := WorkflowActor{PrincipalRef: "principal:operator", ClientRef: "client:concord", AgentRef: "agent/lane:" + lane.ID, SessionRef: "session/" + attemptID, ActorClass: ActorAgent}
+	laneRef, err := WorkflowActorRef(laneActor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest := workflowFixtureDefinition(t, 2).Digest
+	setup := []Event{
+		workflowEvent("worker-actor-"+workID, WorkflowActorRecorded, workID, map[string]any{"work_id": workID, "expected_version": 2, "resulting_version": 3, "actor_ref": workerRef, "principal_ref": workerActor.PrincipalRef, "client_ref": workerActor.ClientRef, "agent_ref": workerActor.AgentRef, "session_ref": workerActor.SessionRef, "actor_class": "agent"}),
+		workflowEvent("owner-actor-"+workID, WorkflowActorRecorded, workID, map[string]any{"work_id": workID, "expected_version": 3, "resulting_version": 4, "actor_ref": ownerRef, "principal_ref": owner.PrincipalRef, "client_ref": owner.ClientRef, "agent_ref": owner.AgentRef, "session_ref": owner.SessionRef, "actor_class": "agent"}),
+		workflowEvent("lane-actor-"+workID, WorkflowActorRecorded, workID, map[string]any{"work_id": workID, "expected_version": 4, "resulting_version": 5, "actor_ref": laneRef, "principal_ref": laneActor.PrincipalRef, "client_ref": laneActor.ClientRef, "agent_ref": laneActor.AgentRef, "session_ref": laneActor.SessionRef, "actor_class": "agent"}),
+		workflowEvent("definition-"+workID, WorkflowDefinitionSelected, workID, map[string]any{"work_id": workID, "expected_version": 5, "resulting_version": 6, "ref": workflowFixtureRef, "version": 2, "digest": digest, "work_kind": workflowFixtureWorkKind}),
+		workflowActionCompletedFixture("proposal-"+workID, workID, workerRef, 6, "proposal", "record_proposal"),
+		workflowActionCompletedFixture("discovery-"+workID, workID, workerRef, 7, "discovery", "record_discovery"),
+		workflowActionCompletedFixture("design-"+workID, workID, workerRef, 8, "design", "record_design"),
+		workflowActionCompletedFixture("planning-"+workID, workID, workerRef, 9, "planning", "approve_contract"),
+		workflowEventWithActor("start-"+workID, WorkflowActionStarted, workID, laneRef, map[string]any{"work_id": workID, "expected_version": 10, "resulting_version": 11, "step_id": "execution", "action_id": "start_execution", "attempt_epoch": 1, "accepted_inputs_digest": "sha256:" + strings.Repeat("a", 64), "idempotency_identity": "start:" + workID, "actor_ref": laneRef, "execution_model": preferredModelForLane(lane)}),
+	}
+	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: setup, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 2}}); err != nil {
+		t.Fatal(err)
+	}
+	dispatch := Event{EventID: "dispatch-" + workID, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:host", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: 4, Payload: mustJSONValue(map[string]any{
+		"attempt_id": attemptID, "lane_id": lane.ID, "lane_version": lane.Version, "lane_digest": lane.Digest,
+		"capability_class": lane.CapabilityClass, "packet_schema_version": WorkerPacketSchemaVersion, "report_schema_version": WorkerReportSchemaVersion,
+		"packet_digest": "sha256:" + strings.Repeat("b", 64), "readback_model": preferredModelForLane(lane), "lane_actor_ref": laneRef,
+	})}
+	if err := ApplyOperation(ctx, s, Operation{Events: []Event{dispatch}}); err != nil {
+		t.Fatalf("dispatching the lane attempt: %v", err)
+	}
+	failWorkerAttempt(t, s, workID, attemptID)
+	applyRecordWorkerFailureForTest(t, s, workID, owner, attemptID, 1, 11, "failure:"+workID)
+	return s, owner, ownerRef, laneRef
+}
+
+// The same handoff governs action failures: after the owner disposes of a
+// failed lane attempt with record_worker_failure, the owner may fail the
+// action and the disposed lane may not. The next dispatch re-pins a lane and
+// the owner's authority ends.
+func TestActionFailedSameAuthority(t *testing.T) {
+	t.Parallel()
+	workID := "authority-failed-handoff"
+	s, _, ownerRef, laneRef := seedDisposedFailedLane(t, workID)
+	before := readWorkVersion(t, s, workID)
+	failureEvent := func(id, actor string, expected int64) Event {
+		return workflowEventWithActor(id, WorkflowActionFailed, workID, actor, map[string]any{
+			"work_id": workID, "expected_version": expected, "resulting_version": expected + 1,
+			"step_id": "execution", "attempt_epoch": 1, "failure_kind": string(KindTimeout), "recoverable": true,
+			"actor_ref": actor,
+		})
+	}
+
+	ownerFailure := failureEvent("failed-owner-handoff", ownerRef, before)
+	if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{ownerFailure}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): before}}); err != nil {
+		t.Fatalf("owner action failure after disposal refused: %v", err)
+	}
+	if got := instanceState(t, s, workID); got != "running" {
+		t.Fatalf("owner action failure state=%q, want running", got)
+	}
+
+	disposed := readWorkVersion(t, s, workID)
+	laneFailure := failureEvent("failed-disposed-lane", laneRef, disposed)
+	err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{laneFailure}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): disposed}})
+	var failure *Failure
+	if !errors.As(err, &failure) || failure.Kind != KindUnauthorized {
+		t.Fatalf("disposed lane action failure=%v, want %s", err, KindUnauthorized)
+	}
+	if got := readWorkVersion(t, s, workID); got != disposed {
+		t.Fatalf("disposed lane action failure version=%d, want %d", got, disposed)
+	}
+
+	nextDispatch := Event{EventID: "dispatch-2-" + workID, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:host", OccurredAt: time.Unix(5, 0).UTC(), PayloadVersion: 4, Payload: mustJSONValue(map[string]any{
+		"attempt_id": "attempt:2:" + workID, "lane_id": BuiltinLaneDefinitions()[0].ID, "lane_version": BuiltinLaneDefinitions()[0].Version, "lane_digest": BuiltinLaneDefinitions()[0].Digest,
+		"capability_class": BuiltinLaneDefinitions()[0].CapabilityClass, "packet_schema_version": WorkerPacketSchemaVersion, "report_schema_version": WorkerReportSchemaVersion,
+		"packet_digest": "sha256:" + strings.Repeat("d", 64), "readback_model": preferredModelForLane(BuiltinLaneDefinitions()[0]), "lane_actor_ref": laneRef,
+	})}
+	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{nextDispatch}}); err != nil {
+		t.Fatalf("next dispatch: %v", err)
+	}
+	lateOwnerFailure := failureEvent("failed-owner-late", ownerRef, disposed)
+	err = applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{lateOwnerFailure}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): disposed}})
+	if !errors.As(err, &failure) || failure.Kind != KindUnauthorized {
+		t.Fatalf("owner action failure after next dispatch=%v, want %s", err, KindUnauthorized)
+	}
+	if got := readWorkVersion(t, s, workID); got != disposed {
+		t.Fatalf("owner action failure after next dispatch version=%d, want %d", got, disposed)
+	}
+}
+
 func TestWorkflowActionFailedAcceptsLawFailureKinds(t *testing.T) {
 	t.Parallel()
 	for _, failureKind := range []FailureKind{KindStaleLawRevision, KindDomainOverlap} {
